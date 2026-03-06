@@ -32,6 +32,11 @@ api.use("/api-docs.json", express.static("./openapi/openapi-document.json"));
 // Logger
 api.use(logger);
 
+// Healthcheck
+api.get("/", (_req, res) => {
+	res.send("ok");
+});
+
 // Routes
 api.use("/expenses", expensesRouter);
 
