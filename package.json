@@ -1,7 +1,7 @@
 {
   "name": "monoweb",
   "private": true,
-  "workspaces": ["apps/*"],
+  "workspaces": ["apps/*", "packages/*"],
   "type": "module",
   "scripts": {
     "dev": "turbo -F @monoweb/homepage -F @monoweb/dashboard dev",

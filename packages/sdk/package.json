@@ -1,0 +1,24 @@
+{
+  "name": "@monoweb/sdk",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "generate": "openapi-typescript openapi.json -o generated/api.d.ts",
+    "build": "tsc -b",
+    "lint": "oxlint"
+  },
+  "dependencies": {
+    "openapi-fetch": "^0.13",
+    "openapi-react-query": "^0.3"
+  },
+  "peerDependencies": {
+    "@tanstack/react-query": "^5"
+  },
+  "devDependencies": {
+    "openapi-typescript": "^7",
+    "typescript": "^5"
+  }
+}
