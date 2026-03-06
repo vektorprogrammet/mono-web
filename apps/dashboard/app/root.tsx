@@ -9,6 +9,7 @@ import {
   Scripts,
   ScrollRestoration,
 } from "react-router";
+import { QueryProvider } from "@monoweb/sdk";
 
 export const meta: MetaFunction = () => [
   {
@@ -30,7 +31,7 @@ export function Layout({ children }: { children: ReactNode }) {
         <Links />
       </head>
       <body>
-        {children}
+        <QueryProvider>{children}</QueryProvider>
         <ScrollRestoration />
         <Scripts />
       </body>

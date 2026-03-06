@@ -15,9 +15,11 @@
     "openapi-react-query": "^0.3"
   },
   "peerDependencies": {
-    "@tanstack/react-query": "^5"
+    "@tanstack/react-query": "^5",
+    "react": "^18 || ^19"
   },
   "devDependencies": {
+    "@types/react": "^18 || ^19",
     "openapi-typescript": "^7",
     "typescript": "^5"
   }

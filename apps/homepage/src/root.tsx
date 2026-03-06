@@ -3,6 +3,7 @@ import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
 import "~/index.css";
 import icon from "/images/vektor-logo-circle.svg";
 import logo from "/images/vektor-logo.svg";
+import { QueryProvider } from "@monoweb/sdk";
 
 export function Layout({
   children,
@@ -37,7 +38,7 @@ export function Layout({
         <Links />
       </head>
       <body className="bg-vektor-bg">
-        {children}
+        <QueryProvider>{children}</QueryProvider>
         <ScrollRestoration />
         <Scripts />
       </body>
