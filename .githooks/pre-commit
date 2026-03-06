@@ -80,6 +80,17 @@ if [ -n "$CMD_FORMAT" ]; then
   git add -u
 fi
 
+# --- Sync pnpm lockfiles for Railway (if package.json changed) ---
+if git diff --cached --name-only | grep -q 'package.json'; then
+  for app in apps/homepage apps/dashboard apps/api; do
+    if [ -f "$app/pnpm-lock.yaml" ]; then
+      echo "→ Syncing $app/pnpm-lock.yaml"
+      (cd "$app" && COREPACK_ENABLE_PROJECT_SPEC=0 pnpm install --no-frozen-lockfile --silent 2>/dev/null)
+      git add "$app/pnpm-lock.yaml"
+    fi
+  done
+fi
+
 # --- Code quality: lint + build (all branches) ---
 if [ -n "$CMD_QUALITY" ]; then
   echo "→ Quality: $CMD_QUALITY"
