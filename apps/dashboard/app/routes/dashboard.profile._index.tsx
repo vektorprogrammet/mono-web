@@ -32,6 +32,7 @@ export async function loader({ request }: Route.LoaderArgs) {
       lastName: data.lastName,
       email: data.email,
       phone: data.phone ?? fallback.phone,
+      profileImage: data.profilePhoto ?? fallback.profileImage,
     },
   };
 }

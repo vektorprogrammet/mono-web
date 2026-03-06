@@ -19934,6 +19934,12 @@
           },
           "role": {
             "type": "string"
+          },
+          "profilePhoto": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
         "required": [
@@ -20030,6 +20036,12 @@
           },
           "role": {
             "type": "string"
+          },
+          "profilePhoto": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
         "required": [

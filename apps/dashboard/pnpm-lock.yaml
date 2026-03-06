@@ -72,8 +72,8 @@ importers:
         specifier: ^8.21.2
         version: 8.21.3(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
       '@vektorprogrammet/sdk':
-        specifier: ^0.1.0
-        version: 0.1.0(@tanstack/react-query@5.90.21(react@19.2.4))(react@19.2.4)
+        specifier: ^0.1.1
+        version: 0.1.1(@tanstack/react-query@5.90.21(react@19.2.4))(react@19.2.4)
       class-variance-authority:
         specifier: ^0.7.1
         version: 0.7.1
@@ -1716,8 +1716,8 @@ packages:
   '@types/use-sync-external-store@0.0.6':
     resolution: {integrity: sha512-zFDAD+tlpf2r4asuHEj0XH6pY6i0g5NeAHPn+15wk3BV6JA69eERFXC1gyGThDkVa1zCyKr5jox1+2LbV/AMLg==}
 
-  '@vektorprogrammet/sdk@0.1.0':
-    resolution: {integrity: sha512-TCaEkEKOn8dn9YSZIGo1dOMxTREedlTiaKWuIaaXqtxPr88V4IS0PYvSMMe3NfN/x2W43mvcvLzZYZPuiCfukg==}
+  '@vektorprogrammet/sdk@0.1.1':
+    resolution: {integrity: sha512-xiMP7FzOvCVHZDRcSK2M5UKfFSGqow1w8zLbgdJcePGjspMlUoeOldQCrrNGc+InoYbCcFWMExDw9Kt0mkraSg==}
     peerDependencies:
       '@tanstack/react-query': ^5
       react: ^18 || ^19
@@ -4658,7 +4658,7 @@ snapshots:
 
   '@types/use-sync-external-store@0.0.6': {}
 
-  '@vektorprogrammet/sdk@0.1.0(@tanstack/react-query@5.90.21(react@19.2.4))(react@19.2.4)':
+  '@vektorprogrammet/sdk@0.1.1(@tanstack/react-query@5.90.21(react@19.2.4))(react@19.2.4)':
     dependencies:
       '@tanstack/react-query': 5.90.21(react@19.2.4)
       openapi-fetch: 0.13.8

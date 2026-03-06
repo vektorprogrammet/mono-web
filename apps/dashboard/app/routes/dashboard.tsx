@@ -91,7 +91,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     user: {
       name: `${data.firstName} ${data.lastName}`,
       email: data.email,
-      avatar: "",
+      avatar: data.profilePhoto ?? "",
     },
     isAdmin,
   };
