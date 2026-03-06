@@ -28,6 +28,16 @@ jobs:
       - name: Build SDK
         run: cd packages/sdk && bun run build
 
+      - name: Remove empty changesets
+        run: |
+          for f in .changeset/*.md; do
+            [ "$(basename "$f")" = "README.md" ] && continue
+            # Empty changeset = only frontmatter delimiters, no package entries
+            if ! grep -qE '^"@|^"' "$f" 2>/dev/null; then
+              rm "$f"
+            fi
+          done
+
       - name: Create Release PR or Publish
         uses: changesets/action@v1
         with:
