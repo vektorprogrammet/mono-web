@@ -1,7 +1,8 @@
 import { buttonVariants } from "@/components/ui/button";
+import { apiClient, isFixtureMode } from "@monoweb/sdk";
 import { useInView, useMotionValue, useSpring } from "motion/react";
 import { useEffect, useRef } from "react";
-import { Link, type To, href } from "react-router";
+import { Link, type To, href, useLoaderData } from "react-router";
 import { Button } from "~/components/ui/button";
 import Abelprisen from "/images/mainPage/sponsor/Abelprisen.png";
 import ksBergen from "/images/mainPage/sponsor/KSBergen.png";
@@ -61,6 +62,53 @@ const sponsorer = [
     image: ksBergen,
   },
 ];
+
+const defaultStatistics = { assistantCount: 2218, teamMemberCount: 608 };
+
+export async function loader() {
+  if (isFixtureMode) {
+    return {
+      sponsors: { hovedsponsor, sponsorer },
+      statistics: defaultStatistics,
+    };
+  }
+
+  const [sponsorsRes, statisticsRes] = await Promise.all([
+    apiClient.GET("/api/sponsors"),
+    apiClient.GET("/api/statistics"),
+  ]);
+
+  const apiSponsors = sponsorsRes.data;
+  const statistics = statisticsRes.data;
+
+  // Map API sponsors by size into hovedsponsor/sponsorer groups, fall back to hardcoded
+  let loadedHovedsponsor = hovedsponsor;
+  let loadedSponsorer = sponsorer;
+  if (apiSponsors && apiSponsors.length > 0) {
+    loadedHovedsponsor = apiSponsors
+      .filter((s) => s.size === "large")
+      .map((s) => ({ name: s.name ?? "", image: s.logoImagePath ?? "" }));
+    loadedSponsorer = apiSponsors
+      .filter((s) => s.size !== "large")
+      .map((s) => ({ name: s.name ?? "", image: s.logoImagePath ?? "" }));
+
+    // Fall back if API returned empty groups
+    if (loadedHovedsponsor.length === 0) loadedHovedsponsor = hovedsponsor;
+    if (loadedSponsorer.length === 0) loadedSponsorer = sponsorer;
+  }
+
+  return {
+    sponsors: {
+      hovedsponsor: loadedHovedsponsor,
+      sponsorer: loadedSponsorer,
+    },
+    statistics: {
+      assistantCount: statistics?.assistantCount ?? defaultStatistics.assistantCount,
+      teamMemberCount: statistics?.teamMemberCount ?? defaultStatistics.teamMemberCount,
+    },
+  };
+}
+
 interface MainPageProps {
   number: number;
   title: string;
@@ -71,29 +119,33 @@ interface MainPageProps {
   };
 }
 
-const cards: Array<MainPageProps> = [
-  {
-    number: 2218,
-    title: "Assistenter",
-    text: "Over 2218 studenter har hatt et verv som vektorassistent i Vektorprogrammet",
-    route: {
-      path: href("/assistenter"),
-      text: "Les mer om assistenter",
+function makeCards(statistics: { assistantCount: number; teamMemberCount: number }): Array<MainPageProps> {
+  return [
+    {
+      number: statistics.assistantCount,
+      title: "Assistenter",
+      text: `Over ${statistics.assistantCount} studenter har hatt et verv som vektorassistent i Vektorprogrammet`,
+      route: {
+        path: href("/assistenter"),
+        text: "Les mer om assistenter",
+      },
     },
-  },
-  {
-    number: 608,
-    title: "I team",
-    text: "Over 608 studenter har hatt et verv i et av Vektorprogrammets mange team",
-    route: {
-      path: href("/team"),
-      text: "Les mer om verv i team",
+    {
+      number: statistics.teamMemberCount,
+      title: "I team",
+      text: `Over ${statistics.teamMemberCount} studenter har hatt et verv i et av Vektorprogrammets mange team`,
+      route: {
+        path: href("/team"),
+        text: "Les mer om verv i team",
+      },
     },
-  },
-];
+  ];
+}
 
 // biome-ignore lint/style/noDefaultExport: Route Modules require default export https://reactrouter.com/start/framework/route-module
 export default function mainPage() {
+  const { sponsors, statistics } = useLoaderData<typeof loader>();
+  const cards = makeCards(statistics);
   return (
     <main className="flex-grow">
       {/* Use component when the rendered component needs no props */}
@@ -156,7 +208,7 @@ export default function mainPage() {
       <div className="flex justify-center">
         <div className="flex max-w-4xl flex-col md:gap-32">
           <div className="flex flex-row flex-wrap justify-around md:justify-between">
-            {hovedsponsor.map((sponsor) => (
+            {sponsors.hovedsponsor.map((sponsor) => (
               <div
                 className="flex h-72 w-72 items-center md:h-96 md:w-96"
                 key={sponsor.name}
@@ -170,7 +222,7 @@ export default function mainPage() {
             ))}
           </div>
           <div className="flex flex-row flex-wrap justify-around md:justify-between">
-            {sponsorer.map((sponsor) => (
+            {sponsors.sponsorer.map((sponsor) => (
               <div
                 className="flex h-36 w-36 items-center md:h-64 md:w-64"
                 key={sponsor.name}

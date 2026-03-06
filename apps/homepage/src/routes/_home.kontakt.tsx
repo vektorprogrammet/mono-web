@@ -1,9 +1,31 @@
-import { Outlet } from "react-router";
+import { Outlet, useLoaderData } from "react-router";
 import { getKontakt } from "~/api/kontakt";
+import type { DepartmentData } from "~/components/kontakt-tabs";
+import { apiClient, isFixtureMode } from "@monoweb/sdk";
+
+export type KontaktContext = {
+  departments: DepartmentData[] | null;
+};
+
+export async function loader() {
+  if (isFixtureMode) {
+    return { departments: null };
+  }
+
+  const { data, error } = await apiClient.GET("/api/departments");
+
+  if (error || !data) {
+    console.error("Failed to fetch departments:", error);
+    return { departments: null };
+  }
+
+  return { departments: data["hydra:member"] ?? null };
+}
 
 // biome-ignore lint/style/noDefaultExport: Route Modules require default export https://reactrouter.com/start/framework/route-module
 export default function KontaktLayout() {
   const kontaktInfo = getKontakt();
+  const { departments } = useLoaderData<typeof loader>();
   return (
     <div className="mx-auto mt-10 mb-20 flex max-w-6xl flex-col items-center">
       <header className="mx-auto flex w-full flex-wrap justify-around">
@@ -24,7 +46,7 @@ export default function KontaktLayout() {
       <h1 className="mx-auto mt-10 mb-10 max-w-lg text-center font-bold text-5xl text-gray-600 dark:text-gray-200">
         {kontaktInfo.title}
       </h1>
-      <Outlet />
+      <Outlet context={{ departments } satisfies KontaktContext} />
     </div>
   );
 }

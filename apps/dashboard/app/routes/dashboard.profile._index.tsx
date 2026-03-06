@@ -8,12 +8,21 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { ChevronRight } from "lucide-react";
-import { NavLink, href } from "react-router";
+import { NavLink, href, useLoaderData } from "react-router";
+import { apiClient, isFixtureMode } from "@monoweb/sdk";
 import { getProfileData } from "../mock/api/data-profile";
+
+export async function loader() {
+  if (isFixtureMode) return { profile: getProfileData() };
+  // Auth not wired yet — use fixture data as placeholder
+  // TODO: Extract JWT from cookie and pass as Authorization header
+  // const { data } = await apiClient.GET("/api/me", { headers: { Authorization: `Bearer ${token}` } });
+  return { profile: getProfileData() };
+}
 
 // biome-ignore lint/style/noDefaultExport: Route Modules require default export https://reactrouter.com/start/framework/route-module
 export default function Profile() {
-  const profile = getProfileData();
+  const { profile } = useLoaderData<typeof loader>();
   return (
     <>
       <div className="mx-10 mt-10 flex flex-col">

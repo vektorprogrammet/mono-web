@@ -15,7 +15,37 @@ import {
   departments,
 } from "~/lib/types";
 
-export function TeamTabs({ department }: { department: DepartmentPretty }) {
+export interface ApiTeam {
+  readonly id?: number;
+  name: string;
+  email: string | null;
+  shortDescription?: string | null;
+  active: boolean;
+}
+
+export interface ApiDepartment {
+  readonly id?: number;
+  name: string;
+  shortName: string;
+  email: string;
+  city: string;
+  active: boolean;
+}
+
+export interface TeamLoaderData {
+  teams: ApiTeam[] | null;
+  departments: ApiDepartment[] | null;
+}
+
+export function TeamTabs({
+  department,
+  teams: apiTeams,
+  departments: apiDepartments,
+}: {
+  department: DepartmentPretty;
+  teams: ApiTeam[] | null;
+  departments: ApiDepartment[] | null;
+}) {
   const [active, setActive] = useState<DepartmentPretty>(department);
 
   return (
@@ -34,7 +64,7 @@ export function TeamTabs({ department }: { department: DepartmentPretty }) {
         {active === "Hovedstyret" ? (
           <HovedstyretTab />
         ) : (
-          <TeamTab team={active} />
+          <TeamTab team={active} apiTeams={apiTeams} apiDepartments={apiDepartments} />
         )}
       </div>
     </div>
@@ -86,13 +116,36 @@ function HovedstyretTab() {
   );
 }
 
-function TeamTab({ team }: { team: CityPretty }) {
-  const teams =
+function TeamTab({
+  team,
+  apiTeams,
+  apiDepartments,
+}: {
+  team: CityPretty;
+  apiTeams: ApiTeam[] | null;
+  apiDepartments: ApiDepartment[] | null;
+}) {
+  const fixtureTeams =
     team === "Bergen"
       ? teamsBergen()
       : team === "Ås"
         ? teamsAas()
         : teamsTrondheim();
+
+  // If API data is available, enrich fixture teams with API data (email, description).
+  // Fixture values are kept as fallback for fields the API lacks (numberOfMembers, urls).
+  const teams = fixtureTeams.map((ft) => {
+    if (!apiTeams) return ft;
+    const match = apiTeams.find(
+      (at) => at.name.toLowerCase() === ft.title.toLowerCase(),
+    );
+    if (!match) return ft;
+    return {
+      ...ft,
+      text: match.shortDescription ?? ft.text,
+      mail: match.email ?? ft.mail,
+    };
+  });
 
   return (
     <div className="grid grid-cols-1 place-items-center gap-8 sm:grid-cols-2 xl:grid-cols-3">

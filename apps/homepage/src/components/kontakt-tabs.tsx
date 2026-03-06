@@ -8,7 +8,26 @@ import { Label } from "~/components/ui/label";
 import { Textarea } from "~/components/ui/textarea";
 import { type DepartmentPretty, departments } from "~/lib/types";
 
-export function ContactTabs({ department }: { department: DepartmentPretty }) {
+export type DepartmentData = {
+  readonly id?: number;
+  name: string;
+  shortName: string;
+  email: string;
+  address?: string | null;
+  city: string;
+  latitude?: string | null;
+  longitude?: string | null;
+  logoPath?: string | null;
+  active: boolean;
+};
+
+export function ContactTabs({
+  department,
+  departments: apiDepartments,
+}: {
+  department: DepartmentPretty;
+  departments: DepartmentData[] | null;
+}) {
   const [active, setActive] = useState<DepartmentPretty>(
     department,
     // ! ugly ass solution
@@ -39,28 +58,38 @@ export function ContactTabs({ department }: { department: DepartmentPretty }) {
       </div>
       <main className="mx-auto mb-6 flex h-[500px] w-[calc(100%-1rem)] flex-col items-start overflow-y-scroll break-words rounded-md px-5 pt-0 pb-5 sm:w-[440px] md:w-[400px] lg:w-[480px] xl:w-[920px]">
         <div className="w-full flex-grow">
-          {<DepartmentCard department={active} />}
+          {<DepartmentCard department={active} apiDepartments={apiDepartments} />}
         </div>
       </main>
     </div>
   );
 }
 
-function DepartmentCard({ department }: { department: DepartmentPretty }) {
+function DepartmentCard({
+  department,
+  apiDepartments,
+}: {
+  department: DepartmentPretty;
+  apiDepartments: DepartmentData[] | null;
+}) {
+  // Try to find matching API department data
+  const apiDept = apiDepartments?.find(
+    (d) => d.city === department || d.name === department || d.shortName === department,
+  );
+
   const result = info(department);
+  if (result instanceof Error && !apiDept) return <span>{result.message}</span>;
 
-  if (result instanceof Error) return <span>{result.message}</span>;
-
-  const {
-    name,
-    description,
-    email,
-    address,
-    members,
-    button,
-    contacts,
-    openForContact,
-  } = result;
+  // Use API data for fields it provides, fall back to fixture data
+  const fixtureData = result instanceof Error ? null : result;
+  const name = apiDept?.name ?? fixtureData?.name ?? department;
+  const description = fixtureData?.description ?? "";
+  const email = apiDept?.email ?? fixtureData?.email ?? "";
+  const address = apiDept?.address ?? fixtureData?.address;
+  const members = fixtureData?.members;
+  const button = fixtureData?.button;
+  const contacts = fixtureData?.contacts ?? [];
+  const openForContact = fixtureData?.openForContact ?? false;
 
   return (
     <>

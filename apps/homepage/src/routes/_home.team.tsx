@@ -4,14 +4,32 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
+import { apiClient, isFixtureMode } from "@monoweb/sdk";
 import { getTeamFaqs } from "~/api/faq";
 import { Divider } from "~/components/divider";
 
 import { Outlet } from "react-router";
 import { getTeam } from "~/api/team";
+import type { Route } from "./+types/_home.team";
+
+export async function loader() {
+  if (isFixtureMode) {
+    return { teams: null, departments: null };
+  }
+
+  const [teamsRes, departmentsRes] = await Promise.all([
+    apiClient.GET("/api/teams"),
+    apiClient.GET("/api/departments"),
+  ]);
+
+  return {
+    teams: teamsRes.data?.["hydra:member"] ?? null,
+    departments: departmentsRes.data?.["hydra:member"] ?? null,
+  };
+}
 
 // biome-ignore lint/style/noDefaultExport: Route Modules require default export https://reactrouter.com/start/framework/route-module
-export default function Team() {
+export default function Team({ loaderData }: Route.ComponentProps) {
   const teamInfo = getTeam();
   const teamFaqs = getTeamFaqs();
   return (
@@ -51,7 +69,7 @@ export default function Team() {
       <h1 className="mx-auto mt-10 mb-10 max-w-lg text-center font-bold text-5xl text-gray-600 dark:text-gray-200">
         {teamInfo.title}
       </h1>
-      <Outlet />
+      <Outlet context={loaderData} />
       <Divider />
 
       {/* FAQ Section */}

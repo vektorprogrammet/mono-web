@@ -12,8 +12,9 @@ import { Input } from "@/components/ui/input";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useState } from "react";
 import { Controller, useForm } from "react-hook-form";
-import { NavLink, href, useNavigate } from "react-router";
+import { NavLink, href, useLoaderData, useNavigate } from "react-router";
 import { z } from "zod";
+import { apiClient, isFixtureMode } from "@monoweb/sdk";
 import { getProfileData } from "../mock/api/data-profile";
 import { linjer } from "../mock/api/linjer";
 
@@ -34,12 +35,21 @@ const formSchema = z.object({
   profileImage: z.instanceof(File).optional(),
 });
 
+export async function loader() {
+  if (isFixtureMode) return { studyLines: linjer };
+  const { data } = await apiClient.GET("/api/field_of_studies");
+  // API returns { id, name, shortName, department } objects; mock is string[]
+  const studyLines = data ? data.map((f: any) => f.shortName ?? f.name) : linjer;
+  return { studyLines };
+}
+
 // biome-ignore lint/style/noDefaultExport: Route Modules require default export https://reactrouter.com/start/framework/route-module
 export default function RedigerProfil() {
+  const { studyLines } = useLoaderData<typeof loader>();
   const navigate = useNavigate();
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const profile = getProfileData();
-  const linjerItems = linjer.map((linje) => ({
+  const linjerItems = studyLines.map((linje) => ({
     value: linje,
     label: linje,
   }));

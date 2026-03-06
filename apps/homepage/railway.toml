@@ -3,7 +3,7 @@ buildCommand = "pnpm install && pnpm run build"
 watchPatterns = ["apps/homepage/**", "packages/**", "package.json", "bun.lock"]
 
 [deploy]
-startCommand = "npx serve build/client -s -l $PORT"
+startCommand = "/bin/sh -c 'serve build/client -s -l $PORT'"
 healthcheckPath = "/"
 healthcheckTimeout = 120
 restartPolicyType = "ON_FAILURE"

@@ -1,9 +1,11 @@
-import { TeamTabs } from "~/components/team-tabs";
+import { useOutletContext } from "react-router";
+import { TeamTabs, type TeamLoaderData } from "~/components/team-tabs";
 import { type DepartmentPretty, departments } from "~/lib/types";
 import type { Route } from "./+types/_home.team.$department";
 
 // biome-ignore lint/style/noDefaultExport: Route Modules require default export https://reactrouter.com/start/framework/route-module
 export default function Team({ params }: Route.ComponentProps) {
+  const { teams, departments: apiDepartments } = useOutletContext<TeamLoaderData>();
   const activeDepartment: DepartmentPretty =
     params.department === "hovedstyret"
       ? departments.hovedstyret
@@ -13,5 +15,5 @@ export default function Team({ params }: Route.ComponentProps) {
           ? departments.aas
           : departments.trondheim;
 
-  return <TeamTabs department={activeDepartment} />;
+  return <TeamTabs department={activeDepartment} teams={teams} departments={apiDepartments} />;
 }
