@@ -1,7 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useState } from "react";
-import { Form, redirect, useActionData } from "react-router";
+import { Form, redirect, useActionData, useSearchParams } from "react-router";
 import { createClient, apiUrl } from "@vektorprogrammet/sdk";
 import {
   createAuthCookie,
@@ -44,6 +44,8 @@ export async function action({ request }: Route.ActionArgs) {
 // biome-ignore lint/style/noDefaultExport: Route Modules require default export https://reactrouter.com/start/framework/route-module
 export default function Login() {
   const actionData = useActionData<typeof action>();
+  const [searchParams] = useSearchParams();
+  const sessionExpired = searchParams.get("expired") === "true";
   const [showPassword, setShowPassword] = useState(false);
 
   return (
@@ -55,6 +57,11 @@ export default function Login() {
         </div>
 
         <Form method="post" className="space-y-4">
+          {sessionExpired && (
+            <p className="rounded bg-amber-50 p-2 text-center text-amber-700 text-sm">
+              Økten din har utløpt. Vennligst logg inn på nytt.
+            </p>
+          )}
           {actionData?.error && (
             <p className="rounded bg-red-50 p-2 text-center text-red-600 text-sm">
               {actionData.error}

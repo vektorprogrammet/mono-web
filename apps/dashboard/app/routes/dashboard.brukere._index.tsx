@@ -3,7 +3,21 @@ import { DataTable } from "@/components/data-table";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { ColumnDef } from "@tanstack/react-table";
+import { isFixtureMode } from "@vektorprogrammet/sdk";
+import { requireAuth } from "../lib/auth.server";
+import { createAuthenticatedClient } from "../lib/api.server";
+import type { Route } from "./+types/dashboard.brukere._index";
 import { getActiveUsers, getInactiveUsers } from "../mock/api/data-brukere";
+
+export async function loader({ request }: Route.LoaderArgs) {
+  if (isFixtureMode) return { users: null };
+
+  const token = requireAuth(request);
+  const client = createAuthenticatedClient(token);
+  const { data } = await client.GET("/api/admin/users");
+
+  return { users: data ?? null };
+}
 
 export type user = {
   firstName: string;

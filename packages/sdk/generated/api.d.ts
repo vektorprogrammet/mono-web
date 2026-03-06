@@ -3828,6 +3828,7 @@ export interface components {
             phone?: string | null;
             gender?: number | null;
             fieldOfStudy?: string[] | null;
+            role?: string;
         };
         "ProfileResource.jsonld": {
             readonly "@context"?: string | ({
@@ -3848,6 +3849,7 @@ export interface components {
             phone?: string | null;
             gender?: number | null;
             fieldOfStudy?: string[] | null;
+            role?: string;
         };
         ReceiptWriteResource: {
             id?: number | null;

@@ -73,7 +73,7 @@ const fallbackUser = {
 };
 
 export async function loader({ request }: Route.LoaderArgs) {
-  if (isFixtureMode) return { user: fallbackUser };
+  if (isFixtureMode) return { user: fallbackUser, isAdmin: true };
 
   const token = requireAuth(request);
   const client = createAuthenticatedClient(token);
@@ -81,8 +81,11 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   if (error || !data) {
     const { redirect } = await import("react-router");
-    throw redirect("/login");
+    throw redirect("/login?expired=true");
   }
+
+  const role = (data as Record<string, unknown>).role as string | undefined;
+  const isAdmin = role === "ROLE_ADMIN" || role === "ROLE_TEAM_LEADER";
 
   return {
     user: {
@@ -90,6 +93,7 @@ export async function loader({ request }: Route.LoaderArgs) {
       email: data.email,
       avatar: "",
     },
+    isAdmin,
   };
 }
 
@@ -451,7 +455,7 @@ function Breadcrumbs() {
 
 // biome-ignore lint/style/noDefaultExport: Route Modules require default export https://reactrouter.com/start/framework/route-module
 export default function Layout() {
-  const { user } = useLoaderData<typeof loader>();
+  const { user, isAdmin } = useLoaderData<typeof loader>();
   return (
     <SidebarProvider>
       <aside>
@@ -474,10 +478,12 @@ export default function Layout() {
                 </SidebarMenuItem>
                 <NavLinks links={mainLinks} />
               </SidebarGroup>
-              <SidebarGroup>
-                <SidebarGroupLabel>Admin</SidebarGroupLabel>
-                <NavLinks links={adminLinks} />
-              </SidebarGroup>
+              {isAdmin && (
+                <SidebarGroup>
+                  <SidebarGroupLabel>Admin</SidebarGroupLabel>
+                  <NavLinks links={adminLinks} />
+                </SidebarGroup>
+              )}
             </nav>
           </SidebarContent>
           <SidebarFooter className="m-0 p-2">

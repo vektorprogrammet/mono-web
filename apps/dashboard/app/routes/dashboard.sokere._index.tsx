@@ -1,7 +1,21 @@
 import { DataTable } from "@/components/data-table";
 import { Checkbox } from "@/components/ui/checkbox";
 import type { ColumnDef } from "@tanstack/react-table";
+import { isFixtureMode } from "@vektorprogrammet/sdk";
+import { requireAuth } from "../lib/auth.server";
+import { createAuthenticatedClient } from "../lib/api.server";
+import type { Route } from "./+types/dashboard.sokere._index";
 import { DataSokere } from "../mock/api/data-sokere";
+
+export async function loader({ request }: Route.LoaderArgs) {
+  if (isFixtureMode) return { applications: null };
+
+  const token = requireAuth(request);
+  const client = createAuthenticatedClient(token);
+  const { data } = await client.GET("/api/admin/applications");
+
+  return { applications: data ?? null };
+}
 
 export type Soker = {
   id: string;
