@@ -27,6 +27,7 @@
     "react": "^18 || ^19"
   },
   "devDependencies": {
+    "@types/node": "^22",
     "@types/react": "^18 || ^19",
     "openapi-typescript": "^7",
     "typescript": "^5"
