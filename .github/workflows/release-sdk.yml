@@ -38,6 +38,9 @@ jobs:
             fi
           done
 
+      - name: Install pnpm
+        run: npm i -g pnpm
+
       - name: Create Release PR or Publish
         uses: changesets/action@v1
         with:
