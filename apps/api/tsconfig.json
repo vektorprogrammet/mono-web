@@ -1,12 +1,35 @@
 {
-  "extends": "@monoweb/config/tsconfig.base.json",
-  "compilerOptions": {
-    "composite": true,
-    "outDir": "dist",
-    "baseUrl": ".",
-    "paths": {
-      "@/*": ["./src/*"]
-    },
-    "jsx": "react-jsx"
-  }
+	"compilerOptions": {
+		// Treat files as modules even if it doesn't use import/export
+		"moduleDetection": "force",
+		// Directories
+		"outDir": "./build",
+		"rootDir": "./",
+		// Ignore module structure
+		"module": "esnext",
+		"skipLibCheck": true,
+		//
+		"moduleResolution": "bundler",
+		//
+		"target": "es2022",
+		//
+		"strict": true,
+		// Allow JSON modules to be imported
+		"resolveJsonModule": true,
+		// Allow JS files to be imported from TS and vice versa
+		"allowJs": true,
+		// Use correct ESM import behavior
+		"esModuleInterop": true,
+		// Disallow features that require cross-file awareness
+		"isolatedModules": true,
+		// Base url
+		//"baseUrl": "./",
+		// Path redirects
+		"paths": {
+			"@/src/*": ["./src/*"],
+			"@/db/*": ["./db/*"],
+			"@/lib/*": ["./lib/*"],
+			"@/docs/*": ["./openapi/*"]
+		}
+	}
 }

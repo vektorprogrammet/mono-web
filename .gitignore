@@ -36,8 +36,16 @@ lerna-debug.log*
 # Turbo
 .turbo
 
-# Better-T-Stack
-.alchemy
+# PHP (apps/server)
+vendor/
+apps/server/var/
+apps/server/public/assets/
+apps/server/public/bundles/
+apps/server/public/build/
+apps/server/.php-cs-fixer.cache
+apps/server/.phpunit.result.cache
+apps/server/phpunit.xml
+apps/server/config/jwt/*.pem
 
 # Testing
 coverage

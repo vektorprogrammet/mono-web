@@ -1,0 +1,81 @@
+/bootstrap/compiled.php
+.env.local
+.env.*.local
+.env.*.php
+.env.php
+
+
+### PhpStorm ###
+# Covers JetBrains IDEs: IntelliJ, RubyMine, PhpStorm, AppCode, PyCharm
+.idea/
+
+*.iml
+
+## File-based project format:
+*.ipr
+*.iws
+
+## Plugin-specific files:
+
+# IntelliJ
+/out/
+/.idea/
+
+# mpeltonen/sbt-idea plugin
+.idea_modules/
+npm-debug.log
+
+# JIRA plugin
+atlassian-ide-plugin.xml
+
+# Crashlytics plugin (for Android Studio and IntelliJ)
+com_crashlytics_export_strings.xml
+crashlytics.properties
+crashlytics-build.properties
+
+### Symfony ###
+/app/bootstrap.php.cache
+/var/bootstrap.php.cache
+/var/SymfonyRequirements.php
+/config/jwt/*.pem
+/openapi.json
+/var/cache/*
+!var/cache/.gitkeep
+/var/coverage/
+/var/data
+!/var/data/.gitkeep
+/var/logs/*
+!var/logs/.gitkeep
+/phpunit.xml
+/bin/
+/composer.phar
+/vendor/
+/signatures/
+/public/assets/
+/public/bundles/
+/public/images/
+/public/fonts/
+/public/webfonts/
+/public/files/
+/public/js/
+/public/vendor/
+/public/css
+/public/static
+/public/media/
+!/public/media/.gitkeep
+
+#npm
+/node_modules/
+
+.php_cs.cache
+.php-cs-fixer.cache
+.phpunit.result.cache
+
+var/coverage-controller-partial
+var/coverage-unit
+
+.claude/worktrees
+
+# Test-generated artifacts
+/images/Profile photos/
+var/test-results-parallel.xml
