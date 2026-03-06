@@ -1,17 +1,7 @@
 {
   "name": "monoweb",
   "private": true,
-  "workspaces": {
-    "packages": [
-      "apps/*",
-      "packages/*"
-    ],
-    "catalog": {
-      "dotenv": "^17.2.2",
-      "zod": "^4.1.13",
-      "@types/bun": "^1.3.4"
-    }
-  },
+  "workspaces": ["apps/*"],
   "type": "module",
   "scripts": {
     "dev": "turbo -F @monoweb/homepage -F @monoweb/dashboard dev",
@@ -23,24 +13,9 @@
     "dev:dashboard": "turbo -F @monoweb/dashboard dev",
     "dev:api": "turbo -F @monoweb/api dev",
     "dev:server": "turbo -F @monoweb/server dev",
-    "db:push": "turbo -F @monoweb/db db:push",
-    "db:studio": "turbo -F @monoweb/db db:studio",
-    "db:generate": "turbo -F @monoweb/db db:generate",
-    "db:migrate": "turbo -F @monoweb/db db:migrate",
-    "db:start": "turbo -F @monoweb/db db:start",
-    "db:watch": "turbo -F @monoweb/db db:watch",
-    "db:stop": "turbo -F @monoweb/db db:stop",
-    "db:down": "turbo -F @monoweb/db db:down",
     "check": "oxlint && oxfmt --write"
   },
-  "dependencies": {
-    "@monoweb/env": "workspace:*",
-    "dotenv": "catalog:",
-    "zod": "catalog:"
-  },
   "devDependencies": {
-    "@monoweb/config": "workspace:*",
-    "@types/bun": "catalog:",
     "oxfmt": "^0.26.0",
     "oxlint": "^1.41.0",
     "turbo": "^2.8.12",
