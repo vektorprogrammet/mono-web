@@ -324,22 +324,6 @@
         "responses": {
           "204": {
             "description": "AdminApplicationBulkDeleteInput resource created",
-            "content": {
-              "application/ld+json": {
-                "schema": [],
-                "example": null,
-                "examples": null,
-                "encoding": null,
-                "extensionProperties": []
-              },
-              "application/json": {
-                "schema": [],
-                "example": null,
-                "examples": null,
-                "encoding": null,
-                "extensionProperties": []
-              }
-            },
             "headers": null,
             "links": [],
             "extensionProperties": []
@@ -2837,22 +2821,6 @@
         "responses": {
           "204": {
             "description": "AdminReceiptStatusInput resource updated",
-            "content": {
-              "application/ld+json": {
-                "schema": [],
-                "example": null,
-                "examples": null,
-                "encoding": null,
-                "extensionProperties": []
-              },
-              "application/json": {
-                "schema": [],
-                "example": null,
-                "examples": null,
-                "encoding": null,
-                "extensionProperties": []
-              }
-            },
             "headers": null,
             "links": [],
             "extensionProperties": []
@@ -6678,14 +6646,14 @@
             "description": "AdmissionSubscriberInput resource created",
             "content": {
               "application/ld+json": {
-                "schema": [],
+                "schema": {},
                 "example": null,
                 "examples": null,
                 "encoding": null,
                 "extensionProperties": []
               },
               "application/json": {
-                "schema": [],
+                "schema": {},
                 "example": null,
                 "examples": null,
                 "encoding": null,
@@ -6771,14 +6739,14 @@
             "description": "ApplicationInput resource created",
             "content": {
               "application/ld+json": {
-                "schema": [],
+                "schema": {},
                 "example": null,
                 "examples": null,
                 "encoding": null,
                 "extensionProperties": []
               },
               "application/json": {
-                "schema": [],
+                "schema": {},
                 "example": null,
                 "examples": null,
                 "encoding": null,
@@ -6864,14 +6832,14 @@
             "description": "ContactMessageInput resource created",
             "content": {
               "application/ld+json": {
-                "schema": [],
+                "schema": {},
                 "example": null,
                 "examples": null,
                 "encoding": null,
                 "extensionProperties": []
               },
               "application/json": {
-                "schema": [],
+                "schema": {},
                 "example": null,
                 "examples": null,
                 "encoding": null,
@@ -7030,14 +6998,14 @@
             "description": "ExistingUserApplicationInput resource created",
             "content": {
               "application/ld+json": {
-                "schema": [],
+                "schema": {},
                 "example": null,
                 "examples": null,
                 "encoding": null,
                 "extensionProperties": []
               },
               "application/json": {
-                "schema": [],
+                "schema": {},
                 "example": null,
                 "examples": null,
                 "encoding": null,
@@ -7130,14 +7098,14 @@
             "description": "InterviewAssignInput resource created",
             "content": {
               "application/ld+json": {
-                "schema": [],
+                "schema": {},
                 "example": null,
                 "examples": null,
                 "encoding": null,
                 "extensionProperties": []
               },
               "application/json": {
-                "schema": [],
+                "schema": {},
                 "example": null,
                 "examples": null,
                 "encoding": null,
@@ -7228,22 +7196,6 @@
         "responses": {
           "204": {
             "description": "InterviewBulkAssignInput resource created",
-            "content": {
-              "application/ld+json": {
-                "schema": [],
-                "example": null,
-                "examples": null,
-                "encoding": null,
-                "extensionProperties": []
-              },
-              "application/json": {
-                "schema": [],
-                "example": null,
-                "examples": null,
-                "encoding": null,
-                "extensionProperties": []
-              }
-            },
             "headers": null,
             "links": [],
             "extensionProperties": []
@@ -7327,22 +7279,6 @@
         "responses": {
           "204": {
             "description": "InterviewCoInterviewerInput resource updated",
-            "content": {
-              "application/ld+json": {
-                "schema": [],
-                "example": null,
-                "examples": null,
-                "encoding": null,
-                "extensionProperties": []
-              },
-              "application/json": {
-                "schema": [],
-                "example": null,
-                "examples": null,
-                "encoding": null,
-                "extensionProperties": []
-              }
-            },
             "headers": null,
             "links": [],
             "extensionProperties": []
@@ -7511,22 +7447,6 @@
         "responses": {
           "204": {
             "description": "InterviewConductInput resource created",
-            "content": {
-              "application/ld+json": {
-                "schema": [],
-                "example": null,
-                "examples": null,
-                "encoding": null,
-                "extensionProperties": []
-              },
-              "application/json": {
-                "schema": [],
-                "example": null,
-                "examples": null,
-                "encoding": null,
-                "extensionProperties": []
-              }
-            },
             "headers": null,
             "links": [],
             "extensionProperties": []
@@ -7788,22 +7708,6 @@
         "responses": {
           "204": {
             "description": "InterviewResponseResource resource created",
-            "content": {
-              "application/ld+json": {
-                "schema": [],
-                "example": null,
-                "examples": null,
-                "encoding": null,
-                "extensionProperties": []
-              },
-              "application/json": {
-                "schema": [],
-                "example": null,
-                "examples": null,
-                "encoding": null,
-                "extensionProperties": []
-              }
-            },
             "headers": null,
             "links": [],
             "extensionProperties": []
@@ -7900,22 +7804,6 @@
         "responses": {
           "204": {
             "description": "InterviewResponseResource resource created",
-            "content": {
-              "application/ld+json": {
-                "schema": [],
-                "example": null,
-                "examples": null,
-                "encoding": null,
-                "extensionProperties": []
-              },
-              "application/json": {
-                "schema": [],
-                "example": null,
-                "examples": null,
-                "encoding": null,
-                "extensionProperties": []
-              }
-            },
             "headers": null,
             "links": [],
             "extensionProperties": []
@@ -8012,22 +7900,6 @@
         "responses": {
           "204": {
             "description": "InterviewResponseResource resource created",
-            "content": {
-              "application/ld+json": {
-                "schema": [],
-                "example": null,
-                "examples": null,
-                "encoding": null,
-                "extensionProperties": []
-              },
-              "application/json": {
-                "schema": [],
-                "example": null,
-                "examples": null,
-                "encoding": null,
-                "extensionProperties": []
-              }
-            },
             "headers": null,
             "links": [],
             "extensionProperties": []
@@ -8124,22 +7996,6 @@
         "responses": {
           "204": {
             "description": "InterviewScheduleInput resource created",
-            "content": {
-              "application/ld+json": {
-                "schema": [],
-                "example": null,
-                "examples": null,
-                "encoding": null,
-                "extensionProperties": []
-              },
-              "application/json": {
-                "schema": [],
-                "example": null,
-                "examples": null,
-                "encoding": null,
-                "extensionProperties": []
-              }
-            },
             "headers": null,
             "links": [],
             "extensionProperties": []
@@ -8242,22 +8098,6 @@
         "responses": {
           "204": {
             "description": "InterviewStatusInput resource updated",
-            "content": {
-              "application/ld+json": {
-                "schema": [],
-                "example": null,
-                "examples": null,
-                "encoding": null,
-                "extensionProperties": []
-              },
-              "application/json": {
-                "schema": [],
-                "example": null,
-                "examples": null,
-                "encoding": null,
-                "extensionProperties": []
-              }
-            },
             "headers": null,
             "links": [],
             "extensionProperties": []
@@ -8514,22 +8354,6 @@
         "responses": {
           "204": {
             "description": "PasswordChangeInput resource updated",
-            "content": {
-              "application/ld+json": {
-                "schema": [],
-                "example": null,
-                "examples": null,
-                "encoding": null,
-                "extensionProperties": []
-              },
-              "application/json": {
-                "schema": [],
-                "example": null,
-                "examples": null,
-                "encoding": null,
-                "extensionProperties": []
-              }
-            },
             "headers": null,
             "links": [],
             "extensionProperties": []
@@ -8622,22 +8446,6 @@
         "responses": {
           "204": {
             "description": "PasswordResetExecute resource created",
-            "content": {
-              "application/ld+json": {
-                "schema": [],
-                "example": null,
-                "examples": null,
-                "encoding": null,
-                "extensionProperties": []
-              },
-              "application/json": {
-                "schema": [],
-                "example": null,
-                "examples": null,
-                "encoding": null,
-                "extensionProperties": []
-              }
-            },
             "headers": null,
             "links": [],
             "extensionProperties": []
@@ -8734,22 +8542,6 @@
         "responses": {
           "204": {
             "description": "PasswordResetRequest resource created",
-            "content": {
-              "application/ld+json": {
-                "schema": [],
-                "example": null,
-                "examples": null,
-                "encoding": null,
-                "extensionProperties": []
-              },
-              "application/json": {
-                "schema": [],
-                "example": null,
-                "examples": null,
-                "encoding": null,
-                "extensionProperties": []
-              }
-            },
             "headers": null,
             "links": [],
             "extensionProperties": []
@@ -8827,22 +8619,6 @@
         "responses": {
           "204": {
             "description": "PopupDismissInput resource created",
-            "content": {
-              "application/ld+json": {
-                "schema": [],
-                "example": null,
-                "examples": null,
-                "encoding": null,
-                "extensionProperties": []
-              },
-              "application/json": {
-                "schema": [],
-                "example": null,
-                "examples": null,
-                "encoding": null,
-                "extensionProperties": []
-              }
-            },
             "headers": null,
             "links": [],
             "extensionProperties": []
@@ -8926,22 +8702,6 @@
         "responses": {
           "204": {
             "description": "PopupPreferenceInput resource updated",
-            "content": {
-              "application/ld+json": {
-                "schema": [],
-                "example": null,
-                "examples": null,
-                "encoding": null,
-                "extensionProperties": []
-              },
-              "application/json": {
-                "schema": [],
-                "example": null,
-                "examples": null,
-                "encoding": null,
-                "extensionProperties": []
-              }
-            },
             "headers": null,
             "links": [],
             "extensionProperties": []
@@ -9034,22 +8794,6 @@
         "responses": {
           "204": {
             "description": "ProfilePhotoInput resource created",
-            "content": {
-              "application/ld+json": {
-                "schema": [],
-                "example": null,
-                "examples": null,
-                "encoding": null,
-                "extensionProperties": []
-              },
-              "application/json": {
-                "schema": [],
-                "example": null,
-                "examples": null,
-                "encoding": null,
-                "extensionProperties": []
-              }
-            },
             "headers": null,
             "links": [],
             "extensionProperties": []
@@ -9732,22 +9476,6 @@
         "responses": {
           "204": {
             "description": "SurveyRespondInput resource created",
-            "content": {
-              "application/ld+json": {
-                "schema": [],
-                "example": null,
-                "examples": null,
-                "encoding": null,
-                "extensionProperties": []
-              },
-              "application/json": {
-                "schema": [],
-                "example": null,
-                "examples": null,
-                "encoding": null,
-                "extensionProperties": []
-              }
-            },
             "headers": null,
             "links": [],
             "extensionProperties": []
@@ -9945,14 +9673,14 @@
             "description": "TeamApplicationInput resource created",
             "content": {
               "application/ld+json": {
-                "schema": [],
+                "schema": {},
                 "example": null,
                 "examples": null,
                 "encoding": null,
                 "extensionProperties": []
               },
               "application/json": {
-                "schema": [],
+                "schema": {},
                 "example": null,
                 "examples": null,
                 "encoding": null,
@@ -15107,8 +14835,8 @@
           },
           "semesterTime": {
             "enum": [
-              "Vår",
-              "Høst"
+              "V\u00e5r",
+              "H\u00f8st"
             ],
             "type": [
               "string",
@@ -15175,8 +14903,8 @@
           },
           "semesterTime": {
             "enum": [
-              "Vår",
-              "Høst"
+              "V\u00e5r",
+              "H\u00f8st"
             ],
             "type": [
               "string",
@@ -21683,7 +21411,7 @@
           "picture_path": {
             "type": "string"
           },
-          "picturePath": []
+          "picturePath": {}
         }
       },
       "User-team_member.read": {
@@ -21704,7 +21432,7 @@
           "picture_path": {
             "type": "string"
           },
-          "picturePath": []
+          "picturePath": {}
         }
       },
       "User-user.public": {
@@ -21725,7 +21453,7 @@
           "picture_path": {
             "type": "string"
           },
-          "picturePath": []
+          "picturePath": {}
         }
       },
       "User.jsonld-team.read_team.detail": {
@@ -21781,7 +21509,7 @@
           "picture_path": {
             "type": "string"
           },
-          "picturePath": []
+          "picturePath": {}
         }
       },
       "User.jsonld-team_member.read": {
@@ -21837,7 +21565,7 @@
           "picture_path": {
             "type": "string"
           },
-          "picturePath": []
+          "picturePath": {}
         }
       },
       "User.jsonld-user.public": {
@@ -21893,7 +21621,7 @@
           "picture_path": {
             "type": "string"
           },
-          "picturePath": []
+          "picturePath": {}
         }
       }
     },
