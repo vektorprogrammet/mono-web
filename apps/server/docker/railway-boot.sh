@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "=== Vektorprogrammet Entrypoint ==="
+echo "=== Railway Pre-deploy ==="
 
 # Generate JWT keys if missing
 if [ ! -f config/jwt/private.pem ]; then
@@ -14,12 +14,10 @@ fi
 # Clear cache
 php bin/console cache:clear --env="$APP_ENV" --no-debug
 
-# DB setup (skip if SKIP_FIXTURES=1 or RAILWAY_ENVIRONMENT is set — Railway uses preDeployCommand instead)
-if [ "${SKIP_FIXTURES:-0}" != "1" ] && [ -z "${RAILWAY_ENVIRONMENT:-}" ]; then
-    echo "Waiting for MySQL..."
-    until php bin/console doctrine:database:create --if-not-exists --env="$APP_ENV" 2>/dev/null; do
-        sleep 2
-    done
+# DB setup
+if [ "${SKIP_FIXTURES:-0}" != "1" ]; then
+    echo "Setting up database..."
+    php bin/console doctrine:database:create --if-not-exists --env="$APP_ENV"
 
     DB_NAME=$(php -r "echo parse_url(getenv('DATABASE_URL') ?: '', PHP_URL_PATH) ? ltrim(parse_url(getenv('DATABASE_URL'), PHP_URL_PATH), '/') : 'railway';")
     TABLE_COUNT=$(php bin/console doctrine:query:sql "SELECT COUNT(*) as cnt FROM information_schema.tables WHERE table_schema = '$DB_NAME'" --env="$APP_ENV" 2>/dev/null | grep -o '[0-9]*' | tail -1 || echo "0")
@@ -35,6 +33,4 @@ if [ "${SKIP_FIXTURES:-0}" != "1" ] && [ -z "${RAILWAY_ENVIRONMENT:-}" ]; then
     fi
 fi
 
-PORT="${PORT:-8000}"
-echo "Starting PHP server on 0.0.0.0:$PORT..."
-exec php -S 0.0.0.0:"$PORT" -t public
+echo "Pre-deploy complete."
