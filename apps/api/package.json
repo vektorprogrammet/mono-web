@@ -1,6 +1,7 @@
 {
 	"name": "@monoweb/api",
 	"version": "0.0.1",
+	"private": true,
 	"description": "",
 	"main": "./src/main.ts",
 	"type": "module",
