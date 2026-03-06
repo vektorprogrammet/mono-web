@@ -13,20 +13,23 @@ import {
   LayoutDashboard,
   LogOut,
   MapPinned,
+  Moon,
   NotebookPen,
   PiggyBank,
   Receipt,
   Send,
+  Sun,
   TrendingUp,
   User,
   Users,
 } from "lucide-react";
 import { Fragment, type ReactNode, useState } from "react";
-import { Form, Link, NavLink, Outlet, href, useLoaderData, useLocation } from "react-router";
+import { Form, Link, NavLink, Outlet, href, isRouteErrorResponse, useLoaderData, useLocation, useRouteError } from "react-router";
 import { requireAuth } from "../lib/auth.server";
 import { createAuthenticatedClient } from "../lib/api.server";
 import { isFixtureMode } from "@vektorprogrammet/sdk";
 import type { Route } from "./+types/dashboard";
+import { useTheme } from "../lib/theme";
 
 import { cn } from "@/lib/utils";
 import { Avatar, AvatarFallback, AvatarImage } from "@/ui/avatar";
@@ -453,6 +456,46 @@ function Breadcrumbs() {
   );
 }
 
+function ThemeToggle() {
+  const { resolved, setTheme } = useTheme();
+  const isDark = resolved === "dark";
+  return (
+    <SidebarMenuItem>
+      <SidebarMenuButton
+        size="sm"
+        tooltip={isDark ? "Lyst tema" : "Mørkt tema"}
+        onClick={() => setTheme(isDark ? "light" : "dark")}
+      >
+        {isDark ? <Sun /> : <Moon />}
+        <span>{isDark ? "Lyst tema" : "Mørkt tema"}</span>
+      </SidebarMenuButton>
+    </SidebarMenuItem>
+  );
+}
+
+export function ErrorBoundary() {
+  const error = useRouteError();
+  const isRouteError = isRouteErrorResponse(error);
+
+  return (
+    <div className="flex h-full items-center justify-center p-8">
+      <div className="text-center space-y-4">
+        <h1 className="text-2xl font-bold">
+          {isRouteError ? error.status : "Feil"}
+        </h1>
+        <p className="text-gray-500">
+          {isRouteError
+            ? error.statusText
+            : "Noe gikk galt. Prøv å laste siden på nytt."}
+        </p>
+        <a href="/dashboard" className="text-blue-600 hover:underline">
+          Tilbake til dashbordet
+        </a>
+      </div>
+    </div>
+  );
+}
+
 // biome-ignore lint/style/noDefaultExport: Route Modules require default export https://reactrouter.com/start/framework/route-module
 export default function Layout() {
   const { user, isAdmin } = useLoaderData<typeof loader>();
@@ -509,6 +552,7 @@ export default function Layout() {
                         </SidebarMenuButton>
                       </SidebarMenuItem>
                     ))}
+                    <ThemeToggle />
                   </SidebarMenu>
                 </SidebarGroupContent>
               </SidebarGroup>

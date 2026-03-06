@@ -97,7 +97,7 @@ export function DataTable<Data, Value>({
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
-      <div className="max-h-full overflow-scroll rounded-md">
+      <div className="max-h-full overflow-x-auto overflow-y-scroll rounded-md">
         <Table>
           <TableHeader>
             {table.getHeaderGroups().map((headerGroup) => (
