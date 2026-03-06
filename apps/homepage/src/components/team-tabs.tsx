@@ -119,7 +119,7 @@ function HovedstyretTab() {
 function TeamTab({
   team,
   apiTeams,
-  apiDepartments,
+  apiDepartments: _apiDepartments,
 }: {
   team: CityPretty;
   apiTeams: ApiTeam[] | null;
