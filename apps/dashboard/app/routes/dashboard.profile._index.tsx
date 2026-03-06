@@ -11,13 +11,29 @@ import { ChevronRight } from "lucide-react";
 import { NavLink, href, useLoaderData } from "react-router";
 import { isFixtureMode } from "@vektorprogrammet/sdk";
 import { getProfileData } from "../mock/api/data-profile";
+import { requireAuth } from "../lib/auth.server";
+import { createAuthenticatedClient } from "../lib/api.server";
+import type { Route } from "./+types/dashboard.profile._index";
 
-export async function loader() {
+export async function loader({ request }: Route.LoaderArgs) {
   if (isFixtureMode) return { profile: getProfileData() };
-  // Auth not wired yet — use fixture data as placeholder
-  // TODO: Extract JWT from cookie and pass as Authorization header
-  // const { data } = await apiClient.GET("/api/me", { headers: { Authorization: `Bearer ${token}` } });
-  return { profile: getProfileData() };
+
+  const token = requireAuth(request);
+  const client = createAuthenticatedClient(token);
+  const { data, error } = await client.GET("/api/me");
+
+  if (error || !data) return { profile: getProfileData() };
+
+  const fallback = getProfileData();
+  return {
+    profile: {
+      ...fallback,
+      firstName: data.firstName,
+      lastName: data.lastName,
+      email: data.email,
+      phone: data.phone ?? fallback.phone,
+    },
+  };
 }
 
 // biome-ignore lint/style/noDefaultExport: Route Modules require default export https://reactrouter.com/start/framework/route-module

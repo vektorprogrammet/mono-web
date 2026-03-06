@@ -22,7 +22,11 @@ import {
   Users,
 } from "lucide-react";
 import { Fragment, type ReactNode, useState } from "react";
-import { Link, NavLink, Outlet, href, useLocation } from "react-router";
+import { Form, Link, NavLink, Outlet, href, useLoaderData, useLocation } from "react-router";
+import { requireAuth } from "../lib/auth.server";
+import { createAuthenticatedClient } from "../lib/api.server";
+import { isFixtureMode } from "@vektorprogrammet/sdk";
+import type { Route } from "./+types/dashboard";
 
 import { cn } from "@/lib/utils";
 import { Avatar, AvatarFallback, AvatarImage } from "@/ui/avatar";
@@ -61,12 +65,33 @@ import {
   useSidebar,
 } from "@/ui/sidebar";
 
-const user = {
+const fallbackUser = {
   name: "Julia Dai",
   email: "julia@vektorprogrammet.no",
   avatar:
     "https://vektorprogrammet.no/media/cache/profile_img/images/Profile%20photos/6407131bab385.jpeg",
 };
+
+export async function loader({ request }: Route.LoaderArgs) {
+  if (isFixtureMode) return { user: fallbackUser };
+
+  const token = requireAuth(request);
+  const client = createAuthenticatedClient(token);
+  const { data, error } = await client.GET("/api/me");
+
+  if (error || !data) {
+    const { redirect } = await import("react-router");
+    throw redirect("/login");
+  }
+
+  return {
+    user: {
+      name: `${data.firstName} ${data.lastName}`,
+      email: data.email,
+      avatar: "",
+    },
+  };
+}
 
 function UserMenu({
   user,
@@ -118,10 +143,14 @@ function UserMenu({
               </DropdownMenuItem>
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
-            <DropdownMenuItem>
-              <LogOut />
-              Logg ut
-            </DropdownMenuItem>
+            <Form method="post" action="/logout">
+              <DropdownMenuItem asChild>
+                <button type="submit" className="w-full">
+                  <LogOut />
+                  Logg ut
+                </button>
+              </DropdownMenuItem>
+            </Form>
           </DropdownMenuContent>
         </DropdownMenu>
       </SidebarMenuItem>
@@ -422,16 +451,7 @@ function Breadcrumbs() {
 
 // biome-ignore lint/style/noDefaultExport: Route Modules require default export https://reactrouter.com/start/framework/route-module
 export default function Layout() {
-  /* const [opened, { toggle }] = useDisclosure();
-  const { isLoaded, userId } = useAuth();
-
-  if (!isLoaded) {
-    return <p>Loading...</p>;
-  }
-
-  if (!userId) {
-    return redirect("/sign-in");
-  } */
+  const { user } = useLoaderData<typeof loader>();
   return (
     <SidebarProvider>
       <aside>
