@@ -1,5 +1,6 @@
 [build]
 buildCommand = "bun install && bun run build"
+watchPatterns = ["apps/homepage/**", "packages/**", "package.json", "bun.lock"]
 
 [deploy]
 startCommand = "npx serve build/client -s -l $PORT"
