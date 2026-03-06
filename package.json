@@ -14,7 +14,7 @@
   },
   "type": "module",
   "scripts": {
-    "dev": "turbo dev",
+    "dev": "turbo -F @monoweb/homepage -F @monoweb/dashboard dev",
     "build": "turbo build",
     "check-types": "turbo check-types",
     "test": "turbo test",
