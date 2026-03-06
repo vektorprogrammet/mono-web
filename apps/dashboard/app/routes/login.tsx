@@ -1,7 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useState } from "react";
-import { Form, redirect, useActionData, useSearchParams } from "react-router";
+import { Form, Link, redirect, useActionData, useSearchParams } from "react-router";
 import { createClient, apiUrl } from "@vektorprogrammet/sdk";
 import {
   createAuthCookie,
@@ -46,6 +46,7 @@ export default function Login() {
   const actionData = useActionData<typeof action>();
   const [searchParams] = useSearchParams();
   const sessionExpired = searchParams.get("expired") === "true";
+  const passwordReset = searchParams.get("reset") === "true";
   const [showPassword, setShowPassword] = useState(false);
 
   return (
@@ -57,6 +58,11 @@ export default function Login() {
         </div>
 
         <Form method="post" className="space-y-4">
+          {passwordReset && (
+            <p className="rounded bg-green-50 p-2 text-center text-green-700 text-sm">
+              Passordet ditt er tilbakestilt. Logg inn med ditt nye passord.
+            </p>
+          )}
           {sessionExpired && (
             <p className="rounded bg-amber-50 p-2 text-center text-amber-700 text-sm">
               Økten din har utløpt. Vennligst logg inn på nytt.
@@ -106,6 +112,13 @@ export default function Login() {
           <Button type="submit" className="w-full">
             Logg inn
           </Button>
+
+          <Link
+            to="/glemt-passord"
+            className="block text-center text-sm text-gray-500 hover:text-gray-700"
+          >
+            Glemt passord?
+          </Link>
         </Form>
       </div>
     </main>
