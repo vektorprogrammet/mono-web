@@ -12,7 +12,8 @@
   "scripts": {
     "generate": "openapi-typescript openapi.json -o generated/api.d.ts",
     "build": "tsc -b",
-    "lint": "oxlint"
+    "lint": "oxlint",
+    "release": "changeset publish"
   },
   "dependencies": {
     "openapi-fetch": "^0.13",

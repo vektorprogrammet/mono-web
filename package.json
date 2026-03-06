@@ -13,9 +13,13 @@
     "dev:dashboard": "turbo -F @monoweb/dashboard dev",
     "dev:api": "turbo -F @monoweb/api dev",
     "dev:server": "turbo -F @monoweb/server dev",
-    "check": "oxlint && oxfmt --write"
+    "check": "oxlint && oxfmt --write",
+    "changeset": "changeset",
+    "version": "changeset version",
+    "release": "changeset publish"
   },
   "devDependencies": {
+    "@changesets/cli": "^2.30.0",
     "oxfmt": "^0.26.0",
     "oxlint": "^1.41.0",
     "turbo": "^2.8.12",
