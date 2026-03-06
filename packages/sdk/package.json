@@ -1,10 +1,14 @@
 {
-  "name": "@monoweb/sdk",
-  "private": true,
+  "name": "@vektorprogrammet/sdk",
+  "version": "0.1.0",
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
   },
+  "files": ["dist", "generated"],
   "scripts": {
     "generate": "openapi-typescript openapi.json -o generated/api.d.ts",
     "build": "tsc -b",

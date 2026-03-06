@@ -23,7 +23,7 @@ Turborepo monorepo for Vektorprogrammet — Norwegian university tutoring progra
 | `@monoweb/dashboard` | React Router, Tailwind, shadcn | `apps/dashboard/app/` | Admin dashboard |
 | `@monoweb/api` | Express 5, Drizzle, Zod | `apps/api/src/` | TS API (future backend) |
 | `@monoweb/server` | Symfony 6.4, API Platform 3.4 | `apps/server/src/` | PHP backend (current production) |
-| `@monoweb/sdk` | openapi-fetch, openapi-react-query | `packages/sdk/src/` | Type-safe API client |
+| `@vektorprogrammet/sdk` | openapi-fetch, openapi-react-query | `packages/sdk/src/` | Type-safe API client |
 
 ## Conventions
 
@@ -36,13 +36,13 @@ Turborepo monorepo for Vektorprogrammet — Norwegian university tutoring progra
 
 ## SDK
 
-`@monoweb/sdk` auto-generates a type-safe API client from the Symfony OpenAPI spec.
+`@vektorprogrammet/sdk` auto-generates a type-safe API client from the Symfony OpenAPI spec.
 
 Pipeline: `api:spec` (export from Symfony) → `generate` (openapi-typescript) → `build` (tsc)
 
 Consumer usage:
 ```typescript
-import { createClient, createQueryApi } from "@monoweb/sdk";
+import { createClient, createQueryApi } from "@vektorprogrammet/sdk";
 
 // Imperative (loaders, server-side)
 const api = createClient("http://localhost:8000");

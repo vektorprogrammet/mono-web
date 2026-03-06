@@ -9,7 +9,7 @@ import {
   Scripts,
   ScrollRestoration,
 } from "react-router";
-import { QueryProvider } from "@monoweb/sdk";
+import { QueryProvider } from "@vektorprogrammet/sdk";
 
 export const meta: MetaFunction = () => [
   {

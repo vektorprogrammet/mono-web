@@ -4,7 +4,7 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
-import { apiClient, isFixtureMode } from "@monoweb/sdk";
+import { apiClient, isFixtureMode } from "@vektorprogrammet/sdk";
 import { getTeamFaqs } from "~/api/faq";
 import { Divider } from "~/components/divider";
 

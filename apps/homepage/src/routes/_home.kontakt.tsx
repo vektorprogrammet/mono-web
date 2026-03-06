@@ -1,7 +1,7 @@
 import { Outlet, useLoaderData } from "react-router";
 import { getKontakt } from "~/api/kontakt";
 import type { DepartmentData } from "~/components/kontakt-tabs";
-import { apiClient, isFixtureMode } from "@monoweb/sdk";
+import { apiClient, isFixtureMode } from "@vektorprogrammet/sdk";
 
 export type KontaktContext = {
   departments: DepartmentData[] | null;

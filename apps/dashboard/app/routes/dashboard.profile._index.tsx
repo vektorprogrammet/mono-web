@@ -9,7 +9,7 @@ import {
 } from "@/components/ui/table";
 import { ChevronRight } from "lucide-react";
 import { NavLink, href, useLoaderData } from "react-router";
-import { isFixtureMode } from "@monoweb/sdk";
+import { isFixtureMode } from "@vektorprogrammet/sdk";
 import { getProfileData } from "../mock/api/data-profile";
 
 export async function loader() {

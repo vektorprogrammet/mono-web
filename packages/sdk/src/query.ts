@@ -1,6 +1,6 @@
 import createFetchClient from "openapi-fetch";
 import createQueryClient from "openapi-react-query";
-import type { paths } from "../generated/api";
+import type { paths } from "../generated/api.js";
 
 export function createQueryApi(
   baseUrl: string,

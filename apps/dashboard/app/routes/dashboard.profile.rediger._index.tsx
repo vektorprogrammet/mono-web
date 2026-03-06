@@ -14,7 +14,7 @@ import { useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { NavLink, href, useLoaderData, useNavigate } from "react-router";
 import { z } from "zod";
-import { apiClient, isFixtureMode } from "@monoweb/sdk";
+import { apiClient, isFixtureMode } from "@vektorprogrammet/sdk";
 import { getProfileData } from "../mock/api/data-profile";
 import { linjer } from "../mock/api/linjer";
 

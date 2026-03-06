@@ -1,5 +1,5 @@
 import { buttonVariants } from "@/components/ui/button";
-import { apiClient, isFixtureMode } from "@monoweb/sdk";
+import { apiClient, isFixtureMode } from "@vektorprogrammet/sdk";
 import { useInView, useMotionValue, useSpring } from "motion/react";
 import { useEffect, useRef } from "react";
 import { Link, type To, href, useLoaderData } from "react-router";

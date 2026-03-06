@@ -1,5 +1,5 @@
 import createFetchClient from "openapi-fetch";
-import type { paths } from "../generated/api";
+import type { paths } from "../generated/api.js";
 
 export function createClient(
   baseUrl: string,

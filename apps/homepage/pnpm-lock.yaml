@@ -14,9 +14,6 @@ importers:
       '@mantine/hooks':
         specifier: ^7.17.3
         version: 7.17.8(react@18.3.1)
-      '@monoweb/sdk':
-        specifier: file:../../packages/sdk
-        version: file:../../packages/sdk(@tanstack/react-query@5.90.21(react@18.3.1))(react@18.3.1)
       '@radix-ui/react-accordion':
         specifier: ^1.2.3
         version: 1.2.12(@types/react-dom@18.3.7(@types/react@18.3.28))(@types/react@18.3.28)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -62,6 +59,9 @@ importers:
       '@tanstack/react-query':
         specifier: ^5
         version: 5.90.21(react@18.3.1)
+      '@vektorprogrammet/sdk':
+        specifier: ^0.1.0
+        version: 0.1.0(@tanstack/react-query@5.90.21(react@18.3.1))(react@18.3.1)
       autoprefixer:
         specifier: ^10.4.21
         version: 10.4.27(postcss@8.5.8)
@@ -485,12 +485,6 @@ packages:
 
   '@mjackson/node-fetch-server@0.2.0':
     resolution: {integrity: sha512-EMlH1e30yzmTpGLQjlFmaDAjyOeZhng1/XCd7DExR8PNAnG/G1tyruZxEoUe11ClnwGhGrtsdnyyUx1frSzjng==}
-
-  '@monoweb/sdk@file:../../packages/sdk':
-    resolution: {directory: ../../packages/sdk, type: directory}
-    peerDependencies:
-      '@tanstack/react-query': ^5
-      react: ^18 || ^19
 
   '@nodelib/fs.scandir@2.1.5':
     resolution: {integrity: sha512-vq24Bq3ym5HEQm2NKCr3yXDwjc7vTsEThRDnkp2DK9p1uqLR+DHurm/NOTo0KG7HYHU7eppKZj3MyqYuMBf62g==}
@@ -1177,6 +1171,12 @@ packages:
 
   '@types/react@18.3.28':
     resolution: {integrity: sha512-z9VXpC7MWrhfWipitjNdgCauoMLRdIILQsAEV+ZesIzBq/oUlxk0m3ApZuMFCXdnS4U7KrI+l3WRUEGQ8K1QKw==}
+
+  '@vektorprogrammet/sdk@0.1.0':
+    resolution: {integrity: sha512-TCaEkEKOn8dn9YSZIGo1dOMxTREedlTiaKWuIaaXqtxPr88V4IS0PYvSMMe3NfN/x2W43mvcvLzZYZPuiCfukg==}
+    peerDependencies:
+      '@tanstack/react-query': ^5
+      react: ^18 || ^19
 
   '@vitest/expect@3.2.4':
     resolution: {integrity: sha512-Io0yyORnB6sikFlt8QW5K7slY4OjqNX9jmJQ02QDda8lyM6B5oNgVWoSoKPac8/kgnCUzuHQKrSLtu/uOqqrig==}
@@ -2669,13 +2669,6 @@ snapshots:
 
   '@mjackson/node-fetch-server@0.2.0': {}
 
-  '@monoweb/sdk@file:../../packages/sdk(@tanstack/react-query@5.90.21(react@18.3.1))(react@18.3.1)':
-    dependencies:
-      '@tanstack/react-query': 5.90.21(react@18.3.1)
-      openapi-fetch: 0.13.8
-      openapi-react-query: 0.3.2(@tanstack/react-query@5.90.21(react@18.3.1))(openapi-fetch@0.13.8)
-      react: 18.3.1
-
   '@nodelib/fs.scandir@2.1.5':
     dependencies:
       '@nodelib/fs.stat': 2.0.5
@@ -3322,6 +3315,13 @@ snapshots:
     dependencies:
       '@types/prop-types': 15.7.15
       csstype: 3.2.3
+
+  '@vektorprogrammet/sdk@0.1.0(@tanstack/react-query@5.90.21(react@18.3.1))(react@18.3.1)':
+    dependencies:
+      '@tanstack/react-query': 5.90.21(react@18.3.1)
+      openapi-fetch: 0.13.8
+      openapi-react-query: 0.3.2(@tanstack/react-query@5.90.21(react@18.3.1))(openapi-fetch@0.13.8)
+      react: 18.3.1
 
   '@vitest/expect@3.2.4':
     dependencies:
