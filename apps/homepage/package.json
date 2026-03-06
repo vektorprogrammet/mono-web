@@ -16,14 +16,8 @@
     "e2e:test:ui": "exec playwright test --ui",
     "e2e:show-report": "exec playwright show-report",
     "e2e:install": "exec playwright install",
-    "check": "biome check",
-    "check:fix": "biome check --write",
-    "check:fix:unsafe": "biome check --write --unsafe",
-    "lint": "biome lint",
-    "lint:fix": "biome lint --write",
-    "lint:fix:unsafe": "biome lint --write --unsafe",
-    "format": "biome format",
-    "format:fix": "biome format --write"
+    "lint": "oxlint",
+    "format": "oxfmt --write"
   },
   "browserslist": {
     "production": [
@@ -78,7 +72,6 @@
     "vite": "^6.2.5"
   },
   "devDependencies": {
-    "@biomejs/biome": "1.9.4",
     "@playwright/test": "^1.51.1",
     "@react-router/dev": "^7.4.1",
     "@types/node": "^22.13.14",
