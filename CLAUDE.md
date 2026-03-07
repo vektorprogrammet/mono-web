@@ -55,6 +55,13 @@ const { data, isLoading } = $api.useQuery("get", "/api/public/departments");
 
 Regenerate types: `turbo run generate` (or `cd packages/sdk && bun run generate`).
 
+## Docs
+
+| Topic | Location |
+|-------|----------|
+| Architecture decisions | [`docs/adr/`](docs/adr/) |
+| Server (PHP) | [`apps/server/CLAUDE.md`](apps/server/CLAUDE.md) |
+
 ## Server (PHP)
 
 See `apps/server/CLAUDE.md` for Symfony-specific rules, testing, and architecture.
