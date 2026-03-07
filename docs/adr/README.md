@@ -35,4 +35,4 @@ We use ADRs to document decisions that are costly to reverse or that future cont
 
 | ADR | Decision | Date | Status |
 |-----|----------|------|--------|
-| — | — | — | — |
+| [0000](0000-migrate-tech-stack-to-typescript-from-php.md) | Migrate tech stack to TypeScript from PHP | 2024-01-01 | Accepted |
