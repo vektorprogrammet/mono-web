@@ -60,6 +60,7 @@ Regenerate types: `turbo run generate` (or `cd packages/sdk && bun run generate`
 | Topic | Location |
 |-------|----------|
 | Architecture decisions | [`docs/adr/`](docs/adr/) |
+| Migration roadmap | [`docs/migration/`](docs/migration/) |
 | Server (PHP) | [`apps/server/CLAUDE.md`](apps/server/CLAUDE.md) |
 
 ## Server (PHP)
