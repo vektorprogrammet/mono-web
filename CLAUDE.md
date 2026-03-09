@@ -2,6 +2,34 @@
 
 Turborepo monorepo for Vektorprogrammet — Norwegian university tutoring program.
 
+## Migration Timeline
+
+```yaml
+A0:
+  operation: Migrate Controller methods to API Platform routes
+  requirements: []
+  effect: Decouples frontend Twig templates and Controller logic
+  constraint: API Platform exposes interface equivalent to Controller Methods
+A1:
+  operation: Add API SDK
+  requirements: [A0, A callable API Endpoint]
+  effect: Decouples API from backend
+  constraint": Constrain invalid states by hiding and invalidating illegal actions
+B0:
+  operation: "Connect new homepage"
+  requirements: A0
+B1:
+  operation: "Connect new dashboard"
+  requirements: A1
+C0:
+  operation: 
+  requirements: A1
+```
+
+1. Faithful migration from Controllers to API Platform (apps/server)
+2. Add SDK adhering to the state space constraints for API Platform
+3. Connect new frontend (homepage & dashboard) to API SDK
+
 ## Quick Reference
 
 | Command | Purpose |

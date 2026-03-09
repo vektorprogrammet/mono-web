@@ -8,132 +8,58 @@ The application's status is **computed**, not stored. It's derived from the stat
 S = { NOT_RECEIVED, RECEIVED, INVITED, ACCEPTED, COMPLETED, ASSIGNED, CANCELLED }
 ```
 
+PHP constants use longer names: `APPLICATION_NOT_RECEIVED(0)`, `APPLICATION_RECEIVED(1)`, `INVITED_TO_INTERVIEW(2)`, `INTERVIEW_ACCEPTED(3)`, `INTERVIEW_COMPLETED(4)`, `ASSIGNED_TO_SCHOOL(5)`, `CANCELLED(-1)`. See `ApplicationStatus.php`.
+
 ## State derivation
+
+Evaluated top-to-bottom; first match wins.
 
 ```
 status(app) =
-  | CANCELLED           if app.interview?.isCancelled()
   | ASSIGNED            if app.user.isActiveAssistant()
-  | COMPLETED           if app.user.hasBeenAssistant() ∨ app.interview?.interviewed
-  | ACCEPTED            if app.interview?.interviewStatus = ACCEPTED
-  | INVITED             if app.interview ≠ null
-  | RECEIVED            if app.admissionPeriod ≠ null
+  | COMPLETED           if app.user.hasBeenAssistant() OR app.interview?.interviewed
+  | if app.interview != null:
+      match interview.interviewStatus:
+        | ACCEPTED        -> ACCEPTED
+        | CANCELLED       -> CANCELLED
+        | PENDING         -> INVITED
+        | NO_CONTACT      -> RECEIVED
+        | REQUEST_NEW_TIME -> RECEIVED
+  | RECEIVED            if app.admissionPeriod != null
   | NOT_RECEIVED        otherwise
 ```
 
-Evaluated top-to-bottom; first match wins. Note: `ASSIGNED` and `COMPLETED` can override any interview state because they check user-level properties.
+`ASSIGNED` and `COMPLETED` are checked first — they override any interview state because they check user-level properties. `CANCELLED` is inside the match block, not a top-level override: an active assistant with a cancelled interview still shows `ASSIGNED`.
 
-## Transition graph (DAG)
-
-```
-NOT_RECEIVED → RECEIVED → INVITED → ACCEPTED → COMPLETED → ASSIGNED
-                                         ↓
-                                     CANCELLED
-```
-
-No cycles. `CANCELLED` is a terminal state. `ASSIGNED` is the goal state.
-
-## Transitions as Hoare triples
-
-### Create application
+## Transition graph
 
 ```
-{user ≠ null
- ∧ admissionPeriod.isActive()
- ∧ ¬∃ app' : app'.user = user ∧ app'.admissionPeriod = admissionPeriod}
-
-CreateApplication(user, admissionPeriod)
-
-{app.user = user
- ∧ app.admissionPeriod = admissionPeriod
- ∧ app.interview = null
- ∧ status(app) = RECEIVED}
+NOT_RECEIVED -> RECEIVED -> [SendConfirmation] -> INVITED -> ACCEPTED -> COMPLETED -> ASSIGNED
+                   ^                                  |
+                   |                              CANCELLED
+                   |
+            AssignInterview (status stays RECEIVED until confirmation sent)
 ```
 
-### Assign interview
+No cycles. `CANCELLED` is terminal. `ASSIGNED` is the goal state.
 
-```
-{status(app) = RECEIVED
- ∧ app.interview = null
- ∧ interview.scheduled ≠ null
- ∧ interview.interviewer ≠ null}
+## Transitions
 
-AssignInterview(app, interview)
+| Operation | Guard | Effect | Constraint |
+|---|---|---|---|
+| `CreateApplication(user, admissionPeriod)` | `user != null, admissionPeriod.isActive(), no existing app for this user+period` | `app.interview = null, status = RECEIVED` | **Uniqueness:** one per user+period. Enforced by email check (`ApplicationAdmission`), not DB constraint — race conditions possible. |
+| `AssignInterview(app, interview)` | `status = RECEIVED, app.interview = null, interview.scheduled != null, interview.interviewer != null` | `app.interview = interview. Status remains RECEIVED (interview starts at NO_CONTACT). Becomes INVITED only after SendConfirmation sets interviewStatus to PENDING.` | **Interview coupling:** `status in {INVITED, ACCEPTED, COMPLETED}` implies `interview != null`. |
+| `AcceptInterview(app.interview)` | `status = INVITED, interview.interviewStatus = PENDING, request.code = interview.responseCode` | `interview.interviewStatus = ACCEPTED, status = ACCEPTED` | |
+| `ConductInterview(interview, score, answers)` | `status = ACCEPTED, interview.interviewed = false, all score fields non-null (explanatoryPower, roleModel, suitability, suitableAssistant)` | `interview.interviewed = true, interview.conducted = now(), status = COMPLETED` | **Score completeness:** `interviewed = true` implies all four score fields non-null. |
+| `AssignToSchool(user, school, semester, workdays, bolk)` | `status = COMPLETED, school != null, semester.isActive(), no existing assignment for user+school+semester` | `AssistantHistory created, user.isActiveAssistant() = true, status = ASSIGNED` | **User override:** `isActiveAssistant()` forces `ASSIGNED` regardless of interview state — retroactive. |
+| `Cancel(app.interview)` | `interview != null, interview.interviewed = false` | `interview.interviewStatus = CANCELLED, status = CANCELLED` | |
 
-{app.interview = interview
- ∧ status(app) = INVITED}
-```
+**Returning assistants:** `createApplicationForExistingAssistant()` creates an application and attaches the user's last interview from a previous cycle, bypassing the normal flow. If the old interview was `CANCELLED`, the new application inherits that status.
 
-### Interview accepted (by applicant)
-
-Triggered when applicant responds to confirmation email.
-
-```
-{status(app) = INVITED
- ∧ app.interview.interviewStatus ∈ {NO_CONTACT, PENDING}}
-
-app.interview.acceptInterview()
-
-{app.interview.interviewStatus = ACCEPTED
- ∧ status(app) = ACCEPTED}
-```
-
-### Conduct interview
-
-```
-{status(app) = ACCEPTED
- ∧ app.interview.interviewStatus = ACCEPTED
- ∧ app.interview.interviewed = false
- ∧ score.explanatoryPower ≠ null
- ∧ score.roleModel ≠ null
- ∧ score.suitability ≠ null}
-
-ConductInterview(app.interview, score, answers)
-
-{app.interview.interviewed = true
- ∧ app.interview.interviewScore = score
- ∧ app.interview.interviewAnswers = answers
- ∧ status(app) = COMPLETED}
-```
-
-### Assign to school
-
-```
-{status(app) = COMPLETED
- ∧ school ≠ null
- ∧ semester.isActive()
- ∧ ¬∃ ah : ah.user = app.user ∧ ah.semester = semester ∧ ah.school = school}
-
-AssignToSchool(app.user, school, semester, workdays, bolk)
-
-{∃ ah : ah.user = app.user ∧ ah.school = school ∧ ah.semester = semester
- ∧ app.user.isActiveAssistant() = true
- ∧ status(app) = ASSIGNED}
-```
-
-### Cancel
-
-```
-{status(app) ∈ {INVITED, ACCEPTED}
- ∧ app.interview ≠ null
- ∧ ¬app.interview.interviewed}
-
-app.interview.cancel()
-
-{app.interview.interviewStatus = CANCELLED
- ∧ status(app) = CANCELLED}
-```
-
-## Invariants
-
-1. **Uniqueness:** At most one application per user per admission period.
-2. **Interview coupling:** `status ∈ {INVITED, ACCEPTED, COMPLETED}` implies `app.interview ≠ null`.
-3. **Score completeness:** `interview.interviewed = true` implies all three score fields are non-null.
-4. **Monotonicity:** Under normal flow, status only increases (NOT_RECEIVED < RECEIVED < ... < ASSIGNED). Exception: CANCELLED is reachable from INVITED or ACCEPTED.
-5. **User override:** `user.isActiveAssistant()` forces ASSIGNED regardless of interview state. This means creating an AssistantHistory record changes the application status retroactively.
+**Monotonicity:** Under normal flow, status only increases (`NOT_RECEIVED < RECEIVED < ... < ASSIGNED`). Exception: `CANCELLED` is reachable from `INVITED` or `ACCEPTED`.
 
 ## Implementation notes
 
 - Status is computed in `ApplicationManager::getApplicationStatus()`, not stored in the database.
-- The dashboard must replicate this computation client-side, or the API must expose a computed `status` field in the response.
-- Recommend: API returns computed status as a read-only field alongside the raw entity data.
+- The dashboard must replicate this computation client-side, or the API must expose a computed `status` field in the response. Recommend: API returns computed status as a read-only field.
+- Cancel in the API/applicant path requires `PENDING` interview status. The admin legacy controller has no guard — it cancels from any state.

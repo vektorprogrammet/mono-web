@@ -7,20 +7,25 @@ The interview has an explicit `interviewStatus` field (integer) and a separate `
 ### Scheduling status
 
 ```
-SchedulingStatus = { NO_CONTACT(0), PENDING(4), ACCEPTED(1), REQUEST_NEW_TIME(2), CANCELLED(3) }
+SchedulingStatus = { PENDING(0), ACCEPTED(1), REQUEST_NEW_TIME(2), CANCELLED(3), NO_CONTACT(4) }
 ```
+
+See `InterviewStatusType.php` for canonical values. Note the non-sequential ordering — `NO_CONTACT` is 4 (highest), `PENDING` is 0 (default). These integer values are stored in the database.
 
 ### Completion
 
 ```
-Completion = { not_conducted, conducted }
-  where conducted ≡ (interviewed = true)
+Completion = { not_conducted, draft, conducted }
+  where conducted  = (interviewed = true)
+        draft      = (interviewed = false AND interviewScore != null)
 ```
+
+The `draft` state means an interviewer saved scores without finalizing. The entity method `isDraft()` checks this condition.
 
 ### Combined state
 
 ```
-State = SchedulingStatus × Completion
+State = SchedulingStatus x Completion
 ```
 
 Not all combinations are reachable. Valid states:
@@ -30,6 +35,7 @@ Not all combinations are reachable. Valid states:
 | NO_CONTACT | not_conducted | Created, no confirmation sent |
 | PENDING | not_conducted | Confirmation sent, awaiting response |
 | ACCEPTED | not_conducted | Applicant confirmed, interview upcoming |
+| ACCEPTED | draft | Scores saved but not finalized |
 | ACCEPTED | conducted | Interview completed and scored |
 | REQUEST_NEW_TIME | not_conducted | Applicant requested reschedule |
 | CANCELLED | not_conducted | Interview cancelled |
@@ -37,132 +43,54 @@ Not all combinations are reachable. Valid states:
 ## Transition graph
 
 ```
-                    ┌─────────────────────────────┐
-                    │                             │
-                    v                             │
-NO_CONTACT ──→ PENDING ──→ ACCEPTED ──→ CONDUCTED (terminal)
-                  │  ↑          │
-                  │  │          v
-                  │  └── REQUEST_NEW_TIME
-                  │
-                  v
-              CANCELLED (terminal)
+NO_CONTACT --> PENDING --> ACCEPTED --> CONDUCTED (terminal)
+    |            |  ^          |
+    |            |  |          v
+    |            |  +-- REQUEST_NEW_TIME
+    |            |
+    +--+---------+----------> CANCELLED
+       |                         | (internal only: setCancelled(false)
+       |                         v  reverts to ACCEPTED — not user-facing)
+       +-- any non-conducted state can reach CANCELLED via admin cancel
 ```
 
-The `PENDING ↔ REQUEST_NEW_TIME` loop is the **reschedule cycle**. An applicant can request a new time, admin reschedules, status resets to PENDING. This can repeat.
+The `PENDING <-> REQUEST_NEW_TIME` loop is the **reschedule cycle**.
 
-## Transitions as Hoare triples
+## Transitions
 
-### Send confirmation
+| Operation | Guard | Effect | Constraint |
+|---|---|---|---|
+| `SendConfirmation(interview)` | `interviewStatus = NO_CONTACT, scheduled != null, interviewer != null, responseCode != null` | `interviewStatus = PENDING, confirmation email sent` | **Response code immutability:** `responseCode` set once at creation, never changes. |
+| `AcceptInterview()` | `interviewStatus = PENDING, request.code = responseCode` | `interviewStatus = ACCEPTED` | |
+| `RequestNewTime()` | `interviewStatus = PENDING, request.code = responseCode` | `interviewStatus = REQUEST_NEW_TIME` | |
+| `Reschedule(interview, newScheduled)` | `interviewStatus = REQUEST_NEW_TIME, newScheduled != null` | `interviewStatus = PENDING, scheduled = newScheduled, lastScheduleChanged = now()` | |
+| `Cancel()` — API/applicant | `interviewStatus = PENDING, interviewed = false` | `interviewStatus = CANCELLED` | |
+| `Cancel()` — admin legacy | `interviewed = false (no status guard)` | `interviewStatus = CANCELLED` | |
+| `Conduct(interview, score, answers)` | `interviewStatus = ACCEPTED` *(intended, not enforced in code)*, `interviewed = false, all score fields non-null (explanatoryPower, roleModel, suitability, suitableAssistant), len(answers) = len(interviewSchema.questions)` | `interviewed = true, conducted = now(), interviewScore = score, interviewAnswers = answers` | **Score completeness:** `interviewed = true` implies all four score fields non-null. |
+| `SaveDraft(interview, score)` | `interviewed = false, score != null` | `interviewScore = score, interviewed remains false (isDraft() = true)` | |
 
-```
-{interview.interviewStatus = NO_CONTACT
- ∧ interview.scheduled ≠ null
- ∧ interview.interviewer ≠ null
- ∧ interview.responseCode ≠ null}
-
-SendConfirmation(interview)
-
-{interview.interviewStatus = PENDING
- ∧ confirmationEmail.sent = true}
-```
-
-### Accept (by applicant)
-
-Triggered via email link with response code.
-
-```
-{interview.interviewStatus = PENDING
- ∧ request.code = interview.responseCode}
-
-interview.acceptInterview()
-
-{interview.interviewStatus = ACCEPTED}
-```
-
-### Request new time (by applicant)
-
-```
-{interview.interviewStatus = PENDING
- ∧ request.code = interview.responseCode}
-
-interview.requestNewTime()
-
-{interview.interviewStatus = REQUEST_NEW_TIME}
-```
-
-### Reschedule (by admin)
-
-This is the cycle entry point. Admin sets new datetime, resets status.
-
-```
-{interview.interviewStatus = REQUEST_NEW_TIME
- ∧ newScheduled ≠ null}
-
-Reschedule(interview, newScheduled)
-
-{interview.scheduled = newScheduled
- ∧ interview.interviewStatus = PENDING
- ∧ interview.lastScheduleChanged = now()
- ∧ interview.numAcceptInterviewRemindersSent = 0}
-```
-
-### Cancel
-
-```
-{interview.interviewStatus ∈ {NO_CONTACT, PENDING, ACCEPTED, REQUEST_NEW_TIME}
- ∧ interview.interviewed = false}
-
-interview.cancel()
-
-{interview.interviewStatus = CANCELLED}
-```
-
-### Conduct interview
-
-```
-{interview.interviewStatus = ACCEPTED
- ∧ interview.interviewed = false
- ∧ score.explanatoryPower ≠ null
- ∧ score.roleModel ≠ null
- ∧ score.suitability ≠ null
- ∧ |answers| = |interview.interviewSchema.questions|}
-
-Conduct(interview, score, answers)
-
-{interview.interviewed = true
- ∧ interview.conducted = now()
- ∧ interview.interviewScore = score
- ∧ interview.interviewAnswers = answers}
-```
+**Schedule/reschedule:** Both use `resetStatus()` which sets `interviewStatus = PENDING` unconditionally — no guard checking current status. The `NO_CONTACT -> PENDING` distinction exists only in the SendConfirmation workflow.
 
 ## Reminder contract
 
-Reminders are sent to applicants who haven't responded to confirmation.
+Backend scheduler concern — not a dashboard feature.
 
-```
-{interview.interviewStatus = PENDING
- ∧ interview.numAcceptInterviewRemindersSent < 3
- ∧ now() - interview.lastScheduleChanged > 24h}
+| Operation | Guard | Effect | Constraint |
+|---|---|---|---|
+| `SendReminder(interview)` | `interviewStatus = PENDING, numAcceptInterviewRemindersSent < 3, now() - lastScheduleChanged > 24h` | `numAcceptInterviewRemindersSent += 1, email sent (+ SMS if scheduled - now() < 24h)` | **Reminder cap:** `<= 3` (enforced by caller, not entity). |
 
-SendReminder(interview)
+## Code divergences from expected behavior
 
-{interview.numAcceptInterviewRemindersSent' = interview.numAcceptInterviewRemindersSent + 1
- ∧ (interview.scheduled - now() < 24h → sms.sent = true)
- ∧ email.sent = true}
-```
+These are NOT enforced in the current codebase. The dashboard should decide per-case whether to add enforcement or match existing behavior:
 
-## Invariants
-
-1. **Response code immutability:** `responseCode` is set once at creation (random hex), never changes.
-2. **Reminder cap:** `numAcceptInterviewRemindersSent <= 3`.
-3. **Conducted gate:** `interviewed = true` only reachable from `interviewStatus = ACCEPTED`.
-4. **Score completeness:** `interviewed = true → interviewScore ≠ null ∧ all score fields ≠ null`.
-5. **Reschedule resets reminders:** Rescheduling zeroes the reminder counter.
-6. **Terminal states:** `CANCELLED` and `conducted` are absorbing — no transitions out.
+- **No `interviewStatus` guard on conduct.** Any scheduling status can be conducted. Intended: only `ACCEPTED`.
+- **Reschedule does not reset reminders.** Neither `setScheduled()` nor `resetStatus()` touches `numAcceptInterviewRemindersSent`.
+- **`CANCELLED` is reversible.** `setCancelled(false)` calls `acceptInterview()`, setting status to `ACCEPTED`. Used internally before conducting a previously-cancelled interview. Not user-facing.
+- **`setStatus()` bypass.** Allows setting any integer value 0-4 directly, bypassing transition methods.
 
 ## Implementation notes
 
-- The reschedule cycle means the UI must handle re-entry: same interview goes PENDING → REQUEST_NEW_TIME → PENDING → ... potentially multiple times.
+- The reschedule cycle means the UI must handle re-entry: same interview goes `PENDING -> REQUEST_NEW_TIME -> PENDING -> ...` potentially multiple times.
 - The `responseCode` in confirmation emails allows unauthenticated status changes. The dashboard must not expose this code — it's for email links only.
 - SMS vs email for reminders depends on `interview.scheduled - now() < 24h`. The dashboard doesn't need to implement this — it's a backend scheduler concern.
+- `Interview::__construct()` sets `conducted = new DateTime()` at creation time. This is likely a legacy artifact — don't rely on this field until `interviewed = true`.

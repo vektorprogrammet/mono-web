@@ -42,7 +42,7 @@ The monolith serves the application form as a Twig-rendered page. This is the on
 
 **What it needs:**
 - Route: `/sok` or `/assistenter/sok`
-- Check active admission period for user's department
+- Check active admission period for the selected department (user picks department, not inferred — they haven't logged in yet)
 - Form fields: availability (mon-fri), substitute preference, double position, preferred school, language, special needs
 - Submit via `POST /api/applications` (endpoint exists)
 - Show confirmation or "applications closed" based on admission period
