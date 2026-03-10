@@ -56,7 +56,7 @@ jobs:
         run: bun turbo build
 
       - name: Push DB schema
-        run: cd apps/api && bunx drizzle-kit push --config=db/config/drizzle.config.ts
+        run: cd apps/api && bunx drizzle-kit push --config=db/config/drizzle.config.ts --force
 
       - name: Test
         run: bun turbo test
@@ -96,9 +96,9 @@ jobs:
         run: composer lint
 
       - name: Warm Symfony cache
-        run: php bin/console cache:warmup --env=dev
+        run: php bin/console cache:warmup --env=dev --no-optional-warmers
         env:
-          DATABASE_URL: sqlite:///%kernel.project_dir%/var/data.db
+          DATABASE_URL: mysql://dummy:dummy@localhost:3306/dummy?serverVersion=8.0
 
       - name: Static Analysis
         run: composer analyse
