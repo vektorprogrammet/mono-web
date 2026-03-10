@@ -95,6 +95,11 @@ jobs:
       - name: Lint
         run: composer lint
 
+      - name: Warm Symfony cache
+        run: php bin/console cache:warmup --env=dev
+        env:
+          DATABASE_URL: sqlite:///%kernel.project_dir%/var/data.db
+
       - name: Static Analysis
         run: composer analyse
 

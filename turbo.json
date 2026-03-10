@@ -7,7 +7,18 @@
       "inputs": ["$TURBO_DEFAULT$", ".env*"],
       "outputs": ["dist/**"]
     },
-    "test": {},
+    "test": {
+      "passThroughEnv": [
+        "PORT",
+        "HOSTING_URL",
+        "DATABASE_HOST",
+        "DATABASE_PORT",
+        "DATABASE_NAME",
+        "DATABASE_USER",
+        "DATABASE_PASSWORD",
+        "DATABASE_SSL_OPTION"
+      ]
+    },
     "lint": {
       "dependsOn": ["^lint"]
     },
