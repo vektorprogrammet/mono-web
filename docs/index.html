@@ -9,6 +9,19 @@
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
   :root {
+    --bg: #faf6ee;
+    --surface: #f5efe4;
+    --border: #e0d5c3;
+    --border-bright: #c9bba6;
+    --text: #2c2416;
+    --muted: #7a6e5f;
+    --accent: #3d7a5a;
+    --accent2: #5548c8;
+    --accent3: #b85c1a;
+    --accent4: #a83060;
+  }
+
+  [data-theme="dark"] {
     --bg: #0e0e0f;
     --surface: #161618;
     --border: #2a2a2e;
@@ -30,35 +43,40 @@
     padding: 48px 24px;
     max-width: 920px;
     margin: 0 auto;
+    transition: background 0.2s, color 0.2s;
   }
 
   header { margin-bottom: 56px; border-bottom: 1px solid var(--border); padding-bottom: 32px; }
+  .header-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 10px; }
   .label { font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent); margin-bottom: 12px; }
-  h1 { font-size: 26px; font-weight: 500; line-height: 1.3; margin-bottom: 10px; }
+  h1 { font-size: 26px; font-weight: 500; line-height: 1.3; }
   .subtitle { color: var(--muted); font-size: 14px; max-width: 600px; line-height: 1.7; }
+
+  .theme-toggle {
+    font-family: 'IBM Plex Mono', monospace; font-size: 11px;
+    padding: 4px 10px; border-radius: 4px;
+    border: 1px solid var(--border); background: transparent;
+    color: var(--muted); cursor: pointer;
+    transition: border-color 0.15s, color 0.15s;
+    white-space: nowrap; flex-shrink: 0; margin-top: 2px;
+  }
+  .theme-toggle:hover { border-color: var(--border-bright); color: var(--text); }
 
   h2 { font-size: 15px; font-weight: 500; margin-bottom: 16px; display: flex; align-items: center; gap: 10px; }
   h2::after { content: ''; flex: 1; height: 1px; background: var(--border); }
 
   .doc-link {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 16px 20px;
-    text-decoration: none;
-    color: var(--text);
-    background: var(--surface);
-    transition: border-color 0.15s, background 0.15s;
-    gap: 16px;
+    display: flex; align-items: center; justify-content: space-between;
+    border: 1px solid var(--border); border-radius: 6px;
+    padding: 16px 20px; text-decoration: none; color: var(--text);
+    background: var(--surface); transition: border-color 0.15s, background 0.15s; gap: 16px;
   }
-  .doc-link:hover { border-color: var(--border-bright); background: #1c1c20; }
+  .doc-link:hover { border-color: var(--border-bright); background: var(--bg); }
   .doc-link-left { display: flex; align-items: center; gap: 12px; }
   .doc-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
   .doc-title { font-weight: 500; font-size: 14px; margin-bottom: 3px; }
   .doc-desc { font-size: 12.5px; color: var(--muted); }
-  .doc-tag { font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--muted); background: #1a1a1f; border: 1px solid var(--border); padding: 2px 8px; border-radius: 3px; white-space: nowrap; flex-shrink: 0; }
+  .doc-tag { font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--muted); background: var(--bg); border: 1px solid var(--border); padding: 2px 8px; border-radius: 3px; white-space: nowrap; flex-shrink: 0; }
 
   footer { border-top: 1px solid var(--border); padding-top: 22px; color: var(--muted); font-size: 12px; font-family: 'IBM Plex Mono', monospace; margin-top: 56px; }
 </style>
@@ -67,13 +85,16 @@
 
 <header>
   <div class="label">vektorprogrammet · monoweb</div>
-  <h1>Documentation</h1>
+  <div class="header-top">
+    <h1>Documentation</h1>
+    <button class="theme-toggle" onclick="toggleTheme()" id="theme-btn">dark</button>
+  </div>
   <p class="subtitle">Internal technical docs for the monoweb codebase.</p>
 </header>
 
 <section>
   <h2>SDK</h2>
-  <a href="sdk-architecture" class="doc-link">
+  <a href="docs/sdk-architecture.html" class="doc-link">
     <div class="doc-link-left">
       <div class="doc-dot" style="background: var(--accent2)"></div>
       <div>
@@ -86,6 +107,35 @@
 </section>
 
 <footer>monoweb · vektorprogrammet</footer>
+
+<script>
+  const STORAGE_KEY = 'vektordocs-theme';
+
+  function getPreferred() {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    if (stored) return stored;
+    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  }
+
+  function applyTheme(theme) {
+    if (theme === 'dark') {
+      document.documentElement.setAttribute('data-theme', 'dark');
+      document.getElementById('theme-btn').textContent = 'light';
+    } else {
+      document.documentElement.removeAttribute('data-theme');
+      document.getElementById('theme-btn').textContent = 'dark';
+    }
+  }
+
+  function toggleTheme() {
+    const current = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
+    const next = current === 'dark' ? 'light' : 'dark';
+    localStorage.setItem(STORAGE_KEY, next);
+    applyTheme(next);
+  }
+
+  applyTheme(getPreferred());
+</script>
 
 </body>
 </html>
