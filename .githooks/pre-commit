@@ -104,8 +104,8 @@ if [ "$branch" = "$MAIN_BRANCH" ]; then
     eval "$CMD_TEST" || exit 1
   fi
 
-  if [ -d ".changeset" ]; then
-    echo "→ Changeset status"
+  if [ -d ".changeset" ] && git diff --cached --name-only | grep -q '^packages/sdk/'; then
+    echo "→ Changeset status (SDK changed)"
     bunx changeset status --since=HEAD~1 || {
       echo "Missing changeset. Run 'bunx changeset' to add one."
       exit 1

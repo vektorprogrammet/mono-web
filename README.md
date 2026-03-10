@@ -1,74 +1,107 @@
 # monoweb
 
-This project was created with [Better-T-Stack](https://github.com/AmanVarshney01/create-better-t-stack), a modern TypeScript stack that combines React, React Router, Express, and more.
-
-## Features
-
-- **TypeScript** - For type safety and improved developer experience
-- **React Router** - Declarative routing for React
-- **TailwindCSS** - Utility-first CSS for rapid UI development
-- **shadcn/ui** - Reusable UI components
-- **Express** - Fast, unopinionated web framework
-- **Bun** - Runtime environment
-- **Drizzle** - TypeScript-first ORM
-- **PostgreSQL** - Database engine
-- **Turborepo** - Optimized monorepo build system
-- **Oxlint** - Oxlint + Oxfmt (linting & formatting)
-
-## Getting Started
-
-First, install the dependencies:
-
-```bash
-bun install
-```
-
-## Database Setup
-
-This project uses PostgreSQL with Drizzle ORM.
-
-1. Make sure you have a PostgreSQL database set up.
-2. Update your `apps/server/.env` file with your PostgreSQL connection details.
-
-3. Apply the schema to your database:
-
-```bash
-bun run db:push
-```
-
-Then, run the development server:
-
-```bash
-bun run dev
-```
-
-Open [http://localhost:5173](http://localhost:5173) in your browser to see the web application.
-The API is running at [http://localhost:3000](http://localhost:3000).
-
-## Git Hooks and Formatting
-
-- Format and lint fix: `bun run check`
+Turborepo monorepo for [Vektorprogrammet](https://vektorprogrammet.no) — a Norwegian university tutoring program connecting STEM students with primary schools.
 
 ## Project Structure
 
 ```
 monoweb/
 ├── apps/
-│   ├── web/         # Frontend application (React + React Router)
-│   └── server/      # Backend API (Express)
+│   ├── homepage/    # Public website (React Router, Tailwind, daisyUI)
+│   ├── dashboard/   # Admin dashboard (React Router, Tailwind, shadcn)
+│   ├── api/         # TypeScript API (Express 5, Drizzle, PostgreSQL)
+│   └── server/      # PHP backend (Symfony 6.4, API Platform 3.4, MySQL)
 ├── packages/
-│   └── db/          # Database schema & queries
+│   └── sdk/         # Type-safe API client (@vektorprogrammet/sdk)
+└── docs/
+    ├── adr/         # Architecture Decision Records
+    ├── migration/   # Migration roadmap and state contracts
+    └── plans/       # Implementation plans
 ```
 
-## Available Scripts
+The PHP server (`apps/server`) is the current production backend. The TypeScript API (`apps/api`) and SDK (`packages/sdk`) are part of an incremental migration — see [docs/migration/](docs/migration/) for details.
 
-- `bun run dev`: Start all applications in development mode
-- `bun run build`: Build all applications
-- `bun run dev:web`: Start only the web application
-- `bun run dev:server`: Start only the server
-- `bun run check-types`: Check TypeScript types across all apps
-- `bun run db:push`: Push schema changes to database
-- `bun run db:generate`: Generate database client/types
-- `bun run db:migrate`: Run database migrations
-- `bun run db:studio`: Open database studio UI
-- `bun run check`: Run Oxlint and Oxfmt
+## Getting Started
+
+```bash
+bun install
+```
+
+### Local Development
+
+Start the frontend apps (homepage + dashboard):
+
+```bash
+bun run dev
+```
+
+Start the PHP server with Docker (MySQL included):
+
+```bash
+docker compose up server mysql
+```
+
+| App | URL | Start command |
+|-----|-----|---------------|
+| Homepage | http://localhost:5173 | `bun run dev:homepage` |
+| Dashboard | http://localhost:5174 | `bun run dev:dashboard` |
+| PHP Server | http://localhost:8000 | `bun run dev:server` (or Docker) |
+| TS API | http://localhost:3000 | `bun run dev:api` |
+
+### Database Setup
+
+The project has two databases:
+
+- **MySQL 8.0** for the PHP server — provisioned automatically by `docker compose up`
+- **PostgreSQL 16** for the TS API — provisioned by `docker compose up` or set `DATABASE_URL` in `apps/api/.env`
+
+## Scripts
+
+| Command | Purpose |
+|---------|---------|
+| `bun run dev` | Start homepage + dashboard |
+| `bun run dev:homepage` | Start homepage only |
+| `bun run dev:dashboard` | Start dashboard only |
+| `bun run dev:api` | Start TS API only |
+| `bun run dev:server` | Start PHP server only |
+| `bun run build` | Build all packages |
+| `bun run lint` | Lint all packages (oxlint) |
+| `bun run test` | Run all test suites |
+| `bun run check` | Run oxlint + oxfmt |
+| `bun run check-types` | TypeScript type checking |
+
+PHP server commands run via composer, not turbo:
+
+```bash
+cd apps/server
+composer test       # PHPUnit (1001 tests)
+composer lint       # PHP-CS-Fixer
+composer analyse    # PHPStan
+```
+
+## SDK
+
+`@vektorprogrammet/sdk` is a type-safe API client auto-generated from the Symfony OpenAPI spec.
+
+```bash
+turbo run generate   # Regenerate types from OpenAPI spec
+```
+
+```typescript
+import { createClient, createQueryApi } from "@vektorprogrammet/sdk";
+
+const api = createClient("http://localhost:8000");
+const { data } = await api.GET("/api/public/departments");
+```
+
+See [packages/sdk/](packages/sdk/) for full usage.
+
+## Tooling
+
+- **Package manager:** Bun
+- **Monorepo:** Turborepo
+- **Linting/formatting:** oxlint + oxfmt
+- **Commits:** [Conventional Commits](https://www.conventionalcommits.org/)
+- **SDK publishing:** Changesets (npm: `@vektorprogrammet/sdk`)
+- **CI:** GitHub Actions — parallel TS (turbo) + PHP (composer) jobs
+- **Git hooks:** Pre-commit runs lint, build, and changeset checks (`.githooks/`)
