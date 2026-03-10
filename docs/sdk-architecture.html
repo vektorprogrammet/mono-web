@@ -1,0 +1,625 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>@vektorprogrammet/sdk — Architecture</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #0e0e0f;
+    --surface: #161618;
+    --border: #2a2a2e;
+    --border-bright: #3d3d44;
+    --text: #e8e8ea;
+    --muted: #7a7a85;
+    --accent: #6ee7b7;
+    --accent2: #818cf8;
+    --accent3: #fb923c;
+    --accent4: #f472b6;
+    --code-bg: #1a1a1f;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'IBM Plex Sans', sans-serif;
+    font-size: 15px;
+    line-height: 1.6;
+    padding: 48px 24px;
+    max-width: 920px;
+    margin: 0 auto;
+  }
+
+  header { margin-bottom: 56px; border-bottom: 1px solid var(--border); padding-bottom: 32px; }
+  .label { font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent); margin-bottom: 12px; }
+  h1 { font-size: 26px; font-weight: 500; line-height: 1.3; margin-bottom: 10px; }
+  .subtitle { color: var(--muted); font-size: 14px; max-width: 600px; line-height: 1.7; }
+
+  section { margin-bottom: 56px; }
+  h2 { font-size: 15px; font-weight: 500; margin-bottom: 6px; display: flex; align-items: center; gap: 10px; }
+  h2::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+  .section-desc { color: var(--muted); font-size: 13.5px; margin-bottom: 20px; line-height: 1.7; }
+
+  /* Stack layers */
+  .layer { border: 1px solid var(--border); border-radius: 6px; padding: 16px 22px; margin-bottom: 2px; cursor: pointer; transition: border-color 0.15s, background 0.15s; }
+  .layer:hover { border-color: var(--border-bright); background: var(--surface); }
+  .layer.active { border-color: var(--accent); background: var(--surface); }
+  .layer-header { display: flex; align-items: center; justify-content: space-between; }
+  .layer-name { font-weight: 500; font-size: 14px; display: flex; align-items: center; gap: 10px; }
+  .layer-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .layer-tag { font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--muted); background: var(--code-bg); padding: 2px 8px; border-radius: 3px; }
+  .layer-chevron { color: var(--muted); font-size: 10px; transition: transform 0.2s; flex-shrink: 0; margin-left: 12px; }
+  .layer.active .layer-chevron { transform: rotate(180deg); }
+  .layer-detail { display: none; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border); }
+  .layer.active .layer-detail { display: block; }
+  .layer-desc { color: var(--muted); font-size: 13.5px; margin-bottom: 14px; line-height: 1.7; }
+  .arrow-down { text-align: center; color: var(--border-bright); font-size: 16px; padding: 3px 0; }
+
+  pre {
+    background: var(--code-bg); border: 1px solid var(--border); border-radius: 6px;
+    padding: 14px 16px; font-family: 'IBM Plex Mono', monospace; font-size: 12px;
+    line-height: 1.75; overflow-x: auto;
+  }
+  .kw { color: var(--accent2); } .ty { color: var(--accent); } .str { color: var(--accent3); }
+  .cm { color: #6b6b7e; } .fn { color: var(--accent4); } .op { color: var(--muted); }
+  .good { color: var(--accent); } .bad { color: #f87171; }
+  .line-good { display: block; background: rgba(110,231,183,0.07); border-left: 2px solid var(--accent); margin: 0 -16px; padding: 0 16px 0 14px; }
+  .line-bad { display: block; background: rgba(248,113,113,0.07); border-left: 2px solid #f87171; margin: 0 -16px; padding: 0 16px 0 14px; }
+  .line-good .cm { color: rgba(110,231,183,0.5); }
+  .line-bad .cm { color: rgba(248,113,113,0.45); }
+
+  /* Tabs */
+  .dim-tabs { display: flex; gap: 6px; margin-bottom: 18px; flex-wrap: wrap; }
+  .dim-tab { font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; padding: 5px 12px; border-radius: 4px; border: 1px solid var(--border); cursor: pointer; color: var(--muted); background: transparent; transition: all 0.15s; }
+  .dim-tab:hover { border-color: var(--border-bright); color: var(--text); }
+  .dim-tab.active { border-color: var(--accent); color: var(--accent); background: rgba(110,231,183,0.06); }
+  .dim-panel { display: none; }
+  .dim-panel.active { display: block; }
+
+  /* Tables */
+  .matrix-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; }
+  th { padding: 9px 12px; text-align: left; border-bottom: 1px solid var(--border); color: var(--muted); font-weight: 500; white-space: nowrap; }
+  th.c { text-align: center; }
+  td { padding: 8px 12px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+  td.op { color: var(--text); }
+  td.dom { color: var(--muted); font-size: 10.5px; }
+  td.c { text-align: center; }
+  tr:hover td { background: rgba(255,255,255,0.012); }
+  .yes { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
+  .no  { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--border-bright); opacity: 0.35; }
+  .rt  { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--accent3); }
+
+  /* Cards */
+  .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; }
+  .card { border: 1px solid var(--border); border-radius: 6px; padding: 14px 16px; background: var(--surface); }
+  .card-title { font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; font-weight: 600; margin-bottom: 10px; display: flex; align-items: center; gap: 7px; }
+  .card-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+  .card-ops { list-style: none; }
+  .card-ops li { font-size: 11px; font-family: 'IBM Plex Mono', monospace; color: var(--muted); padding: 2px 0; display: flex; align-items: center; gap: 5px; }
+  .card-ops li::before { content: '·'; color: var(--border-bright); }
+
+  /* State machine */
+  .states-flow { display: flex; align-items: flex-start; gap: 0; overflow-x: auto; padding-bottom: 8px; margin-top: 4px; }
+  .state-box { border: 1px solid var(--border); border-radius: 6px; padding: 12px 14px; min-width: 140px; background: var(--surface); flex-shrink: 0; }
+  .state-name { font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 600; margin-bottom: 8px; }
+  .state-items { list-style: none; }
+  .state-items li { font-size: 10.5px; font-family: 'IBM Plex Mono', monospace; padding: 1.5px 0; }
+  .state-items li.on { color: var(--accent); }
+  .state-items li.off { color: #28282f; text-decoration: line-through; }
+  .state-arrow { padding: 0 8px; color: var(--muted); font-size: 16px; flex-shrink: 0; display: flex; flex-direction: column; align-items: center; gap: 3px; padding-top: 18px; }
+  .state-arrow span { font-family: 'IBM Plex Mono', monospace; font-size: 9px; color: var(--muted); white-space: nowrap; }
+
+  /* Callout */
+  .callout { margin-top: 14px; border: 1px solid var(--border); border-radius: 6px; padding: 14px 18px; background: var(--surface); }
+  .callout h4 { font-size: 11px; font-weight: 600; margin-bottom: 7px; color: var(--accent2); font-family: 'IBM Plex Mono', monospace; letter-spacing: 0.05em; text-transform: uppercase; }
+  .callout p { font-size: 13px; color: var(--muted); line-height: 1.7; }
+  .callout code { font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; color: var(--accent3); }
+
+  /* Principles */
+  .principles-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 16px; }
+  .principle { border: 1px solid var(--border); border-radius: 6px; padding: 16px 18px; background: var(--surface); }
+  .principle-num { font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: var(--muted); margin-bottom: 6px; }
+  .principle-title { font-weight: 500; font-size: 13.5px; margin-bottom: 5px; }
+  .principle-body { font-size: 12.5px; color: var(--muted); line-height: 1.65; }
+
+  /* Timeline */
+  .timeline-item { display: flex; gap: 18px; margin-bottom: 18px; align-items: flex-start; }
+  .timeline-marker { width: 26px; height: 26px; border-radius: 50%; border: 1px solid var(--border-bright); display: flex; align-items: center; justify-content: center; font-family: 'IBM Plex Mono', monospace; font-size: 10px; flex-shrink: 0; margin-top: 2px; color: var(--muted); }
+  .timeline-content h4 { font-size: 13.5px; font-weight: 500; margin-bottom: 3px; }
+  .timeline-content p { font-size: 12.5px; color: var(--muted); line-height: 1.65; }
+
+  .matrix-note { margin-top: 12px; font-size: 12px; color: var(--muted); display: flex; gap: 16px; flex-wrap: wrap; }
+  .legend-item { display: flex; align-items: center; gap: 5px; }
+
+  /* Warning badge */
+  .warn { display: inline-block; font-family: 'IBM Plex Mono', monospace; font-size: 10px; background: rgba(251,146,60,0.12); color: var(--accent3); border: 1px solid rgba(251,146,60,0.3); padding: 1px 6px; border-radius: 3px; margin-left: 6px; vertical-align: middle; }
+
+  footer { border-top: 1px solid var(--border); padding-top: 22px; color: var(--muted); font-size: 12px; font-family: 'IBM Plex Mono', monospace; }
+
+  @media (max-width: 600px) { .principles-grid { grid-template-columns: 1fr; } .cards { grid-template-columns: 1fr 1fr; } }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="label">@vektorprogrammet/sdk · architecture plan</div>
+  <h1>Domain-First SDK Design</h1>
+  <p class="subtitle">A typed SDK layer over the Symfony/API Platform backend — decoupled from the OpenAPI spec, scoped to Vektorprogrammet's domain, and ready for the backend migration to TypeScript.</p>
+</header>
+
+<!-- COLOR LEGEND -->
+<div style="margin-bottom: 44px; padding-bottom: 32px; border-bottom: 1px solid var(--border);">
+  <div style="font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:0.08em; text-transform:uppercase; color:var(--muted); margin-bottom:12px;">color language</div>
+  <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center;">
+    <div style="display:flex; align-items:center; gap:7px; background:rgba(110,231,183,0.06); border:1px solid rgba(110,231,183,0.2); border-radius:20px; padding:5px 12px 5px 8px;">
+      <div style="width:8px;height:8px;border-radius:50%;background:#6ee7b7;flex-shrink:0;"></div>
+      <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:#6ee7b7;font-weight:600;">domain</span>
+    </div>
+    <div style="display:flex; align-items:center; gap:7px; background:rgba(129,140,248,0.06); border:1px solid rgba(129,140,248,0.2); border-radius:20px; padding:5px 12px 5px 8px;">
+      <div style="width:8px;height:8px;border-radius:50%;background:#818cf8;flex-shrink:0;"></div>
+      <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:#818cf8;font-weight:600;">interface</span>
+    </div>
+    <div style="display:flex; align-items:center; gap:7px; background:rgba(251,146,60,0.06); border:1px solid rgba(251,146,60,0.2); border-radius:20px; padding:5px 12px 5px 8px;">
+      <div style="width:8px;height:8px;border-radius:50%;background:#fb923c;flex-shrink:0;"></div>
+      <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:#fb923c;font-weight:600;">internals</span>
+    </div>
+    <div style="display:flex; align-items:center; gap:7px; background:rgba(244,114,182,0.06); border:1px solid rgba(244,114,182,0.2); border-radius:20px; padding:5px 12px 5px 8px;">
+      <div style="width:8px;height:8px;border-radius:50%;background:#f472b6;flex-shrink:0;"></div>
+      <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:#f472b6;font-weight:600;">adapter</span>
+    </div>
+  </div>
+</div>
+
+<!-- STACK -->
+<section>
+  <h2>The Stack</h2>
+  <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:16px; flex-wrap:wrap; gap:8px;">
+    <p class="section-desc" style="margin:0;">Click any layer to expand.</p>
+    <div style="display:flex; gap:6px;">
+      <button onclick="setAllLayers(true)" style="font-family:'IBM Plex Mono',monospace; font-size:11px; padding:4px 12px; border-radius:4px; border:1px solid var(--border); background:transparent; color:var(--muted); cursor:pointer; transition:all 0.15s;" onmouseover="this.style.borderColor='var(--border-bright)';this.style.color='var(--text)'" onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--muted)'">expand all</button>
+      <button onclick="setAllLayers(false)" style="font-family:'IBM Plex Mono',monospace; font-size:11px; padding:4px 12px; border-radius:4px; border:1px solid var(--border); background:transparent; color:var(--muted); cursor:pointer; transition:all 0.15s;" onmouseover="this.style.borderColor='var(--border-bright)';this.style.color='var(--text)'" onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--muted)'">collapse all</button>
+    </div>
+  </div>
+
+  <div class="layer" onclick="this.classList.toggle('active')">
+    <div class="layer-header">
+      <div class="layer-name"><div class="layer-dot" style="background:#6ee7b7"></div>Homepage & Dashboard (TypeScript + React)</div>
+      <div style="display:flex;align-items:center;gap:8px"><div class="layer-tag">tanstack query · zustand · SSR</div><span class="layer-chevron">▼</span></div>
+    </div>
+    <div class="layer-detail">
+      <p class="layer-desc">Two apps: public homepage and authenticated admin dashboard. Neither knows about HTTP internals, JWT tokens, API Platform, or Symfony. They call the SDK and get plain promises back. Tanstack Query owns caching, loading states, and background refetch.</p>
+      <pre><span class="cm">// dashboard: recruitment pipeline</span>
+<span class="kw">const</span> { data: applications } = <span class="fn">useQuery</span>({
+  queryKey: [<span class="str">"applications"</span>, admissionPeriodId],
+  queryFn: () => sdk.applications.<span class="fn">list</span>({ admissionPeriodId })
+  <span class="cm">// returns Application[] with computed status — never raw PHP integers</span>
+})
+
+<span class="cm">// homepage: check if applications are open</span>
+<span class="kw">const</span> { data: period } = <span class="fn">useQuery</span>({
+  queryKey: [<span class="str">"admissionPeriod"</span>, dept],
+  queryFn: () => sdk.admissionPeriods.<span class="fn">active</span>(dept)
+})</pre>
+    </div>
+  </div>
+
+  <div class="arrow-down">↓</div>
+
+  <div class="layer" onclick="this.classList.toggle('active')">
+    <div class="layer-header">
+      <div class="layer-name"><div class="layer-dot" style="background:#818cf8"></div>SDK Public Interface</div>
+      <div style="display:flex;align-items:center;gap:8px"><div class="layer-tag">plain promises · typed errors · scoped client</div><span class="layer-chevron">▼</span></div>
+    </div>
+    <div class="layer-detail">
+      <p class="layer-desc">The contract the apps depend on. Exposes domain operations shaped around Vektorprogrammet's workflows, not HTTP endpoints. Computed fields like Application status are resolved here — consumers never see raw PHP integer constants. The client type encodes role, department, and team scope.</p>
+      <pre><span class="cm">// domain-shaped operations</span>
+<span class="line-good">sdk.interviews.<span class="fn">schedule</span>(id, { datetime, room, interviewer })   <span class="cm">// ✓ domain operation</span></span>
+<span class="line-bad">sdk.interviews.<span class="fn">put</span>(id, { interviewStatus: 0 })                 <span class="cm">// ✗ raw PHP integers leak</span></span>
+
+<span class="cm">// application status is a string enum, not a PHP int constant</span>
+<span class="line-good">application.status  <span class="cm">// "received" | "invited" | "accepted" | "completed" | "assigned" | "cancelled"</span></span>
+<span class="line-bad">application.status  <span class="cm">// APPLICATION_RECEIVED(1), INVITED_TO_INTERVIEW(2)...</span></span>
+
+<span class="cm">// typed result — explicit errors</span>
+<span class="kw">const</span> result = <span class="kw">await</span> sdk.receipts.<span class="fn">approve</span>(id)
+<span class="kw">if</span> (!result.ok) {
+  result.error <span class="cm">// { type: "not_pending" | "unauthorized" | "not_found" }</span>
+}</pre>
+    </div>
+  </div>
+
+  <div class="arrow-down">↓</div>
+
+  <div class="layer" onclick="this.classList.toggle('active')">
+    <div class="layer-header">
+      <div class="layer-name"><div class="layer-dot" style="background:#fb923c"></div>Effect-TS Internals</div>
+      <div style="display:flex;align-items:center;gap:8px"><div class="layer-tag">composition · typed errors · concurrency</div><span class="layer-chevron">▼</span></div>
+    </div>
+    <div class="layer-detail">
+      <p class="layer-desc">Fully internal. Handles request composition, parallel fetching, rich typed errors, and deferred execution. Never exposed to app consumers. Auth state, department scope, and JWT management all live here as Effect services.</p>
+      <pre><span class="cm">// application status derivation as a pure effect</span>
+<span class="kw">const</span> deriveStatus = (app: RawApplication): <span class="ty">ApplicationStatus</span> => {
+  <span class="kw">if</span> (app.user.isActiveAssistant) <span class="kw">return</span> <span class="str">"assigned"</span>
+  <span class="kw">if</span> (app.user.hasBeenAssistant || app.interview?.interviewed) <span class="kw">return</span> <span class="str">"completed"</span>
+  <span class="kw">if</span> (!app.interview) <span class="kw">return</span> app.admissionPeriod ? <span class="str">"received"</span> : <span class="str">"not_received"</span>
+  <span class="kw">return</span> <span class="fn">mapInterviewStatus</span>(app.interview.interviewStatus)
+}
+
+<span class="cm">// JWT refresh as an effect — transparent to callers</span>
+<span class="kw">const</span> authedRequest = Effect.<span class="fn">gen</span>(<span class="kw">function*</span> () {
+  <span class="kw">const</span> auth = <span class="kw">yield*</span> <span class="ty">AuthService</span>
+  <span class="kw">const</span> token = <span class="kw">yield*</span> auth.<span class="fn">getValidToken</span>()  <span class="cm">// refreshes if expired</span>
+  <span class="kw">return yield*</span> <span class="ty">HttpService</span>.<span class="fn">withToken</span>(token)
+})</pre>
+    </div>
+  </div>
+
+  <div class="arrow-down">↓</div>
+
+  <div class="layer" onclick="this.classList.toggle('active')">
+    <div class="layer-header">
+      <div class="layer-name"><div class="layer-dot" style="background:#f472b6"></div>Adapter</div>
+      <div style="display:flex;align-items:center;gap:8px"><div class="layer-tag">swappable · maps domain → http</div><span class="layer-chevron">▼</span></div>
+    </div>
+    <div class="layer-detail">
+      <p class="layer-desc">Translates domain calls to concrete HTTP requests. This is the only layer that changes during the backend migration. It knows about API Platform's naming conventions, Hydra pagination, IRI references, and JSON-LD — none of that leaks up.</p>
+      <pre><span class="cm">// today — API Platform adapter</span>
+<span class="cm">// handles: Hydra collections, IRI refs like "/api/users/42", hyphen URLs</span>
+<span class="kw">const</span> symfonyAdapter = {
+  listApplications: ({ admissionPeriodId }) =>
+    <span class="fn">get</span>(<span class="str">`/api/admin/applications?admissionPeriod=<span class="op">${</span>admissionPeriodId<span class="op">}</span>`</span>)
+      .<span class="fn">then</span>(<span class="fn">fromHydraCollection</span>)   <span class="cm">// strips Hydra wrapper</span>
+      .<span class="fn">then</span>(apps => apps.<span class="fn">map</span>(<span class="fn">normalizeIris</span>))   <span class="cm">// "/api/users/42" → 42</span>
+}
+
+<span class="cm">// tomorrow — TypeScript server adapter, zero changes above</span>
+<span class="kw">const</span> tsAdapter = {
+  listApplications: ({ admissionPeriodId }) =>
+    <span class="fn">get</span>(<span class="str">`/api/applications?period=<span class="op">${</span>admissionPeriodId<span class="op">}</span>`</span>)
+      .<span class="fn">then</span>(r => r.data)   <span class="cm">// plain JSON, no Hydra</span>
+}</pre>
+    </div>
+  </div>
+
+  <div class="arrow-down">↓</div>
+
+  <div class="layer" onclick="this.classList.toggle('active')">
+    <div class="layer-header">
+      <div class="layer-name"><div class="layer-dot" style="background:#7a7a85"></div>Backend</div>
+      <div style="display:flex;align-items:center;gap:8px"><div class="layer-tag">symfony 6.4 + api platform → @monoweb/api</div><span class="layer-chevron">▼</span></div>
+    </div>
+    <div class="layer-detail">
+      <p class="layer-desc">Today: Symfony 6.4 with API Platform 3.4, JWT auth, 93 endpoints. The OpenAPI spec it generates is only read by the adapter — it never shapes the SDK interface. Tomorrow: <code>@monoweb/api</code> (Express + Drizzle + Zod). The adapter swaps; everything above is unchanged.</p>
+    </div>
+  </div>
+</section>
+
+<!-- PERMISSION MODEL -->
+<section>
+  <h2>Permission Model</h2>
+  <p class="section-desc">Three orthogonal dimensions. A user's effective access is their intersection: role hierarchy × department × team. Each dimension is independent.</p>
+
+  <div class="dim-tabs">
+    <button class="dim-tab active" onclick="switchDim(this,'roles')">Role hierarchy</button>
+    <button class="dim-tab" onclick="switchDim(this,'dept')">Departments</button>
+    <button class="dim-tab" onclick="switchDim(this,'teams')">Teams</button>
+    <button class="dim-tab" onclick="switchDim(this,'intersection')">Intersection</button>
+  </div>
+
+  <!-- ROLES -->
+  <div class="dim-panel active" id="dim-roles">
+    <p class="section-desc" style="margin-bottom:14px">Hierarchical — each role inherits everything below it. <code>Assistant &lt; Member &lt; Leader &lt; Admin</code>. Some operations require runtime role checks since roles come from the server JWT.</p>
+    <div class="matrix-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Operation</th><th>Domain</th>
+            <th class="c">Assistant</th><th class="c">Member</th><th class="c">Leader</th><th class="c">Admin</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td class="op">auth.login()</td><td class="dom">auth</td><td class="c"><span class="yes"></span></td><td class="c"><span class="yes"></span></td><td class="c"><span class="yes"></span></td><td class="c"><span class="yes"></span></td></tr>
+          <tr><td class="op">users.me()</td><td class="dom">users</td><td class="c"><span class="yes"></span></td><td class="c"><span class="yes"></span></td><td class="c"><span class="yes"></span></td><td class="c"><span class="yes"></span></td></tr>
+          <tr><td class="op">applications.create()</td><td class="dom">admission</td><td class="c"><span class="yes"></span></td><td class="c"><span class="yes"></span></td><td class="c"><span class="yes"></span></td><td class="c"><span class="yes"></span></td></tr>
+          <tr><td class="op">applications.list()</td><td class="dom">admission</td><td class="c"><span class="no"></span></td><td class="c"><span class="yes"></span></td><td class="c"><span class="yes"></span></td><td class="c"><span class="yes"></span></td></tr>
+          <tr><td class="op">interviews.list()</td><td class="dom">admission</td><td class="c"><span class="no"></span></td><td class="c"><span class="yes"></span></td><td class="c"><span class="yes"></span></td><td class="c"><span class="yes"></span></td></tr>
+          <tr><td class="op">interviews.schedule()</td><td class="dom">admission</td><td class="c"><span class="no"></span></td><td class="c"><span class="no"></span></td><td class="c"><span class="yes"></span></td><td class="c"><span class="yes"></span></td></tr>
+          <tr><td class="op">interviews.conduct()</td><td class="dom">admission</td><td class="c"><span class="no"></span></td><td class="c"><span class="rt"></span></td><td class="c"><span class="yes"></span></td><td class="c"><span class="yes"></span></td></tr>
+          <tr><td class="op">interviews.assign()</td><td class="dom">admission</td><td class="c"><span class="no"></span></td><td class="c"><span class="no"></span></td><td class="c"><span class="yes"></span></td><td class="c"><span class="yes"></span></td></tr>
+          <tr><td class="op">team.members.list()</td><td class="dom">team</td><td class="c"><span class="no"></span></td><td class="c"><span class="yes"></span></td><td class="c"><span class="yes"></span></td><td class="c"><span class="yes"></span></td></tr>
+          <tr><td class="op">team.members.add()</td><td class="dom">team</td><td class="c"><span class="no"></span></td><td class="c"><span class="no"></span></td><td class="c"><span class="yes"></span></td><td class="c"><span class="yes"></span></td></tr>
+          <tr><td class="op">team.members.suspend()</td><td class="dom">team</td><td class="c"><span class="no"></span></td><td class="c"><span class="no"></span></td><td class="c"><span class="yes"></span></td><td class="c"><span class="yes"></span></td></tr>
+          <tr><td class="op">receipts.submit()</td><td class="dom">accounting</td><td class="c"><span class="no"></span></td><td class="c"><span class="yes"></span></td><td class="c"><span class="yes"></span></td><td class="c"><span class="yes"></span></td></tr>
+          <tr><td class="op">receipts.approve()</td><td class="dom">accounting</td><td class="c"><span class="no"></span></td><td class="c"><span class="no"></span></td><td class="c"><span class="yes"></span></td><td class="c"><span class="yes"></span></td></tr>
+          <tr><td class="op">admissionPeriods.create()</td><td class="dom">admin</td><td class="c"><span class="no"></span></td><td class="c"><span class="no"></span></td><td class="c"><span class="no"></span></td><td class="c"><span class="yes"></span></td></tr>
+          <tr><td class="op">users.list()</td><td class="dom">admin</td><td class="c"><span class="no"></span></td><td class="c"><span class="no"></span></td><td class="c"><span class="yes"></span></td><td class="c"><span class="yes"></span></td></tr>
+          <tr><td class="op">users.deactivate()</td><td class="dom">admin</td><td class="c"><span class="no"></span></td><td class="c"><span class="no"></span></td><td class="c"><span class="no"></span></td><td class="c"><span class="yes"></span></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="matrix-note">
+      <span class="legend-item"><span class="yes"></span> compile-time allowed</span>
+      <span class="legend-item"><span class="rt"></span> runtime check (from JWT claims)</span>
+      <span class="legend-item"><span class="no"></span> not on type</span>
+    </div>
+  </div>
+
+  <!-- DEPARTMENTS -->
+  <div class="dim-panel" id="dim-dept">
+    <p class="section-desc" style="margin-bottom:14px">Departments are independent organizational units — Bergen, Trondheim, and Ås each have their own admission periods, teams, schools, and data. Users belong to one department; their client is scoped accordingly.</p>
+    <div class="cards">
+      <div class="card">
+        <div class="card-title"><div class="card-dot" style="background:#6ee7b7"></div>Bergen</div>
+        <ul class="card-ops">
+          <li>own admission periods</li>
+          <li>own team memberships</li>
+          <li>own school assignments</li>
+          <li>own application pool</li>
+          <li>scoped interview queue</li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="card-title"><div class="card-dot" style="background:#818cf8"></div>Trondheim</div>
+        <ul class="card-ops">
+          <li>own admission periods</li>
+          <li>own team memberships</li>
+          <li>own school assignments</li>
+          <li>own application pool</li>
+          <li>scoped interview queue</li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="card-title"><div class="card-dot" style="background:#fb923c"></div>Ås</div>
+        <ul class="card-ops">
+          <li>own admission periods</li>
+          <li>own team memberships</li>
+          <li>own school assignments</li>
+          <li>own application pool</li>
+          <li>scoped interview queue</li>
+        </ul>
+      </div>
+    </div>
+    <div class="callout">
+      <h4>sdk implication</h4>
+      <p>Department scope is baked into the authenticated client. All queries are automatically filtered to the user's department. A Bergen user calling <code>sdk.applications.list()</code> only ever sees Bergen applications — there's no <code>department</code> parameter to accidentally forget. Admins get an optional override.</p>
+      <p style="margin-top:8px">This also fixes a known issue in the current PHP server: <code>AdminApplicationListProvider</code>, <code>AdminUserListProvider</code>, and several others have no department scoping at all — any team member can query any department's data.</p>
+    </div>
+  </div>
+
+  <!-- TEAMS -->
+  <div class="dim-panel" id="dim-teams">
+    <p class="section-desc" style="margin-bottom:14px">Teams are functional groups within a department. Each team has its own membership, responsibilities, and operations. Team membership is tracked across semesters with suspension and leader flags.</p>
+    <div class="cards">
+      <div class="card">
+        <div class="card-title"><div class="card-dot" style="background:#6ee7b7"></div>Accounting</div>
+        <ul class="card-ops">
+          <li>receipts.list()</li>
+          <li>receipts.approve()</li>
+          <li>receipts.reject()</li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="card-title"><div class="card-dot" style="background:#818cf8"></div>Sponsors</div>
+        <ul class="card-ops">
+          <li>sponsors.list()</li>
+          <li>sponsors.create()</li>
+          <li>sponsors.update()</li>
+          <li>sponsors.delete()</li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="card-title"><div class="card-dot" style="background:#fb923c"></div>IT</div>
+        <ul class="card-ops">
+          <li>users.manage()</li>
+          <li>systems.monitor()</li>
+          <li>access.configure()</li>
+          <li>deployments.view()</li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="card-title"><div class="card-dot" style="background:#f472b6"></div>Recruitment</div>
+        <ul class="card-ops">
+          <li>applications.list()</li>
+          <li>interviews.schedule()</li>
+          <li>interviews.conduct()</li>
+          <li>assistants.assign()</li>
+        </ul>
+      </div>
+    </div>
+    <div class="callout">
+      <h4>membership state</h4>
+      <p>Membership has two independent dimensions: <code>isActive()</code> (temporal — within start/end semester) and <code>isSuspended</code>. These are separate checks — <code>isActive()</code> does NOT account for suspension. The SDK surfaces both as distinct fields so the UI can show "paused" vs "former member" correctly, without the caller having to understand the underlying implementation.</p>
+    </div>
+  </div>
+
+  <!-- INTERSECTION -->
+  <div class="dim-panel" id="dim-intersection">
+    <p class="section-desc" style="margin-bottom:14px">Effective access is the intersection of role × department × team. The client type is fully scoped at login — invalid operations are structurally absent, not just runtime-forbidden.</p>
+    <pre><span class="cm">// login returns a scoped client</span>
+<span class="kw">const</span> result = <span class="kw">await</span> sdk.auth.<span class="fn">login</span>({ email, password })
+<span class="cm">// Client&lt;Role.Member, Dept.Bergen, Team.Recruitment&gt;</span>
+
+<span class="cm">// intersection: Member + Bergen + Recruitment</span>
+<span class="line-good">client.applications.<span class="fn">list</span>()            <span class="cm">// ✓ Bergen applications only, auto-scoped</span></span>
+<span class="line-bad">client.interviews.<span class="fn">schedule</span>(id, data)  <span class="cm">// ✗ not on Member type (Leader+ only)</span></span>
+<span class="line-bad">client.receipts.<span class="fn">approve</span>(id)           <span class="cm">// ✗ not on Recruitment team type</span></span>
+<span class="line-bad">client.applications.<span class="fn">list</span>({ dept: <span class="str">"Trondheim"</span> })
+                                       <span class="cm">// ✗ Bergen client can't cross-scope</span></span>
+
+<span class="cm">// Leader in Accounting at Trondheim — completely different type</span>
+<span class="cm">// Client&lt;Role.Leader, Dept.Trondheim, Team.Accounting&gt;</span>
+<span class="line-good">leaderClient.receipts.<span class="fn">approve</span>(id)     <span class="cm">// ✓</span></span>
+<span class="line-bad">leaderClient.interviews.<span class="fn">schedule</span>()   <span class="cm">// ✗ not on Accounting team type</span></span>
+<span class="line-bad">leaderClient.applications.<span class="fn">list</span>()     <span class="cm">// ✗ different dept</span></span></pre>
+    <div class="callout">
+      <h4>why this matters</h4>
+      <p>The current PHP server has 12+ guard downgrades where operations that should require <code>ROLE_TEAM_LEADER</code> only check <code>ROLE_TEAM_MEMBER</code>, and 5+ domains with no department scoping at all. The SDK's structural approach means these classes of bugs are caught at compile time rather than discovered in production — a Trondheim client literally cannot call Bergen operations because the method doesn't exist on the type.</p>
+    </div>
+  </div>
+</section>
+
+<!-- APPLICATION STATE MACHINE -->
+<section>
+  <h2>Application Lifecycle</h2>
+  <p class="section-desc">Application status is <em>computed</em> in the PHP codebase — derived from interview state and assistant history, not stored. The SDK takes ownership of this derivation so apps never see raw PHP integer constants.</p>
+
+  <div class="states-flow">
+    <div class="state-box">
+      <div class="state-name" style="color:var(--muted)">not_received</div>
+      <ul class="state-items">
+        <li class="on">create()</li>
+        <li class="off">assignInterview()</li>
+        <li class="off">accept()</li>
+      </ul>
+    </div>
+    <div class="state-arrow">→<span>create()</span></div>
+    <div class="state-box">
+      <div class="state-name" style="color:#818cf8">received</div>
+      <ul class="state-items">
+        <li class="on">assignInterview()</li>
+        <li class="off">accept()</li>
+        <li class="off">assignToSchool()</li>
+      </ul>
+    </div>
+    <div class="state-arrow">→<span>sendConfirmation()</span></div>
+    <div class="state-box">
+      <div class="state-name" style="color:#818cf8">invited</div>
+      <ul class="state-items">
+        <li class="on">accept()</li>
+        <li class="on">cancel()</li>
+        <li class="off">assignToSchool()</li>
+      </ul>
+    </div>
+    <div class="state-arrow">→<span>accept()</span></div>
+    <div class="state-box">
+      <div class="state-name" style="color:var(--accent3)">accepted</div>
+      <ul class="state-items">
+        <li class="on">conduct()</li>
+        <li class="on">cancel()</li>
+        <li class="off">assignToSchool()</li>
+      </ul>
+    </div>
+    <div class="state-arrow">→<span>conduct()</span></div>
+    <div class="state-box">
+      <div class="state-name" style="color:var(--accent4)">completed</div>
+      <ul class="state-items">
+        <li class="on">assignToSchool()</li>
+        <li class="off">cancel()</li>
+      </ul>
+    </div>
+    <div class="state-arrow">→<span>assignToSchool()</span></div>
+    <div class="state-box">
+      <div class="state-name" style="color:var(--accent)">assigned</div>
+      <ul class="state-items">
+        <li class="off">all transitions</li>
+        <li class="on">(terminal)</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="callout" style="margin-top:14px">
+    <h4>sdk responsibility</h4>
+    <p>The PHP backend stores <code>APPLICATION_RECEIVED(1)</code>, <code>INVITED_TO_INTERVIEW(2)</code>, etc. as integer constants. The SDK adapter runs <code>deriveStatus()</code> — the same top-to-bottom logic from <code>ApplicationManager::getApplicationStatus()</code> — and surfaces <code>"received" | "invited" | "accepted" | "completed" | "assigned" | "cancelled"</code> to the apps. When the backend migrates to TypeScript and starts returning computed status directly, only the adapter changes.</p>
+  </div>
+</section>
+
+<!-- CORE PRINCIPLES -->
+<section>
+  <h2>Core Principles</h2>
+  <p class="section-desc">The six decisions that make this architecture work.</p>
+  <div class="principles-grid">
+    <div class="principle" style="--p-accent: #6ee7b7; border-color: rgba(110,231,183,0.2); background: rgba(110,231,183,0.04);">
+      <div class="principle-num" style="color: #6ee7b7">01</div>
+      <div class="principle-title" style="color: #6ee7b7">Domain first, spec second</div>
+      <div class="principle-body">The SDK interface is shaped around Vektorprogrammet's workflows — admission, recruitment, team management, accounting. The OpenAPI spec is a reference for writing the adapter, not the source of truth for the interface.</div>
+    </div>
+    <div class="principle" style="border-color: rgba(129,140,248,0.2); background: rgba(129,140,248,0.04);">
+      <div class="principle-num" style="color: #818cf8">02</div>
+      <div class="principle-title" style="color: #818cf8">Illegal states unrepresentable</div>
+      <div class="principle-body">A Bergen client can't call Trondheim operations. A Member client doesn't have <code>schedule()</code>. An Accounting client has no <code>interviews</code> namespace. Structural absence is stronger than runtime guards — the compiler catches it.</div>
+    </div>
+    <div class="principle" style="border-color: rgba(251,146,60,0.2); background: rgba(251,146,60,0.04);">
+      <div class="principle-num" style="color: #fb923c">03</div>
+      <div class="principle-title" style="color: #fb923c">Hide implementation artifacts</div>
+      <div class="principle-body">PHP integer constants, Hydra collections, IRI references, JSON-LD context, hyphenated URL conventions — all stripped at the adapter boundary. Apps work with clean domain types and string enums.</div>
+    </div>
+    <div class="principle" style="border-color: rgba(244,114,182,0.2); background: rgba(244,114,182,0.04);">
+      <div class="principle-num" style="color: #f472b6">04</div>
+      <div class="principle-title" style="color: #f472b6">One seam, one swap</div>
+      <div class="principle-body">The adapter is the only thing that changes when <code>@monoweb/api</code> replaces Symfony. All app code, the SDK interface, and the Effect internals are untouched. No big bang rewrite risk.</div>
+    </div>
+    <div class="principle" style="border-color: rgba(110,231,183,0.2); background: rgba(110,231,183,0.04);">
+      <div class="principle-num" style="color: #6ee7b7">05</div>
+      <div class="principle-title" style="color: #6ee7b7">Effect-TS is an implementation detail</div>
+      <div class="principle-body">Apps see plain promises. If a future maintainer wants to replace Effect-TS, they reimplement the public interface. No lock-in, and the team doesn't need to understand Effect to use the SDK.</div>
+    </div>
+    <div class="principle" style="border-color: rgba(129,140,248,0.2); background: rgba(129,140,248,0.04);">
+      <div class="principle-num" style="color: #818cf8">06</div>
+      <div class="principle-title" style="color: #818cf8">Explicit errors</div>
+      <div class="principle-body">Every mutation returns a discriminated union. <code>receipts.approve()</code> can fail with <code>"not_pending"</code>, <code>"unauthorized"</code>, or <code>"not_found"</code> — each typed. Silent failures are not possible.</div>
+    </div>
+  </div>
+</section>
+
+<!-- MIGRATION PLAN -->
+<section>
+  <h2>Migration Plan</h2>
+  <p class="section-desc">How the Symfony → TypeScript backend switch happens with zero app-side rewrites.</p>
+  <div class="timeline">
+    <div class="timeline-item">
+      <div class="timeline-marker" style="border-color: #6ee7b7; color: #6ee7b7; background: rgba(110,231,183,0.08)">now</div>
+      <div class="timeline-content">
+        <h4 style="color: #6ee7b7">Establish the domain interface</h4>
+        <p>Design the SDK interface from Vektorprogrammet's domain, not from the OpenAPI spec. Insert the boundary before apps depend on generated shapes. Even if operations are 1:1 passthroughs internally, the seam exists.</p>
+      </div>
+    </div>
+    <div class="timeline-item">
+      <div class="timeline-marker" style="border-color: #818cf8; color: #818cf8; background: rgba(129,140,248,0.08)">v1</div>
+      <div class="timeline-content">
+        <h4 style="color: #818cf8">Symfony adapter — full feature parity</h4>
+        <p>Adapter maps domain calls to <code>/api/admin/*</code> endpoints. Handles Hydra, IRIs, integer status constants. Homepage and dashboard build against the domain interface only. Computed status derivation lives here.</p>
+      </div>
+    </div>
+    <div class="timeline-item">
+      <div class="timeline-marker" style="border-color: #fb923c; color: #fb923c; background: rgba(251,146,60,0.08)">→</div>
+      <div class="timeline-content">
+        <h4 style="color: #fb923c">TypeScript server adapter in parallel</h4>
+        <p>Write a second adapter targeting <code>@monoweb/api</code>. Feature-flag or deploy both simultaneously. No breaking changes to app code — they still call <code>sdk.applications.list()</code>.</p>
+      </div>
+    </div>
+    <div class="timeline-item">
+      <div class="timeline-marker" style="border-color: #f472b6; color: #f472b6; background: rgba(244,114,182,0.08)">v2</div>
+      <div class="timeline-content">
+        <h4 style="color: #f472b6">Cutover + major version bump</h4>
+        <p>Symfony backend deprecated. New features added, removed features dropped. Apps bump the SDK version — call sites are identical. The interface was the contract all along.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  @vektorprogrammet/sdk · domain-first · effect-ts internals · plain promise surface · bergen · trondheim · ås
+</footer>
+
+<script>
+  function switchDim(tab, id) {
+    document.querySelectorAll('.dim-tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.dim-panel').forEach(p => p.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById('dim-' + id).classList.add('active');
+  }
+
+  function setAllLayers(open) {
+    document.querySelectorAll('.layer').forEach(l => {
+      if (open) l.classList.add('active');
+      else l.classList.remove('active');
+    });
+  }
+</script>
+
+</body>
+</html>
