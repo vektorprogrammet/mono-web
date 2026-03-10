@@ -58,7 +58,7 @@ jobs:
       - name: Push DB schema
         run: |
           PGPASSWORD=vektor psql -h localhost -U vektor -d vektor -c 'CREATE SCHEMA IF NOT EXISTS "mainSchema";'
-          cd apps/api && bunx drizzle-kit push --config=db/config/drizzle.config.ts --force
+          cd apps/api && bunx drizzle-kit generate --config=db/config/drizzle.config.ts && bunx drizzle-kit migrate --config=db/config/drizzle.config.ts
 
       - name: Test
         run: bun turbo test
@@ -105,8 +105,8 @@ jobs:
       - name: Static Analysis
         run: composer analyse
 
-      - name: Clear dev cache
-        run: php bin/console cache:clear --env=dev 2>/dev/null || rm -rf var/cache/dev
+      - name: Clear cache before tests
+        run: rm -rf var/cache
 
       - name: Test
         run: composer test
