@@ -1,0 +1,1330 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Contain and Declare</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,300;0,400;0,500;0,600;1,300;1,400&family=IBM+Plex+Sans:ital,wght@0,300;0,400;0,500;1,300&display=swap');
+
+  :root {
+    --bg: #0a0a0c;
+    --bg2: #0f0f12;
+    --bg3: #14141a;
+    --grid: #1a1a22;
+    --border: #252530;
+    --dim: #3a3a50;
+    --muted: #5a5a7a;
+    --body: #9090b0;
+    --bright: #c8c8e8;
+    --white: #e8e8f5;
+    --accent: #4a9eff;
+    --accent2: #7b5ea7;
+    --accent3: #e85d4a;
+    --accent4: #4ae8a0;
+    --accent5: #e8c84a;
+    --mono: 'IBM Plex Mono', monospace;
+    --sans: 'IBM Plex Sans', sans-serif;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    background: var(--bg);
+    color: var(--body);
+    font-family: var(--mono);
+    font-size: 13px;
+    line-height: 1.7;
+    overflow-x: hidden;
+  }
+
+  /* grid background */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(var(--grid) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+    background-size: 40px 40px;
+    opacity: 0.4;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .wrap {
+    position: relative;
+    z-index: 1;
+    max-width: 860px;
+    margin: 0 auto;
+    padding: 0 32px;
+  }
+
+  /* ── HERO ── */
+  .hero {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: 80px 0 60px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .hero-label {
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 32px;
+    opacity: 0;
+    animation: fadein 0.6s 0.2s forwards;
+  }
+
+  .hero h1 {
+    font-family: var(--mono);
+    font-weight: 500;
+    font-size: clamp(28px, 5vw, 52px);
+    line-height: 1.15;
+    color: var(--white);
+    letter-spacing: -0.02em;
+    margin-bottom: 24px;
+    opacity: 0;
+    animation: fadein 0.6s 0.4s forwards;
+  }
+
+  .hero h1 span { color: var(--accent); }
+
+  .hero-sub {
+    font-size: 13px;
+    color: var(--muted);
+    max-width: 520px;
+    line-height: 1.8;
+    opacity: 0;
+    animation: fadein 0.6s 0.6s forwards;
+  }
+
+  .hero-scroll {
+    margin-top: 80px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    color: var(--dim);
+    font-size: 10px;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    opacity: 0;
+    animation: fadein 0.6s 1s forwards;
+  }
+
+  .hero-scroll::before {
+    content: '';
+    width: 1px;
+    height: 40px;
+    background: linear-gradient(to bottom, transparent, var(--dim));
+  }
+
+  @keyframes fadein {
+    to { opacity: 1; transform: none; }
+    from { opacity: 0; transform: translateY(8px); }
+  }
+
+  /* ── SECTIONS ── */
+  .section {
+    padding: 100px 0;
+    border-bottom: 1px solid var(--border);
+    opacity: 0;
+    transform: translateY(20px);
+    transition: opacity 0.7s ease, transform 0.7s ease;
+  }
+
+  .section.visible {
+    opacity: 1;
+    transform: none;
+  }
+
+  .section-num {
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--dim);
+    margin-bottom: 40px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+
+  .section-num::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+  }
+
+  .section h2 {
+    font-family: var(--mono);
+    font-weight: 500;
+    font-size: clamp(20px, 3vw, 32px);
+    color: var(--white);
+    letter-spacing: -0.02em;
+    line-height: 1.2;
+    margin-bottom: 24px;
+  }
+
+  .section h2 .hl { color: var(--accent); }
+  .section h2 .hl2 { color: var(--accent4); }
+  .section h2 .hl3 { color: var(--accent5); }
+
+  .lead {
+    font-size: 14px;
+    color: var(--bright);
+    line-height: 1.8;
+    margin-bottom: 48px;
+    max-width: 680px;
+    font-family: var(--sans);
+    font-weight: 300;
+  }
+
+  p {
+    color: var(--body);
+    line-height: 1.8;
+    margin-bottom: 16px;
+    font-family: var(--sans);
+    font-weight: 300;
+    font-size: 13px;
+  }
+
+  /* ── DIAGRAMS ── */
+  .diagram {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    padding: 32px;
+    margin: 40px 0;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .diagram::before {
+    content: 'diagram';
+    position: absolute;
+    top: 12px;
+    right: 16px;
+    font-size: 9px;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--dim);
+  }
+
+  .diagram-title {
+    font-size: 10px;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 24px;
+  }
+
+  /* pipeline diagram */
+  .pipeline {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    flex-wrap: wrap;
+    row-gap: 16px;
+  }
+
+  .pipe-node {
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    padding: 10px 18px;
+    font-size: 11px;
+    color: var(--bright);
+    white-space: nowrap;
+    position: relative;
+  }
+
+  .pipe-node.highlight { border-color: var(--accent); color: var(--accent); }
+  .pipe-node.warn { border-color: var(--accent3); color: var(--accent3); }
+  .pipe-node.good { border-color: var(--accent4); color: var(--accent4); }
+
+  .pipe-arrow {
+    width: 32px;
+    height: 1px;
+    background: var(--dim);
+    position: relative;
+    flex-shrink: 0;
+  }
+
+  .pipe-arrow::after {
+    content: '▶';
+    position: absolute;
+    right: -4px;
+    top: -6px;
+    font-size: 8px;
+    color: var(--dim);
+  }
+
+  /* dag diagram */
+  .dag-wrap { overflow-x: auto; }
+
+  svg.dag {
+    width: 100%;
+    min-width: 400px;
+    height: 220px;
+  }
+
+  /* boundary diagram */
+  .boundary-wrap {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    gap: 0;
+    align-items: stretch;
+    min-height: 160px;
+  }
+
+  .boundary-inside {
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .boundary-wall {
+    width: 3px;
+    background: linear-gradient(to bottom, var(--accent2), var(--accent));
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .boundary-cross {
+    background: var(--bg);
+    border: 1px solid var(--accent);
+    padding: 4px 8px;
+    font-size: 9px;
+    color: var(--accent);
+    white-space: nowrap;
+    writing-mode: vertical-rl;
+    letter-spacing: 0.1em;
+    transform: rotate(180deg);
+  }
+
+  .boundary-outside {
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .b-label {
+    font-size: 9px;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--dim);
+    margin-bottom: 8px;
+  }
+
+  .b-item {
+    font-size: 11px;
+    color: var(--muted);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .b-item::before { content: '·'; color: var(--dim); }
+  .b-item.exposed { color: var(--accent4); }
+  .b-item.exposed::before { content: '→'; color: var(--accent4); }
+  .b-item.contained { color: var(--body); }
+
+  /* pattern cards */
+  .pattern-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 1px;
+    background: var(--border);
+    border: 1px solid var(--border);
+    margin: 40px 0;
+  }
+
+  .pattern-card {
+    background: var(--bg2);
+    padding: 24px;
+    position: relative;
+  }
+
+  .pattern-card:hover { background: var(--bg3); }
+
+  .pc-name {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--bright);
+    margin-bottom: 8px;
+    letter-spacing: 0.05em;
+  }
+
+  .pc-tension {
+    font-size: 10px;
+    color: var(--accent);
+    margin-bottom: 12px;
+    letter-spacing: 0.05em;
+  }
+
+  .pc-holds {
+    font-size: 11px;
+    color: var(--body);
+    margin-bottom: 6px;
+    font-family: var(--sans);
+  }
+
+  .pc-falters {
+    font-size: 11px;
+    color: var(--accent3);
+    font-family: var(--sans);
+  }
+
+  .pc-tag {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    font-size: 8px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--dim);
+    background: var(--bg3);
+    padding: 2px 6px;
+    border: 1px solid var(--border);
+  }
+
+  /* effect typing diagram */
+  .effect-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+  }
+
+  .effect-fn {
+    font-size: 12px;
+    color: var(--bright);
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    padding: 8px 14px;
+    min-width: 160px;
+  }
+
+  .effect-effects {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+
+  .effect-tag {
+    font-size: 10px;
+    padding: 3px 10px;
+    border: 1px solid;
+    letter-spacing: 0.05em;
+  }
+
+  .et-db { border-color: var(--accent); color: var(--accent); }
+  .et-net { border-color: var(--accent2); color: var(--accent2); }
+  .et-io { border-color: var(--accent5); color: var(--accent5); }
+  .et-time { border-color: var(--accent4); color: var(--accent4); }
+  .et-none { border-color: var(--dim); color: var(--dim); }
+
+  .effect-arrow {
+    color: var(--dim);
+    font-size: 11px;
+  }
+
+  /* reification diagram */
+  .reify-flow {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+  }
+
+  .reify-row {
+    display: grid;
+    grid-template-columns: 120px 1fr 1fr 1fr;
+    gap: 1px;
+    background: var(--border);
+    border: 1px solid var(--border);
+    margin-bottom: 1px;
+  }
+
+  .reify-row.header { background: var(--bg3); }
+
+  .reify-cell {
+    background: var(--bg2);
+    padding: 12px 16px;
+    font-size: 11px;
+    color: var(--body);
+  }
+
+  .reify-row.header .reify-cell {
+    background: var(--bg3);
+    color: var(--muted);
+    font-size: 9px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+
+  .reify-cell.label {
+    color: var(--bright);
+    font-weight: 500;
+  }
+
+  .reify-cell.val { color: var(--accent4); }
+  .reify-cell.context { color: var(--accent); }
+
+  /* principle boxes */
+  .principle-box {
+    border: 1px solid var(--accent);
+    padding: 32px;
+    margin: 48px 0;
+    position: relative;
+    background: rgba(74, 158, 255, 0.03);
+  }
+
+  .principle-box::before {
+    content: 'principle';
+    position: absolute;
+    top: -1px;
+    left: 24px;
+    background: var(--bg);
+    padding: 0 8px;
+    font-size: 9px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--accent);
+    transform: translateY(-50%);
+  }
+
+  .principle-box.p2 { border-color: var(--accent4); background: rgba(74, 232, 160, 0.03); }
+  .principle-box.p2::before { color: var(--accent4); }
+  .principle-box.final { border-color: var(--accent5); background: rgba(232, 200, 74, 0.03); }
+  .principle-box.final::before { color: var(--accent5); }
+
+  .principle-text {
+    font-size: clamp(15px, 2.5vw, 22px);
+    color: var(--white);
+    font-family: var(--mono);
+    font-weight: 400;
+    line-height: 1.4;
+    letter-spacing: -0.01em;
+  }
+
+  .principle-sub {
+    margin-top: 16px;
+    font-size: 12px;
+    color: var(--muted);
+    font-family: var(--sans);
+    font-weight: 300;
+    line-height: 1.7;
+  }
+
+  /* comparison table */
+  .compare-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 32px 0;
+    font-size: 11px;
+  }
+
+  .compare-table th {
+    background: var(--bg3);
+    color: var(--muted);
+    font-size: 9px;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    padding: 12px 16px;
+    text-align: left;
+    border: 1px solid var(--border);
+    font-weight: 400;
+  }
+
+  .compare-table td {
+    padding: 12px 16px;
+    border: 1px solid var(--border);
+    color: var(--body);
+    vertical-align: top;
+    font-family: var(--sans);
+    font-size: 12px;
+    line-height: 1.6;
+  }
+
+  .compare-table tr:hover td { background: var(--bg3); }
+
+  .compare-table td.principle-name {
+    color: var(--bright);
+    font-family: var(--mono);
+    font-size: 11px;
+    white-space: nowrap;
+  }
+
+  .compare-table td.covers { color: var(--accent4); }
+  .compare-table td.gap { color: var(--accent3); }
+
+  /* spectrum bar */
+  .spectrum {
+    margin: 40px 0;
+    padding: 24px;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+  }
+
+  .spectrum-label {
+    display: flex;
+    justify-content: space-between;
+    font-size: 10px;
+    color: var(--muted);
+    letter-spacing: 0.1em;
+    margin-bottom: 12px;
+    text-transform: uppercase;
+  }
+
+  .spectrum-bar {
+    height: 3px;
+    background: linear-gradient(to right, var(--accent4), var(--accent), var(--accent2), var(--accent3));
+    margin-bottom: 20px;
+  }
+
+  .spectrum-items {
+    display: flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .spectrum-item {
+    font-size: 10px;
+    color: var(--dim);
+    text-align: center;
+    flex: 1;
+    min-width: 80px;
+  }
+
+  .spectrum-item span {
+    display: block;
+    font-size: 11px;
+    color: var(--body);
+    margin-bottom: 2px;
+  }
+
+  /* WAL reification timeline */
+  .wal-timeline {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    margin: 24px 0;
+  }
+
+  .wal-step {
+    display: grid;
+    grid-template-columns: 32px 1fr;
+    gap: 16px;
+    padding: 16px 0;
+    border-bottom: 1px solid var(--border);
+    align-items: start;
+  }
+
+  .wal-step:last-child { border-bottom: none; }
+
+  .wal-num {
+    font-size: 10px;
+    color: var(--dim);
+    padding-top: 2px;
+    text-align: right;
+  }
+
+  .wal-content {}
+
+  .wal-title {
+    font-size: 11px;
+    color: var(--bright);
+    margin-bottom: 4px;
+    letter-spacing: 0.05em;
+  }
+
+  .wal-desc {
+    font-size: 11px;
+    color: var(--muted);
+    font-family: var(--sans);
+    line-height: 1.6;
+  }
+
+  .wal-code {
+    margin-top: 8px;
+    font-size: 10px;
+    color: var(--accent4);
+    background: var(--bg3);
+    padding: 6px 10px;
+    border-left: 2px solid var(--accent4);
+    display: inline-block;
+  }
+
+  /* final convergence */
+  .convergence {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1px;
+    background: var(--border);
+    border: 1px solid var(--border);
+    margin: 40px 0;
+  }
+
+  .conv-cell {
+    background: var(--bg2);
+    padding: 28px;
+  }
+
+  .conv-cell.header {
+    background: var(--bg3);
+    padding: 14px 28px;
+  }
+
+  .conv-label {
+    font-size: 9px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--dim);
+    margin-bottom: 12px;
+  }
+
+  .conv-title {
+    font-size: 14px;
+    color: var(--white);
+    font-weight: 500;
+    margin-bottom: 16px;
+    line-height: 1.3;
+  }
+
+  .conv-items {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .conv-item {
+    font-size: 11px;
+    color: var(--muted);
+    display: flex;
+    gap: 8px;
+    align-items: baseline;
+    font-family: var(--sans);
+  }
+
+  .conv-item .dot {
+    width: 4px;
+    height: 4px;
+    background: var(--dim);
+    border-radius: 50%;
+    flex-shrink: 0;
+    margin-top: 6px;
+  }
+
+  /* nav */
+  .nav {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 100;
+    background: rgba(10, 10, 12, 0.92);
+    backdrop-filter: blur(8px);
+    border-bottom: 1px solid var(--border);
+    padding: 0 32px;
+    display: flex;
+    align-items: center;
+    height: 44px;
+    gap: 32px;
+  }
+
+  .nav-brand {
+    font-size: 11px;
+    color: var(--bright);
+    letter-spacing: 0.05em;
+    white-space: nowrap;
+  }
+
+  .nav-links {
+    display: flex;
+    gap: 24px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .nav-links::-webkit-scrollbar { display: none; }
+
+  .nav-link {
+    font-size: 10px;
+    color: var(--dim);
+    text-decoration: none;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    white-space: nowrap;
+    transition: color 0.2s;
+  }
+
+  .nav-link:hover { color: var(--body); }
+
+  /* progress bar */
+  .progress {
+    position: fixed;
+    top: 44px;
+    left: 0;
+    height: 1px;
+    background: var(--accent);
+    z-index: 100;
+    transition: width 0.1s;
+  }
+
+  /* inline code */
+  code {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--accent4);
+    background: var(--bg3);
+    padding: 1px 6px;
+    border: 1px solid var(--border);
+  }
+
+  .note {
+    font-size: 11px;
+    color: var(--muted);
+    border-left: 2px solid var(--dim);
+    padding-left: 16px;
+    margin: 24px 0;
+    font-family: var(--sans);
+    font-style: italic;
+    line-height: 1.7;
+  }
+
+  /* footer */
+  .footer {
+    padding: 60px 0 80px;
+    text-align: center;
+  }
+
+  .footer-text {
+    font-size: 10px;
+    color: var(--dim);
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+  }
+
+  @media (max-width: 600px) {
+    .wrap { padding: 0 20px; }
+    .convergence { grid-template-columns: 1fr; }
+    .reify-row { grid-template-columns: 80px 1fr 1fr; }
+    .reify-row .reify-cell:nth-child(4) { display: none; }
+    .boundary-wrap { grid-template-columns: 1fr; }
+    .boundary-wall { width: 100%; height: 3px; writing-mode: horizontal-tb; flex-direction: row; padding: 8px; }
+    .boundary-cross { writing-mode: horizontal-tb; transform: none; }
+  }
+</style>
+</head>
+<body>
+
+<nav class="nav">
+  <div class="nav-brand">Contain and Declare</div>
+  <div class="nav-links">
+    <a href="#patterns" class="nav-link">Patterns</a>
+    <a href="#failure" class="nav-link">Failure modes</a>
+    <a href="#boundary" class="nav-link">Boundaries</a>
+    <a href="#effects" class="nav-link">Effects</a>
+    <a href="#reification" class="nav-link">Reification</a>
+    <a href="#granularity" class="nav-link">Granularity</a>
+    <a href="#principles" class="nav-link">Principles</a>
+    <a href="#traditional" class="nav-link">Vs traditional</a>
+  </div>
+</nav>
+
+<div class="progress" id="progress"></div>
+
+<div class="wrap">
+
+  <!-- HERO -->
+  <section class="hero">
+    <div class="hero-label">The two principles of module interface design</div>
+    <h1>Contain<br>and <span>Declare</span></h1>
+    <p class="hero-sub">Patterns are not rules. They are shapes. This is an attempt to find the geometry underneath — the two principles of module interface design from which most good design follows. What happens inside a module is your business. What crosses its boundary is everyone's.</p>
+    <div class="hero-scroll">Scroll to begin</div>
+  </section>
+
+  <!-- SECTION 1: PATTERNS -->
+  <section class="section" id="patterns">
+    <div class="section-num">01 — The patterns</div>
+    <h2>Five patterns that live at <br>module boundaries</h2>
+    <p class="lead">Before asking why patterns work, it helps to see what they actually are. These aren't general software shapes — they're specifically answers to the question of how modules should relate to each other. Each one takes a position on what should cross a boundary and how.</p>
+
+    <div class="pattern-grid">
+      <div class="pattern-card">
+        <div class="pc-tag">Isolation</div>
+        <div class="pc-name">Ports & Adapters</div>
+        <div class="pc-tension">Domain knows nothing of infrastructure</div>
+        <div class="pc-holds">The port is the declared interface. The adapter is the contained implementation. Dependency points inward — the domain defines what it needs, infrastructure provides it.</div>
+        <div class="pc-falters">⚠ Interfaces with one implementation — abstraction cost with no modularity payoff</div>
+      </div>
+      <div class="pattern-card">
+        <div class="pc-tag">Extensibility</div>
+        <div class="pc-name">Plugin</div>
+        <div class="pc-tension">Host defines extension points, third parties fill them</div>
+        <div class="pc-holds">Deliberate, sanctioned hole in containment. The host declares what can cross — the extension interface — and third parties implement against it.</div>
+        <div class="pc-falters">⚠ API ossification — once published, the extension interface can never change without breaking everyone</div>
+      </div>
+      <div class="pattern-card">
+        <div class="pc-tag">Communication</div>
+        <div class="pc-name">Observer</div>
+        <div class="pc-tension">Producers don't know consumers</div>
+        <div class="pc-holds">Loose coupling — event sources are isolated from their reactions</div>
+        <div class="pc-falters">⚠ Consumer relationships cross the boundary undeclared. Two streams interacting produce implicit ordering. Rx/observables are the correction — making composition explicit</div>
+      </div>
+      <div class="pattern-card">
+        <div class="pc-tag">Composition</div>
+        <div class="pc-name">Middleware Chain</div>
+        <div class="pc-tension">Wrap before/after without modifying</div>
+        <div class="pc-holds">Bracket arbitrary behavior around a handler with shared scope across the suspension point</div>
+        <div class="pc-falters">⚠ Ordering dependencies are load-bearing and cross the boundary undeclared — invisible constraints that callers must know but can't see</div>
+      </div>
+      <div class="pattern-card">
+        <div class="pc-tag">Effects</div>
+        <div class="pc-name">Algebraic Effects</div>
+        <div class="pc-tension">Capabilities declared, not assumed</div>
+        <div class="pc-holds">Effects accumulate through internal functions and are declared once at the module surface. Callers see the complete dependency set. The compiler enforces it.</div>
+        <div class="pc-falters">⚠ Applied at wrong granularity — every internal function rather than the module surface — becomes Haskell's IO problem</div>
+      </div>
+    </div>
+
+    <p>Three of these are directly about declaring what crosses the boundary — observer and middleware by their absence of declaration, algebraic effects by its presence. Ports & adapters is the clearest statement of containment. Plugin is the honest acknowledgment that sometimes containment needs a sanctioned escape hatch.</p>
+    <p>The question is: what principle explains when each of these holds, and when it breaks?</p>
+  </section>
+
+  <!-- SECTION 2: FAILURE MODES -->
+  <section class="section" id="failure">
+    <div class="section-num">02 — The failure modes</div>
+    <h2>Patterns fail at the <span class="hl">same place</span></h2>
+    <p class="lead">The interesting thing about where these patterns break is that it's not random. Observer breaks when consumer relationships are implicit. Middleware breaks when ordering is implicit. Plugin breaks when the extension interface ossifies. There's a common denominator.</p>
+
+    <div class="diagram">
+      <div class="diagram-title">Middleware — where it holds vs where it breaks</div>
+      <div style="margin-bottom: 24px;">
+        <div style="font-size:10px; color: var(--accent4); letter-spacing:.1em; margin-bottom:10px; text-transform:uppercase;">Holds: behavior bracketed cleanly</div>
+        <div class="pipeline">
+          <div class="pipe-node good">auth</div>
+          <div class="pipe-arrow"></div>
+          <div class="pipe-node good">logging</div>
+          <div class="pipe-arrow"></div>
+          <div class="pipe-node good">handler</div>
+        </div>
+        <div style="font-size:10px; color:var(--muted); margin-top:10px; font-family:var(--sans);">Each middleware wraps the next. Behavior is added without modifying the handler.</div>
+      </div>
+      <div>
+        <div style="font-size:10px; color: var(--accent3); letter-spacing:.1em; margin-bottom:10px; text-transform:uppercase;">Breaks: implicit ordering dependency</div>
+        <div class="pipeline">
+          <div class="pipe-node warn">compress</div>
+          <div class="pipe-arrow"></div>
+          <div class="pipe-node warn">auth</div>
+          <div class="pipe-arrow"></div>
+          <div class="pipe-node warn">handler</div>
+          <div style="display:flex; align-items:center; gap:8px; margin-left:12px;">
+            <span style="font-size:10px; color:var(--accent3)">↩ auth must run before compression — constraint undeclared</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <p>Every pattern has a version of this. Observer's consumer ordering is undeclared. Plugin's extension interface becomes load-bearing the moment it's published. Ports & adapters over-abstracts when there's only ever one adapter.</p>
+
+    <p>In each case, the pattern breaks when a dependency that crosses the boundary isn't declared — something callers need to know but can't see from the interface.</p>
+
+    <div class="principle-box">
+      <div class="principle-text">Every pattern fails when a dependency crosses the boundary without being declared.</div>
+      <div class="principle-sub">This isn't a coincidence. It's a clue about what the patterns are actually made of.</div>
+    </div>
+  </section>
+
+  <!-- SECTION 3: THE BOUNDARY -->
+  <section class="section" id="boundary">
+    <div class="section-num">03 — The boundary</div>
+    <h2>The boundary is specifically a <span class="hl">module interface</span></h2>
+    <p class="lead">The principles don't apply to implementation details. What happens inside a module — its internal state, its private functions, its performance choices — is irrelevant. The principles activate only at the surface where modules meet: the interface.</p>
+
+    <div class="diagram">
+      <div class="diagram-title">Module boundary — scope of the principles</div>
+      <div class="boundary-wrap">
+        <div class="boundary-inside">
+          <div class="b-label">Inside the module — irrelevant</div>
+          <div class="b-item contained">Mutable local state</div>
+          <div class="b-item contained">Private functions</div>
+          <div class="b-item contained">Internal data structures</div>
+          <div class="b-item contained">Performance choices</div>
+          <div class="b-item contained">Implementation mechanism</div>
+          <div class="b-item contained" style="margin-top:8px; font-style:italic; color:var(--dim)">Can be as messy as needed</div>
+        </div>
+        <div class="boundary-wall">
+          <div class="boundary-cross">Module interface</div>
+        </div>
+        <div class="boundary-outside">
+          <div class="b-label">At the interface — principles apply</div>
+          <div class="b-item exposed">Declared dependencies</div>
+          <div class="b-item exposed">Effects / capabilities required</div>
+          <div class="b-item exposed">Failure modes</div>
+          <div class="b-item exposed">What this module does to the world</div>
+          <div class="b-item exposed" style="margin-top:8px; font-style:italic; color:var(--dim)">Must be honest and complete</div>
+        </div>
+      </div>
+    </div>
+
+    <p>This is a precise scope. A function's internal loop variables, a class's private fields, a module's implementation files — none of these are subject to the principles. The principles are about <em>interface design</em>, not code style.</p>
+
+    <p>Haskell's <code>ST</code> monad is the canonical example of this done right — internally mutable, externally pure. The module interface is honest about what escapes (nothing). The implementation is free to use mutation for performance. The boundary is the design.</p>
+
+    <div class="note">The traditional formulation "separation of concerns" fails because it splits by technical type — controller, service, repository — rather than by module boundary. When a feature changes you touch all three layers. The concern was redistributed, not contained.</div>
+
+    <div class="principle-box">
+      <div class="principle-text">At module boundaries: contain what is internal.<br>Expose what crosses.</div>
+      <div class="principle-sub">This is principle one. Scope is everything — it only applies at interfaces between modules, not inside them. A module can do anything internally as long as its interface honestly declares what escapes.</div>
+    </div>
+  </section>
+
+  <!-- SECTION 4: EFFECTS -->
+  <section class="section" id="effects">
+    <div class="section-num">04 — Effects as module dependencies</div>
+    <h2>Effects accumulate to <span class="hl">the boundary</span>,<br>not every call site</h2>
+    <p class="lead">Mutable state, side effects, async, exceptions, resource acquisition — all non-local consequences that cross module boundaries. The question isn't whether to track them, but where. The answer is: at the module interface, and only there.</p>
+
+    <div class="diagram">
+      <div class="diagram-title">Effect accumulation — internal vs interface</div>
+      <div class="effect-row">
+        <div class="effect-fn" style="font-size:10px; color:var(--dim)">private: queryDb()</div>
+        <div class="effect-arrow">→</div>
+        <div class="effect-effects"><span class="effect-tag et-db">Database</span></div>
+      </div>
+      <div class="effect-row">
+        <div class="effect-fn" style="font-size:10px; color:var(--dim)">private: callApi()</div>
+        <div class="effect-arrow">→</div>
+        <div class="effect-effects"><span class="effect-tag et-net">Network</span></div>
+      </div>
+      <div class="effect-row">
+        <div class="effect-fn" style="font-size:10px; color:var(--dim)">private: timestamp()</div>
+        <div class="effect-arrow">→</div>
+        <div class="effect-effects"><span class="effect-tag et-time">Clock</span></div>
+      </div>
+      <div style="height:1px; background:var(--border); margin:16px 0;"></div>
+      <div class="effect-row">
+        <div class="effect-fn" style="border-color:var(--accent4); color:var(--accent4)">public: processOrder()</div>
+        <div class="effect-arrow">→</div>
+        <div class="effect-effects">
+          <span class="effect-tag et-db">Database</span>
+          <span class="effect-tag et-net">Network</span>
+          <span class="effect-tag et-time">Clock</span>
+        </div>
+      </div>
+      <div style="margin-top:14px; font-size:11px; color:var(--muted); font-family:var(--sans);">Internal functions carry effects freely. The public interface exposes the union — once, at the boundary.</div>
+    </div>
+
+    <p>This is what "declare" means precisely. Not annotating every internal function — that's haskell's mistake. Declaring the complete set of non-local consequences at the module surface, where it's visible to callers and enforceable by the compiler.</p>
+
+    <p>But declaring effects at a boundary requires that they be first-class values — something you can name, accumulate, and reason about before they execute. That's reification. And it appears far beyond just type systems.</p>
+  </section>
+
+  <!-- SECTION 5: REIFICATION -->
+  <section class="section" id="reification">
+    <div class="section-num">05 — Reification of intent</div>
+    <h2>Making consequences <span class="hl2">first-class values</span></h2>
+    <p class="lead">Declaring what crosses a boundary requires a mechanism. You can't declare something you can't name. The mechanism is reification — turning a would-be action into a first-class value that can be inspected, deferred, replayed, or rejected before it touches the world. This pattern appears at every level of the stack.</p>
+
+    <div class="diagram">
+      <div class="diagram-title">Reification across the stack — same principle, different domain</div>
+      <div class="reify-flow">
+        <div class="reify-row header">
+          <div class="reify-cell">Level</div>
+          <div class="reify-cell">Reified value</div>
+          <div class="reify-cell">What you gain</div>
+          <div class="reify-cell">System</div>
+        </div>
+        <div class="reify-row">
+          <div class="reify-cell label">Type system</div>
+          <div class="reify-cell val">Unhandled effect</div>
+          <div class="reify-cell context">Testability, compiler enforcement</div>
+          <div class="reify-cell">Koka, effect-ts</div>
+        </div>
+        <div class="reify-row">
+          <div class="reify-cell label">Application</div>
+          <div class="reify-cell val">Command / action</div>
+          <div class="reify-cell context">Undo, replay, audit log</div>
+          <div class="reify-cell">Redux, CQRS</div>
+        </div>
+        <div class="reify-row">
+          <div class="reify-cell label">Storage</div>
+          <div class="reify-cell val">Log entry / WAL</div>
+          <div class="reify-cell context">Crash recovery, replay</div>
+          <div class="reify-cell">Sqlite, postgres</div>
+        </div>
+        <div class="reify-row">
+          <div class="reify-cell label">Distributed</div>
+          <div class="reify-cell val">Event / operation</div>
+          <div class="reify-cell context">Eventual consistency, CRDT</div>
+          <div class="reify-cell">Kafka, event sourcing</div>
+        </div>
+        <div class="reify-row">
+          <div class="reify-cell label">Language</div>
+          <div class="reify-cell val">Thunk / continuation</div>
+          <div class="reify-cell context">Deferred execution, laziness</div>
+          <div class="reify-cell">Haskell, js promises</div>
+        </div>
+      </div>
+    </div>
+
+    <p>WAL is the clearest example. Before executing a write that will mutate durable state, serialize the intention into the log first. If the system crashes, the intention survives. Execution becomes idempotent — you can apply the same intention twice without corruption.</p>
+
+    <div class="diagram">
+      <div class="diagram-title">WAL as reification under crash conditions</div>
+      <div class="wal-timeline">
+        <div class="wal-step">
+          <div class="wal-num">01</div>
+          <div class="wal-content">
+            <div class="wal-title">Intention declared</div>
+            <div class="wal-desc">Before any mutation, the intent is written durably. This is reification — the action becomes a value.</div>
+            <div class="wal-code">LOG: UPDATE accounts SET balance = 500 WHERE id = 42</div>
+          </div>
+        </div>
+        <div class="wal-step">
+          <div class="wal-num">02</div>
+          <div class="wal-content">
+            <div class="wal-title">Execution is optional</div>
+            <div class="wal-desc">The log entry exists independently of the execution. Crash here — the intent survives. Replay is possible.</div>
+          </div>
+        </div>
+        <div class="wal-step">
+          <div class="wal-num">03</div>
+          <div class="wal-content">
+            <div class="wal-title">State is derivative</div>
+            <div class="wal-desc">The log is truth. The state is a projection. Separating what happened from what currently is.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <p>Redux <code>dispatch(action)</code>, kafka's append-only log, event sourcing, CRDT operations — all saying the same thing: <strong style="color:var(--bright)">Record the intent before executing it. Keep the two steps separate.</strong></p>
+
+    <div class="principle-box p2">
+      <div class="principle-text">Declare what crosses the boundary —<br>Make non-local consequences first-class values.</div>
+      <div class="principle-sub">This is principle two: declare. You can't expose what you can't name. Once it's a value, you can inspect it, defer it, test it, replay it, reject it. The compiler can enforce it. The question that remains is where the boundary actually lives.</div>
+    </div>
+  </section>
+
+  <!-- SECTION 6: GRANULARITY -->
+  <section class="section" id="granularity">
+    <div class="section-num">06 — The granularity question</div>
+    <h2>Where you draw the boundary <span class="hl3">is the design</span></h2>
+    <p class="lead">Both principles are scoped to module interfaces. The remaining question is: where exactly is the boundary? And what do you choose to make primitive — intent or state? These are design decisions, and they have dual answers.</p>
+
+    <div class="diagram">
+      <div class="diagram-title">WAL and migrations — the reification principle, inverted</div>
+      <div style="display:grid; grid-template-columns:1fr auto 1fr; gap:0; background:var(--border); border:1px solid var(--border);">
+        <div style="background:var(--bg2); padding:24px;">
+          <div style="font-size:9px; letter-spacing:.15em; text-transform:uppercase; color:var(--accent); margin-bottom:14px;">WAL / event sourcing</div>
+          <div style="font-size:12px; color:var(--bright); margin-bottom:10px; font-weight:500;">Operation is primitive</div>
+          <div style="font-size:11px; color:var(--muted); font-family:var(--sans); line-height:1.8; margin-bottom:16px;">Reify intent before execution. State is derived by replaying the log. The log is truth.</div>
+          <div style="font-size:10px; color:var(--dim); font-family:var(--sans);">Best for: audit, replay, temporal queries</div>
+        </div>
+        <div style="background:var(--bg3); padding:20px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:12px; min-width:60px;">
+          <div style="font-size:11px; color:var(--dim);">⇄</div>
+          <div style="font-size:9px; color:var(--dim); letter-spacing:.1em; text-transform:uppercase; writing-mode:vertical-rl;">Duals</div>
+        </div>
+        <div style="background:var(--bg2); padding:24px;">
+          <div style="font-size:9px; letter-spacing:.15em; text-transform:uppercase; color:var(--accent4); margin-bottom:14px;">Snapshots / migrations</div>
+          <div style="font-size:12px; color:var(--bright); margin-bottom:10px; font-weight:500;">State is primitive</div>
+          <div style="font-size:11px; color:var(--muted); font-family:var(--sans); line-height:1.8; margin-bottom:16px;">Reify state explicitly. Operations are derived by diffing. The snapshot is truth.</div>
+          <div style="font-size:10px; color:var(--dim); font-family:var(--sans);">Best for: current state queries, schema evolution</div>
+        </div>
+      </div>
+      <div style="margin-top:16px; font-size:11px; color:var(--muted); font-family:var(--sans); line-height:1.7;">Git does both — commits are full state snapshots, but the DAG gives operations for free by diffing adjacent snapshots. Neither is primitive. This is why git's model is unusually durable.</div>
+    </div>
+
+    <p>The duality isn't a contradiction — it's the same principle applied in opposite directions. You choose what to make first-class based on your access pattern. The design decision is about tradeoffs, not correctness.</p>
+
+    <div class="diagram">
+      <div class="diagram-title">Granularity — where the principle earns its cost</div>
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:1px; background:var(--border);">
+        <div style="background:var(--bg3); padding:20px;">
+          <div style="font-size:9px; letter-spacing:.15em; text-transform:uppercase; color:var(--accent3); margin-bottom:14px;">Too fine — haskell's IO</div>
+          <div style="font-size:11px; color:var(--muted); font-family:var(--sans); line-height:1.8;">Applying declaration at every internal function. Every private call site annotated. Implementation details bleed into the interface model. Declaration cost everywhere, modularity payoff nowhere.</div>
+        </div>
+        <div style="background:var(--bg3); padding:20px;">
+          <div style="font-size:9px; letter-spacing:.15em; text-transform:uppercase; color:var(--accent4); margin-bottom:14px;">Right granularity — module interface</div>
+          <div style="font-size:11px; color:var(--muted); font-family:var(--sans); line-height:1.8;">Effects accumulate internally, declared once at the public surface. Opinionated about the 80% case, escape hatches for the rest. The principle applied exactly where it earns its cost.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="note">The principles optimize for modularity — reasoning about a module from its interface without knowing what's behind it. Applying them finer than the module boundary undermines that goal. Callers start needing to understand internal structure.</div>
+  </section>
+
+  <!-- SECTION 7: TWO PRINCIPLES -->
+  <section class="section" id="principles">
+    <div class="section-num">07 — The two principles</div>
+    <h2>Everything reduces to <span class="hl3">two things</span></h2>
+    <p class="lead">The five patterns we started with — ports & adapters, plugin, observer, middleware chain, algebraic effects — are all positions on the same two questions: what does the module contain, and what does it declare at its boundary.</p>
+
+    <div class="convergence">
+      <div class="conv-cell header" style="background:rgba(74,158,255,0.06); border-bottom:1px solid var(--border);">
+        <div style="font-size:10px; color:var(--accent); letter-spacing:.15em; text-transform:uppercase;">Principle one</div>
+      </div>
+      <div class="conv-cell header" style="background:rgba(74,232,160,0.06); border-bottom:1px solid var(--border);">
+        <div style="font-size:10px; color:var(--accent4); letter-spacing:.15em; text-transform:uppercase;">Principle two</div>
+      </div>
+      <div class="conv-cell" style="background:rgba(74,158,255,0.03);">
+        <div class="conv-label">The boundary</div>
+        <div class="conv-title">Contain what is internal,<br>expose what crosses</div>
+        <div class="conv-items">
+          <div class="conv-item"><div class="dot"></div>Ports & adapters — contains domain logic, exposes infrastructure dependency</div>
+          <div class="conv-item"><div class="dot"></div>Plugin — contains host implementation, declares extension interface explicitly</div>
+          <div class="conv-item"><div class="dot"></div>Pure functions — contain all behavior, nothing crosses, nothing declared</div>
+          <div class="conv-item"><div class="dot"></div>ST monad — internally mutable, externally pure boundary</div>
+        </div>
+      </div>
+      <div class="conv-cell" style="background:rgba(74,232,160,0.03);">
+        <div class="conv-label">The mechanism</div>
+        <div class="conv-title">Reify what crosses —<br>Make it a first-class value</div>
+        <div class="conv-items">
+          <div class="conv-item"><div class="dot"></div>Algebraic effects — unhandled effect is a value, not a side effect</div>
+          <div class="conv-item"><div class="dot"></div>WAL — intention is a value before execution</div>
+          <div class="conv-item"><div class="dot"></div>Event sourcing — change is a value, state is derivative</div>
+          <div class="conv-item"><div class="dot"></div>Redux actions — intent is a value, dispatch is explicit</div>
+        </div>
+      </div>
+    </div>
+
+    <p>The patterns that falter are the ones where one of these principles is only partially applied at the module interface. Middleware fails because it doesn't declare ordering dependencies. Observer fails because it doesn't declare the consumer relationship. Plugin fails when the declared extension interface can never evolve.</p>
+
+    <p>The patterns that hold are the ones where both principles are cleanly applied. Ports & adapters contains implementation, declares the dependency. Algebraic effects declare the complete capability set at the module surface. Pure functions are the trivial case — nothing crosses, nothing needs declaring.</p>
+
+    <div class="note">The principles apply at module interfaces — function signatures, public APIs, service contracts. They don't apply inside modules. A system can apply these at function-module-service levels simultaneously because each level has its own interface. The same principles, applied at the right granularity per level.</div>
+  </section>
+
+  <!-- SECTION 8: VS TRADITIONAL -->
+  <section class="section" id="traditional">
+    <div class="section-num">08 — Vs traditional principles</div>
+    <h2>SOLID and DRY are <span class="hl">projections</span>,<br>not foundations</h2>
+    <p class="lead">The traditional software engineering principles — SOLID, DRY, KISS, separation of concerns — aren't wrong. They're low-resolution projections of the two core principles onto specific contexts. They describe the shadow without describing what casts it.</p>
+
+    <table class="compare-table">
+      <thead>
+        <tr>
+          <th>Traditional principle</th>
+          <th>What it observes</th>
+          <th>What it misses</th>
+          <th>The underlying principle</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="principle-name">Single Responsibility</td>
+          <td>A class should have one reason to change</td>
+          <td class="gap">"reason to change" is undefined — does all the work without precision</td>
+          <td class="covers">Things that share a boundary should change together</td>
+        </tr>
+        <tr>
+          <td class="principle-name">DRY</td>
+          <td>Don't repeat yourself — deduplicate</td>
+          <td class="gap">Optimizes textual deduplication, not conceptual locality. Identical code that changes for different reasons should stay separate</td>
+          <td class="covers">Co-locate by change locality, not textual similarity</td>
+        </tr>
+        <tr>
+          <td class="principle-name">Separation of Concerns</td>
+          <td>Split things apart</td>
+          <td class="gap">Splits by technical type (controller/service/repo), not by locality. The concern was redistributed, not contained</td>
+          <td class="covers">Contain by change locality, expose by escape behavior</td>
+        </tr>
+        <tr>
+          <td class="principle-name">Dependency Inversion</td>
+          <td>Depend on abstractions, not concretions</td>
+          <td class="gap">Closest to the real principle but stops short of the mechanism</td>
+          <td class="covers">Expose infrastructure dependency explicitly at the boundary</td>
+        </tr>
+        <tr>
+          <td class="principle-name">Open/Closed</td>
+          <td>Open for extension, closed for modification</td>
+          <td class="gap">Doesn't explain why or where the extension point should be</td>
+          <td class="covers">Contain implementation, reify extension as a declared interface</td>
+        </tr>
+        <tr>
+          <td class="principle-name">Law of Demeter</td>
+          <td>Don't reach through objects</td>
+          <td class="gap">Rule without explanation — why is reaching through bad?</td>
+          <td class="covers">Reaching through crosses a boundary that wasn't declared</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <p>The traditional principles are useful as <em>communication tools</em>. "This violates SRP" is a useful shorthand in a code review even when the underlying reasoning is imprecise. But they fail as <em>design tools</em> because they're observational — here's what good code looks like — rather than generative — here's how to reason toward it.</p>
+
+    <p>You can follow all of SOLID and still produce bad architecture. Because SOLID doesn't tell you where the real boundaries are — only how to respect them once you've found them.</p>
+
+    <div class="principle-box final">
+      <div class="principle-text">The traditional principles describe symptoms.<br>These two describe the cause.</div>
+      <div class="principle-sub">Once you have the cause, you can reason toward good design from first principles — not just recognize it after the fact. And you can diagnose precisely where a pattern breaks down, rather than having a vague sense that something feels wrong.</div>
+    </div>
+
+    <div style="margin-top:48px;">
+      <div style="font-size:10px; letter-spacing:.15em; text-transform:uppercase; color:var(--dim); margin-bottom:24px;">In summary</div>
+      <div style="display:flex; flex-direction:column; gap:16px;">
+        <div style="display:grid; grid-template-columns:24px 1fr; gap:16px; align-items:baseline;">
+          <div style="font-size:10px; color:var(--accent); text-align:right;">I</div>
+          <div style="font-size:14px; color:var(--white); font-family:var(--mono); line-height:1.5;">Contain — hide what is internal to the module.</div>
+        </div>
+        <div style="display:grid; grid-template-columns:24px 1fr; gap:16px; align-items:baseline;">
+          <div style="font-size:10px; color:var(--accent4); text-align:right;">II</div>
+          <div style="font-size:14px; color:var(--white); font-family:var(--mono); line-height:1.5;">Declare — make non-local consequences first-class at the interface.</div>
+        </div>
+        <div style="margin-top:8px; padding-top:24px; border-top:1px solid var(--border);">
+          <div style="font-size:12px; color:var(--muted); font-family:var(--sans); line-height:1.8;">These principles are specifically about module interface design — not internal implementation. A module can do anything inside. What it declares at its boundary must be honest and complete. The adversarial conditions change across levels and domains. The principles don't.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="footer">
+    <div class="footer-text">Contain and declare — a narrative in eight sections</div>
+  </div>
+
+</div>
+
+<script>
+  // scroll progress
+  const progress = document.getElementById('progress');
+  window.addEventListener('scroll', () => {
+    const h = document.documentElement;
+    const pct = (window.scrollY / (h.scrollHeight - h.clientHeight)) * 100;
+    progress.style.width = pct + '%';
+  });
+
+  // intersection observer for section reveals
+  const sections = document.querySelectorAll('.section');
+  const obs = new IntersectionObserver((entries) => {
+    entries.forEach(e => {
+      if (e.isIntersecting) e.target.classList.add('visible');
+    });
+  }, { threshold: 0.08 });
+
+  sections.forEach(s => obs.observe(s));
+
+  // draw DAG svg inline (build system example)
+  // just using the pattern cards for now — svg dag could be added later
+</script>
+
+</body>
+</html>
