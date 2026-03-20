@@ -700,54 +700,56 @@ Pure logic to extract from services into Domain/Rules/:
 
 ### Admission
 
-| Service | Pure Logic | Extract To |
-|---------|-----------|------------|
-| ApplicationManager | `getApplicationStatus()` — determines candidate position in workflow | Admission/Domain/Rules/ApplicationStatusRule.php |
-| AdmissionStatistics | All methods — graph data generation, date bucketing, cumulative aggregation | Admission/Domain/Rules/AdmissionGraphData.php |
-| ApplicationData | `getMalePercentage()`, `getFemalePercentage()`, `countPositions()` | Admission/Domain/Rules/ApplicationCounting.php |
-| ApplicationAdmission | `userCanApplyInPeriod()`, `userHasAssistantHistory()` checks | Admission/Domain/Rules/ApplicationEligibility.php |
-| AdmissionNotifier | `canReceiveNotification()` eligibility predicate | Admission/Domain/Rules/SubscriberEligibility.php |
+| Service | Pure Logic | Extract To | Status |
+|---------|-----------|------------|--------|
+| ApplicationManager | `getApplicationStatus()` — determines candidate position in workflow | Admission/Domain/Rules/ApplicationStatusRule.php | Done |
+| AdmissionStatistics | All methods — graph data generation, date bucketing, cumulative aggregation | Admission/Domain/Rules/AdmissionStatistics.php | Done |
+| ApplicationData | `getMalePercentage()`, `getFemalePercentage()`, `countPositions()` | Admission/Domain/Rules/ApplicationCounting.php | Skipped — percentages are impure (call repositories); countPositions is trivial with cross-context dep |
+| ApplicationAdmission | `userCanApplyInPeriod()`, `userHasAssistantHistory()` checks | Admission/Domain/Rules/ApplicationEligibility.php | N/A — methods do not exist in source |
+| AdmissionNotifier | `canReceiveNotification()` eligibility predicate | Admission/Domain/Rules/SubscriberEligibility.php | N/A — method does not exist in source |
 
 ### Interview
 
-| Service | Pure Logic | Extract To |
-|---------|-----------|------------|
-| InterviewManager | `loggedInUserCanSeeInterview()`, `getDefaultScheduleFormData()` | Interview/Domain/Rules/InterviewAccess.php |
-| InterviewCounter | Entire service — `count()`, `groupInterviewsByInterviewer()` | Interview/Domain/Rules/InterviewCounter.php (already pure) |
-| InterviewAnswerValidator | `validate()` — question type vs answer emptiness | Interview/Domain/Rules/InterviewAnswerValidation.php |
+| Service | Pure Logic | Extract To | Status |
+|---------|-----------|------------|--------|
+| InterviewManager | `loggedInUserCanSeeInterview()`, `getDefaultScheduleFormData()` | Interview/Domain/Rules/InterviewAccess.php | Skipped — fully impure (TokenStorage, AuthorizationChecker, EM queries) |
+| InterviewCounter | `count()` — suitability rating aggregation | Interview/Domain/Rules/InterviewCounter.php | Done |
+| InterviewAnswerValidator | `validate()` — question type vs answer emptiness | Interview/Domain/Rules/InterviewAnswerValidation.php | Skipped — extends Symfony ConstraintValidator, not extractable |
 
 ### Organization
 
-| Service | Pure Logic | Extract To |
-|---------|-----------|------------|
-| TeamMembershipService | Expiration detection: `(endSemester, currentStartDate) → isExpired` | Organization/Domain/Rules/MembershipExpiration.php |
-| UserGroupCollectionManager | Distribution algorithm: `(users[], groupCount) → groups[][]` | Organization/Domain/Rules/UserGroupDistribution.php |
+| Service | Pure Logic | Extract To | Status |
+|---------|-----------|------------|--------|
+| TeamMembershipService | Expiration detection: `(endSemester, currentStartDate) → isExpired` | Organization/Domain/Rules/MembershipExpiration.php | Done |
+| UserGroupCollectionManager | Distribution algorithm: `(users[], groupCount) → groups[][]` | Organization/Domain/Rules/UserGroupDistribution.php | Done |
 
 ### Survey
 
-| Service | Pure Logic | Extract To |
-|---------|-----------|------------|
-| SurveyManager | `initializeSurveyTaken()`, `predictSurveyTakenAnswers()`, `surveyResultToJson()`, `getSurveyTargetAudienceString()` | Survey/Domain/Rules/SurveyDataTransformer.php |
+| Service | Pure Logic | Extract To | Status |
+|---------|-----------|------------|--------|
+| SurveyManager | `getSurveyTargetAudienceString()`, `getTextAnswerWithSchoolResults()`, `formatTeamNames()` | Survey/Domain/Rules/SurveyDataTransformer.php | Done |
+| SurveyManager | `predictSurveyTakenAnswers()`, `surveyResultToJson()` | — | Skipped — impure (use `$this->em->getRepository()`) |
+| SurveyManager | `initializeSurveyTaken()` | — | Skipped — constructs Infrastructure entities (factory concern, not domain rule) |
 
 ### Identity
 
-| Service | Pure Logic | Extract To |
-|---------|-----------|------------|
-| RoleManager | `isValidRole()`, `canChangeToRole()`, `mapAliasToRole()`, `userIsGranted()` | Identity/Domain/Rules/RoleHierarchy.php |
+| Service | Pure Logic | Extract To | Status |
+|---------|-----------|------------|--------|
+| RoleManager | `isValidRole()`, `canChangeToRole()`, `mapAliasToRole()`, `userIsGranted()` | Identity/Domain/Rules/RoleHierarchy.php | Done |
 
 ### Operations
 
-| Service | Pure Logic | Extract To |
-|---------|-----------|------------|
-| ReceiptStatistics | Entire service — `totalPayoutIn()`, `averageRefundTimeInHours()`, `totalAmount()` | Operations/Domain/Rules/ReceiptStatistics.php (already pure) |
+| Service | Pure Logic | Extract To | Status |
+|---------|-----------|------------|--------|
+| ReceiptStatistics | Entire service — `totalPayoutIn()`, `averageRefundTimeInHours()`, `totalAmount()` | Operations/Domain/Rules/ReceiptStatistics.php | Done (pre-existing) |
 
 ### Scheduling
 
-| Service | Pure Logic | Extract To |
-|---------|-----------|------------|
-| AssistantScheduling/School | `capacityLeftOnDay()`, `isFull()`, `getCapacity()` | Scheduling/Domain/Rules/School.php (already pure) |
-| AssistantScheduling/Assistant | Getters, `assignToSchool()` | Scheduling/Domain/Rules/Assistant.php (already pure) |
-| GeoLocation | `distance()` — pure math | Support/Utils/GeoDistance.php |
+| Service | Pure Logic | Extract To | Status |
+|---------|-----------|------------|--------|
+| AssistantScheduling/School | `capacityLeftOnDay()`, `isFull()`, `getCapacity()` | Scheduling/Domain/Rules/School.php | Done (pre-existing) |
+| AssistantScheduling/Assistant | Getters, `assignToSchool()` | Scheduling/Domain/Rules/Assistant.php | Done (pre-existing) |
+| GeoLocation | `distance()` — pure math | Support/Utils/GeoDistance.php | Deferred — not a bounded context extraction |
 
 ## Cross-Context Entity Relations
 
