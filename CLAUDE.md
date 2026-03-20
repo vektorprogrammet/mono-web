@@ -89,6 +89,8 @@ Regenerate types: `turbo run generate` (or `cd packages/sdk && bun run generate`
 |-------|----------|
 | Architecture decisions | [`docs/adr/`](docs/adr/) |
 | Migration roadmap | [`docs/migration/`](docs/migration/) |
+| DDD/FCIS restructure spec | [`docs/superpowers/specs/2026-03-20-ddd-fcis-analysis-design.md`](docs/superpowers/specs/2026-03-20-ddd-fcis-analysis-design.md) |
+| DDD restructure plan | [`docs/superpowers/plans/2026-03-20-ddd-restructure.md`](docs/superpowers/plans/2026-03-20-ddd-restructure.md) |
 | Server (PHP) | [`apps/server/CLAUDE.md`](apps/server/CLAUDE.md) |
 
 ## Server (PHP)
