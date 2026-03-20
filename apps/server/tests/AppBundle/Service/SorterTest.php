@@ -2,9 +2,9 @@
 
 namespace Tests\App\Service;
 
-use App\Entity\Receipt;
-use App\Entity\User;
-use App\Service\Sorter;
+use App\Operations\Infrastructure\Entity\Receipt;
+use App\Identity\Infrastructure\Entity\User;
+use App\Support\Sorter;
 use Symfony\Bundle\FrameworkBundle\Test\KernelTestCase;
 
 class SorterTest extends KernelTestCase

@@ -2,7 +2,7 @@
 
 namespace Tests\AppBundle\Api;
 
-use App\Entity\Survey;
+use App\Survey\Infrastructure\Entity\Survey;
 use Doctrine\ORM\EntityManagerInterface;
 use Tests\BaseWebTestCase;
 
@@ -42,7 +42,7 @@ class AdminSurveyWriteApiTest extends BaseWebTestCase
         $client = static::createClient();
 
         $em = static::getContainer()->get(EntityManagerInterface::class);
-        $semester = $em->getRepository(\App\Entity\Semester::class)->findAll()[0];
+        $semester = $em->getRepository(\App\Shared\Entity\Semester::class)->findAll()[0];
 
         $payload = [
             'name' => 'API Test Survey',
@@ -67,7 +67,7 @@ class AdminSurveyWriteApiTest extends BaseWebTestCase
         $client = static::createClient();
 
         $em = static::getContainer()->get(EntityManagerInterface::class);
-        $semester = $em->getRepository(\App\Entity\Semester::class)->findAll()[0];
+        $semester = $em->getRepository(\App\Shared\Entity\Semester::class)->findAll()[0];
 
         $payload = [
             'name' => 'Survey With Questions',
@@ -95,7 +95,7 @@ class AdminSurveyWriteApiTest extends BaseWebTestCase
         $client = static::createClient();
 
         $em = static::getContainer()->get(EntityManagerInterface::class);
-        $semester = $em->getRepository(\App\Entity\Semester::class)->findAll()[0];
+        $semester = $em->getRepository(\App\Shared\Entity\Semester::class)->findAll()[0];
 
         $payload = [
             'name' => '',
@@ -245,8 +245,8 @@ class AdminSurveyWriteApiTest extends BaseWebTestCase
 
         // Create a fresh survey to delete (avoid fixture dependencies)
         $em = static::getContainer()->get(EntityManagerInterface::class);
-        $semester = $em->getRepository(\App\Entity\Semester::class)->findAll()[0];
-        $department = $em->getRepository(\App\Entity\Department::class)->findAll()[0];
+        $semester = $em->getRepository(\App\Shared\Entity\Semester::class)->findAll()[0];
+        $department = $em->getRepository(\App\Organization\Infrastructure\Entity\Department::class)->findAll()[0];
 
         $survey = new Survey();
         $survey->setName('To Be Deleted');
@@ -353,21 +353,21 @@ class AdminSurveyWriteApiTest extends BaseWebTestCase
         $client = static::createClient();
 
         $em = static::getContainer()->get(EntityManagerInterface::class);
-        $semester = $em->getRepository(\App\Entity\Semester::class)->findAll()[0];
-        $department = $em->getRepository(\App\Entity\Department::class)->findAll()[0];
+        $semester = $em->getRepository(\App\Shared\Entity\Semester::class)->findAll()[0];
+        $department = $em->getRepository(\App\Organization\Infrastructure\Entity\Department::class)->findAll()[0];
 
         // Create a survey with 2 questions
         $survey = new Survey();
         $survey->setName('Replace Test Survey');
         $survey->setSemester($semester);
         $survey->setDepartment($department);
-        $q1 = new \App\Entity\SurveyQuestion();
+        $q1 = new \App\Survey\Infrastructure\Entity\SurveyQuestion();
         $q1->setQuestion('Old Q1');
         $q1->setType('text');
         $q1->setOptional(false);
         $em->persist($q1);
         $survey->addSurveyQuestion($q1);
-        $q2 = new \App\Entity\SurveyQuestion();
+        $q2 = new \App\Survey\Infrastructure\Entity\SurveyQuestion();
         $q2->setQuestion('Old Q2');
         $q2->setType('text');
         $q2->setOptional(false);

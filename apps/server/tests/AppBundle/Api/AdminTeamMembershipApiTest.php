@@ -2,11 +2,11 @@
 
 namespace Tests\AppBundle\Api;
 
-use App\Entity\Position;
-use App\Entity\Semester;
-use App\Entity\Team;
-use App\Entity\TeamMembership;
-use App\Entity\User;
+use App\Organization\Infrastructure\Entity\Position;
+use App\Shared\Entity\Semester;
+use App\Organization\Infrastructure\Entity\Team;
+use App\Organization\Infrastructure\Entity\TeamMembership;
+use App\Identity\Infrastructure\Entity\User;
 use Doctrine\ORM\EntityManagerInterface;
 use Tests\BaseWebTestCase;
 

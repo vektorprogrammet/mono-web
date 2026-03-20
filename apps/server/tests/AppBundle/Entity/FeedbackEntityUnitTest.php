@@ -2,8 +2,8 @@
 
 namespace Tests\App\Entity;
 
-use App\Entity\Feedback;
-use App\Entity\User;
+use App\Content\Infrastructure\Entity\Feedback;
+use App\Identity\Infrastructure\Entity\User;
 use PHPUnit\Framework\TestCase;
 
 class FeedbackEntityUnitTest extends TestCase

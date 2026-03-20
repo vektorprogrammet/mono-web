@@ -2,10 +2,10 @@
 
 namespace Tests\AppBundle\Api;
 
-use App\Entity\Department;
-use App\Entity\Survey;
-use App\Entity\SurveyTaken;
-use App\Entity\User;
+use App\Organization\Infrastructure\Entity\Department;
+use App\Survey\Infrastructure\Entity\Survey;
+use App\Survey\Infrastructure\Entity\SurveyTaken;
+use App\Identity\Infrastructure\Entity\User;
 use Tests\BaseWebTestCase;
 
 class SurveyResultApiTest extends BaseWebTestCase

@@ -2,18 +2,18 @@
 
 namespace Tests\App\Extension;
 
-use App\Entity\AdmissionPeriod;
-use App\Entity\Department;
-use App\Entity\ExecutiveBoard;
-use App\Entity\ExecutiveBoardMembership;
-use App\Entity\Position;
-use App\Entity\Semester;
-use App\Entity\Team;
-use App\Entity\TeamMembership;
-use App\Entity\User;
-use App\Service\FilterService;
-use App\Service\Sorter;
-use App\Twig\Extension\TeamPositionSortExtension;
+use App\Admission\Infrastructure\Entity\AdmissionPeriod;
+use App\Organization\Infrastructure\Entity\Department;
+use App\Organization\Infrastructure\Entity\ExecutiveBoard;
+use App\Organization\Infrastructure\Entity\ExecutiveBoardMembership;
+use App\Organization\Infrastructure\Entity\Position;
+use App\Shared\Entity\Semester;
+use App\Organization\Infrastructure\Entity\Team;
+use App\Organization\Infrastructure\Entity\TeamMembership;
+use App\Identity\Infrastructure\Entity\User;
+use App\Support\FilterService;
+use App\Support\Sorter;
+use App\Organization\Twig\TeamPositionSortExtension;
 use PHPUnit\Framework\TestCase;
 
 class TeamPositionSortExtensionUnitTest extends TestCase

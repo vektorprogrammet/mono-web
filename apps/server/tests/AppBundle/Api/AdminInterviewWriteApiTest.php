@@ -2,10 +2,10 @@
 
 namespace Tests\AppBundle\Api;
 
-use App\Entity\Application;
-use App\Entity\Interview;
-use App\Entity\InterviewSchema;
-use App\Entity\User;
+use App\Admission\Infrastructure\Entity\Application;
+use App\Interview\Infrastructure\Entity\Interview;
+use App\Interview\Infrastructure\Entity\InterviewSchema;
+use App\Identity\Infrastructure\Entity\User;
 use Tests\BaseWebTestCase;
 
 class AdminInterviewWriteApiTest extends BaseWebTestCase
