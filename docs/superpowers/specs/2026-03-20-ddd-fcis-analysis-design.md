@@ -497,7 +497,7 @@ src/
 | AssistantScheduling/School.php | 1 | Scheduling/Domain/Rules/ (already pure) |
 | AssistantScheduling/Assistant.php | 1 | Scheduling/Domain/Rules/ (already pure) |
 | Service/SbsData.php | 1 | Scheduling/Infrastructure/ |
-| Service/GeoLocation.php | 1 | Scheduling/Infrastructure/ |
+| Service/GeoLocation.php | 1 | Support/Infrastructure/ |
 | ApiResource/AdminSchedulingAssistantResource.php | 1 | Scheduling/Api/Resource/ |
 | ApiResource/AdminSchedulingSchoolResource.php | 1 | Scheduling/Api/Resource/ |
 | ApiResource/AdminSchoolWriteResource.php | 1 | Scheduling/Api/Resource/ |
@@ -747,7 +747,7 @@ Pure logic to extract from services into Domain/Rules/:
 |---------|-----------|------------|
 | AssistantScheduling/School | `capacityLeftOnDay()`, `isFull()`, `getCapacity()` | Scheduling/Domain/Rules/School.php (already pure) |
 | AssistantScheduling/Assistant | Getters, `assignToSchool()` | Scheduling/Domain/Rules/Assistant.php (already pure) |
-| GeoLocation | `distance()` — pure math | Scheduling/Domain/Rules/GeoDistance.php |
+| GeoLocation | `distance()` — pure math | Support/Utils/GeoDistance.php |
 
 ## Cross-Context Entity Relations
 
