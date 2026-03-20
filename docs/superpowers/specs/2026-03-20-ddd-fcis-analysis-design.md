@@ -24,31 +24,34 @@ Doctrine entities stay as Infrastructure. No entity splitting.
 
 | Context | Responsibility | Core Entities |
 |---------|---------------|---------------|
-| **Admission** | Application lifecycle — submit, review, accept/reject | Application, AdmissionPeriod, AdmissionSubscriber, AdmissionNotification |
+| **Admission** | Application lifecycle — submit, review, accept/reject | Application, AdmissionPeriod, AdmissionSubscriber, AdmissionNotification, InfoMeeting |
 | **Interview** | Interview scheduling, conducting, scoring | Interview, InterviewSchema, InterviewQuestion, InterviewQuestionAlternative, InterviewAnswer, InterviewScore, InterviewDistribution |
-| **Organization** | Departments, teams, boards, positions, user groups | Department, Team, TeamMembership, ExecutiveBoard, ExecutiveBoardMembership, Position, TeamApplication, TeamInterest, UserGroup, UserGroupCollection |
+| **Organization** | Departments, teams, boards, positions, user groups | Department, Team, TeamMembership, ExecutiveBoard, ExecutiveBoardMembership, Position, TeamApplication, TeamInterest, UserGroup, UserGroupCollection, FieldOfStudy |
 | **Survey** | Questionnaire creation, distribution, response collection | Survey, SurveyQuestion, SurveyQuestionAlternative, SurveyAnswer, SurveyTaken, SurveyNotification, SurveyNotificationCollection, SurveyLinkClick |
 | **Identity** | Users, authentication, roles, access control | User, Role, PasswordReset, AccessRule, UnhandledAccessRule |
 | **Scheduling** | Assistant-to-school assignment | School, SchoolCapacity, AssistantScheduling/* |
-| **Finance** | Receipts, certificates, assistant work history | Receipt, CertificateRequest, AssistantHistory, Signature |
-| **Content** | Articles, static pages, sponsors, changelog, events, support | Article, StaticContent, Sponsor, ChangeLogItem, SupportTicket, SocialEvent, InfoMeeting, Feedback |
+| **Operations** | Receipts, certificates, assistant work history, signatures | Receipt, CertificateRequest, AssistantHistory, Signature |
+| **Content** | Articles, static pages, sponsors, changelog, events, feedback | Article, StaticContent, Sponsor, ChangeLogItem, SupportTicket, SocialEvent, Feedback |
 
 ### Changes from initial design (validated by analysis)
 
-- **Feedback** moved from Survey to Content — zero structural dependency on Survey
-  entities; captures bug reports/feature requests, not survey responses.
+- **Feedback** moved from Survey to Content — zero structural dependency on Survey.
 - **UserGroup/UserGroupCollection** moved from Identity to Organization — they
   manage team/department/semester grouping, not identity concerns.
 - **FieldOfStudy** moved from Shared to Organization — only referenced by
-  Department (Organization) and Application forms, not truly cross-context.
-- **SupportTicket** is a non-persisted DTO (no `@ORM\Entity`), kept in Content as
-  a contact form submission object.
+  Department and Application forms, not truly cross-context.
+- **InfoMeeting** moved from Content to Admission — lifecycle tied to
+  AdmissionPeriod via cascade persist+remove; no independent existence.
+- **Finance renamed to Operations** — Receipt, CertificateRequest, AssistantHistory,
+  and Signature are administrative record-keeping, not financial concerns.
+- **Interview kept as independent context** — ~77 files, own schema/scheduling/
+  scoring system. The OneToOne with Application is a reference, not ownership.
 
 ## Shared Kernel
 
 | Class | Rationale |
 |-------|-----------|
-| `Semester` | Used by Admission, Organization, Scheduling, Finance, Survey, Interview |
+| `Semester` | Used by Admission, Organization, Scheduling, Operations, Survey, Interview |
 | `SemesterUtil` | Pure semester calculations |
 | `DepartmentSemesterInterface` | Implemented by Application (Admission) and TeamInterest (Organization) |
 | `PeriodInterface` | Implemented by Semester and AdmissionPeriod |
@@ -83,11 +86,13 @@ src/
   Shared/                # Cross-context contracts and value objects
   Support/               # Context-agnostic infrastructure
     Infrastructure/      # Mailer, SMS, Google, file upload, logging
+    Api/                 # Cross-context aggregation endpoints
     Controller/          # BaseController, FileBrowserController, GitHubController
     EventSubscriber/     # DbSubscriber, ExceptionSubscriber, GSuiteSubscriber
     Twig/                # Cross-cutting Twig extensions (legacy)
     Form/                # Cross-cutting form types/extensions (legacy)
     Utils/               # CsvUtil, TimeUtil
+    DataFixtures/        # Test data fixtures (31 files, cross-context deps)
 ```
 
 ## Migration Map
@@ -100,11 +105,13 @@ src/
 | Entity/AdmissionPeriod.php | 1 | Admission/Infrastructure/Entity/ |
 | Entity/AdmissionSubscriber.php | 1 | Admission/Infrastructure/Entity/ |
 | Entity/AdmissionNotification.php | 1 | Admission/Infrastructure/Entity/ |
-| Model/ApplicationStatus.php | 1 | Admission/Domain/ValueObjects/ |
+| Entity/InfoMeeting.php | 1 | Admission/Infrastructure/Entity/ |
 | Entity/Repository/ApplicationRepository.php | 1 | Admission/Infrastructure/Repository/ |
 | Entity/Repository/AdmissionPeriodRepository.php | 1 | Admission/Infrastructure/Repository/ |
 | Entity/Repository/AdmissionSubscriberRepository.php | 1 | Admission/Infrastructure/Repository/ |
 | Entity/Repository/AdmissionNotificationRepository.php | 1 | Admission/Infrastructure/Repository/ |
+| Entity/Repository/InfoMeetingRepository.php | 1 | Admission/Infrastructure/Repository/ |
+| Model/ApplicationStatus.php | 1 | Admission/Domain/ValueObjects/ |
 | Service/ApplicationManager.php | 2 | Admission/Infrastructure/ (extract rules) |
 | Service/ApplicationAdmission.php | 2 | Admission/Infrastructure/ (extract rules) |
 | Service/AdmissionNotifier.php | 1 | Admission/Infrastructure/ |
@@ -115,6 +122,10 @@ src/
 | EventSubscriber/ApplicationSubscriber.php | 1 | Admission/Infrastructure/Subscriber/ |
 | Validator/Constraints/ApplicationEmail.php | 1 | Admission/Infrastructure/Validator/ |
 | Validator/Constraints/ApplicationEmailValidator.php | 1 | Admission/Infrastructure/Validator/ |
+| Validator/Constraints/InfoMeeting.php | 1 | Admission/Infrastructure/Validator/ |
+| Validator/Constraints/InfoMeetingValidator.php | 1 | Admission/Infrastructure/Validator/ |
+| Command/SendAdmissionNotificationsCommand.php | 1 | Admission/Infrastructure/Command/ |
+| Command/SendInfoMeetingNotificationsCommand.php | 1 | Admission/Infrastructure/Command/ |
 | ApiResource/ApplicationInput.php | 1 | Admission/Api/Resource/ |
 | ApiResource/ExistingUserApplicationInput.php | 1 | Admission/Api/Resource/ |
 | ApiResource/ApplicationDetailResource.php | 1 | Admission/Api/Resource/ |
@@ -126,6 +137,7 @@ src/
 | ApiResource/AdmissionStatisticsResource.php | 1 | Admission/Api/Resource/ |
 | ApiResource/AdminAdmissionPeriodWriteResource.php | 1 | Admission/Api/Resource/ |
 | ApiResource/AdminAdmissionPeriodDeleteResource.php | 1 | Admission/Api/Resource/ |
+| ApiResource/AdminSubstituteResource.php | 1 | Admission/Api/Resource/ |
 | State/ApplicationProcessor.php | 1 | Admission/Api/State/ |
 | State/ExistingUserApplicationProcessor.php | 1 | Admission/Api/State/ |
 | State/ApplicationDetailProvider.php | 1 | Admission/Api/State/ |
@@ -141,6 +153,13 @@ src/
 | State/AdminAdmissionPeriodDeleteProcessor.php | 1 | Admission/Api/State/ |
 | State/AdminAdmissionPeriodEditProvider.php | 1 | Admission/Api/State/ |
 | State/AdminAdmissionPeriodDeleteProvider.php | 1 | Admission/Api/State/ |
+| State/AdminSubstituteListProvider.php | 1 | Admission/Api/State/ |
+| State/AdminSubstituteEditProcessor.php | 1 | Admission/Api/State/ |
+| State/AdminSubstituteEditProvider.php | 1 | Admission/Api/State/ |
+| State/AdminSubstituteActivateProcessor.php | 1 | Admission/Api/State/ |
+| State/AdminSubstituteActivateProvider.php | 1 | Admission/Api/State/ |
+| State/AdminSubstituteDeactivateProcessor.php | 1 | Admission/Api/State/ |
+| State/AdminSubstituteDeactivateProvider.php | 1 | Admission/Api/State/ |
 | Controller/ExistingUserAdmissionController.php | 4 | Admission/Controller/ |
 | Controller/ApplicationStatisticsController.php | 4 | Admission/Controller/ |
 | Controller/AdmissionAdminController.php | 4 | Admission/Controller/ |
@@ -150,17 +169,15 @@ src/
 | Controller/ConfirmationController.php | 4 | Admission/Controller/ |
 | Form/Type/AdmissionSubscriberType.php | 4 | Admission/Form/ |
 | Form/Type/ApplicationPracticalType.php | 4 | Admission/Form/ |
+| Form/Type/ApplicationType.php | 4 | Admission/Form/ |
+| Form/Type/ApplicationExistingUserType.php | 4 | Admission/Form/ |
+| Form/Type/CreateUserOnApplicationType.php | 4 | Admission/Form/ |
+| Form/Type/CreateAdmissionPeriodType.php | 4 | Admission/Form/ |
+| Form/Type/EditAdmissionPeriodType.php | 4 | Admission/Form/ |
+| Form/Type/InfoMeetingType.php | 4 | Admission/Form/ |
 | Form/Type/DaysType.php | 4 | Admission/Form/ |
 | Form/Type/ModifySubstituteType.php | 4 | Admission/Form/ |
 | Form/Type/UserDataForSubstituteType.php | 4 | Admission/Form/ |
-| ApiResource/AdminSubstituteResource.php | 1 | Admission/Api/Resource/ |
-| State/AdminSubstituteListProvider.php | 1 | Admission/Api/State/ |
-| State/AdminSubstituteEditProcessor.php | 1 | Admission/Api/State/ |
-| State/AdminSubstituteEditProvider.php | 1 | Admission/Api/State/ |
-| State/AdminSubstituteActivateProcessor.php | 1 | Admission/Api/State/ |
-| State/AdminSubstituteActivateProvider.php | 1 | Admission/Api/State/ |
-| State/AdminSubstituteDeactivateProcessor.php | 1 | Admission/Api/State/ |
-| State/AdminSubstituteDeactivateProvider.php | 1 | Admission/Api/State/ |
 
 ### Interview
 
@@ -180,9 +197,11 @@ src/
 | Event/InterviewConductedEvent.php | 1 | Interview/Domain/Events/ |
 | Event/InterviewEvent.php | 1 | Interview/Domain/Events/ |
 | EventSubscriber/InterviewSubscriber.php | 1 | Interview/Infrastructure/Subscriber/ |
-| Type/InterviewStatusType.php | 1 | Interview/Domain/ValueObjects/ |
+| Type/InterviewStatusType.php | 1 | Interview/Domain/ValueObjects/ (convert to enum) |
 | Validator/Constraints/InterviewAnswer.php | 1 | Interview/Infrastructure/Validator/ |
 | Validator/Constraints/InterviewAnswerValidator.php | 1 | Interview/Infrastructure/Validator/ |
+| Command/SendAcceptInterviewReminderCommand.php | 1 | Interview/Infrastructure/Command/ |
+| Command/SendListOfScheduledInterviewsCommand.php | 1 | Interview/Infrastructure/Command/ |
 | ApiResource/InterviewResponseResource.php | 1 | Interview/Api/Resource/ |
 | ApiResource/AdminInterviewListResource.php | 1 | Interview/Api/Resource/ |
 | ApiResource/AdminInterviewSchemaWriteResource.php | 1 | Interview/Api/Resource/ |
@@ -196,12 +215,30 @@ src/
 | ApiResource/InterviewDeleteResource.php | 1 | Interview/Api/Resource/ |
 | ApiResource/InterviewClearCoInterviewerResource.php | 1 | Interview/Api/Resource/ |
 | ApiResource/InterviewSchemaResource.php | 1 | Interview/Api/Resource/ |
-| State/Interview*.php (17 files) | 1 | Interview/Api/State/ |
-| State/AdminInterviewSchema*.php (3 files) | 1 | Interview/Api/State/ |
+| State/InterviewAcceptProcessor.php | 1 | Interview/Api/State/ |
+| State/InterviewAssignProcessor.php | 1 | Interview/Api/State/ |
+| State/InterviewBulkAssignProcessor.php | 1 | Interview/Api/State/ |
+| State/InterviewCancelProcessor.php | 1 | Interview/Api/State/ |
+| State/InterviewClearCoInterviewerProcessor.php | 1 | Interview/Api/State/ |
+| State/InterviewClearCoInterviewerProvider.php | 1 | Interview/Api/State/ |
+| State/InterviewCoInterviewerProcessor.php | 1 | Interview/Api/State/ |
+| State/InterviewConductProcessor.php | 1 | Interview/Api/State/ |
+| State/InterviewDeleteProcessor.php | 1 | Interview/Api/State/ |
+| State/InterviewDeleteProvider.php | 1 | Interview/Api/State/ |
+| State/InterviewNewTimeProcessor.php | 1 | Interview/Api/State/ |
+| State/InterviewResponseProvider.php | 1 | Interview/Api/State/ |
+| State/InterviewScheduleProcessor.php | 1 | Interview/Api/State/ |
+| State/InterviewSchemaListProvider.php | 1 | Interview/Api/State/ |
+| State/InterviewStatusProcessor.php | 1 | Interview/Api/State/ |
+| State/AdminInterviewListProvider.php | 1 | Interview/Api/State/ |
+| State/AdminInterviewSchemaCreateProcessor.php | 1 | Interview/Api/State/ |
+| State/AdminInterviewSchemaDeleteProcessor.php | 1 | Interview/Api/State/ |
+| State/AdminInterviewSchemaDeleteProvider.php | 1 | Interview/Api/State/ |
+| State/AdminInterviewSchemaEditProcessor.php | 1 | Interview/Api/State/ |
 | Controller/InterviewController.php | 4 | Interview/Controller/ |
 | Controller/InterviewSchemaController.php | 4 | Interview/Controller/ |
 | Form/Type/InterviewType.php | 4 | Interview/Form/ |
-| Form/Type/InterviewNewTimeType.php | 4 | Interview/Form/ |
+| Form/InterviewNewTimeType.php | 4 | Interview/Form/ |
 | Form/Type/AddCoInterviewerType.php | 4 | Interview/Form/ |
 | Form/Type/ApplicationInterviewType.php | 4 | Interview/Form/ |
 | Form/Type/ScheduleInterviewType.php | 4 | Interview/Form/ |
@@ -248,18 +285,50 @@ src/
 | EventSubscriber/TeamInterestSubscriber.php | 1 | Organization/Infrastructure/Subscriber/ |
 | EventSubscriber/TeamMembershipSubscriber.php | 1 | Organization/Infrastructure/Subscriber/ |
 | EventSubscriber/IntroductionEmailSubscriber.php | 1 | Organization/Infrastructure/Subscriber/ |
-| ApiResource/AdminTeam*.php (5 files) | 1 | Organization/Api/Resource/ |
-| ApiResource/AdminDepartment*.php (2 files) | 1 | Organization/Api/Resource/ |
-| ApiResource/AdminExecutiveBoard*.php (4 files) | 1 | Organization/Api/Resource/ |
+| Command/UpdateTeamMembershipCommand.php | 1 | Organization/Infrastructure/Command/ |
+| ApiResource/AdminTeamWriteResource.php | 1 | Organization/Api/Resource/ |
+| ApiResource/AdminTeamDeleteResource.php | 1 | Organization/Api/Resource/ |
+| ApiResource/AdminTeamMemberInput.php | 1 | Organization/Api/Resource/ |
+| ApiResource/AdminTeamMembershipWriteResource.php | 1 | Organization/Api/Resource/ |
+| ApiResource/AdminTeamMembershipDeleteResource.php | 1 | Organization/Api/Resource/ |
+| ApiResource/AdminDepartmentWriteResource.php | 1 | Organization/Api/Resource/ |
+| ApiResource/AdminDepartmentDeleteResource.php | 1 | Organization/Api/Resource/ |
+| ApiResource/AdminExecutiveBoardWriteResource.php | 1 | Organization/Api/Resource/ |
+| ApiResource/AdminExecutiveBoardMemberWriteResource.php | 1 | Organization/Api/Resource/ |
+| ApiResource/AdminExecutiveBoardMemberDeleteResource.php | 1 | Organization/Api/Resource/ |
+| ApiResource/AdminExecutiveBoardMemberInput.php | 1 | Organization/Api/Resource/ |
 | ApiResource/AdminFieldOfStudyWriteResource.php | 1 | Organization/Api/Resource/ |
 | ApiResource/TeamApplicationInput.php | 1 | Organization/Api/Resource/ |
 | ApiResource/TeamInterestResource.php | 1 | Organization/Api/Resource/ |
-| State/AdminTeam*.php (10 files) | 1 | Organization/Api/State/ |
-| State/AdminDepartment*.php (5 files) | 1 | Organization/Api/State/ |
-| State/AdminExecutiveBoard*.php (6 files) | 1 | Organization/Api/State/ |
-| State/AdminFieldOfStudy*.php (3 files) | 1 | Organization/Api/State/ |
+| ApiResource/MailingListResource.php | 1 | Organization/Api/Resource/ |
+| State/AdminTeamCreateProcessor.php | 1 | Organization/Api/State/ |
+| State/AdminTeamDeleteProcessor.php | 1 | Organization/Api/State/ |
+| State/AdminTeamDeleteProvider.php | 1 | Organization/Api/State/ |
+| State/AdminTeamEditProcessor.php | 1 | Organization/Api/State/ |
+| State/AdminTeamEditProvider.php | 1 | Organization/Api/State/ |
+| State/AdminTeamMemberAddProcessor.php | 1 | Organization/Api/State/ |
+| State/AdminTeamMembershipDeleteProcessor.php | 1 | Organization/Api/State/ |
+| State/AdminTeamMembershipDeleteProvider.php | 1 | Organization/Api/State/ |
+| State/AdminTeamMembershipEditProcessor.php | 1 | Organization/Api/State/ |
+| State/AdminTeamMembershipEditProvider.php | 1 | Organization/Api/State/ |
+| State/AdminDepartmentCreateProcessor.php | 1 | Organization/Api/State/ |
+| State/AdminDepartmentDeleteProcessor.php | 1 | Organization/Api/State/ |
+| State/AdminDepartmentDeleteProvider.php | 1 | Organization/Api/State/ |
+| State/AdminDepartmentEditProcessor.php | 1 | Organization/Api/State/ |
+| State/AdminDepartmentEditProvider.php | 1 | Organization/Api/State/ |
+| State/AdminExecutiveBoardEditProcessor.php | 1 | Organization/Api/State/ |
+| State/AdminExecutiveBoardEditProvider.php | 1 | Organization/Api/State/ |
+| State/AdminExecutiveBoardMemberAddProcessor.php | 1 | Organization/Api/State/ |
+| State/AdminExecutiveBoardMemberDeleteProcessor.php | 1 | Organization/Api/State/ |
+| State/AdminExecutiveBoardMemberDeleteProvider.php | 1 | Organization/Api/State/ |
+| State/AdminExecutiveBoardMemberEditProcessor.php | 1 | Organization/Api/State/ |
+| State/AdminExecutiveBoardMemberEditProvider.php | 1 | Organization/Api/State/ |
+| State/AdminFieldOfStudyCreateProcessor.php | 1 | Organization/Api/State/ |
+| State/AdminFieldOfStudyEditProcessor.php | 1 | Organization/Api/State/ |
+| State/AdminFieldOfStudyEditProvider.php | 1 | Organization/Api/State/ |
 | State/TeamApplicationProcessor.php | 1 | Organization/Api/State/ |
 | State/TeamInterestProvider.php | 1 | Organization/Api/State/ |
+| State/MailingListProvider.php | 1 | Organization/Api/State/ |
 | Controller/TeamController.php | 4 | Organization/Controller/ |
 | Controller/TeamAdminController.php | 4 | Organization/Controller/ |
 | Controller/TeamApplicationController.php | 4 | Organization/Controller/ |
@@ -271,14 +340,20 @@ src/
 | Controller/UserGroupCollectionController.php | 4 | Organization/Controller/ |
 | Controller/ControlPanelController.php | 4 | Organization/Controller/ |
 | Controller/MailingListController.php | 4 | Organization/Controller/ |
+| Controller/FieldOfStudyController.php | 4 | Organization/Controller/ |
 | Form/Type/CreateTeamType.php | 4 | Organization/Form/ |
+| Form/Type/CreateTeamMembershipType.php | 4 | Organization/Form/ |
 | Form/Type/TeamApplicationType.php | 4 | Organization/Form/ |
+| Form/Type/TeamInterestType.php | 4 | Organization/Form/ |
 | Form/Type/CreatePositionType.php | 4 | Organization/Form/ |
+| Form/Type/CreateDepartmentType.php | 4 | Organization/Form/ |
+| Form/Type/CreateExecutiveBoardType.php | 4 | Organization/Form/ |
 | Form/Type/CreateExecutiveBoardMembershipType.php | 4 | Organization/Form/ |
+| Form/Type/FieldOfStudyType.php | 4 | Organization/Form/ |
+| Form/Type/UserGroupCollectionType.php | 4 | Organization/Form/ |
 | Form/Type/GenerateMailingListType.php | 4 | Organization/Form/ |
 | Twig/Extension/DepartmentExtension.php | 4 | Organization/Twig/ |
 | Twig/Extension/TeamPositionSortExtension.php | 4 | Organization/Twig/ |
-| ApiResource/MailingListResource.php | 1 | Organization/Api/Resource/ |
 
 ### Survey
 
@@ -297,15 +372,31 @@ src/
 | Entity/Repository/SurveyNotificationRepository.php | 1 | Survey/Infrastructure/Repository/ |
 | Service/SurveyManager.php | 2 | Survey/Infrastructure/ (extract rules) |
 | Service/SurveyNotifier.php | 1 | Survey/Infrastructure/ |
-| ApiResource/AdminSurvey*.php (5 files) | 1 | Survey/Api/Resource/ |
-| ApiResource/AdminSurveyNotifier*.php (3 files) | 1 | Survey/Api/Resource/ |
+| ApiResource/AdminSurveyWriteResource.php | 1 | Survey/Api/Resource/ |
+| ApiResource/AdminSurveyDeleteResource.php | 1 | Survey/Api/Resource/ |
+| ApiResource/AdminSurveyListResource.php | 1 | Survey/Api/Resource/ |
+| ApiResource/AdminSurveyCopyResource.php | 1 | Survey/Api/Resource/ |
+| ApiResource/AdminSurveyNotifierWriteResource.php | 1 | Survey/Api/Resource/ |
+| ApiResource/AdminSurveyNotifierDeleteResource.php | 1 | Survey/Api/Resource/ |
+| ApiResource/AdminSurveyNotifierSendResource.php | 1 | Survey/Api/Resource/ |
 | ApiResource/SurveyRespondInput.php | 1 | Survey/Api/Resource/ |
 | ApiResource/SurveyPopupResource.php | 1 | Survey/Api/Resource/ |
 | ApiResource/SurveyResultResource.php | 1 | Survey/Api/Resource/ |
 | ApiResource/PopupDismissInput.php | 1 | Survey/Api/Resource/ |
 | ApiResource/PopupPreferenceInput.php | 1 | Survey/Api/Resource/ |
-| State/AdminSurvey*.php (7 files) | 1 | Survey/Api/State/ |
-| State/AdminSurveyNotifier*.php (5 files) | 1 | Survey/Api/State/ |
+| State/AdminSurveyCreateProcessor.php | 1 | Survey/Api/State/ |
+| State/AdminSurveyEditProcessor.php | 1 | Survey/Api/State/ |
+| State/AdminSurveyDeleteProcessor.php | 1 | Survey/Api/State/ |
+| State/AdminSurveyDeleteProvider.php | 1 | Survey/Api/State/ |
+| State/AdminSurveyListProvider.php | 1 | Survey/Api/State/ |
+| State/AdminSurveyCopyProcessor.php | 1 | Survey/Api/State/ |
+| State/AdminSurveyCopyProvider.php | 1 | Survey/Api/State/ |
+| State/AdminSurveyNotifierCreateProcessor.php | 1 | Survey/Api/State/ |
+| State/AdminSurveyNotifierEditProcessor.php | 1 | Survey/Api/State/ |
+| State/AdminSurveyNotifierDeleteProcessor.php | 1 | Survey/Api/State/ |
+| State/AdminSurveyNotifierDeleteProvider.php | 1 | Survey/Api/State/ |
+| State/AdminSurveyNotifierSendProcessor.php | 1 | Survey/Api/State/ |
+| State/AdminSurveyNotifierSendProvider.php | 1 | Survey/Api/State/ |
 | State/SurveyRespondProcessor.php | 1 | Survey/Api/State/ |
 | State/SurveyPopupProvider.php | 1 | Survey/Api/State/ |
 | State/SurveyResultProvider.php | 1 | Survey/Api/State/ |
@@ -316,6 +407,11 @@ src/
 | Controller/SurveyPopupController.php | 4 | Survey/Controller/ |
 | Form/Type/SurveyType.php | 4 | Survey/Form/ |
 | Form/Type/SurveyAdminType.php | 4 | Survey/Form/ |
+| Form/Type/SurveyAnswerType.php | 4 | Survey/Form/ |
+| Form/Type/SurveyExecuteType.php | 4 | Survey/Form/ |
+| Form/Type/SurveyNotifierType.php | 4 | Survey/Form/ |
+| Form/Type/SurveyQuestionAlternativeType.php | 4 | Survey/Form/ |
+| Form/Type/SurveyQuestionType.php | 4 | Survey/Form/ |
 
 ### Identity
 
@@ -341,6 +437,7 @@ src/
 | Event/UserEvent.php | 1 | Identity/Domain/Events/ |
 | EventSubscriber/UserSubscriber.php | 1 | Identity/Infrastructure/Subscriber/ |
 | EventSubscriber/AccessControlSubscriber.php | 1 | Identity/Infrastructure/Subscriber/ |
+| Command/UpdateUserRolesCommand.php | 1 | Identity/Infrastructure/Command/ |
 | Security/UserChecker.php | 1 | Identity/Infrastructure/ |
 | Role/Roles.php | 1 | Identity/Domain/ |
 | Role/ReversedRoleHierarchy.php | 1 | Identity/Infrastructure/ |
@@ -358,11 +455,18 @@ src/
 | ApiResource/PasswordResetRequest.php | 1 | Identity/Api/Resource/ |
 | ApiResource/PasswordResetExecute.php | 1 | Identity/Api/Resource/ |
 | ApiResource/PasswordChangeInput.php | 1 | Identity/Api/Resource/ |
-| State/AdminUser*.php (6 files) | 1 | Identity/Api/State/ |
-| State/Profile*.php (3 files) | 1 | Identity/Api/State/ |
-| State/PasswordChange*.php | 1 | Identity/Api/State/ |
-| State/PasswordResetRequest*.php | 1 | Identity/Api/State/ |
-| State/PasswordResetExecute*.php | 1 | Identity/Api/State/ |
+| State/AdminUserCreateProcessor.php | 1 | Identity/Api/State/ |
+| State/AdminUserDeleteProcessor.php | 1 | Identity/Api/State/ |
+| State/AdminUserDeleteProvider.php | 1 | Identity/Api/State/ |
+| State/AdminUserListProvider.php | 1 | Identity/Api/State/ |
+| State/AdminUserActivationProcessor.php | 1 | Identity/Api/State/ |
+| State/AdminUserActivationProvider.php | 1 | Identity/Api/State/ |
+| State/ProfileProvider.php | 1 | Identity/Api/State/ |
+| State/ProfileProcessor.php | 1 | Identity/Api/State/ |
+| State/ProfilePhotoProcessor.php | 1 | Identity/Api/State/ |
+| State/PasswordChangeProcessor.php | 1 | Identity/Api/State/ |
+| State/PasswordResetRequestProcessor.php | 1 | Identity/Api/State/ |
+| State/PasswordResetExecuteProcessor.php | 1 | Identity/Api/State/ |
 | State/PublicUserProfileProvider.php | 1 | Identity/Api/State/ |
 | Controller/UserAdminController.php | 4 | Identity/Controller/ |
 | Controller/UserController.php | 4 | Identity/Controller/ |
@@ -374,10 +478,13 @@ src/
 | Controller/SsoController.php | 4 | Identity/Controller/ |
 | Form/Type/EditUserType.php | 4 | Identity/Form/ |
 | Form/Type/NewUserType.php | 4 | Identity/Form/ |
+| Form/Type/CreateUserType.php | 4 | Identity/Form/ |
 | Form/Type/EditUserPasswordType.php | 4 | Identity/Form/ |
 | Form/Type/NewPasswordType.php | 4 | Identity/Form/ |
 | Form/Type/UserCompanyEmailType.php | 4 | Identity/Form/ |
 | Form/Type/PasswordResetType.php | 4 | Identity/Form/ |
+| Form/Type/AccessRuleType.php | 4 | Identity/Form/ |
+| Form/Type/RoutingAccessRuleType.php | 4 | Identity/Form/ |
 
 ### Scheduling
 
@@ -395,49 +502,65 @@ src/
 | ApiResource/AdminSchedulingSchoolResource.php | 1 | Scheduling/Api/Resource/ |
 | ApiResource/AdminSchoolWriteResource.php | 1 | Scheduling/Api/Resource/ |
 | ApiResource/AdminSchoolDeleteResource.php | 1 | Scheduling/Api/Resource/ |
-| State/AdminScheduling*.php (2 files) | 1 | Scheduling/Api/State/ |
-| State/AdminSchool*.php (4 files) | 1 | Scheduling/Api/State/ |
+| State/AdminSchedulingAssistantProvider.php | 1 | Scheduling/Api/State/ |
+| State/AdminSchedulingSchoolProvider.php | 1 | Scheduling/Api/State/ |
+| State/AdminSchoolCreateProcessor.php | 1 | Scheduling/Api/State/ |
+| State/AdminSchoolDeleteProcessor.php | 1 | Scheduling/Api/State/ |
+| State/AdminSchoolDeleteProvider.php | 1 | Scheduling/Api/State/ |
+| State/AdminSchoolEditProcessor.php | 1 | Scheduling/Api/State/ |
+| State/AdminSchoolEditProvider.php | 1 | Scheduling/Api/State/ |
 | Controller/SchoolAdminController.php | 4 | Scheduling/Controller/ |
 | Controller/SchoolCapacityController.php | 4 | Scheduling/Controller/ |
 | Controller/AssistantSchedulingController.php | 4 | Scheduling/Controller/ |
 | Form/Type/CreateSchoolType.php | 4 | Scheduling/Form/ |
 | Form/Type/SchoolCapacityEditType.php | 4 | Scheduling/Form/ |
+| Form/Type/SchoolCapacityType.php | 4 | Scheduling/Form/ |
 
-### Finance
+### Operations
 
 | Existing Path | Cat | Target Path |
 |---------------|-----|-------------|
-| Entity/Receipt.php | 1 | Finance/Infrastructure/Entity/ |
-| Entity/CertificateRequest.php | 1 | Finance/Infrastructure/Entity/ |
-| Entity/AssistantHistory.php | 1 | Finance/Infrastructure/Entity/ |
-| Entity/Signature.php | 1 | Finance/Infrastructure/Entity/ |
-| Entity/Repository/ReceiptRepository.php | 1 | Finance/Infrastructure/Repository/ |
-| Entity/Repository/CertificateRequestRepository.php | 1 | Finance/Infrastructure/Repository/ |
-| Entity/Repository/AssistantHistoryRepository.php | 1 | Finance/Infrastructure/Repository/ |
-| Entity/Repository/SignatureRepository.php | 1 | Finance/Infrastructure/Repository/ |
-| Service/AssistantHistoryData.php | 1 | Finance/Infrastructure/ |
-| Utils/ReceiptStatistics.php | 1 | Finance/Domain/Rules/ (fully pure) |
-| Event/ReceiptEvent.php | 1 | Finance/Domain/Events/ |
-| Event/AssistantHistoryCreatedEvent.php | 1 | Finance/Domain/Events/ |
-| EventSubscriber/ReceiptSubscriber.php | 1 | Finance/Infrastructure/Subscriber/ |
-| EventSubscriber/AssistantHistorySubscriber.php | 1 | Finance/Infrastructure/Subscriber/ |
-| ApiResource/AdminReceiptDashboardResource.php | 1 | Finance/Api/Resource/ |
-| ApiResource/AdminReceiptStatusInput.php | 1 | Finance/Api/Resource/ |
-| ApiResource/AdminCertificateResource.php | 1 | Finance/Api/Resource/ |
-| ApiResource/ReceiptWriteResource.php | 1 | Finance/Api/Resource/ |
-| ApiResource/AdminAssistantHistory*.php (2 files) | 1 | Finance/Api/Resource/ |
-| State/AdminReceipt*.php (2 files) | 1 | Finance/Api/State/ |
-| State/AdminCertificate*.php | 1 | Finance/Api/State/ |
-| State/AdminAssistantHistory*.php (4 files) | 1 | Finance/Api/State/ |
-| State/ReceiptWriteProcessor.php | 1 | Finance/Api/State/ |
-| Controller/ReceiptController.php | 4 | Finance/Controller/ |
-| Controller/CertificateController.php | 4 | Finance/Controller/ |
-| Controller/AssistantController.php | 4 | Finance/Controller/ |
-| Controller/AssistantHistoryController.php | 4 | Finance/Controller/ |
-| Controller/SignatureController.php | 4 | Finance/Controller/ |
-| Controller/ParticipantHistoryController.php | 4 | Finance/Controller/ |
-| Form/Type/ReceiptType.php | 4 | Finance/Form/ |
-| Form/Type/CreateSignatureType.php | 4 | Finance/Form/ |
+| Entity/Receipt.php | 1 | Operations/Infrastructure/Entity/ |
+| Entity/CertificateRequest.php | 1 | Operations/Infrastructure/Entity/ |
+| Entity/AssistantHistory.php | 1 | Operations/Infrastructure/Entity/ |
+| Entity/Signature.php | 1 | Operations/Infrastructure/Entity/ |
+| Entity/Repository/ReceiptRepository.php | 1 | Operations/Infrastructure/Repository/ |
+| Entity/Repository/CertificateRequestRepository.php | 1 | Operations/Infrastructure/Repository/ |
+| Entity/Repository/AssistantHistoryRepository.php | 1 | Operations/Infrastructure/Repository/ |
+| Entity/Repository/SignatureRepository.php | 1 | Operations/Infrastructure/Repository/ |
+| Service/AssistantHistoryData.php | 1 | Operations/Infrastructure/ |
+| Utils/ReceiptStatistics.php | 1 | Operations/Domain/Rules/ (fully pure) |
+| Event/ReceiptEvent.php | 1 | Operations/Domain/Events/ |
+| Event/AssistantHistoryCreatedEvent.php | 1 | Operations/Domain/Events/ |
+| EventSubscriber/ReceiptSubscriber.php | 1 | Operations/Infrastructure/Subscriber/ |
+| EventSubscriber/AssistantHistorySubscriber.php | 1 | Operations/Infrastructure/Subscriber/ |
+| ApiResource/AdminReceiptDashboardResource.php | 1 | Operations/Api/Resource/ |
+| ApiResource/AdminReceiptStatusInput.php | 1 | Operations/Api/Resource/ |
+| ApiResource/AdminCertificateResource.php | 1 | Operations/Api/Resource/ |
+| ApiResource/ReceiptWriteResource.php | 1 | Operations/Api/Resource/ |
+| ApiResource/AdminAssistantHistoryWriteResource.php | 1 | Operations/Api/Resource/ |
+| ApiResource/AdminAssistantHistoryDeleteResource.php | 1 | Operations/Api/Resource/ |
+| State/AdminReceiptDashboardProvider.php | 1 | Operations/Api/State/ |
+| State/AdminReceiptStatusProcessor.php | 1 | Operations/Api/State/ |
+| State/AdminCertificateProvider.php | 1 | Operations/Api/State/ |
+| State/ReceiptCreateProcessor.php | 1 | Operations/Api/State/ |
+| State/ReceiptDeleteProcessor.php | 1 | Operations/Api/State/ |
+| State/ReceiptEditProcessor.php | 1 | Operations/Api/State/ |
+| State/ReceiptWriteProvider.php | 1 | Operations/Api/State/ |
+| State/AdminAssistantHistoryCreateProcessor.php | 1 | Operations/Api/State/ |
+| State/AdminAssistantHistoryCreateProvider.php | 1 | Operations/Api/State/ |
+| State/AdminAssistantHistoryDeleteProcessor.php | 1 | Operations/Api/State/ |
+| State/AdminAssistantHistoryDeleteProvider.php | 1 | Operations/Api/State/ |
+| Controller/ReceiptController.php | 4 | Operations/Controller/ |
+| Controller/CertificateController.php | 4 | Operations/Controller/ |
+| Controller/AssistantController.php | 4 | Operations/Controller/ |
+| Controller/AssistantHistoryController.php | 4 | Operations/Controller/ |
+| Controller/SignatureController.php | 4 | Operations/Controller/ |
+| Controller/ParticipantHistoryController.php | 4 | Operations/Controller/ |
+| Form/Type/ReceiptType.php | 4 | Operations/Form/ |
+| Form/Type/CreateSignatureType.php | 4 | Operations/Form/ |
+| Form/Type/CreateAssistantHistoryType.php | 4 | Operations/Form/ |
+| Form/Type/AccountNumberType.php | 4 | Operations/Form/ |
 
 ### Content
 
@@ -449,27 +572,34 @@ src/
 | Entity/ChangeLogItem.php | 1 | Content/Infrastructure/Entity/ |
 | Entity/SupportTicket.php | 1 | Content/Infrastructure/Entity/ |
 | Entity/SocialEvent.php | 1 | Content/Infrastructure/Entity/ |
-| Entity/InfoMeeting.php | 1 | Content/Infrastructure/Entity/ |
 | Entity/Feedback.php | 1 | Content/Infrastructure/Entity/ |
 | Entity/Repository/ArticleRepository.php | 1 | Content/Infrastructure/Repository/ |
 | Entity/Repository/StaticContentRepository.php | 1 | Content/Infrastructure/Repository/ |
 | Entity/Repository/ChangeLogItemRepository.php | 1 | Content/Infrastructure/Repository/ |
 | Entity/Repository/SocialEventRepository.php | 1 | Content/Infrastructure/Repository/ |
-| Entity/Repository/InfoMeetingRepository.php | 1 | Content/Infrastructure/Repository/ |
 | Entity/Repository/FeedbackRepository.php | 1 | Content/Infrastructure/Repository/ |
 | Service/ContentModeManager.php | 1 | Content/Infrastructure/ |
 | Event/SupportTicketCreatedEvent.php | 1 | Content/Domain/Events/ |
 | EventSubscriber/SupportTicketSubscriber.php | 1 | Content/Infrastructure/Subscriber/ |
-| Validator/Constraints/InfoMeeting.php | 1 | Content/Infrastructure/Validator/ |
-| Validator/Constraints/InfoMeetingValidator.php | 1 | Content/Infrastructure/Validator/ |
-| ApiResource/AdminChangelog*.php (2 files) | 1 | Content/Api/Resource/ |
-| ApiResource/AdminStaticContent*.php | 1 | Content/Api/Resource/ |
-| ApiResource/AdminSocialEvent*.php (2 files) | 1 | Content/Api/Resource/ |
+| ApiResource/AdminChangelogWriteResource.php | 1 | Content/Api/Resource/ |
+| ApiResource/AdminChangelogDeleteResource.php | 1 | Content/Api/Resource/ |
+| ApiResource/AdminStaticContentWriteResource.php | 1 | Content/Api/Resource/ |
+| ApiResource/AdminSocialEventWriteResource.php | 1 | Content/Api/Resource/ |
+| ApiResource/AdminSocialEventDeleteResource.php | 1 | Content/Api/Resource/ |
 | ApiResource/PartnersResource.php | 1 | Content/Api/Resource/ |
 | ApiResource/ContactMessageInput.php | 1 | Content/Api/Resource/ |
-| State/AdminChangelog*.php (5 files) | 1 | Content/Api/State/ |
-| State/AdminStaticContent*.php (2 files) | 1 | Content/Api/State/ |
-| State/AdminSocialEvent*.php (6 files) | 1 | Content/Api/State/ |
+| State/AdminChangelogCreateProcessor.php | 1 | Content/Api/State/ |
+| State/AdminChangelogEditProcessor.php | 1 | Content/Api/State/ |
+| State/AdminChangelogEditProvider.php | 1 | Content/Api/State/ |
+| State/AdminChangelogDeleteProcessor.php | 1 | Content/Api/State/ |
+| State/AdminChangelogDeleteProvider.php | 1 | Content/Api/State/ |
+| State/AdminStaticContentEditProcessor.php | 1 | Content/Api/State/ |
+| State/AdminStaticContentEditProvider.php | 1 | Content/Api/State/ |
+| State/AdminSocialEventCreateProcessor.php | 1 | Content/Api/State/ |
+| State/AdminSocialEventEditProcessor.php | 1 | Content/Api/State/ |
+| State/AdminSocialEventEditProvider.php | 1 | Content/Api/State/ |
+| State/AdminSocialEventDeleteProcessor.php | 1 | Content/Api/State/ |
+| State/AdminSocialEventDeleteProvider.php | 1 | Content/Api/State/ |
 | State/ArticleProcessor.php | 1 | Content/Api/State/ |
 | State/ContactMessageProcessor.php | 1 | Content/Api/State/ |
 | State/PartnersProvider.php | 1 | Content/Api/State/ |
@@ -489,6 +619,10 @@ src/
 | Controller/FeedbackController.php | 4 | Content/Controller/ |
 | Form/Type/ArticleType.php | 4 | Content/Form/ |
 | Form/Type/SponsorType.php | 4 | Content/Form/ |
+| Form/Type/ChangeLogType.php | 4 | Content/Form/ |
+| Form/Type/SocialEventType.php | 4 | Content/Form/ |
+| Form/Type/SupportTicketType.php | 4 | Content/Form/ |
+| Form/Type/FeedbackType.php | 4 | Content/Form/ |
 | Twig/Extension/SponsorsExtension.php | 4 | Content/Twig/ |
 | Twig/Extension/StaticContentExtension.php | 4 | Content/Twig/ |
 
@@ -496,22 +630,38 @@ src/
 
 | Existing Path | Target Path |
 |---------------|-------------|
-| Entity/Semester.php | Shared/Entity/Semester.php |
-| Entity/Repository/SemesterRepository.php | Shared/Repository/SemesterRepository.php |
-| Entity/DepartmentSemesterInterface.php | Shared/Contracts/DepartmentSemesterInterface.php |
-| Entity/PeriodInterface.php | Shared/Contracts/PeriodInterface.php |
-| Entity/TeamInterface.php | Shared/Contracts/TeamInterface.php |
-| Entity/TeamMembershipInterface.php | Shared/Contracts/TeamMembershipInterface.php |
-| Utils/SemesterUtil.php | Shared/SemesterUtil.php |
+| Entity/Semester.php | Shared/Entity/ |
+| Entity/Repository/SemesterRepository.php | Shared/Repository/ |
+| Entity/DepartmentSemesterInterface.php | Shared/Contracts/ |
+| Entity/PeriodInterface.php | Shared/Contracts/ |
+| Entity/TeamInterface.php | Shared/Contracts/ |
+| Entity/TeamMembershipInterface.php | Shared/Contracts/ |
+| Utils/SemesterUtil.php | Shared/ |
+| ApiResource/AdminSemesterWriteResource.php | Shared/Api/Resource/ |
+| ApiResource/AdminSemesterDeleteResource.php | Shared/Api/Resource/ |
+| State/AdminSemesterCreateProcessor.php | Shared/Api/State/ |
+| State/AdminSemesterDeleteProcessor.php | Shared/Api/State/ |
+| State/AdminSemesterDeleteProvider.php | Shared/Api/State/ |
+| Controller/SemesterController.php | Shared/Controller/ |
+| Form/Type/CreateSemesterType.php | Shared/Form/ |
 
 ### Support (context-agnostic infrastructure)
 
 | Existing Path | Target Path |
 |---------------|-------------|
-| Mailer/Mailer.php | Support/Infrastructure/Mailer/Mailer.php |
-| Mailer/MailerInterface.php | Support/Infrastructure/Mailer/MailerInterface.php |
-| Sms/*.php (5 files) | Support/Infrastructure/Sms/ |
-| Google/*.php (6 files) | Support/Infrastructure/Google/ |
+| Mailer/Mailer.php | Support/Infrastructure/Mailer/ |
+| Mailer/MailerInterface.php | Support/Infrastructure/Mailer/ |
+| Sms/Sms.php | Support/Infrastructure/Sms/ |
+| Sms/SmsSender.php | Support/Infrastructure/Sms/ |
+| Sms/SmsSenderInterface.php | Support/Infrastructure/Sms/ |
+| Sms/GatewayAPI.php | Support/Infrastructure/Sms/ |
+| Sms/SlackSms.php | Support/Infrastructure/Sms/ |
+| Google/GoogleAPI.php | Support/Infrastructure/Google/ |
+| Google/GoogleService.php | Support/Infrastructure/Google/ |
+| Google/Gmail.php | Support/Infrastructure/Google/ |
+| Google/GoogleDrive.php | Support/Infrastructure/Google/ |
+| Google/GoogleGroups.php | Support/Infrastructure/Google/ |
+| Google/GoogleUsers.php | Support/Infrastructure/Google/ |
 | Service/SlackMailer.php | Support/Infrastructure/Slack/ |
 | Service/SlackMessenger.php | Support/Infrastructure/Slack/ |
 | Service/FileUploader.php | Support/Infrastructure/ |
@@ -527,6 +677,10 @@ src/
 | Controller/BaseController.php | Support/Controller/ |
 | Controller/FileBrowserController.php | Support/Controller/ |
 | Controller/GitHubController.php | Support/Controller/ |
+| ApiResource/DashboardResource.php | Support/Api/Resource/ |
+| ApiResource/Statistics.php | Support/Api/Resource/ |
+| State/DashboardProvider.php | Support/Api/State/ |
+| State/StatisticsProvider.php | Support/Api/State/ |
 | Twig/Extension/AccessExtension.php | Support/Twig/ |
 | Twig/Extension/AppRoutingExtension.php | Support/Twig/ |
 | Twig/Extension/AssetExtension.php | Support/Twig/ |
@@ -537,7 +691,8 @@ src/
 | Twig/Extension/SemesterExtension.php | Support/Twig/ |
 | Form/Extension/FieldTypeHelpExtension.php | Support/Form/ |
 | Form/Type/CropImageType.php | Support/Form/ |
-| DataFixtures/ | Support/DataFixtures/ (or split per context) |
+| Form/Type/TelType.php | Support/Form/ |
+| DataFixtures/ORM/ (31 files) | Support/DataFixtures/ |
 
 ## Domain Extractions
 
@@ -547,32 +702,32 @@ Pure logic to extract from services into Domain/Rules/:
 
 | Service | Pure Logic | Extract To |
 |---------|-----------|------------|
-| ApplicationManager | `getApplicationStatus()` — determines candidate position in workflow based on user state and interview status | Admission/Domain/Rules/ApplicationStatusRule.php |
-| AdmissionStatistics | All methods — `generateGraphData*()`, `initializeDataArray()`, `populateApplicationData*()`, `calculatePaddingDays()` | Admission/Domain/Rules/AdmissionGraphData.php |
+| ApplicationManager | `getApplicationStatus()` — determines candidate position in workflow | Admission/Domain/Rules/ApplicationStatusRule.php |
+| AdmissionStatistics | All methods — graph data generation, date bucketing, cumulative aggregation | Admission/Domain/Rules/AdmissionGraphData.php |
 | ApplicationData | `getMalePercentage()`, `getFemalePercentage()`, `countPositions()` | Admission/Domain/Rules/ApplicationCounting.php |
 | ApplicationAdmission | `userCanApplyInPeriod()`, `userHasAssistantHistory()` checks | Admission/Domain/Rules/ApplicationEligibility.php |
-| AdmissionNotifier | `canReceiveNotification()` eligibility predicate (embedded in sendAdmissionNotifications) | Admission/Domain/Rules/SubscriberEligibility.php |
+| AdmissionNotifier | `canReceiveNotification()` eligibility predicate | Admission/Domain/Rules/SubscriberEligibility.php |
 
 ### Interview
 
 | Service | Pure Logic | Extract To |
 |---------|-----------|------------|
-| InterviewManager | `loggedInUserCanSeeInterview()` authorization check, `getDefaultScheduleFormData()` projection | Interview/Domain/Rules/InterviewAccess.php |
-| InterviewCounter | Entire service — `count()` aggregates by suitability, `groupInterviewsByInterviewer()` | Interview/Domain/Rules/InterviewCounter.php (already pure) |
-| InterviewAnswerValidator | `validate()` — checks question type vs answer emptiness | Interview/Domain/Rules/InterviewAnswerValidation.php |
+| InterviewManager | `loggedInUserCanSeeInterview()`, `getDefaultScheduleFormData()` | Interview/Domain/Rules/InterviewAccess.php |
+| InterviewCounter | Entire service — `count()`, `groupInterviewsByInterviewer()` | Interview/Domain/Rules/InterviewCounter.php (already pure) |
+| InterviewAnswerValidator | `validate()` — question type vs answer emptiness | Interview/Domain/Rules/InterviewAnswerValidation.php |
 
 ### Organization
 
 | Service | Pure Logic | Extract To |
 |---------|-----------|------------|
-| TeamMembershipService | Membership expiration detection: `(endSemester, currentStartDate) → isExpired` | Organization/Domain/Rules/MembershipExpiration.php |
-| UserGroupCollectionManager | User distribution algorithm: `(users[], groupCount) → groups[][]` | Organization/Domain/Rules/UserGroupDistribution.php |
+| TeamMembershipService | Expiration detection: `(endSemester, currentStartDate) → isExpired` | Organization/Domain/Rules/MembershipExpiration.php |
+| UserGroupCollectionManager | Distribution algorithm: `(users[], groupCount) → groups[][]` | Organization/Domain/Rules/UserGroupDistribution.php |
 
 ### Survey
 
 | Service | Pure Logic | Extract To |
 |---------|-----------|------------|
-| SurveyManager | `initializeSurveyTaken()`, `predictSurveyTakenAnswers()`, `surveyResultToJson()`, `getSurveyTargetAudienceString()`, percentage/grouping calculations | Survey/Domain/Rules/SurveyDataTransformer.php |
+| SurveyManager | `initializeSurveyTaken()`, `predictSurveyTakenAnswers()`, `surveyResultToJson()`, `getSurveyTargetAudienceString()` | Survey/Domain/Rules/SurveyDataTransformer.php |
 
 ### Identity
 
@@ -580,30 +735,30 @@ Pure logic to extract from services into Domain/Rules/:
 |---------|-----------|------------|
 | RoleManager | `isValidRole()`, `canChangeToRole()`, `mapAliasToRole()`, `userIsGranted()` | Identity/Domain/Rules/RoleHierarchy.php |
 
-### Finance
+### Operations
 
 | Service | Pure Logic | Extract To |
 |---------|-----------|------------|
-| ReceiptStatistics | Entire service — `totalPayoutIn()`, `averageRefundTimeInHours()`, `totalAmount()` | Finance/Domain/Rules/ReceiptStatistics.php (already pure) |
+| ReceiptStatistics | Entire service — `totalPayoutIn()`, `averageRefundTimeInHours()`, `totalAmount()` | Operations/Domain/Rules/ReceiptStatistics.php (already pure) |
 
 ### Scheduling
 
 | Service | Pure Logic | Extract To |
 |---------|-----------|------------|
 | AssistantScheduling/School | `capacityLeftOnDay()`, `isFull()`, `getCapacity()` | Scheduling/Domain/Rules/School.php (already pure) |
-| AssistantScheduling/Assistant | Getters, `assignToSchool()` state mutation | Scheduling/Domain/Rules/Assistant.php (already pure) |
+| AssistantScheduling/Assistant | Getters, `assignToSchool()` | Scheduling/Domain/Rules/Assistant.php (already pure) |
 | GeoLocation | `distance()` — pure math | Scheduling/Domain/Rules/GeoDistance.php |
 
 ## Cross-Context Entity Relations
 
 | Source Entity | Field | Target Entity | Target Context | Relation |
 |---------------|-------|---------------|----------------|----------|
-| Application | user | User | Identity | ManyToOne (cascade persist) |
+| Application | user | User | Identity | ManyToOne (remove cascade persist) |
 | Application | interview | Interview | Interview | OneToOne (cascade persist+remove) |
 | Application | potentialTeams | Team | Organization | ManyToMany |
 | AdmissionPeriod | department | Department | Organization | ManyToOne |
 | AdmissionPeriod | semester | Semester | Shared | ManyToOne |
-| AdmissionPeriod | infoMeeting | InfoMeeting | Content | OneToOne (cascade persist+remove) |
+| AdmissionPeriod | infoMeeting | InfoMeeting | Admission (same) | OneToOne (cascade) |
 | AdmissionSubscriber | department | Department | Organization | ManyToOne |
 | AdmissionNotification | semester | Semester | Shared | ManyToOne |
 | AdmissionNotification | department | Department | Organization | ManyToOne |
@@ -617,7 +772,6 @@ Pure logic to extract from services into Domain/Rules/:
 | ExecutiveBoardMembership | user | User | Identity | ManyToOne |
 | ExecutiveBoardMembership | startSemester | Semester | Shared | ManyToOne |
 | TeamInterest | semester | Semester | Shared | ManyToOne |
-| TeamApplication | (no user FK) | — | — | Stores raw applicant data |
 | Survey | semester | Semester | Shared | ManyToOne |
 | Survey | department | Department | Organization | ManyToOne (nullable) |
 | SurveyTaken | user | User | Identity | ManyToOne |
@@ -641,87 +795,21 @@ Pure logic to extract from services into Domain/Rules/:
 | SocialEvent | semester | Semester | Shared | ManyToOne |
 | Feedback | user | User | Identity | ManyToOne |
 
-## Open Questions
+## Resolved Decisions
 
-### 1. Interview ownership: aggregate or independent context?
-
-Interview has a OneToOne with Application (cascade persist+remove). Application
-owns the FK. Deleting an Interview manually nulls `Application.interview`.
-
-**Options:**
-- Keep as independent context (current design) — Interview has its own lifecycle,
-  ~77 files, complex enough to warrant separation.
-- Make Interview a sub-context of Admission — simpler mental model but larger
-  context.
-
-**Recommendation:** Keep separate. Interview has its own schema management,
-scheduling workflow, and scoring system. The OneToOne with Application is a
-reference, not ownership.
-
-### 2. Application.user cascade persist
-
-`Application.user` has `cascade: ['persist']`, allowing new User creation from
-application submission. This violates Identity context ownership.
-
-**Recommendation:** Remove cascade persist. ApplicationProcessor already uses
-`setCorrectUser()` to find/reuse existing users. The cascade is vestigial.
-
-### 3. AdmissionPeriod.infoMeeting cascade
-
-`AdmissionPeriod.infoMeeting` has `cascade: ['remove', 'persist']`, tying
-InfoMeeting lifecycle to AdmissionPeriod. InfoMeeting is in Content context.
-
-**Recommendation:** Accept this as infrastructure-level coupling. InfoMeeting is
-effectively owned by AdmissionPeriod despite being in Content. Could move
-InfoMeeting to Admission instead.
-
-### 4. AssistantHistory: Finance or Scheduling?
-
-AssistantHistory references both User (Finance concern — work records) and School
-(Scheduling concern — assignment). Currently in Finance.
-
-**Recommendation:** Keep in Finance. The primary purpose is tracking assistant work
-history for administrative/financial purposes. The School reference is "where they
-worked," not scheduling logic.
-
-### 5. InterviewStatusType: constants or enum?
-
-Currently an abstract class with int constants (0-4). PHP 8.1+ supports native
-enums.
-
-**Decision:** Convert to enum during restructure (natural cleanup opportunity).
-
-### 6. SuitableAssistant field
-
-`InterviewScore.suitableAssistant` is a string ('Ja'/'Kanskje'/'Nei') matching
-constants in InterviewCounter. Should be an enum.
-
-**Decision:** Convert to enum during restructure.
-
-### 7. TeamMembershipSubscriber → RoleManager coupling
-
-TeamMembershipSubscriber calls `RoleManager.updateUserRole()` on membership
-events. This crosses Organization → Identity boundary.
-
-**Recommendation:** Keep as-is (Infrastructure layer cross-context import is
-allowed per our pragmatic coupling rule). The subscriber is already in
-Infrastructure.
-
-### 8. GSuiteSubscriber: multi-context coordinator
-
-Subscribes to TeamMembershipEvent, UserEvent, TeamEvent. Coordinates Google
-Workspace sync across Identity and Organization contexts.
-
-**Recommendation:** Keep in Support as infrastructure adapter. It bridges contexts
-but is purely an integration concern.
-
-### 9. BaseController helper methods
-
-`getDepartment()` → Organization, `getCurrentSemester()` → Shared. Used by all
-legacy controllers.
-
-**Recommendation:** Keep in Support/Controller/. These are convenience methods for
-the legacy Twig layer. They'll be deleted with the controllers post-migration.
+| # | Question | Decision |
+|---|----------|----------|
+| 1 | Interview: independent context or sub-context of Admission? | **Independent.** Own schema management, scheduling, scoring (~77 files). |
+| 2 | Application.user cascade persist | **Remove.** Violates Identity ownership. ApplicationProcessor uses setCorrectUser(). |
+| 3 | AdmissionPeriod.infoMeeting cascade | **Move InfoMeeting to Admission.** Lifecycle tied to AdmissionPeriod. |
+| 4 | AssistantHistory context | **Operations.** Context renamed from Finance — administrative record-keeping. |
+| 5 | InterviewStatusType: constants or enum? | **Convert to PHP enum** during restructure. |
+| 6 | InterviewScore.suitableAssistant | **Convert to backed string enum** during restructure. |
+| 7 | TeamMembershipSubscriber → RoleManager coupling | **Keep as-is.** Infrastructure cross-context import is allowed. |
+| 8 | GSuiteSubscriber placement | **Keep in Support.** Infrastructure adapter bridging contexts. |
+| 9 | BaseController helper methods | **Keep in Support.** Legacy convenience, deleted post-migration. |
+| 10 | DashboardResource/Statistics (cross-context aggregation) | **Support/Api/.** Infrastructure-level read aggregations. |
+| 11 | DataFixtures | **Support/DataFixtures/.** Cross-context dependencies, test infrastructure. |
 
 ## Constraints
 
