@@ -179,26 +179,38 @@ api_platform:
 
 Add resource blocks for each bounded context BELOW the existing `App\:` block. The existing block stays until all files are migrated, then gets removed.
 
-**CRITICAL:** The existing `App\EventSubscriber\:` block (lines 120-128) has a
-custom `bind` that routes `Psr\Log\LoggerInterface` to `@App\Service\LogService`.
-When subscribers move to bounded contexts, they'll be discovered by the new
-context blocks which DON'T have this binding. To prevent silent logging changes,
-add the LogService binding to `_defaults.bind`:
+**CRITICAL — LoggerInterface binding scope.** The existing `App\EventSubscriber\:`
+block (lines 120-128) has custom bindings: `Psr\Log\LoggerInterface` → LogService
+and `$env` → kernel.environment. When subscribers move to bounded contexts, they
+lose these bindings. Do NOT add LoggerInterface to `_defaults.bind` — that would
+globally override the logger for ALL services. Instead, keep the EventSubscriber
+binding scoped by adding it to each bounded context block that contains
+subscribers:
 
 ```yaml
-services:
-    _defaults:
-        autowire: true
-        autoconfigure: true
-        public: true
+    App\Admission\Infrastructure\Subscriber\:
+        resource: '../src/App/Admission/Infrastructure/Subscriber/'
         bind:
-            App\Mailer\MailerInterface: '@App\Mailer\Mailer'
-            App\Sms\SmsSenderInterface: '@App\Sms\SmsSender'
             Psr\Log\LoggerInterface: '@App\Service\LogService'
+            $env: '%kernel.environment%'
 ```
 
-(These FQCNs will be updated when Support migrates in Task 2 to
-`App\Support\Infrastructure\Mailer\MailerInterface`, etc.)
+Replicate this pattern for each context that has subscribers (Admission,
+Interview, Organization, Content, Operations, Identity). Update the LogService
+FQCN after Support migrates in Task 2.
+
+**DataFixtures tag.** The `App\Support\:` autodiscovery block does NOT apply the
+`doctrine.fixture.orm` tag. Add an explicit block:
+
+```yaml
+    App\Support\DataFixtures\ORM\:
+        resource: '../src/App/Support/DataFixtures/ORM'
+        tags: ['doctrine.fixture.orm']
+```
+
+**Form extension.** The named service `app.form.extension.help` (line 137-140)
+references `App\Form\Extension\FieldTypeHelpExtension`. Update to
+`App\Support\Form\FieldTypeHelpExtension` when Support migrates in Task 2.
 
 Add these blocks after line 53 (after the DataFixtures block):
 
@@ -343,16 +355,52 @@ use App\Entity\Repository\SemesterRepository; → use App\Shared\Repository\Seme
 use App\Utils\SemesterUtil;                 → use App\Shared\SemesterUtil;
 ```
 
-Also update `targetEntity` references in Doctrine ORM attributes on entities that reference Semester (many files across all contexts).
+- [ ] **Step 3b: Convert all short-name `targetEntity` references to `::class` syntax**
+
+**CRITICAL:** Doctrine resolves short `targetEntity` strings (e.g.,
+`targetEntity: 'Semester'`) relative to the declaring entity's namespace. When
+Semester moves from `App\Entity` to `App\Shared\Entity`, any entity still in
+`App\Entity` that uses `targetEntity: 'Semester'` will break — Doctrine looks
+for `App\Entity\Semester` which no longer exists.
+
+Convert ALL short-name targetEntity references to FQCN `::class` syntax across
+the entire codebase. This is a one-time fix that prevents breakage for ALL
+subsequent context migrations:
+
+```bash
+# Find all short-name targetEntity references
+grep -rn "targetEntity: '" apps/server/src/App/Entity/ apps/server/src/App/
+```
+
+For each match, convert from string to `::class`:
+```php
+// Before:
+#[ORM\ManyToOne(targetEntity: 'Semester')]
+
+// After (add use statement if not present):
+use App\Shared\Entity\Semester;
+#[ORM\ManyToOne(targetEntity: Semester::class)]
+```
+
+Entities referencing Semester with short names include at minimum:
+`AdmissionPeriod`, `TeamMembership`, `ExecutiveBoardMembership`,
+`AssistantHistory`, `SocialEvent`, `Survey`, `SchoolCapacity`,
+`AdmissionNotification`, `UserGroupCollection`, `TeamInterest`.
+
+**Do this for ALL entities' targetEntity/inversedBy/mappedBy references, not just
+Semester.** Converting everything to `::class` now means subsequent context
+migrations only need to update `use` statements (which are already tracked in
+Step 3), and Doctrine will always find the correct class.
 
 - [ ] **Step 4: Update services.yaml explicit service references**
 
 No explicit Shared services in services.yaml — autodiscovery handles it.
 
-- [ ] **Step 5: Run full test suite**
+- [ ] **Step 5: Clear cache and run full test suite**
 
 ```bash
 cd apps/server
+php bin/console cache:clear
 php -d memory_limit=512M bin/phpunit 2>&1 | tail -5
 ```
 
@@ -503,13 +551,19 @@ All explicit service definitions referencing moved classes must be updated. This
 - `App\EventSubscriber\DbSubscriber` → `App\Support\EventSubscriber\DbSubscriber`
 - `App\Twig\Extension\*` → `App\Support\Twig\*`
 - `App\Validator\Constraints\` resource path
-- `App\DataFixtures\ORM\` resource path
+- `App\DataFixtures\ORM\` resource path → `App\Support\DataFixtures\ORM\`
 - Interface bindings in `_defaults.bind`
+- `app.form.extension.help` class → `App\Support\Form\FieldTypeHelpExtension`
+- Google parent/child services (lines 158-178) — update ALL five as a group:
+  `App\Google\GoogleService` (abstract parent), `App\Google\Gmail`,
+  `App\Google\GoogleUsers`, `App\Google\GoogleGroups`, `App\Google\GoogleDrive`,
+  `App\Google\GoogleAPI`
 
-- [ ] **Step 5: Run full test suite**
+- [ ] **Step 5: Clear cache and run full test suite**
 
 ```bash
 cd apps/server
+php bin/console cache:clear
 php -d memory_limit=512M bin/phpunit 2>&1 | tail -5
 ```
 
@@ -766,24 +820,17 @@ grep -rl 'use App\\Entity\\Article;' apps/server/src/ apps/server/tests/ | \
 ```
 
 Also update:
-- Doctrine `targetEntity` strings in ORM attributes: `targetEntity: 'Article'` may need full class name if the entity moved to a different namespace.
-- `repositoryClass` references in `#[ORM\Entity]` attributes.
+- `repositoryClass` references in `#[ORM\Entity]` attributes (entity and repo
+  move together, so update the `use` import for the repository class).
 - String references in services.yaml (explicit service definitions).
 - `provider:` and `processor:` class references in `#[ApiResource]` attributes.
 
-### Doctrine targetEntity handling
+### Doctrine targetEntity — converted in Task 1
 
-Doctrine `targetEntity` values that use short class names (e.g., `targetEntity: 'User'`) resolve relative to the current entity's namespace. When entities move to different namespaces, these must become fully qualified:
-
-```php
-// Before (both in App\Entity namespace — short name works):
-#[ORM\ManyToOne(targetEntity: 'User')]
-
-// After (Application in Admission, User in Identity — need FQCN):
-#[ORM\ManyToOne(targetEntity: \App\Identity\Infrastructure\Entity\User::class)]
-```
-
-Use `::class` syntax instead of strings for type safety.
+All short-name `targetEntity` string references are converted to `::class` syntax
+in Task 1 Step 3b. After that, Doctrine resolves entity references via PHP `use`
+statements, which are already tracked in Step 3 of every task. No further
+targetEntity work is needed in Tasks 2-10 — just update `use` statements.
 
 ### Test file updates
 
@@ -797,6 +844,18 @@ The migration order (Shared → Support → Content → Operations → Schedulin
 
 Each task is one atomic commit. If tests fail after a context migration, `git reset --hard HEAD~1` reverts to the last working state. No partial migrations — each commit has all files moved AND all references updated.
 
-### PHPStan and PHP-CS-Fixer
+### Cache clearing
 
-PHPStan may need its configuration updated if it references specific paths. Check `apps/server/phpstan.neon` after the migration. PHP-CS-Fixer should work automatically since it scans all `.php` files.
+Run `php bin/console cache:clear` before the test suite in EVERY task. When
+entities move to new namespaces, Doctrine's cached proxy classes reference old
+FQCNs. Dev mode auto-regenerates proxies, but stale cache can cause false
+failures.
+
+### Config files to update during cleanup (Task 11)
+
+- `phpunit.xml.dist` — line 43 excludes `src/App/AssistantScheduling/Webapp`.
+  Update to `src/App/Scheduling/Domain/Rules/Webapp` (or remove if no longer
+  relevant).
+- `phpstan.neon` — line 12 excludes `src/App/AutoMapper/`. Update to
+  `src/App/Identity/Infrastructure/AutoMapper/` or remove.
+- PHP-CS-Fixer should work automatically since it scans all `.php` files.
