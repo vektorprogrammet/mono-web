@@ -1,3 +1,7 @@
+/**
+ * User schemas — shared between auth and admin domains.
+ */
+
 import { Schema } from "effect"
 
 export class LoginResponse extends Schema.Class<LoginResponse>("LoginResponse")({
