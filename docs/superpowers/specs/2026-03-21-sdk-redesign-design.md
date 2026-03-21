@@ -132,59 +132,103 @@ sdk.public.teams()          → Promise<Team[]>
 
 ## Domain Types
 
-Clean TypeScript interfaces — the public types exported from the SDK. Dates are `Date` objects, not strings. Statuses are string enums, never integers.
+**Single source of truth: Effect Schema classes.** Public types are inferred via `Schema.Schema.Type`, not hand-written interfaces. Consumers import plain TypeScript types — they never see Schema internals.
+
+```typescript
+// Internal: Schema.Class defines shape + validation + transform + methods
+class Receipt extends Schema.Class<Receipt>("Receipt")({
+  id: Schema.Number,
+  visualId: Schema.String,
+  description: Schema.String,
+  sum: Schema.Number,
+  receiptDate: Schema.Date,
+  submitDate: Schema.Date,
+  status: Schema.Literal("pending", "refunded", "rejected"),
+  refundDate: Schema.NullOr(Schema.Date),
+}) {
+  get isPending() { return this.status === "pending" }
+  get formattedAmount() { return `${this.sum} kr` }
+}
+
+// Public: inferred from Schema, re-exported from index.ts
+export type Receipt = Schema.Schema.Type<typeof Receipt>
+// Consumers see: { id: number, visualId: string, ..., isPending: boolean, formattedAmount: string }
+```
+
+Schema classes provide:
+- **Runtime validation** — adapter decodes API responses through Schema, catching malformed data
+- **Transform pipeline** — `Schema.transform` composes HTTP JSON → domain object (date strings → Date, integers → enums)
+- **Methods on instances** — `receipt.isPending`, `receipt.formattedAmount`, `application.statusLabel`
+- **Property-based testing** — `Arbitrary.make(Receipt)` generates valid test data from the schema constraints
+- **Single definition** — no type/interface duplication, schema IS the type
 
 ### Receipt
 
 ```typescript
-interface Receipt {
-  id: number
-  visualId: string
-  description: string
-  sum: number
-  receiptDate: Date
-  submitDate: Date
-  status: "pending" | "refunded" | "rejected"
-  refundDate: Date | null
+// Schema (internal)
+class Receipt extends Schema.Class<Receipt>("Receipt")({
+  id: Schema.Number,
+  visualId: Schema.String,
+  description: Schema.String,
+  sum: Schema.Number.pipe(Schema.positive()),
+  receiptDate: Schema.Date,
+  submitDate: Schema.Date,
+  status: Schema.Literal("pending", "refunded", "rejected"),
+  refundDate: Schema.NullOr(Schema.Date),
+}) {
+  get isPending() { return this.status === "pending" }
+  get formattedAmount() { return `${this.sum} kr` }
 }
 
-interface AdminReceipt extends Receipt {
-  userName: string
-}
+class AdminReceipt extends Schema.Class<AdminReceipt>("AdminReceipt")({
+  ...Receipt.fields,
+  userName: Schema.String,
+}) {}
 
-interface ReceiptInput {
-  description: string      // max 5000 chars
-  sum: number              // > 0
-  receiptDate: string      // YYYY-MM-DD
-}
+class ReceiptInput extends Schema.Class<ReceiptInput>("ReceiptInput")({
+  description: Schema.String.pipe(Schema.nonEmptyString(), Schema.maxLength(5000)),
+  sum: Schema.Number.pipe(Schema.positive()),
+  receiptDate: Schema.String.pipe(Schema.pattern(/^\d{4}-\d{2}-\d{2}$/)),
+}) {}
+
+// Consumer sees (via re-export):
+// type Receipt = { id: number, visualId: string, description: string, sum: number,
+//   receiptDate: Date, submitDate: Date, status: "pending" | "refunded" | "rejected",
+//   refundDate: Date | null, isPending: boolean, formattedAmount: string }
 ```
 
 ### Application
 
 ```typescript
-type ApplicationStatus =
-  | "not_received"
-  | "received"
-  | "invited"
-  | "accepted"
-  | "completed"
-  | "assigned"
-  | "cancelled"
+const ApplicationStatus = Schema.Literal(
+  "not_received", "received", "invited", "accepted",
+  "completed", "assigned", "cancelled"
+)
 
-interface Application {
-  id: number
-  userName: string
-  userEmail: string
-  status: ApplicationStatus          // derived in adapter, never an integer
-  interviewStatus: string | null
-  interviewer: string | null
-  interviewScheduled: Date | null
-  previousParticipation: boolean
+class Application extends Schema.Class<Application>("Application")({
+  id: Schema.Number,
+  userName: Schema.String,
+  userEmail: Schema.String,
+  status: ApplicationStatus,             // derived in adapter, never an integer
+  interviewStatus: Schema.NullOr(Schema.String),
+  interviewer: Schema.NullOr(Schema.String),
+  interviewScheduled: Schema.NullOr(Schema.Date),
+  previousParticipation: Schema.Boolean,
+}) {
+  get statusLabel(): string {
+    return Match.value(this.status).pipe(
+      Match.when("not_received", () => "Ikke mottatt"),
+      Match.when("received", () => "Mottatt"),
+      Match.when("invited", () => "Invitert"),
+      Match.when("accepted", () => "Akseptert"),
+      Match.when("completed", () => "Fullført"),
+      Match.when("assigned", () => "Tildelt skole"),
+      Match.when("cancelled", () => "Avbrutt"),
+      Match.exhaustive,
+    )
+  }
 }
-
-interface ApplicationDetail extends Application {
-  // extended fields from GET /api/admin/applications/{id}
-}
+// Consumer sees: { ..., status: ApplicationStatus, statusLabel: string }
 ```
 
 Status derivation (adapter responsibility, matching `ApplicationManager::getApplicationStatus()`):
@@ -205,33 +249,30 @@ status(app) =
 ### Interview
 
 ```typescript
-type InterviewSchedulingStatus =
-  | "no_contact"
-  | "pending"
-  | "accepted"
-  | "request_new_time"
-  | "cancelled"
+const InterviewSchedulingStatus = Schema.Literal(
+  "no_contact", "pending", "accepted", "request_new_time", "cancelled"
+)
 
-interface Interview {
-  id: number
-  schedulingStatus: InterviewSchedulingStatus
-  interviewed: boolean
-  scheduled: Date | null
-  conducted: Date | null
-  interviewer: string | null
-  applicationId: number
-}
+class Interview extends Schema.Class<Interview>("Interview")({
+  id: Schema.Number,
+  schedulingStatus: InterviewSchedulingStatus,
+  interviewed: Schema.Boolean,
+  scheduled: Schema.NullOr(Schema.Date),
+  conducted: Schema.NullOr(Schema.Date),
+  interviewer: Schema.NullOr(Schema.String),
+  applicationId: Schema.Number,
+}) {}
 
-interface InterviewSchema {
-  id: number
-  name: string
-}
+class InterviewSchema_ extends Schema.Class<InterviewSchema_>("InterviewSchema")({
+  id: Schema.Number,
+  name: Schema.String,
+}) {}  // Interview questionnaire template (not a JSON schema)
 
-interface InterviewScheduleInput {
-  datetime: Date
-  room: string | null
-  interviewerId: number
-}
+class InterviewScheduleInput extends Schema.Class<InterviewScheduleInput>("InterviewScheduleInput")({
+  datetime: Schema.Date,
+  room: Schema.NullOr(Schema.String),
+  interviewerId: Schema.Number,
+}) {}
 
 interface InterviewScore {
   explanatoryPower: number
