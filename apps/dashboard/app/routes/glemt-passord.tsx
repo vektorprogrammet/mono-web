@@ -14,7 +14,7 @@ export async function action({ request }: Route.ActionArgs) {
 
   const sdk = createClient(apiUrl);
   try {
-    await sdk.auth.requestPasswordReset(email);
+    await sdk.auth.resetPassword(email);
     return { success: true, error: null };
   } catch {
     return { error: "Noe gikk galt. Vennligst prøv igjen.", success: false };

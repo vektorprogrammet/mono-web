@@ -23,7 +23,7 @@ export async function action({ request, params }: Route.ActionArgs) {
 
   const sdk = createClient(apiUrl);
   try {
-    await sdk.auth.resetPassword(params.code, password);
+    await sdk.auth.setPassword(params.code, password);
     throw redirect("/login?reset=true");
   } catch (e) {
     if (e instanceof Response) throw e;

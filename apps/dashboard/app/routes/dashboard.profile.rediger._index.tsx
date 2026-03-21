@@ -14,7 +14,7 @@ import { useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { NavLink, href, useLoaderData, useNavigate } from "react-router";
 import { z } from "zod";
-import { apiClient, isFixtureMode, type FieldOfStudy } from "@vektorprogrammet/sdk";
+import { createClient, apiUrl, isFixtureMode, type FieldOfStudy } from "@vektorprogrammet/sdk";
 import { getProfileData } from "../mock/api/data-profile";
 import { linjer } from "../mock/api/linjer";
 
@@ -38,8 +38,9 @@ const formSchema = z.object({
 export async function loader() {
   if (isFixtureMode) return { studyLines: linjer };
   try {
-    const fieldOfStudies = await apiClient.public.fieldOfStudies();
-    const studyLines = (fieldOfStudies as FieldOfStudy[]).map((f) => f.shortName ?? f.name);
+    const client = createClient(apiUrl);
+    const fieldOfStudies = await client.public.fieldOfStudies() as FieldOfStudy[];
+    const studyLines = fieldOfStudies.map((f) => f.name);
     return { studyLines };
   } catch {
     return { studyLines: linjer };

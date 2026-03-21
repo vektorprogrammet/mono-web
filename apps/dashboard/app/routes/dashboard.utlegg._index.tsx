@@ -66,11 +66,11 @@ export async function action({ request }: Route.ActionArgs) {
 
   try {
     if (newStatus === "refunded") {
-      await client.admin.receipts.approve(receiptId);
+      await client.admin.receipts.approve(Number(receiptId));
     } else if (newStatus === "rejected") {
-      await client.admin.receipts.reject(receiptId);
+      await client.admin.receipts.reject(Number(receiptId));
     } else if (newStatus === "pending") {
-      await client.admin.receipts.reopen(receiptId);
+      await client.admin.receipts.reopen(Number(receiptId));
     }
     return { success: true };
   } catch {

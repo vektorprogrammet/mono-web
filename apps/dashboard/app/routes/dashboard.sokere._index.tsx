@@ -40,34 +40,29 @@ type Application = {
   id: number;
   userName: string;
   userEmail: string;
-  applicationStatus: number;
+  status: "not_received" | "received" | "invited" | "accepted" | "completed" | "assigned" | "cancelled";
   interviewStatus: string | null;
   interviewScheduled: string | null;
   interviewer: string | null;
   previousParticipation: boolean;
 };
 
-type AdminApplicationListData = {
-  status: string;
-  applications: Application[];
-};
-
 // ── Mock data ─────────────────────────────────────────────────────────────────
 
 const mockApplications: Application[] = [
-  { id: 1, userName: "Ola Normann", userEmail: "ola@example.com", applicationStatus: 1, interviewStatus: null, interviewScheduled: null, interviewer: null, previousParticipation: false },
-  { id: 2, userName: "Kari Hansen", userEmail: "kari@example.com", applicationStatus: 2, interviewStatus: "Pending", interviewScheduled: "2026-04-10T12:00:00+02:00", interviewer: null, previousParticipation: false },
-  { id: 3, userName: "Per Olsen", userEmail: "per@example.com", applicationStatus: 3, interviewStatus: "Accepted", interviewScheduled: "2026-04-11T14:00:00+02:00", interviewer: "Jonas Berg", previousParticipation: false },
-  { id: 4, userName: "Lise Berg", userEmail: "lise@example.com", applicationStatus: 4, interviewStatus: "Interviewed", interviewScheduled: "2026-04-08T10:00:00+02:00", interviewer: "Jonas Berg", previousParticipation: false },
-  { id: 5, userName: "Ida Vik", userEmail: "ida@example.com", applicationStatus: 5, interviewStatus: null, interviewScheduled: null, interviewer: null, previousParticipation: true },
-  { id: 6, userName: "Bjørn Lund", userEmail: "bjorn@example.com", applicationStatus: -1, interviewStatus: "Cancelled", interviewScheduled: null, interviewer: null, previousParticipation: false },
+  { id: 1, userName: "Ola Normann", userEmail: "ola@example.com", status: "received", interviewStatus: null, interviewScheduled: null, interviewer: null, previousParticipation: false },
+  { id: 2, userName: "Kari Hansen", userEmail: "kari@example.com", status: "invited", interviewStatus: "Pending", interviewScheduled: "2026-04-10T12:00:00+02:00", interviewer: null, previousParticipation: false },
+  { id: 3, userName: "Per Olsen", userEmail: "per@example.com", status: "accepted", interviewStatus: "Accepted", interviewScheduled: "2026-04-11T14:00:00+02:00", interviewer: "Jonas Berg", previousParticipation: false },
+  { id: 4, userName: "Lise Berg", userEmail: "lise@example.com", status: "completed", interviewStatus: "Interviewed", interviewScheduled: "2026-04-08T10:00:00+02:00", interviewer: "Jonas Berg", previousParticipation: false },
+  { id: 5, userName: "Ida Vik", userEmail: "ida@example.com", status: "assigned", interviewStatus: null, interviewScheduled: null, interviewer: null, previousParticipation: true },
+  { id: 6, userName: "Bjørn Lund", userEmail: "bjorn@example.com", status: "cancelled", interviewStatus: "Cancelled", interviewScheduled: null, interviewer: null, previousParticipation: false },
 ];
 
 // ── Loader ────────────────────────────────────────────────────────────────────
 
 export async function loader({ request }: Route.LoaderArgs) {
   if (isFixtureMode) {
-    return { data: { status: "all", applications: mockApplications } as AdminApplicationListData, activeFilter: "all" };
+    return { applications: mockApplications, activeFilter: "all" };
   }
 
   const token = requireAuth(request);
@@ -76,10 +71,11 @@ export async function loader({ request }: Route.LoaderArgs) {
   const status = url.searchParams.get("status");
 
   try {
-    const data = await client.admin.applications.list(status ? { status } : undefined);
-    return { data: data ?? null, activeFilter: status ?? "all" };
+    const result = await client.admin.applications.list(status ? { status } : undefined);
+    const { items: applications } = result;
+    return { applications: applications as Application[], activeFilter: status ?? "all" };
   } catch {
-    return { data: null, activeFilter: status ?? "all" };
+    return { applications: [] as Application[], activeFilter: status ?? "all" };
   }
 }
 
@@ -107,7 +103,7 @@ export async function action({ request }: Route.ActionArgs) {
   if (intent === "delete") {
     const applicationId = form.get("applicationId")?.toString();
     try {
-      await client.admin.applications.delete(applicationId!);
+      await client.admin.applications.delete(Number(applicationId));
       return { success: true };
     } catch {
       return { error: "Kunne ikke slette søknad" };
@@ -119,18 +115,18 @@ export async function action({ request }: Route.ActionArgs) {
 
 // ── Status badge ──────────────────────────────────────────────────────────────
 
-const applicationStatusMeta: Record<number, { label: string; className: string }> = {
-  [-1]: { label: "Avbrutt", className: "bg-red-100 text-red-800" },
-  [0]: { label: "Ikke mottatt", className: "bg-gray-100 text-gray-700" },
-  [1]: { label: "Mottatt", className: "bg-blue-100 text-blue-800" },
-  [2]: { label: "Invitert", className: "bg-yellow-100 text-yellow-800" },
-  [3]: { label: "Akseptert", className: "bg-orange-100 text-orange-800" },
-  [4]: { label: "Fullført", className: "bg-green-100 text-green-800" },
-  [5]: { label: "Tildelt skole", className: "bg-emerald-100 text-emerald-800" },
+const applicationStatusMeta: Record<string, { label: string; className: string }> = {
+  cancelled: { label: "Avbrutt", className: "bg-red-100 text-red-800" },
+  not_received: { label: "Ikke mottatt", className: "bg-gray-100 text-gray-700" },
+  received: { label: "Mottatt", className: "bg-blue-100 text-blue-800" },
+  invited: { label: "Invitert", className: "bg-yellow-100 text-yellow-800" },
+  accepted: { label: "Akseptert", className: "bg-orange-100 text-orange-800" },
+  completed: { label: "Fullført", className: "bg-green-100 text-green-800" },
+  assigned: { label: "Tildelt skole", className: "bg-emerald-100 text-emerald-800" },
 };
 
-function ApplicationStatusBadge({ status }: { status: number }) {
-  const meta = applicationStatusMeta[status] ?? { label: String(status), className: "bg-gray-100 text-gray-700" };
+function ApplicationStatusBadge({ status }: { status: string }) {
+  const meta = applicationStatusMeta[status] ?? { label: status, className: "bg-gray-100 text-gray-700" };
   return (
     <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${meta.className}`}>
       {meta.label}
@@ -165,6 +161,7 @@ function AssignInterviewDialog({
 
     setLoading(true);
     try {
+      // TODO: replace raw fetch calls with SDK methods once admin users and interview-schemas endpoints are added
       const [usersResp, schemasResp] = await Promise.all([
         fetch("/api/admin/users", { credentials: "include" }),
         fetch("/api/admin/interview-schemas", { credentials: "include" }),
@@ -325,9 +322,9 @@ const columns: ColumnDef<Application>[] = [
   { accessorKey: "userName", header: "Navn" },
   { accessorKey: "userEmail", header: "E-post" },
   {
-    accessorKey: "applicationStatus",
+    accessorKey: "status",
     header: "Status",
-    cell: ({ row }) => <ApplicationStatusBadge status={row.original.applicationStatus} />,
+    cell: ({ row }) => <ApplicationStatusBadge status={row.original.status} />,
   },
   {
     accessorKey: "interviewStatus",
@@ -375,10 +372,8 @@ const statusFilters = [
 
 // biome-ignore lint/style/noDefaultExport: Route Modules require default export
 export default function Sokere() {
-  const { data, activeFilter } = useLoaderData<typeof loader>();
+  const { applications, activeFilter } = useLoaderData<typeof loader>();
   const [, setSearchParams] = useSearchParams();
-
-  const applications = data?.applications ?? [];
 
   return (
     <section className="flex w-full min-w-0 flex-col items-center">

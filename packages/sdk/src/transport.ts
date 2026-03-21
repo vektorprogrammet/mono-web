@@ -21,14 +21,14 @@ const resolveAuth = (auth: AuthOption): Effect.Effect<string> =>
   typeof auth === "string"
     ? Effect.succeed(auth)
     : Effect.promise(async () => {
-        const result = auth()
-        return result instanceof Promise ? result : result
+        return auth()
       })
 
 /**
  * Maps HTTP status codes to InternalSdkError.
  */
 const mapStatusToError = (status: number, _body: unknown): InternalSdkError => {
+  // TODO: 403 should map to a separate ForbiddenError rather than Unauthorized
   if (status === 401 || status === 403) return new Unauthorized({ message: `HTTP ${status}` })
   if (status === 404) return new NotFound({ message: "Not found" })
   if (status === 409) return new Conflict({ message: "Conflict" })

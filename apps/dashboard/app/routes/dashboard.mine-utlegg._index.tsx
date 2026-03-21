@@ -4,7 +4,6 @@ import { DataTable } from "@/components/data-table";
 import { Button } from "@/components/ui/button";
 import type { ColumnDef } from "@tanstack/react-table";
 import { apiUrl, isFixtureMode } from "@vektorprogrammet/sdk";
-import { createClient } from "@vektorprogrammet/sdk";
 import { useState } from "react";
 import { useActionData, useLoaderData } from "react-router";
 import { createAuthenticatedClient } from "../lib/api.server";
@@ -55,7 +54,7 @@ export async function action({ request }: Route.ActionArgs) {
     if (!id) return { error: "Manglende ID" };
 
     try {
-      await client.receipts.delete(id);
+      await client.receipts.delete(Number(id));
       return { success: true };
     } catch {
       return { error: "Sletting feilet" };
