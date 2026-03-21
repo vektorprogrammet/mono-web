@@ -1,0 +1,79 @@
+{
+  "hooks": {
+    "WorktreeCreate": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'MAIN_ROOT=\"$(git -C \"$WORKTREE_PATH\" rev-parse --path-format=absolute --git-common-dir | sed \"s|/\\.git$||\")\"; for f in apps/server/.env apps/server/.env.local; do [ -f \"$MAIN_ROOT/$f\" ] && cp \"$MAIN_ROOT/$f\" \"$WORKTREE_PATH/$f\" 2>/dev/null; done; if [ -d \"$MAIN_ROOT/apps/server/config/jwt\" ]; then mkdir -p \"$WORKTREE_PATH/apps/server/config/jwt\" && cp \"$MAIN_ROOT/apps/server/config/jwt/\"* \"$WORKTREE_PATH/apps/server/config/jwt/\" 2>/dev/null; fi'",
+            "statusMessage": "Copying .env and JWT keys to worktree..."
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.file_path' | { read -r f; [[ \"$f\" == *.php && \"$f\" == */apps/server/* ]] && apps/server/bin/php-cs-fixer fix --quiet --config=apps/server/.php-cs-fixer.dist.php \"$f\"; } 2>/dev/null || true",
+            "statusMessage": "Formatting PHP..."
+          },
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.file_path' | { read -r f; [[ \"$f\" == *.ts || \"$f\" == *.tsx ]] && oxlint \"$f\" --quiet; } 2>/dev/null || true",
+            "statusMessage": "Linting TypeScript..."
+          },
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.file_path' | { read -r f; if [[ \"$f\" == *.php && \"$f\" == */apps/server/src/* ]]; then head -3 \"$f\" | grep -q 'declare(strict_types=1)' || echo \"{\\\"hookSpecificOutput\\\":{\\\"hookEventName\\\":\\\"PostToolUse\\\",\\\"additionalContext\\\":\\\"WARNING: $f missing declare(strict_types=1). Add it to new PHP files.\\\"}}\"; fi; } 2>/dev/null || true",
+            "statusMessage": "Checking strict_types..."
+          },
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.file_path' | { read -r f; if [[ \"$f\" == *.php && \"$f\" == */apps/server/src/* && -f \"$f\" ]]; then ns=$(grep -m1 '^namespace ' \"$f\" | sed 's/namespace //;s/;.*//'); expected_ns=$(echo \"$f\" | sed 's|.*/apps/server/src/||;s|/[^/]*\\.php$||;s|/|\\\\|g'); if [[ -n \"$ns\" && \"$ns\" != \"$expected_ns\" ]]; then echo \"{\\\"hookSpecificOutput\\\":{\\\"hookEventName\\\":\\\"PostToolUse\\\",\\\"additionalContext\\\":\\\"ERROR: Namespace mismatch in $f. Declared: $ns, Expected: $expected_ns\\\"}}\"; fi; fi; } 2>/dev/null || true",
+            "statusMessage": "Checking namespace consistency..."
+          },
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/check-target-entity.sh",
+            "statusMessage": "Checking targetEntity syntax..."
+          },
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.file_path' | { read -r f; if [[ \"$f\" == *.php && \"$f\" == */src/App/* && -d apps/server/vendor ]]; then cd apps/server && php -d memory_limit=512M bin/console lint:container --env=test --quiet 2>/dev/null || exit 2; fi; }",
+            "asyncRewake": true,
+            "statusMessage": "Checking DI container..."
+          },
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.file_path' | { read -r f; if [[ \"$f\" == *.php && \"$f\" == */apps/server/src/App/* && -d apps/server/vendor ]]; then context=$(echo \"$f\" | sed 's|.*/src/App/||;s|/.*||'); cd apps/server && php -d memory_limit=512M bin/phpunit --filter \"$context\" --no-coverage 2>/dev/null | tail -3; fi; }",
+            "asyncRewake": true,
+            "statusMessage": "Running context tests..."
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.command' | grep -qE 'doctrine:(schema|database):drop|cache:clear.*--env=prod' && echo '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"Blocked: destructive Symfony command. Use test environment.\"}}' || true"
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.file_path' | { read -r f; if [[ \"$f\" == */templates/*.twig ]]; then echo '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"additionalContext\":\"WARNING: Twig/Controller layer is deprecated. Do NOT add new App\\\\ namespace references to templates. If updating FQCN, stop — the entire Twig layer is being removed.\"}}'; fi; } || true"
+          }
+        ]
+      }
+    ]
+  }
+}
