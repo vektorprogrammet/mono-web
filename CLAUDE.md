@@ -38,7 +38,8 @@ C0:
 | `turbo build` | Build all packages |
 | `turbo lint` | Lint all packages (oxlint) |
 | `turbo test` | Run all test suites |
-| `turbo run generate` | Regenerate SDK types from OpenAPI spec |
+| `cd packages/sdk && bun run build` | Build SDK |
+| `cd packages/sdk && bun run test` | Run SDK tests (60 tests) |
 | `turbo -F @monoweb/homepage dev` | Dev server for homepage |
 | `turbo -F @monoweb/dashboard dev` | Dev server for dashboard |
 | `turbo -F @monoweb/api dev` | Dev server for API |
@@ -51,7 +52,7 @@ C0:
 | `@monoweb/dashboard` | React Router, Tailwind, shadcn | `apps/dashboard/app/` | Admin dashboard |
 | `@monoweb/api` | Express 5, Drizzle, Zod | `apps/api/src/` | TS API (future backend) |
 | `@monoweb/server` | Symfony 6.4, API Platform 3.4 | `apps/server/src/` | PHP backend (current production) |
-| `@vektorprogrammet/sdk` | openapi-fetch, openapi-react-query | `packages/sdk/src/` | Type-safe API client |
+| `@vektorprogrammet/sdk` | Effect-TS, @effect/platform | `packages/sdk/src/` | Domain-first API client |
 
 ## Conventions
 
@@ -64,24 +65,36 @@ C0:
 
 ## SDK
 
-`@vektorprogrammet/sdk` auto-generates a type-safe API client from the Symfony OpenAPI spec.
+`@vektorprogrammet/sdk` — domain-first typed client. Effect-TS internals, plain promise surface.
 
-Pipeline: `api:spec` (export from Symfony) → `generate` (openapi-typescript) → `build` (tsc)
-
-Consumer usage:
 ```typescript
-import { createClient, createQueryApi } from "@vektorprogrammet/sdk";
+import { createClient } from "@vektorprogrammet/sdk"
 
-// Imperative (loaders, server-side)
-const api = createClient("http://localhost:8000");
-const { data } = await api.GET("/api/public/departments");
+// Authenticated (dashboard loaders/actions)
+const client = createClient("http://localhost:8000", { auth: token })
+const page = await client.admin.receipts.list({ status: "pending" })
+// page: { items: AdminReceipt[], totalItems: number, page: number, pageSize: number }
 
-// Declarative (React components with TanStack Query)
-const $api = createQueryApi("http://localhost:8000");
-const { data, isLoading } = $api.useQuery("get", "/api/public/departments");
+await client.admin.receipts.approve(id)  // domain operation, not PUT /status
+
+// Unauthenticated (public pages)
+const client = createClient("http://localhost:8000")
+const sponsors = await client.public.sponsors()
+
+// Effect-native (for Effect consumers)
+import { createEffectClient } from "@vektorprogrammet/sdk/effect"
+const page = yield* client.receipts.list()  // Effect<Page<Receipt>, SdkError>
 ```
 
-Regenerate types: `turbo run generate` (or `cd packages/sdk && bun run generate`).
+**Key conventions:**
+- Domain methods speak the ubiquitous language: `approve()` not `updateStatus("refunded")`
+- Application status is `"received" | "invited" | ...` — never PHP integers
+- Dates are `Date` objects, not ISO strings
+- All methods throw `SdkError` subclasses on failure
+- `client.context` exposes JWT-decoded role/department/teams for UI rendering
+- Types inferred from Schema.Class — no hand-written interfaces
+- See `docs/superpowers/specs/2026-03-21-sdk-redesign-design.md` for full spec
+- See `docs/sdk-architecture.html` for architecture vision
 
 ## Docs
 
@@ -91,6 +104,9 @@ Regenerate types: `turbo run generate` (or `cd packages/sdk && bun run generate`
 | Migration roadmap | [`docs/migration/`](docs/migration/) |
 | DDD/FCIS restructure spec | [`docs/superpowers/specs/2026-03-20-ddd-fcis-analysis-design.md`](docs/superpowers/specs/2026-03-20-ddd-fcis-analysis-design.md) |
 | DDD restructure plan | [`docs/superpowers/plans/2026-03-20-ddd-restructure.md`](docs/superpowers/plans/2026-03-20-ddd-restructure.md) |
+| SDK architecture vision | [`docs/sdk-architecture.html`](docs/sdk-architecture.html) |
+| SDK redesign spec | [`docs/superpowers/specs/2026-03-21-sdk-redesign-design.md`](docs/superpowers/specs/2026-03-21-sdk-redesign-design.md) |
+| Interface design principles | [`docs/interface-design.html`](docs/interface-design.html) |
 | Server (PHP) | [`apps/server/CLAUDE.md`](apps/server/CLAUDE.md) |
 
 ## Server (PHP)
@@ -100,7 +116,13 @@ See `apps/server/CLAUDE.md` for Symfony-specific rules, testing, and architectur
 Server commands run via composer, not turbo:
 ```bash
 cd apps/server
-composer test          # PHPUnit (1001 tests)
+composer test          # PHPUnit (1087+ tests)
 composer lint          # PHP-CS-Fixer
 composer analyse       # PHPStan
 ```
+
+**After adding DB constraints/validation:** Always verify fixtures still load:
+```bash
+APP_ENV=test php bin/console doctrine:fixtures:load --no-interaction
+```
+Broken fixtures cascade into 600+ silent test failures.

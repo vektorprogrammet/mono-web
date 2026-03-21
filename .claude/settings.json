@@ -51,6 +51,12 @@
             "command": "jq -r '.tool_input.file_path' | { read -r f; if [[ \"$f\" == *.php && \"$f\" == */apps/server/src/App/* && -d apps/server/vendor ]]; then context=$(echo \"$f\" | sed 's|.*/src/App/||;s|/.*||'); cd apps/server && php -d memory_limit=512M bin/phpunit --filter \"$context\" --no-coverage 2>/dev/null | tail -3; fi; }",
             "asyncRewake": true,
             "statusMessage": "Running context tests..."
+          },
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.file_path' | { read -r f; if [[ \"$f\" == *.ts && \"$f\" == */packages/sdk/* ]]; then cd packages/sdk && bunx tsc --noEmit 2>/dev/null | tail -3; fi; }",
+            "asyncRewake": true,
+            "statusMessage": "Checking SDK types..."
           }
         ]
       }
