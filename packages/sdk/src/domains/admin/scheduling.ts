@@ -13,22 +13,22 @@ export function createAdminSchedulingDomain(transport: Transport): AdminScheduli
   return {
     assistants(params) {
       const query: Record<string, string | number | undefined> = {}
-      if (params?.page) query.page = params.page
-      if (params?.pageSize) query.itemsPerPage = params.pageSize
+      if (params?.page !== undefined) query.page = params.page
+      if (params?.pageSize !== undefined) query.itemsPerPage = params.pageSize
       return transport.getCollection("/api/admin/scheduling/assistants", SchedulingAssistant, query)
     },
 
     schools(params) {
       const query: Record<string, string | number | undefined> = {}
-      if (params?.page) query.page = params.page
-      if (params?.pageSize) query.itemsPerPage = params.pageSize
+      if (params?.page !== undefined) query.page = params.page
+      if (params?.pageSize !== undefined) query.itemsPerPage = params.pageSize
       return transport.getCollection("/api/admin/scheduling/schools", SchedulingSchool, query)
     },
 
     substitutes(params) {
       const query: Record<string, string | number | undefined> = {}
-      if (params?.page) query.page = params.page
-      if (params?.pageSize) query.itemsPerPage = params.pageSize
+      if (params?.page !== undefined) query.page = params.page
+      if (params?.pageSize !== undefined) query.itemsPerPage = params.pageSize
       return transport.getCollection("/api/admin/substitutes", Substitute, query)
     },
   }

@@ -102,7 +102,7 @@ export class Conflict extends Schema.TaggedError<Conflict>()(
 
 export class Network extends Schema.TaggedError<Network>()(
   "Network",
-  { message: Schema.String },
+  { message: Schema.String, cause: Schema.optional(Schema.Unknown) },
 ) {}
 
 export class RateLimited extends Schema.TaggedError<RateLimited>()(
@@ -133,7 +133,7 @@ export function toSdkError(error: InternalSdkError): SdkError {
     case "Conflict":
       return new ConflictError(error.message)
     case "Network":
-      return new NetworkError(error.message)
+      return new NetworkError(error.message, error.cause)
     case "RateLimited":
       return new RateLimitedError(error.message)
   }

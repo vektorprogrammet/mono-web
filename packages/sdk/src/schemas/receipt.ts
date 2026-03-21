@@ -1,14 +1,15 @@
 import { Schema } from "effect"
+import { DateFromIso, NullableDateFromIso } from "../adapter/dates.js"
 
 export class Receipt extends Schema.Class<Receipt>("Receipt")({
   id: Schema.Number,
   visualId: Schema.String,
   description: Schema.String,
   sum: Schema.Number,
-  receiptDate: Schema.String,
-  submitDate: Schema.String,
+  receiptDate: DateFromIso,
+  submitDate: DateFromIso,
   status: Schema.Literal("pending", "refunded", "rejected"),
-  refundDate: Schema.NullOr(Schema.String),
+  refundDate: NullableDateFromIso,
 }) {
   get isPending() { return this.status === "pending" }
   get formattedAmount() { return `${this.sum} kr` }
@@ -19,10 +20,10 @@ export class AdminReceipt extends Schema.Class<AdminReceipt>("AdminReceipt")({
   visualId: Schema.String,
   description: Schema.String,
   sum: Schema.Number,
-  receiptDate: Schema.String,
-  submitDate: Schema.String,
+  receiptDate: DateFromIso,
+  submitDate: DateFromIso,
   status: Schema.Literal("pending", "refunded", "rejected"),
-  refundDate: Schema.NullOr(Schema.String),
+  refundDate: NullableDateFromIso,
   userName: Schema.String,
 }) {}
 

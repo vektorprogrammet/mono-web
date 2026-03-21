@@ -14,9 +14,9 @@ export function createReceiptsDomain(transport: Transport): ReceiptsDomain {
   return {
     list(params) {
       const query: Record<string, string | number | undefined> = {}
-      if (params?.status) query.status = params.status
-      if (params?.page) query.page = params.page
-      if (params?.pageSize) query.itemsPerPage = params.pageSize
+      if (params?.status !== undefined) query.status = params.status
+      if (params?.page !== undefined) query.page = params.page
+      if (params?.pageSize !== undefined) query.itemsPerPage = params.pageSize
       return transport.getCollection("/api/receipts", Receipt, query)
     },
 

@@ -75,7 +75,7 @@ export const InterviewFromRaw = Schema.transform(
  * InterviewSchema_ — the schema/template used for conducting interviews.
  * (Trailing underscore to avoid clash with the ES `Schema` class name.)
  */
-export class InterviewSchema_ extends Schema.Class<InterviewSchema_>("InterviewSchema_")({
+export class InterviewSchema_ extends Schema.Class<InterviewSchema_>("InterviewSchema")({
   id: Schema.Number,
   name: Schema.String,
   questions: Schema.Array(Schema.Struct({

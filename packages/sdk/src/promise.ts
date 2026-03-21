@@ -95,6 +95,8 @@ export function createClient(baseUrl: string, options?: ClientOptions) {
   const context = createContext(initialToken)
 
   const adminMisc = createAdminMiscDomain(transport)
+  const publicMisc = createPublicMiscDomain(transport)
+  const publicTeams = createPublicTeamsDomain(transport)
 
   return {
     auth: promisifyDomain(createAuthDomain(transport)),
@@ -107,11 +109,14 @@ export function createClient(baseUrl: string, options?: ClientOptions) {
       users: promisifyDomain(createAdminUsersDomain(transport)),
       scheduling: promisifyDomain(createAdminSchedulingDomain(transport)),
       teams: promisifyDomain(createAdminTeamsDomain(transport)),
-      misc: promisifyDomain(adminMisc),
+      mailingLists: promisify(adminMisc.mailingLists.bind(adminMisc)),
+      admissionStats: promisify(adminMisc.admissionStats.bind(adminMisc)),
     },
     public: {
-      misc: promisifyDomain(createPublicMiscDomain(transport)),
-      teams: promisifyDomain(createPublicTeamsDomain(transport)),
+      departments: promisify(publicMisc.departments.bind(publicMisc)),
+      fieldOfStudies: promisify(publicMisc.fieldOfStudies.bind(publicMisc)),
+      sponsors: promisify(publicMisc.sponsors.bind(publicMisc)),
+      teams: promisify(publicTeams.list.bind(publicTeams)),
     },
     context,
   }

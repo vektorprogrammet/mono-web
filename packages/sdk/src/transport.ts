@@ -10,6 +10,7 @@ import {
   Unauthorized, NotFound, Validation, Conflict, Network, RateLimited,
   type InternalSdkError,
 } from "./errors.js"
+import { parseViolations } from "./adapter/errors.js"
 
 export type AuthOption = string | (() => string | Promise<string>)
 
@@ -31,14 +32,14 @@ const mapStatusToError = (status: number, _body: unknown): InternalSdkError => {
   if (status === 401 || status === 403) return new Unauthorized({ message: `HTTP ${status}` })
   if (status === 404) return new NotFound({ message: "Not found" })
   if (status === 409) return new Conflict({ message: "Conflict" })
-  if (status === 422) return new Validation({ message: "Validation failed", fields: {} })
+  if (status === 422) return new Validation({ message: "Validation failed", fields: parseViolations(_body) })
   if (status === 429) return new RateLimited({ message: "Rate limited" })
   return new Network({ message: `HTTP ${status}` })
 }
 
 export interface Transport {
   get<A, I>(url: string, schema: Schema.Schema<A, I>, params?: Record<string, string | number | undefined>): Effect.Effect<A, InternalSdkError>
-  getCollection<A, I>(url: string, itemSchema: Schema.Schema<A, I>, params?: Record<string, string | number | undefined>): Effect.Effect<{ items: A[], totalItems: number }, InternalSdkError>
+  getCollection<A, I>(url: string, itemSchema: Schema.Schema<A, I>, params?: Record<string, string | number | undefined>): Effect.Effect<{ items: A[], totalItems: number, page: number, pageSize: number }, InternalSdkError>
   post<A, I>(url: string, body: unknown, schema: Schema.Schema<A, I>): Effect.Effect<A, InternalSdkError>
   postVoid(url: string, body: unknown): Effect.Effect<void, InternalSdkError>
   put(url: string, body: unknown): Effect.Effect<void, InternalSdkError>
@@ -85,7 +86,7 @@ export function createTransport(baseUrl: string, auth?: AuthOption): Transport {
   ): Effect.Effect<Response, InternalSdkError> =>
     Effect.tryPromise({
       try: () => fetch(url, init),
-      catch: (cause) => new Network({ message: cause instanceof Error ? cause.message : "Network error" }),
+      catch: (cause) => new Network({ message: cause instanceof Error ? cause.message : "Network error", cause }),
     })
 
   const executeJson = (
@@ -175,6 +176,8 @@ export function createTransport(baseUrl: string, auth?: AuthOption): Transport {
     },
 
     getCollection<A, I>(url: string, itemSchema: Schema.Schema<A, I>, params?: Record<string, string | number | undefined>) {
+      const page = Number(params?.page ?? 1)
+      const pageSize = Number(params?.itemsPerPage ?? params?.pageSize ?? 30)
       return pipe(
         executeJson(buildUrl(url, params), "GET"),
         Effect.flatMap((json: unknown) => {
@@ -183,7 +186,7 @@ export function createTransport(baseUrl: string, auth?: AuthOption): Transport {
           const totalItems: number = (obj?.["hydra:totalItems"] as number) ?? 0
           return pipe(
             Effect.forEach(members, decodeWith(itemSchema)),
-            Effect.map((items) => ({ items, totalItems })),
+            Effect.map((items) => ({ items, totalItems, page, pageSize })),
           )
         }),
       )

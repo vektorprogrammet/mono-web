@@ -10,7 +10,7 @@
  *   GET  /api/admin/interview-schemas
  */
 
-import { Effect } from "effect"
+import { Effect, Schema } from "effect"
 import type { Transport } from "../../transport.js"
 import type { InternalSdkError } from "../../errors.js"
 import { InterviewFromRaw, InterviewSchema_, type Interview, type InterviewScheduleInput } from "../../schemas/interview.js"
@@ -27,6 +27,8 @@ export interface AdminInterviewsDomain {
     schemaId: number,
   ): Effect.Effect<void, InternalSdkError>
 
+  // NOTE: schedule and conduct signatures deviate from the OpenAPI spec —
+  // they match the actual API shape. The spec can be updated to reflect this.
   schedule(
     id: number,
     input: typeof InterviewScheduleInput.Type,
@@ -40,7 +42,7 @@ export interface AdminInterviewsDomain {
 
   cancel(id: number): Effect.Effect<void, InternalSdkError>
 
-  schemas(): Effect.Effect<{ items: typeof InterviewSchema_.Type[]; totalItems: number }, InternalSdkError>
+  schemas(): Effect.Effect<readonly typeof InterviewSchema_.Type[], InternalSdkError>
 }
 
 export function createAdminInterviewsDomain(transport: Transport): AdminInterviewsDomain {
@@ -73,7 +75,7 @@ export function createAdminInterviewsDomain(transport: Transport): AdminIntervie
     },
 
     schemas() {
-      return transport.getCollection("/api/admin/interview-schemas", InterviewSchema_)
+      return transport.get("/api/admin/interview-schemas", Schema.Array(InterviewSchema_))
     },
   }
 }

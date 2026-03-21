@@ -57,6 +57,8 @@ export function createEffectClient(baseUrl: string, options?: ClientOptions) {
   const context = createContext(initialToken)
 
   const adminMisc = createAdminMiscDomain(transport)
+  const publicMisc = createPublicMiscDomain(transport)
+  const publicTeams = createPublicTeamsDomain(transport)
 
   return {
     auth: createAuthDomain(transport),
@@ -69,11 +71,14 @@ export function createEffectClient(baseUrl: string, options?: ClientOptions) {
       users: createAdminUsersDomain(transport),
       scheduling: createAdminSchedulingDomain(transport),
       teams: createAdminTeamsDomain(transport),
-      misc: adminMisc,
+      mailingLists: adminMisc.mailingLists.bind(adminMisc),
+      admissionStats: adminMisc.admissionStats.bind(adminMisc),
     },
     public: {
-      misc: createPublicMiscDomain(transport),
-      teams: createPublicTeamsDomain(transport),
+      departments: publicMisc.departments.bind(publicMisc),
+      fieldOfStudies: publicMisc.fieldOfStudies.bind(publicMisc),
+      sponsors: publicMisc.sponsors.bind(publicMisc),
+      teams: publicTeams.list.bind(publicTeams),
     },
     context,
   }
