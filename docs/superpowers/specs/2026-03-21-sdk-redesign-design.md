@@ -118,9 +118,9 @@ sdk.receipts.delete(id)               → Promise<void>
 
 ```typescript
 sdk.admin.receipts.list(params?)  → Promise<Page<AdminReceipt>>
-sdk.admin.receipts.approve(id)    → Promise<SdkResult<void>>
-sdk.admin.receipts.reject(id)     → Promise<SdkResult<void>>
-sdk.admin.receipts.reopen(id)     → Promise<SdkResult<void>>
+sdk.admin.receipts.approve(id)    → Promise<void>
+sdk.admin.receipts.reject(id)     → Promise<void>
+sdk.admin.receipts.reopen(id)     → Promise<void>
 ```
 
 `approve/reject/reopen` are domain operations, not `updateStatus("refunded")`. The SDK speaks the domain language.
@@ -141,7 +141,7 @@ sdk.admin.interviews.list(params?)                               → Promise<Pag
 sdk.admin.interviews.assign(applicationId, interviewerId, schemaId) → Promise<void>
 sdk.admin.interviews.schedule(id, input)                         → Promise<void>
 sdk.admin.interviews.conduct(id, score, answers)                 → Promise<void>
-sdk.admin.interviews.cancel(id)                                  → Promise<SdkResult<void>>
+sdk.admin.interviews.cancel(id)                                  → Promise<void>
 sdk.admin.interviews.schemas()                                   → Promise<InterviewSchema[]>
 ```
 
@@ -348,6 +348,7 @@ interface UserProfile {
   phone: string | null
   department: string
   fieldOfStudy: string | null
+  profilePhoto: string | null
 }
 ```
 
@@ -355,7 +356,11 @@ interface UserProfile {
 
 ```typescript
 interface DashboardStats {
-  // shape TBD — mirrors /api/me/dashboard response
+  name: string
+  department: string
+  activeAssistants: number
+  pendingApplications: number
+  upcomingInterviews: number
 }
 ```
 
@@ -397,7 +402,11 @@ interface MailingList {
 }
 
 interface AdmissionStats {
-  // shape TBD — mirrors /api/admin/admission-stats response
+  totalApplicants: number
+  accepted: number
+  rejected: number
+  interviewed: number
+  assignedAssistants: number
 }
 
 interface Page<T> {
@@ -416,7 +425,7 @@ All methods throw on failure. Idiomatic JS — consumers use try/catch.
 
 ```typescript
 class SdkError extends Error {
-  type: "unauthorized" | "not_found" | "validation" | "conflict" | "network"
+  type: "unauthorized" | "not_found" | "validation" | "conflict" | "network" | "rate_limited"
 }
 
 class UnauthorizedError extends SdkError { type = "unauthorized" as const }
@@ -432,6 +441,9 @@ class NetworkError extends SdkError {
   type = "network" as const
   cause: unknown
 }
+class RateLimitedError extends SdkError {
+  type = "rate_limited" as const
+}  // maps from HTTP 429
 ```
 
 Consumer usage:
@@ -525,7 +537,7 @@ These transforms live in `Schema.transform` — the adapter decodes the raw API 
 
 ```
 packages/sdk/src/
-  index.ts              — Public exports: createClient, types, SdkResult, SdkError
+  index.ts              — Public exports: createClient, types, SdkError
   sdk.ts                — createClient factory, Sdk type, Effect.runPromise boundary
   config.ts             — apiUrl, isFixtureMode (unchanged)
   errors.ts             — Schema.TaggedError internals, SdkError mapping
@@ -623,13 +635,17 @@ await client.PUT("/api/admin/receipts/{id}/status" as any, {
 ```typescript
 import { createClient } from "@vektorprogrammet/sdk"
 
-const sdk = createClient(apiUrl, token)
+const sdk = createClient(apiUrl, { auth: token })
 const { items: receipts } = await sdk.admin.receipts.list({ status })
 
 // Action: domain operations
-const result = await sdk.admin.receipts.approve(receiptId)
-if (!result.ok) {
-  return { error: result.error.type }  // "not_found" | "conflict"
+try {
+  await sdk.admin.receipts.approve(receiptId)
+} catch (e) {
+  if (e instanceof ConflictError || e instanceof NotFoundError) {
+    return { error: e.type }  // "not_found" | "conflict"
+  }
+  throw e
 }
 ```
 
@@ -662,7 +678,7 @@ await client.POST("/api/admin/interviews/assign" as any, {
 ```typescript
 import { createClient, type Application } from "@vektorprogrammet/sdk"
 
-const sdk = createClient(apiUrl, token)
+const sdk = createClient(apiUrl, { auth: token })
 const { items: applications } = await sdk.admin.applications.list({ status })
 // application.status is "received" | "invited" | ... — no integer mapping needed
 
