@@ -16,12 +16,40 @@ The current SDK wraps `openapi-fetch` with types generated from the Symfony Open
 
 ## Consumer API
 
-This is the spec. Everything below is the complete public surface that consumers see.
+Two entrypoints from the same codebase. The Effect SDK is the real implementation; the Promise SDK wraps each method with `Effect.runPromise`.
+
+### Default — plain promises
 
 ```typescript
 import { createSdk, type Sdk } from "@vektorprogrammet/sdk"
 
 const sdk: Sdk = createSdk("https://api.example.com", token?)
+
+const page = await sdk.receipts.list({ status: "pending" })
+// page: Page<Receipt>
+```
+
+### Effect-native — for consumers who want Effect composition
+
+```typescript
+import { createEffectSdk, type EffectSdk } from "@vektorprogrammet/sdk/effect"
+
+const sdk: EffectSdk = createEffectSdk("https://api.example.com", token?)
+
+const page = yield* sdk.receipts.list({ status: "pending" })
+// Effect<Page<Receipt>, SdkError, never>
+```
+
+The Effect SDK returns `Effect<T, SdkError>`. The Promise SDK wraps with `Effect.runPromise`. Both share the same domain methods, schemas, adapter, and context. The only difference is the boundary.
+
+```json
+// package.json exports
+{
+  "exports": {
+    ".": "./dist/promise.js",
+    "./effect": "./dist/effect.js"
+  }
+}
 ```
 
 ### Client Context
