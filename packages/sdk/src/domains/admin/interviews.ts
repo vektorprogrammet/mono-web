@@ -14,7 +14,6 @@ import { Effect } from "effect"
 import type { Transport } from "../../transport.js"
 import type { InternalSdkError } from "../../errors.js"
 import { InterviewFromRaw, InterviewSchema_, type Interview, type InterviewScheduleInput } from "../../schemas/interview.js"
-import { Schema } from "effect"
 
 export interface AdminInterviewsDomain {
   list(params?: {
