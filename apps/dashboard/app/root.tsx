@@ -11,7 +11,6 @@ import {
   ScrollRestoration,
   useRouteError,
 } from "react-router";
-import { QueryProvider } from "@vektorprogrammet/sdk";
 import { ThemeProvider } from "./lib/theme";
 
 export const meta: MetaFunction = () => [
@@ -47,7 +46,7 @@ export function Layout({ children }: { children: ReactNode }) {
       </head>
       <body>
         <ThemeProvider>
-          <QueryProvider>{children}</QueryProvider>
+          {children}
         </ThemeProvider>
         <ScrollRestoration />
         <Scripts />

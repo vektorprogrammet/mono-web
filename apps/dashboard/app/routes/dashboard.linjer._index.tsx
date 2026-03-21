@@ -17,9 +17,12 @@ const mockFieldOfStudies: Array<FieldOfStudy> = [
 export async function loader() {
   if (isFixtureMode) return { fieldOfStudies: mockFieldOfStudies };
 
-  const { data } = await apiClient.GET("/api/field_of_studies");
-
-  return { fieldOfStudies: data?.["hydra:member"] ?? null };
+  try {
+    const fieldOfStudies = await apiClient.public.fieldOfStudies();
+    return { fieldOfStudies: fieldOfStudies ?? null };
+  } catch {
+    return { fieldOfStudies: null };
+  }
 }
 
 const columns: Array<ColumnDef<FieldOfStudy>> = [

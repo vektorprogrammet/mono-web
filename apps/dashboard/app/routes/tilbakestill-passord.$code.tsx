@@ -21,17 +21,14 @@ export async function action({ request, params }: Route.ActionArgs) {
     return { error: "Passordet må være minst 8 tegn" };
   }
 
-  const client = createClient(apiUrl);
-  const { error } = await client.POST("/api/password_resets/{code}", {
-    params: { path: { code: params.code } },
-    body: { password },
-  });
-
-  if (error) {
+  const sdk = createClient(apiUrl);
+  try {
+    await sdk.auth.resetPassword(params.code, password);
+    throw redirect("/login?reset=true");
+  } catch (e) {
+    if (e instanceof Response) throw e;
     return { error: "Kunne ikke tilbakestille passordet. Lenken kan være ugyldig eller utløpt." };
   }
-
-  throw redirect("/login?reset=true");
 }
 
 // biome-ignore lint/style/noDefaultExport: Route Modules require default export

@@ -4,6 +4,7 @@ import { DataTable } from "@/components/data-table";
 import { Button } from "@/components/ui/button";
 import type { ColumnDef } from "@tanstack/react-table";
 import { apiUrl, isFixtureMode } from "@vektorprogrammet/sdk";
+import { createClient } from "@vektorprogrammet/sdk";
 import { useState } from "react";
 import { useActionData, useLoaderData } from "react-router";
 import { createAuthenticatedClient } from "../lib/api.server";
@@ -35,11 +36,12 @@ export async function loader({ request }: Route.LoaderArgs) {
   const url = new URL(request.url);
   const status = url.searchParams.get("status");
 
-  const { data } = await client.GET("/api/my/receipts" as any, {
-    params: { query: status ? { status } : {} },
-  });
-
-  return { receipts: ((data as any)?.["hydra:member"] as Receipt[]) ?? [] };
+  try {
+    const result = await client.receipts.list(status ? { status } : undefined);
+    return { receipts: result.items as Receipt[] };
+  } catch {
+    return { receipts: [] };
+  }
 }
 
 export async function action({ request }: Route.ActionArgs) {
@@ -52,18 +54,18 @@ export async function action({ request }: Route.ActionArgs) {
     const id = form.get("receiptId")?.toString();
     if (!id) return { error: "Manglende ID" };
 
-    const { error } = await client.DELETE("/api/receipts/{id}" as any, {
-      params: { path: { id } },
-    });
-
-    if (error) return { error: "Sletting feilet" };
-    return { success: true };
+    try {
+      await client.receipts.delete(id);
+      return { success: true };
+    } catch {
+      return { error: "Sletting feilet" };
+    }
   }
 
   if (intent === "create" || intent === "edit") {
     const method = intent === "create" ? "POST" : "PUT";
     const id = form.get("receiptId")?.toString();
-    const url = intent === "create"
+    const urlPath = intent === "create"
       ? "/api/receipts"
       : `/api/receipts/${id}`;
 
@@ -75,7 +77,7 @@ export async function action({ request }: Route.ActionArgs) {
     const file = form.get("picture");
     if (file instanceof File && file.size > 0) body.append("picture", file);
 
-    const res = await fetch(`${apiUrl}${url}`, {
+    const res = await fetch(`${apiUrl}${urlPath}`, {
       method,
       headers: { Authorization: `Bearer ${token}` },
       body,

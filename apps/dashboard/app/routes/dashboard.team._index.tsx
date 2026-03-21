@@ -17,9 +17,12 @@ const mockTeams: Array<Team> = [
 export async function loader() {
   if (isFixtureMode) return { teams: mockTeams };
 
-  const { data } = await apiClient.GET("/api/teams");
-
-  return { teams: data?.["hydra:member"] ?? null };
+  try {
+    const result = await apiClient.public.teams();
+    return { teams: result.items ?? null };
+  } catch {
+    return { teams: null };
+  }
 }
 
 const columns: Array<ColumnDef<Team>> = [

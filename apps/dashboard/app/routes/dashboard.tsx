@@ -80,24 +80,24 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   const token = requireAuth(request);
   const client = createAuthenticatedClient(token);
-  const { data, error } = await client.GET("/api/me");
 
-  if (error || !data) {
+  try {
+    const data = await client.me.profile();
+    const role = (data as Record<string, unknown>).role as string | undefined;
+    const isAdmin = role === "ROLE_ADMIN" || role === "ROLE_TEAM_LEADER";
+
+    return {
+      user: {
+        name: `${data.firstName} ${data.lastName}`,
+        email: data.email,
+        avatar: (data.profilePhoto as string | null | undefined) ?? "",
+      },
+      isAdmin,
+    };
+  } catch {
     const { redirect } = await import("react-router");
     throw redirect("/login?expired=true");
   }
-
-  const role = (data as Record<string, unknown>).role as string | undefined;
-  const isAdmin = role === "ROLE_ADMIN" || role === "ROLE_TEAM_LEADER";
-
-  return {
-    user: {
-      name: `${data.firstName} ${data.lastName}`,
-      email: data.email,
-      avatar: data.profilePhoto ?? "",
-    },
-    isAdmin,
-  };
 }
 
 function UserMenu({

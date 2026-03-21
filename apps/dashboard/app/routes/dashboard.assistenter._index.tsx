@@ -24,9 +24,13 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   const token = requireAuth(request);
   const client = createAuthenticatedClient(token);
-  const { data } = await client.GET("/api/admin/scheduling/assistants");
 
-  return { assistants: data ?? null };
+  try {
+    const assistants = await client.admin.scheduling.assistants();
+    return { assistants: assistants ?? null };
+  } catch {
+    return { assistants: null };
+  }
 }
 
 const columns: Array<ColumnDef<Assistant>> = [

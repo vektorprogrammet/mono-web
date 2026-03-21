@@ -75,11 +75,12 @@ export async function loader({ request }: Route.LoaderArgs) {
   const url = new URL(request.url);
   const status = url.searchParams.get("status");
 
-  const { data } = await client.GET("/api/admin/applications" as any, {
-    params: { query: status ? { status } : {} },
-  });
-
-  return { data: (data as unknown as AdminApplicationListData) ?? null, activeFilter: status ?? "all" };
+  try {
+    const data = await client.admin.applications.list(status ? { status } : undefined);
+    return { data: data ?? null, activeFilter: status ?? "all" };
+  } catch {
+    return { data: null, activeFilter: status ?? "all" };
+  }
 }
 
 // ── Action ────────────────────────────────────────────────────────────────────
@@ -95,21 +96,22 @@ export async function action({ request }: Route.ActionArgs) {
     const interviewerId = Number(form.get("interviewerId"));
     const interviewSchemaId = Number(form.get("interviewSchemaId"));
 
-    const { error } = await client.POST("/api/admin/interviews/assign" as any, {
-      body: { applicationId, interviewerId, interviewSchemaId },
-    });
-
-    if (error) return { error: "Kunne ikke tildele intervju" };
-    return { success: true };
+    try {
+      await client.admin.interviews.assign(applicationId, interviewerId, interviewSchemaId);
+      return { success: true };
+    } catch {
+      return { error: "Kunne ikke tildele intervju" };
+    }
   }
 
   if (intent === "delete") {
     const applicationId = form.get("applicationId")?.toString();
-    const { error } = await client.DELETE("/api/admin/applications/{id}" as any, {
-      params: { path: { id: applicationId! } },
-    });
-    if (error) return { error: "Kunne ikke slette søknad" };
-    return { success: true };
+    try {
+      await client.admin.applications.delete(applicationId!);
+      return { success: true };
+    } catch {
+      return { error: "Kunne ikke slette søknad" };
+    }
   }
 
   return { error: "Unknown intent" };

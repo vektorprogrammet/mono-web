@@ -44,12 +44,12 @@ export async function loader({ request }: Route.LoaderArgs) {
   const url = new URL(request.url);
   const status = url.searchParams.get("status");
 
-  const { data } = await client.GET("/api/admin/receipts" as any, {
-    params: { query: status ? { status } : {} },
-  });
-
-  // API Platform GetCollection returns Hydra envelope: { "hydra:member": [...], "hydra:totalItems": N }
-  return { receipts: ((data as any)?.["hydra:member"] as Receipt[]) ?? [] };
+  try {
+    const result = await client.admin.receipts.list(status ? { status } : undefined);
+    return { receipts: result.items as Receipt[] };
+  } catch {
+    return { receipts: [] };
+  }
 }
 
 export async function action({ request }: Route.ActionArgs) {
@@ -64,16 +64,18 @@ export async function action({ request }: Route.ActionArgs) {
     return { error: "Manglende felt" };
   }
 
-  const { error } = await client.PUT("/api/admin/receipts/{id}/status" as any, {
-    params: { path: { id: receiptId } },
-    body: { status: newStatus },
-  });
-
-  if (error) {
+  try {
+    if (newStatus === "refunded") {
+      await client.admin.receipts.approve(receiptId);
+    } else if (newStatus === "rejected") {
+      await client.admin.receipts.reject(receiptId);
+    } else if (newStatus === "pending") {
+      await client.admin.receipts.reopen(receiptId);
+    }
+    return { success: true };
+  } catch {
     return { error: "Kunne ikke oppdatere status" };
   }
-
-  return { success: true };
 }
 
 const statusLabels: Record<string, string> = {

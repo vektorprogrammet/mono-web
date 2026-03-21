@@ -2,7 +2,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useState } from "react";
 import { Form, Link, redirect, useActionData, useSearchParams } from "react-router";
-import { createClient, apiUrl } from "@vektorprogrammet/sdk";
+import { createClient, apiUrl, RateLimitedError } from "@vektorprogrammet/sdk";
 import {
   createAuthCookie,
   getToken,
@@ -24,21 +24,18 @@ export async function action({ request }: Route.ActionArgs) {
     return { error: "Brukernavn og passord er påkrevd" };
   }
 
-  const client = createClient(apiUrl);
-  const { data, error, response } = await client.POST("/api/login", {
-    body: { username, password },
-  });
-
-  if (error || !data?.token) {
-    if (response?.status === 429) {
+  const sdk = createClient(apiUrl);
+  try {
+    const { token } = await sdk.auth.login(username, password);
+    return redirect("/dashboard", {
+      headers: { "Set-Cookie": createAuthCookie(token) },
+    });
+  } catch (e) {
+    if (e instanceof RateLimitedError) {
       return { error: "For mange innloggingsforsøk. Prøv igjen om 15 minutter." };
     }
     return { error: "Feil brukernavn eller passord" };
   }
-
-  return redirect("/dashboard", {
-    headers: { "Set-Cookie": createAuthCookie(data.token) },
-  });
 }
 
 // biome-ignore lint/style/noDefaultExport: Route Modules require default export https://reactrouter.com/start/framework/route-module

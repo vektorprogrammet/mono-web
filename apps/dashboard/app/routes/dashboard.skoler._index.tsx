@@ -23,9 +23,13 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   const token = requireAuth(request);
   const client = createAuthenticatedClient(token);
-  const { data } = await client.GET("/api/admin/scheduling/schools");
 
-  return { schools: data ?? null };
+  try {
+    const schools = await client.admin.scheduling.schools();
+    return { schools: schools ?? null };
+  } catch {
+    return { schools: null };
+  }
 }
 
 const columns: Array<ColumnDef<School>> = [

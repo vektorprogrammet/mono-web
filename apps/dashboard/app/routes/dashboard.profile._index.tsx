@@ -20,21 +20,23 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   const token = requireAuth(request);
   const client = createAuthenticatedClient(token);
-  const { data, error } = await client.GET("/api/me");
 
-  if (error || !data) return { profile: getProfileData() };
-
-  const fallback = getProfileData();
-  return {
-    profile: {
-      ...fallback,
-      firstName: data.firstName,
-      lastName: data.lastName,
-      email: data.email,
-      phone: data.phone ?? fallback.phone,
-      profileImage: data.profilePhoto ?? fallback.profileImage,
-    },
-  };
+  try {
+    const data = await client.me.profile();
+    const fallback = getProfileData();
+    return {
+      profile: {
+        ...fallback,
+        firstName: data.firstName,
+        lastName: data.lastName,
+        email: data.email,
+        phone: (data.phone as string | null | undefined) ?? fallback.phone,
+        profileImage: (data.profilePhoto as string | null | undefined) ?? fallback.profileImage,
+      },
+    };
+  } catch {
+    return { profile: getProfileData() };
+  }
 }
 
 // biome-ignore lint/style/noDefaultExport: Route Modules require default export https://reactrouter.com/start/framework/route-module

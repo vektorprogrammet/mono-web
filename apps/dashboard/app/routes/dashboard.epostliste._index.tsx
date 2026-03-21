@@ -22,9 +22,13 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   const token = requireAuth(request);
   const client = createAuthenticatedClient(token);
-  const { data } = await client.GET("/api/admin/mailing-lists");
 
-  return { mailingLists: data ?? null };
+  try {
+    const mailingLists = await client.admin.mailingLists();
+    return { mailingLists: mailingLists ?? null };
+  } catch {
+    return { mailingLists: null };
+  }
 }
 
 const columns: Array<ColumnDef<MailingListEntry>> = [

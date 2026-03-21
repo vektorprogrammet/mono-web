@@ -14,7 +14,7 @@ import { useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { NavLink, href, useLoaderData, useNavigate } from "react-router";
 import { z } from "zod";
-import { apiClient, isFixtureMode } from "@vektorprogrammet/sdk";
+import { apiClient, isFixtureMode, type FieldOfStudy } from "@vektorprogrammet/sdk";
 import { getProfileData } from "../mock/api/data-profile";
 import { linjer } from "../mock/api/linjer";
 
@@ -37,10 +37,13 @@ const formSchema = z.object({
 
 export async function loader() {
   if (isFixtureMode) return { studyLines: linjer };
-  const { data } = await apiClient.GET("/api/field_of_studies");
-  // API returns { id, name, shortName, department } objects; mock is string[]
-  const studyLines = data ? data.map((f: any) => f.shortName ?? f.name) : linjer;
-  return { studyLines };
+  try {
+    const fieldOfStudies = await apiClient.public.fieldOfStudies();
+    const studyLines = (fieldOfStudies as FieldOfStudy[]).map((f) => f.shortName ?? f.name);
+    return { studyLines };
+  } catch {
+    return { studyLines: linjer };
+  }
 }
 
 // biome-ignore lint/style/noDefaultExport: Route Modules require default export https://reactrouter.com/start/framework/route-module

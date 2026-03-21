@@ -23,9 +23,13 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   const token = requireAuth(request);
   const client = createAuthenticatedClient(token);
-  const { data } = await client.GET("/api/admin/team-interest");
 
-  return { teamInterest: data ?? null };
+  try {
+    const teamInterest = await client.admin.teamInterest();
+    return { teamInterest: teamInterest ?? null };
+  } catch {
+    return { teamInterest: null };
+  }
 }
 
 const columns: Array<ColumnDef<TeamInterest>> = [

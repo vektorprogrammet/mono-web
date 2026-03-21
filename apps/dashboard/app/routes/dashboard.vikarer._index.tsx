@@ -24,9 +24,13 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   const token = requireAuth(request);
   const client = createAuthenticatedClient(token);
-  const { data } = await client.GET("/api/admin/substitutes");
 
-  return { substitutes: data ?? null };
+  try {
+    const substitutes = await client.admin.scheduling.substitutes();
+    return { substitutes: substitutes ?? null };
+  } catch {
+    return { substitutes: null };
+  }
 }
 
 const columns: Array<ColumnDef<Substitute>> = [

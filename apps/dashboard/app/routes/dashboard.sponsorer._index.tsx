@@ -17,9 +17,12 @@ const mockSponsors: Array<Sponsor> = [
 export async function loader() {
   if (isFixtureMode) return { sponsors: mockSponsors };
 
-  const { data } = await apiClient.GET("/api/sponsors");
-
-  return { sponsors: data?.["hydra:member"] ?? null };
+  try {
+    const result = await apiClient.public.sponsors();
+    return { sponsors: result.items ?? null };
+  } catch {
+    return { sponsors: null };
+  }
 }
 
 const columns: Array<ColumnDef<Sponsor>> = [

@@ -12,16 +12,13 @@ export async function action({ request }: Route.ActionArgs) {
     return { error: "E-post er påkrevd", success: false };
   }
 
-  const client = createClient(apiUrl);
-  const { error } = await client.POST("/api/password_resets", {
-    body: { email },
-  });
-
-  if (error) {
+  const sdk = createClient(apiUrl);
+  try {
+    await sdk.auth.requestPasswordReset(email);
+    return { success: true, error: null };
+  } catch {
     return { error: "Noe gikk galt. Vennligst prøv igjen.", success: false };
   }
-
-  return { success: true, error: null };
 }
 
 // biome-ignore lint/style/noDefaultExport: Route Modules require default export

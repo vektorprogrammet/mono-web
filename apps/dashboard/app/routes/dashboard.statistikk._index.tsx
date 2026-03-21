@@ -31,9 +31,13 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   const token = requireAuth(request);
   const client = createAuthenticatedClient(token);
-  const { data } = await client.GET("/api/admin/admission-statistics");
 
-  return { statistics: data ?? null };
+  try {
+    const statistics = await client.admin.admissionStats();
+    return { statistics: statistics ?? null };
+  } catch {
+    return { statistics: null };
+  }
 }
 
 const statCards: Array<{ key: keyof Statistics; label: string }> = [

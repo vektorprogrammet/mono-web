@@ -31,9 +31,13 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   const token = requireAuth(request);
   const client = createAuthenticatedClient(token);
-  const { data } = await client.GET("/api/me/dashboard");
 
-  return { dashboard: data ?? null };
+  try {
+    const dashboard = await client.me.dashboard();
+    return { dashboard };
+  } catch {
+    return { dashboard: null };
+  }
 }
 
 const summaryCards: Array<{ key: keyof Pick<DashboardData, "activeAssistants" | "pendingApplications" | "upcomingInterviews">; label: string }> = [

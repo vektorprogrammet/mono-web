@@ -14,9 +14,13 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   const token = requireAuth(request);
   const client = createAuthenticatedClient(token);
-  const { data } = await client.GET("/api/admin/users");
 
-  return { users: data ?? null };
+  try {
+    const users = await client.admin.users.list();
+    return { users: users ?? null };
+  } catch {
+    return { users: null };
+  }
 }
 
 export type user = {

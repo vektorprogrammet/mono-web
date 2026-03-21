@@ -24,9 +24,13 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   const token = requireAuth(request);
   const client = createAuthenticatedClient(token);
-  const { data } = await client.GET("/api/admin/interviews");
 
-  return { interviews: data ?? null };
+  try {
+    const interviews = await client.admin.interviews.list();
+    return { interviews: interviews ?? null };
+  } catch {
+    return { interviews: null };
+  }
 }
 
 const columns: Array<ColumnDef<Interview>> = [
