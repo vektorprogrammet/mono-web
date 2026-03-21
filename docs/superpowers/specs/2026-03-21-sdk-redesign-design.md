@@ -21,23 +21,23 @@ Two entrypoints from the same codebase. The Effect SDK is the real implementatio
 ### Default — plain promises
 
 ```typescript
-import { createSdk, type Sdk } from "@vektorprogrammet/sdk"
+import { createSdk } from "@vektorprogrammet/sdk"
 
-const sdk: Sdk = createSdk("https://api.example.com", token?)
+const sdk = createSdk("https://api.example.com", token?)
 
 const page = await sdk.receipts.list({ status: "pending" })
-// page: Page<Receipt>
+// page: Page<Receipt> — inferred from createSdk return type
 ```
 
 ### Effect-native — for consumers who want Effect composition
 
 ```typescript
-import { createEffectSdk, type EffectSdk } from "@vektorprogrammet/sdk/effect"
+import { createEffectSdk } from "@vektorprogrammet/sdk/effect"
 
-const sdk: EffectSdk = createEffectSdk("https://api.example.com", token?)
+const sdk = createEffectSdk("https://api.example.com", token?)
 
 const page = yield* sdk.receipts.list({ status: "pending" })
-// Effect<Page<Receipt>, SdkError, never>
+// Effect<Page<Receipt>, SdkError, never> — inferred
 ```
 
 The Effect SDK returns `Effect<T, SdkError>`. The Promise SDK wraps with `Effect.runPromise`. Both share the same domain methods, schemas, adapter, and context. The only difference is the boundary.
