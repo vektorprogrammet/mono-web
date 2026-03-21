@@ -24,6 +24,24 @@ import { createSdk, type Sdk } from "@vektorprogrammet/sdk"
 const sdk: Sdk = createSdk("https://api.example.com", token?)
 ```
 
+### Client Context
+
+Decoded from the JWT at creation time. No server call. Used by the UI for conditional rendering (show/hide buttons, route guards), not for security — the server enforces all access rules.
+
+```typescript
+sdk.context.isAuthenticated    // boolean
+sdk.context.role               // "user" | "team_member" | "team_leader" | "admin" | null
+sdk.context.department         // { id: number, name: string } | null
+sdk.context.teams              // { id: number, name: string }[]
+sdk.context.userId             // number | null
+
+// UI usage — not security, just convenience
+sdk.context.hasRole("team_leader")          // boolean — true if role >= team_leader
+sdk.context.isInDepartment(departmentId)    // boolean
+```
+
+When `token` is omitted (public/unauthenticated SDK), `context.isAuthenticated` is false and all role/department fields are null. Public endpoints (`sdk.public.*`) still work.
+
 ### Authentication
 
 ```typescript
