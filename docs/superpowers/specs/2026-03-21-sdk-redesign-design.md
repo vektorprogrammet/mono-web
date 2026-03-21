@@ -21,20 +21,20 @@ Two entrypoints from the same codebase. The Effect SDK is the real implementatio
 ### Default — plain promises
 
 ```typescript
-import { createSdk } from "@vektorprogrammet/sdk"
+import { createClient } from "@vektorprogrammet/sdk"
 
-const sdk = createSdk("https://api.example.com", token?)
+const sdk = createClient("https://api.example.com", token?)
 
 const page = await sdk.receipts.list({ status: "pending" })
-// page: Page<Receipt> — inferred from createSdk return type
+// page: Page<Receipt> — inferred from createClient return type
 ```
 
 ### Effect-native — for consumers who want Effect composition
 
 ```typescript
-import { createEffectSdk } from "@vektorprogrammet/sdk/effect"
+import { createEffectClient } from "@vektorprogrammet/sdk/effect"
 
-const sdk = createEffectSdk("https://api.example.com", token?)
+const sdk = createEffectClient("https://api.example.com", token?)
 
 const page = yield* sdk.receipts.list({ status: "pending" })
 // Effect<Page<Receipt>, SdkError, never> — inferred
@@ -429,7 +429,7 @@ Domain models are `Schema.Class` with `Schema.transform` from API response shape
 
 ### Dependency injection
 
-`HttpClient` from `@effect/platform` is provided via `Layer`. Auth token is injected at `createSdk` time by wrapping the base `HttpClient` with an auth header. This makes the SDK testable — swap `HttpClient` for a mock and test domain logic in isolation.
+`HttpClient` from `@effect/platform` is provided via `Layer`. Auth token is injected at `createClient` time by wrapping the base `HttpClient` with an auth header. This makes the SDK testable — swap `HttpClient` for a mock and test domain logic in isolation.
 
 ## Adapter Layer
 
@@ -473,8 +473,8 @@ These transforms live in `Schema.transform` — the adapter decodes the raw API 
 
 ```
 packages/sdk/src/
-  index.ts              — Public exports: createSdk, types, SdkResult, SdkError
-  sdk.ts                — createSdk factory, Sdk type, Effect.runPromise boundary
+  index.ts              — Public exports: createClient, types, SdkResult, SdkError
+  sdk.ts                — createClient factory, Sdk type, Effect.runPromise boundary
   config.ts             — apiUrl, isFixtureMode (unchanged)
   errors.ts             — Schema.TaggedError internals, SdkError mapping
   transport.ts          — Effect HttpClient wrapper: auth, request helpers
@@ -535,9 +535,9 @@ return redirect("/dashboard", {
 
 **After:**
 ```typescript
-import { createSdk } from "@vektorprogrammet/sdk"
+import { createClient } from "@vektorprogrammet/sdk"
 
-const sdk = createSdk(apiUrl)
+const sdk = createClient(apiUrl)
 try {
   const { token } = await sdk.auth.login(username, password)
   return redirect("/dashboard", {
@@ -569,9 +569,9 @@ await client.PUT("/api/admin/receipts/{id}/status" as any, {
 
 **After:**
 ```typescript
-import { createSdk } from "@vektorprogrammet/sdk"
+import { createClient } from "@vektorprogrammet/sdk"
 
-const sdk = createSdk(apiUrl, token)
+const sdk = createClient(apiUrl, token)
 const { items: receipts } = await sdk.admin.receipts.list({ status })
 
 // Action: domain operations
@@ -608,9 +608,9 @@ await client.POST("/api/admin/interviews/assign" as any, {
 
 **After:**
 ```typescript
-import { createSdk, type Application } from "@vektorprogrammet/sdk"
+import { createClient, type Application } from "@vektorprogrammet/sdk"
 
-const sdk = createSdk(apiUrl, token)
+const sdk = createClient(apiUrl, token)
 const { items: applications } = await sdk.admin.applications.list({ status })
 // application.status is "received" | "invited" | ... — no integer mapping needed
 
