@@ -28,7 +28,7 @@ packages/sdk/src/
     common.ts           — Page<T>, shared schemas
     receipt.ts          — Receipt, AdminReceipt, ReceiptInput
     application.ts      — Application, ApplicationStatus
-    interview.ts        — InterviewSchema, InterviewAssignInput
+    interview.ts        — InterviewSchema, InterviewAssignInput  // Interview questionnaire template (not a JSON schema)
     user.ts             — User, LoginResponse
     dashboard.ts        — DashboardStats
     misc.ts             — Sponsor, Team, FieldOfStudy, etc.
@@ -436,6 +436,29 @@ const { data } = useQuery({
 })
 ```
 
+### Public (unauthenticated) endpoints
+
+For public endpoints (sponsors, teams, field of studies), provide SdkLive without auth headers:
+```typescript
+const page = await Effect.runPromise(
+  Effect.gen(function* () {
+    const sdk = yield* Sdk
+    return yield* sdk.public.sponsors.list()
+  }).pipe(Effect.provide(SdkLive), Effect.provide(DefaultHttpClient))
+)
+```
+Or use a convenience helper:
+```typescript
+export function runPublicSdk<A, E>(effect: (sdk: Sdk) => Effect.Effect<A, E>) {
+  return Effect.runPromise(
+    Effect.gen(function* () { const sdk = yield* Sdk; return yield* effect(sdk) }).pipe(
+      Effect.provide(SdkLive),
+      Effect.provide(NodeHttpClient.layer),
+    )
+  )
+}
+```
+
 ## Testing
 
 Effect's Layer system makes the SDK fully testable without HTTP:
@@ -508,6 +531,8 @@ export * from "./errors.js"
 | `packages/sdk/src/client.ts` (old) | Replaced by Effect service |
 | `packages/sdk/src/query.ts` | React Query is consumer concern |
 | `packages/sdk/src/provider.tsx` | React Query is consumer concern |
+| `apiClient` | Pre-built unauthenticated instance — replaced by `SdkLive` + `DefaultHttpClient` |
+| `$api` | Pre-built React Query instance — React Query is now consumer concern |
 
 ## Migration Strategy
 
@@ -515,7 +540,8 @@ export * from "./errors.js"
 2. Build new SDK alongside old exports
 3. Add `runSdk` helper to `api.server.ts`
 4. Migrate one route at a time (start with receipts)
-5. Remove old exports once all consumers migrate
+5. Note: dashboard.mine-utlegg currently bypasses the SDK for create/edit (raw fetch with FormData). Migration requires replacing 3 call sites: GET via SDK, DELETE via SDK, POST/PUT via raw fetch.
+6. Remove old exports once all consumers migrate
 6. Move `openapi.json` to `apps/server/`
 
 ## Files
