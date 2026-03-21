@@ -23,10 +23,17 @@ Two entrypoints from the same codebase. The Effect SDK is the real implementatio
 ```typescript
 import { createClient } from "@vektorprogrammet/sdk"
 
-const sdk = createClient("https://api.example.com", token?)
+// Static token (server-side loaders)
+const client = createClient("https://api.example.com", { auth: token })
 
-const page = await sdk.receipts.list({ status: "pending" })
-// page: Page<Receipt> — inferred from createClient return type
+// Dynamic token (client-side, supports refresh)
+const client = createClient("https://api.example.com", { auth: () => getOrRefreshToken() })
+
+// No auth (public endpoints only)
+const client = createClient("https://api.example.com")
+
+const page = await client.receipts.list({ status: "pending", page: 1, pageSize: 30 })
+// page: { items: Receipt[], totalItems: number, page: number, pageSize: number }
 ```
 
 ### Effect-native — for consumers who want Effect composition
@@ -34,10 +41,10 @@ const page = await sdk.receipts.list({ status: "pending" })
 ```typescript
 import { createEffectClient } from "@vektorprogrammet/sdk/effect"
 
-const sdk = createEffectClient("https://api.example.com", token?)
+const client = createEffectClient("https://api.example.com", { auth: token })
 
-const page = yield* sdk.receipts.list({ status: "pending" })
-// Effect<Page<Receipt>, SdkError, never> — inferred
+const page = yield* client.receipts.list({ status: "pending" })
+// Effect<Page<Receipt>, SdkError, never>
 ```
 
 The Effect SDK returns `Effect<T, SdkError>`. The Promise SDK wraps with `Effect.runPromise`. Both share the same domain methods, schemas, adapter, and context. The only difference is the boundary.
@@ -51,6 +58,18 @@ The Effect SDK returns `Effect<T, SdkError>`. The Promise SDK wraps with `Effect
   }
 }
 ```
+
+### Options
+
+```typescript
+type ClientOptions = {
+  auth?: string | (() => string | Promise<string>)
+}
+```
+
+- **`string`** — static token, used as-is for every request
+- **`() => string | Promise<string>`** — called before each request, supports token refresh
+- **omitted** — unauthenticated, only `client.public.*` and `client.auth.*` work
 
 ### Client Context
 
@@ -384,26 +403,58 @@ interface AdmissionStats {
 interface Page<T> {
   items: T[]
   totalItems: number
+  page: number
+  pageSize: number
 }
 ```
 
+Pagination params are optional on list methods. Defaults: `page: 1, pageSize: 30`. Consumer passes `{ page, pageSize }` as params — stateless, serializable, works with React Router loaders and URL search params.
+
 ## Error Model
 
-```typescript
-// Mutations that can fail with domain-specific errors return SdkResult<T>
-type SdkResult<T> = { ok: true; data: T } | { ok: false; error: SdkError }
+All methods throw on failure. Idiomatic JS — consumers use try/catch.
 
-type SdkError =
-  | { type: "unauthorized" }
-  | { type: "not_found" }
-  | { type: "validation"; fields: Record<string, string> }
-  | { type: "conflict"; message: string }
-  | { type: "network"; cause: unknown }
+```typescript
+class SdkError extends Error {
+  type: "unauthorized" | "not_found" | "validation" | "conflict" | "network"
+}
+
+class UnauthorizedError extends SdkError { type = "unauthorized" as const }
+class NotFoundError extends SdkError { type = "not_found" as const }
+class ValidationError extends SdkError {
+  type = "validation" as const
+  fields: Record<string, string>
+}
+class ConflictError extends SdkError {
+  type = "conflict" as const
+}
+class NetworkError extends SdkError {
+  type = "network" as const
+  cause: unknown
+}
 ```
 
-Methods that return `Promise<T>` (not `SdkResult`) throw on unexpected errors (network, unauthorized). This is the same contract as `fetch` — callers can try/catch if needed.
+Consumer usage:
 
-Methods that return `Promise<SdkResult<T>>` have known failure modes. `sdk.admin.receipts.approve(id)` can fail with `"not_found"` (receipt deleted) or `"conflict"` (already refunded). These are not exceptional — they're expected outcomes the UI must handle.
+```typescript
+// Simple — let errors propagate (React Router error boundary catches)
+const page = await client.admin.receipts.list()
+
+// Granular — catch specific error types
+try {
+  await client.admin.receipts.approve(id)
+} catch (e) {
+  if (e instanceof ConflictError) {
+    // receipt already refunded — show message
+  }
+  if (e instanceof NotFoundError) {
+    // receipt deleted — refresh list
+  }
+  throw e  // unexpected errors propagate
+}
+```
+
+Internally, Effect `Schema.TaggedError` types are mapped to these JS error classes at the `Effect.runPromise` boundary. The Effect SDK (`@vektorprogrammet/sdk/effect`) keeps them as typed Effect errors in the error channel.
 
 ## Internal Architecture
 
@@ -411,16 +462,17 @@ Brief — implementation, not the contract.
 
 ### Effect pipeline
 
-All domain methods are `Effect.gen` pipelines internally. The public surface wraps them with `Effect.runPromise`, converting Effect types to plain promises. Consumers never import from `effect`.
+All domain methods are `Effect.gen` pipelines internally. The public surface wraps them with `Effect.runPromise`, converting Effect types to plain promises and Effect errors to thrown `SdkError` subclasses. Consumers never import from `effect`.
 
 ```
-Consumer calls sdk.admin.receipts.approve(id)
+Consumer calls client.admin.receipts.approve(id)
   → runs Effect.gen pipeline
+    → resolves auth (string or function call)
     → HttpClient request via @effect/platform
     → Schema.decode response
     → Schema.TaggedError on failure
   → Effect.runPromise at boundary
-  → returns Promise<SdkResult<void>>
+  → returns Promise<void> or throws SdkError
 ```
 
 ### Schema internals
