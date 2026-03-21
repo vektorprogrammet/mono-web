@@ -3,9 +3,9 @@
   "compilerOptions": {
     "outDir": "dist",
     "declaration": true,
-    "jsx": "react-jsx",
     "module": "NodeNext",
-    "moduleResolution": "NodeNext"
+    "moduleResolution": "NodeNext",
+    "strict": true
   },
-  "include": ["src", "generated"]
+  "include": ["src"]
 }

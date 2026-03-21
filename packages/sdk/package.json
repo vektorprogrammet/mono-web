@@ -4,16 +4,19 @@
   "type": "module",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "default": "./dist/index.js"
+      "types": "./dist/promise.d.ts",
+      "default": "./dist/promise.js"
+    },
+    "./effect": {
+      "types": "./dist/effect-client.d.ts",
+      "default": "./dist/effect-client.js"
     }
   },
-  "files": [
-    "dist"
-  ],
+  "files": ["dist"],
   "scripts": {
     "build": "tsc -b",
     "lint": "oxlint",
+    "test": "vitest run",
     "release": "changeset publish"
   },
   "dependencies": {
@@ -21,7 +24,9 @@
     "effect": "^3.21.0"
   },
   "devDependencies": {
+    "@effect/vitest": "^0.29.0",
     "@types/node": "^22",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^4.1.0"
   }
 }

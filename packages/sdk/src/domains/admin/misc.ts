@@ -1,42 +1,21 @@
 import { Effect, Schema } from "effect"
 import type { Transport } from "../../transport.js"
 import type { InternalSdkError } from "../../errors.js"
-
-export type MailingListEntry = {
-  name: string
-  email: string
-}
-
-export type AdmissionStats = {
-  totalApplicants: number
-  accepted: number
-  rejected: number
-  interviewed: number
-  assignedAssistants: number
-}
-
-export type TeamInterest = {
-  name: string
-  team: string
-  semester: string
-}
+import { MailingList, AdmissionStats } from "../../schemas/common.js"
 
 export interface AdminMiscDomain {
-  mailingLists(): Effect.Effect<MailingListEntry[], InternalSdkError>
+  mailingLists(): Effect.Effect<readonly MailingList[], InternalSdkError>
   admissionStats(): Effect.Effect<AdmissionStats, InternalSdkError>
-  teamInterest(): Effect.Effect<TeamInterest[], InternalSdkError>
 }
 
 export function createAdminMiscDomain(transport: Transport): AdminMiscDomain {
   return {
     mailingLists() {
-      return transport.get("/api/admin/mailing-lists", Schema.Unknown) as Effect.Effect<MailingListEntry[], InternalSdkError>
+      return transport.get("/api/admin/mailing-lists", Schema.Array(MailingList))
     },
+
     admissionStats() {
-      return transport.get("/api/admin/admission-statistics", Schema.Unknown) as Effect.Effect<AdmissionStats, InternalSdkError>
-    },
-    teamInterest() {
-      return transport.get("/api/admin/team-interest", Schema.Unknown) as Effect.Effect<TeamInterest[], InternalSdkError>
+      return transport.get("/api/admin/admission-statistics", AdmissionStats)
     },
   }
 }

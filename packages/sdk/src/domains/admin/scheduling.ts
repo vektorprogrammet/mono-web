@@ -1,43 +1,35 @@
-import { Effect, Schema } from "effect"
+import { Effect } from "effect"
 import type { Transport } from "../../transport.js"
 import type { InternalSdkError } from "../../errors.js"
-
-export type Assistant = {
-  name: string
-  school: string
-  phone: string
-  email: string
-}
-
-export type School = {
-  name: string
-  capacity: number
-  assistantCount: number
-}
-
-export type Substitute = {
-  name: string
-  phone: string
-  email: string
-  status: string
-}
+import { SchedulingAssistant, SchedulingSchool, Substitute } from "../../schemas/scheduling.js"
 
 export interface AdminSchedulingDomain {
-  assistants(): Effect.Effect<Assistant[], InternalSdkError>
-  schools(): Effect.Effect<School[], InternalSdkError>
-  substitutes(): Effect.Effect<Substitute[], InternalSdkError>
+  assistants(params?: { page?: number; pageSize?: number }): Effect.Effect<{ items: SchedulingAssistant[]; totalItems: number }, InternalSdkError>
+  schools(params?: { page?: number; pageSize?: number }): Effect.Effect<{ items: SchedulingSchool[]; totalItems: number }, InternalSdkError>
+  substitutes(params?: { page?: number; pageSize?: number }): Effect.Effect<{ items: Substitute[]; totalItems: number }, InternalSdkError>
 }
 
 export function createAdminSchedulingDomain(transport: Transport): AdminSchedulingDomain {
   return {
-    assistants() {
-      return transport.get("/api/admin/scheduling/assistants", Schema.Unknown) as Effect.Effect<Assistant[], InternalSdkError>
+    assistants(params) {
+      const query: Record<string, string | number | undefined> = {}
+      if (params?.page !== undefined) query.page = params.page
+      if (params?.pageSize !== undefined) query.itemsPerPage = params.pageSize
+      return transport.getCollection("/api/admin/scheduling/assistants", SchedulingAssistant, query)
     },
-    schools() {
-      return transport.get("/api/admin/scheduling/schools", Schema.Unknown) as Effect.Effect<School[], InternalSdkError>
+
+    schools(params) {
+      const query: Record<string, string | number | undefined> = {}
+      if (params?.page !== undefined) query.page = params.page
+      if (params?.pageSize !== undefined) query.itemsPerPage = params.pageSize
+      return transport.getCollection("/api/admin/scheduling/schools", SchedulingSchool, query)
     },
-    substitutes() {
-      return transport.get("/api/admin/substitutes", Schema.Unknown) as Effect.Effect<Substitute[], InternalSdkError>
+
+    substitutes(params) {
+      const query: Record<string, string | number | undefined> = {}
+      if (params?.page !== undefined) query.page = params.page
+      if (params?.pageSize !== undefined) query.itemsPerPage = params.pageSize
+      return transport.getCollection("/api/admin/substitutes", Substitute, query)
     },
   }
 }

@@ -1,10 +1,8 @@
 /**
- * Promise surface for the SDK.
+ * Promise-based public surface for the SDK.
+ * Re-exports everything consumers need without requiring an Effect dependency.
  *
- * createClient returns an object with domain methods that return Promises.
- * Errors are mapped to SdkError subclasses — consumers use instanceof checks.
- *
- * This is the default export (".") of @vektorprogrammet/sdk.
+ * This is the default entrypoint (`"."`).
  */
 
 import { Effect } from "effect"
@@ -19,10 +17,15 @@ import { createAdminApplicationsDomain } from "./domains/admin/applications.js"
 import { createAdminInterviewsDomain } from "./domains/admin/interviews.js"
 import { createAdminUsersDomain } from "./domains/admin/users.js"
 import { createAdminSchedulingDomain } from "./domains/admin/scheduling.js"
+import { createAdminTeamsDomain } from "./domains/admin/teams.js"
 import { createAdminMiscDomain } from "./domains/admin/misc.js"
-import { createPublicDomain } from "./domains/public.js"
+import { createPublicMiscDomain } from "./domains/public/misc.js"
+import { createPublicTeamsDomain } from "./domains/public/teams.js"
 
-// Re-export public error types for consumers
+// --- Public re-exports ---
+
+export type { ClientContext } from "./context.js"
+export { apiUrl, isFixtureMode } from "./config.js"
 export {
   SdkError,
   UnauthorizedError,
@@ -31,36 +34,43 @@ export {
   ConflictError,
   NetworkError,
   RateLimitedError,
-  type SdkErrorType,
 } from "./errors.js"
 
-export type { ClientContext } from "./context.js"
+export type { Receipt, AdminReceipt, ReceiptInput } from "./schemas/receipt.js"
+export type { Application, ApplicationDetail } from "./schemas/application.js"
+export type { Interview, InterviewScheduleInput } from "./schemas/interview.js"
+export type { User, UserProfile } from "./schemas/user.js"
+export type { DashboardStats } from "./schemas/dashboard.js"
+export type {
+  Department,
+  Team,
+  TeamInterest,
+  FieldOfStudy,
+  Sponsor,
+  MailingList,
+  AdmissionStats,
+  Page,
+} from "./schemas/common.js"
+export type { SchedulingAssistant, SchedulingSchool, Substitute } from "./schemas/scheduling.js"
 
-// Re-export domain types
-export type { Receipt } from "./domains/receipts.js"
-export type { AdminReceipt } from "./domains/admin/receipts.js"
-export type { Application, AdminApplicationListData } from "./domains/admin/applications.js"
-export type { Interview } from "./domains/admin/interviews.js"
-export type { Assistant, School, Substitute } from "./domains/admin/scheduling.js"
-export type { MailingListEntry, AdmissionStats, TeamInterest } from "./domains/admin/misc.js"
-export type { Team, Sponsor, FieldOfStudy } from "./domains/public.js"
-export type { UserProfile, DashboardData } from "./domains/me.js"
+// --- Client options ---
 
 export type ClientOptions = {
   auth?: AuthOption
 }
 
+// --- Promisify helpers ---
+
 /**
- * Wraps an Effect method into a Promise that throws SdkError on failure.
+ * Wraps a single Effect-returning function into a Promise-returning function.
+ * Maps InternalSdkError to public SdkError subclasses at the boundary.
  */
 function promisify<Args extends unknown[], A>(
   fn: (...args: Args) => Effect.Effect<A, InternalSdkError>,
 ): (...args: Args) => Promise<A> {
   return (...args) =>
     Effect.runPromise(
-      fn(...args).pipe(
-        Effect.mapError(toSdkError),
-      ),
+      fn(...args).pipe(Effect.mapError(toSdkError)),
     )
 }
 
@@ -71,54 +81,45 @@ function promisifyDomain<T extends object>(
   domain: T,
 ): { [K in keyof T]: T[K] extends (...args: infer A) => Effect.Effect<infer R, any> ? (...args: A) => Promise<R> : never } {
   const result: Record<string, unknown> = {}
-  for (const key of Object.keys(domain as Record<string, unknown>)) {
-    const fn = (domain as Record<string, unknown>)[key]
-    if (typeof fn === "function") {
-      result[key] = promisify(fn.bind(domain) as (...args: unknown[]) => Effect.Effect<unknown, InternalSdkError>)
-    }
+  for (const key of Object.keys(domain)) {
+    result[key] = promisify((domain as any)[key] as any)
   }
-  return result as { [K in keyof T]: T[K] extends (...args: infer A) => Effect.Effect<infer R, any> ? (...args: A) => Promise<R> : never }
+  return result as any
 }
 
-/**
- * Creates a new SDK client.
- *
- * @param baseUrl - Base URL for the API (e.g. "https://api.example.com")
- * @param options - Optional client configuration, including auth token
- */
+// --- Client factory ---
+
 export function createClient(baseUrl: string, options?: ClientOptions) {
   const transport = createTransport(baseUrl, options?.auth)
   const initialToken = typeof options?.auth === "string" ? options.auth : undefined
   const context = createContext(initialToken)
 
-  const auth = createAuthDomain(transport)
-  const me = createMeDomain(transport)
-  const receipts = createReceiptsDomain(transport)
-  const adminReceipts = createAdminReceiptsDomain(transport)
-  const adminApplications = createAdminApplicationsDomain(transport)
-  const adminInterviews = createAdminInterviewsDomain(transport)
-  const adminUsers = createAdminUsersDomain(transport)
-  const adminScheduling = createAdminSchedulingDomain(transport)
   const adminMisc = createAdminMiscDomain(transport)
-  const publicDomain = createPublicDomain(transport)
+  const publicMisc = createPublicMiscDomain(transport)
+  const publicTeams = createPublicTeamsDomain(transport)
 
   return {
-    auth: promisifyDomain(auth),
-    me: promisifyDomain(me),
-    receipts: promisifyDomain(receipts),
+    auth: promisifyDomain(createAuthDomain(transport)),
+    me: promisifyDomain(createMeDomain(transport)),
+    receipts: promisifyDomain(createReceiptsDomain(transport)),
     admin: {
-      receipts: promisifyDomain(adminReceipts),
-      applications: promisifyDomain(adminApplications),
-      interviews: promisifyDomain(adminInterviews),
-      users: promisifyDomain(adminUsers),
-      scheduling: promisifyDomain(adminScheduling),
+      receipts: promisifyDomain(createAdminReceiptsDomain(transport)),
+      applications: promisifyDomain(createAdminApplicationsDomain(transport)),
+      interviews: promisifyDomain(createAdminInterviewsDomain(transport)),
+      users: promisifyDomain(createAdminUsersDomain(transport)),
+      scheduling: promisifyDomain(createAdminSchedulingDomain(transport)),
+      teams: promisifyDomain(createAdminTeamsDomain(transport)),
       mailingLists: promisify(adminMisc.mailingLists.bind(adminMisc)),
       admissionStats: promisify(adminMisc.admissionStats.bind(adminMisc)),
-      teamInterest: promisify(adminMisc.teamInterest.bind(adminMisc)),
     },
-    public: promisifyDomain(publicDomain),
+    public: {
+      departments: promisify(publicMisc.departments.bind(publicMisc)),
+      fieldOfStudies: promisify(publicMisc.fieldOfStudies.bind(publicMisc)),
+      sponsors: promisify(publicMisc.sponsors.bind(publicMisc)),
+      teams: promisify(publicTeams.list.bind(publicTeams)),
+    },
     context,
   }
 }
 
-export type ApiClient = ReturnType<typeof createClient>
+export type Sdk = ReturnType<typeof createClient>

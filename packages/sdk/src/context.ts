@@ -22,7 +22,7 @@ const ROLE_HIERARCHY: Record<string, number> = {
 
 /**
  * Decodes a JWT token (base64url) without verification.
- * We only need the payload claims for UI hints — the server verifies the signature.
+ * We only need the payload claims for UI hints -- the server verifies the signature.
  */
 function decodeJwtPayload(token: string): Record<string, unknown> {
   try {
@@ -59,10 +59,10 @@ export function createContext(token?: string): ClientContext {
   }
 
   const claims = decodeJwtPayload(token)
-  const role = extractRole(claims["roles"])
-  const department = (claims["department"] as { id: number; name: string } | null) ?? null
-  const teams = (Array.isArray(claims["teams"]) ? claims["teams"] : []) as { id: number; name: string }[]
-  const userId = typeof claims["userId"] === "number" ? claims["userId"] : null
+  const role = extractRole(claims.roles)
+  const department = (claims.department as { id: number; name: string } | null) ?? null
+  const teams = (Array.isArray(claims.teams) ? claims.teams : []) as { id: number; name: string }[]
+  const userId = typeof claims.userId === "number" ? claims.userId : null
 
   return {
     isAuthenticated: true,
@@ -72,7 +72,7 @@ export function createContext(token?: string): ClientContext {
     userId,
     hasRole(requiredRole) {
       if (!role) return false
-      return (ROLE_HIERARCHY[role] ?? -1) >= (ROLE_HIERARCHY[requiredRole] ?? 999)
+      return ROLE_HIERARCHY[role]! >= ROLE_HIERARCHY[requiredRole]!
     },
     isInDepartment(departmentId) {
       return department?.id === departmentId

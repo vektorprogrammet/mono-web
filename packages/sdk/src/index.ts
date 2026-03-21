@@ -1,7 +1,9 @@
+// Re-export the Promise surface as the default API
+export { createClient, type Sdk, type ClientOptions } from "./promise.js"
+export { apiUrl, isFixtureMode } from "./config.js"
+
+// Error types for instanceof checks
 export {
-  createClient,
-  type ApiClient,
-  type ClientOptions,
   SdkError,
   UnauthorizedError,
   NotFoundError,
@@ -9,29 +11,23 @@ export {
   ConflictError,
   NetworkError,
   RateLimitedError,
-  type SdkErrorType,
-  type ClientContext,
-  type Receipt,
-  type AdminReceipt,
-  type Application,
-  type AdminApplicationListData,
-  type Interview,
-  type Assistant,
-  type School,
-  type Substitute,
-  type MailingListEntry,
-  type AdmissionStats,
-  type TeamInterest,
-  type Team,
-  type Sponsor,
-  type FieldOfStudy,
-  type UserProfile,
-  type DashboardData,
-} from "./promise.js";
-export { apiUrl, isFixtureMode } from "./config.js";
+} from "./errors.js"
 
-// Pre-configured instance using API_URL or Railway staging default
-import { createClient } from "./promise.js";
-import { apiUrl } from "./config.js";
-
-export const apiClient = createClient(apiUrl);
+// Domain types (re-exported from Schema classes)
+export type { Receipt, AdminReceipt, ReceiptInput } from "./schemas/receipt.js"
+export type { Application, ApplicationDetail } from "./schemas/application.js"
+export type { Interview, InterviewScheduleInput } from "./schemas/interview.js"
+export type { User, UserProfile } from "./schemas/user.js"
+export type { DashboardStats } from "./schemas/dashboard.js"
+export type {
+  Department,
+  Team,
+  TeamInterest,
+  FieldOfStudy,
+  Sponsor,
+  MailingList,
+  AdmissionStats,
+  Page,
+} from "./schemas/common.js"
+export type { SchedulingAssistant, SchedulingSchool, Substitute } from "./schemas/scheduling.js"
+export type { ClientContext } from "./context.js"
