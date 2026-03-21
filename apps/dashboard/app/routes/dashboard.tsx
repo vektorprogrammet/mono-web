@@ -144,10 +144,12 @@ function UserMenu({
                   Profil
                 </DropdownMenuItem>
               </Link>
-              <DropdownMenuItem>
-                <Receipt />
-                Mine Utlegg
-              </DropdownMenuItem>
+              <Link to={href("/dashboard/mine-utlegg")} prefetch="intent">
+                <DropdownMenuItem>
+                  <Receipt />
+                  Mine Utlegg
+                </DropdownMenuItem>
+              </Link>
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
             <Form method="post" action="/logout">
