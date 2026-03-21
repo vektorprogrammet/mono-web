@@ -1,6 +1,6 @@
 {
   "name": "@vektorprogrammet/sdk",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "type": "module",
   "exports": {
     ".": {
@@ -9,27 +9,19 @@
     }
   },
   "files": [
-    "dist",
-    "generated"
+    "dist"
   ],
   "scripts": {
-    "generate": "openapi-typescript openapi.json -o generated/api.d.ts",
     "build": "tsc -b",
     "lint": "oxlint",
     "release": "changeset publish"
   },
   "dependencies": {
-    "openapi-fetch": "^0.13",
-    "openapi-react-query": "^0.3"
-  },
-  "peerDependencies": {
-    "@tanstack/react-query": "^5",
-    "react": "^18 || ^19"
+    "@effect/platform": "^0.96.0",
+    "effect": "^3.21.0"
   },
   "devDependencies": {
     "@types/node": "^22",
-    "@types/react": "^18 || ^19",
-    "openapi-typescript": "^7",
     "typescript": "^5"
   }
 }

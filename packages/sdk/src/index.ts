@@ -1,13 +1,37 @@
-export { createClient, type ApiClient } from "./client.js";
-export { createQueryApi, type QueryApi } from "./query.js";
-export { QueryProvider } from "./provider.js";
+export {
+  createClient,
+  type ApiClient,
+  type ClientOptions,
+  SdkError,
+  UnauthorizedError,
+  NotFoundError,
+  ValidationError,
+  ConflictError,
+  NetworkError,
+  RateLimitedError,
+  type SdkErrorType,
+  type ClientContext,
+  type Receipt,
+  type AdminReceipt,
+  type Application,
+  type AdminApplicationListData,
+  type Interview,
+  type Assistant,
+  type School,
+  type Substitute,
+  type MailingListEntry,
+  type AdmissionStats,
+  type TeamInterest,
+  type Team,
+  type Sponsor,
+  type FieldOfStudy,
+  type UserProfile,
+  type DashboardData,
+} from "./promise.js";
 export { apiUrl, isFixtureMode } from "./config.js";
-export type { paths } from "../generated/api.js";
 
-// Pre-configured instances using VITE_API_URL (or Railway staging default)
-import { createClient } from "./client.js";
-import { createQueryApi } from "./query.js";
+// Pre-configured instance using API_URL or Railway staging default
+import { createClient } from "./promise.js";
 import { apiUrl } from "./config.js";
 
 export const apiClient = createClient(apiUrl);
-export const $api = createQueryApi(apiUrl);
