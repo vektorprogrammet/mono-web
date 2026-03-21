@@ -14,7 +14,7 @@ import { Button } from "@/components/ui/button";
 import type { ColumnDef } from "@tanstack/react-table";
 import { isFixtureMode } from "@vektorprogrammet/sdk";
 import { Check, RotateCcw, X } from "lucide-react";
-import { Form, useActionData, useLoaderData, useSearchParams } from "react-router";
+import { useFetcher, useLoaderData, useSearchParams } from "react-router";
 import { createAuthenticatedClient } from "../lib/api.server";
 import { requireAuth } from "../lib/auth.server";
 import type { Route } from "./+types/dashboard.utlegg._index";
@@ -104,10 +104,12 @@ function StatusAction({ receiptId, newStatus, label, description, icon, variant 
   icon: React.ReactNode;
   variant?: "default" | "destructive" | "outline";
 }) {
+  const fetcher = useFetcher();
+
   return (
     <AlertDialog>
       <AlertDialogTrigger asChild>
-        <Button variant={variant ?? "outline"} size="sm">
+        <Button variant={variant ?? "outline"} size="sm" disabled={fetcher.state !== "idle"}>
           {icon}
           <span className="ml-1">{label}</span>
         </Button>
@@ -119,11 +121,16 @@ function StatusAction({ receiptId, newStatus, label, description, icon, variant 
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel>Avbryt</AlertDialogCancel>
-          <Form method="post">
-            <input type="hidden" name="receiptId" value={receiptId} />
-            <input type="hidden" name="status" value={newStatus} />
-            <AlertDialogAction type="submit">{label}</AlertDialogAction>
-          </Form>
+          <AlertDialogAction
+            onClick={() => {
+              fetcher.submit(
+                { receiptId: String(receiptId), status: newStatus },
+                { method: "post" },
+              );
+            }}
+          >
+            {label}
+          </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
@@ -209,19 +216,12 @@ const statusFilters = [
 // biome-ignore lint/style/noDefaultExport: Route Modules require default export
 export default function Utlegg() {
   const { receipts } = useLoaderData<typeof loader>();
-  const actionData = useActionData<typeof action>();
   const [searchParams, setSearchParams] = useSearchParams();
   const currentStatus = searchParams.get("status");
 
   return (
     <section className="flex w-full min-w-0 flex-col items-center">
       <h1 className="mb-6 font-semibold text-2xl">Utlegg</h1>
-
-      {actionData && "error" in actionData && (
-        <div className="mb-4 w-full max-w-7xl px-4 sm:px-6 lg:px-8">
-          <p className="rounded bg-red-50 p-3 text-red-600 text-sm">{actionData.error}</p>
-        </div>
-      )}
 
       <div className="w-full max-w-7xl px-4 sm:px-6 lg:px-8">
         <div className="mb-4 flex gap-2">
