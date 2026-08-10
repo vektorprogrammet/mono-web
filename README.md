@@ -9,7 +9,6 @@ monoweb/
 ├── apps/
 │   ├── homepage/    # Public website (React Router, Tailwind, daisyUI)
 │   ├── dashboard/   # Admin dashboard (React Router, Tailwind, shadcn)
-│   ├── api/         # TypeScript API (Express 5, Drizzle, PostgreSQL)
 │   └── server/      # PHP backend (Symfony 6.4, API Platform 3.4, MySQL)
 ├── packages/
 │   └── sdk/         # Type-safe API client (@vektorprogrammet/sdk)
@@ -19,7 +18,7 @@ monoweb/
     └── plans/       # Implementation plans
 ```
 
-The PHP server (`apps/server`) is the current production backend. The TypeScript API (`apps/api`) and SDK (`packages/sdk`) are part of an incremental migration — see [docs/migration/](docs/migration/) for details.
+The PHP server (`apps/server`) is the backend. The frontends talk to it through the SDK (`packages/sdk`) — see [docs/migration/](docs/migration/) for the migration roadmap.
 
 ## Getting Started
 
@@ -46,14 +45,10 @@ docker compose up server mysql
 | Homepage | http://localhost:5173 | `bun run dev:homepage` |
 | Dashboard | http://localhost:5174 | `bun run dev:dashboard` |
 | PHP Server | http://localhost:8000 | `bun run dev:server` (or Docker) |
-| TS API | http://localhost:3000 | `bun run dev:api` |
 
 ### Database Setup
 
-The project has two databases:
-
-- **MySQL 8.0** for the PHP server — provisioned automatically by `docker compose up`
-- **PostgreSQL 16** for the TS API — provisioned by `docker compose up` or set `DATABASE_URL` in `apps/api/.env`
+**MySQL 8.0** backs the PHP server — provisioned automatically by `docker compose up`.
 
 ## Scripts
 
@@ -62,7 +57,6 @@ The project has two databases:
 | `bun run dev` | Start homepage + dashboard |
 | `bun run dev:homepage` | Start homepage only |
 | `bun run dev:dashboard` | Start dashboard only |
-| `bun run dev:api` | Start TS API only |
 | `bun run dev:server` | Start PHP server only |
 | `bun run build` | Build all packages |
 | `bun run lint` | Lint all packages (oxlint) |

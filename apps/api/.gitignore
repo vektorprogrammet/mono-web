@@ -1,8 +1,0 @@
-.env
-node_modules
-db/migrations
-.vscode
-build
-openapi-document.*
-#From docker compose database
-db-data

@@ -42,7 +42,6 @@ C0:
 | `cd packages/sdk && bun run test` | Run SDK tests (60 tests) |
 | `turbo -F @monoweb/homepage dev` | Dev server for homepage |
 | `turbo -F @monoweb/dashboard dev` | Dev server for dashboard |
-| `turbo -F @monoweb/api dev` | Dev server for API |
 
 ## Apps & Packages
 
@@ -50,7 +49,6 @@ C0:
 |---------|-------|--------|-------------|
 | `@monoweb/homepage` | React Router, Tailwind, daisyUI | `apps/homepage/src/` | Public website |
 | `@monoweb/dashboard` | React Router, Tailwind, shadcn | `apps/dashboard/app/` | Admin dashboard |
-| `@monoweb/api` | Express 5, Drizzle, Zod | `apps/api/src/` | TS API (future backend) |
 | `@monoweb/server` | Symfony 6.4, API Platform 3.4 | `apps/server/src/` | PHP backend (current production) |
 | `@vektorprogrammet/sdk` | Effect-TS, @effect/platform | `packages/sdk/src/` | Domain-first API client |
 
