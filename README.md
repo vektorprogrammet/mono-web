@@ -75,20 +75,33 @@ composer analyse    # PHPStan
 
 ## SDK
 
-`@vektorprogrammet/sdk` is a type-safe API client auto-generated from the Symfony OpenAPI spec.
-
-```bash
-turbo run generate   # Regenerate types from OpenAPI spec
-```
+`@vektorprogrammet/sdk` is a hand-written, domain-first client for the Symfony API. Effect-TS internals (Schema types, tagged errors); plain promises on the surface.
 
 ```typescript
-import { createClient, createQueryApi } from "@vektorprogrammet/sdk";
+import { createClient } from "@vektorprogrammet/sdk";
 
-const api = createClient("http://localhost:8000");
-const { data } = await api.GET("/api/public/departments");
+const client = createClient("http://localhost:8000", { auth: token });
+
+const page = await client.admin.receipts.list({ status: "pending" });
+// { items: AdminReceipt[], totalItems, page, pageSize }
+await client.admin.receipts.approve(id); // domain operation, not PUT /status
+
+const sponsors = await client.public.sponsors(); // auth optional for public reads
 ```
 
-See [packages/sdk/](packages/sdk/) for full usage.
+Effect consumers import the Effect surface instead:
+
+```typescript
+import { createEffectClient } from "@vektorprogrammet/sdk/effect";
+// same domains, but methods return Effect<A, InternalSdkError> instead of Promise<A>
+```
+
+- Domains: `auth`, `me`, `receipts`, `admin.*`, `public.*`
+- Failures throw `SdkError` subclasses (`UnauthorizedError`, `NotFoundError`, `ValidationError`, `ConflictError`, `NetworkError`, `RateLimitedError`)
+- Dates are `Date`, statuses are strings (`"received" | "invited" | ...`) — the Symfony adapter maps them
+- `client.context` exposes JWT-decoded role/department/teams for UI rendering
+
+See [packages/sdk/src/](packages/sdk/src/) for the domain methods and [CLAUDE.md](CLAUDE.md#sdk) for conventions.
 
 ## Tooling
 
