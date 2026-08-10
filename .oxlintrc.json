@@ -35,5 +35,5 @@
     "builtin": true
   },
   "globals": {},
-  "ignorePatterns": ["apps/server/**", "packages/sdk/generated/**"]
+  "ignorePatterns": ["apps/server/**"]
 }
