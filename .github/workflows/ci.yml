@@ -77,6 +77,20 @@ jobs:
       - name: Static Analysis
         run: composer analyse
 
+      # Proves the ORM mapping itself is coherent (columns referenced by an index
+      # exist, relations resolve). It does NOT prove that migrations/ reproduces
+      # that mapping -- see the note below.
+      #
+      # The real metadata-vs-migrations gate is `doctrine:migrations:migrate` on an
+      # empty MySQL service followed by an empty `doctrine:migrations:diff`. That is
+      # blocked today: 49 files in migrations/ import the Doctrine Migrations 1.x
+      # class `Doctrine\DBAL\Migrations\AbstractMigration`, which no longer exists in
+      # the installed 3.x, so every `doctrine:migrations:*` command fatals before
+      # listing anything. Repairing those files also has to reconcile the recorded
+      # version names in production, so it is a deliberate migration of its own.
+      - name: Validate Doctrine mapping
+        run: php bin/console doctrine:schema:validate --skip-sync --env=test
+
       - name: Clear cache before tests
         run: rm -rf var/cache
 
