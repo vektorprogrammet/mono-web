@@ -1,11 +1,11 @@
 import * as Cloudflare from "alchemy/Cloudflare";
-import { PreviewContainer } from "./container.ts";
+import type { PreviewContainer } from "./worker.ts";
 
 export class PreviewWorker extends Cloudflare.Worker<PreviewWorker>()("PreviewWorker", {
   main: new URL("./worker.ts", import.meta.url).pathname,
   compatibility: { flags: ["nodejs_compat"], date: "2026-08-12" },
   env: {
-    PreviewContainer: Cloudflare.Container<PreviewContainer>()("PreviewContainer", {
+    PreviewContainer: Cloudflare.Container<PreviewContainer>("PreviewContainer", {
       context: new URL("../../../apps/server", import.meta.url).pathname,
       dockerfile: "infra/preview/Dockerfile",
       name: "vektor-p20-container",

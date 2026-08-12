@@ -3,7 +3,6 @@ import * as Cloudflare from "alchemy/Cloudflare";
 import * as Effect from "effect/Effect";
 import { homepageDomain } from "../../apps/homepage/src/lib/host.ts";
 import { PREVIEW_IDENTITY } from "./preview/identity.ts";
-import PreviewContainerRuntime from "./preview/container-runtime.ts";
 import { PreviewWorker } from "./preview/worker-resource.ts";
 
 export { homepageDomain, PREVIEW_IDENTITY, PreviewWorker };
@@ -58,5 +57,5 @@ export default Alchemy.Stack(
       seed: "apps/server/infra/preview/seed-policy.json",
       forbiddenHost: PREVIEW_IDENTITY.forbiddenHost,
     };
-  }).pipe(Effect.provide(PreviewContainerRuntime)),
+  })
 );
