@@ -8,7 +8,7 @@ export class Receipt extends Schema.Class<Receipt>("Receipt")({
   sum: Schema.Number,
   receiptDate: DateFromIso,
   submitDate: DateFromIso,
-  status: Schema.Literal("pending", "refunded", "rejected"),
+  status: Schema.Literals(["pending", "refunded", "rejected"]),
   refundDate: NullableDateFromIso,
 }) {
   get isPending() { return this.status === "pending" }
@@ -22,15 +22,24 @@ export class AdminReceipt extends Schema.Class<AdminReceipt>("AdminReceipt")({
   sum: Schema.Number,
   receiptDate: DateFromIso,
   submitDate: DateFromIso,
-  status: Schema.Literal("pending", "refunded", "rejected"),
+  status: Schema.Literals(["pending", "refunded", "rejected"]),
   refundDate: NullableDateFromIso,
   userName: Schema.String,
 }) {}
 
 export class ReceiptInput extends Schema.Class<ReceiptInput>("ReceiptInput")({
-  description: Schema.String.pipe(Schema.nonEmptyString(), Schema.maxLength(5000)),
-  sum: Schema.Number.pipe(Schema.positive()),
-  receiptDate: Schema.String.pipe(Schema.pattern(/^\d{4}-\d{2}-\d{2}$/)),
+  description: Schema.String.pipe(
+    Schema.check(Schema.isMinLength(1), Schema.isMaxLength(5000)),
+  ),
+  sum: Schema.Number.pipe(Schema.check(Schema.isGreaterThan(0))),
+  receiptDate: Schema.String.pipe(
+    Schema.check(
+      Schema.makeFilter(
+        (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value),
+        { message: "a YYYY-MM-DD date string" },
+      ),
+    ),
+  ),
 }) {}
 
 export class ReceiptCreateResponse extends Schema.Class<ReceiptCreateResponse>("ReceiptCreateResponse")({

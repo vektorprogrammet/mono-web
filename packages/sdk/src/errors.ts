@@ -16,6 +16,7 @@ export type SdkErrorType =
   | "conflict"
   | "network"
   | "rate_limited"
+  | "configuration"
 
 export class SdkError extends Error {
   readonly type: SdkErrorType
@@ -75,6 +76,13 @@ export class RateLimitedError extends SdkError {
   }
 }
 
+export class ConfigurationError extends SdkError {
+  constructor(message = "Invalid API URL") {
+    super("configuration", message)
+    this.name = "ConfigurationError"
+  }
+}
+
 // --- Internal Effect TaggedErrors ---
 
 export class Unauthorized extends Schema.TaggedError<Unauthorized>()(
@@ -91,7 +99,7 @@ export class Validation extends Schema.TaggedError<Validation>()(
   "Validation",
   {
     message: Schema.String,
-    fields: Schema.Record({ key: Schema.String, value: Schema.String }),
+    fields: Schema.Record(Schema.String, Schema.String),
   },
 ) {}
 
@@ -110,6 +118,11 @@ export class RateLimited extends Schema.TaggedError<RateLimited>()(
   { message: Schema.String },
 ) {}
 
+export class Configuration extends Schema.TaggedError<Configuration>()(
+  "Configuration",
+  { message: Schema.String },
+) {}
+
 export type InternalSdkError =
   | Unauthorized
   | NotFound
@@ -117,6 +130,7 @@ export type InternalSdkError =
   | Conflict
   | Network
   | RateLimited
+  | Configuration
 
 /**
  * Maps an internal Effect TaggedError to a public SdkError subclass.
@@ -136,5 +150,7 @@ export function toSdkError(error: InternalSdkError): SdkError {
       return new NetworkError(error.message, error.cause)
     case "RateLimited":
       return new RateLimitedError(error.message)
+    case "Configuration":
+      return new ConfigurationError(error.message)
   }
 }

@@ -35,6 +35,8 @@ lerna-debug.log*
 
 # Turbo
 .turbo
+.wrangler/
+.alchemy/
 
 # PHP
 vendor/

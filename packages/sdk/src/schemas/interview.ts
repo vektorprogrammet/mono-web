@@ -3,16 +3,16 @@
  * into a typed string enum using adapter/status.ts.
  */
 
-import { Schema } from "effect"
+import { Schema, SchemaGetter } from "effect"
 import { parseInterviewStatus } from "../adapter/status.js"
 
-export const InterviewSchedulingStatus = Schema.Literal(
+export const InterviewSchedulingStatus = Schema.Literals([
   "pending",
   "accepted",
   "request_new_time",
   "cancelled",
   "no_contact",
-)
+])
 export type InterviewSchedulingStatus = Schema.Schema.Type<typeof InterviewSchedulingStatus>
 
 /**
@@ -48,16 +48,20 @@ export class Interview extends Schema.Class<Interview>("Interview")({
 /**
  * Transform: raw API response (integer schedulingStatus) → Interview (string schedulingStatus).
  */
-export const InterviewFromRaw = Schema.transform(
-  RawInterview,
-  Interview,
-  {
-    strict: false,
-    decode: (raw) => ({
-      ...raw,
+export const InterviewFromRaw = RawInterview.pipe(
+  Schema.decodeTo(Interview, {
+    decode: SchemaGetter.transform((raw: Schema.Schema.Type<typeof RawInterview>) => ({
+      id: raw.id,
+      applicationId: raw.applicationId,
+      interviewerId: raw.interviewerId,
+      interviewerName: raw.interviewerName,
       schedulingStatus: parseInterviewStatus(raw.schedulingStatus),
-    }),
-    encode: (interview) => ({
+      interviewTime: raw.interviewTime,
+      room: raw.room,
+      campus: raw.campus,
+      schemaId: raw.schemaId,
+    })),
+    encode: SchemaGetter.transform((interview) => ({
       id: interview.id,
       applicationId: interview.applicationId,
       interviewerId: interview.interviewerId,
@@ -67,8 +71,8 @@ export const InterviewFromRaw = Schema.transform(
       room: interview.room,
       campus: interview.campus,
       schemaId: interview.schemaId,
-    }),
-  },
+    })),
+  }),
 )
 
 /**

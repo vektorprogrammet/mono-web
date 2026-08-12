@@ -2,9 +2,10 @@ import { Effect } from "effect"
 import type { Transport } from "../../transport.js"
 import type { InternalSdkError } from "../../errors.js"
 import { AdminReceipt } from "../../schemas/receipt.js"
+import type { Page } from "../../schemas/common.js"
 
 export interface AdminReceiptsDomain {
-  list(params?: { status?: string; page?: number; pageSize?: number }): Effect.Effect<{ items: AdminReceipt[]; totalItems: number }, InternalSdkError>
+  list(params?: { status?: string; page?: number; pageSize?: number }): Effect.Effect<Page<AdminReceipt>, InternalSdkError>
   approve(id: number): Effect.Effect<void, InternalSdkError>
   reject(id: number): Effect.Effect<void, InternalSdkError>
   reopen(id: number): Effect.Effect<void, InternalSdkError>

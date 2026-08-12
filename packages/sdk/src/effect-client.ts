@@ -51,7 +51,7 @@ export type ClientOptions = {
 
 // --- Effect client factory ---
 
-export function createEffectClient(baseUrl: string, options?: ClientOptions) {
+export function createEffectClient(baseUrl: string | undefined, options?: ClientOptions) {
   const transport = createTransport(baseUrl, options?.auth)
   const initialToken = typeof options?.auth === "string" ? options.auth : undefined
   const context = createContext(initialToken)

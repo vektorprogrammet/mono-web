@@ -3,10 +3,10 @@
  * into a typed string enum using adapter/status.ts.
  */
 
-import { Schema } from "effect"
+import { Schema, SchemaGetter } from "effect"
 import { parseApplicationStatus } from "../adapter/status.js"
 
-export const ApplicationStatus = Schema.Literal(
+export const ApplicationStatus = Schema.Literals([
   "not_received",
   "received",
   "invited",
@@ -14,7 +14,7 @@ export const ApplicationStatus = Schema.Literal(
   "completed",
   "assigned",
   "cancelled",
-)
+])
 export type ApplicationStatus = Schema.Schema.Type<typeof ApplicationStatus>
 
 /**
@@ -61,16 +61,19 @@ export class Application extends Schema.Class<Application>("Application")({
 /**
  * Transform: raw API response (integer status) → Application (string status).
  */
-export const ApplicationFromRaw = Schema.transform(
-  RawApplication,
-  Application,
-  {
-    strict: false,
-    decode: (raw) => ({
-      ...raw,
+export const ApplicationFromRaw = RawApplication.pipe(
+  Schema.decodeTo(Application, {
+    decode: SchemaGetter.transform((raw: Schema.Schema.Type<typeof RawApplication>) => ({
+      id: raw.id,
+      userName: raw.userName,
+      userEmail: raw.userEmail,
       status: parseApplicationStatus(raw.applicationStatus),
-    }),
-    encode: (app) => ({
+      interviewStatus: raw.interviewStatus,
+      interviewer: raw.interviewer,
+      interviewScheduled: raw.interviewScheduled,
+      previousParticipation: raw.previousParticipation,
+    })),
+    encode: SchemaGetter.transform((app) => ({
       id: app.id,
       userName: app.userName,
       userEmail: app.userEmail,
@@ -79,8 +82,8 @@ export const ApplicationFromRaw = Schema.transform(
       interviewer: app.interviewer,
       interviewScheduled: app.interviewScheduled,
       previousParticipation: app.previousParticipation,
-    }),
-  },
+    })),
+  }),
 )
 
 /**
@@ -109,16 +112,19 @@ const RawApplicationDetail = Schema.Struct({
   previousParticipation: Schema.Boolean,
 })
 
-export const ApplicationDetailFromRaw = Schema.transform(
-  RawApplicationDetail,
-  ApplicationDetail,
-  {
-    strict: false,
-    decode: (raw) => ({
-      ...raw,
+export const ApplicationDetailFromRaw = RawApplicationDetail.pipe(
+  Schema.decodeTo(ApplicationDetail, {
+    decode: SchemaGetter.transform((raw: Schema.Schema.Type<typeof RawApplicationDetail>) => ({
+      id: raw.id,
+      userName: raw.userName,
+      userEmail: raw.userEmail,
       status: parseApplicationStatus(raw.applicationStatus),
-    }),
-    encode: (app) => ({
+      interviewStatus: raw.interviewStatus,
+      interviewer: raw.interviewer,
+      interviewScheduled: raw.interviewScheduled,
+      previousParticipation: raw.previousParticipation,
+    })),
+    encode: SchemaGetter.transform((app) => ({
       id: app.id,
       userName: app.userName,
       userEmail: app.userEmail,
@@ -127,6 +133,6 @@ export const ApplicationDetailFromRaw = Schema.transform(
       interviewer: app.interviewer,
       interviewScheduled: app.interviewScheduled,
       previousParticipation: app.previousParticipation,
-    }),
-  },
+    })),
+  }),
 )

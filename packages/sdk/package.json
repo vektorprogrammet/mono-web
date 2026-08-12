@@ -20,11 +20,9 @@
     "release": "changeset publish"
   },
   "dependencies": {
-    "@effect/platform": "^0.96.0",
-    "effect": "^3.21.0"
+    "effect": "4.0.0-beta.107"
   },
   "devDependencies": {
-    "@effect/vitest": "^0.29.0",
     "@types/node": "^22",
     "typescript": "^5",
     "vitest": "^4.1.0"

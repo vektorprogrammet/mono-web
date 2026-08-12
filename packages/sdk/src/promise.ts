@@ -34,7 +34,9 @@ export {
   ConflictError,
   NetworkError,
   RateLimitedError,
+  ConfigurationError,
 } from "./errors.js"
+export type { SdkErrorType } from "./errors.js"
 
 export type { Receipt, AdminReceipt, ReceiptInput } from "./schemas/receipt.js"
 export type { Application, ApplicationDetail } from "./schemas/application.js"
@@ -88,8 +90,7 @@ function promisifyDomain<T extends object>(
 }
 
 // --- Client factory ---
-
-export function createClient(baseUrl: string, options?: ClientOptions) {
+export function createClient(baseUrl: string | undefined, options?: ClientOptions) {
   const transport = createTransport(baseUrl, options?.auth)
   const initialToken = typeof options?.auth === "string" ? options.auth : undefined
   const context = createContext(initialToken)
