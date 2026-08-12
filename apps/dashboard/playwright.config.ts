@@ -1,5 +1,30 @@
 import { defineConfig, devices } from '@playwright/test';
 
+const chromiumExecutablePath =
+  process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH;
+const w0Viewport = { width: 1440, height: 900 };
+const apiMode = process.env.API_MODE;
+const viteApiMode = process.env.VITE_API_MODE;
+const fixtureMode =
+  apiMode === 'fixture' && viteApiMode === 'fixture';
+
+const fixtureServer = {
+  command: 'node e2e/fixtures/login-api.mjs',
+  url: 'http://127.0.0.1:8788/health',
+  timeout: 120_000,
+  reuseExistingServer: false,
+  stdout: 'pipe' as const,
+  gracefulShutdown: { signal: 'SIGTERM' as const, timeout: 5_000 },
+};
+const dashboardServer = {
+  command: 'bun run dev --host 127.0.0.1 --port 5174',
+  url: 'http://127.0.0.1:5174',
+  timeout: 120_000,
+  reuseExistingServer: false,
+  stdout: 'pipe' as const,
+  gracefulShutdown: { signal: 'SIGTERM' as const, timeout: 5_000 },
+};
+
 /**
  * Read environment variables from file.
  * https://github.com/motdotla/dotenv
@@ -22,13 +47,14 @@ export default defineConfig({
   /* Retry on CI only */
   retries: process.env.CI ? 2 : 0,
   /* Opt out of parallel tests on CI. */
-  workers: process.env.CI ? 1 : undefined,
+  workers: fixtureMode || process.env.CI ? 1 : undefined,
   /* Reporter to use. See https://playwright.dev/docs/test-reporters */
   reporter: 'html',
   /* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */
   use: {
     /* Base URL to use in actions like `await page.goto('/')`. */
-    baseURL: 'http://localhost:5174',
+    baseURL: 'http://127.0.0.1:5174',
+    viewport: w0Viewport,
 
     /* Collect trace when retrying the failed test. See https://playwright.dev/docs/trace-viewer */
     trace: 'on-first-retry',
@@ -38,17 +64,23 @@ export default defineConfig({
   projects: [
     {
       name: 'chromium',
-      use: { ...devices['Desktop Chrome'] },
+      use: {
+        ...devices['Desktop Chrome'],
+        viewport: w0Viewport,
+        launchOptions: chromiumExecutablePath
+          ? { executablePath: chromiumExecutablePath }
+          : undefined,
+      },
     },
 
     {
       name: 'firefox',
-      use: { ...devices['Desktop Firefox'] },
+      use: { ...devices['Desktop Firefox'], viewport: w0Viewport },
     },
 
     {
       name: 'webkit',
-      use: { ...devices['Desktop Safari'] },
+      use: { ...devices['Desktop Safari'], viewport: w0Viewport },
     },
 
     /* Test against mobile viewports. */
@@ -73,10 +105,7 @@ export default defineConfig({
   ],
 
   /* Run your local dev server before starting the tests */
-   webServer: {
-     command: 'bun run dev',
-     url: 'http://localhost:5174',
-     timeout: 120_000,
-     reuseExistingServer: !process.env.CI,
-   },
+  webServer: fixtureMode
+    ? [fixtureServer, dashboardServer]
+    : dashboardServer,
 });
