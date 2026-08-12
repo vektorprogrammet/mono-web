@@ -7,8 +7,7 @@ on:
         required: true
         type: string
       repository:
-        required: false
-        default: vektorprogrammet/mono-web
+        required: true
         type: string
       pull_request_number:
         required: true
@@ -17,12 +16,10 @@ on:
         required: true
         type: string
       stage:
-        required: false
-        default: p20
+        required: true
         type: string
       target:
-        required: false
-        default: p20
+        required: true
         type: string
       source_digest:
         required: true
@@ -40,9 +37,15 @@ on:
         required: true
         type: string
       remote_state:
-        required: false
-        default: vektor/p20
+        required: true
         type: string
+    secrets:
+      CLOUDFLARE_API_TOKEN:
+        required: false
+      CLOUDFLARE_ACCOUNT_ID:
+        required: false
+      ALCHEMY_PROFILE:
+        required: false
     outputs:
       state:
         value: ${{ jobs.cleanup.outputs.state }}
@@ -51,14 +54,23 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read
 
 concurrency:
   group: preview-vektor-p20
   cancel-in-progress: false
 
+env:
+  PREVIEW_REPOSITORY: vektorprogrammet/mono-web
+  PREVIEW_APP: vektor
+  PREVIEW_STAGE: p20
+  PREVIEW_TARGET: p20
+  PREVIEW_HOST: p20.vektor.phibkro.org
+  PREVIEW_CONTAINER: vektor-p20-container
+
 jobs:
   cleanup:
-    name: Stage-scoped close or reconcile plan
+    name: Stage-scoped close teardown
     runs-on: ubuntu-latest
     environment: vektor-preview
     outputs:
@@ -66,22 +78,65 @@ jobs:
       ledger_key: ${{ steps.destroy.outputs.ledger_key }}
     steps:
       - name: Checkout immutable base tooling
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           repository: ${{ inputs.repository }}
           ref: main
           fetch-depth: 1
           persist-credentials: false
-      - name: Construct exact stage destroy plan and preserve tombstone
-        id: destroy
+      - name: Validate exact close identity
+        env:
+          INPUT_REPOSITORY: ${{ inputs.repository }}
+          INPUT_PR: ${{ inputs.pull_request_number }}
+          INPUT_HEAD: ${{ inputs.head_sha }}
+          INPUT_STAGE: ${{ inputs.stage }}
+          INPUT_TARGET: ${{ inputs.target }}
         run: |
-          set -euo pipefail
-          printf '%s' '${{ inputs.resources_json }}' > "$RUNNER_TEMP/resources.json"
-          common=(--repository "${{ inputs.repository }}" --pr "${{ inputs.pull_request_number }}" --head-sha "${{ inputs.head_sha }}" --app vektor --target "${{ inputs.target }}" --stage "${{ inputs.stage }}" --hostname p20.vektor.phibkro.org --resource-prefix vektor-p20 --container-name vektor-p20-container --concurrency preview-vektor-p20 --remote-state-key "${{ inputs.remote_state }}" --source-digest "${{ inputs.source_digest }}" --image-digest "${{ inputs.image_digest }}" --seed-digest "${{ inputs.seed_digest }}" --route-contract-digest "${{ inputs.route_contract_digest }}" --resources "$RUNNER_TEMP/resources.json" --output "$RUNNER_TEMP/ownership.json")
-          node infra/preview/trusted/cli.mjs ownership "${common[@]}" > "$RUNNER_TEMP/ownership.stdout.json"
-          lifecycle=(--store "$RUNNER_TEMP/ledger.json" --repository "${{ inputs.repository }}" --pr "${{ inputs.pull_request_number }}" --head-sha "${{ inputs.head_sha }}" --app vektor --target "${{ inputs.target }}" --stage "${{ inputs.stage }}" --hostname p20.vektor.phibkro.org --resource-prefix vektor-p20 --container-name vektor-p20-container --concurrency preview-vektor-p20 --remote-state-key "${{ inputs.remote_state }}" --source-digest "${{ inputs.source_digest }}" --image-digest "${{ inputs.image_digest }}" --seed-digest "${{ inputs.seed_digest }}" --route-contract-digest "${{ inputs.route_contract_digest }}" --ownership-manifest "$RUNNER_TEMP/ownership.json")
-          node infra/preview/trusted/cli.mjs init "${lifecycle[@]}" > "$RUNNER_TEMP/ledger-init.json"
-          node infra/preview/trusted/cli.mjs retire "${lifecycle[@]}" > "$RUNNER_TEMP/retiring.json"
-          node infra/preview/trusted/cli.mjs destroy "${lifecycle[@]}" > "$RUNNER_TEMP/destroy-plan.json"
-          node infra/preview/trusted/cli.mjs absent "${lifecycle[@]}" --manifest-digest "$(node -e 'process.stdout.write(JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8")).manifestDigest)' "$RUNNER_TEMP/ownership.json")" > "$RUNNER_TEMP/absent.json"
-          printf 'state=Absent\nledger_key=%s\n' "$(node -e 'process.stdout.write(JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8")).key)' "$RUNNER_TEMP/ledger-init.json")" >> "$GITHUB_OUTPUT"
+          set -Eeuo pipefail
+          test "$INPUT_REPOSITORY" = "$PREVIEW_REPOSITORY"
+          test "$INPUT_PR" = 21
+          test "$INPUT_STAGE" = "$PREVIEW_STAGE"
+          test "$INPUT_TARGET" = "$PREVIEW_TARGET"
+          case "$INPUT_HEAD" in [0-9a-f][0-9a-f]*) ;; *) exit 1;; esac
+      - name: Build exact ownership manifest
+        id: ownership
+        env:
+          RESOURCES_JSON: ${{ inputs.resources_json }}
+          INPUT_REPOSITORY: ${{ inputs.repository }}
+          INPUT_PR: ${{ inputs.pull_request_number }}
+          INPUT_HEAD: ${{ inputs.head_sha }}
+          INPUT_SOURCE: ${{ inputs.source_digest }}
+          INPUT_IMAGE: ${{ inputs.image_digest }}
+          INPUT_SEED: ${{ inputs.seed_digest }}
+          INPUT_ROUTE: ${{ inputs.route_contract_digest }}
+          INPUT_REMOTE: ${{ inputs.remote_state }}
+        run: |
+          set -Eeuo pipefail
+          printf '%s' "$RESOURCES_JSON" > "$RUNNER_TEMP/resources.json"
+          node infra/preview/trusted/cli.mjs ownership --repository "$INPUT_REPOSITORY" --pr "$INPUT_PR" --head-sha "$INPUT_HEAD" --app "$PREVIEW_APP" --target "$PREVIEW_TARGET" --stage "$PREVIEW_STAGE" --hostname "$PREVIEW_HOST" --resource-prefix vektor-p20 --container-name "$PREVIEW_CONTAINER" --concurrency preview-vektor-p20 --remote-state-key "$INPUT_REMOTE" --source-digest "$INPUT_SOURCE" --image-digest "$INPUT_IMAGE" --seed-digest "$INPUT_SEED" --route-contract-digest "$INPUT_ROUTE" --resources "$RUNNER_TEMP/resources.json" --output "$RUNNER_TEMP/ownership.json" > "$RUNNER_TEMP/ownership.stdout.json"
+      - name: Load durable ledger and mark retiring
+        env:
+          INPUT_REPOSITORY: ${{ inputs.repository }}
+          INPUT_PR: ${{ inputs.pull_request_number }}
+          INPUT_HEAD: ${{ inputs.head_sha }}
+          INPUT_SOURCE: ${{ inputs.source_digest }}
+          INPUT_IMAGE: ${{ inputs.image_digest }}
+          INPUT_SEED: ${{ inputs.seed_digest }}
+          INPUT_ROUTE: ${{ inputs.route_contract_digest }}
+          INPUT_REMOTE: ${{ inputs.remote_state }}
+        run: |
+          set -Eeuo pipefail
+          store="$RUNNER_TEMP/ledger.json"
+          common=(--store "$store" --repository "$INPUT_REPOSITORY" --pr "$INPUT_PR" --head-sha "$INPUT_HEAD" --app "$PREVIEW_APP" --target "$PREVIEW_TARGET" --stage "$PREVIEW_STAGE" --hostname "$PREVIEW_HOST" --resource-prefix vektor-p20 --container-name "$PREVIEW_CONTAINER" --concurrency preview-vektor-p20 --remote-state-key "$INPUT_REMOTE" --source-digest "$INPUT_SOURCE" --image-digest "$INPUT_IMAGE" --seed-digest "$INPUT_SEED" --route-contract-digest "$INPUT_ROUTE" --ownership-manifest "$RUNNER_TEMP/ownership.json")
+          node infra/preview/trusted/cli.mjs init "${common[@]}" > "$RUNNER_TEMP/ledger.stdout.json"
+          node infra/preview/trusted/cli.mjs reconcile "${common[@]}" > "$RUNNER_TEMP/reconcile.json"
+      - name: Execute stage-scoped Alchemy destroy
+        id: destroy
+        env:
+          ALCHEMY_PROFILE: ${{ secrets.ALCHEMY_PROFILE }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -Eeuo pipefail
+          (cd infra/alchemy && bun run destroy -- --stage "$PREVIEW_STAGE" --profile "${ALCHEMY_PROFILE:?ALCHEMY_PROFILE is required}" --yes)
+          printf 'state=Absent\nledger_key=%s\n' "$(node -e 'process.stdout.write(JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8")).key)' "$RUNNER_TEMP/ledger.stdout.json")" >> "$GITHUB_OUTPUT"

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import { canonicalJson, assertNoForbiddenHost, assertState, identityFromArgs, ledgerKey, nowIso, parseArgs, requireOption, serializeIdentity, sha256, tombstoneKey } from "./contracts.mjs";
+import { canonicalJson, assertNoForbiddenHost, assertState, identityFromArgs, isMainModule, ledgerKey, nowIso, parseArgs, requireOption, serializeIdentity, sha256, tombstoneKey } from "./contracts.mjs";
 
 const MAX_ATTEMPTS = 2;
 
@@ -138,9 +138,11 @@ function main() {
   process.stdout.write(canonicalJson(result));
 }
 
-try {
-  main();
-} catch (error) {
-  process.stderr.write(`preview ledger failed: ${error instanceof Error ? error.message : String(error)}\n`);
-  process.exitCode = 1;
+if (isMainModule(import.meta.url)) {
+  try {
+    main();
+  } catch (error) {
+    process.stderr.write(`preview ledger failed: ${error instanceof Error ? error.message : String(error)}\n`);
+    process.exitCode = 1;
+  }
 }

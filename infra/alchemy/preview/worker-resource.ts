@@ -5,9 +5,9 @@ export class PreviewWorker extends Cloudflare.Worker<PreviewWorker>()("PreviewWo
   main: new URL("./worker.ts", import.meta.url).pathname,
   compatibility: { flags: ["nodejs_compat"], date: "2026-08-12" },
   env: {
-    PreviewContainer: Cloudflare.Container<PreviewContainer>("PreviewContainer", {
-      context: new URL("../../../apps/server/infra/preview", import.meta.url).pathname,
-      dockerfile: "Dockerfile",
+    PreviewContainer: Cloudflare.Container<PreviewContainer>()("PreviewContainer", {
+      context: new URL("../../../apps/server", import.meta.url).pathname,
+      dockerfile: "infra/preview/Dockerfile",
       name: "vektor-p20-container",
       className: "PreviewContainer",
       maxInstances: 1,

@@ -3,7 +3,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { buildAlchemyCommand } from "./alchemy.mjs";
-import { canonicalJson, IDENTITY, identityFromArgs, ledgerKey, parseArgs, requireDigest, requireOption, requireSha, serializeIdentity } from "./contracts.mjs";
+import { canonicalJson, IDENTITY, identityFromArgs, isMainModule, ledgerKey, parseArgs, requireDigest, requireOption, requireSha, serializeIdentity } from "./contracts.mjs";
 import { createOwnershipManifest } from "./ownership.mjs";
 import { absent, beginApply, buildPlan, live, planned, reconcile, request, retire, seedReady, seeded, validate } from "./lifecycle.mjs";
 import { initializeLedger, readLedger } from "./ledger.mjs";
@@ -99,9 +99,11 @@ function main() {
   process.stdout.write(canonicalJson(result));
 }
 
-try {
-  main();
-} catch (error) {
-  process.stderr.write(`trusted preview command failed: ${error instanceof Error ? error.message : String(error)}\n`);
-  process.exitCode = 1;
+if (isMainModule(import.meta.url)) {
+  try {
+    main();
+  } catch (error) {
+    process.stderr.write(`trusted preview command failed: ${error instanceof Error ? error.message : String(error)}\n`);
+    process.exitCode = 1;
+  }
 }

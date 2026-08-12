@@ -1,11 +1,14 @@
 #!/usr/bin/env node
 import { readFileSync } from "node:fs";
-import { assertNoForbiddenHost, identityFromArgs, parseArgs, requireDigest, requireOption } from "./contracts.mjs";
+import { assertNoForbiddenHost, identityFromArgs, isMainModule, parseArgs, requireDigest, requireOption } from "./contracts.mjs";
 
 const ALLOWED_ACTIONS = Object.freeze(["plan", "deploy", "destroy"]);
 const SAFE_ENVIRONMENT = "vektor-preview";
 
 function readManifest(path) {
+  if (!/^[A-Za-z0-9._/-]+$/u.test(path) || path.includes("..") || /[\u0000-\u001f\u007f;$`|&<>]/u.test(path)) {
+    throw new Error("ownership manifest path contains unsafe characters");
+  }
   const manifest = JSON.parse(readFileSync(path, "utf8"));
   if (manifest.schema !== "preview-ownership/v1") throw new Error("unsupported ownership manifest");
   return manifest;
@@ -40,9 +43,11 @@ function main() {
   process.stdout.write(`${JSON.stringify(command, null, 2)}\n`);
 }
 
-try {
-  main();
-} catch (error) {
-  process.stderr.write(`Alchemy command construction failed: ${error instanceof Error ? error.message : String(error)}\n`);
-  process.exitCode = 1;
+if (isMainModule(import.meta.url)) {
+  try {
+    main();
+  } catch (error) {
+    process.stderr.write(`Alchemy command construction failed: ${error instanceof Error ? error.message : String(error)}\n`);
+    process.exitCode = 1;
+  }
 }

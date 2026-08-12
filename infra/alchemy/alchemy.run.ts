@@ -21,7 +21,7 @@ export default Alchemy.Stack(
   "vektor",
   {
     providers: Cloudflare.providers(),
-    state: Cloudflare.state({ workerName: "alchemy-state-store-vektor" }),
+    state: Cloudflare.state(),
   },
   Effect.gen(function* () {
     const stage = yield* Alchemy.Stage;

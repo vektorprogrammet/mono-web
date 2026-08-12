@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { readFileSync } from "node:fs";
 import { buildAlchemyCommand } from "./alchemy.mjs";
-import { assertNoForbiddenHost, assertState, identityFromArgs, ledgerKey, parseArgs, requireDigest, requireOption, serializeIdentity } from "./contracts.mjs";
+import { assertNoForbiddenHost, assertState, identityFromArgs, isMainModule, ledgerKey, parseArgs, requireDigest, requireOption, serializeIdentity } from "./contracts.mjs";
 import { incrementAttempt, readLedger, transitionLedger, writeTombstone } from "./ledger.mjs";
 
 export const VALID_TRANSITIONS = Object.freeze({
@@ -164,9 +164,11 @@ function main() {
   process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
 }
 
-try {
-  main();
-} catch (error) {
-  process.stderr.write(`preview lifecycle failed: ${error instanceof Error ? error.message : String(error)}\n`);
-  process.exitCode = 1;
+if (isMainModule(import.meta.url)) {
+  try {
+    main();
+  } catch (error) {
+    process.stderr.write(`preview lifecycle failed: ${error instanceof Error ? error.message : String(error)}\n`);
+    process.exitCode = 1;
+  }
 }

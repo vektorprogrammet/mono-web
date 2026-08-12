@@ -2,7 +2,7 @@
 import { createHash } from "node:crypto";
 import { writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
-import { canonicalJson, IDENTITY, parseArgs, requireOption, requireSha, sha256 } from "./contracts.mjs";
+import { canonicalJson, IDENTITY, isMainModule, parseArgs, requireOption, requireSha, sha256 } from "./contracts.mjs";
 
 function git(args) {
   const result = spawnSync("git", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
@@ -17,7 +17,7 @@ function repositoryName(remote) {
 }
 
 function archiveDigest(headSha) {
-  const result = spawnSync("git", ["archive", "--format=tar", `--prefix=mono-web-${headSha}/`, headSha], {
+  const result = spawnSync("git", ["archive", "--format=tar", headSha], {
     encoding: null,
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -69,9 +69,11 @@ function main() {
   process.stdout.write(canonicalJson(result));
 }
 
-try {
-  main();
-} catch (error) {
-  process.stderr.write(`preview digest failed: ${error instanceof Error ? error.message : String(error)}\n`);
-  process.exitCode = 1;
+if (isMainModule(import.meta.url)) {
+  try {
+    main();
+  } catch (error) {
+    process.stderr.write(`preview digest failed: ${error instanceof Error ? error.message : String(error)}\n`);
+    process.exitCode = 1;
+  }
 }

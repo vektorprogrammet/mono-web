@@ -7,8 +7,7 @@ on:
         required: true
         type: string
       repository:
-        required: false
-        default: vektorprogrammet/mono-web
+        required: true
         type: string
       pull_request_number:
         required: true
@@ -17,19 +16,17 @@ on:
         required: true
         type: string
       stage:
-        required: false
-        default: p20
+        required: true
         type: string
       target:
-        required: false
-        default: p20
+        required: true
         type: string
       plan_only:
         required: false
         default: true
         type: boolean
       expected_source_digest:
-        required: false
+        required: true
         type: string
       image_digest:
         required: true
@@ -44,9 +41,15 @@ on:
         required: true
         type: string
       remote_state:
-        required: false
-        default: vektor/p20
+        required: true
         type: string
+    secrets:
+      CLOUDFLARE_API_TOKEN:
+        required: false
+      CLOUDFLARE_ACCOUNT_ID:
+        required: false
+      ALCHEMY_PROFILE:
+        required: false
     outputs:
       state:
         value: ${{ jobs.promote.outputs.state }}
@@ -54,39 +57,102 @@ on:
         value: ${{ jobs.promote.outputs.ledger_key }}
       source_digest:
         value: ${{ jobs.package.outputs.source_digest }}
+      image_digest:
+        value: ${{ jobs.package.outputs.image_digest }}
+      seed_digest:
+        value: ${{ jobs.package.outputs.seed_digest }}
       ownership_manifest_digest:
         value: ${{ jobs.promote.outputs.ownership_manifest_digest }}
 
 permissions:
   contents: read
+  pull-requests: read
 
 concurrency:
   group: preview-vektor-p20
   cancel-in-progress: false
 
+env:
+  PREVIEW_REPOSITORY: vektorprogrammet/mono-web
+  PREVIEW_APP: vektor
+  PREVIEW_STAGE: p20
+  PREVIEW_TARGET: p20
+  PREVIEW_PR: "21"
+  PREVIEW_HOST: p20.vektor.phibkro.org
+  PREVIEW_CONTAINER: vektor-p20-container
+  PREVIEW_REMOTE_STATE: vektor/p20
+
 jobs:
   package:
-    name: Package exact head without credentials
+    name: Exact-head credential-free package
     runs-on: ubuntu-latest
     outputs:
       source_digest: ${{ steps.digest.outputs.source_digest }}
-      digest_json: ${{ steps.digest.outputs.digest_json }}
+      image_digest: ${{ steps.image.outputs.image_digest }}
+      seed_digest: ${{ steps.seed.outputs.seed_digest }}
     steps:
       - name: Checkout exact requested revision
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           repository: ${{ inputs.repository }}
           ref: ${{ inputs.head_sha }}
           fetch-depth: 1
           persist-credentials: false
-      - name: Hash exact source archive
-        id: digest
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: 1.3.10
+      - name: Install locked dependencies
+        run: bun install --frozen-lockfile
+      - name: Run exact-head repository checks
         run: |
-          set -euo pipefail
-          args=(--head-sha "${{ inputs.head_sha }}" --repository "${{ inputs.repository }}" --output "$RUNNER_TEMP/source-digest.json")
-          if [ -n "${{ inputs.expected_source_digest }}" ]; then args+=(--expected-digest "${{ inputs.expected_source_digest }}"); fi
-          node infra/preview/trusted/digest.mjs "${args[@]}" > "$RUNNER_TEMP/source-digest.stdout.json"
-          node -e 'const fs=require("node:fs"); const v=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); fs.appendFileSync(process.env.GITHUB_OUTPUT,`source_digest=${v.archiveDigest}\n digest_json=${JSON.stringify(JSON.stringify(v))}\n`.replace(" digest_json","digest_json"));' "$RUNNER_TEMP/source-digest.json"
+          set -Eeuo pipefail
+          bun turbo lint
+          bun turbo build
+          bun turbo test
+      - name: Compute canonical source archive digest
+        id: digest
+        env:
+          EXPECTED_HEAD: ${{ inputs.head_sha }}
+          EXPECTED_REPOSITORY: ${{ inputs.repository }}
+          EXPECTED_DIGEST: ${{ inputs.expected_source_digest }}
+        run: |
+          set -Eeuo pipefail
+          test "$EXPECTED_REPOSITORY" = "$PREVIEW_REPOSITORY"
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          archive_digest="sha256:$(git archive --format=tar "$EXPECTED_HEAD" | sha256sum | cut -d' ' -f1)"
+          test "$archive_digest" = "$EXPECTED_DIGEST"
+          printf 'source_digest=%s\n' "$archive_digest" >> "$GITHUB_OUTPUT"
+      - name: Generate and verify synthetic seed twice
+        id: seed
+        run: |
+          set -Eeuo pipefail
+          bun apps/server/infra/preview/generate-seed.ts --output-dir "$RUNNER_TEMP/seed-a"
+          bun apps/server/infra/preview/verify-seed.ts --output-dir "$RUNNER_TEMP/seed-a" > "$RUNNER_TEMP/seed-a.json"
+          bun apps/server/infra/preview/generate-seed.ts --output-dir "$RUNNER_TEMP/seed-b"
+          bun apps/server/infra/preview/verify-seed.ts --output-dir "$RUNNER_TEMP/seed-b" > "$RUNNER_TEMP/seed-b.json"
+          test "$(sha256sum "$RUNNER_TEMP/seed-a/seed.sql" | cut -d' ' -f1)" = "$(sha256sum "$RUNNER_TEMP/seed-b/seed.sql" | cut -d' ' -f1)"
+          seed_digest="sha256:$(sha256sum "$RUNNER_TEMP/seed-a/seed.sql" | cut -d' ' -f1)"
+          test "$seed_digest" = "${{ inputs.seed_digest }}"
+          printf 'seed_digest=%s\n' "$seed_digest" >> "$GITHUB_OUTPUT"
+          mkdir -p "$RUNNER_TEMP/seed-artifact"
+          cp "$RUNNER_TEMP/seed-a/seed.sql" "$RUNNER_TEMP/seed-a/manifest.json" "$RUNNER_TEMP/seed-artifact/"
+      - name: Build immutable preview image
+        id: image
+        run: |
+          set -Eeuo pipefail
+          docker build --file apps/server/infra/preview/Dockerfile --tag "vektor-p20:${{ inputs.head_sha }}" apps/server
+          image_digest="$(docker image inspect "vektor-p20:${{ inputs.head_sha }}" --format '{{index .Id}}')"
+          case "$image_digest" in sha256:[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]*) ;; *) echo 'image digest is not immutable' >&2; exit 1;; esac
+          if [ -n "${{ inputs.image_digest }}" ]; then test "$image_digest" = "${{ inputs.image_digest }}"; fi
+          printf 'image_digest=%s\n' "$image_digest" >> "$GITHUB_OUTPUT"
+      - name: Upload digest-bound synthetic artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: preview-p20-seed-${{ inputs.head_sha }}
+          path: ${{ runner.temp }}/seed-artifact
+          retention-days: 1
+          if-no-files-found: error
 
   promote:
     name: Base-trusted plan or promotion
@@ -99,50 +165,82 @@ jobs:
       ownership_manifest_digest: ${{ steps.ownership.outputs.ownership_manifest_digest }}
     steps:
       - name: Checkout immutable base tooling
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           repository: ${{ inputs.repository }}
           ref: main
           fetch-depth: 1
           persist-credentials: false
-      - name: Verify source repository, head, and digest
+      - name: Verify exact source identity before promotion
         env:
-          DIGEST_JSON: ${{ needs.package.outputs.digest_json }}
+          EXPECTED_REPOSITORY: ${{ inputs.repository }}
+          EXPECTED_HEAD: ${{ inputs.head_sha }}
+          OBSERVED_DIGEST: ${{ needs.package.outputs.source_digest }}
+          EXPECTED_DIGEST: ${{ inputs.expected_source_digest }}
         run: |
-          set -euo pipefail
-          printf '%s' "$DIGEST_JSON" > "$RUNNER_TEMP/source-digest.json"
-          node infra/preview/trusted/verify.mjs --input "$RUNNER_TEMP/source-digest.json" --repository "${{ inputs.repository }}" --head-sha "${{ inputs.head_sha }}" --archive-digest "${{ needs.package.outputs.source_digest }}" > "$RUNNER_TEMP/source-verification.json"
+          set -Eeuo pipefail
+          test "$EXPECTED_REPOSITORY" = "$PREVIEW_REPOSITORY"
+          case "$EXPECTED_HEAD" in [0-9a-f][0-9a-f]*) ;; *) exit 1;; esac
+          test "$OBSERVED_DIGEST" = "$EXPECTED_DIGEST"
+          test "$OBSERVED_DIGEST" = sha256:* && test "${#OBSERVED_DIGEST}" -eq 71
       - name: Write reviewed ownership resource input
         env:
           RESOURCES_JSON: ${{ inputs.resources_json }}
         run: printf '%s' "$RESOURCES_JSON" > "$RUNNER_TEMP/resources.json"
       - name: Build immutable ownership manifest
         id: ownership
+        env:
+          INPUT_REPOSITORY: ${{ inputs.repository }}
+          INPUT_PR: ${{ inputs.pull_request_number }}
+          INPUT_HEAD: ${{ inputs.head_sha }}
+          INPUT_SOURCE: ${{ needs.package.outputs.source_digest }}
+          INPUT_IMAGE: ${{ needs.package.outputs.image_digest }}
+          INPUT_SEED: ${{ needs.package.outputs.seed_digest }}
+          INPUT_ROUTE: ${{ inputs.route_contract_digest }}
+          INPUT_REMOTE: ${{ inputs.remote_state }}
         run: |
-          set -euo pipefail
-          common=(--repository "${{ inputs.repository }}" --pr "${{ inputs.pull_request_number }}" --head-sha "${{ inputs.head_sha }}" --app vektor --target "${{ inputs.target }}" --stage "${{ inputs.stage }}" --hostname p20.vektor.phibkro.org --resource-prefix vektor-p20 --container-name vektor-p20-container --concurrency preview-vektor-p20 --remote-state-key "${{ inputs.remote_state }}" --source-digest "${{ needs.package.outputs.source_digest }}" --image-digest "${{ inputs.image_digest }}" --seed-digest "${{ inputs.seed_digest }}" --route-contract-digest "${{ inputs.route_contract_digest }}" --resources "$RUNNER_TEMP/resources.json" --output "$RUNNER_TEMP/ownership.json")
-          node infra/preview/trusted/cli.mjs ownership "${common[@]}" > "$RUNNER_TEMP/ownership.stdout.json"
+          set -Eeuo pipefail
+          node infra/preview/trusted/cli.mjs ownership --repository "$INPUT_REPOSITORY" --pr "$INPUT_PR" --head-sha "$INPUT_HEAD" --app "$PREVIEW_APP" --target "$PREVIEW_TARGET" --stage "$PREVIEW_STAGE" --hostname "$PREVIEW_HOST" --resource-prefix vektor-p20 --container-name "$PREVIEW_CONTAINER" --concurrency preview-vektor-p20 --remote-state-key "$INPUT_REMOTE" --source-digest "$INPUT_SOURCE" --image-digest "$INPUT_IMAGE" --seed-digest "$INPUT_SEED" --route-contract-digest "$INPUT_ROUTE" --resources "$RUNNER_TEMP/resources.json" --output "$RUNNER_TEMP/ownership.json" > "$RUNNER_TEMP/ownership.stdout.json"
           printf 'ownership_manifest_digest=%s\n' "$(node -e 'process.stdout.write(JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8")).manifestDigest)' "$RUNNER_TEMP/ownership.json")" >> "$GITHUB_OUTPUT"
       - name: Validate trusted inputs
-        run: |
-          set -euo pipefail
-          node infra/preview/trusted/cli.mjs validate --repository "${{ inputs.repository }}" --pr "${{ inputs.pull_request_number }}" --head-sha "${{ inputs.head_sha }}" --app vektor --target "${{ inputs.target }}" --stage "${{ inputs.stage }}" --hostname p20.vektor.phibkro.org --resource-prefix vektor-p20 --container-name vektor-p20-container --concurrency preview-vektor-p20 --remote-state-key "${{ inputs.remote_state }}"
-      - name: Build plan or reserve trusted apply attempt
+        env:
+          INPUT_REPOSITORY: ${{ inputs.repository }}
+          INPUT_PR: ${{ inputs.pull_request_number }}
+          INPUT_HEAD: ${{ inputs.head_sha }}
+          INPUT_REMOTE: ${{ inputs.remote_state }}
+        run: node infra/preview/trusted/cli.mjs validate --repository "$INPUT_REPOSITORY" --pr "$INPUT_PR" --head-sha "$INPUT_HEAD" --app "$PREVIEW_APP" --target "$PREVIEW_TARGET" --stage "$PREVIEW_STAGE" --hostname "$PREVIEW_HOST" --resource-prefix vektor-p20 --container-name "$PREVIEW_CONTAINER" --concurrency preview-vektor-p20 --remote-state-key "$INPUT_REMOTE"
+      - name: Load ledger and produce plan
         id: lifecycle
+        env:
+          INPUT_REPOSITORY: ${{ inputs.repository }}
+          INPUT_PR: ${{ inputs.pull_request_number }}
+          INPUT_HEAD: ${{ inputs.head_sha }}
+          INPUT_SOURCE: ${{ needs.package.outputs.source_digest }}
+          INPUT_IMAGE: ${{ needs.package.outputs.image_digest }}
+          INPUT_SEED: ${{ needs.package.outputs.seed_digest }}
+          INPUT_ROUTE: ${{ inputs.route_contract_digest }}
+          INPUT_REMOTE: ${{ inputs.remote_state }}
+          PLAN_ONLY: ${{ inputs.plan_only }}
         run: |
-          set -euo pipefail
-          common=(--store "$RUNNER_TEMP/ledger.json" --repository "${{ inputs.repository }}" --pr "${{ inputs.pull_request_number }}" --head-sha "${{ inputs.head_sha }}" --app vektor --target "${{ inputs.target }}" --stage "${{ inputs.stage }}" --hostname p20.vektor.phibkro.org --resource-prefix vektor-p20 --container-name vektor-p20-container --concurrency preview-vektor-p20 --remote-state-key "${{ inputs.remote_state }}" --source-digest "${{ needs.package.outputs.source_digest }}" --image-digest "${{ inputs.image_digest }}" --seed-digest "${{ inputs.seed_digest }}" --route-contract-digest "${{ inputs.route_contract_digest }}" --ownership-manifest "$RUNNER_TEMP/ownership.json")
-          node infra/preview/trusted/cli.mjs init "${common[@]}" > "$RUNNER_TEMP/ledger.json"
-          if [ "${{ inputs.plan_only }}" = true ]; then
-            node infra/preview/trusted/cli.mjs plan "${common[@]}" > "$RUNNER_TEMP/plan.json"
-            state=Planned
-          else
+          set -Eeuo pipefail
+          store="$RUNNER_TEMP/ledger.json"
+          common=(--store "$store" --repository "$INPUT_REPOSITORY" --pr "$INPUT_PR" --head-sha "$INPUT_HEAD" --app "$PREVIEW_APP" --target "$PREVIEW_TARGET" --stage "$PREVIEW_STAGE" --hostname "$PREVIEW_HOST" --resource-prefix vektor-p20 --container-name "$PREVIEW_CONTAINER" --concurrency preview-vektor-p20 --remote-state-key "$INPUT_REMOTE" --source-digest "$INPUT_SOURCE" --image-digest "$INPUT_IMAGE" --seed-digest "$INPUT_SEED" --route-contract-digest "$INPUT_ROUTE" --ownership-manifest "$RUNNER_TEMP/ownership.json")
+          node infra/preview/trusted/cli.mjs init "${common[@]}" > "$RUNNER_TEMP/ledger.stdout.json"
+          node infra/preview/trusted/cli.mjs plan "${common[@]}" > "$RUNNER_TEMP/plan.json"
+          state=Planned
+          if [ "$PLAN_ONLY" != true ]; then
             node infra/preview/trusted/cli.mjs request "${common[@]}" > "$RUNNER_TEMP/requested.json"
             node infra/preview/trusted/cli.mjs validate-state "${common[@]}" > "$RUNNER_TEMP/validating.json"
             node infra/preview/trusted/cli.mjs seed-ready "${common[@]}" > "$RUNNER_TEMP/seed-ready.json"
             node infra/preview/trusted/cli.mjs planned "${common[@]}" > "$RUNNER_TEMP/planned.json"
             node infra/preview/trusted/cli.mjs begin-apply "${common[@]}" > "$RUNNER_TEMP/applying.json"
-            node infra/preview/trusted/cli.mjs deploy "${common[@]}" > "$RUNNER_TEMP/deploy-plan.json"
-            state=Applying
+            (cd infra/alchemy && bun run deploy -- --stage "$PREVIEW_STAGE" --profile "${ALCHEMY_PROFILE:?ALCHEMY_PROFILE is required}" --yes)
+            node infra/preview/trusted/cli.mjs seeded "${common[@]}" > "$RUNNER_TEMP/seeding.json"
+            node infra/preview/trusted/cli.mjs live "${common[@]}" > "$RUNNER_TEMP/live.json"
+            state=Live
           fi
-          printf 'state=%s\nledger_key=%s\n' "$state" "$(node -e 'process.stdout.write(JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8")).key)' "$RUNNER_TEMP/ledger.json")" >> "$GITHUB_OUTPUT"
+          printf 'state=%s\nledger_key=%s\n' "$state" "$(node -e 'process.stdout.write(JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8")).key)' "$RUNNER_TEMP/ledger.stdout.json")" >> "$GITHUB_OUTPUT"
+        env:
+          ALCHEMY_PROFILE: ${{ secrets.ALCHEMY_PROFILE }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

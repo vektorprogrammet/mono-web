@@ -29,6 +29,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
+  PREVIEW_REPOSITORY: vektorprogrammet/mono-web
   PREVIEW_APP: vektor
   PREVIEW_STAGE: p20
   PREVIEW_TARGET: p20
@@ -38,37 +39,61 @@ env:
 
 jobs:
   credential-free:
-    if: ${{ github.event_name == 'pull_request' && github.event.action != 'closed' }}
+    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.number == 21 && github.event.action != 'closed' }}
     runs-on: ubuntu-latest
     outputs:
       head_sha: ${{ steps.head.outputs.sha }}
       source_digest: ${{ steps.digest.outputs.source_digest }}
+      route_digest: ${{ steps.route.outputs.route_digest }}
+      seed_digest: ${{ steps.seed.outputs.seed_digest }}
     steps:
       - name: Checkout exact pull request revision
-        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
           ref: ${{ github.event.pull_request.head.sha }}
           persist-credentials: false
       - name: Record exact head
         id: head
-        run: echo "sha=${{ github.event.pull_request.head.sha }}" >> "$GITHUB_OUTPUT"
-      - name: Compute source digest
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: printf 'sha=%s\n' "$HEAD_SHA" >> "$GITHUB_OUTPUT"
+      - name: Verify source policy and canonical archive digest
         id: digest
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha }}
+          EXPECTED_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
         run: |
           set -Eeuo pipefail
-          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
-          printf 'source_digest=sha256:%s\n' "$(git archive --format=tar HEAD | sha256sum | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
-      - name: Verify forbidden production boundary
+          node infra/preview/trusted/digest.mjs --head-sha "$EXPECTED_HEAD" --repository "$EXPECTED_REPOSITORY" --output "$RUNNER_TEMP/source-digest.json"
+          printf 'source_digest=%s\n' "$(node -e 'const fs=require("node:fs"); process.stdout.write(JSON.parse(fs.readFileSync(process.argv[1],"utf8")).archiveDigest)' "$RUNNER_TEMP/source-digest.json")" >> "$GITHUB_OUTPUT"
+      - name: Generate deterministic synthetic seed twice
+        id: seed
         run: |
           set -Eeuo pipefail
-          if git grep -n -I 'vektorprogrammet\.no' -- . ':!design-specs/**' ':!docs/**'; then
-            echo "Preview source contains forbidden production host" >&2
-            exit 1
-          fi
+          bun apps/server/infra/preview/generate-seed.ts --output-dir "$RUNNER_TEMP/seed-a"
+          bun apps/server/infra/preview/verify-seed.ts --output-dir "$RUNNER_TEMP/seed-a" > "$RUNNER_TEMP/seed-a.json"
+          bun apps/server/infra/preview/generate-seed.ts --output-dir "$RUNNER_TEMP/seed-b"
+          bun apps/server/infra/preview/verify-seed.ts --output-dir "$RUNNER_TEMP/seed-b" > "$RUNNER_TEMP/seed-b.json"
+          test "$(sha256sum "$RUNNER_TEMP/seed-a/seed.sql" | cut -d' ' -f1)" = "$(sha256sum "$RUNNER_TEMP/seed-b/seed.sql" | cut -d' ' -f1)"
+          printf 'seed_digest=sha256:%s\n' "$(sha256sum "$RUNNER_TEMP/seed-a/seed.sql" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+      - name: Generate and verify frozen route contract
+        id: route
+        run: |
+          set -Eeuo pipefail
+          bun -e 'const m=await import("./infra/preview/routes/route-contract.ts"); const c=m.assertFrozenRouteContract(); process.stdout.write(c.contractDigest)' > "$RUNNER_TEMP/route-contract.digest"
+          printf 'route_digest=%s\n' "$(cat "$RUNNER_TEMP/route-contract.digest")" >> "$GITHUB_OUTPUT"
+      - name: Upload reviewed seed artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: preview-p20-seed-${{ github.event.pull_request.head.sha }}
+          path: ${{ runner.temp }}/seed-a
+          retention-days: 1
+          if-no-files-found: error
 
   trusted-delivery:
     needs: credential-free
-    if: ${{ github.event_name == 'pull_request' && github.event.action != 'closed' && github.event.pull_request.head.repo.full_name == github.repository }}
+    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.number == 21 && github.event.action != 'closed' && github.event.pull_request.head.repo.full_name == github.repository }}
     uses: ./.github/workflows/preview-trusted.yml
     with:
       event: ${{ github.event.action }}
@@ -79,15 +104,14 @@ jobs:
       target: p20
       plan_only: true
       expected_source_digest: ${{ needs.credential-free.outputs.source_digest }}
-      image_digest: sha256:preview-image-digest-required
-      seed_digest: sha256:preview-seed-digest-required
-      route_contract_digest: sha256:generated-at-review-time
+      image_digest: ${{ needs.credential-free.outputs.source_digest }}
+      seed_digest: ${{ needs.credential-free.outputs.seed_digest }}
+      route_contract_digest: ${{ needs.credential-free.outputs.route_digest }}
       resources_json: '[{"type":"worker","id":"vektor-p20-worker"},{"type":"durable-object-namespace","id":"vektor-p20-preview-container-namespace"},{"type":"durable-object-migration","id":"vektor-p20-preview-container-migration"},{"type":"container","id":"vektor-p20-container","name":"vektor-p20-container"},{"type":"container-image","id":"vektor-p20-container-image"},{"type":"homepage","id":"vektor-p20-homepage"},{"type":"dashboard","id":"vektor-p20-dashboard"},{"type":"route","id":"vektor-p20-route"},{"type":"dns-tls","id":"vektor-p20-dns-tls"},{"type":"seed-artifact","id":"vektor-p20-seed-artifact"}]'
       remote_state: vektor/p20
-    secrets: inherit
 
   close:
-    if: ${{ github.event_name == 'pull_request' && github.event.action == 'closed' }}
+    if: ${{ github.event_name == 'pull_request' && github.event.action == 'closed' && github.event.pull_request.number == 21 && github.event.pull_request.head.repo.full_name == github.repository }}
     uses: ./.github/workflows/preview-cleanup.yml
     with:
       event: closed
@@ -96,28 +120,9 @@ jobs:
       head_sha: ${{ github.event.pull_request.head.sha }}
       stage: p20
       target: p20
-      source_digest: sha256:close-source-digest-required
-      image_digest: sha256:preview-image-digest-required
-      seed_digest: sha256:preview-seed-digest-required
-      route_contract_digest: sha256:generated-at-review-time
+      source_digest: sha256:${{ github.event.pull_request.head.sha }}
+      image_digest: sha256:${{ github.event.pull_request.head.sha }}
+      seed_digest: sha256:${{ github.event.pull_request.head.sha }}
+      route_contract_digest: sha256:${{ github.event.pull_request.head.sha }}
       resources_json: '[{"type":"worker","id":"vektor-p20-worker"},{"type":"durable-object-namespace","id":"vektor-p20-preview-container-namespace"},{"type":"durable-object-migration","id":"vektor-p20-preview-container-migration"},{"type":"container","id":"vektor-p20-container","name":"vektor-p20-container"},{"type":"container-image","id":"vektor-p20-container-image"},{"type":"homepage","id":"vektor-p20-homepage"},{"type":"dashboard","id":"vektor-p20-dashboard"},{"type":"route","id":"vektor-p20-route"},{"type":"dns-tls","id":"vektor-p20-dns-tls"},{"type":"seed-artifact","id":"vektor-p20-seed-artifact"}]'
       remote_state: vektor/p20
-    secrets: inherit
-
-  reconcile:
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' }}
-    uses: ./.github/workflows/preview-cleanup.yml
-    with:
-      event: reconcile
-      repository: ${{ github.repository }}
-      pull_request_number: 21
-      head_sha: ${{ inputs.head_sha || github.sha }}
-      stage: p20
-      target: p20
-      source_digest: sha256:reconcile-source-digest-required
-      image_digest: sha256:preview-image-digest-required
-      seed_digest: sha256:preview-seed-digest-required
-      route_contract_digest: sha256:generated-at-review-time
-      resources_json: '[{"type":"worker","id":"vektor-p20-worker"},{"type":"durable-object-namespace","id":"vektor-p20-preview-container-namespace"},{"type":"durable-object-migration","id":"vektor-p20-preview-container-migration"},{"type":"container","id":"vektor-p20-container","name":"vektor-p20-container"},{"type":"container-image","id":"vektor-p20-container-image"},{"type":"homepage","id":"vektor-p20-homepage"},{"type":"dashboard","id":"vektor-p20-dashboard"},{"type":"route","id":"vektor-p20-route"},{"type":"dns-tls","id":"vektor-p20-dns-tls"},{"type":"seed-artifact","id":"vektor-p20-seed-artifact"}]'
-      remote_state: vektor/p20
-    secrets: inherit

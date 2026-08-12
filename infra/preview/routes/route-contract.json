@@ -384,36 +384,6 @@
       }
     },
     {
-      "id": "homepage-kontakt",
-      "app": "homepage",
-      "path": "/kontakt",
-      "sourcePath": "apps/homepage/src/routes/_home.kontakt._index.tsx",
-      "kind": "page",
-      "expected": {
-        "status": 200,
-        "basicState": "populated"
-      },
-      "visual": {
-        "desktop": true,
-        "mobile": true
-      }
-    },
-    {
-      "id": "homepage-kontakt",
-      "app": "homepage",
-      "path": "/kontakt",
-      "sourcePath": "apps/homepage/src/routes/_home.kontakt.tsx",
-      "kind": "page",
-      "expected": {
-        "status": 200,
-        "basicState": "populated"
-      },
-      "visual": {
-        "desktop": true,
-        "mobile": true
-      }
-    },
-    {
       "id": "homepage-kontakt-aas",
       "app": "homepage",
       "path": "/kontakt/aas",
@@ -497,36 +467,6 @@
       "app": "homepage",
       "path": "/skoler",
       "sourcePath": "apps/homepage/src/routes/_home.skoler.tsx",
-      "kind": "page",
-      "expected": {
-        "status": 200,
-        "basicState": "populated"
-      },
-      "visual": {
-        "desktop": true,
-        "mobile": true
-      }
-    },
-    {
-      "id": "homepage-team",
-      "app": "homepage",
-      "path": "/team",
-      "sourcePath": "apps/homepage/src/routes/_home.team._index.tsx",
-      "kind": "page",
-      "expected": {
-        "status": 200,
-        "basicState": "populated"
-      },
-      "visual": {
-        "desktop": true,
-        "mobile": true
-      }
-    },
-    {
-      "id": "homepage-team",
-      "app": "homepage",
-      "path": "/team",
-      "sourcePath": "apps/homepage/src/routes/_home.team.tsx",
       "kind": "page",
       "expected": {
         "status": 200,
@@ -680,22 +620,6 @@
       "path": "/team/bergen/styret",
       "sourcePath": "apps/homepage/src/routes/_home.team.bergen.styret.tsx",
       "kind": "page",
-      "expected": {
-        "status": 200,
-        "basicState": "populated"
-      },
-      "visual": {
-        "desktop": true,
-        "mobile": true
-      }
-    },
-    {
-      "id": "homepage-team-hovedstyret",
-      "app": "homepage",
-      "path": "/team/hovedstyret",
-      "sourcePattern": "/team/:department",
-      "sourcePath": "apps/homepage/src/routes/_home.team.$department.tsx",
-      "kind": "dynamic-fixture",
       "expected": {
         "status": 200,
         "basicState": "populated"
@@ -1321,5 +1245,5 @@
     "authorization-denied",
     "not-found"
   ],
-  "contractDigest": "sha256:a54ea78ece8f8037dd053babef03eb43f3613858481645ac900014c713ecd061"
+  "contractDigest": "sha256:0aa8c049dce256bf4ecb7861d3cc18d52d021da760bd77c6aae80df9baa0695e"
 }

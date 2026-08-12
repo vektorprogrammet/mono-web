@@ -1,4 +1,6 @@
 import { createHash } from "node:crypto";
+import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 export const IDENTITY = Object.freeze({
   repository: "vektorprogrammet/mono-web",
@@ -176,6 +178,10 @@ export function assertResourceId(value, label = "resourceId") {
     throw new Error(`${label} must be an immutable provider identifier`);
   }
   return id;
+}
+
+export function isMainModule(metaUrl, argv1 = process.argv[1]) {
+  return argv1 !== undefined && resolve(argv1) === resolve(fileURLToPath(metaUrl));
 }
 
 export function parseArgs(argv) {

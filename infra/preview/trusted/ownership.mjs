@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { readFileSync, writeFileSync } from "node:fs";
-import { canonicalJson, assertNoForbiddenHost, assertResourceId, identityFromArgs, parseArgs, requireDigest, requireOption, requireSha, sha256 } from "./contracts.mjs";
+import { canonicalJson, assertNoForbiddenHost, assertResourceId, identityFromArgs, isMainModule, parseArgs, requireDigest, requireOption, requireSha, sha256 } from "./contracts.mjs";
 
 const RESOURCE_TYPES = Object.freeze([
   "worker",
@@ -80,9 +80,11 @@ function main() {
   process.stdout.write(canonicalJson({ manifestDigest: manifest.manifestDigest, resourceCount: manifest.resources.length, written: output }));
 }
 
-try {
-  main();
-} catch (error) {
-  process.stderr.write(`ownership manifest failed: ${error instanceof Error ? error.message : String(error)}\n`);
-  process.exitCode = 1;
+if (isMainModule(import.meta.url)) {
+  try {
+    main();
+  } catch (error) {
+    process.stderr.write(`ownership manifest failed: ${error instanceof Error ? error.message : String(error)}\n`);
+    process.exitCode = 1;
+  }
 }

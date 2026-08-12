@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { readFileSync, writeFileSync } from "node:fs";
-import { canonicalJson, IDENTITY, parseArgs, requireDigest, requireOption, requireSha } from "./contracts.mjs";
+import { canonicalJson, IDENTITY, isMainModule, parseArgs, requireDigest, requireOption, requireSha } from "./contracts.mjs";
 
 function main() {
   const args = parseArgs(process.argv.slice(2));
@@ -27,9 +27,11 @@ function main() {
   process.stdout.write(canonicalJson(result));
 }
 
-try {
-  main();
-} catch (error) {
-  process.stderr.write(`preview digest verification failed: ${error instanceof Error ? error.message : String(error)}\n`);
-  process.exitCode = 1;
+if (isMainModule(import.meta.url)) {
+  try {
+    main();
+  } catch (error) {
+    process.stderr.write(`preview digest verification failed: ${error instanceof Error ? error.message : String(error)}\n`);
+    process.exitCode = 1;
+  }
 }

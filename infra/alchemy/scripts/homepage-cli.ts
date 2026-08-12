@@ -40,7 +40,7 @@ export type HomepageCliOptions = {
 
 export class HomepageCliUsageError extends Error {}
 
-const STAGE_PATTERN = /^(?:p(?:00[1-9]|0[1-9][0-9]|[1-9][0-9]{2})|dev-main)$/;
+const STAGE_PATTERN = /^(?:p(?:[1-9][0-9]|00[1-9]|0[1-9][0-9]|[1-9][0-9]{2})|dev-main)$/;
 const PROFILE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 
 // These names are selector/credential inputs. The wrapper requires all
@@ -67,9 +67,9 @@ const usage = (): string =>
   [
     "usage:",
     "  guard --stage p000",
-    "  plan --stage <p001..p999|dev-main> --profile <token>",
-    "  deploy --stage <p001..p999|dev-main> --profile <token> --yes",
-    "  destroy --stage <p001..p999|dev-main> --profile <token> (--dry-run|--yes)",
+    "  plan --stage <p01..p99|p001..p999|dev-main> --profile <token>",
+    "  deploy --stage <p01..p99|p001..p999|dev-main> --profile <token> --yes",
+    "  destroy --stage <p01..p99|p001..p999|dev-main> --profile <token> (--dry-run|--yes)",
   ].join("\n");
 
 const usageError = (message: string): never => {
