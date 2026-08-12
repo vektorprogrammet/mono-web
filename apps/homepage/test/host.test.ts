@@ -70,7 +70,7 @@ describe("homepage stage and host contract", () => {
     ) as Array<{ type: string; id: string; name: string }>;
 
     expect(declaration).toContain('Alchemy.Stack(\n  "vektor"');
-    expect(declaration).toContain('state: Cloudflare.state({ workerName: "alchemy-state-store-vektor" })');
+    expect(declaration).toContain("state: Cloudflare.state()");
     expect(declaration).toContain('Cloudflare.Website.Vite("Homepage"');
     expect(declaration).toContain('Cloudflare.Website.Vite("Dashboard"');
     expect(declaration).toContain('yield* PreviewWorker');
