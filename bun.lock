@@ -152,6 +152,18 @@
         "vite-plugin-static-copy": "^2.3.0",
       },
     },
+    "packages/domain": {
+      "name": "@vektorprogrammet/domain",
+      "version": "0.1.0",
+      "dependencies": {
+        "effect": "4.0.0-beta.107",
+      },
+      "devDependencies": {
+        "@types/node": "^22",
+        "oxlint": "^1.41.0",
+        "typescript": "^5",
+      },
+    },
     "packages/sdk": {
       "name": "@vektorprogrammet/sdk",
       "version": "0.2.0",
@@ -1239,6 +1251,8 @@
     "@types/ws": ["@types/ws@8.18.1", "", { "dependencies": { "@types/node": "*" } }, "sha512-ThVF6DCVhA8kUGy+aazFQ4kXQ7E1Ty7A3ypFOe0IcJV8O/M511G99AW24irKrW56Wt44yG9+ij8FaqoBGkuBXg=="],
 
     "@types/yauzl": ["@types/yauzl@2.10.3", "", { "dependencies": { "@types/node": "*" } }, "sha512-oJoftv0LSuaDZE3Le4DbKX+KS9G36NzOeSap90UIK0yMA/NhKJhqlSGtNDORNRaIbQfzjXDrQa0ytJ6mNRGz/Q=="],
+
+    "@vektorprogrammet/domain": ["@vektorprogrammet/domain@workspace:packages/domain"],
 
     "@vektorprogrammet/sdk": ["@vektorprogrammet/sdk@workspace:packages/sdk"],
 
