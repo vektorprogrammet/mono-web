@@ -13,7 +13,7 @@
   },
   "scripts": {
     "report": "bun run src/main.ts",
-    "test": "bun run src/main.ts --fixtures",
+    "test": "bun run src/main.ts --fixtures && bun run src/tutor/main.ts --fixtures",
     "check-types": "tsc --noEmit",
     "build": "tsc --noEmit",
     "lint": "oxlint"
