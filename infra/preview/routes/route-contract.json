@@ -1,0 +1,14 @@
+{
+  "id": "vektor-p20-route-contract-v1",
+  "target": { "app": "vektor", "stage": "p20", "target": "p20", "host": "p20.vektor.phibkro.org" },
+  "sourceManifestDigest": "sha256:generated-at-review-time",
+  "routes": [
+    { "path": "/", "application": "homepage", "expectedStatus": 200, "expectedState": "populated", "visualEvidence": true },
+    { "path": "/team", "application": "homepage", "expectedStatus": 200, "expectedState": "populated", "visualEvidence": true },
+    { "path": "/kontakt/trondheim", "application": "homepage", "expectedStatus": 200, "expectedState": "populated", "visualEvidence": true },
+    { "path": "/health", "application": "homepage", "expectedStatus": 200, "expectedState": "health", "visualEvidence": false },
+    { "path": "/dashboard", "application": "dashboard", "expectedStatus": 200, "expectedState": "authorization-denied-safe", "visualEvidence": true },
+    { "path": "/dashboard/profile", "application": "dashboard", "expectedStatus": 200, "expectedState": "authorization-denied-safe", "visualEvidence": true },
+    { "path": "/dashboard/sokere", "application": "dashboard", "expectedStatus": 200, "expectedState": "authorization-denied-safe", "visualEvidence": true }
+  ]
+}

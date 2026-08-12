@@ -1,0 +1,12 @@
+[
+  {"type":"worker","id":"vektor-p20-worker","name":"vektor-p20-worker"},
+  {"type":"durable-object-namespace","id":"vektor-p20-preview-container-namespace","name":"vektor-p20-preview-container-namespace"},
+  {"type":"durable-object-migration","id":"vektor-p20-preview-container-migration","name":"vektor-p20-preview-container-migration"},
+  {"type":"container","id":"vektor-p20-container","name":"vektor-p20-container"},
+  {"type":"container-image","id":"vektor-p20-container-image","name":"vektor-p20-container-image"},
+  {"type":"homepage","id":"vektor-p20-homepage","name":"vektor-p20-homepage"},
+  {"type":"dashboard","id":"vektor-p20-dashboard","name":"vektor-p20-dashboard"},
+  {"type":"route","id":"vektor-p20-route","name":"vektor-p20-route"},
+  {"type":"dns-tls","id":"vektor-p20-dns-tls","name":"vektor-p20-dns-tls"},
+  {"type":"seed-artifact","id":"vektor-p20-seed-artifact","name":"vektor-p20-seed-artifact"}
+]

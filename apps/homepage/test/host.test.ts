@@ -14,6 +14,16 @@ describe("homepage stage and host contract", () => {
     expect(homepageDomain(DEV_MAIN_STAGE)).toBe("vektor.phibkro.org");
   });
 
+  it("maps bounded two-digit preview stages and preserves three-digit grammar", () => {
+    expect(resolveHomepageRequest("P20.vektor.phibkro.org:8787")).toEqual({
+      stage: "p20",
+      host: "p20.vektor.phibkro.org",
+    });
+    expect(homepageDomain("p10")).toBe("p10.vektor.phibkro.org");
+    expect(homepageDomain("p99")).toBe("p99.vektor.phibkro.org");
+    expect(homepageDomain("p001")).toBe("p001.vektor.phibkro.org");
+  });
+
   it("maps cloud canary hosts and strips only a numeric loopback port", () => {
     expect(resolveHomepageRequest("P001.vektor.phibkro.org:8787")).toEqual({
       stage: "p001",
