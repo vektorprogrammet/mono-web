@@ -2,34 +2,82 @@ import DeleteReceiptDialog from "@/components/receipts/DeleteReceiptDialog";
 import ReceiptFormDialog from "@/components/receipts/ReceiptFormDialog";
 import { DataTable } from "@/components/data-table";
 import { Button } from "@/components/ui/button";
+import type { ReceiptInput } from "@vektorprogrammet/sdk";
 import type { ColumnDef } from "@tanstack/react-table";
-import { apiUrl, isFixtureMode } from "@vektorprogrammet/sdk";
+import { redirect, useActionData, useLoaderData } from "react-router";
 import { useState } from "react";
-import { useActionData, useLoaderData } from "react-router";
+import {
+  isUnauthorizedError,
+  mapReceiptError,
+  mapReceiptStatus,
+  mapReceiptView,
+  type ReceiptStatus,
+  type ReceiptView,
+} from "../lib/receipt-view";
 import { createAuthenticatedClient } from "../lib/api.server";
 import { requireAuth } from "../lib/auth.server";
 import type { Route } from "./+types/dashboard.mine-utlegg._index";
 
-type Receipt = {
-  id: number;
-  visualId: string;
-  description: string;
-  sum: number;
-  receiptDate: string | null;
-  submitDate: string | null;
-  status: "pending" | "refunded" | "rejected";
-  refundDate: string | null;
+type ParseResult<T> = { value: T } | { error: string };
+
+type ParsedReceipt = {
+  input: ReceiptInput;
+  file?: File;
 };
 
-const mockReceipts: Receipt[] = [
-  { id: 1, visualId: "1a2b3c", description: "Bussreise til skolen", sum: 150, receiptDate: "2025-01-10", submitDate: "2025-01-10", status: "pending", refundDate: null },
-  { id: 2, visualId: "4d5e6f", description: "Materiell til undervisning", sum: 320, receiptDate: "2025-01-12", submitDate: "2025-01-12", status: "refunded", refundDate: "2025-02-01" },
-  { id: 3, visualId: "7a8b9c", description: "Lunsj teamsamling", sum: 200, receiptDate: "2025-01-14", submitDate: "2025-01-14", status: "rejected", refundDate: null },
-];
+function readFormText(form: FormData, name: string): string | null {
+  const value = form.get(name);
+  return typeof value === "string" ? value : null;
+}
+
+function parseReceiptId(value: string | null): number | null {
+  if (value === null || !/^\d+$/.test(value)) return null;
+  const id = Number(value);
+  return Number.isSafeInteger(id) && id > 0 ? id : null;
+}
+
+function parseReceiptForm(form: FormData, requireFile: boolean): ParseResult<ParsedReceipt> {
+  const descriptionValue = readFormText(form, "description");
+  if (descriptionValue === null || descriptionValue.trim().length === 0) {
+    return { error: "Beskrivelse er påkrevd." };
+  }
+
+  const sumValue = readFormText(form, "sum");
+  if (sumValue === null || sumValue.trim().length === 0) {
+    return { error: "Beløp må være et positivt tall." };
+  }
+  const sum = Number(sumValue.trim());
+  if (!Number.isFinite(sum) || sum <= 0) {
+    return { error: "Beløp må være et positivt tall." };
+  }
+
+  const receiptDate = readFormText(form, "receiptDate");
+  if (receiptDate === null || !/^\d{4}-\d{2}-\d{2}$/.test(receiptDate)) {
+    return { error: "Dato må ha formatet YYYY-MM-DD." };
+  }
+
+  const fileValue = form.get("picture");
+  if (fileValue !== null && !(fileValue instanceof File)) {
+    return { error: "Kvitteringsbilde må være en fil." };
+  }
+  const file = fileValue instanceof File && fileValue.size > 0 ? fileValue : undefined;
+  if (requireFile && file === undefined) {
+    return { error: "Kvitteringsbilde er påkrevd." };
+  }
+
+  return {
+    value: {
+      input: {
+        description: descriptionValue.trim(),
+        sum,
+        receiptDate,
+      },
+      file,
+    },
+  };
+}
 
 export async function loader({ request }: Route.LoaderArgs) {
-  if (isFixtureMode) return { receipts: mockReceipts };
-
   const token = requireAuth(request);
   const client = createAuthenticatedClient(token);
   const url = new URL(request.url);
@@ -37,9 +85,11 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   try {
     const result = await client.receipts.list(status ? { status } : undefined);
-    return { receipts: result.items as Receipt[] };
-  } catch {
-    return { receipts: [] };
+    return { receipts: result.items.map(mapReceiptView), error: undefined };
+  } catch (error) {
+    if (isUnauthorizedError(error)) throw redirect("/login?expired=true");
+    const receipts: ReceiptView[] = [];
+    return { receipts, error: mapReceiptError(error) };
   }
 }
 
@@ -47,64 +97,56 @@ export async function action({ request }: Route.ActionArgs) {
   const token = requireAuth(request);
   const client = createAuthenticatedClient(token);
   const form = await request.formData();
-  const intent = form.get("_intent")?.toString();
+  const intent = readFormText(form, "_intent");
 
   if (intent === "delete") {
-    const id = form.get("receiptId")?.toString();
-    if (!id) return { error: "Manglende ID" };
+    const receiptId = parseReceiptId(readFormText(form, "receiptId"));
+    if (receiptId === null) return { error: "Manglende eller ugyldig ID." };
 
     try {
-      await client.receipts.delete(Number(id));
+      await client.receipts.delete(receiptId);
       return { success: true };
-    } catch {
-      return { error: "Sletting feilet" };
+    } catch (error) {
+      if (isUnauthorizedError(error)) throw redirect("/login?expired=true");
+      return { error: mapReceiptError(error) };
     }
   }
 
   if (intent === "create" || intent === "edit") {
-    const method = intent === "create" ? "POST" : "PUT";
-    const id = form.get("receiptId")?.toString();
-    const urlPath = intent === "create"
-      ? "/api/receipts"
-      : `/api/receipts/${id}`;
+    const parsed = parseReceiptForm(form, intent === "create");
+    if ("error" in parsed) return parsed;
 
-    const body = new FormData();
-    body.append("description", form.get("description")?.toString() ?? "");
-    body.append("sum", form.get("sum")?.toString() ?? "");
-    const receiptDate = form.get("receiptDate")?.toString();
-    if (receiptDate) body.append("receiptDate", receiptDate);
-    const file = form.get("picture");
-    if (file instanceof File && file.size > 0) body.append("picture", file);
+    const receiptId = parseReceiptId(readFormText(form, "receiptId"));
 
-    const res = await fetch(`${apiUrl}${urlPath}`, {
-      method,
-      headers: { Authorization: `Bearer ${token}` },
-      body,
-    });
-
-    if (!res.ok) return { error: "Lagring feilet" };
-    return { success: true };
+    try {
+      if (intent === "create") {
+        await client.receipts.create(parsed.value.input, parsed.value.file);
+      } else {
+        if (receiptId === null) return { error: "Manglende eller ugyldig ID." };
+        await client.receipts.update(receiptId, parsed.value.input, parsed.value.file);
+      }
+      return { success: true };
+    } catch (error) {
+      if (isUnauthorizedError(error)) throw redirect("/login?expired=true");
+      return { error: mapReceiptError(error) };
+    }
   }
 
-  return { error: "Ukjent handling" };
+  return { error: "Ukjent handling." };
 }
 
-const statusLabels: Record<string, string> = {
-  pending: "Venter",
-  refunded: "Refundert",
-  rejected: "Avvist",
-};
-
-const statusColors: Record<string, string> = {
+const statusColors: Record<ReceiptStatus, string> = {
   pending: "bg-yellow-100 text-yellow-800",
   refunded: "bg-green-100 text-green-800",
   rejected: "bg-red-100 text-red-800",
 };
 
-function StatusBadge({ status }: { status: string }) {
+function StatusBadge({ status }: { status: ReceiptStatus }) {
   return (
-    <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${statusColors[status] ?? ""}`}>
-      {statusLabels[status] ?? status}
+    <span
+      className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${statusColors[status]}`}
+    >
+      {mapReceiptStatus(status)}
     </span>
   );
 }
@@ -114,8 +156,8 @@ function ActionsCell({
   onEdit,
   onDelete,
 }: {
-  receipt: Receipt;
-  onEdit: (receipt: Receipt) => void;
+  receipt: ReceiptView;
+  onEdit: (receipt: ReceiptView) => void;
   onDelete: (id: number) => void;
 }) {
   if (receipt.status !== "pending") return null;
@@ -137,29 +179,30 @@ const statusFilters = [
   { value: "pending", label: "Venter" },
   { value: "refunded", label: "Refundert" },
   { value: "rejected", label: "Avvist" },
-] as const;
+] satisfies Array<{ value: ReceiptStatus | null; label: string }>;
 
 // biome-ignore lint/style/noDefaultExport: Route Modules require default export
 export default function MineUtlegg() {
-  const { receipts } = useLoaderData<typeof loader>();
+  const loaderData = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
+  const { receipts } = loaderData;
 
   const [createOpen, setCreateOpen] = useState(false);
-  const [editReceipt, setEditReceipt] = useState<Receipt | null>(null);
+  const [editReceipt, setEditReceipt] = useState<ReceiptView | null>(null);
   const [deleteId, setDeleteId] = useState<number | null>(null);
-  const [statusFilter, setStatusFilter] = useState<string | null>(null);
+  const [statusFilter, setStatusFilter] = useState<ReceiptStatus | null>(null);
 
   const filteredReceipts = statusFilter
-    ? receipts.filter((r) => r.status === statusFilter)
+    ? receipts.filter((receipt) => receipt.status === statusFilter)
     : receipts;
 
-  const columns: ColumnDef<Receipt>[] = [
+  const columns: ColumnDef<ReceiptView>[] = [
     { accessorKey: "visualId", header: "ID" },
     {
       accessorKey: "description",
       header: "Beskrivelse",
       cell: ({ row }) => (
-        <span className="max-w-[200px] truncate block" title={row.original.description}>
+        <span className="block max-w-[200px] truncate" title={row.original.description}>
           {row.original.description}
         </span>
       ),
@@ -198,6 +241,7 @@ export default function MineUtlegg() {
   ];
 
   const actionError = actionData && "error" in actionData ? actionData.error : undefined;
+  const loaderError = loaderData.error;
 
   return (
     <section className="flex w-full min-w-0 flex-col items-center">
@@ -207,8 +251,16 @@ export default function MineUtlegg() {
           <Button onClick={() => setCreateOpen(true)}>Legg til utlegg</Button>
         </div>
 
+        {loaderError && (
+          <p className="mb-4 rounded bg-red-50 p-3 text-red-600 text-sm" role="alert">
+            {loaderError}
+          </p>
+        )}
+
         {actionError && (
-          <p className="mb-4 rounded bg-red-50 p-3 text-red-600 text-sm">{actionError}</p>
+          <p className="mb-4 rounded bg-red-50 p-3 text-red-600 text-sm" role="alert">
+            {actionError}
+          </p>
         )}
 
         <div className="mb-4 flex gap-2">
@@ -224,7 +276,7 @@ export default function MineUtlegg() {
           ))}
         </div>
 
-        <DataTable columns={columns} data={filteredReceipts ?? []} />
+        <DataTable columns={columns} data={filteredReceipts} />
       </div>
 
       <ReceiptFormDialog
@@ -236,16 +288,20 @@ export default function MineUtlegg() {
       {editReceipt && (
         <ReceiptFormDialog
           open={editReceipt !== null}
-          onOpenChange={(open) => { if (!open) setEditReceipt(null); }}
+          onOpenChange={(open) => {
+            if (!open) setEditReceipt(null);
+          }}
           receipt={editReceipt}
           error={actionError}
         />
       )}
 
-      {deleteId !== null && (
+      {deleteId !== null && receipts.some((receipt) => receipt.id === deleteId) && (
         <DeleteReceiptDialog
           open={deleteId !== null}
-          onOpenChange={(open) => { if (!open) setDeleteId(null); }}
+          onOpenChange={(open) => {
+            if (!open) setDeleteId(null);
+          }}
           receiptId={deleteId}
         />
       )}

@@ -6,19 +6,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import type { ReceiptView } from "../../lib/receipt-view";
 import { Form } from "react-router";
-
-type Receipt = {
-  id: number;
-  description: string;
-  sum: number;
-  receiptDate: string | null;
-};
 
 type Props = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  receipt?: Receipt; // undefined = create mode
+  receipt?: ReceiptView; // undefined = create mode
   error?: string;
 };
 
@@ -39,7 +33,9 @@ export default function ReceiptFormDialog({ open, onOpenChange, receipt, error }
 
           <div className="flex flex-col gap-4 py-4">
             {error && (
-              <p className="rounded bg-red-50 p-3 text-red-600 text-sm">{error}</p>
+              <p className="rounded bg-red-50 p-3 text-red-600 text-sm" role="alert">
+                {error}
+              </p>
             )}
 
             <div className="flex flex-col gap-1.5">
