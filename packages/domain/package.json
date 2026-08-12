@@ -13,16 +13,19 @@
   },
   "scripts": {
     "report": "bun run src/main.ts",
-    "test": "bun run src/main.ts --fixtures && bun run src/tutor/main.ts --fixtures",
+    "proof:d1": "bun run src/tutor/d1-proof.ts",
+    "test": "bun run src/main.ts --fixtures && bun run src/tutor/main.ts --fixtures && bun run proof:d1",
     "check-types": "tsc --noEmit",
     "build": "tsc --noEmit",
     "lint": "oxlint"
   },
   "dependencies": {
+    "@effect/sql-d1": "4.0.0-beta.107",
     "effect": "4.0.0-beta.107"
   },
   "devDependencies": {
     "@types/node": "^22",
+    "miniflare": "4.20260706.0",
     "oxlint": "^1.41.0",
     "typescript": "^5"
   }
