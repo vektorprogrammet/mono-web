@@ -1,14 +1,1325 @@
 {
-  "id": "vektor-p20-route-contract-v1",
-  "target": { "app": "vektor", "stage": "p20", "target": "p20", "host": "p20.vektor.phibkro.org" },
-  "sourceManifestDigest": "sha256:generated-at-review-time",
+  "schemaVersion": "preview-route-contract/v1",
+  "generatorVersion": "2026-08-12",
+  "target": {
+    "app": "vektor",
+    "stage": "p20",
+    "target": "p20",
+    "host": "p20.vektor.phibkro.org",
+    "resourcePrefix": "vektor-p20",
+    "container": "vektor-p20-container"
+  },
+  "sourceManifestDigest": "sha256:e4b9e468c45187808462f4c2e8cf20d3e25785405db2755b9350c069fc3feaef",
+  "sourceManifests": {
+    "homepage": {
+      "files": [
+        {
+          "path": "apps/homepage/src/lib/dev-content.ts",
+          "bytes": 14563,
+          "sha256": "sha256:a9404bafaf4e43e72e031e90f9445d7eafe6fa9d16265b18a231a732ebb66974"
+        },
+        {
+          "path": "apps/homepage/src/nav-routes.ts",
+          "bytes": 387,
+          "sha256": "sha256:30c709cde0ee27c3da42588b9d75593e7ab145fadce35d2064c2efa31d0e3cdb"
+        },
+        {
+          "path": "apps/homepage/src/routes.ts",
+          "bytes": 303,
+          "sha256": "sha256:e3c6946ddf2e7ff9591c90408e395ab2db2df1a7d67ea5ea7388d0b195b24d03"
+        },
+        {
+          "path": "apps/homepage/src/routes/_home._index.tsx",
+          "bytes": 4621,
+          "sha256": "sha256:904d6419e4d14070ff166fdcb07898aaae4ec05e7aaf6527ad8e3a6e7125b0a7"
+        },
+        {
+          "path": "apps/homepage/src/routes/_home.assistenter.tsx",
+          "bytes": 20975,
+          "sha256": "sha256:96800f80406bcef68f61e31591a6cb87e5c7cda88b75112ce8b6ecfcc55663f1"
+        },
+        {
+          "path": "apps/homepage/src/routes/_home.foreldre.tsx",
+          "bytes": 1183,
+          "sha256": "sha256:a069ef8297725fed1fe33fcddc17ffe66431128a9751e511346102f963b59372"
+        },
+        {
+          "path": "apps/homepage/src/routes/_home.kontakt._index.tsx",
+          "bytes": 476,
+          "sha256": "sha256:12e198590dd7f2ef106a469408075ed3d722972112cccdabd7b7af66e8c705cf"
+        },
+        {
+          "path": "apps/homepage/src/routes/_home.kontakt.$department.tsx",
+          "bytes": 957,
+          "sha256": "sha256:6a8a22db64890ecfebbd29b84b6a80237ca2b0fe206dd94415b1b7a9b79ae350"
+        },
+        {
+          "path": "apps/homepage/src/routes/_home.kontakt.tsx",
+          "bytes": 1741,
+          "sha256": "sha256:3a974e2b47c34aaf5afc03e19582ae3fbddbe8bba1683717fa52c56322afb9ed"
+        },
+        {
+          "path": "apps/homepage/src/routes/_home.om-oss.tsx",
+          "bytes": 1549,
+          "sha256": "sha256:5fe1800ac6a0861d7c569e258b48e149609ed160ff54bedc600ebd7574a843d9"
+        },
+        {
+          "path": "apps/homepage/src/routes/_home.skoler.tsx",
+          "bytes": 6108,
+          "sha256": "sha256:56af985b11e29c51783dae810714a10dc96885e4024df80a47a9ae8ea0475b6c"
+        },
+        {
+          "path": "apps/homepage/src/routes/_home.team._index.tsx",
+          "bytes": 487,
+          "sha256": "sha256:2ed30dd1016195d1a895a9569e6756e181d928565acfd4b23b2b6194b04f9504"
+        },
+        {
+          "path": "apps/homepage/src/routes/_home.team.$department.tsx",
+          "bytes": 919,
+          "sha256": "sha256:c58fe10b638eef3e90b1b49523a5529ac2a0ca87078af586b1b4cb4b58f6d703"
+        },
+        {
+          "path": "apps/homepage/src/routes/_home.team.aas.evaluering-rekruttering-profilering.tsx",
+          "bytes": 1605,
+          "sha256": "sha256:1015722b5c25a4d470431854105743a08dbff471087b3b91a5934ecca0196782"
+        },
+        {
+          "path": "apps/homepage/src/routes/_home.team.aas.skolekoordinering.tsx",
+          "bytes": 2369,
+          "sha256": "sha256:c21e1e677e162d9a9e6f0363741542ea25c438add4b854bb0263d5bcf27daa28"
+        },
+        {
+          "path": "apps/homepage/src/routes/_home.team.aas.sosialt.tsx",
+          "bytes": 630,
+          "sha256": "sha256:69911d6af0e85532de7423fcfc7b583d2fdcaddcbe8dc67bf413fe8484aacc6b"
+        },
+        {
+          "path": "apps/homepage/src/routes/_home.team.aas.sponsor-okonomi.tsx",
+          "bytes": 1219,
+          "sha256": "sha256:89e7a2d82896d4a925ede8305379cf788af38939a853482760b6b5a82310e9cd"
+        },
+        {
+          "path": "apps/homepage/src/routes/_home.team.aas.styret.tsx",
+          "bytes": 1555,
+          "sha256": "sha256:02a03650b8c7c988e593c6e20e12ae2111e45334d8bc14bcf11557fa26513ab0"
+        },
+        {
+          "path": "apps/homepage/src/routes/_home.team.bergen.rekruttering.tsx",
+          "bytes": 1051,
+          "sha256": "sha256:4793a211f12268a1a2cba7732e0a766ef12cf34314f67c63b3e3405ad96fa4b2"
+        },
+        {
+          "path": "apps/homepage/src/routes/_home.team.bergen.skolekoordinering.tsx",
+          "bytes": 1253,
+          "sha256": "sha256:d564918f0010b98c0b00f8f91eb20cc86d3e46f7abf2752d97de4debb522079b"
+        },
+        {
+          "path": "apps/homepage/src/routes/_home.team.bergen.styret.tsx",
+          "bytes": 984,
+          "sha256": "sha256:104b70eb0cbff9e60a507b8a4c5246e831f04df6838553d23433798dabd28758"
+        },
+        {
+          "path": "apps/homepage/src/routes/_home.team.hovedstyret.tsx",
+          "bytes": 2437,
+          "sha256": "sha256:0353779a7c69fcaeeb76e06cdf8389047415b1e58855be7124a3f26caff223a0"
+        },
+        {
+          "path": "apps/homepage/src/routes/_home.team.trondheim.evaluering.tsx",
+          "bytes": 5965,
+          "sha256": "sha256:1346c5a7e87863cb7a86cd763e951c74fd46c0bb5a5f4ebb1fdfb5b93f71ce32"
+        },
+        {
+          "path": "apps/homepage/src/routes/_home.team.trondheim.it.tsx",
+          "bytes": 5419,
+          "sha256": "sha256:528f61ce8b5eb0569980b45385894c10b8d58b5bd504dbc0e5040b9753de92f0"
+        },
+        {
+          "path": "apps/homepage/src/routes/_home.team.trondheim.okonomi.tsx",
+          "bytes": 4296,
+          "sha256": "sha256:9e22299e598456078707dce20d812b8ab58f6c4b0639c7b33e25ebc6970da903"
+        },
+        {
+          "path": "apps/homepage/src/routes/_home.team.trondheim.profilering.tsx",
+          "bytes": 5254,
+          "sha256": "sha256:df23c8ffd5276256564a4ee6588f99bd9abc3d00ad81e7f3bd790662384f5f4f"
+        },
+        {
+          "path": "apps/homepage/src/routes/_home.team.trondheim.rekruttering.tsx",
+          "bytes": 3989,
+          "sha256": "sha256:56716b631a863d64b95c2240d35700b0be9eff1f0add27b2430ab2fbc0a1adec"
+        },
+        {
+          "path": "apps/homepage/src/routes/_home.team.trondheim.skolekoordinering.tsx",
+          "bytes": 6972,
+          "sha256": "sha256:18fbbe81b34eca4c4521bcd1edf90981feba9c4f6454c936ecf285b098480a64"
+        },
+        {
+          "path": "apps/homepage/src/routes/_home.team.trondheim.sponsor.tsx",
+          "bytes": 4681,
+          "sha256": "sha256:3d22f0e63e815934c42a9ba84b786fce28ffb74cb0f55e79ac615704aa50e728"
+        },
+        {
+          "path": "apps/homepage/src/routes/_home.team.trondheim.styret.tsx",
+          "bytes": 1396,
+          "sha256": "sha256:90d36bd1d2ca1099aaa838ede1c7fa617970038c09bca791ac699660d0c925f9"
+        },
+        {
+          "path": "apps/homepage/src/routes/_home.team.tsx",
+          "bytes": 2808,
+          "sha256": "sha256:09eae11f54f6b6ecaca673663fb487c3c8666dbe26ea264d8ec803f24b6f7cf8"
+        },
+        {
+          "path": "apps/homepage/src/routes/_home.tsx",
+          "bytes": 9586,
+          "sha256": "sha256:cd1f2b4248575c91697f7c55f04cf0c409a990615c021031454fcaabde9edada"
+        }
+      ],
+      "digest": "sha256:a5ecb583ae3d96ccbe7942812e9b22a355379d7a8296bb3bc875265166c1302a"
+    },
+    "dashboard": {
+      "files": [
+        {
+          "path": "apps/dashboard/app/lib/auth.server.ts",
+          "bytes": 961,
+          "sha256": "sha256:120939752328310834ea75dc3d7a29d72cb0c1945d367bbf211220a163f4358a"
+        },
+        {
+          "path": "apps/dashboard/app/routes.ts",
+          "bytes": 310,
+          "sha256": "sha256:0921401ba41615ec202b3fd9069bf6b1c2bb3e726f7a9674069af79a6ad5028b"
+        },
+        {
+          "path": "apps/dashboard/app/routes/_index.tsx",
+          "bytes": 491,
+          "sha256": "sha256:5be89c189a4c33b8195e28dadf8aff50aa85e557d1cccb91ec7d1aebf9d02873"
+        },
+        {
+          "path": "apps/dashboard/app/routes/dashboard._index.tsx",
+          "bytes": 2345,
+          "sha256": "sha256:11fde6960b4a4ce261f2a3131a62a41d54d0a080211b4ea0bebbbc9d325221ab"
+        },
+        {
+          "path": "apps/dashboard/app/routes/dashboard.assistenter._index.tsx",
+          "bytes": 1915,
+          "sha256": "sha256:e2d48ebf968df5879240faa09ae8f65747c76959cf71ccb56d9937eb0c593a55"
+        },
+        {
+          "path": "apps/dashboard/app/routes/dashboard.attester._index.tsx",
+          "bytes": 228,
+          "sha256": "sha256:78f0aefc928c8949b1f8f18b4063106828cee7086960690e30cd60458196f697"
+        },
+        {
+          "path": "apps/dashboard/app/routes/dashboard.avdelinger._index.tsx",
+          "bytes": 232,
+          "sha256": "sha256:0328715f0c34eac68a2a7c786f841b02bdfb3e170d32ece42d8cd2ba6be2ee5f"
+        },
+        {
+          "path": "apps/dashboard/app/routes/dashboard.brukere._index.tsx",
+          "bytes": 3540,
+          "sha256": "sha256:8b20a1c5acd1cc843bef6e0c4f2377cabbc0208e44de28bf3fd1f74fa3b96c2d"
+        },
+        {
+          "path": "apps/dashboard/app/routes/dashboard.epostliste._index.tsx",
+          "bytes": 1683,
+          "sha256": "sha256:a97b248a263a141bd8fb0ae1e73fb95dd1e4c1d3c0d4b2d3c67a6a999b40b347"
+        },
+        {
+          "path": "apps/dashboard/app/routes/dashboard.intervjuer._index.tsx",
+          "bytes": 1950,
+          "sha256": "sha256:374e5cec7c9065a0f6ae6b6399a3b4a01dfcd352aebe3603672729846428bd84"
+        },
+        {
+          "path": "apps/dashboard/app/routes/dashboard.intervjufordeling._index.tsx",
+          "bytes": 246,
+          "sha256": "sha256:b32abda14cf8fbb1c56feec0f9429f690fa9c16c25f9bb75d033de3fdde8232a"
+        },
+        {
+          "path": "apps/dashboard/app/routes/dashboard.intervjusjema._index.tsx",
+          "bytes": 238,
+          "sha256": "sha256:8c421c0a2771a4fa614596d43483254eb40bcbf00a2aa26adeeac8bb7ee316c7"
+        },
+        {
+          "path": "apps/dashboard/app/routes/dashboard.linjer._index.tsx",
+          "bytes": 1424,
+          "sha256": "sha256:296371c027bfdd53a094d9c2acb5808de93e0ca5ef5985c84c14e40dc471f6aa"
+        },
+        {
+          "path": "apps/dashboard/app/routes/dashboard.mine-utlegg._index.tsx",
+          "bytes": 9612,
+          "sha256": "sha256:6e63c6326c8cdf0d5732857cf79c703c35f1383d837000c8adb5f346114efbc7"
+        },
+        {
+          "path": "apps/dashboard/app/routes/dashboard.opptaksperioder._index.tsx",
+          "bytes": 242,
+          "sha256": "sha256:9c1b26baa75111978e9a99ff9b452f062bd64f86c24c54bcdfc341207341b8ad"
+        },
+        {
+          "path": "apps/dashboard/app/routes/dashboard.profile._index.tsx",
+          "bytes": 8898,
+          "sha256": "sha256:0d784ac76e7092fedacf468ecff2241931b3e3a003aef77fee49137955a5208b"
+        },
+        {
+          "path": "apps/dashboard/app/routes/dashboard.profile.rediger._index.tsx",
+          "bytes": 8950,
+          "sha256": "sha256:613d2854c0c94f27cc99fef0e7520e8703f970640aaf5fe137c9bdb75cead11e"
+        },
+        {
+          "path": "apps/dashboard/app/routes/dashboard.skoler._index.tsx",
+          "bytes": 1741,
+          "sha256": "sha256:79d39dd0feb9d5b73a43db308cd7155980e57d1deaad3ba1f369e07ef8ffa04e"
+        },
+        {
+          "path": "apps/dashboard/app/routes/dashboard.sokere._index.tsx",
+          "bytes": 16432,
+          "sha256": "sha256:fe91d4b8e7682dbabbc27f4a428640aa6d0600aeba83aa19850e1514f3b26da8"
+        },
+        {
+          "path": "apps/dashboard/app/routes/dashboard.sponsorer._index.tsx",
+          "bytes": 1298,
+          "sha256": "sha256:9b5532b117917725654cd00930f4f63ff2623b1a8108580bb48954f288ec09a2"
+        },
+        {
+          "path": "apps/dashboard/app/routes/dashboard.statistikk._index.tsx",
+          "bytes": 2260,
+          "sha256": "sha256:e016830611153260a7ddb16f055572d2e0eb0ba86bdd5f25626201dd80e2dc7e"
+        },
+        {
+          "path": "apps/dashboard/app/routes/dashboard.team._index.tsx",
+          "bytes": 1375,
+          "sha256": "sha256:08071e9f5f67b2a64415c253a59fcdb99f58b54cd88ef0094e6b100010de34e7"
+        },
+        {
+          "path": "apps/dashboard/app/routes/dashboard.teaminteresse._index.tsx",
+          "bytes": 1798,
+          "sha256": "sha256:f758ea815f5fe688056f46de8e18cb9b4e5472902d57efaa936505f6300f3da9"
+        },
+        {
+          "path": "apps/dashboard/app/routes/dashboard.tidligere-assistenter._index.tsx",
+          "bytes": 253,
+          "sha256": "sha256:6ccb48a7ac26bc4e69a8f0a731d6654dc3cc9851e1d395e02cbba44c594933d5"
+        },
+        {
+          "path": "apps/dashboard/app/routes/dashboard.tsx",
+          "bytes": 16526,
+          "sha256": "sha256:dd61aed23a79407ec33769ef157a353c848913615ddf54e081c6751d80d3acfd"
+        },
+        {
+          "path": "apps/dashboard/app/routes/dashboard.utlegg._index.tsx",
+          "bytes": 8669,
+          "sha256": "sha256:40a0e35e1683b129569fd9ebc1b808d74d2875735af3e1afaa2748a13ad7747d"
+        },
+        {
+          "path": "apps/dashboard/app/routes/dashboard.vikarer._index.tsx",
+          "bytes": 1911,
+          "sha256": "sha256:c7db1f6be8b0623cbcd4f7df778e9ee888d4d288425a8e08a407ec02e313081a"
+        },
+        {
+          "path": "apps/dashboard/app/routes/glemt-passord.tsx",
+          "bytes": 2825,
+          "sha256": "sha256:c330c1109aed751d37135a439edffdb0cd8211100bcab8ab75f20be2e4d42508"
+        },
+        {
+          "path": "apps/dashboard/app/routes/login.tsx",
+          "bytes": 4261,
+          "sha256": "sha256:bb27c01724514137e2bb7b62ba8d9c64ca7ed6258ab09d958ee0d5595d3c849e"
+        },
+        {
+          "path": "apps/dashboard/app/routes/logout.tsx",
+          "bytes": 357,
+          "sha256": "sha256:7c465fb3d7f7a57a25b8b0ae25de60bcea5bfaafb46c703311b0da2cbb3551eb"
+        },
+        {
+          "path": "apps/dashboard/app/routes/tilbakestill-passord.$code.tsx",
+          "bytes": 3018,
+          "sha256": "sha256:c924d7f0ce5ca60be8637f310d83ba8ee2c181591ada7d66bd63807922c1a935"
+        }
+      ],
+      "digest": "sha256:0bd82e0efb32f172d2dfa53b6b4b623089a185aa65a8750431a261f319967f40"
+    }
+  },
   "routes": [
-    { "path": "/", "application": "homepage", "expectedStatus": 200, "expectedState": "populated", "visualEvidence": true },
-    { "path": "/team", "application": "homepage", "expectedStatus": 200, "expectedState": "populated", "visualEvidence": true },
-    { "path": "/kontakt/trondheim", "application": "homepage", "expectedStatus": 200, "expectedState": "populated", "visualEvidence": true },
-    { "path": "/health", "application": "homepage", "expectedStatus": 200, "expectedState": "health", "visualEvidence": false },
-    { "path": "/dashboard", "application": "dashboard", "expectedStatus": 200, "expectedState": "authorization-denied-safe", "visualEvidence": true },
-    { "path": "/dashboard/profile", "application": "dashboard", "expectedStatus": 200, "expectedState": "authorization-denied-safe", "visualEvidence": true },
-    { "path": "/dashboard/sokere", "application": "dashboard", "expectedStatus": 200, "expectedState": "authorization-denied-safe", "visualEvidence": true }
-  ]
+    {
+      "id": "homepage-root",
+      "app": "homepage",
+      "path": "/",
+      "sourcePath": "apps/homepage/src/routes/_home._index.tsx",
+      "kind": "page",
+      "expected": {
+        "status": 200,
+        "basicState": "populated"
+      },
+      "visual": {
+        "desktop": true,
+        "mobile": true
+      }
+    },
+    {
+      "id": "homepage-assistenter",
+      "app": "homepage",
+      "path": "/assistenter",
+      "sourcePath": "apps/homepage/src/routes/_home.assistenter.tsx",
+      "kind": "page",
+      "expected": {
+        "status": 200,
+        "basicState": "populated"
+      },
+      "visual": {
+        "desktop": true,
+        "mobile": true
+      }
+    },
+    {
+      "id": "homepage-foreldre",
+      "app": "homepage",
+      "path": "/foreldre",
+      "sourcePath": "apps/homepage/src/routes/_home.foreldre.tsx",
+      "kind": "page",
+      "expected": {
+        "status": 200,
+        "basicState": "populated"
+      },
+      "visual": {
+        "desktop": true,
+        "mobile": true
+      }
+    },
+    {
+      "id": "homepage-kontakt",
+      "app": "homepage",
+      "path": "/kontakt",
+      "sourcePath": "apps/homepage/src/routes/_home.kontakt._index.tsx",
+      "kind": "page",
+      "expected": {
+        "status": 200,
+        "basicState": "populated"
+      },
+      "visual": {
+        "desktop": true,
+        "mobile": true
+      }
+    },
+    {
+      "id": "homepage-kontakt",
+      "app": "homepage",
+      "path": "/kontakt",
+      "sourcePath": "apps/homepage/src/routes/_home.kontakt.tsx",
+      "kind": "page",
+      "expected": {
+        "status": 200,
+        "basicState": "populated"
+      },
+      "visual": {
+        "desktop": true,
+        "mobile": true
+      }
+    },
+    {
+      "id": "homepage-kontakt-aas",
+      "app": "homepage",
+      "path": "/kontakt/aas",
+      "sourcePattern": "/kontakt/:department",
+      "sourcePath": "apps/homepage/src/routes/_home.kontakt.$department.tsx",
+      "kind": "dynamic-fixture",
+      "expected": {
+        "status": 200,
+        "basicState": "populated"
+      },
+      "visual": {
+        "desktop": true,
+        "mobile": true
+      }
+    },
+    {
+      "id": "homepage-kontakt-bergen",
+      "app": "homepage",
+      "path": "/kontakt/bergen",
+      "sourcePattern": "/kontakt/:department",
+      "sourcePath": "apps/homepage/src/routes/_home.kontakt.$department.tsx",
+      "kind": "dynamic-fixture",
+      "expected": {
+        "status": 200,
+        "basicState": "populated"
+      },
+      "visual": {
+        "desktop": true,
+        "mobile": true
+      }
+    },
+    {
+      "id": "homepage-kontakt-hovedstyret",
+      "app": "homepage",
+      "path": "/kontakt/hovedstyret",
+      "sourcePattern": "/kontakt/:department",
+      "sourcePath": "apps/homepage/src/routes/_home.kontakt.$department.tsx",
+      "kind": "dynamic-fixture",
+      "expected": {
+        "status": 200,
+        "basicState": "populated"
+      },
+      "visual": {
+        "desktop": true,
+        "mobile": true
+      }
+    },
+    {
+      "id": "homepage-kontakt-trondheim",
+      "app": "homepage",
+      "path": "/kontakt/trondheim",
+      "sourcePattern": "/kontakt/:department",
+      "sourcePath": "apps/homepage/src/routes/_home.kontakt.$department.tsx",
+      "kind": "dynamic-fixture",
+      "expected": {
+        "status": 200,
+        "basicState": "populated"
+      },
+      "visual": {
+        "desktop": true,
+        "mobile": true
+      }
+    },
+    {
+      "id": "homepage-om-oss",
+      "app": "homepage",
+      "path": "/om-oss",
+      "sourcePath": "apps/homepage/src/routes/_home.om-oss.tsx",
+      "kind": "page",
+      "expected": {
+        "status": 200,
+        "basicState": "populated"
+      },
+      "visual": {
+        "desktop": true,
+        "mobile": true
+      }
+    },
+    {
+      "id": "homepage-skoler",
+      "app": "homepage",
+      "path": "/skoler",
+      "sourcePath": "apps/homepage/src/routes/_home.skoler.tsx",
+      "kind": "page",
+      "expected": {
+        "status": 200,
+        "basicState": "populated"
+      },
+      "visual": {
+        "desktop": true,
+        "mobile": true
+      }
+    },
+    {
+      "id": "homepage-team",
+      "app": "homepage",
+      "path": "/team",
+      "sourcePath": "apps/homepage/src/routes/_home.team._index.tsx",
+      "kind": "page",
+      "expected": {
+        "status": 200,
+        "basicState": "populated"
+      },
+      "visual": {
+        "desktop": true,
+        "mobile": true
+      }
+    },
+    {
+      "id": "homepage-team",
+      "app": "homepage",
+      "path": "/team",
+      "sourcePath": "apps/homepage/src/routes/_home.team.tsx",
+      "kind": "page",
+      "expected": {
+        "status": 200,
+        "basicState": "populated"
+      },
+      "visual": {
+        "desktop": true,
+        "mobile": true
+      }
+    },
+    {
+      "id": "homepage-team-aas",
+      "app": "homepage",
+      "path": "/team/aas",
+      "sourcePattern": "/team/:department",
+      "sourcePath": "apps/homepage/src/routes/_home.team.$department.tsx",
+      "kind": "dynamic-fixture",
+      "expected": {
+        "status": 200,
+        "basicState": "populated"
+      },
+      "visual": {
+        "desktop": true,
+        "mobile": true
+      }
+    },
+    {
+      "id": "homepage-team-aas-evaluering-rekruttering-profilering",
+      "app": "homepage",
+      "path": "/team/aas/evaluering-rekruttering-profilering",
+      "sourcePath": "apps/homepage/src/routes/_home.team.aas.evaluering-rekruttering-profilering.tsx",
+      "kind": "page",
+      "expected": {
+        "status": 200,
+        "basicState": "populated"
+      },
+      "visual": {
+        "desktop": true,
+        "mobile": true
+      }
+    },
+    {
+      "id": "homepage-team-aas-skolekoordinering",
+      "app": "homepage",
+      "path": "/team/aas/skolekoordinering",
+      "sourcePath": "apps/homepage/src/routes/_home.team.aas.skolekoordinering.tsx",
+      "kind": "page",
+      "expected": {
+        "status": 200,
+        "basicState": "populated"
+      },
+      "visual": {
+        "desktop": true,
+        "mobile": true
+      }
+    },
+    {
+      "id": "homepage-team-aas-sosialt",
+      "app": "homepage",
+      "path": "/team/aas/sosialt",
+      "sourcePath": "apps/homepage/src/routes/_home.team.aas.sosialt.tsx",
+      "kind": "page",
+      "expected": {
+        "status": 200,
+        "basicState": "populated"
+      },
+      "visual": {
+        "desktop": true,
+        "mobile": true
+      }
+    },
+    {
+      "id": "homepage-team-aas-sponsor-okonomi",
+      "app": "homepage",
+      "path": "/team/aas/sponsor-okonomi",
+      "sourcePath": "apps/homepage/src/routes/_home.team.aas.sponsor-okonomi.tsx",
+      "kind": "page",
+      "expected": {
+        "status": 200,
+        "basicState": "populated"
+      },
+      "visual": {
+        "desktop": true,
+        "mobile": true
+      }
+    },
+    {
+      "id": "homepage-team-aas-styret",
+      "app": "homepage",
+      "path": "/team/aas/styret",
+      "sourcePath": "apps/homepage/src/routes/_home.team.aas.styret.tsx",
+      "kind": "page",
+      "expected": {
+        "status": 200,
+        "basicState": "populated"
+      },
+      "visual": {
+        "desktop": true,
+        "mobile": true
+      }
+    },
+    {
+      "id": "homepage-team-bergen",
+      "app": "homepage",
+      "path": "/team/bergen",
+      "sourcePattern": "/team/:department",
+      "sourcePath": "apps/homepage/src/routes/_home.team.$department.tsx",
+      "kind": "dynamic-fixture",
+      "expected": {
+        "status": 200,
+        "basicState": "populated"
+      },
+      "visual": {
+        "desktop": true,
+        "mobile": true
+      }
+    },
+    {
+      "id": "homepage-team-bergen-rekruttering",
+      "app": "homepage",
+      "path": "/team/bergen/rekruttering",
+      "sourcePath": "apps/homepage/src/routes/_home.team.bergen.rekruttering.tsx",
+      "kind": "page",
+      "expected": {
+        "status": 200,
+        "basicState": "populated"
+      },
+      "visual": {
+        "desktop": true,
+        "mobile": true
+      }
+    },
+    {
+      "id": "homepage-team-bergen-skolekoordinering",
+      "app": "homepage",
+      "path": "/team/bergen/skolekoordinering",
+      "sourcePath": "apps/homepage/src/routes/_home.team.bergen.skolekoordinering.tsx",
+      "kind": "page",
+      "expected": {
+        "status": 200,
+        "basicState": "populated"
+      },
+      "visual": {
+        "desktop": true,
+        "mobile": true
+      }
+    },
+    {
+      "id": "homepage-team-bergen-styret",
+      "app": "homepage",
+      "path": "/team/bergen/styret",
+      "sourcePath": "apps/homepage/src/routes/_home.team.bergen.styret.tsx",
+      "kind": "page",
+      "expected": {
+        "status": 200,
+        "basicState": "populated"
+      },
+      "visual": {
+        "desktop": true,
+        "mobile": true
+      }
+    },
+    {
+      "id": "homepage-team-hovedstyret",
+      "app": "homepage",
+      "path": "/team/hovedstyret",
+      "sourcePattern": "/team/:department",
+      "sourcePath": "apps/homepage/src/routes/_home.team.$department.tsx",
+      "kind": "dynamic-fixture",
+      "expected": {
+        "status": 200,
+        "basicState": "populated"
+      },
+      "visual": {
+        "desktop": true,
+        "mobile": true
+      }
+    },
+    {
+      "id": "homepage-team-hovedstyret",
+      "app": "homepage",
+      "path": "/team/hovedstyret",
+      "sourcePath": "apps/homepage/src/routes/_home.team.hovedstyret.tsx",
+      "kind": "page",
+      "expected": {
+        "status": 200,
+        "basicState": "populated"
+      },
+      "visual": {
+        "desktop": true,
+        "mobile": true
+      }
+    },
+    {
+      "id": "homepage-team-trondheim",
+      "app": "homepage",
+      "path": "/team/trondheim",
+      "sourcePattern": "/team/:department",
+      "sourcePath": "apps/homepage/src/routes/_home.team.$department.tsx",
+      "kind": "dynamic-fixture",
+      "expected": {
+        "status": 200,
+        "basicState": "populated"
+      },
+      "visual": {
+        "desktop": true,
+        "mobile": true
+      }
+    },
+    {
+      "id": "homepage-team-trondheim-evaluering",
+      "app": "homepage",
+      "path": "/team/trondheim/evaluering",
+      "sourcePath": "apps/homepage/src/routes/_home.team.trondheim.evaluering.tsx",
+      "kind": "page",
+      "expected": {
+        "status": 200,
+        "basicState": "populated"
+      },
+      "visual": {
+        "desktop": true,
+        "mobile": true
+      }
+    },
+    {
+      "id": "homepage-team-trondheim-it",
+      "app": "homepage",
+      "path": "/team/trondheim/it",
+      "sourcePath": "apps/homepage/src/routes/_home.team.trondheim.it.tsx",
+      "kind": "page",
+      "expected": {
+        "status": 200,
+        "basicState": "populated"
+      },
+      "visual": {
+        "desktop": true,
+        "mobile": true
+      }
+    },
+    {
+      "id": "homepage-team-trondheim-okonomi",
+      "app": "homepage",
+      "path": "/team/trondheim/okonomi",
+      "sourcePath": "apps/homepage/src/routes/_home.team.trondheim.okonomi.tsx",
+      "kind": "page",
+      "expected": {
+        "status": 200,
+        "basicState": "populated"
+      },
+      "visual": {
+        "desktop": true,
+        "mobile": true
+      }
+    },
+    {
+      "id": "homepage-team-trondheim-profilering",
+      "app": "homepage",
+      "path": "/team/trondheim/profilering",
+      "sourcePath": "apps/homepage/src/routes/_home.team.trondheim.profilering.tsx",
+      "kind": "page",
+      "expected": {
+        "status": 200,
+        "basicState": "populated"
+      },
+      "visual": {
+        "desktop": true,
+        "mobile": true
+      }
+    },
+    {
+      "id": "homepage-team-trondheim-rekruttering",
+      "app": "homepage",
+      "path": "/team/trondheim/rekruttering",
+      "sourcePath": "apps/homepage/src/routes/_home.team.trondheim.rekruttering.tsx",
+      "kind": "page",
+      "expected": {
+        "status": 200,
+        "basicState": "populated"
+      },
+      "visual": {
+        "desktop": true,
+        "mobile": true
+      }
+    },
+    {
+      "id": "homepage-team-trondheim-skolekoordinering",
+      "app": "homepage",
+      "path": "/team/trondheim/skolekoordinering",
+      "sourcePath": "apps/homepage/src/routes/_home.team.trondheim.skolekoordinering.tsx",
+      "kind": "page",
+      "expected": {
+        "status": 200,
+        "basicState": "populated"
+      },
+      "visual": {
+        "desktop": true,
+        "mobile": true
+      }
+    },
+    {
+      "id": "homepage-team-trondheim-sponsor",
+      "app": "homepage",
+      "path": "/team/trondheim/sponsor",
+      "sourcePath": "apps/homepage/src/routes/_home.team.trondheim.sponsor.tsx",
+      "kind": "page",
+      "expected": {
+        "status": 200,
+        "basicState": "populated"
+      },
+      "visual": {
+        "desktop": true,
+        "mobile": true
+      }
+    },
+    {
+      "id": "homepage-team-trondheim-styret",
+      "app": "homepage",
+      "path": "/team/trondheim/styret",
+      "sourcePath": "apps/homepage/src/routes/_home.team.trondheim.styret.tsx",
+      "kind": "page",
+      "expected": {
+        "status": 200,
+        "basicState": "populated"
+      },
+      "visual": {
+        "desktop": true,
+        "mobile": true
+      }
+    },
+    {
+      "id": "dashboard-root",
+      "app": "dashboard",
+      "path": "/",
+      "sourcePath": "apps/dashboard/app/routes/_index.tsx",
+      "kind": "redirect",
+      "expected": {
+        "status": 302,
+        "basicState": "authorization-denied",
+        "redirectTo": "/login"
+      },
+      "visual": {
+        "desktop": true,
+        "mobile": true
+      }
+    },
+    {
+      "id": "dashboard-dashboard",
+      "app": "dashboard",
+      "path": "/dashboard",
+      "sourcePath": "apps/dashboard/app/routes/dashboard._index.tsx",
+      "kind": "redirect",
+      "expected": {
+        "status": 302,
+        "basicState": "authorization-denied",
+        "redirectTo": "/login"
+      },
+      "visual": {
+        "desktop": true,
+        "mobile": true
+      }
+    },
+    {
+      "id": "dashboard-dashboard-assistenter",
+      "app": "dashboard",
+      "path": "/dashboard/assistenter",
+      "sourcePath": "apps/dashboard/app/routes/dashboard.assistenter._index.tsx",
+      "kind": "redirect",
+      "expected": {
+        "status": 302,
+        "basicState": "authorization-denied",
+        "redirectTo": "/login"
+      },
+      "visual": {
+        "desktop": true,
+        "mobile": true
+      }
+    },
+    {
+      "id": "dashboard-dashboard-attester",
+      "app": "dashboard",
+      "path": "/dashboard/attester",
+      "sourcePath": "apps/dashboard/app/routes/dashboard.attester._index.tsx",
+      "kind": "redirect",
+      "expected": {
+        "status": 302,
+        "basicState": "authorization-denied",
+        "redirectTo": "/login"
+      },
+      "visual": {
+        "desktop": true,
+        "mobile": true
+      }
+    },
+    {
+      "id": "dashboard-dashboard-avdelinger",
+      "app": "dashboard",
+      "path": "/dashboard/avdelinger",
+      "sourcePath": "apps/dashboard/app/routes/dashboard.avdelinger._index.tsx",
+      "kind": "redirect",
+      "expected": {
+        "status": 302,
+        "basicState": "authorization-denied",
+        "redirectTo": "/login"
+      },
+      "visual": {
+        "desktop": true,
+        "mobile": true
+      }
+    },
+    {
+      "id": "dashboard-dashboard-brukere",
+      "app": "dashboard",
+      "path": "/dashboard/brukere",
+      "sourcePath": "apps/dashboard/app/routes/dashboard.brukere._index.tsx",
+      "kind": "redirect",
+      "expected": {
+        "status": 302,
+        "basicState": "authorization-denied",
+        "redirectTo": "/login"
+      },
+      "visual": {
+        "desktop": true,
+        "mobile": true
+      }
+    },
+    {
+      "id": "dashboard-dashboard-epostliste",
+      "app": "dashboard",
+      "path": "/dashboard/epostliste",
+      "sourcePath": "apps/dashboard/app/routes/dashboard.epostliste._index.tsx",
+      "kind": "redirect",
+      "expected": {
+        "status": 302,
+        "basicState": "authorization-denied",
+        "redirectTo": "/login"
+      },
+      "visual": {
+        "desktop": true,
+        "mobile": true
+      }
+    },
+    {
+      "id": "dashboard-dashboard-intervjuer",
+      "app": "dashboard",
+      "path": "/dashboard/intervjuer",
+      "sourcePath": "apps/dashboard/app/routes/dashboard.intervjuer._index.tsx",
+      "kind": "redirect",
+      "expected": {
+        "status": 302,
+        "basicState": "authorization-denied",
+        "redirectTo": "/login"
+      },
+      "visual": {
+        "desktop": true,
+        "mobile": true
+      }
+    },
+    {
+      "id": "dashboard-dashboard-intervjufordeling",
+      "app": "dashboard",
+      "path": "/dashboard/intervjufordeling",
+      "sourcePath": "apps/dashboard/app/routes/dashboard.intervjufordeling._index.tsx",
+      "kind": "redirect",
+      "expected": {
+        "status": 302,
+        "basicState": "authorization-denied",
+        "redirectTo": "/login"
+      },
+      "visual": {
+        "desktop": true,
+        "mobile": true
+      }
+    },
+    {
+      "id": "dashboard-dashboard-intervjusjema",
+      "app": "dashboard",
+      "path": "/dashboard/intervjusjema",
+      "sourcePath": "apps/dashboard/app/routes/dashboard.intervjusjema._index.tsx",
+      "kind": "redirect",
+      "expected": {
+        "status": 302,
+        "basicState": "authorization-denied",
+        "redirectTo": "/login"
+      },
+      "visual": {
+        "desktop": true,
+        "mobile": true
+      }
+    },
+    {
+      "id": "dashboard-dashboard-linjer",
+      "app": "dashboard",
+      "path": "/dashboard/linjer",
+      "sourcePath": "apps/dashboard/app/routes/dashboard.linjer._index.tsx",
+      "kind": "redirect",
+      "expected": {
+        "status": 302,
+        "basicState": "authorization-denied",
+        "redirectTo": "/login"
+      },
+      "visual": {
+        "desktop": true,
+        "mobile": true
+      }
+    },
+    {
+      "id": "dashboard-dashboard-mine-utlegg",
+      "app": "dashboard",
+      "path": "/dashboard/mine-utlegg",
+      "sourcePath": "apps/dashboard/app/routes/dashboard.mine-utlegg._index.tsx",
+      "kind": "redirect",
+      "expected": {
+        "status": 302,
+        "basicState": "authorization-denied",
+        "redirectTo": "/login"
+      },
+      "visual": {
+        "desktop": true,
+        "mobile": true
+      }
+    },
+    {
+      "id": "dashboard-dashboard-opptaksperioder",
+      "app": "dashboard",
+      "path": "/dashboard/opptaksperioder",
+      "sourcePath": "apps/dashboard/app/routes/dashboard.opptaksperioder._index.tsx",
+      "kind": "redirect",
+      "expected": {
+        "status": 302,
+        "basicState": "authorization-denied",
+        "redirectTo": "/login"
+      },
+      "visual": {
+        "desktop": true,
+        "mobile": true
+      }
+    },
+    {
+      "id": "dashboard-dashboard-profile",
+      "app": "dashboard",
+      "path": "/dashboard/profile",
+      "sourcePath": "apps/dashboard/app/routes/dashboard.profile._index.tsx",
+      "kind": "redirect",
+      "expected": {
+        "status": 302,
+        "basicState": "authorization-denied",
+        "redirectTo": "/login"
+      },
+      "visual": {
+        "desktop": true,
+        "mobile": true
+      }
+    },
+    {
+      "id": "dashboard-dashboard-profile-rediger",
+      "app": "dashboard",
+      "path": "/dashboard/profile/rediger",
+      "sourcePath": "apps/dashboard/app/routes/dashboard.profile.rediger._index.tsx",
+      "kind": "redirect",
+      "expected": {
+        "status": 302,
+        "basicState": "authorization-denied",
+        "redirectTo": "/login"
+      },
+      "visual": {
+        "desktop": true,
+        "mobile": true
+      }
+    },
+    {
+      "id": "dashboard-dashboard-skoler",
+      "app": "dashboard",
+      "path": "/dashboard/skoler",
+      "sourcePath": "apps/dashboard/app/routes/dashboard.skoler._index.tsx",
+      "kind": "redirect",
+      "expected": {
+        "status": 302,
+        "basicState": "authorization-denied",
+        "redirectTo": "/login"
+      },
+      "visual": {
+        "desktop": true,
+        "mobile": true
+      }
+    },
+    {
+      "id": "dashboard-dashboard-sokere",
+      "app": "dashboard",
+      "path": "/dashboard/sokere",
+      "sourcePath": "apps/dashboard/app/routes/dashboard.sokere._index.tsx",
+      "kind": "redirect",
+      "expected": {
+        "status": 302,
+        "basicState": "authorization-denied",
+        "redirectTo": "/login"
+      },
+      "visual": {
+        "desktop": true,
+        "mobile": true
+      }
+    },
+    {
+      "id": "dashboard-dashboard-sponsorer",
+      "app": "dashboard",
+      "path": "/dashboard/sponsorer",
+      "sourcePath": "apps/dashboard/app/routes/dashboard.sponsorer._index.tsx",
+      "kind": "redirect",
+      "expected": {
+        "status": 302,
+        "basicState": "authorization-denied",
+        "redirectTo": "/login"
+      },
+      "visual": {
+        "desktop": true,
+        "mobile": true
+      }
+    },
+    {
+      "id": "dashboard-dashboard-statistikk",
+      "app": "dashboard",
+      "path": "/dashboard/statistikk",
+      "sourcePath": "apps/dashboard/app/routes/dashboard.statistikk._index.tsx",
+      "kind": "redirect",
+      "expected": {
+        "status": 302,
+        "basicState": "authorization-denied",
+        "redirectTo": "/login"
+      },
+      "visual": {
+        "desktop": true,
+        "mobile": true
+      }
+    },
+    {
+      "id": "dashboard-dashboard-team",
+      "app": "dashboard",
+      "path": "/dashboard/team",
+      "sourcePath": "apps/dashboard/app/routes/dashboard.team._index.tsx",
+      "kind": "redirect",
+      "expected": {
+        "status": 302,
+        "basicState": "authorization-denied",
+        "redirectTo": "/login"
+      },
+      "visual": {
+        "desktop": true,
+        "mobile": true
+      }
+    },
+    {
+      "id": "dashboard-dashboard-teaminteresse",
+      "app": "dashboard",
+      "path": "/dashboard/teaminteresse",
+      "sourcePath": "apps/dashboard/app/routes/dashboard.teaminteresse._index.tsx",
+      "kind": "redirect",
+      "expected": {
+        "status": 302,
+        "basicState": "authorization-denied",
+        "redirectTo": "/login"
+      },
+      "visual": {
+        "desktop": true,
+        "mobile": true
+      }
+    },
+    {
+      "id": "dashboard-dashboard-tidligere-assistenter",
+      "app": "dashboard",
+      "path": "/dashboard/tidligere-assistenter",
+      "sourcePath": "apps/dashboard/app/routes/dashboard.tidligere-assistenter._index.tsx",
+      "kind": "redirect",
+      "expected": {
+        "status": 302,
+        "basicState": "authorization-denied",
+        "redirectTo": "/login"
+      },
+      "visual": {
+        "desktop": true,
+        "mobile": true
+      }
+    },
+    {
+      "id": "dashboard-dashboard-utlegg",
+      "app": "dashboard",
+      "path": "/dashboard/utlegg",
+      "sourcePath": "apps/dashboard/app/routes/dashboard.utlegg._index.tsx",
+      "kind": "redirect",
+      "expected": {
+        "status": 302,
+        "basicState": "authorization-denied",
+        "redirectTo": "/login"
+      },
+      "visual": {
+        "desktop": true,
+        "mobile": true
+      }
+    },
+    {
+      "id": "dashboard-dashboard-vikarer",
+      "app": "dashboard",
+      "path": "/dashboard/vikarer",
+      "sourcePath": "apps/dashboard/app/routes/dashboard.vikarer._index.tsx",
+      "kind": "redirect",
+      "expected": {
+        "status": 302,
+        "basicState": "authorization-denied",
+        "redirectTo": "/login"
+      },
+      "visual": {
+        "desktop": true,
+        "mobile": true
+      }
+    },
+    {
+      "id": "dashboard-glemt-passord",
+      "app": "dashboard",
+      "path": "/glemt-passord",
+      "sourcePath": "apps/dashboard/app/routes/glemt-passord.tsx",
+      "kind": "page",
+      "expected": {
+        "status": 200,
+        "basicState": "validation-safe"
+      },
+      "visual": {
+        "desktop": true,
+        "mobile": true
+      }
+    },
+    {
+      "id": "dashboard-login",
+      "app": "dashboard",
+      "path": "/login",
+      "sourcePath": "apps/dashboard/app/routes/login.tsx",
+      "kind": "page",
+      "expected": {
+        "status": 200,
+        "basicState": "validation-safe"
+      },
+      "visual": {
+        "desktop": true,
+        "mobile": true
+      }
+    },
+    {
+      "id": "dashboard-logout",
+      "app": "dashboard",
+      "path": "/logout",
+      "sourcePath": "apps/dashboard/app/routes/logout.tsx",
+      "kind": "redirect",
+      "expected": {
+        "status": 302,
+        "basicState": "authorization-denied",
+        "redirectTo": "/login"
+      },
+      "visual": {
+        "desktop": true,
+        "mobile": true
+      }
+    },
+    {
+      "id": "dashboard-tilbakestill-passord-preview-reset-code",
+      "app": "dashboard",
+      "path": "/tilbakestill-passord/preview-reset-code",
+      "sourcePattern": "/tilbakestill-passord/:code",
+      "sourcePath": "apps/dashboard/app/routes/tilbakestill-passord.$code.tsx",
+      "kind": "dynamic-fixture",
+      "expected": {
+        "status": 200,
+        "basicState": "validation-safe"
+      },
+      "visual": {
+        "desktop": true,
+        "mobile": true
+      }
+    }
+  ],
+  "visualEvidence": {
+    "desktop": {
+      "width": 1440,
+      "height": 900
+    },
+    "mobile": {
+      "width": 390,
+      "height": 844
+    }
+  },
+  "namedStates": [
+    "empty",
+    "populated",
+    "loading-safe",
+    "validation-safe",
+    "authorization-denied",
+    "not-found"
+  ],
+  "contractDigest": "sha256:a54ea78ece8f8037dd053babef03eb43f3613858481645ac900014c713ecd061"
 }
