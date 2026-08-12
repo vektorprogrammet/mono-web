@@ -57,17 +57,54 @@ describe("homepage stage and host contract", () => {
     }
   });
 
-  it("declares only the accepted Website.Vite resource contract", () => {
+  it("declares the frozen Worker, container-backed Durable Object, websites, and support resources", () => {
     const declaration = readFileSync(
       new URL("../../../infra/alchemy/alchemy.run.ts", import.meta.url),
       "utf8",
     );
-    expect(declaration).toContain('"MonoWebHomepage"');
+    const resources = JSON.parse(
+      readFileSync(
+        new URL("../../../infra/preview/resources.json", import.meta.url),
+        "utf8",
+      ),
+    ) as Array<{ type: string; id: string; name: string }>;
+
+    expect(declaration).toContain('Alchemy.Stack(\n  "vektor"');
+    expect(declaration).toContain('state: Cloudflare.state({ workerName: "alchemy-state-store-vektor" })');
     expect(declaration).toContain('Cloudflare.Website.Vite("Homepage"');
-    expect(declaration).toContain('domain,');
-    expect(declaration).toContain("workersDev: false");
-    expect(declaration).toContain("assets: { runWorkerFirst: true }");
-    expect(declaration).not.toContain("routes:");
+    expect(declaration).toContain('Cloudflare.Website.Vite("Dashboard"');
+    expect(declaration).toContain('yield* PreviewWorker');
+    expect(declaration).toContain('container: PREVIEW_IDENTITY.containerInstance');
     expect(declaration).not.toContain("PreviewSpine");
+    expect(declaration).not.toContain("localState");
+
+    expect(resources).toEqual([
+      { type: "worker", id: "vektor-p20-worker", name: "vektor-p20-worker" },
+      {
+        type: "durable-object-namespace",
+        id: "vektor-p20-preview-container-namespace",
+        name: "vektor-p20-preview-container-namespace",
+      },
+      {
+        type: "durable-object-migration",
+        id: "vektor-p20-preview-container-migration",
+        name: "vektor-p20-preview-container-migration",
+      },
+      { type: "container", id: "vektor-p20-container", name: "vektor-p20-container" },
+      {
+        type: "container-image",
+        id: "vektor-p20-container-image",
+        name: "vektor-p20-container-image",
+      },
+      { type: "homepage", id: "vektor-p20-homepage", name: "vektor-p20-homepage" },
+      { type: "dashboard", id: "vektor-p20-dashboard", name: "vektor-p20-dashboard" },
+      { type: "route", id: "vektor-p20-route", name: "vektor-p20-route" },
+      { type: "dns-tls", id: "vektor-p20-dns-tls", name: "vektor-p20-dns-tls" },
+      {
+        type: "seed-artifact",
+        id: "vektor-p20-seed-artifact",
+        name: "vektor-p20-seed-artifact",
+      },
+    ]);
   });
 });
