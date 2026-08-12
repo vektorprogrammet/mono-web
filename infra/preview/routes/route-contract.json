@@ -9,7 +9,7 @@
     "resourcePrefix": "vektor-p20",
     "container": "vektor-p20-container"
   },
-  "sourceManifestDigest": "sha256:e4b9e468c45187808462f4c2e8cf20d3e25785405db2755b9350c069fc3feaef",
+  "sourceManifestDigest": "sha256:890139858d4912c4fb4769c5cde90b9d577d09d7c36a85a0a26762bd989526a2",
   "sourceManifests": {
     "homepage": {
       "files": [
@@ -240,8 +240,8 @@
         },
         {
           "path": "apps/dashboard/app/routes/dashboard.linjer._index.tsx",
-          "bytes": 1424,
-          "sha256": "sha256:296371c027bfdd53a094d9c2acb5808de93e0ca5ef5985c84c14e40dc471f6aa"
+          "bytes": 1041,
+          "sha256": "sha256:83fd9daaa8b35378378e77b5b78c571ee5e0aee4c9f7dc46478a516cc428b32d"
         },
         {
           "path": "apps/dashboard/app/routes/dashboard.mine-utlegg._index.tsx",
@@ -275,8 +275,8 @@
         },
         {
           "path": "apps/dashboard/app/routes/dashboard.sponsorer._index.tsx",
-          "bytes": 1298,
-          "sha256": "sha256:9b5532b117917725654cd00930f4f63ff2623b1a8108580bb48954f288ec09a2"
+          "bytes": 1551,
+          "sha256": "sha256:76fa9fbf43ad2f2ea24008be03f0fcd3965dc5e46160630feecbada2c982e4ba"
         },
         {
           "path": "apps/dashboard/app/routes/dashboard.statistikk._index.tsx",
@@ -285,8 +285,8 @@
         },
         {
           "path": "apps/dashboard/app/routes/dashboard.team._index.tsx",
-          "bytes": 1375,
-          "sha256": "sha256:08071e9f5f67b2a64415c253a59fcdb99f58b54cd88ef0094e6b100010de34e7"
+          "bytes": 981,
+          "sha256": "sha256:dc7a76b3b2c955fa523cd73361723eb43772ffb7fd995f72d59040e0ae69f4e8"
         },
         {
           "path": "apps/dashboard/app/routes/dashboard.teaminteresse._index.tsx",
@@ -334,7 +334,7 @@
           "sha256": "sha256:c924d7f0ce5ca60be8637f310d83ba8ee2c181591ada7d66bd63807922c1a935"
         }
       ],
-      "digest": "sha256:0bd82e0efb32f172d2dfa53b6b4b623089a185aa65a8750431a261f319967f40"
+      "digest": "sha256:642f6b1c3b5ae4cf4c0eda3d32e52ea92aea4986f32263174632aff1bcc255bd"
     }
   },
   "routes": [
@@ -373,6 +373,21 @@
       "app": "homepage",
       "path": "/foreldre",
       "sourcePath": "apps/homepage/src/routes/_home.foreldre.tsx",
+      "kind": "page",
+      "expected": {
+        "status": 200,
+        "basicState": "populated"
+      },
+      "visual": {
+        "desktop": true,
+        "mobile": true
+      }
+    },
+    {
+      "id": "homepage-kontakt",
+      "app": "homepage",
+      "path": "/kontakt",
+      "sourcePath": "apps/homepage/src/routes/_home.kontakt._index.tsx",
       "kind": "page",
       "expected": {
         "status": 200,
@@ -467,6 +482,21 @@
       "app": "homepage",
       "path": "/skoler",
       "sourcePath": "apps/homepage/src/routes/_home.skoler.tsx",
+      "kind": "page",
+      "expected": {
+        "status": 200,
+        "basicState": "populated"
+      },
+      "visual": {
+        "desktop": true,
+        "mobile": true
+      }
+    },
+    {
+      "id": "homepage-team",
+      "app": "homepage",
+      "path": "/team",
+      "sourcePath": "apps/homepage/src/routes/_home.team._index.tsx",
       "kind": "page",
       "expected": {
         "status": 200,
@@ -1245,5 +1275,5 @@
     "authorization-denied",
     "not-found"
   ],
-  "contractDigest": "sha256:0aa8c049dce256bf4ecb7861d3cc18d52d021da760bd77c6aae80df9baa0695e"
+  "contractDigest": "sha256:f344f2d03e01f502c93da35f0e3b0605d90841d4ab55e3667128120faf8b8a82"
 }
