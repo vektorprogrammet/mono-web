@@ -12,33 +12,41 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import type { ColumnDef } from "@tanstack/react-table";
-import { isFixtureMode } from "@vektorprogrammet/sdk";
 import { Check, RotateCcw, X } from "lucide-react";
-import { useFetcher, useLoaderData, useSearchParams } from "react-router";
+import { redirect, useFetcher, useLoaderData, useSearchParams } from "react-router";
+import type { ReactNode } from "react";
+import {
+  isUnauthorizedError,
+  mapAdminReceiptView,
+  mapReceiptError,
+  mapReceiptStatus,
+  type AdminReceiptView,
+  type ReceiptStatus,
+} from "../lib/receipt-view";
 import { createAuthenticatedClient } from "../lib/api.server";
 import { requireAuth } from "../lib/auth.server";
 import type { Route } from "./+types/dashboard.utlegg._index";
 
-type Receipt = {
-  id: number;
-  visualId: string;
-  userName: string;
-  description: string;
-  sum: number;
-  receiptDate: string;
-  submitDate: string | null;
-  status: "pending" | "refunded" | "rejected";
-};
+type AdminStatusActionData =
+  | { success: true }
+  | { error: string };
 
-const mockReceipts: Receipt[] = [
-  { id: 1, visualId: "1a2b3c", userName: "Kari Nordmann", description: "Bussreise til skolen", sum: 150, receiptDate: "2025-01-10", submitDate: "2025-01-10", status: "pending" },
-  { id: 2, visualId: "4d5e6f", userName: "Ola Hansen", description: "Materiell til undervisning", sum: 320, receiptDate: "2025-01-12", submitDate: "2025-01-12", status: "refunded" },
-  { id: 3, visualId: "7a8b9c", userName: "Lise Berg", description: "Lunsj teamsamling", sum: 200, receiptDate: "2025-01-14", submitDate: "2025-01-14", status: "rejected" },
-];
+function readFormText(form: FormData, name: string): string | null {
+  const value = form.get(name);
+  return typeof value === "string" ? value : null;
+}
+
+function parseReceiptId(value: string | null): number | null {
+  if (value === null || !/^\d+$/.test(value)) return null;
+  const id = Number(value);
+  return Number.isSafeInteger(id) && id > 0 ? id : null;
+}
+
+function isReceiptStatus(value: string | null): value is ReceiptStatus {
+  return value === "pending" || value === "refunded" || value === "rejected";
+}
 
 export async function loader({ request }: Route.LoaderArgs) {
-  if (isFixtureMode) return { receipts: mockReceipts };
-
   const token = requireAuth(request);
   const client = createAuthenticatedClient(token);
   const url = new URL(request.url);
@@ -46,9 +54,11 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   try {
     const result = await client.admin.receipts.list(status ? { status } : undefined);
-    return { receipts: result.items as Receipt[] };
-  } catch {
-    return { receipts: [] };
+    return { receipts: result.items.map(mapAdminReceiptView), error: undefined };
+  } catch (error) {
+    if (isUnauthorizedError(error)) throw redirect("/login?expired=true");
+    const receipts: AdminReceiptView[] = [];
+    return { receipts, error: mapReceiptError(error) };
   }
 }
 
@@ -56,90 +66,102 @@ export async function action({ request }: Route.ActionArgs) {
   const token = requireAuth(request);
   const client = createAuthenticatedClient(token);
   const form = await request.formData();
+  const receiptId = parseReceiptId(readFormText(form, "receiptId"));
+  const newStatus = readFormText(form, "status");
 
-  const receiptId = form.get("receiptId")?.toString();
-  const newStatus = form.get("status")?.toString();
-
-  if (!receiptId || !newStatus) {
-    return { error: "Manglende felt" };
+  if (receiptId === null || !isReceiptStatus(newStatus)) {
+    return { error: "Manglende eller ugyldig felt." };
   }
 
   try {
     if (newStatus === "refunded") {
-      await client.admin.receipts.approve(Number(receiptId));
+      await client.admin.receipts.approve(receiptId);
     } else if (newStatus === "rejected") {
-      await client.admin.receipts.reject(Number(receiptId));
-    } else if (newStatus === "pending") {
-      await client.admin.receipts.reopen(Number(receiptId));
+      await client.admin.receipts.reject(receiptId);
+    } else {
+      await client.admin.receipts.reopen(receiptId);
     }
     return { success: true };
-  } catch {
-    return { error: "Kunne ikke oppdatere status" };
+  } catch (error) {
+    if (isUnauthorizedError(error)) throw redirect("/login?expired=true");
+    return { error: mapReceiptError(error) };
   }
 }
 
-const statusLabels: Record<string, string> = {
-  pending: "Venter",
-  refunded: "Refundert",
-  rejected: "Avvist",
-};
 
-const statusColors: Record<string, string> = {
+const statusColors: Record<ReceiptStatus, string> = {
   pending: "bg-yellow-100 text-yellow-800",
   refunded: "bg-green-100 text-green-800",
   rejected: "bg-red-100 text-red-800",
 };
 
-function StatusBadge({ status }: { status: string }) {
+function StatusBadge({ status }: { status: ReceiptStatus }) {
   return (
-    <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${statusColors[status] ?? ""}`}>
-      {statusLabels[status] ?? status}
+    <span
+      className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${statusColors[status]}`}
+    >
+      {mapReceiptStatus(status)}
     </span>
   );
 }
 
-function StatusAction({ receiptId, newStatus, label, description, icon, variant }: {
+function StatusAction({
+  receiptId,
+  newStatus,
+  label,
+  description,
+  icon,
+  variant,
+}: {
   receiptId: number;
-  newStatus: string;
+  newStatus: ReceiptStatus;
   label: string;
   description: string;
-  icon: React.ReactNode;
+  icon: ReactNode;
   variant?: "default" | "destructive" | "outline";
 }) {
-  const fetcher = useFetcher();
+  const fetcher = useFetcher<AdminStatusActionData>();
+  const error = fetcher.data && "error" in fetcher.data ? fetcher.data.error : undefined;
 
   return (
-    <AlertDialog>
-      <AlertDialogTrigger asChild>
-        <Button variant={variant ?? "outline"} size="sm" disabled={fetcher.state !== "idle"}>
-          {icon}
-          <span className="ml-1">{label}</span>
-        </Button>
-      </AlertDialogTrigger>
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>{label}</AlertDialogTitle>
-          <AlertDialogDescription>{description}</AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel>Avbryt</AlertDialogCancel>
-          <AlertDialogAction
-            onClick={() => {
-              fetcher.submit(
-                { receiptId: String(receiptId), status: newStatus },
-                { method: "post" },
-              );
-            }}
-          >
-            {label}
-          </AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
+    <>
+      <AlertDialog>
+        <AlertDialogTrigger asChild>
+          <Button variant={variant ?? "outline"} size="sm" disabled={fetcher.state !== "idle"}>
+            {icon}
+            <span className="ml-1">{label}</span>
+          </Button>
+        </AlertDialogTrigger>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{label}</AlertDialogTitle>
+            <AlertDialogDescription>{description}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Avbryt</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                fetcher.submit(
+                  { receiptId: String(receiptId), status: newStatus },
+                  { method: "post" },
+                );
+              }}
+            >
+              {label}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      {error && (
+        <p className="mt-1 rounded bg-red-50 p-2 text-red-600 text-xs" role="alert">
+          {error}
+        </p>
+      )}
+    </>
   );
 }
 
-function ActionsCell({ receipt }: { receipt: Receipt }) {
+function ActionsCell({ receipt }: { receipt: AdminReceiptView }) {
   if (receipt.status === "pending") {
     return (
       <div className="flex gap-2">
@@ -177,14 +199,14 @@ function ActionsCell({ receipt }: { receipt: Receipt }) {
   return null;
 }
 
-const columns: ColumnDef<Receipt>[] = [
+const columns: ColumnDef<AdminReceiptView>[] = [
   { accessorKey: "visualId", header: "ID" },
   { accessorKey: "userName", header: "Bruker" },
   {
     accessorKey: "description",
     header: "Beskrivelse",
     cell: ({ row }) => (
-      <span className="max-w-[200px] truncate block" title={row.original.description}>
+      <span className="block max-w-[200px] truncate" title={row.original.description}>
         {row.original.description}
       </span>
     ),
@@ -194,8 +216,16 @@ const columns: ColumnDef<Receipt>[] = [
     header: "Beløp",
     cell: ({ row }) => `${row.original.sum} kr`,
   },
-  { accessorKey: "receiptDate", header: "Dato" },
-  { accessorKey: "submitDate", header: "Innsendt" },
+  {
+    accessorKey: "receiptDate",
+    header: "Dato",
+    cell: ({ row }) => row.original.receiptDate ?? "—",
+  },
+  {
+    accessorKey: "submitDate",
+    header: "Innsendt",
+    cell: ({ row }) => row.original.submitDate ?? "—",
+  },
   {
     accessorKey: "status",
     header: "Status",
@@ -213,11 +243,12 @@ const statusFilters = [
   { value: "pending", label: "Venter" },
   { value: "refunded", label: "Refundert" },
   { value: "rejected", label: "Avvist" },
-] as const;
+] satisfies Array<{ value: ReceiptStatus | null; label: string }>;
 
 // biome-ignore lint/style/noDefaultExport: Route Modules require default export
 export default function Utlegg() {
-  const { receipts } = useLoaderData<typeof loader>();
+  const loaderData = useLoaderData<typeof loader>();
+  const { receipts } = loaderData;
   const [searchParams, setSearchParams] = useSearchParams();
   const currentStatus = searchParams.get("status");
 
@@ -226,6 +257,12 @@ export default function Utlegg() {
       <h1 className="mb-6 font-semibold text-2xl">Utlegg</h1>
 
       <div className="w-full max-w-7xl px-4 sm:px-6 lg:px-8">
+        {loaderData.error && (
+          <p className="mb-4 rounded bg-red-50 p-3 text-red-600 text-sm" role="alert">
+            {loaderData.error}
+          </p>
+        )}
+
         <div className="mb-4 flex gap-2">
           {statusFilters.map((filter) => (
             <Button
@@ -245,7 +282,7 @@ export default function Utlegg() {
           ))}
         </div>
 
-        <DataTable columns={columns} data={receipts ?? []} />
+        <DataTable columns={columns} data={receipts} />
       </div>
     </section>
   );

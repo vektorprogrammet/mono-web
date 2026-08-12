@@ -1,6 +1,10 @@
-import { createClient } from "@vektorprogrammet/sdk"
-import { apiUrl } from "@vektorprogrammet/sdk"
+import { createClient, type ClientOptions } from "@vektorprogrammet/sdk";
 
-export function createAuthenticatedClient(token: string) {
-  return createClient(apiUrl, { auth: token })
+export type AuthOption = NonNullable<ClientOptions["auth"]>;
+
+const serverApiUrl =
+  typeof process !== "undefined" ? process.env?.API_URL : undefined;
+
+export function createAuthenticatedClient(auth: AuthOption) {
+  return createClient(serverApiUrl, { auth });
 }

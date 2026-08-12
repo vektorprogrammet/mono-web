@@ -6,94 +6,71 @@ Vektor dashboard web app built for internal team members of Vektorprogrammet.
 
 ### Programs needed to run project
 
-- [node](https://nodejs.org/en)
-- [pnpm](https://pnpm.io/)
+- [Bun](https://bun.sh/) 1.3.10
+- [Node.js](https://nodejs.org/en) 22 or newer for tools that require Node
+
+The repository root is the package-manager and workspace authority. Run the
+commands in this document from the repository root, not from `apps/dashboard`.
 
 ### Installation
 
-Install the required external dependencies:
+Install the workspace dependencies from the repository root:
 
 ```sh
-pnpm install
+bunx --bun bun@1.3.10 install
 ```
 
 ### Run locally
 
-Run the dev server:
+Run the dashboard dev server through the root Turbo workspace:
 
 ```sh
-pnpm dev
+bun turbo -F @monoweb/dashboard dev
 ```
 
 ### Linting and formatting
 
-Check for linting errors and apply safe fixes:
+Check the dashboard for linting errors and apply the repository's safe linting
+workflow:
 
 ```sh
-pnpm lint
+bun turbo -F @monoweb/dashboard lint
 ```
 
-Check for formatting errors and apply safe fixes:
+Format dashboard files from the repository root:
 
 ```sh
-pnpm format
+bun --cwd apps/dashboard run format
 ```
 
-Do both in one check:
+Run the repository check:
 
 ```sh
-pnpm check
+bun run check
+```
+
+`bun run check` writes formatting with `oxfmt --write`; it is not a read-only
+proof.
+
+### Type checking
+
+Run dashboard type generation and TypeScript checking from the repository root:
+
+```sh
+bun --cwd apps/dashboard run typecheck
 ```
 
 ### Testing
 
-Install required browsers for running e2e tests:
-
-```sh
-pnpm e2e:install
-```
-
-Run all tests:
-
-```sh
-pnpm e2e:test
-```
-
-Use the `ui` flag to watch the tests:
-
-```sh
-pnpm exec playwright test --ui
-```
-
-Run tests for individual browsers:
-
-| Google Chrome | Firefox | Safari |
-| --- | --- | --- |
-|`pnpm e2e:test:chromium`|`pnpm e2e:test:firefox`|`pnpm e2e:test:webkit`|
-
-Generate tests interactively:
-
-```sh
-pnpm e2e:test:generate
-```
-
-Read more in the [docs](https://playwright.dev/docs/codegen).
+The exact dashboard browser reachability command is intentionally not documented
+yet. Wave 0 (W0) must first observe a Bun or explicit Node 22 Playwright
+invocation that reaches a browser and exercises the SDK-backed login path. No
+browser-install command is authoritative until W0 records the command that was
+actually observed.
 
 ### Deployment
 
-First, build your app for production:
-
-```sh
-pnpm build
-```
-
-Then run the app in production mode:
-
-```sh
-pnpm start
-```
-
-Now you'll need to pick a host to deploy it to.
+Dashboard Railway configuration is retired by operator decision; provider/service state is unobserved; this README has no deployment command.
 
 ## File structure
 
@@ -112,7 +89,7 @@ Now you'll need to pick a host to deploy it to.
     - `globals.css`: Style variables accessable throughout the whole app. Mainly configuration of Tailwind and CSS variables.
     - `root.tsx`: Root HTML rendered for ALL pages. Contains global metadata, styles and providers.
     - `routes.ts`: Routing declared through the React Router routes API. Check out the [docs](https://reactrouter.com/start/framework/routing) for an in-depth explanation of the API.
-  - `build/`: Build artifacts for deploying the app to servers
+  - `build/`: Build artifacts for the application
   - `public/`: Assets requiring no processing, clients download these files as is.
 
 ## Improve your workflow
@@ -140,31 +117,17 @@ Read more about [Intellisense](https://code.visualstudio.com/docs/editor/intelli
 
 [`vitest.explorer`](https://marketplace.visualstudio.com/items?itemName=vitest.explorer)
 
-#### Run and record e2e tests in VSCode
+#### Run and record browser tests in VSCode
 
 [`ms-playwright.playwright`](https://marketplace.visualstudio.com/items?itemName=ms-playwright.playwright)
 
 #### Format files automatically
 
-Install the official Biome extension [`biomejs.biome`](https://marketplace.visualstudio.com/items?itemName=biomejs.biome)
+The repository uses Oxfmt for formatting. Run the root-authority command when
+you want to write formatting, or configure an Oxfmt-compatible VSCode extension.
 
-Configure the VSCode workspace settings:
-
-```jsonc
-// .vscode/settings.json
-{
-  // Set default formatter to Biome
-  "editor.defaultFormatter": "biomejs.biome",
-  // Format on save
-  "editor.formatOnSave": true,
-  // On save:
-  "editor.codeActionsOnSave": {
-    // add missing imports
-    "source.addMissingImports.ts": "always",
-    // organise imports
-    "source.organizeImports": "always"
-  },
-}
+```sh
+bun --cwd apps/dashboard run format
 ```
 
 ### Write HTML blazingly fast with Emmet
@@ -212,18 +175,17 @@ When choosing what technologies to work with we evaluate:
 | Router/Meta-framework: | [React Router v7](https://reactrouter.com/dev/guides) | [expands our app over multiple pages](#react-router-expands-our-app-over-multiple-pages) |
 | Style system: | [Tailwind](https://tailwindcss.com/) | [simplifies styling and makes everything pretty](#tailwind-simplifies-styling-and-makes-everything-pretty) |
 | Icon library: | [Iconify](https://iconify.design/) | [does for icons what Tailwind did for CSS](#iconify-centralises-icons-and-eliminates-the-need-for-any-more-icon-dependencies) |
-| Linter, Formatter: | [Biome](https://biomejs.dev/) | [eliminates bugs pre-emptively and keeps code consistent](#biome-eliminates-bugs-preemptively-and-keeps-code-consistent) |
+| Linter, Formatter: | [Oxlint and Oxfmt](https://oxc.rs/) | [keep code consistent with fast repository tools](#oxlint-and-oxfmt-keep-code-consistent) |
 | Component collection: | [Shadcn/ui](https://ui.shadcn.com/) | [starts us off on the right foot](#shadcnui-starts-us-off-on-the-right-foot) |
 | Headless components: | [Radix UI](https://www.radix-ui.com/) | [provides functional and accessible primitives](#radix-primitives-provides-functional-and-accessible-primitives) |
-| e2e test runner | [Playwright](https://playwright.dev/) | [makes sure everything works as intended](#playwright-makes-sure-everything-works-as-intended)
-| Package manager: | [pnpm](https://pnpm.io/) | [reduces the black hole that is node_modules](#pnpm-reduces-the-black-hole-that-is-node_modules) |
+| Browser test runner | [Playwright](https://playwright.dev/) | [provides controlled browser reachability evidence](#playwright-provides-controlled-browser-reachability-evidence) |
+| Package manager: | [Bun](https://bun.sh/) 1.3.10 | Root Bun workspaces and Turbo tasks are the dashboard authority. |
 | All-in-one component library: | [Mantine](https://mantine.dev/) | [fills in the remaining holes](#mantine-fills-in-the-remaining-holes) |
 
 ### External Services
 
 | Use case | Official docs | Our reasoning |
 | --- | --- | --- |
-| Deployment | [DigitalOcean](https://www.digitalocean.com/) | [provides an all-in-one hosting solution with predictable prices](#digitalocean-provides-an-all-in-one-hosting-solution-with-predictable-prices) |
 | Auth management | [Clerk](https://clerk.com/) | [makes setting up auth fast and secure](#clerk-makes-setting-up-auth-fast-and-secure) |
 | Analytics and Feature flags | [Posthog](https://posthog.com/) | [gives insight into our users behavior](#posthog-gives-insight-into-our-users-behavior) |
 
@@ -273,13 +235,11 @@ It is incredibly efficient, only bundling the classes used within the applicatio
 
 It is included in NTNU's curriculum.
 
-### Biome eliminates bugs preemptively and keeps code consistent
+### Oxlint and Oxfmt keep code consistent
 
-Biome was chosen over Prettier and ESlint because configuring ESlint
-takes an ungodly amount of time.\
-ESlint might have extensible configuration,
-but Biome ships with great defaults and incredible performance.\
-Using 1 tool for 2 problems also reduces the amount of packages we depend on, which reduces the surface area for attack and accidental bugs.
+Oxlint and Oxfmt provide the repository's linting and formatting commands.
+The root scripts keep those checks consistent across the workspace, while the
+dashboard-specific Turbo and Bun commands make the intended scope explicit.
 
 ### Iconify centralises icons and eliminates the need for any more icon dependencies
 
@@ -307,17 +267,21 @@ Radix Primitives adhere to the
 Radix Primitives is used in the component collection shadcn/ui provides.\
 In house UI components should use Radix Primitives when possible.
 
-### Playwright makes sure everything works as intended
+### Playwright provides controlled browser reachability evidence
 
-Playwright does e2e testing by running all tests in the different major browsers.
-This is our most important way of testing as functionality is tested in the
-same environment users interact with the application in.
+Playwright is the browser test runner used for dashboard reachability work.
+W0 must observe a real browser launch and SDK-backed login progress before an
+exact dashboard invocation or browser-install command is documented here.
 
-### pnpm reduces the black hole that is node_modules
+### Bun and root Turbo define workspace authority
 
-pnpm install and manages packages globally while reducing unnecessary
-merge conflicts and providing a readable lock file when they eventually do happen.
-pnpm is essentially npm but better at the cost of one character
+Bun 1.3.10 is the repository's package-manager authority. The root workspace
+owns dependency resolution, and Turbo scopes dashboard development tasks without
+creating a second application-level authority.
+
+Use the root installation and task commands above. `bun run check` writes
+formatting with `oxfmt --write`, so it is a mutating convenience command rather
+than read-only proof.
 
 ### Mantine fills in the remaining holes
 
@@ -330,14 +294,6 @@ Mantine does make it so you learn Mantine instead of React which is
 a major disadvantage for why we might step away from it in the future.\
 But as of now,
 it provides good general use defaults until a more specialised tool is needed.
-
-### DigitalOcean provides an all-in-one hosting solution with predictable prices
-
-DigitalOcean might not have a generous free tier,
-but it does have a platform for deploying web apps,
-websites, web workers, serverless functions and managed databases at predictable prices.
-Predictable prices makes sure our organisation doesn't overspend and
-protects us from being billed by DDOS.
 
 ### Clerk makes setting up auth fast and secure
 
