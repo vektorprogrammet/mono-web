@@ -1,4 +1,5 @@
 import { TeamTemplate } from "@/components/team-template";
+import { getDevTeamMembers } from "~/lib/dev-content";
 
 // biome-ignore lint/style/noDefaultExport: Route Modules require default export https://reactrouter.com/start/framework/route-module
 export default function Styret() {
@@ -6,64 +7,9 @@ export default function Styret() {
     <div className="mx-auto mt-5 mb-20 flex max-w-screen-lg flex-col">
       <TeamTemplate
         name="Styret"
-        mail="styret.ntnu@vektorprogrammet.no"
+        mail="dev@example.invalid"
         text="Ansvarlig for driften av Vektorprogrammet i Trondheim."
-        members={[
-          {
-            name: "David Ramsvik",
-            image:
-              "https://vektorprogrammet.no/media/cache/profile_img/images/Profile%20photos/6370f59dcadc0.jpeg",
-            role: "Leder",
-          },
-          {
-            name: "Ragna Vårli Håland",
-            image:
-              "https://vektorprogrammet.no/media/cache/profile_img/images/Profile%20photos/633f033cb4d48.jpeg",
-            role: "Nestleder",
-          },
-          {
-            name: "Hannes Witt",
-            image:
-              "https://vektorprogrammet.no/media/cache/profile_img/images/Profile%20photos/634926da1a3a6.jpeg",
-            role: "Evaluering",
-          },
-          {
-            name: "Per Hjelle Solheim",
-            image:
-              "https://vektorprogrammet.no/media/cache/profile_img/images/Profile%20photos/6172aab7e0211.jpeg",
-            role: "Profilering",
-          },
-          {
-            name: "Astrid Bugge",
-            image:
-              "https://vektorprogrammet.no/media/cache/profile_img/images/Profile%20photos/63f4de1b4f69f.jpeg",
-            role: "Rekruttering",
-          },
-          {
-            name: "Sander Nicolai Andersen",
-            image:
-              "https://vektorprogrammet.no/media/cache/profile_img/images/Profile%20photos/63606f1344a57.jpeg",
-            role: "Sekretær",
-          },
-          {
-            name: "Tina Jota",
-            image:
-              "https://vektorprogrammet.no/media/cache/profile_img/images/Profile%20photos/633f04baf19bc.jpeg",
-            role: "Skolekoordinering",
-          },
-          {
-            name: "Ole Gunnar Røsholt Hovland",
-            image:
-              "https://vektorprogrammet.no/media/cache/profile_img/images/Profile%20photos/6261456bbbea9.jpeg",
-            role: "Sponsor",
-          },
-          {
-            name: "Elise Johnsrud",
-            image:
-              "https://vektorprogrammet.no/media/cache/profile_img/images/Profile%20photos/634068f19fa01.jpeg",
-            role: "Økonomi",
-          },
-        ]}
+        members={getDevTeamMembers("trondheim-styre")}
       />
 
       <div className="m-5 mt-20 text-left font-sans text-black text-lg">
@@ -78,7 +24,7 @@ export default function Styret() {
         {/*! TODO: FIX */}
         {/* biome-ignore lint/a11y/useAltText: Temporary ignore for ci/cd */}
         <img
-          src="https://vektorprogrammet.no/images/team_images/Profilering/IMG_6571.jpg"
+          src="/images/teacher2.png"
           className="m-5 mx-auto h-auto content-center sm:max-w-2xl"
         />
       </div>

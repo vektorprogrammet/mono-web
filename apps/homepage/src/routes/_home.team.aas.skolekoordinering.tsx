@@ -1,4 +1,5 @@
 import { TeamTemplate } from "@/components/team-template";
+import { getDevTeamMembers } from "~/lib/dev-content";
 
 // biome-ignore lint/style/noDefaultExport: Route Modules require default export https://reactrouter.com/start/framework/route-module
 export default function Skolekoordinering() {
@@ -6,46 +7,9 @@ export default function Skolekoordinering() {
     <div className="mx-auto mt-5 mb-20 flex max-w-screen-lg flex-col">
       <TeamTemplate
         name="Skolekoordinering"
-        mail="skolekoordinering.nmbu@vektorprogrammet.no"
+        mail="dev@example.invalid"
         text="Skolekoordinering har ansvaret for kontakten med skolene og organisering av assistentene."
-        members={[
-          {
-            name: "Ingvild Hefte",
-            image:
-              "https://vektorprogrammet.no/media/cache/profile_img/images/Profile%20photos/644435db96beb.jpeg",
-            role: "Leder",
-          },
-          {
-            name: "Lars Thomassen",
-            image:
-              "https://vektorprogrammet.no/media/cache/profile_img/images/Profile%20photos/62653f9b48d6c.jpeg",
-            role: "Medlem",
-          },
-          {
-            name: "Aud Johanne Aaserud",
-            image:
-              "https://vektorprogrammet.no/media/cache/profile_img/images/Profile%20photos/636c05bf259ea.jpeg",
-            role: "Medlem",
-          },
-          {
-            name: "Boglarka Mate",
-            image:
-              "https://vektorprogrammet.no/media/cache/profile_img/images/defaultProfile.png",
-            role: "Medlem",
-          },
-          {
-            name: "Celina Che Phan",
-            image:
-              "https://vektorprogrammet.no/media/cache/profile_img/images/defaultProfile.png",
-            role: "Medlem",
-          },
-          {
-            name: "Thilde Marås",
-            image:
-              "https://vektorprogrammet.no/media/cache/profile_img/images/Profile%20photos/6443b4f8aab15.jpeg",
-            role: "Medlem",
-          },
-        ]}
+        members={getDevTeamMembers("aas-skole")}
       />
 
       <div className="mx-5 mt-20 text-start font-sans text-black text-lg">
@@ -75,7 +39,7 @@ export default function Skolekoordinering() {
         {/*! TODO: FIX */}
         {/* biome-ignore lint/a11y/useAltText: Temporary ignore for ci/cd */}
         <img
-          src="https://vektorprogrammet.no/images/team_images/%C3%85s%20h%C3%B8st%202022/20_g_pp.jpeg"
+          src="/images/teacher2.png"
           className="m-5 mx-auto h-auto content-center sm:max-w-2xl"
         />
       </div>

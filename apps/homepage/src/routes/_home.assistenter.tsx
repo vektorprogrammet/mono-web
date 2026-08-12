@@ -114,7 +114,7 @@ export default function Assistenter() {
             >
               <div>
                 <img
-                  src={image.url.href}
+                  src={image.url}
                   alt={image.alt}
                   className="mx-auto mt-6 mb-2 h-24 rounded-lg"
                 />
@@ -145,7 +145,7 @@ export default function Assistenter() {
         </div>
 
         <img
-          src="https://vektorprogrammet.no/images/teacher.png?v=1598900041"
+          src="/images/teacher2.png"
           className="mx-auto mt-6 h-80 rounded-lg"
           alt="vektorbilde"
         />

@@ -1,64 +1,38 @@
 import { Mail, MapPin, Users } from "lucide-react";
 import { useState } from "react";
-import { info } from "~/api/kontakt";
 import { TabMenu } from "~/components/tab-menu";
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
 import { Label } from "~/components/ui/label";
 import { Textarea } from "~/components/ui/textarea";
-import { type DepartmentPretty, departments } from "~/lib/types";
+import type { DepartmentContent } from "~/lib/dev-content";
+import { type DepartmentPretty } from "~/lib/types";
 
-export type DepartmentData = {
-  readonly id?: number;
-  name: string;
-  shortName: string;
-  email: string;
-  address?: string | null;
-  city: string;
-  latitude?: string | null;
-  longitude?: string | null;
-  logoPath?: string | null;
-  active: boolean;
-};
+export type DepartmentData = DepartmentContent;
 
 export function ContactTabs({
   department,
-  departments: apiDepartments,
+  departments: contentDepartments,
 }: {
   department: DepartmentPretty;
-  departments: DepartmentData[] | null;
+  departments: readonly DepartmentData[];
 }) {
-  const [active, setActive] = useState<DepartmentPretty>(
-    department,
-    // ! ugly ass solution
-    /*     department === "hovedstyret"
-      ? departments.hovedstyret
-      : department === "aas"
-        ? departments.aas
-        : department === "bergen"
-          ? departments.bergen
-          : "Trondheim", */
-    // ! for some reason this doesn't work
-    /* department === undefined
-      ? "Trondheim"
-      : department in Object.keys(departments)
-        ? departments[department as keyof typeof departments]
-        : "Trondheim", */
-  );
+  const [active, setActive] = useState<DepartmentPretty>(department);
+  const tabs = contentDepartments.map((item) => item.name);
 
   return (
     <div className="mb-6 flex w-full flex-col items-start md:mb-auto md:max-w-6xl lg:flex-row">
       <div className="mx-auto w-full px-5 sm:w-[440px] md:w-[400px] lg:absolute lg:left-10 lg:w-auto lg:px-0">
         <TabMenu
           className="w-full lg:w-auto"
-          tabs={Object.values(departments)}
+          tabs={tabs}
           activeTab={active}
           setActiveTab={setActive}
         />
       </div>
       <main className="mx-auto mb-6 flex h-[500px] w-[calc(100%-1rem)] flex-col items-start overflow-y-scroll break-words rounded-md px-5 pt-0 pb-5 sm:w-[440px] md:w-[400px] lg:w-[480px] xl:w-[920px]">
         <div className="w-full flex-grow">
-          {<DepartmentCard department={active} apiDepartments={apiDepartments} />}
+          <DepartmentCard department={active} departments={contentDepartments} />
         </div>
       </main>
     </div>
@@ -67,132 +41,88 @@ export function ContactTabs({
 
 function DepartmentCard({
   department,
-  apiDepartments,
+  departments: contentDepartments,
 }: {
   department: DepartmentPretty;
-  apiDepartments: DepartmentData[] | null;
+  departments: readonly DepartmentData[];
 }) {
-  // Try to find matching API department data
-  const apiDept = apiDepartments?.find(
-    (d) => d.city === department || d.name === department || d.shortName === department,
-  );
-
-  const result = info(department);
-  if (result instanceof Error && !apiDept) return <span>{result.message}</span>;
-
-  // Use API data for fields it provides, fall back to fixture data
-  const fixtureData = result instanceof Error ? null : result;
-  const name = apiDept?.name ?? fixtureData?.name ?? department;
-  const description = fixtureData?.description ?? "";
-  const email = apiDept?.email ?? fixtureData?.email ?? "";
-  const address = apiDept?.address ?? fixtureData?.address;
-  const members = fixtureData?.members;
-  const button = fixtureData?.button;
-  const contacts = fixtureData?.contacts ?? [];
-  const openForContact = fixtureData?.openForContact ?? false;
+  const result = contentDepartments.find((item) => item.name === department);
+  if (!result) return null;
 
   return (
     <>
       <div className="grid w-full grid-cols-1 gap-10 sm:p-6 lg:pt-0 xl:grid-cols-2">
         <div className="min-w-0">
           <h3 className="font-bold text-2xl text-blue-800 dark:text-neutral-200">
-            {name}
+            {result.name}
           </h3>
-          <div className="text-base">{description}</div>
+          <div className="text-base">{result.description}</div>
           <div className="mt-3 flex items-center gap-1 md:mt-5">
             <Mail className="h-5 w-5 text-black" />
             <Button
               onClick={async () => {
-                await navigator.clipboard.writeText(email);
+                await navigator.clipboard.writeText(result.email);
               }}
               variant="link"
               className="h-auto justify-start p-0"
             >
-              {email}
+              {result.email}
             </Button>
           </div>
-          {address && (
-            <div className="mt-2 flex gap-1 text-sm">
-              <MapPin className="h-5 w-5 text-black" />
-              <span>{address}</span>
-            </div>
-          )}
-          {members && (
-            <div className="flex gap-1 whitespace-nowrap text-sm">
-              <Users className="h-5 w-5 text-black" />
-              <span>{`${members} medlemmer`}</span>
-            </div>
-          )}
-          {button && (
-            <div className="py-5">
-              <Button className="bg-vektor-darkblue hover:bg-vektor-blue">
-                {"Les mer om hovedstyret"}
-              </Button>
-            </div>
-          )}
+          <div className="mt-2 flex gap-1 text-sm">
+            <MapPin className="h-5 w-5 text-black" />
+            <span>{result.address}</span>
+          </div>
+          <div className="flex gap-1 whitespace-nowrap text-sm">
+            <Users className="h-5 w-5 text-black" />
+            <span>{`${result.members} medlemmer`}</span>
+          </div>
         </div>
         <div className="min-w-0 divide-y divide-solid">
-          {contacts.map((contact) => {
-            return (
-              <div className="mb-3 md:mb-4" key={contact.name}>
-                <div className="mt-1 text-blue-800 dark:text-gray-200">
-                  {contact.name}
-                </div>
-                <div className="my-2 flex flex-col items-start gap-1 md:my-3 md:flex-row md:items-center">
-                  {contact.title && (
-                    <span className="whitespace-nowrap">{contact.title}</span>
-                  )}
-                  <button
-                    onClick={async () => {
-                      await navigator.clipboard.writeText(contact.mail);
-                    }}
-                    className="break-all text-sm hover:underline md:text-base"
-                    type="button"
-                  >
-                    {contact.mail}
-                  </button>
-                </div>
+          {result.contacts.map((contact) => (
+            <div className="mb-3 md:mb-4" key={contact.name}>
+              <div className="mt-1 text-blue-800 dark:text-gray-200">{contact.name}</div>
+              <div className="my-2 flex flex-col items-start gap-1 md:my-3 md:flex-row md:items-center">
+                {contact.title && <span className="whitespace-nowrap">{contact.title}</span>}
+                <button
+                  onClick={async () => {
+                    await navigator.clipboard.writeText(contact.mail);
+                  }}
+                  className="break-all text-sm hover:underline md:text-base"
+                  type="button"
+                >
+                  {contact.mail}
+                </button>
               </div>
-            );
-          })}
+            </div>
+          ))}
         </div>
       </div>
-      {openForContact && (
+      {result.openForContact && (
         <div className="mx-auto max-w-[600px] dark:bg-neutral-800">
           <div className="pt-10 text-center font-bold text-2xl text-blue-800 dark:text-gray-200">
-            {`Kontakt styret i ${name}`}
+            {`Kontakt styret i ${result.name}`}
           </div>
           <form>
             <div className="mt-7 mb-5 grid xl:grid-cols-2 xl:gap-6">
               <div className="mb-5 md:mb-0">
-                <Label htmlFor="name">{"Ditt navn"}</Label>
+                <Label htmlFor="name">Ditt navn</Label>
                 <Input placeholder="Skriv inn navn" required />
               </div>
               <div>
-                <Label htmlFor="email">{"Din e-post"}</Label>
+                <Label htmlFor="email">Din e-post</Label>
                 <Input placeholder="Skriv inn epost" required />
               </div>
             </div>
             <div className="mb-5">
-              <div>
-                <Label htmlFor="topic">{"Emne"}</Label>
-                <Input placeholder="Skriv inn emnet for meldingen" required />
-              </div>
+              <Label htmlFor="topic">Emne</Label>
+              <Input placeholder="Skriv inn emnet for meldingen" required />
             </div>
             <div className="mb-5">
-              <div>
-                <Label htmlFor="message">{"Melding"}</Label>
-                <Textarea
-                  placeholder="Skriv inn meldingen din"
-                  rows={6}
-                  required
-                  id="message"
-                />
-              </div>
+              <Label htmlFor="message">Melding</Label>
+              <Textarea placeholder="Skriv inn meldingen din" rows={6} required id="message" />
             </div>
-            <Button className="bg-vektor-darkblue hover:bg-vektor-blue">
-              {"Send melding"}
-            </Button>
+            <Button className="bg-vektor-darkblue hover:bg-vektor-blue">Send melding</Button>
           </form>
         </div>
       )}

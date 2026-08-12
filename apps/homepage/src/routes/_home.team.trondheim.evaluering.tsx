@@ -1,4 +1,5 @@
 import { TeamTemplate } from "@/components/team-template";
+import { getDevTeamMembers } from "~/lib/dev-content";
 
 // biome-ignore lint/style/noDefaultExport: Route Modules require default export https://reactrouter.com/start/framework/route-module
 export default function Evaluering() {
@@ -6,41 +7,16 @@ export default function Evaluering() {
     <div className="mx-auto mt-5 mb-20 flex max-w-screen-lg flex-col items-center">
       <TeamTemplate
         name="Evaluering"
-        mail="evaluering.ntnu@vektorprogrammet.no"
+        mail="dev@example.invalid"
         text="Vi sender ut spørreundersøkelser, lager statistikk av dem og skriver så semester- og årsrapporter."
-        members={[
-          {
-            name: "Hannes Witt",
-            image:
-              "https://vektorprogrammet.no/media/cache/profile_img/images/Profile%20photos/634926da1a3a6.jpeg",
-            role: "Leder",
-          },
-          {
-            name: "Emma Dyvesveen Myrbekk",
-            image:
-              "https://vektorprogrammet.no/media/cache/profile_img/images/Profile%20photos/634926c5a6400.jpeg",
-            role: "Medlem",
-          },
-          {
-            name: "Tinus Øen",
-            image:
-              "https://vektorprogrammet.no/media/cache/profile_img/images/Profile%20photos/63492623842a1.jpeg",
-            role: "Medlem",
-          },
-          {
-            name: "Maja Christine Stahl",
-            image:
-              "https://vektorprogrammet.no/media/cache/profile_img/images/Profile%20photos/640714155162e.jpeg",
-            role: "Medlem",
-          },
-        ]}
+        members={getDevTeamMembers("trondheim-evaluering")}
       />
 
       <div className="m-3">
         {/*! TODO: FIX */}
         {/* biome-ignore lint/a11y/useAltText: Temporary ignore for ci/cd */}
         <img
-          src="https://vektorprogrammet.no/images/team_images/Evaluering/Teambildet.jpg"
+          src="/images/teacher2.png"
           className="m-3 mx-auto mt-20 h-auto content-center sm:max-w-2xl"
         />
       </div>
@@ -69,7 +45,7 @@ export default function Evaluering() {
           {/*! TODO: FIX */}
           {/* biome-ignore lint/a11y/useAltText: Temporary ignore for ci/cd */}
           <img
-            src="https://vektorprogrammet.no/images/team_images/trapp_bygg.jpg"
+            src="/images/teacher2.png"
             className="m-5 mx-auto mt-15 max-h-80 content-center sm:max-w-md"
           />
         </div>
@@ -78,7 +54,7 @@ export default function Evaluering() {
           {/*! TODO: FIX */}
           {/* biome-ignore lint/a11y/useAltText: Temporary ignore for ci/cd */}
           <img
-            src="https://vektorprogrammet.no/images/team_images/trapp_park.jpg"
+            src="/images/teacher2.png"
             className="m-5 mx-auto mt-15 max-h-96 content-center sm:max-w-xs"
           />
         </div>
@@ -102,7 +78,7 @@ export default function Evaluering() {
         {/*! TODO: FIX */}
         {/* biome-ignore lint/a11y/useAltText: Temporary ignore for ci/cd */}
         <img
-          src="https://vektorprogrammet.no/images/team_images/20200831_175600.jpg"
+          src="/images/teacher2.png"
           className="m-3 mx-auto mt-3 h-auto content-center sm:max-w-2xl"
         />
       </div>
@@ -153,9 +129,9 @@ export default function Evaluering() {
         Dersom du har noen spørsmål er det bare å ta kontakt med oss på{" "}
         <a
           className="break-all text-vektor-darblue hover:underline"
-          href="mailto:evaluering.ntnu@vektorprogrammet.no"
+          href="mailto:dev@example.invalid"
         >
-          evaluering.ntnu@vektorprogrammet.no.
+          dev@example.invalid.
         </a>
       </div>
     </div>

@@ -6,7 +6,7 @@ interface OmOssContent {
   bottomText: string;
   bottomHeader: string;
   bottomImage: {
-    url: URL;
+    url: string;
     alt: string;
   };
   cards: Array<TextPictureParagraphApiProps>;
@@ -30,7 +30,7 @@ export function getOmOss(): OmOssContent {
           og får gjennom oss muligheten til
           å få reell erfaring.`,
     bottomImage: {
-      url: new URL("https://vektorprogrammet.no/images/nett.jpg?v=1598900041"),
+      url: "/images/teacher2.png",
       alt: "",
     },
     cards: [
@@ -42,9 +42,7 @@ export function getOmOss(): OmOssContent {
          matematikk er grunnlaget for alle realfag er målet at dette
           også skal føre til motivasjon og videre utforskning av realfagene.`,
         image: {
-          url: new URL(
-            "https://vektorprogrammet.no/images/tormedmer.jpg?v=1598900041",
-          ),
+          url: "/images/teacher2.png",
           alt: "Kosing med Tor.",
         },
       },
@@ -59,9 +57,7 @@ export function getOmOss(): OmOssContent {
             vi både sosiale og faglige arrangementer for å
              forsterke denne motivasjonen.`,
         image: {
-          url: new URL(
-            "https://vektorprogrammet.no/images/membersV18.JPG?v=1598900041",
-          ),
+          url: "/images/teacher2.png",
           alt: "Samlede vektormedlemmer.",
         },
       },

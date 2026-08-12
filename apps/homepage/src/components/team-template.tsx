@@ -1,8 +1,6 @@
-interface Member {
-  name: string;
-  image: string;
-  role: string;
-}
+import type { DevTeamMember } from "~/lib/dev-content";
+
+type Member = DevTeamMember;
 
 export function TeamTemplate({
   name,
@@ -13,7 +11,7 @@ export function TeamTemplate({
   name: string;
   mail: string;
   text: string;
-  members: Array<Member>;
+  members: readonly Member[];
 }) {
   return (
     <div>
@@ -35,7 +33,7 @@ export function TeamTemplate({
       <div className="mt-10 flex flex-wrap justify-center">
         {members.map((data) => {
           return (
-            <div key={data.image} className="w-1/2 sm:w-1/3 md:w-1/4 lg:w-1/5">
+            <div key={data.id} className="w-1/2 sm:w-1/3 md:w-1/4 lg:w-1/5">
               <div className="max-w-6xl content-center justify-between">
                 <img
                   alt={`Bilde av ${data.name}`}

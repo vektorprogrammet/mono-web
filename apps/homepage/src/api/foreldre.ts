@@ -24,9 +24,7 @@ export function getForeldre(): ForeldreContent {
         utplassert på skolene. Du kan derfor være sikker på 
         at assistentene våre gjør en god jobb.`,
         image: {
-          url: new URL(
-            "https://vektorprogrammet.no/images/assistants_foreldre.jpg",
-          ),
+          url: "/images/teacher2.png",
           alt: "Vektor samlet",
         },
       },
@@ -41,7 +39,7 @@ export function getForeldre(): ForeldreContent {
         \n
         Kursene blir vanligvis holdt i Realfagsbygget på NTNU Gløshaugen, med lett bespisning (kaffe, kaker, kjeks).`,
         image: {
-          url: new URL("https://vektorprogrammet.no/images/assistenter.jpg"),
+          url: "/images/teacher2.png",
           alt: "Under møte",
         },
       },
@@ -57,9 +55,7 @@ export function getForeldre(): ForeldreContent {
         \n
         Høres foreldrekurset interessant ut?`,
         image: {
-          url: new URL(
-            "https://vektorprogrammet.no/images/vektorassistent.jpg",
-          ),
+          url: "/images/teacher2.png",
           alt: "Undervisning i klasserommet",
         },
       },

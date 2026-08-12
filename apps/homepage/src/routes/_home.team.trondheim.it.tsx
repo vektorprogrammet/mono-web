@@ -1,4 +1,5 @@
 import { TeamTemplate } from "@/components/team-template";
+import { getDevTeamMembers } from "~/lib/dev-content";
 
 // biome-ignore lint/style/noDefaultExport: Route Modules require default export https://reactrouter.com/start/framework/route-module
 export default function IT() {
@@ -6,88 +7,9 @@ export default function IT() {
     <div className="mx-auto mt-5 mb-20 flex max-w-screen-lg flex-col">
       <TeamTemplate
         name="IT"
-        mail="it@vektorprogrammet.no"
+        mail="dev@example.invalid"
         text="IT-teamet utvikler og drifter Vektorprogrammets nettside og interne datasystemer."
-        members={[
-          {
-            name: "Erlend Marius Ommundsen",
-            image:
-              "https://vektorprogrammet.no/media/cache/profile_img/images/Profile%20photos/635251aabe0e2.jpeg",
-            role: "Leder",
-          },
-          {
-            name: "Trym Tveito",
-            image:
-              "https://vektorprogrammet.no/media/cache/profile_img/images/Profile%20photos/60644bb0899a8.jpeg",
-            role: "Utvikler",
-          },
-          {
-            name: "Asbjørn Kallestad",
-            image:
-              "https://vektorprogrammet.no/media/cache/profile_img/images/Profile%20photos/605de756771a1.jpeg",
-            role: "Utvikler",
-          },
-          {
-            name: "Sivert Lundli",
-            image:
-              "https://vektorprogrammet.no/media/cache/profile_img/images/Profile%20photos/6356e13ecf215.jpeg",
-            role: "Utvikler",
-          },
-          {
-            name: "Aaryan Neupane",
-            image:
-              "https://vektorprogrammet.no/media/cache/profile_img/images/Profile%20photos/63480498f3eb0.jpeg",
-            role: "Utvikler",
-          },
-          {
-            name: "Heidi Therese Wiest",
-            image:
-              "https://vektorprogrammet.no/media/cache/profile_img/images/Profile%20photos/6346d5cc4a72b.jpeg",
-            role: "Utvikler",
-          },
-          {
-            name: "Hans Tjøtta",
-            image:
-              "https://vektorprogrammet.no/media/cache/profile_img/images/Profile%20photos/6356d83016ddb.jpeg",
-            role: "Utvikler",
-          },
-          {
-            name: "Jens Kulås",
-            image:
-              "https://vektorprogrammet.no/media/cache/profile_img/images/Profile%20photos/6346d70d56a62.jpeg",
-            role: "Utvikler",
-          },
-          {
-            name: "Jakob Gløersen",
-            image:
-              "https://vektorprogrammet.no/media/cache/profile_img/images/Profile%20photos/6407122b9a583.jpeg",
-            role: "Utvikler",
-          },
-          {
-            name: "Julia Dai",
-            image:
-              "https://vektorprogrammet.no/media/cache/profile_img/images/Profile%20photos/6407131bab385.jpeg",
-            role: "Utvikler",
-          },
-          {
-            name: "Ole Jacob Mellgren",
-            image:
-              "https://vektorprogrammet.no/media/cache/profile_img/images/Profile%20photos/640710bfb9602.jpeg",
-            role: "Utvikler",
-          },
-          {
-            name: "Filip Skaug",
-            image:
-              "https://vektorprogrammet.no/media/cache/profile_img/images/Profile%20photos/640712bcabc19.jpeg",
-            role: "Utvikler",
-          },
-          {
-            name: "Kaja Prestnes Lind",
-            image:
-              "https://vektorprogrammet.no/media/cache/profile_img/images/Profile%20photos/6346def4754db.jpeg",
-            role: "Utvikler",
-          },
-        ]}
+        members={getDevTeamMembers("trondheim-it")}
       />
 
       <div className="mt-20 text-center font-sans text-3xl text-bold text-vektor-darblue">
@@ -148,7 +70,7 @@ export default function IT() {
         {/*! TODO: FIX */}
         {/* biome-ignore lint/a11y/useAltText: Temporary ignore for ci/cd */}
         <img
-          src="https://vektorprogrammet.no/images/team_images/IT/IT_V23.jpg"
+          src="/images/teacher2.png"
           className="m-3 mx-auto mt-10 h-auto content-center sm:max-w-2xl"
         />
       </div>
@@ -186,7 +108,7 @@ export default function IT() {
         {/*! TODO: FIX */}
         {/* biome-ignore lint/a11y/useAltText: Temporary ignore for ci/cd */}
         <img
-          src="https://vektorprogrammet.no/images/team_images/logosnew.png"
+          src="/images/teacher2.png"
           className="m-3 mx-auto mt-10 h-auto content-center sm:max-w-2xl"
         />
       </div>

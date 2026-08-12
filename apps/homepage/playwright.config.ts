@@ -1,85 +1,55 @@
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { defineConfig, devices } from "@playwright/test";
 
-/**
- * Read environment variables from file.
- * https://github.com/motdotla/dotenv
- */
-// require('dotenv').config();
+const port = 8787;
+const localHost = "p000.vektor.phibkro.org";
+const baseURL = `http://127.0.0.1:${port}`;
+export const HOMEPAGE_PLAYWRIGHT_INPUTS = {
+  origin: baseURL,
+  host: localHost,
+  stage: "p000",
+  viewport: { width: 1440, height: 900 },
+} as const;
+const artifactRoot = join(tmpdir(), "monoweb-homepage-dev-0011");
+const chromiumExecutablePath = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH;
 
-const port = 5173;
-const baseURL = `http://localhost:${port}`;
-
-/**
- * See https://playwright.dev/docs/test-configuration.
- */
 export default defineConfig({
-  timeout: 60000,
+  timeout: 60_000,
   testDir: "./e2e",
-  outputDir: "./e2e/results",
-  snapshotDir: "./e2e/snapshots",
-  /* Run tests in files in parallel */
-  fullyParallel: true,
-  /* Fail the build on CI if you accidentally left test.only in the source code. */
+  outputDir: join(artifactRoot, "playwright-results"),
+  fullyParallel: false,
   forbidOnly: !!process.env.CI,
-  /* Retry on CI only */
   retries: process.env.CI ? 2 : 0,
-  /* Opt out of parallel tests on CI. */
-
-  workers: process.env.CI ? 20 : undefined,
-
-  /* Reporter to use. See https://playwright.dev/docs/test-reporters */
-  reporter: "html",
-  /* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */
+  workers: 1,
+  reporter: "line",
   use: {
-    /* Base URL to use in actions like `await page.goto('/')`. */
-    baseURL,
-
-    /* Collect trace when retrying the failed test. See https://playwright.dev/docs/trace-viewer */
-    trace: "on-first-retry",
+    ...devices["Desktop Chrome"],
+    baseURL: HOMEPAGE_PLAYWRIGHT_INPUTS.origin,
+    viewport: HOMEPAGE_PLAYWRIGHT_INPUTS.viewport,
+    locale: "nb-NO",
+    timezoneId: "Europe/Oslo",
+    serviceWorkers: "block",
+    trace: "on",
+    video: "on",
+    screenshot: "on",
   },
-
-  /* Configure projects for major browsers */
   projects: [
     {
       name: "chromium",
-      use: { ...devices["Desktop Chrome"] },
+      use: {
+        launchOptions: {
+          args: [`--host-resolver-rules=MAP ${localHost} 127.0.0.1`],
+          ...(chromiumExecutablePath ? { executablePath: chromiumExecutablePath } : {}),
+        },
+      },
     },
-
-    {
-      name: "firefox",
-      use: { ...devices["Desktop Firefox"] },
-    },
-
-    {
-      name: "webkit",
-      use: { ...devices["Desktop Safari"] },
-    },
-
-    /* Test against mobile viewports. */
-    // {
-    //   name: 'Mobile Chrome',
-    //   use: { ...devices['Pixel 5'] },
-    // },
-    // {
-    //   name: 'Mobile Safari',
-    //   use: { ...devices['iPhone 12'] },
-    // },
-
-    /* Test against branded browsers. */
-    // {
-    //   name: 'Microsoft Edge',
-    //   use: { ...devices['Desktop Edge'], channel: 'msedge' },
-    // },
-    // {
-    //   name: 'Google Chrome',
-    //   use: { ...devices['Desktop Chrome'], channel: 'chrome' },
-    // },
   ],
-
-  /* Run your local dev server before starting the tests */
   webServer: {
     port,
-    command: "pnpm run start",
-    reuseExistingServer: !process.env.CI,
+    cwd: "../..",
+    command: "bun run --cwd apps/homepage worker:build && bun run --cwd apps/homepage worker:dev",
+    reuseExistingServer: false,
+    timeout: 180_000,
   },
 });
