@@ -268,57 +268,56 @@ Before any `Live` observation, PR #21 must commit and review a deterministic rou
 3. Confirm that PR #20 has green required checks for its declared scope. If PR #20 is not green, stop before preview mutation.
 4. Confirm preflight authority for the Cloudflare account/token, Alchemy remote state, exact image registry digest, DNS/TLS mapping, artifact retention, and cleanup. No external database provider or raw backup access is required.
 5. Confirm that no repository or evidence path contains credentials, provider profiles, production identifiers, personal data, or raw backup data. Raw backups remain local and unopened by CI.
+6. Confirm the bootstrap commit is merged to `main` before any credentialed preview path, and retain the merge SHA plus evidence that every pre-bootstrap PR #21 check was credential-free and plan-only.
 
 ### Phase 1 — Receive the pull request event
-
-6. Open or update the same-repository pull request and observe the GitHub Actions run for `opened`, `reopened`, or `synchronize`; fork PRs remain CI/plan-only unless the operator approves that exact SHA.
-7. Confirm that credential-free CI uses the exact head SHA, while trusted provider mutation uses base-branch tooling and the explicit target `p20/vektor-p20`.
-8. Confirm least-privilege workflow permissions, full-SHA action pins, no raw backup or provider credential in untrusted jobs, and no untrusted pull request code in trusted close cleanup.
-9. Confirm the concurrency group prevents two deploy mutators for `vektor-p20`. A replacement run must reconcile the prior state instead of assuming cancellation performed teardown.
+7. Open or update the same-repository pull request and observe the GitHub Actions run for `opened`, `reopened`, or `synchronize`; fork PRs remain CI/plan-only unless the operator approves that exact SHA.
+8. Confirm that credential-free CI uses the exact head SHA, while trusted provider mutation uses base-branch tooling and the explicit target `p20/vektor-p20`.
+9. Confirm least-privilege workflow permissions, full-SHA action pins, no raw backup or provider credential in untrusted jobs, and no untrusted pull request code in trusted close cleanup.
+10. Confirm the concurrency group prevents two deploy mutators for `vektor-p20`. A replacement run must reconcile the prior state instead of assuming cancellation performed teardown.
 
 ### Phase 2 — Run repository CI and generate data
-
-10. Run the repository's required Bun and PHP checks in credential-free GitHub Actions. Preserve failed statuses and sanitized output.
-11. Run the reviewed schema/metadata-only synthetic generator with the fixed policy, fixed clock, deterministic generator seed, 65-table manifest, minimum-cohort rules, and named UI states.
-12. Run generation twice with identical inputs. Compare artifact digest, schema manifest, exact 45,955-row count, distributions, cohort/privacy report, UI-state report, and generator manifest.
-13. Reject any source row, source identifier, source timestamp, copied topology, forbidden value, secret, personal data, or forbidden host. Upload only the encrypted digest-bound synthetic artifact after all predicates pass.
-14. Retain only the artifact manifest, digest, policy/schema versions, bounded counts, route-contract digest, and safe operation identifiers in PR evidence.
+11. Run the repository's required Bun and PHP checks in credential-free GitHub Actions. Preserve failed statuses and sanitized output.
+12. Run the reviewed schema/metadata-only synthetic generator with the fixed policy, fixed clock, deterministic generator seed, 65-table manifest, minimum-cohort rules, and named UI states.
+13. Run generation twice with identical inputs. Compare artifact digest, schema manifest, exact 45,955-row count, distributions, cohort/privacy report, UI-state report, and generator manifest.
+14. Reject any source row, source identifier, source timestamp, copied topology, forbidden value, secret, personal data, or forbidden host. Upload only the encrypted digest-bound synthetic artifact after all predicates pass.
+15. Retain only the artifact manifest, digest, policy/schema versions, bounded counts, route-contract digest, and safe operation identifiers in PR evidence.
 
 ### Phase 3 — Plan and apply the isolated preview
 
-15. Run Alchemy plan with explicit app `vektor`, stage `p20`, target, source SHA, image digest, seed digest, remote state, route-contract digest, and exact allow-list. The plan must contain the Worker, container-backed Durable Object namespace/migration, one `vektor-p20-container` instance, digest-bound PHP+MariaDB image, homepage Website/Worker resource, dashboard Website/Worker resource, synthetic artifact location, target mapping, and only their support resources.
-16. Reject a plan containing `vektorprogrammet.no`, a production account/route/credential/outbound destination, D1 or DO SQLite as application database, a second PR stage, an external generic relational provider or provider-specific database substitution, account-wide cleanup, mutable image tag, unpinned action, or undeclared resource.
-17. Start the first or second counted attempt only after the plan, trust matrix, route contract, egress policy, and operator approval pass. Main-dev does not consume this ledger.
-18. Apply the plan through trusted base-branch tooling in GitHub Actions. Record operation identifiers, resource tags, immutable ownership IDs, image/seed digests, and generation without recording credentials.
-19. Boot the exact `vektor-p20-container` instance, start MariaDB, run Symfony migration replay, and initialize the synthetic seed deterministically. Health must state that MariaDB is container-local preview-session state and that replacement rehydrates the seed.
-20. Confirm that the container-backed DO owns routing/lifecycle only, that no application request reaches `vektorprogrammet.no`, and that runtime egress is deny-by-default with only named non-production dependencies.
+16. Before any provider mutation or promotion, verify the trusted source/archive digest against the expected repository, exact PR #21 head, and recorded image/archive inputs. Extend E-0020-02 with the verification command, expected and observed digests, repository/head identity, and promotion decision.
+17. Run Alchemy plan with explicit app `vektor`, stage `p20`, target, source SHA, image digest, seed digest, remote state, route-contract digest, and exact allow-list. The plan must contain the Worker, container-backed Durable Object namespace/migration, one `vektor-p20-container` instance, digest-bound PHP+MariaDB image, homepage Website/Worker resource, dashboard Website/Worker resource, synthetic artifact location, target mapping, and only their support resources.
+18. Reject a plan containing `vektorprogrammet.no`, a production account/route/credential/outbound destination, D1 or DO SQLite as application database, a second PR stage, an external generic relational provider or provider-specific database substitution, account-wide cleanup, mutable image tag, unpinned action, or undeclared resource.
+19. Start the first or second counted attempt only after the plan, trust matrix, route contract, egress policy, and operator approval pass. Main-dev does not consume this ledger.
+20. Apply the plan through trusted base-branch tooling in GitHub Actions. Record operation identifiers, resource tags, immutable ownership IDs, image/seed digests, and generation without recording credentials.
+21. Boot the exact `vektor-p20-container` instance, start MariaDB, run Symfony migration replay, and initialize the synthetic seed deterministically. Health must state that MariaDB is container-local preview-session state and that replacement rehydrates the seed.
+22. Confirm that the container-backed DO owns routing/lifecycle only, that no application request reaches `vektorprogrammet.no`, and that runtime egress is deny-by-default with only named non-production dependencies.
 
 ### Phase 4 — Observe the preview
 
-21. Resolve `https://p20.vektor.phibkro.org` from the identity table and record DNS, TLS, response status, headers, and exact source/image/seed digests shown by the application.
-22. Run every route in the committed route contract generated from the homepage and dashboard manifests. Each route must produce its frozen basic state or named intentional status. An unexpected `404`, redirect, blank response, server error, changed expected status, or production-host reference fails the journey.
-23. Exercise `/health` or the accepted operational health endpoint. It must identify app `vektor`, stage `p20`, source SHA, image/seed digests, `container-local-mariadb`, and no-store behavior without secrets or raw data.
-24. Exercise the homepage and dashboard routes. Capture browser status, console/page errors, hydration, client navigation, same-origin request inventory, egress-denial inventory, and zero-request assertion for `vektorprogrammet.no`.
-25. Capture matched desktop and mobile screenshots for each route where visual evidence is applicable. Capture a video or equivalent recording for the complete named journey when the implementation lane requires it. Record viewport, browser, source/image/seed digests, stage, route-contract digest, and evidence digest.
-26. Do not accept a deployment log as a UI or route result. A route census without browser evidence does not prove visual behavior.
+23. Resolve `https://p20.vektor.phibkro.org` from the identity table and record DNS, TLS, response status, headers, and exact source/image/seed digests shown by the application.
+24. Run every route in the committed route contract generated from the homepage and dashboard manifests. Each route must produce its frozen basic state or named intentional status. An unexpected `404`, redirect, blank response, server error, changed expected status, or production-host reference fails the journey.
+25. Exercise `/health` or the accepted operational health endpoint. It must identify app `vektor`, stage `p20`, source SHA, image/seed digests, `container-local-mariadb`, and no-store behavior without secrets or raw data.
+26. Exercise the homepage and dashboard routes. Capture browser status, console/page errors, hydration, client navigation, same-origin request inventory, egress-denial inventory, and zero-request assertion for `vektorprogrammet.no`.
+27. Capture matched desktop and mobile screenshots for each route where visual evidence is applicable. Capture a video or equivalent recording for the complete named journey when the implementation lane requires it. Record viewport, browser, source/image/seed digests, stage, route-contract digest, and evidence digest.
+28. Do not accept a deployment log as a UI or route result. A route census without browser evidence does not prove visual behavior.
 
 ### Phase 5 — Close and reconcile
-
-27. Close the pull request and observe the trusted close workflow. Confirm that it uses the same app/stage, remote-state key, generation, and base-branch tooling.
-28. Run stage-scoped Alchemy teardown. Do not use an account-wide nuke or a guessed stage. Delete the Worker, DO namespace, Container, image/namespace resources, homepage, dashboard, route, DNS/TLS mapping, and synthetic artifact by exact selectors.
-29. Independently check the preview URL, DNS, TLS certificate or route inventory, container/image resources, artifact location, and remote state after teardown. An empty provider list alone does not prove absence.
-30. Run pure event-handler tests for open, reopen, synchronize, close, reconcile, main-dev, schedule, and cancellation paths. Then run the scheduled orphan reconciler against a deliberately stale PR stage under operator authority. Confirm that it removes only the exact safe orphan and leaves an active PR stage, `main-dev`, and homepage stack unchanged.
-31. Dispatch `main-dev` manually with operator evidence and the separate ledger; confirm it targets only `vektor.phibkro.org`, does not consume the p20 cap, and has no preview teardown path.
-32. Confirm that the cancelled-run scenario leaves a recoverable state and that reconciliation, not cancellation, performs cleanup. Confirm the attempt counter, terminal state, artifact deletion, temporary-file cleanup, evidence digest, and worktree cleanliness.
+28. Close the pull request and observe the trusted close workflow. Confirm that it uses the same app/stage, remote-state key, generation, and base-branch tooling.
+29. Run stage-scoped Alchemy teardown. Do not use an account-wide nuke or a guessed stage. Delete the Worker, DO namespace, Container, image/namespace resources, homepage, dashboard, route, DNS/TLS mapping, and synthetic artifact by exact selectors.
+30. Independently check the preview URL, DNS, TLS certificate or route inventory, container/image resources, artifact location, and remote state after teardown. An empty provider list alone does not prove absence.
+31. After teardown, independently assert that the separate attempt ledger and tombstone namespace remain, contain the same monotonic attempt count, preserve close/reopen retention, and have an expiry no sooner than 30 days. Cross-reference E-0020-11 and E-0020-13.
+32. Run pure event-handler tests for open, reopen, synchronize, close, reconcile, main-dev, schedule, and cancellation paths. Then run the scheduled orphan reconciler against a deliberately stale PR stage under operator authority. Confirm that it removes only the exact safe orphan and leaves an active PR stage, `main-dev`, and homepage stack unchanged.
+33. Dispatch `main-dev` manually with operator evidence and the separate ledger; confirm it targets only `vektor.phibkro.org`, does not consume the p20 cap, and has no preview teardown path.
+34. Confirm that the cancelled-run scenario leaves a recoverable state and that reconciliation, not cancellation, performs cleanup. Confirm the attempt counter, terminal state, artifact deletion, temporary-file cleanup, evidence digest, and worktree cleanliness.
 
 The journey fails if any required phase is skipped, if a provider or trust blocker is hidden, if a partial shell is called complete, if the frozen route contract is changed after observation, or if a production host is touched.
 
-## Evidence matrix
 
 | Evidence ID | Artifact or observation | Required claim | Does not prove |
 |---|---|---|---|
 | E-0020-01 | PR #20 base and PR #21 head record | Intended stacked base, exact source SHA, and frozen identity are used | Product parity or provider success |
-| E-0020-02 | GitHub Actions trust matrix, run summary, full-SHA action list, and sanitized logs | Credential-free exact-head CI and trusted base-branch delivery checks ran with no raw backup or provider secret | Provider deployment or UI journey |
+| E-0020-02 | GitHub Actions trust matrix, run summary, full-SHA action list, sanitized logs, and trusted source/archive digest verification | Credential-free exact-head CI and trusted base-branch delivery checks ran with no raw backup or provider secret; expected repository, head, and digest matched before promotion | Provider deployment or UI journey |
 | E-0020-03 | Workflow event record and pure event-handler test report | Open, reopen, synchronize, close, reconcile, main-dev, schedule, and cancellation select the exact state path | Guaranteed cleanup after cancellation |
 | E-0020-04 | Alchemy plan, resource graph, ownership manifest, tags, digests, and remote-state generation | The exact Worker → DO → Container → Symfony path plus homepage/dashboard resources is deterministic and CI-portable | Runtime reachability or domain semantics |
 | E-0020-05 | Synthetic manifest, policy/schema digests, artifact digest, two-run comparison, cohort/privacy/UI-state report | The 65-table exactly 45,955-row seed is deterministic, synthetic, privacy-safe, policy-compliant, and uploadable | Raw-source safety beyond the recorded closed-world checks |
