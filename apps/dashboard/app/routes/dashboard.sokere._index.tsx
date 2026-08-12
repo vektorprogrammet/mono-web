@@ -25,78 +25,186 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import type { Application } from "@vektorprogrammet/sdk";
 import type { ColumnDef } from "@tanstack/react-table";
-import { isFixtureMode } from "@vektorprogrammet/sdk";
 import { Trash2, UserPlus } from "lucide-react";
-import { useState } from "react";
-import { useFetcher, useLoaderData, useSearchParams } from "react-router";
+import { useMemo, useState } from "react";
+import {
+  redirect,
+  useFetcher,
+  useLoaderData,
+  useSearchParams,
+} from "react-router";
+import {
+  isUnauthorizedApplicantError,
+  mapApplicantError,
+  projectInterviewerOption,
+  projectSchemaOption,
+  type ApplicantInterviewerOption,
+  type ApplicantSchemaOption,
+} from "../lib/applicant-view";
 import { createAuthenticatedClient } from "../lib/api.server";
 import { requireAuth } from "../lib/auth.server";
 import type { Route } from "./+types/dashboard.sokere._index";
 
-// ── Types ─────────────────────────────────────────────────────────────────────
+type LoaderData =
+  | {
+      ok: true;
+      applications: Application[];
+      activeFilter: string;
+      users: ApplicantInterviewerOption[];
+      schemas: ApplicantSchemaOption[];
+    }
+  | {
+      ok: false;
+      activeFilter: string;
+      error: string;
+    };
 
-type Application = {
-  id: number;
-  userName: string;
-  userEmail: string;
-  status: "not_received" | "received" | "invited" | "accepted" | "completed" | "assigned" | "cancelled";
-  interviewStatus: string | null;
-  interviewScheduled: string | null;
-  interviewer: string | null;
-  previousParticipation: boolean;
-};
-
-// ── Mock data ─────────────────────────────────────────────────────────────────
-
-const mockApplications: Application[] = [
-  { id: 1, userName: "Ola Normann", userEmail: "ola@example.com", status: "received", interviewStatus: null, interviewScheduled: null, interviewer: null, previousParticipation: false },
-  { id: 2, userName: "Kari Hansen", userEmail: "kari@example.com", status: "invited", interviewStatus: "Pending", interviewScheduled: "2026-04-10T12:00:00+02:00", interviewer: null, previousParticipation: false },
-  { id: 3, userName: "Per Olsen", userEmail: "per@example.com", status: "accepted", interviewStatus: "Accepted", interviewScheduled: "2026-04-11T14:00:00+02:00", interviewer: "Jonas Berg", previousParticipation: false },
-  { id: 4, userName: "Lise Berg", userEmail: "lise@example.com", status: "completed", interviewStatus: "Interviewed", interviewScheduled: "2026-04-08T10:00:00+02:00", interviewer: "Jonas Berg", previousParticipation: false },
-  { id: 5, userName: "Ida Vik", userEmail: "ida@example.com", status: "assigned", interviewStatus: null, interviewScheduled: null, interviewer: null, previousParticipation: true },
-  { id: 6, userName: "Bjørn Lund", userEmail: "bjorn@example.com", status: "cancelled", interviewStatus: "Cancelled", interviewScheduled: null, interviewer: null, previousParticipation: false },
-];
+type ActionData =
+  | { success: true }
+  | { error: string; type?: "validation" | "sdk" };
 
 // ── Loader ────────────────────────────────────────────────────────────────────
 
-export async function loader({ request }: Route.LoaderArgs) {
-  if (isFixtureMode) {
-    return { applications: mockApplications, activeFilter: "all" };
-  }
-
+export async function loader({ request }: Route.LoaderArgs): Promise<LoaderData> {
   const token = requireAuth(request);
   const client = createAuthenticatedClient(token);
   const url = new URL(request.url);
   const status = url.searchParams.get("status");
+  const activeFilter = status ?? "all";
 
-  try {
-    const result = await client.admin.applications.list(status ? { status } : undefined);
-    const { items: applications } = result;
-    return { applications: applications as Application[], activeFilter: status ?? "all" };
-  } catch {
-    return { applications: [] as Application[], activeFilter: status ?? "all" };
+  const [applications, users, schemas] = await Promise.all([
+    client.admin.applications.list(status ? { status } : undefined).then(
+      (value) => ({ ok: true as const, value }),
+      (error: unknown) => ({
+        ok: false as const,
+        error,
+        context: "applications" as const,
+      }),
+    ),
+    client.admin.users.list().then(
+      (value) => ({ ok: true as const, value }),
+      (error: unknown) => ({
+        ok: false as const,
+        error,
+        context: "options" as const,
+      }),
+    ),
+    client.admin.interviews.schemas().then(
+      (value) => ({ ok: true as const, value }),
+      (error: unknown) => ({
+        ok: false as const,
+        error,
+        context: "options" as const,
+      }),
+    ),
+  ]);
+
+  if (
+    (!applications.ok && isUnauthorizedApplicantError(applications.error)) ||
+    (!users.ok && isUnauthorizedApplicantError(users.error)) ||
+    (!schemas.ok && isUnauthorizedApplicantError(schemas.error))
+  ) {
+    throw redirect("/login?expired=true");
   }
+  if (!applications.ok) {
+    return {
+      ok: false,
+      activeFilter,
+      error: mapApplicantError(applications.error, applications.context),
+    };
+  }
+  if (!users.ok) {
+    return {
+      ok: false,
+      activeFilter,
+      error: mapApplicantError(users.error, users.context),
+    };
+  }
+  if (!schemas.ok) {
+    return {
+      ok: false,
+      activeFilter,
+      error: mapApplicantError(schemas.error, schemas.context),
+    };
+  }
+  return {
+    ok: true,
+    applications: applications.value.items,
+    activeFilter,
+    users: users.value.active
+      .filter(
+        (user) =>
+          user.role === "ROLE_TEAM_LEADER" || user.role === "ROLE_ADMIN",
+      )
+      .map(projectInterviewerOption),
+    schemas: schemas.value.map(projectSchemaOption),
+  };
+}
+
+export function shouldRevalidate({
+  actionResult,
+  defaultShouldRevalidate,
+}: {
+  actionResult?: unknown;
+  defaultShouldRevalidate: boolean;
+}): boolean {
+  if (
+    actionResult !== null &&
+    typeof actionResult === "object" &&
+    "type" in actionResult
+  ) {
+    return false;
+  }
+  return defaultShouldRevalidate;
 }
 
 // ── Action ────────────────────────────────────────────────────────────────────
 
-export async function action({ request }: Route.ActionArgs) {
+function parsePositiveInteger(value: FormDataEntryValue | null): number | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim();
+  if (!/^\d+$/.test(normalized)) return null;
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) && Number.isInteger(parsed) && parsed > 0
+    ? parsed
+    : null;
+}
+
+export async function action({ request }: Route.ActionArgs): Promise<ActionData> {
   const token = requireAuth(request);
   const client = createAuthenticatedClient(token);
   const form = await request.formData();
   const intent = form.get("intent")?.toString();
 
   if (intent === "assign") {
-    const applicationId = Number(form.get("applicationId"));
-    const interviewerId = Number(form.get("interviewerId"));
-    const interviewSchemaId = Number(form.get("interviewSchemaId"));
+    const applicationId = parsePositiveInteger(form.get("applicationId"));
+    const interviewerId = parsePositiveInteger(form.get("interviewerId"));
+    const interviewSchemaId = parsePositiveInteger(form.get("interviewSchemaId"));
+
+    if (applicationId === null || interviewerId === null || interviewSchemaId === null) {
+      return {
+        error: "Ugyldig søknad, intervjuer eller intervjuskjema.",
+        type: "validation",
+      };
+    }
 
     try {
-      await client.admin.interviews.assign(applicationId, interviewerId, interviewSchemaId);
+      await client.admin.interviews.assign(
+        applicationId,
+        interviewerId,
+        interviewSchemaId,
+      );
       return { success: true };
-    } catch {
-      return { error: "Kunne ikke tildele intervju" };
+    } catch (error) {
+      if (isUnauthorizedApplicantError(error)) {
+        throw redirect("/login?expired=true");
+      }
+      return {
+        error: mapApplicantError(error, "assignment"),
+        type: "sdk",
+      };
     }
   }
 
@@ -112,6 +220,7 @@ export async function action({ request }: Route.ActionArgs) {
 
   return { error: "Unknown intent" };
 }
+
 
 // ── Status badge ──────────────────────────────────────────────────────────────
 
@@ -136,55 +245,24 @@ function ApplicationStatusBadge({ status }: { status: string }) {
 
 // ── Interview assignment dialog ───────────────────────────────────────────────
 
-type UserOption = { id: number; firstName: string; lastName: string; role: string };
-type SchemaOption = { id: number; name: string };
-
 function AssignInterviewDialog({
   application,
+  users,
+  schemas,
   open,
   onOpenChange,
 }: {
   application: Application;
+  users: ApplicantInterviewerOption[];
+  schemas: ApplicantSchemaOption[];
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
-  const fetcher = useFetcher();
-  const [users, setUsers] = useState<UserOption[]>([]);
-  const [schemas, setSchemas] = useState<SchemaOption[]>([]);
+  const fetcher = useFetcher<ActionData>();
   const [interviewerId, setInterviewerId] = useState<string>("");
   const [schemaId, setSchemaId] = useState<string>("");
-  const [loading, setLoading] = useState(false);
-
-  const handleOpenChange = async (nextOpen: boolean) => {
-    onOpenChange(nextOpen);
-    if (!nextOpen) return;
-
-    setLoading(true);
-    try {
-      // TODO: replace raw fetch calls with SDK methods once admin users and interview-schemas endpoints are added
-      const [usersResp, schemasResp] = await Promise.all([
-        fetch("/api/admin/users", { credentials: "include" }),
-        fetch("/api/admin/interview-schemas", { credentials: "include" }),
-      ]);
-
-      if (usersResp.ok) {
-        const usersData = await usersResp.json();
-        const activeUsers: UserOption[] = (usersData?.activeUsers ?? []) as UserOption[];
-        const eligible = activeUsers.filter(
-          (u) => u.role === "ROLE_TEAM_LEADER" || u.role === "ROLE_ADMIN",
-        );
-        setUsers(eligible);
-      }
-
-      if (schemasResp.ok) {
-        const schemasData = await schemasResp.json();
-        const members = (schemasData?.["hydra:member"] ?? []) as SchemaOption[];
-        setSchemas(members);
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
+  const error =
+    fetcher.data && "error" in fetcher.data ? fetcher.data.error : undefined;
 
   const handleSubmit = () => {
     if (!interviewerId || !schemaId) return;
@@ -197,53 +275,54 @@ function AssignInterviewDialog({
       },
       { method: "post" },
     );
-    onOpenChange(false);
   };
 
   return (
-    <Dialog open={open} onOpenChange={handleOpenChange}>
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Tildel intervju — {application.userName}</DialogTitle>
         </DialogHeader>
 
-        {loading ? (
-          <p className="text-sm text-muted-foreground">Laster...</p>
-        ) : (
-          <div className="flex flex-col gap-4">
-            <div>
-              <label className="mb-1 block text-sm font-medium">Intervjuer</label>
-              <Select value={interviewerId} onValueChange={setInterviewerId}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Velg intervjuer" />
-                </SelectTrigger>
-                <SelectContent>
-                  {users.map((u) => (
-                    <SelectItem key={u.id} value={String(u.id)}>
-                      {u.firstName} {u.lastName}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div>
-              <label className="mb-1 block text-sm font-medium">Intervjuskjema</label>
-              <Select value={schemaId} onValueChange={setSchemaId}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Velg skjema" />
-                </SelectTrigger>
-                <SelectContent>
-                  {schemas.map((s) => (
-                    <SelectItem key={s.id} value={String(s.id)}>
-                      {s.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
+        {error && (
+          <p className="rounded bg-red-50 p-2 text-red-600 text-sm" role="alert">
+            {error}
+          </p>
         )}
+
+        <div className="flex flex-col gap-4">
+          <div>
+            <label className="mb-1 block text-sm font-medium">Intervjuer</label>
+            <Select value={interviewerId} onValueChange={setInterviewerId}>
+              <SelectTrigger>
+                <SelectValue placeholder="Velg intervjuer" />
+              </SelectTrigger>
+              <SelectContent>
+                {users.map((user) => (
+                  <SelectItem key={user.id} value={String(user.id)}>
+                    {user.firstName} {user.lastName}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div>
+            <label className="mb-1 block text-sm font-medium">Intervjuskjema</label>
+            <Select value={schemaId} onValueChange={setSchemaId}>
+              <SelectTrigger>
+                <SelectValue placeholder="Velg skjema" />
+              </SelectTrigger>
+              <SelectContent>
+                {schemas.map((schema) => (
+                  <SelectItem key={schema.id} value={String(schema.id)}>
+                    {schema.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
@@ -263,7 +342,15 @@ function AssignInterviewDialog({
 
 // ── Actions cell ──────────────────────────────────────────────────────────────
 
-function ActionsCell({ application }: { application: Application }) {
+function ActionsCell({
+  application,
+  users,
+  schemas,
+}: {
+  application: Application;
+  users: ApplicantInterviewerOption[];
+  schemas: ApplicantSchemaOption[];
+}) {
   const [assignOpen, setAssignOpen] = useState(false);
   const fetcher = useFetcher();
 
@@ -275,11 +362,15 @@ function ActionsCell({ application }: { application: Application }) {
             <UserPlus className="h-4 w-4" />
             <span className="ml-1">Tildel intervju</span>
           </Button>
-          <AssignInterviewDialog
-            application={application}
-            open={assignOpen}
-            onOpenChange={setAssignOpen}
-          />
+          {assignOpen && (
+            <AssignInterviewDialog
+              application={application}
+              users={users}
+              schemas={schemas}
+              open={assignOpen}
+              onOpenChange={setAssignOpen}
+            />
+          )}
         </>
       )}
 
@@ -316,47 +407,55 @@ function ActionsCell({ application }: { application: Application }) {
   );
 }
 
+
 // ── Columns ───────────────────────────────────────────────────────────────────
 
-const columns: ColumnDef<Application>[] = [
-  { accessorKey: "userName", header: "Navn" },
-  { accessorKey: "userEmail", header: "E-post" },
-  {
-    accessorKey: "status",
-    header: "Status",
-    cell: ({ row }) => <ApplicationStatusBadge status={row.original.status} />,
-  },
-  {
-    accessorKey: "interviewStatus",
-    header: "Intervjustatus",
-    cell: ({ row }) => row.original.interviewStatus ?? "—",
-  },
-  {
-    accessorKey: "interviewer",
-    header: "Intervjuer",
-    cell: ({ row }) => row.original.interviewer ?? "—",
-  },
-  {
-    accessorKey: "interviewScheduled",
-    header: "Tidspunkt",
-    cell: ({ row }) => {
-      const iso = row.original.interviewScheduled;
-      if (!iso) return "—";
-      return new Date(iso).toLocaleString("nb-NO", {
-        day: "2-digit",
-        month: "2-digit",
-        year: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
-      });
+function createColumns(
+  users: ApplicantInterviewerOption[],
+  schemas: ApplicantSchemaOption[],
+): ColumnDef<Application>[] {
+  return [
+    { accessorKey: "userName", header: "Navn" },
+    { accessorKey: "userEmail", header: "E-post" },
+    {
+      accessorKey: "status",
+      header: "Status",
+      cell: ({ row }) => <ApplicationStatusBadge status={row.original.status} />,
     },
-  },
-  {
-    id: "actions",
-    header: "Handlinger",
-    cell: ({ row }) => <ActionsCell application={row.original} />,
-  },
-];
+    {
+      accessorKey: "interviewStatus",
+      header: "Intervjustatus",
+      cell: ({ row }) => row.original.interviewStatus ?? "—",
+    },
+    {
+      accessorKey: "interviewer",
+      header: "Intervjuer",
+      cell: ({ row }) => row.original.interviewer ?? "—",
+    },
+    {
+      accessorKey: "interviewScheduled",
+      header: "Tidspunkt",
+      cell: ({ row }) => {
+        const iso = row.original.interviewScheduled;
+        if (!iso) return "—";
+        return new Date(iso).toLocaleString("nb-NO", {
+          day: "2-digit",
+          month: "2-digit",
+          year: "numeric",
+          hour: "2-digit",
+          minute: "2-digit",
+        });
+      },
+    },
+    {
+      id: "actions",
+      header: "Handlinger",
+      cell: ({ row }) => (
+        <ActionsCell application={row.original} users={users} schemas={schemas} />
+      ),
+    },
+  ];
+}
 
 // ── Filter tabs ───────────────────────────────────────────────────────────────
 
@@ -372,8 +471,14 @@ const statusFilters = [
 
 // biome-ignore lint/style/noDefaultExport: Route Modules require default export
 export default function Sokere() {
-  const { applications, activeFilter } = useLoaderData<typeof loader>();
+  const data = useLoaderData<typeof loader>();
   const [, setSearchParams] = useSearchParams();
+  const users = data.ok ? data.users : undefined;
+  const schemas = data.ok ? data.schemas : undefined;
+  const columns = useMemo(
+    () => createColumns(users ?? [], schemas ?? []),
+    [users, schemas],
+  );
 
   return (
     <section className="flex w-full min-w-0 flex-col items-center">
@@ -384,7 +489,11 @@ export default function Sokere() {
           {statusFilters.map((filter) => (
             <Button
               key={filter.label}
-              variant={activeFilter === (filter.value ?? "all") ? "default" : "outline"}
+              variant={
+                data.activeFilter === (filter.value ?? "all")
+                  ? "default"
+                  : "outline"
+              }
               size="sm"
               onClick={() => {
                 if (filter.value === null) {
@@ -399,7 +508,16 @@ export default function Sokere() {
           ))}
         </div>
 
-        <DataTable columns={columns} data={applications} />
+        {data.ok ? (
+          <DataTable
+            columns={columns}
+            data={data.applications}
+          />
+        ) : (
+          <p className="rounded bg-red-50 p-3 text-red-600 text-sm" role="alert">
+            {data.error}
+          </p>
+        )}
       </div>
     </section>
   );
