@@ -1,0 +1,148 @@
+name: Preview trusted delivery
+
+on:
+  workflow_call:
+    inputs:
+      event:
+        required: true
+        type: string
+      repository:
+        required: false
+        default: vektorprogrammet/mono-web
+        type: string
+      pull_request_number:
+        required: true
+        type: number
+      head_sha:
+        required: true
+        type: string
+      stage:
+        required: false
+        default: p20
+        type: string
+      target:
+        required: false
+        default: p20
+        type: string
+      plan_only:
+        required: false
+        default: true
+        type: boolean
+      expected_source_digest:
+        required: false
+        type: string
+      image_digest:
+        required: true
+        type: string
+      seed_digest:
+        required: true
+        type: string
+      route_contract_digest:
+        required: true
+        type: string
+      resources_json:
+        required: true
+        type: string
+      remote_state:
+        required: false
+        default: vektor/p20
+        type: string
+    outputs:
+      state:
+        value: ${{ jobs.promote.outputs.state }}
+      ledger_key:
+        value: ${{ jobs.promote.outputs.ledger_key }}
+      source_digest:
+        value: ${{ jobs.package.outputs.source_digest }}
+      ownership_manifest_digest:
+        value: ${{ jobs.promote.outputs.ownership_manifest_digest }}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: preview-vektor-p20
+  cancel-in-progress: false
+
+jobs:
+  package:
+    name: Package exact head without credentials
+    runs-on: ubuntu-latest
+    outputs:
+      source_digest: ${{ steps.digest.outputs.source_digest }}
+      digest_json: ${{ steps.digest.outputs.digest_json }}
+    steps:
+      - name: Checkout exact requested revision
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: ${{ inputs.repository }}
+          ref: ${{ inputs.head_sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Hash exact source archive
+        id: digest
+        run: |
+          set -euo pipefail
+          args=(--head-sha "${{ inputs.head_sha }}" --repository "${{ inputs.repository }}" --output "$RUNNER_TEMP/source-digest.json")
+          if [ -n "${{ inputs.expected_source_digest }}" ]; then args+=(--expected-digest "${{ inputs.expected_source_digest }}"); fi
+          node infra/preview/trusted/digest.mjs "${args[@]}" > "$RUNNER_TEMP/source-digest.stdout.json"
+          node -e 'const fs=require("node:fs"); const v=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); fs.appendFileSync(process.env.GITHUB_OUTPUT,`source_digest=${v.archiveDigest}\n digest_json=${JSON.stringify(JSON.stringify(v))}\n`.replace(" digest_json","digest_json"));' "$RUNNER_TEMP/source-digest.json"
+
+  promote:
+    name: Base-trusted plan or promotion
+    needs: package
+    runs-on: ubuntu-latest
+    environment: vektor-preview
+    outputs:
+      state: ${{ steps.lifecycle.outputs.state }}
+      ledger_key: ${{ steps.lifecycle.outputs.ledger_key }}
+      ownership_manifest_digest: ${{ steps.ownership.outputs.ownership_manifest_digest }}
+    steps:
+      - name: Checkout immutable base tooling
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: ${{ inputs.repository }}
+          ref: main
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Verify source repository, head, and digest
+        env:
+          DIGEST_JSON: ${{ needs.package.outputs.digest_json }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$DIGEST_JSON" > "$RUNNER_TEMP/source-digest.json"
+          node infra/preview/trusted/verify.mjs --input "$RUNNER_TEMP/source-digest.json" --repository "${{ inputs.repository }}" --head-sha "${{ inputs.head_sha }}" --archive-digest "${{ needs.package.outputs.source_digest }}" > "$RUNNER_TEMP/source-verification.json"
+      - name: Write reviewed ownership resource input
+        env:
+          RESOURCES_JSON: ${{ inputs.resources_json }}
+        run: printf '%s' "$RESOURCES_JSON" > "$RUNNER_TEMP/resources.json"
+      - name: Build immutable ownership manifest
+        id: ownership
+        run: |
+          set -euo pipefail
+          common=(--repository "${{ inputs.repository }}" --pr "${{ inputs.pull_request_number }}" --head-sha "${{ inputs.head_sha }}" --app vektor --target "${{ inputs.target }}" --stage "${{ inputs.stage }}" --hostname p20.vektor.phibkro.org --resource-prefix vektor-p20 --container-name vektor-p20-container --concurrency preview-vektor-p20 --remote-state-key "${{ inputs.remote_state }}" --source-digest "${{ needs.package.outputs.source_digest }}" --image-digest "${{ inputs.image_digest }}" --seed-digest "${{ inputs.seed_digest }}" --route-contract-digest "${{ inputs.route_contract_digest }}" --resources "$RUNNER_TEMP/resources.json" --output "$RUNNER_TEMP/ownership.json")
+          node infra/preview/trusted/cli.mjs ownership "${common[@]}" > "$RUNNER_TEMP/ownership.stdout.json"
+          printf 'ownership_manifest_digest=%s\n' "$(node -e 'process.stdout.write(JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8")).manifestDigest)' "$RUNNER_TEMP/ownership.json")" >> "$GITHUB_OUTPUT"
+      - name: Validate trusted inputs
+        run: |
+          set -euo pipefail
+          node infra/preview/trusted/cli.mjs validate --repository "${{ inputs.repository }}" --pr "${{ inputs.pull_request_number }}" --head-sha "${{ inputs.head_sha }}" --app vektor --target "${{ inputs.target }}" --stage "${{ inputs.stage }}" --hostname p20.vektor.phibkro.org --resource-prefix vektor-p20 --container-name vektor-p20-container --concurrency preview-vektor-p20 --remote-state-key "${{ inputs.remote_state }}"
+      - name: Build plan or reserve trusted apply attempt
+        id: lifecycle
+        run: |
+          set -euo pipefail
+          common=(--store "$RUNNER_TEMP/ledger.json" --repository "${{ inputs.repository }}" --pr "${{ inputs.pull_request_number }}" --head-sha "${{ inputs.head_sha }}" --app vektor --target "${{ inputs.target }}" --stage "${{ inputs.stage }}" --hostname p20.vektor.phibkro.org --resource-prefix vektor-p20 --container-name vektor-p20-container --concurrency preview-vektor-p20 --remote-state-key "${{ inputs.remote_state }}" --source-digest "${{ needs.package.outputs.source_digest }}" --image-digest "${{ inputs.image_digest }}" --seed-digest "${{ inputs.seed_digest }}" --route-contract-digest "${{ inputs.route_contract_digest }}" --ownership-manifest "$RUNNER_TEMP/ownership.json")
+          node infra/preview/trusted/cli.mjs init "${common[@]}" > "$RUNNER_TEMP/ledger.json"
+          if [ "${{ inputs.plan_only }}" = true ]; then
+            node infra/preview/trusted/cli.mjs plan "${common[@]}" > "$RUNNER_TEMP/plan.json"
+            state=Planned
+          else
+            node infra/preview/trusted/cli.mjs request "${common[@]}" > "$RUNNER_TEMP/requested.json"
+            node infra/preview/trusted/cli.mjs validate-state "${common[@]}" > "$RUNNER_TEMP/validating.json"
+            node infra/preview/trusted/cli.mjs seed-ready "${common[@]}" > "$RUNNER_TEMP/seed-ready.json"
+            node infra/preview/trusted/cli.mjs planned "${common[@]}" > "$RUNNER_TEMP/planned.json"
+            node infra/preview/trusted/cli.mjs begin-apply "${common[@]}" > "$RUNNER_TEMP/applying.json"
+            node infra/preview/trusted/cli.mjs deploy "${common[@]}" > "$RUNNER_TEMP/deploy-plan.json"
+            state=Applying
+          fi
+          printf 'state=%s\nledger_key=%s\n' "$state" "$(node -e 'process.stdout.write(JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8")).key)' "$RUNNER_TEMP/ledger.json")" >> "$GITHUB_OUTPUT"
