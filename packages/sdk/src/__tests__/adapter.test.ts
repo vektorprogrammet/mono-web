@@ -25,8 +25,8 @@ describe("parseApplicationStatus", () => {
     })
   }
 
-  it("throws on unknown status integer", () => {
-    expect(() => parseApplicationStatus(99)).toThrow("Unknown application status: 99")
+  it("returns undefined for unknown status integer", () => {
+    expect(parseApplicationStatus(99)).toBeUndefined()
   })
 })
 

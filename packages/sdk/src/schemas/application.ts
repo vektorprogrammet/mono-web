@@ -4,7 +4,7 @@
  */
 
 import { Schema, SchemaGetter } from "effect"
-import { parseApplicationStatus } from "../adapter/status.js"
+import { APPLICATION_STATUS_CODES, parseApplicationStatus } from "../adapter/status.js"
 
 export const ApplicationStatus = Schema.Literals([
   "not_received",
@@ -24,7 +24,7 @@ const RawApplication = Schema.Struct({
   id: Schema.Number,
   userName: Schema.String,
   userEmail: Schema.String,
-  applicationStatus: Schema.Number,
+  applicationStatus: Schema.Literals(APPLICATION_STATUS_CODES),
   interviewStatus: Schema.NullOr(Schema.String),
   interviewer: Schema.NullOr(Schema.String),
   interviewScheduled: Schema.NullOr(Schema.String),
@@ -105,7 +105,7 @@ const RawApplicationDetail = Schema.Struct({
   id: Schema.Number,
   userName: Schema.String,
   userEmail: Schema.String,
-  applicationStatus: Schema.Number,
+  applicationStatus: Schema.Literals(APPLICATION_STATUS_CODES),
   interviewStatus: Schema.NullOr(Schema.String),
   interviewer: Schema.NullOr(Schema.String),
   interviewScheduled: Schema.NullOr(Schema.String),
