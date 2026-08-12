@@ -3,8 +3,7 @@ import { SiFacebook } from "@icons-pack/react-simple-icons";
 import { FolderOpen, Mail, MapPin } from "lucide-react";
 import { motion } from "motion/react";
 import { useLayoutEffect, useRef, useState } from "react";
-import { Link, NavLink, Outlet, type To, useLocation } from "react-router";
-import { type Sponsor, getSponsors } from "~/api/sponsor";
+import { Link, NavLink, Outlet, type To, useLocation, useLoaderData } from "react-router";
 import { Button, buttonVariants } from "~/components/ui/button";
 import {
   Drawer,
@@ -15,18 +14,49 @@ import {
   DrawerHeader,
   DrawerTrigger,
 } from "~/components/ui/drawer";
+import {
+  BUILD_COMMIT,
+  BUILD_CONTENT_DIGEST,
+  BUILD_ROUTE_DIGEST,
+} from "~/lib/build-provenance";
+import { DEV_CONTENT, DEV_CONTENT_SOURCE } from "~/lib/dev-content";
+import { resolveHomepageRequest, type HomepageRequest } from "~/lib/host";
 import "~/home.css";
 import { navRoutes } from "~/nav-routes";
 
+type HomeLoaderArgs = {
+  request: Request;
+};
+
+export function loader({ request }: HomeLoaderArgs): HomepageRequest {
+  const host = request.headers.get("host");
+  if (!host) throw new Response("Missing Host", { status: 421 });
+  return resolveHomepageRequest(host);
+}
+
 // biome-ignore lint/style/noDefaultExport: Route Modules require default export https://reactrouter.com/start/framework/route-module
 export default function Layout() {
+  const requestInfo = useLoaderData<typeof loader>();
   return (
     <div className="flex min-h-screen flex-col items-stretch transition-colors">
       <AppHeader />
-      {/* Banner */}
+      <DevContentBanner requestInfo={requestInfo} />
       <Outlet />
       <AppFooter />
     </div>
+  );
+}
+
+function DevContentBanner({ requestInfo }: { requestInfo: HomepageRequest }) {
+  return (
+    <aside
+      className="mx-auto mt-4 w-[calc(100%-2rem)] max-w-6xl rounded-lg border-2 border-amber-500 bg-amber-100 px-4 py-3 text-center font-semibold text-amber-950 shadow-sm"
+      data-testid="dev-content-banner"
+      role="status"
+    >
+      DEV CONTENT · {requestInfo.stage} · {requestInfo.host} · {DEV_CONTENT_SOURCE} · {BUILD_COMMIT}{" "}
+      · {BUILD_CONTENT_DIGEST} · {BUILD_ROUTE_DIGEST}
+    </aside>
   );
 }
 
@@ -52,11 +82,7 @@ function AppHeader() {
   );
 }
 
-function NavTabs({
-  routes,
-}: {
-  routes: Array<{ name: string; path: To }>;
-}) {
+function NavTabs({ routes }: { routes: Array<{ name: string; path: To }> }) {
   const location = useLocation();
   const containerRef = useRef<HTMLDivElement | null>(null);
   const tabRefs = useRef(new Map<string, HTMLAnchorElement>());
@@ -94,10 +120,7 @@ function NavTabs({
   }, [location.pathname, routes]);
 
   return (
-    <div
-      ref={containerRef}
-      className="flew-row relative mx-auto flex h-11 rounded-full px-0.5"
-    >
+    <div ref={containerRef} className="flew-row relative mx-auto flex h-11 rounded-full px-0.5">
       {indicator && (
         <motion.div
           className="absolute top-1.5 bottom-1.5 rounded-full bg-vektor-blue mix-blend-multiply shadow-sm"
@@ -145,25 +168,21 @@ function LoginButtons() {
   );
 }
 
-const MobileMenu = ({
-  routes,
-}: { routes: Array<{ name: string; path: To }> }) => {
+const MobileMenu = ({ routes }: { routes: Array<{ name: string; path: To }> }) => {
   return (
     <div className="md:hidden">
       <Drawer>
-        <DrawerTrigger>
-          <div className="fixed top-12 right-0 flex rounded-l-full bg-[rgba(0,0,0,0.8)] p-1 pr-2">
-            <Button
-              variant="outline"
-              className="rounded-full bg-vektor-bg p-0"
-              size="icon"
-            >
-              <Avatar className="h-full w-full rounded-full">
-                <AvatarImage src="/images/team/IT-Tor.png" />
-                <AvatarFallback>{"Tor"}</AvatarFallback>
-              </Avatar>
-            </Button>
-          </div>
+        <DrawerTrigger asChild>
+          <Button
+            variant="outline"
+            className="fixed top-12 right-0 flex rounded-l-full bg-[rgba(0,0,0,0.8)] p-1 pr-2"
+            size="icon"
+          >
+            <Avatar className="h-full w-full rounded-full">
+              <AvatarImage src="/images/team/IT-Tor.png" />
+              <AvatarFallback>{"Tor"}</AvatarFallback>
+            </Avatar>
+          </Button>
         </DrawerTrigger>
         <DrawerContent>
           <DrawerHeader />
@@ -216,16 +235,14 @@ function AppFooter() {
 }
 
 function FooterSponsors() {
-  const sponsors = getSponsors();
-
   return (
     <ul className="text-white">
       <b>
-        <li>{"Sponsorer og sammarbeidspartnere"}</li>
+        <li>{"Sponsorer og samarbeidspartnere (DEV CONTENT)"}</li>
       </b>
-      {sponsors.map((sponsor: Sponsor) => (
-        <li key={sponsor.name}>
-          <a className="text-sm hover:underline" href={sponsor.url.href}>
+      {DEV_CONTENT.sponsors.map((sponsor) => (
+        <li key={sponsor.id}>
+          <a className="text-sm hover:underline" href={sponsor.href}>
             {sponsor.name}
           </a>
         </li>
@@ -242,19 +259,13 @@ function FooterLinks() {
           <SiFacebook size={40} />
           <ul className="flex place-items-center space-x-2">
             <li>
-              <a
-                className="hover:underline"
-                href="https://www.facebook.com/vektorprogrammet/"
-              >
+              <a className="hover:underline" href="https://www.facebook.com/vektorprogrammet/">
                 {"Trondheim"}
               </a>
             </li>
 
             <li>
-              <a
-                className="hover:underline"
-                href="https://www.facebook.com/vektorprogrammetNMBU/"
-              >
+              <a className="hover:underline" href="https://www.facebook.com/vektorprogrammetNMBU/">
                 {"Ås"}
               </a>
             </li>
@@ -273,26 +284,21 @@ function FooterLinks() {
         <li className="flex place-items-center space-x-4">
           <Mail size={40} />
           <div className="flex place-items-center space-x-2">
-            <a
-              className="hover:underline"
-              href="mailto:hovedstyret@vektorprogrammet.no"
-            >
-              {"hovedstyret@vektorprogrammet.no"}
+            <a className="hover:underline" href="mailto:hovedstyret@example.invalid">
+              {"hovedstyret@example.invalid"}
             </a>
           </div>
         </li>
 
         <li className="flex place-items-center space-x-4">
           <MapPin size={40} />
-          <div className="flex place-items-center space-x-2">
-            {"Høgskoleringen 5, 7491 Trondheim"}
-          </div>
+          <div className="flex place-items-center space-x-2">{"DEV CONTENT, Trondheim"}</div>
         </li>
 
         <li className="flex place-items-center space-x-4">
           <FolderOpen size={40} />
           <div className="flex place-items-center space-x-2">
-            {"OrgNr: 998744814"}
+            {"Non-production development surface"}
           </div>
         </li>
       </ul>

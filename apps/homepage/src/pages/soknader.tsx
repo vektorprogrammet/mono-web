@@ -1,5 +1,7 @@
+import { getDevProfile } from "~/lib/dev-content";
 // biome-ignore lint/style/noDefaultExport: Route Modules require default export https://reactrouter.com/start/framework/route-module
 export default function MineSoknader() {
+  const profile = getDevProfile();
   return (
     <div className="mb-10 flex w-full justify-center">
       <div className="col-12 text-center">
@@ -7,8 +9,9 @@ export default function MineSoknader() {
           Mine Søknader
         </h1>
         <ProfileModal
-          imgUrl="https://vektorprogrammet.no/media/cache/profile_img/images/Profile%20photos/644805d1e8ef2.jpeg"
-          name="Aaryan Neupan"
+          imgUrl={profile.image}
+          name={profile.name}
+          imageAlt={profile.imageAlt}
         />
         <Applications
           applications={[
@@ -35,13 +38,21 @@ export default function MineSoknader() {
   );
 }
 
-function ProfileModal({ imgUrl, name }: { imgUrl: string; name: string }) {
+function ProfileModal({
+  imgUrl,
+  name,
+  imageAlt,
+}: {
+  imgUrl: string;
+  name: string;
+  imageAlt: string;
+}) {
   return (
     <div>
       <div className="flex justify-center">
         <img
           src={imgUrl}
-          alt="Aaryan"
+          alt={imageAlt}
           className="mt-2 w-1/2 max-w-sm rounded-full"
         />
       </div>

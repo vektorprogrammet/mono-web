@@ -1,0 +1,26 @@
+{
+  "name": "@monoweb/alchemy",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "guard": "bun scripts/homepage-cli.ts guard",
+    "plan": "bun scripts/homepage-cli.ts plan",
+    "deploy": "bun scripts/homepage-cli.ts deploy",
+    "destroy": "bun scripts/homepage-cli.ts destroy"
+  },
+  "dependencies": {
+    "@effect/platform-bun": "4.0.0-beta.103",
+    "@effect/platform-node": "4.0.0-beta.103",
+    "alchemy": "2.0.0-beta.70",
+    "effect": "4.0.0-beta.103"
+  },
+  "overrides": {
+    "@effect/platform-bun": "4.0.0-beta.103",
+    "@effect/platform-node": "4.0.0-beta.103",
+    "@effect/platform-node-shared": "4.0.0-beta.103",
+    "@effect/sql-d1": "4.0.0-beta.103",
+    "@effect/sql-sqlite-do": "4.0.0-beta.103",
+    "@effect/vitest": "4.0.0-beta.103",
+    "effect": "4.0.0-beta.103"
+  }
+}

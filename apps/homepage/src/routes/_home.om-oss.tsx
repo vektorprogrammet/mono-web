@@ -33,7 +33,7 @@ export default function OmOss() {
         <img
           className="mt-0"
           alt={bottomImage.alt}
-          src={bottomImage.url.toString()}
+          src={bottomImage.url}
         />
         <Divider />
       </div>

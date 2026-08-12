@@ -1,4 +1,5 @@
 import { TeamTemplate } from "@/components/team-template";
+import { getDevTeamMembers } from "~/lib/dev-content";
 
 // biome-ignore lint/style/noDefaultExport: Route Modules require default export https://reactrouter.com/start/framework/route-module
 export default function Okonomi() {
@@ -7,64 +8,9 @@ export default function Okonomi() {
       ,
       <TeamTemplate
         name="Økonomi"
-        mail="okonomi@vektorprogrammet.no"
+        mail="dev@example.invalid"
         text="Økonomiteamet har ansvaret for Vektorprogrammets økonomi."
-        members={[
-          {
-            name: "Elise Johnsrud",
-            image:
-              "https://vektorprogrammet.no/media/cache/profile_img/images/Profile%20photos/634068f19fa01.jpeg",
-            role: "Leder",
-          },
-          {
-            name: "Rebecca Strandkleiv",
-            image:
-              "https://vektorprogrammet.no/media/cache/profile_img/images/Profile%20photos/63716eb2db339.jpeg",
-            role: "Medlem",
-          },
-          {
-            name: "Øyvind Halvorsen",
-            image:
-              "https://vektorprogrammet.no/media/cache/profile_img/images/Profile%20photos/633ff0c6b78ab.jpeg",
-            role: "Medlem",
-          },
-          {
-            name: "Anette Johansen",
-            image:
-              "https://vektorprogrammet.no/media/cache/profile_img/images/Profile%20photos/626089fa76913.jpeg",
-            role: "Medlem",
-          },
-          {
-            name: "Mats Bendik Norli Kjær",
-            image:
-              "https://vektorprogrammet.no/media/cache/profile_img/images/Profile%20photos/633f0b38b6a28.jpeg",
-            role: "Medlem",
-          },
-          {
-            name: "Benedicte Vestrum",
-            image:
-              "https://vektorprogrammet.no/media/cache/profile_img/images/Profile%20photos/635ad061421f4.jpeg",
-            role: "Medlem",
-          },
-          {
-            name: "Andreas lote Henden",
-            image:
-              "https://vektorprogrammet.no/media/cache/profile_img/images/Profile%20photos/6356cefb83db6.jpeg",
-            role: "Medlem",
-          },
-          {
-            name: "Vilde Aas",
-            image:
-              "https://vektorprogrammet.no/media/cache/profile_img/images/Profile%20photos/6356cf58ab4d5.jpeg",
-            role: "Medlem",
-          },
-          {
-            name: "Martine Kroken",
-            image:
-              "https://vektorprogrammet.no/media/cache/profile_img/images/Profile%20photos/63fa23a041ecd.jpeg",
-            role: "Medlem",
-          },
-        ]}
+        members={getDevTeamMembers("trondheim-okonomi")}
       />
       <div className="mt-20 text-center font-sans text-3xl text-bold text-vektor-darblue">
         Arbeidet vårt
@@ -84,7 +30,7 @@ export default function Okonomi() {
         {/* biome-ignore lint/a11y/useAltText: Temporary ignore for ci/cd */}
         <img
           className="mx-auto h-auto content-center md:max-w-2xl"
-          src="https://vektorprogrammet.no/images/team_images/Skjermbilde%202022-10-24%20kl.%2017.56.55.png"
+          src="/images/teacher2.png"
         />
       </div>
       <div className="mt-20 text-center font-sans text-3xl text-bold text-vektor-darblue">
@@ -104,7 +50,7 @@ export default function Okonomi() {
         {/* biome-ignore lint/a11y/useAltText: Temporary ignore for ci/cd */}
         <img
           className="mx-auto h-auto content-center md:max-w-2xl"
-          src="https://vektorprogrammet.no/images/team_images/Skjermbilde%202022-10-24%20kl.%2018.01.54.png"
+          src="/images/teacher2.png"
         />
       </div>
       <div className="mt-20 text-center font-sans text-3xl text-bold text-vektor-darblue">
@@ -127,9 +73,9 @@ export default function Okonomi() {
             Har du noen spørsmål er det bare å ta kontakt med oss på{" "}
             <a
               className="text-vektor-darblue hover:underline"
-              href="mailto:okonomi@vektorprogrammet.no"
+              href="mailto:dev@example.invalid"
             >
-              okonomi@vektorprogrammet.no.
+              dev@example.invalid.
             </a>
             <div className="mt-3">Vi ser frem til å høre fra deg!</div>
           </div>

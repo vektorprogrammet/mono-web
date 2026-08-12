@@ -1,52 +1,29 @@
 import { Mail, Users } from "lucide-react";
 import { useState } from "react";
-import { Link, NavLink, type To } from "react-router";
-import {
-  teamsAas,
-  teamsBergen,
-  teamsHovedstyret,
-  teamsTrondheim,
-} from "~/api/team";
+import { NavLink as RouterNavLink, type To } from "react-router";
 import { TabMenu } from "~/components/tab-menu";
-import { Button } from "~/components/ui/button";
 import {
-  type CityPretty,
-  type DepartmentPretty,
-  departments,
-} from "~/lib/types";
+  type DepartmentContent,
+  type TeamContent,
+} from "~/lib/dev-content";
+import type { DepartmentPretty } from "~/lib/types";
 
-export interface ApiTeam {
-  readonly id?: number;
-  name: string;
-  email: string | null;
-  shortDescription?: string | null;
-  active: boolean;
-}
-
-export interface ApiDepartment {
-  readonly id?: number;
-  name: string;
-  shortName: string;
-  email: string;
-  city: string;
-  active: boolean;
-}
-
-export interface TeamLoaderData {
-  teams: ApiTeam[] | null;
-  departments: ApiDepartment[] | null;
-}
+export type TeamLoaderData = {
+  readonly teams: readonly TeamContent[];
+  readonly departments: readonly DepartmentContent[];
+};
 
 export function TeamTabs({
   department,
-  teams: apiTeams,
-  departments: apiDepartments,
+  teams,
+  departments: contentDepartments,
 }: {
   department: DepartmentPretty;
-  teams: ApiTeam[] | null;
-  departments: ApiDepartment[] | null;
+  teams: readonly TeamContent[];
+  departments: readonly DepartmentContent[];
 }) {
   const [active, setActive] = useState<DepartmentPretty>(department);
+  const tabs = contentDepartments.map((item) => item.name);
 
   return (
     <div
@@ -55,40 +32,37 @@ export function TeamTabs({
     >
       <div className="md:absolute md:left-3 lg:left-12">
         <TabMenu
-          tabs={Object.values(departments)}
+          tabs={tabs}
           activeTab={active}
           setActiveTab={setActive}
         />
       </div>
       <div className="flex w-full max-w-5xl flex-col items-start">
         {active === "Hovedstyret" ? (
-          <HovedstyretTab />
+          <HovedstyretTab teams={teams} />
         ) : (
-          <TeamTab team={active} apiTeams={apiTeams} apiDepartments={apiDepartments} />
+          <TeamTab team={active} teams={teams} />
         )}
       </div>
     </div>
   );
 }
 
-function HovedstyretTab() {
-  const team = teamsHovedstyret();
+function HovedstyretTab({ teams }: { teams: readonly TeamContent[] }) {
+  const team = teams.find((item) => item.city === "Hovedstyret");
+  if (!team) return null;
+
   return (
     <div className="flex flex-col md:ml-24 md:max-w-2xl md:flex-row lg:ml-16 xl:ml-auto">
       <div className="flex-1 object-contain">
         <h2 className="font-bold text-2xl text-gray-600 sm:text-4xl dark:text-gray-200">
           {team.title}
         </h2>
-        <p className="mt-4 mb-4 text-md sm:text-lg dark:text-gray-300">
-          {team.text}
-        </p>
+        <p className="mt-4 mb-4 text-md sm:text-lg dark:text-gray-300">{team.text}</p>
         <div className="flex items-center space-x-1">
           <Mail className="h-5 w-5 text-black" />
-          <a
-            className="truncate text-sm hover:underline dark:text-white"
-            href={`mailto:${team.email}`}
-          >
-            <span>{team.email}</span>
+          <a className="truncate text-sm hover:underline dark:text-white" href={`mailto:${team.email}`}>
+            {team.email}
           </a>
         </div>
         <div className="mt-2 flex items-center space-x-1">
@@ -96,21 +70,16 @@ function HovedstyretTab() {
           <span>{`${team.numberOfMembers} medlemmer`}</span>
         </div>
         <br />
-        <NavLink
-          type="button"
+        <RouterNavLink
           to={team.url}
           className="rounded border border-blue-500 bg-transparent px-4 py-2 font-semibold text-blue-700 transition duration-300 hover:border-transparent hover:bg-blue-500 hover:text-white dark:bg-vektor-darkblue dark:text-white dark:hover:bg-blue-600"
           prefetch="intent"
         >
-          {team.buttonName}
-        </NavLink>
+          Les mer
+        </RouterNavLink>
       </div>
       <div className="mt-6 flex max-h-80 items-center justify-center md:col-span-1 md:mt-auto md:p-4">
-        <img
-          src={team.image.src}
-          alt={team.image.alt}
-          className="max-h-80 object-contain"
-        />
+        <img src={team.image} alt={team.imageAlt} className="max-h-80 object-contain" />
       </div>
     </div>
   );
@@ -118,57 +87,34 @@ function HovedstyretTab() {
 
 function TeamTab({
   team,
-  apiTeams,
-  apiDepartments: _apiDepartments,
+  teams,
 }: {
-  team: CityPretty;
-  apiTeams: ApiTeam[] | null;
-  apiDepartments: ApiDepartment[] | null;
+  team: Exclude<DepartmentPretty, "Hovedstyret">;
+  teams: readonly TeamContent[];
 }) {
-  const fixtureTeams =
-    team === "Bergen"
-      ? teamsBergen()
-      : team === "Ås"
-        ? teamsAas()
-        : teamsTrondheim();
-
-  // If API data is available, enrich fixture teams with API data (email, description).
-  // Fixture values are kept as fallback for fields the API lacks (numberOfMembers, urls).
-  const teams = fixtureTeams.map((ft) => {
-    if (!apiTeams) return ft;
-    const match = apiTeams.find(
-      (at) => at.name.toLowerCase() === ft.title.toLowerCase(),
-    );
-    if (!match) return ft;
-    return {
-      ...ft,
-      text: match.shortDescription ?? ft.text,
-      mail: match.email ?? ft.mail,
-    };
-  });
+  const cityTeams = teams.filter((item) => item.city === team);
 
   return (
     <div className="grid grid-cols-1 place-items-center gap-8 sm:grid-cols-2 xl:grid-cols-3">
-      {teams.map((team) => (
+      {cityTeams.map((item) => (
         <Division
-          key={team.mail}
-          title={team.title}
-          text={team.text}
-          mail={team.mail}
-          numberOfMembers={team.numberOfMembers}
+          key={item.id}
+          title={item.title}
+          text={item.text}
+          mail={item.email}
+          numberOfMembers={item.numberOfMembers}
           buttonName="Les mer"
-          url={team.url}
+          url={item.url}
         />
       ))}
     </div>
   );
 }
 
-/* Division */
-
 function Division({
   title,
   text,
+  mail: _mail,
   numberOfMembers,
   buttonName,
   url,
@@ -181,10 +127,8 @@ function Division({
   url: To;
 }) {
   return (
-    <NavLink
-      className={
-        "flex h-48 w-64 flex-col justify-between rounded-md bg-vektor-light-blue shadow-md dark:bg-gray-600 dark:text-white"
-      }
+    <RouterNavLink
+      className="flex h-48 w-64 flex-col justify-between rounded-md bg-vektor-light-blue shadow-md dark:bg-gray-600 dark:text-white"
       to={url}
       prefetch="intent"
     >
@@ -201,17 +145,10 @@ function Division({
         <span>{`${numberOfMembers} medlemmer`}</span>
       </div>
       <div className="mr-1.5 mb-1.5 flex w-full justify-end self-end">
-        <Button
-          className="overflow-clip rounded-full"
-          size="sm"
-          variant="green"
-          asChild
-        >
-          <Link to={url} prefetch="intent">
-            {buttonName}
-          </Link>
-        </Button>
+        <span className="inline-flex h-8 items-center justify-center gap-2 whitespace-nowrap overflow-clip rounded-full bg-success px-3 text-sm font-medium text-white transition-colors hover:bg-vektor-green-hover">
+          {buttonName}
+        </span>
       </div>
-    </NavLink>
+    </RouterNavLink>
   );
 }

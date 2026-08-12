@@ -1,4 +1,5 @@
 import { TeamTemplate } from "@/components/team-template";
+import { getDevTeamMembers } from "~/lib/dev-content";
 
 // biome-ignore lint/style/noDefaultExport: Route Modules require default export https://reactrouter.com/start/framework/route-module
 export default function Sponsor() {
@@ -6,46 +7,9 @@ export default function Sponsor() {
     <div className="mx-auto mt-5 mb-20 flex max-w-screen-lg flex-col items-center">
       <TeamTemplate
         name="Sponsor"
-        mail="sponsor.ntnu@vektorprogrammet.no"
+        mail="dev@example.invalid"
         text="Vektorprogrammets bindeledd til næringslivet, samarbeidspartnere og sponsorer."
-        members={[
-          {
-            name: "Ole Gunnar Røsholt Hovland",
-            image:
-              "https://vektorprogrammet.no/media/cache/profile_img/images/Profile%20photos/6261456bbbea9.jpeg",
-            role: "Leder",
-          },
-          {
-            name: "Ingeborg Aarnes",
-            image:
-              "https://vektorprogrammet.no/media/cache/profile_img/images/Profile%20photos/6356cd46ce6f9.jpeg",
-            role: "Medlem",
-          },
-          {
-            name: "Erik Mathisen",
-            image:
-              "https://vektorprogrammet.no/media/cache/profile_img/images/Profile%20photos/6356cd087286f.jpeg",
-            role: "Medlem",
-          },
-          {
-            name: "Frøya Kjepso",
-            image:
-              "https://vektorprogrammet.no/media/cache/profile_img/images/Profile%20photos/6356cd903dc7f.jpeg",
-            role: "Medlem",
-          },
-          {
-            name: "Sukrit Baral",
-            image:
-              "https://vektorprogrammet.no/media/cache/profile_img/images/Profile%20photos/6407157190b92.jpeg",
-            role: "Medlem",
-          },
-          {
-            name: "Harishsan Arumugadas",
-            image:
-              "https://vektorprogrammet.no/media/cache/profile_img/images/Profile%20photos/64071542a96d0.jpeg",
-            role: "Medlem",
-          },
-        ]}
+        members={getDevTeamMembers("trondheim-sponsor")}
       />
 
       <div className="mt-20 text-center font-sans text-3xl text-bold text-vektor-darblue">
@@ -64,7 +28,7 @@ export default function Sponsor() {
         {/* biome-ignore lint/a11y/useAltText: Temporary ignore for ci/cd */}
         <img
           className="mx-auto h-auto content-center md:max-w-2xl"
-          src="https://vektorprogrammet.no/images/team_images/20221005_163558.jpg"
+          src="/images/teacher2.png"
         />
       </div>
 
@@ -141,9 +105,9 @@ export default function Sponsor() {
         kontakt på{" "}
         <a
           className="break-all text-vektor-darblue hover:underline"
-          href="mailto:sponsor.ntnu@vektorprogrammet.no"
+          href="mailto:dev@example.invalid"
         >
-          sponsor.ntnu@vektorprogrammet.no.
+          dev@example.invalid.
         </a>
       </div>
     </div>

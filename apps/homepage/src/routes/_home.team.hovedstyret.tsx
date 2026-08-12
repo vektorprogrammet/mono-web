@@ -1,4 +1,5 @@
 import { TeamTemplate } from "@/components/team-template";
+import { getDevTeamMembers } from "~/lib/dev-content";
 
 // biome-ignore lint/style/noDefaultExport: Route Modules require default export https://reactrouter.com/start/framework/route-module
 export default function Hovedstyret() {
@@ -6,52 +7,9 @@ export default function Hovedstyret() {
     <div className="mx-auto mt-5 mb-20 flex max-w-screen-lg flex-col">
       <TeamTemplate
         name="Hovedstyret"
-        mail="hovedstyret@vektorprogrammet.no"
+        mail="dev@example.invalid"
         text="Hovedstyret er Vektorprogrammets nasjonale styre, og har overordnet ansvar for hele organisasjonen."
-        members={[
-          {
-            name: "Silje Li",
-            image:
-              "https://vektorprogrammet.no/media/cache/profile_img_small/images/Profile%20photos/64dc8c19c5885.jpeg",
-            role: "Leder",
-          },
-          {
-            name: "Ragna Vårli Håland",
-            image:
-              "https://vektorprogrammet.no/media/cache/profile_img/images/Profile%20photos/633f033cb4d48.jpeg",
-            role: "Nestleder",
-          },
-          {
-            name: "Aaryan Neupane",
-            image:
-              "https://vektorprogrammet.no/media/cache/profile_img_small/images/Profile%20photos/644805d1e8ef2.jpeg",
-            role: "IT-ansvarlig",
-          },
-          {
-            name: "David Ramsvik",
-            image:
-              "https://vektorprogrammet.no/media/cache/profile_img_small/images/Profile%20photos/6370f59dcadc0.jpeg",
-            role: "Mentor",
-          },
-          {
-            name: "Thomas Bjørn Olivier Jenssen",
-            image:
-              "https://vektorprogrammet.no/media/cache/profile_img_small/images/Profile%20photos/6172ab0646db7.jpeg",
-            role: "Profilering",
-          },
-          {
-            name: "Adrian Larsen",
-            image:
-              "https://vektorprogrammet.no/media/cache/profile_img_small/images/Profile%20photos/5f59274b49278.jpeg",
-            role: "Sponsor",
-          },
-          {
-            name: "Odin Nilsen",
-            image:
-              "https://vektorprogrammet.no/media/cache/profile_img_small/images/Profile%20photos/63615c0f67d3a.jpeg",
-            role: "Økonomi",
-          },
-        ]}
+        members={getDevTeamMembers("hovedstyret")}
       />
 
       <div className="m-5 mt-8 text-left font-sans text-black text-lg">

@@ -2,7 +2,7 @@ interface AssistentMotivationCard {
   title: string;
   text: string;
   image: {
-    url: URL;
+    url: string;
     alt: string;
   };
 }
@@ -31,9 +31,7 @@ export function getAssistenter(): ForAssistenterContent {
           "Som vektorassistent er du med på å gjøre matte gøy." +
           " Ditt engasjement kan bidra til økt motivasjon og lærelyst. Bli med og gjør en forskjell!",
         image: {
-          url: new URL(
-            "https://vektorprogrammet.no/images/graduation.svg?v=1598900041",
-          ),
+          url: "/images/teacher2.png",
           alt: "vær et forbilde",
         },
       },
@@ -44,9 +42,7 @@ export function getAssistenter(): ForAssistenterContent {
           "Alle assistenter blir invitert til arrangementer som f.eks. fester," +
           " populærforedrag, bowling, grilling i parken, gokart og paintball.",
         image: {
-          url: new URL(
-            "https://vektorprogrammet.no/images/calendar.svg?v=1598900041",
-          ),
+          url: "/images/teacher2.png",
           alt: "Sosiale",
         },
       },
@@ -55,9 +51,7 @@ export function getAssistenter(): ForAssistenterContent {
         title: "Fint å ha på CVen",
         text: "Erfaring som arbeidsgivere setter pris på. Alle assistenter får en attest.",
         image: {
-          url: new URL(
-            "https://vektorprogrammet.no/images/certificate.svg?v=1598900041",
-          ),
+          url: "/images/teacher2.png",
           alt: "fint å ha på cven",
         },
       },

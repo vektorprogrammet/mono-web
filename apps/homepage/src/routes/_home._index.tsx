@@ -1,281 +1,130 @@
 import { buttonVariants } from "@/components/ui/button";
-import { apiClient, isFixtureMode } from "@vektorprogrammet/sdk";
-import { useInView, useMotionValue, useSpring } from "motion/react";
-import { useEffect, useRef } from "react";
-import { Link, type To, href, useLoaderData } from "react-router";
+import { Link, useLoaderData } from "react-router";
 import { Button } from "~/components/ui/button";
-import Abelprisen from "/images/mainPage/sponsor/Abelprisen.png";
-import ksBergen from "/images/mainPage/sponsor/KSBergen.png";
-import Matematikksenteret from "/images/mainPage/sponsor/Matematikksenteret.png";
-import NTNUIE from "/images/mainPage/sponsor/NTNUIE.png";
-import NTNUIV from "/images/mainPage/sponsor/NTNUIV.png";
-import Samarbeidsforum from "/images/mainPage/sponsor/SamarbeidsForum.png";
-import sparebankstiftelsenDnb from "/images/mainPage/sponsor/SparebankstiftelsenDNB.png";
-import Tekna from "/images/mainPage/sponsor/Tekna.png";
-import UiB from "/images/mainPage/sponsor/UIB.png";
-import VisionTech from "/images/mainPage/sponsor/VisionTech.png";
-import vektorForsidebilde from "/images/mainPage/vektor-forsidebilde.png";
-import vektorLogo from "/images/vektor-logo.svg";
+import {
+  BUILD_COMMIT,
+  BUILD_CONTENT_DIGEST,
+  BUILD_ROUTE_DIGEST,
+} from "~/lib/build-provenance";
+import {
+  DEV_CONTENT,
+  DEV_CONTENT_SOURCE,
+  type DevContent,
+} from "~/lib/dev-content";
 
-const hovedsponsor = [
-  {
-    name: "Abelprisen",
-    image: Abelprisen,
-  },
-  {
-    name: "Sparebankstiftelsen DNB",
-    image: sparebankstiftelsenDnb,
-  },
-];
-
-const sponsorer = [
-  {
-    name: "Tekna",
-    image: Tekna,
-  },
-  {
-    name: "NTNU - Fakultet for ingeniørvitenskap",
-    image: NTNUIV,
-  },
-  {
-    name: "NTNU - Fakultet for informasjonsteknologi og elektronikk",
-    image: NTNUIE,
-  },
-  {
-    name: "Samarbeidsforum",
-    image: Samarbeidsforum,
-  },
-  {
-    name: "Universitetet i Bergen - Det matematisk-naturvitenskapelige fakultet",
-    image: UiB,
-  },
-  {
-    name: "Matematikksenteret",
-    image: Matematikksenteret,
-  },
-  {
-    name: "VisionTech",
-    image: VisionTech,
-  },
-  {
-    name: "Kulturstyret Bergen",
-    image: ksBergen,
-  },
-];
-
-const defaultStatistics = { assistantCount: 2218, teamMemberCount: 608 };
-
-export async function loader() {
-  if (isFixtureMode) {
-    return {
-      sponsors: { hovedsponsor, sponsorer },
-      statistics: defaultStatistics,
-    };
-  }
-
-  const [sponsorsRes, statisticsRes] = await Promise.all([
-    apiClient.GET("/api/sponsors"),
-    apiClient.GET("/api/statistics"),
-  ]);
-
-  const apiSponsors = sponsorsRes.data;
-  const statistics = statisticsRes.data;
-
-  // Map API sponsors by size into hovedsponsor/sponsorer groups, fall back to hardcoded
-  let loadedHovedsponsor = hovedsponsor;
-  let loadedSponsorer = sponsorer;
-  if (apiSponsors && apiSponsors.length > 0) {
-    loadedHovedsponsor = apiSponsors
-      .filter((s) => s.size === "large")
-      .map((s) => ({ name: s.name ?? "", image: s.logoImagePath ?? "" }));
-    loadedSponsorer = apiSponsors
-      .filter((s) => s.size !== "large")
-      .map((s) => ({ name: s.name ?? "", image: s.logoImagePath ?? "" }));
-
-    // Fall back if API returned empty groups
-    if (loadedHovedsponsor.length === 0) loadedHovedsponsor = hovedsponsor;
-    if (loadedSponsorer.length === 0) loadedSponsorer = sponsorer;
-  }
-
-  return {
-    sponsors: {
-      hovedsponsor: loadedHovedsponsor,
-      sponsorer: loadedSponsorer,
-    },
-    statistics: {
-      assistantCount: statistics?.assistantCount ?? defaultStatistics.assistantCount,
-      teamMemberCount: statistics?.teamMemberCount ?? defaultStatistics.teamMemberCount,
-    },
-  };
-}
-
-interface MainPageProps {
-  number: number;
-  title: string;
-  text: string;
-  route: {
-    path: To;
-    text: string;
-  };
-}
-
-function makeCards(statistics: { assistantCount: number; teamMemberCount: number }): Array<MainPageProps> {
-  return [
-    {
-      number: statistics.assistantCount,
-      title: "Assistenter",
-      text: `Over ${statistics.assistantCount} studenter har hatt et verv som vektorassistent i Vektorprogrammet`,
-      route: {
-        path: href("/assistenter"),
-        text: "Les mer om assistenter",
-      },
-    },
-    {
-      number: statistics.teamMemberCount,
-      title: "I team",
-      text: `Over ${statistics.teamMemberCount} studenter har hatt et verv i et av Vektorprogrammets mange team`,
-      route: {
-        path: href("/team"),
-        text: "Les mer om verv i team",
-      },
-    },
-  ];
+export function loader(): DevContent {
+  return DEV_CONTENT;
 }
 
 // biome-ignore lint/style/noDefaultExport: Route Modules require default export https://reactrouter.com/start/framework/route-module
-export default function mainPage() {
-  const { sponsors, statistics } = useLoaderData<typeof loader>();
-  const cards = makeCards(statistics);
+export default function MainPage() {
+  const content = useLoaderData<typeof loader>();
+  const featuredSponsors = content.sponsors.filter((sponsor) => sponsor.featured);
+  const supportingSponsors = content.sponsors.filter((sponsor) => !sponsor.featured);
+
   return (
     <main className="flex-grow">
-      {/* Use component when the rendered component needs no props */}
-      {/* Getting the routes from the defined route file in pages */}
-      <div className="bg-vektor-index-blue md:flex md:h-[80vh] md:pt-14">
-        {/*Upper start*/}
-        <div className="flex w-full flex-col items-center text-center md:h-[26rem] md:w-1/2 md:p-8 lg:h-[31rem] xl:h-[35rem]">
+      <div className="border-b border-amber-300 bg-vektor-index-blue md:flex md:min-h-[32rem] md:pt-14">
+        <div className="flex w-full flex-col items-center text-center md:w-1/2 md:p-8">
           <img
             className="w-2/4 pt-12 pb-14 md:hidden"
-            src={vektorLogo}
-            alt="Vektorprogrammet"
+            src="/images/vektor-logo.svg"
+            alt="Vektorprogrammet DEV CONTENT"
           />
           <img
-            className="mx-auto my-auto h-full w-full p-5 pt-14 md:mr-0 md:ml-auto md:w-auto md:pt-0"
-            src={vektorForsidebilde}
-            alt="Vektorprogrammet bildet"
+            className="mx-auto my-auto h-full w-full max-w-xl p-5 pt-14 md:mr-0 md:ml-auto md:pt-0"
+            src="/images/mainPage/vektor-forsidebilde.png"
+            alt="Nøytral DEV CONTENT-illustrasjon"
           />
         </div>
-        <div className="w-full p-6 text-center md:mt-24 md:mr-auto md:w-1/2 md:p-10 md:text-left">
-          <h1 className="mb-4 hidden font-bold text-4xl md:block dark:text-text-dark">
-            {"Vektorprogrammet"}
-          </h1>
-          <div className="mt-6 mb-4 flex justify-center md:block">
-            <p className="text-left text-md md:w-4/5 md:text-xl dark:text-text-dark">
-              {`- sender studenter til ungdomsskoler for å hjelpe til som lærerens
-              assistent i matematikkundervisningen`}
-            </p>
-          </div>
-          <Button variant="green">{"Les mer og bli assistent"}</Button>
+        <div className="w-full p-6 text-center md:mt-24 md:w-1/2 md:p-10 md:text-left">
+          <p className="mb-3 font-semibold text-amber-900 text-sm uppercase tracking-wide">
+            DEV CONTENT · {DEV_CONTENT_SOURCE}
+          </p>
+          <h1 className="mb-4 font-bold text-4xl dark:text-text-dark">Vektorprogrammet</h1>
+          <p className="mb-6 text-left text-md md:w-4/5 md:text-xl dark:text-text-dark">
+            Dette er en syntetisk, ikke-produksjonell hjemmeside for lokal Worker- og
+            innholdsverifisering.
+          </p>
+          <p className="mb-6 text-left text-sm dark:text-text-dark">
+            Bygg {BUILD_COMMIT} · innholds-digest {BUILD_CONTENT_DIGEST} · rutekart-digest{" "}
+            {BUILD_ROUTE_DIGEST}
+          </p>
+          <Button variant="green" asChild>
+            <Link to="/team">Se DEV CONTENT-team</Link>
+          </Button>
         </div>
       </div>
-      {/*Upper end*/}
-      <div className="info-background mb-0 flex max-w-full flex-row flex-wrap items-center justify-center gap-24 pt-72 pb-72 text-center md:mt-20 md:gap-40">
-        {/*Middle start*/}
-        {cards.map(({ number, title, text, route }) => (
-          <div
-            key={title}
-            className="flex max-w-96 flex-col gap-5 text-vektor-bg"
-          >
-            <div>
-              <div className="font-bold text-4xl">
-                <MotionCounter value={number} />
-              </div>
-              <p className="text-xl md:text-2xl">{title}</p>
-            </div>
-            <p className="max-w-80 text-sm md:max-w-96 md:text-xl">{text}</p>
-            <div>
-              <Link
-                to={route.path}
-                className={buttonVariants({ variant: "green" })}
-                prefetch="intent"
-              >
-                {route.text}
-              </Link>
-            </div>
-          </div>
-        ))}
+
+      <div className="info-background mb-0 flex max-w-full flex-row flex-wrap items-center justify-center gap-24 pt-32 pb-32 text-center md:mt-20 md:gap-40">
+        <StatCard
+          number={content.statistics.assistantCount}
+          title="Assistenter"
+          text="Syntetiske assistentdata for lokal verifisering."
+          to="/assistenter"
+        />
+        <StatCard
+          number={content.statistics.teamMemberCount}
+          title="I team"
+          text="Syntetiske teamdata for den samme byggede artefakten."
+          to="/team"
+        />
       </div>
-      {/*Middle end*/}
-      <div className="flex justify-center">
-        <div className="flex max-w-4xl flex-col md:gap-32">
-          <div className="flex flex-row flex-wrap justify-around md:justify-between">
-            {sponsors.hovedsponsor.map((sponsor) => (
-              <div
-                className="flex h-72 w-72 items-center md:h-96 md:w-96"
-                key={sponsor.name}
-              >
-                <img
-                  className="h-auto w-auto"
-                  src={sponsor.image}
-                  alt={sponsor.name}
-                />
-              </div>
-            ))}
-          </div>
-          <div className="flex flex-row flex-wrap justify-around md:justify-between">
-            {sponsors.sponsorer.map((sponsor) => (
-              <div
-                className="flex h-36 w-36 items-center md:h-64 md:w-64"
-                key={sponsor.name}
-              >
-                <img
-                  className="h-auto w-auto"
-                  src={sponsor.image}
-                  alt={sponsor.name}
-                />
-              </div>
-            ))}
-          </div>
-        </div>
+
+      <div className="mx-auto flex max-w-4xl flex-col gap-16 px-6 py-16">
+        <SponsorGroup title="DEV CONTENT-hovedsponsorer" sponsors={featuredSponsors} />
+        <SponsorGroup title="DEV CONTENT-samarbeidspartnere" sponsors={supportingSponsors} />
       </div>
     </main>
   );
 }
 
-// * Inspired by https://github.com/driaug/animated-counter under the Unlicense
-function MotionCounter({
-  value,
-  direction = "up",
-  className,
+function StatCard({
+  number,
+  title,
+  text,
+  to,
 }: {
-  value: number;
-  direction?: "up" | "down";
-  className?: string;
+  number: number;
+  title: string;
+  text: string;
+  to: string;
 }) {
-  const ref = useRef<HTMLSpanElement>(null);
-  const motionValue = useMotionValue(direction === "down" ? value : 0);
-  const springValue = useSpring(motionValue, {
-    damping: 80,
-    stiffness: 100,
-  });
-  const isInView = useInView(ref, { once: true, margin: "-100px" });
-
-  useEffect(() => {
-    if (isInView) {
-      motionValue.set(direction === "down" ? 0 : value);
-    }
-  }, [motionValue, isInView, value, direction]);
-
-  useEffect(
-    () =>
-      springValue.on("change", (latest) => {
-        if (ref.current) {
-          ref.current.textContent = Intl.NumberFormat("nb-NO").format(
-            Number(latest.toFixed(0)),
-          );
-        }
-      }),
-    [springValue],
+  return (
+    <div className="flex max-w-96 flex-col gap-5 text-vektor-bg">
+      <div>
+        <div className="font-bold text-4xl">{number}</div>
+        <p className="text-xl md:text-2xl">{title}</p>
+      </div>
+      <p className="max-w-80 text-sm md:max-w-96 md:text-xl">{text}</p>
+      <Link to={to} className={buttonVariants({ variant: "green" })} prefetch="intent">
+        Les mer
+      </Link>
+    </div>
   );
+}
 
-  return <span className={className} ref={ref} />;
+function SponsorGroup({ title, sponsors }: { title: string; sponsors: DevContent["sponsors"] }) {
+  return (
+    <section aria-labelledby={title}>
+      <h2 id={title} className="mb-8 text-center font-bold text-3xl text-vektor-DARKblue">
+        {title}
+      </h2>
+      <div className="flex flex-row flex-wrap justify-around gap-8">
+        {sponsors.map((sponsor) => (
+          <a
+            className="flex h-40 w-40 items-center justify-center rounded-lg border border-vektor-blue bg-white p-6 shadow-sm"
+            href={sponsor.href}
+            key={sponsor.id}
+          >
+            <img
+              className="h-auto max-h-full w-auto max-w-full"
+              src={sponsor.image}
+              alt={sponsor.name}
+            />
+          </a>
+        ))}
+      </div>
+    </section>
+  );
 }

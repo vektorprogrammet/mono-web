@@ -1,4 +1,5 @@
 import { TeamTemplate } from "@/components/team-template";
+import { getDevTeamMembers } from "~/lib/dev-content";
 
 // biome-ignore lint/style/noDefaultExport: Route Modules require default export https://reactrouter.com/start/framework/route-module
 export default function Skolekoordinering() {
@@ -6,34 +7,9 @@ export default function Skolekoordinering() {
     <div className="mx-auto mt-5 mb-20 flex max-w-screen-lg flex-col">
       <TeamTemplate
         name="Skolekoordinering"
-        mail="skolekoordinering.uib@vektorprogrammet.no"
+        mail="dev@example.invalid"
         text="Skolekoordinering fungerer som et bindeledd mellom skolene og vektorassistentene gjennom semesteret."
-        members={[
-          {
-            name: "Balder Hopp-Haugstvedt",
-            image:
-              "https://vektorprogrammet.no/media/cache/profile_img_small/images/Profile%20photos/63d0175742e04.jpeg",
-            role: "Leder",
-          },
-          {
-            name: "Hrolfur Olafsson",
-            image:
-              "https://vektorprogrammet.no/media/cache/profile_img_small/images/Profile%20photos/63d3c8214b847.jpeg",
-            role: "Medlem",
-          },
-          {
-            name: "Nicolai Ramsvik Andersen",
-            image:
-              "https://vektorprogrammet.no/media/cache/profile_img_small/images/Profile%20photos/64f996a5938da.jpeg",
-            role: "Medlem",
-          },
-          {
-            name: "Filip Asklien",
-            image:
-              "https://vektorprogrammet.no/media/cache/profile_img_small/images/Profile%20photos/6432eb2c55a69.jpeg",
-            role: "Medlem",
-          },
-        ]}
+        members={getDevTeamMembers("bergen-skole")}
       />
 
       <div className="m-5 mt-20 text-left font-sans text-black text-lg">

@@ -1,4 +1,5 @@
 import { TeamTemplate } from "@/components/team-template";
+import { getDevTeamMembers } from "~/lib/dev-content";
 
 // biome-ignore lint/style/noDefaultExport: Route Modules require default export https://reactrouter.com/start/framework/route-module
 export default function Styret() {
@@ -6,34 +7,9 @@ export default function Styret() {
     <div className="mx-auto mt-5 mb-20 flex max-w-screen-lg flex-col">
       <TeamTemplate
         name="Styret"
-        mail="uib@vektorprogrammet.no"
+        mail="dev@example.invalid"
         text="Ansvarlig for driften av Vektorprogrammet i Bergen."
-        members={[
-          {
-            name: "Hrolfur Olafsson",
-            image:
-              "https://vektorprogrammet.no/media/cache/profile_img_small/images/Profile%20photos/63d3c8214b847.jpeg",
-            role: "Leder",
-          },
-          {
-            name: "Nicolai Ramsvik Andersen",
-            image:
-              "https://vektorprogrammet.no/media/cache/profile_img_small/images/Profile%20photos/64f996a5938da.jpeg",
-            role: "Nestleder",
-          },
-          {
-            name: "Erik Bjordal",
-            image:
-              "https://vektorprogrammet.no/media/cache/profile_img_small/images/Profile%20photos/63d00e000503f.jpeg",
-            role: "Rekruttering",
-          },
-          {
-            name: "Balder Hopp-Haugstvedt",
-            image:
-              "https://vektorprogrammet.no/media/cache/profile_img_small/images/Profile%20photos/63d0175742e04.jpeg",
-            role: "Skolekoordinering",
-          },
-        ]}
+        members={getDevTeamMembers("bergen-styre")}
       />
 
       <div className="m-5 mt-20 text-left font-sans text-black text-lg">

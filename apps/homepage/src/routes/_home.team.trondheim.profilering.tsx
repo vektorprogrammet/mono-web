@@ -1,4 +1,5 @@
 import { TeamTemplate } from "@/components/team-template";
+import { getDevTeamMembers } from "~/lib/dev-content";
 
 // biome-ignore lint/style/noDefaultExport: Route Modules require default export https://reactrouter.com/start/framework/route-module
 export default function Profilering() {
@@ -6,64 +7,9 @@ export default function Profilering() {
     <div className="mx-auto mt-5 mb-20 flex max-w-screen-lg flex-col">
       <TeamTemplate
         name="Profilering"
-        mail="profilering.ntnu@vektorprogrammet.no"
+        mail="dev@example.invalid"
         text="Profileringsteamet jobber for å gjøre Vektorprogrammet mer synlig gjennom sosiale medier."
-        members={[
-          {
-            name: "Per Hjelle Solheim",
-            image:
-              "https://vektorprogrammet.no/media/cache/profile_img/images/Profile%20photos/6172aab7e0211.jpeg",
-            role: "Leder",
-          },
-          {
-            name: "David Ramsvik",
-            image:
-              "https://vektorprogrammet.no/media/cache/profile_img/images/Profile%20photos/6370f59dcadc0.jpeg",
-            role: "Medlem",
-          },
-          {
-            name: "Ingeborg Eldevik Rusaas",
-            image:
-              "https://vektorprogrammet.no/media/cache/profile_img/images/Profile%20photos/6336cca326080.jpeg",
-            role: "Medlem",
-          },
-          {
-            name: "Gaute Eng Simonsen",
-            image:
-              "https://vektorprogrammet.no/media/cache/profile_img/images/Profile%20photos/6232f4b08ace7.jpeg",
-            role: "Medlem",
-          },
-          {
-            name: "Nora Yttri",
-            image:
-              "https://vektorprogrammet.no/media/cache/profile_img/images/Profile%20photos/6336d96dc66e2.jpeg",
-            role: "Medlem",
-          },
-          {
-            name: "Swati Soosaipillai",
-            image:
-              "https://vektorprogrammet.no/media/cache/profile_img/images/Profile%20photos/6336b44383a84.jpeg",
-            role: "Medlem",
-          },
-          {
-            name: "Andreas Gidske",
-            image:
-              "https://vektorprogrammet.no/media/cache/profile_img/images/Profile%20photos/63615c4a25116.jpeg",
-            role: "Medlem",
-          },
-          {
-            name: "Hege Sæther",
-            image:
-              "https://vektorprogrammet.no/media/cache/profile_img/images/Profile%20photos/63ed048e0bb38.jpeg",
-            role: "Medlem",
-          },
-          {
-            name: "Malene Ytterdahl-Karlengen",
-            image:
-              "https://vektorprogrammet.no/media/cache/profile_img/images/Profile%20photos/64089ffa85abe.jpeg",
-            role: "Medlem",
-          },
-        ]}
+        members={getDevTeamMembers("trondheim-profilering")}
       />
 
       <div className="mt-20 text-center font-sans text-3xl text-bold text-vektor-darblue">
@@ -100,7 +46,7 @@ export default function Profilering() {
         {/*! TODO: FIX */}
         {/* biome-ignore lint/a11y/useAltText: Temporary ignore for ci/cd */}
         <img
-          src="https://vektorprogrammet.no/images/team_images/Profilering/IMG_9785.jpeg"
+          src="/images/teacher2.png"
           className="mx-auto h-auto content-center md:max-w-3xl"
         />
       </div>
@@ -162,9 +108,9 @@ export default function Profilering() {
         Hvis du har noen spørsmål, er det bare å ta kontakt på{" "}
         <a
           className="break-all text-vektor-darblue hover:underline"
-          href="mailto:profilering.ntnu@vektorprogrammet.no"
+          href="mailto:dev@example.invalid"
         >
-          profilering.ntnu@vektorprogrammet.no.
+          dev@example.invalid.
         </a>
       </div>
     </div>

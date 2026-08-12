@@ -8,9 +8,11 @@ dist
 build
 *.tsbuildinfo
 
+artifacts/
 # Environment variables
 .env
 .env*.local
+.dev.vars*
 
 # IDEs and editors
 .vscode/*
@@ -37,6 +39,7 @@ lerna-debug.log*
 .turbo
 .wrangler/
 .alchemy/
+infra/alchemy/.alchemy/
 
 # PHP
 vendor/

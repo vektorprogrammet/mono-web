@@ -3,33 +3,23 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "engines": {
-    "node": ">=22"
-  },
   "scripts": {
-    "dev": "react-router dev",
-    "build": "react-router build",
-    "start": "react-router-serve build/server/index.js",
+    "dev": "vite dev --host 127.0.0.1 --port 8787 --strictPort",
+    "build": "vite build",
+    "worker:build": "vite build",
+    "worker:dev": "vite preview --host 127.0.0.1 --port 8787 --strictPort",
+    "check-types": "tsc --noEmit",
+    "test:resolver": "vitest run --config vitest.config.ts test/host.test.ts",
+    "test:dev-content": "vitest run test/dev-content.test.ts",
+    "test": "vitest run",
     "test:vitest": "vitest run",
     "test:vitest:watch": "vitest watch",
-    "e2e:test": "exec playwright test",
-    "e2e:test:ui": "exec playwright test --ui",
-    "e2e:show-report": "exec playwright show-report",
-    "e2e:install": "exec playwright install",
+    "e2e:test": "playwright test",
+    "e2e:test:ui": "playwright test --ui",
+    "e2e:show-report": "playwright show-report",
+    "e2e:install": "playwright install",
     "lint": "oxlint",
     "format": "oxfmt --write"
-  },
-  "browserslist": {
-    "production": [
-      ">0.2%",
-      "not dead",
-      "not op_mini all"
-    ],
-    "development": [
-      "last 1 chrome version",
-      "last 1 firefox version",
-      "last 1 safari version"
-    ]
   },
   "dependencies": {
     "@icons-pack/react-simple-icons": "^12.3.0",
@@ -46,8 +36,8 @@
     "@radix-ui/react-separator": "^1.1.2",
     "@radix-ui/react-slot": "^1.1.2",
     "@radix-ui/react-tabs": "^1.1.3",
-    "@react-router/fs-routes": "^7.4.1",
-    "@react-router/node": "^7.4.1",
+    "@react-router/fs-routes": "^8.3.0",
+    "@react-router/node": "^8.3.0",
     "autoprefixer": "^10.4.21",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
@@ -59,27 +49,39 @@
     "motion": "^12.6.2",
     "postcss": "^8.5.3",
     "postcss-import": "^16.1.0",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
     "react-hook-form": "^7.55.0",
-    "@react-router/serve": "^7.4.1",
-    "react-router": "^7.4.1",
-    "react-router-dom": "^7.9.4",
+    "react-router": "^8.3.0",
     "tailwind-merge": "^2.6.0",
     "tailwindcss": "^3.4.17",
     "tailwindcss-animate": "^1.0.7",
     "typescript": "^5.8.2",
     "vaul": "^1.1.2",
-    "vite": "^6.2.5",
-    "@vektorprogrammet/sdk": "^0.1.0",
-    "@tanstack/react-query": "^5"
+    "vite": "^8.0.7"
   },
   "devDependencies": {
+    "@cloudflare/vite-plugin": "^1.13.12",
     "@playwright/test": "^1.51.1",
-    "@react-router/dev": "^7.4.1",
+    "@react-router/dev": "^8.3.0",
     "@types/node": "^22.13.14",
-    "@types/react": "^18.3.20",
-    "@types/react-dom": "^18.3.5",
+    "@types/react": "^19.2.10",
+    "@types/react-dom": "^19.2.3",
     "vitest": "^3.1.1"
+  },
+  "browserslist": {
+    "production": [
+      ">0.2%",
+      "not dead",
+      "not op_mini all"
+    ],
+    "development": [
+      "last 1 chrome version",
+      "last 1 firefox version",
+      "last 1 safari version"
+    ]
+  },
+  "engines": {
+    "node": ">=22"
   }
 }

@@ -2,7 +2,7 @@
   "compilerOptions": {
     "target": "es5",
     "lib": ["dom", "dom.iterable", "esnext"],
-    "types": ["vite/client"],
+    "types": ["vite/client", "node"],
     "allowJs": true,
     "skipLibCheck": true,
     "esModuleInterop": true,
@@ -15,6 +15,7 @@
     "resolveJsonModule": true,
     "isolatedModules": true,
     "noEmit": true,
+    "allowImportingTsExtensions": true,
     "jsx": "react-jsx",
     "verbatimModuleSyntax": true,
     "baseUrl": ".",
@@ -28,5 +29,13 @@
       "@/api/*": ["./src/api/*"]
     }
   },
-  "include": ["src", ".react-router/types/**/*"]
+  "include": [
+    "src",
+    "workers",
+    "test",
+    "e2e",
+    "*.config.ts",
+    "vite-digests.ts",
+    ".react-router/types/**/*"
+  ]
 }

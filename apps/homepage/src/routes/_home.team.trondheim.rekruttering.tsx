@@ -1,4 +1,5 @@
 import { TeamTemplate } from "@/components/team-template";
+import { getDevTeamMembers } from "~/lib/dev-content";
 
 // biome-ignore lint/style/noDefaultExport: Route Modules require default export https://reactrouter.com/start/framework/route-module
 export default function Rekruttering() {
@@ -6,76 +7,9 @@ export default function Rekruttering() {
     <div className="mx-auto mt-5 mb-20 flex max-w-screen-lg flex-col items-center">
       <TeamTemplate
         name="Rekruttering"
-        mail="rekruttering.ntnu@vektorprogrammet.no"
+        mail="dev@example.invalid"
         text="I rekruttering jobber vi med å skaffe nye vektorassistenter."
-        members={[
-          {
-            name: "Astrid Bugge",
-            image:
-              "https://vektorprogrammet.no/media/cache/profile_img/images/Profile%20photos/63f4de1b4f69f.jpeg",
-            role: "Leder",
-          },
-          {
-            name: "David Ramsvik",
-            image:
-              "https://vektorprogrammet.no/media/cache/profile_img/images/Profile%20photos/6370f59dcadc0.jpeg",
-            role: "Medlem",
-          },
-          {
-            name: "Andreas Hope Pedersen",
-            image:
-              "https://vektorprogrammet.no/media/cache/profile_img/images/Profile%20photos/63626f2ba192b.jpeg",
-            role: "Medlem",
-          },
-          {
-            name: "Sander Nicolai Andersen",
-            image:
-              "https://vektorprogrammet.no/media/cache/profile_img/images/Profile%20photos/63606f1344a57.jpeg",
-            role: "Medlem",
-          },
-          {
-            name: "Andreas Gidske",
-            image:
-              "https://vektorprogrammet.no/media/cache/profile_img/images/Profile%20photos/63615c4a25116.jpeg",
-            role: "Medlem",
-          },
-          {
-            name: "Jeanette Fjeldstad",
-            image:
-              "https://vektorprogrammet.no/media/cache/profile_img/images/Profile%20photos/623208c0b7cff.jpeg",
-            role: "Medlem",
-          },
-          {
-            name: "Odin Nilsen",
-            image:
-              "https://vektorprogrammet.no/media/cache/profile_img/images/Profile%20photos/63615c0f67d3a.jpeg",
-            role: "Medlem",
-          },
-          {
-            name: "Christian Bjørnaas",
-            image:
-              "https://vektorprogrammet.no/media/cache/profile_img/images/Profile%20photos/63f4df5c666ec.jpeg",
-            role: "Medlem",
-          },
-          {
-            name: "Marcus Espås",
-            image:
-              "https://vektorprogrammet.no/media/cache/profile_img/images/Profile%20photos/63f4de8dc156f.jpeg",
-            role: "Medlem",
-          },
-          {
-            name: "Varvara Subbotina",
-            image:
-              "https://vektorprogrammet.no/media/cache/profile_img/images/Profile%20photos/63f4e0222a371.jpeg",
-            role: "Medlem",
-          },
-          {
-            name: "Kristine Hamre",
-            image:
-              "https://vektorprogrammet.no/media/cache/profile_img/images/Profile%20photos/63f4eefce7706.jpeg",
-            role: "Medlem",
-          },
-        ]}
+        members={getDevTeamMembers("trondheim-rekruttering")}
       />
 
       <div className="mt-20 text-center font-sans text-3xl text-bold text-vektor-darblue">
@@ -128,7 +62,7 @@ export default function Rekruttering() {
         {/* biome-ignore lint/a11y/useAltText: Temporary ignore for ci/cd */}
         <img
           className="mx-auto h-auto content-center md:max-w-2xl"
-          src="https://vektorprogrammet.no/images/team_images/313096245_1158050458440674_2660066729317743376_n.jpg"
+          src="/images/teacher2.png"
         />
       </div>
 
@@ -146,9 +80,9 @@ export default function Rekruttering() {
         Er det noe mer du lurer på er det bare å sende mail til{" "}
         <a
           className="break-all text-vektor-darblue hover:underline"
-          href="mailto:rekruttering.ntnu@vektorprogrammet.no"
+          href="mailto:dev@example.invalid"
         >
-          rekruttering.ntnu@vektorprogrammet.no
+          dev@example.invalid
         </a>
       </div>
 

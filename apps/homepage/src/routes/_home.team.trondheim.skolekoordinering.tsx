@@ -1,4 +1,5 @@
 import { TeamTemplate } from "@/components/team-template";
+import { getDevTeamMembers } from "~/lib/dev-content";
 
 // biome-ignore lint/style/noDefaultExport: Route Modules require default export https://reactrouter.com/start/framework/route-module
 export default function Skolekoordinering() {
@@ -6,58 +7,9 @@ export default function Skolekoordinering() {
     <div className="mx-auto mt-5 mb-20 flex max-w-screen-lg flex-col">
       <TeamTemplate
         name="Skolekoordinering"
-        mail="skolekoordinering.ntnu@vektorprogrammet.no"
+        mail="dev@example.invalid"
         text="Skolekoordinering fungerer som et bindeledd mellom skolene og vektorassistentene gjennom semesteret."
-        members={[
-          {
-            name: "Tina Jota",
-            image:
-              "https://vektorprogrammet.no/media/cache/profile_img/images/Profile%20photos/633f04baf19bc.jpeg",
-            role: "Leder",
-          },
-          {
-            name: "Inga Bordal",
-            image:
-              "https://vektorprogrammet.no/media/cache/profile_img/images/Profile%20photos/633f03f274e81.jpeg",
-            role: "Medlem",
-          },
-          {
-            name: "Ragna Vårli Håland",
-            image:
-              "https://vektorprogrammet.no/media/cache/profile_img/images/Profile%20photos/633f033cb4d48.jpeg",
-            role: "Medlem",
-          },
-          {
-            name: "Kaja Prestnes Lind",
-            image:
-              "https://vektorprogrammet.no/media/cache/profile_img/images/Profile%20photos/6346def4754db.jpeg",
-            role: "Medlem",
-          },
-          {
-            name: "Hennie Wien",
-            image:
-              "https://vektorprogrammet.no/media/cache/profile_img/images/Profile%20photos/633f0a0108caf.jpeg",
-            role: "Medlem",
-          },
-          {
-            name: "Sonja Salvesen",
-            image:
-              "https://vektorprogrammet.no/media/cache/profile_img/images/Profile%20photos/633f058743387.jpeg",
-            role: "Medlem",
-          },
-          {
-            name: "Silje Eriksen",
-            image:
-              "https://vektorprogrammet.no/media/cache/profile_img/images/Profile%20photos/6418910b565a8.jpeg",
-            role: "Medlem",
-          },
-          {
-            name: "Mari Egeland",
-            image:
-              "https://vektorprogrammet.no/media/cache/profile_img/images/Profile%20photos/6418918cae91f.jpeg",
-            role: "Medlem",
-          },
-        ]}
+        members={getDevTeamMembers("trondheim-skole")}
       />
 
       <div className="mt-20 mb-7 text-center font-sans text-3xl text-bold text-vektor-darblue">
@@ -68,7 +20,7 @@ export default function Skolekoordinering() {
         {/*! TODO: FIX */}
         {/* biome-ignore lint/a11y/useAltText: Temporary ignore for ci/cd */}
         <img
-          src="https://vektorprogrammet.no/images/team_images/Skolekoordinering/IMG_2564%203.jpg"
+          src="/images/teacher2.png"
           className="m-3 mx-auto h-auto content-center md:max-w-2xl"
         />
       </div>
@@ -99,7 +51,7 @@ export default function Skolekoordinering() {
         {/*! TODO: FIX */}
         {/* biome-ignore lint/a11y/useAltText: Temporary ignore for ci/cd */}
         <img
-          src="https://vektorprogrammet.no/images/team_images/Skolekoordinering/211118-170639.png"
+          src="/images/teacher2.png"
           className="m-3 mx-auto h-auto content-center md:max-w-2xl"
         />
       </div>
@@ -130,7 +82,7 @@ export default function Skolekoordinering() {
         {/*! TODO: FIX */}
         {/* biome-ignore lint/a11y/useAltText: Temporary ignore for ci/cd */}
         <img
-          src="https://vektorprogrammet.no/images/team_images/Skolekoordinering/IMG_3596.jpg"
+          src="/images/teacher2.png"
           className="m-3 mx-auto h-auto content-center md:max-w-2xl"
         />
       </div>
@@ -196,9 +148,9 @@ export default function Skolekoordinering() {
         Sitter du inne med spørsmål, ta mer enn gjerne kontakt med oss på{" "}
         <a
           className="break-all text-vektor-darblue hover:underline"
-          href="mailto:skolekoordinering.ntnu@vektorprogrammet.no"
+          href="mailto:dev@example.invalid"
         >
-          skolekoordinering.ntnu@vektorprogrammet.no.
+          dev@example.invalid.
         </a>
       </div>
 

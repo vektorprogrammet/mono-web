@@ -1,4 +1,5 @@
 import { TeamTemplate } from "@/components/team-template";
+import { getDevTeamMembers } from "~/lib/dev-content";
 
 // biome-ignore lint/style/noDefaultExport: Route Modules require default export https://reactrouter.com/start/framework/route-module
 export default function EvalueringRekrutteringProfilering() {
@@ -6,40 +7,9 @@ export default function EvalueringRekrutteringProfilering() {
     <div className="mx-auto mt-5 mb-20 flex max-w-screen-lg flex-col">
       <TeamTemplate
         name="Evaluering, Rekruttering og Profilering"
-        mail="evaluering.nmbu@vektorprogrammet.no"
+        mail="dev@example.invalid"
         text="Vi rekrutterer nye assistenter, styrer sosiale medier og sender ut evalueringers-undersøkelser."
-        members={[
-          {
-            name: "Ingrid Iselin Male Østern",
-            image:
-              "https://vektorprogrammet.no/media/cache/profile_img/images/Profile%20photos/6443b33e254ba.jpeg",
-            role: "Leder",
-          },
-          {
-            name: "Rikke Vegstein",
-            image:
-              "https://vektorprogrammet.no/media/cache/profile_img/images/defaultProfile.png",
-            role: "Profilering",
-          },
-          {
-            name: "Julie Blohm Christensen",
-            image:
-              "https://vektorprogrammet.no/media/cache/profile_img/images/defaultProfile.png",
-            role: "Profilering",
-          },
-          {
-            name: "Aurora Røyseth",
-            image:
-              "https://vektorprogrammet.no/media/cache/profile_img/images/defaultProfile.png",
-            role: "Rekruttering",
-          },
-          {
-            name: "Tina Moen",
-            image:
-              "https://vektorprogrammet.no/media/cache/profile_img/images/Profile%20photos/636c01c40740a.jpeg",
-            role: "Rekruttering",
-          },
-        ]}
+        members={getDevTeamMembers("aas-evaluering")}
       />
 
       <div className="mx-5 mt-20 text-start font-sans text-black text-lg">
@@ -56,7 +26,7 @@ export default function EvalueringRekrutteringProfilering() {
         {/*! TODO: FIX */}
         {/* biome-ignore lint/a11y/useAltText: Temporary ignore for ci/cd */}
         <img
-          src="https://vektorprogrammet.no/images/team_images/%C3%85s%20h%C3%B8st%202022/rekruttering.jpg"
+          src="/images/teacher2.png"
           className="m-5 mx-auto h-auto content-center sm:max-w-2xl"
         />
       </div>

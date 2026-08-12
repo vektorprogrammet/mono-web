@@ -5,7 +5,7 @@ interface TextPictureParagraphProps {
   text: string;
   pictureOnLeft: boolean;
   image: {
-    url: URL;
+    url: string;
     alt: string;
   };
 }
@@ -13,7 +13,7 @@ export interface TextPictureParagraphApiProps {
   title: string;
   text: string;
   image: {
-    url: URL;
+    url: string;
     alt: string;
   };
 }
@@ -29,7 +29,7 @@ export const TextPictureParagraph = ({
       className={`flex ${pictureOnLeft ? "md:flex-row-reverse" : ""} flex-wrap items-center justify-center gap-5 md:flex-nowrap md:justify-between md:gap-14`}
     >
       <img
-        src={image.url.toString()}
+        src={image.url}
         alt={image.alt}
         className="flex max-h-96 rounded-lg sm:w-auto md:h-fit md:max-w-96"
       />
