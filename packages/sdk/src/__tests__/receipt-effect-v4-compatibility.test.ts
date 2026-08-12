@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { Cause, Effect, Exit, Fiber } from "effect"
+import { Cause, Effect, Exit, Fiber, Option } from "effect"
 import { createClient, ConfigurationError, NetworkError, NotFoundError, UnauthorizedError, ValidationError, ConflictError, RateLimitedError } from "../promise.js"
 import { createEffectClient } from "../effect-client.js"
 import { apiUrl } from "../config.js"
@@ -344,6 +344,152 @@ describe("Effect v4 Receipt compatibility", () => {
     expect(Exit.isFailure(ownerExit)).toBe(true)
     if (Exit.isFailure(ownerExit)) {
       expect(Cause.hasInterruptsOnly(ownerExit.cause)).toBe(true)
+    }
+  })
+})
+
+const APPLICATION_FIXTURE_URL = "https://application-status-fixture.invalid"
+const applicationStatusCases = [
+  [-1, "cancelled", "Avbrutt"],
+  [0, "not_received", "Ikke mottatt"],
+  [1, "received", "Mottatt"],
+  [2, "invited", "Invitert"],
+  [3, "accepted", "Akseptert"],
+  [4, "completed", "Fullført"],
+  [5, "assigned", "Tildelt skole"],
+] as const
+
+const validApplication = {
+  id: 101,
+  userName: "Synthetic Applicant",
+  userEmail: "applicant@example.com",
+  interviewStatus: null,
+  interviewer: null,
+  interviewScheduled: null,
+  previousParticipation: false,
+}
+
+function applicationResponse(applicationStatus: number) {
+  return { ...validApplication, applicationStatus }
+}
+
+function applicationCollection(applicationStatus: number) {
+  return {
+    "hydra:member": [applicationResponse(applicationStatus)],
+    "hydra:totalItems": 1,
+  }
+}
+
+describe("Application status typed decode", () => {
+  let fetchMock: ReturnType<typeof vi.fn>
+  let requests: RecordedRequest[]
+
+  beforeEach(() => {
+    requests = []
+    fetchMock = vi.fn()
+    vi.stubGlobal("fetch", fetchMock)
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  function expectValidationExit<A, E>(exit: Exit.Exit<A, E>): void {
+    expect(Exit.isFailure(exit)).toBe(true)
+    if (!Exit.isFailure(exit)) return
+    expect(Cause.hasDies(exit.cause)).toBe(false)
+    expect(Cause.hasFails(exit.cause)).toBe(true)
+    const error = Cause.findErrorOption(exit.cause)
+    expect(Option.isSome(error)).toBe(true)
+    if (Option.isSome(error)) {
+      expect(error.value).toMatchObject({ _tag: "Validation" })
+    }
+  }
+
+  function stubMalformedResponses(): void {
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = requestUrl(input)
+      requests.push({ url, init: init ?? {} })
+      return makeResponse(
+        200,
+        url.endsWith("/101")
+          ? applicationResponse(999)
+          : applicationCollection(999),
+      )
+    })
+  }
+
+  it("rejects unknown application status through the Promise list channel", async () => {
+    stubMalformedResponses()
+    const error = await createClient(APPLICATION_FIXTURE_URL).admin.applications.list().catch((cause: unknown) => cause)
+    expect(error).toBeInstanceOf(ValidationError)
+    expect(error).toMatchObject({ type: "validation" })
+    expect(requests.map(({ url }) => url)).toEqual([
+      `${APPLICATION_FIXTURE_URL}/api/admin/applications`,
+    ])
+    expect(requests.every(({ init }) => header(init, "Authorization") === undefined)).toBe(true)
+  })
+
+  it("rejects unknown application status through the Promise detail channel", async () => {
+    stubMalformedResponses()
+    const error = await createClient(APPLICATION_FIXTURE_URL).admin.applications.get(101).catch((cause: unknown) => cause)
+    expect(error).toBeInstanceOf(ValidationError)
+    expect(error).toMatchObject({ type: "validation" })
+    expect(requests.map(({ url }) => url)).toEqual([
+      `${APPLICATION_FIXTURE_URL}/api/admin/applications/101`,
+    ])
+  })
+
+  it("fails unknown application status through the Effect list channel without a defect", async () => {
+    stubMalformedResponses()
+    const exit = await Effect.runPromiseExit(
+      createEffectClient(APPLICATION_FIXTURE_URL).admin.applications.list(),
+    )
+    expectValidationExit(exit)
+  })
+
+  it("fails unknown application status through the Effect detail channel without a defect", async () => {
+    stubMalformedResponses()
+    const exit = await Effect.runPromiseExit(
+      createEffectClient(APPLICATION_FIXTURE_URL).admin.applications.get(101),
+    )
+    expectValidationExit(exit)
+  })
+
+  it("preserves all seven application statuses across valid Promise and Effect list/detail results", async () => {
+    const promiseClient = createClient(APPLICATION_FIXTURE_URL)
+    const effectClient = createEffectClient(APPLICATION_FIXTURE_URL)
+
+    for (const [rawStatus, expectedStatus, expectedLabel] of applicationStatusCases) {
+      fetchMock.mockResolvedValueOnce(makeResponse(200, applicationCollection(rawStatus)))
+      const promiseList = await promiseClient.admin.applications.list()
+      expect(promiseList).toMatchObject({ totalItems: 1, page: 1, pageSize: 30 })
+      expect(promiseList.items[0]).toMatchObject({
+        id: 101,
+        userName: "Synthetic Applicant",
+        userEmail: "applicant@example.com",
+        status: expectedStatus,
+      })
+      expect(promiseList.items[0]?.statusLabel).toBe(expectedLabel)
+
+      fetchMock.mockResolvedValueOnce(makeResponse(200, applicationResponse(rawStatus)))
+      const promiseDetail = await promiseClient.admin.applications.get(101)
+      expect(promiseDetail).toMatchObject({
+        id: 101,
+        userName: "Synthetic Applicant",
+        userEmail: "applicant@example.com",
+        status: expectedStatus,
+      })
+
+      fetchMock.mockResolvedValueOnce(makeResponse(200, applicationCollection(rawStatus)))
+      const effectList = await Effect.runPromise(effectClient.admin.applications.list())
+      expect(effectList).toMatchObject({ totalItems: 1, page: 1, pageSize: 30 })
+      expect(effectList.items[0]?.status).toBe(expectedStatus)
+      expect(effectList.items[0]?.statusLabel).toBe(expectedLabel)
+
+      fetchMock.mockResolvedValueOnce(makeResponse(200, applicationResponse(rawStatus)))
+      const effectDetail = await Effect.runPromise(effectClient.admin.applications.get(101))
+      expect(effectDetail.status).toBe(expectedStatus)
     }
   })
 })
