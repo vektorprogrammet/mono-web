@@ -53,7 +53,7 @@ describe("parseInterviewStatus", () => {
 describe("DateFromIso", () => {
   it("decodes an ISO date string to a Date object", async () => {
     const result = await Effect.runPromise(
-      Schema.decodeUnknown(DateFromIso)("2026-01-10T12:00:00+01:00"),
+      Schema.decodeUnknownEffect(DateFromIso)("2026-01-10T12:00:00+01:00"),
     )
     expect(result).toBeInstanceOf(Date)
     expect(result.toISOString()).toContain("2026-01-10")
@@ -61,23 +61,28 @@ describe("DateFromIso", () => {
 
   it("decodes a date-only string to a Date", async () => {
     const result = await Effect.runPromise(
-      Schema.decodeUnknown(DateFromIso)("2026-03-21"),
+      Schema.decodeUnknownEffect(DateFromIso)("2026-03-21"),
     )
     expect(result).toBeInstanceOf(Date)
+  })
+  it("rejects an invalid ISO date", async () => {
+    await expect(
+      Effect.runPromise(Schema.decodeUnknownEffect(DateFromIso)("not-a-date")),
+    ).rejects.toBeDefined()
   })
 })
 
 describe("NullableDateFromIso", () => {
   it("decodes null to null", async () => {
     const result = await Effect.runPromise(
-      Schema.decodeUnknown(NullableDateFromIso)(null),
+      Schema.decodeUnknownEffect(NullableDateFromIso)(null),
     )
     expect(result).toBeNull()
   })
 
   it("decodes an ISO date string to a Date", async () => {
     const result = await Effect.runPromise(
-      Schema.decodeUnknown(NullableDateFromIso)("2026-01-10"),
+      Schema.decodeUnknownEffect(NullableDateFromIso)("2026-01-10"),
     )
     expect(result).toBeInstanceOf(Date)
   })

@@ -6,7 +6,7 @@ export class SchedulingAssistant extends Schema.Class<SchedulingAssistant>("Sche
   email: Schema.String,
   doublePosition: Schema.NullOr(Schema.Boolean),
   preferredGroup: Schema.NullOr(Schema.Number),
-  availability: Schema.Record({ key: Schema.String, value: Schema.Boolean }),
+  availability: Schema.Record(Schema.String, Schema.Boolean),
   score: Schema.NullOr(Schema.Number),
   suitability: Schema.NullOr(Schema.String),
   previousParticipation: Schema.NullOr(Schema.Boolean),
@@ -16,7 +16,7 @@ export class SchedulingAssistant extends Schema.Class<SchedulingAssistant>("Sche
 export class SchedulingSchool extends Schema.Class<SchedulingSchool>("SchedulingSchool")({
   id: Schema.Number,
   name: Schema.String,
-  capacity: Schema.Array(Schema.Record({ key: Schema.String, value: Schema.Number })),
+  capacity: Schema.Array(Schema.Record(Schema.String, Schema.Number)),
 }) {}
 
 export class Substitute extends Schema.Class<Substitute>("Substitute")({

@@ -11,7 +11,9 @@ export {
   ConflictError,
   NetworkError,
   RateLimitedError,
+  ConfigurationError,
 } from "./errors.js"
+export type { SdkErrorType } from "./errors.js"
 
 // Domain types (re-exported from Schema classes)
 export type { Receipt, AdminReceipt, ReceiptInput } from "./schemas/receipt.js"

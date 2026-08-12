@@ -22,7 +22,7 @@ const rawReceipt = {
 describe("Receipt", () => {
   it("decodes from raw API shape", async () => {
     const result = await Effect.runPromise(
-      Schema.decodeUnknown(Receipt)(rawReceipt),
+      Schema.decodeUnknownEffect(Receipt)(rawReceipt),
     )
     expect(result).toBeInstanceOf(Receipt)
     expect(result.id).toBe(1)
@@ -34,7 +34,7 @@ describe("Receipt", () => {
 
   it("encodes back to raw API shape (round-trip)", async () => {
     const decoded = await Effect.runPromise(
-      Schema.decodeUnknown(Receipt)(rawReceipt),
+      Schema.decodeUnknownEffect(Receipt)(rawReceipt),
     )
     const encoded = Schema.encodeSync(Receipt)(decoded)
     expect(typeof encoded.receiptDate).toBe("string")
@@ -44,21 +44,21 @@ describe("Receipt", () => {
 
   it("isPending returns true when status is 'pending'", async () => {
     const receipt = await Effect.runPromise(
-      Schema.decodeUnknown(Receipt)(rawReceipt),
+      Schema.decodeUnknownEffect(Receipt)(rawReceipt),
     )
     expect(receipt.isPending).toBe(true)
   })
 
   it("isPending returns false when status is 'refunded'", async () => {
     const receipt = await Effect.runPromise(
-      Schema.decodeUnknown(Receipt)({ ...rawReceipt, status: "refunded" }),
+      Schema.decodeUnknownEffect(Receipt)({ ...rawReceipt, status: "refunded" }),
     )
     expect(receipt.isPending).toBe(false)
   })
 
   it("formattedAmount returns '<sum> kr'", async () => {
     const receipt = await Effect.runPromise(
-      Schema.decodeUnknown(Receipt)(rawReceipt),
+      Schema.decodeUnknownEffect(Receipt)(rawReceipt),
     )
     expect(receipt.formattedAmount).toBe("150 kr")
   })
@@ -78,7 +78,7 @@ const rawApplication = {
 describe("Application (ApplicationFromRaw)", () => {
   it("decodes from raw API shape with integer status", async () => {
     const result = await Effect.runPromise(
-      Schema.decodeUnknown(ApplicationFromRaw)(rawApplication),
+      Schema.decodeUnknownEffect(ApplicationFromRaw)(rawApplication),
     )
     expect(result.status).toBe("received")
     expect(result.id).toBe(42)
@@ -87,7 +87,7 @@ describe("Application (ApplicationFromRaw)", () => {
 
   it("encodes back (round-trip)", async () => {
     const decoded = await Effect.runPromise(
-      Schema.decodeUnknown(ApplicationFromRaw)(rawApplication),
+      Schema.decodeUnknownEffect(ApplicationFromRaw)(rawApplication),
     )
     const encoded = Schema.encodeSync(ApplicationFromRaw)(decoded)
     expect(typeof encoded.applicationStatus).toBe("number")
@@ -96,7 +96,7 @@ describe("Application (ApplicationFromRaw)", () => {
 
   it("statusLabel returns a non-empty Norwegian label", async () => {
     const result = await Effect.runPromise(
-      Schema.decodeUnknown(ApplicationFromRaw)(rawApplication),
+      Schema.decodeUnknownEffect(ApplicationFromRaw)(rawApplication),
     )
     expect(typeof result.statusLabel).toBe("string")
     expect(result.statusLabel.length).toBeGreaterThan(0)

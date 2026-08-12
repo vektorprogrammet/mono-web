@@ -7,44 +7,59 @@
 
 import { Effect, Schema, pipe } from "effect"
 import {
-  Unauthorized, NotFound, Validation, Conflict, Network, RateLimited,
+  Unauthorized,
+  NotFound,
+  Validation,
+  Conflict,
+  Network,
+  RateLimited,
+  Configuration,
   type InternalSdkError,
 } from "./errors.js"
 import { parseViolations } from "./adapter/errors.js"
 
 export type AuthOption = string | (() => string | Promise<string>)
+export type QueryParams = Record<string, string | number | undefined>
 
 /**
  * Resolves the auth token — supports static string or async function.
  */
-const resolveAuth = (auth: AuthOption): Effect.Effect<string> =>
+const resolveAuth = (auth: AuthOption): Effect.Effect<string, Network> =>
   typeof auth === "string"
     ? Effect.succeed(auth)
-    : Effect.promise(async () => {
-        return auth()
+    : Effect.tryPromise({
+        try: () => Promise.resolve(auth()),
+        catch: (cause) =>
+          new Network({
+            message: cause instanceof Error ? cause.message : "Failed to resolve auth",
+            cause,
+          }),
       })
 
 /**
  * Maps HTTP status codes to InternalSdkError.
  */
-const mapStatusToError = (status: number, _body: unknown): InternalSdkError => {
-  // TODO: 403 should map to a separate ForbiddenError rather than Unauthorized
+const mapStatusToError = (status: number, body: unknown): InternalSdkError => {
   if (status === 401 || status === 403) return new Unauthorized({ message: `HTTP ${status}` })
   if (status === 404) return new NotFound({ message: "Not found" })
   if (status === 409) return new Conflict({ message: "Conflict" })
-  if (status === 422) return new Validation({ message: "Validation failed", fields: parseViolations(_body) })
+  if (status === 422) return new Validation({ message: "Validation failed", fields: parseViolations(body) })
   if (status === 429) return new RateLimited({ message: "Rate limited" })
   return new Network({ message: `HTTP ${status}` })
 }
 
 export interface Transport {
-  get<A, I>(url: string, schema: Schema.Schema<A, I>, params?: Record<string, string | number | undefined>): Effect.Effect<A, InternalSdkError>
-  getCollection<A, I>(url: string, itemSchema: Schema.Schema<A, I>, params?: Record<string, string | number | undefined>): Effect.Effect<{ items: A[], totalItems: number, page: number, pageSize: number }, InternalSdkError>
-  post<A, I>(url: string, body: unknown, schema: Schema.Schema<A, I>): Effect.Effect<A, InternalSdkError>
+  get<A>(url: string, schema: Schema.ConstraintDecoder<A, never>, params?: QueryParams): Effect.Effect<A, InternalSdkError>
+  getCollection<A>(
+    url: string,
+    itemSchema: Schema.ConstraintDecoder<A, never>,
+    params?: QueryParams,
+  ): Effect.Effect<{ items: A[]; totalItems: number; page: number; pageSize: number }, InternalSdkError>
+  post<A>(url: string, body: unknown, schema: Schema.ConstraintDecoder<A, never>): Effect.Effect<A, InternalSdkError>
   postVoid(url: string, body: unknown): Effect.Effect<void, InternalSdkError>
   put(url: string, body: unknown): Effect.Effect<void, InternalSdkError>
   del(url: string): Effect.Effect<void, InternalSdkError>
-  postFormData<A, I>(url: string, formData: FormData, schema: Schema.Schema<A, I>): Effect.Effect<A, InternalSdkError>
+  postFormData<A>(url: string, formData: FormData, schema: Schema.ConstraintDecoder<A, never>): Effect.Effect<A, InternalSdkError>
   postFormDataVoid(url: string, formData: FormData): Effect.Effect<void, InternalSdkError>
 }
 
@@ -54,11 +69,15 @@ export interface Transport {
  * Auth is injected into every request as a Bearer token header.
  * Responses are decoded through the provided Schema.
  * HTTP errors are mapped to InternalSdkError.
+ *
+ * The base URL is intentionally validated inside each returned Effect. This
+ * keeps factories and verb construction lazy while making configuration failure
+ * observable through the typed error channel before fetch is called.
  */
-export function createTransport(baseUrl: string, auth?: AuthOption): Transport {
+export function createTransport(baseUrl: string | undefined, auth?: AuthOption): Transport {
   const buildHeaders = (
     extra?: Record<string, string>,
-  ): Effect.Effect<Record<string, string>> => {
+  ): Effect.Effect<Record<string, string>, Network> => {
     const headers: Record<string, string> = { ...extra }
     if (!auth) return Effect.succeed(headers)
     return pipe(
@@ -70,24 +89,48 @@ export function createTransport(baseUrl: string, auth?: AuthOption): Transport {
     )
   }
 
-  const buildUrl = (path: string, params?: Record<string, string | number | undefined>): string => {
-    const url = new URL(path, baseUrl)
-    if (params) {
-      for (const [key, value] of Object.entries(params)) {
-        if (value !== undefined) url.searchParams.set(key, String(value))
-      }
-    }
-    return url.toString()
-  }
+  const buildUrl = (path: string, params?: QueryParams): Effect.Effect<string, Configuration> =>
+    Effect.try({
+      try: () => {
+        if (baseUrl === undefined || baseUrl.trim() === "") {
+          throw new Error("API URL is not configured")
+        }
+        const parsedBase = new URL(baseUrl)
+        if (parsedBase.protocol !== "http:" && parsedBase.protocol !== "https:") {
+          throw new Error("API URL must use http or https")
+        }
+        const url = new URL(path, parsedBase)
+        if (params) {
+          for (const [key, value] of Object.entries(params)) {
+            if (value !== undefined) url.searchParams.set(key, String(value))
+          }
+        }
+        return url.toString()
+      },
+      catch: (cause) =>
+        new Configuration({
+          message: cause instanceof Error ? cause.message : "Invalid API URL",
+        }),
+    })
 
   const executeFetch = (
     url: string,
     init: RequestInit,
-  ): Effect.Effect<Response, InternalSdkError> =>
+  ): Effect.Effect<Response, Network> =>
     Effect.tryPromise({
-      try: () => fetch(url, init),
-      catch: (cause) => new Network({ message: cause instanceof Error ? cause.message : "Network error", cause }),
+      try: (signal) => fetch(url, { ...init, signal }),
+      catch: (cause) =>
+        new Network({
+          message: cause instanceof Error ? cause.message : "Network error",
+          cause,
+        }),
     })
+
+  const readErrorBody = (response: Response): Effect.Effect<unknown, never> =>
+    Effect.tryPromise({
+      try: () => response.json(),
+      catch: () => null as unknown,
+    }).pipe(Effect.orElseSucceed(() => null as unknown))
 
   const executeJson = (
     url: string,
@@ -110,19 +153,12 @@ export function createTransport(baseUrl: string, auth?: AuthOption): Transport {
       ),
       Effect.flatMap((response) => {
         if (!response.ok) {
-          return pipe(
-            Effect.tryPromise({
-              try: () => response.json(),
-              catch: () => null as unknown,
-            }),
-            Effect.orElseSucceed(() => null as unknown),
-            Effect.flatMap((responseBody) =>
-              Effect.fail(mapStatusToError(response.status, responseBody)),
-            ),
+          return readErrorBody(response).pipe(
+            Effect.flatMap((responseBody) => Effect.fail(mapStatusToError(response.status, responseBody))),
           )
         }
         return Effect.tryPromise({
-          try: () => response.json() as Promise<unknown>,
+          try: () => response.json(),
           catch: () => new Network({ message: "Failed to parse response JSON" }),
         })
       }),
@@ -146,95 +182,101 @@ export function createTransport(baseUrl: string, auth?: AuthOption): Transport {
       ),
       Effect.flatMap((response) => {
         if (!response.ok) {
-          return pipe(
-            Effect.tryPromise({
-              try: () => response.json(),
-              catch: () => null as unknown,
-            }),
-            Effect.orElseSucceed(() => null as unknown),
-            Effect.flatMap((responseBody) =>
-              Effect.fail(mapStatusToError(response.status, responseBody)),
-            ),
+          return readErrorBody(response).pipe(
+            Effect.flatMap((responseBody) => Effect.fail(mapStatusToError(response.status, responseBody))),
           )
         }
         return Effect.void
       }),
     )
 
-  const decodeWith = <A, I>(schema: Schema.Schema<A, I>) =>
-    (json: unknown): Effect.Effect<A, InternalSdkError> =>
-      Schema.decodeUnknown(schema)(json).pipe(
-        Effect.mapError((e) => new Validation({ message: `Decode error: ${e.message}`, fields: {} })),
+  const decodeWith = <A>(schema: Schema.ConstraintDecoder<A, never>) =>
+    (json: unknown): Effect.Effect<A, Validation> =>
+      Schema.decodeUnknownEffect(schema)(json).pipe(
+        Effect.mapError((error) => new Validation({ message: `Decode error: ${error.message}`, fields: {} })),
       )
 
   return {
-    get<A, I>(url: string, schema: Schema.Schema<A, I>, params?: Record<string, string | number | undefined>) {
+    get<A>(url: string, schema: Schema.ConstraintDecoder<A, never>, params?: QueryParams) {
       return pipe(
-        executeJson(buildUrl(url, params), "GET"),
+        buildUrl(url, params),
+        Effect.flatMap((resolvedUrl) => executeJson(resolvedUrl, "GET")),
         Effect.flatMap(decodeWith(schema)),
       )
     },
 
-    getCollection<A, I>(url: string, itemSchema: Schema.Schema<A, I>, params?: Record<string, string | number | undefined>) {
+    getCollection<A>(url: string, itemSchema: Schema.ConstraintDecoder<A, never>, params?: QueryParams) {
       const page = Number(params?.page ?? 1)
       const pageSize = Number(params?.itemsPerPage ?? params?.pageSize ?? 30)
+      const collectionSchema = Schema.Struct({
+        "hydra:member": Schema.Array(itemSchema),
+        "hydra:totalItems": Schema.optional(Schema.Number),
+      })
       return pipe(
-        executeJson(buildUrl(url, params), "GET"),
-        Effect.flatMap((json: unknown) => {
-          const obj = json as Record<string, unknown>
-          const members: unknown[] = (obj?.["hydra:member"] as unknown[]) ?? []
-          const totalItems: number = (obj?.["hydra:totalItems"] as number) ?? 0
-          return pipe(
-            Effect.forEach(members, decodeWith(itemSchema)),
-            Effect.map((items) => ({ items, totalItems, page, pageSize })),
-          )
-        }),
+        buildUrl(url, params),
+        Effect.flatMap((resolvedUrl) => executeJson(resolvedUrl, "GET")),
+        Effect.flatMap(decodeWith(collectionSchema)),
+        Effect.map(({ "hydra:member": items, "hydra:totalItems": totalItems }) => ({
+          items: Array.from(items),
+          totalItems: totalItems ?? 0,
+          page,
+          pageSize,
+        })),
       )
     },
 
-    post<A, I>(url: string, body: unknown, schema: Schema.Schema<A, I>) {
+    post<A>(url: string, body: unknown, schema: Schema.ConstraintDecoder<A, never>) {
       return pipe(
-        executeJson(buildUrl(url), "POST", body),
+        buildUrl(url),
+        Effect.flatMap((resolvedUrl) => executeJson(resolvedUrl, "POST", body)),
         Effect.flatMap(decodeWith(schema)),
       )
     },
 
     postVoid(url: string, body: unknown) {
-      return executeVoid(buildUrl(url), "POST", body)
+      return pipe(
+        buildUrl(url),
+        Effect.flatMap((resolvedUrl) => executeVoid(resolvedUrl, "POST", body)),
+      )
     },
 
     put(url: string, body: unknown) {
-      return executeVoid(buildUrl(url), "PUT", body)
+      return pipe(
+        buildUrl(url),
+        Effect.flatMap((resolvedUrl) => executeVoid(resolvedUrl, "PUT", body)),
+      )
     },
 
     del(url: string) {
-      return executeVoid(buildUrl(url), "DELETE")
+      return pipe(
+        buildUrl(url),
+        Effect.flatMap((resolvedUrl) => executeVoid(resolvedUrl, "DELETE")),
+      )
     },
 
-    postFormData<A, I>(url: string, formData: FormData, schema: Schema.Schema<A, I>) {
+    postFormData<A>(url: string, formData: FormData, schema: Schema.ConstraintDecoder<A, never>) {
       return pipe(
-        buildHeaders({ "Accept": "application/ld+json" }),
-        Effect.flatMap((headers) =>
-          executeFetch(buildUrl(url), {
-            method: "POST",
-            headers,
-            body: formData,
-          }),
+        buildUrl(url),
+        Effect.flatMap((resolvedUrl) =>
+          pipe(
+            buildHeaders({ "Accept": "application/ld+json" }),
+            Effect.flatMap((headers) =>
+              executeFetch(resolvedUrl, {
+                method: "POST",
+                headers,
+                body: formData,
+              }),
+            ),
+          ),
         ),
         Effect.flatMap((response) => {
           if (!response.ok) {
-            return pipe(
-              Effect.tryPromise({
-                try: () => response.json(),
-                catch: () => new Network({ message: "Failed to parse error response" }),
-              }),
-              Effect.flatMap((responseBody) =>
-                Effect.fail(mapStatusToError(response.status, responseBody)),
-              ),
+            return readErrorBody(response).pipe(
+              Effect.flatMap((responseBody) => Effect.fail(mapStatusToError(response.status, responseBody))),
             )
           }
           return Effect.tryPromise({
-            try: () => response.json() as Promise<unknown>,
+            try: () => response.json(),
             catch: () => new Network({ message: "Failed to parse response JSON" }),
           })
         }),
@@ -244,24 +286,23 @@ export function createTransport(baseUrl: string, auth?: AuthOption): Transport {
 
     postFormDataVoid(url: string, formData: FormData) {
       return pipe(
-        buildHeaders(),
-        Effect.flatMap((headers) =>
-          executeFetch(buildUrl(url), {
-            method: "POST",
-            headers,
-            body: formData,
-          }),
+        buildUrl(url),
+        Effect.flatMap((resolvedUrl) =>
+          pipe(
+            buildHeaders(),
+            Effect.flatMap((headers) =>
+              executeFetch(resolvedUrl, {
+                method: "POST",
+                headers,
+                body: formData,
+              }),
+            ),
+          ),
         ),
         Effect.flatMap((response) => {
           if (!response.ok) {
-            return pipe(
-              Effect.tryPromise({
-                try: () => response.json(),
-                catch: () => new Network({ message: "Failed to parse error response" }),
-              }),
-              Effect.flatMap((responseBody) =>
-                Effect.fail(mapStatusToError(response.status, responseBody)),
-              ),
+            return readErrorBody(response).pipe(
+              Effect.flatMap((responseBody) => Effect.fail(mapStatusToError(response.status, responseBody))),
             )
           }
           return Effect.void
