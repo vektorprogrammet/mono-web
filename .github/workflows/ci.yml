@@ -14,29 +14,6 @@ jobs:
   ts:
     name: TypeScript (lint, build, test)
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_USER: vektor
-          POSTGRES_PASSWORD: vektor
-          POSTGRES_DB: vektor
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U vektor"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 5
-    env:
-      PORT: 8080
-      HOSTING_URL: localhost
-      DATABASE_HOST: localhost
-      DATABASE_PORT: 5432
-      DATABASE_NAME: vektor
-      DATABASE_USER: vektor
-      DATABASE_PASSWORD: vektor
-      DATABASE_SSL_OPTION: "false"
     steps:
       - uses: actions/checkout@v4
 
@@ -55,17 +32,34 @@ jobs:
       - name: Build
         run: bun turbo build
 
-      - name: Push DB schema
-        run: |
-          PGPASSWORD=vektor psql -h localhost -U vektor -d vektor -c 'CREATE SCHEMA IF NOT EXISTS "mainSchema";'
-          cd apps/api && bunx drizzle-kit generate --config=db/config/drizzle.config.ts && bunx drizzle-kit migrate --config=db/config/drizzle.config.ts
-
       - name: Test
         run: bun turbo test
 
   php:
     name: PHP (lint, analyse, test)
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    env:
+      APP_ENV: dev
+      APP_DEBUG: "1"
+      APP_SECRET: test_app_secret_for_testing_only
+      CORS_ALLOW_ORIGIN: "*"
+      DATABASE_URL: "sqlite:///:memory:"
+      JWT_PASSPHRASE: ci-only-jwt-passphrase
+      GOOGLE_API_CLIENT_ID: ci-disabled
+      GOOGLE_API_CLIENT_SECRET: ci-disabled
+      GOOGLE_API_REFRESH_TOKEN: ci-disabled
+      LOG_CHANNEL: ci
+      SLACK_DISABLED: "true"
+      SLACK_ENDPOINT: "http://127.0.0.1:9/disabled"
+      GATEWAY_API_TOKEN: ci-disabled
+      SMS_DISABLE: "true"
+      DEFAULT_FROM_EMAIL: ci@example.invalid
+      ECONOMY_EMAIL: ci@example.invalid
+      DEFAULT_SURVEY_EMAIL: ci@example.invalid
+      IPINFO_TOKEN: ci-disabled
+      GEO_IGNORED_ASNS: "[]"
     defaults:
       run:
         working-directory: apps/server
@@ -75,10 +69,15 @@ jobs:
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
         with:
-          php-version: "8.5"
+          php-version: "8.4"
           extensions: xml, ctype, iconv, intl, pdo_sqlite, dom, filter, gd, mbstring, sqlite3
           tools: composer:v2
           coverage: none
+
+      - name: Record PHP runtime and extensions
+        run: |
+          php -v
+          php -m
 
       - name: Get Composer cache directory
         id: composer-cache
@@ -91,22 +90,502 @@ jobs:
           key: ${{ runner.os }}-composer-${{ hashFiles('apps/server/composer.lock') }}
           restore-keys: ${{ runner.os }}-composer-
 
-      - name: Install dependencies
+      - name: Install locked Composer dependencies
         run: composer install --no-progress --prefer-dist --optimize-autoloader
 
-      - name: Lint
-        run: composer lint
+      - name: Generate disposable JWT key pair
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          private_key="config/jwt/private.pem"
+          public_key="config/jwt/public.pem"
+          generation_marker="var/.ci-jwt-generated"
+
+          mkdir -p var
+          for key_path in "$private_key" "$public_key"; do
+            if git ls-files --error-unmatch -- "$key_path" >/dev/null 2>&1; then
+              echo "Refusing tracked JWT path: $key_path" >&2
+              exit 1
+            fi
+            if [[ -e "$key_path" ]]; then
+              echo "Refusing pre-existing JWT path: $key_path" >&2
+              exit 1
+            fi
+            if ! git check-ignore -q -- "$key_path"; then
+              echo "JWT path is not ignored: $key_path" >&2
+              exit 1
+            fi
+          done
+          if [[ -e "$generation_marker" ]]; then
+            echo "Refusing pre-existing JWT generation marker." >&2
+            exit 1
+          fi
+
+          printf '%s\n' "${GITHUB_RUN_ID:-local}" > "$generation_marker"
+          install -d -m 700 config/jwt
+          umask 077
+          openssl genpkey \
+            -algorithm RSA \
+            -out "$private_key" \
+            -aes256 \
+            -pass "pass:$JWT_PASSPHRASE" \
+            2>/dev/null
+          openssl pkey \
+            -in "$private_key" \
+            -out "$public_key" \
+            -pubout \
+            -passin "pass:$JWT_PASSPHRASE" \
+            2>/dev/null
+          chmod 600 "$private_key"
+          chmod 644 "$public_key"
+          test -s "$private_key"
+          test -s "$public_key"
+          if ! openssl pkey \
+            -in "$private_key" \
+            -pubout \
+            -passin "pass:$JWT_PASSPHRASE" \
+            2>/dev/null | cmp -s - "$public_key"; then
+            echo "Generated JWT key pair failed verification." >&2
+            exit 1
+          fi
+          echo "Generated disposable ignored JWT key pair; key contents withheld."
+
+      - name: Create ignored dev SQLite directory
+        env:
+          APP_ENV: dev
+        run: mkdir -p var/data
 
       - name: Warm Symfony cache
-        run: php bin/console cache:warmup --env=dev --no-optional-warmers
         env:
-          DATABASE_URL: mysql://dummy:dummy@localhost:3306/dummy?serverVersion=8.0
+          APP_ENV: dev
+        run: php bin/console cache:warmup --env=dev --no-optional-warmers
+
+      - name: Lint
+        env:
+          APP_ENV: dev
+        run: composer lint
 
       - name: Static Analysis
+        if: ${{ !cancelled() }}
+        env:
+          APP_ENV: dev
         run: composer analyse
 
-      - name: Clear cache before tests
-        run: rm -rf var/cache
+      - name: Validate Doctrine metadata on test SQLite
+        if: ${{ !cancelled() }}
+        env:
+          APP_ENV: test
+        run: php bin/console doctrine:schema:validate --skip-sync --env=test
 
-      - name: Test
-        run: composer test
+      - name: Clear generated cache immediately before PHPUnit
+        if: ${{ !cancelled() }}
+        env:
+          APP_ENV: test
+        run: |
+          rm -f -- var/test-results.xml var/ci-composer-test.log
+          rm -rf -- var/cache
+
+      - name: Run complete PHPUnit suite
+        if: ${{ !cancelled() }}
+        id: phpunit
+        env:
+          APP_ENV: test
+          COMPOSER_PROCESS_TIMEOUT: "900"
+        shell: bash
+        run: |
+
+          set +e
+          console_output="$(composer test 2>&1)"
+          test_status=$?
+          sanitized_output="$(printf '%s' "$console_output" | php -r '
+            $input = stream_get_contents(STDIN);
+            $clean = preg_replace("/\033\\[[0-?]*[ -\\/]*[@-~]/", "", $input);
+            if ($clean === null) {
+                exit(1);
+            }
+            echo $clean;
+          ')"
+          sanitization_status=$?
+          evidence_status=0
+
+          if [[ "$sanitization_status" -ne 0 ]]; then
+            echo "Drift: PHPUnit console sanitization failed."
+            evidence_status=1
+          else
+            printf '%s' "$sanitized_output" | PHPUNIT_COMMAND_STATUS="$test_status" php -r '
+              $input = stream_get_contents(STDIN);
+              $lines = preg_split("/\r\n|\r|\n/", $input) ?: [];
+              $labels = [
+                  "Tests",
+                  "Assertions",
+                  "Failures",
+                  "Errors",
+                  "Warnings",
+                  "Skipped",
+                  "Incomplete",
+                  "Risky",
+              ];
+              $values = array_fill_keys($labels, null);
+              $seen = array_fill_keys($labels, 0);
+              $field_pattern = "/(?:^|,[ \t]*)(Tests|Assertions|Failures|Errors|Warnings|Skipped|Incomplete|Risky):[ \t]+([0-9]+(?:,[0-9]{3})*)/";
+              $candidate_pattern = "/(?:^|,[ \t]*)(Tests|Assertions|Failures|Errors|Warnings|Skipped|Incomplete|Risky):/";
+              $status = null;
+              $summary_found = false;
+              $summary_drift = false;
+              $summary_line_count = 0;
+              $wall_time = null;
+
+              foreach ($lines as $line) {
+                  $line = trim($line);
+                  if (
+                      $line === "FAILURES!"
+                      || $line === "ERRORS!"
+                      || $line === "OK"
+                      || $line === "OK, but incomplete, skipped, or risky tests!"
+                  ) {
+                      $status = $line;
+                      continue;
+                  }
+                  if (
+                      preg_match(
+                          "/^OK \(([0-9][0-9,]*) tests?, ([0-9][0-9,]*) assertions?\)$/",
+                          $line,
+                          $match
+                      ) === 1
+                  ) {
+                      $status = "OK";
+                      $values["Tests"] = (int) str_replace(",", "", $match[1]);
+                      $values["Assertions"] = (int) str_replace(",", "", $match[2]);
+                      $seen["Tests"]++;
+                      $seen["Assertions"]++;
+                      $summary_found = true;
+                      $summary_line_count++;
+                      continue;
+                  }
+                  if (preg_match($candidate_pattern, $line) !== 1) {
+                      if (preg_match("/^Wall time: [0-9]+(?:\\.[0-9]+)?s$/", $line) === 1) {
+                          $wall_time = $line;
+                      }
+                      continue;
+                  }
+
+                  $summary_line_count++;
+                  $field_count = preg_match_all($field_pattern, $line, $matches, PREG_OFFSET_CAPTURE);
+                  if ($field_count === false || $field_count === 0) {
+                      $summary_drift = true;
+                      continue;
+                  }
+                  $cursor = 0;
+                  for ($index = 0; $index < $field_count; $index++) {
+                      $token = $matches[0][$index][0];
+                      $offset = $matches[0][$index][1];
+                      if ($offset !== $cursor) {
+                          $summary_drift = true;
+                      }
+                      $cursor = $offset + strlen($token);
+                      $label = $matches[1][$index][0];
+                      $value = (int) str_replace(",", "", $matches[2][$index][0]);
+                      $seen[$label]++;
+                      if ($seen[$label] > 1) {
+                          $summary_drift = true;
+                      }
+                      $values[$label] = $value;
+                  }
+                  $tail = trim(substr($line, $cursor));
+                  if ($tail !== "" && $tail !== ".") {
+                      $summary_drift = true;
+                  }
+                  if ($cursor === strlen($line) || $tail === ".") {
+                      $summary_found = true;
+                  }
+                  if (preg_match("/^Wall time: [0-9]+(?:\\.[0-9]+)?s$/", $line) === 1) {
+                      $wall_time = $line;
+                  }
+              }
+
+              $evidence_status = 0;
+              if ($status === null) {
+                  echo "Drift: terminal PHPUnit status missing.\n";
+                  $evidence_status = 1;
+              }
+              if (!$summary_found) {
+                  echo "Drift: terminal PHPUnit summary missing.\n";
+                  $evidence_status = 1;
+              }
+              if ($summary_line_count > 1 || $summary_drift) {
+                  echo "Drift: PHPUnit summary labels are missing, malformed, duplicated, or mispositioned.\n";
+                  $evidence_status = 1;
+              }
+
+              $junit_available = false;
+              $junit_tests = null;
+              $junit_assertions = null;
+              $junit_failures = null;
+              $junit_errors = null;
+              $junit_warnings = null;
+              $junit_skipped = null;
+              $junit_incomplete = null;
+              $junit_risky = null;
+              $app_failures = null;
+              $app_errors = null;
+              $junit_file = "var/test-results.xml";
+              if (!is_file($junit_file)) {
+                  echo "Drift: JUnit report unavailable.\n";
+                  $evidence_status = 1;
+              } else {
+                  libxml_use_internal_errors(true);
+                  $xml = @simplexml_load_file($junit_file);
+                  if ($xml === false) {
+                      echo "Drift: JUnit report could not be parsed.\n";
+                      $evidence_status = 1;
+                  } else {
+                      $junit_available = true;
+                      $cases = $xml->xpath("//testcase") ?: [];
+                      $failure_cases = $xml->xpath("//testcase[failure]") ?: [];
+                      $error_cases = $xml->xpath("//testcase[error]") ?: [];
+                      $warning_nodes = $xml->xpath("//warning") ?: [];
+                      $skipped_cases = $xml->xpath("//testcase[skipped]") ?: [];
+                      $incomplete_nodes = $xml->xpath("//incomplete") ?: [];
+                      $risky_nodes = $xml->xpath("//risky") ?: [];
+                      $junit_tests = count($cases);
+                      $junit_assertions = null;
+                      if ($xml->getName() === "testsuite" && isset($xml["assertions"])) {
+                          $junit_assertions = (int) $xml["assertions"];
+                      } else {
+                          $assertion_total = 0;
+                          $assertion_found = false;
+                          foreach ($xml->testsuite as $suite) {
+                              if (isset($suite["assertions"])) {
+                                  $assertion_total += (int) $suite["assertions"];
+                                  $assertion_found = true;
+                              }
+                          }
+                          if ($assertion_found) {
+                              $junit_assertions = $assertion_total;
+                          }
+                      }
+                      $junit_failures = count($failure_cases);
+                      $junit_errors = count($error_cases);
+                      $junit_warnings = count($warning_nodes);
+                      $junit_skipped = count($skipped_cases);
+                      $junit_incomplete = count($incomplete_nodes);
+                      $junit_risky = count($risky_nodes);
+                      $app_failures = 0;
+                      $app_errors = 0;
+                      foreach ($failure_cases as $case) {
+                          $class = (string) $case["class"];
+                          if (str_starts_with($class, "App\\Tests\\App\\")) {
+                              $app_failures++;
+                          }
+                      }
+                      foreach ($error_cases as $case) {
+                          $class = (string) $case["class"];
+                          if (str_starts_with($class, "App\\Tests\\App\\")) {
+                              $app_errors++;
+                          }
+                      }
+                      $assertions_label = $junit_assertions === null ? "unavailable" : (string) $junit_assertions;
+                      printf(
+                          "Sanitized JUnit evidence: tests=%d assertions=%s failures=%d errors=%d warnings=%d skipped=%d incomplete=%d risky=%d tests/App failures=%d errors=%d\n",
+                          $junit_tests,
+                          $assertions_label,
+                          $junit_failures,
+                          $junit_errors,
+                          $junit_warnings,
+                          $junit_skipped,
+                          $junit_incomplete,
+                          $junit_risky,
+                          $app_failures,
+                          $app_errors
+                      );
+                      foreach ($failure_cases as $case) {
+                          printf("failure=%s::%s\n", (string) $case["class"], (string) $case["name"]);
+                      }
+                      foreach ($error_cases as $case) {
+                          printf("error=%s::%s\n", (string) $case["class"], (string) $case["name"]);
+                      }
+                  }
+              }
+
+              $display_values = $values;
+              if ($junit_available) {
+                  foreach (
+                      [
+                          "Tests" => $junit_tests,
+                          "Failures" => $junit_failures,
+                          "Errors" => $junit_errors,
+                          "Warnings" => $junit_warnings,
+                          "Skipped" => $junit_skipped,
+                          "Incomplete" => $junit_incomplete,
+                          "Risky" => $junit_risky,
+                      ] as $label => $junit_value
+                  ) {
+                      if ($display_values[$label] === null) {
+                          $display_values[$label] = $junit_value;
+                      }
+                  }
+              }
+              if ($display_values["Assertions"] === null && $junit_assertions !== null) {
+                  $display_values["Assertions"] = $junit_assertions;
+              }
+              if ($status !== null) {
+                  printf("PHPUnit terminal status: %s\n", $status);
+              }
+              if ($summary_found) {
+                  $summary = [];
+                  foreach ($labels as $label) {
+                      if ($display_values[$label] !== null) {
+                          $summary[] = $label . ": " . number_format($display_values[$label]);
+                      }
+                  }
+                  printf("PHPUnit summary: %s\n", implode(", ", $summary));
+              }
+              if ($wall_time !== null) {
+                  printf("PHPUnit %s\n", $wall_time);
+              } else {
+                  echo "Drift: PHPUnit wall time missing.\n";
+                  $evidence_status = 1;
+              }
+
+              if ($junit_available) {
+                  foreach (
+                      [
+                          "Tests" => $junit_tests,
+                          "Failures" => $junit_failures,
+                          "Errors" => $junit_errors,
+                          "Warnings" => $junit_warnings,
+                          "Skipped" => $junit_skipped,
+                          "Incomplete" => $junit_incomplete,
+                          "Risky" => $junit_risky,
+                      ] as $label => $junit_value
+                  ) {
+                      if ($values[$label] === null) {
+                          if ($label === "Tests" || $label === "Assertions" || $junit_value > 0) {
+                              echo "Drift: required PHPUnit summary label missing.\n";
+                              $evidence_status = 1;
+                          }
+                          continue;
+                      }
+                      if ($values[$label] !== $junit_value) {
+                          echo "Drift: PHPUnit console and JUnit counts differ.\n";
+                          $evidence_status = 1;
+                      }
+                  }
+                  if ($summary_line_count === 0 || $values["Tests"] === null || $values["Assertions"] === null) {
+                      echo "Drift: PHPUnit Tests/Assertions labels are missing.\n";
+                      $evidence_status = 1;
+                  }
+                  $tests_floor_ok = $junit_tests >= 1167;
+                  if (!$tests_floor_ok) {
+                      echo "Drift: discovered PHPUnit tests are below the reviewed floor.\n";
+                      $evidence_status = 1;
+                  }
+                  if ($app_failures !== 0 || $app_errors !== 0) {
+                      echo "Drift: filesystem tests/App has a failure or error.\n";
+                      $evidence_status = 1;
+                  }
+                  if (
+                      $junit_assertions !== null
+                      && $values["Assertions"] !== null
+                      && $values["Assertions"] !== $junit_assertions
+                  ) {
+                      echo "Drift: PHPUnit console and JUnit assertion counts differ.\n";
+                      $evidence_status = 1;
+                  }
+                  $assertions_value = $values["Assertions"] === null
+                      ? "unavailable"
+                      : number_format($values["Assertions"]);
+                  printf(
+                      "counts=tests:%d assertions:%s failures:%d errors:%d warnings:%d skipped:%d incomplete:%d risky:%d tests/App failures:%d errors:%d\n",
+                      $junit_tests,
+                      $assertions_value,
+                      $junit_failures,
+                      $junit_errors,
+                      $junit_warnings,
+                      $junit_skipped,
+                      $junit_incomplete,
+                      $junit_risky,
+                      $app_failures,
+                      $app_errors
+                  );
+                  echo "failure-identities=review-required\n";
+                  if (
+                      $junit_warnings > 0
+                      || $junit_skipped > 0
+                      || $junit_incomplete > 0
+                      || $junit_risky > 0
+                      || $values["Warnings"] > 0
+                      || $values["Skipped"] > 0
+                      || $values["Incomplete"] > 0
+                      || $values["Risky"] > 0
+                  ) {
+                      echo "Drift: PHPUnit warning, skipped, incomplete, or risky outcome is nonzero.\n";
+                      $evidence_status = 1;
+                  }
+              }
+
+              $command_status = getenv("PHPUNIT_COMMAND_STATUS");
+              if ($command_status === false || preg_match("/^[0-9]+$/", $command_status) !== 1) {
+                  echo "Drift: original PHPUnit command status is not numeric.\n";
+                  $evidence_status = 1;
+              } elseif ($command_status === "0") {
+                  $genuinely_green = $junit_available
+                      && $status === "OK"
+                      && $junit_failures === 0
+                      && $junit_errors === 0
+                      && $app_failures === 0
+                      && $app_errors === 0
+                      && $junit_warnings === 0
+                      && $junit_skipped === 0
+                      && $junit_incomplete === 0
+                      && $junit_risky === 0;
+                  if (!$genuinely_green) {
+                      echo "Drift: zero PHPUnit status lacks a genuinely green terminal/JUnit result.\n";
+                      $evidence_status = 1;
+                  }
+              }
+              exit($evidence_status);
+            '
+            parser_status=$?
+            if [[ "$parser_status" -ne 0 ]]; then
+              evidence_status=1
+            fi
+          fi
+
+          printf 'status=%s\n' "$test_status" >> "$GITHUB_OUTPUT"
+          printf 'evidence_status=%s\n' "$evidence_status" >> "$GITHUB_OUTPUT"
+          echo "PHPUnit command status: $test_status"
+          if [[ "$test_status" -ne 0 ]]; then
+            exit "$test_status"
+          fi
+          exit "$evidence_status"
+
+      - name: Cleanup generated CI state and collect sanitized evidence
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          cleanup_status=0
+          generation_marker="var/.ci-jwt-generated"
+          generated_run="${GITHUB_RUN_ID:-local}"
+
+          if [[ -f "$generation_marker" ]] && [[ "$(cat "$generation_marker")" == "$generated_run" ]]; then
+            rm -f -- config/jwt/private.pem config/jwt/public.pem "$generation_marker" || cleanup_status=1
+          else
+            echo "No current-run JWT generation marker; pre-existing key paths were not touched."
+          fi
+          rm -rf -- var/cache var/data || cleanup_status=1
+          rm -f -- var/ci-composer-test.log var/test-results.xml || cleanup_status=1
+
+          if [[ -e config/jwt/private.pem || -e config/jwt/public.pem ]]; then
+            echo "JWT cleanup failed: generated key path remains." >&2
+            cleanup_status=1
+          else
+            echo "JWT cleanup verified: generated key paths are absent."
+          fi
+          echo "Original PHPUnit step outcome: ${{ steps.phpunit.outcome }}"
+          echo "Original PHPUnit command status: ${{ steps.phpunit.outputs.status }}"
+          if [[ "$cleanup_status" -ne 0 ]]; then
+            exit "$cleanup_status"
+          fi

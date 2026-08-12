@@ -9,7 +9,6 @@ monoweb/
 ├── apps/
 │   ├── homepage/    # Public website (React Router, Tailwind, daisyUI)
 │   ├── dashboard/   # Admin dashboard (React Router, Tailwind, shadcn)
-│   ├── api/         # TypeScript API (Express 5, Drizzle, PostgreSQL)
 │   └── server/      # PHP backend (Symfony 6.4, API Platform 3.4, MySQL)
 ├── packages/
 │   └── sdk/         # Type-safe API client (@vektorprogrammet/sdk)
@@ -19,7 +18,7 @@ monoweb/
     └── plans/       # Implementation plans
 ```
 
-The PHP server (`apps/server`) is the current production backend. The TypeScript API (`apps/api`) and SDK (`packages/sdk`) are part of an incremental migration — see [docs/migration/](docs/migration/) for details.
+The PHP server (`apps/server`) is the backend. The frontends talk to it through the SDK (`packages/sdk`) — see [docs/migration/](docs/migration/) for the migration roadmap.
 
 ## Getting Started
 
@@ -46,14 +45,10 @@ docker compose up server mysql
 | Homepage | http://localhost:5173 | `bun run dev:homepage` |
 | Dashboard | http://localhost:5174 | `bun run dev:dashboard` |
 | PHP Server | http://localhost:8000 | `bun run dev:server` (or Docker) |
-| TS API | http://localhost:3000 | `bun run dev:api` |
 
 ### Database Setup
 
-The project has two databases:
-
-- **MySQL 8.0** for the PHP server — provisioned automatically by `docker compose up`
-- **PostgreSQL 16** for the TS API — provisioned by `docker compose up` or set `DATABASE_URL` in `apps/api/.env`
+**MySQL 8.0** backs the PHP server — provisioned automatically by `docker compose up`.
 
 ## Scripts
 
@@ -62,7 +57,6 @@ The project has two databases:
 | `bun run dev` | Start homepage + dashboard |
 | `bun run dev:homepage` | Start homepage only |
 | `bun run dev:dashboard` | Start dashboard only |
-| `bun run dev:api` | Start TS API only |
 | `bun run dev:server` | Start PHP server only |
 | `bun run build` | Build all packages |
 | `bun run lint` | Lint all packages (oxlint) |
@@ -81,20 +75,33 @@ composer analyse    # PHPStan
 
 ## SDK
 
-`@vektorprogrammet/sdk` is a type-safe API client auto-generated from the Symfony OpenAPI spec.
-
-```bash
-turbo run generate   # Regenerate types from OpenAPI spec
-```
+`@vektorprogrammet/sdk` is a hand-written, domain-first client for the Symfony API. Effect-TS internals (Schema types, tagged errors); plain promises on the surface.
 
 ```typescript
-import { createClient, createQueryApi } from "@vektorprogrammet/sdk";
+import { createClient } from "@vektorprogrammet/sdk";
 
-const api = createClient("http://localhost:8000");
-const { data } = await api.GET("/api/public/departments");
+const client = createClient("http://localhost:8000", { auth: token });
+
+const page = await client.admin.receipts.list({ status: "pending" });
+// { items: AdminReceipt[], totalItems, page, pageSize }
+await client.admin.receipts.approve(id); // domain operation, not PUT /status
+
+const sponsors = await client.public.sponsors(); // auth optional for public reads
 ```
 
-See [packages/sdk/](packages/sdk/) for full usage.
+Effect consumers import the Effect surface instead:
+
+```typescript
+import { createEffectClient } from "@vektorprogrammet/sdk/effect";
+// same domains, but methods return Effect<A, InternalSdkError> instead of Promise<A>
+```
+
+- Domains: `auth`, `me`, `receipts`, `admin.*`, `public.*`
+- Failures throw `SdkError` subclasses (`UnauthorizedError`, `NotFoundError`, `ValidationError`, `ConflictError`, `NetworkError`, `RateLimitedError`)
+- Dates are `Date`, statuses are strings (`"received" | "invited" | ...`) — the Symfony adapter maps them
+- `client.context` exposes JWT-decoded role/department/teams for UI rendering
+
+See [packages/sdk/src/](packages/sdk/src/) for the domain methods and [CLAUDE.md](CLAUDE.md#sdk) for conventions.
 
 ## Tooling
 

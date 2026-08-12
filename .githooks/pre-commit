@@ -82,7 +82,7 @@ fi
 
 # --- Sync pnpm lockfiles for Railway (if package.json changed) ---
 if git diff --cached --name-only | grep -q 'package.json'; then
-  for app in apps/homepage apps/dashboard apps/api; do
+  for app in apps/homepage apps/dashboard; do
     if [ -f "$app/pnpm-lock.yaml" ]; then
       echo "→ Syncing $app/pnpm-lock.yaml"
       (cd "$app" && COREPACK_ENABLE_PROJECT_SPEC=0 pnpm install --no-frozen-lockfile --silent 2>/dev/null)

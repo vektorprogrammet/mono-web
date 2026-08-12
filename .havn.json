@@ -1,5 +1,5 @@
 {
   "precommit": {
-    "test": "echo 'Tests skipped in pre-commit (API needs Postgres, server needs vendor/)'"
+    "test": "echo 'Tests skipped in pre-commit (server needs vendor/)'"
   }
 }
