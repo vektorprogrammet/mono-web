@@ -12,18 +12,22 @@
 | Intended implementation lane | Stage-1 Preview platform — Wrangler local runtime spine |
 | Created | `2026-08-10` |
 | Journey count | One maintainer journey; one future implementation PR |
+Accepted mono-web integration spec [`0023`](./0023-functional-parity-integration-baseline.md) supersedes this spec's dependency-pin clauses only and is the single active dependency-pin authority.
+This spec remains authoritative for the one raw Worker, HTTP contract, egress controls, Node-hosted execution, compatibility date, and supervised-stop behavior.
+Any dependency-pin conflict with 0023 is `Drift`; do not copy the active version into this behavior contract.
+
 
 ## Goal, constraints, and values
 
 ### Goal
 
-Give a maintainer a repeatable, clean-checkout proof that the root `mono-web` project can install the exact Wrangler dependency, run one raw Worker in Cloudflare's local workerd runtime, serve a deterministic health endpoint on loopback, and cleanly stop it. The proof must make provider or production runtime access fail rather than silently broaden the slice.
+Give a maintainer a repeatable, clean-checkout proof that the root `mono-web` project can install the active Wrangler dependency pin from accepted mono-web spec `0023`, run one raw Worker in Cloudflare's local workerd runtime, serve a deterministic health endpoint on loopback, and cleanly stop it. The proof must make provider or production runtime access fail rather than silently broaden the slice.
 
 ### Constraints
 
 - Local runtime only. The journey uses no Cloudflare credentials, account, profile, zone, domain, remote state, provider call, bootstrap, deploy, public route, DNS, or public exposure.
 - The only runtime resource is one raw Worker from `infra/preview.worker.ts`, served at `127.0.0.1:8787`; it has no bindings and no other resources.
-- Use exact root dependency version `wrangler@4.120.0`. Wrangler CLI itself requires Node `>=22`; the root `package.json` MUST declare `engines.node` `>=22`. Preserve the existing root Bun `packageManager` declaration. Bun remains the package manager, install command, and script runner, but MUST NOT host the Wrangler CLI. Do not add Alchemy or Effect dependencies in this slice.
+- Use the active dependency pin from accepted mono-web spec `0023`. Wrangler CLI itself requires Node `>=22`; the root `package.json` MUST declare `engines.node` `>=22`. Preserve the existing root Bun `packageManager` declaration. Bun remains the package manager, install command, and script runner, but MUST NOT host the Wrangler CLI. Do not add Alchemy or Effect dependencies in this slice.
 - Locked installation may access npm to acquire dependencies. Before starting the runtime, preflight Node `>=22` and verify the root `package.json` engine. The four egress controls are `WRANGLER_SEND_METRICS=false`, `WRANGLER_SEND_ERROR_REPORTS=false`, `CLOUDFLARE_API_BASE_URL=http://127.0.0.1:0`, and `CLOUDFLARE_CF_FETCH_ENABLED=false`; `WRANGLER_LOG_PATH=.wrangler/logs` is a local-state/log control, not a fifth egress control. `preview:dev` MUST invoke Wrangler through Node with the pinned compatibility date. Fallback `Request.cf` data is acceptable because this Worker does not inspect `Request.cf`. After installation, the Worker runtime must not access a provider or production. Do not claim total network silence unless the run is explicitly sandboxed.
 - Credential-free preflight: before the runtime starts, verify that the project root has no `.env`, `.env.*`, `.dev.vars`, or `.dev.vars.*` file. A match is `Drift`; never load or inspect its contents. A clean checkout must show no matches.
 - Website.Vite, both frontends, the SDK, the Symfony backend, production data, and all cloud-only resources are outside this slice.
@@ -42,7 +46,7 @@ Give a maintainer a repeatable, clean-checkout proof that the root `mono-web` pr
 ### Current behavior (baseline, as of `2026-08-10`)
 
 - `mono-web` has no Alchemy configuration, no `alchemy.run.ts`, no `infra/preview.worker.ts`, and no `preview:plan` or `preview:dev` scripts.
-- The root package has no exact `wrangler@4.120.0` dependency or this slice's required `engines.node` `>=22` declaration. The existing lockfile carries Effect 3 for the SDK lane; that lane remains unchanged by this spec.
+- The root package has no dependency pin in this baseline; accepted mono-web spec `0023` owns the active pin. The root package still requires `engines.node` `>=22`. The existing lockfile carries Effect 3 for the SDK lane; that lane remains unchanged by this spec.
 - `.gitignore` does not ignore `.wrangler/`.
 - The current React Router generated/runtime bundles are Node-oriented, and current application source contains stale SDK imports. The current apps are **not claimed buildable** by this spec.
 - No current behavior above is repaired, migrated, or reclassified here. The frontend/SDK clean-build and compatibility work is a separate lane.
@@ -99,7 +103,7 @@ One maintainer starts from a clean `mono-web` checkout and completes this one jo
    bun run preview:dev
    ```
 
-   No `--no-interactive` flag is required by this spec. Wait until the local workerd endpoint is reachable at `127.0.0.1:8787`. The transcript must identify Node `>=22` CLI execution, `wrangler@4.120.0`, compatibility date `2026-08-08`, local execution, all four egress controls, and `WRANGLER_LOG_PATH=.wrangler/logs` as the local-state/log control. Fallback `Request.cf` data is acceptable because this Worker does not inspect `Request.cf`; provider or production runtime access remains forbidden. If Wrangler unexpectedly needs a provider API, if the CLI falls back to Bun, or if it writes a global log outside `.wrangler/logs`, the start failure is `Drift`; do not add credentials or a workaround.
+   No `--no-interactive` flag is required by this spec. Wait until the local workerd endpoint is reachable at `127.0.0.1:8787`. The transcript must identify Node `>=22` CLI execution, the active dependency pin from accepted mono-web spec `0023`, compatibility date `2026-08-08`, local execution, all four egress controls, and `WRANGLER_LOG_PATH=.wrangler/logs` as the local-state/log control. Fallback `Request.cf` data is acceptable because this Worker does not inspect `Request.cf`; provider or production runtime access remains forbidden. If Wrangler unexpectedly needs a provider API, if the CLI falls back to Bun, or if it writes a global log outside `.wrangler/logs`, the start failure is `Drift`; do not add credentials or a workaround.
 4. Request health and observe the complete response:
 
    ```sh
@@ -171,7 +175,7 @@ This slice does **not** include:
 accepted ADR 0001 §11
   → this spec independently reviewed and accepted by the product lead
   → one bounded writer in an isolated worktree/capsule
-  → root wrangler@4.120.0
+  → active dependency pin from accepted mono-web spec `0023`
   → preview:dev
   → one raw Worker from infra/preview.worker.ts
   → 127.0.0.1:8787
@@ -179,7 +183,7 @@ accepted ADR 0001 §11
 
 | Graph item | Required shape | Boundary |
 |---|---|---|
-| Package version | `wrangler@4.120.0` | Exact lockfile entry; root `package.json` requires `engines.node` `>=22`; no Alchemy or Effect dependency. |
+| Package version | Active dependency pin from accepted mono-web spec `0023` | Root `package.json` requires `engines.node` `>=22`; no Alchemy or Effect dependency. |
 | Script | `preview:dev` → `WRANGLER_SEND_METRICS=false WRANGLER_SEND_ERROR_REPORTS=false CLOUDFLARE_API_BASE_URL=http://127.0.0.1:0 CLOUDFLARE_CF_FETCH_ENABLED=false WRANGLER_LOG_PATH=.wrangler/logs node node_modules/wrangler/bin/wrangler.js dev infra/preview.worker.ts --local --ip 127.0.0.1 --port 8787 --compatibility-date 2026-08-08` | No `preview:plan`; no Alchemy CLI invocation; Bun may run the script, but Node hosts Wrangler. |
 | State | `.wrangler/` disposable local state | Ignored; no Alchemy state, remote state, or bootstrap. |
 | Resource | One raw Worker (logical slice label `PreviewSpine`) | No bindings and no additional resources. |
@@ -204,10 +208,10 @@ The health body has exactly the three named string fields and values. It has no 
 | No Wrangler/Worker files exist. | The four named implementation paths are the complete creation/change boundary. |
 | `.wrangler/` is currently not ignored. | The writer must add the `.wrangler/` ignore rule and prove `.wrangler/state` is ignored by that newly added rule; failure is a falsifier. |
 | Wrangler CLI does not support Bun as its runtime host. | Keep Bun as package manager/install/script runner, require Node `>=22` in the root `engines.node`, invoke `node node_modules/wrangler/bin/wrangler.js`, and show no `bun --bun` flag or Bun-provided `node` alias from `bunfig.toml`; Bun fallback is a falsifier. |
-| Wrangler's implicit compatibility date can exceed the bundled workerd maximum. | Pin `--compatibility-date 2026-08-08` for exact `wrangler@4.120.0`; change it only after an explicit dependency/runtime review. |
+| Wrangler's implicit compatibility date can exceed the bundled workerd maximum. | Pin `--compatibility-date 2026-08-08` for the dependency selected by accepted mono-web spec `0023`; change it only after an explicit dependency/runtime review. |
 | Wrangler can create a global log outside disposable local state. | Set `WRANGLER_LOG_PATH=.wrangler/logs`; any creation or write under a global path such as `~/.config/.wrangler/logs` is a falsifier. |
 | Credential files can be loaded implicitly. | The clean-checkout preflight must show no root `.env`, `.env.*`, `.dev.vars`, or `.dev.vars.*` file; never load or inspect contents, and treat any match as `Drift`. |
-| The root has no exact Wrangler dependency. | Add only `wrangler@4.120.0`; do not add Alchemy or Effect or migrate the SDK. |
+| The root has no active Wrangler dependency pin. | Use the active pin from accepted mono-web spec `0023`; do not add Alchemy or Effect or migrate the SDK. |
 | Current RR generated bundles are Node-oriented. | Treat as a separate compatibility lane; do not include Website.Vite or frontend build work. |
 | Current app source has stale SDK imports. | Treat as related baseline drift; do not touch or claim it fixed. |
 | Current apps may fail a clean build. | This raw Worker spine does not depend on frontend buildability and makes no build claim. |
@@ -228,7 +232,7 @@ The evidence record must include:
 - the dependency-install result, with npm registry traffic identified as installation traffic outside the runtime provider/production boundary;
 - the credential-file preflight showing no root `.env`, `.env.*`, `.dev.vars`, or `.dev.vars.*` match, with no contents loaded or inspected;
 - the Node preflight and root `engines.node` `>=22` evidence, with Bun retained only as package manager/install/script runner;
-- the `preview:dev` transcript identifying `wrangler@4.120.0`, Node CLI execution, local Miniflare/workerd execution, compatibility date `2026-08-08`, all four egress controls, `WRANGLER_LOG_PATH=.wrangler/logs` as the local-state/log control, and no `bun --bun` or Bun-provided `node` alias; fallback `Request.cf` data is acceptable because this Worker does not inspect it;
+- the `preview:dev` transcript identifying the active dependency pin from accepted mono-web spec `0023`, Node CLI execution, local Miniflare/workerd execution, compatibility date `2026-08-08`, all four egress controls, `WRANGLER_LOG_PATH=.wrangler/logs` as the local-state/log control, and no `bun --bun` or Bun-provided `node` alias; fallback `Request.cf` data is acceptable because this Worker does not inspect it;
 - the writer's own corrected Node run (Node-hosted, pinned date) produces current startup and HTTP evidence; cite the already-recorded [Observed Wrangler runtime implementation Drift](#observed-wrangler-runtime-implementation-drift--2026-08-10) for the failed Bun-hosted warning, implicit compatibility-date/workerd failure, and global-log observation; **MUST NOT reproduce that falsified configuration**; the corrected Node run is the only current evidence target;
 
 - no login, credential, provider, production, bootstrap, binding, or public-route effect during runtime; an unexpected provider-API requirement fails startup and enters `Drift`;
@@ -278,7 +282,7 @@ Any of these observations falsifies this slice, even if the health request passe
 - the pre-start closed-port check succeeds instead of failing to connect;
 - any unrelated path changes.
 
-Done means all of the following are observed and recorded: the exact four-path implementation boundary; credential-file preflight with no root `.env`, `.env.*`, `.dev.vars`, or `.dev.vars.*` match and no contents loaded or inspected; Node `>=22` preflight and root `engines.node` `>=22`; locked install; exact `wrangler@4.120.0`; `preview:dev` invoking Wrangler through Node with no `bun --bun` or Bun-provided `node` alias, all four egress controls, local `WRANGLER_LOG_PATH=.wrangler/logs`, `--local`, and compatibility date `2026-08-08`; a failed pre-start port check; local workerd; one raw Worker on loopback with no bindings; fallback `Request.cf` data accepted because the Worker does not inspect it; every HTTP contract case; no runtime credentials/provider/production/public effect; `.wrangler/state` ignored by the newly added `.wrangler/` rule; stopped process; closed port; the corrected Node run's current evidence; a citation to the already-recorded [Observed Wrangler runtime implementation Drift](#observed-wrangler-runtime-implementation-drift--2026-08-10); **MUST NOT reproduce its failed Bun/implicit-date/global-log configuration**; resolved Alchemy design Drift; and no open implementation Drift before status becomes accepted. No unit test is required for this experiment.
+Done means all of the following are observed and recorded: the exact four-path implementation boundary; credential-file preflight with no root `.env`, `.env.*`, `.dev.vars`, or `.dev.vars.*` match and no contents loaded or inspected; Node `>=22` preflight and root `engines.node` `>=22`; locked install using the dependency pin from accepted mono-web spec `0023`; `preview:dev` invoking Wrangler through Node with no `bun --bun` or Bun-provided `node` alias, all four egress controls, local `WRANGLER_LOG_PATH=.wrangler/logs`, `--local`, and compatibility date `2026-08-08`; a failed pre-start port check; local workerd; one raw Worker on loopback with no bindings; fallback `Request.cf` data accepted because the Worker does not inspect it; every HTTP contract case; no runtime credentials/provider/production/public effect; `.wrangler/state` ignored by the newly added `.wrangler/` rule; stopped process; closed port; the corrected Node run's current evidence; a citation to the already-recorded [Observed Wrangler runtime implementation Drift](#observed-wrangler-runtime-implementation-drift--2026-08-10); **MUST NOT reproduce its failed Bun/implicit-date/global-log configuration**; resolved Alchemy design Drift; and no open implementation Drift before status becomes accepted. No unit test is required for this experiment.
 
 ## Rollback and cleanup
 
@@ -320,8 +324,8 @@ Done means all of the following are observed and recorded: the exact four-path i
 | Context/law/interface refs | Lifecycle §§4–6 and §9; ADR §11; charter §4 preview order; Cloudflare local-development, local environment variables, and Wrangler system-environment-variables docs; `docs/domain-model.md` unchanged and no laws exercised; this spec's HTTP contract. |
 | Exact skill | Wrangler/Cloudflare local-runtime guidance; no Alchemy/Effect dependency or provider-IaC skill is part of this capsule. |
 | Sensitive-data policy | No credentials, secrets, PII, production data, or provider/production access. Verify no root `.env`, `.env.*`, `.dev.vars`, or `.dev.vars.*` file exists and never load or inspect contents; set the four egress controls (`WRANGLER_SEND_METRICS=false`, `WRANGLER_SEND_ERROR_REPORTS=false`, `CLOUDFLARE_API_BASE_URL=http://127.0.0.1:0`, `CLOUDFLARE_CF_FETCH_ENABLED=false`) and the local-state/log control (`WRANGLER_LOG_PATH=.wrangler/logs`); fallback `Request.cf` data is acceptable because the Worker does not inspect it; use local state and synthetic health output only; stop on any prompt, Bun fallback including `bun --bun`/`bunfig.toml` node aliasing, unsupported implicit date, global log, or unexpected provider requirement. |
-| Acceptance commands/scenarios | Credential-file preflight; Node `>=22` preflight; verify root `package.json` `engines.node` `>=22`; `bun install --frozen-lockfile`; pre-start closed-port check; supervised `bun run preview:dev` with the exact Node Wrangler command and `--compatibility-date 2026-08-08`; the exact health, unknown-route, non-GET, stop, and post-stop `curl` commands above; an ignore check proving `.wrangler/state` is ignored by the newly added `.wrangler/` rule. |
-| Exit evidence | Sanitized install transcript with npm traffic boundary; credential-file preflight; corrected `preview:dev` transcript showing Node `>=22`, exact Wrangler version, local workerd, compatibility date `2026-08-08`, all four egress controls, local `WRANGLER_LOG_PATH`, no Bun aliasing, and no provider/production runtime effect; pre-start closed-port failure; all HTTP status/header/body captures; supervised stop and failed port connection; ignore proof for `.wrangler/state` via the newly added `.wrangler/` rule; four-path scope review; cite the already-recorded [Observed Wrangler runtime implementation Drift](#observed-wrangler-runtime-implementation-drift--2026-08-10); **MUST NOT reproduce the failed Bun/implicit-date/global-log configuration**; the corrected Node run produces current evidence; and resolved design Drift. |
+| Acceptance commands/scenarios | Credential-file preflight; Node `>=22` preflight; verify root `package.json` `engines.node` `>=22`; install using the active dependency pin from accepted mono-web spec `0023` with `bun install --frozen-lockfile`; pre-start closed-port check; supervised `bun run preview:dev` with the exact Node Wrangler command and `--compatibility-date 2026-08-08`; the exact health, unknown-route, non-GET, stop, and post-stop `curl` commands above; an ignore check proving `.wrangler/state` is ignored by the newly added `.wrangler/` rule. |
+| Exit evidence | Sanitized install transcript with npm traffic boundary; credential-file preflight; corrected `preview:dev` transcript showing Node `>=22`, the active Wrangler dependency pin from accepted mono-web spec `0023`, local workerd, compatibility date `2026-08-08`, all four egress controls, local `WRANGLER_LOG_PATH`, no Bun aliasing, and no provider/production runtime effect; pre-start closed-port failure; all HTTP status/header/body captures; supervised stop and failed port connection; ignore proof for `.wrangler/state` via the newly added `.wrangler/` rule; four-path scope review; cite the already-recorded [Observed Wrangler runtime implementation Drift](#observed-wrangler-runtime-implementation-drift--2026-08-10); **MUST NOT reproduce the failed Bun/implicit-date/global-log configuration**; the corrected Node run produces current evidence; and resolved design Drift. |
 | Evidence destination | One-to-one PR evidence section when operator-authorized; otherwise the task handoff only, with no repository evidence file. |
 | Drift path | Stop on falsifier; notify product lead; link this spec, ADR §11, lifecycle, and observation. Return to `Specified` for intent revision or `Building` for an implementation correction. |
 | Cleanup | Stop process, discard ignored `.wrangler/` local state and logs, remove any global log created by a failed run, and report residual risk. Never open, inspect, copy, or delete root `.env`, `.env.*`, `.dev.vars`, or `.dev.vars.*`; if one appears, stop and enter `Drift`. |

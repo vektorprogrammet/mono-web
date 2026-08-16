@@ -11,7 +11,7 @@
 | Current spec worktree | `/tmp/mono-web-parity-baseline-spec-0023` |
 | Current spec branch | `spec/0023-functional-parity-integration-baseline` |
 | Current spec base | `462691d4c31ed601fba01f8b5f21abb92a547ff9` |
-| Mutable path for this task | `design-specs/0023-functional-parity-integration-baseline.md` only |
+| Mutable paths for this repair | `design-specs/0001-cloudflare-local-preview-spine.md`, `design-specs/0023-functional-parity-integration-baseline.md`, and outer `docs/product-lead-charter.md` only |
 | Maintainer journey count | One integration maintainer journey |
 | Future implementation | One bounded implementation capsule; one candidate baseline |
 | Provider authority | None granted |
@@ -21,6 +21,7 @@
 This document freezes the first bounded integration problem. It does not implement the integration.
 It does not claim functional parity, release readiness, deployment, provider access, data access, or production proof.
 It grants no credential, route-cutover, database, DNS, Cloudflare, or external-effect authority.
+This spec is the single active dependency-pin authority for the local checkpoint. It supersedes 0001 dependency-pin wording only; 0001 remains authoritative for local Worker behavior, HTTP behavior, compatibility date, egress controls, and stop behavior.
 
 The future writer must start from the exact base head in this table. The writer must incorporate only the accepted local Wrangler delta and the accepted Foldkit/SDK delta named below.
 The writer must review semantic conflicts against the frozen contracts before the candidate can pass.
@@ -80,22 +81,22 @@ The future writer must apply these exact accepted closures. A diff from an arbit
 | Closure | Exact range | Paths owned by the closure |
 |---|---|---|
 | Wrangler closure | `12c1f3ea6ab1b29d760ed60853c90e46e1aa466d..af069395e5c591c142530749ea3337476a55ac61` | `.gitignore`, `bun.lock`, `package.json`, `infra/preview.worker.ts` |
-| Foldkit/SDK closure | `0b30d0ccfc994cb26900181635113fc79544bc7e^..ac316022d0c92615645986e8fe9a4c521f22b186`, plus the accepted final-tree safety and dashboard-graph carry-forwards; exclude the p20 host-test delta | The 39 paths in the dispatch capsule below |
+| Foldkit/SDK closure | `0b30d0ccfc994cb26900181635113fc79544bc7e^..ac316022d0c92615645986e8fe9a4c521f22b186`, plus the accepted final-tree safety and dashboard-graph carry-forwards; exclude the p20 host-test delta | The 37 paths in the dispatch capsule below |
+The dispatch list contains exactly 37 paths: 36 source paths and the shared root `bun.lock`; four source paths are retained dashboard graph carry-forwards.
 
 The Foldkit/SDK closure includes stage-1 SDK commits through `89f8523` and every accepted Foldkit commit through `ac31602`.
 The accepted final tree carries the sanitized `apps/dashboard/app/mock/api/data-profile.ts` from its accepted ancestry.
-The accepted final-tree dashboard graph carry-forward is pinned byte-for-byte to `ac316022d0c92615645986e8fe9a4c521f22b186` for exactly these paths:
+The accepted final-tree dashboard graph carry-forward is pinned byte-for-byte to `ac316022d0c92615645986e8fe9a4c521f22b186` for exactly these four paths:
 
 ```text
-apps/dashboard/vite.config.ts
 apps/dashboard/app/root.tsx
 apps/dashboard/app/entry.server.tsx
-apps/dashboard/workers/app.ts
 apps/dashboard/app/lib/host.ts
 apps/dashboard/app/mock/api/public.ts
 ```
 
-The data-profile safety path and six graph-wiring paths differ from base `462691d`; they are required to express the accepted Foldkit tree and frozen p20 production-host boundary, not to add a product journey.
+The data-profile safety path and four graph-wiring paths differ from base `462691d`; they are required to express the accepted Foldkit tree and frozen p20 production-host boundary, not to add a product journey.
+The dashboard journey uses the React Router served app and the base-owned Vite configuration. No dashboard Worker is in this closure, and no dashboard Worker cutover is permitted.
 The `ac316022d0c92615645986e8fe9a4c521f22b186` delta for `apps/homepage/test/host.test.ts` is intentionally not applied. The p20 base file remains restored and byte-for-byte authoritative because that delta asserts an obsolete Alchemy declaration and deletes p20 assertions.
 The closure excludes unrelated changes that are reachable from a different branch or that are not in this exact range.
 The base already owns the p20 preview delivery files. The future writer must not replace those files with a branch snapshot.
@@ -251,7 +252,7 @@ The future writer must resolve conflicts in this order:
 | Root `.gitignore` | Existing repository rules | `.wrangler/` is already ignored at base and is an expected no-op; retain every existing rule and add no credential exception. |
 | `infra/preview/**`, `infra/alchemy/**`, `.github/workflows/preview-*.yml`, `apps/server/infra/preview/**` | Base p20 delivery | Do not replace, delete, duplicate, or redirect trusted preview resources. These paths are not in the future delta capsule. |
 | `apps/dashboard/package.json` | Accepted Foldkit dependency authority | Preserve ac316's React Router 8.3, React 19.2.7, Vite 8.0.7, Cloudflare Vite plugin, Foldkit, and exact Effect dependency set; do not retain base RR7/React 19.1/Vite 6. |
-| `apps/dashboard/{vite.config.ts,app/root.tsx,app/entry.server.tsx,workers/app.ts,app/lib/host.ts,app/mock/api/public.ts}` | Accepted ac316 final-tree dashboard graph wiring | Pin each path byte-for-byte to the ac316 tree; preserve the RR8/React 19.2/Vite 8/Cloudflare Vite graph and accepted host behavior; do not substitute the base graph. |
+| `apps/dashboard/{app/root.tsx,app/entry.server.tsx,app/lib/host.ts,app/mock/api/public.ts}` | Accepted ac316 final-tree dashboard graph wiring | Pin each path byte-for-byte to the ac316 tree; preserve the RR8/React 19.2/Vite 8 graph and accepted host behavior; use the React Router served app with the base-owned Vite configuration; do not add or cut over a dashboard Worker. |
 | `apps/dashboard/app/mock/api/data-profile.ts` | p20 host-safety and accepted fixture authority | Carry the exact synthetic profile values from the accepted e05cefc source; remove production host, personal, and real-person values. |
 | `apps/dashboard/app/routes/dashboard.tsx` | Accepted dashboard shell and p20 host-safety authority | Carry the exact synthetic fallback user from e05cefc and the accepted ac316 dashboard shell; do not reintroduce production metadata. |
 | `apps/dashboard/app/routes/{dashboard.linjer._index.tsx,dashboard.sponsorer._index.tsx,dashboard.team._index.tsx}` | Accepted legacy route-compatibility changes | Preserve the ac316 route ownership corrections; do not add a second route owner or claim route cutover. |
@@ -299,10 +300,10 @@ The current spec writer does not run this validation journey.
 
 ### Integration and locked install
 
-6. Apply only the Wrangler closure, Foldkit/SDK closure, and six accepted ac316 dashboard graph-wiring carry-forwards in the dispatch capsule. Do not apply the ac316 `apps/homepage/test/host.test.ts` delta; retain the base p20 file byte-for-byte.
+6. Apply only the Wrangler closure, Foldkit/SDK closure, and four accepted ac316 dashboard graph-wiring carry-forwards in the dispatch capsule. Do not apply the ac316 `apps/homepage/test/host.test.ts` delta; retain the base p20 file byte-for-byte.
 7. Resolve shared manifests with the frozen disposition: use the ac316 dashboard RR8/React 19.2/Vite 8/Cloudflare Vite plugin set, retain root Wrangler `4.120.1`, and preserve the local script and Worker behavior.
 8. Run `bun install --frozen-lockfile` from the candidate root. A stale lock, an undeclared workspace edge, or an incidental dependency upgrade fails the journey.
-9. Compare `apps/dashboard/app/routes/dashboard.tsx` and `apps/dashboard/app/mock/api/data-profile.ts` with the accepted e05cefc source. Require the exact synthetic fallback/profile values and no `vektorprogrammet.no` or real-person values. Compare all six graph-wiring paths byte-for-byte with ac316 and `apps/homepage/test/host.test.ts` byte-for-byte with base. Then search for duplicate derivations and confirm one local Worker, one p20 trusted lifecycle, one Foldkit route owner, one SDK capability domain, and one source of each required fixture value.
+9. Compare `apps/dashboard/app/routes/dashboard.tsx` and `apps/dashboard/app/mock/api/data-profile.ts` with the accepted e05cefc source. Require the exact synthetic fallback/profile values and no `vektorprogrammet.no` or real-person values. Compare all four graph-wiring paths byte-for-byte with ac316, retain the base-owned Vite configuration, and keep `apps/homepage/test/host.test.ts` byte-for-byte equal to base. Then search for duplicate derivations and confirm one local Worker, one p20 trusted lifecycle, one Foldkit route owner, one SDK capability domain, and one source of each required fixture value.
 
 ### Runtime and contract gates
 
@@ -361,10 +362,10 @@ The future implementation can pass this spec only when every predicate is true:
 
 1. The integration worktree starts clean from exact base `462691d4c31ed601fba01f8b5f21abb92a547ff9`, with no inherited dirty files.
 2. The source manifest records exact heads `462691d`, `af0693`, `ac3160`, and `89f8523`, common ancestor `12c1f3`, parent identities, accepted ranges, path lists, and recomputable patch digests.
-3. The future changed path set is a subset of the four Wrangler paths and the 39 Foldkit/SDK paths in the dispatch capsule. The record lists accepted paths that remain unchanged and explains each no-op, including `.gitignore`. `apps/homepage/test/host.test.ts` remains byte-for-byte equal to base because the ac316 delta is excluded. This spec, other design specs, decisions, docs, application paths outside the capsule, lockfiles outside the capsule, evidence, and provider state remain unchanged.
+3. The future changed path set is a subset of the four Wrangler paths and the 37 Foldkit/SDK paths in the dispatch capsule. The record lists accepted paths that remain unchanged and explains each no-op, including `.gitignore`. `apps/homepage/test/host.test.ts` remains byte-for-byte equal to base because the ac316 delta is excluded. This spec, other design specs, decisions, docs, application paths outside the capsule, lockfiles outside the capsule, evidence, and provider state remain unchanged.
 4. The base p20 trusted graph, identity, route contract, seed rules, lifecycle, cleanup, and forbidden production-host boundary remain unchanged and pass `infra/preview/trusted/trusted.test.mjs`.
 5. The local Wrangler checkpoint remains one Node-hosted raw Worker with the exact script controls, compatibility date, health body, `404`, `405`, loopback-only binding, and clean stop under resolved root Wrangler `4.120.1`. Every 0001 behavior gate passes under this resolved root pin; any failure is `Drift`.
-6. The resolved manifests preserve ac316's dashboard RR8/React 19.2.7/Vite 8/Cloudflare Vite plugin set and root Wrangler `4.120.1`; the lock has one deterministic graph with no incidental upgrade. The six dashboard graph-wiring paths are byte-for-byte equal to the ac316 final tree.
+6. The resolved manifests preserve ac316's dashboard RR8/React 19.2.7/Vite 8/Cloudflare Vite plugin set and root Wrangler `4.120.1`; the lock has one deterministic graph with no incidental upgrade. The four dashboard graph-wiring paths are byte-for-byte equal to the ac316 final tree, the dashboard uses the base-owned Vite configuration, and no dashboard Worker cutover occurs.
 7. The Foldkit application retains the exact accepted Model/update/Command/runtime/view boundaries, fixture values, route ownership, privacy boundary, and fresh-read behavior. `dashboard.tsx` and `data-profile.ts` retain the exact e05cefc synthetic values and no production-host or real-person value.
 8. The SDK exposes one exact Effect and Promise seam with the 0022 names, explicit Cycle, branded identifiers, typed errors, opaque response capability, and pending-only atomic acceptance.
 9. The local fixture is synthetic, resettable, loopback-only, and free of provider, production, credential, database, and remote API requirements.
@@ -386,7 +387,7 @@ Any one of these observations fails the candidate and enters `Drift`:
 5. The p20 app, target, stage, hostname, container identity, trusted workflow, ownership manifest, seed rule, route contract, attempt law, or cleanup selector changes.
 6. A p20 test fails, a trusted command reaches a provider, or a provider credential is introduced for a contract test.
 7. The local Worker has a second implementation, wrong health JSON, extra response key, wrong status/header, non-loopback bind, missing egress control, Bun-hosted CLI, global log, provider request, or failed stop.
-8. The root manifest changes from Wrangler `4.120.1`, adds a second Wrangler project, retains the base RR7/React 19.1/Vite 6 dashboard graph, adds Alchemy or Effect to the local spine, creates a second lock graph, omits the resolved ac316 dashboard dependencies, or changes any of the six graph-wiring paths from the ac316 final tree or changes `apps/homepage/test/host.test.ts` from the base p20 file.
+8. The root manifest changes from Wrangler `4.120.1`, adds a second Wrangler project, retains the base RR7/React 19.1/Vite 6 dashboard graph, adds Alchemy or Effect to the local spine, creates a second lock graph, omits the resolved ac316 dashboard dependencies, or changes any of the four graph-wiring paths from the ac316 final tree; a dashboard Worker is added or cut over; or `apps/homepage/test/host.test.ts` changes from the base p20 file.
 9. The Foldkit view, model, update, or command performs a second effect path, uses React state or hooks, infers a Cycle, or fabricates accepted state. The dashboard fallback or fixture profile retains a production host, real-person value, or value different from the accepted e05cefc synthetic source.
 10. A dashboard route or candidate response route has two owners, a legacy route is cut over without authority, or an application path calls the fixture origin directly.
 11. The SDK omits Cycle from an admin operation, accepts actor or grant input, creates aliases or overloads, exposes a capability, returns a fabricated entity, or lets a non-pending/expired/wrong-Cycle capability mutate state.
@@ -420,7 +421,7 @@ The future review record must include these content-provenance fields:
 | Wrangler range | `12c1f3ea6ab1b29d760ed60853c90e46e1aa466d..af069395e5c591c142530749ea3337476a55ac61` |
 | Foldkit/SDK range | `0b30d0ccfc994cb26900181635113fc79544bc7e^..ac316022d0c92615645986e8fe9a4c521f22b186` |
 | Candidate base relation | Candidate is based on `462691d`; no input head is rewritten |
-| Dashboard graph wiring | `ac316022d0c92615645986e8fe9a4c521f22b186` exact final-tree bytes for `apps/dashboard/vite.config.ts`, `apps/dashboard/app/root.tsx`, `apps/dashboard/app/entry.server.tsx`, `apps/dashboard/workers/app.ts`, `apps/dashboard/app/lib/host.ts`, and `apps/dashboard/app/mock/api/public.ts` |
+| Dashboard graph wiring | `ac316022d0c92615645986e8fe9a4c521f22b186` exact final-tree bytes for `apps/dashboard/app/root.tsx`, `apps/dashboard/app/entry.server.tsx`, `apps/dashboard/app/lib/host.ts`, and `apps/dashboard/app/mock/api/public.ts`; dashboard serves through React Router and the base-owned Vite configuration, with no dashboard Worker cutover |
 | Homepage host-test disposition | Base `462691d4c31ed601fba01f8b5f21abb92a547ff9` bytes for `apps/homepage/test/host.test.ts`; the ac316 Alchemy assertion delta is intentionally excluded because it deletes p20 assertions |
 | Evidence content | Metadata, hashes, statuses, bounded synthetic IDs, and sanitized observations only |
 
@@ -525,10 +526,8 @@ apps/dashboard/e2e/fixtures/interview-api.ts
 apps/dashboard/e2e/foldkit-interview.spec.ts
 apps/dashboard/package.json
 apps/dashboard/playwright.config.ts
-apps/dashboard/vite.config.ts
 apps/dashboard/app/root.tsx
 apps/dashboard/app/entry.server.tsx
-apps/dashboard/workers/app.ts
 apps/dashboard/app/lib/host.ts
 apps/dashboard/app/mock/api/public.ts
 bun.lock
