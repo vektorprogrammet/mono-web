@@ -82,7 +82,7 @@ The future writer must apply these exact accepted closures. A diff from an arbit
 |---|---|---|
 | Wrangler closure | `12c1f3ea6ab1b29d760ed60853c90e46e1aa466d..af069395e5c591c142530749ea3337476a55ac61` | `.gitignore`, `bun.lock`, `package.json`, `infra/preview.worker.ts` |
 | Foldkit/SDK closure | `0b30d0ccfc994cb26900181635113fc79544bc7e^..ac316022d0c92615645986e8fe9a4c521f22b186`, plus the accepted final-tree safety and dashboard-graph carry-forwards; exclude the p20 host-test delta | The 37 paths in the dispatch capsule below |
-The dispatch list contains exactly 37 paths: 36 source paths and the shared root `bun.lock`; four source paths are retained dashboard graph carry-forwards.
+The Foldkit/SDK dispatch list contains exactly 37 paths, including the shared root `bun.lock`. Combined with the four Wrangler paths, the capsule contains 40 unique paths: 39 non-lock paths and the shared `bun.lock`. The candidate changed set must remain a subset of these 40 paths; `.gitignore` is an expected no-op, so its absence from the changed set is required. Four of the 37 Foldkit/SDK paths are retained dashboard graph carry-forwards.
 
 The Foldkit/SDK closure includes stage-1 SDK commits through `89f8523` and every accepted Foldkit commit through `ac31602`.
 The accepted final tree carries the sanitized `apps/dashboard/app/mock/api/data-profile.ts` from its accepted ancestry.
