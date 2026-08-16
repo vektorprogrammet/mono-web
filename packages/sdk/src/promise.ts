@@ -15,12 +15,13 @@ import { createReceiptsDomain } from "./domains/receipts.js"
 import { createAdminReceiptsDomain } from "./domains/admin/receipts.js"
 import { createAdminApplicationsDomain } from "./domains/admin/applications.js"
 import { createAdminInterviewsDomain } from "./domains/admin/interviews.js"
-import { createAdminUsersDomain } from "./domains/admin/users.js"
+import { createInterviewResponsesDomain } from "./domains/interview-responses.js"
 import { createAdminSchedulingDomain } from "./domains/admin/scheduling.js"
 import { createAdminTeamsDomain } from "./domains/admin/teams.js"
 import { createAdminMiscDomain } from "./domains/admin/misc.js"
 import { createPublicMiscDomain } from "./domains/public/misc.js"
 import { createPublicTeamsDomain } from "./domains/public/teams.js"
+import { createAdminUsersDomain } from "./domains/admin/users.js"
 
 // --- Public re-exports ---
 
@@ -40,7 +41,18 @@ export type { SdkErrorType } from "./errors.js"
 
 export type { Receipt, AdminReceipt, ReceiptInput } from "./schemas/receipt.js"
 export type { Application, ApplicationDetail } from "./schemas/application.js"
-export type { Interview, InterviewScheduleInput } from "./schemas/interview.js"
+export {
+  AssignedInterview,
+  CandidateInterviewView,
+  Cycle,
+  DepartmentId,
+  SemesterId,
+  AssignedInterviewId,
+  ResponseCapability,
+  type Interview,
+  type InterviewScheduleInput,
+  type InterviewSchedulingStatus,
+} from "./schemas/interview.js"
 export type { User, UserProfile } from "./schemas/user.js"
 export type { DashboardStats } from "./schemas/dashboard.js"
 export type {
@@ -113,6 +125,7 @@ export function createClient(baseUrl: string | undefined, options?: ClientOption
       mailingLists: promisify(adminMisc.mailingLists.bind(adminMisc)),
       admissionStats: promisify(adminMisc.admissionStats.bind(adminMisc)),
     },
+    interviewResponses: promisifyDomain(createInterviewResponsesDomain(transport)),
     public: {
       departments: promisify(publicMisc.departments.bind(publicMisc)),
       fieldOfStudies: promisify(publicMisc.fieldOfStudies.bind(publicMisc)),

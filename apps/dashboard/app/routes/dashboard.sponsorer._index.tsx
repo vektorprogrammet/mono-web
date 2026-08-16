@@ -1,9 +1,11 @@
 import { DataTable } from "@/components/data-table";
 import type { ColumnDef } from "@tanstack/react-table";
-import { apiUrl, createClient, type Sponsor } from "@vektorprogrammet/sdk";
+import { apiUrl, createClient, isFixtureMode, type Sponsor } from "@vektorprogrammet/sdk";
 import { useLoaderData } from "react-router";
+import { fixtureSponsors } from "../mock/api/public";
 
 export async function loader() {
+  if (isFixtureMode) return { sponsors: fixtureSponsors };
   const client = createClient(apiUrl);
   const sponsors = await client.public.sponsors();
 
@@ -49,7 +51,7 @@ export default function Sponsorer() {
     <section className="flex w-full min-w-0 flex-col items-center">
       <h1 className="mb-10 font-semibold text-2xl">Sponsorer</h1>
       <div className="w-full max-w-7xl px-4 sm:px-6 lg:px-8">
-        <DataTable columns={columns} data={sponsors} />
+        <DataTable columns={columns} data={[...sponsors]} />
       </div>
     </section>
   );

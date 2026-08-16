@@ -12,10 +12,26 @@
 
 import { Effect, Schema } from "effect"
 import type { Transport } from "../../transport.js"
-import type { InternalSdkError } from "../../errors.js"
-import { InterviewFromRaw, InterviewSchema_, type Interview, type InterviewScheduleInput } from "../../schemas/interview.js"
+import { type InternalSdkError } from "../../errors.js"
+import {
+  AssignedInterview,
+  InterviewFromRaw,
+  InterviewSchema_,
+  type AssignedInterviewId,
+  type Cycle,
+  type Interview,
+  type InterviewScheduleInput,
+} from "../../schemas/interview.js"
 
 export interface AdminInterviewsDomain {
+  listAssigned(cycle: Cycle): Effect.Effect<readonly AssignedInterview[], InternalSdkError>
+  readAssigned(cycle: Cycle, interviewId: AssignedInterviewId): Effect.Effect<AssignedInterview, InternalSdkError>
+  scheduleForCycle(
+    cycle: Cycle,
+    interviewId: AssignedInterviewId,
+    input: InterviewScheduleInput,
+  ): Effect.Effect<void, InternalSdkError>
+
   list(params?: {
     page?: number
     pageSize?: number
@@ -27,8 +43,6 @@ export interface AdminInterviewsDomain {
     schemaId: number,
   ): Effect.Effect<void, InternalSdkError>
 
-  // NOTE: schedule and conduct signatures deviate from the OpenAPI spec —
-  // they match the actual API shape. The spec can be updated to reflect this.
   schedule(
     id: number,
     input: typeof InterviewScheduleInput.Type,
@@ -47,6 +61,39 @@ export interface AdminInterviewsDomain {
 
 export function createAdminInterviewsDomain(transport: Transport): AdminInterviewsDomain {
   return {
+    listAssigned(cycle) {
+      return transport.get(
+        "/api/admin/interviews/assigned",
+        Schema.Array(AssignedInterview),
+        {
+          departmentId: cycle.departmentId,
+          semesterId: cycle.semesterId,
+        },
+      )
+    },
+
+    readAssigned(cycle, interviewId) {
+      return transport.get(
+        `/api/admin/interviews/assigned/${encodeURIComponent(interviewId)}`,
+        AssignedInterview,
+        {
+          departmentId: cycle.departmentId,
+          semesterId: cycle.semesterId,
+        },
+      )
+    },
+
+    scheduleForCycle(cycle, interviewId, input) {
+      return transport.put(`/api/admin/interviews/assigned/${encodeURIComponent(interviewId)}/schedule`, {
+        departmentId: cycle.departmentId,
+        semesterId: cycle.semesterId,
+        interviewTime: input.interviewTime,
+        room: input.room,
+        campus: input.campus,
+      })
+    },
+
+
     list(params) {
       const query: Record<string, string | number | undefined> = {}
       if (params?.page !== undefined) query.page = params.page

@@ -1,0 +1,111 @@
+.foldkit-interview {
+  --fk-ink: #172554;
+  --fk-muted: #526178;
+  --fk-line: #dbe4ef;
+  --fk-surface: #ffffff;
+  --fk-soft: #f5f8fc;
+  --fk-brand: #1d4ed8;
+  --fk-brand-dark: #1e3a8a;
+  color: var(--fk-ink);
+  display: grid;
+  gap: 1.5rem;
+  max-width: 72rem;
+  margin: 0 auto;
+  padding: clamp(1rem, 3vw, 2.5rem);
+}
+
+.foldkit-interview--candidate {
+  min-height: 100vh;
+  max-width: 44rem;
+  place-content: center;
+  background: radial-gradient(circle at top, #eef4ff, #f8fafc 55%);
+}
+
+.fk-page-header,
+.fk-context-panel,
+.fk-results,
+.fk-response-card,
+.fk-error,
+.fk-guidance,
+.fk-loading {
+  border: 1px solid var(--fk-line);
+  border-radius: 1rem;
+  background: var(--fk-surface);
+  box-shadow: 0 12px 32px rgb(15 23 42 / 7%);
+  padding: clamp(1rem, 3vw, 2rem);
+}
+
+.fk-page-header {
+  background: linear-gradient(135deg, var(--fk-brand-dark), var(--fk-brand));
+  color: white;
+}
+
+.fk-page-header h1,
+.fk-response-card h1,
+.fk-section-heading h2,
+.fk-section-heading h3,
+.fk-interview h3 { margin: 0; }
+
+.fk-lead { max-width: 58ch; font-size: 1.05rem; }
+.fk-eyebrow { margin: 0 0 .35rem; font-size: .75rem; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
+.fk-section-heading { display: grid; gap: .35rem; margin-bottom: 1rem; }
+.fk-section-heading p { margin: 0; color: var(--fk-muted); }
+.fk-form-grid { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr)); }
+.fk-field { display: grid; gap: .4rem; }
+.fk-label { font-weight: 700; }
+.fk-select,
+.fk-input {
+  width: 100%;
+  border: 1px solid #9aa9bd;
+  border-radius: .65rem;
+  background: white;
+  color: var(--fk-ink);
+  min-height: 2.75rem;
+  padding: .65rem .75rem;
+}
+.fk-select:focus-visible,
+.fk-input:focus-visible,
+.fk-button:focus-visible { outline: 3px solid #93c5fd; outline-offset: 2px; }
+.fk-field-hint { margin: 0; color: var(--fk-muted); font-size: .8rem; }
+.fk-field-error { margin: 0; color: #b91c1c; font-weight: 650; }
+.fk-actions { display: flex; flex-wrap: wrap; gap: .75rem; margin-top: 1rem; }
+.fk-button { border: 0; border-radius: .7rem; cursor: pointer; font-weight: 750; min-height: 2.75rem; padding: .65rem 1rem; }
+.fk-button--primary { background: var(--fk-brand); color: white; }
+.fk-button--secondary { background: #e7eef9; color: var(--fk-brand-dark); }
+.fk-button:disabled { cursor: not-allowed; opacity: .55; }
+.fk-interview-list { display: grid; gap: 1rem; }
+.fk-interview { border: 1px solid var(--fk-line); border-radius: .85rem; padding: 1.25rem; }
+.fk-interview__header,
+.fk-response-card__header { align-items: start; display: flex; justify-content: space-between; gap: 1rem; }
+.fk-context-summary,
+.fk-details { display: grid; gap: .65rem; grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); margin: 1rem 0 0; }
+.fk-context-summary div,
+.fk-details div { border-left: 3px solid #bfdbfe; padding-left: .65rem; }
+.fk-context-summary dt,
+.fk-details dt { color: var(--fk-muted); font-size: .78rem; font-weight: 750; text-transform: uppercase; }
+.fk-context-summary dd,
+.fk-details dd { margin: .2rem 0 0; overflow-wrap: anywhere; }
+.fk-status { border-radius: 999px; display: inline-flex; font-size: .8rem; font-weight: 800; padding: .3rem .65rem; white-space: nowrap; }
+.fk-status--created { background: #e2e8f0; }
+.fk-status--pending { background: #fef3c7; color: #92400e; }
+.fk-status--accepted { background: #dcfce7; color: #166534; }
+.fk-status--cancelled,
+.fk-status--no_contact { background: #fee2e2; color: #991b1b; }
+.fk-status--request_new_time { background: #ffedd5; color: #9a3412; }
+.fk-schedule-form { border-top: 1px solid var(--fk-line); margin-top: 1rem; padding-top: 1rem; }
+.fk-feedback,
+.fk-confirmation { border-radius: .75rem; background: #dcfce7; color: #166534; font-weight: 700; padding: .8rem 1rem; }
+.fk-error { border-color: #fecaca; background: #fff7f7; color: #991b1b; }
+.fk-loading,
+.fk-guidance { color: var(--fk-muted); }
+.fk-spinner { animation: fk-spin .8s linear infinite; border: 2px solid #bfdbfe; border-top-color: var(--fk-brand); border-radius: 50%; display: inline-block; height: 1rem; margin-right: .5rem; width: 1rem; }
+@keyframes fk-spin { to { transform: rotate(360deg); } }
+
+@media (max-width: 40rem) {
+  .fk-interview__header,
+  .fk-response-card__header { align-items: flex-start; flex-direction: column; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fk-spinner { animation: none; }
+}

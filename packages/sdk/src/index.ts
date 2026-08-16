@@ -18,7 +18,18 @@ export type { SdkErrorType } from "./errors.js"
 // Domain types (re-exported from Schema classes)
 export type { Receipt, AdminReceipt, ReceiptInput } from "./schemas/receipt.js"
 export type { Application, ApplicationDetail } from "./schemas/application.js"
-export type { Interview, InterviewScheduleInput } from "./schemas/interview.js"
+export {
+  AssignedInterview,
+  CandidateInterviewView,
+  Cycle,
+  DepartmentId,
+  SemesterId,
+  AssignedInterviewId,
+  ResponseCapability,
+  type Interview,
+  type InterviewScheduleInput,
+  type InterviewSchedulingStatus,
+} from "./schemas/interview.js"
 export type { User, UserProfile } from "./schemas/user.js"
 export type { DashboardStats } from "./schemas/dashboard.js"
 export type {

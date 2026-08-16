@@ -69,10 +69,9 @@ import {
 } from "@/ui/sidebar";
 
 const fallbackUser = {
-  name: "Julia Dai",
-  email: "julia@vektorprogrammet.no",
-  avatar:
-    "https://vektorprogrammet.no/media/cache/profile_img/images/Profile%20photos/6407131bab385.jpeg",
+  name: "Fixture Operator",
+  email: "operator@fixture.example.invalid",
+  avatar: "https://assets.example.invalid/fixture/avatar.svg",
 };
 
 export async function loader({ request }: Route.LoaderArgs) {
@@ -498,26 +497,23 @@ export function ErrorBoundary() {
   );
 }
 
-// biome-ignore lint/style/noDefaultExport: Route Modules require default export https://reactrouter.com/start/framework/route-module
-export default function Layout() {
+function LegacyLayout() {
   const { user, isAdmin } = useLoaderData<typeof loader>();
   return (
     <SidebarProvider>
       <aside>
         <Sidebar variant="inset" collapsible="icon">
           <SidebarHeader>
-            {/* User menu */}
             <UserMenu user={user} />
           </SidebarHeader>
           <SidebarContent>
             <nav aria-label="primary">
-              {/* Primary navigation */}
               <SidebarGroup>
                 <SidebarMenuItem key={"Kontrollpanel"}>
                   <SidebarMenuButton asChild tooltip={"Kontrollpanel"}>
                     <Link to={href("/dashboard")} prefetch="intent">
-                      {<LayoutDashboard />}
-                      <span>{"Kontrollpanel"}</span>
+                      <LayoutDashboard />
+                      <span>Kontrollpanel</span>
                     </Link>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
@@ -533,7 +529,6 @@ export default function Layout() {
           </SidebarContent>
           <SidebarFooter className="m-0 p-2">
             <nav aria-label="secondary">
-              {/* Secondary navigation */}
               <SidebarGroup className="mt-auto transition-[padding] group-data-[collapsible=icon]:p-0">
                 <SidebarGroupContent>
                   <SidebarMenu>
@@ -581,4 +576,9 @@ export default function Layout() {
       </SidebarInset>
     </SidebarProvider>
   );
+}
+
+// biome-ignore lint/style/noDefaultExport: Route Modules require default export https://reactrouter.com/start/framework/route-module
+export default function Layout() {
+  return <LegacyLayout />;
 }

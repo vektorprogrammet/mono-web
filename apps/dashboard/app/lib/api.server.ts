@@ -8,3 +8,7 @@ const serverApiUrl =
 export function createAuthenticatedClient(auth: AuthOption) {
   return createClient(serverApiUrl, { auth });
 }
+
+export function createServerClient() {
+  return createClient(serverApiUrl);
+}

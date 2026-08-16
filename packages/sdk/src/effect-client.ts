@@ -5,7 +5,7 @@
  * Methods return Effect<A, InternalSdkError> directly — no Promise wrapping.
  */
 
-import { createTransport, type AuthOption } from "./transport.js"
+import { apiUrl } from "./config.js"
 import { createContext } from "./context.js"
 import { createAuthDomain } from "./domains/auth.js"
 import { createMeDomain } from "./domains/me.js"
@@ -13,12 +13,14 @@ import { createReceiptsDomain } from "./domains/receipts.js"
 import { createAdminReceiptsDomain } from "./domains/admin/receipts.js"
 import { createAdminApplicationsDomain } from "./domains/admin/applications.js"
 import { createAdminInterviewsDomain } from "./domains/admin/interviews.js"
-import { createAdminUsersDomain } from "./domains/admin/users.js"
+import { createInterviewResponsesDomain } from "./domains/interview-responses.js"
 import { createAdminSchedulingDomain } from "./domains/admin/scheduling.js"
 import { createAdminTeamsDomain } from "./domains/admin/teams.js"
 import { createAdminMiscDomain } from "./domains/admin/misc.js"
 import { createPublicMiscDomain } from "./domains/public/misc.js"
 import { createPublicTeamsDomain } from "./domains/public/teams.js"
+import { createAdminUsersDomain } from "./domains/admin/users.js"
+import { createTransport, type AuthOption } from "./transport.js"
 
 // --- Public re-exports ---
 
@@ -28,7 +30,18 @@ export { apiUrl, isFixtureMode } from "./config.js"
 
 export type { Receipt, AdminReceipt, ReceiptInput } from "./schemas/receipt.js"
 export type { Application, ApplicationDetail } from "./schemas/application.js"
-export type { Interview, InterviewScheduleInput } from "./schemas/interview.js"
+export {
+  AssignedInterview,
+  CandidateInterviewView,
+  Cycle,
+  DepartmentId,
+  SemesterId,
+  AssignedInterviewId,
+  ResponseCapability,
+  type Interview,
+  type InterviewScheduleInput,
+  type InterviewSchedulingStatus,
+} from "./schemas/interview.js"
 export type { User, UserProfile } from "./schemas/user.js"
 export type { DashboardStats } from "./schemas/dashboard.js"
 export type {
@@ -74,6 +87,7 @@ export function createEffectClient(baseUrl: string | undefined, options?: Client
       mailingLists: adminMisc.mailingLists.bind(adminMisc),
       admissionStats: adminMisc.admissionStats.bind(adminMisc),
     },
+    interviewResponses: createInterviewResponsesDomain(transport),
     public: {
       departments: publicMisc.departments.bind(publicMisc),
       fieldOfStudies: publicMisc.fieldOfStudies.bind(publicMisc),
@@ -82,6 +96,16 @@ export function createEffectClient(baseUrl: string | undefined, options?: Client
     },
     context,
   }
+}
+/**
+ * Creates an Effect SDK client from SDK-owned runtime configuration.
+ *
+ * The base URL remains optional and is validated lazily by the transport. An
+ * auth option may carry an opaque transport credential; actor and grant
+ * authority remain server-owned.
+ */
+export function createConfiguredEffectClient(options?: ClientOptions) {
+  return createEffectClient(apiUrl, options)
 }
 
 export type EffectSdk = ReturnType<typeof createEffectClient>

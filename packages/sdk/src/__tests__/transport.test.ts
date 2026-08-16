@@ -6,12 +6,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 import { Effect, Schema } from "effect"
 import { createTransport } from "../transport.js"
-import {
-  UnauthorizedError,
-  NotFoundError,
-  ValidationError,
-  NetworkError,
-} from "../errors.js"
+import { createAdminInterviewsDomain } from "../domains/admin/interviews.js"
+import { AssignedInterviewId, Cycle } from "../schemas/interview.js"
 
 // Helper: run an Effect to a Promise, mapping InternalSdkError to public SdkError
 function run<A>(effect: Effect.Effect<A, any>): Promise<A> {
@@ -34,11 +30,6 @@ function makeFetchResponse(status: number, body: unknown): Response {
   } as unknown as Response
 }
 
-function makeFetchNetworkError(message: string): () => never {
-  return () => {
-    throw new Error(message)
-  }
-}
 
 const SimpleSchema = Schema.Struct({ name: Schema.String })
 
@@ -119,4 +110,22 @@ describe("createTransport", () => {
       expect((init.headers as Record<string, string>)["Authorization"]).toBe("Bearer dynamic-token")
     })
   })
+  describe("interview endpoint encoding", () => {
+  it("encodes opaque assigned interview identifiers before transport", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(makeFetchResponse(204, null))
+    vi.stubGlobal("fetch", fetchMock)
+    const cycle = Schema.decodeUnknownSync(Cycle)({
+      departmentId: "dep-trd-1",
+      semesterId: "sem-2026-høst",
+    })
+    const interviewId = Schema.decodeUnknownSync(AssignedInterviewId)("id/with space")
+    await run(createAdminInterviewsDomain(createTransport("http://api.test")).scheduleForCycle(
+      cycle,
+      interviewId,
+      { interviewTime: "2026-09-14T15:00:00+02:00", room: "Rom 2", campus: "Gløshaugen" },
+    ))
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/assigned/id%2Fwith%20space/schedule")
+    vi.unstubAllGlobals()
+  })
+})
 })

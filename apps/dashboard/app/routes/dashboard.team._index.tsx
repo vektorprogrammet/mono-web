@@ -1,9 +1,11 @@
 import { DataTable } from "@/components/data-table";
 import type { ColumnDef } from "@tanstack/react-table";
-import { apiUrl, createClient, type Team as TeamDto } from "@vektorprogrammet/sdk";
+import { apiUrl, createClient, isFixtureMode, type Team as TeamDto } from "@vektorprogrammet/sdk";
 import { useLoaderData } from "react-router";
+import { fixtureTeams } from "../mock/api/public";
 
 export async function loader() {
+  if (isFixtureMode) return { teams: fixtureTeams };
   const client = createClient(apiUrl);
   const teams = await client.public.teams();
 
@@ -23,7 +25,7 @@ export default function Team() {
     <section className="flex w-full min-w-0 flex-col items-center">
       <h1 className="mb-10 font-semibold text-2xl">Team</h1>
       <div className="w-full max-w-7xl px-4 sm:px-6 lg:px-8">
-        <DataTable columns={columns} data={teams} />
+        <DataTable columns={columns} data={[...teams]} />
       </div>
     </section>
   );
