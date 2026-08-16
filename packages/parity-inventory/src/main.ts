@@ -1,0 +1,184 @@
+import { Effect } from "effect"
+import { canonicalJson, failureId } from "./canonical.js"
+import { FALSIFIERS, run, type FalsifierId, type RunMode } from "./runner.js"
+import { ParityRuntimeError } from "./runtime.js"
+import type { ZeroGapReport } from "./types.js"
+
+const USAGE = [
+  "Usage: bun run parity:verify -- --root <mono-root> --legacy-root <legacy-root> --mode <diff|write|fixture_injection> [--falsifier F0..F19]",
+  "",
+  "Modes:",
+  "  diff              regenerate C0 projections and compare committed bytes (read-only)",
+  "  write             atomically promote source-manifest and route projections",
+  "  fixture_injection run one named isolated falsifier; never writes projections",
+].join("\n")
+
+interface ParsedArgs {
+  readonly root: string
+  readonly legacyRoot: string
+  readonly mode: RunMode
+  readonly falsifierId?: FalsifierId
+  readonly help: boolean
+}
+
+const valueAfter = (args: readonly string[], index: number, option: string): string => {
+  const value = args[index + 1]
+  if (value === undefined || value.startsWith("--")) throw new Error(`${option} requires a value`)
+  return value
+}
+
+const parseArgs = (args: readonly string[]): ParsedArgs => {
+  let root: string | undefined
+  let legacyRoot: string | undefined
+  let mode: RunMode | undefined
+  let falsifierId: FalsifierId | undefined
+  let help = false
+  for (let index = 0; index < args.length; index += 1) {
+    const argument = args[index]
+    if (argument === "--help" || argument === "-h") {
+      help = true
+      continue
+    }
+    if (argument === "--root") {
+      root = valueAfter(args, index, argument)
+      index += 1
+      continue
+    }
+    if (argument === "--legacy-root") {
+      legacyRoot = valueAfter(args, index, argument)
+      index += 1
+      continue
+    }
+    if (argument === "--mode") {
+      const value = valueAfter(args, index, argument)
+      if (value !== "diff" && value !== "write" && value !== "fixture_injection") throw new Error(`invalid mode: ${value}`)
+      mode = value
+      index += 1
+      continue
+    }
+    if (argument === "--falsifier") {
+      const value = valueAfter(args, index, argument)
+      if (!(FALSIFIERS as readonly string[]).includes(value)) throw new Error(`invalid falsifier: ${value}`)
+      falsifierId = value as FalsifierId
+      index += 1
+      continue
+    }
+    if (argument === "--") continue
+    throw new Error(`unknown option: ${argument}`)
+  }
+  if (help) return { root: root ?? ".", legacyRoot: legacyRoot ?? ".", mode: mode ?? "diff", falsifierId, help }
+  if (root === undefined || legacyRoot === undefined || mode === undefined) throw new Error("--root, --legacy-root, and --mode are required")
+  if (mode === "fixture_injection" && falsifierId === undefined) throw new Error("fixture_injection requires exactly one --falsifier")
+  if (mode !== "fixture_injection" && falsifierId !== undefined) throw new Error("--falsifier is only valid in fixture_injection mode")
+  return { root, legacyRoot, mode, falsifierId, help }
+}
+
+const commandErrorReport = (message: string): ZeroGapReport => {
+  const sourceRefIds: string[] = []
+  const failure = {
+    failure_id: failureId("command_error", "COMMAND_ARGUMENT_ERROR", [], sourceRefIds),
+    status: "command_error" as const,
+    reason_code: "COMMAND_ARGUMENT_ERROR",
+    row_ids: [],
+    source_ref_ids: sourceRefIds,
+    accepted_intent_ref_ids: [],
+  }
+  return {
+    $schema: "https://json-schema.org/draft/2020-12/schema",
+    schema_version: "functional-parity-zero-gap-report/v1",
+    status: "command_error",
+    exit_code: 12,
+    mode: "diff",
+    falsifier_id: null,
+    projection_write: { status: "blocked", target_ref: null },
+    source_manifest_sha256: null,
+    inventory_artifact_sha256: {},
+    row_counts: {},
+    status_counts: {},
+    failures: [{ ...failure, reason_code: message.length > 0 ? "COMMAND_ARGUMENT_ERROR" : failure.reason_code }],
+    mismatches: [],
+    openapi_reconciliation_ref: "openapi-reconciliation.json",
+    verification: {
+      canonical_json: "recursive-key-sort/byte-order-array-sort/compact-utf8/no-newline",
+      schema_validation: true,
+      cross_reference_validation: false,
+      deterministic_diff: "different",
+      forbidden_states_empty: false,
+    },
+  }
+}
+
+const runtimeErrorReport = (error: ParityRuntimeError): ZeroGapReport => {
+  const unsafe = (error.operation === "scan_root" || error.operation === "unsafe_source") && /(unsafe source metadata|sensitive paths|projection construction)/i.test(error.message)
+  const drift = !unsafe && error.operation === "scan_root" && /(dirty|changed during scan|revision)/i.test(error.message)
+  const status = drift ? "source_hash_drift" as const : "source_unavailable" as const
+  const reasonCode = unsafe ? "UNSAFE_SOURCE" : drift ? "SOURCE_HASH_DRIFT" : "SOURCE_UNAVAILABLE"
+  const exitCode = drift ? 7 : 6
+  const failure = {
+    failure_id: failureId(status, reasonCode, [], []),
+    status,
+    reason_code: reasonCode,
+    row_ids: [],
+    source_ref_ids: [],
+    accepted_intent_ref_ids: [],
+  }
+  return {
+    $schema: "https://json-schema.org/draft/2020-12/schema",
+    schema_version: "functional-parity-zero-gap-report/v1",
+    status,
+    exit_code: exitCode,
+    mode: "diff",
+    falsifier_id: null,
+    projection_write: { status: "blocked", target_ref: null },
+    source_manifest_sha256: null,
+    inventory_artifact_sha256: {},
+    row_counts: {},
+    status_counts: {},
+    failures: [failure],
+    mismatches: [],
+    openapi_reconciliation_ref: "openapi-reconciliation.json",
+    verification: {
+      canonical_json: "recursive-key-sort/byte-order-array-sort/compact-utf8/no-newline",
+      schema_validation: false,
+      cross_reference_validation: false,
+      deterministic_diff: "different",
+      forbidden_states_empty: false,
+    },
+  }
+}
+const writeStdout = (text: string): void => { process.stdout.write(text) }
+const writeStderr = (text: string): void => { process.stderr.write(text) }
+
+export const main = (args: readonly string[] = process.argv.slice(2)): Effect.Effect<number> => {
+  const program = Effect.gen(function* () {
+    const parsed = yield* Effect.try({
+      try: () => parseArgs(args),
+      catch: (error) => error instanceof Error ? error : new Error("command error"),
+    })
+    if (parsed.help) {
+      yield* Effect.sync(() => writeStdout(`${USAGE}\n`))
+      return 0
+    }
+    const result = yield* run({ root: parsed.root, legacyRoot: parsed.legacyRoot, mode: parsed.mode, falsifierId: parsed.falsifierId })
+    yield* Effect.sync(() => writeStdout(`${canonicalJson(result.report)}\n`))
+    return result.exitCode
+  })
+  return program.pipe(
+    Effect.catchIf(
+      (_error): _error is Error => true,
+      (error) =>
+        Effect.sync(() => {
+          const report = error instanceof ParityRuntimeError ? runtimeErrorReport(error) : commandErrorReport(error instanceof Error ? error.message : "command error")
+          if (!(error instanceof ParityRuntimeError)) writeStderr(`${USAGE}\n`)
+          writeStdout(`${canonicalJson(report)}\n`)
+          return report.exit_code
+        }),
+    ),
+  )
+}
+
+if (import.meta.main) {
+  Effect.runPromise(main()).then((exitCode) => {
+    process.exitCode = exitCode
+  })
+}

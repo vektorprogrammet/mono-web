@@ -8,6 +8,7 @@
   "type": "module",
   "scripts": {
     "dev": "turbo -F @monoweb/homepage -F @monoweb/dashboard dev",
+    "parity:verify": "bun run packages/parity-inventory/src/main.ts",
     "preview:dev": "WRANGLER_SEND_METRICS=false WRANGLER_SEND_ERROR_REPORTS=false CLOUDFLARE_API_BASE_URL=http://127.0.0.1:0 CLOUDFLARE_CF_FETCH_ENABLED=false WRANGLER_LOG_PATH=.wrangler/logs node node_modules/wrangler/bin/wrangler.js dev infra/preview.worker.ts --local --ip 127.0.0.1 --port 8787 --compatibility-date 2026-08-08",
     "build": "turbo build",
     "check-types": "turbo check-types",

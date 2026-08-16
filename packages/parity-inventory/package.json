@@ -1,0 +1,28 @@
+{
+  "name": "@monoweb/parity-inventory",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./canonical": "./src/canonical.ts",
+    "./routes": "./src/routes.ts",
+    "./runtime": "./src/runtime.ts",
+    "./schema": "./src/schema.ts",
+    "./schemas/*": "./schemas/*"
+  },
+  "scripts": {
+    "check-types": "tsc --noEmit",
+    "lint": "oxlint",
+    "test": "bun test tests"
+  },
+  "dependencies": {
+    "ajv": "8.17.1",
+    "effect": "4.0.0-beta.107",
+    "yaml": "2.8.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22",
+    "typescript": "^5"
+  }
+}

@@ -1,0 +1,138 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "functional-parity-source-manifest/v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "manifest_id", "source_set", "census_roots", "revisions", "runtime_observations", "root_census", "ignore_rules", "sources", "source_set_sha256"],
+  "properties": {
+    "$schema": {"type": "string", "const": "https://json-schema.org/draft/2020-12/schema"},
+    "schema_version": {"type": "string", "const": "functional-parity-source-manifest/v1"},
+    "manifest_id": {"type": "string", "pattern": "^source-manifest-[a-f0-9]{64}$"},
+    "source_set": {"type": "string", "minLength": 1},
+    "census_roots": {
+      "type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/censusRoot"},
+      "allOf": [{"contains": {"properties": {"root_ref": {"const": "legacy"}}}}, {"contains": {"properties": {"root_ref": {"const": "mono"}}}}]
+    },
+    "revisions": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/revision"}},
+    "runtime_observations": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/runtimeObservation"}},
+    "root_census": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/rootCensus"}},
+    "ignore_rules": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/ignoreRule"}},
+    "sources": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/source"}},
+    "source_set_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "censusRoot": {
+      "type": "object", "additionalProperties": false,
+      "required": ["root_ref", "authority_line", "repository_ref", "revision_ref_id", "root_kind", "scan_mode"],
+      "properties": {
+        "root_ref": {"type": "string", "enum": ["legacy", "mono"]},
+        "authority_line": {"type": "string", "enum": ["legacy", "mono"]},
+        "repository_ref": {"type": "string", "minLength": 1},
+        "revision_ref_id": {"type": "string", "minLength": 1},
+        "root_kind": {"type": "string", "const": "repository"},
+        "scan_mode": {"type": "string", "const": "all_regular_files"}
+      },
+      "allOf": [
+        {"if": {"properties": {"root_ref": {"const": "legacy"}}}, "then": {"properties": {"authority_line": {"const": "legacy"}}}},
+        {"if": {"properties": {"root_ref": {"const": "mono"}}}, "then": {"properties": {"authority_line": {"const": "mono"}}}}
+      ]
+    },
+    "revision": {
+      "type": "object", "additionalProperties": false,
+      "required": ["revision_ref_id", "repository_ref", "revision_kind", "revision", "immutable"],
+      "properties": {
+        "revision_ref_id": {"type": "string", "minLength": 1},
+        "repository_ref": {"type": "string", "minLength": 1},
+        "revision_kind": {"type": "string", "enum": ["git_commit", "archive_digest", "file_set_digest"]},
+        "revision": {"type": "string", "minLength": 1},
+        "immutable": {"type": "boolean", "const": true}
+      }
+    },
+    "runtimeObservation": {
+      "type": "object", "additionalProperties": false,
+      "required": ["runtime_observation_ref_id", "revision_ref_id", "collector_kind", "command", "argument_digest", "stdout_sha256", "stderr_sha256", "exit_code", "result_sha256", "availability"],
+      "properties": {
+        "runtime_observation_ref_id": {"type": "string", "minLength": 1},
+        "revision_ref_id": {"type": "string", "minLength": 1},
+        "collector_kind": {"type": "string", "minLength": 1},
+        "command": {"type": "string", "minLength": 1},
+        "argument_digest": {"$ref": "#/$defs/sha256"},
+        "stdout_sha256": {"$ref": "#/$defs/sha256"},
+        "stderr_sha256": {"$ref": "#/$defs/sha256"},
+        "exit_code": {"type": "integer"},
+        "result_sha256": {"$ref": "#/$defs/sha256"},
+        "availability": {"type": "string", "enum": ["available", "unavailable"]}
+      }
+    },
+    "ignoreRule": {
+      "type": "object", "additionalProperties": false,
+      "required": ["ignore_rule_id", "authority_line", "root_ref", "precedence", "pattern", "selection", "rule_kind", "rationale"],
+      "properties": {
+        "ignore_rule_id": {"type": "string", "pattern": "^ignore-[a-f0-9]{64}$"},
+        "authority_line": {"type": "string", "enum": ["legacy", "mono"]},
+        "root_ref": {"type": "string", "enum": ["legacy", "mono"]},
+        "precedence": {"type": "integer", "minimum": 0},
+        "pattern": {"type": "string", "minLength": 1, "not": {"pattern": "^(vendor|node_modules)/"}},
+        "selection": {"type": "string", "const": "ordered_set_difference"},
+        "rule_kind": {"type": "string", "enum": ["repository_metadata", "dependency_cache", "runtime_cache", "runtime_log", "build_cache", "generated_output", "test_support", "binary_tool"]},
+        "rationale": {"type": "string", "minLength": 1, "maxLength": 300}
+      },
+      "allOf": [
+        {"if": {"properties": {"root_ref": {"const": "legacy"}}}, "then": {"properties": {"authority_line": {"const": "legacy"}}}},
+        {"if": {"properties": {"root_ref": {"const": "mono"}}}, "then": {"properties": {"authority_line": {"const": "mono"}}}}
+      ]
+    },
+    "rootCensus": {
+      "type": "object", "additionalProperties": false,
+      "required": ["census_id", "authority_line", "root_ref", "path", "byte_length", "sha256", "availability", "classification", "source_ref_ids", "ignore_rule_id"],
+      "properties": {
+        "census_id": {"type": "string", "pattern": "^census-[a-f0-9]{64}$"},
+        "authority_line": {"type": "string", "enum": ["legacy", "mono"]},
+        "root_ref": {"type": "string", "enum": ["legacy", "mono"]},
+        "path": {"type": "string", "minLength": 1},
+        "byte_length": {"type": ["integer", "null"], "minimum": 0},
+        "sha256": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]},
+        "availability": {"type": "string", "enum": ["available", "unavailable"]},
+        "classification": {"type": "string", "enum": ["matched", "ignored", "unclassified"]},
+        "source_ref_ids": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "ignore_rule_id": {"type": ["string", "null"], "pattern": "^ignore-[a-f0-9]{64}$"}
+      },
+      "allOf": [
+        {"if": {"properties": {"root_ref": {"const": "legacy"}}}, "then": {"properties": {"authority_line": {"const": "legacy"}}}},
+        {"if": {"properties": {"root_ref": {"const": "mono"}}}, "then": {"properties": {"authority_line": {"const": "mono"}}}},
+        {"if": {"properties": {"classification": {"const": "matched"}}}, "then": {"properties": {"source_ref_ids": {"minItems": 1}, "ignore_rule_id": {"type": "null"}}}},
+        {"if": {"properties": {"classification": {"const": "ignored"}}}, "then": {"properties": {"source_ref_ids": {"maxItems": 0}, "ignore_rule_id": {"pattern": "^ignore-[a-f0-9]{64}$"}}, "required": ["ignore_rule_id"]}},
+        {"if": {"properties": {"classification": {"const": "unclassified"}}}, "then": {"properties": {"source_ref_ids": {"minItems": 1}, "ignore_rule_id": {"type": "null"}}}},
+        {"if": {"properties": {"availability": {"const": "unavailable"}}}, "then": {"properties": {"byte_length": {"type": "null"}, "sha256": {"type": "null"}}}}
+      ]
+    },
+    "source": {
+      "type": "object", "additionalProperties": false,
+      "required": ["source_id", "authority_line", "authority_role", "repository_ref", "revision_ref_id", "path", "line_start", "line_end", "symbol", "byte_length", "sha256", "capture_mode", "availability", "classification_status"],
+      "properties": {
+        "source_id": {"type": "string", "pattern": "^src-[a-f0-9]{64}$"},
+        "authority_line": {"type": "string", "enum": ["legacy", "mono", "cross_line"]},
+        "authority_role": {"type": "string", "minLength": 1},
+        "repository_ref": {"type": "string", "minLength": 1},
+        "revision_ref_id": {"type": "string", "minLength": 1},
+        "path": {"type": "string", "minLength": 1},
+        "line_start": {"type": ["integer", "null"], "minimum": 1},
+        "line_end": {"type": ["integer", "null"], "minimum": 1},
+        "symbol": {"type": ["string", "null"], "minLength": 1},
+        "byte_length": {"type": ["integer", "null"], "minimum": 0},
+        "sha256": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]},
+        "capture_mode": {"type": "string", "enum": ["static", "runtime", "generated", "accepted_intent"]},
+        "availability": {"type": "string", "enum": ["available", "unavailable"]},
+        "classification_status": {"type": "string", "enum": ["classified", "unclassified"]},
+        "failure_status": {"type": ["string", "null"], "enum": ["source_unavailable", "unresolved", null]},
+        "failure_reason": {"type": ["string", "null"], "pattern": "^[A-Z][A-Z0-9_]{2,63}$"}
+      },
+      "allOf": [
+        {"if": {"properties": {"availability": {"const": "available"}}}, "then": {"properties": {"sha256": {"$ref": "#/$defs/sha256"}}}},
+        {"if": {"properties": {"availability": {"const": "unavailable"}}}, "then": {"properties": {"sha256": {"type": "null"}, "failure_status": {"enum": ["source_unavailable", "unresolved"]}}, "required": ["failure_status", "failure_reason"]}},
+        {"if": {"properties": {"classification_status": {"const": "unclassified"}}}, "then": {"required": ["failure_status", "failure_reason"]}}
+      ]
+    }
+  }
+}

@@ -1,0 +1,220 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "functional-parity-inventory/v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "inventory_kind", "authority_line", "source_manifest_sha256", "revision_ref_ids", "observation_kinds", "rows", "links", "observations", "derivation_edges"],
+  "properties": {
+    "$schema": {"type": "string", "const": "https://json-schema.org/draft/2020-12/schema"},
+    "schema_version": {"type": "string", "const": "functional-parity-inventory/v1"},
+    "inventory_kind": {"type": "string", "enum": ["legacy_route", "mono_route", "api_operation", "command_write", "schedule_background", "external_integration", "user_journey"]},
+    "authority_line": {"type": "string", "enum": ["legacy", "mono", "cross_line"]},
+    "source_manifest_sha256": {"$ref": "#/$defs/sha256"},
+    "revision_ref_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "observation_kinds": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/observationKind"}},
+    "rows": {"type": "array", "items": {"$ref": "#/$defs/row"}},
+    "links": {"type": "array", "items": {"$ref": "#/$defs/link"}},
+    "observations": {"type": "array", "items": {"$ref": "#/$defs/observation"}},
+    "derivation_edges": {"type": "array", "items": {"$ref": "#/$defs/derivationEdge"}}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "observationKind": {"type": "string", "enum": ["static_source", "runtime_resolution", "runtime_evidence", "generated_projection", "accepted_intent", "derived_h3"]},
+    "rowStatus": {"type": "string", "enum": ["covered", "accounted", "missing", "extra", "changed", "uncovered", "unresolved", "duplicate", "stale", "dead_unimported", "absent", "not_applicable"]},
+    "mismatchKind": {"type": "string", "enum": ["none", "missing", "extra", "changed", "renamed", "split", "merged", "dead_unimported", "absent", "uncovered", "unresolved", "duplicate", "stale", "openapi_stale"]},
+    "mismatch": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "disposition", "accepted_intent_ref_ids"],
+      "properties": {
+        "kind": {"$ref": "#/$defs/mismatchKind"},
+        "disposition": {"type": "string", "enum": ["none", "accepted_missing", "accepted_extra", "accepted_changed", "accepted_renamed", "accepted_split", "accepted_merged", "accepted_dead_source", "accepted_absent", "accepted_not_applicable", "rejected"]},
+        "accepted_intent_ref_ids": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "counterpart_row_ids": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "reason": {"type": ["string", "null"], "maxLength": 500}
+      },
+      "allOf": [
+        {"if": {"properties": {"disposition": {"enum": ["accepted_missing", "accepted_extra", "accepted_changed", "accepted_renamed", "accepted_split", "accepted_merged", "accepted_dead_source", "accepted_absent", "accepted_not_applicable"]}}}, "then": {"properties": {"accepted_intent_ref_ids": {"minItems": 1}}}},
+        {"if": {"properties": {"disposition": {"enum": ["none", "rejected"]}}}, "then": {"properties": {"accepted_intent_ref_ids": {"maxItems": 0}}}},
+        {"if": {"properties": {"kind": {"const": "absent"}}}, "then": {"properties": {"disposition": {"const": "accepted_absent"}, "accepted_intent_ref_ids": {"minItems": 1}}}}
+      ]
+    },
+    "row": {
+      "type": "object", "additionalProperties": false,
+      "required": ["row_id", "declaration_id", "inventory_kind", "authority_line", "canonical_key", "signature", "status", "observation_kinds", "source_ref_ids", "revision_ref_ids", "runtime_observation_ref_ids", "coverage_ref_ids", "accepted_intent_ref_ids", "duplicate_group_id", "mismatch", "reason_codes", "related_row_ids", "details"],
+      "properties": {
+        "row_id": {"type": "string", "pattern": "^row-[a-f0-9]{64}$"},
+        "declaration_id": {"type": "string", "pattern": "^decl-[a-f0-9]{64}$"},
+        "inventory_kind": {"type": "string", "enum": ["legacy_route", "mono_route", "api_operation", "command_write", "schedule_background", "external_integration", "user_journey"]},
+        "authority_line": {"type": "string", "enum": ["legacy", "mono", "cross_line"]},
+        "canonical_key": {"type": "string", "minLength": 1},
+        "signature": {"type": "string", "minLength": 1},
+        "status": {"$ref": "#/$defs/rowStatus"},
+        "observation_kinds": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/observationKind"}},
+        "source_ref_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "revision_ref_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "runtime_observation_ref_ids": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "coverage_ref_ids": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "accepted_intent_ref_ids": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "duplicate_group_id": {"type": ["string", "null"], "pattern": "^dup-[a-f0-9]{64}$"},
+        "mismatch": {"$ref": "#/$defs/mismatch"},
+        "reason_codes": {"type": "array", "uniqueItems": true, "items": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]{2,63}$"}},
+        "related_row_ids": {"type": "array", "uniqueItems": true, "items": {"type": "string", "pattern": "^row-[a-f0-9]{64}$"}},
+        "details": {}
+      },
+      "allOf": [
+        {"if": {"properties": {"inventory_kind": {"const": "legacy_route"}}}, "then": {"properties": {"details": {"$ref": "#/$defs/legacyRouteDetails"}}}},
+        {"if": {"properties": {"inventory_kind": {"const": "mono_route"}}}, "then": {"properties": {"details": {"$ref": "#/$defs/monoRouteDetails"}}}},
+        {"if": {"properties": {"inventory_kind": {"const": "api_operation"}}}, "then": {"properties": {"details": {"$ref": "#/$defs/apiOperationDetails"}}}},
+        {"if": {"properties": {"inventory_kind": {"const": "command_write"}}}, "then": {"properties": {"details": {"$ref": "#/$defs/commandWriteDetails"}}}},
+        {"if": {"properties": {"inventory_kind": {"const": "schedule_background"}}}, "then": {"properties": {"details": {"$ref": "#/$defs/scheduleBackgroundDetails"}}}},
+        {"if": {"properties": {"inventory_kind": {"const": "external_integration"}}}, "then": {"properties": {"details": {"$ref": "#/$defs/externalIntegrationDetails"}}}},
+        {"if": {"properties": {"inventory_kind": {"const": "user_journey"}}}, "then": {"properties": {"details": {"$ref": "#/$defs/userJourneyDetails"}}}}
+      ]
+    },
+    "link": {
+      "type": "object", "additionalProperties": false,
+      "required": ["relation_id", "relation_kind", "from_row_id", "to_row_id", "source_ref_ids"],
+      "properties": {
+        "relation_id": {"type": "string", "pattern": "^rel-[a-f0-9]{64}$"},
+        "relation_kind": {"type": "string", "enum": ["matches", "derives", "imports", "covers", "observes", "reconciles"]},
+        "from_row_id": {"type": "string", "pattern": "^row-[a-f0-9]{64}$"},
+        "to_row_id": {"type": "string", "pattern": "^row-[a-f0-9]{64}$"},
+        "source_ref_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
+      }
+    },
+    "observation": {
+      "type": "object", "additionalProperties": false,
+      "required": ["observation_id", "observation_kind", "source_ref_ids", "value_digest", "normative"],
+      "properties": {
+        "observation_id": {"type": "string", "pattern": "^obs-[a-f0-9]{64}$"},
+        "observation_kind": {"$ref": "#/$defs/observationKind"},
+        "source_ref_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "value_digest": {"$ref": "#/$defs/sha256"},
+        "normative": {"type": "boolean", "const": false},
+        "label": {"type": "string", "minLength": 1, "maxLength": 200},
+        "count": {"type": ["integer", "null"], "minimum": 0}
+      }
+    },
+    "derivationEdge": {
+      "type": "object", "additionalProperties": false,
+      "required": ["edge_id", "edge_type", "from_ref_ids", "to_row_ids", "derivation"],
+      "properties": {
+        "edge_id": {"type": "string", "pattern": "^edge-[a-f0-9]{64}$"},
+        "edge_type": {"type": "string", "enum": ["authority_input", "observed_inventory", "derived_projection", "reconciles", "coverage", "accepted_intent"]},
+        "from_ref_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "to_row_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "pattern": "^row-[a-f0-9]{64}$"}},
+        "derivation": {"type": "string", "minLength": 1, "maxLength": 500}
+      }
+    },
+    "legacyRouteDetails": {
+      "type": "object", "additionalProperties": false,
+      "required": ["declaration_kind", "route_name", "path_template", "method", "methods_declared", "controller_ref", "import_ref", "deprecated"],
+      "properties": {
+        "declaration_kind": {"type": "string", "enum": ["yaml_route_block", "controller_annotation", "imported_route", "vendor_route", "unknown"]},
+        "route_name": {"type": ["string", "null"]},
+        "path_template": {"type": ["string", "null"]},
+        "method": {"type": ["string", "null"], "pattern": "^[A-Z]+$"},
+        "methods_declared": {"type": "array", "uniqueItems": true, "items": {"type": "string", "pattern": "^[A-Z]+$"}},
+        "controller_ref": {"type": ["string", "null"]},
+        "import_ref": {"type": ["string", "null"]},
+        "deprecated": {"type": "boolean"}
+      }
+    },
+    "monoRouteDetails": {
+      "type": "object", "additionalProperties": false,
+      "required": ["declaration_kind", "route_origin", "route_name", "path_template", "method", "owner_ref", "runtime_resolved", "imported_from_ref"],
+      "properties": {
+        "declaration_kind": {"type": "string", "enum": ["controller_attribute", "api_platform", "imported_route", "vendor_route", "unknown"]},
+        "route_origin": {"type": "string", "enum": ["controller", "api_platform", "imported", "vendor"]},
+        "route_name": {"type": ["string", "null"]},
+        "path_template": {"type": ["string", "null"]},
+        "method": {"type": ["string", "null"], "pattern": "^[A-Z]+$"},
+        "owner_ref": {"type": ["string", "null"]},
+        "runtime_resolved": {"type": "boolean"},
+        "imported_from_ref": {"type": ["string", "null"]}
+      }
+    },
+    "apiOperationDetails": {
+      "type": "object", "additionalProperties": false,
+      "required": ["resource_class_ref", "resource_key", "operation_name", "method", "uri_template", "operation_id", "provider_ref", "processor_ref", "schema_ref", "openapi_projection_ref"],
+      "properties": {
+        "resource_class_ref": {"type": ["string", "null"]},
+        "resource_key": {"type": ["string", "null"]},
+        "operation_name": {"type": ["string", "null"]},
+        "method": {"type": ["string", "null"], "pattern": "^[A-Z]+$"},
+        "uri_template": {"type": ["string", "null"]},
+        "operation_id": {"type": ["string", "null"]},
+        "provider_ref": {"type": ["string", "null"]},
+        "processor_ref": {"type": ["string", "null"]},
+        "schema_ref": {"type": ["string", "null"]},
+        "openapi_projection_ref": {"type": ["string", "null"]}
+      }
+    },
+    "commandWriteDetails": {
+      "type": "object", "additionalProperties": false,
+      "required": ["entry_kind", "owner_ref", "command_name", "symbol_ref", "effect_classes", "target_refs", "write_contract_ref"],
+      "properties": {
+        "entry_kind": {"type": "string", "enum": ["custom_command", "controller_write", "repository_write", "api_processor", "event_handler", "message_consumer", "integration_write", "unknown"]},
+        "owner_ref": {"type": ["string", "null"]},
+        "command_name": {"type": ["string", "null"]},
+        "symbol_ref": {"type": ["string", "null"]},
+        "effect_classes": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "enum": ["read_only", "durable_write", "identity_or_authority", "outbound", "filesystem", "scheduler", "unknown"]}},
+        "target_refs": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "write_contract_ref": {"type": ["string", "null"]}
+      }
+    },
+    "scheduleBackgroundDetails": {
+      "type": "object", "additionalProperties": false,
+      "required": ["trigger_kind", "trigger_identity", "schedule_expression", "owner_ref", "handler_ref", "enabled", "repository_owned", "runtime_registered"],
+      "properties": {
+        "trigger_kind": {"type": "string", "enum": ["cron", "queue", "event", "manual", "workflow_dispatch", "startup", "webhook", "unknown"]},
+        "trigger_identity": {"type": ["string", "null"]},
+        "schedule_expression": {"type": ["string", "null"]},
+        "owner_ref": {"type": ["string", "null"]},
+        "handler_ref": {"type": ["string", "null"]},
+        "enabled": {"type": ["boolean", "null"]},
+        "repository_owned": {"type": "boolean"},
+        "runtime_registered": {"type": ["boolean", "null"]}
+      }
+    },
+    "externalIntegrationDetails": {
+      "type": "object", "additionalProperties": false,
+      "required": ["provider_ref", "direction", "protocol", "endpoint_ref", "credential_slot_ref", "call_site_ref", "contract_ref", "effect_classes"],
+      "properties": {
+        "provider_ref": {"type": ["string", "null"]},
+        "direction": {"type": "string", "enum": ["inbound", "outbound", "bidirectional"]},
+        "protocol": {"type": ["string", "null"]},
+        "endpoint_ref": {"type": ["string", "null"]},
+        "credential_slot_ref": {"type": ["string", "null"]},
+        "call_site_ref": {"type": ["string", "null"]},
+        "contract_ref": {"type": ["string", "null"]},
+        "effect_classes": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "enum": ["read_only", "durable_write", "identity_or_authority", "outbound", "filesystem", "scheduler", "unknown"]}}
+      }
+    },
+    "userJourneyDetails": {
+      "type": "object", "additionalProperties": false,
+      "required": ["journey_ref_id", "journey_key", "intent_ref_id", "steps", "coverage_scope"],
+      "properties": {
+        "journey_ref_id": {"type": "string", "minLength": 1},
+        "journey_key": {"type": "string", "minLength": 1},
+        "intent_ref_id": {"type": "string", "minLength": 1},
+        "steps": {
+          "type": "array", "items": {
+            "type": "object", "additionalProperties": false,
+            "required": ["step_id", "surface", "row_ids", "canonical_signatures", "expected_contract_ref", "runtime_evidence_ref_ids"],
+            "properties": {
+              "step_id": {"type": "string", "minLength": 1},
+              "surface": {"type": "string", "enum": ["legacy_route", "mono_route", "api_operation", "command_write", "schedule_background", "external_integration"]},
+              "row_ids": {"type": "array", "uniqueItems": true, "items": {"type": "string", "pattern": "^row-[a-f0-9]{64}$"}},
+              "canonical_signatures": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+              "expected_contract_ref": {"type": ["string", "null"]},
+              "runtime_evidence_ref_ids": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
+            },
+            "allOf": [{"anyOf": [{"properties": {"row_ids": {"minItems": 1}}}, {"properties": {"canonical_signatures": {"minItems": 1}}}]}]
+          }
+        },
+        "coverage_scope": {"type": "string", "enum": ["user_visible", "operator_visible", "background", "accepted_non_user_facing"]}
+      }
+    }
+  }
+}
