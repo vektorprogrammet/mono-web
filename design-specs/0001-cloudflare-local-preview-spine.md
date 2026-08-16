@@ -259,7 +259,7 @@ The first implementation candidate passed the frozen install, then ran `bun run 
 
 The corrected candidate used Node `24.18`, `WRANGLER_LOG_PATH=.wrangler/logs`, and the exact pinned compatibility date `2026-08-08`. It started Wrangler/workerd and passed `GET /health` with the exact body and headers, unknown-route `GET` with `404`, `POST /health` with `405` and `Allow: GET`, supervised stop, and the closed-port check. On this workstation Node was supplied by `nix shell nixpkgs#nodejs_24`; Nix is not a product requirement. Bun remains the package manager, installer, and script runner; the Wrangler CLI requires Node `>=22`.
 
-The compatibility date derives from exact `wrangler@4.120.0` and its bundled workerd maximum; it may change only after an explicit dependency/runtime review. The failed Bun fallback, implicit-date failure, and global-log creation remain recorded historical implementation Drift; independent review resolved and disposed of that Drift for this revision, and status is `accepted`.
+The compatibility date derives from the active dependency pin in accepted mono-web spec 0023 and that dependency's bundled workerd maximum; it may change only after an explicit dependency/runtime review recorded by the pin authority. The failed Bun fallback, implicit-date failure, and global-log creation remain recorded historical implementation Drift; independent review resolved and disposed of that Drift for this revision, and status is `accepted`.
 
 ## Falsifiers and definition of done
 
