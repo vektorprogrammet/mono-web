@@ -10,7 +10,7 @@
     "build": "react-router build",
     "dev": "react-router dev",
     "start": "react-router-serve build/server/index.js",
-    "typecheck": "react-router typegen && tsc",
+    "check-types": "react-router typegen && tsc",
     "lint": "oxlint",
     "format": "oxfmt --write",
     "test:e2e": "node ./node_modules/@playwright/test/cli.js test",

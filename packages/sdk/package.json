@@ -15,6 +15,7 @@
   "files": ["dist"],
   "scripts": {
     "build": "tsc -b",
+    "check-types": "tsc -b",
     "lint": "oxlint",
     "test": "vitest run",
     "release": "changeset publish"

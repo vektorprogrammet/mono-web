@@ -1,43 +1,48 @@
 import { DataTable } from "@/components/data-table";
 import type { ColumnDef } from "@tanstack/react-table";
-import { isFixtureMode } from "@vektorprogrammet/sdk";
+import type { Interview } from "@vektorprogrammet/sdk";
 import { useLoaderData } from "react-router";
 import { requireAuth } from "../lib/auth.server";
 import { createAuthenticatedClient } from "../lib/api.server";
 import type { Route } from "./+types/dashboard.intervjuer._index";
 
-type Interview = {
-  applicant: string;
-  interviewer: string;
-  date: string;
-  status: string;
-};
-
-const mockInterviews: Array<Interview> = [
-  { applicant: "Ole Normann", interviewer: "Kari Nordmann", date: "2025-01-15", status: "Gjennomfort" },
-  { applicant: "Lise Berg", interviewer: "Per Olsen", date: "2025-01-16", status: "Planlagt" },
-  { applicant: "Jonas Lie", interviewer: "Kari Nordmann", date: "2025-01-17", status: "Avlyst" },
-];
+type InterviewRow = Pick<
+  Interview,
+  "id" | "applicationId" | "interviewerName" | "interviewTime" | "schedulingStatus"
+>;
 
 export async function loader({ request }: Route.LoaderArgs) {
-  if (isFixtureMode) return { interviews: mockInterviews };
-
   const token = requireAuth(request);
   const client = createAuthenticatedClient(token);
+  const result = await client.admin.interviews.list();
+  const interviews = result.items.map(
+    ({ id, applicationId, interviewerName, interviewTime, schedulingStatus }) => ({
+      id,
+      applicationId,
+      interviewerName,
+      interviewTime,
+      schedulingStatus,
+    }),
+  );
 
-  try {
-    const interviews = await client.admin.interviews.list();
-    return { interviews: interviews ?? null };
-  } catch {
-    return { interviews: null };
-  }
+  return { interviews };
 }
 
-const columns: Array<ColumnDef<Interview>> = [
-  { accessorKey: "applicant", header: "Soker" },
-  { accessorKey: "interviewer", header: "Intervjuer" },
-  { accessorKey: "date", header: "Dato" },
-  { accessorKey: "status", header: "Status" },
+const columns: Array<ColumnDef<InterviewRow>> = [
+  { accessorKey: "id", header: "ID" },
+  { accessorKey: "applicationId", header: "Søknad" },
+  {
+    id: "name",
+    accessorKey: "interviewerName",
+    header: "Intervjuer",
+    cell: ({ row }) => row.original.interviewerName ?? "Unavailable",
+  },
+  {
+    accessorKey: "interviewTime",
+    header: "Tid",
+    cell: ({ row }) => row.original.interviewTime ?? "Unavailable",
+  },
+  { accessorKey: "schedulingStatus", header: "Planleggingsstatus" },
 ];
 
 // biome-ignore lint/style/noDefaultExport: Route Modules require default export
@@ -48,7 +53,7 @@ export default function Intervjuer() {
     <section className="flex w-full min-w-0 flex-col items-center">
       <h1 className="mb-10 font-semibold text-2xl">Intervjuer</h1>
       <div className="w-full max-w-7xl px-4 sm:px-6 lg:px-8">
-        <DataTable columns={columns} data={interviews ?? []} />
+        <DataTable columns={columns} data={interviews} />
       </div>
     </section>
   );

@@ -8,7 +8,7 @@
     "build": "vite build",
     "worker:build": "vite build",
     "worker:dev": "vite preview --host 127.0.0.1 --port 8787 --strictPort",
-    "check-types": "tsc --noEmit",
+    "check-types": "react-router typegen && tsc",
     "test:resolver": "vitest run --config vitest.config.ts test/host.test.ts",
     "test:dev-content": "vitest run test/dev-content.test.ts",
     "test": "vitest run",

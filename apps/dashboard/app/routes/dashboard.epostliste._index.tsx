@@ -1,34 +1,24 @@
 import { DataTable } from "@/components/data-table";
 import type { ColumnDef } from "@tanstack/react-table";
-import { isFixtureMode } from "@vektorprogrammet/sdk";
+import type { MailingList } from "@vektorprogrammet/sdk";
 import { useLoaderData } from "react-router";
 import { requireAuth } from "../lib/auth.server";
 import { createAuthenticatedClient } from "../lib/api.server";
 import type { Route } from "./+types/dashboard.epostliste._index";
 
-type MailingListEntry = {
-  name: string;
-  email: string;
+type MailingListEntry = Pick<MailingList, "name"> & {
+  email: MailingList["emails"][number];
 };
 
-const mockMailingList: Array<MailingListEntry> = [
-  { name: "Kari Nordmann", email: "kari@ntnu.no" },
-  { name: "Ola Hansen", email: "ola@ntnu.no" },
-  { name: "Lise Berg", email: "lise@ntnu.no" },
-];
-
 export async function loader({ request }: Route.LoaderArgs) {
-  if (isFixtureMode) return { mailingLists: mockMailingList };
-
   const token = requireAuth(request);
   const client = createAuthenticatedClient(token);
+  const lists = await client.admin.mailingLists();
+  const mailingLists = lists.flatMap((list) =>
+    list.emails.map((email) => ({ name: list.name, email })),
+  );
 
-  try {
-    const mailingLists = await client.admin.mailingLists();
-    return { mailingLists: mailingLists ?? null };
-  } catch {
-    return { mailingLists: null };
-  }
+  return { mailingLists };
 }
 
 const columns: Array<ColumnDef<MailingListEntry>> = [
@@ -44,7 +34,7 @@ export default function Epostliste() {
     <section className="flex w-full min-w-0 flex-col items-center">
       <h1 className="mb-10 font-semibold text-2xl">E-postliste</h1>
       <div className="w-full max-w-7xl px-4 sm:px-6 lg:px-8">
-        <DataTable columns={columns} data={mailingLists ?? []} />
+        <DataTable columns={columns} data={mailingLists} />
       </div>
     </section>
   );

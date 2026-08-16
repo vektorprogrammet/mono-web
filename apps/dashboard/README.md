@@ -57,7 +57,7 @@ proof.
 Run dashboard type generation and TypeScript checking from the repository root:
 
 ```sh
-bun --cwd apps/dashboard run typecheck
+bun run --cwd apps/dashboard check-types
 ```
 
 ### Testing
