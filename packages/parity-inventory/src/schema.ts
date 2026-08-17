@@ -24,5 +24,5 @@ export const validateOpenApiReconciliation = (value: unknown): value is OpenApiR
 
 export const validateReport = (value: unknown): value is ZeroGapReport => reportValidator(value) === true
 
-export const validateArtifacts = (manifest: unknown, legacy: unknown, mono: unknown, reconciliation: unknown, report: unknown): boolean =>
-  validateSourceManifest(manifest) && validateInventory(legacy) && validateInventory(mono) && validateOpenApiReconciliation(reconciliation) && validateReport(report)
+export const validateArtifacts = (manifest: unknown, legacy: unknown, mono: unknown, api: unknown, reconciliation: unknown, report: unknown): boolean =>
+  validateSourceManifest(manifest) && validateInventory(legacy) && validateInventory(mono) && validateInventory(api) && validateOpenApiReconciliation(reconciliation) && validateReport(report)

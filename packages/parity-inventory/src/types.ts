@@ -388,6 +388,8 @@ export interface OpenApiReconciliation {
   readonly source_manifest_sha256: string | null
   readonly committed_source_ref_ids: readonly string[]
   readonly regenerated_source_ref_ids: readonly string[]
+  readonly committed_document_sha256: string | null
+  readonly regenerated_document_sha256: string | null
   readonly committed_sha256: string | null
   readonly regenerated_sha256: string | null
   readonly only_committed: readonly string[]
@@ -476,9 +478,11 @@ export interface GeneratedArtifacts {
   readonly sourceManifest: SourceManifest
   readonly legacyRoutes: InventoryEnvelope
   readonly monoRoutes: InventoryEnvelope
+  readonly apiOperations: InventoryEnvelope
   readonly openapiReconciliation: OpenApiReconciliation
   readonly report: ZeroGapReport
   readonly bytes: Readonly<Record<string, string>>
   readonly failures: readonly ReportFailure[]
   readonly routeRows: readonly InventoryRow[]
+  readonly apiRows: readonly InventoryRow[]
 }

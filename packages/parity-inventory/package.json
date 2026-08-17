@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./api": "./src/api.ts",
     "./canonical": "./src/canonical.ts",
     "./routes": "./src/routes.ts",
     "./runtime": "./src/runtime.ts",

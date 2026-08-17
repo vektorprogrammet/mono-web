@@ -3,7 +3,7 @@
   "$id": "functional-parity-openapi-reconciliation/v1",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "status", "source_manifest_sha256", "committed_source_ref_ids", "regenerated_source_ref_ids", "committed_sha256", "regenerated_sha256", "only_committed", "only_regenerated", "changed_operations"],
+  "required": ["schema_version", "status", "source_manifest_sha256", "committed_source_ref_ids", "regenerated_source_ref_ids", "committed_document_sha256", "regenerated_document_sha256", "committed_sha256", "regenerated_sha256", "only_committed", "only_regenerated", "changed_operations"],
   "properties": {
     "$schema": {"type": "string", "const": "https://json-schema.org/draft/2020-12/schema"},
     "schema_version": {"type": "string", "const": "functional-parity-openapi-reconciliation/v1"},
@@ -11,6 +11,8 @@
     "source_manifest_sha256": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]},
     "committed_source_ref_ids": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
     "regenerated_source_ref_ids": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "committed_document_sha256": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]},
+    "regenerated_document_sha256": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]},
     "committed_sha256": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]},
     "regenerated_sha256": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]},
     "only_committed": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
@@ -18,7 +20,7 @@
     "changed_operations": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
   },
   "allOf": [
-    {"if": {"properties": {"status": {"const": "current"}}}, "then": {"properties": {"source_manifest_sha256": {"$ref": "#/$defs/sha256"}, "committed_source_ref_ids": {"minItems": 1}, "regenerated_source_ref_ids": {"minItems": 1}, "committed_sha256": {"$ref": "#/$defs/sha256"}, "regenerated_sha256": {"$ref": "#/$defs/sha256"}, "only_committed": {"maxItems": 0}, "only_regenerated": {"maxItems": 0}, "changed_operations": {"maxItems": 0}}}},
+    {"if": {"properties": {"status": {"const": "current"}}}, "then": {"properties": {"source_manifest_sha256": {"$ref": "#/$defs/sha256"}, "committed_source_ref_ids": {"minItems": 1}, "regenerated_source_ref_ids": {"minItems": 1}, "committed_document_sha256": {"$ref": "#/$defs/sha256"}, "regenerated_document_sha256": {"$ref": "#/$defs/sha256"}, "committed_sha256": {"$ref": "#/$defs/sha256"}, "regenerated_sha256": {"$ref": "#/$defs/sha256"}, "only_committed": {"maxItems": 0}, "only_regenerated": {"maxItems": 0}, "changed_operations": {"maxItems": 0}}}},
     {"if": {"properties": {"status": {"enum": ["stale", "unresolved"]}}}, "then": {"properties": {"source_manifest_sha256": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]}}}}
   ],
   "$defs": {"sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}}

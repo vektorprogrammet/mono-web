@@ -1,11 +1,13 @@
 import { Effect } from "effect"
 import { execFileSync, spawnSync } from "node:child_process"
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { validateReport } from "../src/schema.js"
-import { isUnsafeSourcePath, sanitizeScalar, unsafeScalarReason, unsafeSourceScalarReason } from "../src/source-manifest.js"
+import { collectApiOperations } from "../src/api.js"
+import { createManifestContextFromSnapshots, isUnsafeSourcePath, sanitizeScalar, unsafeScalarReason, unsafeSourceScalarReason } from "../src/source-manifest.js"
 import { run, type FalsifierId } from "../src/runner.js"
 import { scanRootEffect } from "../src/runtime.js"
+import { canonicalJson, sha256 } from "../src/canonical.js"
 
 const falsifiers: readonly FalsifierId[] = [
   "F0_deterministic_replay",
@@ -18,7 +20,7 @@ const falsifiers: readonly FalsifierId[] = [
   "F7_method_path_mismatch",
 ]
 
-describe("C0 fixture falsifiers", () => {
+describe("C0 and C1 fixture falsifiers", () => {
   for (const falsifierId of falsifiers) {
     test(`${falsifierId} uses the frozen synthetic fixture tree`, async () => {
       const result = await Effect.runPromise(run({
@@ -33,13 +35,42 @@ describe("C0 fixture falsifiers", () => {
     })
   }
 
-  test("F8 remains fail-closed until a later capsule", async () => {
-    const result = await Effect.runPromise(run({ root: ".", legacyRoot: ".", mode: "fixture_injection", falsifierId: "F8_openapi_stale" }))
-    expect(result.exitCode).toBe(12)
-    expect(result.report.exit_code).toBe(12)
-    expect(result.report.status).toBe("command_error")
-    expect(result.report.failures.map((failure) => failure.reason_code)).toContain("C0_FALSIFIER_NOT_IMPLEMENTED")
-  })
+  for (const falsifierId of ["F8_openapi_stale", "F9_runtime_unavailable", "F10_static_runtime_mismatch", "F16_h3_authority_copy"] as const) {
+    test(`${falsifierId} preserves C1 authority boundaries`, async () => {
+      const result = await Effect.runPromise(run({ root: ".", legacyRoot: ".", mode: "fixture_injection", falsifierId }))
+      expect(result.exitCode).toBe(13)
+      expect(result.report.status).toBe("falsifier_passed")
+      expect(result.report.openapi_reconciliation_ref).toBe("openapi-reconciliation.json")
+      expect(result.artifacts?.apiOperations.inventory_kind).toBe("api_operation")
+      if (falsifierId === "F8_openapi_stale") {
+        expect(result.artifacts?.report).toMatchObject({ status: "stale", exit_code: 5 })
+        expect(result.artifacts?.openapiReconciliation.status).toBe("stale")
+      } else if (falsifierId === "F9_runtime_unavailable") {
+        expect(result.artifacts?.report).toMatchObject({ status: "runtime_unavailable", exit_code: 10 })
+      } else if (falsifierId === "F10_static_runtime_mismatch") {
+        expect(result.artifacts?.apiRows.some((row) => row.status === "changed" && row.observation_kinds.includes("static_source") && row.observation_kinds.includes("runtime_resolution"))).toBe(true)
+      } else {
+        expect(result.artifacts?.report).toMatchObject({ status: "schema_invalid", exit_code: 8 })
+        expect(result.artifacts?.apiOperations.rows.every((row) => row.observation_kinds.includes("derived_h3") === false)).toBe(true)
+      }
+    })
+  }
+})
+test("C1 H3 derivation dedup preserves unique route rows and all edge contracts", async () => {
+  const result = await Effect.runPromise(run({ root: ".", legacyRoot: ".", mode: "fixture_injection", falsifierId: "F0_deterministic_replay" }))
+  const artifacts = result.artifacts
+  if (artifacts === undefined) throw new Error("fixture artifacts unavailable")
+  const allRows = [...artifacts.legacyRoutes.rows, ...artifacts.monoRoutes.rows, ...artifacts.apiOperations.rows]
+  expect(new Set(artifacts.monoRoutes.rows.map((row) => row.row_id)).size).toBe(artifacts.monoRoutes.rows.length)
+  expect(new Set(allRows.map((row) => row.row_id)).size).toBe(allRows.length)
+  const edgeNames = [...artifacts.monoRoutes.derivation_edges, ...artifacts.apiOperations.derivation_edges].map((edge) => edge.derivation).sort()
+  expect([...new Set(edgeNames)]).toEqual(["E-H3-CANONICALIZATION", "E-H3-RECONCILIATION", "E-H3-RESOURCE-DERIVATION", "E-H3-ROUTE-DERIVATION"].sort())
+  expect(artifacts.monoRoutes.observations.some((observation) => observation.label === "h3_route_inventory")).toBe(true)
+  expect(artifacts.apiOperations.observations.some((observation) => observation.label === "h3_resource_inventory")).toBe(true)
+  for (const edge of [...artifacts.monoRoutes.derivation_edges, ...artifacts.apiOperations.derivation_edges]) {
+    expect(edge.from_ref_ids.length).toBeGreaterThan(0)
+    expect(edge.to_row_ids.length).toBeGreaterThan(0)
+  }
 })
 const gitFixture = (): string => {
   const root = mkdtempSync("/tmp/functional-parity-git-")
@@ -54,6 +85,130 @@ const putFixture = (root: string, path: string, text: string): void => {
   mkdirSync(dirname(target), { recursive: true })
   writeFileSync(target, text, "utf8")
 }
+test("real target API identities and normalized H3 edges do not invoke ambient runtime", async () => {
+  const sourceRoot = join(import.meta.dir, "../../..")
+  const monoRoot = gitFixture()
+  const legacyRoot = gitFixture()
+  const copiedPaths = new Set([
+    "evidence/security-h3/0015/source-manifest.json",
+    "evidence/security-h3/0015/route-collector.json",
+    "evidence/security-h3/0015/current-route-inventory.json",
+    "evidence/security-h3/0015/current-resource-inventory.json",
+    "apps/server/tools/security-h3/0015/generate.ts",
+    "packages/sdk/openapi.json",
+  ])
+  const sourceManifest = JSON.parse(readFileSync(join(sourceRoot, "evidence/security-h3/0015/source-manifest.json"), "utf8")) as readonly { readonly path: string }[]
+  for (const source of sourceManifest) copiedPaths.add(source.path)
+  try {
+    for (const path of copiedPaths) {
+      const target = join(monoRoot, path)
+      mkdirSync(dirname(target), { recursive: true })
+      writeFileSync(target, readFileSync(join(sourceRoot, path)))
+    }
+    execFileSync("git", ["-C", monoRoot, "add", "."])
+    execFileSync("git", ["-C", monoRoot, "commit", "-qm", "real-target-probe"])
+    execFileSync("git", ["-C", legacyRoot, "commit", "--allow-empty", "-qm", "empty-legacy-probe"])
+    const mono = await Effect.runPromise(scanRootEffect(monoRoot, "mono"))
+    const legacy = await Effect.runPromise(scanRootEffect(legacyRoot, "legacy"))
+    const context = createManifestContextFromSnapshots(legacy, mono)
+    const api = collectApiOperations(context, sha256("real-target-probe"), [], false)
+    const staticRows = api.rows.filter((row) => row.observation_kinds.includes("static_source"))
+    const deleteOperation = staticRows.find((row) => {
+      if (!("operation_name" in row.details)) return false
+      return row.details.operation_name === "Delete" && row.details.method === "DELETE" && row.details.uri_template === "/admin/admission-periods/{id}"
+    })
+    const openApi = JSON.parse(readFileSync(join(sourceRoot, "packages/sdk/openapi.json"), "utf8")) as { readonly paths?: { readonly paths?: Record<string, Record<string, { readonly operationId?: string } | null>> } }
+    expect(staticRows.length).toBeGreaterThan(0)
+    expect(deleteOperation).toBeDefined()
+    expect(openApi.paths?.paths?.["/api/admin/admission-periods/{id}"]?.delete?.operationId).toBe("api_adminadmission-periods_id_delete")
+    expect(api.reconciliation.committed_sha256).toBeNull()
+    expect(api.failures.some((failure) => failure.reasonCode === "OPENAPI_SCHEMA_INVALID")).toBe(true)
+    expect(api.inventory.derivation_edges.length).toBeGreaterThan(0)
+    expect(api.inventory.derivation_edges.some((edge) => edge.edge_type === "observed_inventory" && edge.to_row_ids.length > 0)).toBe(true)
+    expect(api.inventory.derivation_edges.every((edge) => edge.from_ref_ids.length > 0 && edge.to_row_ids.length > 0)).toBe(true)
+    expect(api.failures.some((failure) => failure.reasonCode === "RUNTIME_UNAVAILABLE")).toBe(true)
+  } finally {
+    rmSync(monoRoot, { recursive: true, force: true })
+    rmSync(legacyRoot, { recursive: true, force: true })
+  }
+})
+test("malformed and unsafe OpenAPI documents remain schema-invalid and write-blocked", async () => {
+  const payloads = [
+    { openapi: "3.1.0", info: { title: "Fixture API", version: "1.0.0" }, paths: { "/fixture/api": { get: { operationId: "fixture_api" } } }, components: {} },
+    { openapi: "3.1.0", info: { title: "Fixture API", version: "1.0.0" }, paths: { "/fixture/api": { get: { responses: { "200": { "$ref": "#/components/responses/constructor" } } } } }, components: { responses: {} } },
+    { openapi: "3.1", info: { title: "Fixture API", version: "1.0.0" }, paths: {}, components: {} },
+    { openapi: "3.1.0", info: { title: "Fixture API", version: "1.0.0" }, paths: { paths: {} }, components: {} },
+    { openapi: "3.1.0", info: { title: "Fixture API", version: "1.0.0" }, paths: {}, components: { responses: [] } },
+  ] as const
+  for (const payload of payloads) {
+    const monoRoot = gitFixture()
+    const legacyRoot = gitFixture()
+    try {
+      putFixture(monoRoot, "apps/server/src/App/Api/Resource/Fixture.php", "<?php\nnamespace App\\Fixture\\Api\\Resource;\nuse ApiPlatform\\Metadata\\ApiResource;\nuse ApiPlatform\\Metadata\\Get;\n#[ApiResource(operations: [new Get(uriTemplate: '/fixture/api', name: 'fixture_api')])]\nfinal class FixtureResource {}\n")
+      putFixture(monoRoot, "apps/server/bin/console", "<?php\n")
+      putFixture(monoRoot, "apps/server/vendor/autoload.php", "<?php\n")
+      putFixture(monoRoot, "packages/sdk/openapi.json", JSON.stringify(payload))
+      execFileSync("git", ["-C", monoRoot, "add", "."])
+      execFileSync("git", ["-C", monoRoot, "add", "-f", "apps/server/vendor/autoload.php"])
+      execFileSync("git", ["-C", monoRoot, "commit", "-qm", "openapi-boundary"])
+      const receipt = cliReport(monoRoot, legacyRoot, "write")
+      expect(receipt.report.failures).toEqual(expect.arrayContaining([expect.objectContaining({ status: "schema_invalid", reason_code: "OPENAPI_SCHEMA_INVALID" })]))
+      expect(receipt.report.projection_write).toMatchObject({ status: "blocked" })
+    } finally {
+      rmSync(monoRoot, { recursive: true, force: true })
+      rmSync(legacyRoot, { recursive: true, force: true })
+    }
+  }
+})
+test("API metadata-only runtime disagreement remains changed without identity fallback", async () => {
+  const monoRoot = gitFixture()
+  const legacyRoot = gitFixture()
+  try {
+    putFixture(monoRoot, "apps/server/src/App/Api/Resource/Fixture.php", "<?php\nnamespace App\\Fixture\\Api\\Resource;\nuse ApiPlatform\\Metadata\\ApiResource;\nuse ApiPlatform\\Metadata\\Get;\n#[ApiResource(shortName: 'Fixture', operations: [new Get(uriTemplate: '/fixture/api', name: 'fixture_api')])]\nfinal class FixtureResource {}\n")
+    putFixture(monoRoot, "apps/server/var/parity/api-operations.json", JSON.stringify([{ resource_class_ref: "App\\Fixture\\Api\\Resource\\FixtureResource", resource_key: "RuntimeFixture", operation_name: "Get", method: "GET", uri_template: "/fixture/api", operation_id: "fixture_api", provider_ref: "App\\Fixture\\Api\\State\\RuntimeProvider", schema_ref: "RuntimeSchema" }]))
+    putFixture(monoRoot, "packages/sdk/openapi.json", JSON.stringify({ openapi: "3.1.0", info: { title: "Fixture API", version: "1.0.0" }, paths: { "/fixture/api": { get: { operationId: "fixture_api", responses: { "200": { description: "OK" } } } } }, components: {} }))
+    execFileSync("git", ["-C", monoRoot, "add", "."])
+    execFileSync("git", ["-C", monoRoot, "commit", "-qm", "metadata-mismatch"])
+    execFileSync("git", ["-C", legacyRoot, "commit", "--allow-empty", "-qm", "empty-legacy"])
+    const mono = await Effect.runPromise(scanRootEffect(monoRoot, "mono"))
+    const legacy = await Effect.runPromise(scanRootEffect(legacyRoot, "legacy"))
+    const api = collectApiOperations(createManifestContextFromSnapshots(legacy, mono), sha256("metadata-mismatch"), [], true)
+    const changedRows = api.rows.filter((row) => row.status === "changed" && row.observation_kinds.includes("static_source") && row.observation_kinds.includes("runtime_resolution"))
+    expect(changedRows.length).toBe(1)
+    expect(changedRows[0]?.reason_codes).toContain("STATIC_RUNTIME_MISMATCH")
+  } finally {
+    rmSync(monoRoot, { recursive: true, force: true })
+    rmSync(legacyRoot, { recursive: true, force: true })
+  }
+})
+test("canonical JSON preserves prototype-named own keys and digest distinctions", () => {
+  const aliased = JSON.parse('{"components":{"schemas":{"__proto__":{"type":"string"}}}}') as Record<string, unknown>
+  const empty = JSON.parse('{"components":{"schemas":{}}}') as Record<string, unknown>
+  const canonical = canonicalJson(aliased)
+  expect(canonical).toContain('"__proto__"')
+  expect(JSON.parse(canonical)).toEqual(aliased)
+  expect(sha256(canonical)).not.toBe(sha256(canonicalJson(empty)))
+})
+test("OpenAPI prototype-named component changes stale the zero-operation reconciliation", async () => {
+  const monoRoot = gitFixture()
+  const legacyRoot = gitFixture()
+  try {
+    putFixture(monoRoot, "apps/server/var/parity/api-operations.json", "[]")
+    putFixture(monoRoot, "packages/sdk/openapi.json", JSON.stringify({ openapi: "3.1.0", info: { title: "Fixture API", version: "1.0.0" }, paths: {}, components: { schemas: JSON.parse('{"__proto__":{"type":"string"}}') } }))
+    execFileSync("git", ["-C", monoRoot, "add", "."])
+    execFileSync("git", ["-C", monoRoot, "commit", "-qm", "openapi-alias"])
+    execFileSync("git", ["-C", legacyRoot, "commit", "--allow-empty", "-qm", "empty-legacy"])
+    const mono = await Effect.runPromise(scanRootEffect(monoRoot, "mono"))
+    const legacy = await Effect.runPromise(scanRootEffect(legacyRoot, "legacy"))
+    const api = collectApiOperations(createManifestContextFromSnapshots(legacy, mono), sha256("openapi-alias"), [], true)
+    expect(api.reconciliation.status).toBe("stale")
+    expect(api.reconciliation.committed_document_sha256).not.toBe(api.reconciliation.regenerated_document_sha256)
+    expect(api.failures.some((failure) => failure.reasonCode === "STALE_OPENAPI_PROJECTION")).toBe(true)
+  } finally {
+    rmSync(monoRoot, { recursive: true, force: true })
+    rmSync(legacyRoot, { recursive: true, force: true })
+  }
+})
 const cliReport = (root: string, legacyRoot: string, mode: "diff" | "write" = "diff"): { readonly status: number | null; readonly report: Record<string, unknown>; readonly output: string } => {
   const process = spawnSync("bun", ["run", "src/main.ts", "--root", root, "--legacy-root", legacyRoot, "--mode", mode], { cwd: join(import.meta.dir, ".."), encoding: "utf8" })
   const output = process.stdout

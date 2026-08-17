@@ -5,6 +5,7 @@ import type {
   IgnoreRule,
   RevisionRecord,
   RootCensusRecord,
+  RuntimeObservation,
   SourceManifest,
   SourceRecord,
 } from "./types.js"
@@ -205,7 +206,7 @@ export interface ManifestContext {
   readonly rootCensus: RootCensusRecord[]
   readonly censusRoots: CensusRoot[]
   readonly revisions: RevisionRecord[]
-  readonly runtimeObservations: []
+  readonly runtimeObservations: RuntimeObservation[]
   readonly ignoreRules: readonly IgnoreRule[]
   readonly sourceByKey: Map<string, string>
   readonly sourcePathById: Map<string, { readonly rootRef: "legacy" | "mono"; readonly path: string }>
@@ -443,14 +444,23 @@ const makeSource = (context: ManifestContext, params: {
 }
 export const addSourceReference = (context: ManifestContext, params: Parameters<typeof makeSource>[1]): string => makeSource(context, params).source_id
 
-export const readSourceText = (context: ManifestContext, rootRef: "legacy" | "mono", path: string): string | null => {
+export type SourceTextResult =
+  | { readonly status: "available"; readonly text: string }
+  | { readonly status: "unavailable"; readonly reason: "SOURCE_UNAVAILABLE" | "INVALID_UTF8" }
+
+export const readSourceTextDetailed = (context: ManifestContext, rootRef: "legacy" | "mono", path: string): SourceTextResult => {
   const scan = context.scans[rootRef].files.find((file) => file.path === path)
-  if (scan === undefined || scan.availability === "unavailable" || scan.bytes === null) return null
+  if (scan === undefined || scan.availability === "unavailable" || scan.bytes === null) return { status: "unavailable", reason: "SOURCE_UNAVAILABLE" }
   try {
-    return new TextDecoder("utf-8", { fatal: true }).decode(scan.bytes)
+    return { status: "available", text: new TextDecoder("utf-8", { fatal: true }).decode(scan.bytes) }
   } catch {
-    return null
+    return { status: "unavailable", reason: "INVALID_UTF8" }
   }
+}
+
+export const readSourceText = (context: ManifestContext, rootRef: "legacy" | "mono", path: string): string | null => {
+  const result = readSourceTextDetailed(context, rootRef, path)
+  return result.status === "available" ? result.text : null
 }
 
 const sourceFamiliesFor = (rootRef: "legacy" | "mono"): readonly SourceFamily[] => SOURCE_FAMILIES.filter((family) => family.authority_line === rootRef)
@@ -536,7 +546,8 @@ export const finalizeManifest = (context: ManifestContext): SourceManifest => {
   const ignoreRules = [...context.ignoreRules].sort((a, b) => compareByteOrder(a.root_ref, b.root_ref) || a.precedence - b.precedence || compareByteOrder(a.pattern, b.pattern) || compareByteOrder(a.ignore_rule_id, b.ignore_rule_id))
   const censusRoots = [...context.censusRoots].sort((a, b) => compareByteOrder(a.root_ref, b.root_ref))
   const revisions = [...context.revisions].sort((a, b) => compareByteOrder(a.revision_ref_id, b.revision_ref_id))
-  const logical = { census_roots: censusRoots, revisions, runtime_observations: context.runtimeObservations, root_census: rootCensus, ignore_rules: ignoreRules, sources }
+  const runtimeObservations = [...context.runtimeObservations].sort((a, b) => compareByteOrder(a.runtime_observation_ref_id, b.runtime_observation_ref_id))
+  const logical = { census_roots: censusRoots, revisions, runtime_observations: runtimeObservations, root_census: rootCensus, ignore_rules: ignoreRules, sources }
   const sourceSetSha = sha256(canonicalJson(logical))
   return {
     $schema: "https://json-schema.org/draft/2020-12/schema",
@@ -545,7 +556,7 @@ export const finalizeManifest = (context: ManifestContext): SourceManifest => {
     source_set: "legacy-and-mono-functional-parity",
     census_roots: censusRoots,
     revisions,
-    runtime_observations: [],
+    runtime_observations: runtimeObservations,
     root_census: rootCensus,
     ignore_rules: ignoreRules,
     sources,

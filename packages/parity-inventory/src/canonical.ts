@@ -31,9 +31,9 @@ const assertJsonValue = (value: unknown, path: string): void => {
 }
 
 const sortObject = (value: Record<string, unknown>): Record<string, unknown> => {
-  const result: Record<string, unknown> = {}
+  const result = Object.create(null) as Record<string, unknown>
   for (const key of Object.keys(value).sort(byteCompare)) {
-    result[key] = sortCanonical(value[key])
+    Object.defineProperty(result, key, { value: sortCanonical(value[key]), enumerable: true, configurable: true, writable: true })
   }
   return result
 }
@@ -95,7 +95,7 @@ export const canonicalRouteKey = (
 ): string => canonicalJson(["http_route", method, pathTemplate, routeName])
 
 export const declarationId = (
-  authorityLine: "legacy" | "mono",
+  authorityLine: "legacy" | "mono" | "cross_line",
   repositoryRef: string,
   logicalPath: string,
   declarationKind: string,
