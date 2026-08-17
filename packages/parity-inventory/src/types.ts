@@ -479,10 +479,14 @@ export interface GeneratedArtifacts {
   readonly legacyRoutes: InventoryEnvelope
   readonly monoRoutes: InventoryEnvelope
   readonly apiOperations: InventoryEnvelope
+  readonly commandWrites: InventoryEnvelope
+  readonly scheduledBackgroundWorkflows: InventoryEnvelope
+  readonly externalIntegrations: InventoryEnvelope
   readonly openapiReconciliation: OpenApiReconciliation
   readonly report: ZeroGapReport
   readonly bytes: Readonly<Record<string, string>>
   readonly failures: readonly ReportFailure[]
   readonly routeRows: readonly InventoryRow[]
   readonly apiRows: readonly InventoryRow[]
+  readonly c2Rows: readonly InventoryRow[]
 }

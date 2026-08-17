@@ -35,7 +35,7 @@
       "allOf": [
         {"if": {"properties": {"disposition": {"enum": ["accepted_missing", "accepted_extra", "accepted_changed", "accepted_renamed", "accepted_split", "accepted_merged", "accepted_dead_source", "accepted_absent", "accepted_not_applicable"]}}}, "then": {"properties": {"accepted_intent_ref_ids": {"minItems": 1}}}},
         {"if": {"properties": {"disposition": {"enum": ["none", "rejected"]}}}, "then": {"properties": {"accepted_intent_ref_ids": {"maxItems": 0}}}},
-        {"if": {"properties": {"kind": {"const": "absent"}}}, "then": {"properties": {"disposition": {"const": "accepted_absent"}, "accepted_intent_ref_ids": {"minItems": 1}}}}
+        {"if": {"properties": {"disposition": {"const": "accepted_absent"}}}, "then": {"properties": {"kind": {"const": "absent"}}}}
       ]
     },
     "row": {

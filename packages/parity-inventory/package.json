@@ -7,6 +7,7 @@
     ".": "./src/index.ts",
     "./api": "./src/api.ts",
     "./canonical": "./src/canonical.ts",
+    "./effects": "./src/effects.ts",
     "./routes": "./src/routes.ts",
     "./runtime": "./src/runtime.ts",
     "./schema": "./src/schema.ts",
