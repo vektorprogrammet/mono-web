@@ -3,7 +3,7 @@ import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSyn
 import { dirname, isAbsolute, join } from "node:path"
 import { tmpdir } from "node:os"
 import { canonicalJson, compareByteOrder, declarationId, edgeId, observationId, relationId, rowId, sha256, sortUnique } from "./canonical.js"
-import { addSourceReference, matchesLiteralPattern, readSourceText, readSourceTextDetailed, sanitizeScalar, unsafeScalarReason, type ManifestContext } from "./source-manifest.js"
+import { addSourceReference, matchesLiteralPattern, readSourceText, readSourceTextDetailed, sanitizeScalar, unsafeScalarReason, unsafeSourceTextReason, type ManifestContext, type OutOfBandSourceCapture } from "./source-manifest.js"
 import type {
   ApiOperationDetails,
   CollectorExecutableProvenance,
@@ -72,6 +72,10 @@ interface RuntimeOperation {
   readonly processorRef: string | null
   readonly schemaRef: string | null
 }
+export interface ApiRuntimeFixtureInput {
+  readonly path: string
+  readonly bytes: Uint8Array
+}
 
 interface RuntimeCollection {
   readonly operations: readonly RuntimeOperation[]
@@ -99,8 +103,9 @@ const OPERATION_METHODS: Readonly<Record<string, string>> = {
   Delete: "DELETE",
   Options: "OPTIONS",
 }
+export const API_RUNTIME_FIXTURE_PATH = "apps/server/var/parity/api-operations.json"
 const RUNTIME_FIXTURE_PATHS = [
-  "apps/server/var/parity/api-operations.json",
+  API_RUNTIME_FIXTURE_PATH,
   "apps/server/var/parity/runtime-api-operations.json",
   "runtime/api-operations.json",
   "runtime/api.json",
@@ -468,6 +473,26 @@ const runtimeSourceRef = (context: ManifestContext, path: string, role: string):
 
 const NO_EXECUTABLE_DIGESTS: RuntimeExecutableDigests = { php: null, bwrap: null }
 const NO_EXECUTABLE_PROVENANCE: RuntimeExecutableProvenance = { php: null, bwrap: null }
+const collectorBytes = (value: unknown): Uint8Array => {
+  if (value instanceof Uint8Array) return value
+  if (typeof value === "string") return new TextEncoder().encode(value)
+  return new Uint8Array()
+}
+const sanitizeCollectorOutput = (value: unknown, fallbackReason: string): { readonly bytes: Uint8Array; readonly text: string; readonly reason: "NON_UTF8_OUTPUT" | "UNSAFE_SOURCE" | null } => {
+  const bytes = collectorBytes(value)
+  let text: string
+  try {
+    text = new TextDecoder("utf-8", { fatal: true }).decode(bytes)
+  } catch {
+    const fallback = new TextEncoder().encode(fallbackReason)
+    return { bytes: fallback, text: fallbackReason, reason: "NON_UTF8_OUTPUT" }
+  }
+  if (unsafeSourceTextReason(text) !== null) {
+    const fallback = new TextEncoder().encode(fallbackReason)
+    return { bytes: fallback, text: fallbackReason, reason: "UNSAFE_SOURCE" }
+  }
+  return { bytes: new TextEncoder().encode(text), text, reason: null }
+}
 const recordRuntimeObservation = (context: ManifestContext, input: {
   readonly collectorKind: string
   readonly logicalCommandId?: string
@@ -481,14 +506,46 @@ const recordRuntimeObservation = (context: ManifestContext, input: {
   readonly revisionRefId: string
   readonly executableDigests?: RuntimeExecutableDigests
   readonly executableProvenance?: RuntimeExecutableProvenance
+  readonly outOfBand?: true
 }): RuntimeObservation => {
+  const stdout = sanitizeCollectorOutput(input.stdout, "UNSAFE_SOURCE")
+  const stderr = sanitizeCollectorOutput(input.stderr, "UNSAFE_SOURCE")
   const executableDigests = input.executableDigests ?? NO_EXECUTABLE_DIGESTS
   const executableProvenance = input.executableProvenance ?? NO_EXECUTABLE_PROVENANCE
   const logicalCommandId = input.logicalCommandId ?? input.command
   const resultBytes = canonicalJson(input.result)
   const argumentDigest = sha256(canonicalJson(input.arguments))
-  const identity = { collector_kind: input.collectorKind, logical_command_id: logicalCommandId, revision_ref_id: input.revisionRefId, command: input.command, argument_digest: argumentDigest, executable_digests: executableDigests, executable_provenance: executableProvenance, stdout_sha256: sha256(input.stdout), stderr_sha256: sha256(input.stderr), exit_code: input.exitCode, result_sha256: sha256(resultBytes), availability: input.availability }
-  const observation: RuntimeObservation = { runtime_observation_ref_id: `runtime-${sha256Hex(canonicalJson(identity))}`, revision_ref_id: input.revisionRefId, collector_kind: identity.collector_kind, logical_command_id: logicalCommandId, command: input.command, argument_digest: argumentDigest, executable_digests: executableDigests, executable_provenance: executableProvenance, stdout_sha256: identity.stdout_sha256, stderr_sha256: identity.stderr_sha256, exit_code: input.exitCode, result_sha256: identity.result_sha256, availability: input.availability }
+  const identity = {
+    collector_kind: input.collectorKind,
+    logical_command_id: logicalCommandId,
+    revision_ref_id: input.revisionRefId,
+    command: input.command,
+    argument_digest: argumentDigest,
+    executable_digests: executableDigests,
+    executable_provenance: executableProvenance,
+    stdout_sha256: sha256(stdout.bytes),
+    stderr_sha256: sha256(stderr.bytes),
+    exit_code: input.exitCode,
+    result_sha256: sha256(resultBytes),
+    availability: input.availability,
+    ...(input.outOfBand === true ? { out_of_band: true as const } : {}),
+  }
+  const observation: RuntimeObservation = {
+    runtime_observation_ref_id: `runtime-${sha256Hex(canonicalJson(identity))}`,
+    revision_ref_id: input.revisionRefId,
+    collector_kind: identity.collector_kind,
+    logical_command_id: logicalCommandId,
+    command: input.command,
+    argument_digest: argumentDigest,
+    executable_digests: executableDigests,
+    executable_provenance: executableProvenance,
+    stdout_sha256: identity.stdout_sha256,
+    stderr_sha256: identity.stderr_sha256,
+    exit_code: input.exitCode,
+    result_sha256: identity.result_sha256,
+    availability: input.availability,
+    ...(input.outOfBand === true ? { out_of_band: true as const } : {}),
+  }
   const existing = context.runtimeObservations.find((entry) => entry.runtime_observation_ref_id === observation.runtime_observation_ref_id)
   if (existing === undefined) context.runtimeObservations.push(observation)
   return existing ?? observation
@@ -534,6 +591,24 @@ const runtimeOperationsFromPayload = (payload: unknown): RuntimeOperation[] | nu
 }
 
 const runtimeFixturePath = (context: ManifestContext): string | null => RUNTIME_FIXTURE_PATHS.find((path) => context.scans.mono.files.some((file) => file.path === path && file.availability === "available")) ?? null
+const fixtureRuntimeSourcePath = (path: string): string => `fixture://runtime/${path}`
+const fixtureRuntimeSourceRef = (context: ManifestContext, input: ApiRuntimeFixtureInput): string => {
+  const capture: OutOfBandSourceCapture = {
+    bytes: input.bytes,
+    revisionRefId: context.scans.mono.revisionRefId,
+  }
+  return addSourceReference(context, {
+    authorityLine: "mono",
+    authorityRole: "mono_api_runtime_fixture",
+    rootRef: "mono",
+    path: fixtureRuntimeSourcePath(input.path),
+    lineStart: null,
+    lineEnd: null,
+    symbol: null,
+    captureMode: "runtime",
+    outOfBand: capture,
+  })
+}
 
 
 const API_METADATA_SCRIPT = String.raw`$root = '/workspace/apps/server';
@@ -589,22 +664,21 @@ const strictUtf8 = (bytes: Uint8Array<ArrayBufferLike>): string | null => {
     return null
   }
 }
-const collectorBytes = (value: unknown): Uint8Array<ArrayBufferLike> => {
-  if (value instanceof Uint8Array) return value
-  if (typeof value === "string") return new TextEncoder().encode(value)
-  return new Uint8Array()
+const unavailableCollector = (reason: string, exitCode = 127, stdoutBytes: Uint8Array<ArrayBufferLike> = new Uint8Array(), stderrBytes: Uint8Array<ArrayBufferLike> = new TextEncoder().encode(reason), executableDigests: RuntimeExecutableDigests = NO_EXECUTABLE_DIGESTS, executableProvenance: RuntimeExecutableProvenance = NO_EXECUTABLE_PROVENANCE): CollectorRun => {
+  const stdout = sanitizeCollectorOutput(stdoutBytes, reason)
+  const stderr = sanitizeCollectorOutput(stderrBytes, reason)
+  return {
+    availability: "unavailable",
+    stdout: stdout.text,
+    stderr: stderr.text,
+    stdoutBytes: stdout.bytes,
+    stderrBytes: stderr.bytes,
+    exitCode,
+    reason: stdout.reason ?? stderr.reason ?? reason,
+    executableDigests,
+    executableProvenance,
+  }
 }
-const unavailableCollector = (reason: string, exitCode = 127, stdoutBytes: Uint8Array<ArrayBufferLike> = new Uint8Array(), stderrBytes: Uint8Array<ArrayBufferLike> = new TextEncoder().encode(reason), executableDigests: RuntimeExecutableDigests = NO_EXECUTABLE_DIGESTS, executableProvenance: RuntimeExecutableProvenance = NO_EXECUTABLE_PROVENANCE): CollectorRun => ({
-  availability: "unavailable",
-  stdout: strictUtf8(stdoutBytes) ?? "",
-  stderr: strictUtf8(stderrBytes) ?? reason,
-  stdoutBytes,
-  stderrBytes,
-  exitCode,
-  reason,
-  executableDigests,
-  executableProvenance,
-})
 
 const collectorStagePath = (path: string): boolean =>
   path === "apps/server/bin/console" ||
@@ -671,25 +745,31 @@ const trustedPhpCollector = (context: ManifestContext, args: readonly string[], 
     const executableConfig: CollectorExecutables = { phpExecutable: selected.php.path, bwrapExecutable: selected.bwrap.path }
     const invocation = buildCollectorSandboxArguments(executableConfig, args, stage)
     const output = execFileSync(invocation.executable, invocation.arguments, { cwd: stage, stdio: ["ignore", "pipe", "pipe"], timeout: 60_000, killSignal: "SIGKILL", maxBuffer: 8 * 1024 * 1024, env: { PATH: "/usr/bin", HOME: "/tmp", APP_ENV: "test", APP_DEBUG: "0", COMPOSER_HOME: "/tmp" } })
-    const stdoutBytes = collectorBytes(output)
-    const stderrBytes = new Uint8Array()
-    const stdout = strictUtf8(stdoutBytes)
-    const stderr = strictUtf8(stderrBytes)
-    if (stdout === null || stderr === null) return unavailableCollector("NON_UTF8_OUTPUT", 1, stdoutBytes, stderrBytes, executableDigests, executableProvenance)
-    return { availability: "available", stdout, stderr, stdoutBytes, stderrBytes, exitCode: 0, executableDigests, executableProvenance }
+    const stdout = sanitizeCollectorOutput(output, "NON_UTF8_OUTPUT")
+    const stderr = sanitizeCollectorOutput(new Uint8Array(), "NON_UTF8_OUTPUT")
+    const outputReason = stdout.reason ?? stderr.reason
+    if (outputReason !== null) return unavailableCollector(outputReason, 1, stdout.bytes, stderr.bytes, executableDigests, executableProvenance)
+    return { availability: "available", stdout: stdout.text, stderr: stderr.text, stdoutBytes: stdout.bytes, stderrBytes: stderr.bytes, exitCode: 0, executableDigests, executableProvenance }
   } catch (cause) {
     const error = cause as { readonly stdout?: unknown; readonly stderr?: unknown; readonly status?: number }
-    const stdoutBytes = collectorBytes(error.stdout)
-    const stderrBytes = collectorBytes(error.stderr)
-    const stdout = strictUtf8(stdoutBytes)
-    const stderr = strictUtf8(stderrBytes)
+    const stdout = sanitizeCollectorOutput(error.stdout, "COLLECTOR_EXECUTION_FAILED")
+    const stderr = sanitizeCollectorOutput(error.stderr, "COLLECTOR_EXECUTION_FAILED")
     const exitCode = typeof error.status === "number" ? error.status : 1
-    if (stdout === null || stderr === null) return unavailableCollector("NON_UTF8_OUTPUT", exitCode, stdoutBytes, stderrBytes, executableDigests, executableProvenance)
-    return unavailableCollector("COLLECTOR_EXECUTION_FAILED", exitCode, stdoutBytes, stderrBytes, executableDigests, executableProvenance)
+    const outputReason = stdout.reason ?? stderr.reason
+    if (outputReason !== null) return unavailableCollector(outputReason, exitCode, stdout.bytes, stderr.bytes, executableDigests, executableProvenance)
+    return unavailableCollector("COLLECTOR_EXECUTION_FAILED", exitCode, stdout.bytes, stderr.bytes, executableDigests, executableProvenance)
   } finally {
     rmSync(stage, { recursive: true, force: true })
   }
 }
+
+const payloadContainsUnsafe = (value: unknown, fieldName = "field"): boolean => {
+  if (typeof value === "string") return unsafeScalarReason(value, fieldName) !== null
+  if (Array.isArray(value)) return value.some((entry) => payloadContainsUnsafe(entry, fieldName))
+  if (value !== null && typeof value === "object") return Object.entries(value).some(([key, entry]) => payloadContainsUnsafe(entry, key))
+  return false
+}
+
 const runtimeOpenApiFromOperations = (operations: readonly RuntimeOperation[]): Record<string, unknown> => {
   const paths: Record<string, Record<string, unknown>> = {}
   for (const operation of operations) {
@@ -700,42 +780,38 @@ const runtimeOpenApiFromOperations = (operations: readonly RuntimeOperation[]): 
   }
   return { openapi: "3.1.0", info: { title: "Runtime API", version: "1.0.0" }, paths, components: {} }
 }
-
-const payloadContainsUnsafe = (value: unknown, fieldName = "field"): boolean => {
-  if (typeof value === "string") return unsafeScalarReason(value, fieldName) !== null
-  if (Array.isArray(value)) return value.some((entry) => payloadContainsUnsafe(entry, fieldName))
-  if (value !== null && typeof value === "object") return Object.entries(value).some(([key, entry]) => payloadContainsUnsafe(entry, key))
-  return false
-}
-const collectRuntime = (context: ManifestContext, declarations: readonly ApiDeclaration[], allowFixture: boolean, configured?: CollectorExecutables): RuntimeCollection => {
+const collectRuntime = (context: ManifestContext, declarations: readonly ApiDeclaration[], allowFixture: boolean, configured?: CollectorExecutables, fixtureInput?: ApiRuntimeFixtureInput): RuntimeCollection => {
   const revisionRefId = context.scans.mono.revisionRefId
   const consoleFile = context.scans.mono.files.find((file) => file.path === CONSOLE_PATH)
   let consoleSourceRef: string | null = null
   const consoleRef = (): string => consoleSourceRef ??= consoleFile?.availability === "available"
     ? runtimeSourceRef(context, CONSOLE_PATH, "mono_api_runtime_observation")
     : sourceFailureRef(context, CONSOLE_PATH, "SOURCE_UNAVAILABLE", "mono_api_runtime_observation", "runtime")
-  const unavailable = (collectorKind: string, command: string, args: readonly string[], reason: string, exitCode = 127, run: CollectorRun | null = null): RuntimeCollection => {
-    const observation = recordRuntimeObservation(context, { collectorKind, logicalCommandId: command, command, arguments: args, stdout: run?.stdoutBytes ?? "", stderr: run?.stderrBytes ?? reason, exitCode, result: null, availability: "unavailable", revisionRefId, executableDigests: run?.executableDigests, executableProvenance: run?.executableProvenance })
+  const unavailable = (collectorKind: string, command: string, args: readonly string[], reason: string, exitCode = 127, run: CollectorRun | null = null, outOfBand?: true): RuntimeCollection => {
+    const reasonBytes = new TextEncoder().encode(reason)
+    const observation = recordRuntimeObservation(context, { collectorKind, logicalCommandId: command, command, arguments: args, stdout: reasonBytes, stderr: reasonBytes, exitCode, result: null, availability: "unavailable", revisionRefId, executableDigests: run?.executableDigests, executableProvenance: run?.executableProvenance, ...(outOfBand === true ? { outOfBand: true as const } : {}) })
     const sourceRef = consoleRef()
     const status: ApiCollectionFailure["status"] = ["UNSAFE_SOURCE", "SOURCE_PARSE_ERROR", "OPENAPI_SOURCE_PARSE_ERROR", "NON_UTF8_OUTPUT"].includes(reason) ? "source_unavailable" : "runtime_unavailable"
     return { operations: [], observation, openApiObservation: null, openApiPayload: null, sourceRefIds: [sourceRef], failures: [{ status, reasonCode: reason, rowIds: [], sourceRefIds: [sourceRef] }] }
   }
   if (allowFixture) {
-    const fixturePath = runtimeFixturePath(context)
-    if (fixturePath !== null) {
-      const fixtureRef = runtimeSourceRef(context, fixturePath, "mono_api_runtime_observation")
-      const decoded = readSourceTextDetailed(context, "mono", fixturePath)
-      if (decoded.status !== "available") return unavailable("api_platform_metadata", `fixture ${fixturePath}`, [], decoded.reason)
+    if (fixtureInput !== undefined) {
+      const fixturePath = fixtureInput.path
+      const fixtureRef = fixtureRuntimeSourceRef(context, fixtureInput)
+      const decoded = strictUtf8(fixtureInput.bytes)
+      if (decoded === null) return unavailable("api_platform_metadata", `fixture ${fixturePath}`, [], "NON_UTF8_OUTPUT", 1, null, true)
       let parsed: unknown
-      try { parsed = JSON.parse(decoded.text) as unknown } catch { return unavailable("api_platform_metadata", `fixture ${fixturePath}`, [], "SOURCE_PARSE_ERROR", 1) }
-      if (payloadContainsUnsafe(parsed)) return unavailable("api_platform_metadata", `fixture ${fixturePath}`, [], "UNSAFE_SOURCE", 1)
+      try { parsed = JSON.parse(decoded) as unknown } catch { return unavailable("api_platform_metadata", `fixture ${fixturePath}`, [], "SOURCE_PARSE_ERROR", 1, null, true) }
+      if (payloadContainsUnsafe(parsed)) return unavailable("api_platform_metadata", `fixture ${fixturePath}`, [], "UNSAFE_SOURCE", 1, null, true)
       const operations = runtimeOperationsFromPayload(parsed)
-      if (operations === null) return unavailable("api_platform_metadata", `fixture ${fixturePath}`, [], "SOURCE_PARSE_ERROR", 1)
-      const observation = recordRuntimeObservation(context, { collectorKind: "api_platform_metadata", command: `fixture ${fixturePath}`, arguments: [], stdout: canonicalJson(operations), stderr: "", exitCode: 0, result: operations, availability: "available", revisionRefId })
+      if (operations === null) return unavailable("api_platform_metadata", `fixture ${fixturePath}`, [], "SOURCE_PARSE_ERROR", 1, null, true)
+      const observation = recordRuntimeObservation(context, { collectorKind: "api_platform_metadata", command: `fixture ${fixturePath}`, arguments: [], stdout: canonicalJson(operations), stderr: "", exitCode: 0, result: operations, availability: "available", revisionRefId, outOfBand: true })
       const openApiPayload = runtimeOpenApiFromOperations(operations)
-      const openApiObservation = recordRuntimeObservation(context, { collectorKind: "openapi_projection", command: `fixture ${fixturePath}`, arguments: [], stdout: canonicalJson(openApiPayload), stderr: "", exitCode: 0, result: openApiPayload, availability: "available", revisionRefId })
+      const openApiObservation = recordRuntimeObservation(context, { collectorKind: "openapi_projection", command: `fixture ${fixturePath}`, arguments: [], stdout: canonicalJson(openApiPayload), stderr: "", exitCode: 0, result: openApiPayload, availability: "available", revisionRefId, outOfBand: true })
       return { operations, observation, openApiObservation, openApiPayload, sourceRefIds: [fixtureRef], failures: [] }
     }
+    const fixturePath = runtimeFixturePath(context)
+    if (fixturePath !== null) return unavailable("api_platform_metadata", `fixture ${fixturePath}`, [], "SOURCE_UNAVAILABLE")
   }
   if (consoleFile === undefined || consoleFile.availability !== "available") return unavailable("api_platform_metadata", "api-platform-metadata", [], "RUNTIME_UNAVAILABLE")
   const resourceClasses = sortUnique(declarations.map((declaration) => declaration.resourceClassRef).filter((value): value is string => value !== null))
@@ -1297,9 +1373,9 @@ const makeEnvelope = (context: ManifestContext, rows: readonly InventoryRow[], l
   derivation_edges: [...edges].sort((left, right) => compareByteOrder(left.edge_id, right.edge_id)),
 })
 
-export const collectApiOperations = (context: ManifestContext, sourceManifestSha256: string, routeRows: readonly InventoryRow[] = [], allowFixture = false, configured?: CollectorExecutables): ApiCollection => {
+export const collectApiOperations = (context: ManifestContext, sourceManifestSha256: string, routeRows: readonly InventoryRow[] = [], allowFixture = false, configured?: CollectorExecutables, fixtureInput?: ApiRuntimeFixtureInput): ApiCollection => {
   const parsed = parseDeclarations(context)
-  const runtime = collectRuntime(context, parsed.declarations, allowFixture, configured)
+  const runtime = collectRuntime(context, parsed.declarations, allowFixture, configured, fixtureInput)
   const staticRows = makeStaticRows(context, parsed.declarations, runtime)
   const runtimeRows = runtime.operations.map((operation, index) => makeRuntimeRow(context, operation, runtime.sourceRefIds, runtime.observation, index + 1))
   let rows: InventoryRow[] = [...staticRows, ...runtimeRows]

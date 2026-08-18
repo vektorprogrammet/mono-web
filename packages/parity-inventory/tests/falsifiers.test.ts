@@ -12,6 +12,7 @@ import {
 import {
   createManifestContextFromSnapshots,
   effectiveIgnoreRule,
+  finalizeManifest,
   isUnsafeSourcePath,
   sanitizeScalar,
   sourceTextSafetyReason,
@@ -644,6 +645,8 @@ test("API metadata-only runtime disagreement remains changed without identity fa
       sha256("metadata-mismatch"),
       [],
       true,
+      undefined,
+      { path: "apps/server/var/parity/api-operations.json", bytes: readFileSync(join(monoRoot, "apps/server/var/parity/api-operations.json")) },
     );
     const changedRows = api.rows.filter(
       (row) =>
@@ -693,6 +696,8 @@ test("OpenAPI prototype-named component changes stale the zero-operation reconci
       sha256("openapi-alias"),
       [],
       true,
+      undefined,
+      { path: "apps/server/var/parity/api-operations.json", bytes: readFileSync(join(monoRoot, "apps/server/var/parity/api-operations.json")) },
     );
     expect(api.reconciliation.status).toBe("stale");
     expect(api.reconciliation.committed_document_sha256).not.toBe(
@@ -1108,6 +1113,73 @@ describe("source safety boundary", () => {
           });
           expect(census?.ignore_rule_id).toMatch(/^ignore-[a-f0-9]{64}$/);
         }
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    });
+    test("keeps fixture bytes out of the root census and source-set digest", async () => {
+      const root = gitFixture();
+      const path = "apps/server/var/parity/api-operations.json";
+      const payload = JSON.stringify([
+        {
+          resource_class_ref: "App\\Fixture\\Api\\Resource\\FixtureResource",
+          operation_name: "Get",
+          method: "GET",
+          uri_template: "/fixture",
+          operation_id: "fixture_get",
+        },
+      ]);
+      try {
+        putFixture(root, path, payload);
+        execFileSync("git", ["-C", root, "add", "."]);
+        execFileSync("git", ["-C", root, "commit", "-qm", "fixture-runtime"]);
+        const snapshot = await Effect.runPromise(scanRootEffect(root, "mono"));
+        const baselineContext = createManifestContextFromSnapshots(snapshot, snapshot);
+        const baselineBytes = new TextEncoder().encode(payload.replace("fixture_get", "fixture_other"));
+        collectApiOperations(
+          baselineContext,
+          sha256("fixture-boundary-baseline"),
+          [],
+          true,
+          undefined,
+          { path, bytes: baselineBytes },
+        );
+        const baseline = finalizeManifest(baselineContext);
+        const context = createManifestContextFromSnapshots(snapshot, snapshot);
+        const bytes = readFileSync(join(root, path));
+        collectApiOperations(
+          context,
+          sha256("fixture-boundary"),
+          [],
+          true,
+          undefined,
+          { path, bytes },
+        );
+        const manifest = finalizeManifest(context);
+        const census = manifest.root_census.find((entry) => entry.path === path);
+        expect(snapshot.files.find((entry) => entry.path === path)).toMatchObject({
+          bytes: null,
+          byteLength: null,
+          digest: null,
+          availability: "available",
+        });
+        expect(census).toMatchObject({
+          path,
+          classification: "ignored",
+          byte_length: null,
+          sha256: null,
+          source_ref_ids: [],
+        });
+        expect(manifest.source_set_sha256).toBe(baseline.source_set_sha256);
+        expect(JSON.stringify(manifest.root_census)).not.toContain("fixture_get");
+        expect(manifest.sources.find((source) => source.out_of_band === true)).toMatchObject({
+          path: `fixture://runtime/${path}`,
+          byte_length: bytes.byteLength,
+          sha256: sha256(bytes),
+          capture_mode: "runtime",
+          out_of_band: true,
+        });
+        expect(manifest.runtime_observations.some((observation) => observation.out_of_band === true)).toBe(true);
       } finally {
         rmSync(root, { recursive: true, force: true });
       }

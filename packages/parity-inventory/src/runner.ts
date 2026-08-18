@@ -12,7 +12,7 @@ import {
   sha256,
   sortUnique,
 } from "./canonical.js"
-import { collectApiOperations, reportFailuresFromApi } from "./api.js"
+import { API_RUNTIME_FIXTURE_PATH, collectApiOperations, reportFailuresFromApi, type ApiRuntimeFixtureInput } from "./api.js"
 import { collectC2 } from "./effects.js"
 import { collectRoutes, routeRowsBySignature, setRowMismatch, updateEnvelopeRows, type CollectedRouteArtifacts } from "./routes.js"
 import { finalizeManifest, sourceDigestForManifest, type ManifestContext } from "./source-manifest.js"
@@ -312,7 +312,7 @@ const forbiddenStatesEmpty = (inventories: readonly InventoryEnvelope[], reconci
   return crossReferencesValid && reconciliation.status === "current" && failures.length === 0 && inventories.every((inventory) => inventory.inventory_kind === "user_journey" || inventory.rows.every((row) => !forbiddenStatuses.has(row.status) && !forbiddenKinds.has(row.mismatch.kind) && row.coverage_ref_ids.length > 0))
 }
 
-const generateFromContext = (context: ManifestContext, mode: RunMode, falsifierId: string | null = null, intentAuthority: PinnedIntentRegister | null = null, fixtureIntent?: IntentSourceInput, collectorExecutables?: CollectorExecutables): GeneratedArtifacts => {
+const generateFromContext = (context: ManifestContext, mode: RunMode, falsifierId: string | null = null, intentAuthority: PinnedIntentRegister | null = null, fixtureIntent?: IntentSourceInput, collectorExecutables?: CollectorExecutables, fixtureRuntimeInput?: ApiRuntimeFixtureInput): GeneratedArtifacts => {
   const intentInput: IntentSourceInput | undefined = intentAuthority === null
     ? fixtureIntent
     : {
@@ -328,7 +328,7 @@ const generateFromContext = (context: ManifestContext, mode: RunMode, falsifierI
   const fixtureUnsafeProbe = mode === "fixture_injection" && falsifierId === "F15_secret_or_pii_input"
   if (intentLoad.issues.some((entry) => entry.reasonCode === "UNSAFE_SOURCE") && !fixtureUnsafeProbe) throw new UnsafeSourceProjectionError("unsafe source metadata encountered during intent loading")
   const preliminary = collectRoutes(context, sha256("c1-source-manifest-pending"))
-  const preliminaryApi = collectApiOperations(context, sha256("c1-source-manifest-pending"), preliminary.mono.rows, mode === "fixture_injection" || falsifierId === "F18_stale_artifact_diff", collectorExecutables)
+  const preliminaryApi = collectApiOperations(context, sha256("c1-source-manifest-pending"), preliminary.mono.rows, mode === "fixture_injection" || falsifierId === "F18_stale_artifact_diff", collectorExecutables, fixtureRuntimeInput)
   const preliminaryC2 = collectC2(context, sha256("c2-source-manifest-pending"))
   if ((hasUnsafeProjectionMetadata(context, preliminary, preliminaryC2) || preliminaryApi.failures.some((failure) => failure.reasonCode === "UNSAFE_SOURCE")) && !fixtureUnsafeProbe) throw new UnsafeSourceProjectionError("unsafe source metadata encountered during projection construction")
   const finalizedManifest = finalizeManifest(context)
@@ -444,16 +444,28 @@ const generateFromContext = (context: ManifestContext, mode: RunMode, falsifierI
     c2Rows: [...commandWrites.rows, ...scheduledBackgroundWorkflows.rows, ...externalIntegrations.rows],
   }
 }
-export const generateFromRootsEffect = (options: RunOptions): Effect.Effect<GeneratedArtifacts, ParityRuntimeError> =>
+export const generateFromRootsEffect = (options: RunOptions, fixtureRuntimeInput?: ApiRuntimeFixtureInput, fixtureIntentBytes?: Uint8Array): Effect.Effect<GeneratedArtifacts, ParityRuntimeError> =>
   Effect.gen(function* () {
+    if ((fixtureRuntimeInput !== undefined || fixtureIntentBytes !== undefined) && options.mode !== "fixture_injection") {
+      return yield* Effect.fail(new ParityRuntimeError({ operation: "fixture_injection", path: options.root, message: "fixture runtime input is only valid in fixture_injection mode" }))
+    }
     const context = yield* createManifestContextEffect(options.legacyRoot, options.root)
+    const fixtureIntent: IntentSourceInput | undefined = fixtureIntentBytes === undefined ? undefined : {
+      path: "fixture://trusted-intent",
+      bytes: fixtureIntentBytes,
+      revisionRefId: acceptedIntentRevisionRefId(context),
+      repositoryRef: "mono",
+      revision: context.scans.mono.revision.revision,
+      blobOid: context.scans.mono.revision.revision,
+      digest: sha256(fixtureIntentBytes),
+    }
     const intentAuthority = options.mode === "fixture_injection"
       ? null
       : options.intentRegisterPath === undefined
         ? yield* Effect.fail(new ParityRuntimeError({ operation: "intent_authority", path: options.root, message: "--intent-register is required for diff and write modes" }))
         : yield* readPinnedIntentRegisterEffect(options.intentRegisterPath, options.legacyRoot, options.root, PROJECTION_DIRECTORY)
     return yield* Effect.try({
-      try: () => generateFromContext(context, options.mode, options.falsifierId ?? null, intentAuthority, undefined, options.collectorExecutables),
+      try: () => generateFromContext(context, options.mode, options.falsifierId ?? null, intentAuthority, fixtureIntent, options.collectorExecutables, fixtureRuntimeInput),
       catch: (cause) => new ParityRuntimeError({
         operation: cause instanceof UnsafeSourceProjectionError ? "unsafe_source" : "generate",
         path: options.root,
@@ -461,6 +473,16 @@ export const generateFromRootsEffect = (options: RunOptions): Effect.Effect<Gene
       }),
     })
   })
+const fixtureRuntimeInputForRoot = (root: string): ApiRuntimeFixtureInput | undefined => {
+  const path = join(root, API_RUNTIME_FIXTURE_PATH)
+  if (!existsSync(path)) return undefined
+  try {
+    return { path: API_RUNTIME_FIXTURE_PATH, bytes: readFileSync(path) }
+  } catch {
+    return undefined
+  }
+}
+
 const generateFixtureFromWorkspaceEffect = (options: RunOptions, workspace: FixtureWorkspace): Effect.Effect<GeneratedArtifacts, ParityRuntimeError> =>
   Effect.gen(function* () {
     const context = yield* createManifestContextEffect(workspace.legacyRoot, workspace.root)
@@ -474,8 +496,9 @@ const generateFixtureFromWorkspaceEffect = (options: RunOptions, workspace: Fixt
       blobOid: context.scans.mono.revision.revision,
       digest: sha256(workspace.intentBytes),
     }
+    const fixtureRuntimeInput = fixtureRuntimeInputForRoot(workspace.root)
     return yield* Effect.try({
-      try: () => generateFromContext(context, "fixture_injection", options.falsifierId ?? null, null, fixtureIntent, options.collectorExecutables),
+      try: () => generateFromContext(context, "fixture_injection", options.falsifierId ?? null, null, fixtureIntent, options.collectorExecutables, fixtureRuntimeInput),
       catch: (cause) => new ParityRuntimeError({
         operation: cause instanceof UnsafeSourceProjectionError ? "unsafe_source" : "fixture_generate",
         path: workspace.root,
@@ -502,10 +525,20 @@ const freshReplayBytes = (workspace: FixtureWorkspace, locale: string): Readonly
     `const { Effect } = await import("effect")`,
     `const { generateFromRootsEffect } = await import(${JSON.stringify(runnerUrl)})`,
     `const options = JSON.parse(process.argv.at(-1) ?? "{}")`,
-    `const generated = await Effect.runPromise(generateFromRootsEffect(options))`,
+    `const fixtureRuntimeInput = options.fixtureRuntimeInput === null ? undefined : { path: options.fixtureRuntimeInput.path, bytes: Buffer.from(options.fixtureRuntimeInput.bytesBase64, "base64") }`,
+    `const fixtureIntentBytes = options.fixtureIntentBytesBase64 === null ? undefined : Buffer.from(options.fixtureIntentBytesBase64, "base64")`,
+    `const generated = await Effect.runPromise(generateFromRootsEffect(options, fixtureRuntimeInput, fixtureIntentBytes))`,
     `process.stdout.write(JSON.stringify(Object.fromEntries(Object.entries(generated.bytes).sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0))))`,
   ].join(";")
-  const child = spawnSync(process.execPath, ["-e", childCode, JSON.stringify({ root: workspace.root, legacyRoot: workspace.legacyRoot, mode: "fixture_injection" })], {
+  const fixtureInput = fixtureRuntimeInputForRoot(workspace.root)
+  const childOptions = {
+    root: workspace.root,
+    legacyRoot: workspace.legacyRoot,
+    mode: "fixture_injection",
+    fixtureRuntimeInput: fixtureInput === undefined ? null : { path: fixtureInput.path, bytesBase64: Buffer.from(fixtureInput.bytes).toString("base64") },
+    fixtureIntentBytesBase64: workspace.intentBytes === null ? null : Buffer.from(workspace.intentBytes).toString("base64"),
+  }
+  const child = spawnSync(process.execPath, ["-e", childCode, JSON.stringify(childOptions)], {
     cwd: dirname(fileURLToPath(import.meta.url)),
     env: { ...process.env, LANG: locale, LC_ALL: locale, TZ: "UTC", TMPDIR: workspace.directory },
     encoding: "utf8",
@@ -603,7 +636,7 @@ const syntheticFixtureFiles: readonly { readonly root: "legacy" | "mono"; readon
 const seedFixtureIntentRegister = (root: string, legacyRoot: string): Uint8Array => {
   const context = Effect.runSync(createManifestContextEffect(legacyRoot, root))
   const route = collectRoutes(context, sha256("fixture-register-pending"))
-  const api = collectApiOperations(context, sha256("fixture-register-pending"), route.mono.rows, true)
+  const api = collectApiOperations(context, sha256("fixture-register-pending"), route.mono.rows, true, undefined, fixtureRuntimeInputForRoot(root))
   const c2 = collectC2(context, sha256("fixture-register-pending"))
   const rowsBySurface: Readonly<Record<"legacy_route" | "mono_route" | "api_operation" | "command_write" | "schedule_background" | "external_integration", readonly InventoryRow[]>> = {
     legacy_route: route.legacy.rows,
@@ -888,7 +921,7 @@ const runFixtureFalsifier = (options: RunOptions): Effect.Effect<RunResult, Pari
     const workspace = yield* Effect.try({ try: () => createFixtureWorkspace(options), catch: (cause) => new ParityRuntimeError({ operation: "fixture_injection", path: options.root, message: cause instanceof Error ? cause.message : "fixture source unavailable" }) })
     try {
       if (falsifierId === "F0_deterministic_replay") {
-        const first = yield* generateFromRootsEffect({ ...options, root: workspace.root, legacyRoot: workspace.legacyRoot, mode: "fixture_injection" })
+        const first = yield* generateFixtureFromWorkspaceEffect(options, workspace)
         const secondWorkspace = yield* Effect.try({ try: () => createFixtureWorkspace(options), catch: (cause) => new ParityRuntimeError({ operation: "fixture_injection", path: options.root, message: cause instanceof Error ? cause.message : "second replay fixture unavailable" }) })
         try {
           // A child process is required here: a static import cannot prove fresh module state, locale, environment, and temporary output roots.
@@ -994,7 +1027,7 @@ const runFixtureFalsifier = (options: RunOptions): Effect.Effect<RunResult, Pari
       if (falsifierId === "F16_h3_authority_copy") {
         mutateFixture(falsifierId, workspace)
         refreshFixtureIntentRegister(workspace)
-        const generated = yield* generateFromRootsEffect({ ...options, root: workspace.root, legacyRoot: workspace.legacyRoot, mode: "fixture_injection" })
+        const generated = yield* generateFixtureFromWorkspaceEffect(options, workspace)
         const injected = generated.apiRows.find((row) => {
           const details = row.details as unknown as Record<string, unknown>
           return details.uri_template === "/fixture/h3-authority-copy"

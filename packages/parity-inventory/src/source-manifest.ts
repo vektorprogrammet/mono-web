@@ -558,10 +558,19 @@ const sensitiveEnvKeyPattern =
   /(?:^|[_-])(?:password|passwd|secret|secrets|token|access[_-]?token|refresh[_-]?token|api[_-]?key|authorization|client[_-]?secret|private[_-]?key|credential|credentials|database[_-]?url|dsn|user[_-]?id|account[_-]?id|customer[_-]?id|member[_-]?id|identity[_-]?id|email|phone)(?:$|[_-])/i;
 const envFrameworkPlaceholderPattern =
   /^(?:\$\{[^{}\r\n]+\}|%\w+\([^()\r\n]+\)%|\{\{[^{}\r\n]+\}\}|<[^<>\r\n]+>|__[^_\r\n]+__|@[^@\r\n]+@|env\([^()\r\n]+\)|\$\([^()\r\n]+\))$/;
-const testOnlySentinelPattern =
-  /^(?:test|testing|test[-_][a-z0-9._-]+|fixture|fixture[-_][a-z0-9._-]+|dummy|dummy[-_][a-z0-9._-]+|placeholder|placeholder[-_][a-z0-9._-]+|example|example[-_][a-z0-9._-]+|changeme|change[-_]me|do[-_]not[-_]use|not[-_]a[-_]secret|local(?:host)?|development|dev|true|false|null|none|undefined|0|1|\*|sqlite(?::|:\/\/\/):memory:|127\.0\.0\.1(?::\d+)?|localhost(?::\d+)?)(?:\/[A-Za-z0-9._/-]+)?$/i;
-const sqlAssignmentPattern =
-  /\b(?:password|passwd|secret|secrets|token|access[_-]?token|refresh[_-]?token|api[_-]?key|authorization|client[_-]?secret|private[_-]?key|credential|credentials)\s*(?:=|:)\s*(?:(['"])((?:\\.|(?!\1)[\s\S])*)\1|([^\s,;)]+))/gi;
+const envExplicitSentinel = (path: string, key: string, value: string): boolean => {
+  const normalizedPath = path.replaceAll("\\", "/").toLowerCase();
+  const normalizedKey = key.trim().toUpperCase();
+  const normalizedValue = value.trim().normalize("NFC");
+  if (normalizedPath.length > 0 && !normalizedPath.endsWith("/.env.test")) return false;
+  return (
+    (normalizedKey === "APP_SECRET" && normalizedValue === "test_app_secret_for_testing_only") ||
+    (normalizedKey === "DATABASE_URL" && normalizedValue === "sqlite:///:memory:")
+  );
+};
+const sqlSensitiveFieldPattern = "(?:password|passwd|secret|secrets|token|access[_-]?token|refresh[_-]?token|api[_-]?key|authorization|client[_-]?secret|private[_-]?key|credential|credentials|\"(?:(?:password|passwd|secret|secrets|token|access[_-]?token|refresh[_-]?token|api[_-]?key|authorization|client[_-]?secret|private[_-]?key|credential|credentials))\"|`(?:(?:password|passwd|secret|secrets|token|access[_-]?token|refresh[_-]?token|api[_-]?key|authorization|client[_-]?secret|private[_-]?key|credential|credentials))`|\\[(?:(?:password|passwd|secret|secrets|token|access[_-]?token|refresh[_-]?token|api[_-]?key|authorization|client[_-]?secret|private[_-]?key|credential|credentials))\\])";
+const sqlIdentifierPattern = "(?:[A-Za-z_][A-Za-z0-9_$-]*|\"(?:[^\"]|\"\")*\"|`(?:[^`]|``)*`|\\[(?:[^\\]]|\\]\\])*\\])";
+const sqlAssignmentPattern = new RegExp(`(?:${sqlIdentifierPattern}\\s*\\.\\s*)*${sqlSensitiveFieldPattern}\\s*(?:=|:)\\s*(?:(['"])((?:\\\\.|(?!\\1)[\\s\\S])*)\\1|([^\\s,;)]+))`, "gi");
 const sqlStringLiteralPattern = /'(?:''|\\.|[^'])*'|"(?:\\"\\"|\\.|[^"])*"/g;
 
 /** Returns true for source paths whose bytes must be decoded before hashing. */
@@ -587,17 +596,14 @@ const unquoteEnvValue = (value: string): string => {
   return comment >= 0 ? trimmed.slice(0, comment).trimEnd() : trimmed;
 };
 
-const isAllowedTestValue = (value: string): boolean => {
+const isAllowedTestValue = (value: string, context?: { readonly path?: string; readonly key?: string }): boolean => {
   const normalized = value.trim().normalize("NFC");
-  return (
-    normalized.length === 0 ||
-    envFrameworkPlaceholderPattern.test(normalized) ||
-    testOnlySentinelPattern.test(normalized)
-  );
+  if (normalized.length === 0 || envFrameworkPlaceholderPattern.test(normalized)) return true;
+  return context?.path !== undefined && context.key !== undefined && envExplicitSentinel(context.path, context.key, normalized);
 };
 
 /** Returns a sanitized failure for concrete sensitive values in dotenv assignments. */
-export const unsafeEnvSourceTextReason = (text: string): "UNSAFE_SOURCE" | null => {
+export const unsafeEnvSourceTextReason = (text: string, path = ""): "UNSAFE_SOURCE" | null => {
   for (const line of text.split(/\r?\n/u)) {
     const trimmed = line.trim();
     if (trimmed.length === 0 || trimmed.startsWith("#") || trimmed.startsWith(";")) continue;
@@ -605,7 +611,7 @@ export const unsafeEnvSourceTextReason = (text: string): "UNSAFE_SOURCE" | null 
     if (match === null) continue;
     const key = match[1] ?? "";
     const value = unquoteEnvValue(match[2] ?? "");
-    if (isAllowedTestValue(value)) continue;
+    const allowed = isAllowedTestValue(value, { path, key });
     const emails = value.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/giu) ?? [];
     const onlyReservedEmails =
       emails.length > 0 &&
@@ -613,8 +619,8 @@ export const unsafeEnvSourceTextReason = (text: string): "UNSAFE_SOURCE" | null 
         const emailMatch = candidate.match(emailPattern);
         return emailMatch !== null && isReservedEmail(candidate, emailMatch);
       });
-    if (sensitiveEnvKeyPattern.test(key) && !onlyReservedEmails) return "UNSAFE_SOURCE";
     if (knownCredentialTokenPattern.test(value)) return "UNSAFE_SOURCE";
+    if (sensitiveEnvKeyPattern.test(key) && !onlyReservedEmails && !allowed) return "UNSAFE_SOURCE";
     if (
       emails.some((candidate) => {
         const emailMatch = candidate.match(emailPattern);
@@ -631,7 +637,7 @@ const stripSqlComments = (text: string): string =>
   text.replace(/--[^\r\n]*/gu, "").replace(/\/\*[\s\S]*?\*\//gu, "");
 
 /** Returns a sanitized failure for literal data or sensitive values in SQL source. */
-export const unsafeSqlSourceTextReason = (text: string): "UNSAFE_SOURCE" | null => {
+export const unsafeSqlSourceTextReason = (text: string, path = ""): "UNSAFE_SOURCE" | null => {
   if (knownCredentialTokenPattern.test(text)) return "UNSAFE_SOURCE";
   const emailsInSource = text.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/giu) ?? [];
   if (
@@ -643,13 +649,13 @@ export const unsafeSqlSourceTextReason = (text: string): "UNSAFE_SOURCE" | null 
     return "UNSAFE_SOURCE";
   for (const match of text.matchAll(sqlAssignmentPattern)) {
     const value = match[2] ?? match[3] ?? "";
-    if (!isAllowedTestValue(value)) return "UNSAFE_SOURCE";
+    if (!isAllowedTestValue(value, { path, key: "sql" })) return "UNSAFE_SOURCE";
   }
   const withoutComments = stripSqlComments(text);
   if (/\bINSERT\s+INTO\b/iu.test(withoutComments)) return "UNSAFE_SOURCE";
   for (const match of withoutComments.matchAll(sqlAssignmentPattern)) {
     const value = match[2] ?? match[3] ?? "";
-    if (!isAllowedTestValue(value)) return "UNSAFE_SOURCE";
+    if (!isAllowedTestValue(value, { path, key: "sql" })) return "UNSAFE_SOURCE";
   }
   const literals = withoutComments.match(sqlStringLiteralPattern) ?? [];
   for (const literal of literals) {
@@ -681,9 +687,9 @@ export const sourceTextSafetyReason = (
   }
   const normalized = path.replaceAll("\\", "/");
   const basename = normalized.slice(normalized.lastIndexOf("/") + 1);
-  if (envSourcePathPattern.test(normalized) && unsafeEnvSourceTextReason(text) !== null)
+  if (envSourcePathPattern.test(normalized) && unsafeEnvSourceTextReason(text, path) !== null)
     return "UNSAFE_SOURCE";
-  if (sqlSourcePathPattern.test(basename) && unsafeSqlSourceTextReason(text) !== null)
+  if (sqlSourcePathPattern.test(basename) && unsafeSqlSourceTextReason(text, path) !== null)
     return "UNSAFE_SOURCE";
   return null;
 };
@@ -934,6 +940,12 @@ const sourceKey = (
     symbol,
   });
 
+export interface OutOfBandSourceCapture {
+  readonly bytes: Uint8Array;
+  readonly revisionRefId?: string;
+  readonly repositoryRef?: string;
+}
+
 const makeSource = (
   context: ManifestContext,
   params: {
@@ -947,6 +959,7 @@ const makeSource = (
     readonly captureMode?: SourceRecord["capture_mode"];
     readonly failureStatus?: SourceRecord["failure_status"];
     readonly failureReason?: string | null;
+    readonly outOfBand?: OutOfBandSourceCapture;
   },
 ): SourceRecord => {
   const safePath = redactedStructuralScalar(params.path, "source_path");
@@ -969,7 +982,10 @@ const makeSource = (
   }
   const scanFile = context.scans[params.rootRef].files.find((file) => file.path === path);
   const unsafe = safePath.unsafe || safeSymbol.unsafe || scanFile?.unsafe === true;
-  const unavailable = scanFile === undefined || scanFile.availability === "unavailable" || unsafe;
+  const outOfBand = params.outOfBand;
+  const revisionRefId = outOfBand?.revisionRefId ?? context.scans[params.rootRef].revisionRefId;
+  const repositoryRef = outOfBand?.repositoryRef ?? params.rootRef;
+  const unavailable = outOfBand === undefined && (scanFile === undefined || scanFile.availability === "unavailable" || unsafe);
   const classificationStatus =
     params.failureReason === "UNCLASSIFIED_SOURCE"
       ? ("unclassified" as const)
@@ -977,8 +993,8 @@ const makeSource = (
   const sourceId = stableId("src", {
     authority_line: params.authorityLine,
     authority_role: params.authorityRole,
-    repository_ref: params.rootRef,
-    revision_ref_id: context.scans[params.rootRef].revisionRefId,
+    repository_ref: repositoryRef,
+    revision_ref_id: revisionRefId,
     path,
     line_start: params.lineStart,
     line_end: params.lineEnd,
@@ -988,17 +1004,18 @@ const makeSource = (
     source_id: sourceId,
     authority_line: params.authorityLine,
     authority_role: params.authorityRole,
-    repository_ref: params.rootRef,
-    revision_ref_id: context.scans[params.rootRef].revisionRefId,
+    repository_ref: repositoryRef,
+    revision_ref_id: revisionRefId,
     path,
     line_start: params.lineStart,
     line_end: params.lineEnd,
     symbol,
-    byte_length: unavailable ? null : (scanFile?.byteLength ?? null),
-    sha256: unavailable ? null : (scanFile?.digest ?? null),
+    byte_length: unavailable ? null : (outOfBand?.bytes.byteLength ?? scanFile?.byteLength ?? null),
+    sha256: unavailable ? null : (outOfBand === undefined ? (scanFile?.digest ?? null) : sha256(outOfBand.bytes)),
     capture_mode: params.captureMode ?? "static",
     availability: unavailable ? ("unavailable" as const) : ("available" as const),
     classification_status: classificationStatus,
+    ...(outOfBand === undefined ? {} : { out_of_band: true as const }),
   };
   const record: SourceRecord =
     unavailable || params.failureStatus !== undefined || params.failureReason !== undefined
@@ -1215,7 +1232,6 @@ export const createManifestContextFromSnapshots = (
   makeRootCensus(context, mono);
   return context;
 };
-
 export const finalizeManifest = (context: ManifestContext): SourceManifest => {
   const sources = [...context.sources].sort((a, b) => compareByteOrder(a.source_id, b.source_id));
   const rootCensus = [...context.rootCensus].sort((a, b) =>
@@ -1237,13 +1253,15 @@ export const finalizeManifest = (context: ManifestContext): SourceManifest => {
   const runtimeObservations = [...context.runtimeObservations].sort((a, b) =>
     compareByteOrder(a.runtime_observation_ref_id, b.runtime_observation_ref_id),
   );
+  const sourceSetSources = sources.filter((source) => source.out_of_band !== true);
+  const sourceSetRuntimeObservations = runtimeObservations.filter((observation) => observation.out_of_band !== true);
   const logical = {
     census_roots: censusRoots,
     revisions,
-    runtime_observations: runtimeObservations,
+    runtime_observations: sourceSetRuntimeObservations,
     root_census: rootCensus,
     ignore_rules: ignoreRules,
-    sources,
+    sources: sourceSetSources,
   };
   const sourceSetSha = sha256(canonicalJson(logical));
   return {

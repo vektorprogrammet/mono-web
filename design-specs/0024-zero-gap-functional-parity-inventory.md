@@ -1477,7 +1477,7 @@ The future implementation MUST install byte-equivalent closed JSON Schemas. The 
 
 The schema's `details` object is closed per inventory file. The implementation MUST publish byte-equivalent per-kind detail definitions for `legacy_route`, `mono_route`, `api_operation`, `command_write`, `schedule_background`, `external_integration`, and `user_journey`. The required fields are the fields in the artifact sections above; omitted detail fields are schema errors. Cross-object invariants below are not expressible as ordinary JSON Schema and are mandatory generator checks.
 
-`source-manifest.json` uses `functional-parity-source-manifest/v1` with `additionalProperties: false` at every object level. It requires `schema_version`, `manifest_id`, `source_set`, `census_roots`, `revisions`, `runtime_observations`, `root_census`, `ignore_rules`, `sources`, and `source_set_sha256`. Each census root requires `root_ref`, `authority_line`, `repository_ref`, `revision_ref_id`, `root_kind: "repository"`, and `scan_mode: "all_regular_files"`. Each revision requires `revision_ref_id`, `repository_ref`, `revision_kind`, `revision`, and `immutable: true`. Each runtime observation requires `runtime_observation_ref_id`, `revision_ref_id`, `collector_kind`, `command`, `argument_digest`, `stdout_sha256`, `stderr_sha256`, `exit_code`, `result_sha256`, and `availability`. Each ignore rule requires `ignore_rule_id`, `authority_line`, `root_ref`, `precedence`, literal `pattern`, `selection: "ordered_set_difference"`, `rule_kind`, and `rationale`; its effective predicate is the ordered set difference of its literal match from earlier rules in the same root, and its rationale MUST equal the normative `Rationale` value for the root-scoped tuple. Each root-census record requires `census_id`, `authority_line`, `root_ref`, `path`, `byte_length`, `sha256`, `availability`, `classification`, `source_ref_ids`, and `ignore_rule_id`. Each source requires `source_id`, `authority_line`, `authority_role`, `repository_ref`, `revision_ref_id`, `path`, `line_start`, `line_end`, `symbol`, `byte_length`, `sha256`, `capture_mode`, `availability`, and `classification_status`.
+`source-manifest.json` uses `functional-parity-source-manifest/v1` with `additionalProperties: false` at every object level. It requires `schema_version`, `manifest_id`, `source_set`, `census_roots`, `revisions`, `runtime_observations`, `root_census`, `ignore_rules`, `sources`, and `source_set_sha256`. Each census root requires `root_ref`, `authority_line`, `repository_ref`, `revision_ref_id`, `root_kind: "repository"`, and `scan_mode: "all_regular_files"`. Each revision requires `revision_ref_id`, `repository_ref`, `revision_kind`, `revision`, and `immutable: true`. Each runtime observation requires `runtime_observation_ref_id`, `revision_ref_id`, `collector_kind`, `logical_command_id`, `command`, `argument_digest`, `executable_digests`, `executable_provenance`, `stdout_sha256`, `stderr_sha256`, `exit_code`, `result_sha256`, and `availability`; an observation or source can include `out_of_band: true` for typed fixture evidence that is excluded from the root census and source-set digest. Each ignore rule requires `ignore_rule_id`, `authority_line`, `root_ref`, `precedence`, literal `pattern`, `selection: "ordered_set_difference"`, `rule_kind`, and `rationale`; its effective predicate is the ordered set difference of its literal match from earlier rules in the same root, and its rationale MUST equal the normative `Rationale` value for the root-scoped tuple. Each root-census record requires `census_id`, `authority_line`, `root_ref`, `path`, `byte_length`, `sha256`, `availability`, `classification`, `source_ref_ids`, and `ignore_rule_id`. Each source requires `source_id`, `authority_line`, `authority_role`, `repository_ref`, `revision_ref_id`, `path`, `line_start`, `line_end`, `symbol`, `byte_length`, `sha256`, `capture_mode`, `availability`, and `classification_status`.
 
 
 ```json
@@ -1544,18 +1544,36 @@ The schema's `details` object is closed per inventory file. The implementation M
     "runtimeObservation": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["runtime_observation_ref_id", "revision_ref_id", "collector_kind", "command", "argument_digest", "stdout_sha256", "stderr_sha256", "exit_code", "result_sha256", "availability"],
+      "required": ["runtime_observation_ref_id", "revision_ref_id", "collector_kind", "logical_command_id", "command", "argument_digest", "executable_digests", "executable_provenance", "stdout_sha256", "stderr_sha256", "exit_code", "result_sha256", "availability"],
       "properties": {
         "runtime_observation_ref_id": {"type": "string", "minLength": 1},
         "revision_ref_id": {"type": "string", "minLength": 1},
         "collector_kind": {"type": "string", "minLength": 1},
+        "logical_command_id": {"type": "string", "minLength": 1},
         "command": {"type": "string", "minLength": 1},
         "argument_digest": {"$ref": "#/$defs/sha256"},
+        "executable_digests": {
+          "type": "object", "additionalProperties": false,
+          "required": ["php", "bwrap"],
+          "properties": {
+            "php": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]},
+            "bwrap": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]}
+          }
+        },
+        "executable_provenance": {
+          "type": "object", "additionalProperties": false,
+          "required": ["php", "bwrap"],
+          "properties": {
+            "php": {"enum": ["usr-bin", "nix-store", null]},
+            "bwrap": {"enum": ["usr-bin", "nix-store", null]}
+          }
+        },
         "stdout_sha256": {"$ref": "#/$defs/sha256"},
         "stderr_sha256": {"$ref": "#/$defs/sha256"},
         "exit_code": {"type": "integer"},
         "result_sha256": {"$ref": "#/$defs/sha256"},
-        "availability": {"type": "string", "enum": ["available", "unavailable"]}
+        "availability": {"type": "string", "enum": ["available", "unavailable"]},
+        "out_of_band": {"type": "boolean", "const": true}
       }
     },
     "ignoreRule": {
@@ -1621,6 +1639,7 @@ The schema's `details` object is closed per inventory file. The implementation M
         "capture_mode": {"type": "string", "enum": ["static", "runtime", "generated", "accepted_intent"]},
         "availability": {"type": "string", "enum": ["available", "unavailable"]},
         "classification_status": {"type": "string", "enum": ["classified", "unclassified"]},
+        "out_of_band": {"type": "boolean", "const": true},
         "failure_status": {"type": ["string", "null"], "enum": ["source_unavailable", "unresolved", null]},
         "failure_reason": {"type": ["string", "null"], "pattern": "^[A-Z][A-Z0-9_]{2,63}$"}
       },

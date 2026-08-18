@@ -80,7 +80,8 @@
         "stderr_sha256": {"$ref": "#/$defs/sha256"},
         "exit_code": {"type": "integer"},
         "result_sha256": {"$ref": "#/$defs/sha256"},
-        "availability": {"type": "string", "enum": ["available", "unavailable"]}
+        "availability": {"type": "string", "enum": ["available", "unavailable"]},
+        "out_of_band": {"type": "boolean", "const": true}
       }
     },
     "ignoreRule": {
@@ -143,6 +144,7 @@
         "capture_mode": {"type": "string", "enum": ["static", "runtime", "generated", "accepted_intent"]},
         "availability": {"type": "string", "enum": ["available", "unavailable"]},
         "classification_status": {"type": "string", "enum": ["classified", "unclassified"]},
+        "out_of_band": {"type": "boolean", "const": true},
         "failure_status": {"type": ["string", "null"], "enum": ["source_unavailable", "unresolved", null]},
         "failure_reason": {"type": ["string", "null"], "pattern": "^[A-Z][A-Z0-9_]{2,63}$"}
       },

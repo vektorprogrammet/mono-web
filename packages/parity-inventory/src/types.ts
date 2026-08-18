@@ -330,6 +330,7 @@ export interface RuntimeObservation {
   readonly exit_code: number;
   readonly result_sha256: string;
   readonly availability: "available" | "unavailable";
+  readonly out_of_band?: true;
 }
 
 export interface IgnoreRule {
@@ -366,6 +367,7 @@ export interface SourceRecord {
   readonly capture_mode: "static" | "runtime" | "generated" | "accepted_intent";
   readonly availability: "available" | "unavailable";
   readonly classification_status: "classified" | "unclassified";
+  readonly out_of_band?: true;
   readonly failure_status?: "source_unavailable" | "unresolved" | null;
   readonly failure_reason?: string | null;
 }
