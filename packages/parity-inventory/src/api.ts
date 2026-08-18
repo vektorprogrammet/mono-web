@@ -632,7 +632,7 @@ require $root . '/vendor/autoload.php';
 (new \Symfony\Component\Dotenv\Dotenv())->usePutenv()->load($root . '/.env.test');
 $kernel = new \Kernel('test', false);
 $kernel->boot();
-$container = $kernel->getContainer();
+$container = $kernel->getContainer()->get('test.service_container');
 $factory = $container->get('api_platform.metadata.resource.metadata_collection_factory');
 $classes = json_decode($argv[1] ?? '[]', true, 512, JSON_THROW_ON_ERROR);
 $out = [];
