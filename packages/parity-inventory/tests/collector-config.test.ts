@@ -119,7 +119,7 @@ test("Nix executable shapes are recognized without PATH lookup", () => {
   expect(collectorExecutableProvenance("php", "php")).toBeNull();
 });
 
-test("sandbox invocation binds selected binaries and isolates arguments", () => {
+test("sandbox invocation binds selected binaries, isolates arguments, and narrows runtime writes", () => {
   const php = "/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-php-8.3.21/bin/php";
   const bwrap = "/nix/store/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb-bubblewrap-0.11.2/bin/bwrap";
   const invocation = buildCollectorSandboxArguments(
@@ -143,6 +143,22 @@ test("sandbox invocation binds selected binaries and isolates arguments", () => 
       "/nix/store",
     ]),
   );
+  const workspaceBindIndex = invocation.arguments.findIndex(
+    (value, index) => value === "--ro-bind" && invocation.arguments[index + 2] === "/workspace",
+  );
+  const varOverlayIndex = invocation.arguments.findIndex(
+    (value, index) => value === "--tmpfs" && invocation.arguments[index + 1] === "/workspace/apps/server/var",
+  );
+  expect(workspaceBindIndex).toBeGreaterThan(-1);
+  expect(varOverlayIndex).toBe(workspaceBindIndex + 3);
+  const tmpfsDestinations = invocation.arguments.flatMap((value, index) =>
+    value === "--tmpfs" ? [invocation.arguments[index + 1]] : [],
+  );
+  expect(tmpfsDestinations).toEqual(
+    expect.arrayContaining(["/", "/tmp", "/workspace/apps/server/var"]),
+  );
+  expect(tmpfsDestinations).not.toContain("/workspace");
+  expect(tmpfsDestinations).not.toContain("/workspace/apps/server");
   const separator = invocation.arguments.indexOf("--");
   expect(separator).toBeGreaterThan(-1);
   expect(invocation.arguments[separator + 1]).toBe("/usr/bin/php");

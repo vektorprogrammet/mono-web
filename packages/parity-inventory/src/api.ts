@@ -173,7 +173,7 @@ export const buildCollectorSandboxArguments = (executables: CollectorExecutables
   const nixStoreBind = collectorNeedsNixStore(executables) ? ["--dir", "/nix", "--ro-bind", "/nix/store", "/nix/store"] : []
   return {
     executable: executables.bwrapExecutable,
-    arguments: ["--die-with-parent", "--unshare-net", "--unshare-pid", "--unshare-uts", "--unshare-ipc", "--clearenv", "--tmpfs", "/", "--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp", "--dir", "/etc", "--dir", "/usr", "--dir", "/usr/bin", "--dir", "/usr/lib", "--ro-bind", executables.phpExecutable, "/usr/bin/php", ...nixStoreBind, ...libraryBinds, "--ro-bind", workspacePath, "/workspace", "--chdir", "/workspace", "--setenv", "PATH", "/usr/bin", "--setenv", "HOME", "/tmp", "--setenv", "APP_ENV", "test", "--setenv", "APP_DEBUG", "0", "--setenv", "COMPOSER_HOME", "/tmp", "--", "/usr/bin/php", ...args],
+    arguments: ["--die-with-parent", "--unshare-net", "--unshare-pid", "--unshare-uts", "--unshare-ipc", "--clearenv", "--tmpfs", "/", "--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp", "--dir", "/etc", "--dir", "/usr", "--dir", "/usr/bin", "--dir", "/usr/lib", "--ro-bind", executables.phpExecutable, "/usr/bin/php", ...nixStoreBind, ...libraryBinds, "--ro-bind", workspacePath, "/workspace", "--tmpfs", "/workspace/apps/server/var", "--chdir", "/workspace", "--setenv", "PATH", "/usr/bin", "--setenv", "HOME", "/tmp", "--setenv", "APP_ENV", "test", "--setenv", "APP_DEBUG", "0", "--setenv", "COMPOSER_HOME", "/tmp", "--", "/usr/bin/php", ...args],
   }
 }
 const PHP_EXECUTABLE = "/usr/bin/php"
@@ -742,6 +742,7 @@ const stageCollectorInputs = (context: ManifestContext): string | null => {
     const vendorTarget = join(stage, "apps/server/vendor")
     mkdirSync(vendorTarget, { recursive: true, mode: 0o755 })
     copyVendor(immutableVendorRoot, vendorTarget)
+    mkdirSync(join(stage, "apps/server/var"), { recursive: true, mode: 0o755 })
     return stage
   } catch {
     rmSync(stage, { recursive: true, force: true })
