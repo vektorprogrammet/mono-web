@@ -4,6 +4,7 @@ import { dirname, isAbsolute, join } from "node:path"
 import { tmpdir } from "node:os"
 import { canonicalJson, compareByteOrder, declarationId, edgeId, observationId, relationId, rowId, sha256, sortUnique } from "./canonical.js"
 import { addSourceReference, effectiveIgnoreRule, matchesLiteralPattern, readSourceText, readSourceTextDetailed, sanitizeScalar, sourceTextSafetyReason, unsafeScalarReason, unsafeSourceTextReason, unsafeStructuredValueReason, type ManifestContext, type OutOfBandSourceCapture, type ScanFile } from "./source-manifest.js"
+import { inspectJsonMembers } from "./json-safety.js"
 import type {
   ApiOperationDetails,
   CollectorExecutableProvenance,
@@ -478,7 +479,15 @@ const collectorBytes = (value: unknown): Uint8Array => {
   if (typeof value === "string") return new TextEncoder().encode(value)
   return new Uint8Array()
 }
-const sanitizeCollectorOutput = (value: unknown, fallbackReason: string): { readonly bytes: Uint8Array; readonly text: string; readonly reason: "NON_UTF8_OUTPUT" | "UNSAFE_SOURCE" | null } => {
+type CollectorSafetyPolicy = "generic" | "openapi"
+type CollectorOutputMode = "success" | "failure"
+type CollectorOutputReason = "NON_UTF8_OUTPUT" | "UNSAFE_SOURCE" | "SOURCE_PARSE_ERROR" | "OPENAPI_SOURCE_PARSE_ERROR"
+const sanitizeCollectorOutput = (
+  value: unknown,
+  fallbackReason: string,
+  policy: CollectorSafetyPolicy = "generic",
+  mode: CollectorOutputMode = "failure",
+): { readonly bytes: Uint8Array; readonly text: string; readonly reason: CollectorOutputReason | null } => {
   const bytes = collectorBytes(value)
   let text: string
   try {
@@ -487,7 +496,47 @@ const sanitizeCollectorOutput = (value: unknown, fallbackReason: string): { read
     const fallback = new TextEncoder().encode(fallbackReason)
     return { bytes: fallback, text: fallbackReason, reason: "NON_UTF8_OUTPUT" }
   }
-  if (unsafeSourceTextReason(text) !== null) {
+  if (mode === "failure") {
+    if (unsafeSourceTextReason(text) !== null) {
+      const fallback = new TextEncoder().encode(fallbackReason)
+      return { bytes: fallback, text: fallbackReason, reason: "UNSAFE_SOURCE" }
+    }
+    return { bytes: new TextEncoder().encode(text), text, reason: null }
+  }
+  const trimmed = text.trimStart()
+  const looksLikeJson = trimmed.startsWith("{") || trimmed.startsWith("[")
+  if (policy === "openapi" && !looksLikeJson) {
+    const fallback = new TextEncoder().encode("OPENAPI_SOURCE_PARSE_ERROR")
+    return { bytes: fallback, text: "OPENAPI_SOURCE_PARSE_ERROR", reason: "OPENAPI_SOURCE_PARSE_ERROR" }
+  }
+  if (!looksLikeJson) {
+    if (unsafeSourceTextReason(text) !== null) {
+      const fallback = new TextEncoder().encode(fallbackReason)
+      return { bytes: fallback, text: fallbackReason, reason: "UNSAFE_SOURCE" }
+    }
+    return { bytes: new TextEncoder().encode(text), text, reason: null }
+  }
+  const memberScan = inspectJsonMembers(text)
+  if (memberScan !== "valid") {
+    const fallbackReasonForScan: CollectorOutputReason = memberScan === "duplicate"
+      ? "UNSAFE_SOURCE"
+      : policy === "openapi"
+        ? "OPENAPI_SOURCE_PARSE_ERROR"
+        : "SOURCE_PARSE_ERROR"
+    const fallback = new TextEncoder().encode(fallbackReasonForScan)
+    return { bytes: fallback, text: fallbackReasonForScan, reason: fallbackReasonForScan }
+  }
+  const unsafe =
+    policy === "openapi"
+      ? (() => {
+          try {
+            return openApiPayloadContainsUnsafe(JSON.parse(text) as unknown)
+          } catch {
+            return true
+          }
+        })()
+      : unsafeSourceTextReason(text) !== null
+  if (unsafe) {
     const fallback = new TextEncoder().encode(fallbackReason)
     return { bytes: fallback, text: fallbackReason, reason: "UNSAFE_SOURCE" }
   }
@@ -766,7 +815,12 @@ const stageCollectorInputs = (context: ManifestContext): string | null => {
   }
 }
 
-const trustedPhpCollector = (context: ManifestContext, args: readonly string[], configured?: CollectorExecutables): CollectorRun => {
+const trustedPhpCollector = (
+  context: ManifestContext,
+  args: readonly string[],
+  configured?: CollectorExecutables,
+  safetyPolicy: CollectorSafetyPolicy = "generic",
+): CollectorRun => {
   const selected = resolveCollectorExecutables(configured)
   if (selected === null) return unavailableCollector(configured === undefined ? "COLLECTOR_EXECUTABLE_CONFIG_MISSING" : "COLLECTOR_EXECUTABLE_INVALID")
   const executableDigests: RuntimeExecutableDigests = { php: selected.php.digest, bwrap: selected.bwrap.digest }
@@ -777,15 +831,15 @@ const trustedPhpCollector = (context: ManifestContext, args: readonly string[], 
     const executableConfig: CollectorExecutables = { phpExecutable: selected.php.path, bwrapExecutable: selected.bwrap.path }
     const invocation = buildCollectorSandboxArguments(executableConfig, args, stage)
     const output = execFileSync(invocation.executable, invocation.arguments, { cwd: stage, stdio: ["ignore", "pipe", "pipe"], timeout: 60_000, killSignal: "SIGKILL", maxBuffer: 8 * 1024 * 1024, env: { PATH: "/usr/bin", HOME: "/tmp", APP_ENV: "test", APP_DEBUG: "0", COMPOSER_HOME: "/tmp" } })
-    const stdout = sanitizeCollectorOutput(output, "NON_UTF8_OUTPUT")
-    const stderr = sanitizeCollectorOutput(new Uint8Array(), "NON_UTF8_OUTPUT")
+    const stdout = sanitizeCollectorOutput(output, "NON_UTF8_OUTPUT", safetyPolicy, "success")
+    const stderr = sanitizeCollectorOutput(new Uint8Array(), "NON_UTF8_OUTPUT", "generic", "success")
     const outputReason = stdout.reason ?? stderr.reason
     if (outputReason !== null) return unavailableCollector(outputReason, 1, stdout.bytes, stderr.bytes, executableDigests, executableProvenance)
     return { availability: "available", stdout: stdout.text, stderr: stderr.text, stdoutBytes: stdout.bytes, stderrBytes: stderr.bytes, exitCode: 0, executableDigests, executableProvenance }
   } catch (cause) {
     const error = cause as { readonly stdout?: unknown; readonly stderr?: unknown; readonly status?: number }
-    const stdout = sanitizeCollectorOutput(error.stdout, "COLLECTOR_EXECUTION_FAILED")
-    const stderr = sanitizeCollectorOutput(error.stderr, "COLLECTOR_EXECUTION_FAILED")
+    const stdout = sanitizeCollectorOutput(error.stdout, "COLLECTOR_EXECUTION_FAILED", safetyPolicy, "failure")
+    const stderr = sanitizeCollectorOutput(error.stderr, "COLLECTOR_EXECUTION_FAILED", "generic", "failure")
     const exitCode = typeof error.status === "number" ? error.status : 1
     const outputReason = stdout.reason ?? stderr.reason
     if (outputReason !== null) return unavailableCollector(outputReason, exitCode, stdout.bytes, stderr.bytes, executableDigests, executableProvenance)
@@ -799,10 +853,10 @@ const payloadContainsUnsafe = (value: unknown, _fieldName = "field"): boolean =>
   unsafeStructuredValueReason(value) !== null
 
 const runtimeOpenApiFromOperations = (operations: readonly RuntimeOperation[]): Record<string, unknown> => {
-  const paths: Record<string, Record<string, unknown>> = {}
+  const paths: Record<string, Record<string, unknown>> = Object.create(null) as Record<string, Record<string, unknown>>
   for (const operation of operations) {
-    if (operation.method === null || operation.uriTemplate === null) continue
-    const path = paths[operation.uriTemplate] ?? {}
+    if (operation.method === null || operation.uriTemplate === null || !operation.uriTemplate.startsWith("/")) continue
+    const path = paths[operation.uriTemplate] ?? (Object.create(null) as Record<string, unknown>)
     path[operation.method.toLowerCase()] = { operationId: operation.operationId, responses: { "200": { description: "OK" } } }
     paths[operation.uriTemplate] = path
   }
@@ -840,6 +894,8 @@ const collectRuntime = (context: ManifestContext, declarations: readonly ApiDecl
       }
       const decoded = strictUtf8(fixtureInput.bytes)
       if (decoded === null) return failedFixture("NON_UTF8_OUTPUT")
+      const memberScan = inspectJsonMembers(decoded)
+      if (memberScan !== "valid") return failedFixture(memberScan === "duplicate" ? "UNSAFE_SOURCE" : "SOURCE_PARSE_ERROR")
       let parsed: unknown
       try {
         parsed = JSON.parse(decoded) as unknown
@@ -870,13 +926,13 @@ const collectRuntime = (context: ManifestContext, declarations: readonly ApiDecl
   if (operations === null) return unavailable("api_platform_metadata", "api-platform-metadata", metadataArgs, "SOURCE_PARSE_ERROR", 1, metadataRun)
   const metadataObservation = recordRuntimeObservation(context, { collectorKind: "api_platform_metadata", logicalCommandId: "api-platform-metadata", command: "api-platform-metadata", arguments: metadataArgs, stdout: canonicalJson(operations), stderr: "", exitCode: metadataRun.exitCode, result: operations, availability: "available", revisionRefId, executableDigests: metadataRun.executableDigests, executableProvenance: metadataRun.executableProvenance })
   const openApiArgs = ["/workspace/apps/server/bin/console", "api:openapi:export", "--env=test", "--no-debug"]
-  const openApiRun = trustedPhpCollector(context, openApiArgs, configured)
+  const openApiRun = trustedPhpCollector(context, openApiArgs, configured, "openapi")
   const sourceRef = consoleRef()
   if (openApiRun.availability !== "available") {
     const reason = openApiRun.reason ?? "RUNTIME_UNAVAILABLE"
     const reasonBytes = new TextEncoder().encode(reason)
     const openApiObservation = recordRuntimeObservation(context, { collectorKind: "openapi_projection", logicalCommandId: "api:openapi:export", command: "api:openapi:export", arguments: openApiArgs, stdout: reasonBytes, stderr: reasonBytes, exitCode: openApiRun.exitCode, result: null, availability: "unavailable", revisionRefId, executableDigests: openApiRun.executableDigests, executableProvenance: openApiRun.executableProvenance })
-    const status: ApiCollectionFailure["status"] = reason === "NON_UTF8_OUTPUT" ? "source_unavailable" : "runtime_unavailable"
+    const status: ApiCollectionFailure["status"] = ["NON_UTF8_OUTPUT", "OPENAPI_SOURCE_PARSE_ERROR", "UNSAFE_SOURCE"].includes(reason) ? "source_unavailable" : "runtime_unavailable"
     return { operations: [], observation: metadataObservation, openApiObservation, openApiPayload: null, sourceRefIds: [sourceRef], failures: [{ status, reasonCode: reason, rowIds: [], sourceRefIds: [sourceRef] }] }
   }
   let openApiPayload: unknown
@@ -886,7 +942,7 @@ const collectRuntime = (context: ManifestContext, declarations: readonly ApiDecl
     const openApiObservation = recordRuntimeObservation(context, { collectorKind: "openapi_projection", logicalCommandId: "api:openapi:export", command: "api:openapi:export", arguments: openApiArgs, stdout: reasonBytes, stderr: reasonBytes, exitCode: openApiRun.exitCode, result: null, availability: "unavailable", revisionRefId, executableDigests: openApiRun.executableDigests, executableProvenance: openApiRun.executableProvenance })
     return { operations: [], observation: metadataObservation, openApiObservation, openApiPayload: null, sourceRefIds: [sourceRef], failures: [{ status: "source_unavailable", reasonCode: reason, rowIds: [], sourceRefIds: [sourceRef] }] }
   }
-  if (payloadContainsUnsafe(openApiPayload)) return unavailable("openapi_projection", "api:openapi:export", openApiArgs, "UNSAFE_SOURCE", 1, openApiRun)
+  if (openApiPayloadContainsUnsafe(openApiPayload)) return unavailable("openapi_projection", "api:openapi:export", openApiArgs, "UNSAFE_SOURCE", 1, openApiRun)
   const openApiObservation = recordRuntimeObservation(context, { collectorKind: "openapi_projection", logicalCommandId: "api:openapi:export", command: "api:openapi:export", arguments: openApiArgs, stdout: openApiRun.stdoutBytes, stderr: openApiRun.stderrBytes, exitCode: openApiRun.exitCode, result: openApiPayload, availability: "available", revisionRefId, executableDigests: openApiRun.executableDigests, executableProvenance: openApiRun.executableProvenance })
   return { operations, observation: metadataObservation, openApiObservation, openApiPayload, sourceRefIds: [sourceRef], failures: [] }
 }
@@ -949,6 +1005,65 @@ const hasOwn = (value: Record<string, unknown>, key: string): boolean => Object.
 const OPENAPI_METHOD_KEYS = new Set(["get", "head", "post", "put", "patch", "delete", "options", "trace"])
 const OPENAPI_COMPONENT_KEYS = new Set(["schemas", "responses", "parameters", "examples", "requestBodies", "headers", "securitySchemes", "links", "callbacks", "pathItems"])
 const OPENAPI_PATH_ITEM_KEYS = new Set(["$ref", "summary", "description", "servers", "parameters", ...OPENAPI_METHOD_KEYS])
+
+const OPENAPI_ROUTE_KEY_PREFIX = "__openapi_route_template_"
+const openApiRouteKeyIsUnsafe = (key: string): boolean => unsafeScalarReason(key, "route_path") !== null
+const openApiPayloadIsParsedDocument = (value: unknown): value is Record<string, unknown> =>
+  isOpenApiRecord(value) &&
+  typeof value.openapi === "string" &&
+  isOpenApiRecord(value.info) &&
+  isOpenApiRecord(value.paths) &&
+  isOpenApiRecord(value.components)
+type OpenApiPathsMapContext = "none" | "root" | "wrapper"
+const openApiSafetyProjection = (
+  value: unknown,
+  pathsMap: OpenApiPathsMapContext = "none",
+  atDocumentRoot = false,
+  routeOrdinal = { value: 0 },
+): { readonly value: unknown; readonly unsafeRoute: boolean } => {
+  if (Array.isArray(value)) {
+    const projectedEntries: unknown[] = []
+    for (const entry of value) {
+      const projected = openApiSafetyProjection(entry, "none", false, routeOrdinal)
+      if (projected.unsafeRoute) return projected
+      projectedEntries.push(projected.value)
+    }
+    return { value: projectedEntries, unsafeRoute: false }
+  }
+  if (!isOpenApiRecord(value)) return { value, unsafeRoute: false }
+  const projected: Record<string, unknown> = Object.create(null) as Record<string, unknown>
+  for (const [key, entry] of Object.entries(value)) {
+    if (pathsMap !== "none" && key.startsWith("/")) {
+      if (openApiRouteKeyIsUnsafe(key)) return { value, unsafeRoute: true }
+      let routeKey: string
+      do {
+        routeKey = `${OPENAPI_ROUTE_KEY_PREFIX}${routeOrdinal.value}`
+        routeOrdinal.value += 1
+      } while (hasOwn(value, routeKey))
+      const child = openApiSafetyProjection(entry, "none", false, routeOrdinal)
+      if (child.unsafeRoute) return child
+      projected[routeKey] = child.value
+      continue
+    }
+    const childPathsMap: OpenApiPathsMapContext =
+      !isOpenApiRecord(entry)
+        ? "none"
+        : atDocumentRoot && key === "paths"
+          ? "root"
+          : pathsMap === "root" && key === "paths"
+            ? "wrapper"
+            : "none"
+    const child = openApiSafetyProjection(entry, childPathsMap, false, routeOrdinal)
+    if (child.unsafeRoute) return child
+    projected[key] = child.value
+  }
+  return { value: projected, unsafeRoute: false }
+}
+const openApiPayloadContainsUnsafe = (value: unknown): boolean => {
+  if (!openApiPayloadIsParsedDocument(value)) return payloadContainsUnsafe(value)
+  const projected = openApiSafetyProjection(value, "none", true)
+  return projected.unsafeRoute || payloadContainsUnsafe(projected.value)
+}
 
 const openApiRefTarget = (root: Record<string, unknown>, reference: string): unknown => {
   if (!reference.startsWith("#/components/")) return undefined
@@ -1017,7 +1132,7 @@ interface ValidOpenApiDocument {
 }
 
 const validOpenApiDocument = (value: unknown): ValidOpenApiDocument | null => {
-  if (!isOpenApiRecord(value) || payloadContainsUnsafe(value)) return null
+  if (!isOpenApiRecord(value) || openApiPayloadContainsUnsafe(value)) return null
   const openapi = value.openapi
   if (typeof openapi !== "string" || !/^3\.(?:0|1)\.\d+$/.test(openapi)) return null
   const info = value.info
@@ -1112,7 +1227,7 @@ const reconcileOpenApi = (context: ManifestContext, sourceManifestSha256: string
   const committedResult = readSourceTextDetailed(context, "mono", OPENAPI_PATH)
   const committedRef = committedResult.status === "available" ? openApiSourceRef(context) : sourceFailureRef(context, OPENAPI_PATH, committedResult.reason, "mono_openapi_projection")
   let committedDocument: NormalizedOpenApiDocument | null = null
-  if (committedResult.status === "available") {
+  if (committedResult.status === "available" && inspectJsonMembers(committedResult.text) === "valid") {
     try { committedDocument = normaliseOpenApiDocument(JSON.parse(committedResult.text) as unknown) } catch { committedDocument = null }
   }
   const regeneratedDocument = runtime.openApiPayload === null ? null : normaliseOpenApiDocument(runtime.openApiPayload)
@@ -1132,6 +1247,12 @@ const openApiValidationFailure = (context: ManifestContext, runtime: RuntimeColl
   const committedResult = readSourceTextDetailed(context, "mono", OPENAPI_PATH)
   if (committedResult.status !== "available") {
     return { status: "source_unavailable", reasonCode: committedResult.reason, rowIds: [], sourceRefIds: [sourceFailureRef(context, OPENAPI_PATH, committedResult.reason, "mono_openapi_projection")] }
+  }
+  const memberScan = inspectJsonMembers(committedResult.text)
+  if (memberScan !== "valid") {
+    return memberScan === "duplicate"
+      ? { status: "schema_invalid", reasonCode: "OPENAPI_SCHEMA_INVALID", rowIds: [], sourceRefIds: [openApiSourceRef(context)] }
+      : { status: "source_unavailable", reasonCode: "OPENAPI_SOURCE_PARSE_ERROR", rowIds: [], sourceRefIds: [openApiSourceRef(context)] }
   }
   let committedPayload: unknown
   try { committedPayload = JSON.parse(committedResult.text) as unknown } catch {

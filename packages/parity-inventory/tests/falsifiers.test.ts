@@ -3,7 +3,8 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { validateReportBundle, type ProjectionObservation } from "../src/schema.js";
-import { collectApiOperations } from "../src/api.js";
+import { collectApiOperations, type ApiCollection } from "../src/api.js";
+import { hasDuplicateJsonMembers } from "../src/json-safety.js";
 import {
   acceptedIntentRevisionRefId,
   loadAcceptedIntentRegister,
@@ -533,6 +534,189 @@ test("real target API identities and normalized H3 edges do not invoke ambient r
     rmSync(legacyRoot, { recursive: true, force: true });
   }
 });
+test("OpenAPI route keys remain structural while credential and schema values fail closed", async () => {
+  const runFixture = async (
+    openApiPayload: Record<string, unknown>,
+    runtimePayload: unknown,
+  ): Promise<{
+    readonly result: ApiCollection
+    readonly openApiAvailability: string | null
+  }> => {
+    const monoRoot = gitFixture()
+    const legacyRoot = gitFixture()
+    try {
+      putFixture(monoRoot, "packages/sdk/openapi.json", JSON.stringify(openApiPayload))
+      execFileSync("git", ["-C", monoRoot, "add", "."])
+      execFileSync("git", ["-C", monoRoot, "commit", "-qm", "openapi-safety-boundary"])
+      execFileSync("git", ["-C", legacyRoot, "commit", "--allow-empty", "-qm", "empty-legacy"])
+      const mono = await Effect.runPromise(scanRootEffect(monoRoot, "mono"))
+      const legacy = await Effect.runPromise(scanRootEffect(legacyRoot, "legacy"))
+      const context = createManifestContextFromSnapshots(legacy, mono)
+      const result = collectApiOperations(
+        context,
+        sha256("openapi-safety-boundary"),
+        [],
+        true,
+        undefined,
+        {
+          path: "openapi-safety-runtime.json",
+          bytes: Buffer.from(JSON.stringify(runtimePayload), "utf8"),
+        },
+      )
+      const openApiObservation = [...context.runtimeObservations]
+        .reverse()
+        .find((observation) => observation.collector_kind === "openapi_projection")
+      return { result, openApiAvailability: openApiObservation?.availability ?? null }
+    } finally {
+      rmSync(monoRoot, { recursive: true, force: true })
+      rmSync(legacyRoot, { recursive: true, force: true })
+    }
+  }
+  const operation = {
+    method: "PUT",
+    uri_template: "/api/me/password",
+    operation_id: "read_me_password",
+  }
+  const wrapperDocument = {
+    openapi: "3.1.0",
+    info: { title: "Fixture API", version: "1.0.0" },
+    paths: {
+      paths: {
+        "/api/me/password": {
+          put: { operationId: "read_me_password", responses: { "200": { description: "OK" } } },
+        },
+      },
+    },
+    components: {},
+  }
+  const safe = await runFixture(wrapperDocument, [operation])
+  expect(safe.openApiAvailability).toBe("available")
+  expect(safe.result.failures.some((failure) => failure.reasonCode === "UNSAFE_SOURCE")).toBe(false)
+  const prototype = await runFixture(wrapperDocument, [{ ...operation, uri_template: "__proto__" }])
+  expect(prototype.openApiAvailability).toBe("available")
+  expect(prototype.result.failures.some((failure) => failure.reasonCode === "UNSAFE_SOURCE")).toBe(false)
+  expect(Object.prototype).not.toHaveProperty("put")
+  const twoRouteDocument = {
+    ...wrapperDocument,
+    paths: {
+      paths: {
+        "/api/me/password": {
+          put: { operationId: "read_me_password", responses: { "200": { description: "OK" } } },
+        },
+        "/api/me/profile": {
+          put: {
+            operationId: "read_me_profile",
+            responses: { "200": { description: "OK" } },
+            password: { example: "concrete-second-route-secret" },
+          },
+        },
+      },
+    },
+  }
+  const twoRoute = await runFixture(twoRouteDocument, [operation])
+  expect(twoRoute.result.failures.some((failure) => failure.reasonCode === "OPENAPI_SCHEMA_INVALID")).toBe(true)
+
+  const credentialDocument = {
+    ...wrapperDocument,
+    paths: {
+      "/api/me/password/password-secret": {
+        put: { operationId: "read_me_password", responses: { "200": { description: "OK" } } },
+      },
+    },
+  }
+  const credential = await runFixture(credentialDocument, [operation])
+  expect(credential.result.failures.some((failure) => failure.reasonCode === "OPENAPI_SCHEMA_INVALID")).toBe(true)
+
+  const schemaDocument = {
+    ...wrapperDocument,
+    paths: {
+      "/api/me/password": {
+        put: { operationId: "read_me_password", responses: { "200": { description: "OK" } } },
+      },
+    },
+    components: {
+      schemas: {
+        Credential: {
+          properties: {
+            password: {
+              example: "correct-horse-battery-staple",
+              examples: ["another-concrete-secret"],
+              default: "concrete-default-secret",
+              defaults: ["another-concrete-default"],
+              value: "concrete-value-secret",
+              values: ["another-concrete-value"],
+            },
+          },
+        },
+      },
+    },
+  }
+  const schema = await runFixture(schemaDocument, [operation])
+  expect(schema.result.failures.some((failure) => failure.reasonCode === "OPENAPI_SCHEMA_INVALID")).toBe(true)
+
+  const nonOpenApi = await runFixture(
+    { paths: { "/api/me/password": { operationId: "read_me_password" } } },
+    { paths: { "/api/me/password": { operationId: "read_me_password" } } },
+  )
+  expect(nonOpenApi.result.failures.some((failure) => failure.reasonCode === "UNSAFE_SOURCE")).toBe(true)
+})
+test("shared JSON member safety rejects nested duplicates before decoding", () => {
+  expect(hasDuplicateJsonMembers('{"openapi":"3.1.0","paths":{"paths":{"/api/me/password":{"put":{}},"/api/me/password":{"put":{}}}}}')).toBe(true)
+  expect(hasDuplicateJsonMembers('{"components":{"schemas":{"Credential":{"properties":{"password":{"example":"fixture"}},"properties":{"token":{"example":"fixture"}}}}}}')).toBe(true)
+  expect(hasDuplicateJsonMembers('{"openapi":"3.1.0","paths":{"paths":{"/api/me/password":{"put":{}}}}}')).toBe(false)
+  expect(hasDuplicateJsonMembers('{"openapi":"3.1.0"')).toBe(true)
+})
+test("nonvalid JSON member scans reject runtime fixtures before digest or observation capture", async () => {
+  const runFixtureBytes = async (bytes: Uint8Array) => {
+    const monoRoot = gitFixture()
+    const legacyRoot = gitFixture()
+    try {
+      const mono = await Effect.runPromise(scanRootEffect(monoRoot, "mono"))
+      const legacy = await Effect.runPromise(scanRootEffect(legacyRoot, "legacy"))
+      const context = createManifestContextFromSnapshots(legacy, mono)
+      const result = collectApiOperations(
+        context,
+        sha256("json-member-prehash-boundary"),
+        [],
+        true,
+        undefined,
+        { path: "api-operations-malformed.json", bytes },
+      )
+      return { result, observations: [...context.runtimeObservations], sources: [...context.sources] }
+    } finally {
+      rmSync(monoRoot, { recursive: true, force: true })
+      rmSync(legacyRoot, { recursive: true, force: true })
+    }
+  }
+  const depth = 50_000
+  const nested = `[${"[".repeat(depth)}0${"]".repeat(depth)}]`
+  const stackDeepDuplicate = `{"operations":[{"method":"GET","uri_template":"/safe","operation_id":"safe"}],"deep":0,"deep":${nested},"deep":0}`
+  const truncated = '{"operations":[{"method":"GET","uri_template":"/safe","operation_id":"safe"}]'
+  expect(JSON.parse(stackDeepDuplicate)).toMatchObject({ operations: [{ operation_id: "safe" }], deep: 0 })
+  expect(hasDuplicateJsonMembers(stackDeepDuplicate)).toBe(true)
+  for (const [text, expectedReason] of [
+    [stackDeepDuplicate, "SOURCE_PARSE_ERROR"],
+    [truncated, "SOURCE_PARSE_ERROR"],
+  ] as const) {
+    const bytes = new TextEncoder().encode(text)
+    const rawDigest = sha256(bytes)
+    const capture = await runFixtureBytes(bytes)
+    expect(capture.result.failures).toEqual(
+      expect.arrayContaining([expect.objectContaining({ reasonCode: expectedReason })]),
+    )
+    expect(
+      capture.observations.some(
+        (observation) =>
+          observation.stdout_sha256 === rawDigest || observation.stderr_sha256 === rawDigest || observation.result_sha256 === rawDigest,
+      ),
+    ).toBe(false)
+    expect(
+      capture.sources.some(
+        (source) => source.path === "fixture://runtime/api-operations-malformed.json" && source.sha256 !== null,
+      ),
+    ).toBe(false)
+  }
+})
 test("malformed and unsafe OpenAPI documents remain schema-invalid and write-blocked", async () => {
   const payloads = [
     {

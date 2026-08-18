@@ -10,6 +10,7 @@ import {
   stableId,
 } from "./canonical.js"
 import { unsafeScalarReason, type ManifestContext } from "./source-manifest.js"
+import { hasDuplicateJsonMembers } from "./json-safety.js"
 import type {
   Disposition,
   InventoryEnvelope,
@@ -386,93 +387,6 @@ const acceptedIntentSource = (context: ManifestContext, input: IntentSourceInput
   context.sourcePathById.set(sourceId, { rootRef: "mono", path: input.path })
   return sourceId
 }
-const duplicateJsonMember = (text: string): boolean => {
-  let index = 0
-  const skipWhitespace = (): void => {
-    while (index < text.length && /\s/.test(text[index] as string)) index += 1
-  }
-  const parseString = (): string => {
-    const start = index
-    if (text[index] !== "\"") throw new Error("json string expected")
-    index += 1
-    while (index < text.length) {
-      const character = text[index]
-      if (character === "\\") {
-        index += 2
-        continue
-      }
-      index += 1
-      if (character === "\"") return text.slice(start, index)
-      if (character !== undefined && character < " ") throw new Error("json control character")
-    }
-    throw new Error("unterminated json string")
-  }
-  const parseValue = (): boolean => {
-    skipWhitespace()
-    const character = text[index]
-    if (character === "{") {
-      index += 1
-      skipWhitespace()
-      const keys = new Set<string>()
-      if (text[index] === "}") {
-        index += 1
-        return false
-      }
-      while (true) {
-        skipWhitespace()
-        const key = JSON.parse(parseString()) as unknown
-        if (typeof key !== "string") throw new Error("json member key expected")
-        const duplicate = keys.has(key)
-        keys.add(key)
-        skipWhitespace()
-        if (text[index] !== ":") throw new Error("json member separator expected")
-        index += 1
-        const nestedDuplicate = parseValue()
-        if (duplicate || nestedDuplicate) return true
-        skipWhitespace()
-        if (text[index] === "}") {
-          index += 1
-          return false
-        }
-        if (text[index] !== ",") throw new Error("json member delimiter expected")
-        index += 1
-      }
-    }
-    if (character === "[") {
-      index += 1
-      skipWhitespace()
-      if (text[index] === "]") {
-        index += 1
-        return false
-      }
-      while (true) {
-        if (parseValue()) return true
-        skipWhitespace()
-        if (text[index] === "]") {
-          index += 1
-          return false
-        }
-        if (text[index] !== ",") throw new Error("json array delimiter expected")
-        index += 1
-      }
-    }
-    if (character === "\"") {
-      parseString()
-      return false
-    }
-    const start = index
-    while (index < text.length && !/[\s,[\]{}:]/.test(text[index] as string)) index += 1
-    if (index === start) throw new Error("json value expected")
-    return false
-  }
-  try {
-    parseValue()
-    skipWhitespace()
-    return index !== text.length
-  } catch {
-    return true
-  }
-}
 
 const unsafeIntentText = (text: string): boolean =>
   /"(?:password|passwd|secret|secrets|token|access[_-]?token|refresh[_-]?token|api[_-]?key|authorization|client[_-]?secret|payload|raw[_-]?payload|user[_-]?id|account[_-]?id|customer[_-]?id|email|phone)"\s*:/i.test(text) ||
@@ -490,7 +404,7 @@ export const assertSafeAcceptedIntentBytes = (bytes: Uint8Array): void => {
     throw new Error("INTENT_UTF8_INVALID")
   }
   if (text.length > 256 * 1024 || unsafeIntentText(text)) throw new Error("UNSAFE_SOURCE")
-  if (duplicateJsonMember(text)) throw new Error("INTENT_DUPLICATE_KEY")
+  if (hasDuplicateJsonMembers(text)) throw new Error("INTENT_DUPLICATE_KEY")
   let value: unknown
   try {
     value = JSON.parse(text) as unknown
