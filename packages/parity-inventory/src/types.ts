@@ -1,3 +1,5 @@
+import type { AcceptedIntentRegister } from "./coverage.js"
+
 export type AuthorityLine = "legacy" | "mono" | "cross_line"
 
 export type InventoryKind =
@@ -367,6 +369,16 @@ export interface RootCensusRecord {
   readonly ignore_rule_id: string | null
 }
 
+export interface IntentAuthorityRecord {
+  readonly repository_ref: "external_intent_authority"
+  readonly authority_path: string
+  readonly revision_ref_id: string
+  readonly revision: string
+  readonly blob_oid: string
+  readonly digest: string
+  readonly immutable: true
+}
+
 export interface SourceManifest {
   readonly $schema: "https://json-schema.org/draft/2020-12/schema"
   readonly schema_version: "functional-parity-source-manifest/v1"
@@ -379,7 +391,9 @@ export interface SourceManifest {
   readonly ignore_rules: readonly IgnoreRule[]
   readonly sources: readonly SourceRecord[]
   readonly source_set_sha256: string
+  readonly intent_authority?: IntentAuthorityRecord
 }
+
 
 export interface OpenApiReconciliation {
   readonly $schema: "https://json-schema.org/draft/2020-12/schema"
@@ -462,13 +476,18 @@ export interface ZeroGapReport {
   readonly openapi_reconciliation_ref: "openapi-reconciliation.json"
   readonly verification: Verification
 }
+export interface IntentAuthorityEvidence extends IntentAuthorityRecord {
+  readonly authority_root: string
+  readonly relative_path: string
+  readonly bytes: Uint8Array
+}
+
 
 export interface RouteParseFailure {
   readonly source_ref_id: string
   readonly reason_code: string
   readonly status: "source_unavailable" | "unresolved"
 }
-
 export interface RouteCollection {
   readonly inventory: InventoryEnvelope
   readonly failures: readonly RouteParseFailure[]
@@ -482,8 +501,11 @@ export interface GeneratedArtifacts {
   readonly commandWrites: InventoryEnvelope
   readonly scheduledBackgroundWorkflows: InventoryEnvelope
   readonly externalIntegrations: InventoryEnvelope
+  readonly userJourneyCoverage: InventoryEnvelope
   readonly openapiReconciliation: OpenApiReconciliation
   readonly report: ZeroGapReport
+  readonly acceptedIntentRegister?: AcceptedIntentRegister
+  readonly intentAuthority?: IntentAuthorityEvidence
   readonly bytes: Readonly<Record<string, string>>
   readonly failures: readonly ReportFailure[]
   readonly routeRows: readonly InventoryRow[]

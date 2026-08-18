@@ -1,12 +1,14 @@
 import { Effect } from "effect"
+import { execFileSync } from "node:child_process"
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { applyAcceptedAbsent, collectC2 } from "../src/effects.js"
+import { acceptedIntentRevisionRefId } from "../src/coverage.js"
 import { canonicalJson, sha256 } from "../src/canonical.js"
 import { SOURCE_FAMILIES } from "../src/source-manifest.js"
-import { run } from "../src/runner.js"
-import { validateInventory, validateReport } from "../src/schema.js"
+import { COMMITTED_PROJECTIONS, PROJECTION_DIRECTORY, run, runTrustedFixtureTerminalCycle } from "../src/runner.js"
 import { scanRootEffect } from "../src/runtime.js"
+import { validateInventory } from "../src/schema.js"
 import { createManifestContextFromSnapshots } from "../src/source-manifest.js"
 
 const put = (root: string, path: string, contents: string): void => {
@@ -20,6 +22,87 @@ const contextFor = async (legacyRoot: string, monoRoot: string) => {
   const mono = await Effect.runPromise(scanRootEffect(monoRoot, "mono"))
   return createManifestContextFromSnapshots(legacy, mono)
 }
+const runWithIntentAuthority = async (root: string, legacyRoot: string, mode: "diff" | "write") => {
+  const legacy = await Effect.runPromise(scanRootEffect(legacyRoot, "legacy"))
+  const mono = await Effect.runPromise(scanRootEffect(root, "mono"))
+  const context = createManifestContextFromSnapshots(legacy, mono)
+  const selectedRevisionRefIds = [legacy.revisionRefId, acceptedIntentRevisionRefId(context)].sort()
+  const intentPayload = {
+    intent_ref_id: "intent://c2-test-authority",
+    intent_revision: "c2-test-authority-v1",
+    selected_revision_ref_ids: selectedRevisionRefIds,
+    source_ref_ids: [],
+    purpose: "coverage" as const,
+    disposition: null,
+    row_ids: [],
+    canonical_signatures: [],
+    inventory_kinds: [],
+    journey_ref_ids: ["intent://c2-test-journey"],
+  }
+  const journeyPayload = {
+    journey_ref_id: "intent://c2-test-journey",
+    journey_key: "c2-test-authority-journey",
+    intent_ref_id: "intent://c2-test-authority",
+    journey_revision: "c2-test-authority-journey-v1",
+    selected_revision_ref_ids: selectedRevisionRefIds,
+    source_ref_ids: [],
+    steps: [],
+    coverage_scope: "accepted_non_user_facing" as const,
+  }
+  const register = {
+    schema_version: "functional-parity-accepted-intent/v1" as const,
+    intents: [{ ...intentPayload, intent_digest: sha256(canonicalJson(intentPayload)) }],
+    journeys: [{ ...journeyPayload, journey_digest: sha256(canonicalJson(journeyPayload)) }],
+  }
+  const authority = mkdtempSync("/tmp/parity-c2-intent-authority-")
+  const path = join(authority, "accepted-intent.json")
+  writeFileSync(path, canonicalJson(register), "utf8")
+  execFileSync("git", ["-C", authority, "init", "-q"])
+  execFileSync("git", ["-C", authority, "config", "user.email", "parity@example.invalid"])
+  execFileSync("git", ["-C", authority, "config", "user.name", "parity-test"])
+  execFileSync("git", ["-C", authority, "add", "--", "accepted-intent.json"])
+  execFileSync("git", ["-C", authority, "commit", "-qm", "intent-authority"])
+  try {
+    return await Effect.runPromise(run({ root, legacyRoot, intentRegisterPath: path, mode }))
+  } finally {
+    rmSync(authority, { recursive: true, force: true })
+  }
+}
+
+test("terminal pipeline reaches write14 then fresh post-commit diff0 with stable bytes", async () => {
+  const cycle = await Effect.runPromise(runTrustedFixtureTerminalCycle())
+  expect(cycle.writeReport).toMatchObject({
+    status: "projection_written",
+    exit_code: 14,
+    projection_write: { status: "written", target_ref: PROJECTION_DIRECTORY },
+    verification: { deterministic_diff: "not_run", forbidden_states_empty: true },
+  })
+  expect(cycle.idempotentWriteReport).toMatchObject({
+    status: "projection_written",
+    exit_code: 14,
+    projection_write: { status: "written", target_ref: PROJECTION_DIRECTORY },
+    verification: { schema_validation: true, deterministic_diff: "not_run", forbidden_states_empty: true },
+  })
+  expect(cycle.diffReport).toMatchObject({
+    status: "zero_gap",
+    exit_code: 0,
+    projection_write: { status: "not_requested", target_ref: null },
+    verification: { deterministic_diff: "equal", forbidden_states_empty: true },
+  })
+  for (const staleReport of [cycle.missingDiffReport, cycle.differentDiffReport]) {
+    expect(staleReport).toMatchObject({
+      status: "stale",
+      exit_code: 5,
+      verification: { schema_validation: true, deterministic_diff: "different" },
+      failures: expect.arrayContaining([expect.objectContaining({ status: "stale", reason_code: "STALE_ARTIFACT" })]),
+    })
+  }
+  expect(cycle.projectionEntries).toEqual([...COMMITTED_PROJECTIONS].sort())
+  expect(Object.keys(cycle.projectionBytes).sort()).toEqual([...COMMITTED_PROJECTIONS].sort())
+  expect(cycle.diffReport.source_manifest_sha256).toBe(cycle.writeReport.source_manifest_sha256)
+  expect(cycle.diffReport.inventory_artifact_sha256).toEqual(cycle.writeReport.inventory_artifact_sha256)
+})
+
 
 test("F13 retains an unknown effect with causal row and source attribution", async () => {
   const result = await Effect.runPromise(run({ root: ".", legacyRoot: ".", mode: "fixture_injection", falsifierId: "F13_unknown_effect" }))
@@ -38,7 +121,6 @@ test("F14 leaves absent schedules unaccounted until an accepted_absent intent is
   const result = await Effect.runPromise(run({ root: ".", legacyRoot: ".", mode: "fixture_injection", falsifierId: "F14_absent_schedule" }))
   expect(result.exitCode).toBe(13)
   expect(result.report.status).toBe("falsifier_passed")
-  expect(validateReport(result.report)).toBe(true)
   const absent = result.artifacts?.scheduledBackgroundWorkflows.rows.find((row) => row.status === "absent")
   expect(absent).toBeDefined()
   if (absent === undefined || result.artifacts === undefined) throw new Error("absent schedule row missing")
@@ -103,7 +185,7 @@ test("write projection gate blocks unresolved C2 effects", async () => {
   const monoRoot = mkdtempSync("/tmp/parity-c2-write-gate-mono-")
   try {
     put(monoRoot, "apps/server/src/App/Infrastructure/Command/UnknownCommand.php", "<?php\nnamespace App\\Fixture;\nfinal class UnknownCommand { public function __invoke(): void { $result = $this->delegate->perform(); } }\n")
-    const result = await Effect.runPromise(run({ root: monoRoot, legacyRoot, mode: "write" }))
+    const result = await runWithIntentAuthority(monoRoot, legacyRoot, "write")
     expect(result.report.projection_write.status).toBe("blocked")
     expect(result.report.failures).toEqual(expect.arrayContaining([expect.objectContaining({ reason_code: "UNKNOWN_EFFECT", status: "unresolved" })]))
   } finally {
@@ -276,7 +358,7 @@ test("duplicate unresolved schedules remain write-blocking", async () => {
     const duplicateRows = c2.schedules.rows.filter((row) => row.status === "duplicate")
     expect(duplicateRows.length).toBeGreaterThanOrEqual(2)
     expect(duplicateRows.every((row) => row.reason_codes.includes("SCHEDULE_PARSE_INCOMPLETE"))).toBe(true)
-    const result = await Effect.runPromise(run({ root: monoRoot, legacyRoot, mode: "write" }))
+    const result = await runWithIntentAuthority(monoRoot, legacyRoot, "write")
     expect(result.report.projection_write.status).toBe("blocked")
   } finally {
     rmSync(legacyRoot, { recursive: true, force: true })

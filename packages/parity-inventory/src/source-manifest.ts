@@ -67,7 +67,6 @@ const MONO_RULES: readonly RuleSpec[] = [
   { root_ref: "mono", precedence: 31, pattern: "**/build/**", selection: "ordered_set_difference", rule_kind: "generated_output", rationale: RATIONALE.build_output },
   { root_ref: "mono", precedence: 40, pattern: "**/.turbo/**", selection: "ordered_set_difference", rule_kind: "build_cache", rationale: RATIONALE.turbo_cache },
   { root_ref: "mono", precedence: 41, pattern: "**/.cache/**", selection: "ordered_set_difference", rule_kind: "build_cache", rationale: RATIONALE.tool_cache },
-  { root_ref: "mono", precedence: 32, pattern: "evidence/functional-parity/**", selection: "ordered_set_difference", rule_kind: "generated_output", rationale: RATIONALE.generated_output },
   { root_ref: "mono", precedence: 53, pattern: "apps/server/var/**", selection: "ordered_set_difference", rule_kind: "runtime_cache", rationale: RATIONALE.mono_server_runtime },
   { root_ref: "mono", precedence: 70, pattern: "**/coverage/**", selection: "ordered_set_difference", rule_kind: "test_support", rationale: RATIONALE.test_support },
 ]
@@ -254,7 +253,8 @@ export const literalPatternRegex = (pattern: string): RegExp => {
 export const matchesLiteralPattern = (path: string, pattern: string): boolean => literalPatternRegex(pattern).test(path)
 const unsafePathSegmentPattern = /(?:^|\/)(?:\.env(?:$|\.)|credentials?(?:$|[._-]|\/)|secrets?(?:$|[._-]|\/)|private[-_]?keys?(?:$|[._-]|\/)|(?:raw[-_]?payloads?|payloads?|logs?|backups?|dumps?)(?:\/|$))/i
 const unsafePathExtensionPattern = /\.(?:pem|key|p12|pfx|jks|keystore|sqlite|sqlite3|db|dump|bak|backup|sql|log|ndjson|har|http)$/i
-const unsafeKeyPattern = /^(?:password|passwd|secret|secrets|token|access[_-]?token|refresh[_-]?token|api[_-]?key|authorization|client[_-]?secret)$/i
+const unsafeKeyPattern = /^(?:password|passwd|secret|secrets|token|access[_-]?token|refresh[_-]?token|api[_-]?key|authorization|client[_-]?secret|payload|raw[_-]?payload|user[_-]?id|account[_-]?id|customer[_-]?id|member[_-]?id|identity[_-]?id|email|phone)$/i
+const identityFieldPattern = /^(?:user|account|customer|member|identity)[_-]?id(?:s)?$/i
 const emailPattern = /[A-Z0-9._%+-]+@([A-Z0-9.-]+\.[A-Z]{2,})/i
 const phonePattern = /\+?[0-9][0-9().\-\s]{6,}[0-9]/
 const sourcePhonePattern = /\+[0-9][0-9().\-\s]{6,}[0-9]/
@@ -314,9 +314,9 @@ const stripFrameworkPlaceholders = (value: string, context: ScalarContext): stri
   if (context !== "route_path") return value
   return value.replace(/\{[^{}]+\}|<[^<>]+>|(?:^|\/):[A-Za-z_][A-Za-z0-9_-]*(?=$|\/)/g, "")
 }
-
 const explicitUnsafeScalarReason = (normalized: string, context: ScalarContext, rawField: string): "UNSAFE_SOURCE" | null => {
   const literal = stripFrameworkPlaceholders(normalized, context)
+  if (identityFieldPattern.test(rawField) && /^(?:\d{1,12}|[A-Za-z]{1,3}\d{1,8})$/.test(literal)) return "UNSAFE_SOURCE"
   if (knownCredentialTokenPattern.test(literal)) return "UNSAFE_SOURCE"
   if (credentialAssignmentPattern.test(literal) || colonCredentialAssignmentPattern.test(literal)) return "UNSAFE_SOURCE"
   if (unsafeKeyPattern.test(rawField)) return "UNSAFE_SOURCE"
@@ -362,6 +362,25 @@ export const unsafeSourceScalarReason = (value: string, fieldName?: string): "UN
   if (sourcePhonePattern.test(normalized)) return "UNSAFE_SOURCE"
   return explicitUnsafeScalarReason(normalized, context, rawField)
 }
+/** Returns a sanitized source failure before unsafe content can enter a digest or row. */
+export const unsafeSourceTextReason = (value: Uint8Array | string): "UNSAFE_SOURCE" | null => {
+  let text: string
+  try {
+    text = typeof value === "string" ? value : new TextDecoder("utf-8", { fatal: true }).decode(value)
+  } catch {
+    return null
+  }
+  if (knownCredentialTokenPattern.test(text) || credentialAssignmentPattern.test(text) || colonCredentialAssignmentPattern.test(text)) return "UNSAFE_SOURCE"
+  if (/(?:["']?(?:payload|raw[_-]?payload|user[_-]?id|account[_-]?id|customer[_-]?id|email|phone)["']?)\s*[:=]/i.test(text)) return "UNSAFE_SOURCE"
+  const emails = text.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi) ?? []
+  if (emails.some((candidate) => {
+    const match = candidate.match(emailPattern)
+    return match !== null && !isReservedEmail(candidate, match)
+  })) return "UNSAFE_SOURCE"
+  if (sourcePhonePattern.test(text)) return "UNSAFE_SOURCE"
+  return null
+}
+
 
 /** Returns null instead of emitting a credential, identity, or raw payload scalar. */
 export const sanitizeScalar = (value: string, fieldName?: string): string | null => unsafeScalarReason(value, fieldName) === null ? value.trim().normalize("NFC") : null

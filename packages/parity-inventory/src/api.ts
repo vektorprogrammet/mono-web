@@ -1190,7 +1190,7 @@ const addH3Edges = (context: ManifestContext, rows: readonly InventoryRow[], rou
           const derived = makeH3ApiRow(context, artifact.path, index + 1, fromRefs, operation, methods, pathTemplate)
           apiRows.push(derived)
           targetIds.push(derived.row_id)
-          failures.push({ status: "unresolved", reasonCode: "H3_UNMATCHED_DRIFT", rowIds: [derived.row_id], sourceRefIds: fromRefs })
+          failures.push({ status: "schema_invalid", reasonCode: "H3_DERIVATION_ONLY", rowIds: [derived.row_id], sourceRefIds: fromRefs })
         }
       } else {
         const matched = derivedRouteRows.filter((row) => {
@@ -1208,7 +1208,7 @@ const addH3Edges = (context: ManifestContext, rows: readonly InventoryRow[], rou
           const derived = makeH3RouteRow(context, artifact.path, index + 1, fromRefs, routeName, methods, pathTemplate)
           derivedRouteRows.push(derived)
           targetIds.push(derived.row_id)
-          failures.push({ status: "unresolved", reasonCode: "H3_UNMATCHED_DRIFT", rowIds: [derived.row_id], sourceRefIds: fromRefs })
+          failures.push({ status: "schema_invalid", reasonCode: "H3_DERIVATION_ONLY", rowIds: [derived.row_id], sourceRefIds: fromRefs })
         }
       }
     }

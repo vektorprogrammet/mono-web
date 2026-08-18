@@ -1,8 +1,9 @@
 import { execFileSync } from "node:child_process"
-import { lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs"
-import { dirname, join, resolve, sep } from "node:path"
+import { lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs"
+import { dirname, join, relative, resolve, sep } from "node:path"
 import { Effect, Schema } from "effect"
 import { canonicalJson, compareByteOrder, sha256 } from "./canonical.js"
+import { assertSafeAcceptedIntentBytes } from "./coverage.js"
 import { createManifestContextFromSnapshots, effectiveIgnoreRule, isUnsafeSourcePath, matchesLiteralPattern, SOURCE_FAMILIES, unsafeSourceScalarReason, type RootScanSnapshot } from "./source-manifest.js"
 import type { ManifestContext, ScanFile } from "./source-manifest.js"
 
@@ -52,14 +53,80 @@ const assertWithinRoot = (root: string, target: string): void => {
   const resolvedTarget = resolve(target)
   if (resolvedTarget !== resolvedRoot && !resolvedTarget.startsWith(`${resolvedRoot}${sep}`)) throw new Error(`path escapes selected root: ${target}`)
 }
+const canonicalExistingPath = (path: string): string => {
+  assertNoSymlinkPath(path)
+  return realpathSync(path)
+}
+const pathContains = (parent: string, child: string): boolean => child === parent || child.startsWith(`${parent}${sep}`)
+const sameFilesystemObject = (left: string, right: string): boolean => {
+  const leftStat = statSync(left)
+  const rightStat = statSync(right)
+  return leftStat.dev === rightStat.dev && leftStat.ino === rightStat.ino
+}
+export const assertAuthorityRootOwnership = (legacyRoot: string, monoRoot: string, authorityPath?: string, projectionDirectory = "evidence/functional-parity"): void => {
+  const legacy = canonicalExistingPath(legacyRoot)
+  const mono = canonicalExistingPath(monoRoot)
+  const projection = resolve(join(mono, projectionDirectory))
+  if (pathContains(legacy, mono) || pathContains(mono, legacy) || sameFilesystemObject(legacy, mono)) throw new Error("legacy and mono roots overlap or alias")
+  if (pathContains(legacy, projection) || pathContains(projection, legacy) || pathContains(mono, projection) === false) throw new Error("projection directory is not owned by mono root")
+  if (authorityPath !== undefined) {
+    const authority = canonicalExistingPath(authorityPath)
+    const authorityRoot = canonicalExistingPath(execFileSync("git", ["-C", dirname(authority), "rev-parse", "--show-toplevel"], { encoding: "utf8" }).trim())
+    if (pathContains(legacy, authorityRoot) || pathContains(authorityRoot, legacy) || pathContains(mono, authorityRoot) || pathContains(authorityRoot, mono) || sameFilesystemObject(authorityRoot, legacy) || sameFilesystemObject(authorityRoot, mono)) throw new Error("intent authority checkout overlaps or aliases selected roots")
+    if (pathContains(projection, authority) || pathContains(authority, projection)) throw new Error("intent authority overlaps projection directory")
+  }
+}
 
-const listRegularFiles = (rootPath: string, prefix = ""): string[] => {
+export interface PinnedIntentRegister {
+  readonly authorityRoot: string
+  readonly relativePath: string
+  readonly revisionRefId: string
+  readonly revision: string
+  readonly blobOid: string
+  readonly bytes: Uint8Array
+  readonly digest: string
+}
+
+const readAuthorityBlob = (path: string, legacyRoot: string, monoRoot: string, projectionDirectory: string): PinnedIntentRegister => {
+  const absolutePath = canonicalExistingPath(path)
+  const authorityRoot = canonicalExistingPath(execFileSync("git", ["-C", dirname(absolutePath), "rev-parse", "--show-toplevel"], { encoding: "utf8" }).trim())
+  assertAuthorityRootOwnership(legacyRoot, monoRoot, absolutePath, projectionDirectory)
+  const relativePath = relative(authorityRoot, absolutePath).split(sep).join("/")
+  if (relativePath.length === 0 || relativePath.startsWith("../") || relativePath.includes("/../") || relativePath === "..") throw new Error("intent authority path escapes its checkout")
+  const statusBefore = execFileSync("git", ["-C", authorityRoot, "status", "--porcelain=v1", "--untracked-files=all"], { encoding: "utf8" }).trim()
+  if (statusBefore.length > 0) throw new Error("intent authority checkout is dirty")
+  const tracked = execFileSync("git", ["-C", authorityRoot, "ls-files", "--stage", "--error-unmatch", "--", relativePath], { encoding: "utf8" }).trim()
+  if (!/^100644 [0-9a-f]{40} 0\t/.test(tracked)) throw new Error("intent authority must be a tracked regular file")
+  const revision = execFileSync("git", ["-C", authorityRoot, "rev-parse", "HEAD"], { encoding: "utf8" }).trim()
+  if (!/^[0-9a-f]{40}$/.test(revision)) throw new Error("intent authority revision is unavailable")
+  const blobOid = execFileSync("git", ["-C", authorityRoot, "rev-parse", `${revision}:${relativePath}`], { encoding: "utf8" }).trim()
+  if (!/^[0-9a-f]{40}$/.test(blobOid)) throw new Error("intent authority blob is unavailable")
+  const bytes = execFileSync("git", ["-C", authorityRoot, "show", `${revision}:${relativePath}`], { maxBuffer: 16 * 1024 * 1024 + 1024 })
+  assertSafeAcceptedIntentBytes(bytes)
+  const statusAfter = execFileSync("git", ["-C", authorityRoot, "status", "--porcelain=v1", "--untracked-files=all"], { encoding: "utf8" }).trim()
+  const revisionAfter = execFileSync("git", ["-C", authorityRoot, "rev-parse", "HEAD"], { encoding: "utf8" }).trim()
+  if (statusAfter !== statusBefore || revisionAfter !== revision) throw new Error("intent authority changed during pin")
+  return { authorityRoot, relativePath, revisionRefId: `rev-intent-authority-${revision}`, revision, blobOid, bytes, digest: sha256(bytes) }
+}
+
+export const readPinnedIntentRegisterEffect = (path: string, legacyRoot: string, monoRoot: string, projectionDirectory = "evidence/functional-parity"): Effect.Effect<PinnedIntentRegister, ParityRuntimeError> =>
+  Effect.try({
+    try: () => readAuthorityBlob(path, legacyRoot, monoRoot, projectionDirectory),
+    catch: (cause) => new ParityRuntimeError({ operation: "intent_authority", path, message: cause instanceof Error ? cause.message : "intent authority is unavailable" }),
+  })
+export const recheckPinnedIntentRegister = (pinned: PinnedIntentRegister, legacyRoot: string, monoRoot: string, projectionDirectory = "evidence/functional-parity"): void => {
+  const current = readAuthorityBlob(join(pinned.authorityRoot, pinned.relativePath), legacyRoot, monoRoot, projectionDirectory)
+  if (current.revision !== pinned.revision || current.blobOid !== pinned.blobOid || current.digest !== pinned.digest || !Buffer.from(current.bytes).equals(Buffer.from(pinned.bytes))) throw new Error("intent authority changed before projection exchange")
+}
+
+const listRegularFiles = (rootPath: string, prefix = "", excludedPrefix?: string): string[] => {
   const absolute = prefix.length === 0 ? rootPath : join(rootPath, prefix)
   const entries = readdirSync(absolute, { withFileTypes: true })
   const paths: string[] = []
   for (const entry of entries) {
     const child = prefix.length === 0 ? entry.name : `${prefix}/${entry.name}`
-    if (entry.isDirectory()) paths.push(...listRegularFiles(rootPath, child))
+    if (excludedPrefix !== undefined && (child === excludedPrefix || child.startsWith(`${excludedPrefix}/`))) continue
+    if (entry.isDirectory()) paths.push(...listRegularFiles(rootPath, child, excludedPrefix))
     else if (entry.isFile()) paths.push(child.split(sep).join("/"))
     else if (entry.isSymbolicLink()) throw new Error(`source file is a symbolic link: ${join(rootPath, child)}`)
   }
@@ -69,11 +136,16 @@ const listRegularFiles = (rootPath: string, prefix = ""): string[] => {
 interface GitState {
   readonly revision: string
   readonly trackedPaths: ReadonlySet<string>
-  readonly relevantWorkingPaths: readonly string[]
 }
-
 const MAX_GIT_METADATA_BYTES = 64 * 1024 * 1024
-
+const MONO_PROJECTION_DIRECTORY = "evidence/functional-parity"
+const isMonoProjectionMountPath = (rootRef: "legacy" | "mono", path: string): boolean =>
+  rootRef === "mono" && (path === MONO_PROJECTION_DIRECTORY || path.startsWith(`${MONO_PROJECTION_DIRECTORY}/`))
+const porcelainPath = (entry: string): string => {
+  const body = entry.length >= 3 ? entry.slice(3) : entry
+  const renameSeparator = body.lastIndexOf(" -> ")
+  return (renameSeparator >= 0 ? body.slice(renameSeparator + 4) : body).trim()
+}
 const gitState = (rootPath: string, rootRef: "legacy" | "mono"): GitState | null => {
   let revision: string
   try {
@@ -82,21 +154,17 @@ const gitState = (rootPath: string, rootRef: "legacy" | "mono"): GitState | null
     return null
   }
   if (!/^[0-9a-f]{40}$/.test(revision)) return null
-  const dirty = execFileSync("git", ["-C", rootPath, "status", "--porcelain=v1", "--untracked-files=all"], { encoding: "utf8", maxBuffer: MAX_GIT_METADATA_BYTES, stdio: ["ignore", "pipe", "ignore"] }).trim()
-  const dirtyEntries = dirty.split("\n").filter((entry) => {
-    const path = entry.slice(3).trim().replace(/^"|"$/g, "")
-    return path.length > 0 && !path.startsWith("evidence/functional-parity/")
-  })
-  if (dirtyEntries.length > 0) throw new Error(`selected source root is dirty: ${rootPath}`)
+  const dirtyEntries = execFileSync("git", ["-C", rootPath, "status", "--porcelain=v1", "--untracked-files=all", "-z"], { encoding: "utf8", maxBuffer: MAX_GIT_METADATA_BYTES, stdio: ["ignore", "pipe", "ignore"] }).split("\0").filter((entry) => entry.length > 0)
+  const dirty = dirtyEntries.filter((entry) => !isMonoProjectionMountPath(rootRef, porcelainPath(entry)))
+  if (dirty.length > 0) throw new Error(`selected source root is dirty: ${rootPath}`)
   const ignored = execFileSync("git", ["-C", rootPath, "ls-files", "--others", "--ignored", "--exclude-standard", "-z"], { encoding: "utf8", maxBuffer: MAX_GIT_METADATA_BYTES, stdio: ["ignore", "pipe", "ignore"] }).split("\0").filter((path) => path.length > 0)
   const authorityPath = (path: string): boolean => SOURCE_FAMILIES.some((family) => family.authority_line === rootRef && family.patterns.some((pattern) => matchesLiteralPattern(path, pattern)))
   const ignoredAuthority = ignored.filter(authorityPath)
   if (ignoredAuthority.length > 0) throw new Error(`selected source root contains ignored authority paths: ${ignoredAuthority.length}`)
   const unsafeIgnored = ignored.filter((path) => isUnsafeSourcePath(path) && effectiveIgnoreRule(rootRef, path) === null)
   if (unsafeIgnored.length > 0) throw new Error(`selected source root contains ignored sensitive paths: ${unsafeIgnored.length}`)
-  const tracked = execFileSync("git", ["-C", rootPath, "ls-tree", "-r", "--name-only", "-z", revision], { encoding: "utf8", maxBuffer: MAX_GIT_METADATA_BYTES, stdio: ["ignore", "pipe", "ignore"] }).split("\0").filter((path) => path.length > 0)
-  const relevantWorkingPaths = ignored.filter((path) => authorityPath(path) || isUnsafeSourcePath(path))
-  return { revision, trackedPaths: new Set(tracked), relevantWorkingPaths }
+  const tracked = execFileSync("git", ["-C", rootPath, "ls-tree", "-r", "--name-only", "-z", revision], { encoding: "utf8", maxBuffer: MAX_GIT_METADATA_BYTES, stdio: ["ignore", "pipe", "ignore"] }).split("\0").filter((path) => path.length > 0 && !isMonoProjectionMountPath(rootRef, path))
+  return { revision, trackedPaths: new Set(tracked) }
 }
 
 const MAX_GIT_BLOB_BYTES = 16 * 1024 * 1024
@@ -117,17 +185,17 @@ const scanRoot = (rootPath: string, rootRef: "legacy" | "mono"): RootScanSnapsho
   assertNoSymlinkPath(rootPath)
   const before = gitState(rootPath, rootRef)
   const paths = before === null
-    ? listRegularFiles(rootPath)
-    : Array.from(new Set([...before.trackedPaths, ...before.relevantWorkingPaths])).sort(compareByteOrder)
+    ? listRegularFiles(rootPath, "", rootRef === "mono" ? MONO_PROJECTION_DIRECTORY : undefined)
+    : [...before.trackedPaths].sort(compareByteOrder)
   if (paths.some((path) => redactedSourcePath(path).unsafe)) throw new Error("unsafe source metadata encountered before manifest construction")
   const files: ScanFile[] = paths.map((path) => {
     const absolutePath = join(rootPath, path)
     const tracked = before?.trackedPaths.has(path) === true
     const safePath = redactedSourcePath(path)
-    if (!tracked) assertNoSymlinkPath(absolutePath)
+    assertNoSymlinkPath(absolutePath)
     if (safePath.unsafe) return { path: safePath.path, absolutePath: join(rootPath, safePath.path), bytes: null, byteLength: null, digest: null, availability: "unavailable", unsafe: true }
     try {
-      const bytes = tracked ? gitBlob(rootPath, before.revision, path) : readFileSync(absolutePath)
+      const bytes = tracked ? gitBlob(rootPath, before?.revision ?? "", path) : readFileSync(absolutePath)
       return { path: safePath.path, absolutePath, bytes, byteLength: bytes.byteLength, digest: sha256(bytes), availability: "available", unsafe: false }
     } catch {
       return { path: safePath.path, absolutePath, bytes: null, byteLength: null, digest: null, availability: "unavailable", unsafe: false }
@@ -135,9 +203,9 @@ const scanRoot = (rootPath: string, rootRef: "legacy" | "mono"): RootScanSnapsho
   })
   const after = gitState(rootPath, rootRef)
   if (before !== null && (after === null || before.revision !== after.revision)) throw new Error(`selected source root changed during scan: ${rootPath}`)
-  const fallbackDigest = sha256(canonicalJson(files.map((file) => ({ path: file.path, byte_length: file.byteLength, sha256: file.digest, availability: file.availability }))))
-  const revision = before === null
-    ? { revision_kind: "file_set_digest" as const, revision: fallbackDigest }
+  const fileSetDigest = sha256(canonicalJson(files.map((file) => ({ path: file.path, sha256: file.digest }))))
+  const revision = rootRef === "mono" || before === null
+    ? { revision_kind: "file_set_digest" as const, revision: fileSetDigest }
     : { revision_kind: "git_commit" as const, revision: before.revision }
   const revisionRefId = `rev-${rootRef}-${revision.revision}`
   return {
@@ -158,6 +226,7 @@ export const scanRootEffect = (rootPath: string, rootRef: "legacy" | "mono"): Ef
 
 export const createManifestContextEffect = (legacyRoot: string, monoRoot: string): Effect.Effect<ManifestContext, ParityRuntimeError> =>
   Effect.gen(function* () {
+    yield* Effect.try({ try: () => assertAuthorityRootOwnership(legacyRoot, monoRoot), catch: (cause) => new ParityRuntimeError({ operation: "root_ownership", path: monoRoot, message: cause instanceof Error ? cause.message : "source roots overlap" }) })
     const legacy = yield* scanRootEffect(legacyRoot, "legacy")
     const mono = yield* scanRootEffect(monoRoot, "mono")
     return createManifestContextFromSnapshots(legacy, mono)
@@ -173,6 +242,24 @@ export const readProjectionEffect = (root: string, projectionDirectory: string, 
     },
     catch: (cause) => new ParityRuntimeError({ operation: "read_projection", path: join(root, projectionDirectory, name), message: cause instanceof Error ? cause.message : "projection is unavailable" }),
   })
+export const readProjectionDirectoryEffect = (root: string, projectionDirectory: string): Effect.Effect<readonly string[], ParityRuntimeError> =>
+  Effect.try({
+    try: () => {
+      const directory = join(root, projectionDirectory)
+      assertWithinRoot(root, directory)
+      if (isMissingPath(directory)) return []
+      assertNoSymlinkPath(directory)
+      if (!lstatSync(directory).isDirectory()) throw new Error(`projection target is not a directory: ${directory}`)
+      const entries = readdirSync(directory, { withFileTypes: true })
+      for (const entry of entries) {
+        const target = join(directory, entry.name)
+        assertNoSymlinkPath(target)
+        if (!entry.isFile()) throw new Error(`unsupported projection entry: ${target}`)
+      }
+      return entries.map((entry) => entry.name).sort(compareByteOrder)
+    },
+    catch: (cause) => new ParityRuntimeError({ operation: "read_projection", path: join(root, projectionDirectory), message: cause instanceof Error ? cause.message : "projection directory is unavailable" }),
+  })
 
 const RENAME_EXCHANGE_SCRIPT = `import { dlopen, FFIType } from "bun:ffi"
 const source = process.argv[1]
@@ -187,18 +274,24 @@ const exchangeDirectories = (staging: string, directory: string): void => {
   execFileSync(process.execPath, ["-e", RENAME_EXCHANGE_SCRIPT, staging, directory], { stdio: "ignore" })
 }
 
-const copyExistingProjectionEntries = (directory: string, staging: string, names: readonly string[]): void => {
-  const promoted = new Set(names)
+const assertProjectionDirectoryEntries = (directory: string, names: readonly string[]): void => {
+  const allowed = new Set(names)
   for (const entry of readdirSync(directory, { withFileTypes: true })) {
-    if (promoted.has(entry.name)) continue
     const source = join(directory, entry.name)
     assertNoSymlinkPath(source)
     if (!entry.isFile()) throw new Error(`unsupported projection entry: ${source}`)
-    writeFileSync(join(staging, entry.name), readFileSync(source), { flag: "wx" })
+    if (!allowed.has(entry.name)) throw new Error(`unknown projection entry: ${source}`)
   }
 }
 
-export const writeProjectionSetEffect = (root: string, projectionDirectory: string, projections: Readonly<Record<string, string>>, names: readonly string[]): Effect.Effect<void, ParityRuntimeError> =>
+export const writeProjectionSetEffect = (
+  root: string,
+  projectionDirectory: string,
+  projections: Readonly<Record<string, string>>,
+  names: readonly string[],
+  intentAuthority: PinnedIntentRegister,
+  legacyRoot: string,
+): Effect.Effect<void, ParityRuntimeError> =>
   Effect.try({
     try: () => {
       assertNoSymlinkPath(root)
@@ -208,14 +301,15 @@ export const writeProjectionSetEffect = (root: string, projectionDirectory: stri
       assertWithinRoot(root, parent)
       assertNoSymlinkPath(parent)
       if (isMissingPath(parent)) mkdirSync(parent, { recursive: true })
-      if (!isMissingPath(directory)) {
-        assertNoSymlinkPath(directory)
-        if (!lstatSync(directory).isDirectory()) throw new Error(`projection target is not a directory: ${directory}`)
-      }
+      recheckPinnedIntentRegister(intentAuthority, legacyRoot, root, projectionDirectory)
       const staging = mkdtempSync(join(root, ".functional-parity-staging-"))
       assertNoSymlinkPath(staging)
       try {
-        if (!isMissingPath(directory)) copyExistingProjectionEntries(directory, staging, names)
+        if (!isMissingPath(directory)) {
+          assertNoSymlinkPath(directory)
+          if (!lstatSync(directory).isDirectory()) throw new Error(`projection target is not a directory: ${directory}`)
+          assertProjectionDirectoryEntries(directory, names)
+        }
         for (const name of names) {
           const contents = projections[name]
           if (contents === undefined) throw new Error(`missing projection payload: ${name}`)
@@ -224,8 +318,11 @@ export const writeProjectionSetEffect = (root: string, projectionDirectory: stri
           assertNoSymlinkPath(target)
           writeFileSync(target, contents, { encoding: "utf8", flag: "wx" })
         }
-        if (isMissingPath(directory)) renameSync(staging, directory)
-        else {
+        recheckPinnedIntentRegister(intentAuthority, legacyRoot, root, projectionDirectory)
+        if (isMissingPath(directory)) {
+          renameSync(staging, directory)
+        } else {
+          assertProjectionDirectoryEntries(directory, names)
           exchangeDirectories(staging, directory)
           rmSync(staging, { recursive: true, force: true })
         }

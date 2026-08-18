@@ -5,7 +5,7 @@ import { ParityRuntimeError } from "./runtime.js"
 import type { ZeroGapReport } from "./types.js"
 
 const USAGE = [
-  "Usage: bun run parity:verify -- --root <mono-root> --legacy-root <legacy-root> --mode <diff|write|fixture_injection> [--falsifier F0..F19]",
+  "Usage: bun run parity:verify -- --root <mono-root> --legacy-root <legacy-root> --intent-register <external-authority-checkout-file> --mode <diff|write|fixture_injection> [--falsifier F0..F19]",
   "",
   "Modes:",
   "  diff              regenerate C0 projections and compare committed bytes (read-only)",
@@ -16,6 +16,7 @@ const USAGE = [
 interface ParsedArgs {
   readonly root: string
   readonly legacyRoot: string
+  readonly intentRegisterPath?: string
   readonly mode: RunMode
   readonly falsifierId?: FalsifierId
   readonly help: boolean
@@ -30,6 +31,7 @@ const valueAfter = (args: readonly string[], index: number, option: string): str
 const parseArgs = (args: readonly string[]): ParsedArgs => {
   let root: string | undefined
   let legacyRoot: string | undefined
+  let intentRegisterPath: string | undefined
   let mode: RunMode | undefined
   let falsifierId: FalsifierId | undefined
   let help = false
@@ -46,6 +48,11 @@ const parseArgs = (args: readonly string[]): ParsedArgs => {
     }
     if (argument === "--legacy-root") {
       legacyRoot = valueAfter(args, index, argument)
+      index += 1
+      continue
+    }
+    if (argument === "--intent-register") {
+      intentRegisterPath = valueAfter(args, index, argument)
       index += 1
       continue
     }
@@ -66,11 +73,12 @@ const parseArgs = (args: readonly string[]): ParsedArgs => {
     if (argument === "--") continue
     throw new Error(`unknown option: ${argument}`)
   }
-  if (help) return { root: root ?? ".", legacyRoot: legacyRoot ?? ".", mode: mode ?? "diff", falsifierId, help }
+  if (help) return { root: root ?? ".", legacyRoot: legacyRoot ?? ".", intentRegisterPath, mode: mode ?? "diff", falsifierId, help }
   if (root === undefined || legacyRoot === undefined || mode === undefined) throw new Error("--root, --legacy-root, and --mode are required")
+  if (mode !== "fixture_injection" && intentRegisterPath === undefined) throw new Error("--intent-register is required for diff and write modes")
   if (mode === "fixture_injection" && falsifierId === undefined) throw new Error("fixture_injection requires exactly one --falsifier")
   if (mode !== "fixture_injection" && falsifierId !== undefined) throw new Error("--falsifier is only valid in fixture_injection mode")
-  return { root, legacyRoot, mode, falsifierId, help }
+  return { root, legacyRoot, intentRegisterPath, mode, falsifierId, help }
 }
 
 const commandErrorReport = (message: string): ZeroGapReport => {
@@ -110,7 +118,10 @@ const commandErrorReport = (message: string): ZeroGapReport => {
 
 const runtimeErrorReport = (error: ParityRuntimeError): ZeroGapReport => {
   const unsafe = (error.operation === "scan_root" || error.operation === "unsafe_source") && /(unsafe source metadata|sensitive paths|projection construction)/i.test(error.message)
-  const drift = !unsafe && error.operation === "scan_root" && /(dirty|changed during scan|revision)/i.test(error.message)
+  const drift = !unsafe && (
+    (error.operation === "scan_root" && /(dirty|changed during scan|revision)/i.test(error.message)) ||
+    ((error.operation === "intent_authority" || error.operation === "write_projection") && /(dirty|changed|drift|revision)/i.test(error.message))
+  )
   const status = drift ? "source_hash_drift" as const : "source_unavailable" as const
   const reasonCode = unsafe ? "UNSAFE_SOURCE" : drift ? "SOURCE_HASH_DRIFT" : "SOURCE_UNAVAILABLE"
   const exitCode = drift ? 7 : 6
@@ -159,7 +170,7 @@ export const main = (args: readonly string[] = process.argv.slice(2)): Effect.Ef
       yield* Effect.sync(() => writeStdout(`${USAGE}\n`))
       return 0
     }
-    const result = yield* run({ root: parsed.root, legacyRoot: parsed.legacyRoot, mode: parsed.mode, falsifierId: parsed.falsifierId })
+    const result = yield* run({ root: parsed.root, legacyRoot: parsed.legacyRoot, intentRegisterPath: parsed.intentRegisterPath, mode: parsed.mode, falsifierId: parsed.falsifierId })
     yield* Effect.sync(() => writeStdout(`${canonicalJson(result.report)}\n`))
     return result.exitCode
   })

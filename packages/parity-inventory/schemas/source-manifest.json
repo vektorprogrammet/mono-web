@@ -18,7 +18,8 @@
     "root_census": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/rootCensus"}},
     "ignore_rules": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/ignoreRule"}},
     "sources": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/source"}},
-    "source_set_sha256": {"$ref": "#/$defs/sha256"}
+    "source_set_sha256": {"$ref": "#/$defs/sha256"},
+    "intent_authority": {"$ref": "#/$defs/intentAuthority"}
   },
   "$defs": {
     "sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
@@ -133,6 +134,19 @@
         {"if": {"properties": {"availability": {"const": "unavailable"}}}, "then": {"properties": {"sha256": {"type": "null"}, "failure_status": {"enum": ["source_unavailable", "unresolved"]}}, "required": ["failure_status", "failure_reason"]}},
         {"if": {"properties": {"classification_status": {"const": "unclassified"}}}, "then": {"required": ["failure_status", "failure_reason"]}}
       ]
+    },
+    "intentAuthority": {
+      "type": "object", "additionalProperties": false,
+      "required": ["repository_ref", "authority_path", "revision_ref_id", "revision", "blob_oid", "digest", "immutable"],
+      "properties": {
+        "repository_ref": {"type": "string", "const": "external_intent_authority"},
+        "authority_path": {"type": "string", "minLength": 1},
+        "revision_ref_id": {"type": "string", "pattern": "^rev-[A-Za-z0-9:_-]{1,160}$"},
+        "revision": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "blob_oid": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "digest": {"$ref": "#/$defs/sha256"},
+        "immutable": {"type": "boolean", "const": true}
+      }
     }
   }
 }

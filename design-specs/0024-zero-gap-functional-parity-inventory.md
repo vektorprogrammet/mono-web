@@ -14,7 +14,7 @@
 | Spec branch | `spec/0024-zero-gap-parity-inventory` |
 | Current writer mutation | `design-specs/0024-zero-gap-functional-parity-inventory.md` only |
 | Legacy input | Read-only legacy repository evidence; the inventory command never writes to it |
-| Current mono input | `mono-web` at an explicitly selected full revision; the 0023 baseline is the first allowed implementation checkpoint |
+| Current mono input | `mono-web` at an explicitly selected full revision; the deterministic mono authority revision is a canonical tracked-blob file-set digest that excludes the owned derived projection mount; raw Git `HEAD` is execution provenance only |
 | Required execution mode | `frozen` source mode for parity output; `fixture_injection` is exposed only through a named `--falsifier F0_...` run and never writes committed projections |
 | External effects | None. No provider, production, database, credential, or route action is authorized |
 
@@ -108,6 +108,14 @@ A changed count is not itself drift. A changed source hash, revision, schema, ca
 - **Signature** is the cross-line key used to compare equivalent surface entities. It is separate from the source declaration identity.
 - **Coverage reference** links a row to an accepted user-journey step or an explicit accepted non-user-facing disposition.
 - **Accepted intent reference** is an immutable human or product-owned reference. The generator validates its shape and hash; it does not create, authenticate, or interpret the business ruling.
+
+### External accepted-intent authority boundary
+
+Production `--diff` and `--write` runs MUST receive exactly one `--intent-register <path>` argument. The path MUST resolve to a tracked regular file in a separate clean Git checkout. That checkout MUST NOT overlap, alias, or be nested within either selected census root or the projection directory. The generator reads the selected blob from the authority checkout's pinned `HEAD` once and retains its exact bytes, commit ID, blob OID, and digest. The authority checkout is never the target checkout and is never scanned as a census root.
+
+Accepted-intent records bind the selected legacy revision reference and the projection-independent mono file-set revision reference, plus exact source hashes. They MUST NOT contain, derive, or self-reference the containing authority commit ID. The generated source manifest records the external authority revision, blob OID, and digest separately. Raw mono Git `HEAD` is execution provenance only and MUST NOT enter deterministic projections, source IDs, revision references, or accepted expected refs. Before a projection exchange, the writer rechecks authority `HEAD`, blob OID, bytes, and digest; any change fails closed as source drift.
+
+The projection directory has exactly the eight committed files named by `COMMITTED_PROJECTIONS`. `accepted-intent.json`, aliases, sidecars, symlinks, directories, and any other entry are not reserved or preserved projection content and block read, diff, and write. Fixture falsifiers MAY use an isolated typed intent snapshot, but fixture bytes are not a production authority mechanism.
 - **Dead or unimported source** is a source declaration that the expected loader, compiler, router, command registry, scheduler registry, or adapter graph does not import or resolve. It remains a row.
 - **Stale projection** is a committed/generated projection whose normalized source or runtime operation set, source revision, or source hash does not match the selected authority inputs.
 
@@ -201,15 +209,17 @@ The implementation expands these logical source families from the selected roots
 | User-journey references | `docs/**/*.md`; `design-specs/**/*.md` | `docs/**/*.md`; `design-specs/**/*.md`; `apps/**/routes/**/*.tsx`; `apps/**/routes/**/*.ts` | No |
 | H3 derivation evidence | None | `apps/server/tools/security-h3/0015/generate.ts`; `apps/server/tools/security-h3/0015/generate.test.ts`; `apps/server/tools/security-h3/0015/reason-codes.json`; `apps/server/tools/security-h3/0015/schema.json`; `apps/server/tools/security-h3/0015/fixtures/**/*.json`; `evidence/security-h3/0015/current-route-inventory.json`; `evidence/security-h3/0015/current-resource-inventory.json`; `evidence/security-h3/0015/source-manifest.json`; `evidence/security-h3/0015/route-collector.json`; `evidence/security-h3/0015/decision-packet.json` | No |
 | Root census | Full `legacy` census root selected by `--legacy-root` | Full `mono` census root selected by `--root` | No; every regular file is classified exactly once |
-| Accepted-intent register | `intent://` references supplied in the immutable intent register | `intent://` references supplied in the immutable intent register | No |
+| Accepted-intent register | `--intent-register` path in the separate clean authority checkout | Exact immutable intent bytes, authority commit/blob/digest, and target source revision refs | No; never part of either census root or projection directory |
 ### Explicit census roots and total classification
 
 `legacy` and `mono` are the only census roots. `legacy` binds to the exact path supplied by `--legacy-root`; `mono` binds to the exact checkout supplied by `--root`. The collector enumerates every regular file below each full root, including files that produce no route, API, write, workflow, integration, or journey declaration. It does not narrow a root to the required parity-source globs.
 
+The owned mono derived projection mount `evidence/functional-parity/` is outside the mono census universe even when it is physically nested below `--root`. The collector MUST exclude that mount before path enumeration, source classification, byte hashing, and file-set revision construction. No projection entry, including an invalid or unexpected entry, is a mono census record or source reference; read, diff, and write stages independently enforce the exact-eight closure.
+
 | Census root | Authority | Physical binding | Complete-scan rule |
 |---|---|---|---|
 | `legacy` | `legacy` | `--legacy-root` and the pinned legacy revision | Enumerate every regular file below the root; legacy source is read-only |
-| `mono` | `mono` | `--root` and the selected mono revision | Enumerate every regular file below the root; the 0023 baseline is the first allowed checkpoint |
+| `mono` | `mono` | `--root` and the selected mono revision | Enumerate every regular file below the root except the pre-enumeration derived projection mount; the 0023 baseline is the first allowed checkpoint |
 
 The required source families above are parity selectors and may overlap by authority role. They do not define the root census. For each bound root, the collector first applies the ordered residual ignore register, then evaluates the single `**/*` census family and only then applies first-party source-family selectors. Dependency and generated-output residuals therefore remove `packages/sdk/dist/**` from external-integration matching.
 
@@ -607,9 +617,8 @@ The JSON shape is illustrative. A generated register contains one real rule ID p
 
 The example uses shape markers for readability. A generated artifact contains a real full revision, byte length, digest, explicit `census_roots`, closed root-census register, and closed ordered residual ignore-rule register. `census_roots`, `revisions`, `runtime_observations`, `root_census`, and `ignore_rules` are deterministic registers, not execution timestamps. Each census root names one full repository root and uses `scan_mode: "all_regular_files"`. Each revision record has `revision_ref_id`, `repository_ref`, `revision_kind`, `revision`, and `immutable: true`. Each runtime observation record has `runtime_observation_ref_id`, `revision_ref_id`, `collector_kind`, `command`, `argument_digest`, `stdout_sha256`, `stderr_sha256`, `exit_code`, `result_sha256`, and `availability`. Each root-census record has `census_id`, `authority_line`, `root_ref`, `path`, `byte_length`, `sha256`, `availability`, `classification`, `source_ref_ids`, and `ignore_rule_id`. Each ignore rule has `ignore_rule_id`, `authority_line`, `root_ref`, `precedence`, `pattern`, `selection`, `rule_kind`, and `rationale`. All register objects are closed and sorted by their root-scoped order.
 
-The schema permits `line_start`, `line_end`, and `symbol` to be null only for a whole-file or command-output source. A source with `availability: "unavailable"` or `classification_status: "unclassified"` retains a sanitized failure status and cannot produce `zero_gap`. A source with `classification_status: "unclassified"` receives reason `UNCLASSIFIED_SOURCE` and status `unresolved`.
+The legacy Git revision MAY remain a `git_commit` provenance revision. The mono deterministic revision MUST be `file_set_digest`: SHA-256 over compact canonical JSON for the sorted authoritative tracked Git blob set `{path, sha256}` after pre-enumeration exclusion of `evidence/functional-parity/`. Projection bytes, projection paths, and raw Git `HEAD` MUST NOT enter that digest. A non-Git source MUST use an immutable archive or file-set digest. Runtime command-output records remain deterministic because they contain hashes and exit status, not time or host data; command output bytes are evidence, not source authority.
 
-A Git revision MUST be a full 40-character lowercase hexadecimal commit. A non-Git legacy source MUST use an immutable archive or file-set digest. A runtime command-output record is deterministic because it contains hashes and exit status, not time or host data. The command output bytes are evidence; they are not source authority.
 
 Source references use exact line numbers from the selected bytes when a parser can provide them. A parser that cannot provide an exact line or symbol emits null and a reason code; it does not invent a line. Every row has at least one source reference and one revision reference, or it is `unresolved`.
 
@@ -1090,7 +1099,9 @@ An ID collision, duplicate canonical key, missing source edge, or non-canonical 
 7. In `--write` mode, after schema and cross-artifact checks, atomically replace only the committed projection set: `source-manifest.json` and the seven inventory files. Do not write `openapi-reconciliation.json`, `zero-gap-report.json`, or execution evidence as committed projection files. The regenerated OpenAPI operation set has one artifact home, `openapi-reconciliation.json`. Set `projection_write.status: "written"`, set `verification.deterministic_diff: "not_run"`, and return `projection_written` (exit 14) rather than a parity result.
 8. In `--diff` mode, never write. Compare regenerated source-manifest and inventory projection bytes with the committed projection set, and compare the committed OpenAPI input through `openapi-reconciliation.json`. Missing or different committed bytes are `stale`; they are never `nondeterministic_output`. Set `verification.deterministic_diff: "equal"` only when every committed projection byte and the OpenAPI reconciliation are equal. A blocked comparison records `different` and retains the specific failure.
 9. Run the two isolated replay required by `F0_deterministic_replay`. Only different bytes for identical inputs produce `nondeterministic_output`.
-10. Write timestamped execution evidence separately. Execution evidence is not in the deterministic hash chain.
+
+Bundle validation MUST decode artifact bytes through a non-public shape decoder, re-hash those exact bytes, derive report status/counts/digests/mismatches/cross-references/forbidden-state claims from the decoded artifacts, and derive projection diff from an observed filesystem read of the exact-eight projection closure. It MUST NOT trust caller-supplied report flags, `projectionDiff`, cross-reference booleans, or self-authored terminal claims. The production `run` composition root is the sole public mutation path; terminal stage effects, raw projection writers, and injected observation/writer services are module-private. Test-only seams MUST use a trusted deterministic fixture collector and cannot certify a no-op writer. After every write, the terminal stage MUST re-read all eight files from disk and byte-compare them before returning `projection_written`.
+11. Write timestamped execution evidence separately. Execution evidence is not in the deterministic hash chain.
 
 The report is `zero_gap` only after every required row is accounted for and every forbidden status set is empty.
 
@@ -1471,7 +1482,8 @@ The schema's `details` object is closed per inventory file. The implementation M
     "root_census": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/rootCensus"}},
     "ignore_rules": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/ignoreRule"}},
     "sources": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/source"}},
-    "source_set_sha256": {"$ref": "#/$defs/sha256"}
+    "source_set_sha256": {"$ref": "#/$defs/sha256"},
+    "intent_authority": {"$ref": "#/$defs/intentAuthority"}
   },
   "$defs": {
     "sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
@@ -1592,6 +1604,20 @@ The schema's `details` object is closed per inventory file. The implementation M
         {"if": {"properties": {"availability": {"const": "unavailable"}}}, "then": {"properties": {"sha256": {"type": "null"}, "failure_status": {"enum": ["source_unavailable", "unresolved"]}}, "required": ["failure_status", "failure_reason"]}},
         {"if": {"properties": {"classification_status": {"const": "unclassified"}}}, "then": {"required": ["failure_status", "failure_reason"]}}
       ]
+    },
+    "intentAuthority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository_ref", "authority_path", "revision_ref_id", "revision", "blob_oid", "digest", "immutable"],
+      "properties": {
+        "repository_ref": {"type": "string", "const": "external_intent_authority"},
+        "authority_path": {"type": "string", "minLength": 1},
+        "revision_ref_id": {"type": "string", "pattern": "^rev-[A-Za-z0-9:_-]{1,160}$"},
+        "revision": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "blob_oid": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "digest": {"$ref": "#/$defs/sha256"},
+        "immutable": {"type": "boolean", "const": true}
+      }
     }
   }
 }
@@ -1948,7 +1974,7 @@ This inventory is one dependency graph, not one giant pull request. The implemen
 | Worktree | `/tmp/mono-web-parity-inventory-impl-0024a` |
 | Depends on | 0023 baseline `462691d4c31ed601fba01f8b5f21abb92a547ff9` and this spec |
 | Owns | Closed inventory/source-manifest schemas, canonical serializer, exhaustive source-family expansion, revision/runtime registers, root command entry, legacy routes, and mono routes |
-| Command surface | `bun run parity:verify -- --root . --legacy-root /srv/share/projects/vektorprogrammet/vektorprogrammet --mode diff` or `bun run parity:verify -- --root . --legacy-root /srv/share/projects/vektorprogrammet/vektorprogrammet --mode write` |
+| Command surface | `bun run parity:verify -- --root . --legacy-root /srv/share/projects/vektorprogrammet/vektorprogrammet --intent-register <authority-checkout>/accepted-intent.json --mode diff` or the same command with `--mode write` |
 | Falsifiers | `F0_deterministic_replay`, `F1_missing_required_source`, `F2_source_hash_drift`, `F3_duplicate_legacy_route`, `F4_dead_unimported_source`, `F5_missing_counterpart`, `F6_extra_counterpart`, `F7_method_path_mismatch` |
 
 Acceptance for C0 requires that every object schema is closed, source patterns are literal and exhaustive, recursive controller files are included, unclassified files produce blocking rows, revision and runtime registers resolve all references, declaration IDs do not contain revision or source hashes, route examples validate through `details`, duplicate groups retain all rows, and the canonical serializer produces identical bytes for identical inputs. C0 does not claim API, write, workflow, integration, journey, or zero-gap completion.
@@ -1987,7 +2013,7 @@ Acceptance for C2 requires literal command/workflow/integration source sets, an 
 | Owns | Accepted-intent and journey coverage resolver, cross-artifact invariants, zero-gap report, failure receipts, `--write` projection promotion, `--diff` gate, falsifier receipt aggregation, and cleanup evidence |
 | Falsifiers | `F11_intent_missing_or_stale`, `F12_uncovered_journey`, `F15_secret_or_pii_input`, `F17_locale_order`, `F18_stale_artifact_diff`, `F19_ignore_residual_precedence`, plus all earlier capsule falsifiers as integration replays |
 
-Acceptance for C3 requires canonical-signature journey refs that survive source revisions, rejection/empty-intent blocking, status-to-mismatch consistency, exact status/exit mapping including `projection_written` exit 14, `--write` with `deterministic_diff: "not_run"` only in write mode, `--diff` with stale-not-nondeterministic classification, and nonzero exit for every forbidden state. C3 is the first capsule allowed to publish a `zero_gap` report, and it can do so only in `--diff` mode with equal committed projection bytes.
+Acceptance for C3 requires canonical-signature journey refs that survive source revisions, rejection/empty-intent blocking, status-to-mismatch consistency, exact status/exit mapping including `projection_written` exit 14, `--write` with `deterministic_diff: "not_run"` only in write mode, `--diff` with stale-not-nondeterministic classification, and nonzero exit for every forbidden state. C3 is the first capsule allowed to publish a `zero_gap` report, and it can do so only in `--diff` mode with equal committed projection bytes. It also requires a full internal run-pipeline regeneration proof: write returns exit 14, the exact eight files are committed, a fresh post-commit generation/diff returns exit 0 with equal bytes, and no `GeneratedArtifacts` object is reused across the commit. Forged report/projection-diff/cross-reference claims and no-op writers MUST fail closed.
 
 The root command remains the only supported entry point after C3. `--write` is an explicit reviewed projection-promotion action. `--diff` is the read-only merge/review gate. No capsule adds a route, changes application behavior, uses a credential, calls a provider, or writes the legacy repository.
 

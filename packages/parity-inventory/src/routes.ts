@@ -502,6 +502,12 @@ const controllerValue = (value: unknown): ParsedScalar => {
   const fromDefaults = stringValue(defaults, "_controller")
   return fromDefaults.present ? fromDefaults : stringValue(value, "controller")
 }
+const unsafeRoutePayload = (value: unknown, fieldName = "field"): boolean => {
+  if (typeof value === "string") return unsafeScalarReason(value, fieldName) !== null
+  if (Array.isArray(value)) return value.some((entry) => unsafeRoutePayload(entry, fieldName))
+  if (value !== null && typeof value === "object") return Object.entries(value).some(([key, entry]) => unsafeRoutePayload(entry, key))
+  return false
+}
 
 const routeReasonCodes = (route: Pick<RouteDeclaration, "pathTemplate" | "methods" | "routeName" | "reasonCodes">): string[] => {
   const reasons = [...route.reasonCodes]
@@ -554,6 +560,7 @@ const parseYamlRoutes = (
     const methods = methodsValue(value)
     const controllerRef = controllerValue(value)
     const typeValue = stringValue(value, "type")
+    const payloadUnsafe = unsafeRoutePayload(value)
     const routeNameValue = parsedScalar(routeName, "route_name")
     const vendor = resource.value?.startsWith("@") === true
     const apiPlatform = typeValue.value === "api_platform"
@@ -581,7 +588,7 @@ const parseYamlRoutes = (
       runtimeResolved: false,
       ordinal: index + 1,
       sourceRefId,
-      reasonCodes: routeReasonCodes({ pathTemplate, methods: methods.methods, routeName: routeNameValue.value, reasonCodes: resource.unsafe || pathValue.unsafe || methods.unsafe || typeValue.unsafe || controllerRef.unsafe || routeNameValue.unsafe ? ["UNSAFE_SOURCE"] : [] }),
+      reasonCodes: routeReasonCodes({ pathTemplate, methods: methods.methods, routeName: routeNameValue.value, reasonCodes: payloadUnsafe || resource.unsafe || pathValue.unsafe || methods.unsafe || typeValue.unsafe || controllerRef.unsafe || routeNameValue.unsafe ? ["UNSAFE_SOURCE"] : [] }),
     })
   })
   return { declarations, failures }
@@ -841,7 +848,14 @@ const makeEnvelope = (
   derivation_edges: [],
 })
 
-export const collectRoutes = (context: ManifestContext, sourceManifestSha256: string): { readonly legacy: InventoryEnvelope; readonly mono: InventoryEnvelope; readonly failures: readonly RouteParseFailure[]; readonly declarations: CollectedRoutes } => {
+export interface CollectedRouteArtifacts {
+  readonly legacy: InventoryEnvelope
+  readonly mono: InventoryEnvelope
+  readonly failures: readonly RouteParseFailure[]
+  readonly declarations: CollectedRoutes
+}
+
+export const collectRoutes = (context: ManifestContext, sourceManifestSha256: string): CollectedRouteArtifacts => {
   const legacy = parseLegacy(context)
   const mono = parseMono(context)
   const legacyRows = makeRows(context, legacy.declarations, "legacy")
