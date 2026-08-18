@@ -11,6 +11,7 @@ import {
 } from "node:fs";
 import { join, resolve } from "node:path";
 import {
+  API_METADATA_SCRIPT,
   buildCollectorSandboxArguments,
   collectorExecutableProvenance,
   collectApiOperations,
@@ -54,6 +55,20 @@ DATABASE_URL=sqlite:///:memory:
 APP_SECRET=test_app_secret_for_testing_only
 JWT_PASSPHRASE=
 `
+test("metadata collector loads only the staged test dotenv before fixed kernel boot", () => {
+  const autoload = API_METADATA_SCRIPT.indexOf("require $root . '/vendor/autoload.php';")
+  const dotenv = API_METADATA_SCRIPT.indexOf("(new \\Symfony\\Component\\Dotenv\\Dotenv())->usePutenv()->load($root . '/.env.test');")
+  const kernel = API_METADATA_SCRIPT.indexOf("$kernel = new \\Kernel('test', false);")
+  expect(autoload).toBeGreaterThanOrEqual(0)
+  expect(dotenv).toBeGreaterThan(autoload)
+  expect(kernel).toBeGreaterThan(dotenv)
+  expect(API_METADATA_SCRIPT).not.toContain("bootEnv")
+  expect(API_METADATA_SCRIPT).not.toContain("loadEnv")
+  expect(API_METADATA_SCRIPT).not.toContain("$root . '/.env';")
+  expect(API_METADATA_SCRIPT).not.toContain("$root . '/.env.local';")
+  expect(API_METADATA_SCRIPT).not.toMatch(/\$root \. '\/\.env\.(?:dev|prod|local)'/)
+})
+
 
 test("tracked collector environment contains only the approved test bytes", async () => {
   const directory = mkdtempSync("/tmp/parity-collector-env-scan-")

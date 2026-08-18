@@ -627,8 +627,9 @@ const fixtureRuntimeSourceRef = (
 }
 
 
-const API_METADATA_SCRIPT = String.raw`$root = '/workspace/apps/server';
+export const API_METADATA_SCRIPT = String.raw`$root = '/workspace/apps/server';
 require $root . '/vendor/autoload.php';
+(new \Symfony\Component\Dotenv\Dotenv())->usePutenv()->load($root . '/.env.test');
 $kernel = new \Kernel('test', false);
 $kernel->boot();
 $container = $kernel->getContainer();
