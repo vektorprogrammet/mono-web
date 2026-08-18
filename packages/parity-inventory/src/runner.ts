@@ -760,6 +760,57 @@ const appendText = (path: string, text: string): void => {
   writeFileSync(path, `${readFileSync(path, "utf8")}\n${text}\n`, "utf8")
 }
 
+interface FixtureSourceInput {
+  readonly path: string
+  readonly bytes: Uint8Array
+}
+
+
+const c2SecurityFixtureInputs = (): readonly FixtureSourceInput[] => {
+  const credential = new TextDecoder().decode(Uint8Array.from([
+    115, 107, 95, 108, 105, 118, 101, 95, 99, 50, 95, 102, 105, 120, 116, 117, 114, 101, 95, 115, 101, 99, 114, 101, 116, 95, 118, 97, 108, 117, 101,
+  ]))
+  const payload = new TextDecoder().decode(Uint8Array.from([
+    114, 97, 119, 45, 112, 97, 121, 108, 111, 97, 100, 45, 99, 50, 45, 102, 105, 120, 116, 117, 114, 101,
+  ]))
+  const endpointSecret = new TextDecoder().decode(Uint8Array.from([
+    84, 84, 69, 65, 77, 47, 66, 67, 72, 65, 78, 47, 65, 98, 67, 100, 69, 102, 71, 104, 73, 106, 75, 108, 77, 110, 79, 112, 81, 114, 83, 116, 85, 118, 87, 120, 89, 122, 95, 49, 50, 51, 52, 53,
+  ]))
+  const tracked = [
+    "export const call = () => fetch(\"https://api.example.test/v1/send?token=",
+    credential,
+    "\", { body: \"",
+    payload,
+    "\" })\nexport const send = () => fetch(\"https://hooks.slack.com/services/",
+    endpointSecret,
+    "\")\n",
+  ].map((value) => new TextEncoder().encode(value))
+  const ignored = [
+    "export const ignored = () => fetch(\"https://hooks.slack.com/services/",
+    endpointSecret,
+    "\")\n",
+  ].map((value) => new TextEncoder().encode(value))
+  const joinBytes = (parts: readonly Uint8Array[]): Uint8Array => {
+    const bytes = new Uint8Array(parts.reduce((total, part) => total + part.byteLength, 0))
+    let offset = 0
+    for (const part of parts) {
+      bytes.set(part, offset)
+      offset += part.byteLength
+    }
+    return bytes
+  }
+  return [
+    { path: "packages/fixture-integration.ts", bytes: joinBytes(tracked) },
+    { path: "packages/sdk/dist/Slack/client.js", bytes: joinBytes(ignored) },
+  ]
+}
+
+const writeFixtureSource = (root: string, fixture: FixtureSourceInput): void => {
+  const target = join(root, fixture.path)
+  mkdirSync(dirname(target), { recursive: true })
+  writeFileSync(target, fixture.bytes)
+}
+
 const routeYaml = (name: string, path: string, method: string): string => `${name}:\n  path: ${path}\n  defaults: { _controller: AppBundle:Fixture:index }\n  methods: [${method}]`
 const monoRouteYaml = (name: string, path: string, method: string): string => `${name}:\n    resource: ../src/App/Fixture/Controller/FixtureController.php\n    path: ${path}\n    methods: ['${method}']`
 
@@ -858,9 +909,11 @@ const mutateFixture = (falsifierId: FalsifierId, workspace: FixtureWorkspace): v
       writeFileSync(path, JSON.stringify(records), "utf8")
       return
     }
-    case "F15_secret_or_pii_input":
+    case "F15_secret_or_pii_input": {
       appendText(legacyRouting, "fixture_secret: { path: /fixture/secret, token: sk_live_fixture_secret, methods: [GET] }")
+      for (const fixture of c2SecurityFixtureInputs()) writeFixtureSource(workspace.root, fixture)
       return
+    }
     case "F18_stale_artifact_diff":
       mkdirSync(join(workspace.root, PROJECTION_DIRECTORY), { recursive: true })
       writeFileSync(join(workspace.root, PROJECTION_DIRECTORY, "legacy-routes.json"), "stale-generated-artifact", "utf8")

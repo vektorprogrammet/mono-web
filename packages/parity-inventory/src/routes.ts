@@ -388,6 +388,43 @@ interface ParsedRoutePayload {
   readonly reasonCodes: readonly string[]
 }
 
+const normalizePhpDocContinuationTrivia = (value: string): string => {
+  let normalized = ""
+  let quote: string | null = null
+  let escaped = false
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value[index] ?? ""
+    if (quote !== null) {
+      normalized += character
+      if (escaped) escaped = false
+      else if (character === "\\") escaped = true
+      else if (character === quote) quote = null
+      continue
+    }
+    if (character === "'" || character === '"') {
+      quote = character
+      normalized += character
+      continue
+    }
+    if (character === "\r" || character === "\n") {
+      normalized += character
+      if (character === "\r" && value[index + 1] === "\n") {
+        normalized += "\n"
+        index += 1
+      }
+      let cursor = index + 1
+      while (cursor < value.length && (value[cursor] === " " || value[cursor] === "\t")) cursor += 1
+      if (value[cursor] === "*") {
+        index = cursor
+        if (value[index + 1] === " " || value[index + 1] === "\t") index += 1
+      }
+      continue
+    }
+    normalized += character
+  }
+  return normalized
+}
+
 const parseRoutePayload = (payload: string, positionalPath = true): ParsedRoutePayload => {
   const namedPath = parseNamed(payload, PATH, "path")
   const first = positionalPath ? quotedValues(payload)[0] ?? null : null
@@ -577,8 +614,8 @@ const parseYamlRoutes = (
       routeName: routeNameValue.value,
       pathTemplate,
       methods: methods.methods,
-      controllerRef: controllerRef.value,
       importRef: resource.value,
+      controllerRef: controllerRef.value,
       ownerRef: controllerRef.value,
       lineStart,
       lineEnd,
@@ -615,7 +652,7 @@ const parseLegacyAnnotations = (context: ManifestContext, path: string, text: st
       break
     }
     ordinal += 1
-    const route = parseRoutePayload(parsed.body)
+    const route = parseRoutePayload(normalizePhpDocContinuationTrivia(parsed.body))
     const lineStart = lineAt(text, marker)
     const lineEnd = lineAt(text, parsed.end)
     const rawOwner = ownerRef(text, marker, parsed.end)

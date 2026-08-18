@@ -629,7 +629,7 @@ const fixtureRuntimeSourceRef = (
 
 const API_METADATA_SCRIPT = String.raw`$root = '/workspace/apps/server';
 require $root . '/vendor/autoload.php';
-$kernel = new \App\Kernel('test', false);
+$kernel = new \Kernel('test', false);
 $kernel->boot();
 $container = $kernel->getContainer();
 $factory = $container->get('api_platform.metadata.resource.metadata_collection_factory');

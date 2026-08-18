@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process"
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { applyAcceptedAbsent, collectC2 } from "../src/effects.js"
+import { collectRoutes } from "../src/routes.js"
 import { acceptedIntentRevisionRefId } from "../src/coverage.js"
 import { canonicalJson, sha256 } from "../src/canonical.js"
 import { SOURCE_FAMILIES } from "../src/source-manifest.js"
@@ -10,6 +11,8 @@ import { COMMITTED_PROJECTIONS, PROJECTION_DIRECTORY, run, runTrustedFixtureTerm
 import { scanRootEffect } from "../src/runtime.js"
 import { validateInventory } from "../src/schema.js"
 import { createManifestContextFromSnapshots } from "../src/source-manifest.js"
+const REPO_ROOT = join(import.meta.dir, "../../..")
+
 
 const put = (root: string, path: string, contents: string): void => {
   const target = join(root, path)
@@ -134,6 +137,42 @@ test("F14 leaves absent schedules unaccounted until an accepted_absent intent is
   expect(accepted).toMatchObject({ status: "accounted", mismatch: { kind: "absent", disposition: "accepted_absent", accepted_intent_ref_ids: ["intent://fixture/absent-schedule"] } })
   expect(validateInventory(accounted)).toBe(true)
 })
+test("multiline PHPDoc routes ignore continuation stars but reject malformed tails", async () => {
+  const legacyRoot = mkdtempSync("/tmp/parity-c2-route-docblock-legacy-")
+  const monoRoot = mkdtempSync("/tmp/parity-c2-route-docblock-mono-")
+  try {
+    put(legacyRoot, "src/AppBundle/Controller/DocblockController.php", `<?php
+namespace AppBundle\\Controller;
+/**
+ * @Route(
+ *   "/doc-safe",
+ *   name="doc_safe",
+ *   methods={"GET", "POST"}
+ * )
+ */
+final class DocblockController {}
+/**
+ * @Route(
+ *   "/doc-malformed",
+ *   name="doc_malformed",
+ *   methods={"GET"} trailing
+ * )
+ */
+final class MalformedDocblockController {}
+`)
+    const context = await contextFor(legacyRoot, monoRoot)
+    const routes = collectRoutes(context, sha256("route-docblock-c2"))
+    const safe = routes.legacy.rows.find((row) => "route_name" in row.details && row.details.route_name === "doc_safe")
+    const malformed = routes.legacy.rows.find((row) => "route_name" in row.details && row.details.route_name === "doc_malformed")
+    expect(safe).toMatchObject({ details: { path_template: "/doc-safe", methods_declared: ["GET", "POST"] } })
+    expect(safe?.reason_codes).not.toContain("UNSAFE_SOURCE")
+    expect(malformed?.reason_codes).toContain("UNSAFE_SOURCE")
+  } finally {
+    rmSync(legacyRoot, { recursive: true, force: true })
+    rmSync(monoRoot, { recursive: true, force: true })
+  }
+})
+
 test("package runtime roots ignore type exports and non-runtime script arguments", async () => {
   const legacyRoot = mkdtempSync("/tmp/parity-c2-package-root-legacy-")
   const monoRoot = mkdtempSync("/tmp/parity-c2-package-root-mono-")
@@ -218,31 +257,43 @@ test("effect resolution rejects local receiver shadowing and resolves aliased mu
   }
 })
 
-test("integration artifacts redact credentials and raw payloads before serialization", async () => {
-  const legacyRoot = mkdtempSync("/tmp/parity-c2-redaction-legacy-")
-  const monoRoot = mkdtempSync("/tmp/parity-c2-redaction-mono-")
-  const secret = "sk_live_c2_fixture_secret_value"
-  const payload = "raw-payload-c2-fixture"
-  const endpointSecret = "TTEAM/BCHAN/AbCdEfGhIjKlMnOpQrStUvWxYz_12345"
-  const ignoredPath = "packages/sdk/dist/Slack/client.js"
-  try {
-    put(monoRoot, "packages/fixture-client.ts", `export const call = () => fetch("https://api.example.test/v1/send?token=${secret}", { body: "${payload}" })\n`)
-    put(monoRoot, "packages/Slack/client.ts", `export const send = () => fetch("https://hooks.slack.com/services/${endpointSecret}")\n`)
-    put(monoRoot, ignoredPath, `export const ignored = () => fetch("https://hooks.slack.com/services/${endpointSecret}")\n`)
-    const context = await contextFor(legacyRoot, monoRoot)
-    const c2 = collectC2(context, sha256("pending-c2"))
-    const serialized = canonicalJson(c2.integrations)
-    expect(serialized).not.toContain(secret)
-    expect(serialized).not.toContain(payload)
-    expect(serialized).not.toContain(endpointSecret)
-    const integrationPaths = c2.integrations.rows.flatMap((row) => row.source_ref_ids.map((ref) => context.sourcePathById.get(ref)?.path ?? null))
-    expect(integrationPaths).not.toContain(ignoredPath)
-    expect(c2.integrations.rows.some((row) => row.reason_codes.includes("UNKNOWN_INTEGRATION") || row.reason_codes.includes("UNSAFE_SOURCE"))).toBe(true)
-  } finally {
-    rmSync(legacyRoot, { recursive: true, force: true })
-    rmSync(monoRoot, { recursive: true, force: true })
-  }
+test("typed fixture-injected integrations redact credentials and raw payloads", async () => {
+  const result = await Effect.runPromise(run({
+    root: ".",
+    legacyRoot: ".",
+    mode: "fixture_injection",
+    falsifierId: "F15_secret_or_pii_input",
+  }))
+  expect(result.exitCode).toBe(13)
+  expect(result.report.status).toBe("falsifier_passed")
+  const integrations = result.artifacts?.externalIntegrations
+  if (integrations === undefined) throw new Error("F15 integration fixture artifacts unavailable")
+  const fixtureRows = integrations.rows.filter((row) =>
+    row.source_ref_ids.some((ref) => result.artifacts?.sourceManifest.sources.find((source) => source.source_id === ref)?.path === "packages/fixture-integration.ts"),
+  )
+  expect(fixtureRows).toHaveLength(2)
+  expect(fixtureRows.every((row) => {
+    const details = row.details
+    return "endpoint_ref" in details &&
+      details.endpoint_ref === null &&
+      "credential_slot_ref" in details &&
+      details.credential_slot_ref === null &&
+      row.status !== "covered" &&
+      row.reason_codes.includes("UNSAFE_SOURCE")
+  })).toBe(true)
+  const serialized = canonicalJson(integrations)
+  expect(serialized).not.toContain("https://api.example.test/v1/send?token=")
+  expect(serialized).not.toContain("https://hooks.slack.com/services/")
+  const integrationPaths = integrations.rows.flatMap((row) => row.source_ref_ids.map((ref) => result.artifacts?.sourceManifest.sources.find((source) => source.source_id === ref)?.path ?? null))
+  expect(integrationPaths).not.toContain("packages/sdk/dist/Slack/client.js")
 })
+
+test("canonical source scan does not emit unsafe fixture integrations", async () => {
+  const context = await contextFor(REPO_ROOT, REPO_ROOT)
+  const integrations = collectC2(context, sha256("canonical-c2-source-scan")).integrations
+  expect(integrations.rows.length).toBeGreaterThan(0)
+  expect(integrations.rows.filter((row) => row.reason_codes.includes("UNSAFE_SOURCE"))).toEqual([])
+}, 60_000)
 test("integration URLs survive comment stripping and loader registration", async () => {
   const legacyRoot = mkdtempSync("/tmp/parity-c2-integration-loader-legacy-")
   const monoRoot = mkdtempSync("/tmp/parity-c2-integration-loader-mono-")
