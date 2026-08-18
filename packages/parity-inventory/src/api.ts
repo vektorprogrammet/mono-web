@@ -3,7 +3,7 @@ import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSyn
 import { dirname, isAbsolute, join } from "node:path"
 import { tmpdir } from "node:os"
 import { canonicalJson, compareByteOrder, declarationId, edgeId, observationId, relationId, rowId, sha256, sortUnique } from "./canonical.js"
-import { addSourceReference, matchesLiteralPattern, readSourceText, readSourceTextDetailed, sanitizeScalar, unsafeScalarReason, unsafeSourceTextReason, unsafeStructuredValueReason, type ManifestContext, type OutOfBandSourceCapture } from "./source-manifest.js"
+import { addSourceReference, effectiveIgnoreRule, matchesLiteralPattern, readSourceText, readSourceTextDetailed, sanitizeScalar, sourceTextSafetyReason, unsafeScalarReason, unsafeSourceTextReason, unsafeStructuredValueReason, type ManifestContext, type OutOfBandSourceCapture, type ScanFile } from "./source-manifest.js"
 import type {
   ApiOperationDetails,
   CollectorExecutableProvenance,
@@ -695,16 +695,31 @@ const unavailableCollector = (reason: string, exitCode = 127, _stdoutBytes: Uint
   }
 }
 
+const COLLECTOR_TEST_ENV_PATH = "apps/server/.env.test"
+const COLLECTOR_ENV_PATH_PATTERN = /(?:^|\/)\.env(?:$|[.-])/iu
 const collectorStagePath = (path: string): boolean =>
-  path === "apps/server/bin/console" ||
-  path === "apps/server/composer.json" ||
-  path === "apps/server/composer.lock" ||
-  path.startsWith("apps/server/config/") ||
-  path.startsWith("apps/server/src/") ||
-  path.startsWith("apps/server/vendor/")
+  path === COLLECTOR_TEST_ENV_PATH ||
+  (!COLLECTOR_ENV_PATH_PATTERN.test(path) &&
+    (path === "apps/server/bin/console" ||
+      path === "apps/server/composer.json" ||
+      path === "apps/server/composer.lock" ||
+      path.startsWith("apps/server/config/") ||
+      path.startsWith("apps/server/src/") ||
+      path.startsWith("apps/server/vendor/")))
+
+const scannedCollectorFileIsApproved = (file: ScanFile): boolean => {
+  if (file.path !== COLLECTOR_TEST_ENV_PATH) return true
+  if (file.bytes === null || sourceTextSafetyReason(file.path, file.bytes) !== null) return false
+  try {
+    const link = lstatSync(file.absolutePath)
+    return !link.isSymbolicLink() && link.isFile() && realpathSync(file.absolutePath) === file.absolutePath
+  } catch {
+    return false
+  }
+}
 
 const stageCollectorInputs = (context: ManifestContext): string | null => {
-  const files = context.scans.mono.files.filter((file) => collectorStagePath(file.path) && !file.path.startsWith("apps/server/vendor/") && file.availability === "available" && file.bytes !== null)
+  const files = context.scans.mono.files.filter((file) => collectorStagePath(file.path) && !file.path.startsWith("apps/server/vendor/") && effectiveIgnoreRule("mono", file.path) === null && file.availability === "available" && file.bytes !== null && !file.unsafe && scannedCollectorFileIsApproved(file))
   const vendorRoot = join(context.scans.mono.rootPath, "apps/server/vendor")
   let immutableVendorRoot: string
   try {
@@ -713,7 +728,7 @@ const stageCollectorInputs = (context: ManifestContext): string | null => {
     return null
   }
   if (!(immutableVendorRoot === "/nix/store" || immutableVendorRoot.startsWith("/nix/store/")) || !existsSync(join(immutableVendorRoot, "autoload.php"))) return null
-  if (!files.some((file) => file.path === "apps/server/bin/console")) return null
+  if (!files.some((file) => file.path === "apps/server/bin/console") || !files.some((file) => file.path === COLLECTOR_TEST_ENV_PATH)) return null
   const stage = mkdtempSync(join(tmpdir(), "parity-api-collector-"))
   try {
     for (const file of files) {

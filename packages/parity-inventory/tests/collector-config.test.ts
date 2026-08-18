@@ -1,4 +1,5 @@
 import { Effect } from "effect";
+import { execFileSync } from "node:child_process";
 import {
   chmodSync,
   lstatSync,
@@ -8,7 +9,7 @@ import {
   symlinkSync,
   writeFileSync,
 } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import {
   buildCollectorSandboxArguments,
   collectorExecutableProvenance,
@@ -45,6 +46,36 @@ test("missing collector configuration is a runtime_unavailable observation", asy
     rmSync(directory, { recursive: true, force: true });
   }
 });
+const APPROVED_TEST_ENV = `# define your env variables for the test env here
+APP_ENV=test
+APP_DEBUG=1
+CORS_ALLOW_ORIGIN='*'
+DATABASE_URL=sqlite:///:memory:
+APP_SECRET=test_app_secret_for_testing_only
+JWT_PASSPHRASE=
+`
+
+test("tracked collector environment contains only the approved test bytes", async () => {
+  const directory = mkdtempSync("/tmp/parity-collector-env-scan-")
+  const expectedBytes = execFileSync("git", ["show", "HEAD:apps/server/.env.test"], {
+    cwd: resolve(import.meta.dir, "../../.."),
+    maxBuffer: 4096,
+  })
+  mkdirSync(join(directory, "apps/server"), { recursive: true })
+  writeFileSync(join(directory, "apps/server/.env.test"), expectedBytes)
+  try {
+    const mono = await Effect.runPromise(scanRootEffect(directory, "mono"))
+    const envFiles = mono.files.filter((file) => /(?:^|\/)\.env(?:$|[.-])/iu.test(file.path))
+    expect(envFiles.map((file) => file.path)).toEqual(["apps/server/.env.test"])
+    const envFile = envFiles[0]
+    expect(envFile).toMatchObject({ availability: "available", unsafe: false })
+    expect(Buffer.from(envFile?.bytes ?? new Uint8Array())).toEqual(expectedBytes)
+    expect(new TextDecoder().decode(envFile?.bytes ?? new Uint8Array())).toBe(APPROVED_TEST_ENV)
+  } finally {
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
+
 test("failed fixture collector bytes become fixed reason-only observations", async () => {
   const directory = mkdtempSync("/tmp/parity-collector-failure-bytes-");
   const legacyRoot = join(directory, "legacy");

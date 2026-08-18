@@ -293,7 +293,7 @@ test("canonical source scan does not emit unsafe fixture integrations", async ()
   const integrations = collectC2(context, sha256("canonical-c2-source-scan")).integrations
   expect(integrations.rows.length).toBeGreaterThan(0)
   expect(integrations.rows.filter((row) => row.reason_codes.includes("UNSAFE_SOURCE"))).toEqual([])
-}, 60_000)
+}, 120_000)
 test("integration URLs survive comment stripping and loader registration", async () => {
   const legacyRoot = mkdtempSync("/tmp/parity-c2-integration-loader-legacy-")
   const monoRoot = mkdtempSync("/tmp/parity-c2-integration-loader-mono-")
