@@ -242,6 +242,7 @@ For one root, let `M_i` be the set of paths matched by the literal predicate in 
 | 60 | `runtime_log` | `legacy` | `app/logs/**` | Legacy application log residual | Legacy application logs are execution evidence. |
 | 61 | `runtime_log` | `legacy` | `logs/**` | Legacy root log residual | Legacy root logs are execution evidence. |
 | 62 | `runtime_log` | `legacy` | `var/logs/**` | Legacy var log residual | Legacy var logs are execution evidence. |
+| 63 | `runtime_log` | `legacy` | `**/npm-debug.log` | Nested legacy npm debug-log residual | Nested npm debug logs are execution evidence. |
 | 70 | `test_support` | `legacy`, `mono` | `**/coverage/**` | Coverage output after earlier exclusions | Coverage output is test evidence, not parity authority. |
 | 80 | `binary_tool` | `legacy` | `composer.phar` | Bundled Composer tool after earlier exclusions | Bundled Composer is an executable tool, not a source declaration. |
 
@@ -251,13 +252,21 @@ The only ignored classes are the ordered residuals above. The implementation MUS
 
 ### Root census classification and ignore rules
 
-The root census classifies the full root set, not the union of required source-family matches. For each regular file below `legacy` or `mono`, the generator applies the effective ignore rule or the single `**/*` census family, then emits exactly one `matched`, `ignored`, or `unclassified` record. A file that matches no census family is retained as `unclassified` with `classification_status: "unclassified"`, reason `UNCLASSIFIED_SOURCE`, and status `unresolved`; it is nonzero. A census match does not imply a declaration, and a parity parser may still emit zero rows.
+The root census classifies the full root set, not the union of required source-family matches. Before opening a regular file, the generator normalizes its relative path, excludes the mono projection mount, evaluates the closed ordered ignore register, and only then performs path safety and byte reads. It emits exactly one `matched`, `ignored`, or `unclassified` record. A file that matches no census family is retained as `unclassified` with `classification_status: "unclassified"`, reason `UNCLASSIFIED_SOURCE`, and status `unresolved`; it is nonzero. A census match does not imply a declaration, and a parity parser may still emit zero rows.
 
 The ordered ignore register is part of `source-manifest.json`, is hashed into `source_set_sha256`, and is closed: an implementation cannot add a local pattern or narrow a census root. Each rule has an immutable ID, authority scope, logical root, `precedence`, literal `pattern`, `selection: "ordered_set_difference"`, rule kind, and rationale. The table's `Rationale` column is normative: every root-scoped rule emits the exact byte-identical string shown for its `(root_ref, precedence, pattern)` tuple. Ignore rules cannot cover first-party source declarations, H3 derivation inputs, generated projections selected by a source family, or accepted-intent records before residual classification.
 
 `ignore_rule_id` is lowercase SHA-256 over the compact canonical object `{authority_line, root_ref, precedence, pattern, selection, rule_kind, rationale}` with the `ignore-` prefix. The implementation sorts rules by `(root_ref, precedence, pattern, ignore_rule_id)` and assigns one effective rule per normalized path. It never reports raw overlap as a failure.
 
-`source-manifest.json.root_census` contains one record for every regular file under each explicit census root. Each record includes the relative path, byte length and digest when readable, availability, classification, source reference IDs, and exactly one effective `ignore_rule_id` only for `ignored`. `matched` and `unclassified` records have a non-empty `source_ref_ids` array and a null `ignore_rule_id`; `ignored` records have an empty `source_ref_ids` array and one effective rule ID. An unreadable file is `unclassified` with `availability: "unavailable"`, a null digest, and a blocking `source_unavailable` or `unresolved` failure. No file may be dropped because its parser does not recognize a declaration.
+`source-manifest.json.root_census` contains one record for every regular file under each explicit census root. Each record includes the relative path, byte length and digest when readable, availability, classification, source reference IDs, and exactly one effective `ignore_rule_id` only for `ignored`. `matched` and `unclassified` records have a non-empty `source_ref_ids` array and a null `ignore_rule_id`; `ignored` records have an empty `source_ref_ids` array and one effective rule ID. An ignored path is classified without opening its bytes: its `byte_length` and `sha256` are both `null`, and it has no source reference even when the on-disk bytes are invalid or contain unsafe values. An unreadable non-ignored file is `unclassified` with `availability: "unavailable"`, a null digest, and a blocking `source_unavailable` or `unresolved` failure. No file may be dropped because its parser does not recognize a declaration.
+
+### Source path and textual byte safety
+
+Classification is a pre-read boundary. The owned mono projection mount `evidence/functional-parity/` is excluded before enumeration and cannot produce a census record, source ID, digest, or file-set revision input. Every effective closed ignore-rule match is classified `ignored` before a file is opened. Ignored bytes never enter `byte_length`, `sha256`, source references, parser inputs, runtime observations, or deterministic artifacts. The record retains only the normalized path, the effective rule ID, and null byte/digest fields.
+
+Non-ignored credential, secret, private-key, raw-payload, backup, dump, or database path classes fail closed before bytes are read. This path register is semantic, not a blanket extension denylist: `.env` and `.sql` are legitimate source classes and are admitted to textual validation. A legacy nested `**/npm-debug.log` path is an explicit `runtime_log` residual when no earlier normative residual applies; tracked log/debug artifacts are therefore never hashed.
+
+Matched textual config/source files use fatal UTF-8 decoding before hashing. Dotenv assignments reject concrete credential or personal-data values, but allow empty values, framework placeholders, and explicit test-only sentinels. SQL source accepts DDL and executable migration code, but rejects literal data inserts, concrete credential assignments, and PII. The validator does not entropy-scan identifiers or source-code names. Unsafe content fails before a digest, source ID, or deterministic artifact claim is created, and all failure reasons are sanitized.
 
 ```json
 {
@@ -401,6 +410,16 @@ The ordered ignore register is part of `source-manifest.json`, is hashed into `s
       "selection": "ordered_set_difference",
       "rule_kind": "runtime_log",
       "rationale": "Legacy var logs are execution evidence."
+    },
+    {
+      "ignore_rule_id": "ignore-<sha256-of-rule>",
+      "authority_line": "legacy",
+      "root_ref": "legacy",
+      "precedence": 63,
+      "pattern": "**/npm-debug.log",
+      "selection": "ordered_set_difference",
+      "rule_kind": "runtime_log",
+      "rationale": "Nested npm debug logs are execution evidence."
     },
     {
       "ignore_rule_id": "ignore-<sha256-of-rule>",
@@ -591,8 +610,8 @@ The JSON shape is illustrative. A generated register contains one real rule ID p
       "authority_line": "legacy",
       "root_ref": "legacy",
       "path": "vendor/example.php",
-      "byte_length": 123,
-      "sha256": "sha256:<64 lowercase hex characters>",
+      "byte_length": null,
+      "sha256": null,
       "availability": "available",
       "classification": "ignored",
       "source_ref_ids": [],
@@ -1055,7 +1074,13 @@ A source manifest is complete only when both full roots have a classification re
 
 ### J3 — Collect local runtime observations
 
-The implementation uses local, credential-free collectors at the selected mono revision. It records command-output hashes and exit statuses in execution evidence and source refs. The required observations are:
+The implementation uses local, credential-free collectors at the selected mono revision. Production collection receives a closed `CollectorExecutables` configuration from the public run API and CLI. The CLI accepts `--php-executable` and `--bwrap-executable`; when neither is supplied, `/usr/bin/php` and `/usr/bin/bwrap` are the only defaults and are used only when both canonical files validate. There is no ambient `PATH` lookup.
+
+Before execution, each selected executable is resolved once and must be an absolute, regular executable file with no group/other write bits. The final path must be exactly `/usr/bin/php` or `/usr/bin/bwrap`, or match `/nix/store/<32-character-hash>-php-*/bin/php` or `/nix/store/<32-character-hash>-bubblewrap-*/bin/bwrap`; symlinked or arbitrary paths are rejected. A rejected or missing configuration produces `runtime_unavailable`.
+
+The PHP collector invokes the selected bubblewrap executable directly with an argument vector. It uses `--clearenv`, unshares network, PID, UTS, and IPC namespaces, stages only selected source bytes plus an immutable vendor tree, applies a bounded timeout and output limit, and binds the selected PHP at `/usr/bin/php`. For a Nix-store PHP or bubblewrap, it read-only binds `/nix/store` so the dynamic loader and PHP extensions remain available. Collector arguments are passed after `--`; they are never shell-interpreted.
+
+Runtime observations retain a stable logical command identity, argument/output/result digests, and executable content digests plus logical provenance (`usr-bin` or `nix-store`). Host executable paths do not enter deterministic command identity, canonical keys, or projection bytes. The required observations are:
 
 - resolved mono routes from the framework router collector;
 - resolved API operation/resource metadata;
@@ -1063,7 +1088,7 @@ The implementation uses local, credential-free collectors at the selected mono r
 - local scheduler/workflow registration where available;
 - regenerated local OpenAPI projection.
 
-The existing H3 route/resource collector is reusable through the explicit derivation in this spec. It is not copied as parity authority. A required collector that cannot run produces `runtime_unavailable`; a collector that runs but cannot resolve a row produces `unresolved`.
+The existing H3 route/resource collector is reusable through the explicit derivation in this spec. It is not copied as parity authority. A required collector that cannot run produces `runtime_unavailable`; a collector that runs but cannot resolve a row produces `unresolved`. Fixture runtime payloads are available only to named `fixture_injection` falsifiers; they are out-of-band typed inputs, not census files or production authority, and their logical runtime source reference must not require an ignored-root source digest.
 
 No collector calls an external integration. An external integration runtime observation can only be a separately supplied, redacted, immutable evidence reference.
 
@@ -1572,7 +1597,7 @@ The schema's `details` object is closed per inventory file. The implementation M
         {"if": {"properties": {"root_ref": {"const": "legacy"}}}, "then": {"properties": {"authority_line": {"const": "legacy"}}}},
         {"if": {"properties": {"root_ref": {"const": "mono"}}}, "then": {"properties": {"authority_line": {"const": "mono"}}}},
         {"if": {"properties": {"classification": {"const": "matched"}}}, "then": {"properties": {"source_ref_ids": {"minItems": 1}, "ignore_rule_id": {"type": "null"}}}},
-        {"if": {"properties": {"classification": {"const": "ignored"}}}, "then": {"properties": {"source_ref_ids": {"maxItems": 0}, "ignore_rule_id": {"pattern": "^ignore-[a-f0-9]{64}$"}}, "required": ["ignore_rule_id"]}},
+        {"if": {"properties": {"classification": {"const": "ignored"}}}, "then": {"properties": {"byte_length": {"type": "null"}, "sha256": {"type": "null"}, "source_ref_ids": {"maxItems": 0}, "ignore_rule_id": {"pattern": "^ignore-[a-f0-9]{64}$"}}, "required": ["ignore_rule_id"]}},
         {"if": {"properties": {"classification": {"const": "unclassified"}}}, "then": {"properties": {"source_ref_ids": {"minItems": 1}, "ignore_rule_id": {"type": "null"}}}},
         {"if": {"properties": {"availability": {"const": "unavailable"}}}, "then": {"properties": {"byte_length": {"type": "null"}, "sha256": {"type": "null"}}}}
       ]

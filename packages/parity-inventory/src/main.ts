@@ -2,15 +2,17 @@ import { Effect } from "effect"
 import { canonicalJson, failureId } from "./canonical.js"
 import { FALSIFIERS, run, type FalsifierId, type RunMode } from "./runner.js"
 import { ParityRuntimeError } from "./runtime.js"
-import type { ZeroGapReport } from "./types.js"
+import type { CollectorExecutables, ZeroGapReport } from "./types.js"
 
 const USAGE = [
-  "Usage: bun run parity:verify -- --root <mono-root> --legacy-root <legacy-root> --intent-register <external-authority-checkout-file> --mode <diff|write|fixture_injection> [--falsifier F0..F19]",
+  "Usage: bun run parity:verify -- --root <mono-root> --legacy-root <legacy-root> --intent-register <external-authority-checkout-file> --mode <diff|write|fixture_injection> [--php-executable <absolute-canonical-php>] [--bwrap-executable <absolute-canonical-bwrap>] [--falsifier F0..F19]",
   "",
   "Modes:",
   "  diff              regenerate C0 projections and compare committed bytes (read-only)",
   "  write             atomically promote source-manifest and route projections",
   "  fixture_injection run one named isolated falsifier; never writes projections",
+  "",
+  "Collector executables default to /usr/bin/php and /usr/bin/bwrap when both canonical files are present.",
 ].join("\n")
 
 interface ParsedArgs {
@@ -19,6 +21,7 @@ interface ParsedArgs {
   readonly intentRegisterPath?: string
   readonly mode: RunMode
   readonly falsifierId?: FalsifierId
+  readonly collectorExecutables?: CollectorExecutables
   readonly help: boolean
 }
 
@@ -34,6 +37,8 @@ const parseArgs = (args: readonly string[]): ParsedArgs => {
   let intentRegisterPath: string | undefined
   let mode: RunMode | undefined
   let falsifierId: FalsifierId | undefined
+  let phpExecutable: string | undefined
+  let bwrapExecutable: string | undefined
   let help = false
   for (let index = 0; index < args.length; index += 1) {
     const argument = args[index]
@@ -56,6 +61,16 @@ const parseArgs = (args: readonly string[]): ParsedArgs => {
       index += 1
       continue
     }
+    if (argument === "--php-executable") {
+      phpExecutable = valueAfter(args, index, argument)
+      index += 1
+      continue
+    }
+    if (argument === "--bwrap-executable") {
+      bwrapExecutable = valueAfter(args, index, argument)
+      index += 1
+      continue
+    }
     if (argument === "--mode") {
       const value = valueAfter(args, index, argument)
       if (value !== "diff" && value !== "write" && value !== "fixture_injection") throw new Error(`invalid mode: ${value}`)
@@ -73,12 +88,13 @@ const parseArgs = (args: readonly string[]): ParsedArgs => {
     if (argument === "--") continue
     throw new Error(`unknown option: ${argument}`)
   }
-  if (help) return { root: root ?? ".", legacyRoot: legacyRoot ?? ".", intentRegisterPath, mode: mode ?? "diff", falsifierId, help }
+  const collectorExecutables: CollectorExecutables | undefined = phpExecutable === undefined && bwrapExecutable === undefined ? undefined : { phpExecutable: phpExecutable ?? "/usr/bin/php", bwrapExecutable: bwrapExecutable ?? "/usr/bin/bwrap" }
+  if (help) return { root: root ?? ".", legacyRoot: legacyRoot ?? ".", intentRegisterPath, mode: mode ?? "diff", falsifierId, collectorExecutables, help }
   if (root === undefined || legacyRoot === undefined || mode === undefined) throw new Error("--root, --legacy-root, and --mode are required")
   if (mode !== "fixture_injection" && intentRegisterPath === undefined) throw new Error("--intent-register is required for diff and write modes")
   if (mode === "fixture_injection" && falsifierId === undefined) throw new Error("fixture_injection requires exactly one --falsifier")
   if (mode !== "fixture_injection" && falsifierId !== undefined) throw new Error("--falsifier is only valid in fixture_injection mode")
-  return { root, legacyRoot, intentRegisterPath, mode, falsifierId, help }
+  return { root, legacyRoot, intentRegisterPath, mode, falsifierId, collectorExecutables, help }
 }
 
 const commandErrorReport = (message: string): ZeroGapReport => {
@@ -170,7 +186,7 @@ export const main = (args: readonly string[] = process.argv.slice(2)): Effect.Ef
       yield* Effect.sync(() => writeStdout(`${USAGE}\n`))
       return 0
     }
-    const result = yield* run({ root: parsed.root, legacyRoot: parsed.legacyRoot, intentRegisterPath: parsed.intentRegisterPath, mode: parsed.mode, falsifierId: parsed.falsifierId })
+    const result = yield* run({ root: parsed.root, legacyRoot: parsed.legacyRoot, intentRegisterPath: parsed.intentRegisterPath, mode: parsed.mode, falsifierId: parsed.falsifierId, collectorExecutables: parsed.collectorExecutables })
     yield* Effect.sync(() => writeStdout(`${canonicalJson(result.report)}\n`))
     return result.exitCode
   })

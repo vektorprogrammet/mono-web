@@ -52,13 +52,30 @@
     },
     "runtimeObservation": {
       "type": "object", "additionalProperties": false,
-      "required": ["runtime_observation_ref_id", "revision_ref_id", "collector_kind", "command", "argument_digest", "stdout_sha256", "stderr_sha256", "exit_code", "result_sha256", "availability"],
+      "required": ["runtime_observation_ref_id", "revision_ref_id", "collector_kind", "logical_command_id", "command", "argument_digest", "executable_digests", "executable_provenance", "stdout_sha256", "stderr_sha256", "exit_code", "result_sha256", "availability"],
       "properties": {
         "runtime_observation_ref_id": {"type": "string", "minLength": 1},
         "revision_ref_id": {"type": "string", "minLength": 1},
         "collector_kind": {"type": "string", "minLength": 1},
+        "logical_command_id": {"type": "string", "minLength": 1},
         "command": {"type": "string", "minLength": 1},
         "argument_digest": {"$ref": "#/$defs/sha256"},
+        "executable_digests": {
+          "type": "object", "additionalProperties": false,
+          "required": ["php", "bwrap"],
+          "properties": {
+            "php": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]},
+            "bwrap": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]}
+          }
+        },
+        "executable_provenance": {
+          "type": "object", "additionalProperties": false,
+          "required": ["php", "bwrap"],
+          "properties": {
+            "php": {"enum": ["usr-bin", "nix-store", null]},
+            "bwrap": {"enum": ["usr-bin", "nix-store", null]}
+          }
+        },
         "stdout_sha256": {"$ref": "#/$defs/sha256"},
         "stderr_sha256": {"$ref": "#/$defs/sha256"},
         "exit_code": {"type": "integer"},
@@ -103,7 +120,7 @@
         {"if": {"properties": {"root_ref": {"const": "legacy"}}}, "then": {"properties": {"authority_line": {"const": "legacy"}}}},
         {"if": {"properties": {"root_ref": {"const": "mono"}}}, "then": {"properties": {"authority_line": {"const": "mono"}}}},
         {"if": {"properties": {"classification": {"const": "matched"}}}, "then": {"properties": {"source_ref_ids": {"minItems": 1}, "ignore_rule_id": {"type": "null"}}}},
-        {"if": {"properties": {"classification": {"const": "ignored"}}}, "then": {"properties": {"source_ref_ids": {"maxItems": 0}, "ignore_rule_id": {"pattern": "^ignore-[a-f0-9]{64}$"}}, "required": ["ignore_rule_id"]}},
+        {"if": {"properties": {"classification": {"const": "ignored"}}}, "then": {"properties": {"byte_length": {"type": "null"}, "sha256": {"type": "null"}, "source_ref_ids": {"maxItems": 0}, "ignore_rule_id": {"pattern": "^ignore-[a-f0-9]{64}$"}}, "required": ["ignore_rule_id"]}},
         {"if": {"properties": {"classification": {"const": "unclassified"}}}, "then": {"properties": {"source_ref_ids": {"minItems": 1}, "ignore_rule_id": {"type": "null"}}}},
         {"if": {"properties": {"availability": {"const": "unavailable"}}}, "then": {"properties": {"byte_length": {"type": "null"}, "sha256": {"type": "null"}}}}
       ]

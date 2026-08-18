@@ -1,11 +1,13 @@
 import { execFileSync } from "node:child_process"
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs"
-import { dirname, join } from "node:path"
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs"
+import { dirname, isAbsolute, join } from "node:path"
 import { tmpdir } from "node:os"
 import { canonicalJson, compareByteOrder, declarationId, edgeId, observationId, relationId, rowId, sha256, sortUnique } from "./canonical.js"
 import { addSourceReference, matchesLiteralPattern, readSourceText, readSourceTextDetailed, sanitizeScalar, unsafeScalarReason, type ManifestContext } from "./source-manifest.js"
 import type {
   ApiOperationDetails,
+  CollectorExecutableProvenance,
+  CollectorExecutables,
   DerivationEdge,
   InventoryEnvelope,
   InventoryLink,
@@ -15,6 +17,8 @@ import type {
   MonoRouteDetails,
   OpenApiReconciliation,
   ReportFailure,
+  RuntimeExecutableDigests,
+  RuntimeExecutableProvenance,
   RuntimeObservation,
 } from "./types.js"
 
@@ -108,6 +112,65 @@ const H3_SOURCE_MANIFEST_PATH = "evidence/security-h3/0015/source-manifest.json"
 const H3_COLLECTOR_PATH = "evidence/security-h3/0015/route-collector.json"
 const H3_ROUTE_PATH = "evidence/security-h3/0015/current-route-inventory.json"
 const H3_RESOURCE_PATH = "evidence/security-h3/0015/current-resource-inventory.json"
+type CollectorExecutableKind = "php" | "bwrap"
+export interface ValidatedCollectorExecutable {
+  readonly kind: CollectorExecutableKind
+  readonly path: string
+  readonly digest: string
+  readonly provenance: CollectorExecutableProvenance
+}
+export interface ValidatedCollectorExecutables {
+  readonly php: ValidatedCollectorExecutable
+  readonly bwrap: ValidatedCollectorExecutable
+}
+export interface CollectorSandboxInvocation {
+  readonly executable: string
+  readonly arguments: readonly string[]
+}
+const PHP_NIX_PATTERN = /^\/nix\/store\/[a-z0-9]{32}-php-[^/]+\/bin\/php$/
+const BWRAP_NIX_PATTERN = /^\/nix\/store\/[a-z0-9]{32}-bubblewrap-[^/]+\/bin\/bwrap$/
+export const collectorExecutableProvenance = (kind: CollectorExecutableKind, path: string): CollectorExecutableProvenance | null => {
+  if (path === `/usr/bin/${kind}`) return "usr-bin"
+  if (kind === "php" && PHP_NIX_PATTERN.test(path)) return "nix-store"
+  if (kind === "bwrap" && BWRAP_NIX_PATTERN.test(path)) return "nix-store"
+  return null
+}
+export const validateCollectorExecutablePath = (kind: CollectorExecutableKind, requestedPath: string): ValidatedCollectorExecutable | null => {
+  if (!isAbsolute(requestedPath) || requestedPath.includes("\u0000")) return null
+  const provenance = collectorExecutableProvenance(kind, requestedPath)
+  if (provenance === null) return null
+  try {
+    const link = lstatSync(requestedPath)
+    const canonicalPath = realpathSync(requestedPath)
+    const stat = statSync(requestedPath)
+    if (link.isSymbolicLink() || canonicalPath !== requestedPath || !stat.isFile() || (stat.mode & 0o111) === 0 || (stat.mode & 0o022) !== 0) return null
+    if (collectorExecutableProvenance(kind, canonicalPath) !== provenance) return null
+    return { kind, path: canonicalPath, digest: sha256(readFileSync(canonicalPath)), provenance }
+  } catch {
+    return null
+  }
+}
+const closedCollectorExecutables = (value: CollectorExecutables | undefined): value is CollectorExecutables => {
+  if (value === undefined || value === null || typeof value !== "object") return false
+  const keys = Object.keys(value).sort()
+  return keys.length === 2 && keys[0] === "bwrapExecutable" && keys[1] === "phpExecutable" && typeof value.phpExecutable === "string" && typeof value.bwrapExecutable === "string"
+}
+export const resolveCollectorExecutables = (configured?: CollectorExecutables): ValidatedCollectorExecutables | null => {
+  const selected = configured ?? (existsSync(PHP_EXECUTABLE) && existsSync(BWRAP_EXECUTABLE) ? { phpExecutable: PHP_EXECUTABLE, bwrapExecutable: BWRAP_EXECUTABLE } : undefined)
+  if (!closedCollectorExecutables(selected)) return null
+  const php = validateCollectorExecutablePath("php", selected.phpExecutable)
+  const bwrap = validateCollectorExecutablePath("bwrap", selected.bwrapExecutable)
+  return php === null || bwrap === null ? null : { php, bwrap }
+}
+const collectorNeedsNixStore = (executables: CollectorExecutables): boolean => collectorExecutableProvenance("php", executables.phpExecutable) === "nix-store" || collectorExecutableProvenance("bwrap", executables.bwrapExecutable) === "nix-store"
+export const buildCollectorSandboxArguments = (executables: CollectorExecutables, args: readonly string[], workspacePath = "/workspace"): CollectorSandboxInvocation => {
+  const libraryBinds = ["/lib", "/lib64", "/usr/lib"].filter((path) => existsSync(path)).flatMap((path) => ["--ro-bind", path, path])
+  const nixStoreBind = collectorNeedsNixStore(executables) ? ["--dir", "/nix", "--ro-bind", "/nix/store", "/nix/store"] : []
+  return {
+    executable: executables.bwrapExecutable,
+    arguments: ["--die-with-parent", "--unshare-net", "--unshare-pid", "--unshare-uts", "--unshare-ipc", "--clearenv", "--tmpfs", "/", "--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp", "--dir", "/etc", "--dir", "/usr", "--dir", "/usr/bin", "--dir", "/usr/lib", "--ro-bind", executables.phpExecutable, "/usr/bin/php", ...nixStoreBind, ...libraryBinds, "--ro-bind", workspacePath, "/workspace", "--chdir", "/workspace", "--setenv", "PATH", "/usr/bin", "--setenv", "HOME", "/tmp", "--setenv", "APP_ENV", "test", "--setenv", "APP_DEBUG", "0", "--setenv", "COMPOSER_HOME", "/tmp", "--", "/usr/bin/php", ...args],
+  }
+}
 const PHP_EXECUTABLE = "/usr/bin/php"
 const BWRAP_EXECUTABLE = "/usr/bin/bwrap"
 
@@ -403,8 +466,11 @@ const runtimeSourceRef = (context: ManifestContext, path: string, role: string):
   captureMode: "runtime",
 })
 
+const NO_EXECUTABLE_DIGESTS: RuntimeExecutableDigests = { php: null, bwrap: null }
+const NO_EXECUTABLE_PROVENANCE: RuntimeExecutableProvenance = { php: null, bwrap: null }
 const recordRuntimeObservation = (context: ManifestContext, input: {
   readonly collectorKind: string
+  readonly logicalCommandId?: string
   readonly command: string
   readonly arguments: readonly string[]
   readonly stdout: Uint8Array | string
@@ -413,10 +479,16 @@ const recordRuntimeObservation = (context: ManifestContext, input: {
   readonly result: unknown
   readonly availability: "available" | "unavailable"
   readonly revisionRefId: string
+  readonly executableDigests?: RuntimeExecutableDigests
+  readonly executableProvenance?: RuntimeExecutableProvenance
 }): RuntimeObservation => {
+  const executableDigests = input.executableDigests ?? NO_EXECUTABLE_DIGESTS
+  const executableProvenance = input.executableProvenance ?? NO_EXECUTABLE_PROVENANCE
+  const logicalCommandId = input.logicalCommandId ?? input.command
   const resultBytes = canonicalJson(input.result)
-  const identity = { collector_kind: input.collectorKind, revision_ref_id: input.revisionRefId, command: input.command, argument_digest: sha256(canonicalJson(input.arguments)), stdout_sha256: sha256(input.stdout), stderr_sha256: sha256(input.stderr), exit_code: input.exitCode, result_sha256: sha256(resultBytes), availability: input.availability }
-  const observation: RuntimeObservation = { runtime_observation_ref_id: `runtime-${sha256Hex(canonicalJson(identity))}`, revision_ref_id: input.revisionRefId, collector_kind: identity.collector_kind, command: input.command, argument_digest: identity.argument_digest, stdout_sha256: identity.stdout_sha256, stderr_sha256: identity.stderr_sha256, exit_code: input.exitCode, result_sha256: identity.result_sha256, availability: input.availability }
+  const argumentDigest = sha256(canonicalJson(input.arguments))
+  const identity = { collector_kind: input.collectorKind, logical_command_id: logicalCommandId, revision_ref_id: input.revisionRefId, command: input.command, argument_digest: argumentDigest, executable_digests: executableDigests, executable_provenance: executableProvenance, stdout_sha256: sha256(input.stdout), stderr_sha256: sha256(input.stderr), exit_code: input.exitCode, result_sha256: sha256(resultBytes), availability: input.availability }
+  const observation: RuntimeObservation = { runtime_observation_ref_id: `runtime-${sha256Hex(canonicalJson(identity))}`, revision_ref_id: input.revisionRefId, collector_kind: identity.collector_kind, logical_command_id: logicalCommandId, command: input.command, argument_digest: argumentDigest, executable_digests: executableDigests, executable_provenance: executableProvenance, stdout_sha256: identity.stdout_sha256, stderr_sha256: identity.stderr_sha256, exit_code: input.exitCode, result_sha256: identity.result_sha256, availability: input.availability }
   const existing = context.runtimeObservations.find((entry) => entry.runtime_observation_ref_id === observation.runtime_observation_ref_id)
   if (existing === undefined) context.runtimeObservations.push(observation)
   return existing ?? observation
@@ -507,8 +579,9 @@ interface CollectorRun {
   readonly stderrBytes: Uint8Array<ArrayBufferLike>
   readonly exitCode: number
   readonly reason?: string
+  readonly executableDigests: RuntimeExecutableDigests
+  readonly executableProvenance: RuntimeExecutableProvenance
 }
-
 const strictUtf8 = (bytes: Uint8Array<ArrayBufferLike>): string | null => {
   try {
     return new TextDecoder("utf-8", { fatal: true }).decode(bytes as unknown as Uint8Array<ArrayBuffer>)
@@ -516,13 +589,12 @@ const strictUtf8 = (bytes: Uint8Array<ArrayBufferLike>): string | null => {
     return null
   }
 }
-
 const collectorBytes = (value: unknown): Uint8Array<ArrayBufferLike> => {
   if (value instanceof Uint8Array) return value
   if (typeof value === "string") return new TextEncoder().encode(value)
   return new Uint8Array()
 }
-const unavailableCollector = (reason: string, exitCode = 127, stdoutBytes: Uint8Array<ArrayBufferLike> = new Uint8Array(), stderrBytes: Uint8Array<ArrayBufferLike> = new TextEncoder().encode(reason)): CollectorRun => ({
+const unavailableCollector = (reason: string, exitCode = 127, stdoutBytes: Uint8Array<ArrayBufferLike> = new Uint8Array(), stderrBytes: Uint8Array<ArrayBufferLike> = new TextEncoder().encode(reason), executableDigests: RuntimeExecutableDigests = NO_EXECUTABLE_DIGESTS, executableProvenance: RuntimeExecutableProvenance = NO_EXECUTABLE_PROVENANCE): CollectorRun => ({
   availability: "unavailable",
   stdout: strictUtf8(stdoutBytes) ?? "",
   stderr: strictUtf8(stderrBytes) ?? reason,
@@ -530,6 +602,8 @@ const unavailableCollector = (reason: string, exitCode = 127, stdoutBytes: Uint8
   stderrBytes,
   exitCode,
   reason,
+  executableDigests,
+  executableProvenance,
 })
 
 const collectorStagePath = (path: string): boolean =>
@@ -586,53 +660,32 @@ const stageCollectorInputs = (context: ManifestContext): string | null => {
   }
 }
 
-const trustedPhpCollector = (context: ManifestContext, args: readonly string[]): CollectorRun => {
-  if (!existsSync(PHP_EXECUTABLE) || !existsSync(BWRAP_EXECUTABLE)) return unavailableCollector("collector isolation unavailable")
+const trustedPhpCollector = (context: ManifestContext, args: readonly string[], configured?: CollectorExecutables): CollectorRun => {
+  const selected = resolveCollectorExecutables(configured)
+  if (selected === null) return unavailableCollector(configured === undefined ? "COLLECTOR_EXECUTABLE_CONFIG_MISSING" : "COLLECTOR_EXECUTABLE_INVALID")
+  const executableDigests: RuntimeExecutableDigests = { php: selected.php.digest, bwrap: selected.bwrap.digest }
+  const executableProvenance: RuntimeExecutableProvenance = { php: selected.php.provenance, bwrap: selected.bwrap.provenance }
   const stage = stageCollectorInputs(context)
-  if (stage === null) return unavailableCollector("collector inputs unavailable")
-  const libraryBinds = ["/lib", "/lib64", "/usr/lib"].filter((path) => existsSync(path)).flatMap((path) => ["--ro-bind", path, path])
+  if (stage === null) return unavailableCollector("COLLECTOR_INPUTS_UNAVAILABLE", 127, new Uint8Array(), new TextEncoder().encode("COLLECTOR_INPUTS_UNAVAILABLE"), executableDigests, executableProvenance)
   try {
-    const output = execFileSync(BWRAP_EXECUTABLE, [
-      "--die-with-parent",
-      "--unshare-net",
-      "--unshare-pid",
-      "--unshare-uts",
-      "--unshare-ipc",
-      "--clearenv",
-      "--tmpfs", "/",
-      "--proc", "/proc",
-      "--dev", "/dev",
-      "--tmpfs", "/tmp",
-      "--dir", "/etc",
-      "--dir", "/usr",
-      "--dir", "/usr/bin",
-      "--dir", "/usr/lib",
-      "--ro-bind", PHP_EXECUTABLE, "/usr/bin/php",
-      ...libraryBinds,
-      "--ro-bind", stage, "/workspace",
-      "--chdir", "/workspace",
-      "--setenv", "PATH", "/usr/bin",
-      "--setenv", "HOME", "/tmp",
-      "--setenv", "APP_ENV", "test",
-      "--setenv", "APP_DEBUG", "0",
-      "--setenv", "COMPOSER_HOME", "/tmp",
-      "--", PHP_EXECUTABLE,
-      ...args,
-    ], { cwd: stage, stdio: ["ignore", "pipe", "pipe"], timeout: 60_000, killSignal: "SIGKILL", maxBuffer: 8 * 1024 * 1024, env: { PATH: "/usr/bin", HOME: "/tmp", APP_ENV: "test", APP_DEBUG: "0", COMPOSER_HOME: "/tmp" } })
+    const executableConfig: CollectorExecutables = { phpExecutable: selected.php.path, bwrapExecutable: selected.bwrap.path }
+    const invocation = buildCollectorSandboxArguments(executableConfig, args, stage)
+    const output = execFileSync(invocation.executable, invocation.arguments, { cwd: stage, stdio: ["ignore", "pipe", "pipe"], timeout: 60_000, killSignal: "SIGKILL", maxBuffer: 8 * 1024 * 1024, env: { PATH: "/usr/bin", HOME: "/tmp", APP_ENV: "test", APP_DEBUG: "0", COMPOSER_HOME: "/tmp" } })
     const stdoutBytes = collectorBytes(output)
     const stderrBytes = new Uint8Array()
     const stdout = strictUtf8(stdoutBytes)
     const stderr = strictUtf8(stderrBytes)
-    if (stdout === null || stderr === null) return unavailableCollector("NON_UTF8_OUTPUT", 1, stdoutBytes, stderrBytes)
-    return { availability: "available", stdout, stderr, stdoutBytes, stderrBytes, exitCode: 0 }
+    if (stdout === null || stderr === null) return unavailableCollector("NON_UTF8_OUTPUT", 1, stdoutBytes, stderrBytes, executableDigests, executableProvenance)
+    return { availability: "available", stdout, stderr, stdoutBytes, stderrBytes, exitCode: 0, executableDigests, executableProvenance }
   } catch (cause) {
     const error = cause as { readonly stdout?: unknown; readonly stderr?: unknown; readonly status?: number }
     const stdoutBytes = collectorBytes(error.stdout)
     const stderrBytes = collectorBytes(error.stderr)
     const stdout = strictUtf8(stdoutBytes)
     const stderr = strictUtf8(stderrBytes)
-    if (stdout === null || stderr === null) return unavailableCollector("NON_UTF8_OUTPUT", typeof error.status === "number" ? error.status : 1, stdoutBytes, stderrBytes)
-    return unavailableCollector(stderr.length > 0 ? stderr : "trusted collector failed", typeof error.status === "number" ? error.status : 1, stdoutBytes, stderrBytes)
+    const exitCode = typeof error.status === "number" ? error.status : 1
+    if (stdout === null || stderr === null) return unavailableCollector("NON_UTF8_OUTPUT", exitCode, stdoutBytes, stderrBytes, executableDigests, executableProvenance)
+    return unavailableCollector("COLLECTOR_EXECUTION_FAILED", exitCode, stdoutBytes, stderrBytes, executableDigests, executableProvenance)
   } finally {
     rmSync(stage, { recursive: true, force: true })
   }
@@ -654,7 +707,7 @@ const payloadContainsUnsafe = (value: unknown, fieldName = "field"): boolean => 
   if (value !== null && typeof value === "object") return Object.entries(value).some(([key, entry]) => payloadContainsUnsafe(entry, key))
   return false
 }
-const collectRuntime = (context: ManifestContext, declarations: readonly ApiDeclaration[], allowFixture: boolean): RuntimeCollection => {
+const collectRuntime = (context: ManifestContext, declarations: readonly ApiDeclaration[], allowFixture: boolean, configured?: CollectorExecutables): RuntimeCollection => {
   const revisionRefId = context.scans.mono.revisionRefId
   const consoleFile = context.scans.mono.files.find((file) => file.path === CONSOLE_PATH)
   let consoleSourceRef: string | null = null
@@ -662,7 +715,7 @@ const collectRuntime = (context: ManifestContext, declarations: readonly ApiDecl
     ? runtimeSourceRef(context, CONSOLE_PATH, "mono_api_runtime_observation")
     : sourceFailureRef(context, CONSOLE_PATH, "SOURCE_UNAVAILABLE", "mono_api_runtime_observation", "runtime")
   const unavailable = (collectorKind: string, command: string, args: readonly string[], reason: string, exitCode = 127, run: CollectorRun | null = null): RuntimeCollection => {
-    const observation = recordRuntimeObservation(context, { collectorKind, command, arguments: args, stdout: run?.stdoutBytes ?? "", stderr: run?.stderrBytes ?? reason, exitCode, result: null, availability: "unavailable", revisionRefId })
+    const observation = recordRuntimeObservation(context, { collectorKind, logicalCommandId: command, command, arguments: args, stdout: run?.stdoutBytes ?? "", stderr: run?.stderrBytes ?? reason, exitCode, result: null, availability: "unavailable", revisionRefId, executableDigests: run?.executableDigests, executableProvenance: run?.executableProvenance })
     const sourceRef = consoleRef()
     const status: ApiCollectionFailure["status"] = ["UNSAFE_SOURCE", "SOURCE_PARSE_ERROR", "OPENAPI_SOURCE_PARSE_ERROR", "NON_UTF8_OUTPUT"].includes(reason) ? "source_unavailable" : "runtime_unavailable"
     return { operations: [], observation, openApiObservation: null, openApiPayload: null, sourceRefIds: [sourceRef], failures: [{ status, reasonCode: reason, rowIds: [], sourceRefIds: [sourceRef] }] }
@@ -687,30 +740,30 @@ const collectRuntime = (context: ManifestContext, declarations: readonly ApiDecl
   if (consoleFile === undefined || consoleFile.availability !== "available") return unavailable("api_platform_metadata", "api-platform-metadata", [], "RUNTIME_UNAVAILABLE")
   const resourceClasses = sortUnique(declarations.map((declaration) => declaration.resourceClassRef).filter((value): value is string => value !== null))
   const metadataArgs = ["-r", API_METADATA_SCRIPT, "--", JSON.stringify(resourceClasses)]
-  const metadataRun = trustedPhpCollector(context, metadataArgs)
+  const metadataRun = trustedPhpCollector(context, metadataArgs, configured)
   if (metadataRun.availability !== "available") return unavailable("api_platform_metadata", "api-platform-metadata", metadataArgs, metadataRun.reason ?? "RUNTIME_UNAVAILABLE", metadataRun.exitCode, metadataRun)
   let metadataPayload: unknown
   try { metadataPayload = JSON.parse(metadataRun.stdout) as unknown } catch { return unavailable("api_platform_metadata", "api-platform-metadata", metadataArgs, "SOURCE_PARSE_ERROR", metadataRun.exitCode, metadataRun) }
   if (payloadContainsUnsafe(metadataPayload)) return unavailable("api_platform_metadata", "api-platform-metadata", metadataArgs, "UNSAFE_SOURCE", 1, metadataRun)
   const operations = runtimeOperationsFromPayload(metadataPayload)
   if (operations === null) return unavailable("api_platform_metadata", "api-platform-metadata", metadataArgs, "SOURCE_PARSE_ERROR", 1, metadataRun)
-  const metadataObservation = recordRuntimeObservation(context, { collectorKind: "api_platform_metadata", command: "api-platform-metadata", arguments: metadataArgs, stdout: canonicalJson(operations), stderr: "", exitCode: metadataRun.exitCode, result: operations, availability: "available", revisionRefId })
+  const metadataObservation = recordRuntimeObservation(context, { collectorKind: "api_platform_metadata", logicalCommandId: "api-platform-metadata", command: "api-platform-metadata", arguments: metadataArgs, stdout: canonicalJson(operations), stderr: "", exitCode: metadataRun.exitCode, result: operations, availability: "available", revisionRefId, executableDigests: metadataRun.executableDigests, executableProvenance: metadataRun.executableProvenance })
   const openApiArgs = ["/workspace/apps/server/bin/console", "api:openapi:export", "--env=test", "--no-debug"]
-  const openApiRun = trustedPhpCollector(context, openApiArgs)
+  const openApiRun = trustedPhpCollector(context, openApiArgs, configured)
   const sourceRef = consoleRef()
   if (openApiRun.availability !== "available") {
     const reason = openApiRun.reason ?? "RUNTIME_UNAVAILABLE"
-    const openApiObservation = recordRuntimeObservation(context, { collectorKind: "openapi_projection", command: "api:openapi:export", arguments: openApiArgs, stdout: openApiRun.stdoutBytes, stderr: openApiRun.stderrBytes, exitCode: openApiRun.exitCode, result: null, availability: "unavailable", revisionRefId })
+    const openApiObservation = recordRuntimeObservation(context, { collectorKind: "openapi_projection", logicalCommandId: "api:openapi:export", command: "api:openapi:export", arguments: openApiArgs, stdout: openApiRun.stdoutBytes, stderr: openApiRun.stderrBytes, exitCode: openApiRun.exitCode, result: null, availability: "unavailable", revisionRefId, executableDigests: openApiRun.executableDigests, executableProvenance: openApiRun.executableProvenance })
     const status: ApiCollectionFailure["status"] = reason === "NON_UTF8_OUTPUT" ? "source_unavailable" : "runtime_unavailable"
     return { operations: [], observation: metadataObservation, openApiObservation, openApiPayload: null, sourceRefIds: [sourceRef], failures: [{ status, reasonCode: reason, rowIds: [], sourceRefIds: [sourceRef] }] }
   }
   let openApiPayload: unknown
   try { openApiPayload = JSON.parse(openApiRun.stdout) as unknown } catch {
-    const openApiObservation = recordRuntimeObservation(context, { collectorKind: "openapi_projection", command: "api:openapi:export", arguments: openApiArgs, stdout: openApiRun.stdoutBytes, stderr: openApiRun.stderrBytes, exitCode: openApiRun.exitCode, result: null, availability: "unavailable", revisionRefId })
+    const openApiObservation = recordRuntimeObservation(context, { collectorKind: "openapi_projection", logicalCommandId: "api:openapi:export", command: "api:openapi:export", arguments: openApiArgs, stdout: openApiRun.stdoutBytes, stderr: openApiRun.stderrBytes, exitCode: openApiRun.exitCode, result: null, availability: "unavailable", revisionRefId, executableDigests: openApiRun.executableDigests, executableProvenance: openApiRun.executableProvenance })
     return { operations: [], observation: metadataObservation, openApiObservation, openApiPayload: null, sourceRefIds: [sourceRef], failures: [{ status: "source_unavailable", reasonCode: "OPENAPI_SOURCE_PARSE_ERROR", rowIds: [], sourceRefIds: [sourceRef] }] }
   }
   if (payloadContainsUnsafe(openApiPayload)) return unavailable("openapi_projection", "api:openapi:export", openApiArgs, "UNSAFE_SOURCE", 1, openApiRun)
-  const openApiObservation = recordRuntimeObservation(context, { collectorKind: "openapi_projection", command: "api:openapi:export", arguments: openApiArgs, stdout: openApiRun.stdoutBytes, stderr: openApiRun.stderrBytes, exitCode: openApiRun.exitCode, result: openApiPayload, availability: "available", revisionRefId })
+  const openApiObservation = recordRuntimeObservation(context, { collectorKind: "openapi_projection", logicalCommandId: "api:openapi:export", command: "api:openapi:export", arguments: openApiArgs, stdout: openApiRun.stdoutBytes, stderr: openApiRun.stderrBytes, exitCode: openApiRun.exitCode, result: openApiPayload, availability: "available", revisionRefId, executableDigests: openApiRun.executableDigests, executableProvenance: openApiRun.executableProvenance })
   return { operations, observation: metadataObservation, openApiObservation, openApiPayload, sourceRefIds: [sourceRef], failures: [] }
 }
 
@@ -1244,9 +1297,9 @@ const makeEnvelope = (context: ManifestContext, rows: readonly InventoryRow[], l
   derivation_edges: [...edges].sort((left, right) => compareByteOrder(left.edge_id, right.edge_id)),
 })
 
-export const collectApiOperations = (context: ManifestContext, sourceManifestSha256: string, routeRows: readonly InventoryRow[] = [], allowFixture = false): ApiCollection => {
+export const collectApiOperations = (context: ManifestContext, sourceManifestSha256: string, routeRows: readonly InventoryRow[] = [], allowFixture = false, configured?: CollectorExecutables): ApiCollection => {
   const parsed = parseDeclarations(context)
-  const runtime = collectRuntime(context, parsed.declarations, allowFixture)
+  const runtime = collectRuntime(context, parsed.declarations, allowFixture, configured)
   const staticRows = makeStaticRows(context, parsed.declarations, runtime)
   const runtimeRows = runtime.operations.map((operation, index) => makeRuntimeRow(context, operation, runtime.sourceRefIds, runtime.observation, index + 1))
   let rows: InventoryRow[] = [...staticRows, ...runtimeRows]

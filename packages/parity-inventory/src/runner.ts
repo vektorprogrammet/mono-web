@@ -28,6 +28,7 @@ import {
 } from "./coverage.js"
 import type { C2Collection } from "./effects.js"
 import type {
+  CollectorExecutables,
   GeneratedArtifacts,
   IntentAuthorityEvidence,
   InventoryEnvelope,
@@ -73,6 +74,7 @@ export interface RunOptions {
   readonly mode: RunMode
   readonly falsifierId?: FalsifierId
   readonly intentRegisterPath?: string
+  readonly collectorExecutables?: CollectorExecutables
 }
 
 export interface RunResult {
@@ -310,7 +312,7 @@ const forbiddenStatesEmpty = (inventories: readonly InventoryEnvelope[], reconci
   return crossReferencesValid && reconciliation.status === "current" && failures.length === 0 && inventories.every((inventory) => inventory.inventory_kind === "user_journey" || inventory.rows.every((row) => !forbiddenStatuses.has(row.status) && !forbiddenKinds.has(row.mismatch.kind) && row.coverage_ref_ids.length > 0))
 }
 
-const generateFromContext = (context: ManifestContext, mode: RunMode, falsifierId: string | null = null, intentAuthority: PinnedIntentRegister | null = null, fixtureIntent?: IntentSourceInput): GeneratedArtifacts => {
+const generateFromContext = (context: ManifestContext, mode: RunMode, falsifierId: string | null = null, intentAuthority: PinnedIntentRegister | null = null, fixtureIntent?: IntentSourceInput, collectorExecutables?: CollectorExecutables): GeneratedArtifacts => {
   const intentInput: IntentSourceInput | undefined = intentAuthority === null
     ? fixtureIntent
     : {
@@ -326,7 +328,7 @@ const generateFromContext = (context: ManifestContext, mode: RunMode, falsifierI
   const fixtureUnsafeProbe = mode === "fixture_injection" && falsifierId === "F15_secret_or_pii_input"
   if (intentLoad.issues.some((entry) => entry.reasonCode === "UNSAFE_SOURCE") && !fixtureUnsafeProbe) throw new UnsafeSourceProjectionError("unsafe source metadata encountered during intent loading")
   const preliminary = collectRoutes(context, sha256("c1-source-manifest-pending"))
-  const preliminaryApi = collectApiOperations(context, sha256("c1-source-manifest-pending"), preliminary.mono.rows, mode === "fixture_injection" || falsifierId === "F18_stale_artifact_diff")
+  const preliminaryApi = collectApiOperations(context, sha256("c1-source-manifest-pending"), preliminary.mono.rows, mode === "fixture_injection" || falsifierId === "F18_stale_artifact_diff", collectorExecutables)
   const preliminaryC2 = collectC2(context, sha256("c2-source-manifest-pending"))
   if ((hasUnsafeProjectionMetadata(context, preliminary, preliminaryC2) || preliminaryApi.failures.some((failure) => failure.reasonCode === "UNSAFE_SOURCE")) && !fixtureUnsafeProbe) throw new UnsafeSourceProjectionError("unsafe source metadata encountered during projection construction")
   const finalizedManifest = finalizeManifest(context)
@@ -451,7 +453,7 @@ export const generateFromRootsEffect = (options: RunOptions): Effect.Effect<Gene
         ? yield* Effect.fail(new ParityRuntimeError({ operation: "intent_authority", path: options.root, message: "--intent-register is required for diff and write modes" }))
         : yield* readPinnedIntentRegisterEffect(options.intentRegisterPath, options.legacyRoot, options.root, PROJECTION_DIRECTORY)
     return yield* Effect.try({
-      try: () => generateFromContext(context, options.mode, options.falsifierId ?? null, intentAuthority),
+      try: () => generateFromContext(context, options.mode, options.falsifierId ?? null, intentAuthority, undefined, options.collectorExecutables),
       catch: (cause) => new ParityRuntimeError({
         operation: cause instanceof UnsafeSourceProjectionError ? "unsafe_source" : "generate",
         path: options.root,
@@ -473,7 +475,7 @@ const generateFixtureFromWorkspaceEffect = (options: RunOptions, workspace: Fixt
       digest: sha256(workspace.intentBytes),
     }
     return yield* Effect.try({
-      try: () => generateFromContext(context, "fixture_injection", options.falsifierId ?? null, null, fixtureIntent),
+      try: () => generateFromContext(context, "fixture_injection", options.falsifierId ?? null, null, fixtureIntent, options.collectorExecutables),
       catch: (cause) => new ParityRuntimeError({
         operation: cause instanceof UnsafeSourceProjectionError ? "unsafe_source" : "fixture_generate",
         path: workspace.root,
