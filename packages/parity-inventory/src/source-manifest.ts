@@ -531,8 +531,58 @@ const unsafePathSegmentPattern =
   /(?:^|\/)(?:credentials?(?:$|[._-]|\/)|secrets?(?:$|[._-]|\/)|private[-_]?keys?(?:$|[._-]|\/)|(?:raw[-_]?payloads?|payloads?|backups?|dumps?|databases?|database|db)(?:$|[._-]|\/))/i;
 const unsafePathExtensionPattern =
   /\.(?:pem|key|p12|pfx|jks|keystore|sqlite|sqlite3|db|dump|bak|backup)$/i;
-const unsafeKeyPattern =
-  /^(?:password|passwd|secret|secrets|token|access[_-]?token|refresh[_-]?token|api[_-]?key|authorization|client[_-]?secret|payload|raw[_-]?payload|user[_-]?id|account[_-]?id|customer[_-]?id|member[_-]?id|identity[_-]?id|email|phone)$/i;
+const canonicalKeyTokens = (value: string): readonly string[] => {
+  const words = value
+    .normalize("NFC")
+    .replace(/([a-z0-9])([A-Z])/gu, "$1_$2")
+    .replace(/([A-Z])([A-Z][a-z])/gu, "$1_$2")
+    .replace(/([A-Za-z])([0-9])/gu, "$1_$2")
+    .replace(/([0-9])([A-Za-z])/gu, "$1_$2")
+    .replace(/[.\-/:]+/gu, "_")
+    .split(/[_\s]+/u)
+    .map((token) => token.trim().toLowerCase())
+    .filter((token) => token.length > 0);
+  const forms = [...words];
+  for (let index = 0; index + 1 < words.length; index += 1) {
+    forms.push(`${words[index]}_${words[index + 1]}`);
+  }
+  return forms;
+};
+const SENSITIVE_KEY_TOKENS = new Set([
+  "password",
+  "passwd",
+  "pass",
+  "pwd",
+  "passphrase",
+  "secret",
+  "secrets",
+  "token",
+  "tokens",
+  "auth",
+  "authorization",
+  "credential",
+  "credentials",
+  "private_key",
+  "api_key",
+  "client_secret",
+  "database_url",
+  "dsn",
+  "payload",
+  "raw_payload",
+  "user_id",
+  "account_id",
+  "customer_id",
+  "member_id",
+  "identity_id",
+  "email",
+  "phone",
+]);
+const isSensitiveKeyName = (value: string): boolean =>
+  canonicalKeyTokens(value).some((token) => SENSITIVE_KEY_TOKENS.has(token));
+const isIdentityFieldName = (value: string): boolean =>
+  canonicalKeyTokens(value).some((token) =>
+    ["user_id", "account_id", "customer_id", "member_id", "identity_id"].includes(token),
+  );
 const identityFieldPattern = /^(?:user|account|customer|member|identity)[_-]?id(?:s)?$/i;
 const emailPattern = /[A-Z0-9._%+-]+@([A-Z0-9.-]+\.[A-Z]{2,})/i;
 const phonePattern = /\+?[0-9][0-9().\-\s]{6,}[0-9]/;
@@ -543,7 +593,8 @@ const credentialAssignmentPattern =
   /(?:^|[\s?&#,/[{])(?:password|passwd|secret|secrets|token|access[_-]?token|refresh[_-]?token|api[_-]?key|authorization|client[_-]?secret)\s*[:=]\s*[^\s,}\]]+/i;
 const colonCredentialAssignmentPattern =
   /:(?:password|passwd|secret|secrets|token|access[_-]?token|refresh[_-]?token|api[_-]?key|authorization|client[_-]?secret)\s*=\s*[^\s,}\]]+/i;
-
+const streamSensitiveAssignmentPattern =
+  /(?:^|[\s"'`([{,])["'`]?([A-Za-z_][A-Za-z0-9_.:/-]*)["'`]?\s*[:=]/giu;
 /** Returns true only for source path classes that must be blocked before hashing. */
 export const isUnsafeSourcePath = (path: string): boolean => {
   const normalized = path.replaceAll("\\", "/");
@@ -554,24 +605,21 @@ const envSourcePathPattern = /(?:^|\/)\.env(?:$|[.-])/i;
 const sqlSourcePathPattern = /\.sql$/i;
 const textualSourceExtensionPattern =
   /\.(?:php|inc|phtml|ts|tsx|js|jsx|mjs|cjs|json|yaml|yml|xml|twig|md|markdown|lock|ini|conf|config|toml|css|scss|graphql|gql|sh|bash|py|rb|go|rs|java|kt|swift|vue|html|htm|txt)$/i;
-const sensitiveEnvKeyPattern =
-  /(?:^|[_-])(?:password|passwd|secret|secrets|token|access[_-]?token|refresh[_-]?token|api[_-]?key|authorization|client[_-]?secret|private[_-]?key|credential|credentials|database[_-]?url|dsn|user[_-]?id|account[_-]?id|customer[_-]?id|member[_-]?id|identity[_-]?id|email|phone)(?:$|[_-])/i;
+const sensitiveEnvKeyPattern = { test: isSensitiveKeyName };
 const envFrameworkPlaceholderPattern =
-  /^(?:\$\{[^{}\r\n]+\}|%\w+\([^()\r\n]+\)%|\{\{[^{}\r\n]+\}\}|<[^<>\r\n]+>|__[^_\r\n]+__|@[^@\r\n]+@|env\([^()\r\n]+\)|\$\([^()\r\n]+\))$/;
+  /^(?:\$\{[^{}\r\n]+\}|%\w+\([^()\r\n]+\)%|\{\{[^{}\r\n]+\}\}|<[^<>\r\n]+>|__[^_\r\n]+__|env\([^()\r\n]+\)|\$\([^()\r\n]+\))$/;
+const envAtPlaceholderPattern = /^@[^@\r\n]+@$/;
 const envExplicitSentinel = (path: string, key: string, value: string): boolean => {
   const normalizedPath = path.replaceAll("\\", "/").toLowerCase();
   const normalizedKey = key.trim().toUpperCase();
   const normalizedValue = value.trim().normalize("NFC");
-  if (normalizedPath.length > 0 && !normalizedPath.endsWith("/.env.test")) return false;
+  if (!(normalizedPath === ".env.test" || normalizedPath.endsWith("/.env.test"))) return false;
   return (
     (normalizedKey === "APP_SECRET" && normalizedValue === "test_app_secret_for_testing_only") ||
     (normalizedKey === "DATABASE_URL" && normalizedValue === "sqlite:///:memory:")
   );
 };
-const sqlSensitiveFieldPattern = "(?:password|passwd|secret|secrets|token|access[_-]?token|refresh[_-]?token|api[_-]?key|authorization|client[_-]?secret|private[_-]?key|credential|credentials|\"(?:(?:password|passwd|secret|secrets|token|access[_-]?token|refresh[_-]?token|api[_-]?key|authorization|client[_-]?secret|private[_-]?key|credential|credentials))\"|`(?:(?:password|passwd|secret|secrets|token|access[_-]?token|refresh[_-]?token|api[_-]?key|authorization|client[_-]?secret|private[_-]?key|credential|credentials))`|\\[(?:(?:password|passwd|secret|secrets|token|access[_-]?token|refresh[_-]?token|api[_-]?key|authorization|client[_-]?secret|private[_-]?key|credential|credentials))\\])";
-const sqlIdentifierPattern = "(?:[A-Za-z_][A-Za-z0-9_$-]*|\"(?:[^\"]|\"\")*\"|`(?:[^`]|``)*`|\\[(?:[^\\]]|\\]\\])*\\])";
-const sqlAssignmentPattern = new RegExp(`(?:${sqlIdentifierPattern}\\s*\\.\\s*)*${sqlSensitiveFieldPattern}\\s*(?:=|:)\\s*(?:(['"])((?:\\\\.|(?!\\1)[\\s\\S])*)\\1|([^\\s,;)]+))`, "gi");
-const sqlStringLiteralPattern = /'(?:''|\\.|[^'])*'|"(?:\\"\\"|\\.|[^"])*"/g;
+
 
 /** Returns true for source paths whose bytes must be decoded before hashing. */
 export const isTextualSourcePath = (path: string): boolean => {
@@ -595,10 +643,253 @@ const unquoteEnvValue = (value: string): string => {
   const comment = trimmed.search(/\s+#/u);
   return comment >= 0 ? trimmed.slice(0, comment).trimEnd() : trimmed;
 };
+type SqlToken = {
+  readonly kind: "identifier" | "string" | "operator" | "punctuation";
+  readonly value: string;
+  readonly depth: number;
+};
+const STREAM_LEAF_KEYS = new Set(["example", "examples", "default", "defaults", "value", "values"]);
+const STREAM_SAFE_LITERAL = /^(?:null|default|true|false|current_timestamp|current_date|current_time|test|testing|fixture|dummy|placeholder|example|changeme|change[-_]me|do[-_]not[-_]use|not[-_]a[-_]secret|local(?:host)?|development|dev|0|1|\*)$/iu;
+const streamScalarIsSafe = (value: unknown): boolean => {
+  if (value === null || value === undefined) return true;
+  if (typeof value !== "string") return false;
+  const normalized = value.trim().normalize("NFC");
+  return normalized.length === 0 || STREAM_SAFE_LITERAL.test(normalized) || envFrameworkPlaceholderPattern.test(normalized);
+};
+const streamFieldIsLeaf = (value: string): boolean =>
+  canonicalKeyTokens(value).some((token) => STREAM_LEAF_KEYS.has(token));
+const SQL_SAFE_LITERAL = /^(?:null|default|true|false|current_timestamp|current_date|current_time|test|testing|fixture|dummy|placeholder|example|changeme|change[-_]me|do[-_]not[-_]use|not[-_]a[-_]secret|local(?:host)?|development|dev|0|1|\*)$/iu;
+type SqlLexResult = {
+  readonly tokens: SqlToken[];
+  readonly depth: number;
+  readonly malformed: boolean;
+};
+const sqlNestedBlockCommentOutsideQuotes = (text: string, start: number, end: number): boolean => {
+  let index = start;
+  let quote: "'" | "\"" | "`" | "[" | null = null;
+  while (index < end) {
+    const character = text[index] ?? "";
+    const next = text[index + 1] ?? "";
+    if (quote !== null) {
+      const closing = quote === "[" ? "]" : quote;
+      if (character === closing && next === closing) {
+        index += 2;
+        continue;
+      }
+      if (character === "\\" && next !== "") {
+        index += 2;
+        continue;
+      }
+      if (character === closing) quote = null;
+      index += 1;
+      continue;
+    }
+    if (character === "-" && next === "-") {
+      index += 2;
+      while (index < end && text[index] !== "\n" && text[index] !== "\r") index += 1;
+      continue;
+    }
+    if (character === "#") {
+      index += 1;
+      while (index < end && text[index] !== "\n" && text[index] !== "\r") index += 1;
+      continue;
+    }
+    if (character === "/" && next === "*") return true;
+    if (character === "'" || character === "\"" || character === "`" || character === "[") quote = character;
+    index += 1;
+  }
+  return false;
+};
+const sqlTokenize = (text: string): SqlLexResult => {
+  const lex = (source: string, initialDepth: number): SqlLexResult => {
+    const tokens: SqlToken[] = [];
+    let index = 0;
+    let depth = initialDepth;
+    let malformed = false;
+    const push = (kind: SqlToken["kind"], value: string, tokenDepth = depth): void => {
+      tokens.push({ kind, value, depth: tokenDepth });
+    };
+    while (index < source.length) {
+      const character = source[index] ?? "";
+      const next = source[index + 1] ?? "";
+      if (/\s/u.test(character)) {
+        index += 1;
+        continue;
+      }
+      if (character === "-" && next === "-") {
+        index += 2;
+        while (index < source.length && source[index] !== "\n" && source[index] !== "\r") index += 1;
+        continue;
+      }
+      if (character === "#") {
+        index += 1;
+        while (index < source.length && source[index] !== "\n" && source[index] !== "\r") index += 1;
+        continue;
+      }
+      if (character === "/" && next === "*") {
+        const executable = source[index + 2] === "!";
+        const end = source.indexOf("*/", index + 2);
+        if (end < 0) {
+          malformed = true;
+          index = source.length;
+          continue;
+        }
+        if (sqlNestedBlockCommentOutsideQuotes(source, index + 2, end)) malformed = true;
+        if (executable) {
+          const body = source.slice(index + 3, end).replace(/^\s*\d*/u, "");
+          const nested = lex(body, depth);
+          tokens.push(...nested.tokens);
+          depth = nested.depth;
+          malformed ||= nested.malformed;
+        }
+        index = end + 2;
+        continue;
+      }
+      if (character === "'" || character === "\"" || character === "`" || character === "[") {
+        const quote = character;
+        const closing = quote === "[" ? "]" : quote;
+        const kind: SqlToken["kind"] = quote === "'" ? "string" : "identifier";
+        let value = "";
+        index += 1;
+        while (index < source.length) {
+          const current = source[index] ?? "";
+          const following = source[index + 1] ?? "";
+          if (current === closing && following === closing) {
+            value += closing;
+            index += 2;
+            continue;
+          }
+          if (current === "\\" && following !== "") {
+            value += following;
+            index += 2;
+            continue;
+          }
+          if (current === closing) {
+            index += 1;
+            break;
+          }
+          value += current;
+          index += 1;
+        }
+        push(kind, value);
+        continue;
+      }
+      if (/[A-Za-z_]/u.test(character)) {
+        const start = index;
+        index += 1;
+        while (index < source.length && /[A-Za-z0-9_$-]/u.test(source[index] ?? "")) index += 1;
+        push("identifier", source.slice(start, index));
+        continue;
+      }
+      if (/[0-9]/u.test(character)) {
+        const start = index;
+        index += 1;
+        while (index < source.length && /[A-Za-z0-9._+-]/u.test(source[index] ?? "")) index += 1;
+        push("identifier", source.slice(start, index));
+        continue;
+      }
+      if ((character === "=" || character === ":" || character === ">" || character === "<" || character === "!") && (next === "=" || (character === ":" && next === ":"))) {
+        if (character === ":" && next === ":") {
+          push("punctuation", "::");
+          index += 2;
+        } else {
+          push("operator", `${character}${next}`);
+          index += 2;
+        }
+        continue;
+      }
+      if (character === "=" || character === ":") {
+        push("operator", character);
+        index += 1;
+        continue;
+      }
+      if ("(),.;".includes(character)) {
+        push("punctuation", character);
+        if (character === "(") depth += 1;
+        if (character === ")") depth = Math.max(0, depth - 1);
+        index += 1;
+        continue;
+      }
+      push("punctuation", character);
+      index += 1;
+    }
+    return { tokens, depth, malformed };
+  };
+  return lex(text, 0);
+};
+const sqlIdentifierName = (token: SqlToken): string | null =>
+  token.kind === "identifier" ? token.value.trim().replace(/([a-z])([A-Z])/gu, "$1_$2").replaceAll("-", "_").toLowerCase() : null;
+const sqlRhsIsSafe = (tokens: readonly SqlToken[]): boolean => {
+  if (tokens.length === 0) return false;
+  return tokens.every((token) => {
+    if (token.kind === "string") return isAllowedTestValue(token.value, { key: "sql", path: "" });
+    if (token.kind === "identifier") return SQL_SAFE_LITERAL.test(token.value);
+    return token.kind === "punctuation" && "()[],.".includes(token.value);
+  });
+};
+const sqlAssignmentHasUnsafeLiteral = (tokens: readonly SqlToken[]): boolean => {
+  for (const [index, token] of tokens.entries()) {
+    if (token.kind !== "operator" || !["=", ":", ":="].includes(token.value)) continue;
+    let start = index;
+    while (start > 0) {
+      const previous = tokens[start - 1];
+      if (previous === undefined) break;
+      if (previous.value === ";" || (previous.value === "," && previous.depth === token.depth) || (previous.kind === "identifier" && /^(?:set|where|having)$/iu.test(previous.value))) break;
+      start -= 1;
+    }
+    const left = tokens.slice(start, index);
+    if (!left.some((candidate) => {
+      const name = sqlIdentifierName(candidate);
+      return name !== null && isSensitiveKeyName(name);
+    })) continue;
+    const end = tokens.findIndex((candidate, candidateIndex) => candidateIndex > index && (candidate.value === ";" || (candidate.value === "," && candidate.depth === token.depth)));
+    const right = tokens.slice(index + 1, end < 0 ? tokens.length : end);
+    if (!sqlRhsIsSafe(right)) return true;
+  }
+  return false;
+};
+const structuredValueHasUnsafeSensitiveValue = (
+  value: unknown,
+  sensitiveAncestor = false,
+  fieldName = "",
+): boolean => {
+  if (Array.isArray(value))
+    return value.some((entry) => structuredValueHasUnsafeSensitiveValue(entry, sensitiveAncestor, fieldName));
+  if (value !== null && typeof value === "object") {
+    return Object.entries(value as Record<string, unknown>).some(([key, child]) =>
+      structuredValueHasUnsafeSensitiveValue(child, sensitiveAncestor || isSensitiveKeyName(key), key),
+    );
+  }
+  if (!sensitiveAncestor) return typeof value === "string" && unsafeScalarReason(value, fieldName) !== null;
+  if (isSensitiveKeyName(fieldName))
+    return typeof value === "string"
+      ? unsafeScalarReason(value, fieldName) !== null
+      : value !== null && value !== undefined;
+  if (streamFieldIsLeaf(fieldName) || typeof value === "string") return !streamScalarIsSafe(value);
+  return value !== null && value !== undefined;
+};
+export const unsafeStructuredValueReason = (value: unknown): "UNSAFE_SOURCE" | null =>
+  structuredValueHasUnsafeSensitiveValue(value) ? "UNSAFE_SOURCE" : null;
+const malformedStreamHasSensitiveAssignment = (text: string): boolean => {
+  for (const match of text.matchAll(streamSensitiveAssignmentPattern)) {
+    if (isSensitiveKeyName(match[1] ?? "")) return true;
+  }
+  return false;
+};
+const jsonStreamHasSensitiveKey = (text: string): boolean => {
+  try {
+    return unsafeStructuredValueReason(JSON.parse(text) as unknown) !== null;
+  } catch {
+    return malformedStreamHasSensitiveAssignment(text);
+  }
+};
 
 const isAllowedTestValue = (value: string, context?: { readonly path?: string; readonly key?: string }): boolean => {
   const normalized = value.trim().normalize("NFC");
-  if (normalized.length === 0 || envFrameworkPlaceholderPattern.test(normalized)) return true;
+  if (normalized.length === 0) return true;
+  if (context?.key !== undefined && sensitiveEnvKeyPattern.test(context.key))
+    return context.path !== undefined && envExplicitSentinel(context.path, context.key, normalized);
+  if (envFrameworkPlaceholderPattern.test(normalized)) return true;
   return context?.path !== undefined && context.key !== undefined && envExplicitSentinel(context.path, context.key, normalized);
 };
 
@@ -612,15 +903,10 @@ export const unsafeEnvSourceTextReason = (text: string, path = ""): "UNSAFE_SOUR
     const key = match[1] ?? "";
     const value = unquoteEnvValue(match[2] ?? "");
     const allowed = isAllowedTestValue(value, { path, key });
-    const emails = value.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/giu) ?? [];
-    const onlyReservedEmails =
-      emails.length > 0 &&
-      emails.every((candidate) => {
-        const emailMatch = candidate.match(emailPattern);
-        return emailMatch !== null && isReservedEmail(candidate, emailMatch);
-      });
+    if (envAtPlaceholderPattern.test(value)) return "UNSAFE_SOURCE";
     if (knownCredentialTokenPattern.test(value)) return "UNSAFE_SOURCE";
-    if (sensitiveEnvKeyPattern.test(key) && !onlyReservedEmails && !allowed) return "UNSAFE_SOURCE";
+    if (sensitiveEnvKeyPattern.test(key) && !allowed) return "UNSAFE_SOURCE";
+    const emails = value.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/giu) ?? [];
     if (
       emails.some((candidate) => {
         const emailMatch = candidate.match(emailPattern);
@@ -633,11 +919,8 @@ export const unsafeEnvSourceTextReason = (text: string, path = ""): "UNSAFE_SOUR
   return null;
 };
 
-const stripSqlComments = (text: string): string =>
-  text.replace(/--[^\r\n]*/gu, "").replace(/\/\*[\s\S]*?\*\//gu, "");
-
 /** Returns a sanitized failure for literal data or sensitive values in SQL source. */
-export const unsafeSqlSourceTextReason = (text: string, path = ""): "UNSAFE_SOURCE" | null => {
+export const unsafeSqlSourceTextReason = (text: string, _path = ""): "UNSAFE_SOURCE" | null => {
   if (knownCredentialTokenPattern.test(text)) return "UNSAFE_SOURCE";
   const emailsInSource = text.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/giu) ?? [];
   if (
@@ -647,20 +930,16 @@ export const unsafeSqlSourceTextReason = (text: string, path = ""): "UNSAFE_SOUR
     })
   )
     return "UNSAFE_SOURCE";
-  for (const match of text.matchAll(sqlAssignmentPattern)) {
-    const value = match[2] ?? match[3] ?? "";
-    if (!isAllowedTestValue(value, { path, key: "sql" })) return "UNSAFE_SOURCE";
+  const lexed = sqlTokenize(text);
+  if (lexed.malformed) return "UNSAFE_SOURCE";
+  const tokens = lexed.tokens;
+  if (sqlAssignmentHasUnsafeLiteral(tokens)) return "UNSAFE_SOURCE";
+  for (let index = 0; index + 1 < tokens.length; index += 1) {
+    if (tokens[index]?.kind === "identifier" && /^insert$/iu.test(tokens[index]?.value ?? "") && tokens[index + 1]?.kind === "identifier" && /^into$/iu.test(tokens[index + 1]?.value ?? "")) return "UNSAFE_SOURCE";
   }
-  const withoutComments = stripSqlComments(text);
-  if (/\bINSERT\s+INTO\b/iu.test(withoutComments)) return "UNSAFE_SOURCE";
-  for (const match of withoutComments.matchAll(sqlAssignmentPattern)) {
-    const value = match[2] ?? match[3] ?? "";
-    if (!isAllowedTestValue(value, { path, key: "sql" })) return "UNSAFE_SOURCE";
-  }
-  const literals = withoutComments.match(sqlStringLiteralPattern) ?? [];
-  for (const literal of literals) {
-    if (knownCredentialTokenPattern.test(literal)) return "UNSAFE_SOURCE";
-    const emails = literal.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/giu) ?? [];
+  for (const token of tokens) {
+    if (knownCredentialTokenPattern.test(token.value)) return "UNSAFE_SOURCE";
+    const emails = token.value.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/giu) ?? [];
     if (
       emails.some((candidate) => {
         const emailMatch = candidate.match(emailPattern);
@@ -668,11 +947,10 @@ export const unsafeSqlSourceTextReason = (text: string, path = ""): "UNSAFE_SOUR
       })
     )
       return "UNSAFE_SOURCE";
-    if (sourcePhonePattern.test(literal)) return "UNSAFE_SOURCE";
+    if (sourcePhonePattern.test(token.value)) return "UNSAFE_SOURCE";
   }
   return null;
 };
-
 /** Validates textual source bytes before any source digest or ID is created. */
 export const sourceTextSafetyReason = (
   path: string,
@@ -763,12 +1041,15 @@ const explicitUnsafeScalarReason = (
   rawField: string,
 ): "UNSAFE_SOURCE" | null => {
   const literal = stripFrameworkPlaceholders(normalized, context);
-  if (identityFieldPattern.test(rawField) && /^(?:\d{1,12}|[A-Za-z]{1,3}\d{1,8})$/.test(literal))
+  if (
+    (identityFieldPattern.test(rawField) || isIdentityFieldName(rawField)) &&
+    /^(?:\d{1,12}|[A-Za-z]{1,3}\d{1,8})$/.test(literal)
+  )
     return "UNSAFE_SOURCE";
   if (knownCredentialTokenPattern.test(literal)) return "UNSAFE_SOURCE";
   if (credentialAssignmentPattern.test(literal) || colonCredentialAssignmentPattern.test(literal))
     return "UNSAFE_SOURCE";
-  if (unsafeKeyPattern.test(rawField)) return "UNSAFE_SOURCE";
+  if (isSensitiveKeyName(rawField)) return "UNSAFE_SOURCE";
   if (context === "route_path") {
     const query = normalized.match(
       /[?&](password|passwd|secret|token|access[_-]?token|refresh[_-]?token|api[_-]?key|authorization|client[_-]?secret)=([^&#]*)/i,
@@ -861,13 +1142,8 @@ export const unsafeSourceTextReason = (value: Uint8Array | string): "UNSAFE_SOUR
   if (
     knownCredentialTokenPattern.test(text) ||
     credentialAssignmentPattern.test(text) ||
-    colonCredentialAssignmentPattern.test(text)
-  )
-    return "UNSAFE_SOURCE";
-  if (
-    /(?:["']?(?:payload|raw[_-]?payload|user[_-]?id|account[_-]?id|customer[_-]?id|email|phone)["']?)\s*[:=]/i.test(
-      text,
-    )
+    colonCredentialAssignmentPattern.test(text) ||
+    jsonStreamHasSensitiveKey(text)
   )
     return "UNSAFE_SOURCE";
   const emails = text.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi) ?? [];

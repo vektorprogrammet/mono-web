@@ -16,9 +16,9 @@ import {
   resolveCollectorExecutables,
   validateCollectorExecutablePath,
 } from "../src/api.js";
-import { scanRootEffect } from "../src/runtime.js";
+import { sha256 } from "../src/canonical.js";
 import { createManifestContextFromSnapshots } from "../src/source-manifest.js";
-
+import { scanRootEffect } from "../src/runtime.js";
 test("missing collector configuration is a runtime_unavailable observation", async () => {
   const directory = mkdtempSync("/tmp/parity-collector-missing-");
   const legacyRoot = join(directory, "legacy");
@@ -41,6 +41,51 @@ test("missing collector configuration is a runtime_unavailable observation", asy
       executable_digests: { php: null, bwrap: null },
       executable_provenance: { php: null, bwrap: null },
     });
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+test("failed fixture collector bytes become fixed reason-only observations", async () => {
+  const directory = mkdtempSync("/tmp/parity-collector-failure-bytes-");
+  const legacyRoot = join(directory, "legacy");
+  const monoRoot = join(directory, "mono");
+  mkdirSync(legacyRoot);
+  mkdirSync(monoRoot);
+  try {
+    const legacy = await Effect.runPromise(scanRootEffect(legacyRoot, "legacy"));
+    const mono = await Effect.runPromise(scanRootEffect(monoRoot, "mono"));
+    const context = createManifestContextFromSnapshots(legacy, mono);
+    const cases = [
+      { path: "non-utf8", bytes: new Uint8Array([0xff, 0xfe, 0xfd]), reason: "NON_UTF8_OUTPUT" },
+      { path: "malformed", bytes: new TextEncoder().encode('{"outer":{"password":"correct-horse-battery-staple"}'), reason: "SOURCE_PARSE_ERROR" },
+      { path: "nested", bytes: new TextEncoder().encode('{"outer":{"password":"correct-horse-battery-staple"}}'), reason: "UNSAFE_SOURCE" },
+      { path: "nested-result", bytes: new TextEncoder().encode('{"operations":[{"resource_class_ref":"App\\\\Fixture\\\\Api\\\\Resource","operation_name":"Get","method":"GET","uri_template":"/fixture","metadata":{"newPassword":{"example":"correct-horse-battery-staple"}}}]}'), reason: "UNSAFE_SOURCE" },
+    ] as const;
+    for (const fixture of cases) {
+      const result = collectApiOperations(
+        context,
+        "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        [],
+        true,
+        undefined,
+        { path: fixture.path, bytes: fixture.bytes },
+      );
+      const observation = context.runtimeObservations.at(-1);
+      const fixtureSource = context.sources.find((source) => source.path === `fixture://runtime/${fixture.path}`);
+      expect(fixtureSource).toMatchObject({
+        byte_length: null,
+        sha256: null,
+        capture_mode: "runtime",
+        availability: "unavailable",
+      });
+      expect(fixtureSource?.out_of_band).toBeUndefined();
+      expect(result.failures[0]?.reasonCode).toBe(fixture.reason);
+      expect(result.failures[0]?.sourceRefIds).toContain(fixtureSource?.source_id);
+      expect(observation?.stdout_sha256).toBe(sha256(fixture.reason));
+      expect(observation?.stderr_sha256).toBe(sha256(fixture.reason));
+      expect(JSON.stringify({ result, observation })).not.toContain("correct-horse-battery-staple");
+      expect(JSON.stringify({ result, observation })).not.toContain("255,254,253");
+    }
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }

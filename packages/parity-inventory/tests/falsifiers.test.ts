@@ -20,7 +20,7 @@ import {
   unsafeScalarReason,
   unsafeSourceScalarReason,
   unsafeSqlSourceTextReason,
-  type ManifestContext,
+  unsafeSourceTextReason,
 } from "../src/source-manifest.js";
 import { COMMITTED_PROJECTIONS, run, type FalsifierId } from "../src/runner.js";
 import { readPinnedIntentRegisterEffect, scanRootEffect } from "../src/runtime.js";
@@ -1191,7 +1191,7 @@ describe("source safety boundary", () => {
         "APP_ENV=test\nAPP_SECRET=test_app_secret_for_testing_only\nDATABASE_URL=sqlite:///:memory:\nJWT_PASSPHRASE=\n",
       );
       expect(sourceTextSafetyReason(envPath, envBytes)).toBeNull();
-      expect(unsafeEnvSourceTextReason(new TextDecoder().decode(envBytes))).toBeNull();
+      expect(unsafeEnvSourceTextReason(new TextDecoder().decode(envBytes), envPath)).toBeNull();
       const staging = readFileSync(join(repoRoot, "apps/server/.env.staging"), "utf8");
       expect(staging).not.toContain("DATABASE_URL=");
       expect(staging).toContain("APP_ENV=staging");
@@ -1207,19 +1207,116 @@ describe("source safety boundary", () => {
       expect(unsafeSqlSourceTextReason("CREATE TABLE users (id TEXT NOT NULL);")).toBeNull();
       expect(unsafeSqlSourceTextReason("UPDATE users SET password = '${PASSWORD}';")).toBeNull();
       expect(
+        unsafeSqlSourceTextReason(
+          "UPDATE users SET `password` /*!50000 = 'correct-horse-battery-staple' */;",
+        ),
+      ).toBe("UNSAFE_SOURCE");
+      expect(
+        unsafeSqlSourceTextReason(
+          "UPDATE users SET \"auth.secret\" /*!50000 = 'correct-horse-battery-staple' */;",
+        ),
+      ).toBe("UNSAFE_SOURCE");
+      expect(
+        unsafeSqlSourceTextReason("UPDATE users SET password = '/*correct-horse-battery-staple*/';"),
+      ).toBe("UNSAFE_SOURCE");
+      expect(
+        unsafeSqlSourceTextReason("UPDATE users SET password = '--correct-horse-battery-staple';"),
+      ).toBe("UNSAFE_SOURCE");
+      expect(
+        unsafeSqlSourceTextReason("SET @JWT_PASSPHRASE := 'correct-horse-battery-staple';"),
+      ).toBe("UNSAFE_SOURCE");
+      expect(
+        unsafeSqlSourceTextReason("UPDATE users SET [password] = 'correct-horse-battery-staple';"),
+      ).toBe("UNSAFE_SOURCE");
+      expect(
+        unsafeSqlSourceTextReason("UPDATE users SET \"password\" = '--correct-horse-battery-staple';"),
+      ).toBe("UNSAFE_SOURCE");
+      expect(unsafeSqlSourceTextReason("UPDATE users SET password = '${PASSWORD}'; # password = 'secret'")).toBeNull();
+      expect(
+        unsafeSqlSourceTextReason(
+          "UPDATE users SET password /*!50000\n-- ignored\n= 'correct-horse-battery-staple'\n*/;",
+        ),
+      ).toBe("UNSAFE_SOURCE");
+      expect(unsafeSqlSourceTextReason("/*!50000 SET password = 'secret' /* nested */ */;")).toBe(
+        "UNSAFE_SOURCE",
+      );
+      expect(unsafeSqlSourceTextReason("/* unterminated password = 'secret';")).toBe("UNSAFE_SOURCE");
+      expect(
         unsafeSqlSourceTextReason("INSERT INTO users (email) VALUES ('alice@university.no');"),
       ).toBe("UNSAFE_SOURCE");
       expect(unsafeSqlSourceTextReason("UPDATE users SET password = 'concrete-password';")).toBe(
         "UNSAFE_SOURCE",
       );
+      expect(
+        unsafeSqlSourceTextReason(
+          "UPDATE users SET (\"password\", \"display_name\") = ('correct-horse-battery-staple', 'Alice');",
+        ),
+      ).toBe("UNSAFE_SOURCE");
+      expect(
+        unsafeSqlSourceTextReason(
+          "UPDATE users SET ((`password`), [display_name]) = ('concrete-password', 'Alice');",
+        ),
+      ).toBe("UNSAFE_SOURCE");
+    });
+    test("rejects quoted sensitive collector stream assignments before hashing", () => {
+      for (const output of [
+        'fatal: {"password":"correct-horse-battery-staple"}',
+        '{"password":"correct-horse-battery-staple"',
+        "password = correct-horse-battery-staple",
+        '{"api_key":"concrete-key"}',
+        '{"properties":{"newPassword":{"example":"correct-horse-battery-staple"}}}',
+        '{"properties":{"client.secret":{"default":"correct-horse-battery-staple"}}}',
+        '{"properties":{"newPassword":{"example":"correct-horse-battery-staple"}',
+        '{"properties":{"newPassword":{"examples":["correct-horse-battery-staple"]}}}',
+        '{"properties":{"newPassword":{"defaults":["correct-horse-battery-staple"]}}}',
+        '{"properties":{"newPassword":{"values":["correct-horse-battery-staple"]}}}',
+      ]) {
+        expect(unsafeSourceTextReason(output)).toBe("UNSAFE_SOURCE");
+      }
+      expect(unsafeSourceTextReason('{"properties":{"newPassword":{"example":"${PASSWORD}"}}}')).toBeNull();
+      expect(unsafeSourceTextReason('{"properties":{"newPassword":{"examples":["${PASSWORD}"]}}}')).toBeNull();
+      expect(unsafeSourceTextReason('{"operationId":"fixture_api"}')).toBeNull();
     });
 
     test("rejects malicious env and SQL before any digest or source ID", async () => {
+      expect(
+        unsafeEnvSourceTextReason("APP_SECRET=test_app_secret_for_testing_only", "apps/server/.env.test"),
+      ).toBeNull();
+      expect(
+        unsafeEnvSourceTextReason("APP_SECRET=test_app_secret_for_testing_only", "apps/server/.env.production"),
+      ).toBe("UNSAFE_SOURCE");
+      expect(
+        unsafeEnvSourceTextReason(
+          "APP.SECRET=test_app_secret_for_testing_only",
+          "apps/server/.env.test",
+        ),
+      ).toBe("UNSAFE_SOURCE");
+      expect(
+        unsafeEnvSourceTextReason("CLIENT.SECRET=", "apps/server/.env.test"),
+      ).toBeNull();
+      expect(unsafeEnvSourceTextReason("APP_ENV=@placeholder@", "apps/server/.env.test")).toBe(
+        "UNSAFE_SOURCE",
+      );
       const cases = [
         ["apps/server/.env.test", "DATABASE_URL=mysql://vektor:concrete-secret@db/app\n"],
+        ["apps/server/.env.test", "JWT_PASSPHRASE=@correct-horse-battery-staple@\n"],
+        ["apps/server/.env.test", "APP.SECRET=@correct-horse-battery-staple@\n"],
+        ["apps/server/.env.production", "APP_SECRET=@credential@\n"],
+        ["apps/server/.env.production", "APP_PHONE=@phone@\n"],
+        ["apps/server/.env.production", "APP_SECRET=@correct-horse-battery-staple@\n"],
+        ["apps/server/.env.production", "APP_SECRET=${PRODUCTION_SECRET}\n"],
+        ["apps/server/.env.production", "APP_SECRET=<operator-supplied-secret>\n"],
         [
           "packages/domain/src/tutor/migrations/0002-malicious.sql",
           "INSERT INTO users (email) VALUES ('alice@university.no');\n",
+        ],
+        [
+          "packages/domain/src/tutor/migrations/0003-malicious-tuple.sql",
+          "UPDATE users SET (\"password\", \"display_name\") = ('correct-horse-battery-staple', 'Alice');\n",
+        ],
+        [
+          "packages/domain/src/tutor/migrations/0004-malicious-executable-comment.sql",
+          "UPDATE users SET `password` /*!50000 = 'correct-horse-battery-staple' */;\n",
         ],
       ] as const;
       for (const [path, contents] of cases) {
