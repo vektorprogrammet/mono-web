@@ -659,6 +659,144 @@ test("OpenAPI route keys remain structural while credential and schema values fa
     { paths: { "/api/me/password": { operationId: "read_me_password" } } },
   )
   expect(nonOpenApi.result.failures.some((failure) => failure.reasonCode === "UNSAFE_SOURCE")).toBe(true)
+  const validDocument = {
+    openapi: "3.1.0",
+    info: { title: "Fixture API", version: "1.0.0" },
+    paths: {
+      "/api/me/password": {
+        put: { operationId: "read_me_password", responses: { "200": { description: "OK" } } },
+      },
+    },
+    components: {},
+  }
+  const metadataDocument = {
+    ...validDocument,
+    components: {
+      schemas: {
+        Metadata: {
+          type: "object",
+          properties: {
+            token: { type: "string", format: "uuid", readOnly: true },
+            email: { type: "string", format: "email", writeOnly: false },
+            phone: { type: "string", format: "phone", nullable: true },
+            userId: { type: "integer", format: "int64", readOnly: true },
+          },
+        },
+      },
+    },
+  }
+  const metadata = await runFixture(metadataDocument, [operation])
+  expect(metadata.result.failures.some((failure) => failure.reasonCode === "OPENAPI_SCHEMA_INVALID")).toBe(false)
+  const placeholderDocument = {
+    ...validDocument,
+    components: {
+      schemas: {
+        Credential: {
+          properties: {
+            token: {
+              example: "${TOKEN}",
+              examples: ["fixture"],
+              default: "placeholder",
+              defaults: ["${TOKEN}"],
+              value: "not-a-secret",
+              values: ["test"],
+              const: "${TOKEN}",
+              enum: ["changeme"],
+            },
+          },
+        },
+      },
+    },
+  }
+  const placeholder = await runFixture(placeholderDocument, [operation])
+  expect(placeholder.result.failures.some((failure) => failure.reasonCode === "OPENAPI_SCHEMA_INVALID")).toBe(false)
+  for (const carrier of ["example", "default", "enum", "const"]) {
+    const sensitiveDocument = {
+      ...validDocument,
+      components: {
+        schemas: {
+          Credential: {
+            properties: {
+              token: { [carrier]: carrier === "enum" ? ["concrete-enum-secret"] : "concrete-schema-secret" },
+            },
+          },
+        },
+      },
+    }
+    const sensitive = await runFixture(sensitiveDocument, [operation])
+    expect(sensitive.result.failures.some((failure) => failure.reasonCode === "OPENAPI_SCHEMA_INVALID")).toBe(true)
+  }
+  const descriptionDocument = {
+    ...validDocument,
+    components: {
+      schemas: {
+        Credential: {
+          properties: {
+            token: { description: "password=concrete-description-secret" },
+          },
+        },
+      },
+    },
+  }
+  const description = await runFixture(descriptionDocument, [operation])
+  expect(description.result.failures.some((failure) => failure.reasonCode === "OPENAPI_SCHEMA_INVALID")).toBe(true)
+  const nestedMetadataDocument = {
+    ...validDocument,
+    components: {
+      schemas: {
+        Nested: {
+          properties: {
+            profile: {
+              properties: {
+                token: {
+                  type: "array",
+                  items: { type: "string", readOnly: true },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  }
+  const nestedMetadata = await runFixture(nestedMetadataDocument, [operation])
+  expect(nestedMetadata.result.failures.some((failure) => failure.reasonCode === "OPENAPI_SCHEMA_INVALID")).toBe(false)
+  const nestedSensitiveDocument = {
+    ...validDocument,
+    components: {
+      schemas: {
+        Nested: {
+          properties: {
+            profile: {
+              properties: {
+                token: { allOf: [{ type: "string" }, { items: { default: "concrete-nested-secret" } }] },
+              },
+            },
+          },
+        },
+      },
+    },
+  }
+  const nestedSensitive = await runFixture(nestedSensitiveDocument, [operation])
+  expect(nestedSensitive.result.failures.some((failure) => failure.reasonCode === "OPENAPI_SCHEMA_INVALID")).toBe(true)
+  const ordinaryPayloadDocument = {
+    ...validDocument,
+    paths: {
+      "/api/me/password": {
+        put: {
+          operationId: "read_me_password",
+          responses: {
+            "200": {
+              description: "OK",
+              content: { "application/json": { schema: { properties: { password: "concrete-payload-secret" } } } },
+            },
+          },
+        },
+      },
+    },
+  }
+  const ordinaryPayload = await runFixture(ordinaryPayloadDocument, [operation])
+  expect(ordinaryPayload.result.failures.some((failure) => failure.reasonCode === "OPENAPI_SCHEMA_INVALID")).toBe(true)
 })
 test("shared JSON member safety rejects nested duplicates before decoding", () => {
   expect(hasDuplicateJsonMembers('{"openapi":"3.1.0","paths":{"paths":{"/api/me/password":{"put":{}},"/api/me/password":{"put":{}}}}}')).toBe(true)

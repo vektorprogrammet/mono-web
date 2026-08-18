@@ -1015,36 +1015,80 @@ const openApiPayloadIsParsedDocument = (value: unknown): value is Record<string,
   isOpenApiRecord(value.paths) &&
   isOpenApiRecord(value.components)
 type OpenApiPathsMapContext = "none" | "root" | "wrapper"
+type OpenApiSafetyProjectionResult = { readonly value: unknown; readonly unsafe: boolean }
+const OPENAPI_SCHEMA_PROPERTY_PREFIX = "__openapi_schema_property_"
+const OPENAPI_SCHEMA_VALUE_KEYS: Record<string, true> = {
+  example: true,
+  examples: true,
+  default: true,
+  defaults: true,
+  value: true,
+  values: true,
+  const: true,
+  enum: true,
+}
+const openApiSchemaPropertyIsSensitive = (key: string): boolean => unsafeScalarReason("fixture", key) !== null
+const openApiSensitiveSchemaValueUnsafe = (key: string, value: unknown): boolean =>
+  unsafeStructuredValueReason({ token: { [key]: value } }) !== null
 const openApiSafetyProjection = (
   value: unknown,
   pathsMap: OpenApiPathsMapContext = "none",
   atDocumentRoot = false,
   routeOrdinal = { value: 0 },
-): { readonly value: unknown; readonly unsafeRoute: boolean } => {
+  sensitiveSchemaProperty = false,
+  schemaPropertyValueRoot = false,
+): OpenApiSafetyProjectionResult => {
   if (Array.isArray(value)) {
     const projectedEntries: unknown[] = []
     for (const entry of value) {
-      const projected = openApiSafetyProjection(entry, "none", false, routeOrdinal)
-      if (projected.unsafeRoute) return projected
+      const projected = openApiSafetyProjection(entry, "none", false, routeOrdinal, sensitiveSchemaProperty, schemaPropertyValueRoot)
+      if (projected.unsafe) return projected
       projectedEntries.push(projected.value)
     }
-    return { value: projectedEntries, unsafeRoute: false }
+    return { value: projectedEntries, unsafe: false }
   }
-  if (!isOpenApiRecord(value)) return { value, unsafeRoute: false }
+  if (!isOpenApiRecord(value)) {
+    if (schemaPropertyValueRoot && value !== null && value !== undefined && openApiSensitiveSchemaValueUnsafe("value", value)) return { value, unsafe: true }
+    return { value, unsafe: false }
+  }
   const projected: Record<string, unknown> = Object.create(null) as Record<string, unknown>
   for (const [key, entry] of Object.entries(value)) {
     if (pathsMap !== "none" && key.startsWith("/")) {
-      if (openApiRouteKeyIsUnsafe(key)) return { value, unsafeRoute: true }
+      if (openApiRouteKeyIsUnsafe(key)) return { value, unsafe: true }
       let routeKey: string
       do {
         routeKey = `${OPENAPI_ROUTE_KEY_PREFIX}${routeOrdinal.value}`
         routeOrdinal.value += 1
       } while (hasOwn(value, routeKey))
-      const child = openApiSafetyProjection(entry, "none", false, routeOrdinal)
-      if (child.unsafeRoute) return child
+      const child = openApiSafetyProjection(entry, "none", false, routeOrdinal, sensitiveSchemaProperty)
+      if (child.unsafe) return child
       projected[routeKey] = child.value
       continue
     }
+    if (key === "properties" && isOpenApiRecord(entry)) {
+      const projectedProperties: Record<string, unknown> = Object.create(null) as Record<string, unknown>
+      for (const [propertyName, schema] of Object.entries(entry).sort(([left], [right]) => compareByteOrder(left, right))) {
+        let propertyKey: string
+        do {
+          propertyKey = `${OPENAPI_SCHEMA_PROPERTY_PREFIX}${routeOrdinal.value}`
+          routeOrdinal.value += 1
+        } while (hasOwn(entry, propertyKey))
+        const child = openApiSafetyProjection(
+          schema,
+          "none",
+          false,
+          routeOrdinal,
+          sensitiveSchemaProperty || openApiSchemaPropertyIsSensitive(propertyName),
+          true,
+        )
+        if (child.unsafe) return child
+        projectedProperties[propertyKey] = child.value
+      }
+      projected[key] = projectedProperties
+      continue
+    }
+    if (sensitiveSchemaProperty && OPENAPI_SCHEMA_VALUE_KEYS[key] === true && openApiSensitiveSchemaValueUnsafe(key, entry))
+      return { value, unsafe: true }
     const childPathsMap: OpenApiPathsMapContext =
       !isOpenApiRecord(entry)
         ? "none"
@@ -1053,16 +1097,16 @@ const openApiSafetyProjection = (
           : pathsMap === "root" && key === "paths"
             ? "wrapper"
             : "none"
-    const child = openApiSafetyProjection(entry, childPathsMap, false, routeOrdinal)
-    if (child.unsafeRoute) return child
+    const child = openApiSafetyProjection(entry, childPathsMap, false, routeOrdinal, sensitiveSchemaProperty)
+    if (child.unsafe) return child
     projected[key] = child.value
   }
-  return { value: projected, unsafeRoute: false }
+  return { value: projected, unsafe: false }
 }
 const openApiPayloadContainsUnsafe = (value: unknown): boolean => {
   if (!openApiPayloadIsParsedDocument(value)) return payloadContainsUnsafe(value)
   const projected = openApiSafetyProjection(value, "none", true)
-  return projected.unsafeRoute || payloadContainsUnsafe(projected.value)
+  return projected.unsafe || payloadContainsUnsafe(projected.value)
 }
 
 const openApiRefTarget = (root: Record<string, unknown>, reference: string): unknown => {
