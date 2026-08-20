@@ -425,12 +425,17 @@ test("routing roots establish controller write reachability", async () => {
   const legacyRoot = mkdtempSync("/tmp/parity-c2-route-loader-legacy-")
   const monoRoot = mkdtempSync("/tmp/parity-c2-route-loader-mono-")
   try {
+    put(legacyRoot, "app/config/routing.yml", "controllers:\n  resource: \"@AppBundle/Controller/\"\n  type: annotation\n")
+    put(legacyRoot, "src/AppBundle/Controller/WriteController.php", "<?php\nnamespace AppBundle\\Controller;\nfinal class WriteController { private $repository; public function create(): void { $this->repository->save(); } }\n")
     put(monoRoot, "apps/server/config/routes.yaml", "controllers:\n  resource: ../src/App/Controller/\n  type: attribute\n")
     put(monoRoot, "apps/server/src/App/Controller/WriteController.php", "<?php\nnamespace App\\Fixture\\Controller;\nfinal class WriteController { private object $repository; public function create(): void { $this->repository->save(); } }\n")
     const context = await contextFor(legacyRoot, monoRoot)
     const c2 = collectC2(context, sha256("route-loader-c2"))
     const row = c2.commandWrites.rows.find((candidate) =>
       "owner_ref" in candidate.details && candidate.details.owner_ref === "App\\Fixture\\Controller\\WriteController",
+    )
+    const legacyRow = c2.commandWrites.rows.find((candidate) =>
+      "owner_ref" in candidate.details && candidate.details.owner_ref === "AppBundle\\Controller\\WriteController",
     )
     expect(row).toMatchObject({ status: "extra", reason_codes: ["EXTRA_COUNTERPART"] })
     expect(row?.reason_codes).not.toContain("DEAD_UNIMPORTED_SOURCE")
@@ -439,6 +444,14 @@ test("routing roots establish controller write reachability", async () => {
     ).toEqual([
       "apps/server/config/routes.yaml",
       "apps/server/src/App/Controller/WriteController.php",
+    ])
+    expect(legacyRow).toMatchObject({ status: "missing", reason_codes: ["MISSING_COUNTERPART"] })
+    expect(legacyRow?.reason_codes).not.toContain("DEAD_UNIMPORTED_SOURCE")
+    expect(
+      legacyRow?.source_ref_ids.map((ref) => context.sourcePathById.get(ref)?.path).sort(),
+    ).toEqual([
+      "app/config/routing.yml",
+      "src/AppBundle/Controller/WriteController.php",
     ])
   } finally {
     rmSync(legacyRoot, { recursive: true, force: true })

@@ -1166,7 +1166,9 @@ const authorityGraphFor = (context: ManifestContext, authority: "legacy" | "mono
       .map((value) => normalizedRelativePath(node.path, value))
       .filter((value): value is string => value !== null)
     for (const resource of node.resources.flatMap((value) => expandLoaderPathPattern(value.replace(/\*.*$/, "")))) {
-      const normalized = normalizedRelativePath(node.path, resource)
+      const normalized = authority === "legacy" && resource.startsWith("@AppBundle/")
+        ? `src/AppBundle/${resource.slice("@AppBundle/".length).replace(/\/$/, "")}`
+        : normalizedRelativePath(node.path, resource)
       if (normalized === null || !loaderSourceRoots(authority).some((root) => normalized.startsWith(root))) continue
       for (const sourcePath of languagePaths) {
         if (!(sourcePath === normalized || sourcePath.startsWith(`${normalized}/`))) continue
