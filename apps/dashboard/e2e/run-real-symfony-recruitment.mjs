@@ -97,8 +97,17 @@ async function waitForHttp(url, child) {
 
     try {
       const response = await fetch(url, { redirect: "manual" });
-      if (response.status < 500) return;
-      lastError = `HTTP ${response.status}`;
+      const body = await response.text();
+      const phpFailure = /\b(?:Warning|Fatal error|Parse error|Notice):/i.test(
+        body,
+      );
+      if (phpFailure) {
+        lastError = "PHP runtime failure in readiness response";
+      } else if (response.status < 500) {
+        return;
+      } else {
+        lastError = `HTTP ${response.status}`;
+      }
     } catch (error) {
       lastError = error instanceof Error ? error.message : String(error);
     }
@@ -304,7 +313,15 @@ async function main() {
 
     symfonyProcess = startProcess(
       "php",
-      ["-S", "127.0.0.1:8000", "-t", "public", "public/index.php"],
+      [
+        "-d",
+        "variables_order=EGPCS",
+        "-S",
+        "127.0.0.1:8000",
+        "-t",
+        "public",
+        "public/index.php",
+      ],
       { cwd: serverRoot, env: serverEnv },
     );
     await waitForHttp(`${apiOrigin}/api/docs`, symfonyProcess);
