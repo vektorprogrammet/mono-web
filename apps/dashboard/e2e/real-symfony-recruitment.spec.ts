@@ -44,7 +44,10 @@ async function probeLoginFailure(
     };
   }
 }
-async function diagnoseDashboardAuth(page: Page, stage: string): Promise<void> {
+async function diagnoseDashboardAuth(
+  page: Page,
+  stage: string,
+): Promise<string> {
   const rawCookies = await page.context().cookies();
   const cookies = rawCookies.map((cookie) => ({
     name: cookie.name,
@@ -85,10 +88,12 @@ async function diagnoseDashboardAuth(page: Page, stage: string): Promise<void> {
     }),
   );
 
+  const diagnosticBody = JSON.stringify({ cookies, probes }, null, 2);
   await test.info().attach(`real-dashboard-auth-${stage}.json`, {
-    body: JSON.stringify({ cookies, probes }, null, 2),
+    body: diagnosticBody,
     contentType: "application/json",
   });
+  return diagnosticBody;
 }
 
 
@@ -116,7 +121,10 @@ test.describe("Real Symfony recruitment applicant assignment", () => {
     try {
       await expect(page).toHaveURL(/\/dashboard(?:$|\/)/);
     } catch (error) {
-      await diagnoseDashboardAuth(page, "login-redirect");
+      const dashboardDiagnostics = await diagnoseDashboardAuth(
+        page,
+        "login-redirect",
+      );
       const probe = await probeLoginFailure(page);
       await test.info().attach("real-login-api-response.json", {
         body: JSON.stringify(
@@ -132,7 +140,7 @@ test.describe("Real Symfony recruitment applicant assignment", () => {
       });
       const reason = error instanceof Error ? error.message : String(error);
       throw new Error(
-        `Real login UI did not reach the dashboard (${reason}); direct API probe returned ${probe.status}: ${probe.body}`,
+        `Real login UI did not reach the dashboard (${reason}); direct API probe returned ${probe.status}: ${probe.body}; dashboard auth diagnostics: ${dashboardDiagnostics}`,
       );
     }
     try {
@@ -141,8 +149,14 @@ test.describe("Real Symfony recruitment applicant assignment", () => {
       });
       await expect(page).toHaveURL(/\/dashboard\/sokere\?status=new$/);
     } catch (error) {
-      await diagnoseDashboardAuth(page, "applicant-list");
-      throw error;
+      const dashboardDiagnostics = await diagnoseDashboardAuth(
+        page,
+        "applicant-list",
+      );
+      const reason = error instanceof Error ? error.message : String(error);
+      throw new Error(
+        `${reason}; dashboard auth diagnostics: ${dashboardDiagnostics}`,
+      );
     }
     await expect(
       page.getByRole("heading", { name: "Søkere", exact: true }),
