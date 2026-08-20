@@ -558,12 +558,17 @@ const effectEvidence = (
     const callableEffect = effectClassForCallable(call.callable)
     const resolved = resolveEffectCall(authority, unit, call, scope?.owner, scope?.start ?? 0)
     if (resolved === null) {
-      const receiver = call.receiver?.split(/->|::|\./)[0] ?? null
+      const receiver = call.receiver ?? null
+      const receiverRoot = receiver?.split(/->|::|\./)[0] ?? null
       const localTypes = localReceiverTypesFor(unit, call.offset + (scope?.start ?? 0))
-      const explicitlyUnknownReceiver = receiver !== null && localTypes.has(receiver) && localTypes.get(receiver) === null
+      const explicitlyUnknownReceiver = receiver !== null
+        && (receiver !== receiverRoot || (receiverRoot !== null && localTypes.has(receiverRoot) && localTypes.get(receiverRoot) === null))
       if (callableEffect !== null && callableEffect !== "read_only") {
-        effects.push(callableEffect)
-        if (explicitlyUnknownReceiver) unresolved = true
+        if (receiver === null) unresolved = true
+        else {
+          effects.push(callableEffect)
+          if (explicitlyUnknownReceiver) unresolved = true
+        }
       } else if (callableEffect === null && /^(?:perform|execute|handle|process|apply|run|invoke|mutate|write)$/i.test(call.callable)) {
         unresolved = true
       }
