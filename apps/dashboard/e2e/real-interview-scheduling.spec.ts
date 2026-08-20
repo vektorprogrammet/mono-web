@@ -117,6 +117,7 @@ async function login(page: Page, username: string, password: string): Promise<vo
   await expect(page.getByRole("heading", { name: "Vektorprogrammet", exact: true })).toBeVisible();
   await page.getByLabel("Brukernavn eller e-post").fill(username);
   await page.getByLabel("Passord").fill(password);
+  await page.getByRole("button", { name: "Logg inn", exact: true }).click();
   try {
     await expect(page).toHaveURL(/\/dashboard(?:$|\/)/);
   } catch (error) {
