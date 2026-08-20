@@ -105,7 +105,7 @@ export function createAdminInterviewsDomain(transport: Transport): AdminIntervie
       return transport.postVoid("/api/admin/interviews/assign", {
         applicationId,
         interviewerId,
-        schemaId,
+        interviewSchemaId: schemaId,
       })
     },
 
@@ -122,7 +122,9 @@ export function createAdminInterviewsDomain(transport: Transport): AdminIntervie
     },
 
     schemas() {
-      return transport.get("/api/admin/interview-schemas", Schema.Array(InterviewSchema_))
+      return transport
+        .getCollection("/api/admin/interview-schemas", InterviewSchema_)
+        .pipe(Effect.map(({ items }) => items))
     },
   }
 }

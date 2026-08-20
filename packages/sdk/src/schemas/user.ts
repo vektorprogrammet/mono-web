@@ -17,12 +17,21 @@ export class User extends Schema.Class<User>("User")({
 }) {}
 
 export class UserProfile extends Schema.Class<UserProfile>("UserProfile")({
-  id: Schema.Number,
+  id: Schema.NullOr(Schema.Number),
   firstName: Schema.String,
   lastName: Schema.String,
+  userName: Schema.NullOr(Schema.String),
   email: Schema.String,
   phone: Schema.NullOr(Schema.String),
-  department: Schema.String,
-  fieldOfStudy: Schema.NullOr(Schema.String),
+  gender: Schema.NullOr(Schema.Number),
+  fieldOfStudy: Schema.NullOr(
+    Schema.Struct({
+      id: Schema.Number,
+      name: Schema.String,
+      shortName: Schema.String,
+    }),
+  ),
+  accountNumber: Schema.NullOr(Schema.String),
+  role: Schema.String,
   profilePhoto: Schema.NullOr(Schema.String),
 }) {}

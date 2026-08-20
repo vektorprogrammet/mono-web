@@ -232,7 +232,7 @@ test.describe("Applicant assignment SDK consumer seam", () => {
       response: "void",
       body: {
         kind: "json",
-        keys: ["applicationId", "interviewerId", "schemaId"],
+        keys: ["applicationId", "interviewSchemaId", "interviewerId"],
       },
     });
     expect(

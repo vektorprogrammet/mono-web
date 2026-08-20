@@ -52,7 +52,7 @@ type RawUser = {
 type RawSchema = {
   id: number;
   name: string;
-  questions: Array<{ id: number; text: string; type: string }>;
+  questionCount: number;
 };
 
 type BodyShape =
@@ -273,13 +273,7 @@ function schemasBody(): RawSchema[] {
     {
       id: 301,
       name: "Førstegangsintervju",
-      questions: [
-        {
-          id: 311,
-          text: "Fortell kort om motivasjonen din.",
-          type: "text",
-        },
-      ],
+      questionCount: 1,
     },
   ];
 }
@@ -351,8 +345,8 @@ function malformedSchemasBody(mode: MalformedMode): unknown {
     return { "hydra:member": body };
   }
   if (mode === "missing-questions") {
-    const [{ questions: _questions, ...withoutQuestions }] = body;
-    return [withoutQuestions];
+    const [{ questionCount: _questionCount, ...withoutQuestionCount }] = body;
+    return [withoutQuestionCount];
   }
   return body;
 }
@@ -459,7 +453,7 @@ async function handleSchemas(request: Request, url: URL): Promise<Response> {
   const body = schemasBody();
   record(request, url, 200, "schema-array", {
     kind: "array",
-    keys: ["id", "name", "questions"],
+    keys: ["id", "name", "questionCount"],
   });
   return jsonResponse(body);
 }
@@ -475,21 +469,21 @@ async function readJson(request: Request): Promise<unknown> {
 function isExactAssignment(value: unknown): value is {
   applicationId: number;
   interviewerId: number;
-  schemaId: number;
+  interviewSchemaId: number;
 } {
   if (!isRecord(value)) return false;
   const keys = Object.keys(value).sort();
   return (
     keys.length === 3 &&
     keys[0] === "applicationId" &&
-    keys[1] === "interviewerId" &&
-    keys[2] === "schemaId" &&
+    keys[1] === "interviewSchemaId" &&
+    keys[2] === "interviewerId" &&
     value.applicationId === 101 &&
     value.interviewerId === 201 &&
-    value.schemaId === 301 &&
+    value.interviewSchemaId === 301 &&
     typeof value.applicationId === "number" &&
     typeof value.interviewerId === "number" &&
-    typeof value.schemaId === "number"
+    typeof value.interviewSchemaId === "number"
   );
 }
 

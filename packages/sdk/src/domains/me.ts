@@ -13,13 +13,13 @@ export interface MeDomain {
 export function createMeDomain(transport: Transport): MeDomain {
   return {
     profile() {
-      return transport.get("/api/me/profile", UserProfile)
+      return transport.get("/api/me", UserProfile)
     },
     dashboard() {
       return transport.get("/api/me/dashboard", DashboardStats)
     },
     updateProfile(data) {
-      return transport.put("/api/me/profile", data)
+      return transport.put("/api/me", data)
     },
   }
 }

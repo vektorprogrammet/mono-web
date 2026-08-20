@@ -170,13 +170,7 @@ export const InterviewFromRaw = RawInterview.pipe(
 export class InterviewSchema_ extends Schema.Class<InterviewSchema_>("InterviewSchema")({
   id: Schema.Number,
   name: Schema.String,
-  questions: Schema.Array(
-    Schema.Struct({
-      id: Schema.Number,
-      text: Schema.String,
-      type: Schema.String,
-    }),
-  ),
+  questionCount: Schema.Number,
 }) {}
 
 /**

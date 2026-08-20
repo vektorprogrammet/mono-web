@@ -48,6 +48,48 @@ describe("createClient", () => {
     expect(typeof client.public.teams).toBe("function")
   })
 
+  it("uses the server's canonical current-user profile route", async () => {
+    const client = createClient("http://api.test")
+    vi.mocked(fetch)
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () =>
+          Promise.resolve({
+            id: 1,
+            firstName: "Ada",
+            lastName: "Lovelace",
+            userName: "ada",
+            email: "ada@example.invalid",
+            phone: null,
+            gender: null,
+            fieldOfStudy: null,
+            accountNumber: null,
+            role: "ROLE_USER",
+            profilePhoto: null,
+          }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 204,
+        json: () => Promise.resolve({}),
+      } as Response)
+
+    await client.me.profile()
+    await client.me.updateProfile({ firstName: "Ada" })
+
+    expect(fetch).toHaveBeenNthCalledWith(
+      1,
+      "http://api.test/api/me",
+      expect.objectContaining({ method: "GET" }),
+    )
+    expect(fetch).toHaveBeenNthCalledWith(
+      2,
+      "http://api.test/api/me",
+      expect.objectContaining({ method: "PUT" }),
+    )
+  })
+
   it("domain methods are promise-returning functions", () => {
     const client = createClient("http://api.test")
     // All methods should be functions
