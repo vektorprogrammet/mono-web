@@ -16,11 +16,25 @@ import {
   collectorExecutableProvenance,
   collectApiOperations,
   resolveCollectorExecutables,
+  routePayloadContainsUnsafe,
   validateCollectorExecutablePath,
 } from "../src/api.js";
 import { sha256 } from "../src/canonical.js";
-import { createManifestContextFromSnapshots } from "../src/source-manifest.js";
+import { createManifestContextFromSnapshots, unsafeSourceTextReason } from "../src/source-manifest.js";
 import { scanRootEffect } from "../src/runtime.js";
+test("route payload safety validates values without treating structural keys as secrets", () => {
+  const safe = {
+    reset_password: {
+      path: "/resetpassord/{resetCode}",
+      defaults: { _controller: "App\\Identity\\Controller\\PasswordResetController::showAction" },
+      methods: ["GET"],
+    },
+  };
+  expect(unsafeSourceTextReason(JSON.stringify(safe))).toBe("UNSAFE_SOURCE");
+  expect(routePayloadContainsUnsafe(safe)).toBe(false);
+  expect(routePayloadContainsUnsafe({ ...safe, secret_route: { token: "concrete-secret" } })).toBe(true);
+});
+
 test("missing collector configuration is a runtime_unavailable observation", async () => {
   const directory = mkdtempSync("/tmp/parity-collector-missing-");
   const legacyRoot = join(directory, "legacy");

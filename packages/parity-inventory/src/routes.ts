@@ -583,7 +583,7 @@ const collectRuntimeRoutes = (context: ManifestContext, configured?: CollectorEx
     return { routes: [], observation, sourceRefId, failures: [{ source_ref_id: sourceRefId, reason_code: reason, status: sourceStatus }] }
   }
   if (consoleFile === undefined || consoleFile.availability !== "available") return unavailable("RUNTIME_UNAVAILABLE")
-  const run = runTrustedPhpCollector(context, ROUTE_COLLECTOR_ARGS, configured)
+  const run = runTrustedPhpCollector(context, ROUTE_COLLECTOR_ARGS, configured, "route")
   if (run.availability !== "available") return unavailable(run.reason ?? "RUNTIME_UNAVAILABLE", run)
   const decoded = decodeRuntimeRouteOutput(run.stdout)
   if (decoded.routes === null) {

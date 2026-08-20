@@ -492,7 +492,21 @@ const collectorBytes = (value: unknown): Uint8Array => {
   if (typeof value === "string") return new TextEncoder().encode(value)
   return new Uint8Array()
 }
-type CollectorSafetyPolicy = "generic" | "openapi"
+export const routePayloadContainsUnsafe = (value: unknown): boolean => {
+  const visit = (candidate: unknown, fieldName: string, documentRoot: boolean): boolean => {
+    if (typeof candidate === "string") return unsafeScalarReason(candidate, fieldName) !== null
+    if (Array.isArray(candidate)) return candidate.some((entry) => visit(entry, fieldName, false))
+    if (candidate === null || typeof candidate !== "object") return false
+    return Object.entries(candidate).some(
+      ([key, entry]) =>
+        (documentRoot && unsafeScalarReason(key, "route_name") !== null) ||
+        visit(entry, key, false),
+    )
+  }
+  return visit(value, "field", true)
+}
+
+type CollectorSafetyPolicy = "generic" | "openapi" | "route"
 type CollectorOutputMode = "success" | "failure"
 type CollectorOutputReason = "NON_UTF8_OUTPUT" | "UNSAFE_SOURCE" | "SOURCE_PARSE_ERROR" | "OPENAPI_SOURCE_PARSE_ERROR"
 const sanitizeCollectorOutput = (
@@ -548,7 +562,15 @@ const sanitizeCollectorOutput = (
             return true
           }
         })()
-      : unsafeSourceTextReason(text) !== null
+      : policy === "route"
+        ? (() => {
+            try {
+              return routePayloadContainsUnsafe(JSON.parse(text) as unknown)
+            } catch {
+              return true
+            }
+          })()
+        : unsafeSourceTextReason(text) !== null
   if (unsafe) {
     const fallback = new TextEncoder().encode(fallbackReason)
     return { bytes: fallback, text: fallbackReason, reason: "UNSAFE_SOURCE" }
