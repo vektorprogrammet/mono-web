@@ -402,7 +402,7 @@ const functionContextFor = (source: string, offset: number): { readonly paramete
         }
       }
     }
-    if (offset < bodyEnd && (selected === null || candidate.bodyStart > selected.bodyStart)) selected = { ...candidate, bodyEnd }
+    if (offset <= bodyEnd && (selected === null || candidate.bodyStart > selected.bodyStart)) selected = { ...candidate, bodyEnd }
   }
   return selected
 }
@@ -1366,6 +1366,53 @@ const parseCommandUnits = (context: ManifestContext, authority: "legacy" | "mono
       }
     }
   }
+  const importers: ParsedRow[] = []
+  for (const target of [...parsed]) {
+    if (!target.imported || target.importerPath === null || parsed.some((candidate) => candidate.path === target.importerPath)) continue
+    const importerUnit = source.units.find((candidate) => candidate.path === target.importerPath)
+    if (importerUnit === undefined || !isLoaderConfigPath(importerUnit.path, authority)) continue
+    const targetDetails = target.row.details as CommandWriteDetails
+    const importerDetails: CommandWriteDetails = {
+      ...targetDetails,
+      owner_ref: null,
+      entry_kind: "unknown",
+      command_name: null,
+      write_contract_ref: null,
+    }
+    const sourceRefId = sourceRefFor(context, authority, role, importerUnit.path, 1, Math.max(1, importerUnit.text.split("\n").length), importerDetails.symbol_ref)
+    const status = target.row.status === "unresolved" ? "unresolved" : "covered"
+    const reasons = sortUnique(target.row.reason_codes)
+    const declaration = declarationId(authority, authority, importerUnit.path, "service_registration", ordinal++)
+    const signature = canonicalJson(["command_write", importerDetails.owner_ref, importerDetails.entry_kind, importerDetails.command_name, importerDetails.symbol_ref, importerDetails.effect_classes, importerDetails.target_refs])
+    importers.push({
+      path: importerUnit.path,
+      sourceRefIds: [sourceRefId],
+      ownerRef: importerDetails.owner_ref,
+      imported: true,
+      importerPath: null,
+      row: {
+        row_id: rowId("command_write", declaration, signature),
+        declaration_id: declaration,
+        inventory_kind: "command_write",
+        authority_line: authority,
+        canonical_key: signature,
+        signature,
+        status,
+        observation_kinds: ["static_source"],
+        source_ref_ids: [sourceRefId],
+        revision_ref_ids: [context.scans[authority].revisionRefId],
+        runtime_observation_ref_ids: [],
+        coverage_ref_ids: [],
+        accepted_intent_ref_ids: [],
+        duplicate_group_id: null,
+        mismatch: mismatch(status === "unresolved" ? "unresolved" : "none", [], reasons[0] ?? null),
+        reason_codes: reasons,
+        related_row_ids: [],
+        details: importerDetails,
+      },
+    })
+  }
+  parsed.push(...importers)
   return { parsed, failures: [...source.failures] }
 }
 
@@ -1898,6 +1945,7 @@ const credentialSlotFor = (raw: string | null, reasons: string[]): string | null
     return null
   }
   if (opaqueScheduleValue(value) || unsafeScalarReason(value, "field") !== null) {
+    reasons.push("CREDENTIAL_SLOT_UNRESOLVED", "UNSAFE_SOURCE")
     return null
   }
   return normalizeSafe(value, "credential_slot_ref", reasons)
@@ -1923,7 +1971,8 @@ const integrationCallsFor = (unit: SourceUnit, authority: AuthorityGraph): reado
     const importerPath = importedBySources(authority, unit, ownerRef)
     return { imported: importerPath !== null, importerPath }
   }
-  for (const match of structure.matchAll(integrationCallPattern)) {
+  const callPattern = new RegExp(integrationCallPattern.source, integrationCallPattern.flags)
+  for (const match of structure.matchAll(callPattern)) {
     if (match.index === undefined) continue
     const effectCall = effectCalls.find((call) => match.index !== undefined && match.index >= call.offset && match.index <= call.offset + call.chain.length)
     const callOffset = effectCall?.offset ?? match.index
@@ -1945,7 +1994,7 @@ const integrationCallsFor = (unit: SourceUnit, authority: AuthorityGraph): reado
     const endpointMatch = /https?:\/\/[^\s"'`),}]+/i.exec(contextText)
     const endpointRef = endpointMatch?.[0] === undefined ? null : safeEndpoint(endpointMatch[0], reasons)
     const protocol = protocolFor(endpointRef, contextStructure)
-    const positiveAnchor = endpointMatch !== undefined || providerRef !== null || adapterEvidence || protocol !== null
+    const positiveAnchor = endpointMatch !== null || providerRef !== null || adapterEvidence || protocol !== null
     if (!positiveAnchor) continue
     if (endpointRef === null || protocol === null) reasons.push("UNKNOWN_INTEGRATION")
     const credentialMatch = /\b(?:getenv|env|secret|credential|apiKey|api_key)\s*\(\s*["']([A-Za-z0-9_.:-]+)["']/i.exec(contextText)
