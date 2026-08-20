@@ -922,6 +922,42 @@ test("malformed and unsafe OpenAPI documents remain schema-invalid and write-blo
     }
   }
 });
+test("API resource trivia is accepted while unterminated block comments fail closed", async () => {
+  const collectFixture = async (source: string): Promise<ApiCollection> => {
+    const monoRoot = gitFixture();
+    const legacyRoot = gitFixture();
+    try {
+      putFixture(monoRoot, "apps/server/src/App/Api/Resource/Fixture.php", source);
+      execFileSync("git", ["-C", monoRoot, "add", "."]);
+      execFileSync("git", ["-C", monoRoot, "commit", "-qm", "api-resource-trivia"]);
+      execFileSync("git", ["-C", legacyRoot, "commit", "--allow-empty", "-qm", "empty-legacy"]);
+      const legacy = await Effect.runPromise(scanRootEffect(legacyRoot, "legacy"));
+      const mono = await Effect.runPromise(scanRootEffect(monoRoot, "mono"));
+      return collectApiOperations(
+        createManifestContextFromSnapshots(legacy, mono),
+        sha256(source),
+        [],
+        true,
+        undefined,
+        { path: "api-resource-trivia.json", bytes: Buffer.from("[]", "utf8") },
+      );
+    } finally {
+      rmSync(monoRoot, { recursive: true, force: true });
+      rmSync(legacyRoot, { recursive: true, force: true });
+    }
+  };
+  const validSource = "<?php\nnamespace App\\Fixture\\Api\\Resource;\nuse ApiPlatform\\Metadata\\ApiResource;\nuse ApiPlatform\\Metadata\\Get;\n#[ApiResource(operations: [new Get(uriTemplate: '/fixture/api', name: 'fixture_api')])]\n/** declaration trivia */\nfinal class FixtureResource {}\n";
+  const valid = await collectFixture(validSource);
+  expect(valid.failures.some((failure) => failure.reasonCode === "SOURCE_PARSE_ERROR")).toBe(false);
+  expect(valid.rows.some((row) => "resource_class_ref" in row.details && row.details.resource_class_ref === "App\\Fixture\\Api\\Resource\\FixtureResource")).toBe(true);
+
+  const malformed = await collectFixture(validSource.replace("/** declaration trivia */", "/* declaration trivia"));
+  expect(malformed.failures).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ status: "unresolved", reasonCode: "SOURCE_PARSE_ERROR" }),
+    ]),
+  );
+});
 test("API metadata-only runtime disagreement remains changed without identity fallback", async () => {
   const monoRoot = gitFixture();
   const legacyRoot = gitFixture();

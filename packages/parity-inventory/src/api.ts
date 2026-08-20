@@ -5,6 +5,7 @@ import { tmpdir } from "node:os"
 import { canonicalJson, compareByteOrder, declarationId, edgeId, observationId, relationId, rowId, sha256, sortUnique } from "./canonical.js"
 import { addSourceReference, effectiveIgnoreRule, matchesLiteralPattern, readSourceText, readSourceTextDetailed, sanitizeScalar, sourceTextSafetyReason, unsafeScalarReason, unsafeSourceTextReason, unsafeStructuredValueReason, type ManifestContext, type OutOfBandSourceCapture, type ScanFile } from "./source-manifest.js"
 import { inspectJsonMembers } from "./json-safety.js"
+import { skipPhpTrivia } from "./php-trivia.js"
 import type {
   ApiOperationDetails,
   CollectorExecutableProvenance,
@@ -401,7 +402,19 @@ const parseDeclarations = (context: ManifestContext): { readonly declarations: r
         failures.push({ status: "unresolved", reasonCode: "SOURCE_PARSE_ERROR", rowIds: [], sourceRefIds: [sourceRefId] })
         continue
       }
-      const classMatch = /^\s*\]?\s*(?:(?:final|abstract|readonly)\s+)*class\s+([A-Za-z_][A-Za-z0-9_]*)/.exec(source.slice(payloadEnd + 1))
+      const closingAttribute = /^\s*\]/.exec(source.slice(payloadEnd + 1))
+      if (closingAttribute === null) {
+        const sourceRefId = apiResourceSourceRef(context, path, lineAt(source, attributeOffset), lineAt(source, attributeOffset))
+        failures.push({ status: "unresolved", reasonCode: "SOURCE_PARSE_ERROR", rowIds: [], sourceRefIds: [sourceRefId] })
+        continue
+      }
+      const trivia = skipPhpTrivia(source, payloadEnd + 1 + closingAttribute[0].length)
+      if (trivia.malformed) {
+        const sourceRefId = apiResourceSourceRef(context, path, lineAt(source, attributeOffset), lineAt(source, attributeOffset))
+        failures.push({ status: "unresolved", reasonCode: "SOURCE_PARSE_ERROR", rowIds: [], sourceRefIds: [sourceRefId] })
+        continue
+      }
+      const classMatch = /^(?:(?:final|abstract|readonly)\s+)*class\s+([A-Za-z_][A-Za-z0-9_]*)/.exec(source.slice(trivia.cursor))
       if (classMatch === null || classMatch.index === undefined) {
         const sourceRefId = apiResourceSourceRef(context, path, lineAt(source, attributeOffset), lineAt(source, attributeOffset))
         failures.push({ status: "unresolved", reasonCode: "SOURCE_PARSE_ERROR", rowIds: [], sourceRefIds: [sourceRefId] })

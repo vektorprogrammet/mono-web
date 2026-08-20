@@ -11,6 +11,7 @@ import {
   sortUnique,
 } from "./canonical.js"
 import { addSourceReference, matchesLiteralPattern, readSourceText, sanitizeScalar, SOURCE_FAMILIES, unsafeScalarReason, type ManifestContext } from "./source-manifest.js"
+import { lineCommentEnd, skipPhpTrivia } from "./php-trivia.js"
 import type {
   InventoryEnvelope,
   InventoryRow,
@@ -58,13 +59,6 @@ const lineAt = (source: string, offset: number): number => {
   return line
 }
 
-const lineCommentEnd = (source: string, start: number): number => {
-  for (let index = start; index < source.length; index += 1) {
-    const char = source[index]
-    if (char === "\r" || char === "\n") return index + (char === "\r" && source[index + 1] === "\n" ? 2 : 1)
-  }
-  return source.length
-}
 
 const balanced = (source: string, start: number, open: string, close: string): { readonly body: string; readonly end: number } | null => {
   const closingByOpening = new Map([
@@ -240,33 +234,6 @@ const parseMethodBody = (body: string): ParsedMethods => {
   return { methods: parsed.methods, unsafe: parsed.unsafe || malformed || (quoted && unquoted) }
 }
 
-interface TriviaCursor {
-  readonly cursor: number
-  readonly malformed: boolean
-}
-
-const skipPhpTrivia = (source: string, start: number): TriviaCursor => {
-  let cursor = start
-  while (cursor < source.length) {
-    while (cursor < source.length && /\s/.test(source[cursor] ?? "")) cursor += 1
-    if (source[cursor] === "/" && source[cursor + 1] === "/") {
-      cursor = lineCommentEnd(source, cursor + 2)
-      continue
-    }
-    if (source[cursor] === "#") {
-      cursor = lineCommentEnd(source, cursor + 1)
-      continue
-    }
-    if (source[cursor] === "/" && source[cursor + 1] === "*") {
-      const end = source.indexOf("*/", cursor + 2)
-      if (end < 0) return { cursor: source.length, malformed: true }
-      cursor = end + 2
-      continue
-    }
-    break
-  }
-  return { cursor, malformed: false }
-}
 
 const methodKeyValueStarts = (source: string): { readonly starts: number[]; readonly unsafe: boolean } => {
   const starts: number[] = []
