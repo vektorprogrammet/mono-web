@@ -555,6 +555,10 @@ const effectEvidence = (
   const source = scope === undefined ? unit.text : unit.text.slice(scope.start, scope.end)
   for (const call of effectCallExpressionsFor(source)) {
     if (call.callable === "AsCommand" && attributeCallFor(source, call.offset)) continue
+    const markUnresolved = (): void => {
+      unresolved = true
+      targets.push(`unresolved:${scope?.owner?.fqn ?? unit.path}::${call.callable}`)
+    }
     const callableEffect = effectClassForCallable(call.callable)
     const resolved = resolveEffectCall(authority, unit, call, scope?.owner, scope?.start ?? 0)
     if (resolved === null) {
@@ -568,13 +572,13 @@ const effectEvidence = (
         && scope?.owner?.properties.has(receiverParts[1]) === true
       const explicitlyUnknownReceiver = receiver !== null && !typedLocalReceiver && !typedOwnerProperty
       if (callableEffect !== null && callableEffect !== "read_only") {
-        if (receiver === null) unresolved = true
+        if (receiver === null) markUnresolved()
         else {
           effects.push(callableEffect)
-          if (explicitlyUnknownReceiver) unresolved = true
+          if (explicitlyUnknownReceiver) markUnresolved()
         }
       } else if (callableEffect === null && /^(?:perform|execute|handle|process|apply|run|invoke|mutate|write)$/i.test(call.callable)) {
-        unresolved = true
+        markUnresolved()
       }
       continue
     }
@@ -587,7 +591,7 @@ const effectEvidence = (
     if (visited.has(resolved.symbol)) continue
     const target = effectScopeForTarget(authority, resolved.targetClass, call.callable)
     if (target === null) {
-      unresolved = true
+      markUnresolved()
       continue
     }
     const nested = effectEvidence(target.unit, authority, target.scope, new Set([...visited, resolved.symbol]))

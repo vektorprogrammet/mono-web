@@ -980,7 +980,7 @@ No row may use an unlisted field. Unknown fields are a schema failure. Free-form
 }
 ```
 
-`entry_kind` is one of `custom_command`, `controller_write`, `repository_write`, `api_processor`, `event_handler`, `message_consumer`, `integration_write`, or `unknown`. `effect_classes` is a sorted non-empty set from `read_only`, `durable_write`, `identity_or_authority`, `outbound`, `filesystem`, `scheduler`, and `unknown`. `unknown` is required when the call graph is incomplete. The method `GET`, a class name, or a command name cannot remove `unknown`.
+`entry_kind` is one of `custom_command`, `controller_write`, `repository_write`, `api_processor`, `event_handler`, `message_consumer`, `integration_write`, or `unknown`. `effect_classes` is a sorted non-empty set from `read_only`, `durable_write`, `identity_or_authority`, `outbound`, `filesystem`, `scheduler`, and `unknown`. `unknown` is required when the call graph is incomplete. The method `GET`, a class name, or a command name cannot remove `unknown`. An unresolved call retains a deterministic `target_refs` entry in the form `unresolved:<owner-or-source-path>::<callable>` so the missing authority edge remains actionable without exposing arguments or payloads.
 
 ### Scheduled and background rows
 

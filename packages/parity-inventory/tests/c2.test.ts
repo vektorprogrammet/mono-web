@@ -775,8 +775,11 @@ test("effect evidence keeps unresolved receiver calls unknown without lexical ta
     const context = await contextFor(legacyRoot, monoRoot)
     const c2 = collectC2(context, sha256("effect-authority-c2"))
     const row = c2.commandWrites.rows.find((candidate) => context.sourcePathById.get(candidate.source_ref_ids[0] ?? "")?.path === "apps/server/src/App/Infrastructure/Command/UnknownCommand.php")
-    expect(row).toMatchObject({ status: "unresolved", reason_codes: expect.arrayContaining(["UNKNOWN_EFFECT"]) })
-    expect(row?.details).not.toMatchObject({ target_refs: expect.arrayContaining(["save"]) })
+    expect(row).toMatchObject({
+      status: "unresolved",
+      reason_codes: expect.arrayContaining(["UNKNOWN_EFFECT"]),
+      details: { target_refs: ["unresolved:App\\Fixture\\UnknownCommand::save"] },
+    })
   } finally {
     rmSync(legacyRoot, { recursive: true, force: true })
     rmSync(monoRoot, { recursive: true, force: true })
