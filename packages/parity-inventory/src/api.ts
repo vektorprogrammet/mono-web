@@ -1465,6 +1465,23 @@ const h3RowSourceRefs = (context: ManifestContext, refs: readonly string[], arti
   }
   return sortUnique(result)
 }
+const sharesH3Source = (
+  context: ManifestContext,
+  row: InventoryRow,
+  h3SourceRefs: readonly string[],
+): boolean => {
+  const verifiedPaths = new Set(
+    h3SourceRefs.flatMap((sourceRefId) => {
+      const source = context.sourcePathById.get(sourceRefId)
+      return source?.rootRef === "mono" ? [source.path] : []
+    }),
+  )
+  return row.source_ref_ids.some((sourceRefId) => {
+    const source = context.sourcePathById.get(sourceRefId)
+    return source?.rootRef === "mono" && verifiedPaths.has(source.path)
+  })
+}
+
 
 const h3Path = (value: unknown): string | null => {
   if (typeof value !== "string") return null
@@ -1621,10 +1638,22 @@ const addH3Edges = (context: ManifestContext, rows: readonly InventoryRow[], rou
         seenH3Identities.add(h3Identity)
       }
       if (artifact.kind === "resource") {
-        const matched = apiRows.filter((row) => {
+        const exactMatches = apiRows.filter((row) => {
           const details = row.details as ApiOperationDetails
           return details.resource_class_ref === operation.resourceClassRef && details.operation_name === operation.operationName && details.method !== null && methods.includes(details.method) && details.uri_template === pathTemplate
         })
+        const sourceMatches = exactMatches.length === 0
+          ? apiRows.filter((row) => {
+              if (!row.observation_kinds.includes("static_source") || !sharesH3Source(context, row, refs)) return false
+              const details = row.details as ApiOperationDetails
+              return details.resource_class_ref === operation.resourceClassRef &&
+                details.operation_name === operation.operationName &&
+                details.method !== null &&
+                methods.includes(details.method) &&
+                (details.uri_template === null || details.uri_template === pathTemplate)
+            })
+          : []
+        const matched = exactMatches.length > 0 ? exactMatches : sourceMatches.length === 1 ? sourceMatches : []
         if (matched.length > 0) {
           for (const row of matched) {
             const rowIndex = apiRows.findIndex((candidate) => candidate.row_id === row.row_id)
@@ -1638,12 +1667,34 @@ const addH3Edges = (context: ManifestContext, rows: readonly InventoryRow[], rou
           failures.push({ status: "schema_invalid", reasonCode: "H3_DERIVATION_ONLY", rowIds: [derived.row_id], sourceRefIds: fromRefs })
         }
       } else {
-        const matched = derivedRouteRows.filter((row) => {
+        const exactMatches = derivedRouteRows.filter((row) => {
           const details = row.details as { readonly method?: string | null; readonly path_template?: string | null; readonly route_name?: string | null }
           const method = details.method
           const methodMatches = methods.length === 0 ? method === null : typeof method === "string" && methods.includes(method)
           return h3Path(details.path_template) === pathTemplate && details.route_name === routeName && methodMatches
         })
+        const sourceMatches = exactMatches.length === 0
+          ? derivedRouteRows.filter((row) => {
+              if (!row.observation_kinds.includes("static_source") || !sharesH3Source(context, row, refs)) return false
+              const details = row.details as { readonly method?: string | null; readonly path_template?: string | null; readonly route_name?: string | null }
+              const method = details.method
+              const methodMatches = methods.length === 0 ? method === null : typeof method === "string" && methods.includes(method)
+              return h3Path(details.path_template) === pathTemplate &&
+                (details.route_name === null || details.route_name === routeName) &&
+                methodMatches
+            })
+          : []
+        const sourceMethods = sourceMatches.map((row) => {
+          const details = row.details
+          return "path_template" in details ? details.method : null
+        })
+        const sourceMethodsComplete =
+          sourceMethods.length > 0 &&
+          new Set(sourceMethods).size === sourceMethods.length &&
+          (methods.length === 0
+            ? sourceMethods.length === 1 && sourceMethods[0] === null
+            : sourceMethods.length === methods.length && methods.every((method) => sourceMethods.includes(method)))
+        const matched = exactMatches.length > 0 ? exactMatches : sourceMethodsComplete ? sourceMatches : []
         if (matched.length > 0) {
           for (const row of matched) {
             const rowIndex = derivedRouteRows.findIndex((candidate) => candidate.row_id === row.row_id)

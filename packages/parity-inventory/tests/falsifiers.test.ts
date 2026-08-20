@@ -4,6 +4,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSyn
 import { dirname, join } from "node:path";
 import { validateReportBundle, type ProjectionObservation } from "../src/schema.js";
 import { collectApiOperations, type ApiCollection } from "../src/api.js";
+import { collectRoutes } from "../src/routes.js";
 import { hasDuplicateJsonMembers } from "../src/json-safety.js";
 import {
   acceptedIntentRevisionRefId,
@@ -491,7 +492,8 @@ test("real target API identities and normalized H3 edges do not invoke ambient r
     const mono = await Effect.runPromise(scanRootEffect(monoRoot, "mono"));
     const legacy = await Effect.runPromise(scanRootEffect(legacyRoot, "legacy"));
     const context = createManifestContextFromSnapshots(legacy, mono);
-    const api = collectApiOperations(context, sha256("real-target-probe"), [], false);
+    const routes = collectRoutes(context, sha256("real-target-probe"), undefined, true);
+    const api = collectApiOperations(context, sha256("real-target-probe"), routes.mono.rows, false);
     const staticRows = api.rows.filter((row) => row.observation_kinds.includes("static_source"));
     const deleteOperation = staticRows.find((row) => {
       if (!("operation_name" in row.details)) return false;
@@ -508,6 +510,36 @@ test("real target API identities and normalized H3 edges do not invoke ambient r
     };
     expect(staticRows.length).toBeGreaterThan(0);
     expect(deleteOperation).toBeDefined();
+    const staticContent = staticRows.filter(
+      (row) =>
+        "resource_class_ref" in row.details &&
+        row.details.resource_class_ref === "App\\Content\\Infrastructure\\Entity\\StaticContent" &&
+        row.details.operation_name === "GetCollection",
+    );
+    expect(staticContent).toHaveLength(1);
+    expect(staticContent[0]?.observation_kinds).toContain("derived_h3");
+    const sourceBackedRouteKeys = new Set([
+      JSON.stringify(["/opptak", "GET"]),
+      JSON.stringify(["/opptak/{shortName}", null]),
+      JSON.stringify(["/avdeling/{shortName}", null]),
+      JSON.stringify(["/opptak/avdeling/{id}", "GET"]),
+    ]);
+    const sourceBackedRoutes = api.h3RouteRows.filter(
+      (row) =>
+        row.observation_kinds.includes("static_source") &&
+        row.observation_kinds.includes("derived_h3") &&
+        "path_template" in row.details &&
+        sourceBackedRouteKeys.has(JSON.stringify([row.details.path_template, row.details.method])),
+    );
+    expect(new Set(sourceBackedRoutes.map((row) => "path_template" in row.details ? JSON.stringify([row.details.path_template, row.details.method]) : ""))).toEqual(sourceBackedRouteKeys);
+    expect(
+      api.h3RouteRows.some(
+        (row) =>
+          row.authority_line === "cross_line" &&
+          "path_template" in row.details &&
+          sourceBackedRouteKeys.has(JSON.stringify([row.details.path_template, row.details.method])),
+      ),
+    ).toBe(false);
     expect(openApi.paths?.["/api/admin/admission-periods/{id}"]?.delete?.operationId).toBe(
       "api_adminadmission-periods_id_delete",
     );
