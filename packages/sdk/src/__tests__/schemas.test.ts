@@ -5,7 +5,7 @@
 import { describe, it, expect } from "vitest"
 import { Effect, Schema } from "effect"
 import { Receipt } from "../schemas/receipt.js"
-import { ApplicationFromRaw } from "../schemas/application.js"
+import { AdminInterviewListFromRaw } from "../schemas/interview.js"
 
 // Raw Receipt as returned from the API (dates as ISO strings)
 const rawReceipt = {
@@ -100,5 +100,36 @@ describe("Application (ApplicationFromRaw)", () => {
     )
     expect(typeof result.statusLabel).toBe("string")
     expect(result.statusLabel.length).toBeGreaterThan(0)
+  })
+})
+
+const rawAdminInterviewList = {
+  interviews: [
+    {
+      id: 29,
+      applicantName: "Ada Lovelace",
+      interviewerName: "Grace Hopper",
+      scheduled: "2026-09-14T15:00:00+02:00",
+      status: "Ingen svar",
+      interviewed: false,
+      coInterviewer: null,
+      room: "Rom 29",
+      campus: "Gløshaugen",
+      mapLink: "https://maps.example.invalid/interview-0029",
+    },
+  ],
+}
+
+describe("AdminInterviewListFromRaw", () => {
+  it("preserves the numeric wire id through a branded domain round-trip", async () => {
+    const decoded = await Effect.runPromise(
+      Schema.decodeUnknownEffect(AdminInterviewListFromRaw)(rawAdminInterviewList),
+    )
+
+    expect(decoded.interviews[0].id).toBe(29)
+    expect(decoded.interviews[0].schedulingStatus).toBe("pending")
+
+    const encoded = Schema.encodeSync(AdminInterviewListFromRaw)(decoded)
+    expect(encoded).toEqual(rawAdminInterviewList)
   })
 })

@@ -85,7 +85,10 @@ const RawInterview = Schema.Struct({
   mapLink: Schema.NullOr(Schema.String),
 })
 
-const decodeInterview = (raw: Schema.Schema.Type<typeof RawInterview>): typeof Interview.Type => ({
+type RawInterviewType = Schema.Schema.Type<typeof RawInterview>
+type InterviewEncoded = Schema.Codec.Encoded<typeof Interview>
+
+const decodeInterview = (raw: RawInterviewType): InterviewEncoded => ({
   id: Schema.decodeUnknownSync(InterviewId)(raw.id),
   applicantName: raw.applicantName,
   interviewerName: raw.interviewerName,
@@ -98,7 +101,7 @@ const decodeInterview = (raw: Schema.Schema.Type<typeof RawInterview>): typeof I
   mapLink: raw.mapLink,
 })
 
-const encodeInterview = (interview: typeof Interview.Type): Schema.Schema.Type<typeof RawInterview> => ({
+const encodeInterview = (interview: InterviewEncoded): RawInterviewType => ({
   id: interview.id,
   applicantName: interview.applicantName,
   interviewerName: interview.interviewerName,
