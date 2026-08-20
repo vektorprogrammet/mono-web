@@ -13,10 +13,10 @@
 | Dependency | 0023 functional-parity integration baseline at `462691d4c31ed601fba01f8b5f21abb92a547ff9` |
 | Spec worktree | `/tmp/mono-web-parity-inventory-spec-0024` |
 | Spec branch | `spec/0024-zero-gap-parity-inventory` |
-| Implementation candidate | `Unaccepted`. Path `/tmp/mono-web-parity-integration-0023`, branch `impl/0023-functional-parity-integration-baseline`, head `27be6aa73c185ab30a7de138d399190bd68ebe18`. |
-| Candidate relation to `main` | 48 commits ahead and one commit behind `main`. The main-only commit is `bebab18258da5a0f993dfcc6f09ea5e8af7bf68e` (`fix(dashboard): align React Router and React versions`). |
-| Current writer mutation | The specification worktree owns only `design-specs/0024-zero-gap-functional-parity-inventory.md`. `ParityRecoveryEngineer` owns only `packages/parity-inventory/tests/c2.test.ts` in `/tmp/mono-web-parity-integration-0023`, plus the required commit integrations. |
-| Active production writer | `ParityRecoveryEngineer`, bound to `/tmp/mono-web-parity-integration-0023` during the bounded reconciliation repair |
+| Implementation candidate | `Unaccepted`. Path `/tmp/mono-web-parity-integration-0023`, branch `impl/0023-functional-parity-integration-baseline`, head `9fd81ec449ddc7e085d1cf90e0243eff66385bdc`. |
+| Candidate relation to `main` | 0 commits behind and 53 commits ahead of `main`. |
+| Current writer mutation | The specification worktree owns only `design-specs/0024-zero-gap-functional-parity-inventory.md`. `CollectorRuntimeEngineer` owns only `packages/parity-inventory/src/api.ts` and `packages/parity-inventory/tests/collector-config.test.ts` in `/tmp/mono-web-parity-integration-0023`, plus the required commit integrations. |
+| Active production writer | `CollectorRuntimeEngineer`, bound to `/tmp/mono-web-parity-integration-0023` during the bounded Nix PHP runtime repair |
 | Legacy input | Read-only legacy repository evidence; the inventory command never writes to it |
 | Current mono input | `mono-web` at an explicitly selected full revision; the deterministic mono authority revision is a canonical tracked-blob file-set digest that excludes the owned derived projection mount; raw Git `HEAD` is execution provenance only |
 | Required execution mode | `frozen` source mode for parity output; `fixture_injection` is exposed only through a named `--falsifier F0_...` run and never writes committed projections |
@@ -31,11 +31,11 @@ Specification acceptance was recorded on `2026-08-20`. The acceptance covers thi
 ### `D-0024-IMPLEMENTATION-RECONCILIATION`
 
 - **Observation and conflict:** The previous metadata said `Specified`. The observed candidate already contains the C0–C3 implementation and later fixes. The specification and implementation therefore had different lifecycle facts.
-- **Exact candidate:** The unaccepted candidate is `/tmp/mono-web-parity-integration-0023` on branch `impl/0023-functional-parity-integration-baseline` at full head `27be6aa73c185ab30a7de138d399190bd68ebe18`.
-- **Main-only commit:** The candidate is 48 commits ahead and one commit behind `main`. The missing main commit is `bebab18258da5a0f993dfcc6f09ea5e8af7bf68e` (`fix(dashboard): align React Router and React versions`).
-- **Preserved evidence:** Preserve the candidate worktree, exact commit graph, C0–C3 implementation commits (`dced46f`, `0a56bd0`, `922b61b`, and `0cd4224`), later fixes through the exact head, package schemas, and tests. Treat this material as observation only.
+- **Prior candidate observation:** The original candidate was `/tmp/mono-web-parity-integration-0023` on branch `impl/0023-functional-parity-integration-baseline` at full head `27be6aa73c185ab30a7de138d399190bd68ebe18`. It was 48 commits ahead and one commit behind `main`. Its main-only commit was `bebab18258da5a0f993dfcc6f09ea5e8af7bf68e` (`fix(dashboard): align React Router and React versions`). This remains preserved evidence.
+- **Current candidate:** The unaccepted candidate is `/tmp/mono-web-parity-integration-0023` on branch `impl/0023-functional-parity-integration-baseline` at full head `9fd81ec449ddc7e085d1cf90e0243eff66385bdc`. It is 0 commits behind and 53 commits ahead of `main`.
+- **Preserved evidence:** Preserve the candidate worktree, exact commit graph, C0–C3 implementation commits (`dced46f`, `0a56bd0`, `922b61b`, and `0cd4224`), later fixes through the current exact head, package schemas, and tests. Treat this material as observation only.
 - **Disposition:** Keep this specification authoritative. Keep the candidate reusable but unaccepted. Do not alter the inventory contract, its falsifiers, or its zero-gap predicate. Do not treat implementation code, tests, or later fixes as historical acceptance.
-- **Owner:** `Main` (product lead) owns reconciliation, verification, and candidate acceptance or rejection. `ParityRecoveryEngineer` owns only the bounded repair capsule below.
+- **Owner:** `Main` (product lead) owns reconciliation, verification, and candidate acceptance or rejection. `ParityRecoveryEngineer` owns only the prior bounded repair capsule. `CollectorRuntimeEngineer` owns only the Nix PHP runtime repair capsule below.
 - **Return gate:** Return from `Drift` only when all conditions hold:
   1. Explicitly integrate `bebab18` (`bebab18258da5a0f993dfcc6f09ea5e8af7bf68e`) or record an explicit disposition that names why 0024 does not integrate it.
   2. Complete the exact-head isolation repair. Record the repaired full head, clean worktree, and isolated source and projection inputs.
@@ -51,6 +51,16 @@ This capsule stays inside `Drift`. It does not accept the candidate or change th
 - **Allowed repair:** For the repair delta, modify only `packages/parity-inventory/tests/c2.test.ts` to use an isolated local clone at the exact candidate head. Do not modify another file.
 - **Commit:** Commit the bounded repair after the required integrations. Record the resulting full head and clean worktree.
 - **Verification and decision:** `Main` alone runs verification and accepts or rejects the candidate. The writer must not run tests, build, or lint.
+
+### `D-0024-NIX-PHP-RUNTIME`
+
+- **Observation and conflict:** At candidate head `9fd81ec449ddc7e085d1cf90e0243eff66385bdc`, the canonical Nix PHP 8.4 runtime is `/nix/store/4b43fhs9a4d3xx52qng4hvijzaqqzgc4-php-with-extensions-8.4.23/bin/php`. The file is regular, immutable, executable, and required for Symfony. `collectorExecutableProvenance` accepts only `-php-` paths, so it rejects the required `php-with-extensions-*` path.
+- **Rejected substitute:** The accepted unwrapped path is `/nix/store/f0p4v11a77h2rd90kqs9n225fk6vn580-php-8.4.23/bin/php`. It lacks the required extensions. `bin/console --version` fails with undefined `filter_var`.
+- **Disposition:** Keep the lifecycle in `Drift`. Accept the immutable Nix `php-with-extensions-*` canonical shape. Preserve rejection of arbitrary, relative, symlinked, noncanonical, writable, and non-executable paths.
+- **Writer:** `CollectorRuntimeEngineer`, bound to `/tmp/mono-web-parity-integration-0023`.
+- **Required integration:** Integrate the current head of `spec/0024-zero-gap-parity-inventory` before the repair.
+- **Allowed repair:** Modify only `packages/parity-inventory/src/api.ts` and `packages/parity-inventory/tests/collector-config.test.ts`. Do not modify another file.
+- **Verification and decision:** `Main` owns focused validation and the real Symfony collector smoke. The writer must not run tests, build, or lint. The candidate remains unaccepted until `Main` records its disposition.
 
 ## Scope and non-goals
 
