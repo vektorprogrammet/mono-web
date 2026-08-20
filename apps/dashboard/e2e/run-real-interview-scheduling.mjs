@@ -1,4 +1,4 @@
-import { chmod, mkdtemp, rm } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, rm } from "node:fs/promises";
 import { randomBytes } from "node:crypto";
 import { spawn, spawnSync } from "node:child_process";
 import { createConnection } from "node:net";
@@ -40,6 +40,27 @@ function requireOpenSsl() {
     throw new Error(
       "Missing prerequisite: openssl must be installed and available on PATH for disposable JWT key generation.",
     );
+  }
+}
+
+function redactLogValue(value) {
+  return value
+    .replace(/Bearer\s+\S+/gi, "Bearer <redacted>")
+    .replace(/((?:password|token|secret|authorization)\s*[:=]\s*)["']?[^"',\s]+/gi, "$1<redacted>");
+}
+
+async function reportSymfonyException(logPath) {
+  try {
+    const log = await readFile(logPath, "utf8");
+    const matches = [
+      ...log.matchAll(/(?:Uncaught PHP )?Exception\s+([A-Za-z_\\][A-Za-z0-9_\\]*):\s*"([^"]*)"/g),
+    ];
+    const latest = matches.at(-1);
+    if (latest) {
+      console.error(`Symfony e2e exception: ${latest[1]}: ${redactLogValue(latest[2])}`);
+    }
+  } catch {
+    // The server may fail before the e2e log handler can create its file.
   }
 }
 
@@ -323,6 +344,9 @@ async function main() {
     primaryError = error;
     throw error;
   } finally {
+    if (primaryError) {
+      await reportSymfonyException(join(symfonyLogDir, "e2e.log"));
+    }
     try {
       await cleanup();
     } catch (cleanupError) {
