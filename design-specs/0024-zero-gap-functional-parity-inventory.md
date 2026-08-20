@@ -13,10 +13,10 @@
 | Dependency | 0023 functional-parity integration baseline at `462691d4c31ed601fba01f8b5f21abb92a547ff9` |
 | Spec worktree | `/tmp/mono-web-parity-inventory-spec-0024` |
 | Spec branch | `spec/0024-zero-gap-parity-inventory` |
-| Implementation candidate | `Unaccepted`. Path `/tmp/mono-web-parity-integration-0023`, branch `impl/0023-functional-parity-integration-baseline`, head `e93a5b1d7bcfe289e154a55aaa4e3cc38e4009d6`. |
-| Candidate relation to `main` | 0 commits behind and 55 commits ahead of `main`. |
-| Current writer mutation | The specification worktree owns only `design-specs/0024-zero-gap-functional-parity-inventory.md`. `OpenApiSafetyEngineer` owns only `packages/parity-inventory/src/api.ts` and `packages/parity-inventory/tests/falsifiers.test.ts` in `/tmp/mono-web-parity-integration-0023`, plus the required commit integrations. |
-| Active production writer | `OpenApiSafetyEngineer`, bound to `/tmp/mono-web-parity-integration-0023` during the bounded OpenAPI safety repair |
+| Implementation candidate | `Unaccepted`. Path `/tmp/mono-web-parity-integration-0023`, branch `impl/0023-functional-parity-integration-baseline`, head `ed2f2c10088c03de607bcc08fe6797a4343daaf1`. |
+| Candidate relation to `main` | 0 commits behind and 57 commits ahead of `main`. |
+| Current writer mutation | The specification worktree owns only `design-specs/0024-zero-gap-functional-parity-inventory.md`. `PhpTriviaEngineer` owns only `packages/parity-inventory/src/php-trivia.ts`, `packages/parity-inventory/src/routes.ts`, `packages/parity-inventory/src/api.ts`, and `packages/parity-inventory/tests/falsifiers.test.ts` in `/tmp/mono-web-parity-integration-0023`, plus the required commit integrations. |
+| Active production writer | `PhpTriviaEngineer`, bound to `/tmp/mono-web-parity-integration-0023` during the bounded PHP declaration-trivia repair |
 | Legacy input | Read-only legacy repository evidence; the inventory command never writes to it |
 | Current mono input | `mono-web` at an explicitly selected full revision; the deterministic mono authority revision is a canonical tracked-blob file-set digest that excludes the owned derived projection mount; raw Git `HEAD` is execution provenance only |
 | Required execution mode | `frozen` source mode for parity output; `fixture_injection` is exposed only through a named `--falsifier F0_...` run and never writes committed projections |
@@ -33,10 +33,11 @@ Specification acceptance was recorded on `2026-08-20`. The acceptance covers thi
 - **Observation and conflict:** The previous metadata said `Specified`. The observed candidate already contains the C0–C3 implementation and later fixes. The specification and implementation therefore had different lifecycle facts.
 - **Prior candidate observation:** The original candidate was `/tmp/mono-web-parity-integration-0023` on branch `impl/0023-functional-parity-integration-baseline` at full head `27be6aa73c185ab30a7de138d399190bd68ebe18`. It was 48 commits ahead and one commit behind `main`. Its main-only commit was `bebab18258da5a0f993dfcc6f09ea5e8af7bf68e` (`fix(dashboard): align React Router and React versions`). This remains preserved evidence.
 - **Previous candidate observation:** The candidate later reached full head `9fd81ec449ddc7e085d1cf90e0243eff66385bdc`, at 0 commits behind and 53 commits ahead of `main`. This remains preserved evidence.
-- **Current candidate:** The unaccepted candidate is `/tmp/mono-web-parity-integration-0023` on branch `impl/0023-functional-parity-integration-baseline` at full head `e93a5b1d7bcfe289e154a55aaa4e3cc38e4009d6`. It is 0 commits behind and 55 commits ahead of `main`.
+- **Previous candidate observation:** The candidate then reached full head `e93a5b1d7bcfe289e154a55aaa4e3cc38e4009d6`, at 0 commits behind and 55 commits ahead of `main`. This remains preserved evidence.
+- **Current candidate:** The unaccepted candidate is `/tmp/mono-web-parity-integration-0023` on branch `impl/0023-functional-parity-integration-baseline` at full head `ed2f2c10088c03de607bcc08fe6797a4343daaf1`. It is 0 commits behind and 57 commits ahead of `main`.
 - **Preserved evidence:** Preserve the candidate worktree, exact commit graph, C0–C3 implementation commits (`dced46f`, `0a56bd0`, `922b61b`, and `0cd4224`), later fixes through the current exact head, package schemas, and tests. Treat this material as observation only.
 - **Disposition:** Keep this specification authoritative. Keep the candidate reusable but unaccepted. Do not alter the inventory contract, its falsifiers, or its zero-gap predicate. Do not treat implementation code, tests, or later fixes as historical acceptance.
-- **Owner:** `Main` (product lead) owns reconciliation, verification, and candidate acceptance or rejection. `ParityRecoveryEngineer` owns only the prior bounded repair capsule. `CollectorRuntimeEngineer` owns only the Nix PHP runtime repair capsule. `OpenApiSafetyEngineer` owns only the OpenAPI safety repair capsule below.
+- **Owner:** `Main` (product lead) owns reconciliation, verification, and candidate acceptance or rejection. `ParityRecoveryEngineer` owns only the prior bounded repair capsule. `CollectorRuntimeEngineer` owns only the Nix PHP runtime repair capsule. `OpenApiSafetyEngineer` owns only the OpenAPI safety repair capsule. `PhpTriviaEngineer` owns only the PHP declaration-trivia repair capsule below.
 - **Return gate:** Return from `Drift` only when all conditions hold:
   1. Explicitly integrate `bebab18` (`bebab18258da5a0f993dfcc6f09ea5e8af7bf68e`) or record an explicit disposition that names why 0024 does not integrate it.
   2. Complete the exact-head isolation repair. Record the repaired full head, clean worktree, and isolated source and projection inputs.
@@ -72,6 +73,18 @@ This capsule stays inside `Drift`. It does not accept the candidate or change th
 - **Writer:** `OpenApiSafetyEngineer`, bound to `/tmp/mono-web-parity-integration-0023`.
 - **Required integration:** Integrate the current head of `spec/0024-zero-gap-parity-inventory` before the repair.
 - **Allowed repair:** Modify only `packages/parity-inventory/src/api.ts` and `packages/parity-inventory/tests/falsifiers.test.ts`. Do not modify another file.
+- **Verification and decision:** `Main` owns focused tests and the real collector rerun. The worker must not run validation. The candidate remains unaccepted until `Main` records its disposition.
+
+### `D-0024-PHP-DECLARATION-TRIVIA`
+
+- **Observation and conflict:** At candidate head `ed2f2c10088c03de607bcc08fe6797a4343daaf1`, `Main` verified the OpenAPI repair with a focused falsifier: 1 pass, 66 filtered, and 0 fail. The exact-head real collector now succeeds. Both `api_platform_metadata` and `openapi_projection` are `available`, with exit 0 and immutable `nix-store` PHP and bwrap provenance. The inventory has 657 unresolved rows and no runtime-unavailable failures.
+- **Remaining parse error:** One `SOURCE_PARSE_ERROR` points to valid PHP `apps/server/src/App/Identity/Api/Resource/ProfilePhotoInput.php`. `php -l` accepts the file. The cause is that `api.ts` class matching allows only whitespace between the closing attribute and class modifiers, but this file has a docblock there.
+- **Required contract:** API-resource declaration scanning must skip PHP whitespace, `//`, `#`, and `/* ... */` comments between the closing attribute and class modifiers. An unterminated block comment must fail closed.
+- **Shared scanner boundary:** Reuse one shared PHP-trivia scanner by extracting the existing `routes.ts` helper. Do not add a second parser.
+- **Writer:** `PhpTriviaEngineer`, bound to `/tmp/mono-web-parity-integration-0023`.
+- **Required integration:** Integrate the current head of `spec/0024-zero-gap-parity-inventory` before the repair.
+- **Allowed repair:** Modify only `packages/parity-inventory/src/php-trivia.ts` (new), `packages/parity-inventory/src/routes.ts`, `packages/parity-inventory/src/api.ts`, and `packages/parity-inventory/tests/falsifiers.test.ts`. Do not modify another file.
+- **Regression:** Add a regression with a docblock between the attribute and class. Add a malformed-comment falsifier.
 - **Verification and decision:** `Main` owns focused tests and the real collector rerun. The worker must not run validation. The candidate remains unaccepted until `Main` records its disposition.
 
 ## Scope and non-goals
