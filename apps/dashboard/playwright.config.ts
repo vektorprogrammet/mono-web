@@ -9,10 +9,17 @@ const w0Viewport = { width: 1440, height: 900 };
 const genericDashboardOrigin = 'http://127.0.0.1:5174';
 const interviewDashboardOrigin = 'http://127.0.0.1:5173';
 const interviewApiUrl = 'http://127.0.0.1:8790';
+const realSymfonyDashboardOrigin =
+  process.env.DASHBOARD_ORIGIN ?? genericDashboardOrigin;
 const apiMode = process.env.API_MODE;
 const viteApiMode = process.env.VITE_API_MODE;
 const fixtureMode =
   apiMode === 'fixture' && viteApiMode === 'fixture';
+const realSymfonyMode =
+  process.env.REAL_SYMFONY_RECRUITMENT_E2E === '1' ||
+  process.argv.some((argument) =>
+    argument.endsWith('real-symfony-recruitment.spec.ts'),
+  );
 const interviewMode =
   process.env.FOLDKIT_INTERVIEW_E2E === '1' ||
   process.argv.some((argument) => argument.endsWith('foldkit-interview.spec.ts'));
@@ -95,22 +102,29 @@ export default defineConfig({
   /* Retry on CI only */
   retries: process.env.CI ? 2 : 0,
   /* Opt out of parallel tests on CI. */
-  workers: interviewMode || fixtureMode || process.env.CI ? 1 : undefined,
+  workers:
+    realSymfonyMode || interviewMode || fixtureMode || process.env.CI
+      ? 1
+      : undefined,
   /* Reporter to use. See https://playwright.dev/docs/test-reporters */
   reporter: 'html',
   /* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */
   use: {
-    baseURL: interviewMode ? interviewDashboardOrigin : genericDashboardOrigin,
+    baseURL: realSymfonyMode
+      ? realSymfonyDashboardOrigin
+      : interviewMode
+        ? interviewDashboardOrigin
+        : genericDashboardOrigin,
     /* Traces can capture request headers and server-held capabilities. */
     trace: 'off',
 
   },
 
   /* Configure projects for major browsers */
-  projects: interviewMode
+  projects: realSymfonyMode
     ? [
       {
-        name: 'chromium',
+        name: 'real-symfony',
         use: {
           ...devices['Desktop Chrome'],
           viewport: w0Viewport,
@@ -120,31 +134,46 @@ export default defineConfig({
         },
       },
     ]
-    : [
-      {
-        name: 'chromium',
-        use: {
-          ...devices['Desktop Chrome'],
-          viewport: w0Viewport,
-          launchOptions: chromiumExecutablePath
-            ? { executablePath: chromiumExecutablePath }
-            : undefined,
+    : interviewMode
+      ? [
+        {
+          name: 'chromium',
+          use: {
+            ...devices['Desktop Chrome'],
+            viewport: w0Viewport,
+            launchOptions: chromiumExecutablePath
+              ? { executablePath: chromiumExecutablePath }
+              : undefined,
+          },
         },
-      },
-      {
-        name: 'firefox',
-        use: { ...devices['Desktop Firefox'], viewport: w0Viewport },
-      },
-      {
-        name: 'webkit',
-        use: { ...devices['Desktop Safari'], viewport: w0Viewport },
-      },
-    ],
+      ]
+      : [
+        {
+          name: 'chromium',
+          use: {
+            ...devices['Desktop Chrome'],
+            viewport: w0Viewport,
+            launchOptions: chromiumExecutablePath
+              ? { executablePath: chromiumExecutablePath }
+              : undefined,
+          },
+        },
+        {
+          name: 'firefox',
+          use: { ...devices['Desktop Firefox'], viewport: w0Viewport },
+        },
+        {
+          name: 'webkit',
+          use: { ...devices['Desktop Safari'], viewport: w0Viewport },
+        },
+      ],
 
   /* Run the selected local fixture and dashboard before the tests. */
-  webServer: interviewMode
-    ? [interviewFixtureServer, interviewDashboardServer]
-    : fixtureMode
-      ? [fixtureServer, dashboardServer]
-      : dashboardServer,
+  webServer: realSymfonyMode
+    ? undefined
+    : interviewMode
+      ? [interviewFixtureServer, interviewDashboardServer]
+      : fixtureMode
+        ? [fixtureServer, dashboardServer]
+        : dashboardServer,
 });

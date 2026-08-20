@@ -20,7 +20,8 @@
     "e2e:test:webkit": "node ./node_modules/@playwright/test/cli.js test --project=webkit",
     "e2e:test:generate": "node ./node_modules/@playwright/test/cli.js codegen",
     "e2e:show-report": "node ./node_modules/@playwright/test/cli.js show-report",
-    "e2e:install": "node ./node_modules/@playwright/test/cli.js install"
+    "e2e:install": "node ./node_modules/@playwright/test/cli.js install",
+    "e2e:real-recruitment": "node e2e/run-real-symfony-recruitment.mjs"
   },
   "dependencies": {
     "@axe-core/playwright": "^4.10.1",
