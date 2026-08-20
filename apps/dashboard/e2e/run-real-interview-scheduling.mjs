@@ -49,15 +49,60 @@ function redactLogValue(value) {
     .replace(/((?:password|token|secret|authorization)\s*[:=]\s*)["']?[^"',\s]+/gi, "$1<redacted>");
 }
 
+function exceptionChain(exception) {
+  const chain = [];
+  let current = exception;
+  while (current && typeof current === "object") {
+    const className = typeof current.class === "string" ? current.class : "Unknown exception";
+    const message = typeof current.message === "string" ? current.message : "";
+    chain.push({ className, message });
+    current = current.previous;
+  }
+  return chain;
+}
+
 async function reportSymfonyException(logPath) {
   try {
     const log = await readFile(logPath, "utf8");
-    const matches = [
-      ...log.matchAll(/(?:Uncaught PHP )?Exception\s+([A-Za-z_\\][A-Za-z0-9_\\]*):\s*"([^"]*)"/g),
-    ];
-    const latest = matches.at(-1);
-    if (latest) {
-      console.error(`Symfony e2e exception: ${latest[1]}: ${redactLogValue(latest[2])}`);
+    const records = log
+      .split(/\r?\n/)
+      .map((line) => {
+        try {
+          return JSON.parse(line);
+        } catch {
+          return null;
+        }
+      })
+      .filter((record) => record && typeof record === "object");
+    const record = records.findLast(
+      (candidate) =>
+        candidate.context &&
+        typeof candidate.context === "object" &&
+        candidate.context.exception &&
+        typeof candidate.context.exception === "object",
+    );
+    if (record) {
+      const chain = exceptionChain(record.context.exception);
+      if (chain.length > 0) {
+        console.error(
+          chain
+            .map(({ className, message }, index) => {
+              const label = index === 0 ? "Symfony e2e exception" : "Previous exception";
+              return `${label}: ${className}: ${redactLogValue(message)}`;
+            })
+            .join("\n"),
+        );
+        return;
+      }
+    }
+
+    const lines = log.split(/\r?\n/);
+    const latest = lines.findLast((line) => line.includes("Uncaught PHP Exception"));
+    const match = latest?.match(
+      /Uncaught PHP Exception\s+([A-Za-z_\\][A-Za-z0-9_\\]*):\s*"(.*)"(?:\s+at\s+|$)/,
+    );
+    if (match) {
+      console.error(`Symfony e2e exception: ${match[1]}: ${redactLogValue(match[2])}`);
     }
   } catch {
     // The server may fail before the e2e log handler can create its file.
