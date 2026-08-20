@@ -555,7 +555,7 @@ const sanitizeCollectorOutput = (
   }
   return { bytes: new TextEncoder().encode(text), text, reason: null }
 }
-const recordRuntimeObservation = (context: ManifestContext, input: {
+export const recordRuntimeObservation = (context: ManifestContext, input: {
   readonly collectorKind: string
   readonly logicalCommandId?: string
   readonly command: string
@@ -737,7 +737,7 @@ foreach ($classes as $class) {
 }
 echo json_encode($out, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);`
 
-interface CollectorRun {
+export interface CollectorRun {
   readonly availability: "available" | "unavailable"
   readonly stdout: string
   readonly stderr: string
@@ -840,7 +840,7 @@ const stageCollectorInputs = (context: ManifestContext): string | null => {
   }
 }
 
-const trustedPhpCollector = (
+export const runTrustedPhpCollector = (
   context: ManifestContext,
   args: readonly string[],
   configured?: CollectorExecutables,
@@ -942,7 +942,7 @@ const collectRuntime = (context: ManifestContext, declarations: readonly ApiDecl
   if (consoleFile === undefined || consoleFile.availability !== "available") return unavailable("api_platform_metadata", "api-platform-metadata", [], "RUNTIME_UNAVAILABLE")
   const resourceClasses = sortUnique(declarations.map((declaration) => declaration.resourceClassRef).filter((value): value is string => value !== null))
   const metadataArgs = ["-r", API_METADATA_SCRIPT, "--", JSON.stringify(resourceClasses)]
-  const metadataRun = trustedPhpCollector(context, metadataArgs, configured)
+  const metadataRun = runTrustedPhpCollector(context, metadataArgs, configured)
   if (metadataRun.availability !== "available") return unavailable("api_platform_metadata", "api-platform-metadata", metadataArgs, metadataRun.reason ?? "RUNTIME_UNAVAILABLE", metadataRun.exitCode, metadataRun)
   let metadataPayload: unknown
   try { metadataPayload = JSON.parse(metadataRun.stdout) as unknown } catch { return unavailable("api_platform_metadata", "api-platform-metadata", metadataArgs, "SOURCE_PARSE_ERROR", metadataRun.exitCode, metadataRun) }
@@ -951,7 +951,7 @@ const collectRuntime = (context: ManifestContext, declarations: readonly ApiDecl
   if (operations === null) return unavailable("api_platform_metadata", "api-platform-metadata", metadataArgs, "SOURCE_PARSE_ERROR", 1, metadataRun)
   const metadataObservation = recordRuntimeObservation(context, { collectorKind: "api_platform_metadata", logicalCommandId: "api-platform-metadata", command: "api-platform-metadata", arguments: metadataArgs, stdout: canonicalJson(operations), stderr: "", exitCode: metadataRun.exitCode, result: operations, availability: "available", revisionRefId, executableDigests: metadataRun.executableDigests, executableProvenance: metadataRun.executableProvenance })
   const openApiArgs = ["-r", API_OPENAPI_SCRIPT]
-  const openApiRun = trustedPhpCollector(context, openApiArgs, configured, "openapi")
+  const openApiRun = runTrustedPhpCollector(context, openApiArgs, configured, "openapi")
   const sourceRef = consoleRef()
   if (openApiRun.availability !== "available") {
     const reason = openApiRun.reason ?? "RUNTIME_UNAVAILABLE"

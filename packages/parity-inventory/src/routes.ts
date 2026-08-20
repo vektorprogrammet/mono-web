@@ -1,24 +1,28 @@
 import { parseDocument, type Document } from "yaml"
 import {
-  canonicalJson,
+  observationId,
   canonicalRouteKey,
   compareByteOrder,
   declarationId,
   normalizePath,
   normalizeScalar,
-  rowId,
+  relationId,
   sha256,
   sortUnique,
 } from "./canonical.js"
-import { addSourceReference, matchesLiteralPattern, readSourceText, sanitizeScalar, SOURCE_FAMILIES, unsafeScalarReason, type ManifestContext } from "./source-manifest.js"
-import { lineCommentEnd, skipPhpTrivia } from "./php-trivia.js"
+import { addSourceReference, matchesLiteralPattern, readSourceText, sanitizeScalar, SOURCE_FAMILIES, unsafeScalarReason, unsafeStructuredValueReason, type ManifestContext } from "./source-manifest.js"
+import { runTrustedPhpCollector, recordRuntimeObservation, type CollectorRun } from "./api.js"
 import type {
+  CollectorExecutables,
   InventoryEnvelope,
+  InventoryLink,
+  InventoryObservation,
   InventoryRow,
   LegacyRouteDetails,
   Mismatch,
   MonoRouteDetails,
   RouteParseFailure,
+  RuntimeObservation,
 } from "./types.js"
 
 interface RouteDeclaration {
@@ -49,7 +53,85 @@ interface CollectedRoutes {
   readonly failures: readonly RouteParseFailure[]
 }
 
+export interface RuntimeRoute {
+  readonly routeName: string
+  readonly pathTemplate: string
+  readonly methods: readonly string[]
+}
+
+interface RuntimeRouteCollection {
+  readonly routes: readonly RuntimeRoute[]
+  readonly observation: RuntimeObservation
+  readonly sourceRefId: string
+  readonly failures: readonly RouteParseFailure[]
+}
+
 const SUPPORTED_METHODS = new Set(["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "CONNECT", "TRACE"])
+const ROUTE_CONSOLE_PATH = "apps/server/bin/console"
+const ROUTE_COMMAND = "php bin/console debug:router --format=json --env=test --no-debug"
+const ROUTE_LOGICAL_COMMAND_ID = "debug:router"
+const ROUTE_COLLECTOR_ARGS = [ROUTE_CONSOLE_PATH, "debug:router", "--format=json", "--env=test", "--no-debug"] as const
+
+const runtimeRouteMethods = (value: unknown): readonly string[] | null => {
+  if (value === undefined || value === null) return []
+  const values = Array.isArray(value) ? value : typeof value === "string" ? [value] : null
+  if (values === null) return null
+  const tokens: string[] = []
+  let unresolved = false
+  for (const entry of values) {
+    if (typeof entry !== "string") return null
+    if (entry.trim().length === 0) continue
+    const pieces = entry.split("|")
+    if (pieces.some((piece) => piece.trim().length === 0)) return null
+    for (const piece of pieces) {
+      const normalized = normalizeScalar(piece)
+      if (normalized === null || normalized.length === 0) return null
+      const safe = sanitizeScalar(normalized, "method")
+      if (safe === null) return null
+      const method = safe.toUpperCase()
+      if (method === "ANY") {
+        unresolved = true
+        continue
+      }
+      if (!SUPPORTED_METHODS.has(method)) return null
+      tokens.push(method)
+    }
+  }
+  return unresolved ? [] : sortUnique(tokens)
+}
+
+export const decodeRuntimeRoutePayload = (payload: unknown): readonly RuntimeRoute[] | null => {
+  if (unsafeStructuredValueReason(payload) !== null || payload === null || typeof payload !== "object" || Array.isArray(payload)) return null
+  const routes: RuntimeRoute[] = []
+  for (const [rawRouteName, rawEntry] of Object.entries(payload as Record<string, unknown>)) {
+    const routeName = sanitizeScalar(rawRouteName, "route_name")
+    if (routeName === null || routeName.length === 0 || rawEntry === null || typeof rawEntry !== "object" || Array.isArray(rawEntry)) return null
+    const pathValue = (rawEntry as Record<string, unknown>).path
+    if (typeof pathValue !== "string") return null
+    const safePath = sanitizeScalar(pathValue, "route_path")
+    const pathTemplate = normalizePath(safePath)
+    if (pathTemplate === null || pathTemplate.length === 0) return null
+    const methods = runtimeRouteMethods((rawEntry as Record<string, unknown>).methods)
+    if (methods === null) return null
+    routes.push({ routeName, pathTemplate, methods })
+  }
+  return routes.sort((left, right) =>
+    compareByteOrder(left.routeName, right.routeName) ||
+    compareByteOrder(left.pathTemplate, right.pathTemplate) ||
+    compareByteOrder(canonicalJson(left.methods), canonicalJson(right.methods)),
+  )
+}
+
+const decodeRuntimeRouteOutput = (text: string): { readonly routes: readonly RuntimeRoute[] | null; readonly reasonCode: string | null } => {
+  let payload: unknown
+  try {
+    payload = JSON.parse(text) as unknown
+  } catch {
+    return { routes: null, reasonCode: "SOURCE_PARSE_ERROR" }
+  }
+  const routes = decodeRuntimeRoutePayload(payload)
+  return routes === null ? { routes: null, reasonCode: "SOURCE_PARSE_ERROR" } : { routes, reasonCode: null }
+}
 const PATH = /(?:^|[,\s])path\s*[:=]\s*(['"])(.*?)\1/is
 const NAME = /(?:^|[,\s])name\s*[:=]\s*(['"])(.*?)\1/is
 
@@ -467,6 +549,73 @@ const sourceForFailure = (context: ManifestContext, authority: "legacy" | "mono"
   failureStatus: status,
   failureReason: reasonCode,
 })
+const runtimeRouteSourceRef = (context: ManifestContext): string => {
+  const consoleFile = context.scans.mono.files.find((file) => file.path === ROUTE_CONSOLE_PATH)
+  return consoleFile?.availability === "available"
+    ? addSourceReference(context, { authorityLine: "mono", authorityRole: "mono_route_runtime_observation", rootRef: "mono", path: ROUTE_CONSOLE_PATH, lineStart: null, lineEnd: null, symbol: null, captureMode: "runtime" })
+    : sourceForFailure(context, "mono", ROUTE_CONSOLE_PATH, "mono_route_runtime_observation", "source_unavailable", "SOURCE_UNAVAILABLE")
+}
+
+const collectRuntimeRoutes = (context: ManifestContext, configured?: CollectorExecutables): RuntimeRouteCollection => {
+  const revisionRefId = context.scans.mono.revisionRefId
+  const sourceRefId = runtimeRouteSourceRef(context)
+  const consoleFile = context.scans.mono.files.find((file) => file.path === ROUTE_CONSOLE_PATH)
+  const unavailable = (reason: string, run?: CollectorRun): RuntimeRouteCollection => {
+    const reasonBytes = new TextEncoder().encode(reason)
+    const observation = recordRuntimeObservation(context, {
+      collectorKind: "route_collector",
+      logicalCommandId: ROUTE_LOGICAL_COMMAND_ID,
+      command: ROUTE_COMMAND,
+      arguments: ROUTE_COLLECTOR_ARGS,
+      stdout: run?.stdoutBytes ?? reasonBytes,
+      stderr: run?.stderrBytes ?? reasonBytes,
+      exitCode: run?.exitCode ?? 127,
+      result: null,
+      availability: "unavailable",
+      revisionRefId,
+      executableDigests: run?.executableDigests,
+      executableProvenance: run?.executableProvenance,
+    })
+    const sourceStatus: RouteParseFailure["status"] = ["UNSAFE_SOURCE", "NON_UTF8_OUTPUT", "SOURCE_PARSE_ERROR"].includes(reason) ? "source_unavailable" : "unresolved"
+    return { routes: [], observation, sourceRefId, failures: [{ source_ref_id: sourceRefId, reason_code: reason, status: sourceStatus }] }
+  }
+  if (consoleFile === undefined || consoleFile.availability !== "available") return unavailable("RUNTIME_UNAVAILABLE")
+  const run = runTrustedPhpCollector(context, ROUTE_COLLECTOR_ARGS, configured)
+  if (run.availability !== "available") return unavailable(run.reason ?? "RUNTIME_UNAVAILABLE", run)
+  const decoded = decodeRuntimeRouteOutput(run.stdout)
+  if (decoded.routes === null) {
+    const observation = recordRuntimeObservation(context, {
+      collectorKind: "route_collector",
+      logicalCommandId: ROUTE_LOGICAL_COMMAND_ID,
+      command: ROUTE_COMMAND,
+      arguments: ROUTE_COLLECTOR_ARGS,
+      stdout: run.stdoutBytes,
+      stderr: run.stderrBytes,
+      exitCode: run.exitCode,
+      result: null,
+      availability: "unavailable",
+      revisionRefId,
+      executableDigests: run.executableDigests,
+      executableProvenance: run.executableProvenance,
+    })
+    return { routes: [], observation, sourceRefId, failures: [{ source_ref_id: sourceRefId, reason_code: decoded.reasonCode ?? "SOURCE_PARSE_ERROR", status: "source_unavailable" }] }
+  }
+  const observation = recordRuntimeObservation(context, {
+    collectorKind: "route_collector",
+    logicalCommandId: ROUTE_LOGICAL_COMMAND_ID,
+    command: ROUTE_COMMAND,
+    arguments: ROUTE_COLLECTOR_ARGS,
+    stdout: run.stdoutBytes,
+    stderr: run.stderrBytes,
+    exitCode: run.exitCode,
+    result: decoded.routes,
+    availability: "available",
+    revisionRefId,
+    executableDigests: run.executableDigests,
+    executableProvenance: run.executableProvenance,
+  })
+  return { routes: decoded.routes, observation, sourceRefId, failures: [] }
+}
 const makeImportedPrefixes = (declarations: readonly RouteDeclaration[]): string[] => sortUnique(declarations.map((declaration) => declaration.importRef).filter((value): value is string => value !== null))
 
 const sourceFamilyPatterns = (authority: "legacy" | "mono", familyId: string): readonly string[] =>
@@ -773,6 +922,7 @@ const makeRows = (
   context: ManifestContext,
   declarations: readonly RouteDeclaration[],
   authority: "legacy" | "mono",
+  runtimeObservation: RuntimeObservation | null = null,
 ): InventoryRow[] => {
   const inventoryKind = authority === "legacy" ? "legacy_route" : "mono_route"
   const rows: InventoryRow[] = []
@@ -800,7 +950,7 @@ const makeRows = (
         source_ref_ids: [declaration.sourceRefId],
         revision_ref_ids: [context.scans[authority].revisionRefId],
         mismatch: rowMismatch(status === "unresolved" ? "unresolved" : status === "dead_unimported" ? "dead_unimported" : "none", [], status === "covered" ? null : sortUnique(reasonCodes)[0] ?? null),
-        runtime_observation_ref_ids: [],
+        runtime_observation_ref_ids: runtimeObservation === null ? [] : [runtimeObservation.runtime_observation_ref_id],
         coverage_ref_ids: [],
         accepted_intent_ref_ids: [],
         duplicate_group_id: null,
@@ -813,9 +963,138 @@ const makeRows = (
   return rows
 }
 
+const runtimeRouteDetails = (route: RuntimeRoute, method: string | null, runtimeResolved = true): MonoRouteDetails => ({
+  declaration_kind: "unknown",
+  route_origin: "imported",
+  route_name: route.routeName,
+  path_template: route.pathTemplate,
+  method,
+  owner_ref: null,
+  runtime_resolved: runtimeResolved,
+  imported_from_ref: null,
+})
+
+const makeRuntimeRows = (revisionRefId: string, runtime: RuntimeRouteCollection): InventoryRow[] => {
+  const rows: InventoryRow[] = []
+  let ordinal = 0
+  for (const route of runtime.routes) {
+    const methods = route.methods.length > 0 ? route.methods : [null]
+    for (const method of methods) {
+      ordinal += 1
+      const details = runtimeRouteDetails(route, method)
+      const canonicalKey = canonicalRouteKey(method, route.pathTemplate, route.routeName)
+      const declarationIdentity = declarationId("mono", "mono", ROUTE_CONSOLE_PATH, "runtime_route", ordinal)
+      const rowIdentity = rowId("mono_route", declarationIdentity, canonicalKey)
+      rows.push({
+        row_id: rowIdentity,
+        declaration_id: declarationIdentity,
+        inventory_kind: "mono_route",
+        authority_line: "mono",
+        canonical_key: canonicalKey,
+        revision_ref_ids: [revisionRefId],
+        status: "extra",
+        observation_kinds: ["runtime_resolution"],
+        source_ref_ids: [runtime.sourceRefId],
+        revision_ref_ids: [context.scans.mono.revisionRefId],
+        mismatch: rowMismatch("extra", [], "RUNTIME_ONLY_SOURCE"),
+        runtime_observation_ref_ids: [runtime.observation.runtime_observation_ref_id],
+        coverage_ref_ids: [],
+        accepted_intent_ref_ids: [],
+        duplicate_group_id: null,
+        reason_codes: ["RUNTIME_ONLY_SOURCE"],
+        related_row_ids: [],
+        details,
+      })
+    }
+  }
+  return rows
+}
+
+const routeDetailsComparable = (row: InventoryRow): Pick<MonoRouteDetails, "route_name" | "path_template" | "method"> => {
+  const details = row.details as MonoRouteDetails
+  return { route_name: details.route_name, path_template: details.path_template, method: details.method }
+}
+
+const sameRouteObservation = (left: InventoryRow, right: InventoryRow): boolean => {
+  const a = routeDetailsComparable(left)
+  const b = routeDetailsComparable(right)
+  return a.route_name === b.route_name && a.path_template === b.path_template && a.method === b.method
+}
+
+const routeNameMatches = (left: InventoryRow, right: InventoryRow): boolean => {
+  const a = routeDetailsComparable(left)
+  const b = routeDetailsComparable(right)
+  return a.route_name !== null && a.route_name === b.route_name
+}
+
+const reconcileRuntimeRoutes = (
+  revisionRefId: string,
+  staticRows: readonly InventoryRow[],
+  runtime: RuntimeRouteCollection,
+): { readonly rows: InventoryRow[]; readonly links: readonly InventoryLink[] } => {
+  const runtimeRows = makeRuntimeRows(revisionRefId, runtime)
+  const rows: InventoryRow[] = [...staticRows, ...runtimeRows]
+  const links: InventoryLink[] = []
+  const runtimeUsed = new Set<number>()
+  for (const staticRow of staticRows) {
+    const exactIndex = runtimeRows.findIndex((candidate, index) => !runtimeUsed.has(index) && sameRouteObservation(staticRow, candidate))
+    const runtimeIndex = exactIndex >= 0
+      ? exactIndex
+      : runtimeRows.findIndex((candidate, index) => !runtimeUsed.has(index) && routeNameMatches(staticRow, candidate))
+    const staticIndex = rows.findIndex((candidate) => candidate.row_id === staticRow.row_id)
+    if (runtimeIndex < 0) {
+      const reason = runtime.observation.availability === "available"
+        ? runtime.failures[0]?.reason_code ?? "RUNTIME_ROUTE_UNRESOLVED"
+        : runtime.failures[0]?.reason_code ?? "RUNTIME_UNAVAILABLE"
+      const status: InventoryRow["status"] = runtime.observation.availability === "available" && staticRow.status === "dead_unimported" ? "dead_unimported" : "unresolved"
+      const mismatchKind: Mismatch["kind"] = status === "dead_unimported" ? "dead_unimported" : "unresolved"
+      rows[staticIndex] = { ...staticRow, runtime_observation_ref_ids: [runtime.observation.runtime_observation_ref_id], status, mismatch: rowMismatch(mismatchKind, [], reason), reason_codes: sortUnique([...staticRow.reason_codes, reason]) }
+      continue
+    }
+    runtimeUsed.add(runtimeIndex)
+    const runtimeRow = runtimeRows[runtimeIndex]
+    if (runtimeRow === undefined) continue
+    const changed = !sameRouteObservation(staticRow, runtimeRow)
+    const staticStatus: InventoryRow["status"] = changed
+      ? "changed"
+      : staticRow.status === "dead_unimported"
+        ? "dead_unimported"
+        : staticRow.status === "unresolved"
+          ? "unresolved"
+          : "covered"
+    const reason = changed ? "STATIC_RUNTIME_MISMATCH" : staticStatus === "covered" ? null : staticRow.reason_codes[0] ?? null
+    const related = [runtimeRow.row_id]
+    const relationIdValue = relationId("reconciles", staticRow.row_id, runtimeRow.row_id, [...staticRow.source_ref_ids, ...runtimeRow.source_ref_ids])
+    links.push({ relation_id: relationIdValue, relation_kind: "reconciles", from_row_id: staticRow.row_id, to_row_id: runtimeRow.row_id, source_ref_ids: sortUnique([...staticRow.source_ref_ids, ...runtimeRow.source_ref_ids]) })
+    const staticDetails = staticRow.details as MonoRouteDetails
+    rows[staticIndex] = {
+      ...staticRow,
+      status: staticStatus,
+      observation_kinds: ["static_source", "runtime_resolution"],
+      runtime_observation_ref_ids: [runtime.observation.runtime_observation_ref_id],
+      mismatch: rowMismatch(changed ? "changed" : staticStatus === "dead_unimported" ? "dead_unimported" : staticStatus === "unresolved" ? "unresolved" : "none", related, reason),
+      reason_codes: reason === null ? staticRow.reason_codes : sortUnique([...staticRow.reason_codes, reason]),
+      related_row_ids: related,
+      details: { ...staticDetails, runtime_resolved: true },
+    }
+    const runtimeIndexInRows = rows.findIndex((candidate) => candidate.row_id === runtimeRow.row_id)
+    rows[runtimeIndexInRows] = { ...runtimeRow, status: changed ? "changed" : "covered", mismatch: rowMismatch(changed ? "changed" : "none", [staticRow.row_id], changed ? "STATIC_RUNTIME_MISMATCH" : null), reason_codes: changed ? ["STATIC_RUNTIME_MISMATCH"] : [], related_row_ids: [staticRow.row_id] }
+  }
+  return { rows, links }
+}
+export const reconcileRuntimeRouteRows = (
+  revisionRefId: string,
+  staticRows: readonly InventoryRow[],
+  runtimeRoutes: readonly RuntimeRoute[],
+  runtimeObservation: RuntimeObservation,
+  sourceRefId: string,
+  failures: readonly RouteParseFailure[] = [],
+): { readonly rows: InventoryRow[]; readonly links: readonly InventoryLink[] } =>
+  reconcileRuntimeRoutes(revisionRefId, staticRows, { routes: runtimeRoutes, observation: runtimeObservation, sourceRefId, failures })
+
 const applyDuplicateGroups = (rows: InventoryRow[]): void => {
   const groups = new Map<string, InventoryRow[]>()
-  for (const row of rows) {
+  for (const row of rows.filter((candidate) => candidate.observation_kinds.includes("static_source"))) {
     const key = `${row.authority_line}\u0000${row.inventory_kind}\u0000${row.canonical_key}`
     const group = groups.get(key)
     if (group === undefined) groups.set(key, [row])
@@ -833,11 +1112,23 @@ const applyDuplicateGroups = (rows: InventoryRow[]): void => {
   }
 }
 
+const runtimeInventoryObservation = (runtime: RuntimeRouteCollection): InventoryObservation => ({
+  observation_id: observationId("runtime_resolution", [runtime.sourceRefId], runtime.observation.result_sha256),
+  observation_kind: "runtime_resolution",
+  source_ref_ids: [runtime.sourceRefId],
+  value_digest: runtime.observation.result_sha256,
+  normative: false,
+  label: "local_route_runtime",
+  count: runtime.routes.length,
+})
+
 const makeEnvelope = (
   context: ManifestContext,
   authority: "legacy" | "mono",
   rows: readonly InventoryRow[],
   sourceManifestSha256: string,
+  runtime: RuntimeRouteCollection | null = null,
+  links: readonly InventoryLink[] = [],
 ): InventoryEnvelope => ({
   $schema: "https://json-schema.org/draft/2020-12/schema",
   schema_version: "functional-parity-inventory/v1",
@@ -845,10 +1136,10 @@ const makeEnvelope = (
   authority_line: authority,
   source_manifest_sha256: sourceManifestSha256,
   revision_ref_ids: [context.scans[authority].revisionRefId],
-  observation_kinds: ["static_source"],
+  observation_kinds: authority === "mono" && runtime?.observation.availability === "available" ? ["static_source", "runtime_resolution"] : ["static_source"],
   rows: [...rows].sort((a, b) => compareByteOrder(a.row_id, b.row_id) || compareByteOrder(a.canonical_key, b.canonical_key)),
-  links: [],
-  observations: [],
+  links: [...links].sort((left, right) => compareByteOrder(left.relation_id, right.relation_id)),
+  observations: runtime === null ? [] : [runtimeInventoryObservation(runtime)],
   derivation_edges: [],
 })
 
@@ -857,16 +1148,24 @@ export interface CollectedRouteArtifacts {
   readonly mono: InventoryEnvelope
   readonly failures: readonly RouteParseFailure[]
   readonly declarations: CollectedRoutes
+  readonly runtimeObservation: RuntimeObservation
 }
-
-export const collectRoutes = (context: ManifestContext, sourceManifestSha256: string): CollectedRouteArtifacts => {
+export const collectRoutes = (context: ManifestContext, sourceManifestSha256: string, configured?: CollectorExecutables): CollectedRouteArtifacts => {
   const legacy = parseLegacy(context)
   const mono = parseMono(context)
+  const runtime = collectRuntimeRoutes(context, configured)
   const legacyRows = makeRows(context, legacy.declarations, "legacy")
-  const monoRows = makeRows(context, mono.declarations, "mono")
+  const monoStaticRows = makeRows(context, mono.declarations, "mono", runtime.observation)
   applyDuplicateGroups(legacyRows)
-  applyDuplicateGroups(monoRows)
-  return { legacy: makeEnvelope(context, "legacy", legacyRows, sourceManifestSha256), mono: makeEnvelope(context, "mono", monoRows, sourceManifestSha256), failures: [...legacy.failures, ...mono.failures], declarations: { legacy: legacy.declarations, mono: mono.declarations, failures: [...legacy.failures, ...mono.failures] } }
+  const reconciled = reconcileRuntimeRoutes(context.scans.mono.revisionRefId, monoStaticRows, runtime)
+  applyDuplicateGroups(reconciled.rows)
+  return {
+    legacy: makeEnvelope(context, "legacy", legacyRows, sourceManifestSha256),
+    mono: makeEnvelope(context, "mono", reconciled.rows, sourceManifestSha256, runtime, reconciled.links),
+    failures: [...legacy.failures, ...mono.failures, ...runtime.failures],
+    declarations: { legacy: legacy.declarations, mono: mono.declarations, failures: [...legacy.failures, ...mono.failures, ...runtime.failures] },
+    runtimeObservation: runtime.observation,
+  }
 }
 
 export const routeRowsBySignature = (inventory: InventoryEnvelope): Map<string, InventoryRow[]> => {

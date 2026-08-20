@@ -327,7 +327,7 @@ const generateFromContext = (context: ManifestContext, mode: RunMode, falsifierI
   const intentLoad = loadAcceptedIntentRegister(context, intentInput)
   const fixtureUnsafeProbe = mode === "fixture_injection" && falsifierId === "F15_secret_or_pii_input"
   if (intentLoad.issues.some((entry) => entry.reasonCode === "UNSAFE_SOURCE") && !fixtureUnsafeProbe) throw new UnsafeSourceProjectionError("unsafe source metadata encountered during intent loading")
-  const preliminary = collectRoutes(context, sha256("c1-source-manifest-pending"))
+  const preliminary = collectRoutes(context, sha256("c1-source-manifest-pending"), collectorExecutables)
   const preliminaryApi = collectApiOperations(context, sha256("c1-source-manifest-pending"), preliminary.mono.rows, mode === "fixture_injection" || falsifierId === "F18_stale_artifact_diff", collectorExecutables, fixtureRuntimeInput)
   const preliminaryC2 = collectC2(context, sha256("c2-source-manifest-pending"))
   if ((hasUnsafeProjectionMetadata(context, preliminary, preliminaryC2) || preliminaryApi.failures.some((failure) => failure.reasonCode === "UNSAFE_SOURCE")) && !fixtureUnsafeProbe) throw new UnsafeSourceProjectionError("unsafe source metadata encountered during projection construction")
@@ -391,7 +391,7 @@ const generateFromContext = (context: ManifestContext, mode: RunMode, falsifierI
   }
   const unclassified = manifest.root_census.filter((record) => record.classification === "unclassified")
   for (const record of unclassified) failures.push(buildFailure("unresolved", "UNCLASSIFIED_SOURCE", [], record.source_ref_ids))
-  for (const failure of preliminary.failures) failures.push(buildFailure(failure.status === "source_unavailable" ? "source_unavailable" : "unresolved", failure.reason_code, [], [failure.source_ref_id]))
+  for (const failure of preliminary.failures) failures.push(buildFailure(failure.reason_code === "RUNTIME_UNAVAILABLE" || failure.reason_code.startsWith("COLLECTOR_") ? "runtime_unavailable" : failure.status === "source_unavailable" ? "source_unavailable" : "unresolved", failure.reason_code, [], [failure.source_ref_id]))
   failures.push(...reportFailuresFromApi(preliminaryApi.failures))
   failures.push(...preliminaryC2.failures.map((failure) => buildFailure(failure.status, failure.reasonCode, failure.rowIds, failure.sourceRefIds)))
   failures.push(...coverageFailuresAsReportFailures(coverage.issues))
