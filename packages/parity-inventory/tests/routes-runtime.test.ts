@@ -79,6 +79,25 @@ describe("authoritative Symfony route runtime falsifiers", () => {
     expect(result.rows.find((row) => row.row_id === "row-static-fixture")).toMatchObject({ status: "unresolved", reason_codes: expect.arrayContaining(["RUNTIME_UNAVAILABLE"]) })
   })
 
+  test("matching runtime observations merge into the static authority row", () => {
+    const result = reconcileRuntimeRouteRows(
+      "rev-mono",
+      [staticRouteRow()],
+      [{ routeName: "fixture", pathTemplate: "/fixture", methods: ["GET"] }],
+      runtimeObservation("available"),
+      "source-runtime",
+    )
+    expect(result.rows).toHaveLength(1)
+    expect(result.rows[0]).toMatchObject({
+      status: "covered",
+      observation_kinds: ["static_source", "runtime_resolution"],
+      source_ref_ids: ["source-runtime", "source-static"],
+      related_row_ids: [],
+      details: { runtime_resolved: true },
+    })
+    expect(result.links).toEqual([])
+  })
+
   test("static/runtime disagreement retains both observations", () => {
     const runtimeRoute: RuntimeRoute = { routeName: "fixture", pathTemplate: "/changed", methods: ["POST"] }
     const result = reconcileRuntimeRouteRows("rev-mono", [staticRouteRow()], [runtimeRoute], runtimeObservation("available"), "source-runtime")

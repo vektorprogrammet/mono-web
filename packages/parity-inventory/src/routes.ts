@@ -1039,6 +1039,7 @@ const reconcileRuntimeRoutes = (
   const rows: InventoryRow[] = [...staticRows, ...runtimeRows]
   const links: InventoryLink[] = []
   const runtimeUsed = new Set<number>()
+  const collapsedRuntimeRowIds = new Set<string>()
   for (const staticRow of staticRows) {
     const exactIndex = runtimeRows.findIndex((candidate, index) => !runtimeUsed.has(index) && sameRouteObservation(staticRow, candidate))
     const runtimeIndex = exactIndex >= 0
@@ -1058,32 +1059,49 @@ const reconcileRuntimeRoutes = (
     const runtimeRow = runtimeRows[runtimeIndex]
     if (runtimeRow === undefined) continue
     const changed = !sameRouteObservation(staticRow, runtimeRow)
-    const staticStatus: InventoryRow["status"] = changed
-      ? "changed"
-      : staticRow.status === "dead_unimported"
-        ? "dead_unimported"
-        : staticRow.status === "unresolved"
-          ? "unresolved"
-          : "covered"
-    const reason = changed ? "STATIC_RUNTIME_MISMATCH" : staticStatus === "covered" ? null : staticRow.reason_codes[0] ?? null
-    const related = [runtimeRow.row_id]
+    const staticDetails = staticRow.details as MonoRouteDetails
+    if (!changed) {
+      const status: InventoryRow["status"] =
+        staticRow.status === "dead_unimported"
+          ? "dead_unimported"
+          : staticRow.status === "unresolved"
+            ? "unresolved"
+            : "covered"
+      const reason = status === "covered" ? null : staticRow.reason_codes[0] ?? null
+      rows[staticIndex] = {
+        ...staticRow,
+        status,
+        observation_kinds: ["static_source", "runtime_resolution"],
+        source_ref_ids: sortUnique([...staticRow.source_ref_ids, ...runtimeRow.source_ref_ids]),
+        runtime_observation_ref_ids: [runtime.observation.runtime_observation_ref_id],
+        mismatch: rowMismatch(
+          status === "dead_unimported" ? "dead_unimported" : status === "unresolved" ? "unresolved" : "none",
+          [],
+          reason,
+        ),
+        related_row_ids: [],
+        details: { ...staticDetails, runtime_resolved: true },
+      }
+      collapsedRuntimeRowIds.add(runtimeRow.row_id)
+      continue
+    }
+    const reason = "STATIC_RUNTIME_MISMATCH"
     const relationIdValue = relationId("reconciles", staticRow.row_id, runtimeRow.row_id, [...staticRow.source_ref_ids, ...runtimeRow.source_ref_ids])
     links.push({ relation_id: relationIdValue, relation_kind: "reconciles", from_row_id: staticRow.row_id, to_row_id: runtimeRow.row_id, source_ref_ids: sortUnique([...staticRow.source_ref_ids, ...runtimeRow.source_ref_ids]) })
-    const staticDetails = staticRow.details as MonoRouteDetails
     rows[staticIndex] = {
       ...staticRow,
-      status: staticStatus,
+      status: "changed",
       observation_kinds: ["static_source", "runtime_resolution"],
       runtime_observation_ref_ids: [runtime.observation.runtime_observation_ref_id],
-      mismatch: rowMismatch(changed ? "changed" : staticStatus === "dead_unimported" ? "dead_unimported" : staticStatus === "unresolved" ? "unresolved" : "none", related, reason),
-      reason_codes: reason === null ? staticRow.reason_codes : sortUnique([...staticRow.reason_codes, reason]),
-      related_row_ids: related,
+      mismatch: rowMismatch("changed", [runtimeRow.row_id], reason),
+      reason_codes: sortUnique([...staticRow.reason_codes, reason]),
+      related_row_ids: [runtimeRow.row_id],
       details: { ...staticDetails, runtime_resolved: true },
     }
     const runtimeIndexInRows = rows.findIndex((candidate) => candidate.row_id === runtimeRow.row_id)
-    rows[runtimeIndexInRows] = { ...runtimeRow, status: changed ? "changed" : "covered", mismatch: rowMismatch(changed ? "changed" : "none", [staticRow.row_id], changed ? "STATIC_RUNTIME_MISMATCH" : null), reason_codes: changed ? ["STATIC_RUNTIME_MISMATCH"] : [], related_row_ids: [staticRow.row_id] }
+    rows[runtimeIndexInRows] = { ...runtimeRow, status: "changed", mismatch: rowMismatch("changed", [staticRow.row_id], reason), reason_codes: [reason], related_row_ids: [staticRow.row_id] }
   }
-  return { rows, links }
+  return { rows: rows.filter((row) => !collapsedRuntimeRowIds.has(row.row_id)), links }
 }
 export const reconcileRuntimeRouteRows = (
   revisionRefId: string,
