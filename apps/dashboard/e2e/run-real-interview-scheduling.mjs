@@ -61,6 +61,12 @@ function exceptionChain(exception) {
   return chain;
 }
 
+function isErrorLevel(record) {
+  if (typeof record.level === "number") return record.level >= 400;
+  if (typeof record.level_name !== "string") return false;
+  return ["ERROR", "CRITICAL", "ALERT", "EMERGENCY"].includes(record.level_name.toUpperCase());
+}
+
 async function reportSymfonyException(logPath) {
   try {
     const log = await readFile(logPath, "utf8");
@@ -76,6 +82,7 @@ async function reportSymfonyException(logPath) {
       .filter((record) => record && typeof record === "object");
     const record = records.findLast(
       (candidate) =>
+        isErrorLevel(candidate) &&
         candidate.context &&
         typeof candidate.context === "object" &&
         candidate.context.exception &&
