@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 const apiOrigin = process.env.API_URL ?? "http://127.0.0.1:8000";
 const leaderUsername = "recruitment-leader-0028";
@@ -6,6 +6,41 @@ const leaderPassword = "recruitment-e2e-0028";
 const applicantName = "Søker 0028";
 const interviewerName = "Intervjuer 0028";
 const schemaName = "Førstegangsintervju 0028";
+
+async function probeLoginFailure(
+  page: Page,
+): Promise<{ status: number; body: string }> {
+  try {
+    const response = await page.request.post(`${apiOrigin}/api/login`, {
+      timeout: 10_000,
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      data: {
+        username: leaderUsername,
+        password: leaderPassword,
+      },
+    });
+    const rawBody = await response.text();
+    let body = rawBody;
+    try {
+      const parsed = JSON.parse(rawBody) as { token?: unknown };
+      if (parsed && typeof parsed === "object" && "token" in parsed) {
+        parsed.token = "<redacted>";
+        body = JSON.stringify(parsed);
+      }
+    } catch {
+      // Keep non-JSON error responses intact for diagnosis.
+    }
+    return { status: response.status(), body };
+  } catch (error) {
+    return {
+      status: 0,
+      body: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
 
 test.describe("Real Symfony recruitment applicant assignment", () => {
   test.describe.configure({ retries: 0, mode: "serial" });
@@ -28,7 +63,27 @@ test.describe("Real Symfony recruitment applicant assignment", () => {
     await page.getByLabel("Brukernavn eller e-post").fill(leaderUsername);
     await page.getByLabel("Passord").fill(leaderPassword);
     await page.getByRole("button", { name: "Logg inn", exact: true }).click();
-    await expect(page).toHaveURL(/\/dashboard(?:$|\/)/);
+    try {
+      await expect(page).toHaveURL(/\/dashboard(?:$|\/)/);
+    } catch (error) {
+      const probe = await probeLoginFailure(page);
+      await test.info().attach("real-login-api-response.json", {
+        body: JSON.stringify(
+          {
+            endpoint: `${apiOrigin}/api/login`,
+            status: probe.status,
+            body: probe.body,
+          },
+          null,
+          2,
+        ),
+        contentType: "application/json",
+      });
+      const reason = error instanceof Error ? error.message : String(error);
+      throw new Error(
+        `Real login UI did not reach the dashboard (${reason}); direct API probe returned ${probe.status}: ${probe.body}`,
+      );
+    }
 
     await page.goto("/dashboard/sokere?status=new", {
       waitUntil: "networkidle",
