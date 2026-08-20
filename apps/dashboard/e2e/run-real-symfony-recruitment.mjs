@@ -66,6 +66,7 @@ function startProcess(command, args, options) {
     cwd: options.cwd,
     env: options.env,
     stdio: "inherit",
+    detached: true,
   });
   child.once("error", (error) => {
     console.error(`${command} failed to start:`, error);
@@ -95,22 +96,43 @@ async function waitForHttp(url, child) {
   throw new Error(`Timed out waiting for ${url}: ${lastError}`);
 }
 
+function signalProcessGroup(child, signal) {
+  if (child.pid === undefined) return;
+  try {
+    process.kill(-child.pid, signal);
+  } catch (error) {
+    if (
+      error &&
+      typeof error === "object" &&
+      "code" in error &&
+      error.code === "ESRCH"
+    ) {
+      return;
+    }
+    throw error;
+  }
+}
+
 async function stopProcess(child) {
-  if (!child || child.exitCode !== null) return;
+  if (!child || child.pid === undefined) return;
+  if (child.exitCode !== null) {
+    signalProcessGroup(child, "SIGTERM");
+    return;
+  }
 
   let resolveExit;
   const exited = new Promise((resolvePromise) => {
     resolveExit = resolvePromise;
   });
   child.once("exit", resolveExit);
-  child.kill("SIGTERM");
+  signalProcessGroup(child, "SIGTERM");
   const graceful = await Promise.race([
     exited.then(() => true),
     sleep(shutdownTimeoutMs).then(() => false),
   ]);
   if (graceful || child.exitCode !== null) return;
 
-  child.kill("SIGKILL");
+  signalProcessGroup(child, "SIGKILL");
   await Promise.race([
     exited,
     sleep(shutdownTimeoutMs).then(() => undefined),
@@ -220,9 +242,17 @@ async function main() {
   };
 
   const handleSignal = (signal) => {
-    void cleanup().finally(() => {
-      process.exitCode = signal === "SIGINT" ? 130 : 143;
-    });
+    void cleanup()
+      .catch((cleanupError) => {
+        console.error(
+          cleanupError instanceof Error
+            ? cleanupError.message
+            : cleanupError,
+        );
+      })
+      .finally(() => {
+        process.exitCode = signal === "SIGINT" ? 130 : 143;
+      });
   };
   process.once("SIGINT", handleSignal);
   process.once("SIGTERM", handleSignal);
