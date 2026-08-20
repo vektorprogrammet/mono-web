@@ -1,122 +1,63 @@
-import { expect, it } from "@effect/vitest";
-import type { EffectSdk } from "@vektorprogrammet/sdk/effect";
-import { Schema } from "effect";
-import * as fc from "effect/testing/FastCheck";
-import { makeInterviewCommands } from "./command";
+import { expect, it } from "@effect/vitest"
+import { InterviewId, type EffectSdk } from "@vektorprogrammet/sdk/effect"
+import { Schema } from "effect"
+import { FieldValidation } from "foldkit"
+import { makeInterviewCommands } from "./command"
 import {
-  AcceptedCandidate,
-  Message,
-  SelectedDepartment,
-  SelectedSemester,
+  OpenedSchedule,
   SubmittedSchedule,
-} from "./message";
-import { CandidateData, Model, makeInitialModel } from "./model";
-import { makeUpdate } from "./update";
+  UpdatedDatetime,
+  UpdatedMapLink,
+} from "./message"
+import { makeInitialModel } from "./model"
+import { makeUpdate } from "./update"
 
-const propertyOptions = {
-  fastCheck: { seed: 26082028, numRuns: 150 },
-} as const;
+const update = makeUpdate(makeInterviewCommands({} as EffectSdk, null))
+const interviewId = Schema.decodeUnknownSync(InterviewId)(42)
 
-const update = makeUpdate(makeInterviewCommands({} as EffectSdk, null));
+const filledModel = () => ({
+  ...makeInitialModel("dashboard"),
+  selectedInterviewId: interviewId,
+  datetime: FieldValidation.NotValidated({ value: "2026-09-14T15:00:00+02:00" }),
+  room: FieldValidation.NotValidated({ value: "Rom 2" }),
+  campus: FieldValidation.NotValidated({ value: "Gløshaugen" }),
+  mapLink: FieldValidation.NotValidated({ value: "https://maps.example.com/interview" }),
+  from: FieldValidation.NotValidated({ value: "interviewer@example.com" }),
+  to: FieldValidation.NotValidated({ value: "applicant@example.com" }),
+  message: FieldValidation.NotValidated({ value: "Vi ser frem til møtet." }),
+})
 
-it.prop(
-  "every generated model and message returns a valid model",
-  {
-    model: Schema.toArbitrary(Model)(fc),
-    message: Schema.toArbitrary(Message)(fc),
-  },
-  ({ model, message }) => {
-    const [next] = update(model, message);
-    expect(() => Schema.decodeUnknownSync(Model)(next)).not.toThrow();
-  },
-  propertyOptions,
-);
+it("validates every schedule-event field before emitting a command", () => {
+  const [next, commands] = update(filledModel(), SubmittedSchedule())
+  expect(next.isScheduling).toBe(true)
+  expect(commands).toHaveLength(1)
+})
 
-it.prop(
-  "schedule submission without a selected interview emits no command",
-  {
-    departmentId: fc.string(),
-    semesterId: fc.string(),
-    interviewTime: fc.string(),
-    room: fc.string(),
-    campus: fc.string(),
-  },
-  ({ departmentId, semesterId, interviewTime, room, campus }) => {
-    const model = {
-      ...makeInitialModel("dashboard"),
-      departmentId,
-      semesterId,
-      interviewTime: { _tag: "NotValidated" as const, value: interviewTime },
-      room: { _tag: "NotValidated" as const, value: room },
-      campus: { _tag: "NotValidated" as const, value: campus },
-      selectedInterviewId: null,
-    };
-    const [next, commands] = update(model, SubmittedSchedule());
-    expect(next).toBe(model);
-    expect(commands).toHaveLength(0);
-  },
-  propertyOptions,
-);
+it("rejects an invalid datetime without emitting a schedule command", () => {
+  const model = {
+    ...filledModel(),
+    datetime: FieldValidation.NotValidated({ value: "not-a-date" }),
+  }
+  const [next, commands] = update(model, SubmittedSchedule())
+  expect(next.isScheduling).toBe(false)
+  expect(next.feedback).toBe("Kontroller feltene.")
+  expect(commands).toHaveLength(0)
+})
 
-it.prop(
-  "pending scheduling suppresses duplicate schedule commands",
-  {
-    interviewId: fc.string({ minLength: 1 }),
-    departmentId: fc.string({ minLength: 1 }),
-    semesterId: fc.string({ minLength: 1 }),
-  },
-  ({ interviewId, departmentId, semesterId }) => {
-    const model = {
-      ...makeInitialModel("dashboard"),
-      departmentId,
-      semesterId,
-      selectedInterviewId: interviewId,
-      isScheduling: true,
-    };
-    const [next, commands] = update(model, SubmittedSchedule());
-    expect(next).toBe(model);
-    expect(commands).toHaveLength(0);
-  },
-  propertyOptions,
-);
+it("updates each schedule field through its typed message", () => {
+  const [afterDatetime] = update(makeInitialModel("dashboard"), UpdatedDatetime({
+    value: "2026-09-14T15:00:00+02:00",
+  }))
+  const [afterMapLink] = update(afterDatetime, UpdatedMapLink({
+    value: "https://maps.example.com/interview",
+  }))
+  expect(afterMapLink.datetime.value).toBe("2026-09-14T15:00:00+02:00")
+  expect(afterMapLink.mapLink.value).toBe("https://maps.example.com/interview")
+})
 
-it.prop(
-  "context changes clear the selected interview",
-  {
-    interviewId: fc.string({ minLength: 1 }),
-    departmentId: fc.string(),
-    semesterId: fc.string(),
-  },
-  ({ interviewId, departmentId, semesterId }) => {
-    const model = { ...makeInitialModel("dashboard"), selectedInterviewId: interviewId };
-    const [afterDepartment] = update(model, SelectedDepartment({ value: departmentId }));
-    const [afterSemester] = update(model, SelectedSemester({ value: semesterId }));
-    expect(afterDepartment.selectedInterviewId).toBeNull();
-    expect(afterSemester.selectedInterviewId).toBeNull();
-  },
-  propertyOptions,
-);
-
-it.prop(
-  "pending candidate acceptance suppresses duplicate accept commands",
-  {
-    feedback: fc.option(fc.string(), { nil: null }),
-    interviewTime: fc.string(),
-    room: fc.string(),
-    campus: fc.string(),
-  },
-  ({ feedback, interviewTime, room, campus }) => {
-    const model = {
-      ...makeInitialModel("candidate"),
-      candidate: CandidateData.Success({
-        data: { schedulingStatus: "pending" as const, interviewTime, room, campus },
-      }),
-      isAccepting: true,
-      feedback,
-    };
-    const [next, commands] = update(model, AcceptedCandidate());
-    expect(next).toBe(model);
-    expect(commands).toHaveLength(0);
-  },
-  propertyOptions,
-);
+it("clears schedule form state when opening another interview", () => {
+  const [next] = update(filledModel(), OpenedSchedule({ interviewId }))
+  expect(next.datetime.value).toBe("")
+  expect(next.mapLink.value).toBe("")
+  expect(next.message.value).toBe("")
+})

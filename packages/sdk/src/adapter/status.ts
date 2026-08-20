@@ -77,5 +77,43 @@ export function parseInterviewStatus(raw: number): InterviewSchedulingStatus {
   return status;
 }
 
+const INTERVIEW_STATUS_LABEL_MAP: Record<string, InterviewSchedulingStatus> = {
+  "Ikke satt opp": "created",
+  "Ikke oppnådd kontakt": "created",
+  "Ingen svar": "pending",
+  Akseptert: "accepted",
+  "Ny tid ønskes": "request_new_time",
+  Kansellert: "cancelled",
+  created: "created",
+  pending: "pending",
+  accepted: "accepted",
+  request_new_time: "request_new_time",
+  cancelled: "cancelled",
+  no_contact: "no_contact",
+};
+
+export function parseInterviewStatusLabel(raw: string): InterviewSchedulingStatus {
+  const status = INTERVIEW_STATUS_LABEL_MAP[raw.trim()];
+  if (!status) throw new Error(`Unknown interview status label: ${raw}`);
+  return status;
+}
+
+export const encodeInterviewStatusLabel = (status: InterviewSchedulingStatus): string => {
+  switch (status) {
+    case "created":
+      return "Ikke satt opp";
+    case "pending":
+      return "Ingen svar";
+    case "accepted":
+      return "Akseptert";
+    case "request_new_time":
+      return "Ny tid ønskes";
+    case "cancelled":
+      return "Kansellert";
+    case "no_contact":
+      return "Ikke oppnådd kontakt";
+  }
+}
+
 export const encodeInterviewStatus = (status: InterviewSchedulingStatus): InterviewStatusCode =>
   INTERVIEW_STATUS_CODE_BY_STATUS[status];

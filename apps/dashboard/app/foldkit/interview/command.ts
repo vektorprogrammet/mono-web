@@ -1,9 +1,8 @@
 import {
-  AssignedInterviewId,
-  Cycle,
+  InterviewId,
+  InterviewScheduleInput,
   ResponseCapability,
   type EffectSdk,
-  type InterviewScheduleInput,
   type InternalSdkError,
 } from "@vektorprogrammet/sdk/effect"
 import { Effect, Schema as S } from "effect"
@@ -27,9 +26,9 @@ const safeAdminError = (error: unknown): string => {
 
   switch ((error as InternalSdkError)._tag) {
     case "Unauthorized":
-      return "Du har ikke tilgang til denne avdelingen."
+      return "Du har ikke tilgang til intervjuene."
     case "NotFound":
-      return "Det valgte intervjuet eller semesteret finnes ikke."
+      return "Det valgte intervjuet finnes ikke."
     case "Validation":
       return "Kontroller opplysningene og prøv igjen."
     case "Conflict":
@@ -46,26 +45,15 @@ const safeAdminError = (error: unknown): string => {
 
 const candidateUnavailable = "Invitasjonen er ikke tilgjengelig."
 
-const CycleArgs = {
-  departmentId: S.String,
-  semesterId: S.String,
-}
-const InterviewArgs = {
-  ...CycleArgs,
-  interviewId: S.String,
-}
-
 export const makeInterviewCommands = (
   client: EffectSdk,
   rawResponseCapability: string | null,
 ) => {
   const LoadInterviews = Command.define("LoadInterviews", {
-    args: CycleArgs,
     messages: [SucceededLoadInterviews, FailedLoadInterviews],
-    execute: ({ departmentId, semesterId }) =>
-      S.decodeUnknownEffect(Cycle)({ departmentId, semesterId }).pipe(
-        Effect.flatMap((cycle) => client.admin.interviews.listAssigned(cycle)),
-        Effect.map((interviews) => SucceededLoadInterviews({ interviews })),
+    execute: () =>
+      client.admin.interviews.list().pipe(
+        Effect.map(({ items }) => SucceededLoadInterviews({ interviews: items })),
         Effect.catch((error) =>
           Effect.succeed(FailedLoadInterviews({ message: safeAdminError(error) }))
         ),
@@ -74,28 +62,36 @@ export const makeInterviewCommands = (
 
   const ScheduleInterview = Command.define("ScheduleInterview", {
     args: {
-      ...InterviewArgs,
-      interviewTime: S.String,
+      interviewId: InterviewId,
+      datetime: S.String,
       room: S.String,
       campus: S.String,
+      mapLink: S.String,
+      from: S.String,
+      to: S.String,
+      message: S.String,
     },
     messages: [SucceededSchedule, FailedSchedule],
     execute: ({
-      departmentId,
-      semesterId,
       interviewId,
-      interviewTime,
+      datetime,
       room,
       campus,
+      mapLink,
+      from,
+      to,
+      message,
     }) =>
-      Effect.all({
-        cycle: S.decodeUnknownEffect(Cycle)({ departmentId, semesterId }),
-        id: S.decodeUnknownEffect(AssignedInterviewId)(interviewId),
+      S.decodeUnknownEffect(InterviewScheduleInput)({
+        datetime,
+        room,
+        campus,
+        mapLink,
+        from,
+        to,
+        message,
       }).pipe(
-        Effect.flatMap(({ cycle, id }) => {
-          const input: InterviewScheduleInput = { interviewTime, room, campus }
-          return client.admin.interviews.scheduleForCycle(cycle, id, input)
-        }),
+        Effect.flatMap((input) => client.admin.interviews.schedule(interviewId, input)),
         Effect.as(SucceededSchedule()),
         Effect.catch((error) =>
           Effect.succeed(FailedSchedule({ message: safeAdminError(error) }))
@@ -104,16 +100,10 @@ export const makeInterviewCommands = (
   })
 
   const RefreshInterview = Command.define("RefreshInterview", {
-    args: InterviewArgs,
+    args: { interviewId: InterviewId },
     messages: [SucceededRefreshInterview, FailedSchedule],
-    execute: ({ departmentId, semesterId, interviewId }) =>
-      Effect.all({
-        cycle: S.decodeUnknownEffect(Cycle)({ departmentId, semesterId }),
-        id: S.decodeUnknownEffect(AssignedInterviewId)(interviewId),
-      }).pipe(
-        Effect.flatMap(({ cycle, id }) =>
-          client.admin.interviews.readAssigned(cycle, id)
-        ),
+    execute: ({ interviewId }) =>
+      client.admin.interviews.read(interviewId).pipe(
         Effect.map((interview) => SucceededRefreshInterview({ interview })),
         Effect.catch((error) =>
           Effect.succeed(FailedSchedule({ message: safeAdminError(error) }))

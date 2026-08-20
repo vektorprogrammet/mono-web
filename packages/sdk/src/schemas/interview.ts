@@ -1,14 +1,12 @@
 /**
- * Interview schema — transforms integer schedulingStatus from the API
- * into a typed string enum using adapter/status.ts.
+ * Interview schemas — canonical Symfony list, schedule, and response models.
  */
 
-import { Schema, SchemaGetter } from "effect";
+import { Schema, SchemaGetter } from "effect"
 import {
-  encodeInterviewStatus,
-  INTERVIEW_STATUS_CODES,
-  parseInterviewStatus,
-} from "../adapter/status.js";
+  encodeInterviewStatusLabel,
+  parseInterviewStatusLabel,
+} from "../adapter/status.js"
 
 export const InterviewSchedulingStatus = Schema.Literals([
   "created",
@@ -17,82 +15,133 @@ export const InterviewSchedulingStatus = Schema.Literals([
   "request_new_time",
   "cancelled",
   "no_contact",
-]);
-export type InterviewSchedulingStatus = Schema.Schema.Type<typeof InterviewSchedulingStatus>;
+])
+export type InterviewSchedulingStatus = Schema.Schema.Type<typeof InterviewSchedulingStatus>
+
 const boundedIdentifier = Schema.String.pipe(
   Schema.check(Schema.isMinLength(1), Schema.isMaxLength(128)),
-);
+)
 
-export const DepartmentId = boundedIdentifier.pipe(Schema.brand("DepartmentId"));
-export type DepartmentId = typeof DepartmentId.Type;
+export const ResponseCapability = boundedIdentifier.pipe(Schema.brand("ResponseCapability"))
+export type ResponseCapability = typeof ResponseCapability.Type
 
-export const SemesterId = boundedIdentifier.pipe(Schema.brand("SemesterId"));
-export type SemesterId = typeof SemesterId.Type;
+const positiveInteger = Schema.Number.pipe(
+  Schema.check(
+    Schema.makeFilter(
+      (value: number) => Number.isInteger(value) && value > 0,
+      { message: "a positive integer" },
+    ),
+  ),
+)
 
-export const Cycle = Schema.Struct({
-  departmentId: DepartmentId,
-  semesterId: SemesterId,
-});
-export type Cycle = typeof Cycle.Type;
+export const InterviewId = positiveInteger.pipe(Schema.brand("InterviewId"))
+export type InterviewId = typeof InterviewId.Type
 
-export const AssignedInterviewId = boundedIdentifier.pipe(Schema.brand("AssignedInterviewId"));
-export type AssignedInterviewId = typeof AssignedInterviewId.Type;
+const nonEmptyString = Schema.String.pipe(
+  Schema.check(
+    Schema.makeFilter(
+      (value: string) => value.trim().length > 0,
+      { message: "a non-empty string" },
+    ),
+  ),
+)
+const validDatetime = nonEmptyString.pipe(
+  Schema.check(
+    Schema.makeFilter(
+      (value: string) => Number.isFinite(Date.parse(value)),
+      { message: "a valid datetime" },
+    ),
+  ),
+)
 
-export const ResponseCapability = boundedIdentifier.pipe(Schema.brand("ResponseCapability"));
-export type ResponseCapability = typeof ResponseCapability.Type;
-
-export class AssignedInterview extends Schema.Class<AssignedInterview>("AssignedInterview")({
-  id: AssignedInterviewId,
-  applicationId: Schema.String,
-  applicantLabel: Schema.String,
-  cycle: Cycle,
-  interviewerLabel: Schema.String,
+/**
+ * The single typed interview model used by the admin list and fresh reads.
+ * Symfony names the wire fields `scheduled` and `status`; the SDK exposes the
+ * domain names `interviewTime` and `schedulingStatus`.
+ */
+export class Interview extends Schema.Class<Interview>("Interview")({
+  id: InterviewId,
+  applicantName: Schema.String,
+  interviewerName: Schema.NullOr(Schema.String),
+  interviewTime: Schema.NullOr(Schema.String),
   schedulingStatus: InterviewSchedulingStatus,
-  interviewTime: Schema.NullOr(Schema.String),
+  interviewed: Schema.Boolean,
+  coInterviewer: Schema.NullOr(Schema.String),
   room: Schema.NullOr(Schema.String),
   campus: Schema.NullOr(Schema.String),
+  mapLink: Schema.NullOr(Schema.String),
 }) {}
-const RawAssignedInterview = Schema.Struct({
-  id: boundedIdentifier,
-  applicationId: Schema.String,
-  applicantLabel: Schema.String,
-  cycle: Schema.Struct({
-    departmentId: boundedIdentifier,
-    semesterId: boundedIdentifier,
-  }),
-  interviewerLabel: Schema.String,
-  schedulingStatus: Schema.Literals(INTERVIEW_STATUS_CODES),
-  interviewTime: Schema.NullOr(Schema.String),
+
+const RawInterview = Schema.Struct({
+  id: Schema.Number,
+  applicantName: Schema.String,
+  interviewerName: Schema.NullOr(Schema.String),
+  scheduled: Schema.NullOr(Schema.String),
+  status: Schema.String,
+  interviewed: Schema.Boolean,
+  coInterviewer: Schema.NullOr(Schema.String),
   room: Schema.NullOr(Schema.String),
   campus: Schema.NullOr(Schema.String),
-});
+  mapLink: Schema.NullOr(Schema.String),
+})
 
-export const AssignedInterviewFromRaw = RawAssignedInterview.pipe(
-  Schema.decodeTo(AssignedInterview, {
-    decode: SchemaGetter.transform((raw: Schema.Schema.Type<typeof RawAssignedInterview>) => ({
-      id: Schema.decodeUnknownSync(AssignedInterviewId)(raw.id),
-      applicationId: raw.applicationId,
-      applicantLabel: raw.applicantLabel,
-      cycle: Schema.decodeUnknownSync(Cycle)(raw.cycle),
-      interviewerLabel: raw.interviewerLabel,
-      schedulingStatus: parseInterviewStatus(raw.schedulingStatus),
-      interviewTime: raw.interviewTime,
-      room: raw.room,
-      campus: raw.campus,
+const decodeInterview = (raw: Schema.Schema.Type<typeof RawInterview>): typeof Interview.Type => ({
+  id: Schema.decodeUnknownSync(InterviewId)(raw.id),
+  applicantName: raw.applicantName,
+  interviewerName: raw.interviewerName,
+  interviewTime: raw.scheduled,
+  schedulingStatus: parseInterviewStatusLabel(raw.status),
+  interviewed: raw.interviewed,
+  coInterviewer: raw.coInterviewer,
+  room: raw.room,
+  campus: raw.campus,
+  mapLink: raw.mapLink,
+})
+
+const encodeInterview = (interview: typeof Interview.Type): Schema.Schema.Type<typeof RawInterview> => ({
+  id: interview.id,
+  applicantName: interview.applicantName,
+  interviewerName: interview.interviewerName,
+  scheduled: interview.interviewTime,
+  status: encodeInterviewStatusLabel(interview.schedulingStatus),
+  interviewed: interview.interviewed,
+  coInterviewer: interview.coInterviewer,
+  room: interview.room,
+  campus: interview.campus,
+  mapLink: interview.mapLink,
+})
+
+export const InterviewFromRaw = RawInterview.pipe(
+  Schema.decodeTo(Interview, {
+    decode: SchemaGetter.transform(decodeInterview),
+    encode: SchemaGetter.transform(encodeInterview),
+  }),
+)
+
+export class AdminInterviewList extends Schema.Class<AdminInterviewList>("AdminInterviewList")({
+  interviews: Schema.Array(Interview),
+}) {}
+
+const RawAdminInterviewList = Schema.Struct({
+  interviews: Schema.Array(RawInterview),
+})
+
+export const AdminInterviewListFromRaw = RawAdminInterviewList.pipe(
+  Schema.decodeTo(AdminInterviewList, {
+    decode: SchemaGetter.transform((raw: Schema.Schema.Type<typeof RawAdminInterviewList>) => ({
+      interviews: raw.interviews.map(decodeInterview),
     })),
-    encode: SchemaGetter.transform((interview) => ({
-      id: interview.id,
-      applicationId: interview.applicationId,
-      applicantLabel: interview.applicantLabel,
-      cycle: interview.cycle,
-      interviewerLabel: interview.interviewerLabel,
-      schedulingStatus: encodeInterviewStatus(interview.schedulingStatus),
-      interviewTime: interview.interviewTime,
-      room: interview.room,
-      campus: interview.campus,
+    encode: SchemaGetter.transform((list) => ({
+      interviews: list.interviews.map(encodeInterview),
     })),
   }),
-);
+)
+
+export class InterviewSchema_ extends Schema.Class<InterviewSchema_>("InterviewSchema")({
+  id: Schema.Number,
+  name: Schema.String,
+  questionCount: Schema.Number,
+}) {}
 
 export class CandidateInterviewView extends Schema.Class<CandidateInterviewView>(
   "CandidateInterviewView",
@@ -103,83 +152,50 @@ export class CandidateInterviewView extends Schema.Class<CandidateInterviewView>
   campus: Schema.String,
 }) {}
 
-/**
- * Raw API response shape — schedulingStatus is an integer from the server.
- */
-const RawInterview = Schema.Struct({
+const RawCandidateInterviewView = Schema.Struct({
   id: Schema.Number,
-  applicationId: Schema.Number,
-  interviewerId: Schema.NullOr(Schema.Number),
+  scheduled: Schema.String,
+  room: Schema.String,
+  campus: Schema.String,
+  mapLink: Schema.NullOr(Schema.String),
   interviewerName: Schema.NullOr(Schema.String),
-  schedulingStatus: Schema.Literals(INTERVIEW_STATUS_CODES),
-  interviewTime: Schema.NullOr(Schema.String),
-  room: Schema.NullOr(Schema.String),
-  campus: Schema.NullOr(Schema.String),
-  schemaId: Schema.NullOr(Schema.Number),
-});
+  status: Schema.String,
+  responseCode: Schema.String,
+})
 
-/**
- * Interview with derived string schedulingStatus.
- */
-export class Interview extends Schema.Class<Interview>("Interview")({
-  id: Schema.Number,
-  applicationId: Schema.Number,
-  interviewerId: Schema.NullOr(Schema.Number),
-  interviewerName: Schema.NullOr(Schema.String),
-  schedulingStatus: InterviewSchedulingStatus,
-  interviewTime: Schema.NullOr(Schema.String),
-  room: Schema.NullOr(Schema.String),
-  campus: Schema.NullOr(Schema.String),
-  schemaId: Schema.NullOr(Schema.Number),
-}) {}
-
-/**
- * Transform: raw API response (integer schedulingStatus) → Interview (string schedulingStatus).
- */
-export const InterviewFromRaw = RawInterview.pipe(
-  Schema.decodeTo(Interview, {
-    decode: SchemaGetter.transform((raw: Schema.Schema.Type<typeof RawInterview>) => ({
-      id: raw.id,
-      applicationId: raw.applicationId,
-      interviewerId: raw.interviewerId,
-      interviewerName: raw.interviewerName,
-      schedulingStatus: parseInterviewStatus(raw.schedulingStatus),
-      interviewTime: raw.interviewTime,
+export const CandidateInterviewViewFromRaw = RawCandidateInterviewView.pipe(
+  Schema.decodeTo(CandidateInterviewView, {
+    decode: SchemaGetter.transform((raw: Schema.Schema.Type<typeof RawCandidateInterviewView>) => ({
+      schedulingStatus: parseInterviewStatusLabel(raw.status),
+      interviewTime: raw.scheduled,
       room: raw.room,
       campus: raw.campus,
-      schemaId: raw.schemaId,
     })),
-    encode: SchemaGetter.transform((interview) => ({
-      id: interview.id,
-      applicationId: interview.applicationId,
-      interviewerId: interview.interviewerId,
-      interviewerName: interview.interviewerName,
-      schedulingStatus: encodeInterviewStatus(interview.schedulingStatus),
-      interviewTime: interview.interviewTime,
-      room: interview.room,
-      campus: interview.campus,
-      schemaId: interview.schemaId,
+    encode: SchemaGetter.transform((candidate) => ({
+      id: 0,
+      scheduled: candidate.interviewTime,
+      room: candidate.room,
+      campus: candidate.campus,
+      mapLink: null,
+      interviewerName: null,
+      status: encodeInterviewStatusLabel(candidate.schedulingStatus),
+      responseCode: "",
     })),
   }),
-);
+)
 
 /**
- * InterviewSchema_ — the schema/template used for conducting interviews.
- * (Trailing underscore to avoid clash with the ES `Schema` class name.)
- */
-export class InterviewSchema_ extends Schema.Class<InterviewSchema_>("InterviewSchema")({
-  id: Schema.Number,
-  name: Schema.String,
-  questionCount: Schema.Number,
-}) {}
-
-/**
- * Input type for scheduling an interview.
+ * All fields are required because Symfony dispatches each field to the
+ * notification event after it persists the schedule.
  */
 export class InterviewScheduleInput extends Schema.Class<InterviewScheduleInput>(
   "InterviewScheduleInput",
 )({
-  interviewTime: Schema.String,
-  room: Schema.String,
-  campus: Schema.String,
+  datetime: validDatetime,
+  room: nonEmptyString,
+  campus: nonEmptyString,
+  mapLink: nonEmptyString,
+  from: nonEmptyString,
+  to: nonEmptyString,
+  message: nonEmptyString,
 }) {}

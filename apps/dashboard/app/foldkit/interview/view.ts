@@ -1,23 +1,21 @@
-import { Button, Input, Select } from "@foldkit/ui"
-import type { AssignedInterview, InterviewSchedulingStatus } from "@vektorprogrammet/sdk/effect"
+import { Button, Input } from "@foldkit/ui"
+import type { Interview, InterviewSchedulingStatus } from "@vektorprogrammet/sdk/effect"
 import { AsyncData, FieldValidation } from "foldkit"
 import type { Html, HtmlBuilder } from "foldkit/html"
 import {
   AcceptedCandidate,
   OpenedSchedule,
-  SelectedDepartment,
-  SelectedSemester,
-  SubmittedContext,
   SubmittedSchedule,
   UpdatedCampus,
-  UpdatedInterviewTime,
+  UpdatedDatetime,
+  UpdatedFrom,
+  UpdatedMapLink,
+  UpdatedMessage,
   UpdatedRoom,
+  UpdatedTo,
   type Message,
 } from "./message"
 import type { Model } from "./model"
-
-const DEPARTMENT_ID = "dep-trd-1"
-const SEMESTER_ID = "sem-2026-høst"
 
 const statusLabel = (status: InterviewSchedulingStatus): string => {
   switch (status) {
@@ -38,47 +36,18 @@ const statusLabel = (status: InterviewSchedulingStatus): string => {
 
 const fieldError = (
   id: string,
-  field: Model["departmentValidation"],
+  field: Model["datetime"],
   h: HtmlBuilder<Message>,
 ): Html => field._tag === "Invalid"
   ? h.p([h.Id(`${id}-error`), h.Class("fk-field-error"), h.Role("alert")], [field.errors.join(" ")])
   : h.empty
-
-const selectField = (
-  config: {
-    id: string
-    label: string
-    value: string
-    field: Model["departmentValidation"]
-    optionValue: string
-    optionLabel: string
-    onChange: (value: string) => Message
-    isDisabled: boolean
-  },
-  h: HtmlBuilder<Message>,
-): Html => Select.view({
-  id: config.id,
-  value: config.value,
-  onChange: config.onChange,
-  isDisabled: config.isDisabled,
-  isInvalid: FieldValidation.isInvalid(config.field),
-  toView: ({ select, label, description }) => h.div([h.Class("fk-field")], [
-    h.label([...label, h.Class("fk-label")], [config.label]),
-    h.select([...select, h.Class("fk-select")], [
-      h.option([h.Value(""), ...(config.value === "" ? [h.Selected(true)] : [])], ["Velg …"]),
-      h.option([h.Value(config.optionValue), ...(config.value === config.optionValue ? [h.Selected(true)] : [])], [config.optionLabel]),
-    ]),
-    h.p([...description, h.Class("fk-field-hint")], ["Påkrevd"]),
-    fieldError(config.id, config.field, h),
-  ]),
-}, h)
 
 const textField = (
   config: {
     id: string
     label: string
     value: string
-    field: Model["interviewTime"]
+    field: Model["datetime"]
     placeholder: string
     onInput: (value: string) => Message
     isDisabled: boolean
@@ -120,7 +89,7 @@ const statusPill = (status: InterviewSchedulingStatus, h: HtmlBuilder<Message>):
   h.Class(`fk-status fk-status--${status}`),
 ], [statusLabel(status)])
 
-const scheduleForm = (model: Model, interview: AssignedInterview, h: HtmlBuilder<Message>): Html => {
+const scheduleForm = (model: Model, interview: Interview, h: HtmlBuilder<Message>): Html => {
   if (model.selectedInterviewId !== interview.id) return h.empty
   if (interview.schedulingStatus !== "created") {
     return h.div([h.Class("fk-inline-note")], ["Intervjuet kan ikke planlegges på nytt i denne tilstanden."])
@@ -133,16 +102,16 @@ const scheduleForm = (model: Model, interview: AssignedInterview, h: HtmlBuilder
   ], [
     h.div([h.Class("fk-section-heading")], [
       h.h3([h.Id(`schedule-title-${interview.id}`)], ["Planlegg intervju"]),
-      h.p([], ["Fyll ut avtalt tid og sted. Kandidaten får en invitasjon når du lagrer."]),
+      h.p([], ["Fyll ut tid, sted og meldingsfeltene. Kandidaten får en invitasjon når du lagrer."]),
     ]),
     h.div([h.Class("fk-form-grid")], [
       textField({
-        id: `interview-time-${interview.id}`,
+        id: `datetime-${interview.id}`,
         label: "Tidspunkt",
-        value: model.interviewTime.value,
-        field: model.interviewTime,
+        value: model.datetime.value,
+        field: model.datetime,
         placeholder: "2026-09-14T15:00:00+02:00",
-        onInput: (value) => UpdatedInterviewTime({ value }),
+        onInput: (value) => UpdatedDatetime({ value }),
         isDisabled: model.isScheduling,
       }, h),
       textField({
@@ -163,6 +132,42 @@ const scheduleForm = (model: Model, interview: AssignedInterview, h: HtmlBuilder
         onInput: (value) => UpdatedCampus({ value }),
         isDisabled: model.isScheduling,
       }, h),
+      textField({
+        id: `map-link-${interview.id}`,
+        label: "Kartlenke",
+        value: model.mapLink.value,
+        field: model.mapLink,
+        placeholder: "https://maps.example.com/…",
+        onInput: (value) => UpdatedMapLink({ value }),
+        isDisabled: model.isScheduling,
+      }, h),
+      textField({
+        id: `from-${interview.id}`,
+        label: "Avsender",
+        value: model.from.value,
+        field: model.from,
+        placeholder: "intervjuer@example.com",
+        onInput: (value) => UpdatedFrom({ value }),
+        isDisabled: model.isScheduling,
+      }, h),
+      textField({
+        id: `to-${interview.id}`,
+        label: "Mottaker",
+        value: model.to.value,
+        field: model.to,
+        placeholder: "søker@example.com",
+        onInput: (value) => UpdatedTo({ value }),
+        isDisabled: model.isScheduling,
+      }, h),
+      textField({
+        id: `message-${interview.id}`,
+        label: "Melding",
+        value: model.message.value,
+        field: model.message,
+        placeholder: "Vi ser frem til å møte deg.",
+        onInput: (value) => UpdatedMessage({ value }),
+        isDisabled: model.isScheduling,
+      }, h),
     ]),
     h.div([h.Class("fk-actions")], [
       actionButton(model.isScheduling ? "Lagrer …" : "Lagre og send", SubmittedSchedule(), model.isScheduling, h),
@@ -170,30 +175,25 @@ const scheduleForm = (model: Model, interview: AssignedInterview, h: HtmlBuilder
   ])
 }
 
-const interviewDetails = (interview: AssignedInterview, h: HtmlBuilder<Message>): Html => {
+const interviewDetails = (interview: Interview, h: HtmlBuilder<Message>): Html => {
   if (interview.interviewTime === null || interview.room === null || interview.campus === null) return h.empty
   return h.dl([h.Class("fk-details")], [
     h.div([], [h.dt([], ["Tidspunkt"]), h.dd([], [interview.interviewTime])]),
     h.div([], [h.dt([], ["Rom"]), h.dd([], [interview.room])]),
     h.div([], [h.dt([], ["Campus"]), h.dd([], [interview.campus])]),
-    h.div([], [h.dt([], ["Intervjuer"]), h.dd([], [interview.interviewerLabel])]),
+    h.div([], [h.dt([], ["Intervjuer"]), h.dd([], [interview.interviewerName ?? "Ikke oppgitt"])]),
   ])
 }
-
-const interviewCard = (model: Model, interview: AssignedInterview, h: HtmlBuilder<Message>): Html => h.article([
+const interviewCard = (model: Model, interview: Interview, h: HtmlBuilder<Message>): Html => h.article([
   h.Class("fk-interview"),
   h.AriaLabelledBy(`applicant-${interview.id}`),
 ], [
   h.div([h.Class("fk-interview__header")], [
     h.div([], [
       h.p([h.Class("fk-eyebrow")], ["Tildelt søker"]),
-      h.h3([h.Id(`applicant-${interview.id}`)], [interview.applicantLabel]),
+      h.h3([h.Id(`applicant-${interview.id}`)], [interview.applicantName]),
     ]),
     statusPill(interview.schedulingStatus, h),
-  ]),
-  h.dl([h.Class("fk-context-summary")], [
-    h.div([], [h.dt([], ["Avdeling"]), h.dd([], ["Trondheim"])]),
-    h.div([], [h.dt([], ["Semester"]), h.dd([], ["Høst 2026"])]),
   ]),
   interviewDetails(interview, h),
   interview.schedulingStatus === "created"
@@ -204,26 +204,27 @@ const interviewCard = (model: Model, interview: AssignedInterview, h: HtmlBuilde
   scheduleForm(model, interview, h),
 ])
 
-const successInterviews = (model: Model, interviews: ReadonlyArray<AssignedInterview>, h: HtmlBuilder<Message>): Html => h.section([
+const successInterviews = (model: Model, interviews: ReadonlyArray<Interview>, h: HtmlBuilder<Message>): Html => h.section([
   h.Class("fk-results"),
   h.AriaLabelledBy("assigned-applicants-heading"),
 ], [
   h.div([h.Class("fk-section-heading")], [
-    h.p([h.Class("fk-eyebrow")], ["Trondheim · Høst 2026"]),
+    h.p([h.Class("fk-eyebrow")], ["Opptak · Intervjuer"]),
     h.h2([h.Id("assigned-applicants-heading")], ["Tildelte søkere"]),
-    h.p([], [interviews.length === 1 ? "1 søker i valgt opptak." : `${interviews.length} søkere i valgt opptak.`]),
+    h.p([], [interviews.length === 1 ? "1 søker." : `${interviews.length} søkere.`]),
   ]),
   interviews.length === 0
     ? h.div([h.Class("fk-empty")], [
       h.h3([], ["Ingen tildelte søkere"]),
-      h.p([], ["Det finnes ingen tildelte søkere for denne avdelingen og dette semesteret."]),
+      h.p([], ["Det finnes ingen tildelte søkere for ditt opptak."]),
     ])
     : h.div([h.Class("fk-interview-list")], interviews.map((interview) => interviewCard(model, interview, h))),
 ])
 
+
 const interviewsView = (model: Model, h: HtmlBuilder<Message>): Html => AsyncData.match(model.interviews, {
   onIdle: () => h.div([h.Class("fk-guidance")], [
-    h.p([], ["Velg avdeling og semester for å se tildelte søkere."]),
+    h.p([], ["Henter tildelte søkere …"]),
   ]),
   onLoading: () => h.div([h.Class("fk-loading"), h.Role("status"), h.AriaLive("polite")], [
     h.span([h.Class("fk-spinner"), h.AriaHidden(true)], []),
@@ -241,51 +242,17 @@ const interviewsView = (model: Model, h: HtmlBuilder<Message>): Html => AsyncDat
   onSuccess: (interviews) => successInterviews(model, interviews, h),
 })
 
-const dashboardView = (model: Model, h: HtmlBuilder<Message>): Html => {
-  const isLoading = AsyncData.isPending(model.interviews)
-  return h.main([h.Class("foldkit-interview foldkit-interview--dashboard")], [
-    h.header([h.Class("fk-page-header")], [
-      h.p([h.Class("fk-eyebrow")], ["Opptak · Intervjuer"]),
-      h.h1([], ["Planlegg intervjuer"]),
-      h.p([h.Class("fk-lead")], ["Velg et opptak, finn tildelte søkere og send intervjuinvitasjonen."]),
-    ]),
-    h.section([h.Class("fk-context-panel"), h.AriaLabelledBy("context-heading")], [
-      h.div([h.Class("fk-section-heading")], [
-        h.h2([h.Id("context-heading")], ["Velg opptak"]),
-        h.p([], ["Avdeling og semester brukes sammen og må velges eksplisitt."]),
-      ]),
-      h.form([h.OnSubmit(SubmittedContext()), h.Class("fk-context-form")], [
-        h.div([h.Class("fk-form-grid fk-form-grid--context")], [
-          selectField({
-            id: "department",
-            label: "Avdeling",
-            value: model.departmentId,
-            field: model.departmentValidation,
-            optionValue: DEPARTMENT_ID,
-            optionLabel: "Trondheim",
-            onChange: (value) => SelectedDepartment({ value }),
-            isDisabled: isLoading,
-          }, h),
-          selectField({
-            id: "semester",
-            label: "Semester",
-            value: model.semesterId,
-            field: model.semesterValidation,
-            optionValue: SEMESTER_ID,
-            optionLabel: "Høst 2026",
-            onChange: (value) => SelectedSemester({ value }),
-            isDisabled: isLoading,
-          }, h),
-        ]),
-        h.div([h.Class("fk-actions")], [
-          actionButton(isLoading ? "Henter …" : "Vis søkere", SubmittedContext(), isLoading, h),
-        ]),
-      ]),
-    ]),
-    feedbackView(model.feedback, h),
-    interviewsView(model, h),
-  ])
-}
+const dashboardView = (model: Model, h: HtmlBuilder<Message>): Html => h.main([
+  h.Class("foldkit-interview foldkit-interview--dashboard"),
+], [
+  h.header([h.Class("fk-page-header")], [
+    h.p([h.Class("fk-eyebrow")], ["Opptak · Intervjuer"]),
+    h.h1([], ["Planlegg intervjuer"]),
+    h.p([h.Class("fk-lead")], ["Tildelte søkere fra Symfony. Planlegg tid, sted og send invitasjonen."]),
+  ]),
+  feedbackView(model.feedback, h),
+  interviewsView(model, h),
+])
 
 const candidateSuccess = (model: Model, h: HtmlBuilder<Message>): Html => {
   const candidate = AsyncData.getData(model.candidate)

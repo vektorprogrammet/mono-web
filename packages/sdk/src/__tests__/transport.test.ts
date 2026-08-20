@@ -7,7 +7,6 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 import { Effect, Schema } from "effect"
 import { createTransport } from "../transport.js"
 import { createAdminInterviewsDomain } from "../domains/admin/interviews.js"
-import { AssignedInterviewId, Cycle } from "../schemas/interview.js"
 
 // Helper: run an Effect to a Promise, mapping InternalSdkError to public SdkError
 function run<A>(effect: Effect.Effect<A, any>): Promise<A> {
@@ -110,22 +109,73 @@ describe("createTransport", () => {
       expect((init.headers as Record<string, string>)["Authorization"]).toBe("Bearer dynamic-token")
     })
   })
-  describe("interview endpoint encoding", () => {
-  it("encodes opaque assigned interview identifiers before transport", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(makeFetchResponse(204, null))
-    vi.stubGlobal("fetch", fetchMock)
-    const cycle = Schema.decodeUnknownSync(Cycle)({
-      departmentId: "dep-trd-1",
-      semesterId: "sem-2026-høst",
+  describe("interview scheduling", () => {
+    it("posts the canonical schedule path and complete event payload", async () => {
+      const fetchMock = vi.fn().mockResolvedValue(makeFetchResponse(204, null))
+      vi.stubGlobal("fetch", fetchMock)
+      const input = {
+        datetime: "2026-09-14T15:00:00+02:00",
+        room: "Rom 2",
+        campus: "Gløshaugen",
+        mapLink: "https://maps.example.com/interview",
+        from: "interviewer@example.com",
+        to: "applicant@example.com",
+        message: "Vi ser frem til møtet.",
+      }
+
+      await run(createAdminInterviewsDomain(createTransport("http://api.test")).schedule(42, input))
+
+      const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+      expect(url).toBe("http://api.test/api/admin/interviews/42/schedule")
+      expect(init.method).toBe("POST")
+      expect(JSON.parse(String(init.body))).toEqual(input)
     })
-    const interviewId = Schema.decodeUnknownSync(AssignedInterviewId)("id/with space")
-    await run(createAdminInterviewsDomain(createTransport("http://api.test")).scheduleForCycle(
-      cycle,
-      interviewId,
-      { interviewTime: "2026-09-14T15:00:00+02:00", room: "Rom 2", campus: "Gløshaugen" },
-    ))
-    expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/assigned/id%2Fwith%20space/schedule")
-    vi.unstubAllGlobals()
+
+    it("rejects an invalid datetime before making a request", async () => {
+      const fetchMock = vi.fn()
+      vi.stubGlobal("fetch", fetchMock)
+
+      const error = await runFail(
+        createAdminInterviewsDomain(createTransport("http://api.test")).schedule(42, {
+          datetime: "not-a-date",
+          room: "Rom 2",
+          campus: "Gløshaugen",
+          mapLink: "https://maps.example.com/interview",
+          from: "interviewer@example.com",
+          to: "applicant@example.com",
+          message: "Vi ser frem til møtet.",
+        }),
+      )
+
+      expect(error._tag).toBe("Validation")
+      expect(fetchMock).not.toHaveBeenCalled()
+    })
+
+    it("fresh-reads the stored interview from the real list resource", async () => {
+      const fetchMock = vi.fn().mockResolvedValue(makeFetchResponse(200, {
+        interviews: [{
+          id: 42,
+          applicantName: "Ada Lovelace",
+          interviewerName: "Grace Hopper",
+          scheduled: "2026-09-14T15:00:00+02:00",
+          status: "Ingen svar",
+          interviewed: false,
+          coInterviewer: null,
+          room: "Rom 2",
+          campus: "Gløshaugen",
+          mapLink: "https://maps.example.com/interview",
+        }],
+      }))
+      vi.stubGlobal("fetch", fetchMock)
+
+      const interview = await run(
+        createAdminInterviewsDomain(createTransport("http://api.test")).read(42),
+      )
+
+      expect(interview.interviewTime).toBe("2026-09-14T15:00:00+02:00")
+      expect(interview.room).toBe("Rom 2")
+      expect(interview.campus).toBe("Gløshaugen")
+      expect(interview.schedulingStatus).toBe("pending")
+    })
   })
-})
 })

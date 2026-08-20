@@ -2,7 +2,8 @@ import { Effect } from "effect"
 import type { Transport } from "../transport.js"
 import type { InternalSdkError } from "../errors.js"
 import {
-  CandidateInterviewView,
+  CandidateInterviewViewFromRaw,
+  type CandidateInterviewView,
   type ResponseCapability,
 } from "../schemas/interview.js"
 
@@ -16,7 +17,7 @@ export function createInterviewResponsesDomain(transport: Transport): InterviewR
     read(capability) {
       return transport.get(
         `/api/interview-responses/${encodeURIComponent(capability)}`,
-        CandidateInterviewView,
+        CandidateInterviewViewFromRaw,
       )
     },
     accept(capability) {

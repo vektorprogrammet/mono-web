@@ -4,15 +4,11 @@ import type { InterviewCommands } from "./command"
 import type { Message } from "./message"
 import { CandidateData, InterviewsData, type Model } from "./model"
 
-const contextRules = FieldValidation.makeRules({
-  required: "Velg et alternativ.",
-  isEmpty: (value) => value.trim() === "",
-})
 const textRules = FieldValidation.makeRules({
   required: "Feltet må fylles ut.",
   isEmpty: (value) => value.trim() === "",
 })
-const timeRules = FieldValidation.makeRules({
+const datetimeRules = FieldValidation.makeRules({
   required: "Velg tidspunkt.",
   isEmpty: (value) => value.trim() === "",
   rules: [[
@@ -34,39 +30,6 @@ export const makeUpdate = ({
   M.value(message).pipe(
     M.withReturnType<readonly [Model, ReadonlyArray<Command.Command<Message>>]>(),
     M.tagsExhaustive({
-      SelectedDepartment: ({ value }) => [{
-        ...model,
-        departmentId: value,
-        departmentValidation: FieldValidation.validate(contextRules)(value),
-        interviews: InterviewsData.Idle(),
-        selectedInterviewId: null,
-        feedback: null,
-      }, []],
-      SelectedSemester: ({ value }) => [{
-        ...model,
-        semesterId: value,
-        semesterValidation: FieldValidation.validate(contextRules)(value),
-        interviews: InterviewsData.Idle(),
-        selectedInterviewId: null,
-        feedback: null,
-      }, []],
-      SubmittedContext: () => {
-        if (AsyncData.isPending(model.interviews)) return [model, []]
-        const departmentValidation = FieldValidation.validate(contextRules)(model.departmentId)
-        const semesterValidation = FieldValidation.validate(contextRules)(model.semesterId)
-        if (!FieldValidation.isValid(contextRules)(departmentValidation)
-          || !FieldValidation.isValid(contextRules)(semesterValidation)) {
-          return [{ ...model, departmentValidation, semesterValidation, feedback: "Velg avdeling og semester." }, []]
-        }
-        return [{
-          ...model,
-          departmentValidation,
-          semesterValidation,
-          interviews: InterviewsData.Loading(),
-          selectedInterviewId: null,
-          feedback: null,
-        }, [LoadInterviews({ departmentId: model.departmentId, semesterId: model.semesterId })]]
-      },
       SucceededLoadInterviews: ({ interviews }) => [{
         ...model,
         interviews: InterviewsData.Success({ data: interviews }),
@@ -81,14 +44,18 @@ export const makeUpdate = ({
       OpenedSchedule: ({ interviewId }) => [{
         ...model,
         selectedInterviewId: interviewId,
-        interviewTime: FieldValidation.NotValidated({ value: "" }),
+        datetime: FieldValidation.NotValidated({ value: "" }),
         room: FieldValidation.NotValidated({ value: "" }),
         campus: FieldValidation.NotValidated({ value: "" }),
+        mapLink: FieldValidation.NotValidated({ value: "" }),
+        from: FieldValidation.NotValidated({ value: "" }),
+        to: FieldValidation.NotValidated({ value: "" }),
+        message: FieldValidation.NotValidated({ value: "" }),
         feedback: null,
       }, []],
-      UpdatedInterviewTime: ({ value }) => [{
+      UpdatedDatetime: ({ value }) => [{
         ...model,
-        interviewTime: FieldValidation.validate(timeRules)(value),
+        datetime: FieldValidation.validate(datetimeRules)(value),
         feedback: null,
       }, []],
       UpdatedRoom: ({ value }) => [{
@@ -101,34 +68,87 @@ export const makeUpdate = ({
         campus: FieldValidation.validate(textRules)(value),
         feedback: null,
       }, []],
+      UpdatedMapLink: ({ value }) => [{
+        ...model,
+        mapLink: FieldValidation.validate(textRules)(value),
+        feedback: null,
+      }, []],
+      UpdatedFrom: ({ value }) => [{
+        ...model,
+        from: FieldValidation.validate(textRules)(value),
+        feedback: null,
+      }, []],
+      UpdatedTo: ({ value }) => [{
+        ...model,
+        to: FieldValidation.validate(textRules)(value),
+        feedback: null,
+      }, []],
+      UpdatedMessage: ({ value }) => [{
+        ...model,
+        message: FieldValidation.validate(textRules)(value),
+        feedback: null,
+      }, []],
       SubmittedSchedule: () => {
         if (model.isScheduling || model.selectedInterviewId === null) return [model, []]
-        const interviewTime = FieldValidation.validate(timeRules)(model.interviewTime.value)
+        const datetime = FieldValidation.validate(datetimeRules)(model.datetime.value)
         const room = FieldValidation.validate(textRules)(model.room.value)
         const campus = FieldValidation.validate(textRules)(model.campus.value)
-        if (!FieldValidation.isValid(timeRules)(interviewTime)
-          || !FieldValidation.isValid(textRules)(room)
-          || !FieldValidation.isValid(textRules)(campus)) {
-          return [{ ...model, interviewTime, room, campus, feedback: "Kontroller feltene." }, []]
+        const mapLink = FieldValidation.validate(textRules)(model.mapLink.value)
+        const from = FieldValidation.validate(textRules)(model.from.value)
+        const to = FieldValidation.validate(textRules)(model.to.value)
+        const message = FieldValidation.validate(textRules)(model.message.value)
+        const valid = [
+          FieldValidation.isValid(datetimeRules)(datetime),
+          FieldValidation.isValid(textRules)(room),
+          FieldValidation.isValid(textRules)(campus),
+          FieldValidation.isValid(textRules)(mapLink),
+          FieldValidation.isValid(textRules)(from),
+          FieldValidation.isValid(textRules)(to),
+          FieldValidation.isValid(textRules)(message),
+        ].every(Boolean)
+        if (!valid) {
+          return [{
+            ...model,
+            datetime,
+            room,
+            campus,
+            mapLink,
+            from,
+            to,
+            message,
+            feedback: "Kontroller feltene.",
+          }, []]
         }
-        return [{ ...model, interviewTime, room, campus, isScheduling: true, feedback: null }, [
+        return [{
+          ...model,
+          datetime,
+          room,
+          campus,
+          mapLink,
+          from,
+          to,
+          message,
+          isScheduling: true,
+          feedback: null,
+        }, [
           ScheduleInterview({
-            departmentId: model.departmentId,
-            semesterId: model.semesterId,
             interviewId: model.selectedInterviewId,
-            interviewTime: interviewTime.value,
+            datetime: datetime.value,
             room: room.value,
             campus: campus.value,
+            mapLink: mapLink.value,
+            from: from.value,
+            to: to.value,
+            message: message.value,
           }),
         ]]
       },
       SucceededSchedule: () => {
         if (model.selectedInterviewId === null) return [{ ...model, isScheduling: false }, []]
-        return [{ ...model, isScheduling: false }, [RefreshInterview({
-          departmentId: model.departmentId,
-          semesterId: model.semesterId,
-          interviewId: model.selectedInterviewId,
-        })]]
+        return [{
+          ...model,
+          isScheduling: false,
+        }, [RefreshInterview({ interviewId: model.selectedInterviewId })]]
       },
       FailedSchedule: ({ message }) => [{ ...model, isScheduling: false, feedback: message }, []],
       SucceededRefreshInterview: ({ interview }) => {

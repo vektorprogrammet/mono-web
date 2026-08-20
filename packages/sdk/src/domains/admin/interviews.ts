@@ -1,5 +1,5 @@
 /**
- * Admin interviews domain — list, assign, schedule, conduct, cancel, schemas.
+ * Admin interviews domain — list, schedule, conduct, cancel, schemas.
  *
  * Endpoints:
  *   GET  /api/admin/interviews
@@ -12,30 +12,27 @@
 
 import { Effect, Schema } from "effect"
 import type { Transport } from "../../transport.js"
-import { type InternalSdkError } from "../../errors.js"
+import { NotFound, Validation, type InternalSdkError } from "../../errors.js"
 import {
-  AssignedInterview,
-  InterviewFromRaw,
+  AdminInterviewListFromRaw,
+  Interview,
+  InterviewId,
+  InterviewScheduleInput,
   InterviewSchema_,
-  type AssignedInterviewId,
-  type Cycle,
-  type Interview,
-  type InterviewScheduleInput,
+  type InterviewScheduleInput as InterviewScheduleInputType,
 } from "../../schemas/interview.js"
 
-export interface AdminInterviewsDomain {
-  listAssigned(cycle: Cycle): Effect.Effect<readonly AssignedInterview[], InternalSdkError>
-  readAssigned(cycle: Cycle, interviewId: AssignedInterviewId): Effect.Effect<AssignedInterview, InternalSdkError>
-  scheduleForCycle(
-    cycle: Cycle,
-    interviewId: AssignedInterviewId,
-    input: InterviewScheduleInput,
-  ): Effect.Effect<void, InternalSdkError>
+type InterviewList = {
+  readonly items: Interview[]
+  readonly totalItems: number
+}
 
+export interface AdminInterviewsDomain {
   list(params?: {
-    page?: number
-    pageSize?: number
-  }): Effect.Effect<{ items: Interview[]; totalItems: number }, InternalSdkError>
+    department?: number
+    semester?: number
+  }): Effect.Effect<InterviewList, InternalSdkError>
+  read(id: number): Effect.Effect<Interview, InternalSdkError>
 
   assign(
     applicationId: number,
@@ -45,7 +42,7 @@ export interface AdminInterviewsDomain {
 
   schedule(
     id: number,
-    input: typeof InterviewScheduleInput.Type,
+    input: InterviewScheduleInputType,
   ): Effect.Effect<void, InternalSdkError>
 
   conduct(
@@ -59,46 +56,46 @@ export interface AdminInterviewsDomain {
   schemas(): Effect.Effect<readonly typeof InterviewSchema_.Type[], InternalSdkError>
 }
 
+const invalidInput = (cause: unknown): Validation =>
+  new Validation({
+    message: cause instanceof Error ? `Invalid interview input: ${cause.message}` : "Invalid interview input",
+    fields: {},
+  })
+
 export function createAdminInterviewsDomain(transport: Transport): AdminInterviewsDomain {
+  const list = (params?: {
+    department?: number
+    semester?: number
+  }): Effect.Effect<InterviewList, InternalSdkError> => {
+    const query: Record<string, string | number | undefined> = {
+      department: params?.department,
+      semester: params?.semester,
+    }
+    return transport.get("/api/admin/interviews", AdminInterviewListFromRaw, query).pipe(
+      Effect.map(({ interviews }) => ({
+        items: Array.from(interviews),
+        totalItems: interviews.length,
+      })),
+    )
+  }
+
   return {
-    listAssigned(cycle) {
-      return transport.get(
-        "/api/admin/interviews/assigned",
-        Schema.Array(AssignedInterview),
-        {
-          departmentId: cycle.departmentId,
-          semesterId: cycle.semesterId,
-        },
+    list,
+
+    read(id) {
+      return Schema.decodeUnknownEffect(InterviewId)(id).pipe(
+        Effect.mapError(invalidInput),
+        Effect.flatMap((validId) =>
+          list().pipe(
+            Effect.flatMap(({ items }) => {
+              const interview = items.find((candidate) => candidate.id === validId)
+              return interview === undefined
+                ? Effect.fail(new NotFound({ message: "Interview not found" }))
+                : Effect.succeed(interview)
+            }),
+          ),
+        ),
       )
-    },
-
-    readAssigned(cycle, interviewId) {
-      return transport.get(
-        `/api/admin/interviews/assigned/${encodeURIComponent(interviewId)}`,
-        AssignedInterview,
-        {
-          departmentId: cycle.departmentId,
-          semesterId: cycle.semesterId,
-        },
-      )
-    },
-
-    scheduleForCycle(cycle, interviewId, input) {
-      return transport.put(`/api/admin/interviews/assigned/${encodeURIComponent(interviewId)}/schedule`, {
-        departmentId: cycle.departmentId,
-        semesterId: cycle.semesterId,
-        interviewTime: input.interviewTime,
-        room: input.room,
-        campus: input.campus,
-      })
-    },
-
-
-    list(params) {
-      const query: Record<string, string | number | undefined> = {}
-      if (params?.page !== undefined) query.page = params.page
-      if (params?.pageSize !== undefined) query.itemsPerPage = params.pageSize
-      return transport.getCollection("/api/admin/interviews", InterviewFromRaw, query)
     },
 
     assign(applicationId, interviewerId, schemaId) {
@@ -110,7 +107,15 @@ export function createAdminInterviewsDomain(transport: Transport): AdminIntervie
     },
 
     schedule(id, input) {
-      return transport.put(`/api/admin/interviews/${id}/schedule`, input)
+      return Effect.all({
+        interviewId: Schema.decodeUnknownEffect(InterviewId)(id),
+        input: Schema.decodeUnknownEffect(InterviewScheduleInput)(input),
+      }).pipe(
+        Effect.mapError(invalidInput),
+        Effect.flatMap(({ interviewId, input: validInput }) =>
+          transport.postVoid(`/api/admin/interviews/${interviewId}/schedule`, validInput),
+        ),
+      )
     },
 
     conduct(id, score, answers) {

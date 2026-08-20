@@ -1,6 +1,6 @@
 import {
-  AssignedInterviewId,
-  Cycle,
+  InterviewId,
+  InterviewScheduleInput,
   ResponseCapability,
   type Sdk,
 } from "@vektorprogrammet/sdk"
@@ -11,13 +11,12 @@ const CandidateCookie = "foldkit_candidate"
 const ControlHeader = "X-Interview-Fixture-Control"
 
 const Operation = Schema.Union([
-  Schema.Struct({ operation: Schema.Literal("listAssigned"), cycle: Cycle }),
-  Schema.Struct({ operation: Schema.Literal("readAssigned"), cycle: Cycle, interviewId: AssignedInterviewId }),
+  Schema.Struct({ operation: Schema.Literal("listInterviews") }),
+  Schema.Struct({ operation: Schema.Literal("readInterview"), interviewId: InterviewId }),
   Schema.Struct({
-    operation: Schema.Literal("scheduleForCycle"),
-    cycle: Cycle,
-    interviewId: AssignedInterviewId,
-    input: Schema.Struct({ interviewTime: Schema.String, room: Schema.String, campus: Schema.String }),
+    operation: Schema.Literal("scheduleInterview"),
+    interviewId: InterviewId,
+    input: InterviewScheduleInput,
   }),
   Schema.Struct({ operation: Schema.Literal("readCandidate") }),
   Schema.Struct({ operation: Schema.Literal("acceptCandidate") }),
@@ -86,12 +85,12 @@ export const decodeOperation = (value: unknown): Operation =>
 
 export const runOperation = async (request: Request, operation: Operation): Promise<unknown> => {
   switch (operation.operation) {
-    case "listAssigned":
-      return sdkFor(request).admin.interviews.listAssigned(operation.cycle)
-    case "readAssigned":
-      return sdkFor(request).admin.interviews.readAssigned(operation.cycle, operation.interviewId)
-    case "scheduleForCycle":
-      await sdkFor(request).admin.interviews.scheduleForCycle(operation.cycle, operation.interviewId, operation.input)
+    case "listInterviews":
+      return sdkFor(request).admin.interviews.list()
+    case "readInterview":
+      return sdkFor(request).admin.interviews.read(operation.interviewId)
+    case "scheduleInterview":
+      await sdkFor(request).admin.interviews.schedule(operation.interviewId, operation.input)
       return null
     case "readCandidate": {
       const capability = Schema.decodeUnknownSync(ResponseCapability)(candidateCapability(request))

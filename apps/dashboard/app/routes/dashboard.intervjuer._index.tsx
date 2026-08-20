@@ -8,7 +8,7 @@ import type { Route } from "./+types/dashboard.intervjuer._index";
 
 type InterviewRow = Pick<
   Interview,
-  "id" | "applicationId" | "interviewerName" | "interviewTime" | "schedulingStatus"
+  "id" | "applicantName" | "interviewerName" | "interviewTime" | "schedulingStatus"
 >;
 
 export async function loader({ request }: Route.LoaderArgs) {
@@ -16,9 +16,9 @@ export async function loader({ request }: Route.LoaderArgs) {
   const client = createAuthenticatedClient(token);
   const result = await client.admin.interviews.list();
   const interviews = result.items.map(
-    ({ id, applicationId, interviewerName, interviewTime, schedulingStatus }) => ({
+    ({ id, applicantName, interviewerName, interviewTime, schedulingStatus }) => ({
       id,
-      applicationId,
+      applicantName,
       interviewerName,
       interviewTime,
       schedulingStatus,
@@ -29,10 +29,9 @@ export async function loader({ request }: Route.LoaderArgs) {
 }
 
 const columns: Array<ColumnDef<InterviewRow>> = [
-  { accessorKey: "id", header: "ID" },
-  { accessorKey: "applicationId", header: "Søknad" },
+  { accessorKey: "applicantName", header: "Søker" },
   {
-    id: "name",
+    id: "interviewer",
     accessorKey: "interviewerName",
     header: "Intervjuer",
     cell: ({ row }) => row.original.interviewerName ?? "Unavailable",

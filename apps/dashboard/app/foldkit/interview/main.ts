@@ -32,7 +32,7 @@ export function embedInterview(
     init: () =>
       input.mode === "candidate"
         ? update(initialModel, OpenedCandidate())
-        : [initialModel, []],
+        : [initialModel, [commands.LoadInterviews()]],
     update,
     view,
     devTools: false,

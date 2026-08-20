@@ -10,7 +10,6 @@ import {
   parseInterviewStatus,
 } from "../adapter/status.js";
 import { ApplicationFromRaw } from "../schemas/application.js";
-import { AssignedInterviewFromRaw, InterviewFromRaw } from "../schemas/interview.js";
 
 const propertyOptions = {
   fastCheck: { seed: 26082026, numRuns: 200 },
@@ -44,20 +43,6 @@ it.prop(
   propertyOptions,
 );
 
-it.prop(
-  "interview transport values survive decode and encode",
-  {
-    assigned: Schema.toArbitrary(Schema.toEncoded(AssignedInterviewFromRaw))(fc),
-    interview: Schema.toArbitrary(Schema.toEncoded(InterviewFromRaw))(fc),
-  },
-  ({ assigned, interview }) => {
-    const decodedAssigned = Schema.decodeUnknownSync(AssignedInterviewFromRaw)(assigned);
-    const decodedInterview = Schema.decodeUnknownSync(InterviewFromRaw)(interview);
-    expect(Schema.encodeSync(AssignedInterviewFromRaw)(decodedAssigned)).toEqual(assigned);
-    expect(Schema.encodeSync(InterviewFromRaw)(decodedInterview)).toEqual(interview);
-  },
-  propertyOptions,
-);
 
 it.prop(
   "unknown status codes fail closed",

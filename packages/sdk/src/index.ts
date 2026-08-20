@@ -19,16 +19,13 @@ export type { SdkErrorType } from "./errors.js"
 export type { Receipt, AdminReceipt, ReceiptInput } from "./schemas/receipt.js"
 export type { Application, ApplicationDetail } from "./schemas/application.js"
 export {
-  AssignedInterview,
+  AdminInterviewList,
   CandidateInterviewView,
-  Cycle,
-  DepartmentId,
-  SemesterId,
-  AssignedInterviewId,
+  Interview,
+  InterviewId,
   ResponseCapability,
-  type Interview,
-  type InterviewScheduleInput,
-  type InterviewSchedulingStatus,
+  InterviewScheduleInput,
+  InterviewSchedulingStatus,
 } from "./schemas/interview.js"
 export type { User, UserProfile } from "./schemas/user.js"
 export type { DashboardStats } from "./schemas/dashboard.js"

@@ -1,14 +1,16 @@
 import {
-  AssignedInterview,
   CandidateInterviewView,
-  type AssignedInterviewId,
-  type Cycle,
+  Interview,
+  InterviewId,
+  InterviewScheduleInput,
   type EffectSdk,
-  type InterviewScheduleInput,
 } from "@vektorprogrammet/sdk/effect"
 import { Effect, Schema } from "effect"
 
-const assignedListSchema = Schema.Array(AssignedInterview)
+const interviewListSchema = Schema.Struct({
+  items: Schema.Array(Interview),
+  totalItems: Schema.Number,
+})
 
 type BridgeFailure = {
   readonly _tag: "Unauthorized" | "NotFound" | "Validation" | "Conflict" | "Network" | "RateLimited" | "Configuration"
@@ -52,15 +54,26 @@ const bridgeRequest = <A>(
 export const createBrowserInterviewClient = (): EffectSdk => ({
   admin: {
     interviews: {
-      listAssigned: (cycle: Cycle) =>
-        bridgeRequest("listAssigned", { cycle }, Schema.decodeUnknownSync(assignedListSchema)),
-      readAssigned: (cycle: Cycle, interviewId: AssignedInterviewId) =>
-        bridgeRequest("readAssigned", { cycle, interviewId }, Schema.decodeUnknownSync(AssignedInterview)),
-      scheduleForCycle: (
-        cycle: Cycle,
-        interviewId: AssignedInterviewId,
-        input: InterviewScheduleInput,
-      ) => bridgeRequest("scheduleForCycle", { cycle, interviewId, input }, () => undefined),
+      list: () =>
+        bridgeRequest("listInterviews", {}, Schema.decodeUnknownSync(interviewListSchema)),
+      read: (id: number) =>
+        bridgeRequest(
+          "readInterview",
+          { interviewId: Schema.decodeUnknownSync(InterviewId)(id) },
+          Schema.decodeUnknownSync(Interview),
+        ),
+      schedule: (
+        id: number,
+        input: typeof InterviewScheduleInput.Type,
+      ) =>
+        bridgeRequest(
+          "scheduleInterview",
+          {
+            interviewId: Schema.decodeUnknownSync(InterviewId)(id),
+            input: Schema.decodeUnknownSync(InterviewScheduleInput)(input),
+          },
+          () => undefined,
+        ),
     },
   },
   interviewResponses: {
