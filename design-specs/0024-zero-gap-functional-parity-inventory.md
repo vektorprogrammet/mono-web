@@ -15,7 +15,7 @@
 | Spec branch | `spec/0024-zero-gap-parity-inventory` |
 | Implementation candidate | `Unaccepted`. Path `/tmp/mono-web-parity-integration-0023`, branch `impl/0023-functional-parity-integration-baseline`, head `27be6aa73c185ab30a7de138d399190bd68ebe18`. |
 | Candidate relation to `main` | 48 commits ahead and one commit behind `main`. The main-only commit is `bebab18258da5a0f993dfcc6f09ea5e8af7bf68e` (`fix(dashboard): align React Router and React versions`). |
-| Current writer mutation | `design-specs/0024-zero-gap-functional-parity-inventory.md` only |
+| Current writer mutation | The specification worktree owns only `design-specs/0024-zero-gap-functional-parity-inventory.md`. `ParityRecoveryEngineer` owns only `packages/parity-inventory/tests/c2.test.ts` in `/tmp/mono-web-parity-integration-0023`, plus the required commit integrations. |
 | Active production writer | `ParityRecoveryEngineer`, bound to `/tmp/mono-web-parity-integration-0023` during the bounded reconciliation repair |
 | Legacy input | Read-only legacy repository evidence; the inventory command never writes to it |
 | Current mono input | `mono-web` at an explicitly selected full revision; the deterministic mono authority revision is a canonical tracked-blob file-set digest that excludes the owned derived projection mount; raw Git `HEAD` is execution provenance only |
@@ -47,7 +47,7 @@ Specification acceptance was recorded on `2026-08-20`. The acceptance covers thi
 This capsule stays inside `Drift`. It does not accept the candidate or change the inventory contract.
 
 - **Writer:** `ParityRecoveryEngineer`, bound to `/tmp/mono-web-parity-integration-0023`.
-- **Required integrations:** Integrate `bebab18` (`bebab18258da5a0f993dfcc6f09ea5e8af7bf68e`). Integrate the accepted 0024 specification commit `7df51f0f3ed1610b2da922572830bfb709bc6db1`.
+- **Required integrations:** Integrate `bebab18` (`bebab18258da5a0f993dfcc6f09ea5e8af7bf68e`). Integrate the current head of `spec/0024-zero-gap-parity-inventory`, which contains accepted commit `7df51f0f3ed1610b2da922572830bfb709bc6db1` and its reconciliation amendments.
 - **Allowed repair:** For the repair delta, modify only `packages/parity-inventory/tests/c2.test.ts` to use an isolated local clone at the exact candidate head. Do not modify another file.
 - **Commit:** Commit the bounded repair after the required integrations. Record the resulting full head and clean worktree.
 - **Verification and decision:** `Main` alone runs verification and accepts or rejects the candidate. The writer must not run tests, build, or lint.
