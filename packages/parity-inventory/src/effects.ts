@@ -377,7 +377,7 @@ const attributeCallFor = (source: string, offset: number): boolean => {
 const functionContextFor = (source: string, offset: number): { readonly parameters: string; readonly bodyStart: number; readonly bodyEnd: number } | null => {
   const structure = withoutLiterals(withoutComments(source))
   const candidates: { readonly parameters: string; readonly bodyStart: number }[] = []
-  const phpFunctions = /\bfunction\s*(?:&\s*)?(?:[A-Za-z_$][A-Za-z0-9_$]*\s*)?\(([^)]*)\)\s*\{/g
+  const phpFunctions = /\bfunction\s*(?:&\s*)?(?:[A-Za-z_$][A-Za-z0-9_$]*\s*)?\(([^)]*)\)\s*(?:\:[^{]+)?\s*\{/g
   for (const match of structure.matchAll(phpFunctions)) {
     const bodyStart = (match.index ?? 0) + (match[0]?.lastIndexOf("{") ?? -1)
     if (bodyStart >= 0 && match[1] !== undefined) candidates.push({ parameters: match[1], bodyStart })
@@ -1850,7 +1850,7 @@ const providerFromText = (text: string): string | null => {
   return null
 }
 
-const integrationAdapterPattern = /\b(?:HttpClient|GuzzleHttp|HttpAdapter|RestClient|Axios|CurlClient|WebhookClient)\b/i
+const integrationAdapterPattern = /\b(?:HttpClient|GuzzleHttp|HttpAdapter|RestClient|Axios|CurlClient|WebhookClient|Transport|RequestInit|Response|executeFetch)\b/i
 
 const secretShapedEndpointSegment = (segment: string): boolean => {
   if (segment.length < 20 || /^[a-f0-9]{32,}$/i.test(segment)) return false
@@ -1898,13 +1898,12 @@ const credentialSlotFor = (raw: string | null, reasons: string[]): string | null
     return null
   }
   if (opaqueScheduleValue(value) || unsafeScalarReason(value, "field") !== null) {
-    reasons.push("CREDENTIAL_SLOT_UNRESOLVED", "UNSAFE_SOURCE")
     return null
   }
   return normalizeSafe(value, "credential_slot_ref", reasons)
 }
 
-const integrationCallPattern = /\b(?:fetch|curl_exec|curl_init|request|get|publish|send|post|put|delete|HttpClient|GuzzleHttp|Mailer|Slack|Google|Twilio|Smtp|Sms|GatewayAPI|Webhook)\b\s*(?:\(|->|\.)/gi
+const integrationCallPattern = /\b(?:fetch|curl_exec|curl_init|request|publish|send|post|put|delete|HttpClient|GuzzleHttp|Mailer|Slack|Google|Twilio|Smtp|Sms|GatewayAPI|Webhook)\b\s*(?:\(|->|\.)/gi
 const integrationCallsFor = (unit: SourceUnit, authority: AuthorityGraph): readonly IntegrationCall[] => {
   const calls: IntegrationCall[] = []
   const seen = new Set<number>()
