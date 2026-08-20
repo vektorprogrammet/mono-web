@@ -425,7 +425,7 @@ test("routing roots establish controller write reachability", async () => {
   const legacyRoot = mkdtempSync("/tmp/parity-c2-route-loader-legacy-")
   const monoRoot = mkdtempSync("/tmp/parity-c2-route-loader-mono-")
   try {
-    put(legacyRoot, "app/config/routing.yml", "controllers:\n  resource: \"@AppBundle/Controller/\"\n  type: annotation\n")
+    put(legacyRoot, "app/config/routing.yml", "controllers:\n  resource: \"@AppBundle/Controller/\"\n  type: annotation\nvendor_bundle:\n  resource: \"@VendorBundle/Resources/config/routing.yaml\"\n")
     put(legacyRoot, "src/AppBundle/Controller/WriteController.php", "<?php\nnamespace AppBundle\\Controller;\nfinal class WriteController { private $repository; public function create(): void { $this->repository->save(); } }\n")
     put(monoRoot, "apps/server/config/routes.yaml", "controllers:\n  resource: ../src/App/Controller/\n  type: attribute\n")
     put(monoRoot, "apps/server/src/App/Controller/WriteController.php", "<?php\nnamespace App\\Fixture\\Controller;\nfinal class WriteController { private object $repository; public function create(): void { $this->repository->save(); } }\n")
@@ -576,7 +576,7 @@ test("generic local request and send calls do not create integrations", async ()
   const monoRoot = mkdtempSync("/tmp/parity-c2-dynamic-mono-")
   try {
     put(monoRoot, "apps/server/src/App/Infrastructure/Service/Delegate.php", "<?php\nfinal class Delegate { public function sendThing(): void { $this->delegate->send($payload); } }\n")
-    put(monoRoot, "apps/server/src/App/Infrastructure/Service/Request.php", "<?php\nfinal class Request { public function read(): void { $request->get('/local'); } }\n")
+    put(monoRoot, "apps/server/src/App/Infrastructure/Service/Request.php", "<?php\nfinal class Request { public function read(): JsonResponse { $value = $request->request->get('local'); return new JsonResponse($value); } }\n")
     put(monoRoot, "packages/google-client.ts", "export class GoogleClient { fetch(dynamicEndpoint) { return dynamicEndpoint }\n}\n")
     const context = await contextFor(legacyRoot, monoRoot)
     const c2 = collectC2(context, sha256("dynamic-integration-c2"))
@@ -589,7 +589,7 @@ test("generic local request and send calls do not create integrations", async ()
       reason_codes: ["DEAD_UNIMPORTED_SOURCE"],
       details: {
         provider_ref: "google",
-        protocol: "http",
+        protocol: "https",
         endpoint_ref: null,
         call_site_ref: "GoogleClient::fetch",
       },

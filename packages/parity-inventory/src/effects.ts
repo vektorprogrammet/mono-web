@@ -1101,6 +1101,7 @@ const authorityGraphFor = (context: ManifestContext, authority: "legacy" | "mono
     let invalid = values.invalid
     const imports: string[] = []
     for (const value of values.imports) {
+      if (authority === "legacy" && value.startsWith("@")) continue
       const normalized = normalizedRelativePath(unit.path, value)
       const resolved = normalized === null || !normalized.startsWith(`${configRoot}/`) ? null : resolveLoader(normalized)
       if (resolved === null) {
@@ -1967,7 +1968,7 @@ const providerFromText = (text: string): string | null => {
   return null
 }
 
-const integrationAdapterPattern = /\b(?:HttpClient|GuzzleHttp|HttpAdapter|RestClient|Axios|CurlClient|WebhookClient|Transport|RequestInit|Response|executeFetch)\b/i
+const integrationAdapterPattern = /\b(?:HttpClient|GuzzleHttp|HttpAdapter|RestClient|Axios|CurlClient|WebhookClient|Transport|RequestInit|executeFetch)\b/i
 
 const secretShapedEndpointSegment = (segment: string): boolean => {
   if (segment.length < 20 || /^[a-f0-9]{32,}$/i.test(segment)) return false
@@ -2073,7 +2074,8 @@ const integrationCallsFor = (unit: SourceUnit, authority: AuthorityGraph): reado
     const namedProviderRef = providerFromText(contextStructure) ?? providerFromText(resolvedCall?.symbol ?? "")
     const endpointMatch = /https?:\/\/[^\s"'`),}]+/i.exec(contextText)
     const endpointRef = endpointMatch?.[0] === undefined ? null : safeEndpoint(endpointMatch[0], reasons)
-    const protocol = protocolFor(endpointRef, `${contextStructure} ${callableName ?? ""}`)
+    const protocol = protocolFor(endpointRef, `${contextStructure} ${callableName ?? ""} ${resolvedCall?.symbol ?? ""} ${namedProviderRef ?? ""}`)
+      ?? (adapterEvidence ? "http" : null)
     const transportEvidence = adapterEvidence || /^(?:fetch|curl_exec|curl_init)$/i.test(callableName ?? "")
     const positiveAnchor = endpointMatch !== null || namedProviderRef !== null || transportEvidence || protocol !== null
     if (!positiveAnchor) continue

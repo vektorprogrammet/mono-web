@@ -1022,7 +1022,7 @@ No row may use an unlisted field. Unknown fields are a schema failure. Free-form
 }
 ```
 
-`direction` is `inbound`, `outbound`, or `bidirectional`. Endpoint query values, authorization headers, tokens, payloads, and personal data are not emitted. A nullable endpoint is valid when the external provider and protocol are explicit at an adapter boundary. Provider-specific class names and transport callables such as `fetch`, `curl_*`, mailer, SMS, Google, Slack, or GitHub are source evidence for their normalized protocol family. A generic transport adapter with no vendor name uses its exact resolved adapter or call-site symbol as `provider_ref`; it never invents a vendor. Unknown provider or protocol values remain `unresolved` rather than being classified as local.
+`direction` is `inbound`, `outbound`, or `bidirectional`. Endpoint query values, authorization headers, tokens, payloads, and personal data are not emitted. A nullable endpoint is valid when the external provider and protocol are explicit at an adapter boundary. Provider-specific class names and transport callables such as `fetch`, `curl_*`, mailer, SMS, Google, Slack, or GitHub are source evidence for their normalized protocol family. A generic HTTP transport adapter normalizes to the `http` protocol; with no vendor name, it uses its exact resolved adapter or call-site symbol as `provider_ref` and never invents a vendor. Unknown provider or protocol values remain `unresolved` rather than being classified as local.
 
 ### User-journey coverage rows
 
@@ -1085,7 +1085,7 @@ source declaration
   -> cross-surface relation
 ```
 
-A source declaration missing the parser edge is `unresolved` with `SOURCE_PARSE_ERROR`. A parsed declaration missing the loader/import edge is `dead_unimported`. A loader edge pointing to an unreadable source is `source_unavailable`. A runtime row with no source edge is `extra` and `RUNTIME_ONLY_SOURCE`. None of these states is hidden by a count or by a copied inventory.
+A source declaration missing the parser edge is `unresolved` with `SOURCE_PARSE_ERROR`. A parsed declaration missing the loader/import edge is `dead_unimported`. Local loader imports must resolve and unreadable local sources are `source_unavailable`; a legacy Symfony `@Bundle/...` route import is an external bundle dependency and cannot invalidate the local loader graph, while an `@AppBundle/Controller/` resource is an explicit local controller edge. A runtime row with no source edge is `extra` and `RUNTIME_ONLY_SOURCE`. None of these states is hidden by a count or by a copied inventory.
 
 ### Static/runtime mismatch
 
