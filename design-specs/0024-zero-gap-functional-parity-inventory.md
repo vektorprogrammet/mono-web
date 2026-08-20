@@ -1085,7 +1085,7 @@ source declaration
   -> cross-surface relation
 ```
 
-A source declaration missing the parser edge is `unresolved` with `SOURCE_PARSE_ERROR`. A parsed declaration missing the loader/import edge is `dead_unimported`. Local loader imports must resolve and unreadable local sources are `source_unavailable`; a legacy Symfony `@Bundle/...` route import is an external bundle dependency and cannot invalidate the local loader graph, while an `@AppBundle/Controller/` resource is an explicit local controller edge. A runtime row with no source edge is `extra` and `RUNTIME_ONLY_SOURCE`. None of these states is hidden by a count or by a copied inventory.
+A source declaration missing the parser edge is `unresolved` with `SOURCE_PARSE_ERROR`. A parsed declaration missing the loader/import edge is `dead_unimported`. Local loader imports must resolve and unreadable local sources are `source_unavailable`; a legacy Symfony `@Bundle/...` route import is an external bundle dependency and cannot invalidate the local loader graph, while an `@AppBundle/Controller/` resource is an explicit local controller edge. Package runtime exports are roots, including an exact generated-output-to-source projection when the adjacent TypeScript config supplies one `outDir`, one included source root, and the projected source file exists; runtime imports retain their immediate importer edge. A runtime row with no source edge is `extra` and `RUNTIME_ONLY_SOURCE`. None of these states is hidden by a count or by a copied inventory.
 
 ### Static/runtime mismatch
 

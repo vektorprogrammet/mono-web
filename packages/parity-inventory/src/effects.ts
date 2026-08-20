@@ -678,6 +678,7 @@ interface AuthorityGraph {
   readonly aliasesByPath: ReadonlyMap<string, ReadonlyMap<string, string>>
   readonly sourceImports: ReadonlyMap<string, readonly string[]>
   readonly runtimeEntrySources: ReadonlySet<string>
+  readonly runtimeImporterBySource: ReadonlyMap<string, string>
   readonly functionsByPath: ReadonlyMap<string, ReadonlySet<string>>
   readonly sourceTextByPath: ReadonlyMap<string, string>
 }
@@ -873,13 +874,41 @@ const loaderValuesFor = (source: string): LoaderValues => {
   }
   return { imports, classes, resources, excludes, invalid }
 }
-const runtimePackageEntryTargetsFor = (unit: { readonly path: string; readonly text: string }, languagePaths: ReadonlySet<string>): readonly string[] => {
+const runtimePackageEntryTargetsFor = (
+  context: ManifestContext,
+  authority: "legacy" | "mono",
+  unit: { readonly path: string; readonly text: string },
+  languagePaths: ReadonlySet<string>,
+  sourceTextByPath: ReadonlyMap<string, string>,
+): readonly string[] => {
   if (!/(?:^|\/)package\.json$/i.test(unit.path)) return []
   try {
     const parsed: unknown = JSON.parse(unit.text)
     if (typeof parsed !== "object" || parsed === null) return []
     const record = parsed as Record<string, unknown>
     const targets = new Set<string>()
+    const packagePrefix = unit.path.slice(0, -"package.json".length)
+    const tsconfigPath = `${packagePrefix}tsconfig.json`
+    const tsconfigText = sourceTextByPath.get(tsconfigPath) ?? readSourceText(context, authority, tsconfigPath)
+    let buildProjection: { readonly outDir: string; readonly sourceRoot: string } | null = null
+    if (typeof tsconfigText === "string") {
+      try {
+        const tsconfig = JSON.parse(tsconfigText) as {
+          readonly compilerOptions?: { readonly outDir?: unknown }
+          readonly include?: unknown
+        }
+        const outDir = tsconfig.compilerOptions?.outDir
+        const sourceRoot = Array.isArray(tsconfig.include) && tsconfig.include.length === 1 ? tsconfig.include[0] : null
+        if (
+          typeof outDir === "string"
+          && typeof sourceRoot === "string"
+          && /^[A-Za-z0-9_.-]+$/.test(outDir)
+          && /^[A-Za-z0-9_.-]+$/.test(sourceRoot)
+        ) buildProjection = { outDir, sourceRoot }
+      } catch {
+        buildProjection = null
+      }
+    }
     const runtimeCommands = new Set(["bun", "deno", "jiti", "node", "ts-node", "tsx", "vite-node"])
     const sourceToken = /^(?:\.\/)?[A-Za-z0-9_][A-Za-z0-9_.-]*(?:\/[A-Za-z0-9_][A-Za-z0-9_.-]*)*\.(?:ts|tsx|js|mjs)$/
     const wordsFor = (value: string): readonly string[] | null => {
@@ -936,12 +965,30 @@ const runtimePackageEntryTargetsFor = (unit: { readonly path: string; readonly t
     const addExportTargets = (value: unknown): void => {
       if (typeof value === "string") {
         const resolved = value.startsWith("./") ? sourcePathForImport(unit.path, value, languagePaths) : null
-        if (resolved !== null) targets.add(resolved)
+        if (resolved !== null) {
+          targets.add(resolved)
+          return
+        }
+        if (buildProjection === null || !value.startsWith(`./${buildProjection.outDir}/`)) return
+        const outputStem = value
+          .slice(`./${buildProjection.outDir}/`.length)
+          .replace(/(?:\.d\.ts|\.(?:mjs|cjs|js))$/, "")
+        for (const extension of [".ts", ".tsx", ".js", ".mjs"]) {
+          const projected = sourcePathForImport(
+            unit.path,
+            `./${buildProjection.sourceRoot}/${outputStem}${extension}`,
+            languagePaths,
+          )
+          if (projected !== null) {
+            targets.add(projected)
+            return
+          }
+        }
       } else if (Array.isArray(value)) {
         for (const item of value) addExportTargets(item)
       } else if (typeof value === "object" && value !== null) {
         for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
-          if (key.startsWith("./") || runtimeConditions.has(key)) addExportTargets(item)
+          if (key === "." || key.startsWith("./") || runtimeConditions.has(key)) addExportTargets(item)
         }
       }
     }
@@ -1085,17 +1132,29 @@ const authorityGraphFor = (context: ManifestContext, authority: "legacy" | "mono
   }
   const configRoot = loaderConfigRoot(authority)
   const runtimeEntrySources = new Set<string>()
-  const runtimeEntryPending = languageUnits
+  const runtimeImporterBySource = new Map<string, string>()
+  const runtimeEntryPending: Array<{ readonly path: string; readonly importer: string }> = languageUnits
     .filter((unit) => /\.(?:ts|tsx|js|mjs)$/i.test(unit.path))
     .filter((unit) => /^\s*export\s+default\s+Alchemy\.Stack\s*\(/m.test(withoutLiterals(withoutComments(unit.text))))
-    .map((unit) => unit.path)
-  for (const unit of languageUnits) runtimeEntryPending.push(...runtimePackageEntryTargetsFor(unit, languagePaths))
+    .map((unit) => ({ path: unit.path, importer: unit.path }))
+  for (const unit of languageUnits) {
+    for (const path of runtimePackageEntryTargetsFor(context, authority, unit, languagePaths, sourceTextByPath)) {
+      runtimeEntryPending.push({ path, importer: unit.path })
+    }
+  }
   while (runtimeEntryPending.length > 0) {
-    const path = runtimeEntryPending.pop()
-    if (path === undefined || runtimeEntrySources.has(path)) continue
-    runtimeEntrySources.add(path)
-    for (const imported of sourceImports.get(path) ?? []) {
-      if (/\.(?:ts|tsx|js|mjs)$/i.test(imported) && !runtimeEntrySources.has(imported)) runtimeEntryPending.push(imported)
+    const entry = runtimeEntryPending.pop()
+    if (entry === undefined) continue
+    const currentImporter = runtimeImporterBySource.get(entry.path)
+    if (currentImporter === undefined || compareByteOrder(entry.importer, currentImporter) < 0) {
+      runtimeImporterBySource.set(entry.path, entry.importer)
+    }
+    if (runtimeEntrySources.has(entry.path)) continue
+    runtimeEntrySources.add(entry.path)
+    for (const imported of sourceImports.get(entry.path) ?? []) {
+      if (/\.(?:ts|tsx|js|mjs)$/i.test(imported) && !runtimeEntrySources.has(imported)) {
+        runtimeEntryPending.push({ path: imported, importer: entry.path })
+      }
     }
   }
   const loaderCandidates = languageUnits.filter((unit) => isLoaderConfigPath(unit.path, authority))
@@ -1265,6 +1324,7 @@ const authorityGraphFor = (context: ManifestContext, authority: "legacy" | "mono
     aliasesByPath,
     sourceImports,
     runtimeEntrySources,
+    runtimeImporterBySource,
     functionsByPath,
     sourceTextByPath,
   }
@@ -1280,10 +1340,18 @@ const resolveClassForPath = (authority: AuthorityGraph, path: string, name: stri
   return undefined
 }
 const reachableClassFor = (authority: AuthorityGraph, item: LanguageClass | undefined): LanguageClass | undefined =>
-  item !== undefined && authority.reachableSources.has(item.path) && !authority.cyclicSources.has(item.path) && !authority.cyclicOnlySources.has(item.path) ? item : undefined
+  item !== undefined
+    && (authority.reachableSources.has(item.path) || authority.runtimeEntrySources.has(item.path))
+    && !authority.cyclicSources.has(item.path)
+    && !authority.cyclicOnlySources.has(item.path)
+    ? item
+    : undefined
 const importedBySources = (authority: AuthorityGraph, unit: SourceUnit, owner: string | null): string | null => {
   const resolved = owner === null ? undefined : resolveClassForPath(authority, unit.path, owner)
   const targetPath = resolved?.path ?? unit.path
+  if (authority.runtimeEntrySources.has(targetPath)) {
+    return authority.runtimeImporterBySource.get(targetPath) ?? targetPath
+  }
   if (!authority.reachableSources.has(targetPath) || authority.cyclicSources.has(targetPath) || authority.cyclicOnlySources.has(targetPath)) return null
   return authority.importerBySource.get(targetPath) ?? null
 }

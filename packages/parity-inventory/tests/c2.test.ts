@@ -206,13 +206,28 @@ test("package runtime roots ignore type exports and non-runtime script arguments
     put(monoRoot, "infra/newline-followup.ts", scheduleSource("newline_followup_schedule", "NewlineFollowupHandler"))
     put(monoRoot, "infra/empty-word.ts", scheduleSource("empty_word_schedule", "EmptyWordHandler"))
     put(monoRoot, "infra/leading-dash.ts", scheduleSource("leading_dash_schedule", "LeadingDashHandler"))
+    put(monoRoot, "packages/sdk/package.json", JSON.stringify({
+      exports: { ".": { types: "./dist/client.d.ts", default: "./dist/client.js" } },
+    }))
+    put(monoRoot, "packages/sdk/tsconfig.json", JSON.stringify({
+      compilerOptions: { outDir: "dist" },
+      include: ["src"],
+    }))
+    put(monoRoot, "packages/sdk/src/client.ts", "export class MailerAdapter { send(): void {} }\n")
     const context = await contextFor(legacyRoot, monoRoot)
-    const schedules = collectC2(context, sha256("package-runtime-root-c2")).schedules.rows.filter((row) => row.authority_line === "mono" && row.details.trigger_kind === "cron")
+    expect(context.rootCensus.find((row) => row.root_ref === "mono" && row.path === "packages/sdk/package.json")?.classification).toBe("matched")
+    expect(context.rootCensus.find((row) => row.root_ref === "mono" && row.path === "packages/sdk/tsconfig.json")?.classification).toBe("matched")
+    const c2 = collectC2(context, sha256("package-runtime-root-c2"))
+    const schedules = c2.schedules.rows.filter((row) => row.authority_line === "mono" && row.details.trigger_kind === "cron")
     const byIdentity = (identity: string) => schedules.find((row) => row.details.trigger_identity === identity)
     expect(byIdentity("runtime_schedule")).toMatchObject({ details: { runtime_registered: true } })
     for (const identity of ["types_schedule", "echo_schedule", "lint_schedule", "quoted_schedule", "node_check_schedule", "newline_schedule", "newline_followup_schedule", "empty_word_schedule", "leading_dash_schedule"]) {
       expect(byIdentity(identity)).toMatchObject({ status: "unresolved", reason_codes: expect.arrayContaining(["SCHEDULE_HANDLER_UNRESOLVED"]) })
     }
+    const client = c2.integrations.rows.find((row) =>
+      row.source_ref_ids.some((ref) => context.sourcePathById.get(ref)?.path === "packages/sdk/src/client.ts"),
+    )
+    expect(client?.reason_codes).not.toContain("DEAD_UNIMPORTED_SOURCE")
   } finally {
     rmSync(legacyRoot, { recursive: true, force: true })
     rmSync(monoRoot, { recursive: true, force: true })
