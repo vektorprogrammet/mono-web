@@ -2000,8 +2000,10 @@ const protocolFor = (endpoint: string | null, text: string): string | null => {
     try { return new URL(endpoint).protocol.replace(":", "") } catch { return null }
   }
   if (/\b(?:smtp|mailer|mail)\b/i.test(text)) return "smtp"
+  if (/\b(?:sms|twilio|gatewayapi)\b/i.test(text)) return "sms"
+  if (/\b(?:slack|google|github|stripe|s3client|openai|anthropic)\b/i.test(text)) return "https"
   if (/\b(?:grpc|protobuf)\b/i.test(text)) return "grpc"
-  if (/\b(?:https?|amqp|websocket)\b/i.test(text)) return "http"
+  if (/\b(?:fetch|curl|https?|amqp|websocket)\b/i.test(text)) return "http"
   return null
 }
 const credentialSlotFor = (raw: string | null, reasons: string[]): string | null => {
@@ -2063,20 +2065,20 @@ const integrationCallsFor = (unit: SourceUnit, authority: AuthorityGraph): reado
     const contextEnd = functionContext?.bodyEnd ?? (ownerIndex < 0 ? stripped.length : classes[ownerIndex + 1]?.offset ?? stripped.length)
     const contextText = stripped.slice(contextStart, contextEnd)
     const contextStructure = structure.slice(contextStart, contextEnd)
-    const reasons: string[] = ownerClass === undefined ? ["UNKNOWN_INTEGRATION"] : []
+    const reasons: string[] = []
     const resolvedCall = effectCall === undefined ? null : resolveEffectCall(authority, unit, effectCall, ownerClass)
     const adapterEvidence = integrationAdapterPattern.test(contextStructure) || integrationAdapterPattern.test(resolvedCall?.symbol ?? "")
-    const providerRef = providerFromText(contextStructure) ?? providerFromText(resolvedCall?.symbol ?? "")
+    const namedProviderRef = providerFromText(contextStructure) ?? providerFromText(resolvedCall?.symbol ?? "")
     const endpointMatch = /https?:\/\/[^\s"'`),}]+/i.exec(contextText)
     const endpointRef = endpointMatch?.[0] === undefined ? null : safeEndpoint(endpointMatch[0], reasons)
-    const protocol = protocolFor(endpointRef, contextStructure)
-    const positiveAnchor = endpointMatch !== null || providerRef !== null || adapterEvidence || protocol !== null
+    const protocol = protocolFor(endpointRef, `${contextStructure} ${callableName ?? ""}`)
+    const transportEvidence = adapterEvidence || /^(?:fetch|curl_exec|curl_init)$/i.test(callableName ?? "")
+    const positiveAnchor = endpointMatch !== null || namedProviderRef !== null || transportEvidence || protocol !== null
     if (!positiveAnchor) continue
-    if (endpointRef === null || protocol === null) reasons.push("UNKNOWN_INTEGRATION")
+    if (protocol === null) reasons.push("UNKNOWN_INTEGRATION")
     const credentialMatch = /\b(?:getenv|env|secret|credential|apiKey|api_key)\s*\(\s*["']([A-Za-z0-9_.:-]+)["']/i.exec(contextText)
     const credentialSlotRef = credentialMatch?.[1] === undefined ? null : credentialSlotFor(credentialMatch[1], reasons)
     const effectClasses: EffectClass[] = resolvedCall === null ? ["unknown"] : ["outbound"]
-    if (providerRef === null) reasons.push("UNKNOWN_INTEGRATION")
     const direction: ExternalIntegrationDetails["direction"] = /\b(?:webhook|handleRequest|onRequest|incoming|inbound)\b/i.test(contextStructure) ? "inbound" : "outbound"
     const callSiteContext = functionContextFor(unit.text, callOffset, true)
     const callSiteName = declarationName ?? callSiteContext?.name ?? null
@@ -2087,7 +2089,13 @@ const integrationCallsFor = (unit: SourceUnit, authority: AuthorityGraph): reado
         : `${ownerRef}::${callSiteName}`
     const safeSymbol = normalizeSafe(callSiteRef, "symbol", reasons)
     if (safeSymbol === null) reasons.push("INTEGRATION_CALLSITE_UNRESOLVED")
-    calls.push({ authority: unit.authority, path: unit.path, sourceRefId: unit.sourceRefId, ownerRef, symbolRef: safeSymbol, providerRef: normalizeSafe(providerRef, "field", reasons), direction, protocol, endpointRef, credentialSlotRef, effectClasses, reasonCodes: sortUnique(reasons), imported, importerPath, line: lineAt(unit.text, callOffset) })
+    const providerRef = normalizeSafe(
+      namedProviderRef ?? (transportEvidence ? resolvedCall?.symbol ?? safeSymbol : null),
+      "field",
+      reasons,
+    )
+    if (providerRef === null) reasons.push("UNKNOWN_INTEGRATION")
+    calls.push({ authority: unit.authority, path: unit.path, sourceRefId: unit.sourceRefId, ownerRef, symbolRef: safeSymbol, providerRef, direction, protocol, endpointRef, credentialSlotRef, effectClasses, reasonCodes: sortUnique(reasons), imported, importerPath, line: lineAt(unit.text, callOffset) })
   }
   if (calls.length > 0) {
     const specificity = (call: IntegrationCall): number =>

@@ -569,7 +569,18 @@ test("generic local request and send calls do not create integrations", async ()
     const c2 = collectC2(context, sha256("dynamic-integration-c2"))
     const genericPaths = new Set(["apps/server/src/App/Infrastructure/Service/Delegate.php", "apps/server/src/App/Infrastructure/Service/Request.php"])
     expect(c2.integrations.rows.filter((row) => row.source_ref_ids.some((ref) => genericPaths.has(context.sourcePathById.get(ref)?.path ?? "")))).toEqual([])
-    expect(c2.integrations.rows.filter((row) => row.source_ref_ids.some((ref) => context.sourcePathById.get(ref)?.path === "packages/google-client.ts")).every((row) => row.status === "unresolved" && row.reason_codes.includes("UNKNOWN_INTEGRATION"))).toBe(true)
+    const googleRows = c2.integrations.rows.filter((row) => row.source_ref_ids.some((ref) => context.sourcePathById.get(ref)?.path === "packages/google-client.ts"))
+    expect(googleRows).toHaveLength(1)
+    expect(googleRows[0]).toMatchObject({
+      status: "dead_unimported",
+      reason_codes: ["DEAD_UNIMPORTED_SOURCE"],
+      details: {
+        provider_ref: "google",
+        protocol: "http",
+        endpoint_ref: null,
+        call_site_ref: "GoogleClient::fetch",
+      },
+    })
   } finally {
     rmSync(legacyRoot, { recursive: true, force: true })
     rmSync(monoRoot, { recursive: true, force: true })

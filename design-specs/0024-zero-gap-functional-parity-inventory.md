@@ -1022,7 +1022,7 @@ No row may use an unlisted field. Unknown fields are a schema failure. Free-form
 }
 ```
 
-`direction` is `inbound`, `outbound`, or `bidirectional`. Endpoint query values, authorization headers, tokens, payloads, and personal data are not emitted. Unknown provider or protocol values remain `unresolved` rather than being classified as local.
+`direction` is `inbound`, `outbound`, or `bidirectional`. Endpoint query values, authorization headers, tokens, payloads, and personal data are not emitted. A nullable endpoint is valid when the external provider and protocol are explicit at an adapter boundary. Provider-specific class names and transport callables such as `fetch`, `curl_*`, mailer, SMS, Google, Slack, or GitHub are source evidence for their normalized protocol family. A generic transport adapter with no vendor name uses its exact resolved adapter or call-site symbol as `provider_ref`; it never invents a vendor. Unknown provider or protocol values remain `unresolved` rather than being classified as local.
 
 ### User-journey coverage rows
 
