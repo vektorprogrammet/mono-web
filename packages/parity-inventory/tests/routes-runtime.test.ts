@@ -98,6 +98,23 @@ describe("authoritative Symfony route runtime falsifiers", () => {
     expect(result.links).toEqual([])
   })
 
+  test("unconstrained runtime methods normalize to ANY", () => {
+    const staticRow = staticRouteRow()
+    const result = reconcileRuntimeRouteRows(
+      "rev-mono",
+      [{ ...staticRow, details: { ...staticRow.details, method: "ANY" } }],
+      [{ routeName: "fixture", pathTemplate: "/fixture", methods: [] }],
+      runtimeObservation("available"),
+      "source-runtime",
+    )
+    expect(result.rows).toHaveLength(1)
+    expect(result.rows[0]).toMatchObject({
+      status: "covered",
+      observation_kinds: ["static_source", "runtime_resolution"],
+      details: { method: "ANY", runtime_resolved: true },
+    })
+  })
+
   test("static/runtime disagreement retains both observations", () => {
     const runtimeRoute: RuntimeRoute = { routeName: "fixture", pathTemplate: "/changed", methods: ["POST"] }
     const result = reconcileRuntimeRouteRows("rev-mono", [staticRouteRow()], [runtimeRoute], runtimeObservation("available"), "source-runtime")

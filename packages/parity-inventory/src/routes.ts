@@ -928,19 +928,34 @@ const makeRows = (
   runtimeObservation: RuntimeObservation | null = null,
 ): InventoryRow[] => {
   const inventoryKind = authority === "legacy" ? "legacy_route" : "mono_route"
+  const importDeclarations = declarations.filter((declaration) => declaration.pathTemplate === null && declaration.importRef !== null)
   const rows: InventoryRow[] = []
   for (const declaration of declarations) {
-    const methods = declaration.methods.length > 0 ? declaration.methods : [null]
+    if (declaration.pathTemplate === null && declaration.importRef !== null) continue
+    const unconstrained = declaration.pathTemplate !== null
+      && declaration.methods.length === 0
+      && !declaration.reasonCodes.includes("UNSAFE_SOURCE")
+    const methods = unconstrained ? ["ANY"] : declaration.methods.length > 0 ? declaration.methods : [null]
+    const declaredMethods = unconstrained ? ["ANY"] : declaration.methods
     const declarationIdentity = declarationId(authority, authority, declaration.logicalPath, declaration.declarationKind, declaration.ordinal)
     for (const method of methods) {
       const canonicalKey = canonicalRouteKey(method, declaration.pathTemplate, declaration.routeName)
       const rowIdentity = rowId(inventoryKind, declarationIdentity, canonicalKey)
-      const reasonCodes = routeReasonCodes({ pathTemplate: declaration.pathTemplate, methods: declaration.methods, routeName: declaration.routeName, reasonCodes: declaration.reasonCodes })
+      const reasonCodes = routeReasonCodes({
+        pathTemplate: declaration.pathTemplate,
+        methods: declaredMethods,
+        routeName: declaration.routeName,
+        reasonCodes: declaration.reasonCodes.filter((reason) => !(unconstrained && reason === "METHOD_UNRESOLVED")),
+      })
       if (!declaration.imported && declaration.declarationKind !== "yaml_route_block" && declaration.declarationKind !== "imported_route" && declaration.declarationKind !== "vendor_route") reasonCodes.push("DEAD_UNIMPORTED_SOURCE")
-      const status: InventoryRow["status"] = declaration.pathTemplate === null || declaration.methods.length === 0 ? "unresolved" : declaration.imported ? "covered" : "dead_unimported"
+      const status: InventoryRow["status"] = declaration.pathTemplate === null || declaredMethods.length === 0 ? "unresolved" : declaration.imported ? "covered" : "dead_unimported"
       const details: LegacyRouteDetails | MonoRouteDetails = authority === "legacy"
-        ? { declaration_kind: declaration.declarationKind as LegacyRouteDetails["declaration_kind"], route_name: declaration.routeName, path_template: declaration.pathTemplate, method, methods_declared: declaration.methods, controller_ref: declaration.controllerRef, import_ref: declaration.importRef, deprecated: declaration.deprecated }
+        ? { declaration_kind: declaration.declarationKind as LegacyRouteDetails["declaration_kind"], route_name: declaration.routeName, path_template: declaration.pathTemplate, method, methods_declared: declaredMethods, controller_ref: declaration.controllerRef, import_ref: declaration.importRef, deprecated: declaration.deprecated }
         : { declaration_kind: declaration.declarationKind as MonoRouteDetails["declaration_kind"], route_origin: declaration.routeOrigin ?? "imported", route_name: declaration.routeName, path_template: declaration.pathTemplate, method, owner_ref: declaration.ownerRef, runtime_resolved: declaration.runtimeResolved, imported_from_ref: declaration.importRef }
+      const importerSourceRefIds = importDeclarations
+        .filter((candidate) => candidate.importRef !== null && importedController(authority, declaration.logicalPath, [candidate.importRef]))
+        .map((candidate) => candidate.sourceRefId)
+      const sourceRefIds = sortUnique([declaration.sourceRefId, ...importerSourceRefIds])
       rows.push({
         row_id: rowIdentity,
         declaration_id: declarationIdentity,
@@ -950,7 +965,7 @@ const makeRows = (
         signature: canonicalKey,
         status,
         observation_kinds: ["static_source"],
-        source_ref_ids: [declaration.sourceRefId],
+        source_ref_ids: sourceRefIds,
         revision_ref_ids: [context.scans[authority].revisionRefId],
         mismatch: rowMismatch(status === "unresolved" ? "unresolved" : status === "dead_unimported" ? "dead_unimported" : "none", [], status === "covered" ? null : sortUnique(reasonCodes)[0] ?? null),
         runtime_observation_ref_ids: runtimeObservation === null ? [] : [runtimeObservation.runtime_observation_ref_id],
@@ -981,7 +996,7 @@ const makeRuntimeRows = (revisionRefId: string, runtime: RuntimeRouteCollection)
   const rows: InventoryRow[] = []
   let ordinal = 0
   for (const route of runtime.routes) {
-    const methods = route.methods.length > 0 ? route.methods : [null]
+    const methods = route.methods.length > 0 ? route.methods : ["ANY"]
     for (const method of methods) {
       ordinal += 1
       const details = runtimeRouteDetails(route, method)

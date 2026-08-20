@@ -777,7 +777,7 @@ A legacy or mono route signature is the exact tuple:
 ("http_route", method, path_template, route_name_or_null)
 ```
 
-`route_name` remains a separate component. A path/method match with a different route name is `changed`, not automatically equal. A route-name-only source declaration has a null path and is `unresolved` unless the runtime source resolves the path. A route with multiple methods has one row per method after normalization, with a shared `declaration_id` and a distinct canonical key per method. A declaration with the same signature more than once is retained in `duplicate` rows.
+`route_name` remains a separate component. A path/method match with a different route name is `changed`, not automatically equal. An endpoint with an explicit path and no Symfony method constraint normalizes to the method sentinel `ANY`; this is observed unconstrained routing semantics, not a guessed concrete method. A malformed or contradictory method value remains `unresolved`. Route import directives are loader/derivation sources and do not become HTTP-route rows; their source refs attach to the concrete controller rows they import. A route-name-only source declaration has a null path and is `unresolved` unless the runtime source resolves the path. A route with multiple methods has one row per method after normalization, with a shared `declaration_id` and a distinct canonical key per method. A declaration with the same signature more than once is retained in `duplicate` rows.
 
 Legacy YAML route blocks and controller annotations are separate declarations even when their signatures match. The duplicate group exposes the 190/49/239/238 planning observation without treating it as an acceptance target.
 
@@ -2000,7 +2000,7 @@ The implementation uses these stable reason codes. Reason codes describe an obse
 | `RUNTIME_ONLY_SOURCE` | Runtime row has no static source edge | Retain as `extra` or `unresolved`; never adopt authority |
 | `RUNTIME_UNAVAILABLE` | Required local collector cannot run | Primary status `runtime_unavailable` |
 | `STATIC_RUNTIME_MISMATCH` | Static and runtime observations disagree | Retain both edges; `changed` or `unresolved` |
-| `METHOD_UNRESOLVED` | Route/API method missing or contradictory | Empty method set; `unresolved` |
+| `METHOD_UNRESOLVED` | Route/API method is malformed, contradictory, or absent where unconstrained `ANY` semantics do not apply | Empty method set; `unresolved` |
 | `KEY_KIND_MISMATCH` | A typed identity uses a different key kind or fallback | `unresolved`; no fallback |
 | `MISSING_COUNTERPART` | Authority row has no current counterpart | `missing`; accepted intent required |
 | `EXTRA_COUNTERPART` | Current row has no authority counterpart | `extra`; accepted intent required |
