@@ -53,7 +53,7 @@ const sourceManifestDigest = (manifest: SourceManifest): string => sha256(canoni
 const loadInputs = (options: AuthorAcceptedIntentOptions) =>
   Effect.gen(function* () {
     const inputBytes = yield* readBytes(options.inputPath);
-    assertSafeAcceptedIntentBytes(inputBytes);
+    assertSafeAcceptedIntentBytes(inputBytes, false);
     const input = parseJson(inputBytes, "accepted intent authoring input");
     if (!validateAcceptedIntentAuthoringShape(input))
       throw new Error("accepted intent authoring input is schema-invalid");

@@ -397,7 +397,7 @@ const hasForbiddenIntentKey = (entry: unknown): boolean => {
   if (entry === null || typeof entry !== "object") return false
   return Object.entries(entry).some(([key, child]) => /^(?:password|passwd|secret|secrets|token|access[_-]?token|refresh[_-]?token|api[_-]?key|authorization|client[_-]?secret|payload|raw[_-]?payload|user[_-]?id|account[_-]?id|customer[_-]?id|member[_-]?id|identity[_-]?id|email|phone)(?:[_-].*)?$/i.test(key) || hasForbiddenIntentKey(child))
 }
-export const assertSafeAcceptedIntentBytes = (bytes: Uint8Array): void => {
+export const assertSafeAcceptedIntentBytes = (bytes: Uint8Array, requireCanonical = true): void => {
   let text: string
   try {
     text = new TextDecoder("utf-8", { fatal: true }).decode(bytes)
@@ -413,7 +413,7 @@ export const assertSafeAcceptedIntentBytes = (bytes: Uint8Array): void => {
     throw new Error("INTENT_SCHEMA_INVALID")
   }
   if (hasForbiddenIntentKey(value)) throw new Error("UNSAFE_SOURCE")
-  if (canonicalJson(value) !== text) throw new Error("INTENT_NOT_CANONICAL")
+  if (requireCanonical && canonicalJson(value) !== text) throw new Error("INTENT_NOT_CANONICAL")
 }
 export const loadAcceptedIntentRegister = (context: ManifestContext, supplied?: IntentSourceInput): IntentLoadResult => {
   const input: IntentSourceInput | null = supplied ?? null
