@@ -1,7 +1,7 @@
 import { chmod, mkdtemp, rm } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { randomBytes } from "node:crypto";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { once } from "node:events";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -10,11 +10,23 @@ const dashboardOrigin = "http://127.0.0.1:5174";
 const apiOrigin = "http://127.0.0.1:8000";
 const serverRoot = fileURLToPath(new URL("../../server/", import.meta.url));
 const dashboardRoot = fileURLToPath(new URL("../", import.meta.url));
+const sdkRoot = fileURLToPath(new URL("../../../packages/sdk/", import.meta.url));
 const commandTimeoutMs = 120_000;
 const shutdownTimeoutMs = 5_000;
 
 const sleep = (milliseconds) =>
   new Promise((resolveSleep) => setTimeout(resolveSleep, milliseconds));
+
+function requireOpenSsl() {
+  const result = spawnSync("openssl", ["version"], {
+    stdio: "ignore",
+  });
+  if (result.error || result.status !== 0) {
+    throw new Error(
+      "Missing prerequisite: openssl must be installed and available on PATH for disposable JWT key generation.",
+    );
+  }
+}
 
 function runCommand(command, args, options) {
   return new Promise((resolveCommand, rejectCommand) => {
@@ -161,6 +173,7 @@ function assertDisposableDatabaseUrl(databaseUrl, temporaryRoot) {
 
 
 async function main() {
+  requireOpenSsl();
   const temporaryRoot = await mkdtemp(
     join(tmpdir(), "mono-web-proof-0028-"),
   );
@@ -295,6 +308,10 @@ async function main() {
       { cwd: serverRoot, env: serverEnv },
     );
     await waitForHttp(`${apiOrigin}/api/docs`, symfonyProcess);
+    await runCommand("bun", ["run", "build"], {
+      cwd: sdkRoot,
+      env: dashboardEnv,
+    });
 
     dashboardProcess = startProcess(
       "bun",
