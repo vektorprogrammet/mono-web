@@ -1625,8 +1625,11 @@ const addH3Edges = (context: ManifestContext, rows: readonly InventoryRow[], rou
       }
       const refs = h3RowSourceRefs(context, rawRefs as string[], artifact.path, failures, sourceManifestDigests)
       const fromRefs = sortUnique([...artifactObservationRefs, ...refs])
-      const methods = h3Methods(value)
       const pathTemplate = h3Path(value.path_template ?? value.uri_template)
+      const observedMethods = h3Methods(value)
+      const methods = artifact.kind === "route" && pathTemplate !== null && observedMethods.length === 0
+        ? ["ANY"]
+        : observedMethods
       const rawOperationId = value.operation_id
       const operation = h3Operation(rawOperationId)
       const routeName = h3RouteName(rawOperationId)

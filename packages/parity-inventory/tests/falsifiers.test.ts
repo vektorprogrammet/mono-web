@@ -520,8 +520,8 @@ test("real target API identities and normalized H3 edges do not invoke ambient r
     expect(staticContent[0]?.observation_kinds).toContain("derived_h3");
     const sourceBackedRouteKeys = new Set([
       JSON.stringify(["/opptak", "GET"]),
-      JSON.stringify(["/opptak/{shortName}", null]),
-      JSON.stringify(["/avdeling/{shortName}", null]),
+      JSON.stringify(["/opptak/{shortName}", "ANY"]),
+      JSON.stringify(["/avdeling/{shortName}", "ANY"]),
       JSON.stringify(["/opptak/avdeling/{id}", "GET"]),
     ]);
     const sourceBackedRoutes = api.h3RouteRows.filter(
