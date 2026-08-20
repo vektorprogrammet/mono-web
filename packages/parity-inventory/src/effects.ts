@@ -2151,6 +2151,7 @@ const integrationCallsFor = (unit: SourceUnit, authority: AuthorityGraph): reado
       ? callableName
       : null
     const effectCall = effectCalls.find((call) => match.index !== undefined && match.index >= call.offset && match.index <= call.offset + call.chain.length)
+    if (declarationName === null && (effectCall === undefined || callableName !== effectCall.callable)) continue
     const callOffset = effectCall?.offset ?? match.index
     if (seen.has(callOffset)) continue
     seen.add(callOffset)
@@ -2166,7 +2167,9 @@ const integrationCallsFor = (unit: SourceUnit, authority: AuthorityGraph): reado
     const reasons: string[] = []
     const resolvedCall = effectCall === undefined ? null : resolveEffectCall(authority, unit, effectCall, ownerClass)
     const adapterEvidence = integrationAdapterPattern.test(contextStructure) || integrationAdapterPattern.test(resolvedCall?.symbol ?? "")
-    const namedProviderRef = providerFromText(resolvedCall?.symbol ?? "") ?? providerFromText(contextStructure)
+    const namedProviderRef = providerFromText(resolvedCall?.symbol ?? "")
+      ?? providerFromText(ownerRef ?? "")
+      ?? providerFromText(contextStructure)
     const literalCall = callableName === null
       ? undefined
       : literalCallsFor(unit.text, callableName).find((candidate) =>
@@ -2193,11 +2196,9 @@ const integrationCallsFor = (unit: SourceUnit, authority: AuthorityGraph): reado
         : `${ownerRef}::${callSiteName}`
     const safeSymbol = normalizeSafe(callSiteRef, "symbol", reasons)
     if (safeSymbol === null) reasons.push("INTEGRATION_CALLSITE_UNRESOLVED")
-    const providerRef = normalizeSafe(
-      namedProviderRef ?? (transportEvidence ? resolvedCall?.symbol ?? safeSymbol : null),
-      "field",
-      reasons,
-    )
+    const providerRef = namedProviderRef ?? (transportEvidence
+      ? normalizeSafe(resolvedCall?.symbol ?? safeSymbol, "symbol", reasons)
+      : null)
     if (providerRef === null) reasons.push("UNKNOWN_INTEGRATION")
     calls.push({ authority: unit.authority, path: unit.path, sourceRefId: unit.sourceRefId, ownerRef, symbolRef: safeSymbol, providerRef, direction, protocol, endpointRef, credentialSlotRef, effectClasses, reasonCodes: sortUnique(reasons), imported, importerPath, line: lineAt(unit.text, callOffset) })
   }

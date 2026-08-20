@@ -636,6 +636,7 @@ test("generic local request and send calls do not create integrations", async ()
     put(monoRoot, "apps/server/src/App/Infrastructure/Service/Delegate.php", "<?php\nfinal class Delegate { public function sendThing(): void { $this->delegate->send($payload); } }\n")
     put(monoRoot, "apps/server/src/App/Infrastructure/Service/Request.php", "<?php\nfinal class Request { public function read(): JsonResponse { $value = $request->request->get('local'); return new JsonResponse($value); } }\n")
     put(monoRoot, "packages/google-client.ts", "export class GoogleClient { fetch(dynamicEndpoint) { return dynamicEndpoint }\n}\n")
+    put(monoRoot, "packages/preview.ts", "export function handle(request: Request): Promise<Response> { request.headers.get('host'); if (request.method !== 'GET') throw new Error('method'); return fetch(request) }\n")
     put(monoRoot, "packages/tool/tests/client.test.ts", "test('fixture', () => fetch('https://api.example.test/v1/items'))\n")
     const context = await contextFor(legacyRoot, monoRoot)
     const c2 = collectC2(context, sha256("dynamic-integration-c2"))
@@ -656,6 +657,15 @@ test("generic local request and send calls do not create integrations", async ()
         endpoint_ref: null,
         call_site_ref: "GoogleClient::fetch",
       },
+    })
+    const previewRows = c2.integrations.rows.filter((row) =>
+      row.source_ref_ids.some((ref) => context.sourcePathById.get(ref)?.path === "packages/preview.ts"),
+    )
+    expect(previewRows).toHaveLength(1)
+    expect(previewRows[0]?.details).toMatchObject({
+      call_site_ref: "packages/preview.ts#handle",
+      provider_ref: "packages/preview.ts#handle",
+      protocol: "http",
     })
   } finally {
     rmSync(legacyRoot, { recursive: true, force: true })
