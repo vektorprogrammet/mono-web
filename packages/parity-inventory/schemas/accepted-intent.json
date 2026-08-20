@@ -1,0 +1,196 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:vektorprogrammet:functional-parity-accepted-intent:v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "intents", "journeys"],
+  "properties": {
+    "schema_version": { "type": "string", "const": "functional-parity-accepted-intent/v1" },
+    "intents": { "type": "array", "items": { "$ref": "#/$defs/intent" } },
+    "journeys": { "type": "array", "items": { "$ref": "#/$defs/journey" } }
+  },
+  "anyOf": [
+    { "properties": { "intents": { "minItems": 1 } } },
+    { "properties": { "journeys": { "minItems": 1 } } }
+  ],
+  "$defs": {
+    "safeScalar": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/#-]{0,127}$"
+    },
+    "intentRef": { "type": "string", "pattern": "^intent://[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$" },
+    "revisionRef": { "type": "string", "pattern": "^rev-[A-Za-z0-9:_-]{1,160}$" },
+    "sourceRef": { "type": "string", "pattern": "^src-[a-f0-9]{64}$" },
+    "rowRef": { "type": "string", "pattern": "^row-[a-f0-9]{64}$" },
+    "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "uniqueSafeScalars": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/safeScalar" }
+    },
+    "revisionRefs": {
+      "type": "array",
+      "minItems": 2,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/revisionRef" }
+    },
+    "sourceRefs": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/sourceRef" }
+    },
+    "rowRefs": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/rowRef" } },
+    "canonicalSignatures": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 2, "maxLength": 512 }
+    },
+    "inventoryKind": {
+      "type": "string",
+      "enum": [
+        "legacy_route",
+        "mono_route",
+        "api_operation",
+        "command_write",
+        "schedule_background",
+        "external_integration"
+      ]
+    },
+    "acceptedDisposition": {
+      "type": "string",
+      "enum": [
+        "accepted_missing",
+        "accepted_extra",
+        "accepted_changed",
+        "accepted_renamed",
+        "accepted_split",
+        "accepted_merged",
+        "accepted_dead_source",
+        "accepted_absent",
+        "accepted_not_applicable"
+      ]
+    },
+    "intent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "intent_ref_id",
+        "intent_revision",
+        "intent_digest",
+        "selected_revision_ref_ids",
+        "source_ref_ids",
+        "purpose",
+        "disposition",
+        "row_ids",
+        "canonical_signatures",
+        "inventory_kinds",
+        "journey_ref_ids"
+      ],
+      "properties": {
+        "intent_ref_id": { "$ref": "#/$defs/intentRef" },
+        "intent_revision": { "$ref": "#/$defs/safeScalar" },
+        "intent_digest": { "$ref": "#/$defs/digest" },
+        "selected_revision_ref_ids": { "$ref": "#/$defs/revisionRefs" },
+        "source_ref_ids": { "$ref": "#/$defs/sourceRefs" },
+        "purpose": { "type": "string", "enum": ["coverage", "disposition"] },
+        "disposition": { "anyOf": [{ "$ref": "#/$defs/acceptedDisposition" }, { "type": "null" }] },
+        "row_ids": { "$ref": "#/$defs/rowRefs" },
+        "canonical_signatures": { "$ref": "#/$defs/canonicalSignatures" },
+        "inventory_kinds": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/inventoryKind" }
+        },
+        "journey_ref_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/intentRef" }
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "purpose": { "const": "coverage" } }, "required": ["purpose"] },
+          "then": {
+            "properties": {
+              "disposition": { "type": "null" },
+              "journey_ref_ids": { "minItems": 1 }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "purpose": { "const": "disposition" } },
+            "required": ["purpose"]
+          },
+          "then": {
+            "properties": {
+              "disposition": { "$ref": "#/$defs/acceptedDisposition" },
+              "journey_ref_ids": { "maxItems": 0 }
+            },
+            "anyOf": [
+              { "properties": { "row_ids": { "minItems": 1 } } },
+              { "properties": { "canonical_signatures": { "minItems": 1 } } }
+            ]
+          }
+        }
+      ]
+    },
+    "step": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "step_id",
+        "surface",
+        "row_ids",
+        "canonical_signatures",
+        "expected_contract_ref",
+        "runtime_evidence_ref_ids"
+      ],
+      "properties": {
+        "step_id": { "$ref": "#/$defs/safeScalar" },
+        "surface": { "$ref": "#/$defs/inventoryKind" },
+        "row_ids": { "$ref": "#/$defs/rowRefs" },
+        "canonical_signatures": { "$ref": "#/$defs/canonicalSignatures" },
+        "expected_contract_ref": {
+          "anyOf": [{ "$ref": "#/$defs/safeScalar" }, { "type": "null" }]
+        },
+        "runtime_evidence_ref_ids": { "$ref": "#/$defs/uniqueSafeScalars" }
+      },
+      "anyOf": [
+        { "properties": { "row_ids": { "minItems": 1 } } },
+        { "properties": { "canonical_signatures": { "minItems": 1 } } }
+      ]
+    },
+    "journey": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "journey_ref_id",
+        "journey_key",
+        "intent_ref_id",
+        "journey_revision",
+        "journey_digest",
+        "selected_revision_ref_ids",
+        "source_ref_ids",
+        "steps",
+        "coverage_scope"
+      ],
+      "properties": {
+        "journey_ref_id": { "$ref": "#/$defs/intentRef" },
+        "journey_key": { "$ref": "#/$defs/safeScalar" },
+        "intent_ref_id": { "$ref": "#/$defs/intentRef" },
+        "journey_revision": { "$ref": "#/$defs/safeScalar" },
+        "journey_digest": { "$ref": "#/$defs/digest" },
+        "selected_revision_ref_ids": { "$ref": "#/$defs/revisionRefs" },
+        "source_ref_ids": { "$ref": "#/$defs/sourceRefs" },
+        "steps": { "type": "array", "items": { "$ref": "#/$defs/step" } },
+        "coverage_scope": {
+          "type": "string",
+          "enum": ["user_visible", "operator_visible", "background", "accepted_non_user_facing"]
+        }
+      }
+    }
+  }
+}

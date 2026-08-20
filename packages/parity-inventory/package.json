@@ -9,10 +9,12 @@
     "./canonical": "./src/canonical.ts",
     "./effects": "./src/effects.ts",
     "./routes": "./src/routes.ts",
+    "./intent-author": "./src/intent-author.ts",
     "./schemas/*": "./schemas/*"
   },
   "scripts": {
     "check-types": "tsc --noEmit",
+    "intent:author": "bun src/intent-author.ts",
     "lint": "oxlint",
     "test": "bun test tests"
   },
