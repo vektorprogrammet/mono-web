@@ -729,7 +729,11 @@ const loaderRootNames = (authority: "legacy" | "mono"): ReadonlySet<string> =>
   authority === "legacy"
     ? new Set(["app/config/services.yml", "app/config/services.yaml", "app/config/config.yml", "app/config/config.yaml"])
     : new Set(["apps/server/config/services.yml", "apps/server/config/services.yaml"])
-const isLoaderRootPath = (path: string, authority: "legacy" | "mono"): boolean => loaderRootNames(authority).has(path)
+const isLoaderRootPath = (path: string, authority: "legacy" | "mono"): boolean =>
+  loaderRootNames(authority).has(path)
+  || (authority === "legacy"
+    ? /^app\/config\/routing\.ya?ml$/i.test(path)
+    : /^apps\/server\/config\/routes(?:\.ya?ml|\/.*\.ya?ml)$/i.test(path))
 const isLoaderConfigPath = (path: string, authority: "legacy" | "mono"): boolean => {
   const root = loaderConfigRoot(authority)
   return path.startsWith(`${root}/`) && /\.(?:ya?ml|json)$/i.test(path)
@@ -839,6 +843,13 @@ const loaderValuesFor = (source: string): LoaderValues => {
       }
     }
   }
+  const collectRouteResource = (value: unknown): void => {
+    const resourcePair = loaderYamlPairs(value).find((pair) => loaderYamlKey(pair.key) === "resource")
+    const resource = resourcePair === undefined ? null : loaderYamlScalar(resourcePair.value)
+    if (resource === null) return
+    if (/\.ya?ml$/i.test(resource)) imports.push(resource)
+    else resources.push(resource)
+  }
   try {
     const document = parseDocument(source, { prettyErrors: false })
     if (document.errors.length > 0) invalid = true
@@ -846,6 +857,7 @@ const loaderValuesFor = (source: string): LoaderValues => {
       const key = loaderYamlKey(pair.key)
       if (key === "imports") collectImportList(pair.value)
       else if (key === "services") collectServiceMap(pair.value)
+      else collectRouteResource(pair.value)
     }
   } catch {
     invalid = true

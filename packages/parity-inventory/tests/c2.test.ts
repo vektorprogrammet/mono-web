@@ -414,7 +414,32 @@ test("command import edges distinguish registered and dead declarations", async 
     )
     const importerPaths = importEdge?.from_ref_ids.map((ref) => context.sourcePathById.get(ref)?.path ?? null) ?? []
     expect(importerPaths).toEqual(["apps/server/config/services.yaml"])
+
     expect(c2.commandWrites.rows.some((row) => "entry_kind" in row.details && row.details.entry_kind === "unknown")).toBe(false)
+  } finally {
+    rmSync(legacyRoot, { recursive: true, force: true })
+    rmSync(monoRoot, { recursive: true, force: true })
+  }
+})
+test("routing roots establish controller write reachability", async () => {
+  const legacyRoot = mkdtempSync("/tmp/parity-c2-route-loader-legacy-")
+  const monoRoot = mkdtempSync("/tmp/parity-c2-route-loader-mono-")
+  try {
+    put(monoRoot, "apps/server/config/routes.yaml", "controllers:\n  resource: ../src/App/Controller/\n  type: attribute\n")
+    put(monoRoot, "apps/server/src/App/Controller/WriteController.php", "<?php\nnamespace App\\Fixture\\Controller;\nfinal class WriteController { private object $repository; public function create(): void { $this->repository->save(); } }\n")
+    const context = await contextFor(legacyRoot, monoRoot)
+    const c2 = collectC2(context, sha256("route-loader-c2"))
+    const row = c2.commandWrites.rows.find((candidate) =>
+      "owner_ref" in candidate.details && candidate.details.owner_ref === "App\\Fixture\\Controller\\WriteController",
+    )
+    expect(row).toMatchObject({ status: "extra", reason_codes: ["EXTRA_COUNTERPART"] })
+    expect(row?.reason_codes).not.toContain("DEAD_UNIMPORTED_SOURCE")
+    expect(
+      row?.source_ref_ids.map((ref) => context.sourcePathById.get(ref)?.path).sort(),
+    ).toEqual([
+      "apps/server/config/routes.yaml",
+      "apps/server/src/App/Controller/WriteController.php",
+    ])
   } finally {
     rmSync(legacyRoot, { recursive: true, force: true })
     rmSync(monoRoot, { recursive: true, force: true })
@@ -433,6 +458,19 @@ test("C2 source family selectors remain literal and complete", () => {
     "src/AppBundle/**/Repository/**/*.php",
     "app/config/services*.yml",
     "app/config/config*.yml",
+    "app/config/routing*.yml",
+  ])
+  expect(byId.get("mono_commands_writes")?.patterns).toEqual([
+    "apps/server/src/App/**/Infrastructure/Command/**/*.php",
+    "apps/server/src/App/**/Controller/**/*.php",
+    "apps/server/src/App/**/Infrastructure/Repository/**/*.php",
+    "apps/server/src/App/**/Infrastructure/Service/**/*.php",
+    "apps/server/src/App/**/Event/**/*.php",
+    "apps/server/src/App/**/EventSubscriber/**/*.php",
+    "apps/server/config/services*.yaml",
+    "apps/server/config/packages/*.yaml",
+    "apps/server/config/routes*.yaml",
+    "apps/server/config/routes/**/*.yaml",
   ])
   expect(byId.get("mono_schedules")?.patterns).toEqual([
     ".github/workflows/**/*.yml",
