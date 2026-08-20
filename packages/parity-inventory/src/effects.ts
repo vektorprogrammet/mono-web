@@ -1973,6 +1973,14 @@ const integrationCallsFor = (unit: SourceUnit, authority: AuthorityGraph): reado
   const callPattern = new RegExp(integrationCallPattern.source, integrationCallPattern.flags)
   for (const match of structure.matchAll(callPattern)) {
     if (match.index === undefined) continue
+    const callableName = /^([A-Za-z_][A-Za-z0-9_]*)/.exec(match[0] ?? "")?.[1] ?? null
+    const declarationName = callableName !== null
+      && (
+        /\bfunction\s*(?:&\s*)?$/.test(structure.slice(Math.max(0, match.index - 32), match.index))
+        || new RegExp(`^${callableName}\\s*\\([^)]*\\)\\s*(?::[^{}]+)?\\s*\\{`).test(structure.slice(match.index))
+      )
+      ? callableName
+      : null
     const effectCall = effectCalls.find((call) => match.index !== undefined && match.index >= call.offset && match.index <= call.offset + call.chain.length)
     const callOffset = effectCall?.offset ?? match.index
     if (seen.has(callOffset)) continue
@@ -2002,21 +2010,41 @@ const integrationCallsFor = (unit: SourceUnit, authority: AuthorityGraph): reado
     if (providerRef === null) reasons.push("UNKNOWN_INTEGRATION")
     const direction: ExternalIntegrationDetails["direction"] = /\b(?:webhook|handleRequest|onRequest|incoming|inbound)\b/i.test(contextStructure) ? "inbound" : "outbound"
     const callSiteContext = functionContextFor(unit.text, callOffset, true)
-    const callSiteRef = callSiteContext?.name === undefined || callSiteContext.name === null
+    const callSiteName = declarationName ?? callSiteContext?.name ?? null
+    const callSiteRef = callSiteName === null
       ? null
       : ownerRef === null
-        ? `${unit.path}#${callSiteContext.name}`
-        : `${ownerRef}::${callSiteContext.name}`
+        ? `${unit.path}#${callSiteName}`
+        : `${ownerRef}::${callSiteName}`
     const safeSymbol = normalizeSafe(callSiteRef, "symbol", reasons)
     if (safeSymbol === null) reasons.push("INTEGRATION_CALLSITE_UNRESOLVED")
     calls.push({ authority: unit.authority, path: unit.path, sourceRefId: unit.sourceRefId, ownerRef, symbolRef: safeSymbol, providerRef: normalizeSafe(providerRef, "field", reasons), direction, protocol, endpointRef, credentialSlotRef, effectClasses, reasonCodes: sortUnique(reasons), imported, importerPath, line: lineAt(unit.text, callOffset) })
   }
-  if (calls.length > 0) return calls
+  if (calls.length > 0) {
+    const specificity = (call: IntegrationCall): number =>
+      (call.effectClasses.includes("outbound") ? 1 : 0)
+      + (call.protocol === null ? 0 : 1)
+      + (call.endpointRef === null ? 0 : 1)
+      + (call.credentialSlotRef === null ? 0 : 1)
+    return calls.filter((call, index) =>
+      !calls.some((candidate, candidateIndex) =>
+        candidateIndex !== index
+        && candidate.path === call.path
+        && candidate.symbolRef === call.symbolRef
+        && candidate.providerRef === call.providerRef
+        && candidate.direction === call.direction
+        && specificity(candidate) > specificity(call),
+      ),
+    )
+  }
   const declarationProvider = providerFromText(defaultOwnerRef ?? "")
-  if (declarationProvider !== null && /\b(?:fetch|request|publish|send|post|put|delete)\s*\(/.test(structure)) {
+  const declarationMatch = /\b(fetch|request|publish|send|post|put|delete)\s*\([^)]*\)\s*(?::[^{}]+)?\s*\{/.exec(structure)
+  if (declarationProvider !== null && declarationMatch?.[1] !== undefined) {
     const { imported, importerPath } = importerFor(defaultOwnerRef)
-    const reasons: string[] = ["INTEGRATION_CALLSITE_UNRESOLVED", ...(defaultOwnerRef === null ? ["UNKNOWN_INTEGRATION"] : []), ...defaultOwnerReasons]
-    calls.push({ authority: unit.authority, path: unit.path, sourceRefId: unit.sourceRefId, ownerRef: defaultOwnerRef, symbolRef: null, providerRef: normalizeSafe(declarationProvider, "field", reasons), direction: "outbound", protocol: protocolFor(null, structure), endpointRef: null, credentialSlotRef: null, effectClasses: ["unknown"], reasonCodes: sortUnique(reasons), imported, importerPath, line: 1 })
+    const reasons: string[] = [...(defaultOwnerRef === null ? ["UNKNOWN_INTEGRATION"] : []), ...defaultOwnerReasons]
+    const symbolRef = normalizeSafe(defaultOwnerRef === null ? `${unit.path}#${declarationMatch[1]}` : `${defaultOwnerRef}::${declarationMatch[1]}`, "symbol", reasons)
+    if (symbolRef === null) reasons.push("INTEGRATION_CALLSITE_UNRESOLVED")
+    calls.push({ authority: unit.authority, path: unit.path, sourceRefId: unit.sourceRefId, ownerRef: defaultOwnerRef, symbolRef, providerRef: normalizeSafe(declarationProvider, "field", reasons), direction: "outbound", protocol: protocolFor(null, structure), endpointRef: null, credentialSlotRef: null, effectClasses: ["unknown"], reasonCodes: sortUnique(reasons), imported, importerPath, line: lineAt(unit.text, declarationMatch.index) })
   }
   return calls
 }

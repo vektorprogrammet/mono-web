@@ -570,6 +570,11 @@ test("provider-specific and literal HTTP integration anchors remain visible", as
       "apps/server/src/App/Infrastructure/Service/GitHubClient.php",
       "apps/server/src/App/Infrastructure/Service/HttpClientAdapter.php",
     ]) expect(sourcePaths.has(path)).toBe(true)
+    expect(
+      integrations.rows
+        .filter((row) => row.source_ref_ids.some((ref) => sourcePaths.has(context.sourcePathById.get(ref)?.path ?? "")))
+        .every((row) => "call_site_ref" in row.details && row.details.call_site_ref !== null),
+    ).toBe(true)
     const httpRows = integrations.rows.filter((row) => row.source_ref_ids.some((ref) => context.sourcePathById.get(ref)?.path === "apps/server/src/App/Infrastructure/Service/HttpClientAdapter.php"))
     expect(httpRows.some((row) => "endpoint_ref" in row.details && row.details.endpoint_ref === "https://api.example.test/v1/items")).toBe(true)
   } finally {
