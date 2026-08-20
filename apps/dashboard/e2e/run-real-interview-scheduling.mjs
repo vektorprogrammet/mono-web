@@ -1,5 +1,6 @@
 import { chmod, mkdtemp, rm } from "node:fs/promises";
 import { randomBytes } from "node:crypto";
+import { spawn, spawnSync } from "node:child_process";
 import { createConnection } from "node:net";
 import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
@@ -218,6 +219,8 @@ async function main() {
   dashboardEnv.DASHBOARD_ORIGIN = dashboardOrigin;
   dashboardEnv.VITE_DASHBOARD_ORIGIN = dashboardOrigin;
   dashboardEnv.DASHBOARD_INTERVIEW_OWNER = "foldkit";
+  dashboardEnv.HOST = "127.0.0.1";
+  dashboardEnv.PORT = "5174";
   dashboardEnv.VITE_DASHBOARD_INTERVIEW_OWNER = "foldkit";
 
   const cleanup = async () => {
@@ -303,7 +306,7 @@ async function main() {
     await assertPortAvailable(5174);
     dashboardProcess = startProcess(
       "bun",
-      ["run", "dev", "--host", "127.0.0.1", "--port", "5174"],
+      ["run", "start"],
       {
         cwd: dashboardRoot,
         env: dashboardEnv,

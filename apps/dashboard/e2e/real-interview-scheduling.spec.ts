@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page, type Request } from "@playwright/test";
 
 const leaderUsername = "recruitment-leader-0029";
 const leaderPassword = "recruitment-e2e-0029";
@@ -15,6 +15,16 @@ const schedule = {
   to: "recruitment-applicant-0029@example.invalid",
   message: "Vi ser frem til intervjuet.",
 };
+
+function bridgeOperation(request: Request): string | null {
+  try {
+    const body = request.postDataJSON();
+    if (typeof body !== "object" || body === null || !("operation" in body)) return null;
+    return typeof body.operation === "string" ? body.operation : null;
+  } catch {
+    return null;
+  }
+}
 
 async function login(page: Page, username: string, password: string): Promise<void> {
   await page.goto("/login");
@@ -64,13 +74,13 @@ test.describe("Real Symfony interview scheduling", () => {
       (request) =>
         request.method() === "POST" &&
         new URL(request.url()).pathname === "/interview" &&
-        request.postDataJSON()?.operation === "scheduleInterview",
+        bridgeOperation(request) === "scheduleInterview",
     );
     const scheduleResponse = page.waitForResponse(
       (response) =>
         response.request().method() === "POST" &&
         new URL(response.url()).pathname === "/interview" &&
-        response.request().postDataJSON()?.operation === "scheduleInterview",
+        bridgeOperation(response.request()) === "scheduleInterview",
     );
     await page.getByRole("button", { name: "Lagre og send", exact: true }).click();
     const [request, response] = await Promise.all([scheduleRequest, scheduleResponse]);
@@ -109,7 +119,7 @@ test.describe("Real Symfony interview scheduling", () => {
       (response) =>
         response.request().method() === "POST" &&
         new URL(response.url()).pathname === "/interview" &&
-        response.request().postDataJSON()?.operation === "listInterviews",
+        bridgeOperation(response.request()) === "listInterviews",
     );
     await openInterviewDashboard(interviewerPage);
     expect((await freshRead).status()).toBe(200);
