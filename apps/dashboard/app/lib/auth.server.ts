@@ -12,11 +12,8 @@ export function createAuthHeaders(token: string): HeadersInit {
   return { Authorization: `Bearer ${token}` };
 }
 
-export function createAuthCookie(token: string): string {
-  const secure =
-    typeof process !== "undefined" && process.env.NODE_ENV === "production"
-      ? "; Secure"
-      : "";
+export function createAuthCookie(token: string, request: Request): string {
+  const secure = new URL(request.url).protocol === "https:" ? "; Secure" : "";
   return `${AUTH_COOKIE}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=3600${secure}`;
 }
 

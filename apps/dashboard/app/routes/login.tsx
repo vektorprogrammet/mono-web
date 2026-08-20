@@ -28,7 +28,7 @@ export async function action({ request }: Route.ActionArgs) {
   try {
     const { token } = await sdk.auth.login(username, password);
     return redirect("/dashboard", {
-      headers: { "Set-Cookie": createAuthCookie(token) },
+      headers: { "Set-Cookie": createAuthCookie(token, request) },
     });
   } catch (e) {
     if (e instanceof RateLimitedError) {
