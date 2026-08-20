@@ -669,19 +669,23 @@ test("OpenAPI route keys remain structural while credential and schema values fa
     },
     components: {},
   }
+  const metadataSchema = {
+    type: "object",
+    properties: {
+      token: { type: "string", format: "uuid", readOnly: true },
+      email: { type: "string", format: "email", writeOnly: false },
+      phone: { type: "string", format: "phone", nullable: true },
+      userId: { type: "integer", format: "int64", readOnly: true },
+    },
+  }
   const metadataDocument = {
     ...validDocument,
     components: {
       schemas: {
-        Metadata: {
-          type: "object",
-          properties: {
-            token: { type: "string", format: "uuid", readOnly: true },
-            email: { type: "string", format: "email", writeOnly: false },
-            phone: { type: "string", format: "phone", nullable: true },
-            userId: { type: "integer", format: "int64", readOnly: true },
-          },
-        },
+        Metadata: metadataSchema,
+        PasswordChangeInput: metadataSchema,
+        PasswordResetExecute: metadataSchema,
+        PasswordResetRequest: metadataSchema,
       },
     },
   }

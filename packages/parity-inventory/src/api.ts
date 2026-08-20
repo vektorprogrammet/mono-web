@@ -1002,11 +1002,40 @@ const openApiSourceRef = (context: ManifestContext): string => runtimeSourceRef(
 
 const isOpenApiRecord = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === "object" && !Array.isArray(value)
 const hasOwn = (value: Record<string, unknown>, key: string): boolean => Object.prototype.hasOwnProperty.call(value, key)
-const OPENAPI_METHOD_KEYS = new Set(["get", "head", "post", "put", "patch", "delete", "options", "trace"])
-const OPENAPI_COMPONENT_KEYS = new Set(["schemas", "responses", "parameters", "examples", "requestBodies", "headers", "securitySchemes", "links", "callbacks", "pathItems"])
-const OPENAPI_PATH_ITEM_KEYS = new Set(["$ref", "summary", "description", "servers", "parameters", ...OPENAPI_METHOD_KEYS])
+const OPENAPI_METHOD_KEYS: Record<string, true> = {
+  get: true,
+  head: true,
+  post: true,
+  put: true,
+  patch: true,
+  delete: true,
+  options: true,
+  trace: true,
+}
+const OPENAPI_COMPONENT_KEYS: Record<string, true> = {
+  schemas: true,
+  responses: true,
+  parameters: true,
+  examples: true,
+  requestBodies: true,
+  headers: true,
+  securitySchemes: true,
+  links: true,
+  callbacks: true,
+  pathItems: true,
+}
+const OPENAPI_PATH_ITEM_KEYS: Record<string, true> = {
+  $ref: true,
+  summary: true,
+  description: true,
+  servers: true,
+  parameters: true,
+  ...OPENAPI_METHOD_KEYS,
+}
 
 const OPENAPI_ROUTE_KEY_PREFIX = "__openapi_route_template_"
+const OPENAPI_COMPONENT_KEY_PREFIX = "__openapi_component_entry_"
+
 const openApiRouteKeyIsUnsafe = (key: string): boolean => unsafeScalarReason(key, "route_path") !== null
 const openApiPayloadIsParsedDocument = (value: unknown): value is Record<string, unknown> =>
   isOpenApiRecord(value) &&
@@ -1015,6 +1044,7 @@ const openApiPayloadIsParsedDocument = (value: unknown): value is Record<string,
   isOpenApiRecord(value.paths) &&
   isOpenApiRecord(value.components)
 type OpenApiPathsMapContext = "none" | "root" | "wrapper"
+type OpenApiComponentsMapContext = "none" | "document" | "section"
 type OpenApiSafetyProjectionResult = { readonly value: unknown; readonly unsafe: boolean }
 const OPENAPI_SCHEMA_PROPERTY_PREFIX = "__openapi_schema_property_"
 const OPENAPI_SCHEMA_VALUE_KEYS: Record<string, true> = {
@@ -1037,6 +1067,7 @@ const openApiSafetyProjection = (
   routeOrdinal = { value: 0 },
   sensitiveSchemaProperty = false,
   schemaPropertyValueRoot = false,
+  componentsMap: OpenApiComponentsMapContext = "none",
 ): OpenApiSafetyProjectionResult => {
   if (Array.isArray(value)) {
     const projectedEntries: unknown[] = []
@@ -1052,6 +1083,19 @@ const openApiSafetyProjection = (
     return { value, unsafe: false }
   }
   const projected: Record<string, unknown> = Object.create(null) as Record<string, unknown>
+  if (componentsMap === "section") {
+    for (const [, component] of Object.entries(value).sort(([left], [right]) => compareByteOrder(left, right))) {
+      let componentKey: string
+      do {
+        componentKey = `${OPENAPI_COMPONENT_KEY_PREFIX}${routeOrdinal.value}`
+        routeOrdinal.value += 1
+      } while (hasOwn(value, componentKey))
+      const child = openApiSafetyProjection(component, "none", false, routeOrdinal, sensitiveSchemaProperty, schemaPropertyValueRoot)
+      if (child.unsafe) return child
+      projected[componentKey] = child.value
+    }
+    return { value: projected, unsafe: false }
+  }
   for (const [key, entry] of Object.entries(value)) {
     if (pathsMap !== "none" && key.startsWith("/")) {
       if (openApiRouteKeyIsUnsafe(key)) return { value, unsafe: true }
@@ -1097,7 +1141,15 @@ const openApiSafetyProjection = (
           : pathsMap === "root" && key === "paths"
             ? "wrapper"
             : "none"
-    const child = openApiSafetyProjection(entry, childPathsMap, false, routeOrdinal, sensitiveSchemaProperty)
+    const childComponentsMap: OpenApiComponentsMapContext =
+      !isOpenApiRecord(entry)
+        ? "none"
+        : atDocumentRoot && key === "components"
+          ? "document"
+          : componentsMap === "document" && OPENAPI_COMPONENT_KEYS[key] === true
+            ? "section"
+            : "none"
+    const child = openApiSafetyProjection(entry, childPathsMap, false, routeOrdinal, sensitiveSchemaProperty, false, childComponentsMap)
     if (child.unsafe) return child
     projected[key] = child.value
   }
@@ -1148,8 +1200,8 @@ const openApiOperationValid = (operation: Record<string, unknown>): boolean => {
 
 const openApiPathItemValid = (item: Record<string, unknown>): boolean => {
   for (const [key, value] of Object.entries(item)) {
-    if (!OPENAPI_PATH_ITEM_KEYS.has(key)) return false
-    if (OPENAPI_METHOD_KEYS.has(key)) {
+    if (OPENAPI_PATH_ITEM_KEYS[key] !== true) return false
+    if (OPENAPI_METHOD_KEYS[key] === true) {
       if (!isOpenApiRecord(value) || !openApiOperationValid(value)) return false
       continue
     }
@@ -1164,7 +1216,7 @@ const openApiPathItemValid = (item: Record<string, unknown>): boolean => {
 
 const openApiComponentsValid = (components: Record<string, unknown>): boolean => {
   for (const [sectionName, section] of Object.entries(components)) {
-    if (!OPENAPI_COMPONENT_KEYS.has(sectionName) || !isOpenApiRecord(section)) return false
+    if (OPENAPI_COMPONENT_KEYS[sectionName] !== true || !isOpenApiRecord(section)) return false
     if (Object.values(section).some((entry) => !isOpenApiRecord(entry) || sectionName === "responses" && !openApiResponseValid(entry))) return false
   }
   return true
