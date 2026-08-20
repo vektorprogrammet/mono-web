@@ -559,10 +559,14 @@ const effectEvidence = (
     const resolved = resolveEffectCall(authority, unit, call, scope?.owner, scope?.start ?? 0)
     if (resolved === null) {
       const receiver = call.receiver ?? null
-      const receiverRoot = receiver?.split(/->|::|\./)[0] ?? null
+      const receiverParts = receiver?.split(/->|::|\./) ?? []
+      const receiverRoot = receiverParts[0] ?? null
       const localTypes = localReceiverTypesFor(unit, call.offset + (scope?.start ?? 0))
-      const explicitlyUnknownReceiver = receiver !== null
-        && (receiver !== receiverRoot || (receiverRoot !== null && localTypes.has(receiverRoot) && localTypes.get(receiverRoot) === null))
+      const typedLocalReceiver = receiverRoot !== null && localTypes.has(receiverRoot) && localTypes.get(receiverRoot) !== null
+      const typedOwnerProperty = receiverRoot === "$this"
+        && receiverParts[1] !== undefined
+        && scope?.owner?.properties.has(receiverParts[1]) === true
+      const explicitlyUnknownReceiver = receiver !== null && !typedLocalReceiver && !typedOwnerProperty
       if (callableEffect !== null && callableEffect !== "read_only") {
         if (receiver === null) unresolved = true
         else {
@@ -1963,6 +1967,7 @@ const providerFromText = (text: string): string | null => {
     [/\bSlack(?:Client|Webhook|Adapter|Service)?\b/i, "slack"],
     [/\b(?:Mailer|MailerClient|MailerAdapter|MailerService|Mailgun|Smtp)\b/i, "mailer"],
     [/\b(?:Sms|SmsClient|SmsSender|SmsGateway|SmsAdapter|Twilio)\b/i, "sms"],
+    [/\bGatewayAPI(?:Client|Adapter|Service)?\b/i, "gatewayapi"],
     [/\bStripe(?:Client|Adapter|Service)?\b/i, "stripe"],
     [/\b(?:Aws|S3Client)\b/i, "aws"],
     [/\b(?:Github|GitHub)(?:Client|Adapter|Service)?\b/i, "github"],
@@ -2078,7 +2083,12 @@ const integrationCallsFor = (unit: SourceUnit, authority: AuthorityGraph): reado
     const resolvedCall = effectCall === undefined ? null : resolveEffectCall(authority, unit, effectCall, ownerClass)
     const adapterEvidence = integrationAdapterPattern.test(contextStructure) || integrationAdapterPattern.test(resolvedCall?.symbol ?? "")
     const namedProviderRef = providerFromText(resolvedCall?.symbol ?? "") ?? providerFromText(contextStructure)
-    const endpointMatch = /https?:\/\/[^\s"'`),}]+/i.exec(contextText)
+    const literalCall = callableName === null
+      ? undefined
+      : literalCallsFor(unit.text, callableName).find((candidate) =>
+        candidate.offset >= callOffset && candidate.offset <= callOffset + (effectCall?.chain.length ?? callableName.length),
+      )
+    const endpointMatch = /https?:\/\/[^\s"'`),}]+/i.exec(literalCall?.rawArgs.join(",") ?? "")
     const endpointRef = endpointMatch?.[0] === undefined ? null : safeEndpoint(endpointMatch[0], reasons)
     const protocol = protocolFor(endpointRef, `${contextStructure} ${callableName ?? ""} ${resolvedCall?.symbol ?? ""} ${namedProviderRef ?? ""}`)
       ?? (adapterEvidence ? "http" : null)

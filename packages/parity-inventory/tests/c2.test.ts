@@ -274,7 +274,7 @@ test("resolved outbound adapters need no inline URL and Sms setters are not inte
     put(monoRoot, "apps/server/src/App/Infrastructure/Service/Mailer.php", "<?php\nnamespace App\\Fixture\\Infrastructure\\Service;\nfinal class Mailer { public function send(): void {} }\n")
     put(monoRoot, "apps/server/src/App/Infrastructure/Service/SmsSender.php", "<?php\nnamespace App\\Fixture\\Infrastructure\\Service;\nfinal class SmsSender { public function send(): void {} }\n")
     put(monoRoot, "apps/server/src/App/Infrastructure/Service/Sms.php", "<?php\nnamespace App\\Fixture\\Infrastructure\\Service;\nfinal class Sms { public function setMessage(): void {} public function setSender(): void {} public function setRecipients(): void {} }\n")
-    put(monoRoot, "apps/server/src/App/Infrastructure/Command/NotifyCommand.php", "<?php\nnamespace App\\Fixture\\Infrastructure\\Command;\nuse App\\Fixture\\Infrastructure\\Service\\Mailer;\nuse App\\Fixture\\Infrastructure\\Service\\SmsSender;\nfinal class NotifyCommand { private Mailer $mailer; private SmsSender $smsSender; public function __invoke(): void { $this->mailer->send(); $this->smsSender->send(); } }\n")
+    put(monoRoot, "apps/server/src/App/Infrastructure/Command/NotifyCommand.php", "<?php\nnamespace App\\Fixture\\Infrastructure\\Command;\nuse App\\Fixture\\Infrastructure\\Service\\Mailer;\nuse App\\Fixture\\Infrastructure\\Service\\SmsSender;\nfinal class NotifyCommand { private Mailer $mailer; private SmsSender $smsSender; public function __invoke(): void { $this->mailer->send(); $this->smsSender->send(); $unrelated = 'https://api.example.test/v1/unrelated'; } }\n")
     put(monoRoot, "apps/server/src/App/Infrastructure/Command/DuplicateCommand.php", "<?php\nnamespace App\\Fixture\\Infrastructure\\Command;\nuse App\\Fixture\\Infrastructure\\Service\\Mailer;\nfinal class DuplicateCommand { private Mailer $mailer; public function __invoke(): void { $this->mailer->send(); $this->mailer->send(); } }\n")
     put(monoRoot, "apps/server/src/App/Infrastructure/Service/InterviewManager.php", "<?php\nnamespace App\\Fixture\\Infrastructure\\Service;\nfinal class InterviewManager { private Sms $sms; public function configure(): void { $this->sms->setMessage(); $this->sms->setSender(); $this->sms->setRecipients(); } }\n")
     put(monoRoot, "apps/server/config/services.yaml", "services:\n  App\\Fixture\\Infrastructure\\Command\\NotifyCommand: ~\n  App\\Fixture\\Infrastructure\\Command\\DuplicateCommand: ~\n  App\\Fixture\\Infrastructure\\Service\\Mailer: ~\n  App\\Fixture\\Infrastructure\\Service\\SmsSender: ~\n  App\\Fixture\\Infrastructure\\Service\\Sms: ~\n  App\\Fixture\\Infrastructure\\Service\\InterviewManager: ~\n")
@@ -305,6 +305,11 @@ test("resolved outbound adapters need no inline URL and Sms setters are not inte
       "App\\Fixture\\Infrastructure\\Command\\NotifyCommand::__invoke",
       "App\\Fixture\\Infrastructure\\Command\\NotifyCommand::__invoke",
     ])
+    expect(
+      c2.integrations.rows
+        .filter((row) => context.sourcePathById.get(row.source_ref_ids[0] ?? "")?.path === "apps/server/src/App/Infrastructure/Command/NotifyCommand.php")
+        .every((row) => "endpoint_ref" in row.details && row.details.endpoint_ref === null),
+    ).toBe(true)
     const duplicateRows = c2.integrations.rows.filter(
       (row) =>
         context.sourcePathById.get(row.source_ref_ids[0] ?? "")?.path ===
@@ -641,13 +646,13 @@ test("provider-specific and literal HTTP integration anchors remain visible", as
     const context = await contextFor(legacyRoot, monoRoot)
     const integrations = collectC2(context, sha256("real-integrations-c2")).integrations
     const sourcePaths = new Set(integrations.rows.flatMap((row) => row.source_ref_ids.map((ref) => context.sourcePathById.get(ref)?.path ?? "")))
-    for (const path of [
+    expect([...sourcePaths]).toEqual(expect.arrayContaining([
       "apps/server/src/App/Infrastructure/Service/MailerAdapter.php",
       "apps/server/src/App/Infrastructure/Service/SmsGateway.php",
       "apps/server/src/App/Infrastructure/Service/GatewayAPIAdapter.php",
       "apps/server/src/App/Infrastructure/Service/GitHubClient.php",
       "apps/server/src/App/Infrastructure/Service/HttpClientAdapter.php",
-    ]) expect(sourcePaths.has(path)).toBe(true)
+    ]))
     expect(
       integrations.rows
         .filter((row) => row.source_ref_ids.some((ref) => sourcePaths.has(context.sourcePathById.get(ref)?.path ?? "")))
