@@ -8,17 +8,39 @@
 |---|---|
 | Goal | Goal-1 machine-readable functional-parity inventory |
 | Contract | `functional-parity-inventory/v1` and `functional-parity-zero-gap-report/v1` |
-| Lifecycle state | `Specified` |
+| Specification status | `Accepted` on `2026-08-20`. This records acceptance of the specification only. |
+| Lifecycle state | `Drift` |
 | Dependency | 0023 functional-parity integration baseline at `462691d4c31ed601fba01f8b5f21abb92a547ff9` |
 | Spec worktree | `/tmp/mono-web-parity-inventory-spec-0024` |
 | Spec branch | `spec/0024-zero-gap-parity-inventory` |
+| Implementation candidate | `Unaccepted`. Path `/tmp/mono-web-parity-integration-0023`, branch `impl/0023-functional-parity-integration-baseline`, head `27be6aa73c185ab30a7de138d399190bd68ebe18`. |
+| Candidate relation to `main` | 48 commits ahead and one commit behind `main`. The main-only commit is `bebab18258da5a0f993dfcc6f09ea5e8af7bf68e` (`fix(dashboard): align React Router and React versions`). |
 | Current writer mutation | `design-specs/0024-zero-gap-functional-parity-inventory.md` only |
+| Active production writer | None during reconciliation |
 | Legacy input | Read-only legacy repository evidence; the inventory command never writes to it |
 | Current mono input | `mono-web` at an explicitly selected full revision; the deterministic mono authority revision is a canonical tracked-blob file-set digest that excludes the owned derived projection mount; raw Git `HEAD` is execution provenance only |
 | Required execution mode | `frozen` source mode for parity output; `fixture_injection` is exposed only through a named `--falsifier F0_...` run and never writes committed projections |
 | External effects | None. No provider, production, database, credential, or route action is authorized |
 
-This document is the contract for a future implementation. It is not an inventory result. It does not accept a route, remove a declaration, approve an integration, or make a business ruling.
+This document is the accepted contract for a future implementation. The candidate named in Metadata is implementation evidence only and is not accepted. This document does not accept a route, remove a declaration, approve an integration, or make a business ruling.
+
+## Reconciliation status and Drift log
+
+Specification acceptance was recorded on `2026-08-20`. The acceptance covers this contract only. The current lifecycle is `Drift`.
+
+### `D-0024-IMPLEMENTATION-RECONCILIATION`
+
+- **Observation and conflict:** The previous metadata said `Specified`. The observed candidate already contains the C0–C3 implementation and later fixes. The specification and implementation therefore had different lifecycle facts.
+- **Exact candidate:** The unaccepted candidate is `/tmp/mono-web-parity-integration-0023` on branch `impl/0023-functional-parity-integration-baseline` at full head `27be6aa73c185ab30a7de138d399190bd68ebe18`.
+- **Main-only commit:** The candidate is 48 commits ahead and one commit behind `main`. The missing main commit is `bebab18258da5a0f993dfcc6f09ea5e8af7bf68e` (`fix(dashboard): align React Router and React versions`).
+- **Preserved evidence:** Preserve the candidate worktree, exact commit graph, C0–C3 implementation commits (`dced46f`, `0a56bd0`, `922b61b`, and `0cd4224`), later fixes through the exact head, package schemas, and tests. Treat this material as observation only.
+- **Disposition:** Keep this specification authoritative. Keep the candidate reusable but unaccepted. Do not alter the inventory contract, its falsifiers, or its zero-gap predicate. Do not treat implementation code, tests, or later fixes as historical acceptance.
+- **Owner:** `Main` (product lead) owns reconciliation and disposition. No active production writer is authorized during reconciliation.
+- **Return gate:** Return from `Drift` only when all conditions hold:
+  1. Explicitly integrate `bebab18` (`bebab18258da5a0f993dfcc6f09ea5e8af7bf68e`) or record an explicit disposition that names why 0024 does not integrate it.
+  2. Complete the exact-head isolation repair. Record the repaired full head, clean worktree, and isolated source and projection inputs.
+  3. Run objective deterministic verification at the repaired exact head against identical pinned inputs. Retain the deterministic byte comparison, schema and invariant results, and falsifier receipts.
+  4. Do not invent historical acceptance. Record any candidate acceptance only after this gate, with an explicit date, owner, exact head, and evidence.
 
 ## Scope and non-goals
 
