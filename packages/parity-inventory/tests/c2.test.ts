@@ -393,7 +393,7 @@ test("C2 source family selectors remain literal and complete", () => {
   ])
 })
 
-test("comment-only schedule literals remain unresolved", async () => {
+test("comment-only schedule literals do not create schedule rows", async () => {
   const legacyRoot = mkdtempSync("/tmp/parity-c2-comment-schedule-legacy-")
   const monoRoot = mkdtempSync("/tmp/parity-c2-comment-schedule-mono-")
   try {
@@ -401,27 +401,28 @@ test("comment-only schedule literals remain unresolved", async () => {
     const context = await contextFor(legacyRoot, monoRoot)
     const c2 = collectC2(context, sha256("comment-schedule-c2"))
     const decoyRows = c2.schedules.rows.filter((row) => row.source_ref_ids.some((ref) => context.sourcePathById.get(ref)?.path === "infra/decoy.ts"))
-    expect(decoyRows.some((row) => row.status === "unresolved")).toBe(true)
-    expect(decoyRows.some((row) => row.status === "covered")).toBe(false)
+    expect(decoyRows).toEqual([])
+    expect(c2.schedules.rows.some((row) => row.status === "absent" && row.authority_line === "mono")).toBe(true)
   } finally {
     rmSync(legacyRoot, { recursive: true, force: true })
     rmSync(monoRoot, { recursive: true, force: true })
   }
 })
 
-test("duplicate unresolved schedules remain write-blocking", async () => {
+test("non-scheduled infrastructure files leave only the family absence observation", async () => {
   const legacyRoot = mkdtempSync("/tmp/parity-c2-duplicate-schedule-legacy-")
   const monoRoot = mkdtempSync("/tmp/parity-c2-duplicate-schedule-mono-")
   try {
     put(monoRoot, "infra/a.ts", "export const marker = true\n")
     put(monoRoot, "infra/b.ts", "export const marker = true\n")
+    put(monoRoot, "apps/server/config/packages/cache.yaml", "framework:\n  cache: true\n")
     const context = await contextFor(legacyRoot, monoRoot)
     const c2 = collectC2(context, sha256("duplicate-schedule-c2"))
-    const duplicateRows = c2.schedules.rows.filter((row) => row.status === "duplicate")
-    expect(duplicateRows.length).toBeGreaterThanOrEqual(2)
-    expect(duplicateRows.every((row) => row.reason_codes.includes("SCHEDULE_PARSE_INCOMPLETE"))).toBe(true)
-    const result = await runWithIntentAuthority(monoRoot, legacyRoot, "write")
-    expect(result.report.projection_write.status).toBe("blocked")
+    expect(c2.schedules.rows.filter((row) => row.source_ref_ids.some((ref) => {
+      const path = context.sourcePathById.get(ref)?.path
+      return path === "infra/a.ts" || path === "infra/b.ts" || path === "apps/server/config/packages/cache.yaml"
+    }))).toEqual([])
+    expect(c2.schedules.rows.filter((row) => row.authority_line === "mono" && row.status === "absent")).toHaveLength(1)
   } finally {
     rmSync(legacyRoot, { recursive: true, force: true })
     rmSync(monoRoot, { recursive: true, force: true })
@@ -443,24 +444,74 @@ test("schedule expressions use literal cron grammar and redact payload-shaped va
     const rows = c2.schedules.rows.filter((row) => row.source_ref_ids.some((ref) => context.sourcePathById.get(ref)?.path === "infra/timer.ts"))
     expect(rows.some((row) => row.status === "unresolved" && row.reason_codes.includes("SCHEDULE_EXPRESSION_UNRESOLVED"))).toBe(true)
     expect(rows.every((row) => row.status === "unresolved")).toBe(true)
-    expect(c2.schedules.rows.some((row) => row.status === "absent" && row.authority_line === "mono")).toBe(true)
+    expect(c2.schedules.rows.some((row) => row.status === "absent" && row.authority_line === "mono")).toBe(false)
   } finally {
     rmSync(legacyRoot, { recursive: true, force: true })
     rmSync(monoRoot, { recursive: true, force: true })
   }
 })
-
-test("dynamic integration targets retain unknown classification", async () => {
+test("generic local request and send calls do not create integrations", async () => {
   const legacyRoot = mkdtempSync("/tmp/parity-c2-dynamic-legacy-")
   const monoRoot = mkdtempSync("/tmp/parity-c2-dynamic-mono-")
   try {
     put(monoRoot, "apps/server/src/App/Infrastructure/Service/Delegate.php", "<?php\nfinal class Delegate { public function sendThing(): void { $this->delegate->send($payload); } }\n")
+    put(monoRoot, "apps/server/src/App/Infrastructure/Service/Request.php", "<?php\nfinal class Request { public function read(): void { $request->get('/local'); } }\n")
     put(monoRoot, "packages/google-client.ts", "export class GoogleClient { fetch(dynamicEndpoint) { return dynamicEndpoint }\n}\n")
     const context = await contextFor(legacyRoot, monoRoot)
     const c2 = collectC2(context, sha256("dynamic-integration-c2"))
-    const rows = c2.integrations.rows
-    expect(rows.filter((row) => row.source_ref_ids.some((ref) => context.sourcePathById.get(ref)?.path === "apps/server/src/App/Infrastructure/Service/Delegate.php")).every((row) => row.status === "unresolved" && row.reason_codes.includes("UNKNOWN_INTEGRATION"))).toBe(true)
-    expect(rows.filter((row) => row.source_ref_ids.some((ref) => context.sourcePathById.get(ref)?.path === "packages/google-client.ts")).every((row) => row.status === "unresolved" && row.reason_codes.includes("UNKNOWN_INTEGRATION"))).toBe(true)
+    const genericPaths = new Set(["apps/server/src/App/Infrastructure/Service/Delegate.php", "apps/server/src/App/Infrastructure/Service/Request.php"])
+    expect(c2.integrations.rows.filter((row) => row.source_ref_ids.some((ref) => genericPaths.has(context.sourcePathById.get(ref)?.path ?? "")))).toEqual([])
+    expect(c2.integrations.rows.filter((row) => row.source_ref_ids.some((ref) => context.sourcePathById.get(ref)?.path === "packages/google-client.ts")).every((row) => row.status === "unresolved" && row.reason_codes.includes("UNKNOWN_INTEGRATION"))).toBe(true)
+  } finally {
+    rmSync(legacyRoot, { recursive: true, force: true })
+    rmSync(monoRoot, { recursive: true, force: true })
+  }
+})
+test("command rows require positive declarations or write effects", async () => {
+  const legacyRoot = mkdtempSync("/tmp/parity-c2-positive-command-legacy-")
+  const monoRoot = mkdtempSync("/tmp/parity-c2-positive-command-mono-")
+  try {
+    put(monoRoot, "apps/server/config/services.yaml", "services:\n  read:\n    class: App\\Fixture\\Infrastructure\\Repository\\ReadRepository\n  write:\n    class: App\\Fixture\\Infrastructure\\Repository\\WriteRepository\n")
+    put(monoRoot, "apps/server/config/packages/framework.yaml", "framework:\n  name: generic-config-name\n")
+    put(monoRoot, "apps/server/src/App/Infrastructure/Repository/ReadRepository.php", "<?php\nnamespace App\\Fixture\\Infrastructure\\Repository;\nfinal class ReadRepository { public function find(): void {} }\n")
+    put(monoRoot, "apps/server/src/App/Infrastructure/Repository/WriteRepository.php", "<?php\nnamespace App\\Fixture\\Infrastructure\\Repository;\nfinal class WriteRepository { public function persist(): void {} public function flush(): void {} }\n")
+    put(monoRoot, "apps/server/src/App/Infrastructure/Command/ReadCommand.php", "<?php\nnamespace App\\Fixture\\Infrastructure\\Command;\n#[AsCommand(name: 'fixture:read')]\nfinal class ReadCommand { public function __invoke(): void {} }\n")
+    const context = await contextFor(legacyRoot, monoRoot)
+    const c2 = collectC2(context, sha256("positive-command-c2"))
+    const pathFor = (row: { readonly source_ref_ids: readonly string[] }): string | null => context.sourcePathById.get(row.source_ref_ids[0] ?? "")?.path ?? null
+    const commandRows = c2.commandWrites.rows.filter((row) => row.authority_line === "mono")
+    expect(commandRows.some((row) => pathFor(row) === "apps/server/config/packages/framework.yaml")).toBe(false)
+    expect(commandRows.some((row) => pathFor(row) === "apps/server/src/App/Infrastructure/Repository/ReadRepository.php")).toBe(false)
+    const writes = commandRows.filter((row) => pathFor(row) === "apps/server/src/App/Infrastructure/Repository/WriteRepository.php")
+    expect(writes).toHaveLength(2)
+    expect(writes.every((row) => "effect_classes" in row.details && row.details.effect_classes.includes("durable_write"))).toBe(true)
+    expect(commandRows.find((row) => pathFor(row) === "apps/server/src/App/Infrastructure/Command/ReadCommand.php")).toMatchObject({ details: { effect_classes: ["read_only"] } })
+  } finally {
+    rmSync(legacyRoot, { recursive: true, force: true })
+    rmSync(monoRoot, { recursive: true, force: true })
+  }
+})
+test("provider-specific and literal HTTP integration anchors remain visible", async () => {
+  const legacyRoot = mkdtempSync("/tmp/parity-c2-real-integrations-legacy-")
+  const monoRoot = mkdtempSync("/tmp/parity-c2-real-integrations-mono-")
+  try {
+    put(monoRoot, "apps/server/src/App/Infrastructure/Service/MailerAdapter.php", "<?php\nfinal class MailerAdapter { public function send(): void {} }\n")
+    put(monoRoot, "apps/server/src/App/Infrastructure/Service/SmsGateway.php", "<?php\nfinal class SmsGateway { public function send(): void {} }\n")
+    put(monoRoot, "apps/server/src/App/Infrastructure/Service/GatewayAPIAdapter.php", "<?php\nfinal class GatewayAPIAdapter { public function request(): void {} }\n")
+    put(monoRoot, "apps/server/src/App/Infrastructure/Service/GitHubClient.php", "<?php\nfinal class GitHubClient { public function request(): void {} }\n")
+    put(monoRoot, "apps/server/src/App/Infrastructure/Service/HttpClientAdapter.php", "<?php\nfinal class HttpClientAdapter { public function request(): void { $this->http->request('https://api.example.test/v1/items'); } }\n")
+    const context = await contextFor(legacyRoot, monoRoot)
+    const integrations = collectC2(context, sha256("real-integrations-c2")).integrations
+    const sourcePaths = new Set(integrations.rows.flatMap((row) => row.source_ref_ids.map((ref) => context.sourcePathById.get(ref)?.path ?? "")))
+    for (const path of [
+      "apps/server/src/App/Infrastructure/Service/MailerAdapter.php",
+      "apps/server/src/App/Infrastructure/Service/SmsGateway.php",
+      "apps/server/src/App/Infrastructure/Service/GatewayAPIAdapter.php",
+      "apps/server/src/App/Infrastructure/Service/GitHubClient.php",
+      "apps/server/src/App/Infrastructure/Service/HttpClientAdapter.php",
+    ]) expect(sourcePaths.has(path)).toBe(true)
+    const httpRows = integrations.rows.filter((row) => row.source_ref_ids.some((ref) => context.sourcePathById.get(ref)?.path === "apps/server/src/App/Infrastructure/Service/HttpClientAdapter.php"))
+    expect(httpRows.some((row) => "endpoint_ref" in row.details && row.details.endpoint_ref === "https://api.example.test/v1/items")).toBe(true)
   } finally {
     rmSync(legacyRoot, { recursive: true, force: true })
     rmSync(monoRoot, { recursive: true, force: true })

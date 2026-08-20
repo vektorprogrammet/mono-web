@@ -407,6 +407,22 @@ const functionContextFor = (source: string, offset: number): { readonly paramete
   return selected
 }
 
+interface MethodScope {
+  readonly name: string
+  readonly start: number
+  readonly end: number
+}
+
+const methodScopeFor = (source: string, offset: number, limit: number): MethodScope | null => {
+  const structure = withoutLiterals(withoutComments(source))
+  const open = structure.indexOf("{", offset)
+  if (open < 0 || open >= limit) return null
+  const context = functionContextFor(source, open + 1)
+  if (context === null || context.bodyStart !== open || context.bodyEnd >= limit) return null
+  const name = /\bfunction\s*(?:&\s*)?([A-Za-z_$][A-Za-z0-9_$]*)\s*\(/.exec(structure.slice(offset, open))?.[1]
+  return name === undefined ? null : { name, start: offset, end: context.bodyEnd + 1 }
+}
+
 const normalizeLocalType = (raw: string | undefined): string | null => {
   const value = raw?.trim().replace(/^\?/, "").split("|")[0]?.trim() ?? ""
   return value.length === 0 || /^(?:mixed|object|array|callable|iterable|void|never|self|static|parent|unknown|any)$/i.test(value) ? null : value
@@ -435,7 +451,74 @@ const localReceiverTypesFor = (unit: SourceUnit, offset: number): ReadonlyMap<st
   }
   return localTypes
 }
-
+const effectClassForCallable = (callable: string): EffectClass | null => {
+  switch (callable.toLowerCase()) {
+    case "persist":
+    case "flush":
+    case "insert":
+    case "update":
+    case "delete":
+    case "remove":
+    case "save":
+    case "executestatement":
+    case "transaction":
+    case "commit":
+    case "upsert":
+      return "durable_write"
+    case "grant":
+    case "revoke":
+    case "authorize":
+    case "authenticate":
+    case "setpassword":
+    case "setrole":
+    case "setroles":
+    case "setuser":
+    case "identity":
+    case "permission":
+      return "identity_or_authority"
+    case "fetch":
+    case "curlexec":
+    case "curlinit":
+    case "request":
+    case "publish":
+    case "dispatch":
+    case "send":
+    case "mailer":
+    case "mail":
+    case "smtp":
+    case "slack":
+    case "google":
+    case "twilio":
+    case "sms":
+    case "webhook":
+      return "outbound"
+    case "writefile":
+    case "writefilesync":
+    case "mkdir":
+    case "mkdirsync":
+    case "unlink":
+    case "unlinksync":
+    case "filesystem":
+    case "storage":
+      return "filesystem"
+    case "schedule":
+    case "scheduler":
+    case "cron":
+    case "setinterval":
+    case "settimeout":
+      return "scheduler"
+    case "find":
+    case "findone":
+    case "findall":
+    case "select":
+    case "query":
+    case "lookup":
+    case "read":
+      return "read_only"
+    default:
+      return null
+  }
+}
 
 const effectEvidence = (unit: SourceUnit, authority: AuthorityGraph, scope?: EffectScope): { readonly effects: readonly EffectClass[]; readonly targets: readonly string[] } => {
   const effects: EffectClass[] = []
@@ -443,25 +526,23 @@ const effectEvidence = (unit: SourceUnit, authority: AuthorityGraph, scope?: Eff
   let unresolved = false
   const source = scope === undefined ? unit.text : unit.text.slice(scope.start, scope.end)
   for (const call of effectCallExpressionsFor(source)) {
-    const resolved = resolveEffectCall(authority, unit, call, scope?.owner, scope?.start ?? 0)
     if (call.callable === "AsCommand" && attributeCallFor(source, call.offset)) continue
+    const callableEffect = effectClassForCallable(call.callable)
+    const resolved = resolveEffectCall(authority, unit, call, scope?.owner, scope?.start ?? 0)
     if (resolved === null) {
+      if (callableEffect !== null && callableEffect !== "read_only") effects.push(callableEffect)
       unresolved = true
       continue
     }
     targets.push(resolved.symbol)
     if (call.constructorCall) continue
-    const callable = call.callable.toLowerCase()
-    if (["persist", "flush", "insert", "update", "delete", "remove", "save", "executestatement", "transaction", "commit", "upsert"].includes(callable)) effects.push("durable_write")
-    else if (["grant", "revoke", "authorize", "authenticate", "setpassword", "setrole", "setroles", "setuser", "identity", "permission"].includes(callable)) effects.push("identity_or_authority")
-    else if (["fetch", "curlexec", "curlinit", "request", "publish", "dispatch", "send", "mailer", "mail", "smtp", "slack", "google", "twilio", "sms", "webhook"].includes(callable)) effects.push("outbound")
-    else if (["writefile", "writefilesync", "mkdir", "mkdirsync", "unlink", "unlinksync", "filesystem", "storage"].includes(callable)) effects.push("filesystem")
-    else if (["schedule", "scheduler", "cron", "setinterval", "settimeout"].includes(callable)) effects.push("scheduler")
-    else if (["find", "findone", "findall", "select", "query", "lookup", "read"].includes(callable)) effects.push("read_only")
+    if (callableEffect === null) unresolved = true
+    else effects.push(callableEffect)
   }
   const body = withoutComments(source)
   if (effects.includes("outbound") && !/["'`]https?:\/\/[^\s"'`),}]+/i.test(body)) unresolved = true
-  if (unresolved || effects.length === 0) effects.push("unknown")
+  if (unresolved) effects.push("unknown")
+  else if (effects.length === 0) effects.push("read_only")
   return { effects: sortUnique(effects) as EffectClass[], targets: sortUnique(targets) }
 }
 
@@ -476,8 +557,10 @@ const entryKindForPath = (path: string): CommandWriteDetails["entry_kind"] => {
 
 const commandNameFor = (text: string, reasons: string[]): string | null => {
   const patterns = [
-    /(?:AsCommand\s*\([^)]*?name\s*:\s*|defaultName\s*=\s*|command\s*[:=]\s*)["']([^"']+)["']/i,
-    /(?:name\s*:\s*["'])([^"']+)(?:["'])/i,
+    /#\[\s*(?:\\?[A-Za-z_][A-Za-z0-9_\\]*\\)?AsCommand\b[^\]]*?\bname\s*[:=]\s*["']([^"']+)["']/i,
+    /#\[\s*(?:\\?[A-Za-z_][A-Za-z0-9_\\]*\\)?AsCommand\s*\(\s*["']([^"']+)["']/i,
+    /(?:\bdefaultName\b|\bdefault_name\b)\s*[:=]\s*["']([^"']+)["']/i,
+    /(?:\bcommand\b\s*[:=]\s*["'])([^"']+)(?:["'])/i,
   ]
   const source = withoutComments(text)
   for (const pattern of patterns) {
@@ -490,6 +573,16 @@ const commandNameFor = (text: string, reasons: string[]): string | null => {
 const contractRefFor = (text: string, reasons: string[]): string | null => {
   const match = /(?:writeContractRef|write_contract_ref)\s*[:=]\s*["']([^"']+)["']/i.exec(withoutComments(text))
   return match?.[1] === undefined ? null : normalizeSafe(match[1], "field", reasons)
+}
+const commandDeclarationAnchorFor = (text: string, className: string | null): boolean => {
+  const source = withoutComments(text)
+  if (commandNameFor(source, []) !== null) return true
+  if (/\#\[\s*(?:\\?[A-Za-z_][A-Za-z0-9_\\]*\\)?(?:AsCommand|AsMessageHandler|AsEventListener)\b/i.test(source)) return true
+  if (/\b(?:extends|implements)\s+[^{;]*(?:Command(?:Handler|Interface)?|MessageHandler(?:Interface)?|EventSubscriber(?:Interface)?|EventListener(?:Interface)?)\b/i.test(source)) return true
+  if (/\b(?:writeContractRef|write_contract_ref)\s*[:=]/i.test(source)) return true
+  if (/(?:^|[{\n,])\s*command\s*[:=]\s*["']/im.test(source)) return true
+  if (className !== null && new RegExp(`\\bclass\\s+${className.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\$&")}\\b`, "i").test(source) && /Command$/i.test(className)) return true
+  return false
 }
 
 interface LoaderNode {
@@ -1163,6 +1256,8 @@ const resolveEffectCall = (authority: AuthorityGraph, unit: SourceUnit, call: Ef
 }
 const commandDetails = (unit: SourceUnit, authority: AuthorityGraph, owner: string | null, method: string | null, reasons: string[], scope?: EffectScope): CommandWriteDetails => {
   const evidence = effectEvidence(unit, authority, scope)
+  const methodEffect = method === null ? null : effectClassForCallable(method)
+  const effectClasses = methodEffect === null || evidence.effects.includes(methodEffect) ? evidence.effects : sortUnique([...evidence.effects, methodEffect]) as EffectClass[]
   const commandName = commandNameFor(unit.text, reasons)
   const symbolRaw = owner === null ? method : method === null ? owner : `${owner}::${method}`
   const symbolRef = normalizeSafe(symbolRaw, "symbol", reasons)
@@ -1171,7 +1266,7 @@ const commandDetails = (unit: SourceUnit, authority: AuthorityGraph, owner: stri
     owner_ref: owner,
     command_name: commandName,
     symbol_ref: symbolRef,
-    effect_classes: evidence.effects,
+    effect_classes: effectClasses,
     target_refs: evidence.targets.map((target) => normalizeSafe(target, "field", reasons)).filter((value): value is string => value !== null),
     write_contract_ref: contractRefFor(unit.text, reasons),
   }
@@ -1189,8 +1284,9 @@ const commandRow = (context: ManifestContext, unit: SourceUnit, ordinal: number,
   const declarationKind = details.entry_kind
   const declaration = declarationId(unit.authority, unit.authority, unit.path, declarationKind, ordinal)
   const signature = canonicalJson(["command_write", details.owner_ref, details.entry_kind, details.command_name, details.symbol_ref, details.effect_classes, details.target_refs])
+  const declarationOffset = scope?.start ?? Math.max(0, unit.text.indexOf(ownerShortName(owner) ?? ""))
+  const sourceRefId = sourceRefFor(context, unit.authority, unit.authority === "legacy" ? "legacy_command_write_authority" : "mono_command_write_authority", unit.path, lineAt(unit.text, declarationOffset), lineAt(unit.text, declarationOffset), details.symbol_ref)
   const rowIdentity = rowId("command_write", declaration, signature)
-  const sourceRefId = sourceRefFor(context, unit.authority, unit.authority === "legacy" ? "legacy_command_write_authority" : "mono_command_write_authority", unit.path, lineAt(unit.text, Math.max(0, unit.text.indexOf(ownerShortName(owner) ?? ""))), lineAt(unit.text, Math.max(0, unit.text.indexOf(ownerShortName(owner) ?? ""))), details.symbol_ref)
   const reasonCodes = sortUnique(reasons)
   return {
     path: unit.path,
@@ -1228,67 +1324,45 @@ const parseCommandUnits = (context: ManifestContext, authority: "legacy" | "mono
   const authorityGraph = authorityGraphFor(context, authority)
   const parsed: ParsedRow[] = []
   let ordinal = 0
+  const hasPositiveEffect = (effects: readonly EffectClass[]): boolean => effects.some((effect) => effect !== "read_only" && effect !== "unknown")
   for (const unit of source.units) {
     const classes = classMatches(unit.text)
     const ranges = classes.map((entry, index) => ({ entry, end: classes[index + 1]?.offset ?? unit.text.length }))
     if (ranges.length === 0) {
-      const reasons: string[] = []
-      const details = commandDetails(unit, authorityGraph, null, null, reasons)
-      if (details.effect_classes.includes("unknown")) reasons.push("UNKNOWN_EFFECT")
-      const importerPath = importedBySources(authorityGraph, unit, null)
-      const imported = importerPath !== null
-      const dead = !imported && details.entry_kind !== "unknown"
-      if (dead) reasons.push("DEAD_UNIMPORTED_SOURCE")
-      const declaration = declarationId(authority, authority, unit.path, details.entry_kind, ordinal++)
-      const signature = canonicalJson(["command_write", null, details.entry_kind, details.command_name, null, details.effect_classes, details.target_refs])
-      const sourceRefId = sourceRefFor(context, authority, role, unit.path, 1, Math.max(1, unit.text.split("\n").length), null)
-      const status: InventoryRow["status"] = reasons.includes("UNKNOWN_EFFECT") ? "unresolved" : dead ? "dead_unimported" : "covered"
-      parsed.push({
-        path: unit.path,
-        sourceRefIds: [sourceRefId],
-        ownerRef: null,
-        imported,
-        importerPath,
-        row: {
-          row_id: rowId("command_write", declaration, signature),
-          declaration_id: declaration,
-          inventory_kind: "command_write",
-          authority_line: authority,
-          canonical_key: signature,
-          signature,
-          status,
-          observation_kinds: ["static_source"],
-          source_ref_ids: [sourceRefId],
-          revision_ref_ids: [context.scans[authority].revisionRefId],
-          runtime_observation_ref_ids: [],
-          coverage_ref_ids: [],
-          accepted_intent_ref_ids: [],
-          duplicate_group_id: null,
-          mismatch: mismatch(status === "unresolved" ? "unresolved" : status === "dead_unimported" ? "dead_unimported" : "none", [], sortUnique(reasons)[0] ?? null),
-          reason_codes: sortUnique(reasons),
-          related_row_ids: [],
-          details,
-        },
-      })
+      const anchor = commandDeclarationAnchorFor(unit.text, null)
+      const evidence = effectEvidence(unit, authorityGraph)
+      if (anchor || hasPositiveEffect(evidence.effects)) parsed.push(commandRow(context, unit, ordinal++, authorityGraph, null, null))
       continue
     }
     for (const range of ranges) {
       const reasons: string[] = []
       const owner = classOwner(unit.text, range.entry.name, reasons)
       const ownerClass = authorityGraph.classesByPath.get(unit.path)?.find((item) => item.name === range.entry.name)
-      const method = functionMatches(unit.text, range.entry.offset, range.end)[0]?.name ?? null
-      const scope: EffectScope = { owner: ownerClass, start: range.entry.offset, end: range.end }
-      parsed.push(commandRow(context, unit, ordinal++, authorityGraph, owner, method === null ? null : normalizeSafe(method, "symbol", reasons), scope))
-      if (reasons.includes("UNSAFE_SOURCE")) {
-        const sourceRefId = sourceRefFor(context, authority, role, unit.path, lineAt(unit.text, range.entry.offset), lineAt(unit.text, range.entry.offset), null, "UNSAFE_SOURCE")
-        parsed.push({
-          path: unit.path,
-          sourceRefIds: [sourceRefId],
-          ownerRef: null,
-          imported: false,
-          importerPath: null,
-          row: { ...parsed.at(-1)?.row as InventoryRow, row_id: rowId("command_write", declarationId(authority, authority, unit.path, "unsafe", ordinal++), canonicalJson(["unsafe", unit.path, lineAt(unit.text, range.entry.offset)])), status: "unresolved", source_ref_ids: [sourceRefId], reason_codes: ["UNSAFE_SOURCE"], mismatch: mismatch("unresolved", [], "UNSAFE_SOURCE"), details: { ...parsed.at(-1)?.row.details as CommandWriteDetails, owner_ref: null, symbol_ref: null, command_name: null, effect_classes: ["unknown"], target_refs: [], write_contract_ref: null } },
+      const classScope: EffectScope = { owner: ownerClass, start: range.entry.offset, end: range.end }
+      const commandAnchor = commandDeclarationAnchorFor(unit.text.slice(range.entry.offset, range.end), range.entry.name) || commandDeclarationAnchorFor(unit.text, range.entry.name)
+      const methods = functionMatches(unit.text, range.entry.offset, range.end)
+        .map((method) => {
+          const scope = methodScopeFor(unit.text, method.offset, range.end)
+          return scope === null ? null : { ...scope, name: method.name }
         })
+        .filter((method): method is MethodScope => method !== null)
+      if (commandAnchor) {
+        const selected = methods.find((method) => /^(?:__invoke|handle|execute|run|process)$/i.test(method.name)) ?? methods[0]
+        const selectedScope: EffectScope = selected === undefined ? classScope : { owner: ownerClass, start: selected.start, end: selected.end }
+        const selectedMethod = selected === undefined ? null : normalizeSafe(selected.name, "symbol", reasons)
+        parsed.push(commandRow(context, unit, ordinal++, authorityGraph, owner, selectedMethod, selectedScope))
+        continue
+      }
+      if (methods.length > 0) {
+        for (const methodScope of methods) {
+          const evidence = effectEvidence(unit, authorityGraph, { owner: ownerClass, start: methodScope.start, end: methodScope.end })
+          const methodEffect = effectClassForCallable(methodScope.name)
+          if (!hasPositiveEffect(evidence.effects) && (methodEffect === null || methodEffect === "read_only")) continue
+          parsed.push(commandRow(context, unit, ordinal++, authorityGraph, owner, normalizeSafe(methodScope.name, "symbol", reasons), { owner: ownerClass, start: methodScope.start, end: methodScope.end }))
+        }
+      } else {
+        const evidence = effectEvidence(unit, authorityGraph, classScope)
+        if (hasPositiveEffect(evidence.effects)) parsed.push(commandRow(context, unit, ordinal++, authorityGraph, owner, null, classScope))
       }
     }
   }
@@ -1619,9 +1693,6 @@ const scheduleTriggersFor = (unit: SourceUnit, authority: AuthorityGraph): reado
       triggers.push({ triggerKind: "cron", triggerIdentity, expression, ownerRef, handlerRef, enabled, runtimeRegistered, line: lineAt(unit.text, declaration.offset), reasons })
     }
   }
-  if (literalCallsFor(structure, "schedule").length === 0 && /\bschedule\s*\(/i.test(structure)) {
-    triggers.push({ triggerKind: "cron", triggerIdentity: null, expression: null, ownerRef, handlerRef: ownerRef, enabled, runtimeRegistered: false, line: Math.max(1, structure.search(/\bschedule\s*\(/i)), reasons: [...ownerReasons, "SCHEDULE_PARSE_INCOMPLETE", "SCHEDULE_REGISTRATION_UNRESOLVED"] })
-  }
   if (/^\s*workflow_dispatch\s*:/im.test(structure)) {
     const offset = structure.search(/^\s*workflow_dispatch\s*:/im)
     triggers.push({ triggerKind: "workflow_dispatch", triggerIdentity: normalizeSafe(unit.path, "source_path", []), expression: null, ownerRef, handlerRef: ownerRef, enabled, runtimeRegistered: true, line: lineAt(unit.text, Math.max(0, offset)), reasons: ownerReasons })
@@ -1733,25 +1804,13 @@ const parseSchedules = (context: ManifestContext, authority: "legacy" | "mono"):
   const authorityGraph = authorityGraphFor(context, authority)
   const parsed: ParsedRow[] = []
   let ordinal = 0
-  let hasValidatedCron = false
+  let hasPositiveTrigger = false
   for (const unit of source.units) {
     const triggers = scheduleTriggersFor(unit, authorityGraph)
-    for (const trigger of triggers) {
-      const cronValidated = trigger.triggerKind === "cron" &&
-        trigger.triggerIdentity !== null &&
-        trigger.expression !== null &&
-        trigger.handlerRef !== null &&
-        trigger.runtimeRegistered === true &&
-        !trigger.reasons.some((reason) => ["SCHEDULE_EXPRESSION_UNRESOLVED", "SCHEDULE_IDENTITY_UNRESOLVED", "SCHEDULE_HANDLER_UNRESOLVED", "SCHEDULE_REGISTRATION_UNRESOLVED", "SCHEDULE_PARSE_INCOMPLETE", "UNSAFE_SOURCE"].includes(reason))
-      if (cronValidated) hasValidatedCron = true
-      parsed.push(scheduleRow(context, unit, ordinal++, trigger, role))
-    }
-    if (triggers.length === 0 && (/\/\.github\/workflows\//.test(`/${unit.path}/`) || /(^|\/)infra\//.test(unit.path) || /scheduler|schedule|workflow/i.test(unit.path))) {
-      const trigger: ScheduleTrigger = { triggerKind: "unknown", triggerIdentity: null, expression: null, ownerRef: null, handlerRef: null, enabled: null, runtimeRegistered: null, line: 1, reasons: ["SCHEDULE_PARSE_INCOMPLETE"] }
-      parsed.push(scheduleRow(context, unit, ordinal++, trigger, role))
-    }
+    if (triggers.length > 0) hasPositiveTrigger = true
+    for (const trigger of triggers) parsed.push(scheduleRow(context, unit, ordinal++, trigger, role))
   }
-  if (!hasValidatedCron) parsed.push(absentScheduleRow(context, authority, familyId, role))
+  if (!hasPositiveTrigger) parsed.push(absentScheduleRow(context, authority, familyId, role))
   return { parsed, failures: source.failures }
 }
 
@@ -1777,18 +1836,21 @@ const scheduleCollection = (context: ManifestContext, sourceManifestSha256: stri
 }
 const providerFromText = (text: string): string | null => {
   const patterns: readonly [RegExp, string][] = [
-    [/\b(?:Google|GoogleClient|GoogleApis?)\b/i, "google"],
-    [/\bSlack(?:Client|Webhook)?\b/i, "slack"],
-    [/\b(?:Sms|Twilio)\b/i, "sms"],
-    [/\b(?:Mailer|Mailgun|Smtp)\b/i, "mailer"],
-    [/\bStripe\b/i, "stripe"],
+    [/\b(?:Google|GoogleClient|GoogleApis?|GoogleAdapter|GoogleService)\b/i, "google"],
+    [/\bSlack(?:Client|Webhook|Adapter|Service)?\b/i, "slack"],
+    [/\b(?:Sms|SmsClient|SmsGateway|SmsAdapter|Twilio)\b/i, "sms"],
+    [/\b(?:Mailer|MailerClient|MailerAdapter|MailerService|Mailgun|Smtp)\b/i, "mailer"],
+    [/\bGatewayAPI(?:Client|Adapter|Service)?\b/i, "gatewayapi"],
+    [/\bStripe(?:Client|Adapter|Service)?\b/i, "stripe"],
     [/\b(?:Aws|S3Client)\b/i, "aws"],
-    [/\b(?:Github|GitHub)\b/i, "github"],
-    [/\b(?:OpenAI|Anthropic)\b/i, "ai"],
+    [/\b(?:Github|GitHub)(?:Client|Adapter|Service)?\b/i, "github"],
+    [/\b(?:OpenAI|Anthropic)(?:Client|Adapter|Service)?\b/i, "ai"],
   ]
   for (const [pattern, provider] of patterns) if (pattern.test(text)) return provider
   return null
 }
+
+const integrationAdapterPattern = /\b(?:HttpClient|GuzzleHttp|HttpAdapter|RestClient|Axios|CurlClient|WebhookClient)\b/i
 
 const secretShapedEndpointSegment = (segment: string): boolean => {
   if (segment.length < 20 || /^[a-f0-9]{32,}$/i.test(segment)) return false
@@ -1822,10 +1884,9 @@ const protocolFor = (endpoint: string | null, text: string): string | null => {
   if (endpoint !== null) {
     try { return new URL(endpoint).protocol.replace(":", "") } catch { return null }
   }
-
   if (/\b(?:smtp|mailer|mail)\b/i.test(text)) return "smtp"
   if (/\b(?:grpc|protobuf)\b/i.test(text)) return "grpc"
-  if (/\b(?:webhook|http|fetch|curl|request)\b/i.test(text)) return "http"
+  if (/\b(?:https?|amqp|websocket)\b/i.test(text)) return "http"
   return null
 }
 const credentialSlotFor = (raw: string | null, reasons: string[]): string | null => {
@@ -1843,9 +1904,10 @@ const credentialSlotFor = (raw: string | null, reasons: string[]): string | null
   return normalizeSafe(value, "credential_slot_ref", reasons)
 }
 
-const integrationCallPattern = /\b(?:fetch|curl_exec|curl_init|request|publish|send|post|put|delete|HttpClient|GuzzleHttp|Mailer|Slack|Google|Twilio|Smtp|Sms|Webhook)\b\s*(?:\(|->|\.)/gi
+const integrationCallPattern = /\b(?:fetch|curl_exec|curl_init|request|get|publish|send|post|put|delete|HttpClient|GuzzleHttp|Mailer|Slack|Google|Twilio|Smtp|Sms|GatewayAPI|Webhook)\b\s*(?:\(|->|\.)/gi
 const integrationCallsFor = (unit: SourceUnit, authority: AuthorityGraph): readonly IntegrationCall[] => {
   const calls: IntegrationCall[] = []
+  const seen = new Set<number>()
   const stripped = withoutComments(unit.text)
   const structure = withoutLiterals(stripped)
   const classes = classMatches(structure)
@@ -1864,30 +1926,36 @@ const integrationCallsFor = (unit: SourceUnit, authority: AuthorityGraph): reado
   }
   for (const match of structure.matchAll(integrationCallPattern)) {
     if (match.index === undefined) continue
-    const callText = match[0] ?? ""
-    const callableName = /[A-Za-z_][A-Za-z0-9_]*/.exec(callText)?.[0]?.toLowerCase() ?? ""
-    const ownerClass = ownerClassForOffset(match.index)
+    const effectCall = effectCalls.find((call) => match.index !== undefined && match.index >= call.offset && match.index <= call.offset + call.chain.length)
+    const callOffset = effectCall?.offset ?? match.index
+    if (seen.has(callOffset)) continue
+    seen.add(callOffset)
+    const ownerClass = ownerClassForOffset(callOffset)
     const ownerRef = ownerClass?.fqn ?? null
     const { imported, importerPath } = importerFor(ownerRef)
-    const effectCall = effectCalls.find((call) => call.callable.toLowerCase() === callableName && match.index >= call.offset && match.index <= call.offset + call.chain.length)
-    const resolvedCall = effectCall === undefined ? null : resolveEffectCall(authority, unit, effectCall, ownerClass)
-    const contextStart = Math.max(0, match.index - 180)
-    const contextEnd = Math.min(stripped.length, match.index + 260)
+    const ownerIndex = classes.findIndex((entry, classIndex) => callOffset >= entry.offset && callOffset < (classes[classIndex + 1]?.offset ?? structure.length))
+    const functionContext = functionContextFor(unit.text, callOffset)
+    const contextStart = functionContext?.bodyStart === undefined ? ownerIndex < 0 ? 0 : classes[ownerIndex]?.offset ?? 0 : functionContext.bodyStart + 1
+    const contextEnd = functionContext?.bodyEnd ?? (ownerIndex < 0 ? stripped.length : classes[ownerIndex + 1]?.offset ?? stripped.length)
     const contextText = stripped.slice(contextStart, contextEnd)
     const contextStructure = structure.slice(contextStart, contextEnd)
     const reasons: string[] = ownerClass === undefined ? ["UNKNOWN_INTEGRATION"] : []
-    if (resolvedCall === null) reasons.push("INTEGRATION_CALLSITE_UNRESOLVED", "UNKNOWN_INTEGRATION")
-    const providerRef = providerFromText(contextStructure)
+    const resolvedCall = effectCall === undefined ? null : resolveEffectCall(authority, unit, effectCall, ownerClass)
+    const adapterEvidence = integrationAdapterPattern.test(contextStructure) || integrationAdapterPattern.test(resolvedCall?.symbol ?? "")
+    const providerRef = providerFromText(contextStructure) ?? providerFromText(resolvedCall?.symbol ?? "")
     const endpointMatch = /https?:\/\/[^\s"'`),}]+/i.exec(contextText)
     const endpointRef = endpointMatch?.[0] === undefined ? null : safeEndpoint(endpointMatch[0], reasons)
-    if (endpointRef === null) reasons.push("UNKNOWN_INTEGRATION")
+    const protocol = protocolFor(endpointRef, contextStructure)
+    const positiveAnchor = endpointMatch !== undefined || providerRef !== null || adapterEvidence || protocol !== null
+    if (!positiveAnchor) continue
+    if (endpointRef === null || protocol === null) reasons.push("UNKNOWN_INTEGRATION")
     const credentialMatch = /\b(?:getenv|env|secret|credential|apiKey|api_key)\s*\(\s*["']([A-Za-z0-9_.:-]+)["']/i.exec(contextText)
     const credentialSlotRef = credentialMatch?.[1] === undefined ? null : credentialSlotFor(credentialMatch[1], reasons)
-    const effectClasses: EffectClass[] = resolvedCall === null || providerRef === null || endpointRef === null ? ["unknown"] : ["outbound"]
+    const effectClasses: EffectClass[] = resolvedCall === null ? ["unknown"] : ["outbound"]
     if (providerRef === null) reasons.push("UNKNOWN_INTEGRATION")
     const direction: ExternalIntegrationDetails["direction"] = /\b(?:webhook|handleRequest|onRequest|incoming|inbound)\b/i.test(contextStructure) ? "inbound" : "outbound"
     const safeSymbol = normalizeSafe(resolvedCall?.symbol ?? null, "symbol", reasons)
-    calls.push({ authority: unit.authority, path: unit.path, sourceRefId: unit.sourceRefId, ownerRef, symbolRef: safeSymbol, providerRef: normalizeSafe(providerRef, "field", reasons), direction, protocol: protocolFor(endpointRef, contextStructure), endpointRef, credentialSlotRef, effectClasses, reasonCodes: sortUnique(reasons), imported, importerPath, line: lineAt(unit.text, match.index) })
+    calls.push({ authority: unit.authority, path: unit.path, sourceRefId: unit.sourceRefId, ownerRef, symbolRef: safeSymbol, providerRef: normalizeSafe(providerRef, "field", reasons), direction, protocol, endpointRef, credentialSlotRef, effectClasses, reasonCodes: sortUnique(reasons), imported, importerPath, line: lineAt(unit.text, callOffset) })
   }
   if (calls.length > 0) return calls
   const declarationProvider = providerFromText(structure)
