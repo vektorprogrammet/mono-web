@@ -289,10 +289,21 @@ test("typed fixture-injected integrations redact credentials and raw payloads", 
 })
 
 test("canonical source scan does not emit unsafe fixture integrations", async () => {
-  const context = await contextFor(REPO_ROOT, REPO_ROOT)
-  const integrations = collectC2(context, sha256("canonical-c2-source-scan")).integrations
-  expect(integrations.rows.length).toBeGreaterThan(0)
-  expect(integrations.rows.filter((row) => row.reason_codes.includes("UNSAFE_SOURCE"))).toEqual([])
+  const parent = mkdtempSync("/tmp/parity-c2-source-scan-parent-")
+  try {
+    const expectedHead = execFileSync("git", ["-C", REPO_ROOT, "rev-parse", "HEAD"], { encoding: "utf8" }).trim()
+    const cloneRoot = join(parent, "repo")
+    execFileSync("git", ["clone", "--local", "--no-hardlinks", "--no-checkout", REPO_ROOT, cloneRoot])
+    execFileSync("git", ["-C", cloneRoot, "checkout", "--detach", expectedHead])
+    const clonedHead = execFileSync("git", ["-C", cloneRoot, "rev-parse", "HEAD"], { encoding: "utf8" }).trim()
+    if (clonedHead !== expectedHead) throw new Error(`isolated clone HEAD mismatch: expected ${expectedHead}, received ${clonedHead}`)
+    const context = await contextFor(cloneRoot, cloneRoot)
+    const integrations = collectC2(context, sha256("canonical-c2-source-scan")).integrations
+    expect(integrations.rows.length).toBeGreaterThan(0)
+    expect(integrations.rows.filter((row) => row.reason_codes.includes("UNSAFE_SOURCE"))).toEqual([])
+  } finally {
+    rmSync(parent, { recursive: true, force: true })
+  }
 }, 120_000)
 test("integration URLs survive comment stripping and loader registration", async () => {
   const legacyRoot = mkdtempSync("/tmp/parity-c2-integration-loader-legacy-")
