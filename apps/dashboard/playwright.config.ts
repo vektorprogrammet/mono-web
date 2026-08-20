@@ -16,10 +16,7 @@ const viteApiMode = process.env.VITE_API_MODE;
 const fixtureMode =
   apiMode === 'fixture' && viteApiMode === 'fixture';
 const realSymfonyMode =
-  process.env.REAL_SYMFONY_RECRUITMENT_E2E === '1' ||
-  process.argv.some((argument) =>
-    argument.endsWith('real-symfony-recruitment.spec.ts'),
-  );
+  process.env.REAL_SYMFONY_RECRUITMENT_E2E === '1';
 const interviewMode =
   process.env.FOLDKIT_INTERVIEW_E2E === '1' ||
   process.argv.some((argument) => argument.endsWith('foldkit-interview.spec.ts'));

@@ -13,6 +13,10 @@ test.describe("Real Symfony recruitment applicant assignment", () => {
   test("logs in, assigns a new applicant, and observes the fresh server read", async ({
     page,
   }) => {
+    test.skip(
+      process.env.REAL_SYMFONY_RECRUITMENT_E2E !== "1",
+      "requires the real Symfony recruitment command",
+    );
     expect(process.env.REAL_SYMFONY_RECRUITMENT_E2E).toBe("1");
     expect(process.env.API_MODE).not.toBe("fixture");
     expect(process.env.VITE_API_MODE).not.toBe("fixture");
@@ -80,8 +84,17 @@ test.describe("Real Symfony recruitment applicant assignment", () => {
       }),
     ).toHaveCount(0);
 
+    const jwtCookie = (await page.context().cookies()).find(
+      (cookie) => cookie.name === "jwt_token",
+    );
+    if (!jwtCookie) {
+      throw new Error("The real login did not set jwt_token");
+    }
     const freshRead = await page.request.get(
       `${apiOrigin}/api/admin/applications?status=new`,
+      {
+        headers: { Authorization: `Bearer ${jwtCookie.value}` },
+      },
     );
     expect(freshRead.status()).toBe(200);
     const payload = (await freshRead.json()) as {

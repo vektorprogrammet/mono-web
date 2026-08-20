@@ -4,6 +4,7 @@ import { randomBytes } from "node:crypto";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 
 const dashboardOrigin = "http://127.0.0.1:5174";
 const apiOrigin = "http://127.0.0.1:8000";
@@ -93,6 +94,28 @@ async function waitForHttp(url, child) {
 
   throw new Error(`Timed out waiting for ${url}: ${lastError}`);
 }
+
+async function stopProcess(child) {
+  if (!child || child.exitCode !== null) return;
+
+  let resolveExit;
+  const exited = new Promise((resolvePromise) => {
+    resolveExit = resolvePromise;
+  });
+  child.once("exit", resolveExit);
+  child.kill("SIGTERM");
+  const graceful = await Promise.race([
+    exited.then(() => true),
+    sleep(shutdownTimeoutMs).then(() => false),
+  ]);
+  if (graceful || child.exitCode !== null) return;
+
+  child.kill("SIGKILL");
+  await Promise.race([
+    exited,
+    sleep(shutdownTimeoutMs).then(() => undefined),
+  ]);
+}
 function assertDisposableDatabase(databasePath, temporaryRoot) {
   const resolvedDatabasePath = resolve(databasePath);
   const resolvedTemporaryRoot = resolve(temporaryRoot);
@@ -106,6 +129,14 @@ function assertDisposableDatabase(databasePath, temporaryRoot) {
   }
 }
 
+function assertDisposableDatabaseUrl(databaseUrl, temporaryRoot) {
+  const prefix = "sqlite:///";
+  if (!databaseUrl.startsWith(prefix)) {
+    throw new Error(`Refusing non-SQLite e2e database URL: ${databaseUrl}`);
+  }
+  assertDisposableDatabase(databaseUrl.slice(prefix.length), temporaryRoot);
+}
+
 
 async function main() {
   const temporaryRoot = await mkdtemp(
@@ -114,6 +145,8 @@ async function main() {
   const databasePath = join(temporaryRoot, "recruitment.sqlite");
   const privateKeyPath = join(temporaryRoot, "jwt-private.pem");
   const publicKeyPath = join(temporaryRoot, "jwt-public.pem");
+  const symfonyCacheDir = join(serverRoot, "var/cache/e2e");
+  const symfonyLogDir = join(serverRoot, "var/logs/e2e");
   assertDisposableDatabase(databasePath, temporaryRoot);
   const databaseUrl = `sqlite:///${databasePath}`;
   let symfonyProcess;
@@ -134,7 +167,6 @@ async function main() {
     CORS_ALLOW_ORIGIN: dashboardOrigin,
     SLACK_DISABLED: "true",
     SMS_DISABLE: "true",
-    MAILER_DSN: "null://null",
     GOOGLE_API_CLIENT_ID: "e2e-disabled",
     GOOGLE_API_CLIENT_SECRET: "e2e-disabled",
     GOOGLE_API_REFRESH_TOKEN: "e2e-disabled",
@@ -149,6 +181,8 @@ async function main() {
     RECAPTCHA_PUBLIC_KEY: "",
     RECAPTCHA_PRIVATE_KEY: "",
   };
+  assertDisposableDatabaseUrl(serverEnv.DATABASE_URL, temporaryRoot);
+  assertDisposableDatabaseUrl(serverEnv.E2E_DATABASE_URL, temporaryRoot);
 
   const dashboardEnv = { ...process.env };
   delete dashboardEnv.API_MODE;
@@ -162,9 +196,27 @@ async function main() {
   const cleanup = async () => {
     if (cleaned) return;
     cleaned = true;
-    await stopProcess(dashboardProcess);
-    await stopProcess(symfonyProcess);
-    await rm(temporaryRoot, { recursive: true, force: true });
+    const cleanupErrors = [];
+
+    for (const process of [dashboardProcess, symfonyProcess]) {
+      try {
+        await stopProcess(process);
+      } catch (error) {
+        cleanupErrors.push(error);
+      }
+    }
+
+    for (const directory of [temporaryRoot, symfonyCacheDir, symfonyLogDir]) {
+      try {
+        await rm(directory, { recursive: true, force: true });
+      } catch (error) {
+        cleanupErrors.push(error);
+      }
+    }
+
+    if (cleanupErrors.length > 0) {
+      throw new AggregateError(cleanupErrors, "Real Symfony e2e cleanup failed");
+    }
   };
 
   const handleSignal = (signal) => {
@@ -175,7 +227,10 @@ async function main() {
   process.once("SIGINT", handleSignal);
   process.once("SIGTERM", handleSignal);
 
+  let primaryError;
   try {
+    await rm(symfonyCacheDir, { recursive: true, force: true });
+    await rm(symfonyLogDir, { recursive: true, force: true });
     await runCommand("openssl", ["genrsa", "-out", privateKeyPath, "2048"], {
       cwd: serverRoot,
       env: serverEnv,
@@ -229,10 +284,24 @@ async function main() {
       ],
       { cwd: dashboardRoot, env: dashboardEnv },
     );
+  } catch (error) {
+    primaryError = error;
+    throw error;
   } finally {
-    await cleanup();
-    process.removeListener("SIGINT", handleSignal);
-    process.removeListener("SIGTERM", handleSignal);
+    try {
+      await cleanup();
+    } catch (cleanupError) {
+      if (primaryError) {
+        console.error(
+          cleanupError instanceof Error ? cleanupError.message : cleanupError,
+        );
+      } else {
+        throw cleanupError;
+      }
+    } finally {
+      process.removeListener("SIGINT", handleSignal);
+      process.removeListener("SIGTERM", handleSignal);
+    }
   }
 }
 
