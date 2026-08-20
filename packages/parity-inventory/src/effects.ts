@@ -359,7 +359,7 @@ const effectCallExpressionsFor = (source: string): readonly EffectCall[] => {
     if (callable === undefined || ignored.has(callable.toLowerCase())) continue
     const prefix = structure.slice(0, offset).trimEnd()
     if (/(?:function|class|interface|trait|enum)\s*$/i.test(prefix)) continue
-    const constructorCall = /\bnew\s+$/i.test(prefix)
+    const constructorCall = /\bnew$/i.test(prefix)
     calls.push({
       chain,
       receiver: segments.length > 1 ? segments.slice(0, -1).join("->") : null,
@@ -560,6 +560,7 @@ const effectEvidence = (
       targets.push(`unresolved:${scope?.owner?.fqn ?? unit.path}::${call.callable}`)
     }
     const callableEffect = effectClassForCallable(call.callable)
+    if (call.constructorCall) continue
     const resolved = resolveEffectCall(authority, unit, call, scope?.owner, scope?.start ?? 0)
     if (resolved === null) {
       const receiver = call.receiver ?? null
@@ -571,11 +572,20 @@ const effectEvidence = (
         && receiverParts[1] !== undefined
         && scope?.owner?.properties.has(receiverParts[1]) === true
       const explicitlyUnknownReceiver = receiver !== null && !typedLocalReceiver && !typedOwnerProperty
+      const callPrefix = source.slice(Math.max(0, call.offset - 160), call.offset)
+      const trustedEffectAnchor =
+        (/^(?:persist|flush|remove)$/i.test(call.callable)
+          && receiver !== null
+          && receiverParts.some((part) => /^(?:\$?(?:em|manager|entityManager)|getDoctrine|getManager|getEntityManager)$/i.test(part)))
+        || (/^setUser$/i.test(call.callable) && receiver !== null)
+        || (/^dispatch$/i.test(call.callable)
+          && ((receiver !== null && /dispatcher/i.test(receiver)) || /event_dispatcher/i.test(callPrefix)))
+        || (/\.(?:php)$/i.test(unit.path) && /^(?:mkdir|unlink)$/i.test(call.callable))
       if (callableEffect !== null && callableEffect !== "read_only") {
-        if (receiver === null) markUnresolved()
+        if (receiver === null && !trustedEffectAnchor) markUnresolved()
         else {
           effects.push(callableEffect)
-          if (explicitlyUnknownReceiver) markUnresolved()
+          if (explicitlyUnknownReceiver && !trustedEffectAnchor) markUnresolved()
         }
       } else if (callableEffect === null && /^(?:perform|execute|handle|process|apply|run|invoke|mutate|write)$/i.test(call.callable)) {
         markUnresolved()

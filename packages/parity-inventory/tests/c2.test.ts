@@ -797,6 +797,38 @@ test("effect evidence keeps unresolved receiver calls unknown without lexical ta
   }
 })
 
+test("framework effect anchors remain authoritative without local receiver types", async () => {
+  const legacyRoot = mkdtempSync("/tmp/parity-c2-framework-effects-legacy-")
+  const monoRoot = mkdtempSync("/tmp/parity-c2-framework-effects-mono-")
+  try {
+    put(monoRoot, "apps/server/src/App/Infrastructure/Command/DoctrineCommand.php", "<?php\nnamespace App\\Fixture;\nfinal class DoctrineCommand { public function __invoke($entity): void { $em->persist($entity); $em->flush(); $manager->remove($entity); } }\n")
+    put(monoRoot, "apps/server/src/App/Infrastructure/Command/EventCommand.php", "<?php\nnamespace App\\Fixture;\nfinal class EventCommand { public function __invoke(): void { $this->get('event_dispatcher')->dispatch('created', new Event()); } }\n")
+    put(monoRoot, "apps/server/src/App/Infrastructure/Command/FileCommand.php", "<?php\nnamespace App\\Fixture;\nfinal class FileCommand { public function __invoke(): void { mkdir('path'); unlink('path'); } }\n")
+    put(monoRoot, "apps/server/src/App/Infrastructure/Command/IdentityCommand.php", "<?php\nnamespace App\\Fixture;\nfinal class IdentityCommand { public function __invoke($member, $user): void { $member->setUser($user); } }\n")
+    put(monoRoot, "apps/server/src/App/Infrastructure/Command/SmsValueCommand.php", "<?php\nnamespace App\\Fixture;\nfinal class SmsValueCommand { public function __invoke(): void { $message = new Sms('body'); } }\n")
+    const context = await contextFor(legacyRoot, monoRoot)
+    const rows = collectC2(context, sha256("framework-effects-c2")).commandWrites.rows
+    const rowFor = (ownerRef: string) =>
+      rows.find((row) => "owner_ref" in row.details && row.details.owner_ref === ownerRef && row.details.entry_kind !== "integration_write")
+      ?? rows.find((row) => "owner_ref" in row.details && row.details.owner_ref === ownerRef)
+    const expectEffects = (ownerRef: string, expected: readonly string[]): void => {
+      const row = rowFor(ownerRef)
+      expect(row?.reason_codes).not.toContain("UNKNOWN_EFFECT")
+      expect(row?.details).toMatchObject({ effect_classes: expect.arrayContaining(expected) })
+    }
+    expectEffects("App\\Fixture\\DoctrineCommand", ["durable_write"])
+    expectEffects("App\\Fixture\\EventCommand", ["outbound"])
+    expectEffects("App\\Fixture\\FileCommand", ["filesystem"])
+    expectEffects("App\\Fixture\\IdentityCommand", ["identity_or_authority"])
+    expect(rowFor("App\\Fixture\\SmsValueCommand")).toMatchObject({
+      details: { effect_classes: ["read_only"], target_refs: [] },
+    })
+  } finally {
+    rmSync(legacyRoot, { recursive: true, force: true })
+    rmSync(monoRoot, { recursive: true, force: true })
+  }
+})
+
 test("schedule identities and credential slots are decoded before artifact identity", async () => {
   const legacyRoot = mkdtempSync("/tmp/parity-c2-field-decoder-legacy-")
   const monoRoot = mkdtempSync("/tmp/parity-c2-field-decoder-mono-")
@@ -868,7 +900,15 @@ test("owner-null integration modules require positive loader reachability", asyn
     const context = await contextFor(legacyRoot, monoRoot)
     const c2 = collectC2(context, sha256("owner-null-c2"))
     const row = c2.integrations.rows.find((candidate) => candidate.source_ref_ids.some((ref) => context.sourcePathById.get(ref)?.path === "packages/decoy.ts"))
-    expect(row).toMatchObject({ status: "unresolved", reason_codes: expect.arrayContaining(["UNKNOWN_INTEGRATION"]) })
+    expect(row).toMatchObject({
+      status: "dead_unimported",
+      reason_codes: ["DEAD_UNIMPORTED_SOURCE"],
+      details: {
+        provider_ref: "packages/decoy.ts#fetch",
+        protocol: "https",
+        endpoint_ref: "https://api.slack.com/v1/send",
+      },
+    })
   } finally {
     rmSync(legacyRoot, { recursive: true, force: true })
     rmSync(monoRoot, { recursive: true, force: true })
