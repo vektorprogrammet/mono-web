@@ -705,6 +705,7 @@ test("provider-specific and literal HTTP integration anchors remain visible", as
     put(monoRoot, "apps/server/src/App/Infrastructure/Service/SmsGateway.php", "<?php\nfinal class SmsGateway { public function send(): void {} }\n")
     put(monoRoot, "apps/server/src/App/Infrastructure/Service/GatewayAPIAdapter.php", "<?php\nfinal class GatewayAPIAdapter { public function request(): void {} }\n")
     put(monoRoot, "apps/server/src/App/Infrastructure/Service/GitHubClient.php", "<?php\nfinal class GitHubClient { public function request(): void {} }\n")
+    put(monoRoot, "apps/server/src/App/Support/Controller/GitHubController.php", "<?php\nfinal class GitHubController { public function ipIsFromGitHub(): bool { $ch = curl_init(); return curl_exec($ch); } }\n")
     put(monoRoot, "apps/server/src/App/Infrastructure/Service/HttpClientAdapter.php", "<?php\nfinal class HttpClientAdapter { public function request(): void { $this->http->request('https://api.example.test/v1/items'); } }\n")
     const context = await contextFor(legacyRoot, monoRoot)
     const integrations = collectC2(context, sha256("real-integrations-c2")).integrations
@@ -715,6 +716,7 @@ test("provider-specific and literal HTTP integration anchors remain visible", as
       "apps/server/src/App/Infrastructure/Service/GatewayAPIAdapter.php",
       "apps/server/src/App/Infrastructure/Service/GitHubClient.php",
       "apps/server/src/App/Infrastructure/Service/HttpClientAdapter.php",
+      "apps/server/src/App/Support/Controller/GitHubController.php",
     ]))
     expect(
       integrations.rows
@@ -723,6 +725,15 @@ test("provider-specific and literal HTTP integration anchors remain visible", as
     ).toBe(true)
     const httpRows = integrations.rows.filter((row) => row.source_ref_ids.some((ref) => context.sourcePathById.get(ref)?.path === "apps/server/src/App/Infrastructure/Service/HttpClientAdapter.php"))
     expect(httpRows.some((row) => "endpoint_ref" in row.details && row.details.endpoint_ref === "https://api.example.test/v1/items")).toBe(true)
+    const githubControllerRows = integrations.rows.filter((row) =>
+      row.source_ref_ids.some((ref) => context.sourcePathById.get(ref)?.path === "apps/server/src/App/Support/Controller/GitHubController.php"),
+    )
+    expect(githubControllerRows).toHaveLength(1)
+    expect(githubControllerRows[0]).toMatchObject({
+      status: "dead_unimported",
+      reason_codes: ["DEAD_UNIMPORTED_SOURCE"],
+      details: { provider_ref: "github", protocol: "https" },
+    })
   } finally {
     rmSync(legacyRoot, { recursive: true, force: true })
     rmSync(monoRoot, { recursive: true, force: true })

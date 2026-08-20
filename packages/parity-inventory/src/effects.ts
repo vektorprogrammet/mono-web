@@ -2058,7 +2058,7 @@ const providerFromText = (text: string): string | null => {
     [/\bGatewayAPI(?:Client|Adapter|Service)?\b/i, "gatewayapi"],
     [/\bStripe(?:Client|Adapter|Service)?\b/i, "stripe"],
     [/\b(?:Aws|S3Client)\b/i, "aws"],
-    [/\b(?:Github|GitHub)(?:Client|Adapter|Service)?\b/i, "github"],
+    [/\b(?:Github|GitHub)(?:Client|Adapter|Service|Controller)?\b/i, "github"],
     [/\b(?:OpenAI|Anthropic)(?:Client|Adapter|Service)?\b/i, "ai"],
   ]
   for (const [pattern, provider] of patterns) if (pattern.test(text)) return provider
