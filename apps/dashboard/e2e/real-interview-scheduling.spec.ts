@@ -1,5 +1,6 @@
 import { expect, test, type Page, type Request } from "@playwright/test";
 
+const apiOrigin = process.env.API_URL ?? "http://127.0.0.1:8000";
 const leaderUsername = "recruitment-leader-0029";
 const leaderPassword = "recruitment-e2e-0029";
 const interviewerUsername = "recruitment-interviewer-0029";
@@ -16,6 +17,91 @@ const schedule = {
   message: "Vi ser frem til intervjuet.",
 };
 
+function redactTokenBody(rawBody: string): string {
+  try {
+    const parsed = JSON.parse(rawBody) as { token?: unknown };
+    if (parsed && typeof parsed === "object" && "token" in parsed) {
+      parsed.token = "<redacted>";
+      return JSON.stringify(parsed);
+    }
+  } catch {
+    // Keep non-JSON error responses intact for diagnosis.
+  }
+  return rawBody;
+}
+
+async function probeLoginFailure(
+  page: Page,
+  username: string,
+  password: string,
+): Promise<{ status: number; body: string }> {
+  try {
+    const response = await page.request.post(`${apiOrigin}/api/login`, {
+      timeout: 10_000,
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      data: { username, password },
+    });
+    return {
+      status: response.status(),
+      body: redactTokenBody(await response.text()),
+    };
+  } catch (error) {
+    return {
+      status: 0,
+      body: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+async function diagnoseDashboardAuth(page: Page, stage: string): Promise<string> {
+  const rawCookies = await page.context().cookies();
+  const cookies = rawCookies.map((cookie) => ({
+    name: cookie.name,
+    value: "<redacted>",
+    domain: cookie.domain,
+    path: cookie.path,
+    secure: cookie.secure,
+    httpOnly: cookie.httpOnly,
+    sameSite: cookie.sameSite,
+  }));
+  const jwtCookie = rawCookies.find((cookie) => cookie.name === "jwt_token");
+  const headers: Record<string, string> = { Accept: "application/json" };
+  if (jwtCookie) headers.Authorization = `Bearer ${jwtCookie.value}`;
+
+  const probes = await Promise.all(
+    ["/api/me", "/api/me/dashboard"].map(async (endpoint) => {
+      try {
+        const response = await page.request.get(`${apiOrigin}${endpoint}`, {
+          timeout: 10_000,
+          headers,
+        });
+        return {
+          endpoint,
+          status: response.status(),
+          body: redactTokenBody(await response.text()),
+        };
+      } catch (error) {
+        return {
+          endpoint,
+          status: 0,
+          body: error instanceof Error ? error.message : String(error),
+        };
+      }
+    }),
+  );
+
+  const diagnosticBody = JSON.stringify({ cookies, probes }, null, 2);
+  await test.info().attach(`real-dashboard-auth-${stage}.json`, {
+    body: diagnosticBody,
+    contentType: "application/json",
+  });
+  return diagnosticBody;
+}
+
+
 function bridgeOperation(request: Request): string | null {
   try {
     const body = request.postDataJSON();
@@ -31,8 +117,28 @@ async function login(page: Page, username: string, password: string): Promise<vo
   await expect(page.getByRole("heading", { name: "Vektorprogrammet", exact: true })).toBeVisible();
   await page.getByLabel("Brukernavn eller e-post").fill(username);
   await page.getByLabel("Passord").fill(password);
-  await page.getByRole("button", { name: "Logg inn", exact: true }).click();
-  await expect(page).toHaveURL(/\/dashboard(?:$|\/)/);
+  try {
+    await expect(page).toHaveURL(/\/dashboard(?:$|\/)/);
+  } catch (error) {
+    const dashboardDiagnostics = await diagnoseDashboardAuth(page, `login-${username}`);
+    const probe = await probeLoginFailure(page, username, password);
+    await test.info().attach("real-login-api-response.json", {
+      body: JSON.stringify(
+        {
+          endpoint: `${apiOrigin}/api/login`,
+          status: probe.status,
+          body: probe.body,
+        },
+        null,
+        2,
+      ),
+      contentType: "application/json",
+    });
+    const reason = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      `Real login UI did not reach the dashboard (${reason}); direct API probe returned ${probe.status}: ${probe.body}; dashboard auth diagnostics: ${dashboardDiagnostics}`,
+    );
+  }
 }
 
 async function openInterviewDashboard(page: Page): Promise<void> {
