@@ -129,20 +129,20 @@ function handleFixtureRequest(request: IncomingMessage, response: ServerResponse
       return;
     case "/api/admin/interviews":
       respondJson(request, response, 200, {
-        "hydra:member": [
+        interviews: [
           {
             id: 2601,
-            applicationId: 2701,
-            interviewerId: null,
+            applicantName: "Applicant-0025",
             interviewerName: null,
-            schedulingStatus: 1,
-            interviewTime: null,
+            scheduled: null,
+            status: "Akseptert",
+            interviewed: false,
+            coInterviewer: null,
             room: null,
             campus: null,
-            schemaId: null,
+            mapLink: null,
           },
         ],
-        "hydra:totalItems": 1,
       });
       return;
     case "/api/admin/scheduling/schools":
@@ -259,14 +259,14 @@ test.describe("dashboard list type boundary", () => {
     recordVisibleFields("/dashboard/epostliste", 2, ["name", "email"]);
 
     await page.goto("/dashboard/intervjuer");
-    await expect(page.getByRole("heading", { name: "Intervjuer" })).toBeVisible();
-    await expect(page.getByRole("cell", { name: "2701", exact: true })).toBeVisible();
+    await expect(page.getByRole("cell", { name: "2601", exact: true })).toBeVisible();
+    await expect(page.getByRole("cell", { name: "Applicant-0025", exact: true })).toBeVisible();
     await expect(page.getByRole("cell", { name: "accepted", exact: true })).toBeVisible();
     await expect(page.getByText("Unavailable", { exact: true })).toHaveCount(2);
-    await expect(page.getByRole("columnheader", { name: "Søker", exact: true })).toHaveCount(0);
+    await expect(page.getByRole("columnheader", { name: "Søker", exact: true })).toBeVisible();
     recordVisibleFields("/dashboard/intervjuer", 1, [
       "id",
-      "applicationId",
+      "applicantName",
       "interviewerName",
       "interviewTime",
       "schedulingStatus",
@@ -338,7 +338,7 @@ test.describe("dashboard list type boundary", () => {
       },
       {
         route: "/api/admin/interviews",
-        responseShapeKeys: ["hydra:member", "hydra:totalItems"],
+        responseShapeKeys: ["interviews"],
         rowCount: 1,
       },
       {

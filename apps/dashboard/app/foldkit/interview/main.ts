@@ -2,7 +2,7 @@ import { type EffectSdk } from "@vektorprogrammet/sdk/effect"
 import { Runtime } from "foldkit"
 import { makeInterviewCommands } from "./command"
 import { OpenedCandidate } from "./message"
-import { Model, makeInitialModel } from "./model"
+import { InterviewsData, Model, makeInitialModel } from "./model"
 import "./styles.css"
 import { makeUpdate } from "./update"
 import { view } from "./view"
@@ -32,7 +32,7 @@ export function embedInterview(
     init: () =>
       input.mode === "candidate"
         ? update(initialModel, OpenedCandidate())
-        : [initialModel, [commands.LoadInterviews()]],
+        : [{ ...initialModel, interviews: InterviewsData.Loading() }, [commands.LoadInterviews()]],
     update,
     view,
     devTools: false,

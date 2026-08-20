@@ -1,5 +1,5 @@
 /**
- * Status integer -> string enum transforms for Symfony API responses.
+ * Symfony status-code and status-label transforms for SDK interview/application responses.
  */
 
 export type ApplicationStatus =
@@ -79,7 +79,7 @@ export function parseInterviewStatus(raw: number): InterviewSchedulingStatus {
 
 const INTERVIEW_STATUS_LABEL_MAP: Record<string, InterviewSchedulingStatus> = {
   "Ikke satt opp": "created",
-  "Ikke oppnådd kontakt": "created",
+  "Ikke oppnådd kontakt": "no_contact",
   "Ingen svar": "pending",
   Akseptert: "accepted",
   "Ny tid ønskes": "request_new_time",

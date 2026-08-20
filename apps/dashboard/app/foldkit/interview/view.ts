@@ -272,9 +272,9 @@ const candidateSuccess = (model: Model, h: HtmlBuilder<Message>): Html => {
       : "Se over tidspunkt og sted før du aksepterer invitasjonen."],
     ),
     h.dl([h.Class("fk-details fk-details--candidate")], [
-      h.div([], [h.dt([], ["Tidspunkt"]), h.dd([], [candidate.value.interviewTime])]),
-      h.div([], [h.dt([], ["Rom"]), h.dd([], [candidate.value.room])]),
-      h.div([], [h.dt([], ["Campus"]), h.dd([], [candidate.value.campus])]),
+      h.div([], [h.dt([], ["Tidspunkt"]), h.dd([], [candidate.value.interviewTime ?? "Ikke oppgitt"])]),
+      h.div([], [h.dt([], ["Rom"]), h.dd([], [candidate.value.room ?? "Ikke oppgitt"])]),
+      h.div([], [h.dt([], ["Campus"]), h.dd([], [candidate.value.campus ?? "Ikke oppgitt"])]),
     ]),
     !isAccepted
       ? h.div([h.Class("fk-actions")], [

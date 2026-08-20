@@ -28,10 +28,7 @@ type InterviewList = {
 }
 
 export interface AdminInterviewsDomain {
-  list(params?: {
-    department?: number
-    semester?: number
-  }): Effect.Effect<InterviewList, InternalSdkError>
+  list(): Effect.Effect<InterviewList, InternalSdkError>
   read(id: number): Effect.Effect<Interview, InternalSdkError>
 
   assign(
@@ -61,25 +58,17 @@ const invalidInput = (cause: unknown): Validation =>
     message: cause instanceof Error ? `Invalid interview input: ${cause.message}` : "Invalid interview input",
     fields: {},
   })
-
 export function createAdminInterviewsDomain(transport: Transport): AdminInterviewsDomain {
-  const list = (params?: {
-    department?: number
-    semester?: number
-  }): Effect.Effect<InterviewList, InternalSdkError> => {
-    const query: Record<string, string | number | undefined> = {
-      department: params?.department,
-      semester: params?.semester,
-    }
-    return transport.get("/api/admin/interviews", AdminInterviewListFromRaw, query).pipe(
+  const list = (): Effect.Effect<InterviewList, InternalSdkError> =>
+    transport.get("/api/admin/interviews", AdminInterviewListFromRaw).pipe(
       Effect.map(({ interviews }) => ({
         items: Array.from(interviews),
         totalItems: interviews.length,
       })),
     )
-  }
 
   return {
+
     list,
 
     read(id) {

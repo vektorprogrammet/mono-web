@@ -147,16 +147,16 @@ export class CandidateInterviewView extends Schema.Class<CandidateInterviewView>
   "CandidateInterviewView",
 )({
   schedulingStatus: InterviewSchedulingStatus,
-  interviewTime: Schema.String,
-  room: Schema.String,
-  campus: Schema.String,
+  interviewTime: Schema.NullOr(Schema.String),
+  room: Schema.NullOr(Schema.String),
+  campus: Schema.NullOr(Schema.String),
 }) {}
 
 const RawCandidateInterviewView = Schema.Struct({
   id: Schema.Number,
-  scheduled: Schema.String,
-  room: Schema.String,
-  campus: Schema.String,
+  scheduled: Schema.NullOr(Schema.String),
+  room: Schema.NullOr(Schema.String),
+  campus: Schema.NullOr(Schema.String),
   mapLink: Schema.NullOr(Schema.String),
   interviewerName: Schema.NullOr(Schema.String),
   status: Schema.String,

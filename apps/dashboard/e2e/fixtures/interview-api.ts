@@ -24,15 +24,17 @@ type SchedulingStatus =
   | "conducted";
 
 type Interview = {
-  id: string;
-  applicationId: string;
-  applicantLabel: string;
-  cycle: { departmentId: string; semesterId: string };
-  interviewerLabel: string;
-  schedulingStatus: SchedulingStatus;
-  interviewTime: string | null;
+  id: number;
+  applicantName: string;
+  interviewerName: string | null;
+  scheduled: string | null;
+  status: SchedulingStatus;
+  interviewed: boolean;
+  coInterviewer: string | null;
   room: string | null;
   campus: string | null;
+  mapLink: string | null;
+  responseCode: string | null;
 };
 
 type FixtureActor = {
@@ -62,9 +64,7 @@ const LEADER = "leader-trondheim@example.invalid";
 const INTERVIEWER = "interviewer-trondheim@example.invalid";
 const MEMBER = "member-trondheim@example.invalid";
 const BERGEN_LEADER = "leader-bergen@example.invalid";
-const DEPARTMENT_ID = "dep-trd-1";
-const SEMESTER_ID = "sem-2026-høst";
-const INTERVIEW_ID = "interview-001";
+const INTERVIEW_ID = 1;
 const ALLOWED_NOW = Date.parse("2026-08-01T00:00:00+02:00");
 const CAPABILITY_LIFETIME_MS = 30 * 60 * 1000;
 
@@ -73,7 +73,6 @@ if (CONTROL_KEY.length < 32) {
 }
 let interview: Interview | null;
 let capability: string;
-let capabilityCycle: { departmentId: string; semesterId: string };
 let capabilityExpiresAt: number;
 let capabilityUsed: boolean;
 let observations: Evidence[];
@@ -82,30 +81,29 @@ let server: BunServer;
 let inFlight = 0;
 let shuttingDown = false;
 let drained: (() => void) | undefined;
-
 function resetState(): void {
   interview = {
     id: INTERVIEW_ID,
-    applicationId: "app-001",
-    applicantLabel: "Applicant One",
-    cycle: { departmentId: DEPARTMENT_ID, semesterId: SEMESTER_ID },
-    interviewerLabel: INTERVIEWER,
-    schedulingStatus: "created",
-    interviewTime: null,
+    applicantName: "Applicant One",
+    interviewerName: INTERVIEWER,
+    scheduled: null,
+    status: "created",
+    interviewed: false,
+    coInterviewer: null,
     room: null,
     campus: null,
+    mapLink: null,
+    responseCode: null,
   };
   capability = randomUUID();
-  capabilityCycle = { departmentId: DEPARTMENT_ID, semesterId: SEMESTER_ID };
   capabilityExpiresAt = Date.now() + CAPABILITY_LIFETIME_MS;
   capabilityUsed = false;
   observations = [];
   transitions = [];
 }
-
 const corsHeaders = {
   "access-control-allow-origin": DASHBOARD_ORIGIN,
-  "access-control-allow-methods": "GET, POST, PUT, OPTIONS",
+  "access-control-allow-methods": "GET, POST, OPTIONS",
   "access-control-allow-headers": `Accept, Authorization, Content-Type, ${CONTROL_HEADER}`,
   vary: "Origin",
 };
@@ -130,7 +128,7 @@ function actorFor(request: Request): FixtureActor | null {
     case "fixture-leader-session":
       return {
         id: LEADER,
-        departmentGrants: [DEPARTMENT_ID],
+        departmentGrants: ["dep-trd-1"],
         canRead: true,
         canSchedule: true,
         isAdministrator: true,
@@ -138,7 +136,7 @@ function actorFor(request: Request): FixtureActor | null {
     case "fixture-interviewer-session":
       return {
         id: INTERVIEWER,
-        departmentGrants: [DEPARTMENT_ID],
+        departmentGrants: ["dep-trd-1"],
         canRead: true,
         canSchedule: false,
         isAdministrator: false,
@@ -146,7 +144,7 @@ function actorFor(request: Request): FixtureActor | null {
     case "fixture-member-session":
       return {
         id: MEMBER,
-        departmentGrants: [DEPARTMENT_ID],
+        departmentGrants: ["dep-trd-1"],
         canRead: false,
         canSchedule: false,
         isAdministrator: false,
@@ -181,35 +179,13 @@ async function objectBody(request: Request): Promise<Record<string, unknown> | n
   }
 }
 
-function cycleFrom(url: URL, body?: Record<string, unknown>): {
-  departmentId: string;
-  semesterId: string;
-} | null {
-  const departmentId = body?.departmentId ?? url.searchParams.get("departmentId");
-  const semesterId = body?.semesterId ?? url.searchParams.get("semesterId");
-  return typeof departmentId === "string" && typeof semesterId === "string"
-    ? { departmentId, semesterId }
-    : null;
-}
-
-function cycleIsKnown(cycle: { departmentId: string; semesterId: string }): boolean {
-  return cycle.departmentId === DEPARTMENT_ID && cycle.semesterId === SEMESTER_ID;
-}
-
-function cycleMatchesInterview(
-  cycle: { departmentId: string; semesterId: string },
-  value: Interview,
-): boolean {
-  return cycle.departmentId === value.cycle.departmentId &&
-    cycle.semesterId === value.cycle.semesterId;
-}
 
 function actorMayRead(actor: FixtureActor | null): boolean {
   return actor?.canRead === true;
 }
 
 function actorMayReadInterview(actor: FixtureActor, value: Interview): boolean {
-  return actor.isAdministrator || actor.id === value.interviewerLabel;
+  return actor.isAdministrator || actor.id === value.interviewerName;
 }
 
 function record(
@@ -252,131 +228,127 @@ function validCapability(pathCapability: string): boolean {
   return pathCapability.length > 0 && pathCapability === capability && capabilityResolves();
 }
 
+function statusLabel(status: SchedulingStatus): string {
+  switch (status) {
+    case "created":
+      return "Ikke satt opp";
+    case "pending":
+      return "Ingen svar";
+    case "accepted":
+      return "Akseptert";
+    case "request_new_time":
+      return "Ny tid ønskes";
+    case "cancelled":
+      return "Kansellert";
+    case "no_contact":
+      return "Ikke oppnådd kontakt";
+    case "conducted":
+      return "Gjennomført";
+  }
+}
+
+function interviewWire(value: Interview): object {
+  return {
+    id: value.id,
+    applicantName: value.applicantName,
+    interviewerName: value.interviewerName,
+    scheduled: value.scheduled,
+    status: statusLabel(value.status),
+    interviewed: value.interviewed,
+    coInterviewer: value.coInterviewer,
+    room: value.room,
+    campus: value.campus,
+    mapLink: value.mapLink,
+  };
+}
+
 function candidateView(): object | null {
   if (
     interview === null ||
-    interview.interviewTime === null ||
+    interview.scheduled === null ||
     interview.room === null ||
     interview.campus === null
   ) {
     return null;
   }
   return {
-    schedulingStatus: interview.schedulingStatus,
-    interviewTime: interview.interviewTime,
+    scheduled: interview.scheduled,
     room: interview.room,
     campus: interview.campus,
+    mapLink: interview.mapLink,
+    interviewerName: interview.interviewerName,
+    status: statusLabel(interview.status),
+    responseCode: interview.responseCode,
   };
 }
 
 function capabilityResolves(): boolean {
-  return (
-    interview !== null &&
-    interview.id === INTERVIEW_ID &&
-    interview.cycle.departmentId === capabilityCycle.departmentId &&
-    interview.cycle.semesterId === capabilityCycle.semesterId
-  );
+  return interview !== null && interview.id === INTERVIEW_ID;
 }
 
-async function handleAssignedList(request: Request, url: URL): Promise<Response> {
+async function handleList(request: Request): Promise<Response> {
   const actor = actorFor(request);
-  const cycle = cycleFrom(url);
-  if (cycle === null) return record(request, "list-assigned", 422);
-  const ids = { departmentId: cycle.departmentId, semesterId: cycle.semesterId };
-  if (actor === null || !actorMayRead(actor) || !actor.departmentGrants.includes(cycle.departmentId)) {
-    return record(request, "list-assigned", 403, ids);
+  if (actor === null || !actorMayRead(actor)) {
+    return record(request, "list-interviews", 403);
   }
-  if (!cycleIsKnown(cycle)) return record(request, "list-assigned", 404, ids);
   const rows =
-    interview === null ||
-      !cycleMatchesInterview(cycle, interview) ||
-      !actorMayReadInterview(actor, interview)
-      ? []
-      : [interview];
-  return recordedJson(request, "list-assigned", rows, 200, ids);
-}
-
-async function handleAssignedRead(
-  request: Request,
-  url: URL,
-  interviewId: string,
-): Promise<Response> {
-  const actor = actorFor(request);
-  const cycle = cycleFrom(url);
-  if (cycle === null) return record(request, "read-assigned", 422);
-  const ids = {
-    departmentId: cycle.departmentId,
-    semesterId: cycle.semesterId,
-    interviewId,
-  };
-  if (actor === null || !actorMayRead(actor) || !actor.departmentGrants.includes(cycle.departmentId)) {
-    return record(request, "read-assigned", 403, ids);
-  }
-  if (
-    !cycleIsKnown(cycle) ||
-    interview === null ||
-    interviewId !== interview.id ||
-    !cycleMatchesInterview(cycle, interview)
-  ) {
-    return record(request, "read-assigned", 404, ids);
-  }
-  if (!actorMayReadInterview(actor, interview)) {
-    return record(request, "read-assigned", 403, ids);
-  }
-  return recordedJson(request, "read-assigned", interview, 200, ids);
+    interview !== null && actorMayReadInterview(actor, interview)
+      ? [interviewWire(interview)]
+      : [];
+  return recordedJson(request, "list-interviews", { interviews: rows }, 200);
 }
 
 async function handleSchedule(
   request: Request,
-  url: URL,
   interviewId: string,
 ): Promise<Response> {
   const body = await objectBody(request);
-  const cycle = body === null ? null : cycleFrom(url, body);
-  const ids: Record<string, string> = { interviewId };
-  if (cycle !== null) {
-    ids.departmentId = cycle.departmentId;
-    ids.semesterId = cycle.semesterId;
-  }
-  if (body === null || cycle === null) return record(request, "schedule", 422, ids, body);
+  const ids = { interviewId };
   const actor = actorFor(request);
-  if (
-    actor === null ||
-    !actor.canSchedule ||
-    !actor.departmentGrants.includes(cycle.departmentId)
-  ) {
+  if (actor === null || !actor.canSchedule) {
     return record(request, "schedule", 403, ids, body);
   }
+  const parsedId = Number(interviewId);
   if (
-    !cycleIsKnown(cycle) ||
+    body === null ||
+    !Number.isSafeInteger(parsedId) ||
     interview === null ||
-    interviewId !== interview.id ||
-    !cycleMatchesInterview(cycle, interview)
+    parsedId !== interview.id
   ) {
     return record(request, "schedule", 404, ids, body);
   }
-  if (interview.schedulingStatus !== "created") {
+  if (interview.status !== "created") {
     return record(request, "schedule", 409, ids, body);
   }
-  const { interviewTime, room, campus } = body;
-  const parsedTime = typeof interviewTime === "string" ? Date.parse(interviewTime) : Number.NaN;
+  const { datetime, room, campus, mapLink, from, to, message } = body;
+  const parsedTime = typeof datetime === "string" ? Date.parse(datetime) : Number.NaN;
   if (
-    typeof interviewTime !== "string" ||
+    typeof datetime !== "string" ||
     !Number.isFinite(parsedTime) ||
     parsedTime <= ALLOWED_NOW ||
     typeof room !== "string" ||
     room.trim().length === 0 ||
     typeof campus !== "string" ||
-    campus.trim().length === 0
+    campus.trim().length === 0 ||
+    typeof mapLink !== "string" ||
+    mapLink.trim().length === 0 ||
+    typeof from !== "string" ||
+    from.trim().length === 0 ||
+    typeof to !== "string" ||
+    to.trim().length === 0 ||
+    typeof message !== "string" ||
+    message.trim().length === 0
   ) {
     return record(request, "schedule", 422, ids, body);
   }
   interview = {
     ...interview,
-    schedulingStatus: "pending",
-    interviewTime,
+    status: "pending",
+    scheduled: datetime,
     room,
     campus,
+    mapLink,
+    responseCode: capability,
   };
   transitions.push("created -> pending");
   return record(request, "schedule", 204, ids, body);
@@ -395,7 +367,7 @@ async function handleCandidateRead(
   const view = candidateView();
   if (
     view === null ||
-    (interview?.schedulingStatus !== "pending" && interview?.schedulingStatus !== "accepted")
+    (interview?.status !== "pending" && interview?.status !== "accepted")
   ) {
     return record(request, "read-candidate", 409);
   }
@@ -412,10 +384,10 @@ async function handleCandidateAccept(
   if (Date.now() >= capabilityExpiresAt) {
     return record(request, "accept-candidate", 409);
   }
-  if (capabilityUsed || interview?.schedulingStatus !== "pending") {
+  if (capabilityUsed || interview?.status !== "pending") {
     return record(request, "accept-candidate", 409);
   }
-  interview = { ...interview, schedulingStatus: "accepted" };
+  interview = { ...interview, status: "accepted" };
   capabilityUsed = true;
   transitions.push("pending -> accepted");
   return record(request, "accept-candidate", 204);
@@ -435,15 +407,11 @@ async function handleControl(request: Request): Promise<Response> {
     case "no_contact":
     case "conducted":
       if (interview === null) return empty(409);
-      interview = { ...interview, schedulingStatus: body.state };
-      return empty();
-    case "wrong-cycle":
-      if (interview === null) return empty(409);
-      interview = { ...interview, cycle: { departmentId: "dep-bergen-1", semesterId: "sem-2026-høst" } };
+      interview = { ...interview, status: body.state };
       return empty();
     case "unknown-interview":
       if (interview === null) return empty(409);
-      interview = { ...interview, id: "interview-unknown" };
+      interview = { ...interview, id: 999 };
       return empty();
     default:
       return empty(422);
@@ -485,17 +453,13 @@ async function handle(request: Request): Promise<Response> {
   if (url.pathname === "/__interview_fixture/control" && request.method === "POST") {
     return handleControl(request);
   }
-  if (url.pathname === "/api/admin/interviews/assigned" && request.method === "GET") {
-    return handleAssignedList(request, url);
+  if (url.pathname === "/api/admin/interviews" && request.method === "GET") {
+    return handleList(request);
   }
 
-  const scheduleMatch = url.pathname.match(/^\/api\/admin\/interviews\/assigned\/([^/]+)\/schedule$/);
-  if (scheduleMatch !== null && request.method === "PUT") {
-    return handleSchedule(request, url, decodeURIComponent(scheduleMatch[1] ?? ""));
-  }
-  const assignedMatch = url.pathname.match(/^\/api\/admin\/interviews\/assigned\/([^/]+)$/);
-  if (assignedMatch !== null && request.method === "GET") {
-    return handleAssignedRead(request, url, decodeURIComponent(assignedMatch[1] ?? ""));
+  const scheduleMatch = url.pathname.match(/^\/api\/admin\/interviews\/([^/]+)\/schedule$/);
+  if (scheduleMatch !== null && request.method === "POST") {
+    return handleSchedule(request, decodeURIComponent(scheduleMatch[1] ?? ""));
   }
   const acceptMatch = url.pathname.match(/^\/api\/interview-responses\/([^/]+)\/accept$/);
   if (acceptMatch !== null && request.method === "POST") {

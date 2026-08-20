@@ -51,13 +51,12 @@ export const makeInterviewCommands = (
 ) => {
   const LoadInterviews = Command.define("LoadInterviews", {
     messages: [SucceededLoadInterviews, FailedLoadInterviews],
-    execute: () =>
-      client.admin.interviews.list().pipe(
-        Effect.map(({ items }) => SucceededLoadInterviews({ interviews: items })),
-        Effect.catch((error) =>
-          Effect.succeed(FailedLoadInterviews({ message: safeAdminError(error) }))
-        ),
+    execute: client.admin.interviews.list().pipe(
+      Effect.map(({ items }) => SucceededLoadInterviews({ interviews: items })),
+      Effect.catch((error) =>
+        Effect.succeed(FailedLoadInterviews({ message: safeAdminError(error) }))
       ),
+    ),
   })
 
   const ScheduleInterview = Command.define("ScheduleInterview", {

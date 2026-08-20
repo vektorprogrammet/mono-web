@@ -1,15 +1,16 @@
 import { expect, it } from "@effect/vitest"
 import { InterviewId, type EffectSdk } from "@vektorprogrammet/sdk/effect"
 import { Schema } from "effect"
+import * as fc from "effect/testing/FastCheck"
 import { FieldValidation } from "foldkit"
-import { makeInterviewCommands } from "./command"
 import {
+  Message,
   OpenedSchedule,
   SubmittedSchedule,
   UpdatedDatetime,
   UpdatedMapLink,
 } from "./message"
-import { makeInitialModel } from "./model"
+import { Model, makeInitialModel } from "./model"
 import { makeUpdate } from "./update"
 
 const update = makeUpdate(makeInterviewCommands({} as EffectSdk, null))
@@ -26,6 +27,36 @@ const filledModel = () => ({
   to: FieldValidation.NotValidated({ value: "applicant@example.com" }),
   message: FieldValidation.NotValidated({ value: "Vi ser frem til møtet." }),
 })
+
+it.prop(
+  "every generated model and message preserves the model schema",
+  {
+    model: Schema.toArbitrary(Model)(fc),
+    message: Schema.toArbitrary(Message)(fc),
+  },
+  ({ model, message }) => {
+    const [next] = update(model, message)
+    expect(() => Schema.decodeUnknownSync(Model)(next)).not.toThrow()
+  },
+  { fastCheck: { seed: 26082028, numRuns: 150 } },
+)
+
+it.prop(
+  "pending scheduling suppresses duplicate schedule commands",
+  { model: Schema.toArbitrary(Model)(fc) },
+  ({ model }) => {
+    const pendingModel = {
+      ...model,
+      mode: "dashboard" as const,
+      selectedInterviewId: interviewId,
+      isScheduling: true,
+    }
+    const [next, commands] = update(pendingModel, SubmittedSchedule())
+    expect(next).toBe(pendingModel)
+    expect(commands).toHaveLength(0)
+  },
+  { fastCheck: { seed: 26082029, numRuns: 150 } },
+)
 
 it("validates every schedule-event field before emitting a command", () => {
   const [next, commands] = update(filledModel(), SubmittedSchedule())
