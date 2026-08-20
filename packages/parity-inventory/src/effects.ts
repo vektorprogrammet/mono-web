@@ -457,11 +457,20 @@ const localReceiverTypesFor = (unit: SourceUnit, offset: number): ReadonlyMap<st
   for (const match of body.matchAll(/(?:^|[;{}\n])\s*(?:final\s+|public\s+|private\s+|protected\s+|readonly\s+|static\s+)*(\\?[A-Za-z_][A-Za-z0-9_\\]*(?:\s*\|\s*\\?[A-Za-z_][A-Za-z0-9_\\]*)*)\s+&?\$([A-Za-z_][A-Za-z0-9_]*)\b/g)) {
     if (match[2] !== undefined && !/^(?:return|throw|yield|new|if|while|for|foreach|switch|catch)$/i.test(match[1] ?? "")) localTypes.set(`$${match[2]}`, normalizeLocalType(match[1]))
   }
-  for (const match of body.matchAll(/\$([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(?:new\s+([\\A-Za-z_][A-Za-z0-9_\\]*)\b)?/g)) {
+  for (const match of body.matchAll(/\$([A-Za-z_][A-Za-z0-9_]*)\s*=\s*new\s+([\\A-Za-z_][A-Za-z0-9_\\]*)\b/g)) {
     if (match[1] !== undefined) localTypes.set(`$${match[1]}`, normalizeLocalType(match[2]))
   }
-  for (const match of body.matchAll(/\b(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*(?::\s*([A-Za-z_$][A-Za-z0-9_.$]*))?\s*=\s*(?:new\s+([A-Za-z_$][A-Za-z0-9_.$]*)\b)?/g)) {
-    if (match[1] !== undefined) localTypes.set(match[1], normalizeLocalType(match[2] ?? match[3]))
+  for (const match of body.matchAll(/\$([A-Za-z_][A-Za-z0-9_]*)\s*=\s*null\b/g)) {
+    if (match[1] !== undefined) localTypes.set(`$${match[1]}`, null)
+  }
+  for (const match of body.matchAll(/\b(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*:\s*([A-Za-z_$][A-Za-z0-9_.$]*)/g)) {
+    if (match[1] !== undefined) localTypes.set(match[1], normalizeLocalType(match[2]))
+  }
+  for (const match of body.matchAll(/\b(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*new\s+([A-Za-z_$][A-Za-z0-9_.$]*)\b/g)) {
+    if (match[1] !== undefined) localTypes.set(match[1], normalizeLocalType(match[2]))
+  }
+  for (const match of body.matchAll(/\b(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*null\b/g)) {
+    if (match[1] !== undefined) localTypes.set(match[1], null)
   }
   return localTypes
 }
