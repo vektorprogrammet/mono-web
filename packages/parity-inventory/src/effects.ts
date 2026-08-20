@@ -577,7 +577,8 @@ const effectEvidence = (
         (/^(?:persist|flush|remove)$/i.test(call.callable)
           && receiver !== null
           && receiverParts.some((part) => /^(?:\$?(?:em|manager|entityManager)|getDoctrine|getManager|getEntityManager)$/i.test(part)))
-        || (/^setUser$/i.test(call.callable) && receiver !== null)
+        || (/^setUser$/i.test(call.callable)
+          && (receiver !== null || /(?:->|::|\.)\s*$/.test(callPrefix)))
         || (/^dispatch$/i.test(call.callable)
           && ((receiver !== null && /dispatcher/i.test(receiver)) || /event_dispatcher/i.test(callPrefix)))
         || (/\.(?:php)$/i.test(unit.path) && /^(?:mkdir|unlink)$/i.test(call.callable))

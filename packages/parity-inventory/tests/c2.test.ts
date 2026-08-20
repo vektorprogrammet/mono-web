@@ -804,7 +804,7 @@ test("framework effect anchors remain authoritative without local receiver types
     put(monoRoot, "apps/server/src/App/Infrastructure/Command/DoctrineCommand.php", "<?php\nnamespace App\\Fixture;\nfinal class DoctrineCommand { public function __invoke($entity): void { $em->persist($entity); $em->flush(); $manager->remove($entity); } }\n")
     put(monoRoot, "apps/server/src/App/Infrastructure/Command/EventCommand.php", "<?php\nnamespace App\\Fixture;\nfinal class EventCommand { public function __invoke(): void { $this->get('event_dispatcher')->dispatch('created', new Event()); } }\n")
     put(monoRoot, "apps/server/src/App/Infrastructure/Command/FileCommand.php", "<?php\nnamespace App\\Fixture;\nfinal class FileCommand { public function __invoke(): void { mkdir('path'); unlink('path'); } }\n")
-    put(monoRoot, "apps/server/src/App/Infrastructure/Command/IdentityCommand.php", "<?php\nnamespace App\\Fixture;\nfinal class IdentityCommand { public function __invoke($member, $user): void { $member->setUser($user); } }\n")
+    put(monoRoot, "apps/server/src/App/Infrastructure/Command/IdentityCommand.php", "<?php\nnamespace App\\Fixture;\nfinal class IdentityCommand { public function __invoke($member, $application, $user): void { $member->setUser($user); $application->getInterview()->setUser($user); } }\n")
     put(monoRoot, "apps/server/src/App/Infrastructure/Command/SmsValueCommand.php", "<?php\nnamespace App\\Fixture;\nfinal class SmsValueCommand { public function __invoke(): void { $message = new Sms('body'); } }\n")
     const context = await contextFor(legacyRoot, monoRoot)
     const rows = collectC2(context, sha256("framework-effects-c2")).commandWrites.rows
