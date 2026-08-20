@@ -331,6 +331,10 @@ async function main() {
       cwd: sdkRoot,
       env: dashboardEnv,
     });
+    await runCommand("bun", ["run", "build"], {
+      cwd: dashboardRoot,
+      env: dashboardEnv,
+    });
 
     dashboardProcess = startProcess(
       "bun",
