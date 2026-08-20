@@ -6,7 +6,7 @@ const leaderPassword = "recruitment-e2e-0029";
 const interviewerUsername = "recruitment-interviewer-0029";
 const interviewerPassword = "recruitment-e2e-0029";
 const applicantName = "Søker 0029";
-const responseCapability = "recruitment-response-0029";
+const responseCapability = "recruitment_response_0029";
 const schedule = {
   datetime: "2026-09-14T15:00:00+02:00",
   room: "Rom 29",
