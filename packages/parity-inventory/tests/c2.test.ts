@@ -241,16 +241,27 @@ test("effect resolution rejects local receiver shadowing and resolves aliased mu
     put(monoRoot, "apps/server/src/App/Infrastructure/Command/MultiCommand.php", "<?php\nnamespace App\\Fixture\\Infrastructure\\Command;\nuse App\\Fixture\\Infrastructure\\Repository\\AliasRepo as Repo;\nfinal class MultiCommand { private Repo $repo; public function __invoke(): void { $this->repo->nested->save(); } }\n")
     put(monoRoot, "apps/server/src/App/Infrastructure/Repository/AliasRepo.php", "<?php\nnamespace App\\Fixture\\Infrastructure\\Repository;\nuse App\\Fixture\\Infrastructure\\Repository\\LeafRepo as Child;\nfinal class AliasRepo { private Child $nested; }\n")
     put(monoRoot, "apps/server/src/App/Infrastructure/Repository/LeafRepo.php", "<?php\nnamespace App\\Fixture\\Infrastructure\\Repository;\nfinal class LeafRepo { public function save(): void {} }\n")
-    put(monoRoot, "apps/server/config/services.yaml", "services:\n  App\\Fixture\\Infrastructure\\Command\\ShadowCommand: ~\n  App\\Fixture\\Infrastructure\\Command\\MultiCommand: ~\n  App\\Fixture\\Infrastructure\\Repository\\AliasRepo: ~\n  App\\Fixture\\Infrastructure\\Repository\\LeafRepo: ~\n")
+    put(monoRoot, "apps/server/src/App/Infrastructure/Service/ApplicationManager.php", "<?php\nnamespace App\\Fixture\\Infrastructure\\Service;\nuse App\\Fixture\\Infrastructure\\Repository\\LeafRepo;\nfinal class ApplicationManager { private LeafRepo $repo; public function approve(): void { $this->repo->save(); } }\n")
+    put(monoRoot, "apps/server/src/App/Infrastructure/Command/ApprovalCommand.php", "<?php\nnamespace App\\Fixture\\Infrastructure\\Command;\nuse App\\Fixture\\Infrastructure\\Service\\ApplicationManager;\nfinal class ApprovalCommand { private ApplicationManager $manager; public function __invoke(): void { $this->manager->approve(); } }\n")
+    put(monoRoot, "apps/server/config/services.yaml", "services:\n  App\\Fixture\\Infrastructure\\Command\\ShadowCommand: ~\n  App\\Fixture\\Infrastructure\\Command\\MultiCommand: ~\n  App\\Fixture\\Infrastructure\\Command\\ApprovalCommand: ~\n  App\\Fixture\\Infrastructure\\Repository\\AliasRepo: ~\n  App\\Fixture\\Infrastructure\\Repository\\LeafRepo: ~\n  App\\Fixture\\Infrastructure\\Service\\ApplicationManager: ~\n")
     const context = await contextFor(legacyRoot, monoRoot)
     const c2 = collectC2(context, sha256("receiver-resolution-c2"))
     const commandRows = c2.commandWrites.rows.filter((row) => row.authority_line === "mono" && row.inventory_kind === "command_write")
     const shadow = commandRows.find((row) => "owner_ref" in row.details && row.details.owner_ref === "App\\Fixture\\Infrastructure\\Command\\ShadowCommand")
     const multi = commandRows.find((row) => "owner_ref" in row.details && row.details.owner_ref === "App\\Fixture\\Infrastructure\\Command\\MultiCommand")
+    const approval = commandRows.find((row) => "owner_ref" in row.details && row.details.owner_ref === "App\\Fixture\\Infrastructure\\Command\\ApprovalCommand")
     expect(shadow).toMatchObject({ status: "unresolved", reason_codes: expect.arrayContaining(["UNKNOWN_EFFECT"]) })
     expect(multi?.status).not.toBe("unresolved")
     expect(multi?.reason_codes).not.toContain("UNKNOWN_EFFECT")
     expect(multi?.details).toMatchObject({ effect_classes: ["durable_write"], target_refs: ["App\\Fixture\\Infrastructure\\Repository\\LeafRepo::save"] })
+    expect(approval?.status).not.toBe("unresolved")
+    expect(approval?.details).toMatchObject({
+      effect_classes: ["durable_write"],
+      target_refs: [
+        "App\\Fixture\\Infrastructure\\Repository\\LeafRepo::save",
+        "App\\Fixture\\Infrastructure\\Service\\ApplicationManager::approve",
+      ],
+    })
   } finally {
     rmSync(legacyRoot, { recursive: true, force: true })
     rmSync(monoRoot, { recursive: true, force: true })

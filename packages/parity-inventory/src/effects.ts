@@ -534,7 +534,12 @@ const effectClassForCallable = (callable: string): EffectClass | null => {
   }
 }
 
-const effectEvidence = (unit: SourceUnit, authority: AuthorityGraph, scope?: EffectScope): { readonly effects: readonly EffectClass[]; readonly targets: readonly string[] } => {
+const effectEvidence = (
+  unit: SourceUnit,
+  authority: AuthorityGraph,
+  scope?: EffectScope,
+  visited: ReadonlySet<string> = new Set(),
+): { readonly effects: readonly EffectClass[]; readonly targets: readonly string[] } => {
   const effects: EffectClass[] = []
   const targets: string[] = []
   let unresolved = false
@@ -544,14 +549,32 @@ const effectEvidence = (unit: SourceUnit, authority: AuthorityGraph, scope?: Eff
     const callableEffect = effectClassForCallable(call.callable)
     const resolved = resolveEffectCall(authority, unit, call, scope?.owner, scope?.start ?? 0)
     if (resolved === null) {
-      if (callableEffect !== null && callableEffect !== "read_only") effects.push(callableEffect)
-      unresolved = true
+      const receiver = call.receiver?.split(/->|::|\./)[0] ?? null
+      const localTypes = localReceiverTypesFor(unit, call.offset + (scope?.start ?? 0))
+      const explicitlyUnknownReceiver = receiver !== null && localTypes.has(receiver) && localTypes.get(receiver) === null
+      if (callableEffect !== null && callableEffect !== "read_only") {
+        effects.push(callableEffect)
+        if (explicitlyUnknownReceiver) unresolved = true
+      } else if (callableEffect === null && /^(?:perform|execute|handle|process|apply|run|invoke|mutate|write)$/i.test(call.callable)) {
+        unresolved = true
+      }
       continue
     }
     targets.push(resolved.symbol)
     if (call.constructorCall) continue
-    if (callableEffect === null) unresolved = true
-    else effects.push(callableEffect)
+    if (callableEffect !== null) {
+      if (callableEffect !== "read_only") effects.push(callableEffect)
+      continue
+    }
+    if (visited.has(resolved.symbol)) continue
+    const target = effectScopeForTarget(authority, resolved.targetClass, call.callable)
+    if (target === null) {
+      unresolved = true
+      continue
+    }
+    const nested = effectEvidence(target.unit, authority, target.scope, new Set([...visited, resolved.symbol]))
+    effects.push(...nested.effects.filter((effect) => effect !== "read_only"))
+    targets.push(...nested.targets)
   }
   if (unresolved) effects.push("unknown")
   else if (effects.length === 0) effects.push("read_only")
@@ -638,6 +661,7 @@ interface AuthorityGraph {
   readonly sourceImports: ReadonlyMap<string, readonly string[]>
   readonly runtimeEntrySources: ReadonlySet<string>
   readonly functionsByPath: ReadonlyMap<string, ReadonlySet<string>>
+  readonly sourceTextByPath: ReadonlyMap<string, string>
 }
 
 const normalizedRelativePath = (base: string, target: string): string | null => {
@@ -963,6 +987,7 @@ const phpAliasReferenceFor = (source: string, alias: string): boolean => {
 
 const authorityGraphFor = (context: ManifestContext, authority: "legacy" | "mono"): AuthorityGraph => {
   const languageUnits = availableLanguageUnitsFor(context, authority)
+  const sourceTextByPath = new Map(languageUnits.map((unit) => [unit.path, unit.text]))
   const languagePaths = new Set(languageUnits.map((unit) => unit.path))
   const classesByPath = new Map<string, readonly LanguageClass[]>()
   const classByName = new Map<string, LanguageClass>()
@@ -1208,6 +1233,7 @@ const authorityGraphFor = (context: ManifestContext, authority: "legacy" | "mono
     sourceImports,
     runtimeEntrySources,
     functionsByPath,
+    sourceTextByPath,
   }
 }
 
@@ -1229,10 +1255,10 @@ const importedBySources = (authority: AuthorityGraph, unit: SourceUnit, owner: s
   return authority.importerBySource.get(targetPath) ?? null
 }
 
-const resolveEffectCall = (authority: AuthorityGraph, unit: SourceUnit, call: EffectCall, ownerClass?: LanguageClass, offsetBase = 0): { readonly symbol: string } | null => {
+const resolveEffectCall = (authority: AuthorityGraph, unit: SourceUnit, call: EffectCall, ownerClass?: LanguageClass, offsetBase = 0): { readonly symbol: string; readonly targetClass: LanguageClass } | null => {
   if (call.constructorCall) {
     const item = reachableClassFor(authority, resolveClassForPath(authority, unit.path, call.chain))
-    return item === undefined ? null : { symbol: `${item.fqn}::__construct` }
+    return item === undefined ? null : { symbol: `${item.fqn}::__construct`, targetClass: item }
   }
   const receiver = call.receiver
   if (receiver === null) return null
@@ -1264,7 +1290,29 @@ const resolveEffectCall = (authority: AuthorityGraph, unit: SourceUnit, call: Ef
     propertyIndex += 1
   }
   if (item === undefined || !item.methods.has(call.callable)) return null
-  return { symbol: `${item.fqn}::${call.callable}` }
+  return { symbol: `${item.fqn}::${call.callable}`, targetClass: item }
+}
+
+const effectScopeForTarget = (
+  authority: AuthorityGraph,
+  targetClass: LanguageClass,
+  methodName: string,
+): { readonly unit: SourceUnit; readonly scope: EffectScope } | null => {
+  const text = authority.sourceTextByPath.get(targetClass.path)
+  if (text === undefined) return null
+  const classes = classMatches(text)
+  const classIndex = classes.findIndex((entry) => entry.name === targetClass.name)
+  const classEntry = classes[classIndex]
+  if (classEntry === undefined) return null
+  const classEnd = classes[classIndex + 1]?.offset ?? text.length
+  const method = functionMatches(text, classEntry.offset, classEnd).find((entry) => entry.name === methodName)
+  if (method === undefined) return null
+  const methodScope = methodScopeFor(text, method.offset, classEnd)
+  if (methodScope === null) return null
+  return {
+    unit: { authority: authority.authority, path: targetClass.path, text, sourceRefId: "", sourceRefIds: [] },
+    scope: { owner: targetClass, start: methodScope.start, end: methodScope.end },
+  }
 }
 const commandDetails = (unit: SourceUnit, authority: AuthorityGraph, owner: string | null, method: string | null, reasons: string[], scope?: EffectScope): CommandWriteDetails => {
   const evidence = effectEvidence(unit, authority, scope)
