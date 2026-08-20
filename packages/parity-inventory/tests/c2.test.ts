@@ -213,7 +213,8 @@ test("package runtime roots ignore type exports and non-runtime script arguments
       compilerOptions: { outDir: "dist" },
       include: ["src"],
     }))
-    put(monoRoot, "packages/sdk/src/client.ts", "export class MailerAdapter { send(): void {} }\n")
+    put(monoRoot, "packages/sdk/src/client.ts", "import { sendSms } from './domain.js'\nexport class MailerAdapter { send(): void { sendSms() } }\n")
+    put(monoRoot, "packages/sdk/src/domain.ts", "export function sendSms(): void { fetch('https://sms.example.test/send') }\n")
     const context = await contextFor(legacyRoot, monoRoot)
     expect(context.rootCensus.find((row) => row.root_ref === "mono" && row.path === "packages/sdk/package.json")?.classification).toBe("matched")
     expect(context.rootCensus.find((row) => row.root_ref === "mono" && row.path === "packages/sdk/tsconfig.json")?.classification).toBe("matched")
@@ -227,12 +228,34 @@ test("package runtime roots ignore type exports and non-runtime script arguments
     const client = c2.integrations.rows.find((row) =>
       row.source_ref_ids.some((ref) => context.sourcePathById.get(ref)?.path === "packages/sdk/src/client.ts"),
     )
+    const domain = c2.integrations.rows.find((row) =>
+      row.source_ref_ids.some((ref) => context.sourcePathById.get(ref)?.path === "packages/sdk/src/domain.ts"),
+    )
+    expect(domain?.reason_codes).not.toContain("DEAD_UNIMPORTED_SOURCE")
     expect(client?.reason_codes).not.toContain("DEAD_UNIMPORTED_SOURCE")
   } finally {
     rmSync(legacyRoot, { recursive: true, force: true })
     rmSync(monoRoot, { recursive: true, force: true })
   }
 })
+test("typed constructor assignments authorize external effect receivers", async () => {
+  const legacyRoot = mkdtempSync("/tmp/parity-c2-constructor-receiver-legacy-")
+  const monoRoot = mkdtempSync("/tmp/parity-c2-constructor-receiver-mono-")
+  try {
+    put(monoRoot, "apps/server/config/services.yaml", "services:\n  App\\Fixture\\Workflow: ~\n")
+    put(monoRoot, "apps/server/src/App/Infrastructure/Command/Workflow.php", "<?php\nnamespace App\\Fixture;\nfinal class Workflow { private $em; private $mailer; private $smsSender; public function __construct(EntityManagerInterface $em, Mailer $mailer, SmsSenderInterface $smsSender) { $this->em = $em; $this->mailer = $mailer; $this->smsSender = $smsSender; } public function __invoke(): void { $this->mailer->send($message); $this->em->persist($entity); $this->em->flush(); $this->smsSender->send($sms); } }\n")
+    const context = await contextFor(legacyRoot, monoRoot)
+    const row = collectC2(context, sha256("constructor-receiver-c2")).commandWrites.rows.find((candidate) =>
+      "owner_ref" in candidate.details && candidate.details.owner_ref === "App\\Fixture\\Workflow",
+    )
+    expect(row?.reason_codes).not.toContain("UNKNOWN_EFFECT")
+    expect(row?.details).toMatchObject({ effect_classes: ["durable_write", "outbound"] })
+  } finally {
+    rmSync(legacyRoot, { recursive: true, force: true })
+    rmSync(monoRoot, { recursive: true, force: true })
+  }
+})
+
 
 test("write projection gate blocks unresolved C2 effects", async () => {
   const legacyRoot = mkdtempSync("/tmp/parity-c2-write-gate-legacy-")

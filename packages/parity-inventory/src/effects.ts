@@ -1046,6 +1046,10 @@ const sourcePathForImport = (base: string, target: string, paths: ReadonlySet<st
   const normalized = normalizedRelativePath(base, target)
   if (normalized === null) return null
   if (paths.has(normalized)) return normalized
+  if (/\.(?:mjs|cjs|js)$/i.test(normalized)) {
+    const sourceStem = normalized.replace(/\.(?:mjs|cjs|js)$/i, "")
+    for (const extension of [".ts", ".tsx"]) if (paths.has(`${sourceStem}${extension}`)) return `${sourceStem}${extension}`
+  }
   for (const suffix of [".php", ".ts", ".tsx", ".js", ".mjs", ".yaml", ".yml", ".json"]) if (paths.has(`${normalized}${suffix}`)) return `${normalized}${suffix}`
   for (const suffix of ["/index.php", "/index.ts", "/index.tsx", "/index.js"]) if (paths.has(`${normalized}${suffix}`)) return `${normalized}${suffix}`
   return null
