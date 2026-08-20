@@ -1,6 +1,6 @@
 import { chmod, mkdtemp, rm } from "node:fs/promises";
 import { randomBytes } from "node:crypto";
-import { spawn, spawnSync } from "node:child_process";
+import { createConnection } from "node:net";
 import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -14,6 +14,24 @@ const commandTimeoutMs = 120_000;
 const shutdownTimeoutMs = 5_000;
 
 const sleep = (milliseconds) => new Promise((resolveSleep) => setTimeout(resolveSleep, milliseconds));
+
+function assertPortAvailable(port) {
+  return new Promise((resolvePort, rejectPort) => {
+    const socket = createConnection({ host: "127.0.0.1", port });
+    socket.once("connect", () => {
+      socket.destroy();
+      rejectPort(new Error(`Port ${port} is already in use`));
+    });
+    socket.once("error", (error) => {
+      socket.destroy();
+      if (error?.code === "ECONNREFUSED") {
+        resolvePort();
+        return;
+      }
+      rejectPort(error);
+    });
+  });
+}
 
 function requireOpenSsl() {
   const result = spawnSync("openssl", ["version"], { stdio: "ignore" });
@@ -162,6 +180,7 @@ async function main() {
     ...process.env,
     APP_ENV: "e2e",
     APP_DEBUG: "0",
+    TZ: "Europe/Oslo",
     APP_SECRET: randomBytes(32).toString("hex"),
     DATABASE_URL: databaseUrl,
     E2E_DATABASE_URL: databaseUrl,
@@ -246,13 +265,19 @@ async function main() {
     });
     await chmod(privateKeyPath, 0o600);
 
-    await runCommand("php", ["bin/console", "doctrine:schema:create", "--env=e2e", "--no-interaction"], {
-      cwd: serverRoot,
-      env: serverEnv,
-    });
+    await runCommand(
+      "php",
+      ["-d", "date.timezone=Europe/Oslo", "bin/console", "doctrine:schema:create", "--env=e2e", "--no-interaction"],
+      {
+        cwd: serverRoot,
+        env: serverEnv,
+      },
+    );
     await runCommand(
       "php",
       [
+        "-d",
+        "date.timezone=Europe/Oslo",
         "bin/console",
         "doctrine:fixtures:load",
         "--env=e2e",
@@ -261,18 +286,29 @@ async function main() {
       ],
       { cwd: serverRoot, env: serverEnv },
     );
+    await assertPortAvailable(8000);
 
-    symfonyProcess = startProcess("php", ["-S", "127.0.0.1:8000", "-t", "public", "public/index.php"], {
-      cwd: serverRoot,
-      env: serverEnv,
-    });
+    symfonyProcess = startProcess(
+      "php",
+      ["-d", "date.timezone=Europe/Oslo", "-S", "127.0.0.1:8000", "-t", "public", "public/index.php"],
+      {
+        cwd: serverRoot,
+        env: serverEnv,
+      },
+    );
     await waitForHttp(`${apiOrigin}/api/docs`, symfonyProcess);
     await runCommand("bun", ["run", "build"], { cwd: sdkRoot, env: dashboardEnv });
+    await runCommand("bun", ["run", "build"], { cwd: dashboardRoot, env: dashboardEnv });
 
-    dashboardProcess = startProcess("bun", ["run", "dev", "--host", "127.0.0.1", "--port", "5174"], {
-      cwd: dashboardRoot,
-      env: dashboardEnv,
-    });
+    await assertPortAvailable(5174);
+    dashboardProcess = startProcess(
+      "bun",
+      ["run", "dev", "--host", "127.0.0.1", "--port", "5174"],
+      {
+        cwd: dashboardRoot,
+        env: dashboardEnv,
+      },
+    );
     await waitForHttp(`${dashboardOrigin}/login`, dashboardProcess);
 
     await runCommand(

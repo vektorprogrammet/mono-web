@@ -63,17 +63,27 @@ test.describe("Real Symfony interview scheduling", () => {
     const scheduleRequest = page.waitForRequest(
       (request) =>
         request.method() === "POST" &&
-        new URL(request.url()).pathname.match(/^\/api\/admin\/interviews\/\d+\/schedule$/) !== null,
+        new URL(request.url()).pathname === "/interview" &&
+        request.postDataJSON()?.operation === "scheduleInterview",
     );
     const scheduleResponse = page.waitForResponse(
       (response) =>
         response.request().method() === "POST" &&
-        new URL(response.url()).pathname.match(/^\/api\/admin\/interviews\/\d+\/schedule$/) !== null,
+        new URL(response.url()).pathname === "/interview" &&
+        response.request().postDataJSON()?.operation === "scheduleInterview",
     );
     await page.getByRole("button", { name: "Lagre og send", exact: true }).click();
     const [request, response] = await Promise.all([scheduleRequest, scheduleResponse]);
-    expect(request.postDataJSON()).toEqual(schedule);
-    expect(response.status()).toBe(204);
+    const bridgePayload = request.postDataJSON();
+    expect(bridgePayload).toMatchObject({
+      operation: "scheduleInterview",
+      input: schedule,
+    });
+    expect(bridgePayload.interviewId).toEqual(expect.any(Number));
+    expect(response.status()).toBe(200);
+
+    const scheduleResult = await response.json();
+    expect(scheduleResult).toBeNull();
 
     await expect(page.getByText("Intervjuet er planlagt og invitert.", { exact: true })).toBeVisible();
     await expect(applicantCard).toContainText("Invitert");
@@ -97,8 +107,9 @@ test.describe("Real Symfony interview scheduling", () => {
     await login(interviewerPage, interviewerUsername, interviewerPassword);
     const freshRead = interviewerPage.waitForResponse(
       (response) =>
-        response.request().method() === "GET" &&
-        new URL(response.url()).pathname === "/interview",
+        response.request().method() === "POST" &&
+        new URL(response.url()).pathname === "/interview" &&
+        response.request().postDataJSON()?.operation === "listInterviews",
     );
     await openInterviewDashboard(interviewerPage);
     expect((await freshRead).status()).toBe(200);
