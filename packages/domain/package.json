@@ -14,7 +14,7 @@
   "scripts": {
     "report": "bun run src/main.ts",
     "proof:d1": "bun run src/tutor/d1-proof.ts",
-    "test": "bun run src/main.ts --fixtures && bun run src/tutor/main.ts --fixtures && bun run proof:d1",
+    "test": "vitest run && bun run src/main.ts --fixtures && bun run src/tutor/main.ts --fixtures && bun run proof:d1",
     "check-types": "tsc --noEmit",
     "build": "tsc --noEmit",
     "lint": "oxlint"
@@ -24,9 +24,11 @@
     "effect": "catalog:effect-v4"
   },
   "devDependencies": {
+    "@effect/vitest": "catalog:effect-v4",
     "@types/node": "^22",
     "miniflare": "4.20260706.0",
     "oxlint": "^1.41.0",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "catalog:effect-v4"
   }
 }

@@ -1,6 +1,9 @@
 {
   "name": "@vektorprogrammet/sdk",
   "version": "0.2.0",
+  "files": [
+    "dist"
+  ],
   "type": "module",
   "exports": {
     ".": {
@@ -12,10 +15,9 @@
       "default": "./dist/effect-client.js"
     }
   },
-  "files": ["dist"],
   "scripts": {
     "build": "tsc -b",
-    "check-types": "tsc -b",
+    "check-types": "tsc -b && tsc --noEmit -p tsconfig.test.json",
     "lint": "oxlint",
     "test": "vitest run",
     "release": "changeset publish"
@@ -24,8 +26,9 @@
     "effect": "catalog:effect-v4"
   },
   "devDependencies": {
+    "@effect/vitest": "catalog:effect-v4",
     "@types/node": "^22",
     "typescript": "^5",
-    "vitest": "^4.1.0"
+    "vitest": "catalog:effect-v4"
   }
 }

@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "declaration": false,
+    "noEmit": true
+  },
+  "files": ["src/__tests__/property.test.ts"],
+  "include": []
+}

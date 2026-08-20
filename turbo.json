@@ -7,7 +7,9 @@
       "inputs": ["$TURBO_DEFAULT$", ".env*"],
       "outputs": ["dist/**"]
     },
-    "test": {},
+    "test": {
+      "dependsOn": ["^build"]
+    },
     "lint": {
       "dependsOn": ["^lint"]
     },
@@ -25,6 +27,6 @@
     "dev": {
       "cache": false,
       "persistent": true
-    },
+    }
   }
 }

@@ -3,11 +3,26 @@
  */
 
 export type ApplicationStatus =
-  | "not_received" | "received" | "invited" | "accepted"
-  | "completed" | "assigned" | "cancelled"
+  | "not_received"
+  | "received"
+  | "invited"
+  | "accepted"
+  | "completed"
+  | "assigned"
+  | "cancelled";
 
-export const APPLICATION_STATUS_CODES = [-1, 0, 1, 2, 3, 4, 5] as const
-export type ApplicationStatusCode = typeof APPLICATION_STATUS_CODES[number]
+export const APPLICATION_STATUS_CODES = [-1, 0, 1, 2, 3, 4, 5] as const;
+export type ApplicationStatusCode = (typeof APPLICATION_STATUS_CODES)[number];
+
+const APPLICATION_STATUS_CODE_BY_STATUS: Record<ApplicationStatus, ApplicationStatusCode> = {
+  cancelled: -1,
+  not_received: 0,
+  received: 1,
+  invited: 2,
+  accepted: 3,
+  completed: 4,
+  assigned: 5,
+};
 
 const APPLICATION_STATUS_MAP: Partial<Record<number, ApplicationStatus>> = {
   [-1]: "cancelled",
@@ -17,27 +32,50 @@ const APPLICATION_STATUS_MAP: Partial<Record<number, ApplicationStatus>> = {
   3: "accepted",
   4: "completed",
   5: "assigned",
-} satisfies Record<ApplicationStatusCode, ApplicationStatus>
+} satisfies Record<ApplicationStatusCode, ApplicationStatus>;
 
-const INTERVIEW_STATUS_MAP: Record<number, string> = {
+export type InterviewSchedulingStatus =
+  | "created"
+  | "pending"
+  | "accepted"
+  | "request_new_time"
+  | "cancelled"
+  | "no_contact";
+
+export const INTERVIEW_STATUS_CODES = [0, 1, 2, 3, 4] as const;
+export type InterviewStatusCode = (typeof INTERVIEW_STATUS_CODES)[number];
+
+const INTERVIEW_STATUS_MAP: Record<InterviewStatusCode, InterviewSchedulingStatus> = {
   0: "pending",
   1: "accepted",
   2: "request_new_time",
   3: "cancelled",
   4: "no_contact",
-}
+};
 
-export type InterviewSchedulingStatus =
-  | "pending" | "accepted" | "request_new_time" | "cancelled" | "no_contact"
+const INTERVIEW_STATUS_CODE_BY_STATUS: Record<InterviewSchedulingStatus, InterviewStatusCode> = {
+  created: 0,
+  pending: 0,
+  accepted: 1,
+  request_new_time: 2,
+  cancelled: 3,
+  no_contact: 4,
+};
 
-export function parseApplicationStatus(raw: ApplicationStatusCode): ApplicationStatus
-export function parseApplicationStatus(raw: number): ApplicationStatus | undefined
+export function parseApplicationStatus(raw: ApplicationStatusCode): ApplicationStatus;
+export function parseApplicationStatus(raw: number): ApplicationStatus | undefined;
 export function parseApplicationStatus(raw: number): ApplicationStatus | undefined {
-  return APPLICATION_STATUS_MAP[raw]
+  return APPLICATION_STATUS_MAP[raw];
 }
+
+export const encodeApplicationStatus = (status: ApplicationStatus): ApplicationStatusCode =>
+  APPLICATION_STATUS_CODE_BY_STATUS[status];
 
 export function parseInterviewStatus(raw: number): InterviewSchedulingStatus {
-  const status = INTERVIEW_STATUS_MAP[raw]
-  if (!status) throw new Error(`Unknown interview status: ${raw}`)
-  return status as InterviewSchedulingStatus
+  const status = INTERVIEW_STATUS_MAP[raw as InterviewStatusCode];
+  if (!status) throw new Error(`Unknown interview status: ${raw}`);
+  return status;
 }
+
+export const encodeInterviewStatus = (status: InterviewSchedulingStatus): InterviewStatusCode =>
+  INTERVIEW_STATUS_CODE_BY_STATUS[status];

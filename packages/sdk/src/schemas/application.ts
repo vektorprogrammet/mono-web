@@ -3,8 +3,12 @@
  * into a typed string enum using adapter/status.ts.
  */
 
-import { Schema, SchemaGetter } from "effect"
-import { APPLICATION_STATUS_CODES, parseApplicationStatus } from "../adapter/status.js"
+import { Schema, SchemaGetter } from "effect";
+import {
+  APPLICATION_STATUS_CODES,
+  encodeApplicationStatus,
+  parseApplicationStatus,
+} from "../adapter/status.js";
 
 export const ApplicationStatus = Schema.Literals([
   "not_received",
@@ -14,8 +18,8 @@ export const ApplicationStatus = Schema.Literals([
   "completed",
   "assigned",
   "cancelled",
-])
-export type ApplicationStatus = Schema.Schema.Type<typeof ApplicationStatus>
+]);
+export type ApplicationStatus = Schema.Schema.Type<typeof ApplicationStatus>;
 
 /**
  * Raw API response shape — applicationStatus is an integer from the server.
@@ -29,7 +33,7 @@ const RawApplication = Schema.Struct({
   interviewer: Schema.NullOr(Schema.String),
   interviewScheduled: Schema.NullOr(Schema.String),
   previousParticipation: Schema.Boolean,
-})
+});
 
 /**
  * Application with derived string status.
@@ -53,8 +57,8 @@ export class Application extends Schema.Class<Application>("Application")({
       completed: "Fullført",
       assigned: "Tildelt skole",
       cancelled: "Avbrutt",
-    }
-    return labels[this.status] ?? this.status
+    };
+    return labels[this.status] ?? this.status;
   }
 }
 
@@ -77,14 +81,14 @@ export const ApplicationFromRaw = RawApplication.pipe(
       id: app.id,
       userName: app.userName,
       userEmail: app.userEmail,
-      applicationStatus: 0, // reverse mapping not needed for read-only domain
+      applicationStatus: encodeApplicationStatus(app.status),
       interviewStatus: app.interviewStatus,
       interviewer: app.interviewer,
       interviewScheduled: app.interviewScheduled,
       previousParticipation: app.previousParticipation,
     })),
   }),
-)
+);
 
 /**
  * ApplicationDetail — richer view returned by the single-item GET endpoint.
@@ -110,7 +114,7 @@ const RawApplicationDetail = Schema.Struct({
   interviewer: Schema.NullOr(Schema.String),
   interviewScheduled: Schema.NullOr(Schema.String),
   previousParticipation: Schema.Boolean,
-})
+});
 
 export const ApplicationDetailFromRaw = RawApplicationDetail.pipe(
   Schema.decodeTo(ApplicationDetail, {
@@ -128,11 +132,11 @@ export const ApplicationDetailFromRaw = RawApplicationDetail.pipe(
       id: app.id,
       userName: app.userName,
       userEmail: app.userEmail,
-      applicationStatus: 0,
+      applicationStatus: encodeApplicationStatus(app.status),
       interviewStatus: app.interviewStatus,
       interviewer: app.interviewer,
       interviewScheduled: app.interviewScheduled,
       previousParticipation: app.previousParticipation,
     })),
   }),
-)
+);

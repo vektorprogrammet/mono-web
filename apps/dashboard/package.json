@@ -1,11 +1,8 @@
 {
   "name": "@monoweb/dashboard",
   "private": true,
-  "sideEffects": false,
   "type": "module",
-  "engines": {
-    "node": ">=22"
-  },
+  "sideEffects": false,
   "scripts": {
     "build": "react-router build",
     "dev": "react-router dev",
@@ -13,6 +10,7 @@
     "check-types": "react-router typegen && tsc",
     "lint": "oxlint",
     "format": "oxfmt --write",
+    "test": "vitest run",
     "test:e2e": "node ./node_modules/@playwright/test/cli.js test",
     "test:e2e:w0": "API_URL=http://127.0.0.1:8788 VITE_API_URL=http://127.0.0.1:8788 API_MODE=fixture VITE_API_MODE=fixture DASHBOARD_CUTOVER_FIXTURE_SEED=dashboard-cutover-0010 node ./node_modules/@playwright/test/cli.js test e2e/auth.spec.ts -g \"shows error on invalid credentials\" --project=chromium --retries=0",
     "e2e:test": "node ./node_modules/@playwright/test/cli.js test",
@@ -70,6 +68,7 @@
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "^1.13.12",
+    "@effect/vitest": "catalog:effect-v4",
     "@playwright/test": "^1.51.1",
     "@react-router/dev": "^8.3.0",
     "@tailwindcss/postcss": "^4.0.17",
@@ -77,9 +76,13 @@
     "@types/react": "^19.2.10",
     "@types/react-dom": "^19.2.3",
     "typescript": "^5.8.2",
-    "vite": "^8.0.7"
+    "vite": "^8.0.7",
+    "vitest": "catalog:effect-v4"
   },
   "peerDependencies": {
     "react-router-dom": "^8.3.0"
+  },
+  "engines": {
+    "node": ">=22"
   }
 }

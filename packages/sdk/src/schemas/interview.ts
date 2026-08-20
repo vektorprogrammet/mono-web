@@ -3,8 +3,12 @@
  * into a typed string enum using adapter/status.ts.
  */
 
-import { Schema, SchemaGetter } from "effect"
-import { parseInterviewStatus } from "../adapter/status.js"
+import { Schema, SchemaGetter } from "effect";
+import {
+  encodeInterviewStatus,
+  INTERVIEW_STATUS_CODES,
+  parseInterviewStatus,
+} from "../adapter/status.js";
 
 export const InterviewSchedulingStatus = Schema.Literals([
   "created",
@@ -13,30 +17,29 @@ export const InterviewSchedulingStatus = Schema.Literals([
   "request_new_time",
   "cancelled",
   "no_contact",
-])
-export type InterviewSchedulingStatus = Schema.Schema.Type<typeof InterviewSchedulingStatus>
+]);
+export type InterviewSchedulingStatus = Schema.Schema.Type<typeof InterviewSchedulingStatus>;
 const boundedIdentifier = Schema.String.pipe(
   Schema.check(Schema.isMinLength(1), Schema.isMaxLength(128)),
-)
+);
 
-export const DepartmentId = boundedIdentifier.pipe(Schema.brand("DepartmentId"))
-export type DepartmentId = typeof DepartmentId.Type
+export const DepartmentId = boundedIdentifier.pipe(Schema.brand("DepartmentId"));
+export type DepartmentId = typeof DepartmentId.Type;
 
-export const SemesterId = boundedIdentifier.pipe(Schema.brand("SemesterId"))
-export type SemesterId = typeof SemesterId.Type
+export const SemesterId = boundedIdentifier.pipe(Schema.brand("SemesterId"));
+export type SemesterId = typeof SemesterId.Type;
 
 export const Cycle = Schema.Struct({
   departmentId: DepartmentId,
   semesterId: SemesterId,
-})
-export type Cycle = typeof Cycle.Type
+});
+export type Cycle = typeof Cycle.Type;
 
-export const AssignedInterviewId = boundedIdentifier.pipe(Schema.brand("AssignedInterviewId"))
-export type AssignedInterviewId = typeof AssignedInterviewId.Type
+export const AssignedInterviewId = boundedIdentifier.pipe(Schema.brand("AssignedInterviewId"));
+export type AssignedInterviewId = typeof AssignedInterviewId.Type;
 
-export const ResponseCapability = boundedIdentifier.pipe(Schema.brand("ResponseCapability"))
-export type ResponseCapability = typeof ResponseCapability.Type
-
+export const ResponseCapability = boundedIdentifier.pipe(Schema.brand("ResponseCapability"));
+export type ResponseCapability = typeof ResponseCapability.Type;
 
 export class AssignedInterview extends Schema.Class<AssignedInterview>("AssignedInterview")({
   id: AssignedInterviewId,
@@ -50,19 +53,19 @@ export class AssignedInterview extends Schema.Class<AssignedInterview>("Assigned
   campus: Schema.NullOr(Schema.String),
 }) {}
 const RawAssignedInterview = Schema.Struct({
-  id: Schema.String,
+  id: boundedIdentifier,
   applicationId: Schema.String,
   applicantLabel: Schema.String,
   cycle: Schema.Struct({
-    departmentId: Schema.String,
-    semesterId: Schema.String,
+    departmentId: boundedIdentifier,
+    semesterId: boundedIdentifier,
   }),
   interviewerLabel: Schema.String,
-  schedulingStatus: Schema.Number,
+  schedulingStatus: Schema.Literals(INTERVIEW_STATUS_CODES),
   interviewTime: Schema.NullOr(Schema.String),
   room: Schema.NullOr(Schema.String),
   campus: Schema.NullOr(Schema.String),
-})
+});
 
 export const AssignedInterviewFromRaw = RawAssignedInterview.pipe(
   Schema.decodeTo(AssignedInterview, {
@@ -83,21 +86,22 @@ export const AssignedInterviewFromRaw = RawAssignedInterview.pipe(
       applicantLabel: interview.applicantLabel,
       cycle: interview.cycle,
       interviewerLabel: interview.interviewerLabel,
-      schedulingStatus: 0,
+      schedulingStatus: encodeInterviewStatus(interview.schedulingStatus),
       interviewTime: interview.interviewTime,
       room: interview.room,
       campus: interview.campus,
     })),
   }),
-)
+);
 
-export class CandidateInterviewView extends Schema.Class<CandidateInterviewView>("CandidateInterviewView")({
+export class CandidateInterviewView extends Schema.Class<CandidateInterviewView>(
+  "CandidateInterviewView",
+)({
   schedulingStatus: InterviewSchedulingStatus,
   interviewTime: Schema.String,
   room: Schema.String,
   campus: Schema.String,
 }) {}
-
 
 /**
  * Raw API response shape — schedulingStatus is an integer from the server.
@@ -107,12 +111,12 @@ const RawInterview = Schema.Struct({
   applicationId: Schema.Number,
   interviewerId: Schema.NullOr(Schema.Number),
   interviewerName: Schema.NullOr(Schema.String),
-  schedulingStatus: Schema.Number,
+  schedulingStatus: Schema.Literals(INTERVIEW_STATUS_CODES),
   interviewTime: Schema.NullOr(Schema.String),
   room: Schema.NullOr(Schema.String),
   campus: Schema.NullOr(Schema.String),
   schemaId: Schema.NullOr(Schema.Number),
-})
+});
 
 /**
  * Interview with derived string schedulingStatus.
@@ -150,14 +154,14 @@ export const InterviewFromRaw = RawInterview.pipe(
       applicationId: interview.applicationId,
       interviewerId: interview.interviewerId,
       interviewerName: interview.interviewerName,
-      schedulingStatus: 0, // reverse mapping not needed for read-only domain
+      schedulingStatus: encodeInterviewStatus(interview.schedulingStatus),
       interviewTime: interview.interviewTime,
       room: interview.room,
       campus: interview.campus,
       schemaId: interview.schemaId,
     })),
   }),
-)
+);
 
 /**
  * InterviewSchema_ — the schema/template used for conducting interviews.
@@ -166,17 +170,21 @@ export const InterviewFromRaw = RawInterview.pipe(
 export class InterviewSchema_ extends Schema.Class<InterviewSchema_>("InterviewSchema")({
   id: Schema.Number,
   name: Schema.String,
-  questions: Schema.Array(Schema.Struct({
-    id: Schema.Number,
-    text: Schema.String,
-    type: Schema.String,
-  })),
+  questions: Schema.Array(
+    Schema.Struct({
+      id: Schema.Number,
+      text: Schema.String,
+      type: Schema.String,
+    }),
+  ),
 }) {}
 
 /**
  * Input type for scheduling an interview.
  */
-export class InterviewScheduleInput extends Schema.Class<InterviewScheduleInput>("InterviewScheduleInput")({
+export class InterviewScheduleInput extends Schema.Class<InterviewScheduleInput>(
+  "InterviewScheduleInput",
+)({
   interviewTime: Schema.String,
   room: Schema.String,
   campus: Schema.String,
