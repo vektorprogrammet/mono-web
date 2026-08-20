@@ -13,10 +13,10 @@
 | Dependency | 0023 functional-parity integration baseline at `462691d4c31ed601fba01f8b5f21abb92a547ff9` |
 | Spec worktree | `/tmp/mono-web-parity-inventory-spec-0024` |
 | Spec branch | `spec/0024-zero-gap-parity-inventory` |
-| Implementation candidate | `Unaccepted`. Path `/tmp/mono-web-parity-integration-0023`, branch `impl/0023-functional-parity-integration-baseline`, head `ed2f2c10088c03de607bcc08fe6797a4343daaf1`. |
-| Candidate relation to `main` | 0 commits behind and 57 commits ahead of `main`. |
-| Current writer mutation | The specification worktree owns only `design-specs/0024-zero-gap-functional-parity-inventory.md`. `PhpTriviaEngineer` owns only `packages/parity-inventory/src/php-trivia.ts`, `packages/parity-inventory/src/routes.ts`, `packages/parity-inventory/src/api.ts`, and `packages/parity-inventory/tests/falsifiers.test.ts` in `/tmp/mono-web-parity-integration-0023`, plus the required commit integrations. |
-| Active production writer | `PhpTriviaEngineer`, bound to `/tmp/mono-web-parity-integration-0023` during the bounded PHP declaration-trivia repair |
+| Implementation candidate | `Unaccepted`. Path `/tmp/mono-web-parity-integration-0023`, branch `impl/0023-functional-parity-integration-baseline`, head `afba5923b09c4748aff6f1825096d50261a6f4e7`. |
+| Candidate relation to `main` | 0 commits behind and 59 commits ahead of `main`. |
+| Current writer mutation | The specification worktree owns only `design-specs/0024-zero-gap-functional-parity-inventory.md`. `OpenApiExportEngineer` owns only `apps/server/config/services.yaml`, `apps/server/tests/App/Support/OpenApiExportTest.php` (new), `packages/sdk/openapi.json`, and `packages/parity-inventory/src/api.ts` in `/tmp/mono-web-parity-integration-0023`, plus the required commit integrations. |
+| Active production writer | `OpenApiExportEngineer`, bound to `/tmp/mono-web-parity-integration-0023` during the bounded OpenAPI normalizer repair |
 | Legacy input | Read-only legacy repository evidence; the inventory command never writes to it |
 | Current mono input | `mono-web` at an explicitly selected full revision; the deterministic mono authority revision is a canonical tracked-blob file-set digest that excludes the owned derived projection mount; raw Git `HEAD` is execution provenance only |
 | Required execution mode | `frozen` source mode for parity output; `fixture_injection` is exposed only through a named `--falsifier F0_...` run and never writes committed projections |
@@ -34,10 +34,11 @@ Specification acceptance was recorded on `2026-08-20`. The acceptance covers thi
 - **Prior candidate observation:** The original candidate was `/tmp/mono-web-parity-integration-0023` on branch `impl/0023-functional-parity-integration-baseline` at full head `27be6aa73c185ab30a7de138d399190bd68ebe18`. It was 48 commits ahead and one commit behind `main`. Its main-only commit was `bebab18258da5a0f993dfcc6f09ea5e8af7bf68e` (`fix(dashboard): align React Router and React versions`). This remains preserved evidence.
 - **Previous candidate observation:** The candidate later reached full head `9fd81ec449ddc7e085d1cf90e0243eff66385bdc`, at 0 commits behind and 53 commits ahead of `main`. This remains preserved evidence.
 - **Previous candidate observation:** The candidate then reached full head `e93a5b1d7bcfe289e154a55aaa4e3cc38e4009d6`, at 0 commits behind and 55 commits ahead of `main`. This remains preserved evidence.
-- **Current candidate:** The unaccepted candidate is `/tmp/mono-web-parity-integration-0023` on branch `impl/0023-functional-parity-integration-baseline` at full head `ed2f2c10088c03de607bcc08fe6797a4343daaf1`. It is 0 commits behind and 57 commits ahead of `main`.
+- **Previous candidate observation:** The candidate then reached full head `ed2f2c10088c03de607bcc08fe6797a4343daaf1`, at 0 commits behind and 57 commits ahead of `main`. This remains preserved evidence.
+- **Current candidate:** The unaccepted candidate is `/tmp/mono-web-parity-integration-0023` on branch `impl/0023-functional-parity-integration-baseline` at full head `afba5923b09c4748aff6f1825096d50261a6f4e7`. It is 0 commits behind and 59 commits ahead of `main`.
 - **Preserved evidence:** Preserve the candidate worktree, exact commit graph, C0–C3 implementation commits (`dced46f`, `0a56bd0`, `922b61b`, and `0cd4224`), later fixes through the current exact head, package schemas, and tests. Treat this material as observation only.
 - **Disposition:** Keep this specification authoritative. Keep the candidate reusable but unaccepted. Do not alter the inventory contract, its falsifiers, or its zero-gap predicate. Do not treat implementation code, tests, or later fixes as historical acceptance.
-- **Owner:** `Main` (product lead) owns reconciliation, verification, and candidate acceptance or rejection. `ParityRecoveryEngineer` owns only the prior bounded repair capsule. `CollectorRuntimeEngineer` owns only the Nix PHP runtime repair capsule. `OpenApiSafetyEngineer` owns only the OpenAPI safety repair capsule. `PhpTriviaEngineer` owns only the PHP declaration-trivia repair capsule below.
+- **Owner:** `Main` (product lead) owns reconciliation, verification, and candidate acceptance or rejection. `ParityRecoveryEngineer` owns only the prior bounded repair capsule. `CollectorRuntimeEngineer` owns only the Nix PHP runtime repair capsule. `OpenApiSafetyEngineer` owns only the OpenAPI safety repair capsule. `PhpTriviaEngineer` owns only the PHP declaration-trivia repair capsule. `OpenApiExportEngineer` owns only the OpenAPI normalizer repair capsule below.
 - **Return gate:** Return from `Drift` only when all conditions hold:
   1. Explicitly integrate `bebab18` (`bebab18258da5a0f993dfcc6f09ea5e8af7bf68e`) or record an explicit disposition that names why 0024 does not integrate it.
   2. Complete the exact-head isolation repair. Record the repaired full head, clean worktree, and isolated source and projection inputs.
@@ -86,6 +87,19 @@ This capsule stays inside `Drift`. It does not accept the candidate or change th
 - **Allowed repair:** Modify only `packages/parity-inventory/src/php-trivia.ts` (new), `packages/parity-inventory/src/routes.ts`, `packages/parity-inventory/src/api.ts`, and `packages/parity-inventory/tests/falsifiers.test.ts`. Do not modify another file.
 - **Regression:** Add a regression with a docblock between the attribute and class. Add a malformed-comment falsifier.
 - **Verification and decision:** `Main` owns focused tests and the real collector rerun. The worker must not run validation. The candidate remains unaccepted until `Main` records its disposition.
+
+### `D-0024-OPENAPI-NORMALIZER-PRECEDENCE`
+
+- **Observation and conflict:** At candidate head `afba5923b09c4748aff6f1825096d50261a6f4e7`, `Main` recorded a focused PHP-trivia test result of 1 pass, 67 filtered, and 0 fail. The exact-head real rerun removed `SOURCE_PARSE_ERROR` and all collector runtime-unavailable reasons. The remaining `OPENAPI_SCHEMA_INVALID` is a real generator and configuration defect.
+- **Observed output conflict:** Both committed `packages/sdk/openapi.json` and the canonical `apps/server` `api:openapi:export` output have non-standard `paths.paths` and model `extensionProperties` wrappers. Direct `ApiPlatform\OpenApi\Serializer\OpenApiNormalizer` output is standard, with 106 slash-prefixed paths and standard components. `debug:container --tag=serializer.normalizer` shows that app-defined `get_set_method_normalizer` has default priority 0 and preempts the API Platform specialized OpenAPI normalizer. `ObjectNormalizer` has priority -1000.
+- **Required repair contract:** Make `GetSetMethodNormalizer` a fallback after specialized normalizers and before `ObjectNormalizer` with explicit priority `-999`. Do not remove it.
+- **Collector seam:** Change the parity runtime OpenAPI collector to obtain the application `serializer` and normalize the factory result with `json` and `spec_version=3`, matching the command seam. Do not use raw `json_encode(factory())`.
+- **Projection boundary:** Regenerate `packages/sdk/openapi.json` only through the existing `apps/server` `api:spec` or `api:openapi:export` command. Never hand-edit the artifact.
+- **Writer:** `OpenApiExportEngineer`, bound to `/tmp/mono-web-parity-integration-0023`.
+- **Required integration:** Integrate the current head of `spec/0024-zero-gap-parity-inventory` before the repair.
+- **Allowed repair:** Modify only `apps/server/config/services.yaml`, new `apps/server/tests/App/Support/OpenApiExportTest.php`, `packages/sdk/openapi.json`, and `packages/parity-inventory/src/api.ts`. Do not modify another file.
+- **Regression:** Add a server KernelTest that asserts serializer output has slash-prefixed path keys, no `paths` wrapper, and no `extensionProperties` model keys.
+- **Verification and decision:** `Main` owns focused PHP and TypeScript tests, exact generator replay, and the real inventory rerun. The worker must not run validation beyond the generator required to produce the artifact. The candidate remains unaccepted until `Main` records its disposition.
 
 ## Scope and non-goals
 
