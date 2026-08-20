@@ -5,6 +5,15 @@
     "apps/*",
     "packages/*"
   ],
+  "catalogs": {
+    "effect-v4": {
+      "@effect/platform-browser": "4.0.0-rc.109",
+      "@effect/sql-d1": "4.0.0-rc.109",
+      "@foldkit/ui": "0.148.1",
+      "effect": "4.0.0-rc.109",
+      "foldkit": "0.148.1"
+    }
+  },
   "type": "module",
   "scripts": {
     "dev": "turbo -F @monoweb/homepage -F @monoweb/dashboard dev",
