@@ -57,8 +57,8 @@ const staticRouteRow = (status: InventoryRow["status"] = "covered", method: stri
 describe("authoritative Symfony route runtime falsifiers", () => {
   test("success normalizes paths, splits concrete pipe methods, and resolves ANY", () => {
     const payload = {
-      fixture: { path: " fixture ", methods: "POST|GET", defaults: { _controller: "App\\Fixture\\Controller" } },
-      wildcard: { path: "/wildcard", methods: ["ANY"] },
+      fixture: { path: " fixture ", method: "POST|GET", defaults: { _controller: "App\\Fixture\\Controller" } },
+      wildcard: { path: "/wildcard", method: "ANY" },
     }
     expect(decodeRuntimeRoutePayload(payload)).toEqual([
       { routeName: "fixture", pathTemplate: "/fixture", methods: ["GET", "POST"] },
@@ -68,8 +68,8 @@ describe("authoritative Symfony route runtime falsifiers", () => {
 
   test("malformed and unsafe output fails closed", () => {
     expect(decodeRuntimeRoutePayload([])).toBeNull()
-    expect(decodeRuntimeRoutePayload({ fixture: { path: "/fixture", methods: ["GET|"] } })).toBeNull()
-    expect(decodeRuntimeRoutePayload({ fixture: { path: "/fixture", methods: ["GET"], defaults: { token: "not-a-placeholder" } } })).toBeNull()
+    expect(decodeRuntimeRoutePayload({ fixture: { path: "/fixture", method: "GET|" } })).toBeNull()
+    expect(decodeRuntimeRoutePayload({ fixture: { path: "/fixture", method: "GET", defaults: { token: "not-a-placeholder" } } })).toBeNull()
   })
 
   test("unavailable collector leaves static rows unresolved", () => {

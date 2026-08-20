@@ -1445,7 +1445,8 @@ const h3Path = (value: unknown): string | null => {
   if (typeof value !== "string") return null
   const safe = decodeScalar(value, "route_path")
   if (safe.unsafe || safe.value === null) return null
-  return safe.value.startsWith("/api/") ? safe.value.slice(4) : safe.value === "/api" ? "/" : safe.value
+  const withoutApiPrefix = safe.value.startsWith("/api/") ? safe.value.slice(4) : safe.value === "/api" ? "/" : safe.value
+  return withoutApiPrefix.replaceAll(".{_format}", "{._format}")
 }
 
 const h3Methods = (value: Record<string, unknown>): readonly string[] => {
@@ -1615,7 +1616,8 @@ const addH3Edges = (context: ManifestContext, rows: readonly InventoryRow[], rou
         const matched = derivedRouteRows.filter((row) => {
           const details = row.details as { readonly method?: string | null; readonly path_template?: string | null; readonly route_name?: string | null }
           const method = details.method
-          return h3Path(details.path_template) === pathTemplate && details.route_name === routeName && typeof method === "string" && methods.includes(method)
+          const methodMatches = methods.length === 0 ? method === null : typeof method === "string" && methods.includes(method)
+          return h3Path(details.path_template) === pathTemplate && details.route_name === routeName && methodMatches
         })
         if (matched.length > 0) {
           for (const row of matched) {

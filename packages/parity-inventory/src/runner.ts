@@ -327,7 +327,7 @@ const generateFromContext = (context: ManifestContext, mode: RunMode, falsifierI
   const intentLoad = loadAcceptedIntentRegister(context, intentInput)
   const fixtureUnsafeProbe = mode === "fixture_injection" && falsifierId === "F15_secret_or_pii_input"
   if (intentLoad.issues.some((entry) => entry.reasonCode === "UNSAFE_SOURCE") && !fixtureUnsafeProbe) throw new UnsafeSourceProjectionError("unsafe source metadata encountered during intent loading")
-  const preliminary = collectRoutes(context, sha256("c1-source-manifest-pending"), collectorExecutables)
+  const preliminary = collectRoutes(context, sha256("c1-source-manifest-pending"), collectorExecutables, mode === "fixture_injection" || falsifierId === "F18_stale_artifact_diff")
   const preliminaryApi = collectApiOperations(context, sha256("c1-source-manifest-pending"), preliminary.mono.rows, mode === "fixture_injection" || falsifierId === "F18_stale_artifact_diff", collectorExecutables, fixtureRuntimeInput)
   const preliminaryC2 = collectC2(context, sha256("c2-source-manifest-pending"))
   if ((hasUnsafeProjectionMetadata(context, preliminary, preliminaryC2) || preliminaryApi.failures.some((failure) => failure.reasonCode === "UNSAFE_SOURCE")) && !fixtureUnsafeProbe) throw new UnsafeSourceProjectionError("unsafe source metadata encountered during projection construction")
@@ -635,7 +635,7 @@ const syntheticFixtureFiles: readonly { readonly root: "legacy" | "mono"; readon
 ]
 const seedFixtureIntentRegister = (root: string, legacyRoot: string): Uint8Array => {
   const context = Effect.runSync(createManifestContextEffect(legacyRoot, root))
-  const route = collectRoutes(context, sha256("fixture-register-pending"))
+  const route = collectRoutes(context, sha256("fixture-register-pending"), undefined, true)
   const api = collectApiOperations(context, sha256("fixture-register-pending"), route.mono.rows, true, undefined, fixtureRuntimeInputForRoot(root))
   const c2 = collectC2(context, sha256("fixture-register-pending"))
   const rowsBySurface: Readonly<Record<"legacy_route" | "mono_route" | "api_operation" | "command_write" | "schedule_background" | "external_integration", readonly InventoryRow[]>> = {

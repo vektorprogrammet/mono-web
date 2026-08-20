@@ -504,19 +504,15 @@ test("real target API identities and normalized H3 edges do not invoke ambient r
     const openApi = JSON.parse(
       readFileSync(join(sourceRoot, "packages/sdk/openapi.json"), "utf8"),
     ) as {
-      readonly paths?: {
-        readonly paths?: Record<string, Record<string, { readonly operationId?: string } | null>>;
-      };
+      readonly paths?: Record<string, Record<string, { readonly operationId?: string } | null>>;
     };
     expect(staticRows.length).toBeGreaterThan(0);
     expect(deleteOperation).toBeDefined();
-    expect(openApi.paths?.paths?.["/api/admin/admission-periods/{id}"]?.delete?.operationId).toBe(
+    expect(openApi.paths?.["/api/admin/admission-periods/{id}"]?.delete?.operationId).toBe(
       "api_adminadmission-periods_id_delete",
     );
-    expect(api.reconciliation.committed_sha256).toBeNull();
-    expect(api.failures.some((failure) => failure.reasonCode === "OPENAPI_SCHEMA_INVALID")).toBe(
-      true,
-    );
+    expect(api.reconciliation.committed_sha256).toMatch(/^sha256:[0-9a-f]{64}$/);
+    expect(api.failures.some((failure) => failure.reasonCode === "OPENAPI_SCHEMA_INVALID")).toBe(false);
     expect(api.inventory.derivation_edges.length).toBeGreaterThan(0);
     expect(
       api.inventory.derivation_edges.some(

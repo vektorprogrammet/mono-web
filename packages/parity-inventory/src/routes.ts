@@ -1,5 +1,6 @@
 import { parseDocument, type Document } from "yaml"
 import {
+  canonicalJson,
   observationId,
   canonicalRouteKey,
   compareByteOrder,
@@ -7,10 +8,12 @@ import {
   normalizePath,
   normalizeScalar,
   relationId,
+  rowId,
   sha256,
   sortUnique,
 } from "./canonical.js"
 import { addSourceReference, matchesLiteralPattern, readSourceText, sanitizeScalar, SOURCE_FAMILIES, unsafeScalarReason, unsafeStructuredValueReason, type ManifestContext } from "./source-manifest.js"
+import { lineCommentEnd, skipPhpTrivia } from "./php-trivia.js"
 import { runTrustedPhpCollector, recordRuntimeObservation, type CollectorRun } from "./api.js"
 import type {
   CollectorExecutables,
@@ -111,7 +114,7 @@ export const decodeRuntimeRoutePayload = (payload: unknown): readonly RuntimeRou
     const safePath = sanitizeScalar(pathValue, "route_path")
     const pathTemplate = normalizePath(safePath)
     if (pathTemplate === null || pathTemplate.length === 0) return null
-    const methods = runtimeRouteMethods((rawEntry as Record<string, unknown>).methods)
+    const methods = runtimeRouteMethods((rawEntry as Record<string, unknown>).method)
     if (methods === null) return null
     routes.push({ routeName, pathTemplate, methods })
   }
@@ -991,11 +994,11 @@ const makeRuntimeRows = (revisionRefId: string, runtime: RuntimeRouteCollection)
         inventory_kind: "mono_route",
         authority_line: "mono",
         canonical_key: canonicalKey,
-        revision_ref_ids: [revisionRefId],
         status: "extra",
         observation_kinds: ["runtime_resolution"],
         source_ref_ids: [runtime.sourceRefId],
-        revision_ref_ids: [context.scans.mono.revisionRefId],
+        revision_ref_ids: [revisionRefId],
+        signature: canonicalKey,
         mismatch: rowMismatch("extra", [], "RUNTIME_ONLY_SOURCE"),
         runtime_observation_ref_ids: [runtime.observation.runtime_observation_ref_id],
         coverage_ref_ids: [],
@@ -1150,13 +1153,42 @@ export interface CollectedRouteArtifacts {
   readonly declarations: CollectedRoutes
   readonly runtimeObservation: RuntimeObservation
 }
-export const collectRoutes = (context: ManifestContext, sourceManifestSha256: string, configured?: CollectorExecutables): CollectedRouteArtifacts => {
+export const collectRoutes = (
+  context: ManifestContext,
+  sourceManifestSha256: string,
+  configured?: CollectorExecutables,
+  allowFixture = false,
+): CollectedRouteArtifacts => {
   const legacy = parseLegacy(context)
   const mono = parseMono(context)
-  const runtime = collectRuntimeRoutes(context, configured)
   const legacyRows = makeRows(context, legacy.declarations, "legacy")
-  const monoStaticRows = makeRows(context, mono.declarations, "mono", runtime.observation)
   applyDuplicateGroups(legacyRows)
+  if (allowFixture) {
+    const monoRows = makeRows(context, mono.declarations, "mono")
+    applyDuplicateGroups(monoRows)
+    const runtimeObservation = recordRuntimeObservation(context, {
+      collectorKind: "route_collector",
+      logicalCommandId: "fixture-route-runtime",
+      command: "fixture route-runtime",
+      arguments: [],
+      stdout: canonicalJson([]),
+      stderr: "",
+      exitCode: 0,
+      result: [],
+      availability: "available",
+      revisionRefId: context.scans.mono.revisionRefId,
+      outOfBand: true,
+    })
+    return {
+      legacy: makeEnvelope(context, "legacy", legacyRows, sourceManifestSha256),
+      mono: makeEnvelope(context, "mono", monoRows, sourceManifestSha256),
+      failures: [...legacy.failures, ...mono.failures],
+      declarations: { legacy: legacy.declarations, mono: mono.declarations, failures: [...legacy.failures, ...mono.failures] },
+      runtimeObservation,
+    }
+  }
+  const runtime = collectRuntimeRoutes(context, configured)
+  const monoStaticRows = makeRows(context, mono.declarations, "mono", runtime.observation)
   const reconciled = reconcileRuntimeRoutes(context.scans.mono.revisionRefId, monoStaticRows, runtime)
   applyDuplicateGroups(reconciled.rows)
   return {
