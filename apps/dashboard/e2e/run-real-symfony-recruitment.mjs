@@ -236,6 +236,8 @@ async function main() {
   dashboardEnv.API_URL = apiOrigin;
   dashboardEnv.VITE_API_URL = apiOrigin;
   dashboardEnv.DASHBOARD_ORIGIN = dashboardOrigin;
+  dashboardEnv.HOST = "127.0.0.1";
+  dashboardEnv.PORT = "5174";
 
   const cleanup = async () => {
     if (cleaned) return;
@@ -332,7 +334,7 @@ async function main() {
 
     dashboardProcess = startProcess(
       "bun",
-      ["run", "dev", "--host", "127.0.0.1", "--port", "5174"],
+      ["run", "start"],
       { cwd: dashboardRoot, env: dashboardEnv },
     );
     await waitForHttp(`${dashboardOrigin}/login`, dashboardProcess);
