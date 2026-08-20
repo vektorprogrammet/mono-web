@@ -3,6 +3,7 @@ import { InterviewId, type EffectSdk } from "@vektorprogrammet/sdk/effect"
 import { Schema } from "effect"
 import * as fc from "effect/testing/FastCheck"
 import { FieldValidation } from "foldkit"
+import { makeInterviewCommands } from "./command"
 import {
   Message,
   OpenedSchedule,

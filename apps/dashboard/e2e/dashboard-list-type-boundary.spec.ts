@@ -259,13 +259,11 @@ test.describe("dashboard list type boundary", () => {
     recordVisibleFields("/dashboard/epostliste", 2, ["name", "email"]);
 
     await page.goto("/dashboard/intervjuer");
-    await expect(page.getByRole("cell", { name: "2601", exact: true })).toBeVisible();
     await expect(page.getByRole("cell", { name: "Applicant-0025", exact: true })).toBeVisible();
     await expect(page.getByRole("cell", { name: "accepted", exact: true })).toBeVisible();
     await expect(page.getByText("Unavailable", { exact: true })).toHaveCount(2);
     await expect(page.getByRole("columnheader", { name: "Søker", exact: true })).toBeVisible();
     recordVisibleFields("/dashboard/intervjuer", 1, [
-      "id",
       "applicantName",
       "interviewerName",
       "interviewTime",
