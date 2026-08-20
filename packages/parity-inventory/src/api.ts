@@ -133,7 +133,7 @@ export interface CollectorSandboxInvocation {
   readonly executable: string
   readonly arguments: readonly string[]
 }
-const PHP_NIX_PATTERN = /^\/nix\/store\/[a-z0-9]{32}-php-[^/]+\/bin\/php$/
+const PHP_NIX_PATTERN = /^\/nix\/store\/[a-z0-9]{32}-(?:php|php-with-extensions)-[^/]+\/bin\/php$/
 const BWRAP_NIX_PATTERN = /^\/nix\/store\/[a-z0-9]{32}-bubblewrap-[^/]+\/bin\/bwrap$/
 export const collectorExecutableProvenance = (kind: CollectorExecutableKind, path: string): CollectorExecutableProvenance | null => {
   if (path === `/usr/bin/${kind}`) return "usr-bin"

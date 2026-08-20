@@ -163,8 +163,10 @@ test("collector executable validation rejects arbitrary, symlinked, and writable
 
 test("Nix executable shapes are recognized without PATH lookup", () => {
   const php = "/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-php-8.3.21/bin/php";
+  const phpWithExtensions = "/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-php-with-extensions-8.4.23/bin/php";
   const bwrap = "/nix/store/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb-bubblewrap-0.11.2/bin/bwrap";
   expect(collectorExecutableProvenance("php", php)).toBe("nix-store");
+  expect(collectorExecutableProvenance("php", phpWithExtensions)).toBe("nix-store");
   expect(collectorExecutableProvenance("bwrap", bwrap)).toBe("nix-store");
   expect(collectorExecutableProvenance("php", "php")).toBeNull();
 });
