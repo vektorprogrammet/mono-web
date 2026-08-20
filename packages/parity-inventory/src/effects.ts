@@ -799,7 +799,9 @@ const loaderValuesFor = (source: string): LoaderValues => {
         imports.push(scalarItem)
         continue
       }
-      const pair = loaderYamlNode(item)
+      const itemNode = loaderYamlNode(item)
+      const nestedPairs = loaderYamlPairs(item)
+      const pair = itemNode?.key !== undefined ? itemNode : nestedPairs.length === 1 ? nestedPairs[0] ?? null : null
       const key = pair === null ? null : loaderYamlKey(pair.key)
       const scalar = pair === null ? null : loaderYamlScalar(pair.value)
       if ((key === "resource" || key === "import") && scalar !== null) imports.push(scalar)
@@ -1174,6 +1176,7 @@ const authorityGraphFor = (context: ManifestContext, authority: "legacy" | "mono
     const imports: string[] = []
     for (const value of values.imports) {
       if (authority === "legacy" && value.startsWith("@")) continue
+      if (authority === "legacy" && /^(?:\.\/)?parameters(?:_[A-Za-z0-9_.-]+)?\.ya?ml$/i.test(value)) continue
       const normalized = normalizedRelativePath(unit.path, value)
       const resolved = normalized === null || !normalized.startsWith(`${configRoot}/`) ? null : resolveLoader(normalized)
       if (resolved === null) {
@@ -1313,6 +1316,15 @@ const authorityGraphFor = (context: ManifestContext, authority: "legacy" | "mono
   }
   for (const node of loaderNodes) if (node.root && !node.invalid && visitLoader(node.path)) commitLoader(node.path)
   for (const node of loaderNodes) if (loaderCommitted.has(node.path)) markLoaderSources(node, node.path, false)
+  if (authority === "legacy") {
+    for (const unit of languageUnits) {
+      if (
+        unit.path.startsWith("src/AppBundle/Command/")
+        && /\bclass\s+[A-Za-z_][A-Za-z0-9_]*\s+extends\s+(?:[A-Za-z_][A-Za-z0-9_\\]*\\)?Command\b/.test(withoutComments(unit.text))
+        && /\bfunction\s+execute\s*\(/.test(withoutComments(unit.text))
+      ) markSource(unit.path, unit.path, false)
+    }
+  }
   const cyclicOnlySources = new Set([...cyclicSourceProvenance].filter((path) => !sourceProvenance.has(path)))
   return {
     authority,

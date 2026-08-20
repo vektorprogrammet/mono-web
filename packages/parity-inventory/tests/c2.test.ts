@@ -439,13 +439,28 @@ test("command import edges distinguish registered and dead declarations", async 
   const legacyRoot = mkdtempSync("/tmp/parity-c2-import-legacy-")
   const monoRoot = mkdtempSync("/tmp/parity-c2-import-mono-")
   try {
+    put(legacyRoot, "app/config/config.yml", "imports:\n  - { resource: parameters.yml }\n  - { resource: event_subscribers.yml }\n")
+    put(legacyRoot, "app/config/event_subscribers.yml", "services:\n  AppBundle\\EventSubscriber\\:\n    resource: \"../../src/AppBundle/EventSubscriber\"\n")
+    put(legacyRoot, "src/AppBundle/EventSubscriber/LoadedSubscriber.php", "<?php\nnamespace AppBundle\\EventSubscriber;\nfinal class LoadedSubscriber implements EventSubscriberInterface { private $repository; public function onEvent(): void { $this->repository->save(); } }\n")
+    put(legacyRoot, "src/AppBundle/Command/LoadedCommand.php", "<?php\nnamespace AppBundle\\Command;\nfinal class LoadedCommand extends Command { private $repository; protected function execute(): void { $this->repository->save(); } }\n")
     put(monoRoot, "apps/server/src/App/Infrastructure/Command/OrphanCommand.php", "<?php\nnamespace App\\Fixture;\nfinal class OrphanCommand { public function __invoke(): void { $this->repository->save(); } }\n")
     put(monoRoot, "apps/server/src/App/Infrastructure/Command/ACommand.php", "<?php\nnamespace App\\Fixture;\n// App\\Fixture\\BCommand\nfinal class ACommand { public function __invoke(): void { $this->repository->save(); } }\n")
     put(monoRoot, "apps/server/src/App/Infrastructure/Command/BCommand.php", "<?php\nnamespace App\\Fixture;\n// App\\Fixture\\ACommand\nfinal class BCommand { public function __invoke(): void { $this->repository->save(); } }\n")
     let context = await contextFor(legacyRoot, monoRoot)
     let c2 = collectC2(context, sha256("dead-c2"))
     expect(c2.commandWrites.rows.some((row) => row.reason_codes.includes("DEAD_UNIMPORTED_SOURCE"))).toBe(true)
-    expect(c2.commandWrites.links.some((link) => link.relation_kind === "imports")).toBe(false)
+    const unregisteredRowIds = new Set(c2.commandWrites.rows
+      .filter((row) => "owner_ref" in row.details && ["App\\Fixture\\ACommand", "App\\Fixture\\BCommand"].includes(row.details.owner_ref ?? ""))
+      .map((row) => row.row_id))
+    expect(c2.commandWrites.links.some((link) => link.to_row_ids.some((rowId) => unregisteredRowIds.has(rowId)))).toBe(false)
+    const subscriber = c2.commandWrites.rows.find((candidate) =>
+      "owner_ref" in candidate.details && candidate.details.owner_ref === "AppBundle\\EventSubscriber\\LoadedSubscriber",
+    )
+    const command = c2.commandWrites.rows.find((candidate) =>
+      "owner_ref" in candidate.details && candidate.details.owner_ref === "AppBundle\\Command\\LoadedCommand",
+    )
+    expect(subscriber?.reason_codes).not.toContain("DEAD_UNIMPORTED_SOURCE")
+    expect(command?.reason_codes).not.toContain("DEAD_UNIMPORTED_SOURCE")
     put(monoRoot, "apps/server/config/packages/api_platform.yaml", "parameters: {}\n")
     put(monoRoot, "apps/server/config/services.yaml", "services:\n  orphan:\n    class: App\\Fixture\\OrphanCommand\n")
     context = await contextFor(legacyRoot, monoRoot)
