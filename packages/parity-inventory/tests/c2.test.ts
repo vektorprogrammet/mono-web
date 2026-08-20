@@ -256,6 +256,56 @@ test("effect resolution rejects local receiver shadowing and resolves aliased mu
     rmSync(monoRoot, { recursive: true, force: true })
   }
 })
+test("resolved outbound adapters need no inline URL and Sms setters are not integration calls", async () => {
+  const legacyRoot = mkdtempSync("/tmp/parity-c2-outbound-legacy-")
+  const monoRoot = mkdtempSync("/tmp/parity-c2-outbound-mono-")
+  try {
+    put(monoRoot, "apps/server/src/App/Infrastructure/Service/Mailer.php", "<?php\nnamespace App\\Fixture\\Infrastructure\\Service;\nfinal class Mailer { public function send(): void {} }\n")
+    put(monoRoot, "apps/server/src/App/Infrastructure/Service/SmsSender.php", "<?php\nnamespace App\\Fixture\\Infrastructure\\Service;\nfinal class SmsSender { public function send(): void {} }\n")
+    put(monoRoot, "apps/server/src/App/Infrastructure/Service/Sms.php", "<?php\nnamespace App\\Fixture\\Infrastructure\\Service;\nfinal class Sms { public function setMessage(): void {} public function setSender(): void {} public function setRecipients(): void {} }\n")
+    put(monoRoot, "apps/server/src/App/Infrastructure/Command/NotifyCommand.php", "<?php\nnamespace App\\Fixture\\Infrastructure\\Command;\nuse App\\Fixture\\Infrastructure\\Service\\Mailer;\nuse App\\Fixture\\Infrastructure\\Service\\SmsSender;\nfinal class NotifyCommand { private Mailer $mailer; private SmsSender $smsSender; public function __invoke(): void { $this->mailer->send(); $this->smsSender->send(); } }\n")
+    put(monoRoot, "apps/server/src/App/Infrastructure/Command/DuplicateCommand.php", "<?php\nnamespace App\\Fixture\\Infrastructure\\Command;\nuse App\\Fixture\\Infrastructure\\Service\\Mailer;\nfinal class DuplicateCommand { private Mailer $mailer; public function __invoke(): void { $this->mailer->send(); $this->mailer->send(); } }\n")
+    put(monoRoot, "apps/server/src/App/Infrastructure/Service/InterviewManager.php", "<?php\nnamespace App\\Fixture\\Infrastructure\\Service;\nfinal class InterviewManager { private Sms $sms; public function configure(): void { $this->sms->setMessage(); $this->sms->setSender(); $this->sms->setRecipients(); } }\n")
+    put(monoRoot, "apps/server/config/services.yaml", "services:\n  App\\Fixture\\Infrastructure\\Command\\NotifyCommand: ~\n  App\\Fixture\\Infrastructure\\Command\\DuplicateCommand: ~\n  App\\Fixture\\Infrastructure\\Service\\Mailer: ~\n  App\\Fixture\\Infrastructure\\Service\\SmsSender: ~\n  App\\Fixture\\Infrastructure\\Service\\Sms: ~\n  App\\Fixture\\Infrastructure\\Service\\InterviewManager: ~\n")
+    const context = await contextFor(legacyRoot, monoRoot)
+    const c2 = collectC2(context, sha256("resolved-outbound-c2"))
+    const notify = c2.commandWrites.rows.find(
+      (row) => "owner_ref" in row.details && row.details.owner_ref === "App\\Fixture\\Infrastructure\\Command\\NotifyCommand",
+    )
+    expect(notify?.reason_codes).not.toContain("UNKNOWN_EFFECT")
+    expect(notify?.details).toMatchObject({
+      effect_classes: ["outbound"],
+      target_refs: [
+        "App\\Fixture\\Infrastructure\\Service\\Mailer::send",
+        "App\\Fixture\\Infrastructure\\Service\\SmsSender::send",
+      ],
+    })
+    const integrationPaths = c2.integrations.rows.map(
+      (row) => context.sourcePathById.get(row.source_ref_ids[0] ?? "")?.path,
+    )
+    expect(integrationPaths).not.toContain("apps/server/src/App/Infrastructure/Service/InterviewManager.php")
+    expect(integrationPaths).not.toContain("apps/server/src/App/Infrastructure/Service/Sms.php")
+    expect(integrationPaths).toContain("apps/server/src/App/Infrastructure/Command/NotifyCommand.php")
+    const duplicateRows = c2.integrations.rows.filter(
+      (row) =>
+        context.sourcePathById.get(row.source_ref_ids[0] ?? "")?.path ===
+        "apps/server/src/App/Infrastructure/Command/DuplicateCommand.php",
+    )
+    expect(duplicateRows).toHaveLength(2)
+    expect(duplicateRows.every((row) => row.status === "duplicate")).toBe(true)
+    expect(
+      c2.failures.some(
+        (failure) =>
+          failure.reasonCode === "UNKNOWN_INTEGRATION" &&
+          duplicateRows.some((row) => failure.rowIds.includes(row.row_id)),
+      ),
+    ).toBe(false)
+  } finally {
+    rmSync(legacyRoot, { recursive: true, force: true })
+    rmSync(monoRoot, { recursive: true, force: true })
+  }
+})
+
 
 test("typed fixture-injected integrations redact credentials and raw payloads", async () => {
   const result = await Effect.runPromise(run({
@@ -340,11 +390,12 @@ test("command import edges distinguish registered and dead declarations", async 
     c2 = collectC2(context, sha256("imported-c2"))
     expect(c2.commandWrites.rows.some((row) => "owner_ref" in row.details && row.details.owner_ref === "App\\Fixture\\OrphanCommand" && !row.reason_codes.includes("DEAD_UNIMPORTED_SOURCE"))).toBe(true)
     const orphanRow = c2.commandWrites.rows.find((row) => "owner_ref" in row.details && row.details.owner_ref === "App\\Fixture\\OrphanCommand")
-    const importLink = c2.commandWrites.links.find((link) => link.to_row_id === orphanRow?.row_id)
-    const importer = c2.commandWrites.rows.find((row) => row.row_id === importLink?.from_row_id)
-    const importerPaths = importer?.source_ref_ids.map((ref) => context.sourcePathById.get(ref)?.path ?? null) ?? []
-    expect(importerPaths).toContain("apps/server/config/services.yaml")
-    expect(importerPaths).not.toContain("apps/server/config/packages/api_platform.yaml")
+    const importEdge = c2.commandWrites.derivation_edges.find(
+      (edge) => edge.derivation === "E-C2-LOADER-IMPORT" && edge.to_row_ids.includes(orphanRow?.row_id ?? ""),
+    )
+    const importerPaths = importEdge?.from_ref_ids.map((ref) => context.sourcePathById.get(ref)?.path ?? null) ?? []
+    expect(importerPaths).toEqual(["apps/server/config/services.yaml"])
+    expect(c2.commandWrites.rows.some((row) => "entry_kind" in row.details && row.details.entry_kind === "unknown")).toBe(false)
   } finally {
     rmSync(legacyRoot, { recursive: true, force: true })
     rmSync(monoRoot, { recursive: true, force: true })
@@ -478,14 +529,15 @@ test("command rows require positive declarations or write effects", async () => 
     put(monoRoot, "apps/server/src/App/Infrastructure/Command/ReadCommand.php", "<?php\nnamespace App\\Fixture\\Infrastructure\\Command;\n#[AsCommand(name: 'fixture:read')]\nfinal class ReadCommand { public function __invoke(): void {} }\n")
     const context = await contextFor(legacyRoot, monoRoot)
     const c2 = collectC2(context, sha256("positive-command-c2"))
-    const pathFor = (row: { readonly source_ref_ids: readonly string[] }): string | null => context.sourcePathById.get(row.source_ref_ids[0] ?? "")?.path ?? null
+    const hasPath = (row: { readonly source_ref_ids: readonly string[] }, path: string): boolean =>
+      row.source_ref_ids.some((sourceRefId) => context.sourcePathById.get(sourceRefId)?.path === path)
     const commandRows = c2.commandWrites.rows.filter((row) => row.authority_line === "mono")
-    expect(commandRows.some((row) => pathFor(row) === "apps/server/config/packages/framework.yaml")).toBe(false)
-    expect(commandRows.some((row) => pathFor(row) === "apps/server/src/App/Infrastructure/Repository/ReadRepository.php")).toBe(false)
-    const writes = commandRows.filter((row) => pathFor(row) === "apps/server/src/App/Infrastructure/Repository/WriteRepository.php")
+    expect(commandRows.some((row) => hasPath(row, "apps/server/config/packages/framework.yaml"))).toBe(false)
+    expect(commandRows.some((row) => hasPath(row, "apps/server/src/App/Infrastructure/Repository/ReadRepository.php"))).toBe(false)
+    const writes = commandRows.filter((row) => hasPath(row, "apps/server/src/App/Infrastructure/Repository/WriteRepository.php"))
     expect(writes).toHaveLength(2)
     expect(writes.every((row) => "effect_classes" in row.details && row.details.effect_classes.includes("durable_write"))).toBe(true)
-    expect(commandRows.find((row) => pathFor(row) === "apps/server/src/App/Infrastructure/Command/ReadCommand.php")).toMatchObject({ details: { effect_classes: ["read_only"] } })
+    expect(commandRows.find((row) => hasPath(row, "apps/server/src/App/Infrastructure/Command/ReadCommand.php"))).toMatchObject({ details: { effect_classes: ["read_only"] } })
   } finally {
     rmSync(legacyRoot, { recursive: true, force: true })
     rmSync(monoRoot, { recursive: true, force: true })

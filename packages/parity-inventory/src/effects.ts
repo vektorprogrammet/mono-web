@@ -539,8 +539,6 @@ const effectEvidence = (unit: SourceUnit, authority: AuthorityGraph, scope?: Eff
     if (callableEffect === null) unresolved = true
     else effects.push(callableEffect)
   }
-  const body = withoutComments(source)
-  if (effects.includes("outbound") && !/["'`]https?:\/\/[^\s"'`),}]+/i.test(body)) unresolved = true
   if (unresolved) effects.push("unknown")
   else if (effects.length === 0) effects.push("read_only")
   return { effects: sortUnique(effects) as EffectClass[], targets: sortUnique(targets) }
@@ -1366,53 +1364,27 @@ const parseCommandUnits = (context: ManifestContext, authority: "legacy" | "mono
       }
     }
   }
-  const importers: ParsedRow[] = []
-  for (const target of [...parsed]) {
-    if (!target.imported || target.importerPath === null || parsed.some((candidate) => candidate.path === target.importerPath)) continue
+  for (const [targetIndex, target] of [...parsed].entries()) {
+    if (!target.imported || target.importerPath === null) continue
     const importerUnit = source.units.find((candidate) => candidate.path === target.importerPath)
     if (importerUnit === undefined || !isLoaderConfigPath(importerUnit.path, authority)) continue
-    const targetDetails = target.row.details as CommandWriteDetails
-    const importerDetails: CommandWriteDetails = {
-      ...targetDetails,
-      owner_ref: null,
-      entry_kind: "unknown",
-      command_name: null,
-      write_contract_ref: null,
+    const details = target.row.details as CommandWriteDetails
+    const importerRef = sourceRefFor(
+      context,
+      authority,
+      role,
+      importerUnit.path,
+      1,
+      Math.max(1, importerUnit.text.split("\n").length),
+      details.symbol_ref,
+    )
+    const sourceRefIds = sortUnique([...target.sourceRefIds, importerRef])
+    parsed[targetIndex] = {
+      ...target,
+      sourceRefIds,
+      row: { ...target.row, source_ref_ids: sourceRefIds },
     }
-    const sourceRefId = sourceRefFor(context, authority, role, importerUnit.path, 1, Math.max(1, importerUnit.text.split("\n").length), importerDetails.symbol_ref)
-    const status = target.row.status === "unresolved" ? "unresolved" : "covered"
-    const reasons = sortUnique(target.row.reason_codes)
-    const declaration = declarationId(authority, authority, importerUnit.path, "service_registration", ordinal++)
-    const signature = canonicalJson(["command_write", importerDetails.owner_ref, importerDetails.entry_kind, importerDetails.command_name, importerDetails.symbol_ref, importerDetails.effect_classes, importerDetails.target_refs])
-    importers.push({
-      path: importerUnit.path,
-      sourceRefIds: [sourceRefId],
-      ownerRef: importerDetails.owner_ref,
-      imported: true,
-      importerPath: null,
-      row: {
-        row_id: rowId("command_write", declaration, signature),
-        declaration_id: declaration,
-        inventory_kind: "command_write",
-        authority_line: authority,
-        canonical_key: signature,
-        signature,
-        status,
-        observation_kinds: ["static_source"],
-        source_ref_ids: [sourceRefId],
-        revision_ref_ids: [context.scans[authority].revisionRefId],
-        runtime_observation_ref_ids: [],
-        coverage_ref_ids: [],
-        accepted_intent_ref_ids: [],
-        duplicate_group_id: null,
-        mismatch: mismatch(status === "unresolved" ? "unresolved" : "none", [], reasons[0] ?? null),
-        reason_codes: reasons,
-        related_row_ids: [],
-        details: importerDetails,
-      },
-    })
   }
-  parsed.push(...importers)
   return { parsed, failures: [...source.failures] }
 }
 
@@ -1439,7 +1411,20 @@ const applyDuplicateGroups = (rows: InventoryRow[]): void => {
 const makeEnvelope = (context: ManifestContext, inventoryKind: InventoryEnvelope["inventory_kind"], authority: "legacy" | "mono", rows: readonly InventoryRow[], links: readonly InventoryLink[], sourceManifestSha256: string, observations: readonly InventoryObservation[] = []): InventoryEnvelope => {
   const sortedRows = [...rows].sort((left, right) => compareByteOrder(left.row_id, right.row_id) || compareByteOrder(left.canonical_key, right.canonical_key))
   const rowIds = sortedRows.map((row) => row.row_id)
-  const edges = sortedRows.map((row) => ({ edge_id: edgeId("authority_input", row.source_ref_ids, [row.row_id]), edge_type: "authority_input" as const, from_ref_ids: row.source_ref_ids, to_row_ids: [row.row_id], derivation: "E-C2-SOURCE-PARSE" }))
+  const edges = sortedRows.flatMap((row) => {
+    if (inventoryKind !== "command_write") {
+      return [{ edge_id: edgeId("authority_input", row.source_ref_ids, [row.row_id]), edge_type: "authority_input" as const, from_ref_ids: row.source_ref_ids, to_row_ids: [row.row_id], derivation: "E-C2-SOURCE-PARSE" }]
+    }
+    const loaderRefs = row.source_ref_ids.filter((sourceRefId) => {
+      const source = context.sourcePathById.get(sourceRefId)
+      return source?.rootRef === authority && isLoaderConfigPath(source.path, authority)
+    })
+    const declarationRefs = row.source_ref_ids.filter((sourceRefId) => !loaderRefs.includes(sourceRefId))
+    return [
+      ...(declarationRefs.length === 0 ? [] : [{ edge_id: edgeId("authority_input", declarationRefs, [row.row_id]), edge_type: "authority_input" as const, from_ref_ids: declarationRefs, to_row_ids: [row.row_id], derivation: "E-C2-SOURCE-PARSE" }]),
+      ...(loaderRefs.length === 0 ? [] : [{ edge_id: edgeId("loader_import", loaderRefs, [row.row_id]), edge_type: "authority_input" as const, from_ref_ids: loaderRefs, to_row_ids: [row.row_id], derivation: "E-C2-LOADER-IMPORT" }]),
+    ]
+  })
   return {
     $schema: "https://json-schema.org/draft/2020-12/schema",
     schema_version: "functional-parity-inventory/v1",
@@ -1951,7 +1936,7 @@ const credentialSlotFor = (raw: string | null, reasons: string[]): string | null
   return normalizeSafe(value, "credential_slot_ref", reasons)
 }
 
-const integrationCallPattern = /\b(?:fetch|curl_exec|curl_init|request|publish|send|post|put|delete|HttpClient|GuzzleHttp|Mailer|Slack|Google|Twilio|Smtp|Sms|GatewayAPI|Webhook)\b\s*(?:\(|->|\.)/gi
+const integrationCallPattern = /\b(?:fetch|curl_exec|curl_init|request|publish|send|post|put|delete|HttpClient|GuzzleHttp|Mailer|Slack|Google|Twilio|Smtp|Sms|GatewayAPI|Webhook)\b\s*(?:\(|->|\.)/g
 const integrationCallsFor = (unit: SourceUnit, authority: AuthorityGraph): readonly IntegrationCall[] => {
   const calls: IntegrationCall[] = []
   const seen = new Set<number>()
@@ -2006,8 +1991,8 @@ const integrationCallsFor = (unit: SourceUnit, authority: AuthorityGraph): reado
     calls.push({ authority: unit.authority, path: unit.path, sourceRefId: unit.sourceRefId, ownerRef, symbolRef: safeSymbol, providerRef: normalizeSafe(providerRef, "field", reasons), direction, protocol, endpointRef, credentialSlotRef, effectClasses, reasonCodes: sortUnique(reasons), imported, importerPath, line: lineAt(unit.text, callOffset) })
   }
   if (calls.length > 0) return calls
-  const declarationProvider = providerFromText(structure)
-  if (declarationProvider !== null) {
+  const declarationProvider = providerFromText(defaultOwnerRef ?? "")
+  if (declarationProvider !== null && /\b(?:fetch|request|publish|send|post|put|delete)\s*\(/.test(structure)) {
     const { imported, importerPath } = importerFor(defaultOwnerRef)
     const reasons: string[] = ["INTEGRATION_CALLSITE_UNRESOLVED", ...(defaultOwnerRef === null ? ["UNKNOWN_INTEGRATION"] : []), ...defaultOwnerReasons]
     calls.push({ authority: unit.authority, path: unit.path, sourceRefId: unit.sourceRefId, ownerRef: defaultOwnerRef, symbolRef: null, providerRef: normalizeSafe(declarationProvider, "field", reasons), direction: "outbound", protocol: protocolFor(null, structure), endpointRef: null, credentialSlotRef: null, effectClasses: ["unknown"], reasonCodes: sortUnique(reasons), imported, importerPath, line: 1 })
@@ -2093,6 +2078,7 @@ const integrationCollection = (context: ManifestContext, sourceManifestSha256: s
   const failures: C2CollectionFailure[] = [...legacy.failures, ...mono.failures]
   for (const row of [...reconciled.left.rows, ...reconciled.right.rows]) {
     if (row.reason_codes.includes("UNSAFE_SOURCE")) failures.push({ status: "source_unavailable", reasonCode: "UNSAFE_SOURCE", rowIds: [row.row_id], sourceRefIds: row.source_ref_ids })
+    else if (row.status === "duplicate") continue
     else if (row.reason_codes.includes("UNKNOWN_INTEGRATION")) failures.push({ status: "unresolved", reasonCode: "UNKNOWN_INTEGRATION", rowIds: [row.row_id], sourceRefIds: row.source_ref_ids })
     else if (row.status === "dead_unimported") failures.push({ status: "gaps_found", reasonCode: "DEAD_UNIMPORTED_SOURCE", rowIds: [row.row_id], sourceRefIds: row.source_ref_ids })
     else if (row.status === "missing") failures.push({ status: "gaps_found", reasonCode: "MISSING_COUNTERPART", rowIds: [row.row_id], sourceRefIds: row.source_ref_ids })
