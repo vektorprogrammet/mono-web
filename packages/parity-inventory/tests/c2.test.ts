@@ -286,6 +286,14 @@ test("resolved outbound adapters need no inline URL and Sms setters are not inte
     expect(integrationPaths).not.toContain("apps/server/src/App/Infrastructure/Service/InterviewManager.php")
     expect(integrationPaths).not.toContain("apps/server/src/App/Infrastructure/Service/Sms.php")
     expect(integrationPaths).toContain("apps/server/src/App/Infrastructure/Command/NotifyCommand.php")
+    expect(
+      c2.integrations.rows
+        .filter((row) => context.sourcePathById.get(row.source_ref_ids[0] ?? "")?.path === "apps/server/src/App/Infrastructure/Command/NotifyCommand.php")
+        .map((row) => "call_site_ref" in row.details ? row.details.call_site_ref : null),
+    ).toEqual([
+      "App\\Fixture\\Infrastructure\\Command\\NotifyCommand::__invoke",
+      "App\\Fixture\\Infrastructure\\Command\\NotifyCommand::__invoke",
+    ])
     const duplicateRows = c2.integrations.rows.filter(
       (row) =>
         context.sourcePathById.get(row.source_ref_ids[0] ?? "")?.path ===

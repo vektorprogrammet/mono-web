@@ -374,22 +374,36 @@ const attributeCallFor = (source: string, offset: number): boolean => {
   const prefix = source.slice(0, offset)
   return prefix.lastIndexOf("#[") > prefix.lastIndexOf("]")
 }
-const functionContextFor = (source: string, offset: number): { readonly parameters: string; readonly bodyStart: number; readonly bodyEnd: number } | null => {
+interface FunctionContext {
+  readonly name: string | null
+  readonly parameters: string
+  readonly bodyStart: number
+  readonly bodyEnd: number
+}
+
+const functionContextFor = (source: string, offset: number, namedOnly = false): FunctionContext | null => {
   const structure = withoutLiterals(withoutComments(source))
-  const candidates: { readonly parameters: string; readonly bodyStart: number }[] = []
-  const phpFunctions = /\bfunction\s*(?:&\s*)?(?:[A-Za-z_$][A-Za-z0-9_$]*\s*)?\(([^)]*)\)\s*(?:\:[^{]+)?\s*\{/g
+  const candidates: { readonly name: string | null; readonly parameters: string; readonly bodyStart: number }[] = []
+  const phpFunctions = /\bfunction\s*(?:&\s*)?(?:([A-Za-z_$][A-Za-z0-9_$]*)\s*)?\(([^)]*)\)\s*(?:\:[^{]+)?\s*\{/g
   for (const match of structure.matchAll(phpFunctions)) {
     const bodyStart = (match.index ?? 0) + (match[0]?.lastIndexOf("{") ?? -1)
-    if (bodyStart >= 0 && match[1] !== undefined) candidates.push({ parameters: match[1], bodyStart })
+    if (bodyStart >= 0 && match[2] !== undefined) candidates.push({ name: match[1] ?? null, parameters: match[2], bodyStart })
   }
-  const arrows = /(?:\(([^()]*)\)|([A-Za-z_$][A-Za-z0-9_$]*))\s*=>\s*\{/g
+  const arrows = /(?:(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*)?(?:async\s*)?(?:\(([^()]*)\)|([A-Za-z_$][A-Za-z0-9_$]*))\s*=>\s*\{/g
   for (const match of structure.matchAll(arrows)) {
     const bodyStart = (match.index ?? 0) + (match[0]?.lastIndexOf("{") ?? -1)
-    if (bodyStart >= 0) candidates.push({ parameters: match[1] ?? match[2] ?? "", bodyStart })
+    if (bodyStart >= 0) candidates.push({ name: match[1] ?? null, parameters: match[2] ?? match[3] ?? "", bodyStart })
   }
-  let selected: { readonly parameters: string; readonly bodyStart: number; readonly bodyEnd: number } | null = null
+  const ignoredMethods = new Set(["if", "for", "while", "switch", "catch", "with"])
+  const typedMethods = /(?:^|[;{}\n])\s*(?:(?:public|private|protected|static|readonly|abstract|override|async|get|set)\s+)*([A-Za-z_$][A-Za-z0-9_$]*)\s*\(([^)]*)\)\s*(?::[^{=>]+)?\s*\{/gm
+  for (const match of structure.matchAll(typedMethods)) {
+    const name = match[1]
+    const bodyStart = (match.index ?? 0) + (match[0]?.lastIndexOf("{") ?? -1)
+    if (name !== undefined && !ignoredMethods.has(name) && bodyStart >= 0 && match[2] !== undefined) candidates.push({ name, parameters: match[2], bodyStart })
+  }
+  let selected: FunctionContext | null = null
   for (const candidate of candidates) {
-    if (candidate.bodyStart >= offset) continue
+    if (candidate.bodyStart >= offset || (namedOnly && candidate.name === null)) continue
     let depth = 1
     let bodyEnd = structure.length
     for (let index = candidate.bodyStart + 1; index < structure.length; index += 1) {
@@ -1987,7 +2001,14 @@ const integrationCallsFor = (unit: SourceUnit, authority: AuthorityGraph): reado
     const effectClasses: EffectClass[] = resolvedCall === null ? ["unknown"] : ["outbound"]
     if (providerRef === null) reasons.push("UNKNOWN_INTEGRATION")
     const direction: ExternalIntegrationDetails["direction"] = /\b(?:webhook|handleRequest|onRequest|incoming|inbound)\b/i.test(contextStructure) ? "inbound" : "outbound"
-    const safeSymbol = normalizeSafe(resolvedCall?.symbol ?? null, "symbol", reasons)
+    const callSiteContext = functionContextFor(unit.text, callOffset, true)
+    const callSiteRef = callSiteContext?.name === undefined || callSiteContext.name === null
+      ? null
+      : ownerRef === null
+        ? `${unit.path}#${callSiteContext.name}`
+        : `${ownerRef}::${callSiteContext.name}`
+    const safeSymbol = normalizeSafe(callSiteRef, "symbol", reasons)
+    if (safeSymbol === null) reasons.push("INTEGRATION_CALLSITE_UNRESOLVED")
     calls.push({ authority: unit.authority, path: unit.path, sourceRefId: unit.sourceRefId, ownerRef, symbolRef: safeSymbol, providerRef: normalizeSafe(providerRef, "field", reasons), direction, protocol, endpointRef, credentialSlotRef, effectClasses, reasonCodes: sortUnique(reasons), imported, importerPath, line: lineAt(unit.text, callOffset) })
   }
   if (calls.length > 0) return calls
