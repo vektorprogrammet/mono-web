@@ -12,9 +12,9 @@ import {
   sha256,
   sortUnique,
 } from "./canonical.js"
-import { addSourceReference, matchesLiteralPattern, readSourceText, sanitizeScalar, SOURCE_FAMILIES, unsafeScalarReason, unsafeStructuredValueReason, type ManifestContext } from "./source-manifest.js"
+import { addSourceReference, matchesLiteralPattern, readSourceText, sanitizeScalar, SOURCE_FAMILIES, unsafeScalarReason, type ManifestContext } from "./source-manifest.js"
 import { lineCommentEnd, skipPhpTrivia } from "./php-trivia.js"
-import { runTrustedPhpCollector, recordRuntimeObservation, type CollectorRun } from "./api.js"
+import { routePayloadContainsUnsafe, runTrustedPhpCollector, recordRuntimeObservation, type CollectorRun } from "./api.js"
 import type {
   CollectorExecutables,
   InventoryEnvelope,
@@ -104,7 +104,7 @@ const runtimeRouteMethods = (value: unknown): readonly string[] | null => {
 }
 
 export const decodeRuntimeRoutePayload = (payload: unknown): readonly RuntimeRoute[] | null => {
-  if (unsafeStructuredValueReason(payload) !== null || payload === null || typeof payload !== "object" || Array.isArray(payload)) return null
+  if (routePayloadContainsUnsafe(payload) || payload === null || typeof payload !== "object" || Array.isArray(payload)) return null
   const routes: RuntimeRoute[] = []
   for (const [rawRouteName, rawEntry] of Object.entries(payload as Record<string, unknown>)) {
     const routeName = sanitizeScalar(rawRouteName, "route_name")

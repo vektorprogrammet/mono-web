@@ -1012,17 +1012,20 @@ const makeRuntimeRow = (context: ManifestContext, operation: RuntimeOperation, s
   return { row_id: rowIdentity, declaration_id: declarationIdentity, inventory_kind: "api_operation", authority_line: "mono", canonical_key: canonicalKey, signature: apiSignature(operation), status: "extra", observation_kinds: ["runtime_resolution"], source_ref_ids: sortUnique(sourceRefIds), revision_ref_ids: [context.scans.mono.revisionRefId], runtime_observation_ref_ids: [observation.runtime_observation_ref_id], coverage_ref_ids: [], accepted_intent_ref_ids: [], duplicate_group_id: null, mismatch: mismatch("extra", [], "RUNTIME_ONLY_SOURCE"), reason_codes: ["RUNTIME_ONLY_SOURCE"], related_row_ids: [], details }
 }
 
+const declaredValueMatchesRuntime = <Value>(declared: Value | null, runtime: Value | null): boolean =>
+  declared === null || declared === runtime
+
 const sameOperation = (left: Pick<ApiDeclaration, "resourceClassRef" | "method" | "uriTemplate" | "operationId" | "operationName">, right: RuntimeOperation): boolean =>
   left.resourceClassRef === right.resourceClassRef &&
   left.operationName === right.operationName &&
-  left.method === right.method &&
-  left.uriTemplate === right.uriTemplate &&
-  left.operationId === right.operationId
+  declaredValueMatchesRuntime(left.method, right.method) &&
+  declaredValueMatchesRuntime(left.uriTemplate, right.uriTemplate) &&
+  declaredValueMatchesRuntime(left.operationId, right.operationId)
 const sameOperationObservations = (left: Pick<ApiDeclaration, "resourceKey" | "providerRef" | "processorRef" | "schemaRef">, right: RuntimeOperation): boolean =>
-  left.resourceKey === right.resourceKey &&
-  left.providerRef === right.providerRef &&
-  left.processorRef === right.processorRef &&
-  left.schemaRef === right.schemaRef
+  declaredValueMatchesRuntime(left.resourceKey, right.resourceKey) &&
+  declaredValueMatchesRuntime(left.providerRef, right.providerRef) &&
+  declaredValueMatchesRuntime(left.processorRef, right.processorRef) &&
+  declaredValueMatchesRuntime(left.schemaRef, right.schemaRef)
 
 
 const applyDuplicateGroups = (rows: InventoryRow[]): void => {
@@ -1712,14 +1715,22 @@ export const collectApiOperations = (context: ManifestContext, sourceManifestSha
     const runtimeOperation = runtime.operations[runtimeIndex]
     if (runtimeRow === undefined || runtimeOperation === undefined) continue
     const changed = !sameOperation(declaration, runtimeOperation) || !sameOperationObservations(declaration, runtimeOperation)
+    const unresolvedReasons = staticRow.reason_codes.filter(
+      (reason) =>
+        !(
+          reason === "URI_TEMPLATE_UNRESOLVED" &&
+          declaration.uriTemplate === null &&
+          runtimeOperation.uriTemplate !== null
+        ),
+    )
     const staticIndex = rows.findIndex((row) => row.row_id === staticRow.row_id)
     const runtimeRowIndex = rows.findIndex((row) => row.row_id === runtimeRow.row_id)
     const relation = relationId("reconciles", staticRow.row_id, runtimeRow.row_id, [...staticRow.source_ref_ids, ...runtimeRow.source_ref_ids])
     links.push({ relation_id: relation, relation_kind: "reconciles", from_row_id: staticRow.row_id, to_row_id: runtimeRow.row_id, source_ref_ids: sortUnique([...staticRow.source_ref_ids, ...runtimeRow.source_ref_ids]) })
-    const status: InventoryRow["status"] = changed ? "changed" : staticRow.reason_codes.length > 0 ? "unresolved" : "covered"
-    const reason = changed ? "STATIC_RUNTIME_MISMATCH" : staticRow.reason_codes[0] ?? null
+    const status: InventoryRow["status"] = changed ? "changed" : unresolvedReasons.length > 0 ? "unresolved" : "covered"
+    const reason = changed ? "STATIC_RUNTIME_MISMATCH" : unresolvedReasons[0] ?? null
     const related = [runtimeRow.row_id]
-    rows[staticIndex] = { ...staticRow, status, observation_kinds: ["static_source", "runtime_resolution"], runtime_observation_ref_ids: [runtime.observation.runtime_observation_ref_id], mismatch: mismatch(changed ? "changed" : status === "unresolved" ? "unresolved" : "none", related, reason), reason_codes: reason === null ? staticRow.reason_codes : sortUnique([...staticRow.reason_codes, reason]), related_row_ids: related }
+    rows[staticIndex] = { ...staticRow, status, observation_kinds: ["static_source", "runtime_resolution"], runtime_observation_ref_ids: [runtime.observation.runtime_observation_ref_id], mismatch: mismatch(changed ? "changed" : status === "unresolved" ? "unresolved" : "none", related, reason), reason_codes: reason === null ? unresolvedReasons : sortUnique([...unresolvedReasons, reason]), related_row_ids: related }
     rows[runtimeRowIndex] = { ...runtimeRow, status, mismatch: mismatch(changed ? "changed" : "none", [staticRow.row_id], reason), reason_codes: reason === null ? [] : [reason], related_row_ids: [staticRow.row_id] }
   }
   for (const [index, runtimeRow] of runtimeRows.entries()) {

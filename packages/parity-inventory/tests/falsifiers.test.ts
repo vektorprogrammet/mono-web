@@ -954,7 +954,7 @@ test("API resource trivia is accepted while unterminated block comments fail clo
     ]),
   );
 });
-test("API metadata-only runtime disagreement remains changed without identity fallback", async () => {
+test("runtime defaults resolve omitted API metadata while explicit conflicts remain changed", async () => {
   const monoRoot = gitFixture();
   const legacyRoot = gitFixture();
   try {
@@ -965,6 +965,11 @@ test("API metadata-only runtime disagreement remains changed without identity fa
     );
     putFixture(
       monoRoot,
+      "apps/server/src/App/Api/Resource/Defaulted.php",
+      "<?php\nnamespace App\\Fixture\\Api\\Resource;\nuse ApiPlatform\\Metadata\\ApiResource;\nuse ApiPlatform\\Metadata\\Get;\n#[ApiResource(operations: [new Get()])]\nfinal class DefaultedResource {}\n",
+    );
+    putFixture(
+      monoRoot,
       "apps/server/var/parity/api-operations.json",
       JSON.stringify([
         {
@@ -972,10 +977,21 @@ test("API metadata-only runtime disagreement remains changed without identity fa
           resource_key: "RuntimeFixture",
           operation_name: "Get",
           method: "GET",
-          uri_template: "/fixture/api",
+          uri_template: "/fixture/runtime-conflict",
           operation_id: "fixture_api",
           provider_ref: "App\\Fixture\\Api\\State\\RuntimeProvider",
           schema_ref: "RuntimeSchema",
+        },
+        {
+          resource_class_ref: "App\\Fixture\\Api\\Resource\\DefaultedResource",
+          resource_key: "DefaultedResource",
+          operation_name: "Get",
+          method: "GET",
+          uri_template: "/defaulted_resources/{id}{._format}",
+          operation_id: "_api_/defaulted_resources/{id}{._format}_get",
+          provider_ref: "ApiPlatform\\State\\ProviderInterface",
+          processor_ref: "ApiPlatform\\State\\ProcessorInterface",
+          schema_ref: "App\\Fixture\\Api\\Resource\\DefaultedResource",
         },
       ]),
     );
@@ -1014,6 +1030,17 @@ test("API metadata-only runtime disagreement remains changed without identity fa
     );
     expect(changedRows.length).toBe(1);
     expect(changedRows[0]?.reason_codes).toContain("STATIC_RUNTIME_MISMATCH");
+    const defaultedStaticRow = api.rows.find(
+      (row) =>
+        row.observation_kinds.includes("static_source") &&
+        "resource_class_ref" in row.details &&
+        row.details.resource_class_ref === "App\\Fixture\\Api\\Resource\\DefaultedResource",
+    );
+    expect(defaultedStaticRow).toMatchObject({
+      status: "covered",
+      observation_kinds: ["static_source", "runtime_resolution"],
+      reason_codes: [],
+    });
   } finally {
     rmSync(monoRoot, { recursive: true, force: true });
     rmSync(legacyRoot, { recursive: true, force: true });

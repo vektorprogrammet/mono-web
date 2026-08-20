@@ -59,9 +59,11 @@ describe("authoritative Symfony route runtime falsifiers", () => {
     const payload = {
       fixture: { path: " fixture ", method: "POST|GET", defaults: { _controller: "App\\Fixture\\Controller" } },
       wildcard: { path: "/wildcard", method: "ANY" },
+      placeholder_default: { path: "/placeholder", method: "GET", defaults: { token: null } },
     }
     expect(decodeRuntimeRoutePayload(payload)).toEqual([
       { routeName: "fixture", pathTemplate: "/fixture", methods: ["GET", "POST"] },
+      { routeName: "placeholder_default", pathTemplate: "/placeholder", methods: ["GET"] },
       { routeName: "wildcard", pathTemplate: "/wildcard", methods: [] },
     ])
   })
