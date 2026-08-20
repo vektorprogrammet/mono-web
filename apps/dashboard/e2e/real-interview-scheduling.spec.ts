@@ -197,9 +197,54 @@ test.describe("Real Symfony interview scheduling", () => {
       input: schedule,
     });
     expect(bridgePayload.interviewId).toEqual(expect.any(Number));
+    const bridgeResponseBody = await response.text();
+    if (response.status() !== 200) {
+      const jwtCookie = (await page.context().cookies()).find((cookie) => cookie.name === "jwt_token");
+      const directHeaders: Record<string, string> = {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      };
+      if (jwtCookie) directHeaders.Authorization = `Bearer ${jwtCookie.value}`;
+
+      let directStatus = 0;
+      let directBody = "";
+      try {
+        const directResponse = await page.request.post(
+          `${apiOrigin}/api/admin/interviews/${bridgePayload.interviewId}/schedule`,
+          { headers: directHeaders, data: schedule, timeout: 10_000 },
+        );
+        directStatus = directResponse.status();
+        directBody = redactTokenBody(await directResponse.text());
+      } catch (error) {
+        directBody = error instanceof Error ? error.message : String(error);
+      }
+
+      await test.info().attach("real-schedule-failure.json", {
+        body: JSON.stringify(
+          {
+            bridge: {
+              status: response.status(),
+              body: redactTokenBody(bridgeResponseBody),
+            },
+            directSymfony: {
+              endpoint: `${apiOrigin}/api/admin/interviews/${bridgePayload.interviewId}/schedule`,
+              status: directStatus,
+              body: directBody,
+            },
+            payload: schedule,
+          },
+          null,
+          2,
+        ),
+        contentType: "application/json",
+      });
+      throw new Error(
+        `Interview scheduling bridge returned ${response.status()}: ${redactTokenBody(bridgeResponseBody)}; direct Symfony returned ${directStatus}: ${directBody}`,
+      );
+    }
     expect(response.status()).toBe(200);
 
-    const scheduleResult = await response.json();
+    const scheduleResult = JSON.parse(bridgeResponseBody) as unknown;
     expect(scheduleResult).toBeNull();
 
     await expect(page.getByText("Intervjuet er planlagt og invitert.", { exact: true })).toBeVisible();
