@@ -689,6 +689,18 @@ const fixtureRuntimeSourceRef = (
 }
 
 
+export const API_OPENAPI_SCRIPT = String.raw`$root = '/workspace/apps/server';
+require $root . '/vendor/autoload.php';
+(new \Symfony\Component\Dotenv\Dotenv())->usePutenv()->load($root . '/.env.test');
+$kernel = new \Kernel('test', false);
+$kernel->boot();
+$container = $kernel->getContainer()->get('test.service_container');
+$serializer = $container->get('serializer');
+$factory = $container->get(\ApiPlatform\OpenApi\Factory\OpenApiFactoryInterface::class);
+$normalized = $serializer->normalize($factory(), 'json', ['spec_version' => '3']);
+if (!is_array($normalized)) throw new \UnexpectedValueException('OpenAPI normalization did not return an array');
+echo json_encode($normalized, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);`
+
 export const API_METADATA_SCRIPT = String.raw`$root = '/workspace/apps/server';
 require $root . '/vendor/autoload.php';
 (new \Symfony\Component\Dotenv\Dotenv())->usePutenv()->load($root . '/.env.test');
@@ -938,7 +950,7 @@ const collectRuntime = (context: ManifestContext, declarations: readonly ApiDecl
   const operations = runtimeOperationsFromPayload(metadataPayload)
   if (operations === null) return unavailable("api_platform_metadata", "api-platform-metadata", metadataArgs, "SOURCE_PARSE_ERROR", 1, metadataRun)
   const metadataObservation = recordRuntimeObservation(context, { collectorKind: "api_platform_metadata", logicalCommandId: "api-platform-metadata", command: "api-platform-metadata", arguments: metadataArgs, stdout: canonicalJson(operations), stderr: "", exitCode: metadataRun.exitCode, result: operations, availability: "available", revisionRefId, executableDigests: metadataRun.executableDigests, executableProvenance: metadataRun.executableProvenance })
-  const openApiArgs = ["/workspace/apps/server/bin/console", "api:openapi:export", "--env=test", "--no-debug"]
+  const openApiArgs = ["-r", API_OPENAPI_SCRIPT]
   const openApiRun = trustedPhpCollector(context, openApiArgs, configured, "openapi")
   const sourceRef = consoleRef()
   if (openApiRun.availability !== "available") {
