@@ -1961,9 +1961,8 @@ const providerFromText = (text: string): string | null => {
   const patterns: readonly [RegExp, string][] = [
     [/\b(?:Google|GoogleClient|GoogleApis?|GoogleAdapter|GoogleService)\b/i, "google"],
     [/\bSlack(?:Client|Webhook|Adapter|Service)?\b/i, "slack"],
-    [/\b(?:Sms|SmsClient|SmsGateway|SmsAdapter|Twilio)\b/i, "sms"],
     [/\b(?:Mailer|MailerClient|MailerAdapter|MailerService|Mailgun|Smtp)\b/i, "mailer"],
-    [/\bGatewayAPI(?:Client|Adapter|Service)?\b/i, "gatewayapi"],
+    [/\b(?:Sms|SmsClient|SmsSender|SmsGateway|SmsAdapter|Twilio)\b/i, "sms"],
     [/\bStripe(?:Client|Adapter|Service)?\b/i, "stripe"],
     [/\b(?:Aws|S3Client)\b/i, "aws"],
     [/\b(?:Github|GitHub)(?:Client|Adapter|Service)?\b/i, "github"],
@@ -2029,6 +2028,8 @@ const credentialSlotFor = (raw: string | null, reasons: string[]): string | null
   return normalizeSafe(value, "credential_slot_ref", reasons)
 }
 
+const productionIntegrationSource = (path: string): boolean =>
+  !/(?:^|\/)(?:test|tests|e2e|fixtures)(?:\/|$)|\.(?:test|spec)\.[^/]+$/i.test(path)
 const integrationCallPattern = /\b(?:fetch|curl_exec|curl_init|request|publish|send|post|put|delete|HttpClient|GuzzleHttp|Mailer|Slack|Google|Twilio|Smtp|Sms|GatewayAPI|Webhook)\b\s*(?:\(|->|\.)/g
 const integrationCallsFor = (unit: SourceUnit, authority: AuthorityGraph): readonly IntegrationCall[] => {
   const calls: IntegrationCall[] = []
@@ -2076,7 +2077,7 @@ const integrationCallsFor = (unit: SourceUnit, authority: AuthorityGraph): reado
     const reasons: string[] = []
     const resolvedCall = effectCall === undefined ? null : resolveEffectCall(authority, unit, effectCall, ownerClass)
     const adapterEvidence = integrationAdapterPattern.test(contextStructure) || integrationAdapterPattern.test(resolvedCall?.symbol ?? "")
-    const namedProviderRef = providerFromText(contextStructure) ?? providerFromText(resolvedCall?.symbol ?? "")
+    const namedProviderRef = providerFromText(resolvedCall?.symbol ?? "") ?? providerFromText(contextStructure)
     const endpointMatch = /https?:\/\/[^\s"'`),}]+/i.exec(contextText)
     const endpointRef = endpointMatch?.[0] === undefined ? null : safeEndpoint(endpointMatch[0], reasons)
     const protocol = protocolFor(endpointRef, `${contextStructure} ${callableName ?? ""} ${resolvedCall?.symbol ?? ""} ${namedProviderRef ?? ""}`)
@@ -2090,7 +2091,7 @@ const integrationCallsFor = (unit: SourceUnit, authority: AuthorityGraph): reado
     const effectClasses: EffectClass[] = resolvedCall === null ? ["unknown"] : ["outbound"]
     const direction: ExternalIntegrationDetails["direction"] = /\b(?:webhook|handleRequest|onRequest|incoming|inbound)\b/i.test(contextStructure) ? "inbound" : "outbound"
     const callSiteContext = functionContextFor(unit.text, callOffset, true)
-    const callSiteName = declarationName ?? callSiteContext?.name ?? null
+    const callSiteName = declarationName ?? callSiteContext?.name ?? callableName
     const callSiteRef = callSiteName === null
       ? null
       : ownerRef === null
@@ -2112,7 +2113,7 @@ const integrationCallsFor = (unit: SourceUnit, authority: AuthorityGraph): reado
       + (call.protocol === null ? 0 : 1)
       + (call.endpointRef === null ? 0 : 1)
       + (call.credentialSlotRef === null ? 0 : 1)
-    return calls.filter((call, index) =>
+    const selected = calls.filter((call, index) =>
       !calls.some((candidate, candidateIndex) =>
         candidateIndex !== index
         && candidate.path === call.path
@@ -2122,6 +2123,21 @@ const integrationCallsFor = (unit: SourceUnit, authority: AuthorityGraph): reado
         && specificity(candidate) > specificity(call),
       ),
     )
+    const identities = new Set<string>()
+    return selected.filter((call) => {
+      if (call.reasonCodes.length > 0) return true
+      const identity = canonicalJson([
+        call.providerRef,
+        call.direction,
+        call.protocol,
+        call.endpointRef,
+        call.credentialSlotRef,
+        call.symbolRef,
+      ])
+      if (identities.has(identity)) return false
+      identities.add(identity)
+      return true
+    })
   }
   const declarationProvider = providerFromText(defaultOwnerRef ?? "")
   const declarationMatch = /\b(fetch|request|publish|send|post|put|delete)\s*\([^)]*\)\s*(?::[^{}]+)?\s*\{/.exec(structure)
@@ -2175,11 +2191,12 @@ const parseIntegrations = (context: ManifestContext, authority: "legacy" | "mono
   const familyId = authority === "legacy" ? C2_FAMILY_IDS.legacyIntegrations : C2_FAMILY_IDS.monoIntegrations
   const role = authority === "legacy" ? "legacy_integration_authority" : "mono_integration_authority"
   const source = sourceUnits(context, authority, familyId, role)
+  const units = source.units.filter((unit) => productionIntegrationSource(unit.path))
   const authorityGraph = authorityGraphFor(context, authority)
   const parsed: ParsedRow[] = []
   const calls: IntegrationCall[] = []
   let ordinal = 0
-  for (const unit of source.units) {
+  for (const unit of units) {
     const found = integrationCallsFor(unit, authorityGraph)
     for (const call of found) {
       calls.push(call)
