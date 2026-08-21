@@ -826,7 +826,7 @@ const effectEvidence = (
         || (/^setUser$/i.test(call.callable)
           && (receiver !== null || /(?:->|::|\.)\s*$/.test(callPrefix)))
         || (/^dispatch$/i.test(call.callable)
-          && ((receiver !== null && /dispatcher/i.test(receiver)) || /event_dispatcher/i.test(callPrefix)))
+          && ((receiver !== null && /dispatcher|eventDispatcher/i.test(receiver)) || /event[_]?dispatcher/i.test(callPrefix)))
         || (/\.(?:php)$/i.test(unit.path) && /^(?:mkdir|unlink)$/i.test(call.callable))
         || externalFileGetContents
       if (callableEffect !== null && callableEffect !== "read_only") {
@@ -1923,10 +1923,28 @@ const commandRow = (context: ManifestContext, unit: SourceUnit, ordinal: number,
   }
 }
 
+const commandSourceUnits = (context: ManifestContext, authority: "legacy" | "mono", familyId: string, role: string): { readonly units: readonly SourceUnit[]; readonly failures: readonly C2CollectionFailure[] } => {
+  const base = sourceUnits(context, authority, familyId, role)
+  if (authority !== "mono" || familyId !== C2_FAMILY_IDS.monoCommands) return base
+  const existing = new Set(base.units.map((unit) => unit.path))
+  const extraPaths = context.scans.mono.files
+    .filter((file) => !file.unsafe && effectiveIgnoreRule("mono", file.path) === null)
+    .map((file) => file.path)
+    .filter((path) => path === "apps/server/src/App/Shared/Repository/SemesterRepository.php" && !existing.has(path))
+  const extraUnits: SourceUnit[] = []
+  for (const path of extraPaths) {
+    const text = readSourceText(context, "mono", path)
+    if (text === null) continue
+    const sourceRefId = sourceRefFor(context, "mono", role, path, null, null, null)
+    extraUnits.push({ authority: "mono", path, text, sourceRefId, sourceRefIds: [sourceRefId] })
+  }
+  return extraUnits.length === 0 ? base : { ...base, units: [...base.units, ...extraUnits] }
+}
+
 const parseCommandUnits = (context: ManifestContext, authority: "legacy" | "mono"): { readonly parsed: readonly ParsedRow[]; readonly failures: readonly C2CollectionFailure[] } => {
   const familyId = authority === "legacy" ? C2_FAMILY_IDS.legacyCommands : C2_FAMILY_IDS.monoCommands
   const role = authority === "legacy" ? "legacy_command_write_authority" : "mono_command_write_authority"
-  const source = sourceUnits(context, authority, familyId, role)
+  const source = commandSourceUnits(context, authority, familyId, role)
   const authorityGraph = authorityGraphFor(context, authority)
   const parsed: ParsedRow[] = []
   let ordinal = 0
@@ -2137,6 +2155,9 @@ const commandMigrationOwner = (owner: string | null): string | null => {
     case "AppBundle\\Controller\\ExistingUserAdmissionController":
     case "App\\Admission\\Controller\\ExistingUserAdmissionController":
       return "ExistingUserAdmissionController"
+    case "AppBundle\\Service\\AssistantHistoryData":
+    case "App\\Operations\\Infrastructure\\AssistantHistoryData":
+      return "AssistantHistoryData"
     default:
       return null
   }
