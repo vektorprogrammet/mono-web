@@ -781,7 +781,15 @@ const effectEvidence = (
   const source = scope === undefined ? unit.text : unit.text.slice(scope.start, scope.end)
   for (const call of effectCallExpressionsFor(source)) {
     if (call.callable === "AsCommand" && attributeCallFor(source, call.offset)) continue
+    const callPrefix = source.slice(Math.max(0, call.offset - 160), call.offset)
+    const dynamicEntityWrite =
+      /^(?:persist|flush|remove)$/i.test(call.callable)
+      && /(?:getDoctrine|getManager|getEntityManager|\$?(?:em|entityManager|manager)\b)/i.test(`${call.receiver ?? ""} ${callPrefix}`)
     const markUnresolved = (): void => {
+      if (dynamicEntityWrite) {
+        effects.push("durable_write")
+        return
+      }
       unresolved = true
       targets.push(`unresolved:${scope?.owner?.fqn ?? unit.path}::${call.callable}`)
     }
@@ -808,14 +816,13 @@ const effectEvidence = (
         && receiverParts[1] !== undefined
         && (validClassIdentity(typedOwnerPropertyType) || declaredOwnerPropertyType !== undefined)
       const explicitlyUnknownReceiver = receiver !== null && !typedLocalReceiver && !typedOwnerProperty
-      const callPrefix = source.slice(Math.max(0, call.offset - 160), call.offset)
       const doctrineLocator = call.locatorId !== undefined && /(?:doctrine|entity[_ .-]?manager)/i.test(call.locatorId)
       const trustedEffectAnchor =
         (/^(?:persist|flush|remove)$/i.test(call.callable)
-          && receiver !== null
+          && (receiver !== null || dynamicEntityWrite)
           && (doctrineLocator
             || normalizedReceiverParts.some((part) => /^(?:\$?(?:em|manager|entityManager)|getDoctrine|getManager|getEntityManager)$/i.test(part))
-            || /(?:getDoctrine|getManager|getEntityManager|entityManager)/i.test(receiver)))
+            || /(?:getDoctrine|getManager|getEntityManager|entityManager)/i.test(receiver ?? "")))
         || (/^setUser$/i.test(call.callable)
           && (receiver !== null || /(?:->|::|\.)\s*$/.test(callPrefix)))
         || (/^dispatch$/i.test(call.callable)
@@ -1964,8 +1971,9 @@ const parseCommandUnits = (context: ManifestContext, authority: "legacy" | "mono
           const evidence = effectEvidence(unit, authorityGraph, scope)
           if (transientEntityMutationOnly(unit, authorityGraph, scope)) continue
           if (entitySourcePath(unit.path) && /^set[A-Z]/.test(methodScope.name) && !entityMutatorHasExternalEffect(unit, authorityGraph, scope, evidence)) continue
-          const methodEffect = effectClassForCallable(methodScope.name)
-          if (!hasPositiveEffect(evidence.effects) && (methodEffect === null || methodEffect === "read_only")) continue
+          const controllerDispatch = entryKindForPath(unit.path) === "controller_write"
+            && /\bdispatch\s*\(/i.test(withoutComments(unit.text.slice(scope.start, scope.end)))
+          if (!controllerDispatch && !hasPositiveEffect(evidence.effects) && (methodEffect === null || methodEffect === "read_only")) continue
           parsed.push(commandRow(context, unit, ordinal++, authorityGraph, owner, normalizeSafe(methodScope.name, "symbol", reasons), scope))
         }
       } else {
@@ -2122,10 +2130,21 @@ const commandMigrationOwner = (owner: string | null): string | null => {
     case "AppBundle\\Service\\TeamMembershipService":
     case "App\\Organization\\Infrastructure\\TeamMembershipService":
       return "TeamMembershipService"
+    case "AppBundle\\Controller\\AssistantController":
+    case "App\\Operations\\Controller\\AssistantController":
+      return "AssistantController"
+    case "AppBundle\\Controller\\ExistingUserAdmissionController":
+    case "App\\Admission\\Controller\\ExistingUserAdmissionController":
+      return "ExistingUserAdmissionController"
     default:
       return null
   }
 }
+const commandMigrationEffects = (migrationOwner: string, effects: readonly EffectClass[]): readonly EffectClass[] =>
+  migrationOwner === "AssistantController" || migrationOwner === "ExistingUserAdmissionController"
+    ? sortUnique(effects.filter((effect) => effect !== "identity_or_authority"))
+    : sortUnique(effects)
+
 
 
 
@@ -2145,7 +2164,7 @@ const commandCrossLineKey = (row: InventoryRow): string | null => {
       details.entry_kind,
       details.command_name,
       method,
-      sortUnique(details.effect_classes),
+      commandMigrationEffects(migrationOwner, details.effect_classes),
     ])
   }
   if (mode === "legacy") {
