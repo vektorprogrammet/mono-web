@@ -2161,6 +2161,9 @@ const commandMigrationOwner = (owner: string | null): string | null => {
     case "AppBundle\\Service\\AssistantHistoryData":
     case "App\\Operations\\Infrastructure\\AssistantHistoryData":
       return "AssistantHistoryData"
+    case "AppBundle\\Entity\\Repository\\SemesterRepository":
+    case "App\\Shared\\Repository\\SemesterRepository":
+      return "SemesterRepository"
     default:
       return null
   }
