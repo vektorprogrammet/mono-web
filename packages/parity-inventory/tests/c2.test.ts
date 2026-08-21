@@ -782,6 +782,215 @@ test("routing roots establish controller write reachability", async () => {
     rmSync(monoRoot, { recursive: true, force: true })
   }
 })
+test("legacy service locators reconcile command targets with injected mono dependencies", async () => {
+  const legacyRoot = mkdtempSync("/tmp/parity-c2-locator-legacy-")
+  const monoRoot = mkdtempSync("/tmp/parity-c2-locator-mono-")
+  try {
+    put(legacyRoot, "app/config/routing.yml", String.raw`controllers:
+  resource: "@AppBundle/Controller/"
+  type: annotation
+`)
+    put(legacyRoot, "app/config/services.yml", String.raw`services:
+  locator_controller:
+    class: AppBundle\Controller\LocatorController
+  locator_writer:
+    class: AppBundle\Service\Writer
+  locator_repository:
+    class: AppBundle\Repository\RecordRepository
+`)
+    put(monoRoot, "apps/server/config/routes.yaml", String.raw`controllers:
+  resource: ../src/App/Fixture/Controller/
+  type: attribute
+`)
+    put(monoRoot, "apps/server/config/services.yaml", String.raw`services:
+  locator_controller:
+    class: App\Fixture\Controller\LocatorController
+  locator_writer:
+    class: App\Fixture\Infrastructure\Writer
+  locator_repository:
+    class: App\Fixture\Infrastructure\RecordRepository
+`)
+    put(legacyRoot, "src/AppBundle/Controller/LocatorController.php", String.raw`<?php
+namespace AppBundle\Controller;
+use AppBundle\Entity\Record;
+use AppBundle\Service\Writer;
+final class LocatorController {
+    public function updateAction(): void {
+        $record = $this->getDoctrine()->getRepository(Record::class)->find(1);
+        $this->get(Writer::class)->write($record);
+        $this->get('event_dispatcher')->dispatch('record.updated', $record);
+    }
+}
+`)
+    put(legacyRoot, "src/AppBundle/Service/Writer.php", String.raw`<?php
+namespace AppBundle\Service;
+final class Writer {
+    private $em;
+    public function write(object $record): void { $this->em->persist($record); }
+}
+`)
+    put(legacyRoot, "src/AppBundle/Repository/RecordRepository.php", String.raw`<?php
+namespace AppBundle\Repository;
+final class RecordRepository {
+    public function find(int $id): object { return new \stdClass(); }
+}
+`)
+    put(legacyRoot, "src/AppBundle/Entity/Record.php", String.raw`<?php
+namespace AppBundle\Entity;
+final class Record {}
+`)
+    put(monoRoot, "apps/server/src/App/Fixture/Controller/LocatorController.php", String.raw`<?php
+namespace App\Fixture\Controller;
+use App\Fixture\Infrastructure\RecordRepository;
+use App\Fixture\Infrastructure\Writer;
+final class LocatorController {
+    private RecordRepository $recordRepository;
+    private Writer $writer;
+    public function updateAction(): void {
+        $record = $this->recordRepository->find(1);
+        $this->writer->write($record);
+        $this->dispatcher->dispatch('record.updated', $record);
+    }
+}
+`)
+    put(monoRoot, "apps/server/src/App/Fixture/Infrastructure/Writer.php", String.raw`<?php
+namespace App\Fixture\Infrastructure;
+final class Writer {
+    private $em;
+    public function write(object $record): void { $this->em->persist($record); }
+}
+`)
+    put(monoRoot, "apps/server/src/App/Fixture/Infrastructure/RecordRepository.php", String.raw`<?php
+namespace App\Fixture\Infrastructure;
+final class RecordRepository {
+    public function find(int $id): object { return new \stdClass(); }
+}
+`)
+    const context = await contextFor(legacyRoot, monoRoot)
+    const c2 = collectC2(context, sha256("locator-command-c2"))
+    const rows = c2.commandWrites.rows
+    const legacy = rows.find((row) =>
+      row.authority_line === "legacy"
+      && "owner_ref" in row.details
+      && row.details.owner_ref === "AppBundle\\Controller\\LocatorController",
+    )
+    const mono = rows.find((row) =>
+      row.authority_line === "mono"
+      && "owner_ref" in row.details
+      && row.details.owner_ref === "App\\Fixture\\Controller\\LocatorController",
+    )
+    expect(legacy).toMatchObject({
+      status: "covered",
+      details: { effect_classes: ["durable_write", "outbound"] },
+    })
+    expect(mono).toMatchObject({
+      status: "covered",
+      details: { effect_classes: ["durable_write", "outbound"] },
+    })
+    expect(legacy?.details).toMatchObject({
+      targets: expect.arrayContaining([
+        "AppBundle\\Repository\\RecordRepository::find",
+        "AppBundle\\Service\\Writer::write",
+      ]),
+    })
+    expect(mono?.details).toMatchObject({
+      targets: expect.arrayContaining([
+        "App\\Fixture\\Infrastructure\\RecordRepository::find",
+        "App\\Fixture\\Infrastructure\\Writer::write",
+      ]),
+    })
+    expect(c2.commandWrites.links.some((link) =>
+      link.relation_kind === "matches" && link.from_row_id === legacy?.row_id && link.to_row_id === mono?.row_id,
+    )).toBe(true)
+  } finally {
+    rmSync(legacyRoot, { recursive: true, force: true })
+    rmSync(monoRoot, { recursive: true, force: true })
+  }
+})
+test("transient survey projections do not become command writes without persistence", async () => {
+  const legacyRoot = mkdtempSync("/tmp/parity-c2-transient-legacy-")
+  const monoRoot = mkdtempSync("/tmp/parity-c2-transient-mono-")
+  try {
+    put(monoRoot, "apps/server/config/routes.yaml", String.raw`controllers:
+  resource: ../src/App/Fixture/Controller/
+  type: attribute
+`)
+    put(monoRoot, "apps/server/config/services.yaml", String.raw`services:
+  survey_controller:
+    class: App\Fixture\Controller\SurveyController
+  survey_repository:
+    class: App\Fixture\Infrastructure\SurveyRepository
+  survey_taken_repository:
+    class: App\Fixture\Infrastructure\SurveyTakenRepository
+  access_control:
+    class: App\Fixture\Infrastructure\AccessControlService
+  policy:
+    class: App\Fixture\Infrastructure\Policy
+`)
+    put(monoRoot, "apps/server/src/App/Fixture/Controller/SurveyController.php", String.raw`<?php
+namespace App\Fixture\Controller;
+use App\Fixture\Infrastructure\AccessControlService;
+use App\Fixture\Infrastructure\SurveyRepository;
+use App\Fixture\Infrastructure\SurveyTakenRepository;
+final class SurveyController {
+    private SurveyRepository $surveyRepo;
+    private SurveyTakenRepository $surveyTakenRepo;
+    private AccessControlService $accessControlService;
+    public function showSurveysAction(): void {
+        $surveysWithDepartment = $this->surveyRepo->findBy(['department' => 'x']);
+        foreach ($surveysWithDepartment as $survey) {
+            $totalAnswered = count($this->surveyTakenRepo->findAllTakenBySurvey($survey));
+            $survey->setTotalAnswered($totalAnswered);
+        }
+        $globalSurveys = [];
+        if ($this->accessControlService->isGranted('survey_admin')) {
+            $globalSurveys = $this->surveyRepo->findBy(['department' => null]);
+            foreach ($globalSurveys as $survey) {
+                $totalAnswered = count($this->surveyTakenRepo->findBy(['survey' => $survey]));
+                $survey->setTotalAnswered($totalAnswered);
+            }
+        }
+    }
+}
+`)
+    put(monoRoot, "apps/server/src/App/Fixture/Infrastructure/SurveyRepository.php", String.raw`<?php
+namespace App\Fixture\Infrastructure;
+final class SurveyRepository {
+    public function findBy(array $criteria): array { return []; }
+}
+`)
+    put(monoRoot, "apps/server/src/App/Fixture/Infrastructure/SurveyTakenRepository.php", String.raw`<?php
+namespace App\Fixture\Infrastructure;
+final class SurveyTakenRepository {
+    public function findAllTakenBySurvey(object $survey): array { return []; }
+    public function findBy(array $criteria): array { return []; }
+}
+`)
+    put(monoRoot, "apps/server/src/App/Fixture/Infrastructure/AccessControlService.php", String.raw`<?php
+namespace App\Fixture\Infrastructure;
+final class AccessControlService {
+    private Policy $policy;
+    public function isGranted(string $role): bool { $this->policy->setRole($role); return true; }
+}
+`)
+    put(monoRoot, "apps/server/src/App/Fixture/Infrastructure/Policy.php", String.raw`<?php
+namespace App\Fixture\Infrastructure;
+final class Policy {
+    public function setRole(string $role): void {}
+}
+`)
+    const context = await contextFor(legacyRoot, monoRoot)
+    const c2 = collectC2(context, sha256("transient-survey-c2"))
+    expect(c2.commandWrites.rows.some((row) =>
+      row.authority_line === "mono"
+      && "symbol_ref" in row.details
+      && row.details.symbol_ref === "App\\Fixture\\Controller\\SurveyController::showSurveysAction",
+    )).toBe(false)
+  } finally {
+    rmSync(legacyRoot, { recursive: true, force: true })
+    rmSync(monoRoot, { recursive: true, force: true })
+  }
+})
 test("relocated controller and event writes reconcile without rewriting authority details", async () => {
   const legacyRoot = mkdtempSync("/tmp/parity-c2-relocated-legacy-")
   const monoRoot = mkdtempSync("/tmp/parity-c2-relocated-mono-")

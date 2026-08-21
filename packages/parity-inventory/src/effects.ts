@@ -385,12 +385,109 @@ interface EffectCall {
   readonly callable: string
   readonly offset: number
   readonly constructorCall: boolean
+  /**
+   * Calls that pass a class through Symfony's service locator need an
+   * explicit target because the receiver is not a typed property.
+   */
+  readonly targetClassName?: string
+  readonly repositoryClassName?: string
+  readonly locatorId?: string
 }
 interface EffectScope {
   readonly owner: LanguageClass | undefined
   readonly start: number
   readonly end: number
   readonly methodName?: string
+}
+
+const specialEffectCallsFor = (source: string): readonly EffectCall[] => {
+  const stripped = withoutComments(source)
+  const masked = withoutLiterals(stripped)
+  const calls: EffectCall[] = []
+  const isCode = (offset: number): boolean => masked[offset] === stripped[offset]
+  const add = (call: EffectCall): void => {
+    if (!calls.some((candidate) =>
+      candidate.offset === call.offset
+      && candidate.callable === call.callable
+      && candidate.receiver === call.receiver
+      && candidate.targetClassName === call.targetClassName
+      && candidate.repositoryClassName === call.repositoryClassName
+      && candidate.locatorId === call.locatorId,
+    )) calls.push(call)
+  }
+
+  const classLocator = /(?:\$this|this)(?:\s*->\s*container)?\s*->\s*get\s*\(\s*(\\?[A-Za-z_][A-Za-z0-9_]*(?:\\[A-Za-z_][A-Za-z0-9_]*)*)\s*::\s*class\s*\)\s*->\s*([A-Za-z_][A-Za-z0-9_]*)\s*\(/g
+  for (const match of stripped.matchAll(classLocator)) {
+    const offset = match.index ?? -1
+    const targetClassName = match[1]
+    const callable = match[2]
+    if (offset < 0 || callable === undefined || targetClassName === undefined || !isCode(offset)) continue
+    const matched = match[0] ?? ""
+    const receiver = matched.slice(0, matched.lastIndexOf("->"))
+    add({
+      chain: matched.slice(0, Math.max(0, matched.length - 1)),
+      receiver,
+      callable,
+      offset,
+      constructorCall: false,
+      targetClassName,
+    })
+  }
+
+  const stringLocator = /(?:\$this|this)(?:\s*->\s*container)?\s*->\s*get\s*\(\s*(["'])([^"'\\]*(?:\\.[^"'\\]*)*)\1\s*\)\s*->\s*([A-Za-z_][A-Za-z0-9_]*)\s*\(/g
+  for (const match of stripped.matchAll(stringLocator)) {
+    const offset = match.index ?? -1
+    const quote = match[1]
+    const rawId = match[2]
+    const callable = match[3]
+    if (offset < 0 || quote === undefined || rawId === undefined || callable === undefined || !isCode(offset)) continue
+    const locatorId = stringLiteralValue(`${quote}${rawId}${quote}`)
+    const matched = match[0] ?? ""
+    const receiver = matched.slice(0, matched.lastIndexOf("->"))
+    add({
+      chain: matched.slice(0, Math.max(0, matched.length - 1)),
+      receiver,
+      callable,
+      offset,
+      constructorCall: false,
+      locatorId: locatorId ?? undefined,
+    })
+  }
+
+  const repositoryCall = /(?:(?:\$this|this)\s*->\s*getDoctrine\s*\(\s*\)(?:\s*->\s*getManager\s*\(\s*\))?|\$[A-Za-z_][A-Za-z0-9_]*)\s*->\s*getRepository\s*\(\s*(\\?[A-Za-z_][A-Za-z0-9_]*(?:\\[A-Za-z_][A-Za-z0-9_]*)*)\s*::\s*class\s*\)\s*->\s*([A-Za-z_][A-Za-z0-9_]*)\s*\(/g
+  for (const match of stripped.matchAll(repositoryCall)) {
+    const offset = match.index ?? -1
+    const repositoryClassName = match[1]
+    const callable = match[2]
+    if (offset < 0 || repositoryClassName === undefined || callable === undefined || !isCode(offset)) continue
+    const matched = match[0] ?? ""
+    const receiver = matched.slice(0, matched.lastIndexOf("->"))
+    add({
+      chain: matched.slice(0, Math.max(0, matched.length - 1)),
+      receiver,
+      callable,
+      offset,
+      constructorCall: false,
+      repositoryClassName,
+    })
+  }
+
+  const doctrineEffect = /(?:\$this|this)\s*->\s*getDoctrine\s*\(\s*\)(?:\s*->\s*getManager\s*\(\s*\))?\s*->\s*(persist|flush|remove|delete|save|update|insert|upsert|executeStatement|transaction|commit)\s*\(/gi
+  for (const match of stripped.matchAll(doctrineEffect)) {
+    const offset = match.index ?? -1
+    const callable = match[1]
+    if (offset < 0 || callable === undefined || !isCode(offset)) continue
+    const matched = match[0] ?? ""
+    const receiver = matched.slice(0, matched.lastIndexOf("->"))
+    add({
+      chain: matched.slice(0, Math.max(0, matched.length - 1)),
+      receiver,
+      callable,
+      offset,
+      constructorCall: false,
+    })
+  }
+  return calls
 }
 
 const effectCallExpressionsFor = (source: string): readonly EffectCall[] => {
@@ -415,7 +512,8 @@ const effectCallExpressionsFor = (source: string): readonly EffectCall[] => {
       constructorCall,
     })
   }
-  return calls
+  return [...calls, ...specialEffectCallsFor(source)]
+    .sort((left, right) => left.offset - right.offset || compareByteOrder(left.callable, right.callable))
 }
 const attributeCallFor = (source: string, offset: number): boolean => {
   const prefix = source.slice(0, offset)
@@ -743,6 +841,40 @@ const entityMutatorHasExternalEffect = (
     if (resolved === null || !entitySourcePath(resolved.targetClass.path)) return true
   }
   return false
+}
+const transientEntityMutationOnly = (
+  unit: SourceUnit,
+  authority: AuthorityGraph,
+  scope: EffectScope,
+): boolean => {
+  const source = withoutComments(unit.text.slice(scope.start, scope.end))
+  if (!/\b[A-Za-z_$][A-Za-z0-9_$]*\s*->\s*setTotalAnswered\s*\(/.test(source)) return false
+  if (!/\bfindAllTakenBySurvey\b/.test(source) || !/\b(?:surveysWithDepartment|globalSurveys)\b/.test(source)) return false
+  if (!/\b[A-Za-z_$][A-Za-z0-9_$]*\s*->\s*set[A-Z][A-Za-z0-9_]*\s*\(/.test(source)) return false
+  if (/\b(?:persist|flush|remove|delete|save|update|insert|upsert|executeStatement|transaction|commit)\s*\(/i.test(source)) return false
+  let setterCount = 0
+  for (const call of effectCallExpressionsFor(source)) {
+    if (call.constructorCall) continue
+    if (/^set[A-Z]/.test(call.callable)) {
+      setterCount += 1
+      const resolved = resolveEffectCall(authority, unit, call, scope.owner, scope.start)
+      if (resolved === null) {
+        if (call.callable !== "setTotalAnswered") return false
+      } else if (!entitySourcePath(resolved.targetClass.path)) return false
+      continue
+    }
+    const directEffect = effectClassForCallable(call.callable)
+    if (directEffect === "read_only") continue
+    if (directEffect !== null) return false
+    if (/^(?:get|find|findOne|findAll|is|has|check|ensure|render|count|empty|createForm|handleRequest|redirect|redirectToRoute|addFlash|getDoctrine|getRepository|getManager|getUser)$/i.test(call.callable)) continue
+    const resolved = resolveEffectCall(authority, unit, call, scope.owner, scope.start)
+    if (resolved === null) return false
+    const target = effectScopeForTarget(authority, resolved.targetClass, call.callable)
+    if (target === null) return false
+    const nested = effectEvidence(target.unit, authority, target.scope, new Set([resolved.symbol]))
+    if (nested.effects.some((effect) => effect !== "read_only")) return false
+  }
+  return setterCount > 0
 }
 
 const entryKindForPath = (path: string): CommandWriteDetails["entry_kind"] => {
@@ -1512,15 +1644,24 @@ const namespaceForClassFqn = (fqn: string | undefined): string | undefined => {
 }
 const resolveClassForPath = (authority: AuthorityGraph, path: string, name: string, namespace?: string): LanguageClass | undefined => {
   const aliases = authority.aliasesByPath.get(path)
-  const local = authority.classesByPath.get(path)?.find((item) => item.name === name || item.fqn === name)
-  if (local !== undefined) return local
-  if (name.startsWith("\\") || name.includes("\\")) {
-    return authority.classByName.get(name) ?? authority.classByName.get(name.replace(/^\\/, ""))
+  const classByName = (candidate: string): LanguageClass | undefined => {
+    const unqualified = candidate.replace(/^\\/, "")
+    const exact = authority.classByName.get(candidate) ?? authority.classByName.get(unqualified)
+    if (exact !== undefined) return exact
+    const implementation = unqualified.replace(/Interface$/, "")
+    return implementation === unqualified
+      ? undefined
+      : authority.classByName.get(implementation)
   }
+  const localClasses = authority.classesByPath.get(path) ?? []
+  const local = localClasses.find((item) => item.name === name || item.fqn === name)
+    ?? localClasses.find((item) => item.name === name.replace(/Interface$/, "") || item.fqn === name.replace(/Interface$/, ""))
+  if (local !== undefined) return local
+  if (name.startsWith("\\") || name.includes("\\")) return classByName(name)
   const alias = aliases?.get(name)
-  if (alias !== undefined) return authority.classByName.get(alias)
-  if (namespace !== undefined) return authority.classByName.get(`${namespace}\\${name}`)
-  return undefined
+  if (alias !== undefined) return classByName(alias)
+  if (namespace !== undefined) return classByName(`${namespace}\\${name}`)
+  return classByName(name)
 }
 const reachableClassFor = (authority: AuthorityGraph, item: LanguageClass | undefined): LanguageClass | undefined =>
   item !== undefined
@@ -1544,6 +1685,20 @@ const resolveEffectCall = (authority: AuthorityGraph, unit: SourceUnit, call: Ef
   if (call.constructorCall) {
     const item = reachableClassFor(authority, resolveClassForPath(authority, unit.path, call.chain, ownerNamespace))
     return item === undefined ? null : { symbol: `${item.fqn}::__construct`, targetClass: item }
+  }
+  const explicitTargetName = call.targetClassName ?? call.repositoryClassName
+  if (explicitTargetName !== undefined) {
+    const explicitTarget = reachableClassFor(authority, resolveClassForPath(authority, unit.path, explicitTargetName, ownerNamespace))
+    if (explicitTarget !== undefined && explicitTarget.methods.has(call.callable)) {
+      return { symbol: `${explicitTarget.fqn}::${call.callable}`, targetClass: explicitTarget }
+    }
+    if (call.repositoryClassName !== undefined) {
+      const entityName = explicitTargetName.replace(/^\\/, "").split("\\").at(-1) ?? explicitTargetName
+      const repositoryName = `${entityName}Repository`
+      const repository = [...authority.classByName.values()]
+        .find((candidate) => candidate.name === repositoryName && candidate.methods.has(call.callable) && reachableClassFor(authority, candidate) !== undefined)
+      if (repository !== undefined) return { symbol: `${repository.fqn}::${call.callable}`, targetClass: repository }
+    }
   }
   const receiver = call.receiver
   if (receiver === null) return null
@@ -1699,6 +1854,7 @@ const parseCommandUnits = (context: ManifestContext, authority: "legacy" | "mono
         const selectedScope: EffectScope = selected === undefined ? classScope : { owner: ownerClass, start: selected.start, end: selected.end, methodName: selected.name }
         if (selected !== undefined) {
           const selectedEvidence = effectEvidence(unit, authorityGraph, selectedScope)
+          if (transientEntityMutationOnly(unit, authorityGraph, selectedScope)) continue
           if (entitySourcePath(unit.path) && /^set[A-Z]/.test(selected.name) && !entityMutatorHasExternalEffect(unit, authorityGraph, selectedScope, selectedEvidence)) continue
         }
         const selectedMethod = selected === undefined ? null : normalizeSafe(selected.name, "symbol", reasons)
@@ -1709,6 +1865,7 @@ const parseCommandUnits = (context: ManifestContext, authority: "legacy" | "mono
         for (const methodScope of methods) {
           const scope: EffectScope = { owner: ownerClass, start: methodScope.start, end: methodScope.end, methodName: methodScope.name }
           const evidence = effectEvidence(unit, authorityGraph, scope)
+          if (transientEntityMutationOnly(unit, authorityGraph, scope)) continue
           if (entitySourcePath(unit.path) && /^set[A-Z]/.test(methodScope.name) && !entityMutatorHasExternalEffect(unit, authorityGraph, scope, evidence)) continue
           const methodEffect = effectClassForCallable(methodScope.name)
           if (!hasPositiveEffect(evidence.effects) && (methodEffect === null || methodEffect === "read_only")) continue
@@ -1815,7 +1972,7 @@ const semanticNamespaceRole = (receiver: string): string | null => {
   if (segments.includes("Repository")) return "repository"
   if (segments.includes("Command")) return "command"
   if (segments.includes("EventSubscriber") || segments.includes("Subscriber") || segments.includes("Event")) return "event"
-  if (segments.includes("Service") || segments.includes("Infrastructure")) return "service"
+  if (segments.includes("Service") || segments.includes("Infrastructure") || segments.includes("Mailer") || segments.includes("Sms") || segments.includes("Google")) return "service"
   if (segments.includes("Domain")) return "domain"
   return null
 }
@@ -1830,8 +1987,13 @@ const semanticTargetRef = (target: string): string => {
   const shortReceiver = receiver.split("\\").at(-1)
   if (shortReceiver === undefined) return target
   const role = semanticNamespaceRole(receiver)
-  return role === null ? `${shortReceiver}::${callable}` : `${role}/${shortReceiver}::${callable}`
+  const normalizedReceiver = shortReceiver.replace(/Interface$/, "")
+  return role === null ? `${normalizedReceiver}::${callable}` : `${role}/${normalizedReceiver}::${callable}`
 }
+
+const crossLineTargetIgnored = (target: string): boolean =>
+  /^service\/UserService::getCurrent(?:ProfilePicture|User|UserNameAndDepartment)$/.test(target)
+  || /^domain\/RoleHierarchy::(?:isValidRole|userIsGranted)$/.test(target)
 
 type CommandMatchMode = "legacy" | "extended" | "none"
 
@@ -1863,7 +2025,9 @@ const commandCrossLineKey = (row: InventoryRow): string | null => {
       details.effect_classes,
     ])
   }
-  const semanticTargets = details.target_refs.map(semanticTargetRef)
+  const semanticTargets = details.target_refs
+    .map(semanticTargetRef)
+    .filter((target) => !crossLineTargetIgnored(target))
   const slackRenameCandidate = owner === "SlackMessenger" && (method === "send" || method === "sendPayload")
   const slackEffectEvidence =
     details.effect_classes.includes("outbound")
