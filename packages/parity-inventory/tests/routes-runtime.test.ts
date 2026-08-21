@@ -119,7 +119,7 @@ describe("authoritative Symfony route runtime falsifiers", () => {
     const result = reconcileRuntimeRouteRows(
       "rev-mono",
       [{ ...apiStatic, details: { ...apiDetails, declaration_kind: "api_platform", route_origin: "api_platform" } }],
-      [{ routeName: "_api_/things_get", pathTemplate: "/api/things", methods: ["GET"] }],
+      [{ routeName: "_api_/things_get", pathTemplate: "/api/things", methods: ["GET", "HEAD"] }],
       runtimeObservation("available"),
       "source-runtime",
     )
@@ -135,6 +135,30 @@ describe("authoritative Symfony route runtime falsifiers", () => {
     )
     expect(controller.rows).toHaveLength(2)
     expect(controller.rows.every((row) => row.status === "changed")).toBe(true)
+  })
+
+  test("API Platform HEAD derivations collapse into the declared GET and vendor routes stay classified", () => {
+    const apiStatic = staticRouteRow("covered", "GET", "/things", "_api_/things_get")
+    const apiDetails = apiStatic.details as MonoRouteDetails
+    const apiResult = reconcileRuntimeRouteRows(
+      "rev-mono",
+      [{ ...apiStatic, details: { ...apiDetails, declaration_kind: "api_platform", route_origin: "api_platform" } }],
+      [{ routeName: "_api_/things_get", pathTemplate: "/api/things", methods: ["GET", "HEAD"] }],
+      runtimeObservation("available"),
+      "source-runtime",
+    )
+    expect(apiResult.rows).toHaveLength(1)
+    expect(apiResult.rows[0]).toMatchObject({ status: "covered", details: { method: "GET", route_origin: "api_platform" } })
+
+    const vendorResult = reconcileRuntimeRouteRows(
+      "rev-mono",
+      [],
+      [{ routeName: "api_doc", pathTemplate: "/api/docs.{_format}", methods: ["GET", "HEAD"] }],
+      runtimeObservation("available"),
+      "source-runtime",
+    )
+    expect(vendorResult.rows).toHaveLength(2)
+    expect(vendorResult.rows.every((row) => row.status === "extra" && (row.details as MonoRouteDetails).route_origin === "vendor")).toBe(true)
   })
 
   test("unconstrained runtime methods normalize to ANY", () => {

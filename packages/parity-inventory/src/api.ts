@@ -121,6 +121,51 @@ const H3_COLLECTOR_PATH = "evidence/security-h3/0015/route-collector.json"
 const H3_ROUTE_PATH = "evidence/security-h3/0015/current-route-inventory.json"
 const H3_RESOURCE_PATH = "evidence/security-h3/0015/current-resource-inventory.json"
 const API_PLATFORM_PREFIX = "/api"
+const GENERATED_API_PLATFORM_OPERATION_SUFFIXES: Readonly<Record<string, string>> = {
+  get: "GET",
+  get_collection: "GET_COLLECTION",
+  head: "GET",
+  head_collection: "GET_COLLECTION",
+  post: "POST",
+  put: "PUT",
+  patch: "PATCH",
+  delete: "DELETE",
+  options: "OPTIONS",
+}
+const GENERATED_API_PLATFORM_OPERATION_PATTERN = /^_api_(.*)_(get_collection|head_collection|get|head|post|put|patch|delete|options)$/i
+
+const generatedApiPlatformRouteParts = (
+  value: string | null,
+  prefix: string = API_PLATFORM_PREFIX,
+): { readonly path: string; readonly operation: string } | null => {
+  if (value === null) return null
+  const normalized = normalizeScalar(value)
+  if (normalized === null) return null
+  const match = GENERATED_API_PLATFORM_OPERATION_PATTERN.exec(normalized)
+  if (match === null) return null
+  const rawPath = match[1]
+  const rawOperation = match[2]?.toLowerCase()
+  if (rawPath === undefined || rawOperation === undefined) return null
+  const path = canonicalApiPlatformPath(rawPath, prefix)
+  const operation = GENERATED_API_PLATFORM_OPERATION_SUFFIXES[rawOperation]
+  return path === null || operation === undefined ? null : { path, operation }
+}
+
+export const isApiPlatformGeneratedRouteName = (value: string | null): boolean => generatedApiPlatformRouteParts(value) !== null
+
+export const canonicalApiPlatformRouteName = (
+  value: string | null,
+  prefix: string = API_PLATFORM_PREFIX,
+): string | null => {
+  if (value === null) return null
+  const normalized = normalizeScalar(value)
+  if (normalized === null) return null
+  const generated = generatedApiPlatformRouteParts(normalized, prefix)
+  return generated === null
+    ? normalized
+    : canonicalJson(["api_platform_route", generated.path, generated.operation])
+}
+
 export const canonicalApiPlatformPath = (
   value: string | null,
   prefix: string = API_PLATFORM_PREFIX,
@@ -147,6 +192,7 @@ const apiPlatformPrefixFromSource = (context: ManifestContext): string | null =>
     const apiPlatform = (root as Record<string, unknown>).api_platform
     if (apiPlatform === null || typeof apiPlatform !== "object" || Array.isArray(apiPlatform)) return null
     const rawPrefix = (apiPlatform as Record<string, unknown>).prefix
+    if (rawPrefix === undefined) return API_PLATFORM_PREFIX
     const prefix = typeof rawPrefix === "string" ? sanitizeScalar(rawPrefix, "route_path") : null
     return prefix === null ? null : canonicalApiPlatformPath(prefix, "/")
   } catch {
@@ -682,7 +728,7 @@ const runtimeOperationFromUnknown = (value: unknown): RuntimeOperation | null =>
   const method = normaliseMethod(methodValue)
   const pathValue = candidate.uri_template ?? candidate.path_template ?? candidate.path
   const uriTemplate = typeof pathValue === "string" ? sanitizeScalar(pathValue, "route_path") : null
-  const operationIdValue = candidate.operation_id ?? candidate.operationId ?? candidate.name
+  const operationIdValue = candidate.operation_id ?? candidate.operationId
   const operationNameValue = candidate.operation_name ?? candidate.operationName ?? candidate.operation
   const resourceClassValue = candidate.resource_class_ref ?? candidate.resourceClassRef ?? candidate.resource_class
   const resourceKeyValue = candidate.resource_key ?? candidate.resourceKey
@@ -1065,6 +1111,18 @@ const declaredUriMatchesRuntime = (
   return canonicalApiPlatformPath(declared, prefix) === canonicalApiPlatformPath(runtime, prefix)
 }
 
+const declaredOperationIdMatchesRuntime = (
+  declared: string | null,
+  runtime: string | null,
+  prefix: string | null = API_PLATFORM_PREFIX,
+): boolean => {
+  if (declared === null) return true
+  if (runtime === null) return false
+  if (declared === runtime) return true
+  if (!isApiPlatformGeneratedRouteName(declared) || !isApiPlatformGeneratedRouteName(runtime)) return false
+  return canonicalApiPlatformRouteName(declared, prefix ?? "/") === canonicalApiPlatformRouteName(runtime, prefix ?? "/")
+}
+
 const sameOperation = (
   left: Pick<ApiDeclaration, "resourceClassRef" | "method" | "uriTemplate" | "operationId" | "operationName">,
   right: RuntimeOperation,
@@ -1074,21 +1132,42 @@ const sameOperation = (
   left.operationName === right.operationName &&
   declaredValueMatchesRuntime(left.method, right.method) &&
   declaredUriMatchesRuntime(left.uriTemplate, right.uriTemplate, apiPrefix) &&
-  declaredValueMatchesRuntime(left.operationId, right.operationId)
+  declaredOperationIdMatchesRuntime(left.operationId, right.operationId, apiPrefix)
 const sameOperationObservations = (left: Pick<ApiDeclaration, "resourceKey" | "providerRef" | "processorRef" | "schemaRef">, right: RuntimeOperation): boolean =>
   declaredValueMatchesRuntime(left.resourceKey, right.resourceKey) &&
   declaredValueMatchesRuntime(left.providerRef, right.providerRef) &&
   declaredValueMatchesRuntime(left.processorRef, right.processorRef) &&
   declaredValueMatchesRuntime(left.schemaRef, right.schemaRef)
+
+const operationMatchScore = (
+  left: Pick<ApiDeclaration, "resourceClassRef" | "method" | "uriTemplate" | "operationId" | "operationName" | "resourceKey" | "providerRef" | "processorRef" | "schemaRef">,
+  right: RuntimeOperation,
+  apiPrefix: string | null,
+): number | null => {
+  if (left.resourceClassRef !== right.resourceClassRef || left.operationName !== right.operationName) return null
+  let score = 0
+  if (left.method !== null && left.method !== right.method) score += 4
+  if (left.uriTemplate !== null && !declaredUriMatchesRuntime(left.uriTemplate, right.uriTemplate, apiPrefix)) score += 4
+  if (left.operationId !== null && !declaredOperationIdMatchesRuntime(left.operationId, right.operationId, apiPrefix)) score += 4
+  if (left.resourceKey !== null && !declaredValueMatchesRuntime(left.resourceKey, right.resourceKey)) score += 2
+  if (left.providerRef !== null && !declaredValueMatchesRuntime(left.providerRef, right.providerRef)) score += 2
+  if (left.processorRef !== null && !declaredValueMatchesRuntime(left.processorRef, right.processorRef)) score += 2
+  if (left.schemaRef !== null && !declaredValueMatchesRuntime(left.schemaRef, right.schemaRef)) score += 2
+  return score
+}
 const runtimeApiRouteKey = (
   routeName: string | null,
   method: string | null,
   path: string | null,
   prefix: string | null,
 ): string | null => {
-  if (routeName === null || method === null || prefix === null) return null
-  const canonicalPath = canonicalApiPlatformPath(path, prefix)
-  return canonicalPath === null ? null : canonicalJson([routeName, method, canonicalPath])
+  if (routeName === null || method === null) return null
+  const effectivePrefix = prefix ?? "/"
+  const canonicalPath = canonicalApiPlatformPath(path, effectivePrefix)
+  const canonicalName = canonicalApiPlatformRouteName(routeName, effectivePrefix)
+  if (canonicalPath === null || canonicalName === null) return null
+  const canonicalMethod = isApiPlatformGeneratedRouteName(routeName) && method === "HEAD" ? "GET" : method
+  return canonicalJson([canonicalName, canonicalMethod, canonicalPath])
 }
 
 interface ApiPlatformRouteReconciliation {
@@ -1457,9 +1536,11 @@ const validOpenApiDocument = (value: unknown): ValidOpenApiDocument | null => {
 }
 
 const projectedOpenApiPath = (path: string): string => {
-  if (path === "/api" || path.startsWith("/api/")) return path
-  if (path === "/") return "/api"
-  return `/api${path.startsWith("/") ? path : `/${path}`}`
+  const normalized = normalizePath(path) ?? path
+  const canonical = normalized.replaceAll(".{_format}", "{._format}")
+  if (canonical === "/api" || canonical.startsWith("/api/")) return canonical
+  if (canonical === "/") return "/api"
+  return `/api${canonical.startsWith("/") ? canonical : `/${canonical}`}`
 }
 const safeSchema = (value: unknown, depth = 0): unknown => {
   if (depth > 12 || value === null || typeof value !== "object" || Array.isArray(value)) return null
@@ -1801,17 +1882,19 @@ const addH3Edges = (context: ManifestContext, rows: readonly InventoryRow[], rou
       if (artifact.kind === "resource") {
         const exactMatches = apiRows.filter((row) => {
           const details = row.details as ApiOperationDetails
-          return details.resource_class_ref === operation.resourceClassRef && details.operation_name === operation.operationName && details.method !== null && methods.includes(details.method) && details.uri_template === pathTemplate
+          const uriTemplate = details.uri_template === null ? null : h3Path(details.uri_template)
+          return details.resource_class_ref === operation.resourceClassRef && details.operation_name === operation.operationName && details.method !== null && methods.includes(details.method) && uriTemplate === pathTemplate
         })
         const sourceMatches = exactMatches.length === 0
           ? apiRows.filter((row) => {
               if (!row.observation_kinds.includes("static_source") || !sharesH3Source(context, row, refs)) return false
               const details = row.details as ApiOperationDetails
+              const uriTemplate = details.uri_template === null ? null : h3Path(details.uri_template)
               return details.resource_class_ref === operation.resourceClassRef &&
                 details.operation_name === operation.operationName &&
                 details.method !== null &&
                 methods.includes(details.method) &&
-                (details.uri_template === null || details.uri_template === pathTemplate)
+                (uriTemplate === null || uriTemplate === pathTemplate)
             })
           : []
         const matched = exactMatches.length > 0 ? exactMatches : sourceMatches.length === 1 ? sourceMatches : []
@@ -1915,10 +1998,39 @@ export const collectApiOperations = (context: ManifestContext, sourceManifestSha
   for (const staticRow of staticRows) {
     const declaration = parsed.declarations.find((candidate) => rowId("api_operation", declarationId("mono", "mono", candidate.logicalPath, "api_operation", candidate.ordinal), apiCanonicalKey(candidate)) === staticRow.row_id)
     if (declaration === undefined) continue
-    const exactRuntimeIndex = runtime.operations.findIndex((operation, index) => !runtimeUsed.has(index) && sameOperation(declaration, operation, apiPrefix))
-    const runtimeIndex = exactRuntimeIndex >= 0
-      ? exactRuntimeIndex
-      : runtime.operations.findIndex((operation, index) => !runtimeUsed.has(index) && operation.resourceClassRef === declaration.resourceClassRef && operation.operationName === declaration.operationName)
+    let exactRuntimeIndex = -1
+    let exactScore = Number.POSITIVE_INFINITY
+    let exactAmbiguous = false
+    let fallbackRuntimeIndex = -1
+    let fallbackScore = Number.POSITIVE_INFINITY
+    let fallbackAmbiguous = false
+    for (const [index, operation] of runtime.operations.entries()) {
+      if (runtimeUsed.has(index)) continue
+      const score = operationMatchScore(declaration, operation, apiPrefix)
+      if (score === null) continue
+      if (score < fallbackScore) {
+        fallbackRuntimeIndex = index
+        fallbackScore = score
+        fallbackAmbiguous = false
+      } else if (score === fallbackScore) {
+        fallbackAmbiguous = true
+      }
+      if (!sameOperation(declaration, operation, apiPrefix)) continue
+      if (score < exactScore) {
+        exactRuntimeIndex = index
+        exactScore = score
+        exactAmbiguous = false
+      } else if (score === exactScore) {
+        exactAmbiguous = true
+      }
+    }
+    const runtimeIndex = exactAmbiguous
+      ? -1
+      : exactRuntimeIndex >= 0
+        ? exactRuntimeIndex
+        : fallbackAmbiguous
+          ? -1
+          : fallbackRuntimeIndex
     if (runtimeIndex < 0) {
       const index = rows.findIndex((row) => row.row_id === staticRow.row_id)
       rows[index] = { ...staticRow, status: "unresolved", mismatch: mismatch("unresolved", [], runtime.observation.availability === "available" ? "RUNTIME_OPERATION_UNRESOLVED" : "RUNTIME_UNAVAILABLE"), reason_codes: sortUnique([...staticRow.reason_codes, runtime.observation.availability === "available" ? "RUNTIME_OPERATION_UNRESOLVED" : "RUNTIME_UNAVAILABLE"]) }

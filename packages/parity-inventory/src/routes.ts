@@ -14,7 +14,7 @@ import {
 } from "./canonical.js"
 import { addSourceReference, matchesLiteralPattern, readSourceText, sanitizeScalar, SOURCE_FAMILIES, unsafeScalarReason, type ManifestContext } from "./source-manifest.js"
 import { lineCommentEnd, skipPhpTrivia } from "./php-trivia.js"
-import { canonicalApiPlatformPath, routePayloadContainsUnsafe, runTrustedPhpCollector, recordRuntimeObservation, type CollectorRun } from "./api.js"
+import { canonicalApiPlatformPath, canonicalApiPlatformRouteName, isApiPlatformGeneratedRouteName, routePayloadContainsUnsafe, runTrustedPhpCollector, recordRuntimeObservation, type CollectorRun } from "./api.js"
 import type {
   CollectorExecutables,
   InventoryEnvelope,
@@ -937,6 +937,16 @@ const parseMono = (context: ManifestContext): { readonly declarations: RouteDecl
 
 const rowMismatch = (kind: Mismatch["kind"], counterpartRowIds: readonly string[], reason: string | null): Mismatch => ({ kind, disposition: "none", accepted_intent_ref_ids: [], counterpart_row_ids: sortUnique(counterpartRowIds), reason })
 
+const routeCanonicalKey = (
+  method: string | null,
+  pathTemplate: string | null,
+  routeName: string | null,
+  routeOrigin: RouteDeclaration["routeOrigin"],
+): string => {
+  if (routeOrigin !== "api_platform") return canonicalRouteKey(method, pathTemplate, routeName)
+  return canonicalRouteKey(method, canonicalApiPlatformPath(pathTemplate), canonicalApiPlatformRouteName(routeName))
+}
+
 const makeRows = (
   context: ManifestContext,
   declarations: readonly RouteDeclaration[],
@@ -955,7 +965,7 @@ const makeRows = (
     const declaredMethods = unconstrained ? ["ANY"] : declaration.methods
     const declarationIdentity = declarationId(authority, authority, declaration.logicalPath, declaration.declarationKind, declaration.ordinal)
     for (const method of methods) {
-      const canonicalKey = canonicalRouteKey(method, declaration.pathTemplate, declaration.routeName)
+      const canonicalKey = routeCanonicalKey(method, declaration.pathTemplate, declaration.routeName, declaration.routeOrigin)
       const rowIdentity = rowId(inventoryKind, declarationIdentity, canonicalKey)
       const reasonCodes = routeReasonCodes({
         pathTemplate: declaration.pathTemplate,
@@ -997,16 +1007,34 @@ const makeRows = (
   return rows
 }
 
-const runtimeRouteDetails = (route: RuntimeRoute, method: string | null, runtimeResolved = true): MonoRouteDetails => ({
-  declaration_kind: "unknown",
-  route_origin: "imported",
-  route_name: route.routeName,
-  path_template: route.pathTemplate,
-  method,
-  owner_ref: null,
-  runtime_resolved: runtimeResolved,
-  imported_from_ref: null,
-})
+const FRAMEWORK_GENERATED_ROUTE_NAMES: Readonly<Record<string, true>> = {
+  api_doc: true,
+  api_entrypoint: true,
+  api_errors: true,
+  api_genid: true,
+  api_jsonld_context: true,
+  api_validation_errors: true,
+  _api_validation_errors_hydra: true,
+  _api_validation_errors_jsonapi: true,
+  _api_validation_errors_problem: true,
+  liip_imagine_filter: true,
+  liip_imagine_filter_runtime: true,
+}
+
+const runtimeRouteDetails = (route: RuntimeRoute, method: string | null, runtimeResolved = true): MonoRouteDetails => {
+  const apiPlatform = isApiPlatformGeneratedRouteName(route.routeName)
+  const vendor = FRAMEWORK_GENERATED_ROUTE_NAMES[route.routeName] === true
+  return {
+    declaration_kind: apiPlatform ? "api_platform" : vendor ? "vendor_route" : "unknown",
+    route_origin: apiPlatform ? "api_platform" : vendor ? "vendor" : "imported",
+    route_name: route.routeName,
+    path_template: route.pathTemplate,
+    method,
+    owner_ref: null,
+    runtime_resolved: runtimeResolved,
+    imported_from_ref: null,
+  }
+}
 
 const makeRuntimeRows = (revisionRefId: string, runtime: RuntimeRouteCollection): InventoryRow[] => {
   const rows: InventoryRow[] = []
@@ -1016,7 +1044,7 @@ const makeRuntimeRows = (revisionRefId: string, runtime: RuntimeRouteCollection)
     for (const method of methods) {
       ordinal += 1
       const details = runtimeRouteDetails(route, method)
-      const canonicalKey = canonicalRouteKey(method, route.pathTemplate, route.routeName)
+      const canonicalKey = routeCanonicalKey(method, route.pathTemplate, route.routeName, details.route_origin)
       const declarationIdentity = declarationId("mono", "mono", ROUTE_CONSOLE_PATH, "runtime_route", ordinal)
       const rowIdentity = rowId("mono_route", declarationIdentity, canonicalKey)
       rows.push({
@@ -1049,25 +1077,46 @@ const routeDetailsComparable = (row: InventoryRow): Pick<MonoRouteDetails, "rout
   return { route_name: details.route_name, path_template: details.path_template, method: details.method, route_origin: details.route_origin }
 }
 
+const sameRouteName = (
+  left: Pick<MonoRouteDetails, "route_name" | "route_origin">,
+  right: Pick<MonoRouteDetails, "route_name" | "route_origin">,
+): boolean => {
+  if (left.route_name === right.route_name) return true
+  if (left.route_name === null || right.route_name === null || left.route_origin !== "api_platform") return false
+  if (!isApiPlatformGeneratedRouteName(left.route_name) || !isApiPlatformGeneratedRouteName(right.route_name)) return false
+  return canonicalApiPlatformRouteName(left.route_name) === canonicalApiPlatformRouteName(right.route_name)
+}
+
 const sameRoutePath = (
   left: Pick<MonoRouteDetails, "path_template" | "route_origin">,
   right: Pick<MonoRouteDetails, "path_template" | "route_origin">,
 ): boolean => {
   if (left.path_template === right.path_template) return true
-  if (left.route_origin !== "api_platform" && right.route_origin !== "api_platform") return false
+  if (left.route_origin !== "api_platform") return false
   return canonicalApiPlatformPath(left.path_template) === canonicalApiPlatformPath(right.path_template)
 }
+
+const sameRouteMethod = (
+  left: Pick<MonoRouteDetails, "method" | "route_origin">,
+  right: Pick<MonoRouteDetails, "method" | "route_origin">,
+): boolean => {
+  if (left.method === right.method) return true
+  return left.route_origin === "api_platform" && left.method === "GET" && right.method === "HEAD"
+}
+
+const sameRouteIdentity = (left: MonoRouteDetails, right: MonoRouteDetails): boolean =>
+  sameRouteName(left, right) && sameRoutePath(left, right)
 
 const sameRouteObservation = (left: InventoryRow, right: InventoryRow): boolean => {
   const a = routeDetailsComparable(left)
   const b = routeDetailsComparable(right)
-  return a.route_name === b.route_name && sameRoutePath(a, b) && a.method === b.method
+  return sameRouteIdentity(a, b) && sameRouteMethod(a, b)
 }
 
 const routeNameMatches = (left: InventoryRow, right: InventoryRow): boolean => {
   const a = routeDetailsComparable(left)
   const b = routeDetailsComparable(right)
-  return a.route_name !== null && a.route_name === b.route_name
+  return a.route_name !== null && sameRouteName(a, b)
 }
 
 const reconcileRuntimeRoutes = (
@@ -1116,6 +1165,15 @@ const reconcileRuntimeRoutes = (
         reason_codes: reasonCodes,
         related_row_ids: [],
         details: { ...staticDetails, runtime_resolved: true },
+      }
+      if (staticDetails.route_origin === "api_platform" && staticDetails.method === "GET") {
+        for (const [index, candidate] of runtimeRows.entries()) {
+          if (runtimeUsed.has(index)) continue
+          const candidateDetails = candidate.details as MonoRouteDetails
+          if (candidateDetails.method !== "HEAD" || !sameRouteIdentity(staticDetails, candidateDetails)) continue
+          runtimeUsed.add(index)
+          collapsedRuntimeRowIds.add(candidate.row_id)
+        }
       }
       collapsedRuntimeRowIds.add(runtimeRow.row_id)
       continue

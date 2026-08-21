@@ -1,7 +1,7 @@
 import { Effect } from "effect"
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
-import { collectApiOperations } from "../src/api.js"
+import { canonicalApiPlatformPath, canonicalApiPlatformRouteName, collectApiOperations } from "../src/api.js"
 import { collectRoutes } from "../src/routes.js"
 import { canonicalRouteKey, sha256 } from "../src/canonical.js"
 import { scanRootEffect } from "../src/runtime.js"
@@ -74,6 +74,7 @@ test("API Platform prefix reconciliation covers declared routes and retains gene
     const routeRows = routeCollection.mono.rows as InventoryRow[]
     routeRows.push(
       runtimeRoute("row-declared-route", "_api_/things_get", "/api/things", "GET"),
+      runtimeRoute("row-declared-head", "_api_/things_get", "/api/things", "HEAD"),
       runtimeRoute("row-generated-route", "_api_/things/{id}{._format}_get", "/api/things/{id}.{_format}", "GET"),
     )
     const result = collectApiOperations(
@@ -109,7 +110,8 @@ test("API Platform prefix reconciliation covers declared routes and retains gene
     const declared = result.h3RouteRows.find((row) => row.row_id === "row-declared-route")
     const generated = result.h3RouteRows.find((row) => row.row_id === "row-generated-route")
     expect(declared).toBeUndefined()
-    expect(routeRows.some((row) => row.row_id === "row-declared-route")).toBe(false)
+    expect(result.h3RouteRows.find((row) => row.row_id === "row-declared-head")).toBeUndefined()
+    expect(routeRows.some((row) => row.row_id === "row-declared-head")).toBe(false)
     expect(generated).toMatchObject({ status: "extra", reason_codes: ["RUNTIME_ONLY_SOURCE"] })
     const operationRows = result.rows.filter((row) => row.observation_kinds.includes("static_source"))
     expect(routeCollection.mono.rows.some((row) => row.row_id === "row-declared-route")).toBe(false)
@@ -121,4 +123,13 @@ test("API Platform prefix reconciliation covers declared routes and retains gene
   } finally {
     rmSync(directory, { recursive: true, force: true })
   }
+})
+
+test("API Platform generated route aliases normalize format, prefix, and HEAD derivation", () => {
+  expect(canonicalApiPlatformPath("/api/things.{_format}", "/api")).toBe("/things{._format}")
+  expect(canonicalApiPlatformPath("/things{._format}", "/api")).toBe("/things{._format}")
+  expect(canonicalApiPlatformRouteName("_api_/api/things.{_format}_head", "/api")).toBe(
+    canonicalApiPlatformRouteName("_api_/things{._format}_get", "/api"),
+  )
+  expect(canonicalApiPlatformRouteName("api_login", "/api")).toBe("api_login")
 })
