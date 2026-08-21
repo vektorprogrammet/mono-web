@@ -38,11 +38,11 @@ describe("runtime evidence register", () => {
     expect(bytes).not.toContain("/tmp/")
     expect(decodeRuntimeEvidenceRegister(JSON.parse(bytes))).toEqual(register)
   })
-  test("accepts content-addressed identifiers with decimal segments", () => {
+  test("accepts exact content-addressed revision identifiers", () => {
     const numeric = makeRuntimeEvidenceReceipt({
       ...receiptInput,
-      legacy_revision_ref_id: "rev-legacy-1234567890",
-      mono_revision_ref_id: "rev-mono-9876543210",
+      legacy_revision_ref_id: `rev-legacy-${"0123456789abcdef".repeat(3).slice(0, 40)}`,
+      mono_revision_ref_id: `rev-mono-${"0123456789abcdef".repeat(4)}`,
       runner_source_ref_ids: [`src-${"0123456789abcdef".repeat(4)}`],
     })
     expect(decodeRuntimeEvidenceRegister(JSON.parse(canonicalRuntimeEvidenceBytes(makeRuntimeEvidenceRegister([numeric])))).receipts[0]).toEqual(numeric)
@@ -60,7 +60,7 @@ describe("runtime evidence register", () => {
     expect(() => assertSafeRuntimeEvidenceBytes(new TextEncoder().encode(`${valid}\n`))).toThrow("EVIDENCE_NOT_CANONICAL")
     const duplicate = valid.replace('"schema_version":"functional-parity-runtime-evidence/v1"', '"schema_version":"functional-parity-runtime-evidence/v1","schema_version":"functional-parity-runtime-evidence/v1"')
     expect(() => assertSafeRuntimeEvidenceBytes(new TextEncoder().encode(duplicate))).toThrow("EVIDENCE_DUPLICATE_KEY")
-    const unsafe = valid.replace('"step_ids":["assign-interview","load-applicant-list"]', '"step_ids":["step-123456789","load-applicant-list"]')
+    const unsafe = valid.replace('"mono_revision_ref_id":"rev-mono-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"', '"mono_revision_ref_id":"rev-mono-ghp_0123456789abcdef"')
     expect(tryDecodeRuntimeEvidenceRegister(JSON.parse(unsafe))).toEqual({ register: null, reason: "EVIDENCE_RECEIPT_INVALID" })
   })
 })

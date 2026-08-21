@@ -19,6 +19,7 @@ import { finalizeManifest, sourceDigestForManifest, type ManifestContext } from 
 import {
   createManifestContextEffect,
   ParityRuntimeError,
+  assertIndependentAuthorityRoots,
   readPinnedIntentRegisterEffect,
   readPinnedRuntimeEvidenceRegisterEffect,
   readProjectionDirectoryEffect,
@@ -538,6 +539,16 @@ export const generateFromRootsEffect = (options: RunOptions, fixtureRuntimeInput
       : options.evidenceRegisterPath === undefined
         ? yield* Effect.fail(new ParityRuntimeError({ operation: "runtime_evidence_authority", path: options.root, message: "--evidence-register is required for diff and write modes" }))
         : yield* readPinnedRuntimeEvidenceRegisterEffect(options.evidenceRegisterPath, options.legacyRoot, options.root, PROJECTION_DIRECTORY)
+    if (intentAuthority !== null && runtimeEvidenceAuthority !== null) {
+      yield* Effect.try({
+        try: () => assertIndependentAuthorityRoots(intentAuthority.authorityRoot, runtimeEvidenceAuthority.authorityRoot),
+        catch: (cause) => new ParityRuntimeError({
+          operation: "authority_separation",
+          path: options.evidenceRegisterPath ?? options.root,
+          message: cause instanceof Error ? cause.message : "intent and evidence authorities overlap",
+        }),
+      })
+    }
     const evidenceAuthority = runtimeEvidenceAuthority === null
       ? null
       : (() => {
@@ -1357,7 +1368,7 @@ const runTerminalStageEffect = (
       row.reason_codes.includes("ABSENT_SCHEDULE") ||
       (row.mismatch.kind === "absent" && row.mismatch.disposition !== "accepted_absent"),
     )
-    const evidenceRequired = generated.acceptedIntentRegister !== undefined
+    const evidenceRequired = options.mode !== "fixture_injection"
     const writeDenied = generated.intentAuthority === undefined || (evidenceRequired && generated.evidenceAuthority === undefined) || hasUnsafe || c2WriteBlocked || failures.length > 0 || !schemaValidation || !crossReferencesValid
     const forbiddenEmpty = (extraFailures: readonly ReportFailure[]): boolean => forbiddenStatesEmpty(inventories, generated.openapiReconciliation, extraFailures, crossReferencesValid)
     let report: ZeroGapReport
@@ -1545,8 +1556,10 @@ export const runTrustedFixtureTerminalCycle = (): Effect.Effect<{
     }),
     (workspace) => Effect.gen(function* () {
       const authority = createFixtureIntentAuthority(workspace)
+      const evidenceAuthority = createFixtureEvidenceAuthority(workspace)
       try {
         const pinned = yield* readPinnedIntentRegisterEffect(authority.path, workspace.legacyRoot, workspace.root, PROJECTION_DIRECTORY)
+        const pinnedEvidence = yield* readPinnedRuntimeEvidenceRegisterEffect(evidenceAuthority.path, workspace.legacyRoot, workspace.root, PROJECTION_DIRECTORY)
         const attachAuthority = (generated: GeneratedArtifacts): GeneratedArtifacts => ({
           ...generated,
           intentAuthority: {
@@ -1561,6 +1574,20 @@ export const runTrustedFixtureTerminalCycle = (): Effect.Effect<{
             relative_path: pinned.relativePath,
             bytes: pinned.bytes,
           },
+          evidenceAuthority: {
+            repository_ref: "external_runtime_evidence_authority",
+            authority_path: `authority://blob/${pinnedEvidence.blobOid}`,
+            revision_ref_id: pinnedEvidence.revisionRefId,
+            revision: pinnedEvidence.revision,
+            blob_oid: pinnedEvidence.blobOid,
+            digest: pinnedEvidence.digest,
+            immutable: true,
+            authority_root: pinnedEvidence.authorityRoot,
+            relative_path: pinnedEvidence.relativePath,
+            bytes: pinnedEvidence.bytes,
+            source_ref_ids: [],
+          },
+          runtimeEvidenceRegister: pinnedEvidence.register,
         })
         const collect = (options: RunOptions): Effect.Effect<GeneratedArtifacts, ParityRuntimeError> =>
           collectTrustedFixtureArtifacts(workspace, options.mode === "write" ? "write" : "diff").pipe(Effect.map(attachAuthority))

@@ -575,6 +575,24 @@ interface RuntimeEvidenceStepResolution {
   readonly successfulReceiptIds: readonly string[]
   readonly issues: readonly CoverageIssue[]
 }
+const runnerDigestForSources = (
+  manifest: SourceManifest,
+  sourceRefIds: readonly string[],
+): { readonly digest: string | null; readonly unavailable: readonly string[] } => {
+  const sourceById = new Map(manifest.sources.map((source) => [source.source_id, source]))
+  const unavailable = sourceRefIds.filter((sourceRefId) => {
+    const source = sourceById.get(sourceRefId)
+    return source === undefined || source.availability !== "available" || source.sha256 === null
+  })
+  if (unavailable.length > 0) return { digest: null, unavailable: sortUnique(unavailable) }
+  const pairs = sourceRefIds
+    .map((sourceRefId) => {
+      const source = sourceById.get(sourceRefId) as SourceManifest["sources"][number]
+      return [sourceRefId, source.sha256] as const
+    })
+    .sort(([left], [right]) => compareByteOrder(left, right))
+  return { digest: sha256(canonicalJson(pairs)), unavailable: [] }
+}
 
 const resolveRuntimeEvidence = (
   manifest: SourceManifest,
@@ -612,10 +630,13 @@ const resolveRuntimeEvidence = (
       !currentRevisionSet.has(receipt.mono_revision_ref_id)
     const unknownSteps = receipt.step_ids.filter((stepId) => !journeySteps.has(stepId))
     const unknownSources = receipt.runner_source_ref_ids.filter((sourceId) => !sourceIds.has(sourceId))
+    const runnerDigestResolution = runnerDigestForSources(manifest, receipt.runner_source_ref_ids)
     const receiptIssues: CoverageIssue[] = []
     if (stale) receiptIssues.push(issue("RUNTIME_EVIDENCE_STALE", "accepted_intent_invalid", [], unknownSources, []))
     if (unknownSteps.length > 0) receiptIssues.push(issue("RUNTIME_EVIDENCE_UNKNOWN_STEP", "unresolved", [], unknownSources, []))
     if (unknownSources.length > 0) receiptIssues.push(issue("RUNTIME_EVIDENCE_SOURCE_REF_MISSING", "unresolved", [], unknownSources, []))
+    if (runnerDigestResolution.unavailable.length > 0) receiptIssues.push(issue("RUNTIME_EVIDENCE_RUNNER_SOURCE_UNAVAILABLE", "unresolved", [], runnerDigestResolution.unavailable, []))
+    else if (runnerDigestResolution.digest !== receipt.runner_digest) receiptIssues.push(issue("RUNTIME_EVIDENCE_RUNNER_DIGEST_MISMATCH", "unresolved", [], receipt.runner_source_ref_ids, []))
     if (receipt.result === "failed") receiptIssues.push(issue("RUNTIME_EVIDENCE_FAILED", "gaps_found", [], unknownSources, []))
     let matchedStep = false
     for (const step of journey.steps) {
@@ -625,12 +646,13 @@ const resolveRuntimeEvidence = (
       const existing = resolutions.get(key)
       const existingReceiptIds = existing?.receiptIds ?? []
       const existingSuccessful = existing?.successfulReceiptIds ?? []
+      const receiptAccepted = receipt.result === "passed" && receiptIssues.length === 0
       resolutions.set(key, {
         step,
         receiptIds: sortUnique([...existingReceiptIds, ...(receiptIssues.some((entry) => entry.reasonCode === "RUNTIME_EVIDENCE_UNKNOWN_STEP") ? [] : [receipt.receipt_ref_id])]),
         successfulReceiptIds: sortUnique([
           ...existingSuccessful,
-          ...(receipt.result === "passed" && !stale && unknownSources.length === 0 && unknownSteps.length === 0 ? [receipt.receipt_ref_id] : []),
+          ...(receiptAccepted ? [receipt.receipt_ref_id] : []),
         ]),
         issues: [...(existing?.issues ?? []), ...receiptIssues],
       })

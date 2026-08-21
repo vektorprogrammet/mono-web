@@ -42,7 +42,31 @@ export const sanitizePlaywrightArtifact = (rawBytes) => {
     const rightText = JSON.stringify(right);
     return leftText < rightText ? -1 : leftText > rightText ? 1 : 0;
   });
+  const passed = tests.length > 0 &&
+    tests.every((spec) =>
+      spec.ok &&
+      spec.tests.length > 0 &&
+      spec.tests.every((test) => test.resultStatuses.length > 0 && test.resultStatuses.every((status) => status === "passed")));
+  if (!passed) throw new Error("Runtime evidence requires a non-empty passing Playwright report");
   return jsonBytes({ tests });
+};
+export const runtimeEvidenceOutcome = (sanitizedBytes) => {
+  let value;
+  try {
+    value = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(sanitizedBytes));
+  } catch {
+    throw new Error("Runtime evidence artifact is not valid sanitized JSON");
+  }
+  const tests = value && typeof value === "object" && Array.isArray(value.tests) ? value.tests : [];
+  const passed = tests.length > 0 &&
+    tests.every((spec) =>
+      spec && spec.ok === true &&
+      Array.isArray(spec.tests) && spec.tests.length > 0 &&
+      spec.tests.every((test) =>
+        test && Array.isArray(test.resultStatuses) && test.resultStatuses.length > 0 &&
+        test.resultStatuses.every((status) => status === "passed")));
+  if (!passed) throw new Error("Runtime evidence requires a non-empty passing Playwright report");
+  return { result: "passed", exit_code: 0 };
 };
 const sha256Bytes = (value) => `sha256:${createHash("sha256").update(value).digest("hex")}`;
 
@@ -65,7 +89,7 @@ export async function emitRuntimeEvidenceReceipt({
   journeyRefId,
   stepIds,
   fixtureId,
-  runnerInputBytes,
+  runnerSourceInputBytes,
   fixtureInputBytes,
   artifactBytes,
 }) {
@@ -87,17 +111,50 @@ export async function emitRuntimeEvidenceReceipt({
     .split(",")
     .map((value) => value.trim())
     .filter((value) => value.length > 0);
-  if (!JOURNEY_REF.test(journeyRefId)) throw new Error("Runtime evidence journey reference is malformed");
-  if (!REVISION_REF.test(legacyRevisionRefId) || !REVISION_REF.test(monoRevisionRefId)) {
-    throw new Error("Runtime evidence revision references are malformed");
+  const contentAddressedRevisionRef = /^rev-(?:legacy|mono)-(?:[a-f0-9]{40,64}|sha256:[a-f0-9]{64})$/;
+  const { unsafeScalarReason } = await import("../../../packages/parity-inventory/src/source-manifest.ts");
+  if (!JOURNEY_REF.test(journeyRefId) || unsafeScalarReason(journeyRefId, "journey_ref_id") !== null) {
+    throw new Error("Runtime evidence journey reference is malformed or unsafe");
   }
-  if (runnerSourceRefIds.length === 0 || runnerSourceRefIds.some((value) => !SOURCE_REF.test(value))) {
+  if (
+    !REVISION_REF.test(legacyRevisionRefId) ||
+    !REVISION_REF.test(monoRevisionRefId) ||
+    (!contentAddressedRevisionRef.test(legacyRevisionRefId) && unsafeScalarReason(legacyRevisionRefId, "legacy_revision_ref_id") !== null) ||
+    (!contentAddressedRevisionRef.test(monoRevisionRefId) && unsafeScalarReason(monoRevisionRefId, "mono_revision_ref_id") !== null)
+  ) {
+    throw new Error("Runtime evidence revision references are malformed or unsafe");
+  }
+  if (
+    runnerSourceRefIds.length === 0 ||
+    new Set(runnerSourceRefIds).size !== runnerSourceRefIds.length ||
+    runnerSourceRefIds.some((value) => !SOURCE_REF.test(value))
+  ) {
     throw new Error("Runtime evidence runner source references are malformed");
+  }
+  if (!Array.isArray(runnerSourceInputBytes) || runnerSourceInputBytes.length !== runnerSourceRefIds.length) {
+    throw new Error("Runtime evidence runner source inputs do not match source references");
+  }
+  const sourceInputs = new Map();
+  for (const input of runnerSourceInputBytes) {
+    if (input === null || typeof input !== "object" || !SOURCE_REF.test(input.sourceRefId)) {
+      throw new Error("Runtime evidence runner source input reference is malformed");
+    }
+    if (sourceInputs.has(input.sourceRefId)) throw new Error("Runtime evidence runner source inputs are duplicated");
+    sourceInputs.set(input.sourceRefId, asBytes(input.bytes, `runner source input ${input.sourceRefId}`));
+  }
+  if (sourceInputs.size !== runnerSourceRefIds.length || runnerSourceRefIds.some((sourceRefId) => !sourceInputs.has(sourceRefId))) {
+    throw new Error("Runtime evidence runner source inputs do not match source references");
   }
   const normalizedStepIds = [...new Set(stepIds)].sort();
   if (normalizedStepIds.length === 0 || normalizedStepIds.some((value) => typeof value !== "string" || value.length === 0)) {
     throw new Error("Runtime evidence step identifiers are malformed");
   }
+  const runnerDigestParts = [...sourceInputs.entries()]
+    .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
+    .map(([sourceRefId, bytes]) => [sourceRefId, sha256Bytes(bytes)]);
+  const runnerDigest = sha256Bytes(new TextEncoder().encode(JSON.stringify(runnerDigestParts)));
+  const sanitizedArtifactBytes = asBytes(artifactBytes, "sanitized artifact bytes");
+  const outcome = runtimeEvidenceOutcome(sanitizedArtifactBytes);
   const {
     canonicalRuntimeEvidenceBytes,
     makeRuntimeEvidenceReceipt,
@@ -109,12 +166,11 @@ export async function emitRuntimeEvidenceReceipt({
     legacy_revision_ref_id: legacyRevisionRefId,
     mono_revision_ref_id: monoRevisionRefId,
     runner_source_ref_ids: runnerSourceRefIds,
-    runner_digest: sha256Bytes(asBytes(runnerInputBytes, "runner input bytes")),
+    runner_digest: runnerDigest,
     fixture_digest: sha256Bytes(asBytes(fixtureInputBytes, `fixture input bytes for ${fixtureId}`)),
-    environment_kind: "local_disposable",
-    exit_code: 0,
-    result: "passed",
-    artifact_digest: sha256Bytes(asBytes(artifactBytes, "sanitized artifact bytes")),
+    exit_code: outcome.exit_code,
+    result: outcome.result,
+    artifact_digest: sha256Bytes(sanitizedArtifactBytes),
   });
   const bytes = canonicalRuntimeEvidenceBytes(makeRuntimeEvidenceRegister([receipt]));
   await mkdir(dirname(outputPath), { recursive: true });

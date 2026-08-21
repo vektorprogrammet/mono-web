@@ -134,6 +134,16 @@ export const assertAuthorityRootOwnership = (
       throw new Error("intent authority overlaps projection directory");
   }
 };
+export const assertIndependentAuthorityRoots = (intentAuthorityRoot: string, evidenceAuthorityRoot: string): void => {
+  const intent = canonicalExistingPath(intentAuthorityRoot)
+  const evidence = canonicalExistingPath(evidenceAuthorityRoot)
+  if (
+    pathContains(intent, evidence) ||
+    pathContains(evidence, intent) ||
+    sameFilesystemObject(intent, evidence)
+  )
+    throw new Error("intent and evidence authority checkouts overlap or alias")
+}
 
 export interface PinnedIntentRegister {
   readonly authorityRoot: string;

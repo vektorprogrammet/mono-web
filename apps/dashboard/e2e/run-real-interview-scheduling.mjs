@@ -154,7 +154,7 @@ function runCommand(command, args, options) {
     }, commandTimeoutMs);
     timeout.unref();
     child.once("error", (error) => settle(rejectCommand, error));
-    child.once("exit", (code, signal) => {
+    child.once(captureOutput ? "close" : "exit", (code, signal) => {
       if (code === 0) {
         settle(resolveCommand, captureOutput ? { stdout: Buffer.concat(stdoutChunks) } : undefined);
         return;
@@ -373,6 +373,7 @@ async function main() {
       ],
       { cwd: serverRoot, env: serverEnv },
     );
+    const fixtureInputBytes = await readFile(databasePath);
     await assertPortAvailable(8000);
 
     symfonyProcess = startProcess(
@@ -418,16 +419,22 @@ async function main() {
       { cwd: dashboardRoot, env: dashboardEnv, captureOutput: receiptRequested },
     );
     if (receiptRequested) {
-      const runnerInputBytes = Buffer.concat([
-        await readFile(fileURLToPath(new URL("./run-real-interview-scheduling.mjs", import.meta.url))),
-        await readFile(fileURLToPath(new URL("./real-interview-scheduling.spec.ts", import.meta.url))),
-      ]);
+      const runnerSourceInputBytes = [
+        {
+          sourceRefId: process.env.RUNTIME_EVIDENCE_RUNNER_SOURCE_REF_IDS?.split(",")[0]?.trim() ?? "",
+          bytes: await readFile(fileURLToPath(new URL("./run-real-interview-scheduling.mjs", import.meta.url))),
+        },
+        {
+          sourceRefId: process.env.RUNTIME_EVIDENCE_RUNNER_SOURCE_REF_IDS?.split(",")[1]?.trim() ?? "",
+          bytes: await readFile(fileURLToPath(new URL("./real-interview-scheduling.spec.ts", import.meta.url))),
+        },
+      ];
       await emitRuntimeEvidenceReceipt({
         journeyRefId,
         stepIds: journeyStepIds,
         fixtureId: "recruitment-interview-scheduling-0029",
-        runnerInputBytes,
-        fixtureInputBytes: await readFile(databasePath),
+        runnerSourceInputBytes,
+        fixtureInputBytes,
         artifactBytes: sanitizePlaywrightArtifact(e2eResult.stdout),
       });
     }

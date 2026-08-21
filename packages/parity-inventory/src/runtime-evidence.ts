@@ -14,8 +14,13 @@ const RECEIPT_REF = /^receipt-[a-f0-9]{64}$/
 const JOURNEY_REF = /^intent:\/\/[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/
 const STEP_REF = /^[A-Za-z0-9][A-Za-z0-9._:/#-]{0,127}$/
 const REVISION_REF = /^rev-[A-Za-z0-9:_-]{1,160}$/
+const CONTENT_ADDRESSED_REVISION_REF = /^rev-(?:legacy|mono)-(?:[a-f0-9]{40,64}|sha256:[a-f0-9]{64})$/
 const SOURCE_REF = /^src-[a-f0-9]{64}$/
 const DIGEST = /^sha256:[0-9a-f]{64}$/
+const safeIdentifier = (value: unknown, pattern: RegExp, field: string, contentAddressed = false): value is string =>
+  typeof value === "string" &&
+  pattern.test(value) &&
+  (contentAddressed || unsafeScalarReason(value, field) === null)
 
 export interface RuntimeEvidenceDecodeResult {
   readonly register: RuntimeEvidenceRegister | null
@@ -68,7 +73,6 @@ export const canonicalRuntimeEvidenceBytes = (register: RuntimeEvidenceRegister)
 
 const safeScalar = (value: unknown, pattern: RegExp, field: string): value is string =>
   typeof value === "string" && pattern.test(value) && unsafeScalarReason(value, field) === null
-const safeIdentifier = (value: unknown, pattern: RegExp): value is string => typeof value === "string" && pattern.test(value)
 
 const decodeReceipt = (value: unknown): RuntimeEvidenceReceipt | null => {
   if (value === null || typeof value !== "object" || Array.isArray(value)) return null
@@ -91,16 +95,16 @@ const decodeReceipt = (value: unknown): RuntimeEvidenceReceipt | null => {
   const stepIds = receipt.step_ids
   const sourceRefs = receipt.runner_source_ref_ids
   if (
-    !safeIdentifier(receipt.receipt_ref_id, RECEIPT_REF) ||
-    !safeIdentifier(receipt.journey_ref_id, JOURNEY_REF) ||
+    !safeIdentifier(receipt.receipt_ref_id, RECEIPT_REF, "receipt_ref_id", true) ||
+    !safeIdentifier(receipt.journey_ref_id, JOURNEY_REF, "journey_ref_id") ||
     !Array.isArray(stepIds) ||
     !stepIds.every((step) => safeScalar(step, STEP_REF, "journey_step")) ||
     new Set(stepIds).size !== stepIds.length ||
     stepIds.length === 0 ||
-    !safeIdentifier(receipt.legacy_revision_ref_id, REVISION_REF) ||
-    !safeIdentifier(receipt.mono_revision_ref_id, REVISION_REF) ||
+    !safeIdentifier(receipt.legacy_revision_ref_id, REVISION_REF, "legacy_revision_ref_id", typeof receipt.legacy_revision_ref_id === "string" && CONTENT_ADDRESSED_REVISION_REF.test(receipt.legacy_revision_ref_id)) ||
+    !safeIdentifier(receipt.mono_revision_ref_id, REVISION_REF, "mono_revision_ref_id", typeof receipt.mono_revision_ref_id === "string" && CONTENT_ADDRESSED_REVISION_REF.test(receipt.mono_revision_ref_id)) ||
     !Array.isArray(sourceRefs) ||
-    !sourceRefs.every((source) => safeIdentifier(source, SOURCE_REF)) ||
+    !sourceRefs.every((source) => safeIdentifier(source, SOURCE_REF, "runner_source_ref_id", true)) ||
     new Set(sourceRefs).size !== sourceRefs.length ||
     sourceRefs.length === 0 ||
     typeof receipt.runner_digest !== "string" ||
