@@ -1,3 +1,5 @@
+import { mkdtempSync, readFileSync, rmSync } from "node:fs"
+import { join } from "node:path"
 import {
   assertSafeRuntimeEvidenceBytes,
   canonicalRuntimeEvidenceBytes,
@@ -62,5 +64,50 @@ describe("runtime evidence register", () => {
     expect(() => assertSafeRuntimeEvidenceBytes(new TextEncoder().encode(duplicate))).toThrow("EVIDENCE_DUPLICATE_KEY")
     const unsafe = valid.replace('"mono_revision_ref_id":"rev-mono-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"', '"mono_revision_ref_id":"rev-mono-ghp_0123456789abcdef"')
     expect(tryDecodeRuntimeEvidenceRegister(JSON.parse(unsafe))).toEqual({ register: null, reason: "EVIDENCE_RECEIPT_INVALID" })
+  })
+  test("decodes the canonical bytes emitted by the browser receipt helper", async () => {
+    const outputDirectory = mkdtempSync("/tmp/runtime-evidence-emitted-")
+    const outputPath = join(outputDirectory, "runtime-evidence.json")
+    const sourceA = `src-${"0123456789abcdef".repeat(4)}`
+    const sourceB = `src-${"fedcba9876543210".repeat(4)}`
+    const names = [
+      "RUNTIME_EVIDENCE_RECEIPT_PATH",
+      "RUNTIME_EVIDENCE_LEGACY_REVISION_REF_ID",
+      "RUNTIME_EVIDENCE_MONO_REVISION_REF_ID",
+      "RUNTIME_EVIDENCE_RUNNER_SOURCE_REF_IDS",
+    ] as const
+    const previous = new Map(names.map((name) => [name, process.env[name]]))
+    try {
+      process.env.RUNTIME_EVIDENCE_RECEIPT_PATH = outputPath
+      process.env.RUNTIME_EVIDENCE_LEGACY_REVISION_REF_ID = `rev-legacy-sha256-${"a".repeat(64)}`
+      process.env.RUNTIME_EVIDENCE_MONO_REVISION_REF_ID = `rev-mono-sha256-${"b".repeat(64)}`
+      process.env.RUNTIME_EVIDENCE_RUNNER_SOURCE_REF_IDS = `${sourceA},${sourceB}`
+      const helper = await import("../../../apps/dashboard/e2e/runtime-evidence-receipt.mjs")
+      const artifactBytes = helper.sanitizePlaywrightArtifact(new TextEncoder().encode(JSON.stringify({
+        suites: [{ specs: [{ title: "accepted", ok: true, tests: [{ results: [{ status: "passed" }] }] }] }],
+      })))
+      const receiptRef = await helper.emitRuntimeEvidenceReceipt({
+        journeyRefId: "intent://journey:test:emitted-receipt:v1",
+        stepIds: ["emitted-step"],
+        fixtureId: "emitted-receipt-fixture",
+        runnerSourceInputBytes: [
+          { sourceRefId: sourceA, bytes: new TextEncoder().encode("runner") },
+          { sourceRefId: sourceB, bytes: new TextEncoder().encode("spec") },
+        ],
+        fixtureInputBytes: new TextEncoder().encode("fixture"),
+        artifactBytes,
+      })
+      const register = assertSafeRuntimeEvidenceBytes(new Uint8Array(readFileSync(outputPath)))
+      expect(register.receipts[0]?.receipt_ref_id).toBe(receiptRef)
+      expect(register.receipts[0]?.environment_kind).toBe("local_disposable")
+      expect(register.receipts[0]?.result).toBe("passed")
+    } finally {
+      for (const name of names) {
+        const value = previous.get(name)
+        if (value === undefined) delete process.env[name]
+        else process.env[name] = value
+      }
+      rmSync(outputDirectory, { recursive: true, force: true })
+    }
   })
 })

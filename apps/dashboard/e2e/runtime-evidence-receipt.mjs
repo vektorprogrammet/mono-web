@@ -167,6 +167,7 @@ export async function emitRuntimeEvidenceReceipt({
     mono_revision_ref_id: monoRevisionRefId,
     runner_source_ref_ids: runnerSourceRefIds,
     runner_digest: runnerDigest,
+    environment_kind: "local_disposable",
     fixture_digest: sha256Bytes(asBytes(fixtureInputBytes, `fixture input bytes for ${fixtureId}`)),
     exit_code: outcome.exit_code,
     result: outcome.result,
