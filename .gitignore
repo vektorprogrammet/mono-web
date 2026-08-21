@@ -42,7 +42,7 @@ lerna-debug.log*
 infra/alchemy/.alchemy/
 
 # PHP
-vendor/
+vendor
 
 # Testing
 coverage
