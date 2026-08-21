@@ -2170,8 +2170,8 @@ const commandMigrationOwner = (owner: string | null): string | null => {
 }
 const commandMigrationEffects = (migrationOwner: string, effects: readonly EffectClass[]): readonly EffectClass[] =>
   migrationOwner === "AssistantController" || migrationOwner === "ExistingUserAdmissionController"
-    ? sortUnique(effects.filter((effect) => effect !== "identity_or_authority"))
-    : sortUnique(effects)
+    ? sortUnique(effects.filter((effect) => effect !== "identity_or_authority")) as EffectClass[]
+    : sortUnique(effects) as EffectClass[]
 
 
 

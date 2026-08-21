@@ -7,7 +7,7 @@ import { collectRoutes } from "../src/routes.js"
 import { acceptedIntentRevisionRefId } from "../src/coverage.js"
 import { canonicalJson, sha256 } from "../src/canonical.js"
 import { SOURCE_FAMILIES, matchesLiteralPattern, sourceFamilyMatchedPaths } from "../src/source-manifest.js"
-import { COMMITTED_PROJECTIONS, PROJECTION_DIRECTORY, run, runTrustedFixtureTerminalCycle } from "../src/runner.js"
+import { COMMITTED_PROJECTIONS, PROJECTION_DIRECTORY, reportableFailureAfterDisposition, run, runTrustedFixtureTerminalCycle } from "../src/runner.js"
 import { canonicalRuntimeEvidenceBytes, makeRuntimeEvidenceReceipt, makeRuntimeEvidenceRegister } from "../src/runtime-evidence.js"
 import { createManifestContextFromSnapshots } from "../src/source-manifest.js"
 import { scanRootEffect } from "../src/runtime.js"
@@ -129,6 +129,25 @@ test("terminal pipeline reaches write14 then fresh post-commit diff0 with stable
   expect(cycle.diffReport.source_manifest_sha256).toBe(cycle.writeReport.source_manifest_sha256)
   expect(cycle.diffReport.inventory_artifact_sha256).toEqual(cycle.writeReport.inventory_artifact_sha256)
 })
+test("accepted dispositions remove their collected failures from the report", () => {
+  const failure = {
+    failure_id: "failure-original",
+    status: "gaps_found" as const,
+    reason_code: "EXTRA_COUNTERPART",
+    row_ids: ["row-accounted", "row-open"],
+    source_ref_ids: ["src-source"],
+    accepted_intent_ref_ids: [],
+  }
+  expect(reportableFailureAfterDisposition(failure, new Map<string, InventoryRow["status"]>([["row-accounted", "accounted"]]))).toMatchObject({
+    row_ids: ["row-open"],
+    reason_code: "EXTRA_COUNTERPART",
+  })
+  expect(reportableFailureAfterDisposition(failure, new Map<string, InventoryRow["status"]>([
+    ["row-accounted", "accounted"],
+    ["row-open", "accounted"],
+  ]))).toBeNull()
+})
+
 
 
 test("F13 retains an unknown effect with causal row and source attribution", async () => {

@@ -118,6 +118,17 @@ const buildFailure = (status: ReportFailure["status"], reasonCode: string, rowId
   source_ref_ids: sortUnique(sourceRefIds),
   accepted_intent_ref_ids: [],
 })
+export const reportableFailureAfterDisposition = (
+  failure: ReportFailure,
+  rowStatuses: ReadonlyMap<string, InventoryRow["status"]>,
+): ReportFailure | null => {
+  if (failure.row_ids.length === 0) return failure
+  const activeRowIds = failure.row_ids.filter((rowIdValue) => rowStatuses.get(rowIdValue) !== "accounted")
+  if (activeRowIds.length === 0) return null
+  return activeRowIds.length === failure.row_ids.length
+    ? failure
+    : buildFailure(failure.status, failure.reason_code, activeRowIds, failure.source_ref_ids)
+}
 
 const rowCounts = (inventories: readonly InventoryEnvelope[]): Record<string, number> => {
   const counts: Record<string, number> = {}
@@ -445,6 +456,7 @@ const generateFromContext = (
   externalIntegrations = coveredInventories[5] as InventoryEnvelope
   const inventories = [legacy, mono, api, commandWrites, scheduledBackgroundWorkflows, externalIntegrations, coverage.userJourneyCoverage]
   const allRows = inventories.flatMap((inventory) => inventory.rows)
+  const rowStatuses = new Map(allRows.map((row) => [row.row_id, row.status]))
   const reportMismatches = [...new Map([...reconciled.mismatches, ...reportMismatchesFromRows(allRows), ...(reconciliation.status === "stale" ? [{ kind: "openapi_stale" as const, row_ids: api.rows.map((row) => row.row_id), disposition: "none" as const, accepted_intent_ref_ids: [] as string[] }] : [])].map((entry) => [mismatchKey(entry), { ...entry, row_ids: sortUnique(entry.row_ids) }])).values()]
   const bytes = artifactBytes(manifest, legacy, mono, api, commandWrites, scheduledBackgroundWorkflows, externalIntegrations, coverage.userJourneyCoverage, reconciliation)
   const failures: ReportFailure[] = []
@@ -458,8 +470,14 @@ const generateFromContext = (
   const unclassified = manifest.root_census.filter((record) => record.classification === "unclassified")
   for (const record of unclassified) failures.push(buildFailure("unresolved", "UNCLASSIFIED_SOURCE", [], record.source_ref_ids))
   for (const failure of preliminary.failures) failures.push(buildFailure(failure.reason_code === "RUNTIME_UNAVAILABLE" || failure.reason_code.startsWith("COLLECTOR_") ? "runtime_unavailable" : failure.status === "source_unavailable" ? "source_unavailable" : "unresolved", failure.reason_code, [], [failure.source_ref_id]))
-  failures.push(...reportFailuresFromApi(preliminaryApi.failures))
-  failures.push(...preliminaryC2.failures.map((failure) => buildFailure(failure.status, failure.reasonCode, failure.rowIds, failure.sourceRefIds)))
+  for (const failure of reportFailuresFromApi(preliminaryApi.failures)) {
+    const reportable = reportableFailureAfterDisposition(failure, rowStatuses)
+    if (reportable !== null) failures.push(reportable)
+  }
+  for (const failure of preliminaryC2.failures) {
+    const reportable = reportableFailureAfterDisposition(buildFailure(failure.status, failure.reasonCode, failure.rowIds, failure.sourceRefIds), rowStatuses)
+    if (reportable !== null) failures.push(reportable)
+  }
   failures.push(...coverageFailuresAsReportFailures(coverage.issues))
   if (reconciliation.status === "stale") failures.push(buildFailure("stale", "STALE_OPENAPI_PROJECTION", api.rows.map((row) => row.row_id), []))
   if (reconciliation.status === "unresolved") failures.push(buildFailure("unresolved", "OPENAPI_RECONCILIATION_UNRESOLVED", api.rows.map((row) => row.row_id), []))

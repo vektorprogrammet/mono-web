@@ -1158,8 +1158,10 @@ const uniqueUnnamedRouteMatch = (
   return candidates.length === 1 ? candidates[0]?.index ?? -1 : -1
 }
 
-const sameRouteIdentity = (left: MonoRouteDetails, right: MonoRouteDetails): boolean =>
-  sameRouteName(left, right) && sameRoutePath(left, right)
+const sameRouteIdentity = (
+  left: Pick<MonoRouteDetails, "route_name" | "path_template" | "route_origin">,
+  right: Pick<MonoRouteDetails, "route_name" | "path_template" | "route_origin">,
+): boolean => sameRouteName(left, right) && sameRoutePath(left, right)
 
 const sameRouteObservation = (left: InventoryRow, right: InventoryRow): boolean => {
   const a = routeDetailsComparable(left)
