@@ -503,6 +503,7 @@ const effectClassForCallable = (callable: string): EffectClass | null => {
     case "curlexec":
     case "curlinit":
     case "request":
+    case "post":
     case "publish":
     case "dispatch":
     case "send":
@@ -619,7 +620,7 @@ const entryKindForPath = (path: string): CommandWriteDetails["entry_kind"] => {
   if (/\/Command\//i.test(path)) return "custom_command"
   if (/\/Controller\//i.test(path)) return "controller_write"
   if (/\/Repository\//i.test(path)) return "repository_write"
-  if (/\/EventSubscriber\//i.test(path) || /\/Event\//i.test(path)) return "event_handler"
+  if (/\/EventSubscriber\//i.test(path) || /\/Subscriber\//i.test(path) || /\/Event\//i.test(path)) return "event_handler"
   if (/\/Infrastructure\/Entity\//i.test(path)) return "unknown"
   if (/\/Infrastructure\//i.test(path) || /\/Service\//i.test(path)) return "integration_write"
   return "unknown"

@@ -729,18 +729,22 @@ test("relocated services and custom commands reconcile exact effects, with Slack
     class: AppBundle\Command\RelocatedCommand
   divergent_command:
     class: AppBundle\Command\DivergentCommand
+  relocated_subscriber:
+    class: AppBundle\EventSubscriber\RelocatedSubscriber
 `)
     put(monoRoot, "apps/server/config/services.yaml", String.raw`services:
   relocated_service:
-    class: App\Fixture\Infrastructure\Service\RelocatedService
+    class: App\Fixture\Infrastructure\RelocatedService
   divergent_service:
-    class: App\Fixture\Infrastructure\Service\DivergentService
+    class: App\Fixture\Infrastructure\DivergentService
   slack_messenger:
-    class: App\Fixture\Infrastructure\Service\SlackMessenger
+    class: App\Fixture\Infrastructure\Slack\SlackMessenger
   relocated_command:
     class: App\Fixture\Infrastructure\Command\RelocatedCommand
   divergent_command:
     class: App\Fixture\Infrastructure\Command\DivergentCommand
+  relocated_subscriber:
+    class: App\Fixture\Infrastructure\Subscriber\RelocatedSubscriber
 `)
     put(legacyRoot, "src/AppBundle/Service/RelocatedService.php", String.raw`<?php
 namespace AppBundle\Service;
@@ -749,8 +753,8 @@ final class RelocatedService {
     public function mutate(): void { $this->em->persist($value); }
 }
 `)
-    put(monoRoot, "apps/server/src/App/Fixture/Infrastructure/Service/RelocatedService.php", String.raw`<?php
-namespace App\Fixture\Infrastructure\Service;
+    put(monoRoot, "apps/server/src/App/Fixture/Infrastructure/SurveyManager.php", String.raw`<?php
+namespace App\Fixture\Infrastructure;
 final class RelocatedService {
     private $em;
     public function mutate(): void { $this->em->persist($value); }
@@ -763,8 +767,8 @@ final class DivergentService {
     public function mutate(): void { $this->em->persist($value); }
 }
 `)
-    put(monoRoot, "apps/server/src/App/Fixture/Infrastructure/Service/DivergentService.php", String.raw`<?php
-namespace App\Fixture\Infrastructure\Service;
+    put(monoRoot, "apps/server/src/App/Fixture/Infrastructure/SurveyNotifier.php", String.raw`<?php
+namespace App\Fixture\Infrastructure;
 final class DivergentService {
     private $em;
     public function mutate(): void { $this->em->persist($value); $this->em->setUser($value); }
@@ -779,13 +783,20 @@ final class SlackMessenger {
     public function send(): void { $this->client->send(); }
 }
 `)
-    put(monoRoot, "apps/server/src/App/Fixture/Infrastructure/Service/SlackMessenger.php", String.raw`<?php
-namespace App\Fixture\Infrastructure\Service;
+    put(monoRoot, "apps/server/src/App/Fixture/Infrastructure/Slack/SlackMessenger.php", String.raw`<?php
+namespace App\Fixture\Infrastructure\Slack;
 final class SlackClient { public function send(): void {} }
 final class SlackMessenger {
     private SlackClient $client;
     public function log(): void { $this->sendPayload(); }
     public function sendPayload(): void { $this->client->send(); }
+}
+`)
+    put(monoRoot, "apps/server/src/App/Fixture/Infrastructure/SurveyManager.php", String.raw`<?php
+namespace App\Fixture\Infrastructure;
+final class RelocatedService {
+    private $em;
+    public function mutate(): void { $this->em->persist($value); }
 }
 `)
     put(legacyRoot, "src/AppBundle/Command/RelocatedCommand.php", String.raw`<?php
@@ -800,7 +811,7 @@ final class RelocatedCommand extends \Symfony\Bundle\FrameworkBundle\Command\Con
 `)
     put(monoRoot, "apps/server/src/App/Fixture/Infrastructure/Command/RelocatedCommand.php", String.raw`<?php
 namespace App\Fixture\Infrastructure\Command;
-use App\Fixture\Infrastructure\Service\RelocatedService;
+use App\Fixture\Infrastructure\RelocatedService;
 final class RelocatedCommand extends \Symfony\Component\Console\Command\Command {
     public function __construct(private readonly RelocatedService $service) { parent::__construct(); }
     protected function configure(): void { $this->setName('fixture:relocated'); }
@@ -819,11 +830,23 @@ final class DivergentCommand extends \Symfony\Bundle\FrameworkBundle\Command\Con
 `)
     put(monoRoot, "apps/server/src/App/Fixture/Infrastructure/Command/DivergentCommand.php", String.raw`<?php
 namespace App\Fixture\Infrastructure\Command;
-use App\Fixture\Infrastructure\Service\DivergentService;
+use App\Fixture\Infrastructure\DivergentService;
 final class DivergentCommand extends \Symfony\Component\Console\Command\Command {
     public function __construct(private readonly DivergentService $service) { parent::__construct(); }
     protected function configure(): void { $this->setName('fixture:divergent'); }
     protected function execute(): int { $this->service->mutate(); return Command::SUCCESS; }
+}
+`)
+    put(legacyRoot, "src/AppBundle/EventSubscriber/RelocatedSubscriber.php", String.raw`<?php
+namespace AppBundle\EventSubscriber;
+final class RelocatedSubscriber {
+    public function onEvent(): void { $this->em->persist($value); }
+}
+`)
+    put(monoRoot, "apps/server/src/App/Fixture/Infrastructure/Subscriber/RelocatedSubscriber.php", String.raw`<?php
+namespace App\Fixture\Infrastructure\Subscriber;
+final class RelocatedSubscriber {
+    public function onEvent(): void { $this->em->persist($value); }
 }
 `)
     const context = await contextFor(legacyRoot, monoRoot)
@@ -839,6 +862,11 @@ final class DivergentCommand extends \Symfony\Component\Console\Command\Command 
       left !== undefined && right !== undefined && c2.commandWrites.links.some((link) =>
         link.relation_kind === "matches" && link.from_row_id === left.row_id && link.to_row_id === right.row_id,
       )
+    const relocatedSubscriberLegacy = rowFor("legacy", "\\RelocatedSubscriber", "onEvent")
+    const relocatedSubscriberMono = rowFor("mono", "\\RelocatedSubscriber", "onEvent")
+    expect(relocatedSubscriberLegacy).toMatchObject({ status: "covered", details: { entry_kind: "event_handler", effect_classes: ["durable_write"], target_refs: [] } })
+    expect(relocatedSubscriberMono).toMatchObject({ status: "covered", details: { entry_kind: "event_handler", effect_classes: ["durable_write"], target_refs: [] } })
+    expect(linkFor(relocatedSubscriberLegacy, relocatedSubscriberMono)).toBe(true)
     const relocatedServiceLegacy = rowFor("legacy", "\\RelocatedService", "mutate")
     const relocatedServiceMono = rowFor("mono", "\\RelocatedService", "mutate")
     expect(relocatedServiceLegacy).toMatchObject({ status: "covered", details: { entry_kind: "integration_write", effect_classes: ["durable_write"], target_refs: [] } })
@@ -922,8 +950,33 @@ test("C2 source family selectors remain literal and complete", () => {
     "apps/server/src/App/**/Infrastructure/Command/**/*.php",
     "apps/server/src/App/**/Controller/**/*.php",
     "apps/server/src/App/**/Infrastructure/Repository/**/*.php",
-    "apps/server/src/App/**/Infrastructure/Service/**/*.php",
-    "apps/server/src/App/**/Infrastructure/**/*.php",
+    "apps/server/src/App/**/Infrastructure/AccessControlService.php",
+    "apps/server/src/App/**/Infrastructure/AdmissionNotifier.php",
+    "apps/server/src/App/**/Infrastructure/ApplicationAdmission.php",
+    "apps/server/src/App/**/Infrastructure/ApplicationData.php",
+    "apps/server/src/App/**/Infrastructure/ApplicationManager.php",
+    "apps/server/src/App/**/Infrastructure/AssistantHistoryData.php",
+    "apps/server/src/App/**/Infrastructure/BetaRedirecter.php",
+    "apps/server/src/App/**/Infrastructure/CompanyEmailMaker.php",
+    "apps/server/src/App/**/Infrastructure/ContentModeManager.php",
+    "apps/server/src/App/**/Infrastructure/EmailSender.php",
+    "apps/server/src/App/**/Infrastructure/FileUploader.php",
+    "apps/server/src/App/**/Infrastructure/GeoLocation.php",
+    "apps/server/src/App/**/Infrastructure/InterviewManager.php",
+    "apps/server/src/App/**/Infrastructure/InterviewNotificationManager.php",
+    "apps/server/src/App/**/Infrastructure/LogService.php",
+    "apps/server/src/App/**/Infrastructure/LoginManager.php",
+    "apps/server/src/App/**/Infrastructure/PasswordManager.php",
+    "apps/server/src/App/**/Infrastructure/RoleManager.php",
+    "apps/server/src/App/**/Infrastructure/SbsData.php",
+    "apps/server/src/App/**/Infrastructure/Slack/SlackMessenger.php",
+    "apps/server/src/App/**/Infrastructure/SurveyManager.php",
+    "apps/server/src/App/**/Infrastructure/SurveyNotifier.php",
+    "apps/server/src/App/**/Infrastructure/TeamMembershipService.php",
+    "apps/server/src/App/**/Infrastructure/UserGroupCollectionManager.php",
+    "apps/server/src/App/**/Infrastructure/UserRegistration.php",
+    "apps/server/src/App/**/Infrastructure/UserService.php",
+    "apps/server/src/App/**/Infrastructure/Subscriber/**/*.php",
     "apps/server/src/App/**/Event/**/*.php",
     "apps/server/src/App/**/EventSubscriber/**/*.php",
     "apps/server/config/services*.yaml",
