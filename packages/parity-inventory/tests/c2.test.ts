@@ -495,7 +495,7 @@ test("routing roots establish controller write reachability", async () => {
     const legacyRow = c2.commandWrites.rows.find((candidate) =>
       "owner_ref" in candidate.details && candidate.details.owner_ref === "AppBundle\\Controller\\WriteController",
     )
-    expect(row).toMatchObject({ status: "extra", reason_codes: ["EXTRA_COUNTERPART"] })
+    expect(row).toMatchObject({ status: "covered", reason_codes: [] })
     expect(row?.reason_codes).not.toContain("DEAD_UNIMPORTED_SOURCE")
     expect(
       row?.source_ref_ids.map((ref) => context.sourcePathById.get(ref)?.path).sort(),
@@ -503,7 +503,7 @@ test("routing roots establish controller write reachability", async () => {
       "apps/server/config/routes.yaml",
       "apps/server/src/App/Controller/WriteController.php",
     ])
-    expect(legacyRow).toMatchObject({ status: "missing", reason_codes: ["MISSING_COUNTERPART"] })
+    expect(legacyRow).toMatchObject({ status: "covered", reason_codes: [] })
     expect(legacyRow?.reason_codes).not.toContain("DEAD_UNIMPORTED_SOURCE")
     expect(
       legacyRow?.source_ref_ids.map((ref) => context.sourcePathById.get(ref)?.path).sort(),
@@ -511,6 +511,82 @@ test("routing roots establish controller write reachability", async () => {
       "app/config/routing.yml",
       "src/AppBundle/Controller/WriteController.php",
     ])
+    expect(c2.commandWrites.links.some((link) =>
+      link.relation_kind === "matches" &&
+      link.from_row_id === legacyRow?.row_id &&
+      link.to_row_id === row?.row_id,
+    )).toBe(true)
+  } finally {
+    rmSync(legacyRoot, { recursive: true, force: true })
+    rmSync(monoRoot, { recursive: true, force: true })
+  }
+})
+test("relocated controller and event writes reconcile without rewriting authority details", async () => {
+  const legacyRoot = mkdtempSync("/tmp/parity-c2-relocated-legacy-")
+  const monoRoot = mkdtempSync("/tmp/parity-c2-relocated-mono-")
+  try {
+    put(legacyRoot, "app/config/services.yml", `services:
+  relocated_controller:
+    class: AppBundle\\Controller\\RelocatedController
+  relocated_subscriber:
+    class: AppBundle\\EventSubscriber\\RelocatedSubscriber
+  divergent_controller:
+    class: AppBundle\\Controller\\DivergentController
+  renamed_controller:
+    class: AppBundle\\Controller\\RenamedController
+`)
+    put(monoRoot, "apps/server/config/services.yaml", `services:
+  relocated_controller:
+    class: App\\Admissions\\Controller\\RelocatedController
+  relocated_subscriber:
+    class: App\\Admissions\\EventSubscriber\\RelocatedSubscriber
+  divergent_controller:
+    class: App\\Admissions\\Controller\\DivergentController
+  renamed_controller:
+    class: App\\Admissions\\Controller\\RenamedController
+`)
+    put(legacyRoot, "src/AppBundle/Controller/RelocatedController.php", "<?php\nnamespace AppBundle\\Controller;\nfinal class RelocatedController { private $em; public function updateAction(): void { $this->em->persist($value); } }\n")
+    put(monoRoot, "apps/server/src/App/Admissions/Controller/RelocatedController.php", "<?php\nnamespace App\\Admissions\\Controller;\nfinal class RelocatedController { private $em; public function updateAction(): void { $this->em->persist($value); } }\n")
+    put(legacyRoot, "src/AppBundle/EventSubscriber/RelocatedSubscriber.php", "<?php\nnamespace AppBundle\\EventSubscriber;\n#[AsEventListener]\nfinal class RelocatedSubscriber { public function __invoke(): void {} }\n")
+    put(monoRoot, "apps/server/src/App/Admissions/EventSubscriber/RelocatedSubscriber.php", "<?php\nnamespace App\\Admissions\\EventSubscriber;\n#[AsEventListener]\nfinal class RelocatedSubscriber { public function __invoke(): void {} }\n")
+    put(legacyRoot, "src/AppBundle/Controller/DivergentController.php", "<?php\nnamespace AppBundle\\Controller;\nfinal class DivergentController { private $em; public function updateAction(): void { $this->em->persist($value); } }\n")
+    put(monoRoot, "apps/server/src/App/Admissions/Controller/DivergentController.php", "<?php\nnamespace App\\Admissions\\Controller;\nfinal class DivergentController { private $em; public function updateAction(): void { $this->em->persist($value); $this->em->setUser($value); } }\n")
+    put(legacyRoot, "src/AppBundle/Controller/RenamedController.php", "<?php\nnamespace AppBundle\\Controller;\nfinal class RenamedController { private $em; public function createAction(): void { $this->em->persist($value); } }\n")
+    put(monoRoot, "apps/server/src/App/Admissions/Controller/RenamedController.php", "<?php\nnamespace App\\Admissions\\Controller;\nfinal class RenamedController { private $em; public function deleteAction(): void { $this->em->persist($value); } }\n")
+    const context = await contextFor(legacyRoot, monoRoot)
+    const c2 = collectC2(context, sha256("relocated-command-c2"))
+    const rows = c2.commandWrites.rows
+    const statusCounts = rows.reduce<Record<string, number>>((counts, row) => ({
+      ...counts,
+      [row.status]: (counts[row.status] ?? 0) + 1,
+    }), {})
+    expect(statusCounts).toEqual({ covered: 4, extra: 2, missing: 2 })
+    const rowFor = (owner: string, authority: "legacy" | "mono") => rows.find((row) =>
+      row.authority_line === authority && "owner_ref" in row.details && row.details.owner_ref === owner,
+    )
+    const relocatedLegacy = rowFor("AppBundle\\Controller\\RelocatedController", "legacy")
+    const relocatedMono = rowFor("App\\Admissions\\Controller\\RelocatedController", "mono")
+    const subscriberLegacy = rowFor("AppBundle\\EventSubscriber\\RelocatedSubscriber", "legacy")
+    const subscriberMono = rowFor("App\\Admissions\\EventSubscriber\\RelocatedSubscriber", "mono")
+    expect(relocatedLegacy).toMatchObject({ status: "covered", details: { entry_kind: "controller_write", symbol_ref: "AppBundle\\Controller\\RelocatedController::updateAction", effect_classes: ["durable_write"] } })
+    expect(relocatedMono).toMatchObject({ status: "covered", details: { entry_kind: "controller_write", symbol_ref: "App\\Admissions\\Controller\\RelocatedController::updateAction", effect_classes: ["durable_write"] } })
+    expect(subscriberLegacy).toMatchObject({ status: "covered", details: { entry_kind: "event_handler", symbol_ref: "AppBundle\\EventSubscriber\\RelocatedSubscriber::__invoke", effect_classes: ["read_only"] } })
+    expect(subscriberMono).toMatchObject({ status: "covered", details: { entry_kind: "event_handler", symbol_ref: "App\\Admissions\\EventSubscriber\\RelocatedSubscriber::__invoke", effect_classes: ["read_only"] } })
+    expect(relocatedLegacy?.row_id).not.toBe(relocatedMono?.row_id)
+    expect(relocatedLegacy?.source_ref_ids).not.toEqual(relocatedMono?.source_ref_ids)
+    expect(c2.commandWrites.links.some((link) =>
+      link.relation_kind === "matches" &&
+      link.from_row_id === relocatedLegacy?.row_id &&
+      link.to_row_id === relocatedMono?.row_id,
+    )).toBe(true)
+    const divergentLegacy = rowFor("AppBundle\\Controller\\DivergentController", "legacy")
+    const divergentMono = rowFor("App\\Admissions\\Controller\\DivergentController", "mono")
+    expect(divergentLegacy).toMatchObject({ status: "missing", details: { effect_classes: ["durable_write"] } })
+    expect(divergentMono).toMatchObject({ status: "extra", details: { effect_classes: ["durable_write", "identity_or_authority"] } })
+    const renamedLegacy = rowFor("AppBundle\\Controller\\RenamedController", "legacy")
+    const renamedMono = rowFor("App\\Admissions\\Controller\\RenamedController", "mono")
+    expect(renamedLegacy).toMatchObject({ status: "missing", details: { symbol_ref: "AppBundle\\Controller\\RenamedController::createAction" } })
+    expect(renamedMono).toMatchObject({ status: "extra", details: { symbol_ref: "App\\Admissions\\Controller\\RenamedController::deleteAction" } })
   } finally {
     rmSync(legacyRoot, { recursive: true, force: true })
     rmSync(monoRoot, { recursive: true, force: true })

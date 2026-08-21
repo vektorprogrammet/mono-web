@@ -1646,30 +1646,78 @@ const commandLinks = (parsed: readonly ParsedRow[]): readonly InventoryLink[] =>
   return [...new Map(links.map((link) => [link.relation_id, link])).values()]
 }
 
+const commandCrossLineKey = (row: InventoryRow): string | null => {
+  if (row.inventory_kind !== "command_write") return null
+  const details = row.details as CommandWriteDetails
+  if (details.entry_kind !== "controller_write" && details.entry_kind !== "event_handler") return null
+  const owner = ownerShortName(details.owner_ref)
+  const method = details.symbol_ref?.split("::").at(-1) ?? null
+  if (owner === null || method === null) return null
+  return canonicalJson([
+    "command_write_cross_line",
+    owner,
+    details.entry_kind,
+    details.command_name,
+    method,
+    details.effect_classes,
+  ])
+}
+
+const crossLineCandidates = (rows: readonly InventoryRow[]): ReadonlyMap<string, readonly InventoryRow[]> => {
+  const grouped = new Map<string, InventoryRow[]>()
+  for (const row of rows) {
+    const key = commandCrossLineKey(row)
+    if (key === null) continue
+    const group = grouped.get(key)
+    if (group === undefined) grouped.set(key, [row])
+    else group.push(row)
+  }
+  return grouped
+}
+
+const isUnmatchable = (row: InventoryRow): boolean => ["unresolved", "duplicate", "dead_unimported", "absent"].includes(row.status)
+
+const reconcileCommandCounterpart = (
+  row: InventoryRow,
+  rightBySignature: ReadonlyMap<string, InventoryRow>,
+  rightByCrossLineKey: ReadonlyMap<string, readonly InventoryRow[]>,
+  matchedRightIds: ReadonlySet<string>,
+): InventoryRow | undefined => {
+  const exact = rightBySignature.get(row.signature)
+  if (exact !== undefined && !matchedRightIds.has(exact.row_id)) return exact
+  const key = commandCrossLineKey(row)
+  if (key === null) return undefined
+  const candidates = (rightByCrossLineKey.get(key) ?? []).filter((candidate) => !isUnmatchable(candidate) && !matchedRightIds.has(candidate.row_id))
+  return candidates.length === 1 ? candidates[0] : undefined
+}
+
 const reconcilePair = (left: InventoryEnvelope, right: InventoryEnvelope): { readonly left: InventoryEnvelope; readonly right: InventoryEnvelope; readonly mismatches: readonly { readonly kind: Exclude<Mismatch["kind"], "none">; readonly row_ids: readonly string[]; readonly disposition: "none"; readonly accepted_intent_ref_ids: readonly string[] }[]; readonly links: readonly InventoryLink[] } => {
   const leftRows = left.rows.map((row) => row)
   const rightRows = right.rows.map((row) => row)
   const rightBySignature = new Map(rightRows.map((row) => [row.signature, row]))
   const leftBySignature = new Map(leftRows.map((row) => [row.signature, row]))
+  const rightByCrossLineKey = crossLineCandidates(rightRows)
+  const matchedRightIds = new Set<string>()
   const mismatches: Array<{ readonly kind: Exclude<Mismatch["kind"], "none">; readonly row_ids: readonly string[]; readonly disposition: "none"; readonly accepted_intent_ref_ids: readonly string[] }> = []
   const links: InventoryLink[] = []
   for (const row of leftRows) {
-    if (["unresolved", "duplicate", "dead_unimported", "absent"].includes(row.status)) continue
-    const counterpart = rightBySignature.get(row.signature)
+    if (isUnmatchable(row)) continue
+    const counterpart = reconcileCommandCounterpart(row, rightBySignature, rightByCrossLineKey, matchedRightIds)
     if (counterpart === undefined) {
       const index = leftRows.findIndex((candidate) => candidate.row_id === row.row_id)
       leftRows[index] = { ...row, status: "missing", mismatch: mismatch("missing", [], "MISSING_COUNTERPART"), reason_codes: sortUnique([...row.reason_codes, "MISSING_COUNTERPART"]) }
       mismatches.push({ kind: "missing", row_ids: [row.row_id], disposition: "none", accepted_intent_ref_ids: [] })
       continue
     }
+    matchedRightIds.add(counterpart.row_id)
     const index = leftRows.findIndex((candidate) => candidate.row_id === row.row_id)
     leftRows[index] = { ...row, mismatch: mismatch("none", [counterpart.row_id], null) }
     const rightIndex = rightRows.findIndex((candidate) => candidate.row_id === counterpart.row_id)
-    if (rightIndex >= 0 && rightRows[rightIndex] !== undefined && !["unresolved", "duplicate", "dead_unimported", "absent"].includes(rightRows[rightIndex]?.status ?? "unresolved")) rightRows[rightIndex] = { ...rightRows[rightIndex] as InventoryRow, mismatch: mismatch("none", [row.row_id], null) }
+    if (rightIndex >= 0 && rightRows[rightIndex] !== undefined && !isUnmatchable(rightRows[rightIndex] as InventoryRow)) rightRows[rightIndex] = { ...rightRows[rightIndex] as InventoryRow, mismatch: mismatch("none", [row.row_id], null) }
     links.push({ relation_id: relationId("matches", row.row_id, counterpart.row_id, [...row.source_ref_ids, ...counterpart.source_ref_ids]), relation_kind: "matches", from_row_id: row.row_id, to_row_id: counterpart.row_id, source_ref_ids: sortUnique([...row.source_ref_ids, ...counterpart.source_ref_ids]) })
   }
   for (const row of rightRows) {
-    if (["unresolved", "duplicate", "dead_unimported", "absent"].includes(row.status) || leftBySignature.has(row.signature)) continue
+    if (isUnmatchable(row) || matchedRightIds.has(row.row_id) || leftBySignature.has(row.signature)) continue
     const index = rightRows.findIndex((candidate) => candidate.row_id === row.row_id)
     rightRows[index] = { ...row, status: "extra", mismatch: mismatch("extra", [], "EXTRA_COUNTERPART"), reason_codes: sortUnique([...row.reason_codes, "EXTRA_COUNTERPART"]) }
     mismatches.push({ kind: "extra", row_ids: [row.row_id], disposition: "none", accepted_intent_ref_ids: [] })
