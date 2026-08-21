@@ -6074,12 +6074,12 @@
                     "content": {
                         "application/ld+json": {
                             "schema": {
-                                "$ref": "#/components/schemas/InterviewResponseResource.jsonld"
+                                "$ref": "#/components/schemas/InterviewResponseResource.InterviewResponseRejectInput.jsonld"
                             }
                         },
                         "application/json": {
                             "schema": {
-                                "$ref": "#/components/schemas/InterviewResponseResource"
+                                "$ref": "#/components/schemas/InterviewResponseResource.InterviewResponseRejectInput"
                             }
                         }
                     },
@@ -6137,12 +6137,12 @@
                     "content": {
                         "application/ld+json": {
                             "schema": {
-                                "$ref": "#/components/schemas/InterviewResponseResource.jsonld"
+                                "$ref": "#/components/schemas/InterviewResponseResource.InterviewResponseNewTimeInput.jsonld"
                             }
                         },
                         "application/json": {
                             "schema": {
-                                "$ref": "#/components/schemas/InterviewResponseResource"
+                                "$ref": "#/components/schemas/InterviewResponseResource.InterviewResponseNewTimeInput"
                             }
                         }
                     },
@@ -14592,6 +14592,56 @@
                             "string",
                             "null"
                         ]
+                    }
+                }
+            },
+            "InterviewResponseResource.InterviewResponseNewTimeInput": {
+                "type": "object",
+                "description": "",
+                "deprecated": false,
+                "required": [
+                    "newTimeMessage"
+                ],
+                "properties": {
+                    "newTimeMessage": {
+                        "maxLength": 2000,
+                        "type": "string"
+                    }
+                }
+            },
+            "InterviewResponseResource.InterviewResponseNewTimeInput.jsonld": {
+                "type": "object",
+                "description": "",
+                "deprecated": false,
+                "required": [
+                    "newTimeMessage"
+                ],
+                "properties": {
+                    "newTimeMessage": {
+                        "maxLength": 2000,
+                        "type": "string"
+                    }
+                }
+            },
+            "InterviewResponseResource.InterviewResponseRejectInput": {
+                "type": "object",
+                "description": "",
+                "deprecated": false,
+                "properties": {
+                    "cancelMessage": {
+                        "maxLength": 2000,
+                        "type": "string"
+                    }
+                }
+            },
+            "InterviewResponseResource.InterviewResponseRejectInput.jsonld": {
+                "type": "object",
+                "description": "",
+                "deprecated": false,
+                "properties": {
+                    "cancelMessage": {
+                        "maxLength": 2000,
+                        "type": "string"
                     }
                 }
             },
