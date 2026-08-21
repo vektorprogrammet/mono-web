@@ -1086,21 +1086,29 @@ const runtimeApiRouteKey = (
   return canonicalPath === null ? null : canonicalJson([routeName, method, canonicalPath])
 }
 
+interface ApiPlatformRouteReconciliation {
+  readonly rows: readonly InventoryRow[]
+  readonly matchedRouteRowIds: ReadonlySet<string>
+  readonly routeEvidenceByRuntimeIndex: ReadonlyMap<number, { readonly sourceRefIds: readonly string[]; readonly runtimeObservationRefIds: readonly string[] }>
+}
+
 const reconcileApiPlatformRouteRows = (
   routeRows: readonly InventoryRow[],
   runtimeOperations: readonly RuntimeOperation[],
   matchedStaticOperations: ReadonlyMap<number, ApiDeclaration>,
   apiPrefix: string | null,
-): readonly InventoryRow[] => {
-  const operationsByKey = new Map<string, { readonly operation: RuntimeOperation; readonly declaration: ApiDeclaration } | null>()
+): ApiPlatformRouteReconciliation => {
+  const operationsByKey = new Map<string, { readonly runtimeIndex: number; readonly operation: RuntimeOperation; readonly declaration: ApiDeclaration } | null>()
   for (const [runtimeIndex, declaration] of matchedStaticOperations) {
     const operation = runtimeOperations[runtimeIndex]
     if (operation === undefined) continue
     const key = runtimeApiRouteKey(operation.operationId, operation.method, operation.uriTemplate, apiPrefix)
     if (key === null) continue
     if (operationsByKey.has(key)) operationsByKey.set(key, null)
-    else operationsByKey.set(key, { operation, declaration })
+    else operationsByKey.set(key, { runtimeIndex, operation, declaration })
   }
+  const matchedRouteRowIds = new Set<string>()
+  const routeEvidenceByRuntimeIndex = new Map<number, { readonly sourceRefIds: readonly string[]; readonly runtimeObservationRefIds: readonly string[] }>()
   const reconciledRows: InventoryRow[] = routeRows.map((row): InventoryRow => {
     if (row.status !== "extra" || !row.observation_kinds.includes("runtime_resolution")) return row
     const details = row.details as MonoRouteDetails
@@ -1108,6 +1116,17 @@ const reconcileApiPlatformRouteRows = (
     if (key === null) return row
     const matched = operationsByKey.get(key)
     if (matched === undefined || matched === null) return row
+    matchedRouteRowIds.add(row.row_id)
+    const previousEvidence = routeEvidenceByRuntimeIndex.get(matched.runtimeIndex)
+    routeEvidenceByRuntimeIndex.set(
+      matched.runtimeIndex,
+      previousEvidence === undefined
+        ? { sourceRefIds: row.source_ref_ids, runtimeObservationRefIds: row.runtime_observation_ref_ids }
+        : {
+            sourceRefIds: sortUnique([...previousEvidence.sourceRefIds, ...row.source_ref_ids]),
+            runtimeObservationRefIds: sortUnique([...previousEvidence.runtimeObservationRefIds, ...row.runtime_observation_ref_ids]),
+          },
+    )
     return {
       ...row,
       status: "covered",
@@ -1124,12 +1143,44 @@ const reconcileApiPlatformRouteRows = (
       },
     }
   })
-  for (const [index, row] of reconciledRows.entries()) {
-    const original = routeRows[index]
-    if (original !== undefined && original !== row) Object.assign(original, row)
-  }
-  return reconciledRows
+  return { rows: reconciledRows, matchedRouteRowIds, routeEvidenceByRuntimeIndex }
 }
+const addRouteEvidenceToApiRows = (
+  rows: InventoryRow[],
+  runtimeRows: readonly InventoryRow[],
+  matchedStaticOperations: ReadonlyMap<number, ApiDeclaration>,
+  routeEvidenceByRuntimeIndex: ReadonlyMap<number, { readonly sourceRefIds: readonly string[]; readonly runtimeObservationRefIds: readonly string[] }>,
+  links: InventoryLink[],
+): void => {
+  for (const [runtimeIndex, evidence] of routeEvidenceByRuntimeIndex) {
+    const declaration = matchedStaticOperations.get(runtimeIndex)
+    const runtimeRow = runtimeRows[runtimeIndex]
+    if (declaration === undefined || runtimeRow === undefined) continue
+    const staticRowId = rowId("api_operation", declarationId("mono", "mono", declaration.logicalPath, "api_operation", declaration.ordinal), apiCanonicalKey(declaration))
+    const staticIndex = rows.findIndex((row) => row.row_id === staticRowId)
+    const runtimeRowIndex = rows.findIndex((row) => row.row_id === runtimeRow.row_id)
+    const staticRow = staticIndex < 0 ? undefined : rows[staticIndex]
+    const runtimeInventoryRow = runtimeRowIndex < 0 ? undefined : rows[runtimeRowIndex]
+    if (staticRow === undefined || runtimeInventoryRow === undefined) continue
+    const sourceRefIds = sortUnique([...staticRow.source_ref_ids, ...runtimeInventoryRow.source_ref_ids, ...evidence.sourceRefIds])
+    const runtimeObservationRefIds = sortUnique([...staticRow.runtime_observation_ref_ids, ...runtimeInventoryRow.runtime_observation_ref_ids, ...evidence.runtimeObservationRefIds])
+    rows[staticIndex] = { ...staticRow, source_ref_ids: sourceRefIds, runtime_observation_ref_ids: runtimeObservationRefIds }
+    rows[runtimeRowIndex] = { ...runtimeInventoryRow, source_ref_ids: sourceRefIds, runtime_observation_ref_ids: runtimeObservationRefIds }
+    const linkIndex = links.findIndex((link) => link.from_row_id === staticRowId && link.to_row_id === runtimeRow.row_id)
+    if (linkIndex >= 0) {
+      const link = links[linkIndex]
+      if (link !== undefined) links[linkIndex] = { ...link, source_ref_ids: sortUnique([...link.source_ref_ids, ...evidence.sourceRefIds]) }
+    }
+  }
+}
+
+const removeRouteRowsFromEdges = (
+  edges: readonly DerivationEdge[],
+  removedRowIds: ReadonlySet<string>,
+): readonly DerivationEdge[] => edges.flatMap((edge) => {
+  const toRowIds = edge.to_row_ids.filter((rowIdValue) => !removedRowIds.has(rowIdValue))
+  return toRowIds.length === 0 ? [] : [{ ...edge, edge_id: edgeId(edge.edge_type, edge.from_ref_ids, toRowIds), to_row_ids: toRowIds }]
+})
 
 
 const applyDuplicateGroups = (rows: InventoryRow[]): void => {
@@ -1910,9 +1961,16 @@ export const collectApiOperations = (context: ManifestContext, sourceManifestSha
     const index = rows.findIndex((candidate) => candidate.row_id === row.row_id)
     rows[index] = { ...row, details: { ...details, openapi_projection_ref: projectionRef }, observation_kinds: row.observation_kinds.includes("generated_projection") ? row.observation_kinds : [...row.observation_kinds, "generated_projection"] }
   }
-  const reconciledRouteRows = reconcileApiPlatformRouteRows(routeRows, runtime.operations, matchedStaticOperations, apiPrefix)
-  const h3 = addH3Edges(context, rows, reconciledRouteRows)
-  rows = [...h3.apiRows]
+  const routeReconciliation = reconcileApiPlatformRouteRows(routeRows, runtime.operations, matchedStaticOperations, apiPrefix)
+  addRouteEvidenceToApiRows(rows, runtimeRows, matchedStaticOperations, routeReconciliation.routeEvidenceByRuntimeIndex, links)
+  const h3 = addH3Edges(context, rows, routeReconciliation.rows)
+  const h3RouteRows = h3.routeRows.filter((row) => !routeReconciliation.matchedRouteRowIds.has(row.row_id))
+  const h3RouteEdges = removeRouteRowsFromEdges(h3.routeEdges, routeReconciliation.matchedRouteRowIds)
+  const mutableRouteRows = routeRows as unknown as InventoryRow[]
+  for (let index = mutableRouteRows.length - 1; index >= 0; index -= 1) {
+    const row = mutableRouteRows[index]
+    if (row !== undefined && routeReconciliation.matchedRouteRowIds.has(row.row_id)) mutableRouteRows.splice(index, 1)
+  }
   const inventory = makeEnvelope(context, rows, links, [...observations, ...h3.apiObservations], h3.apiEdges, sourceManifestSha256, runtime.observation.availability === "available")
   const failures: ApiCollectionFailure[] = [...parsed.failures, ...runtime.failures, ...h3.failures]
   for (const row of rows) {
@@ -1924,7 +1982,7 @@ export const collectApiOperations = (context: ManifestContext, sourceManifestSha
   if (openApiFailure !== null) failures.push(openApiFailure)
   else if (reconciliation.status === "stale") failures.push({ status: "stale", reasonCode: "STALE_OPENAPI_PROJECTION", rowIds: [], sourceRefIds: reconciliation.committed_source_ref_ids })
   else if (reconciliation.status === "unresolved") failures.push({ status: "unresolved", reasonCode: "OPENAPI_PROJECTION_UNRESOLVED", rowIds: [], sourceRefIds: reconciliation.committed_source_ref_ids })
-  return { inventory, reconciliation, failures, rows, h3RouteRows: h3.routeRows, h3RouteEdges: h3.routeEdges, h3RouteObservations: h3.routeObservations }
+  return { inventory, reconciliation, failures, rows, h3RouteRows, h3RouteEdges, h3RouteObservations: h3.routeObservations }
 }
 
 export const reportFailuresFromApi = (failures: readonly ApiCollectionFailure[]): readonly ReportFailure[] => failures.map((failure) => ({ failure_id: `failure-${sha256Hex(canonicalJson({ status: failure.status, reason_code: failure.reasonCode, row_ids: sortUnique(failure.rowIds), source_ref_ids: sortUnique(failure.sourceRefIds) }))}`, status: failure.status, reason_code: failure.reasonCode, row_ids: sortUnique(failure.rowIds), source_ref_ids: sortUnique(failure.sourceRefIds), accepted_intent_ref_ids: [] }))

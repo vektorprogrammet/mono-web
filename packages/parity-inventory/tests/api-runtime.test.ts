@@ -2,6 +2,7 @@ import { Effect } from "effect"
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { collectApiOperations } from "../src/api.js"
+import { collectRoutes } from "../src/routes.js"
 import { canonicalRouteKey, sha256 } from "../src/canonical.js"
 import { scanRootEffect } from "../src/runtime.js"
 import { createManifestContextFromSnapshots } from "../src/source-manifest.js"
@@ -69,10 +70,12 @@ test("API Platform prefix reconciliation covers declared routes and retains gene
     const legacy = await Effect.runPromise(scanRootEffect(legacyRoot, "legacy"))
     const mono = await Effect.runPromise(scanRootEffect(monoRoot, "mono"))
     const context = createManifestContextFromSnapshots(legacy, mono)
-    const routeRows = [
+    const routeCollection = collectRoutes(context, sha256("api-prefix-routes"), undefined, true)
+    const routeRows = routeCollection.mono.rows as InventoryRow[]
+    routeRows.push(
       runtimeRoute("row-declared-route", "_api_/things_get", "/api/things", "GET"),
       runtimeRoute("row-generated-route", "_api_/things/{id}{._format}_get", "/api/things/{id}.{_format}", "GET"),
-    ]
+    )
     const result = collectApiOperations(
       context,
       sha256("api-prefix-test"),
@@ -105,16 +108,14 @@ test("API Platform prefix reconciliation covers declared routes and retains gene
     )
     const declared = result.h3RouteRows.find((row) => row.row_id === "row-declared-route")
     const generated = result.h3RouteRows.find((row) => row.row_id === "row-generated-route")
-    expect(declared).toMatchObject({
-      status: "covered",
-      observation_kinds: expect.arrayContaining(["static_source", "runtime_resolution"]),
-      details: { declaration_kind: "api_platform", route_origin: "api_platform", owner_ref: "App\\Fixture\\Api\\Resource\\Thing" },
-    })
-    expect(declared?.reason_codes).not.toContain("RUNTIME_ONLY_SOURCE")
-    expect(declared?.source_ref_ids.length).toBeGreaterThan(1)
+    expect(declared).toBeUndefined()
+    expect(routeRows.some((row) => row.row_id === "row-declared-route")).toBe(false)
     expect(generated).toMatchObject({ status: "extra", reason_codes: ["RUNTIME_ONLY_SOURCE"] })
     const operationRows = result.rows.filter((row) => row.observation_kinds.includes("static_source"))
-    expect(routeRows[0]).toMatchObject({ status: "covered", details: { route_origin: "api_platform" } })
+    expect(routeCollection.mono.rows.some((row) => row.row_id === "row-declared-route")).toBe(false)
+    const declaredOperation = operationRows.find((row) => "operation_name" in row.details && row.details.operation_name === "Get")
+    expect(declaredOperation).toMatchObject({ status: "covered" })
+    expect(declaredOperation?.source_ref_ids).toContain("source-runtime-route")
     expect(operationRows.some((row) => row.status === "covered" && "operation_name" in row.details)).toBe(true)
     expect(result.rows.some((row) => row.status === "extra" && "operation_name" in row.details && row.details.operation_name === "NotExposed")).toBe(true)
   } finally {
