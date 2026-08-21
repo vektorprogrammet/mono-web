@@ -1,12 +1,25 @@
-import { chmod, mkdtemp, rm } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, rm } from "node:fs/promises";
 import { randomBytes } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { join, resolve } from "node:path";
 import { spawn } from "node:child_process";
 import net from "node:net";
+import { emitRuntimeEvidenceReceipt, sanitizePlaywrightArtifact } from "./runtime-evidence-receipt.mjs";
 
 const dashboardOrigin = "http://127.0.0.1:5174";
 const apiOrigin = "http://127.0.0.1:8000";
+const journeyRefId = "intent://journey:recruitment:invitation-response:v1";
+const journeyStepIds = [
+  "applicant-loads-invitation",
+  "applicant-confirms-invitation",
+  "applicant-rejects-invitation",
+  "applicant-requests-new-time",
+  "fresh-applicant-response-read",
+  "fresh-leader-response-read",
+  "fresh-interviewer-response-read",
+  "invalid-response-preserves-state",
+  "response-capability-remains-private",
+];
 const serverRoot = fileURLToPath(new URL("../../server/", import.meta.url));
 const dashboardRoot = fileURLToPath(new URL("../", import.meta.url));
 const sdkRoot = fileURLToPath(new URL("../../../packages/sdk/", import.meta.url));
@@ -15,31 +28,39 @@ const shutdownTimeoutMs = 5_000;
 
 function runCommand(command, args, options = {}) {
   return new Promise((resolveCommand, rejectCommand) => {
+    const captureOutput = options.captureOutput === true;
     const child = spawn(command, args, {
       cwd: options.cwd,
       env: options.env,
-      stdio: ["ignore", "pipe", "pipe"],
+      stdio: captureOutput ? ["ignore", "pipe", "inherit"] : ["ignore", "pipe", "pipe"],
       detached: false,
     });
+    const stdoutChunks = [];
     let stdout = "";
     let stderr = "";
+    child.stdout.on("data", (chunk) => {
+      if (captureOutput) stdoutChunks.push(chunk);
+      else stdout += chunk;
+    });
+    if (!captureOutput) child.stderr.on("data", (chunk) => { stderr += chunk; });
+    let settled = false;
+    const settle = (callback, value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      callback(value);
+    };
     const timeout = setTimeout(() => {
       child.kill("SIGTERM");
-      rejectCommand(new Error(`${command} timed out`));
+      settle(rejectCommand, new Error(`${command} timed out`));
     }, options.timeoutMs ?? commandTimeoutMs);
-    child.stdout.on("data", (chunk) => { stdout += chunk; });
-    child.stderr.on("data", (chunk) => { stderr += chunk; });
-    child.once("error", (error) => {
-      clearTimeout(timeout);
-      rejectCommand(error);
-    });
-    child.once("exit", (code, signal) => {
-      clearTimeout(timeout);
+    child.once("error", (error) => settle(rejectCommand, error));
+    child.once(captureOutput ? "close" : "exit", (code, signal) => {
       if (code === 0) {
-        resolveCommand({ stdout, stderr });
+        settle(resolveCommand, captureOutput ? { stdout: Buffer.concat(stdoutChunks) } : { stdout, stderr });
         return;
       }
-      rejectCommand(new Error(`${command} exited ${code ?? signal}\n${stderr || stdout}`));
+      settle(rejectCommand, new Error(`${command} exited ${code ?? signal}\n${stderr || stdout}`));
     });
   });
 }
@@ -234,6 +255,7 @@ async function main() {
       "-d", "date.timezone=Europe/Oslo", "bin/console", "doctrine:fixtures:load", "--env=e2e",
       "--group=recruitment-interview-invitation-response", "--no-interaction",
     ], { cwd: serverRoot, env: serverEnv });
+    const fixtureInputBytes = await readFile(databasePath);
     await assertPortAvailable(8000);
     symfonyProcess = startProcess("php", ["-d", "date.timezone=Europe/Oslo", "-S", "127.0.0.1:8000", "-t", "public", "public/index.php"], { cwd: serverRoot, env: serverEnv });
     await waitForHttp(`${apiOrigin}/api/docs`, symfonyProcess);
@@ -242,7 +264,45 @@ async function main() {
     await assertPortAvailable(5174);
     dashboardProcess = startProcess("bun", ["run", "start"], { cwd: dashboardRoot, env: dashboardEnv });
     await waitForHttp(`${dashboardOrigin}/login`, dashboardProcess);
-    await runCommand("bun", ["run", "e2e:test", "--", "e2e/real-interview-response.spec.ts", "--project=real-symfony"], { cwd: dashboardRoot, env: dashboardEnv });
+    const receiptRequested = [
+      "RUNTIME_EVIDENCE_RECEIPT_PATH",
+      "RUNTIME_EVIDENCE_LEGACY_REVISION_REF_ID",
+      "RUNTIME_EVIDENCE_MONO_REVISION_REF_ID",
+      "RUNTIME_EVIDENCE_RUNNER_SOURCE_REF_IDS",
+    ].some((name) => typeof process.env[name] === "string" && process.env[name].length > 0);
+    const e2eArgs = [
+      "run",
+      "e2e:test",
+      "--",
+      "e2e/real-interview-response.spec.ts",
+      "--project=real-symfony",
+    ];
+    if (receiptRequested) e2eArgs.push("--reporter=json");
+    const e2eResult = await runCommand("bun", e2eArgs, {
+      cwd: dashboardRoot,
+      env: dashboardEnv,
+      captureOutput: receiptRequested,
+    });
+    if (receiptRequested) {
+      const runnerSourceInputBytes = [
+        {
+          sourceRefId: process.env.RUNTIME_EVIDENCE_RUNNER_SOURCE_REF_IDS?.split(",")[0]?.trim() ?? "",
+          bytes: await readFile(fileURLToPath(new URL("./run-real-interview-response.mjs", import.meta.url))),
+        },
+        {
+          sourceRefId: process.env.RUNTIME_EVIDENCE_RUNNER_SOURCE_REF_IDS?.split(",")[1]?.trim() ?? "",
+          bytes: await readFile(fileURLToPath(new URL("./real-interview-response.spec.ts", import.meta.url))),
+        },
+      ];
+      await emitRuntimeEvidenceReceipt({
+        journeyRefId,
+        stepIds: journeyStepIds,
+        fixtureId: "recruitment-invitation-response-0031",
+        runnerSourceInputBytes,
+        fixtureInputBytes,
+        artifactBytes: sanitizePlaywrightArtifact(e2eResult.stdout),
+      });
+    }
   } catch (error) {
     primaryError = error;
     throw error;
