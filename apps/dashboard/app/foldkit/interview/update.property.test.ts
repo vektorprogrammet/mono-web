@@ -4,6 +4,7 @@ import { Effect, Schema } from "effect"
 import * as fc from "effect/testing/FastCheck"
 import { FieldValidation } from "foldkit"
 import { makeInterviewCommands } from "./command"
+import { makeUpdate } from "./update"
 import {
   ConfirmedCandidate,
   Message,
