@@ -33,6 +33,7 @@ import { useTheme } from "../lib/theme";
 
 import { cn } from "@/lib/utils";
 import { Avatar, AvatarFallback, AvatarImage } from "@/ui/avatar";
+import { publicAssetUrl } from "@/lib/public-asset";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -89,7 +90,7 @@ export async function loader({ request }: Route.LoaderArgs) {
       user: {
         name: `${data.firstName} ${data.lastName}`,
         email: data.email,
-        avatar: (data.profilePhoto as string | null | undefined) ?? "",
+        avatar: publicAssetUrl(data.profilePhoto as string | null | undefined),
       },
       isAdmin,
     };

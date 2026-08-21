@@ -13,6 +13,7 @@ import { isFixtureMode } from "@vektorprogrammet/sdk";
 import { getProfileData } from "../mock/api/data-profile";
 import { requireAuth } from "../lib/auth.server";
 import { createAuthenticatedClient } from "../lib/api.server";
+import { publicAssetUrl } from "@/lib/public-asset";
 import type { Route } from "./+types/dashboard.profile._index";
 
 export async function loader({ request }: Route.LoaderArgs) {
@@ -31,7 +32,7 @@ export async function loader({ request }: Route.LoaderArgs) {
         lastName: data.lastName,
         email: data.email,
         phone: (data.phone as string | null | undefined) ?? fallback.phone,
-        profileImage: (data.profilePhoto as string | null | undefined) ?? fallback.profileImage,
+        profileImage: publicAssetUrl(data.profilePhoto as string | null | undefined) || fallback.profileImage,
       },
     };
   } catch {
