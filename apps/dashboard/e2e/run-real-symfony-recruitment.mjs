@@ -378,9 +378,14 @@ async function main() {
           bytes: await readFile(fileURLToPath(new URL("./real-symfony-recruitment.spec.ts", import.meta.url))),
         },
       ];
+      const evidenceJourneyRefId = process.env.RUNTIME_EVIDENCE_JOURNEY_REF_ID ?? journeyRefId;
+      const evidenceJourneyStepIds = process.env.RUNTIME_EVIDENCE_STEP_IDS
+        ?.split(",")
+        .map((stepId) => stepId.trim())
+        .filter((stepId) => stepId.length > 0) ?? journeyStepIds;
       await emitRuntimeEvidenceReceipt({
-        journeyRefId,
-        stepIds: journeyStepIds,
+        journeyRefId: evidenceJourneyRefId,
+        stepIds: evidenceJourneyStepIds,
         fixtureId: "recruitment-assignment-0028",
         runnerSourceInputBytes,
         fixtureInputBytes,

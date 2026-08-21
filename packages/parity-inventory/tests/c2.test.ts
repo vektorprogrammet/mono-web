@@ -496,7 +496,7 @@ final class ExternallyPersistedUser {
     const context = await contextFor(legacyRoot, monoRoot)
     const c2 = collectC2(context, sha256("entity-mutator-c2"))
     const entityRows = c2.commandWrites.rows.filter((row) =>
-      row.source_ref_ids.some((ref) => /(?:^|\\/)Entity\\//.test(context.sourcePathById.get(ref)?.path ?? "")),
+      row.source_ref_ids.some((ref) => /(?:^|\/)Entity\//.test(context.sourcePathById.get(ref)?.path ?? "")),
     )
     const symbolRefFor = (row: InventoryRow): string | null => "symbol_ref" in row.details ? row.details.symbol_ref : null
     expect(entityRows.some((row) => symbolRefFor(row)?.endsWith("User::setPassword") === true)).toBe(false)
