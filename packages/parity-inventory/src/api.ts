@@ -1101,7 +1101,7 @@ const reconcileApiPlatformRouteRows = (
     if (operationsByKey.has(key)) operationsByKey.set(key, null)
     else operationsByKey.set(key, { operation, declaration })
   }
-  return routeRows.map((row) => {
+  const reconciledRows: InventoryRow[] = routeRows.map((row): InventoryRow => {
     if (row.status !== "extra" || !row.observation_kinds.includes("runtime_resolution")) return row
     const details = row.details as MonoRouteDetails
     const key = runtimeApiRouteKey(details.route_name, details.method, details.path_template, apiPrefix)
@@ -1124,6 +1124,11 @@ const reconcileApiPlatformRouteRows = (
       },
     }
   })
+  for (const [index, row] of reconciledRows.entries()) {
+    const original = routeRows[index]
+    if (original !== undefined && original !== row) Object.assign(original, row)
+  }
+  return reconciledRows
 }
 
 
