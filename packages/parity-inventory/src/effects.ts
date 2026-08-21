@@ -1671,12 +1671,34 @@ const semanticTargetRef = (target: string): string => {
   return shortReceiver === undefined ? target : `${shortReceiver}::${callable}`
 }
 
+type CommandMatchMode = "legacy" | "extended" | "none"
+
+const commandMatchMode = (row: InventoryRow): CommandMatchMode => {
+  if (row.inventory_kind !== "command_write") return "none"
+  const entryKind = (row.details as CommandWriteDetails).entry_kind
+  if (entryKind === "controller_write" || entryKind === "event_handler") return "legacy"
+  if (entryKind === "integration_write" || entryKind === "custom_command" || entryKind === "repository_write") return "extended"
+  return "none"
+}
+
+
 const commandCrossLineKey = (row: InventoryRow): string | null => {
   if (row.inventory_kind !== "command_write") return null
   const details = row.details as CommandWriteDetails
+  const mode = commandMatchMode(row)
   const owner = ownerShortName(details.owner_ref)
   const method = details.symbol_ref?.split("::").at(-1) ?? null
-  if (owner === null || method === null) return null
+  if (owner === null || method === null || mode === "none") return null
+  if (mode === "legacy") {
+    return canonicalJson([
+      "command_write_cross_line",
+      owner,
+      details.entry_kind,
+      details.command_name,
+      method,
+      details.effect_classes,
+    ])
+  }
   const exactOutboundEffects = details.effect_classes.length === 1 && details.effect_classes[0] === "outbound"
   const semanticTargets = details.target_refs.map(semanticTargetRef)
   const exactOutboundAdapterTarget =
@@ -1714,7 +1736,9 @@ const crossLineCandidates = (rows: readonly InventoryRow[]): ReadonlyMap<string,
   return grouped
 }
 
-const isReconciliationBlocked = (row: InventoryRow): boolean => ["unresolved", "duplicate", "absent"].includes(row.status)
+const isReconciliationBlocked = (row: InventoryRow): boolean =>
+  ["unresolved", "duplicate", "absent"].includes(row.status)
+  || (row.status === "dead_unimported" && commandMatchMode(row) !== "extended")
 
 const reconcileCommandCounterpart = (
   row: InventoryRow,
@@ -1723,13 +1747,18 @@ const reconcileCommandCounterpart = (
   leftByCrossLineKey: ReadonlyMap<string, readonly InventoryRow[]>,
   matchedRightIds: ReadonlySet<string>,
 ): InventoryRow | undefined => {
+  const mode = commandMatchMode(row)
   const exact = rightBySignature.get(row.signature)
-  if (exact !== undefined && !isReconciliationBlocked(exact) && !matchedRightIds.has(exact.row_id)) return exact
+  if (exact !== undefined && !matchedRightIds.has(exact.row_id) && (mode !== "extended" || !isReconciliationBlocked(exact))) return exact
   const key = commandCrossLineKey(row)
   if (key === null) return undefined
-  const leftCandidates = (leftByCrossLineKey.get(key) ?? []).filter((candidate) => !isReconciliationBlocked(candidate))
-  if (leftCandidates.length !== 1) return undefined
-  const candidates = (rightByCrossLineKey.get(key) ?? []).filter((candidate) => !isReconciliationBlocked(candidate) && !matchedRightIds.has(candidate.row_id))
+  if (mode === "extended") {
+    const leftCandidates = (leftByCrossLineKey.get(key) ?? []).filter((candidate) => !isReconciliationBlocked(candidate))
+    if (leftCandidates.length !== 1) return undefined
+  }
+  const candidates = (rightByCrossLineKey.get(key) ?? []).filter((candidate) =>
+    !isReconciliationBlocked(candidate) && !matchedRightIds.has(candidate.row_id)
+  )
   return candidates.length === 1 ? candidates[0] : undefined
 }
 
