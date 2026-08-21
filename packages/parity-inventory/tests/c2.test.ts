@@ -1012,6 +1012,175 @@ final class RelocatedSubscriber {
   }
 })
 
+
+test("URL-bearing file fetches reconcile GeoLocation writes without classifying local reads", async () => {
+  const legacyRoot = mkdtempSync("/tmp/parity-c2-geo-url-legacy-")
+  const monoRoot = mkdtempSync("/tmp/parity-c2-geo-url-mono-")
+  try {
+    put(legacyRoot, "app/config/services.yml", [
+      "services:",
+      "  geo:",
+      "    class: AppBundle\\Service\\GeoLocation",
+      "  log:",
+      "    class: AppBundle\\Service\\LogService",
+      "  slack:",
+      "    class: AppBundle\\Service\\SlackMessenger",
+      "  local:",
+      "    class: AppBundle\\Service\\LocalReader",
+      "  company:",
+      "    class: AppBundle\\Service\\CompanyEmailMaker",
+    ].join("\n"))
+    put(monoRoot, "apps/server/config/services.yaml", [
+      "services:",
+      "  geo:",
+      "    class: App\\Fixture\\Infrastructure\\GeoLocation",
+      "  log:",
+      "    class: App\\Fixture\\Infrastructure\\LogService",
+      "  slack:",
+      "    class: App\\Fixture\\Infrastructure\\SlackMessenger",
+      "  local:",
+      "    class: App\\Fixture\\Infrastructure\\LocalReader",
+      "  company:",
+      "    class: App\\Identity\\Infrastructure\\CompanyEmailMaker",
+    ].join("\n"))
+    put(legacyRoot, "src/AppBundle/Service/GeoLocation.php", [
+      "<?php",
+      "namespace AppBundle\\Service;",
+      "final class GeoLocation {",
+      "    private $logger;",
+      "    public function __construct(LogService $logger) { $this->logger = $logger; }",
+      "    public function findCoordinates($ip) {",
+      "        $raw = file_get_contents(\"http://ipinfo.io/$ip\");",
+      "        $this->logger->warning($raw);",
+      "        return $raw;",
+      "    }",
+      "    public function readLocal($path) { return file_get_contents($path); }",
+      "}",
+    ].join("\n"))
+    put(monoRoot, "apps/server/src/App/Fixture/Infrastructure/GeoLocation.php", [
+      "<?php",
+      "namespace App\\Fixture\\Infrastructure;",
+      "final class GeoLocation {",
+      "    public function __construct(private readonly LogService $logger) {}",
+      "    public function findCoordinates($ip) {",
+      "        $raw = file_get_contents(\"http://ipinfo.io/$ip\");",
+      "        $this->logger->warning($raw);",
+      "        return $raw;",
+      "    }",
+      "    public function readLocal($path) { return file_get_contents($path); }",
+      "}",
+    ].join("\n"))
+    put(legacyRoot, "src/AppBundle/Service/LogService.php", [
+      "<?php",
+      "namespace AppBundle\\Service;",
+      "final class LogService {",
+      "    private $slackMessenger;",
+      "    public function __construct(SlackMessenger $slackMessenger) { $this->slackMessenger = $slackMessenger; }",
+      "    public function warning($message, array $context = array()) { $this->slackMessenger->log($message, $context); }",
+      "}",
+    ].join("\n"))
+    put(monoRoot, "apps/server/src/App/Fixture/Infrastructure/LogService.php", [
+      "<?php",
+      "namespace App\\Fixture\\Infrastructure;",
+      "final class LogService {",
+      "    public function __construct(private readonly SlackMessenger $slackMessenger) {}",
+      "    public function warning($message, array $context = array()) { $this->slackMessenger->log($message, $context); }",
+      "}",
+    ].join("\n"))
+    put(legacyRoot, "src/AppBundle/Service/SlackMessenger.php", [
+      "<?php",
+      "namespace AppBundle\\Service;",
+      "final class SlackMessenger {",
+      "    private $slackClient;",
+      "    public function __construct(Client $slackClient) { $this->slackClient = $slackClient; }",
+      "    public function log($message, array $context = array()) { $this->send($message); }",
+      "    public function send($message) { $this->slackClient->sendMessage($message); }",
+      "}",
+    ].join("\n"))
+    put(monoRoot, "apps/server/src/App/Fixture/Infrastructure/SlackMessenger.php", [
+      "<?php",
+      "namespace App\\Fixture\\Infrastructure;",
+      "final class SlackMessenger {",
+      "    private $slackClient;",
+      "    public function __construct(Client $slackClient) { $this->slackClient = $slackClient; }",
+      "    public function log($message, array $context = array()) { $this->sendPayload($message); }",
+      "    public function sendPayload($message) { $this->slackClient->post([], []); }",
+      "}",
+    ].join("\n"))
+    put(legacyRoot, "src/AppBundle/Service/CompanyEmailMaker.php", [
+      "<?php",
+      "namespace AppBundle\\Service;",
+      "final class CompanyEmailMaker {",
+      "    private $em;",
+      "    private $logger;",
+      "    public function __construct(EntityManagerInterface $em, LogService $logger) { $this->em = $em; $this->logger = $logger; }",
+      "    public function setCompanyEmailFor(User $user) {",
+      "        $user->setCompanyEmail(\"user@example.test\");",
+      "        $this->em->flush();",
+      "        $this->logger->warning(\"company email updated\");",
+      "    }",
+      "}",
+    ].join("\n"))
+    put(legacyRoot, "src/AppBundle/Service/LocalReader.php", [
+      "<?php",
+      "namespace AppBundle\\Service;",
+      "final class LocalReader {",
+      "    public function read($path) { return file_get_contents($path); }",
+      "}",
+    ].join("\n"))
+    put(monoRoot, "apps/server/src/App/Identity/Infrastructure/CompanyEmailMaker.php", [
+      "<?php",
+      "namespace App\\Identity\\Infrastructure;",
+      "use App\\Fixture\\Infrastructure\\LogService;",
+      "final class CompanyEmailMaker {",
+      "    private $em;",
+      "    private $logger;",
+      "    public function __construct(EntityManagerInterface $em, LogService $logger) { $this->em = $em; $this->logger = $logger; }",
+      "    public function setCompanyEmailFor(User $user) {",
+      "        $user->setCompanyEmail(\"user@example.test\");",
+      "        $this->em->flush();",
+      "        $this->logger->warning(\"company email updated\");",
+      "    }",
+      "}",
+    ].join("\n"))
+    put(monoRoot, "apps/server/src/App/Fixture/Infrastructure/LocalReader.php", [
+      "<?php",
+      "namespace App\\Fixture\\Infrastructure;",
+      "final class LocalReader {",
+      "    public function read($path) { return file_get_contents($path); }",
+      "}",
+    ].join("\n"))
+    const context = await contextFor(legacyRoot, monoRoot)
+    const c2 = collectC2(context, sha256("geo-file-get-contents"))
+    const rows = c2.commandWrites.rows
+    const rowFor = (authority: "legacy" | "mono", suffix: string) => rows.find((row) =>
+      row.authority_line === authority
+      && "owner_ref" in row.details
+      && row.details.owner_ref?.endsWith(suffix),
+    )
+    const legacyGeo = rowFor("legacy", "\\GeoLocation")
+    const monoGeo = rowFor("mono", "\\GeoLocation")
+    const legacyCompany = rowFor("legacy", "\\CompanyEmailMaker")
+    const monoCompany = rowFor("mono", "\\CompanyEmailMaker")
+    expect(legacyCompany).toMatchObject({ status: "covered", details: { effect_classes: ["durable_write", "outbound"] } })
+    expect(monoCompany).toMatchObject({ status: "covered", details: { effect_classes: ["durable_write", "outbound"] } })
+    expect(c2.commandWrites.links.some((link) =>
+      link.relation_kind === "matches" && link.from_row_id === legacyCompany?.row_id && link.to_row_id === monoCompany?.row_id,
+    )).toBe(true)
+    expect(legacyGeo).toMatchObject({ status: "covered", details: { effect_classes: ["outbound"] } })
+    expect(monoGeo).toMatchObject({ status: "covered", details: { effect_classes: ["outbound"] } })
+    expect(legacyGeo?.details.target_refs.some((target) => target.startsWith("unresolved:"))).toBe(false)
+    expect(monoGeo?.details.target_refs.some((target) => target.startsWith("unresolved:"))).toBe(false)
+    expect(c2.commandWrites.links.some((link) =>
+      link.relation_kind === "matches" && link.from_row_id === legacyGeo?.row_id && link.to_row_id === monoGeo?.row_id,
+    )).toBe(true)
+    expect(rows.some((row) => row.details.owner_ref?.endsWith("\\LocalReader"))).toBe(false)
+  } finally {
+    rmSync(legacyRoot, { recursive: true, force: true })
+    rmSync(monoRoot, { recursive: true, force: true })
+  }
+})
+
 test("dead relocated command rows link without losing dead status", async () => {
   const legacyRoot = mkdtempSync("/tmp/parity-c2-dead-relocated-legacy-")
   const monoRoot = mkdtempSync("/tmp/parity-c2-dead-relocated-mono-")

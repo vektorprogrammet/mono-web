@@ -332,6 +332,16 @@ const literalCallsFor = (source: string, name: string): readonly LiteralCall[] =
   return calls
 }
 
+const externalFileGetContentsCall = (source: string, call: EffectCall): boolean => {
+  if (call.callable.toLowerCase() !== "file_get_contents") return false
+  const literal = literalCallsFor(source, call.callable).find((candidate) => candidate.offset === call.offset)
+  const rawArgument = literal?.rawArgs[0]?.trim() ?? ""
+  const literalValue = literal?.args[0]?.trim() ?? null
+  if (/^https?:\/\//i.test(literalValue ?? "") || /^(?:["'])\s*https?:\/\//i.test(rawArgument)) return true
+  const variable = /^\$([A-Za-z_][A-Za-z0-9_]*)$/.exec(rawArgument)?.[1]
+  if (variable === undefined) return false
+  return new RegExp("\\$" + variable + "\\s*=\\s*[\"']https?:\\/\\/", "i").test(withoutComments(source))
+}
 
 interface EffectCall {
   readonly chain: string
@@ -432,10 +442,21 @@ const methodScopeFor = (source: string, offset: number, limit: number): MethodSc
   const structure = withoutLiterals(withoutComments(source))
   const open = structure.indexOf("{", offset)
   if (open < 0 || open >= limit) return null
-  const context = functionContextFor(source, open + 1)
-  if (context === null || context.bodyStart !== open || context.bodyEnd >= limit) return null
   const name = /\bfunction\s*(?:&\s*)?([A-Za-z_$][A-Za-z0-9_$]*)\s*\(/.exec(structure.slice(offset, open))?.[1]
-  return name === undefined ? null : { name, start: offset, end: context.bodyEnd + 1 }
+  if (name === undefined) return null
+  const context = functionContextFor(source, open + 1)
+  if (context !== null && context.bodyStart === open && context.bodyEnd < limit) {
+    return { name, start: offset, end: context.bodyEnd + 1 }
+  }
+  let depth = 1
+  for (let index = open + 1; index < limit; index += 1) {
+    if (structure[index] === "{") depth += 1
+    else if (structure[index] === "}") {
+      depth -= 1
+      if (depth === 0) return { name, start: offset, end: index + 1 }
+    }
+  }
+  return null
 }
 
 const normalizeLocalType = (raw: string | undefined): string | null => {
@@ -599,7 +620,8 @@ const effectEvidence = (
       unresolved = true
       targets.push(`unresolved:${scope?.owner?.fqn ?? unit.path}::${call.callable}`)
     }
-    const callableEffect = effectClassForCallable(call.callable)
+    const externalFileGetContents = externalFileGetContentsCall(source, call)
+    const callableEffect = effectClassForCallable(call.callable) ?? (externalFileGetContents ? "outbound" : null)
     if (call.constructorCall) continue
     const resolved = resolveEffectCall(authority, unit, call, scope?.owner, scope?.start ?? 0)
     if (resolved === null) {
@@ -630,6 +652,7 @@ const effectEvidence = (
         || (/^dispatch$/i.test(call.callable)
           && ((receiver !== null && /dispatcher/i.test(receiver)) || /event_dispatcher/i.test(callPrefix)))
         || (/\.(?:php)$/i.test(unit.path) && /^(?:mkdir|unlink)$/i.test(call.callable))
+        || externalFileGetContents
       if (callableEffect !== null && callableEffect !== "read_only") {
         if (receiver === null && !trustedEffectAnchor) markUnresolved()
         else {
