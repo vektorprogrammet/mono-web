@@ -1867,6 +1867,7 @@ export const collectApiOperations = (context: ManifestContext, sourceManifestSha
     matchedStaticOperations.set(runtimeIndex, declaration)
     const runtimeRow = runtimeRows[runtimeIndex]
     const runtimeOperation = runtime.operations[runtimeIndex]
+    if (runtimeRow === undefined || runtimeOperation === undefined) continue
     const changed = !sameOperation(declaration, runtimeOperation, apiPrefix) || !sameOperationObservations(declaration, runtimeOperation)
     const unresolvedReasons = staticRow.reason_codes.filter(
       (reason) =>
