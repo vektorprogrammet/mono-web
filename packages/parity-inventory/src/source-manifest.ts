@@ -375,6 +375,7 @@ export const SOURCE_FAMILIES: readonly SourceFamily[] = [
       "apps/server/src/App/**/Controller/**/*.php",
       "apps/server/src/App/**/Infrastructure/Repository/**/*.php",
       "apps/server/src/App/**/Infrastructure/Service/**/*.php",
+      "apps/server/src/App/**/Infrastructure/**/*.php",
       "apps/server/src/App/**/Event/**/*.php",
       "apps/server/src/App/**/EventSubscriber/**/*.php",
       "apps/server/config/services*.yaml",
