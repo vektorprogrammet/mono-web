@@ -20,10 +20,37 @@ export type InterviewSchedulingStatus = Schema.Schema.Type<typeof InterviewSched
 
 const boundedIdentifier = Schema.String.pipe(
   Schema.check(Schema.isMinLength(1), Schema.isMaxLength(128)),
+  Schema.check(
+    Schema.makeFilter(
+      (value: string) => /^\w+$/.test(value),
+      { message: "letters, numbers, and underscores only" },
+    ),
+  ),
 )
 
 export const ResponseCapability = boundedIdentifier.pipe(Schema.brand("ResponseCapability"))
 export type ResponseCapability = typeof ResponseCapability.Type
+
+const responseMessage = Schema.String.pipe(
+  Schema.check(Schema.isMaxLength(2000)),
+)
+
+export const InterviewResponseRejectInput = Schema.Struct({
+  message: responseMessage,
+})
+export type InterviewResponseRejectInput = typeof InterviewResponseRejectInput.Type
+
+export const InterviewResponseNewTimeInput = Schema.Struct({
+  message: responseMessage.pipe(
+    Schema.check(
+      Schema.makeFilter(
+        (value: string) => value.trim().length > 0,
+        { message: "a non-empty message" },
+      ),
+    ),
+  ),
+})
+export type InterviewResponseNewTimeInput = typeof InterviewResponseNewTimeInput.Type
 
 const positiveInteger = Schema.Number.pipe(
   Schema.check(
@@ -163,8 +190,8 @@ const RawCandidateInterviewView = Schema.Struct({
   mapLink: Schema.NullOr(Schema.String),
   interviewerName: Schema.NullOr(Schema.String),
   status: Schema.String,
-  responseCode: Schema.String,
 })
+
 
 export const CandidateInterviewViewFromRaw = RawCandidateInterviewView.pipe(
   Schema.decodeTo(CandidateInterviewView, {
@@ -182,7 +209,6 @@ export const CandidateInterviewViewFromRaw = RawCandidateInterviewView.pipe(
       mapLink: null,
       interviewerName: null,
       status: encodeInterviewStatusLabel(candidate.schedulingStatus),
-      responseCode: "",
     })),
   }),
 )

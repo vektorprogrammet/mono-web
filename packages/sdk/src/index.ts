@@ -24,6 +24,8 @@ export {
   Interview,
   InterviewId,
   ResponseCapability,
+  InterviewResponseRejectInput,
+  InterviewResponseNewTimeInput,
   InterviewScheduleInput,
   InterviewSchedulingStatus,
 } from "./schemas/interview.js"

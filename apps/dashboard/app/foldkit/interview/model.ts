@@ -22,10 +22,13 @@ export const Model = S.Struct({
   from: StringField,
   to: StringField,
   message: StringField,
+  responseMessage: StringField,
   candidate: CandidateData.schema,
   feedback: S.NullOr(S.String),
   isScheduling: S.Boolean,
-  isAccepting: S.Boolean,
+  isConfirming: S.Boolean,
+  isRejecting: S.Boolean,
+  isRequestingNewTime: S.Boolean,
 })
 export type Model = S.Schema.Type<typeof Model>
 
@@ -42,8 +45,11 @@ export const makeInitialModel = (
   from: FieldValidation.NotValidated({ value: "" }),
   to: FieldValidation.NotValidated({ value: "" }),
   message: FieldValidation.NotValidated({ value: "" }),
+  responseMessage: FieldValidation.NotValidated({ value: "" }),
   candidate: AsyncData.Idle(),
   feedback: null,
   isScheduling: false,
-  isAccepting: false,
+  isConfirming: false,
+  isRejecting: false,
+  isRequestingNewTime: false,
 })

@@ -79,6 +79,10 @@ export const createBrowserInterviewClient = (): EffectSdk => ({
   interviewResponses: {
     read: () =>
       bridgeRequest("readCandidate", {}, Schema.decodeUnknownSync(CandidateInterviewView)),
-    accept: () => bridgeRequest("acceptCandidate", {}, () => undefined),
+    confirm: () => bridgeRequest("confirmCandidate", {}, () => undefined),
+    reject: (message?: string) =>
+      bridgeRequest("rejectCandidate", { message: message ?? "" }, () => undefined),
+    requestNewTime: (message: string) =>
+      bridgeRequest("requestNewTimeCandidate", { message }, () => undefined),
   },
 } as unknown as EffectSdk)

@@ -22,7 +22,9 @@ export const makeUpdate = ({
   ScheduleInterview,
   RefreshInterview,
   ReadCandidate,
-  AcceptCandidate,
+  ConfirmCandidate,
+  RejectCandidate,
+  RequestNewTimeCandidate,
 }: InterviewCommands) => (
   model: Model,
   message: Message,
@@ -164,35 +166,113 @@ export const makeUpdate = ({
       },
       OpenedCandidate: () => {
         if (AsyncData.isPending(model.candidate)) return [model, []]
-        return [{ ...model, candidate: CandidateData.Loading(), feedback: null }, [
+        return [{
+          ...model,
+          candidate: CandidateData.Loading(),
+          responseMessage: FieldValidation.NotValidated({ value: "" }),
+          isConfirming: false,
+          isRejecting: false,
+          isRequestingNewTime: false,
+          feedback: null,
+        }, [
           ReadCandidate(),
         ]]
       },
       SucceededReadCandidate: ({ candidate }) => [{
         ...model,
         candidate: CandidateData.Success({ data: candidate }),
-        feedback: candidate.schedulingStatus === "accepted" ? "Intervjutiden er akseptert." : null,
+        responseMessage: FieldValidation.NotValidated({ value: "" }),
+        isConfirming: false,
+        isRejecting: false,
+        isRequestingNewTime: false,
+        feedback: candidate.schedulingStatus === "accepted"
+          ? "Intervjutiden er akseptert."
+          : candidate.schedulingStatus === "cancelled"
+            ? "Intervjuet er avvist."
+            : candidate.schedulingStatus === "request_new_time"
+              ? "Forespørselen om nytt tidspunkt er registrert."
+              : null,
       }, []],
       FailedReadCandidate: ({ message }) => [{
         ...model,
         candidate: CandidateData.Failure({ error: message }),
+        isConfirming: false,
+        isRejecting: false,
+        isRequestingNewTime: false,
         feedback: message,
       }, []],
-      AcceptedCandidate: () => {
-        if (model.isAccepting || AsyncData.isPending(model.candidate)) return [model, []]
+      UpdatedResponseMessage: ({ value }) => [{
+        ...model,
+        responseMessage: FieldValidation.NotValidated({ value }),
+        feedback: null,
+      }, []],
+      ConfirmedCandidate: () => {
         const candidate = AsyncData.getData(model.candidate)
-        if (candidate._tag === "None" || candidate.value.schedulingStatus !== "pending") return [model, []]
-        return [{ ...model, isAccepting: true, feedback: null }, [
-          AcceptCandidate(),
+        if (
+          model.isConfirming ||
+          model.isRejecting ||
+          model.isRequestingNewTime ||
+          AsyncData.isPending(model.candidate) ||
+          candidate._tag === "None" ||
+          candidate.value.schedulingStatus !== "pending"
+        ) return [model, []]
+        return [{ ...model, isConfirming: true, feedback: null }, [
+          ConfirmCandidate(),
         ]]
       },
-      SucceededAcceptCandidate: () => [{
+      RejectedCandidate: () => {
+        const candidate = AsyncData.getData(model.candidate)
+        if (
+          model.isConfirming ||
+          model.isRejecting ||
+          model.isRequestingNewTime ||
+          AsyncData.isPending(model.candidate) ||
+          candidate._tag === "None" ||
+          candidate.value.schedulingStatus !== "pending"
+        ) return [model, []]
+        return [{ ...model, isRejecting: true, feedback: null }, [
+          RejectCandidate({ message: model.responseMessage.value }),
+        ]]
+      },
+      RequestedNewTimeCandidate: () => {
+        const candidate = AsyncData.getData(model.candidate)
+        const responseMessage = FieldValidation.validate(textRules)(model.responseMessage.value)
+        if (
+          model.isConfirming ||
+          model.isRejecting ||
+          model.isRequestingNewTime ||
+          AsyncData.isPending(model.candidate) ||
+          candidate._tag === "None" ||
+          candidate.value.schedulingStatus !== "pending"
+        ) return [model, []]
+        if (!FieldValidation.isValid(textRules)(responseMessage)) {
+          return [{ ...model, responseMessage, feedback: "Skriv en melding før du ber om nytt tidspunkt." }, []]
+        }
+        return [{
+          ...model,
+          responseMessage,
+          isRequestingNewTime: true,
+          feedback: null,
+        }, [
+          RequestNewTimeCandidate({ message: responseMessage.value }),
+        ]]
+      },
+      SucceededCandidateResponse: () => [{
         ...model,
-        isAccepting: false,
+        isConfirming: false,
+        isRejecting: false,
+        isRequestingNewTime: false,
         candidate: CandidateData.Loading(),
+        feedback: null,
       }, [
         ReadCandidate(),
       ]],
-      FailedAcceptCandidate: ({ message }) => [{ ...model, isAccepting: false, feedback: message }, []],
+      FailedCandidateResponse: ({ message }) => [{
+        ...model,
+        isConfirming: false,
+        isRejecting: false,
+        isRequestingNewTime: false,
+        feedback: message,
+      }, []],
     }),
   )

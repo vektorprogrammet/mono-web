@@ -19,9 +19,12 @@ export const SucceededRefreshInterview = m("SucceededRefreshInterview", { interv
 export const OpenedCandidate = m("OpenedCandidate")
 export const SucceededReadCandidate = m("SucceededReadCandidate", { candidate: CandidateInterviewView })
 export const FailedReadCandidate = m("FailedReadCandidate", { message: S.String })
-export const AcceptedCandidate = m("AcceptedCandidate")
-export const SucceededAcceptCandidate = m("SucceededAcceptCandidate")
-export const FailedAcceptCandidate = m("FailedAcceptCandidate", { message: S.String })
+export const UpdatedResponseMessage = m("UpdatedResponseMessage", { value: S.String })
+export const ConfirmedCandidate = m("ConfirmedCandidate")
+export const RejectedCandidate = m("RejectedCandidate")
+export const RequestedNewTimeCandidate = m("RequestedNewTimeCandidate")
+export const SucceededCandidateResponse = m("SucceededCandidateResponse")
+export const FailedCandidateResponse = m("FailedCandidateResponse", { message: S.String })
 
 export const Message = S.Union([
   SucceededLoadInterviews,
@@ -41,8 +44,11 @@ export const Message = S.Union([
   OpenedCandidate,
   SucceededReadCandidate,
   FailedReadCandidate,
-  AcceptedCandidate,
-  SucceededAcceptCandidate,
-  FailedAcceptCandidate,
+  UpdatedResponseMessage,
+  ConfirmedCandidate,
+  RejectedCandidate,
+  RequestedNewTimeCandidate,
+  SucceededCandidateResponse,
+  FailedCandidateResponse,
 ])
 export type Message = S.Schema.Type<typeof Message>

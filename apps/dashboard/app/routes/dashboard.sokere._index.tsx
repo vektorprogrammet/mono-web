@@ -464,6 +464,7 @@ const statusFilters = [
   { value: "new", label: "Nye" },
   { value: "assigned", label: "Tildelt" },
   { value: "interviewed", label: "Intervjuet" },
+  { value: "cancelled", label: "Kansellerte" },
   { value: "existing", label: "Eksisterende" },
 ] as const;
 

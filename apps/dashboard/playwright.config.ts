@@ -17,8 +17,10 @@ const realSymfonyRecruitmentMode =
   process.env.REAL_SYMFONY_RECRUITMENT_E2E === '1';
 const realSymfonySchedulingMode =
   process.env.REAL_SYMFONY_INTERVIEW_SCHEDULING_E2E === '1';
+const realSymfonyResponseMode =
+  process.env.REAL_SYMFONY_INTERVIEW_RESPONSE_E2E === '1';
 const realSymfonyMode =
-  realSymfonyRecruitmentMode || realSymfonySchedulingMode;
+  realSymfonyRecruitmentMode || realSymfonySchedulingMode || realSymfonyResponseMode;
 
 const fixtureServer = {
   command: 'node e2e/fixtures/login-api.mjs',

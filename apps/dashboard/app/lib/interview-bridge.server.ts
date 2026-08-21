@@ -19,7 +19,9 @@ const Operation = Schema.Union([
     input: InterviewScheduleInput,
   }),
   Schema.Struct({ operation: Schema.Literal("readCandidate") }),
-  Schema.Struct({ operation: Schema.Literal("acceptCandidate") }),
+  Schema.Struct({ operation: Schema.Literal("confirmCandidate") }),
+  Schema.Struct({ operation: Schema.Literal("rejectCandidate"), message: Schema.String }),
+  Schema.Struct({ operation: Schema.Literal("requestNewTimeCandidate"), message: Schema.String }),
 ])
 
 type Operation = typeof Operation.Type
@@ -96,9 +98,19 @@ export const runOperation = async (request: Request, operation: Operation): Prom
       const capability = Schema.decodeUnknownSync(ResponseCapability)(candidateCapability(request))
       return candidateSdk().interviewResponses.read(capability)
     }
-    case "acceptCandidate": {
+    case "confirmCandidate": {
       const capability = Schema.decodeUnknownSync(ResponseCapability)(candidateCapability(request))
-      await candidateSdk().interviewResponses.accept(capability)
+      await candidateSdk().interviewResponses.confirm(capability)
+      return null
+    }
+    case "rejectCandidate": {
+      const capability = Schema.decodeUnknownSync(ResponseCapability)(candidateCapability(request))
+      await candidateSdk().interviewResponses.reject(capability, operation.message)
+      return null
+    }
+    case "requestNewTimeCandidate": {
+      const capability = Schema.decodeUnknownSync(ResponseCapability)(candidateCapability(request))
+      await candidateSdk().interviewResponses.requestNewTime(capability, operation.message)
       return null
     }
   }

@@ -1,24 +1,32 @@
 import { expect, it } from "@effect/vitest"
-import { InterviewId, type EffectSdk } from "@vektorprogrammet/sdk/effect"
+import { CandidateInterviewView, InterviewId, type EffectSdk } from "@vektorprogrammet/sdk/effect"
 import { Effect, Schema } from "effect"
 import * as fc from "effect/testing/FastCheck"
 import { FieldValidation } from "foldkit"
 import { makeInterviewCommands } from "./command"
 import {
+  ConfirmedCandidate,
   Message,
   OpenedSchedule,
+  RejectedCandidate,
+  RequestedNewTimeCandidate,
   SubmittedSchedule,
   UpdatedDatetime,
   UpdatedMapLink,
 } from "./message"
-import { Model, makeInitialModel } from "./model"
-import { makeUpdate } from "./update"
+import { CandidateData, Model, makeInitialModel } from "./model"
 
 const testClient = {
   admin: {
     interviews: {
       list: () => Effect.succeed({ items: [], totalItems: 0 }),
     },
+  },
+  interviewResponses: {
+    read: () => Effect.succeed(null),
+    confirm: () => Effect.succeed(undefined),
+    reject: () => Effect.succeed(undefined),
+    requestNewTime: () => Effect.succeed(undefined),
   },
 } as unknown as EffectSdk
 const update = makeUpdate(makeInterviewCommands(testClient, null))
@@ -34,6 +42,47 @@ const filledModel = () => ({
   from: FieldValidation.NotValidated({ value: "interviewer@example.com" }),
   to: FieldValidation.NotValidated({ value: "applicant@example.com" }),
   message: FieldValidation.NotValidated({ value: "Vi ser frem til møtet." }),
+})
+const candidateModel = () => ({
+  ...makeInitialModel("candidate"),
+  candidate: CandidateData.Success({
+    data: Schema.decodeUnknownSync(CandidateInterviewView)({
+      schedulingStatus: "pending",
+      interviewTime: "2026-09-14T15:00:00+02:00",
+      room: "Rom 31",
+      campus: "Gløshaugen",
+    }),
+  }),
+})
+it("emits a confirm transition command for a pending invitation", () => {
+  const [next, commands] = update(candidateModel(), ConfirmedCandidate())
+  expect(next.isConfirming).toBe(true)
+  expect(commands).toHaveLength(1)
+})
+
+it("emits a reject transition command without changing status locally", () => {
+  const model = {
+    ...candidateModel(),
+    responseMessage: FieldValidation.NotValidated({ value: "Jeg kan ikke delta." }),
+  }
+  const [next, commands] = update(model, RejectedCandidate())
+  expect(next.isRejecting).toBe(true)
+  expect(next.candidate).toBe(model.candidate)
+  expect(commands).toHaveLength(1)
+})
+
+it("requires a message before requesting a new time", () => {
+  const [invalid, invalidCommands] = update(candidateModel(), RequestedNewTimeCandidate())
+  expect(invalid.feedback).toBe("Skriv en melding før du ber om nytt tidspunkt.")
+  expect(invalidCommands).toHaveLength(0)
+
+  const model = {
+    ...candidateModel(),
+    responseMessage: FieldValidation.NotValidated({ value: "Kan vi møtes torsdag?" }),
+  }
+  const [next, commands] = update(model, RequestedNewTimeCandidate())
+  expect(next.isRequestingNewTime).toBe(true)
+  expect(commands).toHaveLength(1)
 })
 
 it.prop(

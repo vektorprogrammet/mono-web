@@ -3,14 +3,17 @@ import type { Interview, InterviewSchedulingStatus } from "@vektorprogrammet/sdk
 import { AsyncData, FieldValidation } from "foldkit"
 import type { Html, HtmlBuilder } from "foldkit/html"
 import {
-  AcceptedCandidate,
+  ConfirmedCandidate,
   OpenedSchedule,
+  RejectedCandidate,
+  RequestedNewTimeCandidate,
   SubmittedSchedule,
   UpdatedCampus,
   UpdatedDatetime,
   UpdatedFrom,
   UpdatedMapLink,
   UpdatedMessage,
+  UpdatedResponseMessage,
   UpdatedRoom,
   UpdatedTo,
   type Message,
@@ -257,33 +260,74 @@ const dashboardView = (model: Model, h: HtmlBuilder<Message>): Html => h.main([
 const candidateSuccess = (model: Model, h: HtmlBuilder<Message>): Html => {
   const candidate = AsyncData.getData(model.candidate)
   if (candidate._tag === "None") return h.empty
-  const isAccepted = candidate.value.schedulingStatus === "accepted"
-  const canAccept = candidate.value.schedulingStatus === "pending" && !model.isAccepting
+  const status = candidate.value.schedulingStatus
+  const isPending = status === "pending"
+  const isAccepted = status === "accepted"
+  const isRejected = status === "cancelled"
+  const isRequestingNewTime = status === "request_new_time"
+  const isResponding = model.isConfirming || model.isRejecting || model.isRequestingNewTime
+  const canRespond = isPending && !isResponding
+  const heading = isAccepted
+    ? "Intervjutiden er akseptert"
+    : isRejected
+      ? "Intervjuinvitasjonen er avvist"
+      : isRequestingNewTime
+        ? "Nytt tidspunkt er ønsket"
+        : "Svar på intervjutid"
+  const lead = isAccepted
+    ? "Takk. Vi har registrert svaret ditt."
+    : isRejected
+      ? "Vi har registrert at du ikke kan delta."
+      : isRequestingNewTime
+        ? "Vi tar kontakt når vi har funnet et nytt tidspunkt."
+        : "Se over tidspunkt og sted før du svarer på invitasjonen."
   return h.article([h.Class("fk-response-card"), h.AriaLabelledBy("response-heading")], [
     h.div([h.Class("fk-response-card__header")], [
       h.div([], [
         h.p([h.Class("fk-eyebrow")], ["Intervjuinvitasjon"]),
-        h.h1([h.Id("response-heading")], [isAccepted ? "Intervjutiden er akseptert" : "Svar på intervjutid"]),
+        h.h1([h.Id("response-heading")], [heading]),
       ]),
-      statusPill(candidate.value.schedulingStatus, h),
+      statusPill(status, h),
     ]),
-    h.p([h.Class("fk-lead")], [isAccepted
-      ? "Takk. Vi har registrert svaret ditt."
-      : "Se over tidspunkt og sted før du aksepterer invitasjonen."],
-    ),
+    h.p([h.Class("fk-lead")], [lead]),
     h.dl([h.Class("fk-details fk-details--candidate")], [
       h.div([], [h.dt([], ["Tidspunkt"]), h.dd([], [candidate.value.interviewTime ?? "Ikke oppgitt"])]),
       h.div([], [h.dt([], ["Rom"]), h.dd([], [candidate.value.room ?? "Ikke oppgitt"])]),
       h.div([], [h.dt([], ["Campus"]), h.dd([], [candidate.value.campus ?? "Ikke oppgitt"])]),
     ]),
-    !isAccepted
-      ? h.div([h.Class("fk-actions")], [
-        actionButton(
-          model.isAccepting ? "Registrerer svar …" : "Aksepter intervjutid",
-          AcceptedCandidate(),
-          !canAccept,
-          h,
-        ),
+    isPending
+      ? h.div([], [
+        textField({
+          id: "response-message",
+          label: "Melding",
+          value: model.responseMessage.value,
+          field: model.responseMessage,
+          placeholder: "Skriv en melding hvis du trenger et annet tidspunkt.",
+          onInput: (value) => UpdatedResponseMessage({ value }),
+          isDisabled: isResponding,
+        }, h),
+        h.div([h.Class("fk-actions")], [
+          actionButton(
+            model.isConfirming ? "Registrerer svar …" : "Bekreft intervjutid",
+            ConfirmedCandidate(),
+            !canRespond,
+            h,
+          ),
+          actionButton(
+            model.isRejecting ? "Registrerer svar …" : "Avvis intervju",
+            RejectedCandidate(),
+            !canRespond,
+            h,
+            "secondary",
+          ),
+          actionButton(
+            model.isRequestingNewTime ? "Registrerer svar …" : "Be om nytt tidspunkt",
+            RequestedNewTimeCandidate(),
+            !canRespond,
+            h,
+            "secondary",
+          ),
+        ]),
       ])
       : h.div([h.Class("fk-confirmation"), h.Role("status")], ["Svaret er registrert. Du trenger ikke gjøre noe mer."]),
   ])
