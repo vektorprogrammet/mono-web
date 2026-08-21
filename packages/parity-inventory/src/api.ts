@@ -766,6 +766,11 @@ $container = $kernel->getContainer()->get('test.service_container');
 $factory = $container->get('api_platform.metadata.resource.metadata_collection_factory');
 $classes = json_decode($argv[1] ?? '[]', true, 512, JSON_THROW_ON_ERROR);
 $out = [];
+$schemaClass = static function ($value): ?string {
+    if (is_string($value)) return $value;
+    if (is_array($value) && isset($value['class']) && is_string($value['class'])) return $value['class'];
+    return null;
+};
 foreach ($classes as $class) {
     if (!is_string($class) || $class === '') continue;
     try { $collections = $factory->create($class); } catch (\Throwable $e) { continue; }
@@ -786,7 +791,7 @@ foreach ($classes as $class) {
                 'operation_id' => is_string($operationName) ? $operationName : null,
                 'provider_ref' => is_string($provider) ? $provider : (is_object($provider) ? $provider::class : null),
                 'processor_ref' => is_string($processor) ? $processor : (is_object($processor) ? $processor::class : null),
-                'schema_ref' => is_string($output) ? $output : (is_string($input) ? $input : null),
+                'schema_ref' => $schemaClass($output) ?? $schemaClass($input),
             ];
         }
     }

@@ -97,6 +97,22 @@ describe("authoritative Symfony route runtime falsifiers", () => {
     })
     expect(result.links).toEqual([])
   })
+  test("runtime resolution proves a standalone static route is live", () => {
+    const result = reconcileRuntimeRouteRows(
+      "rev-mono",
+      [staticRouteRow("dead_unimported")],
+      [{ routeName: "fixture", pathTemplate: "/fixture", methods: ["GET"] }],
+      runtimeObservation("available"),
+      "source-runtime",
+    )
+    expect(result.rows).toHaveLength(1)
+    expect(result.rows[0]).toMatchObject({
+      status: "covered",
+      reason_codes: [],
+      mismatch: { kind: "none", reason: null },
+      details: { runtime_resolved: true },
+    })
+  })
   test("API Platform route paths reconcile the configured prefix without weakening controller mismatches", () => {
     const apiStatic = staticRouteRow("covered", "GET", "/things", "_api_/things_get")
     const apiDetails = apiStatic.details as MonoRouteDetails

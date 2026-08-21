@@ -1101,24 +1101,19 @@ const reconcileRuntimeRoutes = (
     const changed = !sameRouteObservation(staticRow, runtimeRow)
     const staticDetails = staticRow.details as MonoRouteDetails
     if (!changed) {
-      const status: InventoryRow["status"] =
-        staticRow.status === "dead_unimported"
-          ? "dead_unimported"
-          : staticRow.status === "unresolved"
-            ? "unresolved"
-            : "covered"
-      const reason = status === "covered" ? null : staticRow.reason_codes[0] ?? null
+      const status: InventoryRow["status"] = staticRow.status === "unresolved" ? "unresolved" : "covered"
+      const reasonCodes = status === "covered"
+        ? staticRow.reason_codes.filter((reasonCode) => reasonCode !== "DEAD_UNIMPORTED_SOURCE")
+        : staticRow.reason_codes
+      const reason = status === "covered" ? null : reasonCodes[0] ?? null
       rows[staticIndex] = {
         ...staticRow,
         status,
         observation_kinds: ["static_source", "runtime_resolution"],
         source_ref_ids: sortUnique([...staticRow.source_ref_ids, ...runtimeRow.source_ref_ids]),
         runtime_observation_ref_ids: [runtime.observation.runtime_observation_ref_id],
-        mismatch: rowMismatch(
-          status === "dead_unimported" ? "dead_unimported" : status === "unresolved" ? "unresolved" : "none",
-          [],
-          reason,
-        ),
+        mismatch: rowMismatch(status === "unresolved" ? "unresolved" : "none", [], reason),
+        reason_codes: reasonCodes,
         related_row_ids: [],
         details: { ...staticDetails, runtime_resolved: true },
       }

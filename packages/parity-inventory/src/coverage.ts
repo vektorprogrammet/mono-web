@@ -77,6 +77,7 @@ const PARITY_KINDS = new Set<InventoryKind>([
 const REF_ID = /^intent:\/\/[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/
 const ROW_ID = /^row-[a-f0-9]{64}$/
 const SOURCE_ID = /^src-[a-f0-9]{64}$/
+const RECEIPT_ID = /^receipt-[a-f0-9]{64}$/
 const REVISION_ID = /^rev-[A-Za-z0-9:_-]{1,160}$/
 const DIGEST = /^sha256:[0-9a-f]{64}$/
 const SAFE_INTENT_SCALAR = /^[A-Za-z0-9][A-Za-z0-9._:/#-]{0,127}$/
@@ -224,7 +225,7 @@ const parseStep = (value: unknown, index: number): { readonly step: JourneyStep 
   const canonicalSignatures = sorted(signatures)
   if (rowIds.length === 0 && canonicalSignatures.length === 0) return { step: null, issues: [issue("COVERAGE_REF_REQUIRED")] }
   if (canonicalSignatures.some((signature) => !canonicalSignature(signature) || !safeCanonicalSignature(signature))) return { step: null, issues: [issue("CANONICAL_SIGNATURE_INVALID")] }
-  if (rowIds.some((rowIdValue) => !ROW_ID.test(rowIdValue)) || runtimeEvidenceRefs.some((ref) => !safeIntentScalar(ref, "runtime_evidence_ref"))) return { step: null, issues: [issue("ROW_REF_INVALID")] }
+  if (rowIds.some((rowIdValue) => !ROW_ID.test(rowIdValue)) || runtimeEvidenceRefs.some((ref) => !RECEIPT_ID.test(ref))) return { step: null, issues: [issue("ROW_REF_INVALID")] }
   return {
     step: {
       step_id: value.step_id,

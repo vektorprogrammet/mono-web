@@ -9,6 +9,8 @@ import {
   runtimeEvidenceReceiptRefId,
   tryDecodeRuntimeEvidenceRegister,
 } from "../src/runtime-evidence.js"
+import { tryDecodeAcceptedIntentRegister } from "../src/coverage.js"
+import { canonicalJson, sha256 } from "../src/canonical.js"
 
 const sourceRef = `src-${"a".repeat(64)}`
 const digest = (hex: string): string => `sha256:${hex.repeat(64).slice(0, 64)}`
@@ -49,6 +51,51 @@ describe("runtime evidence register", () => {
     })
     expect(decodeRuntimeEvidenceRegister(JSON.parse(canonicalRuntimeEvidenceBytes(makeRuntimeEvidenceRegister([numeric])))).receipts[0]).toEqual(numeric)
   })
+  test("accepts opaque content-addressed receipt references", () => {
+    const selectedRevisionRefIds = [
+      receiptInput.legacy_revision_ref_id,
+      receiptInput.mono_revision_ref_id,
+    ].sort()
+    const receiptRefId = "receipt-aa77c79d09b1738b3dac10076832e6062244f89af838cc1a875a2c803d18511d"
+    const journeyRefId = "intent://journey:test:opaque-receipt:v1"
+    const intentPayload = {
+      intent_ref_id: journeyRefId,
+      intent_revision: "opaque-receipt-v1",
+      selected_revision_ref_ids: selectedRevisionRefIds,
+      source_ref_ids: [],
+      purpose: "coverage",
+      disposition: null,
+      row_ids: [],
+      canonical_signatures: [],
+      inventory_kinds: [],
+      journey_ref_ids: [journeyRefId],
+    }
+    const journeyPayload = {
+      journey_ref_id: journeyRefId,
+      journey_key: "opaque-receipt",
+      intent_ref_id: journeyRefId,
+      journey_revision: "opaque-receipt-v1",
+      selected_revision_ref_ids: selectedRevisionRefIds,
+      source_ref_ids: [],
+      steps: [{
+        step_id: "observed-step",
+        surface: "api_operation",
+        row_ids: [`row-${"1".repeat(64)}`],
+        canonical_signatures: [],
+        expected_contract_ref: null,
+        runtime_evidence_ref_ids: [receiptRefId],
+      }],
+      coverage_scope: "user_visible",
+    }
+    const decoded = tryDecodeAcceptedIntentRegister({
+      schema_version: "functional-parity-accepted-intent/v1",
+      intents: [{ ...intentPayload, intent_digest: sha256(canonicalJson(intentPayload)) }],
+      journeys: [{ ...journeyPayload, journey_digest: sha256(canonicalJson(journeyPayload)) }],
+    }, selectedRevisionRefIds)
+    expect(decoded.issues).toEqual([])
+    expect(decoded.register?.journeys[0]?.steps[0]?.runtime_evidence_ref_ids).toEqual([receiptRefId])
+  })
+
 
   test.each([
     ["unknown object key", "{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"schema_version\":\"functional-parity-runtime-evidence/v1\",\"receipts\":[],\"unsafe\":true}"],
