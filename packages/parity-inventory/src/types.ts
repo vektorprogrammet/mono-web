@@ -480,6 +480,7 @@ export interface ReportFailure {
   readonly row_ids: readonly string[];
   readonly source_ref_ids: readonly string[];
   readonly accepted_intent_ref_ids: readonly string[];
+  readonly runtime_evidence_ref_ids?: readonly string[]
 }
 
 export interface ReportMismatch {

@@ -4,6 +4,7 @@ import {
   compareByteOrder,
   declarationId,
   edgeId,
+  failureId,
   relationId,
   rowId,
   sha256,
@@ -117,6 +118,7 @@ export interface CoverageIssue {
   readonly rowIds: readonly string[]
   readonly sourceRefIds: readonly string[]
   readonly acceptedIntentRefIds: readonly string[]
+  readonly runtimeEvidenceRefIds?: readonly string[]
 }
 
 export interface IntentDecodeResult {
@@ -167,7 +169,14 @@ const isDisposition = (value: unknown): value is AcceptedDisposition => typeof v
 const isSurface = (value: unknown): value is JourneySurface => typeof value === "string" && (SURFACES as readonly string[]).includes(value)
 const isCoverageScope = (value: unknown): value is CoverageScope => value === "user_visible" || value === "operator_visible" || value === "background" || value === "accepted_non_user_facing"
 const sorted = (values: readonly string[]): string[] => sortUnique(values)
-const issue = (reasonCode: string, status: CoverageIssue["status"] = "accepted_intent_invalid", rowIds: readonly string[] = [], sourceRefIds: readonly string[] = [], acceptedIntentRefIds: readonly string[] = []): CoverageIssue => ({ status, reasonCode, rowIds: sorted(rowIds), sourceRefIds: sorted(sourceRefIds), acceptedIntentRefIds: sorted(acceptedIntentRefIds) })
+const issue = (reasonCode: string, status: CoverageIssue["status"] = "accepted_intent_invalid", rowIds: readonly string[] = [], sourceRefIds: readonly string[] = [], acceptedIntentRefIds: readonly string[] = [], runtimeEvidenceRefIds: readonly string[] = []): CoverageIssue => ({
+  status,
+  reasonCode,
+  rowIds: sorted(rowIds),
+  sourceRefIds: sorted(sourceRefIds),
+  acceptedIntentRefIds: sorted(acceptedIntentRefIds),
+  ...(runtimeEvidenceRefIds.length === 0 ? {} : { runtimeEvidenceRefIds: sorted(runtimeEvidenceRefIds) }),
+})
 const currentRevisionIds = (revisions: readonly RevisionRecord[]): string[] => sorted(revisions.map((revision) => revision.revision_ref_id))
 export const acceptedIntentRevisionRefId = (context: ManifestContext): string => context.scans.mono.revisionRefId
 
@@ -619,7 +628,7 @@ const resolveRuntimeEvidence = (
         },
         receiptIds: [],
         successfulReceiptIds: [],
-        issues: [issue("RUNTIME_EVIDENCE_UNKNOWN_JOURNEY", "unresolved", [], [], [])],
+        issues: [issue("RUNTIME_EVIDENCE_UNKNOWN_JOURNEY", "unresolved", [], [], [], [receipt.receipt_ref_id])],
       })
       continue
     }
@@ -631,13 +640,15 @@ const resolveRuntimeEvidence = (
     const unknownSteps = receipt.step_ids.filter((stepId) => !journeySteps.has(stepId))
     const unknownSources = receipt.runner_source_ref_ids.filter((sourceId) => !sourceIds.has(sourceId))
     const runnerDigestResolution = runnerDigestForSources(manifest, receipt.runner_source_ref_ids)
+    const receiptIssue = (reasonCode: string, status: CoverageIssue["status"], sourceRefIds: readonly string[] = []): CoverageIssue =>
+      issue(reasonCode, status, [], sourceRefIds, [], [receipt.receipt_ref_id])
     const receiptIssues: CoverageIssue[] = []
-    if (stale) receiptIssues.push(issue("RUNTIME_EVIDENCE_STALE", "accepted_intent_invalid", [], unknownSources, []))
-    if (unknownSteps.length > 0) receiptIssues.push(issue("RUNTIME_EVIDENCE_UNKNOWN_STEP", "unresolved", [], unknownSources, []))
-    if (unknownSources.length > 0) receiptIssues.push(issue("RUNTIME_EVIDENCE_SOURCE_REF_MISSING", "unresolved", [], unknownSources, []))
-    if (runnerDigestResolution.unavailable.length > 0) receiptIssues.push(issue("RUNTIME_EVIDENCE_RUNNER_SOURCE_UNAVAILABLE", "unresolved", [], runnerDigestResolution.unavailable, []))
-    else if (runnerDigestResolution.digest !== receipt.runner_digest) receiptIssues.push(issue("RUNTIME_EVIDENCE_RUNNER_DIGEST_MISMATCH", "unresolved", [], receipt.runner_source_ref_ids, []))
-    if (receipt.result === "failed") receiptIssues.push(issue("RUNTIME_EVIDENCE_FAILED", "gaps_found", [], unknownSources, []))
+    if (stale) receiptIssues.push(receiptIssue("RUNTIME_EVIDENCE_STALE", "accepted_intent_invalid", unknownSources))
+    if (unknownSteps.length > 0) receiptIssues.push(receiptIssue("RUNTIME_EVIDENCE_UNKNOWN_STEP", "unresolved", unknownSources))
+    if (unknownSources.length > 0) receiptIssues.push(receiptIssue("RUNTIME_EVIDENCE_SOURCE_REF_MISSING", "unresolved", unknownSources))
+    if (runnerDigestResolution.unavailable.length > 0) receiptIssues.push(receiptIssue("RUNTIME_EVIDENCE_RUNNER_SOURCE_UNAVAILABLE", "unresolved", runnerDigestResolution.unavailable))
+    else if (runnerDigestResolution.digest !== receipt.runner_digest) receiptIssues.push(receiptIssue("RUNTIME_EVIDENCE_RUNNER_DIGEST_MISMATCH", "unresolved", receipt.runner_source_ref_ids))
+    if (receipt.result === "failed") receiptIssues.push(receiptIssue("RUNTIME_EVIDENCE_FAILED", "gaps_found", unknownSources))
     let matchedStep = false
     for (const step of journey.steps) {
       if (!receipt.step_ids.includes(step.step_id)) continue
@@ -933,11 +944,21 @@ export const validateCrossArtifactInvariants = (input: CrossArtifactInvariantInp
   return true
 }
 
-export const coverageFailuresAsReportFailures = (issues: readonly CoverageIssue[]): readonly ReportFailure[] => issues.map((failure) => ({
-  failure_id: stableId("failure", { status: failure.status, reason_code: failure.reasonCode, row_ids: sorted(failure.rowIds), source_ref_ids: sorted(failure.sourceRefIds) }),
-  status: failure.status,
-  reason_code: failure.reasonCode,
-  row_ids: sorted(failure.rowIds),
-  source_ref_ids: sorted(failure.sourceRefIds),
-  accepted_intent_ref_ids: sorted(failure.acceptedIntentRefIds),
-}))
+export const coverageFailuresAsReportFailures = (issues: readonly CoverageIssue[]): readonly ReportFailure[] => issues.map((failure) => {
+  const runtimeEvidenceRefIds = sorted(failure.runtimeEvidenceRefIds ?? [])
+  const status = failure.status
+  const reasonCode = failure.reasonCode
+  const rowIds = sorted(failure.rowIds)
+  const sourceRefIds = sorted(failure.sourceRefIds)
+  return {
+    failure_id: runtimeEvidenceRefIds.length === 0
+      ? failureId(status, reasonCode, rowIds, sourceRefIds)
+      : stableId("failure", { status, reason_code: reasonCode, row_ids: rowIds, source_ref_ids: sourceRefIds, runtime_evidence_ref_ids: runtimeEvidenceRefIds }),
+    status,
+    reason_code: reasonCode,
+    row_ids: rowIds,
+    source_ref_ids: sourceRefIds,
+    accepted_intent_ref_ids: sorted(failure.acceptedIntentRefIds),
+    ...(runtimeEvidenceRefIds.length === 0 ? {} : { runtime_evidence_ref_ids: runtimeEvidenceRefIds }),
+  }
+})
