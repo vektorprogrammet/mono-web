@@ -24,7 +24,7 @@
 7. The dashboard performs a new server read.
 8. The dashboard shows the stored response state.
 9. The team leader performs a new server read and sees the same state.
-10. The assigned interviewer performs a new server read and sees the same state.
+10. The assigned interviewer performs a new server read. A rejected interview is absent from the assigned list.
 
 ## Constraints
 
@@ -53,7 +53,7 @@ The slice is complete when all these statements are true:
 - The applicant can request another time.
 - A fresh applicant read shows the stored response.
 - A fresh team-leader read shows the same response.
-- A fresh interviewer read shows the same response.
+- A fresh interviewer read shows the stored state, or omits an interview that the applicant rejected.
 - An expired, unknown, or malformed capability does not reveal interview data.
 - An invalid transition does not change the database.
 - The response code does not appear in rendered text, logs, or proof artifacts.
