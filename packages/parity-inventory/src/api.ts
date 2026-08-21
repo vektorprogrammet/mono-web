@@ -1,8 +1,9 @@
 import { execFileSync } from "node:child_process"
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs"
 import { dirname, isAbsolute, join } from "node:path"
+import { parseDocument } from "yaml"
 import { tmpdir } from "node:os"
-import { canonicalJson, compareByteOrder, declarationId, edgeId, observationId, relationId, rowId, sha256, sortUnique } from "./canonical.js"
+import { canonicalJson, compareByteOrder, declarationId, edgeId, observationId, relationId, rowId, sha256, sortUnique, normalizePath } from "./canonical.js"
 import { addSourceReference, effectiveIgnoreRule, matchesLiteralPattern, readSourceText, readSourceTextDetailed, sanitizeScalar, sourceTextSafetyReason, unsafeScalarReason, unsafeSourceTextReason, unsafeStructuredValueReason, type ManifestContext, type OutOfBandSourceCapture, type ScanFile } from "./source-manifest.js"
 import { inspectJsonMembers } from "./json-safety.js"
 import { skipPhpTrivia } from "./php-trivia.js"
@@ -119,6 +120,39 @@ const H3_SOURCE_MANIFEST_PATH = "evidence/security-h3/0015/source-manifest.json"
 const H3_COLLECTOR_PATH = "evidence/security-h3/0015/route-collector.json"
 const H3_ROUTE_PATH = "evidence/security-h3/0015/current-route-inventory.json"
 const H3_RESOURCE_PATH = "evidence/security-h3/0015/current-resource-inventory.json"
+const API_PLATFORM_PREFIX = "/api"
+export const canonicalApiPlatformPath = (
+  value: string | null,
+  prefix: string = API_PLATFORM_PREFIX,
+): string | null => {
+  const normalized = normalizePath(value)
+  const normalizedPrefix = normalizePath(prefix)
+  if (normalized === null || normalized.length === 0) return null
+  const canonical = normalized.replaceAll(".{_format}", "{._format}")
+  if (normalizedPrefix === null || normalizedPrefix.length === 0 || normalizedPrefix === "/") return canonical
+  if (canonical === normalizedPrefix) return "/"
+  return canonical.startsWith(`${normalizedPrefix}/`) ? canonical.slice(normalizedPrefix.length) || "/" : canonical
+}
+
+const apiPlatformPrefixFromSource = (context: ManifestContext): string | null => {
+  const file = context.scans.mono.files.find((candidate) => candidate.path === "apps/server/config/routes.yaml")
+  if (file?.availability !== "available") return null
+  const text = readSourceText(context, "mono", file.path)
+  if (text === null) return null
+  try {
+    const document = parseDocument(text, { prettyErrors: false })
+    if (document.errors.some((error) => error.code !== "DUPLICATE_KEY")) return null
+    const root = document.toJSON()
+    if (root === null || typeof root !== "object" || Array.isArray(root)) return null
+    const apiPlatform = (root as Record<string, unknown>).api_platform
+    if (apiPlatform === null || typeof apiPlatform !== "object" || Array.isArray(apiPlatform)) return null
+    const rawPrefix = (apiPlatform as Record<string, unknown>).prefix
+    const prefix = typeof rawPrefix === "string" ? sanitizeScalar(rawPrefix, "route_path") : null
+    return prefix === null ? null : canonicalApiPlatformPath(prefix, "/")
+  } catch {
+    return null
+  }
+}
 type CollectorExecutableKind = "php" | "bwrap"
 export interface ValidatedCollectorExecutable {
   readonly kind: CollectorExecutableKind
@@ -1015,17 +1049,82 @@ const makeRuntimeRow = (context: ManifestContext, operation: RuntimeOperation, s
 const declaredValueMatchesRuntime = <Value>(declared: Value | null, runtime: Value | null): boolean =>
   declared === null || declared === runtime
 
-const sameOperation = (left: Pick<ApiDeclaration, "resourceClassRef" | "method" | "uriTemplate" | "operationId" | "operationName">, right: RuntimeOperation): boolean =>
+const declaredUriMatchesRuntime = (
+  declared: string | null,
+  runtime: string | null,
+  prefix: string | null = API_PLATFORM_PREFIX,
+): boolean => {
+  if (declared === null) return true
+  if (runtime === null || declared === runtime) return runtime !== null
+  if (prefix === null) return false
+  return canonicalApiPlatformPath(declared, prefix) === canonicalApiPlatformPath(runtime, prefix)
+}
+
+const sameOperation = (
+  left: Pick<ApiDeclaration, "resourceClassRef" | "method" | "uriTemplate" | "operationId" | "operationName">,
+  right: RuntimeOperation,
+  apiPrefix: string | null = API_PLATFORM_PREFIX,
+): boolean =>
   left.resourceClassRef === right.resourceClassRef &&
   left.operationName === right.operationName &&
   declaredValueMatchesRuntime(left.method, right.method) &&
-  declaredValueMatchesRuntime(left.uriTemplate, right.uriTemplate) &&
+  declaredUriMatchesRuntime(left.uriTemplate, right.uriTemplate, apiPrefix) &&
   declaredValueMatchesRuntime(left.operationId, right.operationId)
 const sameOperationObservations = (left: Pick<ApiDeclaration, "resourceKey" | "providerRef" | "processorRef" | "schemaRef">, right: RuntimeOperation): boolean =>
   declaredValueMatchesRuntime(left.resourceKey, right.resourceKey) &&
   declaredValueMatchesRuntime(left.providerRef, right.providerRef) &&
   declaredValueMatchesRuntime(left.processorRef, right.processorRef) &&
   declaredValueMatchesRuntime(left.schemaRef, right.schemaRef)
+const runtimeApiRouteKey = (
+  routeName: string | null,
+  method: string | null,
+  path: string | null,
+  prefix: string | null,
+): string | null => {
+  if (routeName === null || method === null || prefix === null) return null
+  const canonicalPath = canonicalApiPlatformPath(path, prefix)
+  return canonicalPath === null ? null : canonicalJson([routeName, method, canonicalPath])
+}
+
+const reconcileApiPlatformRouteRows = (
+  routeRows: readonly InventoryRow[],
+  runtimeOperations: readonly RuntimeOperation[],
+  matchedStaticOperations: ReadonlyMap<number, ApiDeclaration>,
+  apiPrefix: string | null,
+): readonly InventoryRow[] => {
+  const operationsByKey = new Map<string, { readonly operation: RuntimeOperation; readonly declaration: ApiDeclaration } | null>()
+  for (const [runtimeIndex, declaration] of matchedStaticOperations) {
+    const operation = runtimeOperations[runtimeIndex]
+    if (operation === undefined) continue
+    const key = runtimeApiRouteKey(operation.operationId, operation.method, operation.uriTemplate, apiPrefix)
+    if (key === null) continue
+    if (operationsByKey.has(key)) operationsByKey.set(key, null)
+    else operationsByKey.set(key, { operation, declaration })
+  }
+  return routeRows.map((row) => {
+    if (row.status !== "extra" || !row.observation_kinds.includes("runtime_resolution")) return row
+    const details = row.details as MonoRouteDetails
+    const key = runtimeApiRouteKey(details.route_name, details.method, details.path_template, apiPrefix)
+    if (key === null) return row
+    const matched = operationsByKey.get(key)
+    if (matched === undefined || matched === null) return row
+    return {
+      ...row,
+      status: "covered",
+      observation_kinds: sortUnique([...row.observation_kinds, "static_source"]) as InventoryRow["observation_kinds"],
+      source_ref_ids: sortUnique([...row.source_ref_ids, ...matched.declaration.sourceRefIds]),
+      mismatch: mismatch("none", [], null),
+      reason_codes: row.reason_codes.filter((reason) => reason !== "RUNTIME_ONLY_SOURCE"),
+      details: {
+        ...details,
+        declaration_kind: "api_platform",
+        route_origin: "api_platform",
+        owner_ref: matched.operation.resourceClassRef,
+        runtime_resolved: true,
+      },
+    }
+  })
+}
 
 
 const applyDuplicateGroups = (rows: InventoryRow[]): void => {
@@ -1486,9 +1585,7 @@ const sharesH3Source = (
 const h3Path = (value: unknown): string | null => {
   if (typeof value !== "string") return null
   const safe = decodeScalar(value, "route_path")
-  if (safe.unsafe || safe.value === null) return null
-  const withoutApiPrefix = safe.value.startsWith("/api/") ? safe.value.slice(4) : safe.value === "/api" ? "/" : safe.value
-  return withoutApiPrefix.replaceAll(".{_format}", "{._format}")
+  return safe.unsafe ? null : canonicalApiPlatformPath(safe.value)
 }
 
 const h3Methods = (value: Record<string, unknown>): readonly string[] => {
@@ -1747,28 +1844,30 @@ const makeEnvelope = (context: ManifestContext, rows: readonly InventoryRow[], l
 export const collectApiOperations = (context: ManifestContext, sourceManifestSha256: string, routeRows: readonly InventoryRow[] = [], allowFixture = false, configured?: CollectorExecutables, fixtureInput?: ApiRuntimeFixtureInput): ApiCollection => {
   const parsed = parseDeclarations(context)
   const runtime = collectRuntime(context, parsed.declarations, allowFixture, configured, fixtureInput)
+  const apiPrefix = apiPlatformPrefixFromSource(context)
   const staticRows = makeStaticRows(context, parsed.declarations, runtime)
   const runtimeRows = runtime.operations.map((operation, index) => makeRuntimeRow(context, operation, runtime.sourceRefIds, runtime.observation, index + 1))
   let rows: InventoryRow[] = [...staticRows, ...runtimeRows]
   const links: InventoryLink[] = []
-  const runtimeUsed = new Set<string>()
+  const runtimeUsed = new Set<number>()
+  const matchedStaticOperations = new Map<number, ApiDeclaration>()
   for (const staticRow of staticRows) {
     const declaration = parsed.declarations.find((candidate) => rowId("api_operation", declarationId("mono", "mono", candidate.logicalPath, "api_operation", candidate.ordinal), apiCanonicalKey(candidate)) === staticRow.row_id)
     if (declaration === undefined) continue
-    const exactRuntimeIndex = runtime.operations.findIndex((operation, index) => !runtimeUsed.has(String(index)) && sameOperation(declaration, operation))
+    const exactRuntimeIndex = runtime.operations.findIndex((operation, index) => !runtimeUsed.has(index) && sameOperation(declaration, operation, apiPrefix))
     const runtimeIndex = exactRuntimeIndex >= 0
       ? exactRuntimeIndex
-      : runtime.operations.findIndex((operation, index) => !runtimeUsed.has(String(index)) && operation.resourceClassRef === declaration.resourceClassRef && operation.operationName === declaration.operationName)
+      : runtime.operations.findIndex((operation, index) => !runtimeUsed.has(index) && operation.resourceClassRef === declaration.resourceClassRef && operation.operationName === declaration.operationName)
     if (runtimeIndex < 0) {
       const index = rows.findIndex((row) => row.row_id === staticRow.row_id)
       rows[index] = { ...staticRow, status: "unresolved", mismatch: mismatch("unresolved", [], runtime.observation.availability === "available" ? "RUNTIME_OPERATION_UNRESOLVED" : "RUNTIME_UNAVAILABLE"), reason_codes: sortUnique([...staticRow.reason_codes, runtime.observation.availability === "available" ? "RUNTIME_OPERATION_UNRESOLVED" : "RUNTIME_UNAVAILABLE"]) }
       continue
     }
-    runtimeUsed.add(String(runtimeIndex))
+    runtimeUsed.add(runtimeIndex)
+    matchedStaticOperations.set(runtimeIndex, declaration)
     const runtimeRow = runtimeRows[runtimeIndex]
     const runtimeOperation = runtime.operations[runtimeIndex]
-    if (runtimeRow === undefined || runtimeOperation === undefined) continue
-    const changed = !sameOperation(declaration, runtimeOperation) || !sameOperationObservations(declaration, runtimeOperation)
+    const changed = !sameOperation(declaration, runtimeOperation, apiPrefix) || !sameOperationObservations(declaration, runtimeOperation)
     const unresolvedReasons = staticRow.reason_codes.filter(
       (reason) =>
         !(
@@ -1788,7 +1887,7 @@ export const collectApiOperations = (context: ManifestContext, sourceManifestSha
     rows[runtimeRowIndex] = { ...runtimeRow, status, mismatch: mismatch(changed ? "changed" : "none", [staticRow.row_id], reason), reason_codes: reason === null ? [] : [reason], related_row_ids: [staticRow.row_id] }
   }
   for (const [index, runtimeRow] of runtimeRows.entries()) {
-    if (runtimeUsed.has(String(index))) continue
+    if (runtimeUsed.has(index)) continue
     const rowIndex = rows.findIndex((row) => row.row_id === runtimeRow.row_id)
     rows[rowIndex] = runtimeRow
   }
@@ -1805,7 +1904,8 @@ export const collectApiOperations = (context: ManifestContext, sourceManifestSha
     const index = rows.findIndex((candidate) => candidate.row_id === row.row_id)
     rows[index] = { ...row, details: { ...details, openapi_projection_ref: projectionRef }, observation_kinds: row.observation_kinds.includes("generated_projection") ? row.observation_kinds : [...row.observation_kinds, "generated_projection"] }
   }
-  const h3 = addH3Edges(context, rows, routeRows)
+  const reconciledRouteRows = reconcileApiPlatformRouteRows(routeRows, runtime.operations, matchedStaticOperations, apiPrefix)
+  const h3 = addH3Edges(context, rows, reconciledRouteRows)
   rows = [...h3.apiRows]
   const inventory = makeEnvelope(context, rows, links, [...observations, ...h3.apiObservations], h3.apiEdges, sourceManifestSha256, runtime.observation.availability === "available")
   const failures: ApiCollectionFailure[] = [...parsed.failures, ...runtime.failures, ...h3.failures]

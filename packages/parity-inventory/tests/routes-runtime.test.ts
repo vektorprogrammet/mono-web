@@ -97,6 +97,29 @@ describe("authoritative Symfony route runtime falsifiers", () => {
     })
     expect(result.links).toEqual([])
   })
+  test("API Platform route paths reconcile the configured prefix without weakening controller mismatches", () => {
+    const apiStatic = staticRouteRow("covered", "GET", "/things", "_api_/things_get")
+    const apiDetails = apiStatic.details as MonoRouteDetails
+    const result = reconcileRuntimeRouteRows(
+      "rev-mono",
+      [{ ...apiStatic, details: { ...apiDetails, declaration_kind: "api_platform", route_origin: "api_platform" } }],
+      [{ routeName: "_api_/things_get", pathTemplate: "/api/things", methods: ["GET"] }],
+      runtimeObservation("available"),
+      "source-runtime",
+    )
+    expect(result.rows).toHaveLength(1)
+    expect(result.rows[0]).toMatchObject({ status: "covered", observation_kinds: ["static_source", "runtime_resolution"] })
+
+    const controller = reconcileRuntimeRouteRows(
+      "rev-mono",
+      [staticRouteRow("covered", "GET", "/things", "_api_/things_get")],
+      [{ routeName: "_api_/things_get", pathTemplate: "/api/things", methods: ["GET"] }],
+      runtimeObservation("available"),
+      "source-runtime",
+    )
+    expect(controller.rows).toHaveLength(2)
+    expect(controller.rows.every((row) => row.status === "changed")).toBe(true)
+  })
 
   test("unconstrained runtime methods normalize to ANY", () => {
     const staticRow = staticRouteRow()

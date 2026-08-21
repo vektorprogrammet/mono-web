@@ -14,7 +14,7 @@ import {
 } from "./canonical.js"
 import { addSourceReference, matchesLiteralPattern, readSourceText, sanitizeScalar, SOURCE_FAMILIES, unsafeScalarReason, type ManifestContext } from "./source-manifest.js"
 import { lineCommentEnd, skipPhpTrivia } from "./php-trivia.js"
-import { routePayloadContainsUnsafe, runTrustedPhpCollector, recordRuntimeObservation, type CollectorRun } from "./api.js"
+import { canonicalApiPlatformPath, routePayloadContainsUnsafe, runTrustedPhpCollector, recordRuntimeObservation, type CollectorRun } from "./api.js"
 import type {
   CollectorExecutables,
   InventoryEnvelope,
@@ -1044,15 +1044,24 @@ const makeRuntimeRows = (revisionRefId: string, runtime: RuntimeRouteCollection)
   return rows
 }
 
-const routeDetailsComparable = (row: InventoryRow): Pick<MonoRouteDetails, "route_name" | "path_template" | "method"> => {
+const routeDetailsComparable = (row: InventoryRow): Pick<MonoRouteDetails, "route_name" | "path_template" | "method" | "route_origin"> => {
   const details = row.details as MonoRouteDetails
-  return { route_name: details.route_name, path_template: details.path_template, method: details.method }
+  return { route_name: details.route_name, path_template: details.path_template, method: details.method, route_origin: details.route_origin }
+}
+
+const sameRoutePath = (
+  left: Pick<MonoRouteDetails, "path_template" | "route_origin">,
+  right: Pick<MonoRouteDetails, "path_template" | "route_origin">,
+): boolean => {
+  if (left.path_template === right.path_template) return true
+  if (left.route_origin !== "api_platform" && right.route_origin !== "api_platform") return false
+  return canonicalApiPlatformPath(left.path_template) === canonicalApiPlatformPath(right.path_template)
 }
 
 const sameRouteObservation = (left: InventoryRow, right: InventoryRow): boolean => {
   const a = routeDetailsComparable(left)
   const b = routeDetailsComparable(right)
-  return a.route_name === b.route_name && a.path_template === b.path_template && a.method === b.method
+  return a.route_name === b.route_name && sameRoutePath(a, b) && a.method === b.method
 }
 
 const routeNameMatches = (left: InventoryRow, right: InventoryRow): boolean => {
