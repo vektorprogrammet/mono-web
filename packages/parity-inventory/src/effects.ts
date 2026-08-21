@@ -2795,8 +2795,12 @@ const localTransportImportFor = (source: string): boolean =>
 const localTransportReceiverFor = (unit: SourceUnit, call: EffectCall): boolean => {
   if (!localTransportImportFor(unit.text) || call.receiver === null) return false
   const receiverRoot = call.receiver.split(/->|::|\./).find((part) => part.length > 0)
-  if (receiverRoot === undefined) return false
-  return localReceiverTypesFor(unit, call.offset).get(receiverRoot) === "Transport"
+  if (receiverRoot === undefined || !/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(receiverRoot)) return false
+  if (localReceiverTypesFor(unit, call.offset).get(receiverRoot) === "Transport") return true
+  const identifier = receiverRoot.replace(/^\$/, "")
+  return new RegExp(`(?:[(,]|\\b(?:const|let|var)\\s+)\\s*\\$?${identifier}\\s*:\\s*Transport\\b`).test(
+    withoutComments(unit.text).slice(0, call.offset),
+  )
 }
 
 const previewWorkerPath = /^infra\/(?:preview\.worker|alchemy\/preview\/worker)\.ts$/i
@@ -2968,8 +2972,11 @@ const integrationCallsFor = (unit: SourceUnit, authority: AuthorityGraph): reado
       : literalCallsFor(unit.text, callableName).find((candidate) =>
         candidate.offset >= callOffset && candidate.offset <= callOffset + (effectCall?.chain.length ?? callableName.length),
       )
+    const endpointMatch = /https?:\/\/[^\s"'`),}]+/i.exec(literalCall?.rawArgs.join(",") ?? "")
+    const endpointRef = endpointMatch?.[0] === undefined ? null : safeEndpoint(endpointMatch[0], reasons)
     const callSiteContext = functionContextFor(unit.text, callOffset, true)
     const callSiteName = declarationName ?? callSiteContext?.name ?? callableName
+    const dynamicMailerDispatch = ownerShortName(ownerRef) === "Mailer" && callSiteName === "send"
     const callPrefix = structure.slice(Math.max(0, callOffset - 240), callOffset)
     const previewHandlerDeclaration =
       unit.authority === "mono"

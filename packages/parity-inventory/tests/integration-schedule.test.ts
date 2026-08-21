@@ -430,7 +430,7 @@ export default {
     expect(previewRows.some((row) => pathFor(row) === "infra/preview.worker.ts")).toBe(false)
     const containerRow = previewRows.find((row) => pathFor(row) === "infra/alchemy/preview/worker.ts")
     expect(containerRow).toMatchObject({
-      status: "covered",
+      status: "extra",
       details: {
         provider_ref: "cloudflare-containers",
         direction: "outbound",
