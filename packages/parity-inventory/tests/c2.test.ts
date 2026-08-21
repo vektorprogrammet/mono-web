@@ -463,6 +463,109 @@ test("unqualified property types use the declaring namespace and never global sh
     rmSync(monoRoot, { recursive: true, force: true })
   }
 })
+test("entity property mutators stay out of command writes without external effects", async () => {
+  const legacyRoot = mkdtempSync("/tmp/parity-c2-entity-mutator-legacy-")
+  const monoRoot = mkdtempSync("/tmp/parity-c2-entity-mutator-mono-")
+  try {
+    put(legacyRoot, "src/AppBundle/Entity/User.php", `<?php
+namespace AppBundle\\Entity;
+final class User {
+    private $password;
+    private $roles;
+    private $user;
+    public function setPassword($password): void { $this->password = $password; }
+    public function setRoles(array $roles): void { $this->roles = $roles; }
+    public function setUser($user): void { $this->user = $user; }
+}`)
+    put(monoRoot, "apps/server/src/App/Identity/Infrastructure/Entity/User.php", `<?php
+namespace App\\Identity\\Infrastructure\\Entity;
+final class User {
+    private $password;
+    private $roles;
+    private $user;
+    public function setPassword($password): void { $this->password = $password; }
+    public function setRoles(array $roles): void { $this->roles = $roles; }
+    public function setUser($user): void { $this->user = $user; }
+}`)
+    put(monoRoot, "apps/server/src/App/Identity/Infrastructure/Entity/ExternallyPersistedUser.php", `<?php
+namespace App\\Identity\\Infrastructure\\Entity;
+final class ExternallyPersistedUser {
+    private $em;
+    public function setUser($user): void { $this->em->persist($user); }
+}`)
+    const context = await contextFor(legacyRoot, monoRoot)
+    const c2 = collectC2(context, sha256("entity-mutator-c2"))
+    const entityRows = c2.commandWrites.rows.filter((row) =>
+      row.source_ref_ids.some((ref) => /(?:^|\\/)Entity\\//.test(context.sourcePathById.get(ref)?.path ?? "")),
+    )
+    const symbolRefFor = (row: InventoryRow): string | null => "symbol_ref" in row.details ? row.details.symbol_ref : null
+    expect(entityRows.some((row) => symbolRefFor(row)?.endsWith("User::setPassword") === true)).toBe(false)
+    expect(entityRows.some((row) => symbolRefFor(row)?.endsWith("User::setRoles") === true)).toBe(false)
+    expect(entityRows.some((row) => symbolRefFor(row)?.endsWith("User::setUser") === true)).toBe(false)
+    expect(entityRows.find((row) => symbolRefFor(row)?.endsWith("ExternallyPersistedUser::setUser") === true)).toMatchObject({
+      details: { effect_classes: expect.arrayContaining(["durable_write"]) },
+    })
+  } finally {
+    rmSync(legacyRoot, { recursive: true, force: true })
+    rmSync(monoRoot, { recursive: true, force: true })
+  }
+})
+test("command target aliases require matching bounded-context path roles", async () => {
+  const legacyRoot = mkdtempSync("/tmp/parity-c2-target-role-legacy-")
+  const monoRoot = mkdtempSync("/tmp/parity-c2-target-role-mono-")
+  try {
+    put(legacyRoot, "app/config/services.yml", `services:
+  profile_writer:
+    class: AppBundle\\Service\\ProfileWriter
+  mixed_writer:
+    class: AppBundle\\Service\\MixedWriter
+  profile:
+    class: AppBundle\\Entity\\Profile
+  mixed_profile:
+    class: AppBundle\\Entity\\MixedProfile
+`)
+    put(monoRoot, "apps/server/config/services.yaml", `services:
+  profile_writer:
+    class: App\\Identity\\Infrastructure\\ProfileWriter
+  mixed_writer:
+    class: App\\Identity\\Infrastructure\\MixedWriter
+  profile:
+    class: App\\Identity\\Infrastructure\\Entity\\Profile
+  mixed_profile:
+    class: App\\Identity\\Infrastructure\\Repository\\MixedProfile
+`)
+    put(legacyRoot, "src/AppBundle/Entity/Profile.php", "<?php\nnamespace AppBundle\\Entity;\nfinal class Profile { public function setUser($user): void {} }\n")
+    put(legacyRoot, "src/AppBundle/Entity/MixedProfile.php", "<?php\nnamespace AppBundle\\Entity;\nfinal class MixedProfile { public function setUser($user): void {} }\n")
+    put(legacyRoot, "src/AppBundle/Service/ProfileWriter.php", "<?php\nnamespace AppBundle\\Service;\nuse AppBundle\\Entity\\Profile;\nfinal class ProfileWriter { private Profile $profile; public function mutate(): void { $this->profile->setUser($this); } }\n")
+    put(legacyRoot, "src/AppBundle/Service/MixedWriter.php", "<?php\nnamespace AppBundle\\Service;\nuse AppBundle\\Entity\\MixedProfile;\nfinal class MixedWriter { private MixedProfile $profile; public function mutate(): void { $this->profile->setUser($this); } }\n")
+    put(monoRoot, "apps/server/src/App/Identity/Infrastructure/Entity/Profile.php", "<?php\nnamespace App\\Identity\\Infrastructure\\Entity;\nfinal class Profile { public function setUser($user): void {} }\n")
+    put(monoRoot, "apps/server/src/App/Identity/Infrastructure/Repository/MixedProfile.php", "<?php\nnamespace App\\Identity\\Infrastructure\\Repository;\nfinal class MixedProfile { public function setUser($user): void {} }\n")
+    put(monoRoot, "apps/server/src/App/Identity/Infrastructure/ProfileWriter.php", "<?php\nnamespace App\\Identity\\Infrastructure;\nuse App\\Identity\\Infrastructure\\Entity\\Profile;\nfinal class ProfileWriter { private Profile $profile; public function mutate(): void { $this->profile->setUser($this); } }\n")
+    put(monoRoot, "apps/server/src/App/Identity/Infrastructure/MixedWriter.php", "<?php\nnamespace App\\Identity\\Infrastructure;\nuse App\\Identity\\Infrastructure\\Repository\\MixedProfile;\nfinal class MixedWriter { private MixedProfile $profile; public function mutate(): void { $this->profile->setUser($this); } }\n")
+    const context = await contextFor(legacyRoot, monoRoot)
+    const c2 = collectC2(context, sha256("target-role-c2"))
+    const rows = c2.commandWrites.rows
+    const rowFor = (authority: "legacy" | "mono", owner: string) => rows.find((row) =>
+      row.authority_line === authority && "owner_ref" in row.details && row.details.owner_ref === owner,
+    )
+    const profileLegacy = rowFor("legacy", "AppBundle\\Service\\ProfileWriter")
+    const profileMono = rowFor("mono", "App\\Identity\\Infrastructure\\ProfileWriter")
+    const mixedLegacy = rowFor("legacy", "AppBundle\\Service\\MixedWriter")
+    const mixedMono = rowFor("mono", "App\\Identity\\Infrastructure\\MixedWriter")
+    expect(profileLegacy).toMatchObject({ status: "covered", details: { target_refs: ["AppBundle\\Entity\\Profile::setUser"] } })
+    expect(profileMono).toMatchObject({ status: "covered", details: { target_refs: ["App\\Identity\\Infrastructure\\Entity\\Profile::setUser"] } })
+    expect(c2.commandWrites.links.some((link) =>
+      link.relation_kind === "matches" && link.from_row_id === profileLegacy?.row_id && link.to_row_id === profileMono?.row_id,
+    )).toBe(true)
+    expect(mixedLegacy?.status).toBe("missing")
+    expect(mixedMono?.status).toBe("extra")
+  } finally {
+    rmSync(legacyRoot, { recursive: true, force: true })
+    rmSync(monoRoot, { recursive: true, force: true })
+  }
+})
+
+
 test("resolved outbound adapters need no inline URL and Sms setters are not integration calls", async () => {
   const legacyRoot = mkdtempSync("/tmp/parity-c2-outbound-legacy-")
   const monoRoot = mkdtempSync("/tmp/parity-c2-outbound-mono-")

@@ -688,6 +688,26 @@ const effectEvidence = (
   else if (effects.length === 0) effects.push("read_only")
   return { effects: sortUnique(effects) as EffectClass[], targets: sortUnique(targets) }
 }
+const entitySourcePath = (path: string): boolean => /(?:^|\/)(?:Entity|Entities)(?:\/|$)/i.test(path)
+
+const entityMutatorHasExternalEffect = (
+  unit: SourceUnit,
+  authority: AuthorityGraph,
+  scope: EffectScope,
+  evidence: { readonly effects: readonly EffectClass[] },
+): boolean => {
+  if (evidence.effects.some((effect) => ["durable_write", "outbound", "filesystem", "scheduler", "unknown"].includes(effect))) return true
+  if (!evidence.effects.includes("identity_or_authority")) return false
+  const source = unit.text.slice(scope.start, scope.end)
+  for (const call of effectCallExpressionsFor(source)) {
+    if (call.constructorCall || effectClassForCallable(call.callable) !== "identity_or_authority") continue
+    if (!/^set[A-Z]/.test(call.callable)) return true
+    const resolved = resolveEffectCall(authority, unit, call, scope.owner, scope.start)
+    if (call.receiver !== "$this" && call.receiver !== "this") return true
+    if (resolved === null || !entitySourcePath(resolved.targetClass.path)) return true
+  }
+  return false
+}
 
 const entryKindForPath = (path: string): CommandWriteDetails["entry_kind"] => {
   if (/\/Command\//i.test(path)) return "custom_command"
@@ -1641,16 +1661,22 @@ const parseCommandUnits = (context: ManifestContext, authority: "legacy" | "mono
       if (commandAnchor) {
         const selected = methods.find((method) => /^(?:__invoke|handle|execute|run|process)$/i.test(method.name)) ?? methods[0]
         const selectedScope: EffectScope = selected === undefined ? classScope : { owner: ownerClass, start: selected.start, end: selected.end, methodName: selected.name }
+        if (selected !== undefined) {
+          const selectedEvidence = effectEvidence(unit, authorityGraph, selectedScope)
+          if (entitySourcePath(unit.path) && /^set[A-Z]/.test(selected.name) && !entityMutatorHasExternalEffect(unit, authorityGraph, selectedScope, selectedEvidence)) continue
+        }
         const selectedMethod = selected === undefined ? null : normalizeSafe(selected.name, "symbol", reasons)
         parsed.push(commandRow(context, unit, ordinal++, authorityGraph, owner, selectedMethod, selectedScope))
         continue
       }
       if (methods.length > 0) {
         for (const methodScope of methods) {
-          const evidence = effectEvidence(unit, authorityGraph, { owner: ownerClass, start: methodScope.start, end: methodScope.end, methodName: methodScope.name })
+          const scope: EffectScope = { owner: ownerClass, start: methodScope.start, end: methodScope.end, methodName: methodScope.name }
+          const evidence = effectEvidence(unit, authorityGraph, scope)
+          if (entitySourcePath(unit.path) && /^set[A-Z]/.test(methodScope.name) && !entityMutatorHasExternalEffect(unit, authorityGraph, scope, evidence)) continue
           const methodEffect = effectClassForCallable(methodScope.name)
           if (!hasPositiveEffect(evidence.effects) && (methodEffect === null || methodEffect === "read_only")) continue
-          parsed.push(commandRow(context, unit, ordinal++, authorityGraph, owner, normalizeSafe(methodScope.name, "symbol", reasons), { owner: ownerClass, start: methodScope.start, end: methodScope.end, methodName: methodScope.name }))
+          parsed.push(commandRow(context, unit, ordinal++, authorityGraph, owner, normalizeSafe(methodScope.name, "symbol", reasons), scope))
         }
       } else {
         const evidence = effectEvidence(unit, authorityGraph, classScope)
@@ -1746,6 +1772,19 @@ const commandLinks = (parsed: readonly ParsedRow[]): readonly InventoryLink[] =>
   return [...new Map(links.map((link) => [link.relation_id, link])).values()]
 }
 
+const semanticNamespaceRole = (receiver: string): string | null => {
+  const segments = receiver.replace(/^\\/, "").split("\\")
+  if (segments.includes("Controller")) return "controller"
+  if (segments.includes("Entity")) return "entity"
+  if (segments.includes("Repository")) return "repository"
+  if (segments.includes("Command")) return "command"
+  if (segments.includes("EventSubscriber") || segments.includes("Subscriber") || segments.includes("Event")) return "event"
+  if (segments.includes("Service") || segments.includes("Infrastructure")) return "service"
+  if (segments.includes("Domain")) return "domain"
+  return null
+}
+
+
 const semanticTargetRef = (target: string): string => {
   const separator = target.lastIndexOf("::")
   if (separator < 0) return target
@@ -1753,7 +1792,9 @@ const semanticTargetRef = (target: string): string => {
   const callable = target.slice(separator + 2)
   if (!/^\\?[A-Za-z_][A-Za-z0-9_]*(?:\\[A-Za-z_][A-Za-z0-9_]*)*$/.test(receiver)) return target
   const shortReceiver = receiver.split("\\").at(-1)
-  return shortReceiver === undefined ? target : `${shortReceiver}::${callable}`
+  if (shortReceiver === undefined) return target
+  const role = semanticNamespaceRole(receiver)
+  return role === null ? `${shortReceiver}::${callable}` : `${role}/${shortReceiver}::${callable}`
 }
 
 type CommandMatchMode = "legacy" | "extended" | "none"
@@ -1772,12 +1813,14 @@ const commandCrossLineKey = (row: InventoryRow): string | null => {
   const details = row.details as CommandWriteDetails
   const mode = commandMatchMode(row)
   const owner = ownerShortName(details.owner_ref)
+  const ownerRole = semanticNamespaceRole(details.owner_ref ?? "") ?? details.entry_kind
   const method = details.symbol_ref?.split("::").at(-1) ?? null
   if (owner === null || method === null || mode === "none") return null
   if (mode === "legacy") {
     return canonicalJson([
       "command_write_cross_line",
       owner,
+      ownerRole,
       details.entry_kind,
       details.command_name,
       method,
@@ -1795,8 +1838,8 @@ const commandCrossLineKey = (row: InventoryRow): string | null => {
     && semanticTargets.some((target) => /::(?:send|sendMessage|sendPayload|post|request|publish)$/i.test(target))
   const slackAdapterTargetRename =
     semanticTargets.length > 0
-    && semanticTargets.some((target) => /^SlackMessenger::(?:send|sendPayload)$/i.test(target))
-    && semanticTargets.every((target) => /^SlackMessenger::(?:createMessage|send|sendPayload)$/i.test(target))
+    && semanticTargets.some((target) => (target.slice(0, target.lastIndexOf("::")).split("/").at(-1) ?? target) === "SlackMessenger" && /::(?:send|sendPayload)$/i.test(target))
+    && semanticTargets.every((target) => (target.slice(0, target.lastIndexOf("::")).split("/").at(-1) ?? target) === "SlackMessenger" && /::(?:createMessage|send|sendPayload)$/i.test(target))
   const slackTargetNormalization =
     slackEffectEvidence
     && adapterTargetEvidence
@@ -1805,11 +1848,12 @@ const commandCrossLineKey = (row: InventoryRow): string | null => {
   const semanticMethod = slackRenameEvidence ? "send" : method
   const semanticEffects = slackRenameEvidence ? ["outbound"] : details.effect_classes
   const targetRefs = slackTargetNormalization
-    ? ["SlackMessenger::send"]
+    ? ["service/SlackMessenger::send"]
     : sortUnique(semanticTargets)
   return canonicalJson([
     "command_write_cross_line",
     owner,
+    ownerRole,
     details.entry_kind,
     details.command_name,
     semanticMethod,
