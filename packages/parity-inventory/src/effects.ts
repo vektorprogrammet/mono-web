@@ -1969,6 +1969,7 @@ const parseCommandUnits = (context: ManifestContext, authority: "legacy" | "mono
           const scope: EffectScope = { owner: ownerClass, start: methodScope.start, end: methodScope.end, methodName: methodScope.name }
           if (homeShowActionReadOnly(owner, methodScope.name, unit, scope)) continue
           const evidence = effectEvidence(unit, authorityGraph, scope)
+          const methodEffect = effectClassForCallable(methodScope.name)
           if (transientEntityMutationOnly(unit, authorityGraph, scope)) continue
           if (entitySourcePath(unit.path) && /^set[A-Z]/.test(methodScope.name) && !entityMutatorHasExternalEffect(unit, authorityGraph, scope, evidence)) continue
           const controllerDispatch = entryKindForPath(unit.path) === "controller_write"
