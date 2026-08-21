@@ -154,3 +154,246 @@ final class WebhookClient
     rmSync(monoRoot, { recursive: true, force: true })
   }
 })
+
+test("manual command schedules reconcile by stable Symfony names after namespace relocation", async () => {
+  const legacyRoot = mkdtempSync("/tmp/parity-schedule-command-legacy-")
+  const monoRoot = mkdtempSync("/tmp/parity-schedule-command-mono-")
+  try {
+    const legacyPath = "src/AppBundle/Command/SendAdmissionNotificationsCommand.php"
+    const monoPath = "apps/server/src/App/Admission/Infrastructure/Command/SendAdmissionNotificationsCommand.php"
+    const legacyClass = "AppBundle\\Command\\SendAdmissionNotificationsCommand"
+    const monoClass = "App\\Admission\\Infrastructure\\Command\\SendAdmissionNotificationsCommand"
+    const source = (namespace: string): string => `<?php
+namespace ${namespace};
+final class SendAdmissionNotificationsCommand
+{
+    protected function configure(): void
+    {
+        $this->setName('app:admission:send_notifications');
+    }
+
+    protected function execute(): void
+    {
+    }
+}
+`
+    put(legacyRoot, legacyPath, source("AppBundle\\Command"))
+    put(monoRoot, monoPath, source("App\\Admission\\Infrastructure\\Command"))
+    put(legacyRoot, "app/config/services.yml", serviceConfig([legacyClass]))
+    put(monoRoot, "apps/server/config/services.yaml", serviceConfig([monoClass]))
+
+    const context = await contextFor(legacyRoot, monoRoot)
+    const c2 = collectC2(context, sha256("schedule-command-relocation"))
+    const pathFor = (row: { readonly source_ref_ids: readonly string[] }): string | null =>
+      row.source_ref_ids.map((ref) => context.sourcePathById.get(ref)?.path ?? null).find((path): path is string => path !== null) ?? null
+    const rows = c2.schedules.rows.filter((row) => pathFor(row) === legacyPath || pathFor(row) === monoPath)
+
+    expect(rows).toHaveLength(2)
+    expect(rows.every((row) => row.status === "covered")).toBe(true)
+    expect(rows.every((row) => "trigger_identity" in row.details && row.details.trigger_identity === "app:admission:send_notifications")).toBe(true)
+    const rowIds = new Set(rows.map((row) => row.row_id))
+    expect(c2.schedules.links.some((link) =>
+      link.relation_kind === "matches" && rowIds.has(link.from_row_id) && rowIds.has(link.to_row_id),
+    )).toBe(true)
+  } finally {
+    rmSync(legacyRoot, { recursive: true, force: true })
+    rmSync(monoRoot, { recursive: true, force: true })
+  }
+})
+
+test("event subscriber service roots reconcile without inheriting unrelated disabled parameters", async () => {
+  const legacyRoot = mkdtempSync("/tmp/parity-schedule-event-legacy-")
+  const monoRoot = mkdtempSync("/tmp/parity-schedule-event-mono-")
+  try {
+    const legacyPath = "app/config/event_subscribers.yml"
+    const monoPath = "apps/server/config/services.yaml"
+    put(legacyRoot, "app/config/config.yml", "imports:\n  - { resource: event_subscribers.yml }\n")
+    put(legacyRoot, legacyPath, `services:
+  AppBundle\\EventSubscriber\\:
+    resource: "../../src/AppBundle/EventSubscriber"
+`)
+    put(monoRoot, monoPath, `parameters:
+  google_api:
+    disabled: true
+services:
+  App\\Support\\EventSubscriber\\:
+    resource: "../src/App/Support/EventSubscriber"
+    tags:
+      - { name: kernel.event_subscriber }
+`)
+
+    const context = await contextFor(legacyRoot, monoRoot)
+    const c2 = collectC2(context, sha256("schedule-event-root-relocation"))
+    const pathFor = (row: { readonly source_ref_ids: readonly string[] }): string | null =>
+      row.source_ref_ids.map((ref) => context.sourcePathById.get(ref)?.path ?? null).find((path): path is string => path !== null) ?? null
+    const rows = c2.schedules.rows.filter((row) => pathFor(row) === legacyPath || pathFor(row) === monoPath)
+
+    expect(rows).toHaveLength(2)
+    expect(rows.every((row) => row.status === "covered")).toBe(true)
+    expect(rows.every((row) => "trigger_kind" in row.details && row.details.trigger_kind === "event")).toBe(true)
+    expect(rows.every((row) => "enabled" in row.details && row.details.enabled === true)).toBe(true)
+    expect(c2.schedules.links.some((link) =>
+      link.relation_kind === "matches" && rows.some((row) => link.from_row_id === row.row_id || link.to_row_id === row.row_id),
+    )).toBe(true)
+  } finally {
+    rmSync(legacyRoot, { recursive: true, force: true })
+    rmSync(monoRoot, { recursive: true, force: true })
+  }
+})
+
+test("Slack transport aliases and Mailer branches do not create wrapper or elseif integrations", async () => {
+  const legacyRoot = mkdtempSync("/tmp/parity-integration-alias-legacy-")
+  const monoRoot = mkdtempSync("/tmp/parity-integration-alias-mono-")
+  try {
+    put(legacyRoot, "src/AppBundle/Service/SlackMessenger.php", `<?php
+namespace AppBundle\\Service;
+class SlackMessenger
+{
+    public function send(): void
+    {
+        $this->slackClient->sendMessage($message);
+    }
+    public function notify(): void { $this->send(); }
+    public function log(): void { $this->send(); }
+    public function messageDepartment(): void { $this->send(); }
+}
+`)
+    put(monoRoot, "apps/server/src/App/Support/Infrastructure/Slack/SlackMessenger.php", `<?php
+namespace App\\Support\\Infrastructure\\Slack;
+class SlackMessenger
+{
+    public function sendPayload(): void
+    {
+        $this->httpClient->post("https://api.example.test/slack");
+    }
+    public function notify(): void { $this->sendPayload(); }
+    public function log(): void { $this->sendPayload(); }
+    public function messageDepartment(): void { $this->sendPayload(); }
+}
+`)
+    put(legacyRoot, "src/AppBundle/Service/SlackMailer.php", `<?php
+namespace AppBundle\\Service;
+class SlackMailer
+{
+    public function send(): void
+    {
+        $this->messenger->send($message);
+    }
+}
+`)
+    put(monoRoot, "apps/server/src/App/Support/Infrastructure/Slack/SlackMailer.php", `<?php
+namespace App\\Support\\Infrastructure\\Slack;
+class SlackMailer
+{
+    public function send(): void
+    {
+        $this->messenger->sendPayload($message);
+    }
+}
+`)
+    const mailerSource = (namespace: string): string => `<?php
+namespace ${namespace};
+class Mailer
+{
+    public function send(): void
+    {
+        if ($this->env === 'prod') {
+            $this->gmail->send($message);
+        } elseif ($this->env === 'staging') {
+            $this->slackMailer->send($message);
+        } else {
+            $this->mailer->send($message);
+        }
+    }
+}
+`
+    put(legacyRoot, "src/AppBundle/Mailer/Mailer.php", mailerSource("AppBundle\\Mailer"))
+    put(monoRoot, "apps/server/src/App/Support/Infrastructure/Mailer/Mailer.php", mailerSource("App\\Support\\Infrastructure\\Mailer"))
+    put(legacyRoot, "app/config/services.yml", serviceConfig([
+      "AppBundle\\Service\\SlackMessenger",
+      "AppBundle\\Service\\SlackMailer",
+      "AppBundle\\Mailer\\Mailer",
+    ]))
+    put(monoRoot, "apps/server/config/services.yaml", serviceConfig([
+      "App\\Support\\Infrastructure\\Slack\\SlackMessenger",
+      "App\\Support\\Infrastructure\\Slack\\SlackMailer",
+      "App\\Support\\Infrastructure\\Mailer\\Mailer",
+    ]))
+
+    const context = await contextFor(legacyRoot, monoRoot)
+    const c2 = collectC2(context, sha256("integration-aliases"))
+    const pathFor = (row: { readonly source_ref_ids: readonly string[] }): string | null =>
+      row.source_ref_ids.map((ref) => context.sourcePathById.get(ref)?.path ?? null).find((path): path is string => path !== null) ?? null
+    const rows = c2.integrations.rows.filter((row) =>
+      pathFor(row)?.endsWith("SlackMessenger.php")
+      || pathFor(row)?.endsWith("SlackMailer.php")
+      || pathFor(row)?.endsWith("Mailer.php"),
+    )
+    const byOwner = (owner: string, authority: "legacy" | "mono") => rows.filter((row) =>
+      row.authority_line === authority
+      && "call_site_ref" in row.details
+      && row.details.call_site_ref?.endsWith(owner),
+    )
+
+    expect(byOwner("SlackMessenger::send", "legacy")).toHaveLength(1)
+    expect(byOwner("SlackMessenger::sendPayload", "mono")).toHaveLength(1)
+    expect(byOwner("SlackMailer::send", "legacy")).toHaveLength(1)
+    expect(byOwner("SlackMailer::send", "mono")).toHaveLength(1)
+    expect(byOwner("Mailer::send", "legacy")).toHaveLength(1)
+    expect(byOwner("Mailer::send", "mono")).toHaveLength(1)
+    expect(rows.some((row) => "call_site_ref" in row.details && row.details.call_site_ref?.endsWith("Mailer::elseif"))).toBe(false)
+    expect(rows.filter((row) => "call_site_ref" in row.details && row.details.call_site_ref?.includes("SlackMessenger::")).every((row) => row.status === "covered")).toBe(true)
+    expect(rows.filter((row) => "call_site_ref" in row.details && row.details.call_site_ref?.includes("SlackMailer::")).every((row) => row.status === "covered")).toBe(true)
+    expect(rows.filter((row) => "call_site_ref" in row.details && row.details.call_site_ref?.includes("Mailer::")).every((row) => row.status === "covered")).toBe(true)
+  } finally {
+    rmSync(legacyRoot, { recursive: true, force: true })
+    rmSync(monoRoot, { recursive: true, force: true })
+  }
+})
+
+test("preview workers are reachable through explicit Wrangler and Alchemy entrypoint edges", async () => {
+  const legacyRoot = mkdtempSync("/tmp/parity-preview-entrypoint-legacy-")
+  const monoRoot = mkdtempSync("/tmp/parity-preview-entrypoint-mono-")
+  try {
+    put(monoRoot, "package.json", JSON.stringify({
+      scripts: {
+        "preview:dev": "WRANGLER_SEND_METRICS=false node node_modules/wrangler/bin/wrangler.js dev infra/preview.worker.ts --local",
+      },
+    }))
+    put(monoRoot, "infra/preview.worker.ts", `export default {
+  fetch(request: Request): Response {
+    return new Response(request.url);
+  },
+};
+`)
+    put(monoRoot, "infra/alchemy/alchemy.run.ts", `import { PreviewWorker } from "./preview/worker-resource.ts";
+export default Alchemy.Stack("vektor", {}, () => PreviewWorker);
+`)
+    put(monoRoot, "infra/alchemy/preview/worker-resource.ts", `export class PreviewWorker {
+  main = new URL("./worker.ts", import.meta.url).pathname;
+}
+`)
+    put(monoRoot, "infra/alchemy/preview/worker.ts", `export class PreviewContainer {
+  fetch(request: Request): Response {
+    return new Response(request.url);
+  }
+}
+`)
+
+    const context = await contextFor(legacyRoot, monoRoot)
+    const c2 = collectC2(context, sha256("preview-entrypoint-edges"))
+    const pathFor = (row: { readonly source_ref_ids: readonly string[] }): string | null =>
+      row.source_ref_ids.map((ref) => context.sourcePathById.get(ref)?.path ?? null).find((path): path is string => path !== null) ?? null
+    const previewRows = c2.integrations.rows.filter((row) =>
+      pathFor(row) === "infra/preview.worker.ts"
+      || pathFor(row) === "infra/alchemy/preview/worker.ts",
+    )
+
+    expect(previewRows.length).toBeGreaterThanOrEqual(2)
+    expect(previewRows.every((row) => row.status !== "dead_unimported")).toBe(true)
+    expect(previewRows.every((row) => !row.reason_codes.includes("DEAD_UNIMPORTED_SOURCE"))).toBe(true)
+  } finally {
+    rmSync(legacyRoot, { recursive: true, force: true })
+    rmSync(monoRoot, { recursive: true, force: true })
+  }
+})

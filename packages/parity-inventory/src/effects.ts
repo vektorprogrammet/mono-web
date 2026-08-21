@@ -539,7 +539,7 @@ const functionContextFor = (source: string, offset: number, namedOnly = false): 
     const bodyStart = (match.index ?? 0) + (match[0]?.lastIndexOf("{") ?? -1)
     if (bodyStart >= 0) candidates.push({ name: match[1] ?? null, parameters: match[2] ?? match[3] ?? "", bodyStart })
   }
-  const ignoredMethods = new Set(["if", "for", "while", "switch", "catch", "with"])
+  const ignoredMethods = new Set(["if", "for", "while", "switch", "catch", "with", "elseif"])
   const typedMethods = /(?:^|[;{}\n])\s*(?:(?:public|private|protected|static|readonly|abstract|override|async|get|set)\s+)*([A-Za-z_$][A-Za-z0-9_$]*)\s*\(([^)]*)\)\s*(?::[^{=>]+)?\s*\{/gm
   for (const match of structure.matchAll(typedMethods)) {
     const name = match[1]
@@ -1233,14 +1233,26 @@ const runtimePackageEntryTargetsFor = (
       if (typeof value !== "string") return
       const words = wordsFor(value)
       if (words === null) return
-      const command = words[0]
-      const source = words.at(-1)
-      if (command === undefined || source === undefined || !runtimeCommands.has(command) || !sourceToken.test(source)) return
+      const firstCommandIndex = words.findIndex((word) => !/^[A-Za-z_][A-Za-z0-9_]*=[^\s]+$/.test(word))
+      if (firstCommandIndex < 0) return
+      const commandWords = words.slice(firstCommandIndex)
+      const command = commandWords[0]
+      if (command === undefined) return
+      const wranglerSource =
+        command === "node"
+        && commandWords[1] === "node_modules/wrangler/bin/wrangler.js"
+        && commandWords[2] === "dev"
+          ? commandWords.slice(3).find((word) => sourceToken.test(word)) ?? null
+          : null
+      const source = wranglerSource ?? commandWords.at(-1)
+      if (source === undefined || !sourceToken.test(source)) return
       const validForm =
-        (words.length === 2 && runtimeCommands.has(command)) ||
-        (words.length === 3 && ((command === "bun" || command === "deno") && words[1] === "run"))
-      if (!validForm) return
-      const resolved = sourcePathForImport(unit.path, source.startsWith("./") ? source : `./${source}`, languagePaths)
+        (commandWords.length === 2 && runtimeCommands.has(command))
+        || (commandWords.length === 3 && ((command === "bun" || command === "deno") && commandWords[1] === "run"))
+        || wranglerSource !== null
+      const entrySource = wranglerSource ?? source
+      if (!validForm || !sourceToken.test(entrySource)) return
+      const resolved = sourcePathForImport(unit.path, entrySource.startsWith("./") ? entrySource : `./${entrySource}`, languagePaths)
       if (resolved !== null) targets.add(resolved)
     }
     const runtimeConditions = new Set(["browser", "bun", "default", "deno", "development", "import", "node", "production", "react-native", "require", "worker", "workerd"])
@@ -1282,6 +1294,22 @@ const runtimePackageEntryTargetsFor = (
     return []
   }
 }
+const runtimeEntrypointTargetsFor = (
+  unit: { readonly path: string; readonly text: string },
+  languagePaths: ReadonlySet<string>,
+): readonly string[] => {
+  if (!/\.(?:ts|tsx|js|mjs)$/i.test(unit.path)) return []
+  const targets = new Set<string>()
+  const mainUrl = /\bmain\s*:\s*new\s+URL\(\s*["']([^"']+)["']\s*,\s*import\.meta\.url\s*\)\.pathname/g
+  for (const match of unit.text.matchAll(mainUrl)) {
+    const rawTarget = match[1]
+    if (rawTarget === undefined) continue
+    const target = sourcePathForImport(unit.path, rawTarget.startsWith("./") ? rawTarget : `./${rawTarget}`, languagePaths)
+    if (target !== null) targets.add(target)
+  }
+  return [...targets].sort(compareByteOrder)
+}
+
 const runtimeImportClauseFor = (raw: string): boolean => {
   const clause = raw.replace(/\s+from\s*["'][^"']+["']\s*$/, "")
   if (/^\s*(?:import|export)\s+type\b/.test(clause)) return false
@@ -1452,6 +1480,12 @@ const authorityGraphFor = (context: ManifestContext, authority: "legacy" | "mono
       if (/\.(?:ts|tsx|js|mjs)$/i.test(imported) && !runtimeEntrySources.has(imported)) {
         runtimeEntryPending.push({ path: imported, importer: entry.path })
       }
+    }
+    for (const imported of runtimeEntrypointTargetsFor(
+      { path: entry.path, text: sourceTextByPath.get(entry.path) ?? "" },
+      languagePaths,
+    )) {
+      if (!runtimeEntrySources.has(imported)) runtimeEntryPending.push({ path: imported, importer: entry.path })
     }
   }
   const loaderCandidates = languageUnits.filter((unit) => isLoaderConfigPath(unit.path, authority))
@@ -2105,11 +2139,27 @@ const integrationCrossLineKey = (row: InventoryRow): string | null => {
 const scheduleCrossLineKey = (row: InventoryRow): string | null => {
   if (row.inventory_kind !== "schedule_background") return null
   const details = row.details as ScheduleBackgroundDetails
-  if (details.trigger_kind !== "event") return null
   const owner = ownerShortName(details.owner_ref)
   const handler = ownerShortName(details.handler_ref)
-  if (owner === null && handler === null) return null
-  return canonicalJson(["schedule_background_cross_line", details.trigger_kind, owner, handler])
+  if (details.trigger_kind === "manual") {
+    if (details.trigger_identity === null || owner === null || handler === null) return null
+    return canonicalJson([
+      "schedule_background_cross_line",
+      details.trigger_kind,
+      details.trigger_identity,
+      owner,
+      handler,
+    ])
+  }
+  if (details.trigger_kind !== "event") return null
+  if (owner !== null || handler !== null) {
+    return canonicalJson(["schedule_background_cross_line", details.trigger_kind, owner, handler])
+  }
+  const serviceRegistry = details.trigger_identity === "app/config/event_subscribers.yml:event"
+    || details.trigger_identity === "apps/server/config/services.yaml:event"
+  return serviceRegistry
+    ? canonicalJson(["schedule_background_cross_line", details.trigger_kind, "service_event_subscriber_registry"])
+    : null
 }
 
 const semanticCrossLineCandidates = (
@@ -2364,19 +2414,31 @@ const cronExpressionFor = (value: string | null, reasons: string[]): string | nu
 interface YamlScheduleDeclaration {
   readonly expression: string | null
   readonly handler: string | null
+  readonly enabled: boolean
   readonly offset: number
 }
 
 const yamlScheduleDeclarationsFor = (source: string, path: string): readonly YamlScheduleDeclaration[] => {
-  const declarations: YamlScheduleDeclaration[] = []
   const direct = (value: unknown): YamlScheduleDeclaration | null => {
     const pairs = loaderYamlPairs(value)
     const cronPair = pairs.find((pair) => loaderYamlKey(pair.key) === "cron")
     if (cronPair === undefined) return null
     const handlerPair = pairs.find((pair) => ["handler", "command", "class"].includes(loaderYamlKey(pair.key) ?? ""))
+    const disabledPair = pairs.find((pair) => loaderYamlKey(pair.key) === "disabled")
+    const enabledPair = pairs.find((pair) => loaderYamlKey(pair.key) === "enabled")
+    const scalarBoolean = (raw: unknown): boolean | null => {
+      const node = loaderYamlNode(raw)
+      if (node?.value === true) return true
+      if (node?.value === false) return false
+      const scalar = loaderYamlScalar(raw)
+      return scalar === "true" ? true : scalar === "false" ? false : null
+    }
+    const disabled = disabledPair === undefined ? null : scalarBoolean(disabledPair.value)
+    const explicitlyEnabled = enabledPair === undefined ? null : scalarBoolean(enabledPair.value)
     return {
       expression: loaderYamlScalar(cronPair.value),
       handler: handlerPair === undefined ? null : loaderYamlScalar(handlerPair.value),
+      enabled: disabled === true || explicitlyEnabled === false ? false : true,
       offset: cronPair.range?.[0] ?? 0,
     }
   }
@@ -2449,7 +2511,11 @@ const scheduleTriggersFor = (unit: SourceUnit, authority: AuthorityGraph): reado
   const owner = classMatches(structure)[0]?.name ?? null
   const ownerReasons: string[] = []
   const ownerRef = owner === null ? null : classOwner(structure, owner, ownerReasons)
-  const enabled = /\b(?:disabled|enabled)\s*[:=]\s*(?:true|false)/i.test(structure) ? !/\bdisabled\s*[:=]\s*true|\benabled\s*[:=]\s*false/i.test(structure) : true
+  const enabled = /\.(?:ya?ml)$/i.test(unit.path)
+    ? true
+    : /\b(?:disabled|enabled)\s*[:=]\s*(?:true|false)/i.test(structure)
+      ? !/\bdisabled\s*[:=]\s*true|\benabled\s*[:=]\s*false/i.test(structure)
+      : true
   for (const call of literalCallsFor(code, "schedule")) {
     const reasons: string[] = [...ownerReasons]
     const triggerIdentity = scheduleIdentityFor(call.args[0] ?? null, reasons)
@@ -2469,7 +2535,7 @@ const scheduleTriggersFor = (unit: SourceUnit, authority: AuthorityGraph): reado
       const triggerIdentity = normalizeSafe(`${unit.path}:cron`, "source_path", reasons)
       const runtimeRegistered = workflowSchedule || (handlerRef !== null && !reasons.includes("SCHEDULE_HANDLER_UNRESOLVED"))
       if (!runtimeRegistered) reasons.push("SCHEDULE_REGISTRATION_UNRESOLVED")
-      triggers.push({ triggerKind: "cron", triggerIdentity, expression, ownerRef, handlerRef, enabled, runtimeRegistered, line: lineAt(unit.text, declaration.offset), reasons })
+      triggers.push({ triggerKind: "cron", triggerIdentity, expression, ownerRef, handlerRef, enabled: declaration.enabled, runtimeRegistered, line: lineAt(unit.text, declaration.offset), reasons })
     }
   }
   if (/^\s*workflow_dispatch\s*:/im.test(structure)) {
@@ -2485,7 +2551,12 @@ const scheduleTriggersFor = (unit: SourceUnit, authority: AuthorityGraph): reado
     const offset = structure.search(/EventSubscriber|EventListener|subscribe\s*\(/i)
     triggers.push({ triggerKind: "event", triggerIdentity: normalizeSafe(`${unit.path}:event`, "field", []), expression: null, ownerRef, handlerRef: ownerRef, enabled, runtimeRegistered, line: lineAt(unit.text, Math.max(0, offset)), reasons: ownerReasons })
   }
-  if (/\/Command\//i.test(unit.path) && classMatches(structure).length > 0) triggers.push({ triggerKind: "manual", triggerIdentity: ownerRef, expression: null, ownerRef, handlerRef: ownerRef, enabled, runtimeRegistered, line: lineAt(unit.text, classMatches(structure)[0]?.offset ?? 0), reasons: ownerReasons })
+  if (/\/Command\//i.test(unit.path) && classMatches(structure).length > 0) {
+    const reasons: string[] = [...ownerReasons]
+    const commandName = commandNameFor(code, reasons, true)
+    const triggerIdentity = commandName ?? ownerRef
+    triggers.push({ triggerKind: "manual", triggerIdentity, expression: null, ownerRef, handlerRef: ownerRef, enabled, runtimeRegistered, line: lineAt(unit.text, classMatches(structure)[0]?.offset ?? 0), reasons })
+  }
   if (/\b(?:startup|onStartup|kernel\.boot|on_boot)\b/i.test(structure)) {
     const offset = structure.search(/\b(?:startup|onStartup|kernel\.boot|on_boot)\b/i)
     triggers.push({ triggerKind: "startup", triggerIdentity: normalizeSafe(`${unit.path}:startup`, "field", []), expression: null, ownerRef, handlerRef: ownerRef, enabled, runtimeRegistered, line: lineAt(unit.text, Math.max(0, offset)), reasons: ownerReasons })
@@ -2623,7 +2694,7 @@ const scheduleCollection = (context: ManifestContext, sourceManifestSha256: stri
 const providerFromText = (text: string): string | null => {
   const patterns: readonly [RegExp, string][] = [
     [/\b(?:Google|GoogleClient|GoogleApis?|GoogleAdapter|GoogleService)\b/i, "google"],
-    [/\bSlack(?:Client|Webhook|Adapter|Service)?\b/i, "slack"],
+    [/\bSlack(?:Mailer|Client|Webhook|Adapter|Service)?\b/i, "slack"],
     [/\b(?:Mailer|MailerClient|MailerAdapter|MailerService|Mailgun|Smtp)\b/i, "mailer"],
     [/\b(?:Sms|SmsClient|SmsSender|SmsGateway|SmsAdapter|Twilio)\b/i, "sms"],
     [/\bGatewayAPI(?:Client|Adapter|Service)?\b/i, "gatewayapi"],
@@ -2744,6 +2815,12 @@ const integrationCallsFor = (unit: SourceUnit, authority: AuthorityGraph): reado
     const contextStructure = structure.slice(contextStart, contextEnd)
     const reasons: string[] = []
     const resolvedCall = effectCall === undefined ? null : resolveEffectCall(authority, unit, effectCall, ownerClass)
+    if (
+      ownerClass !== undefined
+      && effectCall !== undefined
+      && /^(?:\$?this)$/i.test(effectCall.receiver ?? "")
+      && ownerClass.methods.has(effectCall.callable)
+    ) continue
     const adapterEvidence = integrationAdapterPattern.test(contextStructure) || integrationAdapterPattern.test(resolvedCall?.symbol ?? "")
     const namedProviderRef = providerFromText(resolvedCall?.symbol ?? "")
       ?? providerFromText(ownerRef ?? "")
@@ -2755,8 +2832,12 @@ const integrationCallsFor = (unit: SourceUnit, authority: AuthorityGraph): reado
       )
     const endpointMatch = /https?:\/\/[^\s"'`),}]+/i.exec(literalCall?.rawArgs.join(",") ?? "")
     const endpointRef = endpointMatch?.[0] === undefined ? null : safeEndpoint(endpointMatch[0], reasons)
-    const protocol = protocolFor(endpointRef, `${contextStructure} ${callableName ?? ""} ${resolvedCall?.symbol ?? ""} ${namedProviderRef ?? ""}`)
+    const callSiteContext = functionContextFor(unit.text, callOffset, true)
+    const callSiteName = declarationName ?? callSiteContext?.name ?? callableName
+    const dynamicMailerDispatch = ownerShortName(ownerRef) === "Mailer" && callSiteName === "send"
+    const detectedProtocol = protocolFor(endpointRef, `${contextStructure} ${callableName ?? ""} ${resolvedCall?.symbol ?? ""} ${namedProviderRef ?? ""}`)
       ?? (adapterEvidence ? "http" : null)
+    const protocol = dynamicMailerDispatch ? "smtp" : detectedProtocol
     const transportEvidence = adapterEvidence || /^(?:fetch|curl_exec|curl_init)$/i.test(callableName ?? "")
     const positiveAnchor = endpointMatch !== null || namedProviderRef !== null || transportEvidence || protocol !== null
     if (!positiveAnchor) continue
@@ -2765,8 +2846,6 @@ const integrationCallsFor = (unit: SourceUnit, authority: AuthorityGraph): reado
     const credentialSlotRef = credentialMatch?.[1] === undefined ? null : credentialSlotFor(credentialMatch[1], reasons)
     const effectClasses: EffectClass[] = resolvedCall === null ? ["unknown"] : ["outbound"]
     const direction: ExternalIntegrationDetails["direction"] = /\b(?:webhook|handleRequest|onRequest|incoming|inbound)\b/i.test(contextStructure) ? "inbound" : "outbound"
-    const callSiteContext = functionContextFor(unit.text, callOffset, true)
-    const callSiteName = declarationName ?? callSiteContext?.name ?? callableName
     const callSiteRef = callSiteName === null
       ? null
       : ownerRef === null
@@ -2774,9 +2853,10 @@ const integrationCallsFor = (unit: SourceUnit, authority: AuthorityGraph): reado
         : `${ownerRef}::${callSiteName}`
     const safeSymbol = normalizeSafe(callSiteRef, "symbol", reasons)
     if (safeSymbol === null) reasons.push("INTEGRATION_CALLSITE_UNRESOLVED")
-    const providerRef = namedProviderRef ?? (transportEvidence
+    const detectedProviderRef = namedProviderRef ?? (transportEvidence
       ? normalizeSafe(resolvedCall?.symbol ?? safeSymbol, "symbol", reasons)
       : null)
+    const providerRef = dynamicMailerDispatch ? "mailer" : detectedProviderRef
     if (providerRef === null) reasons.push("UNKNOWN_INTEGRATION")
     calls.push({ authority: unit.authority, path: unit.path, sourceRefId: unit.sourceRefId, ownerRef, symbolRef: safeSymbol, providerRef, direction, protocol, endpointRef, credentialSlotRef, effectClasses, reasonCodes: sortUnique(reasons), imported, importerPath, line: lineAt(unit.text, callOffset) })
   }
