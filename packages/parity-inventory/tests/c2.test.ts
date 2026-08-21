@@ -782,7 +782,7 @@ test("relocated services and custom commands reconcile exact effects, with Slack
   slack_mailer:
     class: App\Fixture\Infrastructure\Slack\SlackMailer
   interview_notification_manager:
-    class: App\Fixture\Infrastructure\Slack\InterviewNotificationManager
+    class: App\Fixture\Infrastructure\InterviewNotificationManager
   relocated_command:
     class: App\Fixture\Infrastructure\Command\RelocatedCommand
   divergent_command:
@@ -865,7 +865,8 @@ final class InterviewNotificationManager {
 }
 `)
     put(monoRoot, "apps/server/src/App/Fixture/Infrastructure/TeamMembershipService.php", String.raw`<?php
-namespace App\Fixture\Infrastructure\Slack;
+namespace App\Fixture\Infrastructure;
+use App\Fixture\Infrastructure\Slack\SlackMessenger;
 final class InterviewNotificationManager {
     private $slackMessenger;
     public function __construct(SlackMessenger $slackMessenger) { $this->slackMessenger = $slackMessenger; }
@@ -986,6 +987,7 @@ final class RelocatedSubscriber {
       expect(interviewMono).toMatchObject({
         status: "covered",
         details: {
+          owner_ref: "App\\Fixture\\Infrastructure\\InterviewNotificationManager",
           effect_classes: ["outbound"],
           target_refs: ["App\\Fixture\\Infrastructure\\Slack\\SlackMessenger::notify"],
         },
