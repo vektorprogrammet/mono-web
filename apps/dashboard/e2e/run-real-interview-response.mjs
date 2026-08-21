@@ -271,14 +271,13 @@ async function main() {
       "RUNTIME_EVIDENCE_RUNNER_SOURCE_REF_IDS",
     ].some((name) => typeof process.env[name] === "string" && process.env[name].length > 0);
     const e2eArgs = [
-      "run",
-      "e2e:test",
-      "--",
+      resolve(dashboardRoot, "node_modules/@playwright/test/cli.js"),
+      "test",
       "e2e/real-interview-response.spec.ts",
       "--project=real-symfony",
     ];
     if (receiptRequested) e2eArgs.push("--reporter=json");
-    const e2eResult = await runCommand("bun", e2eArgs, {
+    const e2eResult = await runCommand(process.env.PLAYWRIGHT_NODE_EXECUTABLE ?? "node", e2eArgs, {
       cwd: dashboardRoot,
       env: dashboardEnv,
       captureOutput: receiptRequested,
