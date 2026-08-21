@@ -394,6 +394,7 @@ export const SOURCE_FAMILIES: readonly SourceFamily[] = [
       "apps/server/src/App/**/Infrastructure/RoleManager.php",
       "apps/server/src/App/**/Infrastructure/SbsData.php",
       "apps/server/src/App/**/Infrastructure/Slack/SlackMessenger.php",
+      "apps/server/src/App/**/Infrastructure/Slack/SlackMailer.php",
       "apps/server/src/App/**/Infrastructure/SurveyManager.php",
       "apps/server/src/App/**/Infrastructure/SurveyNotifier.php",
       "apps/server/src/App/**/Infrastructure/TeamMembershipService.php",

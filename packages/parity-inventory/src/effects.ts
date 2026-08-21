@@ -440,16 +440,44 @@ const methodScopeFor = (source: string, offset: number, limit: number): MethodSc
 
 const normalizeLocalType = (raw: string | undefined): string | null => {
   const value = raw?.trim().replace(/^\?/, "").split("|")[0]?.trim() ?? ""
-  return value.length === 0 || /^(?:mixed|object|array|callable|iterable|void|never|self|static|parent|unknown|any)$/i.test(value) ? null : value
+  return value.length === 0 || /^(?:mixed|object|array|callable|iterable|void|never|self|static|parent|unknown|any|null|true|false|public|private|protected|readonly|static|final|var)$/i.test(value)
+    ? null
+    : value
 }
 const constructorPropertyTypeFor = (source: string, property: string): string | null => {
-  const constructorParameters = /\bfunction\s+__construct\s*\(([^)]*)\)/i.exec(withoutComments(source))?.[1] ?? ""
-  for (const parameter of constructorParameters.split(",")) {
-    const match = /^\s*(?:(?:public|private|protected|readonly|static|final)\s+)*(\??[\\A-Za-z_][A-Za-z0-9_\\]*(?:\s*\|\s*\??[\\A-Za-z_][A-Za-z0-9_\\]*)*)\s+\$([A-Za-z_][A-Za-z0-9_]*)/.exec(parameter)
-    if (match?.[2] === property) return normalizeLocalType(match[1])
+  const structure = withoutLiterals(withoutComments(source))
+  const constructorMatch = /\bfunction\s+__construct\s*\(([^)]*)\)\s*(?::[^{]+)?\s*\{/i.exec(structure)
+  if (constructorMatch !== null) {
+    const open = (constructorMatch.index ?? 0) + constructorMatch[0].lastIndexOf("{")
+    let depth = 1
+    let end = structure.length
+    for (let index = open + 1; index < structure.length; index += 1) {
+      if (structure[index] === "{") depth += 1
+      else if (structure[index] === "}") {
+        depth -= 1
+        if (depth === 0) {
+          end = index
+          break
+        }
+      }
+    }
+    const escapedProperty = property.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+    const assignment = new RegExp(`\\$this\\s*->\\s*${escapedProperty}\\s*=\\s*new\\s+([\\\\A-Za-z_][A-Za-z0-9_\\\\]*)\\b`).exec(structure.slice(open + 1, end))
+    const assignedType = normalizeLocalType(assignment?.[1])
+    if (assignedType !== null) return assignedType
+    const constructorParameters = constructorMatch[1] ?? ""
+    for (const parameter of constructorParameters.split(",")) {
+      const match = /^\s*(?:(?:public|private|protected|readonly|static|final)\s+)*(\??[\\A-Za-z_][A-Za-z0-9_\\]*(?:\s*\|\s*\??[\\A-Za-z_][A-Za-z0-9_\\]*)*)\s+\$([A-Za-z_][A-Za-z0-9_]*)/.exec(parameter)
+      if (match?.[2] === property) return normalizeLocalType(match[1])
+    }
   }
   return null
 }
+const validClassIdentity = (raw: string | null | undefined): raw is string =>
+  raw !== null
+  && raw !== undefined
+  && /^\\?[A-Za-z_][A-Za-z0-9_\\]*$/.test(raw)
+  && normalizeLocalType(raw) !== null
 
 const localReceiverTypesFor = (unit: SourceUnit, offset: number): ReadonlyMap<string, string | null> => {
   const localTypes = new Map<string, string | null>()
@@ -517,6 +545,7 @@ const effectClassForCallable = (callable: string): EffectClass | null => {
     case "dispatch":
     case "send":
     case "sendmessage":
+    case "sendpayload":
     case "mailer":
     case "mail":
     case "smtp":
@@ -581,12 +610,15 @@ const effectEvidence = (
       const adapterTargetScope = scope?.owner?.name === "SlackMessenger"
         && (scope.methodName === "send" || scope.methodName === "sendPayload")
       const typedLocalReceiver = receiverRoot !== null && localTypes.has(receiverRoot) && localTypes.get(receiverRoot) !== null
+      const declaredOwnerPropertyType = receiverRoot === "$this" && receiverParts[1] !== undefined
+        ? scope?.owner?.properties.get(receiverParts[1])
+        : undefined
       const typedOwnerPropertyType = receiverRoot === "$this" && receiverParts[1] !== undefined
-        ? scope?.owner?.properties.get(receiverParts[1]) ?? (adapterTargetScope ? constructorPropertyTypeFor(unit.text, receiverParts[1]) : undefined)
+        ? constructorPropertyTypeFor(unit.text, receiverParts[1]) ?? declaredOwnerPropertyType
         : undefined
       const typedOwnerProperty = receiverRoot === "$this"
         && receiverParts[1] !== undefined
-        && (scope?.owner?.properties.has(receiverParts[1]) === true || typedOwnerPropertyType !== null && typedOwnerPropertyType !== undefined)
+        && (validClassIdentity(typedOwnerPropertyType) || declaredOwnerPropertyType !== undefined)
       const explicitlyUnknownReceiver = receiver !== null && !typedLocalReceiver && !typedOwnerProperty
       const callPrefix = source.slice(Math.max(0, call.offset - 160), call.offset)
       const trustedEffectAnchor =
@@ -602,7 +634,7 @@ const effectEvidence = (
         if (receiver === null && !trustedEffectAnchor) markUnresolved()
         else {
           effects.push(callableEffect)
-          if (callableEffect === "outbound" && adapterTargetScope && typedOwnerPropertyType !== undefined && /^(?:send|sendMessage|sendPayload|post|request|publish)$/i.test(call.callable)) {
+          if (callableEffect === "outbound" && adapterTargetScope && validClassIdentity(typedOwnerPropertyType) && /^(?:send|sendMessage|sendPayload|post|request|publish)$/i.test(call.callable)) {
             targets.push(`${typedOwnerPropertyType}::${call.callable}`)
           }
           if (explicitlyUnknownReceiver && !trustedEffectAnchor) markUnresolved()
@@ -626,11 +658,7 @@ const effectEvidence = (
     }
     const nested = effectEvidence(target.unit, authority, target.scope, new Set([...visited, resolved.symbol]))
     effects.push(...nested.effects.filter((effect) => effect !== "read_only"))
-    const nestedTargets =
-      target.scope.owner?.name === "SlackMessenger"
-      && (target.scope.methodName === "send" || target.scope.methodName === "sendPayload")
-      ? nested.targets.filter((targetRef) => !/::(?:send|sendMessage|sendPayload|post|request|publish)$/i.test(targetRef))
-      : nested.targets
+    const nestedTargets = target.scope.owner?.name === "SlackMessenger" ? [] : nested.targets
     targets.push(...nestedTargets)
   }
   if (unresolved) effects.push("unknown")
@@ -1399,6 +1427,11 @@ const authorityGraphFor = (context: ManifestContext, authority: "legacy" | "mono
   }
 }
 
+const namespaceForClassFqn = (fqn: string | undefined): string | undefined => {
+  if (fqn === undefined) return undefined
+  const separator = fqn.lastIndexOf("\\")
+  return separator < 0 ? undefined : fqn.slice(0, separator)
+}
 const resolveClassForPath = (authority: AuthorityGraph, path: string, name: string): LanguageClass | undefined => {
   const aliases = authority.aliasesByPath.get(path)
   const local = authority.classesByPath.get(path)?.find((item) => item.name === name || item.fqn === name)
@@ -1454,9 +1487,20 @@ const resolveEffectCall = (authority: AuthorityGraph, unit: SourceUnit, call: Ef
     item = resolveNamed(first)
   }
   while (item !== undefined && propertyIndex < segments.length) {
-    const property = item.properties.get(segments[propertyIndex] ?? "")
-    if (property === undefined) return null
-    item = reachableClassFor(authority, resolveClassForPath(authority, item.path, property))
+    const property = segments[propertyIndex] ?? ""
+    const propertySource = item.path === unit.path ? unit.text : authority.sourceTextByPath.get(item.path) ?? ""
+    const propertyType = constructorPropertyTypeFor(propertySource, property) ?? item.properties.get(property)
+    if (!validClassIdentity(propertyType)) return null
+    const ownerNamespace = namespaceForClassFqn(item.fqn)
+    const slackMessengerName =
+      item.name === "SlackMailer" && propertyType === "SlackMessenger" && ownerNamespace !== undefined
+        ? `${ownerNamespace}\\SlackMessenger`
+        : null
+    const propertyClass =
+      resolveClassForPath(authority, item.path, propertyType)
+      ?? (slackMessengerName === null ? undefined : resolveClassForPath(authority, item.path, slackMessengerName))
+    if (propertyClass === undefined) return null
+    item = reachableClassFor(authority, propertyClass)
     propertyIndex += 1
   }
   if (item === undefined || !item.methods.has(call.callable)) return null
@@ -1732,7 +1776,14 @@ const commandCrossLineKey = (row: InventoryRow): string | null => {
     semanticTargets.length > 0
     && semanticTargets.every((target) => !target.startsWith("unresolved:"))
     && semanticTargets.some((target) => /::(?:send|sendMessage|sendPayload|post|request|publish)$/i.test(target))
-  const slackTargetNormalization = owner === "SlackMessenger" && slackEffectEvidence && adapterTargetEvidence
+  const slackAdapterTargetRename =
+    semanticTargets.length > 0
+    && semanticTargets.some((target) => /^SlackMessenger::(?:send|sendPayload)$/i.test(target))
+    && semanticTargets.every((target) => /^SlackMessenger::(?:createMessage|send|sendPayload)$/i.test(target))
+  const slackTargetNormalization =
+    slackEffectEvidence
+    && adapterTargetEvidence
+    && (owner === "SlackMessenger" || slackAdapterTargetRename)
   const slackRenameEvidence = slackRenameCandidate && slackTargetNormalization && semanticTargets.length === 1
   const semanticMethod = slackRenameEvidence ? "send" : method
   const semanticEffects = slackRenameEvidence ? ["outbound"] : details.effect_classes

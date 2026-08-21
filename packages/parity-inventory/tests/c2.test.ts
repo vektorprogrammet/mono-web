@@ -6,7 +6,7 @@ import { applyAcceptedAbsent, collectC2 } from "../src/effects.js"
 import { collectRoutes } from "../src/routes.js"
 import { acceptedIntentRevisionRefId } from "../src/coverage.js"
 import { canonicalJson, sha256 } from "../src/canonical.js"
-import { SOURCE_FAMILIES } from "../src/source-manifest.js"
+import { SOURCE_FAMILIES, matchesLiteralPattern, sourceFamilyMatchedPaths } from "../src/source-manifest.js"
 import { COMMITTED_PROJECTIONS, PROJECTION_DIRECTORY, run, runTrustedFixtureTerminalCycle } from "../src/runner.js"
 import { canonicalRuntimeEvidenceBytes, makeRuntimeEvidenceReceipt, makeRuntimeEvidenceRegister } from "../src/runtime-evidence.js"
 import { createManifestContextFromSnapshots } from "../src/source-manifest.js"
@@ -725,6 +725,10 @@ test("relocated services and custom commands reconcile exact effects, with Slack
     class: AppBundle\Service\DivergentService
   slack_messenger:
     class: AppBundle\Service\SlackMessenger
+  slack_mailer:
+    class: AppBundle\Service\SlackMailer
+  interview_notification_manager:
+    class: AppBundle\Service\InterviewNotificationManager
   relocated_command:
     class: AppBundle\Command\RelocatedCommand
   divergent_command:
@@ -739,6 +743,10 @@ test("relocated services and custom commands reconcile exact effects, with Slack
     class: App\Fixture\Infrastructure\DivergentService
   slack_messenger:
     class: App\Fixture\Infrastructure\Slack\SlackMessenger
+  slack_mailer:
+    class: App\Fixture\Infrastructure\Slack\SlackMailer
+  interview_notification_manager:
+    class: App\Fixture\Infrastructure\InterviewNotificationManager
   relocated_command:
     class: App\Fixture\Infrastructure\Command\RelocatedCommand
   divergent_command:
@@ -779,8 +787,10 @@ namespace AppBundle\Service;
 use Nexy\Slack\Client;
 final class SlackMessenger {
     private $slackClient;
-    public function __construct(Client $slackClient) { $this->slackClient = $slackClient; }
+    public function __construct() { $this->slackClient = new Client(); }
+    public function createMessage(): object { return new \stdClass(); }
     public function send(): void { $this->slackClient->sendMessage($message); }
+    public function notify(): void { $this->send(); }
 }
 `)
     put(monoRoot, "apps/server/src/App/Fixture/Infrastructure/Slack/SlackMessenger.php", String.raw`<?php
@@ -788,8 +798,45 @@ namespace App\Fixture\Infrastructure\Slack;
 use GuzzleHttp\Client;
 final class SlackMessenger {
     private $httpClient;
-    public function __construct(Client $httpClient) { $this->httpClient = $httpClient; }
+    public function __construct() { $this->httpClient = new Client(); }
     public function sendPayload(): void { $this->httpClient->post($this->endpoint, []); }
+    public function notify(): void { $this->sendPayload(); }
+}
+`)
+    put(legacyRoot, "src/AppBundle/Service/SlackMailer.php", String.raw`<?php
+namespace AppBundle\Service;
+final class SlackMailer {
+    private $messenger;
+    public function __construct(SlackMessenger $messenger) { $this->messenger = $messenger; }
+    public function send(): void { $message = $this->messenger->createMessage(); $this->messenger->send($message); }
+}
+`)
+    put(monoRoot, "apps/server/src/App/Fixture/Infrastructure/Slack/SlackMailer.php", String.raw`<?php
+namespace App\Fixture\Infrastructure\Slack;
+final class SlackMailer {
+    private $messenger;
+    public function __construct(SlackMessenger $messenger) { $this->messenger = $messenger; }
+    public function send(): void { $this->messenger->sendPayload($message); }
+}
+`)
+    put(legacyRoot, "src/AppBundle/Service/InterviewNotificationManager.php", String.raw`<?php
+namespace AppBundle\Service;
+use AppBundle\Service\SlackMessenger;
+final class InterviewNotificationManager {
+    private $slackMessenger;
+    public function __construct(SlackMessenger $slackMessenger) { $this->slackMessenger = $slackMessenger; }
+    public function sendApplicationCountNotification(): void { $this->slackMessenger->notify($message); }
+    public function sendInterviewsCompletedNotification(): void { $this->slackMessenger->notify($message); }
+}
+`)
+    put(monoRoot, "apps/server/src/App/Fixture/Infrastructure/TeamMembershipService.php", String.raw`<?php
+namespace App\Fixture\Infrastructure;
+use App\Fixture\Infrastructure\Slack\SlackMessenger;
+final class InterviewNotificationManager {
+    private $slackMessenger;
+    public function __construct(SlackMessenger $slackMessenger) { $this->slackMessenger = $slackMessenger; }
+    public function sendApplicationCountNotification(): void { $this->slackMessenger->notify($message); }
+    public function sendInterviewsCompletedNotification(): void { $this->slackMessenger->notify($message); }
 }
 `)
     put(legacyRoot, "src/AppBundle/Command/RelocatedCommand.php", String.raw`<?php
@@ -875,6 +922,44 @@ final class RelocatedSubscriber {
     expect(slackLegacy).toMatchObject({ status: "covered", details: { effect_classes: ["outbound"], target_refs: ["Client::sendMessage"] } })
     expect(slackMono).toMatchObject({ status: "covered", details: { effect_classes: ["outbound"], target_refs: ["Client::post"] } })
     expect(linkFor(slackLegacy, slackMono)).toBe(true)
+    const slackMailerLegacy = rowFor("legacy", "\\SlackMailer", "send")
+    const slackMailerMono = rowFor("mono", "\\SlackMailer", "send")
+    expect(slackMailerLegacy).toMatchObject({
+      status: "covered",
+      details: {
+        effect_classes: ["outbound"],
+        target_refs: ["AppBundle\\Service\\SlackMessenger::createMessage", "AppBundle\\Service\\SlackMessenger::send"],
+      },
+    })
+    expect(slackMailerMono).toMatchObject({
+      status: "covered",
+      details: {
+        effect_classes: ["outbound"],
+        target_refs: ["App\\Fixture\\Infrastructure\\Slack\\SlackMessenger::sendPayload"],
+      },
+    })
+    expect(linkFor(slackMailerLegacy, slackMailerMono)).toBe(true)
+    for (const method of ["sendApplicationCountNotification", "sendInterviewsCompletedNotification"]) {
+      const interviewLegacy = rowFor("legacy", "\\InterviewNotificationManager", method)
+      const interviewMono = rowFor("mono", "\\InterviewNotificationManager", method)
+      expect(interviewLegacy).toMatchObject({
+        status: "covered",
+        details: {
+          effect_classes: ["outbound"],
+          target_refs: ["AppBundle\\Service\\SlackMessenger::notify"],
+        },
+      })
+      expect(interviewMono).toMatchObject({
+        status: "covered",
+        details: {
+          effect_classes: ["outbound"],
+          target_refs: ["App\\Fixture\\Infrastructure\\Slack\\SlackMessenger::notify"],
+        },
+      })
+      expect(interviewLegacy?.signature).not.toContain("Client")
+      expect(interviewMono?.signature).not.toContain("Client")
+      expect(linkFor(interviewLegacy, interviewMono)).toBe(true)
+    }
     const divergentServiceLegacy = rowFor("legacy", "\\DivergentService", "mutate")
     const divergentServiceMono = rowFor("mono", "\\DivergentService", "mutate")
     expect(divergentServiceLegacy).toMatchObject({ status: "missing", details: { effect_classes: ["durable_write"] } })
@@ -961,6 +1046,7 @@ test("C2 source family selectors remain literal and complete", () => {
     "apps/server/src/App/**/Infrastructure/RoleManager.php",
     "apps/server/src/App/**/Infrastructure/SbsData.php",
     "apps/server/src/App/**/Infrastructure/Slack/SlackMessenger.php",
+    "apps/server/src/App/**/Infrastructure/Slack/SlackMailer.php",
     "apps/server/src/App/**/Infrastructure/SurveyManager.php",
     "apps/server/src/App/**/Infrastructure/SurveyNotifier.php",
     "apps/server/src/App/**/Infrastructure/TeamMembershipService.php",
@@ -1003,6 +1089,51 @@ test("C2 source family selectors remain literal and complete", () => {
     "infra/**/*.mjs",
   ])
 })
+
+test("mono Infrastructure integration sources have explicit command-write coverage", async () => {
+  const legacyRoot = mkdtempSync("/tmp/parity-c2-infrastructure-allowlist-legacy-")
+  const cloneParent = mkdtempSync("/tmp/parity-c2-infrastructure-allowlist-clone-")
+  const cloneRoot = join(cloneParent, "repo")
+  try {
+    execFileSync("git", ["clone", "--local", "--no-hardlinks", "--no-checkout", REPO_ROOT, cloneRoot], { stdio: "ignore" })
+    execFileSync("git", ["-C", cloneRoot, "checkout", "--detach", "HEAD"], { stdio: "ignore" })
+    const context = await contextFor(legacyRoot, cloneRoot)
+    const integrationFamily = SOURCE_FAMILIES.find((family) => family.family_id === "mono_integrations")
+    const commandFamily = SOURCE_FAMILIES.find((family) => family.family_id === "mono_commands_writes")
+    if (integrationFamily === undefined || commandFamily === undefined) throw new Error("C2 source family configuration is incomplete")
+    const looseInfrastructurePaths = sourceFamilyMatchedPaths(context, integrationFamily)
+      .filter((path) => path.startsWith("apps/server/src/App/") && path.includes("/Infrastructure/") && path.endsWith(".php"))
+    const explicitExcludedPatterns = [
+      "apps/server/src/App/**/Infrastructure/Entity/**/*.php",
+      "apps/server/src/App/**/Infrastructure/Validator/**/*.php",
+      "apps/server/src/App/**/Infrastructure/Google/**/*.php",
+      "apps/server/src/App/**/Infrastructure/Sms/**/*.php",
+      "apps/server/src/App/**/Infrastructure/Mailer/**/*.php",
+      "apps/server/src/App/**/Infrastructure/InterviewDistributionFactory.php",
+      "apps/server/src/App/**/Infrastructure/UserChecker.php",
+      "apps/server/src/App/**/Infrastructure/UserMap.php",
+      "apps/server/src/App/**/Infrastructure/ReversedRoleHierarchy.php",
+    ]
+    const commandWritePaths = looseInfrastructurePaths.filter((path) =>
+      commandFamily.patterns.some((pattern) => matchesLiteralPattern(path, pattern)),
+    )
+    const excludedPaths = looseInfrastructurePaths.filter((path) =>
+      explicitExcludedPatterns.some((pattern) => matchesLiteralPattern(path, pattern)),
+    )
+    const uncoveredPaths = looseInfrastructurePaths.filter((path) =>
+      !commandWritePaths.includes(path) && !excludedPaths.includes(path),
+    )
+    const overlappingPaths = looseInfrastructurePaths.filter((path) =>
+      commandWritePaths.includes(path) && excludedPaths.includes(path),
+    )
+    expect({ uncoveredPaths, overlappingPaths }).toEqual({ uncoveredPaths: [], overlappingPaths: [] })
+    expect(commandWritePaths).toContain("apps/server/src/App/Support/Infrastructure/Slack/SlackMailer.php")
+    expect(excludedPaths).toContain("apps/server/src/App/Support/Infrastructure/Mailer/MailerInterface.php")
+  } finally {
+    rmSync(legacyRoot, { recursive: true, force: true })
+    rmSync(cloneParent, { recursive: true, force: true })
+  }
+}, 30_000)
 
 test("comment-only schedule literals do not create schedule rows", async () => {
   const legacyRoot = mkdtempSync("/tmp/parity-c2-comment-schedule-legacy-")
