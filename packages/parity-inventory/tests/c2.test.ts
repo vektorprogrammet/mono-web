@@ -1380,6 +1380,7 @@ test("C2 source family selectors remain literal and complete", () => {
     "infra/**/*.yaml",
     "apps/server/config/**/*.yaml",
     "apps/server/src/App/**/Infrastructure/Command/**/*.php",
+    "apps/server/src/App/**/Infrastructure/Subscriber/**/*.php",
     "apps/server/src/App/**/EventSubscriber/**/*.php",
   ])
   expect(byId.get("mono_integrations")?.patterns).toEqual([
