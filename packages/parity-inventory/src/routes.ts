@@ -60,6 +60,7 @@ export interface RuntimeRoute {
   readonly routeName: string
   readonly pathTemplate: string
   readonly methods: readonly string[]
+  readonly controllerRef?: string | null
 }
 
 interface RuntimeRouteCollection {
@@ -116,12 +117,18 @@ export const decodeRuntimeRoutePayload = (payload: unknown): readonly RuntimeRou
     if (pathTemplate === null || pathTemplate.length === 0) return null
     const methods = runtimeRouteMethods((rawEntry as Record<string, unknown>).method)
     if (methods === null) return null
-    routes.push({ routeName, pathTemplate, methods })
+    const defaults = (rawEntry as Record<string, unknown>).defaults
+    const rawController = defaults !== null && typeof defaults === "object" && !Array.isArray(defaults)
+      ? (defaults as Record<string, unknown>)._controller
+      : undefined
+    const controllerRef = typeof rawController === "string" ? sanitizeScalar(rawController, "controller") : null
+    routes.push({ routeName, pathTemplate, methods, controllerRef: controllerRef === null || controllerRef.length === 0 ? null : controllerRef })
   }
   return routes.sort((left, right) =>
     compareByteOrder(left.routeName, right.routeName) ||
     compareByteOrder(left.pathTemplate, right.pathTemplate) ||
-    compareByteOrder(canonicalJson(left.methods), canonicalJson(right.methods)),
+    compareByteOrder(canonicalJson(left.methods), canonicalJson(right.methods)) ||
+    compareByteOrder(canonicalJson(left.controllerRef), canonicalJson(right.controllerRef)),
   )
 }
 
@@ -1030,7 +1037,7 @@ const runtimeRouteDetails = (route: RuntimeRoute, method: string | null, runtime
     route_name: route.routeName,
     path_template: route.pathTemplate,
     method,
-    owner_ref: null,
+    owner_ref: route.controllerRef ?? null,
     runtime_resolved: runtimeResolved,
     imported_from_ref: null,
   }
@@ -1072,9 +1079,16 @@ const makeRuntimeRows = (revisionRefId: string, runtime: RuntimeRouteCollection)
   return rows
 }
 
-const routeDetailsComparable = (row: InventoryRow): Pick<MonoRouteDetails, "route_name" | "path_template" | "method" | "route_origin"> => {
+const routeDetailsComparable = (row: InventoryRow): Pick<MonoRouteDetails, "route_name" | "path_template" | "method" | "route_origin" | "owner_ref" | "imported_from_ref"> => {
   const details = row.details as MonoRouteDetails
-  return { route_name: details.route_name, path_template: details.path_template, method: details.method, route_origin: details.route_origin }
+  return {
+    route_name: details.route_name,
+    path_template: details.path_template,
+    method: details.method,
+    route_origin: details.route_origin,
+    owner_ref: details.owner_ref,
+    imported_from_ref: details.imported_from_ref,
+  }
 }
 
 const sameRouteName = (
@@ -1103,6 +1117,46 @@ const sameRouteMethod = (
   if (left.method === right.method) return true
   return left.route_origin === "api_platform" && left.method === "GET" && right.method === "HEAD"
 }
+const sameRouteOwner = (
+  left: Pick<MonoRouteDetails, "owner_ref">,
+  right: Pick<MonoRouteDetails, "owner_ref">,
+): boolean => left.owner_ref === null || right.owner_ref === null || left.owner_ref === right.owner_ref
+
+const sameRouteImport = (
+  left: Pick<MonoRouteDetails, "route_origin" | "imported_from_ref">,
+  right: Pick<MonoRouteDetails, "route_origin" | "imported_from_ref">,
+): boolean => {
+  if (left.imported_from_ref !== null && right.imported_from_ref !== null) return left.imported_from_ref === right.imported_from_ref
+  if (left.route_origin === right.route_origin) return true
+  return left.route_origin === "controller" && right.route_origin === "imported"
+}
+
+const sameRouteProvenance = (
+  left: Pick<MonoRouteDetails, "owner_ref" | "route_origin" | "imported_from_ref">,
+  right: Pick<MonoRouteDetails, "owner_ref" | "route_origin" | "imported_from_ref">,
+): boolean => sameRouteOwner(left, right) && sameRouteImport(left, right)
+
+const sameRoutePathAndMethod = (left: InventoryRow, right: InventoryRow): boolean => {
+  const a = routeDetailsComparable(left)
+  const b = routeDetailsComparable(right)
+  return sameRoutePath(a, b) && a.method === b.method && sameRouteProvenance(a, b)
+}
+
+const unnamedRouteMatches = (left: InventoryRow, right: InventoryRow): boolean => {
+  const details = routeDetailsComparable(left)
+  return details.route_name === null && sameRoutePathAndMethod(left, right)
+}
+
+const uniqueUnnamedRouteMatch = (
+  staticRow: InventoryRow,
+  runtimeRows: readonly InventoryRow[],
+  runtimeUsed: ReadonlySet<number>,
+): number => {
+  const candidates = runtimeRows
+    .map((candidate, index) => ({ candidate, index }))
+    .filter(({ candidate, index }) => !runtimeUsed.has(index) && unnamedRouteMatches(staticRow, candidate))
+  return candidates.length === 1 ? candidates[0]?.index ?? -1 : -1
+}
 
 const sameRouteIdentity = (left: MonoRouteDetails, right: MonoRouteDetails): boolean =>
   sameRouteName(left, right) && sameRoutePath(left, right)
@@ -1110,7 +1164,7 @@ const sameRouteIdentity = (left: MonoRouteDetails, right: MonoRouteDetails): boo
 const sameRouteObservation = (left: InventoryRow, right: InventoryRow): boolean => {
   const a = routeDetailsComparable(left)
   const b = routeDetailsComparable(right)
-  return sameRouteIdentity(a, b) && sameRouteMethod(a, b)
+  return sameRouteIdentity(a, b) && sameRouteMethod(a, b) && sameRouteProvenance(a, b)
 }
 
 const routeNameMatches = (left: InventoryRow, right: InventoryRow): boolean => {
@@ -1131,9 +1185,15 @@ const reconcileRuntimeRoutes = (
   const collapsedRuntimeRowIds = new Set<string>()
   for (const staticRow of staticRows) {
     const exactIndex = runtimeRows.findIndex((candidate, index) => !runtimeUsed.has(index) && sameRouteObservation(staticRow, candidate))
-    const runtimeIndex = exactIndex >= 0
+    const namedIndex = exactIndex >= 0
       ? exactIndex
       : runtimeRows.findIndex((candidate, index) => !runtimeUsed.has(index) && routeNameMatches(staticRow, candidate))
+    const staticDetails = staticRow.details as MonoRouteDetails
+    const runtimeIndex = namedIndex >= 0
+      ? namedIndex
+      : staticDetails.route_name === null
+        ? uniqueUnnamedRouteMatch(staticRow, runtimeRows, runtimeUsed)
+        : -1
     const staticIndex = rows.findIndex((candidate) => candidate.row_id === staticRow.row_id)
     if (runtimeIndex < 0) {
       const reason = runtime.observation.availability === "available"

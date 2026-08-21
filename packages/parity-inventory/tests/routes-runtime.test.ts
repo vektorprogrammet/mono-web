@@ -20,7 +20,7 @@ const runtimeObservation = (availability: RuntimeObservation["availability"]): R
   availability,
 })
 
-const staticRouteRow = (status: InventoryRow["status"] = "covered", method: string | null = "GET", path = "/fixture", name = "fixture"): InventoryRow => {
+const staticRouteRow = (status: InventoryRow["status"] = "covered", method: string | null = "GET", path = "/fixture", name: string | null = "fixture"): InventoryRow => {
   const canonicalKey = canonicalRouteKey(method, path, name)
   const details: MonoRouteDetails = {
     declaration_kind: "controller_attribute",
@@ -62,10 +62,62 @@ describe("authoritative Symfony route runtime falsifiers", () => {
       placeholder_default: { path: "/placeholder", method: "GET", defaults: { token: null } },
     }
     expect(decodeRuntimeRoutePayload(payload)).toEqual([
-      { routeName: "fixture", pathTemplate: "/fixture", methods: ["GET", "POST"] },
-      { routeName: "placeholder_default", pathTemplate: "/placeholder", methods: ["GET"] },
-      { routeName: "wildcard", pathTemplate: "/wildcard", methods: [] },
+      { routeName: "fixture", pathTemplate: "/fixture", methods: ["GET", "POST"], controllerRef: "App\\Fixture\\Controller" },
+      { routeName: "placeholder_default", pathTemplate: "/placeholder", methods: ["GET"], controllerRef: null },
+      { routeName: "wildcard", pathTemplate: "/wildcard", methods: [], controllerRef: null },
     ])
+  })
+ 
+  test("unnamed imported route pairs by exact path, method, and controller", () => {
+    const result = reconcileRuntimeRouteRows(
+      "rev-mono",
+      [staticRouteRow("covered", "GET", "/imported", null)],
+      [{ routeName: "app_fixture_index", pathTemplate: "/imported", methods: ["GET"], controllerRef: "App\\Fixture\\Controller" }],
+      runtimeObservation("available"),
+      "source-runtime",
+    )
+    expect(result.rows).toHaveLength(1)
+    expect(result.rows[0]).toMatchObject({
+      status: "covered",
+      observation_kinds: ["static_source", "runtime_resolution"],
+      details: { route_name: null, owner_ref: "App\\Fixture\\Controller", runtime_resolved: true },
+    })
+  })
+
+  test("unnamed route owner and imported-route mismatches remain visible", () => {
+    const ownerMismatch = reconcileRuntimeRouteRows(
+      "rev-mono",
+      [staticRouteRow("covered", "GET", "/imported", null)],
+      [{ routeName: "app_other_index", pathTemplate: "/imported", methods: ["GET"], controllerRef: "App\\Other\\Controller" }],
+      runtimeObservation("available"),
+      "source-runtime",
+    )
+    expect(ownerMismatch.rows).toHaveLength(2)
+    expect(ownerMismatch.rows.find((row) => row.row_id === "row-static-null")).toMatchObject({
+      status: "unresolved",
+      reason_codes: expect.arrayContaining(["RUNTIME_ROUTE_UNRESOLVED"]),
+    })
+    expect(ownerMismatch.rows.find((row) => row.observation_kinds.includes("runtime_resolution"))).toMatchObject({
+      status: "extra",
+      reason_codes: ["RUNTIME_ONLY_SOURCE"],
+    })
+
+    const importMismatch = reconcileRuntimeRouteRows(
+      "rev-mono",
+      [staticRouteRow("covered", "GET", "/imported", null)],
+      [{ routeName: "_api_/imported_get", pathTemplate: "/imported", methods: ["GET"], controllerRef: "App\\Fixture\\Controller" }],
+      runtimeObservation("available"),
+      "source-runtime",
+    )
+    expect(importMismatch.rows).toHaveLength(2)
+    const methodMismatch = reconcileRuntimeRouteRows(
+      "rev-mono",
+      [staticRouteRow("covered", "GET", "/imported", null)],
+      [{ routeName: "app_fixture_index", pathTemplate: "/imported", methods: ["POST"], controllerRef: "App\\Fixture\\Controller" }],
+      runtimeObservation("available"),
+      "source-runtime",
+    )
+    expect(methodMismatch.rows).toHaveLength(2)
   })
 
   test("malformed and unsafe output fails closed", () => {

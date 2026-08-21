@@ -1155,6 +1155,18 @@ const operationMatchScore = (
   if (left.schemaRef !== null && !declaredValueMatchesRuntime(left.schemaRef, right.schemaRef)) score += 2
   return score
 }
+const operationDeclarationSpecificity = (declaration: ApiDeclaration): number =>
+  [
+    declaration.operationName,
+    declaration.method,
+    declaration.uriTemplate,
+    declaration.operationId,
+    declaration.resourceKey,
+    declaration.providerRef,
+    declaration.processorRef,
+    declaration.schemaRef,
+  ].filter((value): value is string => value !== null).length
+
 const runtimeApiRouteKey = (
   routeName: string | null,
   method: string | null,
@@ -1995,9 +2007,17 @@ export const collectApiOperations = (context: ManifestContext, sourceManifestSha
   const links: InventoryLink[] = []
   const runtimeUsed = new Set<number>()
   const matchedStaticOperations = new Map<number, ApiDeclaration>()
-  for (const staticRow of staticRows) {
-    const declaration = parsed.declarations.find((candidate) => rowId("api_operation", declarationId("mono", "mono", candidate.logicalPath, "api_operation", candidate.ordinal), apiCanonicalKey(candidate)) === staticRow.row_id)
-    if (declaration === undefined) continue
+  const staticMatches = staticRows
+    .flatMap((staticRow) => {
+      const declaration = parsed.declarations.find((candidate) => rowId("api_operation", declarationId("mono", "mono", candidate.logicalPath, "api_operation", candidate.ordinal), apiCanonicalKey(candidate)) === staticRow.row_id)
+      return declaration === undefined ? [] : [{ staticRow, declaration }]
+    })
+    .sort((left, right) =>
+      operationDeclarationSpecificity(right.declaration) - operationDeclarationSpecificity(left.declaration) ||
+      left.declaration.ordinal - right.declaration.ordinal ||
+      compareByteOrder(left.staticRow.row_id, right.staticRow.row_id),
+    )
+  for (const { staticRow, declaration } of staticMatches) {
     let exactRuntimeIndex = -1
     let exactScore = Number.POSITIVE_INFINITY
     let exactAmbiguous = false

@@ -124,6 +124,97 @@ test("API Platform prefix reconciliation covers declared routes and retains gene
     rmSync(directory, { recursive: true, force: true })
   }
 })
+test("omitted StaticContent Get pairs with the default item operation and route evidence", async () => {
+  const directory = mkdtempSync("/tmp/parity-api-static-content-")
+  const legacyRoot = join(directory, "legacy")
+  const monoRoot = join(directory, "mono")
+  const resourcePath = "apps/server/src/App/Content/Infrastructure/Entity/StaticContent.php"
+  const providerPath = "apps/server/src/App/Content/Api/State/StaticContentByHtmlIdProvider.php"
+  mkdirSync(legacyRoot)
+  mkdirSync(join(monoRoot, "apps/server/config"), { recursive: true })
+  mkdirSync(join(monoRoot, "apps/server/src/App/Content/Infrastructure/Entity"), { recursive: true })
+  mkdirSync(join(monoRoot, "apps/server/src/App/Content/Api/State"), { recursive: true })
+  writeFileSync(join(monoRoot, "apps/server/config/routes.yaml"), "api_platform:\n  resource: .\n  type: api_platform\n  prefix: /api\n")
+  writeFileSync(
+    join(monoRoot, resourcePath),
+    "<?php\nnamespace App\\Content\\Infrastructure\\Entity;\nuse ApiPlatform\\Metadata\\ApiResource;\nuse ApiPlatform\\Metadata\\Get;\nuse ApiPlatform\\Metadata\\GetCollection;\nuse App\\Content\\Api\\State\\StaticContentByHtmlIdProvider;\n#[ApiResource(operations: [new GetCollection(), new Get(), new Get(uriTemplate: '/static-content/by-html-id/{htmlId}', provider: StaticContentByHtmlIdProvider::class)])]\nfinal class StaticContent {}\n",
+  )
+  writeFileSync(
+    join(monoRoot, providerPath),
+    "<?php\nnamespace App\\Content\\Api\\State;\nfinal class StaticContentByHtmlIdProvider {}\n",
+  )
+  try {
+    const legacy = await Effect.runPromise(scanRootEffect(legacyRoot, "legacy"))
+    const mono = await Effect.runPromise(scanRootEffect(monoRoot, "mono"))
+    const context = createManifestContextFromSnapshots(legacy, mono)
+    const routeRows = [
+      runtimeRoute("row-static-content-default-route", "_api_/static_contents/{id}{._format}_get", "/api/static_contents/{id}.{_format}", "GET"),
+      runtimeRoute("row-static-content-custom-route", "_api_/static-content/by-html-id/{htmlId}_get", "/api/static-content/by-html-id/{htmlId}", "GET"),
+    ]
+    const result = collectApiOperations(
+      context,
+      sha256("static-content-default-get"),
+      routeRows,
+      true,
+      undefined,
+      {
+        path: "fixture-static-content",
+        bytes: new TextEncoder().encode(
+          JSON.stringify([
+            {
+              resource_class_ref: "App\\Content\\Infrastructure\\Entity\\StaticContent",
+              resource_key: "StaticContent",
+              operation_name: "Get",
+              method: "GET",
+              uri_template: "/static-content/by-html-id/{htmlId}",
+              operation_id: "_api_/static-content/by-html-id/{htmlId}_get",
+              provider_ref: "App\\Content\\Api\\State\\StaticContentByHtmlIdProvider",
+              processor_ref: "ApiPlatform\\Doctrine\\Orm\\State\\PersistProcessor",
+            },
+            {
+              resource_class_ref: "App\\Content\\Infrastructure\\Entity\\StaticContent",
+              resource_key: "StaticContent",
+              operation_name: "Get",
+              method: "GET",
+              uri_template: "/api/static_contents/{id}{._format}",
+              operation_id: "_api_/static_contents/{id}{._format}_get",
+              provider_ref: "ApiPlatform\\Doctrine\\Orm\\State\\ItemProvider",
+              processor_ref: "ApiPlatform\\Doctrine\\Orm\\State\\PersistProcessor",
+            },
+            {
+              resource_class_ref: "App\\Content\\Infrastructure\\Entity\\StaticContent",
+              resource_key: "StaticContent",
+              operation_name: "GetCollection",
+              method: "GET",
+              uri_template: "/api/static_contents{._format}",
+              operation_id: "_api_/static_contents{._format}_get_collection",
+              provider_ref: "ApiPlatform\\Doctrine\\Orm\\State\\CollectionProvider",
+              processor_ref: "ApiPlatform\\Doctrine\\Orm\\State\\PersistProcessor",
+            },
+          ]),
+        ),
+      },
+    )
+    const staticRows = result.rows.filter(
+      (row) =>
+        row.observation_kinds.includes("static_source") &&
+        "resource_class_ref" in row.details &&
+        row.details.resource_class_ref === "App\\Content\\Infrastructure\\Entity\\StaticContent",
+    )
+    const defaultGet = staticRows.find(
+      (row) => "operation_name" in row.details && row.details.operation_name === "Get" && row.details.uri_template === null,
+    )
+    expect(defaultGet).toMatchObject({
+      status: "covered",
+      observation_kinds: ["static_source", "runtime_resolution"],
+      reason_codes: [],
+    })
+    expect(defaultGet?.source_ref_ids).toContain("source-runtime-route")
+    expect(routeRows).toHaveLength(0)
+  } finally {
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
 
 test("API Platform generated route aliases normalize format, prefix, and HEAD derivation", () => {
   expect(canonicalApiPlatformPath("/api/things.{_format}", "/api")).toBe("/things{._format}")
