@@ -98,19 +98,38 @@ function assertDisposableDatabase(databasePath, temporaryRoot) {
   }
 }
 
+function signalProcessGroup(child, signal) {
+  if (child?.pid === undefined) return;
+  try {
+    process.kill(-child.pid, signal);
+  } catch (error) {
+    if (error && typeof error === "object" && "code" in error && error.code === "ESRCH") return;
+    throw error;
+  }
+}
+
 async function stopProcess(child) {
-  if (!child || child.exitCode !== null) return;
-  child.kill("SIGTERM");
-  await new Promise((resolveStop) => {
-    const timer = setTimeout(() => {
-      child.kill("SIGKILL");
-      resolveStop();
-    }, shutdownTimeoutMs);
-    child.once("exit", () => {
-      clearTimeout(timer);
-      resolveStop();
-    });
+  if (!child || child.pid === undefined) return;
+  if (child.exitCode !== null) {
+    signalProcessGroup(child, "SIGTERM");
+    return;
+  }
+  let resolveExit;
+  const exited = new Promise((resolvePromise) => {
+    resolveExit = resolvePromise;
   });
+  child.once("exit", resolveExit);
+  signalProcessGroup(child, "SIGTERM");
+  const graceful = await Promise.race([
+    exited.then(() => true),
+    new Promise((resolvePromise) => setTimeout(() => resolvePromise(false), shutdownTimeoutMs)),
+  ]);
+  if (graceful || child.exitCode !== null) return;
+  signalProcessGroup(child, "SIGKILL");
+  await Promise.race([
+    exited,
+    new Promise((resolvePromise) => setTimeout(resolvePromise, shutdownTimeoutMs)),
+  ]);
 }
 
 async function main() {
@@ -118,8 +137,8 @@ async function main() {
   const databasePath = join(temporaryRoot, "recruitment.sqlite");
   const privateKeyPath = join(temporaryRoot, "jwt-private.pem");
   const publicKeyPath = join(temporaryRoot, "jwt-public.pem");
-  const symfonyCacheDir = join(serverRoot, "var/cache/e2e-response-0031");
-  const symfonyLogDir = join(serverRoot, "var/logs/e2e-response-0031");
+  const symfonyCacheDir = join(serverRoot, "var/cache/e2e");
+  const symfonyLogDir = join(serverRoot, "var/logs/e2e");
   assertDisposableDatabase(databasePath, temporaryRoot);
   const databaseUrl = `sqlite:///${databasePath}`;
   let symfonyProcess;
@@ -166,7 +185,44 @@ async function main() {
     HOST: "127.0.0.1",
     PORT: "5174",
   };
+  delete dashboardEnv.API_MODE;
+  delete dashboardEnv.VITE_API_MODE;
+  delete dashboardEnv.ALCHEMY_CLOUDFLARE_VITE_INJECTED;
 
+  let cleaned = false;
+  const cleanup = async () => {
+    if (cleaned) return;
+    cleaned = true;
+    const cleanupErrors = [];
+    for (const process of [dashboardProcess, symfonyProcess]) {
+      try {
+        await stopProcess(process);
+      } catch (error) {
+        cleanupErrors.push(error);
+      }
+    }
+    for (const directory of [temporaryRoot, symfonyCacheDir, symfonyLogDir]) {
+      try {
+        await rm(directory, { recursive: true, force: true });
+      } catch (error) {
+        cleanupErrors.push(error);
+      }
+    }
+    if (cleanupErrors.length > 0) {
+      throw new AggregateError(cleanupErrors, "Real Symfony response e2e cleanup failed");
+    }
+  };
+  const handleSignal = (signal) => {
+    void cleanup()
+      .catch((cleanupError) => console.error(cleanupError instanceof Error ? cleanupError.message : cleanupError))
+      .finally(() => {
+        process.exitCode = signal === "SIGINT" ? 130 : 143;
+      });
+  };
+  process.once("SIGINT", handleSignal);
+  process.once("SIGTERM", handleSignal);
+
+  let primaryError;
   try {
     await rm(symfonyCacheDir, { recursive: true, force: true });
     await rm(symfonyLogDir, { recursive: true, force: true });
@@ -187,12 +243,22 @@ async function main() {
     dashboardProcess = startProcess("bun", ["run", "start"], { cwd: dashboardRoot, env: dashboardEnv });
     await waitForHttp(`${dashboardOrigin}/login`, dashboardProcess);
     await runCommand("bun", ["run", "e2e:test", "--", "e2e/real-interview-response.spec.ts", "--project=real-symfony"], { cwd: dashboardRoot, env: dashboardEnv });
+  } catch (error) {
+    primaryError = error;
+    throw error;
   } finally {
-    await stopProcess(dashboardProcess);
-    await stopProcess(symfonyProcess);
-    await rm(temporaryRoot, { recursive: true, force: true });
-    await rm(symfonyCacheDir, { recursive: true, force: true });
-    await rm(symfonyLogDir, { recursive: true, force: true });
+    try {
+      await cleanup();
+    } catch (cleanupError) {
+      if (primaryError) {
+        console.error(cleanupError instanceof Error ? cleanupError.message : cleanupError);
+      } else {
+        throw cleanupError;
+      }
+    } finally {
+      process.removeListener("SIGINT", handleSignal);
+      process.removeListener("SIGTERM", handleSignal);
+    }
   }
 }
 

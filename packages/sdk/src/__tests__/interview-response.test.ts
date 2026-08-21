@@ -79,9 +79,12 @@ describe("interview response capability", () => {
     ])
   })
 
+  it("accepts the server-held browser capability sentinel", () => {
+    expect(Schema.decodeUnknownSync(ResponseCapability)("server-held")).toBe("server-held")
+  })
+
   it("fails malformed capabilities and empty new-time messages through typed validation", async () => {
     expect(() => Schema.decodeUnknownSync(ResponseCapability)("bad capability")).toThrow()
-
     const client = createClient("http://api.test")
     const capability = Schema.decodeUnknownSync(ResponseCapability)("response_0031")
 

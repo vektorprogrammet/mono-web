@@ -22,8 +22,8 @@ const boundedIdentifier = Schema.String.pipe(
   Schema.check(Schema.isMinLength(1), Schema.isMaxLength(128)),
   Schema.check(
     Schema.makeFilter(
-      (value: string) => /^\w+$/.test(value),
-      { message: "letters, numbers, and underscores only" },
+      (value: string) => /^[\w-]+$/.test(value),
+      { message: "letters, numbers, underscores, and hyphens only" },
     ),
   ),
 )

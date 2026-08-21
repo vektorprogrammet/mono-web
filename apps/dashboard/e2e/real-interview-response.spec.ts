@@ -12,7 +12,8 @@ const cases = [
     operation: "confirmCandidate",
     actionLabel: "Bekreft intervjutid",
     resultHeading: "Intervjutiden er akseptert",
-    resultStatus: "Akseptert",
+    leaderStatus: "Akseptert",
+    schedulingStatus: "accepted",
   },
   {
     capability: "recruitment_response_0031_reject",
@@ -20,7 +21,8 @@ const cases = [
     operation: "rejectCandidate",
     actionLabel: "Avvis intervju",
     resultHeading: "Intervjuinvitasjonen er avvist",
-    resultStatus: "Kansellert",
+    leaderStatus: "Avlyst",
+    schedulingStatus: "cancelled",
     message: "Jeg kan ikke delta på dette tidspunktet.",
   },
   {
@@ -29,7 +31,8 @@ const cases = [
     operation: "requestNewTimeCandidate",
     actionLabel: "Be om nytt tidspunkt",
     resultHeading: "Nytt tidspunkt er ønsket",
-    resultStatus: "Ny tid ønskes",
+    leaderStatus: "Ønsker nytt tidspunkt",
+    schedulingStatus: "request_new_time",
     message: "Kan vi møtes torsdag i stedet?",
   },
 ] as const;
@@ -114,7 +117,7 @@ test.describe("Real Symfony interview invitation response", () => {
       if (responseCase.operation === "rejectCandidate") {
         await expect(card).toHaveCount(0);
       } else {
-        await expect(card).toContainText(responseCase.resultStatus);
+        await expect(card).toContainText(responseCase.leaderStatus);
       }
     }
 
@@ -125,6 +128,8 @@ test.describe("Real Symfony interview invitation response", () => {
     await expect(cancelledApplication).toContainText("Kansellert");
     await expect(page.locator("body")).not.toContainText("recruitment_response_0031_reject");
 
+    // The migrated interviewer route exposes the existing team-member department projection.
+    // Every fixture interview is assigned to this account; the route itself is not per-user filtered.
     const interviewerContext = await browser.newContext({ viewport: { width: 1440, height: 900 } });
     const interviewerPage = await interviewerContext.newPage();
     await login(interviewerPage, interviewerUsername, interviewerPassword);
@@ -134,7 +139,7 @@ test.describe("Real Symfony interview invitation response", () => {
       if (responseCase.operation === "rejectCandidate") {
         await expect(row).toHaveCount(0);
       } else {
-        await expect(row).toContainText(responseCase.resultStatus);
+        await expect(row).toContainText(responseCase.schedulingStatus);
       }
     }
     await interviewerContext.close();
