@@ -9,10 +9,14 @@ const w0Viewport = { width: 1440, height: 900 };
 const genericDashboardOrigin = 'http://127.0.0.1:5174';
 const realSymfonyDashboardOrigin =
   process.env.DASHBOARD_ORIGIN ?? genericDashboardOrigin;
+const realSymfonyCoreOrigin =
+  process.env.API_URL ?? 'http://127.0.0.1:8000';
 const apiMode = process.env.API_MODE;
 const viteApiMode = process.env.VITE_API_MODE;
 const fixtureMode =
   apiMode === 'fixture' && viteApiMode === 'fixture';
+const realSymfonyCoreMode =
+  process.env.REAL_SYMFONY_CORE_E2E === '1';
 const realSymfonyRecruitmentMode =
   process.env.REAL_SYMFONY_RECRUITMENT_E2E === '1';
 const realSymfonySchedulingMode =
@@ -20,7 +24,10 @@ const realSymfonySchedulingMode =
 const realSymfonyResponseMode =
   process.env.REAL_SYMFONY_INTERVIEW_RESPONSE_E2E === '1';
 const realSymfonyMode =
-  realSymfonyRecruitmentMode || realSymfonySchedulingMode || realSymfonyResponseMode;
+  realSymfonyCoreMode ||
+  realSymfonyRecruitmentMode ||
+  realSymfonySchedulingMode ||
+  realSymfonyResponseMode;
 
 const fixtureServer = {
   command: 'node e2e/fixtures/login-api.mjs',
@@ -55,9 +62,11 @@ export default defineConfig({
       : undefined,
   reporter: 'html',
   use: {
-    baseURL: realSymfonyMode
-      ? realSymfonyDashboardOrigin
-      : genericDashboardOrigin,
+    baseURL: realSymfonyCoreMode
+      ? realSymfonyCoreOrigin
+      : realSymfonyMode
+        ? realSymfonyDashboardOrigin
+        : genericDashboardOrigin,
     trace: 'off',
   },
   projects: realSymfonyMode
