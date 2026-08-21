@@ -157,4 +157,49 @@ describe("runtime evidence register", () => {
       rmSync(outputDirectory, { recursive: true, force: true })
     }
   })
+  test("emits one canonical register for multiple journey receipts", async () => {
+    const outputDirectory = mkdtempSync("/tmp/runtime-evidence-batch-")
+    const outputPath = join(outputDirectory, "runtime-evidence.json")
+    const sourceRefId = `src-${"0123456789abcdef".repeat(4)}`
+    const names = [
+      "RUNTIME_EVIDENCE_RECEIPT_PATH",
+      "RUNTIME_EVIDENCE_LEGACY_REVISION_REF_ID",
+      "RUNTIME_EVIDENCE_MONO_REVISION_REF_ID",
+      "RUNTIME_EVIDENCE_RUNNER_SOURCE_REF_IDS",
+    ] as const
+    const previous = new Map(names.map((name) => [name, process.env[name]]))
+    try {
+      process.env.RUNTIME_EVIDENCE_RECEIPT_PATH = outputPath
+      process.env.RUNTIME_EVIDENCE_LEGACY_REVISION_REF_ID = `rev-legacy-sha256-${"a".repeat(64)}`
+      process.env.RUNTIME_EVIDENCE_MONO_REVISION_REF_ID = `rev-mono-sha256-${"b".repeat(64)}`
+      process.env.RUNTIME_EVIDENCE_RUNNER_SOURCE_REF_IDS = sourceRefId
+      const helper = await import("../../../apps/dashboard/e2e/runtime-evidence-receipt.mjs")
+      const artifactBytes = helper.sanitizePlaywrightArtifact(new TextEncoder().encode(JSON.stringify({
+        suites: [{ specs: [{ title: "accepted batch", ok: true, tests: [{ results: [{ status: "passed" }] }] }] }],
+      })))
+      const receiptRefs = await helper.emitRuntimeEvidenceReceipts({
+        journeys: [
+          { journeyRefId: "intent://journey:test:batch-a:v1", stepIds: ["step-a"] },
+          { journeyRefId: "intent://journey:test:batch-b:v1", stepIds: ["step-b"] },
+        ],
+        fixtureId: "batch-fixture",
+        runnerSourceInputBytes: [{ sourceRefId, bytes: new TextEncoder().encode("runner") }],
+        fixtureInputBytes: new TextEncoder().encode("fixture"),
+        artifactBytes,
+      })
+      const register = assertSafeRuntimeEvidenceBytes(new Uint8Array(readFileSync(outputPath)))
+      expect(receiptRefs).toEqual(register.receipts.map(({ receipt_ref_id }) => receipt_ref_id))
+      expect(register.receipts.map(({ journey_ref_id }) => journey_ref_id)).toEqual([
+        "intent://journey:test:batch-a:v1",
+        "intent://journey:test:batch-b:v1",
+      ])
+    } finally {
+      for (const name of names) {
+        const value = previous.get(name)
+        if (value === undefined) delete process.env[name]
+        else process.env[name] = value
+      }
+      rmSync(outputDirectory, { recursive: true, force: true })
+    }
+  })
 })
