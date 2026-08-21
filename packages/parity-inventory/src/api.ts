@@ -3,7 +3,7 @@ import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSyn
 import { dirname, isAbsolute, join } from "node:path"
 import { parseDocument } from "yaml"
 import { tmpdir } from "node:os"
-import { canonicalJson, compareByteOrder, declarationId, edgeId, observationId, relationId, rowId, sha256, sortUnique, normalizePath } from "./canonical.js"
+import { canonicalJson, compareByteOrder, declarationId, edgeId, normalizePath, normalizeScalar, observationId, relationId, rowId, sha256, sortUnique } from "./canonical.js"
 import { addSourceReference, effectiveIgnoreRule, matchesLiteralPattern, readSourceText, readSourceTextDetailed, sanitizeScalar, sourceTextSafetyReason, unsafeScalarReason, unsafeSourceTextReason, unsafeStructuredValueReason, type ManifestContext, type OutOfBandSourceCapture, type ScanFile } from "./source-manifest.js"
 import { inspectJsonMembers } from "./json-safety.js"
 import { skipPhpTrivia } from "./php-trivia.js"
