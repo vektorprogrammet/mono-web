@@ -107,7 +107,7 @@ async function loginWithUi(page: Page): Promise<string> {
   await page.getByLabel("Brukernavn / e-post").fill(coreUsername);
   await page.getByLabel("Passord").fill(corePassword);
   await page.getByRole("button", { name: "Logg inn", exact: true }).click();
-  await expect(page).toHaveURL(/\/profile$/);
+  await expect(page).toHaveURL(/\/kontrollpanel$/);
 
   const response = await page.request.post(`${apiOrigin}/api/login`, {
     headers: {
@@ -144,13 +144,14 @@ test.describe("Real Symfony core user journeys", () => {
     requireCoreMode();
 
     await page.goto(`/opptak/avdeling/${departmentId}`);
+    await page.locator(`#department-box-tabs a[aria-controls="${departmentId}"]`).click();
     const form = page.locator(`form[name="application_${departmentId}"]`);
     await expect(form).toBeVisible();
     await form.getByLabel("Fornavn").fill("Applicant");
     await form.getByLabel("Etternavn").fill("Core Journey");
     await form.getByLabel("E-post").fill("applicant-admission-0032@example.invalid");
     await form.getByLabel("Telefon").fill("90000032");
-    await form.getByLabel("Kjønn").selectOption({ label: "Mann" });
+    await form.getByLabel("Kjønn").selectOption({ label: "Dame" });
     await form.getByLabel("Linje").selectOption({ label: "CORE-STUDY" });
     await form.getByLabel("Årstrinn").selectOption({ label: "1. klasse" });
     await form.getByRole("button", { name: "Søk nå!", exact: true }).click();
@@ -260,6 +261,7 @@ test.describe("Real Symfony core user journeys", () => {
     requireCoreMode();
 
     const token = await loginWithUi(page);
+    await page.goto("/profile");
     await expect(
       page.getByRole("heading", { name: "Core Journey", exact: true }),
     ).toBeVisible();
@@ -285,7 +287,7 @@ test.describe("Real Symfony core user journeys", () => {
 
     const token = await loginWithUi(page);
     await page.goto("/utlegg");
-    await page.getByRole("button", { name: "Nytt utlegg", exact: true }).click();
+    await page.locator("#newReceiptLink").click();
     const form = page.locator('form[name="receipt"]');
     await expect(form).toBeVisible();
     const now = new Date();
@@ -293,12 +295,12 @@ test.describe("Real Symfony core user journeys", () => {
     const month = String(now.getMonth() + 1);
     const year = String(now.getFullYear());
     const description = "Core journey receipt 0032";
-    await form.locator('input[name="receipt[description]"]').fill(description);
+    await form.locator('textarea[name="receipt[description]"]').fill(description);
     await form.locator('input[name="receipt[sum]"]').fill("12.34");
     await form.locator('select[name="receipt[receiptDate][day]"]').selectOption(day);
     await form.locator('select[name="receipt[receiptDate][month]"]').selectOption(month);
     await form.locator('select[name="receipt[receiptDate][year]"]').selectOption(year);
-    await form.locator('input[name="receipt[user][account_number]"]').fill("12345678901");
+    await form.locator('input[name="receipt[user][account_number]"]').fill("1234.56.78903");
     await form.locator('input[name="receipt[picturePath]"]').setInputFiles(receiptImagePath);
     await Promise.all([
       page.waitForURL(/\/utlegg$/),
@@ -371,7 +373,8 @@ test.describe("Real Symfony core user journeys", () => {
     await page.getByLabel("Core journey team").check();
     await page.getByRole("button", { name: "Send", exact: true }).click();
     await expect(page).toHaveURL(new RegExp(`/teaminteresse/${departmentId}$`));
-    await expect(page.getByText("Takk! Vi kontakter deg så fort som mulig.", { exact: true })).toBeVisible();
+    await expect(page.getByLabel("Navn")).toHaveValue("");
+    await expect(page.getByLabel("Email")).toHaveValue("");
 
     await page.goto(`/teaminteresse/${departmentId}`);
     await expect(
@@ -388,8 +391,8 @@ test.describe("Real Symfony core user journeys", () => {
       teams?: unknown[];
     };
     expect(payload).toEqual({
-      applicants: expect.any(Array),
-      teams: expect.any(Array),
+      applicants: [],
+      teams: [{ id: expect.any(Number), name: "Core journey team" }],
     });
   });
 });

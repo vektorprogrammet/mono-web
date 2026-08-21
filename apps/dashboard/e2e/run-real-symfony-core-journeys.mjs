@@ -1,4 +1,4 @@
-import { chmod, mkdtemp, readFile, rm } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createConnection } from "node:net";
 import { fileURLToPath } from "node:url";
 import { randomBytes } from "node:crypto";
@@ -283,6 +283,7 @@ async function main() {
   const databasePath = join(temporaryRoot, "core-journeys.sqlite");
   const privateKeyPath = join(temporaryRoot, "jwt-private.pem");
   const publicKeyPath = join(temporaryRoot, "jwt-public.pem");
+  const routerPath = join(temporaryRoot, "router.php");
   const receiptUploadDir = join(temporaryRoot, "uploads", "receipts");
   const profileUploadDir = join(temporaryRoot, "uploads", "profile-photos");
   const symfonyCacheDir = join(serverRoot, "var/cache/e2e");
@@ -437,6 +438,18 @@ async function main() {
       await readFile(fixtureSourcePath),
       await readFile(receiptImageSourcePath),
     ]);
+    await writeFile(
+      routerPath,
+      `<?php
+$path = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
+if (is_string($path) && is_file($_SERVER['DOCUMENT_ROOT'].$path)) {
+    return false;
+}
+require $_SERVER['DOCUMENT_ROOT'].'/index.php';
+`,
+      "utf8",
+    );
+
 
     await runCommand("bun", ["run", "build:prod"], {
       cwd: serverRoot,
@@ -452,7 +465,7 @@ async function main() {
         `${apiOrigin.replace("http://", "")}`,
         "-t",
         "public",
-        "public/index.php",
+        routerPath,
       ],
       { cwd: serverRoot, env: serverEnv },
     );
