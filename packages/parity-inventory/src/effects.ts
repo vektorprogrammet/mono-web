@@ -154,6 +154,42 @@ const classMatches = (text: string): readonly { readonly name: string; readonly 
   }
   return result
 }
+interface SourceRange {
+  readonly start: number
+  readonly end: number
+}
+
+const braceRangeEndFor = (source: string, open: number): number | null => {
+  let depth = 0
+  for (let index = open; index < source.length; index += 1) {
+    const token = source[index]
+    if (token === "{") depth += 1
+    else if (token === "}") {
+      depth -= 1
+      if (depth === 0) return index
+    }
+  }
+  return null
+}
+
+const interfaceDeclarationRangesFor = (structure: string): readonly SourceRange[] => {
+  const ranges: SourceRange[] = []
+  const pattern = /\binterface\s+[A-Za-z_][A-Za-z0-9_]*(?:\s+extends\s+[^{]+)?\s*\{/g
+  for (const match of structure.matchAll(pattern)) {
+    if (match.index === undefined) continue
+    const open = structure.indexOf("{", match.index)
+    if (open < 0) continue
+    const end = braceRangeEndFor(structure, open)
+    if (end !== null) ranges.push({ start: open, end })
+  }
+  return ranges
+}
+
+const transportParserArtifactFor = (structure: string): boolean =>
+  /\binterface\s+Transport\s*\{/.test(structure)
+  && /\b(?:executeFetch|executeJson|decodeWith|parseViolations|mapStatusToError)\b/.test(structure)
+  && /\bfetch\s*\(/.test(structure)
+
 
 const functionMatches = (text: string, start: number, end: number): readonly { readonly name: string; readonly offset: number }[] => {
   const result: Array<{ readonly name: string; readonly offset: number }> = []
@@ -1874,10 +1910,81 @@ const crossLineCandidates = (rows: readonly InventoryRow[]): ReadonlyMap<string,
   }
   return grouped
 }
+const integrationMethodFor = (callSiteRef: string | null): { readonly owner: string; readonly method: string } | null => {
+  if (callSiteRef === null) return null
+  const separator = callSiteRef.lastIndexOf("::")
+  if (separator < 1) return null
+  const owner = ownerShortName(callSiteRef.slice(0, separator))
+  const method = callSiteRef.slice(separator + 2)
+  if (owner === null || !/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(method)) return null
+  const normalizedMethod = owner === "SlackMessenger" && ["send", "sendPayload"].includes(method) ? "send" : method
+  return { owner, method: normalizedMethod }
+}
+
+const integrationCrossLineKey = (row: InventoryRow): string | null => {
+  if (row.inventory_kind !== "external_integration") return null
+  const details = row.details as ExternalIntegrationDetails
+  const method = integrationMethodFor(details.call_site_ref)
+  if (method === null || details.provider_ref === null || details.protocol === null) return null
+  return canonicalJson([
+    "external_integration_cross_line",
+    method.owner,
+    method.method,
+    details.provider_ref,
+    details.direction,
+    details.protocol,
+    details.endpoint_ref,
+    details.credential_slot_ref,
+  ])
+}
+
+const scheduleCrossLineKey = (row: InventoryRow): string | null => {
+  if (row.inventory_kind !== "schedule_background") return null
+  const details = row.details as ScheduleBackgroundDetails
+  if (details.trigger_kind !== "event") return null
+  const owner = ownerShortName(details.owner_ref)
+  const handler = ownerShortName(details.handler_ref)
+  if (owner === null && handler === null) return null
+  return canonicalJson(["schedule_background_cross_line", details.trigger_kind, owner, handler])
+}
+
+const semanticCrossLineCandidates = (
+  rows: readonly InventoryRow[],
+  keyFor: (row: InventoryRow) => string | null,
+): ReadonlyMap<string, readonly InventoryRow[]> => {
+  const grouped = new Map<string, InventoryRow[]>()
+  for (const row of rows) {
+    const key = keyFor(row)
+    if (key === null) continue
+    const group = grouped.get(key)
+    if (group === undefined) grouped.set(key, [row])
+    else group.push(row)
+  }
+  return grouped
+}
 
 const isReconciliationBlocked = (row: InventoryRow): boolean =>
   ["unresolved", "duplicate", "absent"].includes(row.status)
   || (row.status === "dead_unimported" && commandMatchMode(row) !== "extended")
+const reconcileSemanticCounterpart = (
+  row: InventoryRow,
+  rightBySignature: ReadonlyMap<string, InventoryRow>,
+  rightByCrossLineKey: ReadonlyMap<string, readonly InventoryRow[]>,
+  leftByCrossLineKey: ReadonlyMap<string, readonly InventoryRow[]>,
+  matchedRightIds: ReadonlySet<string>,
+  keyFor: (candidate: InventoryRow) => string | null,
+): InventoryRow | undefined => {
+  const exact = rightBySignature.get(row.signature)
+  if (exact !== undefined && !matchedRightIds.has(exact.row_id) && !isReconciliationBlocked(exact)) return exact
+  const key = keyFor(row)
+  if (key === null) return undefined
+  const leftCandidates = (leftByCrossLineKey.get(key) ?? []).filter((candidate) => !isReconciliationBlocked(candidate))
+  if (leftCandidates.length !== 1) return undefined
+  const candidates = (rightByCrossLineKey.get(key) ?? []).filter((candidate) =>
+    !isReconciliationBlocked(candidate) && !matchedRightIds.has(candidate.row_id)
+  )
+  return candidates.length === 1 ? candidates[0] : undefined
+}
 
 const reconcileCommandCounterpart = (
   row: InventoryRow,
@@ -1909,11 +2016,24 @@ const reconcilePair = (left: InventoryEnvelope, right: InventoryEnvelope): { rea
   const rightByCrossLineKey = crossLineCandidates(rightRows)
   const leftByCrossLineKey = crossLineCandidates(leftRows)
   const matchedRightIds = new Set<string>()
+  const rightByIntegrationCrossLineKey = semanticCrossLineCandidates(rightRows, integrationCrossLineKey)
+  const leftByIntegrationCrossLineKey = semanticCrossLineCandidates(leftRows, integrationCrossLineKey)
+  const rightByScheduleCrossLineKey = semanticCrossLineCandidates(rightRows, scheduleCrossLineKey)
+  const leftByScheduleCrossLineKey = semanticCrossLineCandidates(leftRows, scheduleCrossLineKey)
   const mismatches: Array<{ readonly kind: Exclude<Mismatch["kind"], "none">; readonly row_ids: readonly string[]; readonly disposition: "none"; readonly accepted_intent_ref_ids: readonly string[] }> = []
   const links: InventoryLink[] = []
   for (const row of leftRows) {
     if (isReconciliationBlocked(row)) continue
-    const counterpart = reconcileCommandCounterpart(row, rightBySignature, rightByCrossLineKey, leftByCrossLineKey, matchedRightIds)
+    const counterpart = row.inventory_kind === "command_write"
+      ? reconcileCommandCounterpart(row, rightBySignature, rightByCrossLineKey, leftByCrossLineKey, matchedRightIds)
+      : reconcileSemanticCounterpart(
+        row,
+        rightBySignature,
+        row.inventory_kind === "external_integration" ? rightByIntegrationCrossLineKey : rightByScheduleCrossLineKey,
+        row.inventory_kind === "external_integration" ? leftByIntegrationCrossLineKey : leftByScheduleCrossLineKey,
+        matchedRightIds,
+        row.inventory_kind === "external_integration" ? integrationCrossLineKey : scheduleCrossLineKey,
+      )
     if (counterpart === undefined) {
       if (row.status === "dead_unimported") continue
       const index = leftRows.findIndex((candidate) => candidate.row_id === row.row_id)
@@ -2327,7 +2447,14 @@ const scheduleCollection = (context: ManifestContext, sourceManifestSha256: stri
     else if (row.status === "unresolved") failures.push({ status: "unresolved", reasonCode: row.reason_codes[0] ?? "SCHEDULE_PARSE_INCOMPLETE", rowIds: [row.row_id], sourceRefIds: row.source_ref_ids })
     else if (row.status === "duplicate") failures.push({ status: "gaps_found", reasonCode: "DUPLICATE_CANONICAL_IDENTITY", rowIds: [row.row_id], sourceRefIds: row.source_ref_ids })
   }
-  return { inventories: [reconciled.left, reconciled.right], failures, rows: [...reconciled.left.rows, ...reconciled.right.rows] }
+  return {
+    inventories: [
+      { ...reconciled.left, links: [...reconciled.left.links, ...reconciled.links] },
+      { ...reconciled.right, links: [...reconciled.right.links, ...reconciled.links] },
+    ],
+    failures,
+    rows: [...reconciled.left.rows, ...reconciled.right.rows],
+  }
 }
 const providerFromText = (text: string): string | null => {
   const patterns: readonly [RegExp, string][] = [
@@ -2409,6 +2536,8 @@ const integrationCallsFor = (unit: SourceUnit, authority: AuthorityGraph): reado
   const seen = new Set<number>()
   const stripped = withoutComments(unit.text)
   const structure = withoutLiterals(stripped)
+  if (transportParserArtifactFor(structure)) return []
+  const interfaceRanges = interfaceDeclarationRangesFor(structure)
   const classes = classMatches(structure)
   const effectCalls = effectCallExpressionsFor(unit.text)
   const ownerClassForOffset = (offset: number): LanguageClass | undefined => {
@@ -2426,6 +2555,7 @@ const integrationCallsFor = (unit: SourceUnit, authority: AuthorityGraph): reado
   const callPattern = new RegExp(integrationCallPattern.source, integrationCallPattern.flags)
   for (const match of structure.matchAll(callPattern)) {
     if (match.index === undefined) continue
+    if (interfaceRanges.some((range) => match.index > range.start && match.index < range.end)) continue
     const callableName = /^([A-Za-z_][A-Za-z0-9_]*)/.exec(match[0] ?? "")?.[1] ?? null
     const declarationName = callableName !== null
       && (
@@ -2615,7 +2745,16 @@ const integrationCollection = (context: ManifestContext, sourceManifestSha256: s
     else if (row.status === "missing") failures.push({ status: "gaps_found", reasonCode: "MISSING_COUNTERPART", rowIds: [row.row_id], sourceRefIds: row.source_ref_ids })
     else if (row.status === "extra") failures.push({ status: "gaps_found", reasonCode: "EXTRA_COUNTERPART", rowIds: [row.row_id], sourceRefIds: row.source_ref_ids })
   }
-  return { inventories: [reconciled.left, reconciled.right], parsed: [legacy.parsed, mono.parsed], failures, rows: [...reconciled.left.rows, ...reconciled.right.rows], calls: [...legacy.calls, ...mono.calls] }
+  return {
+    inventories: [
+      { ...reconciled.left, links: [...reconciled.left.links, ...reconciled.links] },
+      { ...reconciled.right, links: [...reconciled.right.links, ...reconciled.links] },
+    ],
+    parsed: [legacy.parsed, mono.parsed],
+    failures,
+    rows: [...reconciled.left.rows, ...reconciled.right.rows],
+    calls: [...legacy.calls, ...mono.calls],
+  }
 }
 
 export const applyAcceptedAbsent = (inventory: InventoryEnvelope, acceptedIntentRefIds: readonly string[]): InventoryEnvelope => {
