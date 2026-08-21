@@ -344,6 +344,7 @@ interface EffectScope {
   readonly owner: LanguageClass | undefined
   readonly start: number
   readonly end: number
+  readonly methodName?: string
 }
 
 const effectCallExpressionsFor = (source: string): readonly EffectCall[] => {
@@ -441,6 +442,14 @@ const normalizeLocalType = (raw: string | undefined): string | null => {
   const value = raw?.trim().replace(/^\?/, "").split("|")[0]?.trim() ?? ""
   return value.length === 0 || /^(?:mixed|object|array|callable|iterable|void|never|self|static|parent|unknown|any)$/i.test(value) ? null : value
 }
+const constructorPropertyTypeFor = (source: string, property: string): string | null => {
+  const constructorParameters = /\bfunction\s+__construct\s*\(([^)]*)\)/i.exec(withoutComments(source))?.[1] ?? ""
+  for (const parameter of constructorParameters.split(",")) {
+    const match = /^\s*(?:(?:public|private|protected|readonly|static|final)\s+)*(\??[\\A-Za-z_][A-Za-z0-9_\\]*(?:\s*\|\s*\??[\\A-Za-z_][A-Za-z0-9_\\]*)*)\s+\$([A-Za-z_][A-Za-z0-9_]*)/.exec(parameter)
+    if (match?.[2] === property) return normalizeLocalType(match[1])
+  }
+  return null
+}
 
 const localReceiverTypesFor = (unit: SourceUnit, offset: number): ReadonlyMap<string, string | null> => {
   const localTypes = new Map<string, string | null>()
@@ -507,11 +516,11 @@ const effectClassForCallable = (callable: string): EffectClass | null => {
     case "publish":
     case "dispatch":
     case "send":
+    case "sendmessage":
     case "mailer":
     case "mail":
     case "smtp":
     case "slack":
-      return "outbound"
     case "google":
     case "twilio":
     case "sms":
@@ -569,10 +578,15 @@ const effectEvidence = (
       const receiverParts = receiver?.split(/->|::|\./) ?? []
       const receiverRoot = receiverParts[0] ?? null
       const localTypes = localReceiverTypesFor(unit, call.offset + (scope?.start ?? 0))
+      const adapterTargetScope = scope?.owner?.name === "SlackMessenger"
+        && (scope.methodName === "send" || scope.methodName === "sendPayload")
       const typedLocalReceiver = receiverRoot !== null && localTypes.has(receiverRoot) && localTypes.get(receiverRoot) !== null
+      const typedOwnerPropertyType = receiverRoot === "$this" && receiverParts[1] !== undefined
+        ? scope?.owner?.properties.get(receiverParts[1]) ?? (adapterTargetScope ? constructorPropertyTypeFor(unit.text, receiverParts[1]) : undefined)
+        : undefined
       const typedOwnerProperty = receiverRoot === "$this"
         && receiverParts[1] !== undefined
-        && scope?.owner?.properties.has(receiverParts[1]) === true
+        && (scope?.owner?.properties.has(receiverParts[1]) === true || typedOwnerPropertyType !== null && typedOwnerPropertyType !== undefined)
       const explicitlyUnknownReceiver = receiver !== null && !typedLocalReceiver && !typedOwnerProperty
       const callPrefix = source.slice(Math.max(0, call.offset - 160), call.offset)
       const trustedEffectAnchor =
@@ -588,6 +602,9 @@ const effectEvidence = (
         if (receiver === null && !trustedEffectAnchor) markUnresolved()
         else {
           effects.push(callableEffect)
+          if (callableEffect === "outbound" && adapterTargetScope && typedOwnerPropertyType !== undefined && /^(?:send|sendMessage|sendPayload|post|request|publish)$/i.test(call.callable)) {
+            targets.push(`${typedOwnerPropertyType}::${call.callable}`)
+          }
           if (explicitlyUnknownReceiver && !trustedEffectAnchor) markUnresolved()
         }
       } else if (callableEffect === null && /^(?:perform|execute|handle|process|apply|run|invoke|mutate|write)$/i.test(call.callable)) {
@@ -609,7 +626,12 @@ const effectEvidence = (
     }
     const nested = effectEvidence(target.unit, authority, target.scope, new Set([...visited, resolved.symbol]))
     effects.push(...nested.effects.filter((effect) => effect !== "read_only"))
-    targets.push(...nested.targets)
+    const nestedTargets =
+      target.scope.owner?.name === "SlackMessenger"
+      && (target.scope.methodName === "send" || target.scope.methodName === "sendPayload")
+      ? nested.targets.filter((targetRef) => !/::(?:send|sendMessage|sendPayload|post|request|publish)$/i.test(targetRef))
+      : nested.targets
+    targets.push(...nestedTargets)
   }
   if (unresolved) effects.push("unknown")
   else if (effects.length === 0) effects.push("read_only")
@@ -1459,7 +1481,7 @@ const effectScopeForTarget = (
   if (methodScope === null) return null
   return {
     unit: { authority: authority.authority, path: targetClass.path, text, sourceRefId: "", sourceRefIds: [] },
-    scope: { owner: targetClass, start: methodScope.start, end: methodScope.end },
+    scope: { owner: targetClass, start: methodScope.start, end: methodScope.end, methodName },
   }
 }
 const commandDetails = (unit: SourceUnit, authority: AuthorityGraph, owner: string | null, method: string | null, reasons: string[], scope?: EffectScope): CommandWriteDetails => {
@@ -1557,17 +1579,17 @@ const parseCommandUnits = (context: ManifestContext, authority: "legacy" | "mono
         .filter((method): method is MethodScope => method !== null)
       if (commandAnchor) {
         const selected = methods.find((method) => /^(?:__invoke|handle|execute|run|process)$/i.test(method.name)) ?? methods[0]
-        const selectedScope: EffectScope = selected === undefined ? classScope : { owner: ownerClass, start: selected.start, end: selected.end }
+        const selectedScope: EffectScope = selected === undefined ? classScope : { owner: ownerClass, start: selected.start, end: selected.end, methodName: selected.name }
         const selectedMethod = selected === undefined ? null : normalizeSafe(selected.name, "symbol", reasons)
         parsed.push(commandRow(context, unit, ordinal++, authorityGraph, owner, selectedMethod, selectedScope))
         continue
       }
       if (methods.length > 0) {
         for (const methodScope of methods) {
-          const evidence = effectEvidence(unit, authorityGraph, { owner: ownerClass, start: methodScope.start, end: methodScope.end })
+          const evidence = effectEvidence(unit, authorityGraph, { owner: ownerClass, start: methodScope.start, end: methodScope.end, methodName: methodScope.name })
           const methodEffect = effectClassForCallable(methodScope.name)
           if (!hasPositiveEffect(evidence.effects) && (methodEffect === null || methodEffect === "read_only")) continue
-          parsed.push(commandRow(context, unit, ordinal++, authorityGraph, owner, normalizeSafe(methodScope.name, "symbol", reasons), { owner: ownerClass, start: methodScope.start, end: methodScope.end }))
+          parsed.push(commandRow(context, unit, ordinal++, authorityGraph, owner, normalizeSafe(methodScope.name, "symbol", reasons), { owner: ownerClass, start: methodScope.start, end: methodScope.end, methodName: methodScope.name }))
         }
       } else {
         const evidence = effectEvidence(unit, authorityGraph, classScope)
@@ -1701,15 +1723,20 @@ const commandCrossLineKey = (row: InventoryRow): string | null => {
       details.effect_classes,
     ])
   }
-  const exactOutboundEffects = details.effect_classes.length === 1 && details.effect_classes[0] === "outbound"
   const semanticTargets = details.target_refs.map(semanticTargetRef)
-  const exactOutboundAdapterTarget =
+  const slackRenameCandidate = owner === "SlackMessenger" && (method === "send" || method === "sendPayload")
+  const slackEffectEvidence =
+    details.effect_classes.includes("outbound")
+    && details.effect_classes.every((effect) => effect === "outbound" || effect === "read_only")
+  const adapterTargetEvidence =
     semanticTargets.length > 0
     && semanticTargets.every((target) => !target.startsWith("unresolved:"))
-    && semanticTargets.some((target) => /::(?:send|sendPayload|post|request|publish)$/i.test(target))
-  const slackRenameEvidence = owner === "SlackMessenger" && exactOutboundEffects && exactOutboundAdapterTarget
-  const semanticMethod = slackRenameEvidence && (method === "send" || method === "sendPayload") ? "send" : method
-  const targetRefs = slackRenameEvidence
+    && semanticTargets.some((target) => /::(?:send|sendMessage|sendPayload|post|request|publish)$/i.test(target))
+  const slackTargetNormalization = owner === "SlackMessenger" && slackEffectEvidence && adapterTargetEvidence
+  const slackRenameEvidence = slackRenameCandidate && slackTargetNormalization && semanticTargets.length === 1
+  const semanticMethod = slackRenameEvidence ? "send" : method
+  const semanticEffects = slackRenameEvidence ? ["outbound"] : details.effect_classes
+  const targetRefs = slackTargetNormalization
     ? ["SlackMessenger::send"]
     : sortUnique(semanticTargets)
   return canonicalJson([
@@ -1718,7 +1745,7 @@ const commandCrossLineKey = (row: InventoryRow): string | null => {
     details.entry_kind,
     details.command_name,
     semanticMethod,
-    details.effect_classes,
+    semanticEffects,
     targetRefs,
     details.write_contract_ref,
   ])

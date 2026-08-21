@@ -776,27 +776,20 @@ final class DivergentService {
 `)
     put(legacyRoot, "src/AppBundle/Service/SlackMessenger.php", String.raw`<?php
 namespace AppBundle\Service;
-final class SlackClient { public function send(): void {} }
+use Nexy\Slack\Client;
 final class SlackMessenger {
-    private SlackClient $client;
-    public function log(): void { $this->send(); }
-    public function send(): void { $this->client->send(); }
+    private $slackClient;
+    public function __construct(Client $slackClient) { $this->slackClient = $slackClient; }
+    public function send(): void { $this->slackClient->sendMessage($message); }
 }
 `)
     put(monoRoot, "apps/server/src/App/Fixture/Infrastructure/Slack/SlackMessenger.php", String.raw`<?php
 namespace App\Fixture\Infrastructure\Slack;
-final class SlackClient { public function send(): void {} }
+use GuzzleHttp\Client;
 final class SlackMessenger {
-    private SlackClient $client;
-    public function log(): void { $this->sendPayload(); }
-    public function sendPayload(): void { $this->client->send(); }
-}
-`)
-    put(monoRoot, "apps/server/src/App/Fixture/Infrastructure/SurveyManager.php", String.raw`<?php
-namespace App\Fixture\Infrastructure;
-final class RelocatedService {
-    private $em;
-    public function mutate(): void { $this->em->persist($value); }
+    private $httpClient;
+    public function __construct(Client $httpClient) { $this->httpClient = $httpClient; }
+    public function sendPayload(): void { $this->httpClient->post($this->endpoint, []); }
 }
 `)
     put(legacyRoot, "src/AppBundle/Command/RelocatedCommand.php", String.raw`<?php
@@ -877,13 +870,11 @@ final class RelocatedSubscriber {
     expect(relocatedCommandLegacy).toMatchObject({ status: "covered", details: { command_name: "fixture:relocated", effect_classes: ["durable_write"] } })
     expect(relocatedCommandMono).toMatchObject({ status: "covered", details: { command_name: "fixture:relocated", effect_classes: ["durable_write"] } })
     expect(linkFor(relocatedCommandLegacy, relocatedCommandMono)).toBe(true)
-    for (const method of ["log", "send"] as const) {
-      const legacy = rowFor("legacy", "\\SlackMessenger", method)
-      const mono = rowFor("mono", "\\SlackMessenger", method === "send" ? "sendPayload" : method)
-      expect(legacy).toMatchObject({ status: "covered", details: { effect_classes: ["outbound"] } })
-      expect(mono).toMatchObject({ status: "covered", details: { effect_classes: ["outbound"] } })
-      expect(linkFor(legacy, mono)).toBe(true)
-    }
+    const slackLegacy = rowFor("legacy", "\\SlackMessenger", "send")
+    const slackMono = rowFor("mono", "\\SlackMessenger", "sendPayload")
+    expect(slackLegacy).toMatchObject({ status: "covered", details: { effect_classes: ["outbound"], target_refs: ["Client::sendMessage"] } })
+    expect(slackMono).toMatchObject({ status: "covered", details: { effect_classes: ["outbound"], target_refs: ["Client::post"] } })
+    expect(linkFor(slackLegacy, slackMono)).toBe(true)
     const divergentServiceLegacy = rowFor("legacy", "\\DivergentService", "mutate")
     const divergentServiceMono = rowFor("mono", "\\DivergentService", "mutate")
     expect(divergentServiceLegacy).toMatchObject({ status: "missing", details: { effect_classes: ["durable_write"] } })
