@@ -37,6 +37,7 @@ const parseArgs = (args: readonly string[]): ParsedArgs => {
   let legacyRoot: string | undefined
   let intentRegisterPath: string | undefined
   let evidenceRegisterPath: string | undefined
+  let mode: RunMode | undefined
   let falsifierId: FalsifierId | undefined
   let phpExecutable: string | undefined
   let bwrapExecutable: string | undefined

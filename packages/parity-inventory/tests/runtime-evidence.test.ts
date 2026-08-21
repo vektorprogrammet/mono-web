@@ -38,10 +38,19 @@ describe("runtime evidence register", () => {
     expect(bytes).not.toContain("/tmp/")
     expect(decodeRuntimeEvidenceRegister(JSON.parse(bytes))).toEqual(register)
   })
+  test("accepts content-addressed identifiers with decimal segments", () => {
+    const numeric = makeRuntimeEvidenceReceipt({
+      ...receiptInput,
+      legacy_revision_ref_id: "rev-legacy-1234567890",
+      mono_revision_ref_id: "rev-mono-9876543210",
+      runner_source_ref_ids: [`src-${"0123456789abcdef".repeat(4)}`],
+    })
+    expect(decodeRuntimeEvidenceRegister(JSON.parse(canonicalRuntimeEvidenceBytes(makeRuntimeEvidenceRegister([numeric])))).receipts[0]).toEqual(numeric)
+  })
 
   test.each([
     ["unknown object key", "{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"schema_version\":\"functional-parity-runtime-evidence/v1\",\"receipts\":[],\"unsafe\":true}"],
-    ["failed result with zero exit", JSON.stringify({ ...makeRuntimeEvidenceRegister([makeRuntimeEvidenceReceipt({ ...receiptInput, result: "failed", exit_code: 0 })]), receipts: [] })],
+    ["failed result with zero exit", JSON.stringify({ ...makeRuntimeEvidenceRegister([makeRuntimeEvidenceReceipt({ ...receiptInput, result: "failed", exit_code: 0 })]), receipts: [makeRuntimeEvidenceReceipt({ ...receiptInput, result: "failed", exit_code: 0 })] })],
   ])("rejects %s", (_name, text) => {
     expect(() => assertSafeRuntimeEvidenceBytes(new TextEncoder().encode(text))).toThrow()
   })
@@ -51,7 +60,7 @@ describe("runtime evidence register", () => {
     expect(() => assertSafeRuntimeEvidenceBytes(new TextEncoder().encode(`${valid}\n`))).toThrow("EVIDENCE_NOT_CANONICAL")
     const duplicate = valid.replace('"schema_version":"functional-parity-runtime-evidence/v1"', '"schema_version":"functional-parity-runtime-evidence/v1","schema_version":"functional-parity-runtime-evidence/v1"')
     expect(() => assertSafeRuntimeEvidenceBytes(new TextEncoder().encode(duplicate))).toThrow("EVIDENCE_DUPLICATE_KEY")
-    const unsafe = valid.replace('"journey_ref_id":"intent://journey:recruitment:applicant-assignment:v1"', '"journey_ref_id":"/tmp/secret"')
-    expect(tryDecodeRuntimeEvidenceRegister(JSON.parse(unsafe))).toEqual({ register: null, reason: "EVIDENCE_SCHEMA_INVALID" })
+    const unsafe = valid.replace('"step_ids":["assign-interview","load-applicant-list"]', '"step_ids":["step-123456789","load-applicant-list"]')
+    expect(tryDecodeRuntimeEvidenceRegister(JSON.parse(unsafe))).toEqual({ register: null, reason: "EVIDENCE_RECEIPT_INVALID" })
   })
 })

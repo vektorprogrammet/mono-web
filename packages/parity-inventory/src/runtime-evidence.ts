@@ -11,7 +11,7 @@ const ajv = new Ajv2020({ allErrors: true, strict: false })
 const runtimeEvidenceValidator = ajv.compile<RuntimeEvidenceRegister>(RUNTIME_EVIDENCE_SCHEMA)
 
 const RECEIPT_REF = /^receipt-[a-f0-9]{64}$/
-const JOURNEY_REF = /^intent:\/\/[A-Za-z0-9][A-Za-z0-9._:/#-]{0,127}$/
+const JOURNEY_REF = /^intent:\/\/[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/
 const STEP_REF = /^[A-Za-z0-9][A-Za-z0-9._:/#-]{0,127}$/
 const REVISION_REF = /^rev-[A-Za-z0-9:_-]{1,160}$/
 const SOURCE_REF = /^src-[a-f0-9]{64}$/
@@ -68,6 +68,7 @@ export const canonicalRuntimeEvidenceBytes = (register: RuntimeEvidenceRegister)
 
 const safeScalar = (value: unknown, pattern: RegExp, field: string): value is string =>
   typeof value === "string" && pattern.test(value) && unsafeScalarReason(value, field) === null
+const safeIdentifier = (value: unknown, pattern: RegExp): value is string => typeof value === "string" && pattern.test(value)
 
 const decodeReceipt = (value: unknown): RuntimeEvidenceReceipt | null => {
   if (value === null || typeof value !== "object" || Array.isArray(value)) return null
@@ -90,16 +91,16 @@ const decodeReceipt = (value: unknown): RuntimeEvidenceReceipt | null => {
   const stepIds = receipt.step_ids
   const sourceRefs = receipt.runner_source_ref_ids
   if (
-    !safeScalar(receipt.receipt_ref_id, RECEIPT_REF, "receipt_ref_id") ||
-    !safeScalar(receipt.journey_ref_id, JOURNEY_REF, "journey_ref_id") ||
+    !safeIdentifier(receipt.receipt_ref_id, RECEIPT_REF) ||
+    !safeIdentifier(receipt.journey_ref_id, JOURNEY_REF) ||
     !Array.isArray(stepIds) ||
     !stepIds.every((step) => safeScalar(step, STEP_REF, "journey_step")) ||
     new Set(stepIds).size !== stepIds.length ||
     stepIds.length === 0 ||
-    !safeScalar(receipt.legacy_revision_ref_id, REVISION_REF, "legacy_revision_ref_id") ||
-    !safeScalar(receipt.mono_revision_ref_id, REVISION_REF, "mono_revision_ref_id") ||
+    !safeIdentifier(receipt.legacy_revision_ref_id, REVISION_REF) ||
+    !safeIdentifier(receipt.mono_revision_ref_id, REVISION_REF) ||
     !Array.isArray(sourceRefs) ||
-    !sourceRefs.every((source) => safeScalar(source, SOURCE_REF, "runner_source_ref_id")) ||
+    !sourceRefs.every((source) => safeIdentifier(source, SOURCE_REF)) ||
     new Set(sourceRefs).size !== sourceRefs.length ||
     sourceRefs.length === 0 ||
     typeof receipt.runner_digest !== "string" ||

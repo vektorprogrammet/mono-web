@@ -5,7 +5,7 @@ import { createConnection } from "node:net";
 import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { emitRuntimeEvidenceReceipt } from "./runtime-evidence-receipt.mjs";
+import { emitRuntimeEvidenceReceipt, sanitizePlaywrightArtifact } from "./runtime-evidence-receipt.mjs";
 
 const dashboardOrigin = "http://127.0.0.1:5174";
 const journeyRefId = "intent://journey:recruitment:interview-scheduling:v1";
@@ -129,11 +129,14 @@ async function reportSymfonyException(logPath) {
 
 function runCommand(command, args, options) {
   return new Promise((resolveCommand, rejectCommand) => {
+    const captureOutput = options.captureOutput === true;
     const child = spawn(command, args, {
       cwd: options.cwd,
       env: options.env,
-      stdio: "inherit",
+      stdio: captureOutput ? ["ignore", "pipe", "inherit"] : "inherit",
     });
+    const stdoutChunks = [];
+    if (captureOutput) child.stdout.on("data", (chunk) => stdoutChunks.push(chunk));
     let settled = false;
     const settle = (callback, value) => {
       if (settled) return;
@@ -150,18 +153,15 @@ function runCommand(command, args, options) {
       settle(rejectCommand, new Error(`${command} ${args.join(" ")} timed out`));
     }, commandTimeoutMs);
     timeout.unref();
-
     child.once("error", (error) => settle(rejectCommand, error));
     child.once("exit", (code, signal) => {
       if (code === 0) {
-        settle(resolveCommand);
+        settle(resolveCommand, captureOutput ? { stdout: Buffer.concat(stdoutChunks) } : undefined);
         return;
       }
       settle(
         rejectCommand,
-        new Error(
-          `${command} ${args.join(" ")} exited with ${signal ? `signal ${signal}` : `code ${code}`}`,
-        ),
+        new Error(`${command} ${args.join(" ")} exited with ${signal ? `signal ${signal}` : `code ${code}`}`),
       );
     });
   });
@@ -398,16 +398,39 @@ async function main() {
     );
     await waitForHttp(`${dashboardOrigin}/login`, dashboardProcess);
 
-    await runCommand(
+    const receiptRequested = [
+      "RUNTIME_EVIDENCE_RECEIPT_PATH",
+      "RUNTIME_EVIDENCE_LEGACY_REVISION_REF_ID",
+      "RUNTIME_EVIDENCE_MONO_REVISION_REF_ID",
+      "RUNTIME_EVIDENCE_RUNNER_SOURCE_REF_IDS",
+    ].some((name) => typeof process.env[name] === "string" && process.env[name].length > 0);
+    const e2eArgs = [
+      "run",
+      "e2e:test",
+      "--",
+      "e2e/real-interview-scheduling.spec.ts",
+      "--project=real-symfony",
+    ];
+    if (receiptRequested) e2eArgs.push("--reporter=json");
+    const e2eResult = await runCommand(
       "bun",
-      ["run", "e2e:test", "--", "e2e/real-interview-scheduling.spec.ts", "--project=real-symfony"],
-      { cwd: dashboardRoot, env: dashboardEnv },
+      e2eArgs,
+      { cwd: dashboardRoot, env: dashboardEnv, captureOutput: receiptRequested },
     );
-    await emitRuntimeEvidenceReceipt({
-      journeyRefId,
-      stepIds: journeyStepIds,
-      fixtureId: "recruitment-interview-scheduling-0029",
-    });
+    if (receiptRequested) {
+      const runnerInputBytes = Buffer.concat([
+        await readFile(fileURLToPath(new URL("./run-real-interview-scheduling.mjs", import.meta.url))),
+        await readFile(fileURLToPath(new URL("./real-interview-scheduling.spec.ts", import.meta.url))),
+      ]);
+      await emitRuntimeEvidenceReceipt({
+        journeyRefId,
+        stepIds: journeyStepIds,
+        fixtureId: "recruitment-interview-scheduling-0029",
+        runnerInputBytes,
+        fixtureInputBytes: await readFile(databasePath),
+        artifactBytes: sanitizePlaywrightArtifact(e2eResult.stdout),
+      });
+    }
   } catch (error) {
     primaryError = error;
     throw error;
@@ -430,7 +453,12 @@ async function main() {
   }
 }
 
-main().catch((error) => {
-  console.error(error instanceof Error ? error.message : error);
-  process.exitCode = 1;
-});
+if (process.versions.bun === undefined) {
+  const result = spawnSync("bun", [fileURLToPath(import.meta.url), ...process.argv.slice(2)], { stdio: "inherit" });
+  process.exitCode = result.status ?? 1;
+} else {
+  main().catch((error) => {
+    console.error(error instanceof Error ? error.message : error);
+    process.exitCode = 1;
+  });
+}

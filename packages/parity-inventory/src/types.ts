@@ -437,6 +437,7 @@ export interface SourceManifest {
   readonly root_census: readonly RootCensusRecord[];
   readonly ignore_rules: readonly IgnoreRule[];
   readonly sources: readonly SourceRecord[];
+  readonly source_set_sha256: string;
   readonly intent_authority?: IntentAuthorityRecord;
   readonly evidence_authority?: EvidenceAuthorityRecord;
 }

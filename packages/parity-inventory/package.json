@@ -10,6 +10,7 @@
     "./effects": "./src/effects.ts",
     "./intent-author": "./src/intent-author.ts",
     "./runtime-evidence": "./src/runtime-evidence.ts",
+    "./routes": "./src/routes.ts",
     "./schemas/*": "./schemas/*"
   },
   "scripts": {

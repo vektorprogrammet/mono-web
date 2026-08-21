@@ -26,6 +26,7 @@ import {
 } from "../src/source-manifest.js";
 import { COMMITTED_PROJECTIONS, run, type FalsifierId } from "../src/runner.js";
 import { readPinnedIntentRegisterEffect, scanRootEffect } from "../src/runtime.js";
+import { canonicalRuntimeEvidenceBytes, makeRuntimeEvidenceReceipt, makeRuntimeEvidenceRegister } from "../src/runtime-evidence.js";
 import { canonicalJson, sha256 } from "../src/canonical.js";
 const repoRoot = join(import.meta.dir, "../../..");
 
@@ -356,6 +357,39 @@ const createIntentAuthority = (
   execFileSync("git", ["-C", directory, "commit", "-qm", "intent-authority"]);
   return { path, directory };
 };
+const createEvidenceAuthority = (
+  intentPath: string,
+): { readonly path: string; readonly directory: string } => {
+  const accepted = JSON.parse(readFileSync(intentPath, "utf8")) as {
+    readonly journeys: readonly [{
+      readonly journey_ref_id: string
+      readonly selected_revision_ref_ids: readonly string[]
+      readonly source_ref_ids: readonly string[]
+      readonly steps: readonly { readonly step_id: string }[]
+    }]
+  }
+  const journey = accepted.journeys[0]
+  if (journey === undefined) throw new Error("fixture journey authority is unavailable")
+  const receipt = makeRuntimeEvidenceReceipt({
+    journey_ref_id: journey.journey_ref_id,
+    step_ids: [journey.steps[0]?.step_id ?? "fixture-step"],
+    legacy_revision_ref_id: journey.selected_revision_ref_ids.find((ref) => ref.startsWith("rev-legacy-")) ?? "rev-legacy-test",
+    mono_revision_ref_id: journey.selected_revision_ref_ids.find((ref) => ref.startsWith("rev-mono-")) ?? "rev-mono-intent-test",
+    runner_source_ref_ids: journey.source_ref_ids.length > 0 ? journey.source_ref_ids : [`src-${"0".repeat(64)}`],
+    runner_digest: sha256("test-runner-input"),
+    fixture_digest: sha256("test-fixture-input"),
+    environment_kind: "ci_non_production",
+    exit_code: 1,
+    result: "failed",
+    artifact_digest: sha256("test-artifact"),
+  })
+  const directory = gitFixture()
+  const path = join(directory, "runtime-evidence.json")
+  writeFileSync(path, canonicalRuntimeEvidenceBytes(makeRuntimeEvidenceRegister([receipt])), "utf8")
+  execFileSync("git", ["-C", directory, "add", "--", "runtime-evidence.json"])
+  execFileSync("git", ["-C", directory, "commit", "-qm", "runtime-evidence-authority"])
+  return { path, directory }
+}
 const intentContextFor = async (
   text: string,
 ): Promise<{
@@ -387,12 +421,14 @@ const intentContextFor = async (
 };
 const runWithIntentAuthority = async (root: string, legacyRoot: string, mode: "diff" | "write") => {
   const authority = createIntentAuthority(root, legacyRoot);
+  const evidenceAuthority = createEvidenceAuthority(authority.path);
   try {
     return await Effect.runPromise(
-      run({ root, legacyRoot, intentRegisterPath: authority.path, mode }),
+      run({ root, legacyRoot, intentRegisterPath: authority.path, evidenceRegisterPath: evidenceAuthority.path, mode }),
     );
   } finally {
     rmSync(authority.directory, { recursive: true, force: true });
+    rmSync(evidenceAuthority.directory, { recursive: true, force: true });
   }
 };
 test("accepted-intent decoder rejects PII, duplicate members, and noncanonical JSON", async () => {
@@ -1152,6 +1188,7 @@ const cliReport = (
   readonly output: string;
 } => {
   const authority = createIntentAuthority(root, legacyRoot);
+  const evidenceAuthority = createEvidenceAuthority(authority.path);
   try {
     const process = spawnSync(
       "bun",
@@ -1164,6 +1201,8 @@ const cliReport = (
         legacyRoot,
         "--intent-register",
         authority.path,
+        "--evidence-register",
+        evidenceAuthority.path,
         "--mode",
         mode,
       ],
@@ -1177,6 +1216,7 @@ const cliReport = (
     };
   } finally {
     rmSync(authority.directory, { recursive: true, force: true });
+    rmSync(evidenceAuthority.directory, { recursive: true, force: true });
   }
 };
 const putParityBaseline = (legacyRoot: string, monoRoot: string, legacyRouting: string): void => {

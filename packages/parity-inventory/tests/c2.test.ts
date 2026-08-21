@@ -8,6 +8,7 @@ import { acceptedIntentRevisionRefId } from "../src/coverage.js"
 import { canonicalJson, sha256 } from "../src/canonical.js"
 import { SOURCE_FAMILIES } from "../src/source-manifest.js"
 import { COMMITTED_PROJECTIONS, PROJECTION_DIRECTORY, run, runTrustedFixtureTerminalCycle } from "../src/runner.js"
+import { canonicalRuntimeEvidenceBytes, makeRuntimeEvidenceReceipt, makeRuntimeEvidenceRegister } from "../src/runtime-evidence.js"
 import { scanRootEffect } from "../src/runtime.js"
 import { validateInventory } from "../src/schema.js"
 import { createManifestContextFromSnapshots } from "../src/source-manifest.js"
@@ -65,10 +66,32 @@ const runWithIntentAuthority = async (root: string, legacyRoot: string, mode: "d
   execFileSync("git", ["-C", authority, "config", "user.name", "parity-test"])
   execFileSync("git", ["-C", authority, "add", "--", "accepted-intent.json"])
   execFileSync("git", ["-C", authority, "commit", "-qm", "intent-authority"])
+  const evidenceAuthority = mkdtempSync("/tmp/parity-c2-evidence-authority-")
+  const evidencePath = join(evidenceAuthority, "runtime-evidence.json")
+  const receipt = makeRuntimeEvidenceReceipt({
+    journey_ref_id: "intent://c2-test-journey",
+    step_ids: ["c2-test-step"],
+    legacy_revision_ref_id: legacy.revisionRefId,
+    mono_revision_ref_id: acceptedIntentRevisionRefId(context),
+    runner_source_ref_ids: [`src-${"0".repeat(64)}`],
+    runner_digest: sha256("c2-test-runner-input"),
+    fixture_digest: sha256("c2-test-fixture-input"),
+    environment_kind: "ci_non_production",
+    exit_code: 0,
+    result: "passed",
+    artifact_digest: sha256("c2-test-artifact"),
+  })
+  writeFileSync(evidencePath, canonicalRuntimeEvidenceBytes(makeRuntimeEvidenceRegister([receipt])), "utf8")
+  execFileSync("git", ["-C", evidenceAuthority, "init", "-q"])
+  execFileSync("git", ["-C", evidenceAuthority, "config", "user.email", "parity@example.invalid"])
+  execFileSync("git", ["-C", evidenceAuthority, "config", "user.name", "parity-test"])
+  execFileSync("git", ["-C", evidenceAuthority, "add", "--", "runtime-evidence.json"])
+  execFileSync("git", ["-C", evidenceAuthority, "commit", "-qm", "runtime-evidence-authority"])
   try {
-    return await Effect.runPromise(run({ root, legacyRoot, intentRegisterPath: path, mode }))
+    return await Effect.runPromise(run({ root, legacyRoot, intentRegisterPath: path, evidenceRegisterPath: evidencePath, mode }))
   } finally {
     rmSync(authority, { recursive: true, force: true })
+    rmSync(evidenceAuthority, { recursive: true, force: true })
   }
 }
 

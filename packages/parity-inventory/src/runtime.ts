@@ -14,6 +14,7 @@ import {
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { Effect, Schema } from "effect";
 import { canonicalJson, compareByteOrder, sha256, stableId } from "./canonical.js";
+import { assertSafeAcceptedIntentBytes } from "./coverage.js";
 import { assertSafeRuntimeEvidenceBytes } from "./runtime-evidence.js";
 import {
   createManifestContextFromSnapshots,
@@ -396,6 +397,7 @@ export const registerRuntimeEvidenceAuthority = (
   if (!context.sources.some((source) => source.source_id === sourceId)) {
     context.sources.push({
       source_id: sourceId,
+      authority_role: "external_runtime_evidence_authority",
       authority_line: "cross_line",
       capture_mode: "runtime",
       repository_ref: "external_runtime_evidence_authority",

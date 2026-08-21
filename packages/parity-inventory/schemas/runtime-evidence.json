@@ -12,7 +12,7 @@
   "$defs": {
     "sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
     "receiptRef": {"type": "string", "pattern": "^receipt-[a-f0-9]{64}$"},
-    "journeyRef": {"type": "string", "pattern": "^intent://[A-Za-z0-9][A-Za-z0-9._:/#-]{0,127}$"},
+    "journeyRef": {"type": "string", "pattern": "^intent://[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"},
     "stepRef": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/#-]{0,127}$"},
     "revisionRef": {"type": "string", "pattern": "^rev-[A-Za-z0-9:_-]{1,160}$"},
     "sourceRef": {"type": "string", "pattern": "^src-[a-f0-9]{64}$"},

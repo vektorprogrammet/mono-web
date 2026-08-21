@@ -23,7 +23,6 @@ import type {
   ObservationKind,
   ReportFailure,
   RevisionRecord,
-  RuntimeEvidenceReceipt,
   RuntimeEvidenceRegister,
   SourceManifest,
   UserJourneyDetails,
@@ -569,6 +568,7 @@ const applyDispositions = (inventories: readonly InventoryEnvelope[], register: 
       }
     }).sort((left, right) => compareByteOrder(left.row_id, right.row_id)),
   }))
+}
 interface RuntimeEvidenceStepResolution {
   readonly step: JourneyStep
   readonly receiptIds: readonly string[]
@@ -617,8 +617,10 @@ const resolveRuntimeEvidence = (
     if (unknownSteps.length > 0) receiptIssues.push(issue("RUNTIME_EVIDENCE_UNKNOWN_STEP", "unresolved", [], unknownSources, []))
     if (unknownSources.length > 0) receiptIssues.push(issue("RUNTIME_EVIDENCE_SOURCE_REF_MISSING", "unresolved", [], unknownSources, []))
     if (receipt.result === "failed") receiptIssues.push(issue("RUNTIME_EVIDENCE_FAILED", "gaps_found", [], unknownSources, []))
+    let matchedStep = false
     for (const step of journey.steps) {
       if (!receipt.step_ids.includes(step.step_id)) continue
+      matchedStep = true
       const key = `${journey.journey_ref_id}:${step.step_id}`
       const existing = resolutions.get(key)
       const existingReceiptIds = existing?.receiptIds ?? []
@@ -631,6 +633,21 @@ const resolveRuntimeEvidence = (
           ...(receipt.result === "passed" && !stale && unknownSources.length === 0 && unknownSteps.length === 0 ? [receipt.receipt_ref_id] : []),
         ]),
         issues: [...(existing?.issues ?? []), ...receiptIssues],
+      })
+    }
+    if (!matchedStep && receiptIssues.length > 0) {
+      resolutions.set(`receipt:${receipt.receipt_ref_id}`, {
+        step: {
+          step_id: receipt.step_ids[0] ?? "unknown",
+          surface: "api_operation",
+          row_ids: [],
+          canonical_signatures: [],
+          expected_contract_ref: null,
+          runtime_evidence_ref_ids: [receipt.receipt_ref_id],
+        },
+        receiptIds: [],
+        successfulReceiptIds: [],
+        issues: receiptIssues,
       })
     }
   }
@@ -649,7 +666,7 @@ const resolveRuntimeEvidence = (
       const successfulReceiptIds = existing?.successfulReceiptIds ?? []
       if (requireEvidence && journey.coverage_scope === "user_visible" && successfulReceiptIds.length === 0) {
         issues.push(issue(
-          evidence === undefined || evidence === null ? "RUNTIME_EVIDENCE_REQUIRED" : "RUNTIME_EVIDENCE_REQUIRED",
+          "RUNTIME_EVIDENCE_REQUIRED",
           "gaps_found",
           [],
           journey.source_ref_ids,
@@ -670,7 +687,6 @@ const resolveRuntimeEvidence = (
   return resolutions
 }
 
-}
 
 export const resolveJourneyCoverage = (params: {
   readonly manifest: SourceManifest
@@ -751,7 +767,7 @@ export const resolveJourneyCoverage = (params: {
       observation_kinds: ["accepted_intent"],
       source_ref_ids: sortUnique([...journey.source_ref_ids, ...(sourceRefId === null ? [] : [sourceRefId])]),
       revision_ref_ids: revisionRefIds,
-      runtime_observation_ref_ids: sortUnique(journey.steps.flatMap((step) => step.runtime_evidence_ref_ids)),
+      runtime_observation_ref_ids: sortUnique(resolvedSteps.flatMap((step) => step.runtime_evidence_ref_ids)),
       coverage_ref_ids: [journey.journey_ref_id],
       accepted_intent_ref_ids: [journey.intent_ref_id],
       duplicate_group_id: null,

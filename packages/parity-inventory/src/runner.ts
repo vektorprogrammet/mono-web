@@ -28,7 +28,7 @@ import {
   type PinnedIntentRegister,
   type PinnedRuntimeEvidenceRegister,
 } from "./runtime.js"
-import { runtimeEvidenceObservation } from "./runtime-evidence.js"
+import { canonicalRuntimeEvidenceBytes, makeRuntimeEvidenceReceipt, makeRuntimeEvidenceRegister, runtimeEvidenceObservation } from "./runtime-evidence.js"
 import {
   acceptedIntentRevisionRefId,
   coverageFailuresAsReportFailures,
@@ -37,8 +37,18 @@ import {
   validateCrossArtifactInvariants,
   type IntentSourceInput,
 } from "./coverage.js"
+import {
+  deriveReportMismatches,
+  validateGeneratedArtifactSet,
+  validateReportBundle,
+  validateInventory,
+  validateOpenApiReconciliation,
+  validateSourceManifest,
+  type ProjectionObservation,
+} from "./schema.js"
 import type { C2Collection } from "./effects.js"
 import type {
+  CollectorExecutables,
   EvidenceAuthorityEvidence,
   GeneratedArtifacts,
   IntentAuthorityEvidence,
@@ -415,6 +425,7 @@ const generateFromContext = (
   }
   const reconciliation = { ...preliminaryApi.reconciliation, source_manifest_sha256: manifestDigest }
   const preCoverageInventories = [legacy, mono, api, commandWrites, scheduledBackgroundWorkflows, externalIntegrations]
+  const registerIssues = intentLoad.issues
   const coverage = resolveJourneyCoverage({
     manifest,
     inventories: preCoverageInventories,
@@ -837,6 +848,46 @@ const createFixtureIntentAuthority = (workspace: FixtureWorkspace): FixtureInten
   execFileSync("git", ["-C", directory, "commit", "--quiet", "-m", "fixture intent authority"])
   return { directory, path }
 }
+interface FixtureEvidenceAuthority {
+  readonly directory: string
+  readonly path: string
+}
+const createFixtureEvidenceAuthority = (workspace: FixtureWorkspace): FixtureEvidenceAuthority => {
+  if (workspace.intentBytes === null) throw new Error("fixture intent authority is unavailable")
+  const accepted = JSON.parse(new TextDecoder().decode(workspace.intentBytes)) as {
+    readonly journeys: readonly [{
+      readonly journey_ref_id: string
+      readonly selected_revision_ref_ids: readonly [string, string, ...string[]]
+      readonly source_ref_ids: readonly string[]
+      readonly steps: readonly { readonly step_id: string }[]
+    }]
+  }
+  const journey = accepted.journeys[0]
+  if (journey === undefined) throw new Error("fixture journey authority is unavailable")
+  const receipt = makeRuntimeEvidenceReceipt({
+    journey_ref_id: journey.journey_ref_id,
+    step_ids: [journey.steps[0]?.step_id ?? "fixture-step"],
+    legacy_revision_ref_id: journey.selected_revision_ref_ids.find((ref) => ref.startsWith("rev-legacy-")) ?? journey.selected_revision_ref_ids[0],
+    mono_revision_ref_id: journey.selected_revision_ref_ids.find((ref) => ref.startsWith("rev-mono-")) ?? journey.selected_revision_ref_ids[1],
+    runner_source_ref_ids: journey.source_ref_ids.length > 0 ? journey.source_ref_ids : [`src-${"0".repeat(64)}`],
+    runner_digest: sha256("fixture-runner-input"),
+    fixture_digest: sha256("fixture-database-input"),
+    environment_kind: "ci_non_production",
+    exit_code: 1,
+    result: "failed",
+    artifact_digest: sha256("fixture-sanitized-artifact"),
+  })
+  const directory = join(workspace.directory, "evidence-authority")
+  mkdirSync(directory, { recursive: true })
+  const path = join(directory, "runtime-evidence.json")
+  writeFileSync(path, canonicalRuntimeEvidenceBytes(makeRuntimeEvidenceRegister([receipt])))
+  execFileSync("git", ["-C", directory, "init", "--quiet"])
+  execFileSync("git", ["-C", directory, "config", "user.email", "fixture@example.invalid"])
+  execFileSync("git", ["-C", directory, "config", "user.name", "fixture"])
+  execFileSync("git", ["-C", directory, "add", "--", "runtime-evidence.json"])
+  execFileSync("git", ["-C", directory, "commit", "--quiet", "-m", "fixture runtime evidence authority"])
+  return { directory, path }
+}
 
 
 const appendText = (path: string, text: string): void => {
@@ -1123,6 +1174,7 @@ const runFixtureFalsifier = (options: RunOptions): Effect.Effect<RunResult, Pari
       if (falsifierId === "F18_stale_artifact_diff") {
         const baseline = yield* generateFixtureFromWorkspaceEffect(options, workspace)
         const authority = createFixtureIntentAuthority(workspace)
+        const evidenceAuthority = createFixtureEvidenceAuthority(workspace)
         const corrupted = "stale-generated-artifact"
         try {
           const projectionDirectory = join(workspace.root, PROJECTION_DIRECTORY)
@@ -1133,7 +1185,7 @@ const runFixtureFalsifier = (options: RunOptions): Effect.Effect<RunResult, Pari
             writeFileSync(join(projectionDirectory, name), bytes, "utf8")
           }
           mutateFixture(falsifierId, workspace)
-          const diffResult = yield* run({ root: workspace.root, legacyRoot: workspace.legacyRoot, intentRegisterPath: authority.path, mode: "diff" })
+          const diffResult = yield* run({ root: workspace.root, legacyRoot: workspace.legacyRoot, intentRegisterPath: authority.path, evidenceRegisterPath: evidenceAuthority.path, mode: "diff" })
           const generated = diffResult.artifacts
           const causal = diffResult.report.failures.find((failure) => failure.reason_code === expectation.reasonCode && failure.status === "stale")
           const stale = generated !== undefined &&
@@ -1146,6 +1198,7 @@ const runFixtureFalsifier = (options: RunOptions): Effect.Effect<RunResult, Pari
             : fixtureResultReport(falsifierId, generated, expectation, stale ? "stale" : "command_error", stale ? expectation.reasonCode : "FALSIFIER_CAUSALITY_MISMATCH", stale, stale ? causal ?? null : null, diffResult.projectionDiff, diffResult.report.verification.deterministic_diff)
         } finally {
           rmSync(authority.directory, { recursive: true, force: true })
+          rmSync(evidenceAuthority.directory, { recursive: true, force: true })
         }
       }
       if (falsifierId === "F19_ignore_residual_precedence") {
@@ -1304,7 +1357,8 @@ const runTerminalStageEffect = (
       row.reason_codes.includes("ABSENT_SCHEDULE") ||
       (row.mismatch.kind === "absent" && row.mismatch.disposition !== "accepted_absent"),
     )
-    const writeDenied = generated.intentAuthority === undefined || generated.evidenceAuthority === undefined || hasUnsafe || c2WriteBlocked || failures.length > 0 || !schemaValidation || !crossReferencesValid
+    const evidenceRequired = generated.acceptedIntentRegister !== undefined
+    const writeDenied = generated.intentAuthority === undefined || (evidenceRequired && generated.evidenceAuthority === undefined) || hasUnsafe || c2WriteBlocked || failures.length > 0 || !schemaValidation || !crossReferencesValid
     const forbiddenEmpty = (extraFailures: readonly ReportFailure[]): boolean => forbiddenStatesEmpty(inventories, generated.openapiReconciliation, extraFailures, crossReferencesValid)
     let report: ZeroGapReport
     if (options.mode === "write" && !writeDenied) {
