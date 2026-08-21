@@ -215,6 +215,9 @@ const quotedValues = (value: string): string[] => {
   const result: string[] = []
   const pattern = /(['"])((?:\\.|(?!\1).)*)\1/g
   for (const match of value.matchAll(pattern)) {
+    const prefix = value.slice(0, match.index).trimEnd()
+    const previous = prefix.at(-1)
+    if (previous === "=" || previous === ":" || previous === "{" || previous === "[" || previous === ",") continue
     const text = match[2]
     if (text !== undefined) result.push(text.replaceAll('\\"', '"').replaceAll("\\'", "'"))
   }
@@ -320,8 +323,10 @@ const parseMethodBody = (body: string): ParsedMethods => {
 }
 
 
-const methodKeyValueStarts = (source: string): { readonly starts: number[]; readonly unsafe: boolean } => {
+const keyValueStarts = (source: string, keyName: string): { readonly starts: number[]; readonly unsafe: boolean } => {
   const starts: number[] = []
+  const key = keyName.toLowerCase()
+  const keyLength = key.length
   let quote: string | null = null
   let comment: "line" | "block" | null = null
   let escaped = false
@@ -373,11 +378,11 @@ const methodKeyValueStarts = (source: string): { readonly starts: number[]; read
       depth -= 1
       continue
     }
-    if (depth !== 0 || source.slice(index, index + 7).toLowerCase() !== "methods") continue
+    if (depth !== 0 || source.slice(index, index + keyLength).toLowerCase() !== key) continue
     const before = source[index - 1]
-    const after = source[index + 7]
+    const after = source[index + keyLength]
     if ((before !== undefined && /[A-Za-z0-9_]/.test(before)) || (after !== undefined && /[A-Za-z0-9_]/.test(after))) continue
-    const separator = skipPhpTrivia(source, index + 7)
+    const separator = skipPhpTrivia(source, index + keyLength)
     if (separator.malformed) return { starts: [], unsafe: true }
     let cursor = separator.cursor
     if (source[cursor] !== ":" && source[cursor] !== "=") continue
@@ -389,6 +394,8 @@ const methodKeyValueStarts = (source: string): { readonly starts: number[]; read
   }
   return { starts, unsafe: quote !== null || comment === "block" }
 }
+
+const methodKeyValueStarts = (source: string): { readonly starts: number[]; readonly unsafe: boolean } => keyValueStarts(source, "methods")
 
 const parseMethods = (value: string): ParsedMethods => {
   const parsedStarts = methodKeyValueStarts(value)
@@ -478,18 +485,25 @@ const normalizePhpDocContinuationTrivia = (value: string): string => {
 }
 
 const parseRoutePayload = (payload: string, positionalPath = true): ParsedRoutePayload => {
-  const namedPath = parseNamed(payload, PATH, "path")
+  const pathKeys = keyValueStarts(payload, "path")
+  const nameKeys = keyValueStarts(payload, "name")
+  const namedPath = pathKeys.starts.length > 0 || pathKeys.unsafe ? parseNamed(payload, PATH, "path") : { value: null, present: false, unsafe: false }
   const first = positionalPath ? quotedValues(payload)[0] ?? null : null
   const positional = parsedScalar(first, "path")
-  const selectedPath = namedPath.present ? namedPath : positional
-  const name = parseNamed(payload, NAME, "name")
+  const hasNamedPath = pathKeys.starts.length > 0 || pathKeys.unsafe
+  const selectedPath = hasNamedPath ? namedPath : positional
+  const name = nameKeys.starts.length > 0 || nameKeys.unsafe ? parseNamed(payload, NAME, "name") : { value: null, present: false, unsafe: false }
   const parsedMethods = parseMethods(payload)
+  const malformedPath = pathKeys.unsafe || pathKeys.starts.length > 1 || (pathKeys.starts.length === 1 && !namedPath.present)
+  const malformedName = nameKeys.unsafe || nameKeys.starts.length > 1 || (nameKeys.starts.length === 1 && (!name.present || name.value === null))
   const unsafe = selectedPath.unsafe || name.unsafe || parsedMethods.unsafe
+  const reasonCodes = unsafe ? ["UNSAFE_SOURCE"] : []
+  if (malformedPath || malformedName) reasonCodes.push("SOURCE_PARSE_ERROR")
   return {
     path: normalizePath(selectedPath.value),
     name: name.value,
     methods: parsedMethods.methods,
-    reasonCodes: unsafe ? ["UNSAFE_SOURCE"] : [],
+    reasonCodes,
   }
 }
 
@@ -665,11 +679,13 @@ const unsafeRoutePayload = (value: unknown, fieldName = "field"): boolean => {
   return false
 }
 
-const routeReasonCodes = (route: Pick<RouteDeclaration, "pathTemplate" | "methods" | "routeName" | "reasonCodes">): string[] => {
+const routeReasonCodes = (
+  route: Pick<RouteDeclaration, "pathTemplate" | "methods" | "routeName" | "reasonCodes"> & { readonly routeNameRequired?: boolean },
+): string[] => {
   const reasons = [...route.reasonCodes]
   if (route.pathTemplate === null) reasons.push("SOURCE_PARSE_ERROR")
   if (route.methods.length === 0) reasons.push("METHOD_UNRESOLVED")
-  if (route.routeName === null) reasons.push("SOURCE_PARSE_ERROR")
+  if (route.routeNameRequired === true && route.routeName === null) reasons.push("SOURCE_PARSE_ERROR")
   return sortUnique(reasons)
 }
 const parseYamlRoutes = (
@@ -744,7 +760,7 @@ const parseYamlRoutes = (
       runtimeResolved: false,
       ordinal: index + 1,
       sourceRefId,
-      reasonCodes: routeReasonCodes({ pathTemplate, methods: methods.methods, routeName: routeNameValue.value, reasonCodes: payloadUnsafe || resource.unsafe || pathValue.unsafe || methods.unsafe || typeValue.unsafe || controllerRef.unsafe || routeNameValue.unsafe ? ["UNSAFE_SOURCE"] : [] }),
+      reasonCodes: routeReasonCodes({ pathTemplate, methods: methods.methods, routeName: routeNameValue.value, routeNameRequired: true, reasonCodes: payloadUnsafe || resource.unsafe || pathValue.unsafe || methods.unsafe || typeValue.unsafe || controllerRef.unsafe || routeNameValue.unsafe ? ["UNSAFE_SOURCE"] : [] }),
     })
   })
   return { declarations, failures }
@@ -948,7 +964,7 @@ const makeRows = (
         reasonCodes: declaration.reasonCodes.filter((reason) => !(unconstrained && reason === "METHOD_UNRESOLVED")),
       })
       if (!declaration.imported && declaration.declarationKind !== "yaml_route_block" && declaration.declarationKind !== "imported_route" && declaration.declarationKind !== "vendor_route") reasonCodes.push("DEAD_UNIMPORTED_SOURCE")
-      const status: InventoryRow["status"] = declaration.pathTemplate === null || declaredMethods.length === 0 ? "unresolved" : declaration.imported ? "covered" : "dead_unimported"
+      const status: InventoryRow["status"] = declaration.pathTemplate === null || declaredMethods.length === 0 || reasonCodes.includes("SOURCE_PARSE_ERROR") ? "unresolved" : declaration.imported ? "covered" : "dead_unimported"
       const details: LegacyRouteDetails | MonoRouteDetails = authority === "legacy"
         ? { declaration_kind: declaration.declarationKind as LegacyRouteDetails["declaration_kind"], route_name: declaration.routeName, path_template: declaration.pathTemplate, method, methods_declared: declaredMethods, controller_ref: declaration.controllerRef, import_ref: declaration.importRef, deprecated: declaration.deprecated }
         : { declaration_kind: declaration.declarationKind as MonoRouteDetails["declaration_kind"], route_origin: declaration.routeOrigin ?? "imported", route_name: declaration.routeName, path_template: declaration.pathTemplate, method, owner_ref: declaration.ownerRef, runtime_resolved: declaration.runtimeResolved, imported_from_ref: declaration.importRef }

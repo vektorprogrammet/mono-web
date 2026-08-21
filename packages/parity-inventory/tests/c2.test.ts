@@ -172,6 +172,104 @@ final class MalformedDocblockController {}
     rmSync(monoRoot, { recursive: true, force: true })
   }
 })
+test("optional route names stay nullable without false source parse failures", async () => {
+  const legacyRoot = mkdtempSync("/tmp/parity-c2-route-optional-name-legacy-")
+  const monoRoot = mkdtempSync("/tmp/parity-c2-route-optional-name-mono-")
+  try {
+    put(legacyRoot, "app/config/routing.yml", `controllers:
+  resource: "@AppBundle/Controller/"
+  type: annotation
+`)
+    put(legacyRoot, "src/AppBundle/Controller/AssistantController.php", `<?php
+namespace AppBundle\\Controller;
+final class AssistantController
+{
+    /**
+     * @Route("/assistant")
+     */
+    public function indexAction(): void {}
+}
+`)
+    put(legacyRoot, "src/AppBundle/Controller/Api/PartyController.php", `<?php
+namespace AppBundle\\Controller\\Api;
+final class PartyController
+{
+    /**
+     * @Route("api/party", methods={"GET"})
+     */
+    public function indexAction(): void {}
+}
+`)
+    put(legacyRoot, "src/AppBundle/Controller/Api/AccountController.php", `<?php
+namespace AppBundle\\Controller\\Api;
+final class AccountController
+{
+    /**
+     * @Route(path="api/account", methods={"GET"})
+     */
+    public function indexAction(): void {}
+}
+`)
+    put(legacyRoot, "src/AppBundle/Controller/MalformedController.php", `<?php
+namespace AppBundle\\Controller;
+final class MalformedController
+{
+    /**
+     * @Route(name="missing_path")
+     */
+    public function indexAction(): void {}
+}
+`)
+    put(monoRoot, "apps/server/config/routes.yaml", `controllers:
+  resource: ../src/App/Controller/
+  type: attribute
+`)
+    put(monoRoot, "apps/server/src/App/Controller/AssistantController.php", `<?php
+namespace App\\Controller;
+use Symfony\\Component\\Routing\\Attribute\\Route;
+final class AssistantController
+{
+    #[Route('/assistant')]
+    public function indexAction(): void {}
+}
+`)
+    put(monoRoot, "apps/server/src/App/Controller/MalformedController.php", `<?php
+namespace App\\Controller;
+use Symfony\\Component\\Routing\\Attribute\\Route;
+final class MalformedController
+{
+    #[Route(name: 'missing_path')]
+    public function indexAction(): void {}
+}
+`)
+    const context = await contextFor(legacyRoot, monoRoot)
+    const routes = collectRoutes(context, sha256("route-optional-name-c2"), undefined, true)
+    const legacyRows = routes.legacy.rows.filter((row) => row.details.declaration_kind === "controller_annotation")
+    const monoRows = routes.mono.rows.filter((row) => row.details.declaration_kind === "controller_attribute")
+    const targetRows = [...legacyRows, ...monoRows].filter((row) => JSON.stringify(row.details).match(/(Party|Account|Assistant)Controller/))
+    const parseFailures = [...legacyRows, ...monoRows].filter((row) => row.reason_codes.includes("SOURCE_PARSE_ERROR"))
+    const unresolved = [...legacyRows, ...monoRows].filter((row) => row.status === "unresolved")
+    expect(legacyRows).toHaveLength(4)
+    expect(monoRows).toHaveLength(2)
+    expect(targetRows).toHaveLength(4)
+    expect(targetRows.every((row) => row.status === "covered")).toBe(true)
+    expect(targetRows.every((row) => !row.reason_codes.includes("SOURCE_PARSE_ERROR"))).toBe(true)
+    expect(parseFailures).toHaveLength(2)
+    expect(unresolved).toHaveLength(2)
+    expect(unresolved.every((row) => row.reason_codes.includes("SOURCE_PARSE_ERROR"))).toBe(true)
+    const sourceFor = (row: (typeof legacyRows)[number], path: string) =>
+      row.source_ref_ids
+        .map((sourceRefId) => context.sources.find((source) => source.source_id === sourceRefId))
+        .find((source) => source?.path === path)
+    const legacyAssistant = legacyRows.find((row) => "controller_ref" in row.details && row.details.controller_ref?.includes("AssistantController"))
+    const monoAssistant = monoRows.find((row) => "owner_ref" in row.details && row.details.owner_ref?.includes("AssistantController"))
+    expect(sourceFor(legacyAssistant!, "src/AppBundle/Controller/AssistantController.php")).toMatchObject({ line_start: 6, line_end: 6, symbol: "AppBundle\\Controller\\AssistantController::indexAction" })
+    expect(sourceFor(monoAssistant!, "apps/server/src/App/Controller/AssistantController.php")).toMatchObject({ line_start: 6, line_end: 6, symbol: "App\\Controller\\AssistantController::indexAction" })
+  } finally {
+    rmSync(legacyRoot, { recursive: true, force: true })
+    rmSync(monoRoot, { recursive: true, force: true })
+  }
+})
 
 test("package runtime roots ignore type exports and non-runtime script arguments", async () => {
   const legacyRoot = mkdtempSync("/tmp/parity-c2-package-root-legacy-")
