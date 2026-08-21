@@ -144,11 +144,47 @@ final class WebhookClient
     const rows = c2.integrations.rows
     expect(rows.some((row) => pathFor(row) === legacyInterfacePath || pathFor(row) === monoInterfacePath)).toBe(false)
     expect(rows.some((row) => pathFor(row) === "packages/sdk/src/transport.ts")).toBe(false)
-    expect(rows.find((row) => pathFor(row) === newIntegrationPath)?.status).toBe("extra")
+    expect(rows.find((row) => pathFor(row) === newIntegrationPath)?.status).toBe("unresolved")
 
     const ambiguous = rows.filter((row) => pathFor(row)?.includes("NoticeSubscriber.php"))
     expect(ambiguous.filter((row) => row.authority_line === "legacy").every((row) => row.status === "missing")).toBe(true)
     expect(ambiguous.filter((row) => row.authority_line === "mono").every((row) => row.status === "extra")).toBe(true)
+  } finally {
+    rmSync(legacyRoot, { recursive: true, force: true })
+    rmSync(monoRoot, { recursive: true, force: true })
+  }
+})
+test("SDK domain calls through local Transport are internal and not integration rows", async () => {
+  const legacyRoot = mkdtempSync("/tmp/parity-integration-sdk-legacy-")
+  const monoRoot = mkdtempSync("/tmp/parity-integration-sdk-mono-")
+  try {
+    put(monoRoot, "packages/sdk/src/transport.ts", `export interface Transport {
+  post(path: string, body: unknown): unknown;
+  executeFetch(url: string): unknown;
+}
+function parseViolations(): void {}
+function executeFetch(): void { fetch("https://api.example.test/transport"); }
+export function createTransport(): Transport {
+  return { post() { return undefined; }, executeFetch() { return undefined; } };
+}
+`)
+    put(monoRoot, "packages/sdk/src/domains/auth.ts", `import type { Transport } from "../transport.js";
+export function createAuthDomain(transport: Transport) {
+  return {
+    login(username: string, password: string) {
+      return transport.post("/api/login", { username, password });
+    },
+  };
+}
+`)
+
+    const context = await contextFor(legacyRoot, monoRoot)
+    const integrations = collectC2(context, sha256("integration-sdk-transport")).integrations
+    const pathFor = (row: { readonly source_ref_ids: readonly string[] }): string | null =>
+      row.source_ref_ids.map((ref) => context.sourcePathById.get(ref)?.path ?? null).find((path): path is string => path !== null) ?? null
+
+    expect(integrations.rows.some((row) => pathFor(row)?.startsWith("packages/sdk/src/domains/"))).toBe(false)
+    expect(integrations.rows.some((row) => pathFor(row) === "packages/sdk/src/transport.ts")).toBe(false)
   } finally {
     rmSync(legacyRoot, { recursive: true, force: true })
     rmSync(monoRoot, { recursive: true, force: true })
@@ -373,11 +409,13 @@ export default Alchemy.Stack("vektor", {}, () => PreviewWorker);
   main = new URL("./worker.ts", import.meta.url).pathname;
 }
 `)
-    put(monoRoot, "infra/alchemy/preview/worker.ts", `export class PreviewContainer {
-  fetch(request: Request): Response {
-    return new Response(request.url);
-  }
-}
+    put(monoRoot, "infra/alchemy/preview/worker.ts", `import { Container, getContainer } from "@cloudflare/containers";
+export class PreviewContainer extends Container {}
+export default {
+  fetch(request: Request, env: { PreviewContainer: Parameters<typeof getContainer<PreviewContainer>>[0] }): Response {
+    return getContainer(env.PreviewContainer, "vektor-preview").fetch(request);
+  },
+};
 `)
 
     const context = await contextFor(legacyRoot, monoRoot)
@@ -389,9 +427,18 @@ export default Alchemy.Stack("vektor", {}, () => PreviewWorker);
       || pathFor(row) === "infra/alchemy/preview/worker.ts",
     )
 
-    expect(previewRows.length).toBeGreaterThanOrEqual(2)
-    expect(previewRows.every((row) => row.status !== "dead_unimported")).toBe(true)
-    expect(previewRows.every((row) => !row.reason_codes.includes("DEAD_UNIMPORTED_SOURCE"))).toBe(true)
+    expect(previewRows.some((row) => pathFor(row) === "infra/preview.worker.ts")).toBe(false)
+    const containerRow = previewRows.find((row) => pathFor(row) === "infra/alchemy/preview/worker.ts")
+    expect(containerRow).toMatchObject({
+      status: "covered",
+      details: {
+        provider_ref: "cloudflare-containers",
+        direction: "outbound",
+        protocol: "http",
+        effect_classes: ["outbound"],
+      },
+    })
+    expect(containerRow?.details.call_site_ref).toBe("PreviewContainer::fetch")
   } finally {
     rmSync(legacyRoot, { recursive: true, force: true })
     rmSync(monoRoot, { recursive: true, force: true })

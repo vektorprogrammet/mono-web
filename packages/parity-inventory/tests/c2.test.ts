@@ -907,6 +907,110 @@ final class RecordRepository {
     rmSync(monoRoot, { recursive: true, force: true })
   }
 })
+test("dynamic Doctrine and migrated service owners reconcile by method and effect", async () => {
+  const legacyRoot = mkdtempSync("/tmp/parity-c2-dynamic-legacy-")
+  const monoRoot = mkdtempSync("/tmp/parity-c2-dynamic-mono-")
+  try {
+    put(legacyRoot, "app/config/services.yml", String.raw`services:
+  access_control:
+    class: AppBundle\Service\AccessControlService
+  feedback:
+    class: AppBundle\Controller\FeedbackController
+  slack:
+    class: AppBundle\Service\SlackMessenger
+`)
+    put(monoRoot, "apps/server/config/services.yaml", String.raw`services:
+  access_control:
+    class: App\Identity\Infrastructure\AccessControlService
+  feedback:
+    class: App\Content\Controller\FeedbackController
+  slack:
+    class: App\Support\Infrastructure\Slack\SlackMessenger
+`)
+    put(legacyRoot, "src/AppBundle/Service/AccessControlService.php", String.raw`<?php
+namespace AppBundle\Service;
+final class AccessControlService {
+    public function checkAccess(): void { $this->getDoctrine()->getManager()->persist($rule); }
+    public function checkAccessToResourceAndMethod(): void { $this->getDoctrine()->getManager()->persist($rule); }
+    public function createRule(): void { $this->getDoctrine()->getManager()->persist($rule); }
+    public function markRuleAsUnhandledIfNotExists(): void { $this->getDoctrine()->getManager()->persist($rule); }
+}
+`)
+    put(monoRoot, "apps/server/src/App/Identity/Infrastructure/AccessControlService.php", String.raw`<?php
+namespace App\Identity\Infrastructure;
+final class AccessControlService {
+    private EntityManagerInterface $em;
+    public function checkAccess(): void { $this->em->persist($rule); }
+    public function checkAccessToResourceAndMethod(): void { $this->em->persist($rule); }
+    public function createRule(): void { $this->em->persist($rule); }
+    public function markRuleAsUnhandledIfNotExists(): void { $this->em->persist($rule); }
+}
+`)
+    put(legacyRoot, "src/AppBundle/Service/SlackMessenger.php", String.raw`<?php
+namespace AppBundle\Service;
+final class SlackMessenger { private HttpClient $client; public function notify(): void { $this->client->sendMessage(); } }
+`)
+    put(monoRoot, "apps/server/src/App/Support/Infrastructure/Slack/SlackMessenger.php", String.raw`<?php
+namespace App\Support\Infrastructure\Slack;
+final class SlackMessenger { private HttpClient $client; public function notify(): void { $this->client->sendMessage(); } }
+`)
+    put(legacyRoot, "src/AppBundle/Controller/FeedbackController.php", String.raw`<?php
+namespace AppBundle\Controller;
+use AppBundle\Service\SlackMessenger;
+final class FeedbackController {
+    public function indexAction(): void {
+        $em = $this->getDoctrine()->getManager();
+        $em->persist($feedback);
+        $em->flush();
+        $this->container->get(SlackMessenger::class)->notify();
+    }
+}
+`)
+    put(monoRoot, "apps/server/src/App/Content/Controller/FeedbackController.php", String.raw`<?php
+namespace App\Content\Controller;
+use App\Support\Infrastructure\Slack\SlackMessenger;
+final class FeedbackController {
+    private EntityManagerInterface $em;
+    private SlackMessenger $slackMessenger;
+    public function indexAction(): void {
+        $this->em->persist($feedback);
+        $this->em->flush();
+        $this->slackMessenger->notify();
+    }
+}
+`)
+
+    const context = await contextFor(legacyRoot, monoRoot)
+    const c2 = collectC2(context, sha256("dynamic-doctrine-service-migrations"))
+    const rows = c2.commandWrites.rows
+    const rowFor = (authority: "legacy" | "mono", owner: string, method: string) => rows.find((row) =>
+      row.authority_line === authority
+      && "owner_ref" in row.details
+      && row.details.owner_ref === owner
+      && row.details.symbol_ref?.endsWith(`::${method}`),
+    )
+    for (const method of ["checkAccess", "checkAccessToResourceAndMethod", "createRule", "markRuleAsUnhandledIfNotExists"]) {
+      const legacy = rowFor("legacy", "AppBundle\\Service\\AccessControlService", method)
+      const mono = rowFor("mono", "App\\Identity\\Infrastructure\\AccessControlService", method)
+      expect(legacy).toMatchObject({ status: "covered", details: { effect_classes: ["durable_write"] } })
+      expect(mono).toMatchObject({ status: "covered", details: { effect_classes: ["durable_write"] } })
+      expect(c2.commandWrites.links.some((link) =>
+        link.relation_kind === "matches" && link.from_row_id === legacy?.row_id && link.to_row_id === mono?.row_id,
+      )).toBe(true)
+    }
+
+    const legacyFeedback = rowFor("legacy", "AppBundle\\Controller\\FeedbackController", "indexAction")
+    const monoFeedback = rowFor("mono", "App\\Content\\Controller\\FeedbackController", "indexAction")
+    expect(legacyFeedback).toMatchObject({ status: "covered", details: { effect_classes: ["durable_write", "outbound"] } })
+    expect(monoFeedback).toMatchObject({ status: "covered", details: { effect_classes: ["durable_write", "outbound"] } })
+    expect(c2.commandWrites.links.some((link) =>
+      link.relation_kind === "matches" && link.from_row_id === legacyFeedback?.row_id && link.to_row_id === monoFeedback?.row_id,
+    )).toBe(true)
+  } finally {
+    rmSync(legacyRoot, { recursive: true, force: true })
+    rmSync(monoRoot, { recursive: true, force: true })
+  }
+})
 test("transient survey projections do not become command writes without persistence", async () => {
   const legacyRoot = mkdtempSync("/tmp/parity-c2-transient-legacy-")
   const monoRoot = mkdtempSync("/tmp/parity-c2-transient-mono-")
@@ -1743,10 +1847,15 @@ test("generic local request and send calls do not create integrations", async ()
       row.source_ref_ids.some((ref) => context.sourcePathById.get(ref)?.path === "packages/preview.ts"),
     )
     expect(previewRows).toHaveLength(1)
-    expect(previewRows[0]?.details).toMatchObject({
-      call_site_ref: "packages/preview.ts#handle",
-      provider_ref: "packages/preview.ts#handle",
-      protocol: "http",
+    expect(previewRows[0]).toMatchObject({
+      status: "unresolved",
+      reason_codes: ["UNKNOWN_INTEGRATION"],
+      details: {
+        call_site_ref: "packages/preview.ts#handle",
+        provider_ref: null,
+        protocol: "http",
+        effect_classes: ["unknown"],
+      },
     })
   } finally {
     rmSync(legacyRoot, { recursive: true, force: true })
@@ -1982,10 +2091,10 @@ test("owner-null integration modules require positive loader reachability", asyn
     const c2 = collectC2(context, sha256("owner-null-c2"))
     const row = c2.integrations.rows.find((candidate) => candidate.source_ref_ids.some((ref) => context.sourcePathById.get(ref)?.path === "packages/decoy.ts"))
     expect(row).toMatchObject({
-      status: "dead_unimported",
-      reason_codes: ["DEAD_UNIMPORTED_SOURCE"],
+      status: "unresolved",
+      reason_codes: ["UNKNOWN_INTEGRATION"],
       details: {
-        provider_ref: "packages/decoy.ts#fetch",
+        provider_ref: null,
         protocol: "https",
         endpoint_ref: "https://api.slack.com/v1/send",
       },

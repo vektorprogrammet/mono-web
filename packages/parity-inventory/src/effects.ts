@@ -766,7 +766,8 @@ const effectEvidence = (
     const resolved = resolveEffectCall(authority, unit, call, scope?.owner, scope?.start ?? 0)
     if (resolved === null) {
       const receiver = call.receiver ?? null
-      const receiverParts = receiver?.split(/->|::|\./) ?? []
+      const receiverParts = receiver?.split(/->|::|\./).filter((part) => part.length > 0) ?? []
+      const normalizedReceiverParts = receiverParts.map((part) => part.replace(/\s*\(\s*\)\s*$/, "").trim())
       const receiverRoot = receiverParts[0] ?? null
       const localTypes = localReceiverTypesFor(unit, call.offset + (scope?.start ?? 0))
       const adapterTargetScope = scope?.owner?.name === "SlackMessenger"
@@ -783,10 +784,11 @@ const effectEvidence = (
         && (validClassIdentity(typedOwnerPropertyType) || declaredOwnerPropertyType !== undefined)
       const explicitlyUnknownReceiver = receiver !== null && !typedLocalReceiver && !typedOwnerProperty
       const callPrefix = source.slice(Math.max(0, call.offset - 160), call.offset)
+      const doctrineLocator = call.locatorId !== undefined && /(?:doctrine|entity[_ .-]?manager)/i.test(call.locatorId)
       const trustedEffectAnchor =
         (/^(?:persist|flush|remove)$/i.test(call.callable)
           && receiver !== null
-          && receiverParts.some((part) => /^(?:\$?(?:em|manager|entityManager)|getDoctrine|getManager|getEntityManager)$/i.test(part)))
+          && (doctrineLocator || normalizedReceiverParts.some((part) => /^(?:\$?(?:em|manager|entityManager)|getDoctrine|getManager|getEntityManager)$/i.test(part))))
         || (/^setUser$/i.test(call.callable)
           && (receiver !== null || /(?:->|::|\.)\s*$/.test(callPrefix)))
         || (/^dispatch$/i.test(call.callable)
@@ -928,6 +930,7 @@ interface LoaderNode {
   readonly path: string
   readonly imports: readonly string[]
   readonly classes: readonly string[]
+  readonly serviceClasses: ReadonlyMap<string, string>
   readonly resources: readonly string[]
   readonly excludes: readonly string[]
   readonly root: boolean
@@ -967,6 +970,17 @@ interface AuthorityGraph {
   readonly runtimeImporterBySource: ReadonlyMap<string, string>
   readonly functionsByPath: ReadonlyMap<string, ReadonlySet<string>>
   readonly sourceTextByPath: ReadonlyMap<string, string>
+}
+const serviceClassForLocator = (authority: AuthorityGraph, locatorId: string | undefined): string | undefined => {
+  if (locatorId === undefined) return undefined
+  const normalized = locatorId.trim()
+  if (normalized.length === 0) return undefined
+  for (const loader of authority.loaderNodes) {
+    if (!authority.reachableLoaders.has(loader.path)) continue
+    const direct = loader.serviceClasses.get(normalized)
+    if (direct !== undefined) return direct
+  }
+  return undefined
 }
 
 const normalizedRelativePath = (base: string, target: string): string | null => {
@@ -1062,6 +1076,7 @@ const loaderMetadataFields: ReadonlySet<string> = new Set(["_defaults", "_instan
 interface LoaderValues {
   readonly imports: readonly string[]
   readonly classes: readonly string[]
+  readonly serviceClasses: ReadonlyMap<string, string>
   readonly resources: readonly string[]
   readonly excludes: readonly string[]
   readonly invalid: boolean
@@ -1070,6 +1085,7 @@ interface LoaderValues {
 const loaderValuesFor = (source: string): LoaderValues => {
   const imports: string[] = []
   const classes: string[] = []
+  const serviceClasses = new Map<string, string>()
   const resources: string[] = []
   const excludes: string[] = []
   let invalid = false
@@ -1112,11 +1128,16 @@ const loaderValuesFor = (source: string): LoaderValues => {
       const explicitClassNode = explicitClass === undefined ? null : loaderYamlNode(explicitClass.value)
       const explicitClassValue = explicitClass === undefined ? null : loaderYamlScalar(explicitClass.value)
       if (explicitClass !== undefined) {
-        if (explicitClassValue !== null && fqcnPattern.test(explicitClassValue)) classes.push(explicitClassValue)
-        else if (keyIsClass && explicitClassNode?.value === null && explicitClassNode.type === "PLAIN") classes.push(key)
-        else invalid = true
+        if (explicitClassValue !== null && fqcnPattern.test(explicitClassValue)) {
+          classes.push(explicitClassValue)
+          serviceClasses.set(key, explicitClassValue)
+        } else if (keyIsClass && explicitClassNode?.value === null && explicitClassNode.type === "PLAIN") {
+          classes.push(key)
+          serviceClasses.set(key, key)
+        } else invalid = true
       } else if (keyIsClass && (child?.items !== undefined || (child?.items === undefined && child?.value === null))) {
         classes.push(key)
+        serviceClasses.set(key, key)
       } else if (keyIsClass) {
         invalid = true
       }
@@ -1160,7 +1181,7 @@ const loaderValuesFor = (source: string): LoaderValues => {
   } catch {
     invalid = true
   }
-  return { imports, classes, resources, excludes, invalid }
+  return { imports, classes, serviceClasses, resources, excludes, invalid }
 }
 const runtimePackageEntryTargetsFor = (
   context: ManifestContext,
@@ -1520,6 +1541,7 @@ const authorityGraphFor = (context: ManifestContext, authority: "legacy" | "mono
       path: unit.path,
       imports,
       classes: values.classes,
+      serviceClasses: values.serviceClasses,
       resources: values.resources,
       excludes: values.excludes,
       root: isLoaderRootPath(unit.path, authority),
@@ -1726,7 +1748,7 @@ const resolveEffectCall = (authority: AuthorityGraph, unit: SourceUnit, call: Ef
     const item = reachableClassFor(authority, resolveClassForPath(authority, unit.path, call.chain, ownerNamespace))
     return item === undefined ? null : { symbol: `${item.fqn}::__construct`, targetClass: item }
   }
-  const explicitTargetName = call.targetClassName ?? call.repositoryClassName
+  const explicitTargetName = call.targetClassName ?? call.repositoryClassName ?? serviceClassForLocator(authority, call.locatorId)
   if (explicitTargetName !== undefined) {
     const explicitTarget = reachableClassFor(authority, resolveClassForPath(authority, unit.path, explicitTargetName, ownerNamespace))
     if (explicitTarget !== undefined && explicitTarget.methods.has(call.callable)) {
@@ -2044,6 +2066,32 @@ const commandMatchMode = (row: InventoryRow): CommandMatchMode => {
   if (entryKind === "integration_write" || entryKind === "custom_command" || entryKind === "repository_write") return "extended"
   return "none"
 }
+const commandMigrationOwner = (owner: string | null): string | null => {
+  const normalized = owner?.replace(/^\\/, "")
+  switch (normalized) {
+    case "AppBundle\\Controller\\ContactController":
+    case "App\\Content\\Controller\\ContactController":
+      return "ContactController"
+    case "AppBundle\\Controller\\FeedbackController":
+    case "App\\Content\\Controller\\FeedbackController":
+      return "FeedbackController"
+    case "AppBundle\\Controller\\HomeController":
+    case "App\\Content\\Controller\\HomeController":
+      return "HomeController"
+    case "AppBundle\\Service\\AccessControlService":
+    case "App\\Identity\\Infrastructure\\AccessControlService":
+      return "AccessControlService"
+    case "AppBundle\\Service\\UserGroupCollectionManager":
+    case "App\\Organization\\Infrastructure\\UserGroupCollectionManager":
+      return "UserGroupCollectionManager"
+    case "AppBundle\\Service\\TeamMembershipService":
+    case "App\\Organization\\Infrastructure\\TeamMembershipService":
+      return "TeamMembershipService"
+    default:
+      return null
+  }
+}
+
 
 
 const commandCrossLineKey = (row: InventoryRow): string | null => {
@@ -2054,6 +2102,17 @@ const commandCrossLineKey = (row: InventoryRow): string | null => {
   const ownerRole = semanticNamespaceRole(details.owner_ref ?? "") ?? details.entry_kind
   const method = details.symbol_ref?.split("::").at(-1) ?? null
   if (owner === null || method === null || mode === "none") return null
+  const migrationOwner = commandMigrationOwner(details.owner_ref)
+  if (migrationOwner !== null) {
+    return canonicalJson([
+      "command_write_migration",
+      migrationOwner,
+      details.entry_kind,
+      details.command_name,
+      method,
+      sortUnique(details.effect_classes),
+    ])
+  }
   if (mode === "legacy") {
     return canonicalJson([
       "command_write_cross_line",
@@ -2726,9 +2785,21 @@ const parseSchedules = (context: ManifestContext, authority: "legacy" | "mono"):
     if (triggers.length > 0) hasPositiveTrigger = true
     for (const trigger of triggers) parsed.push(scheduleRow(context, unit, ordinal++, trigger, role))
   }
+
   if (!hasPositiveTrigger) parsed.push(absentScheduleRow(context, authority, familyId, role))
   return { parsed, failures: source.failures }
 }
+const localTransportImportFor = (source: string): boolean =>
+  /\bimport\s+(?:type\s+)?\{[^}]*\bTransport\b[^}]*\}\s+from\s*["'][^"']*\/transport(?:\.[^"']+)?["']/i.test(source)
+
+const localTransportReceiverFor = (unit: SourceUnit, call: EffectCall): boolean => {
+  if (!localTransportImportFor(unit.text) || call.receiver === null) return false
+  const receiverRoot = call.receiver.split(/->|::|\./).find((part) => part.length > 0)
+  if (receiverRoot === undefined) return false
+  return localReceiverTypesFor(unit, call.offset).get(receiverRoot) === "Transport"
+}
+
+const previewWorkerPath = /^infra\/(?:preview\.worker|alchemy\/preview\/worker)\.ts$/i
 
 const scheduleCollection = (context: ManifestContext, sourceManifestSha256: string): { readonly inventories: readonly [InventoryEnvelope, InventoryEnvelope]; readonly failures: readonly C2CollectionFailure[]; readonly rows: readonly InventoryRow[] } => {
   const legacy = parseSchedules(context, "legacy")
@@ -2881,6 +2952,7 @@ const integrationCallsFor = (unit: SourceUnit, authority: AuthorityGraph): reado
     const contextStructure = structure.slice(contextStart, contextEnd)
     const reasons: string[] = []
     const resolvedCall = effectCall === undefined ? null : resolveEffectCall(authority, unit, effectCall, ownerClass)
+    if (effectCall !== undefined && localTransportReceiverFor(unit, effectCall)) continue
     if (
       ownerClass !== undefined
       && effectCall !== undefined
@@ -2896,11 +2968,23 @@ const integrationCallsFor = (unit: SourceUnit, authority: AuthorityGraph): reado
       : literalCallsFor(unit.text, callableName).find((candidate) =>
         candidate.offset >= callOffset && candidate.offset <= callOffset + (effectCall?.chain.length ?? callableName.length),
       )
-    const endpointMatch = /https?:\/\/[^\s"'`),}]+/i.exec(literalCall?.rawArgs.join(",") ?? "")
-    const endpointRef = endpointMatch?.[0] === undefined ? null : safeEndpoint(endpointMatch[0], reasons)
     const callSiteContext = functionContextFor(unit.text, callOffset, true)
     const callSiteName = declarationName ?? callSiteContext?.name ?? callableName
-    const dynamicMailerDispatch = ownerShortName(ownerRef) === "Mailer" && callSiteName === "send"
+    const callPrefix = structure.slice(Math.max(0, callOffset - 240), callOffset)
+    const previewHandlerDeclaration =
+      unit.authority === "mono"
+      && previewWorkerPath.test(unit.path)
+      && declarationName === "fetch"
+      && (effectCall === undefined || effectCall.receiver === null)
+    if (previewHandlerDeclaration) continue
+    const previewContainerBoundary =
+      unit.authority === "mono"
+      && /^infra\/alchemy\/preview\/worker\.ts$/i.test(unit.path)
+      && callableName === "fetch"
+      && declarationName === null
+      && /\bgetContainer\s*\([^)]*\)\s*\.\s*$/i.test(callPrefix)
+      && /\bfrom\s*["']@cloudflare\/containers["']/i.test(unit.text)
+    const previewContainerProvider = previewContainerBoundary ? "cloudflare-containers" : null
     const detectedProtocol = protocolFor(endpointRef, `${contextStructure} ${callableName ?? ""} ${resolvedCall?.symbol ?? ""} ${namedProviderRef ?? ""}`)
       ?? (adapterEvidence ? "http" : null)
     const protocol = dynamicMailerDispatch ? "smtp" : detectedProtocol
@@ -2910,7 +2994,11 @@ const integrationCallsFor = (unit: SourceUnit, authority: AuthorityGraph): reado
     if (protocol === null) reasons.push("UNKNOWN_INTEGRATION")
     const credentialMatch = /\b(?:getenv|env|secret|credential|apiKey|api_key)\s*\(\s*["']([A-Za-z0-9_.:-]+)["']/i.exec(contextText)
     const credentialSlotRef = credentialMatch?.[1] === undefined ? null : credentialSlotFor(credentialMatch[1], reasons)
-    const effectClasses: EffectClass[] = resolvedCall === null ? ["unknown"] : ["outbound"]
+    const effectClasses: EffectClass[] = previewContainerBoundary
+      ? ["outbound"]
+      : resolvedCall === null
+        ? ["unknown"]
+        : ["outbound"]
     const direction: ExternalIntegrationDetails["direction"] = /\b(?:webhook|handleRequest|onRequest|incoming|inbound)\b/i.test(contextStructure) ? "inbound" : "outbound"
     const callSiteRef = callSiteName === null
       ? null
@@ -2919,9 +3007,10 @@ const integrationCallsFor = (unit: SourceUnit, authority: AuthorityGraph): reado
         : `${ownerRef}::${callSiteName}`
     const safeSymbol = normalizeSafe(callSiteRef, "symbol", reasons)
     if (safeSymbol === null) reasons.push("INTEGRATION_CALLSITE_UNRESOLVED")
-    const detectedProviderRef = namedProviderRef ?? (transportEvidence
-      ? normalizeSafe(resolvedCall?.symbol ?? safeSymbol, "symbol", reasons)
-      : null)
+    const resolvedProviderRef = transportEvidence && resolvedCall !== null
+      ? normalizeSafe(resolvedCall.symbol, "field", reasons)
+      : null
+    const detectedProviderRef = previewContainerProvider ?? namedProviderRef ?? resolvedProviderRef
     const providerRef = dynamicMailerDispatch ? "mailer" : detectedProviderRef
     if (providerRef === null) reasons.push("UNKNOWN_INTEGRATION")
     if (dynamicMailerDispatch && calls.some((call) =>
