@@ -260,7 +260,7 @@ test.describe("Real Symfony interview scheduling", () => {
     await expect(candidatePage.getByRole("heading", { name: "Svar på intervjutid", exact: true })).toBeVisible();
     await expect(candidatePage.getByText(schedule.room, { exact: true })).toBeVisible();
     await expect(candidatePage.getByText(schedule.campus, { exact: true })).toBeVisible();
-    await candidatePage.getByRole("button", { name: "Aksepter intervjutid", exact: true }).click();
+    await candidatePage.getByRole("button", { name: "Bekreft intervjutid", exact: true }).click();
     await expect(candidatePage.getByRole("heading", { name: "Intervjutiden er akseptert", exact: true })).toBeVisible();
     await candidateContext.close();
 

@@ -60,7 +60,7 @@ function runCommand(command, args, options = {}) {
         settle(resolveCommand, captureOutput ? { stdout: Buffer.concat(stdoutChunks) } : { stdout, stderr });
         return;
       }
-      settle(rejectCommand, new Error(`${command} exited ${code ?? signal}\n${stderr || stdout}`));
+      settle(rejectCommand, new Error(`${command} exited ${code ?? signal}\n${stderr}${stdout}`));
     });
   });
 }
@@ -96,6 +96,46 @@ async function waitForHttp(url, child) {
     await new Promise((resolveSleep) => setTimeout(resolveSleep, 250));
   }
   throw new Error(`timed out waiting for ${url}: ${lastError}`);
+}
+function redactLogValue(value) {
+  return value
+    .replace(/Bearer\s+\S+/gi, "Bearer <redacted>")
+    .replace(/((?:password|token|secret|authorization)\s*[:=]\s*)["']?[^"',\s]+/gi, "$1<redacted>");
+}
+
+async function reportSymfonyException(logPath) {
+  try {
+    const records = (await readFile(logPath, "utf8"))
+      .split(/\r?\n/)
+      .map((line) => {
+        try {
+          return JSON.parse(line);
+        } catch {
+          return null;
+        }
+      })
+      .filter((record) => record && typeof record === "object");
+    const record = records.findLast(
+      (candidate) =>
+        ["ERROR", "CRITICAL", "ALERT", "EMERGENCY"].includes(
+          typeof candidate.level_name === "string" ? candidate.level_name.toUpperCase() : "",
+        ) &&
+        candidate.context &&
+        typeof candidate.context === "object" &&
+        candidate.context.exception &&
+        typeof candidate.context.exception === "object",
+    );
+    if (!record) return;
+    let exception = record.context.exception;
+    while (exception && typeof exception === "object") {
+      const className = typeof exception.class === "string" ? exception.class : "Unknown exception";
+      const message = typeof exception.message === "string" ? redactLogValue(exception.message) : "";
+      console.error(`Symfony e2e exception: ${className}: ${message}`);
+      exception = exception.previous;
+    }
+  } catch {
+    // The server can fail before the e2e log handler creates its file.
+  }
 }
 
 async function assertPortAvailable(port) {
@@ -306,6 +346,7 @@ async function main() {
     primaryError = error;
     throw error;
   } finally {
+    if (primaryError) await reportSymfonyException(join(symfonyLogDir, "e2e.log"));
     try {
       await cleanup();
     } catch (cleanupError) {

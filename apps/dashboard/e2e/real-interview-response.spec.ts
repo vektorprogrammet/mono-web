@@ -103,7 +103,8 @@ test.describe("Real Symfony interview invitation response", () => {
       );
       const freshRead = readOperation(candidatePage);
       await candidatePage.getByRole("button", { name: responseCase.actionLabel, exact: true }).click();
-      expect((await actionResponse).status()).toBe(200);
+      const observedActionResponse = await actionResponse;
+      expect(observedActionResponse.status(), await observedActionResponse.text()).toBe(200);
       await freshRead;
       await expect(candidatePage.getByRole("heading", { name: responseCase.resultHeading, exact: true })).toBeVisible();
       await expect(candidatePage.locator("body")).not.toContainText(responseCase.capability);
