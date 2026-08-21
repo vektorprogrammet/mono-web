@@ -5,6 +5,7 @@ import { dirname } from "node:path";
 const SOURCE_REF = /^src-[a-f0-9]{64}$/;
 const REVISION_REF = /^rev-[A-Za-z0-9:_-]{1,160}$/;
 const JOURNEY_REF = /^intent:\/\/[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
+const STEP_REF = /^[A-Za-z0-9][A-Za-z0-9._:/#-]{0,127}$/;
 
 const jsonBytes = (value) => new TextEncoder().encode(JSON.stringify(value));
 
@@ -85,9 +86,8 @@ const asBytes = (value, name) => {
   return value;
 };
 
-export async function emitRuntimeEvidenceReceipt({
-  journeyRefId,
-  stepIds,
+export async function emitRuntimeEvidenceReceipts({
+  journeys,
   fixtureId,
   runnerSourceInputBytes,
   fixtureInputBytes,
@@ -104,6 +104,7 @@ export async function emitRuntimeEvidenceReceipt({
     return value !== undefined && value.length > 0;
   });
   if (configured.length === 0) return null;
+
   const outputPath = requiredEnvironment("RUNTIME_EVIDENCE_RECEIPT_PATH");
   const legacyRevisionRefId = requiredEnvironment("RUNTIME_EVIDENCE_LEGACY_REVISION_REF_ID");
   const monoRevisionRefId = requiredEnvironment("RUNTIME_EVIDENCE_MONO_REVISION_REF_ID");
@@ -113,14 +114,13 @@ export async function emitRuntimeEvidenceReceipt({
     .filter((value) => value.length > 0);
   const contentAddressedRevisionRef = /^rev-(?:legacy|mono)-(?:[a-f0-9]{40,64}|sha256:[a-f0-9]{64})$/;
   const { unsafeScalarReason } = await import("../../../packages/parity-inventory/src/source-manifest.ts");
-  if (!JOURNEY_REF.test(journeyRefId) || unsafeScalarReason(journeyRefId, "journey_ref_id") !== null) {
-    throw new Error("Runtime evidence journey reference is malformed or unsafe");
-  }
   if (
     !REVISION_REF.test(legacyRevisionRefId) ||
     !REVISION_REF.test(monoRevisionRefId) ||
-    (!contentAddressedRevisionRef.test(legacyRevisionRefId) && unsafeScalarReason(legacyRevisionRefId, "legacy_revision_ref_id") !== null) ||
-    (!contentAddressedRevisionRef.test(monoRevisionRefId) && unsafeScalarReason(monoRevisionRefId, "mono_revision_ref_id") !== null)
+    (!contentAddressedRevisionRef.test(legacyRevisionRefId) &&
+      unsafeScalarReason(legacyRevisionRefId, "legacy_revision_ref_id") !== null) ||
+    (!contentAddressedRevisionRef.test(monoRevisionRefId) &&
+      unsafeScalarReason(monoRevisionRefId, "mono_revision_ref_id") !== null)
   ) {
     throw new Error("Runtime evidence revision references are malformed or unsafe");
   }
@@ -142,39 +142,98 @@ export async function emitRuntimeEvidenceReceipt({
     if (sourceInputs.has(input.sourceRefId)) throw new Error("Runtime evidence runner source inputs are duplicated");
     sourceInputs.set(input.sourceRefId, asBytes(input.bytes, `runner source input ${input.sourceRefId}`));
   }
-  if (sourceInputs.size !== runnerSourceRefIds.length || runnerSourceRefIds.some((sourceRefId) => !sourceInputs.has(sourceRefId))) {
+  if (
+    sourceInputs.size !== runnerSourceRefIds.length ||
+    runnerSourceRefIds.some((sourceRefId) => !sourceInputs.has(sourceRefId))
+  ) {
     throw new Error("Runtime evidence runner source inputs do not match source references");
   }
-  const normalizedStepIds = [...new Set(stepIds)].sort();
-  if (normalizedStepIds.length === 0 || normalizedStepIds.some((value) => typeof value !== "string" || value.length === 0)) {
-    throw new Error("Runtime evidence step identifiers are malformed");
+
+  if (!Array.isArray(journeys) || journeys.length === 0) {
+    throw new Error("Runtime evidence journeys must contain at least one entry");
   }
+  const normalizedJourneys = journeys.map((journey) => {
+    if (
+      journey === null ||
+      typeof journey !== "object" ||
+      typeof journey.journeyRefId !== "string" ||
+      !JOURNEY_REF.test(journey.journeyRefId) ||
+      unsafeScalarReason(journey.journeyRefId, "journey_ref_id") !== null
+    ) {
+      throw new Error("Runtime evidence journey reference is malformed or unsafe");
+    }
+    if (!Array.isArray(journey.stepIds)) {
+      throw new Error("Runtime evidence step identifiers are malformed");
+    }
+    const stepIds = [...new Set(journey.stepIds)];
+    if (
+      stepIds.length === 0 ||
+      stepIds.some((value) =>
+        typeof value !== "string" ||
+        !STEP_REF.test(value) ||
+        unsafeScalarReason(value, "journey_step") !== null
+      )
+    ) {
+      throw new Error("Runtime evidence step identifiers are malformed");
+    }
+    return {
+      journeyRefId: journey.journeyRefId,
+      stepIds: stepIds.sort(),
+    };
+  });
+  if (
+    new Set(normalizedJourneys.map(({ journeyRefId }) => journeyRefId)).size !== normalizedJourneys.length
+  ) {
+    throw new Error("Runtime evidence journey references are duplicated");
+  }
+
   const runnerDigestParts = [...sourceInputs.entries()]
-    .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
+    .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
     .map(([sourceRefId, bytes]) => [sourceRefId, sha256Bytes(bytes)]);
   const runnerDigest = sha256Bytes(new TextEncoder().encode(JSON.stringify(runnerDigestParts)));
   const sanitizedArtifactBytes = asBytes(artifactBytes, "sanitized artifact bytes");
   const outcome = runtimeEvidenceOutcome(sanitizedArtifactBytes);
+  const fixtureBytes = asBytes(fixtureInputBytes, `fixture input bytes for ${fixtureId}`);
   const {
     canonicalRuntimeEvidenceBytes,
     makeRuntimeEvidenceReceipt,
     makeRuntimeEvidenceRegister,
   } = await import("../../../packages/parity-inventory/src/runtime-evidence.ts");
-  const receipt = makeRuntimeEvidenceReceipt({
-    journey_ref_id: journeyRefId,
-    step_ids: normalizedStepIds,
-    legacy_revision_ref_id: legacyRevisionRefId,
-    mono_revision_ref_id: monoRevisionRefId,
-    runner_source_ref_ids: runnerSourceRefIds,
-    runner_digest: runnerDigest,
-    environment_kind: "local_disposable",
-    fixture_digest: sha256Bytes(asBytes(fixtureInputBytes, `fixture input bytes for ${fixtureId}`)),
-    exit_code: outcome.exit_code,
-    result: outcome.result,
-    artifact_digest: sha256Bytes(sanitizedArtifactBytes),
-  });
-  const bytes = canonicalRuntimeEvidenceBytes(makeRuntimeEvidenceRegister([receipt]));
+  const receipts = normalizedJourneys.map(({ journeyRefId, stepIds }) =>
+    makeRuntimeEvidenceReceipt({
+      journey_ref_id: journeyRefId,
+      step_ids: stepIds,
+      legacy_revision_ref_id: legacyRevisionRefId,
+      mono_revision_ref_id: monoRevisionRefId,
+      runner_source_ref_ids: runnerSourceRefIds,
+      runner_digest: runnerDigest,
+      environment_kind: "local_disposable",
+      fixture_digest: sha256Bytes(fixtureBytes),
+      exit_code: outcome.exit_code,
+      result: outcome.result,
+      artifact_digest: sha256Bytes(sanitizedArtifactBytes),
+    }),
+  );
+  const bytes = canonicalRuntimeEvidenceBytes(makeRuntimeEvidenceRegister(receipts));
   await mkdir(dirname(outputPath), { recursive: true });
   await writeFile(outputPath, bytes, { encoding: "utf8" });
-  return receipt.receipt_ref_id;
+  return receipts.map(({ receipt_ref_id }) => receipt_ref_id);
+}
+
+export async function emitRuntimeEvidenceReceipt({
+  journeyRefId,
+  stepIds,
+  fixtureId,
+  runnerSourceInputBytes,
+  fixtureInputBytes,
+  artifactBytes,
+}) {
+  const receiptRefs = await emitRuntimeEvidenceReceipts({
+    journeys: [{ journeyRefId, stepIds }],
+    fixtureId,
+    runnerSourceInputBytes,
+    fixtureInputBytes,
+    artifactBytes,
+  });
+  return receiptRefs === null ? null : receiptRefs[0];
 }

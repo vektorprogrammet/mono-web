@@ -5,7 +5,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { once } from "node:events";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { emitRuntimeEvidenceReceipt, sanitizePlaywrightArtifact } from "./runtime-evidence-receipt.mjs";
+import { emitRuntimeEvidenceReceipts, sanitizePlaywrightArtifact } from "./runtime-evidence-receipt.mjs";
 
 const dashboardOrigin = "http://127.0.0.1:5174";
 const journeyRefId = "intent://journey:recruitment:applicant-assignment:v1";
@@ -16,6 +16,13 @@ const journeyStepIds = [
   "load-interview-schema-options",
   "load-interviewer-options",
   "mono-session-login",
+];
+const defaultJourneyEntries = [
+  { journeyRefId, stepIds: journeyStepIds },
+  {
+    journeyRefId: "intent://journey:recruitment:review-applicants:v1",
+    stepIds: ["list-current-applicants", "mono-session-login"],
+  },
 ];
 const apiOrigin = "http://127.0.0.1:8000";
 const serverRoot = fileURLToPath(new URL("../../server/", import.meta.url));
@@ -378,14 +385,20 @@ async function main() {
           bytes: await readFile(fileURLToPath(new URL("./real-symfony-recruitment.spec.ts", import.meta.url))),
         },
       ];
-      const evidenceJourneyRefId = process.env.RUNTIME_EVIDENCE_JOURNEY_REF_ID ?? journeyRefId;
-      const evidenceJourneyStepIds = process.env.RUNTIME_EVIDENCE_STEP_IDS
-        ?.split(",")
-        .map((stepId) => stepId.trim())
-        .filter((stepId) => stepId.length > 0) ?? journeyStepIds;
-      await emitRuntimeEvidenceReceipt({
-        journeyRefId: evidenceJourneyRefId,
-        stepIds: evidenceJourneyStepIds,
+      const explicitJourneyOverride =
+        process.env.RUNTIME_EVIDENCE_JOURNEY_REF_ID !== undefined ||
+        process.env.RUNTIME_EVIDENCE_STEP_IDS !== undefined;
+      const evidenceJourneys = explicitJourneyOverride
+        ? [{
+          journeyRefId: process.env.RUNTIME_EVIDENCE_JOURNEY_REF_ID ?? journeyRefId,
+          stepIds: process.env.RUNTIME_EVIDENCE_STEP_IDS
+            ?.split(",")
+            .map((stepId) => stepId.trim())
+            .filter((stepId) => stepId.length > 0) ?? journeyStepIds,
+        }]
+        : defaultJourneyEntries;
+      await emitRuntimeEvidenceReceipts({
+        journeys: evidenceJourneys,
         fixtureId: "recruitment-assignment-0028",
         runnerSourceInputBytes,
         fixtureInputBytes,

@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { join, resolve } from "node:path";
 import { spawn } from "node:child_process";
 import net from "node:net";
-import { emitRuntimeEvidenceReceipt, sanitizePlaywrightArtifact } from "./runtime-evidence-receipt.mjs";
+import { emitRuntimeEvidenceReceipts, sanitizePlaywrightArtifact } from "./runtime-evidence-receipt.mjs";
 
 const dashboardOrigin = "http://127.0.0.1:5174";
 const apiOrigin = "http://127.0.0.1:8000";
@@ -19,6 +19,27 @@ const journeyStepIds = [
   "fresh-interviewer-response-read",
   "invalid-response-preserves-state",
   "response-capability-remains-private",
+];
+const defaultJourneyEntries = [
+  { journeyRefId, stepIds: journeyStepIds },
+  {
+    journeyRefId: "intent://journey:parity:applicant_notify_self:v1",
+    stepIds: [
+      "applicant-notify-self-api-operation",
+      "applicant-notify-self-command-write",
+      "applicant-notify-self-legacy-route",
+      "applicant-notify-self-mono-route",
+    ],
+  },
+  {
+    journeyRefId: "intent://journey:parity:interview_candidate:v1",
+    stepIds: [
+      "interview-candidate-api-operation",
+      "interview-candidate-command-write",
+      "interview-candidate-legacy-route",
+      "interview-candidate-mono-route",
+    ],
+  },
 ];
 const serverRoot = fileURLToPath(new URL("../../server/", import.meta.url));
 const dashboardRoot = fileURLToPath(new URL("../", import.meta.url));
@@ -333,9 +354,20 @@ async function main() {
           bytes: await readFile(fileURLToPath(new URL("./real-interview-response.spec.ts", import.meta.url))),
         },
       ];
-      await emitRuntimeEvidenceReceipt({
-        journeyRefId,
-        stepIds: journeyStepIds,
+      const explicitJourneyOverride =
+        process.env.RUNTIME_EVIDENCE_JOURNEY_REF_ID !== undefined ||
+        process.env.RUNTIME_EVIDENCE_STEP_IDS !== undefined;
+      const evidenceJourneys = explicitJourneyOverride
+        ? [{
+          journeyRefId: process.env.RUNTIME_EVIDENCE_JOURNEY_REF_ID ?? journeyRefId,
+          stepIds: process.env.RUNTIME_EVIDENCE_STEP_IDS
+            ?.split(",")
+            .map((stepId) => stepId.trim())
+            .filter((stepId) => stepId.length > 0) ?? journeyStepIds,
+        }]
+        : defaultJourneyEntries;
+      await emitRuntimeEvidenceReceipts({
+        journeys: evidenceJourneys,
         fixtureId: "recruitment-invitation-response-0031",
         runnerSourceInputBytes,
         fixtureInputBytes,
