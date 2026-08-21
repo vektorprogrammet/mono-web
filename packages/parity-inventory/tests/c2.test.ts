@@ -1012,6 +1012,57 @@ final class FeedbackController {
     rmSync(monoRoot, { recursive: true, force: true })
   }
 })
+test("unmanifested mono shared repositories retain durable command parity", async () => {
+  const legacyRoot = mkdtempSync("/tmp/parity-c2-shared-repository-legacy-")
+  const monoRoot = mkdtempSync("/tmp/parity-c2-shared-repository-mono-")
+  try {
+    put(legacyRoot, "app/config/services.yml", String.raw`services:
+  semester_repository:
+    class: AppBundle\Entity\Repository\SemesterRepository
+`)
+    put(monoRoot, "apps/server/config/services.yaml", String.raw`services:
+  semester_repository:
+    class: App\Shared\Repository\SemesterRepository
+`)
+    put(legacyRoot, "src/AppBundle/Entity/Repository/SemesterRepository.php", String.raw`<?php
+namespace AppBundle\Entity\Repository;
+final class SemesterRepository {
+    public function findOrCreateCurrentSemester(): void {
+        $this->getEntityManager()->persist($semester);
+        $this->getEntityManager()->flush();
+    }
+}
+`)
+    put(monoRoot, "apps/server/src/App/Shared/Repository/SemesterRepository.php", String.raw`<?php
+namespace App\Shared\Repository;
+final class SemesterRepository {
+    public function findOrCreateCurrentSemester(): void {
+        $this->getEntityManager()->persist($semester);
+        $this->getEntityManager()->flush();
+    }
+}
+`)
+
+    const context = await contextFor(legacyRoot, monoRoot)
+    const c2 = collectC2(context, sha256("shared-repository-command-parity"))
+    const rowFor = (authority: "legacy" | "mono", owner: string) => c2.commandWrites.rows.find((row) =>
+      row.authority_line === authority
+      && "owner_ref" in row.details
+      && row.details.owner_ref === owner
+      && row.details.symbol_ref?.endsWith("::findOrCreateCurrentSemester"),
+    )
+    const legacy = rowFor("legacy", "AppBundle\\Entity\\Repository\\SemesterRepository")
+    const mono = rowFor("mono", "App\\Shared\\Repository\\SemesterRepository")
+    expect(legacy).toMatchObject({ status: "covered", details: { effect_classes: ["durable_write"] } })
+    expect(mono).toMatchObject({ status: "covered", details: { effect_classes: ["durable_write"] } })
+    expect(c2.commandWrites.links.some((link) =>
+      link.relation_kind === "matches" && link.from_row_id === legacy?.row_id && link.to_row_id === mono?.row_id,
+    )).toBe(true)
+  } finally {
+    rmSync(legacyRoot, { recursive: true, force: true })
+    rmSync(monoRoot, { recursive: true, force: true })
+  }
+})
 test("transient survey projections do not become command writes without persistence", async () => {
   const legacyRoot = mkdtempSync("/tmp/parity-c2-transient-legacy-")
   const monoRoot = mkdtempSync("/tmp/parity-c2-transient-mono-")
