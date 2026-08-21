@@ -5,8 +5,19 @@ import { createConnection } from "node:net";
 import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { emitRuntimeEvidenceReceipt } from "./runtime-evidence-receipt.mjs";
 
 const dashboardOrigin = "http://127.0.0.1:5174";
+const journeyRefId = "intent://journey:recruitment:interview-scheduling:v1";
+const journeyStepIds = [
+  "applicant-accepts-interview",
+  "applicant-loads-response",
+  "fresh-read-accepted-interview",
+  "interviewer-session-login",
+  "leader-session-login",
+  "load-assigned-interviews",
+  "schedule-interview",
+];
 const apiOrigin = "http://127.0.0.1:8000";
 const serverRoot = fileURLToPath(new URL("../../server/", import.meta.url));
 const dashboardRoot = fileURLToPath(new URL("../", import.meta.url));
@@ -392,6 +403,11 @@ async function main() {
       ["run", "e2e:test", "--", "e2e/real-interview-scheduling.spec.ts", "--project=real-symfony"],
       { cwd: dashboardRoot, env: dashboardEnv },
     );
+    await emitRuntimeEvidenceReceipt({
+      journeyRefId,
+      stepIds: journeyStepIds,
+      fixtureId: "recruitment-interview-scheduling-0029",
+    });
   } catch (error) {
     primaryError = error;
     throw error;

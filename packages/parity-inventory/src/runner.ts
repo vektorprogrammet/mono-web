@@ -16,8 +16,19 @@ import { API_RUNTIME_FIXTURE_PATH, collectApiOperations, reportFailuresFromApi, 
 import { collectC2 } from "./effects.js"
 import { collectRoutes, routeRowsBySignature, setRowMismatch, updateEnvelopeRows, type CollectedRouteArtifacts } from "./routes.js"
 import { finalizeManifest, sourceDigestForManifest, type ManifestContext } from "./source-manifest.js"
-import { createManifestContextEffect, ParityRuntimeError, readPinnedIntentRegisterEffect, readProjectionDirectoryEffect, readProjectionEffect, writeProjectionSetEffect, type PinnedIntentRegister } from "./runtime.js"
-import { deriveReportMismatches, validateGeneratedArtifactSet, validateReportBundle, validateInventory, validateOpenApiReconciliation, validateSourceManifest, type ProjectionObservation } from "./schema.js"
+import {
+  createManifestContextEffect,
+  ParityRuntimeError,
+  readPinnedIntentRegisterEffect,
+  readPinnedRuntimeEvidenceRegisterEffect,
+  readProjectionDirectoryEffect,
+  readProjectionEffect,
+  registerRuntimeEvidenceAuthority,
+  writeProjectionSetEffect,
+  type PinnedIntentRegister,
+  type PinnedRuntimeEvidenceRegister,
+} from "./runtime.js"
+import { runtimeEvidenceObservation } from "./runtime-evidence.js"
 import {
   acceptedIntentRevisionRefId,
   coverageFailuresAsReportFailures,
@@ -28,7 +39,7 @@ import {
 } from "./coverage.js"
 import type { C2Collection } from "./effects.js"
 import type {
-  CollectorExecutables,
+  EvidenceAuthorityEvidence,
   GeneratedArtifacts,
   IntentAuthorityEvidence,
   InventoryEnvelope,
@@ -36,6 +47,7 @@ import type {
   OpenApiReconciliation,
   ReportFailure,
   ReportMismatch,
+  RuntimeEvidenceRegister,
   SourceManifest,
   ZeroGapReport,
 } from "./types.js"
@@ -74,6 +86,7 @@ export interface RunOptions {
   readonly mode: RunMode
   readonly falsifierId?: FalsifierId
   readonly intentRegisterPath?: string
+  readonly evidenceRegisterPath?: string
   readonly collectorExecutables?: CollectorExecutables
 }
 
@@ -312,7 +325,17 @@ const forbiddenStatesEmpty = (inventories: readonly InventoryEnvelope[], reconci
   return crossReferencesValid && reconciliation.status === "current" && failures.length === 0 && inventories.every((inventory) => inventory.inventory_kind === "user_journey" || inventory.rows.every((row) => !forbiddenStatuses.has(row.status) && !forbiddenKinds.has(row.mismatch.kind) && row.coverage_ref_ids.length > 0))
 }
 
-const generateFromContext = (context: ManifestContext, mode: RunMode, falsifierId: string | null = null, intentAuthority: PinnedIntentRegister | null = null, fixtureIntent?: IntentSourceInput, collectorExecutables?: CollectorExecutables, fixtureRuntimeInput?: ApiRuntimeFixtureInput): GeneratedArtifacts => {
+const generateFromContext = (
+  context: ManifestContext,
+  mode: RunMode,
+  falsifierId: string | null = null,
+  intentAuthority: PinnedIntentRegister | null = null,
+  fixtureIntent?: IntentSourceInput,
+  collectorExecutables?: CollectorExecutables,
+  fixtureRuntimeInput?: ApiRuntimeFixtureInput,
+  evidenceAuthority: EvidenceAuthorityEvidence | null = null,
+  runtimeEvidenceRegister: RuntimeEvidenceRegister | null = null,
+): GeneratedArtifacts => {
   const intentInput: IntentSourceInput | undefined = intentAuthority === null
     ? fixtureIntent
     : {
@@ -331,18 +354,42 @@ const generateFromContext = (context: ManifestContext, mode: RunMode, falsifierI
   const preliminaryApi = collectApiOperations(context, sha256("c1-source-manifest-pending"), preliminary.mono.rows, mode === "fixture_injection" || falsifierId === "F18_stale_artifact_diff", collectorExecutables, fixtureRuntimeInput)
   const preliminaryC2 = collectC2(context, sha256("c2-source-manifest-pending"))
   if ((hasUnsafeProjectionMetadata(context, preliminary, preliminaryC2) || preliminaryApi.failures.some((failure) => failure.reasonCode === "UNSAFE_SOURCE")) && !fixtureUnsafeProbe) throw new UnsafeSourceProjectionError("unsafe source metadata encountered during projection construction")
+  if (runtimeEvidenceRegister !== null) {
+    const existingRuntimeRefs = new Set(context.runtimeObservations.map((observation) => observation.runtime_observation_ref_id))
+    for (const receipt of runtimeEvidenceRegister.receipts) {
+      if (!existingRuntimeRefs.has(receipt.receipt_ref_id)) context.runtimeObservations.push(runtimeEvidenceObservation(receipt))
+    }
+  }
   const finalizedManifest = finalizeManifest(context)
-  const manifest = intentAuthority === null ? finalizedManifest : {
+  const manifest: SourceManifest = {
     ...finalizedManifest,
-    intent_authority: {
-      repository_ref: "external_intent_authority" as const,
-      authority_path: `authority://blob/${intentAuthority.blobOid}`,
-      revision_ref_id: intentAuthority.revisionRefId,
-      revision: intentAuthority.revision,
-      blob_oid: intentAuthority.blobOid,
-      digest: intentAuthority.digest,
-      immutable: true as const,
-    },
+    ...(intentAuthority === null
+      ? {}
+      : {
+          intent_authority: {
+            repository_ref: "external_intent_authority" as const,
+            authority_path: `authority://blob/${intentAuthority.blobOid}`,
+            revision_ref_id: intentAuthority.revisionRefId,
+            revision: intentAuthority.revision,
+            blob_oid: intentAuthority.blobOid,
+            digest: intentAuthority.digest,
+            immutable: true as const,
+          },
+        }),
+    ...(evidenceAuthority === null
+      ? {}
+      : {
+          evidence_authority: {
+            repository_ref: evidenceAuthority.repository_ref,
+            authority_path: evidenceAuthority.authority_path,
+            revision_ref_id: evidenceAuthority.revision_ref_id,
+            revision: evidenceAuthority.revision,
+            blob_oid: evidenceAuthority.blob_oid,
+            digest: evidenceAuthority.digest,
+            source_ref_ids: evidenceAuthority.source_ref_ids,
+            immutable: true as const,
+          },
+        }),
   }
   const manifestDigest = sourceDigestForManifest(manifest)
   let legacy = { ...preliminary.legacy, source_manifest_sha256: manifestDigest }
@@ -368,8 +415,15 @@ const generateFromContext = (context: ManifestContext, mode: RunMode, falsifierI
   }
   const reconciliation = { ...preliminaryApi.reconciliation, source_manifest_sha256: manifestDigest }
   const preCoverageInventories = [legacy, mono, api, commandWrites, scheduledBackgroundWorkflows, externalIntegrations]
-  const registerIssues = intentLoad.issues
-  const coverage = resolveJourneyCoverage({ manifest, inventories: preCoverageInventories, register: intentLoad.register, registerSourceRefId: intentLoad.sourceRefId, registerIssues })
+  const coverage = resolveJourneyCoverage({
+    manifest,
+    inventories: preCoverageInventories,
+    register: intentLoad.register,
+    registerSourceRefId: intentLoad.sourceRefId,
+    registerIssues,
+    runtimeEvidence: runtimeEvidenceRegister,
+    requireRuntimeEvidence: mode !== "fixture_injection",
+  })
   const coveredInventories = coverage.inventories
   legacy = coveredInventories[0] as InventoryEnvelope
   mono = coveredInventories[1] as InventoryEnvelope
@@ -437,6 +491,8 @@ const generateFromContext = (context: ManifestContext, mode: RunMode, falsifierI
       relative_path: intentAuthority.relativePath,
       bytes: intentAuthority.bytes,
     } as IntentAuthorityEvidence,
+    runtimeEvidenceRegister: runtimeEvidenceRegister ?? undefined,
+    evidenceAuthority: evidenceAuthority ?? undefined,
     bytes,
     failures: dedupedFailures,
     routeRows: [...legacy.rows, ...mono.rows],
@@ -464,8 +520,36 @@ export const generateFromRootsEffect = (options: RunOptions, fixtureRuntimeInput
       : options.intentRegisterPath === undefined
         ? yield* Effect.fail(new ParityRuntimeError({ operation: "intent_authority", path: options.root, message: "--intent-register is required for diff and write modes" }))
         : yield* readPinnedIntentRegisterEffect(options.intentRegisterPath, options.legacyRoot, options.root, PROJECTION_DIRECTORY)
+    if (options.mode === "fixture_injection" && options.evidenceRegisterPath !== undefined)
+      return yield* Effect.fail(new ParityRuntimeError({ operation: "fixture_injection", path: options.root, message: "fixture_injection cannot consume runtime evidence authority" }))
+    const runtimeEvidenceAuthority = options.mode === "fixture_injection"
+      ? null
+      : options.evidenceRegisterPath === undefined
+        ? yield* Effect.fail(new ParityRuntimeError({ operation: "runtime_evidence_authority", path: options.root, message: "--evidence-register is required for diff and write modes" }))
+        : yield* readPinnedRuntimeEvidenceRegisterEffect(options.evidenceRegisterPath, options.legacyRoot, options.root, PROJECTION_DIRECTORY)
+    const evidenceAuthority = runtimeEvidenceAuthority === null
+      ? null
+      : (() => {
+        const record = registerRuntimeEvidenceAuthority(context, runtimeEvidenceAuthority)
+        return {
+          ...record,
+          authority_root: runtimeEvidenceAuthority.authorityRoot,
+          relative_path: runtimeEvidenceAuthority.relativePath,
+          bytes: runtimeEvidenceAuthority.bytes,
+        }
+      })()
     return yield* Effect.try({
-      try: () => generateFromContext(context, options.mode, options.falsifierId ?? null, intentAuthority, fixtureIntent, options.collectorExecutables, fixtureRuntimeInput),
+      try: () => generateFromContext(
+        context,
+        options.mode,
+        options.falsifierId ?? null,
+        intentAuthority,
+        fixtureIntent,
+        options.collectorExecutables,
+        fixtureRuntimeInput,
+        evidenceAuthority,
+        runtimeEvidenceAuthority?.register ?? null,
+      ),
       catch: (cause) => new ParityRuntimeError({
         operation: cause instanceof UnsafeSourceProjectionError ? "unsafe_source" : "generate",
         path: options.root,
@@ -1220,7 +1304,7 @@ const runTerminalStageEffect = (
       row.reason_codes.includes("ABSENT_SCHEDULE") ||
       (row.mismatch.kind === "absent" && row.mismatch.disposition !== "accepted_absent"),
     )
-    const writeDenied = generated.intentAuthority === undefined || hasUnsafe || c2WriteBlocked || failures.length > 0 || !schemaValidation || !crossReferencesValid
+    const writeDenied = generated.intentAuthority === undefined || generated.evidenceAuthority === undefined || hasUnsafe || c2WriteBlocked || failures.length > 0 || !schemaValidation || !crossReferencesValid
     const forbiddenEmpty = (extraFailures: readonly ReportFailure[]): boolean => forbiddenStatesEmpty(inventories, generated.openapiReconciliation, extraFailures, crossReferencesValid)
     let report: ZeroGapReport
     if (options.mode === "write" && !writeDenied) {
@@ -1233,11 +1317,23 @@ const runTerminalStageEffect = (
         bytes: generated.intentAuthority?.bytes as Uint8Array,
         digest: generated.intentAuthority?.digest as string,
       }
+      const pinnedRuntimeEvidenceAuthority: PinnedRuntimeEvidenceRegister | undefined = generated.evidenceAuthority === undefined || generated.runtimeEvidenceRegister === undefined
+        ? undefined
+        : {
+            authorityRoot: generated.evidenceAuthority.authority_root,
+            relativePath: generated.evidenceAuthority.relative_path,
+            revisionRefId: generated.evidenceAuthority.revision_ref_id,
+            revision: generated.evidenceAuthority.revision,
+            blobOid: generated.evidenceAuthority.blob_oid,
+            bytes: generated.evidenceAuthority.bytes,
+            digest: generated.evidenceAuthority.digest,
+            register: generated.runtimeEvidenceRegister,
+          }
       if (!validateGeneratedArtifactSet(generated)) {
         failures.push(buildFailure("schema_invalid", "REPORT_SCHEMA_VALIDATION_FAILED", [], []))
         report = reportWith({ mode: options.mode, falsifierId: null, status: "schema_invalid", exitCode: 8, projectionWrite: { status: "blocked", target_ref: PROJECTION_DIRECTORY }, sourceManifestSha256: sourceDigestForManifest(generated.sourceManifest), artifactBytes: generated.bytes, inventories, failures, mismatches: reportMismatches, deterministicDiff: "not_run", schemaValidation: false, crossReferenceValidation: crossReferencesValid, forbiddenStatesEmpty: false })
       } else {
-        yield* projectionEffects.writeProjectionSet(options.root, PROJECTION_DIRECTORY, generated.bytes, COMMITTED_PROJECTIONS, pinnedAuthority, options.legacyRoot)
+        yield* projectionEffects.writeProjectionSet(options.root, PROJECTION_DIRECTORY, generated.bytes, COMMITTED_PROJECTIONS, pinnedAuthority, options.legacyRoot, pinnedRuntimeEvidenceAuthority)
         const after = yield* observeProjectionEffect(projectionEffects, options.root, true)
         const written = after.entries.length === COMMITTED_PROJECTIONS.length && COMMITTED_PROJECTIONS.every((name) => after.bytes[name] === generated.bytes[name])
         if (!written) {

@@ -3,26 +3,30 @@ import inventorySchema from "../schemas/inventory.json"
 import sourceManifestSchema from "../schemas/source-manifest.json"
 import reportSchema from "../schemas/report.json"
 import openapiReconciliationSchema from "../schemas/openapi-reconciliation.json"
+import runtimeEvidenceSchema from "../schemas/runtime-evidence.json"
 import { canonicalJson, compareByteOrder, sha256 } from "./canonical.js"
+import type { GeneratedArtifacts, InventoryEnvelope, OpenApiReconciliation, ReportFailure, RuntimeEvidenceRegister, SourceManifest, ZeroGapReport } from "./types.js"
 import { validateCrossArtifactInvariants } from "./coverage.js"
-import type { GeneratedArtifacts, InventoryEnvelope, OpenApiReconciliation, ReportFailure, SourceManifest, ZeroGapReport } from "./types.js"
 
 export const INVENTORY_SCHEMA = inventorySchema as Record<string, unknown>
 export const SOURCE_MANIFEST_SCHEMA = sourceManifestSchema as Record<string, unknown>
 export const REPORT_SCHEMA = reportSchema as Record<string, unknown>
 export const OPENAPI_RECONCILIATION_SCHEMA = openapiReconciliationSchema as Record<string, unknown>
+export const RUNTIME_EVIDENCE_SCHEMA = runtimeEvidenceSchema as Record<string, unknown>
 
 const ajv = new Ajv2020({ allErrors: true, strict: false })
 const inventoryValidator = ajv.compile<InventoryEnvelope>(INVENTORY_SCHEMA)
 const sourceManifestValidator = ajv.compile<SourceManifest>(SOURCE_MANIFEST_SCHEMA)
 const reportValidator = ajv.compile<ZeroGapReport>(REPORT_SCHEMA)
 const openapiReconciliationValidator = ajv.compile<OpenApiReconciliation>(OPENAPI_RECONCILIATION_SCHEMA)
+const runtimeEvidenceValidator = ajv.compile<RuntimeEvidenceRegister>(RUNTIME_EVIDENCE_SCHEMA)
 
 export const validateInventory = (value: unknown): value is InventoryEnvelope => inventoryValidator(value) === true
 
 export const validateSourceManifest = (value: unknown): value is SourceManifest => sourceManifestValidator(value) === true
 
 export const validateOpenApiReconciliation = (value: unknown): value is OpenApiReconciliation => openapiReconciliationValidator(value) === true
+export const validateRuntimeEvidence = (value: unknown): value is RuntimeEvidenceRegister => runtimeEvidenceValidator(value) === true
 
 const decodeReportShape = (value: unknown): value is ZeroGapReport => reportValidator(value) === true
 

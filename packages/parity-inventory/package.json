@@ -8,8 +8,8 @@
     "./api": "./src/api.ts",
     "./canonical": "./src/canonical.ts",
     "./effects": "./src/effects.ts",
-    "./routes": "./src/routes.ts",
     "./intent-author": "./src/intent-author.ts",
+    "./runtime-evidence": "./src/runtime-evidence.ts",
     "./schemas/*": "./schemas/*"
   },
   "scripts": {

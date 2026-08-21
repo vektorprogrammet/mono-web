@@ -5,8 +5,18 @@ import { spawn, spawnSync } from "node:child_process";
 import { once } from "node:events";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { emitRuntimeEvidenceReceipt } from "./runtime-evidence-receipt.mjs";
 
 const dashboardOrigin = "http://127.0.0.1:5174";
+const journeyRefId = "intent://journey:recruitment:applicant-assignment:v1";
+const journeyStepIds = [
+  "assign-interview",
+  "fresh-read-applicant-list",
+  "load-applicant-list",
+  "load-interview-schema-options",
+  "load-interviewer-options",
+  "mono-session-login",
+];
 const apiOrigin = "http://127.0.0.1:8000";
 const serverRoot = fileURLToPath(new URL("../../server/", import.meta.url));
 const dashboardRoot = fileURLToPath(new URL("../", import.meta.url));
@@ -354,6 +364,11 @@ async function main() {
       ],
       { cwd: dashboardRoot, env: dashboardEnv },
     );
+    await emitRuntimeEvidenceReceipt({
+      journeyRefId,
+      stepIds: journeyStepIds,
+      fixtureId: "recruitment-assignment-0028",
+    });
   } catch (error) {
     primaryError = error;
     throw error;

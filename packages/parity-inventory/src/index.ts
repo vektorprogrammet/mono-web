@@ -14,4 +14,5 @@ export * from "./api.js";
 export * from "./effects.js";
 export * from "./coverage.js";
 export * from "./accepted-intent-schema.js";
+export * from "./runtime-evidence.js";
 export * from "./intent-author.js";

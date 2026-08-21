@@ -1,4 +1,35 @@
 import type { AcceptedIntentRegister } from "./coverage.js";
+export interface RuntimeEvidenceReceipt {
+  readonly receipt_ref_id: string
+  readonly journey_ref_id: string
+  readonly step_ids: readonly string[]
+  readonly legacy_revision_ref_id: string
+  readonly mono_revision_ref_id: string
+  readonly runner_source_ref_ids: readonly string[]
+  readonly runner_digest: string
+  readonly fixture_digest: string
+  readonly environment_kind: "local_disposable" | "e2e" | "ci_non_production"
+  readonly exit_code: number
+  readonly result: "passed" | "failed"
+  readonly artifact_digest: string
+}
+
+export interface RuntimeEvidenceRegister {
+  readonly $schema: "https://json-schema.org/draft/2020-12/schema"
+  readonly schema_version: "functional-parity-runtime-evidence/v1"
+  readonly receipts: readonly RuntimeEvidenceReceipt[]
+}
+
+export interface EvidenceAuthorityRecord {
+  readonly repository_ref: "external_runtime_evidence_authority"
+  readonly authority_path: string
+  readonly revision_ref_id: string
+  readonly revision: string
+  readonly blob_oid: string
+  readonly digest: string
+  readonly source_ref_ids: readonly string[]
+  readonly immutable: true
+}
 
 export type AuthorityLine = "legacy" | "mono" | "cross_line";
 
@@ -406,8 +437,8 @@ export interface SourceManifest {
   readonly root_census: readonly RootCensusRecord[];
   readonly ignore_rules: readonly IgnoreRule[];
   readonly sources: readonly SourceRecord[];
-  readonly source_set_sha256: string;
   readonly intent_authority?: IntentAuthorityRecord;
+  readonly evidence_authority?: EvidenceAuthorityRecord;
 }
 
 export interface OpenApiReconciliation {
@@ -493,6 +524,12 @@ export interface IntentAuthorityEvidence extends IntentAuthorityRecord {
   readonly bytes: Uint8Array;
 }
 
+export interface EvidenceAuthorityEvidence extends EvidenceAuthorityRecord {
+  readonly authority_root: string
+  readonly relative_path: string
+  readonly bytes: Uint8Array
+}
+
 export interface RouteParseFailure {
   readonly source_ref_id: string;
   readonly reason_code: string;
@@ -516,6 +553,8 @@ export interface GeneratedArtifacts {
   readonly report: ZeroGapReport;
   readonly acceptedIntentRegister?: AcceptedIntentRegister;
   readonly intentAuthority?: IntentAuthorityEvidence;
+  readonly runtimeEvidenceRegister?: RuntimeEvidenceRegister;
+  readonly evidenceAuthority?: EvidenceAuthorityEvidence;
   readonly bytes: Readonly<Record<string, string>>;
   readonly failures: readonly ReportFailure[];
   readonly routeRows: readonly InventoryRow[];

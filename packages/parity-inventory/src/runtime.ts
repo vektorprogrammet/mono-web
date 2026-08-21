@@ -13,8 +13,8 @@ import {
 } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { Effect, Schema } from "effect";
-import { canonicalJson, compareByteOrder, sha256 } from "./canonical.js";
-import { assertSafeAcceptedIntentBytes } from "./coverage.js";
+import { canonicalJson, compareByteOrder, sha256, stableId } from "./canonical.js";
+import { assertSafeRuntimeEvidenceBytes } from "./runtime-evidence.js";
 import {
   createManifestContextFromSnapshots,
   effectiveIgnoreRule,
@@ -26,6 +26,7 @@ import {
   type RootScanSnapshot,
 } from "./source-manifest.js";
 import type { ManifestContext, ScanFile } from "./source-manifest.js";
+import type { EvidenceAuthorityRecord, RuntimeEvidenceRegister } from "./types.js";
 
 export class ParityRuntimeError extends Schema.TaggedError<ParityRuntimeError>()(
   "ParityRuntimeError",
@@ -247,6 +248,180 @@ export const recheckPinnedIntentRegister = (
   )
     throw new Error("intent authority changed before projection exchange");
 };
+
+export interface PinnedRuntimeEvidenceRegister {
+  readonly authorityRoot: string
+  readonly relativePath: string
+  readonly revisionRefId: string
+  readonly revision: string
+  readonly blobOid: string
+  readonly bytes: Uint8Array
+  readonly digest: string
+  readonly register: RuntimeEvidenceRegister
+}
+
+const readRuntimeEvidenceBlob = (
+  path: string,
+  legacyRoot: string,
+  monoRoot: string,
+  projectionDirectory: string,
+): PinnedRuntimeEvidenceRegister => {
+  const absolutePath = canonicalExistingPath(path)
+  const authorityRoot = canonicalExistingPath(
+    execFileSync("git", ["-C", dirname(absolutePath), "rev-parse", "--show-toplevel"], {
+      encoding: "utf8",
+    }).trim(),
+  )
+  assertAuthorityRootOwnership(legacyRoot, monoRoot, absolutePath, projectionDirectory)
+  const relativePath = relative(authorityRoot, absolutePath).split(sep).join("/")
+  if (
+    relativePath.length === 0 ||
+    relativePath.startsWith("../") ||
+    relativePath.includes("/../") ||
+    relativePath === ".."
+  )
+    throw new Error("runtime evidence authority path escapes its checkout")
+  const statusBefore = execFileSync(
+    "git",
+    ["-C", authorityRoot, "status", "--porcelain=v1", "--untracked-files=all"],
+    { encoding: "utf8" },
+  ).trim()
+  if (statusBefore.length > 0) throw new Error("runtime evidence authority checkout is dirty")
+  const tracked = execFileSync(
+    "git",
+    ["-C", authorityRoot, "ls-files", "--stage", "--error-unmatch", "--", relativePath],
+    { encoding: "utf8" },
+  ).trim()
+  if (!/^100644 [0-9a-f]{40} 0\t/.test(tracked))
+    throw new Error("runtime evidence authority must be a tracked regular file")
+  const revision = execFileSync("git", ["-C", authorityRoot, "rev-parse", "HEAD"], {
+    encoding: "utf8",
+  }).trim()
+  if (!/^[0-9a-f]{40}$/.test(revision)) throw new Error("runtime evidence authority revision is unavailable")
+  const blobOid = execFileSync(
+    "git",
+    ["-C", authorityRoot, "rev-parse", `${revision}:${relativePath}`],
+    { encoding: "utf8" },
+  ).trim()
+  if (!/^[0-9a-f]{40}$/.test(blobOid)) throw new Error("runtime evidence authority blob is unavailable")
+  const bytes = execFileSync("git", ["-C", authorityRoot, "show", `${revision}:${relativePath}`], {
+    maxBuffer: 16 * 1024 * 1024 + 1024,
+  })
+  const register = assertSafeRuntimeEvidenceBytes(bytes)
+  const statusAfter = execFileSync(
+    "git",
+    ["-C", authorityRoot, "status", "--porcelain=v1", "--untracked-files=all"],
+    { encoding: "utf8" },
+  ).trim()
+  const revisionAfter = execFileSync("git", ["-C", authorityRoot, "rev-parse", "HEAD"], {
+    encoding: "utf8",
+  }).trim()
+  if (statusAfter !== statusBefore || revisionAfter !== revision)
+    throw new Error("runtime evidence authority changed during pin")
+  return {
+    authorityRoot,
+    relativePath,
+    revisionRefId: `rev-runtime-evidence-authority-${revision}`,
+    revision,
+    blobOid,
+    bytes,
+    digest: sha256(bytes),
+    register,
+  }
+}
+
+export const readPinnedRuntimeEvidenceRegisterEffect = (
+  path: string,
+  legacyRoot: string,
+  monoRoot: string,
+  projectionDirectory = "evidence/functional-parity",
+): Effect.Effect<PinnedRuntimeEvidenceRegister, ParityRuntimeError> =>
+  Effect.try({
+    try: () => readRuntimeEvidenceBlob(path, legacyRoot, monoRoot, projectionDirectory),
+    catch: (cause) =>
+      new ParityRuntimeError({
+        operation: "runtime_evidence_authority",
+        path,
+        message: cause instanceof Error ? cause.message : "runtime evidence authority is unavailable",
+      }),
+  })
+
+export const recheckPinnedRuntimeEvidenceRegister = (
+  pinned: PinnedRuntimeEvidenceRegister,
+  legacyRoot: string,
+  monoRoot: string,
+  projectionDirectory = "evidence/functional-parity",
+): void => {
+  const current = readRuntimeEvidenceBlob(
+    join(pinned.authorityRoot, pinned.relativePath),
+    legacyRoot,
+    monoRoot,
+    projectionDirectory,
+  )
+  if (
+    current.revision !== pinned.revision ||
+    current.blobOid !== pinned.blobOid ||
+    current.digest !== pinned.digest ||
+    !Buffer.from(current.bytes).equals(Buffer.from(pinned.bytes))
+  )
+    throw new Error("runtime evidence authority changed before projection exchange")
+}
+
+export const registerRuntimeEvidenceAuthority = (
+  context: ManifestContext,
+  pinned: PinnedRuntimeEvidenceRegister,
+): EvidenceAuthorityRecord => {
+  const authorityPath = `authority://blob/${pinned.blobOid}`
+  const revisionRefId = pinned.revisionRefId
+  if (!context.revisions.some((revision) => revision.revision_ref_id === revisionRefId)) {
+    context.revisions.push({
+      revision_ref_id: revisionRefId,
+      repository_ref: "external_runtime_evidence_authority",
+      revision_kind: "git_commit",
+      revision: pinned.revision,
+      immutable: true,
+    })
+  }
+  const sourceIdentity = {
+    authority_line: "cross_line",
+    authority_role: "external_runtime_evidence_authority",
+    repository_ref: "external_runtime_evidence_authority",
+    revision_ref_id: revisionRefId,
+    path: authorityPath,
+    line_start: null,
+    line_end: null,
+    symbol: null,
+  }
+  const sourceId = stableId("src", sourceIdentity)
+  if (!context.sources.some((source) => source.source_id === sourceId)) {
+    context.sources.push({
+      source_id: sourceId,
+      authority_line: "cross_line",
+      capture_mode: "runtime",
+      repository_ref: "external_runtime_evidence_authority",
+      revision_ref_id: revisionRefId,
+      path: authorityPath,
+      line_start: null,
+      line_end: null,
+      symbol: null,
+      byte_length: pinned.bytes.byteLength,
+      sha256: pinned.digest,
+      availability: "available",
+      classification_status: "classified",
+    })
+    context.sourcePathById.set(sourceId, { rootRef: "mono", path: authorityPath })
+  }
+  return {
+    repository_ref: "external_runtime_evidence_authority",
+    authority_path: authorityPath,
+    revision_ref_id: revisionRefId,
+    revision: pinned.revision,
+    blob_oid: pinned.blobOid,
+    digest: pinned.digest,
+    source_ref_ids: [sourceId],
+    immutable: true,
+  }
+}
 
 const listRegularFiles = (rootPath: string, prefix = "", excludedPrefix?: string): string[] => {
   const absolute = prefix.length === 0 ? rootPath : join(rootPath, prefix);
@@ -560,6 +735,7 @@ export const writeProjectionSetEffect = (
   names: readonly string[],
   intentAuthority: PinnedIntentRegister,
   legacyRoot: string,
+  runtimeEvidenceAuthority?: PinnedRuntimeEvidenceRegister,
 ): Effect.Effect<void, ParityRuntimeError> =>
   Effect.try({
     try: () => {
@@ -570,6 +746,8 @@ export const writeProjectionSetEffect = (
       assertWithinRoot(root, parent);
       assertNoSymlinkPath(parent);
       if (isMissingPath(parent)) mkdirSync(parent, { recursive: true });
+      if (runtimeEvidenceAuthority !== undefined)
+        recheckPinnedRuntimeEvidenceRegister(runtimeEvidenceAuthority, legacyRoot, root, projectionDirectory)
       recheckPinnedIntentRegister(intentAuthority, legacyRoot, root, projectionDirectory);
       const staging = mkdtempSync(join(root, ".functional-parity-staging-"));
       assertNoSymlinkPath(staging);
@@ -589,6 +767,8 @@ export const writeProjectionSetEffect = (
           writeFileSync(target, contents, { encoding: "utf8", flag: "wx" });
         }
         recheckPinnedIntentRegister(intentAuthority, legacyRoot, root, projectionDirectory);
+        if (runtimeEvidenceAuthority !== undefined)
+          recheckPinnedRuntimeEvidenceRegister(runtimeEvidenceAuthority, legacyRoot, root, projectionDirectory)
         if (isMissingPath(directory)) {
           renameSync(staging, directory);
         } else {

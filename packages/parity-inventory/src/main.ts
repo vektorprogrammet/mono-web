@@ -5,7 +5,7 @@ import { ParityRuntimeError } from "./runtime.js"
 import type { CollectorExecutables, ZeroGapReport } from "./types.js"
 
 const USAGE = [
-  "Usage: bun run parity:verify -- --root <mono-root> --legacy-root <legacy-root> --intent-register <external-authority-checkout-file> --mode <diff|write|fixture_injection> [--php-executable <absolute-canonical-php>] [--bwrap-executable <absolute-canonical-bwrap>] [--falsifier F0..F19]",
+  "Usage: bun run parity:verify -- --root <mono-root> --legacy-root <legacy-root> --intent-register <external-intent-authority-checkout-file> --evidence-register <external-runtime-evidence-authority-checkout-file> --mode <diff|write|fixture_injection> [--php-executable <absolute-canonical-php>] [--bwrap-executable <absolute-canonical-bwrap>] [--falsifier F0..F19]",
   "",
   "Modes:",
   "  diff              regenerate C0 projections and compare committed bytes (read-only)",
@@ -19,6 +19,7 @@ interface ParsedArgs {
   readonly root: string
   readonly legacyRoot: string
   readonly intentRegisterPath?: string
+  readonly evidenceRegisterPath?: string
   readonly mode: RunMode
   readonly falsifierId?: FalsifierId
   readonly collectorExecutables?: CollectorExecutables
@@ -35,7 +36,7 @@ const parseArgs = (args: readonly string[]): ParsedArgs => {
   let root: string | undefined
   let legacyRoot: string | undefined
   let intentRegisterPath: string | undefined
-  let mode: RunMode | undefined
+  let evidenceRegisterPath: string | undefined
   let falsifierId: FalsifierId | undefined
   let phpExecutable: string | undefined
   let bwrapExecutable: string | undefined
@@ -58,6 +59,11 @@ const parseArgs = (args: readonly string[]): ParsedArgs => {
     }
     if (argument === "--intent-register") {
       intentRegisterPath = valueAfter(args, index, argument)
+      index += 1
+      continue
+    }
+    if (argument === "--evidence-register") {
+      evidenceRegisterPath = valueAfter(args, index, argument)
       index += 1
       continue
     }
@@ -89,12 +95,14 @@ const parseArgs = (args: readonly string[]): ParsedArgs => {
     throw new Error(`unknown option: ${argument}`)
   }
   const collectorExecutables: CollectorExecutables | undefined = phpExecutable === undefined && bwrapExecutable === undefined ? undefined : { phpExecutable: phpExecutable ?? "/usr/bin/php", bwrapExecutable: bwrapExecutable ?? "/usr/bin/bwrap" }
-  if (help) return { root: root ?? ".", legacyRoot: legacyRoot ?? ".", intentRegisterPath, mode: mode ?? "diff", falsifierId, collectorExecutables, help }
+  if (help) return { root: root ?? ".", legacyRoot: legacyRoot ?? ".", intentRegisterPath, evidenceRegisterPath, mode: mode ?? "diff", falsifierId, collectorExecutables, help }
   if (root === undefined || legacyRoot === undefined || mode === undefined) throw new Error("--root, --legacy-root, and --mode are required")
   if (mode !== "fixture_injection" && intentRegisterPath === undefined) throw new Error("--intent-register is required for diff and write modes")
-  if (mode === "fixture_injection" && falsifierId === undefined) throw new Error("fixture_injection requires exactly one --falsifier")
+  if (mode !== "fixture_injection" && evidenceRegisterPath === undefined) throw new Error("--evidence-register is required for diff and write modes")
+  if (mode === "fixture_injection" && (falsifierId === undefined)) throw new Error("fixture_injection requires exactly one --falsifier")
+  if (mode === "fixture_injection" && evidenceRegisterPath !== undefined) throw new Error("--evidence-register is forbidden in fixture_injection mode")
   if (mode !== "fixture_injection" && falsifierId !== undefined) throw new Error("--falsifier is only valid in fixture_injection mode")
-  return { root, legacyRoot, intentRegisterPath, mode, falsifierId, collectorExecutables, help }
+  return { root, legacyRoot, intentRegisterPath, evidenceRegisterPath, mode, falsifierId, collectorExecutables, help }
 }
 
 const commandErrorReport = (message: string): ZeroGapReport => {
@@ -133,14 +141,15 @@ const commandErrorReport = (message: string): ZeroGapReport => {
 }
 
 const runtimeErrorReport = (error: ParityRuntimeError): ZeroGapReport => {
+  const evidenceInvalid = error.operation === "runtime_evidence_authority" && /^EVIDENCE_/.test(error.message)
   const unsafe = (error.operation === "scan_root" || error.operation === "unsafe_source") && /(unsafe source metadata|sensitive paths|projection construction)/i.test(error.message)
-  const drift = !unsafe && (
+  const drift = !unsafe && !evidenceInvalid && (
     (error.operation === "scan_root" && /(dirty|changed during scan|revision)/i.test(error.message)) ||
-    ((error.operation === "intent_authority" || error.operation === "write_projection") && /(dirty|changed|drift|revision)/i.test(error.message))
+    ((error.operation === "intent_authority" || error.operation === "runtime_evidence_authority" || error.operation === "write_projection") && /(dirty|changed|drift|revision)/i.test(error.message))
   )
-  const status = drift ? "source_hash_drift" as const : "source_unavailable" as const
-  const reasonCode = unsafe ? "UNSAFE_SOURCE" : drift ? "SOURCE_HASH_DRIFT" : "SOURCE_UNAVAILABLE"
-  const exitCode = drift ? 7 : 6
+  const status = evidenceInvalid ? "accepted_intent_invalid" as const : drift ? "source_hash_drift" as const : "source_unavailable" as const
+  const reasonCode = evidenceInvalid ? error.message : unsafe ? "UNSAFE_SOURCE" : drift ? "SOURCE_HASH_DRIFT" : "SOURCE_UNAVAILABLE"
+  const exitCode = evidenceInvalid ? 11 : drift ? 7 : 6
   const failure = {
     failure_id: failureId(status, reasonCode, [], []),
     status,
@@ -186,7 +195,7 @@ export const main = (args: readonly string[] = process.argv.slice(2)): Effect.Ef
       yield* Effect.sync(() => writeStdout(`${USAGE}\n`))
       return 0
     }
-    const result = yield* run({ root: parsed.root, legacyRoot: parsed.legacyRoot, intentRegisterPath: parsed.intentRegisterPath, mode: parsed.mode, falsifierId: parsed.falsifierId, collectorExecutables: parsed.collectorExecutables })
+    const result = yield* run({ root: parsed.root, legacyRoot: parsed.legacyRoot, intentRegisterPath: parsed.intentRegisterPath, evidenceRegisterPath: parsed.evidenceRegisterPath, mode: parsed.mode, falsifierId: parsed.falsifierId, collectorExecutables: parsed.collectorExecutables })
     yield* Effect.sync(() => writeStdout(`${canonicalJson(result.report)}\n`))
     return result.exitCode
   })

@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:vektorprogrammet:functional-parity-runtime-evidence:v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["$schema", "schema_version", "receipts"],
+  "properties": {
+    "$schema": {"type": "string", "const": "https://json-schema.org/draft/2020-12/schema"},
+    "schema_version": {"type": "string", "const": "functional-parity-runtime-evidence/v1"},
+    "receipts": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/receipt"}}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "receiptRef": {"type": "string", "pattern": "^receipt-[a-f0-9]{64}$"},
+    "journeyRef": {"type": "string", "pattern": "^intent://[A-Za-z0-9][A-Za-z0-9._:/#-]{0,127}$"},
+    "stepRef": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/#-]{0,127}$"},
+    "revisionRef": {"type": "string", "pattern": "^rev-[A-Za-z0-9:_-]{1,160}$"},
+    "sourceRef": {"type": "string", "pattern": "^src-[a-f0-9]{64}$"},
+    "receipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["receipt_ref_id", "journey_ref_id", "step_ids", "legacy_revision_ref_id", "mono_revision_ref_id", "runner_source_ref_ids", "runner_digest", "fixture_digest", "environment_kind", "exit_code", "result", "artifact_digest"],
+      "properties": {
+        "receipt_ref_id": {"$ref": "#/$defs/receiptRef"},
+        "journey_ref_id": {"$ref": "#/$defs/journeyRef"},
+        "step_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/stepRef"}},
+        "legacy_revision_ref_id": {"$ref": "#/$defs/revisionRef"},
+        "mono_revision_ref_id": {"$ref": "#/$defs/revisionRef"},
+        "runner_source_ref_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/sourceRef"}},
+        "runner_digest": {"$ref": "#/$defs/sha256"},
+        "fixture_digest": {"$ref": "#/$defs/sha256"},
+        "environment_kind": {"type": "string", "enum": ["local_disposable", "e2e", "ci_non_production"]},
+        "exit_code": {"type": "integer", "minimum": 0},
+        "result": {"type": "string", "enum": ["passed", "failed"]},
+        "artifact_digest": {"$ref": "#/$defs/sha256"}
+      },
+      "allOf": [
+        {"if": {"properties": {"result": {"const": "passed"}}}, "then": {"properties": {"exit_code": {"const": 0}}}},
+        {"if": {"properties": {"result": {"const": "failed"}}}, "then": {"properties": {"exit_code": {"minimum": 1}}}}
+      ]
+    }
+  }
+}
