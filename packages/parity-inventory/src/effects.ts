@@ -510,7 +510,6 @@ const effectClassForCallable = (callable: string): EffectClass | null => {
     case "mail":
     case "smtp":
     case "slack":
-    case "sendpayload":
       return "outbound"
     case "google":
     case "twilio":
@@ -625,12 +624,12 @@ const entryKindForPath = (path: string): CommandWriteDetails["entry_kind"] => {
   return "unknown"
 }
 
-const commandNameFor = (text: string, reasons: string[]): string | null => {
+const commandNameFor = (text: string, reasons: string[], includeSymfonySetName = false): string | null => {
   const patterns = [
     /#\[\s*(?:\\?[A-Za-z_][A-Za-z0-9_\\]*\\)?AsCommand\b[^\]]*?\bname\s*[:=]\s*["']([^"']+)["']/i,
     /#\[\s*(?:\\?[A-Za-z_][A-Za-z0-9_\\]*\\)?AsCommand\s*\(\s*["']([^"']+)["']/i,
     /(?:\bdefaultName\b|\bdefault_name\b)\s*[:=]\s*["']([^"']+)["']/i,
-    /->\s*setName\s*\(\s*["']([^"']+)["']/i,
+    ...(includeSymfonySetName ? [ /->\s*setName\s*\(\s*["']([^"']+)["']/i ] : []),
     /(?:\bcommand\b\s*[:=]\s*["'])([^"']+)(?:["'])/i,
   ]
   const source = withoutComments(text)
@@ -1465,11 +1464,12 @@ const commandDetails = (unit: SourceUnit, authority: AuthorityGraph, owner: stri
   const evidence = effectEvidence(unit, authority, scope)
   const methodEffect = method === null ? null : effectClassForCallable(method)
   const effectClasses = methodEffect === null || evidence.effects.includes(methodEffect) ? evidence.effects : sortUnique([...evidence.effects, methodEffect]) as EffectClass[]
-  const commandName = commandNameFor(unit.text, reasons)
+  const entryKind = entryKindForPath(unit.path)
+  const commandName = commandNameFor(unit.text, reasons, entryKind === "custom_command")
   const symbolRaw = owner === null ? method : method === null ? owner : `${owner}::${method}`
   const symbolRef = normalizeSafe(symbolRaw, "symbol", reasons)
   return {
-    entry_kind: entryKindForPath(unit.path),
+    entry_kind: entryKind,
     owner_ref: owner,
     command_name: commandName,
     symbol_ref: symbolRef,
@@ -1707,11 +1707,9 @@ const commandCrossLineKey = (row: InventoryRow): string | null => {
     && semanticTargets.some((target) => /::(?:send|sendPayload|post|request|publish)$/i.test(target))
   const slackRenameEvidence = owner === "SlackMessenger" && exactOutboundEffects && exactOutboundAdapterTarget
   const semanticMethod = slackRenameEvidence && (method === "send" || method === "sendPayload") ? "send" : method
-  const targetRefs = sortUnique(semanticTargets.map((semantic) =>
-    slackRenameEvidence && (semantic === "SlackMessenger::send" || semantic === "SlackMessenger::sendPayload")
-      ? "SlackMessenger::send"
-      : semantic
-  ))
+  const targetRefs = slackRenameEvidence
+    ? ["SlackMessenger::send"]
+    : sortUnique(semanticTargets)
   return canonicalJson([
     "command_write_cross_line",
     owner,
