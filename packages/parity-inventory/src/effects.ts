@@ -1379,10 +1379,13 @@ const runtimeImportClauseFor = (raw: string): boolean => {
   return named === undefined || named.split(",").some((specifier) => !/^\s*type\b/.test(specifier))
 }
 
+const supplementalAuthoritySource = (authority: "legacy" | "mono", path: string): boolean =>
+  authority === "mono" && path === "apps/server/src/App/Shared/Repository/SemesterRepository.php"
+
 const availableLanguageUnitsFor = (context: ManifestContext, authority: "legacy" | "mono"): readonly { readonly path: string; readonly text: string }[] =>
   context.scans[authority].files
     .filter((file) => !file.unsafe && file.availability === "available" && effectiveIgnoreRule(authority, file.path) === null)
-    .filter((file) => context.rootCensus.some((record) => record.root_ref === authority && record.path === file.path && record.classification === "matched"))
+    .filter((file) => supplementalAuthoritySource(authority, file.path) || context.rootCensus.some((record) => record.root_ref === authority && record.path === file.path && record.classification === "matched"))
     .map((file) => ({ path: file.path, text: readSourceText(context, authority, file.path) }))
     .filter((file): file is { readonly path: string; readonly text: string } => file.text !== null)
 
@@ -1930,7 +1933,7 @@ const commandSourceUnits = (context: ManifestContext, authority: "legacy" | "mon
   const extraPaths = context.scans.mono.files
     .filter((file) => !file.unsafe && effectiveIgnoreRule("mono", file.path) === null)
     .map((file) => file.path)
-    .filter((path) => path === "apps/server/src/App/Shared/Repository/SemesterRepository.php" && !existing.has(path))
+    .filter((path) => supplementalAuthoritySource("mono", path) && !existing.has(path))
   const extraUnits: SourceUnit[] = []
   for (const path of extraPaths) {
     const text = readSourceText(context, "mono", path)
