@@ -487,8 +487,8 @@ final class User {
     public function setRoles(array $roles): void { $this->roles = $roles; }
     public function setUser($user): void { $this->user = $user; }
 }`)
-    put(monoRoot, "apps/server/src/App/Identity/Infrastructure/Entity/ExternallyPersistedUser.php", `<?php
-namespace App\\Identity\\Infrastructure\\Entity;
+    put(legacyRoot, "src/AppBundle/Entity/ExternallyPersistedUser.php", `<?php
+namespace AppBundle\\Entity;
 final class ExternallyPersistedUser {
     private $em;
     public function setUser($user): void { $this->em->persist($user); }
@@ -499,9 +499,9 @@ final class ExternallyPersistedUser {
       row.source_ref_ids.some((ref) => /(?:^|\/)Entity\//.test(context.sourcePathById.get(ref)?.path ?? "")),
     )
     const symbolRefFor = (row: InventoryRow): string | null => "symbol_ref" in row.details ? row.details.symbol_ref : null
-    expect(entityRows.some((row) => symbolRefFor(row)?.endsWith("User::setPassword") === true)).toBe(false)
-    expect(entityRows.some((row) => symbolRefFor(row)?.endsWith("User::setRoles") === true)).toBe(false)
-    expect(entityRows.some((row) => symbolRefFor(row)?.endsWith("User::setUser") === true)).toBe(false)
+    expect(entityRows.some((row) => symbolRefFor(row)?.endsWith("\\User::setPassword") === true)).toBe(false)
+    expect(entityRows.some((row) => symbolRefFor(row)?.endsWith("\\User::setRoles") === true)).toBe(false)
+    expect(entityRows.some((row) => symbolRefFor(row)?.endsWith("\\User::setUser") === true)).toBe(false)
     expect(entityRows.find((row) => symbolRefFor(row)?.endsWith("ExternallyPersistedUser::setUser") === true)).toMatchObject({
       details: { effect_classes: expect.arrayContaining(["durable_write"]) },
     })
@@ -515,20 +515,20 @@ test("command target aliases require matching bounded-context path roles", async
   const monoRoot = mkdtempSync("/tmp/parity-c2-target-role-mono-")
   try {
     put(legacyRoot, "app/config/services.yml", `services:
-  profile_writer:
-    class: AppBundle\\Service\\ProfileWriter
-  mixed_writer:
-    class: AppBundle\\Service\\MixedWriter
+  application_manager:
+    class: AppBundle\\Service\\ApplicationManager
+  interview_manager:
+    class: AppBundle\\Service\\InterviewManager
   profile:
     class: AppBundle\\Entity\\Profile
   mixed_profile:
     class: AppBundle\\Entity\\MixedProfile
 `)
     put(monoRoot, "apps/server/config/services.yaml", `services:
-  profile_writer:
-    class: App\\Identity\\Infrastructure\\ProfileWriter
-  mixed_writer:
-    class: App\\Identity\\Infrastructure\\MixedWriter
+  application_manager:
+    class: App\\Identity\\Infrastructure\\ApplicationManager
+  interview_manager:
+    class: App\\Identity\\Infrastructure\\InterviewManager
   profile:
     class: App\\Identity\\Infrastructure\\Entity\\Profile
   mixed_profile:
@@ -536,22 +536,22 @@ test("command target aliases require matching bounded-context path roles", async
 `)
     put(legacyRoot, "src/AppBundle/Entity/Profile.php", "<?php\nnamespace AppBundle\\Entity;\nfinal class Profile { public function setUser($user): void {} }\n")
     put(legacyRoot, "src/AppBundle/Entity/MixedProfile.php", "<?php\nnamespace AppBundle\\Entity;\nfinal class MixedProfile { public function setUser($user): void {} }\n")
-    put(legacyRoot, "src/AppBundle/Service/ProfileWriter.php", "<?php\nnamespace AppBundle\\Service;\nuse AppBundle\\Entity\\Profile;\nfinal class ProfileWriter { private Profile $profile; public function mutate(): void { $this->profile->setUser($this); } }\n")
-    put(legacyRoot, "src/AppBundle/Service/MixedWriter.php", "<?php\nnamespace AppBundle\\Service;\nuse AppBundle\\Entity\\MixedProfile;\nfinal class MixedWriter { private MixedProfile $profile; public function mutate(): void { $this->profile->setUser($this); } }\n")
+    put(legacyRoot, "src/AppBundle/Service/ApplicationManager.php", "<?php\nnamespace AppBundle\\Service;\nuse AppBundle\\Entity\\Profile;\nfinal class ApplicationManager { private Profile $profile; public function mutate(): void { $this->profile->setUser($this); } }\n")
+    put(legacyRoot, "src/AppBundle/Service/InterviewManager.php", "<?php\nnamespace AppBundle\\Service;\nuse AppBundle\\Entity\\MixedProfile;\nfinal class InterviewManager { private MixedProfile $profile; public function mutate(): void { $this->profile->setUser($this); } }\n")
     put(monoRoot, "apps/server/src/App/Identity/Infrastructure/Entity/Profile.php", "<?php\nnamespace App\\Identity\\Infrastructure\\Entity;\nfinal class Profile { public function setUser($user): void {} }\n")
     put(monoRoot, "apps/server/src/App/Identity/Infrastructure/Repository/MixedProfile.php", "<?php\nnamespace App\\Identity\\Infrastructure\\Repository;\nfinal class MixedProfile { public function setUser($user): void {} }\n")
-    put(monoRoot, "apps/server/src/App/Identity/Infrastructure/ProfileWriter.php", "<?php\nnamespace App\\Identity\\Infrastructure;\nuse App\\Identity\\Infrastructure\\Entity\\Profile;\nfinal class ProfileWriter { private Profile $profile; public function mutate(): void { $this->profile->setUser($this); } }\n")
-    put(monoRoot, "apps/server/src/App/Identity/Infrastructure/MixedWriter.php", "<?php\nnamespace App\\Identity\\Infrastructure;\nuse App\\Identity\\Infrastructure\\Repository\\MixedProfile;\nfinal class MixedWriter { private MixedProfile $profile; public function mutate(): void { $this->profile->setUser($this); } }\n")
+    put(monoRoot, "apps/server/src/App/Identity/Infrastructure/ApplicationManager.php", "<?php\nnamespace App\\Identity\\Infrastructure;\nuse App\\Identity\\Infrastructure\\Entity\\Profile;\nfinal class ApplicationManager { private Profile $profile; public function mutate(): void { $this->profile->setUser($this); } }\n")
+    put(monoRoot, "apps/server/src/App/Identity/Infrastructure/InterviewManager.php", "<?php\nnamespace App\\Identity\\Infrastructure;\nuse App\\Identity\\Infrastructure\\Repository\\MixedProfile;\nfinal class InterviewManager { private MixedProfile $profile; public function mutate(): void { $this->profile->setUser($this); } }\n")
     const context = await contextFor(legacyRoot, monoRoot)
     const c2 = collectC2(context, sha256("target-role-c2"))
     const rows = c2.commandWrites.rows
     const rowFor = (authority: "legacy" | "mono", owner: string) => rows.find((row) =>
       row.authority_line === authority && "owner_ref" in row.details && row.details.owner_ref === owner,
     )
-    const profileLegacy = rowFor("legacy", "AppBundle\\Service\\ProfileWriter")
-    const profileMono = rowFor("mono", "App\\Identity\\Infrastructure\\ProfileWriter")
-    const mixedLegacy = rowFor("legacy", "AppBundle\\Service\\MixedWriter")
-    const mixedMono = rowFor("mono", "App\\Identity\\Infrastructure\\MixedWriter")
+    const profileLegacy = rowFor("legacy", "AppBundle\\Service\\ApplicationManager")
+    const profileMono = rowFor("mono", "App\\Identity\\Infrastructure\\ApplicationManager")
+    const mixedLegacy = rowFor("legacy", "AppBundle\\Service\\InterviewManager")
+    const mixedMono = rowFor("mono", "App\\Identity\\Infrastructure\\InterviewManager")
     expect(profileLegacy).toMatchObject({ status: "covered", details: { target_refs: ["AppBundle\\Entity\\Profile::setUser"] } })
     expect(profileMono).toMatchObject({ status: "covered", details: { target_refs: ["App\\Identity\\Infrastructure\\Entity\\Profile::setUser"] } })
     expect(c2.commandWrites.links.some((link) =>
