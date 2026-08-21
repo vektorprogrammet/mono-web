@@ -9,9 +9,10 @@ import { canonicalJson, sha256 } from "../src/canonical.js"
 import { SOURCE_FAMILIES } from "../src/source-manifest.js"
 import { COMMITTED_PROJECTIONS, PROJECTION_DIRECTORY, run, runTrustedFixtureTerminalCycle } from "../src/runner.js"
 import { canonicalRuntimeEvidenceBytes, makeRuntimeEvidenceReceipt, makeRuntimeEvidenceRegister } from "../src/runtime-evidence.js"
+import { createManifestContextFromSnapshots } from "../src/source-manifest.js"
 import { scanRootEffect } from "../src/runtime.js"
 import { validateInventory } from "../src/schema.js"
-import { createManifestContextFromSnapshots } from "../src/source-manifest.js"
+import type { InventoryRow } from "../src/types.js"
 const REPO_ROOT = join(import.meta.dir, "../../..")
 
 
@@ -708,6 +709,195 @@ test("relocated controller and event writes reconcile without rewriting authorit
     const renamedMono = rowFor("App\\Admissions\\Controller\\RenamedController", "mono")
     expect(renamedLegacy).toMatchObject({ status: "missing", details: { symbol_ref: "AppBundle\\Controller\\RenamedController::createAction" } })
     expect(renamedMono).toMatchObject({ status: "extra", details: { symbol_ref: "App\\Admissions\\Controller\\RenamedController::deleteAction" } })
+  } finally {
+    rmSync(legacyRoot, { recursive: true, force: true })
+    rmSync(monoRoot, { recursive: true, force: true })
+  }
+})
+test("relocated services and custom commands reconcile exact effects, with Slack adapter rename evidence", async () => {
+  const legacyRoot = mkdtempSync("/tmp/parity-c2-relocated-service-legacy-")
+  const monoRoot = mkdtempSync("/tmp/parity-c2-relocated-service-mono-")
+  try {
+    put(legacyRoot, "app/config/services.yml", String.raw`services:
+  relocated_service:
+    class: AppBundle\Service\RelocatedService
+  divergent_service:
+    class: AppBundle\Service\DivergentService
+  slack_messenger:
+    class: AppBundle\Service\SlackMessenger
+  relocated_command:
+    class: AppBundle\Command\RelocatedCommand
+  divergent_command:
+    class: AppBundle\Command\DivergentCommand
+`)
+    put(monoRoot, "apps/server/config/services.yaml", String.raw`services:
+  relocated_service:
+    class: App\Fixture\Infrastructure\Service\RelocatedService
+  divergent_service:
+    class: App\Fixture\Infrastructure\Service\DivergentService
+  slack_messenger:
+    class: App\Fixture\Infrastructure\Service\SlackMessenger
+  relocated_command:
+    class: App\Fixture\Infrastructure\Command\RelocatedCommand
+  divergent_command:
+    class: App\Fixture\Infrastructure\Command\DivergentCommand
+`)
+    put(legacyRoot, "src/AppBundle/Service/RelocatedService.php", String.raw`<?php
+namespace AppBundle\Service;
+final class RelocatedService {
+    private $em;
+    public function mutate(): void { $this->em->persist($value); }
+}
+`)
+    put(monoRoot, "apps/server/src/App/Fixture/Infrastructure/Service/RelocatedService.php", String.raw`<?php
+namespace App\Fixture\Infrastructure\Service;
+final class RelocatedService {
+    private $em;
+    public function mutate(): void { $this->em->persist($value); }
+}
+`)
+    put(legacyRoot, "src/AppBundle/Service/DivergentService.php", String.raw`<?php
+namespace AppBundle\Service;
+final class DivergentService {
+    private $em;
+    public function mutate(): void { $this->em->persist($value); }
+}
+`)
+    put(monoRoot, "apps/server/src/App/Fixture/Infrastructure/Service/DivergentService.php", String.raw`<?php
+namespace App\Fixture\Infrastructure\Service;
+final class DivergentService {
+    private $em;
+    public function mutate(): void { $this->em->persist($value); $this->em->setUser($value); }
+}
+`)
+    put(legacyRoot, "src/AppBundle/Service/SlackMessenger.php", String.raw`<?php
+namespace AppBundle\Service;
+final class SlackClient { public function send(): void {} }
+final class SlackMessenger {
+    private SlackClient $client;
+    public function log(): void { $this->send(); }
+    public function send(): void { $this->client->send(); }
+}
+`)
+    put(monoRoot, "apps/server/src/App/Fixture/Infrastructure/Service/SlackMessenger.php", String.raw`<?php
+namespace App\Fixture\Infrastructure\Service;
+final class SlackClient { public function send(): void {} }
+final class SlackMessenger {
+    private SlackClient $client;
+    public function log(): void { $this->sendPayload(); }
+    public function sendPayload(): void { $this->client->send(); }
+}
+`)
+    put(legacyRoot, "src/AppBundle/Command/RelocatedCommand.php", String.raw`<?php
+namespace AppBundle\Command;
+use AppBundle\Service\RelocatedService;
+final class RelocatedCommand extends \Symfony\Bundle\FrameworkBundle\Command\ContainerAwareCommand {
+    /** @var RelocatedService */
+    private $service;
+    protected function configure(): void { $this->setName('fixture:relocated'); }
+    protected function execute(): void { $this->service->mutate(); }
+}
+`)
+    put(monoRoot, "apps/server/src/App/Fixture/Infrastructure/Command/RelocatedCommand.php", String.raw`<?php
+namespace App\Fixture\Infrastructure\Command;
+use App\Fixture\Infrastructure\Service\RelocatedService;
+final class RelocatedCommand extends \Symfony\Component\Console\Command\Command {
+    public function __construct(private readonly RelocatedService $service) { parent::__construct(); }
+    protected function configure(): void { $this->setName('fixture:relocated'); }
+    protected function execute(): int { $this->service->mutate(); return Command::SUCCESS; }
+}
+`)
+    put(legacyRoot, "src/AppBundle/Command/DivergentCommand.php", String.raw`<?php
+namespace AppBundle\Command;
+use AppBundle\Service\DivergentService;
+final class DivergentCommand extends \Symfony\Bundle\FrameworkBundle\Command\ContainerAwareCommand {
+    /** @var DivergentService */
+    private $service;
+    protected function configure(): void { $this->setName('fixture:divergent'); }
+    protected function execute(): void { $this->service->mutate(); }
+}
+`)
+    put(monoRoot, "apps/server/src/App/Fixture/Infrastructure/Command/DivergentCommand.php", String.raw`<?php
+namespace App\Fixture\Infrastructure\Command;
+use App\Fixture\Infrastructure\Service\DivergentService;
+final class DivergentCommand extends \Symfony\Component\Console\Command\Command {
+    public function __construct(private readonly DivergentService $service) { parent::__construct(); }
+    protected function configure(): void { $this->setName('fixture:divergent'); }
+    protected function execute(): int { $this->service->mutate(); return Command::SUCCESS; }
+}
+`)
+    const context = await contextFor(legacyRoot, monoRoot)
+    const c2 = collectC2(context, sha256("relocated-service-c2"))
+    const rows = c2.commandWrites.rows
+    const rowFor = (authority: "legacy" | "mono", ownerSuffix: string, method: string) => rows.find((row) =>
+      row.authority_line === authority
+      && "owner_ref" in row.details
+      && row.details.owner_ref?.endsWith(ownerSuffix)
+      && row.details.symbol_ref?.endsWith(`::${method}`),
+    )
+    const linkFor = (left: InventoryRow | undefined, right: InventoryRow | undefined): boolean =>
+      left !== undefined && right !== undefined && c2.commandWrites.links.some((link) =>
+        link.relation_kind === "matches" && link.from_row_id === left.row_id && link.to_row_id === right.row_id,
+      )
+    const relocatedServiceLegacy = rowFor("legacy", "\\RelocatedService", "mutate")
+    const relocatedServiceMono = rowFor("mono", "\\RelocatedService", "mutate")
+    expect(relocatedServiceLegacy).toMatchObject({ status: "covered", details: { entry_kind: "integration_write", effect_classes: ["durable_write"], target_refs: [] } })
+    expect(relocatedServiceMono).toMatchObject({ status: "covered", details: { entry_kind: "integration_write", effect_classes: ["durable_write"], target_refs: [] } })
+    expect(linkFor(relocatedServiceLegacy, relocatedServiceMono)).toBe(true)
+    const relocatedCommandLegacy = rowFor("legacy", "\\RelocatedCommand", "execute")
+    const relocatedCommandMono = rowFor("mono", "\\RelocatedCommand", "execute")
+    expect(relocatedCommandLegacy).toMatchObject({ status: "covered", details: { command_name: "fixture:relocated", effect_classes: ["durable_write"] } })
+    expect(relocatedCommandMono).toMatchObject({ status: "covered", details: { command_name: "fixture:relocated", effect_classes: ["durable_write"] } })
+    expect(linkFor(relocatedCommandLegacy, relocatedCommandMono)).toBe(true)
+    for (const method of ["log", "send"] as const) {
+      const legacy = rowFor("legacy", "\\SlackMessenger", method)
+      const mono = rowFor("mono", "\\SlackMessenger", method === "send" ? "sendPayload" : method)
+      expect(legacy).toMatchObject({ status: "covered", details: { effect_classes: ["outbound"] } })
+      expect(mono).toMatchObject({ status: "covered", details: { effect_classes: ["outbound"] } })
+      expect(linkFor(legacy, mono)).toBe(true)
+    }
+    const divergentServiceLegacy = rowFor("legacy", "\\DivergentService", "mutate")
+    const divergentServiceMono = rowFor("mono", "\\DivergentService", "mutate")
+    expect(divergentServiceLegacy).toMatchObject({ status: "missing", details: { effect_classes: ["durable_write"] } })
+    expect(divergentServiceMono).toMatchObject({ status: "extra", details: { effect_classes: ["durable_write", "identity_or_authority"] } })
+    expect(linkFor(divergentServiceLegacy, divergentServiceMono)).toBe(false)
+    const divergentCommandLegacy = rowFor("legacy", "\\DivergentCommand", "execute")
+    const divergentCommandMono = rowFor("mono", "\\DivergentCommand", "execute")
+    expect(divergentCommandLegacy).toMatchObject({ status: "missing", details: { effect_classes: ["durable_write"] } })
+    expect(divergentCommandMono).toMatchObject({ status: "extra", details: { effect_classes: ["durable_write", "identity_or_authority"] } })
+    expect(linkFor(divergentCommandLegacy, divergentCommandMono)).toBe(false)
+  } finally {
+    rmSync(legacyRoot, { recursive: true, force: true })
+    rmSync(monoRoot, { recursive: true, force: true })
+  }
+})
+
+test("dead relocated command rows link without losing dead status", async () => {
+  const legacyRoot = mkdtempSync("/tmp/parity-c2-dead-relocated-legacy-")
+  const monoRoot = mkdtempSync("/tmp/parity-c2-dead-relocated-mono-")
+  try {
+    put(legacyRoot, "src/AppBundle/Command/DeadRelocatedCommand.php", String.raw`<?php
+namespace AppBundle\Command;
+final class DeadRelocatedCommand extends \Symfony\Bundle\FrameworkBundle\Command\ContainerAwareCommand {
+    protected function configure(): void { $this->setName('fixture:dead-relocated'); }
+    protected function execute(): void { $this->em->persist($value); }
+}
+`)
+    put(monoRoot, "apps/server/src/App/Fixture/Infrastructure/Command/DeadRelocatedCommand.php", String.raw`<?php
+namespace App\Fixture\Infrastructure\Command;
+final class DeadRelocatedCommand extends \Symfony\Component\Console\Command\Command {
+    protected function configure(): void { $this->setName('fixture:dead-relocated'); }
+    protected function execute(): int { $this->em->persist($value); return Command::SUCCESS; }
+}
+`)
+    const context = await contextFor(legacyRoot, monoRoot)
+    const c2 = collectC2(context, sha256("dead-relocated-c2"))
+    const rows = c2.commandWrites.rows.filter((row) => "owner_ref" in row.details && row.details.owner_ref?.endsWith("\\DeadRelocatedCommand"))
+    expect(rows).toHaveLength(2)
+    expect(rows.every((row) => row.status === "dead_unimported")).toBe(true)
+    expect(rows.every((row) => row.mismatch.kind === "dead_unimported")).toBe(true)
+    expect(c2.commandWrites.links.filter((link) => link.relation_kind === "matches" && rows.some((row) => row.row_id === link.from_row_id || row.row_id === link.to_row_id))).toHaveLength(1)
+    expect(rows.some((row) => row.status === "missing" || row.status === "extra")).toBe(false)
   } finally {
     rmSync(legacyRoot, { recursive: true, force: true })
     rmSync(monoRoot, { recursive: true, force: true })

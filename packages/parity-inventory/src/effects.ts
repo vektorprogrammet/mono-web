@@ -510,6 +510,8 @@ const effectClassForCallable = (callable: string): EffectClass | null => {
     case "mail":
     case "smtp":
     case "slack":
+    case "sendpayload":
+      return "outbound"
     case "google":
     case "twilio":
     case "sms":
@@ -628,6 +630,7 @@ const commandNameFor = (text: string, reasons: string[]): string | null => {
     /#\[\s*(?:\\?[A-Za-z_][A-Za-z0-9_\\]*\\)?AsCommand\b[^\]]*?\bname\s*[:=]\s*["']([^"']+)["']/i,
     /#\[\s*(?:\\?[A-Za-z_][A-Za-z0-9_\\]*\\)?AsCommand\s*\(\s*["']([^"']+)["']/i,
     /(?:\bdefaultName\b|\bdefault_name\b)\s*[:=]\s*["']([^"']+)["']/i,
+    /->\s*setName\s*\(\s*["']([^"']+)["']/i,
     /(?:\bcommand\b\s*[:=]\s*["'])([^"']+)(?:["'])/i,
   ]
   const source = withoutComments(text)
@@ -1053,6 +1056,14 @@ const languageClassesFor = (unit: { readonly path: string; readonly text: string
       const type = match[2]
       if (name !== undefined && type !== undefined) properties.set(name, type)
     }
+    const docblockPropertyPattern = /\/\*\*([\s\S]*?)\*\/\s*(?:(?:public|private|protected|var|readonly|static|final)\s+)*\$([A-Za-z_][A-Za-z0-9_]*)\b/g
+    const classSource = unit.text.slice(entry.offset, end)
+    for (const match of classSource.matchAll(docblockPropertyPattern)) {
+      const docblock = match[1] ?? ""
+      const name = match[2]
+      const type = normalizeLocalType(/@var\s+([\\A-Za-z_][A-Za-z0-9_\\]*(?:\s*\|\s*[\\A-Za-z_][A-Za-z0-9_\\]*)*)/i.exec(docblock)?.[1])
+      if (name !== undefined && type !== null && (!properties.has(name) || /^(?:public|private|protected|readonly|static|final|var)$/i.test(properties.get(name) ?? ""))) properties.set(name, type)
+    }
     const name = entry.name
     result.push({ path: unit.path, name, fqn: sourceClassName(namespace, name), methods, properties })
   }
@@ -1081,6 +1092,10 @@ const phpAliasReferenceFor = (source: string, alias: string): boolean => {
     `\\)\\s*:\\s*\\\\?${escaped}\\b`,
   ].join("|"))
   return reference.test(source)
+}
+const phpDocblockAliasReferenceFor = (source: string, alias: string): boolean => {
+  const escaped = alias.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+  return new RegExp(`@var\\s+\\\\?${escaped}\\b`).test(source)
 }
 
 const authorityGraphFor = (context: ManifestContext, authority: "legacy" | "mono"): AuthorityGraph => {
@@ -1135,7 +1150,7 @@ const authorityGraphFor = (context: ManifestContext, authority: "legacy" | "mono
     const executableSource = withoutLiterals(source.replace(/^\s*use\s+(?!function\b|const\b)[^;]+;\s*$/gm, ""))
     const tsImports = source.matchAll(/\b(?:import|export)\s+(?!type\b)[^;\n]*?\sfrom\s*["']([^"']+)["']/g)
     for (const [alias, target] of aliases) {
-      if (!phpAliases.has(alias) || !phpAliasReferenceFor(executableSource, alias)) continue
+      if (!phpAliases.has(alias) || (!phpAliasReferenceFor(executableSource, alias) && !phpDocblockAliasReferenceFor(unit.text, alias))) continue
       const imported = classByName.get(target)
       if (imported !== undefined && imported.path !== unit.path) imports.add(imported.path)
     }
@@ -1646,20 +1661,44 @@ const commandLinks = (parsed: readonly ParsedRow[]): readonly InventoryLink[] =>
   return [...new Map(links.map((link) => [link.relation_id, link])).values()]
 }
 
+const semanticTargetRef = (target: string): string => {
+  const separator = target.lastIndexOf("::")
+  if (separator < 0) return target
+  const receiver = target.slice(0, separator)
+  const callable = target.slice(separator + 2)
+  if (!/^\\?[A-Za-z_][A-Za-z0-9_]*(?:\\[A-Za-z_][A-Za-z0-9_]*)*$/.test(receiver)) return target
+  const shortReceiver = receiver.split("\\").at(-1)
+  return shortReceiver === undefined ? target : `${shortReceiver}::${callable}`
+}
+
 const commandCrossLineKey = (row: InventoryRow): string | null => {
   if (row.inventory_kind !== "command_write") return null
   const details = row.details as CommandWriteDetails
-  if (details.entry_kind !== "controller_write" && details.entry_kind !== "event_handler") return null
   const owner = ownerShortName(details.owner_ref)
   const method = details.symbol_ref?.split("::").at(-1) ?? null
   if (owner === null || method === null) return null
+  const exactOutboundEffects = details.effect_classes.length === 1 && details.effect_classes[0] === "outbound"
+  const semanticTargets = details.target_refs.map(semanticTargetRef)
+  const exactOutboundAdapterTarget =
+    semanticTargets.length > 0
+    && semanticTargets.every((target) => !target.startsWith("unresolved:"))
+    && semanticTargets.some((target) => /::(?:send|sendPayload|post|request|publish)$/i.test(target))
+  const slackRenameEvidence = owner === "SlackMessenger" && exactOutboundEffects && exactOutboundAdapterTarget
+  const semanticMethod = slackRenameEvidence && (method === "send" || method === "sendPayload") ? "send" : method
+  const targetRefs = sortUnique(semanticTargets.map((semantic) =>
+    slackRenameEvidence && (semantic === "SlackMessenger::send" || semantic === "SlackMessenger::sendPayload")
+      ? "SlackMessenger::send"
+      : semantic
+  ))
   return canonicalJson([
     "command_write_cross_line",
     owner,
     details.entry_kind,
     details.command_name,
-    method,
+    semanticMethod,
     details.effect_classes,
+    targetRefs,
+    details.write_contract_ref,
   ])
 }
 
@@ -1675,19 +1714,22 @@ const crossLineCandidates = (rows: readonly InventoryRow[]): ReadonlyMap<string,
   return grouped
 }
 
-const isUnmatchable = (row: InventoryRow): boolean => ["unresolved", "duplicate", "dead_unimported", "absent"].includes(row.status)
+const isReconciliationBlocked = (row: InventoryRow): boolean => ["unresolved", "duplicate", "absent"].includes(row.status)
 
 const reconcileCommandCounterpart = (
   row: InventoryRow,
   rightBySignature: ReadonlyMap<string, InventoryRow>,
   rightByCrossLineKey: ReadonlyMap<string, readonly InventoryRow[]>,
+  leftByCrossLineKey: ReadonlyMap<string, readonly InventoryRow[]>,
   matchedRightIds: ReadonlySet<string>,
 ): InventoryRow | undefined => {
   const exact = rightBySignature.get(row.signature)
-  if (exact !== undefined && !matchedRightIds.has(exact.row_id)) return exact
+  if (exact !== undefined && !isReconciliationBlocked(exact) && !matchedRightIds.has(exact.row_id)) return exact
   const key = commandCrossLineKey(row)
   if (key === null) return undefined
-  const candidates = (rightByCrossLineKey.get(key) ?? []).filter((candidate) => !isUnmatchable(candidate) && !matchedRightIds.has(candidate.row_id))
+  const leftCandidates = (leftByCrossLineKey.get(key) ?? []).filter((candidate) => !isReconciliationBlocked(candidate))
+  if (leftCandidates.length !== 1) return undefined
+  const candidates = (rightByCrossLineKey.get(key) ?? []).filter((candidate) => !isReconciliationBlocked(candidate) && !matchedRightIds.has(candidate.row_id))
   return candidates.length === 1 ? candidates[0] : undefined
 }
 
@@ -1697,13 +1739,15 @@ const reconcilePair = (left: InventoryEnvelope, right: InventoryEnvelope): { rea
   const rightBySignature = new Map(rightRows.map((row) => [row.signature, row]))
   const leftBySignature = new Map(leftRows.map((row) => [row.signature, row]))
   const rightByCrossLineKey = crossLineCandidates(rightRows)
+  const leftByCrossLineKey = crossLineCandidates(leftRows)
   const matchedRightIds = new Set<string>()
   const mismatches: Array<{ readonly kind: Exclude<Mismatch["kind"], "none">; readonly row_ids: readonly string[]; readonly disposition: "none"; readonly accepted_intent_ref_ids: readonly string[] }> = []
   const links: InventoryLink[] = []
   for (const row of leftRows) {
-    if (isUnmatchable(row)) continue
-    const counterpart = reconcileCommandCounterpart(row, rightBySignature, rightByCrossLineKey, matchedRightIds)
+    if (isReconciliationBlocked(row)) continue
+    const counterpart = reconcileCommandCounterpart(row, rightBySignature, rightByCrossLineKey, leftByCrossLineKey, matchedRightIds)
     if (counterpart === undefined) {
+      if (row.status === "dead_unimported") continue
       const index = leftRows.findIndex((candidate) => candidate.row_id === row.row_id)
       leftRows[index] = { ...row, status: "missing", mismatch: mismatch("missing", [], "MISSING_COUNTERPART"), reason_codes: sortUnique([...row.reason_codes, "MISSING_COUNTERPART"]) }
       mismatches.push({ kind: "missing", row_ids: [row.row_id], disposition: "none", accepted_intent_ref_ids: [] })
@@ -1711,13 +1755,22 @@ const reconcilePair = (left: InventoryEnvelope, right: InventoryEnvelope): { rea
     }
     matchedRightIds.add(counterpart.row_id)
     const index = leftRows.findIndex((candidate) => candidate.row_id === row.row_id)
-    leftRows[index] = { ...row, mismatch: mismatch("none", [counterpart.row_id], null) }
+    const leftMismatch = row.status === "dead_unimported"
+      ? { ...row.mismatch, counterpart_row_ids: sortUnique([...row.mismatch.counterpart_row_ids, counterpart.row_id]) }
+      : mismatch("none", [counterpart.row_id], null)
+    leftRows[index] = { ...row, mismatch: leftMismatch }
     const rightIndex = rightRows.findIndex((candidate) => candidate.row_id === counterpart.row_id)
-    if (rightIndex >= 0 && rightRows[rightIndex] !== undefined && !isUnmatchable(rightRows[rightIndex] as InventoryRow)) rightRows[rightIndex] = { ...rightRows[rightIndex] as InventoryRow, mismatch: mismatch("none", [row.row_id], null) }
+    if (rightIndex >= 0 && rightRows[rightIndex] !== undefined && !isReconciliationBlocked(rightRows[rightIndex] as InventoryRow)) {
+      const rightRow = rightRows[rightIndex] as InventoryRow
+      const rightMismatch = rightRow.status === "dead_unimported"
+        ? { ...rightRow.mismatch, counterpart_row_ids: sortUnique([...rightRow.mismatch.counterpart_row_ids, row.row_id]) }
+        : mismatch("none", [row.row_id], null)
+      rightRows[rightIndex] = { ...rightRow, mismatch: rightMismatch }
+    }
     links.push({ relation_id: relationId("matches", row.row_id, counterpart.row_id, [...row.source_ref_ids, ...counterpart.source_ref_ids]), relation_kind: "matches", from_row_id: row.row_id, to_row_id: counterpart.row_id, source_ref_ids: sortUnique([...row.source_ref_ids, ...counterpart.source_ref_ids]) })
   }
   for (const row of rightRows) {
-    if (isUnmatchable(row) || matchedRightIds.has(row.row_id) || leftBySignature.has(row.signature)) continue
+    if (isReconciliationBlocked(row) || row.status === "dead_unimported" || matchedRightIds.has(row.row_id) || leftBySignature.has(row.signature)) continue
     const index = rightRows.findIndex((candidate) => candidate.row_id === row.row_id)
     rightRows[index] = { ...row, status: "extra", mismatch: mismatch("extra", [], "EXTRA_COUNTERPART"), reason_codes: sortUnique([...row.reason_codes, "EXTRA_COUNTERPART"]) }
     mismatches.push({ kind: "extra", row_ids: [row.row_id], disposition: "none", accepted_intent_ref_ids: [] })
