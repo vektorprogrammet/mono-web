@@ -1964,6 +1964,7 @@ export const collectApiOperations = (context: ManifestContext, sourceManifestSha
   const routeReconciliation = reconcileApiPlatformRouteRows(routeRows, runtime.operations, matchedStaticOperations, apiPrefix)
   addRouteEvidenceToApiRows(rows, runtimeRows, matchedStaticOperations, routeReconciliation.routeEvidenceByRuntimeIndex, links)
   const h3 = addH3Edges(context, rows, routeReconciliation.rows)
+  rows = [...h3.apiRows]
   const h3RouteRows = h3.routeRows.filter((row) => !routeReconciliation.matchedRouteRowIds.has(row.row_id))
   const h3RouteEdges = removeRouteRowsFromEdges(h3.routeEdges, routeReconciliation.matchedRouteRowIds)
   const mutableRouteRows = routeRows as unknown as InventoryRow[]
