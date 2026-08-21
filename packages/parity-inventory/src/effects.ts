@@ -1163,7 +1163,6 @@ const authorityGraphFor = (context: ManifestContext, authority: "legacy" | "mono
     classesByPath.set(unit.path, classes)
     for (const item of classes) {
       if (!classByName.has(item.fqn)) classByName.set(item.fqn, item)
-      if (!classByName.has(item.name)) classByName.set(item.name, item)
     }
     functionsByPath.set(unit.path, new Set(functionMatches(unit.text, 0, unit.text.length).map((entry) => entry.name)))
     const phpAliasNames = new Set<string>()
@@ -1432,13 +1431,16 @@ const namespaceForClassFqn = (fqn: string | undefined): string | undefined => {
   const separator = fqn.lastIndexOf("\\")
   return separator < 0 ? undefined : fqn.slice(0, separator)
 }
-const resolveClassForPath = (authority: AuthorityGraph, path: string, name: string): LanguageClass | undefined => {
+const resolveClassForPath = (authority: AuthorityGraph, path: string, name: string, namespace?: string): LanguageClass | undefined => {
   const aliases = authority.aliasesByPath.get(path)
   const local = authority.classesByPath.get(path)?.find((item) => item.name === name || item.fqn === name)
   if (local !== undefined) return local
+  if (name.startsWith("\\") || name.includes("\\")) {
+    return authority.classByName.get(name) ?? authority.classByName.get(name.replace(/^\\/, ""))
+  }
   const alias = aliases?.get(name)
   if (alias !== undefined) return authority.classByName.get(alias)
-  if (name.startsWith("\\") || name.includes("\\")) return authority.classByName.get(name) ?? authority.classByName.get(name.replace(/^\\/, ""))
+  if (namespace !== undefined) return authority.classByName.get(`${namespace}\\${name}`)
   return undefined
 }
 const reachableClassFor = (authority: AuthorityGraph, item: LanguageClass | undefined): LanguageClass | undefined =>
@@ -1459,8 +1461,9 @@ const importedBySources = (authority: AuthorityGraph, unit: SourceUnit, owner: s
 }
 
 const resolveEffectCall = (authority: AuthorityGraph, unit: SourceUnit, call: EffectCall, ownerClass?: LanguageClass, offsetBase = 0): { readonly symbol: string; readonly targetClass: LanguageClass } | null => {
+  const ownerNamespace = namespaceForClassFqn(ownerClass?.fqn)
   if (call.constructorCall) {
-    const item = reachableClassFor(authority, resolveClassForPath(authority, unit.path, call.chain))
+    const item = reachableClassFor(authority, resolveClassForPath(authority, unit.path, call.chain, ownerNamespace))
     return item === undefined ? null : { symbol: `${item.fqn}::__construct`, targetClass: item }
   }
   const receiver = call.receiver
@@ -1473,9 +1476,9 @@ const resolveEffectCall = (authority: AuthorityGraph, unit: SourceUnit, call: Ef
       const localType = localTypes.get(name)
       return localType === null || localType === undefined
         ? undefined
-        : reachableClassFor(authority, resolveClassForPath(authority, unit.path, localType))
+        : reachableClassFor(authority, resolveClassForPath(authority, unit.path, localType, ownerNamespace))
     }
-    return reachableClassFor(authority, resolveClassForPath(authority, unit.path, name))
+    return reachableClassFor(authority, resolveClassForPath(authority, unit.path, name, ownerNamespace))
   }
   let item: LanguageClass | undefined
   let propertyIndex = 1
@@ -1491,16 +1494,7 @@ const resolveEffectCall = (authority: AuthorityGraph, unit: SourceUnit, call: Ef
     const propertySource = item.path === unit.path ? unit.text : authority.sourceTextByPath.get(item.path) ?? ""
     const propertyType = constructorPropertyTypeFor(propertySource, property) ?? item.properties.get(property)
     if (!validClassIdentity(propertyType)) return null
-    const ownerNamespace = namespaceForClassFqn(item.fqn)
-    const slackMessengerName =
-      item.name === "SlackMailer" && propertyType === "SlackMessenger" && ownerNamespace !== undefined
-        ? `${ownerNamespace}\\SlackMessenger`
-        : null
-    const propertyClass =
-      resolveClassForPath(authority, item.path, propertyType)
-      ?? (slackMessengerName === null ? undefined : resolveClassForPath(authority, item.path, slackMessengerName))
-    if (propertyClass === undefined) return null
-    item = reachableClassFor(authority, propertyClass)
+    item = reachableClassFor(authority, resolveClassForPath(authority, item.path, propertyType, namespaceForClassFqn(item.fqn)))
     propertyIndex += 1
   }
   if (item === undefined || !item.methods.has(call.callable)) return null

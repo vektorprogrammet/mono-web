@@ -427,6 +427,42 @@ test("effect resolution rejects local receiver shadowing and resolves aliased mu
     rmSync(monoRoot, { recursive: true, force: true })
   }
 })
+test("unqualified property types use the declaring namespace and never global short names", async () => {
+  const legacyRoot = mkdtempSync("/tmp/parity-c2-namespace-legacy-")
+  const monoRoot = mkdtempSync("/tmp/parity-c2-namespace-mono-")
+  try {
+    put(monoRoot, "apps/server/src/App/Infrastructure/Command/SharedRepo.php", "<?php\nnamespace App\\Fixture\\Infrastructure\\Command;\nfinal class SharedRepo { public function save(): void {} }\n")
+    put(monoRoot, "apps/server/src/App/Infrastructure/Command/OtherSharedRepo.php", "<?php\nnamespace App\\Fixture\\Infrastructure\\Other;\nfinal class SharedRepo { public function save(): void {} }\n")
+    put(monoRoot, "apps/server/src/App/Infrastructure/Command/NamespaceCommand.php", "<?php\nnamespace App\\Fixture\\Infrastructure\\Command;\nfinal class NamespaceCommand { private SharedRepo $repo; public function __invoke(): void { $this->repo->save(); } }\n")
+    put(monoRoot, "apps/server/src/App/Infrastructure/Command/AmbiguousCommand.php", "<?php\nnamespace App\\Fixture\\Infrastructure\\Ambiguous;\nfinal class AmbiguousCommand { private SharedRepo $repo; public function __invoke(): void { $this->repo->save(); } }\n")
+    put(
+      monoRoot,
+      "apps/server/config/services.yaml",
+      "services:\n  App\\Fixture\\Infrastructure\\Command\\SharedRepo: ~\n  App\\Fixture\\Infrastructure\\Other\\SharedRepo: ~\n  App\\Fixture\\Infrastructure\\Command\\NamespaceCommand: ~\n  App\\Fixture\\Infrastructure\\Ambiguous\\AmbiguousCommand: ~\n",
+    )
+    const context = await contextFor(legacyRoot, monoRoot)
+    const c2 = collectC2(context, sha256("namespace-resolution-c2"))
+    const commandRows = c2.commandWrites.rows.filter((row) => row.authority_line === "mono")
+    const namespaceRow = commandRows.find(
+      (row) => "owner_ref" in row.details && row.details.owner_ref === "App\\Fixture\\Infrastructure\\Command\\NamespaceCommand",
+    )
+    const ambiguousRow = commandRows.find(
+      (row) => "owner_ref" in row.details && row.details.owner_ref === "App\\Fixture\\Infrastructure\\Ambiguous\\AmbiguousCommand",
+    )
+    expect(namespaceRow).toBeDefined()
+    expect(namespaceRow?.status).not.toBe("unresolved")
+    expect(namespaceRow?.reason_codes).not.toContain("UNKNOWN_EFFECT")
+    expect(namespaceRow?.details).toMatchObject({
+      target_refs: ["App\\Fixture\\Infrastructure\\Command\\SharedRepo::save"],
+    })
+    expect(ambiguousRow).toBeDefined()
+    expect(ambiguousRow?.details).toMatchObject({ target_refs: [] })
+    expect(ambiguousRow?.reason_codes).not.toContain("UNKNOWN_EFFECT")
+  } finally {
+    rmSync(legacyRoot, { recursive: true, force: true })
+    rmSync(monoRoot, { recursive: true, force: true })
+  }
+})
 test("resolved outbound adapters need no inline URL and Sms setters are not integration calls", async () => {
   const legacyRoot = mkdtempSync("/tmp/parity-c2-outbound-legacy-")
   const monoRoot = mkdtempSync("/tmp/parity-c2-outbound-mono-")
@@ -746,7 +782,7 @@ test("relocated services and custom commands reconcile exact effects, with Slack
   slack_mailer:
     class: App\Fixture\Infrastructure\Slack\SlackMailer
   interview_notification_manager:
-    class: App\Fixture\Infrastructure\InterviewNotificationManager
+    class: App\Fixture\Infrastructure\Slack\InterviewNotificationManager
   relocated_command:
     class: App\Fixture\Infrastructure\Command\RelocatedCommand
   divergent_command:
@@ -821,7 +857,6 @@ final class SlackMailer {
 `)
     put(legacyRoot, "src/AppBundle/Service/InterviewNotificationManager.php", String.raw`<?php
 namespace AppBundle\Service;
-use AppBundle\Service\SlackMessenger;
 final class InterviewNotificationManager {
     private $slackMessenger;
     public function __construct(SlackMessenger $slackMessenger) { $this->slackMessenger = $slackMessenger; }
@@ -830,8 +865,7 @@ final class InterviewNotificationManager {
 }
 `)
     put(monoRoot, "apps/server/src/App/Fixture/Infrastructure/TeamMembershipService.php", String.raw`<?php
-namespace App\Fixture\Infrastructure;
-use App\Fixture\Infrastructure\Slack\SlackMessenger;
+namespace App\Fixture\Infrastructure\Slack;
 final class InterviewNotificationManager {
     private $slackMessenger;
     public function __construct(SlackMessenger $slackMessenger) { $this->slackMessenger = $slackMessenger; }
