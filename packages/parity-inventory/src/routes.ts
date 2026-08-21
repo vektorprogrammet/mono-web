@@ -1207,8 +1207,9 @@ const reconcileRuntimeRoutes = (
     runtimeUsed.add(runtimeIndex)
     const runtimeRow = runtimeRows[runtimeIndex]
     if (runtimeRow === undefined) continue
-    const changed = !sameRouteObservation(staticRow, runtimeRow)
-    const staticDetails = staticRow.details as MonoRouteDetails
+    const changed = staticDetails.route_name === null
+      ? !sameRoutePathAndMethod(staticRow, runtimeRow)
+      : !sameRouteObservation(staticRow, runtimeRow)
     if (!changed) {
       const status: InventoryRow["status"] = staticRow.status === "unresolved" ? "unresolved" : "covered"
       const reasonCodes = status === "covered"

@@ -888,13 +888,13 @@ final class RecordRepository {
       details: { effect_classes: ["durable_write", "outbound"] },
     })
     expect(legacy?.details).toMatchObject({
-      targets: expect.arrayContaining([
+      target_refs: expect.arrayContaining([
         "AppBundle\\Repository\\RecordRepository::find",
         "AppBundle\\Service\\Writer::write",
       ]),
     })
     expect(mono?.details).toMatchObject({
-      targets: expect.arrayContaining([
+      target_refs: expect.arrayContaining([
         "App\\Fixture\\Infrastructure\\RecordRepository::find",
         "App\\Fixture\\Infrastructure\\Writer::write",
       ]),

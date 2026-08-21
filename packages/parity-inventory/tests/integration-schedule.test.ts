@@ -329,11 +329,11 @@ class Mailer
       || pathFor(row)?.endsWith("SlackMailer.php")
       || pathFor(row)?.endsWith("Mailer.php"),
     )
-    const byOwner = (owner: string, authority: "legacy" | "mono") => rows.filter((row) =>
-      row.authority_line === authority
-      && "call_site_ref" in row.details
-      && row.details.call_site_ref?.endsWith(owner),
-    )
+    const byOwner = (owner: string, authority: "legacy" | "mono") => rows.filter((row) => {
+      if (row.authority_line !== authority || !("call_site_ref" in row.details)) return false
+      const callSiteRef = row.details.call_site_ref
+      return callSiteRef === owner || callSiteRef?.endsWith(`\\${owner}`) === true
+    })
 
     expect(byOwner("SlackMessenger::send", "legacy")).toHaveLength(1)
     expect(byOwner("SlackMessenger::sendPayload", "mono")).toHaveLength(1)

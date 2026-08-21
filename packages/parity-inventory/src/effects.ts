@@ -494,7 +494,7 @@ const effectCallExpressionsFor = (source: string): readonly EffectCall[] => {
   const structure = withoutLiterals(withoutComments(source))
   const calls: EffectCall[] = []
   const pattern = /\\?(?:\$?[A-Za-z_][A-Za-z0-9_$\\]*(?:(?:->|::|\.)\$?[A-Za-z_][A-Za-z0-9_$\\]*)*)\s*\(/g
-  const ignored = new Set(["if", "for", "while", "switch", "catch", "match", "isset", "empty", "array", "list"])
+  const ignored = new Set(["if", "for", "foreach", "while", "switch", "catch", "match", "isset", "empty", "array", "list", "elseif"])
   for (const match of structure.matchAll(pattern)) {
     const chain = match[0]?.replace(/\s*\($/, "").trim() ?? ""
     const offset = match.index ?? 0
@@ -512,7 +512,13 @@ const effectCallExpressionsFor = (source: string): readonly EffectCall[] => {
       constructorCall,
     })
   }
-  return [...calls, ...specialEffectCallsFor(source)]
+  const specialCalls = specialEffectCallsFor(source)
+  const ordinaryCalls = calls.filter((call) => !specialCalls.some((special) =>
+    special.callable === call.callable
+    && call.offset >= special.offset
+    && call.offset <= special.offset + special.chain.length + 2,
+  ))
+  return [...ordinaryCalls, ...specialCalls]
     .sort((left, right) => left.offset - right.offset || compareByteOrder(left.callable, right.callable))
 }
 const attributeCallFor = (source: string, offset: number): boolean => {
@@ -848,9 +854,9 @@ const transientEntityMutationOnly = (
   scope: EffectScope,
 ): boolean => {
   const source = withoutComments(unit.text.slice(scope.start, scope.end))
-  if (!/\b[A-Za-z_$][A-Za-z0-9_$]*\s*->\s*setTotalAnswered\s*\(/.test(source)) return false
+  if (!/[A-Za-z_$][A-Za-z0-9_$]*\s*->\s*setTotalAnswered\s*\(/.test(source)) return false
   if (!/\bfindAllTakenBySurvey\b/.test(source) || !/\b(?:surveysWithDepartment|globalSurveys)\b/.test(source)) return false
-  if (!/\b[A-Za-z_$][A-Za-z0-9_$]*\s*->\s*set[A-Z][A-Za-z0-9_]*\s*\(/.test(source)) return false
+  if (!/[A-Za-z_$][A-Za-z0-9_$]*\s*->\s*set[A-Z][A-Za-z0-9_]*\s*\(/.test(source)) return false
   if (/\b(?:persist|flush|remove|delete|save|update|insert|upsert|executeStatement|transaction|commit)\s*\(/i.test(source)) return false
   let setterCount = 0
   for (const call of effectCallExpressionsFor(source)) {
@@ -866,7 +872,7 @@ const transientEntityMutationOnly = (
     const directEffect = effectClassForCallable(call.callable)
     if (directEffect === "read_only") continue
     if (directEffect !== null) return false
-    if (/^(?:get|find|findOne|findAll|is|has|check|ensure|render|count|empty|createForm|handleRequest|redirect|redirectToRoute|addFlash|getDoctrine|getRepository|getManager|getUser)$/i.test(call.callable)) continue
+    if (/^(?:get|find|findOne|findAll|is|is[A-Z][A-Za-z0-9_]*|has|has[A-Z][A-Za-z0-9_]*|check|ensure|render|count|empty|createForm|handleRequest|redirect|redirectToRoute|addFlash|getDoctrine|getRepository|getManager|getUser)$/i.test(call.callable)) continue
     const resolved = resolveEffectCall(authority, unit, call, scope.owner, scope.start)
     if (resolved === null) return false
     const target = effectScopeForTarget(authority, resolved.targetClass, call.callable)
@@ -1300,7 +1306,7 @@ const runtimeEntrypointTargetsFor = (
 ): readonly string[] => {
   if (!/\.(?:ts|tsx|js|mjs)$/i.test(unit.path)) return []
   const targets = new Set<string>()
-  const mainUrl = /\bmain\s*:\s*new\s+URL\(\s*["']([^"']+)["']\s*,\s*import\.meta\.url\s*\)\.pathname/g
+  const mainUrl = /\bmain\s*(?::|=)\s*new\s+URL\(\s*["']([^"']+)["']\s*,\s*import\.meta\.url\s*\)\.pathname/g
   for (const match of unit.text.matchAll(mainUrl)) {
     const rawTarget = match[1]
     if (rawTarget === undefined) continue
@@ -2136,6 +2142,22 @@ const integrationCrossLineKey = (row: InventoryRow): string | null => {
   ])
 }
 
+const integrationLooseCrossLineKey = (row: InventoryRow): string | null => {
+  if (row.inventory_kind !== "external_integration") return null
+  const details = row.details as ExternalIntegrationDetails
+  const method = integrationMethodFor(details.call_site_ref)
+  if (method === null || details.provider_ref === null || details.protocol === null) return null
+  return canonicalJson([
+    "external_integration_cross_line_without_endpoint",
+    method.owner,
+    method.method,
+    details.provider_ref,
+    details.direction,
+    details.protocol,
+    details.credential_slot_ref,
+  ])
+}
+
 const scheduleCrossLineKey = (row: InventoryRow): string | null => {
   if (row.inventory_kind !== "schedule_background") return null
   const details = row.details as ScheduleBackgroundDetails
@@ -2200,6 +2222,37 @@ const reconcileSemanticCounterpart = (
   return candidates.length === 1 ? candidates[0] : undefined
 }
 
+const reconcileIntegrationCounterpart = (
+  row: InventoryRow,
+  rightBySignature: ReadonlyMap<string, InventoryRow>,
+  rightByCrossLineKey: ReadonlyMap<string, readonly InventoryRow[]>,
+  leftByCrossLineKey: ReadonlyMap<string, readonly InventoryRow[]>,
+  rightByLooseKey: ReadonlyMap<string, readonly InventoryRow[]>,
+  leftByLooseKey: ReadonlyMap<string, readonly InventoryRow[]>,
+  matchedRightIds: ReadonlySet<string>,
+): InventoryRow | undefined => {
+  const strict = reconcileSemanticCounterpart(
+    row,
+    rightBySignature,
+    rightByCrossLineKey,
+    leftByCrossLineKey,
+    matchedRightIds,
+    integrationCrossLineKey,
+  )
+  if (strict !== undefined) return strict
+  const key = integrationLooseCrossLineKey(row)
+  if (key === null) return undefined
+  const leftCandidates = (leftByLooseKey.get(key) ?? []).filter((candidate) => !isReconciliationBlocked(candidate))
+  if (leftCandidates.length !== 1) return undefined
+  const leftEndpoint = (row.details as ExternalIntegrationDetails).endpoint_ref
+  const candidates = (rightByLooseKey.get(key) ?? []).filter((candidate) =>
+    !isReconciliationBlocked(candidate)
+    && !matchedRightIds.has(candidate.row_id)
+    && (leftEndpoint === null || (candidate.details as ExternalIntegrationDetails).endpoint_ref === null),
+  )
+  return candidates.length === 1 ? candidates[0] : undefined
+}
+
 const reconcileCommandCounterpart = (
   row: InventoryRow,
   rightBySignature: ReadonlyMap<string, InventoryRow>,
@@ -2232,6 +2285,8 @@ const reconcilePair = (left: InventoryEnvelope, right: InventoryEnvelope): { rea
   const matchedRightIds = new Set<string>()
   const rightByIntegrationCrossLineKey = semanticCrossLineCandidates(rightRows, integrationCrossLineKey)
   const leftByIntegrationCrossLineKey = semanticCrossLineCandidates(leftRows, integrationCrossLineKey)
+  const rightByIntegrationLooseKey = semanticCrossLineCandidates(rightRows, integrationLooseCrossLineKey)
+  const leftByIntegrationLooseKey = semanticCrossLineCandidates(leftRows, integrationLooseCrossLineKey)
   const rightByScheduleCrossLineKey = semanticCrossLineCandidates(rightRows, scheduleCrossLineKey)
   const leftByScheduleCrossLineKey = semanticCrossLineCandidates(leftRows, scheduleCrossLineKey)
   const mismatches: Array<{ readonly kind: Exclude<Mismatch["kind"], "none">; readonly row_ids: readonly string[]; readonly disposition: "none"; readonly accepted_intent_ref_ids: readonly string[] }> = []
@@ -2240,14 +2295,24 @@ const reconcilePair = (left: InventoryEnvelope, right: InventoryEnvelope): { rea
     if (isReconciliationBlocked(row)) continue
     const counterpart = row.inventory_kind === "command_write"
       ? reconcileCommandCounterpart(row, rightBySignature, rightByCrossLineKey, leftByCrossLineKey, matchedRightIds)
-      : reconcileSemanticCounterpart(
-        row,
-        rightBySignature,
-        row.inventory_kind === "external_integration" ? rightByIntegrationCrossLineKey : rightByScheduleCrossLineKey,
-        row.inventory_kind === "external_integration" ? leftByIntegrationCrossLineKey : leftByScheduleCrossLineKey,
-        matchedRightIds,
-        row.inventory_kind === "external_integration" ? integrationCrossLineKey : scheduleCrossLineKey,
-      )
+      : row.inventory_kind === "external_integration"
+        ? reconcileIntegrationCounterpart(
+          row,
+          rightBySignature,
+          rightByIntegrationCrossLineKey,
+          leftByIntegrationCrossLineKey,
+          rightByIntegrationLooseKey,
+          leftByIntegrationLooseKey,
+          matchedRightIds,
+        )
+        : reconcileSemanticCounterpart(
+          row,
+          rightBySignature,
+          rightByScheduleCrossLineKey,
+          leftByScheduleCrossLineKey,
+          matchedRightIds,
+          scheduleCrossLineKey,
+        )
     if (counterpart === undefined) {
       if (row.status === "dead_unimported") continue
       const index = leftRows.findIndex((candidate) => candidate.row_id === row.row_id)
@@ -2419,6 +2484,7 @@ interface YamlScheduleDeclaration {
 }
 
 const yamlScheduleDeclarationsFor = (source: string, path: string): readonly YamlScheduleDeclaration[] => {
+  const declarations: YamlScheduleDeclaration[] = []
   const direct = (value: unknown): YamlScheduleDeclaration | null => {
     const pairs = loaderYamlPairs(value)
     const cronPair = pairs.find((pair) => loaderYamlKey(pair.key) === "cron")
@@ -2858,6 +2924,11 @@ const integrationCallsFor = (unit: SourceUnit, authority: AuthorityGraph): reado
       : null)
     const providerRef = dynamicMailerDispatch ? "mailer" : detectedProviderRef
     if (providerRef === null) reasons.push("UNKNOWN_INTEGRATION")
+    if (dynamicMailerDispatch && calls.some((call) =>
+      call.symbolRef === safeSymbol
+      && call.providerRef === providerRef
+      && call.protocol === protocol,
+    )) continue
     calls.push({ authority: unit.authority, path: unit.path, sourceRefId: unit.sourceRefId, ownerRef, symbolRef: safeSymbol, providerRef, direction, protocol, endpointRef, credentialSlotRef, effectClasses, reasonCodes: sortUnique(reasons), imported, importerPath, line: lineAt(unit.text, callOffset) })
   }
   if (calls.length > 0) {
