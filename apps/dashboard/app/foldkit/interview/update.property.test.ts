@@ -1,6 +1,6 @@
 import { expect, it } from "@effect/vitest"
 import { InterviewId, type EffectSdk } from "@vektorprogrammet/sdk/effect"
-import { Schema } from "effect"
+import { Effect, Schema } from "effect"
 import * as fc from "effect/testing/FastCheck"
 import { FieldValidation } from "foldkit"
 import { makeInterviewCommands } from "./command"
@@ -14,7 +14,14 @@ import {
 import { Model, makeInitialModel } from "./model"
 import { makeUpdate } from "./update"
 
-const update = makeUpdate(makeInterviewCommands({} as EffectSdk, null))
+const testClient = {
+  admin: {
+    interviews: {
+      list: () => Effect.succeed({ items: [], totalItems: 0 }),
+    },
+  },
+} as unknown as EffectSdk
+const update = makeUpdate(makeInterviewCommands(testClient, null))
 const interviewId = Schema.decodeUnknownSync(InterviewId)(42)
 
 const filledModel = () => ({

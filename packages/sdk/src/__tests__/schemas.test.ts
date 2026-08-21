@@ -5,6 +5,7 @@
 import { describe, it, expect } from "vitest"
 import { Effect, Schema } from "effect"
 import { Receipt } from "../schemas/receipt.js"
+import { ApplicationFromRaw } from "../schemas/application.js"
 import { AdminInterviewListFromRaw } from "../schemas/interview.js"
 
 // Raw Receipt as returned from the API (dates as ISO strings)
