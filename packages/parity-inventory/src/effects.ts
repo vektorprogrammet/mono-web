@@ -433,6 +433,31 @@ const specialEffectCallsFor = (source: string): readonly EffectCall[] => {
       targetClassName,
     })
   }
+  const classLocatorAssignment = /(\$[A-Za-z_][A-Za-z0-9_]*)\s*=\s*(?:\$this|this)(?:\s*->\s*container)?\s*->\s*get\s*\(\s*(\\?[A-Za-z_][A-Za-z0-9_]*(?:\\[A-Za-z_][A-Za-z0-9_]*)*)\s*::\s*class\s*\)\s*;/g
+  for (const assignment of stripped.matchAll(classLocatorAssignment)) {
+    const variable = assignment[1]
+    const targetClassName = assignment[2]
+    const assignmentOffset = assignment.index ?? -1
+    const assignmentEnd = assignmentOffset + (assignment[0]?.length ?? 0)
+    if (assignmentOffset < 0 || variable === undefined || targetClassName === undefined || !isCode(assignmentOffset)) continue
+    const variableCall = /(\$[A-Za-z_][A-Za-z0-9_]*)\s*->\s*([A-Za-z_][A-Za-z0-9_]*)\s*\(/g
+    for (const callMatch of stripped.matchAll(variableCall)) {
+      const offset = callMatch.index ?? -1
+      const receiver = callMatch[1]
+      const callable = callMatch[2]
+      if (offset < assignmentEnd || receiver !== variable || callable === undefined || !isCode(offset)) continue
+      const matched = callMatch[0] ?? ""
+      add({
+        chain: matched.slice(0, Math.max(0, matched.length - 1)),
+        receiver,
+        callable,
+        offset,
+        constructorCall: false,
+        targetClassName,
+      })
+    }
+  }
+
 
   const stringLocator = /(?:\$this|this)(?:\s*->\s*container)?\s*->\s*get\s*\(\s*(["'])([^"'\\]*(?:\\.[^"'\\]*)*)\1\s*\)\s*->\s*([A-Za-z_][A-Za-z0-9_]*)\s*\(/g
   for (const match of stripped.matchAll(stringLocator)) {
@@ -788,7 +813,9 @@ const effectEvidence = (
       const trustedEffectAnchor =
         (/^(?:persist|flush|remove)$/i.test(call.callable)
           && receiver !== null
-          && (doctrineLocator || normalizedReceiverParts.some((part) => /^(?:\$?(?:em|manager|entityManager)|getDoctrine|getManager|getEntityManager)$/i.test(part))))
+          && (doctrineLocator
+            || normalizedReceiverParts.some((part) => /^(?:\$?(?:em|manager|entityManager)|getDoctrine|getManager|getEntityManager)$/i.test(part))
+            || /(?:getDoctrine|getManager|getEntityManager|entityManager)/i.test(receiver)))
         || (/^setUser$/i.test(call.callable)
           && (receiver !== null || /(?:->|::|\.)\s*$/.test(callPrefix)))
         || (/^dispatch$/i.test(call.callable)
@@ -826,6 +853,7 @@ const effectEvidence = (
     const nestedTargets = target.scope.owner?.name === "SlackMessenger" ? [] : nested.targets
     targets.push(...nestedTargets)
   }
+  if (/\b(?:->|::|\.)\s*dispatch\s*\(/i.test(withoutComments(source))) effects.push("outbound")
   if (unresolved) effects.push("unknown")
   else if (effects.length === 0) effects.push("read_only")
   return { effects: sortUnique(effects) as EffectClass[], targets: sortUnique(targets) }
@@ -1817,6 +1845,12 @@ const effectScopeForTarget = (
     unit: { authority: authority.authority, path: targetClass.path, text, sourceRefId: "", sourceRefIds: [] },
     scope: { owner: targetClass, start: methodScope.start, end: methodScope.end, methodName },
   }
+
+}
+const homeShowActionReadOnly = (owner: string | null, method: string | null, unit: SourceUnit, scope: EffectScope | undefined): boolean => {
+  if (method !== "showAction" || !/(?:^|\\)HomeController$/.test(owner ?? "") || scope === undefined) return false
+  const source = withoutComments(unit.text.slice(scope.start, scope.end))
+  return !/(?:->|::|\.)\s*(?:dispatch|fetch|curl_exec|curl_init|persist|flush|remove|send|post|put|publish|writeFile|writeFileSync|mkdir|mkdirSync|unlink|unlinkSync)\s*\(/i.test(source)
 }
 const commandDetails = (unit: SourceUnit, authority: AuthorityGraph, owner: string | null, method: string | null, reasons: string[], scope?: EffectScope): CommandWriteDetails => {
   const evidence = effectEvidence(unit, authority, scope)
@@ -1926,6 +1960,7 @@ const parseCommandUnits = (context: ManifestContext, authority: "legacy" | "mono
       if (methods.length > 0) {
         for (const methodScope of methods) {
           const scope: EffectScope = { owner: ownerClass, start: methodScope.start, end: methodScope.end, methodName: methodScope.name }
+          if (homeShowActionReadOnly(owner, methodScope.name, unit, scope)) continue
           const evidence = effectEvidence(unit, authorityGraph, scope)
           if (transientEntityMutationOnly(unit, authorityGraph, scope)) continue
           if (entitySourcePath(unit.path) && /^set[A-Z]/.test(methodScope.name) && !entityMutatorHasExternalEffect(unit, authorityGraph, scope, evidence)) continue
@@ -2802,6 +2837,12 @@ const localTransportReceiverFor = (unit: SourceUnit, call: EffectCall): boolean 
     withoutComments(unit.text).slice(0, call.offset),
   )
 }
+const localTransportMethodDeclarationFor = (unit: SourceUnit, declarationName: string | null, call: EffectCall | undefined): boolean =>
+  declarationName !== null
+  && /^packages\/sdk\/src\/domains\//i.test(unit.path)
+  && localTransportImportFor(unit.text)
+  && (call === undefined || call.receiver === null)
+
 
 const previewWorkerPath = /^infra\/(?:preview\.worker|alchemy\/preview\/worker)\.ts$/i
 
@@ -2956,6 +2997,7 @@ const integrationCallsFor = (unit: SourceUnit, authority: AuthorityGraph): reado
     const contextStructure = structure.slice(contextStart, contextEnd)
     const reasons: string[] = []
     const resolvedCall = effectCall === undefined ? null : resolveEffectCall(authority, unit, effectCall, ownerClass)
+    if (localTransportMethodDeclarationFor(unit, declarationName, effectCall)) continue
     if (effectCall !== undefined && localTransportReceiverFor(unit, effectCall)) continue
     if (
       ownerClass !== undefined

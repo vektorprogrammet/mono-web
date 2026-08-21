@@ -962,7 +962,8 @@ final class FeedbackController {
         $em = $this->getDoctrine()->getManager();
         $em->persist($feedback);
         $em->flush();
-        $this->container->get(SlackMessenger::class)->notify();
+        $messenger = $this->container->get(SlackMessenger::class);
+        $messenger->notify();
     }
 }
 `)
