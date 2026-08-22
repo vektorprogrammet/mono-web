@@ -106,6 +106,28 @@ it.effect("submits, revises, and withdraws only a pending owner receipt", () =>
     expect(terminal._tag).toBe("InvalidReceiptTransition");
   }),
 );
+it.effect("resolves KeepCurrentFile from the locked current receipt", () =>
+  Effect.gen(function* () {
+    const submitted = yield* decideReceipt(undefined, submit, context);
+    const revised = yield* decideReceipt(
+      submitted.receipt,
+      {
+        _tag: "RevisePendingReceipt",
+        commandId: "command-keep-current-file",
+        actor: owner,
+        receiptId: "receipt-1",
+        expectedRevision: 0,
+        description: "Travel without replacement",
+        amountOre: 12_500,
+        receiptDate: "2026-08-20",
+        file: { _tag: "KeepCurrentFile" },
+      },
+      { ...context, now: "2026-08-20T12:01:00.000Z" },
+    );
+    expect(revised.receipt.file).toEqual(file);
+    expect(revised.outbox.map((item) => item._tag)).toEqual(["WriteReceiptAudit"]);
+  }),
+);
 
 it.effect("authorizes a refund by explicit department scope", () =>
   Effect.gen(function* () {

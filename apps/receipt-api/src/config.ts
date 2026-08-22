@@ -17,6 +17,8 @@ export interface ReceiptApiConfig {
   readonly now: () => string;
   readonly nextReceiptId: () => string;
   readonly nextVisualId: () => string;
+  readonly e2eTestMode?: boolean;
+  readonly e2eFailNextPromotionEffectId?: string;
 }
 
 const nonEmpty = (value: unknown, field: string): string => {
@@ -110,21 +112,32 @@ const loopbackHost = (host: string): string => {
 
 export const makeReceiptApiConfig = (
   env: Readonly<Record<string, string | undefined>> = process.env,
-): ReceiptApiConfig => ({
-  host: loopbackHost(env.RECEIPT_API_HOST ?? "127.0.0.1"),
-  port: parsePort(env.RECEIPT_API_PORT),
-  postgresUrl: nonEmpty(env.RECEIPT_PG_URL, "RECEIPT_PG_URL"),
-  stagingRoot: nonEmpty(
-    env.RECEIPT_STAGING_ROOT ?? "/tmp/vektor-receipt-staging",
-    "RECEIPT_STAGING_ROOT",
-  ),
-  committedRoot: nonEmpty(
-    env.RECEIPT_COMMITTED_ROOT ?? "/tmp/vektor-receipt-committed",
-    "RECEIPT_COMMITTED_ROOT",
-  ),
-  maxFileBytes: parseMaxFileBytes(env.RECEIPT_MAX_FILE_BYTES),
-  tokens: parseTokens(env.RECEIPT_AUTH_TOKENS),
-  now: () => new Date().toISOString(),
-  nextReceiptId: () => `receipt_${randomUUID()}`,
-  nextVisualId: () => `visual_${randomUUID()}`,
-});
+): ReceiptApiConfig => {
+  const e2eTestMode = env.RECEIPT_E2E_TEST_MODE === "1";
+  const e2eFailNextPromotionEffectId =
+    e2eTestMode &&
+    env.RECEIPT_E2E_FAIL_PROMOTION_EFFECT_ID !== undefined &&
+    env.RECEIPT_E2E_FAIL_PROMOTION_EFFECT_ID.length > 0
+      ? env.RECEIPT_E2E_FAIL_PROMOTION_EFFECT_ID
+      : undefined;
+  return {
+    host: loopbackHost(env.RECEIPT_API_HOST ?? "127.0.0.1"),
+    port: parsePort(env.RECEIPT_API_PORT),
+    postgresUrl: nonEmpty(env.RECEIPT_PG_URL, "RECEIPT_PG_URL"),
+    stagingRoot: nonEmpty(
+      env.RECEIPT_STAGING_ROOT ?? "/tmp/vektor-receipt-staging",
+      "RECEIPT_STAGING_ROOT",
+    ),
+    committedRoot: nonEmpty(
+      env.RECEIPT_COMMITTED_ROOT ?? "/tmp/vektor-receipt-committed",
+      "RECEIPT_COMMITTED_ROOT",
+    ),
+    maxFileBytes: parseMaxFileBytes(env.RECEIPT_MAX_FILE_BYTES),
+    tokens: parseTokens(env.RECEIPT_AUTH_TOKENS),
+    now: () => new Date().toISOString(),
+    nextReceiptId: () => `receipt_${randomUUID()}`,
+    nextVisualId: () => `visual_${randomUUID()}`,
+    e2eTestMode,
+    e2eFailNextPromotionEffectId,
+  };
+};

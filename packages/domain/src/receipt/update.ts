@@ -16,6 +16,7 @@ import {
   type Receipt,
   type ReceiptActor,
   type ReceiptCommand,
+  type ReceiptFileSelection,
   type ReceiptObservation,
 } from "./schema.js";
 
@@ -109,6 +110,15 @@ const observation = (commandId: string, receipt: Receipt): ReceiptObservation =>
 });
 
 const effect = makeReceiptOutboxRequest;
+type KeepCurrentFileSelection = Extract<
+  ReceiptFileSelection,
+  { readonly _tag: "KeepCurrentFile" }
+>;
+
+const isKeepCurrentFile = (
+  file: ReceiptFileSelection,
+): file is KeepCurrentFileSelection =>
+  "_tag" in file && file._tag === "KeepCurrentFile";
 
 const decideCommand = (
   existing: Receipt | undefined,
@@ -165,20 +175,21 @@ const decideCommand = (
             yield* owner(current, input.actor);
             yield* currentRevision(current, input.expectedRevision);
             yield* pending(current, input._tag);
+            const nextFile = isKeepCurrentFile(input.file) ? current.file : input.file;
             const receipt: Receipt = {
               ...current,
               amountOre: input.amountOre,
               description: input.description,
               receiptDate: input.receiptDate,
-              file: input.file,
+              file: nextFile,
               revision: current.revision + 1,
             };
             const outbox: ReceiptOutboxRequest[] = [
               effect(input.commandId, receipt.receiptId, "WriteReceiptAudit"),
             ];
-            if (!sameReceiptFile(current.file, receipt.file)) {
+            if (!sameReceiptFile(current.file, nextFile)) {
               outbox.unshift(
-                effect(input.commandId, receipt.receiptId, "PromoteReceiptFile", receipt.file),
+                effect(input.commandId, receipt.receiptId, "PromoteReceiptFile", nextFile),
               );
               outbox.push(
                 effect(input.commandId, receipt.receiptId, "DeleteReceiptFile", current.file),

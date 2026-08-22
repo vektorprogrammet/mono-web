@@ -4,8 +4,10 @@ import { copyFile, mkdir, open, rename, unlink } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { Effect, Layer } from "effect";
 import {
+  ReceiptDecodeError,
   ReceiptFileEffectConflict,
   ReceiptFileIdentityConflict,
+  ReceiptFileInjectedFailure,
   ReceiptFileNotStaged,
   ReceiptFileService,
   type ReceiptFile,
@@ -16,6 +18,7 @@ import {
 export interface ReceiptFileStoreConfig {
   readonly stagingRoot: string;
   readonly committedRoot: string;
+  readonly failNextPromotionEffectId?: string;
 }
 
 export interface StagedReceiptFile {
@@ -118,7 +121,7 @@ export interface ReceiptFileStore {
 
 export const makeReceiptFileStore = (config: ReceiptFileStoreConfig): ReceiptFileStore => {
   const applied = new Map<string, string>();
-
+  let failNextPromotionEffectId = config.failNextPromotionEffectId;
   const stageBytes = async (
     file: File,
     commandId: string,
@@ -137,7 +140,9 @@ export const makeReceiptFileStore = (config: ReceiptFileStoreConfig): ReceiptFil
           const chunk = await reader.read();
           if (chunk.done) break;
           byteLength += chunk.value.byteLength;
-          if (byteLength > maxFileBytes) throw new Error("receipt file exceeds configured limit");
+          if (byteLength > maxFileBytes) {
+            throw new ReceiptDecodeError({ message: "receipt file exceeds configured limit" });
+          }
           hash.update(chunk.value);
           await handle.write(chunk.value);
         }
@@ -207,6 +212,13 @@ export const makeReceiptFileStore = (config: ReceiptFileStoreConfig): ReceiptFil
               throw new ReceiptFileEffectConflict({ effectId: request.effectId });
             return;
           }
+          if (
+            request._tag === "PromoteReceiptFile" &&
+            failNextPromotionEffectId === request.effectId
+          ) {
+            failNextPromotionEffectId = undefined;
+            throw new ReceiptFileInjectedFailure({ effectId: request.effectId });
+          }
 
           const stagingPath = pathFor(config.stagingRoot, request.file.fileRef);
           const committedPath = pathFor(config.committedRoot, request.file.objectKey);
@@ -257,6 +269,7 @@ export const makeReceiptFileStore = (config: ReceiptFileStoreConfig): ReceiptFil
           if (
             cause instanceof ReceiptFileEffectConflict ||
             cause instanceof ReceiptFileIdentityConflict ||
+            cause instanceof ReceiptFileInjectedFailure ||
             cause instanceof ReceiptFileNotStaged
           ) {
             return cause;

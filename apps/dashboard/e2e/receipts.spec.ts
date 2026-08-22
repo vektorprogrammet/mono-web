@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
-import { expect, test, type APIResponse, type Browser, type Page } from "@playwright/test";
-import { z } from "zod";
+import { readdir, writeFile } from "node:fs/promises";
+import { expect, test, type APIRequestContext, type APIResponse, type Browser, type Page } from "@playwright/test";
 
+import { z } from "zod";
 const DASHBOARD_ORIGIN = process.env.DASHBOARD_ORIGIN ?? "http://127.0.0.1:5174";
 const RECEIPT_API_ORIGIN = process.env.RECEIPT_API_ORIGIN ?? "http://127.0.0.1:8790";
 const REAL_RECEIPT_OWNER_E2E = process.env.REAL_RECEIPT_OWNER_E2E === "1";
@@ -14,6 +15,7 @@ const CONCURRENT_DESCRIPTION = "Owner receipt concurrent revision";
 const REVISED_RECEIPT_DATE = "2026-08-20";
 const REVISED_AMOUNT_ORE = 21_075;
 const MAX_FILE_BYTES = 10_485_760;
+const REPLACEMENT_COMMAND_ID = "receipt-owner-e2e-replacement";
 const RECEIPT_BYTES = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
   "base64",
@@ -59,6 +61,44 @@ const receiptPageSchema = z
   .object({
     items: z.array(receiptProjectionSchema),
     totalItems: z.number().int().nonnegative(),
+  })
+  .strict();
+const lifecycleEvidenceSchema = z
+  .object({
+    receiptId: z.string().min(1),
+    file: z
+      .object({
+        fileRef: z.string().min(1),
+        objectKey: z.string().min(1),
+        contentType: z.string().min(1),
+        byteLength: z.number().int().positive(),
+        sha256: z.string().regex(/^[a-f0-9]{64}$/),
+      })
+      .strict(),
+    outbox: z.array(
+      z
+        .object({
+          effectId: z.string().min(1),
+          effectType: z.string().min(1),
+          commandId: z.string().min(1),
+          receiptId: z.string().min(1),
+          ordinal: z.number().int().nonnegative(),
+          status: z.string().min(1),
+          attempts: z.number().int().nonnegative(),
+          lastFailureTag: z.string().nullable(),
+        })
+        .strict(),
+    ),
+    audit: z.array(
+      z
+        .object({
+          commandId: z.string().min(1),
+          receiptId: z.string().min(1),
+          action: z.string().min(1),
+          receiptRevision: z.number().int().nonnegative(),
+        })
+        .strict(),
+    ),
   })
   .strict();
 
@@ -110,6 +150,57 @@ async function expectUnauthenticatedBrowser(browser: Browser): Promise<void> {
   }
 }
 
+async function fileNames(root: string, prefix = ""): Promise<string[]> {
+  const entries = await readdir(root, { withFileTypes: true });
+  const names: string[] = [];
+  for (const entry of entries) {
+    const relative = prefix.length === 0 ? entry.name : `${prefix}/${entry.name}`;
+    if (entry.isDirectory()) {
+      names.push(...(await fileNames(`${root}/${entry.name}`, relative)));
+    } else if (entry.isFile()) {
+      names.push(relative);
+    }
+  }
+  return names.sort();
+}
+
+async function captureLifecycleEvidence(
+  request: APIRequestContext,
+  receiptId: string,
+): Promise<{
+  readonly receiptId: string;
+  readonly file: { readonly fileRef: string; readonly objectKey: string };
+  readonly outbox: ReadonlyArray<{
+    readonly effectId: string;
+    readonly status: string;
+    readonly attempts: number;
+  }>;
+  readonly audit: ReadonlyArray<{
+    readonly commandId: string;
+    readonly action: string;
+    readonly receiptRevision: number;
+  }>;
+  readonly physical: { readonly staging: ReadonlyArray<string>; readonly committed: ReadonlyArray<string> };
+}> {
+  const response = await request.get(
+    `${RECEIPT_API_ORIGIN}/api/e2e/receipts/${encodeURIComponent(receiptId)}/evidence`,
+    { headers: { Authorization: `Bearer ${activeToken()}` } },
+  );
+  expect(response.status()).toBe(200);
+  const stagingRoot = process.env.RECEIPT_E2E_STAGING_ROOT;
+  const committedRoot = process.env.RECEIPT_E2E_COMMITTED_ROOT;
+  if (stagingRoot === undefined || committedRoot === undefined) {
+    throw new Error("Receipt lifecycle evidence roots are missing");
+  }
+  const evidence = lifecycleEvidenceSchema.parse(await response.json());
+  return {
+    ...evidence,
+    physical: {
+      staging: await fileNames(stagingRoot),
+      committed: await fileNames(committedRoot),
+    },
+  };
+}
 async function responseErrorTag(response: APIResponse): Promise<string> {
   return receiptErrorSchema.parse(await response.json()).error.tag;
 }
@@ -310,14 +401,74 @@ test.describe("Native Receipt owner journey", () => {
       mimeType: "image/png",
       buffer: RECEIPT_BYTES,
     });
+    await reviseForm.locator('input[name="commandId"]').fill(REPLACEMENT_COMMAND_ID);
     await reviseForm.getByRole("button", { name: "Lagre endringer" }).click();
 
     await expect(revisionNotice).toHaveAttribute("data-revision", "2");
-    await expect(revisionNotice).toHaveAttribute("data-command-id", /.+/);
-    const replacementCommandId = await revisionNotice.getAttribute("data-command-id");
-    if (replacementCommandId === null || replacementCommandId.length === 0) {
-      throw new Error("Replacement revision command ID is missing");
+    await expect(revisionNotice).toHaveAttribute("data-command-id", REPLACEMENT_COMMAND_ID);
+    const replacementCommandId = REPLACEMENT_COMMAND_ID;
+    const beforeFailure = await captureLifecycleEvidence(request, receiptId);
+    const replacementRetryResponse = await request.post(
+      `${RECEIPT_API_ORIGIN}/api/receipts/${receiptId}/revise`,
+      {
+        headers: authorization,
+        multipart: {
+          commandId: replacementCommandId,
+          expectedRevision: "1",
+          description: REPLACED_DESCRIPTION,
+          amountOre: String(REVISED_AMOUNT_ORE),
+          receiptDate: REVISED_RECEIPT_DATE,
+          file: {
+            name: "replacement.png",
+            mimeType: "image/png",
+            buffer: RECEIPT_BYTES,
+          },
+        },
+      },
+    );
+    expect(replacementRetryResponse.status()).toBe(200);
+    const replacementRetry = receiptObservationSchema.parse(
+      await replacementRetryResponse.json(),
+    );
+    expect(replacementRetry).toMatchObject({
+      commandId: replacementCommandId,
+      receiptId,
+      revision: 2,
+      replayed: true,
+    });
+    const afterRetry = await captureLifecycleEvidence(request, receiptId);
+    const lifecycleEvidencePath = process.env.RECEIPT_E2E_LIFECYCLE_EVIDENCE_PATH;
+    if (lifecycleEvidencePath === undefined) {
+      throw new Error("Receipt lifecycle evidence path is missing");
     }
+    await writeFile(
+      lifecycleEvidencePath,
+      JSON.stringify({ beforeFailure, afterRetry }),
+      "utf8",
+    );
+    const stableRevisionReplayResponse = await request.post(
+      `${RECEIPT_API_ORIGIN}/api/receipts/${receiptId}/revise`,
+      {
+        headers: authorization,
+        multipart: {
+          commandId: stableRevisionCommandId,
+          expectedRevision: "0",
+          description: REVISED_DESCRIPTION,
+          amountOre: String(REVISED_AMOUNT_ORE),
+          receiptDate: REVISED_RECEIPT_DATE,
+        },
+      },
+    );
+    expect(stableRevisionReplayResponse.status()).toBe(200);
+    const stableRevisionReplay = receiptObservationSchema.parse(
+      await stableRevisionReplayResponse.json(),
+    );
+    expect(stableRevisionReplay).toMatchObject({
+      commandId: stableRevisionCommandId,
+      receiptId,
+      revision: 1,
+      replayed: true,
+    });
     receiptRow = receiptRowFor(page, receiptId);
     await expect(receiptRow).toContainText(REPLACED_DESCRIPTION);
     await expect(receiptRow.locator('[data-revision="2"]')).toHaveText("Versjon 2");
@@ -539,10 +690,24 @@ test.describe("Native Receipt owner journey", () => {
               commandId: submitReplay.commandId,
               replayed: submitReplay.replayed,
             },
+            stableRevision: {
+              commandId: stableRevisionReplay.commandId,
+              revision: stableRevisionReplay.revision,
+              replayed: stableRevisionReplay.replayed,
+            },
+            replacement: {
+              commandId: replacementRetry.commandId,
+              revision: replacementRetry.revision,
+              replayed: replacementRetry.replayed,
+            },
             withdrawal: {
               commandId: withdrawalReplay.commandId,
               replayed: withdrawalReplay.replayed,
             },
+          },
+          fileLifecycle: {
+            beforeFailure,
+            afterRetry,
           },
           rendered: {
             receiptId,

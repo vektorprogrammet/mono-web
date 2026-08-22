@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { spawn } from "node:child_process";
-import { mkdtemp, mkdir, readdir, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, readdir, rm } from "node:fs/promises";
 import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -215,9 +215,48 @@ async function readPostgresEvidence(environment) {
           GROUP BY command_id, ordinal
           HAVING count(*) > 1
         ) duplicate_effects
-      )
-      ,'finalStatus', (SELECT status FROM economy_receipts LIMIT 1)
-      ,'finalRevision', (SELECT revision FROM economy_receipts LIMIT 1)
+      ),
+      'finalStatus', (SELECT status FROM economy_receipts LIMIT 1),
+      'finalRevision', (SELECT revision FROM economy_receipts LIMIT 1),
+      'receiptFile', (
+        SELECT json_build_object(
+          'fileRef', file_ref,
+          'objectKey', file_object_key,
+          'contentType', file_content_type,
+          'byteLength', file_byte_length,
+          'sha256', file_sha256
+        )
+        FROM economy_receipts
+        LIMIT 1
+      ),
+      'outbox', COALESCE((
+        SELECT json_agg(
+          json_build_object(
+            'effectId', effect_id,
+            'effectType', effect_type,
+            'commandId', command_id,
+            'receiptId', receipt_id,
+            'ordinal', ordinal,
+            'status', status,
+            'attempts', attempts,
+            'lastFailureTag', last_failure_tag
+          )
+          ORDER BY receipt_id, command_id, ordinal
+        )
+        FROM economy_receipt_outbox
+      ), '[]'::json),
+      'audits', COALESCE((
+        SELECT json_agg(
+          json_build_object(
+            'commandId', command_id,
+            'receiptId', receipt_id,
+            'action', action,
+            'receiptRevision', receipt_revision
+          )
+          ORDER BY occurred_at, command_id
+        )
+        FROM economy_receipt_audit
+      ), '[]'::json)
     )::text;
   `;
   const result = await runCommand(
@@ -252,7 +291,20 @@ async function readPostgresEvidence(environment) {
   return JSON.parse(result.stdout.trim());
 }
 
-function assertDurableEvidence(postgres, privateFile) {
+function assertDurableEvidence(postgres, privateFile, lifecycle) {
+  const outbox = Array.isArray(postgres.outbox) ? postgres.outbox : [];
+  const audits = Array.isArray(postgres.audits) ? postgres.audits : [];
+  const replacementPromote = outbox.find(
+    (row) => row.effectId === "receipt-owner-e2e-replacement:PromoteReceiptFile",
+  );
+  const replacementDelete = outbox.find(
+    (row) => row.effectId === "receipt-owner-e2e-replacement:DeleteReceiptFile",
+  );
+  const replacementAudit = audits.find(
+    (row) => row.commandId === "receipt-owner-e2e-replacement",
+  );
+  const beforeFailure = lifecycle?.beforeFailure;
+  const afterRetry = lifecycle?.afterRetry;
   if (
     postgres.receiptCount !== 1 ||
     postgres.commandCount !== 5 ||
@@ -261,9 +313,22 @@ function assertDurableEvidence(postgres, privateFile) {
     postgres.deliveredOutboxCount !== postgres.outboxCount ||
     postgres.duplicateEffectCount !== 0 ||
     postgres.finalStatus !== "Withdrawn" ||
-    postgres.finalRevision !== 4
+    postgres.finalRevision !== 4 ||
+    replacementPromote?.status !== "Delivered" ||
+    replacementPromote.attempts !== 2 ||
+    replacementPromote.ordinal !== 0 ||
+    replacementDelete?.status !== "Delivered" ||
+    replacementDelete.ordinal !== 2 ||
+    replacementAudit?.action !== "PendingReceiptRevised" ||
+    beforeFailure === undefined ||
+    afterRetry === undefined ||
+    beforeFailure.file.objectKey === afterRetry.file.objectKey ||
+    afterRetry.file.objectKey !== postgres.receiptFile.objectKey ||
+    !beforeFailure.physical.committed.includes(beforeFailure.file.objectKey) ||
+    beforeFailure.physical.committed.includes(afterRetry.file.objectKey) ||
+    !afterRetry.physical.committed.includes(afterRetry.file.objectKey)
   ) {
-    throw new Error("Receipt persistence evidence did not prove the revise-withdraw journey");
+    throw new Error("Receipt persistence evidence did not prove injected replacement recovery");
   }
   if (privateFile.stagingFileCount !== 0 || privateFile.committedFileCount !== 0) {
     throw new Error("Receipt private-file evidence did not prove terminal file deletion");
@@ -280,6 +345,7 @@ async function main() {
   const temporaryRoot = await mkdtemp(join(tmpdir(), "mono-web-receipt-owner-0036-"));
   const stagingRoot = join(temporaryRoot, "staging");
   const committedRoot = join(temporaryRoot, "committed");
+  const lifecycleEvidencePath = join(temporaryRoot, "receipt-lifecycle-evidence.json");
   await Promise.all([
     mkdir(stagingRoot, { recursive: true }),
     mkdir(committedRoot, { recursive: true }),
@@ -315,6 +381,9 @@ async function main() {
     RECEIPT_COMMITTED_ROOT: committedRoot,
     RECEIPT_MAX_FILE_BYTES: "10485760",
     RECEIPT_AUTH_TOKENS: actorTokens,
+    RECEIPT_E2E_TEST_MODE: "1",
+    RECEIPT_E2E_FAIL_PROMOTION_EFFECT_ID:
+      "receipt-owner-e2e-replacement:PromoteReceiptFile",
   };
   const dashboardEnvironment = {
     ...baseEnvironment,
@@ -328,6 +397,9 @@ async function main() {
     DASHBOARD_ORIGIN: dashboardOrigin,
     RECEIPT_E2E_TOKEN: token,
     RECEIPT_E2E_FOREIGN_TOKEN: foreignToken,
+    RECEIPT_E2E_STAGING_ROOT: stagingRoot,
+    RECEIPT_E2E_COMMITTED_ROOT: committedRoot,
+    RECEIPT_E2E_LIFECYCLE_EVIDENCE_PATH: lifecycleEvidencePath,
   };
 
   let postgresStarted = false;
@@ -448,12 +520,13 @@ async function main() {
       },
     );
 
+    const lifecycle = JSON.parse(await readFile(lifecycleEvidencePath, "utf8"));
     const postgres = await readPostgresEvidence(baseEnvironment);
     const privateFile = {
       stagingFileCount: await countFiles(stagingRoot),
       committedFileCount: await countFiles(committedRoot),
     };
-    assertDurableEvidence(postgres, privateFile);
+    assertDurableEvidence(postgres, privateFile, lifecycle);
     evidence = {
       topology: {
         dashboard: "loopback-react-router",
@@ -463,6 +536,7 @@ async function main() {
       },
       postgres,
       privateFile,
+      lifecycle,
     };
   } catch (error) {
     primaryError = error;

@@ -74,8 +74,16 @@ const ReceiptPayloadFields = {
   description: Schema.String.pipe(Schema.check(Schema.isMinLength(1), Schema.isMaxLength(5000))),
   amountOre: PositiveOre,
   receiptDate: IsoDate,
-  file: ReceiptFileSchema,
 };
+
+const ReceiptFileSelectionSchema = Schema.Union([
+  ReceiptFileSchema,
+  Schema.TaggedUnion({
+    KeepCurrentFile: {},
+  }),
+]);
+
+export type ReceiptFileSelection = typeof ReceiptFileSelectionSchema.Type;
 
 export const ReceiptCommandSchema = Schema.TaggedUnion({
   SubmitReceipt: {
@@ -84,6 +92,7 @@ export const ReceiptCommandSchema = Schema.TaggedUnion({
     departmentId: NonEmpty,
     paymentAccountCiphertext: NonEmpty,
     ...ReceiptPayloadFields,
+    file: ReceiptFileSchema,
   },
   RevisePendingReceipt: {
     commandId: NonEmpty,
@@ -91,6 +100,7 @@ export const ReceiptCommandSchema = Schema.TaggedUnion({
     receiptId: NonEmpty,
     expectedRevision: Revision,
     ...ReceiptPayloadFields,
+    file: ReceiptFileSelectionSchema,
   },
   WithdrawPendingReceipt: {
     commandId: NonEmpty,
