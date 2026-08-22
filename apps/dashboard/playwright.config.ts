@@ -31,6 +31,8 @@ const realSymfonyBackgroundOperationsMode =
   process.env.REAL_SYMFONY_BACKGROUND_OPERATIONS_E2E === '1';
 const realReceiptOwnerMode =
   process.env.REAL_RECEIPT_OWNER_E2E === '1';
+const realAdmissionPeriodMode =
+  process.env.REAL_ADMISSION_PERIOD_E2E === '1';
 const realSymfonyMode =
   realSymfonyCoreMode ||
   realSymfonyRecruitmentMode ||
@@ -40,7 +42,7 @@ const realSymfonyMode =
   realSymfonyOrgOperationsMode ||
   realSymfonyBackgroundOperationsMode;
 const externalTopologyMode =
-  realSymfonyMode || realReceiptOwnerMode;
+  realSymfonyMode || realReceiptOwnerMode || realAdmissionPeriodMode;
 
 const fixtureServer = {
   command: 'node e2e/fixtures/login-api.mjs',
@@ -75,7 +77,7 @@ export default defineConfig({
       : undefined,
   reporter: 'html',
   use: {
-    baseURL: realReceiptOwnerMode
+    baseURL: realReceiptOwnerMode || realAdmissionPeriodMode
       ? realSymfonyDashboardOrigin
       : realSymfonyCoreMode
         ? realSymfonyCoreOrigin
@@ -84,10 +86,10 @@ export default defineConfig({
           : genericDashboardOrigin,
     trace: 'off',
   },
-  projects: realReceiptOwnerMode
+  projects: realAdmissionPeriodMode
     ? [
       {
-        name: 'receipt-owner',
+        name: 'admission-period-management',
         use: {
           ...devices['Desktop Chrome'],
           viewport: w0Viewport,
@@ -97,10 +99,10 @@ export default defineConfig({
         },
       },
     ]
-    : realSymfonyMode
+    : realReceiptOwnerMode
       ? [
         {
-          name: 'real-symfony',
+          name: 'receipt-owner',
           use: {
             ...devices['Desktop Chrome'],
             viewport: w0Viewport,
@@ -110,26 +112,39 @@ export default defineConfig({
           },
         },
       ]
-      : [
-        {
-          name: 'chromium',
-          use: {
-            ...devices['Desktop Chrome'],
-            viewport: w0Viewport,
-            launchOptions: chromiumExecutablePath
-              ? { executablePath: chromiumExecutablePath }
-              : undefined,
+      : realSymfonyMode
+        ? [
+          {
+            name: 'real-symfony',
+            use: {
+              ...devices['Desktop Chrome'],
+              viewport: w0Viewport,
+              launchOptions: chromiumExecutablePath
+                ? { executablePath: chromiumExecutablePath }
+                : undefined,
+            },
           },
-        },
-        {
-          name: 'firefox',
-          use: { ...devices['Desktop Firefox'], viewport: w0Viewport },
-        },
-        {
-          name: 'webkit',
-          use: { ...devices['Desktop Safari'], viewport: w0Viewport },
-        },
-      ],
+        ]
+        : [
+          {
+            name: 'chromium',
+            use: {
+              ...devices['Desktop Chrome'],
+              viewport: w0Viewport,
+              launchOptions: chromiumExecutablePath
+                ? { executablePath: chromiumExecutablePath }
+                : undefined,
+            },
+          },
+          {
+            name: 'firefox',
+            use: { ...devices['Desktop Firefox'], viewport: w0Viewport },
+          },
+          {
+            name: 'webkit',
+            use: { ...devices['Desktop Safari'], viewport: w0Viewport },
+          },
+        ],
   webServer: externalTopologyMode
     ? undefined
     : fixtureMode
