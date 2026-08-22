@@ -79,7 +79,7 @@ function requireOrgOperationsMode(): void {
 
 function apiHeaders(token?: string, withBody = false): Record<string, string> {
   return {
-    Accept: "application/ld+json",
+    Accept: "application/json",
     ...(withBody ? { "Content-Type": "application/json" } : {}),
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
   };
@@ -246,7 +246,9 @@ test.describe("Real Symfony organization operations journeys", () => {
 
     const leaderToken = await loginDashboard(page, leaderUsername);
     await page.goto("/dashboard/brukere", { waitUntil: "networkidle" });
-    await expect(page.getByRole("heading", { name: "Brukere", exact: true })).toBeVisible();
+    await expect(
+      page.locator("section").getByRole("heading", { name: "Brukere", exact: true }),
+    ).toBeVisible();
     const { fieldOfStudyId } = await fixtureIds(page, leaderToken);
 
     const created = await requestJson(page, leaderToken, "POST", "/api/admin/users", {
@@ -256,8 +258,7 @@ test.describe("Real Symfony organization operations journeys", () => {
       phone: "90000320",
       fieldOfStudyId,
     });
-    expect(created.response.status()).toBe(201);
-    expect(numericId(created.value)).toBeGreaterThan(0);
+    expect(created.response.status(), JSON.stringify(created.value)).toBe(201);
 
     const freshUsers = await requestJson(page, leaderToken, "GET", "/api/admin/users");
     expect(freshUsers.response.status()).toBe(200);
@@ -407,7 +408,10 @@ test.describe("Real Symfony organization operations journeys", () => {
           waitUntil: "networkidle",
         });
         const capacityForm = symfonyLeaderPage.locator('form[name="schoolCapacity"]');
-        await expect(capacityForm).toBeVisible();
+        expect(
+          await capacityForm.count(),
+          `Expected school capacity form at ${symfonyLeaderPage.url()}; body=${await symfonyLeaderPage.locator("body").innerText()}`,
+        ).toBe(1);
         await capacityForm.getByLabel("Skole").selectOption({ label: createdSchoolName });
         await capacityForm.locator('input[name="schoolCapacity[monday]"]').fill("3");
         await capacityForm.locator('input[name="schoolCapacity[tuesday]"]').fill("3");

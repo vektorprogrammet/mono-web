@@ -1,4 +1,4 @@
-import { Effect, Schema } from "effect"
+import { Effect } from "effect"
 import type { Transport } from "../../transport.js"
 import type { InternalSdkError } from "../../errors.js"
 import { Department, FieldOfStudy, Sponsor } from "../../schemas/common.js"
@@ -12,15 +12,21 @@ export interface PublicMiscDomain {
 export function createPublicMiscDomain(transport: Transport): PublicMiscDomain {
   return {
     departments() {
-      return transport.get("/api/departments", Schema.Array(Department))
+      return transport
+        .getCollection("/api/departments", Department)
+        .pipe(Effect.map(({ items }) => items))
     },
 
     fieldOfStudies() {
-      return transport.get("/api/field_of_studies", Schema.Array(FieldOfStudy))
+      return transport
+        .getCollection("/api/field_of_studies", FieldOfStudy)
+        .pipe(Effect.map(({ items }) => items))
     },
 
     sponsors() {
-      return transport.get("/api/sponsors", Schema.Array(Sponsor))
+      return transport
+        .getCollection("/api/sponsors", Sponsor)
+        .pipe(Effect.map(({ items }) => items))
     },
   }
 }

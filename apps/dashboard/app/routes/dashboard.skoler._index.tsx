@@ -22,14 +22,18 @@ export async function loader({ request }: Route.LoaderArgs) {
 }
 
 function formatCapacity(capacity: SchedulingSchool["capacity"]): string {
-  if (capacity.length === 0) return "No capacity records";
+  const groups = Object.entries(capacity).sort(([left], [right]) =>
+    left.localeCompare(right, undefined, { numeric: true }),
+  );
+  if (groups.length === 0) return "No capacity records";
 
-  return capacity
-    .map((record) =>
-      Object.entries(record)
-        .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
-        .map(([key, value]) => `${key}=${value}`)
-        .join(", "),
+  return groups
+    .map(
+      ([group, record]) =>
+        `Group ${group}: ${Object.entries(record)
+          .sort(([left], [right]) => left.localeCompare(right))
+          .map(([key, value]) => `${key}=${value}`)
+          .join(", ")}`,
     )
     .join(" | ");
 }

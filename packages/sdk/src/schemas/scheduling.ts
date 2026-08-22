@@ -16,7 +16,7 @@ export class SchedulingAssistant extends Schema.Class<SchedulingAssistant>("Sche
 export class SchedulingSchool extends Schema.Class<SchedulingSchool>("SchedulingSchool")({
   id: Schema.Number,
   name: Schema.String,
-  capacity: Schema.Array(Schema.Record(Schema.String, Schema.Number)),
+  capacity: Schema.Record(Schema.String, Schema.Record(Schema.String, Schema.Number)),
 }) {}
 
 export class Substitute extends Schema.Class<Substitute>("Substitute")({

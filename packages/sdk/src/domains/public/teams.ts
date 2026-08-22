@@ -1,4 +1,4 @@
-import { Effect, Schema } from "effect"
+import { Effect } from "effect"
 import type { Transport } from "../../transport.js"
 import type { InternalSdkError } from "../../errors.js"
 import { Team } from "../../schemas/common.js"
@@ -10,7 +10,9 @@ export interface PublicTeamsDomain {
 export function createPublicTeamsDomain(transport: Transport): PublicTeamsDomain {
   return {
     list() {
-      return transport.get("/api/teams", Schema.Array(Team))
+      return transport
+        .getCollection("/api/teams", Team)
+        .pipe(Effect.map(({ items }) => items))
     },
   }
 }
