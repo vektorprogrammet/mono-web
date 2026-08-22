@@ -1,4 +1,5 @@
 import { Container, getContainer } from "@cloudflare/containers";
+export { ContainerProxy } from "@cloudflare/containers";
 import { PREVIEW_IDENTITY } from "./identity.ts";
 import { previewSurface } from "./surface.ts";
 
@@ -23,7 +24,7 @@ interface PreviewService {
 export interface PreviewWorkerEnv {
   readonly Homepage: PreviewService;
   readonly Dashboard: PreviewService;
-  readonly PreviewContainer: PreviewContainerNamespace;
+  readonly ContainerRuntime: PreviewContainerNamespace;
 }
 
 export default {
@@ -38,6 +39,6 @@ export default {
     const surface = previewSurface(new URL(request.url).pathname);
     if (surface === "homepage") return env.Homepage.fetch(request);
     if (surface === "dashboard") return env.Dashboard.fetch(request);
-    return getContainer(env.PreviewContainer, "vektor-p20-container").fetch(request);
+    return getContainer(env.ContainerRuntime, "vektor-p20-container").fetch(request);
   },
 };

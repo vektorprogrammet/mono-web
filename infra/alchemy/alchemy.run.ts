@@ -4,7 +4,7 @@ import * as Effect from "effect/Effect";
 import { PREVIEW_IDENTITY } from "./preview/identity.ts";
 import { PreviewWorker } from "./preview/worker-resource.ts";
 
-export { homepageDomain, PREVIEW_IDENTITY, PreviewWorker };
+export { PREVIEW_IDENTITY, PreviewWorker };
 
 const stageGuard = (stage: string): void => {
   if (stage !== PREVIEW_IDENTITY.stage) {
