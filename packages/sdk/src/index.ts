@@ -86,3 +86,42 @@ export type {
 } from "./schemas/common.js";
 export type { SchedulingAssistant, SchedulingSchool, Substitute } from "./schemas/scheduling.js";
 export type { ClientContext } from "./context.js";
+
+export {
+  AdmissionPeriodRejectionError,
+  AdmissionRoleDeniedError,
+  AdmissionScopeDeniedError,
+  DepartmentRequiredError,
+  DepartmentNotFoundError,
+  SemesterNotFoundError,
+  AdmissionPeriodNotFoundError,
+  AdmissionPeriodDecodeSdkError,
+  InvalidAdmissionPeriodWindowError,
+  AdmissionWindowOutsideSemesterError,
+  AdmissionPeriodAlreadyExistsError,
+  StaleAdmissionPeriodRevisionError,
+  DuplicateAdmissionPeriodCommandConflictError,
+  AdmissionPeriodPersistenceSdkError,
+  AdmissionApplicationRejectionError,
+  AdmissionApplicationDecodeSdkError,
+  NoOpenAdmissionPeriodError,
+  AdmissionApplicationAlreadyExistsError,
+  DuplicateAdmissionApplicationCommandConflictError,
+  AdmissionApplicationPersistenceSdkError,
+} from "./promise.js";
+export type {
+  AdmissionPeriodRejectionTag,
+  AdmissionApplicationRejectionTag,
+} from "./promise.js";
+export {
+  AdmissionPeriod,
+  AdmissionPeriodProjection,
+  AdmissionPeriodCreateInput,
+  AdmissionPeriodReviseInput,
+  AdmissionPeriodCommandObservation,
+  AdmissionPeriodPage,
+  AdmissionPeriodList,
+  AdmissionApplication,
+  AdmissionApplicationSubmitInput,
+  AdmissionApplicationSubmitResponse,
+} from "./promise.js";

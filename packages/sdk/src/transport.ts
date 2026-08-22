@@ -26,6 +26,24 @@ import {
   InvalidReceiptTransition,
   ReceiptFileNotStaged,
   ReceiptPersistenceError,
+  AdmissionRoleDenied,
+  AdmissionScopeDenied,
+  DepartmentRequired,
+  DepartmentNotFound,
+  SemesterNotFound,
+  AdmissionPeriodNotFound,
+  AdmissionPeriodDecodeError,
+  InvalidAdmissionPeriodWindow,
+  AdmissionWindowOutsideSemester,
+  AdmissionPeriodAlreadyExists,
+  StaleAdmissionPeriodRevision,
+  DuplicateAdmissionPeriodCommandConflict,
+  AdmissionPeriodPersistenceError,
+  AdmissionApplicationDecodeError,
+  NoOpenAdmissionPeriod,
+  AdmissionApplicationAlreadyExists,
+  DuplicateAdmissionApplicationCommandConflict,
+  AdmissionApplicationPersistenceError,
   type InternalSdkError,
 } from "./errors.js";
 import { parseViolations } from "./adapter/errors.js";
@@ -83,6 +101,42 @@ const receiptFailureFromBody = (body: unknown): InternalSdkError | undefined => 
       return new ReceiptFileNotStaged();
     case "ReceiptPersistenceError":
       return new ReceiptPersistenceError();
+    case "AdmissionRoleDenied":
+      return new AdmissionRoleDenied();
+    case "AdmissionScopeDenied":
+      return new AdmissionScopeDenied();
+    case "DepartmentRequired":
+      return new DepartmentRequired();
+    case "DepartmentNotFound":
+      return new DepartmentNotFound();
+    case "SemesterNotFound":
+      return new SemesterNotFound();
+    case "AdmissionPeriodNotFound":
+      return new AdmissionPeriodNotFound();
+    case "AdmissionPeriodDecodeError":
+      return new AdmissionPeriodDecodeError();
+    case "InvalidAdmissionPeriodWindow":
+      return new InvalidAdmissionPeriodWindow();
+    case "AdmissionWindowOutsideSemester":
+      return new AdmissionWindowOutsideSemester();
+    case "AdmissionPeriodAlreadyExists":
+      return new AdmissionPeriodAlreadyExists();
+    case "StaleAdmissionPeriodRevision":
+      return new StaleAdmissionPeriodRevision();
+    case "DuplicateAdmissionPeriodCommandConflict":
+      return new DuplicateAdmissionPeriodCommandConflict();
+    case "AdmissionPeriodPersistenceError":
+      return new AdmissionPeriodPersistenceError();
+    case "AdmissionApplicationDecodeError":
+      return new AdmissionApplicationDecodeError();
+    case "NoOpenAdmissionPeriod":
+      return new NoOpenAdmissionPeriod();
+    case "AdmissionApplicationAlreadyExists":
+      return new AdmissionApplicationAlreadyExists();
+    case "DuplicateAdmissionApplicationCommandConflict":
+      return new DuplicateAdmissionApplicationCommandConflict();
+    case "AdmissionApplicationPersistenceError":
+      return new AdmissionApplicationPersistenceError();
     default:
       return undefined;
   }

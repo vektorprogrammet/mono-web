@@ -22,6 +22,8 @@ import { createAdminMiscDomain } from "./domains/admin/misc.js";
 import { createPublicMiscDomain } from "./domains/public/misc.js";
 import { createPublicTeamsDomain } from "./domains/public/teams.js";
 import { createAdminUsersDomain } from "./domains/admin/users.js";
+import { createAdmissionApplicationsDomain } from "./domains/admission-applications.js";
+import { createAdmissionPeriodsDomain } from "./domains/admission-period.js";
 
 // --- Public re-exports ---
 
@@ -49,8 +51,33 @@ export {
   InvalidReceiptTransitionError,
   ReceiptFileNotStagedError,
   ReceiptPersistenceSdkError,
+  AdmissionPeriodRejectionError,
+  AdmissionRoleDeniedError,
+  AdmissionScopeDeniedError,
+  DepartmentRequiredError,
+  DepartmentNotFoundError,
+  SemesterNotFoundError,
+  AdmissionPeriodNotFoundError,
+  AdmissionPeriodDecodeSdkError,
+  InvalidAdmissionPeriodWindowError,
+  AdmissionWindowOutsideSemesterError,
+  AdmissionPeriodAlreadyExistsError,
+  StaleAdmissionPeriodRevisionError,
+  DuplicateAdmissionPeriodCommandConflictError,
+  AdmissionPeriodPersistenceSdkError,
+  AdmissionApplicationRejectionError,
+  AdmissionApplicationDecodeSdkError,
+  NoOpenAdmissionPeriodError,
+  AdmissionApplicationAlreadyExistsError,
+  DuplicateAdmissionApplicationCommandConflictError,
+  AdmissionApplicationPersistenceSdkError,
 } from "./errors.js";
-export type { SdkErrorType, ReceiptRejectionTag } from "./errors.js";
+export type {
+  SdkErrorType,
+  ReceiptRejectionTag,
+  AdmissionPeriodRejectionTag,
+  AdmissionApplicationRejectionTag,
+} from "./errors.js";
 
 export type { Receipt, AdminReceipt, ReceiptInput } from "./schemas/receipt.js";
 export {
@@ -83,6 +110,44 @@ export {
   ReceiptWithdrawInput,
   ReceiptWithdrawInputSchema,
 } from "./schemas/receipt.js";
+export type {
+  AdmissionPeriodId,
+  AdmissionCommandId,
+  AdmissionRevision,
+  Rfc3339Instant,
+  AdmissionPeriodCommandObservation,
+  AdmissionPeriodList,
+} from "./schemas/admission-period.js";
+export {
+  AdmissionPeriod,
+  AdmissionPeriodSchema,
+  AdmissionPeriodProjection,
+  AdmissionPeriodProjectionSchema,
+  AdmissionPeriodCreateInput,
+  AdmissionPeriodCreateInputSchema,
+  AdmissionPeriodReviseInput,
+  AdmissionPeriodReviseInputSchema,
+  AdmissionPeriodCommandObservation,
+  AdmissionPeriodPage,
+  AdmissionPeriodPageSchema,
+  AdmissionPeriodList,
+  AdmissionPeriodListSchema,
+  AdmissionPeriodIdSchema,
+  AdmissionCommandIdSchema,
+  AdmissionRevisionSchema,
+  Rfc3339Instant,
+  Rfc3339InstantSchema,
+} from "./schemas/admission-period.js";
+export type {
+  AdmissionApplication,
+  AdmissionApplicationSubmitInput,
+  AdmissionApplicationSubmitResponse,
+} from "./schemas/admission-application.js";
+export {
+  AdmissionApplicationSchema,
+  AdmissionApplicationSubmitInputSchema,
+  AdmissionApplicationSubmitResponseSchema,
+} from "./schemas/admission-application.js";
 export type { Application, ApplicationDetail } from "./schemas/application.js";
 export {
   AdminInterviewList,
@@ -158,6 +223,8 @@ export function createClient(baseUrl: string | undefined, options?: ClientOption
     auth: promisifyDomain(createAuthDomain(transport)),
     me: promisifyDomain(createMeDomain(transport)),
     receipts: promisifyDomain(createReceiptsDomain(transport)),
+    admissionPeriods: promisifyDomain(createAdmissionPeriodsDomain(transport)),
+    applications: promisifyDomain(createAdmissionApplicationsDomain(transport)),
     admin: {
       receipts: promisifyDomain(createAdminReceiptsDomain(transport)),
       applications: promisifyDomain(createAdminApplicationsDomain(transport)),

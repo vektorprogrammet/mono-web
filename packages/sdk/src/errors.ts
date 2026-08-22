@@ -17,7 +17,33 @@ export type SdkErrorType =
   | "network"
   | "rate_limited"
   | "configuration"
-  | "receipt_rejection";
+  | "receipt_rejection"
+  | "admission_period_rejection"
+  | "admission_application_rejection";
+
+export type AdmissionPeriodRejectionTag =
+  | "UnauthenticatedActor"
+  | "InactiveActor"
+  | "AdmissionRoleDenied"
+  | "AdmissionScopeDenied"
+  | "DepartmentRequired"
+  | "DepartmentNotFound"
+  | "SemesterNotFound"
+  | "AdmissionPeriodNotFound"
+  | "AdmissionPeriodDecodeError"
+  | "InvalidAdmissionPeriodWindow"
+  | "AdmissionWindowOutsideSemester"
+  | "AdmissionPeriodAlreadyExists"
+  | "StaleAdmissionPeriodRevision"
+  | "DuplicateAdmissionPeriodCommandConflict"
+  | "AdmissionPeriodPersistenceError";
+
+export type AdmissionApplicationRejectionTag =
+  | "AdmissionApplicationDecodeError"
+  | "NoOpenAdmissionPeriod"
+  | "AdmissionApplicationAlreadyExists"
+  | "DuplicateAdmissionApplicationCommandConflict"
+  | "AdmissionApplicationPersistenceError";
 
 export type ReceiptRejectionTag =
   | "UnauthenticatedActor"
@@ -193,8 +219,155 @@ export class ReceiptPersistenceSdkError extends ReceiptRejectionError {
     this.name = "ReceiptPersistenceSdkError";
   }
 }
+export class AdmissionPeriodRejectionError extends SdkError {
+  readonly _tag: AdmissionPeriodRejectionTag;
+  readonly admissionTag: AdmissionPeriodRejectionTag;
+
+  constructor(tag: AdmissionPeriodRejectionTag) {
+    super("admission_period_rejection", tag);
+    this.name = "AdmissionPeriodRejectionError";
+    this._tag = tag;
+    this.admissionTag = tag;
+  }
+}
+
+export class AdmissionRoleDeniedError extends AdmissionPeriodRejectionError {
+  constructor() {
+    super("AdmissionRoleDenied");
+    this.name = "AdmissionRoleDeniedError";
+  }
+}
+
+export class AdmissionScopeDeniedError extends AdmissionPeriodRejectionError {
+  constructor() {
+    super("AdmissionScopeDenied");
+    this.name = "AdmissionScopeDeniedError";
+  }
+}
+
+export class DepartmentRequiredError extends AdmissionPeriodRejectionError {
+  constructor() {
+    super("DepartmentRequired");
+    this.name = "DepartmentRequiredError";
+  }
+}
+
+export class DepartmentNotFoundError extends AdmissionPeriodRejectionError {
+  constructor() {
+    super("DepartmentNotFound");
+    this.name = "DepartmentNotFoundError";
+  }
+}
+
+export class SemesterNotFoundError extends AdmissionPeriodRejectionError {
+  constructor() {
+    super("SemesterNotFound");
+    this.name = "SemesterNotFoundError";
+  }
+}
+
+export class AdmissionPeriodNotFoundError extends AdmissionPeriodRejectionError {
+  constructor() {
+    super("AdmissionPeriodNotFound");
+    this.name = "AdmissionPeriodNotFoundError";
+  }
+}
+
+export class AdmissionPeriodDecodeSdkError extends AdmissionPeriodRejectionError {
+  constructor() {
+    super("AdmissionPeriodDecodeError");
+    this.name = "AdmissionPeriodDecodeSdkError";
+  }
+}
+
+export class InvalidAdmissionPeriodWindowError extends AdmissionPeriodRejectionError {
+  constructor() {
+    super("InvalidAdmissionPeriodWindow");
+    this.name = "InvalidAdmissionPeriodWindowError";
+  }
+}
+
+export class AdmissionWindowOutsideSemesterError extends AdmissionPeriodRejectionError {
+  constructor() {
+    super("AdmissionWindowOutsideSemester");
+    this.name = "AdmissionWindowOutsideSemesterError";
+  }
+}
+
+export class AdmissionPeriodAlreadyExistsError extends AdmissionPeriodRejectionError {
+  constructor() {
+    super("AdmissionPeriodAlreadyExists");
+    this.name = "AdmissionPeriodAlreadyExistsError";
+  }
+}
+
+export class StaleAdmissionPeriodRevisionError extends AdmissionPeriodRejectionError {
+  constructor() {
+    super("StaleAdmissionPeriodRevision");
+    this.name = "StaleAdmissionPeriodRevisionError";
+  }
+}
+
+export class DuplicateAdmissionPeriodCommandConflictError extends AdmissionPeriodRejectionError {
+  constructor() {
+    super("DuplicateAdmissionPeriodCommandConflict");
+    this.name = "DuplicateAdmissionPeriodCommandConflictError";
+  }
+}
+
+export class AdmissionPeriodPersistenceSdkError extends AdmissionPeriodRejectionError {
+  constructor() {
+    super("AdmissionPeriodPersistenceError");
+    this.name = "AdmissionPeriodPersistenceSdkError";
+  }
+}
+
+export class AdmissionApplicationRejectionError extends SdkError {
+  readonly _tag: AdmissionApplicationRejectionTag;
+  readonly applicationTag: AdmissionApplicationRejectionTag;
+
+  constructor(tag: AdmissionApplicationRejectionTag) {
+    super("admission_application_rejection", tag);
+    this.name = "AdmissionApplicationRejectionError";
+    this._tag = tag;
+    this.applicationTag = tag;
+  }
+}
+
+export class AdmissionApplicationDecodeSdkError extends AdmissionApplicationRejectionError {
+  constructor() {
+    super("AdmissionApplicationDecodeError");
+    this.name = "AdmissionApplicationDecodeSdkError";
+  }
+}
+export class NoOpenAdmissionPeriodError extends AdmissionApplicationRejectionError {
+  constructor() {
+    super("NoOpenAdmissionPeriod");
+    this.name = "NoOpenAdmissionPeriodError";
+  }
+}
+export class AdmissionApplicationAlreadyExistsError extends AdmissionApplicationRejectionError {
+  constructor() {
+    super("AdmissionApplicationAlreadyExists");
+    this.name = "AdmissionApplicationAlreadyExistsError";
+  }
+}
+export class DuplicateAdmissionApplicationCommandConflictError extends AdmissionApplicationRejectionError {
+  constructor() {
+    super("DuplicateAdmissionApplicationCommandConflict");
+    this.name = "DuplicateAdmissionApplicationCommandConflictError";
+  }
+}
+export class AdmissionApplicationPersistenceSdkError extends AdmissionApplicationRejectionError {
+  constructor() {
+    super("AdmissionApplicationPersistenceError");
+    this.name = "AdmissionApplicationPersistenceSdkError";
+  }
+}
 
 // --- Internal Effect TaggedErrors ---
+
+
 
 export class Unauthorized extends Schema.TaggedError<Unauthorized>()("Unauthorized", {
   message: Schema.String,
@@ -279,6 +452,78 @@ export class ReceiptPersistenceError extends Schema.TaggedError<ReceiptPersisten
   "ReceiptPersistenceError",
   {},
 ) {}
+export class AdmissionRoleDenied extends Schema.TaggedError<AdmissionRoleDenied>()(
+  "AdmissionRoleDenied",
+  {},
+) {}
+export class AdmissionScopeDenied extends Schema.TaggedError<AdmissionScopeDenied>()(
+  "AdmissionScopeDenied",
+  {},
+) {}
+export class DepartmentRequired extends Schema.TaggedError<DepartmentRequired>()(
+  "DepartmentRequired",
+  {},
+) {}
+export class DepartmentNotFound extends Schema.TaggedError<DepartmentNotFound>()(
+  "DepartmentNotFound",
+  {},
+) {}
+export class SemesterNotFound extends Schema.TaggedError<SemesterNotFound>()(
+  "SemesterNotFound",
+  {},
+) {}
+export class AdmissionPeriodNotFound extends Schema.TaggedError<AdmissionPeriodNotFound>()(
+  "AdmissionPeriodNotFound",
+  {},
+) {}
+export class AdmissionPeriodDecodeError extends Schema.TaggedError<AdmissionPeriodDecodeError>()(
+  "AdmissionPeriodDecodeError",
+  {},
+) {}
+export class InvalidAdmissionPeriodWindow extends Schema.TaggedError<InvalidAdmissionPeriodWindow>()(
+  "InvalidAdmissionPeriodWindow",
+  {},
+) {}
+export class AdmissionWindowOutsideSemester extends Schema.TaggedError<AdmissionWindowOutsideSemester>()(
+  "AdmissionWindowOutsideSemester",
+  {},
+) {}
+export class AdmissionPeriodAlreadyExists extends Schema.TaggedError<AdmissionPeriodAlreadyExists>()(
+  "AdmissionPeriodAlreadyExists",
+  {},
+) {}
+export class StaleAdmissionPeriodRevision extends Schema.TaggedError<StaleAdmissionPeriodRevision>()(
+  "StaleAdmissionPeriodRevision",
+  {},
+) {}
+export class DuplicateAdmissionPeriodCommandConflict extends Schema.TaggedError<DuplicateAdmissionPeriodCommandConflict>()(
+  "DuplicateAdmissionPeriodCommandConflict",
+  {},
+) {}
+export class AdmissionPeriodPersistenceError extends Schema.TaggedError<AdmissionPeriodPersistenceError>()(
+  "AdmissionPeriodPersistenceError",
+  {},
+) {}
+export class AdmissionApplicationDecodeError extends Schema.TaggedError<AdmissionApplicationDecodeError>()(
+  "AdmissionApplicationDecodeError",
+  {},
+) {}
+export class NoOpenAdmissionPeriod extends Schema.TaggedError<NoOpenAdmissionPeriod>()(
+  "NoOpenAdmissionPeriod",
+  {},
+) {}
+export class AdmissionApplicationAlreadyExists extends Schema.TaggedError<AdmissionApplicationAlreadyExists>()(
+  "AdmissionApplicationAlreadyExists",
+  {},
+) {}
+export class DuplicateAdmissionApplicationCommandConflict extends Schema.TaggedError<DuplicateAdmissionApplicationCommandConflict>()(
+  "DuplicateAdmissionApplicationCommandConflict",
+  {},
+) {}
+export class AdmissionApplicationPersistenceError extends Schema.TaggedError<AdmissionApplicationPersistenceError>()(
+  "AdmissionApplicationPersistenceError",
+  {},
+) {}
 
 export type ReceiptFailure =
   | UnauthenticatedActor
@@ -293,6 +538,33 @@ export type ReceiptFailure =
   | InvalidReceiptTransition
   | ReceiptFileNotStaged
   | ReceiptPersistenceError;
+export type AdmissionPeriodFailure =
+  | UnauthenticatedActor
+  | InactiveActor
+  | AdmissionRoleDenied
+  | AdmissionScopeDenied
+  | DepartmentRequired
+  | DepartmentNotFound
+  | SemesterNotFound
+  | AdmissionPeriodNotFound
+  | AdmissionPeriodDecodeError
+  | InvalidAdmissionPeriodWindow
+  | AdmissionWindowOutsideSemester
+  | AdmissionPeriodAlreadyExists
+  | StaleAdmissionPeriodRevision
+  | DuplicateAdmissionPeriodCommandConflict
+  | AdmissionPeriodPersistenceError;
+export type AdmissionApplicationFailure =
+  | AdmissionApplicationDecodeError
+  | NoOpenAdmissionPeriod
+  | AdmissionApplicationAlreadyExists
+  | DuplicateAdmissionApplicationCommandConflict
+  | AdmissionApplicationPersistenceError;
+
+export type AdmissionApplicationSdkError = AdmissionApplicationFailure;
+
+export type AdmissionPeriodSdkError = AdmissionPeriodFailure;
+
 
 export type ReceiptSdkError = ReceiptFailure;
 
@@ -304,7 +576,9 @@ export type InternalSdkError =
   | Network
   | RateLimited
   | Configuration
-  | ReceiptFailure;
+  | ReceiptFailure
+  | AdmissionPeriodFailure
+  | AdmissionApplicationFailure;
 
 /**
  * Maps an internal Effect TaggedError to a public SdkError subclass.
@@ -350,5 +624,41 @@ export function toSdkError(error: InternalSdkError): SdkError {
       return new ReceiptFileNotStagedError();
     case "ReceiptPersistenceError":
       return new ReceiptPersistenceSdkError();
+    case "AdmissionRoleDenied":
+      return new AdmissionRoleDeniedError();
+    case "AdmissionScopeDenied":
+      return new AdmissionScopeDeniedError();
+    case "DepartmentRequired":
+      return new DepartmentRequiredError();
+    case "DepartmentNotFound":
+      return new DepartmentNotFoundError();
+    case "SemesterNotFound":
+      return new SemesterNotFoundError();
+    case "AdmissionPeriodNotFound":
+      return new AdmissionPeriodNotFoundError();
+    case "AdmissionPeriodDecodeError":
+      return new AdmissionPeriodDecodeSdkError();
+    case "InvalidAdmissionPeriodWindow":
+      return new InvalidAdmissionPeriodWindowError();
+    case "AdmissionWindowOutsideSemester":
+      return new AdmissionWindowOutsideSemesterError();
+    case "AdmissionPeriodAlreadyExists":
+      return new AdmissionPeriodAlreadyExistsError();
+    case "StaleAdmissionPeriodRevision":
+      return new StaleAdmissionPeriodRevisionError();
+    case "DuplicateAdmissionPeriodCommandConflict":
+      return new DuplicateAdmissionPeriodCommandConflictError();
+    case "AdmissionPeriodPersistenceError":
+      return new AdmissionPeriodPersistenceSdkError();
+    case "AdmissionApplicationDecodeError":
+      return new AdmissionApplicationDecodeSdkError();
+    case "NoOpenAdmissionPeriod":
+      return new NoOpenAdmissionPeriodError();
+    case "AdmissionApplicationAlreadyExists":
+      return new AdmissionApplicationAlreadyExistsError();
+    case "DuplicateAdmissionApplicationCommandConflict":
+      return new DuplicateAdmissionApplicationCommandConflictError();
+    case "AdmissionApplicationPersistenceError":
+      return new AdmissionApplicationPersistenceSdkError();
   }
 }

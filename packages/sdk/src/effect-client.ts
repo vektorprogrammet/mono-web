@@ -20,12 +20,24 @@ import { createAdminMiscDomain } from "./domains/admin/misc.js";
 import { createPublicMiscDomain } from "./domains/public/misc.js";
 import { createPublicTeamsDomain } from "./domains/public/teams.js";
 import { createAdminUsersDomain } from "./domains/admin/users.js";
+import { createAdmissionApplicationsDomain } from "./domains/admission-applications.js";
+import { createAdmissionPeriodsDomain } from "./domains/admission-period.js";
 import { createTransport, type AuthOption } from "./transport.js";
 
 // --- Public re-exports ---
-
-export type { InternalSdkError, ReceiptFailure } from "./errors.js";
-export type { ReceiptRejectionTag } from "./errors.js";
+export type {
+  InternalSdkError,
+  ReceiptFailure,
+  AdmissionPeriodFailure,
+  AdmissionPeriodSdkError,
+  AdmissionApplicationFailure,
+  AdmissionApplicationSdkError,
+} from "./errors.js";
+export type {
+  ReceiptRejectionTag,
+  AdmissionPeriodRejectionTag,
+  AdmissionApplicationRejectionTag,
+} from "./errors.js";
 export type { ClientContext } from "./context.js";
 export { apiUrl, isFixtureMode } from "./config.js";
 
@@ -59,6 +71,44 @@ export {
   ReceiptWithdrawInput,
   ReceiptWithdrawInputSchema,
 } from "./schemas/receipt.js";
+export type {
+  AdmissionPeriodId,
+  AdmissionCommandId,
+  AdmissionRevision,
+  Rfc3339Instant,
+  AdmissionPeriodCommandObservation,
+  AdmissionPeriodList,
+} from "./schemas/admission-period.js";
+export {
+  AdmissionPeriod,
+  AdmissionPeriodSchema,
+  AdmissionPeriodProjection,
+  AdmissionPeriodProjectionSchema,
+  AdmissionPeriodCreateInput,
+  AdmissionPeriodCreateInputSchema,
+  AdmissionPeriodReviseInput,
+  AdmissionPeriodReviseInputSchema,
+  AdmissionPeriodCommandObservation,
+  AdmissionPeriodPage,
+  AdmissionPeriodPageSchema,
+  AdmissionPeriodList,
+  AdmissionPeriodListSchema,
+  AdmissionPeriodIdSchema,
+  AdmissionCommandIdSchema,
+  AdmissionRevisionSchema,
+  Rfc3339Instant,
+  Rfc3339InstantSchema,
+} from "./schemas/admission-period.js";
+export type {
+  AdmissionApplication,
+  AdmissionApplicationSubmitInput,
+  AdmissionApplicationSubmitResponse,
+} from "./schemas/admission-application.js";
+export {
+  AdmissionApplicationSchema,
+  AdmissionApplicationSubmitInputSchema,
+  AdmissionApplicationSubmitResponseSchema,
+} from "./schemas/admission-application.js";
 export type { Receipt, AdminReceipt, ReceiptInput } from "./schemas/receipt.js";
 export type { Application, ApplicationDetail } from "./schemas/application.js";
 export {
@@ -107,6 +157,8 @@ export function createEffectClient(baseUrl: string | undefined, options?: Client
     auth: createAuthDomain(transport),
     me: createMeDomain(transport),
     receipts: createReceiptsDomain(transport),
+    admissionPeriods: createAdmissionPeriodsDomain(transport),
+    applications: createAdmissionApplicationsDomain(transport),
     admin: {
       receipts: createAdminReceiptsDomain(transport),
       applications: createAdminApplicationsDomain(transport),
