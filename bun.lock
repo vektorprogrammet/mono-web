@@ -13,6 +13,20 @@
         "wrangler": "4.120.1",
       },
     },
+    "apps/admission-api": {
+      "name": "@vektorprogrammet/admission-api",
+      "version": "0.1.0",
+      "dependencies": {
+        "@effect/sql-pg": "catalog:effect-v4",
+        "@vektorprogrammet/domain": "workspace:*",
+        "effect": "catalog:effect-v4",
+      },
+      "devDependencies": {
+        "@types/node": "^22",
+        "oxlint": "^1.41.0",
+        "typescript": "^5",
+      },
+    },
     "apps/dashboard": {
       "name": "@monoweb/dashboard",
       "dependencies": {
@@ -1097,6 +1111,8 @@
     "@types/react-dom": ["@types/react-dom@19.2.3", "", { "peerDependencies": { "@types/react": "^19.2.0" } }, "sha512-jp2L/eY6fn+KgVVQAOqYItbF0VY/YApe5Mz2F0aykSO8gx31bYCZyvSeYxCHKvzHG5eZjc+zyaS5BrBWya2+kQ=="],
 
     "@types/use-sync-external-store": ["@types/use-sync-external-store@0.0.6", "", {}, "sha512-zFDAD+tlpf2r4asuHEj0XH6pY6i0g5NeAHPn+15wk3BV6JA69eERFXC1gyGThDkVa1zCyKr5jox1+2LbV/AMLg=="],
+
+    "@vektorprogrammet/admission-api": ["@vektorprogrammet/admission-api@workspace:apps/admission-api"],
 
     "@vektorprogrammet/domain": ["@vektorprogrammet/domain@workspace:packages/domain"],
 
