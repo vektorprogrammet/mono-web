@@ -3,13 +3,18 @@ import type { Transport } from "../transport.js";
 import type { InternalSdkError } from "../errors.js";
 import { ReceiptDecodeError } from "../errors.js";
 import {
+  CommandId,
   Receipt,
-  ReceiptCreateResponse,
-  ReceiptInput,
   ReceiptCommandObservation,
+  ReceiptCreateResponse,
+  ReceiptId,
+  ReceiptInput,
   ReceiptOwnerFilter,
   ReceiptPage,
+  ReceiptRevision,
+  ReceiptReviseInput,
   ReceiptSubmitInput,
+  ReceiptWithdrawInput,
 } from "../schemas/receipt.js";
 const decodeCanonical = <A>(
   schema: Schema.ConstraintDecoder<A, never>,
@@ -53,6 +58,17 @@ export interface ReceiptsDomain {
   submit(
     input: typeof ReceiptSubmitInput.Type,
     file: File,
+  ): Effect.Effect<typeof ReceiptCommandObservation.Type, InternalSdkError>;
+  revise(
+    receiptId: typeof ReceiptId.Type,
+    expectedRevision: typeof ReceiptRevision.Type,
+    input: typeof ReceiptReviseInput.Type,
+    replacementFile?: File,
+  ): Effect.Effect<typeof ReceiptCommandObservation.Type, InternalSdkError>;
+  withdraw(
+    receiptId: typeof ReceiptId.Type,
+    expectedRevision: typeof ReceiptRevision.Type,
+    commandId: typeof CommandId.Type,
   ): Effect.Effect<typeof ReceiptCommandObservation.Type, InternalSdkError>;
   listOwned(
     filter?: typeof ReceiptOwnerFilter.Type,
@@ -115,6 +131,63 @@ export function createReceiptsDomain(transport: Transport): ReceiptsDomain {
             { strict: true },
           );
         }),
+      );
+    },
+
+    revise(receiptId, expectedRevision, input, replacementFile) {
+      return decodeCanonical(ReceiptId, receiptId).pipe(
+        Effect.flatMap((validReceiptId) =>
+          decodeCanonical(ReceiptRevision, expectedRevision).pipe(
+            Effect.flatMap((validRevision) =>
+              decodeCanonical(ReceiptReviseInput, input).pipe(
+                Effect.flatMap((validInput) => {
+                  if (replacementFile !== undefined && !isBrowserFile(replacementFile)) {
+                    return Effect.fail(new ReceiptDecodeError());
+                  }
+
+                  const formData = new FormData();
+                  formData.append("commandId", validInput.commandId);
+                  formData.append("expectedRevision", String(validRevision));
+                  formData.append("description", validInput.description);
+                  formData.append("amountOre", String(validInput.amountOre));
+                  formData.append("receiptDate", validInput.receiptDate);
+                  if (replacementFile !== undefined) formData.append("file", replacementFile);
+
+                  return transport.postFormData(
+                    `/api/receipts/${encodeURIComponent(validReceiptId)}/revise`,
+                    formData,
+                    ReceiptCommandObservation,
+                    { strict: true },
+                  );
+                }),
+              ),
+            ),
+          ),
+        ),
+      );
+    },
+
+    withdraw(receiptId, expectedRevision, commandId) {
+      return decodeCanonical(ReceiptId, receiptId).pipe(
+        Effect.flatMap((validReceiptId) =>
+          decodeCanonical(ReceiptRevision, expectedRevision).pipe(
+            Effect.flatMap((validRevision) =>
+              decodeCanonical(ReceiptWithdrawInput, {
+                commandId,
+                expectedRevision: validRevision,
+              }).pipe(
+                Effect.flatMap((validInput) =>
+                  transport.post(
+                    `/api/receipts/${encodeURIComponent(validReceiptId)}/withdraw`,
+                    validInput,
+                    ReceiptCommandObservation,
+                    { strict: true },
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
       );
     },
 

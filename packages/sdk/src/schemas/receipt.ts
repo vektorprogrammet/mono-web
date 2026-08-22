@@ -74,6 +74,7 @@ const canonicalSafeInteger = Schema.Int.pipe(
 );
 
 const canonicalPositiveOre = canonicalSafeInteger.pipe(Schema.check(Schema.isGreaterThan(0)));
+const canonicalRevision = canonicalSafeInteger.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(0)));
 
 const canonicalReceiptDate = Schema.String.pipe(
   Schema.check(
@@ -93,6 +94,8 @@ export type ReceiptId = typeof ReceiptId.Type;
 
 export const CommandId = canonicalIdentifier;
 export type CommandId = typeof CommandId.Type;
+export const ReceiptRevision = canonicalRevision;
+export type ReceiptRevision = typeof ReceiptRevision.Type;
 
 export const ReceiptStatus = Schema.Literals(["Pending", "Refunded", "Rejected", "Withdrawn"]);
 export type ReceiptStatus = typeof ReceiptStatus.Type;
@@ -126,12 +129,27 @@ export const ReceiptIdSchema = ReceiptId;
 export const CommandIdSchema = CommandId;
 export const ReceiptStatusSchema = ReceiptStatus;
 export const ReceiptFileSchema = ReceiptFile;
+export const ReceiptRevisionSchema = ReceiptRevision;
 
 export class ReceiptSubmitInput extends Schema.Class<ReceiptSubmitInput>("ReceiptSubmitInput")({
   commandId: CommandId,
   description: Schema.String.pipe(Schema.check(Schema.isMinLength(1), Schema.isMaxLength(5000))),
   amountOre: canonicalPositiveOre,
   receiptDate: canonicalReceiptDate,
+}) {}
+
+export class ReceiptReviseInput extends Schema.Class<ReceiptReviseInput>("ReceiptReviseInput")({
+  commandId: CommandId,
+  description: Schema.String.pipe(Schema.check(Schema.isMinLength(1), Schema.isMaxLength(5000))),
+  amountOre: canonicalPositiveOre,
+  receiptDate: canonicalReceiptDate,
+}) {}
+
+export class ReceiptWithdrawInput extends Schema.Class<ReceiptWithdrawInput>(
+  "ReceiptWithdrawInput",
+)({
+  commandId: CommandId,
+  expectedRevision: ReceiptRevision,
 }) {}
 
 export class ReceiptCommandObservation extends Schema.Class<ReceiptCommandObservation>(
@@ -141,7 +159,7 @@ export class ReceiptCommandObservation extends Schema.Class<ReceiptCommandObserv
   receiptId: ReceiptId,
   visualId: canonicalIdentifier,
   status: ReceiptStatus,
-  revision: canonicalSafeInteger.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(0))),
+  revision: ReceiptRevision,
   replayed: Schema.Boolean,
 }) {}
 
@@ -159,7 +177,7 @@ export class ReceiptProjection extends Schema.Class<ReceiptProjection>("ReceiptP
   description: Schema.String.pipe(Schema.check(Schema.isMinLength(1), Schema.isMaxLength(5000))),
   receiptDate: canonicalReceiptDate,
   status: ReceiptStatus,
-  revision: canonicalSafeInteger.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(0))),
+  revision: ReceiptRevision,
 }) {}
 
 export class ReceiptPage extends Schema.Class<ReceiptPage>("ReceiptPage")({
@@ -177,6 +195,8 @@ export class ReceiptOwnerFilter extends Schema.Class<ReceiptOwnerFilter>("Receip
 // introducing a second representation of any canonical type.
 export const ReceiptSubmitInputSchema = ReceiptSubmitInput;
 export const ReceiptCommandObservationSchema = ReceiptCommandObservation;
+export const ReceiptReviseInputSchema = ReceiptReviseInput;
+export const ReceiptWithdrawInputSchema = ReceiptWithdrawInput;
 export const ReceiptProjectionSchema = ReceiptProjection;
 export const ReceiptPageSchema = ReceiptPage;
 export const ReceiptOwnerFilterSchema = ReceiptOwnerFilter;

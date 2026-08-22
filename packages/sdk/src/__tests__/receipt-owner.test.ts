@@ -73,6 +73,83 @@ describe("canonical owner Receipt capability", () => {
     expect(body.get("file")).toBeInstanceOf(File);
   });
 
+  it("revises with and without a replacement through the canonical multipart route", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(response(200, observation))
+      .mockResolvedValueOnce(response(200, { ...observation, commandId: "command-2", revision: 2 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = createClient("http://api.test", { auth: "loopback-token" });
+    const input = {
+      commandId: "command-1",
+      description: "Updated train ticket",
+      amountOre: 13000,
+      receiptDate: "2026-08-21",
+    };
+
+    await expect(client.receipts.revise("receipt-1", 0, input)).resolves.toEqual(observation);
+    const [firstUrl, firstInit] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(firstUrl).toBe("http://api.test/api/receipts/receipt-1/revise");
+    expect(firstInit.method).toBe("POST");
+    expect((firstInit.headers as Record<string, string>).Authorization).toBe(
+      "Bearer loopback-token",
+    );
+    const firstBody = firstInit.body as FormData;
+    expect(Array.from(firstBody.keys())).toEqual([
+      "commandId",
+      "expectedRevision",
+      "description",
+      "amountOre",
+      "receiptDate",
+    ]);
+    expect(firstBody.get("commandId")).toBe("command-1");
+    expect(firstBody.get("expectedRevision")).toBe("0");
+    expect(firstBody.get("description")).toBe("Updated train ticket");
+    expect(firstBody.get("amountOre")).toBe("13000");
+    expect(firstBody.get("receiptDate")).toBe("2026-08-21");
+
+    const replacementFile = new File(["replacement"], "replacement.pdf", {
+      type: "application/pdf",
+    });
+    await expect(
+      client.receipts.revise("receipt-1", 1, { ...input, commandId: "command-2" }, replacementFile),
+    ).resolves.toMatchObject({ commandId: "command-2", revision: 2 });
+    const [, secondInit] = fetchMock.mock.calls[1] as [string, RequestInit];
+    const secondBody = secondInit.body as FormData;
+    expect(Array.from(secondBody.keys())).toEqual([
+      "commandId",
+      "expectedRevision",
+      "description",
+      "amountOre",
+      "receiptDate",
+      "file",
+    ]);
+    expect(secondBody.get("file")).toBe(replacementFile);
+  });
+
+  it("withdraws through the canonical JSON route with the caller command and revision", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      response(200, { ...observation, commandId: "command-3", status: "Withdrawn", revision: 3 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const client = createClient("http://api.test", { auth: "loopback-token" });
+
+    await expect(client.receipts.withdraw("receipt-1", 2, "command-3")).resolves.toMatchObject({
+      commandId: "command-3",
+      status: "Withdrawn",
+      revision: 3,
+    });
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("http://api.test/api/receipts/receipt-1/withdraw");
+    expect(init.method).toBe("POST");
+    expect((init.headers as Record<string, string>).Authorization).toBe("Bearer loopback-token");
+    expect((init.headers as Record<string, string>)["Content-Type"]).toBe("application/json");
+    expect(JSON.parse(String(init.body))).toEqual({
+      commandId: "command-3",
+      expectedRevision: 2,
+    });
+  });
+
   it("strictly decodes the command observation", async () => {
     vi.stubGlobal(
       "fetch",

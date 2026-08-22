@@ -40,10 +40,16 @@ export {
   ReceiptPageSchema,
   ReceiptProjection,
   ReceiptProjectionSchema,
+  ReceiptReviseInput,
+  ReceiptReviseInputSchema,
+  ReceiptRevision,
+  ReceiptRevisionSchema,
   ReceiptStatus,
   ReceiptStatusSchema,
   ReceiptSubmitInput,
   ReceiptSubmitInputSchema,
+  ReceiptWithdrawInput,
+  ReceiptWithdrawInputSchema,
 } from "./schemas/receipt.js";
 export type { Application, ApplicationDetail } from "./schemas/application.js";
 export {
