@@ -1,324 +1,327 @@
 import {
   expect,
   test,
-  type APIRequestContext,
+  type APIResponse,
+  type Browser,
   type Page,
 } from "@playwright/test";
 import { z } from "zod";
 
-const APP_URL = "http://127.0.0.1:5174";
-const STUB_URL = "http://127.0.0.1:8787";
-const TOKEN = "trace-token";
-const isConfigPrecheck = process.env.RECEIPT_CONFIG_PRECHECK === "1";
+const DASHBOARD_ORIGIN =
+  process.env.DASHBOARD_ORIGIN ?? "http://127.0.0.1:5174";
+const RECEIPT_API_ORIGIN =
+  process.env.RECEIPT_API_ORIGIN ?? "http://127.0.0.1:8790";
+const REAL_RECEIPT_OWNER_E2E =
+  process.env.REAL_RECEIPT_OWNER_E2E === "1";
+const COMMAND_ID = "receipt-owner-command-0035";
+const DESCRIPTION = "Owner receipt submission";
+const RECEIPT_DATE = "2026-08-21";
+const AMOUNT_ORE = 12_550;
+const MAX_FILE_BYTES = 10_485_760;
+const RECEIPT_BYTES = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+  "base64",
+);
 
-type FaultOptions = {
-  status?: number;
-  malformed?: "receipt-date" | "admin-shape" | "create-response";
-};
+const receiptErrorSchema = z
+  .object({
+    error: z
+      .object({
+        tag: z.string(),
+      })
+      .strict(),
+  })
+  .strict();
 
-async function resetStub(request: APIRequestContext): Promise<void> {
-  const response = await request.post(`${STUB_URL}/__receipt_stub/reset`);
-  expect(response.status()).toBe(204);
-}
+const receiptObservationSchema = z
+  .object({
+    commandId: z.string().min(1),
+    receiptId: z.string().min(1),
+    visualId: z.string().min(1),
+    status: z.enum(["Pending", "Refunded", "Rejected", "Withdrawn"]),
+    revision: z.number().int().positive(),
+    replayed: z.boolean(),
+  })
+  .strict();
 
-async function setFault(
-  request: APIRequestContext,
-  operation:
-    | "personal-list"
-    | "personal-create"
-    | "personal-update"
-    | "personal-delete"
-    | "admin-list"
-    | "admin-status"
-    | "profile",
-  options: FaultOptions,
-): Promise<void> {
-  const response = await request.post(`${STUB_URL}/__receipt_stub/control`, {
-    data: { operation, ...options },
-  });
-  expect(response.status()).toBe(204);
-}
+const receiptProjectionSchema = z
+  .object({
+    receiptId: z.string().min(1),
+    visualId: z.string().min(1),
+    description: z.string().min(1),
+    amountOre: z.number().int().positive(),
+    currency: z.literal("NOK"),
+    receiptDate: z.string(),
+    status: z.enum(["Pending", "Refunded", "Rejected", "Withdrawn"]),
+    revision: z.number().int().positive(),
+  })
+  .strict();
 
-async function clearFault(
-  request: APIRequestContext,
-  operation:
-    | "personal-list"
-    | "personal-create"
-    | "personal-update"
-    | "personal-delete"
-    | "admin-list"
-    | "admin-status"
-    | "profile",
-): Promise<void> {
-  const response = await request.post(`${STUB_URL}/__receipt_stub/control`, {
-    data: { operation, clear: true },
-  });
-  expect(response.status()).toBe(204);
-}
+const receiptPageSchema = z
+  .object({
+    items: z.array(receiptProjectionSchema),
+    totalItems: z.number().int().nonnegative(),
+  })
+  .strict();
 
-const receiptStubEvidenceSchema = z.object({
-  requests: z.array(
-    z.object({
-      method: z.string(),
-      path: z.string(),
-      status: z.number().int(),
-      bodyShape: z.discriminatedUnion("kind", [
-        z.object({ kind: z.literal("empty") }),
-        z.object({ kind: z.literal("json"), keys: z.array(z.string()) }),
-        z.object({
-          kind: z.literal("multipart"),
-          fields: z.array(z.string()),
-          filePresent: z.boolean(),
-        }),
-      ]),
-    }),
-  ),
-  transitions: z.array(z.string()),
-});
-
-async function readEvidence(request: APIRequestContext): Promise<string> {
-  const response = await request.get(`${STUB_URL}/__receipt_stub/evidence`);
-  expect(response.status()).toBe(200);
-  return response.text();
+function activeToken(): string {
+  const token = process.env.RECEIPT_E2E_TOKEN;
+  if (token === undefined || token.length === 0) {
+    throw new Error("RECEIPT_E2E_TOKEN is required for the real Receipt journey");
+  }
+  return token;
 }
 
 async function authenticate(page: Page): Promise<void> {
   await page.context().addCookies([
     {
       name: "jwt_token",
-      value: TOKEN,
-      url: APP_URL,
+      value: activeToken(),
+      url: DASHBOARD_ORIGIN,
       httpOnly: true,
       sameSite: "Lax",
     },
   ]);
 }
 
-test.describe("Receipt SDK consumer seam", () => {
-  // Preflight intentionally runs without the fixture:
-  // env -u API_URL -u VITE_API_URL CI=1 RECEIPT_CONFIG_PRECHECK=1 node ./node_modules/@playwright/test/cli.js test e2e/receipts.spec.ts -g "isolated SSR configuration preflight" --project=chromium --retries=0
-  // Journey starts `bun e2e/fixtures/receipt-api.ts --port 8787` first, then uses:
-  // API_URL=http://127.0.0.1:8787 VITE_API_URL=http://127.0.0.1:8787 node ./node_modules/@playwright/test/cli.js test e2e/receipts.spec.ts -g "runs the personal and admin Receipt journey against the loopback stub" --project=chromium --retries=0
-  test("isolated SSR configuration preflight", async ({ page }) => {
-    test.skip(!isConfigPrecheck, "requires the isolated SSR config preflight command");
-    await authenticate(page);
-    const preflight = await page.request.get(
-      `${APP_URL}/dashboard/mine-utlegg.data?_routes=routes%2Fdashboard.mine-utlegg._index`,
-    );
-    expect(preflight.status()).toBe(200);
-    expect(await preflight.text()).toContain(
-      "API-konfigurasjon mangler eller er ugyldig.",
-    );
-  });
+async function expectUnauthenticatedBrowser(browser: Browser): Promise<void> {
+  const context = await browser.newContext({ baseURL: DASHBOARD_ORIGIN });
+  try {
+    await context.addCookies([
+      {
+        name: "jwt_token",
+        value: "invalid-local-receipt-token",
+        url: DASHBOARD_ORIGIN,
+        httpOnly: true,
+        sameSite: "Lax",
+      },
+    ]);
+    const page = await context.newPage();
+    await page.goto("/dashboard/mine-utlegg");
+    await expect(page).toHaveURL(/\/login\?expired=true$/);
+  } finally {
+    await context.close();
+  }
+}
 
-  test("runs the personal and admin Receipt journey against the loopback stub", async ({
+async function responseErrorTag(response: APIResponse): Promise<string> {
+  return receiptErrorSchema.parse(await response.json()).error.tag;
+}
+
+test.describe("Native Receipt owner journey", () => {
+  test.skip(
+    !REAL_RECEIPT_OWNER_E2E,
+    "requires the disposable native Receipt topology",
+  );
+
+  test("persists one exact Pending receipt and preserves replay identity", async ({
+    browser,
     page,
     request,
   }) => {
-    test.skip(isConfigPrecheck, "separate isolated SSR config preflight");
-    await resetStub(request);
+    const unauthenticatedResponse = await request.get(
+      `${RECEIPT_API_ORIGIN}/api/receipts`,
+    );
+    expect(unauthenticatedResponse.status()).toBe(401);
+    const unauthenticatedTag = await responseErrorTag(
+      unauthenticatedResponse,
+    );
+    expect(unauthenticatedTag).toBe("UnauthenticatedActor");
+    await expectUnauthenticatedBrowser(browser);
+
     await authenticate(page);
-
     await page.goto("/dashboard/mine-utlegg");
-    await expect(page.getByRole("heading", { name: "Mine Utlegg" })).toBeVisible();
-    // Cold Vite route prebundle stabilization: dependency optimization can reload the DOM.
+    await expect(
+      page.getByRole("heading", { name: "Mine Utlegg" }),
+    ).toBeVisible();
+    await expect(
+      page.getByText("Ingen utlegg er sendt inn ennå.", { exact: true }),
+    ).toBeVisible();
+
+    const form = page.getByRole("form", { name: "Send inn utlegg" });
+    await form.locator('input[name="commandId"]').evaluate(
+      (element, commandId) => {
+        (element as HTMLInputElement).value = commandId;
+      },
+      COMMAND_ID,
+    );
+    await form.getByLabel(/Beskrivelse/).fill(DESCRIPTION);
+    await form.getByLabel(/Beløp i NOK/).fill("125,501");
+    await form.getByLabel(/Kvitteringsdato/).fill(RECEIPT_DATE);
+    await form.getByLabel(/Kvitteringsfil/).setInputFiles({
+      name: "receipt.png",
+      mimeType: "image/png",
+      buffer: RECEIPT_BYTES,
+    });
+    await form
+      .getByRole("button", { name: "Send inn utlegg", exact: true })
+      .click();
+
+    const formError = form.getByRole("alert");
+    await expect(formError).toHaveAttribute(
+      "data-error-tag",
+      "ReceiptDecodeError",
+    );
+    await expect(formError).toHaveAttribute(
+      "data-error-field",
+      "amountNok",
+    );
+
+    await form.getByLabel(/Beløp i NOK/).fill("125,50");
+    await form.getByLabel(/Kvitteringsfil/).setInputFiles({
+      name: "receipt.txt",
+      mimeType: "text/plain",
+      buffer: Buffer.from("unsupported"),
+    });
+    await form
+      .getByRole("button", { name: "Send inn utlegg", exact: true })
+      .click();
+    await expect(formError).toHaveAttribute(
+      "data-error-field",
+      "file",
+    );
+
+    await form.getByLabel(/Kvitteringsfil/).setInputFiles({
+      name: "oversized.png",
+      mimeType: "image/png",
+      buffer: Buffer.alloc(MAX_FILE_BYTES + 1),
+    });
+    await form
+      .getByRole("button", { name: "Send inn utlegg", exact: true })
+      .click();
+    await expect(formError).toContainText(
+      "Kvitteringsfilen kan ikke være større enn 10 MiB.",
+    );
+
+    await form.getByLabel(/Kvitteringsfil/).setInputFiles({
+      name: "receipt.png",
+      mimeType: "image/png",
+      buffer: RECEIPT_BYTES,
+    });
+    await form
+      .getByRole("button", { name: "Send inn utlegg", exact: true })
+      .click();
+
+    await expect(form.getByRole("status")).toBeVisible();
+    let receiptRow = page
+      .getByRole("row")
+      .filter({ hasText: DESCRIPTION });
+    await expect(receiptRow).toHaveCount(1);
+    await expect(receiptRow).toContainText("125,50 NOK");
+    await expect(receiptRow).toContainText(RECEIPT_DATE);
+    await expect(receiptRow).toContainText("Pending");
+
     await page.reload();
-    await expect(page.getByRole("heading", { name: "Mine Utlegg" })).toBeVisible();
-    await expect(page.getByText("2026-08-08", { exact: true })).toBeVisible();
-    await expect(page.getByText("Venter", { exact: true }).first()).toBeVisible();
-
-    await page.getByRole("button", { name: "Legg til utlegg", exact: true }).click();
-    const createDialog = page.getByRole("dialog");
-    await createDialog.getByLabel(/Beskrivelse/).fill("Travel to course");
-    await createDialog.getByLabel(/Beløp/).fill("125.50");
-    await createDialog.getByLabel(/Dato/).fill("2026-08-08");
-    await createDialog.getByLabel(/Kvitteringsbilde/).setInputFiles({
-      name: "receipt.png",
-      mimeType: "image/png",
-      buffer: Buffer.from("synthetic receipt"),
-    });
-    await createDialog.getByRole("button", { name: "Legg til", exact: true }).click();
-    await expect(page.getByText("Travel to course", { exact: true })).toBeVisible();
-    await createDialog.getByRole("button", { name: "Avbryt", exact: true }).click();
-    await expect(
-      page.getByRole("row").filter({ hasText: "Travel to course" }),
-    ).toContainText("2026-08-08");
-
-    let createdRow = page.getByRole("row").filter({ hasText: "Travel to course" });
-    await createdRow.getByRole("button", { name: "Rediger", exact: true }).click();
-    const editDialog = page.getByRole("dialog");
-    await editDialog.getByLabel(/Beskrivelse/).fill("Travel updated");
-    await editDialog.getByLabel(/Beløp/).fill("140.75");
-    await editDialog.getByLabel(/Dato/).fill("2026-08-09");
-    await editDialog
-      .getByRole("button", { name: "Lagre endringer", exact: true })
-      .click();
-    await expect(page.getByText("Travel updated", { exact: true })).toBeVisible();
-    await editDialog.getByRole("button", { name: "Avbryt", exact: true }).click();
-    await expect(
-      page.getByRole("row").filter({ hasText: "Travel updated" }),
-    ).toContainText("2026-08-09");
-
-    createdRow = page.getByRole("row").filter({ hasText: "Travel updated" });
-    await createdRow.getByRole("button", { name: "Slett", exact: true }).click();
-    const deleteDialog = page.getByRole("alertdialog");
-    await deleteDialog.getByRole("button", { name: "Slett", exact: true }).click();
-    await expect(page.getByText("Travel updated", { exact: true })).toHaveCount(0);
-
-    await page.getByRole("button", { name: "Refundert", exact: true }).click();
-    await expect(page.getByText("Course travel", { exact: true })).toHaveCount(0);
-    await page.getByRole("button", { name: "Alle", exact: true }).click();
-    await expect(page.getByText("Course travel", { exact: true })).toBeVisible();
-
-    await page.goto("/dashboard/utlegg");
-    await expect(page.getByRole("heading", { name: "Utlegg" })).toBeVisible();
-    await expect(page.getByText("Kari Nordmann", { exact: true })).toBeVisible();
-    await expect(
-      page.getByRole("row").filter({ hasText: "Approval receipt" }),
-    ).toContainText("2026-08-05");
-
-    await page.getByRole("button", { name: "Refundert", exact: true }).click();
-    await expect(page).toHaveURL(/\/dashboard\/utlegg\?status=refunded/);
-    await expect(page.getByText("Already refunded", { exact: true })).toBeVisible();
-    await page.getByRole("button", { name: "Alle", exact: true }).click();
-
-    let adminRow = page.getByRole("row").filter({ hasText: "Approval receipt" });
-    await adminRow.getByRole("button", { name: "Godkjenn", exact: true }).click();
-    await page.getByRole("alertdialog").getByRole("button", { name: "Godkjenn", exact: true }).click();
-    await expect(adminRow).toContainText("Refundert");
-
-    adminRow = page.getByRole("row").filter({ hasText: "Rejection receipt" });
-    await adminRow.getByRole("button", { name: "Avvis", exact: true }).click();
-    await page.getByRole("alertdialog").getByRole("button", { name: "Avvis", exact: true }).click();
-    await expect(adminRow).toContainText("Avvist");
-
-    adminRow = page.getByRole("row").filter({ hasText: "Reopen receipt" });
-    await adminRow.getByRole("button", { name: "Gjenåpne", exact: true }).click();
-    await page.getByRole("alertdialog").getByRole("button", { name: "Gjenåpne", exact: true }).click();
-    await expect(adminRow).toContainText("Venter");
-
-    for (const status of [422, 404, 429, 500]) {
-      await setFault(request, "personal-list", { status });
-      await page.goto("/dashboard/mine-utlegg");
-      await expect(page.getByRole("alert").first()).toBeVisible();
-      await clearFault(request, "personal-list");
+    receiptRow = page.getByRole("row").filter({ hasText: DESCRIPTION });
+    await expect(receiptRow).toHaveCount(1);
+    const renderedReceiptId = (
+      await receiptRow.getByTestId("receipt-id").textContent()
+    )?.trim();
+    if (renderedReceiptId === undefined || renderedReceiptId.length === 0) {
+      throw new Error("Rendered Receipt ID is missing");
     }
+    expect(renderedReceiptId).not.toMatch(/^\d+$/);
+    await expect(receiptRow).toContainText("125,50 NOK");
+    await expect(receiptRow).toContainText(RECEIPT_DATE);
+    await expect(receiptRow).toContainText("Pending");
 
-    await page.goto("/dashboard/mine-utlegg");
-    await setFault(request, "personal-create", { status: 422 });
-    await page.getByRole("button", { name: "Legg til utlegg", exact: true }).click();
-    const createErrorDialog = page.getByRole("dialog");
-    await createErrorDialog.getByLabel(/Beskrivelse/).fill("Fault create");
-    await createErrorDialog.getByLabel(/Beløp/).fill("10");
-    await createErrorDialog.getByLabel(/Dato/).fill("2026-08-08");
-    await createErrorDialog.getByLabel(/Kvitteringsbilde/).setInputFiles({
-      name: "receipt.png",
-      mimeType: "image/png",
-      buffer: Buffer.from("synthetic receipt"),
+    const replayResponse = await request.post(
+      `${RECEIPT_API_ORIGIN}/api/receipts/submit`,
+      {
+        headers: {
+          Authorization: `Bearer ${activeToken()}`,
+        },
+        multipart: {
+          commandId: COMMAND_ID,
+          description: DESCRIPTION,
+          amountOre: String(AMOUNT_ORE),
+          receiptDate: RECEIPT_DATE,
+          file: {
+            name: "receipt.png",
+            mimeType: "image/png",
+            buffer: RECEIPT_BYTES,
+          },
+        },
+      },
+    );
+    expect([200, 201]).toContain(replayResponse.status());
+    const replay = receiptObservationSchema.parse(
+      await replayResponse.json(),
+    );
+    expect(replay.commandId).toBe(COMMAND_ID);
+    expect(replay.receiptId).toBe(renderedReceiptId);
+    expect(replay.status).toBe("Pending");
+    expect(replay.revision).toBe(1);
+    expect(replay.replayed).toBe(true);
+
+    const ownedResponse = await request.get(
+      `${RECEIPT_API_ORIGIN}/api/receipts`,
+      {
+        headers: {
+          Authorization: `Bearer ${activeToken()}`,
+        },
+      },
+    );
+    expect(ownedResponse.status()).toBe(200);
+    const owned = receiptPageSchema.parse(await ownedResponse.json());
+    expect(owned.totalItems).toBe(1);
+    expect(owned.items).toHaveLength(1);
+    expect(owned.items[0]).toMatchObject({
+      receiptId: renderedReceiptId,
+      amountOre: AMOUNT_ORE,
+      currency: "NOK",
+      receiptDate: RECEIPT_DATE,
+      status: "Pending",
+      revision: 1,
     });
-    await createErrorDialog.getByRole("button", { name: "Legg til", exact: true }).click();
-    await expect(createErrorDialog.getByRole("alert")).toBeVisible();
-    await clearFault(request, "personal-create");
-    await createErrorDialog.getByRole("button", { name: "Avbryt", exact: true }).click();
 
-    await page.goto("/dashboard/mine-utlegg");
-    await setFault(request, "personal-update", { status: 409 });
-    const updateErrorRow = page.getByRole("row").filter({ hasText: "Course travel" });
-    await updateErrorRow.getByRole("button", { name: "Rediger", exact: true }).click();
-    const updateErrorDialog = page.getByRole("dialog");
-    await updateErrorDialog.getByLabel(/Beskrivelse/).fill("Fault update");
-    await updateErrorDialog.getByLabel(/Beløp/).fill("11");
-    await updateErrorDialog.getByLabel(/Dato/).fill("2026-08-08");
-    await updateErrorDialog
-      .getByRole("button", { name: "Lagre endringer", exact: true })
-      .click();
-    await expect(updateErrorDialog.getByRole("alert")).toBeVisible();
-    await clearFault(request, "personal-update");
-    await updateErrorDialog.getByRole("button", { name: "Avbryt", exact: true }).click();
+    await page.reload();
+    receiptRow = page.getByRole("row").filter({ hasText: DESCRIPTION });
+    await expect(receiptRow).toHaveCount(1);
+    await expect(receiptRow.getByTestId("receipt-id")).toHaveText(
+      replay.receiptId,
+    );
 
-    await setFault(request, "personal-list", { malformed: "receipt-date" });
-    await page.goto("/dashboard/mine-utlegg");
-    await expect(page.getByRole("alert").first()).toBeVisible();
-    await clearFault(request, "personal-list");
-
-    await page.goto("/dashboard/mine-utlegg");
-    const initialRow = page.getByRole("row").filter({ hasText: "Course travel" });
-    await setFault(request, "personal-delete", { status: 409 });
-    await initialRow.getByRole("button", { name: "Slett", exact: true }).click();
-    await page.getByRole("alertdialog").getByRole("button", { name: "Slett", exact: true }).click();
-    await expect(page.getByRole("alertdialog").getByRole("alert")).toBeVisible();
-    await clearFault(request, "personal-delete");
-    await page.getByRole("alertdialog").getByRole("button", { name: "Avbryt", exact: true }).click();
-
-    await page.goto("/dashboard/utlegg");
-    await setFault(request, "admin-status", { status: 409 });
-    const statusErrorRow = page.getByRole("row").filter({ hasText: "Rejection receipt" });
-    await statusErrorRow.getByRole("button", { name: "Gjenåpne", exact: true }).click();
-    await page.getByRole("alertdialog").getByRole("button", { name: "Gjenåpne", exact: true }).click();
-    await expect(statusErrorRow.getByRole("alert")).toBeVisible();
-    await clearFault(request, "admin-status");
-
-    await setFault(request, "admin-list", { malformed: "admin-shape" });
-    await page.goto("/dashboard/utlegg");
-    await expect(page.getByRole("alert").first()).toBeVisible();
-    await clearFault(request, "admin-list");
-
-    await setFault(request, "personal-list", { status: 401 });
-    const expired = await page.request.get(`${APP_URL}/dashboard/mine-utlegg`, {
-      maxRedirects: 0,
-    });
-    expect(expired.status()).toBe(302);
-    expect(expired.headers().location).toContain("/login?expired=true");
-    await clearFault(request, "personal-list");
-
-    const rawEvidence = await readEvidence(request);
-    expect(rawEvidence).not.toContain(TOKEN);
-    expect(rawEvidence).not.toContain("Travel to course");
-    await test.info().attach("receipt-stub-evidence.json", {
-      body: Buffer.from(rawEvidence),
+    await test.info().attach("receipt-owner-evidence.json", {
+      body: Buffer.from(
+        JSON.stringify({
+          topology: {
+            dashboard: "loopback-react-router",
+            api: "native-effect-receipt",
+            persistence: "postgresql",
+            fileStore: "private-filesystem",
+          },
+          unauthenticated: {
+            status: unauthenticatedResponse.status(),
+            tag: unauthenticatedTag,
+          },
+          rejectedInputs: [
+            { tag: "ReceiptDecodeError", field: "amountNok" },
+            { tag: "ReceiptDecodeError", field: "file" },
+          ],
+          accepted: {
+            receiptId: replay.receiptId,
+            visualId: replay.visualId,
+            amountOre: AMOUNT_ORE,
+            currency: "NOK",
+            receiptDate: RECEIPT_DATE,
+            status: replay.status,
+            revision: replay.revision,
+          },
+          replay: {
+            commandId: replay.commandId,
+            receiptId: replay.receiptId,
+            replayed: replay.replayed,
+          },
+          rendered: {
+            receiptId: renderedReceiptId,
+            amount: "125,50 NOK",
+            receiptDate: RECEIPT_DATE,
+            status: "Pending",
+          },
+        }),
+      ),
       contentType: "application/json",
     });
-    const stubEvidence = receiptStubEvidenceSchema.parse(JSON.parse(rawEvidence));
-
-    expect(stubEvidence.transitions).toEqual(
-      expect.arrayContaining([
-        "personal:create:99",
-        "personal:update:99",
-        "personal:delete:99",
-        "admin:10:refunded",
-        "admin:11:rejected",
-        "admin:12:pending",
-      ]),
-    );
-    expect(stubEvidence.requests).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ method: "POST", path: "/api/receipts", status: 201 }),
-        expect.objectContaining({ method: "PUT", path: "/api/receipts/99", status: 204 }),
-        expect.objectContaining({ method: "DELETE", path: "/api/receipts/99", status: 204 }),
-        expect.objectContaining({ method: "GET", path: "/api/admin/receipts" }),
-        expect.objectContaining({
-          method: "PUT",
-          path: "/api/admin/receipts/10/status",
-          status: 204,
-        }),
-      ]),
-    );
-
-    const createRequest = stubEvidence.requests.find(
-      (request) =>
-        request.method === "POST" &&
-        request.path === "/api/receipts" &&
-        request.status === 201,
-    );
-    expect(createRequest).toBeDefined();
-    if (createRequest === undefined || createRequest.bodyShape.kind !== "multipart") {
-      throw new Error("Receipt create evidence is not multipart");
-    }
-    expect(createRequest.bodyShape.filePresent).toBe(true);
-    expect(createRequest.bodyShape.fields).toEqual(
-      expect.arrayContaining(["description", "sum", "receiptDate", "file"]),
-    );
-    expect(createRequest.bodyShape.fields).not.toContain("picture");
-
   });
 });
