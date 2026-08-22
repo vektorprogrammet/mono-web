@@ -324,7 +324,9 @@ async function main() {
       ],
       { cwd: serverRoot, env: serverEnv },
     );
-    const fixtureInputBytes = await readFile(databasePath);
+    const fixtureInputBytes = await readFile(
+      join(serverRoot, "tests/Fixtures/RecruitmentAssignmentFixture.php"),
+    );
 
     symfonyProcess = startProcess(
       "php",

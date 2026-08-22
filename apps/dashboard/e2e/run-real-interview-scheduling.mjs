@@ -373,7 +373,9 @@ async function main() {
       ],
       { cwd: serverRoot, env: serverEnv },
     );
-    const fixtureInputBytes = await readFile(databasePath);
+    const fixtureInputBytes = await readFile(
+      join(serverRoot, "tests/Fixtures/RecruitmentInterviewSchedulingFixture.php"),
+    );
     await assertPortAvailable(8000);
 
     symfonyProcess = startProcess(

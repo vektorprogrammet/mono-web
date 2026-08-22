@@ -316,7 +316,9 @@ async function main() {
       "-d", "date.timezone=Europe/Oslo", "bin/console", "doctrine:fixtures:load", "--env=e2e",
       "--group=recruitment-interview-invitation-response", "--no-interaction",
     ], { cwd: serverRoot, env: serverEnv });
-    const fixtureInputBytes = await readFile(databasePath);
+    const fixtureInputBytes = await readFile(
+      join(serverRoot, "tests/Fixtures/RecruitmentInterviewInvitationResponseFixture.php"),
+    );
     await assertPortAvailable(8000);
     symfonyProcess = startProcess("php", ["-d", "date.timezone=Europe/Oslo", "-S", "127.0.0.1:8000", "-t", "public", "public/index.php"], { cwd: serverRoot, env: serverEnv });
     await waitForHttp(`${apiOrigin}/api/docs`, symfonyProcess);
