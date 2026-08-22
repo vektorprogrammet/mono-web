@@ -403,7 +403,8 @@ test.describe("Native Receipt owner journey", () => {
     });
     await reviseForm
       .locator('input[name="commandId"]')
-      .evaluate((input, commandId) => {
+      .evaluate((element, commandId) => {
+        const input = element as HTMLInputElement;
         input.value = commandId;
         input.dispatchEvent(new Event("input", { bubbles: true }));
         input.dispatchEvent(new Event("change", { bubbles: true }));
