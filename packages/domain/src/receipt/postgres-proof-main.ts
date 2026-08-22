@@ -1,7 +1,11 @@
 import * as PgClient from "@effect/sql-pg/PgClient";
 import { readFile } from "node:fs/promises";
 import { Config, Effect, Redacted } from "effect";
-import { renderReceiptProofEvidence, runReceiptPostgresProof } from "./postgres-proof.js";
+import { canonicalJson } from "../tutor/evidence.js";
+import { makeReceiptAuxiliaryRecording } from "./auxiliary-service.js";
+import { makeReceiptFileRecording } from "./file-service.js";
+import { runReceiptFileProof } from "./file-proof.js";
+import { runReceiptPostgresProof } from "./postgres-proof.js";
 
 const migrationUrl = new URL("./migrations/0001-receipt-authority.sql", import.meta.url);
 
@@ -13,16 +17,28 @@ const program = Effect.gen(function* () {
     try: () => readFile(migrationUrl, "utf8"),
     catch: (cause) => new Error(`cannot read Receipt migration: ${String(cause)}`),
   });
-  const evidence = yield* runReceiptPostgresProof(migrationSql).pipe(
-    Effect.provide(
-      PgClient.layer({
-        url: Redacted.make(Redacted.value(databaseUrl)),
-        applicationName: "receipt-authority-proof",
-        maxConnections: 2,
-      }),
-    ),
+  const fileRecording = makeReceiptFileRecording();
+  const auxiliaryRecording = makeReceiptAuxiliaryRecording();
+  const postgresLayer = PgClient.layer({
+    url: Redacted.make(Redacted.value(databaseUrl)),
+    applicationName: "receipt-authority-proof",
+    maxConnections: 4,
+  });
+  const evidence = yield* Effect.gen(function* () {
+    const authority = yield* runReceiptPostgresProof(migrationSql);
+    const fileLifecycle = yield* runReceiptFileProof(
+      migrationSql,
+      fileRecording.snapshot,
+      fileRecording.failNext,
+      auxiliaryRecording.appliedEffectIds,
+    );
+    return { authority, fileLifecycle };
+  }).pipe(
+    Effect.provide(fileRecording.layer),
+    Effect.provide(auxiliaryRecording.layer),
+    Effect.provide(postgresLayer),
   );
-  yield* Effect.sync(() => process.stdout.write(renderReceiptProofEvidence(evidence)));
+  yield* Effect.sync(() => process.stdout.write(`${canonicalJson(evidence)}\n`));
 });
 
 Effect.runPromise(Effect.scoped(program)).catch((cause: unknown) => {

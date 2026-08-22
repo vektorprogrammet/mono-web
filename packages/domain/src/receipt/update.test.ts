@@ -53,7 +53,7 @@ it.effect("submits, revises, and withdraws only a pending owner receipt", () =>
     const submitted = yield* decideReceipt(undefined, submit, context);
     expect(submitted.receipt.status).toBe("Pending");
     expect(submitted.receipt.amountOre).toBe(12_345);
-    expect(submitted.outbox.map((item) => item.effectType)).toEqual([
+    expect(submitted.outbox.map((item) => item._tag)).toEqual([
       "PromoteReceiptFile",
       "NotifyEconomyReceiptSubmitted",
       "WriteReceiptAudit",
@@ -242,15 +242,19 @@ it.effect("binds file lifecycle effects to the exact old and new objects", () =>
     );
     expect(revised.outbox).toEqual([
       expect.objectContaining({
-        effectType: "PromoteReceiptFile",
-        fileObjectKey: "tmp/replacement",
-        fileSha256: "d".repeat(64),
+        _tag: "PromoteReceiptFile",
+        file: expect.objectContaining({
+          objectKey: "tmp/replacement",
+          sha256: "d".repeat(64),
+        }),
       }),
-      expect.objectContaining({ effectType: "WriteReceiptAudit" }),
+      expect.objectContaining({ _tag: "WriteReceiptAudit" }),
       expect.objectContaining({
-        effectType: "DeleteReceiptFile",
-        fileObjectKey: "tmp/file-1",
-        fileSha256: "a".repeat(64),
+        _tag: "DeleteReceiptFile",
+        file: expect.objectContaining({
+          objectKey: "tmp/file-1",
+          sha256: "a".repeat(64),
+        }),
       }),
     ]);
   }),

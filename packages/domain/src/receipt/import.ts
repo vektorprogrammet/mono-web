@@ -176,16 +176,22 @@ export interface LegacyReceiptImportInput {
 export const importLegacyReceipts = (
   inputs: ReadonlyArray<LegacyReceiptImportInput>,
 ): ReadonlyArray<ReceiptImportResult> => {
-  const visualIds = new Set<string>();
-  const sourceKeys = new Set<string>();
+  const sourceKeyCounts = new Map<string, number>();
+  const visualIdCounts = new Map<string, number>();
+  for (const { row } of inputs) {
+    sourceKeyCounts.set(row.sourcePrimaryKey, (sourceKeyCounts.get(row.sourcePrimaryKey) ?? 0) + 1);
+    if (row.visualId !== null) {
+      visualIdCounts.set(row.visualId, (visualIdCounts.get(row.visualId) ?? 0) + 1);
+    }
+  }
   return inputs.map(({ row, receiptId, provenance }) => {
     const result = importLegacyReceipt(row, receiptId, provenance);
     const duplicateReasons: ReceiptQuarantineReason[] = [];
-    if (sourceKeys.has(row.sourcePrimaryKey)) duplicateReasons.push("SourceIdentityCollision");
-    sourceKeys.add(row.sourcePrimaryKey);
-    if (row.visualId !== null) {
-      if (visualIds.has(row.visualId)) duplicateReasons.push("DuplicateVisualId");
-      visualIds.add(row.visualId);
+    if ((sourceKeyCounts.get(row.sourcePrimaryKey) ?? 0) > 1) {
+      duplicateReasons.push("SourceIdentityCollision");
+    }
+    if (row.visualId !== null && (visualIdCounts.get(row.visualId) ?? 0) > 1) {
+      duplicateReasons.push("DuplicateVisualId");
     }
     if (duplicateReasons.length === 0) return result;
     return {

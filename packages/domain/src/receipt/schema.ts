@@ -21,7 +21,9 @@ const IsoDate = Schema.String.pipe(
 const IsoInstant = Schema.String.pipe(
   Schema.check(Schema.makeFilter(isIsoInstant, { message: "an ISO-8601 instant with offset" })),
 );
-const PositiveOre = Schema.Int.pipe(Schema.check(Schema.isGreaterThan(0)));
+const PositiveOre = Schema.Int.pipe(
+  Schema.check(Schema.isGreaterThan(0), Schema.isLessThanOrEqualTo(Number.MAX_SAFE_INTEGER)),
+);
 const Revision = Schema.Int.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(0)));
 
 export const ReceiptStatusSchema = Schema.Literals([
@@ -59,7 +61,13 @@ export const ReceiptFileSchema = Schema.Struct({
       }),
     ),
   ),
-});
+}).pipe(
+  Schema.check(
+    Schema.makeFilter((file) => file.fileRef !== file.objectKey, {
+      message: "different staging and committed object identities",
+    }),
+  ),
+);
 export type ReceiptFile = typeof ReceiptFileSchema.Type;
 
 const ReceiptPayloadFields = {

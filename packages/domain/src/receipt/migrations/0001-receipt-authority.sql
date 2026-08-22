@@ -3,7 +3,7 @@ CREATE TABLE IF NOT EXISTS economy_receipts (
   visual_id text NOT NULL UNIQUE,
   owner_person_id text NOT NULL,
   department_id text NOT NULL,
-  amount_ore bigint NOT NULL CHECK (amount_ore > 0),
+  amount_ore bigint NOT NULL CHECK (amount_ore > 0 AND amount_ore <= 9007199254740991),
   currency text NOT NULL CHECK (currency = 'NOK'),
   description text NOT NULL CHECK (char_length(description) BETWEEN 1 AND 5000),
   receipt_date date NOT NULL,
@@ -36,27 +36,56 @@ CREATE TABLE IF NOT EXISTS economy_receipt_outbox (
   command_id text NOT NULL REFERENCES economy_receipt_command_receipts(command_id),
   ordinal integer NOT NULL CHECK (ordinal >= 0),
   payload_json jsonb NOT NULL,
-  status text NOT NULL DEFAULT 'Pending' CHECK (status IN ('Pending', 'Delivered', 'Failed')),
+  status text NOT NULL DEFAULT 'Pending'
+    CONSTRAINT economy_receipt_outbox_status_check
+    CHECK (status IN ('Pending', 'Processing', 'Delivered', 'Failed')),
   attempts integer NOT NULL DEFAULT 0 CHECK (attempts >= 0),
-  UNIQUE (command_id, ordinal)
+  claim_id text NULL,
+  claimed_at timestamptz NULL,
+  last_failure_tag text NULL,
+  UNIQUE (command_id, ordinal),
+  CONSTRAINT economy_receipt_outbox_claim_check CHECK (
+    (status = 'Processing' AND claim_id IS NOT NULL AND claimed_at IS NOT NULL)
+    OR (status <> 'Processing' AND claim_id IS NULL AND claimed_at IS NULL)
+  )
 );
 ALTER TABLE economy_receipt_outbox ADD COLUMN IF NOT EXISTS ordinal integer;
-WITH ranked AS (
-  SELECT effect_id, row_number() OVER (
-    PARTITION BY command_id ORDER BY effect_id
-  ) - 1 AS inferred_ordinal
-  FROM economy_receipt_outbox
-  WHERE ordinal IS NULL
-)
-UPDATE economy_receipt_outbox AS target
-SET ordinal = ranked.inferred_ordinal
-FROM ranked
-WHERE target.effect_id = ranked.effect_id;
+ALTER TABLE economy_receipt_outbox ADD COLUMN IF NOT EXISTS claim_id text;
+ALTER TABLE economy_receipt_outbox ADD COLUMN IF NOT EXISTS claimed_at timestamptz;
+ALTER TABLE economy_receipt_outbox ADD COLUMN IF NOT EXISTS last_failure_tag text;
+ALTER TABLE economy_receipt_outbox
+  DROP CONSTRAINT IF EXISTS economy_receipt_outbox_status_check;
+ALTER TABLE economy_receipt_outbox
+  ADD CONSTRAINT economy_receipt_outbox_status_check
+  CHECK (status IN ('Pending', 'Processing', 'Delivered', 'Failed'));
+ALTER TABLE economy_receipt_outbox
+  DROP CONSTRAINT IF EXISTS economy_receipt_outbox_claim_check;
+ALTER TABLE economy_receipt_outbox
+  ADD CONSTRAINT economy_receipt_outbox_claim_check CHECK (
+    (status = 'Processing' AND claim_id IS NOT NULL AND claimed_at IS NOT NULL)
+    OR (status <> 'Processing' AND claim_id IS NULL AND claimed_at IS NULL)
+  );
+ALTER TABLE economy_receipts
+  DROP CONSTRAINT IF EXISTS economy_receipts_amount_ore_check;
+ALTER TABLE economy_receipts
+  ADD CONSTRAINT economy_receipts_amount_ore_check
+  CHECK (amount_ore > 0 AND amount_ore <= 9007199254740991);
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM economy_receipt_outbox WHERE ordinal IS NULL) THEN
+    RAISE EXCEPTION 'Receipt outbox contains rows without an authoritative ordinal';
+  END IF;
+END $$;
 ALTER TABLE economy_receipt_outbox ALTER COLUMN ordinal SET NOT NULL;
-CREATE UNIQUE INDEX IF NOT EXISTS economy_receipt_outbox_command_ordinal
-  ON economy_receipt_outbox (command_id, ordinal);
 CREATE INDEX IF NOT EXISTS economy_receipt_outbox_pending_order
   ON economy_receipt_outbox (status, command_id, ordinal);
+CREATE UNIQUE INDEX IF NOT EXISTS economy_receipts_file_ref_unique
+  ON economy_receipts (file_ref);
+CREATE UNIQUE INDEX IF NOT EXISTS economy_receipts_file_object_key_unique
+  ON economy_receipts (file_object_key);
+CREATE UNIQUE INDEX IF NOT EXISTS economy_receipt_outbox_active_claim_unique
+  ON economy_receipt_outbox (claim_id)
+  WHERE claim_id IS NOT NULL;
 
 
 CREATE TABLE IF NOT EXISTS economy_receipt_audit (

@@ -183,7 +183,7 @@ const storeOutbox = (
         INSERT INTO economy_receipt_outbox (
           effect_id, effect_type, receipt_id, command_id, ordinal, payload_json
         ) VALUES (
-          ${request.effectId}, ${request.effectType}, ${request.receiptId},
+          ${request.effectId}, ${request._tag}, ${request.receiptId},
           ${request.commandId}, ${ordinal}, ${sql.json(request)}
         )
       `.pipe(Effect.asVoid),

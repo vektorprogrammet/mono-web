@@ -64,6 +64,20 @@ const file: ReceiptFile = {
   byteLength: 256,
   sha256: "c".repeat(64),
 };
+const secondFile: ReceiptFile = {
+  fileRef: "proof-file-2",
+  objectKey: "temporary/proof-file-2",
+  contentType: "application/pdf",
+  byteLength: 256,
+  sha256: "f".repeat(64),
+};
+const rollbackFile: ReceiptFile = {
+  fileRef: "proof-file-rollback",
+  objectKey: "temporary/proof-file-rollback",
+  contentType: "application/pdf",
+  byteLength: 256,
+  sha256: "b".repeat(64),
+};
 
 const owner: ReceiptActor = {
   personId: "proof-person",
@@ -85,7 +99,7 @@ const context = (receiptId: string, visualId: string, now: string) => ({
   now,
 });
 
-const submit = (commandId: string, description: string) => ({
+const submit = (commandId: string, description: string, receiptFile = file) => ({
   _tag: "SubmitReceipt" as const,
   commandId,
   actor: owner,
@@ -94,7 +108,7 @@ const submit = (commandId: string, description: string) => ({
   description,
   amountOre: 12_345,
   receiptDate: "2026-08-19",
-  file,
+  file: receiptFile,
 });
 
 const count = (sql: PgClient.PgClient, table: string) =>
@@ -169,7 +183,10 @@ export const runReceiptPostgresProof = (
     );
 
     const secondContext = context("proof-receipt-2", "PROOF-0002", "2026-08-20T13:00:00.000Z");
-    yield* executeReceiptCommand(submit("proof-command-submit-2", "Supplies"), secondContext);
+    yield* executeReceiptCommand(
+      submit("proof-command-submit-2", "Supplies", secondFile),
+      secondContext,
+    );
     const revised = yield* executeReceiptCommand(
       {
         _tag: "RevisePendingReceipt",
@@ -180,7 +197,7 @@ export const runReceiptPostgresProof = (
         description: "Supplies and postage",
         amountOre: 13_000,
         receiptDate: "2026-08-19",
-        file,
+        file: secondFile,
       },
       { ...secondContext, now: "2026-08-20T13:01:00.000Z" },
     );
@@ -210,7 +227,7 @@ export const runReceiptPostgresProof = (
     `);
     const failedTransaction = yield* Effect.exit(
       executeReceiptCommand(
-        submit("proof-command-rollback", "Rollback after durable writes"),
+        submit("proof-command-rollback", "Rollback after durable writes", rollbackFile),
         context("proof-receipt-3", "PROOF-0003", "2026-08-20T14:00:00.000Z"),
       ),
     );
@@ -245,7 +262,12 @@ export const runReceiptPostgresProof = (
       paymentAccountCiphertext: "ciphertext:v1:legacy-proof",
       file,
     };
-    const invalidLegacy = { ...legacy, sourcePrimaryKey: "legacy-2", amountDecimal: "1.234" };
+    const invalidLegacy = {
+      ...legacy,
+      sourcePrimaryKey: "legacy-2",
+      visualId: "LEGACY-PROOF-2",
+      amountDecimal: "1.234",
+    };
     const [imported, quarantined] = importLegacyReceipts([
       {
         row: legacy,

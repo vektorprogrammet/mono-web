@@ -10,6 +10,7 @@ import {
   StaleReceiptRevision,
   type ReceiptFailure,
 } from "./errors.js";
+import { makeReceiptOutboxRequest, sameReceiptFile, type ReceiptOutboxRequest } from "./effects.js";
 import {
   ReceiptCommandSchema,
   type Receipt,
@@ -24,20 +25,7 @@ export interface ReceiptDecisionContext {
   readonly now: string;
 }
 
-export interface ReceiptOutboxRequest {
-  readonly effectId: string;
-  readonly effectType:
-    | "PromoteReceiptFile"
-    | "DeleteReceiptFile"
-    | "NotifyEconomyReceiptSubmitted"
-    | "NotifyReceiptRefunded"
-    | "NotifyReceiptRejected"
-    | "WriteReceiptAudit";
-  readonly receiptId: string;
-  readonly commandId: string;
-  readonly fileObjectKey: string | null;
-  readonly fileSha256: string | null;
-}
+export type { ReceiptOutboxRequest } from "./effects.js";
 
 export interface ReceiptDecision {
   readonly receipt: Receipt;
@@ -120,19 +108,7 @@ const observation = (commandId: string, receipt: Receipt): ReceiptObservation =>
   replayed: false,
 });
 
-const effect = (
-  commandId: string,
-  receiptId: string,
-  effectType: ReceiptOutboxRequest["effectType"],
-  file: Receipt["file"] | null = null,
-): ReceiptOutboxRequest => ({
-  effectId: `${commandId}:${effectType}`,
-  effectType,
-  receiptId,
-  commandId,
-  fileObjectKey: file?.objectKey ?? null,
-  fileSha256: file?.sha256 ?? null,
-});
+const effect = makeReceiptOutboxRequest;
 
 const decideCommand = (
   existing: Receipt | undefined,
@@ -200,10 +176,7 @@ const decideCommand = (
             const outbox: ReceiptOutboxRequest[] = [
               effect(input.commandId, receipt.receiptId, "WriteReceiptAudit"),
             ];
-            if (
-              current.file.objectKey !== receipt.file.objectKey ||
-              current.file.sha256 !== receipt.file.sha256
-            ) {
+            if (!sameReceiptFile(current.file, receipt.file)) {
               outbox.unshift(
                 effect(input.commandId, receipt.receiptId, "PromoteReceiptFile", receipt.file),
               );
