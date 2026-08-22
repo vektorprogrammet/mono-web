@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 
 const apiOrigin = process.env.API_URL ?? "http://127.0.0.1:8000";
 const leaderUsername = "background-recruiter-leader-0032";

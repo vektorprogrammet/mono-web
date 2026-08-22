@@ -589,7 +589,7 @@ require $_SERVER['DOCUMENT_ROOT'].'/index.php';
         recruiter_reminder_count: recruiterReminderCount,
       };
       const playwrightArtifact = JSON.parse(
-        sanitizePlaywrightArtifact(e2eResult.stdout).toString("utf8"),
+        new TextDecoder("utf-8", { fatal: true }).decode(sanitizePlaywrightArtifact(e2eResult.stdout)),
       );
       await emitRuntimeEvidenceReceipts({
         journeys,
@@ -601,8 +601,8 @@ require $_SERVER['DOCUMENT_ROOT'].'/index.php';
         fixtureInputBytes,
         artifactBytes: Buffer.from(
           JSON.stringify({
+            tests: playwrightArtifact.tests,
             command_outcomes: commandOutcomes,
-            playwright: playwrightArtifact,
           }),
         ),
       });
