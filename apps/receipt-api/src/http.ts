@@ -749,6 +749,9 @@ const approvalCommand = async (
   const principal = principalFor(request, options.config.tokens);
   if (!principal.actor.active) throw new InactiveActor({ personId: principal.actor.personId });
   const scope = approvalScopeFor(principal);
+  if (new URL(request.url).search.length !== 0) {
+    throw new ReceiptDecodeError({ message: "unexpected receipt command query" });
+  }
   const fields = await decodeCommandJson(request, "approval");
   const command = {
     _tag: route.action === "refund" ? ("RefundReceipt" as const) : ("RejectReceipt" as const),
