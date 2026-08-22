@@ -14,6 +14,13 @@ import {
   Network,
   RateLimited,
   Configuration,
+  UnauthenticatedActor,
+  InactiveActor,
+  ReceiptOwnerDenied,
+  ReceiptDecodeError,
+  ReceiptAlreadyExists,
+  DuplicateReceiptCommandConflict,
+  ReceiptPersistenceError,
   type InternalSdkError,
 } from "./errors.js"
 import { parseViolations } from "./adapter/errors.js"
@@ -36,10 +43,44 @@ const resolveAuth = (auth: AuthOption): Effect.Effect<string, Network> =>
           }),
       })
 
+const receiptFailureFromBody = (body: unknown): InternalSdkError | undefined => {
+  if (typeof body !== "object" || body === null) return undefined
+  const root = body as Record<string, unknown>
+  const error = typeof root.error === "object" && root.error !== null
+    ? root.error as Record<string, unknown>
+    : root
+  const tag = error.tag ?? error._tag
+  if (typeof tag !== "string") return undefined
+
+  switch (tag) {
+    case "UnauthenticatedActor":
+      return new UnauthenticatedActor()
+    case "InactiveActor":
+      return new InactiveActor()
+    case "ReceiptOwnerDenied":
+      return new ReceiptOwnerDenied()
+    case "ReceiptDecodeError":
+      return new ReceiptDecodeError()
+    case "ReceiptAlreadyExists":
+      return new ReceiptAlreadyExists()
+    case "DuplicateReceiptCommandConflict":
+      return new DuplicateReceiptCommandConflict()
+    case "ReceiptPersistenceError":
+      return new ReceiptPersistenceError()
+    default:
+      return undefined
+  }
+}
+
 /**
  * Maps HTTP status codes to InternalSdkError.
+ *
+ * Native Receipt errors carry only a typed tag in the response body. The
+ * transport preserves that tag and intentionally ignores any untrusted text.
  */
 const mapStatusToError = (status: number, body: unknown): InternalSdkError => {
+  const typedReceiptError = receiptFailureFromBody(body)
+  if (typedReceiptError !== undefined) return typedReceiptError
   if (status === 401 || status === 403) return new Unauthorized({ message: `HTTP ${status}` })
   if (status === 404) return new NotFound({ message: "Not found" })
   if (status === 409) return new Conflict({ message: "Conflict" })
@@ -48,18 +89,38 @@ const mapStatusToError = (status: number, body: unknown): InternalSdkError => {
   return new Network({ message: `HTTP ${status}` })
 }
 
+export type DecodeOptions = {
+  readonly strict?: boolean
+}
+
 export interface Transport {
-  get<A>(url: string, schema: Schema.ConstraintDecoder<A, never>, params?: QueryParams): Effect.Effect<A, InternalSdkError>
+  get<A>(
+    url: string,
+    schema: Schema.ConstraintDecoder<A, never>,
+    params?: QueryParams,
+    options?: DecodeOptions,
+  ): Effect.Effect<A, InternalSdkError>
   getCollection<A>(
     url: string,
     itemSchema: Schema.ConstraintDecoder<A, never>,
     params?: QueryParams,
+    options?: DecodeOptions,
   ): Effect.Effect<{ items: A[]; totalItems: number; page: number; pageSize: number }, InternalSdkError>
-  post<A>(url: string, body: unknown, schema: Schema.ConstraintDecoder<A, never>): Effect.Effect<A, InternalSdkError>
+  post<A>(
+    url: string,
+    body: unknown,
+    schema: Schema.ConstraintDecoder<A, never>,
+    options?: DecodeOptions,
+  ): Effect.Effect<A, InternalSdkError>
   postVoid(url: string, body: unknown): Effect.Effect<void, InternalSdkError>
   put(url: string, body: unknown): Effect.Effect<void, InternalSdkError>
   del(url: string): Effect.Effect<void, InternalSdkError>
-  postFormData<A>(url: string, formData: FormData, schema: Schema.ConstraintDecoder<A, never>): Effect.Effect<A, InternalSdkError>
+  postFormData<A>(
+    url: string,
+    formData: FormData,
+    schema: Schema.ConstraintDecoder<A, never>,
+    options?: DecodeOptions,
+  ): Effect.Effect<A, InternalSdkError>
   postFormDataVoid(url: string, formData: FormData): Effect.Effect<void, InternalSdkError>
 }
 
@@ -190,22 +251,40 @@ export function createTransport(baseUrl: string | undefined, auth?: AuthOption):
       }),
     )
 
-  const decodeWith = <A>(schema: Schema.ConstraintDecoder<A, never>) =>
-    (json: unknown): Effect.Effect<A, Validation> =>
-      Schema.decodeUnknownEffect(schema)(json).pipe(
-        Effect.mapError((error) => new Validation({ message: `Decode error: ${error.message}`, fields: {} })),
+  const decodeWith = <A>(schema: Schema.ConstraintDecoder<A, never>, strict = false) =>
+    (json: unknown): Effect.Effect<A, InternalSdkError> => {
+      const decoded = strict
+        ? Schema.decodeUnknownEffect(schema)(json, { onExcessProperty: "error" })
+        : Schema.decodeUnknownEffect(schema)(json)
+      return decoded.pipe(
+        Effect.mapError((error) =>
+          strict
+            ? new ReceiptDecodeError()
+            : new Validation({ message: `Decode error: ${error.message}`, fields: {} }),
+        ),
       )
+    }
 
   return {
-    get<A>(url: string, schema: Schema.ConstraintDecoder<A, never>, params?: QueryParams) {
+    get<A>(
+      url: string,
+      schema: Schema.ConstraintDecoder<A, never>,
+      params?: QueryParams,
+      options?: DecodeOptions,
+    ) {
       return pipe(
         buildUrl(url, params),
         Effect.flatMap((resolvedUrl) => executeJson(resolvedUrl, "GET")),
-        Effect.flatMap(decodeWith(schema)),
+        Effect.flatMap(decodeWith(schema, options?.strict)),
       )
     },
 
-    getCollection<A>(url: string, itemSchema: Schema.ConstraintDecoder<A, never>, params?: QueryParams) {
+    getCollection<A>(
+      url: string,
+      itemSchema: Schema.ConstraintDecoder<A, never>,
+      params?: QueryParams,
+      options?: DecodeOptions,
+    ) {
       const page = Number(params?.page ?? 1)
       const pageSize = Number(params?.itemsPerPage ?? params?.pageSize ?? 30)
       const collectionSchema = Schema.Struct({
@@ -215,7 +294,7 @@ export function createTransport(baseUrl: string | undefined, auth?: AuthOption):
       return pipe(
         buildUrl(url, params),
         Effect.flatMap((resolvedUrl) => executeJson(resolvedUrl, "GET")),
-        Effect.flatMap(decodeWith(collectionSchema)),
+        Effect.flatMap(decodeWith(collectionSchema, options?.strict)),
         Effect.map(({ "hydra:member": items, "hydra:totalItems": totalItems }) => ({
           items: Array.from(items),
           totalItems: totalItems ?? 0,
@@ -225,11 +304,16 @@ export function createTransport(baseUrl: string | undefined, auth?: AuthOption):
       )
     },
 
-    post<A>(url: string, body: unknown, schema: Schema.ConstraintDecoder<A, never>) {
+    post<A>(
+      url: string,
+      body: unknown,
+      schema: Schema.ConstraintDecoder<A, never>,
+      options?: DecodeOptions,
+    ) {
       return pipe(
         buildUrl(url),
         Effect.flatMap((resolvedUrl) => executeJson(resolvedUrl, "POST", body)),
-        Effect.flatMap(decodeWith(schema)),
+        Effect.flatMap(decodeWith(schema, options?.strict)),
       )
     },
 
@@ -254,7 +338,12 @@ export function createTransport(baseUrl: string | undefined, auth?: AuthOption):
       )
     },
 
-    postFormData<A>(url: string, formData: FormData, schema: Schema.ConstraintDecoder<A, never>) {
+    postFormData<A>(
+      url: string,
+      formData: FormData,
+      schema: Schema.ConstraintDecoder<A, never>,
+      options?: DecodeOptions,
+    ) {
       return pipe(
         buildUrl(url),
         Effect.flatMap((resolvedUrl) =>
@@ -280,7 +369,7 @@ export function createTransport(baseUrl: string | undefined, auth?: AuthOption):
             catch: () => new Network({ message: "Failed to parse response JSON" }),
           })
         }),
-        Effect.flatMap(decodeWith(schema)),
+        Effect.flatMap(decodeWith(schema, options?.strict)),
       )
     },
 

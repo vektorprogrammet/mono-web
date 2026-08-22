@@ -17,6 +17,16 @@ export type SdkErrorType =
   | "network"
   | "rate_limited"
   | "configuration"
+  | "receipt_rejection"
+
+export type ReceiptRejectionTag =
+  | "UnauthenticatedActor"
+  | "InactiveActor"
+  | "ReceiptOwnerDenied"
+  | "ReceiptDecodeError"
+  | "ReceiptAlreadyExists"
+  | "DuplicateReceiptCommandConflict"
+  | "ReceiptPersistenceError"
 
 export class SdkError extends Error {
   readonly type: SdkErrorType
@@ -83,6 +93,67 @@ export class ConfigurationError extends SdkError {
   }
 }
 
+export class ReceiptRejectionError extends SdkError {
+  readonly _tag: ReceiptRejectionTag
+  readonly receiptTag: ReceiptRejectionTag
+
+  constructor(tag: ReceiptRejectionTag) {
+    super("receipt_rejection", tag)
+    this.name = "ReceiptRejectionError"
+    this._tag = tag
+    this.receiptTag = tag
+  }
+}
+
+export class UnauthenticatedActorError extends ReceiptRejectionError {
+  constructor() {
+    super("UnauthenticatedActor")
+    this.name = "UnauthenticatedActorError"
+  }
+}
+
+export class InactiveActorError extends ReceiptRejectionError {
+  constructor() {
+    super("InactiveActor")
+    this.name = "InactiveActorError"
+  }
+}
+
+export class ReceiptOwnerDeniedError extends ReceiptRejectionError {
+  constructor() {
+    super("ReceiptOwnerDenied")
+    this.name = "ReceiptOwnerDeniedError"
+  }
+}
+
+export class ReceiptDecodeSdkError extends ReceiptRejectionError {
+  constructor() {
+    super("ReceiptDecodeError")
+    this.name = "ReceiptDecodeSdkError"
+  }
+}
+
+export class ReceiptAlreadyExistsError extends ReceiptRejectionError {
+  constructor() {
+    super("ReceiptAlreadyExists")
+    this.name = "ReceiptAlreadyExistsError"
+  }
+}
+
+export class DuplicateReceiptCommandConflictError extends ReceiptRejectionError {
+  constructor() {
+    super("DuplicateReceiptCommandConflict")
+    this.name = "DuplicateReceiptCommandConflictError"
+  }
+}
+
+export class ReceiptPersistenceSdkError extends ReceiptRejectionError {
+  constructor() {
+    super("ReceiptPersistenceError")
+    this.name = "ReceiptPersistenceSdkError"
+  }
+}
+
 // --- Internal Effect TaggedErrors ---
 
 export class Unauthorized extends Schema.TaggedError<Unauthorized>()(
@@ -123,6 +194,52 @@ export class Configuration extends Schema.TaggedError<Configuration>()(
   { message: Schema.String },
 ) {}
 
+export class UnauthenticatedActor extends Schema.TaggedError<UnauthenticatedActor>()(
+  "UnauthenticatedActor",
+  {},
+) {}
+
+export class InactiveActor extends Schema.TaggedError<InactiveActor>()(
+  "InactiveActor",
+  {},
+) {}
+
+export class ReceiptOwnerDenied extends Schema.TaggedError<ReceiptOwnerDenied>()(
+  "ReceiptOwnerDenied",
+  {},
+) {}
+
+export class ReceiptDecodeError extends Schema.TaggedError<ReceiptDecodeError>()(
+  "ReceiptDecodeError",
+  {},
+) {}
+
+export class ReceiptAlreadyExists extends Schema.TaggedError<ReceiptAlreadyExists>()(
+  "ReceiptAlreadyExists",
+  {},
+) {}
+
+export class DuplicateReceiptCommandConflict extends Schema.TaggedError<DuplicateReceiptCommandConflict>()(
+  "DuplicateReceiptCommandConflict",
+  {},
+) {}
+
+export class ReceiptPersistenceError extends Schema.TaggedError<ReceiptPersistenceError>()(
+  "ReceiptPersistenceError",
+  {},
+) {}
+
+export type ReceiptFailure =
+  | UnauthenticatedActor
+  | InactiveActor
+  | ReceiptOwnerDenied
+  | ReceiptDecodeError
+  | ReceiptAlreadyExists
+  | DuplicateReceiptCommandConflict
+  | ReceiptPersistenceError
+
+export type ReceiptSdkError = ReceiptFailure
+
 export type InternalSdkError =
   | Unauthorized
   | NotFound
@@ -131,6 +248,8 @@ export type InternalSdkError =
   | Network
   | RateLimited
   | Configuration
+  | ReceiptFailure
+
 
 /**
  * Maps an internal Effect TaggedError to a public SdkError subclass.
@@ -152,5 +271,19 @@ export function toSdkError(error: InternalSdkError): SdkError {
       return new RateLimitedError(error.message)
     case "Configuration":
       return new ConfigurationError(error.message)
+    case "UnauthenticatedActor":
+      return new UnauthenticatedActorError()
+    case "InactiveActor":
+      return new InactiveActorError()
+    case "ReceiptOwnerDenied":
+      return new ReceiptOwnerDeniedError()
+    case "ReceiptDecodeError":
+      return new ReceiptDecodeSdkError()
+    case "ReceiptAlreadyExists":
+      return new ReceiptAlreadyExistsError()
+    case "DuplicateReceiptCommandConflict":
+      return new DuplicateReceiptCommandConflictError()
+    case "ReceiptPersistenceError":
+      return new ReceiptPersistenceSdkError()
   }
 }

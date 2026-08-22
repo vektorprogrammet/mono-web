@@ -36,10 +36,48 @@ export {
   NetworkError,
   RateLimitedError,
   ConfigurationError,
+  ReceiptRejectionError,
+  UnauthenticatedActorError,
+  InactiveActorError,
+  ReceiptOwnerDeniedError,
+  ReceiptDecodeSdkError,
+  ReceiptAlreadyExistsError,
+  DuplicateReceiptCommandConflictError,
+  ReceiptPersistenceSdkError,
 } from "./errors.js"
-export type { SdkErrorType } from "./errors.js"
+export type { SdkErrorType, ReceiptRejectionTag } from "./errors.js"
 
 export type { Receipt, AdminReceipt, ReceiptInput } from "./schemas/receipt.js"
+export {
+  CommandId,
+  CommandIdSchema,
+  ReceiptCommandObservation,
+  ReceiptCommandObservationSchema,
+  ReceiptFile,
+  ReceiptFileSchema,
+  ReceiptId,
+  ReceiptIdSchema,
+  ReceiptOwnerFilter,
+  ReceiptOwnerFilterSchema,
+  ReceiptPage,
+  ReceiptPageSchema,
+  ReceiptProjection,
+  ReceiptProjectionSchema,
+  ReceiptStatus,
+  ReceiptStatusSchema,
+  ReceiptSubmitInput,
+  ReceiptSubmitInputSchema,
+} from "./schemas/receipt.js"
+export type {
+  ReceiptCommandObservation,
+  ReceiptFile,
+  ReceiptId,
+  ReceiptOwnerFilter,
+  ReceiptPage,
+  ReceiptProjection,
+  ReceiptStatus,
+  ReceiptSubmitInput,
+} from "./schemas/receipt.js"
 export type { Application, ApplicationDetail } from "./schemas/application.js"
 export {
   AdminInterviewList,

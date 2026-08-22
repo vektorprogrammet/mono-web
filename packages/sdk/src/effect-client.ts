@@ -24,11 +24,44 @@ import { createTransport, type AuthOption } from "./transport.js"
 
 // --- Public re-exports ---
 
-export type { InternalSdkError } from "./errors.js"
+export type { InternalSdkError, ReceiptFailure } from "./errors.js"
+export type { ReceiptRejectionTag } from "./errors.js"
 export type { ClientContext } from "./context.js"
 export { apiUrl, isFixtureMode } from "./config.js"
 
-export type { Receipt, AdminReceipt, ReceiptInput } from "./schemas/receipt.js"
+export {
+  CommandId,
+  CommandIdSchema,
+  ReceiptCommandObservation,
+  ReceiptCommandObservationSchema,
+  ReceiptFile,
+  ReceiptFileSchema,
+  ReceiptId,
+  ReceiptIdSchema,
+  ReceiptOwnerFilter,
+  ReceiptOwnerFilterSchema,
+  ReceiptPage,
+  ReceiptPageSchema,
+  ReceiptProjection,
+  ReceiptProjectionSchema,
+  ReceiptStatus,
+  ReceiptStatusSchema,
+  ReceiptSubmitInput,
+  ReceiptSubmitInputSchema,
+} from "./schemas/receipt.js"
+export type {
+  Receipt,
+  AdminReceipt,
+  ReceiptInput,
+  ReceiptCommandObservation,
+  ReceiptFile,
+  ReceiptId,
+  ReceiptOwnerFilter,
+  ReceiptPage,
+  ReceiptProjection,
+  ReceiptStatus,
+  ReceiptSubmitInput,
+} from "./schemas/receipt.js"
 export type { Application, ApplicationDetail } from "./schemas/application.js"
 export {
   AdminInterviewList,
