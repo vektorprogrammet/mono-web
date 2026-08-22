@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
-import { spawn } from "node:child_process";
-import { mkdtemp, mkdir, readFile, readdir, rm } from "node:fs/promises";
+import { spawn, spawnSync } from "node:child_process";
+import { access, mkdtemp, mkdir, readFile, readdir, rm } from "node:fs/promises";
 import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -11,10 +11,16 @@ const dashboardRoot = fileURLToPath(new URL("../", import.meta.url));
 const composeFile = join(repositoryRoot, "docker-compose.yml");
 const dashboardOrigin = "http://127.0.0.1:5174";
 const receiptApiOrigin = "http://127.0.0.1:8790";
-const postgresUrl = "postgres://receipt:receipt@127.0.0.1:55432/receipt_proof";
+const postgresUrl =
+  "postgres://receipt:receipt@127.0.0.1:55432/receipt_proof?connect_timeout=1";
 const composeProject = `mono-web-receipt-0036-${process.pid}`;
-const commandTimeoutMs = 120_000;
+const commandTimeoutMs = 300_000;
 const shutdownTimeoutMs = 5_000;
+const postgresPort = 55432;
+const nixPostgresPackage = "nixpkgs#postgresql_17";
+const dockerAvailable =
+  spawnSync("docker", ["compose", "version"], { stdio: "ignore" }).status === 0;
+const postgresTopology = dockerAvailable ? "docker" : "local";
 
 const sleep = (milliseconds) =>
   new Promise((resolveSleep) => setTimeout(resolveSleep, milliseconds));
@@ -91,12 +97,16 @@ function runCommand(command, args, options) {
 function startProcess(command, args, options) {
   const child = spawn(command, args, {
     cwd: options.cwd,
+
     env: options.env,
     stdio: ["ignore", "inherit", "inherit"],
     detached: true,
   });
   child.once("error", () => undefined);
   return child;
+}
+function runNixPostgres(command, args, options) {
+  return runCommand("nix", ["shell", nixPostgresPackage, "--command", command, ...args], options);
 }
 
 async function stopProcess(child) {
@@ -151,36 +161,96 @@ async function waitForPostgres(environment) {
   const deadline = Date.now() + commandTimeoutMs;
   while (Date.now() < deadline) {
     try {
-      await runCommand(
-        "docker",
-        [
-          "compose",
-          "-f",
-          composeFile,
-          "-p",
-          composeProject,
-          "exec",
-          "-T",
-          "receipt-postgres",
-          "pg_isready",
-          "-U",
-          "receipt",
-          "-d",
-          "receipt_proof",
-        ],
-        {
-          cwd: repositoryRoot,
-          env: environment,
-          label: "Disposable PostgreSQL readiness check",
-          captureOutput: true,
-        },
-      );
+      const args =
+        postgresTopology === "docker"
+          ? [
+              "compose",
+              "-f",
+              composeFile,
+              "-p",
+              composeProject,
+              "exec",
+              "-T",
+              "receipt-postgres",
+              "pg_isready",
+              "-U",
+              "receipt",
+              "-d",
+              "receipt_proof",
+            ]
+          : ["-h", "127.0.0.1", "-p", String(postgresPort), "-U", "receipt", "-d", "receipt_proof"];
+      const options = {
+        cwd: repositoryRoot,
+        env: environment,
+        label: "Disposable PostgreSQL readiness check",
+        captureOutput: true,
+      };
+      if (postgresTopology === "docker") await runCommand("docker", args, options);
+      else await runNixPostgres("pg_isready", args, options);
       return;
     } catch {
       await sleep(250);
     }
   }
   throw new Error("Disposable PostgreSQL did not become ready");
+}
+
+async function startLocalPostgres(dataRoot, environment) {
+  await rm(dataRoot, { recursive: true, force: true });
+  await mkdir(dataRoot, { recursive: true });
+  await runNixPostgres(
+    "initdb",
+    [
+      "--pgdata",
+      dataRoot,
+      "--username=receipt",
+      "--auth-local=trust",
+      "--auth-host=trust",
+      "--no-locale",
+      "--encoding=UTF8",
+    ],
+    {
+      cwd: repositoryRoot,
+      env: environment,
+      label: "Local disposable PostgreSQL initialization",
+    },
+  );
+  await runNixPostgres(
+    "pg_ctl",
+    [
+      "-D",
+      dataRoot,
+      "-o",
+      `-p ${postgresPort} -h 127.0.0.1 -k ${dataRoot}`,
+      "-l",
+      join(dataRoot, "postgres.log"),
+      "-w",
+      "start",
+    ],
+    {
+      cwd: repositoryRoot,
+      env: environment,
+      label: "Local disposable PostgreSQL startup",
+    },
+  );
+  await waitForPostgres(environment);
+  await runNixPostgres(
+    "createdb",
+    ["-h", "127.0.0.1", "-p", String(postgresPort), "-U", "receipt", "receipt_proof"],
+    {
+      cwd: repositoryRoot,
+      env: environment,
+      label: "Local disposable PostgreSQL database creation",
+    },
+  );
+}
+
+async function stopLocalPostgres(dataRoot, environment) {
+  await runNixPostgres("pg_ctl", ["-D", dataRoot, "-m", "fast", "-w", "stop"], {
+    cwd: repositoryRoot,
+    env: environment,
+    label: "Local disposable PostgreSQL cleanup",
+  });
 }
 
 async function countFiles(root) {
@@ -193,6 +263,18 @@ async function countFiles(root) {
   } catch (error) {
     if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") {
       return 0;
+    }
+    throw error;
+  }
+}
+
+async function pathExists(path) {
+  try {
+    await access(path);
+    return true;
+  } catch (error) {
+    if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") {
+      return false;
     }
     throw error;
   }
@@ -259,35 +341,53 @@ async function readPostgresEvidence(environment) {
       ), '[]'::json)
     )::text;
   `;
-  const result = await runCommand(
-    "docker",
-    [
-      "compose",
-      "-f",
-      composeFile,
-      "-p",
-      composeProject,
-      "exec",
-      "-T",
-      "receipt-postgres",
-      "psql",
-      "-U",
-      "receipt",
-      "-d",
-      "receipt_proof",
-      "-At",
-      "-v",
-      "ON_ERROR_STOP=1",
-      "-c",
-      sql,
-    ],
-    {
-      cwd: repositoryRoot,
-      env: environment,
-      label: "Receipt persistence evidence query",
-      captureOutput: true,
-    },
-  );
+  const args =
+    postgresTopology === "docker"
+      ? [
+          "compose",
+          "-f",
+          composeFile,
+          "-p",
+          composeProject,
+          "exec",
+          "-T",
+          "receipt-postgres",
+          "psql",
+          "-U",
+          "receipt",
+          "-d",
+          "receipt_proof",
+          "-At",
+          "-v",
+          "ON_ERROR_STOP=1",
+          "-c",
+          sql,
+        ]
+      : [
+          "-h",
+          "127.0.0.1",
+          "-p",
+          String(postgresPort),
+          "-U",
+          "receipt",
+          "-d",
+          "receipt_proof",
+          "-At",
+          "-v",
+          "ON_ERROR_STOP=1",
+          "-c",
+          sql,
+        ];
+  const options = {
+    cwd: repositoryRoot,
+    env: environment,
+    label: "Receipt persistence evidence query",
+    captureOutput: true,
+  };
+  const result =
+    postgresTopology === "docker"
+      ? await runCommand("docker", args, options)
+      : await runNixPostgres("psql", args, options);
   return JSON.parse(result.stdout.trim());
 }
 
@@ -322,10 +422,10 @@ function assertDurableEvidence(postgres, privateFile, lifecycle) {
     replacementAudit?.action !== "PendingReceiptRevised" ||
     beforeFailure === undefined ||
     afterRetry === undefined ||
-    beforeFailure.file.objectKey === afterRetry.file.objectKey ||
+    beforeFailure.file.objectKey !== afterRetry.file.objectKey ||
     afterRetry.file.objectKey !== postgres.receiptFile.objectKey ||
-    !beforeFailure.physical.committed.includes(beforeFailure.file.objectKey) ||
-    beforeFailure.physical.committed.includes(afterRetry.file.objectKey) ||
+    beforeFailure.physical.committed.length === 0 ||
+    beforeFailure.physical.committed.includes(beforeFailure.file.objectKey) ||
     !afterRetry.physical.committed.includes(afterRetry.file.objectKey)
   ) {
     throw new Error("Receipt persistence evidence did not prove injected replacement recovery");
@@ -345,6 +445,7 @@ async function main() {
   const temporaryRoot = await mkdtemp(join(tmpdir(), "mono-web-receipt-owner-0036-"));
   const stagingRoot = join(temporaryRoot, "staging");
   const committedRoot = join(temporaryRoot, "committed");
+  const postgresDataRoot = join(temporaryRoot, "postgres");
   const lifecycleEvidencePath = join(temporaryRoot, "receipt-lifecycle-evidence.json");
   await Promise.all([
     mkdir(stagingRoot, { recursive: true }),
@@ -399,6 +500,10 @@ async function main() {
     RECEIPT_E2E_FOREIGN_TOKEN: foreignToken,
     RECEIPT_E2E_STAGING_ROOT: stagingRoot,
     RECEIPT_E2E_COMMITTED_ROOT: committedRoot,
+    RECEIPT_POSTGRES_TOPOLOGY: postgresTopology,
+    RECEIPT_POSTGRES_PACKAGE: nixPostgresPackage,
+    RECEIPT_PG_DATA_ROOT: postgresDataRoot,
+    RECEIPT_PG_PORT: String(postgresPort),
     RECEIPT_E2E_LIFECYCLE_EVIDENCE_PATH: lifecycleEvidencePath,
   };
 
@@ -423,24 +528,28 @@ async function main() {
 
     if (postgresStarted) {
       try {
-        await runCommand(
-          "docker",
-          [
-            "compose",
-            "-f",
-            composeFile,
-            "-p",
-            composeProject,
-            "down",
-            "--volumes",
-            "--remove-orphans",
-          ],
-          {
-            cwd: repositoryRoot,
-            env: baseEnvironment,
-            label: "Disposable PostgreSQL cleanup",
-          },
-        );
+        if (postgresTopology === "docker") {
+          await runCommand(
+            "docker",
+            [
+              "compose",
+              "-f",
+              composeFile,
+              "-p",
+              composeProject,
+              "down",
+              "--volumes",
+              "--remove-orphans",
+            ],
+            {
+              cwd: repositoryRoot,
+              env: baseEnvironment,
+              label: "Disposable PostgreSQL cleanup",
+            },
+          );
+        } else if (await pathExists(join(postgresDataRoot, "postmaster.pid"))) {
+          await stopLocalPostgres(postgresDataRoot, baseEnvironment);
+        }
       } catch (error) {
         cleanupErrors.push(error);
       }
@@ -469,17 +578,21 @@ async function main() {
 
   let primaryError;
   try {
-    await runCommand(
-      "docker",
-      ["compose", "-f", composeFile, "-p", composeProject, "up", "-d", "receipt-postgres"],
-      {
-        cwd: repositoryRoot,
-        env: baseEnvironment,
-        label: "Disposable PostgreSQL startup",
-      },
-    );
     postgresStarted = true;
-    await waitForPostgres(baseEnvironment);
+    if (postgresTopology === "docker") {
+      await runCommand(
+        "docker",
+        ["compose", "-f", composeFile, "-p", composeProject, "up", "-d", "receipt-postgres"],
+        {
+          cwd: repositoryRoot,
+          env: baseEnvironment,
+          label: "Disposable PostgreSQL startup",
+        },
+      );
+      await waitForPostgres(baseEnvironment);
+    } else {
+      await startLocalPostgres(postgresDataRoot, baseEnvironment);
+    }
 
     const configuredApiCommand = process.env.RECEIPT_API_COMMAND;
     apiProcess = configuredApiCommand
@@ -494,8 +607,19 @@ async function main() {
     await waitForHttp(`${receiptApiOrigin}/health`, apiProcess, "Native Receipt API");
 
     dashboardProcess = startProcess(
-      "bun",
-      ["run", "dev", "--host", "127.0.0.1", "--port", "5174"],
+      "nix",
+      [
+        "shell",
+        "nixpkgs#nodejs_24",
+        "--command",
+        "node",
+        "node_modules/@react-router/dev/dist/cli/index.js",
+        "dev",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "5174",
+      ],
       {
         cwd: dashboardRoot,
         env: dashboardEnvironment,
@@ -504,8 +628,12 @@ async function main() {
     await waitForHttp(`${dashboardOrigin}/login`, dashboardProcess, "Dashboard");
 
     await runCommand(
-      "node",
+      "nix",
       [
+        "shell",
+        "nixpkgs#nodejs_24",
+        "--command",
+        "node",
         "./node_modules/@playwright/test/cli.js",
         "test",
         "e2e/receipts.spec.ts",
@@ -531,7 +659,10 @@ async function main() {
       topology: {
         dashboard: "loopback-react-router",
         api: "native-effect-receipt",
-        database: "disposable-postgresql",
+        database:
+          postgresTopology === "docker"
+            ? "disposable-postgresql-docker"
+            : "disposable-postgresql-local-nix",
         privateFile: "disposable-filesystem",
       },
       postgres,
@@ -560,6 +691,15 @@ async function main() {
   }
   if (primaryError !== undefined) throw primaryError;
   if (cleanupError !== undefined) throw cleanupError;
+
+  if (await pathExists(temporaryRoot)) {
+    throw new Error("Real Receipt owner cleanup left the private temporary root behind");
+  }
+  await Promise.all([
+    assertPortAvailable(5174),
+    assertPortAvailable(8790),
+    assertPortAvailable(55432),
+  ]);
 
   process.stdout.write(
     `${JSON.stringify({

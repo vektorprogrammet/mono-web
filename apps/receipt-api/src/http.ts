@@ -428,6 +428,7 @@ interface ReceiptLifecycleOutboxRow {
   readonly effectId: string;
   readonly effectType: string;
   readonly commandId: string;
+  readonly receiptId: string;
   readonly ordinal: number;
   readonly status: string;
   readonly attempts: number;
@@ -436,6 +437,7 @@ interface ReceiptLifecycleOutboxRow {
 
 interface ReceiptLifecycleAuditRow {
   readonly commandId: string;
+  readonly receiptId: string;
   readonly action: string;
   readonly receiptRevision: number;
 }
@@ -463,14 +465,15 @@ const receiptLifecycleEvidence = async (
       }
       const outbox = yield* sql<ReceiptLifecycleOutboxRow>`
         SELECT effect_id AS "effectId", effect_type AS "effectType",
-          command_id AS "commandId", ordinal, status, attempts,
+          command_id AS "commandId", receipt_id AS "receiptId", ordinal, status, attempts,
           last_failure_tag AS "lastFailureTag"
         FROM economy_receipt_outbox
         WHERE receipt_id = ${receiptId}
         ORDER BY command_id, ordinal
       `;
       const audit = yield* sql<ReceiptLifecycleAuditRow>`
-        SELECT command_id AS "commandId", action, receipt_revision AS "receiptRevision"
+        SELECT command_id AS "commandId", receipt_id AS "receiptId",
+          action, receipt_revision AS "receiptRevision"
         FROM economy_receipt_audit
         WHERE receipt_id = ${receiptId}
         ORDER BY occurred_at, command_id

@@ -233,7 +233,7 @@ test.describe("Native Receipt owner journey", () => {
 
     const submissionForm = page.getByRole("form", { name: "Send inn utlegg" });
     await submissionForm.getByLabel(/Beskrivelse/).fill(DESCRIPTION);
-    await submissionForm.getByLabel(/Beløp i NOK/).fill("125,501");
+    await submissionForm.locator("#amountNok").fill("125,501");
     await submissionForm.getByLabel(/Kvitteringsdato/).fill(RECEIPT_DATE);
     await submissionForm.getByLabel(/Kvitteringsfil/).setInputFiles({
       name: "receipt.png",
@@ -250,7 +250,7 @@ test.describe("Native Receipt owner journey", () => {
       .inputValue();
     expect(submissionCommandId).not.toBe("");
 
-    await submissionForm.getByLabel(/Beløp i NOK/).fill("125,50");
+    await submissionForm.locator("#amountNok").fill("125,50");
     await submissionForm.getByLabel(/Kvitteringsfil/).setInputFiles({
       name: "receipt.txt",
       mimeType: "text/plain",
@@ -350,7 +350,7 @@ test.describe("Native Receipt owner journey", () => {
     let reviseForm = page.getByRole("form", { name: "Rediger utlegg" });
     await expect(reviseForm).toBeVisible();
     await expect(reviseForm.getByLabel(/Beskrivelse/)).toHaveValue(DESCRIPTION);
-    await expect(reviseForm.getByLabel(/Beløp i NOK/)).toHaveValue("125,50");
+    await expect(reviseForm.locator('input[name="amountNok"]')).toHaveValue("125,50");
     await expect(reviseForm.getByLabel(/Kvitteringsdato/)).toHaveValue(RECEIPT_DATE);
     await expect(reviseForm.locator('input[name="expectedRevision"]')).toHaveValue("0");
     expect(
@@ -358,7 +358,7 @@ test.describe("Native Receipt owner journey", () => {
     ).toBeNull();
 
     await reviseForm.getByLabel(/Beskrivelse/).fill(REVISED_DESCRIPTION);
-    await reviseForm.getByLabel(/Beløp i NOK/).fill("210,751");
+    await reviseForm.locator('input[name="amountNok"]').fill("210,751");
     await reviseForm.getByLabel(/Kvitteringsdato/).fill(REVISED_RECEIPT_DATE);
     await reviseForm.getByRole("button", { name: "Lagre endringer" }).click();
 
@@ -371,7 +371,7 @@ test.describe("Native Receipt owner journey", () => {
       .inputValue();
     expect(stableRevisionCommandId).not.toBe("");
 
-    await reviseForm.getByLabel(/Beløp i NOK/).fill("210,75");
+    await reviseForm.locator('input[name="amountNok"]').fill("210,75");
     await reviseForm.getByRole("button", { name: "Lagre endringer" }).click();
 
     const revisionNotice = page.locator('[role="status"][data-action-intent="revise"]');
@@ -392,7 +392,7 @@ test.describe("Native Receipt owner journey", () => {
     await receiptRow.getByRole("button", { name: "Rediger", exact: true }).click();
     reviseForm = page.getByRole("form", { name: "Rediger utlegg" });
     await expect(reviseForm.getByLabel(/Beskrivelse/)).toHaveValue(REVISED_DESCRIPTION);
-    await expect(reviseForm.getByLabel(/Beløp i NOK/)).toHaveValue("210,75");
+    await expect(reviseForm.locator('input[name="amountNok"]')).toHaveValue("210,75");
     await expect(reviseForm.getByLabel(/Kvitteringsdato/)).toHaveValue(REVISED_RECEIPT_DATE);
     await expect(reviseForm.locator('input[name="expectedRevision"]')).toHaveValue("1");
     await reviseForm.getByLabel(/Beskrivelse/).fill(REPLACED_DESCRIPTION);
@@ -401,7 +401,13 @@ test.describe("Native Receipt owner journey", () => {
       mimeType: "image/png",
       buffer: RECEIPT_BYTES,
     });
-    await reviseForm.locator('input[name="commandId"]').fill(REPLACEMENT_COMMAND_ID);
+    await reviseForm
+      .locator('input[name="commandId"]')
+      .evaluate((input, commandId) => {
+        input.value = commandId;
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+        input.dispatchEvent(new Event("change", { bubbles: true }));
+      }, REPLACEMENT_COMMAND_ID);
     await reviseForm.getByRole("button", { name: "Lagre endringer" }).click();
 
     await expect(revisionNotice).toHaveAttribute("data-revision", "2");
@@ -516,7 +522,7 @@ test.describe("Native Receipt owner journey", () => {
     reviseForm = page.getByRole("form", { name: "Rediger utlegg" });
     await expect(reviseForm).toBeVisible();
     await expect(reviseForm.getByLabel(/Beskrivelse/)).toHaveValue(CONCURRENT_DESCRIPTION);
-    await expect(reviseForm.getByLabel(/Beløp i NOK/)).toHaveValue("210,75");
+    await expect(reviseForm.locator('input[name="amountNok"]')).toHaveValue("210,75");
     await expect(reviseForm.locator('input[name="expectedRevision"]')).toHaveValue("3");
     const refreshedCommandId = await reviseForm.locator('input[name="commandId"]').inputValue();
     expect(refreshedCommandId).not.toBe("");
