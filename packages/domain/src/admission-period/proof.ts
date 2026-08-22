@@ -1,4 +1,4 @@
-import { Effect, Either } from "effect";
+import { Effect } from "effect";
 import { admissionPeriodCommandDigest } from "./digest.js";
 import { decideAdmissionPeriod } from "./update.js";
 import type { AdmissionPeriod, AdmissionPeriodActor, AdmissionPeriodCommand } from "./schema.js";
@@ -86,7 +86,7 @@ export const runAdmissionPeriodProof = (): AdmissionPeriodProofEvidence => {
     ),
   );
   const invalid = Effect.runSync(
-    Effect.either(
+    Effect.exit(
       decideAdmissionPeriod(
         undefined,
         { ...proofCreate, commandId: "proof-invalid", endAt: proofCreate.startAt },
@@ -99,7 +99,7 @@ export const runAdmissionPeriodProof = (): AdmissionPeriodProofEvidence => {
     ),
   );
   const crossDepartment = Effect.runSync(
-    Effect.either(
+    Effect.exit(
       decideAdmissionPeriod(
         undefined,
         { ...proofCreate, commandId: "proof-cross", departmentId: "other-department" },
@@ -115,8 +115,8 @@ export const runAdmissionPeriodProof = (): AdmissionPeriodProofEvidence => {
     specId: "0038",
     accepted: { create: true, revise: revised.period.revision === 1 },
     rejected: {
-      invalidWindow: Either.isLeft(invalid),
-      crossDepartment: Either.isLeft(crossDepartment),
+      invalidWindow: invalid._tag === "Failure",
+      crossDepartment: crossDepartment._tag === "Failure",
     },
     eligibility: {
       beforeClose: admissionPeriodIsEligible(
