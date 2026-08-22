@@ -59,9 +59,11 @@ const requireSingleUpdate = (
 export const claimNextReceiptOutbox = (
   claimId: string,
   claimedAt: string,
+  receiptId?: string,
 ): Effect.Effect<ClaimedReceiptOutbox | undefined, ReceiptPersistenceError, PgClient.PgClient> =>
   Effect.gen(function* () {
     const sql = yield* PgClient.PgClient;
+    const receiptScope = receiptId ?? null;
     const rows = yield* sql
       .withTransaction(
         sql<ClaimedOutboxRow>`
@@ -71,11 +73,22 @@ export const claimNextReceiptOutbox = (
           JOIN economy_receipt_command_receipts AS command_receipt
             ON command_receipt.command_id = outbox.command_id
           WHERE outbox.status IN ('Pending', 'Failed')
+            AND (${receiptScope}::text IS NULL OR outbox.receipt_id = ${receiptScope})
             AND NOT EXISTS (
               SELECT 1
               FROM economy_receipt_outbox AS predecessor
-              WHERE predecessor.command_id = outbox.command_id
-                AND predecessor.ordinal < outbox.ordinal
+              JOIN economy_receipt_command_receipts AS predecessor_command
+                ON predecessor_command.command_id = predecessor.command_id
+              WHERE predecessor.receipt_id = outbox.receipt_id
+                AND (
+                  predecessor_command.committed_at,
+                  predecessor.command_id,
+                  predecessor.ordinal
+                ) < (
+                  command_receipt.committed_at,
+                  outbox.command_id,
+                  outbox.ordinal
+                )
                 AND predecessor.status <> 'Delivered'
             )
           ORDER BY command_receipt.committed_at, outbox.command_id, outbox.ordinal
@@ -168,6 +181,7 @@ export const failReceiptOutbox = (
   });
 
 export const recoverStaleReceiptOutbox = (
+  claimId: string,
   claimedBefore: string,
 ): Effect.Effect<number, ReceiptPersistenceError, PgClient.PgClient> =>
   Effect.gen(function* () {
@@ -177,7 +191,9 @@ export const recoverStaleReceiptOutbox = (
         UPDATE economy_receipt_outbox SET
           status = 'Failed', claim_id = NULL, claimed_at = NULL,
           last_failure_tag = 'StaleReceiptOutboxClaim'
-        WHERE status = 'Processing' AND claimed_at < ${claimedBefore}
+        WHERE status = 'Processing'
+          AND claim_id = ${claimId}
+          AND claimed_at < ${claimedBefore}
         RETURNING 1
       )
       SELECT count(*)::text AS count FROM recovered
@@ -211,13 +227,14 @@ const interpretReceiptOutbox = (
 export const deliverNextReceiptOutbox = (
   claimId: string,
   claimedAt: string,
+  receiptId?: string,
 ): Effect.Effect<
   ReceiptOutboxDeliveryResult,
   ReceiptPersistenceError,
   PgClient.PgClient | ReceiptFileService | ReceiptAuxiliaryEffects
 > =>
   Effect.gen(function* () {
-    const claim = yield* claimNextReceiptOutbox(claimId, claimedAt);
+    const claim = yield* claimNextReceiptOutbox(claimId, claimedAt, receiptId);
     if (claim === undefined) return { _tag: "Idle" as const };
 
     return yield* interpretReceiptOutbox(claim.request).pipe(

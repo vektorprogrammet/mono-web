@@ -1,5 +1,5 @@
 import * as PgClient from "@effect/sql-pg/PgClient";
-import { Effect } from "effect";
+import { Cause, Effect } from "effect";
 import { ReceiptAuxiliaryEffects } from "./auxiliary-service.js";
 import { ReceiptFileService, type ReceiptFileRecordingSnapshot } from "./file-service.js";
 import {
@@ -42,6 +42,10 @@ export interface ReceiptFileProofEvidence {
     readonly acceptedResolutions: 1;
     readonly rejectedResolutions: 1;
     readonly exclusiveClaims: true;
+    readonly sameCommandAccepted: number;
+    readonly sameCommandReplayed: number;
+    readonly conflictingCommandAccepted: number;
+    readonly conflictingCommandConflicts: number;
   };
   readonly delivery: {
     readonly delivered: number;
@@ -82,6 +86,21 @@ const raceFile: ReceiptFile = {
   byteLength: 384,
   sha256: "e".repeat(64),
 };
+const identicalFile: ReceiptFile = {
+  fileRef: "staged/proof-file-concurrent-identical",
+  objectKey: "receipts/proof-file-concurrent-identical",
+  contentType: "application/pdf",
+  byteLength: 640,
+  sha256: "f".repeat(64),
+};
+
+const conflictFile: ReceiptFile = {
+  fileRef: "staged/proof-file-concurrent-conflict",
+  objectKey: "receipts/proof-file-concurrent-conflict",
+  contentType: "application/pdf",
+  byteLength: 768,
+  sha256: "a".repeat(64),
+};
 
 const owner: ReceiptActor = {
   personId: "file-proof-owner",
@@ -103,26 +122,40 @@ const context = (receiptId: string, visualId: string, now: string) => ({
   now,
 });
 
+const submitCommand = (commandId: string, description: string, file: ReceiptFile) => ({
+  _tag: "SubmitReceipt" as const,
+  commandId,
+  actor: owner,
+  departmentId: owner.departmentId,
+  paymentAccountCiphertext: "ciphertext:v1:file-proof-account",
+  description,
+  amountOre: 12_345,
+  receiptDate: "2026-08-20",
+  file,
+});
+
 const submit = (
   commandId: string,
   receiptId: string,
   visualId: string,
   file: ReceiptFile,
   now: string,
-) =>
-  executeReceiptCommand(
-    {
-      _tag: "SubmitReceipt",
-      commandId,
-      actor: owner,
-      departmentId: owner.departmentId,
-      paymentAccountCiphertext: "ciphertext:v1:file-proof-account",
-      description: "Receipt file proof",
-      amountOre: 12_345,
-      receiptDate: "2026-08-20",
-      file,
-    },
-    context(receiptId, visualId, now),
+) => executeReceiptCommand(submitCommand(commandId, "Receipt file proof", file), context(receiptId, visualId, now));
+
+const hasFailureTag = (
+  result:
+    | { readonly _tag: "Success" }
+    | { readonly _tag: "Failure"; readonly cause: Cause.Cause<unknown> },
+  tag: string,
+): boolean =>
+  result._tag === "Failure" &&
+  result.cause.reasons.some(
+    (reason) =>
+      Cause.isFailReason(reason) &&
+      typeof reason.error === "object" &&
+      reason.error !== null &&
+      "_tag" in reason.error &&
+      reason.error._tag === tag,
   );
 
 const drain = (
@@ -212,6 +245,8 @@ export const runReceiptFileProof = (
     yield* files.stage(original);
     yield* files.stage(replacement);
     yield* files.stage(raceFile);
+    yield* files.stage(identicalFile);
+    yield* files.stage(conflictFile);
 
     yield* submit(
       "file-proof-submit",
@@ -239,7 +274,10 @@ export const runReceiptFileProof = (
 
     const staleClaim = yield* claimNextReceiptOutbox("claim-stale", "2026-08-20T16:03:00.000Z");
     if (staleClaim === undefined) throw new Error("expected replacement promote claim");
-    const recovered = yield* recoverStaleReceiptOutbox("2026-08-20T16:04:00.000Z");
+    const recovered = yield* recoverStaleReceiptOutbox(
+      staleClaim.claimId,
+      "2026-08-20T16:04:00.000Z",
+    );
     yield* Effect.sync(() => {
       if (recovered !== 1) throw new Error("expected one stale Receipt outbox claim");
     });
@@ -294,10 +332,14 @@ export const runReceiptFileProof = (
       ],
       { concurrency: "unbounded" },
     );
-    if (workerClaims.filter((claim) => claim !== undefined).length !== 1) {
+    const workerClaim = workerClaims.find((claim) => claim !== undefined);
+    if (workerClaim === undefined || workerClaims.filter((claim) => claim !== undefined).length !== 1) {
       throw new Error("concurrent Receipt outbox claims were not exclusive");
     }
-    const workerClaimsRecovered = yield* recoverStaleReceiptOutbox("2026-08-20T16:10:31.000Z");
+    const workerClaimsRecovered = yield* recoverStaleReceiptOutbox(
+      workerClaim.claimId,
+      "2026-08-20T16:10:31.000Z",
+    );
     if (workerClaimsRecovered !== 1) {
       throw new Error("exclusive Receipt outbox claim was not recoverable");
     }
@@ -331,6 +373,83 @@ export const runReceiptFileProof = (
       { concurrency: "unbounded" },
     );
     const raceDelivery = yield* drain(5, "claim-race", "2026-08-20T16:12:00.000Z");
+    const identicalContext = context(
+      "file-proof-concurrent-identical-receipt",
+      "FILE-PROOF-3",
+      "2026-08-20T16:13:00.000Z",
+    );
+    const identicalCommand = submitCommand(
+      "file-proof-concurrent-identical",
+      "Concurrent identical submission",
+      identicalFile,
+    );
+    const identicalCommandResults = yield* Effect.all(
+      [
+        Effect.exit(executeReceiptCommand(identicalCommand, identicalContext)),
+        Effect.exit(executeReceiptCommand(identicalCommand, identicalContext)),
+      ],
+      { concurrency: "unbounded" },
+    );
+    const identicalCommandDelivery = yield* drain(
+      3,
+      "claim-concurrent-identical",
+      "2026-08-20T16:14:00.000Z",
+    );
+
+    const conflictingContext = context(
+      "file-proof-concurrent-conflict-receipt",
+      "FILE-PROOF-4",
+      "2026-08-20T16:15:00.000Z",
+    );
+    const conflictingCommandResults = yield* Effect.all(
+      [
+        Effect.exit(
+          executeReceiptCommand(
+            submitCommand(
+              "file-proof-concurrent-conflict",
+              "Concurrent conflicting submission A",
+              conflictFile,
+            ),
+            conflictingContext,
+          ),
+        ),
+        Effect.exit(
+          executeReceiptCommand(
+            submitCommand(
+              "file-proof-concurrent-conflict",
+              "Concurrent conflicting submission B",
+              conflictFile,
+            ),
+            conflictingContext,
+          ),
+        ),
+      ],
+      { concurrency: "unbounded" },
+    );
+    const conflictingCommandDelivery = yield* drain(
+      3,
+      "claim-concurrent-conflict",
+      "2026-08-20T16:16:00.000Z",
+    );
+
+    const sameCommandAccepted = identicalCommandResults.filter(
+      (result) => result._tag === "Success" && !result.value.replayed,
+    ).length;
+    const sameCommandReplayed = identicalCommandResults.filter(
+      (result) => result._tag === "Success" && result.value.replayed,
+    ).length;
+    const conflictingCommandAccepted = conflictingCommandResults.filter(
+      (result) => result._tag === "Success" && !result.value.replayed,
+    ).length;
+    const conflictingCommandConflicts = conflictingCommandResults.filter((result) =>
+      hasFailureTag(result, "DuplicateReceiptCommandConflict"),
+    ).length;
+    if (sameCommandAccepted !== 1 || sameCommandReplayed !== 1) {
+      throw new Error("concurrent identical Receipt commands did not replay exactly once");
+    }
+    if (conflictingCommandAccepted !== 1 || conflictingCommandConflicts !== 1) {
+      throw new Error("concurrent conflicting Receipt commands did not fail exactly once");
+    }
 
     const outboxRows = yield* sql<OutboxStateRow>`
       SELECT status, count(*)::text AS count, sum(attempts)::text AS attempts
@@ -338,6 +457,7 @@ export const runReceiptFileProof = (
       GROUP BY status
       ORDER BY status
     `;
+
     const snapshot = yield* fileSnapshot;
     const auxiliary = yield* auxiliaryEffectIds;
     const allDeliveries = [
@@ -347,6 +467,8 @@ export const runReceiptFileProof = (
       ...reviseRemainder,
       ...withdrawDelivery,
       ...raceDelivery,
+      ...identicalCommandDelivery,
+      ...conflictingCommandDelivery,
     ];
     const delivered = allDeliveries.filter((result) => result._tag === "Delivered").length;
     const failed = allDeliveries.filter((result) => result._tag === "Failed").length;
@@ -396,6 +518,10 @@ export const runReceiptFileProof = (
         acceptedResolutions: 1,
         rejectedResolutions: 1,
         exclusiveClaims: true,
+        sameCommandAccepted,
+        sameCommandReplayed,
+        conflictingCommandAccepted,
+        conflictingCommandConflicts,
       },
       delivery: {
         delivered,
