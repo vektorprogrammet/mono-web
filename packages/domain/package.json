@@ -11,7 +11,8 @@
     "./report": "./src/report.ts",
     "./fixtures": "./src/fixtures.ts",
     "./receipt": "./src/receipt/index.ts",
-    "./receipt/postgres": "./src/receipt/postgres-index.ts"
+    "./receipt/postgres": "./src/receipt/postgres-index.ts",
+    "./admission-period": "./src/admission-period/index.ts"
   },
   "scripts": {
     "report": "bun run src/main.ts",
