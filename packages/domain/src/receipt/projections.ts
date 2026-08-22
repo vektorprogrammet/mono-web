@@ -7,7 +7,9 @@ export interface ReceiptListItem {
   readonly visualId: string;
   readonly ownerPersonId: string;
   readonly departmentId: string;
+  readonly description: string;
   readonly amountOre: string;
+  readonly currency: "NOK";
   readonly status: "Pending" | "Refunded" | "Rejected" | "Withdrawn";
   readonly receiptDate: string;
   readonly revision: number;
@@ -30,7 +32,8 @@ export const listAssistantReceipts = (
     return yield* sql<ReceiptListItem>`
       SELECT receipt_id AS "receiptId", visual_id AS "visualId",
         owner_person_id AS "ownerPersonId", department_id AS "departmentId",
-        amount_ore::text AS "amountOre", status, receipt_date::text AS "receiptDate", revision
+        description, amount_ore::text AS "amountOre", currency,
+        status, receipt_date::text AS "receiptDate", revision
       FROM economy_receipts
       WHERE owner_person_id = ${ownerPersonId}
       ORDER BY submitted_at DESC, receipt_id ASC
@@ -53,14 +56,16 @@ export const listApproverReceipts = (
         ? sql<ReceiptListItem>`
             SELECT receipt_id AS "receiptId", visual_id AS "visualId",
               owner_person_id AS "ownerPersonId", department_id AS "departmentId",
-              amount_ore::text AS "amountOre", status, receipt_date::text AS "receiptDate", revision
+              description, amount_ore::text AS "amountOre", currency,
+              status, receipt_date::text AS "receiptDate", revision
             FROM economy_receipts
             ORDER BY submitted_at DESC, receipt_id ASC
           `
         : sql<ReceiptListItem>`
             SELECT receipt_id AS "receiptId", visual_id AS "visualId",
               owner_person_id AS "ownerPersonId", department_id AS "departmentId",
-              amount_ore::text AS "amountOre", status, receipt_date::text AS "receiptDate", revision
+              description, amount_ore::text AS "amountOre", currency,
+              status, receipt_date::text AS "receiptDate", revision
             FROM economy_receipts
             WHERE department_id = ${scope.departmentId}
             ORDER BY submitted_at DESC, receipt_id ASC
