@@ -72,10 +72,13 @@ test.describe("Real Symfony platform operations journey", () => {
     await expectProblem(invalid, [400, 422]);
 
     const created = await page.request.post(`${apiOrigin}/api/admin/semesters`, {
-      headers: headers(adminToken),
+      headers: { ...headers(adminToken), Accept: "application/json" },
       data: { semesterTime: "Høst", year: "2034" },
     });
-    expect(created.status(), await created.text()).toBe(201);
+    const createdBody = await created.text();
+    expect(created.status(), createdBody).toBe(201);
+    const createdPayload = JSON.parse(createdBody) as { id?: unknown };
+    expect(typeof createdPayload.id).toBe("number");
     const duplicate = await page.request.post(`${apiOrigin}/api/admin/semesters`, {
       headers: headers(adminToken),
       data: { semesterTime: "Høst", year: "2034" },
@@ -106,9 +109,8 @@ test.describe("Real Symfony platform operations journey", () => {
     expect(fixtureField).toBeDefined();
     expect(typeof fixtureField?.id).toBe("number");
 
-
-    const rendered = await page.goto(`${apiOrigin}/kontrollpanel`);
+    const rendered = await page.goto(`${apiOrigin}/kontrollpanel/semesteradmin`);
     expect(rendered?.status()).toBe(200);
-    await expect(page).toHaveTitle(/Vektor|Kontrollpanel/i);
+    await expect(page.getByText("Høst 2034", { exact: true })).toBeVisible();
   });
 });

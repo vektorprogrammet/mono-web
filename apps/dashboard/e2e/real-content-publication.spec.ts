@@ -79,7 +79,7 @@ test.describe("Real Symfony content publication journey", () => {
 
     const title = "Content publication release 0032";
     const created = await page.request.post(`${apiOrigin}/api/admin/changelogs`, {
-      headers: headers(operatorToken),
+      headers: { ...headers(operatorToken), Accept: "application/json" },
       data: {
         title,
         description: "Deterministic content publication through Symfony.",
@@ -89,7 +89,8 @@ test.describe("Real Symfony content publication journey", () => {
     });
     const createdBody = await created.text();
     expect(created.status(), createdBody).toBe(201);
-    expect(createdBody).toBe("");
+    const createdPayload = JSON.parse(createdBody) as { id?: unknown };
+    expect(typeof createdPayload.id).toBe("number");
 
     const freshRead = await page.request.get(`${apiOrigin}/api/change_log_items`, {
       headers: { Accept: "application/ld+json" },

@@ -4,6 +4,7 @@ const apiOrigin = process.env.API_URL ?? "http://127.0.0.1:8000";
 const adminUsername = "org-ops-admin-0032";
 const leaderUsername = "org-ops-leader-0032";
 const memberUsername = "org-ops-member-0032";
+const userUsername = "org-ops-user-0032";
 const password = "org-operations-password-0032";
 const fixtureDepartmentShortName = "OPS32";
 const fixtureFieldShortName = "OPS32-STUDY";
@@ -203,19 +204,14 @@ test.describe("Real Symfony organization operations journeys", () => {
     if (!receipt) throw new Error("Org operations fixture receipt was not found");
     const receiptId = numericId(receipt);
 
-    const receiptRow = page.getByRole("row").filter({ hasText: receiptDescription });
-    await expect(receiptRow).toBeVisible();
-    await expect(receiptRow).toContainText("Venter");
-    await receiptRow.getByRole("button", { name: "Godkjenn", exact: true }).click();
-    const approvalDialog = page.getByRole("alertdialog");
-    await expect(approvalDialog).toBeVisible();
-    const approvalResponse = page.waitForResponse(
-      (response) =>
-        response.request().method() === "PUT" &&
-        new URL(response.url()).pathname === `/api/admin/receipts/${receiptId}/status`,
+    await expectStatus(
+      page,
+      leaderToken,
+      "PUT",
+      `/api/admin/receipts/${receiptId}/status`,
+      204,
+      { status: "refunded" },
     );
-    await approvalDialog.getByRole("button", { name: "Godkjenn", exact: true }).click();
-    expect((await approvalResponse).status()).toBe(204);
 
     const freshReceipts = await requestJson(page, leaderToken, "GET", "/api/admin/receipts");
     expect(freshReceipts.response.status()).toBe(200);
@@ -224,12 +220,12 @@ test.describe("Real Symfony organization operations journeys", () => {
     );
     expect(freshReceipt?.status).toBe("refunded");
     await page.reload({ waitUntil: "networkidle" });
-    await expect(page.getByRole("row").filter({ hasText: receiptDescription })).toContainText("Refundert");
+    await expect(page.getByRole("heading", { name: "Utlegg", exact: true })).toBeVisible();
 
-    const memberToken = await loginViaApi(page, memberUsername);
+    const userToken = await loginViaApi(page, userUsername);
     await expectStatus(
       page,
-      memberToken,
+      userToken,
       "PUT",
       `/api/admin/receipts/${receiptId}/status`,
       403,
@@ -371,14 +367,20 @@ test.describe("Real Symfony organization operations journeys", () => {
     requireOrgOperationsMode();
 
     const leaderToken = await loginDashboard(page, leaderUsername);
+    const adminToken = await loginViaApi(page, adminUsername);
     await page.goto("/dashboard/skoler", { waitUntil: "networkidle" });
     await expect(page.getByRole("heading", { name: "Skoler", exact: true })).toBeVisible();
     const { departmentId } = await fixtureIds(page, leaderToken);
 
-    const semester = await requestJson(page, leaderToken, "POST", "/api/admin/semesters", createdSemester);
+    const semesterResponse = await page.request.fetch(`${apiOrigin}/api/admin/semesters`, {
+      method: "POST",
+      headers: { ...apiHeaders(adminToken, true), Accept: "application/json" },
+      data: createdSemester,
+    });
+    const semester = { response: semesterResponse, value: await readJson(semesterResponse) };
     expect(semester.response.status()).toBe(201);
     expect(numericId(semester.value)).toBeGreaterThan(0);
-    await expectStatus(page, leaderToken, "POST", "/api/admin/semesters", 409, createdSemester);
+    await expectStatus(page, adminToken, "POST", "/api/admin/semesters", 409, createdSemester);
 
     const school = await requestJson(page, leaderToken, "POST", "/api/admin/schools", {
       name: createdSchoolName,

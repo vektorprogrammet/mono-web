@@ -136,7 +136,9 @@ export async function loader({ request }: Route.LoaderArgs): Promise<LoaderData>
     users: users.value.active
       .filter(
         (user) =>
-          user.role === "ROLE_TEAM_LEADER" || user.role === "ROLE_ADMIN",
+          user.role === "ROLE_TEAM_MEMBER" ||
+          user.role === "ROLE_TEAM_LEADER" ||
+          user.role === "ROLE_ADMIN",
       )
       .map(projectInterviewerOption),
     schemas: schemas.value.map(projectSchemaOption),

@@ -50,14 +50,10 @@ async function expectProblem(response: APIResponse, statuses: readonly number[])
 }
 
 async function currentSemesterId(page: Page): Promise<number> {
-  const options = page.locator('select[name="survey[semester]"] option');
-  const value = await options.evaluateAll((nodes) => {
-    for (const node of nodes) {
-      const candidate = node.getAttribute("value");
-      if (candidate !== null && candidate.length > 0) return candidate;
-    }
-    return null;
-  });
+  const value = await page
+    .locator('select[name="survey[semester]"] option')
+    .filter({ hasText: "Vår 2032" })
+    .getAttribute("value");
   expect(value).toMatch(/^\d+$/);
   return Number(value);
 }

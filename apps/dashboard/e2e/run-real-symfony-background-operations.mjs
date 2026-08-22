@@ -582,6 +582,15 @@ require $_SERVER['DOCUMENT_ROOT'].'/index.php';
           "Runtime evidence requires exactly two runner source references for the background runner and browser suite.",
         );
       }
+      const commandOutcomes = {
+        application_subscriber_count: applicationSubscriberCount,
+        delivery_notification_count: notificationCount,
+        delivery_reminder_count: reminderCount,
+        recruiter_reminder_count: recruiterReminderCount,
+      };
+      const playwrightArtifact = JSON.parse(
+        sanitizePlaywrightArtifact(e2eResult.stdout).toString("utf8"),
+      );
       await emitRuntimeEvidenceReceipts({
         journeys,
         fixtureId: "background-operations-0032",
@@ -590,7 +599,12 @@ require $_SERVER['DOCUMENT_ROOT'].'/index.php';
           { sourceRefId: runnerSourceRefIds[1], bytes: await readFile(specSourcePath) },
         ],
         fixtureInputBytes,
-        artifactBytes: sanitizePlaywrightArtifact(e2eResult.stdout),
+        artifactBytes: Buffer.from(
+          JSON.stringify({
+            command_outcomes: commandOutcomes,
+            playwright: playwrightArtifact,
+          }),
+        ),
       });
     }
   } catch (error) {

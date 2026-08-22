@@ -24,15 +24,17 @@ async function loginDashboard(page: Page): Promise<void> {
   await expect(page).toHaveURL(/\/dashboard(?:$|\/)/);
 }
 
-async function findAdmissionForm(page: Page) {
-  const forms = page.locator('form[name^="application_"]');
-  const formCount = await forms.count();
-  for (let index = 0; index < formCount; index += 1) {
-    const candidate = forms.nth(index);
-    const studies = await candidate.locator("option").allTextContents();
-    if (studies.some((label) => label.includes("BG-ADM-STUDY"))) return candidate;
-  }
-  throw new Error("Background admission fixture form was not rendered");
+async function findAdmissionForm(page: Page): Promise<Locator> {
+  const departmentTab = page.getByRole("link", {
+    name: "BackgroundAdmissionCity",
+    exact: true,
+  });
+  await expect(departmentTab).toBeVisible();
+  await departmentTab.click();
+
+  const form = page.locator(".tab-pane.active form");
+  await expect(form).toBeVisible();
+  return form;
 }
 
 test.describe("Real Symfony background operations", () => {
@@ -41,6 +43,24 @@ test.describe("Real Symfony background operations", () => {
   test("interview-recruiter", async ({ page }) => {
     requireBackgroundMode();
     await loginDashboard(page);
+    const loginResponse = await page.request.post(`${apiOrigin}/api/login`, {
+      headers: { Accept: "application/json", "Content-Type": "application/json" },
+      data: { username: leaderUsername, password: leaderPassword },
+    });
+    expect(loginResponse.status()).toBe(200);
+    const loginPayload = (await loginResponse.json()) as { token?: unknown };
+    expect(typeof loginPayload.token).toBe("string");
+    const authorization = { Authorization: `Bearer ${loginPayload.token as string}` };
+    for (const path of [
+      "/api/admin/applications?status=new",
+      "/api/admin/users",
+      "/api/admin/interview-schemas",
+    ]) {
+      const response = await page.request.get(`${apiOrigin}${path}`, {
+        headers: { Accept: "application/ld+json", ...authorization },
+      });
+      expect(response.status(), path).toBe(200);
+    }
 
     await page.goto("/dashboard/sokere?status=new", { waitUntil: "networkidle" });
     await expect(page.getByRole("heading", { name: "Søkere", exact: true })).toBeVisible();
@@ -106,15 +126,16 @@ test.describe("Real Symfony background operations", () => {
     const loginPayload = (await loginResponse.json()) as { token?: unknown };
     expect(typeof loginPayload.token).toBe("string");
 
-    const meResponse = await page.request.get(`${apiOrigin}/api/me`, {
-      headers: {
-        Accept: "application/json",
-        Authorization: `Bearer ${loginPayload.token as string}`,
+    const privilegedResponse = await page.request.get(
+      `${apiOrigin}/api/admin/interview-schemas`,
+      {
+        headers: {
+          Accept: "application/json",
+          Authorization: `Bearer ${loginPayload.token as string}`,
+        },
       },
-    });
-    expect(meResponse.status()).toBe(200);
-    const mePayload = (await meResponse.json()) as { roles?: unknown };
-    expect(mePayload.roles).toEqual(expect.arrayContaining(["ROLE_TEAM_MEMBER"]));
+    );
+    expect(privilegedResponse.status()).toBe(200);
   });
 
   test("background-delivery", async ({ page }) => {
@@ -123,7 +144,7 @@ test.describe("Real Symfony background operations", () => {
     await page.goto("/dashboard/intervjuer", { waitUntil: "networkidle" });
     await expect(page.getByRole("heading", { name: "Intervjuer", exact: true })).toBeVisible();
     await expect(
-      page.getByRole("row").filter({ hasText: "Reminder 0032" }),
-    ).toContainText("Delivery Interviewer 0032");
+      page.getByRole("row").filter({ hasText: "Applicant Reminder 0032" }),
+    ).toContainText("Recruiter Interviewer 0032");
   });
 });
