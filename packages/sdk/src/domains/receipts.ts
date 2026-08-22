@@ -5,12 +5,14 @@ import { ReceiptDecodeError } from "../errors.js";
 import {
   CommandId,
   Receipt,
+  ReceiptApprovalFilter,
   ReceiptCommandObservation,
   ReceiptCreateResponse,
   ReceiptId,
   ReceiptInput,
   ReceiptOwnerFilter,
   ReceiptPage,
+  ReceiptResolutionInput,
   ReceiptRevision,
   ReceiptReviseInput,
   ReceiptSubmitInput,
@@ -36,6 +38,15 @@ const receiptQuery = (
   if (filter.pageSize !== undefined) query.itemsPerPage = filter.pageSize;
   return query;
 };
+
+const approvalReceiptQuery = (
+  filter: typeof ReceiptApprovalFilter.Type,
+): Record<string, string | number | undefined> => {
+  const query: Record<string, string | number | undefined> = {};
+  if (filter.status !== undefined) query.status = filter.status;
+  return query;
+};
+
 
 export interface ReceiptsDomain {
   // Legacy CRUD remains separate until its own native cut-over specification.
@@ -73,6 +84,19 @@ export interface ReceiptsDomain {
   listOwned(
     filter?: typeof ReceiptOwnerFilter.Type,
   ): Effect.Effect<typeof ReceiptPage.Type, InternalSdkError>;
+  listForApproval(
+    filter?: typeof ReceiptApprovalFilter.Type,
+  ): Effect.Effect<typeof ReceiptPage.Type, InternalSdkError>;
+  refund(
+    receiptId: typeof ReceiptId.Type,
+    expectedRevision: typeof ReceiptRevision.Type,
+    commandId: typeof CommandId.Type,
+  ): Effect.Effect<typeof ReceiptCommandObservation.Type, InternalSdkError>;
+  reject(
+    receiptId: typeof ReceiptId.Type,
+    expectedRevision: typeof ReceiptRevision.Type,
+    commandId: typeof CommandId.Type,
+  ): Effect.Effect<typeof ReceiptCommandObservation.Type, InternalSdkError>;
 }
 
 export function createReceiptsDomain(transport: Transport): ReceiptsDomain {
@@ -195,6 +219,59 @@ export function createReceiptsDomain(transport: Transport): ReceiptsDomain {
       return decodeCanonical(ReceiptOwnerFilter, filter ?? {}).pipe(
         Effect.flatMap((validFilter) =>
           transport.get("/api/receipts", ReceiptPage, receiptQuery(validFilter), { strict: true }),
+        ),
+      );
+    },
+
+    listForApproval(filter) {
+      return decodeCanonical(ReceiptApprovalFilter, filter ?? {}).pipe(
+        Effect.flatMap((validFilter) =>
+          transport.get(
+            "/api/admin/receipts",
+            ReceiptPage,
+            approvalReceiptQuery(validFilter),
+            { strict: true },
+          ),
+        ),
+      );
+    },
+
+    refund(receiptId, expectedRevision, commandId) {
+      return decodeCanonical(ReceiptId, receiptId).pipe(
+        Effect.flatMap((validReceiptId) =>
+          decodeCanonical(ReceiptResolutionInput, {
+            commandId,
+            expectedRevision,
+          }).pipe(
+            Effect.flatMap((validInput) =>
+              transport.post(
+                `/api/admin/receipts/${encodeURIComponent(validReceiptId)}/refund`,
+                validInput,
+                ReceiptCommandObservation,
+                { strict: true },
+              ),
+            ),
+          ),
+        ),
+      );
+    },
+
+    reject(receiptId, expectedRevision, commandId) {
+      return decodeCanonical(ReceiptId, receiptId).pipe(
+        Effect.flatMap((validReceiptId) =>
+          decodeCanonical(ReceiptResolutionInput, {
+            commandId,
+            expectedRevision,
+          }).pipe(
+            Effect.flatMap((validInput) =>
+              transport.post(
+                `/api/admin/receipts/${encodeURIComponent(validReceiptId)}/reject`,
+                validInput,
+                ReceiptCommandObservation,
+                { strict: true },
+              ),
+            ),
+          ),
         ),
       );
     },

@@ -190,6 +190,18 @@ export class ReceiptOwnerFilter extends Schema.Class<ReceiptOwnerFilter>("Receip
   page: Schema.optional(canonicalPositiveOre),
   pageSize: Schema.optional(canonicalPositiveOre),
 }) {}
+export class ReceiptApprovalFilter extends Schema.Class<ReceiptApprovalFilter>(
+  "ReceiptApprovalFilter",
+)({
+  status: Schema.optional(ReceiptStatus),
+}) {}
+
+export class ReceiptResolutionInput extends Schema.Class<ReceiptResolutionInput>(
+  "ReceiptResolutionInput",
+)({
+  commandId: CommandId,
+  expectedRevision: ReceiptRevision,
+}) {}
 
 // Explicit schema aliases make the wire boundary discoverable without
 // introducing a second representation of any canonical type.
@@ -200,3 +212,5 @@ export const ReceiptWithdrawInputSchema = ReceiptWithdrawInput;
 export const ReceiptProjectionSchema = ReceiptProjection;
 export const ReceiptPageSchema = ReceiptPage;
 export const ReceiptOwnerFilterSchema = ReceiptOwnerFilter;
+export const ReceiptApprovalFilterSchema = ReceiptApprovalFilter;
+export const ReceiptResolutionInputSchema = ReceiptResolutionInput;
