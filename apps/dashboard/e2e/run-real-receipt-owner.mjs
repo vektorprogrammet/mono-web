@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
 const dashboardRoot = fileURLToPath(new URL("../", import.meta.url));
+const sdkRoot = fileURLToPath(new URL("../../../packages/sdk/", import.meta.url));
 const composeFile = join(repositoryRoot, "docker-compose.yml");
 const dashboardOrigin = "http://127.0.0.1:5174";
 const receiptApiOrigin = "http://127.0.0.1:8790";
@@ -605,6 +606,10 @@ async function main() {
           env: apiEnvironment,
         });
     await waitForHttp(`${receiptApiOrigin}/health`, apiProcess, "Native Receipt API");
+    await runCommand("bun", ["run", "build"], {
+      cwd: sdkRoot,
+      env: dashboardEnvironment,
+    });
 
     dashboardProcess = startProcess(
       "nix",

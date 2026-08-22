@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import * as PgClient from "@effect/sql-pg/PgClient";
 import { Effect, Layer } from "effect";
 import type { SqlError } from "effect/unstable/sql/SqlError";
@@ -22,6 +24,7 @@ import {
   deliverNextReceiptOutbox,
   listApproverReceipts,
   listOwnedReceiptProjection,
+  listStaleReceiptOutboxClaimIds,
   migrateReceiptPostgres,
   recoverStaleReceiptOutbox,
   type ReceiptOutboxDeliveryResult,
@@ -396,9 +399,7 @@ const receiptApprovalRoute = (pathname: string): ReceiptApprovalRoute | undefine
   if (receiptId.length === 0 || receiptId.includes("/")) {
     throw new ReceiptDecodeError({ message: "invalid receipt id" });
   }
-  return match[2] === "refund"
-    ? { action: "refund", receiptId }
-    : { action: "reject", receiptId };
+  return match[2] === "refund" ? { action: "refund", receiptId } : { action: "reject", receiptId };
 };
 const receiptEvidenceRoute = (pathname: string): string | undefined => {
   const match = /^\/api\/e2e\/receipts\/([^/]+)\/evidence$/.exec(pathname);
@@ -414,7 +415,6 @@ const receiptEvidenceRoute = (pathname: string): string | undefined => {
     throw new ReceiptDecodeError({ message: "invalid receipt id" });
   }
 };
-
 
 interface ReceiptLifecycleFileRow {
   readonly fileRef: string;
@@ -572,25 +572,32 @@ const drainOutbox = async (
   fileStore: ReceiptFileStore,
   receiptId: string,
 ): Promise<"Idle" | "Failed" | "Limit"> => {
-  const claimId = options.outboxClaimId ?? DEFAULT_OUTBOX_CLAIM_ID;
+  const claimBase = options.outboxClaimId ?? DEFAULT_OUTBOX_CLAIM_ID;
+  const claimId = `${claimBase}-${randomUUID()}`;
+  const claimedBefore = staleOutboxCutoff(options.config.now());
+  let staleClaimIds: ReadonlyArray<string> = [];
   try {
-    await runPostgres(
-      recoverStaleReceiptOutbox(claimId, staleOutboxCutoff(options.config.now())),
+    staleClaimIds = await runPostgres(
+      listStaleReceiptOutboxClaimIds(claimedBefore, receiptId),
       options.postgresLayer,
     );
   } catch {
     // Delivery remains best-effort after the authority transaction commits.
   }
+  for (const staleClaimId of staleClaimIds) {
+    try {
+      await runPostgres(
+        recoverStaleReceiptOutbox(staleClaimId, claimedBefore),
+        options.postgresLayer,
+      );
+    } catch {
+      // A concurrent worker may have completed or recovered this exact claim.
+    }
+  }
   for (let attempt = 0; attempt < 256; attempt += 1) {
     let result: ReceiptOutboxDeliveryResult;
     try {
-      result = await deliverOutbox(
-        claimId,
-        options.config.now(),
-        options,
-        fileStore,
-        receiptId,
-      );
+      result = await deliverOutbox(claimId, options.config.now(), options, fileStore, receiptId);
     } catch {
       return "Failed";
     }
@@ -599,7 +606,6 @@ const drainOutbox = async (
   }
   return "Limit";
 };
-
 
 const submit = async (
   request: Request,

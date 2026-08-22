@@ -5,6 +5,7 @@ import { ReceiptFileService, type ReceiptFileRecordingSnapshot } from "./file-se
 import {
   claimNextReceiptOutbox,
   deliverNextReceiptOutbox,
+  listStaleReceiptOutboxClaimIds,
   recoverStaleReceiptOutbox,
   type ReceiptOutboxDeliveryResult,
 } from "./outbox.js";
@@ -42,10 +43,18 @@ export interface ReceiptFileProofEvidence {
     readonly acceptedResolutions: 1;
     readonly rejectedResolutions: 1;
     readonly exclusiveClaims: true;
+    readonly concurrentDrains: true;
+    readonly concurrentDrainClaims: true;
     readonly sameCommandAccepted: number;
     readonly sameCommandReplayed: number;
     readonly conflictingCommandAccepted: number;
     readonly conflictingCommandConflicts: number;
+  };
+  readonly staleRecovery: {
+    readonly discoveredClaimIds: ReadonlyArray<string>;
+    readonly recovered: number;
+    readonly reclaimed: true;
+    readonly delivered: true;
   };
   readonly delivery: {
     readonly delivered: number;
@@ -140,7 +149,11 @@ const submit = (
   visualId: string,
   file: ReceiptFile,
   now: string,
-) => executeReceiptCommand(submitCommand(commandId, "Receipt file proof", file), context(receiptId, visualId, now));
+) =>
+  executeReceiptCommand(
+    submitCommand(commandId, "Receipt file proof", file),
+    context(receiptId, visualId, now),
+  );
 
 const hasFailureTag = (
   result:
@@ -272,8 +285,18 @@ export const runReceiptFileProof = (
       context("file-proof-receipt", "FILE-PROOF-1", "2026-08-20T16:02:00.000Z"),
     );
 
-    const staleClaim = yield* claimNextReceiptOutbox("claim-stale", "2026-08-20T16:03:00.000Z");
+    const staleClaim = yield* claimNextReceiptOutbox(
+      "claim-stale-dead-process",
+      "2026-08-20T16:03:00.000Z",
+    );
     if (staleClaim === undefined) throw new Error("expected replacement promote claim");
+    const staleClaimIds = yield* listStaleReceiptOutboxClaimIds(
+      "2026-08-20T16:04:00.000Z",
+      "file-proof-receipt",
+    );
+    if (!staleClaimIds.includes(staleClaim.claimId)) {
+      throw new Error("stale Receipt outbox claim was not explicitly discovered");
+    }
     const recovered = yield* recoverStaleReceiptOutbox(
       staleClaim.claimId,
       "2026-08-20T16:04:00.000Z",
@@ -333,7 +356,10 @@ export const runReceiptFileProof = (
       { concurrency: "unbounded" },
     );
     const workerClaim = workerClaims.find((claim) => claim !== undefined);
-    if (workerClaim === undefined || workerClaims.filter((claim) => claim !== undefined).length !== 1) {
+    if (
+      workerClaim === undefined ||
+      workerClaims.filter((claim) => claim !== undefined).length !== 1
+    ) {
       throw new Error("concurrent Receipt outbox claims were not exclusive");
     }
     const workerClaimsRecovered = yield* recoverStaleReceiptOutbox(
@@ -372,7 +398,23 @@ export const runReceiptFileProof = (
       ],
       { concurrency: "unbounded" },
     );
-    const raceDelivery = yield* drain(5, "claim-race", "2026-08-20T16:12:00.000Z");
+    const [raceDrainA, raceDrainB] = yield* Effect.all(
+      [
+        drain(5, "claim-race-a", "2026-08-20T16:12:00.000Z"),
+        drain(5, "claim-race-b", "2026-08-20T16:12:00.000Z"),
+      ],
+      { concurrency: "unbounded" },
+    );
+    const raceDelivery = [...raceDrainA, ...raceDrainB];
+    const concurrentDrainClaims = raceDelivery.flatMap((result) =>
+      result._tag === "Idle" ? [] : [result.claim.claimId],
+    );
+    if (
+      concurrentDrainClaims.length === 0 ||
+      new Set(concurrentDrainClaims).size !== concurrentDrainClaims.length
+    ) {
+      throw new Error("simultaneous Receipt outbox drains reused a claim identity");
+    }
     const identicalContext = context(
       "file-proof-concurrent-identical-receipt",
       "FILE-PROOF-3",
@@ -483,6 +525,12 @@ export const runReceiptFileProof = (
       failedDelivery._tag === "Failed" &&
       currentAfterFailure.current.length === 1 &&
       currentAfterFailure.current[0]?.objectKey === original.objectKey;
+    const replacementReclaimed =
+      failedDelivery._tag === "Failed" &&
+      failedDelivery.claim.claimId === "claim-replacement-failure";
+    const replacementDelivered =
+      replacementDelivery._tag === "Delivered" &&
+      replacementDelivery.claim.claimId === "claim-replacement-retry";
     const duplicateFileEffects =
       snapshot.events.length - new Set(snapshot.events.map((event) => event.effectId)).size;
     const resolutionResults = [refund, reject];
@@ -497,6 +545,9 @@ export const runReceiptFileProof = (
     }
     if (!orderedReplacement || !currentPreservedOnFailure) {
       throw new Error("Receipt replacement file ordering or failure isolation was violated");
+    }
+    if (!replacementReclaimed || !replacementDelivered) {
+      throw new Error("stale Receipt outbox claim was not reclaimed and delivered");
     }
     return {
       specId: "0034",
@@ -518,10 +569,18 @@ export const runReceiptFileProof = (
         acceptedResolutions: 1,
         rejectedResolutions: 1,
         exclusiveClaims: true,
+        concurrentDrains: true,
+        concurrentDrainClaims: true,
         sameCommandAccepted,
         sameCommandReplayed,
         conflictingCommandAccepted,
         conflictingCommandConflicts,
+      },
+      staleRecovery: {
+        discoveredClaimIds: staleClaimIds,
+        recovered,
+        reclaimed: true,
+        delivered: true,
       },
       delivery: {
         delivered,

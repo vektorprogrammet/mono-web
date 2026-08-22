@@ -2,7 +2,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import type { ReceiptUiError } from "@/lib/receipt-view";
+import type { ReceiptRevisionDraft, ReceiptUiError } from "@/lib/receipt-view";
 import { ensureStableReceiptCommandId } from "./receipt-command-form";
 import { Form, useNavigation } from "react-router";
 
@@ -16,6 +16,7 @@ type Props = {
   error?: ReceiptUiError;
   submission?: ReceiptSubmissionNotice;
   commandId?: string;
+  draft?: ReceiptRevisionDraft;
 };
 
 function describedBy(
@@ -26,7 +27,7 @@ function describedBy(
   return error?.field === field ? `${helpId} receipt-submit-error` : helpId;
 }
 
-export function ReceiptSubmitForm({ error, submission, commandId }: Props) {
+export function ReceiptSubmitForm({ error, submission, commandId, draft }: Props) {
   const navigation = useNavigation();
   const isSubmitting =
     navigation.state !== "idle" && navigation.formData?.get("_intent") === "submit";
@@ -88,6 +89,7 @@ export function ReceiptSubmitForm({ error, submission, commandId }: Props) {
             <textarea
               id="description"
               name="description"
+              defaultValue={draft?.description}
               required
               maxLength={5000}
               rows={4}
@@ -111,6 +113,7 @@ export function ReceiptSubmitForm({ error, submission, commandId }: Props) {
               name="amountNok"
               type="text"
               inputMode="decimal"
+              defaultValue={draft?.amountNok}
               required
               autoComplete="off"
               placeholder="125,50"
@@ -131,6 +134,7 @@ export function ReceiptSubmitForm({ error, submission, commandId }: Props) {
               id="receiptDate"
               name="receiptDate"
               type="date"
+              defaultValue={draft?.receiptDate}
               required
               aria-invalid={error?.field === "receiptDate" || undefined}
               aria-describedby={describedBy("receipt-date-help", "receiptDate", error)}

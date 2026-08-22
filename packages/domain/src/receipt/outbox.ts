@@ -21,6 +21,9 @@ interface ClaimedOutboxRow {
 interface CountRow {
   readonly count: string;
 }
+interface ClaimIdRow {
+  readonly claim_id: string;
+}
 
 export interface ClaimedReceiptOutbox {
   readonly effectId: string;
@@ -178,6 +181,34 @@ export const failReceiptOutbox = (
       ),
     );
     yield* requireSingleUpdate(rows, "fail Receipt outbox");
+  });
+
+export const listStaleReceiptOutboxClaimIds = (
+  claimedBefore: string,
+  receiptId?: string,
+): Effect.Effect<ReadonlyArray<string>, ReceiptPersistenceError, PgClient.PgClient> =>
+  Effect.gen(function* () {
+    const sql = yield* PgClient.PgClient;
+    const receiptScope = receiptId ?? null;
+    const rows = yield* sql
+      .withTransaction(
+        sql<ClaimIdRow>`
+          SELECT DISTINCT claim_id
+          FROM economy_receipt_outbox
+          WHERE status = 'Processing'
+            AND claim_id IS NOT NULL
+            AND claimed_at IS NOT NULL
+            AND claimed_at < ${claimedBefore}
+            AND (${receiptScope}::text IS NULL OR receipt_id = ${receiptScope})
+          ORDER BY claim_id
+        `,
+      )
+      .pipe(
+        Effect.catchTag("SqlError", (cause) =>
+          Effect.fail(persistenceError("list stale Receipt outbox claims", cause)),
+        ),
+      );
+    return rows.map((row) => row.claim_id);
   });
 
 export const recoverStaleReceiptOutbox = (

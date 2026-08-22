@@ -197,6 +197,11 @@ export async function action({ request }: Route.ActionArgs) {
   const form = await request.formData();
   const commandId = readFormText(form, "commandId")?.trim() || crypto.randomUUID();
   const intent = readFormText(form, "_intent");
+  const draft: ReceiptRevisionDraft = {
+    description: readFormText(form, "description") ?? "",
+    amountNok: readFormText(form, "amountNok") ?? "",
+    receiptDate: readFormText(form, "receiptDate") ?? "",
+  };
 
   if (intent === "submit") {
     const fields = parseReceiptFields(form, commandId);
@@ -206,6 +211,7 @@ export async function action({ request }: Route.ActionArgs) {
         intent: "submit" as const,
         commandId,
         error: fields.error,
+        draft,
       };
     }
 
@@ -216,6 +222,7 @@ export async function action({ request }: Route.ActionArgs) {
         intent: "submit" as const,
         commandId,
         error: file.error,
+        draft,
       };
     }
 
@@ -236,6 +243,7 @@ export async function action({ request }: Route.ActionArgs) {
         intent: "submit" as const,
         commandId,
         error: mapOwnedReceiptError(error),
+        draft,
       };
     }
   }
@@ -380,6 +388,8 @@ export default function MineUtlegg() {
     actionData?.success === false && actionData.intent === "submit"
       ? actionData.commandId
       : undefined;
+  const submissionDraft =
+    actionData?.success === false && actionData.intent === "submit" ? actionData.draft : undefined;
   const mutationFailure =
     actionData?.success === false &&
     (actionData.intent === "revise" || actionData.intent === "withdraw")
@@ -407,6 +417,7 @@ export default function MineUtlegg() {
           error={submissionError}
           submission={submission}
           commandId={submissionCommandId}
+          draft={submissionDraft}
         />
 
         <OwnedReceiptList
