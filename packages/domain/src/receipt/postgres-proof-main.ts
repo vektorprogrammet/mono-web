@@ -1,7 +1,7 @@
 import * as PgClient from "@effect/sql-pg/PgClient";
 import { readFile } from "node:fs/promises";
 import { Config, Effect, Redacted } from "effect";
-import { canonicalJson } from "../tutor/evidence.js";
+import { canonicalJson, canonicalJsonBytes, sha256Hex } from "../tutor/evidence.js";
 import { makeReceiptAuxiliaryRecording } from "./auxiliary-service.js";
 import { makeReceiptFileRecording } from "./file-service.js";
 import { runReceiptFileProof } from "./file-proof.js";
@@ -38,7 +38,10 @@ const program = Effect.gen(function* () {
     Effect.provide(auxiliaryRecording.layer),
     Effect.provide(postgresLayer),
   );
-  yield* Effect.sync(() => process.stdout.write(`${canonicalJson(evidence)}\n`));
+  const evidenceSha256 = sha256Hex(canonicalJsonBytes(evidence));
+  yield* Effect.sync(() =>
+    process.stdout.write(`${canonicalJson({ ...evidence, evidenceSha256 })}\n`),
+  );
 });
 
 Effect.runPromise(Effect.scoped(program)).catch((cause: unknown) => {

@@ -1,7 +1,7 @@
 import * as PgClient from "@effect/sql-pg/PgClient";
 import assert from "node:assert/strict";
 import { Effect } from "effect";
-import { canonicalJson, canonicalJsonBytes, sha256Hex } from "../tutor/evidence.js";
+import { canonicalJsonBytes, sha256Hex } from "../tutor/evidence.js";
 import { importLegacyReceipts, type ReceiptImportProvenance } from "./import.js";
 import {
   executeReceiptCommand,
@@ -375,6 +375,3 @@ export const runReceiptPostgresProof = (
     ]);
     return evidence;
   });
-
-export const renderReceiptProofEvidence = (evidence: ReceiptProofEvidence): string =>
-  `${canonicalJson(evidence)}\n`;

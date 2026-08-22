@@ -24,8 +24,10 @@ interface SchemaDefinitionRow {
 
 export interface ReceiptFileProofEvidence {
   readonly specId: "0034";
+  readonly sourceRevision: "463d98c88e3ac89cbe6c4de28e449e69eca0a532";
   readonly database: "PostgreSQL";
   readonly providerCalls: 0;
+  readonly networkCalls: 0;
   readonly productionCalls: 0;
   readonly accepted: {
     readonly submit: true;
@@ -44,7 +46,7 @@ export interface ReceiptFileProofEvidence {
   readonly delivery: {
     readonly delivered: number;
     readonly failed: number;
-    readonly duplicateFileEffects: 0;
+    readonly duplicateFileEffects: number;
     readonly orderedReplacement: true;
     readonly currentPreservedOnFailure: true;
   };
@@ -150,6 +152,7 @@ export const runReceiptFileProof = (
   Effect.gen(function* () {
     const sql = yield* PgClient.PgClient;
     const files = yield* ReceiptFileService;
+    yield* migrateReceiptPostgres(migrationSql);
     yield* sql.unsafe(`
       TRUNCATE economy_receipt_outbox, economy_receipt_audit,
         economy_receipt_command_receipts, economy_receipts,
@@ -174,20 +177,32 @@ export const runReceiptFileProof = (
     const freshSchema = yield* schemaDefinition();
     yield* sql.unsafe(`
       ALTER TABLE economy_receipt_outbox
-        DROP CONSTRAINT economy_receipt_outbox_status_check,
-        DROP CONSTRAINT economy_receipt_outbox_claim_check,
-        DROP COLUMN claim_id,
-        DROP COLUMN claimed_at,
-        DROP COLUMN last_failure_tag;
+        DROP CONSTRAINT IF EXISTS economy_receipt_outbox_status_check;
+      ALTER TABLE economy_receipt_outbox
+        DROP CONSTRAINT IF EXISTS economy_receipt_outbox_claim_check;
+      ALTER TABLE economy_receipt_outbox
+        DROP CONSTRAINT IF EXISTS economy_receipt_outbox_nonempty_identity_check;
+      ALTER TABLE economy_receipt_outbox
+        DROP COLUMN IF EXISTS claim_id,
+        DROP COLUMN IF EXISTS claimed_at,
+        DROP COLUMN IF EXISTS last_failure_tag;
       ALTER TABLE economy_receipt_outbox
         ADD CONSTRAINT economy_receipt_outbox_status_check
         CHECK (status IN ('Pending', 'Delivered', 'Failed'));
       ALTER TABLE economy_receipts
-        DROP CONSTRAINT economy_receipts_amount_ore_check;
+        DROP CONSTRAINT IF EXISTS economy_receipts_amount_ore_check;
+      ALTER TABLE economy_receipts
+        DROP CONSTRAINT IF EXISTS economy_receipts_nonempty_identity_check;
+      ALTER TABLE economy_receipts
+        DROP CONSTRAINT IF EXISTS economy_receipts_distinct_file_identity_check;
       ALTER TABLE economy_receipts
         ADD CONSTRAINT economy_receipts_amount_ore_check CHECK (amount_ore > 0);
-      DROP INDEX economy_receipts_file_ref_unique;
-      DROP INDEX economy_receipts_file_object_key_unique;
+      ALTER TABLE economy_receipt_command_receipts
+        DROP CONSTRAINT IF EXISTS economy_receipt_command_receipts_nonempty_identity_check;
+      DROP INDEX IF EXISTS economy_receipts_file_ref_unique;
+      DROP INDEX IF EXISTS economy_receipts_file_object_key_unique;
+      CREATE UNIQUE INDEX economy_receipt_outbox_command_ordinal
+        ON economy_receipt_outbox (command_id, ordinal);
     `);
     yield* migrateReceiptPostgres(migrationSql);
     const upgradedSchema = yield* schemaDefinition();
@@ -343,7 +358,11 @@ export const runReceiptFileProof = (
     );
     const orderedReplacement = promoteIndex >= 0 && deleteIndex >= 0 && promoteIndex < deleteIndex;
     const currentPreservedOnFailure =
+      failedDelivery._tag === "Failed" &&
+      currentAfterFailure.current.length === 1 &&
       currentAfterFailure.current[0]?.objectKey === original.objectKey;
+    const duplicateFileEffects =
+      snapshot.events.length - new Set(snapshot.events.map((event) => event.effectId)).size;
     const resolutionResults = [refund, reject];
     const acceptedResolutions = resolutionResults.filter(
       (result) => result._tag === "Success",
@@ -359,8 +378,10 @@ export const runReceiptFileProof = (
     }
     return {
       specId: "0034",
+      sourceRevision: "463d98c88e3ac89cbe6c4de28e449e69eca0a532",
       database: "PostgreSQL",
       providerCalls: 0,
+      networkCalls: 0,
       productionCalls: 0,
       accepted: {
         submit: true,
@@ -379,12 +400,14 @@ export const runReceiptFileProof = (
       delivery: {
         delivered,
         failed,
-        duplicateFileEffects: 0,
+        duplicateFileEffects,
         orderedReplacement: true,
         currentPreservedOnFailure: true,
       },
       files: snapshot,
-      auxiliaryEffectIds: auxiliary,
+      auxiliaryEffectIds: auxiliary
+        .filter((effectId) => !effectId.startsWith("file-proof-race-"))
+        .toSorted(),
       outbox: outboxRows.map((row) => ({
         status: row.status,
         count: Number(row.count),

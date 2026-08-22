@@ -38,6 +38,7 @@ export interface ReceiptFileRecordingSnapshot {
   readonly deleted: ReadonlyArray<ReceiptFile>;
   readonly events: ReadonlyArray<ReceiptFileEvent>;
   readonly appliedEffectIds: ReadonlyArray<string>;
+  readonly conflictedIdentities: ReadonlyArray<string>;
 }
 
 interface RecordingState {
@@ -45,6 +46,7 @@ interface RecordingState {
   current: ReceiptFile[];
   deleted: ReceiptFile[];
   events: ReceiptFileEvent[];
+  conflicts: string[];
   applied: Map<string, string>;
   failOnce: Set<string>;
 }
@@ -71,6 +73,7 @@ export const makeReceiptFileRecording = (): ReceiptFileRecordingControl => {
     current: [],
     deleted: [],
     events: [],
+    conflicts: [],
     applied: new Map(),
     failOnce: new Set(),
   };
@@ -78,17 +81,25 @@ export const makeReceiptFileRecording = (): ReceiptFileRecordingControl => {
   const service: ReceiptFileServiceShape = {
     stage: (file) =>
       Effect.gen(function* () {
-        const occupied = [...state.staged, ...state.current].find(
+        const occupiedStaged = state.staged.find(
           (candidate) =>
             candidate.fileRef === file.fileRef || candidate.objectKey === file.objectKey,
         );
-        if (occupied !== undefined && !sameIdentity(occupied, file)) {
+        const occupiedCurrent = state.current.find(
+          (candidate) =>
+            candidate.fileRef === file.fileRef || candidate.objectKey === file.objectKey,
+        );
+        if (
+          (occupiedStaged !== undefined && !sameIdentity(occupiedStaged, file)) ||
+          occupiedCurrent !== undefined
+        ) {
+          state.conflicts.push(`stage:${file.fileRef}:${file.objectKey}`);
           return yield* new ReceiptFileIdentityConflict({
             effectId: "stage",
             objectKey: file.objectKey,
           });
         }
-        if (occupied === undefined) state.staged.push(file);
+        if (occupiedStaged === undefined) state.staged.push(file);
       }),
     apply: (request) =>
       Effect.gen(function* () {
@@ -96,6 +107,7 @@ export const makeReceiptFileRecording = (): ReceiptFileRecordingControl => {
         const appliedDigest = state.applied.get(request.effectId);
         if (appliedDigest !== undefined) {
           if (appliedDigest !== digest) {
+            state.conflicts.push(`effect:${request.effectId}`);
             return yield* new ReceiptFileEffectConflict({ effectId: request.effectId });
           }
           return;
@@ -119,6 +131,7 @@ export const makeReceiptFileRecording = (): ReceiptFileRecordingControl => {
             (candidate) => candidate.objectKey === request.file.objectKey,
           );
           if (current !== undefined && !sameIdentity(current, request.file)) {
+            state.conflicts.push(`identity:${request.effectId}:${request.file.objectKey}`);
             return yield* new ReceiptFileIdentityConflict({
               effectId: request.effectId,
               objectKey: request.file.objectKey,
@@ -139,6 +152,7 @@ export const makeReceiptFileRecording = (): ReceiptFileRecordingControl => {
             (candidate) => candidate.objectKey === request.file.objectKey,
           );
           if (current !== undefined && !sameIdentity(current, request.file)) {
+            state.conflicts.push(`identity:${request.effectId}:${request.file.objectKey}`);
             return yield* new ReceiptFileIdentityConflict({
               effectId: request.effectId,
               objectKey: request.file.objectKey,
@@ -177,6 +191,7 @@ export const makeReceiptFileRecording = (): ReceiptFileRecordingControl => {
       deleted: sortedFiles(state.deleted),
       events: [...state.events],
       appliedEffectIds: [...state.applied.keys()].toSorted(),
+      conflictedIdentities: [...state.conflicts].toSorted(),
     })),
   };
 };

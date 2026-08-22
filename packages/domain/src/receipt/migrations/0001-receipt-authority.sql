@@ -50,6 +50,10 @@ CREATE TABLE IF NOT EXISTS economy_receipt_outbox (
   )
 );
 ALTER TABLE economy_receipt_outbox ADD COLUMN IF NOT EXISTS ordinal integer;
+ALTER TABLE economy_receipt_outbox
+  DROP CONSTRAINT IF EXISTS economy_receipt_outbox_ordinal_check;
+ALTER TABLE economy_receipt_outbox
+  ADD CONSTRAINT economy_receipt_outbox_ordinal_check CHECK (ordinal >= 0);
 ALTER TABLE economy_receipt_outbox ADD COLUMN IF NOT EXISTS claim_id text;
 ALTER TABLE economy_receipt_outbox ADD COLUMN IF NOT EXISTS claimed_at timestamptz;
 ALTER TABLE economy_receipt_outbox ADD COLUMN IF NOT EXISTS last_failure_tag text;
@@ -70,12 +74,38 @@ ALTER TABLE economy_receipts
 ALTER TABLE economy_receipts
   ADD CONSTRAINT economy_receipts_amount_ore_check
   CHECK (amount_ore > 0 AND amount_ore <= 9007199254740991);
+ALTER TABLE economy_receipts
+  DROP CONSTRAINT IF EXISTS economy_receipts_nonempty_identity_check;
+ALTER TABLE economy_receipts
+  ADD CONSTRAINT economy_receipts_nonempty_identity_check CHECK (
+    receipt_id <> '' AND visual_id <> '' AND owner_person_id <> '' AND department_id <> ''
+    AND payment_account_ciphertext <> '' AND file_ref <> '' AND file_object_key <> ''
+  );
+ALTER TABLE economy_receipts
+  DROP CONSTRAINT IF EXISTS economy_receipts_distinct_file_identity_check;
+ALTER TABLE economy_receipts
+  ADD CONSTRAINT economy_receipts_distinct_file_identity_check
+  CHECK (file_ref <> file_object_key);
+ALTER TABLE economy_receipt_command_receipts
+  DROP CONSTRAINT IF EXISTS economy_receipt_command_receipts_nonempty_identity_check;
+ALTER TABLE economy_receipt_command_receipts
+  ADD CONSTRAINT economy_receipt_command_receipts_nonempty_identity_check
+  CHECK (command_id <> '' AND receipt_id <> '');
+ALTER TABLE economy_receipt_outbox
+  DROP CONSTRAINT IF EXISTS economy_receipt_outbox_nonempty_identity_check;
+ALTER TABLE economy_receipt_outbox
+  ADD CONSTRAINT economy_receipt_outbox_nonempty_identity_check CHECK (
+    effect_id <> '' AND effect_type <> '' AND receipt_id <> '' AND command_id <> ''
+    AND (claim_id IS NULL OR claim_id <> '')
+    AND (last_failure_tag IS NULL OR last_failure_tag <> '')
+  );
 DO $$
 BEGIN
   IF EXISTS (SELECT 1 FROM economy_receipt_outbox WHERE ordinal IS NULL) THEN
     RAISE EXCEPTION 'Receipt outbox contains rows without an authoritative ordinal';
   END IF;
 END $$;
+DROP INDEX IF EXISTS economy_receipt_outbox_command_ordinal;
 ALTER TABLE economy_receipt_outbox ALTER COLUMN ordinal SET NOT NULL;
 CREATE INDEX IF NOT EXISTS economy_receipt_outbox_pending_order
   ON economy_receipt_outbox (status, command_id, ordinal);

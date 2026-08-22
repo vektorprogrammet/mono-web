@@ -79,11 +79,11 @@ const findReceipt = (
     SELECT
       receipt_id, visual_id, owner_person_id, department_id,
       amount_ore::text, currency, description,
-      receipt_date::text,
-      to_char(submitted_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS submitted_at,
+      to_char(receipt_date, 'YYYY-MM-DD') AS receipt_date,
+      to_char(submitted_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS submitted_at,
       status,
       CASE WHEN refund_date IS NULL THEN NULL
-        ELSE to_char(refund_date AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+        ELSE to_char(refund_date AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')
       END AS refund_date,
       payment_account_ciphertext, file_ref, file_object_key,
       file_content_type, file_byte_length::text, file_sha256, revision

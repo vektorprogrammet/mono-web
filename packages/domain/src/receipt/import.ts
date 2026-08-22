@@ -15,6 +15,7 @@ export type ReceiptQuarantineReason =
   | "SourceIdentityCollision"
   | "InvalidAmount"
   | "UnsupportedFile"
+  | "InvalidFileIdentity"
   | "UnreadableFile"
   | "InvalidDescription"
   | "InvalidReceiptDate"
@@ -75,6 +76,7 @@ const status = (value: string): ReceiptStatus | undefined => {
 const validLegacyFile = (file: NonNullable<LegacyReceiptRow["file"]>): file is ReceiptFile =>
   file.fileRef.length > 0 &&
   file.objectKey.length > 0 &&
+  file.fileRef !== file.objectKey &&
   (file.contentType === "image/jpeg" ||
     file.contentType === "image/png" ||
     file.contentType === "application/pdf") &&
@@ -118,7 +120,9 @@ export const importLegacyReceipt = (
     ) {
       reasons.push("UnsupportedFile");
     }
-    if (!validLegacyFile(row.file) && !reasons.includes("UnsupportedFile")) {
+    if (row.file.fileRef === row.file.objectKey) {
+      reasons.push("InvalidFileIdentity");
+    } else if (!validLegacyFile(row.file) && !reasons.includes("UnsupportedFile")) {
       reasons.push("UnreadableFile");
     }
   }

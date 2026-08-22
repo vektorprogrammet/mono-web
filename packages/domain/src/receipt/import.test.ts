@@ -52,6 +52,16 @@ const cases: ReadonlyArray<{
     row: { ...validRow, file: { ...validRow.file!, contentType: "image/gif" } },
   },
   {
+    reason: "InvalidFileIdentity",
+    row: {
+      ...validRow,
+      file: {
+        ...validRow.file!,
+        objectKey: validRow.file!.fileRef,
+      },
+    },
+  },
+  {
     reason: "UnreadableFile",
     row: { ...validRow, file: { ...validRow.file!, sha256: "invalid" } },
   },
