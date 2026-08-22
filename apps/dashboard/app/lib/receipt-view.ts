@@ -18,6 +18,7 @@ export type OwnedReceiptView = {
   visualId: string;
   description: string;
   amountOre: number;
+  amountNok: string;
   amount: string;
   receiptDate: string;
   status: OwnedReceiptStatus;
@@ -46,8 +47,11 @@ export type ReceiptUiErrorTag =
   | "ReceiptAlreadyExists"
   | "DuplicateReceiptCommandConflict"
   | "ReceiptPersistenceError"
-  | "ConfigurationError"
   | "ReceiptNotFound"
+  | "StaleReceiptRevision"
+  | "InvalidReceiptTransition"
+  | "ReceiptFileNotStaged"
+  | "ConfigurationError"
   | "ReceiptRateLimited"
   | "ReceiptNetworkError"
   | "UnknownReceiptError";
@@ -58,23 +62,62 @@ export type ReceiptUiError = {
   readonly field?: ReceiptUiErrorField;
 };
 
+export type ReceiptOwnerMutationIntent = "revise" | "withdraw";
+
+export type ReceiptRevisionDraft = {
+  readonly description: string;
+  readonly amountNok: string;
+  readonly receiptDate: string;
+};
+
+export type ReceiptOwnerMutationFailure = {
+  readonly intent: ReceiptOwnerMutationIntent;
+  readonly receiptId: string;
+  readonly expectedRevision: number;
+  readonly commandId: string;
+  readonly error: ReceiptUiError;
+  readonly draft?: ReceiptRevisionDraft;
+};
+
+export type ReceiptOwnerMutationNotice = {
+  readonly intent: ReceiptOwnerMutationIntent;
+  readonly receiptId: string;
+  readonly commandId: string;
+  readonly status: OwnedReceiptStatus;
+  readonly revision: number;
+  readonly replayed: boolean;
+};
+
 const statusLabels: Record<ReceiptStatus, string> = {
   pending: "Venter",
   refunded: "Refundert",
   rejected: "Avvist",
 };
 
+const ownedStatusLabels: Record<OwnedReceiptStatus, string> = {
+  Pending: "Venter",
+  Refunded: "Refundert",
+  Rejected: "Avvist",
+  Withdrawn: "Trukket tilbake",
+};
+
 const receiptErrorMessages: Record<ReceiptUiErrorTag, string> = {
-  UnauthenticatedActor: "Du må logge inn før du kan sende inn et utlegg.",
-  InactiveActor: "Kontoen din er ikke aktiv for innsending av utlegg.",
+  UnauthenticatedActor: "Du må logge inn før du kan administrere utlegg.",
+  InactiveActor: "Kontoen din er ikke aktiv for administrasjon av utlegg.",
   ReceiptOwnerDenied: "Du har ikke tilgang til dette utlegget.",
   ReceiptDecodeError: "Kontroller feltene og prøv igjen.",
   ReceiptAlreadyExists: "Utlegget finnes allerede.",
   DuplicateReceiptCommandConflict:
-    "Innsendingen er endret etter et tidligere forsøk. Start en ny innsending.",
+    "Handlingen er endret etter et tidligere forsøk. Start handlingen på nytt.",
   ReceiptPersistenceError: "Utlegget kunne ikke lagres. Prøv igjen senere.",
-  ConfigurationError: "API-konfigurasjon mangler eller er ugyldig.",
   ReceiptNotFound: "Utlegget ble ikke funnet.",
+  StaleReceiptRevision:
+    "Utlegget ble endret et annet sted. Feltene viser nå siste versjon. Kontroller dem og prøv igjen.",
+  InvalidReceiptTransition:
+    "Utlegget har en ferdig status og kan ikke lenger endres eller trekkes tilbake.",
+  ReceiptFileNotStaged:
+    "Erstatningsfilen kunne ikke behandles. Den gjeldende filen er ikke endret.",
+  ConfigurationError: "API-konfigurasjon mangler eller er ugyldig.",
   ReceiptRateLimited: "For mange forespørsler. Prøv igjen senere.",
   ReceiptNetworkError: "Kunne ikke nå API-et. Prøv igjen senere.",
   UnknownReceiptError: "Kunne ikke fullføre forespørselen.",
@@ -88,6 +131,10 @@ const canonicalReceiptErrorTags: Partial<Record<ReceiptUiErrorTag, true>> = {
   ReceiptAlreadyExists: true,
   DuplicateReceiptCommandConflict: true,
   ReceiptPersistenceError: true,
+  ReceiptNotFound: true,
+  StaleReceiptRevision: true,
+  InvalidReceiptTransition: true,
+  ReceiptFileNotStaged: true,
 };
 
 function toStableDate(date: Date | null): string | null {
@@ -118,6 +165,12 @@ export function formatNokAmount(amountOre: number): string {
   return `${digits.slice(0, -2)},${digits.slice(-2)} NOK`;
 }
 
+export function formatNokInput(amountOre: number): string {
+  if (!Number.isSafeInteger(amountOre) || amountOre <= 0) return "";
+  const digits = String(amountOre).padStart(3, "0");
+  return `${digits.slice(0, -2)},${digits.slice(-2)}`;
+}
+
 export function mapOwnedReceiptView(receipt: ReceiptProjection): OwnedReceiptView {
   return {
     receiptId: receipt.receiptId,
@@ -125,6 +178,7 @@ export function mapOwnedReceiptView(receipt: ReceiptProjection): OwnedReceiptVie
     description: receipt.description,
     amountOre: receipt.amountOre,
     amount: formatNokAmount(receipt.amountOre),
+    amountNok: formatNokInput(receipt.amountOre),
     receiptDate: receipt.receiptDate,
     status: receipt.status,
     revision: receipt.revision,
@@ -149,6 +203,10 @@ export function mapReceiptStatus(status: ReceiptStatus): string {
   return statusLabels[status];
 }
 
+export function mapOwnedReceiptStatus(status: OwnedReceiptStatus): string {
+  return ownedStatusLabels[status];
+}
+
 export function isUnauthorizedError(error: unknown): boolean {
   return (
     canonicalReceiptErrorTag(error) === "UnauthenticatedActor" ||
@@ -171,9 +229,22 @@ export function mapOwnedReceiptError(error: unknown): ReceiptUiError {
   }
 
   if (error instanceof ValidationError) {
+    const fieldName = Object.keys(error.fields)[0];
+    const field =
+      fieldName === "amountOre"
+        ? "amountNok"
+        : fieldName === "replacementFile"
+          ? "file"
+          : fieldName === "description" ||
+              fieldName === "amountNok" ||
+              fieldName === "receiptDate" ||
+              fieldName === "file"
+            ? fieldName
+            : undefined;
     return {
       _tag: "ReceiptDecodeError",
       message: receiptErrorMessages.ReceiptDecodeError,
+      field,
     };
   }
 

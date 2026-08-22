@@ -3,7 +3,7 @@ import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card"
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { ReceiptUiError } from "@/lib/receipt-view";
-import type { FormEvent } from "react";
+import { ensureStableReceiptCommandId } from "./receipt-command-form";
 import { Form, useNavigation } from "react-router";
 
 export type ReceiptSubmissionNotice = {
@@ -17,13 +17,6 @@ type Props = {
   submission?: ReceiptSubmissionNotice;
   commandId?: string;
 };
-
-function ensureStableCommandId(event: FormEvent<HTMLFormElement>): void {
-  const commandId = event.currentTarget.elements.namedItem("commandId");
-  if (commandId instanceof HTMLInputElement && commandId.value.length === 0) {
-    commandId.value = crypto.randomUUID();
-  }
-}
 
 function describedBy(
   helpId: string,
@@ -43,7 +36,7 @@ export function ReceiptSubmitForm({ error, submission, commandId }: Props) {
       key={submission?.commandId ?? "new-receipt"}
       method="post"
       encType="multipart/form-data"
-      onSubmit={ensureStableCommandId}
+      onSubmit={ensureStableReceiptCommandId}
       aria-labelledby="receipt-submit-title"
       aria-busy={isSubmitting}
     >
