@@ -1,0 +1,26 @@
+{
+  "name": "@vektorprogrammet/receipt-api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "start": "bun run src/main.ts",
+    "dev": "bun run --watch src/main.ts",
+    "check-types": "tsc --noEmit",
+    "build": "tsc --noEmit",
+    "lint": "oxlint"
+  },
+  "dependencies": {
+    "@effect/sql-pg": "catalog:effect-v4",
+    "@vektorprogrammet/domain": "workspace:*",
+    "effect": "catalog:effect-v4"
+  },
+  "devDependencies": {
+    "@types/node": "^22",
+    "oxlint": "^1.41.0",
+    "typescript": "^5"
+  }
+}

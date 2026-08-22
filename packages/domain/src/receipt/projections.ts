@@ -89,3 +89,52 @@ export const receiptStatusTotals: Effect.Effect<
     ),
   );
 });
+export interface OwnedReceiptProjectionItem extends ReceiptListItem {
+  readonly currency: "NOK";
+  readonly description: string;
+  readonly submittedAt: string;
+}
+
+export const listOwnedReceiptProjection = (
+  ownerPersonId: string,
+  status?: ReceiptListItem["status"],
+): Effect.Effect<
+  ReadonlyArray<OwnedReceiptProjectionItem>,
+  ReceiptPersistenceError,
+  PgClient.PgClient
+> =>
+  Effect.gen(function* () {
+    const sql = yield* PgClient.PgClient;
+    const rows =
+      status === undefined
+        ? sql<OwnedReceiptProjectionItem>`
+            SELECT receipt_id AS "receiptId", visual_id AS "visualId",
+              owner_person_id AS "ownerPersonId", department_id AS "departmentId",
+              amount_ore::text AS "amountOre", currency, description,
+              receipt_date::text AS "receiptDate",
+              to_char(submitted_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')
+                AS "submittedAt",
+              status, revision
+            FROM economy_receipts
+            WHERE owner_person_id = ${ownerPersonId}
+            ORDER BY submitted_at DESC, receipt_id ASC
+          `
+        : sql<OwnedReceiptProjectionItem>`
+            SELECT receipt_id AS "receiptId", visual_id AS "visualId",
+              owner_person_id AS "ownerPersonId", department_id AS "departmentId",
+              amount_ore::text AS "amountOre", currency, description,
+              receipt_date::text AS "receiptDate",
+              to_char(submitted_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')
+                AS "submittedAt",
+              status, revision
+            FROM economy_receipts
+            WHERE owner_person_id = ${ownerPersonId}
+              AND status = ${status}
+            ORDER BY submitted_at DESC, receipt_id ASC
+          `;
+    return yield* rows.pipe(
+      Effect.catchTag("SqlError", (cause) =>
+        Effect.fail(projectionError("list owned receipt projection", cause)),
+      ),
+    );
+  });

@@ -16,7 +16,7 @@ export type ReceiptFileRequest = Extract<
 >;
 
 export interface ReceiptFileServiceShape {
-  readonly stage: (file: ReceiptFile) => Effect.Effect<void, ReceiptFileIdentityConflict>;
+  readonly stage: (file: ReceiptFile) => Effect.Effect<void, ReceiptFileFailure>;
   readonly apply: (request: ReceiptFileRequest) => Effect.Effect<void, ReceiptFileFailure>;
 }
 
