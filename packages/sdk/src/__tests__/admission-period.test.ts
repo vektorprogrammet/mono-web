@@ -26,12 +26,13 @@ const response = (status: number, body: unknown): Response =>
 afterEach(() => vi.unstubAllGlobals());
 
 describe("native admission-period SDK", () => {
-  it("lists strict management projections as an array", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(response(200, [projection]));
+  it("lists strict management projections as a bounded page", async () => {
+    const page = { items: [projection], totalItems: 1 };
+    const fetchMock = vi.fn().mockResolvedValue(response(200, page));
     vi.stubGlobal("fetch", fetchMock);
     const client = createClient("http://api.test", { auth: "leader-token" });
 
-    await expect(client.admissionPeriods.listForManagement()).resolves.toEqual([projection]);
+    await expect(client.admissionPeriods.listForManagement()).resolves.toEqual(page);
     expect(fetchMock).toHaveBeenCalledWith(
       "http://api.test/api/admin/admission-periods",
       expect.objectContaining({ method: "GET" }),
