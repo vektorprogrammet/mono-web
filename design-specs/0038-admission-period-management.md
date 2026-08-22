@@ -75,6 +75,7 @@ Native endpoints:
 - `POST /api/admin/admission-periods` — strict JSON `{ commandId, semesterId, startAt, endAt, departmentId? }`;
 - `POST /api/admin/admission-periods/:admissionPeriodId/revise` — strict JSON `{ commandId, expectedRevision, startAt, endAt }`;
 - `GET /api/admission-periods/open` — public eligible-department projection.
+- `POST /api/applications` — strict proof-slice JSON `{ commandId, applicantId, departmentId }`; resolves and stores the currently eligible admission-period identity.
 
 Canonical SDK:
 
@@ -82,8 +83,10 @@ Canonical SDK:
 - `admissionPeriods.create(input)`;
 - `admissionPeriods.revise(admissionPeriodId, input)`;
 - `admissionPeriods.listOpen()`.
+- `applications.submit({ commandId, applicantId, departmentId })`.
 
 No generic status setter, client-supplied actor/scope, hard delete, reopen shortcut, or legacy numeric CRUD is exposed by this capability. Timestamps are strict RFC 3339 instants and responses use stable string IDs.
+The public application seam in this slice deliberately stores only `{ id, applicantId, admissionPeriodId }`. Applicant profile, field-of-study, notification, and duplicate-applicant behavior remain owned by later public-application work. This minimal native command exists because eligibility without an accepted and rejected application command would not prove the user-facing gate.
 
 ## Meaningful rejections
 
