@@ -20,6 +20,10 @@ const REPOSITORY_ROOT = fileURLToPath(new URL("../../../", import.meta.url));
 const DEFAULT_RECEIPT_COMPOSE_FILE = join(REPOSITORY_ROOT, "docker-compose.yml");
 const RECEIPT_COMPOSE_FILE = process.env.RECEIPT_COMPOSE_FILE ?? DEFAULT_RECEIPT_COMPOSE_FILE;
 const RECEIPT_COMPOSE_PROJECT = process.env.RECEIPT_COMPOSE_PROJECT;
+const RECEIPT_POSTGRES_TOPOLOGY = process.env.RECEIPT_POSTGRES_TOPOLOGY ?? "docker";
+const RECEIPT_POSTGRES_PACKAGE = process.env.RECEIPT_POSTGRES_PACKAGE ?? "nixpkgs#postgresql_17";
+const RECEIPT_PG_DATA_ROOT = process.env.RECEIPT_PG_DATA_ROOT;
+const RECEIPT_PG_PORT = process.env.RECEIPT_PG_PORT ?? "55432";
 const RECEIPT_APPROVAL_EVIDENCE_FILE = process.env.RECEIPT_APPROVAL_EVIDENCE_FILE;
 const DASHBOARD_ORIGIN = process.env.DASHBOARD_ORIGIN ?? "http://127.0.0.1:5174";
 const RECEIPT_API_ORIGIN = process.env.RECEIPT_API_ORIGIN ?? "http://127.0.0.1:8790";
@@ -164,6 +168,35 @@ const fileIdentitySql = `
 `;
 
 async function runCompose(...args: string[]): Promise<void> {
+  if (RECEIPT_POSTGRES_TOPOLOGY === "local") {
+    if (RECEIPT_PG_DATA_ROOT === undefined || RECEIPT_PG_DATA_ROOT.length === 0) {
+      throw new Error("RECEIPT_PG_DATA_ROOT is required for local PostgreSQL control");
+    }
+    const operation = args[0];
+    if (operation !== "stop" && operation !== "start") {
+      throw new Error(`Unsupported local PostgreSQL operation: ${String(operation)}`);
+    }
+    const pgCtlArgs =
+      operation === "start"
+        ? [
+            "-D",
+            RECEIPT_PG_DATA_ROOT,
+            "-o",
+            `-p ${RECEIPT_PG_PORT} -h 127.0.0.1`,
+            "-w",
+            "start",
+          ]
+        : ["-D", RECEIPT_PG_DATA_ROOT, "-m", "fast", "-w", "stop"];
+    await execFileAsync(
+      "nix",
+      ["shell", RECEIPT_POSTGRES_PACKAGE, "--command", "pg_ctl", ...pgCtlArgs],
+      {
+        cwd: REPOSITORY_ROOT,
+        maxBuffer: 1_048_576,
+      },
+    );
+    return;
+  }
   if (RECEIPT_COMPOSE_PROJECT === undefined || RECEIPT_COMPOSE_PROJECT.length === 0) {
     throw new Error("RECEIPT_COMPOSE_PROJECT is required for durable Receipt evidence");
   }
@@ -178,12 +211,38 @@ async function runCompose(...args: string[]): Promise<void> {
 }
 
 async function readPostgresJson<T>(sql: string): Promise<T> {
-  if (RECEIPT_COMPOSE_PROJECT === undefined || RECEIPT_COMPOSE_PROJECT.length === 0) {
-    throw new Error("RECEIPT_COMPOSE_PROJECT is required for durable Receipt evidence");
-  }
-  const result = await execFileAsync(
-    "docker",
-    [
+  let command: string;
+  let commandArgs: Array<string>;
+  if (RECEIPT_POSTGRES_TOPOLOGY === "local") {
+    if (RECEIPT_PG_DATA_ROOT === undefined || RECEIPT_PG_DATA_ROOT.length === 0) {
+      throw new Error("RECEIPT_PG_DATA_ROOT is required for local PostgreSQL evidence");
+    }
+    command = "nix";
+    commandArgs = [
+      "shell",
+      RECEIPT_POSTGRES_PACKAGE,
+      "--command",
+      "psql",
+      "-h",
+      "127.0.0.1",
+      "-p",
+      RECEIPT_PG_PORT,
+      "-U",
+      "receipt",
+      "-d",
+      "receipt_proof",
+      "-At",
+      "-v",
+      "ON_ERROR_STOP=1",
+      "-c",
+      sql,
+    ];
+  } else {
+    if (RECEIPT_COMPOSE_PROJECT === undefined || RECEIPT_COMPOSE_PROJECT.length === 0) {
+      throw new Error("RECEIPT_COMPOSE_PROJECT is required for durable Receipt evidence");
+    }
+    command = "docker";
+    commandArgs = [
       "compose",
       "-f",
       RECEIPT_COMPOSE_FILE,
@@ -202,12 +261,12 @@ async function readPostgresJson<T>(sql: string): Promise<T> {
       "ON_ERROR_STOP=1",
       "-c",
       sql,
-    ],
-    {
-      cwd: REPOSITORY_ROOT,
-      maxBuffer: 1_048_576,
-    },
-  );
+    ];
+  }
+  const result = await execFileAsync(command, commandArgs, {
+    cwd: REPOSITORY_ROOT,
+    maxBuffer: 1_048_576,
+  });
   const output = String(result.stdout).trim();
   if (output.length === 0) throw new Error("PostgreSQL evidence query returned no JSON");
   return JSON.parse(output) as T;
