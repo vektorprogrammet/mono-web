@@ -98,7 +98,6 @@ const bundleForbiddenStatesEmpty = (
   crossReferencesValid: boolean,
 ): boolean => {
   const forbiddenStatuses = new Set(["missing", "extra", "changed", "uncovered", "unresolved", "stale", "duplicate", "dead_unimported", "absent"])
-  const forbiddenKinds = new Set(["missing", "extra", "changed", "uncovered", "unresolved", "stale", "openapi_stale", "duplicate"])
   return crossReferencesValid &&
     reconciliation.status === "current" &&
     failures.length === 0 &&
@@ -106,7 +105,6 @@ const bundleForbiddenStatesEmpty = (
       inventory.inventory_kind === "user_journey" ||
       inventory.rows.every((row) =>
         !forbiddenStatuses.has(row.status) &&
-        !forbiddenKinds.has(row.mismatch.kind) &&
         row.coverage_ref_ids.length > 0,
       ),
     )

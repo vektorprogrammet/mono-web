@@ -797,7 +797,7 @@ require $root . '/vendor/autoload.php';
 $kernel = new \Kernel('test', false);
 $kernel->boot();
 $container = $kernel->getContainer()->get('test.service_container');
-$serializer = $container->get('serializer');
+$serializer = $container->get('api_platform.serializer');
 $factory = $container->get(\ApiPlatform\OpenApi\Factory\OpenApiFactoryInterface::class);
 $normalized = $serializer->normalize($factory(), 'json', ['spec_version' => '3']);
 if (!is_array($normalized)) throw new \UnexpectedValueException('OpenAPI normalization did not return an array');

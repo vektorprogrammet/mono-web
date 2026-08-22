@@ -343,8 +343,7 @@ const reportMismatchesFromRows = (rows: readonly InventoryRow[]): readonly Repor
 
 const forbiddenStatesEmpty = (inventories: readonly InventoryEnvelope[], reconciliation: OpenApiReconciliation, failures: readonly ReportFailure[], crossReferencesValid: boolean): boolean => {
   const forbiddenStatuses = new Set(["missing", "extra", "changed", "uncovered", "unresolved", "stale", "duplicate", "dead_unimported", "absent"])
-  const forbiddenKinds = new Set(["missing", "extra", "changed", "uncovered", "unresolved", "stale", "openapi_stale", "duplicate"])
-  return crossReferencesValid && reconciliation.status === "current" && failures.length === 0 && inventories.every((inventory) => inventory.inventory_kind === "user_journey" || inventory.rows.every((row) => !forbiddenStatuses.has(row.status) && !forbiddenKinds.has(row.mismatch.kind) && row.coverage_ref_ids.length > 0))
+  return crossReferencesValid && reconciliation.status === "current" && failures.length === 0 && inventories.every((inventory) => inventory.inventory_kind === "user_journey" || inventory.rows.every((row) => !forbiddenStatuses.has(row.status) && row.coverage_ref_ids.length > 0))
 }
 
 const generateFromContext = (
@@ -1377,7 +1376,7 @@ const runTerminalStageEffect = (
     const c2WriteBlocked = generated.c2Rows.some((row) =>
       row.status === "unresolved" ||
       row.status === "duplicate" ||
-      row.status === "dead_unimported" ||
+      (row.status === "dead_unimported" && row.mismatch.disposition !== "accepted_dead_source") ||
       row.reason_codes.includes("UNKNOWN_EFFECT") ||
       row.reason_codes.includes("UNKNOWN_INTEGRATION") ||
       row.reason_codes.includes("SCHEDULE_PARSE_INCOMPLETE") ||

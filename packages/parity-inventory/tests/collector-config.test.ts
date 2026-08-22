@@ -12,6 +12,7 @@ import {
 import { join, resolve } from "node:path";
 import {
   API_METADATA_SCRIPT,
+  API_OPENAPI_SCRIPT,
   buildCollectorSandboxArguments,
   collectorExecutableProvenance,
   collectApiOperations,
@@ -85,6 +86,13 @@ test("metadata collector loads only the staged test dotenv before fixed kernel b
   expect(API_METADATA_SCRIPT).not.toContain("$root . '/.env';")
   expect(API_METADATA_SCRIPT).not.toContain("$root . '/.env.local';")
   expect(API_METADATA_SCRIPT).not.toMatch(/\$root \. '\/\.env\.(?:dev|prod|local)'/)
+})
+
+test("OpenAPI collector uses the API Platform command serializer seam", () => {
+  expect(API_OPENAPI_SCRIPT).toContain(
+    "$serializer = $container->get('api_platform.serializer');",
+  );
+  expect(API_OPENAPI_SCRIPT).not.toContain("$container->get('serializer')");
 })
 
 
