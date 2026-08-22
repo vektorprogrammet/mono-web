@@ -112,16 +112,16 @@ export {
 export type {
   AdmissionPeriodRejectionTag,
   AdmissionApplicationRejectionTag,
+  AdmissionPeriodCommandObservation,
+  AdmissionPeriodList,
+  AdmissionApplication,
+  AdmissionApplicationSubmitInput,
+  AdmissionApplicationSubmitResponse,
 } from "./promise.js";
 export {
   AdmissionPeriod,
   AdmissionPeriodProjection,
   AdmissionPeriodCreateInput,
   AdmissionPeriodReviseInput,
-  AdmissionPeriodCommandObservation,
   AdmissionPeriodPage,
-  AdmissionPeriodList,
-  AdmissionApplication,
-  AdmissionApplicationSubmitInput,
-  AdmissionApplicationSubmitResponse,
 } from "./promise.js";

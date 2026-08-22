@@ -88,15 +88,12 @@ export {
   AdmissionPeriodCreateInputSchema,
   AdmissionPeriodReviseInput,
   AdmissionPeriodReviseInputSchema,
-  AdmissionPeriodCommandObservation,
   AdmissionPeriodPage,
   AdmissionPeriodPageSchema,
-  AdmissionPeriodList,
   AdmissionPeriodListSchema,
   AdmissionPeriodIdSchema,
   AdmissionCommandIdSchema,
   AdmissionRevisionSchema,
-  Rfc3339Instant,
   Rfc3339InstantSchema,
 } from "./schemas/admission-period.js";
 export type {
