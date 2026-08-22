@@ -43,6 +43,10 @@ export {
   ReceiptDecodeSdkError,
   ReceiptAlreadyExistsError,
   DuplicateReceiptCommandConflictError,
+  ReceiptNotFoundError,
+  StaleReceiptRevisionError,
+  InvalidReceiptTransitionError,
+  ReceiptFileNotStagedError,
   ReceiptPersistenceSdkError,
 } from "./errors.js";
 export type { SdkErrorType, ReceiptRejectionTag } from "./errors.js";

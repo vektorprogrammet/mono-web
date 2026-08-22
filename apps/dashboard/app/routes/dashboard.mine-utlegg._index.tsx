@@ -130,13 +130,17 @@ function parseReceiptIdentity(form: FormData): ParseResult<ParsedReceiptIdentity
   const revisionValue = readFormText(form, "expectedRevision")?.trim() ?? "";
   if (!/^(0|[1-9]\d*)$/.test(revisionValue)) {
     return {
-      error: receiptDecodeError("Utleggsversjonen er ugyldig. Last inn siden på nytt og prøv igjen."),
+      error: receiptDecodeError(
+        "Utleggsversjonen er ugyldig. Last inn siden på nytt og prøv igjen.",
+      ),
     };
   }
   const expectedRevision = Number(revisionValue);
   if (!Number.isSafeInteger(expectedRevision)) {
     return {
-      error: receiptDecodeError("Utleggsversjonen er ugyldig. Last inn siden på nytt og prøv igjen."),
+      error: receiptDecodeError(
+        "Utleggsversjonen er ugyldig. Last inn siden på nytt og prøv igjen.",
+      ),
     };
   }
 
@@ -145,10 +149,7 @@ function parseReceiptIdentity(form: FormData): ParseResult<ParsedReceiptIdentity
 
 function parseReceiptFile(form: FormData, required: true): ParseResult<File>;
 function parseReceiptFile(form: FormData, required: false): ParseResult<File | undefined>;
-function parseReceiptFile(
-  form: FormData,
-  required: boolean,
-): ParseResult<File | undefined> {
+function parseReceiptFile(form: FormData, required: boolean): ParseResult<File | undefined> {
   const fileValue = form.get("file");
   if (!(fileValue instanceof File) || fileValue.size === 0) {
     return required
@@ -306,7 +307,7 @@ export async function action({ request }: Route.ActionArgs) {
       const mutationFailure: ReceiptOwnerMutationFailure = {
         intent,
         ...identity.value,
-        commandId,
+        commandId: mappedError._tag === "StaleReceiptRevision" ? crypto.randomUUID() : commandId,
         error: mappedError,
         ...(mappedError._tag === "StaleReceiptRevision" ? {} : { draft: fields.value.draft }),
       };
@@ -370,9 +371,7 @@ export default function MineUtlegg() {
   const actionData = useActionData<typeof action>();
   const navigation = useNavigation();
   const submissionError =
-    actionData?.success === false && actionData.intent === "submit"
-      ? actionData.error
-      : undefined;
+    actionData?.success === false && actionData.intent === "submit" ? actionData.error : undefined;
   const submission =
     actionData?.success === true && actionData.intent === "submit"
       ? actionData.submission

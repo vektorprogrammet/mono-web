@@ -72,6 +72,7 @@ export function OwnedReceiptList({
                 data-action-intent={mutationFailure.intent}
                 data-receipt-id={mutationFailure.receiptId}
                 data-expected-revision={mutationFailure.expectedRevision}
+                data-command-id={mutationFailure.commandId}
               >
                 {mutationFailure.error.message}
               </p>

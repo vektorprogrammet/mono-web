@@ -77,7 +77,9 @@ describe("canonical owner Receipt capability", () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(response(200, observation))
-      .mockResolvedValueOnce(response(200, { ...observation, commandId: "command-2", revision: 2 }));
+      .mockResolvedValueOnce(
+        response(200, { ...observation, commandId: "command-2", revision: 2 }),
+      );
     vi.stubGlobal("fetch", fetchMock);
     const client = createClient("http://api.test", { auth: "loopback-token" });
     const input = {
@@ -124,13 +126,19 @@ describe("canonical owner Receipt capability", () => {
       "receiptDate",
       "file",
     ]);
-    expect(secondBody.get("file")).toBe(replacementFile);
+    expect(secondBody.get("file")).toMatchObject({
+      name: "replacement.pdf",
+      type: "application/pdf",
+      size: replacementFile.size,
+    });
   });
 
   it("withdraws through the canonical JSON route with the caller command and revision", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      response(200, { ...observation, commandId: "command-3", status: "Withdrawn", revision: 3 }),
-    );
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        response(200, { ...observation, commandId: "command-3", status: "Withdrawn", revision: 3 }),
+      );
     vi.stubGlobal("fetch", fetchMock);
     const client = createClient("http://api.test", { auth: "loopback-token" });
 
@@ -200,6 +208,22 @@ describe("canonical owner Receipt capability", () => {
       type: "receipt_rejection",
       _tag: "DuplicateReceiptCommandConflict",
       receiptTag: "DuplicateReceiptCommandConflict",
+    });
+  });
+
+  it.each([
+    ["ReceiptNotFound", 404],
+    ["StaleReceiptRevision", 409],
+    ["InvalidReceiptTransition", 409],
+    ["ReceiptFileNotStaged", 422],
+  ] as const)("preserves the native %s rejection", async (tag, status) => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response(status, { error: { tag } })));
+    const client = createClient("http://api.test", { auth: "loopback-token" });
+
+    await expect(client.receipts.listOwned()).rejects.toMatchObject({
+      type: "receipt_rejection",
+      _tag: tag,
+      receiptTag: tag,
     });
   });
 });

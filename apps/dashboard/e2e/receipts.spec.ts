@@ -70,6 +70,14 @@ function activeToken(): string {
   return token;
 }
 
+function foreignOwnerToken(): string {
+  const token = process.env.RECEIPT_E2E_FOREIGN_TOKEN;
+  if (token === undefined || token.length === 0) {
+    throw new Error("RECEIPT_E2E_FOREIGN_TOKEN is required for the real Receipt journey");
+  }
+  return token;
+}
+
 async function authenticate(page: Page): Promise<void> {
   await page.context().addCookies([
     {
@@ -107,7 +115,7 @@ async function responseErrorTag(response: APIResponse): Promise<string> {
 }
 
 function receiptRowFor(page: Page, receiptId: string) {
-  return page.locator(`[data-receipt-id=${JSON.stringify(receiptId)}]`);
+  return page.locator(`tr[data-receipt-id=${JSON.stringify(receiptId)}]`);
 }
 
 test.describe("Native Receipt owner journey", () => {
@@ -141,9 +149,7 @@ test.describe("Native Receipt owner journey", () => {
       mimeType: "image/png",
       buffer: RECEIPT_BYTES,
     });
-    await submissionForm
-      .getByRole("button", { name: "Send inn utlegg", exact: true })
-      .click();
+    await submissionForm.getByRole("button", { name: "Send inn utlegg", exact: true }).click();
 
     const submissionError = submissionForm.getByRole("alert");
     await expect(submissionError).toHaveAttribute("data-error-tag", "ReceiptDecodeError");
@@ -159,9 +165,7 @@ test.describe("Native Receipt owner journey", () => {
       mimeType: "text/plain",
       buffer: Buffer.from("unsupported"),
     });
-    await submissionForm
-      .getByRole("button", { name: "Send inn utlegg", exact: true })
-      .click();
+    await submissionForm.getByRole("button", { name: "Send inn utlegg", exact: true }).click();
     await expect(submissionError).toHaveAttribute("data-error-field", "file");
     await expect(submissionForm.locator('input[name="commandId"]')).toHaveValue(
       submissionCommandId,
@@ -172,9 +176,7 @@ test.describe("Native Receipt owner journey", () => {
       mimeType: "image/png",
       buffer: Buffer.alloc(MAX_FILE_BYTES + 1),
     });
-    await submissionForm
-      .getByRole("button", { name: "Send inn utlegg", exact: true })
-      .click();
+    await submissionForm.getByRole("button", { name: "Send inn utlegg", exact: true }).click();
     await expect(submissionError).toContainText(
       "Kvitteringsfilen kan ikke være større enn 10 MiB.",
     );
@@ -187,9 +189,7 @@ test.describe("Native Receipt owner journey", () => {
       mimeType: "image/png",
       buffer: RECEIPT_BYTES,
     });
-    await submissionForm
-      .getByRole("button", { name: "Send inn utlegg", exact: true })
-      .click();
+    await submissionForm.getByRole("button", { name: "Send inn utlegg", exact: true }).click();
 
     const submissionSuccess = submissionForm.getByRole("status");
     await expect(submissionSuccess).toBeVisible();
@@ -214,23 +214,20 @@ test.describe("Native Receipt owner journey", () => {
     await expect(receiptRow).toContainText(RECEIPT_DATE);
     await expect(receiptRow.locator('[data-status="Pending"]')).toBeVisible();
 
-    const submitReplayResponse = await request.post(
-      `${RECEIPT_API_ORIGIN}/api/receipts/submit`,
-      {
-        headers: authorization,
-        multipart: {
-          commandId: submissionCommandId,
-          description: DESCRIPTION,
-          amountOre: String(AMOUNT_ORE),
-          receiptDate: RECEIPT_DATE,
-          file: {
-            name: "receipt.png",
-            mimeType: "image/png",
-            buffer: RECEIPT_BYTES,
-          },
+    const submitReplayResponse = await request.post(`${RECEIPT_API_ORIGIN}/api/receipts/submit`, {
+      headers: authorization,
+      multipart: {
+        commandId: submissionCommandId,
+        description: DESCRIPTION,
+        amountOre: String(AMOUNT_ORE),
+        receiptDate: RECEIPT_DATE,
+        file: {
+          name: "receipt.png",
+          mimeType: "image/png",
+          buffer: RECEIPT_BYTES,
         },
       },
-    );
+    });
     expect([200, 201]).toContain(submitReplayResponse.status());
     const submitReplay = receiptObservationSchema.parse(await submitReplayResponse.json());
     expect(submitReplay).toMatchObject({
@@ -241,16 +238,11 @@ test.describe("Native Receipt owner journey", () => {
       replayed: true,
     });
 
-    const ownedAtRevisionZeroResponse = await request.get(
-      `${RECEIPT_API_ORIGIN}/api/receipts`,
-      {
-        headers: authorization,
-      },
-    );
+    const ownedAtRevisionZeroResponse = await request.get(`${RECEIPT_API_ORIGIN}/api/receipts`, {
+      headers: authorization,
+    });
     expect(ownedAtRevisionZeroResponse.status()).toBe(200);
-    const ownedAtRevisionZero = receiptPageSchema.parse(
-      await ownedAtRevisionZeroResponse.json(),
-    );
+    const ownedAtRevisionZero = receiptPageSchema.parse(await ownedAtRevisionZeroResponse.json());
     expect(ownedAtRevisionZero.totalItems).toBe(1);
     expect(ownedAtRevisionZero.items).toHaveLength(1);
     expect(ownedAtRevisionZero.items[0]).toMatchObject({
@@ -270,7 +262,9 @@ test.describe("Native Receipt owner journey", () => {
     await expect(reviseForm.getByLabel(/Beløp i NOK/)).toHaveValue("125,50");
     await expect(reviseForm.getByLabel(/Kvitteringsdato/)).toHaveValue(RECEIPT_DATE);
     await expect(reviseForm.locator('input[name="expectedRevision"]')).toHaveValue("0");
-    expect(await reviseForm.getByLabel(/Erstatt kvitteringsfil/).getAttribute("required")).toBeNull();
+    expect(
+      await reviseForm.getByLabel(/Erstatt kvitteringsfil/).getAttribute("required"),
+    ).toBeNull();
 
     await reviseForm.getByLabel(/Beskrivelse/).fill(REVISED_DESCRIPTION);
     await reviseForm.getByLabel(/Beløp i NOK/).fill("210,751");
@@ -334,6 +328,8 @@ test.describe("Native Receipt owner journey", () => {
     await receiptRow.getByRole("button", { name: "Rediger", exact: true }).click();
     reviseForm = page.getByRole("form", { name: "Rediger utlegg" });
     await expect(reviseForm.locator('input[name="expectedRevision"]')).toHaveValue("2");
+    const staleDraftCommandId = await reviseForm.locator('input[name="commandId"]').inputValue();
+    expect(staleDraftCommandId).not.toBe("");
     await reviseForm.getByLabel(/Beskrivelse/).fill("This stale draft must not replace projection");
 
     const concurrentCommandId = randomUUID();
@@ -363,6 +359,7 @@ test.describe("Native Receipt owner journey", () => {
     });
 
     await reviseForm.getByRole("button", { name: "Lagre endringer" }).click();
+    await expect(reviseError).not.toHaveAttribute("data-command-id", staleDraftCommandId);
     await expect(reviseError).toHaveAttribute("data-error-tag", "StaleReceiptRevision");
     await expect(reviseError).toHaveAttribute("data-expected-revision", "2");
     reviseForm = page.getByRole("form", { name: "Rediger utlegg" });
@@ -370,13 +367,26 @@ test.describe("Native Receipt owner journey", () => {
     await expect(reviseForm.getByLabel(/Beskrivelse/)).toHaveValue(CONCURRENT_DESCRIPTION);
     await expect(reviseForm.getByLabel(/Beløp i NOK/)).toHaveValue("210,75");
     await expect(reviseForm.locator('input[name="expectedRevision"]')).toHaveValue("3");
-    const staleAttemptCommandId = await reviseForm
-      .locator('input[name="commandId"]')
-      .inputValue();
-    expect(staleAttemptCommandId).not.toBe("");
+    const refreshedCommandId = await reviseForm.locator('input[name="commandId"]').inputValue();
+    expect(refreshedCommandId).not.toBe("");
+    expect(refreshedCommandId).not.toBe(staleDraftCommandId);
     receiptRow = receiptRowFor(page, receiptId);
     await expect(receiptRow).toContainText(CONCURRENT_DESCRIPTION);
     await expect(receiptRow.locator('[data-revision="3"]')).toHaveText("Versjon 3");
+
+    const foreignOwnerResponse = await request.post(
+      `${RECEIPT_API_ORIGIN}/api/receipts/${receiptId}/withdraw`,
+      {
+        headers: { Authorization: `Bearer ${foreignOwnerToken()}` },
+        data: {
+          commandId: randomUUID(),
+          expectedRevision: 3,
+        },
+      },
+    );
+    expect(foreignOwnerResponse.status()).toBe(403);
+    const foreignOwnerTag = await responseErrorTag(foreignOwnerResponse);
+    expect(foreignOwnerTag).toBe("ReceiptOwnerDenied");
 
     await receiptRow.getByRole("button", { name: "Trekk tilbake", exact: true }).click();
     const withdrawForm = page.getByRole("form", { name: "Trekk tilbake utlegg" });
@@ -420,9 +430,7 @@ test.describe("Native Receipt owner journey", () => {
       },
     );
     expect(withdrawalReplayResponse.status()).toBe(200);
-    const withdrawalReplay = receiptObservationSchema.parse(
-      await withdrawalReplayResponse.json(),
-    );
+    const withdrawalReplay = receiptObservationSchema.parse(await withdrawalReplayResponse.json());
     expect(withdrawalReplay).toMatchObject({
       commandId: withdrawalCommandId,
       receiptId,
@@ -482,7 +490,13 @@ test.describe("Native Receipt owner journey", () => {
               tag: "StaleReceiptRevision",
               expectedRevision: 2,
               refreshedRevision: concurrentRevision.revision,
-              commandId: staleAttemptCommandId,
+              attemptedCommandId: staleDraftCommandId,
+              retryCommandId: refreshedCommandId,
+            },
+            {
+              tag: foreignOwnerTag,
+              status: foreignOwnerResponse.status(),
+              revision: 3,
             },
             {
               tag: terminalTag,

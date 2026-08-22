@@ -11,7 +11,6 @@ import {
 } from "@/lib/receipt-view";
 import { Fragment, useId, useState } from "react";
 import { Form, useNavigation } from "react-router";
-import { ensureStableReceiptCommandId } from "./receipt-command-form";
 
 type ActionPanel = "revise" | "withdraw" | null;
 
@@ -33,6 +32,12 @@ function fieldDescription(
 export function OwnedReceiptRow({ receipt, failure, actionErrorId }: Props) {
   const relevantFailure = failure?.receiptId === receipt.receiptId ? failure : undefined;
   const [panel, setPanel] = useState<ActionPanel>(relevantFailure?.intent ?? null);
+  const [reviseCommandId, setReviseCommandId] = useState(
+    relevantFailure?.intent === "revise" ? relevantFailure.commandId : "",
+  );
+  const [withdrawCommandId, setWithdrawCommandId] = useState(
+    relevantFailure?.intent === "withdraw" ? relevantFailure.commandId : "",
+  );
   const fieldId = useId();
   const panelId = `${fieldId}-owner-actions`;
   const reviseTitleId = `${fieldId}-revise-title`;
@@ -92,7 +97,12 @@ export function OwnedReceiptRow({ receipt, failure, actionErrorId }: Props) {
                 aria-expanded={panel === "revise"}
                 aria-controls={panelId}
                 disabled={actionBusy}
-                onClick={() => setPanel(panel === "revise" ? null : "revise")}
+                onClick={() => {
+                  if (panel !== "revise" && reviseCommandId.length === 0) {
+                    setReviseCommandId(crypto.randomUUID());
+                  }
+                  setPanel(panel === "revise" ? null : "revise");
+                }}
               >
                 {panel === "revise" ? "Lukk redigering" : "Rediger"}
               </Button>
@@ -103,7 +113,12 @@ export function OwnedReceiptRow({ receipt, failure, actionErrorId }: Props) {
                 aria-expanded={panel === "withdraw"}
                 aria-controls={panelId}
                 disabled={actionBusy}
-                onClick={() => setPanel(panel === "withdraw" ? null : "withdraw")}
+                onClick={() => {
+                  if (panel !== "withdraw" && withdrawCommandId.length === 0) {
+                    setWithdrawCommandId(crypto.randomUUID());
+                  }
+                  setPanel(panel === "withdraw" ? null : "withdraw");
+                }}
               >
                 Trekk tilbake
               </Button>
@@ -115,13 +130,16 @@ export function OwnedReceiptRow({ receipt, failure, actionErrorId }: Props) {
       </TableRow>
 
       {receipt.status === "Pending" && (
-        <TableRow id={panelId} hidden={panel === null} data-receipt-action-panel={panel ?? undefined}>
+        <TableRow
+          id={panelId}
+          hidden={panel === null}
+          data-receipt-action-panel={panel ?? undefined}
+        >
           <TableCell colSpan={6} className="bg-muted/30 p-4 whitespace-normal sm:p-6">
             {panel === "revise" && (
               <Form
                 method="post"
                 encType="multipart/form-data"
-                onSubmit={ensureStableReceiptCommandId}
                 aria-labelledby={reviseTitleId}
                 aria-describedby={revisionFailure ? actionErrorId : undefined}
                 aria-busy={revising}
@@ -131,11 +149,7 @@ export function OwnedReceiptRow({ receipt, failure, actionErrorId }: Props) {
                 <input type="hidden" name="_intent" value="revise" />
                 <input type="hidden" name="receiptId" value={receipt.receiptId} />
                 <input type="hidden" name="expectedRevision" value={receipt.revision} />
-                <input
-                  type="hidden"
-                  name="commandId"
-                  defaultValue={revisionFailure?.commandId ?? ""}
-                />
+                <input type="hidden" name="commandId" value={reviseCommandId} readOnly />
 
                 <div>
                   <h3 id={reviseTitleId} className="font-semibold text-base">
@@ -274,7 +288,6 @@ export function OwnedReceiptRow({ receipt, failure, actionErrorId }: Props) {
             {panel === "withdraw" && (
               <Form
                 method="post"
-                onSubmit={ensureStableReceiptCommandId}
                 aria-labelledby={withdrawTitleId}
                 aria-describedby={`${fieldId}-withdraw-help${withdrawalFailure ? ` ${actionErrorId}` : ""}`}
                 aria-busy={withdrawing}
@@ -284,11 +297,7 @@ export function OwnedReceiptRow({ receipt, failure, actionErrorId }: Props) {
                 <input type="hidden" name="_intent" value="withdraw" />
                 <input type="hidden" name="receiptId" value={receipt.receiptId} />
                 <input type="hidden" name="expectedRevision" value={receipt.revision} />
-                <input
-                  type="hidden"
-                  name="commandId"
-                  defaultValue={withdrawalFailure?.commandId ?? ""}
-                />
+                <input type="hidden" name="commandId" value={withdrawCommandId} readOnly />
 
                 <div>
                   <h3 id={withdrawTitleId} className="font-semibold text-base">

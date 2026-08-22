@@ -20,6 +20,10 @@ import {
   ReceiptDecodeError,
   ReceiptAlreadyExists,
   DuplicateReceiptCommandConflict,
+  ReceiptNotFound,
+  StaleReceiptRevision,
+  InvalidReceiptTransition,
+  ReceiptFileNotStaged,
   ReceiptPersistenceError,
   type InternalSdkError,
 } from "./errors.js";
@@ -66,6 +70,14 @@ const receiptFailureFromBody = (body: unknown): InternalSdkError | undefined => 
       return new ReceiptAlreadyExists();
     case "DuplicateReceiptCommandConflict":
       return new DuplicateReceiptCommandConflict();
+    case "ReceiptNotFound":
+      return new ReceiptNotFound();
+    case "StaleReceiptRevision":
+      return new StaleReceiptRevision();
+    case "InvalidReceiptTransition":
+      return new InvalidReceiptTransition();
+    case "ReceiptFileNotStaged":
+      return new ReceiptFileNotStaged();
     case "ReceiptPersistenceError":
       return new ReceiptPersistenceError();
     default:

@@ -26,6 +26,10 @@ export type ReceiptRejectionTag =
   | "ReceiptDecodeError"
   | "ReceiptAlreadyExists"
   | "DuplicateReceiptCommandConflict"
+  | "ReceiptNotFound"
+  | "StaleReceiptRevision"
+  | "InvalidReceiptTransition"
+  | "ReceiptFileNotStaged"
   | "ReceiptPersistenceError";
 
 export class SdkError extends Error {
@@ -147,6 +151,34 @@ export class DuplicateReceiptCommandConflictError extends ReceiptRejectionError 
   }
 }
 
+export class ReceiptNotFoundError extends ReceiptRejectionError {
+  constructor() {
+    super("ReceiptNotFound");
+    this.name = "ReceiptNotFoundError";
+  }
+}
+
+export class StaleReceiptRevisionError extends ReceiptRejectionError {
+  constructor() {
+    super("StaleReceiptRevision");
+    this.name = "StaleReceiptRevisionError";
+  }
+}
+
+export class InvalidReceiptTransitionError extends ReceiptRejectionError {
+  constructor() {
+    super("InvalidReceiptTransition");
+    this.name = "InvalidReceiptTransitionError";
+  }
+}
+
+export class ReceiptFileNotStagedError extends ReceiptRejectionError {
+  constructor() {
+    super("ReceiptFileNotStaged");
+    this.name = "ReceiptFileNotStagedError";
+  }
+}
+
 export class ReceiptPersistenceSdkError extends ReceiptRejectionError {
   constructor() {
     super("ReceiptPersistenceError");
@@ -213,6 +245,23 @@ export class DuplicateReceiptCommandConflict extends Schema.TaggedError<Duplicat
   {},
 ) {}
 
+export class ReceiptNotFound extends Schema.TaggedError<ReceiptNotFound>()("ReceiptNotFound", {}) {}
+
+export class StaleReceiptRevision extends Schema.TaggedError<StaleReceiptRevision>()(
+  "StaleReceiptRevision",
+  {},
+) {}
+
+export class InvalidReceiptTransition extends Schema.TaggedError<InvalidReceiptTransition>()(
+  "InvalidReceiptTransition",
+  {},
+) {}
+
+export class ReceiptFileNotStaged extends Schema.TaggedError<ReceiptFileNotStaged>()(
+  "ReceiptFileNotStaged",
+  {},
+) {}
+
 export class ReceiptPersistenceError extends Schema.TaggedError<ReceiptPersistenceError>()(
   "ReceiptPersistenceError",
   {},
@@ -225,6 +274,10 @@ export type ReceiptFailure =
   | ReceiptDecodeError
   | ReceiptAlreadyExists
   | DuplicateReceiptCommandConflict
+  | ReceiptNotFound
+  | StaleReceiptRevision
+  | InvalidReceiptTransition
+  | ReceiptFileNotStaged
   | ReceiptPersistenceError;
 
 export type ReceiptSdkError = ReceiptFailure;
@@ -271,6 +324,14 @@ export function toSdkError(error: InternalSdkError): SdkError {
       return new ReceiptAlreadyExistsError();
     case "DuplicateReceiptCommandConflict":
       return new DuplicateReceiptCommandConflictError();
+    case "ReceiptNotFound":
+      return new ReceiptNotFoundError();
+    case "StaleReceiptRevision":
+      return new StaleReceiptRevisionError();
+    case "InvalidReceiptTransition":
+      return new InvalidReceiptTransitionError();
+    case "ReceiptFileNotStaged":
+      return new ReceiptFileNotStagedError();
     case "ReceiptPersistenceError":
       return new ReceiptPersistenceSdkError();
   }

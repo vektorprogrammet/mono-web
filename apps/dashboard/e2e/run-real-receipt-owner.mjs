@@ -12,7 +12,7 @@ const composeFile = join(repositoryRoot, "docker-compose.yml");
 const dashboardOrigin = "http://127.0.0.1:5174";
 const receiptApiOrigin = "http://127.0.0.1:8790";
 const postgresUrl = "postgres://receipt:receipt@127.0.0.1:55432/receipt_proof";
-const composeProject = `mono-web-receipt-0035-${process.pid}`;
+const composeProject = `mono-web-receipt-0036-${process.pid}`;
 const commandTimeoutMs = 120_000;
 const shutdownTimeoutMs = 5_000;
 
@@ -216,6 +216,8 @@ async function readPostgresEvidence(environment) {
           HAVING count(*) > 1
         ) duplicate_effects
       )
+      ,'finalStatus', (SELECT status FROM economy_receipts LIMIT 1)
+      ,'finalRevision', (SELECT revision FROM economy_receipts LIMIT 1)
     )::text;
   `;
   const result = await runCommand(
@@ -253,16 +255,18 @@ async function readPostgresEvidence(environment) {
 function assertDurableEvidence(postgres, privateFile) {
   if (
     postgres.receiptCount !== 1 ||
-    postgres.commandCount !== 1 ||
-    postgres.auditCount !== 1 ||
-    postgres.outboxCount < 1 ||
+    postgres.commandCount !== 5 ||
+    postgres.auditCount !== 5 ||
+    postgres.outboxCount !== 10 ||
     postgres.deliveredOutboxCount !== postgres.outboxCount ||
-    postgres.duplicateEffectCount !== 0
+    postgres.duplicateEffectCount !== 0 ||
+    postgres.finalStatus !== "Withdrawn" ||
+    postgres.finalRevision !== 4
   ) {
-    throw new Error("Receipt persistence evidence did not prove one durable replay-safe write");
+    throw new Error("Receipt persistence evidence did not prove the revise-withdraw journey");
   }
-  if (privateFile.stagingFileCount !== 0 || privateFile.committedFileCount !== 1) {
-    throw new Error("Receipt private-file evidence did not prove one committed file");
+  if (privateFile.stagingFileCount !== 0 || privateFile.committedFileCount !== 0) {
+    throw new Error("Receipt private-file evidence did not prove terminal file deletion");
   }
 }
 
@@ -273,7 +277,7 @@ async function main() {
     assertPortAvailable(55432),
   ]);
 
-  const temporaryRoot = await mkdtemp(join(tmpdir(), "mono-web-receipt-owner-0035-"));
+  const temporaryRoot = await mkdtemp(join(tmpdir(), "mono-web-receipt-owner-0036-"));
   const stagingRoot = join(temporaryRoot, "staging");
   const committedRoot = join(temporaryRoot, "committed");
   await Promise.all([
@@ -282,9 +286,17 @@ async function main() {
   ]);
 
   const token = randomBytes(32).toString("base64url");
+  const foreignToken = randomBytes(32).toString("base64url");
   const actorTokens = JSON.stringify({
     [token]: {
       personId: "assistant-1",
+      departmentId: "department-1",
+      active: true,
+      paymentAccountCiphertext: randomBytes(32).toString("base64url"),
+      approvalScope: { _tag: "None" },
+    },
+    [foreignToken]: {
+      personId: "assistant-2",
       departmentId: "department-1",
       active: true,
       paymentAccountCiphertext: randomBytes(32).toString("base64url"),
@@ -315,6 +327,7 @@ async function main() {
     RECEIPT_API_ORIGIN: receiptApiOrigin,
     DASHBOARD_ORIGIN: dashboardOrigin,
     RECEIPT_E2E_TOKEN: token,
+    RECEIPT_E2E_FOREIGN_TOKEN: foreignToken,
   };
 
   let postgresStarted = false;
