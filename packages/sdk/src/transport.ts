@@ -17,6 +17,7 @@ import {
   UnauthenticatedActor,
   InactiveActor,
   ReceiptOwnerDenied,
+  ReceiptScopeDenied,
   ReceiptDecodeError,
   ReceiptAlreadyExists,
   DuplicateReceiptCommandConflict,
@@ -64,6 +65,8 @@ const receiptFailureFromBody = (body: unknown): InternalSdkError | undefined => 
       return new InactiveActor();
     case "ReceiptOwnerDenied":
       return new ReceiptOwnerDenied();
+    case "ReceiptScopeDenied":
+      return new ReceiptScopeDenied();
     case "ReceiptDecodeError":
       return new ReceiptDecodeError();
     case "ReceiptAlreadyExists":

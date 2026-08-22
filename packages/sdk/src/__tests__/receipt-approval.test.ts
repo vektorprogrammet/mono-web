@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createClient } from "../promise.js";
+import { createClient, ReceiptScopeDeniedError, UnauthorizedError } from "../promise.js";
 
 const observation = {
   commandId: "command-refund",
@@ -50,6 +50,33 @@ describe("canonical Receipt approval capability", () => {
     expect(init.method).toBe("GET");
     expect((init.headers as Record<string, string>).Accept).toBe("application/ld+json");
     expect((init.headers as Record<string, string>).Authorization).toBe("Bearer approver-token");
+  });
+
+  it("maps canonical 403 ReceiptScopeDenied to a typed public error", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(response(403, { error: { tag: "ReceiptScopeDenied" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = createClient("http://api.test", { auth: "approver-token" });
+
+    const error = await client.receipts.listForApproval({ status: "Pending" }).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(ReceiptScopeDeniedError);
+    expect(error).not.toBeInstanceOf(UnauthorizedError);
+    expect(error).toMatchObject({
+      type: "receipt_rejection",
+      _tag: "ReceiptScopeDenied",
+      receiptTag: "ReceiptScopeDenied",
+    });
+  });
+
+  it("keeps untagged 403 responses as UnauthorizedError", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(response(403, {}));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = createClient("http://api.test", { auth: "approver-token" });
+
+    const error = await client.receipts.listForApproval({ status: "Pending" }).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(UnauthorizedError);
+    expect(error).not.toBeInstanceOf(ReceiptScopeDeniedError);
   });
 
   it("rejects authority fields in approval filters before making a request", async () => {

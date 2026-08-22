@@ -40,6 +40,7 @@ export {
   UnauthenticatedActorError,
   InactiveActorError,
   ReceiptOwnerDeniedError,
+  ReceiptScopeDeniedError,
   ReceiptDecodeSdkError,
   ReceiptAlreadyExistsError,
   DuplicateReceiptCommandConflictError,

@@ -23,6 +23,7 @@ export type ReceiptRejectionTag =
   | "UnauthenticatedActor"
   | "InactiveActor"
   | "ReceiptOwnerDenied"
+  | "ReceiptScopeDenied"
   | "ReceiptDecodeError"
   | "ReceiptAlreadyExists"
   | "DuplicateReceiptCommandConflict"
@@ -130,6 +131,13 @@ export class ReceiptOwnerDeniedError extends ReceiptRejectionError {
   }
 }
 
+export class ReceiptScopeDeniedError extends ReceiptRejectionError {
+  constructor() {
+    super("ReceiptScopeDenied");
+    this.name = "ReceiptScopeDeniedError";
+  }
+}
+
 export class ReceiptDecodeSdkError extends ReceiptRejectionError {
   constructor() {
     super("ReceiptDecodeError");
@@ -230,6 +238,11 @@ export class ReceiptOwnerDenied extends Schema.TaggedError<ReceiptOwnerDenied>()
   {},
 ) {}
 
+export class ReceiptScopeDenied extends Schema.TaggedError<ReceiptScopeDenied>()(
+  "ReceiptScopeDenied",
+  {},
+) {}
+
 export class ReceiptDecodeError extends Schema.TaggedError<ReceiptDecodeError>()(
   "ReceiptDecodeError",
   {},
@@ -271,6 +284,7 @@ export type ReceiptFailure =
   | UnauthenticatedActor
   | InactiveActor
   | ReceiptOwnerDenied
+  | ReceiptScopeDenied
   | ReceiptDecodeError
   | ReceiptAlreadyExists
   | DuplicateReceiptCommandConflict
@@ -318,6 +332,8 @@ export function toSdkError(error: InternalSdkError): SdkError {
       return new InactiveActorError();
     case "ReceiptOwnerDenied":
       return new ReceiptOwnerDeniedError();
+    case "ReceiptScopeDenied":
+      return new ReceiptScopeDeniedError();
     case "ReceiptDecodeError":
       return new ReceiptDecodeSdkError();
     case "ReceiptAlreadyExists":
