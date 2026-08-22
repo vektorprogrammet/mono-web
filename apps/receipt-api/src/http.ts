@@ -1,5 +1,5 @@
 import * as PgClient from "@effect/sql-pg/PgClient";
-import { Effect, Layer } from "effect";
+import { Effect, Layer, Schema } from "effect";
 import type { SqlError } from "effect/unstable/sql/SqlError";
 import {
   ReceiptAuxiliaryEffectConflict,
@@ -7,8 +7,10 @@ import {
   ReceiptAuthority,
   ReceiptAuxiliaryEffects,
   ReceiptDecodeError,
+  ReceiptFileSchema,
   ReceiptFileService,
   ReceiptPersistenceError,
+  type ReceiptFile,
   type ReceiptStatus,
   UnauthenticatedActor,
   isIsoDate,
@@ -52,6 +54,21 @@ interface SubmitFields {
   readonly contentType: SupportedContentType;
 }
 
+interface ReviseFields {
+  readonly commandId: string;
+  readonly expectedRevision: number;
+  readonly description: string;
+  readonly amountOre: number;
+  readonly receiptDate: string;
+  readonly file?: File;
+  readonly contentType?: SupportedContentType;
+}
+
+interface WithdrawFields {
+  readonly commandId: string;
+  readonly expectedRevision: number;
+}
+
 export interface ReceiptApiHttpOptions {
   readonly config: ReceiptApiConfig;
   readonly migrationSql: string;
@@ -87,11 +104,16 @@ const errorResponse = (cause: unknown, fallback = "ReceiptPersistenceError"): Re
       ? 401
       : tag === "InactiveActor" || tag === "ReceiptOwnerDenied" || tag === "ReceiptScopeDenied"
         ? 403
-        : tag === "ReceiptDecodeError" || tag === "ReceiptFileNotStaged"
-          ? 422
-          : tag === "ReceiptAlreadyExists" || tag === "DuplicateReceiptCommandConflict"
-            ? 409
-            : 503;
+        : tag === "ReceiptNotFound"
+          ? 404
+          : tag === "ReceiptDecodeError" || tag === "ReceiptFileNotStaged"
+            ? 422
+            : tag === "ReceiptAlreadyExists" ||
+                tag === "DuplicateReceiptCommandConflict" ||
+                tag === "StaleReceiptRevision" ||
+                tag === "InvalidReceiptTransition"
+              ? 409
+              : 503;
   const body: ErrorBody = { error: { tag } };
   return jsonResponse(body, status);
 };
@@ -107,6 +129,16 @@ const parseSafeAmountOre = (value: string): number => {
   }
   return amountOre;
 };
+const parseSafeRevision = (value: string): number => {
+  if (!/^(0|[1-9]\d*)$/.test(value)) {
+    throw new ReceiptDecodeError({ message: "invalid expectedRevision" });
+  }
+  const revision = Number(value);
+  if (!Number.isSafeInteger(revision) || revision < 0) {
+    throw new ReceiptDecodeError({ message: "invalid expectedRevision" });
+  }
+  return revision;
+};
 
 const readSingleField = (
   fields: ReadonlyMap<string, Array<string | File>>,
@@ -119,15 +151,19 @@ const readSingleField = (
   return values[0];
 };
 
-const decodeMultipart = async (request: Request, maxFileBytes: number): Promise<SubmitFields> => {
+const decodeMultipartFields = async (
+  request: Request,
+  maxFileBytes: number,
+): Promise<Map<string, Array<string | File>>> => {
   const contentType = request.headers.get("content-type") ?? "";
   if (!contentType.toLowerCase().startsWith("multipart/form-data;")) {
     throw new ReceiptDecodeError({ message: "multipart form required" });
   }
   const contentLength = request.headers.get("content-length");
   if (contentLength !== null) {
-    if (!/^\d+$/.test(contentLength))
+    if (!/^\d+$/.test(contentLength)) {
       throw new ReceiptDecodeError({ message: "invalid body length" });
+    }
     const bodyLength = Number(contentLength);
     if (!Number.isSafeInteger(bodyLength) || bodyLength > maxFileBytes + 131_072) {
       throw new ReceiptDecodeError({ message: "multipart body exceeds configured limit" });
@@ -146,13 +182,61 @@ const decodeMultipart = async (request: Request, maxFileBytes: number): Promise<
     if (values === undefined) fields.set(name, [value]);
     else values.push(value);
   }
-  const expected = new Set(["commandId", "description", "amountOre", "receiptDate", "file"]);
+  return fields;
+};
+
+const requireMultipartFields = (
+  fields: ReadonlyMap<string, Array<string | File>>,
+  required: Readonly<Record<string, true>>,
+  optional: Readonly<Record<string, true>> = {},
+): void => {
   for (const name of fields.keys()) {
-    if (!expected.has(name))
+    if (required[name] !== true && optional[name] !== true) {
       throw new ReceiptDecodeError({ message: "unexpected multipart field" });
+    }
   }
-  if (fields.size !== expected.size)
-    throw new ReceiptDecodeError({ message: "missing multipart field" });
+  const requiredNames = Object.keys(required);
+  if (
+    fields.size < requiredNames.length ||
+    fields.size > requiredNames.length + Object.keys(optional).length
+  ) {
+    throw new ReceiptDecodeError({ message: "invalid multipart fields" });
+  }
+  for (const name of requiredNames) {
+    if (!fields.has(name)) throw new ReceiptDecodeError({ message: "missing multipart field" });
+  }
+};
+
+const decodeReceiptFile = (
+  fields: ReadonlyMap<string, Array<string | File>>,
+  maxFileBytes: number,
+  required: boolean,
+): { readonly file?: File; readonly contentType?: SupportedContentType } => {
+  const fileValues = fields.get("file");
+  if (fileValues === undefined) {
+    if (required) throw new ReceiptDecodeError({ message: "receipt file is required" });
+    return {};
+  }
+  if (fileValues.length !== 1 || !(fileValues[0] instanceof File)) {
+    throw new ReceiptDecodeError({ message: "invalid receipt file" });
+  }
+  const file = fileValues[0];
+  if (file.size <= 0 || file.size > maxFileBytes || !isSupportedContentType(file.type)) {
+    throw new ReceiptDecodeError({ message: "unsupported receipt file" });
+  }
+  return { file, contentType: file.type };
+};
+
+const decodeMultipart = async (request: Request, maxFileBytes: number): Promise<SubmitFields> => {
+  const fields = await decodeMultipartFields(request, maxFileBytes);
+  const expected = {
+    commandId: true,
+    description: true,
+    amountOre: true,
+    receiptDate: true,
+    file: true,
+  } as const;
+  requireMultipartFields(fields, expected);
 
   const commandId = readSingleField(fields, "commandId");
   const description = readSingleField(fields, "description");
@@ -163,15 +247,55 @@ const decodeMultipart = async (request: Request, maxFileBytes: number): Promise<
   }
   if (!isIsoDate(receiptDate)) throw new ReceiptDecodeError({ message: "invalid receipt date" });
 
-  const fileValues = fields.get("file");
-  if (fileValues === undefined || fileValues.length !== 1 || !(fileValues[0] instanceof File)) {
+  const decodedFile = decodeReceiptFile(fields, maxFileBytes, true);
+  if (decodedFile.file === undefined || decodedFile.contentType === undefined) {
     throw new ReceiptDecodeError({ message: "receipt file is required" });
   }
-  const file = fileValues[0];
-  if (file.size <= 0 || file.size > maxFileBytes || !isSupportedContentType(file.type)) {
-    throw new ReceiptDecodeError({ message: "unsupported receipt file" });
+  return {
+    commandId,
+    description,
+    amountOre,
+    receiptDate,
+    file: decodedFile.file,
+    contentType: decodedFile.contentType,
+  };
+};
+
+const decodeReviseMultipart = async (
+  request: Request,
+  maxFileBytes: number,
+): Promise<ReviseFields> => {
+  const fields = await decodeMultipartFields(request, maxFileBytes);
+  const required = {
+    commandId: true,
+    expectedRevision: true,
+    description: true,
+    amountOre: true,
+    receiptDate: true,
+  } as const;
+  const optional = { file: true } as const;
+  requireMultipartFields(fields, required, optional);
+
+  const commandId = readSingleField(fields, "commandId");
+  const expectedRevision = parseSafeRevision(readSingleField(fields, "expectedRevision"));
+  const description = readSingleField(fields, "description");
+  const amountOre = parseSafeAmountOre(readSingleField(fields, "amountOre"));
+  const receiptDate = readSingleField(fields, "receiptDate");
+  if (commandId.length === 0 || description.length < 1 || description.length > 5000) {
+    throw new ReceiptDecodeError({ message: "invalid receipt text" });
   }
-  return { commandId, description, amountOre, receiptDate, file, contentType: file.type };
+  if (!isIsoDate(receiptDate)) throw new ReceiptDecodeError({ message: "invalid receipt date" });
+
+  const decodedFile = decodeReceiptFile(fields, maxFileBytes, false);
+  return {
+    commandId,
+    expectedRevision,
+    description,
+    amountOre,
+    receiptDate,
+    file: decodedFile.file,
+    contentType: decodedFile.contentType,
+  };
 };
 
 const principalFor = (
@@ -188,11 +312,144 @@ const principalFor = (
     throw new UnauthenticatedActor({ message: "authentication required" });
   return principal;
 };
+const decodeWithdrawJson = async (request: Request): Promise<WithdrawFields> => {
+  const contentType = request.headers.get("content-type") ?? "";
+  if (!/^application\/json(?:\s*;|$)/i.test(contentType)) {
+    throw new ReceiptDecodeError({ message: "json body required" });
+  }
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    throw new ReceiptDecodeError({ message: "invalid json body" });
+  }
+  if (body === null || typeof body !== "object" || Array.isArray(body)) {
+    throw new ReceiptDecodeError({ message: "withdraw body must be an object" });
+  }
+  const record = body as Record<string, unknown>;
+  const keys = Object.keys(record);
+  if (
+    keys.length !== 2 ||
+    !Object.prototype.hasOwnProperty.call(record, "commandId") ||
+    !Object.prototype.hasOwnProperty.call(record, "expectedRevision")
+  ) {
+    throw new ReceiptDecodeError({ message: "invalid withdraw fields" });
+  }
+  const commandId = record.commandId;
+  const expectedRevision = record.expectedRevision;
+  if (
+    typeof commandId !== "string" ||
+    commandId.length === 0 ||
+    typeof expectedRevision !== "number" ||
+    !Number.isSafeInteger(expectedRevision) ||
+    expectedRevision < 0
+  ) {
+    throw new ReceiptDecodeError({ message: "invalid withdraw fields" });
+  }
+  return { commandId, expectedRevision };
+};
+
+type ReceiptCommandRoute =
+  | { readonly action: "revise"; readonly receiptId: string }
+  | { readonly action: "withdraw"; readonly receiptId: string };
+
+const receiptCommandRoute = (pathname: string): ReceiptCommandRoute | undefined => {
+  const match = /^\/api\/receipts\/([^/]+)\/(revise|withdraw)$/.exec(pathname);
+  if (match === null || match[1] === undefined || match[2] === undefined) return undefined;
+  let receiptId: string;
+  try {
+    receiptId = decodeURIComponent(match[1]);
+  } catch {
+    throw new ReceiptDecodeError({ message: "invalid receipt id" });
+  }
+  if (receiptId.length === 0 || receiptId.includes("/")) {
+    throw new ReceiptDecodeError({ message: "invalid receipt id" });
+  }
+  return match[2] === "revise"
+    ? { action: "revise", receiptId }
+    : { action: "withdraw", receiptId };
+};
+
+interface ReceiptFileRow {
+  readonly fileRef: string;
+  readonly objectKey: string;
+  readonly contentType: string;
+  readonly byteLength: string;
+  readonly sha256: string;
+}
+
+const unresolvedReceiptFile: ReceiptFile = {
+  fileRef: "staging/unresolved-receipt-file",
+  objectKey: "committed/unresolved-receipt-file",
+  contentType: "application/pdf",
+  byteLength: 1,
+  sha256: "0".repeat(64),
+};
+
+const currentReceiptFile = async (
+  receiptId: string,
+  options: ReceiptApiHttpOptions,
+): Promise<ReceiptFile | undefined> =>
+  runPostgres(
+    Effect.gen(function* () {
+      const sql = yield* PgClient.PgClient;
+      const rows = yield* sql<ReceiptFileRow>`
+        SELECT file_ref AS "fileRef", file_object_key AS "objectKey",
+          file_content_type AS "contentType", file_byte_length::text AS "byteLength",
+          file_sha256 AS "sha256"
+        FROM economy_receipts
+        WHERE receipt_id = ${receiptId}
+      `.pipe(
+        Effect.catchTag("SqlError", (cause) =>
+          Effect.fail(
+            new ReceiptPersistenceError({
+              operation: "read receipt file",
+              message: String(cause),
+            }),
+          ),
+        ),
+      );
+      const row = rows[0];
+      if (row === undefined) return undefined;
+      return yield* Schema.decodeUnknownEffect(ReceiptFileSchema)({
+        fileRef: row.fileRef,
+        objectKey: row.objectKey,
+        contentType: row.contentType,
+        byteLength: Number(row.byteLength),
+        sha256: row.sha256,
+      }).pipe(
+        Effect.mapError(
+          (cause) =>
+            new ReceiptPersistenceError({
+              operation: "decode receipt file",
+              message: String(cause),
+            }),
+        ),
+      );
+    }),
+    options.postgresLayer,
+  );
 
 const runPostgres = <A>(
   effect: Effect.Effect<A, unknown, PgClient.PgClient>,
   postgresLayer: Layer.Layer<PgClient.PgClient, SqlError>,
 ): Promise<A> => Effect.runPromise(Effect.scoped(effect.pipe(Effect.provide(postgresLayer))));
+interface ReceiptCommandContext {
+  readonly receiptId: string;
+  readonly visualId: string;
+  readonly now: string;
+}
+
+const executeReceiptAuthority = (
+  command: unknown,
+  context: ReceiptCommandContext,
+  options: ReceiptApiHttpOptions,
+) => {
+  const transaction = ReceiptAuthority.use(({ execute }) => execute(command, context)).pipe(
+    Effect.provide(ReceiptAuthorityPostgres),
+  );
+  return runPostgres(transaction, options.postgresLayer);
+};
 
 const auxiliaryEffects = (() => {
   const applied = new Map<string, string>();
@@ -299,6 +556,105 @@ const submit = async (
   }
 };
 
+const revise = async (
+  request: Request,
+  receiptId: string,
+  options: ReceiptApiHttpOptions,
+  fileStore: ReceiptFileStore,
+): Promise<Response> => {
+  const principal = principalFor(request, options.config.tokens);
+  if (!principal.actor.active) throw new InactiveActor({ personId: principal.actor.personId });
+  const fields = await decodeReviseMultipart(request, options.config.maxFileBytes);
+  let staged: StagedReceiptFile | undefined;
+  let committed = false;
+  try {
+    let commandFile: ReceiptFile;
+    if (fields.file === undefined) {
+      commandFile = (await currentReceiptFile(receiptId, options)) ?? unresolvedReceiptFile;
+    } else {
+      const contentType = fields.contentType;
+      if (contentType === undefined) {
+        throw new ReceiptDecodeError({ message: "invalid receipt file" });
+      }
+      staged = await fileStore.stageBytes(
+        fields.file,
+        fields.commandId,
+        contentType,
+        options.config.maxFileBytes,
+      );
+      await Effect.runPromise(fileStore.service.stage(staged.file));
+      commandFile = staged.file;
+    }
+    const command = {
+      _tag: "RevisePendingReceipt" as const,
+      commandId: fields.commandId,
+      actor: principal.actor,
+      receiptId,
+      expectedRevision: fields.expectedRevision,
+      description: fields.description,
+      amountOre: fields.amountOre,
+      receiptDate: fields.receiptDate,
+      file: commandFile,
+    };
+    const result = await executeReceiptAuthority(
+      command,
+      { receiptId, visualId: receiptId, now: options.config.now() },
+      options,
+    );
+    if (result.replayed && staged?.created === true) {
+      await fileStore.cleanupStage(staged.file).catch(() => undefined);
+    }
+    committed = true;
+    const delivery = await drainOutbox(options, fileStore);
+    if (delivery !== "Idle") {
+      return errorResponse(
+        new ReceiptPersistenceError({
+          operation: "deliver Receipt outbox",
+          message: "delivery pending",
+        }),
+      );
+    }
+    return jsonResponse(result.observation satisfies ReceiptObservation);
+  } finally {
+    if (!committed && staged?.created === true) {
+      await fileStore.cleanupStage(staged.file).catch(() => undefined);
+    }
+  }
+};
+
+const withdraw = async (
+  request: Request,
+  receiptId: string,
+  options: ReceiptApiHttpOptions,
+  fileStore: ReceiptFileStore,
+): Promise<Response> => {
+  const principal = principalFor(request, options.config.tokens);
+  if (!principal.actor.active) throw new InactiveActor({ personId: principal.actor.personId });
+  const fields = await decodeWithdrawJson(request);
+  const command = {
+    _tag: "WithdrawPendingReceipt" as const,
+    commandId: fields.commandId,
+    actor: principal.actor,
+    receiptId,
+    expectedRevision: fields.expectedRevision,
+  };
+  const result = await executeReceiptAuthority(
+    command,
+    { receiptId, visualId: receiptId, now: options.config.now() },
+    options,
+  );
+  const delivery = await drainOutbox(options, fileStore);
+  if (delivery !== "Idle") {
+    return errorResponse(
+      new ReceiptPersistenceError({
+        operation: "deliver Receipt outbox",
+        message: "delivery pending",
+      }),
+    );
+  }
+  return jsonResponse(result.observation satisfies ReceiptObservation);
+};
+
 const list = async (request: Request, options: ReceiptApiHttpOptions): Promise<Response> => {
   const principal = principalFor(request, options.config.tokens);
   if (!principal.actor.active) throw new InactiveActor({ personId: principal.actor.personId });
@@ -385,6 +741,15 @@ export const makeReceiptApiHttp = (input: ReceiptApiHttpOptions): ReceiptApiHttp
         }
         if (request.method === "POST" && url.pathname === "/api/receipts/submit") {
           return await submit(request, input, fileStore);
+        }
+        if (request.method === "POST") {
+          const commandRoute = receiptCommandRoute(url.pathname);
+          if (commandRoute?.action === "revise") {
+            return await revise(request, commandRoute.receiptId, input, fileStore);
+          }
+          if (commandRoute?.action === "withdraw") {
+            return await withdraw(request, commandRoute.receiptId, input, fileStore);
+          }
         }
         if (request.method === "GET" && url.pathname === "/api/receipts") {
           return await list(request, input);
