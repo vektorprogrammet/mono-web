@@ -1,7 +1,6 @@
 import * as Alchemy from "alchemy";
 import * as Cloudflare from "alchemy/Cloudflare";
 import * as Effect from "effect/Effect";
-import { homepageDomain } from "../../apps/homepage/src/lib/host.ts";
 import { PREVIEW_IDENTITY } from "./preview/identity.ts";
 import { PreviewWorker } from "./preview/worker-resource.ts";
 
@@ -25,24 +24,24 @@ export default Alchemy.Stack(
   Effect.gen(function* () {
     const stage = yield* Alchemy.Stage;
     stageGuard(stage);
-    const domain = homepageDomain(stage);
+    const domain = PREVIEW_IDENTITY.hostname;
 
     const homepage = yield* Cloudflare.Website.Vite("Homepage", {
       rootDir: "../../apps/homepage",
       main: "workers/app.ts",
-      domain,
       workersDev: false,
       assets: { runWorkerFirst: true },
     });
 
     const dashboard = yield* Cloudflare.Website.Vite("Dashboard", {
       rootDir: "../../apps/dashboard",
-      domain,
+      main: "workers/app.ts",
+      env: { PREVIEW_HOST: PREVIEW_IDENTITY.hostname },
       workersDev: false,
       assets: { runWorkerFirst: true },
     });
 
-    const worker = yield* PreviewWorker;
+    const worker = yield* PreviewWorker(homepage, dashboard);
     return {
       app: PREVIEW_IDENTITY.app,
       stage,
@@ -57,5 +56,5 @@ export default Alchemy.Stack(
       seed: "apps/server/infra/preview/seed-policy.json",
       forbiddenHost: PREVIEW_IDENTITY.forbiddenHost,
     };
-  })
+  }),
 );

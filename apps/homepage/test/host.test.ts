@@ -37,13 +37,19 @@ describe("homepage stage and host contract", () => {
       stage: LOCAL_ONLY_STAGE,
       host: "p000.vektor.phibkro.org",
     });
-    expect(() => homepageDomain(LOCAL_ONLY_STAGE)).toThrow(
-      "p000 is reserved for local-only proof",
-    );
+    expect(() => homepageDomain(LOCAL_ONLY_STAGE)).toThrow("p000 is reserved for local-only proof");
   });
 
   it("rejects invalid provider stages and hosts", () => {
-    for (const stage of ["p00", "p0000", "p1000", "local", "staging", "prod", "vektorprogrammet.no"]) {
+    for (const stage of [
+      "p00",
+      "p0000",
+      "p1000",
+      "local",
+      "staging",
+      "prod",
+      "vektorprogrammet.no",
+    ]) {
       expect(() => homepageDomain(stage)).toThrow();
     }
     for (const host of [
@@ -63,18 +69,15 @@ describe("homepage stage and host contract", () => {
       "utf8",
     );
     const resources = JSON.parse(
-      readFileSync(
-        new URL("../../../infra/preview/resources.json", import.meta.url),
-        "utf8",
-      ),
+      readFileSync(new URL("../../../infra/preview/resources.json", import.meta.url), "utf8"),
     ) as Array<{ type: string; id: string; name: string }>;
 
     expect(declaration).toContain('Alchemy.Stack(\n  "vektor"');
     expect(declaration).toContain("state: Cloudflare.state()");
     expect(declaration).toContain('Cloudflare.Website.Vite("Homepage"');
     expect(declaration).toContain('Cloudflare.Website.Vite("Dashboard"');
-    expect(declaration).toContain('yield* PreviewWorker');
-    expect(declaration).toContain('container: PREVIEW_IDENTITY.containerInstance');
+    expect(declaration).toContain("yield* PreviewWorker(homepage, dashboard)");
+    expect(declaration).toContain("container: PREVIEW_IDENTITY.containerInstance");
     expect(declaration).not.toContain("PreviewSpine");
     expect(declaration).not.toContain("localState");
 
