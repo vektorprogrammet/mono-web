@@ -10,8 +10,10 @@ import {
   ReceiptFileSchema,
   ReceiptFileService,
   ReceiptPersistenceError,
+  ReceiptScopeDenied,
   type ReceiptFile,
   type ReceiptStatus,
+  type ReceiptTransactionResult,
   UnauthenticatedActor,
   isIsoDate,
   type ReceiptObservation,
@@ -19,6 +21,7 @@ import {
 import {
   ReceiptAuthorityPostgres,
   deliverNextReceiptOutbox,
+  listApproverReceipts,
   listOwnedReceiptProjection,
   migrateReceiptPostgres,
   type ReceiptOutboxDeliveryResult,
@@ -312,7 +315,10 @@ const principalFor = (
     throw new UnauthenticatedActor({ message: "authentication required" });
   return principal;
 };
-const decodeWithdrawJson = async (request: Request): Promise<WithdrawFields> => {
+const decodeCommandJson = async (
+  request: Request,
+  operation: "withdraw" | "approval",
+): Promise<WithdrawFields> => {
   const contentType = request.headers.get("content-type") ?? "";
   if (!/^application\/json(?:\s*;|$)/i.test(contentType)) {
     throw new ReceiptDecodeError({ message: "json body required" });
@@ -324,7 +330,7 @@ const decodeWithdrawJson = async (request: Request): Promise<WithdrawFields> => 
     throw new ReceiptDecodeError({ message: "invalid json body" });
   }
   if (body === null || typeof body !== "object" || Array.isArray(body)) {
-    throw new ReceiptDecodeError({ message: "withdraw body must be an object" });
+    throw new ReceiptDecodeError({ message: `${operation} body must be an object` });
   }
   const record = body as Record<string, unknown>;
   const keys = Object.keys(record);
@@ -333,7 +339,7 @@ const decodeWithdrawJson = async (request: Request): Promise<WithdrawFields> => 
     !Object.prototype.hasOwnProperty.call(record, "commandId") ||
     !Object.prototype.hasOwnProperty.call(record, "expectedRevision")
   ) {
-    throw new ReceiptDecodeError({ message: "invalid withdraw fields" });
+    throw new ReceiptDecodeError({ message: `invalid ${operation} fields` });
   }
   const commandId = record.commandId;
   const expectedRevision = record.expectedRevision;
@@ -344,7 +350,7 @@ const decodeWithdrawJson = async (request: Request): Promise<WithdrawFields> => 
     !Number.isSafeInteger(expectedRevision) ||
     expectedRevision < 0
   ) {
-    throw new ReceiptDecodeError({ message: "invalid withdraw fields" });
+    throw new ReceiptDecodeError({ message: `invalid ${operation} fields` });
   }
   return { commandId, expectedRevision };
 };
@@ -368,6 +374,27 @@ const receiptCommandRoute = (pathname: string): ReceiptCommandRoute | undefined 
   return match[2] === "revise"
     ? { action: "revise", receiptId }
     : { action: "withdraw", receiptId };
+};
+type ReceiptApprovalRoute = {
+  readonly action: "refund" | "reject";
+  readonly receiptId: string;
+};
+
+const receiptApprovalRoute = (pathname: string): ReceiptApprovalRoute | undefined => {
+  const match = /^\/api\/admin\/receipts\/([^/]+)\/(refund|reject)$/.exec(pathname);
+  if (match === null || match[1] === undefined || match[2] === undefined) return undefined;
+  let receiptId: string;
+  try {
+    receiptId = decodeURIComponent(match[1]);
+  } catch {
+    throw new ReceiptDecodeError({ message: "invalid receipt id" });
+  }
+  if (receiptId.length === 0 || receiptId.includes("/")) {
+    throw new ReceiptDecodeError({ message: "invalid receipt id" });
+  }
+  return match[2] === "refund"
+    ? { action: "refund", receiptId }
+    : { action: "reject", receiptId };
 };
 
 interface ReceiptFileRow {
@@ -630,7 +657,7 @@ const withdraw = async (
 ): Promise<Response> => {
   const principal = principalFor(request, options.config.tokens);
   if (!principal.actor.active) throw new InactiveActor({ personId: principal.actor.personId });
-  const fields = await decodeWithdrawJson(request);
+  const fields = await decodeCommandJson(request, "withdraw");
   const command = {
     _tag: "WithdrawPendingReceipt" as const,
     commandId: fields.commandId,
@@ -643,6 +670,115 @@ const withdraw = async (
     { receiptId, visualId: receiptId, now: options.config.now() },
     options,
   );
+  const delivery = await drainOutbox(options, fileStore);
+  if (delivery !== "Idle") {
+    return errorResponse(
+      new ReceiptPersistenceError({
+        operation: "deliver Receipt outbox",
+        message: "delivery pending",
+      }),
+    );
+  }
+  return jsonResponse(result.observation satisfies ReceiptObservation);
+};
+const approvalScopeFor = (principal: ReceiptApiPrincipal) => {
+  const scope = principal.actor.approvalScope;
+  if (scope._tag === "None") {
+    throw new ReceiptScopeDenied({
+      receiptId: "approval-projection",
+      departmentId: principal.actor.departmentId,
+    });
+  }
+  return scope;
+};
+
+const decodeApprovalStatusFilter = (request: Request): ReceiptStatus | undefined => {
+  const entries = [...new URL(request.url).searchParams.entries()];
+  const statusEntries = entries.filter(([name]) => name === "status");
+  if (entries.some(([name]) => name !== "status") || statusEntries.length > 1) {
+    throw new ReceiptDecodeError({ message: "invalid receipt filter" });
+  }
+  const status = statusEntries[0]?.[1];
+  if (status === undefined) return undefined;
+  if (!isReceiptStatus(status)) {
+    throw new ReceiptDecodeError({ message: "invalid receipt status filter" });
+  }
+  return status;
+};
+
+const approvalList = async (
+  request: Request,
+  options: ReceiptApiHttpOptions,
+): Promise<Response> => {
+  const principal = principalFor(request, options.config.tokens);
+  if (!principal.actor.active) throw new InactiveActor({ personId: principal.actor.personId });
+  const scope = approvalScopeFor(principal);
+  const status = decodeApprovalStatusFilter(request);
+  const rows = await runPostgres(listApproverReceipts(scope), options.postgresLayer);
+  const visibleRows = status === undefined ? rows : rows.filter((row) => row.status === status);
+  const items = visibleRows.map((row) => {
+    const amountOre = Number(row.amountOre);
+    if (!Number.isSafeInteger(amountOre) || amountOre <= 0) {
+      throw new ReceiptPersistenceError({
+        operation: "decode approver projection",
+        message: "invalid amount",
+      });
+    }
+    return {
+      receiptId: row.receiptId,
+      visualId: row.visualId,
+      ownerPersonId: row.ownerPersonId,
+      departmentId: row.departmentId,
+      amountOre,
+      currency: row.currency,
+      description: row.description,
+      receiptDate: row.receiptDate,
+      status: row.status,
+      revision: row.revision,
+    };
+  });
+  return jsonResponse({ items, totalItems: items.length });
+};
+
+const approvalCommand = async (
+  request: Request,
+  route: ReceiptApprovalRoute,
+  options: ReceiptApiHttpOptions,
+  fileStore: ReceiptFileStore,
+): Promise<Response> => {
+  const principal = principalFor(request, options.config.tokens);
+  if (!principal.actor.active) throw new InactiveActor({ personId: principal.actor.personId });
+  const scope = approvalScopeFor(principal);
+  const fields = await decodeCommandJson(request, "approval");
+  const command = {
+    _tag: route.action === "refund" ? ("RefundReceipt" as const) : ("RejectReceipt" as const),
+    commandId: fields.commandId,
+    actor: principal.actor,
+    receiptId: route.receiptId,
+    expectedRevision: fields.expectedRevision,
+  };
+  let result: ReceiptTransactionResult;
+  try {
+    result = await executeReceiptAuthority(
+      command,
+      { receiptId: route.receiptId, visualId: route.receiptId, now: options.config.now() },
+      options,
+    );
+  } catch (cause) {
+    if (
+      scope._tag === "Department" &&
+      cause !== null &&
+      typeof cause === "object" &&
+      "_tag" in cause &&
+      cause._tag === "ReceiptNotFound"
+    ) {
+      throw new ReceiptScopeDenied({
+        receiptId: route.receiptId,
+        departmentId: scope.departmentId,
+      });
+    }
+    throw cause;
+  }
   const delivery = await drainOutbox(options, fileStore);
   if (delivery !== "Idle") {
     return errorResponse(
@@ -750,6 +886,13 @@ export const makeReceiptApiHttp = (input: ReceiptApiHttpOptions): ReceiptApiHttp
           if (commandRoute?.action === "withdraw") {
             return await withdraw(request, commandRoute.receiptId, input, fileStore);
           }
+          const approvalRoute = receiptApprovalRoute(url.pathname);
+          if (approvalRoute !== undefined) {
+            return await approvalCommand(request, approvalRoute, input, fileStore);
+          }
+        }
+        if (request.method === "GET" && url.pathname === "/api/admin/receipts") {
+          return await approvalList(request, input);
         }
         if (request.method === "GET" && url.pathname === "/api/receipts") {
           return await list(request, input);
