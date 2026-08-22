@@ -3,7 +3,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { TableCell, TableRow } from "@/components/ui/table";
 import {
-  mapOwnedReceiptStatus,
+  mapReceiptStatus,
   type OwnedReceiptView,
   type ReceiptOwnerMutationFailure,
   type ReceiptUiError,
@@ -80,7 +80,7 @@ export function OwnedReceiptRow({ receipt, failure, actionErrorId }: Props) {
               className="inline-flex items-center rounded-full bg-secondary px-2.5 py-0.5 font-medium text-secondary-foreground text-xs"
               data-status={receipt.status}
             >
-              {mapOwnedReceiptStatus(receipt.status)}
+              {mapReceiptStatus(receipt.status)}
             </span>
             <span className="text-muted-foreground text-xs" data-revision={receipt.revision}>
               Versjon {receipt.revision}

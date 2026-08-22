@@ -1,64 +1,150 @@
-import { DataTable } from "@/components/data-table";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
+import { ApprovalReceiptList } from "@/components/receipts/ApprovalReceiptList";
 import { Button } from "@/components/ui/button";
-import type { ColumnDef } from "@tanstack/react-table";
-import { Check, RotateCcw, X } from "lucide-react";
-import { redirect, useFetcher, useLoaderData, useSearchParams } from "react-router";
-import type { ReactNode } from "react";
 import {
   isUnauthorizedError,
-  mapAdminReceiptView,
-  mapReceiptError,
-  mapReceiptStatus,
-  type AdminReceiptView,
+  mapApprovalReceiptError,
+  mapApprovalReceiptView,
+  type ApprovalReceiptView,
+  type ReceiptApprovalFailure,
+  type ReceiptApprovalIntent,
   type ReceiptStatus,
-} from "../lib/receipt-view";
+  type ReceiptUiError,
+} from "@/lib/receipt-view";
+import { Link, useActionData, useLoaderData, useNavigation } from "react-router";
 import { createAuthenticatedClient } from "../lib/api.server";
-import { requireAuth } from "../lib/auth.server";
+import { expiredSessionRedirect, requireAuth } from "../lib/auth.server";
 import type { Route } from "./+types/dashboard.utlegg._index";
 
-type AdminStatusActionData =
-  | { success: true }
-  | { error: string };
+type ParsedApprovalCommand = {
+  intent: ReceiptApprovalIntent;
+  receiptId: string;
+  expectedRevision: number;
+  commandId: string;
+};
+
+type ApprovalCommandParseResult =
+  | { value: ParsedApprovalCommand }
+  | { failure: ReceiptApprovalFailure };
+
+const statusFilters = [
+  { status: undefined, label: "Alle" },
+  { status: "Pending", label: "Venter" },
+  { status: "Refunded", label: "Refundert" },
+  { status: "Rejected", label: "Avvist" },
+  { status: "Withdrawn", label: "Trukket tilbake" },
+] satisfies ReadonlyArray<{ status: ReceiptStatus | undefined; label: string }>;
 
 function readFormText(form: FormData, name: string): string | null {
   const value = form.get(name);
   return typeof value === "string" ? value : null;
 }
 
-function parseReceiptId(value: string | null): number | null {
-  if (value === null || !/^\d+$/.test(value)) return null;
-  const id = Number(value);
-  return Number.isSafeInteger(id) && id > 0 ? id : null;
+function isReceiptStatus(value: string | null): value is ReceiptStatus {
+  return (
+    value === "Pending" ||
+    value === "Refunded" ||
+    value === "Rejected" ||
+    value === "Withdrawn"
+  );
 }
 
-function isReceiptStatus(value: string | null): value is ReceiptStatus {
-  return value === "pending" || value === "refunded" || value === "rejected";
+function parseApprovalCommand(
+  form: FormData,
+  intent: ReceiptApprovalIntent,
+): ApprovalCommandParseResult {
+  const receiptId = readFormText(form, "receiptId")?.trim() ?? "";
+  const revisionText = readFormText(form, "expectedRevision")?.trim() ?? "";
+  const commandId = readFormText(form, "commandId")?.trim() ?? "";
+  const decodedRevision = /^(0|[1-9]\d*)$/.test(revisionText)
+    ? Number(revisionText)
+    : Number.NaN;
+  const expectedRevision = Number.isSafeInteger(decodedRevision) ? decodedRevision : 0;
+
+  if (receiptId.length === 0) {
+    return {
+      failure: {
+        intent,
+        receiptId,
+        expectedRevision,
+        commandId,
+        error: {
+          _tag: "ReceiptDecodeError",
+          message: "Utleggs-ID mangler. Last inn siden på nytt og prøv igjen.",
+        },
+      },
+    };
+  }
+
+  if (!Number.isSafeInteger(decodedRevision)) {
+    return {
+      failure: {
+        intent,
+        receiptId,
+        expectedRevision,
+        commandId,
+        error: {
+          _tag: "ReceiptDecodeError",
+          message: "Utleggsversjonen er ugyldig. Last inn siden på nytt og prøv igjen.",
+        },
+      },
+    };
+  }
+
+  if (commandId.length === 0) {
+    return {
+      failure: {
+        intent,
+        receiptId,
+        expectedRevision,
+        commandId,
+        error: {
+          _tag: "ReceiptDecodeError",
+          message: "Handlings-ID mangler. Åpne bekreftelsen på nytt og prøv igjen.",
+        },
+      },
+    };
+  }
+
+  return {
+    value: { intent, receiptId, expectedRevision, commandId },
+  };
 }
 
 export async function loader({ request }: Route.LoaderArgs) {
   const token = requireAuth(request);
   const client = createAuthenticatedClient(token);
-  const url = new URL(request.url);
-  const status = url.searchParams.get("status");
+  const requestedStatus = new URL(request.url).searchParams.get("status");
+
+  if (requestedStatus !== null && !isReceiptStatus(requestedStatus)) {
+    const error: ReceiptUiError = {
+      _tag: "ReceiptDecodeError",
+      message: "Statusfilteret er ugyldig. Velg en status fra listen.",
+    };
+    return {
+      receipts: [] as ApprovalReceiptView[],
+      status: undefined,
+      error,
+    };
+  }
+
+  const status = isReceiptStatus(requestedStatus) ? requestedStatus : undefined;
 
   try {
-    const result = await client.admin.receipts.list(status ? { status } : undefined);
-    return { receipts: result.items.map(mapAdminReceiptView), error: undefined };
+    const result = await client.receipts.listForApproval(status ? { status } : undefined);
+    return {
+      receipts: result.items.map(mapApprovalReceiptView),
+      status,
+      error: undefined,
+    };
   } catch (error) {
-    if (isUnauthorizedError(error)) throw redirect("/login?expired=true");
-    const receipts: AdminReceiptView[] = [];
-    return { receipts, error: mapReceiptError(error) };
+    if (isUnauthorizedError(error)) {
+      throw expiredSessionRedirect();
+    }
+    return {
+      receipts: [] as ApprovalReceiptView[],
+      status,
+      error: mapApprovalReceiptError(error),
+    };
   }
 }
 
@@ -66,223 +152,120 @@ export async function action({ request }: Route.ActionArgs) {
   const token = requireAuth(request);
   const client = createAuthenticatedClient(token);
   const form = await request.formData();
-  const receiptId = parseReceiptId(readFormText(form, "receiptId"));
-  const newStatus = readFormText(form, "status");
+  const intentValue = readFormText(form, "_intent");
 
-  if (receiptId === null || !isReceiptStatus(newStatus)) {
-    return { error: "Manglende eller ugyldig felt." };
+  if (intentValue !== "refund" && intentValue !== "reject") {
+    const actionError: ReceiptUiError = {
+      _tag: "ReceiptDecodeError",
+      message: "Ukjent behandling. Åpne bekreftelsen på nytt og prøv igjen.",
+    };
+    return { success: false as const, actionError };
   }
+
+  const parsed = parseApprovalCommand(form, intentValue);
+  if ("failure" in parsed) {
+    return { success: false as const, actionFailure: parsed.failure };
+  }
+
+  const command = parsed.value;
 
   try {
-    if (newStatus === "refunded") {
-      await client.admin.receipts.approve(receiptId);
-    } else if (newStatus === "rejected") {
-      await client.admin.receipts.reject(receiptId);
-    } else {
-      await client.admin.receipts.reopen(receiptId);
-    }
-    return { success: true };
+    const observation =
+      command.intent === "refund"
+        ? await client.receipts.refund(
+            command.receiptId,
+            command.expectedRevision,
+            command.commandId,
+          )
+        : await client.receipts.reject(
+            command.receiptId,
+            command.expectedRevision,
+            command.commandId,
+          );
+
+    return {
+      success: true as const,
+      actionNotice: {
+        intent: command.intent,
+        commandId: observation.commandId,
+        receiptId: observation.receiptId,
+        status: observation.status,
+        revision: observation.revision,
+        replayed: observation.replayed,
+      },
+    };
   } catch (error) {
-    if (isUnauthorizedError(error)) throw redirect("/login?expired=true");
-    return { error: mapReceiptError(error) };
+    if (isUnauthorizedError(error)) {
+      throw expiredSessionRedirect();
+    }
+    return {
+      success: false as const,
+      actionFailure: {
+        ...command,
+        error: mapApprovalReceiptError(error),
+      },
+    };
   }
 }
-
-
-const statusColors: Record<ReceiptStatus, string> = {
-  pending: "bg-yellow-100 text-yellow-800",
-  refunded: "bg-green-100 text-green-800",
-  rejected: "bg-red-100 text-red-800",
-};
-
-function StatusBadge({ status }: { status: ReceiptStatus }) {
-  return (
-    <span
-      className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${statusColors[status]}`}
-    >
-      {mapReceiptStatus(status)}
-    </span>
-  );
-}
-
-function StatusAction({
-  receiptId,
-  newStatus,
-  label,
-  description,
-  icon,
-  variant,
-}: {
-  receiptId: number;
-  newStatus: ReceiptStatus;
-  label: string;
-  description: string;
-  icon: ReactNode;
-  variant?: "default" | "destructive" | "outline";
-}) {
-  const fetcher = useFetcher<AdminStatusActionData>();
-  const error = fetcher.data && "error" in fetcher.data ? fetcher.data.error : undefined;
-
-  return (
-    <>
-      <AlertDialog>
-        <AlertDialogTrigger asChild>
-          <Button variant={variant ?? "outline"} size="sm" disabled={fetcher.state !== "idle"}>
-            {icon}
-            <span className="ml-1">{label}</span>
-          </Button>
-        </AlertDialogTrigger>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{label}</AlertDialogTitle>
-            <AlertDialogDescription>{description}</AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Avbryt</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => {
-                fetcher.submit(
-                  { receiptId: String(receiptId), status: newStatus },
-                  { method: "post" },
-                );
-              }}
-            >
-              {label}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-      {error && (
-        <p className="mt-1 rounded bg-red-50 p-2 text-red-600 text-xs" role="alert">
-          {error}
-        </p>
-      )}
-    </>
-  );
-}
-
-function ActionsCell({ receipt }: { receipt: AdminReceiptView }) {
-  if (receipt.status === "pending") {
-    return (
-      <div className="flex gap-2">
-        <StatusAction
-          receiptId={receipt.id}
-          newStatus="refunded"
-          label="Godkjenn"
-          description="Godkjenn dette utlegget? Brukeren vil bli varslet på e-post og utlegget markert for refusjon."
-          icon={<Check className="h-4 w-4" />}
-        />
-        <StatusAction
-          receiptId={receipt.id}
-          newStatus="rejected"
-          label="Avvis"
-          description="Avvis dette utlegget? Brukeren vil bli varslet på e-post."
-          icon={<X className="h-4 w-4" />}
-          variant="destructive"
-        />
-      </div>
-    );
-  }
-
-  if (receipt.status === "rejected") {
-    return (
-      <StatusAction
-        receiptId={receipt.id}
-        newStatus="pending"
-        label="Gjenåpne"
-        description="Gjenåpne dette utlegget? Statusen settes tilbake til ventende."
-        icon={<RotateCcw className="h-4 w-4" />}
-      />
-    );
-  }
-
-  return null;
-}
-
-const columns: ColumnDef<AdminReceiptView>[] = [
-  { accessorKey: "visualId", header: "ID" },
-  { accessorKey: "userName", header: "Bruker" },
-  {
-    accessorKey: "description",
-    header: "Beskrivelse",
-    cell: ({ row }) => (
-      <span className="block max-w-[200px] truncate" title={row.original.description}>
-        {row.original.description}
-      </span>
-    ),
-  },
-  {
-    accessorKey: "sum",
-    header: "Beløp",
-    cell: ({ row }) => `${row.original.sum} kr`,
-  },
-  {
-    accessorKey: "receiptDate",
-    header: "Dato",
-    cell: ({ row }) => row.original.receiptDate ?? "—",
-  },
-  {
-    accessorKey: "submitDate",
-    header: "Innsendt",
-    cell: ({ row }) => row.original.submitDate ?? "—",
-  },
-  {
-    accessorKey: "status",
-    header: "Status",
-    cell: ({ row }) => <StatusBadge status={row.original.status} />,
-  },
-  {
-    id: "actions",
-    header: "Handlinger",
-    cell: ({ row }) => <ActionsCell receipt={row.original} />,
-  },
-];
-
-const statusFilters = [
-  { value: null, label: "Alle" },
-  { value: "pending", label: "Venter" },
-  { value: "refunded", label: "Refundert" },
-  { value: "rejected", label: "Avvist" },
-] satisfies Array<{ value: ReceiptStatus | null; label: string }>;
 
 // biome-ignore lint/style/noDefaultExport: Route Modules require default export
 export default function Utlegg() {
   const loaderData = useLoaderData<typeof loader>();
-  const { receipts } = loaderData;
-  const [searchParams, setSearchParams] = useSearchParams();
-  const currentStatus = searchParams.get("status");
+  const actionData = useActionData<typeof action>();
+  const navigation = useNavigation();
+  const actionError =
+    actionData?.success === false && "actionError" in actionData
+      ? actionData.actionError
+      : undefined;
+  const actionFailure =
+    actionData?.success === false && "actionFailure" in actionData
+      ? actionData.actionFailure
+      : undefined;
+  const actionNotice = actionData?.success === true ? actionData.actionNotice : undefined;
 
   return (
-    <section className="flex w-full min-w-0 flex-col items-center">
-      <h1 className="mb-6 font-semibold text-2xl">Utlegg</h1>
-
-      <div className="w-full max-w-7xl px-4 sm:px-6 lg:px-8">
-        {loaderData.error && (
-          <p className="mb-4 rounded bg-red-50 p-3 text-red-600 text-sm" role="alert">
-            {loaderData.error}
+    <section className="flex w-full min-w-0 flex-col" aria-labelledby="utlegg-title">
+      <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 sm:px-6 lg:px-8">
+        <header className="max-w-3xl">
+          <h1 id="utlegg-title" className="font-semibold text-2xl">
+            Utlegg
+          </h1>
+          <p className="mt-2 text-muted-foreground">
+            Refunder eller avvis ventende utlegg i godkjenningsområdet ditt.
           </p>
-        )}
+        </header>
 
-        <div className="mb-4 flex gap-2">
-          {statusFilters.map((filter) => (
-            <Button
-              key={filter.label}
-              variant={currentStatus === filter.value ? "default" : "outline"}
-              size="sm"
-              onClick={() => {
-                if (filter.value === null) {
-                  setSearchParams({});
-                } else {
-                  setSearchParams({ status: filter.value });
-                }
-              }}
-            >
-              {filter.label}
-            </Button>
-          ))}
-        </div>
+        <nav aria-label="Filtrer utlegg etter status">
+          <ul className="flex flex-wrap gap-2">
+            {statusFilters.map((filter) => {
+              const active = loaderData.status === filter.status;
+              const to =
+                filter.status === undefined
+                  ? "/dashboard/utlegg"
+                  : `/dashboard/utlegg?status=${encodeURIComponent(filter.status)}`;
 
-        <DataTable columns={columns} data={receipts} />
+              return (
+                <li key={filter.label}>
+                  <Button variant={active ? "default" : "outline"} size="sm" asChild>
+                    <Link to={to} prefetch="intent" aria-current={active ? "page" : undefined}>
+                      {filter.label}
+                    </Link>
+                  </Button>
+                </li>
+              );
+            })}
+          </ul>
+        </nav>
+
+        <ApprovalReceiptList
+          receipts={loaderData.receipts}
+          status={loaderData.status}
+          error={loaderData.error}
+          actionError={actionError}
+          actionFailure={actionFailure}
+          actionNotice={actionNotice}
+          busy={navigation.state !== "idle"}
+        />
       </div>
     </section>
   );

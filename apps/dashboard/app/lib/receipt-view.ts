@@ -8,10 +8,10 @@ import {
   UnauthorizedError,
   ValidationError,
 } from "@vektorprogrammet/sdk";
-import type { AdminReceipt, ReceiptProjection } from "@vektorprogrammet/sdk";
+import type { ReceiptProjection } from "@vektorprogrammet/sdk";
 
-export type ReceiptStatus = AdminReceipt["status"];
-export type OwnedReceiptStatus = ReceiptProjection["status"];
+export type ReceiptStatus = ReceiptProjection["status"];
+export type OwnedReceiptStatus = ReceiptStatus;
 
 export type OwnedReceiptView = {
   receiptId: string;
@@ -25,16 +25,18 @@ export type OwnedReceiptView = {
   revision: number;
 };
 
-export type AdminReceiptView = {
-  id: number;
+export type ApprovalReceiptView = {
+  receiptId: string;
   visualId: string;
-  userName: string;
+  ownerPersonId: string;
+  departmentId: string;
   description: string;
-  sum: number;
-  receiptDate: string | null;
-  submitDate: string | null;
+  amountOre: number;
+  amount: string;
+  currency: "NOK";
+  receiptDate: string;
   status: ReceiptStatus;
-  refundDate: string | null;
+  revision: number;
 };
 
 export type ReceiptUiErrorField = "description" | "amountNok" | "receiptDate" | "file";
@@ -43,6 +45,7 @@ export type ReceiptUiErrorTag =
   | "UnauthenticatedActor"
   | "InactiveActor"
   | "ReceiptOwnerDenied"
+  | "ReceiptScopeDenied"
   | "ReceiptDecodeError"
   | "ReceiptAlreadyExists"
   | "DuplicateReceiptCommandConflict"
@@ -88,13 +91,26 @@ export type ReceiptOwnerMutationNotice = {
   readonly replayed: boolean;
 };
 
-const statusLabels: Record<ReceiptStatus, string> = {
-  pending: "Venter",
-  refunded: "Refundert",
-  rejected: "Avvist",
+export type ReceiptApprovalIntent = "refund" | "reject";
+
+export type ReceiptApprovalFailure = {
+  readonly intent: ReceiptApprovalIntent;
+  readonly receiptId: string;
+  readonly expectedRevision: number;
+  readonly commandId: string;
+  readonly error: ReceiptUiError;
 };
 
-const ownedStatusLabels: Record<OwnedReceiptStatus, string> = {
+export type ReceiptApprovalNotice = {
+  readonly intent: ReceiptApprovalIntent;
+  readonly receiptId: string;
+  readonly commandId: string;
+  readonly status: ReceiptStatus;
+  readonly revision: number;
+  readonly replayed: boolean;
+};
+
+const statusLabels: Record<ReceiptStatus, string> = {
   Pending: "Venter",
   Refunded: "Refundert",
   Rejected: "Avvist",
@@ -105,6 +121,7 @@ const receiptErrorMessages: Record<ReceiptUiErrorTag, string> = {
   UnauthenticatedActor: "Du må logge inn før du kan administrere utlegg.",
   InactiveActor: "Kontoen din er ikke aktiv for administrasjon av utlegg.",
   ReceiptOwnerDenied: "Du har ikke tilgang til dette utlegget.",
+  ReceiptScopeDenied: "Du har ikke godkjenningsområde for dette utlegget.",
   ReceiptDecodeError: "Kontroller feltene og prøv igjen.",
   ReceiptAlreadyExists: "Utlegget finnes allerede.",
   DuplicateReceiptCommandConflict:
@@ -112,9 +129,9 @@ const receiptErrorMessages: Record<ReceiptUiErrorTag, string> = {
   ReceiptPersistenceError: "Utlegget kunne ikke lagres. Prøv igjen senere.",
   ReceiptNotFound: "Utlegget ble ikke funnet.",
   StaleReceiptRevision:
-    "Utlegget ble endret et annet sted. Feltene viser nå siste versjon. Kontroller dem og prøv igjen.",
+    "Utlegget ble endret et annet sted. Listen viser nå siste versjon. Kontroller statusen og prøv igjen.",
   InvalidReceiptTransition:
-    "Utlegget har en ferdig status og kan ikke lenger endres eller trekkes tilbake.",
+    "Utlegget har en ferdig status og kan ikke behandles på nytt.",
   ReceiptFileNotStaged:
     "Erstatningsfilen kunne ikke behandles. Den gjeldende filen er ikke endret.",
   ConfigurationError: "API-konfigurasjon mangler eller er ugyldig.",
@@ -127,6 +144,7 @@ const canonicalReceiptErrorTags: Partial<Record<ReceiptUiErrorTag, true>> = {
   UnauthenticatedActor: true,
   InactiveActor: true,
   ReceiptOwnerDenied: true,
+  ReceiptScopeDenied: true,
   ReceiptDecodeError: true,
   ReceiptAlreadyExists: true,
   DuplicateReceiptCommandConflict: true,
@@ -137,10 +155,6 @@ const canonicalReceiptErrorTags: Partial<Record<ReceiptUiErrorTag, true>> = {
   ReceiptFileNotStaged: true,
 };
 
-function toStableDate(date: Date | null): string | null {
-  if (date === null || Number.isNaN(date.getTime())) return null;
-  return date.toISOString().slice(0, 10);
-}
 
 function canonicalReceiptErrorTag(error: unknown): ReceiptUiErrorTag | undefined {
   if (typeof error !== "object" || error === null) return undefined;
@@ -185,26 +199,24 @@ export function mapOwnedReceiptView(receipt: ReceiptProjection): OwnedReceiptVie
   };
 }
 
-export function mapAdminReceiptView(receipt: AdminReceipt): AdminReceiptView {
+export function mapApprovalReceiptView(receipt: ReceiptProjection): ApprovalReceiptView {
   return {
-    id: receipt.id,
+    receiptId: receipt.receiptId,
     visualId: receipt.visualId,
-    userName: receipt.userName,
+    ownerPersonId: receipt.ownerPersonId,
+    departmentId: receipt.departmentId,
     description: receipt.description,
-    sum: receipt.sum,
-    receiptDate: toStableDate(receipt.receiptDate),
-    submitDate: toStableDate(receipt.submitDate),
+    amountOre: receipt.amountOre,
+    amount: formatNokAmount(receipt.amountOre),
+    currency: receipt.currency,
+    receiptDate: receipt.receiptDate,
     status: receipt.status,
-    refundDate: toStableDate(receipt.refundDate),
+    revision: receipt.revision,
   };
 }
 
 export function mapReceiptStatus(status: ReceiptStatus): string {
   return statusLabels[status];
-}
-
-export function mapOwnedReceiptStatus(status: OwnedReceiptStatus): string {
-  return ownedStatusLabels[status];
 }
 
 export function isUnauthorizedError(error: unknown): boolean {
@@ -282,33 +294,7 @@ export function mapOwnedReceiptError(error: unknown): ReceiptUiError {
   };
 }
 
-export function mapReceiptError(error: unknown): string {
-  if (error instanceof ConfigurationError) {
-    return "API-konfigurasjon mangler eller er ugyldig.";
-  }
-
-  if (error instanceof ValidationError) {
-    const fields = Object.keys(error.fields);
-    return fields.length > 0
-      ? `Kontroller feltene: ${fields.join(", ")}.`
-      : "Kontroller feltene og prøv igjen.";
-  }
-
-  if (error instanceof ConflictError) {
-    return "Utlegget er endret et annet sted. Last inn siden på nytt og prøv igjen.";
-  }
-
-  if (error instanceof NotFoundError) {
-    return "Utlegget ble ikke funnet.";
-  }
-
-  if (error instanceof RateLimitedError) {
-    return "For mange forespørsler. Prøv igjen senere.";
-  }
-
-  if (error instanceof NetworkError) {
-    return "Kunne ikke nå API-et. Prøv igjen senere.";
-  }
-
-  return "Kunne ikke fullføre forespørselen.";
+export function mapApprovalReceiptError(error: unknown): ReceiptUiError {
+  return mapOwnedReceiptError(error);
 }
+
