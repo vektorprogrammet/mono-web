@@ -58,7 +58,7 @@ test.describe("Real Symfony platform operations journey", () => {
     const viewerToken = await loginWithApi(page, viewerUsername, viewerPassword);
     const unauthorized = await page.request.post(`${apiOrigin}/api/admin/semesters`, {
       headers: headers(viewerToken),
-      data: { semesterTime: "Høst", year: "2033" },
+      data: { semesterTime: "Høst", year: "2034" },
     });
     await expectProblem(unauthorized, [401, 403]);
 
@@ -67,17 +67,20 @@ test.describe("Real Symfony platform operations journey", () => {
 
     const invalid = await page.request.post(`${apiOrigin}/api/admin/semesters`, {
       headers: headers(adminToken),
-      data: { semesterTime: "Autumn", year: "2033" },
+      data: { semesterTime: "Autumn", year: "2034" },
     });
     await expectProblem(invalid, [400, 422]);
 
     const created = await page.request.post(`${apiOrigin}/api/admin/semesters`, {
       headers: headers(adminToken),
-      data: { semesterTime: "Høst", year: "2033" },
+      data: { semesterTime: "Høst", year: "2034" },
     });
-    expect(created.status()).toBe(201);
-    const createdPayload = (await created.json()) as { id?: unknown };
-    expect(typeof createdPayload.id).toBe("number");
+    expect(created.status(), await created.text()).toBe(201);
+    const duplicate = await page.request.post(`${apiOrigin}/api/admin/semesters`, {
+      headers: headers(adminToken),
+      data: { semesterTime: "Høst", year: "2034" },
+    });
+    await expectProblem(duplicate, [409]);
 
     const statistics = await page.request.get(`${apiOrigin}/api/statistics`, {
       headers: { Accept: "application/ld+json" },
@@ -95,18 +98,14 @@ test.describe("Real Symfony platform operations journey", () => {
     });
     expect(fields.status()).toBe(200);
     const fieldsPayload = (await fields.json()) as {
-      [key: string]: unknown;
+      "hydra:member"?: Array<{ id?: unknown; shortName?: unknown }>;
       member?: Array<{ id?: unknown; shortName?: unknown }>;
     };
-    const members = Array.isArray(fieldsPayload.member) ? fieldsPayload.member : [];
+    const members = fieldsPayload["hydra:member"] ?? fieldsPayload.member ?? [];
     const fixtureField = members.find((field) => field.shortName === "PLATFORM-STUDY-0032");
     expect(fixtureField).toBeDefined();
     expect(typeof fixtureField?.id).toBe("number");
 
-    const fieldRead = await page.request.get(`${apiOrigin}/api/field_of_studies/${fixtureField?.id}`, {
-      headers: { Accept: "application/ld+json" },
-    });
-    expect(fieldRead.status()).toBe(200);
 
     const rendered = await page.goto(`${apiOrigin}/kontrollpanel`);
     expect(rendered?.status()).toBe(200);

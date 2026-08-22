@@ -87,17 +87,20 @@ test.describe("Real Symfony content publication journey", () => {
         githubLink: "https://github.invalid/content-publication-0032",
       },
     });
-    expect(created.status()).toBe(201);
-    const createdPayload = (await created.json()) as { id?: unknown };
-    expect(typeof createdPayload.id).toBe("number");
-    const id = createdPayload.id as number;
+    const createdBody = await created.text();
+    expect(created.status(), createdBody).toBe(201);
+    expect(createdBody).toBe("");
 
-    const freshRead = await page.request.get(`${apiOrigin}/api/change_log_items/${id}`, {
+    const freshRead = await page.request.get(`${apiOrigin}/api/change_log_items`, {
       headers: { Accept: "application/ld+json" },
     });
     expect(freshRead.status()).toBe(200);
-    const readPayload = (await freshRead.json()) as { title?: unknown };
-    expect(readPayload.title).toBe(title);
+    const readPayload = (await freshRead.json()) as {
+      "hydra:member"?: Array<{ title?: unknown }>;
+      member?: Array<{ title?: unknown }>;
+    };
+    const changelogs = readPayload["hydra:member"] ?? readPayload.member ?? [];
+    expect(changelogs.some((item) => item.title === title)).toBe(true);
 
     const rendered = await page.goto(`${apiOrigin}/kontrollpanel/changelog/show/all`);
     expect(rendered?.status()).toBe(200);

@@ -125,6 +125,6 @@ test.describe("Real Symfony survey administration journey", () => {
 
     const rendered = await page.goto(`${apiOrigin}/kontrollpanel/undersokelse/admin?semester=${semesterId}`);
     expect(rendered?.status()).toBe(200);
-    await expect(page.getByText(name, { exact: true })).toBeVisible();
+    await expect(page.getByRole("cell", { name, exact: true })).toBeVisible();
   });
 });
