@@ -1,5 +1,6 @@
 import * as PgClient from "@effect/sql-pg/PgClient";
 import { Effect, Layer } from "effect";
+import type { SqlError } from "effect/unstable/sql/SqlError";
 import {
   ReceiptAuxiliaryEffectConflict,
   InactiveActor,
@@ -8,23 +9,25 @@ import {
   ReceiptDecodeError,
   ReceiptFileService,
   ReceiptPersistenceError,
-  ReceiptOwnerDenied,
-  ReceiptScopeDenied,
   type ReceiptStatus,
   UnauthenticatedActor,
   isIsoDate,
-  listOwnedReceiptProjection,
-  migrateReceiptPostgres,
   type ReceiptObservation,
 } from "@vektorprogrammet/domain/receipt";
-import { ReceiptAuthorityPostgres } from "@vektorprogrammet/domain/receipt/postgres";
 import {
+  ReceiptAuthorityPostgres,
   deliverNextReceiptOutbox,
+  listOwnedReceiptProjection,
+  migrateReceiptPostgres,
   type ReceiptOutboxDeliveryResult,
 } from "@vektorprogrammet/domain/receipt/postgres";
 import { randomUUID } from "node:crypto";
 import type { ReceiptApiConfig, ReceiptApiPrincipal } from "./config.js";
-import { makeReceiptFileStore, type ReceiptFileStore, type StagedReceiptFile } from "./filesystem.js";
+import {
+  makeReceiptFileStore,
+  type ReceiptFileStore,
+  type StagedReceiptFile,
+} from "./filesystem.js";
 
 const SUPPORTED_CONTENT_TYPES = ["image/jpeg", "image/png", "application/pdf"] as const;
 type SupportedContentType = (typeof SUPPORTED_CONTENT_TYPES)[number];
@@ -52,7 +55,7 @@ interface SubmitFields {
 export interface ReceiptApiHttpOptions {
   readonly config: ReceiptApiConfig;
   readonly migrationSql: string;
-  readonly postgresLayer: Layer.Layer<PgClient.PgClient>;
+  readonly postgresLayer: Layer.Layer<PgClient.PgClient, SqlError>;
   readonly fileStore?: ReceiptFileStore;
 }
 
@@ -105,7 +108,10 @@ const parseSafeAmountOre = (value: string): number => {
   return amountOre;
 };
 
-const readSingleField = (fields: ReadonlyMap<string, FormDataEntryValue[]>, name: string): string => {
+const readSingleField = (
+  fields: ReadonlyMap<string, Array<string | File>>,
+  name: string,
+): string => {
   const values = fields.get(name);
   if (values === undefined || values.length !== 1 || typeof values[0] !== "string") {
     throw new ReceiptDecodeError({ message: `invalid ${name}` });
@@ -120,7 +126,8 @@ const decodeMultipart = async (request: Request, maxFileBytes: number): Promise<
   }
   const contentLength = request.headers.get("content-length");
   if (contentLength !== null) {
-    if (!/^\d+$/.test(contentLength)) throw new ReceiptDecodeError({ message: "invalid body length" });
+    if (!/^\d+$/.test(contentLength))
+      throw new ReceiptDecodeError({ message: "invalid body length" });
     const bodyLength = Number(contentLength);
     if (!Number.isSafeInteger(bodyLength) || bodyLength > maxFileBytes + 131_072) {
       throw new ReceiptDecodeError({ message: "multipart body exceeds configured limit" });
@@ -133,7 +140,7 @@ const decodeMultipart = async (request: Request, maxFileBytes: number): Promise<
   } catch {
     throw new ReceiptDecodeError({ message: "invalid multipart body" });
   }
-  const fields = new Map<string, FormDataEntryValue[]>();
+  const fields = new Map<string, Array<string | File>>();
   for (const [name, value] of form.entries()) {
     const values = fields.get(name);
     if (values === undefined) fields.set(name, [value]);
@@ -141,9 +148,11 @@ const decodeMultipart = async (request: Request, maxFileBytes: number): Promise<
   }
   const expected = new Set(["commandId", "description", "amountOre", "receiptDate", "file"]);
   for (const name of fields.keys()) {
-    if (!expected.has(name)) throw new ReceiptDecodeError({ message: "unexpected multipart field" });
+    if (!expected.has(name))
+      throw new ReceiptDecodeError({ message: "unexpected multipart field" });
   }
-  if (fields.size !== expected.size) throw new ReceiptDecodeError({ message: "missing multipart field" });
+  if (fields.size !== expected.size)
+    throw new ReceiptDecodeError({ message: "missing multipart field" });
 
   const commandId = readSingleField(fields, "commandId");
   const description = readSingleField(fields, "description");
@@ -171,16 +180,19 @@ const principalFor = (
 ): ReceiptApiPrincipal => {
   const authorization = request.headers.get("authorization");
   const match = authorization === null ? undefined : /^Bearer ([^\s]+)$/.exec(authorization);
-  const principal = match === undefined ? undefined : tokens.get(match[1]);
-  if (principal === undefined) throw new UnauthenticatedActor({ message: "authentication required" });
+  const principal =
+    match === null || match === undefined || match[1] === undefined
+      ? undefined
+      : tokens.get(match[1]);
+  if (principal === undefined)
+    throw new UnauthenticatedActor({ message: "authentication required" });
   return principal;
 };
 
 const runPostgres = <A>(
   effect: Effect.Effect<A, unknown, PgClient.PgClient>,
-  postgresLayer: Layer.Layer<PgClient.PgClient>,
-): Promise<A> =>
-  Effect.runPromise(Effect.scoped(effect.pipe(Effect.provide(postgresLayer))));
+  postgresLayer: Layer.Layer<PgClient.PgClient, SqlError>,
+): Promise<A> => Effect.runPromise(Effect.scoped(effect.pipe(Effect.provide(postgresLayer))));
 
 const auxiliaryEffects = (() => {
   const applied = new Map<string, string>();
@@ -217,6 +229,7 @@ const drainOutbox = async (
   options: ReceiptApiHttpOptions,
   fileStore: ReceiptFileStore,
 ): Promise<"Idle" | "Failed" | "Limit"> => {
+  for (let attempt = 0; attempt < 256; attempt += 1) {
     const result = await deliverOutbox(
       `http-${randomUUID()}`,
       options.config.now(),
@@ -272,13 +285,17 @@ const submit = async (
     const delivery = await drainOutbox(options, fileStore);
     if (delivery !== "Idle") {
       return errorResponse(
-        new ReceiptPersistenceError({ operation: "deliver Receipt outbox", message: "delivery pending" }),
+        new ReceiptPersistenceError({
+          operation: "deliver Receipt outbox",
+          message: "delivery pending",
+        }),
       );
     }
     const status = result.replayed ? 200 : 201;
     return jsonResponse(result.observation satisfies ReceiptObservation, status);
   } finally {
-    if (!committed && staged?.created === true) await fileStore.cleanupStage(staged.file).catch(() => undefined);
+    if (!committed && staged?.created === true)
+      await fileStore.cleanupStage(staged.file).catch(() => undefined);
   }
 };
 
@@ -337,7 +354,6 @@ const profile = (request: Request, options: ReceiptApiHttpOptions): Response => 
     profilePhoto: null,
   });
 };
-
 
 export const makeReceiptApiHttp = (input: ReceiptApiHttpOptions): ReceiptApiHttp => {
   const fileStore = input.fileStore ?? makeReceiptFileStore(input.config);

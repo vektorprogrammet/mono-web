@@ -11,14 +11,9 @@ import {
   type ReceiptUiError,
   type ReceiptUiErrorField,
 } from "@/lib/receipt-view";
-import {
-  redirect,
-  useActionData,
-  useLoaderData,
-  useNavigation,
-} from "react-router";
+import { useActionData, useLoaderData, useNavigation } from "react-router";
 import { createAuthenticatedClient } from "../lib/api.server";
-import { requireAuth } from "../lib/auth.server";
+import { expiredSessionRedirect, requireAuth } from "../lib/auth.server";
 import type { Route } from "./+types/dashboard.mine-utlegg._index";
 
 const MAX_FILE_BYTES = 10_485_760;
@@ -46,10 +41,7 @@ function readFormText(form: FormData, name: string): string | null {
   return typeof value === "string" ? value : null;
 }
 
-function receiptDecodeError(
-  message: string,
-  field?: ReceiptUiErrorField,
-): ReceiptUiError {
+function receiptDecodeError(message: string, field?: ReceiptUiErrorField): ReceiptUiError {
   return { _tag: "ReceiptDecodeError", message, field };
 }
 
@@ -68,36 +60,24 @@ function parseAmountOre(value: string): number | undefined {
 function isRealCalendarDate(value: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
   const date = new Date(`${value}T00:00:00.000Z`);
-  return (
-    !Number.isNaN(date.getTime()) &&
-    date.toISOString().slice(0, 10) === value
-  );
+  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
 }
 
-function parseReceiptSubmission(
-  form: FormData,
-): ParseResult<ParsedReceiptSubmission> {
+function parseReceiptSubmission(form: FormData): ParseResult<ParsedReceiptSubmission> {
   const description = readFormText(form, "description")?.trim() ?? "";
   if (description.length === 0) {
     return {
-      error: receiptDecodeError(
-        "Beskrivelse er påkrevd.",
-        "description",
-      ),
+      error: receiptDecodeError("Beskrivelse er påkrevd.", "description"),
     };
   }
   if (description.length > 5000) {
     return {
-      error: receiptDecodeError(
-        "Beskrivelse kan ikke være lengre enn 5 000 tegn.",
-        "description",
-      ),
+      error: receiptDecodeError("Beskrivelse kan ikke være lengre enn 5 000 tegn.", "description"),
     };
   }
 
   const amountValue = readFormText(form, "amountNok");
-  const amountOre =
-    amountValue === null ? undefined : parseAmountOre(amountValue);
+  const amountOre = amountValue === null ? undefined : parseAmountOre(amountValue);
   if (amountOre === undefined) {
     return {
       error: receiptDecodeError(
@@ -110,10 +90,7 @@ function parseReceiptSubmission(
   const receiptDate = readFormText(form, "receiptDate") ?? "";
   if (!isRealCalendarDate(receiptDate)) {
     return {
-      error: receiptDecodeError(
-        "Velg en gyldig kalenderdato.",
-        "receiptDate",
-      ),
+      error: receiptDecodeError("Velg en gyldig kalenderdato.", "receiptDate"),
     };
   }
 
@@ -125,24 +102,17 @@ function parseReceiptSubmission(
   }
   if (SUPPORTED_FILE_TYPES[fileValue.type] !== true) {
     return {
-      error: receiptDecodeError(
-        "Kvitteringsfilen må være PDF, PNG eller JPEG.",
-        "file",
-      ),
+      error: receiptDecodeError("Kvitteringsfilen må være PDF, PNG eller JPEG.", "file"),
     };
   }
   if (fileValue.size > MAX_FILE_BYTES) {
     return {
-      error: receiptDecodeError(
-        "Kvitteringsfilen kan ikke være større enn 10 MiB.",
-        "file",
-      ),
+      error: receiptDecodeError("Kvitteringsfilen kan ikke være større enn 10 MiB.", "file"),
     };
   }
 
   const suppliedCommandId = readFormText(form, "commandId")?.trim() ?? "";
-  const commandId =
-    suppliedCommandId.length > 0 ? suppliedCommandId : crypto.randomUUID();
+  const commandId = suppliedCommandId.length > 0 ? suppliedCommandId : crypto.randomUUID();
 
   return {
     value: {
@@ -169,7 +139,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     };
   } catch (error) {
     if (isUnauthorizedError(error)) {
-      throw redirect("/login?expired=true");
+      throw expiredSessionRedirect();
     }
     return {
       receipts: [] as OwnedReceiptView[],
@@ -182,24 +152,27 @@ export async function action({ request }: Route.ActionArgs) {
   const token = requireAuth(request);
   const client = createAuthenticatedClient(token);
   const form = await request.formData();
+  const attemptedCommandId = readFormText(form, "commandId")?.trim() || crypto.randomUUID();
 
   if (readFormText(form, "_intent") !== "submit") {
     return {
       success: false as const,
+      commandId: attemptedCommandId,
       error: receiptDecodeError("Ukjent handling."),
     };
   }
 
   const parsed = parseReceiptSubmission(form);
   if ("error" in parsed) {
-    return { success: false as const, error: parsed.error };
+    return {
+      success: false as const,
+      commandId: attemptedCommandId,
+      error: parsed.error,
+    };
   }
 
   try {
-    const observation = await client.receipts.submit(
-      parsed.value.input,
-      parsed.value.file,
-    );
+    const observation = await client.receipts.submit(parsed.value.input, parsed.value.file);
     const submission: ReceiptSubmissionNotice = {
       commandId: observation.commandId,
       receiptId: observation.receiptId,
@@ -208,10 +181,11 @@ export async function action({ request }: Route.ActionArgs) {
     return { success: true as const, submission };
   } catch (error) {
     if (isUnauthorizedError(error)) {
-      throw redirect("/login?expired=true");
+      throw expiredSessionRedirect();
     }
     return {
       success: false as const,
+      commandId: parsed.value.input.commandId,
       error: mapOwnedReceiptError(error),
     };
   }
@@ -222,16 +196,12 @@ export default function MineUtlegg() {
   const loaderData = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const navigation = useNavigation();
-  const actionError =
-    actionData?.success === false ? actionData.error : undefined;
-  const submission =
-    actionData?.success === true ? actionData.submission : undefined;
+  const actionError = actionData?.success === false ? actionData.error : undefined;
+  const submission = actionData?.success === true ? actionData.submission : undefined;
+  const commandId = actionData?.success === false ? actionData.commandId : undefined;
 
   return (
-    <section
-      className="flex w-full min-w-0 flex-col"
-      aria-labelledby="mine-utlegg-title"
-    >
+    <section className="flex w-full min-w-0 flex-col" aria-labelledby="mine-utlegg-title">
       <div className="mx-auto flex w-full max-w-7xl flex-col gap-8 px-4 sm:px-6 lg:px-8">
         <header className="max-w-3xl">
           <h1 id="mine-utlegg-title" className="font-semibold text-2xl">
@@ -242,10 +212,7 @@ export default function MineUtlegg() {
           </p>
         </header>
 
-        <ReceiptSubmitForm
-          error={actionError}
-          submission={submission}
-        />
+        <ReceiptSubmitForm error={actionError} submission={submission} commandId={commandId} />
 
         <OwnedReceiptList
           receipts={loaderData.receipts}

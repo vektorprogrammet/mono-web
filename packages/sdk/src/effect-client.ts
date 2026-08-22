@@ -5,29 +5,29 @@
  * Methods return Effect<A, InternalSdkError> directly — no Promise wrapping.
  */
 
-import { apiUrl } from "./config.js"
-import { createContext } from "./context.js"
-import { createAuthDomain } from "./domains/auth.js"
-import { createMeDomain } from "./domains/me.js"
-import { createReceiptsDomain } from "./domains/receipts.js"
-import { createAdminReceiptsDomain } from "./domains/admin/receipts.js"
-import { createAdminApplicationsDomain } from "./domains/admin/applications.js"
-import { createAdminInterviewsDomain } from "./domains/admin/interviews.js"
-import { createInterviewResponsesDomain } from "./domains/interview-responses.js"
-import { createAdminSchedulingDomain } from "./domains/admin/scheduling.js"
-import { createAdminTeamsDomain } from "./domains/admin/teams.js"
-import { createAdminMiscDomain } from "./domains/admin/misc.js"
-import { createPublicMiscDomain } from "./domains/public/misc.js"
-import { createPublicTeamsDomain } from "./domains/public/teams.js"
-import { createAdminUsersDomain } from "./domains/admin/users.js"
-import { createTransport, type AuthOption } from "./transport.js"
+import { apiUrl } from "./config.js";
+import { createContext } from "./context.js";
+import { createAuthDomain } from "./domains/auth.js";
+import { createMeDomain } from "./domains/me.js";
+import { createReceiptsDomain } from "./domains/receipts.js";
+import { createAdminReceiptsDomain } from "./domains/admin/receipts.js";
+import { createAdminApplicationsDomain } from "./domains/admin/applications.js";
+import { createAdminInterviewsDomain } from "./domains/admin/interviews.js";
+import { createInterviewResponsesDomain } from "./domains/interview-responses.js";
+import { createAdminSchedulingDomain } from "./domains/admin/scheduling.js";
+import { createAdminTeamsDomain } from "./domains/admin/teams.js";
+import { createAdminMiscDomain } from "./domains/admin/misc.js";
+import { createPublicMiscDomain } from "./domains/public/misc.js";
+import { createPublicTeamsDomain } from "./domains/public/teams.js";
+import { createAdminUsersDomain } from "./domains/admin/users.js";
+import { createTransport, type AuthOption } from "./transport.js";
 
 // --- Public re-exports ---
 
-export type { InternalSdkError, ReceiptFailure } from "./errors.js"
-export type { ReceiptRejectionTag } from "./errors.js"
-export type { ClientContext } from "./context.js"
-export { apiUrl, isFixtureMode } from "./config.js"
+export type { InternalSdkError, ReceiptFailure } from "./errors.js";
+export type { ReceiptRejectionTag } from "./errors.js";
+export type { ClientContext } from "./context.js";
+export { apiUrl, isFixtureMode } from "./config.js";
 
 export {
   CommandId,
@@ -48,21 +48,9 @@ export {
   ReceiptStatusSchema,
   ReceiptSubmitInput,
   ReceiptSubmitInputSchema,
-} from "./schemas/receipt.js"
-export type {
-  Receipt,
-  AdminReceipt,
-  ReceiptInput,
-  ReceiptCommandObservation,
-  ReceiptFile,
-  ReceiptId,
-  ReceiptOwnerFilter,
-  ReceiptPage,
-  ReceiptProjection,
-  ReceiptStatus,
-  ReceiptSubmitInput,
-} from "./schemas/receipt.js"
-export type { Application, ApplicationDetail } from "./schemas/application.js"
+} from "./schemas/receipt.js";
+export type { Receipt, AdminReceipt, ReceiptInput } from "./schemas/receipt.js";
+export type { Application, ApplicationDetail } from "./schemas/application.js";
 export {
   AdminInterviewList,
   CandidateInterviewView,
@@ -73,9 +61,9 @@ export {
   InterviewResponseNewTimeInput,
   InterviewScheduleInput,
   InterviewSchedulingStatus,
-} from "./schemas/interview.js"
-export type { User, UserProfile } from "./schemas/user.js"
-export type { DashboardStats } from "./schemas/dashboard.js"
+} from "./schemas/interview.js";
+export type { User, UserProfile } from "./schemas/user.js";
+export type { DashboardStats } from "./schemas/dashboard.js";
 export type {
   Department,
   Team,
@@ -85,25 +73,25 @@ export type {
   MailingList,
   AdmissionStats,
   Page,
-} from "./schemas/common.js"
-export type { SchedulingAssistant, SchedulingSchool, Substitute } from "./schemas/scheduling.js"
+} from "./schemas/common.js";
+export type { SchedulingAssistant, SchedulingSchool, Substitute } from "./schemas/scheduling.js";
 
 // --- Client options ---
 
 export type ClientOptions = {
-  auth?: AuthOption
-}
+  auth?: AuthOption;
+};
 
 // --- Effect client factory ---
 
 export function createEffectClient(baseUrl: string | undefined, options?: ClientOptions) {
-  const transport = createTransport(baseUrl, options?.auth)
-  const initialToken = typeof options?.auth === "string" ? options.auth : undefined
-  const context = createContext(initialToken)
+  const transport = createTransport(baseUrl, options?.auth);
+  const initialToken = typeof options?.auth === "string" ? options.auth : undefined;
+  const context = createContext(initialToken);
 
-  const adminMisc = createAdminMiscDomain(transport)
-  const publicMisc = createPublicMiscDomain(transport)
-  const publicTeams = createPublicTeamsDomain(transport)
+  const adminMisc = createAdminMiscDomain(transport);
+  const publicMisc = createPublicMiscDomain(transport);
+  const publicTeams = createPublicTeamsDomain(transport);
 
   return {
     auth: createAuthDomain(transport),
@@ -127,7 +115,7 @@ export function createEffectClient(baseUrl: string | undefined, options?: Client
       teams: publicTeams.list.bind(publicTeams),
     },
     context,
-  }
+  };
 }
 /**
  * Creates an Effect SDK client from SDK-owned runtime configuration.
@@ -137,7 +125,7 @@ export function createEffectClient(baseUrl: string | undefined, options?: Client
  * authority remain server-owned.
  */
 export function createConfiguredEffectClient(options?: ClientOptions) {
-  return createEffectClient(apiUrl, options)
+  return createEffectClient(apiUrl, options);
 }
 
-export type EffectSdk = ReturnType<typeof createEffectClient>
+export type EffectSdk = ReturnType<typeof createEffectClient>;

@@ -57,7 +57,7 @@ The local actor token is test-only, scoped to loopback, and must not appear in e
 A valid submission produces exactly:
 
 - one staged file and one committed file identity;
-- one `economy_receipts` row in `Pending` revision 1;
+- one `economy_receipts` row in `Pending` revision 0;
 - one command receipt;
 - one audit row;
 - ordered outbox requests with no duplicate effect identity;

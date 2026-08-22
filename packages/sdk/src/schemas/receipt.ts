@@ -1,5 +1,5 @@
-import { Schema } from "effect"
-import { DateFromIso, NullableDateFromIso } from "../adapter/dates.js"
+import { Schema } from "effect";
+import { DateFromIso, NullableDateFromIso } from "../adapter/dates.js";
 
 export class Receipt extends Schema.Class<Receipt>("Receipt")({
   id: Schema.Number,
@@ -11,8 +11,12 @@ export class Receipt extends Schema.Class<Receipt>("Receipt")({
   status: Schema.Literals(["pending", "refunded", "rejected"]),
   refundDate: NullableDateFromIso,
 }) {
-  get isPending() { return this.status === "pending" }
-  get formattedAmount() { return `${this.sum} kr` }
+  get isPending() {
+    return this.status === "pending";
+  }
+  get formattedAmount() {
+    return `${this.sum} kr`;
+  }
 }
 
 export class AdminReceipt extends Schema.Class<AdminReceipt>("AdminReceipt")({
@@ -28,21 +32,20 @@ export class AdminReceipt extends Schema.Class<AdminReceipt>("AdminReceipt")({
 }) {}
 
 export class ReceiptInput extends Schema.Class<ReceiptInput>("ReceiptInput")({
-  description: Schema.String.pipe(
-    Schema.check(Schema.isMinLength(1), Schema.isMaxLength(5000)),
-  ),
+  description: Schema.String.pipe(Schema.check(Schema.isMinLength(1), Schema.isMaxLength(5000))),
   sum: Schema.Number.pipe(Schema.check(Schema.isGreaterThan(0))),
   receiptDate: Schema.String.pipe(
     Schema.check(
-      Schema.makeFilter(
-        (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value),
-        { message: "a YYYY-MM-DD date string" },
-      ),
+      Schema.makeFilter((value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value), {
+        message: "a YYYY-MM-DD date string",
+      }),
     ),
   ),
 }) {}
 
-export class ReceiptCreateResponse extends Schema.Class<ReceiptCreateResponse>("ReceiptCreateResponse")({
+export class ReceiptCreateResponse extends Schema.Class<ReceiptCreateResponse>(
+  "ReceiptCreateResponse",
+)({
   id: Schema.Number,
 }) {}
 /**
@@ -60,7 +63,7 @@ const canonicalIdentifier = Schema.String.pipe(
       message: "a non-empty stable string identifier",
     }),
   ),
-)
+);
 
 const canonicalSafeInteger = Schema.Int.pipe(
   Schema.check(
@@ -68,38 +71,31 @@ const canonicalSafeInteger = Schema.Int.pipe(
       message: "a safe integer",
     }),
   ),
-)
+);
 
-const canonicalPositiveOre = canonicalSafeInteger.pipe(
-  Schema.check(Schema.isGreaterThan(0)),
-)
+const canonicalPositiveOre = canonicalSafeInteger.pipe(Schema.check(Schema.isGreaterThan(0)));
 
 const canonicalReceiptDate = Schema.String.pipe(
   Schema.check(
     Schema.makeFilter(
       (value: string) => {
-        if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false
-        const date = new Date(`${value}T00:00:00.000Z`)
-        return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+        const date = new Date(`${value}T00:00:00.000Z`);
+        return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
       },
       { message: "a valid YYYY-MM-DD calendar date" },
     ),
   ),
-)
+);
 
-export const ReceiptId = canonicalIdentifier
-export type ReceiptId = typeof ReceiptId.Type
+export const ReceiptId = canonicalIdentifier;
+export type ReceiptId = typeof ReceiptId.Type;
 
-export const CommandId = canonicalIdentifier
-export type CommandId = typeof CommandId.Type
+export const CommandId = canonicalIdentifier;
+export type CommandId = typeof CommandId.Type;
 
-export const ReceiptStatus = Schema.Literals([
-  "Pending",
-  "Refunded",
-  "Rejected",
-  "Withdrawn",
-])
-export type ReceiptStatus = typeof ReceiptStatus.Type
+export const ReceiptStatus = Schema.Literals(["Pending", "Refunded", "Rejected", "Withdrawn"]);
+export type ReceiptStatus = typeof ReceiptStatus.Type;
 
 /**
  * Immutable private-file identity returned by the native file boundary.
@@ -123,24 +119,24 @@ export const ReceiptFile = Schema.Struct({
       message: "different staging and committed object identities",
     }),
   ),
-)
-export type ReceiptFile = typeof ReceiptFile.Type
+);
+export type ReceiptFile = typeof ReceiptFile.Type;
 
-export const ReceiptIdSchema = ReceiptId
-export const CommandIdSchema = CommandId
-export const ReceiptStatusSchema = ReceiptStatus
-export const ReceiptFileSchema = ReceiptFile
+export const ReceiptIdSchema = ReceiptId;
+export const CommandIdSchema = CommandId;
+export const ReceiptStatusSchema = ReceiptStatus;
+export const ReceiptFileSchema = ReceiptFile;
 
 export class ReceiptSubmitInput extends Schema.Class<ReceiptSubmitInput>("ReceiptSubmitInput")({
   commandId: CommandId,
-  description: Schema.String.pipe(
-    Schema.check(Schema.isMinLength(1), Schema.isMaxLength(5000)),
-  ),
+  description: Schema.String.pipe(Schema.check(Schema.isMinLength(1), Schema.isMaxLength(5000))),
   amountOre: canonicalPositiveOre,
   receiptDate: canonicalReceiptDate,
 }) {}
 
-export class ReceiptCommandObservation extends Schema.Class<ReceiptCommandObservation>("ReceiptCommandObservation")({
+export class ReceiptCommandObservation extends Schema.Class<ReceiptCommandObservation>(
+  "ReceiptCommandObservation",
+)({
   commandId: CommandId,
   receiptId: ReceiptId,
   visualId: canonicalIdentifier,
@@ -160,9 +156,7 @@ export class ReceiptProjection extends Schema.Class<ReceiptProjection>("ReceiptP
   departmentId: canonicalIdentifier,
   amountOre: canonicalPositiveOre,
   currency: Schema.Literal("NOK"),
-  description: Schema.String.pipe(
-    Schema.check(Schema.isMinLength(1), Schema.isMaxLength(5000)),
-  ),
+  description: Schema.String.pipe(Schema.check(Schema.isMinLength(1), Schema.isMaxLength(5000))),
   receiptDate: canonicalReceiptDate,
   status: ReceiptStatus,
   revision: canonicalSafeInteger.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(0))),
@@ -181,8 +175,8 @@ export class ReceiptOwnerFilter extends Schema.Class<ReceiptOwnerFilter>("Receip
 
 // Explicit schema aliases make the wire boundary discoverable without
 // introducing a second representation of any canonical type.
-export const ReceiptSubmitInputSchema = ReceiptSubmitInput
-export const ReceiptCommandObservationSchema = ReceiptCommandObservation
-export const ReceiptProjectionSchema = ReceiptProjection
-export const ReceiptPageSchema = ReceiptPage
-export const ReceiptOwnerFilterSchema = ReceiptOwnerFilter
+export const ReceiptSubmitInputSchema = ReceiptSubmitInput;
+export const ReceiptCommandObservationSchema = ReceiptCommandObservation;
+export const ReceiptProjectionSchema = ReceiptProjection;
+export const ReceiptPageSchema = ReceiptPage;
+export const ReceiptOwnerFilterSchema = ReceiptOwnerFilter;

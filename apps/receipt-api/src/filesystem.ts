@@ -203,7 +203,8 @@ export const makeReceiptFileStore = (config: ReceiptFileStoreConfig): ReceiptFil
           const requestDigest = createHash("sha256").update(JSON.stringify(request)).digest("hex");
           const previous = applied.get(request.effectId);
           if (previous !== undefined) {
-            if (previous !== requestDigest) throw new ReceiptFileEffectConflict({ effectId: request.effectId });
+            if (previous !== requestDigest)
+              throw new ReceiptFileEffectConflict({ effectId: request.effectId });
             return;
           }
 
@@ -226,7 +227,14 @@ export const makeReceiptFileStore = (config: ReceiptFileStoreConfig): ReceiptFil
               try {
                 await rename(stagingPath, committedPath);
               } catch (cause) {
-                if (!(cause !== null && typeof cause === "object" && "code" in cause && cause.code === "EXDEV")) {
+                if (
+                  !(
+                    cause !== null &&
+                    typeof cause === "object" &&
+                    "code" in cause &&
+                    cause.code === "EXDEV"
+                  )
+                ) {
                   throw cause;
                 }
                 await copyFile(stagingPath, committedPath);

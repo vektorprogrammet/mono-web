@@ -1,8 +1,4 @@
-import {
-  Card,
-  CardContent,
-  CardHeader,
-} from "@/components/ui/card";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import {
   Table,
   TableBody,
@@ -12,10 +8,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import type {
-  OwnedReceiptView,
-  ReceiptUiError,
-} from "@/lib/receipt-view";
+import type { OwnedReceiptView, ReceiptUiError } from "@/lib/receipt-view";
 
 type Props = {
   receipts: ReadonlyArray<OwnedReceiptView>;
@@ -74,16 +67,10 @@ export function OwnedReceiptList({ receipts, error, busy }: Props) {
             </TableHeader>
             <TableBody>
               {receipts.map((receipt) => (
-                <TableRow
-                  key={receipt.receiptId}
-                  data-receipt-id={receipt.receiptId}
-                >
+                <TableRow key={receipt.receiptId} data-receipt-id={receipt.receiptId}>
                   <TableCell>
                     <div className="flex flex-col gap-1">
-                      <code
-                        className="break-all font-mono text-xs"
-                        data-testid="receipt-id"
-                      >
+                      <code className="break-all font-mono text-xs" data-testid="receipt-id">
                         {receipt.receiptId}
                       </code>
                       <span className="text-muted-foreground text-xs">
@@ -91,18 +78,12 @@ export function OwnedReceiptList({ receipts, error, busy }: Props) {
                       </span>
                     </div>
                   </TableCell>
-                  <TableCell className="whitespace-normal">
-                    {receipt.description}
+                  <TableCell className="whitespace-normal">{receipt.description}</TableCell>
+                  <TableCell>
+                    <data value={String(receipt.amountOre)}>{receipt.amount}</data>
                   </TableCell>
                   <TableCell>
-                    <data value={String(receipt.amountOre)}>
-                      {receipt.amount}
-                    </data>
-                  </TableCell>
-                  <TableCell>
-                    <time dateTime={receipt.receiptDate}>
-                      {receipt.receiptDate}
-                    </time>
+                    <time dateTime={receipt.receiptDate}>{receipt.receiptDate}</time>
                   </TableCell>
                   <TableCell>
                     <span

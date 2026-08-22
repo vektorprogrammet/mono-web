@@ -1,7 +1,7 @@
-import { Effect, Schema } from "effect"
-import type { Transport } from "../transport.js"
-import type { InternalSdkError } from "../errors.js"
-import { ReceiptDecodeError } from "../errors.js"
+import { Effect, Schema } from "effect";
+import type { Transport } from "../transport.js";
+import type { InternalSdkError } from "../errors.js";
+import { ReceiptDecodeError } from "../errors.js";
 import {
   Receipt,
   ReceiptCreateResponse,
@@ -10,113 +10,120 @@ import {
   ReceiptOwnerFilter,
   ReceiptPage,
   ReceiptSubmitInput,
-} from "../schemas/receipt.js"
+} from "../schemas/receipt.js";
 const decodeCanonical = <A>(
   schema: Schema.ConstraintDecoder<A, never>,
   value: unknown,
 ): Effect.Effect<A, ReceiptDecodeError> =>
   Schema.decodeUnknownEffect(schema)(value, { onExcessProperty: "error" }).pipe(
     Effect.mapError(() => new ReceiptDecodeError()),
-  )
+  );
 
 const isBrowserFile = (value: unknown): value is File =>
-  typeof File !== "undefined" && value instanceof File
+  typeof File !== "undefined" && value instanceof File;
 
-const receiptQuery = (filter: typeof ReceiptOwnerFilter.Type): Record<string, string | number | undefined> => {
-  const query: Record<string, string | number | undefined> = {}
-  if (filter.status !== undefined) query.status = filter.status
-  if (filter.page !== undefined) query.page = filter.page
-  if (filter.pageSize !== undefined) query.itemsPerPage = filter.pageSize
-  return query
-}
-
+const receiptQuery = (
+  filter: typeof ReceiptOwnerFilter.Type,
+): Record<string, string | number | undefined> => {
+  const query: Record<string, string | number | undefined> = {};
+  if (filter.status !== undefined) query.status = filter.status;
+  if (filter.page !== undefined) query.page = filter.page;
+  if (filter.pageSize !== undefined) query.itemsPerPage = filter.pageSize;
+  return query;
+};
 
 export interface ReceiptsDomain {
   // Legacy CRUD remains separate until its own native cut-over specification.
-  list(params?: { status?: string; page?: number; pageSize?: number }): Effect.Effect<{ items: Receipt[]; totalItems: number }, InternalSdkError>
-  create(input: typeof ReceiptInput.Type, file?: File): Effect.Effect<{ id: number }, InternalSdkError>
-  update(id: number, input: typeof ReceiptInput.Type, file?: File): Effect.Effect<void, InternalSdkError>
-  delete(id: number): Effect.Effect<void, InternalSdkError>
+  list(params?: {
+    status?: string;
+    page?: number;
+    pageSize?: number;
+  }): Effect.Effect<{ items: Receipt[]; totalItems: number }, InternalSdkError>;
+  create(
+    input: typeof ReceiptInput.Type,
+    file?: File,
+  ): Effect.Effect<{ id: number }, InternalSdkError>;
+  update(
+    id: number,
+    input: typeof ReceiptInput.Type,
+    file?: File,
+  ): Effect.Effect<void, InternalSdkError>;
+  delete(id: number): Effect.Effect<void, InternalSdkError>;
 
   submit(
     input: typeof ReceiptSubmitInput.Type,
     file: File,
-  ): Effect.Effect<typeof ReceiptCommandObservation.Type, InternalSdkError>
+  ): Effect.Effect<typeof ReceiptCommandObservation.Type, InternalSdkError>;
   listOwned(
     filter?: typeof ReceiptOwnerFilter.Type,
-  ): Effect.Effect<typeof ReceiptPage.Type, InternalSdkError>
+  ): Effect.Effect<typeof ReceiptPage.Type, InternalSdkError>;
 }
 
 export function createReceiptsDomain(transport: Transport): ReceiptsDomain {
   return {
     list(params) {
-      const query: Record<string, string | number | undefined> = {}
-      if (params?.status !== undefined) query.status = params.status
-      if (params?.page !== undefined) query.page = params.page
-      if (params?.pageSize !== undefined) query.itemsPerPage = params.pageSize
-      return transport.getCollection("/api/receipts", Receipt, query)
+      const query: Record<string, string | number | undefined> = {};
+      if (params?.status !== undefined) query.status = params.status;
+      if (params?.page !== undefined) query.page = params.page;
+      if (params?.pageSize !== undefined) query.itemsPerPage = params.pageSize;
+      return transport.getCollection("/api/receipts", Receipt, query);
     },
 
     create(input, file) {
       if (file) {
-        const formData = new FormData()
-        formData.append("description", input.description)
-        formData.append("sum", String(input.sum))
-        formData.append("receiptDate", input.receiptDate)
-        formData.append("file", file)
-        return transport.postFormData("/api/receipts", formData, ReceiptCreateResponse)
+        const formData = new FormData();
+        formData.append("description", input.description);
+        formData.append("sum", String(input.sum));
+        formData.append("receiptDate", input.receiptDate);
+        formData.append("file", file);
+        return transport.postFormData("/api/receipts", formData, ReceiptCreateResponse);
       }
-      return transport.post("/api/receipts", input, ReceiptCreateResponse)
+      return transport.post("/api/receipts", input, ReceiptCreateResponse);
     },
 
     update(id, input, file) {
       if (file) {
-        const formData = new FormData()
-        formData.append("description", input.description)
-        formData.append("sum", String(input.sum))
-        formData.append("receiptDate", input.receiptDate)
-        formData.append("file", file)
-        return transport.postFormDataVoid(`/api/receipts/${id}`, formData)
+        const formData = new FormData();
+        formData.append("description", input.description);
+        formData.append("sum", String(input.sum));
+        formData.append("receiptDate", input.receiptDate);
+        formData.append("file", file);
+        return transport.postFormDataVoid(`/api/receipts/${id}`, formData);
       }
-      return transport.put(`/api/receipts/${id}`, input)
+      return transport.put(`/api/receipts/${id}`, input);
     },
 
     delete(id) {
-      return transport.del(`/api/receipts/${id}`)
+      return transport.del(`/api/receipts/${id}`);
     },
 
     submit(input, file) {
       return decodeCanonical(ReceiptSubmitInput, input).pipe(
         Effect.flatMap((validInput) => {
-          if (!isBrowserFile(file)) return Effect.fail(new ReceiptDecodeError())
+          if (!isBrowserFile(file)) return Effect.fail(new ReceiptDecodeError());
 
-          const formData = new FormData()
-          formData.append("commandId", validInput.commandId)
-          formData.append("description", validInput.description)
-          formData.append("amountOre", String(validInput.amountOre))
-          formData.append("receiptDate", validInput.receiptDate)
-          formData.append("file", file)
+          const formData = new FormData();
+          formData.append("commandId", validInput.commandId);
+          formData.append("description", validInput.description);
+          formData.append("amountOre", String(validInput.amountOre));
+          formData.append("receiptDate", validInput.receiptDate);
+          formData.append("file", file);
           return transport.postFormData(
             "/api/receipts/submit",
             formData,
             ReceiptCommandObservation,
             { strict: true },
-          )
+          );
         }),
-      )
+      );
     },
 
     listOwned(filter) {
       return decodeCanonical(ReceiptOwnerFilter, filter ?? {}).pipe(
         Effect.flatMap((validFilter) =>
-          transport.get(
-            "/api/receipts",
-            ReceiptPage,
-            receiptQuery(validFilter),
-            { strict: true },
-          ),
+          transport.get("/api/receipts", ReceiptPage, receiptQuery(validFilter), { strict: true }),
         ),
-      )
+      );
     },
-  }
+  };
 }

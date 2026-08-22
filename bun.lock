@@ -128,6 +128,20 @@
         "vitest": "^3.1.1",
       },
     },
+    "apps/receipt-api": {
+      "name": "@vektorprogrammet/receipt-api",
+      "version": "0.1.0",
+      "dependencies": {
+        "@effect/sql-pg": "catalog:effect-v4",
+        "@vektorprogrammet/domain": "workspace:*",
+        "effect": "catalog:effect-v4",
+      },
+      "devDependencies": {
+        "@types/node": "^22",
+        "oxlint": "^1.41.0",
+        "typescript": "^5",
+      },
+    },
     "apps/server": {
       "name": "@monoweb/server",
       "dependencies": {
@@ -1085,6 +1099,8 @@
     "@types/use-sync-external-store": ["@types/use-sync-external-store@0.0.6", "", {}, "sha512-zFDAD+tlpf2r4asuHEj0XH6pY6i0g5NeAHPn+15wk3BV6JA69eERFXC1gyGThDkVa1zCyKr5jox1+2LbV/AMLg=="],
 
     "@vektorprogrammet/domain": ["@vektorprogrammet/domain@workspace:packages/domain"],
+
+    "@vektorprogrammet/receipt-api": ["@vektorprogrammet/receipt-api@workspace:apps/receipt-api"],
 
     "@vektorprogrammet/sdk": ["@vektorprogrammet/sdk@workspace:packages/sdk"],
 

@@ -8,10 +8,7 @@ import {
   UnauthorizedError,
   ValidationError,
 } from "@vektorprogrammet/sdk";
-import type {
-  AdminReceipt,
-  ReceiptProjection,
-} from "@vektorprogrammet/sdk";
+import type { AdminReceipt, ReceiptProjection } from "@vektorprogrammet/sdk";
 
 export type ReceiptStatus = AdminReceipt["status"];
 export type OwnedReceiptStatus = ReceiptProjection["status"];
@@ -39,11 +36,7 @@ export type AdminReceiptView = {
   refundDate: string | null;
 };
 
-export type ReceiptUiErrorField =
-  | "description"
-  | "amountNok"
-  | "receiptDate"
-  | "file";
+export type ReceiptUiErrorField = "description" | "amountNok" | "receiptDate" | "file";
 
 export type ReceiptUiErrorTag =
   | "UnauthenticatedActor"
@@ -79,8 +72,7 @@ const receiptErrorMessages: Record<ReceiptUiErrorTag, string> = {
   ReceiptAlreadyExists: "Utlegget finnes allerede.",
   DuplicateReceiptCommandConflict:
     "Innsendingen er endret etter et tidligere forsøk. Start en ny innsending.",
-  ReceiptPersistenceError:
-    "Utlegget kunne ikke lagres. Prøv igjen senere.",
+  ReceiptPersistenceError: "Utlegget kunne ikke lagres. Prøv igjen senere.",
   ConfigurationError: "API-konfigurasjon mangler eller er ugyldig.",
   ReceiptNotFound: "Utlegget ble ikke funnet.",
   ReceiptRateLimited: "For mange forespørsler. Prøv igjen senere.",
@@ -88,9 +80,7 @@ const receiptErrorMessages: Record<ReceiptUiErrorTag, string> = {
   UnknownReceiptError: "Kunne ikke fullføre forespørselen.",
 };
 
-const canonicalReceiptErrorTags: Partial<
-  Record<ReceiptUiErrorTag, true>
-> = {
+const canonicalReceiptErrorTags: Partial<Record<ReceiptUiErrorTag, true>> = {
   UnauthenticatedActor: true,
   InactiveActor: true,
   ReceiptOwnerDenied: true,
@@ -107,9 +97,10 @@ function toStableDate(date: Date | null): string | null {
 
 function canonicalReceiptErrorTag(error: unknown): ReceiptUiErrorTag | undefined {
   if (typeof error !== "object" || error === null) return undefined;
+  const record = error as Record<string, unknown>;
 
   for (const key of ["receiptTag", "tag", "_tag"] as const) {
-    const value = key in error ? error[key] : undefined;
+    const value = record[key];
     if (
       typeof value === "string" &&
       canonicalReceiptErrorTags[value as ReceiptUiErrorTag] === true
@@ -127,9 +118,7 @@ export function formatNokAmount(amountOre: number): string {
   return `${digits.slice(0, -2)},${digits.slice(-2)} NOK`;
 }
 
-export function mapOwnedReceiptView(
-  receipt: ReceiptProjection,
-): OwnedReceiptView {
+export function mapOwnedReceiptView(receipt: ReceiptProjection): OwnedReceiptView {
   return {
     receiptId: receipt.receiptId,
     visualId: receipt.visualId,
@@ -142,9 +131,7 @@ export function mapOwnedReceiptView(
   };
 }
 
-export function mapAdminReceiptView(
-  receipt: AdminReceipt,
-): AdminReceiptView {
+export function mapAdminReceiptView(receipt: AdminReceipt): AdminReceiptView {
   return {
     id: receipt.id,
     visualId: receipt.visualId,

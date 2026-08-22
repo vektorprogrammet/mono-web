@@ -60,7 +60,6 @@ const parsePrincipal = (value: unknown): ReceiptApiPrincipal => {
   };
 };
 
-
 const parseTokens = (raw: string | undefined): ReadonlyMap<string, ReceiptApiPrincipal> => {
   if (raw === undefined || raw.length === 0) throw new Error("RECEIPT_AUTH_TOKENS is required");
   let decoded: unknown;

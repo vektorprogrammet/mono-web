@@ -5,7 +5,7 @@
  * The caller provides the Schema; the transport handles HTTP, auth, and error mapping.
  */
 
-import { Effect, Schema, pipe } from "effect"
+import { Effect, Schema, pipe } from "effect";
 import {
   Unauthorized,
   NotFound,
@@ -22,11 +22,11 @@ import {
   DuplicateReceiptCommandConflict,
   ReceiptPersistenceError,
   type InternalSdkError,
-} from "./errors.js"
-import { parseViolations } from "./adapter/errors.js"
+} from "./errors.js";
+import { parseViolations } from "./adapter/errors.js";
 
-export type AuthOption = string | (() => string | Promise<string>)
-export type QueryParams = Record<string, string | number | undefined>
+export type AuthOption = string | (() => string | Promise<string>);
+export type QueryParams = Record<string, string | number | undefined>;
 
 /**
  * Resolves the auth token — supports static string or async function.
@@ -41,36 +41,37 @@ const resolveAuth = (auth: AuthOption): Effect.Effect<string, Network> =>
             message: cause instanceof Error ? cause.message : "Failed to resolve auth",
             cause,
           }),
-      })
+      });
 
 const receiptFailureFromBody = (body: unknown): InternalSdkError | undefined => {
-  if (typeof body !== "object" || body === null) return undefined
-  const root = body as Record<string, unknown>
-  const error = typeof root.error === "object" && root.error !== null
-    ? root.error as Record<string, unknown>
-    : root
-  const tag = error.tag ?? error._tag
-  if (typeof tag !== "string") return undefined
+  if (typeof body !== "object" || body === null) return undefined;
+  const root = body as Record<string, unknown>;
+  const error =
+    typeof root.error === "object" && root.error !== null
+      ? (root.error as Record<string, unknown>)
+      : root;
+  const tag = error.tag ?? error._tag;
+  if (typeof tag !== "string") return undefined;
 
   switch (tag) {
     case "UnauthenticatedActor":
-      return new UnauthenticatedActor()
+      return new UnauthenticatedActor();
     case "InactiveActor":
-      return new InactiveActor()
+      return new InactiveActor();
     case "ReceiptOwnerDenied":
-      return new ReceiptOwnerDenied()
+      return new ReceiptOwnerDenied();
     case "ReceiptDecodeError":
-      return new ReceiptDecodeError()
+      return new ReceiptDecodeError();
     case "ReceiptAlreadyExists":
-      return new ReceiptAlreadyExists()
+      return new ReceiptAlreadyExists();
     case "DuplicateReceiptCommandConflict":
-      return new DuplicateReceiptCommandConflict()
+      return new DuplicateReceiptCommandConflict();
     case "ReceiptPersistenceError":
-      return new ReceiptPersistenceError()
+      return new ReceiptPersistenceError();
     default:
-      return undefined
+      return undefined;
   }
-}
+};
 
 /**
  * Maps HTTP status codes to InternalSdkError.
@@ -79,19 +80,20 @@ const receiptFailureFromBody = (body: unknown): InternalSdkError | undefined => 
  * transport preserves that tag and intentionally ignores any untrusted text.
  */
 const mapStatusToError = (status: number, body: unknown): InternalSdkError => {
-  const typedReceiptError = receiptFailureFromBody(body)
-  if (typedReceiptError !== undefined) return typedReceiptError
-  if (status === 401 || status === 403) return new Unauthorized({ message: `HTTP ${status}` })
-  if (status === 404) return new NotFound({ message: "Not found" })
-  if (status === 409) return new Conflict({ message: "Conflict" })
-  if (status === 422) return new Validation({ message: "Validation failed", fields: parseViolations(body) })
-  if (status === 429) return new RateLimited({ message: "Rate limited" })
-  return new Network({ message: `HTTP ${status}` })
-}
+  const typedReceiptError = receiptFailureFromBody(body);
+  if (typedReceiptError !== undefined) return typedReceiptError;
+  if (status === 401 || status === 403) return new Unauthorized({ message: `HTTP ${status}` });
+  if (status === 404) return new NotFound({ message: "Not found" });
+  if (status === 409) return new Conflict({ message: "Conflict" });
+  if (status === 422)
+    return new Validation({ message: "Validation failed", fields: parseViolations(body) });
+  if (status === 429) return new RateLimited({ message: "Rate limited" });
+  return new Network({ message: `HTTP ${status}` });
+};
 
 export type DecodeOptions = {
-  readonly strict?: boolean
-}
+  readonly strict?: boolean;
+};
 
 export interface Transport {
   get<A>(
@@ -99,29 +101,32 @@ export interface Transport {
     schema: Schema.ConstraintDecoder<A, never>,
     params?: QueryParams,
     options?: DecodeOptions,
-  ): Effect.Effect<A, InternalSdkError>
+  ): Effect.Effect<A, InternalSdkError>;
   getCollection<A>(
     url: string,
     itemSchema: Schema.ConstraintDecoder<A, never>,
     params?: QueryParams,
     options?: DecodeOptions,
-  ): Effect.Effect<{ items: A[]; totalItems: number; page: number; pageSize: number }, InternalSdkError>
+  ): Effect.Effect<
+    { items: A[]; totalItems: number; page: number; pageSize: number },
+    InternalSdkError
+  >;
   post<A>(
     url: string,
     body: unknown,
     schema: Schema.ConstraintDecoder<A, never>,
     options?: DecodeOptions,
-  ): Effect.Effect<A, InternalSdkError>
-  postVoid(url: string, body: unknown): Effect.Effect<void, InternalSdkError>
-  put(url: string, body: unknown): Effect.Effect<void, InternalSdkError>
-  del(url: string): Effect.Effect<void, InternalSdkError>
+  ): Effect.Effect<A, InternalSdkError>;
+  postVoid(url: string, body: unknown): Effect.Effect<void, InternalSdkError>;
+  put(url: string, body: unknown): Effect.Effect<void, InternalSdkError>;
+  del(url: string): Effect.Effect<void, InternalSdkError>;
   postFormData<A>(
     url: string,
     formData: FormData,
     schema: Schema.ConstraintDecoder<A, never>,
     options?: DecodeOptions,
-  ): Effect.Effect<A, InternalSdkError>
-  postFormDataVoid(url: string, formData: FormData): Effect.Effect<void, InternalSdkError>
+  ): Effect.Effect<A, InternalSdkError>;
+  postFormDataVoid(url: string, formData: FormData): Effect.Effect<void, InternalSdkError>;
 }
 
 /**
@@ -139,45 +144,42 @@ export function createTransport(baseUrl: string | undefined, auth?: AuthOption):
   const buildHeaders = (
     extra?: Record<string, string>,
   ): Effect.Effect<Record<string, string>, Network> => {
-    const headers: Record<string, string> = { ...extra }
-    if (!auth) return Effect.succeed(headers)
+    const headers: Record<string, string> = { ...extra };
+    if (!auth) return Effect.succeed(headers);
     return pipe(
       resolveAuth(auth),
       Effect.map((token) => {
-        headers["Authorization"] = `Bearer ${token}`
-        return headers
+        headers["Authorization"] = `Bearer ${token}`;
+        return headers;
       }),
-    )
-  }
+    );
+  };
 
   const buildUrl = (path: string, params?: QueryParams): Effect.Effect<string, Configuration> =>
     Effect.try({
       try: () => {
         if (baseUrl === undefined || baseUrl.trim() === "") {
-          throw new Error("API URL is not configured")
+          throw new Error("API URL is not configured");
         }
-        const parsedBase = new URL(baseUrl)
+        const parsedBase = new URL(baseUrl);
         if (parsedBase.protocol !== "http:" && parsedBase.protocol !== "https:") {
-          throw new Error("API URL must use http or https")
+          throw new Error("API URL must use http or https");
         }
-        const url = new URL(path, parsedBase)
+        const url = new URL(path, parsedBase);
         if (params) {
           for (const [key, value] of Object.entries(params)) {
-            if (value !== undefined) url.searchParams.set(key, String(value))
+            if (value !== undefined) url.searchParams.set(key, String(value));
           }
         }
-        return url.toString()
+        return url.toString();
       },
       catch: (cause) =>
         new Configuration({
           message: cause instanceof Error ? cause.message : "Invalid API URL",
         }),
-    })
+    });
 
-  const executeFetch = (
-    url: string,
-    init: RequestInit,
-  ): Effect.Effect<Response, Network> =>
+  const executeFetch = (url: string, init: RequestInit): Effect.Effect<Response, Network> =>
     Effect.tryPromise({
       try: (signal) => fetch(url, { ...init, signal }),
       catch: (cause) =>
@@ -185,13 +187,13 @@ export function createTransport(baseUrl: string | undefined, auth?: AuthOption):
           message: cause instanceof Error ? cause.message : "Network error",
           cause,
         }),
-    })
+    });
 
   const readErrorBody = (response: Response): Effect.Effect<unknown, never> =>
     Effect.tryPromise({
       try: () => response.json(),
       catch: () => null as unknown,
-    }).pipe(Effect.orElseSucceed(() => null as unknown))
+    }).pipe(Effect.orElseSucceed(() => null as unknown));
 
   const executeJson = (
     url: string,
@@ -201,7 +203,7 @@ export function createTransport(baseUrl: string | undefined, auth?: AuthOption):
   ): Effect.Effect<unknown, InternalSdkError> =>
     pipe(
       buildHeaders({
-        "Accept": "application/ld+json",
+        Accept: "application/ld+json",
         ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
         ...extraHeaders,
       }),
@@ -215,15 +217,17 @@ export function createTransport(baseUrl: string | undefined, auth?: AuthOption):
       Effect.flatMap((response) => {
         if (!response.ok) {
           return readErrorBody(response).pipe(
-            Effect.flatMap((responseBody) => Effect.fail(mapStatusToError(response.status, responseBody))),
-          )
+            Effect.flatMap((responseBody) =>
+              Effect.fail(mapStatusToError(response.status, responseBody)),
+            ),
+          );
         }
         return Effect.tryPromise({
           try: () => response.json(),
           catch: () => new Network({ message: "Failed to parse response JSON" }),
-        })
+        });
       }),
-    )
+    );
 
   const executeVoid = (
     url: string,
@@ -231,9 +235,7 @@ export function createTransport(baseUrl: string | undefined, auth?: AuthOption):
     body?: unknown,
   ): Effect.Effect<void, InternalSdkError> =>
     pipe(
-      buildHeaders(
-        body !== undefined ? { "Content-Type": "application/json" } : {},
-      ),
+      buildHeaders(body !== undefined ? { "Content-Type": "application/json" } : {}),
       Effect.flatMap((headers) =>
         executeFetch(url, {
           method,
@@ -244,26 +246,29 @@ export function createTransport(baseUrl: string | undefined, auth?: AuthOption):
       Effect.flatMap((response) => {
         if (!response.ok) {
           return readErrorBody(response).pipe(
-            Effect.flatMap((responseBody) => Effect.fail(mapStatusToError(response.status, responseBody))),
-          )
+            Effect.flatMap((responseBody) =>
+              Effect.fail(mapStatusToError(response.status, responseBody)),
+            ),
+          );
         }
-        return Effect.void
+        return Effect.void;
       }),
-    )
+    );
 
-  const decodeWith = <A>(schema: Schema.ConstraintDecoder<A, never>, strict = false) =>
+  const decodeWith =
+    <A>(schema: Schema.ConstraintDecoder<A, never>, strict = false) =>
     (json: unknown): Effect.Effect<A, InternalSdkError> => {
       const decoded = strict
         ? Schema.decodeUnknownEffect(schema)(json, { onExcessProperty: "error" })
-        : Schema.decodeUnknownEffect(schema)(json)
+        : Schema.decodeUnknownEffect(schema)(json);
       return decoded.pipe(
         Effect.mapError((error) =>
           strict
             ? new ReceiptDecodeError()
             : new Validation({ message: `Decode error: ${error.message}`, fields: {} }),
         ),
-      )
-    }
+      );
+    };
 
   return {
     get<A>(
@@ -276,7 +281,7 @@ export function createTransport(baseUrl: string | undefined, auth?: AuthOption):
         buildUrl(url, params),
         Effect.flatMap((resolvedUrl) => executeJson(resolvedUrl, "GET")),
         Effect.flatMap(decodeWith(schema, options?.strict)),
-      )
+      );
     },
 
     getCollection<A>(
@@ -285,12 +290,12 @@ export function createTransport(baseUrl: string | undefined, auth?: AuthOption):
       params?: QueryParams,
       options?: DecodeOptions,
     ) {
-      const page = Number(params?.page ?? 1)
-      const pageSize = Number(params?.itemsPerPage ?? params?.pageSize ?? 30)
+      const page = Number(params?.page ?? 1);
+      const pageSize = Number(params?.itemsPerPage ?? params?.pageSize ?? 30);
       const collectionSchema = Schema.Struct({
         "hydra:member": Schema.Array(itemSchema),
         "hydra:totalItems": Schema.optional(Schema.Number),
-      })
+      });
       return pipe(
         buildUrl(url, params),
         Effect.flatMap((resolvedUrl) => executeJson(resolvedUrl, "GET")),
@@ -301,7 +306,7 @@ export function createTransport(baseUrl: string | undefined, auth?: AuthOption):
           page,
           pageSize,
         })),
-      )
+      );
     },
 
     post<A>(
@@ -314,28 +319,28 @@ export function createTransport(baseUrl: string | undefined, auth?: AuthOption):
         buildUrl(url),
         Effect.flatMap((resolvedUrl) => executeJson(resolvedUrl, "POST", body)),
         Effect.flatMap(decodeWith(schema, options?.strict)),
-      )
+      );
     },
 
     postVoid(url: string, body: unknown) {
       return pipe(
         buildUrl(url),
         Effect.flatMap((resolvedUrl) => executeVoid(resolvedUrl, "POST", body)),
-      )
+      );
     },
 
     put(url: string, body: unknown) {
       return pipe(
         buildUrl(url),
         Effect.flatMap((resolvedUrl) => executeVoid(resolvedUrl, "PUT", body)),
-      )
+      );
     },
 
     del(url: string) {
       return pipe(
         buildUrl(url),
         Effect.flatMap((resolvedUrl) => executeVoid(resolvedUrl, "DELETE")),
-      )
+      );
     },
 
     postFormData<A>(
@@ -348,7 +353,7 @@ export function createTransport(baseUrl: string | undefined, auth?: AuthOption):
         buildUrl(url),
         Effect.flatMap((resolvedUrl) =>
           pipe(
-            buildHeaders({ "Accept": "application/ld+json" }),
+            buildHeaders({ Accept: "application/ld+json" }),
             Effect.flatMap((headers) =>
               executeFetch(resolvedUrl, {
                 method: "POST",
@@ -361,16 +366,18 @@ export function createTransport(baseUrl: string | undefined, auth?: AuthOption):
         Effect.flatMap((response) => {
           if (!response.ok) {
             return readErrorBody(response).pipe(
-              Effect.flatMap((responseBody) => Effect.fail(mapStatusToError(response.status, responseBody))),
-            )
+              Effect.flatMap((responseBody) =>
+                Effect.fail(mapStatusToError(response.status, responseBody)),
+              ),
+            );
           }
           return Effect.tryPromise({
             try: () => response.json(),
             catch: () => new Network({ message: "Failed to parse response JSON" }),
-          })
+          });
         }),
         Effect.flatMap(decodeWith(schema, options?.strict)),
-      )
+      );
     },
 
     postFormDataVoid(url: string, formData: FormData) {
@@ -391,12 +398,14 @@ export function createTransport(baseUrl: string | undefined, auth?: AuthOption):
         Effect.flatMap((response) => {
           if (!response.ok) {
             return readErrorBody(response).pipe(
-              Effect.flatMap((responseBody) => Effect.fail(mapStatusToError(response.status, responseBody))),
-            )
+              Effect.flatMap((responseBody) =>
+                Effect.fail(mapStatusToError(response.status, responseBody)),
+              ),
+            );
           }
-          return Effect.void
+          return Effect.void;
         }),
-      )
+      );
     },
-  }
+  };
 }

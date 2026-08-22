@@ -1,8 +1,4 @@
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@radix-ui/react-collapsible";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@radix-ui/react-collapsible";
 import { Separator } from "@radix-ui/react-separator";
 import {
   BookUser,
@@ -24,8 +20,18 @@ import {
   Users,
 } from "lucide-react";
 import { Fragment, type ReactNode, useState } from "react";
-import { Form, Link, NavLink, Outlet, href, isRouteErrorResponse, useLoaderData, useLocation, useRouteError } from "react-router";
-import { requireAuth } from "../lib/auth.server";
+import {
+  Form,
+  Link,
+  NavLink,
+  Outlet,
+  href,
+  isRouteErrorResponse,
+  useLoaderData,
+  useLocation,
+  useRouteError,
+} from "react-router";
+import { expiredSessionRedirect, requireAuth } from "../lib/auth.server";
 import { createAuthenticatedClient } from "../lib/api.server";
 import { isFixtureMode } from "@vektorprogrammet/sdk";
 import type { Route } from "./+types/dashboard";
@@ -34,12 +40,7 @@ import { useTheme } from "../lib/theme";
 import { cn } from "@/lib/utils";
 import { Avatar, AvatarFallback, AvatarImage } from "@/ui/avatar";
 import { publicAssetUrl } from "@/lib/public-asset";
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbList,
-  BreadcrumbSeparator,
-} from "@/ui/breadcrumb";
+import { Breadcrumb, BreadcrumbItem, BreadcrumbList, BreadcrumbSeparator } from "@/ui/breadcrumb";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -95,8 +96,7 @@ export async function loader({ request }: Route.LoaderArgs) {
       isAdmin,
     };
   } catch {
-    const { redirect } = await import("react-router");
-    throw redirect("/login?expired=true");
+    throw expiredSessionRedirect();
   }
 }
 
@@ -400,9 +400,7 @@ function StatusMenu({
             side={isMobile ? "bottom" : "right"}
             sideOffset={4}
           >
-            <DropdownMenuLabel className="text-muted-foreground text-xs">
-              {label}
-            </DropdownMenuLabel>
+            <DropdownMenuLabel className="text-muted-foreground text-xs">{label}</DropdownMenuLabel>
             {status.map((status) => (
               <DropdownMenuItem
                 key={status}
@@ -434,10 +432,7 @@ function Breadcrumbs() {
         <BreadcrumbItem>
           <NavLink
             to={`/${fullPath}`}
-            className={cn(
-              isEnd ? "text-black" : "text-gray-500",
-              "hover:text-black",
-            )}
+            className={cn(isEnd ? "text-black" : "text-gray-500", "hover:text-black")}
             prefetch="intent"
           >
             {capitalizedPath}
@@ -482,13 +477,9 @@ export function ErrorBoundary() {
   return (
     <div className="flex h-full items-center justify-center p-8">
       <div className="text-center space-y-4">
-        <h1 className="text-2xl font-bold">
-          {isRouteError ? error.status : "Feil"}
-        </h1>
+        <h1 className="text-2xl font-bold">{isRouteError ? error.status : "Feil"}</h1>
         <p className="text-gray-500">
-          {isRouteError
-            ? error.statusText
-            : "Noe gikk galt. Prøv å laste siden på nytt."}
+          {isRouteError ? error.statusText : "Noe gikk galt. Prøv å laste siden på nytt."}
         </p>
         <a href="/dashboard" className="text-blue-600 hover:underline">
           Tilbake til dashbordet
@@ -538,11 +529,7 @@ function LegacyLayout() {
                       { title: "Feedback", url: "#", icon: <Send /> },
                     ].map((link) => (
                       <SidebarMenuItem key={link.title}>
-                        <SidebarMenuButton
-                          asChild
-                          size="sm"
-                          tooltip={link.title}
-                        >
+                        <SidebarMenuButton asChild size="sm" tooltip={link.title}>
                           <Link to={link.url} prefetch="intent">
                             {link.icon}
                             <span>{link.title}</span>

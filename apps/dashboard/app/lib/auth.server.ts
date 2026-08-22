@@ -21,6 +21,12 @@ export function createLogoutCookie(): string {
   return `${AUTH_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`;
 }
 
+export function expiredSessionRedirect() {
+  return redirect("/login?expired=true", {
+    headers: { "Set-Cookie": createLogoutCookie() },
+  });
+}
+
 export function requireAuth(request: Request): string {
   const token = getToken(request);
   if (!token) throw redirect("/login");

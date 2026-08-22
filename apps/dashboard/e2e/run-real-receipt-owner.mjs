@@ -11,8 +11,7 @@ const dashboardRoot = fileURLToPath(new URL("../", import.meta.url));
 const composeFile = join(repositoryRoot, "docker-compose.yml");
 const dashboardOrigin = "http://127.0.0.1:5174";
 const receiptApiOrigin = "http://127.0.0.1:8790";
-const postgresUrl =
-  "postgres://receipt:receipt@127.0.0.1:55432/receipt_proof";
+const postgresUrl = "postgres://receipt:receipt@127.0.0.1:55432/receipt_proof";
 const composeProject = `mono-web-receipt-0035-${process.pid}`;
 const commandTimeoutMs = 120_000;
 const shutdownTimeoutMs = 5_000;
@@ -29,12 +28,7 @@ function assertPortAvailable(port) {
     });
     socket.once("error", (error) => {
       socket.destroy();
-      if (
-        error &&
-        typeof error === "object" &&
-        "code" in error &&
-        error.code === "ECONNREFUSED"
-      ) {
+      if (error && typeof error === "object" && "code" in error && error.code === "ECONNREFUSED") {
         resolvePort();
         return;
       }
@@ -49,9 +43,7 @@ function runCommand(command, args, options) {
     const child = spawn(command, args, {
       cwd: options.cwd,
       env: options.env,
-      stdio: captureOutput
-        ? ["ignore", "pipe", "pipe"]
-        : ["ignore", "inherit", "inherit"],
+      stdio: captureOutput ? ["ignore", "pipe", "pipe"] : ["ignore", "inherit", "inherit"],
     });
     const stdout = [];
     if (captureOutput) {
@@ -83,17 +75,13 @@ function runCommand(command, args, options) {
       clearTimeout(timeout);
       if (code === 0) {
         resolveCommand(
-          captureOutput
-            ? { stdout: Buffer.concat(stdout).toString("utf8") }
-            : undefined,
+          captureOutput ? { stdout: Buffer.concat(stdout).toString("utf8") } : undefined,
         );
         return;
       }
       rejectCommand(
         new Error(
-          `${options.label} exited with ${
-            signal === null ? `code ${code}` : `signal ${signal}`
-          }`,
+          `${options.label} exited with ${signal === null ? `code ${code}` : `signal ${signal}`}`,
         ),
       );
     });
@@ -120,12 +108,7 @@ async function stopProcess(child) {
   try {
     process.kill(-child.pid, "SIGTERM");
   } catch (error) {
-    if (
-      !error ||
-      typeof error !== "object" ||
-      !("code" in error) ||
-      error.code !== "ESRCH"
-    ) {
+    if (!error || typeof error !== "object" || !("code" in error) || error.code !== "ESRCH") {
       throw new Error("Could not stop local process group");
     }
     return;
@@ -140,12 +123,7 @@ async function stopProcess(child) {
   try {
     process.kill(-child.pid, "SIGKILL");
   } catch (error) {
-    if (
-      !error ||
-      typeof error !== "object" ||
-      !("code" in error) ||
-      error.code !== "ESRCH"
-    ) {
+    if (!error || typeof error !== "object" || !("code" in error) || error.code !== "ESRCH") {
       throw new Error("Could not terminate local process group");
     }
   }
@@ -211,17 +189,9 @@ async function countFiles(root) {
       recursive: true,
       withFileTypes: true,
     });
-    return entries.reduce(
-      (count, entry) => count + (entry.isFile() ? 1 : 0),
-      0,
-    );
+    return entries.reduce((count, entry) => count + (entry.isFile() ? 1 : 0), 0);
   } catch (error) {
-    if (
-      error &&
-      typeof error === "object" &&
-      "code" in error &&
-      error.code === "ENOENT"
-    ) {
+    if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") {
       return 0;
     }
     throw error;
@@ -291,10 +261,7 @@ function assertDurableEvidence(postgres, privateFile) {
   ) {
     throw new Error("Receipt persistence evidence did not prove one durable replay-safe write");
   }
-  if (
-    privateFile.stagingFileCount !== 0 ||
-    privateFile.committedFileCount !== 1
-  ) {
+  if (privateFile.stagingFileCount !== 0 || privateFile.committedFileCount !== 1) {
     throw new Error("Receipt private-file evidence did not prove one committed file");
   }
 }
@@ -306,9 +273,7 @@ async function main() {
     assertPortAvailable(55432),
   ]);
 
-  const temporaryRoot = await mkdtemp(
-    join(tmpdir(), "mono-web-receipt-owner-0035-"),
-  );
+  const temporaryRoot = await mkdtemp(join(tmpdir(), "mono-web-receipt-owner-0035-"));
   const stagingRoot = join(temporaryRoot, "staging");
   const committedRoot = join(temporaryRoot, "committed");
   await Promise.all([
@@ -403,10 +368,7 @@ async function main() {
     }
 
     if (cleanupErrors.length > 0) {
-      throw new AggregateError(
-        cleanupErrors,
-        "Real Receipt owner topology cleanup failed",
-      );
+      throw new AggregateError(cleanupErrors, "Real Receipt owner topology cleanup failed");
     }
   };
 
@@ -424,16 +386,7 @@ async function main() {
   try {
     await runCommand(
       "docker",
-      [
-        "compose",
-        "-f",
-        composeFile,
-        "-p",
-        composeProject,
-        "up",
-        "-d",
-        "receipt-postgres",
-      ],
+      ["compose", "-f", composeFile, "-p", composeProject, "up", "-d", "receipt-postgres"],
       {
         cwd: repositoryRoot,
         env: baseEnvironment,
@@ -449,19 +402,11 @@ async function main() {
           cwd: repositoryRoot,
           env: apiEnvironment,
         })
-      : startProcess(
-          "bun",
-          ["run", "--cwd", "apps/receipt-api", "start"],
-          {
-            cwd: repositoryRoot,
-            env: apiEnvironment,
-          },
-        );
-    await waitForHttp(
-      `${receiptApiOrigin}/health`,
-      apiProcess,
-      "Native Receipt API",
-    );
+      : startProcess("bun", ["run", "--cwd", "apps/receipt-api", "start"], {
+          cwd: repositoryRoot,
+          env: apiEnvironment,
+        });
+    await waitForHttp(`${receiptApiOrigin}/health`, apiProcess, "Native Receipt API");
 
     dashboardProcess = startProcess(
       "bun",
@@ -471,11 +416,7 @@ async function main() {
         env: dashboardEnvironment,
       },
     );
-    await waitForHttp(
-      `${dashboardOrigin}/login`,
-      dashboardProcess,
-      "Dashboard",
-    );
+    await waitForHttp(`${dashboardOrigin}/login`, dashboardProcess, "Dashboard");
 
     await runCommand(
       "node",

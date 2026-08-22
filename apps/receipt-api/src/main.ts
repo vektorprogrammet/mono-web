@@ -33,7 +33,7 @@ try {
 } catch {
   process.stderr.write("receipt-api migration failed\n");
   process.exitCode = 1;
-} 
+}
 
 if (process.exitCode !== 1) {
   const server = Bun.serve({ hostname: config.host, port: config.port, fetch: api.fetch });
@@ -46,4 +46,3 @@ if (process.exitCode !== 1) {
   process.once("SIGINT", shutdown);
   process.once("SIGTERM", shutdown);
 }
-

@@ -5,28 +5,28 @@
  * This is the default entrypoint (`"."`).
  */
 
-import { Effect } from "effect"
-import { createTransport, type AuthOption } from "./transport.js"
-import { toSdkError, type InternalSdkError } from "./errors.js"
-import { createContext } from "./context.js"
-import { createAuthDomain } from "./domains/auth.js"
-import { createMeDomain } from "./domains/me.js"
-import { createReceiptsDomain } from "./domains/receipts.js"
-import { createAdminReceiptsDomain } from "./domains/admin/receipts.js"
-import { createAdminApplicationsDomain } from "./domains/admin/applications.js"
-import { createAdminInterviewsDomain } from "./domains/admin/interviews.js"
-import { createInterviewResponsesDomain } from "./domains/interview-responses.js"
-import { createAdminSchedulingDomain } from "./domains/admin/scheduling.js"
-import { createAdminTeamsDomain } from "./domains/admin/teams.js"
-import { createAdminMiscDomain } from "./domains/admin/misc.js"
-import { createPublicMiscDomain } from "./domains/public/misc.js"
-import { createPublicTeamsDomain } from "./domains/public/teams.js"
-import { createAdminUsersDomain } from "./domains/admin/users.js"
+import { Effect } from "effect";
+import { createTransport, type AuthOption } from "./transport.js";
+import { toSdkError, type InternalSdkError } from "./errors.js";
+import { createContext } from "./context.js";
+import { createAuthDomain } from "./domains/auth.js";
+import { createMeDomain } from "./domains/me.js";
+import { createReceiptsDomain } from "./domains/receipts.js";
+import { createAdminReceiptsDomain } from "./domains/admin/receipts.js";
+import { createAdminApplicationsDomain } from "./domains/admin/applications.js";
+import { createAdminInterviewsDomain } from "./domains/admin/interviews.js";
+import { createInterviewResponsesDomain } from "./domains/interview-responses.js";
+import { createAdminSchedulingDomain } from "./domains/admin/scheduling.js";
+import { createAdminTeamsDomain } from "./domains/admin/teams.js";
+import { createAdminMiscDomain } from "./domains/admin/misc.js";
+import { createPublicMiscDomain } from "./domains/public/misc.js";
+import { createPublicTeamsDomain } from "./domains/public/teams.js";
+import { createAdminUsersDomain } from "./domains/admin/users.js";
 
 // --- Public re-exports ---
 
-export type { ClientContext } from "./context.js"
-export { apiUrl, isFixtureMode } from "./config.js"
+export type { ClientContext } from "./context.js";
+export { apiUrl, isFixtureMode } from "./config.js";
 export {
   SdkError,
   UnauthorizedError,
@@ -44,10 +44,10 @@ export {
   ReceiptAlreadyExistsError,
   DuplicateReceiptCommandConflictError,
   ReceiptPersistenceSdkError,
-} from "./errors.js"
-export type { SdkErrorType, ReceiptRejectionTag } from "./errors.js"
+} from "./errors.js";
+export type { SdkErrorType, ReceiptRejectionTag } from "./errors.js";
 
-export type { Receipt, AdminReceipt, ReceiptInput } from "./schemas/receipt.js"
+export type { Receipt, AdminReceipt, ReceiptInput } from "./schemas/receipt.js";
 export {
   CommandId,
   CommandIdSchema,
@@ -67,18 +67,8 @@ export {
   ReceiptStatusSchema,
   ReceiptSubmitInput,
   ReceiptSubmitInputSchema,
-} from "./schemas/receipt.js"
-export type {
-  ReceiptCommandObservation,
-  ReceiptFile,
-  ReceiptId,
-  ReceiptOwnerFilter,
-  ReceiptPage,
-  ReceiptProjection,
-  ReceiptStatus,
-  ReceiptSubmitInput,
-} from "./schemas/receipt.js"
-export type { Application, ApplicationDetail } from "./schemas/application.js"
+} from "./schemas/receipt.js";
+export type { Application, ApplicationDetail } from "./schemas/application.js";
 export {
   AdminInterviewList,
   CandidateInterviewView,
@@ -89,9 +79,9 @@ export {
   InterviewResponseNewTimeInput,
   InterviewScheduleInput,
   InterviewSchedulingStatus,
-} from "./schemas/interview.js"
-export type { User, UserProfile } from "./schemas/user.js"
-export type { DashboardStats } from "./schemas/dashboard.js"
+} from "./schemas/interview.js";
+export type { User, UserProfile } from "./schemas/user.js";
+export type { DashboardStats } from "./schemas/dashboard.js";
 export type {
   Department,
   Team,
@@ -101,14 +91,14 @@ export type {
   MailingList,
   AdmissionStats,
   Page,
-} from "./schemas/common.js"
-export type { SchedulingAssistant, SchedulingSchool, Substitute } from "./schemas/scheduling.js"
+} from "./schemas/common.js";
+export type { SchedulingAssistant, SchedulingSchool, Substitute } from "./schemas/scheduling.js";
 
 // --- Client options ---
 
 export type ClientOptions = {
-  auth?: AuthOption
-}
+  auth?: AuthOption;
+};
 
 // --- Promisify helpers ---
 
@@ -119,10 +109,7 @@ export type ClientOptions = {
 function promisify<Args extends unknown[], A>(
   fn: (...args: Args) => Effect.Effect<A, InternalSdkError>,
 ): (...args: Args) => Promise<A> {
-  return (...args) =>
-    Effect.runPromise(
-      fn(...args).pipe(Effect.mapError(toSdkError)),
-    )
+  return (...args) => Effect.runPromise(fn(...args).pipe(Effect.mapError(toSdkError)));
 }
 
 /**
@@ -130,23 +117,27 @@ function promisify<Args extends unknown[], A>(
  */
 function promisifyDomain<T extends object>(
   domain: T,
-): { [K in keyof T]: T[K] extends (...args: infer A) => Effect.Effect<infer R, any> ? (...args: A) => Promise<R> : never } {
-  const result: Record<string, unknown> = {}
+): {
+  [K in keyof T]: T[K] extends (...args: infer A) => Effect.Effect<infer R, any>
+    ? (...args: A) => Promise<R>
+    : never;
+} {
+  const result: Record<string, unknown> = {};
   for (const key of Object.keys(domain)) {
-    result[key] = promisify((domain as any)[key] as any)
+    result[key] = promisify((domain as any)[key] as any);
   }
-  return result as any
+  return result as any;
 }
 
 // --- Client factory ---
 export function createClient(baseUrl: string | undefined, options?: ClientOptions) {
-  const transport = createTransport(baseUrl, options?.auth)
-  const initialToken = typeof options?.auth === "string" ? options.auth : undefined
-  const context = createContext(initialToken)
+  const transport = createTransport(baseUrl, options?.auth);
+  const initialToken = typeof options?.auth === "string" ? options.auth : undefined;
+  const context = createContext(initialToken);
 
-  const adminMisc = createAdminMiscDomain(transport)
-  const publicMisc = createPublicMiscDomain(transport)
-  const publicTeams = createPublicTeamsDomain(transport)
+  const adminMisc = createAdminMiscDomain(transport);
+  const publicMisc = createPublicMiscDomain(transport);
+  const publicTeams = createPublicTeamsDomain(transport);
 
   return {
     auth: promisifyDomain(createAuthDomain(transport)),
@@ -170,7 +161,7 @@ export function createClient(baseUrl: string | undefined, options?: ClientOption
       teams: promisify(publicTeams.list.bind(publicTeams)),
     },
     context,
-  }
+  };
 }
 
-export type Sdk = ReturnType<typeof createClient>
+export type Sdk = ReturnType<typeof createClient>;

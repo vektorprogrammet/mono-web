@@ -1,10 +1,5 @@
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardFooter,
-  CardHeader,
-} from "@/components/ui/card";
+import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { ReceiptUiError } from "@/lib/receipt-view";
@@ -20,6 +15,7 @@ export type ReceiptSubmissionNotice = {
 type Props = {
   error?: ReceiptUiError;
   submission?: ReceiptSubmissionNotice;
+  commandId?: string;
 };
 
 function ensureStableCommandId(event: FormEvent<HTMLFormElement>): void {
@@ -37,11 +33,10 @@ function describedBy(
   return error?.field === field ? `${helpId} receipt-submit-error` : helpId;
 }
 
-export function ReceiptSubmitForm({ error, submission }: Props) {
+export function ReceiptSubmitForm({ error, submission, commandId }: Props) {
   const navigation = useNavigation();
   const isSubmitting =
-    navigation.state !== "idle" &&
-    navigation.formData?.get("_intent") === "submit";
+    navigation.state !== "idle" && navigation.formData?.get("_intent") === "submit";
 
   return (
     <Form
@@ -64,7 +59,7 @@ export function ReceiptSubmitForm({ error, submission }: Props) {
 
         <CardContent className="grid gap-5 sm:grid-cols-2">
           <input type="hidden" name="_intent" value="submit" />
-          <input type="hidden" name="commandId" defaultValue="" />
+          <input type="hidden" name="commandId" defaultValue={commandId ?? ""} />
 
           {error && (
             <p
@@ -84,6 +79,7 @@ export function ReceiptSubmitForm({ error, submission }: Props) {
               className="rounded-md border bg-muted p-3 text-sm sm:col-span-2"
               role="status"
               aria-live="polite"
+              data-command-id={submission.commandId}
               data-replayed={submission.replayed}
             >
               Utlegget er sendt inn. Kvitterings-ID:{" "}
@@ -104,11 +100,7 @@ export function ReceiptSubmitForm({ error, submission }: Props) {
               rows={4}
               placeholder="Hva gjelder utlegget?"
               aria-invalid={error?.field === "description" || undefined}
-              aria-describedby={describedBy(
-                "description-help",
-                "description",
-                error,
-              )}
+              aria-describedby={describedBy("description-help", "description", error)}
               className="border-input placeholder:text-muted-foreground min-h-24 w-full rounded-md border bg-transparent px-3 py-2 text-sm shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 aria-invalid:border-destructive aria-invalid:ring-destructive/20"
             />
             <p id="description-help" className="text-muted-foreground text-xs">
@@ -130,11 +122,7 @@ export function ReceiptSubmitForm({ error, submission }: Props) {
               autoComplete="off"
               placeholder="125,50"
               aria-invalid={error?.field === "amountNok" || undefined}
-              aria-describedby={describedBy(
-                "amount-nok-help",
-                "amountNok",
-                error,
-              )}
+              aria-describedby={describedBy("amount-nok-help", "amountNok", error)}
             />
             <p id="amount-nok-help" className="text-muted-foreground text-xs">
               Bruk maksimalt to desimaler.
@@ -152,11 +140,7 @@ export function ReceiptSubmitForm({ error, submission }: Props) {
               type="date"
               required
               aria-invalid={error?.field === "receiptDate" || undefined}
-              aria-describedby={describedBy(
-                "receipt-date-help",
-                "receiptDate",
-                error,
-              )}
+              aria-describedby={describedBy("receipt-date-help", "receiptDate", error)}
             />
             <p id="receipt-date-help" className="text-muted-foreground text-xs">
               Velg datoen som står på kvitteringen.
@@ -175,11 +159,7 @@ export function ReceiptSubmitForm({ error, submission }: Props) {
               required
               accept=".pdf,.png,.jpg,.jpeg,application/pdf,image/png,image/jpeg"
               aria-invalid={error?.field === "file" || undefined}
-              aria-describedby={describedBy(
-                "receipt-file-help",
-                "file",
-                error,
-              )}
+              aria-describedby={describedBy("receipt-file-help", "file", error)}
               className="h-auto py-1"
             />
             <p id="receipt-file-help" className="text-muted-foreground text-xs">
