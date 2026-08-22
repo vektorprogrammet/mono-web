@@ -58,6 +58,11 @@ export const AdmissionPeriodActorSchema = Schema.TaggedUnion({
     departmentId: StableIdSchema,
     active: Schema.Boolean,
   },
+  Member: {
+    personId: StableIdSchema,
+    departmentId: StableIdSchema,
+    active: Schema.Boolean,
+  },
   GlobalAdmin: {
     personId: StableIdSchema,
     active: Schema.Boolean,
