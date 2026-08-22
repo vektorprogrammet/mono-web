@@ -43,8 +43,8 @@ export class HomepageCliUsageError extends Error {}
 const STAGE_PATTERN = /^(?:p(?:[1-9][0-9]|00[1-9]|0[1-9][0-9]|[1-9][0-9]{2})|dev-main)$/;
 const PROFILE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 
-// These names are selector/credential inputs. The wrapper requires all
-// deployment selectors to be present as explicit argv tokens instead.
+// These names can select a deployment target. The wrapper requires every
+// deployment selector to be present as an explicit argv token instead.
 const AMBIENT_SELECTOR_NAMES = new Set([
   "ALCHEMY_ENV",
   "ALCHEMY_ENV_FILE",
@@ -55,9 +55,6 @@ const AMBIENT_SELECTOR_NAMES = new Set([
   "AWS_PROFILE",
   "AWS_SECRET_ACCESS_KEY",
   "AWS_SESSION_TOKEN",
-  "CLOUDFLARE_ACCOUNT_ID",
-  "CLOUDFLARE_API_KEY",
-  "CLOUDFLARE_API_TOKEN",
   "CLOUDFLARE_EMAIL",
   "CLOUDFLARE_PROFILE",
   "CLOUDFLARE_STAGE",

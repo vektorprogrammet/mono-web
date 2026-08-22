@@ -23,11 +23,20 @@ const realSymfonySchedulingMode =
   process.env.REAL_SYMFONY_INTERVIEW_SCHEDULING_E2E === '1';
 const realSymfonyResponseMode =
   process.env.REAL_SYMFONY_INTERVIEW_RESPONSE_E2E === '1';
+const realSymfonyContentOpsMode =
+  process.env.REAL_SYMFONY_CONTENT_OPS_E2E === '1';
+const realSymfonyOrgOperationsMode =
+  process.env.REAL_SYMFONY_ORG_OPERATIONS_E2E === '1';
+const realSymfonyBackgroundOperationsMode =
+  process.env.REAL_SYMFONY_BACKGROUND_OPERATIONS_E2E === '1';
 const realSymfonyMode =
   realSymfonyCoreMode ||
   realSymfonyRecruitmentMode ||
   realSymfonySchedulingMode ||
-  realSymfonyResponseMode;
+  realSymfonyResponseMode ||
+  realSymfonyContentOpsMode ||
+  realSymfonyOrgOperationsMode ||
+  realSymfonyBackgroundOperationsMode;
 
 const fixtureServer = {
   command: 'node e2e/fixtures/login-api.mjs',

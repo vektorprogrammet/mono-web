@@ -110,6 +110,41 @@ describe("homepage provider wrapper", () => {
     expect(calls[0]?.file).toBe(`${standaloneDirectory}/node_modules/.bin/alchemy`);
   });
 
+  it("forwards Cloudflare credentials without treating them as target selectors", () => {
+    const { spawn, calls } = captureSpawn();
+    const credentials = {
+      CLOUDFLARE_ACCOUNT_ID: "account",
+      CLOUDFLARE_API_TOKEN: "token",
+    };
+
+    expect(
+      executeHomepageCli(
+        ["deploy", "--stage", "p020", "--profile", "preview", "--yes"],
+        {
+          env: { ...validEnvironment, ...credentials },
+          spawn,
+          standaloneDirectory,
+        },
+      ),
+    ).toBe(0);
+    expect(calls[0]?.env).toMatchObject(credentials);
+  });
+
+  it("still rejects ambient deployment target selectors", () => {
+    const { spawn, calls } = captureSpawn();
+    expect(() =>
+      executeHomepageCli(
+        ["plan", "--stage", "p020", "--profile", "preview"],
+        {
+          env: { ...validEnvironment, ALCHEMY_PROFILE: "ambient" },
+          spawn,
+          standaloneDirectory,
+        },
+      ),
+    ).toThrow("ambient selector 'ALCHEMY_PROFILE'");
+    expect(calls).toEqual([]);
+  });
+
   const invalidArgvCases = [
     ["guard", "--stage", "p000", "--profile", "alice"],
     ["plan", "--stage", "p001", "--profile", "alice", "--yes"],
