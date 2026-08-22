@@ -118,7 +118,10 @@ export const AdmissionPeriodCommandObservation = Schema.TaggedUnion({
 });
 export type AdmissionPeriodCommandObservation = typeof AdmissionPeriodCommandObservation.Type;
 
-export const AdmissionPeriodPage = Schema.Array(AdmissionPeriodProjection);
+export const AdmissionPeriodPage = Schema.Struct({
+  items: Schema.Array(AdmissionPeriodProjection),
+  totalItems: Schema.Int,
+});
 export type AdmissionPeriodPage = typeof AdmissionPeriodPage.Type;
 export const AdmissionPeriodList = AdmissionPeriodPage;
 export type AdmissionPeriodList = AdmissionPeriodPage;

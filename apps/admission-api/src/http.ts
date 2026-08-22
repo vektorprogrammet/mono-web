@@ -98,6 +98,24 @@ const requireActive = (principal: AdmissionApiPrincipal): AdmissionPeriodActor =
   if (!principal.actor.active) throw new InactiveActor({ personId: principal.actor.personId });
   return principal.actor;
 };
+const profile = (request: Request, input: AdmissionApiHttpOptions): Response => {
+  const principal = principalFor(request, input.config.tokens);
+  const actor = requireActive(principal);
+  return jsonResponse({
+    id: null,
+    firstName: actor.personId,
+    lastName: "",
+    userName: actor.personId,
+    email: `${actor.personId}@local.invalid`,
+    phone: null,
+    gender: null,
+    fieldOfStudy: null,
+    accountNumber: null,
+    role: "assistant",
+    profilePhoto: null,
+  });
+};
+
 
 const requireNoQuery = (request: Request): void => {
   if (new URL(request.url).search !== "") {
@@ -162,7 +180,7 @@ const listManagement = async (
     listAdmissionPeriodsForManagement({ actor, now: input.config.now() }),
     input.postgresLayer,
   );
-  return jsonResponse(rows);
+  return jsonResponse({ items: rows, totalItems: rows.length });
 };
 
 const create = async (request: Request, input: AdmissionApiHttpOptions): Promise<Response> => {
@@ -207,7 +225,7 @@ const revise = async (
 const listOpen = async (request: Request, input: AdmissionApiHttpOptions): Promise<Response> => {
   requireNoQuery(request);
   const rows = await runPostgres(listOpenAdmissionPeriods(input.config.now()), input.postgresLayer);
-  return jsonResponse(rows);
+  return jsonResponse({ items: rows, totalItems: rows.length });
 };
 
 const submitApplication = async (
@@ -253,6 +271,12 @@ export const makeAdmissionApiHttp = (input: AdmissionApiHttpOptions): AdmissionA
       }
     }
     try {
+      if (
+        request.method === "GET" &&
+        (url.pathname === "/api/me/profile" || url.pathname === "/api/me")
+      ) {
+        return profile(request, input);
+      }
       if (request.method === "GET" && url.pathname === "/api/admin/admission-periods") {
         return await listManagement(request, input);
       }

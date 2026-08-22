@@ -32,18 +32,23 @@ const periodSchema = Schema.Struct({
   endAt: Schema.String,
   revision: Schema.Int,
   lastCommandId: Schema.String,
+});
+const periodProjectionSchema = Schema.Struct({
+  ...periodSchema.fields,
   eligible: Schema.Boolean,
 });
 const periodPageSchema = Schema.Struct({
-  items: Schema.Array(periodSchema),
+  items: Schema.Array(periodProjectionSchema),
   totalItems: Schema.Int,
 });
 const createdObservationSchema = Schema.Struct({
   _tag: Schema.Literal("Created"),
+  commandId: Schema.String,
   period: periodSchema,
 });
 const revisedObservationSchema = Schema.Struct({
   _tag: Schema.Literal("Revised"),
+  commandId: Schema.String,
   period: periodSchema,
 });
 const originalObservationSchema = Schema.Union([
@@ -52,6 +57,7 @@ const originalObservationSchema = Schema.Union([
 ]);
 const replayedObservationSchema = Schema.Struct({
   _tag: Schema.Literal("Replayed"),
+  commandId: Schema.String,
   original: originalObservationSchema,
 });
 const observationSchema = Schema.Union([

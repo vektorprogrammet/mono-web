@@ -143,13 +143,13 @@ export const decideAdmissionPeriod = (
 
     if (command._tag === "CreateAdmissionPeriod") {
       const departmentId = yield* departmentForCreate(command, context.actor);
+      yield* checkWindow(command.startAt, command.endAt, context.semester);
       if (existing !== undefined) {
         return yield* new AdmissionPeriodAlreadyExists({
           departmentId,
           semesterId: command.semesterId,
         });
       }
-      yield* checkWindow(command.startAt, command.endAt, context.semester);
       const period: AdmissionPeriod = {
         id: periodIdForCreate(command, context),
         departmentId,

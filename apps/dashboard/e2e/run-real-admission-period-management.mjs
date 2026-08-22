@@ -637,7 +637,7 @@ async function main() {
           cwd: repositoryRoot,
           env: apiEnvironment,
         })
-      : startProcess("bun", ["run", "--cwd", "apps/receipt-api", "start"], {
+      : startProcess("bun", ["run", "--cwd", "apps/admission-api", "start"], {
           cwd: repositoryRoot,
           env: apiEnvironment,
         });
