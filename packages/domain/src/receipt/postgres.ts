@@ -1,0 +1,328 @@
+import * as PgClient from "@effect/sql-pg/PgClient";
+import { Effect, Schema } from "effect";
+import { canonicalJson, canonicalJsonBytes, sha256Hex } from "../tutor/evidence.js";
+import {
+  DuplicateReceiptCommandConflict,
+  ReceiptDecodeError,
+  ReceiptPersistenceError,
+  StaleReceiptRevision,
+  type ReceiptFailure,
+} from "./errors.js";
+import type { ReceiptImportResult } from "./import.js";
+import {
+  ReceiptCommandSchema,
+  ReceiptObservationSchema,
+  ReceiptSchema,
+  type Receipt,
+} from "./schema.js";
+import type { ReceiptTransactionResult } from "./service.js";
+import { decideReceipt, type ReceiptDecisionContext, type ReceiptOutboxRequest } from "./update.js";
+
+interface ReceiptRow {
+  readonly receipt_id: string;
+  readonly visual_id: string;
+  readonly owner_person_id: string;
+  readonly department_id: string;
+  readonly amount_ore: string;
+  readonly currency: "NOK";
+  readonly description: string;
+  readonly receipt_date: string;
+  readonly submitted_at: string;
+  readonly status: "Pending" | "Refunded" | "Rejected" | "Withdrawn";
+  readonly refund_date: string | null;
+  readonly payment_account_ciphertext: string;
+  readonly file_ref: string;
+  readonly file_object_key: string;
+  readonly file_content_type: "image/jpeg" | "image/png" | "application/pdf";
+  readonly file_byte_length: string;
+  readonly file_sha256: string;
+  readonly revision: number;
+}
+
+interface CommandReceiptRow {
+  readonly command_sha256: string;
+  readonly observation_json: unknown;
+}
+
+const persistenceError = (operation: string, cause: unknown) =>
+  new ReceiptPersistenceError({ operation, message: String(cause) });
+
+const receiptFromRow = (row: ReceiptRow): Effect.Effect<Receipt, ReceiptPersistenceError> =>
+  Schema.decodeUnknownEffect(ReceiptSchema)({
+    receiptId: row.receipt_id,
+    visualId: row.visual_id,
+    ownerPersonId: row.owner_person_id,
+    departmentId: row.department_id,
+    amountOre: Number(row.amount_ore),
+    currency: row.currency,
+    description: row.description,
+    receiptDate: row.receipt_date,
+    submittedAt: row.submitted_at,
+    status: row.status,
+    refundDate: row.refund_date,
+    paymentAccountCiphertext: row.payment_account_ciphertext,
+    file: {
+      fileRef: row.file_ref,
+      objectKey: row.file_object_key,
+      contentType: row.file_content_type,
+      byteLength: Number(row.file_byte_length),
+      sha256: row.file_sha256,
+    },
+    revision: row.revision,
+  }).pipe(Effect.mapError((cause) => persistenceError("decode receipt row", cause)));
+
+const findReceipt = (
+  sql: PgClient.PgClient,
+  receiptId: string,
+): Effect.Effect<Receipt | undefined, ReceiptPersistenceError> =>
+  sql<ReceiptRow>`
+    SELECT
+      receipt_id, visual_id, owner_person_id, department_id,
+      amount_ore::text, currency, description,
+      receipt_date::text,
+      to_char(submitted_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS submitted_at,
+      status,
+      CASE WHEN refund_date IS NULL THEN NULL
+        ELSE to_char(refund_date AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+      END AS refund_date,
+      payment_account_ciphertext, file_ref, file_object_key,
+      file_content_type, file_byte_length::text, file_sha256, revision
+    FROM economy_receipts
+    WHERE receipt_id = ${receiptId}
+    FOR UPDATE
+  `.pipe(
+    Effect.flatMap((rows) =>
+      rows[0] === undefined ? Effect.succeed(undefined) : receiptFromRow(rows[0]),
+    ),
+    Effect.catchTag("SqlError", (cause) => Effect.fail(persistenceError("read receipt", cause))),
+  );
+
+const findCommandReceipt = (
+  sql: PgClient.PgClient,
+  commandId: string,
+): Effect.Effect<CommandReceiptRow | undefined, ReceiptPersistenceError> =>
+  sql<CommandReceiptRow>`
+    SELECT command_sha256, observation_json
+    FROM economy_receipt_command_receipts
+    WHERE command_id = ${commandId}
+  `.pipe(
+    Effect.map((rows) => rows[0]),
+    Effect.catchTag("SqlError", (cause) =>
+      Effect.fail(persistenceError("read command receipt", cause)),
+    ),
+  );
+
+const storeReceipt = (
+  sql: PgClient.PgClient,
+  receipt: Receipt,
+  previous: Receipt | undefined,
+): Effect.Effect<void, ReceiptFailure> => {
+  if (previous === undefined) {
+    return sql`
+      INSERT INTO economy_receipts (
+        receipt_id, visual_id, owner_person_id, department_id,
+        amount_ore, currency, description, receipt_date, submitted_at,
+        status, refund_date, payment_account_ciphertext,
+        file_ref, file_object_key, file_content_type, file_byte_length,
+        file_sha256, revision
+      ) VALUES (
+        ${receipt.receiptId}, ${receipt.visualId}, ${receipt.ownerPersonId}, ${receipt.departmentId},
+        ${receipt.amountOre}, ${receipt.currency}, ${receipt.description}, ${receipt.receiptDate}, ${receipt.submittedAt},
+        ${receipt.status}, ${receipt.refundDate}, ${receipt.paymentAccountCiphertext},
+        ${receipt.file.fileRef}, ${receipt.file.objectKey}, ${receipt.file.contentType}, ${receipt.file.byteLength},
+        ${receipt.file.sha256}, ${receipt.revision}
+      )
+    `.pipe(
+      Effect.asVoid,
+      Effect.catchTag("SqlError", (cause) =>
+        Effect.fail(persistenceError("insert receipt", cause)),
+      ),
+    );
+  }
+
+  return sql<{ readonly revision: number }>`
+    UPDATE economy_receipts SET
+      amount_ore = ${receipt.amountOre},
+      description = ${receipt.description},
+      receipt_date = ${receipt.receiptDate},
+      status = ${receipt.status},
+      refund_date = ${receipt.refundDate},
+      file_ref = ${receipt.file.fileRef},
+      file_object_key = ${receipt.file.objectKey},
+      file_content_type = ${receipt.file.contentType},
+      file_byte_length = ${receipt.file.byteLength},
+      file_sha256 = ${receipt.file.sha256},
+      revision = ${receipt.revision}
+    WHERE receipt_id = ${receipt.receiptId}
+      AND revision = ${previous.revision}
+    RETURNING revision
+  `.pipe(
+    Effect.flatMap((rows) =>
+      rows.length === 1
+        ? Effect.void
+        : Effect.fail(
+            new StaleReceiptRevision({
+              receiptId: receipt.receiptId,
+              expected: previous.revision,
+              actual: previous.revision,
+            }),
+          ),
+    ),
+    Effect.catchTag("SqlError", (cause) => Effect.fail(persistenceError("update receipt", cause))),
+  );
+};
+
+const storeOutbox = (
+  sql: PgClient.PgClient,
+  requests: ReadonlyArray<ReceiptOutboxRequest>,
+): Effect.Effect<void, ReceiptPersistenceError> =>
+  Effect.forEach(
+    requests,
+    (request, ordinal) =>
+      sql`
+        INSERT INTO economy_receipt_outbox (
+          effect_id, effect_type, receipt_id, command_id, ordinal, payload_json
+        ) VALUES (
+          ${request.effectId}, ${request.effectType}, ${request.receiptId},
+          ${request.commandId}, ${ordinal}, ${sql.json(request)}
+        )
+      `.pipe(Effect.asVoid),
+    { discard: true },
+  ).pipe(
+    Effect.catchTag("SqlError", (cause) => Effect.fail(persistenceError("insert outbox", cause))),
+  );
+
+export const storeReceiptImportResult = (
+  result: ReceiptImportResult,
+): Effect.Effect<void, ReceiptPersistenceError, PgClient.PgClient> =>
+  Effect.gen(function* () {
+    const sql = yield* PgClient.PgClient;
+    const provenance = result.provenance;
+    yield* sql`
+      INSERT INTO economy_receipt_import_ledger (
+        source_repository, source_revision, snapshot_id, source_watermark,
+        source_primary_key, source_digest, transformation_revision,
+        target_semantic_identity, destination_identity, result,
+        reconciliation_result, reasons_json
+      ) VALUES (
+        ${provenance.sourceRepository}, ${provenance.sourceRevision},
+        ${provenance.snapshotId}, ${provenance.sourceWatermark},
+        ${result.sourcePrimaryKey}, ${provenance.sourceDigest},
+        ${provenance.transformationRevision},
+        ${result._tag === "AcceptedReceiptImport" ? result.receipt.visualId : result.sourcePrimaryKey},
+        ${provenance.destinationIdentity},
+        ${result._tag === "AcceptedReceiptImport" ? "Accepted" : "Quarantined"},
+        ${result.reconciliation},
+        ${sql.json({
+          reasons: result._tag === "QuarantinedReceiptImport" ? result.reasons : [],
+        })}
+      )
+    `.pipe(
+      Effect.asVoid,
+      Effect.catchTag("SqlError", (cause) =>
+        Effect.fail(persistenceError("insert import ledger", cause)),
+      ),
+    );
+  });
+
+export const migrateReceiptPostgres = (
+  migrationSql: string,
+): Effect.Effect<void, ReceiptPersistenceError, PgClient.PgClient> =>
+  Effect.gen(function* () {
+    const sql = yield* PgClient.PgClient;
+    yield* sql
+      .unsafe(migrationSql)
+      .pipe(
+        Effect.catchTag("SqlError", (cause) =>
+          Effect.fail(persistenceError("migrate receipt schema", cause)),
+        ),
+      );
+  });
+
+export const executeReceiptCommand = (
+  input: unknown,
+  context: ReceiptDecisionContext,
+): Effect.Effect<ReceiptTransactionResult, ReceiptFailure, PgClient.PgClient> =>
+  Effect.gen(function* () {
+    const command = yield* Schema.decodeUnknownEffect(ReceiptCommandSchema)(input, {
+      onExcessProperty: "error",
+    }).pipe(Effect.mapError((cause) => new ReceiptDecodeError({ message: String(cause) })));
+    const sql = yield* PgClient.PgClient;
+    const commandJson = canonicalJson(command);
+    const commandDigest = sha256Hex(canonicalJsonBytes(command));
+
+    return yield* sql
+      .withTransaction(
+        Effect.gen(function* () {
+          yield* sql`SELECT pg_advisory_xact_lock(hashtextextended(${command.commandId}, 0))`.pipe(
+            Effect.asVoid,
+            Effect.catchTag("SqlError", (cause) =>
+              Effect.fail(persistenceError("lock command receipt", cause)),
+            ),
+          );
+          const stored = yield* findCommandReceipt(sql, command.commandId);
+          if (stored !== undefined) {
+            if (stored.command_sha256 !== commandDigest) {
+              return yield* new DuplicateReceiptCommandConflict({
+                commandId: command.commandId,
+              });
+            }
+            const storedObservation = yield* Schema.decodeUnknownEffect(ReceiptObservationSchema)(
+              stored.observation_json,
+            ).pipe(
+              Effect.mapError((cause) => persistenceError("decode stored observation", cause)),
+            );
+            return {
+              observation: { ...storedObservation, replayed: true },
+              replayed: true,
+              outboxCount: 0,
+            };
+          }
+
+          const receiptId =
+            command._tag === "SubmitReceipt" ? context.receiptId : command.receiptId;
+          const previous = yield* findReceipt(sql, receiptId);
+          const decision = yield* decideReceipt(previous, command, context);
+          yield* storeReceipt(sql, decision.receipt, previous);
+          yield* sql`
+          INSERT INTO economy_receipt_command_receipts (
+            command_id, command_sha256, command_json, observation_json,
+            receipt_id, committed_at
+          ) VALUES (
+            ${command.commandId}, ${commandDigest}, ${sql.json(JSON.parse(commandJson))},
+            ${sql.json(decision.observation)}, ${decision.receipt.receiptId}, ${context.now}
+          )
+        `.pipe(
+            Effect.catchTag("SqlError", (cause) =>
+              Effect.fail(persistenceError("insert command receipt", cause)),
+            ),
+          );
+          yield* storeOutbox(sql, decision.outbox);
+          yield* sql`
+          INSERT INTO economy_receipt_audit (
+            command_id, receipt_id, actor_person_id, action,
+            receipt_revision, occurred_at
+          ) VALUES (
+            ${command.commandId}, ${decision.receipt.receiptId},
+            ${command.actor.personId}, ${decision.auditAction},
+            ${decision.receipt.revision}, ${context.now}
+          )
+        `.pipe(
+            Effect.catchTag("SqlError", (cause) =>
+              Effect.fail(persistenceError("insert audit", cause)),
+            ),
+          );
+
+          return {
+            observation: decision.observation,
+            replayed: false,
+            outboxCount: decision.outbox.length,
+          };
+        }),
+      )
+      .pipe(
+        Effect.catchTag("SqlError", (cause) =>
+          Effect.fail(persistenceError("receipt transaction", cause)),
+        ),
+      );
+  });

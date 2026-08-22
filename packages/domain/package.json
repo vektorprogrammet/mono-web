@@ -9,18 +9,22 @@
     "./data": "./src/data.ts",
     "./laws": "./src/laws.ts",
     "./report": "./src/report.ts",
-    "./fixtures": "./src/fixtures.ts"
+    "./fixtures": "./src/fixtures.ts",
+    "./receipt": "./src/receipt/index.ts",
+    "./receipt/postgres": "./src/receipt/postgres-index.ts"
   },
   "scripts": {
     "report": "bun run src/main.ts",
+    "proof:receipt": "bun run src/receipt/postgres-proof-main.ts",
     "proof:d1": "bun run src/tutor/d1-proof.ts",
-    "test": "vitest run && bun run src/main.ts --fixtures && bun run src/tutor/main.ts --fixtures && bun run proof:d1",
+    "test": "vitest run && bun run src/main.ts --fixtures && bun run src/tutor/main.ts --fixtures && bun run proof:d1 && bun run proof:receipt",
     "check-types": "tsc --noEmit",
     "build": "tsc --noEmit",
     "lint": "oxlint"
   },
   "dependencies": {
     "@effect/sql-d1": "catalog:effect-v4",
+    "@effect/sql-pg": "catalog:effect-v4",
     "effect": "catalog:effect-v4"
   },
   "devDependencies": {

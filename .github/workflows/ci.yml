@@ -14,6 +14,20 @@ jobs:
   ts:
     name: TypeScript (lint, build, test)
     runs-on: ubuntu-latest
+    services:
+      receipt-postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: receipt_proof
+          POSTGRES_USER: receipt
+          POSTGRES_PASSWORD: receipt
+        ports:
+          - 55432:5432
+        options: >-
+          --health-cmd "pg_isready -U receipt -d receipt_proof"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
 

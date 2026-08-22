@@ -1,0 +1,202 @@
+import {
+  isIsoDate,
+  isIsoInstant,
+  type LegacyReceiptRow,
+  type Receipt,
+  type ReceiptFile,
+  type ReceiptStatus,
+} from "./schema.js";
+
+export type ReceiptQuarantineReason =
+  | "UnresolvedOwner"
+  | "UnresolvedDepartment"
+  | "MissingVisualId"
+  | "DuplicateVisualId"
+  | "SourceIdentityCollision"
+  | "InvalidAmount"
+  | "UnsupportedFile"
+  | "UnreadableFile"
+  | "InvalidDescription"
+  | "InvalidReceiptDate"
+  | "InvalidSubmittedAt"
+  | "UnknownStatus"
+  | "RefundDateContradiction"
+  | "MissingPaymentAccount"
+  | "MissingFile";
+
+export interface ReceiptImportProvenance {
+  readonly sourceRepository: string;
+  readonly sourceRevision: string;
+  readonly snapshotId: string;
+  readonly sourceWatermark: string;
+  readonly transformationRevision: string;
+  readonly sourceDigest: string;
+  readonly destinationIdentity: string;
+}
+
+export type ReceiptImportResult =
+  | {
+      readonly _tag: "AcceptedReceiptImport";
+      readonly sourcePrimaryKey: string;
+      readonly receipt: Receipt;
+      readonly provenance: ReceiptImportProvenance;
+      readonly reconciliation: "Pending";
+    }
+  | {
+      readonly _tag: "QuarantinedReceiptImport";
+      readonly sourcePrimaryKey: string;
+      readonly reasons: ReadonlyArray<ReceiptQuarantineReason>;
+      readonly provenance: ReceiptImportProvenance;
+      readonly reconciliation: "NotApplicable";
+    };
+
+const exactOre = (value: string): number | undefined => {
+  const match = /^(\d+)(?:\.(\d{1,2}))?$/.exec(value);
+  if (match === null) return undefined;
+  const whole = Number(match[1]);
+  const fraction = (match[2] ?? "").padEnd(2, "0");
+  const ore = whole * 100 + Number(fraction);
+  return Number.isSafeInteger(ore) && ore > 0 ? ore : undefined;
+};
+
+const status = (value: string): ReceiptStatus | undefined => {
+  switch (value) {
+    case "pending":
+      return "Pending";
+    case "refunded":
+      return "Refunded";
+    case "rejected":
+      return "Rejected";
+    default:
+      return undefined;
+  }
+};
+
+const validLegacyFile = (file: NonNullable<LegacyReceiptRow["file"]>): file is ReceiptFile =>
+  file.fileRef.length > 0 &&
+  file.objectKey.length > 0 &&
+  (file.contentType === "image/jpeg" ||
+    file.contentType === "image/png" ||
+    file.contentType === "application/pdf") &&
+  Number.isInteger(file.byteLength) &&
+  file.byteLength > 0 &&
+  /^[a-f0-9]{64}$/.test(file.sha256);
+
+export const importLegacyReceipt = (
+  row: LegacyReceiptRow,
+  receiptId: string,
+  provenance: ReceiptImportProvenance,
+): ReceiptImportResult => {
+  const reasons: ReceiptQuarantineReason[] = [];
+  const amountOre = exactOre(row.amountDecimal);
+  const importedStatus = status(row.status);
+
+  if (row.ownerPersonId === null) reasons.push("UnresolvedOwner");
+  if (row.departmentId === null) reasons.push("UnresolvedDepartment");
+  if (row.visualId === null) reasons.push("MissingVisualId");
+  if (amountOre === undefined) reasons.push("InvalidAmount");
+  if (row.description.length === 0 || row.description.length > 5000) {
+    reasons.push("InvalidDescription");
+  }
+  if (!isIsoDate(row.receiptDate)) reasons.push("InvalidReceiptDate");
+  if (!isIsoInstant(row.submittedAt)) reasons.push("InvalidSubmittedAt");
+  if (importedStatus === undefined) reasons.push("UnknownStatus");
+  if (
+    (importedStatus === "Refunded" && (row.refundDate === null || !isIsoInstant(row.refundDate))) ||
+    (importedStatus !== undefined && importedStatus !== "Refunded" && row.refundDate !== null)
+  ) {
+    reasons.push("RefundDateContradiction");
+  }
+  if (row.paymentAccountCiphertext === null) reasons.push("MissingPaymentAccount");
+  if (row.file === null) {
+    reasons.push("MissingFile");
+  } else {
+    if (
+      row.file.contentType !== "image/jpeg" &&
+      row.file.contentType !== "image/png" &&
+      row.file.contentType !== "application/pdf"
+    ) {
+      reasons.push("UnsupportedFile");
+    }
+    if (!validLegacyFile(row.file) && !reasons.includes("UnsupportedFile")) {
+      reasons.push("UnreadableFile");
+    }
+  }
+
+  if (
+    reasons.length > 0 ||
+    row.ownerPersonId === null ||
+    row.departmentId === null ||
+    row.visualId === null ||
+    amountOre === undefined ||
+    importedStatus === undefined ||
+    row.paymentAccountCiphertext === null ||
+    row.file === null ||
+    !validLegacyFile(row.file)
+  ) {
+    return {
+      _tag: "QuarantinedReceiptImport",
+      sourcePrimaryKey: row.sourcePrimaryKey,
+      reasons,
+      provenance,
+      reconciliation: "NotApplicable",
+    };
+  }
+
+  return {
+    _tag: "AcceptedReceiptImport",
+    sourcePrimaryKey: row.sourcePrimaryKey,
+    receipt: {
+      receiptId,
+      visualId: row.visualId,
+      ownerPersonId: row.ownerPersonId,
+      departmentId: row.departmentId,
+      amountOre,
+      currency: "NOK",
+      description: row.description,
+      receiptDate: row.receiptDate,
+      submittedAt: row.submittedAt,
+      status: importedStatus,
+      refundDate: importedStatus === "Refunded" ? row.refundDate : null,
+      paymentAccountCiphertext: row.paymentAccountCiphertext,
+      file: row.file,
+      revision: 0,
+    },
+    provenance,
+    reconciliation: "Pending",
+  };
+};
+
+export interface LegacyReceiptImportInput {
+  readonly row: LegacyReceiptRow;
+  readonly receiptId: string;
+  readonly provenance: ReceiptImportProvenance;
+}
+
+export const importLegacyReceipts = (
+  inputs: ReadonlyArray<LegacyReceiptImportInput>,
+): ReadonlyArray<ReceiptImportResult> => {
+  const visualIds = new Set<string>();
+  const sourceKeys = new Set<string>();
+  return inputs.map(({ row, receiptId, provenance }) => {
+    const result = importLegacyReceipt(row, receiptId, provenance);
+    const duplicateReasons: ReceiptQuarantineReason[] = [];
+    if (sourceKeys.has(row.sourcePrimaryKey)) duplicateReasons.push("SourceIdentityCollision");
+    sourceKeys.add(row.sourcePrimaryKey);
+    if (row.visualId !== null) {
+      if (visualIds.has(row.visualId)) duplicateReasons.push("DuplicateVisualId");
+      visualIds.add(row.visualId);
+    }
+    if (duplicateReasons.length === 0) return result;
+    return {
+      _tag: "QuarantinedReceiptImport",
+      sourcePrimaryKey: row.sourcePrimaryKey,
+      reasons:
+        result._tag === "QuarantinedReceiptImport"
+          ? [...result.reasons, ...duplicateReasons]
+          : duplicateReasons,
+      provenance,
+      reconciliation: "NotApplicable",
+    };
+  });
+};
