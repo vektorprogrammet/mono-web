@@ -21,7 +21,7 @@ export async function loader({ request }: Route.LoaderArgs) {
   try {
     const result = await client.admissionPeriods.listForManagement();
     return {
-      periods: result.items.map(mapAdmissionPeriodView),
+      periods: result.map(mapAdmissionPeriodView),
       error: undefined,
     };
   } catch (error) {
