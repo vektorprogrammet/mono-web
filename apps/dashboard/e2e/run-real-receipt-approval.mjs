@@ -11,9 +11,9 @@ const dashboardRoot = fileURLToPath(new URL("../", import.meta.url));
 const composeFile = join(repositoryRoot, "docker-compose.yml");
 const dashboardOrigin = "http://127.0.0.1:5174";
 const receiptApiOrigin = "http://127.0.0.1:8790";
-const postgresUrl = "postgres://receipt:receipt@127.0.0.1:55432/receipt_proof";
+const postgresUrl = "postgres://receipt:receipt@127.0.0.1:55432/receipt_proof?connect_timeout=1";
 const composeProject = `mono-web-receipt-0037-${process.pid}`;
-const commandTimeoutMs = 120_000;
+const commandTimeoutMs = 300_000;
 const shutdownTimeoutMs = 5_000;
 const postgresPort = 55432;
 const nixPostgresPackage = "nixpkgs#postgresql_17";
@@ -105,11 +105,7 @@ function startProcess(command, args, options) {
 }
 
 function runNixPostgres(command, args, options) {
-  return runCommand(
-    "nix",
-    ["shell", nixPostgresPackage, "--command", command, ...args],
-    options,
-  );
+  return runCommand("nix", ["shell", nixPostgresPackage, "--command", command, ...args], options);
 }
 
 async function stopProcess(child) {
@@ -224,7 +220,7 @@ async function startLocalPostgres(dataRoot, environment) {
       "-D",
       dataRoot,
       "-o",
-      `-p ${postgresPort} -h 127.0.0.1`,
+      `-p ${postgresPort} -h 127.0.0.1 -k ${dataRoot}`,
       "-l",
       join(dataRoot, "postgres.log"),
       "-w",
@@ -550,7 +546,10 @@ function assertDurableEvidence(postgres, privateFile, journeyEvidence) {
   const concurrentReceipt = receiptById.get(journeyEvidence.receipts.concurrent);
   const expectedConcurrentAction =
     concurrentReceipt?.status === "Refunded" ? "ReceiptRefunded" : "ReceiptRejected";
-  if (auditByCommand.get(journeyEvidence.commands.concurrentWinner)?.action !== expectedConcurrentAction) {
+  if (
+    auditByCommand.get(journeyEvidence.commands.concurrentWinner)?.action !==
+    expectedConcurrentAction
+  ) {
     throw new Error("Concurrent approval audit action is incorrect");
   }
 
@@ -559,7 +558,8 @@ function assertDurableEvidence(postgres, privateFile, journeyEvidence) {
     const rows = outboxByCommand.get(row.commandId) ?? [];
     rows.push(row);
     outboxByCommand.set(row.commandId, rows);
-    if (row.status !== "Delivered") throw new Error("Receipt approval outbox is not fully delivered");
+    if (row.status !== "Delivered")
+      throw new Error("Receipt approval outbox is not fully delivered");
   }
   const expectedSubmissionEffects = [
     "PromoteReceiptFile",
@@ -567,11 +567,16 @@ function assertDurableEvidence(postgres, privateFile, journeyEvidence) {
     "WriteReceiptAudit",
   ];
   for (const commandId of journeyEvidence.commands.submissions) {
-    const rows = outboxByCommand.get(commandId)?.sort((left, right) => left.ordinal - right.ordinal);
+    const rows = outboxByCommand
+      .get(commandId)
+      ?.sort((left, right) => left.ordinal - right.ordinal);
     if (
       rows === undefined ||
       rows.length !== expectedSubmissionEffects.length ||
-      rows.some((row, ordinal) => row.ordinal !== ordinal || row.effectType !== expectedSubmissionEffects[ordinal])
+      rows.some(
+        (row, ordinal) =>
+          row.ordinal !== ordinal || row.effectType !== expectedSubmissionEffects[ordinal],
+      )
     ) {
       throw new Error("Receipt submission outbox order is incorrect");
     }
@@ -582,11 +587,15 @@ function assertDurableEvidence(postgres, privateFile, journeyEvidence) {
     [journeyEvidence.commands.stale, "NotifyReceiptRejected"],
     [
       journeyEvidence.commands.concurrentWinner,
-      expectedConcurrentAction === "ReceiptRefunded" ? "NotifyReceiptRefunded" : "NotifyReceiptRejected",
+      expectedConcurrentAction === "ReceiptRefunded"
+        ? "NotifyReceiptRefunded"
+        : "NotifyReceiptRejected",
     ],
   ]);
   for (const [commandId, notificationEffect] of expectedResolutionEffects) {
-    const rows = outboxByCommand.get(commandId)?.sort((left, right) => left.ordinal - right.ordinal);
+    const rows = outboxByCommand
+      .get(commandId)
+      ?.sort((left, right) => left.ordinal - right.ordinal);
     if (
       rows === undefined ||
       rows.length !== 2 ||
@@ -795,8 +804,19 @@ async function main() {
     await waitForHttp(`${receiptApiOrigin}/health`, apiProcess, "Native Receipt API");
 
     dashboardProcess = startProcess(
-      "bun",
-      ["run", "dev", "--host", "127.0.0.1", "--port", "5174"],
+      "nix",
+      [
+        "shell",
+        "nixpkgs#nodejs_24",
+        "--command",
+        "node",
+        "node_modules/@react-router/dev/dist/cli/index.js",
+        "dev",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "5174",
+      ],
       {
         cwd: dashboardRoot,
         env: dashboardEnvironment,
@@ -805,8 +825,12 @@ async function main() {
     await waitForHttp(`${dashboardOrigin}/login`, dashboardProcess, "Dashboard");
 
     await runCommand(
-      "node",
+      "nix",
       [
+        "shell",
+        "nixpkgs#nodejs_24",
+        "--command",
+        "node",
         "./node_modules/@playwright/test/cli.js",
         "test",
         "e2e/receipt-approval.spec.ts",

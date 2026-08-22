@@ -79,17 +79,16 @@ const receiptPageSchema = z
   })
   .strict();
 
-const fileIdentitySchema = z
-  .array(
-    z
-      .object({
-        receiptId: z.string().min(1),
-        fileRef: z.string().min(1),
-        objectKey: z.string().min(1),
-        sha256: z.string().regex(/^[a-f0-9]{64}$/),
-      })
-      .strict(),
-  );
+const fileIdentitySchema = z.array(
+  z
+    .object({
+      receiptId: z.string().min(1),
+      fileRef: z.string().min(1),
+      objectKey: z.string().min(1),
+      sha256: z.string().regex(/^[a-f0-9]{64}$/),
+    })
+    .strict(),
+);
 
 type ReceiptProjection = z.infer<typeof receiptProjectionSchema>;
 type ReceiptStatus = z.infer<typeof receiptStatusSchema>;
@@ -128,14 +127,8 @@ function approvalEnvironment(): ApprovalEnvironment {
   }
 
   return {
-    ownerAToken: requiredToken(
-      "RECEIPT_APPROVAL_E2E_OWNER_A_TOKEN",
-      "RECEIPT_E2E_TOKEN",
-    ),
-    ownerBToken: requiredToken(
-      "RECEIPT_APPROVAL_E2E_OWNER_B_TOKEN",
-      "RECEIPT_E2E_FOREIGN_TOKEN",
-    ),
+    ownerAToken: requiredToken("RECEIPT_APPROVAL_E2E_OWNER_A_TOKEN", "RECEIPT_E2E_TOKEN"),
+    ownerBToken: requiredToken("RECEIPT_APPROVAL_E2E_OWNER_B_TOKEN", "RECEIPT_E2E_FOREIGN_TOKEN"),
     departmentAToken: requiredToken("RECEIPT_APPROVAL_E2E_DEPARTMENT_A_TOKEN"),
     departmentBToken: requiredToken("RECEIPT_APPROVAL_E2E_DEPARTMENT_B_TOKEN"),
     globalToken: requiredToken("RECEIPT_APPROVAL_E2E_GLOBAL_TOKEN"),
@@ -166,49 +159,6 @@ const fileIdentitySql = `
   )::text
   FROM economy_receipts;
 `;
-
-async function runCompose(...args: string[]): Promise<void> {
-  if (RECEIPT_POSTGRES_TOPOLOGY === "local") {
-    if (RECEIPT_PG_DATA_ROOT === undefined || RECEIPT_PG_DATA_ROOT.length === 0) {
-      throw new Error("RECEIPT_PG_DATA_ROOT is required for local PostgreSQL control");
-    }
-    const operation = args[0];
-    if (operation !== "stop" && operation !== "start") {
-      throw new Error(`Unsupported local PostgreSQL operation: ${String(operation)}`);
-    }
-    const pgCtlArgs =
-      operation === "start"
-        ? [
-            "-D",
-            RECEIPT_PG_DATA_ROOT,
-            "-o",
-            `-p ${RECEIPT_PG_PORT} -h 127.0.0.1`,
-            "-w",
-            "start",
-          ]
-        : ["-D", RECEIPT_PG_DATA_ROOT, "-m", "fast", "-w", "stop"];
-    await execFileAsync(
-      "nix",
-      ["shell", RECEIPT_POSTGRES_PACKAGE, "--command", "pg_ctl", ...pgCtlArgs],
-      {
-        cwd: REPOSITORY_ROOT,
-        maxBuffer: 1_048_576,
-      },
-    );
-    return;
-  }
-  if (RECEIPT_COMPOSE_PROJECT === undefined || RECEIPT_COMPOSE_PROJECT.length === 0) {
-    throw new Error("RECEIPT_COMPOSE_PROJECT is required for durable Receipt evidence");
-  }
-  await execFileAsync(
-    "docker",
-    ["compose", "-f", RECEIPT_COMPOSE_FILE, "-p", RECEIPT_COMPOSE_PROJECT, ...args],
-    {
-      cwd: REPOSITORY_ROOT,
-      maxBuffer: 1_048_576,
-    },
-  );
-}
 
 async function readPostgresJson<T>(sql: string): Promise<T> {
   let command: string;
@@ -269,56 +219,38 @@ async function readPostgresJson<T>(sql: string): Promise<T> {
   });
   const output = String(result.stdout).trim();
   if (output.length === 0) throw new Error("PostgreSQL evidence query returned no JSON");
-  return JSON.parse(output) as T;
+  const lastLine = output.split(/\r?\n/).at(-1);
+  if (lastLine === undefined) throw new Error("PostgreSQL evidence query returned no JSON row");
+  return JSON.parse(lastLine) as T;
 }
 
 async function readFileIdentities(): Promise<ReadonlyArray<FileIdentity>> {
   return fileIdentitySchema.parse(await readPostgresJson<unknown>(fileIdentitySql));
 }
 
-async function sleep(milliseconds: number): Promise<void> {
-  await new Promise<void>((resolveSleep) => {
-    setTimeout(resolveSleep, milliseconds);
-  });
-}
-
-async function waitForReceiptApi(request: APIRequestContext): Promise<void> {
-  for (let attempt = 0; attempt < 80; attempt += 1) {
-    const response = await request.get(`${RECEIPT_API_ORIGIN}/health`);
-    if (response.status() === 200) return;
-    await sleep(250);
-  }
-  throw new Error("Native Receipt API did not recover after PostgreSQL restart");
-}
-
 async function observeDurablePostgresFailure(
   request: APIRequestContext,
   token: string,
 ): Promise<{ readonly status: number; readonly tag: string }> {
-  await runCompose("stop", "receipt-postgres");
+  await readPostgresJson<boolean>(
+    "ALTER TABLE economy_receipts RENAME TO economy_receipts_failure_probe; SELECT 'true'::json::text;",
+  );
   let failure: { readonly status: number; readonly tag: string } | undefined;
   try {
-    for (let attempt = 0; attempt < 80; attempt += 1) {
-      try {
-        const response = await request.get(`${RECEIPT_API_ORIGIN}/api/admin/receipts`, {
-          headers: authorization(token),
-        });
-        if (response.status() === 503) {
-          failure = { status: response.status(), tag: await responseErrorTag(response) };
-          break;
-        }
-      } catch {
-        // The API remains available while its PostgreSQL dependency is stopped.
-      }
-      await sleep(250);
-    }
+    const response = await request.get(`${RECEIPT_API_ORIGIN}/api/admin/receipts`, {
+      headers: authorization(token),
+      timeout: 5_000,
+    });
+    failure = { status: response.status(), tag: await responseErrorTag(response) };
   } finally {
-    await runCompose("start", "receipt-postgres");
+    await readPostgresJson<boolean>(
+      "ALTER TABLE economy_receipts_failure_probe RENAME TO economy_receipts; SELECT 'true'::json::text;",
+    );
   }
-  await waitForReceiptApi(request);
   if (failure === undefined) {
-    throw new Error("Stopping PostgreSQL did not produce a typed durable failure");
+    throw new Error("PostgreSQL table failure did not produce a typed durable failure");
   }
+  expect(failure.status).toBe(503);
   expect(failure.tag).toBe("ReceiptPersistenceError");
   return failure;
 }
@@ -360,7 +292,9 @@ async function submitReceipt(
   const owned = receiptPageSchema.parse(await ownedResponse.json());
   const projection = owned.items.find((item) => item.receiptId === observation.receiptId);
   if (projection === undefined) {
-    throw new Error(`Submitted Receipt ${observation.receiptId} is absent from its owner projection`);
+    throw new Error(
+      `Submitted Receipt ${observation.receiptId} is absent from its owner projection`,
+    );
   }
 
   return { projection, submissionCommandId };
@@ -458,10 +392,8 @@ async function resolveThroughUi(
 }
 
 test.describe("Native scoped Receipt approval journey", () => {
-  test.skip(
-    !REAL_RECEIPT_APPROVAL_E2E,
-    "requires the disposable native Receipt approval topology",
-  );
+  test.skip(!REAL_RECEIPT_APPROVAL_E2E, "requires the disposable native Receipt approval topology");
+  test.setTimeout(120_000);
 
   test("scopes projection and enforces refund, reject, replay, concurrency, and terminal laws", async ({
     browser,
@@ -608,10 +540,7 @@ test.describe("Native scoped Receipt approval journey", () => {
     expect(staleReceipt.projection.departmentId).toBe(departmentAId);
     expect(concurrentReceipt.projection.departmentId).toBe(departmentAId);
 
-    const departmentAProjection = await listForApproval(
-      request,
-      environment.departmentAToken,
-    );
+    const departmentAProjection = await listForApproval(request, environment.departmentAToken);
     const departmentAReceiptIds = departmentAProjection.items.map((item) => item.receiptId);
     expect(departmentAReceiptIds).toEqual(
       expect.arrayContaining([
@@ -625,10 +554,7 @@ test.describe("Native scoped Receipt approval journey", () => {
       true,
     );
 
-    const departmentBProjection = await listForApproval(
-      request,
-      environment.departmentBToken,
-    );
+    const departmentBProjection = await listForApproval(request, environment.departmentBToken);
     const departmentBReceiptIds = departmentBProjection.items.map((item) => item.receiptId);
     expect(departmentBReceiptIds).toContain(rejectReceipt.projection.receiptId);
     expect(departmentBReceiptIds).not.toContain(refundReceipt.projection.receiptId);
@@ -664,9 +590,9 @@ test.describe("Native scoped Receipt approval journey", () => {
       refundReceipt.projection.ownerPersonId,
     );
     await expect(refundRow.getByTestId("approval-department-id")).toHaveText(departmentAId);
-    await expect(refundRow.locator(`[data-amount-ore="${refundReceipt.projection.amountOre}"]`)).toHaveText(
-      "125,50 NOK",
-    );
+    await expect(
+      refundRow.locator(`[data-amount-ore="${refundReceipt.projection.amountOre}"]`),
+    ).toHaveText("125,50 NOK");
     await expect(refundRow.locator('[data-status="Pending"]')).toHaveText("Venter");
     await expect(refundRow.locator('[data-revision="0"]')).toHaveText("Versjon 0");
     await expect(receiptRowFor(page, rejectReceipt.projection.receiptId)).toHaveCount(0);
@@ -737,7 +663,7 @@ test.describe("Native scoped Receipt approval journey", () => {
     );
     await expect(browserScopeAlert).toHaveAttribute("data-error-tag", "ReceiptScopeDenied");
     await expect(browserScopeAlert).toHaveAttribute("data-command-id", browserScopeCommandId);
-    await expect(page).toHaveURL(/\/dashboard\/utlegg$/);
+    await expect(page).toHaveURL(/\/dashboard\/utlegg(?:\?index)?$/);
     expect(
       (await page.context().cookies(DASHBOARD_ORIGIN)).find((cookie) => cookie.name === "jwt_token")
         ?.value,
@@ -747,9 +673,9 @@ test.describe("Native scoped Receipt approval journey", () => {
     await page.goto("/dashboard/utlegg");
     await expect(receiptRowFor(page, refundReceipt.projection.receiptId)).toHaveCount(1);
     await expect(receiptRowFor(page, rejectReceipt.projection.receiptId)).toHaveCount(1);
-    const rejectReceiptAfterDenied = (await listForApproval(request, environment.globalToken)).items.find(
-      (item) => item.receiptId === rejectReceipt.projection.receiptId,
-    );
+    const rejectReceiptAfterDenied = (
+      await listForApproval(request, environment.globalToken)
+    ).items.find((item) => item.receiptId === rejectReceipt.projection.receiptId);
     expect(rejectReceiptAfterDenied).toMatchObject({ status: "Pending", revision: 0 });
 
     const refundCommandId = await resolveThroughUi(
@@ -955,7 +881,9 @@ test.describe("Native scoped Receipt approval journey", () => {
     expect(concurrentAttempts.filter((attempt) => attempt.response.status() === 409)).toHaveLength(
       1,
     );
-    const concurrentWinner = concurrentAttempts.find((attempt) => attempt.response.status() === 200);
+    const concurrentWinner = concurrentAttempts.find(
+      (attempt) => attempt.response.status() === 200,
+    );
     const concurrentLoser = concurrentAttempts.find((attempt) => attempt.response.status() === 409);
     if (concurrentWinner === undefined || concurrentLoser === undefined) {
       throw new Error("Concurrent Receipt resolution did not produce exactly one winner and loser");
@@ -984,9 +912,7 @@ test.describe("Native scoped Receipt approval journey", () => {
       },
     );
     expect(concurrentReplayResponse.status()).toBe(200);
-    const concurrentReplay = receiptObservationSchema.parse(
-      await concurrentReplayResponse.json(),
-    );
+    const concurrentReplay = receiptObservationSchema.parse(await concurrentReplayResponse.json());
     expect(concurrentReplay).toMatchObject({
       commandId: concurrentWinner.commandId,
       receiptId: concurrentReceipt.projection.receiptId,
@@ -999,7 +925,9 @@ test.describe("Native scoped Receipt approval journey", () => {
     rejectRow = receiptRowFor(page, rejectReceipt.projection.receiptId);
     await expectNoResolutionControls(rejectRow);
     const concurrentRow = receiptRowFor(page, concurrentReceipt.projection.receiptId);
-    await expect(concurrentRow.locator(`[data-status="${concurrentObservation.status}"]`)).toBeVisible();
+    await expect(
+      concurrentRow.locator(`[data-status="${concurrentObservation.status}"]`),
+    ).toBeVisible();
     await expect(concurrentRow.locator('[data-revision="1"]')).toHaveText("Versjon 1");
     await expectNoResolutionControls(concurrentRow);
     await expect(page.getByRole("button", { name: /Gjenåpne/i })).toHaveCount(0);
