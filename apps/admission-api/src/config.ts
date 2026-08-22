@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
-import type { AdmissionActor } from "@vektorprogrammet/domain/admission-period";
+import type { AdmissionPeriodActor } from "@vektorprogrammet/domain/admission-period";
 
 export interface AdmissionApiPrincipal {
-  readonly actor: AdmissionActor;
+  readonly actor: AdmissionPeriodActor;
 }
 
 export interface AdmissionApiConfig {
@@ -28,7 +28,7 @@ const parseActive = (value: unknown): boolean => {
   return value;
 };
 
-const parseActor = (value: unknown): AdmissionActor => {
+const parseActor = (value: unknown): AdmissionPeriodActor => {
   if (!isRecord(value) || typeof value._tag !== "string") {
     throw new Error("invalid token actor");
   }

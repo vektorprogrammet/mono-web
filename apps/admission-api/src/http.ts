@@ -105,11 +105,11 @@ const requireNoQuery = (request: Request): void => {
   }
 };
 
-const decodeJson = async <A>(
+const decodeJson = async <S extends Schema.ConstraintDecoder<unknown, never>>(
   request: Request,
-  schema: Schema.Schema<A, unknown>,
+  schema: S,
   decodeError: () => Error,
-): Promise<A> => {
+): Promise<S["Type"]> => {
   const contentType = request.headers.get("content-type") ?? "";
   if (!/^application\/json(?:\s*;|$)/i.test(contentType)) throw decodeError();
   let body: unknown;
