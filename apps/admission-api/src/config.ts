@@ -51,6 +51,7 @@ const parseActor = (value: unknown): AdmissionActor => {
     return {
       _tag: "Member",
       personId: nonEmpty(value.personId, "token person"),
+      departmentId: nonEmpty(value.departmentId, "token department"),
       active: parseActive(value.active),
     };
   }
