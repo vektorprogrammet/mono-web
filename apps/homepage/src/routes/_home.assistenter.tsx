@@ -5,82 +5,120 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion";
 import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { TabsContent } from "@/components/ui/tabs";
-import { Tabs } from "@radix-ui/react-tabs";
-import { useRef, useState } from "react";
+  useActionData,
+  useLoaderData,
+  useNavigation,
+} from "react-router";
 import { getAssistenter } from "~/api/assistenter";
 import { getAssistantFaqs } from "~/api/faq";
 import { Divider } from "~/components/divider";
-import { TabMenu } from "~/components/tab-menu";
+import { PublicApplicationForm } from "~/components/public-application-form";
 import { Button } from "~/components/ui/button";
-import { type City, type CityPretty, cities } from "~/lib/types";
-
+import { createPublicApplicationClient } from "~/lib/application-api.server";
 import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from "@/components/ui/command";
+  mapPublicApplicationError,
+  parsePublicApplicationForm,
+  type PublicApplicationActionData,
+  type PublicApplicationLoaderData,
+} from "~/lib/public-application";
+import type { Route } from "./+types/_home.assistenter";
 
-import { Check, ChevronsUpDown } from "lucide-react";
 
-import { cn } from "@/lib/utils";
+export async function loader(): Promise<PublicApplicationLoaderData> {
+  const client = createPublicApplicationClient();
 
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
+  try {
+    const catalog = await client.applications.catalog();
+    return {
+      ok: true,
+      catalog: {
+        departments: catalog.departments.map((department) => ({
+          departmentId: department.departmentId,
+          name: department.name,
+          closesAt: department.closesAt,
+          fieldsOfStudy: department.fieldsOfStudy.map((field) => ({
+            fieldOfStudyId: field.fieldOfStudyId,
+            name: field.name,
+          })),
+        })),
+      },
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      error: mapPublicApplicationError(error),
+    };
+  }
+}
 
-import React from "react";
-import { studyOptions } from "~/lib/studies";
+export async function action({
+  request,
+}: Route.ActionArgs): Promise<PublicApplicationActionData> {
+  let formData: FormData;
+  try {
+    formData = await request.formData();
+  } catch {
+    formData = new FormData();
+  }
 
-const studies = studyOptions.map((value) => ({ value, label: value }));
+  const parsed = parsePublicApplicationForm(formData);
+  if (!parsed.ok) {
+    return {
+      success: false,
+      failure: {
+        commandId: parsed.commandId,
+        error: parsed.error,
+      },
+    };
+  }
 
-/* Placeholder values for application period until it can retrieve it from the database. Will be removed by a logic test checking whether the current date is between the RecruitmentStartDate and RecruitmentStopDate for the current semester and chosen city, or not. */
-const cityApplicationOpen: Record<City, boolean> = {
-  trondheim: true,
-  bergen: false,
-  aas: false,
-};
+  const client = createPublicApplicationClient();
+  try {
+    const submitted = await client.applications.submit(parsed.value);
+    const confirmation = await client.applications.confirmation(
+      submitted.applicationId,
+    );
+    if (confirmation.applicationId !== submitted.applicationId) {
+      return {
+        success: false,
+        failure: {
+          commandId: parsed.value.commandId,
+          error: {
+            _tag: "Unexpected",
+            message: "Søknaden kunne ikke bekreftes. Prøv igjen senere.",
+          },
+        },
+      };
+    }
 
-/* Should be updated when cityApplicationOpen is changed. */
-const isApplicationOpen = (cityPretty: CityPretty) => {
-  // convert pretty label back to the City key
-  const cityKey = (Object.keys(cities) as Array<City>).find(
-    (key) => cities[key] === cityPretty,
-  );
-  return cityKey ? cityApplicationOpen[cityKey] : false;
-};
+    return {
+      success: true,
+      confirmation: {
+        _tag: "ApplicationConfirmed",
+        applicationId: confirmation.applicationId,
+      },
+    };
+  } catch (error) {
+    return {
+      success: false,
+      failure: {
+        commandId: parsed.value.commandId,
+        error: mapPublicApplicationError(error),
+      },
+    };
+  }
+}
 
 // biome-ignore lint/style/noDefaultExport: Route Modules require default export https://reactrouter.com/start/framework/route-module
 export default function Assistenter() {
   const { title, ingress, cards } = getAssistenter();
+  const loaderData = useLoaderData<typeof loader>();
+  const actionData = useActionData<typeof action>();
+  const navigation = useNavigation();
+  const openDepartmentNames = loaderData.ok
+    ? loaderData.catalog.departments.map((department) => department.name)
+    : [];
 
-  const cardElement = useRef<HTMLDivElement>(null);
-  const scrollToCard = () =>
-    cardElement.current?.scrollIntoView({
-      behavior: "smooth",
-      block: "center",
-    });
 
   const assistantFaqs = getAssistantFaqs();
 
@@ -91,12 +129,14 @@ export default function Assistenter() {
           {title}
         </h1>
         <p className="max-w-3xl p-5 text-md md:text-lg">{ingress}</p>
-        <div className="w-full space-y-20 border-secondary p-10 text-center">
-          <div className="mx-8 bg-center font-bold font-sans text-vektor-DARKblue dark:text-text-dark">
-            {"Disse avdelingene har opptak nå: "}
-          </div>
-          <Button variant="green" onClick={scrollToCard}>
-            {"Scroll ned for å søke!"}
+        <div className="w-full space-y-6 border-secondary p-10 text-center">
+          <p className="mx-8 font-bold font-sans text-vektor-DARKblue dark:text-text-dark">
+            {openDepartmentNames.length > 0
+              ? `Opptaket er åpent i ${openDepartmentNames.join(", ")}.`
+              : "Se gjeldende opptak og frister i søknadsdelen."}
+          </p>
+          <Button variant="green" asChild>
+            <a href="#sok">Gå til søknadsskjema</a>
           </Button>
         </div>
       </div>
@@ -232,14 +272,11 @@ export default function Assistenter() {
           </div>
         </div>
       </div>
-      <Divider />
-      <div className="mt-16 mb-8 font-bold text-3xl text-vektor-DARKblue dark:text-text-dark">
-        {"Søk nå!"}
-      </div>
-      <div className="mb-16 h-full s:w-[100%] md:w-[75%]" ref={cardElement}>
-        {" "}
-        <CityTabs city="Trondheim" />
-      </div>
+      <PublicApplicationForm
+        loaderData={loaderData}
+        actionData={actionData}
+        submitting={navigation.state === "submitting"}
+      />
       <Divider />
 
       {/* FAQ Section */}
@@ -264,247 +301,5 @@ export default function Assistenter() {
         </div>
       </div>
     </div>
-  );
-}
-function CityTabs({ city }: { city: CityPretty }) {
-  const [active, setActive] = useState<CityPretty>(city);
-
-  return (
-    <div
-      className="items-center justify-center sm:w-[100%] sm:min-w-[300px] md:w-auto"
-      role="tablist"
-    >
-      <div className="md:absolute md:left-10">
-        <TabMenu
-          className="w-full md:w-auto"
-          tabs={Object.values(cities)}
-          activeTab={active}
-          setActiveTab={setActive}
-        />
-      </div>
-      <div className="mx-auto flex w-[100%] max-w-[800px] items-center justify-center md:w-[70%]">
-        {<CityApplyCard city={active} />}
-      </div>
-    </div>
-  );
-}
-
-function CityApplyCard({ city }: { city: CityPretty }) {
-  const [open, setOpen] = React.useState(false);
-  const [value, setValue] = React.useState("");
-
-  const openNow = isApplicationOpen(city);
-
-  return (
-    <Tabs value={city} className="space-y- w-[300px] md:w-[90%]">
-      <TabsContent value={city} key={city} className="">
-        <Card className="bg-vektor-darkblue">
-          <CardHeader className=" text-white">
-            <CardTitle className="flex items-center justify-center">
-              {city}
-            </CardTitle>
-          </CardHeader>
-          {openNow /* CardContent when the application period for the current city is closed */ ? (
-            <>
-              <CardDescription className="mb-5 flex items-center justify-center text-lg text-white md:text-xl">
-                {/* Replace ??? with a real deadline when connecting to database */}
-                Søknadsfrist: ???
-              </CardDescription>
-              <CardContent className=" space-y-3 text-white">
-                <div className="flex w-full flex-col md:flex-row md:space-x-4">
-                  <div className="w-full space-y-1 md:w-1/2">
-                    <Label htmlFor="fornavn">Fornavn</Label>
-                    <Input
-                      className="text-black"
-                      id="fornavn"
-                      placeholder="Ola"
-                      maxLength={100}
-                      onChange={(e) => {
-                        const cleanedValue = e.target.value.replace(
-                          /[^a-zA-ZæøåÆØÅ\s-]/g,
-                          "",
-                        );
-                        e.target.value = cleanedValue;
-                      }}
-                    />
-                  </div>
-                  <div className="w-full space-y-1 md:w-1/2">
-                    <Label htmlFor="etternavn">Etternavn</Label>
-                    <Input
-                      id="etternavn"
-                      className="text-black"
-                      placeholder="Nordmann"
-                      maxLength={100}
-                      onChange={(e) => {
-                        const cleanedValue = e.target.value.replace(
-                          /[^a-zA-ZæøåÆØÅ\s-]/g,
-                          "",
-                        );
-                        e.target.value = cleanedValue;
-                      }}
-                    />
-                  </div>
-                </div>
-                <div className="flex w-full flex-col md:flex-row md:space-x-4">
-                  <div className="w-full space-y-1 md:w-1/2">
-                    <Label htmlFor="email">E-post</Label>
-                    <Input
-                      id="email"
-                      placeholder="Skriv inn epost"
-                      className="text-black"
-                      maxLength={100}
-                      onChange={(e) => {
-                        const cleanedValue = e.target.value.replace(
-                          /[^a-zA-Z0-9@._-]/g, // allows letters, numbers, @, dot, underscore, and dash
-                          "",
-                        );
-                        e.target.value = cleanedValue;
-                      }}
-                    />
-                  </div>
-                  <div className="w-full space-y-1 md:w-1/2">
-                    <Label htmlFor="phone">Telefonnummer</Label>
-                    <Input
-                      id="phone"
-                      placeholder="Skriv inn telefonnummer"
-                      className="text-black"
-                      maxLength={8}
-                      onChange={(e) => {
-                        const cleanedValue = e.target.value.replace(
-                          /[^0-9]/g,
-                          "",
-                        );
-                        e.target.value = cleanedValue;
-                      }}
-                    />
-                  </div>
-                </div>
-                <div className="flex w-full flex-col md:flex-row md:space-x-4">
-                  <div className="w-full space-y-1 md:w-1/2">
-                    <Label htmlFor="fornavn">Studieretning</Label>
-                    <Popover open={open} onOpenChange={setOpen}>
-                      <PopoverTrigger asChild>
-                        <Button
-                          variant="outline"
-                          aria-expanded={open}
-                          className="w-full rounded-md border border-gray-300 text-left text-black shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        >
-                          {value
-                            ? studies.find((studies) => studies.value === value)
-                                ?.label
-                            : "Velg studieretning"}
-                          <ChevronsUpDown className="opacity-50" />
-                        </Button>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-full">
-                        <Command>
-                          <CommandInput
-                            placeholder="Finn studiekode"
-                            className=""
-                          />
-                          <CommandList>
-                            <CommandEmpty>Studiekode ikke funnet.</CommandEmpty>
-                            <CommandGroup>
-                              {studies.map((studies) => (
-                                <CommandItem
-                                  key={studies.value}
-                                  value={studies.value}
-                                  onSelect={(currentValue) => {
-                                    setValue(
-                                      currentValue === value
-                                        ? ""
-                                        : currentValue,
-                                    );
-                                    setOpen(false);
-                                  }}
-                                >
-                                  {studies.label}
-                                  <Check
-                                    className={cn(
-                                      value === studies.value
-                                        ? "opacity-100"
-                                        : "opacity-0",
-                                    )}
-                                  />
-                                </CommandItem>
-                              ))}
-                            </CommandGroup>
-                          </CommandList>
-                        </Command>
-                      </PopoverContent>
-                    </Popover>
-                  </div>
-                  <div className="w-full space-y-1 md:w-1/2">
-                    <div className="flex w-full flex-col md:flex-row md:space-x-4">
-                      <div className="w-full space-y-1 md:w-1/2">
-                        <Label htmlFor="gender">Kjønn</Label>
-                        <Select>
-                          <SelectTrigger className="w-full text-black">
-                            <SelectValue
-                              className="w-full"
-                              placeholder="Velg kjønn"
-                            />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="male">Mann</SelectItem>
-                            <SelectItem value="female">Kvinne</SelectItem>
-                            <SelectItem value="other">Annet</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div className="w-full space-y-1 md:w-1/2">
-                        <Label htmlFor="grade">Årstrinn</Label>
-                        <Select>
-                          <SelectTrigger className="w-full text-black">
-                            <SelectValue
-                              className="w-full text-black"
-                              placeholder="Velg årstrinn"
-                            />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="firstGrade">
-                              1. klasse
-                            </SelectItem>
-                            <SelectItem value="secondGrade">
-                              2. klasse
-                            </SelectItem>
-                            <SelectItem value="thirdGrade">
-                              3. klasse
-                            </SelectItem>
-                            <SelectItem value="fourthGrade">
-                              4. klasse
-                            </SelectItem>
-                            <SelectItem value="fifthGrade">
-                              5. klasse
-                            </SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </CardContent>
-              <CardFooter className="flex justify-end text-white">
-                <Button
-                  variant="green"
-                  className="w-[100%] md:w-[48%] lg:w-[22.5%]"
-                >
-                  Søk nå!
-                </Button>
-              </CardFooter>
-            </>
-          ) : (
-            /* CardContent when the application period for the current city is closed */
-            <CardContent className="mb-5 w-full text-white">
-              <p className="mx-auto text-center text-lg sm:w-9/10 md:w-4/5 md:text-xl">
-                Søknadsperioden for {city} er dessverre stengt for semesteret.
-                Vennligst kom tilbake senere for oppdateringer om fremtidige
-                søknadsperioder.
-              </p>
-            </CardContent>
-          )}
-        </Card>
-      </TabsContent>
-    </Tabs>
   );
 }

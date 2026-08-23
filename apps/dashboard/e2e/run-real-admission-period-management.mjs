@@ -23,6 +23,7 @@ const fixedClock = "2031-09-15T12:00:00.000Z";
 const departmentId = "department-trondheim";
 const foreignDepartmentId = "department-bergen";
 const semesterId = "semester-autumn-2031";
+const fieldOfStudyId = "field-mathematics";
 const dockerAvailable =
   spawnSync("docker", ["compose", "version"], { stdio: "ignore" }).status === 0;
 const postgresTopology = dockerAvailable ? "docker" : "local";
@@ -318,10 +319,18 @@ async function runPsql(sql, environment, label) {
 async function seedReferenceData(environment) {
   await runPsql(
     `
-      INSERT INTO admission_period_departments (department_id)
-      VALUES ('${departmentId}'), ('${foreignDepartmentId}');
+      INSERT INTO admission_period_departments (department_id, name)
+      VALUES
+        ('${departmentId}', 'Trondheim'),
+        ('${foreignDepartmentId}', 'Bergen');
       INSERT INTO admission_period_semesters (semester_id, start_at, end_at)
       VALUES ('${semesterId}', '2031-08-01T00:00:00.000Z', '2031-12-31T00:00:00.000Z');
+      INSERT INTO admission_period_fields_of_study (
+        field_of_study_id,
+        department_id,
+        name,
+        active
+      ) VALUES ('${fieldOfStudyId}', '${departmentId}', 'Matematikk', TRUE);
     `,
     environment,
     "Admission reference-data seed",
@@ -415,9 +424,7 @@ function assertDurableEvidence(postgres, lifecycle) {
     postgres.period?.revision !== lifecycle.period.finalRevision ||
     postgres.period?.lastCommandId !== lifecycle.period.closeCommandId ||
     postgres.application?.id !== lifecycle.application.id ||
-    postgres.application?.applicantId !== lifecycle.application.applicantId ||
     postgres.application?.admissionPeriodId !== lifecycle.period.id ||
-    lifecycle.application.admissionPeriodId !== lifecycle.period.id ||
     lifecycle.publicEligibility.beforeClose.includes(lifecycle.period.id) !== true ||
     lifecycle.publicEligibility.afterClose.includes(lifecycle.period.id) ||
     lifecycle.replay.tag !== "Replayed" ||

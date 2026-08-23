@@ -16,7 +16,7 @@ const REAL_ADMISSION_PERIOD_E2E = process.env.REAL_ADMISSION_PERIOD_E2E === "1";
 const DEPARTMENT_ID = "department-trondheim";
 const FOREIGN_DEPARTMENT_ID = "department-bergen";
 const SEMESTER_ID = "semester-autumn-2031";
-const APPLICANT_ID = "applicant-before-close";
+const FIELD_OF_STUDY_ID = "field-mathematics";
 const OPEN_START_INPUT = "2031-09-01T08:00";
 const OPEN_END_INPUT = "2031-10-01T20:00";
 const CLOSED_END_INPUT = "2031-09-10T12:00";
@@ -70,11 +70,8 @@ const errorSchema = Schema.Struct({
 });
 const applicationSubmissionSchema = Schema.Struct({
   _tag: Schema.Literal("Submitted"),
-  application: Schema.Struct({
-    id: Schema.String,
-    applicantId: Schema.String,
-    admissionPeriodId: Schema.String,
-  }),
+  commandId: Schema.String,
+  applicationId: Schema.String,
 });
 
 const decodeStrict = <A>(
@@ -316,7 +313,13 @@ test.describe("Native admission-period management", () => {
       data: {
         commandId: applicationCommandId,
         departmentId: DEPARTMENT_ID,
-        applicantId: APPLICANT_ID,
+        firstName: "Admission Proof",
+        lastName: "Applicant",
+        phone: "+47 900 00 038",
+        email: "admission-proof-before-close@example.invalid",
+        gender: 0,
+        fieldOfStudyId: FIELD_OF_STUDY_ID,
+        yearOfStudy: 3,
       },
     });
     expect(applicationResponse.ok()).toBe(true);
@@ -324,8 +327,8 @@ test.describe("Native admission-period management", () => {
       applicationSubmissionSchema,
       await applicationResponse.json(),
     );
-    const application = applicationSubmission.application;
-    expect(application.admissionPeriodId).toBe(admissionPeriodId);
+    expect(applicationSubmission.commandId).toBe(applicationCommandId);
+    expect(applicationSubmission.applicationId).toBeTruthy();
 
     const concurrentBodies = [
       {
@@ -414,13 +417,19 @@ test.describe("Native admission-period management", () => {
         data: {
           commandId: "admission-e2e-application-after-close",
           departmentId: DEPARTMENT_ID,
-          applicantId: "applicant-after-close",
+          firstName: "Closed Period",
+          lastName: "Applicant",
+          phone: "+47 900 00 138",
+          email: "admission-proof-after-close@example.invalid",
+          gender: 1,
+          fieldOfStudyId: FIELD_OF_STUDY_ID,
+          yearOfStudy: 2,
         },
       },
     );
     const rejectedApplication = await expectErrorTag(
       rejectedApplicationResponse,
-      "NoOpenAdmissionPeriod",
+      "NoEligibleAdmissionPeriod",
     );
 
     const invalidBrowserContext = await browser.newContext({ baseURL: DASHBOARD_ORIGIN });
@@ -462,10 +471,8 @@ test.describe("Native admission-period management", () => {
           finalRevision: 2,
         },
         application: {
-          id: application.id,
+          id: applicationSubmission.applicationId,
           commandId: applicationCommandId,
-          applicantId: APPLICANT_ID,
-          admissionPeriodId: application.admissionPeriodId,
         },
         publicEligibility: {
           beforeClose: openBeforeClose.items.map((period) => period.id),

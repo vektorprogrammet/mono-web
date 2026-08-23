@@ -13,6 +13,8 @@ export const HOMEPAGE_PLAYWRIGHT_INPUTS = {
 } as const;
 const artifactRoot = join(tmpdir(), "monoweb-homepage-dev-0011");
 const chromiumExecutablePath = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH;
+const externallyManagedServer =
+  process.env.REAL_PUBLIC_APPLICATION_E2E === "1";
 
 export default defineConfig({
   timeout: 60_000,
@@ -45,11 +47,14 @@ export default defineConfig({
       },
     },
   ],
-  webServer: {
-    port,
-    cwd: "../..",
-    command: "bun run --cwd apps/homepage worker:build && bun run --cwd apps/homepage worker:dev",
-    reuseExistingServer: false,
-    timeout: 180_000,
-  },
+  webServer: externallyManagedServer
+    ? undefined
+    : {
+        port,
+        cwd: "../..",
+        command:
+          "bun run --cwd apps/homepage worker:build && bun run --cwd apps/homepage worker:dev",
+        reuseExistingServer: false,
+        timeout: 180_000,
+      },
 });
