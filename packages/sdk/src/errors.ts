@@ -80,6 +80,12 @@ export type RecruitmentRejectionTag =
   | "RecruitmentInterviewSchemaInactive"
   | "RecruitmentInterviewerNotEligible"
   | "RecruitmentAssignmentCommandConflict"
+  | "RecruitmentInterviewNotFound"
+  | "RecruitmentInterviewAlreadyScheduled"
+  | "RecruitmentInterviewStaleRevision"
+  | "RecruitmentScheduleCommandConflict"
+  | "RecruitmentScheduleInPast"
+  | "ProfileContactNotFound"
   | "RecruitmentDecodeError"
   | "RecruitmentPersistenceError";
 
@@ -337,6 +343,48 @@ export class RecruitmentAssignmentCommandConflictError extends RecruitmentReject
   constructor() {
     super("RecruitmentAssignmentCommandConflict");
     this.name = "RecruitmentAssignmentCommandConflictError";
+  }
+}
+
+export class RecruitmentInterviewNotFoundError extends RecruitmentRejectionError {
+  constructor() {
+    super("RecruitmentInterviewNotFound");
+    this.name = "RecruitmentInterviewNotFoundError";
+  }
+}
+
+export class RecruitmentInterviewAlreadyScheduledError extends RecruitmentRejectionError {
+  constructor() {
+    super("RecruitmentInterviewAlreadyScheduled");
+    this.name = "RecruitmentInterviewAlreadyScheduledError";
+  }
+}
+
+export class RecruitmentInterviewStaleRevisionError extends RecruitmentRejectionError {
+  constructor() {
+    super("RecruitmentInterviewStaleRevision");
+    this.name = "RecruitmentInterviewStaleRevisionError";
+  }
+}
+
+export class RecruitmentScheduleCommandConflictError extends RecruitmentRejectionError {
+  constructor() {
+    super("RecruitmentScheduleCommandConflict");
+    this.name = "RecruitmentScheduleCommandConflictError";
+  }
+}
+
+export class RecruitmentScheduleInPastError extends RecruitmentRejectionError {
+  constructor() {
+    super("RecruitmentScheduleInPast");
+    this.name = "RecruitmentScheduleInPastError";
+  }
+}
+
+export class RecruitmentProfileContactNotFoundError extends RecruitmentRejectionError {
+  constructor() {
+    super("ProfileContactNotFound");
+    this.name = "RecruitmentProfileContactNotFoundError";
   }
 }
 
@@ -653,6 +701,30 @@ export class RecruitmentAssignmentCommandConflict extends Schema.TaggedError<Rec
   "RecruitmentAssignmentCommandConflict",
   {},
 ) {}
+export class RecruitmentInterviewNotFound extends Schema.TaggedError<RecruitmentInterviewNotFound>()(
+  "RecruitmentInterviewNotFound",
+  {},
+) {}
+export class RecruitmentInterviewAlreadyScheduled extends Schema.TaggedError<RecruitmentInterviewAlreadyScheduled>()(
+  "RecruitmentInterviewAlreadyScheduled",
+  {},
+) {}
+export class RecruitmentInterviewStaleRevision extends Schema.TaggedError<RecruitmentInterviewStaleRevision>()(
+  "RecruitmentInterviewStaleRevision",
+  {},
+) {}
+export class RecruitmentScheduleCommandConflict extends Schema.TaggedError<RecruitmentScheduleCommandConflict>()(
+  "RecruitmentScheduleCommandConflict",
+  {},
+) {}
+export class RecruitmentScheduleInPast extends Schema.TaggedError<RecruitmentScheduleInPast>()(
+  "RecruitmentScheduleInPast",
+  {},
+) {}
+export class RecruitmentProfileContactNotFound extends Schema.TaggedError<RecruitmentProfileContactNotFound>()(
+  "ProfileContactNotFound",
+  {},
+) {}
 export class RecruitmentPersistenceError extends Schema.TaggedError<RecruitmentPersistenceError>()(
   "RecruitmentPersistenceError",
   {},
@@ -842,6 +914,12 @@ export type RecruitmentFailure =
   | RecruitmentInterviewSchemaInactive
   | RecruitmentInterviewerNotEligible
   | RecruitmentAssignmentCommandConflict
+  | RecruitmentInterviewNotFound
+  | RecruitmentInterviewAlreadyScheduled
+  | RecruitmentInterviewStaleRevision
+  | RecruitmentScheduleCommandConflict
+  | RecruitmentScheduleInPast
+  | RecruitmentProfileContactNotFound
   | RecruitmentPersistenceError;
 
 export type PublicApplicationSdkError = PublicApplicationFailure;
@@ -987,6 +1065,18 @@ export function toSdkError(error: InternalSdkError): SdkError {
       return new RecruitmentInterviewerNotEligibleError();
     case "RecruitmentAssignmentCommandConflict":
       return new RecruitmentAssignmentCommandConflictError();
+    case "RecruitmentInterviewNotFound":
+      return new RecruitmentInterviewNotFoundError();
+    case "RecruitmentInterviewAlreadyScheduled":
+      return new RecruitmentInterviewAlreadyScheduledError();
+    case "RecruitmentInterviewStaleRevision":
+      return new RecruitmentInterviewStaleRevisionError();
+    case "RecruitmentScheduleCommandConflict":
+      return new RecruitmentScheduleCommandConflictError();
+    case "RecruitmentScheduleInPast":
+      return new RecruitmentScheduleInPastError();
+    case "ProfileContactNotFound":
+      return new RecruitmentProfileContactNotFoundError();
     case "RecruitmentPersistenceError":
       return new RecruitmentPersistenceSdkError();
   }

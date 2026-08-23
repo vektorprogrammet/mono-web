@@ -148,6 +148,9 @@ export {
   InterviewSchemaId,
   RecruitmentInterviewId,
   RecruitmentAssignmentCommandId,
+  RecruitmentScheduleCommandId,
+  RecruitmentInvitationId,
+  RecruitmentNotificationEffectId,
   RecruitmentApplicationId,
   RecruitmentApplicantId,
   RecruitmentPersonId,
@@ -162,6 +165,16 @@ export {
   RecruitmentInterviewSchema,
   RecruitmentInterviewerOptionSchema,
   RecruitmentInterviewSchemaOptionSchema,
+  RecruitmentInvitationResponseStateSchema,
+  RecruitmentNotificationDeliveryStateSchema,
+  RecruitmentInterviewScheduleSchema,
+  RecruitmentSchedulingApplicantSchema,
+  RecruitmentSchedulingInterviewerSchema,
+  RecruitmentSchedulingInterviewSchema,
+  RecruitmentSchedulingBoardSchema,
+  RecruitmentScheduleCommandSchema,
+  RecruitmentScheduleObservationSchema,
+  RecruitmentScheduleResultSchema,
 } from "./schemas/recruitment.js";
 export type {
   RecruitmentAssignmentBoardQuery,
@@ -173,6 +186,16 @@ export type {
   RecruitmentInterview,
   RecruitmentInterviewerOption,
   RecruitmentInterviewSchemaOption,
+  RecruitmentInvitationResponseState,
+  RecruitmentNotificationDeliveryState,
+  RecruitmentInterviewSchedule,
+  RecruitmentSchedulingApplicant,
+  RecruitmentSchedulingInterviewer,
+  RecruitmentSchedulingInterview,
+  RecruitmentSchedulingBoard,
+  RecruitmentScheduleCommand,
+  RecruitmentScheduleObservation,
+  RecruitmentScheduleResult,
 } from "./schemas/recruitment.js";
 
 // --- Client options ---

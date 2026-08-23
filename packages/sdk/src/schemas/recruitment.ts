@@ -15,6 +15,118 @@ const NonEmpty = Schema.String.pipe(
 const Revision = Schema.Int.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(0)));
 const NonNegative = Schema.Int.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(0)));
 
+const Name = Schema.String.pipe(
+  Schema.check(
+    Schema.makeFilter((value) => value.trim().length > 0, { message: "a non-empty name" }),
+    Schema.isMaxLength(250),
+  ),
+);
+const ApplicantName = Schema.String.pipe(
+  Schema.check(
+    Schema.makeFilter(
+      (value) => {
+        const normalized = value.trim();
+        return (
+          normalized.length > 0 &&
+          Array.from(normalized).length <= 100 &&
+          !/[\p{Cc}\p{Cf}]/u.test(normalized)
+        );
+      },
+      { message: "a valid applicant name" },
+    ),
+  ),
+);
+const ApplicantEmail = Schema.String.pipe(
+  Schema.check(
+    Schema.makeFilter(
+      (value) => {
+        const normalized = value.trim();
+        return (
+          normalized.length > 0 &&
+          Array.from(normalized).length <= 254 &&
+          !/[\p{Cc}\p{Cf}\s]/u.test(normalized) &&
+          /^[^@]+@[^@]+\.[^@]+$/u.test(normalized)
+        );
+      },
+      { message: "a valid applicant email" },
+    ),
+  ),
+);
+const ApplicantPhone = Schema.String.pipe(
+  Schema.check(
+    Schema.makeFilter(
+      (value) => {
+        const normalized = value.trim();
+        return (
+          normalized.length > 0 &&
+          Array.from(normalized).length <= 32 &&
+          !/[\p{Cc}\p{Cf}]/u.test(normalized)
+        );
+      },
+      { message: "a valid applicant phone number" },
+    ),
+  ),
+);
+const PersonContactEmail = Schema.String.pipe(
+  Schema.check(
+    Schema.makeFilter(
+      (value) => {
+        const normalized = value.trim();
+        const separator = normalized.indexOf("@");
+        return (
+          normalized.length <= 320 &&
+          separator > 0 &&
+          separator === normalized.lastIndexOf("@") &&
+          separator < normalized.length - 1
+        );
+      },
+      { message: "a valid staff email address" },
+    ),
+  ),
+);
+const PersonContactPhone = Schema.String.pipe(
+  Schema.check(
+    Schema.makeFilter(
+      (value) => {
+        const normalized = value.trim();
+        return (
+          normalized.length > 0 &&
+          normalized.length <= 32 &&
+          /^[+\d][\d\s().-]*$/u.test(normalized)
+        );
+      },
+      { message: "a valid staff phone number" },
+    ),
+  ),
+);
+const ScheduleMessage = Schema.String.pipe(
+  Schema.check(
+    Schema.makeFilter((value) => value.trim().length > 0, {
+      message: "a non-empty schedule message",
+    }),
+    Schema.isMaxLength(2_000),
+  ),
+);
+const HttpsMapLink = Schema.String.pipe(
+  Schema.check(
+    Schema.makeFilter(
+      (value) => {
+        try {
+          const url = new URL(value);
+          return (
+            url.protocol === "https:" &&
+            url.username.length === 0 &&
+            url.password.length === 0
+          );
+        } catch {
+          return false;
+        }
+      },
+      { message: "an HTTPS URL without user credentials" },
+    ),
+  ),
+);
+
 export const RecruitmentAdmissionPeriodId = StableId.pipe(
   Schema.brand("RecruitmentAdmissionPeriodId"),
 );
@@ -30,6 +142,19 @@ export const RecruitmentAssignmentCommandId = StableId.pipe(
   Schema.brand("RecruitmentAssignmentCommandId"),
 );
 export type RecruitmentAssignmentCommandId = typeof RecruitmentAssignmentCommandId.Type;
+
+export const RecruitmentScheduleCommandId = StableId.pipe(
+  Schema.brand("RecruitmentScheduleCommandId"),
+);
+export type RecruitmentScheduleCommandId = typeof RecruitmentScheduleCommandId.Type;
+
+export const RecruitmentInvitationId = StableId.pipe(Schema.brand("RecruitmentInvitationId"));
+export type RecruitmentInvitationId = typeof RecruitmentInvitationId.Type;
+
+export const RecruitmentNotificationEffectId = StableId.pipe(
+  Schema.brand("RecruitmentNotificationEffectId"),
+);
+export type RecruitmentNotificationEffectId = typeof RecruitmentNotificationEffectId.Type;
 
 export const RecruitmentApplicationId = StableId.pipe(Schema.brand("RecruitmentApplicationId"));
 export type RecruitmentApplicationId = typeof RecruitmentApplicationId.Type;
@@ -66,11 +191,14 @@ export const RecruitmentInterviewSchemaOptionSchema = Schema.Struct({
 });
 export type RecruitmentInterviewSchemaOption = typeof RecruitmentInterviewSchemaOptionSchema.Type;
 
-export const RecruitmentInterviewStateSchema = Schema.Literals(["NoContact"]);
-export type RecruitmentInterviewState = typeof RecruitmentInterviewStateSchema.Type;
 
-export const RecruitmentInterviewStateForBoardSchema = Schema.Literals(["Unassigned", "NoContact"]);
-export type RecruitmentInterviewStateForBoard = typeof RecruitmentInterviewStateForBoardSchema.Type;
+export const RecruitmentInterviewStateForBoardSchema = Schema.Literals([
+  "Unassigned",
+  "NoContact",
+  "Scheduled",
+]);
+export type RecruitmentInterviewStateForBoard =
+  typeof RecruitmentInterviewStateForBoardSchema.Type;
 
 export const RecruitmentApplicationStateSchema = Schema.Literals(["Received"]);
 export type RecruitmentApplicationState = typeof RecruitmentApplicationStateSchema.Type;
@@ -115,8 +243,6 @@ export const RecruitmentInterviewSchema = Schema.Struct({
   interviewSchemaId: InterviewSchemaId,
   assignedByPersonId: RecruitmentPersonId,
   assignedAt: Rfc3339InstantSchema,
-  state: RecruitmentInterviewStateSchema,
-  scheduledAt: Schema.NullOr(Rfc3339InstantSchema),
   revision: Revision,
 });
 export type RecruitmentInterview = typeof RecruitmentInterviewSchema.Type;
@@ -133,6 +259,100 @@ export const RecruitmentAssignmentResultSchema = Schema.Struct({
   replayed: Schema.Boolean,
 });
 export type RecruitmentAssignmentResult = typeof RecruitmentAssignmentResultSchema.Type;
+
+export const RecruitmentInvitationResponseStateSchema = Schema.Literals(["Pending"]);
+export type RecruitmentInvitationResponseState =
+  typeof RecruitmentInvitationResponseStateSchema.Type;
+
+export const RecruitmentNotificationDeliveryStateSchema = Schema.Literals([
+  "Pending",
+  "Processing",
+  "Delivered",
+  "Failed",
+  "Quarantined",
+]);
+export type RecruitmentNotificationDeliveryState =
+  typeof RecruitmentNotificationDeliveryStateSchema.Type;
+
+export const RecruitmentInterviewScheduleSchema = Schema.Struct({
+  interviewId: RecruitmentInterviewId,
+  scheduledAt: Rfc3339InstantSchema,
+  room: Name,
+  campus: Schema.NullOr(Name),
+  mapLink: Schema.NullOr(HttpsMapLink),
+  message: ScheduleMessage,
+  scheduledByPersonId: RecruitmentPersonId,
+  committedAt: Rfc3339InstantSchema,
+  scheduleRevision: Revision,
+});
+export type RecruitmentInterviewSchedule = typeof RecruitmentInterviewScheduleSchema.Type;
+
+export const RecruitmentSchedulingApplicantSchema = Schema.Struct({
+  applicationId: RecruitmentApplicationId,
+  applicantId: RecruitmentApplicantId,
+  firstName: ApplicantName,
+  lastName: ApplicantName,
+  email: ApplicantEmail,
+  phone: ApplicantPhone,
+});
+export type RecruitmentSchedulingApplicant = typeof RecruitmentSchedulingApplicantSchema.Type;
+
+export const RecruitmentSchedulingInterviewerSchema = Schema.Struct({
+  personId: RecruitmentPersonId,
+  displayName: Name,
+  email: PersonContactEmail,
+  phone: PersonContactPhone,
+});
+export type RecruitmentSchedulingInterviewer =
+  typeof RecruitmentSchedulingInterviewerSchema.Type;
+
+export const RecruitmentSchedulingInterviewSchema = Schema.Struct({
+  interviewId: RecruitmentInterviewId,
+  applicationId: RecruitmentApplicationId,
+  departmentId: RecruitmentDepartmentId,
+  interviewer: RecruitmentSchedulingInterviewerSchema,
+  applicant: RecruitmentSchedulingApplicantSchema,
+  revision: Revision,
+  schedule: Schema.NullOr(RecruitmentInterviewScheduleSchema),
+  responseState: Schema.NullOr(RecruitmentInvitationResponseStateSchema),
+  notificationState: Schema.NullOr(RecruitmentNotificationDeliveryStateSchema),
+});
+export type RecruitmentSchedulingInterview = typeof RecruitmentSchedulingInterviewSchema.Type;
+
+export const RecruitmentSchedulingBoardSchema = Schema.Struct({
+  departmentId: RecruitmentDepartmentId,
+  interviews: Schema.Array(RecruitmentSchedulingInterviewSchema),
+});
+export type RecruitmentSchedulingBoard = typeof RecruitmentSchedulingBoardSchema.Type;
+
+export const RecruitmentScheduleCommandSchema = Schema.Struct({
+  commandId: RecruitmentScheduleCommandId,
+  interviewId: RecruitmentInterviewId,
+  expectedRevision: Revision,
+  scheduledAt: Rfc3339InstantSchema,
+  room: Name,
+  campus: Schema.NullOr(Name),
+  mapLink: Schema.NullOr(HttpsMapLink),
+  message: ScheduleMessage,
+});
+export type RecruitmentScheduleCommand = typeof RecruitmentScheduleCommandSchema.Type;
+
+export const RecruitmentScheduleObservationSchema = Schema.Struct({
+  _tag: Schema.Literals(["InterviewScheduled"]),
+  commandId: RecruitmentScheduleCommandId,
+  interviewId: RecruitmentInterviewId,
+  schedule: RecruitmentInterviewScheduleSchema,
+  interviewRevision: Revision,
+  responseState: RecruitmentInvitationResponseStateSchema,
+  notificationState: RecruitmentNotificationDeliveryStateSchema,
+});
+export type RecruitmentScheduleObservation = typeof RecruitmentScheduleObservationSchema.Type;
+
+export const RecruitmentScheduleResultSchema = Schema.Struct({
+  observation: RecruitmentScheduleObservationSchema,
+  replayed: Schema.Boolean,
+});
+export type RecruitmentScheduleResult = typeof RecruitmentScheduleResultSchema.Type;
 
 export const RecruitmentAssignmentBoardObservationSchema = RecruitmentAssignmentBoardSchema;
 export type RecruitmentAssignmentBoardObservation = RecruitmentAssignmentBoard;

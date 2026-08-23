@@ -61,6 +61,12 @@ import {
   RecruitmentInterviewSchemaInactive,
   RecruitmentInterviewerNotEligible,
   RecruitmentAssignmentCommandConflict,
+  RecruitmentInterviewNotFound,
+  RecruitmentInterviewAlreadyScheduled,
+  RecruitmentInterviewStaleRevision,
+  RecruitmentScheduleCommandConflict,
+  RecruitmentScheduleInPast,
+  RecruitmentProfileContactNotFound,
   RecruitmentPersistenceError,
   type InternalSdkError,
 } from "./errors.js";
@@ -239,6 +245,18 @@ const recruitmentFailureFromBody = (body: unknown): InternalSdkError | undefined
       return new RecruitmentInterviewerNotEligible();
     case "RecruitmentAssignmentCommandConflict":
       return new RecruitmentAssignmentCommandConflict();
+    case "RecruitmentInterviewNotFound":
+      return new RecruitmentInterviewNotFound();
+    case "RecruitmentInterviewAlreadyScheduled":
+      return new RecruitmentInterviewAlreadyScheduled();
+    case "RecruitmentInterviewStaleRevision":
+      return new RecruitmentInterviewStaleRevision();
+    case "RecruitmentScheduleCommandConflict":
+      return new RecruitmentScheduleCommandConflict();
+    case "RecruitmentScheduleInPast":
+      return new RecruitmentScheduleInPast();
+    case "ProfileContactNotFound":
+      return new RecruitmentProfileContactNotFound();
     case "RecruitmentDecodeError":
       return new RecruitmentDecodeError();
     case "RecruitmentPersistenceError":

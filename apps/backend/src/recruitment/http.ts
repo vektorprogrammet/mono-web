@@ -7,13 +7,18 @@ import {
   RecruitmentAssignmentBoardQuerySchema,
   RecruitmentAssignmentCommandSchema,
   RecruitmentDecodeError,
+  RecruitmentScheduleCommandSchema,
   type RecruitmentAssignmentBoardQuery,
   type RecruitmentActor,
 } from "@vektorprogrammet/domain/recruitment";
 import { Organization } from "@vektorprogrammet/domain/organization";
 import { Economy } from "@vektorprogrammet/domain/receipt";
 import { Effect, Match, Schema } from "effect";
-import type { RecruitmentApiConfig } from "./config.js";
+import {
+  makeRecruitmentInvitationId,
+  makeRecruitmentResponseCapability,
+  type RecruitmentApiConfig,
+} from "./config.js";
 
 export interface RecruitmentApiHttpOptions {
   readonly config: RecruitmentApiConfig;
@@ -62,6 +67,12 @@ const RecruitmentHttpErrorTag = Schema.Literals([
   "RecruitmentApplicationAlreadyAssigned",
   "RecruitmentAmbiguousAdmissionPeriod",
   "RecruitmentAssignmentCommandConflict",
+  "RecruitmentInterviewNotFound",
+  "RecruitmentInterviewAlreadyScheduled",
+  "RecruitmentInterviewStaleRevision",
+  "RecruitmentScheduleCommandConflict",
+  "RecruitmentScheduleInPast",
+  "ProfileContactNotFound",
   "RecruitmentDecodeError",
   "RecruitmentInterviewSchemaInactive",
   "RecruitmentPersistenceError",
@@ -92,17 +103,26 @@ const statusForErrorTag = (tag: RecruitmentHttpErrorTag): number =>
       "RecruitmentAdmissionPeriodNotFound",
       "RecruitmentApplicationNotFound",
       "RecruitmentInterviewSchemaNotFound",
+      "RecruitmentInterviewNotFound",
       () => 404,
     ),
     Match.whenOr(
       "RecruitmentApplicationAlreadyAssigned",
       "RecruitmentAmbiguousAdmissionPeriod",
       "RecruitmentAssignmentCommandConflict",
+      "RecruitmentInterviewAlreadyScheduled",
+      "RecruitmentInterviewStaleRevision",
+      "RecruitmentScheduleCommandConflict",
       () => 409,
     ),
-    Match.whenOr("RecruitmentDecodeError", "RecruitmentInterviewSchemaInactive", () => 422),
+    Match.whenOr(
+      "RecruitmentDecodeError",
+      "RecruitmentInterviewSchemaInactive",
+      "RecruitmentScheduleInPast",
+      () => 422,
+    ),
     Match.when("RequestBodyTooLarge", () => 413),
-    Match.when("RecruitmentPersistenceError", () => 503),
+    Match.whenOr("ProfileContactNotFound", "RecruitmentPersistenceError", () => 503),
     Match.exhaustive,
   );
 
@@ -218,6 +238,20 @@ const readAssignmentBoard = async (
   return jsonResponse(observation);
 };
 
+const readSchedulingBoard = async (
+  request: Request,
+  input: RecruitmentApiHttpOptions,
+): Promise<Response> => {
+  if (new URL(request.url).search !== "") throw taggedError("RecruitmentDecodeError");
+  const actor = principalFor(request, input.config);
+  const observation = await input.run(
+    Recruitment.use(({ readSchedulingBoard: read }) =>
+      read({ actor, now: input.config.now() }),
+    ),
+  );
+  return jsonResponse(observation);
+};
+
 const assignApplicant = async (
   request: Request,
   input: RecruitmentApiHttpOptions,
@@ -241,6 +275,29 @@ const assignApplicant = async (
   return jsonResponse({ observation: result.observation, replayed: result.replayed });
 };
 
+const scheduleInterview = async (
+  request: Request,
+  input: RecruitmentApiHttpOptions,
+): Promise<Response> => {
+  if (new URL(request.url).search !== "") throw taggedError("RecruitmentDecodeError");
+  const actor = principalFor(request, input.config);
+  const command = await decodeJson(
+    request,
+    RecruitmentScheduleCommandSchema,
+    input.config.maxBodyBytes,
+  );
+  const now = input.config.now();
+  const invitationId = input.config.nextInvitationId?.() ?? makeRecruitmentInvitationId();
+  const responseCapability =
+    input.config.nextResponseCapability?.() ?? makeRecruitmentResponseCapability();
+  const result = await input.run(
+    Recruitment.use(({ scheduleInterview: schedule }) =>
+      schedule(command, { actor, now, invitationId, responseCapability }),
+    ),
+  );
+  return jsonResponse({ observation: result.observation, replayed: result.replayed });
+};
+
 export const makeRecruitmentApiHttp = (input: RecruitmentApiHttpOptions): RecruitmentApiHttp => ({
   fetch: async (request) => {
     const url = new URL(request.url);
@@ -249,10 +306,22 @@ export const makeRecruitmentApiHttp = (input: RecruitmentApiHttpOptions): Recrui
         return await readAssignmentBoard(request, input);
       }
       if (
+        request.method === "GET" &&
+        url.pathname === "/api/admin/recruitment/interviews/scheduling-board"
+      ) {
+        return await readSchedulingBoard(request, input);
+      }
+      if (
         request.method === "POST" &&
         url.pathname === "/api/admin/recruitment/interviews/assign"
       ) {
         return await assignApplicant(request, input);
+      }
+      if (
+        request.method === "POST" &&
+        url.pathname === "/api/admin/recruitment/interviews/schedule"
+      ) {
+        return await scheduleInterview(request, input);
       }
       return jsonResponse({ error: { tag: "RouteNotFound" } }, 404);
     } catch (cause) {

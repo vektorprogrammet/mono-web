@@ -98,7 +98,9 @@ const isReceiptRoute = (pathname: string): boolean =>
 
 const isRecruitmentRoute = (pathname: string): boolean =>
   pathname === "/api/admin/recruitment/assignment-board" ||
-  pathname === "/api/admin/recruitment/interviews/assign";
+  pathname === "/api/admin/recruitment/interviews/assign" ||
+  pathname === "/api/admin/recruitment/interviews/scheduling-board" ||
+  pathname === "/api/admin/recruitment/interviews/schedule";
 
 export const makeBackendHttp = (config: BackendConfig, run: BackendRun): BackendHttp => {
   const admission = makeAdmissionApiHttp({ config: config.admission, run });

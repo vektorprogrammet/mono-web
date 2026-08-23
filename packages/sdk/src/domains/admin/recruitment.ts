@@ -4,10 +4,16 @@ import {
   RecruitmentAssignmentBoardQuerySchema,
   RecruitmentAssignmentCommandSchema,
   RecruitmentAssignmentResultSchema,
+  RecruitmentScheduleCommandSchema,
+  RecruitmentScheduleResultSchema,
+  RecruitmentSchedulingBoardSchema,
   type RecruitmentAssignmentBoard,
   type RecruitmentAssignmentBoardQuery,
   type RecruitmentAssignmentCommand,
   type RecruitmentAssignmentResult,
+  type RecruitmentScheduleCommand,
+  type RecruitmentScheduleResult,
+  type RecruitmentSchedulingBoard,
 } from "../../schemas/recruitment.js";
 import {
   RecruitmentDecodeError,
@@ -22,6 +28,10 @@ export interface AdminRecruitmentDomain {
   assignApplicant(
     command: RecruitmentAssignmentCommand,
   ): Effect.Effect<RecruitmentAssignmentResult, InternalSdkError>;
+  readSchedulingBoard(): Effect.Effect<RecruitmentSchedulingBoard, InternalSdkError>;
+  scheduleInterview(
+    command: RecruitmentScheduleCommand,
+  ): Effect.Effect<RecruitmentScheduleResult, InternalSdkError>;
 }
 
 const strictRecruitment = {
@@ -41,6 +51,13 @@ const decodeCommand = (
   command: unknown,
 ): Effect.Effect<RecruitmentAssignmentCommand, RecruitmentDecodeError> =>
   Schema.decodeUnknownEffect(RecruitmentAssignmentCommandSchema)(command, {
+    onExcessProperty: "error",
+  }).pipe(Effect.mapError(() => new RecruitmentDecodeError()));
+
+const decodeScheduleCommand = (
+  command: unknown,
+): Effect.Effect<RecruitmentScheduleCommand, RecruitmentDecodeError> =>
+  Schema.decodeUnknownEffect(RecruitmentScheduleCommandSchema)(command, {
     onExcessProperty: "error",
   }).pipe(Effect.mapError(() => new RecruitmentDecodeError()));
 
@@ -67,6 +84,28 @@ export const createAdminRecruitmentDomain = (
           "/api/admin/recruitment/interviews/assign",
           validCommand,
           RecruitmentAssignmentResultSchema,
+          strictRecruitment,
+        ),
+      ),
+    );
+  },
+
+  readSchedulingBoard() {
+    return transport.get(
+      "/api/admin/recruitment/interviews/scheduling-board",
+      RecruitmentSchedulingBoardSchema,
+      undefined,
+      strictRecruitment,
+    );
+  },
+
+  scheduleInterview(command) {
+    return decodeScheduleCommand(command).pipe(
+      Effect.flatMap((validCommand) =>
+        transport.post(
+          "/api/admin/recruitment/interviews/schedule",
+          validCommand,
+          RecruitmentScheduleResultSchema,
           strictRecruitment,
         ),
       ),
