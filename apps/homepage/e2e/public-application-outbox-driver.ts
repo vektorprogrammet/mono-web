@@ -76,6 +76,8 @@ const program = Effect.gen(function* () {
     }
   }
 
+  yield* interpreter.deliver(retry.claim.request, retry.claim.ordinal, retry.claim.attempts + 1);
+
   const snapshot = interpreter.snapshot();
   const appliedEffectIds = snapshot.map((entry) => entry.effectId);
   return {
@@ -83,6 +85,7 @@ const program = Effect.gen(function* () {
     injectedFailureTag: injected.failureTag,
     appliedEffectIds,
     duplicateProviderApplyCount: appliedEffectIds.length - new Set(appliedEffectIds).size,
+    duplicateProviderDeliveryCount: interpreter.duplicateDeliveryCount(),
     effects: snapshot,
   };
 });

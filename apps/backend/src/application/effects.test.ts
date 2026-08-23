@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { Effect } from "effect";
+import { Effect, Fiber } from "effect";
 import { makeHttpPublicApplicationEffectInterpreter } from "./effects.js";
 
 const request = {
@@ -17,6 +17,7 @@ const config = {
   token: "provider-token",
   pollIntervalMilliseconds: 250,
   staleClaimMilliseconds: 60_000,
+  deliveryTimeoutMilliseconds: 1_000,
 } as const;
 
 describe("public application effect gateway", () => {
@@ -53,5 +54,53 @@ describe("public application effect gateway", () => {
       _tag: "PublicApplicationEffectDeliveryError",
       effectId: request.effectId,
     });
+  });
+
+  it("bounds provider delivery and aborts the timed-out request", async () => {
+    let aborted = false;
+    const interpreter = makeHttpPublicApplicationEffectInterpreter(
+      { ...config, deliveryTimeoutMilliseconds: 1 },
+      async (_input, init) =>
+        await new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener(
+            "abort",
+            () => {
+              aborted = true;
+              reject(new DOMException("aborted", "AbortError"));
+            },
+            { once: true },
+          );
+        }),
+    );
+
+    const failure = await Effect.runPromise(Effect.flip(interpreter.deliver(request, 0, 1)));
+
+    expect(failure).toMatchObject({
+      _tag: "PublicApplicationEffectDeliveryError",
+      effectId: request.effectId,
+    });
+    expect(aborted).toBe(true);
+  });
+
+  it("aborts an in-flight provider request when delivery is interrupted", async () => {
+    const started = Promise.withResolvers<void>();
+    let providerSignal: AbortSignal | undefined;
+    const interpreter = makeHttpPublicApplicationEffectInterpreter(config, async (_input, init) => {
+      providerSignal = init?.signal ?? undefined;
+      started.resolve();
+      return await new Promise<Response>((_resolve, reject) => {
+        providerSignal?.addEventListener(
+          "abort",
+          () => reject(new DOMException("aborted", "AbortError")),
+          { once: true },
+        );
+      });
+    });
+
+    const fiber = Effect.runFork(interpreter.deliver(request, 0, 1));
+    await started.promise;
+    await Effect.runPromise(Fiber.interrupt(fiber));
+
+    expect(providerSignal?.aborted).toBe(true);
   });
 });

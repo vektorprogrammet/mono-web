@@ -64,60 +64,62 @@ export const claimNextPublicApplicationOutbox = (
 > =>
   Effect.gen(function* () {
     const sql = yield* Database;
-    const rows = yield* sql
+    return yield* sql
       .withTransaction(
-        sql<ClaimedOutboxRow>`
-        WITH candidate AS (
-          SELECT outbox.effect_id
-          FROM admission_application_outbox AS outbox
-          INNER JOIN admission_application_command_receipts AS receipt
-            ON receipt.command_id = outbox.command_id
-          WHERE outbox.status IN ('Pending', 'Failed')
-            AND NOT EXISTS (
-              SELECT 1
-              FROM admission_application_outbox AS predecessor
-              WHERE predecessor.command_id = outbox.command_id
-                AND predecessor.ordinal < outbox.ordinal
-                AND predecessor.status <> 'Delivered'
+        Effect.gen(function* () {
+          const rows = yield* sql<ClaimedOutboxRow>`
+            WITH candidate AS (
+              SELECT outbox.effect_id
+              FROM admission_application_outbox AS outbox
+              INNER JOIN admission_application_command_receipts AS receipt
+                ON receipt.command_id = outbox.command_id
+              WHERE outbox.status IN ('Pending', 'Failed')
+                AND NOT EXISTS (
+                  SELECT 1
+                  FROM admission_application_outbox AS predecessor
+                  WHERE predecessor.command_id = outbox.command_id
+                    AND predecessor.ordinal < outbox.ordinal
+                    AND predecessor.status <> 'Delivered'
+                )
+              ORDER BY outbox.attempts, receipt.committed_at, outbox.command_id, outbox.ordinal
+              FOR UPDATE OF outbox SKIP LOCKED
+              LIMIT 1
             )
-          ORDER BY receipt.committed_at, outbox.command_id, outbox.ordinal
-          FOR UPDATE OF outbox SKIP LOCKED
-          LIMIT 1
-        )
-        UPDATE admission_application_outbox AS claimed
-        SET status = 'Processing',
-          attempts = claimed.attempts + 1,
-          claim_id = ${claimId},
-          claimed_at = ${claimedAt},
-          last_failure_tag = NULL
-        FROM candidate
-        WHERE claimed.effect_id = candidate.effect_id
-        RETURNING claimed.effect_id, claimed.command_id, claimed.ordinal,
-          claimed.attempts, claimed.payload_json
-      `,
+            UPDATE admission_application_outbox AS claimed
+            SET status = 'Processing',
+              attempts = claimed.attempts + 1,
+              claim_id = ${claimId},
+              claimed_at = ${claimedAt},
+              last_failure_tag = NULL
+            FROM candidate
+            WHERE claimed.effect_id = candidate.effect_id
+            RETURNING claimed.effect_id, claimed.command_id, claimed.ordinal,
+              claimed.attempts, claimed.payload_json
+          `;
+          const row = rows[0];
+          if (row === undefined) return undefined;
+          const request = yield* Schema.decodeUnknownEffect(PublicApplicationOutboxRequestSchema)(
+            row.payload_json,
+            { onExcessProperty: "error" },
+          ).pipe(Effect.mapError(() => persistenceError("decode application outbox request")));
+          if (request.effectId !== row.effect_id || request.commandId !== row.command_id) {
+            return yield* Effect.fail(persistenceError("application outbox identity mismatch"));
+          }
+          return {
+            effectId: row.effect_id,
+            commandId: row.command_id,
+            ordinal: row.ordinal,
+            attempts: row.attempts,
+            claimId,
+            request,
+          };
+        }),
       )
       .pipe(
         Effect.catchTag("SqlError", () =>
           Effect.fail(persistenceError("claim application outbox")),
         ),
       );
-    const row = rows[0];
-    if (row === undefined) return undefined;
-    const request = yield* Schema.decodeUnknownEffect(PublicApplicationOutboxRequestSchema)(
-      row.payload_json,
-      { onExcessProperty: "error" },
-    ).pipe(Effect.mapError(() => persistenceError("decode application outbox request")));
-    if (request.effectId !== row.effect_id || request.commandId !== row.command_id) {
-      return yield* Effect.fail(persistenceError("application outbox identity mismatch"));
-    }
-    return {
-      effectId: row.effect_id,
-      commandId: row.command_id,
-      ordinal: row.ordinal,
-      attempts: row.attempts,
-      claimId,
-      request,
-    };
   });
 
 export const completePublicApplicationOutbox = (
@@ -213,20 +215,28 @@ export const deliverNextPublicApplicationOutbox = (
   PublicApplicationPersistenceError,
   Database
 > =>
-  Effect.gen(function* () {
-    const claim = yield* claimNextPublicApplicationOutbox(claimId, claimedAt);
-    if (claim === undefined) return { _tag: "Idle" as const };
-    return yield* interpreter.deliver(claim.request, claim.ordinal, claim.attempts).pipe(
-      Effect.onInterrupt(() => releasePublicApplicationOutbox(claim)),
-      Effect.matchEffect({
-        onFailure: (failure) =>
-          failPublicApplicationOutbox(claim, failure._tag).pipe(
-            Effect.as({ _tag: "Failed" as const, claim, failureTag: failure._tag }),
-          ),
-        onSuccess: (evidence) =>
-          completePublicApplicationOutbox(claim).pipe(
-            Effect.as({ _tag: "Delivered" as const, claim, evidence }),
-          ),
-      }),
-    );
-  });
+  Effect.acquireUseRelease(
+    claimNextPublicApplicationOutbox(claimId, claimedAt),
+    (
+      claim,
+    ): Effect.Effect<
+      PublicApplicationOutboxDeliveryResult,
+      PublicApplicationPersistenceError,
+      Database
+    > => {
+      if (claim === undefined) return Effect.succeed({ _tag: "Idle" as const });
+      return interpreter.deliver(claim.request, claim.ordinal, claim.attempts).pipe(
+        Effect.matchEffect({
+          onFailure: (failure) =>
+            failPublicApplicationOutbox(claim, failure._tag).pipe(
+              Effect.as({ _tag: "Failed" as const, claim, failureTag: failure._tag }),
+            ),
+          onSuccess: (evidence) =>
+            completePublicApplicationOutbox(claim).pipe(
+              Effect.as({ _tag: "Delivered" as const, claim, evidence }),
+            ),
+        }),
+      );
+    },
+    (claim) => (claim === undefined ? Effect.void : releasePublicApplicationOutbox(claim)),
+  );

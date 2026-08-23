@@ -6,6 +6,7 @@ export interface PublicApplicationEffectConfig {
   readonly token: string;
   readonly pollIntervalMilliseconds: number;
   readonly staleClaimMilliseconds: number;
+  readonly deliveryTimeoutMilliseconds: number;
 }
 
 export interface BackendConfig {
@@ -50,6 +51,21 @@ const positiveInteger = (raw: string | undefined, fallback: number, field: strin
   return parsed;
 };
 
+const providerEndpoint = (raw: string): URL => {
+  const endpoint = new URL(raw);
+  const loopback =
+    endpoint.hostname === "127.0.0.1" ||
+    endpoint.hostname === "localhost" ||
+    endpoint.hostname === "::1";
+  if (endpoint.protocol !== "https:" && !(endpoint.protocol === "http:" && loopback)) {
+    throw new Error("PUBLIC_APPLICATION_EFFECT_ENDPOINT must use HTTPS unless it targets loopback");
+  }
+  if (endpoint.username.length > 0 || endpoint.password.length > 0) {
+    throw new Error("PUBLIC_APPLICATION_EFFECT_ENDPOINT must not contain credentials");
+  }
+  return endpoint;
+};
+
 const publicApplicationEffectConfig = (
   env: Readonly<Record<string, string | undefined>>,
 ): PublicApplicationEffectConfig | undefined => {
@@ -61,10 +77,7 @@ const publicApplicationEffectConfig = (
       "PUBLIC_APPLICATION_EFFECT_ENDPOINT and PUBLIC_APPLICATION_EFFECT_TOKEN must be set together",
     );
   }
-  const parsed = new URL(endpoint);
-  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-    throw new Error("PUBLIC_APPLICATION_EFFECT_ENDPOINT must use HTTP or HTTPS");
-  }
+  const parsed = providerEndpoint(endpoint);
   return {
     endpoint: parsed,
     token,
@@ -77,6 +90,11 @@ const publicApplicationEffectConfig = (
       env.PUBLIC_APPLICATION_EFFECT_STALE_MS,
       60_000,
       "PUBLIC_APPLICATION_EFFECT_STALE_MS",
+    ),
+    deliveryTimeoutMilliseconds: positiveInteger(
+      env.PUBLIC_APPLICATION_EFFECT_TIMEOUT_MS,
+      10_000,
+      "PUBLIC_APPLICATION_EFFECT_TIMEOUT_MS",
     ),
   };
 };

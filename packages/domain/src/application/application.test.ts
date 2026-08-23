@@ -101,6 +101,8 @@ describe("public applicant domain", () => {
       "WriteApplicationAudit",
     ]);
     expect(retry[0]?.attempts).toBe(2);
+    expect(interpreter.duplicateDeliveryCount()).toBe(1);
+    expect(interpreter.snapshot()).toHaveLength(3);
     expect(first[0]).not.toHaveProperty("email");
     expect(
       Effect.runSync(

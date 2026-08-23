@@ -4,7 +4,7 @@ import {
   type PublicApplicationEffectInterpreter,
   type PublicApplicationOutboxRequest,
 } from "@vektorprogrammet/domain/application";
-import { Effect } from "effect";
+import { Duration, Effect } from "effect";
 import type { PublicApplicationEffectConfig } from "../config.js";
 
 export type PublicApplicationEffectFetch = (
@@ -18,7 +18,7 @@ const deliver = (
   fetchEffect: PublicApplicationEffectFetch,
 ): Effect.Effect<void, PublicApplicationEffectDeliveryError> =>
   Effect.tryPromise({
-    try: async () => {
+    try: async (signal) => {
       const response = await fetchEffect(config.endpoint, {
         method: "POST",
         headers: {
@@ -27,11 +27,15 @@ const deliver = (
           "idempotency-key": request.effectId,
         },
         body: JSON.stringify(request),
+        signal,
       });
       if (!response.ok) throw new Error(`provider returned ${response.status}`);
     },
     catch: () => new PublicApplicationEffectDeliveryError({ effectId: request.effectId }),
-  });
+  }).pipe(
+    Effect.timeout(Duration.millis(config.deliveryTimeoutMilliseconds)),
+    Effect.mapError(() => new PublicApplicationEffectDeliveryError({ effectId: request.effectId })),
+  );
 
 export const makeHttpPublicApplicationEffectInterpreter = (
   config: PublicApplicationEffectConfig,

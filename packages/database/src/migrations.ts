@@ -26,6 +26,10 @@ const publicApplicantMigrationUrl = new URL(
   "../../domain/src/application/migrations/0002-public-applicant-admission.sql",
   import.meta.url,
 );
+const publicApplicantEffectLifecycleMigrationUrl = new URL(
+  "../../domain/src/application/migrations/0003-public-applicant-effect-lifecycle.sql",
+  import.meta.url,
+);
 
 export type ExecuteMigration = (
   source: string,
@@ -58,9 +62,14 @@ export const databaseMigrationLoader = (execute: ExecuteMigration) =>
       receiptMigrationUrl,
       execute,
     ),
+    "5_public-applicant-effect-lifecycle": migration(
+      "public-applicant-effect-lifecycle",
+      publicApplicantEffectLifecycleMigrationUrl,
+      execute,
+    ),
   });
 
-export const databaseSchemaRevision = "4_receipt-authority-upgrade-replay";
+export const databaseSchemaRevision = "5_public-applicant-effect-lifecycle";
 
 export const runDatabaseMigrations = (execute: ExecuteMigration) =>
   Migrator.make({})({

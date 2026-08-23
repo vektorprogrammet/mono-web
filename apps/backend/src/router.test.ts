@@ -80,4 +80,22 @@ describe("unified backend router", () => {
       }),
     ).toThrow("conflicting actor facts for shared token");
   });
+
+  it("requires TLS for non-loopback application effect providers", () => {
+    expect(() =>
+      makeBackendConfig({
+        ...environment,
+        PUBLIC_APPLICATION_EFFECT_ENDPOINT: "http://provider.example.invalid/effects",
+        PUBLIC_APPLICATION_EFFECT_TOKEN: "provider-token",
+      }),
+    ).toThrow("must use HTTPS unless it targets loopback");
+
+    expect(
+      makeBackendConfig({
+        ...environment,
+        PUBLIC_APPLICATION_EFFECT_ENDPOINT: "http://127.0.0.1:8898/effects",
+        PUBLIC_APPLICATION_EFFECT_TOKEN: "provider-token",
+      }).publicApplicationEffects?.endpoint.href,
+    ).toBe("http://127.0.0.1:8898/effects");
+  });
 });

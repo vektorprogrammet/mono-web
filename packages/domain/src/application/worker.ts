@@ -37,7 +37,7 @@ export const runPublicApplicationOutboxWorker = (
       options.now(),
       interpreter,
     );
-    if (result._tag === "Idle") {
+    if (result._tag !== "Delivered") {
       yield* Effect.sleep(Duration.millis(options.pollIntervalMilliseconds));
     }
   });

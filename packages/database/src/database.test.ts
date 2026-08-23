@@ -9,7 +9,7 @@ import {
 import { Database } from "@vektorprogrammet/domain/database";
 import { Economy } from "@vektorprogrammet/domain/receipt";
 import { EconomyLive } from "@vektorprogrammet/domain/receipt/postgres";
-import { Effect, Fiber, Layer, ManagedRuntime } from "effect";
+import { Deferred, Effect, Fiber, Layer, ManagedRuntime } from "effect";
 import { DatabaseTest } from "./layers.js";
 
 const databaseLayer = DatabaseTest();
@@ -55,12 +55,13 @@ describe("DatabaseTest", () => {
     );
 
     expect(evidence).toEqual({
-      revision: "4_receipt-authority-upgrade-replay",
+      revision: "5_public-applicant-effect-lifecycle",
       migrations: [
         { migration_id: 1, name: "receipt-authority" },
         { migration_id: 2, name: "admission-period-authority" },
         { migration_id: 3, name: "public-applicant-admission" },
         { migration_id: 4, name: "receipt-authority-upgrade-replay" },
+        { migration_id: 5, name: "public-applicant-effect-lifecycle" },
       ],
       tables: ["admission_applications", "admission_periods", "economy_receipts"],
     });
@@ -81,7 +82,7 @@ describe("DatabaseTest", () => {
     );
 
     expect(second).toBe(first);
-    expect(rows).toEqual([{ migration_count: "4" }]);
+    expect(rows).toEqual([{ migration_count: "5" }]);
   });
 
   it("runs the Economy authority contract against PGlite", async () => {
@@ -185,9 +186,11 @@ describe("DatabaseTest", () => {
         );
         const rows = yield* database<{
           readonly effect_id: string;
+          readonly effect_type: string;
+          readonly ordinal: number;
           readonly payload_json: unknown;
         }>`
-          SELECT effect_id, payload_json
+          SELECT effect_id, effect_type, ordinal, payload_json
           FROM admission_application_outbox
           WHERE command_id = 'outbox-application-submit'
           ORDER BY ordinal
@@ -219,18 +222,118 @@ describe("DatabaseTest", () => {
           "2031-09-15T12:00:02.000Z",
           interpreter,
         );
-        const deliveredRows = yield* database<{ readonly payload_json: unknown }>`
-          SELECT payload_json
+        const remaining = [
+          yield* deliverNextPublicApplicationOutbox(
+            "outbox-remaining-claim-1",
+            "2031-09-15T12:00:03.000Z",
+            interpreter,
+          ),
+          yield* deliverNextPublicApplicationOutbox(
+            "outbox-remaining-claim-2",
+            "2031-09-15T12:00:04.000Z",
+            interpreter,
+          ),
+        ];
+        const deliveredRows = yield* database<{
+          readonly ordinal: number;
+          readonly status: string;
+          readonly payload_json: unknown;
+        }>`
+          SELECT ordinal, status, payload_json
           FROM admission_application_outbox
-          WHERE effect_id = ${firstEffectId}
+          WHERE command_id = 'outbox-application-submit'
+          ORDER BY ordinal
         `;
+        const deliveryEvidence = interpreter.snapshot();
+        yield* executePublicApplicationCommand(
+          {
+            commandId: "outbox-fairness-old",
+            departmentId: "outbox-department",
+            firstName: "Old",
+            lastName: "Failure",
+            phone: "+47 11111111",
+            email: "old.failure@example.invalid",
+            gender: 0,
+            fieldOfStudyId: "outbox-field",
+            yearOfStudy: 1,
+          },
+          {
+            now: "2031-09-15T12:10:00.000Z",
+            applicantId: "outbox-fairness-old-applicant",
+            applicationId: "outbox-fairness-old-application",
+            activationToken: "oldfailureabcdefghijklmnopqrstuvwxyzABCDEFG",
+          },
+        );
+        yield* executePublicApplicationCommand(
+          {
+            commandId: "outbox-fairness-new",
+            departmentId: "outbox-department",
+            firstName: "New",
+            lastName: "Application",
+            phone: "+47 22222222",
+            email: "new.application@example.invalid",
+            gender: 1,
+            fieldOfStudyId: "outbox-field",
+            yearOfStudy: 2,
+          },
+          {
+            now: "2031-09-15T12:11:00.000Z",
+            applicantId: "outbox-fairness-new-applicant",
+            applicationId: "outbox-fairness-new-application",
+            activationToken: "newapplicationabcdefghijklmnopqrstuvwxyzABC",
+          },
+        );
+        const fairnessRows = yield* database<{ readonly effect_id: string }>`
+          SELECT effect_id
+          FROM admission_application_outbox
+          WHERE command_id = 'outbox-fairness-old' AND ordinal = 0
+        `;
+        const fairnessOldEffectId = fairnessRows[0]?.effect_id;
+        if (fairnessOldEffectId === undefined) throw new Error("missing fairness outbox effect");
+        interpreter.failOnce(fairnessOldEffectId);
+        const fairnessFailure = yield* deliverNextPublicApplicationOutbox(
+          "outbox-fairness-failed",
+          "2031-09-15T12:12:00.000Z",
+          interpreter,
+        );
+        const fairnessNext = yield* deliverNextPublicApplicationOutbox(
+          "outbox-fairness-next",
+          "2031-09-15T12:12:01.000Z",
+          interpreter,
+        );
+        const fairnessDrain = yield* Effect.forEach(
+          Array.from({ length: 5 }, (_, index) => index),
+          (index) =>
+            deliverNextPublicApplicationOutbox(
+              `outbox-fairness-drain-${index}`,
+              `2031-09-15T12:12:0${index + 2}.000Z`,
+              interpreter,
+            ),
+        );
+        const fairnessIdle = yield* deliverNextPublicApplicationOutbox(
+          "outbox-fairness-idle",
+          "2031-09-15T12:12:07.000Z",
+          interpreter,
+        );
+
         return {
           activationPayload: rows[0]?.payload_json,
           applicantDigest: applicantRows[0]?.activation_digest,
           failed,
           failedRow: failedRows[0],
           retried,
-          deliveredPayload: deliveredRows[0]?.payload_json,
+          deliveredPayload: deliveredRows,
+          effects: rows.map(({ effect_id, effect_type, ordinal }) => ({
+            effectId: effect_id,
+            effectType: effect_type,
+            ordinal,
+          })),
+          remaining,
+          deliveryEvidence,
+          fairnessFailure,
+          fairnessNext,
+          fairnessDrain,
+          fairnessIdle,
         };
       }),
     );
@@ -251,7 +354,190 @@ describe("DatabaseTest", () => {
       last_failure_tag: "PublicApplicationEffectDeliveryError",
     });
     expect(evidence.retried).toMatchObject({ _tag: "Delivered" });
-    expect(evidence.deliveredPayload).toEqual({});
+    expect(evidence.effects).toEqual([
+      {
+        effectId: expect.any(String),
+        effectType: "SendApplicantActivationOrConfirmation",
+        ordinal: 0,
+      },
+      {
+        effectId: expect.any(String),
+        effectType: "CreateAdmissionSubscription",
+        ordinal: 1,
+      },
+      {
+        effectId: expect.any(String),
+        effectType: "WriteApplicationAudit",
+        ordinal: 2,
+      },
+    ]);
+    expect(evidence.failed).toMatchObject({
+      claim: { effectId: evidence.effects[0]?.effectId },
+    });
+    expect(evidence.retried).toMatchObject({
+      _tag: "Delivered",
+      claim: { effectId: evidence.effects[0]?.effectId, ordinal: 0 },
+    });
+    expect(evidence.remaining).toMatchObject([
+      { _tag: "Delivered", claim: { effectId: evidence.effects[1]?.effectId, ordinal: 1 } },
+      { _tag: "Delivered", claim: { effectId: evidence.effects[2]?.effectId, ordinal: 2 } },
+    ]);
+    expect(evidence.deliveryEvidence).toMatchObject([
+      { effectId: evidence.effects[0]?.effectId, ordinal: 0, attempts: 2 },
+      { effectId: evidence.effects[1]?.effectId, ordinal: 1, attempts: 1 },
+      { effectId: evidence.effects[2]?.effectId, ordinal: 2, attempts: 1 },
+    ]);
+    expect(evidence.deliveredPayload).toEqual([
+      { ordinal: 0, status: "Delivered", payload_json: {} },
+      { ordinal: 1, status: "Delivered", payload_json: {} },
+      { ordinal: 2, status: "Delivered", payload_json: {} },
+    ]);
+    expect(evidence.fairnessFailure).toMatchObject({
+      _tag: "Failed",
+      claim: { commandId: "outbox-fairness-old", ordinal: 0 },
+    });
+    expect(evidence.fairnessNext).toMatchObject({
+      _tag: "Delivered",
+      claim: { commandId: "outbox-fairness-new", ordinal: 0 },
+    });
+    expect(evidence.fairnessDrain).toHaveLength(5);
+    expect(evidence.fairnessDrain.every((result) => result._tag === "Delivered")).toBe(true);
+    expect(evidence.fairnessIdle).toEqual({ _tag: "Idle" });
+  });
+
+  it("quarantines incompatible pre-0041 applicant effects during upgrade", async () => {
+    const evidence = await runtime.runPromise(
+      Effect.gen(function* () {
+        const database = yield* Database;
+        yield* executePublicApplicationCommand(
+          {
+            commandId: "legacy-effect-application-submit",
+            departmentId: "outbox-department",
+            firstName: "Legacy",
+            lastName: "Payload",
+            phone: "+47 33333333",
+            email: "legacy.payload@example.invalid",
+            gender: 0,
+            fieldOfStudyId: "outbox-field",
+            yearOfStudy: 2,
+          },
+          {
+            now: "2031-09-15T12:20:00.000Z",
+            applicantId: "legacy-effect-applicant",
+            applicationId: "legacy-effect-application",
+            activationToken: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQ",
+          },
+        );
+        yield* database`
+          UPDATE admission_application_outbox
+          SET payload_json =
+            (payload_json - 'activationToken')
+            || jsonb_build_object('activationDigest', ${"a".repeat(64)}::text)
+          WHERE command_id = 'legacy-effect-application-submit' AND ordinal = 0
+        `;
+        yield* database`
+          UPDATE admission_application_outbox
+          SET payload_json = payload_json - 'departmentId'
+          WHERE command_id = 'legacy-effect-application-submit' AND ordinal = 1
+        `;
+        yield* database`
+          DELETE FROM vektorprogrammet_schema_migrations
+          WHERE migration_id = 5
+        `;
+        yield* database.migrate;
+        return yield* database<{
+          readonly ordinal: number;
+          readonly status: string;
+          readonly claim_id: string | null;
+          readonly last_failure_tag: string | null;
+          readonly payload_json: unknown;
+        }>`
+          SELECT ordinal, status, claim_id, last_failure_tag, payload_json
+          FROM admission_application_outbox
+          WHERE command_id = 'legacy-effect-application-submit'
+          ORDER BY ordinal
+        `;
+      }),
+    );
+
+    expect(evidence).toEqual([
+      {
+        ordinal: 0,
+        status: "Quarantined",
+        claim_id: null,
+        last_failure_tag: "LegacyPublicApplicationEffectPayload",
+        payload_json: {},
+      },
+      {
+        ordinal: 1,
+        status: "Quarantined",
+        claim_id: null,
+        last_failure_tag: "LegacyPublicApplicationEffectPayload",
+        payload_json: {},
+      },
+      {
+        ordinal: 2,
+        status: "Quarantined",
+        claim_id: null,
+        last_failure_tag: "LegacyPublicApplicationEffectPayload",
+        payload_json: {},
+      },
+    ]);
+  });
+
+  it("rolls back an outbox claim when its persisted payload is invalid", async () => {
+    const evidence = await runtime.runPromise(
+      Effect.gen(function* () {
+        const database = yield* Database;
+        yield* executePublicApplicationCommand(
+          {
+            commandId: "malformed-effect-application-submit",
+            departmentId: "outbox-department",
+            firstName: "Malformed",
+            lastName: "Payload",
+            phone: "+47 44444444",
+            email: "malformed.payload@example.invalid",
+            gender: 1,
+            fieldOfStudyId: "outbox-field",
+            yearOfStudy: 2,
+          },
+          {
+            now: "2031-09-15T12:21:00.000Z",
+            applicantId: "malformed-effect-applicant",
+            applicationId: "malformed-effect-application",
+            activationToken: "malformedpayloadabcdefghijklmnopqrstuvwxyzA",
+          },
+        );
+        yield* database`
+          UPDATE admission_application_outbox
+          SET payload_json = '{"_tag":"SendApplicantActivationOrConfirmation"}'::jsonb
+          WHERE command_id = 'malformed-effect-application-submit' AND ordinal = 0
+        `;
+        const failure = yield* Effect.flip(
+          deliverNextPublicApplicationOutbox(
+            "malformed-effect-claim",
+            "2031-09-15T12:21:01.000Z",
+            makeRecordingPublicApplicationEffectInterpreter(),
+          ),
+        );
+        const rows = yield* database<{
+          readonly status: string;
+          readonly attempts: number;
+          readonly claim_id: string | null;
+        }>`
+          SELECT status, attempts, claim_id
+          FROM admission_application_outbox
+          WHERE command_id = 'malformed-effect-application-submit' AND ordinal = 0
+        `;
+        return { failure, row: rows[0] };
+      }),
+    );
+
+    expect(evidence.failure).toMatchObject({
+      _tag: "PublicApplicationPersistenceError",
+      operation: "decode application outbox request",
+    });
+    expect(evidence.row).toEqual({ status: "Pending", attempts: 0, claim_id: null });
   });
 
   it("releases an interrupted applicant worker claim before shutdown", async () => {
@@ -287,6 +573,7 @@ describe("DatabaseTest", () => {
               claimed_at = '2031-09-15T10:00:00.000Z'
             WHERE command_id = 'worker-application-submit' AND ordinal = 0
           `;
+          const deliveryStarted = yield* Deferred.make<void>();
           const interpreter = {
             deliver: (
               request: {
@@ -301,7 +588,7 @@ describe("DatabaseTest", () => {
               attempts: number,
             ) =>
               request.commandId === "worker-application-submit"
-                ? Effect.never
+                ? Deferred.succeed(deliveryStarted, undefined).pipe(Effect.andThen(Effect.never))
                 : Effect.succeed({
                     effectId: request.effectId,
                     kind: request._tag,
@@ -324,7 +611,7 @@ describe("DatabaseTest", () => {
               },
             }),
           );
-          yield* Effect.sleep("50 millis");
+          yield* Deferred.await(deliveryStarted);
           const processing = yield* database<{
             readonly status: string;
             readonly claim_id: string | null;

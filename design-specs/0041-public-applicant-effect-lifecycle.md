@@ -7,10 +7,12 @@
 | Field                    | Value                                                                                 |
 | ------------------------ | ------------------------------------------------------------------------------------- |
 | Goal                     | Complete the public applicant lifecycle before the identity cutover                   |
-| Status                   | Frozen for local implementation                                                       |
+| Status                   | Frozen revision 0041.1 after committed-artifact review                                |
 | Depends on               | Design spec 0039, design spec 0040, commit `c2e354cbcfba1d5ee3082a139f36750e9754f488` |
 | Actor                    | Public applicant and backend process owner                                            |
 | Remote provider evidence | Hold until the operator authorizes credentials and remote execution                   |
+
+Revision 0041.1 adds the upgrade, transport-security, cancellation, timeout, and queue-fairness conditions discovered by review of commit `f52bd2383c792b105d1dec633aaaaa90054f3c7a`. It does not change the user journey.
 
 ## User journey
 
@@ -43,6 +45,9 @@ Complete the post-commit part of the public application journey. Keep identity a
 - Shutdown interrupts the worker before the database runtime closes.
 - The local implementation does not claim delivery by Gmail, SMTP, Slack, or another remote provider.
 - No request handler creates a database pool, runtime, or worker.
+- A non-loopback provider endpoint uses HTTPS and contains no URL credentials.
+- Every provider request has a bounded timeout and observes worker interruption.
+- Pre-0041 pending payloads that cannot supply a raw activation token are quarantined visibly. They are not retried or reported as delivered.
 
 ## Values
 
@@ -65,12 +70,16 @@ Complete the post-commit part of the public application journey. Keep identity a
 
 - `Pending` and `Failed` rows are claimable.
 - A claim changes one row to `Processing` and increments `attempts`.
+- Payload decode and identity validation occur inside the claim transaction. Invalid payloads roll the claim back.
 - A successful provider call changes the row to `Delivered`.
 - Successful completion clears `claim_id`, `claimed_at`, `last_failure_tag`, and the private payload.
 - A typed provider failure changes the row to `Failed`.
 - Failure clears `claim_id` and `claimed_at` and stores the failure tag.
 - Startup returns stale `Processing` rows to `Pending`.
 - Worker interruption returns its current claim to `Pending`.
+- Retry ordering gives untouched commands a turn before another attempt of an older failed command.
+- The worker sleeps after a failed attempt.
+- `Quarantined` rows are not claimable and keep a visible failure tag.
 
 ### Provider ports
 
@@ -83,6 +92,7 @@ The worker uses these ports:
 | Application audit      | Application ID, applicant ID, action, `effectId`             | Append one audit delivery record            |
 
 Each port must treat a repeated `effectId` as the same request.
+The HTTP provider adapter sends `effectId` as the idempotency key. Recording evidence must distinguish a repeated delivery attempt from a provider-side apply.
 
 ### Process lifecycle
 
@@ -101,9 +111,13 @@ Each port must treat a repeated `effectId` as the same request.
 5. A stale `Processing` claim returns to `Pending` on worker startup.
 6. Worker interruption leaves no row in `Processing` for that worker.
 7. Successful delivery clears the private outbox payload.
-8. A process test observes one worker start and one worker stop.
-9. The existing public applicant browser journey still passes in authorized remote CI.
-10. Root type checks, lint, build, and tests pass on the committed revision.
+8. An upgrade test quarantines an incompatible pre-0041 command and clears its private payload.
+9. An invalid persisted payload rolls its claim back without incrementing `attempts`.
+10. A permanently failing older command does not block the next command.
+11. Provider timeout and interruption abort the underlying HTTP request.
+12. A process test observes one worker start and one worker stop.
+13. The existing public applicant browser journey still passes in authorized remote CI.
+14. Root type checks, lint, build, and tests pass on the committed revision.
 
 ## Falsifiers
 
@@ -117,6 +131,10 @@ This contract is false if any condition occurs:
 - Runtime disposal starts before the worker stops.
 - Local evidence reports a remote provider delivery.
 - The public response or evidence contains the activation token, email, phone, or name.
+- An invalid or legacy payload leaves a row in `Processing`.
+- A failed command monopolizes the global queue.
+- A remote endpoint receives a provider token or activation token over cleartext HTTP.
+- An interrupted or timed-out provider request continues in the background.
 
 ## Non-goals
 

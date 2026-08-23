@@ -107,6 +107,7 @@ export const makePublicApplicationEffectInterpreter = (
 export interface PublicApplicationRecordingInterpreter extends PublicApplicationEffectInterpreter {
   readonly failOnce: (effectId: string) => void;
   readonly snapshot: () => ReadonlyArray<PublicApplicationEffectEvidence>;
+  readonly duplicateDeliveryCount: () => number;
 }
 
 const effectKindOf = (request: PublicApplicationOutboxRequest): PublicApplicationEffectKind =>
@@ -152,11 +153,13 @@ export const makeRecordingPublicApplicationEffectInterpreter =
   (): PublicApplicationRecordingInterpreter => {
     const attempts = new Map<string, number>();
     const failedOnce = new Set<string>();
+    let duplicateDeliveries = 0;
     const delivered = new Map<string, PublicApplicationEffectEvidence>();
     return {
       failOnce: (effectId) => {
         failedOnce.add(effectId);
       },
+      duplicateDeliveryCount: () => duplicateDeliveries,
       snapshot: () => [...delivered.values()],
       deliver: (request, ordinal) =>
         Effect.gen(function* () {
@@ -164,6 +167,11 @@ export const makeRecordingPublicApplicationEffectInterpreter =
           attempts.set(request.effectId, nextAttempts);
           if (failedOnce.delete(request.effectId)) {
             return yield* new PublicApplicationEffectDeliveryError({ effectId: request.effectId });
+          }
+          const previous = delivered.get(request.effectId);
+          if (previous !== undefined) {
+            duplicateDeliveries += 1;
+            return { ...previous, attempts: nextAttempts };
           }
           const evidence: PublicApplicationEffectEvidence = {
             effectId: request.effectId,
