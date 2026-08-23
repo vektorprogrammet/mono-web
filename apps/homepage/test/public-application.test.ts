@@ -103,8 +103,10 @@ describe("public application form boundary", () => {
       mapPublicApplicationError({ _tag: "DuplicatePublicApplication" }),
     ).toMatchObject({
       _tag: "DuplicatePublicApplication",
-      resetCommandId: undefined,
     });
+    expect(
+      mapPublicApplicationError({ _tag: "DuplicatePublicApplication" }).resetCommandId,
+    ).toBeUndefined();
   });
 
   it("maps every public rejection tag to PII-safe Norwegian copy", () => {

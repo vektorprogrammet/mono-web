@@ -3,6 +3,7 @@ import {
   AdmissionPeriodDecodeSdkError,
   NoEligibleAdmissionPeriodError,
   PublicApplicationRateLimitExceededError,
+  PublicApplicationDecodeSdkError,
   createClient,
 } from "../promise.js";
 
