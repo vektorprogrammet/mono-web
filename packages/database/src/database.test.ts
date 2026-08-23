@@ -407,14 +407,18 @@ describe("DatabaseTest", () => {
     expect(evidence.fairnessIdle).toEqual({ _tag: "Idle" });
   });
 
-  it("makes applicant effect ordering unrepresentable in PostgreSQL", async () => {
+  it("makes applicant transaction linkage and effect ordering unrepresentable", async () => {
     const evidence = await runtime.runPromise(
       Effect.gen(function* () {
         const database = yield* Database;
-        const failure = yield* Effect.flip(database`
+        const orderFailure = yield* Effect.flip(database`
           UPDATE admission_application_outbox
           SET effect_type = 'CreateAdmissionSubscription'
           WHERE command_id = 'outbox-application-submit' AND ordinal = 0
+        `);
+        const receiptFailure = yield* Effect.flip(database`
+          DELETE FROM admission_application_command_receipts
+          WHERE command_id = 'outbox-application-submit'
         `);
         const rows = yield* database<{
           readonly ordinal: number;
@@ -424,11 +428,12 @@ describe("DatabaseTest", () => {
           FROM admission_application_outbox
           WHERE command_id = 'outbox-application-submit' AND ordinal = 0
         `;
-        return { failure, row: rows[0] };
+        return { orderFailure, receiptFailure, row: rows[0] };
       }),
     );
 
-    expect(evidence.failure).toMatchObject({ _tag: "SqlError" });
+    expect(evidence.orderFailure).toMatchObject({ _tag: "SqlError" });
+    expect(evidence.receiptFailure).toMatchObject({ _tag: "SqlError" });
     expect(evidence.row).toEqual({
       ordinal: 0,
       effect_type: "SendApplicantActivationOrConfirmation",
@@ -539,6 +544,18 @@ describe("DatabaseTest", () => {
           },
         );
         yield* database`
+          UPDATE admission_applications
+          SET activation_digest = NULL
+          WHERE application_id = 'legacy-delivered-application'
+        `;
+        yield* database`
+          UPDATE admission_applicants
+          SET activation_digest = ${publicApplicationActivationDigest(
+            "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopq",
+          )}
+          WHERE applicant_id = 'legacy-delivered-applicant'
+        `;
+        yield* database`
           UPDATE admission_application_outbox
           SET status = 'Delivered'
           WHERE command_id = 'legacy-delivered-application-submit'
@@ -548,7 +565,7 @@ describe("DatabaseTest", () => {
           WHERE migration_id >= 6
         `;
         yield* database.migrate;
-        return yield* database<{
+        const outbox = yield* database<{
           readonly ordinal: number;
           readonly status: string;
           readonly payload_json: unknown;
@@ -558,14 +575,34 @@ describe("DatabaseTest", () => {
           WHERE command_id = 'legacy-delivered-application-submit'
           ORDER BY ordinal
         `;
+        const snapshots = yield* database<{
+          readonly application_digest: string | null;
+          readonly applicant_digest: string | null;
+        }>`
+          SELECT application.activation_digest AS application_digest,
+            applicant.activation_digest AS applicant_digest
+          FROM admission_applications AS application
+          INNER JOIN admission_applicants AS applicant
+            ON applicant.applicant_id = application.applicant_id
+          WHERE application.application_id = 'legacy-delivered-application'
+        `;
+        return { outbox, snapshot: snapshots[0] };
       }),
     );
 
-    expect(evidence).toEqual([
+    expect(evidence.outbox).toEqual([
       { ordinal: 0, status: "Delivered", payload_json: {} },
       { ordinal: 1, status: "Delivered", payload_json: {} },
       { ordinal: 2, status: "Delivered", payload_json: {} },
     ]);
+    expect(evidence.snapshot).toEqual({
+      application_digest: publicApplicationActivationDigest(
+        "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQ",
+      ),
+      applicant_digest: publicApplicationActivationDigest(
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopq",
+      ),
+    });
   });
 
   it("quarantines an invalid persisted payload without stopping the queue", async () => {
