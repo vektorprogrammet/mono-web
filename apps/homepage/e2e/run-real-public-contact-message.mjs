@@ -177,8 +177,22 @@ const main = async () => {
   );
   await command(
     "php",
-    ["bin/console", "doctrine:fixtures:load", "--no-interaction"],
-    { cwd: serverRoot, env: serverEnvironment, label: "Symfony fixtures" },
+    [
+      "-r",
+      [
+        "$pdo = new PDO('sqlite:'.getenv('CONTACT_E2E_DATABASE_PATH'));",
+        "$statement = $pdo->prepare('INSERT INTO department (name, short_name, email, address, city, latitude, longitude, logo_path, active) VALUES (:name, :short_name, :email, :address, :city, :latitude, :longitude, NULL, 1)');",
+        "$statement->execute(['name' => 'Vektorprogrammet Ås', 'short_name' => 'Ås', 'email' => 'aas@example.invalid', 'address' => 'Universitetsveien 1', 'city' => 'Ås', 'latitude' => '59.66', 'longitude' => '10.77']);",
+      ].join(""),
+    ],
+    {
+      cwd: serverRoot,
+      env: {
+        ...serverEnvironment,
+        CONTACT_E2E_DATABASE_PATH: databasePath,
+      },
+      label: "Contact department seed",
+    },
   );
 
   start(
