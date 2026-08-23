@@ -9,7 +9,9 @@ export const StableIdSchema = Schema.NonEmptyString;
 export const RevisionSchema = Schema.Int.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(0)));
 
 const ReferenceNameSchema = Schema.String.pipe(
-  Schema.check(Schema.makeFilter((value) => value.trim().length > 0, { message: "a non-empty name" })),
+  Schema.check(
+    Schema.makeFilter((value) => value.trim().length > 0, { message: "a non-empty name" }),
+  ),
 );
 
 export class AdmissionDepartment extends Model.Class<AdmissionDepartment>("AdmissionDepartment")({
@@ -43,7 +45,9 @@ export class AdmissionSemester extends Model.Class<AdmissionSemester>("Admission
   }),
 }) {}
 
-export class AdmissionFieldOfStudy extends Model.Class<AdmissionFieldOfStudy>("AdmissionFieldOfStudy")({
+export class AdmissionFieldOfStudy extends Model.Class<AdmissionFieldOfStudy>(
+  "AdmissionFieldOfStudy",
+)({
   fieldOfStudyId: Model.Field({
     select: StableIdSchema,
     insert: StableIdSchema,

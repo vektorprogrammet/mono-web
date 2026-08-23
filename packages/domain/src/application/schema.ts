@@ -1,9 +1,6 @@
 import { Schema } from "effect";
 import { Model } from "effect/unstable/schema";
-import {
-  AdmissionDepartment,
-  AdmissionFieldOfStudy,
-} from "../admission-period/schema.js";
+import { AdmissionDepartment, AdmissionFieldOfStudy } from "../admission-period/schema.js";
 import { isRfc3339Instant, Rfc3339InstantSchema } from "../time.js";
 
 /** Stable IDs are opaque, non-empty, and free of control characters. */

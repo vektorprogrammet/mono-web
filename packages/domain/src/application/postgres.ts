@@ -91,7 +91,6 @@ const decodeAdmissionPeriodRow = (
     onExcessProperty: "error",
   }).pipe(Effect.mapError(() => persistenceError("decode admission period row")));
 
-
 const decodeStoredObservation = (
   value: unknown,
 ): Effect.Effect<PublicApplicationSubmitObservation, PublicApplicationPersistenceError> =>
@@ -143,15 +142,12 @@ const findEligiblePeriod = (
     FOR UPDATE OF p
   `.pipe(
     Effect.flatMap((rows) =>
-      rows[0] === undefined
-        ? Effect.succeed(undefined)
-        : decodeAdmissionPeriodRow(rows[0]),
+      rows[0] === undefined ? Effect.succeed(undefined) : decodeAdmissionPeriodRow(rows[0]),
     ),
     Effect.catchTag("SqlError", () =>
       Effect.fail(persistenceError("find eligible admission period")),
     ),
   );
-
 
 const findFieldOfStudy = (
   sql: DatabaseShape,
@@ -434,7 +430,8 @@ const executeCommandInTransaction = (
 
     const existingApplicant = yield* findApplicantForUpdate(sql, normalizedEmail);
     const applicantId =
-      existingApplicant?.id ?? (context.applicantId?.trim() || publicApplicantIdForCommand(command));
+      existingApplicant?.id ??
+      (context.applicantId?.trim() || publicApplicantIdForCommand(command));
     const requiresActivation =
       existingApplicant === undefined || existingApplicant.activationDigest !== null;
     const activationToken = requiresActivation
@@ -447,9 +444,7 @@ const executeCommandInTransaction = (
         )
       : undefined;
     const activationDigest =
-      activationToken === undefined
-        ? null
-        : publicApplicationActivationDigest(activationToken);
+      activationToken === undefined ? null : publicApplicationActivationDigest(activationToken);
     const applicant: ApplicantRecord = {
       id: applicantId,
       normalizedEmail,
@@ -462,11 +457,7 @@ const executeCommandInTransaction = (
       yearOfStudy: command.yearOfStudy,
       activationDigest,
     };
-    const duplicate = yield* findApplicationForApplicantPeriod(
-      sql,
-      applicant.id,
-      period.id,
-    );
+    const duplicate = yield* findApplicationForApplicantPeriod(sql, applicant.id, period.id);
     if (duplicate !== undefined) return yield* new DuplicatePublicApplication();
 
     const applicationId = context.applicationId?.trim() || publicApplicationIdForCommand(command);

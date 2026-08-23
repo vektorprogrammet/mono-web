@@ -31,6 +31,7 @@ it("derives applicant and public-application variants from one Model declaration
   ]);
   expect(keys(ApplicantRecord.update.fields)).toEqual([
     "activationDigest",
+    "email",
     "fieldOfStudyId",
     "firstName",
     "gender",
