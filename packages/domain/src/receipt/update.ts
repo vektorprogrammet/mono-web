@@ -13,6 +13,8 @@ import {
 import { makeReceiptOutboxRequest, sameReceiptFile, type ReceiptOutboxRequest } from "./effects.js";
 import {
   ReceiptCommandSchema,
+  ReceiptId,
+  ReceiptVisualId,
   type Receipt,
   type ReceiptActor,
   type ReceiptCommand,
@@ -138,8 +140,8 @@ const decideCommand = (
               });
             }
             const receipt: Receipt = {
-              receiptId: context.receiptId,
-              visualId: context.visualId,
+              receiptId: ReceiptId.make(context.receiptId),
+              visualId: ReceiptVisualId.make(context.visualId),
               ownerPersonId: input.actor.personId,
               departmentId: input.departmentId,
               amountOre: input.amountOre,

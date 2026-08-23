@@ -5,10 +5,11 @@
 | Field | Value |
 |---|---|
 | Goal | Make persisted data, domain authority, implementation requirements, and runtime ownership explicit and singular |
-| Status | Frozen |
+| Status | Frozen revision 0045.1 after Receipt tracer compilation |
 | Depends on | Database capability and process-level ManagedRuntime established by design specs 0039 and 0040 |
 | First tracer | Receipt data through the Economy authority |
 | Scope hold | Identity remains the final authority cutover; browser and production-faithful PostgreSQL evidence require explicit remote authorization |
+| Revision | 0045.1 clarifies that a Layer may capture its required Database and provide it to private persistence programs; the Layer type, rather than the public Service methods, retains that implementation requirement |
 
 ## Problem
 
@@ -68,7 +69,7 @@ A Service contract exposes domain operations and typed failures. It does not exp
 - A domain implementation is named `<Authority>Live` or `<Authority>Test` according to its leaf implementation.
 - PostgreSQL imports and SQL execution remain in persistence adapters or live Layers.
 - Domain Layers retain `Database` and other capability requirements in their `Layer.Layer<Provided, Error, Required>` type.
-- Domain methods do not repeatedly call `Effect.provideService` to hide a dependency that can remain in the method Effect requirement.
+- A live Layer may capture `Database` once and provide it to private persistence programs so the public Service contract exposes domain authority rather than infrastructure. The Layer must still retain `Database` as a structural requirement.
 - Only the process composition root selects and provides all live Layers.
 - The backend constructs one ManagedRuntime and disposes it once during process shutdown.
 

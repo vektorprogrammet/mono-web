@@ -9,35 +9,9 @@ import {
   type ReceiptFailure,
 } from "./errors.js";
 import type { ReceiptImportResult } from "./import.js";
-import {
-  ReceiptCommandSchema,
-  ReceiptObservationSchema,
-  ReceiptSchema,
-  type Receipt,
-} from "./schema.js";
+import { Receipt, ReceiptCommandSchema, ReceiptObservationSchema } from "./schema.js";
 import type { ReceiptTransactionResult } from "./service.js";
 import { decideReceipt, type ReceiptDecisionContext, type ReceiptOutboxRequest } from "./update.js";
-
-interface ReceiptRow {
-  readonly receipt_id: string;
-  readonly visual_id: string;
-  readonly owner_person_id: string;
-  readonly department_id: string;
-  readonly amount_ore: string;
-  readonly currency: "NOK";
-  readonly description: string;
-  readonly receipt_date: string;
-  readonly submitted_at: string;
-  readonly status: "Pending" | "Refunded" | "Rejected" | "Withdrawn";
-  readonly refund_date: string | null;
-  readonly payment_account_ciphertext: string;
-  readonly file_ref: string;
-  readonly file_object_key: string;
-  readonly file_content_type: "image/jpeg" | "image/png" | "application/pdf";
-  readonly file_byte_length: string;
-  readonly file_sha256: string;
-  readonly revision: number;
-}
 
 interface CommandReceiptRow {
   readonly command_sha256: string;
@@ -47,46 +21,47 @@ interface CommandReceiptRow {
 const persistenceError = (operation: string, cause: unknown) =>
   new ReceiptPersistenceError({ operation, message: String(cause) });
 
-const receiptFromRow = (row: ReceiptRow): Effect.Effect<Receipt, ReceiptPersistenceError> =>
-  Schema.decodeUnknownEffect(ReceiptSchema)({
-    receiptId: row.receipt_id,
-    visualId: row.visual_id,
-    ownerPersonId: row.owner_person_id,
-    departmentId: row.department_id,
-    amountOre: Number(row.amount_ore),
-    currency: row.currency,
-    description: row.description,
-    receiptDate: row.receipt_date,
-    submittedAt: row.submitted_at,
-    status: row.status,
-    refundDate: row.refund_date,
-    paymentAccountCiphertext: row.payment_account_ciphertext,
-    file: {
-      fileRef: row.file_ref,
-      objectKey: row.file_object_key,
-      contentType: row.file_content_type,
-      byteLength: Number(row.file_byte_length),
-      sha256: row.file_sha256,
-    },
-    revision: row.revision,
+const receiptFromRow = (
+  row: typeof Receipt.Encoded,
+): Effect.Effect<Receipt, ReceiptPersistenceError> =>
+  Schema.decodeUnknownEffect(Receipt)(row, {
+    onExcessProperty: "error",
   }).pipe(Effect.mapError((cause) => persistenceError("decode receipt row", cause)));
 
 const findReceipt = (
   sql: DatabaseShape,
   receiptId: string,
 ): Effect.Effect<Receipt | undefined, ReceiptPersistenceError> =>
-  sql<ReceiptRow>`
+  sql<typeof Receipt.Encoded>`
     SELECT
-      receipt_id, visual_id, owner_person_id, department_id,
-      amount_ore::text, currency, description,
-      to_char(receipt_date, 'YYYY-MM-DD') AS receipt_date,
-      to_char(submitted_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS submitted_at,
+      receipt_id AS "receiptId",
+      visual_id AS "visualId",
+      owner_person_id AS "ownerPersonId",
+      department_id AS "departmentId",
+      amount_ore::float8 AS "amountOre",
+      currency,
+      description,
+      to_char(receipt_date, 'YYYY-MM-DD') AS "receiptDate",
+      to_char(
+        submitted_at AT TIME ZONE 'UTC',
+        'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'
+      ) AS "submittedAt",
       status,
       CASE WHEN refund_date IS NULL THEN NULL
-        ELSE to_char(refund_date AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')
-      END AS refund_date,
-      payment_account_ciphertext, file_ref, file_object_key,
-      file_content_type, file_byte_length::text, file_sha256, revision
+        ELSE to_char(
+          refund_date AT TIME ZONE 'UTC',
+          'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'
+        )
+      END AS "refundDate",
+      payment_account_ciphertext AS "paymentAccountCiphertext",
+      json_build_object(
+        'fileRef', file_ref,
+        'objectKey', file_object_key,
+        'contentType', file_content_type,
+        'byteLength', file_byte_length::float8,
+        'sha256', file_sha256
+      ) AS file,
+      revision
     FROM economy_receipts
     WHERE receipt_id = ${receiptId}
     FOR UPDATE

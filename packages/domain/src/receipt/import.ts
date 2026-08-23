@@ -1,6 +1,8 @@
 import {
   isIsoDate,
   isIsoInstant,
+  ReceiptId,
+  ReceiptVisualId,
   type LegacyReceiptRow,
   type Receipt,
   type ReceiptFile,
@@ -151,8 +153,8 @@ export const importLegacyReceipt = (
     _tag: "AcceptedReceiptImport",
     sourcePrimaryKey: row.sourcePrimaryKey,
     receipt: {
-      receiptId,
-      visualId: row.visualId,
+      receiptId: ReceiptId.make(receiptId),
+      visualId: ReceiptVisualId.make(row.visualId),
       ownerPersonId: row.ownerPersonId,
       departmentId: row.departmentId,
       amountOre,

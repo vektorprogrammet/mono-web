@@ -1,4 +1,5 @@
 import { Schema } from "effect";
+import { Model } from "effect/unstable/schema";
 
 const NonEmpty = Schema.String.pipe(Schema.check(Schema.isMinLength(1)));
 
@@ -25,6 +26,11 @@ const PositiveOre = Schema.Int.pipe(
   Schema.check(Schema.isGreaterThan(0), Schema.isLessThanOrEqualTo(Number.MAX_SAFE_INTEGER)),
 );
 const Revision = Schema.Int.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(0)));
+export const ReceiptId = NonEmpty.pipe(Schema.brand("ReceiptId"));
+export type ReceiptId = typeof ReceiptId.Type;
+
+export const ReceiptVisualId = NonEmpty.pipe(Schema.brand("ReceiptVisualId"));
+export type ReceiptVisualId = typeof ReceiptVisualId.Type;
 
 export const ReceiptStatusSchema = Schema.Literals([
   "Pending",
@@ -97,7 +103,7 @@ export const ReceiptCommandSchema = Schema.TaggedUnion({
   RevisePendingReceipt: {
     commandId: NonEmpty,
     actor: ReceiptActorSchema,
-    receiptId: NonEmpty,
+    receiptId: ReceiptId,
     expectedRevision: Revision,
     ...ReceiptPayloadFields,
     file: ReceiptFileSelectionSchema,
@@ -105,46 +111,84 @@ export const ReceiptCommandSchema = Schema.TaggedUnion({
   WithdrawPendingReceipt: {
     commandId: NonEmpty,
     actor: ReceiptActorSchema,
-    receiptId: NonEmpty,
+    receiptId: ReceiptId,
     expectedRevision: Revision,
   },
   RefundReceipt: {
     commandId: NonEmpty,
     actor: ReceiptActorSchema,
-    receiptId: NonEmpty,
+    receiptId: ReceiptId,
     expectedRevision: Revision,
   },
   RejectReceipt: {
     commandId: NonEmpty,
     actor: ReceiptActorSchema,
-    receiptId: NonEmpty,
+    receiptId: ReceiptId,
     expectedRevision: Revision,
   },
 });
 export type ReceiptCommand = typeof ReceiptCommandSchema.Type;
 
-export const ReceiptSchema = Schema.Struct({
-  receiptId: NonEmpty,
-  visualId: NonEmpty,
-  ownerPersonId: NonEmpty,
-  departmentId: NonEmpty,
+export class Receipt extends Model.Class<Receipt>("Receipt")({
+  receiptId: Model.Field({
+    select: ReceiptId,
+    insert: ReceiptId,
+    json: ReceiptId,
+  }),
+  visualId: Model.Field({
+    select: ReceiptVisualId,
+    insert: ReceiptVisualId,
+    json: ReceiptVisualId,
+  }),
+  ownerPersonId: Model.Field({
+    select: NonEmpty,
+    insert: NonEmpty,
+    json: NonEmpty,
+  }),
+  departmentId: Model.Field({
+    select: NonEmpty,
+    insert: NonEmpty,
+    json: NonEmpty,
+  }),
   amountOre: PositiveOre,
-  currency: Schema.Literal("NOK"),
+  currency: Model.Field({
+    select: Schema.Literal("NOK"),
+    insert: Schema.Literal("NOK"),
+    json: Schema.Literal("NOK"),
+  }),
   description: Schema.String.pipe(Schema.check(Schema.isMinLength(1), Schema.isMaxLength(5000))),
   receiptDate: IsoDate,
-  submittedAt: IsoInstant,
-  status: ReceiptStatusSchema,
-  refundDate: Schema.NullOr(IsoInstant),
-  paymentAccountCiphertext: NonEmpty,
-  file: ReceiptFileSchema,
-  revision: Revision,
-});
-export type Receipt = typeof ReceiptSchema.Type;
+  submittedAt: Model.Field({
+    select: IsoInstant,
+    insert: IsoInstant,
+    json: IsoInstant,
+  }),
+  status: Model.Field({
+    select: ReceiptStatusSchema,
+    insert: ReceiptStatusSchema,
+    update: ReceiptStatusSchema,
+    json: ReceiptStatusSchema,
+  }),
+  refundDate: Model.Field({
+    select: Schema.NullOr(IsoInstant),
+    insert: Schema.NullOr(IsoInstant),
+    update: Schema.NullOr(IsoInstant),
+    json: Schema.NullOr(IsoInstant),
+  }),
+  paymentAccountCiphertext: Model.Sensitive(NonEmpty),
+  file: Model.Sensitive(ReceiptFileSchema),
+  revision: Model.Field({
+    select: Revision,
+    insert: Revision,
+    update: Revision,
+    json: Revision,
+  }),
+}) {}
 
 export const ReceiptObservationSchema = Schema.Struct({
   commandId: NonEmpty,
-  receiptId: NonEmpty,
-  visualId: NonEmpty,
+  receiptId: ReceiptId,
+  visualId: ReceiptVisualId,
   status: ReceiptStatusSchema,
   revision: Revision,
   replayed: Schema.Boolean,
