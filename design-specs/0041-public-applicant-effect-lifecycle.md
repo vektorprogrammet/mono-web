@@ -7,12 +7,14 @@
 | Field                    | Value                                                                                 |
 | ------------------------ | ------------------------------------------------------------------------------------- |
 | Goal                     | Complete the public applicant lifecycle before the identity cutover                   |
-| Status                   | Frozen revision 0041.2 after committed-artifact review                                |
+| Status                   | Frozen revision 0041.3 after committed-artifact review                                |
 | Depends on               | Design spec 0039, design spec 0040, commit `c2e354cbcfba1d5ee3082a139f36750e9754f488` |
 | Actor                    | Public applicant and backend process owner                                            |
 | Remote provider evidence | Hold until the operator authorizes credentials and remote execution                   |
 
-Revision 0041.2 adds immutable per-application activation authority, command/audit linkage, structural effect ordering, fail-safe quarantine, redirect denial, and upgrade ordering after review of commits `f52bd2383c792b105d1dec633aaaaa90054f3c7a` through `a090f6e`. It does not change the user journey.
+Revision 0041.3 adds immutable activation authority, effect ordering, fail-safe quarantine, redirect denial, upgrade ordering, and explicit effect mode.
+The review covers commits `f52bd2383c792b105d1dec633aaaaa90054f3c7a` through `54f7d316181eb3c219f893a869b677d2f2e4461e`.
+This revision does not change the user journey.
 
 Commits before the final approved revision are local review artifacts, not deployable migration checkpoints. No authorized external database may record the earlier four-line form of migration 6 from `913a855`; that form destroyed information needed by the application snapshot. The first deployable schema must apply the final migration 6 before migration 7. An external database reporting the superseded migration source is unsupported and must stop for explicit disposition because the deleted token cannot be reconstructed honestly.
 
