@@ -1,5 +1,6 @@
 import { expect, it } from "@effect/vitest";
 import { Effect } from "effect";
+import { DepartmentId, PersonId } from "../organization/schema.js";
 import {
   importLegacyReceipt,
   importLegacyReceipts,
@@ -17,17 +18,17 @@ const file: ReceiptFile = {
 };
 
 const owner: ReceiptActor = {
-  personId: "person-1",
-  departmentId: "department-1",
+  personId: PersonId.make("person-1"),
+  departmentId: DepartmentId.make("department-1"),
   active: true,
   approvalScope: { _tag: "None" },
 };
 
 const approver: ReceiptActor = {
-  personId: "approver-1",
-  departmentId: "department-1",
+  personId: PersonId.make("approver-1"),
+  departmentId: DepartmentId.make("department-1"),
   active: true,
-  approvalScope: { _tag: "Department", departmentId: "department-1" },
+  approvalScope: { _tag: "Department", departmentId: DepartmentId.make("department-1") },
 };
 
 const context = {
@@ -40,7 +41,7 @@ const submit = {
   _tag: "SubmitReceipt",
   commandId: "command-submit",
   actor: owner,
-  departmentId: "department-1",
+  departmentId: DepartmentId.make("department-1"),
   paymentAccountCiphertext: "ciphertext:v1:account",
   description: "Travel",
   amountOre: 12_345,
@@ -134,8 +135,8 @@ it.effect("authorizes a refund by explicit department scope", () =>
     const submitted = yield* decideReceipt(undefined, submit, context);
     const wrongDepartment: ReceiptActor = {
       ...approver,
-      departmentId: "department-2",
-      approvalScope: { _tag: "Department", departmentId: "department-2" },
+      departmentId: DepartmentId.make("department-2"),
+      approvalScope: { _tag: "Department", departmentId: DepartmentId.make("department-2") },
     };
     const denied = yield* Effect.flip(
       decideReceipt(
@@ -194,8 +195,8 @@ const provenance: ReceiptImportProvenance = {
 
 const legacyRow: LegacyReceiptRow = {
   sourcePrimaryKey: "42",
-  ownerPersonId: "person-1",
-  departmentId: "department-1",
+  ownerPersonId: PersonId.make("person-1"),
+  departmentId: DepartmentId.make("department-1"),
   visualId: "LEGACY-42",
   amountDecimal: "123.45",
   description: "Legacy travel",

@@ -1,7 +1,7 @@
 import { DateTime, Option, Schema } from "effect";
 
 const Rfc3339InstantPattern =
-  /^(\d{4})-(\d{2})-(\d{2})T([01]\d|2[0-3]):([0-5]\d):([0-5]\d)(?:\.\d{1,9})?(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)$/;
+  /^(\d{4})-(\d{2})-(\d{2})T([01]\d|2[0-3]):([0-5]\d):([0-5]\d)(?:\.\d{1,3})?(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)$/;
 
 /**
  * Uses Effect DateTime as the parser and rejects its calendar normalization.
@@ -28,6 +28,15 @@ export const isRfc3339Instant = (value: string): boolean => {
     parts.second === Number(match[6])
   );
 };
+
+export const compareRfc3339Instants = (left: string, right: string): -1 | 0 | 1 => {
+  const leftMilliseconds = DateTime.toEpochMillis(DateTime.makeUnsafe(left));
+  const rightMilliseconds = DateTime.toEpochMillis(DateTime.makeUnsafe(right));
+  return leftMilliseconds < rightMilliseconds ? -1 : leftMilliseconds > rightMilliseconds ? 1 : 0;
+};
+
+export const normalizeRfc3339Instant = (value: string): string =>
+  DateTime.formatIso(DateTime.makeUnsafe(value));
 
 export const Rfc3339InstantSchema = Schema.String.pipe(
   Schema.check(

@@ -16,6 +16,7 @@ export type ReceiptQuarantineReason =
   | "DuplicateVisualId"
   | "SourceIdentityCollision"
   | "InvalidDestinationIdentity"
+  | "DestinationIdentityCollision"
   | "InvalidAmount"
   | "UnsupportedFile"
   | "InvalidFileIdentity"
@@ -42,6 +43,8 @@ export type ReceiptImportResult =
   | {
       readonly _tag: "AcceptedReceiptImport";
       readonly sourcePrimaryKey: string;
+      readonly sourceOccurrence: number;
+      readonly targetSemanticIdentity: string;
       readonly receipt: Receipt;
       readonly provenance: ReceiptImportProvenance;
       readonly reconciliation: "Pending";
@@ -49,6 +52,8 @@ export type ReceiptImportResult =
   | {
       readonly _tag: "QuarantinedReceiptImport";
       readonly sourcePrimaryKey: string;
+      readonly sourceOccurrence: number;
+      readonly targetSemanticIdentity: string;
       readonly reasons: ReadonlyArray<ReceiptQuarantineReason>;
       readonly provenance: ReceiptImportProvenance;
       readonly reconciliation: "NotApplicable";
@@ -91,7 +96,17 @@ export const importLegacyReceipt = (
   row: LegacyReceiptRow,
   receiptId: string,
   provenance: ReceiptImportProvenance,
+  sourceOccurrence = 0,
 ): ReceiptImportResult => {
+  if (!Number.isSafeInteger(sourceOccurrence) || sourceOccurrence < 0) {
+    throw new Error("source occurrence must be a non-negative safe integer");
+  }
+  const targetSemanticIdentity =
+    row.visualId !== null && row.visualId.length > 0
+      ? row.visualId
+      : provenance.destinationIdentity.length > 0
+        ? provenance.destinationIdentity
+        : row.sourcePrimaryKey;
   const reasons: ReceiptQuarantineReason[] = [];
   const amountOre = exactOre(row.amountDecimal);
   const importedStatus = status(row.status);
@@ -103,7 +118,9 @@ export const importLegacyReceipt = (
     reasons.push("UnresolvedDepartment");
   }
   if (row.visualId === null || row.visualId.length === 0) reasons.push("MissingVisualId");
-  if (receiptId.length === 0) reasons.push("InvalidDestinationIdentity");
+  if (receiptId.length === 0 || provenance.destinationIdentity !== receiptId) {
+    reasons.push("InvalidDestinationIdentity");
+  }
   if (amountOre === undefined) reasons.push("InvalidAmount");
   if (row.description.length === 0 || row.description.length > 5000) {
     reasons.push("InvalidDescription");
@@ -151,6 +168,8 @@ export const importLegacyReceipt = (
     return {
       _tag: "QuarantinedReceiptImport",
       sourcePrimaryKey: row.sourcePrimaryKey,
+      sourceOccurrence,
+      targetSemanticIdentity,
       reasons,
       provenance,
       reconciliation: "NotApplicable",
@@ -160,6 +179,8 @@ export const importLegacyReceipt = (
   return {
     _tag: "AcceptedReceiptImport",
     sourcePrimaryKey: row.sourcePrimaryKey,
+    sourceOccurrence,
+    targetSemanticIdentity,
     receipt: {
       receiptId: ReceiptId.make(receiptId),
       visualId: ReceiptVisualId.make(row.visualId),
@@ -192,14 +213,19 @@ export const importLegacyReceipts = (
 ): ReadonlyArray<ReceiptImportResult> => {
   const sourceKeyCounts = new Map<string, number>();
   const visualIdCounts = new Map<string, number>();
-  for (const { row } of inputs) {
+  const destinationIdentityCounts = new Map<string, number>();
+  for (const { row, receiptId } of inputs) {
     sourceKeyCounts.set(row.sourcePrimaryKey, (sourceKeyCounts.get(row.sourcePrimaryKey) ?? 0) + 1);
     if (row.visualId !== null) {
       visualIdCounts.set(row.visualId, (visualIdCounts.get(row.visualId) ?? 0) + 1);
     }
+    destinationIdentityCounts.set(receiptId, (destinationIdentityCounts.get(receiptId) ?? 0) + 1);
   }
+  const sourceKeyOccurrences = new Map<string, number>();
   return inputs.map(({ row, receiptId, provenance }) => {
-    const result = importLegacyReceipt(row, receiptId, provenance);
+    const sourceOccurrence = sourceKeyOccurrences.get(row.sourcePrimaryKey) ?? 0;
+    sourceKeyOccurrences.set(row.sourcePrimaryKey, sourceOccurrence + 1);
+    const result = importLegacyReceipt(row, receiptId, provenance, sourceOccurrence);
     const duplicateReasons: ReceiptQuarantineReason[] = [];
     if ((sourceKeyCounts.get(row.sourcePrimaryKey) ?? 0) > 1) {
       duplicateReasons.push("SourceIdentityCollision");
@@ -207,10 +233,15 @@ export const importLegacyReceipts = (
     if (row.visualId !== null && (visualIdCounts.get(row.visualId) ?? 0) > 1) {
       duplicateReasons.push("DuplicateVisualId");
     }
+    if ((destinationIdentityCounts.get(receiptId) ?? 0) > 1) {
+      duplicateReasons.push("DestinationIdentityCollision");
+    }
     if (duplicateReasons.length === 0) return result;
     return {
       _tag: "QuarantinedReceiptImport",
       sourcePrimaryKey: row.sourcePrimaryKey,
+      sourceOccurrence,
+      targetSemanticIdentity: result.targetSemanticIdentity,
       reasons:
         result._tag === "QuarantinedReceiptImport"
           ? [...result.reasons, ...duplicateReasons]

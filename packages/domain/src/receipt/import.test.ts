@@ -1,4 +1,5 @@
 import { expect, it } from "@effect/vitest";
+import { DepartmentId, PersonId } from "../organization/schema.js";
 import { canonicalJson } from "../tutor/evidence.js";
 import {
   importLegacyReceipt,
@@ -10,8 +11,8 @@ import type { LegacyReceiptRow } from "./schema.js";
 
 const validRow: LegacyReceiptRow = {
   sourcePrimaryKey: "legacy-1",
-  ownerPersonId: "owner-1",
-  departmentId: "department-1",
+  ownerPersonId: PersonId.make("owner-1"),
+  departmentId: DepartmentId.make("department-1"),
   visualId: "LEGACY-1",
   amountDecimal: "123.45",
   description: "Travel",

@@ -1,6 +1,7 @@
 import type {
   AdmissionPeriod,
   AdmissionPeriodActor,
+  AdmissionPeriodId,
   AdmissionPeriodObservation,
 } from "./schema.js";
 
@@ -8,7 +9,7 @@ export interface AdmissionPeriodCommandContext {
   readonly actor: AdmissionPeriodActor;
   readonly now: string;
   /** A caller-generated identity may be supplied by the transport adapter. */
-  readonly admissionPeriodId?: string;
+  readonly admissionPeriodId?: AdmissionPeriodId;
 }
 
 export interface AdmissionPeriodManagementContext {

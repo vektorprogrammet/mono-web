@@ -1,5 +1,7 @@
 import { Schema } from "effect";
-import { PublicApplicationIdSchema } from "./schema.js";
+import { AdmissionFieldOfStudyId } from "../admission-period/schema.js";
+import { DepartmentId } from "../organization/schema.js";
+import { PublicApplicationCommandIdSchema, PublicApplicationIdSchema } from "./schema.js";
 
 export class PublicApplicationDecodeError extends Schema.TaggedError<PublicApplicationDecodeError>()(
   "PublicApplicationDecodeError",
@@ -8,28 +10,32 @@ export class PublicApplicationDecodeError extends Schema.TaggedError<PublicAppli
 
 export class NoEligibleAdmissionPeriod extends Schema.TaggedError<NoEligibleAdmissionPeriod>()(
   "NoEligibleAdmissionPeriod",
-  { departmentId: PublicApplicationIdSchema },
+  { departmentId: DepartmentId },
+) {}
+export class AmbiguousAdmissionPeriod extends Schema.TaggedError<AmbiguousAdmissionPeriod>()(
+  "AmbiguousAdmissionPeriod",
+  { departmentId: DepartmentId },
 ) {}
 
 /** `_tag` remains DepartmentNotFound for the public error contract. */
 export class PublicApplicationDepartmentNotFound extends Schema.TaggedError<PublicApplicationDepartmentNotFound>()(
   "DepartmentNotFound",
-  { departmentId: PublicApplicationIdSchema },
+  { departmentId: DepartmentId },
 ) {}
 
 export class FieldOfStudyNotFound extends Schema.TaggedError<FieldOfStudyNotFound>()(
   "FieldOfStudyNotFound",
-  { fieldOfStudyId: PublicApplicationIdSchema },
+  { fieldOfStudyId: AdmissionFieldOfStudyId },
 ) {}
 
 export class FieldOfStudyInactive extends Schema.TaggedError<FieldOfStudyInactive>()(
   "FieldOfStudyInactive",
-  { fieldOfStudyId: PublicApplicationIdSchema },
+  { fieldOfStudyId: AdmissionFieldOfStudyId },
 ) {}
 
 export class FieldOfStudyDepartmentMismatch extends Schema.TaggedError<FieldOfStudyDepartmentMismatch>()(
   "FieldOfStudyDepartmentMismatch",
-  { fieldOfStudyId: PublicApplicationIdSchema, departmentId: PublicApplicationIdSchema },
+  { fieldOfStudyId: AdmissionFieldOfStudyId, departmentId: DepartmentId },
 ) {}
 
 export class DuplicatePublicApplication extends Schema.TaggedError<DuplicatePublicApplication>()(
@@ -39,7 +45,7 @@ export class DuplicatePublicApplication extends Schema.TaggedError<DuplicatePubl
 
 export class DuplicatePublicApplicationCommandConflict extends Schema.TaggedError<DuplicatePublicApplicationCommandConflict>()(
   "DuplicatePublicApplicationCommandConflict",
-  { commandId: PublicApplicationIdSchema },
+  { commandId: PublicApplicationCommandIdSchema },
 ) {}
 
 export class PublicApplicationNotFound extends Schema.TaggedError<PublicApplicationNotFound>()(
@@ -66,6 +72,7 @@ export class PublicApplicationRateLimitExceeded extends Schema.TaggedError<Publi
 export type PublicApplicationError =
   | PublicApplicationDecodeError
   | NoEligibleAdmissionPeriod
+  | AmbiguousAdmissionPeriod
   | PublicApplicationDepartmentNotFound
   | FieldOfStudyNotFound
   | FieldOfStudyInactive

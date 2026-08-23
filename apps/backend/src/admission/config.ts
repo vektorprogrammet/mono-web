@@ -1,5 +1,17 @@
 import { randomBytes, randomUUID } from "node:crypto";
-import type { AdmissionPeriodActor } from "@vektorprogrammet/domain/admission-period";
+import {
+  isRfc3339Instant,
+  type AdmissionPeriodActor,
+  type AdmissionPeriodId,
+} from "@vektorprogrammet/domain/admission-period";
+import {
+  ApplicantIdSchema,
+  PublicApplicationIdSchema,
+  type ApplicantId,
+  type PublicApplicationId,
+} from "@vektorprogrammet/domain/application";
+import { DepartmentId, PersonId } from "@vektorprogrammet/domain/organization";
+import { AdmissionPeriodId as AdmissionPeriodIdSchema } from "@vektorprogrammet/domain/admission-period";
 
 export interface AdmissionApiPrincipal {
   readonly actor: AdmissionPeriodActor;
@@ -14,9 +26,9 @@ export interface AdmissionApiConfig {
   readonly maxBodyBytes: number;
   readonly rateLimit: AdmissionApiRateLimit;
   readonly now: () => string;
-  readonly nextAdmissionPeriodId: () => string;
-  readonly nextApplicantId: () => string;
-  readonly nextApplicationId: () => string;
+  readonly nextAdmissionPeriodId: () => AdmissionPeriodId;
+  readonly nextApplicantId: () => ApplicantId;
+  readonly nextApplicationId: () => PublicApplicationId;
   readonly nextActivationToken: () => string;
 }
 
@@ -40,23 +52,23 @@ const parseActor = (value: unknown): AdmissionPeriodActor => {
   if (value._tag === "DepartmentLeader") {
     return {
       _tag: "DepartmentLeader",
-      personId: nonEmpty(value.personId, "token person"),
-      departmentId: nonEmpty(value.departmentId, "token department"),
+      personId: PersonId.make(nonEmpty(value.personId, "token person")),
+      departmentId: DepartmentId.make(nonEmpty(value.departmentId, "token department")),
       active: parseActive(value.active),
     };
   }
   if (value._tag === "GlobalAdmin") {
     return {
       _tag: "GlobalAdmin",
-      personId: nonEmpty(value.personId, "token person"),
+      personId: PersonId.make(nonEmpty(value.personId, "token person")),
       active: parseActive(value.active),
     };
   }
   if (value._tag === "Member") {
     return {
       _tag: "Member",
-      personId: nonEmpty(value.personId, "token person"),
-      departmentId: nonEmpty(value.departmentId, "token department"),
+      personId: PersonId.make(nonEmpty(value.personId, "token person")),
+      departmentId: DepartmentId.make(nonEmpty(value.departmentId, "token department")),
       active: parseActive(value.active),
     };
   }
@@ -96,9 +108,7 @@ const parsePositiveInteger = (raw: string | undefined, fallback: number, field: 
   return parsed;
 };
 
-const isInstant = (value: string): boolean =>
-  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/.test(value) &&
-  !Number.isNaN(Date.parse(value));
+const isInstant = isRfc3339Instant;
 
 export const makeAdmissionApiRateLimit = (
   maxRequests = 5,
@@ -154,9 +164,9 @@ export const makeAdmissionApiConfig = (
     maxBodyBytes,
     rateLimit: makeAdmissionApiRateLimit(rateLimitMax, rateLimitWindow),
     now: () => configuredNow ?? new Date().toISOString(),
-    nextAdmissionPeriodId: () => `admission_period_${randomUUID()}`,
-    nextApplicantId: () => `applicant_${randomUUID()}`,
-    nextApplicationId: () => `application_${randomUUID()}`,
+    nextAdmissionPeriodId: () => AdmissionPeriodIdSchema.make(`admission_period_${randomUUID()}`),
+    nextApplicantId: () => ApplicantIdSchema.make(`applicant_${randomUUID()}`),
+    nextApplicationId: () => PublicApplicationIdSchema.make(`application_${randomUUID()}`),
     nextActivationToken: () => randomBytes(32).toString("base64url"),
   };
 };

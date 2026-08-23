@@ -1,14 +1,30 @@
 import { afterAll, describe, expect, it } from "vitest";
 import {
   deliverNextPublicApplicationOutbox,
-  executePublicApplicationCommand,
   makeRecordingPublicApplicationEffectInterpreter,
   publicApplicationActivationDigest,
   runPublicApplicationOutboxWorker,
 } from "@vektorprogrammet/domain/application";
+import {
+  ApplicantIdSchema,
+  PublicApplicationIdSchema,
+  type PublicApplicationOutboxRequest,
+} from "@vektorprogrammet/domain/application";
+import { executePublicApplicationCommand } from "../../domain/src/application/postgres.js";
+import {
+  AdmissionPeriodCommandId,
+  AdmissionPeriodId,
+} from "../../domain/src/admission-period/schema.js";
+import {
+  executeAdmissionPeriodCommand,
+  listOpenAdmissionPeriods,
+} from "../../domain/src/admission-period/postgres.js";
+import { importOrganizationSnapshot } from "../../domain/src/organization/postgres.js";
+import { DepartmentId, PersonId, SemesterId } from "../../domain/src/organization/schema.js";
 import { Database } from "@vektorprogrammet/domain/database";
-import { Economy } from "@vektorprogrammet/domain/receipt";
+import { Economy, importLegacyReceipt } from "@vektorprogrammet/domain/receipt";
 import { EconomyLive } from "@vektorprogrammet/domain/receipt/postgres";
+import { storeReceiptImportResult } from "../../domain/src/receipt/postgres.js";
 import { Deferred, Effect, Fiber, Layer, ManagedRuntime } from "effect";
 import { DatabaseTest } from "./layers.js";
 
@@ -58,7 +74,7 @@ describe("DatabaseTest", () => {
     );
 
     expect(evidence).toEqual({
-      revision: "8_organization-authority",
+      revision: "9_import-occurrence-authority",
       migrations: [
         { migration_id: 1, name: "receipt-authority" },
         { migration_id: 2, name: "admission-period-authority" },
@@ -68,6 +84,7 @@ describe("DatabaseTest", () => {
         { migration_id: 6, name: "public-applicant-delivered-payload-cleanup" },
         { migration_id: 7, name: "public-applicant-activation-snapshot" },
         { migration_id: 8, name: "organization-authority" },
+        { migration_id: 9, name: "import-occurrence-authority" },
       ],
       tables: [
         "admission_applications",
@@ -95,7 +112,163 @@ describe("DatabaseTest", () => {
     );
 
     expect(second).toBe(first);
-    expect(rows).toEqual([{ migration_count: "8" }]);
+    expect(rows).toEqual([{ migration_count: "9" }]);
+  });
+
+  it("executes Admissions and Organization authority adapters against PGlite", async () => {
+    const evidence = await runtime.runPromise(
+      Effect.gen(function* () {
+        const database = yield* Database;
+        yield* database`
+          INSERT INTO admission_period_departments (department_id, name)
+          VALUES ('adapter-department', 'Adapter Department')
+        `;
+        yield* database`
+          INSERT INTO admission_period_semesters (semester_id, start_at, end_at)
+          VALUES ('adapter-semester', '2035-01-01T00:00:00.000Z', '2035-07-01T00:00:00.000Z')
+        `;
+        const created = yield* executeAdmissionPeriodCommand(
+          {
+            _tag: "CreateAdmissionPeriod",
+            commandId: AdmissionPeriodCommandId.make("adapter-create"),
+            departmentId: DepartmentId.make("adapter-department"),
+            semesterId: SemesterId.make("adapter-semester"),
+            startAt: "2035-02-01T00:00:00.000Z",
+            endAt: "2035-03-01T00:00:00.000Z",
+          },
+          {
+            actor: {
+              _tag: "GlobalAdmin",
+              personId: PersonId.make("adapter-admin"),
+              active: true,
+            },
+            now: "2035-01-15T00:00:00.000Z",
+            admissionPeriodId: AdmissionPeriodId.make("adapter-period"),
+          },
+        );
+        const open = yield* listOpenAdmissionPeriods("2035-02-15T00:00:00.000Z");
+
+        const organizationSnapshot = {
+          sourceRepository: "database-test",
+          sourceRevision: "adapter-revision-1",
+          snapshotId: "adapter-snapshot-1",
+          transformationRevision: "adapter-transform-1",
+          departments: [
+            {
+              id: 700,
+              name: "Organization Adapter",
+              shortName: "OA",
+              email: "adapter@example.invalid",
+              city: "Bergen",
+            },
+          ],
+          teams: [],
+          memberships: [{ id: "malformed" }],
+        } as const;
+        const imported = yield* importOrganizationSnapshot(organizationSnapshot);
+        yield* importOrganizationSnapshot({
+          ...organizationSnapshot,
+          sourceRevision: "adapter-revision-2",
+          snapshotId: "adapter-snapshot-2",
+          departments: [
+            {
+              ...organizationSnapshot.departments[0],
+              name: "Conflicting Organization Adapter",
+            },
+          ],
+          memberships: [],
+        });
+        const collisions = yield* database<{ readonly reason: string }>`
+          SELECT reason
+          FROM organization_membership_quarantine
+          WHERE source_revision = 'adapter-revision-2'
+        `;
+        return {
+          created: created.observation._tag,
+          open: open.map((period) => period.id),
+          quarantined: imported.quarantined.map((row) => row.reason),
+          collisions: collisions.map((row) => row.reason),
+        };
+      }),
+    );
+    expect(evidence).toEqual({
+      created: "Created",
+      open: ["adapter-period"],
+      quarantined: ["DECODE_FAILURE"],
+      collisions: ["DESTINATION_IDENTITY_COLLISION"],
+    });
+  });
+
+  it("replays accepted and collision-classified Receipt imports idempotently", async () => {
+    const makeImport = (
+      sourcePrimaryKey: string,
+      sourceRevision: string,
+      receiptId: string,
+      visualId: string,
+    ) =>
+      importLegacyReceipt(
+        {
+          sourcePrimaryKey,
+          ownerPersonId: PersonId.make("receipt-import-owner"),
+          departmentId: DepartmentId.make("receipt-import-department"),
+          visualId,
+          amountDecimal: "123.45",
+          description: "PGlite replay evidence",
+          receiptDate: "2035-02-15",
+          submittedAt: "2035-02-15T12:00:00.000Z",
+          status: "pending",
+          refundDate: null,
+          paymentAccountCiphertext: "ciphertext:v1:receipt-import",
+          file: {
+            fileRef: `staged/${sourcePrimaryKey}`,
+            objectKey: `receipts/${sourcePrimaryKey}`,
+            contentType: "application/pdf",
+            byteLength: 128,
+            sha256: "a".repeat(64),
+          },
+        },
+        receiptId,
+        {
+          sourceRepository: "database-test",
+          sourceRevision,
+          snapshotId: `snapshot-${sourceRevision}`,
+          sourceWatermark: `watermark-${sourceRevision}`,
+          transformationRevision: "receipt-import-replay-v1",
+          sourceDigest: "b".repeat(64),
+          destinationIdentity: receiptId,
+        },
+      );
+    const accepted = makeImport(
+      "receipt-replay-source",
+      "receipt-replay-1",
+      "receipt-replay-canonical",
+      "REPLAY-VISUAL",
+    );
+    const collision = makeImport(
+      "receipt-collision-source",
+      "receipt-replay-2",
+      "receipt-collision-canonical",
+      "REPLAY-VISUAL",
+    );
+    await runtime.runPromise(storeReceiptImportResult(accepted));
+    await runtime.runPromise(storeReceiptImportResult(accepted));
+    await runtime.runPromise(storeReceiptImportResult(collision));
+    await runtime.runPromise(storeReceiptImportResult(collision));
+    const rows = await runtime.runPromise(
+      Database.use(
+        (database) =>
+          database<{ readonly result: string; readonly reconciliation_result: string }>`
+          SELECT result, reconciliation_result
+          FROM economy_receipt_import_ledger
+          WHERE source_primary_key IN ('receipt-replay-source', 'receipt-collision-source')
+          ORDER BY source_primary_key
+        `,
+      ),
+    );
+    expect(rows).toEqual([
+      { result: "Quarantined", reconciliation_result: "NotApplicable" },
+      { result: "Accepted", reconciliation_result: "Pending" },
+    ]);
   });
 
   it("runs the Economy authority contract against PGlite", async () => {
@@ -235,8 +408,8 @@ describe("DatabaseTest", () => {
           },
           {
             now: "2031-09-15T12:00:00.000Z",
-            applicantId: "outbox-applicant",
-            applicationId: "outbox-application",
+            applicantId: ApplicantIdSchema.make("outbox-applicant"),
+            applicationId: PublicApplicationIdSchema.make("outbox-application"),
             activationToken: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQ",
           },
         );
@@ -315,8 +488,8 @@ describe("DatabaseTest", () => {
           },
           {
             now: "2031-09-15T12:10:00.000Z",
-            applicantId: "outbox-fairness-old-applicant",
-            applicationId: "outbox-fairness-old-application",
+            applicantId: ApplicantIdSchema.make("outbox-fairness-old-applicant"),
+            applicationId: PublicApplicationIdSchema.make("outbox-fairness-old-application"),
             activationToken: "oldfailureabcdefghijklmnopqrstuvwxyzABCDEFG",
           },
         );
@@ -334,8 +507,8 @@ describe("DatabaseTest", () => {
           },
           {
             now: "2031-09-15T12:11:00.000Z",
-            applicantId: "outbox-fairness-new-applicant",
-            applicationId: "outbox-fairness-new-application",
+            applicantId: ApplicantIdSchema.make("outbox-fairness-new-applicant"),
+            applicationId: PublicApplicationIdSchema.make("outbox-fairness-new-application"),
             activationToken: "newapplicationabcdefghijklmnopqrstuvwxyzABC",
           },
         );
@@ -512,8 +685,8 @@ describe("DatabaseTest", () => {
           },
           {
             now: "2031-09-15T12:20:00.000Z",
-            applicantId: "legacy-effect-applicant",
-            applicationId: "legacy-effect-application",
+            applicantId: ApplicantIdSchema.make("legacy-effect-applicant"),
+            applicationId: PublicApplicationIdSchema.make("legacy-effect-application"),
             activationToken: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQ",
           },
         );
@@ -592,8 +765,8 @@ describe("DatabaseTest", () => {
           },
           {
             now: "2031-09-15T12:21:00.000Z",
-            applicantId: "legacy-delivered-applicant",
-            applicationId: "legacy-delivered-application",
+            applicantId: ApplicantIdSchema.make("legacy-delivered-applicant"),
+            applicationId: PublicApplicationIdSchema.make("legacy-delivered-application"),
             activationToken: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQ",
           },
         );
@@ -689,8 +862,8 @@ describe("DatabaseTest", () => {
           },
           {
             now: "2031-09-15T12:21:00.000Z",
-            applicantId: "malformed-effect-applicant",
-            applicationId: "malformed-effect-application",
+            applicantId: ApplicantIdSchema.make("malformed-effect-applicant"),
+            applicationId: PublicApplicationIdSchema.make("malformed-effect-application"),
             activationToken: "malformedpayloadabcdefghijklmnopqrstuvwxyzA",
           },
         );
@@ -751,8 +924,8 @@ describe("DatabaseTest", () => {
           },
           {
             now: "2031-09-15T12:22:00.000Z",
-            applicantId: "tampered-effect-applicant",
-            applicationId: "tampered-effect-application",
+            applicantId: ApplicantIdSchema.make("tampered-effect-applicant"),
+            applicationId: PublicApplicationIdSchema.make("tampered-effect-application"),
             activationToken: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQ",
           },
         );
@@ -820,8 +993,8 @@ describe("DatabaseTest", () => {
           },
           {
             now: "2031-09-15T12:22:30.000Z",
-            applicantId: "snapshot-applicant",
-            applicationId: "snapshot-first-application",
+            applicantId: ApplicantIdSchema.make("snapshot-applicant"),
+            applicationId: PublicApplicationIdSchema.make("snapshot-first-application"),
             activationToken: firstToken,
           },
         );
@@ -861,8 +1034,8 @@ describe("DatabaseTest", () => {
           },
           {
             now: "2032-09-15T12:22:30.000Z",
-            applicantId: "ignored-existing-applicant",
-            applicationId: "snapshot-second-application",
+            applicantId: ApplicantIdSchema.make("ignored-existing-applicant"),
+            applicationId: PublicApplicationIdSchema.make("snapshot-second-application"),
             activationToken: secondToken,
           },
         );
@@ -941,8 +1114,8 @@ describe("DatabaseTest", () => {
           },
           {
             now: "2031-09-15T12:23:00.000Z",
-            applicantId: "cross-linked-target-applicant",
-            applicationId: "cross-linked-target-application",
+            applicantId: ApplicantIdSchema.make("cross-linked-target-applicant"),
+            applicationId: PublicApplicationIdSchema.make("cross-linked-target-application"),
             activationToken: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQ",
           },
         );
@@ -964,8 +1137,8 @@ describe("DatabaseTest", () => {
           },
           {
             now: "2031-09-15T12:23:01.000Z",
-            applicantId: "cross-linked-source-applicant",
-            applicationId: "cross-linked-source-application",
+            applicantId: ApplicantIdSchema.make("cross-linked-source-applicant"),
+            applicationId: PublicApplicationIdSchema.make("cross-linked-source-application"),
             activationToken: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopq",
           },
         );
@@ -1034,8 +1207,8 @@ describe("DatabaseTest", () => {
             },
             {
               now: "2031-09-15T12:01:00.000Z",
-              applicantId: "worker-applicant",
-              applicationId: "worker-application",
+              applicantId: ApplicantIdSchema.make("worker-applicant"),
+              applicationId: PublicApplicationIdSchema.make("worker-application"),
               activationToken: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopq",
             },
           );
@@ -1049,14 +1222,7 @@ describe("DatabaseTest", () => {
           const deliveryStarted = yield* Deferred.make<void>();
           const interpreter = {
             deliver: (
-              request: {
-                readonly commandId: string;
-                readonly effectId: string;
-                readonly _tag:
-                  | "SendApplicantActivationOrConfirmation"
-                  | "CreateAdmissionSubscription"
-                  | "WriteApplicationAudit";
-              },
+              request: PublicApplicationOutboxRequest,
               ordinal: number,
               attempts: number,
             ) =>

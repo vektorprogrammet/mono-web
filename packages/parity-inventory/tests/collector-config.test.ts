@@ -21,7 +21,10 @@ import {
   validateCollectorExecutablePath,
 } from "../src/api.js";
 import { sha256 } from "../src/canonical.js";
-import { createManifestContextFromSnapshots, unsafeSourceTextReason } from "../src/source-manifest.js";
+import {
+  createManifestContextFromSnapshots,
+  unsafeSourceTextReason,
+} from "../src/source-manifest.js";
 import { scanRootEffect } from "../src/runtime.js";
 test("route payload safety validates values without treating structural keys as secrets", () => {
   const safe = {
@@ -33,7 +36,9 @@ test("route payload safety validates values without treating structural keys as 
   };
   expect(unsafeSourceTextReason(JSON.stringify(safe))).toBe("UNSAFE_SOURCE");
   expect(routePayloadContainsUnsafe(safe)).toBe(false);
-  expect(routePayloadContainsUnsafe({ ...safe, secret_route: { token: "concrete-secret" } })).toBe(true);
+  expect(routePayloadContainsUnsafe({ ...safe, secret_route: { token: "concrete-secret" } })).toBe(
+    true,
+  );
 });
 
 test("missing collector configuration is a runtime_unavailable observation", async () => {
@@ -69,53 +74,72 @@ CORS_ALLOW_ORIGIN='*'
 DATABASE_URL=sqlite:///:memory:
 APP_SECRET=test_app_secret_for_testing_only
 JWT_PASSPHRASE=
-`
+TEST_JWT_PRIVATE_PATH=/dev/null
+TEST_JWT_PUBLIC_PATH=/dev/null
+TEST_JWT_PASSPHRASE=
+
+LOG_CHANNEL='#test-log'
+SLACK_DISABLED=1
+SLACK_ENDPOINT='https://example.invalid/slack'
+GATEWAY_API_TOKEN=
+SMS_DISABLE=1
+DEFAULT_SURVEY_EMAIL=
+IPINFO_TOKEN=
+GEO_IGNORED_ASNS='[]'
+DEFAULT_FROM_EMAIL=
+ECONOMY_EMAIL=
+GOOGLE_API_CLIENT_ID=test
+GOOGLE_API_CLIENT_SECRET=
+GOOGLE_API_REFRESH_TOKEN=`;
 test("metadata collector loads only the staged test dotenv before fixed kernel boot", () => {
-  const autoload = API_METADATA_SCRIPT.indexOf("require $root . '/vendor/autoload.php';")
-  const dotenv = API_METADATA_SCRIPT.indexOf("(new \\Symfony\\Component\\Dotenv\\Dotenv())->usePutenv()->load($root . '/.env.test');")
-  const kernel = API_METADATA_SCRIPT.indexOf("$kernel = new \\Kernel('test', false);")
-  const testContainer = API_METADATA_SCRIPT.indexOf("$container = $kernel->getContainer()->get('test.service_container');")
-  const factory = API_METADATA_SCRIPT.indexOf("$factory = $container->get('api_platform.metadata.resource.metadata_collection_factory');")
-  expect(testContainer).toBeGreaterThan(kernel)
-  expect(factory).toBeGreaterThan(testContainer)
-  expect(autoload).toBeGreaterThanOrEqual(0)
-  expect(dotenv).toBeGreaterThan(autoload)
-  expect(kernel).toBeGreaterThan(dotenv)
-  expect(API_METADATA_SCRIPT).not.toContain("bootEnv")
-  expect(API_METADATA_SCRIPT).not.toContain("loadEnv")
-  expect(API_METADATA_SCRIPT).not.toContain("$root . '/.env';")
-  expect(API_METADATA_SCRIPT).not.toContain("$root . '/.env.local';")
-  expect(API_METADATA_SCRIPT).not.toMatch(/\$root \. '\/\.env\.(?:dev|prod|local)'/)
-})
+  const autoload = API_METADATA_SCRIPT.indexOf("require $root . '/vendor/autoload.php';");
+  const dotenv = API_METADATA_SCRIPT.indexOf(
+    "(new \\Symfony\\Component\\Dotenv\\Dotenv())->usePutenv()->load($root . '/.env.test');",
+  );
+  const kernel = API_METADATA_SCRIPT.indexOf("$kernel = new \\Kernel('test', false);");
+  const testContainer = API_METADATA_SCRIPT.indexOf(
+    "$container = $kernel->getContainer()->get('test.service_container');",
+  );
+  const factory = API_METADATA_SCRIPT.indexOf(
+    "$factory = $container->get('api_platform.metadata.resource.metadata_collection_factory');",
+  );
+  expect(testContainer).toBeGreaterThan(kernel);
+  expect(factory).toBeGreaterThan(testContainer);
+  expect(autoload).toBeGreaterThanOrEqual(0);
+  expect(dotenv).toBeGreaterThan(autoload);
+  expect(kernel).toBeGreaterThan(dotenv);
+  expect(API_METADATA_SCRIPT).not.toContain("bootEnv");
+  expect(API_METADATA_SCRIPT).not.toContain("loadEnv");
+  expect(API_METADATA_SCRIPT).not.toContain("$root . '/.env';");
+  expect(API_METADATA_SCRIPT).not.toContain("$root . '/.env.local';");
+  expect(API_METADATA_SCRIPT).not.toMatch(/\$root \. '\/\.env\.(?:dev|prod|local)'/);
+});
 
 test("OpenAPI collector uses the API Platform command serializer seam", () => {
-  expect(API_OPENAPI_SCRIPT).toContain(
-    "$serializer = $container->get('api_platform.serializer');",
-  );
+  expect(API_OPENAPI_SCRIPT).toContain("$serializer = $container->get('api_platform.serializer');");
   expect(API_OPENAPI_SCRIPT).not.toContain("$container->get('serializer')");
-})
-
+});
 
 test("tracked collector environment contains only the approved test bytes", async () => {
-  const directory = mkdtempSync("/tmp/parity-collector-env-scan-")
+  const directory = mkdtempSync("/tmp/parity-collector-env-scan-");
   const expectedBytes = execFileSync("git", ["show", "HEAD:apps/server/.env.test"], {
     cwd: resolve(import.meta.dir, "../../.."),
     maxBuffer: 4096,
-  })
-  mkdirSync(join(directory, "apps/server"), { recursive: true })
-  writeFileSync(join(directory, "apps/server/.env.test"), expectedBytes)
+  });
+  mkdirSync(join(directory, "apps/server"), { recursive: true });
+  writeFileSync(join(directory, "apps/server/.env.test"), expectedBytes);
   try {
-    const mono = await Effect.runPromise(scanRootEffect(directory, "mono"))
-    const envFiles = mono.files.filter((file) => /(?:^|\/)\.env(?:$|[.-])/iu.test(file.path))
-    expect(envFiles.map((file) => file.path)).toEqual(["apps/server/.env.test"])
-    const envFile = envFiles[0]
-    expect(envFile).toMatchObject({ availability: "available", unsafe: false })
-    expect(Buffer.from(envFile?.bytes ?? new Uint8Array())).toEqual(expectedBytes)
-    expect(new TextDecoder().decode(envFile?.bytes ?? new Uint8Array())).toBe(APPROVED_TEST_ENV)
+    const mono = await Effect.runPromise(scanRootEffect(directory, "mono"));
+    const envFiles = mono.files.filter((file) => /(?:^|\/)\.env(?:$|[.-])/iu.test(file.path));
+    expect(envFiles.map((file) => file.path)).toEqual(["apps/server/.env.test"]);
+    const envFile = envFiles[0];
+    expect(envFile).toMatchObject({ availability: "available", unsafe: false });
+    expect(Buffer.from(envFile?.bytes ?? new Uint8Array())).toEqual(expectedBytes);
+    expect(new TextDecoder().decode(envFile?.bytes ?? new Uint8Array())).toBe(APPROVED_TEST_ENV);
   } finally {
-    rmSync(directory, { recursive: true, force: true })
+    rmSync(directory, { recursive: true, force: true });
   }
-})
+});
 
 test("failed fixture collector bytes become fixed reason-only observations", async () => {
   const directory = mkdtempSync("/tmp/parity-collector-failure-bytes-");
@@ -129,9 +153,23 @@ test("failed fixture collector bytes become fixed reason-only observations", asy
     const context = createManifestContextFromSnapshots(legacy, mono);
     const cases = [
       { path: "non-utf8", bytes: new Uint8Array([0xff, 0xfe, 0xfd]), reason: "NON_UTF8_OUTPUT" },
-      { path: "malformed", bytes: new TextEncoder().encode('{"outer":{"password":"correct-horse-battery-staple"}'), reason: "SOURCE_PARSE_ERROR" },
-      { path: "nested", bytes: new TextEncoder().encode('{"outer":{"password":"correct-horse-battery-staple"}}'), reason: "UNSAFE_SOURCE" },
-      { path: "nested-result", bytes: new TextEncoder().encode('{"operations":[{"resource_class_ref":"App\\\\Fixture\\\\Api\\\\Resource","operation_name":"Get","method":"GET","uri_template":"/fixture","metadata":{"newPassword":{"example":"correct-horse-battery-staple"}}}]}'), reason: "UNSAFE_SOURCE" },
+      {
+        path: "malformed",
+        bytes: new TextEncoder().encode('{"outer":{"password":"correct-horse-battery-staple"}'),
+        reason: "SOURCE_PARSE_ERROR",
+      },
+      {
+        path: "nested",
+        bytes: new TextEncoder().encode('{"outer":{"password":"correct-horse-battery-staple"}}'),
+        reason: "UNSAFE_SOURCE",
+      },
+      {
+        path: "nested-result",
+        bytes: new TextEncoder().encode(
+          '{"operations":[{"resource_class_ref":"App\\\\Fixture\\\\Api\\\\Resource","operation_name":"Get","method":"GET","uri_template":"/fixture","metadata":{"newPassword":{"example":"correct-horse-battery-staple"}}}]}',
+        ),
+        reason: "UNSAFE_SOURCE",
+      },
     ] as const;
     for (const fixture of cases) {
       const result = collectApiOperations(
@@ -143,7 +181,9 @@ test("failed fixture collector bytes become fixed reason-only observations", asy
         { path: fixture.path, bytes: fixture.bytes },
       );
       const observation = context.runtimeObservations.at(-1);
-      const fixtureSource = context.sources.find((source) => source.path === `fixture://runtime/${fixture.path}`);
+      const fixtureSource = context.sources.find(
+        (source) => source.path === `fixture://runtime/${fixture.path}`,
+      );
       expect(fixtureSource).toMatchObject({
         byte_length: null,
         sha256: null,
@@ -185,7 +225,8 @@ test("collector executable validation rejects arbitrary, symlinked, and writable
 
 test("Nix executable shapes are recognized without PATH lookup", () => {
   const php = "/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-php-8.3.21/bin/php";
-  const phpWithExtensions = "/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-php-with-extensions-8.4.23/bin/php";
+  const phpWithExtensions =
+    "/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-php-with-extensions-8.4.23/bin/php";
   const bwrap = "/nix/store/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb-bubblewrap-0.11.2/bin/bwrap";
   expect(collectorExecutableProvenance("php", php)).toBe("nix-store");
   expect(collectorExecutableProvenance("php", phpWithExtensions)).toBe("nix-store");
@@ -221,7 +262,8 @@ test("sandbox invocation binds selected binaries, isolates arguments, and narrow
     (value, index) => value === "--ro-bind" && invocation.arguments[index + 2] === "/workspace",
   );
   const varOverlayIndex = invocation.arguments.findIndex(
-    (value, index) => value === "--tmpfs" && invocation.arguments[index + 1] === "/workspace/apps/server/var",
+    (value, index) =>
+      value === "--tmpfs" && invocation.arguments[index + 1] === "/workspace/apps/server/var",
   );
   expect(workspaceBindIndex).toBeGreaterThan(-1);
   expect(varOverlayIndex).toBe(workspaceBindIndex + 3);

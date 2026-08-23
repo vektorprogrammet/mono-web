@@ -109,3 +109,9 @@ it.effect("decodes branded records and rejects excess or invalid persisted value
     expect(String(fractionalRevision)).toContain("revision");
   });
 });
+
+it("keeps immutable and private membership fields out of update projections", () => {
+  expect(Object.keys(Membership.update.fields)).not.toContain("deletedTeamName");
+  expect(Object.keys(Membership.jsonUpdate.fields)).not.toContain("deletedTeamName");
+  expect(Object.keys(Membership.json.fields)).not.toContain("deletedTeamName");
+});

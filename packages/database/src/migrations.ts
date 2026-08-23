@@ -42,6 +42,10 @@ const organizationMigrationUrl = new URL(
   "../../domain/src/organization/migrations/0001-organization-authority.sql",
   import.meta.url,
 );
+const importOccurrenceAuthorityMigrationUrl = new URL(
+  "../migrations/0009-import-occurrence-authority.sql",
+  import.meta.url,
+);
 
 export type ExecuteMigration = (
   source: string,
@@ -94,9 +98,14 @@ export const databaseMigrationLoader = (execute: ExecuteMigration) =>
       organizationMigrationUrl,
       execute,
     ),
+    "9_import-occurrence-authority": migration(
+      "import-occurrence-authority",
+      importOccurrenceAuthorityMigrationUrl,
+      execute,
+    ),
   });
 
-export const databaseSchemaRevision = "8_organization-authority";
+export const databaseSchemaRevision = "9_import-occurrence-authority";
 export const runDatabaseMigrations = (execute: ExecuteMigration) =>
   Migrator.make({})({
     loader: databaseMigrationLoader(execute),

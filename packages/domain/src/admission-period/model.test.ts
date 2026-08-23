@@ -5,6 +5,7 @@ import {
   AdmissionFieldOfStudy,
   AdmissionPeriod,
   AdmissionPeriodProjectionSchema,
+  AdmissionPeriodCommandSchema,
   AdmissionSemester,
 } from "./schema.js";
 
@@ -76,6 +77,23 @@ it("derives admission reference and period variants from one Model declaration",
   ]);
   expect(keys(AdmissionPeriod.jsonUpdate.fields)).toEqual(["endAt", "startAt"]);
 });
+
+it.effect("requires the semester identity on create commands", () =>
+  Effect.gen(function* () {
+    const failure = yield* Effect.flip(
+      Schema.decodeUnknownEffect(AdmissionPeriodCommandSchema)(
+        {
+          _tag: "CreateAdmissionPeriod",
+          commandId: "command-missing-semester",
+          startAt: "2026-09-01T00:00:00.000Z",
+          endAt: "2026-12-01T00:00:00.000Z",
+        },
+        { onExcessProperty: "error" },
+      ),
+    );
+    expect(String(failure)).toContain("semesterId");
+  }),
+);
 
 it.effect("decodes selected rows strictly and leaves source values immutable", () => {
   const selected = {

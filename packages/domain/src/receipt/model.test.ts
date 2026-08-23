@@ -82,7 +82,7 @@ it.effect("decodes a selected Receipt and rejects an excess persisted field", ()
       fileRef: "staging/receipt-model-1",
       objectKey: "receipts/receipt-model-1",
       contentType: "application/pdf",
-      byteLength: 128,
+      byteLength: "128",
       sha256: "a".repeat(64),
     },
     revision: 0,
@@ -93,6 +93,7 @@ it.effect("decodes a selected Receipt and rejects an excess persisted field", ()
       onExcessProperty: "error",
     });
     expect(receipt.receiptId).toBe("receipt-model-1");
+    expect(receipt.file.byteLength).toBe(128);
 
     const failure = yield* Effect.flip(
       Schema.decodeUnknownEffect(Receipt)(

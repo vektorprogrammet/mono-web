@@ -1,8 +1,8 @@
 -- 0039 replaces the disposable 0038 application proof shape.
 -- Run after 0001-admission-period-authority.sql. Reference data is seeded by the
 -- local runner: departments, semesters, periods, and active field-of-study rows.
--- This migration intentionally drops only native disposable proof tables; Symfony
--- tables and production data are outside this authority.
+-- Existing native application tables require an explicit, data-preserving
+-- migration; this authority migration never destroys them implicitly.
 
 ALTER TABLE admission_period_departments
   ADD COLUMN IF NOT EXISTS name text NOT NULL DEFAULT '';
@@ -18,11 +18,22 @@ CREATE TABLE IF NOT EXISTS admission_period_fields_of_study (
     UNIQUE (field_of_study_id, department_id)
 );
 
-DROP TABLE IF EXISTS admission_application_outbox;
-DROP TABLE IF EXISTS admission_application_audit;
-DROP TABLE IF EXISTS admission_application_command_receipts;
-DROP TABLE IF EXISTS admission_applications;
-DROP TABLE IF EXISTS admission_applicants;
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM admission_applications)
+    OR EXISTS (SELECT 1 FROM admission_application_command_receipts)
+    OR to_regclass('admission_application_outbox') IS NOT NULL
+    OR to_regclass('admission_application_audit') IS NOT NULL
+    OR to_regclass('admission_applicants') IS NOT NULL
+  THEN
+    RAISE EXCEPTION
+      'public applicant authority tables contain data or canonical schema; run an explicit data-preserving migration';
+  END IF;
+END
+$$;
+
+DROP TABLE admission_application_command_receipts;
+DROP TABLE admission_applications;
 
 CREATE TABLE admission_applicants (
   applicant_id text PRIMARY KEY,

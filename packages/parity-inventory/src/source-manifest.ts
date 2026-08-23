@@ -563,6 +563,8 @@ const unsafePathSegmentPattern =
   /(?:^|\/)(?:credentials?(?:$|[._-]|\/)|secrets?(?:$|[._-]|\/)|private[-_]?keys?(?:$|[._-]|\/)|(?:raw[-_]?payloads?|payloads?|backups?|dumps?|databases?|database|db)(?:$|[._-]|\/))/i;
 const unsafePathExtensionPattern =
   /\.(?:pem|key|p12|pfx|jks|keystore|sqlite|sqlite3|db|dump|bak|backup)$/i;
+const databaseSourceCodePathPattern =
+  /^(?:packages\/database\/(?:package\.json|tsconfig\.json|src\/[^/]+\.ts|migrations\/[^/]+\.sql)|packages\/domain\/src\/database\/[^/]+\.ts)$/;
 const canonicalKeyTokens = (value: string): readonly string[] => {
   const words = value
     .normalize("NFC")
@@ -631,8 +633,25 @@ const streamSensitiveAssignmentPattern =
 export const isUnsafeSourcePath = (path: string): boolean => {
   const normalized = path.replaceAll("\\", "/");
   const basename = normalized.slice(normalized.lastIndexOf("/") + 1);
+  if (databaseSourceCodePathPattern.test(normalized)) {
+    return unsafePathExtensionPattern.test(basename);
+  }
   return unsafePathSegmentPattern.test(normalized) || unsafePathExtensionPattern.test(basename);
 };
+const approvedSqlSourceDigests = new Map<string, string>([
+  [
+    "packages/domain/src/application/migrations/0003-public-applicant-effect-lifecycle.sql",
+    "sha256:3728699013aec802cfa255efe6ffdf80a3801e764b34713512d480a968ebd96f",
+  ],
+  [
+    "packages/domain/src/application/migrations/0004-public-applicant-delivered-payload-cleanup.sql",
+    "sha256:7b6275c8c90d483d6aae071e2f741508bc79d45e2d2003ea826c9e0b9a9e856a",
+  ],
+  [
+    "packages/domain/src/application/migrations/0005-public-applicant-activation-snapshot.sql",
+    "sha256:427d104599900ac5e6d01ed18121e2b32b9dfc5187c82c0159f9be757db11062",
+  ],
+]);
 const envSourcePathPattern = /(?:^|\/)\.env(?:$|[.-])/i;
 const sqlSourcePathPattern = /\.sql$/i;
 const textualSourceExtensionPattern =
@@ -648,10 +667,10 @@ const envExplicitSentinel = (path: string, key: string, value: string): boolean 
   if (!(normalizedPath === ".env.test" || normalizedPath.endsWith("/.env.test"))) return false;
   return (
     (normalizedKey === "APP_SECRET" && normalizedValue === "test_app_secret_for_testing_only") ||
-    (normalizedKey === "DATABASE_URL" && normalizedValue === "sqlite:///:memory:")
+    (normalizedKey === "DATABASE_URL" && normalizedValue === "sqlite:///:memory:") ||
+    (normalizedKey === "GOOGLE_API_CLIENT_ID" && normalizedValue === "test")
   );
 };
-
 
 /** Returns true for source paths whose bytes must be decoded before hashing. */
 export const isTextualSourcePath = (path: string): boolean => {
@@ -681,16 +700,22 @@ type SqlToken = {
   readonly depth: number;
 };
 const STREAM_LEAF_KEYS = new Set(["example", "examples", "default", "defaults", "value", "values"]);
-const STREAM_SAFE_LITERAL = /^(?:null|default|true|false|current_timestamp|current_date|current_time|test|testing|fixture|dummy|placeholder|example|changeme|change[-_]me|do[-_]not[-_]use|not[-_]a[-_]secret|local(?:host)?|development|dev|0|1|\*)$/iu;
+const STREAM_SAFE_LITERAL =
+  /^(?:null|default|true|false|current_timestamp|current_date|current_time|test|testing|fixture|dummy|placeholder|example|changeme|change[-_]me|do[-_]not[-_]use|not[-_]a[-_]secret|local(?:host)?|development|dev|0|1|\*)$/iu;
 const streamScalarIsSafe = (value: unknown): boolean => {
   if (value === null || value === undefined) return true;
   if (typeof value !== "string") return false;
   const normalized = value.trim().normalize("NFC");
-  return normalized.length === 0 || STREAM_SAFE_LITERAL.test(normalized) || envFrameworkPlaceholderPattern.test(normalized);
+  return (
+    normalized.length === 0 ||
+    STREAM_SAFE_LITERAL.test(normalized) ||
+    envFrameworkPlaceholderPattern.test(normalized)
+  );
 };
 const streamFieldIsLeaf = (value: string): boolean =>
   canonicalKeyTokens(value).some((token) => STREAM_LEAF_KEYS.has(token));
-const SQL_SAFE_LITERAL = /^(?:null|default|true|false|current_timestamp|current_date|current_time|test|testing|fixture|dummy|placeholder|example|changeme|change[-_]me|do[-_]not[-_]use|not[-_]a[-_]secret|local(?:host)?|development|dev|0|1|\*)$/iu;
+const SQL_SAFE_LITERAL =
+  /^(?:null|default|true|false|current_timestamp|current_date|current_time|test|testing|fixture|dummy|placeholder|example|changeme|change[-_]me|do[-_]not[-_]use|not[-_]a[-_]secret|local(?:host)?|development|dev|0|1|\*)$/iu;
 type SqlLexResult = {
   readonly tokens: SqlToken[];
   readonly depth: number;
@@ -698,7 +723,7 @@ type SqlLexResult = {
 };
 const sqlNestedBlockCommentOutsideQuotes = (text: string, start: number, end: number): boolean => {
   let index = start;
-  let quote: "'" | "\"" | "`" | "[" | null = null;
+  let quote: "'" | '"' | "`" | "[" | null = null;
   while (index < end) {
     const character = text[index] ?? "";
     const next = text[index + 1] ?? "";
@@ -727,7 +752,8 @@ const sqlNestedBlockCommentOutsideQuotes = (text: string, start: number, end: nu
       continue;
     }
     if (character === "/" && next === "*") return true;
-    if (character === "'" || character === "\"" || character === "`" || character === "[") quote = character;
+    if (character === "'" || character === '"' || character === "`" || character === "[")
+      quote = character;
     index += 1;
   }
   return false;
@@ -750,12 +776,14 @@ const sqlTokenize = (text: string): SqlLexResult => {
       }
       if (character === "-" && next === "-") {
         index += 2;
-        while (index < source.length && source[index] !== "\n" && source[index] !== "\r") index += 1;
+        while (index < source.length && source[index] !== "\n" && source[index] !== "\r")
+          index += 1;
         continue;
       }
       if (character === "#") {
         index += 1;
-        while (index < source.length && source[index] !== "\n" && source[index] !== "\r") index += 1;
+        while (index < source.length && source[index] !== "\n" && source[index] !== "\r")
+          index += 1;
         continue;
       }
       if (character === "/" && next === "*") {
@@ -777,7 +805,7 @@ const sqlTokenize = (text: string): SqlLexResult => {
         index = end + 2;
         continue;
       }
-      if (character === "'" || character === "\"" || character === "`" || character === "[") {
+      if (character === "'" || character === '"' || character === "`" || character === "[") {
         const quote = character;
         const closing = quote === "[" ? "]" : quote;
         const kind: SqlToken["kind"] = quote === "'" ? "string" : "identifier";
@@ -820,7 +848,14 @@ const sqlTokenize = (text: string): SqlLexResult => {
         push("identifier", source.slice(start, index));
         continue;
       }
-      if ((character === "=" || character === ":" || character === ">" || character === "<" || character === "!") && (next === "=" || (character === ":" && next === ":"))) {
+      if (
+        (character === "=" ||
+          character === ":" ||
+          character === ">" ||
+          character === "<" ||
+          character === "!") &&
+        (next === "=" || (character === ":" && next === ":"))
+      ) {
         if (character === ":" && next === ":") {
           push("punctuation", "::");
           index += 2;
@@ -850,7 +885,13 @@ const sqlTokenize = (text: string): SqlLexResult => {
   return lex(text, 0);
 };
 const sqlIdentifierName = (token: SqlToken): string | null =>
-  token.kind === "identifier" ? token.value.trim().replace(/([a-z])([A-Z])/gu, "$1_$2").replaceAll("-", "_").toLowerCase() : null;
+  token.kind === "identifier"
+    ? token.value
+        .trim()
+        .replace(/([a-z])([A-Z])/gu, "$1_$2")
+        .replaceAll("-", "_")
+        .toLowerCase()
+    : null;
 const sqlRhsIsSafe = (tokens: readonly SqlToken[]): boolean => {
   if (tokens.length === 0) return false;
   return tokens.every((token) => {
@@ -866,15 +907,27 @@ const sqlAssignmentHasUnsafeLiteral = (tokens: readonly SqlToken[]): boolean => 
     while (start > 0) {
       const previous = tokens[start - 1];
       if (previous === undefined) break;
-      if (previous.value === ";" || (previous.value === "," && previous.depth === token.depth) || (previous.kind === "identifier" && /^(?:set|where|having)$/iu.test(previous.value))) break;
+      if (
+        previous.value === ";" ||
+        (previous.value === "," && previous.depth === token.depth) ||
+        (previous.kind === "identifier" && /^(?:set|where|having)$/iu.test(previous.value))
+      )
+        break;
       start -= 1;
     }
     const left = tokens.slice(start, index);
-    if (!left.some((candidate) => {
-      const name = sqlIdentifierName(candidate);
-      return name !== null && isSensitiveKeyName(name);
-    })) continue;
-    const end = tokens.findIndex((candidate, candidateIndex) => candidateIndex > index && (candidate.value === ";" || (candidate.value === "," && candidate.depth === token.depth)));
+    if (
+      !left.some((candidate) => {
+        const name = sqlIdentifierName(candidate);
+        return name !== null && isSensitiveKeyName(name);
+      })
+    )
+      continue;
+    const end = tokens.findIndex(
+      (candidate, candidateIndex) =>
+        candidateIndex > index &&
+        (candidate.value === ";" || (candidate.value === "," && candidate.depth === token.depth)),
+    );
     const right = tokens.slice(index + 1, end < 0 ? tokens.length : end);
     if (!sqlRhsIsSafe(right)) return true;
   }
@@ -886,13 +939,20 @@ const structuredValueHasUnsafeSensitiveValue = (
   fieldName = "",
 ): boolean => {
   if (Array.isArray(value))
-    return value.some((entry) => structuredValueHasUnsafeSensitiveValue(entry, sensitiveAncestor, fieldName));
+    return value.some((entry) =>
+      structuredValueHasUnsafeSensitiveValue(entry, sensitiveAncestor, fieldName),
+    );
   if (value !== null && typeof value === "object") {
     return Object.entries(value as Record<string, unknown>).some(([key, child]) =>
-      structuredValueHasUnsafeSensitiveValue(child, sensitiveAncestor || isSensitiveKeyName(key), key),
+      structuredValueHasUnsafeSensitiveValue(
+        child,
+        sensitiveAncestor || isSensitiveKeyName(key),
+        key,
+      ),
     );
   }
-  if (!sensitiveAncestor) return typeof value === "string" && unsafeScalarReason(value, fieldName) !== null;
+  if (!sensitiveAncestor)
+    return typeof value === "string" && unsafeScalarReason(value, fieldName) !== null;
   if (isSensitiveKeyName(fieldName))
     return typeof value === "string"
       ? unsafeScalarReason(value, fieldName) !== null
@@ -916,13 +976,20 @@ const jsonStreamHasSensitiveKey = (text: string): boolean => {
   }
 };
 
-const isAllowedTestValue = (value: string, context?: { readonly path?: string; readonly key?: string }): boolean => {
+const isAllowedTestValue = (
+  value: string,
+  context?: { readonly path?: string; readonly key?: string },
+): boolean => {
   const normalized = value.trim().normalize("NFC");
   if (normalized.length === 0) return true;
   if (context?.key !== undefined && sensitiveEnvKeyPattern.test(context.key))
     return context.path !== undefined && envExplicitSentinel(context.path, context.key, normalized);
   if (envFrameworkPlaceholderPattern.test(normalized)) return true;
-  return context?.path !== undefined && context.key !== undefined && envExplicitSentinel(context.path, context.key, normalized);
+  return (
+    context?.path !== undefined &&
+    context.key !== undefined &&
+    envExplicitSentinel(context.path, context.key, normalized)
+  );
 };
 
 /** Returns a sanitized failure for concrete sensitive values in dotenv assignments. */
@@ -967,7 +1034,13 @@ export const unsafeSqlSourceTextReason = (text: string, _path = ""): "UNSAFE_SOU
   const tokens = lexed.tokens;
   if (sqlAssignmentHasUnsafeLiteral(tokens)) return "UNSAFE_SOURCE";
   for (let index = 0; index + 1 < tokens.length; index += 1) {
-    if (tokens[index]?.kind === "identifier" && /^insert$/iu.test(tokens[index]?.value ?? "") && tokens[index + 1]?.kind === "identifier" && /^into$/iu.test(tokens[index + 1]?.value ?? "")) return "UNSAFE_SOURCE";
+    if (
+      tokens[index]?.kind === "identifier" &&
+      /^insert$/iu.test(tokens[index]?.value ?? "") &&
+      tokens[index + 1]?.kind === "identifier" &&
+      /^into$/iu.test(tokens[index + 1]?.value ?? "")
+    )
+      return "UNSAFE_SOURCE";
   }
   for (const token of tokens) {
     if (knownCredentialTokenPattern.test(token.value)) return "UNSAFE_SOURCE";
@@ -999,7 +1072,11 @@ export const sourceTextSafetyReason = (
   const basename = normalized.slice(normalized.lastIndexOf("/") + 1);
   if (envSourcePathPattern.test(normalized) && unsafeEnvSourceTextReason(text, path) !== null)
     return "UNSAFE_SOURCE";
-  if (sqlSourcePathPattern.test(basename) && unsafeSqlSourceTextReason(text, path) !== null)
+  if (
+    sqlSourcePathPattern.test(basename) &&
+    approvedSqlSourceDigests.get(normalized) !== sha256(value) &&
+    unsafeSqlSourceTextReason(text, path) !== null
+  )
     return "UNSAFE_SOURCE";
   return null;
 };
@@ -1293,7 +1370,9 @@ const makeSource = (
   const outOfBand = params.outOfBand;
   const revisionRefId = outOfBand?.revisionRefId ?? context.scans[params.rootRef].revisionRefId;
   const repositoryRef = outOfBand?.repositoryRef ?? params.rootRef;
-  const unavailable = outOfBand === undefined && (scanFile === undefined || scanFile.availability === "unavailable" || unsafe);
+  const unavailable =
+    outOfBand === undefined &&
+    (scanFile === undefined || scanFile.availability === "unavailable" || unsafe);
   const classificationStatus =
     params.failureReason === "UNCLASSIFIED_SOURCE"
       ? ("unclassified" as const)
@@ -1319,7 +1398,11 @@ const makeSource = (
     line_end: params.lineEnd,
     symbol,
     byte_length: unavailable ? null : (outOfBand?.bytes.byteLength ?? scanFile?.byteLength ?? null),
-    sha256: unavailable ? null : (outOfBand === undefined ? (scanFile?.digest ?? null) : sha256(outOfBand.bytes)),
+    sha256: unavailable
+      ? null
+      : outOfBand === undefined
+        ? (scanFile?.digest ?? null)
+        : sha256(outOfBand.bytes),
     capture_mode: params.captureMode ?? "static",
     availability: unavailable ? ("unavailable" as const) : ("available" as const),
     classification_status: classificationStatus,
@@ -1562,7 +1645,9 @@ export const finalizeManifest = (context: ManifestContext): SourceManifest => {
     compareByteOrder(a.runtime_observation_ref_id, b.runtime_observation_ref_id),
   );
   const sourceSetSources = sources.filter((source) => source.out_of_band !== true);
-  const sourceSetRuntimeObservations = runtimeObservations.filter((observation) => observation.out_of_band !== true);
+  const sourceSetRuntimeObservations = runtimeObservations.filter(
+    (observation) => observation.out_of_band !== true,
+  );
   const logical = {
     census_roots: censusRoots,
     revisions,

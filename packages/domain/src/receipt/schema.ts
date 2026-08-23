@@ -1,5 +1,6 @@
 import { Schema } from "effect";
 import { Model } from "effect/unstable/schema";
+import { DepartmentId, PersonId } from "../organization/schema.js";
 import { isRfc3339Instant, Rfc3339InstantSchema } from "../time.js";
 
 const NonEmpty = Schema.String.pipe(Schema.check(Schema.isMinLength(1)));
@@ -52,26 +53,23 @@ export type ReceiptStatus = typeof ReceiptStatusSchema.Type;
 
 export const ApprovalScopeSchema = Schema.TaggedUnion({
   None: {},
-  Department: { departmentId: NonEmpty },
+  Department: { departmentId: DepartmentId },
   Global: {},
 });
 export type ApprovalScope = typeof ApprovalScopeSchema.Type;
 
 export const ReceiptActorSchema = Schema.Struct({
-  personId: NonEmpty,
-  departmentId: NonEmpty,
+  personId: PersonId,
+  departmentId: DepartmentId,
   active: Schema.Boolean,
   approvalScope: ApprovalScopeSchema,
 });
 export type ReceiptActor = typeof ReceiptActorSchema.Type;
 
-export const ReceiptFileSchema = Schema.Struct({
+const ReceiptFileIdentityFields = {
   fileRef: NonEmpty,
   objectKey: NonEmpty,
   contentType: Schema.Literals(["image/jpeg", "image/png", "application/pdf"]),
-  byteLength: Schema.Int.pipe(
-    Schema.check(Schema.isGreaterThan(0), Schema.isLessThanOrEqualTo(Number.MAX_SAFE_INTEGER)),
-  ),
   sha256: Schema.String.pipe(
     Schema.check(
       Schema.makeFilter((value: string) => /^[a-f0-9]{64}$/.test(value), {
@@ -79,13 +77,20 @@ export const ReceiptFileSchema = Schema.Struct({
       }),
     ),
   ),
-}).pipe(
-  Schema.check(
-    Schema.makeFilter((file) => file.fileRef !== file.objectKey, {
-      message: "different staging and committed object identities",
-    }),
-  ),
+} as const;
+const distinctReceiptFileIdentity = Schema.makeFilter(
+  (file: { readonly fileRef: string; readonly objectKey: string }) =>
+    file.fileRef !== file.objectKey,
+  { message: "different staging and committed object identities" },
 );
+export const ReceiptFileSchema = Schema.Struct({
+  ...ReceiptFileIdentityFields,
+  byteLength: PositiveOre,
+}).pipe(Schema.check(distinctReceiptFileIdentity));
+const ReceiptFileSelectSchema = Schema.Struct({
+  ...ReceiptFileIdentityFields,
+  byteLength: PositiveOreFromText,
+}).pipe(Schema.check(distinctReceiptFileIdentity));
 export type ReceiptFile = typeof ReceiptFileSchema.Type;
 
 const ReceiptPayloadFields = {
@@ -107,7 +112,7 @@ export const ReceiptCommandSchema = Schema.TaggedUnion({
   SubmitReceipt: {
     commandId: NonEmpty,
     actor: ReceiptActorSchema,
-    departmentId: NonEmpty,
+    departmentId: DepartmentId,
     paymentAccountCiphertext: NonEmpty,
     ...ReceiptPayloadFields,
     file: ReceiptFileSchema,
@@ -153,14 +158,14 @@ export class Receipt extends Model.Class<Receipt>("Receipt")({
     json: ReceiptVisualId,
   }),
   ownerPersonId: Model.Field({
-    select: NonEmpty,
-    insert: NonEmpty,
-    json: NonEmpty,
+    select: PersonId,
+    insert: PersonId,
+    json: PersonId,
   }),
   departmentId: Model.Field({
-    select: NonEmpty,
-    insert: NonEmpty,
-    json: NonEmpty,
+    select: DepartmentId,
+    insert: DepartmentId,
+    json: DepartmentId,
   }),
   amountOre: Model.Field({
     select: PositiveOreFromText,
@@ -198,7 +203,11 @@ export class Receipt extends Model.Class<Receipt>("Receipt")({
     select: NonEmpty,
     insert: NonEmpty,
   }),
-  file: Model.Sensitive(ReceiptFileSchema),
+  file: Model.Field({
+    select: ReceiptFileSelectSchema,
+    insert: ReceiptFileSchema,
+    update: ReceiptFileSchema,
+  }),
   revision: Model.Field({
     select: Revision,
     insert: Revision,
@@ -227,8 +236,8 @@ export const LegacyReceiptFileSchema = Schema.Struct({
 
 export const LegacyReceiptRowSchema = Schema.Struct({
   sourcePrimaryKey: NonEmpty,
-  ownerPersonId: Schema.NullOr(NonEmpty),
-  departmentId: Schema.NullOr(NonEmpty),
+  ownerPersonId: Schema.NullOr(PersonId),
+  departmentId: Schema.NullOr(DepartmentId),
   visualId: Schema.NullOr(NonEmpty),
   amountDecimal: NonEmpty,
   description: NonEmpty,

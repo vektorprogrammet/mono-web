@@ -32,8 +32,7 @@ CREATE TABLE IF NOT EXISTS organization_teams (
   revision integer NOT NULL DEFAULT 0,
   CONSTRAINT organization_teams_id_nonempty CHECK (btrim(team_id) <> ''),
   CONSTRAINT organization_teams_name_nonempty CHECK (btrim(name) <> ''),
-  CONSTRAINT organization_teams_revision_nonnegative CHECK (revision >= 0),
-  CONSTRAINT organization_teams_department_name_unique UNIQUE (department_id, name)
+  CONSTRAINT organization_teams_revision_nonnegative CHECK (revision >= 0)
 );
 
 CREATE TABLE IF NOT EXISTS organization_memberships (
@@ -59,11 +58,11 @@ CREATE TABLE IF NOT EXISTS organization_memberships (
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS organization_memberships_live_identity_unique
-  ON organization_memberships (person_id, team_id, start_at, position_id)
+  ON organization_memberships (person_id, team_id, start_at, position_id) NULLS NOT DISTINCT
   WHERE team_id IS NOT NULL;
 
 CREATE UNIQUE INDEX IF NOT EXISTS organization_memberships_historical_identity_unique
-  ON organization_memberships (person_id, deleted_team_name, start_at, position_id)
+  ON organization_memberships (person_id, deleted_team_name, start_at, position_id) NULLS NOT DISTINCT
   WHERE team_id IS NULL;
 
 CREATE INDEX IF NOT EXISTS organization_teams_department_order
@@ -82,6 +81,7 @@ CREATE TABLE IF NOT EXISTS organization_membership_quarantine (
   snapshot_id text NOT NULL,
   source_kind text NOT NULL,
   source_primary_key text NOT NULL,
+  source_occurrence integer NOT NULL CHECK (source_occurrence >= 0),
   transformation_revision text NOT NULL,
   target_semantic_identity text NOT NULL,
   reason text NOT NULL,
@@ -95,6 +95,7 @@ CREATE TABLE IF NOT EXISTS organization_membership_quarantine (
     snapshot_id,
     source_kind,
     source_primary_key,
+    source_occurrence,
     transformation_revision
   )
 );
@@ -103,22 +104,29 @@ CREATE TABLE IF NOT EXISTS organization_import_ledger (
   source_repository text NOT NULL,
   source_revision text NOT NULL,
   snapshot_id text NOT NULL,
+  source_kind text NOT NULL,
   source_primary_key text NOT NULL,
+  source_occurrence integer NOT NULL CHECK (source_occurrence >= 0),
   transformation_revision text NOT NULL,
   target_semantic_identity text NOT NULL,
   destination_identity text NULL,
   result text NOT NULL,
-  reason text NULL,
+  reason_json jsonb NULL,
+  source_metadata_json jsonb NULL,
   recorded_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT organization_import_ledger_source_kind CHECK (source_kind IN ('department', 'team', 'membership')),
   CONSTRAINT organization_import_ledger_result CHECK (result IN ('Accepted', 'Quarantined')),
   CONSTRAINT organization_import_ledger_reason CHECK (
-    (result = 'Accepted' AND reason IS NULL) OR (result = 'Quarantined' AND reason IS NOT NULL)
+    (result = 'Accepted' AND reason_json IS NULL)
+    OR (result = 'Quarantined' AND reason_json IS NOT NULL)
   ),
   PRIMARY KEY (
     source_repository,
     source_revision,
     snapshot_id,
+    source_kind,
     source_primary_key,
+    source_occurrence,
     transformation_revision
   )
 );

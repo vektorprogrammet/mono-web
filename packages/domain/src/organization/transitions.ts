@@ -1,4 +1,5 @@
 import { Effect, Schema } from "effect";
+import { compareRfc3339Instants } from "../time.js";
 import {
   MembershipInvariantSchema,
   Membership,
@@ -54,10 +55,11 @@ export const decodeMembershipRevisionCommand = (
 
 export const membershipIsActiveAt = (membership: Membership, at: string): boolean => {
   if (!isRfc3339(at) || !isMembershipInterval(membership)) return false;
-  const timestamp = Date.parse(at);
-  const start = Date.parse(membership.startAt);
-  const end = membership.endAt === null ? undefined : Date.parse(membership.endAt);
-  return timestamp >= start && (end === undefined || timestamp < end) && !membership.isSuspended;
+  return (
+    compareRfc3339Instants(at, membership.startAt) >= 0 &&
+    (membership.endAt === null || compareRfc3339Instants(at, membership.endAt) < 0) &&
+    !membership.isSuspended
+  );
 };
 
 const revisionFor = (

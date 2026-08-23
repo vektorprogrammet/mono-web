@@ -1,4 +1,5 @@
 import { expect, it } from "@effect/vitest";
+import { DepartmentId, PersonId } from "../organization/schema.js";
 import { Effect, Schema } from "effect";
 import type { ReceiptActor, ReceiptFile } from "./schema.js";
 import { decideReceipt } from "./update.js";
@@ -8,17 +9,20 @@ const propertyOptions = {
 } as const;
 
 const owner: ReceiptActor = {
-  personId: "property-owner",
-  departmentId: "property-department",
+  personId: PersonId.make("property-owner"),
+  departmentId: DepartmentId.make("property-department"),
   active: true,
   approvalScope: { _tag: "None" },
 };
 
 const approver: ReceiptActor = {
-  personId: "property-approver",
-  departmentId: "property-department",
+  personId: PersonId.make("property-approver"),
+  departmentId: DepartmentId.make("property-department"),
   active: true,
-  approvalScope: { _tag: "Department", departmentId: "property-department" },
+  approvalScope: {
+    _tag: "Department",
+    departmentId: DepartmentId.make("property-department"),
+  },
 };
 
 const file: ReceiptFile = {

@@ -1,4 +1,5 @@
 import { Database } from "../database/service.js";
+import { DepartmentId, PersonId } from "../organization/schema.js";
 import { Cause, Effect } from "effect";
 import { ReceiptAuxiliaryEffects } from "./auxiliary-service.js";
 import { ReceiptFileService, type ReceiptFileRecordingSnapshot } from "./file-service.js";
@@ -112,17 +113,17 @@ const conflictFile: ReceiptFile = {
 };
 
 const owner: ReceiptActor = {
-  personId: "file-proof-owner",
-  departmentId: "file-proof-department",
+  personId: PersonId.make("file-proof-owner"),
+  departmentId: DepartmentId.make("file-proof-department"),
   active: true,
   approvalScope: { _tag: "None" },
 };
 
 const approver: ReceiptActor = {
-  personId: "file-proof-approver",
-  departmentId: "file-proof-department",
+  personId: PersonId.make("file-proof-approver"),
+  departmentId: DepartmentId.make("file-proof-department"),
   active: true,
-  approvalScope: { _tag: "Department", departmentId: "file-proof-department" },
+  approvalScope: { _tag: "Department", departmentId: DepartmentId.make("file-proof-department") },
 };
 
 const context = (receiptId: string, visualId: string, now: string) => ({

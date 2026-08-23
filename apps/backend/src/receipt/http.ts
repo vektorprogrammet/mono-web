@@ -16,8 +16,8 @@ import {
   UnauthenticatedActor,
   isIsoDate,
   type ReceiptObservation,
+  type ReceiptOutboxDeliveryResult,
 } from "@vektorprogrammet/domain/receipt";
-import { type ReceiptOutboxDeliveryResult } from "@vektorprogrammet/domain/receipt/postgres";
 import type { ReceiptApiConfig, ReceiptApiPrincipal } from "./config.js";
 import {
   makeReceiptFileStore,
@@ -157,14 +157,12 @@ const decodeMultipartFields = async (
     throw new ReceiptDecodeError({ message: "multipart form required" });
   }
   const contentLength = request.headers.get("content-length");
-  if (contentLength !== null) {
-    if (!/^\d+$/.test(contentLength)) {
-      throw new ReceiptDecodeError({ message: "invalid body length" });
-    }
-    const bodyLength = Number(contentLength);
-    if (!Number.isSafeInteger(bodyLength) || bodyLength > maxFileBytes + 131_072) {
-      throw new ReceiptDecodeError({ message: "multipart body exceeds configured limit" });
-    }
+  if (contentLength === null || !/^\d+$/.test(contentLength)) {
+    throw new ReceiptDecodeError({ message: "valid body length required" });
+  }
+  const bodyLength = Number(contentLength);
+  if (!Number.isSafeInteger(bodyLength) || bodyLength <= 0 || bodyLength > maxFileBytes + 131_072) {
+    throw new ReceiptDecodeError({ message: "multipart body exceeds configured limit" });
   }
 
   let form: FormData;

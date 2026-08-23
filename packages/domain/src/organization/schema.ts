@@ -1,6 +1,6 @@
 import { Schema } from "effect";
 import { Model } from "effect/unstable/schema";
-import { isRfc3339Instant, Rfc3339InstantSchema } from "../time.js";
+import { compareRfc3339Instants, isRfc3339Instant, Rfc3339InstantSchema } from "../time.js";
 
 const NonEmpty = Schema.String.pipe(
   Schema.check(
@@ -215,7 +215,10 @@ export class Membership extends Model.Class<Membership>("Organization.Membership
     insert: Schema.NullOr(TeamId),
     json: Schema.NullOr(TeamId),
   }),
-  deletedTeamName: Model.Sensitive(nullableText(250)),
+  deletedTeamName: Model.Field({
+    select: nullableText(250),
+    insert: nullableText(250),
+  }),
   startAt: Model.Field({
     select: Rfc3339InstantSchema,
     insert: Rfc3339InstantSchema,
@@ -278,7 +281,7 @@ export type MembershipJsonCreate = typeof Membership.jsonCreate.Type;
 export type MembershipJsonUpdate = typeof Membership.jsonUpdate.Type;
 
 export const isMembershipInterval = (membership: Pick<Membership, "startAt" | "endAt">): boolean =>
-  membership.endAt === null || Date.parse(membership.endAt) > Date.parse(membership.startAt);
+  membership.endAt === null || compareRfc3339Instants(membership.endAt, membership.startAt) > 0;
 
 export const isMembershipHistorical = (
   membership: Pick<Membership, "teamId" | "deletedTeamName">,

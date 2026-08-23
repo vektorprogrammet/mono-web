@@ -17,15 +17,18 @@ import {
   Team,
   type TeamSelect,
   Membership,
+  MembershipInvariantSchema,
   type MembershipSelect,
   type DepartmentId,
   type MembershipId,
   type TeamId,
 } from "./schema.js";
 import {
-  importLegacyOrganization,
+  importLegacyOrganizationEffect,
   type LegacyOrganizationSnapshot,
+  type OrganizationImportLedgerEntry,
   type OrganizationImportResult,
+  type OrganizationQuarantine,
 } from "./import.js";
 import { applyMembershipRevision, type MembershipRevisionCommand } from "./transitions.js";
 
@@ -52,7 +55,7 @@ const decodeTeam = (row: unknown): Effect.Effect<Team, OrganizationDecodeError> 
   );
 
 const decodeMembership = (row: unknown): Effect.Effect<Membership, OrganizationDecodeError> =>
-  Schema.decodeUnknownEffect(Membership)(row, { onExcessProperty: "error" }).pipe(
+  Schema.decodeUnknownEffect(MembershipInvariantSchema)(row, { onExcessProperty: "error" }).pipe(
     Effect.mapError(
       (cause) =>
         new OrganizationDecodeError({
@@ -149,7 +152,7 @@ const findTeam = (
       short_description AS "shortDescription",
       accept_application AS "acceptApplication",
       CASE WHEN deadline IS NULL THEN NULL
-        ELSE to_char(deadline AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')
+        ELSE to_char(deadline AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
       END AS deadline,
       active,
       revision
@@ -198,7 +201,7 @@ export const listOrganizationTeams = (
               short_description AS "shortDescription",
               accept_application AS "acceptApplication",
               CASE WHEN deadline IS NULL THEN NULL
-                ELSE to_char(deadline AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')
+                ELSE to_char(deadline AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
               END AS deadline,
               active,
               revision
@@ -219,7 +222,7 @@ export const listOrganizationTeams = (
               short_description AS "shortDescription",
               accept_application AS "acceptApplication",
               CASE WHEN deadline IS NULL THEN NULL
-                ELSE to_char(deadline AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')
+                ELSE to_char(deadline AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
               END AS deadline,
               active,
               revision
@@ -249,9 +252,9 @@ const findMembership = (
           person_id AS "personId",
           team_id AS "teamId",
           deleted_team_name AS "deletedTeamName",
-          to_char(start_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS "startAt",
+          to_char(start_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "startAt",
           CASE WHEN end_at IS NULL THEN NULL
-            ELSE to_char(end_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')
+            ELSE to_char(end_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
           END AS "endAt",
           position_id AS "positionId",
           is_team_leader AS "isTeamLeader",
@@ -267,9 +270,9 @@ const findMembership = (
           person_id AS "personId",
           team_id AS "teamId",
           deleted_team_name AS "deletedTeamName",
-          to_char(start_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS "startAt",
+          to_char(start_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "startAt",
           CASE WHEN end_at IS NULL THEN NULL
-            ELSE to_char(end_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')
+            ELSE to_char(end_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
           END AS "endAt",
           position_id AS "positionId",
           is_team_leader AS "isTeamLeader",
@@ -315,9 +318,9 @@ export const listOrganizationMembershipsForTeam = (
         person_id AS "personId",
         team_id AS "teamId",
         deleted_team_name AS "deletedTeamName",
-        to_char(start_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS "startAt",
+        to_char(start_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "startAt",
         CASE WHEN end_at IS NULL THEN NULL
-          ELSE to_char(end_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')
+          ELSE to_char(end_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
         END AS "endAt",
         position_id AS "positionId",
         is_team_leader AS "isTeamLeader",
@@ -347,9 +350,9 @@ export const listOrganizationHistoricalMemberships = (): Effect.Effect<
         person_id AS "personId",
         team_id AS "teamId",
         deleted_team_name AS "deletedTeamName",
-        to_char(start_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS "startAt",
+        to_char(start_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "startAt",
         CASE WHEN end_at IS NULL THEN NULL
-          ELSE to_char(end_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')
+          ELSE to_char(end_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
         END AS "endAt",
         position_id AS "positionId",
         is_team_leader AS "isTeamLeader",
@@ -389,9 +392,9 @@ const updateMembership = (
         person_id AS "personId",
         team_id AS "teamId",
         deleted_team_name AS "deletedTeamName",
-        to_char(start_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS "startAt",
+        to_char(start_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "startAt",
         CASE WHEN end_at IS NULL THEN NULL
-          ELSE to_char(end_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')
+          ELSE to_char(end_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
         END AS "endAt",
         position_id AS "positionId",
         is_team_leader AS "isTeamLeader",
@@ -458,85 +461,171 @@ const insertImportedOrganization = (
   database: DatabaseShape,
   snapshot: LegacyOrganizationSnapshot,
   result: OrganizationImportResult,
-): Effect.Effect<void, OrganizationPersistenceError> =>
+): Effect.Effect<OrganizationImportResult, OrganizationPersistenceError> =>
   Effect.gen(function* () {
-    yield* Effect.forEach(
-      result.departments,
-      (department) =>
-        sql`
-        INSERT INTO organization_departments (
-          department_id, name, short_name, email, address, city, latitude, longitude,
-          slack_channel, logo_path, active, revision
-        ) VALUES (
-          ${department.departmentId}, ${department.name}, ${department.shortName}, ${department.email},
-          ${department.address}, ${department.city}, ${department.latitude}, ${department.longitude},
-          ${department.slackChannel}, ${department.logoPath}, ${department.active}, 0
-        ) ON CONFLICT (department_id) DO NOTHING
-      `,
+    const quarantined: OrganizationQuarantine[] = [...result.quarantined];
+    const ledger: OrganizationImportLedgerEntry[] = [...result.ledger];
+    const destinationCollisions = new Set<string>();
+    const quarantineCollision = (
+      sourceKind: OrganizationQuarantine["sourceKind"],
+      destinationIdentity: string,
+    ): Effect.Effect<void, OrganizationPersistenceError> => {
+      const index = ledger.findIndex(
+        (entry) =>
+          entry.sourceKind === sourceKind &&
+          entry.destinationIdentity === destinationIdentity &&
+          entry.result === "Accepted",
+      );
+      const entry = ledger[index];
+      if (entry === undefined) {
+        return Effect.fail(
+          persistenceError("classify organization destination collision", destinationIdentity),
+        );
+      }
+      quarantined.push({
+        sourceKind,
+        sourcePrimaryKey: entry.sourcePrimaryKey,
+        sourceOccurrence: entry.sourceOccurrence,
+        targetSemanticIdentity: entry.targetSemanticIdentity,
+        reason: "DESTINATION_IDENTITY_COLLISION",
+        raw: entry.sourceRaw,
+      });
+      destinationCollisions.add(`${sourceKind}:${destinationIdentity}`);
+      ledger[index] = {
+        ...entry,
+        destinationIdentity: null,
+        result: "Quarantined",
+        reason: "DESTINATION_IDENTITY_COLLISION",
+      };
+      return Effect.void;
+    };
+    yield* Effect.forEach(result.departments, (department) =>
+      sql<{ readonly persisted_id: string }>`
+          INSERT INTO organization_departments (
+            department_id, name, short_name, email, address, city, latitude, longitude,
+            slack_channel, logo_path, active, revision
+          ) VALUES (
+            ${department.departmentId}, ${department.name}, ${department.shortName}, ${department.email},
+            ${department.address}, ${department.city}, ${department.latitude}, ${department.longitude},
+            ${department.slackChannel}, ${department.logoPath}, ${department.active}, 0
+          ) ON CONFLICT (department_id) DO UPDATE
+            SET department_id = EXCLUDED.department_id
+            WHERE organization_departments IS NOT DISTINCT FROM EXCLUDED
+          RETURNING department_id AS persisted_id
+        `.pipe(
+        Effect.flatMap((rows) =>
+          rows.length === 1
+            ? Effect.void
+            : quarantineCollision("department", department.departmentId),
+        ),
+      ),
+    );
+    yield* Effect.forEach(result.teams, (team) =>
+      sql<{ readonly persisted_id: string }>`
+          INSERT INTO organization_teams (
+            team_id, department_id, name, email, description, short_description,
+            accept_application, deadline, active, revision
+          ) VALUES (
+            ${team.teamId}, ${team.departmentId}, ${team.name}, ${team.email}, ${team.description},
+            ${team.shortDescription}, ${team.acceptApplication}, ${team.deadline}, ${team.active}, 0
+          ) ON CONFLICT (team_id) DO UPDATE
+            SET team_id = EXCLUDED.team_id
+            WHERE organization_teams IS NOT DISTINCT FROM EXCLUDED
+          RETURNING team_id AS persisted_id
+        `.pipe(
+        Effect.flatMap((rows) =>
+          rows.length === 1 ? Effect.void : quarantineCollision("team", team.teamId),
+        ),
+      ),
+    );
+    yield* Effect.forEach(result.memberships, (membership) =>
+      sql<{ readonly persisted_id: string }>`
+          INSERT INTO organization_memberships (
+            membership_id, person_id, team_id, deleted_team_name, start_at, end_at,
+            position_id, is_team_leader, is_suspended, revision
+          ) VALUES (
+            ${membership.membershipId}, ${membership.personId}, ${membership.teamId}, ${membership.deletedTeamName},
+            ${membership.startAt}, ${membership.endAt}, ${membership.positionId},
+            ${membership.isTeamLeader}, ${membership.isSuspended}, 0
+          ) ON CONFLICT DO NOTHING
+          RETURNING membership_id AS persisted_id
+        `.pipe(
+        Effect.flatMap((rows) => {
+          if (rows.length === 1) return Effect.void;
+          return sql<{ readonly persisted_id: string }>`
+            SELECT membership_id AS persisted_id
+            FROM organization_memberships
+            WHERE membership_id = ${membership.membershipId}
+              AND person_id = ${membership.personId}
+              AND team_id IS NOT DISTINCT FROM ${membership.teamId}
+              AND deleted_team_name IS NOT DISTINCT FROM ${membership.deletedTeamName}
+              AND start_at = ${membership.startAt}
+              AND end_at IS NOT DISTINCT FROM ${membership.endAt}
+              AND position_id IS NOT DISTINCT FROM ${membership.positionId}
+              AND is_team_leader = ${membership.isTeamLeader}
+              AND is_suspended = ${membership.isSuspended}
+              AND revision = 0
+          `.pipe(
+            Effect.flatMap((exact) =>
+              exact.length === 1
+                ? Effect.void
+                : quarantineCollision("membership", membership.membershipId),
+            ),
+          );
+        }),
+      ),
     );
     yield* Effect.forEach(
-      result.teams,
-      (team) =>
-        sql`
-        INSERT INTO organization_teams (
-          team_id, department_id, name, email, description, short_description,
-          accept_application, deadline, active, revision
-        ) VALUES (
-          ${team.teamId}, ${team.departmentId}, ${team.name}, ${team.email}, ${team.description},
-          ${team.shortDescription}, ${team.acceptApplication}, ${team.deadline}, ${team.active}, 0
-        ) ON CONFLICT (team_id) DO NOTHING
-      `,
-    );
-    yield* Effect.forEach(
-      result.memberships,
-      (membership) =>
-        sql`
-        INSERT INTO organization_memberships (
-          membership_id, person_id, team_id, deleted_team_name, start_at, end_at,
-          position_id, is_team_leader, is_suspended, revision
-        ) VALUES (
-          ${membership.membershipId}, ${membership.personId}, ${membership.teamId}, ${membership.deletedTeamName},
-          ${membership.startAt}, ${membership.endAt}, ${membership.positionId},
-          ${membership.isTeamLeader}, ${membership.isSuspended}, 0
-        ) ON CONFLICT (membership_id) DO NOTHING
-      `,
-    );
-    yield* Effect.forEach(
-      result.quarantined,
+      quarantined,
       (row) =>
         sql`
         INSERT INTO organization_membership_quarantine (
-          source_repository, source_revision, snapshot_id, source_primary_key,
+          source_repository, source_revision, snapshot_id, source_primary_key, source_occurrence,
           transformation_revision, source_kind, target_semantic_identity, reason, raw_json
         ) VALUES (
           ${snapshot.sourceRepository}, ${snapshot.sourceRevision}, ${snapshot.snapshotId},
-          ${row.sourcePrimaryKey}, ${snapshot.transformationRevision}, ${row.sourceKind},
-          ${row.sourceKind + ":" + row.sourcePrimaryKey}, ${row.reason}, ${database.json(row.raw)}
+          ${row.sourcePrimaryKey}, ${row.sourceOccurrence}, ${snapshot.transformationRevision},
+          ${row.sourceKind}, ${row.targetSemanticIdentity}, ${row.reason},
+          ${database.json(row.raw)}
         ) ON CONFLICT (
-          source_repository, source_revision, snapshot_id, source_kind, source_primary_key, transformation_revision
+          source_repository, source_revision, snapshot_id, source_kind, source_primary_key,
+          source_occurrence, transformation_revision
         )
         DO NOTHING
       `,
     );
     yield* Effect.forEach(
-      result.ledger,
+      ledger,
       (entry) =>
         sql`
         INSERT INTO organization_import_ledger (
-          source_repository, source_revision, snapshot_id, source_primary_key,
-          transformation_revision, target_semantic_identity, destination_identity,
-          result, reason
+          source_repository, source_revision, snapshot_id, source_kind, source_primary_key,
+          source_occurrence, transformation_revision, target_semantic_identity,
+          destination_identity, result, reason_json, source_metadata_json
         ) VALUES (
-          ${entry.sourceRepository}, ${entry.sourceRevision}, ${entry.snapshotId}, ${entry.sourcePrimaryKey},
-          ${entry.transformationRevision}, ${entry.targetSemanticIdentity}, ${entry.destinationIdentity},
-          ${entry.result}, ${entry.reason}
+          ${entry.sourceRepository}, ${entry.sourceRevision}, ${entry.snapshotId}, ${entry.sourceKind},
+          ${entry.sourcePrimaryKey}, ${entry.sourceOccurrence}, ${entry.transformationRevision},
+          ${entry.targetSemanticIdentity}, ${entry.destinationIdentity}, ${entry.result},
+          ${entry.reason === null ? null : database.json({ code: entry.reason })},
+          ${entry.sourceMetadata === null ? null : database.json(entry.sourceMetadata)}
         ) ON CONFLICT (
-          source_repository, source_revision, snapshot_id, source_primary_key, transformation_revision
+          source_repository, source_revision, snapshot_id, source_kind, source_primary_key,
+          source_occurrence, transformation_revision
         ) DO NOTHING
       `,
     );
+    return {
+      departments: result.departments.filter(
+        (department) => !destinationCollisions.has(`department:${department.departmentId}`),
+      ),
+      teams: result.teams.filter((team) => !destinationCollisions.has(`team:${team.teamId}`)),
+      memberships: result.memberships.filter(
+        (membership) => !destinationCollisions.has(`membership:${membership.membershipId}`),
+      ),
+      quarantined,
+      ledger,
+    };
   }).pipe(
-    Effect.asVoid,
     Effect.catchTag("SqlError", (cause) =>
       Effect.fail(persistenceError("persist organization import", cause)),
     ),
@@ -551,13 +640,12 @@ export const importOrganizationSnapshot = (
 > =>
   Effect.gen(function* () {
     const database = yield* Database;
-    const result = importLegacyOrganization(snapshot);
-    yield* database
-      .withTransaction(insertImportedOrganization(database, database, snapshot, result))
+    const classified = yield* importLegacyOrganizationEffect(snapshot);
+    return yield* database
+      .withTransaction(insertImportedOrganization(database, database, snapshot, classified))
       .pipe(
         Effect.catchTag("SqlError", (cause) =>
           Effect.fail(persistenceError("organization import transaction", cause)),
         ),
       );
-    return result;
   });

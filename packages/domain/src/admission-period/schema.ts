@@ -1,10 +1,28 @@
 import { Schema } from "effect";
 import { Model } from "effect/unstable/schema";
+import { DepartmentId, PersonId, SemesterId } from "../organization/schema.js";
 import { Rfc3339InstantSchema } from "../time.js";
 export { Rfc3339InstantSchema, isRfc3339Instant } from "../time.js";
 
-/** A stable identifier supplied by a caller or persisted in PostgreSQL. */
-export const StableIdSchema = Schema.NonEmptyString;
+const NonEmptyIdSchema = Schema.NonEmptyString;
+
+export const AdmissionPeriodId = NonEmptyIdSchema.pipe(Schema.brand("AdmissionPeriodId"));
+export type AdmissionPeriodId = typeof AdmissionPeriodId.Type;
+
+export const AdmissionFieldOfStudyId = NonEmptyIdSchema.pipe(
+  Schema.brand("AdmissionFieldOfStudyId"),
+);
+export type AdmissionFieldOfStudyId = typeof AdmissionFieldOfStudyId.Type;
+
+export const AdmissionPeriodCommandId = NonEmptyIdSchema.pipe(
+  Schema.brand("AdmissionPeriodCommandId"),
+);
+export type AdmissionPeriodCommandId = typeof AdmissionPeriodCommandId.Type;
+
+export const AdmissionPeriodEffectId = NonEmptyIdSchema.pipe(
+  Schema.brand("AdmissionPeriodEffectId"),
+);
+export type AdmissionPeriodEffectId = typeof AdmissionPeriodEffectId.Type;
 
 export const RevisionSchema = Schema.Int.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(0)));
 
@@ -16,9 +34,9 @@ const ReferenceNameSchema = Schema.String.pipe(
 
 export class AdmissionDepartment extends Model.Class<AdmissionDepartment>("AdmissionDepartment")({
   departmentId: Model.Field({
-    select: StableIdSchema,
-    insert: StableIdSchema,
-    json: StableIdSchema,
+    select: DepartmentId,
+    insert: DepartmentId,
+    json: DepartmentId,
   }),
   name: Model.Field({
     select: ReferenceNameSchema,
@@ -29,9 +47,9 @@ export class AdmissionDepartment extends Model.Class<AdmissionDepartment>("Admis
 
 export class AdmissionSemester extends Model.Class<AdmissionSemester>("AdmissionSemester")({
   semesterId: Model.Field({
-    select: StableIdSchema,
-    insert: StableIdSchema,
-    json: StableIdSchema,
+    select: SemesterId,
+    insert: SemesterId,
+    json: SemesterId,
   }),
   startAt: Model.Field({
     select: Rfc3339InstantSchema,
@@ -49,14 +67,14 @@ export class AdmissionFieldOfStudy extends Model.Class<AdmissionFieldOfStudy>(
   "AdmissionFieldOfStudy",
 )({
   fieldOfStudyId: Model.Field({
-    select: StableIdSchema,
-    insert: StableIdSchema,
-    json: StableIdSchema,
+    select: AdmissionFieldOfStudyId,
+    insert: AdmissionFieldOfStudyId,
+    json: AdmissionFieldOfStudyId,
   }),
   departmentId: Model.Field({
-    select: StableIdSchema,
-    insert: StableIdSchema,
-    json: StableIdSchema,
+    select: DepartmentId,
+    insert: DepartmentId,
+    json: DepartmentId,
   }),
   name: Model.Field({
     select: ReferenceNameSchema,
@@ -72,21 +90,21 @@ export class AdmissionFieldOfStudy extends Model.Class<AdmissionFieldOfStudy>(
 
 export class AdmissionPeriod extends Model.Class<AdmissionPeriod>("AdmissionPeriod")({
   id: Model.Field({
-    select: StableIdSchema,
-    insert: StableIdSchema,
-    json: StableIdSchema,
+    select: AdmissionPeriodId,
+    insert: AdmissionPeriodId,
+    json: AdmissionPeriodId,
   }),
   departmentId: Model.Field({
-    select: StableIdSchema,
-    insert: StableIdSchema,
-    json: StableIdSchema,
-    jsonCreate: Schema.optional(StableIdSchema),
+    select: DepartmentId,
+    insert: DepartmentId,
+    json: DepartmentId,
+    jsonCreate: Schema.optional(DepartmentId),
   }),
   semesterId: Model.Field({
-    select: StableIdSchema,
-    insert: StableIdSchema,
-    json: StableIdSchema,
-    jsonCreate: StableIdSchema,
+    select: SemesterId,
+    insert: SemesterId,
+    json: SemesterId,
+    jsonCreate: SemesterId,
   }),
   startAt: Model.Field({
     select: Rfc3339InstantSchema,
@@ -105,7 +123,7 @@ export class AdmissionPeriod extends Model.Class<AdmissionPeriod>("AdmissionPeri
     jsonUpdate: Rfc3339InstantSchema,
   }),
   revision: Model.GeneratedByApp(RevisionSchema),
-  lastCommandId: Model.GeneratedByApp(StableIdSchema),
+  lastCommandId: Model.GeneratedByApp(AdmissionPeriodCommandId),
 }) {}
 
 export const AdmissionPeriodSchema = AdmissionPeriod;
@@ -115,17 +133,17 @@ export const AdmissionFieldOfStudySchema = AdmissionFieldOfStudy;
 
 export const AdmissionPeriodActorSchema = Schema.TaggedUnion({
   DepartmentLeader: {
-    personId: StableIdSchema,
-    departmentId: StableIdSchema,
+    personId: PersonId,
+    departmentId: DepartmentId,
     active: Schema.Boolean,
   },
   Member: {
-    personId: StableIdSchema,
-    departmentId: StableIdSchema,
+    personId: PersonId,
+    departmentId: DepartmentId,
     active: Schema.Boolean,
   },
   GlobalAdmin: {
-    personId: StableIdSchema,
+    personId: PersonId,
     active: Schema.Boolean,
   },
 });
@@ -135,7 +153,7 @@ const AdmissionPeriodCreateFields = AdmissionPeriod.jsonCreate.fields;
 const AdmissionPeriodUpdateFields = AdmissionPeriod.jsonUpdate.fields;
 
 const CreateAdmissionPeriodFields = {
-  commandId: StableIdSchema,
+  commandId: AdmissionPeriodCommandId,
   semesterId: AdmissionPeriodCreateFields.semesterId,
   startAt: AdmissionPeriodCreateFields.startAt,
   endAt: AdmissionPeriodCreateFields.endAt,
@@ -147,7 +165,7 @@ export const CreateAdmissionPeriodInputSchema = Schema.Struct(CreateAdmissionPer
 export type CreateAdmissionPeriodInput = typeof CreateAdmissionPeriodInputSchema.Type;
 
 const ReviseAdmissionPeriodFields = {
-  commandId: StableIdSchema,
+  commandId: AdmissionPeriodCommandId,
   admissionPeriodId: AdmissionPeriod.json.fields.id,
   expectedRevision: AdmissionPeriod.update.fields.revision,
   startAt: AdmissionPeriodUpdateFields.startAt,
@@ -171,31 +189,31 @@ export type AdmissionPeriodProjection = typeof AdmissionPeriodProjectionSchema.T
 
 const CreatedObservationSchema = Schema.Struct({
   _tag: Schema.Literals(["Created"]),
-  commandId: StableIdSchema,
+  commandId: AdmissionPeriodCommandId,
   period: AdmissionPeriod,
 });
 const RevisedObservationSchema = Schema.Struct({
   _tag: Schema.Literals(["Revised"]),
-  commandId: StableIdSchema,
+  commandId: AdmissionPeriodCommandId,
   period: AdmissionPeriod,
 });
 
 export const AdmissionPeriodObservationSchema = Schema.TaggedUnion({
   Created: {
-    commandId: StableIdSchema,
+    commandId: AdmissionPeriodCommandId,
     period: AdmissionPeriod,
   },
   Revised: {
-    commandId: StableIdSchema,
+    commandId: AdmissionPeriodCommandId,
     period: AdmissionPeriod,
   },
   Replayed: {
-    commandId: StableIdSchema,
+    commandId: AdmissionPeriodCommandId,
     original: Schema.Union([CreatedObservationSchema, RevisedObservationSchema]),
   },
   Rejected: {
-    commandId: StableIdSchema,
-    reason: StableIdSchema,
+    commandId: AdmissionPeriodCommandId,
+    reason: NonEmptyIdSchema,
   },
 });
 export type AdmissionPeriodObservation = typeof AdmissionPeriodObservationSchema.Type;

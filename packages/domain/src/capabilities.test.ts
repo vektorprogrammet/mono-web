@@ -2,6 +2,7 @@ import { Database } from "./database/service.js";
 import { Admissions, AdmissionsLive } from "./admissions/index.js";
 import { Economy } from "./receipt/service.js";
 import { EconomyLive } from "./receipt/postgres-layer.js";
+import { Organization, OrganizationLive } from "./organization/index.js";
 import { describe, expect, it } from "vitest";
 import type { Layer } from "effect";
 import {
@@ -28,9 +29,11 @@ const visit = (
 const implementedCapabilityLayers = {
   Admissions: AdmissionsLive,
   Economy: EconomyLive,
+  Organization: OrganizationLive,
 } satisfies {
   readonly Admissions: Layer.Layer<Admissions, never, Database>;
   readonly Economy: Layer.Layer<Economy, never, Database>;
+  readonly Organization: Layer.Layer<Organization, never, Database>;
 };
 
 describe("logical capability dependencies", () => {
@@ -45,6 +48,7 @@ describe("logical capability dependencies", () => {
       Database: [],
       Identity: ["Database"],
       Organization: ["Database"],
+      Profile: ["Organization"],
       Admissions: ["Database", "Organization"],
       Recruitment: ["Database", "Admissions", "Organization"],
       Economy: ["Database", "Identity", "PrivateFileStore", "NotificationGateway"],
@@ -56,6 +60,10 @@ describe("logical capability dependencies", () => {
   });
 
   it("makes implemented Layer requirements compiler-visible", () => {
-    expect(Object.keys(implementedCapabilityLayers).toSorted()).toEqual(["Admissions", "Economy"]);
+    expect(Object.keys(implementedCapabilityLayers).toSorted()).toEqual([
+      "Admissions",
+      "Economy",
+      "Organization",
+    ]);
   });
 });

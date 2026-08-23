@@ -73,6 +73,8 @@ const DatabaseFromPglite = (observer?: DatabaseLayerObserver) =>
         SqlClient.SqlClient.pipe(
           Effect.andThen(
             Effect.tryPromise({
+              // Migrator invokes this inside SqlClient.withTransaction, whose PGlite
+              // transaction holds the client's semaphore around this multi-command exec.
               try: () => client.pglite.exec(source),
               catch: (cause) => new DatabaseMigrationExecutionError({ cause }),
             }).pipe(Effect.asVoid),

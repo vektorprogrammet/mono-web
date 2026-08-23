@@ -1,16 +1,22 @@
 import { type Database } from "@vektorprogrammet/domain/database";
 import { Effect, Schema } from "effect";
 import {
+  AdmissionPeriodDecodeError,
   AdmissionScopeDenied,
   InactiveActor,
   UnauthenticatedActor,
-  StableIdSchema,
+  AdmissionPeriodCommandId,
+  AdmissionPeriodId,
   Rfc3339InstantSchema,
   RevisionSchema,
   type AdmissionPeriodActor,
 } from "@vektorprogrammet/domain/admission-period";
+import { DepartmentId, SemesterId } from "@vektorprogrammet/domain/organization";
 import { Admissions } from "@vektorprogrammet/domain/admissions";
-import { PublicApplicationSubmitInputSchema } from "@vektorprogrammet/domain/application";
+import {
+  PublicApplicationDecodeError,
+  PublicApplicationSubmitInputSchema,
+} from "@vektorprogrammet/domain/application";
 import type { AdmissionApiConfig, AdmissionApiPrincipal } from "./config.js";
 
 export interface AdmissionApiHttpOptions {
@@ -81,6 +87,7 @@ const errorResponse = (cause: unknown): Response => {
       status = 422;
       break;
     case "NoEligibleAdmissionPeriod":
+    case "AmbiguousAdmissionPeriod":
     case "DuplicatePublicApplication":
     case "DuplicatePublicApplicationCommandConflict":
     case "AdmissionPeriodAlreadyExists":
@@ -186,15 +193,15 @@ const decodeJson = async <S extends Schema.ConstraintDecoder<unknown, never>>(
 };
 
 const createPayloadSchema = Schema.Struct({
-  commandId: StableIdSchema,
-  semesterId: StableIdSchema,
+  commandId: AdmissionPeriodCommandId,
+  semesterId: SemesterId,
   startAt: Rfc3339InstantSchema,
   endAt: Rfc3339InstantSchema,
-  departmentId: Schema.optional(StableIdSchema),
+  departmentId: Schema.optional(DepartmentId),
 });
 
 const revisePayloadSchema = Schema.Struct({
-  commandId: StableIdSchema,
+  commandId: AdmissionPeriodCommandId,
   expectedRevision: RevisionSchema,
   startAt: Rfc3339InstantSchema,
   endAt: Rfc3339InstantSchema,
@@ -205,7 +212,7 @@ const executeCommand = async (
   context: {
     readonly actor: AdmissionPeriodActor;
     readonly now: string;
-    readonly admissionPeriodId?: string;
+    readonly admissionPeriodId?: AdmissionPeriodId;
   },
   input: AdmissionApiHttpOptions,
 ): Promise<{ readonly observation: unknown; readonly replayed: boolean }> => {
@@ -261,6 +268,7 @@ const revise = async (
 ): Promise<Response> => {
   requireNoQuery(request);
   const actor = requireActive(principalFor(request, input.config.tokens));
+  const typedAdmissionPeriodId = AdmissionPeriodId.make(admissionPeriodId);
   const payload = await decodeJson(
     request,
     revisePayloadSchema,
@@ -268,8 +276,8 @@ const revise = async (
     "AdmissionPeriodDecodeError",
   );
   const result = await executeCommand(
-    { _tag: "ReviseAdmissionPeriod", admissionPeriodId, ...payload },
-    { actor, now: input.config.now(), admissionPeriodId },
+    { _tag: "ReviseAdmissionPeriod", admissionPeriodId: typedAdmissionPeriodId, ...payload },
+    { actor, now: input.config.now(), admissionPeriodId: typedAdmissionPeriodId },
     input,
   );
   return jsonResponse(result.observation, result.replayed ? 200 : 200);
@@ -284,11 +292,11 @@ const listOpen = async (request: Request, input: AdmissionApiHttpOptions): Promi
   return jsonResponse({ items: rows, totalItems: rows.length });
 };
 
-const publicRateLimitKey = (request: Request): string => {
-  const forwarded = request.headers.get("x-forwarded-for");
-  if (forwarded === null || forwarded.trim() === "") return "local";
-  return forwarded.split(",", 1)[0]?.trim() || "local";
-};
+/**
+ * The Fetch Request does not expose a verified peer address. Treat all public
+ * callers as one trust boundary instead of trusting spoofable forwarding headers.
+ */
+const publicRateLimitKey = (_request: Request): string => "public";
 
 const listPublicCatalog = async (
   request: Request,
@@ -347,6 +355,22 @@ const publicConfirmation = async (
   return jsonResponse(confirmation);
 };
 
+const decodeAdmissionPeriodPathId = (value: string): string => {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    throw new AdmissionPeriodDecodeError({ message: "invalid admission period path identity" });
+  }
+};
+
+const decodeApplicationPathId = (value: string): string => {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    throw new PublicApplicationDecodeError({ message: "invalid application path identity" });
+  }
+};
+
 export const makeAdmissionApiHttp = (input: AdmissionApiHttpOptions): AdmissionApiHttp => ({
   fetch: async (request) => {
     const url = new URL(request.url);
@@ -359,7 +383,7 @@ export const makeAdmissionApiHttp = (input: AdmissionApiHttpOptions): AdmissionA
       }
       const reviseMatch = /^\/api\/admin\/admission-periods\/([^/]+)\/revise$/.exec(url.pathname);
       if (request.method === "POST" && reviseMatch?.[1] !== undefined) {
-        return await revise(request, decodeURIComponent(reviseMatch[1]), input);
+        return await revise(request, decodeAdmissionPeriodPathId(reviseMatch[1]), input);
       }
       if (request.method === "GET" && url.pathname === "/api/admission-periods/open") {
         return await listOpen(request, input);
@@ -372,7 +396,11 @@ export const makeAdmissionApiHttp = (input: AdmissionApiHttpOptions): AdmissionA
       }
       const confirmationMatch = /^\/api\/applications\/([^/]+)\/confirmation$/.exec(url.pathname);
       if (request.method === "GET" && confirmationMatch?.[1] !== undefined) {
-        return await publicConfirmation(request, decodeURIComponent(confirmationMatch[1]), input);
+        return await publicConfirmation(
+          request,
+          decodeApplicationPathId(confirmationMatch[1]),
+          input,
+        );
       }
       return jsonResponse({ error: { tag: "RouteNotFound" } }, 404);
     } catch (cause) {

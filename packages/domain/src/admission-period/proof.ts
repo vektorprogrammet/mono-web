@@ -1,7 +1,14 @@
 import { Effect } from "effect";
+import { DepartmentId, PersonId, SemesterId } from "../organization/schema.js";
 import { admissionPeriodCommandDigest } from "./digest.js";
 import { decideAdmissionPeriod } from "./update.js";
-import type { AdmissionPeriod, AdmissionPeriodActor, AdmissionPeriodCommand } from "./schema.js";
+import {
+  AdmissionPeriodCommandId,
+  AdmissionPeriodId,
+  type AdmissionPeriod,
+  type AdmissionPeriodActor,
+  type AdmissionPeriodCommand,
+} from "./schema.js";
 
 export interface AdmissionPeriodProofEvidence {
   readonly specId: "0038";
@@ -39,20 +46,20 @@ export const admissionPeriodIsEligible = (
 
 const proofActor: AdmissionPeriodActor = {
   _tag: "DepartmentLeader",
-  personId: "proof-leader",
-  departmentId: "proof-department",
+  personId: PersonId.make("proof-leader"),
+  departmentId: DepartmentId.make("proof-department"),
   active: true,
 };
 
 const proofSemester = {
-  semesterId: "proof-semester",
+  semesterId: SemesterId.make("proof-semester"),
   startAt: "2026-08-01T00:00:00.000Z",
   endAt: "2026-12-31T23:59:59.999Z",
 } as const;
 
 const proofCreate: AdmissionPeriodCommand = {
   _tag: "CreateAdmissionPeriod",
-  commandId: "proof-create",
+  commandId: AdmissionPeriodCommandId.make("proof-create"),
   semesterId: proofSemester.semesterId,
   startAt: "2026-09-01T00:00:00.000Z",
   endAt: "2026-12-01T00:00:00.000Z",
@@ -64,7 +71,7 @@ export const runAdmissionPeriodProof = (): AdmissionPeriodProofEvidence => {
       actor: proofActor,
       semester: proofSemester,
       now: "2026-09-15T12:00:00.000Z",
-      admissionPeriodId: "proof-period",
+      admissionPeriodId: AdmissionPeriodId.make("proof-period"),
     }),
   );
   const revised = Effect.runSync(
@@ -72,7 +79,7 @@ export const runAdmissionPeriodProof = (): AdmissionPeriodProofEvidence => {
       created.period,
       {
         _tag: "ReviseAdmissionPeriod",
-        commandId: "proof-revise",
+        commandId: AdmissionPeriodCommandId.make("proof-revise"),
         admissionPeriodId: created.period.id,
         expectedRevision: 0,
         startAt: "2026-09-01T00:00:00.000Z",
@@ -89,7 +96,11 @@ export const runAdmissionPeriodProof = (): AdmissionPeriodProofEvidence => {
     Effect.exit(
       decideAdmissionPeriod(
         undefined,
-        { ...proofCreate, commandId: "proof-invalid", endAt: proofCreate.startAt },
+        {
+          ...proofCreate,
+          commandId: AdmissionPeriodCommandId.make("proof-invalid"),
+          endAt: proofCreate.startAt,
+        },
         {
           actor: proofActor,
           semester: proofSemester,
@@ -102,7 +113,11 @@ export const runAdmissionPeriodProof = (): AdmissionPeriodProofEvidence => {
     Effect.exit(
       decideAdmissionPeriod(
         undefined,
-        { ...proofCreate, commandId: "proof-cross", departmentId: "other-department" },
+        {
+          ...proofCreate,
+          commandId: AdmissionPeriodCommandId.make("proof-cross"),
+          departmentId: DepartmentId.make("other-department"),
+        },
         {
           actor: proofActor,
           semester: proofSemester,

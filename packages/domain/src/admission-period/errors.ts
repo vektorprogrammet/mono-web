@@ -1,5 +1,6 @@
 import { Schema } from "effect";
-import { StableIdSchema } from "./schema.js";
+import { DepartmentId, PersonId, SemesterId } from "../organization/schema.js";
+import { AdmissionPeriodCommandId, AdmissionPeriodId } from "./schema.js";
 
 export class AdmissionPeriodDecodeError extends Schema.TaggedError<AdmissionPeriodDecodeError>()(
   "AdmissionPeriodDecodeError",
@@ -12,20 +13,20 @@ export class UnauthenticatedActor extends Schema.TaggedError<UnauthenticatedActo
 ) {}
 
 export class InactiveActor extends Schema.TaggedError<InactiveActor>()("InactiveActor", {
-  personId: StableIdSchema,
+  personId: PersonId,
 }) {}
 
 export class AdmissionRoleDenied extends Schema.TaggedError<AdmissionRoleDenied>()(
   "AdmissionRoleDenied",
-  { personId: StableIdSchema },
+  { personId: PersonId },
 ) {}
 
 export class AdmissionScopeDenied extends Schema.TaggedError<AdmissionScopeDenied>()(
   "AdmissionScopeDenied",
   {
-    personId: StableIdSchema,
-    departmentId: StableIdSchema,
-    admissionPeriodId: Schema.optional(StableIdSchema),
+    personId: PersonId,
+    departmentId: DepartmentId,
+    admissionPeriodId: Schema.optional(AdmissionPeriodId),
   },
 ) {}
 
@@ -36,16 +37,16 @@ export class DepartmentRequired extends Schema.TaggedError<DepartmentRequired>()
 
 export class DepartmentNotFound extends Schema.TaggedError<DepartmentNotFound>()(
   "DepartmentNotFound",
-  { departmentId: StableIdSchema },
+  { departmentId: DepartmentId },
 ) {}
 
 export class SemesterNotFound extends Schema.TaggedError<SemesterNotFound>()("SemesterNotFound", {
-  semesterId: StableIdSchema,
+  semesterId: SemesterId,
 }) {}
 
 export class AdmissionPeriodNotFound extends Schema.TaggedError<AdmissionPeriodNotFound>()(
   "AdmissionPeriodNotFound",
-  { admissionPeriodId: StableIdSchema },
+  { admissionPeriodId: AdmissionPeriodId },
 ) {}
 
 export class InvalidAdmissionPeriodWindow extends Schema.TaggedError<InvalidAdmissionPeriodWindow>()(
@@ -60,7 +61,7 @@ export class InvalidAdmissionPeriodWindow extends Schema.TaggedError<InvalidAdmi
 export class AdmissionWindowOutsideSemester extends Schema.TaggedError<AdmissionWindowOutsideSemester>()(
   "AdmissionWindowOutsideSemester",
   {
-    semesterId: StableIdSchema,
+    semesterId: SemesterId,
     startAt: Schema.String,
     endAt: Schema.String,
     semesterStartAt: Schema.String,
@@ -70,13 +71,13 @@ export class AdmissionWindowOutsideSemester extends Schema.TaggedError<Admission
 
 export class AdmissionPeriodAlreadyExists extends Schema.TaggedError<AdmissionPeriodAlreadyExists>()(
   "AdmissionPeriodAlreadyExists",
-  { departmentId: StableIdSchema, semesterId: StableIdSchema },
+  { departmentId: DepartmentId, semesterId: SemesterId },
 ) {}
 
 export class StaleAdmissionPeriodRevision extends Schema.TaggedError<StaleAdmissionPeriodRevision>()(
   "StaleAdmissionPeriodRevision",
   {
-    admissionPeriodId: StableIdSchema,
+    admissionPeriodId: AdmissionPeriodId,
     expected: Schema.Int,
     actual: Schema.Int,
   },
@@ -84,7 +85,7 @@ export class StaleAdmissionPeriodRevision extends Schema.TaggedError<StaleAdmiss
 
 export class DuplicateAdmissionPeriodCommandConflict extends Schema.TaggedError<DuplicateAdmissionPeriodCommandConflict>()(
   "DuplicateAdmissionPeriodCommandConflict",
-  { commandId: StableIdSchema },
+  { commandId: AdmissionPeriodCommandId },
 ) {}
 
 export class AdmissionPeriodPersistenceError extends Schema.TaggedError<AdmissionPeriodPersistenceError>()(

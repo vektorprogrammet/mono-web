@@ -1,4 +1,5 @@
 import { Database, type DatabaseShape } from "../database/service.js";
+import { DepartmentId, PersonId } from "../organization/schema.js";
 import assert from "node:assert/strict";
 import { Effect } from "effect";
 import { canonicalJsonBytes, sha256Hex } from "../tutor/evidence.js";
@@ -76,17 +77,17 @@ const rollbackFile: ReceiptFile = {
 };
 
 const owner: ReceiptActor = {
-  personId: "proof-person",
-  departmentId: "proof-department",
+  personId: PersonId.make("proof-person"),
+  departmentId: DepartmentId.make("proof-department"),
   active: true,
   approvalScope: { _tag: "None" },
 };
 
 const approver: ReceiptActor = {
-  personId: "proof-approver",
-  departmentId: "proof-department",
+  personId: PersonId.make("proof-approver"),
+  departmentId: DepartmentId.make("proof-department"),
   active: true,
-  approvalScope: { _tag: "Department", departmentId: "proof-department" },
+  approvalScope: { _tag: "Department", departmentId: DepartmentId.make("proof-department") },
 };
 
 const context = (receiptId: string, visualId: string, now: string) => ({
@@ -99,7 +100,7 @@ const submit = (commandId: string, description: string, receiptFile = file) => (
   _tag: "SubmitReceipt" as const,
   commandId,
   actor: owner,
-  departmentId: "proof-department",
+  departmentId: DepartmentId.make("proof-department"),
   paymentAccountCiphertext: "ciphertext:v1:proof-account",
   description,
   amountOre: 12_345,
@@ -140,10 +141,10 @@ export const runReceiptPostgresProof: Effect.Effect<ReceiptProofEvidence, unknow
           commandId: "proof-command-wrong-scope",
           actor: {
             ...approver,
-            departmentId: "other-department",
+            departmentId: DepartmentId.make("other-department"),
             approvalScope: {
               _tag: "Department",
-              departmentId: "other-department",
+              departmentId: DepartmentId.make("other-department"),
             },
           },
           receiptId: "proof-receipt-1",
@@ -243,8 +244,8 @@ export const runReceiptPostgresProof: Effect.Effect<ReceiptProofEvidence, unknow
     });
     const legacy: LegacyReceiptRow = {
       sourcePrimaryKey: "legacy-1",
-      ownerPersonId: "proof-person",
-      departmentId: "proof-department",
+      ownerPersonId: PersonId.make("proof-person"),
+      departmentId: DepartmentId.make("proof-department"),
       visualId: "LEGACY-PROOF-1",
       amountDecimal: "123.45",
       description: "Imported travel",
@@ -285,7 +286,7 @@ export const runReceiptPostgresProof: Effect.Effect<ReceiptProofEvidence, unknow
     const assistantProjection = yield* listAssistantReceipts(owner.personId);
     const approverProjection = yield* listApproverReceipts({
       _tag: "Department",
-      departmentId: "proof-department",
+      departmentId: DepartmentId.make("proof-department"),
     });
     const totals = yield* receiptStatusTotals;
 

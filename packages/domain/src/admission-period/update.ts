@@ -1,4 +1,6 @@
 import { Effect } from "effect";
+import type { DepartmentId } from "../organization/schema.js";
+import { compareRfc3339Instants, normalizeRfc3339Instant } from "../time.js";
 import {
   AdmissionPeriodAlreadyExists,
   AdmissionPeriodNotFound,
@@ -14,12 +16,14 @@ import {
 import { makeAdmissionPeriodOutboxRequest } from "./effects.js";
 import type { AdmissionPeriodOutboxRequest } from "./effects.js";
 import { admissionPeriodCommandDigest } from "./digest.js";
-import type {
-  AdmissionPeriod,
-  AdmissionPeriodActor,
-  AdmissionPeriodCommand,
-  AdmissionPeriodObservation,
-  AdmissionSemester,
+import {
+  AdmissionPeriodCommandId,
+  AdmissionPeriodId,
+  type AdmissionPeriod,
+  type AdmissionPeriodActor,
+  type AdmissionPeriodCommand,
+  type AdmissionPeriodObservation,
+  type AdmissionSemester,
 } from "./schema.js";
 import { isRfc3339Instant } from "./schema.js";
 import type { AdmissionPeriodCommandContext } from "./context.js";
@@ -28,7 +32,7 @@ export interface AdmissionPeriodDecisionContext {
   readonly actor: AdmissionPeriodActor;
   readonly semester: AdmissionSemester;
   readonly now: string;
-  readonly admissionPeriodId?: string;
+  readonly admissionPeriodId?: typeof AdmissionPeriodId.Type;
 }
 
 export interface AdmissionPeriodDecision {
@@ -54,7 +58,7 @@ const managementActor = (
 const departmentForCreate = (
   command: Extract<AdmissionPeriodCommand, { readonly _tag: "CreateAdmissionPeriod" }>,
   actor: AdmissionPeriodActor,
-): Effect.Effect<string, AdmissionPeriodFailure> => {
+): Effect.Effect<DepartmentId, AdmissionPeriodFailure> => {
   if (actor._tag === "DepartmentLeader") {
     if (command.departmentId !== undefined && command.departmentId !== actor.departmentId) {
       return Effect.fail(
@@ -75,20 +79,20 @@ const checkWindow = (
   endAt: string,
   semester: AdmissionSemester,
 ): Effect.Effect<void, InvalidAdmissionPeriodWindow | AdmissionWindowOutsideSemester> => {
-  const start = Date.parse(startAt);
-  const end = Date.parse(endAt);
-  if (start === end) {
+  const ordering = compareRfc3339Instants(startAt, endAt);
+  if (ordering === 0) {
     return Effect.fail(new InvalidAdmissionPeriodWindow({ startAt, endAt, reason: "EqualBounds" }));
   }
-  if (start > end) {
+  if (ordering > 0) {
     return Effect.fail(
       new InvalidAdmissionPeriodWindow({ startAt, endAt, reason: "ReversedBounds" }),
     );
   }
 
-  const semesterStart = Date.parse(semester.startAt);
-  const semesterEnd = Date.parse(semester.endAt);
-  if (start < semesterStart || end > semesterEnd) {
+  if (
+    compareRfc3339Instants(startAt, semester.startAt) < 0 ||
+    compareRfc3339Instants(endAt, semester.endAt) > 0
+  ) {
     return Effect.fail(
       new AdmissionWindowOutsideSemester({
         semesterId: semester.semesterId,
@@ -102,17 +106,17 @@ const checkWindow = (
   return Effect.void;
 };
 
-const normalizedInstant = (value: string): string => new Date(value).toISOString();
+const normalizedInstant = normalizeRfc3339Instant;
 
 const periodIdForCreate = (
   command: Extract<AdmissionPeriodCommand, { readonly _tag: "CreateAdmissionPeriod" }>,
   context: AdmissionPeriodDecisionContext,
-): string =>
+): typeof AdmissionPeriodId.Type =>
   context.admissionPeriodId ??
-  `admission-period-${admissionPeriodCommandDigest(command).slice(0, 32)}`;
+  AdmissionPeriodId.make(`admission-period-${admissionPeriodCommandDigest(command).slice(0, 32)}`);
 
 const createdObservation = (
-  commandId: string,
+  commandId: typeof AdmissionPeriodCommandId.Type,
   period: AdmissionPeriod,
 ): AdmissionPeriodObservation => ({
   _tag: "Created",
@@ -121,7 +125,7 @@ const createdObservation = (
 });
 
 const revisedObservation = (
-  commandId: string,
+  commandId: typeof AdmissionPeriodCommandId.Type,
   period: AdmissionPeriod,
 ): AdmissionPeriodObservation => ({
   _tag: "Revised",

@@ -1,8 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { Effect } from "effect";
+import { AdmissionFieldOfStudyId, AdmissionPeriodId } from "../admission-period/schema.js";
+import { DepartmentId } from "../organization/schema.js";
 import {
+  ApplicantIdSchema,
   makePublicApplicationOutboxRequests,
   makeRecordingPublicApplicationEffectInterpreter,
+  PublicApplicationIdSchema,
   publicApplicationCommandDigest,
   recordPublicApplicationEffects,
   decodePublicApplicationSubmitInput,
@@ -23,11 +27,11 @@ const input = {
 } as const;
 
 const application = {
-  id: "application-1",
-  applicantId: "applicant-1",
-  admissionPeriodId: "period-1",
-  departmentId: "department-1",
-  fieldOfStudyId: "field-1",
+  id: PublicApplicationIdSchema.make("application-1"),
+  applicantId: ApplicantIdSchema.make("applicant-1"),
+  admissionPeriodId: AdmissionPeriodId.make("period-1"),
+  departmentId: DepartmentId.make("department-1"),
+  fieldOfStudyId: AdmissionFieldOfStudyId.make("field-1"),
   yearOfStudy: 3,
   submittedAt: "2026-08-23T12:00:00.000Z",
   revision: 0,
@@ -35,14 +39,14 @@ const application = {
 } as const;
 
 const applicant = {
-  id: "applicant-1",
+  id: ApplicantIdSchema.make("applicant-1"),
   normalizedEmail: "ada@example.com",
   email: "ADA@example.com",
   firstName: "Ada",
   lastName: "Lovelace",
   phone: "+47 12345678",
   gender: 1 as const,
-  fieldOfStudyId: "field-1",
+  fieldOfStudyId: AdmissionFieldOfStudyId.make("field-1"),
   yearOfStudy: 3,
   activationDigest: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 } as const;
@@ -70,9 +74,10 @@ describe("public applicant domain", () => {
     ]);
   });
 
-  it("uses normalized canonical bytes for replay identity", () => {
-    expect(publicApplicationCommandDigest(input)).toBe(
-      publicApplicationCommandDigest({
+  it("uses normalized canonical bytes for replay identity", async () => {
+    const normalized = await Effect.runPromise(decodePublicApplicationSubmitInput(input));
+    const equivalent = await Effect.runPromise(
+      decodePublicApplicationSubmitInput({
         ...input,
         firstName: "Ada",
         lastName: "Lovelace",
@@ -80,11 +85,15 @@ describe("public applicant domain", () => {
         email: "ada@example.com",
       }),
     );
+    expect(publicApplicationCommandDigest(normalized)).toBe(
+      publicApplicationCommandDigest(equivalent),
+    );
   });
 
   it("records only ordered effect metadata and deduplicates delivery state", async () => {
+    const normalized = await Effect.runPromise(decodePublicApplicationSubmitInput(input));
     const requests = makePublicApplicationOutboxRequests(
-      input,
+      normalized,
       application,
       applicant,
       applicant.email,
@@ -109,13 +118,13 @@ describe("public applicant domain", () => {
       Effect.runSync(
         PublicApplicationSubmitObservationSchema.makeEffect({
           _tag: "Submitted",
-          commandId: input.commandId,
+          commandId: normalized.commandId,
           applicationId: application.id,
         }),
       ),
     ).toEqual({
       _tag: "Submitted",
-      commandId: input.commandId,
+      commandId: normalized.commandId,
       applicationId: application.id,
     });
   });

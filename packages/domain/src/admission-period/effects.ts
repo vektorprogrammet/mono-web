@@ -1,11 +1,16 @@
 import { Schema } from "effect";
 import { admissionPeriodCommandDigest } from "./digest.js";
-import { AdmissionPeriodSchema, StableIdSchema } from "./schema.js";
+import {
+  AdmissionPeriodCommandId,
+  AdmissionPeriodEffectId,
+  AdmissionPeriodId,
+  AdmissionPeriodSchema,
+} from "./schema.js";
 
 const AdmissionPeriodEffectBase = {
-  effectId: StableIdSchema,
-  commandId: StableIdSchema,
-  admissionPeriodId: StableIdSchema,
+  effectId: AdmissionPeriodEffectId,
+  commandId: AdmissionPeriodCommandId,
+  admissionPeriodId: AdmissionPeriodId,
   revision: Schema.Int.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(0))),
   period: AdmissionPeriodSchema,
 };
@@ -16,11 +21,13 @@ export const AdmissionPeriodOutboxRequestSchema = Schema.TaggedUnion({
 export type AdmissionPeriodOutboxRequest = typeof AdmissionPeriodOutboxRequestSchema.Type;
 
 export const makeAdmissionPeriodOutboxRequest = (
-  commandId: string,
+  commandId: typeof AdmissionPeriodCommandId.Type,
   period: typeof AdmissionPeriodSchema.Type,
 ): AdmissionPeriodOutboxRequest => ({
   _tag: "PublishAdmissionPeriodChanged",
-  effectId: `admission-period:${admissionPeriodCommandDigest({ commandId, periodId: period.id, revision: period.revision })}`,
+  effectId: AdmissionPeriodEffectId.make(
+    `admission-period:${admissionPeriodCommandDigest({ commandId, periodId: period.id, revision: period.revision })}`,
+  ),
   commandId,
   admissionPeriodId: period.id,
   revision: period.revision,

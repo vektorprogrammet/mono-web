@@ -1,7 +1,10 @@
 import { Effect, Schema } from "effect";
 import { publicApplicationCommandDigest } from "./digest.js";
 import {
+  ApplicantIdSchema,
   PublicApplicationActivationTokenSchema,
+  PublicApplicationCommandIdSchema,
+  PublicApplicationEffectIdSchema,
   PublicApplicationEmailSchema,
   PublicApplicationIdSchema,
   type Applicant,
@@ -9,11 +12,12 @@ import {
   type PublicApplicationSubmitInput,
   type SubmitPublicApplicationCommand,
 } from "./schema.js";
+import { DepartmentId } from "../organization/schema.js";
 const EffectBase = {
-  effectId: PublicApplicationIdSchema,
-  commandId: PublicApplicationIdSchema,
+  effectId: PublicApplicationEffectIdSchema,
+  commandId: PublicApplicationCommandIdSchema,
   applicationId: PublicApplicationIdSchema,
-  applicantId: PublicApplicationIdSchema,
+  applicantId: ApplicantIdSchema,
 };
 
 export const PublicApplicationEffectKindSchema = Schema.Literals([
@@ -32,7 +36,7 @@ export const PublicApplicationOutboxRequestSchema = Schema.TaggedUnion({
   CreateAdmissionSubscription: {
     ...EffectBase,
     email: PublicApplicationEmailSchema,
-    departmentId: PublicApplicationIdSchema,
+    departmentId: DepartmentId,
   },
   WriteApplicationAudit: {
     ...EffectBase,
@@ -42,7 +46,7 @@ export const PublicApplicationOutboxRequestSchema = Schema.TaggedUnion({
 export type PublicApplicationOutboxRequest = typeof PublicApplicationOutboxRequestSchema.Type;
 
 export const PublicApplicationEffectEvidenceSchema = Schema.Struct({
-  effectId: PublicApplicationIdSchema,
+  effectId: PublicApplicationEffectIdSchema,
   kind: PublicApplicationEffectKindSchema,
   ordinal: Schema.Int.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(0))),
   attempts: Schema.Int.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(1))),
@@ -53,7 +57,7 @@ export type PublicApplicationEffectEvidence = typeof PublicApplicationEffectEvid
 
 export class PublicApplicationEffectDeliveryError extends Schema.TaggedError<PublicApplicationEffectDeliveryError>()(
   "PublicApplicationEffectDeliveryError",
-  { effectId: PublicApplicationIdSchema },
+  { effectId: PublicApplicationEffectIdSchema },
 ) {}
 
 export interface PublicApplicationEffectInterpreter {
@@ -128,21 +132,25 @@ export const makePublicApplicationOutboxRequests = (
   } as const;
   const activation: PublicApplicationOutboxRequest = {
     _tag: "SendApplicantActivationOrConfirmation",
-    effectId: `public-application:${commandDigest}:activation`,
+    effectId: PublicApplicationEffectIdSchema.make(
+      `public-application:${commandDigest}:activation`,
+    ),
     ...shared,
     email,
     ...(activationToken === undefined ? {} : { activationToken }),
   };
   const subscription: PublicApplicationOutboxRequest = {
     _tag: "CreateAdmissionSubscription",
-    effectId: `public-application:${commandDigest}:subscription`,
+    effectId: PublicApplicationEffectIdSchema.make(
+      `public-application:${commandDigest}:subscription`,
+    ),
     ...shared,
     email,
     departmentId: application.departmentId,
   };
   const audit: PublicApplicationOutboxRequest = {
     _tag: "WriteApplicationAudit",
-    effectId: `public-application:${commandDigest}:audit`,
+    effectId: PublicApplicationEffectIdSchema.make(`public-application:${commandDigest}:audit`),
     ...shared,
     action: "PublicApplicationSubmitted",
   };

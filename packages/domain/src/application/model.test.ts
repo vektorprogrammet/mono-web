@@ -45,7 +45,6 @@ it("derives applicant and public-application variants from one Model declaration
     "gender",
     "id",
     "lastName",
-    "normalizedEmail",
     "phone",
     "yearOfStudy",
   ]);

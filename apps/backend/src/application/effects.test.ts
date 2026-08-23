@@ -1,13 +1,19 @@
 import { describe, expect, it } from "vitest";
 import { Effect, Fiber } from "effect";
+import {
+  ApplicantIdSchema,
+  PublicApplicationCommandIdSchema,
+  PublicApplicationEffectIdSchema,
+  PublicApplicationIdSchema,
+} from "@vektorprogrammet/domain/application";
 import { makeHttpPublicApplicationEffectInterpreter } from "./effects.js";
 
 const request = {
   _tag: "SendApplicantActivationOrConfirmation",
-  effectId: "effect-0041",
-  commandId: "command-0041",
-  applicationId: "application-0041",
-  applicantId: "applicant-0041",
+  effectId: PublicApplicationEffectIdSchema.make("effect-0041"),
+  commandId: PublicApplicationCommandIdSchema.make("command-0041"),
+  applicationId: PublicApplicationIdSchema.make("application-0041"),
+  applicantId: ApplicantIdSchema.make("applicant-0041"),
   email: "applicant@example.invalid",
   activationToken: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQ",
 } as const;

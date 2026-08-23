@@ -5,10 +5,3 @@ export * from "./schema.js";
 export * from "./context.js";
 export * from "./proof.js";
 export * from "./update.js";
-export {
-  admissionPeriodProjectionFor,
-  decodeAdmissionPeriodCommand,
-  executeAdmissionPeriodCommand,
-  listAdmissionPeriodsForManagement,
-  listOpenAdmissionPeriods,
-} from "./postgres.js";

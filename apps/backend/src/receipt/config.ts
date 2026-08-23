@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { ReceiptActor } from "@vektorprogrammet/domain/receipt";
+import { DepartmentId, PersonId } from "@vektorprogrammet/domain/organization";
 
 export interface ReceiptApiPrincipal {
   readonly actor: ReceiptActor;
@@ -39,7 +40,9 @@ const parseApprovalScope = (value: unknown): ReceiptActor["approvalScope"] => {
   }
   if (value._tag === "None" || value._tag === "Global") return { _tag: value._tag };
   if (value._tag === "Department") {
-    const departmentId = nonEmpty(value.departmentId, "token approval department");
+    const departmentId = DepartmentId.make(
+      nonEmpty(value.departmentId, "token approval department"),
+    );
     return { _tag: "Department", departmentId };
   }
   throw new Error("invalid token approval scope");
@@ -48,8 +51,8 @@ const parseApprovalScope = (value: unknown): ReceiptActor["approvalScope"] => {
 const parsePrincipal = (value: unknown): ReceiptApiPrincipal => {
   if (!isRecord(value)) throw new Error("invalid token mapping");
   const actor: ReceiptActor = {
-    personId: nonEmpty(value.personId, "token person"),
-    departmentId: nonEmpty(value.departmentId, "token department"),
+    personId: PersonId.make(nonEmpty(value.personId, "token person")),
+    departmentId: DepartmentId.make(nonEmpty(value.departmentId, "token department")),
     active: parseActive(value.active),
     approvalScope: parseApprovalScope(value.approvalScope),
   };

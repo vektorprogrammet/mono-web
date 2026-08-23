@@ -1,4 +1,5 @@
 import { expect, it } from "@effect/vitest";
+import { canonicalJson } from "../tutor/evidence.js";
 import { importLegacyOrganization, type LegacyOrganizationSnapshot } from "./import.js";
 
 const snapshot = (memberships: ReadonlyArray<unknown>): LegacyOrganizationSnapshot => ({
@@ -79,9 +80,13 @@ it("quarantines duplicate memberships deterministically", () => {
       },
     ]),
   );
-  expect(result.memberships.map((item) => item.membershipId)).toEqual(["101"]);
-  expect(result.quarantined[0]?.reason).toBe("DUPLICATE_MEMBERSHIP");
-  expect(result.quarantined[0]?.sourcePrimaryKey).toBe("102");
+  expect(result.memberships).toEqual([]);
+  expect(result.quarantined.map((item) => item.reason)).toEqual([
+    "DUPLICATE_MEMBERSHIP",
+    "DUPLICATE_MEMBERSHIP",
+  ]);
+  expect(result.quarantined.map((item) => item.sourcePrimaryKey)).toEqual(["101", "102"]);
+  expect(result.quarantined.map((item) => item.sourceOccurrence)).toEqual([0, 0]);
 });
 
 it("retains named nullable-team history and quarantines nameless null-team rows", () => {
@@ -126,4 +131,91 @@ it("does not guess a temporal interval from legacy semester IDs", () => {
   );
   expect(result.memberships).toHaveLength(0);
   expect(result.quarantined[0]?.reason).toBe("MISSING_TEMPORAL_INTERVAL");
+});
+
+it("normalizes equivalent instants before duplicate classification", () => {
+  const result = importLegacyOrganization(
+    snapshot([
+      {
+        id: 102,
+        userId: 7,
+        teamId: 10,
+        startAt: "2026-08-01T02:00:00.000+02:00",
+        endAt: null,
+        positionId: null,
+      },
+      {
+        id: 101,
+        userId: 7,
+        teamId: 10,
+        startAt: "2026-08-01T00:00:00.000Z",
+        endAt: null,
+        positionId: null,
+      },
+    ]),
+  );
+  expect(result.memberships).toEqual([]);
+  expect(result.quarantined.map((item) => item.reason)).toEqual([
+    "DUPLICATE_MEMBERSHIP",
+    "DUPLICATE_MEMBERSHIP",
+  ]);
+});
+
+it("derives stable malformed-row keys and deterministic output order", () => {
+  const base = snapshot([]);
+  const invalidRows = [{ id: "invalid-b" }, { id: "invalid-a" }];
+  const first = importLegacyOrganization({
+    ...base,
+    departments: [...base.departments, ...invalidRows],
+    teams: [...base.teams, { id: 11, departmentId: 1, name: "Second", active: true }],
+  });
+  const second = importLegacyOrganization({
+    ...base,
+    departments: [...[...invalidRows].reverse(), ...base.departments],
+    teams: [{ id: 11, departmentId: 1, name: "Second", active: true }, ...base.teams],
+  });
+  expect(canonicalJson(first)).toBe(canonicalJson(second));
+  expect(first.quarantined.every((item) => item.sourcePrimaryKey.startsWith("unknown:"))).toBe(
+    true,
+  );
+});
+
+it("keeps source kinds distinct when legacy primary keys overlap", () => {
+  const base = snapshot([
+    {
+      id: 1,
+      userId: 7,
+      teamId: 1,
+      startAt: "2026-08-01T00:00:00.000Z",
+      endAt: null,
+      positionId: null,
+    },
+  ]);
+  const result = importLegacyOrganization({
+    ...base,
+    teams: [{ id: 1, departmentId: 1, name: "Platform", active: true }],
+  });
+  expect(result.ledger.map((entry) => `${entry.sourceKind}:${entry.sourcePrimaryKey}`)).toEqual([
+    "department:1",
+    "team:1",
+    "membership:1",
+  ]);
+});
+
+it("quarantines canonical records rejected by their Model", () => {
+  const base = snapshot([]);
+  const result = importLegacyOrganization({
+    ...base,
+    departments: [
+      {
+        id: 1,
+        name: "x".repeat(251),
+        shortName: "ENG",
+        email: "eng@example.test",
+        city: "Trondheim",
+      },
+    ],
+  });
+  expect(result.departments).toHaveLength(0);
+  expect(result.quarantined.map((item) => item.reason)).toContain("MISSING_DEPARTMENT_FIELD");
 });

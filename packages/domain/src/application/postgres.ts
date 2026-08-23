@@ -1,4 +1,5 @@
 import { Database, type DatabaseShape } from "../database/service.js";
+import { DepartmentId } from "../organization/schema.js";
 import { Effect, Schema } from "effect";
 import {
   AdmissionDepartment,
@@ -6,6 +7,7 @@ import {
   AdmissionPeriod,
 } from "../admission-period/schema.js";
 import {
+  AmbiguousAdmissionPeriod,
   DuplicatePublicApplication,
   DuplicatePublicApplicationCommandConflict,
   FieldOfStudyDepartmentMismatch,
@@ -40,6 +42,7 @@ import {
   PublicApplicationConfirmationSchema,
   PublicApplicationActivationTokenSchema,
   PublicApplication,
+  PublicApplicationIdSchema,
   PublicApplicationSubmitObservationSchema,
   type PublicApplicationCatalog,
   type PublicApplicationCatalogContext,
@@ -123,7 +126,10 @@ const findEligiblePeriod = (
   sql: DatabaseShape,
   departmentId: string,
   now: string,
-): Effect.Effect<AdmissionPeriod | undefined, PublicApplicationPersistenceError> =>
+): Effect.Effect<
+  AdmissionPeriod | undefined,
+  PublicApplicationPersistenceError | AmbiguousAdmissionPeriod
+> =>
   sql<typeof AdmissionPeriod.Encoded>`
     SELECT p.admission_period_id AS id,
       p.department_id AS "departmentId",
@@ -138,11 +144,24 @@ const findEligiblePeriod = (
       AND s.start_at <= ${now}::timestamptz AND ${now}::timestamptz < s.end_at
       AND p.start_at <= ${now}::timestamptz AND ${now}::timestamptz < p.end_at
     ORDER BY p.start_at DESC, p.admission_period_id ASC
-    LIMIT 1
     FOR UPDATE OF p
   `.pipe(
-    Effect.flatMap((rows) =>
-      rows[0] === undefined ? Effect.succeed(undefined) : decodeAdmissionPeriodRow(rows[0]),
+    Effect.flatMap(
+      (
+        rows,
+      ): Effect.Effect<
+        AdmissionPeriod | undefined,
+        PublicApplicationPersistenceError | AmbiguousAdmissionPeriod
+      > => {
+        if (rows.length > 1) {
+          return Effect.fail(
+            new AmbiguousAdmissionPeriod({ departmentId: DepartmentId.make(departmentId) }),
+          );
+        }
+        return rows[0] === undefined
+          ? Effect.succeed(undefined)
+          : decodeAdmissionPeriodRow(rows[0]);
+      },
     ),
     Effect.catchTag("SqlError", () =>
       Effect.fail(persistenceError("find eligible admission period")),
@@ -430,8 +449,7 @@ const executeCommandInTransaction = (
 
     const existingApplicant = yield* findApplicantForUpdate(sql, normalizedEmail);
     const applicantId =
-      existingApplicant?.id ??
-      (context.applicantId?.trim() || publicApplicantIdForCommand(command));
+      existingApplicant?.id ?? context.applicantId ?? publicApplicantIdForCommand(command);
     const requiresActivation =
       existingApplicant === undefined || existingApplicant.activationDigest !== null;
     const activationToken = requiresActivation
@@ -460,7 +478,7 @@ const executeCommandInTransaction = (
     const duplicate = yield* findApplicationForApplicantPeriod(sql, applicant.id, period.id);
     if (duplicate !== undefined) return yield* new DuplicatePublicApplication();
 
-    const applicationId = context.applicationId?.trim() || publicApplicationIdForCommand(command);
+    const applicationId = context.applicationId ?? publicApplicationIdForCommand(command);
     const collidingApplication = yield* findApplicationById(sql, applicationId);
     if (collidingApplication !== undefined) return yield* new DuplicatePublicApplication();
 
@@ -532,7 +550,8 @@ export const listPublicApplicationCatalog = (
         ROW_NUMBER() OVER (
           PARTITION BY p.department_id
           ORDER BY p.start_at DESC, p.admission_period_id ASC
-        ) AS period_rank
+        ) AS period_rank,
+        COUNT(*) OVER (PARTITION BY p.department_id) AS period_count
       FROM admission_periods p
       INNER JOIN admission_period_semesters s ON s.semester_id = p.semester_id
       WHERE s.start_at <= ${now}::timestamptz AND ${now}::timestamptz < s.end_at
@@ -547,7 +566,7 @@ export const listPublicApplicationCatalog = (
     INNER JOIN admission_period_departments d ON d.department_id = e.department_id
     LEFT JOIN admission_period_fields_of_study f
       ON f.department_id = e.department_id AND f.active = TRUE
-    WHERE e.period_rank = 1
+    WHERE e.period_rank = 1 AND e.period_count = 1
     ORDER BY d.department_id, f.field_of_study_id
   `.pipe(
       Effect.catchTag("SqlError", () =>
@@ -586,10 +605,13 @@ export const findPublicApplicationConfirmation = (
   applicationId: string,
 ): Effect.Effect<PublicApplicationConfirmation, PublicApplicationError, Database> =>
   Effect.gen(function* () {
-    const normalizedId = applicationId.trim();
-    if (normalizedId.length === 0) {
-      return yield* new PublicApplicationDecodeError({ message: "invalid application identifier" });
-    }
+    const normalizedId = yield* Schema.decodeUnknownEffect(PublicApplicationIdSchema)(
+      applicationId.trim(),
+    ).pipe(
+      Effect.mapError(
+        () => new PublicApplicationDecodeError({ message: "invalid application identifier" }),
+      ),
+    );
     const sql = yield* Database;
     const rows = yield* sql<{ readonly application_id: string }>`
     SELECT application_id

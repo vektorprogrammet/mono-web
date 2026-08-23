@@ -138,6 +138,7 @@ CREATE TABLE IF NOT EXISTS economy_receipt_import_ledger (
   snapshot_id text NOT NULL,
   source_watermark text NOT NULL,
   source_primary_key text NOT NULL,
+  source_occurrence integer NOT NULL CHECK (source_occurrence >= 0),
   source_digest text NOT NULL,
   transformation_revision text NOT NULL,
   target_semantic_identity text NOT NULL,
@@ -145,5 +146,12 @@ CREATE TABLE IF NOT EXISTS economy_receipt_import_ledger (
   result text NOT NULL CHECK (result IN ('Accepted', 'Quarantined')),
   reconciliation_result text NOT NULL,
   reasons_json jsonb NOT NULL,
-  PRIMARY KEY (source_repository, source_revision, snapshot_id, source_primary_key, transformation_revision)
+  PRIMARY KEY (
+    source_repository,
+    source_revision,
+    snapshot_id,
+    source_primary_key,
+    source_occurrence,
+    transformation_revision
+  )
 );

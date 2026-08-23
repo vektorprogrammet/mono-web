@@ -1,5 +1,7 @@
 import { Database, type DatabaseShape } from "../database/service.js";
+import type { DepartmentId } from "../organization/schema.js";
 import { Effect, Schema } from "effect";
+import { compareRfc3339Instants } from "../time.js";
 import {
   AdmissionPeriodDecodeError,
   AdmissionPeriodNotFound,
@@ -24,6 +26,7 @@ import {
   AdmissionPeriodProjectionSchema,
   AdmissionSemester,
   isRfc3339Instant,
+  type AdmissionPeriodCommandId,
   type AdmissionPeriodActor,
   type AdmissionPeriodCommand,
   type AdmissionPeriodObservation,
@@ -323,7 +326,7 @@ const writeAudit = (
   );
 
 const replayPeriodResult = (
-  commandId: string,
+  commandId: AdmissionPeriodCommandId,
   observation: Extract<AdmissionPeriodObservation, { readonly _tag: "Created" | "Revised" }>,
 ): AdmissionPeriodTransactionResult => ({
   period: observation.period,
@@ -335,7 +338,7 @@ const replayPeriodResult = (
 const effectiveCreateDepartment = (
   command: Extract<AdmissionPeriodCommand, { readonly _tag: "CreateAdmissionPeriod" }>,
   actor: AdmissionPeriodActor,
-): Effect.Effect<string, AdmissionPeriodFailure> => {
+): Effect.Effect<DepartmentId, AdmissionPeriodFailure> => {
   if (actor._tag === "DepartmentLeader") {
     if (command.departmentId !== undefined && command.departmentId !== actor.departmentId) {
       return Effect.fail(
@@ -551,8 +554,8 @@ export const admissionPeriodProjectionFor = (
 ): AdmissionPeriodProjection => ({
   ...period,
   eligible:
-    Date.parse(semester.startAt) <= Date.parse(now) &&
-    Date.parse(now) < Date.parse(semester.endAt) &&
-    Date.parse(period.startAt) <= Date.parse(now) &&
-    Date.parse(now) < Date.parse(period.endAt),
+    compareRfc3339Instants(semester.startAt, now) <= 0 &&
+    compareRfc3339Instants(now, semester.endAt) < 0 &&
+    compareRfc3339Instants(period.startAt, now) <= 0 &&
+    compareRfc3339Instants(now, period.endAt) < 0,
 });

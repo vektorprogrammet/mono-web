@@ -1,17 +1,41 @@
 import { Schema } from "effect";
 import { Model } from "effect/unstable/schema";
-import { AdmissionDepartment, AdmissionFieldOfStudy } from "../admission-period/schema.js";
+import {
+  AdmissionDepartment,
+  AdmissionFieldOfStudy,
+  AdmissionFieldOfStudyId,
+  AdmissionPeriod,
+  AdmissionPeriodId,
+} from "../admission-period/schema.js";
+import { DepartmentId } from "../organization/schema.js";
 import { isRfc3339Instant, Rfc3339InstantSchema } from "../time.js";
 
 /** Stable IDs are opaque, non-empty, and free of control characters. */
-export const PublicApplicationIdSchema = Schema.String.pipe(
+const StableApplicationIdSchema = Schema.String.pipe(
   Schema.check(
     Schema.makeFilter((value) => value.trim().length > 0 && !/[\p{Cc}\p{Cf}]/u.test(value), {
       message: "a non-empty stable identifier",
     }),
   ),
 );
+
+export const PublicApplicationIdSchema = StableApplicationIdSchema.pipe(
+  Schema.brand("PublicApplicationId"),
+);
 export type PublicApplicationId = typeof PublicApplicationIdSchema.Type;
+
+export const ApplicantIdSchema = StableApplicationIdSchema.pipe(Schema.brand("ApplicantId"));
+export type ApplicantId = typeof ApplicantIdSchema.Type;
+
+export const PublicApplicationCommandIdSchema = StableApplicationIdSchema.pipe(
+  Schema.brand("PublicApplicationCommandId"),
+);
+export type PublicApplicationCommandId = typeof PublicApplicationCommandIdSchema.Type;
+
+export const PublicApplicationEffectIdSchema = StableApplicationIdSchema.pipe(
+  Schema.brand("PublicApplicationEffectId"),
+);
+export type PublicApplicationEffectId = typeof PublicApplicationEffectIdSchema.Type;
 
 export const isPublicApplicationName = (value: string): boolean => {
   const normalized = value.trim();
@@ -74,14 +98,13 @@ export type PublicApplicationInstant = typeof PublicApplicationInstantSchema.Typ
 
 export class ApplicantRecord extends Model.Class<ApplicantRecord>("ApplicantRecord")({
   id: Model.Field({
-    select: PublicApplicationIdSchema,
-    insert: PublicApplicationIdSchema,
-    json: PublicApplicationIdSchema,
+    select: ApplicantIdSchema,
+    insert: ApplicantIdSchema,
+    json: ApplicantIdSchema,
   }),
   normalizedEmail: Model.Field({
     select: PublicApplicationEmailSchema,
     insert: PublicApplicationEmailSchema,
-    json: PublicApplicationEmailSchema,
   }),
   email: Model.Sensitive(PublicApplicationEmailSchema),
   firstName: Model.Field({
@@ -117,12 +140,12 @@ export class ApplicantRecord extends Model.Class<ApplicantRecord>("ApplicantReco
     jsonUpdate: PublicApplicationGenderSchema,
   }),
   fieldOfStudyId: Model.Field({
-    select: PublicApplicationIdSchema,
-    insert: PublicApplicationIdSchema,
-    update: PublicApplicationIdSchema,
-    json: PublicApplicationIdSchema,
-    jsonCreate: PublicApplicationIdSchema,
-    jsonUpdate: PublicApplicationIdSchema,
+    select: AdmissionFieldOfStudyId,
+    insert: AdmissionFieldOfStudyId,
+    update: AdmissionFieldOfStudyId,
+    json: AdmissionFieldOfStudyId,
+    jsonCreate: AdmissionFieldOfStudyId,
+    jsonUpdate: AdmissionFieldOfStudyId,
   }),
   yearOfStudy: Model.Field({
     select: PublicApplicationYearOfStudySchema,
@@ -147,24 +170,24 @@ export class PublicApplication extends Model.Class<PublicApplication>("PublicApp
     json: PublicApplicationIdSchema,
   }),
   applicantId: Model.Field({
-    select: PublicApplicationIdSchema,
-    insert: PublicApplicationIdSchema,
-    json: PublicApplicationIdSchema,
+    select: ApplicantIdSchema,
+    insert: ApplicantIdSchema,
+    json: ApplicantIdSchema,
   }),
   admissionPeriodId: Model.Field({
-    select: PublicApplicationIdSchema,
-    insert: PublicApplicationIdSchema,
-    json: PublicApplicationIdSchema,
+    select: AdmissionPeriodId,
+    insert: AdmissionPeriodId,
+    json: AdmissionPeriodId,
   }),
   departmentId: Model.Field({
-    select: PublicApplicationIdSchema,
-    insert: PublicApplicationIdSchema,
-    json: PublicApplicationIdSchema,
+    select: DepartmentId,
+    insert: DepartmentId,
+    json: DepartmentId,
   }),
   fieldOfStudyId: Model.Field({
-    select: PublicApplicationIdSchema,
-    insert: PublicApplicationIdSchema,
-    json: PublicApplicationIdSchema,
+    select: AdmissionFieldOfStudyId,
+    insert: AdmissionFieldOfStudyId,
+    json: AdmissionFieldOfStudyId,
   }),
   yearOfStudy: Model.Field({
     select: PublicApplicationYearOfStudySchema,
@@ -181,7 +204,7 @@ export class PublicApplication extends Model.Class<PublicApplication>("PublicApp
     insert: Schema.Int.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(0))),
     json: Schema.Int.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(0))),
   }),
-  /** Activation is a private immutable snapshot, never an API field. */
+  /** Private and immutable: database select/insert only, with no update or JSON variant. */
   activationDigest: Model.Field({
     select: Schema.NullOr(Sha256Schema),
     insert: Schema.NullOr(Sha256Schema),
@@ -195,8 +218,8 @@ const ApplicantInsertFields = ApplicantRecord.insert.fields;
 
 /** Exact public request body. No `_tag`, applicant, period, or status fields are accepted. */
 const SubmitPublicApplicationFields = {
-  commandId: PublicApplicationIdSchema,
-  departmentId: PublicApplicationIdSchema,
+  commandId: PublicApplicationCommandIdSchema,
+  departmentId: DepartmentId,
   firstName: ApplicantCreateFields.firstName,
   lastName: ApplicantCreateFields.lastName,
   phone: ApplicantCreateFields.phone,
@@ -228,7 +251,7 @@ export type SubmitPublicApplicationCommand = typeof SubmitPublicApplicationComma
 
 export const PublicApplicationSubmitObservationSchema = Schema.TaggedUnion({
   Submitted: {
-    commandId: PublicApplicationIdSchema,
+    commandId: PublicApplicationCommandIdSchema,
     applicationId: PublicApplicationIdSchema,
   },
 });
@@ -253,7 +276,7 @@ export type PublicApplicationFieldOfStudy = typeof PublicApplicationFieldOfStudy
 export const PublicApplicationCatalogDepartmentSchema = Schema.Struct({
   departmentId: AdmissionDepartment.json.fields.departmentId,
   name: AdmissionDepartment.json.fields.name,
-  closesAt: PublicApplicationInstantSchema,
+  closesAt: AdmissionPeriod.json.fields.endAt,
   fieldsOfStudy: Schema.Array(PublicApplicationFieldOfStudySchema),
 });
 export type PublicApplicationCatalogDepartment =
@@ -271,9 +294,9 @@ export interface PublicApplicationCatalogContext {
 export interface PublicApplicationSubmitContext {
   readonly now: string;
   /** Optional server-generated opaque ID. It is never accepted from the public body. */
-  readonly applicationId?: string;
+  readonly applicationId?: PublicApplicationId;
   /** Optional server-owned applicant identity hint for a new normalized email. */
-  readonly applicantId?: string;
+  readonly applicantId?: ApplicantId;
   /** Server-generated token for a new or inactive applicant. */
   readonly activationToken: string;
 }

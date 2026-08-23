@@ -1,14 +1,17 @@
 import { Effect, Schema } from "effect";
 import { PublicApplicationDecodeError } from "./errors.js";
 import {
-  isPublicApplicationEmail,
+  PublicApplicationCommandIdSchema,
+  PublicApplicationEmailSchema,
+  PublicApplicationNameSchema,
+  PublicApplicationPhoneSchema,
   isPublicApplicationInstant,
-  isPublicApplicationName,
-  isPublicApplicationPhone,
   PublicApplicationSubmitInputSchema,
   type PublicApplicationSubmitInput,
   type SubmitPublicApplicationCommand,
 } from "./schema.js";
+import { DepartmentId } from "../organization/schema.js";
+import { AdmissionFieldOfStudyId } from "../admission-period/schema.js";
 
 const invalidInput = new PublicApplicationDecodeError({
   message: "invalid public application input",
@@ -17,21 +20,21 @@ const invalidInput = new PublicApplicationDecodeError({
 const normalizeSubmitInput = (
   input: PublicApplicationSubmitInput,
 ): Effect.Effect<PublicApplicationSubmitInput, PublicApplicationDecodeError> => {
-  const commandId = input.commandId.trim();
-  const departmentId = input.departmentId.trim();
+  const commandId = PublicApplicationCommandIdSchema.make(input.commandId.trim());
+  const departmentId = DepartmentId.make(input.departmentId.trim());
   const firstName = input.firstName.trim();
   const lastName = input.lastName.trim();
   const phone = input.phone.trim();
   const email = input.email.trim();
-  const fieldOfStudyId = input.fieldOfStudyId.trim();
+  const fieldOfStudyId = AdmissionFieldOfStudyId.make(input.fieldOfStudyId.trim());
   if (
     commandId.length === 0 ||
     departmentId.length === 0 ||
     fieldOfStudyId.length === 0 ||
-    !isPublicApplicationName(firstName) ||
-    !isPublicApplicationName(lastName) ||
-    !isPublicApplicationPhone(phone) ||
-    !isPublicApplicationEmail(email)
+    !Schema.is(PublicApplicationNameSchema)(firstName) ||
+    !Schema.is(PublicApplicationNameSchema)(lastName) ||
+    !Schema.is(PublicApplicationPhoneSchema)(phone) ||
+    !Schema.is(PublicApplicationEmailSchema)(email)
   ) {
     return Effect.fail(invalidInput);
   }

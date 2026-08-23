@@ -8,7 +8,7 @@ import {
   StaleReceiptRevision,
   type ReceiptFailure,
 } from "./errors.js";
-import type { ReceiptImportResult } from "./import.js";
+import type { ReceiptImportResult, ReceiptQuarantineReason } from "./import.js";
 import {
   Receipt,
   ReceiptCommandSchema,
@@ -21,6 +21,16 @@ import { decideReceipt, type ReceiptDecisionContext, type ReceiptOutboxRequest }
 interface CommandReceiptRow {
   readonly command_sha256: string;
   readonly observation_json: unknown;
+}
+
+interface ReceiptImportLedgerRow {
+  readonly source_watermark: string;
+  readonly source_digest: string;
+  readonly target_semantic_identity: string;
+  readonly destination_identity: string | null;
+  readonly result: "Accepted" | "Quarantined";
+  readonly reconciliation_result: string;
+  readonly reasons_json: unknown;
 }
 
 const persistenceError = (operation: string, cause: unknown) =>
@@ -49,13 +59,13 @@ const findReceipt = (
       to_char(receipt_date, 'YYYY-MM-DD') AS "receiptDate",
       to_char(
         submitted_at AT TIME ZONE 'UTC',
-        'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'
+        'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'
       ) AS "submittedAt",
       status,
       CASE WHEN refund_date IS NULL THEN NULL
         ELSE to_char(
           refund_date AT TIME ZONE 'UTC',
-          'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'
+          'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'
         )
       END AS "refundDate",
       payment_account_ciphertext AS "paymentAccountCiphertext",
@@ -63,7 +73,7 @@ const findReceipt = (
         'fileRef', file_ref,
         'objectKey', file_object_key,
         'contentType', file_content_type,
-        'byteLength', file_byte_length::float8,
+        'byteLength', file_byte_length::text,
         'sha256', file_sha256
       ) AS file,
       revision
@@ -92,33 +102,34 @@ const findCommandReceipt = (
     ),
   );
 
+const insertReceipt = (
+  sql: DatabaseShape,
+  receipt: Receipt,
+): Effect.Effect<void, ReceiptPersistenceError> =>
+  sql`
+    INSERT INTO economy_receipts (
+      receipt_id, visual_id, owner_person_id, department_id,
+      amount_ore, currency, description, receipt_date, submitted_at,
+      status, refund_date, payment_account_ciphertext,
+      file_ref, file_object_key, file_content_type, file_byte_length,
+      file_sha256, revision
+    ) VALUES (
+      ${receipt.receiptId}, ${receipt.visualId}, ${receipt.ownerPersonId}, ${receipt.departmentId},
+      ${receipt.amountOre}, ${receipt.currency}, ${receipt.description}, ${receipt.receiptDate}, ${receipt.submittedAt},
+      ${receipt.status}, ${receipt.refundDate}, ${receipt.paymentAccountCiphertext},
+      ${receipt.file.fileRef}, ${receipt.file.objectKey}, ${receipt.file.contentType}, ${receipt.file.byteLength},
+      ${receipt.file.sha256}, ${receipt.revision}
+    )
+  `.pipe(
+    Effect.asVoid,
+    Effect.catchTag("SqlError", (cause) => Effect.fail(persistenceError("insert receipt", cause))),
+  );
 const storeReceipt = (
   sql: DatabaseShape,
   receipt: Receipt,
   previous: Receipt | undefined,
 ): Effect.Effect<void, ReceiptFailure> => {
-  if (previous === undefined) {
-    return sql`
-      INSERT INTO economy_receipts (
-        receipt_id, visual_id, owner_person_id, department_id,
-        amount_ore, currency, description, receipt_date, submitted_at,
-        status, refund_date, payment_account_ciphertext,
-        file_ref, file_object_key, file_content_type, file_byte_length,
-        file_sha256, revision
-      ) VALUES (
-        ${receipt.receiptId}, ${receipt.visualId}, ${receipt.ownerPersonId}, ${receipt.departmentId},
-        ${receipt.amountOre}, ${receipt.currency}, ${receipt.description}, ${receipt.receiptDate}, ${receipt.submittedAt},
-        ${receipt.status}, ${receipt.refundDate}, ${receipt.paymentAccountCiphertext},
-        ${receipt.file.fileRef}, ${receipt.file.objectKey}, ${receipt.file.contentType}, ${receipt.file.byteLength},
-        ${receipt.file.sha256}, ${receipt.revision}
-      )
-    `.pipe(
-      Effect.asVoid,
-      Effect.catchTag("SqlError", (cause) =>
-        Effect.fail(persistenceError("insert receipt", cause)),
-      ),
-    );
-  }
+  if (previous === undefined) return insertReceipt(sql, receipt);
 
   return sql<{ readonly revision: number }>`
     UPDATE economy_receipts SET
@@ -178,31 +189,172 @@ export const storeReceiptImportResult = (
   Effect.gen(function* () {
     const sql = yield* Database;
     const provenance = result.provenance;
-    yield* sql`
-    INSERT INTO economy_receipt_import_ledger (
-      source_repository, source_revision, snapshot_id, source_watermark,
-      source_primary_key, source_digest, transformation_revision,
-      target_semantic_identity, destination_identity, result,
-      reconciliation_result, reasons_json
-    ) VALUES (
-      ${provenance.sourceRepository}, ${provenance.sourceRevision},
-      ${provenance.snapshotId}, ${provenance.sourceWatermark},
-      ${result.sourcePrimaryKey}, ${provenance.sourceDigest},
-      ${provenance.transformationRevision},
-      ${result._tag === "AcceptedReceiptImport" ? result.receipt.visualId : result.sourcePrimaryKey},
-      ${provenance.destinationIdentity},
-      ${result._tag === "AcceptedReceiptImport" ? "Accepted" : "Quarantined"},
-      ${result.reconciliation},
-      ${sql.json({
-        reasons: result._tag === "QuarantinedReceiptImport" ? result.reasons : [],
-      })}
-    )
-  `.pipe(
-      Effect.asVoid,
-      Effect.catchTag("SqlError", (cause) =>
-        Effect.fail(persistenceError("insert import ledger", cause)),
-      ),
-    );
+    const targetSemanticIdentity = result.targetSemanticIdentity;
+    let importResult = result._tag === "AcceptedReceiptImport" ? "Accepted" : "Quarantined";
+    let reconciliationResult = result.reconciliation;
+    let reasons: { reasons: ReadonlyArray<string> } = {
+      reasons: result._tag === "QuarantinedReceiptImport" ? result.reasons : [],
+    };
+    const importLockKey = canonicalJson({
+      sourceRepository: provenance.sourceRepository,
+      sourceRevision: provenance.sourceRevision,
+      snapshotId: provenance.snapshotId,
+      sourcePrimaryKey: result.sourcePrimaryKey,
+      sourceOccurrence: result.sourceOccurrence,
+      transformationRevision: provenance.transformationRevision,
+    });
+
+    const isExactReplay = (existing: ReceiptImportLedgerRow): boolean =>
+      existing.source_watermark === provenance.sourceWatermark &&
+      existing.source_digest === provenance.sourceDigest &&
+      existing.target_semantic_identity === targetSemanticIdentity &&
+      existing.destination_identity === provenance.destinationIdentity &&
+      existing.result === importResult &&
+      existing.reconciliation_result === reconciliationResult &&
+      canonicalJson(existing.reasons_json) === canonicalJson(reasons);
+
+    yield* sql
+      .withTransaction(
+        Effect.gen(function* () {
+          yield* sql`SELECT pg_advisory_xact_lock(hashtextextended(${importLockKey}, 0))`.pipe(
+            Effect.asVoid,
+            Effect.catchTag("SqlError", (cause) =>
+              Effect.fail(persistenceError("lock receipt import", cause)),
+            ),
+          );
+          const prior = yield* sql<ReceiptImportLedgerRow>`
+            SELECT
+              source_watermark, source_digest, target_semantic_identity, destination_identity,
+              result, reconciliation_result, reasons_json
+            FROM economy_receipt_import_ledger
+            WHERE source_repository = ${provenance.sourceRepository}
+              AND source_revision = ${provenance.sourceRevision}
+              AND snapshot_id = ${provenance.snapshotId}
+              AND source_primary_key = ${result.sourcePrimaryKey}
+              AND source_occurrence = ${result.sourceOccurrence}
+              AND transformation_revision = ${provenance.transformationRevision}
+          `.pipe(
+            Effect.map((rows) => rows[0]),
+            Effect.catchTag("SqlError", (cause) =>
+              Effect.fail(persistenceError("read receipt import ledger", cause)),
+            ),
+          );
+          if (prior?.result === "Accepted") {
+            if (!isExactReplay(prior)) {
+              return yield* Effect.fail(
+                persistenceError(
+                  "conflicting receipt import replay",
+                  `${provenance.sourceRepository}:${result.sourcePrimaryKey}`,
+                ),
+              );
+            }
+            return;
+          }
+          if (result._tag === "AcceptedReceiptImport") {
+            const destinationLockKeys = [
+              `receipt:${result.receipt.receiptId}`,
+              `visual:${result.receipt.visualId}`,
+            ].sort();
+            yield* Effect.forEach(
+              destinationLockKeys,
+              (destinationLockKey) =>
+                sql`
+                  SELECT pg_advisory_xact_lock(hashtextextended(${destinationLockKey}, 0))
+                `.pipe(
+                  Effect.asVoid,
+                  Effect.catchTag("SqlError", (cause) =>
+                    Effect.fail(persistenceError("lock receipt import identity", cause)),
+                  ),
+                ),
+              { discard: true },
+            );
+            const collisions = yield* sql<{
+              readonly receipt_id: string;
+              readonly visual_id: string;
+            }>`
+              SELECT receipt_id, visual_id
+              FROM economy_receipts
+              WHERE receipt_id = ${result.receipt.receiptId}
+                 OR visual_id = ${result.receipt.visualId}
+              FOR UPDATE
+            `.pipe(
+              Effect.catchTag("SqlError", (cause) =>
+                Effect.fail(persistenceError("check receipt import identity", cause)),
+              ),
+            );
+            if (collisions.length > 0) {
+              const collisionReasons: ReceiptQuarantineReason[] = [];
+              if (collisions.some((row) => row.receipt_id === result.receipt.receiptId)) {
+                collisionReasons.push("DestinationIdentityCollision");
+              }
+              if (collisions.some((row) => row.visual_id === result.receipt.visualId)) {
+                collisionReasons.push("DuplicateVisualId");
+              }
+              importResult = "Quarantined";
+              reconciliationResult = "NotApplicable";
+              reasons = { reasons: collisionReasons };
+            }
+          }
+          const existing = yield* sql<ReceiptImportLedgerRow>`
+          SELECT
+            source_watermark, source_digest, target_semantic_identity, destination_identity,
+            result, reconciliation_result, reasons_json
+          FROM economy_receipt_import_ledger
+          WHERE source_repository = ${provenance.sourceRepository}
+            AND source_revision = ${provenance.sourceRevision}
+            AND snapshot_id = ${provenance.snapshotId}
+            AND source_primary_key = ${result.sourcePrimaryKey}
+            AND source_occurrence = ${result.sourceOccurrence}
+            AND transformation_revision = ${provenance.transformationRevision}
+        `.pipe(
+            Effect.map((rows) => rows[0]),
+            Effect.catchTag("SqlError", (cause) =>
+              Effect.fail(persistenceError("read receipt import ledger", cause)),
+            ),
+          );
+          if (existing !== undefined) {
+            const exactReplay = isExactReplay(existing);
+            if (!exactReplay) {
+              return yield* Effect.fail(
+                persistenceError(
+                  "conflicting receipt import replay",
+                  `${provenance.sourceRepository}:${result.sourcePrimaryKey}`,
+                ),
+              );
+            }
+            return;
+          }
+
+          if (result._tag === "AcceptedReceiptImport" && importResult === "Accepted") {
+            yield* insertReceipt(sql, result.receipt);
+          }
+          yield* sql`
+          INSERT INTO economy_receipt_import_ledger (
+            source_repository, source_revision, snapshot_id, source_watermark,
+            source_primary_key, source_occurrence, source_digest, transformation_revision,
+            target_semantic_identity, destination_identity, result,
+            reconciliation_result, reasons_json
+          ) VALUES (
+            ${provenance.sourceRepository}, ${provenance.sourceRevision},
+            ${provenance.snapshotId}, ${provenance.sourceWatermark},
+            ${result.sourcePrimaryKey}, ${result.sourceOccurrence}, ${provenance.sourceDigest},
+            ${provenance.transformationRevision}, ${targetSemanticIdentity},
+            ${provenance.destinationIdentity}, ${importResult},
+            ${reconciliationResult}, ${sql.json(reasons)}
+          )
+        `.pipe(
+            Effect.asVoid,
+            Effect.catchTag("SqlError", (cause) =>
+              Effect.fail(persistenceError("insert receipt import ledger", cause)),
+            ),
+          );
+        }),
+      )
+      .pipe(
+        Effect.catchTag("SqlError", (cause) =>
+          Effect.fail(persistenceError("receipt import transaction", cause)),
+        ),
+      );
   });
 
 export const executeReceiptCommand = (

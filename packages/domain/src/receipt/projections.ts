@@ -116,7 +116,7 @@ export const listOwnedReceiptProjection = (
             owner_person_id AS "ownerPersonId", department_id AS "departmentId",
             amount_ore::text AS "amountOre", currency, description,
             receipt_date::text AS "receiptDate",
-            to_char(submitted_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')
+            to_char(submitted_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
               AS "submittedAt",
             status, revision
           FROM economy_receipts
@@ -128,7 +128,7 @@ export const listOwnedReceiptProjection = (
             owner_person_id AS "ownerPersonId", department_id AS "departmentId",
             amount_ore::text AS "amountOre", currency, description,
             receipt_date::text AS "receiptDate",
-            to_char(submitted_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')
+            to_char(submitted_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
               AS "submittedAt",
             status, revision
           FROM economy_receipts
