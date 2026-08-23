@@ -5,11 +5,11 @@
 | Field | Value |
 |---|---|
 | Goal | Make persisted data, domain authority, implementation requirements, and runtime ownership explicit and singular |
-| Status | Frozen revision 0045.1 after Receipt tracer compilation |
+| Status | Frozen revision 0045.2 before native Recruitment implementation |
 | Depends on | Database capability and process-level ManagedRuntime established by design specs 0039 and 0040 |
 | First tracer | Receipt data through the Economy authority |
-| Scope hold | Identity remains the final authority cutover; browser and production-faithful PostgreSQL evidence require explicit remote authorization |
-| Revision | 0045.1 clarifies that a Layer may capture its required Database and provide it to private persistence programs; the Layer type, rather than the public Service methods, retains that implementation requirement |
+| Scope hold | Identity credentials, sessions, and authentication authority remain the final cutover; browser and production-faithful PostgreSQL evidence require explicit remote authorization |
+| Revision | 0045.2 makes Profile person-display reads an explicit Recruitment dependency while Identity authentication remains last; 0045.1 clarified that a Layer may capture its required Database and provide it to private persistence programs |
 
 ## Problem
 
@@ -56,10 +56,10 @@ The initial authority graph is:
 Database
 ├─ Organization
 ├─ Admissions ── Organization
-├─ Recruitment ── Admissions + Organization
-├─ Economy ── Identity + PrivateFileStore + NotificationGateway
 ├─ Profile ── Organization
-└─ Identity (cut over last)
+├─ Recruitment ── Admissions + Organization + Profile
+├─ Economy ── Identity + PrivateFileStore + NotificationGateway
+└─ Identity (credentials, sessions, and authentication authority cut over last)
 ```
 
 A Service contract exposes domain operations and typed failures. It does not expose concrete PostgreSQL clients, framework requests, or vendor SDKs.
@@ -83,8 +83,8 @@ A named journey is an Effect program, not a Service merely because it is named. 
 2. Gate the tracer before parallel work.
 3. Migrate Admissions, Economy expansion, and Organization in isolated worktrees.
 4. Integrate, validate, and review the committed authority wave.
-5. Migrate Recruitment, Profile, and API/SDK projections.
-6. Cut Identity and the final runtime graph over last.
+5. Establish the Profile person-display read seam, then migrate Recruitment and API/SDK projections.
+6. Cut Identity credentials, sessions, and authentication authority and the final runtime graph over last.
 7. Run production-faithful PostgreSQL and remote browser evidence before zero-gap retirement.
 
 ## Definition of done
@@ -108,5 +108,6 @@ A named journey is an Effect program, not a Service merely because it is named. 
 - A request handler constructs a Layer or ManagedRuntime.
 - A pure rule becomes a Service without a dependency, authority, resource, failure, or lifecycle to expose.
 - Generic CRUD replaces locking or atomic command/audit/outbox behavior.
+- Recruitment persists copied person-display fields instead of requiring Profile and Organization.
 - PGlite evidence is presented as PostgreSQL locking proof.
 - A unit or source test is presented as successful browser journey evidence.
