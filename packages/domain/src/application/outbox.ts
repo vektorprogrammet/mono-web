@@ -6,14 +6,24 @@ import {
   PublicApplicationOutboxRequestSchema,
   type PublicApplicationOutboxRequest,
 } from "./effects.js";
+import { publicApplicationActivationDigest } from "./digest.js";
 import { PublicApplicationPersistenceError } from "./errors.js";
 
 interface ClaimedOutboxRow {
   readonly effect_id: string;
   readonly command_id: string;
+  readonly effect_type: string;
+  readonly application_id: string;
+  readonly applicant_id: string;
   readonly ordinal: number;
   readonly attempts: number;
   readonly payload_json: unknown;
+}
+
+interface CanonicalOutboxIdentityRow {
+  readonly email: string;
+  readonly activation_digest: string | null;
+  readonly department_id: string;
 }
 
 interface CountRow {
@@ -93,8 +103,9 @@ export const claimNextPublicApplicationOutbox = (
               last_failure_tag = NULL
             FROM candidate
             WHERE claimed.effect_id = candidate.effect_id
-            RETURNING claimed.effect_id, claimed.command_id, claimed.ordinal,
-              claimed.attempts, claimed.payload_json
+            RETURNING claimed.effect_id, claimed.effect_type, claimed.application_id,
+              claimed.applicant_id, claimed.command_id, claimed.ordinal, claimed.attempts,
+              claimed.payload_json
           `;
           const row = rows[0];
           if (row === undefined) return undefined;
@@ -102,8 +113,46 @@ export const claimNextPublicApplicationOutbox = (
             row.payload_json,
             { onExcessProperty: "error" },
           ).pipe(Effect.mapError(() => persistenceError("decode application outbox request")));
-          if (request.effectId !== row.effect_id || request.commandId !== row.command_id) {
-            return yield* Effect.fail(persistenceError("application outbox identity mismatch"));
+          if (
+            request.effectId !== row.effect_id ||
+            request._tag !== row.effect_type ||
+            request.applicationId !== row.application_id ||
+            request.applicantId !== row.applicant_id ||
+            request.commandId !== row.command_id
+          ) {
+            return yield* Effect.fail(
+              persistenceError("application outbox durable envelope mismatch"),
+            );
+          }
+          const identities = yield* sql<CanonicalOutboxIdentityRow>`
+            SELECT applicant.email, applicant.activation_digest, application.department_id
+            FROM admission_applicants AS applicant
+            INNER JOIN admission_applications AS application
+              ON application.applicant_id = applicant.applicant_id
+            WHERE applicant.applicant_id = ${row.applicant_id}
+              AND application.application_id = ${row.application_id}
+          `;
+          const identity = identities[0];
+          if (identity === undefined) {
+            return yield* Effect.fail(
+              persistenceError("application outbox canonical identity mismatch"),
+            );
+          }
+          const requestMatchesCanonicalState =
+            request._tag === "SendApplicantActivationOrConfirmation"
+              ? request.email === identity.email &&
+                (request.activationToken === undefined
+                  ? identity.activation_digest === null
+                  : publicApplicationActivationDigest(request.activationToken) ===
+                    identity.activation_digest)
+              : request._tag === "CreateAdmissionSubscription"
+                ? request.email === identity.email &&
+                  request.departmentId === identity.department_id
+                : true;
+          if (!requestMatchesCanonicalState) {
+            return yield* Effect.fail(
+              persistenceError("application outbox canonical payload mismatch"),
+            );
           }
           return {
             effectId: row.effect_id,

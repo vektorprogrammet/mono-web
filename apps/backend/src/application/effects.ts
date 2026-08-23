@@ -27,6 +27,7 @@ const deliver = (
           "idempotency-key": request.effectId,
         },
         body: JSON.stringify(request),
+        redirect: "error",
         signal,
       });
       if (!response.ok) throw new Error(`provider returned ${response.status}`);

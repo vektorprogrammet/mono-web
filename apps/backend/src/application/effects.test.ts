@@ -40,6 +40,7 @@ describe("public application effect gateway", () => {
     expect(calls).toHaveLength(1);
     expect(calls[0]?.input).toBe(config.endpoint.href);
     expect(new Headers(calls[0]?.init?.headers).get("idempotency-key")).toBe(request.effectId);
+    expect(calls[0]?.init?.redirect).toBe("error");
     expect(JSON.parse(String(calls[0]?.init?.body))).toEqual(request);
   });
 

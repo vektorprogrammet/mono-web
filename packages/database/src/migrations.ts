@@ -30,6 +30,10 @@ const publicApplicantEffectLifecycleMigrationUrl = new URL(
   "../../domain/src/application/migrations/0003-public-applicant-effect-lifecycle.sql",
   import.meta.url,
 );
+const publicApplicantDeliveredPayloadCleanupMigrationUrl = new URL(
+  "../../domain/src/application/migrations/0004-public-applicant-delivered-payload-cleanup.sql",
+  import.meta.url,
+);
 
 export type ExecuteMigration = (
   source: string,
@@ -67,9 +71,14 @@ export const databaseMigrationLoader = (execute: ExecuteMigration) =>
       publicApplicantEffectLifecycleMigrationUrl,
       execute,
     ),
+    "6_public-applicant-delivered-payload-cleanup": migration(
+      "public-applicant-delivered-payload-cleanup",
+      publicApplicantDeliveredPayloadCleanupMigrationUrl,
+      execute,
+    ),
   });
 
-export const databaseSchemaRevision = "5_public-applicant-effect-lifecycle";
+export const databaseSchemaRevision = "6_public-applicant-delivered-payload-cleanup";
 
 export const runDatabaseMigrations = (execute: ExecuteMigration) =>
   Migrator.make({})({

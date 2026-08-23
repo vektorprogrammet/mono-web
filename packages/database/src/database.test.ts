@@ -55,13 +55,14 @@ describe("DatabaseTest", () => {
     );
 
     expect(evidence).toEqual({
-      revision: "5_public-applicant-effect-lifecycle",
+      revision: "6_public-applicant-delivered-payload-cleanup",
       migrations: [
         { migration_id: 1, name: "receipt-authority" },
         { migration_id: 2, name: "admission-period-authority" },
         { migration_id: 3, name: "public-applicant-admission" },
         { migration_id: 4, name: "receipt-authority-upgrade-replay" },
         { migration_id: 5, name: "public-applicant-effect-lifecycle" },
+        { migration_id: 6, name: "public-applicant-delivered-payload-cleanup" },
       ],
       tables: ["admission_applications", "admission_periods", "economy_receipts"],
     });
@@ -82,7 +83,7 @@ describe("DatabaseTest", () => {
     );
 
     expect(second).toBe(first);
-    expect(rows).toEqual([{ migration_count: "5" }]);
+    expect(rows).toEqual([{ migration_count: "6" }]);
   });
 
   it("runs the Economy authority contract against PGlite", async () => {
@@ -428,6 +429,67 @@ describe("DatabaseTest", () => {
             activationToken: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQ",
           },
         );
+        yield* database`
+          UPDATE admission_application_outbox
+          SET payload_json =
+            (payload_json - 'activationToken')
+            || jsonb_build_object('activationDigest', ${"a".repeat(64)}::text)
+          WHERE command_id = 'legacy-effect-application-submit' AND ordinal = 0
+        `;
+        yield* database`
+          UPDATE admission_application_outbox
+          SET payload_json = payload_json - 'departmentId'
+          WHERE command_id = 'legacy-effect-application-submit' AND ordinal = 1
+        `;
+        yield* database`
+          DELETE FROM vektorprogrammet_schema_migrations
+          WHERE migration_id >= 5
+        `;
+        yield* database.migrate;
+        return yield* database<{
+          readonly ordinal: number;
+          readonly status: string;
+          readonly claim_id: string | null;
+          readonly last_failure_tag: string | null;
+          readonly payload_json: unknown;
+        }>`
+          SELECT ordinal, status, claim_id, last_failure_tag, payload_json
+          FROM admission_application_outbox
+          WHERE command_id = 'legacy-effect-application-submit'
+          ORDER BY ordinal
+        `;
+      }),
+    );
+
+    expect(evidence).toEqual([
+      {
+        ordinal: 0,
+        status: "Quarantined",
+        claim_id: null,
+        last_failure_tag: "LegacyPublicApplicationEffectPayload",
+        payload_json: {},
+      },
+      {
+        ordinal: 1,
+        status: "Quarantined",
+        claim_id: null,
+        last_failure_tag: "LegacyPublicApplicationEffectPayload",
+        payload_json: {},
+      },
+      {
+        ordinal: 2,
+        status: "Quarantined",
+        claim_id: null,
+        last_failure_tag: "LegacyPublicApplicationEffectPayload",
+        payload_json: {},
+      },
+    ]);
+  });
+
+  it("clears delivered legacy payloads in a later immutable migration", async () => {
+    const evidence = await runtime.runPromise(
+      Effect.gen(function* () {
+        const database = yield* Database;
         yield* executePublicApplicationCommand(
           {
             commandId: "legacy-delivered-application-submit",
@@ -453,98 +515,27 @@ describe("DatabaseTest", () => {
           WHERE command_id = 'legacy-delivered-application-submit'
         `;
         yield* database`
-          UPDATE admission_application_outbox
-          SET payload_json =
-            (payload_json - 'activationToken')
-            || jsonb_build_object('activationDigest', ${"a".repeat(64)}::text)
-          WHERE command_id = 'legacy-effect-application-submit' AND ordinal = 0
-        `;
-        yield* database`
-          UPDATE admission_application_outbox
-          SET payload_json = payload_json - 'departmentId'
-          WHERE command_id = 'legacy-effect-application-submit' AND ordinal = 1
-        `;
-        yield* database`
           DELETE FROM vektorprogrammet_schema_migrations
-          WHERE migration_id = 5
+          WHERE migration_id = 6
         `;
         yield* database.migrate;
         return yield* database<{
-          readonly command_id: string;
           readonly ordinal: number;
           readonly status: string;
-          readonly claim_id: string | null;
-          readonly last_failure_tag: string | null;
           readonly payload_json: unknown;
         }>`
-          SELECT command_id, ordinal, status, claim_id, last_failure_tag, payload_json
+          SELECT ordinal, status, payload_json
           FROM admission_application_outbox
-          WHERE command_id IN (
-            'legacy-effect-application-submit',
-            'legacy-delivered-application-submit'
-          )
-          ORDER BY command_id, ordinal
+          WHERE command_id = 'legacy-delivered-application-submit'
+          ORDER BY ordinal
         `;
       }),
     );
 
-    expect(
-      evidence.filter((row) => row.command_id === "legacy-delivered-application-submit"),
-    ).toEqual([
-      {
-        command_id: "legacy-delivered-application-submit",
-        ordinal: 0,
-        status: "Delivered",
-        claim_id: null,
-        last_failure_tag: null,
-        payload_json: {},
-      },
-      {
-        command_id: "legacy-delivered-application-submit",
-        ordinal: 1,
-        status: "Delivered",
-        claim_id: null,
-        last_failure_tag: null,
-        payload_json: {},
-      },
-      {
-        command_id: "legacy-delivered-application-submit",
-        ordinal: 2,
-        status: "Delivered",
-        claim_id: null,
-        last_failure_tag: null,
-        payload_json: {},
-      },
-    ]);
-
-    const quarantined = evidence.filter(
-      (row) => row.command_id === "legacy-effect-application-submit",
-    );
-    expect(quarantined).toEqual([
-      {
-        command_id: "legacy-effect-application-submit",
-        ordinal: 0,
-        status: "Quarantined",
-        claim_id: null,
-        last_failure_tag: "LegacyPublicApplicationEffectPayload",
-        payload_json: {},
-      },
-      {
-        command_id: "legacy-effect-application-submit",
-        ordinal: 1,
-        status: "Quarantined",
-        claim_id: null,
-        last_failure_tag: "LegacyPublicApplicationEffectPayload",
-        payload_json: {},
-      },
-      {
-        command_id: "legacy-effect-application-submit",
-        ordinal: 2,
-        status: "Quarantined",
-        claim_id: null,
-        last_failure_tag: "LegacyPublicApplicationEffectPayload",
-        payload_json: {},
-      },
+    expect(evidence).toEqual([
+      { ordinal: 0, status: "Delivered", payload_json: {} },
+      { ordinal: 1, status: "Delivered", payload_json: {} },
+      { ordinal: 2, status: "Delivered", payload_json: {} },
     ]);
   });
 
@@ -592,6 +583,10 @@ describe("DatabaseTest", () => {
           FROM admission_application_outbox
           WHERE command_id = 'malformed-effect-application-submit' AND ordinal = 0
         `;
+        yield* database`
+          DELETE FROM admission_application_outbox
+          WHERE command_id = 'malformed-effect-application-submit'
+        `;
         return { failure, row: rows[0] };
       }),
     );
@@ -599,6 +594,69 @@ describe("DatabaseTest", () => {
     expect(evidence.failure).toMatchObject({
       _tag: "PublicApplicationPersistenceError",
       operation: "decode application outbox request",
+    });
+    expect(evidence.row).toEqual({ status: "Pending", attempts: 0, claim_id: null });
+  });
+
+  it("rejects a valid outbox payload that diverges from canonical applicant state", async () => {
+    const evidence = await runtime.runPromise(
+      Effect.gen(function* () {
+        const database = yield* Database;
+        yield* executePublicApplicationCommand(
+          {
+            commandId: "tampered-effect-application-submit",
+            departmentId: "outbox-department",
+            firstName: "Tampered",
+            lastName: "Payload",
+            phone: "+47 45555555",
+            email: "tampered.payload@example.invalid",
+            gender: 1,
+            fieldOfStudyId: "outbox-field",
+            yearOfStudy: 2,
+          },
+          {
+            now: "2031-09-15T12:22:00.000Z",
+            applicantId: "tampered-effect-applicant",
+            applicationId: "tampered-effect-application",
+            activationToken: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQ",
+          },
+        );
+        yield* database`
+          UPDATE admission_application_outbox
+          SET payload_json = jsonb_set(
+            payload_json,
+            '{activationToken}',
+            to_jsonb(${"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopq"}::text)
+          )
+          WHERE command_id = 'tampered-effect-application-submit' AND ordinal = 0
+        `;
+        const failure = yield* Effect.flip(
+          deliverNextPublicApplicationOutbox(
+            "tampered-effect-claim",
+            "2031-09-15T12:22:01.000Z",
+            makeRecordingPublicApplicationEffectInterpreter(),
+          ),
+        );
+        const rows = yield* database<{
+          readonly status: string;
+          readonly attempts: number;
+          readonly claim_id: string | null;
+        }>`
+          SELECT status, attempts, claim_id
+          FROM admission_application_outbox
+          WHERE command_id = 'tampered-effect-application-submit' AND ordinal = 0
+        `;
+        yield* database`
+          DELETE FROM admission_application_outbox
+          WHERE command_id = 'tampered-effect-application-submit'
+        `;
+        return { failure, row: rows[0] };
+      }),
+    );
+
+    expect(evidence.failure).toMatchObject({
+      _tag: "PublicApplicationPersistenceError",
+      operation: "application outbox canonical payload mismatch",
     });
     expect(evidence.row).toEqual({ status: "Pending", attempts: 0, claim_id: null });
   });
