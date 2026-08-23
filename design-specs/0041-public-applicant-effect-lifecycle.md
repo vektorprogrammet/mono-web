@@ -102,10 +102,12 @@ The HTTP provider adapter sends `effectId` as the idempotency key, rejects redir
 
 ### Process lifecycle
 
-- The process creates one worker after database readiness succeeds.
-- The worker uses one bounded poll interval.
-- The worker owns one unique claim prefix.
-- The process interrupts and joins the worker before runtime disposal.
+- The process requires an explicit application-effect mode.
+- `http` mode creates one worker after database readiness succeeds and requires the provider endpoint and token.
+- `disabled` mode is limited to explicit local/evidence compositions that provide a separate recording driver; it starts no provider worker and reports that state.
+- Missing or contradictory mode/provider configuration fails before the listener starts.
+- A configured worker uses one bounded poll interval and one unique claim prefix.
+- The process interrupts and joins a configured worker before runtime disposal.
 - The worker never creates another database Layer.
 
 ## Definition of done
@@ -126,6 +128,7 @@ The HTTP provider adapter sends `effectId` as the idempotency key, rejects redir
 14. A process test observes one worker start and one worker stop.
 15. The existing public applicant browser journey still passes in authorized remote CI.
 16. Root type checks, lint, build, and tests pass on the committed revision.
+17. Configuration tests reject an implicit effect mode and contradictory disabled/provider values.
 
 ## Falsifiers
 

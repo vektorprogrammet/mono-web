@@ -557,6 +557,18 @@ describe("DatabaseTest", () => {
         `;
         yield* database`
           UPDATE admission_application_outbox
+          SET payload_json =
+            (payload_json - 'activationToken')
+            || jsonb_build_object(
+              'activationDigest',
+              ${publicApplicationActivationDigest(
+                "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQ",
+              )}::text
+            )
+          WHERE command_id = 'legacy-delivered-application-submit' AND ordinal = 0
+        `;
+        yield* database`
+          UPDATE admission_application_outbox
           SET status = 'Delivered'
           WHERE command_id = 'legacy-delivered-application-submit'
         `;

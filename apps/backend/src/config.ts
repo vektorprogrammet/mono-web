@@ -69,12 +69,23 @@ const providerEndpoint = (raw: string): URL => {
 const publicApplicationEffectConfig = (
   env: Readonly<Record<string, string | undefined>>,
 ): PublicApplicationEffectConfig | undefined => {
+  const mode = env.PUBLIC_APPLICATION_EFFECT_MODE;
   const endpoint = env.PUBLIC_APPLICATION_EFFECT_ENDPOINT;
   const token = env.PUBLIC_APPLICATION_EFFECT_TOKEN;
-  if (endpoint === undefined && token === undefined) return undefined;
+  if (mode === "disabled") {
+    if (endpoint !== undefined || token !== undefined) {
+      throw new Error(
+        "PUBLIC_APPLICATION_EFFECT_ENDPOINT and PUBLIC_APPLICATION_EFFECT_TOKEN require PUBLIC_APPLICATION_EFFECT_MODE=http",
+      );
+    }
+    return undefined;
+  }
+  if (mode !== "http") {
+    throw new Error("PUBLIC_APPLICATION_EFFECT_MODE must be disabled or http");
+  }
   if (endpoint === undefined || token === undefined || token.length === 0) {
     throw new Error(
-      "PUBLIC_APPLICATION_EFFECT_ENDPOINT and PUBLIC_APPLICATION_EFFECT_TOKEN must be set together",
+      "PUBLIC_APPLICATION_EFFECT_ENDPOINT and PUBLIC_APPLICATION_EFFECT_TOKEN are required in http mode",
     );
   }
   const parsed = providerEndpoint(endpoint);

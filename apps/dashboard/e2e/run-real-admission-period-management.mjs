@@ -520,6 +520,7 @@ async function main() {
     BACKEND_HOST: "127.0.0.1",
     BACKEND_PORT: "8791",
     BACKEND_PG_URL: postgresUrl,
+    PUBLIC_APPLICATION_EFFECT_MODE: "disabled",
     ADMISSION_AUTH_TOKENS: admissionTokens,
     ADMISSION_FIXED_NOW: fixedClock,
     RECEIPT_AUTH_TOKENS: receiptTokens,

@@ -5,6 +5,7 @@ import { makeBackendHttp, type BackendRun } from "./router.js";
 const token = "shared-token";
 const environment = {
   BACKEND_PG_URL: "postgres://test.invalid/vektorprogrammet",
+  PUBLIC_APPLICATION_EFFECT_MODE: "disabled",
   ADMISSION_AUTH_TOKENS: JSON.stringify({
     [token]: {
       _tag: "Member",
@@ -85,6 +86,7 @@ describe("unified backend router", () => {
     expect(() =>
       makeBackendConfig({
         ...environment,
+        PUBLIC_APPLICATION_EFFECT_MODE: "http",
         PUBLIC_APPLICATION_EFFECT_ENDPOINT: "http://provider.example.invalid/effects",
         PUBLIC_APPLICATION_EFFECT_TOKEN: "provider-token",
       }),
@@ -93,9 +95,24 @@ describe("unified backend router", () => {
     expect(
       makeBackendConfig({
         ...environment,
+        PUBLIC_APPLICATION_EFFECT_MODE: "http",
         PUBLIC_APPLICATION_EFFECT_ENDPOINT: "http://127.0.0.1:8898/effects",
         PUBLIC_APPLICATION_EFFECT_TOKEN: "provider-token",
       }).publicApplicationEffects?.endpoint.href,
     ).toBe("http://127.0.0.1:8898/effects");
+  });
+
+  it("requires an explicit application effect mode", () => {
+    const { PUBLIC_APPLICATION_EFFECT_MODE: _, ...implicitEnvironment } = environment;
+    expect(() => makeBackendConfig(implicitEnvironment)).toThrow(
+      "PUBLIC_APPLICATION_EFFECT_MODE must be disabled or http",
+    );
+    expect(() =>
+      makeBackendConfig({
+        ...environment,
+        PUBLIC_APPLICATION_EFFECT_ENDPOINT: "https://provider.example.invalid/effects",
+        PUBLIC_APPLICATION_EFFECT_TOKEN: "provider-token",
+      }),
+    ).toThrow("require PUBLIC_APPLICATION_EFFECT_MODE=http");
   });
 });

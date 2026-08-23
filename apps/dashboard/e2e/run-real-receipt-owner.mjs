@@ -491,6 +491,7 @@ async function main() {
     BACKEND_HOST: "127.0.0.1",
     BACKEND_PORT: "8790",
     BACKEND_PG_URL: postgresUrl,
+    PUBLIC_APPLICATION_EFFECT_MODE: "disabled",
     ADMISSION_AUTH_TOKENS: admissionTokens,
     RECEIPT_STAGING_ROOT: stagingRoot,
     RECEIPT_COMMITTED_ROOT: committedRoot,
