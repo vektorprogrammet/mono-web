@@ -10,8 +10,8 @@ export interface RecruitmentApiConfig {
   readonly maxBodyBytes: number;
   readonly now: () => string;
   readonly nextInterviewId: () => typeof RecruitmentInterviewId.Type;
-  readonly nextInvitationId?: () => typeof RecruitmentInvitationId.Type;
-  readonly nextResponseCapability?: () => string;
+  readonly nextInvitationId: () => typeof RecruitmentInvitationId.Type;
+  readonly nextResponseCapability: () => string;
 }
 
 export const makeRecruitmentInvitationId = (): typeof RecruitmentInvitationId.Type =>

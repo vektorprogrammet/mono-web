@@ -14,11 +14,7 @@ import {
 import { Organization } from "@vektorprogrammet/domain/organization";
 import { Economy } from "@vektorprogrammet/domain/receipt";
 import { Effect, Match, Schema } from "effect";
-import {
-  makeRecruitmentInvitationId,
-  makeRecruitmentResponseCapability,
-  type RecruitmentApiConfig,
-} from "./config.js";
+import { type RecruitmentApiConfig } from "./config.js";
 
 export interface RecruitmentApiHttpOptions {
   readonly config: RecruitmentApiConfig;
@@ -287,9 +283,8 @@ const scheduleInterview = async (
     input.config.maxBodyBytes,
   );
   const now = input.config.now();
-  const invitationId = input.config.nextInvitationId?.() ?? makeRecruitmentInvitationId();
-  const responseCapability =
-    input.config.nextResponseCapability?.() ?? makeRecruitmentResponseCapability();
+  const invitationId = input.config.nextInvitationId();
+  const responseCapability = input.config.nextResponseCapability();
   const result = await input.run(
     Recruitment.use(({ scheduleInterview: schedule }) =>
       schedule(command, { actor, now, invitationId, responseCapability }),

@@ -1,7 +1,12 @@
 import type { Admissions } from "@vektorprogrammet/domain/admissions";
 import { Database, type DatabaseShape } from "@vektorprogrammet/domain/database";
 import type { Organization } from "@vektorprogrammet/domain/organization";
-import { PersonProfile, Profile, type ProfileShape } from "@vektorprogrammet/domain/profile";
+import {
+  PersonContactProfile,
+  PersonProfile,
+  Profile,
+  type ProfileShape,
+} from "@vektorprogrammet/domain/profile";
 import type { Economy } from "@vektorprogrammet/domain/receipt";
 import type { Recruitment } from "@vektorprogrammet/domain/recruitment";
 import { Effect } from "effect";
@@ -41,6 +46,18 @@ const profile: ProfileShape = {
       personIds.map(
         (personId) =>
           new PersonProfile({ personId, firstName: "Member", lastName: "One", revision: 0 }),
+      ),
+    ),
+  readContacts: (personIds) =>
+    Effect.succeed(
+      personIds.map(
+        (personId) =>
+          new PersonContactProfile({
+            personId,
+            email: "member@example.invalid",
+            phone: "90000000",
+            revision: 0,
+          }),
       ),
     ),
 };

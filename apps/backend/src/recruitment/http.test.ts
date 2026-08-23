@@ -1,4 +1,7 @@
-import { RecruitmentInterviewId } from "@vektorprogrammet/domain/recruitment";
+import {
+  RecruitmentInterviewId,
+  RecruitmentInvitationId,
+} from "@vektorprogrammet/domain/recruitment";
 import { DepartmentId, PersonId } from "@vektorprogrammet/domain/organization";
 import { describe, expect, it } from "vitest";
 import type { RecruitmentApiConfig } from "./config.js";
@@ -22,6 +25,8 @@ const config: RecruitmentApiConfig = {
   maxBodyBytes: 4096,
   now: () => "2031-09-15T12:00:00.000Z",
   nextInterviewId: () => RecruitmentInterviewId.make("interview-1"),
+  nextInvitationId: () => RecruitmentInvitationId.make("invitation-1"),
+  nextResponseCapability: () => "A".repeat(43),
 };
 
 const backend = makeRecruitmentApiHttp({

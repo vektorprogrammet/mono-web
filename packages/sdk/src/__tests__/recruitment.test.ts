@@ -3,6 +3,8 @@ import { Schema } from "effect";
 import {
   RecruitmentAssignmentBoardQuerySchema,
   RecruitmentAssignmentCommandSchema,
+  RecruitmentScheduleCommandSchema,
+  RecruitmentSchedulingBoardSchema,
 } from "../schemas/recruitment.js";
 import {
   RecruitmentDecodeSdkError,
@@ -36,10 +38,44 @@ const assignment = {
       interviewSchemaId: "schema-1",
       assignedByPersonId: "leader-1",
       assignedAt: "2031-09-15T12:00:00.000Z",
-      state: "NoContact",
-      scheduledAt: null,
       revision: 0,
     },
+  },
+  replayed: false,
+} as const;
+const scheduleCommand = {
+  commandId: "schedule-command-1",
+  interviewId: "interview-1",
+  expectedRevision: 0,
+  scheduledAt: "2031-09-20T10:00:00.000Z",
+  room: "A101",
+  campus: null,
+  mapLink: "https://example.invalid/map",
+  message: "Welcome to the interview",
+} as const;
+const schedulingBoard = {
+  departmentId: "department-1",
+  interviews: [],
+} as const;
+const scheduleResult = {
+  observation: {
+    _tag: "InterviewScheduled",
+    commandId: "schedule-command-1",
+    interviewId: "interview-1",
+    schedule: {
+      interviewId: "interview-1",
+      scheduledAt: "2031-09-20T10:00:00.000Z",
+      room: "A101",
+      campus: null,
+      mapLink: "https://example.invalid/map",
+      message: "Welcome to the interview",
+      scheduledByPersonId: "person-1",
+      committedAt: "2031-09-15T12:00:00.000Z",
+      scheduleRevision: 1,
+    },
+    interviewRevision: 1,
+    responseState: "Pending",
+    notificationState: "Pending",
   },
   replayed: false,
 } as const;
@@ -76,15 +112,29 @@ describe("recruitment SDK wire schemas", () => {
         { onExcessProperty: "error" },
       ),
     ).toThrow();
+    expect(() =>
+      Schema.decodeUnknownSync(RecruitmentScheduleCommandSchema)(
+        { ...scheduleCommand, unexpected: true },
+        { onExcessProperty: "error" },
+      ),
+    ).toThrow();
+    expect(() =>
+      Schema.decodeUnknownSync(RecruitmentSchedulingBoardSchema)(
+        { ...schedulingBoard, unexpected: true },
+        { onExcessProperty: "error" },
+      ),
+    ).toThrow();
   });
 });
 
 describe("recruitment SDK transport", () => {
-  it("uses the native board and assignment routes with strict observations", async () => {
+  it("uses all native Recruitment routes with strict observations", async () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(response(200, board))
-      .mockResolvedValueOnce(response(200, assignment));
+      .mockResolvedValueOnce(response(200, assignment))
+      .mockResolvedValueOnce(response(200, schedulingBoard))
+      .mockResolvedValueOnce(response(200, scheduleResult));
     vi.stubGlobal("fetch", fetchMock);
     const client = createClient("http://api.test", { auth: "leader-token" });
 
@@ -92,6 +142,10 @@ describe("recruitment SDK transport", () => {
       board,
     );
     await expect(client.admin.recruitment.assignApplicant(command)).resolves.toEqual(assignment);
+    await expect(client.admin.recruitment.readSchedulingBoard()).resolves.toEqual(schedulingBoard);
+    await expect(client.admin.recruitment.scheduleInterview(scheduleCommand)).resolves.toEqual(
+      scheduleResult,
+    );
 
     expect(fetchMock).toHaveBeenNthCalledWith(
       1,
@@ -101,6 +155,14 @@ describe("recruitment SDK transport", () => {
     const [assignmentUrl, assignmentInit] = fetchMock.mock.calls[1] as [string, RequestInit];
     expect(assignmentUrl).toBe("http://api.test/api/admin/recruitment/interviews/assign");
     expect(JSON.parse(String(assignmentInit.body))).toEqual(command);
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      "http://api.test/api/admin/recruitment/interviews/scheduling-board",
+      expect.objectContaining({ method: "GET" }),
+    );
+    const [scheduleUrl, scheduleInit] = fetchMock.mock.calls[3] as [string, RequestInit];
+    expect(scheduleUrl).toBe("http://api.test/api/admin/recruitment/interviews/schedule");
+    expect(JSON.parse(String(scheduleInit.body))).toEqual(scheduleCommand);
   });
 
   it("maps unauthenticated Recruitment responses and rejects excess observations", async () => {
