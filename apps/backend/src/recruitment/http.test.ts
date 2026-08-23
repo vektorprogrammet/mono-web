@@ -91,35 +91,44 @@ describe("native recruitment HTTP boundary", () => {
   });
 
   it.each([
-    ["RecruitmentInactiveActor", 403],
-    ["RecruitmentRoleDenied", 403],
-    ["RecruitmentScopeDenied", 403],
-    ["RecruitmentInterviewerNotEligible", 403],
-    ["RecruitmentAdmissionPeriodNotFound", 404],
-    ["RecruitmentApplicationNotFound", 404],
-    ["RecruitmentInterviewSchemaNotFound", 404],
-    ["ProfileNotFound", 404],
-    ["RecruitmentApplicationAlreadyAssigned", 409],
-    ["RecruitmentAmbiguousAdmissionPeriod", 409],
-    ["RecruitmentAssignmentCommandConflict", 409],
-    ["RecruitmentInterviewSchemaInactive", 422],
-    ["RecruitmentPersistenceError", 503],
-  ] as const)("maps %s to HTTP %i without leaking details", async (tag, expectedStatus) => {
-    const failedBackend = makeRecruitmentApiHttp({
-      config,
-      run: async <A>(): Promise<A> => {
-        throw Object.assign(new Error(tag), { _tag: tag });
-      },
-    });
-    const response = await failedBackend.fetch(
-      new Request("http://backend.test/api/admin/recruitment/assignment-board?status=new", {
-        headers: { authorization: `Bearer ${token}` },
-      }),
-    );
+    ["RecruitmentInactiveActor", "RecruitmentInactiveActor", 403],
+    ["RecruitmentRoleDenied", "RecruitmentRoleDenied", 403],
+    ["RecruitmentScopeDenied", "RecruitmentScopeDenied", 403],
+    ["RecruitmentInterviewerNotEligible", "RecruitmentInterviewerNotEligible", 403],
+    ["RecruitmentAdmissionPeriodNotFound", "RecruitmentAdmissionPeriodNotFound", 404],
+    ["RecruitmentApplicationNotFound", "RecruitmentApplicationNotFound", 404],
+    ["RecruitmentInterviewSchemaNotFound", "RecruitmentInterviewSchemaNotFound", 404],
+    ["RecruitmentApplicationAlreadyAssigned", "RecruitmentApplicationAlreadyAssigned", 409],
+    ["RecruitmentAmbiguousAdmissionPeriod", "RecruitmentAmbiguousAdmissionPeriod", 409],
+    ["RecruitmentAssignmentCommandConflict", "RecruitmentAssignmentCommandConflict", 409],
+    ["RecruitmentInterviewSchemaInactive", "RecruitmentInterviewSchemaInactive", 422],
+    ["RecruitmentPersistenceError", "RecruitmentPersistenceError", 503],
+    ["ProfileNotFound", "RecruitmentPersistenceError", 503],
+    ["ProfileDecodeError", "RecruitmentPersistenceError", 503],
+    ["ProfilePersistenceError", "RecruitmentPersistenceError", 503],
+    ["OrganizationDecodeError", "RecruitmentPersistenceError", 503],
+    ["OrganizationPersistenceError", "RecruitmentPersistenceError", 503],
+    ["AdmissionPeriodPersistenceError", "RecruitmentPersistenceError", 503],
+    ["RecruitmentInvalidContext", "RecruitmentPersistenceError", 503],
+  ] as const)(
+    "normalizes %s to %s at HTTP %i without leaking details",
+    async (sourceTag, expectedTag, expectedStatus) => {
+      const failedBackend = makeRecruitmentApiHttp({
+        config,
+        run: async <A>(): Promise<A> => {
+          throw Object.assign(new Error(sourceTag), { _tag: sourceTag });
+        },
+      });
+      const response = await failedBackend.fetch(
+        new Request("http://backend.test/api/admin/recruitment/assignment-board?status=new", {
+          headers: { authorization: `Bearer ${token}` },
+        }),
+      );
 
-    expect({ status: response.status, body: await response.json() }).toEqual({
-      status: expectedStatus,
-      body: { error: { tag } },
-    });
-  });
+      expect({ status: response.status, body: await response.json() }).toEqual({
+        status: expectedStatus,
+        body: { error: { tag: expectedTag } },
+      });
+    },
+  );
 });

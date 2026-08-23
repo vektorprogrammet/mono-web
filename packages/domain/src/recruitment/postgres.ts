@@ -60,6 +60,7 @@ type AuthorizedRecruitmentAssignmentContext = Omit<RecruitmentAssignmentContext,
 interface ApplicationBoardRow {
   readonly applicationId: string;
   readonly applicantId: string;
+  readonly departmentId: string;
   readonly firstName: string;
   readonly lastName: string;
   readonly email: string;
@@ -84,6 +85,8 @@ interface InterviewSchemaRow {
 
 interface StoredReceiptRow {
   readonly commandSha256: string;
+  readonly applicationId: string;
+  readonly interviewId: string;
   readonly observationJson: unknown;
 }
 
@@ -109,6 +112,7 @@ interface AssignmentApplicationRow {
 
 const ApplicationBoardRowSchema = Schema.Struct({
   applicationId: Schema.String,
+  departmentId: Schema.String,
   applicantId: Schema.String,
   firstName: Schema.String,
   lastName: Schema.String,
@@ -134,6 +138,8 @@ const InterviewSchemaRowSchema = Schema.Struct({
 
 const StoredReceiptRowSchema = Schema.Struct({
   commandSha256: Schema.String,
+  applicationId: Schema.String,
+  interviewId: Schema.String,
   observationJson: Schema.Unknown,
 });
 
@@ -303,11 +309,13 @@ const readInterviewSchemas = (
 const readBoardRows = (
   sql: DatabaseShape,
   periodId: string,
+  departmentId: DepartmentId,
 ): Effect.Effect<ReadonlyArray<ApplicationBoardRow>, RecruitmentFailure> =>
   sql<ApplicationBoardRow>`
     SELECT
       a.application_id AS "applicationId",
       a.applicant_id AS "applicantId",
+      a.department_id AS "departmentId",
       p.first_name AS "firstName",
       p.last_name AS "lastName",
       p.email,
@@ -328,6 +336,7 @@ const readBoardRows = (
     INNER JOIN admission_applicants p ON p.applicant_id = a.applicant_id
     LEFT JOIN recruitment_interviews i ON i.application_id = a.application_id
     WHERE a.admission_period_id = ${periodId}
+      AND a.department_id = ${departmentId}
     ORDER BY a.submitted_at ASC, a.application_id ASC
   `.pipe(
     Effect.catchTag("SqlError", (cause) =>
@@ -394,7 +403,7 @@ const assignmentBoard = (
     );
     const allSchemas = yield* readInterviewSchemas(sql);
     const schemas = allSchemas.filter((schema) => schema.active);
-    const rows = yield* readBoardRows(sql, period.id);
+    const rows = yield* readBoardRows(sql, period.id, actor.departmentId);
     const personIds = new Set<string>(interviewers.map((item) => item.personId));
     for (const row of rows)
       if (row.interviewerPersonId !== null) personIds.add(row.interviewerPersonId);
@@ -448,7 +457,11 @@ const readStoredReceipt = (
   commandId: string,
 ): Effect.Effect<StoredReceiptRow | undefined, RecruitmentFailure> =>
   sql<StoredReceiptRow>`
-    SELECT command_sha256 AS "commandSha256", observation_json AS "observationJson"
+    SELECT
+      command_sha256 AS "commandSha256",
+      application_id AS "applicationId",
+      interview_id AS "interviewId",
+      observation_json AS "observationJson"
     FROM recruitment_assignment_command_receipts
     WHERE command_id = ${commandId}
     FOR SHARE
@@ -678,29 +691,6 @@ const assignmentInTransaction = (
         Effect.fail(persistenceError("lock assignment command", cause)),
       ),
     );
-    const storedReceipt = yield* readStoredReceipt(sql, command.commandId);
-    if (storedReceipt !== undefined) {
-      if (storedReceipt.commandSha256 !== digest) {
-        return yield* new RecruitmentAssignmentCommandConflict({ commandId: command.commandId });
-      }
-      const observation = yield* decode(
-        RecruitmentAssignmentObservationSchema,
-        storedReceipt.observationJson,
-        "stored assignment observation",
-      );
-      if (observation.interview.departmentId !== context.actor.departmentId) {
-        return yield* new RecruitmentScopeDenied({
-          personId: context.actor.personId,
-          departmentId: observation.interview.departmentId,
-          applicationId: command.applicationId,
-        });
-      }
-      return yield* decode(
-        RecruitmentAssignmentResultSchema,
-        { observation, replayed: true },
-        "assignment replay result",
-      );
-    }
     const application = yield* readAssignmentApplication(sql, command.applicationId);
     if (application === undefined) {
       return yield* new RecruitmentApplicationNotFound({ applicationId: command.applicationId });
@@ -719,6 +709,32 @@ const assignmentInTransaction = (
         departmentId: context.actor.departmentId,
         applicationId: command.applicationId,
       });
+    }
+    const storedReceipt = yield* readStoredReceipt(sql, command.commandId);
+    if (storedReceipt !== undefined) {
+      if (storedReceipt.applicationId !== command.applicationId) {
+        return yield* persistenceError("validate assignment receipt application linkage");
+      }
+      if (storedReceipt.commandSha256 !== digest) {
+        return yield* new RecruitmentAssignmentCommandConflict({ commandId: command.commandId });
+      }
+      const observation = yield* decode(
+        RecruitmentAssignmentObservationSchema,
+        storedReceipt.observationJson,
+        "stored assignment observation",
+      );
+      if (
+        observation.interview.applicationId !== storedReceipt.applicationId ||
+        observation.interview.interviewId !== storedReceipt.interviewId ||
+        observation.interview.departmentId !== application.departmentId
+      ) {
+        return yield* persistenceError("validate assignment receipt observation linkage");
+      }
+      return yield* decode(
+        RecruitmentAssignmentResultSchema,
+        { observation, replayed: true },
+        "assignment replay result",
+      );
     }
     const existing = yield* readInterviewForApplication(sql, command.applicationId);
     if (existing !== undefined) {

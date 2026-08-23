@@ -12,7 +12,7 @@ import {
 } from "@vektorprogrammet/domain/recruitment";
 import { Organization } from "@vektorprogrammet/domain/organization";
 import { Economy } from "@vektorprogrammet/domain/receipt";
-import { Effect, Schema } from "effect";
+import { Effect, Match, Schema } from "effect";
 import type { RecruitmentApiConfig } from "./config.js";
 
 export interface RecruitmentApiHttpOptions {
@@ -50,49 +50,65 @@ const jsonResponse = (body: unknown, status = 200): Response =>
       "cache-control": "no-store",
     },
   });
+const RecruitmentHttpErrorTag = Schema.Literals([
+  "UnauthenticatedActor",
+  "RecruitmentInactiveActor",
+  "RecruitmentRoleDenied",
+  "RecruitmentScopeDenied",
+  "RecruitmentInterviewerNotEligible",
+  "RecruitmentAdmissionPeriodNotFound",
+  "RecruitmentApplicationNotFound",
+  "RecruitmentInterviewSchemaNotFound",
+  "RecruitmentApplicationAlreadyAssigned",
+  "RecruitmentAmbiguousAdmissionPeriod",
+  "RecruitmentAssignmentCommandConflict",
+  "RecruitmentDecodeError",
+  "RecruitmentInterviewSchemaInactive",
+  "RecruitmentPersistenceError",
+  "RequestBodyTooLarge",
+]);
+type RecruitmentHttpErrorTag = typeof RecruitmentHttpErrorTag.Type;
+const isRecruitmentHttpErrorTag = Schema.is(RecruitmentHttpErrorTag);
 
-const errorTag = (cause: unknown): string =>
-  cause !== null && typeof cause === "object" && "_tag" in cause && typeof cause._tag === "string"
-    ? cause._tag
-    : "RecruitmentPersistenceError";
+const errorTag = (cause: unknown): RecruitmentHttpErrorTag => {
+  const tag =
+    cause !== null && typeof cause === "object" && "_tag" in cause && typeof cause._tag === "string"
+      ? cause._tag
+      : "RecruitmentPersistenceError";
+  return isRecruitmentHttpErrorTag(tag) ? tag : "RecruitmentPersistenceError";
+};
+
+const statusForErrorTag = (tag: RecruitmentHttpErrorTag): number =>
+  Match.value(tag).pipe(
+    Match.when("UnauthenticatedActor", () => 401),
+    Match.whenOr(
+      "RecruitmentInactiveActor",
+      "RecruitmentRoleDenied",
+      "RecruitmentScopeDenied",
+      "RecruitmentInterviewerNotEligible",
+      () => 403,
+    ),
+    Match.whenOr(
+      "RecruitmentAdmissionPeriodNotFound",
+      "RecruitmentApplicationNotFound",
+      "RecruitmentInterviewSchemaNotFound",
+      () => 404,
+    ),
+    Match.whenOr(
+      "RecruitmentApplicationAlreadyAssigned",
+      "RecruitmentAmbiguousAdmissionPeriod",
+      "RecruitmentAssignmentCommandConflict",
+      () => 409,
+    ),
+    Match.whenOr("RecruitmentDecodeError", "RecruitmentInterviewSchemaInactive", () => 422),
+    Match.when("RequestBodyTooLarge", () => 413),
+    Match.when("RecruitmentPersistenceError", () => 503),
+    Match.exhaustive,
+  );
 
 const errorResponse = (cause: unknown): Response => {
   const tag = errorTag(cause);
-  let status: number;
-  switch (tag) {
-    case "UnauthenticatedActor":
-      status = 401;
-      break;
-    case "RecruitmentInactiveActor":
-    case "RecruitmentRoleDenied":
-    case "RecruitmentScopeDenied":
-    case "RecruitmentInterviewerNotEligible":
-      status = 403;
-      break;
-    case "RecruitmentAdmissionPeriodNotFound":
-    case "RecruitmentApplicationNotFound":
-    case "RecruitmentInterviewSchemaNotFound":
-    case "ProfileNotFound":
-      status = 404;
-      break;
-    case "RecruitmentApplicationAlreadyAssigned":
-    case "RecruitmentAmbiguousAdmissionPeriod":
-    case "RecruitmentAssignmentCommandConflict":
-      status = 409;
-      break;
-    case "RecruitmentDecodeError":
-    case "RecruitmentInvalidContext":
-    case "RecruitmentInterviewSchemaInactive":
-    case "ProfileDecodeError":
-      status = 422;
-      break;
-    case "RequestBodyTooLarge":
-      status = 413;
-      break;
-    default:
-      status = 503;
-      break;
-  }
+  const status = statusForErrorTag(tag);
   const body: ErrorBody = { error: { tag } };
   return jsonResponse(body, status);
 };

@@ -345,6 +345,13 @@ describe("DatabaseTest", () => {
             },
           ),
         );
+        const closedPeriodReplay = yield* Effect.flip(
+          recruitment.assignApplicant(command, {
+            actor,
+            now: "2031-10-02T12:00:00.000Z",
+            interviewId: RecruitmentInterviewId.make("closed-period-replay-interview"),
+          }),
+        );
         const after = yield* recruitment.readAssignmentBoard({ status: "new" }, { actor, now });
         const persistence = yield* database<{
           readonly receipts: string;
@@ -356,14 +363,78 @@ describe("DatabaseTest", () => {
             (SELECT count(*)::text FROM recruitment_assignment_audit) AS audits,
             (SELECT count(*)::text FROM recruitment_interviews) AS interviews
         `;
+        const applicationScopeResult = yield* Effect.result(
+          database.withTransaction(
+            Effect.gen(function* () {
+              yield* database`
+                INSERT INTO admission_period_departments (department_id, name)
+                VALUES ('other-department', 'Other Department')
+              `;
+              yield* database`
+                UPDATE admission_applications
+                SET department_id = 'other-department'
+                WHERE application_id = 'recruitment-application'
+              `;
+            }),
+          ),
+        );
+        const blankAssignerResult = yield* Effect.result(database`
+          UPDATE recruitment_interviews
+          SET assigned_by_person_id = ''
+          WHERE interview_id = 'recruitment-interview'
+        `);
+        const blankAuditActorResult = yield* Effect.result(database`
+          UPDATE recruitment_assignment_audit
+          SET actor_person_id = ''
+          WHERE command_id = 'recruitment-command'
+        `);
+        const receiptLinkResult = yield* Effect.result(
+          database.withTransaction(
+            Effect.gen(function* () {
+              yield* database`
+                DELETE FROM recruitment_assignment_audit
+                WHERE command_id = 'recruitment-command'
+              `;
+              yield* database`
+                DELETE FROM recruitment_assignment_command_receipts
+                WHERE command_id = 'recruitment-command'
+              `;
+              yield* database`
+                INSERT INTO recruitment_assignment_command_receipts (
+                  command_id,
+                  command_sha256,
+                  command_json,
+                  observation_json,
+                  application_id,
+                  interview_id,
+                  committed_at
+                )
+                VALUES (
+                  'cross-linked-command',
+                  '0000000000000000000000000000000000000000000000000000000000000000',
+                  '{}'::jsonb,
+                  '{}'::jsonb,
+                  'different-application',
+                  'recruitment-interview',
+                  '2031-09-15T12:00:00.000Z'
+                )
+              `;
+            }),
+          ),
+        );
         return {
           before,
           assigned,
           replayed,
           conflictingReplay,
           duplicateAssignment,
+          closedPeriodReplay,
           after,
           persistence,
+          applicationScopeResult,
+          receiptLinkResult,
+          blankAssignerResult,
+          blankAuditActorResult,
         };
       }),
     );
@@ -405,8 +476,24 @@ describe("DatabaseTest", () => {
     });
     expect(evidence.conflictingReplay._tag).toBe("RecruitmentAssignmentCommandConflict");
     expect(evidence.duplicateAssignment._tag).toBe("RecruitmentApplicationAlreadyAssigned");
+    expect(evidence.closedPeriodReplay._tag).toBe("RecruitmentAdmissionPeriodNotFound");
     expect(evidence.after.candidates).toEqual([]);
     expect(evidence.persistence).toEqual([{ receipts: "1", audits: "1", interviews: "1" }]);
+    const constraintResults = [
+      evidence.applicationScopeResult,
+      evidence.receiptLinkResult,
+      evidence.blankAssignerResult,
+      evidence.blankAuditActorResult,
+    ];
+    expect(constraintResults.map((result) => result._tag)).toEqual([
+      "Failure",
+      "Failure",
+      "Failure",
+      "Failure",
+    ]);
+    for (const result of constraintResults) {
+      if (result._tag === "Failure") expect(result.failure).toMatchObject({ _tag: "SqlError" });
+    }
   });
 
   it("reuses one capability and reruns the manifest without duplicate migrations", async () => {

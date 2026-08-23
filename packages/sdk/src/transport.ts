@@ -66,6 +66,8 @@ import {
 } from "./errors.js";
 import { parseViolations } from "./adapter/errors.js";
 
+const MAX_JSON_RESPONSE_BYTES = 1_048_576;
+
 export type AuthOption = string | (() => string | Promise<string>);
 export type QueryParams = Record<string, string | number | undefined>;
 
@@ -374,11 +376,55 @@ export function createTransport(baseUrl: string | undefined, auth?: AuthOption):
         }),
     });
 
-  const readErrorBody = (response: Response): Effect.Effect<unknown, never> =>
+  const readBoundedJson = (response: Response): Effect.Effect<unknown, Network> =>
     Effect.tryPromise({
-      try: () => response.json(),
-      catch: () => null as unknown,
-    }).pipe(Effect.orElseSucceed(() => null as unknown));
+      try: async () => {
+        const contentLength = response.headers?.get("content-length");
+        if (contentLength !== null && contentLength !== undefined) {
+          if (!/^\d+$/.test(contentLength)) throw new Error("Invalid response content length");
+          const declaredLength = Number(contentLength);
+          if (!Number.isSafeInteger(declaredLength) || declaredLength > MAX_JSON_RESPONSE_BYTES) {
+            throw new Error("Response body exceeds the SDK limit");
+          }
+        }
+
+        if (response.body === null || response.body === undefined) return response.json();
+
+        const reader = response.body.getReader();
+        const chunks: Uint8Array[] = [];
+        let total = 0;
+        try {
+          while (true) {
+            const next = await reader.read();
+            if (next.done) break;
+            total += next.value.byteLength;
+            if (total > MAX_JSON_RESPONSE_BYTES) {
+              await reader.cancel();
+              throw new Error("Response body exceeds the SDK limit");
+            }
+            chunks.push(next.value);
+          }
+        } finally {
+          reader.releaseLock();
+        }
+
+        const bytes = new Uint8Array(total);
+        let offset = 0;
+        for (const chunk of chunks) {
+          bytes.set(chunk, offset);
+          offset += chunk.byteLength;
+        }
+        return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)) as unknown;
+      },
+      catch: (cause) =>
+        new Network({
+          message: cause instanceof Error ? cause.message : "Failed to parse response JSON",
+          cause,
+        }),
+    });
+
+  const readErrorBody = (response: Response): Effect.Effect<unknown, never> =>
+    readBoundedJson(response).pipe(Effect.orElseSucceed(() => null as unknown));
 
   const executeJson = (
     url: string,
@@ -408,10 +454,7 @@ export function createTransport(baseUrl: string | undefined, auth?: AuthOption):
             ),
           );
         }
-        return Effect.tryPromise({
-          try: () => response.json(),
-          catch: () => new Network({ message: "Failed to parse response JSON" }),
-        });
+        return readBoundedJson(response);
       }),
     );
 

@@ -23,6 +23,17 @@ CREATE TABLE IF NOT EXISTS recruitment_interview_schemas (
   CONSTRAINT recruitment_interview_schemas_revision_nonnegative CHECK (revision >= 0)
 );
 
+CREATE UNIQUE INDEX IF NOT EXISTS admission_periods_id_department_unique
+  ON admission_periods (admission_period_id, department_id);
+
+ALTER TABLE admission_applications
+  DROP CONSTRAINT IF EXISTS admission_applications_period_department_scope;
+
+ALTER TABLE admission_applications
+  ADD CONSTRAINT admission_applications_period_department_scope
+  FOREIGN KEY (admission_period_id, department_id)
+  REFERENCES admission_periods(admission_period_id, department_id);
+
 CREATE TABLE IF NOT EXISTS recruitment_interviews (
   interview_id text PRIMARY KEY,
   application_id text NOT NULL REFERENCES admission_applications(application_id),
@@ -35,11 +46,16 @@ CREATE TABLE IF NOT EXISTS recruitment_interviews (
   scheduled_at timestamptz NULL,
   revision integer NOT NULL DEFAULT 0,
   CONSTRAINT recruitment_interviews_id_nonempty CHECK (btrim(interview_id) <> ''),
+  CONSTRAINT recruitment_interviews_assigned_by_nonempty CHECK (btrim(assigned_by_person_id) <> ''),
   CONSTRAINT recruitment_interviews_state_schedule_check CHECK (
     state = 'NoContact' AND scheduled_at IS NULL
   ),
   CONSTRAINT recruitment_interviews_revision_nonnegative CHECK (revision >= 0),
-  CONSTRAINT recruitment_interviews_application_unique UNIQUE (application_id)
+  CONSTRAINT recruitment_interviews_application_unique UNIQUE (application_id),
+  CONSTRAINT recruitment_interviews_application_interview_unique
+    UNIQUE (application_id, interview_id),
+  CONSTRAINT recruitment_interviews_application_interview_department_unique
+    UNIQUE (application_id, interview_id, department_id)
 );
 
 CREATE TABLE IF NOT EXISTS recruitment_assignment_command_receipts (
@@ -47,26 +63,38 @@ CREATE TABLE IF NOT EXISTS recruitment_assignment_command_receipts (
   command_sha256 text NOT NULL,
   command_json jsonb NOT NULL,
   observation_json jsonb NOT NULL,
-  application_id text NOT NULL REFERENCES admission_applications(application_id),
-  interview_id text NOT NULL REFERENCES recruitment_interviews(interview_id),
+  application_id text NOT NULL,
+  interview_id text NOT NULL,
   committed_at timestamptz NOT NULL,
   CONSTRAINT recruitment_assignment_receipts_id_nonempty CHECK (btrim(command_id) <> ''),
   CONSTRAINT recruitment_assignment_receipts_digest CHECK (command_sha256 ~ '^[a-f0-9]{64}$'),
-  CONSTRAINT recruitment_assignment_receipts_interview_unique UNIQUE (interview_id)
+  CONSTRAINT recruitment_assignment_receipts_interview_unique UNIQUE (interview_id),
+  CONSTRAINT recruitment_assignment_receipts_command_link_unique
+    UNIQUE (command_id, application_id, interview_id),
+  CONSTRAINT recruitment_assignment_receipts_interview_application_fk
+    FOREIGN KEY (application_id, interview_id)
+    REFERENCES recruitment_interviews(application_id, interview_id)
 );
 
 CREATE TABLE IF NOT EXISTS recruitment_assignment_audit (
-  command_id text PRIMARY KEY REFERENCES recruitment_assignment_command_receipts(command_id),
-  interview_id text NOT NULL REFERENCES recruitment_interviews(interview_id),
-  application_id text NOT NULL REFERENCES admission_applications(application_id),
-  department_id text NOT NULL REFERENCES admission_period_departments(department_id),
+  command_id text PRIMARY KEY,
+  interview_id text NOT NULL,
+  application_id text NOT NULL,
+  department_id text NOT NULL,
   actor_person_id text NOT NULL,
   action text NOT NULL,
   interview_revision integer NOT NULL,
   occurred_at timestamptz NOT NULL,
+  CONSTRAINT recruitment_assignment_audit_actor_nonempty CHECK (btrim(actor_person_id) <> ''),
   CONSTRAINT recruitment_assignment_audit_action CHECK (action = 'ApplicantAssigned'),
   CONSTRAINT recruitment_assignment_audit_revision_nonnegative CHECK (interview_revision >= 0),
-  CONSTRAINT recruitment_assignment_audit_interview_unique UNIQUE (interview_id)
+  CONSTRAINT recruitment_assignment_audit_interview_unique UNIQUE (interview_id),
+  CONSTRAINT recruitment_assignment_audit_receipt_fk
+    FOREIGN KEY (command_id, application_id, interview_id)
+    REFERENCES recruitment_assignment_command_receipts(command_id, application_id, interview_id),
+  CONSTRAINT recruitment_assignment_audit_interview_scope_fk
+    FOREIGN KEY (application_id, interview_id, department_id)
+    REFERENCES recruitment_interviews(application_id, interview_id, department_id)
 );
 
 CREATE INDEX IF NOT EXISTS recruitment_interviews_department_order

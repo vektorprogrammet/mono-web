@@ -4,7 +4,7 @@ import {
   RecruitmentAssignmentCommandSchema,
   RecruitmentAssignmentResultSchema,
 } from "@vektorprogrammet/sdk/effect";
-import { Schema as S } from "effect";
+import { Match, Schema as S } from "effect";
 
 export const RecruitmentBoardStatus = RecruitmentAssignmentBoardQuerySchema.fields.status;
 export type RecruitmentBoardStatus = S.Schema.Type<typeof RecruitmentBoardStatus>;
@@ -83,38 +83,41 @@ export const toRecruitmentBridgeFailure = (error: unknown): RecruitmentBridgeFai
   return { _tag: "Network", message: "Recruitment request failed" };
 };
 
-export const boardFailureMessage = (failure: RecruitmentBridgeFailure): string => {
-  switch (failure._tag) {
-    case "Unauthorized":
-    case "Forbidden":
-      return "Du har ikke tilgang til søkeroversikten.";
-    case "NotFound":
-      return "Det finnes ingen aktiv opptaksperiode for avdelingen.";
-    case "Validation":
-      return "Søkeroversikten inneholdt ugyldige data.";
-    case "Conflict":
-      return "Søkeroversikten ble endret. Prøv å hente den på nytt.";
-    case "Network":
-    case "RateLimited":
-    case "Configuration":
-      return "Søkeroversikten er midlertidig utilgjengelig. Prøv igjen senere.";
-  }
-};
+export const boardFailureMessage = (failure: RecruitmentBridgeFailure): string =>
+  Match.value(failure._tag).pipe(
+    Match.whenOr("Unauthorized", "Forbidden", () => "Du har ikke tilgang til søkeroversikten."),
+    Match.when("NotFound", () => "Det finnes ingen aktiv opptaksperiode for avdelingen."),
+    Match.when("Validation", () => "Søkeroversikten inneholdt ugyldige data."),
+    Match.when("Conflict", () => "Søkeroversikten ble endret. Prøv å hente den på nytt."),
+    Match.whenOr(
+      "Network",
+      "RateLimited",
+      "Configuration",
+      () => "Søkeroversikten er midlertidig utilgjengelig. Prøv igjen senere.",
+    ),
+    Match.exhaustive,
+  );
 
-export const assignmentFailureMessage = (failure: RecruitmentBridgeFailure): string => {
-  switch (failure._tag) {
-    case "Unauthorized":
-    case "Forbidden":
-      return "Du har ikke tilgang til å tildele intervju.";
-    case "NotFound":
-      return "Søkeren, intervjueren eller intervjuskjemaet finnes ikke lenger.";
-    case "Validation":
-      return "Valget er ikke lenger gyldig. Kontroller feltene og prøv igjen.";
-    case "Conflict":
-      return "Søkeren er allerede tildelt, eller opplysningene er endret. Oppdater oversikten.";
-    case "Network":
-    case "RateLimited":
-    case "Configuration":
-      return "Intervjuet kunne ikke tildeles nå. Prøv igjen senere.";
-  }
-};
+export const assignmentFailureMessage = (failure: RecruitmentBridgeFailure): string =>
+  Match.value(failure._tag).pipe(
+    Match.whenOr("Unauthorized", "Forbidden", () => "Du har ikke tilgang til å tildele intervju."),
+    Match.when(
+      "NotFound",
+      () => "Søkeren, intervjueren eller intervjuskjemaet finnes ikke lenger.",
+    ),
+    Match.when(
+      "Validation",
+      () => "Valget er ikke lenger gyldig. Kontroller feltene og prøv igjen.",
+    ),
+    Match.when(
+      "Conflict",
+      () => "Søkeren er allerede tildelt, eller opplysningene er endret. Oppdater oversikten.",
+    ),
+    Match.whenOr(
+      "Network",
+      "RateLimited",
+      "Configuration",
+      () => "Intervjuet kunne ikke tildeles nå. Prøv igjen senere.",
+    ),
+    Match.exhaustive,
+  );

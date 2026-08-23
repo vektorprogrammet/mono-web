@@ -7,13 +7,17 @@ import { Dialog } from "@foldkit/ui";
 import { Schema as S } from "effect";
 import { m } from "foldkit/message";
 import { RecruitmentAssignmentBoardSchema, RecruitmentBoardStatus } from "./bridge";
-
+import { RecruitmentBoardRequestId } from "./model";
 
 export const SelectedFilter = m("SelectedFilter", { status: RecruitmentBoardStatus });
 export const SucceededLoadBoard = m("SucceededLoadBoard", {
+  requestId: RecruitmentBoardRequestId,
   board: RecruitmentAssignmentBoardSchema,
 });
-export const FailedLoadBoard = m("FailedLoadBoard", { message: S.String });
+export const FailedLoadBoard = m("FailedLoadBoard", {
+  requestId: RecruitmentBoardRequestId,
+  message: S.String,
+});
 export const OpenedAssignment = m("OpenedAssignment", {
   applicationId: RecruitmentApplicationId,
 });

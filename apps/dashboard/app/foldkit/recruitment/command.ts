@@ -15,13 +15,12 @@ import {
   SucceededLoadBoard,
   type Message,
 } from "./message";
-type RecruitmentAssignmentCommand = S.Schema.Type<
-  typeof RecruitmentAssignmentCommandSchema
->;
+type RecruitmentAssignmentCommand = S.Schema.Type<typeof RecruitmentAssignmentCommandSchema>;
 
 export interface RecruitmentCommands {
   readonly LoadAssignmentBoard: (args: {
     readonly status: RecruitmentBoardStatus;
+    readonly requestId: number;
   }) => Command.Command<Message>;
   readonly AssignApplicant: (args: {
     readonly command: RecruitmentAssignmentCommand;
@@ -29,18 +28,19 @@ export interface RecruitmentCommands {
   }) => Command.Command<Message>;
 }
 
-export const makeRecruitmentCommands = (
-  client: RecruitmentClient,
-): RecruitmentCommands => {
+export const makeRecruitmentCommands = (client: RecruitmentClient): RecruitmentCommands => {
   const LoadAssignmentBoard = Command.define("LoadAssignmentBoard", {
-    args: { status: RecruitmentBoardStatus },
+    args: { status: RecruitmentBoardStatus, requestId: S.Int },
     messages: [SucceededLoadBoard, FailedLoadBoard],
-    execute: ({ status }) =>
+    execute: ({ status, requestId }) =>
       client.admin.recruitment.readAssignmentBoard({ status }).pipe(
-        Effect.map((board) => SucceededLoadBoard({ board })),
+        Effect.map((board) => SucceededLoadBoard({ requestId, board })),
         Effect.catch((error) =>
           Effect.succeed(
-            FailedLoadBoard({ message: boardFailureMessage(toRecruitmentBridgeFailure(error)) }),
+            FailedLoadBoard({
+              requestId,
+              message: boardFailureMessage(toRecruitmentBridgeFailure(error)),
+            }),
           ),
         ),
       ),
@@ -68,5 +68,3 @@ export const makeRecruitmentCommands = (
 
   return { LoadAssignmentBoard, AssignApplicant };
 };
-
-

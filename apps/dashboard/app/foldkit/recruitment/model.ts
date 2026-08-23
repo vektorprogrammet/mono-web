@@ -27,12 +27,13 @@ export const RecruitmentInputJson = S.fromJsonString(RecruitmentInput);
 export const AssignmentBoardData = AsyncData.Schema(RecruitmentAssignmentBoardSchema, S.String);
 
 const CommandSequence = S.Int.check(S.isGreaterThanOrEqualTo(0));
-
+export const RecruitmentBoardRequestId = S.Int.check(S.isGreaterThanOrEqualTo(0));
 
 const ReadyModel = S.Struct({
   _tag: S.Literal("Ready"),
   board: AssignmentBoardData.schema,
   selectedFilter: RecruitmentBoardStatus,
+  boardRequestId: RecruitmentBoardRequestId,
   selectedApplicationId: S.NullOr(RecruitmentApplicationId),
   selectedInterviewerPersonId: S.NullOr(RecruitmentPersonId),
   selectedInterviewSchemaId: S.NullOr(InterviewSchemaId),
@@ -59,6 +60,7 @@ export const makeInitialModel = (input: RecruitmentInput, commandIdSeed: string)
       ? AssignmentBoardData.Success({ data: input.board })
       : AssignmentBoardData.Failure({ error: input.message }),
   selectedFilter: input.status,
+  boardRequestId: 0,
   selectedApplicationId: null,
   selectedInterviewerPersonId: null,
   selectedInterviewSchemaId: null,

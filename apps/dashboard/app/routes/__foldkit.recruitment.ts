@@ -1,10 +1,10 @@
-import { Schema as S } from "effect";
+import { Match } from "effect";
 import { data } from "react-router";
 import {
-  RecruitmentBridgeOperation,
   toRecruitmentBridgeFailure,
   type RecruitmentBridgeFailure,
 } from "../foldkit/recruitment/bridge";
+import { readRecruitmentBridgeOperation } from "../foldkit/recruitment/request.server";
 import { createAuthenticatedClient } from "../lib/api.server";
 import { requireAuth } from "../lib/auth.server";
 import type { Route } from "./+types/__foldkit.recruitment";
@@ -14,26 +14,18 @@ const responseHeaders = {
   "Referrer-Policy": "no-referrer",
 } as const;
 
-const statusFor = (failure: RecruitmentBridgeFailure): number => {
-  switch (failure._tag) {
-    case "Unauthorized":
-      return 401;
-    case "Forbidden":
-      return 403;
-    case "NotFound":
-      return 404;
-    case "Validation":
-      return 422;
-    case "Conflict":
-      return 409;
-    case "RateLimited":
-      return 429;
-    case "Configuration":
-      return 503;
-    case "Network":
-      return 502;
-  }
-};
+const statusFor = (failure: RecruitmentBridgeFailure): number =>
+  Match.value(failure._tag).pipe(
+    Match.when("Unauthorized", () => 401),
+    Match.when("Forbidden", () => 403),
+    Match.when("NotFound", () => 404),
+    Match.when("Validation", () => 422),
+    Match.when("Conflict", () => 409),
+    Match.when("RateLimited", () => 429),
+    Match.when("Configuration", () => 503),
+    Match.when("Network", () => 502),
+    Match.exhaustive,
+  );
 
 export async function action({ request }: Route.ActionArgs) {
   let token: string;
@@ -46,12 +38,15 @@ export async function action({ request }: Route.ActionArgs) {
     };
     return data(failure, { status: 401, headers: responseHeaders });
   }
-
   try {
-
-    const operation = S.decodeUnknownSync(RecruitmentBridgeOperation)(await request.json(), {
-      onExcessProperty: "error",
-    });
+    const decodedRequest = await readRecruitmentBridgeOperation(request);
+    if (decodedRequest._tag === "Failure") {
+      return data(decodedRequest.failure, {
+        status: decodedRequest.status,
+        headers: responseHeaders,
+      });
+    }
+    const operation = decodedRequest.operation;
     const recruitment = createAuthenticatedClient(token).admin.recruitment;
 
     switch (operation.operation) {

@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import type { RecruitmentClient } from "./browser-client";
 import { makeRecruitmentCommands } from "./command";
 import {
+  FailedLoadBoard,
   FailedAssignment,
   OpenedAssignment,
   SelectedFilter,
@@ -12,6 +13,7 @@ import {
   SelectedSchema,
   SubmittedAssignment,
   SucceededAssignment,
+  SucceededLoadBoard,
 } from "./message";
 import { makeInitialModel } from "./model";
 import { makeUpdate } from "./update";
@@ -94,7 +96,10 @@ describe("Foldkit recruitment transitions", () => {
     const candidate = unassignedBoard.candidates[0];
     const interviewer = unassignedBoard.interviewers[0];
     const schema = unassignedBoard.interviewSchemas[0];
-    const [opened] = update(readyModel(), OpenedAssignment({ applicationId: candidate.applicationId }));
+    const [opened] = update(
+      readyModel(),
+      OpenedAssignment({ applicationId: candidate.applicationId }),
+    );
     const [withInterviewer] = update(
       opened,
       SelectedInterviewer({ personId: interviewer.personId }),
@@ -141,11 +146,37 @@ describe("Foldkit recruitment transitions", () => {
     const [next, commands] = update(readyModel(), SelectedFilter({ status: "new" }));
     expect(next).toMatchObject({
       selectedFilter: "new",
+      boardRequestId: 1,
       selectedApplicationId: null,
       feedback: null,
     });
     if (next._tag !== "Ready") throw new Error("expected a ready recruitment model");
     expect(AsyncData.isPending(next.board)).toBe(true);
     expect(commands).toHaveLength(1);
+  });
+
+  it("ignores stale filter results after a newer request starts", () => {
+    const [first] = update(readyModel(), SelectedFilter({ status: "new" }));
+    const [second] = update(first, SelectedFilter({ status: "all" }));
+    if (second._tag !== "Ready") throw new Error("expected a ready recruitment model");
+    expect(second.boardRequestId).toBe(2);
+
+    const [staleSuccess] = update(
+      second,
+      SucceededLoadBoard({ requestId: 1, board: unassignedBoard }),
+    );
+    const [staleFailure] = update(
+      second,
+      FailedLoadBoard({ requestId: 1, message: "stale failure" }),
+    );
+    expect(staleSuccess).toBe(second);
+    expect(staleFailure).toBe(second);
+
+    const [current] = update(second, SucceededLoadBoard({ requestId: 2, board: assignedBoard }));
+    if (current._tag !== "Ready") throw new Error("expected a ready recruitment model");
+    const board = AsyncData.getData(current.board);
+    expect(board._tag).toBe("Some");
+    if (board._tag !== "Some") throw new Error("expected the current board observation");
+    expect(board.value).toEqual(assignedBoard);
   });
 });
