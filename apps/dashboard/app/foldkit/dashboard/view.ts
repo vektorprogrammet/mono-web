@@ -1,12 +1,16 @@
 import { Button, Disclosure } from "@foldkit/ui";
 import { Option, Schema as S } from "effect";
 import type { Html, HtmlBuilder, TagName } from "foldkit/html";
-import { DASHBOARD_ELEMENT as INTERVIEW_DASHBOARD_ELEMENT } from "../interview/elements";
 import {
   RECRUITMENT_ELEMENT,
   RECRUITMENT_INPUT_ATTRIBUTE,
 } from "../recruitment/elements";
 import { RecruitmentInputJson } from "../recruitment/model";
+import {
+  SCHEDULING_ELEMENT,
+  SCHEDULING_INPUT_ATTRIBUTE,
+} from "../scheduling/elements";
+import { SchedulingInputJson } from "../scheduling/model";
 import {
   ActivatedNavigation,
   ClosedMobileNavigation,
@@ -414,28 +418,27 @@ const readyView = (model: ReadyModel, h: HtmlBuilder<Message>): Html => {
           h.main(
             [h.Id("fd-main"), h.Class("fd-main"), h.Tabindex(-1)],
             [
-              ...(model.recruitment === null
+              ...(model.scheduling !== null
                 ? [
-                    landingView(model, h),
-                    h.section(
-                      [h.Class("fd-interview-region"), h.AriaLabel("Intervjuer")],
-                      [
-                        h.keyed(INTERVIEW_DASHBOARD_ELEMENT as TagName)(
-                          "foldkit-interview-dashboard",
-                          [h.Id("fd-interview-program")],
-                        ),
-                      ],
-                    ),
-                  ]
-                : [
-                    h.keyed(RECRUITMENT_ELEMENT as TagName)("foldkit-recruitment-board", [
-                      h.Id("fd-recruitment-program"),
+                    h.keyed(SCHEDULING_ELEMENT as TagName)("foldkit-recruitment-scheduling", [
+                      h.Id("fd-scheduling-program"),
                       h.Attribute(
-                        RECRUITMENT_INPUT_ATTRIBUTE,
-                        S.encodeSync(RecruitmentInputJson)(model.recruitment),
+                        SCHEDULING_INPUT_ATTRIBUTE,
+                        S.encodeSync(SchedulingInputJson)(model.scheduling),
                       ),
                     ]),
-                  ]),
+                  ]
+                : model.recruitment !== null
+                  ? [
+                      h.keyed(RECRUITMENT_ELEMENT as TagName)("foldkit-recruitment-board", [
+                        h.Id("fd-recruitment-program"),
+                        h.Attribute(
+                          RECRUITMENT_INPUT_ATTRIBUTE,
+                          S.encodeSync(RecruitmentInputJson)(model.recruitment),
+                        ),
+                      ]),
+                    ]
+                  : [landingView(model, h)]),
             ],
           ),
         ],

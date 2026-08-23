@@ -7,7 +7,7 @@ import {
   RecruitmentBoardStatus,
   toRecruitmentBridgeFailure,
 } from "./bridge";
-import type { RecruitmentClient } from "./browser-client";
+import type { RecruitmentAssignmentClient } from "./browser-client";
 import {
   FailedAssignment,
   FailedLoadBoard,
@@ -28,7 +28,7 @@ export interface RecruitmentCommands {
   }) => Command.Command<Message>;
 }
 
-export const makeRecruitmentCommands = (client: RecruitmentClient): RecruitmentCommands => {
+export const makeRecruitmentCommands = (client: RecruitmentAssignmentClient): RecruitmentCommands => {
   const LoadAssignmentBoard = Command.define("LoadAssignmentBoard", {
     args: { status: RecruitmentBoardStatus, requestId: S.Int },
     messages: [SucceededLoadBoard, FailedLoadBoard],

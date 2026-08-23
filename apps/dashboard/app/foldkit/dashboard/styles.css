@@ -464,36 +464,6 @@ vektor-foldkit-dashboard {
   margin-block-end: 0;
 }
 
-.fd-interview-region {
-  margin-block-start: var(--fd-space-6);
-}
-
-.foldkit-dashboard .foldkit-interview {
-  --fk-ink: var(--fd-color-text);
-  --fk-muted: var(--fd-color-muted);
-  --fk-line: var(--fd-color-border);
-  --fk-surface: var(--fd-color-surface);
-  --fk-soft: var(--fd-color-breadcrumb);
-  --fk-brand: var(--fd-color-link);
-  --fk-brand-dark: var(--fd-color-link-hover);
-  max-width: none;
-  padding: 0;
-}
-
-.foldkit-dashboard .fk-page-header,
-.foldkit-dashboard .fk-results,
-.foldkit-dashboard .fk-response-card,
-.foldkit-dashboard .fk-error,
-.foldkit-dashboard .fk-guidance,
-.foldkit-dashboard .fk-loading {
-  border-radius: var(--fd-radius-sm);
-  box-shadow: var(--fd-shadow-card);
-}
-
-.foldkit-dashboard .fk-page-header {
-  color: var(--fd-color-surface);
-  background: var(--fd-color-sidebar-active);
-}
 
 .fd-startup-error {
   display: grid;

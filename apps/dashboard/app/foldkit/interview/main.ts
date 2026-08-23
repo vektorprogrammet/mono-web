@@ -1,38 +1,28 @@
-import { type EffectSdk } from "@vektorprogrammet/sdk/effect"
 import { Runtime } from "foldkit"
+import type { InterviewResponseClient } from "./browser-client"
 import { makeInterviewCommands } from "./command"
 import { OpenedCandidate } from "./message"
-import { InterviewsData, Model, makeInitialModel } from "./model"
+import { Model, makeInitialModel } from "./model"
 import "./styles.css"
 import { makeUpdate } from "./update"
 import { view } from "./view"
 
-export type InterviewMode = "dashboard" | "candidate"
-
-export type InterviewRuntimeInput = {
-  readonly mode: InterviewMode
-  readonly responseCapability?: string | null
-  readonly client: EffectSdk
+export interface InterviewRuntimeInput {
+  readonly responseCapability: string | null
+  readonly client: InterviewResponseClient
 }
 
 export function embedInterview(
   container: HTMLElement,
   input: InterviewRuntimeInput,
 ): () => void {
-  const client = input.client
-  const commands = makeInterviewCommands(
-    client,
-    input.responseCapability ?? null,
-  )
+  const commands = makeInterviewCommands(input.client, input.responseCapability)
   const update = makeUpdate(commands)
-  const initialModel = makeInitialModel(input.mode)
+  const initialModel = makeInitialModel()
   const program = Runtime.makeElement({
     Model,
     container,
-    init: () =>
-      input.mode === "candidate"
-        ? update(initialModel, OpenedCandidate())
-        : [{ ...initialModel, interviews: InterviewsData.Loading() }, [commands.LoadInterviews()]],
+    init: () => update(initialModel, OpenedCandidate()),
     update,
     view,
     devTools: false,

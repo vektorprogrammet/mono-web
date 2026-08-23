@@ -2,23 +2,23 @@ import { Schema as S } from "effect";
 import { createElement } from "react";
 import { data, useLoaderData } from "react-router";
 import { DASHBOARD_ELEMENT, DASHBOARD_INPUT_ATTRIBUTE } from "../foldkit/dashboard/elements";
+import { DashboardInput, DashboardInputJson, isDashboardRole } from "../foldkit/dashboard/model";
 import {
-  DashboardInput,
-  DashboardInputJson,
-  isDashboardRole,
-  type LandingSummary,
-} from "../foldkit/dashboard/model";
+  schedulingBoardFailureMessage,
+  toRecruitmentBridgeFailure,
+} from "../foldkit/recruitment/bridge";
+import type { SchedulingInput } from "../foldkit/scheduling/model";
 import { createAuthenticatedClient } from "../lib/api.server";
 import { expiredSessionRedirect, requireAuth } from "../lib/auth.server";
-import { ownerEnabled, responseHeaders } from "../lib/interview-bridge.server";
 import { publicAssetUrl } from "../lib/public-asset";
-import type { Route } from "./+types/dashboard_.foldkit";
+import type { Route } from "./+types/dashboard_.intervjuer._index";
+
+const responseHeaders = {
+  "Cache-Control": "no-store",
+  "Referrer-Policy": "no-referrer",
+} as const;
 
 export async function loader({ request }: Route.LoaderArgs) {
-  if (!ownerEnabled()) {
-    throw new Response(null, { status: 404, headers: responseHeaders });
-  }
-
   const token = requireAuth(request);
   const client = createAuthenticatedClient(token);
 
@@ -33,18 +33,22 @@ export async function loader({ request }: Route.LoaderArgs) {
     throw new Response(null, { status: 403, headers: responseHeaders });
   }
 
-  let summary: LandingSummary;
+  let scheduling: SchedulingInput;
   try {
-    const dashboard = await client.me.dashboard();
-    summary = {
-      _tag: "Available",
-      department: dashboard.department,
-      activeAssistants: dashboard.activeAssistants,
-      pendingApplications: dashboard.pendingApplications,
-      upcomingInterviews: dashboard.upcomingInterviews,
+    scheduling = {
+      _tag: "Loaded",
+      board: await client.admin.recruitment.readSchedulingBoard(),
     };
-  } catch {
-    summary = { _tag: "Unavailable" };
+  } catch (error) {
+    const failure = toRecruitmentBridgeFailure(error);
+    if (failure._tag === "Unauthorized") throw expiredSessionRedirect();
+    if (failure._tag === "Forbidden") {
+      throw new Response(null, { status: 403, headers: responseHeaders });
+    }
+    scheduling = {
+      _tag: "Failed",
+      message: schedulingBoardFailureMessage(failure),
+    };
   }
 
   const avatar = publicAssetUrl(profile.profilePhoto);
@@ -56,24 +60,22 @@ export async function loader({ request }: Route.LoaderArgs) {
       },
       role: profile.role,
       activePath: new URL(request.url).pathname,
-      summary,
+      summary: { _tag: "Unavailable" },
       recruitment: null,
-      scheduling: null,
+      scheduling,
     },
     { onExcessProperty: "error" },
   );
 
   return data(
-    {
-      serializedInput: S.encodeSync(DashboardInputJson)(dashboardInput),
-    },
+    { serializedInput: S.encodeSync(DashboardInputJson)(dashboardInput) },
     { headers: responseHeaders },
   );
 }
 
 export const headers = () => responseHeaders;
 
-export default function DashboardFoldkitRoute() {
+export default function SchedulingRoute() {
   const { serializedInput } = useLoaderData<typeof loader>();
   return createElement(DASHBOARD_ELEMENT, {
     [DASHBOARD_INPUT_ATTRIBUTE]: serializedInput,

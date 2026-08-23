@@ -66,6 +66,7 @@ export async function loader({ request }: Route.LoaderArgs) {
       activePath: new URL(request.url).pathname,
       summary: { _tag: "Unavailable" },
       recruitment,
+      scheduling: null,
     },
     { onExcessProperty: "error" },
   );

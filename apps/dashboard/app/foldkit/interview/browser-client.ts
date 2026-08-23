@@ -1,24 +1,48 @@
 import {
   CandidateInterviewView,
-  Interview,
-  InterviewId,
-  InterviewScheduleInput,
-  type EffectSdk,
+  ResponseCapability,
 } from "@vektorprogrammet/sdk/effect"
 import { Effect, Schema } from "effect"
 
-const interviewListSchema = Schema.Struct({
-  items: Schema.Array(Interview),
-  totalItems: Schema.Number,
-})
-
 type BridgeFailure = {
-  readonly _tag: "Unauthorized" | "NotFound" | "Validation" | "Conflict" | "Network" | "RateLimited" | "Configuration"
+  readonly _tag:
+    | "Unauthorized"
+    | "NotFound"
+    | "Validation"
+    | "Conflict"
+    | "Network"
+    | "RateLimited"
+    | "Configuration"
   readonly message: string
 }
 
+type CandidateBridgeOperation =
+  | "readCandidate"
+  | "confirmCandidate"
+  | "rejectCandidate"
+  | "requestNewTimeCandidate"
+
+export interface InterviewResponseClient {
+  readonly interviewResponses: Readonly<{
+    readonly read: (
+      capability: typeof ResponseCapability.Type,
+    ) => Effect.Effect<typeof CandidateInterviewView.Type, BridgeFailure>
+    readonly confirm: (
+      capability: typeof ResponseCapability.Type,
+    ) => Effect.Effect<void, BridgeFailure>
+    readonly reject: (
+      capability: typeof ResponseCapability.Type,
+      message?: string,
+    ) => Effect.Effect<void, BridgeFailure>
+    readonly requestNewTime: (
+      capability: typeof ResponseCapability.Type,
+      message: string,
+    ) => Effect.Effect<void, BridgeFailure>
+  }>
+}
+
 const bridgeRequest = <A>(
-  operation: string,
+  operation: CandidateBridgeOperation,
   body: Record<string, unknown>,
   decode: (value: unknown) => A,
 ): Effect.Effect<A, BridgeFailure> =>
@@ -36,53 +60,38 @@ const bridgeRequest = <A>(
     },
     catch: (cause): BridgeFailure => {
       if (
-        typeof cause === "object" && cause !== null &&
-        "_tag" in cause && "message" in cause &&
-        typeof cause._tag === "string" && typeof cause.message === "string"
+        typeof cause === "object" &&
+        cause !== null &&
+        "_tag" in cause &&
+        "message" in cause &&
+        typeof cause._tag === "string" &&
+        typeof cause.message === "string"
       ) {
         const tag = cause._tag
         if (
-          tag === "Unauthorized" || tag === "NotFound" || tag === "Validation" ||
-          tag === "Conflict" || tag === "Network" || tag === "RateLimited" ||
+          tag === "Unauthorized" ||
+          tag === "NotFound" ||
+          tag === "Validation" ||
+          tag === "Conflict" ||
+          tag === "Network" ||
+          tag === "RateLimited" ||
           tag === "Configuration"
-        ) return { _tag: tag, message: cause.message }
+        ) {
+          return { _tag: tag, message: cause.message }
+        }
       }
       return { _tag: "Network", message: "Same-origin interview request failed" }
     },
   })
 
-export const createBrowserInterviewClient = (): EffectSdk => ({
-  admin: {
-    interviews: {
-      list: () =>
-        bridgeRequest("listInterviews", {}, Schema.decodeUnknownSync(interviewListSchema)),
-      read: (id: number) =>
-        bridgeRequest(
-          "readInterview",
-          { interviewId: Schema.decodeUnknownSync(InterviewId)(id) },
-          Schema.decodeUnknownSync(Interview),
-        ),
-      schedule: (
-        id: number,
-        input: typeof InterviewScheduleInput.Type,
-      ) =>
-        bridgeRequest(
-          "scheduleInterview",
-          {
-            interviewId: Schema.decodeUnknownSync(InterviewId)(id),
-            input: Schema.decodeUnknownSync(InterviewScheduleInput)(input),
-          },
-          () => undefined,
-        ),
-    },
-  },
+export const createBrowserInterviewClient = (): InterviewResponseClient => ({
   interviewResponses: {
-    read: (_capability: unknown) =>
+    read: (_capability) =>
       bridgeRequest("readCandidate", {}, Schema.decodeUnknownSync(CandidateInterviewView)),
-    confirm: (_capability: unknown) => bridgeRequest("confirmCandidate", {}, () => undefined),
-    reject: (_capability: unknown, message?: string) =>
+    confirm: (_capability) => bridgeRequest("confirmCandidate", {}, () => undefined),
+    reject: (_capability, message) =>
       bridgeRequest("rejectCandidate", { message: message ?? "" }, () => undefined),
-    requestNewTime: (_capability: unknown, message: string) =>
+    requestNewTime: (_capability, message) =>
       bridgeRequest("requestNewTimeCandidate", { message }, () => undefined),
   },
-} as unknown as EffectSdk)
+})

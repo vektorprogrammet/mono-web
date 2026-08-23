@@ -58,6 +58,14 @@ export async function action({ request }: Route.ActionArgs) {
         return data(await recruitment.assignApplicant(operation.command), {
           headers: responseHeaders,
         });
+      case "readSchedulingBoard":
+        return data(await recruitment.readSchedulingBoard(), {
+          headers: responseHeaders,
+        });
+      case "scheduleInterview":
+        return data(await recruitment.scheduleInterview(operation.command), {
+          headers: responseHeaders,
+        });
     }
   } catch (error) {
     const failure = toRecruitmentBridgeFailure(error);

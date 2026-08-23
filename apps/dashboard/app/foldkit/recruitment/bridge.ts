@@ -3,6 +3,9 @@ import {
   RecruitmentAssignmentBoardQuerySchema,
   RecruitmentAssignmentCommandSchema,
   RecruitmentAssignmentResultSchema,
+  RecruitmentScheduleCommandSchema,
+  RecruitmentScheduleResultSchema,
+  RecruitmentSchedulingBoardSchema,
 } from "@vektorprogrammet/sdk/effect";
 import { Match, Schema as S } from "effect";
 
@@ -19,9 +22,20 @@ const AssignApplicantOperation = S.Struct({
   command: RecruitmentAssignmentCommandSchema,
 });
 
+const ReadSchedulingBoardOperation = S.Struct({
+  operation: S.Literal("readSchedulingBoard"),
+});
+
+const ScheduleInterviewOperation = S.Struct({
+  operation: S.Literal("scheduleInterview"),
+  command: RecruitmentScheduleCommandSchema,
+});
+
 export const RecruitmentBridgeOperation = S.Union([
   ReadAssignmentBoardOperation,
   AssignApplicantOperation,
+  ReadSchedulingBoardOperation,
+  ScheduleInterviewOperation,
 ]);
 export type RecruitmentBridgeOperation = S.Schema.Type<typeof RecruitmentBridgeOperation>;
 export const RecruitmentBridgeOperationJson = S.fromJsonString(RecruitmentBridgeOperation);
@@ -41,7 +55,12 @@ export const RecruitmentBridgeFailure = S.Struct({
 });
 export type RecruitmentBridgeFailure = S.Schema.Type<typeof RecruitmentBridgeFailure>;
 
-export { RecruitmentAssignmentBoardSchema, RecruitmentAssignmentResultSchema };
+export {
+  RecruitmentAssignmentBoardSchema,
+  RecruitmentAssignmentResultSchema,
+  RecruitmentScheduleResultSchema,
+  RecruitmentSchedulingBoardSchema,
+};
 
 const errorTag = (error: unknown): string => {
   if (typeof error !== "object" || error === null) return "";
@@ -68,7 +87,14 @@ export const toRecruitmentBridgeFailure = (error: unknown): RecruitmentBridgeFai
   if (tag.includes("notfound") || tag.includes("not_found")) {
     return { _tag: "NotFound", message: "Recruitment record was not found" };
   }
-  if (tag.includes("conflict") || tag.includes("alreadyassigned") || tag.includes("duplicate")) {
+  if (
+    tag.includes("conflict") ||
+    tag.includes("alreadyassigned") ||
+    tag.includes("alreadyscheduled") ||
+    tag.includes("duplicate") ||
+    tag.includes("revision") ||
+    tag.includes("stale")
+  ) {
     return { _tag: "Conflict", message: "Recruitment state has changed" };
   }
   if (tag.includes("validation") || tag.includes("decode") || tag.includes("parse")) {
@@ -118,6 +144,45 @@ export const assignmentFailureMessage = (failure: RecruitmentBridgeFailure): str
       "RateLimited",
       "Configuration",
       () => "Intervjuet kunne ikke tildeles nå. Prøv igjen senere.",
+    ),
+    Match.exhaustive,
+  );
+
+export const schedulingBoardFailureMessage = (failure: RecruitmentBridgeFailure): string =>
+  Match.value(failure._tag).pipe(
+    Match.whenOr("Unauthorized", "Forbidden", () => "Du har ikke tilgang til intervjuoversikten."),
+    Match.when("NotFound", () => "Intervjuoversikten finnes ikke lenger."),
+    Match.when("Validation", () => "Intervjuoversikten inneholdt ugyldige data."),
+    Match.when("Conflict", () => "Intervjuoversikten ble endret. Hent den på nytt."),
+    Match.whenOr(
+      "Network",
+      "RateLimited",
+      "Configuration",
+      () => "Intervjuoversikten er midlertidig utilgjengelig. Prøv igjen senere.",
+    ),
+    Match.exhaustive,
+  );
+
+export const schedulingFailureMessage = (failure: RecruitmentBridgeFailure): string =>
+  Match.value(failure._tag).pipe(
+    Match.whenOr("Unauthorized", "Forbidden", () => "Du har ikke tilgang til å planlegge intervjuet."),
+    Match.when(
+      "NotFound",
+      () => "Intervjuet eller kontaktopplysningene finnes ikke lenger.",
+    ),
+    Match.when(
+      "Validation",
+      () => "Planen er ugyldig. Kontroller feltene og prøv igjen.",
+    ),
+    Match.when(
+      "Conflict",
+      () => "Intervjuet er allerede planlagt eller har blitt endret. Hent oversikten på nytt.",
+    ),
+    Match.whenOr(
+      "Network",
+      "RateLimited",
+      "Configuration",
+      () => "Intervjuet kunne ikke planlegges nå. Prøv igjen senere.",
     ),
     Match.exhaustive,
   );

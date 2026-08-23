@@ -1,6 +1,7 @@
 import { Schema as S } from "effect";
-import { isAdmissionPath } from "./navigation";
 import { RecruitmentInput } from "../recruitment/model";
+import { SchedulingInput } from "../scheduling/model";
+import { isAdmissionPath } from "./navigation";
 
 export const DashboardRole = S.Literals(["ROLE_TEAM_MEMBER", "ROLE_TEAM_LEADER", "ROLE_ADMIN"]);
 export type DashboardRole = S.Schema.Type<typeof DashboardRole>;
@@ -32,6 +33,7 @@ export const DashboardInput = S.Struct({
   activePath: S.String,
   summary: LandingSummary,
   recruitment: S.NullOr(RecruitmentInput),
+  scheduling: S.NullOr(SchedulingInput),
 });
 export type DashboardInput = S.Schema.Type<typeof DashboardInput>;
 
@@ -44,6 +46,7 @@ const ReadyModel = S.Struct({
   activePath: S.String,
   summary: LandingSummary,
   recruitment: S.NullOr(RecruitmentInput),
+  scheduling: S.NullOr(SchedulingInput),
   isMobileNavigationOpen: S.Boolean,
   isAdmissionMenuOpen: S.Boolean,
   isProfileMenuOpen: S.Boolean,
@@ -57,9 +60,14 @@ export const Model = S.Union([ReadyModel, InvalidInputModel]);
 export type Model = S.Schema.Type<typeof Model>;
 export type ReadyModel = S.Schema.Type<typeof ReadyModel>;
 
-export const makeInitialModel = (input: DashboardInput): Model => ({
+type DashboardInitialInput = Omit<DashboardInput, "scheduling"> & {
+  readonly scheduling?: DashboardInput["scheduling"];
+};
+
+export const makeInitialModel = (input: DashboardInitialInput): Model => ({
   _tag: "Ready",
   ...input,
+  scheduling: input.scheduling ?? null,
   isMobileNavigationOpen: false,
   isAdmissionMenuOpen: isAdmissionPath(input.activePath),
   isProfileMenuOpen: false,
