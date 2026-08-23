@@ -23,10 +23,11 @@ const decodeProfile = (
   row: PersonProfileSelect,
 ): Effect.Effect<PersonProfile, ProfileDecodeError> =>
   Schema.decodeUnknownEffect(PersonProfile)(row, { onExcessProperty: "error" }).pipe(
-    Effect.mapError((cause) =>
-      new ProfileDecodeError({
-        message: cause instanceof Error ? cause.message : "invalid person profile row",
-      }),
+    Effect.mapError(
+      (cause) =>
+        new ProfileDecodeError({
+          message: cause instanceof Error ? cause.message : "invalid person profile row",
+        }),
     ),
   );
 
@@ -43,8 +44,12 @@ const readProfile = (
     FROM person_profiles
     WHERE person_id = ${personId}
   `.pipe(
-    Effect.flatMap((rows) => (rows[0] === undefined ? Effect.succeed(undefined) : decodeProfile(rows[0]))),
-    Effect.catchTag("SqlError", (cause) => Effect.fail(persistenceError("read person profile", cause))),
+    Effect.flatMap((rows) =>
+      rows[0] === undefined ? Effect.succeed(undefined) : decodeProfile(rows[0]),
+    ),
+    Effect.catchTag("SqlError", (cause) =>
+      Effect.fail(persistenceError("read person profile", cause)),
+    ),
   );
 
 export const readPersonProfiles = (

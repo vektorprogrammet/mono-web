@@ -48,6 +48,7 @@ import {
   PublicApplicationRateLimitExceeded,
   PublicApplicationNotFound,
   PublicApplicationPersistenceError,
+  RecruitmentUnauthenticatedActor,
   RecruitmentDecodeError,
   RecruitmentInactiveActor,
   RecruitmentRoleDenied,
@@ -61,6 +62,7 @@ import {
   RecruitmentInterviewerNotEligible,
   RecruitmentAssignmentCommandConflict,
   RecruitmentPersistenceError,
+  type InternalSdkError,
 } from "./errors.js";
 import { parseViolations } from "./adapter/errors.js";
 
@@ -212,7 +214,7 @@ const recruitmentFailureFromBody = (body: unknown): InternalSdkError | undefined
   if (typeof tag !== "string") return undefined;
   switch (tag) {
     case "UnauthenticatedActor":
-      return new UnauthenticatedActor();
+      return new RecruitmentUnauthenticatedActor();
     case "RecruitmentInactiveActor":
       return new RecruitmentInactiveActor();
     case "RecruitmentRoleDenied":
@@ -463,7 +465,9 @@ export function createTransport(baseUrl: string | undefined, auth?: AuthOption):
     ) {
       return pipe(
         buildUrl(url, params),
-        Effect.flatMap((resolvedUrl) => executeJson(resolvedUrl, "GET", undefined, undefined, options)),
+        Effect.flatMap((resolvedUrl) =>
+          executeJson(resolvedUrl, "GET", undefined, undefined, options),
+        ),
         Effect.flatMap(decodeWith(schema, options)),
       );
     },
@@ -482,7 +486,9 @@ export function createTransport(baseUrl: string | undefined, auth?: AuthOption):
       });
       return pipe(
         buildUrl(url, params),
-        Effect.flatMap((resolvedUrl) => executeJson(resolvedUrl, "GET", undefined, undefined, options)),
+        Effect.flatMap((resolvedUrl) =>
+          executeJson(resolvedUrl, "GET", undefined, undefined, options),
+        ),
         Effect.flatMap(decodeWith(collectionSchema, options)),
         Effect.map(({ "hydra:member": items, "hydra:totalItems": totalItems }) => ({
           items: Array.from(items),

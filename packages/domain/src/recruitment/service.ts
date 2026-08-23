@@ -1,6 +1,9 @@
 import { Context, Effect } from "effect";
 import type { AdmissionPeriodFailure } from "../admission-period/errors.js";
-import type { OrganizationDecodeError, OrganizationPersistenceError } from "../organization/errors.js";
+import type {
+  OrganizationDecodeError,
+  OrganizationPersistenceError,
+} from "../organization/errors.js";
 import type { ProfileFailure } from "../profile/errors.js";
 import type {
   RecruitmentAssignmentBoard,

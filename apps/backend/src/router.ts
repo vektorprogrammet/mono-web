@@ -10,8 +10,12 @@ import type { BackendConfig } from "./config.js";
 import { makeReceiptApiHttp } from "./receipt/http.js";
 import { makeRecruitmentApiHttp } from "./recruitment/http.js";
 export type BackendRun = <A, E>(
-  effect: Effect.Effect<A, E, Database | Admissions | Economy | Organization | Profile | Recruitment>,
-): Promise<A>;
+  effect: Effect.Effect<
+    A,
+    E,
+    Database | Admissions | Economy | Organization | Profile | Recruitment
+  >,
+) => Promise<A>;
 
 export interface BackendHttp {
   readonly fetch: (request: Request) => Promise<Response>;
@@ -31,26 +35,53 @@ const bearerToken = (request: Request): string | undefined => {
   return authorization === null ? undefined : /^Bearer ([^\s]+)$/.exec(authorization)?.[1];
 };
 
-const profileResponse = (request: Request, config: BackendConfig): Response => {
+const profileResponse = async (
+  request: Request,
+  config: BackendConfig,
+  run: BackendRun,
+): Promise<Response> => {
   const token = bearerToken(request);
   const admissionPrincipal = token === undefined ? undefined : config.admission.tokens.get(token);
   const receiptPrincipal = token === undefined ? undefined : config.receipt.tokens.get(token);
-  const actor = admissionPrincipal?.actor ?? receiptPrincipal?.actor;
+  const recruitmentPrincipal =
+    token === undefined ? undefined : config.recruitment.tokens.get(token);
+  const actor = admissionPrincipal?.actor ?? receiptPrincipal?.actor ?? recruitmentPrincipal?.actor;
   if (actor === undefined) return jsonResponse({ error: { tag: "UnauthenticatedActor" } }, 401);
   if (!actor.active) return jsonResponse({ error: { tag: "InactiveActor" } }, 403);
-  return jsonResponse({
-    id: null,
-    firstName: actor.personId,
-    lastName: "",
-    userName: actor.personId,
-    email: `${actor.personId}@local.invalid`,
-    phone: null,
-    gender: null,
-    fieldOfStudy: null,
-    accountNumber: null,
-    role: "assistant",
-    profilePhoto: null,
-  });
+
+  const role =
+    "_tag" in actor
+      ? actor._tag === "DepartmentLeader"
+        ? "ROLE_TEAM_LEADER"
+        : actor._tag === "GlobalAdmin"
+          ? "ROLE_ADMIN"
+          : "ROLE_TEAM_MEMBER"
+      : actor.approvalScope._tag === "Global"
+        ? "ROLE_ADMIN"
+        : actor.approvalScope._tag === "Department"
+          ? "ROLE_TEAM_LEADER"
+          : "ROLE_TEAM_MEMBER";
+  try {
+    const [profile] = await run(Profile.use(({ readProfiles }) => readProfiles([actor.personId])));
+    if (profile === undefined) {
+      return jsonResponse({ error: { tag: "ProfileNotFound" } }, 404);
+    }
+    return jsonResponse({
+      id: null,
+      firstName: profile.firstName,
+      lastName: profile.lastName,
+      userName: null,
+      email: "",
+      phone: null,
+      gender: null,
+      fieldOfStudy: null,
+      accountNumber: null,
+      role,
+      profilePhoto: null,
+    });
+  } catch {
+    return jsonResponse({ error: { tag: "ProfileUnavailable" } }, 503);
+  }
 };
 
 const isAdmissionRoute = (pathname: string): boolean =>
@@ -58,6 +89,12 @@ const isAdmissionRoute = (pathname: string): boolean =>
   pathname.startsWith("/api/admin/admission-periods") ||
   pathname === "/api/applications" ||
   pathname.startsWith("/api/applications/");
+const isReceiptRoute = (pathname: string): boolean =>
+  pathname === "/api/receipts" ||
+  pathname.startsWith("/api/receipts/") ||
+  pathname === "/api/admin/receipts" ||
+  pathname.startsWith("/api/admin/receipts/") ||
+  pathname.startsWith("/api/e2e/receipts/");
 
 const isRecruitmentRoute = (pathname: string): boolean =>
   pathname === "/api/admin/recruitment/assignment-board" ||
@@ -80,10 +117,11 @@ export const makeBackendHttp = (config: BackendConfig, run: BackendRun): Backend
         }
       }
       if (request.method === "GET" && (pathname === "/api/me" || pathname === "/api/me/profile")) {
-        return profileResponse(request, config);
+        return profileResponse(request, config, run);
       }
       if (isRecruitmentRoute(pathname)) return recruitment.fetch(request);
       if (isAdmissionRoute(pathname)) return admission.fetch(request);
+      if (isReceiptRoute(pathname)) return receipt.fetch(request);
       return jsonResponse({ error: { tag: "RouteNotFound" } }, 404);
     },
   };

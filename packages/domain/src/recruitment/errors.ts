@@ -1,7 +1,6 @@
 import { Schema } from "effect";
-import { PublicApplicationId } from "../application/schema.js";
+import { PublicApplicationIdSchema } from "../application/schema.js";
 import { DepartmentId, PersonId } from "../organization/schema.js";
-import { ProfileFailure } from "../profile/errors.js";
 import {
   InterviewSchemaId,
   RecruitmentAssignmentCommandId,
@@ -28,7 +27,7 @@ export class RecruitmentScopeDenied extends Schema.TaggedError<RecruitmentScopeD
   {
     personId: PersonId,
     departmentId: DepartmentId,
-    applicationId: Schema.optional(PublicApplicationId),
+    applicationId: Schema.optional(PublicApplicationIdSchema),
   },
 ) {}
 
@@ -44,12 +43,15 @@ export class RecruitmentAmbiguousAdmissionPeriod extends Schema.TaggedError<Recr
 
 export class RecruitmentApplicationNotFound extends Schema.TaggedError<RecruitmentApplicationNotFound>()(
   "RecruitmentApplicationNotFound",
-  { applicationId: PublicApplicationId },
+  { applicationId: PublicApplicationIdSchema },
 ) {}
 
 export class RecruitmentApplicationAlreadyAssigned extends Schema.TaggedError<RecruitmentApplicationAlreadyAssigned>()(
   "RecruitmentApplicationAlreadyAssigned",
-  { applicationId: PublicApplicationId, interviewId: Schema.optional(RecruitmentInterviewId) },
+  {
+    applicationId: PublicApplicationIdSchema,
+    interviewId: Schema.optional(RecruitmentInterviewId),
+  },
 ) {}
 
 export class RecruitmentInterviewSchemaNotFound extends Schema.TaggedError<RecruitmentInterviewSchemaNotFound>()(
@@ -81,20 +83,3 @@ export class RecruitmentPersistenceError extends Schema.TaggedError<RecruitmentP
   "RecruitmentPersistenceError",
   { operation: Schema.String, message: Schema.String },
 ) {}
-
-export type RecruitmentFailure =
-  | RecruitmentDecodeError
-  | RecruitmentInactiveActor
-  | RecruitmentRoleDenied
-  | RecruitmentScopeDenied
-  | RecruitmentAdmissionPeriodNotFound
-  | RecruitmentAmbiguousAdmissionPeriod
-  | RecruitmentApplicationNotFound
-  | RecruitmentApplicationAlreadyAssigned
-  | RecruitmentInterviewSchemaNotFound
-  | RecruitmentInterviewSchemaInactive
-  | RecruitmentInterviewerNotEligible
-  | RecruitmentAssignmentCommandConflict
-  | RecruitmentInvalidContext
-  | RecruitmentPersistenceError
-  | ProfileFailure;

@@ -1,4 +1,5 @@
 import { makeAdmissionApiConfig, type AdmissionApiConfig } from "./admission/config.js";
+import { makeReceiptApiConfig, type ReceiptApiConfig } from "./receipt/config.js";
 import { makeRecruitmentApiConfig, type RecruitmentApiConfig } from "./recruitment/config.js";
 
 export interface PublicApplicationEffectConfig {
@@ -16,6 +17,7 @@ export interface BackendConfig {
   readonly admission: AdmissionApiConfig;
   readonly receipt: ReceiptApiConfig;
   readonly recruitment: RecruitmentApiConfig;
+  readonly publicApplicationEffects?: PublicApplicationEffectConfig;
 }
 
 const nonEmpty = (value: unknown, field: string): string => {
@@ -141,6 +143,7 @@ export const makeBackendConfig = (
     port: parsePort(env.BACKEND_PORT),
     postgresUrl: nonEmpty(env.BACKEND_PG_URL, "BACKEND_PG_URL"),
     admission,
+    receipt,
     recruitment: makeRecruitmentApiConfig(admission),
     ...(effects === undefined ? {} : { publicApplicationEffects: effects }),
   };

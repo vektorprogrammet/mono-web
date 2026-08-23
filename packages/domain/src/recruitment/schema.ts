@@ -167,10 +167,7 @@ export const RecruitmentInterviewSchemaOptionSchema = Schema.Struct({
 });
 export type RecruitmentInterviewSchemaOption = typeof RecruitmentInterviewSchemaOptionSchema.Type;
 
-export const RecruitmentInterviewStateForBoardSchema = Schema.Literals([
-  "Unassigned",
-  "NoContact",
-]);
+export const RecruitmentInterviewStateForBoardSchema = Schema.Literals(["Unassigned", "NoContact"]);
 export type RecruitmentInterviewStateForBoard = typeof RecruitmentInterviewStateForBoardSchema.Type;
 
 export const RecruitmentApplicationStateSchema = Schema.Literals(["Received"]);

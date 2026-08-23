@@ -18,7 +18,11 @@ import type { RecruitmentApiConfig } from "./config.js";
 export interface RecruitmentApiHttpOptions {
   readonly config: RecruitmentApiConfig;
   readonly run: <A, E>(
-    effect: Effect.Effect<A, E, Database | Admissions | Economy | Organization | Profile | Recruitment>,
+    effect: Effect.Effect<
+      A,
+      E,
+      Database | Admissions | Economy | Organization | Profile | Recruitment
+    >,
   ) => Promise<A>;
 }
 
@@ -130,7 +134,7 @@ const readBoundedBody = async (
     bytes.set(chunk, offset);
     offset += chunk.byteLength;
   }
-  return new TextDecoder().decode(bytes);
+  return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
 };
 
 const decodeJson = async <S extends Schema.ConstraintDecoder<unknown, never>>(
@@ -155,10 +159,7 @@ const decodeJson = async <S extends Schema.ConstraintDecoder<unknown, never>>(
   );
 };
 
-const principalFor = (
-  request: Request,
-  config: RecruitmentApiConfig,
-): RecruitmentActor => {
+const principalFor = (request: Request, config: RecruitmentApiConfig): RecruitmentActor => {
   const authorization = request.headers.get("authorization");
   const match = authorization === null ? undefined : /^Bearer ([^\s]+)$/.exec(authorization);
   const principal = match?.[1] === undefined ? undefined : config.tokens.get(match[1]);
@@ -231,7 +232,10 @@ export const makeRecruitmentApiHttp = (input: RecruitmentApiHttpOptions): Recrui
       if (request.method === "GET" && url.pathname === "/api/admin/recruitment/assignment-board") {
         return await readAssignmentBoard(request, input);
       }
-      if (request.method === "POST" && url.pathname === "/api/admin/recruitment/interviews/assign") {
+      if (
+        request.method === "POST" &&
+        url.pathname === "/api/admin/recruitment/interviews/assign"
+      ) {
         return await assignApplicant(request, input);
       }
       return jsonResponse({ error: { tag: "RouteNotFound" } }, 404);

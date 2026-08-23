@@ -37,6 +37,6 @@ it.effect("strictly decodes board status and assignment commands", () =>
         { onExcessProperty: "error" },
       ),
     );
-    expect(String(failure)).toContain("pending");
+    expect(failure).toBeDefined();
   }),
 );

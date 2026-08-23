@@ -15,6 +15,7 @@ import { createAdminApplicationsDomain } from "./domains/admin/applications.js";
 import { createAdminInterviewsDomain } from "./domains/admin/interviews.js";
 import { createAdminRecruitmentDomain } from "./domains/admin/recruitment.js";
 import { createAdminSchedulingDomain } from "./domains/admin/scheduling.js";
+import { createInterviewResponsesDomain } from "./domains/interview-responses.js";
 import { createAdminTeamsDomain } from "./domains/admin/teams.js";
 import { createAdminMiscDomain } from "./domains/admin/misc.js";
 import { createPublicMiscDomain } from "./domains/public/misc.js";
@@ -163,7 +164,6 @@ export {
   RecruitmentInterviewSchemaOptionSchema,
 } from "./schemas/recruitment.js";
 export type {
-  RecruitmentAdmissionPeriodId,
   RecruitmentAssignmentBoardQuery,
   RecruitmentAssignmentBoard,
   RecruitmentAssignmentCandidate,

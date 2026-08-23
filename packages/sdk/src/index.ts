@@ -181,7 +181,6 @@ export {
 } from "./promise.js";
 export type {
   RecruitmentRejectionTag,
-  RecruitmentAdmissionPeriodId,
   RecruitmentAssignmentStatus,
   RecruitmentAssignmentBoardQuery,
   RecruitmentAssignmentBoard,

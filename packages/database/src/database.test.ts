@@ -22,6 +22,16 @@ import {
 import { importOrganizationSnapshot } from "../../domain/src/organization/postgres.js";
 import { DepartmentId, PersonId, SemesterId } from "../../domain/src/organization/schema.js";
 import { Database } from "@vektorprogrammet/domain/database";
+import { AdmissionsLive } from "@vektorprogrammet/domain/admissions";
+import { OrganizationLive } from "@vektorprogrammet/domain/organization";
+import { ProfileLive } from "@vektorprogrammet/domain/profile";
+import {
+  InterviewSchemaId,
+  Recruitment,
+  RecruitmentAssignmentCommandId,
+  RecruitmentInterviewId,
+  RecruitmentLive,
+} from "@vektorprogrammet/domain/recruitment";
 import { Economy, importLegacyReceipt } from "@vektorprogrammet/domain/receipt";
 import { EconomyLive } from "@vektorprogrammet/domain/receipt/postgres";
 import { storeReceiptImportResult } from "../../domain/src/receipt/postgres.js";
@@ -32,9 +42,37 @@ const databaseLayer = DatabaseTest();
 const runtime = ManagedRuntime.make(
   Layer.merge(databaseLayer, EconomyLive.pipe(Layer.provide(databaseLayer))),
 );
+const recruitmentDatabaseLayer = DatabaseTest();
+const recruitmentAdmissionsLayer = AdmissionsLive.pipe(Layer.provide(recruitmentDatabaseLayer));
+const recruitmentOrganizationLayer = OrganizationLive.pipe(Layer.provide(recruitmentDatabaseLayer));
+const recruitmentProfileLayer = ProfileLive.pipe(
+  Layer.provide(Layer.merge(recruitmentDatabaseLayer, recruitmentOrganizationLayer)),
+);
+const recruitmentCapabilityLayer = RecruitmentLive.pipe(
+  Layer.provide(
+    Layer.mergeAll(
+      recruitmentDatabaseLayer,
+      recruitmentAdmissionsLayer,
+      recruitmentOrganizationLayer,
+      recruitmentProfileLayer,
+    ),
+  ),
+);
+const recruitmentRuntime = ManagedRuntime.make(
+  Layer.merge(
+    recruitmentDatabaseLayer,
+    Layer.mergeAll(
+      recruitmentAdmissionsLayer,
+      recruitmentOrganizationLayer,
+      recruitmentProfileLayer,
+      recruitmentCapabilityLayer,
+    ),
+  ),
+);
 
 afterAll(async () => {
   await runtime.dispose();
+  await recruitmentRuntime.dispose();
 });
 
 describe("DatabaseTest", () => {
@@ -106,6 +144,269 @@ describe("DatabaseTest", () => {
         "recruitment_interviews",
       ],
     });
+  });
+
+  it("executes native Recruitment assignment atomically against PGlite", async () => {
+    const evidence = await recruitmentRuntime.runPromise(
+      Effect.gen(function* () {
+        const database = yield* Database;
+        const recruitment = yield* Recruitment;
+        yield* database`
+          INSERT INTO admission_period_departments (department_id, name)
+          VALUES ('recruitment-department', 'Recruitment Department')
+        `;
+        yield* database`
+          INSERT INTO admission_period_semesters (semester_id, start_at, end_at)
+          VALUES (
+            'recruitment-semester',
+            '2031-08-01T00:00:00.000Z',
+            '2032-01-01T00:00:00.000Z'
+          )
+        `;
+        yield* database`
+          INSERT INTO admission_periods (
+            admission_period_id,
+            department_id,
+            semester_id,
+            start_at,
+            end_at,
+            last_command_id
+          )
+          VALUES (
+            'recruitment-period',
+            'recruitment-department',
+            'recruitment-semester',
+            '2031-09-01T00:00:00.000Z',
+            '2031-10-01T00:00:00.000Z',
+            'recruitment-period-created'
+          )
+        `;
+        yield* database`
+          INSERT INTO admission_period_fields_of_study (
+            field_of_study_id,
+            department_id,
+            name
+          )
+          VALUES ('recruitment-field', 'recruitment-department', 'Computer Science')
+        `;
+        yield* database`
+          INSERT INTO admission_applicants (
+            applicant_id,
+            normalized_email,
+            email,
+            first_name,
+            last_name,
+            phone,
+            gender,
+            field_of_study_id,
+            year_of_study
+          )
+          VALUES (
+            'recruitment-applicant',
+            'applicant@example.invalid',
+            'applicant@example.invalid',
+            'Ada',
+            'Applicant',
+            '90000000',
+            1,
+            'recruitment-field',
+            2
+          )
+        `;
+        yield* database`
+          INSERT INTO admission_applications (
+            application_id,
+            applicant_id,
+            admission_period_id,
+            department_id,
+            field_of_study_id,
+            year_of_study,
+            submitted_at
+          )
+          VALUES (
+            'recruitment-application',
+            'recruitment-applicant',
+            'recruitment-period',
+            'recruitment-department',
+            'recruitment-field',
+            2,
+            '2031-09-10T12:00:00.000Z'
+          )
+        `;
+        yield* database`
+          INSERT INTO organization_departments (
+            department_id,
+            name,
+            short_name,
+            email,
+            city
+          )
+          VALUES (
+            'recruitment-department',
+            'Recruitment Department',
+            'RD',
+            'recruitment@example.invalid',
+            'Bergen'
+          )
+        `;
+        yield* database`
+          INSERT INTO organization_teams (team_id, department_id, name)
+          VALUES ('recruitment-team', 'recruitment-department', 'Recruitment Team')
+        `;
+        yield* database`
+          INSERT INTO organization_memberships (
+            membership_id,
+            person_id,
+            team_id,
+            start_at,
+            position_id,
+            is_team_leader
+          )
+          VALUES
+            (
+              'recruitment-leader-membership',
+              'recruitment-leader',
+              'recruitment-team',
+              '2031-01-01T00:00:00.000Z',
+              'leader',
+              TRUE
+            ),
+            (
+              'recruitment-interviewer-membership',
+              'recruitment-interviewer',
+              'recruitment-team',
+              '2031-01-01T00:00:00.000Z',
+              'assistant',
+              FALSE
+            )
+        `;
+        yield* database`
+          INSERT INTO person_profiles (person_id, first_name, last_name)
+          VALUES
+            ('recruitment-leader', 'Lise', 'Leader'),
+            ('recruitment-interviewer', 'Ivar', 'Interviewer')
+        `;
+        yield* database`
+          INSERT INTO recruitment_interview_schemas (
+            interview_schema_id,
+            name,
+            question_count
+          )
+          VALUES ('recruitment-schema', 'Standard interview', 8)
+        `;
+
+        const actor = {
+          _tag: "DepartmentLeader" as const,
+          personId: PersonId.make("recruitment-leader"),
+          departmentId: DepartmentId.make("recruitment-department"),
+          active: true,
+        };
+        const now = "2031-09-15T12:00:00.000Z";
+        const before = yield* recruitment.readAssignmentBoard({ status: "new" }, { actor, now });
+        const command = {
+          commandId: RecruitmentAssignmentCommandId.make("recruitment-command"),
+          applicationId: PublicApplicationIdSchema.make("recruitment-application"),
+          interviewerPersonId: PersonId.make("recruitment-interviewer"),
+          interviewSchemaId: InterviewSchemaId.make("recruitment-schema"),
+        };
+        const assigned = yield* recruitment.assignApplicant(command, {
+          actor,
+          now,
+          interviewId: RecruitmentInterviewId.make("recruitment-interview"),
+        });
+        const replayed = yield* recruitment.assignApplicant(command, {
+          actor,
+          now,
+          interviewId: RecruitmentInterviewId.make("ignored-replay-interview"),
+        });
+        const conflictingReplay = yield* Effect.flip(
+          recruitment.assignApplicant(
+            {
+              ...command,
+              interviewerPersonId: PersonId.make("recruitment-leader"),
+            },
+            {
+              actor,
+              now,
+              interviewId: RecruitmentInterviewId.make("conflicting-replay-interview"),
+            },
+          ),
+        );
+        const duplicateAssignment = yield* Effect.flip(
+          recruitment.assignApplicant(
+            {
+              ...command,
+              commandId: RecruitmentAssignmentCommandId.make("duplicate-assignment-command"),
+            },
+            {
+              actor,
+              now,
+              interviewId: RecruitmentInterviewId.make("duplicate-assignment-interview"),
+            },
+          ),
+        );
+        const after = yield* recruitment.readAssignmentBoard({ status: "new" }, { actor, now });
+        const persistence = yield* database<{
+          readonly receipts: string;
+          readonly audits: string;
+          readonly interviews: string;
+        }>`
+          SELECT
+            (SELECT count(*)::text FROM recruitment_assignment_command_receipts) AS receipts,
+            (SELECT count(*)::text FROM recruitment_assignment_audit) AS audits,
+            (SELECT count(*)::text FROM recruitment_interviews) AS interviews
+        `;
+        return {
+          before,
+          assigned,
+          replayed,
+          conflictingReplay,
+          duplicateAssignment,
+          after,
+          persistence,
+        };
+      }),
+    );
+
+    expect(evidence.before.candidates).toEqual([
+      expect.objectContaining({
+        applicationId: "recruitment-application",
+        firstName: "Ada",
+        lastName: "Applicant",
+        applicationState: "Received",
+        interviewState: "Unassigned",
+      }),
+    ]);
+    expect(evidence.before.interviewers).toEqual([
+      {
+        personId: "recruitment-interviewer",
+        displayName: "Ivar Interviewer",
+      },
+      {
+        personId: "recruitment-leader",
+        displayName: "Lise Leader",
+      },
+    ]);
+    expect(evidence.assigned).toEqual({
+      observation: expect.objectContaining({
+        _tag: "ApplicantAssigned",
+        interview: expect.objectContaining({
+          interviewId: "recruitment-interview",
+          applicationId: "recruitment-application",
+          state: "NoContact",
+          revision: 0,
+        }),
+      }),
+      replayed: false,
+    });
+    expect(evidence.replayed).toEqual({
+      observation: evidence.assigned.observation,
+      replayed: true,
+    });
+    expect(evidence.conflictingReplay._tag).toBe("RecruitmentAssignmentCommandConflict");
+    expect(evidence.duplicateAssignment._tag).toBe("RecruitmentApplicationAlreadyAssigned");
+    expect(evidence.after.candidates).toEqual([]);
+    expect(evidence.persistence).toEqual([{ receipts: "1", audits: "1", interviews: "1" }]);
   });
 
   it("reuses one capability and reruns the manifest without duplicate migrations", async () => {

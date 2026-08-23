@@ -543,8 +543,6 @@ export class PublicApplicationPersistenceSdkError extends PublicApplicationRejec
 
 // --- Internal Effect TaggedErrors ---
 
-
-
 export class Unauthorized extends Schema.TaggedError<Unauthorized>()("Unauthorized", {
   message: Schema.String,
 }) {}
@@ -599,6 +597,11 @@ export class ReceiptDecodeError extends Schema.TaggedError<ReceiptDecodeError>()
 
 export class ReceiptAlreadyExists extends Schema.TaggedError<ReceiptAlreadyExists>()(
   "ReceiptAlreadyExists",
+  {},
+) {}
+
+export class RecruitmentUnauthenticatedActor extends Schema.TaggedError<RecruitmentUnauthenticatedActor>()(
+  "UnauthenticatedActor",
   {},
 ) {}
 
@@ -826,6 +829,7 @@ export type PublicApplicationFailure =
   | PublicApplicationPersistenceError;
 
 export type RecruitmentFailure =
+  | RecruitmentUnauthenticatedActor
   | RecruitmentDecodeError
   | RecruitmentInactiveActor
   | RecruitmentRoleDenied
@@ -866,6 +870,9 @@ export type InternalSdkError =
  * Used at the Effect.runPromise boundary.
  */
 export function toSdkError(error: InternalSdkError): SdkError {
+  if (error instanceof RecruitmentUnauthenticatedActor) {
+    return new RecruitmentUnauthenticatedActorError();
+  }
   if (error instanceof PublicApplicationDepartmentNotFound) {
     return new PublicApplicationDepartmentNotFoundError();
   }

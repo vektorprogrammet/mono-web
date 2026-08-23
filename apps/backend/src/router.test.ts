@@ -1,3 +1,10 @@
+import type { Admissions } from "@vektorprogrammet/domain/admissions";
+import { Database, type DatabaseShape } from "@vektorprogrammet/domain/database";
+import type { Organization } from "@vektorprogrammet/domain/organization";
+import { PersonProfile, Profile, type ProfileShape } from "@vektorprogrammet/domain/profile";
+import type { Economy } from "@vektorprogrammet/domain/receipt";
+import type { Recruitment } from "@vektorprogrammet/domain/recruitment";
+import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import { makeBackendConfig } from "./config.js";
 import { makeBackendHttp, type BackendRun } from "./router.js";
@@ -27,19 +34,42 @@ const environment = {
 } as const;
 const config = makeBackendConfig(environment);
 
-const successfulRun: BackendRun = async <A>(): Promise<A> => undefined as A;
+const database = { health: Effect.void } as unknown as DatabaseShape;
+const profile: ProfileShape = {
+  readProfiles: (personIds) =>
+    Effect.succeed(
+      personIds.map(
+        (personId) =>
+          new PersonProfile({ personId, firstName: "Member", lastName: "One", revision: 0 }),
+      ),
+    ),
+};
+const successfulRun: BackendRun = <A, E>(
+  effect: Effect.Effect<
+    A,
+    E,
+    Database | Admissions | Economy | Organization | Profile | Recruitment
+  >,
+): Promise<A> =>
+  Effect.runPromise(
+    effect.pipe(
+      Effect.provideService(Database, database),
+      Effect.provideService(Profile, profile),
+    ) as Effect.Effect<A, E>,
+  );
 const backend = makeBackendHttp(config, successfulRun);
 
 const request = (pathname: string, init?: RequestInit): Promise<Response> =>
   backend.fetch(new Request(`http://backend.test${pathname}`, init));
 
 describe("unified backend router", () => {
-  it("owns health, profile, Admission, and Receipt routes on one listener", async () => {
-    const [health, profile, admission, receipt, missing] = await Promise.all([
+  it("owns health, Profile, Admission, Receipt, and Recruitment routes on one listener", async () => {
+    const [health, profile, admission, receipt, recruitment, missing] = await Promise.all([
       request("/health"),
       request("/api/me/profile", { headers: { authorization: `Bearer ${token}` } }),
       request("/api/admin/admission-periods"),
       request("/api/receipts"),
+      request("/api/admin/recruitment/assignment-board?status=new"),
       request("/api/not-a-capability"),
     ]);
 
@@ -49,13 +79,23 @@ describe("unified backend router", () => {
     });
     expect({ status: profile.status, body: await profile.json() }).toEqual({
       status: 200,
-      body: expect.objectContaining({ userName: "member-1", role: "assistant" }),
+      body: expect.objectContaining({
+        firstName: "Member",
+        lastName: "One",
+        userName: null,
+        email: "",
+        role: "ROLE_TEAM_MEMBER",
+      }),
     });
     expect({ status: admission.status, body: await admission.json() }).toEqual({
       status: 401,
       body: { error: { tag: "UnauthenticatedActor" } },
     });
     expect({ status: receipt.status, body: await receipt.json() }).toEqual({
+      status: 401,
+      body: { error: { tag: "UnauthenticatedActor" } },
+    });
+    expect({ status: recruitment.status, body: await recruitment.json() }).toEqual({
       status: 401,
       body: { error: { tag: "UnauthenticatedActor" } },
     });

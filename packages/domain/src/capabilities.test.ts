@@ -1,3 +1,4 @@
+import { describe, expect, it } from "vitest";
 import { Database } from "./database/service.js";
 import { Admissions, AdmissionsLive } from "./admissions/index.js";
 import { Economy } from "./receipt/service.js";

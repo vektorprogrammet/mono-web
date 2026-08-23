@@ -1,4 +1,9 @@
-import type { EffectSdk } from "@vektorprogrammet/sdk/effect";
+import type {
+  RecruitmentAssignmentBoard,
+  RecruitmentAssignmentBoardQuery,
+  RecruitmentAssignmentCommand,
+  RecruitmentAssignmentResult,
+} from "@vektorprogrammet/sdk/effect";
 import { Effect, Schema as S } from "effect";
 import {
   RecruitmentAssignmentBoardSchema,
@@ -11,7 +16,14 @@ import {
 
 export type RecruitmentClient = Readonly<{
   admin: Readonly<{
-    recruitment: EffectSdk["admin"]["recruitment"];
+    recruitment: Readonly<{
+      readAssignmentBoard: (
+        query: RecruitmentAssignmentBoardQuery,
+      ) => Effect.Effect<RecruitmentAssignmentBoard, RecruitmentBridgeFailure>;
+      assignApplicant: (
+        command: RecruitmentAssignmentCommand,
+      ) => Effect.Effect<RecruitmentAssignmentResult, RecruitmentBridgeFailure>;
+    }>;
   }>;
 }>;
 

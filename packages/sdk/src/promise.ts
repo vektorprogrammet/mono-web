@@ -12,6 +12,7 @@ import { createContext } from "./context.js";
 import { createAuthDomain } from "./domains/auth.js";
 import { createMeDomain } from "./domains/me.js";
 import { createReceiptsDomain } from "./domains/receipts.js";
+import { createAdminReceiptsDomain } from "./domains/admin/receipts.js";
 import { createAdminApplicationsDomain } from "./domains/admin/applications.js";
 import { createAdminInterviewsDomain } from "./domains/admin/interviews.js";
 import { createAdminRecruitmentDomain } from "./domains/admin/recruitment.js";
@@ -207,7 +208,6 @@ export {
   RecruitmentInterviewSchemaOptionSchema,
 } from "./schemas/recruitment.js";
 export type {
-  RecruitmentAdmissionPeriodId,
   RecruitmentAssignmentStatus,
   RecruitmentAssignmentBoardQuery,
   RecruitmentAssignmentBoard,

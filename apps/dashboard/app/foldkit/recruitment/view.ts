@@ -234,6 +234,10 @@ const boardView = (model: ReadyModel, h: HtmlBuilder<Message>): Html =>
 
 const assignmentDialogView = (model: ReadyModel, h: HtmlBuilder<Message>): Html => {
   const board = AsyncData.getData(model.board);
+  const interviewers: AssignmentBoard["interviewers"] =
+    board._tag === "Some" ? board.value.interviewers : [];
+  const interviewSchemas: AssignmentBoard["interviewSchemas"] =
+    board._tag === "Some" ? board.value.interviewSchemas : [];
   const candidate =
     board._tag === "Some" && model.selectedApplicationId !== null
       ? board.value.candidates.find(
@@ -294,7 +298,7 @@ const assignmentDialogView = (model: ReadyModel, h: HtmlBuilder<Message>): Html 
                                     [...select, h.Class("fr-select")],
                                     [
                                       h.option([h.Value(""), h.Disabled(true)], ["Velg intervjuer"]),
-                                      ...board.value.interviewers.map((option) =>
+                                      ...interviewers.map((option) =>
                                         h.option([h.Value(option.personId)], [option.displayName]),
                                       ),
                                     ],
@@ -323,7 +327,7 @@ const assignmentDialogView = (model: ReadyModel, h: HtmlBuilder<Message>): Html 
                                     [...select, h.Class("fr-select")],
                                     [
                                       h.option([h.Value(""), h.Disabled(true)], ["Velg intervjuskjema"]),
-                                      ...board.value.interviewSchemas
+                                      ...interviewSchemas
                                         .filter((option) => option.active)
                                         .map((option) =>
                                           h.option(

@@ -32,13 +32,9 @@ const databaseLayer = DatabaseLive({
 const admissionsLayer = AdmissionsLive.pipe(Layer.provide(databaseLayer));
 const economyLayer = EconomyLive.pipe(Layer.provide(databaseLayer));
 const organizationLayer = OrganizationLive.pipe(Layer.provide(databaseLayer));
-const profileLayer = ProfileLive.pipe(
-  Layer.provide(Layer.merge(databaseLayer, organizationLayer)),
-);
+const profileLayer = ProfileLive.pipe(Layer.provide(Layer.merge(databaseLayer, organizationLayer)));
 const recruitmentLayer = RecruitmentLive.pipe(
-  Layer.provide(
-    Layer.mergeAll(databaseLayer, admissionsLayer, organizationLayer, profileLayer),
-  ),
+  Layer.provide(Layer.mergeAll(databaseLayer, admissionsLayer, organizationLayer, profileLayer)),
 );
 const capabilityLayers = Layer.mergeAll(
   admissionsLayer,
@@ -49,7 +45,11 @@ const capabilityLayers = Layer.mergeAll(
 );
 const runtime = ManagedRuntime.make(Layer.merge(databaseLayer, capabilityLayers));
 const run = <A, E>(
-  effect: Effect.Effect<A, E, Database | Admissions | Economy | Organization | Profile | Recruitment>,
+  effect: Effect.Effect<
+    A,
+    E,
+    Database | Admissions | Economy | Organization | Profile | Recruitment
+  >,
 ): Promise<A> => runtime.runPromise(effect);
 const api = makeBackendHttp(config, run);
 
