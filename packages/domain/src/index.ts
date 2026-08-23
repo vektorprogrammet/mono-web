@@ -65,3 +65,4 @@ export {
   type TeamRow,
 } from "./schema.js";
 export * from "./admission-period/index.js";
+export * from "./application/index.js";

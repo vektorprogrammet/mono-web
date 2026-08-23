@@ -12,6 +12,7 @@
     "./fixtures": "./src/fixtures.ts",
     "./receipt": "./src/receipt/index.ts",
     "./receipt/postgres": "./src/receipt/postgres-index.ts",
+    "./application": "./src/application/index.ts",
     "./admission-period": "./src/admission-period/index.ts"
   },
   "scripts": {
