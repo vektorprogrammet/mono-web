@@ -101,6 +101,15 @@ export type PublicApplicationSubmitInput = typeof PublicApplicationSubmitInputSc
 export const SubmitPublicApplicationInputSchema = PublicApplicationSubmitInputSchema;
 export type SubmitPublicApplicationInput = PublicApplicationSubmitInput;
 
+export const PublicApplicationActivationTokenSchema = Schema.String.pipe(
+  Schema.check(
+    Schema.makeFilter((value) => /^[A-Za-z0-9_-]{43,128}$/u.test(value), {
+      message: "a server-generated activation token",
+    }),
+  ),
+);
+export type PublicApplicationActivationToken = typeof PublicApplicationActivationTokenSchema.Type;
+
 export const SubmitPublicApplicationCommandSchema = Schema.TaggedUnion({
   SubmitPublicApplication: SubmitPublicApplicationFields,
 });
@@ -196,8 +205,9 @@ export interface PublicApplicationSubmitContext {
   readonly applicationId?: string;
   /** Optional server-owned applicant identity hint for a new normalized email. */
   readonly applicantId?: string;
+  /** Server-generated token for a new or inactive applicant. */
+  readonly activationToken: string;
 }
-
 export interface PublicApplicationSubmitResult {
   readonly observation: PublicApplicationSubmitObservation;
   readonly replayed: boolean;

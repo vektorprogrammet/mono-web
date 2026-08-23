@@ -1,6 +1,7 @@
 import { Effect, Schema } from "effect";
 import { publicApplicationCommandDigest } from "./digest.js";
 import {
+  PublicApplicationActivationTokenSchema,
   PublicApplicationEmailSchema,
   PublicApplicationIdSchema,
   type Applicant,
@@ -8,7 +9,6 @@ import {
   type PublicApplicationSubmitInput,
   type SubmitPublicApplicationCommand,
 } from "./schema.js";
-
 const EffectBase = {
   effectId: PublicApplicationIdSchema,
   commandId: PublicApplicationIdSchema,
@@ -27,17 +27,12 @@ export const PublicApplicationOutboxRequestSchema = Schema.TaggedUnion({
   SendApplicantActivationOrConfirmation: {
     ...EffectBase,
     email: PublicApplicationEmailSchema,
-    activationDigest: Schema.optional(
-      Schema.String.pipe(
-        Schema.check(
-          Schema.makeFilter((value) => /^[a-f0-9]{64}$/u.test(value), { message: "a digest" }),
-        ),
-      ),
-    ),
+    activationToken: Schema.optional(PublicApplicationActivationTokenSchema),
   },
   CreateAdmissionSubscription: {
     ...EffectBase,
     email: PublicApplicationEmailSchema,
+    departmentId: PublicApplicationIdSchema,
   },
   WriteApplicationAudit: {
     ...EffectBase,
@@ -53,6 +48,7 @@ export const PublicApplicationEffectEvidenceSchema = Schema.Struct({
   attempts: Schema.Int.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(1))),
   status: Schema.Literals(["Delivered"]),
 });
+
 export type PublicApplicationEffectEvidence = typeof PublicApplicationEffectEvidenceSchema.Type;
 
 export class PublicApplicationEffectDeliveryError extends Schema.TaggedError<PublicApplicationEffectDeliveryError>()(
@@ -64,8 +60,49 @@ export interface PublicApplicationEffectInterpreter {
   readonly deliver: (
     request: PublicApplicationOutboxRequest,
     ordinal: number,
+    attempts: number,
   ) => Effect.Effect<PublicApplicationEffectEvidence, PublicApplicationEffectDeliveryError>;
 }
+
+export interface PublicApplicationEffectPorts {
+  readonly sendApplicantNotification: (
+    request: Extract<
+      PublicApplicationOutboxRequest,
+      { readonly _tag: "SendApplicantActivationOrConfirmation" }
+    >,
+  ) => Effect.Effect<void, PublicApplicationEffectDeliveryError>;
+  readonly createAdmissionSubscription: (
+    request: Extract<
+      PublicApplicationOutboxRequest,
+      { readonly _tag: "CreateAdmissionSubscription" }
+    >,
+  ) => Effect.Effect<void, PublicApplicationEffectDeliveryError>;
+  readonly writeApplicationAudit: (
+    request: Extract<PublicApplicationOutboxRequest, { readonly _tag: "WriteApplicationAudit" }>,
+  ) => Effect.Effect<void, PublicApplicationEffectDeliveryError>;
+}
+
+export const makePublicApplicationEffectInterpreter = (
+  ports: PublicApplicationEffectPorts,
+): PublicApplicationEffectInterpreter => ({
+  deliver: (request, ordinal, attempts) =>
+    Effect.gen(function* () {
+      if (request._tag === "SendApplicantActivationOrConfirmation") {
+        yield* ports.sendApplicantNotification(request);
+      } else if (request._tag === "CreateAdmissionSubscription") {
+        yield* ports.createAdmissionSubscription(request);
+      } else {
+        yield* ports.writeApplicationAudit(request);
+      }
+      return {
+        effectId: request.effectId,
+        kind: request._tag,
+        ordinal,
+        attempts,
+        status: "Delivered" as const,
+      };
+    }),
+});
 
 export interface PublicApplicationRecordingInterpreter extends PublicApplicationEffectInterpreter {
   readonly failOnce: (effectId: string) => void;
@@ -80,9 +117,9 @@ export const makePublicApplicationOutboxRequests = (
   application: PublicApplication,
   applicant: Applicant,
   email: string,
+  activationToken?: string,
 ): ReadonlyArray<PublicApplicationOutboxRequest> => {
   const commandDigest = publicApplicationCommandDigest(command);
-  const activationDigest = applicant.activationDigest;
   const shared = {
     commandId: command.commandId,
     applicationId: application.id,
@@ -93,13 +130,14 @@ export const makePublicApplicationOutboxRequests = (
     effectId: `public-application:${commandDigest}:activation`,
     ...shared,
     email,
-    ...(activationDigest === undefined ? {} : { activationDigest }),
+    ...(activationToken === undefined ? {} : { activationToken }),
   };
   const subscription: PublicApplicationOutboxRequest = {
     _tag: "CreateAdmissionSubscription",
     effectId: `public-application:${commandDigest}:subscription`,
     ...shared,
     email,
+    departmentId: application.departmentId,
   };
   const audit: PublicApplicationOutboxRequest = {
     _tag: "WriteApplicationAudit",
@@ -146,7 +184,7 @@ export const recordPublicApplicationEffects = (
 ): Effect.Effect<
   ReadonlyArray<PublicApplicationEffectEvidence>,
   PublicApplicationEffectDeliveryError
-> => Effect.forEach(requests, (request, ordinal) => interpreter.deliver(request, ordinal));
+> => Effect.forEach(requests, (request, ordinal) => interpreter.deliver(request, ordinal, 1));
 
 export interface PublicApplicationRecordingProof {
   readonly specId: "0039";

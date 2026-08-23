@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import type { AdmissionPeriodActor } from "@vektorprogrammet/domain/admission-period";
 
 export interface AdmissionApiPrincipal {
@@ -17,6 +17,7 @@ export interface AdmissionApiConfig {
   readonly nextAdmissionPeriodId: () => string;
   readonly nextApplicantId: () => string;
   readonly nextApplicationId: () => string;
+  readonly nextActivationToken: () => string;
 }
 
 const nonEmpty = (value: unknown, field: string): string => {
@@ -156,5 +157,6 @@ export const makeAdmissionApiConfig = (
     nextAdmissionPeriodId: () => `admission_period_${randomUUID()}`,
     nextApplicantId: () => `applicant_${randomUUID()}`,
     nextApplicationId: () => `application_${randomUUID()}`,
+    nextActivationToken: () => randomBytes(32).toString("base64url"),
   };
 };

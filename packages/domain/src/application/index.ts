@@ -6,3 +6,4 @@ export * from "./outbox.js";
 export * from "./proof.js";
 export * from "./schema.js";
 export * from "./validation.js";
+export * from "./worker.js";

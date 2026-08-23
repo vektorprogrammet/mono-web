@@ -1,9 +1,12 @@
+import { randomUUID } from "node:crypto";
 import { DatabaseLive } from "@vektorprogrammet/database";
+import { runPublicApplicationOutboxWorker } from "@vektorprogrammet/domain/application";
 import { Admissions, AdmissionsLive } from "@vektorprogrammet/domain/admissions";
 import { databaseHealth, type Database } from "@vektorprogrammet/domain/database";
 import { Economy } from "@vektorprogrammet/domain/receipt";
 import { EconomyLive } from "@vektorprogrammet/domain/receipt/postgres";
-import { Effect, Layer, ManagedRuntime, Redacted } from "effect";
+import { Effect, Exit, Fiber, Layer, ManagedRuntime, Redacted } from "effect";
+import { makeHttpPublicApplicationEffectInterpreter } from "./application/effects.js";
 import { makeBackendConfig } from "./config.js";
 import { makeBackendHttp } from "./router.js";
 
@@ -45,6 +48,23 @@ try {
 
 if (process.exitCode !== 1) {
   const server = Bun.serve({ hostname: config.host, port: config.port, fetch: api.fetch });
+  const workerFiber =
+    config.publicApplicationEffects === undefined
+      ? undefined
+      : runtime.runFork(
+          runPublicApplicationOutboxWorker(
+            makeHttpPublicApplicationEffectInterpreter(config.publicApplicationEffects),
+            {
+              workerId: `backend-${randomUUID()}`,
+              pollIntervalMilliseconds: config.publicApplicationEffects.pollIntervalMilliseconds,
+              staleClaimMilliseconds: config.publicApplicationEffects.staleClaimMilliseconds,
+              now: () => new Date().toISOString(),
+            },
+          ),
+        );
+  if (workerFiber === undefined) {
+    process.stderr.write("public application effect worker is not configured\n");
+  }
   process.stdout.write(`backend listening on ${config.host}:${config.port}\n`);
   let shutdownPromise: Promise<void> | undefined;
   const shutdown = () => {
@@ -55,14 +75,30 @@ if (process.exitCode !== 1) {
       } catch {
         exitCode = 1;
       }
+      if (workerFiber !== undefined) {
+        try {
+          await runtime.runPromise(Fiber.interrupt(workerFiber));
+        } catch {
+          exitCode = 1;
+        }
+      }
       try {
         await runtime.dispose();
       } catch {
         exitCode = 1;
       }
       process.exitCode = exitCode;
+      process.exit(exitCode);
     })();
   };
+  if (workerFiber !== undefined) {
+    void runtime.runPromise(Fiber.await(workerFiber)).then((exit) => {
+      if (Exit.isFailure(exit) && shutdownPromise === undefined) {
+        process.stderr.write("public application effect worker failed\n");
+        shutdown();
+      }
+    });
+  }
   process.once("SIGINT", shutdown);
   process.once("SIGTERM", shutdown);
 }

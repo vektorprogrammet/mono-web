@@ -19,6 +19,7 @@ import {
 } from "./effects.js";
 import {
   publicApplicantIdForCommand,
+  publicApplicationActivationDigest,
   publicApplicationCommandDigest,
   publicApplicationIdForCommand,
   canonicalJson,
@@ -32,6 +33,7 @@ import {
   ApplicantRecordSchema,
   PublicApplicationCatalogSchema,
   PublicApplicationConfirmationSchema,
+  PublicApplicationActivationTokenSchema,
   PublicApplicationSchema,
   PublicApplicationSubmitObservationSchema,
   type ApplicantRecord,
@@ -447,10 +449,21 @@ const executeCommandInTransaction = (
     const applicantId =
       existingApplicant?.id ??
       (context.applicantId?.trim() || publicApplicantIdForCommand(command));
+    const requiresActivation =
+      existingApplicant === undefined || existingApplicant.activationDigest !== undefined;
+    const activationToken = requiresActivation
+      ? yield* Schema.decodeUnknownEffect(PublicApplicationActivationTokenSchema)(
+          context.activationToken,
+        ).pipe(
+          Effect.mapError(
+            () => new PublicApplicationDecodeError({ message: "invalid activation token" }),
+          ),
+        )
+      : undefined;
     const activationDigest =
-      existingApplicant === undefined
-        ? publicApplicationCommandDigest(command)
-        : existingApplicant.activationDigest;
+      activationToken === undefined
+        ? undefined
+        : publicApplicationActivationDigest(activationToken);
     const applicant: ApplicantRecord = {
       id: applicantId,
       normalizedEmail,
@@ -500,6 +513,7 @@ const executeCommandInTransaction = (
       application,
       applicant,
       command.email,
+      activationToken,
     );
     yield* writeOutbox(sql, requests);
     return { observation, replayed: false, outboxCount: requests.length };

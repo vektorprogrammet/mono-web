@@ -324,6 +324,7 @@ const submitApplication = async (
         now: input.config.now(),
         applicationId: input.config.nextApplicationId(),
         applicantId: input.config.nextApplicantId(),
+        activationToken: input.config.nextActivationToken(),
       }),
     ),
     input.run,

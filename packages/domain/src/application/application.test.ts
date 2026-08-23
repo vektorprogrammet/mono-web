@@ -9,6 +9,7 @@ import {
   PublicApplicationSubmitObservationSchema,
 } from "./index.js";
 
+const activationToken = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQ";
 const input = {
   commandId: "command-1",
   departmentId: "department-1",
@@ -86,7 +87,9 @@ describe("public applicant domain", () => {
       application,
       applicant,
       applicant.email,
+      activationToken,
     );
+    expect(requests[0]).toMatchObject({ activationToken });
     const interpreter = makeRecordingPublicApplicationEffectInterpreter();
     const first = await Effect.runPromise(recordPublicApplicationEffects(requests, interpreter));
     const retry = await Effect.runPromise(
