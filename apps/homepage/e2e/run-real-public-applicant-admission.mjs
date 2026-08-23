@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { spawn, spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { access, mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
@@ -24,6 +24,7 @@ const postgresPort = 55432;
 const nixPostgresPackage = "nixpkgs#postgresql_17";
 const remoteEvidenceAuthorized =
   process.env.CI === "true" &&
+  process.env.GITHUB_ACTIONS === "true" &&
   process.env.PUBLIC_APPLICATION_REMOTE_EVIDENCE === "1";
 const fixedClock = "2031-09-15T12:00:00.000Z";
 const departmentId = "department-trondheim";
@@ -41,11 +42,8 @@ const privateCanaries = [
   "+47 900 00 039",
 ];
 const secretCanaries = ["receipt:receipt"];
-const dockerAvailable =
-  spawnSync("docker", ["compose", "version"], { stdio: "ignore" }).status ===
-  0;
-const postgresTopology = dockerAvailable ? "docker" : "local";
-
+const postgresTopology = "docker";
+const commandProcesses = new Set();
 
 const sleep = (milliseconds) =>
   new Promise((resolveSleep) => setTimeout(resolveSleep, milliseconds));
@@ -82,7 +80,9 @@ function runCommand(command, args, options) {
       stdio: captureOutput
         ? ["ignore", "pipe", "pipe"]
         : ["ignore", "inherit", "inherit"],
+      detached: true,
     });
+    commandProcesses.add(child);
     const stdout = [];
     if (captureOutput) {
       child.stdout.on("data", (chunk) => stdout.push(chunk));
@@ -91,12 +91,7 @@ function runCommand(command, args, options) {
 
     let settled = false;
     const timeout = setTimeout(() => {
-      child.kill("SIGTERM");
-      const hardKill = setTimeout(
-        () => child.kill("SIGKILL"),
-        shutdownTimeoutMs,
-      );
-      hardKill.unref();
+      void stopProcess(child).catch(() => undefined);
       if (!settled) {
         settled = true;
         rejectCommand(new Error(`${options.label} timed out`));
@@ -105,12 +100,14 @@ function runCommand(command, args, options) {
     timeout.unref();
 
     child.once("error", () => {
+      commandProcesses.delete(child);
       if (settled) return;
       settled = true;
       clearTimeout(timeout);
       rejectCommand(new Error(`${options.label} could not start`));
     });
     child.once("close", (code, signal) => {
+      commandProcesses.delete(child);
       if (settled) return;
       settled = true;
       clearTimeout(timeout);
@@ -815,7 +812,11 @@ async function main() {
     cleaned = true;
     const cleanupErrors = [];
 
-    for (const processToStop of [homepageProcess, apiProcess]) {
+    for (const processToStop of [
+      ...commandProcesses,
+      homepageProcess,
+      apiProcess,
+    ]) {
       try {
         await stopProcess(processToStop);
       } catch (error) {
@@ -905,16 +906,14 @@ async function main() {
       await initializeLocalPostgres(postgresDataRoot, baseEnvironment);
     }
 
-    const configuredApiCommand = process.env.ADMISSION_API_COMMAND;
-    apiProcess = configuredApiCommand
-      ? startProcess("/bin/sh", ["-c", configuredApiCommand], {
-          cwd: repositoryRoot,
-          env: apiEnvironment,
-        })
-      : startProcess("bun", ["run", "--cwd", "apps/admission-api", "start"], {
-          cwd: repositoryRoot,
-          env: apiEnvironment,
-        });
+    apiProcess = startProcess(
+      "bun",
+      ["run", "--cwd", "apps/admission-api", "start"],
+      {
+        cwd: repositoryRoot,
+        env: apiEnvironment,
+      },
+    );
     await waitForHttp(
       `${admissionApiOrigin}/health`,
       apiProcess,
@@ -959,11 +958,10 @@ async function main() {
       "playwright",
     );
     await runCommand(
-      "bun",
+      "node",
       [
-        "run",
-        "e2e:test",
-        "--",
+        "./node_modules/@playwright/test/cli.js",
+        "test",
         "e2e/public-applicant-admission.spec.ts",
         "--project=chromium",
         "--workers=1",
