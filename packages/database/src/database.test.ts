@@ -1,9 +1,14 @@
 import { afterAll, describe, expect, it } from "vitest";
-import { Effect, ManagedRuntime } from "effect";
+import { Economy } from "@vektorprogrammet/domain/receipt";
+import { EconomyLive } from "@vektorprogrammet/domain/receipt/postgres";
 import { Database } from "@vektorprogrammet/domain/database";
+import { Effect, Layer, ManagedRuntime } from "effect";
 import { DatabaseTest } from "./layers.js";
 
-const runtime = ManagedRuntime.make(DatabaseTest());
+const databaseLayer = DatabaseTest();
+const runtime = ManagedRuntime.make(
+  Layer.merge(databaseLayer, EconomyLive.pipe(Layer.provide(databaseLayer))),
+);
 
 afterAll(async () => {
   await runtime.dispose();
@@ -69,5 +74,45 @@ describe("DatabaseTest", () => {
 
     expect(second).toBe(first);
     expect(rows).toEqual([{ migration_count: "3" }]);
+  });
+
+  it("runs the Economy authority contract against PGlite", async () => {
+    const command = {
+      _tag: "SubmitReceipt" as const,
+      commandId: "pglite-command-submit",
+      actor: {
+        personId: "pglite-owner",
+        departmentId: "pglite-department",
+        active: true,
+        approvalScope: { _tag: "None" as const },
+      },
+      departmentId: "pglite-department",
+      paymentAccountCiphertext: "ciphertext:v1:pglite-account",
+      description: "PGlite authority contract",
+      amountOre: 12_345,
+      receiptDate: "2026-08-23",
+      file: {
+        fileRef: "pglite-file",
+        objectKey: "temporary/pglite-file",
+        contentType: "application/pdf",
+        byteLength: 256,
+        sha256: "c".repeat(64),
+      },
+    };
+    const context = {
+      receiptId: "pglite-receipt",
+      visualId: "PGLITE-0001",
+      now: "2026-08-23T12:00:00.000Z",
+    };
+    const execute = Economy.use(({ executeReceipt }) => executeReceipt(command, context));
+
+    const first = await runtime.runPromise(execute);
+    const replay = await runtime.runPromise(execute);
+
+    expect(first.observation.status).toBe("Pending");
+    expect(first.observation.replayed).toBe(false);
+    expect(first.replayed).toBe(false);
+    expect(replay.observation).toEqual({ ...first.observation, replayed: true });
+    expect(replay.replayed).toBe(true);
   });
 });
