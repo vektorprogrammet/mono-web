@@ -1,4 +1,4 @@
-import * as PgClient from "@effect/sql-pg/PgClient";
+import { DatabaseLive } from "@vektorprogrammet/database";
 import {
   claimNextPublicApplicationOutbox,
   deliverNextPublicApplicationOutbox,
@@ -14,7 +14,7 @@ if (!postgresUrl) {
 
 const claimedAt = "2031-09-15T12:00:01.000Z";
 const interpreter = makeRecordingPublicApplicationEffectInterpreter();
-const postgresLayer = PgClient.layer({
+const databaseLayer = DatabaseLive({
   url: Redacted.make(postgresUrl),
   applicationName: "public-application-recording-outbox-0039",
   maxConnections: 2,
@@ -23,7 +23,6 @@ const failProof = (message: string): Effect.Effect<never> =>
   Effect.sync(() => {
     throw new Error(message);
   });
-
 
 const program = Effect.gen(function* () {
   const firstClaim = yield* claimNextPublicApplicationOutbox(
@@ -35,18 +34,11 @@ const program = Effect.gen(function* () {
   }
 
   interpreter.failOnce(firstClaim.effectId);
-  const injected = yield* Effect.exit(
-    interpreter.deliver(firstClaim.request, firstClaim.ordinal),
-  );
+  const injected = yield* Effect.exit(interpreter.deliver(firstClaim.request, firstClaim.ordinal));
   if (injected._tag !== "Failure") {
-    return yield* failProof(
-      "Recording interpreter did not inject the requested failure",
-    );
+    return yield* failProof("Recording interpreter did not inject the requested failure");
   }
-  yield* failPublicApplicationOutbox(
-    firstClaim,
-    "InjectedRecordingFailure",
-  );
+  yield* failPublicApplicationOutbox(firstClaim, "InjectedRecordingFailure");
 
   const retry = yield* deliverNextPublicApplicationOutbox(
     "public-application-retry",
@@ -54,9 +46,7 @@ const program = Effect.gen(function* () {
     interpreter,
   );
   if (retry._tag !== "Delivered" || retry.claim.effectId !== firstClaim.effectId) {
-    return yield* failProof(
-      "Public-application outbox did not retry the failed effect first",
-    );
+    return yield* failProof("Public-application outbox did not retry the failed effect first");
   }
 
   let deliveryIndex = 0;
@@ -68,15 +58,11 @@ const program = Effect.gen(function* () {
     );
     if (result._tag === "Idle") break;
     if (result._tag !== "Delivered") {
-      return yield* failProof(
-        "Public-application outbox returned an unexpected delivery state",
-      );
+      return yield* failProof("Public-application outbox returned an unexpected delivery state");
     }
     deliveryIndex += 1;
     if (deliveryIndex > 32) {
-      return yield* failProof(
-        "Public-application outbox did not reach its bounded idle state",
-      );
+      return yield* failProof("Public-application outbox did not reach its bounded idle state");
     }
   }
 
@@ -86,15 +72,14 @@ const program = Effect.gen(function* () {
     retriedEffectId: firstClaim.effectId,
     injectedFailureTag: "InjectedRecordingFailure",
     appliedEffectIds,
-    duplicateProviderApplyCount:
-      appliedEffectIds.length - new Set(appliedEffectIds).size,
+    duplicateProviderApplyCount: appliedEffectIds.length - new Set(appliedEffectIds).size,
     effects: snapshot,
   };
 });
 
 try {
   const evidence = await Effect.runPromise(
-    Effect.scoped(program.pipe(Effect.provide(postgresLayer))),
+    Effect.scoped(program.pipe(Effect.provide(databaseLayer))),
   );
   process.stdout.write(`${JSON.stringify(evidence)}\n`);
 } catch {
