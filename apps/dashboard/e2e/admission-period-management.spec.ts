@@ -6,6 +6,7 @@ import {
   test,
   type APIRequestContext,
   type APIResponse,
+  type Frame,
   type Page,
 } from "@playwright/test";
 
@@ -100,6 +101,24 @@ async function authenticate(page: Page): Promise<void> {
   ]);
 }
 
+const waitForNavigationQuiescence = (page: Page): Promise<void> => {
+  const { promise, resolve } = Promise.withResolvers<void>();
+  let timeout: ReturnType<typeof setTimeout>;
+  const settle = () => {
+    clearTimeout(timeout);
+    timeout = setTimeout(() => {
+      page.off("framenavigated", onFrameNavigated);
+      resolve();
+    }, 6_000);
+  };
+  const onFrameNavigated = (frame: Frame) => {
+    if (frame === page.mainFrame()) settle();
+  };
+  page.on("framenavigated", onFrameNavigated);
+  settle();
+  return promise;
+};
+
 async function errorTag(response: APIResponse): Promise<string> {
   return decodeStrict(errorSchema, await response.json()).error.tag;
 }
@@ -153,6 +172,10 @@ test.describe("Native admission-period management", () => {
 
     await authenticate(page);
     await page.goto("/dashboard/opptaksperioder");
+    await expect(page.getByRole("heading", { level: 1, name: "Opptaksperioder" })).toBeVisible();
+    await waitForNavigationQuiescence(page);
+    await page.reload();
+    await page.waitForLoadState("networkidle");
     await expect(page.getByRole("heading", { level: 1, name: "Opptaksperioder" })).toBeVisible();
     await expect(page.getByText("Ingen opptaksperioder er opprettet.")).toBeVisible();
 
