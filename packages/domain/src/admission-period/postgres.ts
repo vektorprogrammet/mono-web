@@ -17,18 +17,18 @@ import {
 import { admissionPeriodCommandDigest, canonicalJson } from "./digest.js";
 import type { AdmissionPeriodOutboxRequest } from "./effects.js";
 import {
+  AdmissionDepartment,
+  AdmissionPeriod,
   AdmissionPeriodCommandSchema,
   AdmissionPeriodObservationSchema,
   AdmissionPeriodProjectionSchema,
-  AdmissionPeriodSchema,
-  AdmissionSemesterSchema,
+  AdmissionSemester,
   isRfc3339Instant,
-  type AdmissionPeriod,
   type AdmissionPeriodActor,
   type AdmissionPeriodCommand,
   type AdmissionPeriodObservation,
   type AdmissionPeriodProjection,
-  type AdmissionSemester,
+  type AdmissionSemester as AdmissionSemesterValue,
 } from "./schema.js";
 import type {
   AdmissionPeriodCommandContext,
@@ -36,26 +36,6 @@ import type {
   AdmissionPeriodTransactionResult,
 } from "./context.js";
 import { contextForActor, decideAdmissionPeriod } from "./update.js";
-
-interface AdmissionPeriodRow {
-  readonly admission_period_id: string;
-  readonly department_id: string;
-  readonly semester_id: string;
-  readonly start_at: string;
-  readonly end_at: string;
-  readonly revision: number;
-  readonly last_command_id: string;
-}
-
-interface AdmissionPeriodProjectionRow extends AdmissionPeriodRow {
-  readonly eligible: boolean;
-}
-
-interface SemesterRow {
-  readonly semester_id: string;
-  readonly start_at: string;
-  readonly end_at: string;
-}
 
 interface PeriodCommandReceiptRow {
   readonly command_sha256: string;
@@ -67,54 +47,39 @@ const periodPersistenceError = (operation: string, cause: unknown) =>
   new AdmissionPeriodPersistenceError({ operation, message: String(cause) });
 
 const decodePeriodRow = (
-  row: AdmissionPeriodRow,
+  row: typeof AdmissionPeriod.Encoded,
 ): Effect.Effect<AdmissionPeriod, AdmissionPeriodPersistenceError> =>
-  Schema.decodeUnknownEffect(AdmissionPeriodSchema)({
-    id: row.admission_period_id,
-    departmentId: row.department_id,
-    semesterId: row.semester_id,
-    startAt: row.start_at,
-    endAt: row.end_at,
-    revision: row.revision,
-    lastCommandId: row.last_command_id,
+  Schema.decodeUnknownEffect(AdmissionPeriod)(row, {
+    onExcessProperty: "error",
   }).pipe(Effect.mapError((cause) => periodPersistenceError("decode admission period row", cause)));
 
-const decodeProjectionRow = (
-  row: AdmissionPeriodProjectionRow,
-): Effect.Effect<AdmissionPeriodProjection, AdmissionPeriodPersistenceError> =>
-  Schema.decodeUnknownEffect(AdmissionPeriodProjectionSchema)({
-    id: row.admission_period_id,
-    departmentId: row.department_id,
-    semesterId: row.semester_id,
-    startAt: row.start_at,
-    endAt: row.end_at,
-    revision: row.revision,
-    lastCommandId: row.last_command_id,
-    eligible: row.eligible,
-  }).pipe(
-    Effect.mapError((cause) => periodPersistenceError("decode admission period projection", cause)),
-  );
-
 const decodeSemesterRow = (
-  row: SemesterRow,
+  row: typeof AdmissionSemester.Encoded,
 ): Effect.Effect<AdmissionSemester, AdmissionPeriodPersistenceError> =>
-  Schema.decodeUnknownEffect(AdmissionSemesterSchema)({
-    semesterId: row.semester_id,
-    startAt: row.start_at,
-    endAt: row.end_at,
+  Schema.decodeUnknownEffect(AdmissionSemester)(row, {
+    onExcessProperty: "error",
   }).pipe(
     Effect.mapError((cause) => periodPersistenceError("decode admission semester row", cause)),
+  );
+
+const decodeProjectionRow = (
+  row: typeof AdmissionPeriodProjectionSchema.Encoded,
+): Effect.Effect<AdmissionPeriodProjection, AdmissionPeriodPersistenceError> =>
+  Schema.decodeUnknownEffect(AdmissionPeriodProjectionSchema)(row, {
+    onExcessProperty: "error",
+  }).pipe(
+    Effect.mapError((cause) => periodPersistenceError("decode admission period projection", cause)),
   );
 
 const findPeriodForUpdate = (
   sql: DatabaseShape,
   admissionPeriodId: string,
 ): Effect.Effect<AdmissionPeriod | undefined, AdmissionPeriodPersistenceError> =>
-  sql<AdmissionPeriodRow>`
-    SELECT admission_period_id, department_id, semester_id,
-      to_char(start_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS start_at,
-      to_char(end_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS end_at,
-      revision, last_command_id
+  sql<typeof AdmissionPeriod.Encoded>`
+    SELECT admission_period_id AS id, department_id AS "departmentId", semester_id AS "semesterId",
+      to_char(start_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "startAt",
+      to_char(end_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "endAt",
+      revision, last_command_id AS "lastCommandId"
     FROM admission_periods
     WHERE admission_period_id = ${admissionPeriodId}
     FOR UPDATE
@@ -132,11 +97,11 @@ const findPeriodByPairForUpdate = (
   departmentId: string,
   semesterId: string,
 ): Effect.Effect<AdmissionPeriod | undefined, AdmissionPeriodPersistenceError> =>
-  sql<AdmissionPeriodRow>`
-    SELECT admission_period_id, department_id, semester_id,
-      to_char(start_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS start_at,
-      to_char(end_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS end_at,
-      revision, last_command_id
+  sql<typeof AdmissionPeriod.Encoded>`
+    SELECT admission_period_id AS id, department_id AS "departmentId", semester_id AS "semesterId",
+      to_char(start_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "startAt",
+      to_char(end_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "endAt",
+      revision, last_command_id AS "lastCommandId"
     FROM admission_periods
     WHERE department_id = ${departmentId} AND semester_id = ${semesterId}
     FOR UPDATE
@@ -153,10 +118,10 @@ const findSemester = (
   sql: DatabaseShape,
   semesterId: string,
 ): Effect.Effect<AdmissionSemester | undefined, AdmissionPeriodPersistenceError> =>
-  sql<SemesterRow>`
-    SELECT semester_id,
-      to_char(start_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS start_at,
-      to_char(end_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS end_at
+  sql<typeof AdmissionSemester.Encoded>`
+    SELECT semester_id AS "semesterId",
+      to_char(start_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "startAt",
+      to_char(end_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "endAt"
     FROM admission_period_semesters
     WHERE semester_id = ${semesterId}
   `.pipe(
@@ -172,8 +137,8 @@ const departmentExists = (
   sql: DatabaseShape,
   departmentId: string,
 ): Effect.Effect<boolean, AdmissionPeriodPersistenceError> =>
-  sql<{ readonly department_id: string }>`
-    SELECT department_id
+  sql<typeof AdmissionDepartment.Encoded>`
+    SELECT department_id AS "departmentId", department_id AS name
     FROM admission_period_departments
     WHERE department_id = ${departmentId}
   `.pipe(
@@ -432,7 +397,7 @@ export const executeAdmissionPeriodCommand = (
           }
 
           let previous: AdmissionPeriod | undefined;
-          let semester: AdmissionSemester | undefined;
+          let semester: AdmissionSemesterValue | undefined;
           if (command._tag === "CreateAdmissionPeriod") {
             const departmentId = yield* effectiveCreateDepartment(command, context.actor);
             yield* sql`
@@ -518,11 +483,12 @@ const projectionRows = (
 ): Effect.Effect<ReadonlyArray<AdmissionPeriodProjection>, AdmissionPeriodPersistenceError> => {
   const query =
     departmentId === undefined
-      ? sql<AdmissionPeriodProjectionRow>`
-          SELECT p.admission_period_id, p.department_id, p.semester_id,
-            to_char(p.start_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS start_at,
-            to_char(p.end_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS end_at,
-            p.revision, p.last_command_id,
+      ? sql<typeof AdmissionPeriodProjectionSchema.Encoded>`
+          SELECT p.admission_period_id AS id, p.department_id AS "departmentId",
+            p.semester_id AS "semesterId",
+            to_char(p.start_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "startAt",
+            to_char(p.end_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "endAt",
+            p.revision, p.last_command_id AS "lastCommandId",
             (
               s.start_at <= ${now}::timestamptz AND ${now}::timestamptz < s.end_at
               AND p.start_at <= ${now}::timestamptz AND ${now}::timestamptz < p.end_at
@@ -531,11 +497,12 @@ const projectionRows = (
           INNER JOIN admission_period_semesters s ON s.semester_id = p.semester_id
           ORDER BY p.department_id, p.semester_id, p.admission_period_id
         `
-      : sql<AdmissionPeriodProjectionRow>`
-          SELECT p.admission_period_id, p.department_id, p.semester_id,
-            to_char(p.start_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS start_at,
-            to_char(p.end_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS end_at,
-            p.revision, p.last_command_id,
+      : sql<typeof AdmissionPeriodProjectionSchema.Encoded>`
+          SELECT p.admission_period_id AS id, p.department_id AS "departmentId",
+            p.semester_id AS "semesterId",
+            to_char(p.start_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "startAt",
+            to_char(p.end_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "endAt",
+            p.revision, p.last_command_id AS "lastCommandId",
             (
               s.start_at <= ${now}::timestamptz AND ${now}::timestamptz < s.end_at
               AND p.start_at <= ${now}::timestamptz AND ${now}::timestamptz < p.end_at
@@ -579,7 +546,7 @@ export const listOpenAdmissionPeriods = (
 
 export const admissionPeriodProjectionFor = (
   period: AdmissionPeriod,
-  semester: AdmissionSemester,
+  semester: AdmissionSemesterValue,
   now: string,
 ): AdmissionPeriodProjection => ({
   ...period,

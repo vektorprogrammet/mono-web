@@ -31,6 +31,7 @@ const application = {
   yearOfStudy: 3,
   submittedAt: "2026-08-23T12:00:00.000Z",
   revision: 0,
+  activationDigest: null,
 } as const;
 
 const applicant = {

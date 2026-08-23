@@ -1,6 +1,11 @@
 import { Database, type DatabaseShape } from "../database/service.js";
 import { Effect, Schema } from "effect";
 import {
+  AdmissionDepartment,
+  AdmissionFieldOfStudy,
+  AdmissionPeriod,
+} from "../admission-period/schema.js";
+import {
   DuplicatePublicApplication,
   DuplicatePublicApplicationCommandConflict,
   FieldOfStudyDepartmentMismatch,
@@ -30,14 +35,12 @@ import {
   decodeSubmitPublicApplicationCommand,
 } from "./validation.js";
 import {
-  ApplicantRecordSchema,
+  ApplicantRecord,
   PublicApplicationCatalogSchema,
   PublicApplicationConfirmationSchema,
   PublicApplicationActivationTokenSchema,
-  PublicApplicationSchema,
+  PublicApplication,
   PublicApplicationSubmitObservationSchema,
-  type ApplicantRecord,
-  type PublicApplication,
   type PublicApplicationCatalog,
   type PublicApplicationCatalogContext,
   type PublicApplicationConfirmation,
@@ -47,49 +50,6 @@ import {
   type PublicApplicationSubmitResult,
   type SubmitPublicApplicationCommand,
 } from "./schema.js";
-
-interface DepartmentRow {
-  readonly department_id: string;
-  readonly name: string;
-}
-
-interface PeriodRow {
-  readonly admission_period_id: string;
-  readonly department_id: string;
-  readonly start_at: string;
-  readonly end_at: string;
-}
-
-interface FieldOfStudyRow {
-  readonly field_of_study_id: string;
-  readonly department_id: string;
-  readonly name: string;
-  readonly active: boolean;
-}
-
-interface ApplicantRow {
-  readonly applicant_id: string;
-  readonly normalized_email: string;
-  readonly email: string;
-  readonly first_name: string;
-  readonly last_name: string;
-  readonly phone: string;
-  readonly gender: number;
-  readonly field_of_study_id: string;
-  readonly year_of_study: number;
-  readonly activation_digest: string | null;
-}
-
-interface ApplicationRow {
-  readonly application_id: string;
-  readonly applicant_id: string;
-  readonly admission_period_id: string;
-  readonly department_id: string;
-  readonly field_of_study_id: string;
-  readonly year_of_study: number;
-  readonly submitted_at: string;
-  readonly revision: number;
-}
 
 interface CommandReceiptRow {
   readonly command_sha256: string;
@@ -111,34 +71,26 @@ const persistenceError = (operation: string): PublicApplicationPersistenceError 
   });
 
 const decodeApplicantRow = (
-  row: ApplicantRow,
+  row: typeof ApplicantRecord.Encoded,
 ): Effect.Effect<ApplicantRecord, PublicApplicationPersistenceError> =>
-  Schema.decodeUnknownEffect(ApplicantRecordSchema)({
-    id: row.applicant_id,
-    normalizedEmail: row.normalized_email,
-    email: row.email,
-    firstName: row.first_name,
-    lastName: row.last_name,
-    phone: row.phone,
-    gender: row.gender,
-    fieldOfStudyId: row.field_of_study_id,
-    yearOfStudy: row.year_of_study,
-    ...(row.activation_digest === null ? {} : { activationDigest: row.activation_digest }),
+  Schema.decodeUnknownEffect(ApplicantRecord)(row, {
+    onExcessProperty: "error",
   }).pipe(Effect.mapError(() => persistenceError("decode applicant row")));
 
 const decodeApplicationRow = (
-  row: ApplicationRow,
+  row: typeof PublicApplication.Encoded,
 ): Effect.Effect<PublicApplication, PublicApplicationPersistenceError> =>
-  Schema.decodeUnknownEffect(PublicApplicationSchema)({
-    id: row.application_id,
-    applicantId: row.applicant_id,
-    admissionPeriodId: row.admission_period_id,
-    departmentId: row.department_id,
-    fieldOfStudyId: row.field_of_study_id,
-    yearOfStudy: row.year_of_study,
-    submittedAt: row.submitted_at,
-    revision: row.revision,
+  Schema.decodeUnknownEffect(PublicApplication)(row, {
+    onExcessProperty: "error",
   }).pipe(Effect.mapError(() => persistenceError("decode application row")));
+
+const decodeAdmissionPeriodRow = (
+  row: typeof AdmissionPeriod.Encoded,
+): Effect.Effect<AdmissionPeriod, PublicApplicationPersistenceError> =>
+  Schema.decodeUnknownEffect(AdmissionPeriod)(row, {
+    onExcessProperty: "error",
+  }).pipe(Effect.mapError(() => persistenceError("decode admission period row")));
+
 
 const decodeStoredObservation = (
   value: unknown,
@@ -158,8 +110,9 @@ const departmentExists = (
   sql: DatabaseShape,
   departmentId: string,
 ): Effect.Effect<boolean, PublicApplicationPersistenceError> =>
-  sql<DepartmentRow>`
-    SELECT department_id, COALESCE(NULLIF(name, ''), department_id) AS name
+  sql<typeof AdmissionDepartment.Encoded>`
+    SELECT department_id AS "departmentId",
+      COALESCE(NULLIF(name, ''), department_id) AS name
     FROM admission_period_departments
     WHERE department_id = ${departmentId}
   `.pipe(
@@ -171,11 +124,15 @@ const findEligiblePeriod = (
   sql: DatabaseShape,
   departmentId: string,
   now: string,
-): Effect.Effect<PeriodRow | undefined, PublicApplicationPersistenceError> =>
-  sql<PeriodRow>`
-    SELECT p.admission_period_id, p.department_id,
-      to_char(p.start_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS start_at,
-      to_char(p.end_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS end_at
+): Effect.Effect<AdmissionPeriod | undefined, PublicApplicationPersistenceError> =>
+  sql<typeof AdmissionPeriod.Encoded>`
+    SELECT p.admission_period_id AS id,
+      p.department_id AS "departmentId",
+      p.semester_id AS "semesterId",
+      to_char(p.start_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "startAt",
+      to_char(p.end_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "endAt",
+      p.revision,
+      p.last_command_id AS "lastCommandId"
     FROM admission_periods p
     INNER JOIN admission_period_semesters s ON s.semester_id = p.semester_id
     WHERE p.department_id = ${departmentId}
@@ -185,23 +142,34 @@ const findEligiblePeriod = (
     LIMIT 1
     FOR UPDATE OF p
   `.pipe(
-    Effect.map((rows) => rows[0]),
+    Effect.flatMap((rows) =>
+      rows[0] === undefined
+        ? Effect.succeed(undefined)
+        : decodeAdmissionPeriodRow(rows[0]),
+    ),
     Effect.catchTag("SqlError", () =>
       Effect.fail(persistenceError("find eligible admission period")),
     ),
   );
 
+
 const findFieldOfStudy = (
   sql: DatabaseShape,
   fieldOfStudyId: string,
-): Effect.Effect<FieldOfStudyRow | undefined, PublicApplicationPersistenceError> =>
-  sql<FieldOfStudyRow>`
-    SELECT field_of_study_id, department_id, name, active
+): Effect.Effect<AdmissionFieldOfStudy | undefined, PublicApplicationPersistenceError> =>
+  sql<typeof AdmissionFieldOfStudy.Encoded>`
+    SELECT field_of_study_id AS "fieldOfStudyId", department_id AS "departmentId", name, active
     FROM admission_period_fields_of_study
     WHERE field_of_study_id = ${fieldOfStudyId}
     FOR SHARE
   `.pipe(
-    Effect.map((rows) => rows[0]),
+    Effect.flatMap((rows) =>
+      rows[0] === undefined
+        ? Effect.succeed(undefined)
+        : Schema.decodeUnknownEffect(AdmissionFieldOfStudy)(rows[0], {
+            onExcessProperty: "error",
+          }).pipe(Effect.mapError(() => persistenceError("decode field of study row"))),
+    ),
     Effect.catchTag("SqlError", () => Effect.fail(persistenceError("read field of study"))),
   );
 
@@ -209,9 +177,17 @@ const findApplicantForUpdate = (
   sql: DatabaseShape,
   normalizedEmail: string,
 ): Effect.Effect<ApplicantRecord | undefined, PublicApplicationPersistenceError> =>
-  sql<ApplicantRow>`
-    SELECT applicant_id, normalized_email, email, first_name, last_name, phone,
-      gender, field_of_study_id, year_of_study, activation_digest
+  sql<typeof ApplicantRecord.Encoded>`
+    SELECT applicant_id AS id,
+      normalized_email AS "normalizedEmail",
+      email,
+      first_name AS "firstName",
+      last_name AS "lastName",
+      phone,
+      gender,
+      field_of_study_id AS "fieldOfStudyId",
+      year_of_study AS "yearOfStudy",
+      activation_digest AS "activationDigest"
     FROM admission_applicants
     WHERE normalized_email = ${normalizedEmail}
     FOR UPDATE
@@ -227,11 +203,16 @@ const findApplicationForApplicantPeriod = (
   applicantId: string,
   admissionPeriodId: string,
 ): Effect.Effect<PublicApplication | undefined, PublicApplicationPersistenceError> =>
-  sql<ApplicationRow>`
-    SELECT application_id, applicant_id, admission_period_id,
-      department_id, field_of_study_id, year_of_study,
-      to_char(submitted_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS submitted_at,
-      revision
+  sql<typeof PublicApplication.Encoded>`
+    SELECT application_id AS id,
+      applicant_id AS "applicantId",
+      admission_period_id AS "admissionPeriodId",
+      department_id AS "departmentId",
+      field_of_study_id AS "fieldOfStudyId",
+      year_of_study AS "yearOfStudy",
+      to_char(submitted_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "submittedAt",
+      revision,
+      activation_digest AS "activationDigest"
     FROM admission_applications
     WHERE applicant_id = ${applicantId} AND admission_period_id = ${admissionPeriodId}
     FOR UPDATE
@@ -246,11 +227,16 @@ const findApplicationById = (
   sql: DatabaseShape,
   applicationId: string,
 ): Effect.Effect<PublicApplication | undefined, PublicApplicationPersistenceError> =>
-  sql<ApplicationRow>`
-    SELECT application_id, applicant_id, admission_period_id,
-      department_id, field_of_study_id, year_of_study,
-      to_char(submitted_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS submitted_at,
-      revision
+  sql<typeof PublicApplication.Encoded>`
+    SELECT application_id AS id,
+      applicant_id AS "applicantId",
+      admission_period_id AS "admissionPeriodId",
+      department_id AS "departmentId",
+      field_of_study_id AS "fieldOfStudyId",
+      year_of_study AS "yearOfStudy",
+      to_char(submitted_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "submittedAt",
+      revision,
+      activation_digest AS "activationDigest"
     FROM admission_applications
     WHERE application_id = ${applicationId}
     FOR UPDATE
@@ -289,7 +275,7 @@ const writeApplicant = (
     ${applicant.id}, ${applicant.normalizedEmail}, ${applicant.email},
     ${applicant.firstName}, ${applicant.lastName}, ${applicant.phone},
     ${applicant.gender}, ${applicant.fieldOfStudyId}, ${applicant.yearOfStudy},
-    ${applicant.activationDigest ?? null}
+    ${applicant.activationDigest}
   )
 `.pipe(
     Effect.asVoid,
@@ -309,7 +295,7 @@ const updateApplicant = (
     gender = ${applicant.gender},
     field_of_study_id = ${applicant.fieldOfStudyId},
     year_of_study = ${applicant.yearOfStudy},
-    activation_digest = COALESCE(${applicant.activationDigest ?? null}, activation_digest)
+    activation_digest = COALESCE(${applicant.activationDigest}, activation_digest)
   WHERE applicant_id = ${applicant.id}
 `.pipe(
     Effect.asVoid,
@@ -319,7 +305,6 @@ const updateApplicant = (
 const writeApplication = (
   sql: DatabaseShape,
   application: PublicApplication,
-  activationDigest: string | undefined,
 ): Effect.Effect<void, PublicApplicationPersistenceError> =>
   sql`
   INSERT INTO admission_applications (
@@ -329,7 +314,7 @@ const writeApplication = (
     ${application.id}, ${application.applicantId}, ${application.admissionPeriodId},
     ${application.departmentId}, ${application.fieldOfStudyId},
     ${application.yearOfStudy}, ${application.submittedAt}, ${application.revision},
-    ${activationDigest ?? null}
+    ${application.activationDigest}
   )
 `.pipe(
     Effect.asVoid,
@@ -437,7 +422,7 @@ const executeCommandInTransaction = (
     if (field === undefined) {
       return yield* new FieldOfStudyNotFound({ fieldOfStudyId: command.fieldOfStudyId });
     }
-    if (field.department_id !== command.departmentId) {
+    if (field.departmentId !== command.departmentId) {
       return yield* new FieldOfStudyDepartmentMismatch({
         fieldOfStudyId: command.fieldOfStudyId,
         departmentId: command.departmentId,
@@ -449,10 +434,9 @@ const executeCommandInTransaction = (
 
     const existingApplicant = yield* findApplicantForUpdate(sql, normalizedEmail);
     const applicantId =
-      existingApplicant?.id ??
-      (context.applicantId?.trim() || publicApplicantIdForCommand(command));
+      existingApplicant?.id ?? (context.applicantId?.trim() || publicApplicantIdForCommand(command));
     const requiresActivation =
-      existingApplicant === undefined || existingApplicant.activationDigest !== undefined;
+      existingApplicant === undefined || existingApplicant.activationDigest !== null;
     const activationToken = requiresActivation
       ? yield* Schema.decodeUnknownEffect(PublicApplicationActivationTokenSchema)(
           context.activationToken,
@@ -464,7 +448,7 @@ const executeCommandInTransaction = (
       : undefined;
     const activationDigest =
       activationToken === undefined
-        ? undefined
+        ? null
         : publicApplicationActivationDigest(activationToken);
     const applicant: ApplicantRecord = {
       id: applicantId,
@@ -476,12 +460,12 @@ const executeCommandInTransaction = (
       gender: command.gender,
       fieldOfStudyId: command.fieldOfStudyId,
       yearOfStudy: command.yearOfStudy,
-      ...(activationDigest === undefined ? {} : { activationDigest }),
+      activationDigest,
     };
     const duplicate = yield* findApplicationForApplicantPeriod(
       sql,
       applicant.id,
-      period.admission_period_id,
+      period.id,
     );
     if (duplicate !== undefined) return yield* new DuplicatePublicApplication();
 
@@ -495,14 +479,15 @@ const executeCommandInTransaction = (
     const application: PublicApplication = {
       id: applicationId,
       applicantId: applicant.id,
-      admissionPeriodId: period.admission_period_id,
-      departmentId: period.department_id,
+      admissionPeriodId: period.id,
+      departmentId: period.departmentId,
       fieldOfStudyId: command.fieldOfStudyId,
       yearOfStudy: command.yearOfStudy,
       submittedAt: now,
       revision: 0,
+      activationDigest,
     };
-    yield* writeApplication(sql, application, activationDigest);
+    yield* writeApplication(sql, application);
     const observation: PublicApplicationSubmitObservation = {
       _tag: "Submitted",
       commandId: command.commandId,
@@ -605,6 +590,7 @@ export const listPublicApplicationCatalog = (
     }
     return yield* decodeCatalog({ departments: [...departments.values()] });
   });
+
 export const findPublicApplicationConfirmation = (
   applicationId: string,
 ): Effect.Effect<PublicApplicationConfirmation, PublicApplicationError, Database> =>
