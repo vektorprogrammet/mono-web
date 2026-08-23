@@ -53,11 +53,21 @@ export const PublicApplicationEffectEvidenceSchema = Schema.Struct({
 });
 export type PublicApplicationEffectEvidence = typeof PublicApplicationEffectEvidenceSchema.Type;
 
+export class PublicApplicationEffectDeliveryError extends Schema.TaggedError<PublicApplicationEffectDeliveryError>()(
+  "PublicApplicationEffectDeliveryError",
+  { effectId: PublicApplicationIdSchema },
+) {}
+
 export interface PublicApplicationEffectInterpreter {
   readonly deliver: (
     request: PublicApplicationOutboxRequest,
     ordinal: number,
-  ) => Effect.Effect<PublicApplicationEffectEvidence>;
+  ) => Effect.Effect<PublicApplicationEffectEvidence, PublicApplicationEffectDeliveryError>;
+}
+
+export interface PublicApplicationRecordingInterpreter extends PublicApplicationEffectInterpreter {
+  readonly failOnce: (effectId: string) => void;
+  readonly snapshot: () => ReadonlyArray<PublicApplicationEffectEvidence>;
 }
 
 const effectKindOf = (request: PublicApplicationOutboxRequest): PublicApplicationEffectKind => request._tag;
@@ -97,20 +107,31 @@ export const makePublicApplicationOutboxRequests = (
   return [activation, subscription, audit];
 };
 
-export const makeRecordingPublicApplicationEffectInterpreter = (): PublicApplicationEffectInterpreter => {
+export const makeRecordingPublicApplicationEffectInterpreter = (): PublicApplicationRecordingInterpreter => {
   const attempts = new Map<string, number>();
+  const failedOnce = new Set<string>();
+  const delivered = new Map<string, PublicApplicationEffectEvidence>();
   return {
+    failOnce: (effectId) => {
+      failedOnce.add(effectId);
+    },
+    snapshot: () => [...delivered.values()],
     deliver: (request, ordinal) =>
-      Effect.sync(() => {
+      Effect.gen(function* () {
         const nextAttempts = (attempts.get(request.effectId) ?? 0) + 1;
         attempts.set(request.effectId, nextAttempts);
-        return {
+        if (failedOnce.delete(request.effectId)) {
+          return yield* new PublicApplicationEffectDeliveryError({ effectId: request.effectId });
+        }
+        const evidence: PublicApplicationEffectEvidence = {
           effectId: request.effectId,
           kind: effectKindOf(request),
           ordinal,
           attempts: nextAttempts,
-          status: "Delivered" as const,
+          status: "Delivered",
         };
+        delivered.set(request.effectId, evidence);
+        return evidence;
       }),
   };
 };
@@ -118,7 +139,7 @@ export const makeRecordingPublicApplicationEffectInterpreter = (): PublicApplica
 export const recordPublicApplicationEffects = (
   requests: ReadonlyArray<PublicApplicationOutboxRequest>,
   interpreter = makeRecordingPublicApplicationEffectInterpreter(),
-): Effect.Effect<ReadonlyArray<PublicApplicationEffectEvidence>> =>
+): Effect.Effect<ReadonlyArray<PublicApplicationEffectEvidence>, PublicApplicationEffectDeliveryError> =>
   Effect.forEach(requests, (request, ordinal) => interpreter.deliver(request, ordinal));
 
 export interface PublicApplicationRecordingProof {
@@ -130,7 +151,7 @@ export interface PublicApplicationRecordingProof {
 
 export const runPublicApplicationRecordingProof = (
   requests: ReadonlyArray<PublicApplicationOutboxRequest>,
-): Effect.Effect<PublicApplicationRecordingProof> =>
+): Effect.Effect<PublicApplicationRecordingProof, PublicApplicationEffectDeliveryError> =>
   recordPublicApplicationEffects(requests).pipe(
     Effect.map((evidence) => ({
       specId: "0039" as const,
