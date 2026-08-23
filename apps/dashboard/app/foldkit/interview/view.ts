@@ -245,7 +245,7 @@ const interviewsView = (model: Model, h: HtmlBuilder<Message>): Html => AsyncDat
   onSuccess: (interviews) => successInterviews(model, interviews, h),
 })
 
-const dashboardView = (model: Model, h: HtmlBuilder<Message>): Html => h.main([
+const dashboardView = (model: Model, h: HtmlBuilder<Message>): Html => h.section([
   h.Class("foldkit-interview foldkit-interview--dashboard"),
 ], [
   h.header([h.Class("fk-page-header")], [
