@@ -19,6 +19,11 @@ const postgresLayer = PgClient.layer({
   applicationName: "public-application-recording-outbox-0039",
   maxConnections: 2,
 });
+const failProof = (message: string): Effect.Effect<never> =>
+  Effect.sync(() => {
+    throw new Error(message);
+  });
+
 
 const program = Effect.gen(function* () {
   const firstClaim = yield* claimNextPublicApplicationOutbox(
@@ -26,7 +31,7 @@ const program = Effect.gen(function* () {
     claimedAt,
   );
   if (firstClaim === undefined) {
-    return yield* Effect.dieMessage("Public-application outbox was empty");
+    return yield* failProof("Public-application outbox was empty");
   }
 
   interpreter.failOnce(firstClaim.effectId);
@@ -34,7 +39,7 @@ const program = Effect.gen(function* () {
     interpreter.deliver(firstClaim.request, firstClaim.ordinal),
   );
   if (injected._tag !== "Failure") {
-    return yield* Effect.dieMessage(
+    return yield* failProof(
       "Recording interpreter did not inject the requested failure",
     );
   }
@@ -49,7 +54,7 @@ const program = Effect.gen(function* () {
     interpreter,
   );
   if (retry._tag !== "Delivered" || retry.claim.effectId !== firstClaim.effectId) {
-    return yield* Effect.dieMessage(
+    return yield* failProof(
       "Public-application outbox did not retry the failed effect first",
     );
   }
@@ -63,13 +68,13 @@ const program = Effect.gen(function* () {
     );
     if (result._tag === "Idle") break;
     if (result._tag !== "Delivered") {
-      return yield* Effect.dieMessage(
+      return yield* failProof(
         "Public-application outbox returned an unexpected delivery state",
       );
     }
     deliveryIndex += 1;
     if (deliveryIndex > 32) {
-      return yield* Effect.dieMessage(
+      return yield* failProof(
         "Public-application outbox did not reach its bounded idle state",
       );
     }
@@ -89,7 +94,7 @@ const program = Effect.gen(function* () {
 
 try {
   const evidence = await Effect.runPromise(
-    program.pipe(Effect.provide(postgresLayer), Effect.scoped),
+    Effect.scoped(program.pipe(Effect.provide(postgresLayer))),
   );
   process.stdout.write(`${JSON.stringify(evidence)}\n`);
 } catch {
