@@ -2,6 +2,7 @@ export * from "./digest.js";
 export * from "./effects.js";
 export * from "./errors.js";
 export * from "./postgres.js";
+export * from "./outbox.js";
 export * from "./proof.js";
 export * from "./postgres-layer.js";
 export * from "./schema.js";
