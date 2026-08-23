@@ -73,5 +73,7 @@ export * from "./organization/postgres-layer.js";
 export * from "./organization/schema.js";
 export * from "./organization/service.js";
 export * from "./organization/transitions.js";
+export * from "./profile/index.js";
+export * from "./recruitment/index.js";
 
 export * from "./database/index.js";

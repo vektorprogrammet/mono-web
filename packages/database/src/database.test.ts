@@ -61,7 +61,12 @@ describe("DatabaseTest", () => {
               'admission_applications',
               'organization_departments',
               'organization_teams',
-              'organization_memberships'
+              'organization_memberships',
+              'person_profiles',
+              'recruitment_interview_schemas',
+              'recruitment_interviews',
+              'recruitment_assignment_command_receipts',
+              'recruitment_assignment_audit'
             )
           ORDER BY table_name
         `;
@@ -74,7 +79,7 @@ describe("DatabaseTest", () => {
     );
 
     expect(evidence).toEqual({
-      revision: "9_import-occurrence-authority",
+      revision: "10_native-recruitment-applicant-assignment",
       migrations: [
         { migration_id: 1, name: "receipt-authority" },
         { migration_id: 2, name: "admission-period-authority" },
@@ -85,6 +90,7 @@ describe("DatabaseTest", () => {
         { migration_id: 7, name: "public-applicant-activation-snapshot" },
         { migration_id: 8, name: "organization-authority" },
         { migration_id: 9, name: "import-occurrence-authority" },
+        { migration_id: 10, name: "native-recruitment-applicant-assignment" },
       ],
       tables: [
         "admission_applications",
@@ -93,6 +99,11 @@ describe("DatabaseTest", () => {
         "organization_departments",
         "organization_memberships",
         "organization_teams",
+        "person_profiles",
+        "recruitment_assignment_audit",
+        "recruitment_assignment_command_receipts",
+        "recruitment_interview_schemas",
+        "recruitment_interviews",
       ],
     });
   });
@@ -112,7 +123,7 @@ describe("DatabaseTest", () => {
     );
 
     expect(second).toBe(first);
-    expect(rows).toEqual([{ migration_count: "9" }]);
+    expect(rows).toEqual([{ migration_count: "10" }]);
   });
 
   it("executes Admissions and Organization authority adapters against PGlite", async () => {

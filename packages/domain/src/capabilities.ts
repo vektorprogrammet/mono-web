@@ -25,7 +25,7 @@ export const capabilityAuthorityDependencies = {
   Organization: ["Database"],
   Profile: ["Organization"],
   Admissions: ["Database", "Organization"],
-  Recruitment: ["Database", "Admissions", "Organization"],
+  Recruitment: ["Database", "Admissions", "Organization", "Profile"],
   Economy: ["Database", "Identity", "PrivateFileStore", "NotificationGateway"],
   Content: ["ContentManagement"],
   ContentManagement: [],

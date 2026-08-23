@@ -46,6 +46,10 @@ const importOccurrenceAuthorityMigrationUrl = new URL(
   "../migrations/0009-import-occurrence-authority.sql",
   import.meta.url,
 );
+const recruitmentMigrationUrl = new URL(
+  "../migrations/0010-native-recruitment-applicant-assignment.sql",
+  import.meta.url,
+);
 
 export type ExecuteMigration = (
   source: string,
@@ -103,9 +107,14 @@ export const databaseMigrationLoader = (execute: ExecuteMigration) =>
       importOccurrenceAuthorityMigrationUrl,
       execute,
     ),
+    "10_native-recruitment-applicant-assignment": migration(
+      "native-recruitment-applicant-assignment",
+      recruitmentMigrationUrl,
+      execute,
+    ),
   });
 
-export const databaseSchemaRevision = "9_import-occurrence-authority";
+export const databaseSchemaRevision = "10_native-recruitment-applicant-assignment";
 export const runDatabaseMigrations = (execute: ExecuteMigration) =>
   Migrator.make({})({
     loader: databaseMigrationLoader(execute),
