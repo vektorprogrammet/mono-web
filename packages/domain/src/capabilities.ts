@@ -13,12 +13,12 @@ export const capabilityNames = [
 
 export type CapabilityName = (typeof capabilityNames)[number];
 
-export type CapabilityDependencyGraph = {
+export type CapabilityAuthorityDependencyGraph = {
   readonly [Capability in CapabilityName]: ReadonlyArray<CapabilityName>;
 };
 
-/** Compile-time checked direct requirements from design spec 0040. */
-export const capabilityDependencies = {
+/** Compile-time checked logical authority dependencies from design spec 0040.1. */
+export const capabilityAuthorityDependencies = {
   Database: [],
   Identity: ["Database"],
   Organization: ["Database"],
@@ -29,4 +29,4 @@ export const capabilityDependencies = {
   ContentManagement: [],
   PrivateFileStore: [],
   NotificationGateway: [],
-} as const satisfies CapabilityDependencyGraph;
+} as const satisfies CapabilityAuthorityDependencyGraph;

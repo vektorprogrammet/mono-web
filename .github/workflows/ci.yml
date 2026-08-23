@@ -49,6 +49,11 @@ jobs:
       - name: Test
         run: bun turbo test
 
+      - name: Prove Receipt authority against PostgreSQL
+        env:
+          BACKEND_PG_URL: postgres://receipt:receipt@127.0.0.1:55432/receipt_proof
+        run: bun run --cwd packages/database proof:receipt
+
   applicant-evidence:
     name: Public applicant (PostgreSQL and Chromium)
     runs-on: ubuntu-latest

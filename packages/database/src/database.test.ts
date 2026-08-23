@@ -48,11 +48,12 @@ describe("DatabaseTest", () => {
     );
 
     expect(evidence).toEqual({
-      revision: "3_public-applicant-admission",
+      revision: "4_receipt-authority-upgrade-replay",
       migrations: [
         { migration_id: 1, name: "receipt-authority" },
         { migration_id: 2, name: "admission-period-authority" },
         { migration_id: 3, name: "public-applicant-admission" },
+        { migration_id: 4, name: "receipt-authority-upgrade-replay" },
       ],
       tables: ["admission_applications", "admission_periods", "economy_receipts"],
     });
@@ -73,7 +74,7 @@ describe("DatabaseTest", () => {
     );
 
     expect(second).toBe(first);
-    expect(rows).toEqual([{ migration_count: "3" }]);
+    expect(rows).toEqual([{ migration_count: "4" }]);
   });
 
   it("runs the Economy authority contract against PGlite", async () => {
@@ -114,5 +115,41 @@ describe("DatabaseTest", () => {
     expect(first.replayed).toBe(false);
     expect(replay.observation).toEqual({ ...first.observation, replayed: true });
     expect(replay.replayed).toBe(true);
+  });
+
+  it("acquires, migrates, and releases one shared database capability", async () => {
+    let acquisitionCount = 0;
+    let migrationCount = 0;
+    let releaseCount = 0;
+    const observedRuntime = ManagedRuntime.make(
+      DatabaseTest(undefined, {
+        onAcquire: () => {
+          acquisitionCount += 1;
+        },
+        onMigration: () => {
+          migrationCount += 1;
+        },
+        onRelease: () => {
+          releaseCount += 1;
+        },
+      }),
+    );
+
+    try {
+      await Promise.all(
+        Array.from({ length: 32 }, () =>
+          observedRuntime.runPromise(Database.use((database) => database.health)),
+        ),
+      );
+      expect({ acquisitionCount, migrationCount, releaseCount }).toEqual({
+        acquisitionCount: 1,
+        migrationCount: 1,
+        releaseCount: 0,
+      });
+    } finally {
+      await observedRuntime.dispose();
+    }
+
+    expect(releaseCount).toBe(1);
   });
 });

@@ -1,5 +1,14 @@
+import { Database } from "./database/service.js";
+import { Admissions, AdmissionsLive } from "./admissions/index.js";
+import { Economy } from "./receipt/service.js";
+import { EconomyLive } from "./receipt/postgres-layer.js";
 import { describe, expect, it } from "vitest";
-import { capabilityDependencies, capabilityNames, type CapabilityName } from "./capabilities.js";
+import type { Layer } from "effect";
+import {
+  capabilityAuthorityDependencies,
+  capabilityNames,
+  type CapabilityName,
+} from "./capabilities.js";
 
 const visit = (
   capability: CapabilityName,
@@ -9,11 +18,19 @@ const visit = (
   if (visiting.has(capability)) throw new Error(`capability cycle at ${capability}`);
   if (visited.has(capability)) return;
   visiting.add(capability);
-  for (const dependency of capabilityDependencies[capability]) {
+  for (const dependency of capabilityAuthorityDependencies[capability]) {
     visit(dependency, visiting, visited);
   }
   visiting.delete(capability);
   visited.add(capability);
+};
+
+const implementedCapabilityLayers = {
+  Admissions: AdmissionsLive,
+  Economy: EconomyLive,
+} satisfies {
+  readonly Admissions: Layer.Layer<Admissions, never, Database>;
+  readonly Economy: Layer.Layer<Economy, never, Database>;
 };
 
 describe("logical capability dependencies", () => {
@@ -23,8 +40,8 @@ describe("logical capability dependencies", () => {
     expect(visited.size).toBe(capabilityNames.length);
   });
 
-  it("matches every direct capability requirement in the frozen topology", () => {
-    expect(capabilityDependencies).toEqual({
+  it("matches every logical authority dependency in the frozen topology", () => {
+    expect(capabilityAuthorityDependencies).toEqual({
       Database: [],
       Identity: ["Database"],
       Organization: ["Database"],
@@ -36,5 +53,9 @@ describe("logical capability dependencies", () => {
       PrivateFileStore: [],
       NotificationGateway: [],
     });
+  });
+
+  it("makes implemented Layer requirements compiler-visible", () => {
+    expect(Object.keys(implementedCapabilityLayers).toSorted()).toEqual(["Admissions", "Economy"]);
   });
 });

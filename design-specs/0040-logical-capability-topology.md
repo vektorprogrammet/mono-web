@@ -4,13 +4,13 @@
 
 ## Metadata
 
-| Field | Value |
-|---|---|
-| Goal | Establish the capability and runtime contract for all remaining migration work |
-| Status | Frozen and accepted for local implementation. Remote PostgreSQL proof requires remote CI. |
-| Depends on | Design spec 0039 at `2be4112`, ADR 0004, and ADR 0005 |
-| Actor | Maintainer and capability author |
-| Environment | Local PGlite contracts and remote PostgreSQL integration. Local browser execution is prohibited. |
+| Field       | Value                                                                                                                                                                                  |
+| ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Goal        | Establish the capability and runtime contract for all remaining migration work                                                                                                         |
+| Status      | Frozen at revision 0040.1 for local implementation. Revision 0040.1 distinguishes logical authority dependencies from implemented Layer inputs and restores the PostgreSQL proof gate. |
+| Depends on  | Design spec 0039 at `2be4112`, ADR 0004, and ADR 0005                                                                                                                                  |
+| Actor       | Maintainer and capability author                                                                                                                                                       |
+| Environment | Local PGlite contracts and remote PostgreSQL integration. Local browser execution is prohibited.                                                                                       |
 
 ## User journey
 
@@ -25,17 +25,17 @@
 
 ## Canonical terms
 
-| Term | Meaning |
-|---|---|
-| Theory | The vocabulary, state, messages, laws, observations, failures, and effects for one capability |
-| Capability | Logical authority that a program can require |
-| Service | An Effect key and typed interface that exposes one capability |
-| Program | An open Effect computation whose requirements name its capabilities |
-| Layer | A constructor or interpreter that supplies capabilities from other capabilities |
-| Context | Evidence that the required capabilities have implementations |
-| ManagedRuntime | The scoped and memoized realization of the selected Layer graph |
-| Process | An optional physical placement for one or more capabilities |
-| Protocol | An optional projection across a physical boundary |
+| Term           | Meaning                                                                                       |
+| -------------- | --------------------------------------------------------------------------------------------- |
+| Theory         | The vocabulary, state, messages, laws, observations, failures, and effects for one capability |
+| Capability     | Logical authority that a program can require                                                  |
+| Service        | An Effect key and typed interface that exposes one capability                                 |
+| Program        | An open Effect computation whose requirements name its capabilities                           |
+| Layer          | A constructor or interpreter that supplies capabilities from other capabilities               |
+| Context        | Evidence that the required capabilities have implementations                                  |
+| ManagedRuntime | The scoped and memoized realization of the selected Layer graph                               |
+| Process        | An optional physical placement for one or more capabilities                                   |
+| Protocol       | An optional projection across a physical boundary                                             |
 
 A Service is not a microservice. A process boundary does not create a capability boundary.
 
@@ -43,20 +43,31 @@ A remote Layer is valid only when it preserves the capability laws. A matching T
 
 ## Logical capabilities
 
-| Capability | Owns | Direct requirements |
-|---|---|---|
-| `Database` | connection scope, transactions, migration readiness, schema revision, shutdown | Effect configuration and SQL adapter Layers |
-| `Identity` | credential authentication, actor identity, account state | `Database` |
-| `Organization` | departments, semesters, fields of study, teams, membership, positions | `Database` |
-| `Admissions` | admission windows, eligible catalog, applicant submission, application review | `Database`, `Organization` |
-| `Recruitment` | invitations, interviews, responses, offers, placements | `Database`, `Admissions`, `Organization` |
-| `Economy` | Receipt submission, revision, withdrawal, approval, refund, rejection, projections | `Database`, `Identity`, `PrivateFileStore`, `NotificationGateway` |
-| `Content` | publication rules and public content projections | `ContentManagement` |
-| `ContentManagement` | mutable editorial documents, drafts, media, and publication workflow | provider configuration |
-| `PrivateFileStore` | private object promotion, read, replacement, and deletion | provider configuration |
-| `NotificationGateway` | delivery of approved notification requests | provider configuration |
+| Capability            | Owns                                                                               | Logical authority dependencies                                    |
+| --------------------- | ---------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| `Database`            | connection scope, transactions, migration readiness, schema revision, shutdown     | Effect configuration and SQL adapter Layers                       |
+| `Identity`            | credential authentication, actor identity, account state                           | `Database`                                                        |
+| `Organization`        | departments, semesters, fields of study, teams, membership, positions              | `Database`                                                        |
+| `Admissions`          | admission windows, eligible catalog, applicant submission, application review      | `Database`, `Organization`                                        |
+| `Recruitment`         | invitations, interviews, responses, offers, placements                             | `Database`, `Admissions`, `Organization`                          |
+| `Economy`             | Receipt submission, revision, withdrawal, approval, refund, rejection, projections | `Database`, `Identity`, `PrivateFileStore`, `NotificationGateway` |
+| `Content`             | publication rules and public content projections                                   | `ContentManagement`                                               |
+| `ContentManagement`   | mutable editorial documents, drafts, media, and publication workflow               | provider configuration                                            |
+| `PrivateFileStore`    | private object promotion, read, replacement, and deletion                          | provider configuration                                            |
+| `NotificationGateway` | delivery of approved notification requests                                         | provider configuration                                            |
 
 These rows define logical authority. They do not require separate packages, processes, databases, or deployments.
+
+Logical authority dependencies describe semantic ownership, not ambient Layer inputs. Actor facts enter pure transitions as explicit command context. Durable effect requests leave transactions through the outbox. Neither is an implicit Service lookup.
+
+Revision 0040.1 records the implemented Layer graph separately:
+
+| Implemented Layer | Output       | Direct Layer input |
+| ----------------- | ------------ | ------------------ |
+| `AdmissionsLive`  | `Admissions` | `Database`         |
+| `EconomyLive`     | `Economy`    | `Database`         |
+
+The compiler checks these Layer types. `Organization`, `Identity`, `PrivateFileStore`, and `NotificationGateway` remain logical authorities. A later journey must add their Services and provider Layers before it can claim those effects are delivered. Until then, durable provider-backed outbox rows remain pending; a recording interpreter is proof machinery, not a production provider.
 
 `ContentManagement` and `Database` have different authority profiles. `ContentManagement` owns mutable, low-authority editorial state. `Database` owns important business state and its appendable history.
 
@@ -91,15 +102,15 @@ An SDK owns protocol names, strict response decoding, typed transport failures, 
 
 `Database` supplies these guarantees:
 
-| Law | Required behavior |
-|---|---|
-| Atomic transaction | A successful transaction commits every write. A failed transaction exposes no partial write. |
-| Command serialization | Commands with the same identity serialize under concurrent use. |
-| Constraint authority | Database constraints preserve cross-row invariants under concurrency. |
-| Migration identity | The runtime reaches one exact ordered schema revision before it becomes ready. |
-| Shared lifetime | One runtime shares one pool and one migration result across all request programs. |
-| Scope | Runtime disposal releases all connections and scoped resources. |
-| Dialect honesty | PGlite proves portable service laws. PostgreSQL proves locks, isolation, pool behavior, and claim recovery. |
+| Law                   | Required behavior                                                                                           |
+| --------------------- | ----------------------------------------------------------------------------------------------------------- |
+| Atomic transaction    | A successful transaction commits every write. A failed transaction exposes no partial write.                |
+| Command serialization | Commands with the same identity serialize under concurrent use.                                             |
+| Constraint authority  | Database constraints preserve cross-row invariants under concurrency.                                       |
+| Migration identity    | The runtime reaches one exact ordered schema revision before it becomes ready.                              |
+| Shared lifetime       | One runtime shares one pool and one migration result across all request programs.                           |
+| Scope                 | Runtime disposal releases all connections and scoped resources.                                             |
+| Dialect honesty       | PGlite proves portable service laws. PostgreSQL proves locks, isolation, pool behavior, and claim recovery. |
 
 `Database` does not own Receipt transitions, applicant eligibility, actor scope, HTTP status mapping, or frontend projections.
 
@@ -191,7 +202,7 @@ Legacy Symfony remains the authority only for routes that have no native cutover
 
 The implementation supplies this evidence:
 
-1. The compiler shows direct capability requirements on open programs.
+1. The compiler shows direct Layer requirements on every implemented open program; the logical authority graph remains explicit, type-checked metadata until its Services exist.
 2. `DatabaseTest` and `DatabaseLive` run the same ordered migration manifest.
 3. The same authority contract runs against PGlite and PostgreSQL.
 4. An instrumented Layer observes one database acquisition and one migration for many requests.
@@ -221,4 +232,4 @@ The topology is invalid if one of these conditions is true:
 
 ## Non-goals
 
-This contract does not authorize production deployment, production data import, provider delivery, or identity cutover. It does not require one package or process per capability.
+This contract does not authorize production deployment, production data import, provider delivery, or identity cutover. It does not require one package or process per capability. It also does not treat pending provider-backed outbox requests as delivered; supervised workers belong to the journey that supplies their real provider Layers.

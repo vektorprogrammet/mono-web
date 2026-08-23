@@ -219,6 +219,10 @@ export const runReceiptFileProof = (
         ORDER BY kind, name
       `;
     const freshSchema = yield* schemaDefinition();
+    yield* sql`
+      DELETE FROM vektorprogrammet_schema_migrations
+      WHERE migration_id = 4
+    `;
     yield* sql.unsafe(`
       ALTER TABLE economy_receipt_outbox
         DROP CONSTRAINT IF EXISTS economy_receipt_outbox_status_check;

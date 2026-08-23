@@ -53,9 +53,14 @@ export const databaseMigrationLoader = (execute: ExecuteMigration) =>
       publicApplicantMigrationUrl,
       execute,
     ),
+    "4_receipt-authority-upgrade-replay": migration(
+      "receipt-authority-upgrade-replay",
+      receiptMigrationUrl,
+      execute,
+    ),
   });
 
-export const databaseSchemaRevision = "3_public-applicant-admission";
+export const databaseSchemaRevision = "4_receipt-authority-upgrade-replay";
 
 export const runDatabaseMigrations = (execute: ExecuteMigration) =>
   Migrator.make({})({

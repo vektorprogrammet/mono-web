@@ -577,7 +577,7 @@ function assertDurableEvidence(postgres, lifecycle, delivery, persistenceFailure
   const retried = postgres.outbox.find((effect) => effect.effectId === delivery.retriedEffectId);
   if (
     retried?.attempts !== 2 ||
-    delivery.injectedFailureTag !== "InjectedRecordingFailure" ||
+    delivery.injectedFailureTag !== "PublicApplicationEffectDeliveryError" ||
     delivery.duplicateProviderApplyCount !== 0
   ) {
     throw new Error("Public-application outbox retry evidence was incomplete");

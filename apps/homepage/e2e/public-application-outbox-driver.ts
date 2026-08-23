@@ -1,8 +1,7 @@
 import { DatabaseLive } from "@vektorprogrammet/database";
+import { Database } from "@vektorprogrammet/domain/database";
 import {
-  claimNextPublicApplicationOutbox,
   deliverNextPublicApplicationOutbox,
-  failPublicApplicationOutbox,
   makeRecordingPublicApplicationEffectInterpreter,
 } from "@vektorprogrammet/domain/application";
 import { Effect, Redacted } from "effect";
@@ -25,27 +24,38 @@ const failProof = (message: string): Effect.Effect<never> =>
   });
 
 const program = Effect.gen(function* () {
-  const firstClaim = yield* claimNextPublicApplicationOutbox(
-    "public-application-injected-failure",
-    claimedAt,
+  const rows = yield* Database.use(
+    (database) =>
+      database<{ readonly effect_id: string }>`
+        SELECT outbox.effect_id
+        FROM admission_application_outbox AS outbox
+        INNER JOIN admission_application_command_receipts AS receipt
+          ON receipt.command_id = outbox.command_id
+        WHERE outbox.status IN ('Pending', 'Failed')
+        ORDER BY receipt.committed_at, outbox.command_id, outbox.ordinal
+        LIMIT 1
+      `,
   );
-  if (firstClaim === undefined) {
+  const firstEffectId = rows[0]?.effect_id;
+  if (firstEffectId === undefined) {
     return yield* failProof("Public-application outbox was empty");
   }
 
-  interpreter.failOnce(firstClaim.effectId);
-  const injected = yield* Effect.exit(interpreter.deliver(firstClaim.request, firstClaim.ordinal));
-  if (injected._tag !== "Failure") {
-    return yield* failProof("Recording interpreter did not inject the requested failure");
+  interpreter.failOnce(firstEffectId);
+  const injected = yield* deliverNextPublicApplicationOutbox(
+    "public-application-injected-failure",
+    claimedAt,
+    interpreter,
+  );
+  if (injected._tag !== "Failed" || injected.claim.effectId !== firstEffectId) {
+    return yield* failProof("Public-application outbox did not persist provider failure");
   }
-  yield* failPublicApplicationOutbox(firstClaim, "InjectedRecordingFailure");
-
   const retry = yield* deliverNextPublicApplicationOutbox(
     "public-application-retry",
     "2031-09-15T12:00:02.000Z",
     interpreter,
   );
-  if (retry._tag !== "Delivered" || retry.claim.effectId !== firstClaim.effectId) {
+  if (retry._tag !== "Delivered" || retry.claim.effectId !== firstEffectId) {
     return yield* failProof("Public-application outbox did not retry the failed effect first");
   }
 
@@ -69,8 +79,8 @@ const program = Effect.gen(function* () {
   const snapshot = interpreter.snapshot();
   const appliedEffectIds = snapshot.map((entry) => entry.effectId);
   return {
-    retriedEffectId: firstClaim.effectId,
-    injectedFailureTag: "InjectedRecordingFailure",
+    retriedEffectId: firstEffectId,
+    injectedFailureTag: injected.failureTag,
     appliedEffectIds,
     duplicateProviderApplyCount: appliedEffectIds.length - new Set(appliedEffectIds).size,
     effects: snapshot,

@@ -1,7 +1,6 @@
 import { Database } from "../database/service.js";
 import { Effect, Schema } from "effect";
 import {
-  makeRecordingPublicApplicationEffectInterpreter,
   type PublicApplicationEffectEvidence,
   type PublicApplicationEffectInterpreter,
   PublicApplicationOutboxRequestSchema,
@@ -189,7 +188,7 @@ export const recoverStalePublicApplicationOutbox = (
 export const deliverNextPublicApplicationOutbox = (
   claimId: string,
   claimedAt: string,
-  interpreter: PublicApplicationEffectInterpreter = makeRecordingPublicApplicationEffectInterpreter(),
+  interpreter: PublicApplicationEffectInterpreter,
 ): Effect.Effect<
   PublicApplicationOutboxDeliveryResult,
   PublicApplicationPersistenceError,
@@ -198,9 +197,16 @@ export const deliverNextPublicApplicationOutbox = (
   Effect.gen(function* () {
     const claim = yield* claimNextPublicApplicationOutbox(claimId, claimedAt);
     if (claim === undefined) return { _tag: "Idle" as const };
-    const evidence = yield* interpreter
-      .deliver(claim.request, claim.ordinal)
-      .pipe(Effect.mapError(() => persistenceError("deliver application outbox effect")));
-    yield* completePublicApplicationOutbox(claim);
-    return { _tag: "Delivered" as const, claim, evidence };
+    return yield* interpreter.deliver(claim.request, claim.ordinal).pipe(
+      Effect.matchEffect({
+        onFailure: (failure) =>
+          failPublicApplicationOutbox(claim, failure._tag).pipe(
+            Effect.as({ _tag: "Failed" as const, claim, failureTag: failure._tag }),
+          ),
+        onSuccess: (evidence) =>
+          completePublicApplicationOutbox(claim).pipe(
+            Effect.as({ _tag: "Delivered" as const, claim, evidence }),
+          ),
+      }),
+    );
   });
