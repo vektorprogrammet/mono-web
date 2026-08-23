@@ -1,5 +1,6 @@
 import { Schema } from "effect";
 import { Model } from "effect/unstable/schema";
+import { isRfc3339Instant, Rfc3339InstantSchema } from "../time.js";
 
 const NonEmpty = Schema.String.pipe(Schema.check(Schema.isMinLength(1)));
 
@@ -12,17 +13,16 @@ export const isIsoDate = (value: string): boolean => {
   return new Date(Date.UTC(year, month - 1, day)).toISOString().slice(0, 10) === value;
 };
 
-export const isIsoInstant = (value: string): boolean =>
-  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/.test(value) &&
-  !Number.isNaN(Date.parse(value));
+export const isIsoInstant = isRfc3339Instant;
 
 const IsoDate = Schema.String.pipe(
   Schema.check(Schema.makeFilter(isIsoDate, { message: "a valid YYYY-MM-DD date" })),
 );
-const IsoInstant = Schema.String.pipe(
-  Schema.check(Schema.makeFilter(isIsoInstant, { message: "an ISO-8601 instant with offset" })),
-);
+const IsoInstant = Rfc3339InstantSchema;
 const PositiveOre = Schema.Int.pipe(
+  Schema.check(Schema.isGreaterThan(0), Schema.isLessThanOrEqualTo(Number.MAX_SAFE_INTEGER)),
+);
+const PositiveOreFromText = Schema.NumberFromString.pipe(
   Schema.check(Schema.isGreaterThan(0), Schema.isLessThanOrEqualTo(Number.MAX_SAFE_INTEGER)),
 );
 const Revision = Schema.Int.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(0)));
@@ -158,7 +158,14 @@ export class Receipt extends Model.Class<Receipt>("Receipt")({
     insert: NonEmpty,
     json: NonEmpty,
   }),
-  amountOre: ReceiptPayloadFields.amountOre,
+  amountOre: Model.Field({
+    select: PositiveOreFromText,
+    insert: PositiveOre,
+    update: PositiveOre,
+    json: PositiveOre,
+    jsonCreate: PositiveOre,
+    jsonUpdate: PositiveOre,
+  }),
   currency: Model.Field({
     select: Schema.Literal("NOK"),
     insert: Schema.Literal("NOK"),

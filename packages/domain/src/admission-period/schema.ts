@@ -1,34 +1,9 @@
 import { Schema } from "effect";
+import { Rfc3339InstantSchema } from "../time.js";
+export { isRfc3339Instant } from "../time.js";
 
 /** A stable identifier supplied by a caller or persisted in PostgreSQL. */
 export const StableIdSchema = Schema.NonEmptyString;
-
-const Rfc3339InstantPattern =
-  /^(\d{4})-(\d{2})-(\d{2})T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)$/;
-
-/**
- * RFC 3339 timestamp validation used at every external and persisted boundary.
- * Date.parse alone accepts normalised-but-invalid calendar dates, so calendar
- * bounds are checked before accepting the instant.
- */
-export const isRfc3339Instant = (value: string): boolean => {
-  const match = Rfc3339InstantPattern.exec(value);
-  if (match === null || Number.isNaN(Date.parse(value))) return false;
-  const year = Number(match[1]);
-  const month = Number(match[2]);
-  const day = Number(match[3]);
-  if (month < 1 || month > 12 || day < 1) return false;
-  const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
-  return day <= daysInMonth;
-};
-
-export const Rfc3339InstantSchema = Schema.String.pipe(
-  Schema.check(
-    Schema.makeFilter(isRfc3339Instant, {
-      message: "an RFC 3339 instant with an explicit UTC offset",
-    }),
-  ),
-);
 
 export const RevisionSchema = Schema.Int.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(0)));
 

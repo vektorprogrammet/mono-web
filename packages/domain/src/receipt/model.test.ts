@@ -70,7 +70,7 @@ it.effect("decodes a selected Receipt and rejects an excess persisted field", ()
     visualId: "REC-MODEL-1",
     ownerPersonId: "person-1",
     departmentId: "department-1",
-    amountOre: 12_345,
+    amountOre: "12345",
     currency: "NOK",
     description: "Travel",
     receiptDate: "2026-08-20",

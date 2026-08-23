@@ -288,6 +288,13 @@ it.effect("rejects impossible calendar dates and offset-free timestamps", () =>
       decideReceipt(undefined, { ...submit, receiptDate: "2026-02-31" }, context),
     );
     expect(invalidDate._tag).toBe("ReceiptDecodeError");
+    const invalidContext = yield* Effect.flip(
+      decideReceipt(undefined, submit, {
+        ...context,
+        now: "2026-02-31T12:00:00.000Z",
+      }),
+    );
+    expect(invalidContext._tag).toBe("ReceiptDecodeError");
     const imported = importLegacyReceipt(
       { ...legacyRow, submittedAt: "2026-08-20 10:00:00" },
       "receipt-imported-3",

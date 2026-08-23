@@ -43,7 +43,7 @@ const findReceipt = (
       visual_id AS "visualId",
       owner_person_id AS "ownerPersonId",
       department_id AS "departmentId",
-      amount_ore::float8 AS "amountOre",
+      amount_ore::text AS "amountOre",
       currency,
       description,
       to_char(receipt_date, 'YYYY-MM-DD') AS "receiptDate",
@@ -213,12 +213,6 @@ export const executeReceiptCommand = (
     const command = yield* Schema.decodeUnknownEffect(ReceiptCommandSchema)(input, {
       onExcessProperty: "error",
     }).pipe(Effect.mapError((cause) => new ReceiptDecodeError({ message: String(cause) })));
-    const decodedContext = yield* Schema.decodeUnknownEffect(ReceiptDecisionContextSchema)(
-      context,
-      {
-        onExcessProperty: "error",
-      },
-    ).pipe(Effect.mapError((cause) => new ReceiptDecodeError({ message: String(cause) })));
     const sql = yield* Database;
     const commandJson = canonicalJson(command);
     const commandDigest = sha256Hex(canonicalJsonBytes(command));
@@ -251,6 +245,10 @@ export const executeReceiptCommand = (
               outboxCount: 0,
             };
           }
+          const decodedContext = yield* Schema.decodeUnknownEffect(ReceiptDecisionContextSchema)(
+            context,
+            { onExcessProperty: "error" },
+          ).pipe(Effect.mapError((cause) => new ReceiptDecodeError({ message: String(cause) })));
 
           const receiptId =
             command._tag === "SubmitReceipt" ? decodedContext.receiptId : command.receiptId;

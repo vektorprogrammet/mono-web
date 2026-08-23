@@ -13,6 +13,7 @@ import {
 import { makeReceiptOutboxRequest, sameReceiptFile, type ReceiptOutboxRequest } from "./effects.js";
 import {
   ReceiptCommandSchema,
+  ReceiptDecisionContextSchema,
   ReceiptId,
   ReceiptVisualId,
   type Receipt,
@@ -275,11 +276,22 @@ export const decodeReceiptCommand = (
     onExcessProperty: "error",
   }).pipe(Effect.mapError((cause) => new ReceiptDecodeError({ message: String(cause) })));
 
+const decodeReceiptDecisionContext = (
+  input: unknown,
+): Effect.Effect<ReceiptDecisionContext, ReceiptDecodeError> =>
+  Schema.decodeUnknownEffect(ReceiptDecisionContextSchema)(input, {
+    onExcessProperty: "error",
+  }).pipe(Effect.mapError((cause) => new ReceiptDecodeError({ message: String(cause) })));
+
 export const decideReceipt = (
   existing: Receipt | undefined,
   input: unknown,
   context: ReceiptDecisionContext,
 ): Effect.Effect<ReceiptDecision, ReceiptFailure> =>
   decodeReceiptCommand(input).pipe(
-    Effect.flatMap((command) => decideCommand(existing, command, context)),
+    Effect.flatMap((command) =>
+      decodeReceiptDecisionContext(context).pipe(
+        Effect.flatMap((decodedContext) => decideCommand(existing, command, decodedContext)),
+      ),
+    ),
   );

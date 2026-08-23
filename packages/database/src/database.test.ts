@@ -126,6 +126,19 @@ describe("DatabaseTest", () => {
     const execute = Economy.use(({ executeReceipt }) => executeReceipt(command, context));
 
     const first = await runtime.runPromise(execute);
+    const replayWithIgnoredContext = await runtime.runPromise(
+      Economy.use(({ executeReceipt }) =>
+        executeReceipt(command, {
+          receiptId: "",
+          visualId: "",
+          now: "not-an-instant",
+        }),
+      ),
+    );
+    expect(replayWithIgnoredContext).toMatchObject({
+      replayed: true,
+      observation: { ...first.observation, replayed: true },
+    });
     await runtime.runPromise(
       Database.use((database) =>
         database`
