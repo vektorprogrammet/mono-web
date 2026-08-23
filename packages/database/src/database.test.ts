@@ -1,4 +1,9 @@
 import { afterAll, describe, expect, it } from "vitest";
+import {
+  deliverNextPublicApplicationOutbox,
+  executePublicApplicationCommand,
+  makeRecordingPublicApplicationEffectInterpreter,
+} from "@vektorprogrammet/domain/application";
 import { Economy } from "@vektorprogrammet/domain/receipt";
 import { EconomyLive } from "@vektorprogrammet/domain/receipt/postgres";
 import { Database } from "@vektorprogrammet/domain/database";
@@ -115,6 +120,108 @@ describe("DatabaseTest", () => {
     expect(first.replayed).toBe(false);
     expect(replay.observation).toEqual({ ...first.observation, replayed: true });
     expect(replay.replayed).toBe(true);
+  });
+
+  it("returns failed applicant effects to the durable retry queue", async () => {
+    const interpreter = makeRecordingPublicApplicationEffectInterpreter();
+    const evidence = await runtime.runPromise(
+      Effect.gen(function* () {
+        const database = yield* Database;
+        yield* database.unsafe(
+          "INSERT INTO admission_period_departments (department_id, name) VALUES ('outbox-department', 'Outbox Department')",
+        );
+        yield* database.unsafe(`
+          INSERT INTO admission_period_semesters (semester_id, start_at, end_at)
+          VALUES (
+            'outbox-semester',
+            '2031-08-01T00:00:00.000Z',
+            '2031-12-31T00:00:00.000Z'
+          )
+        `);
+        yield* database.unsafe(`
+          INSERT INTO admission_period_fields_of_study (
+            field_of_study_id, department_id, name, active
+          ) VALUES (
+            'outbox-field',
+            'outbox-department',
+            'Outbox Field',
+            TRUE
+          )
+        `);
+        yield* database.unsafe(`
+          INSERT INTO admission_periods (
+            admission_period_id, department_id, semester_id, start_at, end_at,
+            revision, last_command_id
+          ) VALUES (
+            'outbox-period',
+            'outbox-department',
+            'outbox-semester',
+            '2031-09-01T00:00:00.000Z',
+            '2031-10-01T00:00:00.000Z',
+            0,
+            'outbox-period-seed'
+          )
+        `);
+        yield* executePublicApplicationCommand(
+          {
+            commandId: "outbox-application-submit",
+            departmentId: "outbox-department",
+            firstName: "Ada",
+            lastName: "Lovelace",
+            phone: "+47 12345678",
+            email: "ada.outbox@example.invalid",
+            gender: 1,
+            fieldOfStudyId: "outbox-field",
+            yearOfStudy: 3,
+          },
+          {
+            now: "2031-09-15T12:00:00.000Z",
+            applicantId: "outbox-applicant",
+            applicationId: "outbox-application",
+          },
+        );
+        const rows = yield* database<{ readonly effect_id: string }>`
+          SELECT effect_id
+          FROM admission_application_outbox
+          WHERE command_id = 'outbox-application-submit'
+          ORDER BY ordinal
+        `;
+        const firstEffectId = rows[0]?.effect_id;
+        if (firstEffectId === undefined) throw new Error("missing applicant outbox effect");
+        interpreter.failOnce(firstEffectId);
+        const failed = yield* deliverNextPublicApplicationOutbox(
+          "outbox-failed-claim",
+          "2031-09-15T12:00:01.000Z",
+          interpreter,
+        );
+        const failedRows = yield* database<{
+          readonly status: string;
+          readonly claim_id: string | null;
+          readonly last_failure_tag: string | null;
+        }>`
+          SELECT status, claim_id, last_failure_tag
+          FROM admission_application_outbox
+          WHERE effect_id = ${firstEffectId}
+        `;
+        const retried = yield* deliverNextPublicApplicationOutbox(
+          "outbox-retry-claim",
+          "2031-09-15T12:00:02.000Z",
+          interpreter,
+        );
+        return { failed, failedRow: failedRows[0], retried };
+      }),
+    );
+
+    expect(evidence.failed).toMatchObject({
+      _tag: "Failed",
+      failureTag: "PublicApplicationEffectDeliveryError",
+    });
+    expect(evidence.failedRow).toEqual({
+      status: "Failed",
+      claim_id: null,
+      last_failure_tag: "PublicApplicationEffectDeliveryError",
+    });
+    expect(evidence.retried).toMatchObject({ _tag: "Delivered" });
   });
 
   it("acquires, migrates, and releases one shared database capability", async () => {
