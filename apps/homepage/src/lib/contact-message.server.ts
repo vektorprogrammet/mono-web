@@ -8,8 +8,20 @@ import {
 } from "./contact-message";
 
 async function activeDepartments(): Promise<readonly Department[]> {
-  const departments = await createHomepageApiClient().public.departments();
-  return departments.filter((department) => department.active);
+  const departments = (await createHomepageApiClient().public.departments()).filter(
+    (department) => department.active,
+  );
+  const slugs = new Set<string>();
+  for (const department of departments) {
+    const slug = contactDepartmentSlug(department);
+    if (slug.length === 0 || slugs.has(slug)) {
+      throw new Response("Kontaktdata er midlertidig utilgjengelig.", {
+        status: 503,
+      });
+    }
+    slugs.add(slug);
+  }
+  return departments;
 }
 
 export async function loadContactPage(departmentSlug?: string): Promise<ContactPageData> {

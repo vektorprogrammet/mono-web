@@ -8,7 +8,7 @@
 | Status     | Frozen                                                                                    |
 | Actor      | Public visitor                                                                            |
 | Dependency | Public department API, contact-message API, and typed SDK transport                       |
-| Evidence   | Local Symfony API test and browser run                                                    |
+| Evidence   | Local Symfony API test and authorized remote browser run                                  |
 | Scope hold | The operator must accept or replace the legacy reCAPTCHA disposition before Goal 1 closes |
 
 ## User journey
@@ -52,6 +52,7 @@ Complete one public contact-message journey on the native homepage. Use the exis
 
 The `/kontakt/:department` route selects the matching active department. The route returns `404` if no active department matches the path.
 
+The active department route slugs must be non-empty and unique. The route returns `503` if the live data violates this invariant.
 The `/kontakt` route selects the first active department from the API response. This default does not close the legacy geolocation parity gap.
 
 The page shows the selected department name, email address, postal address, and city. Missing optional values remain absent.
@@ -97,6 +98,7 @@ The zero-gap register must keep this difference open. An external accepted-inten
 6. The page contains no `DEV_CONTENT` contact data.
 7. Root type checks, lint, build, and tests pass on the committed revision.
 8. The browser evidence names the unresolved anti-abuse disposition.
+9. The browser runner rejects local execution before it starts a child process.
 
 ## Falsifiers
 
@@ -108,4 +110,5 @@ This contract is false if one condition occurs:
 - The page reports success after an API rejection.
 - One click sends more than one request.
 - A stale route selects a different active department.
+- Two active departments map to the same route slug.
 - The implementation claims that the rate limit equals legacy reCAPTCHA behavior.

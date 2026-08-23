@@ -17,6 +17,8 @@ const evidencePath =
   join(tmpdir(), "public-contact-message-0043.json");
 const databaseUrl = `sqlite:///${databasePath}`;
 const commandTimeout = 300_000;
+const remoteExecutionAuthorized =
+  process.env.CI === "true" && process.env.PUBLIC_CONTACT_E2E_REMOTE_AUTHORIZED === "1";
 
 const children = [];
 const contactRequests = [];
@@ -163,6 +165,12 @@ const closeProxy = async () => {
 };
 
 const main = async () => {
+  if (!remoteExecutionAuthorized) {
+    throw new Error(
+      "The contact E2E runner is authorized only in remote CI. Local execution is disabled.",
+    );
+  }
+
   const serverEnvironment = {
     ...process.env,
     APP_ENV: "test",
@@ -170,11 +178,11 @@ const main = async () => {
     DATABASE_URL: databaseUrl,
   };
   await rm(databasePath, { force: true });
-  await command(
-    "php",
-    ["bin/console", "doctrine:schema:create", "--no-interaction"],
-    { cwd: serverRoot, env: serverEnvironment, label: "Symfony schema" },
-  );
+  await command("php", ["bin/console", "doctrine:schema:create", "--no-interaction"], {
+    cwd: serverRoot,
+    env: serverEnvironment,
+    label: "Symfony schema",
+  });
   await command(
     "php",
     [
@@ -195,11 +203,11 @@ const main = async () => {
     },
   );
 
-  start(
-    "php",
-    ["-S", "127.0.0.1:8794", "-t", "public", "public/index.php"],
-    { cwd: serverRoot, env: serverEnvironment, label: "Symfony API" },
-  );
+  start("php", ["-S", "127.0.0.1:8794", "-t", "public", "public/index.php"], {
+    cwd: serverRoot,
+    env: serverEnvironment,
+    label: "Symfony API",
+  });
   await waitForHttp(`${symfonyOrigin}/api/departments`, "Symfony API");
   await startRecordingProxy();
 
@@ -253,9 +261,7 @@ const main = async () => {
     throw new Error(`The contact API returned ${contactRequests[0].status}`);
   }
 
-  const revision = (
-    await command("git", ["rev-parse", "HEAD"], { label: "Git revision" })
-  ).trim();
+  const revision = (await command("git", ["rev-parse", "HEAD"], { label: "Git revision" })).trim();
   await mkdir(dirname(evidencePath), { recursive: true });
   await writeFile(
     evidencePath,

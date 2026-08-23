@@ -1,3 +1,4 @@
+import type { Department } from "@vektorprogrammet/sdk";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { contactDepartmentSlug, type ContactFormValues } from "../src/lib/contact-message";
 import { loadContactPage, submitContactMessage } from "../src/lib/contact-message.server";
@@ -13,13 +14,13 @@ const department = {
   longitude: "10.77",
   logoPath: null,
   active: true,
-} as const;
+} as const satisfies Department;
 
-const departmentsResponse = () =>
+const departmentsResponse = (members: readonly Department[] = [department]) =>
   new Response(
     JSON.stringify({
-      "hydra:member": [department],
-      "hydra:totalItems": 1,
+      "hydra:member": members,
+      "hydra:totalItems": members.length,
     }),
     { status: 200, headers: { "content-type": "application/ld+json" } },
   );
@@ -72,6 +73,23 @@ describe("homepage contact-message boundary", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(departmentsResponse()));
 
     await expect(loadContactPage("bergen")).rejects.toMatchObject({ status: 404 });
+  });
+
+  it("rejects ambiguous department route slugs", async () => {
+    vi.stubEnv("API_URL", "http://api.test");
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue(
+          departmentsResponse([
+            department,
+            { ...department, id: 18, name: "Vektorprogrammet Aas", shortName: "Aas" },
+          ]),
+        ),
+    );
+
+    await expect(loadContactPage("aas")).rejects.toMatchObject({ status: 503 });
   });
 
   it("keeps invalid private input out of the action response", async () => {
