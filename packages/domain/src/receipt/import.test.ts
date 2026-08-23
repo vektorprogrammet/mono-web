@@ -65,6 +65,13 @@ const cases: ReadonlyArray<{
     reason: "UnreadableFile",
     row: { ...validRow, file: { ...validRow.file!, sha256: "invalid" } },
   },
+  {
+    reason: "UnreadableFile",
+    row: {
+      ...validRow,
+      file: { ...validRow.file!, byteLength: Number.MAX_SAFE_INTEGER + 1 },
+    },
+  },
   { reason: "InvalidDescription", row: { ...validRow, description: "" } },
   { reason: "InvalidReceiptDate", row: { ...validRow, receiptDate: "2026-02-31" } },
   {

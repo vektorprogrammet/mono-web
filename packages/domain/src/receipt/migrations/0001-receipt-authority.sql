@@ -14,7 +14,7 @@ CREATE TABLE IF NOT EXISTS economy_receipts (
   file_ref text NOT NULL,
   file_object_key text NOT NULL,
   file_content_type text NOT NULL CHECK (file_content_type IN ('image/jpeg', 'image/png', 'application/pdf')),
-  file_byte_length bigint NOT NULL CHECK (file_byte_length > 0),
+  file_byte_length bigint NOT NULL CHECK (file_byte_length > 0 AND file_byte_length <= 9007199254740991),
   file_sha256 text NOT NULL CHECK (file_sha256 ~ '^[a-f0-9]{64}$'),
   revision integer NOT NULL CHECK (revision >= 0),
   CHECK ((status = 'Refunded' AND refund_date IS NOT NULL) OR (status <> 'Refunded' AND refund_date IS NULL))
@@ -74,6 +74,11 @@ ALTER TABLE economy_receipts
 ALTER TABLE economy_receipts
   ADD CONSTRAINT economy_receipts_amount_ore_check
   CHECK (amount_ore > 0 AND amount_ore <= 9007199254740991);
+ALTER TABLE economy_receipts
+  DROP CONSTRAINT IF EXISTS economy_receipts_file_byte_length_check;
+ALTER TABLE economy_receipts
+  ADD CONSTRAINT economy_receipts_file_byte_length_check
+  CHECK (file_byte_length > 0 AND file_byte_length <= 9007199254740991);
 ALTER TABLE economy_receipts
   DROP CONSTRAINT IF EXISTS economy_receipts_nonempty_identity_check;
 ALTER TABLE economy_receipts

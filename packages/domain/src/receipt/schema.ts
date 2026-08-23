@@ -59,7 +59,9 @@ export const ReceiptFileSchema = Schema.Struct({
   fileRef: NonEmpty,
   objectKey: NonEmpty,
   contentType: Schema.Literals(["image/jpeg", "image/png", "application/pdf"]),
-  byteLength: Schema.Int.pipe(Schema.check(Schema.isGreaterThan(0))),
+  byteLength: Schema.Int.pipe(
+    Schema.check(Schema.isGreaterThan(0), Schema.isLessThanOrEqualTo(Number.MAX_SAFE_INTEGER)),
+  ),
   sha256: Schema.String.pipe(
     Schema.check(
       Schema.makeFilter((value: string) => /^[a-f0-9]{64}$/.test(value), {
@@ -175,7 +177,10 @@ export class Receipt extends Model.Class<Receipt>("Receipt")({
     update: Schema.NullOr(IsoInstant),
     json: Schema.NullOr(IsoInstant),
   }),
-  paymentAccountCiphertext: Model.Sensitive(NonEmpty),
+  paymentAccountCiphertext: Model.Field({
+    select: NonEmpty,
+    insert: NonEmpty,
+  }),
   file: Model.Sensitive(ReceiptFileSchema),
   revision: Model.Field({
     select: Revision,

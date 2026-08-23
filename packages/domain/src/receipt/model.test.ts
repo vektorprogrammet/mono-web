@@ -25,7 +25,6 @@ it("derives Receipt persistence and JSON variants from one model", () => {
     "amountOre",
     "description",
     "file",
-    "paymentAccountCiphertext",
     "receiptDate",
     "refundDate",
     "revision",
@@ -88,5 +87,19 @@ it.effect("decodes a selected Receipt and rejects an excess persisted field", ()
       ),
     );
     expect(String(failure)).toContain("duplicateAuthority");
+
+    const oversizedFile = yield* Effect.flip(
+      Schema.decodeUnknownEffect(Receipt)(
+        {
+          ...selected,
+          file: {
+            ...selected.file,
+            byteLength: Number.MAX_SAFE_INTEGER + 1,
+          },
+        },
+        { onExcessProperty: "error" },
+      ),
+    );
+    expect(String(oversizedFile)).toContain("byteLength");
   });
 });

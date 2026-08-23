@@ -82,7 +82,7 @@ const validLegacyFile = (file: NonNullable<LegacyReceiptRow["file"]>): file is R
   (file.contentType === "image/jpeg" ||
     file.contentType === "image/png" ||
     file.contentType === "application/pdf") &&
-  Number.isInteger(file.byteLength) &&
+  Number.isSafeInteger(file.byteLength) &&
   file.byteLength > 0 &&
   /^[a-f0-9]{64}$/.test(file.sha256);
 
