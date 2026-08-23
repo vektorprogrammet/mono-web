@@ -2,22 +2,24 @@ import * as PgClient from "@effect/sql-pg/PgClient";
 import type { SqlError } from "effect/unstable/sql/SqlError";
 import { Effect, Layer, Schema } from "effect";
 import {
-  AdmissionApplicationDecodeError,
-  AdmissionPeriodDecodeError,
   AdmissionScopeDenied,
   InactiveActor,
   UnauthenticatedActor,
-  executeAdmissionApplicationCommand,
   executeAdmissionPeriodCommand,
   listAdmissionPeriodsForManagement,
   listOpenAdmissionPeriods,
-  migrateAdmissionPeriodPostgres,
-  SubmitAdmissionApplicationInputSchema,
   StableIdSchema,
   Rfc3339InstantSchema,
   RevisionSchema,
   type AdmissionPeriodActor,
 } from "@vektorprogrammet/domain/admission-period";
+import {
+  executePublicApplicationCommand,
+  findPublicApplicationConfirmation,
+  listPublicApplicationCatalog,
+  migratePublicApplicationPostgres,
+  PublicApplicationSubmitInputSchema,
+} from "@vektorprogrammet/domain/application";
 import type { AdmissionApiConfig, AdmissionApiPrincipal } from "./config.js";
 
 export interface AdmissionApiHttpOptions {
@@ -35,6 +37,14 @@ interface ErrorBody {
   readonly error: { readonly tag: string };
 }
 
+type TaggedHttpError = Error & { readonly _tag: string };
+
+const taggedError = (tag: string): TaggedHttpError => {
+  const error = new Error(tag) as TaggedHttpError;
+  Object.defineProperty(error, "_tag", { value: tag, enumerable: true });
+  return error;
+};
+
 const jsonResponse = (body: unknown, status = 200): Response =>
   new Response(JSON.stringify(body), {
     status,
@@ -51,29 +61,47 @@ const errorTag = (cause: unknown): string =>
 
 const errorResponse = (cause: unknown): Response => {
   const tag = errorTag(cause);
-  const status =
-    tag === "UnauthenticatedActor"
-      ? 401
-      : tag === "InactiveActor" ||
-          tag === "AdmissionRoleDenied" ||
-          tag === "AdmissionScopeDenied"
-        ? 403
-        : tag === "DepartmentNotFound" ||
-            tag === "SemesterNotFound" ||
-            tag === "AdmissionPeriodNotFound"
-          ? 404
-          : tag === "AdmissionPeriodDecodeError" || tag === "AdmissionApplicationDecodeError"
-            ? 422
-            : tag === "InvalidAdmissionPeriodWindow" || tag === "AdmissionWindowOutsideSemester"
-              ? 422
-              : tag === "AdmissionPeriodAlreadyExists" ||
-                  tag === "StaleAdmissionPeriodRevision" ||
-                  tag === "DuplicateAdmissionPeriodCommandConflict" ||
-                  tag === "NoOpenAdmissionPeriod" ||
-                  tag === "AdmissionApplicationAlreadyExists" ||
-                  tag === "DuplicateAdmissionApplicationCommandConflict"
-                ? 409
-                : 503;
+  let status: number;
+  switch (tag) {
+    case "UnauthenticatedActor":
+      status = 401;
+      break;
+    case "InactiveActor":
+    case "AdmissionRoleDenied":
+    case "AdmissionScopeDenied":
+      status = 403;
+      break;
+    case "DepartmentNotFound":
+    case "AdmissionPeriodNotFound":
+    case "PublicApplicationNotFound":
+      status = 404;
+      break;
+    case "RequestBodyTooLarge":
+      status = 413;
+      break;
+    case "PublicApplicationRateLimitExceeded":
+      status = 429;
+      break;
+    case "PublicApplicationDecodeError":
+    case "FieldOfStudyNotFound":
+    case "FieldOfStudyInactive":
+    case "FieldOfStudyDepartmentMismatch":
+    case "AdmissionPeriodDecodeError":
+    case "InvalidAdmissionPeriodWindow":
+    case "AdmissionWindowOutsideSemester":
+      status = 422;
+      break;
+    case "NoEligibleAdmissionPeriod":
+    case "DuplicatePublicApplication":
+    case "DuplicatePublicApplicationCommandConflict":
+    case "AdmissionPeriodAlreadyExists":
+    case "StaleAdmissionPeriodRevision":
+    case "DuplicateAdmissionPeriodCommandConflict":
+      status = 409;
+      break;
+    default:
+      status = 503;
+  }
   const body: ErrorBody = { error: { tag } };
   return jsonResponse(body, status);
 };
@@ -98,6 +126,7 @@ const requireActive = (principal: AdmissionApiPrincipal): AdmissionPeriodActor =
   if (!principal.actor.active) throw new InactiveActor({ personId: principal.actor.personId });
   return principal.actor;
 };
+
 const profile = (request: Request, input: AdmissionApiHttpOptions): Response => {
   const principal = principalFor(request, input.config.tokens);
   const actor = requireActive(principal);
@@ -115,30 +144,73 @@ const profile = (request: Request, input: AdmissionApiHttpOptions): Response => 
     profilePhoto: null,
   });
 };
-
-
-const requireNoQuery = (request: Request): void => {
+const requireNoQuery = (
+  request: Request,
+  tag = "AdmissionPeriodDecodeError",
+): void => {
   if (new URL(request.url).search !== "") {
-    throw new AdmissionPeriodDecodeError({ message: "unexpected query parameters" });
+    throw taggedError(tag);
   }
+};
+
+const readBoundedBody = async (
+  request: Request,
+  maxBytes: number,
+  decodeTag: string,
+): Promise<string> => {
+  const contentLength = request.headers.get("content-length");
+  if (contentLength !== null) {
+    if (!/^\d+$/.test(contentLength)) throw taggedError(decodeTag);
+    const declaredLength = Number(contentLength);
+    if (!Number.isSafeInteger(declaredLength) || declaredLength > maxBytes) {
+      throw taggedError("RequestBodyTooLarge");
+    }
+  }
+  if (request.body === null) return "";
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    while (true) {
+      const next = await reader.read();
+      if (next.done) break;
+      total += next.value.byteLength;
+      if (total > maxBytes) {
+        await reader.cancel();
+        throw taggedError("RequestBodyTooLarge");
+      }
+      chunks.push(next.value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder().decode(bytes);
 };
 
 const decodeJson = async <S extends Schema.ConstraintDecoder<unknown, never>>(
   request: Request,
   schema: S,
-  decodeError: () => Error,
+  maxBodyBytes: number,
+  tag: string,
 ): Promise<S["Type"]> => {
   const contentType = request.headers.get("content-type") ?? "";
-  if (!/^application\/json(?:\s*;|$)/i.test(contentType)) throw decodeError();
+  if (!/^application\/json(?:\s*;|$)/i.test(contentType)) throw taggedError(tag);
   let body: unknown;
   try {
-    body = await request.json();
-  } catch {
-    throw decodeError();
+    body = JSON.parse(await readBoundedBody(request, maxBodyBytes, tag)) as unknown;
+  } catch (cause) {
+    if (cause !== null && typeof cause === "object" && "_tag" in cause) throw cause;
+    throw taggedError(tag);
   }
   return await Effect.runPromise(
     Schema.decodeUnknownEffect(schema)(body, { onExcessProperty: "error" }).pipe(
-      Effect.mapError(() => decodeError()),
+      Effect.mapError(() => taggedError(tag)),
     ),
   );
 };
@@ -189,7 +261,8 @@ const create = async (request: Request, input: AdmissionApiHttpOptions): Promise
   const payload = await decodeJson(
     request,
     createPayloadSchema,
-    () => new AdmissionPeriodDecodeError({ message: "invalid create body" }),
+    input.config.maxBodyBytes,
+    "AdmissionPeriodDecodeError",
   );
   if (actor._tag === "DepartmentLeader" && payload.departmentId !== undefined) {
     throw new AdmissionScopeDenied({ personId: actor.personId, departmentId: payload.departmentId });
@@ -212,7 +285,8 @@ const revise = async (
   const payload = await decodeJson(
     request,
     revisePayloadSchema,
-    () => new AdmissionPeriodDecodeError({ message: "invalid revise body" }),
+    input.config.maxBodyBytes,
+    "AdmissionPeriodDecodeError",
   );
   const result = await executeCommand(
     { _tag: "ReviseAdmissionPeriod", admissionPeriodId, ...payload },
@@ -228,31 +302,65 @@ const listOpen = async (request: Request, input: AdmissionApiHttpOptions): Promi
   return jsonResponse({ items: rows, totalItems: rows.length });
 };
 
+const publicRateLimitKey = (request: Request): string => {
+  const forwarded = request.headers.get("x-forwarded-for");
+  if (forwarded === null || forwarded.trim() === "") return "local";
+  return forwarded.split(",", 1)[0]?.trim() || "local";
+};
+
+const listPublicCatalog = async (
+  request: Request,
+  input: AdmissionApiHttpOptions,
+): Promise<Response> => {
+  requireNoQuery(request, "PublicApplicationDecodeError");
+  const catalog = await runPostgres(
+    listPublicApplicationCatalog({ now: input.config.now() }),
+    input.postgresLayer,
+  );
+  return jsonResponse(catalog);
+};
+
 const submitApplication = async (
   request: Request,
   input: AdmissionApiHttpOptions,
 ): Promise<Response> => {
-  requireNoQuery(request);
+  requireNoQuery(request, "PublicApplicationDecodeError");
+  if (!input.config.rateLimit.consume(publicRateLimitKey(request), input.config.now())) {
+    throw taggedError("PublicApplicationRateLimitExceeded");
+  }
   const payload = await decodeJson(
     request,
-    SubmitAdmissionApplicationInputSchema,
-    () => new AdmissionApplicationDecodeError({ message: "invalid application body" }),
+    PublicApplicationSubmitInputSchema,
+    input.config.maxBodyBytes,
+    "PublicApplicationDecodeError",
   );
   const result = await runPostgres(
-    executeAdmissionApplicationCommand(
-      { _tag: "SubmitAdmissionApplication", ...payload },
-      { now: input.config.now(), applicationId: input.config.nextApplicationId() },
-    ),
+    executePublicApplicationCommand(payload, {
+      now: input.config.now(),
+      applicationId: input.config.nextApplicationId(),
+      applicantId: input.config.nextApplicantId(),
+    }),
     input.postgresLayer,
   );
-  return jsonResponse(
-    { _tag: "Submitted", application: result.application },
-    result.replayed ? 200 : 201,
+  return jsonResponse(result.observation, result.replayed ? 200 : 201);
+};
+
+const publicConfirmation = async (
+  request: Request,
+  applicationId: string,
+  input: AdmissionApiHttpOptions,
+): Promise<Response> => {
+  requireNoQuery(request, "PublicApplicationDecodeError");
+  const confirmation = await runPostgres(
+    findPublicApplicationConfirmation(applicationId),
+    input.postgresLayer,
   );
+  if (confirmation === undefined) throw taggedError("PublicApplicationNotFound");
+  return jsonResponse(confirmation);
 };
 
 export const makeAdmissionApiHttp = (input: AdmissionApiHttpOptions): AdmissionApiHttp => ({
-  migrate: () => runPostgres(migrateAdmissionPeriodPostgres(input.migrationSql), input.postgresLayer),
+  migrate: () => runPostgres(migratePublicApplicationPostgres(input.migrationSql), input.postgresLayer),
   fetch: async (request) => {
     const url = new URL(request.url);
     if (request.method === "OPTIONS") return new Response(null, { status: 204 });
@@ -290,8 +398,19 @@ export const makeAdmissionApiHttp = (input: AdmissionApiHttpOptions): AdmissionA
       if (request.method === "GET" && url.pathname === "/api/admission-periods/open") {
         return await listOpen(request, input);
       }
+      if (request.method === "GET" && url.pathname === "/api/applications/catalog") {
+        return await listPublicCatalog(request, input);
+      }
       if (request.method === "POST" && url.pathname === "/api/applications") {
         return await submitApplication(request, input);
+      }
+      const confirmationMatch = /^\/api\/applications\/([^/]+)\/confirmation$/.exec(url.pathname);
+      if (request.method === "GET" && confirmationMatch?.[1] !== undefined) {
+        return await publicConfirmation(
+          request,
+          decodeURIComponent(confirmationMatch[1]),
+          input,
+        );
       }
       return jsonResponse({ error: { tag: "RouteNotFound" } }, 404);
     } catch (cause) {

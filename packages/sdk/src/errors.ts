@@ -19,7 +19,7 @@ export type SdkErrorType =
   | "configuration"
   | "receipt_rejection"
   | "admission_period_rejection"
-  | "admission_application_rejection";
+  | "public_application_rejection";
 
 export type AdmissionPeriodRejectionTag =
   | "UnauthenticatedActor"
@@ -38,12 +38,19 @@ export type AdmissionPeriodRejectionTag =
   | "DuplicateAdmissionPeriodCommandConflict"
   | "AdmissionPeriodPersistenceError";
 
-export type AdmissionApplicationRejectionTag =
-  | "AdmissionApplicationDecodeError"
-  | "NoOpenAdmissionPeriod"
-  | "AdmissionApplicationAlreadyExists"
-  | "DuplicateAdmissionApplicationCommandConflict"
-  | "AdmissionApplicationPersistenceError";
+export type PublicApplicationRejectionTag =
+  | "NoEligibleAdmissionPeriod"
+  | "DepartmentNotFound"
+  | "FieldOfStudyNotFound"
+  | "FieldOfStudyInactive"
+  | "FieldOfStudyDepartmentMismatch"
+  | "DuplicatePublicApplication"
+  | "DuplicatePublicApplicationCommandConflict"
+  | "PublicApplicationDecodeError"
+  | "RequestBodyTooLarge"
+  | "PublicApplicationRateLimitExceeded"
+  | "PublicApplicationNotFound"
+  | "PublicApplicationPersistenceError";
 
 export type ReceiptRejectionTag =
   | "UnauthenticatedActor"
@@ -322,46 +329,88 @@ export class AdmissionPeriodPersistenceSdkError extends AdmissionPeriodRejection
   }
 }
 
-export class AdmissionApplicationRejectionError extends SdkError {
-  readonly _tag: AdmissionApplicationRejectionTag;
-  readonly applicationTag: AdmissionApplicationRejectionTag;
+export class PublicApplicationRejectionError extends SdkError {
+  readonly _tag: PublicApplicationRejectionTag;
+  readonly applicationTag: PublicApplicationRejectionTag;
 
-  constructor(tag: AdmissionApplicationRejectionTag) {
-    super("admission_application_rejection", tag);
-    this.name = "AdmissionApplicationRejectionError";
+  constructor(tag: PublicApplicationRejectionTag) {
+    super("public_application_rejection", tag);
+    this.name = "PublicApplicationRejectionError";
     this._tag = tag;
     this.applicationTag = tag;
   }
 }
 
-export class AdmissionApplicationDecodeSdkError extends AdmissionApplicationRejectionError {
+export class PublicApplicationDecodeSdkError extends PublicApplicationRejectionError {
   constructor() {
-    super("AdmissionApplicationDecodeError");
-    this.name = "AdmissionApplicationDecodeSdkError";
+    super("PublicApplicationDecodeError");
+    this.name = "PublicApplicationDecodeSdkError";
   }
 }
-export class NoOpenAdmissionPeriodError extends AdmissionApplicationRejectionError {
+export class NoEligibleAdmissionPeriodError extends PublicApplicationRejectionError {
   constructor() {
-    super("NoOpenAdmissionPeriod");
-    this.name = "NoOpenAdmissionPeriodError";
+    super("NoEligibleAdmissionPeriod");
+    this.name = "NoEligibleAdmissionPeriodError";
   }
 }
-export class AdmissionApplicationAlreadyExistsError extends AdmissionApplicationRejectionError {
+export class PublicApplicationDepartmentNotFoundError extends PublicApplicationRejectionError {
   constructor() {
-    super("AdmissionApplicationAlreadyExists");
-    this.name = "AdmissionApplicationAlreadyExistsError";
+    super("DepartmentNotFound");
+    this.name = "PublicApplicationDepartmentNotFoundError";
   }
 }
-export class DuplicateAdmissionApplicationCommandConflictError extends AdmissionApplicationRejectionError {
+export class PublicApplicationFieldOfStudyNotFoundError extends PublicApplicationRejectionError {
   constructor() {
-    super("DuplicateAdmissionApplicationCommandConflict");
-    this.name = "DuplicateAdmissionApplicationCommandConflictError";
+    super("FieldOfStudyNotFound");
+    this.name = "PublicApplicationFieldOfStudyNotFoundError";
   }
 }
-export class AdmissionApplicationPersistenceSdkError extends AdmissionApplicationRejectionError {
+export class PublicApplicationFieldOfStudyInactiveError extends PublicApplicationRejectionError {
   constructor() {
-    super("AdmissionApplicationPersistenceError");
-    this.name = "AdmissionApplicationPersistenceSdkError";
+    super("FieldOfStudyInactive");
+    this.name = "PublicApplicationFieldOfStudyInactiveError";
+  }
+}
+export class PublicApplicationFieldOfStudyDepartmentMismatchError extends PublicApplicationRejectionError {
+  constructor() {
+    super("FieldOfStudyDepartmentMismatch");
+    this.name = "PublicApplicationFieldOfStudyDepartmentMismatchError";
+  }
+}
+export class DuplicatePublicApplicationError extends PublicApplicationRejectionError {
+  constructor() {
+    super("DuplicatePublicApplication");
+    this.name = "DuplicatePublicApplicationError";
+  }
+}
+export class DuplicatePublicApplicationCommandConflictError extends PublicApplicationRejectionError {
+  constructor() {
+    super("DuplicatePublicApplicationCommandConflict");
+    this.name = "DuplicatePublicApplicationCommandConflictError";
+  }
+}
+export class RequestBodyTooLargeError extends PublicApplicationRejectionError {
+  constructor() {
+    super("RequestBodyTooLarge");
+    this.name = "RequestBodyTooLargeError";
+  }
+}
+export class PublicApplicationRateLimitExceededError extends PublicApplicationRejectionError {
+  constructor() {
+    super("PublicApplicationRateLimitExceeded");
+    this.name = "PublicApplicationRateLimitExceededError";
+  }
+}
+export class PublicApplicationNotFoundError extends PublicApplicationRejectionError {
+  constructor() {
+    super("PublicApplicationNotFound");
+    this.name = "PublicApplicationNotFoundError";
+  }
+}
+export class PublicApplicationPersistenceSdkError extends PublicApplicationRejectionError {
+  constructor() {
+    super("PublicApplicationPersistenceError");
+    this.name = "PublicApplicationPersistenceSdkError";
   }
 }
 
@@ -504,24 +553,52 @@ export class AdmissionPeriodPersistenceError extends Schema.TaggedError<Admissio
   "AdmissionPeriodPersistenceError",
   {},
 ) {}
-export class AdmissionApplicationDecodeError extends Schema.TaggedError<AdmissionApplicationDecodeError>()(
-  "AdmissionApplicationDecodeError",
+export class PublicApplicationDecodeError extends Schema.TaggedError<PublicApplicationDecodeError>()(
+  "PublicApplicationDecodeError",
   {},
 ) {}
-export class NoOpenAdmissionPeriod extends Schema.TaggedError<NoOpenAdmissionPeriod>()(
-  "NoOpenAdmissionPeriod",
+export class NoEligibleAdmissionPeriod extends Schema.TaggedError<NoEligibleAdmissionPeriod>()(
+  "NoEligibleAdmissionPeriod",
   {},
 ) {}
-export class AdmissionApplicationAlreadyExists extends Schema.TaggedError<AdmissionApplicationAlreadyExists>()(
-  "AdmissionApplicationAlreadyExists",
+export class PublicApplicationDepartmentNotFound extends Schema.TaggedError<PublicApplicationDepartmentNotFound>()(
+  "DepartmentNotFound",
   {},
 ) {}
-export class DuplicateAdmissionApplicationCommandConflict extends Schema.TaggedError<DuplicateAdmissionApplicationCommandConflict>()(
-  "DuplicateAdmissionApplicationCommandConflict",
+export class FieldOfStudyNotFound extends Schema.TaggedError<FieldOfStudyNotFound>()(
+  "FieldOfStudyNotFound",
   {},
 ) {}
-export class AdmissionApplicationPersistenceError extends Schema.TaggedError<AdmissionApplicationPersistenceError>()(
-  "AdmissionApplicationPersistenceError",
+export class FieldOfStudyInactive extends Schema.TaggedError<FieldOfStudyInactive>()(
+  "FieldOfStudyInactive",
+  {},
+) {}
+export class FieldOfStudyDepartmentMismatch extends Schema.TaggedError<FieldOfStudyDepartmentMismatch>()(
+  "FieldOfStudyDepartmentMismatch",
+  {},
+) {}
+export class DuplicatePublicApplication extends Schema.TaggedError<DuplicatePublicApplication>()(
+  "DuplicatePublicApplication",
+  {},
+) {}
+export class DuplicatePublicApplicationCommandConflict extends Schema.TaggedError<DuplicatePublicApplicationCommandConflict>()(
+  "DuplicatePublicApplicationCommandConflict",
+  {},
+) {}
+export class RequestBodyTooLarge extends Schema.TaggedError<RequestBodyTooLarge>()(
+  "RequestBodyTooLarge",
+  {},
+) {}
+export class PublicApplicationRateLimitExceeded extends Schema.TaggedError<PublicApplicationRateLimitExceeded>()(
+  "PublicApplicationRateLimitExceeded",
+  {},
+) {}
+export class PublicApplicationNotFound extends Schema.TaggedError<PublicApplicationNotFound>()(
+  "PublicApplicationNotFound",
+  {},
+) {}
+export class PublicApplicationPersistenceError extends Schema.TaggedError<PublicApplicationPersistenceError>()(
+  "PublicApplicationPersistenceError",
   {},
 ) {}
 
@@ -554,17 +631,23 @@ export type AdmissionPeriodFailure =
   | StaleAdmissionPeriodRevision
   | DuplicateAdmissionPeriodCommandConflict
   | AdmissionPeriodPersistenceError;
-export type AdmissionApplicationFailure =
-  | AdmissionApplicationDecodeError
-  | NoOpenAdmissionPeriod
-  | AdmissionApplicationAlreadyExists
-  | DuplicateAdmissionApplicationCommandConflict
-  | AdmissionApplicationPersistenceError;
+export type PublicApplicationFailure =
+  | PublicApplicationDecodeError
+  | NoEligibleAdmissionPeriod
+  | PublicApplicationDepartmentNotFound
+  | FieldOfStudyNotFound
+  | FieldOfStudyInactive
+  | FieldOfStudyDepartmentMismatch
+  | DuplicatePublicApplication
+  | DuplicatePublicApplicationCommandConflict
+  | RequestBodyTooLarge
+  | PublicApplicationRateLimitExceeded
+  | PublicApplicationNotFound
+  | PublicApplicationPersistenceError;
 
-export type AdmissionApplicationSdkError = AdmissionApplicationFailure;
+export type PublicApplicationSdkError = PublicApplicationFailure;
 
 export type AdmissionPeriodSdkError = AdmissionPeriodFailure;
-
 
 export type ReceiptSdkError = ReceiptFailure;
 
@@ -578,13 +661,16 @@ export type InternalSdkError =
   | Configuration
   | ReceiptFailure
   | AdmissionPeriodFailure
-  | AdmissionApplicationFailure;
+  | PublicApplicationFailure;
 
 /**
  * Maps an internal Effect TaggedError to a public SdkError subclass.
  * Used at the Effect.runPromise boundary.
  */
 export function toSdkError(error: InternalSdkError): SdkError {
+  if (error instanceof PublicApplicationDepartmentNotFound) {
+    return new PublicApplicationDepartmentNotFoundError();
+  }
   switch (error._tag) {
     case "Unauthorized":
       return new UnauthorizedError(error.message);
@@ -650,15 +736,27 @@ export function toSdkError(error: InternalSdkError): SdkError {
       return new DuplicateAdmissionPeriodCommandConflictError();
     case "AdmissionPeriodPersistenceError":
       return new AdmissionPeriodPersistenceSdkError();
-    case "AdmissionApplicationDecodeError":
-      return new AdmissionApplicationDecodeSdkError();
-    case "NoOpenAdmissionPeriod":
-      return new NoOpenAdmissionPeriodError();
-    case "AdmissionApplicationAlreadyExists":
-      return new AdmissionApplicationAlreadyExistsError();
-    case "DuplicateAdmissionApplicationCommandConflict":
-      return new DuplicateAdmissionApplicationCommandConflictError();
-    case "AdmissionApplicationPersistenceError":
-      return new AdmissionApplicationPersistenceSdkError();
+    case "PublicApplicationDecodeError":
+      return new PublicApplicationDecodeSdkError();
+    case "NoEligibleAdmissionPeriod":
+      return new NoEligibleAdmissionPeriodError();
+    case "FieldOfStudyNotFound":
+      return new PublicApplicationFieldOfStudyNotFoundError();
+    case "FieldOfStudyInactive":
+      return new PublicApplicationFieldOfStudyInactiveError();
+    case "FieldOfStudyDepartmentMismatch":
+      return new PublicApplicationFieldOfStudyDepartmentMismatchError();
+    case "DuplicatePublicApplication":
+      return new DuplicatePublicApplicationError();
+    case "DuplicatePublicApplicationCommandConflict":
+      return new DuplicatePublicApplicationCommandConflictError();
+    case "RequestBodyTooLarge":
+      return new RequestBodyTooLargeError();
+    case "PublicApplicationRateLimitExceeded":
+      return new PublicApplicationRateLimitExceededError();
+    case "PublicApplicationNotFound":
+      return new PublicApplicationNotFoundError();
+    case "PublicApplicationPersistenceError":
+      return new PublicApplicationPersistenceSdkError();
   }
 }

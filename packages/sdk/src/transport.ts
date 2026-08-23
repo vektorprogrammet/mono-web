@@ -39,11 +39,18 @@ import {
   StaleAdmissionPeriodRevision,
   DuplicateAdmissionPeriodCommandConflict,
   AdmissionPeriodPersistenceError,
-  AdmissionApplicationDecodeError,
-  NoOpenAdmissionPeriod,
-  AdmissionApplicationAlreadyExists,
-  DuplicateAdmissionApplicationCommandConflict,
-  AdmissionApplicationPersistenceError,
+  PublicApplicationDecodeError,
+  NoEligibleAdmissionPeriod,
+  PublicApplicationDepartmentNotFound,
+  FieldOfStudyNotFound,
+  FieldOfStudyInactive,
+  FieldOfStudyDepartmentMismatch,
+  DuplicatePublicApplication,
+  DuplicatePublicApplicationCommandConflict,
+  RequestBodyTooLarge,
+  PublicApplicationRateLimitExceeded,
+  PublicApplicationNotFound,
+  PublicApplicationPersistenceError,
   type InternalSdkError,
 } from "./errors.js";
 import { parseViolations } from "./adapter/errors.js";
@@ -121,24 +128,67 @@ const receiptFailureFromBody = (body: unknown): InternalSdkError | undefined => 
       return new AdmissionWindowOutsideSemester();
     case "AdmissionPeriodAlreadyExists":
       return new AdmissionPeriodAlreadyExists();
-    case "StaleAdmissionPeriodRevision":
-      return new StaleAdmissionPeriodRevision();
-    case "DuplicateAdmissionPeriodCommandConflict":
-      return new DuplicateAdmissionPeriodCommandConflict();
-    case "AdmissionPeriodPersistenceError":
-      return new AdmissionPeriodPersistenceError();
-    case "AdmissionApplicationDecodeError":
-      return new AdmissionApplicationDecodeError();
-    case "NoOpenAdmissionPeriod":
-      return new NoOpenAdmissionPeriod();
-    case "AdmissionApplicationAlreadyExists":
-      return new AdmissionApplicationAlreadyExists();
-    case "DuplicateAdmissionApplicationCommandConflict":
-      return new DuplicateAdmissionApplicationCommandConflict();
-    case "AdmissionApplicationPersistenceError":
-      return new AdmissionApplicationPersistenceError();
+    case "PublicApplicationDecodeError":
+      return new PublicApplicationDecodeError();
+    case "NoEligibleAdmissionPeriod":
+      return new NoEligibleAdmissionPeriod();
+    case "FieldOfStudyNotFound":
+      return new FieldOfStudyNotFound();
+    case "FieldOfStudyInactive":
+      return new FieldOfStudyInactive();
+    case "FieldOfStudyDepartmentMismatch":
+      return new FieldOfStudyDepartmentMismatch();
+    case "DuplicatePublicApplication":
+      return new DuplicatePublicApplication();
+    case "DuplicatePublicApplicationCommandConflict":
+      return new DuplicatePublicApplicationCommandConflict();
+    case "RequestBodyTooLarge":
+      return new RequestBodyTooLarge();
+    case "PublicApplicationRateLimitExceeded":
+      return new PublicApplicationRateLimitExceeded();
+    case "PublicApplicationNotFound":
+      return new PublicApplicationNotFound();
+    case "PublicApplicationPersistenceError":
+      return new PublicApplicationPersistenceError();
+  }
+};
+const publicApplicationFailureFromBody = (body: unknown): InternalSdkError | undefined => {
+  if (typeof body !== "object" || body === null) return undefined;
+  const root = body as Record<string, unknown>;
+  const error =
+    typeof root.error === "object" && root.error !== null
+      ? (root.error as Record<string, unknown>)
+      : root;
+  const tag = error.tag ?? error._tag;
+  if (typeof tag !== "string") return undefined;
+
+  switch (tag) {
+    case "DepartmentNotFound":
+      return new PublicApplicationDepartmentNotFound();
+    case "PublicApplicationDecodeError":
+      return new PublicApplicationDecodeError();
+    case "NoEligibleAdmissionPeriod":
+      return new NoEligibleAdmissionPeriod();
+    case "FieldOfStudyNotFound":
+      return new FieldOfStudyNotFound();
+    case "FieldOfStudyInactive":
+      return new FieldOfStudyInactive();
+    case "FieldOfStudyDepartmentMismatch":
+      return new FieldOfStudyDepartmentMismatch();
+    case "DuplicatePublicApplication":
+      return new DuplicatePublicApplication();
+    case "DuplicatePublicApplicationCommandConflict":
+      return new DuplicatePublicApplicationCommandConflict();
+    case "RequestBodyTooLarge":
+      return new RequestBodyTooLarge();
+    case "PublicApplicationRateLimitExceeded":
+      return new PublicApplicationRateLimitExceeded();
+    case "PublicApplicationNotFound":
+      return new PublicApplicationNotFound();
+    case "PublicApplicationPersistenceError":
+      return new PublicApplicationPersistenceError();
     default:
-      return undefined;
+      return receiptFailureFromBody(body);
   }
 };
 
@@ -148,12 +198,20 @@ const receiptFailureFromBody = (body: unknown): InternalSdkError | undefined => 
  * Native Receipt errors carry only a typed tag in the response body. The
  * transport preserves that tag and intentionally ignores any untrusted text.
  */
-const mapStatusToError = (status: number, body: unknown): InternalSdkError => {
-  const typedReceiptError = receiptFailureFromBody(body);
-  if (typedReceiptError !== undefined) return typedReceiptError;
+const mapStatusToError = (
+  status: number,
+  body: unknown,
+  options?: DecodeOptions,
+): InternalSdkError => {
+  const typedError =
+    options?.errorFamily === "public_application"
+      ? publicApplicationFailureFromBody(body)
+      : receiptFailureFromBody(body);
+  if (typedError !== undefined) return typedError;
   if (status === 401 || status === 403) return new Unauthorized({ message: `HTTP ${status}` });
   if (status === 404) return new NotFound({ message: "Not found" });
   if (status === 409) return new Conflict({ message: "Conflict" });
+  if (status === 413) return new RequestBodyTooLarge();
   if (status === 422)
     return new Validation({ message: "Validation failed", fields: parseViolations(body) });
   if (status === 429) return new RateLimited({ message: "Rate limited" });
@@ -162,6 +220,8 @@ const mapStatusToError = (status: number, body: unknown): InternalSdkError => {
 
 export type DecodeOptions = {
   readonly strict?: boolean;
+  readonly decodeError?: () => InternalSdkError;
+  readonly errorFamily?: "public_application";
 };
 
 export interface Transport {
@@ -269,6 +329,7 @@ export function createTransport(baseUrl: string | undefined, auth?: AuthOption):
     method: string,
     body?: unknown,
     extraHeaders?: Record<string, string>,
+    options?: DecodeOptions,
   ): Effect.Effect<unknown, InternalSdkError> =>
     pipe(
       buildHeaders({
@@ -287,7 +348,7 @@ export function createTransport(baseUrl: string | undefined, auth?: AuthOption):
         if (!response.ok) {
           return readErrorBody(response).pipe(
             Effect.flatMap((responseBody) =>
-              Effect.fail(mapStatusToError(response.status, responseBody)),
+              Effect.fail(mapStatusToError(response.status, responseBody, options)),
             ),
           );
         }
@@ -325,15 +386,15 @@ export function createTransport(baseUrl: string | undefined, auth?: AuthOption):
     );
 
   const decodeWith =
-    <A>(schema: Schema.ConstraintDecoder<A, never>, strict = false) =>
+    <A>(schema: Schema.ConstraintDecoder<A, never>, options?: DecodeOptions) =>
     (json: unknown): Effect.Effect<A, InternalSdkError> => {
-      const decoded = strict
+      const decoded = options?.strict
         ? Schema.decodeUnknownEffect(schema)(json, { onExcessProperty: "error" })
         : Schema.decodeUnknownEffect(schema)(json);
       return decoded.pipe(
         Effect.mapError((error) =>
-          strict
-            ? new ReceiptDecodeError()
+          options?.strict
+            ? (options.decodeError?.() ?? new ReceiptDecodeError())
             : new Validation({ message: `Decode error: ${error.message}`, fields: {} }),
         ),
       );
@@ -348,8 +409,8 @@ export function createTransport(baseUrl: string | undefined, auth?: AuthOption):
     ) {
       return pipe(
         buildUrl(url, params),
-        Effect.flatMap((resolvedUrl) => executeJson(resolvedUrl, "GET")),
-        Effect.flatMap(decodeWith(schema, options?.strict)),
+        Effect.flatMap((resolvedUrl) => executeJson(resolvedUrl, "GET", undefined, undefined, options)),
+        Effect.flatMap(decodeWith(schema, options)),
       );
     },
 
@@ -367,8 +428,8 @@ export function createTransport(baseUrl: string | undefined, auth?: AuthOption):
       });
       return pipe(
         buildUrl(url, params),
-        Effect.flatMap((resolvedUrl) => executeJson(resolvedUrl, "GET")),
-        Effect.flatMap(decodeWith(collectionSchema, options?.strict)),
+        Effect.flatMap((resolvedUrl) => executeJson(resolvedUrl, "GET", undefined, undefined, options)),
+        Effect.flatMap(decodeWith(collectionSchema, options)),
         Effect.map(({ "hydra:member": items, "hydra:totalItems": totalItems }) => ({
           items: Array.from(items),
           totalItems: totalItems ?? 0,
@@ -386,8 +447,8 @@ export function createTransport(baseUrl: string | undefined, auth?: AuthOption):
     ) {
       return pipe(
         buildUrl(url),
-        Effect.flatMap((resolvedUrl) => executeJson(resolvedUrl, "POST", body)),
-        Effect.flatMap(decodeWith(schema, options?.strict)),
+        Effect.flatMap((resolvedUrl) => executeJson(resolvedUrl, "POST", body, undefined, options)),
+        Effect.flatMap(decodeWith(schema, options)),
       );
     },
 
@@ -445,7 +506,7 @@ export function createTransport(baseUrl: string | undefined, auth?: AuthOption):
             catch: () => new Network({ message: "Failed to parse response JSON" }),
           });
         }),
-        Effect.flatMap(decodeWith(schema, options?.strict)),
+        Effect.flatMap(decodeWith(schema, options)),
       );
     },
 

@@ -30,13 +30,13 @@ export type {
   ReceiptFailure,
   AdmissionPeriodFailure,
   AdmissionPeriodSdkError,
-  AdmissionApplicationFailure,
-  AdmissionApplicationSdkError,
+  PublicApplicationFailure,
+  PublicApplicationSdkError,
 } from "./errors.js";
 export type {
   ReceiptRejectionTag,
   AdmissionPeriodRejectionTag,
-  AdmissionApplicationRejectionTag,
+  PublicApplicationRejectionTag,
 } from "./errors.js";
 export type { ClientContext } from "./context.js";
 export { apiUrl, isFixtureMode } from "./config.js";
@@ -97,14 +97,26 @@ export {
   Rfc3339InstantSchema,
 } from "./schemas/admission-period.js";
 export type {
-  AdmissionApplication,
-  AdmissionApplicationSubmitInput,
-  AdmissionApplicationSubmitResponse,
+  PublicApplicationSubmitInput,
+  PublicApplicationSubmitResponse,
+  PublicApplicationFieldOfStudy,
+  PublicApplicationDepartment,
+  PublicApplicationCatalog,
+  PublicApplicationConfirmation,
 } from "./schemas/admission-application.js";
 export {
-  AdmissionApplicationSchema,
-  AdmissionApplicationSubmitInputSchema,
-  AdmissionApplicationSubmitResponseSchema,
+  PublicApplicationSubmitInput,
+  PublicApplicationSubmitInputSchema,
+  PublicApplicationSubmitResponse,
+  PublicApplicationSubmitResponseSchema,
+  PublicApplicationFieldOfStudy,
+  PublicApplicationFieldOfStudySchema,
+  PublicApplicationDepartment,
+  PublicApplicationDepartmentSchema,
+  PublicApplicationCatalog,
+  PublicApplicationCatalogSchema,
+  PublicApplicationConfirmation,
+  PublicApplicationConfirmationSchema,
 } from "./schemas/admission-application.js";
 export type { Receipt, AdminReceipt, ReceiptInput } from "./schemas/receipt.js";
 export type { Application, ApplicationDetail } from "./schemas/application.js";

@@ -14,16 +14,23 @@ declare const Bun: {
   };
 };
 
-const migrationUrl = new URL(
+const admissionPeriodMigrationUrl = new URL(
   "../../../packages/domain/src/admission-period/migrations/0001-admission-period-authority.sql",
+  import.meta.url,
+);
+const applicantMigrationUrl = new URL(
+  "../../../packages/domain/src/application/migrations/0002-public-applicant-admission.sql",
   import.meta.url,
 );
 
 const config = makeAdmissionApiConfig();
-const migrationSql = await readFile(migrationUrl, "utf8");
+const migrationSql = [
+  await readFile(admissionPeriodMigrationUrl, "utf8"),
+  await readFile(applicantMigrationUrl, "utf8"),
+].join("\n");
 const postgresLayer = PgClient.layer({
   url: Redacted.make(config.postgresUrl),
-  applicationName: "admission-period-api",
+  applicationName: "public-applicant-admission-api",
   maxConnections: 8,
 });
 const api = makeAdmissionApiHttp({ config, migrationSql, postgresLayer });

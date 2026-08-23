@@ -65,18 +65,25 @@ export {
   StaleAdmissionPeriodRevisionError,
   DuplicateAdmissionPeriodCommandConflictError,
   AdmissionPeriodPersistenceSdkError,
-  AdmissionApplicationRejectionError,
-  AdmissionApplicationDecodeSdkError,
-  NoOpenAdmissionPeriodError,
-  AdmissionApplicationAlreadyExistsError,
-  DuplicateAdmissionApplicationCommandConflictError,
-  AdmissionApplicationPersistenceSdkError,
+  PublicApplicationRejectionError,
+  PublicApplicationDecodeSdkError,
+  NoEligibleAdmissionPeriodError,
+  PublicApplicationDepartmentNotFoundError,
+  PublicApplicationFieldOfStudyNotFoundError,
+  PublicApplicationFieldOfStudyInactiveError,
+  PublicApplicationFieldOfStudyDepartmentMismatchError,
+  DuplicatePublicApplicationError,
+  DuplicatePublicApplicationCommandConflictError,
+  RequestBodyTooLargeError,
+  PublicApplicationRateLimitExceededError,
+  PublicApplicationNotFoundError,
+  PublicApplicationPersistenceSdkError,
 } from "./errors.js";
 export type {
   SdkErrorType,
   ReceiptRejectionTag,
   AdmissionPeriodRejectionTag,
-  AdmissionApplicationRejectionTag,
+  PublicApplicationRejectionTag,
 } from "./errors.js";
 
 export type { Receipt, AdminReceipt, ReceiptInput } from "./schemas/receipt.js";
@@ -136,14 +143,26 @@ export {
   Rfc3339InstantSchema,
 } from "./schemas/admission-period.js";
 export type {
-  AdmissionApplication,
-  AdmissionApplicationSubmitInput,
-  AdmissionApplicationSubmitResponse,
+  PublicApplicationSubmitInput,
+  PublicApplicationSubmitResponse,
+  PublicApplicationFieldOfStudy,
+  PublicApplicationDepartment,
+  PublicApplicationCatalog,
+  PublicApplicationConfirmation,
 } from "./schemas/admission-application.js";
 export {
-  AdmissionApplicationSchema,
-  AdmissionApplicationSubmitInputSchema,
-  AdmissionApplicationSubmitResponseSchema,
+  PublicApplicationSubmitInput,
+  PublicApplicationSubmitInputSchema,
+  PublicApplicationSubmitResponse,
+  PublicApplicationSubmitResponseSchema,
+  PublicApplicationFieldOfStudy,
+  PublicApplicationFieldOfStudySchema,
+  PublicApplicationDepartment,
+  PublicApplicationDepartmentSchema,
+  PublicApplicationCatalog,
+  PublicApplicationCatalogSchema,
+  PublicApplicationConfirmation,
+  PublicApplicationConfirmationSchema,
 } from "./schemas/admission-application.js";
 export type { Application, ApplicationDetail } from "./schemas/application.js";
 export {

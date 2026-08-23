@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  AdmissionApplicationDecodeSdkError,
   AdmissionPeriodDecodeSdkError,
-  NoOpenAdmissionPeriodError,
+  NoEligibleAdmissionPeriodError,
+  PublicApplicationRateLimitExceededError,
   createClient,
 } from "../promise.js";
 
@@ -25,7 +25,7 @@ const response = (status: number, body: unknown): Response =>
 
 afterEach(() => vi.unstubAllGlobals());
 
-describe("native admission-period SDK", () => {
+describe("native admission and public application SDK", () => {
   it("lists strict management projections as a bounded page", async () => {
     const page = { items: [projection], totalItems: 1 };
     const fetchMock = vi.fn().mockResolvedValue(response(200, page));
@@ -98,22 +98,71 @@ describe("native admission-period SDK", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("maps closed public submission to NoOpenAdmissionPeriod", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(response(409, { error: { tag: "NoOpenAdmissionPeriod" } }));
+  it("loads the public catalog through the canonical route", async () => {
+    const catalog = {
+      departments: [
+        {
+          departmentId: "department-1",
+          name: "Oslo",
+          closesAt: "2026-09-01T00:00:00.000Z",
+          fieldsOfStudy: [{ fieldOfStudyId: "field-1", name: "Computer Science" }],
+        },
+      ],
+    };
+    const fetchMock = vi.fn().mockResolvedValue(response(200, catalog));
     vi.stubGlobal("fetch", fetchMock);
     const client = createClient("http://api.test");
 
-    await expect(
-      client.applications.submit({
-        commandId: "application-command",
-        departmentId: "department-1",
-        applicantId: "applicant-1",
-      }),
-    ).rejects.toBeInstanceOf(NoOpenAdmissionPeriodError);
+    await expect(client.applications.catalog()).resolves.toEqual(catalog);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://api.test/api/applications/catalog",
+      expect.objectContaining({ method: "GET" }),
+    );
   });
 
-  it("rejects excess public application fields before transport", async () => {
-    const fetchMock = vi.fn();
+  it("submits the complete public command and returns only the opaque response", async () => {
+    const submitted = {
+      _tag: "Submitted",
+      commandId: "application-command",
+      applicationId: "application-1",
+    };
+    const fetchMock = vi.fn().mockResolvedValue(response(201, submitted));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = createClient("http://api.test");
+    const input = {
+      commandId: "application-command",
+      departmentId: "department-1",
+      firstName: "Ada",
+      lastName: "Lovelace",
+      phone: "90000000",
+      email: "ada@example.com",
+      gender: 1,
+      fieldOfStudyId: "field-1",
+      yearOfStudy: 1,
+    } as const;
+
+    await expect(client.applications.submit(input)).resolves.toEqual(submitted);
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(String(init.body))).toEqual(input);
+  });
+
+  it("loads an opaque confirmation without exposing applicant data", async () => {
+    const confirmation = { _tag: "ApplicationConfirmed", applicationId: "application-1" };
+    const fetchMock = vi.fn().mockResolvedValue(response(200, confirmation));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = createClient("http://api.test");
+
+    await expect(client.applications.confirmation("application-1")).resolves.toEqual(confirmation);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://api.test/api/applications/application-1/confirmation",
+      expect.objectContaining({ method: "GET" }),
+    );
+  });
+
+  it("maps typed public rejection tags and rejects excess fields before transport", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      response(409, { error: { tag: "NoEligibleAdmissionPeriod" } }),
+    );
     vi.stubGlobal("fetch", fetchMock);
     const client = createClient("http://api.test");
 
@@ -121,10 +170,38 @@ describe("native admission-period SDK", () => {
       client.applications.submit({
         commandId: "application-command",
         departmentId: "department-1",
-        applicantId: "applicant-1",
-        admissionPeriodId: "browser-selected",
+        firstName: "Ada",
+        lastName: "Lovelace",
+        phone: "90000000",
+        email: "ada@example.com",
+        gender: 1,
+        fieldOfStudyId: "field-1",
+        yearOfStudy: 1,
+        applicantId: "browser-authority",
       } as never),
-    ).rejects.toBeInstanceOf(AdmissionApplicationDecodeSdkError);
+    ).rejects.toBeInstanceOf(PublicApplicationDecodeSdkError);
     expect(fetchMock).not.toHaveBeenCalled();
+
+    await expect(
+      client.applications.submit({
+        commandId: "application-command",
+        departmentId: "department-1",
+        firstName: "Ada",
+        lastName: "Lovelace",
+        phone: "90000000",
+        email: "ada@example.com",
+        gender: 1,
+        fieldOfStudyId: "field-1",
+        yearOfStudy: 1,
+      }),
+    ).rejects.toBeInstanceOf(NoEligibleAdmissionPeriodError);
+
+    const rateLimitedFetch = vi.fn().mockResolvedValue(
+      response(429, { error: { tag: "PublicApplicationRateLimitExceeded" } }),
+    );
+    vi.stubGlobal("fetch", rateLimitedFetch);
+    await expect(
+      client.applications.confirmation("application-1"),
+    ).rejects.toBeInstanceOf(PublicApplicationRateLimitExceededError);
   });
 });
