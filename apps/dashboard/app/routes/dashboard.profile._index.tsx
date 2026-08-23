@@ -13,66 +13,54 @@ import { isFixtureMode } from "@vektorprogrammet/sdk";
 import { getProfileData } from "../mock/api/data-profile";
 import { requireAuth } from "../lib/auth.server";
 import { createAuthenticatedClient } from "../lib/api.server";
-import { publicAssetUrl } from "@/lib/public-asset";
+import { loadProfile } from "../lib/profile-view";
 import type { Route } from "./+types/dashboard.profile._index";
 
 export async function loader({ request }: Route.LoaderArgs) {
-  if (isFixtureMode) return { profile: getProfileData() };
+  if (isFixtureMode) return { profile: getProfileData(), fixture: true as const };
 
   const token = requireAuth(request);
   const client = createAuthenticatedClient(token);
+  const profile = await loadProfile(() => client.me.profile());
 
-  try {
-    const data = await client.me.profile();
-    const fallback = getProfileData();
-    return {
-      profile: {
-        ...fallback,
-        firstName: data.firstName,
-        lastName: data.lastName,
-        email: data.email,
-        phone: (data.phone as string | null | undefined) ?? fallback.phone,
-        profileImage: publicAssetUrl(data.profilePhoto as string | null | undefined) || fallback.profileImage,
-      },
-    };
-  } catch {
-    return { profile: getProfileData() };
-  }
+  return { profile, fixture: false as const };
 }
 
 // biome-ignore lint/style/noDefaultExport: Route Modules require default export https://reactrouter.com/start/framework/route-module
 export default function Profile() {
-  const { profile } = useLoaderData<typeof loader>();
+  const { profile, fixture } = useLoaderData<typeof loader>();
   return (
     <>
       <div className="mx-10 mt-10 flex flex-col">
         <section className="items-center gap-4 lg:mb-8 lg:grid lg:grid-cols-3 lg:flex-row">
-          <img
-            className="h-40 w-40 self-end justify-self-center rounded-full object-cover"
-            alt="profilbilde"
-            src={profile.profileImage}
-          />
+          {profile.profileImage ? (
+            <img
+              className="h-40 w-40 self-end justify-self-center rounded-full object-cover"
+              alt="Profilbilde"
+              src={profile.profileImage}
+            />
+          ) : null}
           <div className="flex flex-col items-center self-end lg:items-start">
             <h1 className="mb-2 font-semibold text-2xl lg:mb-4 lg:text-4xl">
               {profile.firstName} {profile.lastName}
             </h1>
-            <h2 className="font-medium lg:text-xl">Teammedlem</h2>
+            <h2 className="font-medium lg:text-xl">{fixture ? "Teammedlem" : profile.role}</h2>
             <p className="lg:mb-4">
               <a
-                href={`mailto:${profile.vektorEmail}`}
+                href={`mailto:${fixture ? profile.vektorEmail : profile.email}`}
                 className="text-blue-600 hover:underline"
               >
-                {profile.vektorEmail}
+                {fixture ? profile.vektorEmail : profile.email}
               </a>
             </p>
           </div>
         </section>
-        <div className="hidden gap-8 lg:grid lg:grid-cols-3">
+        <div className="gap-8 lg:grid lg:grid-cols-3">
           <div className="col-start-2 col-end-4">
-            <h2 className="mt-2 font-semibold text-xl">
-              Aktivitet i vektorprogrammet
-            </h2>
-            {profile.boardHistory.length > 0 ? (
+            <h2 className="mt-2 font-semibold text-xl">Aktivitet i Vektorprogrammet</h2>
+            {!fixture ? (
+              <p>Aktivitetshistorikk er ikke tilgjengelig i den nye profiltjenesten ennå.</p>
+            ) : profile.boardHistory.length > 0 ? (
               <h3 className="mt-2 font-medium text-lg">Medlem i hovedstyret</h3>
             ) : (
               <h3 className="mt-2 font-medium text-lg">Teamhistorikk</h3>
@@ -86,10 +74,7 @@ export default function Profile() {
                 asChild
                 className="flex flex-row justify-between rounded-t-lg bg-gray-50 px-4 py-2 text-left font-medium text-black hover:bg-gray-100"
               >
-                <NavLink
-                  to={href("/dashboard/profile/rediger")}
-                  prefetch="intent"
-                >
+                <NavLink to={href("/dashboard/profile/rediger")} prefetch="intent">
                   Rediger profil
                   <ChevronRight />
                 </NavLink>
@@ -107,24 +92,21 @@ export default function Profile() {
                 <TableRow>
                   <TableCell className="w-2/5 font-medium">Avdeling:</TableCell>
                   <TableCell className="truncate">
-                    {profile.department}
+                    {fixture ? profile.department : "Ikke tilgjengelig"}
                   </TableCell>
                 </TableRow>
                 <TableRow>
                   <TableCell className="w-2/5 font-medium">Linje:</TableCell>
-                  <TableCell className="truncate">{profile.study}</TableCell>
+                  <TableCell className="truncate">{profile.study ?? "Ikke oppgitt"}</TableCell>
                 </TableRow>
                 <TableRow>
                   <TableCell className="w-2/5 font-medium">Telefon:</TableCell>
-                  <TableCell className="truncate">{profile.phone}</TableCell>
+                  <TableCell className="truncate">{profile.phone ?? "Ikke oppgitt"}</TableCell>
                 </TableRow>
                 <TableRow>
                   <TableCell className="w-2/5 font-medium">E-post:</TableCell>
                   <TableCell className="truncate">
-                    <a
-                      className="text-blue-600 hover:underline"
-                      href={`mailto:${profile.email}`}
-                    >
+                    <a className="text-blue-600 hover:underline" href={`mailto:${profile.email}`}>
                       {profile.email}
                     </a>
                   </TableCell>
@@ -132,82 +114,75 @@ export default function Profile() {
               </TableBody>
             </Table>
           </div>
-          <div className="col-span-2 max-w-3xl">
-            <div className="mt-8 block lg:hidden">
-              <h2 className="mt-2 font-semibold text-xl">
-                Aktivitet i vektorprogrammet
-              </h2>
-              {profile.boardHistory.length > 0 ? (
-                <h3 className="mt-4 mb-2 font-medium text-lg">
-                  Medlem i hovedstyret
-                </h3>
-              ) : (
-                <h3 className="mt-4 mb-2 font-medium text-lg">Teamhistorikk</h3>
+          {fixture ? (
+            <div className="col-span-2 max-w-3xl">
+              <div className="mt-8 block lg:hidden">
+                <h2 className="mt-2 font-semibold text-xl">Aktivitet i Vektorprogrammet</h2>
+                {profile.boardHistory.length > 0 ? (
+                  <h3 className="mt-4 mb-2 font-medium text-lg">Medlem i hovedstyret</h3>
+                ) : (
+                  <h3 className="mt-4 mb-2 font-medium text-lg">Teamhistorikk</h3>
+                )}
+              </div>
+              {profile.boardHistory.length > 0 && (
+                <>
+                  <Table className="w-full overflow-hidden rounded-lg bg-gray-50">
+                    <TableHeader className="rounded-t-lg bg-gray-200 text-left">
+                      <TableHead className="p-2 text-black">Stilling</TableHead>
+                      <TableHead className="p-2 text-black">Start</TableHead>
+                      <TableHead className="p-2 text-black">Slutt</TableHead>
+                    </TableHeader>
+                    <TableBody>
+                      {profile.boardHistory.map((row) => (
+                        <TableRow key={`${row.position}-${row.start}-${row.end}`}>
+                          <TableCell className="p-2">{row.position}</TableCell>
+                          <TableCell className="p-2">{row.start}</TableCell>
+                          <TableCell className="p-2">{row.end}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                  <h3 className="mt-8 mb-2 font-medium text-lg">Teamhistorikk</h3>
+                </>
               )}
+              <Table className="w-full overflow-hidden rounded-lg bg-gray-50">
+                <TableHeader className="rounded-t-lg bg-gray-200 text-left">
+                  <TableHead className="p-2 text-black">Team</TableHead>
+                  <TableHead className="p-2 text-black">Stilling</TableHead>
+                  <TableHead className="p-2 text-black">Start</TableHead>
+                  <TableHead className="p-2 text-black">Slutt</TableHead>
+                </TableHeader>
+                <TableBody>
+                  {profile.teamHistory.map((row) => (
+                    <TableRow
+                      key={`${row.team}-${row.position}-${row.start}-${row.end}`}
+                      className="border-none"
+                    >
+                      <TableCell className="p-2">{row.team}</TableCell>
+                      <TableCell className="p-2">{row.position}</TableCell>
+                      <TableCell className="p-2">{row.start}</TableCell>
+                      <TableCell className="p-2">{row.end}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+              <h3 className="mt-8 mb-2 font-medium text-lg">Assistenthistorikk</h3>
+              <Table className="w-full overflow-hidden rounded-lg bg-gray-50">
+                <TableHeader className="rounded-t-lg bg-gray-200 text-left">
+                  <TableHead className="p-2 text-black">Skole</TableHead>
+                  <TableHead className="p-2 text-black">Semester</TableHead>
+                </TableHeader>
+                <TableBody>
+                  {profile.assistantHistory.map((row) => (
+                    <TableRow key={`${row.school}-${row.semester}`} className="border-none">
+                      <TableCell className="p-2">{row.school}</TableCell>
+                      <TableCell className="p-2">{row.semester}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
             </div>
-            {profile.boardHistory.length > 0 && (
-              <>
-                <Table className="w-full overflow-hidden rounded-lg bg-gray-50">
-                  <TableHeader className="rounded-t-lg bg-gray-200 text-left">
-                    <TableHead className="p-2 text-black">Stilling</TableHead>
-                    <TableHead className="p-2 text-black">Start</TableHead>
-                    <TableHead className="p-2 text-black">Slutt</TableHead>
-                  </TableHeader>
-                  <TableBody>
-                    {profile.boardHistory.map((row) => (
-                      <TableRow key={`${row.position}-${row.start}-${row.end}`}>
-                        <TableCell className="p-2">{row.position}</TableCell>
-                        <TableCell className="p-2">{row.start}</TableCell>
-                        <TableCell className="p-2">{row.end}</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-                <h3 className="mt-8 mb-2 font-medium text-lg">Teamhistorikk</h3>
-              </>
-            )}
-            <Table className="w-full overflow-hidden rounded-lg bg-gray-50">
-              <TableHeader className="rounded-t-lg bg-gray-200 text-left">
-                <TableHead className="p-2 text-black">Team</TableHead>
-                <TableHead className="p-2 text-black">Stilling</TableHead>
-                <TableHead className="p-2 text-black">Start</TableHead>
-                <TableHead className="p-2 text-black">Slutt</TableHead>
-              </TableHeader>
-              <TableBody>
-                {profile.teamHistory.map((row) => (
-                  <TableRow
-                    key={`${row.team}-${row.position}-${row.start}-${row.end}`}
-                    className="border-none"
-                  >
-                    <TableCell className="p-2">{row.team}</TableCell>
-                    <TableCell className="p-2">{row.position}</TableCell>
-                    <TableCell className="p-2">{row.start}</TableCell>
-                    <TableCell className="p-2">{row.end}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-            <h3 className="mt-8 mb-2 font-medium text-lg">
-              Assistenthistorikk
-            </h3>
-            <Table className="w-full overflow-hidden rounded-lg bg-gray-50">
-              <TableHeader className="rounded-t-lg bg-gray-200 text-left">
-                <TableHead className="p-2 text-black">Skole</TableHead>
-                <TableHead className="p-2 text-black">Semester</TableHead>
-              </TableHeader>
-              <TableBody>
-                {profile.assistantHistory.map((row) => (
-                  <TableRow
-                    key={`${row.school}-${row.semester}`}
-                    className="border-none"
-                  >
-                    <TableCell className="p-2">{row.school}</TableCell>
-                    <TableCell className="p-2">{row.semester}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
+          ) : null}
         </div>
       </div>
     </>
