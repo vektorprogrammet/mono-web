@@ -7,10 +7,10 @@
 | Field       | Value                                                                                                                                                                                  |
 | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Goal        | Establish the capability and runtime contract for all remaining migration work                                                                                                         |
-| Status      | Frozen at revision 0040.1 for local implementation. Revision 0040.1 distinguishes logical authority dependencies from implemented Layer inputs and restores the PostgreSQL proof gate. |
-| Depends on  | Design spec 0039 at `2be4112`, ADR 0004, and ADR 0005                                                                                                                                  |
+| Status      | Frozen at revision 0040.2 for native Recruitment implementation. Revision 0040.2 adds the Profile read dependency and permits local browser evidence while retaining the remote PostgreSQL gate. |
+| Depends on  | Design spec 0039 at `2be4112`, ADR 0004, ADR 0005, and design spec 0049                                                                                                                |
 | Actor       | Maintainer and capability author                                                                                                                                                       |
-| Environment | Local PGlite contracts and remote PostgreSQL integration. Local browser execution is prohibited.                                                                                       |
+| Environment | Local PGlite capability contracts and local browser journeys; remote PostgreSQL proves PostgreSQL-specific laws                                                                       |
 
 ## User journey
 
@@ -48,9 +48,9 @@ A remote Layer is valid only when it preserves the capability laws. A matching T
 | `Database`            | connection scope, transactions, migration readiness, schema revision, shutdown     | Effect configuration and SQL adapter Layers                       |
 | `Identity`            | credential authentication, actor identity, account state                           | `Database`                                                        |
 | `Organization`        | departments, semesters, fields of study, teams, membership, positions              | `Database`                                                        |
+| `Profile`             | person display and contact projections                                               | `Database`, `Organization`                                        |
 | `Admissions`          | admission windows, eligible catalog, applicant submission, application review      | `Database`, `Organization`                                        |
-| `Recruitment`         | invitations, interviews, responses, offers, placements                             | `Database`, `Admissions`, `Organization`                          |
-| `Economy`             | Receipt submission, revision, withdrawal, approval, refund, rejection, projections | `Database`, `Identity`, `PrivateFileStore`, `NotificationGateway` |
+| `Recruitment`         | invitations, interviews, responses, offers, placements                             | `Database`, `Admissions`, `Organization`, `Profile`               |
 | `Content`             | publication rules and public content projections                                   | `ContentManagement`                                               |
 | `ContentManagement`   | mutable editorial documents, drafts, media, and publication workflow               | provider configuration                                            |
 | `PrivateFileStore`    | private object promotion, read, replacement, and deletion                          | provider configuration                                            |
@@ -60,14 +60,15 @@ These rows define logical authority. They do not require separate packages, proc
 
 Logical authority dependencies describe semantic ownership, not ambient Layer inputs. Actor facts enter pure transitions as explicit command context. Durable effect requests leave transactions through the outbox. Neither is an implicit Service lookup.
 
-Revision 0040.1 records the implemented Layer graph separately:
+Revision 0040.2 records the implemented Layer graph separately:
 
-| Implemented Layer | Output       | Direct Layer input |
-| ----------------- | ------------ | ------------------ |
-| `AdmissionsLive`  | `Admissions` | `Database`         |
-| `EconomyLive`     | `Economy`    | `Database`         |
+| Implemented Layer | Output         | Direct Layer input |
+| ----------------- | -------------- | ------------------ |
+| `AdmissionsLive`  | `Admissions`   | `Database`         |
+| `EconomyLive`     | `Economy`      | `Database`         |
+| `OrganizationLive`| `Organization` | `Database`         |
 
-The compiler checks these Layer types. `Organization`, `Identity`, `PrivateFileStore`, and `NotificationGateway` remain logical authorities. A later journey must add their Services and provider Layers before it can claim those effects are delivered. Until then, durable provider-backed outbox rows remain pending; a recording interpreter is proof machinery, not a production provider.
+The compiler checks these Layer types. `Profile`, `Recruitment`, `Identity`, `PrivateFileStore`, and `NotificationGateway` remain logical authorities until their bound journeys provide and gate concrete Layers. Pending provider-backed outbox rows remain pending; a recording interpreter is proof machinery, not a production provider.
 
 `ContentManagement` and `Database` have different authority profiles. `ContentManagement` owns mutable, low-authority editorial state. `Database` owns important business state and its appendable history.
 
