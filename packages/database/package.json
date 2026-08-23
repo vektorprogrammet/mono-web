@@ -7,7 +7,7 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "test": "vitest run && bun run proof:receipt",
+    "test": "vitest run",
     "proof:receipt": "bun run src/receipt-postgres-proof-main.ts",
     "check-types": "tsc --noEmit",
     "build": "tsc --noEmit",

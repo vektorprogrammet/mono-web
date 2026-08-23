@@ -1,10 +1,14 @@
 export const capabilityNames = [
+  "Database",
   "Identity",
   "Organization",
-  "Recruitment",
   "Admissions",
+  "Recruitment",
   "Economy",
+  "Content",
   "ContentManagement",
+  "PrivateFileStore",
+  "NotificationGateway",
 ] as const;
 
 export type CapabilityName = (typeof capabilityNames)[number];
@@ -13,15 +17,16 @@ export type CapabilityDependencyGraph = {
   readonly [Capability in CapabilityName]: ReadonlyArray<CapabilityName>;
 };
 
-/**
- * Compile-time checked logical dependencies. An empty list means that no
- * cross-capability dependency is accepted yet; it does not claim isolation.
- */
+/** Compile-time checked direct requirements from design spec 0040. */
 export const capabilityDependencies = {
-  Identity: [],
-  Organization: [],
-  Recruitment: ["Identity", "Admissions", "Organization"],
-  Admissions: [],
-  Economy: [],
+  Database: [],
+  Identity: ["Database"],
+  Organization: ["Database"],
+  Admissions: ["Database", "Organization"],
+  Recruitment: ["Database", "Admissions", "Organization"],
+  Economy: ["Database", "Identity", "PrivateFileStore", "NotificationGateway"],
+  Content: ["ContentManagement"],
   ContentManagement: [],
+  PrivateFileStore: [],
+  NotificationGateway: [],
 } as const satisfies CapabilityDependencyGraph;

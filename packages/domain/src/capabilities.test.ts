@@ -23,7 +23,18 @@ describe("logical capability dependencies", () => {
     expect(visited.size).toBe(capabilityNames.length);
   });
 
-  it("makes Recruitment's three authority dependencies explicit", () => {
-    expect(capabilityDependencies.Recruitment).toEqual(["Identity", "Admissions", "Organization"]);
+  it("matches every direct capability requirement in the frozen topology", () => {
+    expect(capabilityDependencies).toEqual({
+      Database: [],
+      Identity: ["Database"],
+      Organization: ["Database"],
+      Admissions: ["Database", "Organization"],
+      Recruitment: ["Database", "Admissions", "Organization"],
+      Economy: ["Database", "Identity", "PrivateFileStore", "NotificationGateway"],
+      Content: ["ContentManagement"],
+      ContentManagement: [],
+      PrivateFileStore: [],
+      NotificationGateway: [],
+    });
   });
 });
