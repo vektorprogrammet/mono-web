@@ -1,7 +1,12 @@
 import { Button, Disclosure } from "@foldkit/ui";
-import { Option } from "effect";
+import { Option, Schema as S } from "effect";
 import type { Html, HtmlBuilder, TagName } from "foldkit/html";
 import { DASHBOARD_ELEMENT as INTERVIEW_DASHBOARD_ELEMENT } from "../interview/elements";
+import {
+  RECRUITMENT_ELEMENT,
+  RECRUITMENT_INPUT_ATTRIBUTE,
+} from "../recruitment/elements";
+import { RecruitmentInputJson } from "../recruitment/model";
 import {
   ActivatedNavigation,
   ClosedMobileNavigation,
@@ -298,7 +303,7 @@ const breadcrumbsView = (model: ReadyModel, h: HtmlBuilder<Message>): Html =>
           h.li([h.Class("fd-breadcrumb__item")], [h.a([h.Href("/")], ["Forsiden"])]),
           h.li(
             [h.Class("fd-breadcrumb__item is-current"), h.AriaCurrent("page")],
-            ["Kontrollpanel"],
+            [model.recruitment === null ? "Kontrollpanel" : "Søkere"],
           ),
         ],
       ),
@@ -409,15 +414,28 @@ const readyView = (model: ReadyModel, h: HtmlBuilder<Message>): Html => {
           h.main(
             [h.Id("fd-main"), h.Class("fd-main"), h.Tabindex(-1)],
             [
-              landingView(model, h),
-              h.section(
-                [h.Class("fd-interview-region"), h.AriaLabel("Intervjuer")],
-                [
-                  h.keyed(INTERVIEW_DASHBOARD_ELEMENT as TagName)("foldkit-interview-dashboard", [
-                    h.Id("fd-interview-program"),
+              ...(model.recruitment === null
+                ? [
+                    landingView(model, h),
+                    h.section(
+                      [h.Class("fd-interview-region"), h.AriaLabel("Intervjuer")],
+                      [
+                        h.keyed(INTERVIEW_DASHBOARD_ELEMENT as TagName)(
+                          "foldkit-interview-dashboard",
+                          [h.Id("fd-interview-program")],
+                        ),
+                      ],
+                    ),
+                  ]
+                : [
+                    h.keyed(RECRUITMENT_ELEMENT as TagName)("foldkit-recruitment-board", [
+                      h.Id("fd-recruitment-program"),
+                      h.Attribute(
+                        RECRUITMENT_INPUT_ATTRIBUTE,
+                        S.encodeSync(RecruitmentInputJson)(model.recruitment),
+                      ),
+                    ]),
                   ]),
-                ],
-              ),
             ],
           ),
         ],

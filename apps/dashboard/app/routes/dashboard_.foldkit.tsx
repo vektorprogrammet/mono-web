@@ -57,6 +57,7 @@ export async function loader({ request }: Route.LoaderArgs) {
       role: profile.role,
       activePath: new URL(request.url).pathname,
       summary,
+      recruitment: null,
     },
     { onExcessProperty: "error" },
   );

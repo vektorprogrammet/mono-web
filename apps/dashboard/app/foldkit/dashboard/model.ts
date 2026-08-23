@@ -1,5 +1,6 @@
 import { Schema as S } from "effect";
 import { isAdmissionPath } from "./navigation";
+import { RecruitmentInput } from "../recruitment/model";
 
 export const DashboardRole = S.Literals(["ROLE_TEAM_MEMBER", "ROLE_TEAM_LEADER", "ROLE_ADMIN"]);
 export type DashboardRole = S.Schema.Type<typeof DashboardRole>;
@@ -30,6 +31,7 @@ export const DashboardInput = S.Struct({
   role: DashboardRole,
   activePath: S.String,
   summary: LandingSummary,
+  recruitment: S.NullOr(RecruitmentInput),
 });
 export type DashboardInput = S.Schema.Type<typeof DashboardInput>;
 
@@ -41,6 +43,7 @@ const ReadyModel = S.Struct({
   role: DashboardRole,
   activePath: S.String,
   summary: LandingSummary,
+  recruitment: S.NullOr(RecruitmentInput),
   isMobileNavigationOpen: S.Boolean,
   isAdmissionMenuOpen: S.Boolean,
   isProfileMenuOpen: S.Boolean,

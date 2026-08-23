@@ -14,6 +14,7 @@ const input = {
   role: "ROLE_TEAM_MEMBER" as const,
   activePath: "/dashboard/intervjuer",
   summary: { _tag: "Unavailable" as const },
+  recruitment: null,
 };
 
 describe("Foldkit dashboard state", () => {
