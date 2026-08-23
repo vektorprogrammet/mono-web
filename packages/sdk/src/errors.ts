@@ -19,7 +19,8 @@ export type SdkErrorType =
   | "configuration"
   | "receipt_rejection"
   | "admission_period_rejection"
-  | "public_application_rejection";
+  | "public_application_rejection"
+  | "recruitment_rejection";
 
 export type AdmissionPeriodRejectionTag =
   | "UnauthenticatedActor"
@@ -65,6 +66,22 @@ export type ReceiptRejectionTag =
   | "InvalidReceiptTransition"
   | "ReceiptFileNotStaged"
   | "ReceiptPersistenceError";
+
+export type RecruitmentRejectionTag =
+  | "UnauthenticatedActor"
+  | "RecruitmentInactiveActor"
+  | "RecruitmentRoleDenied"
+  | "RecruitmentScopeDenied"
+  | "RecruitmentAdmissionPeriodNotFound"
+  | "RecruitmentAmbiguousAdmissionPeriod"
+  | "RecruitmentApplicationNotFound"
+  | "RecruitmentApplicationAlreadyAssigned"
+  | "RecruitmentInterviewSchemaNotFound"
+  | "RecruitmentInterviewSchemaInactive"
+  | "RecruitmentInterviewerNotEligible"
+  | "RecruitmentAssignmentCommandConflict"
+  | "RecruitmentDecodeError"
+  | "RecruitmentPersistenceError";
 
 export class SdkError extends Error {
   readonly type: SdkErrorType;
@@ -224,6 +241,116 @@ export class ReceiptPersistenceSdkError extends ReceiptRejectionError {
   constructor() {
     super("ReceiptPersistenceError");
     this.name = "ReceiptPersistenceSdkError";
+  }
+}
+
+export class RecruitmentRejectionError extends SdkError {
+  readonly _tag: RecruitmentRejectionTag;
+  readonly recruitmentTag: RecruitmentRejectionTag;
+
+  constructor(tag: RecruitmentRejectionTag) {
+    super("recruitment_rejection", tag);
+    this.name = "RecruitmentRejectionError";
+    this._tag = tag;
+    this.recruitmentTag = tag;
+  }
+}
+
+export class RecruitmentUnauthenticatedActorError extends RecruitmentRejectionError {
+  constructor() {
+    super("UnauthenticatedActor");
+    this.name = "RecruitmentUnauthenticatedActorError";
+  }
+}
+
+export class RecruitmentInactiveActorError extends RecruitmentRejectionError {
+  constructor() {
+    super("RecruitmentInactiveActor");
+    this.name = "RecruitmentInactiveActorError";
+  }
+}
+
+export class RecruitmentRoleDeniedError extends RecruitmentRejectionError {
+  constructor() {
+    super("RecruitmentRoleDenied");
+    this.name = "RecruitmentRoleDeniedError";
+  }
+}
+
+export class RecruitmentScopeDeniedError extends RecruitmentRejectionError {
+  constructor() {
+    super("RecruitmentScopeDenied");
+    this.name = "RecruitmentScopeDeniedError";
+  }
+}
+
+export class RecruitmentAdmissionPeriodNotFoundError extends RecruitmentRejectionError {
+  constructor() {
+    super("RecruitmentAdmissionPeriodNotFound");
+    this.name = "RecruitmentAdmissionPeriodNotFoundError";
+  }
+}
+
+export class RecruitmentAmbiguousAdmissionPeriodError extends RecruitmentRejectionError {
+  constructor() {
+    super("RecruitmentAmbiguousAdmissionPeriod");
+    this.name = "RecruitmentAmbiguousAdmissionPeriodError";
+  }
+}
+
+export class RecruitmentApplicationNotFoundError extends RecruitmentRejectionError {
+  constructor() {
+    super("RecruitmentApplicationNotFound");
+    this.name = "RecruitmentApplicationNotFoundError";
+  }
+}
+
+export class RecruitmentApplicationAlreadyAssignedError extends RecruitmentRejectionError {
+  constructor() {
+    super("RecruitmentApplicationAlreadyAssigned");
+    this.name = "RecruitmentApplicationAlreadyAssignedError";
+  }
+}
+
+export class RecruitmentInterviewSchemaNotFoundError extends RecruitmentRejectionError {
+  constructor() {
+    super("RecruitmentInterviewSchemaNotFound");
+    this.name = "RecruitmentInterviewSchemaNotFoundError";
+  }
+}
+
+export class RecruitmentInterviewSchemaInactiveError extends RecruitmentRejectionError {
+  constructor() {
+    super("RecruitmentInterviewSchemaInactive");
+    this.name = "RecruitmentInterviewSchemaInactiveError";
+  }
+}
+
+export class RecruitmentInterviewerNotEligibleError extends RecruitmentRejectionError {
+  constructor() {
+    super("RecruitmentInterviewerNotEligible");
+    this.name = "RecruitmentInterviewerNotEligibleError";
+  }
+}
+
+export class RecruitmentAssignmentCommandConflictError extends RecruitmentRejectionError {
+  constructor() {
+    super("RecruitmentAssignmentCommandConflict");
+    this.name = "RecruitmentAssignmentCommandConflictError";
+  }
+}
+
+export class RecruitmentDecodeSdkError extends RecruitmentRejectionError {
+  constructor() {
+    super("RecruitmentDecodeError");
+    this.name = "RecruitmentDecodeSdkError";
+  }
+}
+
+export class RecruitmentPersistenceSdkError extends RecruitmentRejectionError {
+  constructor() {
+    super("RecruitmentPersistenceError");
+    this.name = "RecruitmentPersistenceSdkError";
   }
 }
 export class AdmissionPeriodRejectionError extends SdkError {
@@ -475,6 +602,59 @@ export class ReceiptAlreadyExists extends Schema.TaggedError<ReceiptAlreadyExist
   {},
 ) {}
 
+export class RecruitmentDecodeError extends Schema.TaggedError<RecruitmentDecodeError>()(
+  "RecruitmentDecodeError",
+  {},
+) {}
+export class RecruitmentInactiveActor extends Schema.TaggedError<RecruitmentInactiveActor>()(
+  "RecruitmentInactiveActor",
+  {},
+) {}
+export class RecruitmentRoleDenied extends Schema.TaggedError<RecruitmentRoleDenied>()(
+  "RecruitmentRoleDenied",
+  {},
+) {}
+export class RecruitmentScopeDenied extends Schema.TaggedError<RecruitmentScopeDenied>()(
+  "RecruitmentScopeDenied",
+  {},
+) {}
+export class RecruitmentAdmissionPeriodNotFound extends Schema.TaggedError<RecruitmentAdmissionPeriodNotFound>()(
+  "RecruitmentAdmissionPeriodNotFound",
+  {},
+) {}
+export class RecruitmentAmbiguousAdmissionPeriod extends Schema.TaggedError<RecruitmentAmbiguousAdmissionPeriod>()(
+  "RecruitmentAmbiguousAdmissionPeriod",
+  {},
+) {}
+export class RecruitmentApplicationNotFound extends Schema.TaggedError<RecruitmentApplicationNotFound>()(
+  "RecruitmentApplicationNotFound",
+  {},
+) {}
+export class RecruitmentApplicationAlreadyAssigned extends Schema.TaggedError<RecruitmentApplicationAlreadyAssigned>()(
+  "RecruitmentApplicationAlreadyAssigned",
+  {},
+) {}
+export class RecruitmentInterviewSchemaNotFound extends Schema.TaggedError<RecruitmentInterviewSchemaNotFound>()(
+  "RecruitmentInterviewSchemaNotFound",
+  {},
+) {}
+export class RecruitmentInterviewSchemaInactive extends Schema.TaggedError<RecruitmentInterviewSchemaInactive>()(
+  "RecruitmentInterviewSchemaInactive",
+  {},
+) {}
+export class RecruitmentInterviewerNotEligible extends Schema.TaggedError<RecruitmentInterviewerNotEligible>()(
+  "RecruitmentInterviewerNotEligible",
+  {},
+) {}
+export class RecruitmentAssignmentCommandConflict extends Schema.TaggedError<RecruitmentAssignmentCommandConflict>()(
+  "RecruitmentAssignmentCommandConflict",
+  {},
+) {}
+export class RecruitmentPersistenceError extends Schema.TaggedError<RecruitmentPersistenceError>()(
+  "RecruitmentPersistenceError",
+  {},
+) {}
+
 export class DuplicateReceiptCommandConflict extends Schema.TaggedError<DuplicateReceiptCommandConflict>()(
   "DuplicateReceiptCommandConflict",
   {},
@@ -645,11 +825,28 @@ export type PublicApplicationFailure =
   | PublicApplicationNotFound
   | PublicApplicationPersistenceError;
 
+export type RecruitmentFailure =
+  | RecruitmentDecodeError
+  | RecruitmentInactiveActor
+  | RecruitmentRoleDenied
+  | RecruitmentScopeDenied
+  | RecruitmentAdmissionPeriodNotFound
+  | RecruitmentAmbiguousAdmissionPeriod
+  | RecruitmentApplicationNotFound
+  | RecruitmentApplicationAlreadyAssigned
+  | RecruitmentInterviewSchemaNotFound
+  | RecruitmentInterviewSchemaInactive
+  | RecruitmentInterviewerNotEligible
+  | RecruitmentAssignmentCommandConflict
+  | RecruitmentPersistenceError;
+
 export type PublicApplicationSdkError = PublicApplicationFailure;
 
 export type AdmissionPeriodSdkError = AdmissionPeriodFailure;
 
 export type ReceiptSdkError = ReceiptFailure;
+
+export type RecruitmentSdkError = RecruitmentFailure;
 
 export type InternalSdkError =
   | Unauthorized
@@ -661,7 +858,8 @@ export type InternalSdkError =
   | Configuration
   | ReceiptFailure
   | AdmissionPeriodFailure
-  | PublicApplicationFailure;
+  | PublicApplicationFailure
+  | RecruitmentFailure;
 
 /**
  * Maps an internal Effect TaggedError to a public SdkError subclass.
@@ -758,5 +956,31 @@ export function toSdkError(error: InternalSdkError): SdkError {
       return new PublicApplicationNotFoundError();
     case "PublicApplicationPersistenceError":
       return new PublicApplicationPersistenceSdkError();
+    case "RecruitmentDecodeError":
+      return new RecruitmentDecodeSdkError();
+    case "RecruitmentInactiveActor":
+      return new RecruitmentInactiveActorError();
+    case "RecruitmentRoleDenied":
+      return new RecruitmentRoleDeniedError();
+    case "RecruitmentScopeDenied":
+      return new RecruitmentScopeDeniedError();
+    case "RecruitmentAdmissionPeriodNotFound":
+      return new RecruitmentAdmissionPeriodNotFoundError();
+    case "RecruitmentAmbiguousAdmissionPeriod":
+      return new RecruitmentAmbiguousAdmissionPeriodError();
+    case "RecruitmentApplicationNotFound":
+      return new RecruitmentApplicationNotFoundError();
+    case "RecruitmentApplicationAlreadyAssigned":
+      return new RecruitmentApplicationAlreadyAssignedError();
+    case "RecruitmentInterviewSchemaNotFound":
+      return new RecruitmentInterviewSchemaNotFoundError();
+    case "RecruitmentInterviewSchemaInactive":
+      return new RecruitmentInterviewSchemaInactiveError();
+    case "RecruitmentInterviewerNotEligible":
+      return new RecruitmentInterviewerNotEligibleError();
+    case "RecruitmentAssignmentCommandConflict":
+      return new RecruitmentAssignmentCommandConflictError();
+    case "RecruitmentPersistenceError":
+      return new RecruitmentPersistenceSdkError();
   }
 }

@@ -13,7 +13,7 @@ import { createReceiptsDomain } from "./domains/receipts.js";
 import { createAdminReceiptsDomain } from "./domains/admin/receipts.js";
 import { createAdminApplicationsDomain } from "./domains/admin/applications.js";
 import { createAdminInterviewsDomain } from "./domains/admin/interviews.js";
-import { createInterviewResponsesDomain } from "./domains/interview-responses.js";
+import { createAdminRecruitmentDomain } from "./domains/admin/recruitment.js";
 import { createAdminSchedulingDomain } from "./domains/admin/scheduling.js";
 import { createAdminTeamsDomain } from "./domains/admin/teams.js";
 import { createAdminMiscDomain } from "./domains/admin/misc.js";
@@ -33,11 +33,14 @@ export type {
   AdmissionPeriodSdkError,
   PublicApplicationFailure,
   PublicApplicationSdkError,
+  RecruitmentFailure,
+  RecruitmentSdkError,
 } from "./errors.js";
 export type {
   ReceiptRejectionTag,
   AdmissionPeriodRejectionTag,
   PublicApplicationRejectionTag,
+  RecruitmentRejectionTag,
 } from "./errors.js";
 export type { ClientContext } from "./context.js";
 export { apiUrl, isFixtureMode } from "./config.js";
@@ -139,6 +142,39 @@ export type {
 } from "./schemas/common.js";
 export type { SchedulingAssistant, SchedulingSchool, Substitute } from "./schemas/scheduling.js";
 
+export {
+  RecruitmentAdmissionPeriodId,
+  InterviewSchemaId,
+  RecruitmentInterviewId,
+  RecruitmentAssignmentCommandId,
+  RecruitmentApplicationId,
+  RecruitmentApplicantId,
+  RecruitmentPersonId,
+  RecruitmentDepartmentId,
+  RecruitmentAssignmentStatusSchema,
+  RecruitmentAssignmentBoardQuerySchema,
+  RecruitmentAssignmentBoardSchema,
+  RecruitmentAssignmentCandidateSchema,
+  RecruitmentAssignmentCommandSchema,
+  RecruitmentAssignmentObservationSchema,
+  RecruitmentAssignmentResultSchema,
+  RecruitmentInterviewSchema,
+  RecruitmentInterviewerOptionSchema,
+  RecruitmentInterviewSchemaOptionSchema,
+} from "./schemas/recruitment.js";
+export type {
+  RecruitmentAdmissionPeriodId,
+  RecruitmentAssignmentBoardQuery,
+  RecruitmentAssignmentBoard,
+  RecruitmentAssignmentCandidate,
+  RecruitmentAssignmentCommand,
+  RecruitmentAssignmentObservation,
+  RecruitmentAssignmentResult,
+  RecruitmentInterview,
+  RecruitmentInterviewerOption,
+  RecruitmentInterviewSchemaOption,
+} from "./schemas/recruitment.js";
+
 // --- Client options ---
 
 export type ClientOptions = {
@@ -167,6 +203,7 @@ export function createEffectClient(baseUrl: string | undefined, options?: Client
       receipts: createAdminReceiptsDomain(transport),
       applications: createAdminApplicationsDomain(transport),
       interviews: createAdminInterviewsDomain(transport),
+      recruitment: createAdminRecruitmentDomain(transport),
       users: createAdminUsersDomain(transport),
       scheduling: createAdminSchedulingDomain(transport),
       teams: createAdminTeamsDomain(transport),

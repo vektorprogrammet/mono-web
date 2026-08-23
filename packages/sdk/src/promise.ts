@@ -12,9 +12,9 @@ import { createContext } from "./context.js";
 import { createAuthDomain } from "./domains/auth.js";
 import { createMeDomain } from "./domains/me.js";
 import { createReceiptsDomain } from "./domains/receipts.js";
-import { createAdminReceiptsDomain } from "./domains/admin/receipts.js";
 import { createAdminApplicationsDomain } from "./domains/admin/applications.js";
 import { createAdminInterviewsDomain } from "./domains/admin/interviews.js";
+import { createAdminRecruitmentDomain } from "./domains/admin/recruitment.js";
 import { createInterviewResponsesDomain } from "./domains/interview-responses.js";
 import { createAdminSchedulingDomain } from "./domains/admin/scheduling.js";
 import { createAdminTeamsDomain } from "./domains/admin/teams.js";
@@ -79,12 +79,28 @@ export {
   PublicApplicationRateLimitExceededError,
   PublicApplicationNotFoundError,
   PublicApplicationPersistenceSdkError,
+  RecruitmentRejectionError,
+  RecruitmentUnauthenticatedActorError,
+  RecruitmentInactiveActorError,
+  RecruitmentRoleDeniedError,
+  RecruitmentScopeDeniedError,
+  RecruitmentAdmissionPeriodNotFoundError,
+  RecruitmentAmbiguousAdmissionPeriodError,
+  RecruitmentApplicationNotFoundError,
+  RecruitmentApplicationAlreadyAssignedError,
+  RecruitmentInterviewSchemaNotFoundError,
+  RecruitmentInterviewSchemaInactiveError,
+  RecruitmentInterviewerNotEligibleError,
+  RecruitmentAssignmentCommandConflictError,
+  RecruitmentDecodeSdkError,
+  RecruitmentPersistenceSdkError,
 } from "./errors.js";
 export type {
   SdkErrorType,
   ReceiptRejectionTag,
   AdmissionPeriodRejectionTag,
   PublicApplicationRejectionTag,
+  RecruitmentRejectionTag,
 } from "./errors.js";
 
 export type { Receipt, AdminReceipt, ReceiptInput } from "./schemas/receipt.js";
@@ -170,6 +186,39 @@ export {
   InterviewScheduleInput,
   InterviewSchedulingStatus,
 } from "./schemas/interview.js";
+export {
+  RecruitmentAdmissionPeriodId,
+  InterviewSchemaId,
+  RecruitmentInterviewId,
+  RecruitmentAssignmentCommandId,
+  RecruitmentApplicationId,
+  RecruitmentApplicantId,
+  RecruitmentPersonId,
+  RecruitmentDepartmentId,
+  RecruitmentAssignmentStatusSchema,
+  RecruitmentAssignmentBoardQuerySchema,
+  RecruitmentAssignmentBoardSchema,
+  RecruitmentAssignmentCandidateSchema,
+  RecruitmentAssignmentCommandSchema,
+  RecruitmentAssignmentObservationSchema,
+  RecruitmentAssignmentResultSchema,
+  RecruitmentInterviewSchema,
+  RecruitmentInterviewerOptionSchema,
+  RecruitmentInterviewSchemaOptionSchema,
+} from "./schemas/recruitment.js";
+export type {
+  RecruitmentAdmissionPeriodId,
+  RecruitmentAssignmentStatus,
+  RecruitmentAssignmentBoardQuery,
+  RecruitmentAssignmentBoard,
+  RecruitmentAssignmentCandidate,
+  RecruitmentAssignmentCommand,
+  RecruitmentAssignmentObservation,
+  RecruitmentAssignmentResult,
+  RecruitmentInterview,
+  RecruitmentInterviewerOption,
+  RecruitmentInterviewSchemaOption,
+} from "./schemas/recruitment.js";
 export type { User, UserProfile } from "./schemas/user.js";
 export type { DashboardStats } from "./schemas/dashboard.js";
 export type {
@@ -240,6 +289,7 @@ export function createClient(baseUrl: string | undefined, options?: ClientOption
       receipts: promisifyDomain(createAdminReceiptsDomain(transport)),
       applications: promisifyDomain(createAdminApplicationsDomain(transport)),
       interviews: promisifyDomain(createAdminInterviewsDomain(transport)),
+      recruitment: promisifyDomain(createAdminRecruitmentDomain(transport)),
       users: promisifyDomain(createAdminUsersDomain(transport)),
       scheduling: promisifyDomain(createAdminSchedulingDomain(transport)),
       teams: promisifyDomain(createAdminTeamsDomain(transport)),

@@ -4,6 +4,8 @@ import { runPublicApplicationOutboxWorker } from "@vektorprogrammet/domain/appli
 import { Admissions, AdmissionsLive } from "@vektorprogrammet/domain/admissions";
 import { databaseHealth, type Database } from "@vektorprogrammet/domain/database";
 import { Organization, OrganizationLive } from "@vektorprogrammet/domain/organization";
+import { Profile, ProfileLive } from "@vektorprogrammet/domain/profile";
+import { Recruitment, RecruitmentLive } from "@vektorprogrammet/domain/recruitment";
 import { Economy } from "@vektorprogrammet/domain/receipt";
 import { EconomyLive } from "@vektorprogrammet/domain/receipt/postgres";
 import { Effect, Exit, Fiber, Layer, ManagedRuntime, Redacted } from "effect";
@@ -27,12 +29,27 @@ const databaseLayer = DatabaseLive({
   applicationName: "vektorprogrammet-backend",
   maxConnections: 8,
 });
-const capabilityLayers = Layer.mergeAll(AdmissionsLive, EconomyLive, OrganizationLive).pipe(
-  Layer.provide(databaseLayer),
+const admissionsLayer = AdmissionsLive.pipe(Layer.provide(databaseLayer));
+const economyLayer = EconomyLive.pipe(Layer.provide(databaseLayer));
+const organizationLayer = OrganizationLive.pipe(Layer.provide(databaseLayer));
+const profileLayer = ProfileLive.pipe(
+  Layer.provide(Layer.merge(databaseLayer, organizationLayer)),
+);
+const recruitmentLayer = RecruitmentLive.pipe(
+  Layer.provide(
+    Layer.mergeAll(databaseLayer, admissionsLayer, organizationLayer, profileLayer),
+  ),
+);
+const capabilityLayers = Layer.mergeAll(
+  admissionsLayer,
+  economyLayer,
+  organizationLayer,
+  profileLayer,
+  recruitmentLayer,
 );
 const runtime = ManagedRuntime.make(Layer.merge(databaseLayer, capabilityLayers));
 const run = <A, E>(
-  effect: Effect.Effect<A, E, Database | Admissions | Economy | Organization>,
+  effect: Effect.Effect<A, E, Database | Admissions | Economy | Organization | Profile | Recruitment>,
 ): Promise<A> => runtime.runPromise(effect);
 const api = makeBackendHttp(config, run);
 

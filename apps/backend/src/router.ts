@@ -1,14 +1,17 @@
 import { Admissions } from "@vektorprogrammet/domain/admissions";
 import { databaseHealth, type Database } from "@vektorprogrammet/domain/database";
+import type { Organization } from "@vektorprogrammet/domain/organization";
+import { Profile } from "@vektorprogrammet/domain/profile";
+import { Recruitment } from "@vektorprogrammet/domain/recruitment";
 import { Economy } from "@vektorprogrammet/domain/receipt";
 import { Effect } from "effect";
 import { makeAdmissionApiHttp } from "./admission/http.js";
 import type { BackendConfig } from "./config.js";
 import { makeReceiptApiHttp } from "./receipt/http.js";
-
+import { makeRecruitmentApiHttp } from "./recruitment/http.js";
 export type BackendRun = <A, E>(
-  effect: Effect.Effect<A, E, Database | Admissions | Economy>,
-) => Promise<A>;
+  effect: Effect.Effect<A, E, Database | Admissions | Economy | Organization | Profile | Recruitment>,
+): Promise<A>;
 
 export interface BackendHttp {
   readonly fetch: (request: Request) => Promise<Response>;
@@ -56,16 +59,14 @@ const isAdmissionRoute = (pathname: string): boolean =>
   pathname === "/api/applications" ||
   pathname.startsWith("/api/applications/");
 
-const isReceiptRoute = (pathname: string): boolean =>
-  pathname === "/api/receipts" ||
-  pathname.startsWith("/api/receipts/") ||
-  pathname === "/api/admin/receipts" ||
-  pathname.startsWith("/api/admin/receipts/") ||
-  pathname.startsWith("/api/e2e/receipts/");
+const isRecruitmentRoute = (pathname: string): boolean =>
+  pathname === "/api/admin/recruitment/assignment-board" ||
+  pathname === "/api/admin/recruitment/interviews/assign";
 
 export const makeBackendHttp = (config: BackendConfig, run: BackendRun): BackendHttp => {
   const admission = makeAdmissionApiHttp({ config: config.admission, run });
   const receipt = makeReceiptApiHttp({ config: config.receipt, run });
+  const recruitment = makeRecruitmentApiHttp({ config: config.recruitment, run });
   return {
     fetch: async (request) => {
       const pathname = new URL(request.url).pathname;
@@ -81,8 +82,8 @@ export const makeBackendHttp = (config: BackendConfig, run: BackendRun): Backend
       if (request.method === "GET" && (pathname === "/api/me" || pathname === "/api/me/profile")) {
         return profileResponse(request, config);
       }
+      if (isRecruitmentRoute(pathname)) return recruitment.fetch(request);
       if (isAdmissionRoute(pathname)) return admission.fetch(request);
-      if (isReceiptRoute(pathname)) return receipt.fetch(request);
       return jsonResponse({ error: { tag: "RouteNotFound" } }, 404);
     },
   };

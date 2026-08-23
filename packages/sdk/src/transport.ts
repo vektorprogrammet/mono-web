@@ -48,7 +48,19 @@ import {
   PublicApplicationRateLimitExceeded,
   PublicApplicationNotFound,
   PublicApplicationPersistenceError,
-  type InternalSdkError,
+  RecruitmentDecodeError,
+  RecruitmentInactiveActor,
+  RecruitmentRoleDenied,
+  RecruitmentScopeDenied,
+  RecruitmentAdmissionPeriodNotFound,
+  RecruitmentAmbiguousAdmissionPeriod,
+  RecruitmentApplicationNotFound,
+  RecruitmentApplicationAlreadyAssigned,
+  RecruitmentInterviewSchemaNotFound,
+  RecruitmentInterviewSchemaInactive,
+  RecruitmentInterviewerNotEligible,
+  RecruitmentAssignmentCommandConflict,
+  RecruitmentPersistenceError,
 } from "./errors.js";
 import { parseViolations } from "./adapter/errors.js";
 
@@ -189,11 +201,54 @@ const publicApplicationFailureFromBody = (body: unknown): InternalSdkError | und
   }
 };
 
+const recruitmentFailureFromBody = (body: unknown): InternalSdkError | undefined => {
+  if (typeof body !== "object" || body === null) return undefined;
+  const root = body as Record<string, unknown>;
+  const error =
+    typeof root.error === "object" && root.error !== null
+      ? (root.error as Record<string, unknown>)
+      : root;
+  const tag = error.tag ?? error._tag;
+  if (typeof tag !== "string") return undefined;
+  switch (tag) {
+    case "UnauthenticatedActor":
+      return new UnauthenticatedActor();
+    case "RecruitmentInactiveActor":
+      return new RecruitmentInactiveActor();
+    case "RecruitmentRoleDenied":
+      return new RecruitmentRoleDenied();
+    case "RecruitmentScopeDenied":
+      return new RecruitmentScopeDenied();
+    case "RecruitmentAdmissionPeriodNotFound":
+      return new RecruitmentAdmissionPeriodNotFound();
+    case "RecruitmentAmbiguousAdmissionPeriod":
+      return new RecruitmentAmbiguousAdmissionPeriod();
+    case "RecruitmentApplicationNotFound":
+      return new RecruitmentApplicationNotFound();
+    case "RecruitmentApplicationAlreadyAssigned":
+      return new RecruitmentApplicationAlreadyAssigned();
+    case "RecruitmentInterviewSchemaNotFound":
+      return new RecruitmentInterviewSchemaNotFound();
+    case "RecruitmentInterviewSchemaInactive":
+      return new RecruitmentInterviewSchemaInactive();
+    case "RecruitmentInterviewerNotEligible":
+      return new RecruitmentInterviewerNotEligible();
+    case "RecruitmentAssignmentCommandConflict":
+      return new RecruitmentAssignmentCommandConflict();
+    case "RecruitmentDecodeError":
+      return new RecruitmentDecodeError();
+    case "RecruitmentPersistenceError":
+      return new RecruitmentPersistenceError();
+    default:
+      return undefined;
+  }
+};
+
 /**
  * Maps HTTP status codes to InternalSdkError.
  *
- * Native Receipt errors carry only a typed tag in the response body. The
- * transport preserves that tag and intentionally ignores any untrusted text.
+ * Native errors carry only a typed tag in the response body. The transport
+ * preserves that tag and intentionally ignores any untrusted text.
  */
 const mapStatusToError = (
   status: number,
@@ -203,7 +258,9 @@ const mapStatusToError = (
   const typedError =
     options?.errorFamily === "public_application"
       ? publicApplicationFailureFromBody(body)
-      : receiptFailureFromBody(body);
+      : options?.errorFamily === "recruitment"
+        ? recruitmentFailureFromBody(body)
+        : receiptFailureFromBody(body);
   if (typedError !== undefined) return typedError;
   if (status === 401 || status === 403) return new Unauthorized({ message: `HTTP ${status}` });
   if (status === 404) return new NotFound({ message: "Not found" });
@@ -218,7 +275,7 @@ const mapStatusToError = (
 export type DecodeOptions = {
   readonly strict?: boolean;
   readonly decodeError?: () => InternalSdkError;
-  readonly errorFamily?: "public_application";
+  readonly errorFamily?: "public_application" | "recruitment";
 };
 
 export interface Transport {
