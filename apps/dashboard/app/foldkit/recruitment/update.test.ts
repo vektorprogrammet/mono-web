@@ -67,6 +67,8 @@ const client: RecruitmentClient = {
     recruitment: {
       readAssignmentBoard: () => Effect.die("not executed by transition tests"),
       assignApplicant: () => Effect.die("not executed by transition tests"),
+      readSchedulingBoard: () => Effect.die("not executed by transition tests"),
+      scheduleInterview: () => Effect.die("not executed by transition tests"),
     },
   },
 };
