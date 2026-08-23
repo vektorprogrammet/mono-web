@@ -117,5 +117,13 @@ it.effect("decodes a selected Receipt and rejects an excess persisted field", ()
       ),
     );
     expect(String(oversizedFile)).toContain("byteLength");
+
+    const fractionalAmount = yield* Effect.flip(
+      Schema.decodeUnknownEffect(Receipt)(
+        { ...selected, amountOre: "12.5" },
+        { onExcessProperty: "error" },
+      ),
+    );
+    expect(String(fractionalAmount)).toContain("amountOre");
   });
 });

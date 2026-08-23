@@ -23,7 +23,11 @@ const PositiveOre = Schema.Int.pipe(
   Schema.check(Schema.isGreaterThan(0), Schema.isLessThanOrEqualTo(Number.MAX_SAFE_INTEGER)),
 );
 const PositiveOreFromText = Schema.NumberFromString.pipe(
-  Schema.check(Schema.isGreaterThan(0), Schema.isLessThanOrEqualTo(Number.MAX_SAFE_INTEGER)),
+  Schema.check(
+    Schema.makeFilter(Number.isSafeInteger, { message: "an integer" }),
+    Schema.isGreaterThan(0),
+    Schema.isLessThanOrEqualTo(Number.MAX_SAFE_INTEGER),
+  ),
 );
 const Revision = Schema.Int.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(0)));
 export const ReceiptId = NonEmpty.pipe(Schema.brand("ReceiptId"));
