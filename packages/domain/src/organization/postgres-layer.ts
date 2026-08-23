@@ -1,0 +1,46 @@
+import { Database } from "../database/service.js";
+import { Effect, Layer } from "effect";
+import {
+  importOrganizationSnapshot,
+  listOrganizationDepartments,
+  listOrganizationHistoricalMemberships,
+  listOrganizationMembershipsForTeam,
+  listOrganizationTeams,
+  readOrganizationDepartment,
+  readOrganizationMembership,
+  readOrganizationTeam,
+  reinstateOrganizationMembership,
+  reviseOrganizationMembership,
+  suspendOrganizationMembership,
+} from "./postgres.js";
+import { Organization } from "./service.js";
+
+export const OrganizationLive = Layer.effect(
+  Organization,
+  Effect.gen(function* () {
+    const database = yield* Database;
+    return Organization.of({
+      readDepartment: (departmentId) =>
+        readOrganizationDepartment(departmentId).pipe(Effect.provideService(Database, database)),
+      listDepartments: listOrganizationDepartments.pipe(Effect.provideService(Database, database)),
+      readTeam: (teamId) => readOrganizationTeam(teamId).pipe(Effect.provideService(Database, database)),
+      listTeams: (departmentId) =>
+        listOrganizationTeams(departmentId).pipe(Effect.provideService(Database, database)),
+      readMembership: (membershipId) =>
+        readOrganizationMembership(membershipId).pipe(Effect.provideService(Database, database)),
+      listMembershipsForTeam: (teamId) =>
+        listOrganizationMembershipsForTeam(teamId).pipe(Effect.provideService(Database, database)),
+      listHistoricalMemberships: listOrganizationHistoricalMemberships.pipe(
+        Effect.provideService(Database, database),
+      ),
+      reviseMembership: (command) =>
+        reviseOrganizationMembership(command).pipe(Effect.provideService(Database, database)),
+      suspendMembership: (command) =>
+        suspendOrganizationMembership(command).pipe(Effect.provideService(Database, database)),
+      reinstateMembership: (command) =>
+        reinstateOrganizationMembership(command).pipe(Effect.provideService(Database, database)),
+      importLegacyOrganization: (snapshot) =>
+        importOrganizationSnapshot(snapshot).pipe(Effect.provideService(Database, database)),
+    });
+  }),
+);

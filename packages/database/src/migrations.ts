@@ -38,6 +38,10 @@ const publicApplicantActivationSnapshotMigrationUrl = new URL(
   "../../domain/src/application/migrations/0005-public-applicant-activation-snapshot.sql",
   import.meta.url,
 );
+const organizationMigrationUrl = new URL(
+  "../../domain/src/organization/migrations/0001-organization-authority.sql",
+  import.meta.url,
+);
 
 export type ExecuteMigration = (
   source: string,
@@ -85,10 +89,14 @@ export const databaseMigrationLoader = (execute: ExecuteMigration) =>
       publicApplicantActivationSnapshotMigrationUrl,
       execute,
     ),
+    "8_organization-authority": migration(
+      "organization-authority",
+      organizationMigrationUrl,
+      execute,
+    ),
   });
 
-export const databaseSchemaRevision = "7_public-applicant-activation-snapshot";
-
+export const databaseSchemaRevision = "8_organization-authority";
 export const runDatabaseMigrations = (execute: ExecuteMigration) =>
   Migrator.make({})({
     loader: databaseMigrationLoader(execute),

@@ -42,9 +42,11 @@ describe("DatabaseTest", () => {
             AND table_name IN (
               'economy_receipts',
               'admission_periods',
-              'admission_applications'
+              'admission_applications',
+              'organization_departments',
+              'organization_teams',
+              'organization_memberships'
             )
-          ORDER BY table_name
         `;
         return {
           revision: database.schemaRevision,
@@ -55,7 +57,7 @@ describe("DatabaseTest", () => {
     );
 
     expect(evidence).toEqual({
-      revision: "7_public-applicant-activation-snapshot",
+      revision: "8_organization-authority",
       migrations: [
         { migration_id: 1, name: "receipt-authority" },
         { migration_id: 2, name: "admission-period-authority" },
@@ -64,8 +66,16 @@ describe("DatabaseTest", () => {
         { migration_id: 5, name: "public-applicant-effect-lifecycle" },
         { migration_id: 6, name: "public-applicant-delivered-payload-cleanup" },
         { migration_id: 7, name: "public-applicant-activation-snapshot" },
+        { migration_id: 8, name: "organization-authority" },
       ],
-      tables: ["admission_applications", "admission_periods", "economy_receipts"],
+      tables: [
+        "admission_applications",
+        "admission_periods",
+        "economy_receipts",
+        "organization_departments",
+        "organization_memberships",
+        "organization_teams",
+      ],
     });
   });
 
@@ -84,7 +94,7 @@ describe("DatabaseTest", () => {
     );
 
     expect(second).toBe(first);
-    expect(rows).toEqual([{ migration_count: "7" }]);
+    expect(rows).toEqual([{ migration_count: "8" }]);
   });
 
   it("runs the Economy authority contract against PGlite", async () => {
