@@ -121,12 +121,6 @@ export type {
   PublicApplicationRejectionTag,
   AdmissionPeriodCommandObservation,
   AdmissionPeriodList,
-  PublicApplicationSubmitInput,
-  PublicApplicationSubmitResponse,
-  PublicApplicationFieldOfStudy,
-  PublicApplicationDepartment,
-  PublicApplicationCatalog,
-  PublicApplicationConfirmation,
 } from "./promise.js";
 export {
   PublicApplicationSubmitInput,

@@ -4,7 +4,7 @@ import { Rfc3339Instant } from "./admission-period.js";
 const StableId = Schema.String.pipe(
   Schema.check(
     Schema.makeFilter((value) => value.trim().length > 0, {
-      message: () => "must be a non-empty identifier",
+      message: "must be a non-empty identifier",
     }),
   ),
 );
@@ -14,7 +14,7 @@ const boundedText = (max: number, message: string) =>
     Schema.check(
       Schema.makeFilter(
         (value) => value.trim().length > 0 && [...value].length <= max,
-        { message: () => message },
+        { message },
       ),
     ),
   );
@@ -27,7 +27,7 @@ const ApplicantEmail = Schema.String.pipe(
       (value) =>
         value.trim().length <= 254 &&
         /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim()),
-      { message: () => "must be a valid email address of at most 254 characters" },
+      { message: "must be a valid email address of at most 254 characters" },
     ),
   ),
 );
@@ -35,7 +35,7 @@ const Gender = Schema.Literals([0, 1]);
 const YearOfStudy = Schema.Int.pipe(
   Schema.check(
     Schema.makeFilter((value) => value >= 1 && value <= 5, {
-      message: () => "must be an integer from 1 through 5",
+      message: "must be an integer from 1 through 5",
     }),
   ),
 );

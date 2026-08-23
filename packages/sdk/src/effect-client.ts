@@ -96,14 +96,6 @@ export {
   AdmissionRevisionSchema,
   Rfc3339InstantSchema,
 } from "./schemas/admission-period.js";
-export type {
-  PublicApplicationSubmitInput,
-  PublicApplicationSubmitResponse,
-  PublicApplicationFieldOfStudy,
-  PublicApplicationDepartment,
-  PublicApplicationCatalog,
-  PublicApplicationConfirmation,
-} from "./schemas/admission-application.js";
 export {
   PublicApplicationSubmitInput,
   PublicApplicationSubmitInputSchema,
