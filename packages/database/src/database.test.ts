@@ -55,7 +55,7 @@ describe("DatabaseTest", () => {
     );
 
     expect(evidence).toEqual({
-      revision: "6_public-applicant-delivered-payload-cleanup",
+      revision: "7_public-applicant-activation-snapshot",
       migrations: [
         { migration_id: 1, name: "receipt-authority" },
         { migration_id: 2, name: "admission-period-authority" },
@@ -63,6 +63,7 @@ describe("DatabaseTest", () => {
         { migration_id: 4, name: "receipt-authority-upgrade-replay" },
         { migration_id: 5, name: "public-applicant-effect-lifecycle" },
         { migration_id: 6, name: "public-applicant-delivered-payload-cleanup" },
+        { migration_id: 7, name: "public-applicant-activation-snapshot" },
       ],
       tables: ["admission_applications", "admission_periods", "economy_receipts"],
     });
@@ -83,7 +84,7 @@ describe("DatabaseTest", () => {
     );
 
     expect(second).toBe(first);
-    expect(rows).toEqual([{ migration_count: "6" }]);
+    expect(rows).toEqual([{ migration_count: "7" }]);
   });
 
   it("runs the Economy authority contract against PGlite", async () => {
@@ -406,6 +407,34 @@ describe("DatabaseTest", () => {
     expect(evidence.fairnessIdle).toEqual({ _tag: "Idle" });
   });
 
+  it("makes applicant effect ordering unrepresentable in PostgreSQL", async () => {
+    const evidence = await runtime.runPromise(
+      Effect.gen(function* () {
+        const database = yield* Database;
+        const failure = yield* Effect.flip(database`
+          UPDATE admission_application_outbox
+          SET effect_type = 'CreateAdmissionSubscription'
+          WHERE command_id = 'outbox-application-submit' AND ordinal = 0
+        `);
+        const rows = yield* database<{
+          readonly ordinal: number;
+          readonly effect_type: string;
+        }>`
+          SELECT ordinal, effect_type
+          FROM admission_application_outbox
+          WHERE command_id = 'outbox-application-submit' AND ordinal = 0
+        `;
+        return { failure, row: rows[0] };
+      }),
+    );
+
+    expect(evidence.failure).toMatchObject({ _tag: "SqlError" });
+    expect(evidence.row).toEqual({
+      ordinal: 0,
+      effect_type: "SendApplicantActivationOrConfirmation",
+    });
+  });
+
   it("quarantines incompatible pre-0041 applicant effects during upgrade", async () => {
     const evidence = await runtime.runPromise(
       Effect.gen(function* () {
@@ -516,7 +545,7 @@ describe("DatabaseTest", () => {
         `;
         yield* database`
           DELETE FROM vektorprogrammet_schema_migrations
-          WHERE migration_id = 6
+          WHERE migration_id >= 6
         `;
         yield* database.migrate;
         return yield* database<{
@@ -539,7 +568,7 @@ describe("DatabaseTest", () => {
     ]);
   });
 
-  it("rolls back an outbox claim when its persisted payload is invalid", async () => {
+  it("quarantines an invalid persisted payload without stopping the queue", async () => {
     const evidence = await runtime.runPromise(
       Effect.gen(function* () {
         const database = yield* Database;
@@ -567,19 +596,19 @@ describe("DatabaseTest", () => {
           SET payload_json = '{"_tag":"SendApplicantActivationOrConfirmation"}'::jsonb
           WHERE command_id = 'malformed-effect-application-submit' AND ordinal = 0
         `;
-        const failure = yield* Effect.flip(
-          deliverNextPublicApplicationOutbox(
-            "malformed-effect-claim",
-            "2031-09-15T12:21:01.000Z",
-            makeRecordingPublicApplicationEffectInterpreter(),
-          ),
+        const result = yield* deliverNextPublicApplicationOutbox(
+          "malformed-effect-claim",
+          "2031-09-15T12:21:01.000Z",
+          makeRecordingPublicApplicationEffectInterpreter(),
         );
         const rows = yield* database<{
           readonly status: string;
           readonly attempts: number;
           readonly claim_id: string | null;
+          readonly last_failure_tag: string | null;
+          readonly payload_json: unknown;
         }>`
-          SELECT status, attempts, claim_id
+          SELECT status, attempts, claim_id, last_failure_tag, payload_json
           FROM admission_application_outbox
           WHERE command_id = 'malformed-effect-application-submit' AND ordinal = 0
         `;
@@ -587,18 +616,21 @@ describe("DatabaseTest", () => {
           DELETE FROM admission_application_outbox
           WHERE command_id = 'malformed-effect-application-submit'
         `;
-        return { failure, row: rows[0] };
+        return { result, row: rows[0] };
       }),
     );
 
-    expect(evidence.failure).toMatchObject({
-      _tag: "PublicApplicationPersistenceError",
-      operation: "decode application outbox request",
+    expect(evidence.result).toEqual({ _tag: "Idle" });
+    expect(evidence.row).toEqual({
+      status: "Quarantined",
+      attempts: 1,
+      claim_id: null,
+      last_failure_tag: "InvalidPublicApplicationEffectPayload",
+      payload_json: {},
     });
-    expect(evidence.row).toEqual({ status: "Pending", attempts: 0, claim_id: null });
   });
 
-  it("rejects a valid outbox payload that diverges from canonical applicant state", async () => {
+  it("quarantines a valid outbox payload that diverges from application authority", async () => {
     const evidence = await runtime.runPromise(
       Effect.gen(function* () {
         const database = yield* Database;
@@ -630,19 +662,19 @@ describe("DatabaseTest", () => {
           )
           WHERE command_id = 'tampered-effect-application-submit' AND ordinal = 0
         `;
-        const failure = yield* Effect.flip(
-          deliverNextPublicApplicationOutbox(
-            "tampered-effect-claim",
-            "2031-09-15T12:22:01.000Z",
-            makeRecordingPublicApplicationEffectInterpreter(),
-          ),
+        const result = yield* deliverNextPublicApplicationOutbox(
+          "tampered-effect-claim",
+          "2031-09-15T12:22:01.000Z",
+          makeRecordingPublicApplicationEffectInterpreter(),
         );
         const rows = yield* database<{
           readonly status: string;
           readonly attempts: number;
           readonly claim_id: string | null;
+          readonly last_failure_tag: string | null;
+          readonly payload_json: unknown;
         }>`
-          SELECT status, attempts, claim_id
+          SELECT status, attempts, claim_id, last_failure_tag, payload_json
           FROM admission_application_outbox
           WHERE command_id = 'tampered-effect-application-submit' AND ordinal = 0
         `;
@@ -650,15 +682,232 @@ describe("DatabaseTest", () => {
           DELETE FROM admission_application_outbox
           WHERE command_id = 'tampered-effect-application-submit'
         `;
-        return { failure, row: rows[0] };
+        return { result, row: rows[0] };
       }),
     );
 
-    expect(evidence.failure).toMatchObject({
-      _tag: "PublicApplicationPersistenceError",
-      operation: "application outbox canonical payload mismatch",
+    expect(evidence.result).toEqual({ _tag: "Idle" });
+    expect(evidence.row).toEqual({
+      status: "Quarantined",
+      attempts: 1,
+      claim_id: null,
+      last_failure_tag: "InvalidPublicApplicationEffectAuthority",
+      payload_json: {},
     });
-    expect(evidence.row).toEqual({ status: "Pending", attempts: 0, claim_id: null });
+  });
+
+  it("delivers an older-period activation from its immutable application snapshot", async () => {
+    const firstToken = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQ";
+    const secondToken = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopq";
+    const interpreter = makeRecordingPublicApplicationEffectInterpreter();
+    const evidence = await runtime.runPromise(
+      Effect.gen(function* () {
+        const database = yield* Database;
+        yield* executePublicApplicationCommand(
+          {
+            commandId: "snapshot-first-period-submit",
+            departmentId: "outbox-department",
+            firstName: "Snapshot",
+            lastName: "Applicant",
+            phone: "+47 48888888",
+            email: "snapshot.applicant@example.invalid",
+            gender: 1,
+            fieldOfStudyId: "outbox-field",
+            yearOfStudy: 2,
+          },
+          {
+            now: "2031-09-15T12:22:30.000Z",
+            applicantId: "snapshot-applicant",
+            applicationId: "snapshot-first-application",
+            activationToken: firstToken,
+          },
+        );
+        yield* database`
+          INSERT INTO admission_period_semesters (semester_id, start_at, end_at)
+          VALUES (
+            'outbox-second-semester',
+            '2032-08-01T00:00:00.000Z',
+            '2032-12-31T00:00:00.000Z'
+          )
+        `;
+        yield* database`
+          INSERT INTO admission_periods (
+            admission_period_id, department_id, semester_id, start_at, end_at,
+            revision, last_command_id
+          ) VALUES (
+            'outbox-second-period',
+            'outbox-department',
+            'outbox-second-semester',
+            '2032-09-01T00:00:00.000Z',
+            '2032-10-01T00:00:00.000Z',
+            0,
+            'outbox-second-period-seed'
+          )
+        `;
+        yield* executePublicApplicationCommand(
+          {
+            commandId: "snapshot-second-period-submit",
+            departmentId: "outbox-department",
+            firstName: "Snapshot",
+            lastName: "Applicant",
+            phone: "+47 49999999",
+            email: "SNAPSHOT.APPLICANT@example.invalid",
+            gender: 1,
+            fieldOfStudyId: "outbox-field",
+            yearOfStudy: 3,
+          },
+          {
+            now: "2032-09-15T12:22:30.000Z",
+            applicantId: "ignored-existing-applicant",
+            applicationId: "snapshot-second-application",
+            activationToken: secondToken,
+          },
+        );
+        const delivery = yield* deliverNextPublicApplicationOutbox(
+          "snapshot-old-period-claim",
+          "2032-09-15T12:22:31.000Z",
+          interpreter,
+        );
+        const applications = yield* database<{
+          readonly application_id: string;
+          readonly activation_digest: string | null;
+        }>`
+          SELECT application_id, activation_digest
+          FROM admission_applications
+          WHERE application_id IN (
+            'snapshot-first-application',
+            'snapshot-second-application'
+          )
+          ORDER BY application_id
+        `;
+        const applicants = yield* database<{ readonly activation_digest: string | null }>`
+          SELECT activation_digest
+          FROM admission_applicants
+          WHERE applicant_id = 'snapshot-applicant'
+        `;
+        yield* database`
+          DELETE FROM admission_application_outbox
+          WHERE command_id IN (
+            'snapshot-first-period-submit',
+            'snapshot-second-period-submit'
+          )
+        `;
+        return {
+          delivery,
+          applications,
+          applicantDigest: applicants[0]?.activation_digest,
+        };
+      }),
+    );
+
+    expect(evidence.delivery).toMatchObject({
+      _tag: "Delivered",
+      claim: {
+        commandId: "snapshot-first-period-submit",
+        request: { activationToken: firstToken },
+      },
+    });
+    expect(evidence.applications).toEqual([
+      {
+        application_id: "snapshot-first-application",
+        activation_digest: publicApplicationActivationDigest(firstToken),
+      },
+      {
+        application_id: "snapshot-second-application",
+        activation_digest: publicApplicationActivationDigest(secondToken),
+      },
+    ]);
+    expect(evidence.applicantDigest).toBe(publicApplicationActivationDigest(secondToken));
+  });
+
+  it("quarantines an outbox row cross-linked to another command transaction", async () => {
+    const evidence = await runtime.runPromise(
+      Effect.gen(function* () {
+        const database = yield* Database;
+        yield* executePublicApplicationCommand(
+          {
+            commandId: "cross-linked-target-submit",
+            departmentId: "outbox-department",
+            firstName: "Target",
+            lastName: "Application",
+            phone: "+47 46666666",
+            email: "cross.linked.target@example.invalid",
+            gender: 0,
+            fieldOfStudyId: "outbox-field",
+            yearOfStudy: 2,
+          },
+          {
+            now: "2031-09-15T12:23:00.000Z",
+            applicantId: "cross-linked-target-applicant",
+            applicationId: "cross-linked-target-application",
+            activationToken: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQ",
+          },
+        );
+        yield* database`
+          DELETE FROM admission_application_outbox
+          WHERE command_id = 'cross-linked-target-submit'
+        `;
+        yield* executePublicApplicationCommand(
+          {
+            commandId: "cross-linked-source-submit",
+            departmentId: "outbox-department",
+            firstName: "Source",
+            lastName: "Application",
+            phone: "+47 47777777",
+            email: "cross.linked.source@example.invalid",
+            gender: 1,
+            fieldOfStudyId: "outbox-field",
+            yearOfStudy: 3,
+          },
+          {
+            now: "2031-09-15T12:23:01.000Z",
+            applicantId: "cross-linked-source-applicant",
+            applicationId: "cross-linked-source-application",
+            activationToken: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopq",
+          },
+        );
+        yield* database`
+          UPDATE admission_application_command_receipts
+          SET application_id = 'cross-linked-target-application'
+          WHERE command_id = 'cross-linked-source-submit'
+        `;
+        const result = yield* deliverNextPublicApplicationOutbox(
+          "cross-linked-claim",
+          "2031-09-15T12:23:02.000Z",
+          makeRecordingPublicApplicationEffectInterpreter(),
+        );
+        const rows = yield* database<{
+          readonly status: string;
+          readonly attempts: number;
+          readonly claim_id: string | null;
+          readonly last_failure_tag: string | null;
+          readonly payload_json: unknown;
+        }>`
+          SELECT status, attempts, claim_id, last_failure_tag, payload_json
+          FROM admission_application_outbox
+          WHERE command_id = 'cross-linked-source-submit' AND ordinal = 0
+        `;
+        yield* database`
+          DELETE FROM admission_application_outbox
+          WHERE command_id = 'cross-linked-source-submit'
+        `;
+        yield* database`
+          UPDATE admission_application_command_receipts
+          SET application_id = 'cross-linked-source-application'
+          WHERE command_id = 'cross-linked-source-submit'
+        `;
+        return { result, row: rows[0] };
+      }),
+    );
+
+    expect(evidence.result).toEqual({ _tag: "Idle" });
+    expect(evidence.row).toEqual({
+      status: "Quarantined",
+      attempts: 1,
+      claim_id: null,
+      last_failure_tag: "InvalidPublicApplicationEffectAuthority",
+      payload_json: {},
+    });
   });
 
   it("releases an interrupted applicant worker claim before shutdown", async () => {

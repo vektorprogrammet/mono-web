@@ -34,6 +34,10 @@ const publicApplicantDeliveredPayloadCleanupMigrationUrl = new URL(
   "../../domain/src/application/migrations/0004-public-applicant-delivered-payload-cleanup.sql",
   import.meta.url,
 );
+const publicApplicantActivationSnapshotMigrationUrl = new URL(
+  "../../domain/src/application/migrations/0005-public-applicant-activation-snapshot.sql",
+  import.meta.url,
+);
 
 export type ExecuteMigration = (
   source: string,
@@ -76,9 +80,14 @@ export const databaseMigrationLoader = (execute: ExecuteMigration) =>
       publicApplicantDeliveredPayloadCleanupMigrationUrl,
       execute,
     ),
+    "7_public-applicant-activation-snapshot": migration(
+      "public-applicant-activation-snapshot",
+      publicApplicantActivationSnapshotMigrationUrl,
+      execute,
+    ),
   });
 
-export const databaseSchemaRevision = "6_public-applicant-delivered-payload-cleanup";
+export const databaseSchemaRevision = "7_public-applicant-activation-snapshot";
 
 export const runDatabaseMigrations = (execute: ExecuteMigration) =>
   Migrator.make({})({

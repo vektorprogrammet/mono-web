@@ -319,15 +319,17 @@ const updateApplicant = (
 const writeApplication = (
   sql: DatabaseShape,
   application: PublicApplication,
+  activationDigest: string | undefined,
 ): Effect.Effect<void, PublicApplicationPersistenceError> =>
   sql`
   INSERT INTO admission_applications (
     application_id, applicant_id, admission_period_id, department_id,
-    field_of_study_id, year_of_study, submitted_at, revision
+    field_of_study_id, year_of_study, submitted_at, revision, activation_digest
   ) VALUES (
     ${application.id}, ${application.applicantId}, ${application.admissionPeriodId},
     ${application.departmentId}, ${application.fieldOfStudyId},
-    ${application.yearOfStudy}, ${application.submittedAt}, ${application.revision}
+    ${application.yearOfStudy}, ${application.submittedAt}, ${application.revision},
+    ${activationDigest ?? null}
   )
 `.pipe(
     Effect.asVoid,
@@ -500,7 +502,7 @@ const executeCommandInTransaction = (
       submittedAt: now,
       revision: 0,
     };
-    yield* writeApplication(sql, application);
+    yield* writeApplication(sql, application, activationDigest);
     const observation: PublicApplicationSubmitObservation = {
       _tag: "Submitted",
       commandId: command.commandId,

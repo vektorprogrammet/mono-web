@@ -22,8 +22,11 @@ interface ClaimedOutboxRow {
 
 interface CanonicalOutboxIdentityRow {
   readonly email: string;
-  readonly activation_digest: string | null;
+  readonly application_activation_digest: string | null;
   readonly department_id: string;
+  readonly receipt_application_id: string;
+  readonly audit_application_id: string;
+  readonly audit_applicant_id: string;
 }
 
 interface CountRow {
@@ -74,6 +77,15 @@ export const claimNextPublicApplicationOutbox = (
 > =>
   Effect.gen(function* () {
     const sql = yield* Database;
+    const quarantine = (effectId: string, failureTag: string) =>
+      sql`
+        UPDATE admission_application_outbox
+        SET status = 'Quarantined', claim_id = NULL, claimed_at = NULL,
+          last_failure_tag = ${failureTag}, payload_json = '{}'::jsonb
+        WHERE effect_id = ${effectId}
+          AND status = 'Processing'
+          AND claim_id = ${claimId}
+      `.pipe(Effect.asVoid);
     return yield* sql
       .withTransaction(
         Effect.gen(function* () {
@@ -109,50 +121,75 @@ export const claimNextPublicApplicationOutbox = (
           `;
           const row = rows[0];
           if (row === undefined) return undefined;
-          const request = yield* Schema.decodeUnknownEffect(PublicApplicationOutboxRequestSchema)(
+          const decoded = yield* Schema.decodeUnknownEffect(PublicApplicationOutboxRequestSchema)(
             row.payload_json,
             { onExcessProperty: "error" },
-          ).pipe(Effect.mapError(() => persistenceError("decode application outbox request")));
+          ).pipe(
+            Effect.match({
+              onFailure: () => ({ _tag: "Invalid" as const }),
+              onSuccess: (request) => ({ _tag: "Valid" as const, request }),
+            }),
+          );
+          if (decoded._tag === "Invalid") {
+            yield* quarantine(row.effect_id, "InvalidPublicApplicationEffectPayload");
+            return undefined;
+          }
+          const request = decoded.request;
+          const effectTypeMatchesOrdinal =
+            (row.ordinal === 0 && row.effect_type === "SendApplicantActivationOrConfirmation") ||
+            (row.ordinal === 1 && row.effect_type === "CreateAdmissionSubscription") ||
+            (row.ordinal === 2 && row.effect_type === "WriteApplicationAudit");
           if (
+            !effectTypeMatchesOrdinal ||
             request.effectId !== row.effect_id ||
             request._tag !== row.effect_type ||
             request.applicationId !== row.application_id ||
             request.applicantId !== row.applicant_id ||
             request.commandId !== row.command_id
           ) {
-            return yield* Effect.fail(
-              persistenceError("application outbox durable envelope mismatch"),
-            );
+            yield* quarantine(row.effect_id, "InvalidPublicApplicationEffectEnvelope");
+            return undefined;
           }
           const identities = yield* sql<CanonicalOutboxIdentityRow>`
-            SELECT applicant.email, applicant.activation_digest, application.department_id
+            SELECT applicant.email,
+              application.activation_digest AS application_activation_digest,
+              application.department_id,
+              receipt.application_id AS receipt_application_id,
+              audit.application_id AS audit_application_id,
+              audit.applicant_id AS audit_applicant_id
             FROM admission_applicants AS applicant
             INNER JOIN admission_applications AS application
               ON application.applicant_id = applicant.applicant_id
+            INNER JOIN admission_application_command_receipts AS receipt
+              ON receipt.command_id = ${row.command_id}
+            INNER JOIN admission_application_audit AS audit
+              ON audit.command_id = receipt.command_id
             WHERE applicant.applicant_id = ${row.applicant_id}
               AND application.application_id = ${row.application_id}
           `;
           const identity = identities[0];
           if (identity === undefined) {
-            return yield* Effect.fail(
-              persistenceError("application outbox canonical identity mismatch"),
-            );
+            yield* quarantine(row.effect_id, "InvalidPublicApplicationEffectAuthority");
+            return undefined;
           }
+          const transactionMatchesCanonicalState =
+            identity.receipt_application_id === row.application_id &&
+            identity.audit_application_id === row.application_id &&
+            identity.audit_applicant_id === row.applicant_id;
           const requestMatchesCanonicalState =
             request._tag === "SendApplicantActivationOrConfirmation"
               ? request.email === identity.email &&
                 (request.activationToken === undefined
-                  ? identity.activation_digest === null
+                  ? identity.application_activation_digest === null
                   : publicApplicationActivationDigest(request.activationToken) ===
-                    identity.activation_digest)
+                    identity.application_activation_digest)
               : request._tag === "CreateAdmissionSubscription"
                 ? request.email === identity.email &&
                   request.departmentId === identity.department_id
                 : true;
-          if (!requestMatchesCanonicalState) {
-            return yield* Effect.fail(
-              persistenceError("application outbox canonical payload mismatch"),
-            );
+          if (!transactionMatchesCanonicalState || !requestMatchesCanonicalState) {
+            yield* quarantine(row.effect_id, "InvalidPublicApplicationEffectAuthority");
+            return undefined;
           }
           return {
             effectId: row.effect_id,
