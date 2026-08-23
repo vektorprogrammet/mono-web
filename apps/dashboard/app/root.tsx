@@ -54,13 +54,11 @@ export function Layout({ children }: { children: ReactNode }) {
             Fixture preview: sanitized example data only
           </div>
         )}
-        <ThemeProvider>
-          {children}
-        </ThemeProvider>
+        <ThemeProvider>{children}</ThemeProvider>
         <ScrollRestoration />
         <Scripts />
       </body>
-      </html>
+    </html>
   );
 }
 
@@ -85,9 +83,7 @@ export function ErrorBoundary() {
       </head>
       <body className="grid h-dvh place-items-center bg-gray-50">
         <div className="text-center space-y-4">
-          <h1 className="text-4xl font-bold">
-            {isRouteError ? error.status : "Feil"}
-          </h1>
+          <h1 className="text-4xl font-bold">{isRouteError ? error.status : "Feil"}</h1>
           <p className="text-gray-500">
             {isRouteError
               ? error.status === 404

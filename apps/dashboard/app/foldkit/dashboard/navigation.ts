@@ -1,48 +1,45 @@
-import type { DashboardRole } from "./model"
+import type { DashboardRole } from "./model";
 
 export type NavigationLink = Readonly<{
-  label: string
-  href: string
-  requiredRole: "team-member" | "team-leader"
-  external?: boolean
-}>
+  label: string;
+  href: string;
+  requiredRole: "team-member" | "team-leader";
+  external?: boolean;
+}>;
 
 export type NavigationEntry =
   | Readonly<{ kind: "link"; link: NavigationLink }>
   | Readonly<{
-    kind: "admission-menu"
-    label: "Opptak"
-    links: ReadonlyArray<NavigationLink>
-  }>
+      kind: "admission-menu";
+      label: "Opptak";
+      links: ReadonlyArray<NavigationLink>;
+    }>;
 
 export type NavigationSection = Readonly<{
-  label: string
-  entries: ReadonlyArray<NavigationEntry>
-}>
+  label: string;
+  entries: ReadonlyArray<NavigationEntry>;
+}>;
 
 const memberLink = (label: string, href: string): NavigationLink => ({
   label,
   href,
   requiredRole: "team-member",
-})
+});
 
 const leaderLink = (label: string, href: string): NavigationLink => ({
   label,
   href,
   requiredRole: "team-leader",
-})
+});
 
-export const controlPanelLink = memberLink(
-  "Kontrollpanel",
-  "/dashboard/foldkit",
-)
+export const controlPanelLink = memberLink("Kontrollpanel", "/dashboard/foldkit");
 
 export const admissionLinks = [
   memberLink("Nye søkere", "/dashboard/sokere"),
   memberLink("Tidligere assistenter", "/dashboard/tidligere-assistenter"),
   memberLink("Intervjufordeling", "/dashboard/intervjufordeling"),
   memberLink("Intervjuer", "/dashboard/intervjuer"),
-] as const
+] as const;
 
 export const navigationSections: ReadonlyArray<NavigationSection> = [
   {
@@ -137,24 +134,21 @@ export const navigationSections: ReadonlyArray<NavigationSection> = [
       },
     ],
   },
-]
+];
 
 export const profileLinks = [
   memberLink("Min profil", "/dashboard/profile"),
   memberLink("Mine utlegg", "/dashboard/mine-utlegg"),
-] as const
+] as const;
 
 export const hasTeamLeaderAccess = (role: DashboardRole): boolean =>
-  role === "ROLE_TEAM_LEADER" || role === "ROLE_ADMIN"
+  role === "ROLE_TEAM_LEADER" || role === "ROLE_ADMIN";
 
-export const canViewLink = (
-  role: DashboardRole,
-  link: NavigationLink,
-): boolean =>
-  link.requiredRole === "team-member" || hasTeamLeaderAccess(role)
+export const canViewLink = (role: DashboardRole, link: NavigationLink): boolean =>
+  link.requiredRole === "team-member" || hasTeamLeaderAccess(role);
 
 export const isActivePath = (activePath: string, href: string): boolean =>
-  activePath === href || activePath.startsWith(`${href}/`)
+  activePath === href || activePath.startsWith(`${href}/`);
 
 export const isAdmissionPath = (activePath: string): boolean =>
-  admissionLinks.some((link) => isActivePath(activePath, link.href))
+  admissionLinks.some((link) => isActivePath(activePath, link.href));
