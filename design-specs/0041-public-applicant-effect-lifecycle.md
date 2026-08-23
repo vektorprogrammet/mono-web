@@ -14,6 +14,8 @@
 
 Revision 0041.2 adds immutable per-application activation authority, command/audit linkage, structural effect ordering, fail-safe quarantine, and redirect denial after review of commits `f52bd2383c792b105d1dec633aaaaa90054f3c7a` through `c613ae4`. It does not change the user journey.
 
+Commits before the final approved revision are local review artifacts, not deployable migration checkpoints. No authorized external database may record the earlier four-line form of migration 6 from `913a855`; that form destroyed information needed by the application snapshot. The first deployable schema must apply the final migration 6 before migration 7. An external database reporting the superseded migration source is unsupported and must stop for explicit disposition because the deleted token cannot be reconstructed honestly.
+
 ## User journey
 
 1. A public applicant opens the application form during one open admission period.
