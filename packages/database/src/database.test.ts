@@ -47,6 +47,7 @@ describe("DatabaseTest", () => {
               'organization_teams',
               'organization_memberships'
             )
+          ORDER BY table_name
         `;
         return {
           revision: database.schemaRevision,

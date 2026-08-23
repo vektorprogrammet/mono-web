@@ -1,8 +1,5 @@
 import { expect, it } from "@effect/vitest";
-import {
-  importLegacyOrganization,
-  type LegacyOrganizationSnapshot,
-} from "./import.js";
+import { importLegacyOrganization, type LegacyOrganizationSnapshot } from "./import.js";
 
 const snapshot = (memberships: ReadonlyArray<unknown>): LegacyOrganizationSnapshot => ({
   sourceRepository: "legacy-db",

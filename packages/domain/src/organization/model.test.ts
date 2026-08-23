@@ -1,11 +1,6 @@
 import { expect, it } from "@effect/vitest";
 import { Effect, Schema } from "effect";
-import {
-  Department,
-  Membership,
-  MembershipInvariantSchema,
-  Team,
-} from "./schema.js";
+import { Department, Membership, MembershipInvariantSchema, Team } from "./schema.js";
 
 const keys = (fields: object): ReadonlyArray<string> => Object.keys(fields).sort();
 

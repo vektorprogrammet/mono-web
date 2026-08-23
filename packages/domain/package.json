@@ -16,6 +16,7 @@
     "./application": "./src/application/index.ts",
     "./admission-period": "./src/admission-period/index.ts",
     "./admissions": "./src/admissions/index.ts",
+    "./organization": "./src/organization/index.ts",
     "./database": "./src/database/index.ts",
     "./evidence": "./src/tutor/evidence.ts",
     "./receipt/proof": "./src/receipt/proof-index.ts"

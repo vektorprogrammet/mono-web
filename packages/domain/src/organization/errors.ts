@@ -1,9 +1,5 @@
 import { Schema } from "effect";
-import {
-  DepartmentId,
-  MembershipId,
-  TeamId,
-} from "./schema.js";
+import { DepartmentId, MembershipId, TeamId } from "./schema.js";
 
 const NonEmpty = Schema.String.pipe(Schema.check(Schema.isMinLength(1)));
 
@@ -22,10 +18,9 @@ export class DepartmentNotFound extends Schema.TaggedError<DepartmentNotFound>()
   { departmentId: DepartmentId },
 ) {}
 
-export class TeamNotFound extends Schema.TaggedError<TeamNotFound>()(
-  "TeamNotFound",
-  { teamId: TeamId },
-) {}
+export class TeamNotFound extends Schema.TaggedError<TeamNotFound>()("TeamNotFound", {
+  teamId: TeamId,
+}) {}
 
 export class MembershipNotFound extends Schema.TaggedError<MembershipNotFound>()(
   "MembershipNotFound",

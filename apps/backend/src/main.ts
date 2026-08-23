@@ -3,6 +3,7 @@ import { DatabaseLive } from "@vektorprogrammet/database";
 import { runPublicApplicationOutboxWorker } from "@vektorprogrammet/domain/application";
 import { Admissions, AdmissionsLive } from "@vektorprogrammet/domain/admissions";
 import { databaseHealth, type Database } from "@vektorprogrammet/domain/database";
+import { Organization, OrganizationLive } from "@vektorprogrammet/domain/organization";
 import { Economy } from "@vektorprogrammet/domain/receipt";
 import { EconomyLive } from "@vektorprogrammet/domain/receipt/postgres";
 import { Effect, Exit, Fiber, Layer, ManagedRuntime, Redacted } from "effect";
@@ -26,12 +27,13 @@ const databaseLayer = DatabaseLive({
   applicationName: "vektorprogrammet-backend",
   maxConnections: 8,
 });
-const capabilityLayers = Layer.merge(AdmissionsLive, EconomyLive).pipe(
+const capabilityLayers = Layer.mergeAll(AdmissionsLive, EconomyLive, OrganizationLive).pipe(
   Layer.provide(databaseLayer),
 );
 const runtime = ManagedRuntime.make(Layer.merge(databaseLayer, capabilityLayers));
-const run = <A, E>(effect: Effect.Effect<A, E, Database | Admissions | Economy>): Promise<A> =>
-  runtime.runPromise(effect);
+const run = <A, E>(
+  effect: Effect.Effect<A, E, Database | Admissions | Economy | Organization>,
+): Promise<A> => runtime.runPromise(effect);
 const api = makeBackendHttp(config, run);
 
 try {

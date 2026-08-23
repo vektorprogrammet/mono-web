@@ -5,6 +5,7 @@ import {
   MembershipInvalidInterval,
   MembershipNotFound,
   MembershipRevisionConflict,
+  MembershipStaleRevision,
   OrganizationImportError,
   OrganizationDecodeError,
   OrganizationPersistenceError,
@@ -26,38 +27,38 @@ import {
   type LegacyOrganizationSnapshot,
   type OrganizationImportResult,
 } from "./import.js";
-import {
-  applyMembershipRevision,
-  type MembershipRevisionCommand,
-} from "./transitions.js";
+import { applyMembershipRevision, type MembershipRevisionCommand } from "./transitions.js";
 
 const persistenceError = (operation: string, cause: unknown) =>
   new OrganizationPersistenceError({ operation, message: String(cause) });
 
-const decodeDepartment = (
-  row: unknown,
-): Effect.Effect<Department, OrganizationDecodeError> =>
+const decodeDepartment = (row: unknown): Effect.Effect<Department, OrganizationDecodeError> =>
   Schema.decodeUnknownEffect(Department)(row, { onExcessProperty: "error" }).pipe(
     Effect.mapError(
       (cause) =>
-        new OrganizationDecodeError({ operation: "decode Department select", message: String(cause) }),
+        new OrganizationDecodeError({
+          operation: "decode Department select",
+          message: String(cause),
+        }),
     ),
   );
 
 const decodeTeam = (row: unknown): Effect.Effect<Team, OrganizationDecodeError> =>
   Schema.decodeUnknownEffect(Team)(row, { onExcessProperty: "error" }).pipe(
     Effect.mapError(
-      (cause) => new OrganizationDecodeError({ operation: "decode Team select", message: String(cause) }),
+      (cause) =>
+        new OrganizationDecodeError({ operation: "decode Team select", message: String(cause) }),
     ),
   );
 
-const decodeMembership = (
-  row: unknown,
-): Effect.Effect<Membership, OrganizationDecodeError> =>
+const decodeMembership = (row: unknown): Effect.Effect<Membership, OrganizationDecodeError> =>
   Schema.decodeUnknownEffect(Membership)(row, { onExcessProperty: "error" }).pipe(
     Effect.mapError(
       (cause) =>
-        new OrganizationDecodeError({ operation: "decode Membership select", message: String(cause) }),
+        new OrganizationDecodeError({
+          operation: "decode Membership select",
+          message: String(cause),
+        }),
     ),
   );
 
@@ -82,19 +83,25 @@ const findDepartment = (
     FROM organization_departments
     WHERE department_id = ${departmentId}
   `.pipe(
-    Effect.flatMap((rows) => (rows[0] === undefined ? Effect.succeed(undefined) : decodeDepartment(rows[0]))),
-    Effect.catchTag("SqlError", (cause) => Effect.fail(persistenceError("read organization department", cause))),
+    Effect.flatMap((rows) =>
+      rows[0] === undefined ? Effect.succeed(undefined) : decodeDepartment(rows[0]),
+    ),
+    Effect.catchTag("SqlError", (cause) =>
+      Effect.fail(persistenceError("read organization department", cause)),
+    ),
   );
 
 export const readOrganizationDepartment = (
   departmentId: DepartmentId,
-): Effect.Effect<Department, DepartmentNotFound | OrganizationDecodeError | OrganizationPersistenceError, Database> =>
+): Effect.Effect<
+  Department,
+  DepartmentNotFound | OrganizationDecodeError | OrganizationPersistenceError,
+  Database
+> =>
   Effect.gen(function* () {
     const sql = yield* Database;
     const department = yield* findDepartment(sql, departmentId);
-    return department === undefined
-      ? yield* new DepartmentNotFound({ departmentId })
-      : department;
+    return department === undefined ? yield* new DepartmentNotFound({ departmentId }) : department;
   });
 
 export const listOrganizationDepartments = (): Effect.Effect<
@@ -149,13 +156,21 @@ const findTeam = (
     FROM organization_teams
     WHERE team_id = ${teamId}
   `.pipe(
-    Effect.flatMap((rows) => (rows[0] === undefined ? Effect.succeed(undefined) : decodeTeam(rows[0]))),
-    Effect.catchTag("SqlError", (cause) => Effect.fail(persistenceError("read organization team", cause))),
+    Effect.flatMap((rows) =>
+      rows[0] === undefined ? Effect.succeed(undefined) : decodeTeam(rows[0]),
+    ),
+    Effect.catchTag("SqlError", (cause) =>
+      Effect.fail(persistenceError("read organization team", cause)),
+    ),
   );
 
 export const readOrganizationTeam = (
   teamId: TeamId,
-): Effect.Effect<Team, TeamNotFound | OrganizationDecodeError | OrganizationPersistenceError, Database> =>
+): Effect.Effect<
+  Team,
+  TeamNotFound | OrganizationDecodeError | OrganizationPersistenceError,
+  Database
+> =>
   Effect.gen(function* () {
     const sql = yield* Database;
     const team = yield* findTeam(sql, teamId);
@@ -164,7 +179,11 @@ export const readOrganizationTeam = (
 
 export const listOrganizationTeams = (
   departmentId?: DepartmentId,
-): Effect.Effect<ReadonlyArray<Team>, OrganizationDecodeError | OrganizationPersistenceError, Database> =>
+): Effect.Effect<
+  ReadonlyArray<Team>,
+  OrganizationDecodeError | OrganizationPersistenceError,
+  Database
+> =>
   Effect.gen(function* () {
     const sql = yield* Database;
     const rows =
@@ -219,7 +238,10 @@ const findMembership = (
   sql: DatabaseShape,
   membershipId: MembershipId,
   forUpdate: boolean,
-): Effect.Effect<Membership | undefined, OrganizationDecodeError | OrganizationPersistenceError> => {
+): Effect.Effect<
+  Membership | undefined,
+  OrganizationDecodeError | OrganizationPersistenceError
+> => {
   const query = forUpdate
     ? sql<MembershipSelect>`
         SELECT
@@ -257,14 +279,34 @@ const findMembership = (
         WHERE membership_id = ${membershipId}
       `;
   return query.pipe(
-    Effect.flatMap((rows) => (rows[0] === undefined ? Effect.succeed(undefined) : decodeMembership(rows[0]))),
-    Effect.catchTag("SqlError", (cause) => Effect.fail(persistenceError("read organization membership", cause))),
+    Effect.flatMap((rows) =>
+      rows[0] === undefined ? Effect.succeed(undefined) : decodeMembership(rows[0]),
+    ),
+    Effect.catchTag("SqlError", (cause) =>
+      Effect.fail(persistenceError("read organization membership", cause)),
+    ),
   );
 };
+export const readOrganizationMembership = (
+  membershipId: MembershipId,
+): Effect.Effect<
+  Membership,
+  MembershipNotFound | OrganizationDecodeError | OrganizationPersistenceError,
+  Database
+> =>
+  Effect.gen(function* () {
+    const sql = yield* Database;
+    const membership = yield* findMembership(sql, membershipId, false);
+    return membership === undefined ? yield* new MembershipNotFound({ membershipId }) : membership;
+  });
 
 export const listOrganizationMembershipsForTeam = (
   teamId: TeamId,
-): Effect.Effect<ReadonlyArray<Membership>, OrganizationDecodeError | OrganizationPersistenceError, Database> =>
+): Effect.Effect<
+  ReadonlyArray<Membership>,
+  OrganizationDecodeError | OrganizationPersistenceError,
+  Database
+> =>
   Effect.gen(function* () {
     const sql = yield* Database;
     const rows = yield* sql<MembershipSelect>`
@@ -323,41 +365,44 @@ export const listOrganizationHistoricalMemberships = (): Effect.Effect<
     );
     return yield* Effect.forEach(rows, decodeMembership);
   });
-
 const updateMembership = (
   sql: DatabaseShape,
   current: Membership,
   next: Membership,
-): Effect.Effect<Membership, OrganizationPersistenceError | MembershipRevisionConflict> =>
-  sql<MembershipSelect>`
-    UPDATE organization_memberships
-    SET
-      end_at = ${next.endAt},
-      position_id = ${next.positionId},
-      is_team_leader = ${next.isTeamLeader},
-      is_suspended = ${next.isSuspended},
-      revision = revision + 1
-    WHERE membership_id = ${current.membershipId}
-      AND revision = ${current.revision}
-    RETURNING
-      membership_id AS "membershipId",
-      person_id AS "personId",
-      team_id AS "teamId",
-      deleted_team_name AS "deletedTeamName",
-      to_char(start_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS "startAt",
-      CASE WHEN end_at IS NULL THEN NULL
-        ELSE to_char(end_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')
-      END AS "endAt",
-      position_id AS "positionId",
-      is_team_leader AS "isTeamLeader",
-      is_suspended AS "isSuspended",
-      revision
-  `.pipe(
-    Effect.flatMap((rows) =>
-      rows[0] === undefined
-        ? Effect.fail(new MembershipRevisionConflict({ membershipId: current.membershipId }))
-        : decodeMembership(rows[0]),
-    ),
+): Effect.Effect<
+  Membership,
+  OrganizationDecodeError | OrganizationPersistenceError | MembershipRevisionConflict
+> =>
+  Effect.gen(function* () {
+    const rows = yield* sql<MembershipSelect>`
+      UPDATE organization_memberships
+      SET
+        end_at = ${next.endAt},
+        position_id = ${next.positionId},
+        is_team_leader = ${next.isTeamLeader},
+        is_suspended = ${next.isSuspended},
+        revision = revision + 1
+      WHERE membership_id = ${current.membershipId}
+        AND revision = ${current.revision}
+      RETURNING
+        membership_id AS "membershipId",
+        person_id AS "personId",
+        team_id AS "teamId",
+        deleted_team_name AS "deletedTeamName",
+        to_char(start_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS "startAt",
+        CASE WHEN end_at IS NULL THEN NULL
+          ELSE to_char(end_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')
+        END AS "endAt",
+        position_id AS "positionId",
+        is_team_leader AS "isTeamLeader",
+        is_suspended AS "isSuspended",
+        revision
+    `;
+    if (rows[0] === undefined) {
+      return yield* new MembershipRevisionConflict({ membershipId: current.membershipId });
+    }
+    return yield* decodeMembership(rows[0]);
+  }).pipe(
     Effect.catchTag("SqlError", (cause) =>
       Effect.fail(persistenceError("revise organization membership", cause)),
     ),
@@ -376,18 +421,21 @@ const executeMembershipRevision = (
 ): Effect.Effect<Membership, MembershipRevisionPersistenceError, Database> =>
   Effect.gen(function* () {
     const database = yield* Database;
-    return yield* database.withTransaction(
-      Effect.gen(function* () {
-        const current = yield* findMembership(database, command.membershipId, true);
-        if (current === undefined) return yield* new MembershipNotFound({ membershipId: command.membershipId });
-        const next = yield* applyMembershipRevision(current, command);
-        return yield* updateMembership(database, current, next);
-      }),
-    ).pipe(
-      Effect.catchTag("SqlError", (cause) =>
-        Effect.fail(persistenceError("organization membership transaction", cause)),
-      ),
-    );
+    return yield* database
+      .withTransaction(
+        Effect.gen(function* () {
+          const current = yield* findMembership(database, command.membershipId, true);
+          if (current === undefined)
+            return yield* new MembershipNotFound({ membershipId: command.membershipId });
+          const next = yield* applyMembershipRevision(current, command);
+          return yield* updateMembership(database, current, next);
+        }),
+      )
+      .pipe(
+        Effect.catchTag("SqlError", (cause) =>
+          Effect.fail(persistenceError("organization membership transaction", cause)),
+        ),
+      );
   });
 
 export const reviseOrganizationMembership = (
@@ -412,8 +460,10 @@ const insertImportedOrganization = (
   result: OrganizationImportResult,
 ): Effect.Effect<void, OrganizationPersistenceError> =>
   Effect.gen(function* () {
-    yield* Effect.forEach(result.departments, (department) =>
-      sql`
+    yield* Effect.forEach(
+      result.departments,
+      (department) =>
+        sql`
         INSERT INTO organization_departments (
           department_id, name, short_name, email, address, city, latitude, longitude,
           slack_channel, logo_path, active, revision
@@ -424,8 +474,10 @@ const insertImportedOrganization = (
         ) ON CONFLICT (department_id) DO NOTHING
       `,
     );
-    yield* Effect.forEach(result.teams, (team) =>
-      sql`
+    yield* Effect.forEach(
+      result.teams,
+      (team) =>
+        sql`
         INSERT INTO organization_teams (
           team_id, department_id, name, email, description, short_description,
           accept_application, deadline, active, revision
@@ -435,8 +487,10 @@ const insertImportedOrganization = (
         ) ON CONFLICT (team_id) DO NOTHING
       `,
     );
-    yield* Effect.forEach(result.memberships, (membership) =>
-      sql`
+    yield* Effect.forEach(
+      result.memberships,
+      (membership) =>
+        sql`
         INSERT INTO organization_memberships (
           membership_id, person_id, team_id, deleted_team_name, start_at, end_at,
           position_id, is_team_leader, is_suspended, revision
@@ -447,8 +501,10 @@ const insertImportedOrganization = (
         ) ON CONFLICT (membership_id) DO NOTHING
       `,
     );
-    yield* Effect.forEach(result.quarantined, (row) =>
-      sql`
+    yield* Effect.forEach(
+      result.quarantined,
+      (row) =>
+        sql`
         INSERT INTO organization_membership_quarantine (
           source_repository, source_revision, snapshot_id, source_primary_key,
           transformation_revision, source_kind, target_semantic_identity, reason, raw_json
@@ -462,8 +518,10 @@ const insertImportedOrganization = (
         DO NOTHING
       `,
     );
-    yield* Effect.forEach(result.ledger, (entry) =>
-      sql`
+    yield* Effect.forEach(
+      result.ledger,
+      (entry) =>
+        sql`
         INSERT INTO organization_import_ledger (
           source_repository, source_revision, snapshot_id, source_primary_key,
           transformation_revision, target_semantic_identity, destination_identity,
@@ -479,19 +537,27 @@ const insertImportedOrganization = (
     );
   }).pipe(
     Effect.asVoid,
-    Effect.catchTag("SqlError", (cause) => Effect.fail(persistenceError("persist organization import", cause))),
+    Effect.catchTag("SqlError", (cause) =>
+      Effect.fail(persistenceError("persist organization import", cause)),
+    ),
   );
 
 export const importOrganizationSnapshot = (
   snapshot: LegacyOrganizationSnapshot,
-): Effect.Effect<OrganizationImportResult, OrganizationImportError | OrganizationPersistenceError, Database> =>
+): Effect.Effect<
+  OrganizationImportResult,
+  OrganizationImportError | OrganizationPersistenceError,
+  Database
+> =>
   Effect.gen(function* () {
     const database = yield* Database;
     const result = importLegacyOrganization(snapshot);
-    yield* database.withTransaction(insertImportedOrganization(database, database, snapshot, result)).pipe(
-      Effect.catchTag("SqlError", (cause) =>
-        Effect.fail(persistenceError("organization import transaction", cause)),
-      ),
-    );
+    yield* database
+      .withTransaction(insertImportedOrganization(database, database, snapshot, result))
+      .pipe(
+        Effect.catchTag("SqlError", (cause) =>
+          Effect.fail(persistenceError("organization import transaction", cause)),
+        ),
+      );
     return result;
   });

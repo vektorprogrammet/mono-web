@@ -81,12 +81,13 @@ export const ORGANIZATION_IMPORT_REASONS = [
   "DEPARTMENT_UNRESOLVED",
   "DUPLICATE_DEPARTMENT",
   "DUPLICATE_TEAM",
+  "DUPLICATE_MEMBERSHIP",
   "TEAM_UNRESOLVED",
   "MISSING_TEMPORAL_INTERVAL",
   "INVALID_TEMPORAL_INTERVAL",
   "NULL_TEAM_WITHOUT_HISTORICAL_NAME",
   "LIVE_TEAM_WITH_HISTORICAL_NAME",
-"INVALID_TEAM_DEADLINE",
+  "INVALID_TEAM_DEADLINE",
 ] as const;
 export type OrganizationImportReason = (typeof ORGANIZATION_IMPORT_REASONS)[number];
 
@@ -121,7 +122,10 @@ type DecodeOutcome<A> =
   | { readonly ok: true; readonly value: A }
   | { readonly ok: false; readonly message: string };
 
-const decode = <A>(schema: Schema.Schema<A>, input: unknown): DecodeOutcome<A> => {
+const decode = <A>(
+  schema: Schema.ConstraintDecoder<A, never>,
+  input: unknown,
+): DecodeOutcome<A> => {
   try {
     return {
       ok: true,
@@ -186,9 +190,13 @@ const accepted = (
   });
 };
 
-
 const departmentFromLegacy = (row: LegacyDepartmentRow): Department | undefined => {
-  if (!nonEmpty(row.name) || !nonEmpty(row.shortName) || !nonEmpty(row.email) || !nonEmpty(row.city)) {
+  if (
+    !nonEmpty(row.name) ||
+    !nonEmpty(row.shortName) ||
+    !nonEmpty(row.email) ||
+    !nonEmpty(row.city)
+  ) {
     return undefined;
   }
   return {
@@ -240,11 +248,15 @@ const membershipFromLegacy = (
   if (row.startAt === undefined || row.startAt.length === 0) {
     return { reason: "MISSING_TEMPORAL_INTERVAL" };
   }
-  if (!isRfc3339(row.startAt) || (row.endAt !== null && row.endAt !== undefined && !isRfc3339(row.endAt))) {
+  if (
+    !isRfc3339(row.startAt) ||
+    (row.endAt !== null && row.endAt !== undefined && !isRfc3339(row.endAt))
+  ) {
     return { reason: "INVALID_TEMPORAL_INTERVAL" };
   }
-  const teamId = row.teamId === null ? null : TeamId.make(sourceId(row.teamId));
-  if (teamId !== null && !teams.has(row.teamId)) return { reason: "TEAM_UNRESOLVED" };
+  const legacyTeamId = row.teamId;
+  const teamId = legacyTeamId === null ? null : TeamId.make(sourceId(legacyTeamId));
+  if (legacyTeamId !== null && !teams.has(legacyTeamId)) return { reason: "TEAM_UNRESOLVED" };
   const deletedTeamName = row.deletedTeamName ?? null;
   if (teamId === null && !nonEmpty(deletedTeamName)) {
     return { reason: "NULL_TEAM_WITHOUT_HISTORICAL_NAME" };
@@ -259,7 +271,10 @@ const membershipFromLegacy = (
     deletedTeamName,
     startAt: row.startAt,
     endAt: row.endAt ?? null,
-    positionId: row.positionId === null || row.positionId === undefined ? null : PositionId.make(sourceId(row.positionId)),
+    positionId:
+      row.positionId === null || row.positionId === undefined
+        ? null
+        : PositionId.make(sourceId(row.positionId)),
     isTeamLeader: bool(row.isTeamLeader ?? row.isLeader, false),
     isSuspended: bool(row.isSuspended, false),
     revision: 0,
@@ -299,19 +314,37 @@ export const importLegacyOrganization = (
     }
     const target = `department:${sourceId(decoded.value.id)}`;
     if (departmentIds.has(decoded.value.id)) {
-      quarantine(output, snapshot, "department", sourcePrimaryKey, target, "DUPLICATE_DEPARTMENT", raw);
+      quarantine(
+        output,
+        snapshot,
+        "department",
+        sourcePrimaryKey,
+        target,
+        "DUPLICATE_DEPARTMENT",
+        raw,
+      );
       continue;
     }
     departmentIds.add(decoded.value.id);
     const department = departmentFromLegacy(decoded.value);
     if (department === undefined) {
-      quarantine(output, snapshot, "department", sourcePrimaryKey, target, "MISSING_DEPARTMENT_FIELD", raw);
+      quarantine(
+        output,
+        snapshot,
+        "department",
+        sourcePrimaryKey,
+        target,
+        "MISSING_DEPARTMENT_FIELD",
+        raw,
+      );
       continue;
     }
     acceptedDepartmentIds.add(decoded.value.id);
     output.departments.push(department);
     accepted(output, snapshot, sourcePrimaryKey, target, department.departmentId);
   }
+  const teamIds = new Set<number>();
+  const acceptedTeamIds = new Set<number>();
   for (const [index, raw] of snapshot.teams.entries()) {
     const decoded = decode(LegacyTeamRowSchema, raw);
     const sourcePrimaryKey = decoded.ok ? sourceId(decoded.value.id) : `unknown:${index}`;
@@ -333,7 +366,10 @@ export const importLegacyOrganization = (
       continue;
     }
     teamIds.add(decoded.value.id);
-    if (decoded.value.departmentId !== null && !acceptedDepartmentIds.has(decoded.value.departmentId)) {
+    if (
+      decoded.value.departmentId !== null &&
+      !acceptedDepartmentIds.has(decoded.value.departmentId)
+    ) {
       quarantine(output, snapshot, "team", sourcePrimaryKey, target, "DEPARTMENT_UNRESOLVED", raw);
       continue;
     }
@@ -378,21 +414,45 @@ export const importLegacyOrganization = (
   const membershipIdentity = new Set<string>();
   for (const { row, raw } of membershipRows) {
     const sourcePrimaryKey = sourceId(row.id);
-    const position = row.positionId === null || row.positionId === undefined ? "null" : sourceId(row.positionId);
-    const team = row.teamId === null ? `historical:${row.deletedTeamName ?? "null"}` : sourceId(row.teamId);
+    const position =
+      row.positionId === null || row.positionId === undefined ? "null" : sourceId(row.positionId);
+    const team =
+      row.teamId === null ? `historical:${row.deletedTeamName ?? "null"}` : sourceId(row.teamId);
     const semanticIdentity = `${sourceId(row.userId)}|${team}|${row.startAt ?? "missing"}|${position}`;
     const decision = membershipFromLegacy(row, acceptedTeamIds);
     if (decision.membership === undefined) {
-      quarantine(output, snapshot, "membership", sourcePrimaryKey, semanticIdentity, decision.reason ?? "DECODE_FAILURE", raw);
+      quarantine(
+        output,
+        snapshot,
+        "membership",
+        sourcePrimaryKey,
+        semanticIdentity,
+        decision.reason ?? "DECODE_FAILURE",
+        raw,
+      );
       continue;
     }
     if (membershipIdentity.has(semanticIdentity)) {
-      quarantine(output, snapshot, "membership", sourcePrimaryKey, semanticIdentity, "DUPLICATE_MEMBERSHIP", raw);
+      quarantine(
+        output,
+        snapshot,
+        "membership",
+        sourcePrimaryKey,
+        semanticIdentity,
+        "DUPLICATE_MEMBERSHIP",
+        raw,
+      );
       continue;
     }
     membershipIdentity.add(semanticIdentity);
     output.memberships.push(decision.membership);
-    accepted(output, snapshot, sourcePrimaryKey, semanticIdentity, decision.membership.membershipId);
+    accepted(
+      output,
+      snapshot,
+      sourcePrimaryKey,
+      semanticIdentity,
+      decision.membership.membershipId,
+    );
   }
 
   return output;
@@ -411,4 +471,5 @@ export const importLegacyOrganizationEffect = (
     ),
   );
 
-export const legacySemesterId = (value: number): typeof SemesterId.Type => SemesterId.make(sourceId(value));
+export const legacySemesterId = (value: number): typeof SemesterId.Type =>
+  SemesterId.make(sourceId(value));

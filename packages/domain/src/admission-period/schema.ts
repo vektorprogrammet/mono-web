@@ -1,7 +1,7 @@
 import { Schema } from "effect";
 import { Model } from "effect/unstable/schema";
 import { Rfc3339InstantSchema } from "../time.js";
-export { isRfc3339Instant } from "../time.js";
+export { Rfc3339InstantSchema, isRfc3339Instant } from "../time.js";
 
 /** A stable identifier supplied by a caller or persisted in PostgreSQL. */
 export const StableIdSchema = Schema.NonEmptyString;

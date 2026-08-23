@@ -506,7 +506,7 @@ vektor-foldkit-dashboard {
   width: min(100%, 36rem);
 }
 
-@media (min-width: 48rem) {
+@media (min-width: 62rem) {
   .fd-summary-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
@@ -519,6 +519,7 @@ vektor-foldkit-dashboard {
   }
 
   .fd-mobile-close,
+  .fd-mobile-toggle,
   .fd-breadcrumb__mobile,
   .fd-mobile-overlay {
     display: none !important;

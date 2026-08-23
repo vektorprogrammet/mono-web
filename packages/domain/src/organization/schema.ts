@@ -3,7 +3,9 @@ import { Model } from "effect/unstable/schema";
 import { isRfc3339Instant, Rfc3339InstantSchema } from "../time.js";
 
 const NonEmpty = Schema.String.pipe(
-  Schema.check(Schema.makeFilter((value) => value.trim().length > 0, { message: "a non-empty string" })),
+  Schema.check(
+    Schema.makeFilter((value) => value.trim().length > 0, { message: "a non-empty string" }),
+  ),
 );
 
 const text = (max: number) =>
@@ -299,7 +301,8 @@ export const isRfc3339 = isRfc3339Instant;
 export const MembershipInvariantSchema = Membership.pipe(
   Schema.check(
     Schema.makeFilter(isMembershipShapeValid, {
-      message: "a membership with an ordered interval and explicit live or historical team identity",
+      message:
+        "a membership with an ordered interval and explicit live or historical team identity",
     }),
   ),
 );

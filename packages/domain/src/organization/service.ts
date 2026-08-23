@@ -10,14 +10,7 @@ import type {
   OrganizationPersistenceError,
   TeamNotFound,
 } from "./errors.js";
-import type {
-  Department,
-  DepartmentId,
-  Membership,
-  MembershipId,
-  Team,
-  TeamId,
-} from "./schema.js";
+import type { Department, DepartmentId, Membership, MembershipId, Team, TeamId } from "./schema.js";
 import type { LegacyOrganizationSnapshot, OrganizationImportResult } from "./import.js";
 import type { MembershipRevisionCommand } from "./transitions.js";
 
@@ -47,11 +40,10 @@ export interface OrganizationShape {
   readonly readTeam: (teamId: TeamId) => Effect.Effect<Team, OrganizationReadError>;
   readonly listTeams: (
     departmentId?: DepartmentId,
-  ) => Effect.Effect<
-    ReadonlyArray<Team>,
-    OrganizationPersistenceError | OrganizationDecodeError
-  >;
-  readonly readMembership: (membershipId: MembershipId) => Effect.Effect<Membership, OrganizationReadError>;
+  ) => Effect.Effect<ReadonlyArray<Team>, OrganizationPersistenceError | OrganizationDecodeError>;
+  readonly readMembership: (
+    membershipId: MembershipId,
+  ) => Effect.Effect<Membership, OrganizationReadError>;
   readonly listMembershipsForTeam: (
     teamId: TeamId,
   ) => Effect.Effect<
@@ -73,7 +65,10 @@ export interface OrganizationShape {
   ) => Effect.Effect<Membership, OrganizationRevisionError>;
   readonly importLegacyOrganization: (
     snapshot: LegacyOrganizationSnapshot,
-  ) => Effect.Effect<OrganizationImportResult, OrganizationImportError | OrganizationPersistenceError>;
+  ) => Effect.Effect<
+    OrganizationImportResult,
+    OrganizationImportError | OrganizationPersistenceError
+  >;
 }
 
 export class Organization extends Context.Service<Organization, OrganizationShape>()(

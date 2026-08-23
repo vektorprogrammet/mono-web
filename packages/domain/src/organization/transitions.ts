@@ -60,7 +60,10 @@ export const membershipIsActiveAt = (membership: Membership, at: string): boolea
   return timestamp >= start && (end === undefined || timestamp < end) && !membership.isSuspended;
 };
 
-const revisionFor = (membership: Membership, expectedRevision: number): Effect.Effect<void, MembershipStaleRevision> =>
+const revisionFor = (
+  membership: Membership,
+  expectedRevision: number,
+): Effect.Effect<void, MembershipStaleRevision> =>
   membership.revision === expectedRevision
     ? Effect.void
     : Effect.fail(
@@ -137,7 +140,9 @@ export const applyMembershipRevision = (
 
 export const membershipRevisionSelectSchema = MembershipInvariantSchema;
 
-export const membershipIdFromUnknown = (value: unknown): Effect.Effect<typeof MembershipId.Type, OrganizationDecodeError> =>
+export const membershipIdFromUnknown = (
+  value: unknown,
+): Effect.Effect<typeof MembershipId.Type, OrganizationDecodeError> =>
   Schema.decodeUnknownEffect(MembershipId)(value, { onExcessProperty: "error" }).pipe(
     Effect.mapError(
       (cause) =>
