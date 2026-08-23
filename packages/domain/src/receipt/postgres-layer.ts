@@ -1,17 +1,50 @@
-import * as PgClient from "@effect/sql-pg/PgClient";
+import { Database } from "../database/service.js";
 import { Effect, Layer } from "effect";
+import {
+  deliverNextReceiptOutbox,
+  listStaleReceiptOutboxClaimIds,
+  recoverStaleReceiptOutbox,
+} from "./outbox.js";
 import { executeReceiptCommand } from "./postgres.js";
-import { ReceiptAuthority } from "./service.js";
+import {
+  listApproverReceipts,
+  listOwnedReceiptProjection,
+  readReceiptLifecycleEvidence,
+  receiptStatusTotals,
+} from "./projections.js";
+import { Economy } from "./service.js";
 
-export const ReceiptAuthorityPostgres = Layer.effect(
-  ReceiptAuthority,
+export const EconomyLive = Layer.effect(
+  Economy,
   Effect.gen(function* () {
-    const sql = yield* PgClient.PgClient;
-    return ReceiptAuthority.of({
-      execute: (input, context) =>
-        executeReceiptCommand(input, context).pipe(Effect.provideService(PgClient.PgClient, sql)),
+    const database = yield* Database;
+
+    return Economy.of({
+      executeReceipt: (input, context) =>
+        executeReceiptCommand(input, context).pipe(Effect.provideService(Database, database)),
+      listOwnedReceipts: (ownerPersonId, status) =>
+        listOwnedReceiptProjection(ownerPersonId, status).pipe(
+          Effect.provideService(Database, database),
+        ),
+      listReceiptsForApproval: (scope) =>
+        listApproverReceipts(scope).pipe(Effect.provideService(Database, database)),
+      readReceiptLifecycleEvidence: (receiptId, ownerPersonId) =>
+        readReceiptLifecycleEvidence(receiptId, ownerPersonId).pipe(
+          Effect.provideService(Database, database),
+        ),
+      receiptStatusTotals: receiptStatusTotals.pipe(Effect.provideService(Database, database)),
+      listStaleOutboxClaims: (claimedBefore, receiptId) =>
+        listStaleReceiptOutboxClaimIds(claimedBefore, receiptId).pipe(
+          Effect.provideService(Database, database),
+        ),
+      recoverStaleOutboxClaim: (claimId, claimedBefore) =>
+        recoverStaleReceiptOutbox(claimId, claimedBefore).pipe(
+          Effect.provideService(Database, database),
+        ),
+      deliverNextOutboxEffect: (claimId, claimedAt, receiptId) =>
+        deliverNextReceiptOutbox(claimId, claimedAt, receiptId).pipe(
+          Effect.provideService(Database, database),
+        ),
     });
   }),
 );
-
-export const makeReceiptPostgresLayer = PgClient.layer;

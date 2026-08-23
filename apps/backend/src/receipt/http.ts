@@ -1,16 +1,14 @@
 import { randomUUID } from "node:crypto";
 
-import * as PgClient from "@effect/sql-pg/PgClient";
-import { Effect, Layer } from "effect";
-import type { SqlError } from "effect/unstable/sql/SqlError";
+import { Database } from "@vektorprogrammet/domain/database";
+import { Effect } from "effect";
 import {
   ReceiptAuxiliaryEffectConflict,
   InactiveActor,
-  ReceiptAuthority,
+  Economy,
   ReceiptAuxiliaryEffects,
   ReceiptDecodeError,
   ReceiptFileService,
-  ReceiptNotFound,
   ReceiptPersistenceError,
   ReceiptScopeDenied,
   type ReceiptStatus,
@@ -19,16 +17,7 @@ import {
   isIsoDate,
   type ReceiptObservation,
 } from "@vektorprogrammet/domain/receipt";
-import {
-  ReceiptAuthorityPostgres,
-  deliverNextReceiptOutbox,
-  listApproverReceipts,
-  listOwnedReceiptProjection,
-  listStaleReceiptOutboxClaimIds,
-  migrateReceiptPostgres,
-  recoverStaleReceiptOutbox,
-  type ReceiptOutboxDeliveryResult,
-} from "@vektorprogrammet/domain/receipt/postgres";
+import { type ReceiptOutboxDeliveryResult } from "@vektorprogrammet/domain/receipt/postgres";
 import type { ReceiptApiConfig, ReceiptApiPrincipal } from "./config.js";
 import {
   makeReceiptFileStore,
@@ -76,8 +65,7 @@ interface WithdrawFields {
 
 export interface ReceiptApiHttpOptions {
   readonly config: ReceiptApiConfig;
-  readonly migrationSql: string;
-  readonly postgresLayer: Layer.Layer<PgClient.PgClient, SqlError>;
+  readonly run: <A, E>(effect: Effect.Effect<A, E, Database | Economy>) => Promise<A>;
   readonly fileStore?: ReceiptFileStore;
   /**
    * Stable worker claim identity used to recover its stale in-flight effects.
@@ -92,7 +80,6 @@ interface ErrorBody {
 
 export interface ReceiptApiHttp {
   readonly fetch: (request: Request) => Promise<Response>;
-  readonly migrate: () => Promise<void>;
 }
 
 const jsonResponse = (body: unknown, status = 200): Response =>
@@ -416,32 +403,6 @@ const receiptEvidenceRoute = (pathname: string): string | undefined => {
   }
 };
 
-interface ReceiptLifecycleFileRow {
-  readonly fileRef: string;
-  readonly objectKey: string;
-  readonly contentType: string;
-  readonly byteLength: string;
-  readonly sha256: string;
-}
-
-interface ReceiptLifecycleOutboxRow {
-  readonly effectId: string;
-  readonly effectType: string;
-  readonly commandId: string;
-  readonly receiptId: string;
-  readonly ordinal: number;
-  readonly status: string;
-  readonly attempts: number;
-  readonly lastFailureTag: string | null;
-}
-
-interface ReceiptLifecycleAuditRow {
-  readonly commandId: string;
-  readonly receiptId: string;
-  readonly action: string;
-  readonly receiptRevision: number;
-}
-
 const receiptLifecycleEvidence = async (
   request: Request,
   receiptId: string,
@@ -449,80 +410,31 @@ const receiptLifecycleEvidence = async (
 ): Promise<Response> => {
   const principal = principalFor(request, options.config.tokens);
   if (!principal.actor.active) throw new InactiveActor({ personId: principal.actor.personId });
-  const evidence = await runPostgres(
-    Effect.gen(function* () {
-      const sql = yield* PgClient.PgClient;
-      const receipts = yield* sql<ReceiptLifecycleFileRow>`
-        SELECT file_ref AS "fileRef", file_object_key AS "objectKey",
-          file_content_type AS "contentType", file_byte_length::text AS "byteLength",
-          file_sha256 AS "sha256"
-        FROM economy_receipts
-        WHERE receipt_id = ${receiptId} AND owner_person_id = ${principal.actor.personId}
-      `;
-      const receipt = receipts[0];
-      if (receipt === undefined) {
-        return yield* new ReceiptNotFound({ receiptId });
-      }
-      const outbox = yield* sql<ReceiptLifecycleOutboxRow>`
-        SELECT effect_id AS "effectId", effect_type AS "effectType",
-          command_id AS "commandId", receipt_id AS "receiptId", ordinal, status, attempts,
-          last_failure_tag AS "lastFailureTag"
-        FROM economy_receipt_outbox
-        WHERE receipt_id = ${receiptId}
-        ORDER BY command_id, ordinal
-      `;
-      const audit = yield* sql<ReceiptLifecycleAuditRow>`
-        SELECT command_id AS "commandId", receipt_id AS "receiptId",
-          action, receipt_revision AS "receiptRevision"
-        FROM economy_receipt_audit
-        WHERE receipt_id = ${receiptId}
-        ORDER BY occurred_at, command_id
-      `;
-      return {
-        receiptId,
-        file: {
-          fileRef: receipt.fileRef,
-          objectKey: receipt.objectKey,
-          contentType: receipt.contentType,
-          byteLength: Number(receipt.byteLength),
-          sha256: receipt.sha256,
-        },
-        outbox,
-        audit,
-      };
-    }).pipe(
-      Effect.catchTag("SqlError", (cause) =>
-        Effect.fail(
-          new ReceiptPersistenceError({
-            operation: "read Receipt lifecycle evidence",
-            message: String(cause),
-          }),
-        ),
-      ),
+  const evidence = await runDatabase(
+    Economy.use(({ readReceiptLifecycleEvidence }) =>
+      readReceiptLifecycleEvidence(receiptId, principal.actor.personId),
     ),
-    options.postgresLayer,
+    options.run,
   );
   return jsonResponse(evidence);
 };
-const runPostgres = <A>(
-  effect: Effect.Effect<A, unknown, PgClient.PgClient>,
-  postgresLayer: Layer.Layer<PgClient.PgClient, SqlError>,
-): Promise<A> => Effect.runPromise(Effect.scoped(effect.pipe(Effect.provide(postgresLayer))));
+const runDatabase = <A>(
+  effect: Effect.Effect<A, unknown, Database | Economy>,
+  run: ReceiptApiHttpOptions["run"],
+): Promise<A> => run(effect);
 interface ReceiptCommandContext {
   readonly receiptId: string;
   readonly visualId: string;
   readonly now: string;
 }
 
-const executeReceiptAuthority = (
+const executeEconomyReceipt = (
   command: unknown,
   context: ReceiptCommandContext,
   options: ReceiptApiHttpOptions,
 ) => {
-  const transaction = ReceiptAuthority.use(({ execute }) => execute(command, context)).pipe(
-    Effect.provide(ReceiptAuthorityPostgres),
-  );
-  return runPostgres(transaction, options.postgresLayer);
+  const transaction = Economy.use(({ executeReceipt }) => executeReceipt(command, context));
+  return runDatabase(transaction, options.run);
 };
 
 const auxiliaryEffects = (() => {
@@ -540,7 +452,7 @@ const auxiliaryEffects = (() => {
   });
 })();
 
-const DEFAULT_OUTBOX_CLAIM_ID = `receipt-api-${process.pid}`;
+const DEFAULT_OUTBOX_CLAIM_ID = `backend-${process.pid}`;
 const STALE_OUTBOX_CLAIM_AGE_MS = 60_000;
 
 const deliverOutbox = (
@@ -550,13 +462,12 @@ const deliverOutbox = (
   fileStore: ReceiptFileStore,
   receiptId: string,
 ): Promise<ReceiptOutboxDeliveryResult> =>
-  Effect.runPromise(
-    Effect.scoped(
-      deliverNextReceiptOutbox(claimId, claimedAt, receiptId).pipe(
-        Effect.provideService(ReceiptFileService, fileStore.service),
-        Effect.provideService(ReceiptAuxiliaryEffects, auxiliaryEffects),
-        Effect.provide(options.postgresLayer),
-      ),
+  options.run(
+    Economy.use(({ deliverNextOutboxEffect }) =>
+      deliverNextOutboxEffect(claimId, claimedAt, receiptId),
+    ).pipe(
+      Effect.provideService(ReceiptFileService, fileStore.service),
+      Effect.provideService(ReceiptAuxiliaryEffects, auxiliaryEffects),
     ),
   );
 
@@ -577,18 +488,20 @@ const drainOutbox = async (
   const claimedBefore = staleOutboxCutoff(options.config.now());
   let staleClaimIds: ReadonlyArray<string> = [];
   try {
-    staleClaimIds = await runPostgres(
-      listStaleReceiptOutboxClaimIds(claimedBefore, receiptId),
-      options.postgresLayer,
+    staleClaimIds = await runDatabase(
+      Economy.use(({ listStaleOutboxClaims }) => listStaleOutboxClaims(claimedBefore, receiptId)),
+      options.run,
     );
   } catch {
     // Delivery remains best-effort after the authority transaction commits.
   }
   for (const staleClaimId of staleClaimIds) {
     try {
-      await runPostgres(
-        recoverStaleReceiptOutbox(staleClaimId, claimedBefore),
-        options.postgresLayer,
+      await runDatabase(
+        Economy.use(({ recoverStaleOutboxClaim }) =>
+          recoverStaleOutboxClaim(staleClaimId, claimedBefore),
+        ),
+        options.run,
       );
     } catch {
       // A concurrent worker may have completed or recovered this exact claim.
@@ -641,10 +554,8 @@ const submit = async (
       visualId: options.config.nextVisualId(),
       now: options.config.now(),
     };
-    const transaction = ReceiptAuthority.use(({ execute }) => execute(command, context)).pipe(
-      Effect.provide(ReceiptAuthorityPostgres),
-    );
-    const result = await runPostgres(transaction, options.postgresLayer);
+    const transaction = Economy.use(({ executeReceipt }) => executeReceipt(command, context));
+    const result = await runDatabase(transaction, options.run);
     if (result.replayed && staged.created) await fileStore.cleanupStage(staged.file);
     committed = true;
     await drainOutbox(options, fileStore, result.observation.receiptId);
@@ -692,7 +603,7 @@ const revise = async (
       receiptDate: fields.receiptDate,
       file: staged?.file ?? { _tag: "KeepCurrentFile" as const },
     };
-    const result = await executeReceiptAuthority(
+    const result = await executeEconomyReceipt(
       command,
       { receiptId, visualId: receiptId, now: options.config.now() },
       options,
@@ -726,7 +637,7 @@ const withdraw = async (
     receiptId,
     expectedRevision: fields.expectedRevision,
   };
-  const result = await executeReceiptAuthority(
+  const result = await executeEconomyReceipt(
     command,
     { receiptId, visualId: receiptId, now: options.config.now() },
     options,
@@ -767,7 +678,10 @@ const approvalList = async (
   if (!principal.actor.active) throw new InactiveActor({ personId: principal.actor.personId });
   const scope = approvalScopeFor(principal);
   const status = decodeApprovalStatusFilter(request);
-  const rows = await runPostgres(listApproverReceipts(scope), options.postgresLayer);
+  const rows = await runDatabase(
+    Economy.use(({ listReceiptsForApproval }) => listReceiptsForApproval(scope)),
+    options.run,
+  );
   const visibleRows = status === undefined ? rows : rows.filter((row) => row.status === status);
   const items = visibleRows.map((row) => {
     const amountOre = Number(row.amountOre);
@@ -815,7 +729,7 @@ const approvalCommand = async (
   };
   let result: ReceiptTransactionResult;
   try {
-    result = await executeReceiptAuthority(
+    result = await executeEconomyReceipt(
       command,
       { receiptId: route.receiptId, visualId: route.receiptId, now: options.config.now() },
       options,
@@ -850,9 +764,9 @@ const list = async (request: Request, options: ReceiptApiHttpOptions): Promise<R
     }
     status = statusParameter;
   }
-  const rows = await runPostgres(
-    listOwnedReceiptProjection(principal.actor.personId, status),
-    options.postgresLayer,
+  const rows = await runDatabase(
+    Economy.use(({ listOwnedReceipts }) => listOwnedReceipts(principal.actor.personId, status)),
+    options.run,
   );
   const items = rows.map((row) => {
     const amountOre = Number(row.amountOre);
@@ -877,23 +791,6 @@ const list = async (request: Request, options: ReceiptApiHttpOptions): Promise<R
   });
   return jsonResponse({ items, totalItems: items.length });
 };
-const profile = (request: Request, options: ReceiptApiHttpOptions): Response => {
-  const principal = principalFor(request, options.config.tokens);
-  if (!principal.actor.active) throw new InactiveActor({ personId: principal.actor.personId });
-  return jsonResponse({
-    id: null,
-    firstName: principal.actor.personId,
-    lastName: "",
-    userName: principal.actor.personId,
-    email: `${principal.actor.personId}@local.invalid`,
-    phone: null,
-    gender: null,
-    fieldOfStudy: null,
-    accountNumber: null,
-    role: "assistant",
-    profilePhoto: null,
-  });
-};
 
 export const makeReceiptApiHttp = (input: ReceiptApiHttpOptions): ReceiptApiHttp => {
   const fileStore =
@@ -906,31 +803,9 @@ export const makeReceiptApiHttp = (input: ReceiptApiHttpOptions): ReceiptApiHttp
         : undefined,
     });
   return {
-    migrate: () => runPostgres(migrateReceiptPostgres(input.migrationSql), input.postgresLayer),
     fetch: async (request) => {
       const url = new URL(request.url);
-      if (request.method === "OPTIONS") return new Response(null, { status: 204 });
-      if (request.method === "GET" && url.pathname === "/health") {
-        try {
-          await runPostgres(
-            Effect.gen(function* () {
-              const sql = yield* PgClient.PgClient;
-              yield* sql`SELECT 1`;
-            }),
-            input.postgresLayer,
-          );
-          return jsonResponse({ status: "ok" });
-        } catch {
-          return jsonResponse({ status: "unavailable" }, 503);
-        }
-      }
       try {
-        if (
-          request.method === "GET" &&
-          (url.pathname === "/api/me/profile" || url.pathname === "/api/me")
-        ) {
-          return profile(request, input);
-        }
         if (input.config.e2eTestMode === true && request.method === "GET") {
           const evidenceReceiptId = receiptEvidenceRoute(url.pathname);
           if (evidenceReceiptId !== undefined) {

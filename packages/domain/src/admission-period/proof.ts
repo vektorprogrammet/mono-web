@@ -134,7 +134,8 @@ export const runAdmissionPeriodProof = (): AdmissionPeriodProofEvidence => {
     },
     replay: {
       digestStable:
-        admissionPeriodCommandDigest(proofCreate) === admissionPeriodCommandDigest({ ...proofCreate }),
+        admissionPeriodCommandDigest(proofCreate) ===
+        admissionPeriodCommandDigest({ ...proofCreate }),
     },
   };
 };

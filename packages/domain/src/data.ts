@@ -136,8 +136,16 @@ const decodeCollection = <A>(
 export const buildDataset = (input: RawDatasetInput): Dataset => {
   const departments = decodeCollection(input.departments, "department.json", decodeDepartment);
   const teams = decodeCollection(input.teams, "team.json", decodeTeam);
-  const teamMemberships = decodeCollection(input.teamMemberships, "team_membership.json", decodeTeamMembership);
-  const executiveBoards = decodeCollection(input.executiveBoards, "executive_board.json", decodeGlobalContainer);
+  const teamMemberships = decodeCollection(
+    input.teamMemberships,
+    "team_membership.json",
+    decodeTeamMembership,
+  );
+  const executiveBoards = decodeCollection(
+    input.executiveBoards,
+    "executive_board.json",
+    decodeGlobalContainer,
+  );
   const globalMemberships = decodeCollection(
     input.globalMemberships,
     "executive_board_membership.json",
@@ -182,7 +190,7 @@ export const buildDataset = (input: RawDatasetInput): Dataset => {
 };
 
 const readErrorCode = (error: unknown): string | undefined => {
-  if (typeof error !== "object" || error === null || !(("code" in error))) return undefined;
+  if (typeof error !== "object" || error === null || !("code" in error)) return undefined;
   const code = error.code;
   return typeof code === "string" ? code : undefined;
 };
@@ -193,9 +201,17 @@ const readJson = async (dataDir: string, file: RequiredFile): Promise<unknown> =
     source = await readFile(join(dataDir, file), "utf8");
   } catch (error: unknown) {
     if (readErrorCode(error) === "ENOENT") {
-      throw new DatasetInputError("MISSING_INPUT", file, "required sanitized input file is missing");
+      throw new DatasetInputError(
+        "MISSING_INPUT",
+        file,
+        "required sanitized input file is missing",
+      );
     }
-    throw new DatasetInputError("READ_FAILED", file, "required sanitized input file could not be read");
+    throw new DatasetInputError(
+      "READ_FAILED",
+      file,
+      "required sanitized input file could not be read",
+    );
   }
   const decoded = Schema.decodeUnknownResult(JsonUnknownSchema)(source);
   if (Result.isSuccess(decoded)) return decoded.success;
@@ -204,7 +220,11 @@ const readJson = async (dataDir: string, file: RequiredFile): Promise<unknown> =
 
 export const loadDataset = async (dataDir: string): Promise<Dataset> => {
   if (dataDir.trim().length === 0) {
-    throw new DatasetInputError("INVALID_ARGUMENT", "dataDir", "dataDir must be an explicit non-empty path");
+    throw new DatasetInputError(
+      "INVALID_ARGUMENT",
+      "dataDir",
+      "dataDir must be an explicit non-empty path",
+    );
   }
   const departments = await readJson(dataDir, "department.json");
   const teams = await readJson(dataDir, "team.json");
@@ -226,32 +246,53 @@ export const authorityFromEntries = (
   return { departmentIdsByUser, userIds };
 };
 
-
 export const loadPersonAuthority = async (filePath: string): Promise<PersonAuthorityProjection> => {
   let source: string;
   try {
     source = await readFile(filePath, "utf8");
   } catch (error: unknown) {
     if (readErrorCode(error) === "ENOENT") {
-      throw new DatasetInputError("MISSING_INPUT", "person-authority", "person authority file is missing");
+      throw new DatasetInputError(
+        "MISSING_INPUT",
+        "person-authority",
+        "person authority file is missing",
+      );
     }
-    throw new DatasetInputError("READ_FAILED", "person-authority", "person authority file could not be read");
+    throw new DatasetInputError(
+      "READ_FAILED",
+      "person-authority",
+      "person authority file could not be read",
+    );
   }
 
   const parsed = Schema.decodeUnknownResult(JsonUnknownSchema)(source);
   if (!Result.isSuccess(parsed)) {
-    throw new DatasetInputError("INVALID_JSON", "person-authority", "person authority file is not valid JSON");
+    throw new DatasetInputError(
+      "INVALID_JSON",
+      "person-authority",
+      "person authority file is not valid JSON",
+    );
   }
-  const decoded = Schema.decodeUnknownResult(PersonAuthorityRowsSchema, { onExcessProperty: "error" })(parsed.success);
+  const decoded = Schema.decodeUnknownResult(PersonAuthorityRowsSchema, {
+    onExcessProperty: "error",
+  })(parsed.success);
   if (!Result.isSuccess(decoded)) {
-    throw new DatasetInputError("INVALID_PERSON_AUTHORITY", "person-authority", "person authority file is invalid");
+    throw new DatasetInputError(
+      "INVALID_PERSON_AUTHORITY",
+      "person-authority",
+      "person authority file is invalid",
+    );
   }
 
   const entries: Array<readonly [number, ReadonlyArray<number>]> = [];
   const seen = new Set<number>();
   for (const row of decoded.success) {
     if (seen.has(row.userId)) {
-      throw new DatasetInputError("DUPLICATE_PERSON_AUTHORITY", "person-authority", "person authority user is duplicated");
+      throw new DatasetInputError(
+        "DUPLICATE_PERSON_AUTHORITY",
+        "person-authority",
+        "person authority user is duplicated",
+      );
     }
     seen.add(row.userId);
     entries.push([row.userId, row.departmentIds]);

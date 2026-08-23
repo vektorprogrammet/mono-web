@@ -86,38 +86,6 @@ export class DuplicateAdmissionPeriodCommandConflict extends Schema.TaggedError<
   "DuplicateAdmissionPeriodCommandConflict",
   { commandId: StableIdSchema },
 ) {}
-export class AdmissionApplicationDecodeError extends Schema.TaggedError<AdmissionApplicationDecodeError>()(
-  "AdmissionApplicationDecodeError",
-  { message: Schema.String },
-) {}
-
-export class NoOpenAdmissionPeriod extends Schema.TaggedError<NoOpenAdmissionPeriod>()(
-  "NoOpenAdmissionPeriod",
-  { departmentId: StableIdSchema },
-) {}
-
-export class AdmissionApplicationAlreadyExists extends Schema.TaggedError<AdmissionApplicationAlreadyExists>()(
-  "AdmissionApplicationAlreadyExists",
-  { applicationId: StableIdSchema },
-) {}
-
-export class DuplicateAdmissionApplicationCommandConflict extends Schema.TaggedError<DuplicateAdmissionApplicationCommandConflict>()(
-  "DuplicateAdmissionApplicationCommandConflict",
-  { commandId: StableIdSchema },
-) {}
-
-export class AdmissionApplicationPersistenceError extends Schema.TaggedError<AdmissionApplicationPersistenceError>()(
-  "AdmissionApplicationPersistenceError",
-  { operation: Schema.String, message: Schema.String },
-) {}
-
-export type AdmissionApplicationFailure =
-  | AdmissionApplicationDecodeError
-  | NoOpenAdmissionPeriod
-  | AdmissionApplicationAlreadyExists
-  | DuplicateAdmissionApplicationCommandConflict
-  | AdmissionApplicationPersistenceError;
-
 
 export class AdmissionPeriodPersistenceError extends Schema.TaggedError<AdmissionPeriodPersistenceError>()(
   "AdmissionPeriodPersistenceError",

@@ -1,36 +1,25 @@
-import * as PgClient from "@effect/sql-pg/PgClient";
-import type { SqlError } from "effect/unstable/sql/SqlError";
-import { Effect, Layer, Schema } from "effect";
+import { type Database } from "@vektorprogrammet/domain/database";
+import { Effect, Schema } from "effect";
 import {
   AdmissionScopeDenied,
   InactiveActor,
   UnauthenticatedActor,
-  executeAdmissionPeriodCommand,
-  listAdmissionPeriodsForManagement,
-  listOpenAdmissionPeriods,
   StableIdSchema,
   Rfc3339InstantSchema,
   RevisionSchema,
   type AdmissionPeriodActor,
 } from "@vektorprogrammet/domain/admission-period";
-import {
-  executePublicApplicationCommand,
-  findPublicApplicationConfirmation,
-  listPublicApplicationCatalog,
-  migratePublicApplicationPostgres,
-  PublicApplicationSubmitInputSchema,
-} from "@vektorprogrammet/domain/application";
+import { Admissions } from "@vektorprogrammet/domain/admissions";
+import { PublicApplicationSubmitInputSchema } from "@vektorprogrammet/domain/application";
 import type { AdmissionApiConfig, AdmissionApiPrincipal } from "./config.js";
 
 export interface AdmissionApiHttpOptions {
   readonly config: AdmissionApiConfig;
-  readonly migrationSql: string;
-  readonly postgresLayer: Layer.Layer<PgClient.PgClient, SqlError>;
+  readonly run: <A, E>(effect: Effect.Effect<A, E, Database | Admissions>) => Promise<A>;
 }
 
 export interface AdmissionApiHttp {
   readonly fetch: (request: Request) => Promise<Response>;
-  readonly migrate: () => Promise<void>;
 }
 
 interface ErrorBody {
@@ -106,10 +95,10 @@ const errorResponse = (cause: unknown): Response => {
   return jsonResponse(body, status);
 };
 
-const runPostgres = <A, E>(
-  effect: Effect.Effect<A, E, PgClient.PgClient>,
-  postgresLayer: Layer.Layer<PgClient.PgClient, SqlError>,
-): Promise<A> => Effect.runPromise(Effect.scoped(effect.pipe(Effect.provide(postgresLayer))));
+const runDatabase = <A, E>(
+  effect: Effect.Effect<A, E, Database | Admissions>,
+  run: AdmissionApiHttpOptions["run"],
+): Promise<A> => run(effect);
 
 const principalFor = (
   request: Request,
@@ -118,7 +107,8 @@ const principalFor = (
   const authorization = request.headers.get("authorization");
   const match = authorization === null ? undefined : /^Bearer ([^\s]+)$/.exec(authorization);
   const principal = match?.[1] === undefined ? undefined : tokens.get(match[1]);
-  if (principal === undefined) throw new UnauthenticatedActor({ message: "authentication required" });
+  if (principal === undefined)
+    throw new UnauthenticatedActor({ message: "authentication required" });
   return principal;
 };
 
@@ -127,27 +117,7 @@ const requireActive = (principal: AdmissionApiPrincipal): AdmissionPeriodActor =
   return principal.actor;
 };
 
-const profile = (request: Request, input: AdmissionApiHttpOptions): Response => {
-  const principal = principalFor(request, input.config.tokens);
-  const actor = requireActive(principal);
-  return jsonResponse({
-    id: null,
-    firstName: actor.personId,
-    lastName: "",
-    userName: actor.personId,
-    email: `${actor.personId}@local.invalid`,
-    phone: null,
-    gender: null,
-    fieldOfStudy: null,
-    accountNumber: null,
-    role: "assistant",
-    profilePhoto: null,
-  });
-};
-const requireNoQuery = (
-  request: Request,
-  tag = "AdmissionPeriodDecodeError",
-): void => {
+const requireNoQuery = (request: Request, tag = "AdmissionPeriodDecodeError"): void => {
   if (new URL(request.url).search !== "") {
     throw taggedError(tag);
   }
@@ -232,12 +202,16 @@ const revisePayloadSchema = Schema.Struct({
 
 const executeCommand = async (
   command: unknown,
-  context: { readonly actor: AdmissionPeriodActor; readonly now: string; readonly admissionPeriodId?: string },
+  context: {
+    readonly actor: AdmissionPeriodActor;
+    readonly now: string;
+    readonly admissionPeriodId?: string;
+  },
   input: AdmissionApiHttpOptions,
 ): Promise<{ readonly observation: unknown; readonly replayed: boolean }> => {
-  const result = await runPostgres(
-    executeAdmissionPeriodCommand(command, context),
-    input.postgresLayer,
+  const result = await runDatabase(
+    Admissions.use(({ executeAdmissionPeriod }) => executeAdmissionPeriod(command, context)),
+    input.run,
   );
   return { observation: result.observation, replayed: result.replayed };
 };
@@ -248,9 +222,11 @@ const listManagement = async (
 ): Promise<Response> => {
   requireNoQuery(request);
   const actor = requireActive(principalFor(request, input.config.tokens));
-  const rows = await runPostgres(
-    listAdmissionPeriodsForManagement({ actor, now: input.config.now() }),
-    input.postgresLayer,
+  const rows = await runDatabase(
+    Admissions.use(({ listAdmissionPeriodsForManagement }) =>
+      listAdmissionPeriodsForManagement({ actor, now: input.config.now() }),
+    ),
+    input.run,
   );
   return jsonResponse({ items: rows, totalItems: rows.length });
 };
@@ -265,7 +241,10 @@ const create = async (request: Request, input: AdmissionApiHttpOptions): Promise
     "AdmissionPeriodDecodeError",
   );
   if (actor._tag === "DepartmentLeader" && payload.departmentId !== undefined) {
-    throw new AdmissionScopeDenied({ personId: actor.personId, departmentId: payload.departmentId });
+    throw new AdmissionScopeDenied({
+      personId: actor.personId,
+      departmentId: payload.departmentId,
+    });
   }
   const result = await executeCommand(
     { _tag: "CreateAdmissionPeriod", ...payload },
@@ -298,7 +277,10 @@ const revise = async (
 
 const listOpen = async (request: Request, input: AdmissionApiHttpOptions): Promise<Response> => {
   requireNoQuery(request);
-  const rows = await runPostgres(listOpenAdmissionPeriods(input.config.now()), input.postgresLayer);
+  const rows = await runDatabase(
+    Admissions.use(({ listOpenAdmissionPeriods }) => listOpenAdmissionPeriods(input.config.now())),
+    input.run,
+  );
   return jsonResponse({ items: rows, totalItems: rows.length });
 };
 
@@ -313,9 +295,11 @@ const listPublicCatalog = async (
   input: AdmissionApiHttpOptions,
 ): Promise<Response> => {
   requireNoQuery(request, "PublicApplicationDecodeError");
-  const catalog = await runPostgres(
-    listPublicApplicationCatalog({ now: input.config.now() }),
-    input.postgresLayer,
+  const catalog = await runDatabase(
+    Admissions.use(({ listPublicApplicationCatalog }) =>
+      listPublicApplicationCatalog({ now: input.config.now() }),
+    ),
+    input.run,
   );
   return jsonResponse(catalog);
 };
@@ -334,13 +318,15 @@ const submitApplication = async (
     input.config.maxBodyBytes,
     "PublicApplicationDecodeError",
   );
-  const result = await runPostgres(
-    executePublicApplicationCommand(payload, {
-      now: input.config.now(),
-      applicationId: input.config.nextApplicationId(),
-      applicantId: input.config.nextApplicantId(),
-    }),
-    input.postgresLayer,
+  const result = await runDatabase(
+    Admissions.use(({ executePublicApplication }) =>
+      executePublicApplication(payload, {
+        now: input.config.now(),
+        applicationId: input.config.nextApplicationId(),
+        applicantId: input.config.nextApplicantId(),
+      }),
+    ),
+    input.run,
   );
   return jsonResponse(result.observation, result.replayed ? 200 : 201);
 };
@@ -351,40 +337,19 @@ const publicConfirmation = async (
   input: AdmissionApiHttpOptions,
 ): Promise<Response> => {
   requireNoQuery(request, "PublicApplicationDecodeError");
-  const confirmation = await runPostgres(
-    findPublicApplicationConfirmation(applicationId),
-    input.postgresLayer,
+  const confirmation = await runDatabase(
+    Admissions.use(({ findPublicApplicationConfirmation }) =>
+      findPublicApplicationConfirmation(applicationId),
+    ),
+    input.run,
   );
-  if (confirmation === undefined) throw taggedError("PublicApplicationNotFound");
   return jsonResponse(confirmation);
 };
 
 export const makeAdmissionApiHttp = (input: AdmissionApiHttpOptions): AdmissionApiHttp => ({
-  migrate: () => runPostgres(migratePublicApplicationPostgres(input.migrationSql), input.postgresLayer),
   fetch: async (request) => {
     const url = new URL(request.url);
-    if (request.method === "OPTIONS") return new Response(null, { status: 204 });
-    if (request.method === "GET" && url.pathname === "/health") {
-      try {
-        await runPostgres(
-          Effect.gen(function* () {
-            const sql = yield* PgClient.PgClient;
-            yield* sql`SELECT 1`;
-          }),
-          input.postgresLayer,
-        );
-        return jsonResponse({ status: "ok" });
-      } catch {
-        return jsonResponse({ status: "unavailable" }, 503);
-      }
-    }
     try {
-      if (
-        request.method === "GET" &&
-        (url.pathname === "/api/me/profile" || url.pathname === "/api/me")
-      ) {
-        return profile(request, input);
-      }
       if (request.method === "GET" && url.pathname === "/api/admin/admission-periods") {
         return await listManagement(request, input);
       }
@@ -406,11 +371,7 @@ export const makeAdmissionApiHttp = (input: AdmissionApiHttpOptions): AdmissionA
       }
       const confirmationMatch = /^\/api\/applications\/([^/]+)\/confirmation$/.exec(url.pathname);
       if (request.method === "GET" && confirmationMatch?.[1] !== undefined) {
-        return await publicConfirmation(
-          request,
-          decodeURIComponent(confirmationMatch[1]),
-          input,
-        );
+        return await publicConfirmation(request, decodeURIComponent(confirmationMatch[1]), input);
       }
       return jsonResponse({ error: { tag: "RouteNotFound" } }, 404);
     } catch (cause) {

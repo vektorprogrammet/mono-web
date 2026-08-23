@@ -19,7 +19,14 @@ export class StreamMismatch extends Error {
   readonly _tag = "StreamMismatch";
   readonly reasonCode = "STREAM_MISMATCH";
 
-  constructor(readonly detail: "COMMAND_STREAM" | "COMMAND_CORRELATION" | "EVENT_STREAM" | "EVENT_CORRELATION" | "STATE_STREAM") {
+  constructor(
+    readonly detail:
+      | "COMMAND_STREAM"
+      | "COMMAND_CORRELATION"
+      | "EVENT_STREAM"
+      | "EVENT_CORRELATION"
+      | "STATE_STREAM",
+  ) {
     super(`stream identity rejected (${detail})`);
     this.name = "StreamMismatch";
   }
@@ -29,7 +36,10 @@ export class StaleState extends Error {
   readonly _tag = "StaleState";
   readonly reasonCode = "STALE_VERSION";
 
-  constructor(readonly expectedVersion: number, readonly currentVersion: number) {
+  constructor(
+    readonly expectedVersion: number,
+    readonly currentVersion: number,
+  ) {
     super("expected stream version is stale");
     this.name = "StaleState";
   }
@@ -157,7 +167,9 @@ const expectedEventType = (index: number): EventType | "Terminal" => {
   }
 };
 
-export const foldEvents = (inputs: ReadonlyArray<unknown>): Effect.Effect<FoldedState, TutorFailure> =>
+export const foldEvents = (
+  inputs: ReadonlyArray<unknown>,
+): Effect.Effect<FoldedState, TutorFailure> =>
   Effect.gen(function* () {
     if (inputs.length === 0) {
       return yield* Effect.fail(new InvalidTransition("EMPTY_STREAM", undefined));
@@ -214,7 +226,9 @@ export const foldEvents = (inputs: ReadonlyArray<unknown>): Effect.Effect<Folded
     };
   });
 
-export const createTutorState = (inputs: ReadonlyArray<unknown>): Effect.Effect<TutorState, TutorFailure> =>
+export const createTutorState = (
+  inputs: ReadonlyArray<unknown>,
+): Effect.Effect<TutorState, TutorFailure> =>
   Effect.map(foldEvents(inputs), (folded) => ({
     stream: folded.stream,
     events: folded.events,
@@ -367,4 +381,3 @@ export const conductInterview = (
       observationBytes,
     };
   });
-

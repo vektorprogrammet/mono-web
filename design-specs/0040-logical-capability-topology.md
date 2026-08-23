@@ -51,11 +51,18 @@ A remote Layer is valid only when it preserves the capability laws. A matching T
 | `Admissions` | admission windows, eligible catalog, applicant submission, application review | `Database`, `Organization` |
 | `Recruitment` | invitations, interviews, responses, offers, placements | `Database`, `Admissions`, `Organization` |
 | `Economy` | Receipt submission, revision, withdrawal, approval, refund, rejection, projections | `Database`, `Identity`, `PrivateFileStore`, `NotificationGateway` |
-| `Content` | public pages, sponsors, contact content, newsletters | `Database` |
+| `Content` | publication rules and public content projections | `ContentManagement` |
+| `ContentManagement` | mutable editorial documents, drafts, media, and publication workflow | provider configuration |
 | `PrivateFileStore` | private object promotion, read, replacement, and deletion | provider configuration |
 | `NotificationGateway` | delivery of approved notification requests | provider configuration |
 
 These rows define logical authority. They do not require separate packages, processes, databases, or deployments.
+
+`ContentManagement` and `Database` have different authority profiles. `ContentManagement` owns mutable, low-authority editorial state. `Database` owns important business state and its appendable history.
+
+The current PostgreSQL implementation can provide both capabilities during migration. The logical split permits a later CMS Layer or separate store without changing Content programs.
+
+The two stores do not share a transaction. An authoritative business event can store an immutable content reference or snapshot when content affects historical meaning.
 
 ## Capability theory contract
 
@@ -152,17 +159,19 @@ Request handlers do not receive `postgresLayer`, `PgClient`, connection strings,
 The native backend starts as one process:
 
 ```text
-one native backend process
+one native business backend process
 ├── one ManagedRuntime
 ├── one HTTP router
 ├── one Database capability
-├── authority Services
+├── high-authority business Services
 └── supervised outbox programs
 ```
 
 A physical split requires an operational reason. Valid reasons include independent scaling, trust, availability, or deployment ownership.
 
 If a capability moves to another process, its remote Layer must preserve command identity, authorization, atomicity, ordering, failures, and liveness.
+
+`ContentManagement` can use a separate CMS process and data store. This split isolates highly mutable editorial data from high-authority business history.
 
 ## Clean cutover
 
@@ -206,6 +215,8 @@ The topology is invalid if one of these conditions is true:
 - Two Services own applicant submission.
 - A remote Layer weakens a logical law.
 - A legacy and native route both accept the same write.
+- Mutable CMS rows and high-authority business rows share undocumented write ownership.
+- A later content edit changes the historical meaning of an accepted business event.
 - Runtime shutdown leaves a pool, worker, or claim owner active.
 
 ## Non-goals

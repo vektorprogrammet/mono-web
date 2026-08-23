@@ -7,9 +7,6 @@ export interface ReceiptApiPrincipal {
 }
 
 export interface ReceiptApiConfig {
-  readonly host: string;
-  readonly port: number;
-  readonly postgresUrl: string;
   readonly stagingRoot: string;
   readonly committedRoot: string;
   readonly maxFileBytes: number;
@@ -83,16 +80,6 @@ const parseTokens = (raw: string | undefined): ReadonlyMap<string, ReceiptApiPri
   return result;
 };
 
-const parsePort = (raw: string | undefined): number => {
-  const value = raw ?? "8788";
-  if (!/^\d+$/.test(value)) throw new Error("RECEIPT_API_PORT must be an integer");
-  const port = Number(value);
-  if (!Number.isInteger(port) || port < 1 || port > 65535) {
-    throw new Error("RECEIPT_API_PORT is outside the valid range");
-  }
-  return port;
-};
-
 const parseMaxFileBytes = (raw: string | undefined): number => {
   const value = raw ?? "10485760";
   if (!/^\d+$/.test(value)) throw new Error("RECEIPT_MAX_FILE_BYTES must be an integer");
@@ -101,13 +88,6 @@ const parseMaxFileBytes = (raw: string | undefined): number => {
     throw new Error("RECEIPT_MAX_FILE_BYTES must be a positive safe integer");
   }
   return bytes;
-};
-
-const loopbackHost = (host: string): string => {
-  if (host !== "127.0.0.1" && host !== "localhost" && host !== "::1") {
-    throw new Error("RECEIPT_API_HOST must be loopback");
-  }
-  return host;
 };
 
 export const makeReceiptApiConfig = (
@@ -121,9 +101,6 @@ export const makeReceiptApiConfig = (
       ? env.RECEIPT_E2E_FAIL_PROMOTION_EFFECT_ID
       : undefined;
   return {
-    host: loopbackHost(env.RECEIPT_API_HOST ?? "127.0.0.1"),
-    port: parsePort(env.RECEIPT_API_PORT),
-    postgresUrl: nonEmpty(env.RECEIPT_PG_URL, "RECEIPT_PG_URL"),
     stagingRoot: nonEmpty(
       env.RECEIPT_STAGING_ROOT ?? "/tmp/vektor-receipt-staging",
       "RECEIPT_STAGING_ROOT",

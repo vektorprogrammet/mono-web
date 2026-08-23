@@ -13,11 +13,11 @@
         "wrangler": "4.120.1",
       },
     },
-    "apps/admission-api": {
-      "name": "@vektorprogrammet/admission-api",
+    "apps/backend": {
+      "name": "@vektorprogrammet/backend",
       "version": "0.1.0",
       "dependencies": {
-        "@effect/sql-pg": "catalog:effect-v4",
+        "@vektorprogrammet/database": "workspace:*",
         "@vektorprogrammet/domain": "workspace:*",
         "effect": "catalog:effect-v4",
       },
@@ -25,6 +25,7 @@
         "@types/node": "^22",
         "oxlint": "^1.41.0",
         "typescript": "^5",
+        "vitest": "^4.0.18",
       },
     },
     "apps/dashboard": {
@@ -147,20 +148,6 @@
         "vitest": "^3.1.1",
       },
     },
-    "apps/receipt-api": {
-      "name": "@vektorprogrammet/receipt-api",
-      "version": "0.1.0",
-      "dependencies": {
-        "@effect/sql-pg": "catalog:effect-v4",
-        "@vektorprogrammet/domain": "workspace:*",
-        "effect": "catalog:effect-v4",
-      },
-      "devDependencies": {
-        "@types/node": "^22",
-        "oxlint": "^1.41.0",
-        "typescript": "^5",
-      },
-    },
     "apps/server": {
       "name": "@monoweb/server",
       "dependencies": {
@@ -183,12 +170,28 @@
         "vite-plugin-static-copy": "^2.3.0",
       },
     },
+    "packages/database": {
+      "name": "@vektorprogrammet/database",
+      "version": "0.1.0",
+      "dependencies": {
+        "@effect/sql-pg": "catalog:effect-v4",
+        "@vektorprogrammet/domain": "workspace:*",
+        "effect": "catalog:effect-v4",
+      },
+      "devDependencies": {
+        "@effect/sql-pglite": "catalog:effect-v4",
+        "@effect/vitest": "catalog:effect-v4",
+        "@types/node": "^22",
+        "oxlint": "^1.41.0",
+        "typescript": "^5",
+        "vitest": "catalog:effect-v4",
+      },
+    },
     "packages/domain": {
       "name": "@vektorprogrammet/domain",
       "version": "0.1.0",
       "dependencies": {
         "@effect/sql-d1": "catalog:effect-v4",
-        "@effect/sql-pg": "catalog:effect-v4",
         "effect": "catalog:effect-v4",
       },
       "devDependencies": {
@@ -232,6 +235,7 @@
       "@effect/platform-browser": "4.0.0-rc.109",
       "@effect/sql-d1": "4.0.0-rc.109",
       "@effect/sql-pg": "4.0.0-rc.109",
+      "@effect/sql-pglite": "4.0.0-rc.109",
       "@effect/vitest": "4.0.0-rc.109",
       "@foldkit/ui": "0.148.1",
       "effect": "4.0.0-rc.109",
@@ -507,7 +511,11 @@
 
     "@effect/sql-pg": ["@effect/sql-pg@4.0.0-rc.109", "", { "dependencies": { "pg": "^8.22.0", "pg-connection-string": "^2.14.0", "pg-cursor": "^2.21.0", "pg-pool": "^3.14.0", "pg-types": "^4.1.0" }, "peerDependencies": { "effect": "^4.0.0-rc.109" } }, "sha512-vDQu5Qh3Bn5vDTIqSHttKAPtzWaRfgnHD24KZCgVcnuQVsb6eB6gh4gwn2FSXPRRFTyyzZc0fk3EhvYcv7Mm7A=="],
 
+    "@effect/sql-pglite": ["@effect/sql-pglite@4.0.0-rc.109", "", { "dependencies": { "@electric-sql/pglite": "^0.5.4" }, "peerDependencies": { "effect": "^4.0.0-rc.109" } }, "sha512-eNnUCEkciG53pEQUP+Fwc3sFeH58rBa475ny4fzJ5FeDS5Z2k4MXLn6sf665f3BWQEwz2iHx2RNxloZBhbYazg=="],
+
     "@effect/vitest": ["@effect/vitest@4.0.0-rc.109", "", { "peerDependencies": { "effect": "^4.0.0-rc.109", "vitest": ">=4.1.0 <5.0.0" } }, "sha512-vu5ZkidJ/gM/+a0M07Jnq1PV4duFlYc+4Vj9TsJysK4Us7LL5bwV6uXiT7mi1/IM/3HgfAwc7Q9ROj8M65G4pA=="],
+
+    "@electric-sql/pglite": ["@electric-sql/pglite@0.5.6", "", {}, "sha512-ipn6AOHouIRwNSVL+0hIRuM3yDwAWgRmvZuj+45sudzKpmdPbG8hQuQDZ4A8l7U8E0l7u6pJ/VtMEW42w+vEKQ=="],
 
     "@emnapi/runtime": ["@emnapi/runtime@1.8.1", "", { "dependencies": { "tslib": "^2.4.0" } }, "sha512-mehfKSMWjjNol8659Z8KxEMrdSJDDot5SXMq00dM8BN4o+CLNXQ0xH2V7EchNHV4RmbZLmmPdEaXZc5H2FXmDg=="],
 
@@ -1117,11 +1125,11 @@
 
     "@types/use-sync-external-store": ["@types/use-sync-external-store@0.0.6", "", {}, "sha512-zFDAD+tlpf2r4asuHEj0XH6pY6i0g5NeAHPn+15wk3BV6JA69eERFXC1gyGThDkVa1zCyKr5jox1+2LbV/AMLg=="],
 
-    "@vektorprogrammet/admission-api": ["@vektorprogrammet/admission-api@workspace:apps/admission-api"],
+    "@vektorprogrammet/backend": ["@vektorprogrammet/backend@workspace:apps/backend"],
+
+    "@vektorprogrammet/database": ["@vektorprogrammet/database@workspace:packages/database"],
 
     "@vektorprogrammet/domain": ["@vektorprogrammet/domain@workspace:packages/domain"],
-
-    "@vektorprogrammet/receipt-api": ["@vektorprogrammet/receipt-api@workspace:apps/receipt-api"],
 
     "@vektorprogrammet/sdk": ["@vektorprogrammet/sdk@workspace:packages/sdk"],
 

@@ -1,10 +1,17 @@
 import { randomUUID } from "node:crypto";
 import { readdir, writeFile } from "node:fs/promises";
-import { expect, test, type APIRequestContext, type APIResponse, type Browser, type Page } from "@playwright/test";
+import {
+  expect,
+  test,
+  type APIRequestContext,
+  type APIResponse,
+  type Browser,
+  type Page,
+} from "@playwright/test";
 
 import { z } from "zod";
 const DASHBOARD_ORIGIN = process.env.DASHBOARD_ORIGIN ?? "http://127.0.0.1:5174";
-const RECEIPT_API_ORIGIN = process.env.RECEIPT_API_ORIGIN ?? "http://127.0.0.1:8790";
+const BACKEND_ORIGIN = process.env.BACKEND_ORIGIN ?? "http://127.0.0.1:8790";
 const REAL_RECEIPT_OWNER_E2E = process.env.REAL_RECEIPT_OWNER_E2E === "1";
 const DESCRIPTION = "Owner receipt submission";
 const RECEIPT_DATE = "2026-08-21";
@@ -180,10 +187,13 @@ async function captureLifecycleEvidence(
     readonly action: string;
     readonly receiptRevision: number;
   }>;
-  readonly physical: { readonly staging: ReadonlyArray<string>; readonly committed: ReadonlyArray<string> };
+  readonly physical: {
+    readonly staging: ReadonlyArray<string>;
+    readonly committed: ReadonlyArray<string>;
+  };
 }> {
   const response = await request.get(
-    `${RECEIPT_API_ORIGIN}/api/e2e/receipts/${encodeURIComponent(receiptId)}/evidence`,
+    `${BACKEND_ORIGIN}/api/e2e/receipts/${encodeURIComponent(receiptId)}/evidence`,
     { headers: { Authorization: `Bearer ${activeToken()}` } },
   );
   expect(response.status()).toBe(200);
@@ -220,7 +230,7 @@ test.describe("Native Receipt owner journey", () => {
     const authorization = {
       Authorization: `Bearer ${activeToken()}`,
     };
-    const unauthenticatedResponse = await request.get(`${RECEIPT_API_ORIGIN}/api/receipts`);
+    const unauthenticatedResponse = await request.get(`${BACKEND_ORIGIN}/api/receipts`);
     expect(unauthenticatedResponse.status()).toBe(401);
     const unauthenticatedTag = await responseErrorTag(unauthenticatedResponse);
     expect(unauthenticatedTag).toBe("UnauthenticatedActor");
@@ -305,7 +315,7 @@ test.describe("Native Receipt owner journey", () => {
     await expect(receiptRow).toContainText(RECEIPT_DATE);
     await expect(receiptRow.locator('[data-status="Pending"]')).toBeVisible();
 
-    const submitReplayResponse = await request.post(`${RECEIPT_API_ORIGIN}/api/receipts/submit`, {
+    const submitReplayResponse = await request.post(`${BACKEND_ORIGIN}/api/receipts/submit`, {
       headers: authorization,
       multipart: {
         commandId: submissionCommandId,
@@ -329,7 +339,7 @@ test.describe("Native Receipt owner journey", () => {
       replayed: true,
     });
 
-    const ownedAtRevisionZeroResponse = await request.get(`${RECEIPT_API_ORIGIN}/api/receipts`, {
+    const ownedAtRevisionZeroResponse = await request.get(`${BACKEND_ORIGIN}/api/receipts`, {
       headers: authorization,
     });
     expect(ownedAtRevisionZeroResponse.status()).toBe(200);
@@ -401,14 +411,12 @@ test.describe("Native Receipt owner journey", () => {
       mimeType: "image/png",
       buffer: RECEIPT_BYTES,
     });
-    await reviseForm
-      .locator('input[name="commandId"]')
-      .evaluate((element, commandId) => {
-        const input = element as HTMLInputElement;
-        input.value = commandId;
-        input.dispatchEvent(new Event("input", { bubbles: true }));
-        input.dispatchEvent(new Event("change", { bubbles: true }));
-      }, REPLACEMENT_COMMAND_ID);
+    await reviseForm.locator('input[name="commandId"]').evaluate((element, commandId) => {
+      const input = element as HTMLInputElement;
+      input.value = commandId;
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+    }, REPLACEMENT_COMMAND_ID);
     await reviseForm.getByRole("button", { name: "Lagre endringer" }).click();
 
     await expect(revisionNotice).toHaveAttribute("data-revision", "2");
@@ -416,7 +424,7 @@ test.describe("Native Receipt owner journey", () => {
     const replacementCommandId = REPLACEMENT_COMMAND_ID;
     const beforeFailure = await captureLifecycleEvidence(request, receiptId);
     const replacementRetryResponse = await request.post(
-      `${RECEIPT_API_ORIGIN}/api/receipts/${receiptId}/revise`,
+      `${BACKEND_ORIGIN}/api/receipts/${receiptId}/revise`,
       {
         headers: authorization,
         multipart: {
@@ -434,9 +442,7 @@ test.describe("Native Receipt owner journey", () => {
       },
     );
     expect(replacementRetryResponse.status()).toBe(200);
-    const replacementRetry = receiptObservationSchema.parse(
-      await replacementRetryResponse.json(),
-    );
+    const replacementRetry = receiptObservationSchema.parse(await replacementRetryResponse.json());
     expect(replacementRetry).toMatchObject({
       commandId: replacementCommandId,
       receiptId,
@@ -448,13 +454,9 @@ test.describe("Native Receipt owner journey", () => {
     if (lifecycleEvidencePath === undefined) {
       throw new Error("Receipt lifecycle evidence path is missing");
     }
-    await writeFile(
-      lifecycleEvidencePath,
-      JSON.stringify({ beforeFailure, afterRetry }),
-      "utf8",
-    );
+    await writeFile(lifecycleEvidencePath, JSON.stringify({ beforeFailure, afterRetry }), "utf8");
     const stableRevisionReplayResponse = await request.post(
-      `${RECEIPT_API_ORIGIN}/api/receipts/${receiptId}/revise`,
+      `${BACKEND_ORIGIN}/api/receipts/${receiptId}/revise`,
       {
         headers: authorization,
         multipart: {
@@ -492,7 +494,7 @@ test.describe("Native Receipt owner journey", () => {
 
     const concurrentCommandId = randomUUID();
     const concurrentRevisionResponse = await request.post(
-      `${RECEIPT_API_ORIGIN}/api/receipts/${receiptId}/revise`,
+      `${BACKEND_ORIGIN}/api/receipts/${receiptId}/revise`,
       {
         headers: authorization,
         multipart: {
@@ -533,7 +535,7 @@ test.describe("Native Receipt owner journey", () => {
     await expect(receiptRow.locator('[data-revision="3"]')).toHaveText("Versjon 3");
 
     const foreignOwnerResponse = await request.post(
-      `${RECEIPT_API_ORIGIN}/api/receipts/${receiptId}/withdraw`,
+      `${BACKEND_ORIGIN}/api/receipts/${receiptId}/withdraw`,
       {
         headers: { Authorization: `Bearer ${foreignOwnerToken()}` },
         data: {
@@ -578,7 +580,7 @@ test.describe("Native Receipt owner journey", () => {
     await expect(receiptRow.getByRole("button")).toHaveCount(0);
 
     const withdrawalReplayResponse = await request.post(
-      `${RECEIPT_API_ORIGIN}/api/receipts/${receiptId}/withdraw`,
+      `${BACKEND_ORIGIN}/api/receipts/${receiptId}/withdraw`,
       {
         headers: authorization,
         data: {
@@ -598,7 +600,7 @@ test.describe("Native Receipt owner journey", () => {
     });
 
     const terminalResponse = await request.post(
-      `${RECEIPT_API_ORIGIN}/api/receipts/${receiptId}/withdraw`,
+      `${BACKEND_ORIGIN}/api/receipts/${receiptId}/withdraw`,
       {
         headers: authorization,
         data: {
@@ -611,7 +613,7 @@ test.describe("Native Receipt owner journey", () => {
     const terminalTag = await responseErrorTag(terminalResponse);
     expect(terminalTag).toBe("InvalidReceiptTransition");
 
-    const finalOwnedResponse = await request.get(`${RECEIPT_API_ORIGIN}/api/receipts`, {
+    const finalOwnedResponse = await request.get(`${BACKEND_ORIGIN}/api/receipts`, {
       headers: authorization,
     });
     expect(finalOwnedResponse.status()).toBe(200);

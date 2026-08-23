@@ -11,11 +11,14 @@ export type JsonValue =
 
 const sortedJsonValue = (input: unknown): JsonValue => {
   if (input === null) return null;
-  if (typeof input === "string" || typeof input === "boolean" || typeof input === "number") return input;
+  if (typeof input === "string" || typeof input === "boolean" || typeof input === "number")
+    return input;
   if (Array.isArray(input)) return input.map((value) => sortedJsonValue(value));
   if (typeof input === "object") {
     const output: Record<string, JsonValue> = {};
-    for (const [key, value] of Object.entries(input).sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))) {
+    for (const [key, value] of Object.entries(input).sort(([left], [right]) =>
+      left < right ? -1 : left > right ? 1 : 0,
+    )) {
       output[key] = sortedJsonValue(value);
     }
     return output;
@@ -34,7 +37,8 @@ export const canonicalJson = (value: unknown): string => encodeJsonValue(sortedJ
 export const canonicalJsonBytes = (value: unknown): Uint8Array =>
   new TextEncoder().encode(canonicalJson(value));
 
-export const sha256Hex = (bytes: Uint8Array): string => createHash("sha256").update(bytes).digest("hex");
+export const sha256Hex = (bytes: Uint8Array): string =>
+  createHash("sha256").update(bytes).digest("hex");
 
 export const canonicalEvidenceJson = (evidence: Evidence): string => {
   const orderedEntries: ReadonlyArray<readonly [string, unknown]> = [

@@ -22,7 +22,7 @@ import type {
   AdmissionSemester,
 } from "./schema.js";
 import { isRfc3339Instant } from "./schema.js";
-import type { AdmissionPeriodCommandContext } from "./service.js";
+import type { AdmissionPeriodCommandContext } from "./context.js";
 
 export interface AdmissionPeriodDecisionContext {
   readonly actor: AdmissionPeriodActor;
@@ -81,7 +81,9 @@ const checkWindow = (
     return Effect.fail(new InvalidAdmissionPeriodWindow({ startAt, endAt, reason: "EqualBounds" }));
   }
   if (start > end) {
-    return Effect.fail(new InvalidAdmissionPeriodWindow({ startAt, endAt, reason: "ReversedBounds" }));
+    return Effect.fail(
+      new InvalidAdmissionPeriodWindow({ startAt, endAt, reason: "ReversedBounds" }),
+    );
   }
 
   const semesterStart = Date.parse(semester.startAt);
@@ -106,7 +108,8 @@ const periodIdForCreate = (
   command: Extract<AdmissionPeriodCommand, { readonly _tag: "CreateAdmissionPeriod" }>,
   context: AdmissionPeriodDecisionContext,
 ): string =>
-  context.admissionPeriodId ?? `admission-period-${admissionPeriodCommandDigest(command).slice(0, 32)}`;
+  context.admissionPeriodId ??
+  `admission-period-${admissionPeriodCommandDigest(command).slice(0, 32)}`;
 
 const createdObservation = (
   commandId: string,

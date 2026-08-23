@@ -1,5 +1,10 @@
 import type { Dataset, DatasetInputSummary } from "./data.js";
-import { REASON_CODES, type ReasonCode, type SDep2TeamResult, type TechnicalSample } from "./laws.js";
+import {
+  REASON_CODES,
+  type ReasonCode,
+  type SDep2TeamResult,
+  type TechnicalSample,
+} from "./laws.js";
 
 export interface DecodeFailureSummary {
   readonly file: string;
@@ -31,7 +36,9 @@ const samplesFor = (result: ReasonSamplesView, code: ReasonCode): string => {
   return samples.length === 0 ? "none" : samples.map(sourceLabel).join(", ");
 };
 
-const summarizeDecodeFailures = (input: DatasetInputSummary): ReadonlyArray<DecodeFailureSummary> => {
+const summarizeDecodeFailures = (
+  input: DatasetInputSummary,
+): ReadonlyArray<DecodeFailureSummary> => {
   const counts = new Map<string, DecodeFailureSummary>();
   for (const failure of input.decodeFailures) {
     const key = `${failure.file}\u0000${failure.code}`;
@@ -116,7 +123,9 @@ export const renderMarkdown = (report: MachineReport): string => {
     "",
     "## Bounded technical samples",
     "",
-    report.samples.length === 0 ? "- none" : report.samples.map((sample) => `- ${sourceLabel(sample)}`).join("\n"),
+    report.samples.length === 0
+      ? "- none"
+      : report.samples.map((sample) => `- ${sourceLabel(sample)}`).join("\n"),
     "",
     "## Reason sample IDs",
     "",
@@ -128,7 +137,9 @@ export const renderMarkdown = (report: MachineReport): string => {
     "",
     `- Files: ${report.input.files.map((file) => `${file.file}(${file.rows})`).join(", ")}`,
     `- Decode failures: ${
-      report.input.decodeFailures.map(({ file, code, count }) => `${file}:${code}(${count})`).join(", ") || "none"
+      report.input.decodeFailures
+        .map(({ file, code, count }) => `${file}:${code}(${count})`)
+        .join(", ") || "none"
     }`,
     `- Duplicate departments: ${report.input.duplicateIds.departments.length}`,
     `- Duplicate teams: ${report.input.duplicateIds.teams.length}`,

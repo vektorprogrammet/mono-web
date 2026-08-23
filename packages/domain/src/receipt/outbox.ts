@@ -1,4 +1,4 @@
-import * as PgClient from "@effect/sql-pg/PgClient";
+import { Database } from "../database/service.js";
 import { Effect, Schema } from "effect";
 import {
   ReceiptAuxiliaryEffects,
@@ -63,52 +63,52 @@ export const claimNextReceiptOutbox = (
   claimId: string,
   claimedAt: string,
   receiptId?: string,
-): Effect.Effect<ClaimedReceiptOutbox | undefined, ReceiptPersistenceError, PgClient.PgClient> =>
+): Effect.Effect<ClaimedReceiptOutbox | undefined, ReceiptPersistenceError, Database> =>
   Effect.gen(function* () {
-    const sql = yield* PgClient.PgClient;
+    const sql = yield* Database;
     const receiptScope = receiptId ?? null;
     const rows = yield* sql
       .withTransaction(
         sql<ClaimedOutboxRow>`
-        WITH candidate AS (
-          SELECT outbox.effect_id
-          FROM economy_receipt_outbox AS outbox
-          JOIN economy_receipt_command_receipts AS command_receipt
-            ON command_receipt.command_id = outbox.command_id
-          WHERE outbox.status IN ('Pending', 'Failed')
-            AND (${receiptScope}::text IS NULL OR outbox.receipt_id = ${receiptScope})
-            AND NOT EXISTS (
-              SELECT 1
-              FROM economy_receipt_outbox AS predecessor
-              JOIN economy_receipt_command_receipts AS predecessor_command
-                ON predecessor_command.command_id = predecessor.command_id
-              WHERE predecessor.receipt_id = outbox.receipt_id
-                AND (
-                  predecessor_command.committed_at,
-                  predecessor.command_id,
-                  predecessor.ordinal
-                ) < (
-                  command_receipt.committed_at,
-                  outbox.command_id,
-                  outbox.ordinal
-                )
-                AND predecessor.status <> 'Delivered'
-            )
-          ORDER BY command_receipt.committed_at, outbox.command_id, outbox.ordinal
-          FOR UPDATE OF outbox SKIP LOCKED
-          LIMIT 1
-        )
-        UPDATE economy_receipt_outbox AS claimed SET
-          status = 'Processing',
-          attempts = claimed.attempts + 1,
-          claim_id = ${claimId},
-          claimed_at = ${claimedAt},
-          last_failure_tag = NULL
-        FROM candidate
-        WHERE claimed.effect_id = candidate.effect_id
-        RETURNING claimed.effect_id, claimed.command_id, claimed.ordinal,
-          claimed.attempts, claimed.payload_json
-      `,
+      WITH candidate AS (
+        SELECT outbox.effect_id
+        FROM economy_receipt_outbox AS outbox
+        JOIN economy_receipt_command_receipts AS command_receipt
+          ON command_receipt.command_id = outbox.command_id
+        WHERE outbox.status IN ('Pending', 'Failed')
+          AND (${receiptScope}::text IS NULL OR outbox.receipt_id = ${receiptScope})
+          AND NOT EXISTS (
+            SELECT 1
+            FROM economy_receipt_outbox AS predecessor
+            JOIN economy_receipt_command_receipts AS predecessor_command
+              ON predecessor_command.command_id = predecessor.command_id
+            WHERE predecessor.receipt_id = outbox.receipt_id
+              AND (
+                predecessor_command.committed_at,
+                predecessor.command_id,
+                predecessor.ordinal
+              ) < (
+                command_receipt.committed_at,
+                outbox.command_id,
+                outbox.ordinal
+              )
+              AND predecessor.status <> 'Delivered'
+          )
+        ORDER BY command_receipt.committed_at, outbox.command_id, outbox.ordinal
+        FOR UPDATE OF outbox SKIP LOCKED
+        LIMIT 1
+      )
+      UPDATE economy_receipt_outbox AS claimed SET
+        status = 'Processing',
+        attempts = claimed.attempts + 1,
+        claim_id = ${claimId},
+        claimed_at = ${claimedAt},
+        last_failure_tag = NULL
+      FROM candidate
+      WHERE claimed.effect_id = candidate.effect_id
+      RETURNING claimed.effect_id, claimed.command_id, claimed.ordinal,
+        claimed.attempts, claimed.payload_json
+    `,
       )
       .pipe(
         Effect.catchTag("SqlError", (cause) =>
@@ -143,17 +143,17 @@ export const claimNextReceiptOutbox = (
 
 export const completeReceiptOutbox = (
   claim: ClaimedReceiptOutbox,
-): Effect.Effect<void, ReceiptPersistenceError, PgClient.PgClient> =>
+): Effect.Effect<void, ReceiptPersistenceError, Database> =>
   Effect.gen(function* () {
-    const sql = yield* PgClient.PgClient;
+    const sql = yield* Database;
     const rows = yield* sql<{ readonly effect_id: string }>`
-      UPDATE economy_receipt_outbox SET
-        status = 'Delivered', claim_id = NULL, claimed_at = NULL, last_failure_tag = NULL
-      WHERE effect_id = ${claim.effectId}
-        AND status = 'Processing'
-        AND claim_id = ${claim.claimId}
-      RETURNING effect_id
-    `.pipe(
+    UPDATE economy_receipt_outbox SET
+      status = 'Delivered', claim_id = NULL, claimed_at = NULL, last_failure_tag = NULL
+    WHERE effect_id = ${claim.effectId}
+      AND status = 'Processing'
+      AND claim_id = ${claim.claimId}
+    RETURNING effect_id
+  `.pipe(
       Effect.catchTag("SqlError", (cause) =>
         Effect.fail(persistenceError("complete Receipt outbox", cause)),
       ),
@@ -164,18 +164,18 @@ export const completeReceiptOutbox = (
 export const failReceiptOutbox = (
   claim: ClaimedReceiptOutbox,
   failureTag: string,
-): Effect.Effect<void, ReceiptPersistenceError, PgClient.PgClient> =>
+): Effect.Effect<void, ReceiptPersistenceError, Database> =>
   Effect.gen(function* () {
-    const sql = yield* PgClient.PgClient;
+    const sql = yield* Database;
     const rows = yield* sql<{ readonly effect_id: string }>`
-      UPDATE economy_receipt_outbox SET
-        status = 'Failed', claim_id = NULL, claimed_at = NULL,
-        last_failure_tag = ${failureTag}
-      WHERE effect_id = ${claim.effectId}
-        AND status = 'Processing'
-        AND claim_id = ${claim.claimId}
-      RETURNING effect_id
-    `.pipe(
+    UPDATE economy_receipt_outbox SET
+      status = 'Failed', claim_id = NULL, claimed_at = NULL,
+      last_failure_tag = ${failureTag}
+    WHERE effect_id = ${claim.effectId}
+      AND status = 'Processing'
+      AND claim_id = ${claim.claimId}
+    RETURNING effect_id
+  `.pipe(
       Effect.catchTag("SqlError", (cause) =>
         Effect.fail(persistenceError("fail Receipt outbox", cause)),
       ),
@@ -186,22 +186,22 @@ export const failReceiptOutbox = (
 export const listStaleReceiptOutboxClaimIds = (
   claimedBefore: string,
   receiptId?: string,
-): Effect.Effect<ReadonlyArray<string>, ReceiptPersistenceError, PgClient.PgClient> =>
+): Effect.Effect<ReadonlyArray<string>, ReceiptPersistenceError, Database> =>
   Effect.gen(function* () {
-    const sql = yield* PgClient.PgClient;
+    const sql = yield* Database;
     const receiptScope = receiptId ?? null;
     const rows = yield* sql
       .withTransaction(
         sql<ClaimIdRow>`
-          SELECT DISTINCT claim_id
-          FROM economy_receipt_outbox
-          WHERE status = 'Processing'
-            AND claim_id IS NOT NULL
-            AND claimed_at IS NOT NULL
-            AND claimed_at < ${claimedBefore}
-            AND (${receiptScope}::text IS NULL OR receipt_id = ${receiptScope})
-          ORDER BY claim_id
-        `,
+        SELECT DISTINCT claim_id
+        FROM economy_receipt_outbox
+        WHERE status = 'Processing'
+          AND claim_id IS NOT NULL
+          AND claimed_at IS NOT NULL
+          AND claimed_at < ${claimedBefore}
+          AND (${receiptScope}::text IS NULL OR receipt_id = ${receiptScope})
+        ORDER BY claim_id
+      `,
       )
       .pipe(
         Effect.catchTag("SqlError", (cause) =>
@@ -214,21 +214,21 @@ export const listStaleReceiptOutboxClaimIds = (
 export const recoverStaleReceiptOutbox = (
   claimId: string,
   claimedBefore: string,
-): Effect.Effect<number, ReceiptPersistenceError, PgClient.PgClient> =>
+): Effect.Effect<number, ReceiptPersistenceError, Database> =>
   Effect.gen(function* () {
-    const sql = yield* PgClient.PgClient;
+    const sql = yield* Database;
     const rows = yield* sql<CountRow>`
-      WITH recovered AS (
-        UPDATE economy_receipt_outbox SET
-          status = 'Failed', claim_id = NULL, claimed_at = NULL,
-          last_failure_tag = 'StaleReceiptOutboxClaim'
-        WHERE status = 'Processing'
-          AND claim_id = ${claimId}
-          AND claimed_at < ${claimedBefore}
-        RETURNING 1
-      )
-      SELECT count(*)::text AS count FROM recovered
-    `.pipe(
+    WITH recovered AS (
+      UPDATE economy_receipt_outbox SET
+        status = 'Failed', claim_id = NULL, claimed_at = NULL,
+        last_failure_tag = 'StaleReceiptOutboxClaim'
+      WHERE status = 'Processing'
+        AND claim_id = ${claimId}
+        AND claimed_at < ${claimedBefore}
+      RETURNING 1
+    )
+    SELECT count(*)::text AS count FROM recovered
+  `.pipe(
       Effect.catchTag("SqlError", (cause) =>
         Effect.fail(persistenceError("recover stale Receipt outbox", cause)),
       ),
@@ -262,7 +262,7 @@ export const deliverNextReceiptOutbox = (
 ): Effect.Effect<
   ReceiptOutboxDeliveryResult,
   ReceiptPersistenceError,
-  PgClient.PgClient | ReceiptFileService | ReceiptAuxiliaryEffects
+  Database | ReceiptFileService | ReceiptAuxiliaryEffects
 > =>
   Effect.gen(function* () {
     const claim = yield* claimNextReceiptOutbox(claimId, claimedAt, receiptId);

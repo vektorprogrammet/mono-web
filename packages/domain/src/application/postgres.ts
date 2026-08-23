@@ -1,4 +1,4 @@
-import * as PgClient from "@effect/sql-pg/PgClient";
+import { Database, type DatabaseShape } from "../database/service.js";
 import { Effect, Schema } from "effect";
 import {
   DuplicatePublicApplication,
@@ -153,7 +153,7 @@ const decodeCatalog = (
   }).pipe(Effect.mapError(() => persistenceError("decode application catalog")));
 
 const departmentExists = (
-  sql: PgClient.PgClient,
+  sql: DatabaseShape,
   departmentId: string,
 ): Effect.Effect<boolean, PublicApplicationPersistenceError> =>
   sql<DepartmentRow>`
@@ -166,7 +166,7 @@ const departmentExists = (
   );
 
 const findEligiblePeriod = (
-  sql: PgClient.PgClient,
+  sql: DatabaseShape,
   departmentId: string,
   now: string,
 ): Effect.Effect<PeriodRow | undefined, PublicApplicationPersistenceError> =>
@@ -184,11 +184,13 @@ const findEligiblePeriod = (
     FOR UPDATE OF p
   `.pipe(
     Effect.map((rows) => rows[0]),
-    Effect.catchTag("SqlError", () => Effect.fail(persistenceError("find eligible admission period"))),
+    Effect.catchTag("SqlError", () =>
+      Effect.fail(persistenceError("find eligible admission period")),
+    ),
   );
 
 const findFieldOfStudy = (
-  sql: PgClient.PgClient,
+  sql: DatabaseShape,
   fieldOfStudyId: string,
 ): Effect.Effect<FieldOfStudyRow | undefined, PublicApplicationPersistenceError> =>
   sql<FieldOfStudyRow>`
@@ -202,7 +204,7 @@ const findFieldOfStudy = (
   );
 
 const findApplicantForUpdate = (
-  sql: PgClient.PgClient,
+  sql: DatabaseShape,
   normalizedEmail: string,
 ): Effect.Effect<ApplicantRecord | undefined, PublicApplicationPersistenceError> =>
   sql<ApplicantRow>`
@@ -219,7 +221,7 @@ const findApplicantForUpdate = (
   );
 
 const findApplicationForApplicantPeriod = (
-  sql: PgClient.PgClient,
+  sql: DatabaseShape,
   applicantId: string,
   admissionPeriodId: string,
 ): Effect.Effect<PublicApplication | undefined, PublicApplicationPersistenceError> =>
@@ -239,7 +241,7 @@ const findApplicationForApplicantPeriod = (
   );
 
 const findApplicationById = (
-  sql: PgClient.PgClient,
+  sql: DatabaseShape,
   applicationId: string,
 ): Effect.Effect<PublicApplication | undefined, PublicApplicationPersistenceError> =>
   sql<ApplicationRow>`
@@ -258,7 +260,7 @@ const findApplicationById = (
   );
 
 const findCommandReceipt = (
-  sql: PgClient.PgClient,
+  sql: DatabaseShape,
   commandId: string,
 ): Effect.Effect<CommandReceiptRow | undefined, PublicApplicationPersistenceError> =>
   sql<CommandReceiptRow>`
@@ -268,68 +270,70 @@ const findCommandReceipt = (
     FOR UPDATE
   `.pipe(
     Effect.map((rows) => rows[0]),
-    Effect.catchTag("SqlError", () => Effect.fail(persistenceError("read application command receipt"))),
+    Effect.catchTag("SqlError", () =>
+      Effect.fail(persistenceError("read application command receipt")),
+    ),
   );
 
 const writeApplicant = (
-  sql: PgClient.PgClient,
+  sql: DatabaseShape,
   applicant: ApplicantRecord,
 ): Effect.Effect<void, PublicApplicationPersistenceError> =>
   sql`
-    INSERT INTO admission_applicants (
-      applicant_id, normalized_email, email, first_name, last_name, phone,
-      gender, field_of_study_id, year_of_study, activation_digest
-    ) VALUES (
-      ${applicant.id}, ${applicant.normalizedEmail}, ${applicant.email},
-      ${applicant.firstName}, ${applicant.lastName}, ${applicant.phone},
-      ${applicant.gender}, ${applicant.fieldOfStudyId}, ${applicant.yearOfStudy},
-      ${applicant.activationDigest ?? null}
-    )
-  `.pipe(
+  INSERT INTO admission_applicants (
+    applicant_id, normalized_email, email, first_name, last_name, phone,
+    gender, field_of_study_id, year_of_study, activation_digest
+  ) VALUES (
+    ${applicant.id}, ${applicant.normalizedEmail}, ${applicant.email},
+    ${applicant.firstName}, ${applicant.lastName}, ${applicant.phone},
+    ${applicant.gender}, ${applicant.fieldOfStudyId}, ${applicant.yearOfStudy},
+    ${applicant.activationDigest ?? null}
+  )
+`.pipe(
     Effect.asVoid,
     Effect.catchTag("SqlError", () => Effect.fail(persistenceError("insert applicant"))),
   );
 
 const updateApplicant = (
-  sql: PgClient.PgClient,
+  sql: DatabaseShape,
   applicant: ApplicantRecord,
 ): Effect.Effect<void, PublicApplicationPersistenceError> =>
   sql`
-    UPDATE admission_applicants
-    SET email = ${applicant.email},
-      first_name = ${applicant.firstName},
-      last_name = ${applicant.lastName},
-      phone = ${applicant.phone},
-      gender = ${applicant.gender},
-      field_of_study_id = ${applicant.fieldOfStudyId},
-      year_of_study = ${applicant.yearOfStudy},
-      activation_digest = COALESCE(${applicant.activationDigest ?? null}, activation_digest)
-    WHERE applicant_id = ${applicant.id}
-  `.pipe(
+  UPDATE admission_applicants
+  SET email = ${applicant.email},
+    first_name = ${applicant.firstName},
+    last_name = ${applicant.lastName},
+    phone = ${applicant.phone},
+    gender = ${applicant.gender},
+    field_of_study_id = ${applicant.fieldOfStudyId},
+    year_of_study = ${applicant.yearOfStudy},
+    activation_digest = COALESCE(${applicant.activationDigest ?? null}, activation_digest)
+  WHERE applicant_id = ${applicant.id}
+`.pipe(
     Effect.asVoid,
     Effect.catchTag("SqlError", () => Effect.fail(persistenceError("update applicant profile"))),
   );
 
 const writeApplication = (
-  sql: PgClient.PgClient,
+  sql: DatabaseShape,
   application: PublicApplication,
 ): Effect.Effect<void, PublicApplicationPersistenceError> =>
   sql`
-    INSERT INTO admission_applications (
-      application_id, applicant_id, admission_period_id, department_id,
-      field_of_study_id, year_of_study, submitted_at, revision
-    ) VALUES (
-      ${application.id}, ${application.applicantId}, ${application.admissionPeriodId},
-      ${application.departmentId}, ${application.fieldOfStudyId},
-      ${application.yearOfStudy}, ${application.submittedAt}, ${application.revision}
-    )
-  `.pipe(
+  INSERT INTO admission_applications (
+    application_id, applicant_id, admission_period_id, department_id,
+    field_of_study_id, year_of_study, submitted_at, revision
+  ) VALUES (
+    ${application.id}, ${application.applicantId}, ${application.admissionPeriodId},
+    ${application.departmentId}, ${application.fieldOfStudyId},
+    ${application.yearOfStudy}, ${application.submittedAt}, ${application.revision}
+  )
+`.pipe(
     Effect.asVoid,
     Effect.catchTag("SqlError", () => Effect.fail(persistenceError("insert application"))),
   );
 
 const writeCommandReceipt = (
-  sql: PgClient.PgClient,
+  sql: DatabaseShape,
   command: PublicApplicationSubmitInput,
   commandDigest: string,
   observation: PublicApplicationSubmitObservation,
@@ -337,71 +341,63 @@ const writeCommandReceipt = (
   now: string,
 ): Effect.Effect<void, PublicApplicationPersistenceError> =>
   sql`
-    INSERT INTO admission_application_command_receipts (
-      command_id, command_sha256, command_json, observation_json,
-      application_id, committed_at
-    ) VALUES (
-      ${command.commandId}, ${commandDigest}, ${sql.json(JSON.parse(canonicalJson(command)))},
-      ${sql.json(observation)}, ${application.id}, ${now}
-    )
-  `.pipe(
+  INSERT INTO admission_application_command_receipts (
+    command_id, command_sha256, command_json, observation_json,
+    application_id, committed_at
+  ) VALUES (
+    ${command.commandId}, ${commandDigest}, ${sql.json(JSON.parse(canonicalJson(command)))},
+    ${sql.json(observation)}, ${application.id}, ${now}
+  )
+`.pipe(
     Effect.asVoid,
-    Effect.catchTag("SqlError", () => Effect.fail(persistenceError("insert application command receipt"))),
+    Effect.catchTag("SqlError", () =>
+      Effect.fail(persistenceError("insert application command receipt")),
+    ),
   );
 
 const writeAudit = (
-  sql: PgClient.PgClient,
+  sql: DatabaseShape,
   commandId: string,
   application: PublicApplication,
   now: string,
 ): Effect.Effect<void, PublicApplicationPersistenceError> =>
   sql`
-    INSERT INTO admission_application_audit (
-      command_id, application_id, applicant_id, action, application_revision, occurred_at
-    ) VALUES (
-      ${commandId}, ${application.id}, ${application.applicantId},
-      'PublicApplicationSubmitted', ${application.revision}, ${now}
-    )
-  `.pipe(
+  INSERT INTO admission_application_audit (
+    command_id, application_id, applicant_id, action, application_revision, occurred_at
+  ) VALUES (
+    ${commandId}, ${application.id}, ${application.applicantId},
+    'PublicApplicationSubmitted', ${application.revision}, ${now}
+  )
+`.pipe(
     Effect.asVoid,
     Effect.catchTag("SqlError", () => Effect.fail(persistenceError("insert application audit"))),
   );
 
 const writeOutbox = (
-  sql: PgClient.PgClient,
+  sql: DatabaseShape,
   requests: ReadonlyArray<PublicApplicationOutboxRequest>,
 ): Effect.Effect<void, PublicApplicationPersistenceError> =>
   Effect.forEach(
     requests,
     (request, ordinal) =>
       sql`
-        INSERT INTO admission_application_outbox (
-          effect_id, effect_type, application_id, applicant_id, command_id,
-          ordinal, payload_json
-        ) VALUES (
-          ${request.effectId}, ${request._tag}, ${request.applicationId},
-          ${request.applicantId}, ${request.commandId}, ${ordinal}, ${sql.json(request)}
-        )
-      `.pipe(Effect.asVoid),
+      INSERT INTO admission_application_outbox (
+        effect_id, effect_type, application_id, applicant_id, command_id,
+        ordinal, payload_json
+      ) VALUES (
+        ${request.effectId}, ${request._tag}, ${request.applicationId},
+        ${request.applicantId}, ${request.commandId}, ${ordinal}, ${sql.json(request)}
+      )
+    `.pipe(Effect.asVoid),
     { discard: true },
   ).pipe(
     Effect.catchTag("SqlError", () => Effect.fail(persistenceError("insert application outbox"))),
   );
 
-export const migratePublicApplicationPostgres = (
-  migrationSql: string,
-): Effect.Effect<void, PublicApplicationPersistenceError, PgClient.PgClient> =>
-  Effect.gen(function* () {
-    const sql = yield* PgClient.PgClient;
-    yield* sql.unsafe(migrationSql).pipe(
-      Effect.catchTag("SqlError", () => Effect.fail(persistenceError("migrate public application schema"))),
-    );
-  });
-
 const executeCommandInTransaction = (
   command: SubmitPublicApplicationCommand,
   context: PublicApplicationSubmitContext,
-  sql: PgClient.PgClient,
+  sql: DatabaseShape,
   now: string,
 ): Effect.Effect<PublicApplicationSubmitResult, PublicApplicationError> =>
   Effect.gen(function* () {
@@ -413,7 +409,9 @@ const executeCommandInTransaction = (
     const stored = yield* findCommandReceipt(sql, command.commandId);
     if (stored !== undefined) {
       if (stored.command_sha256 !== commandDigest) {
-        return yield* new DuplicatePublicApplicationCommandConflict({ commandId: command.commandId });
+        return yield* new DuplicatePublicApplicationCommandConflict({
+          commandId: command.commandId,
+        });
       }
       const observation = yield* decodeStoredObservation(stored.observation_json);
       return { observation, replayed: true, outboxCount: 0 };
@@ -436,11 +434,10 @@ const executeCommandInTransaction = (
       return yield* new FieldOfStudyNotFound({ fieldOfStudyId: command.fieldOfStudyId });
     }
     if (field.department_id !== command.departmentId) {
-      return yield*
-        new FieldOfStudyDepartmentMismatch({
-          fieldOfStudyId: command.fieldOfStudyId,
-          departmentId: command.departmentId,
-        });
+      return yield* new FieldOfStudyDepartmentMismatch({
+        fieldOfStudyId: command.fieldOfStudyId,
+        departmentId: command.departmentId,
+      });
     }
     if (!field.active) {
       return yield* new FieldOfStudyInactive({ fieldOfStudyId: command.fieldOfStudyId });
@@ -448,9 +445,12 @@ const executeCommandInTransaction = (
 
     const existingApplicant = yield* findApplicantForUpdate(sql, normalizedEmail);
     const applicantId =
-      existingApplicant?.id ?? (context.applicantId?.trim() || publicApplicantIdForCommand(command));
+      existingApplicant?.id ??
+      (context.applicantId?.trim() || publicApplicantIdForCommand(command));
     const activationDigest =
-      existingApplicant === undefined ? publicApplicationCommandDigest(command) : existingApplicant.activationDigest;
+      existingApplicant === undefined
+        ? publicApplicationCommandDigest(command)
+        : existingApplicant.activationDigest;
     const applicant: ApplicantRecord = {
       id: applicantId,
       normalizedEmail,
@@ -463,7 +463,11 @@ const executeCommandInTransaction = (
       yearOfStudy: command.yearOfStudy,
       ...(activationDigest === undefined ? {} : { activationDigest }),
     };
-    const duplicate = yield* findApplicationForApplicantPeriod(sql, applicant.id, period.admission_period_id);
+    const duplicate = yield* findApplicationForApplicantPeriod(
+      sql,
+      applicant.id,
+      period.admission_period_id,
+    );
     if (duplicate !== undefined) return yield* new DuplicatePublicApplication();
 
     const applicationId = context.applicationId?.trim() || publicApplicationIdForCommand(command);
@@ -491,7 +495,12 @@ const executeCommandInTransaction = (
     };
     yield* writeCommandReceipt(sql, command, commandDigest, observation, application, now);
     yield* writeAudit(sql, command.commandId, application, now);
-    const requests = makePublicApplicationOutboxRequests(command, application, applicant, command.email);
+    const requests = makePublicApplicationOutboxRequests(
+      command,
+      application,
+      applicant,
+      command.email,
+    );
     yield* writeOutbox(sql, requests);
     return { observation, replayed: false, outboxCount: requests.length };
   });
@@ -499,67 +508,77 @@ const executeCommandInTransaction = (
 export const executePublicApplicationCommand = (
   input: unknown,
   context: PublicApplicationSubmitContext,
-): Effect.Effect<PublicApplicationSubmitResult, PublicApplicationError, PgClient.PgClient> =>
+): Effect.Effect<PublicApplicationSubmitResult, PublicApplicationError, Database> =>
   Effect.gen(function* () {
     const command = yield* decodeSubmitPublicApplicationCommand(input);
     const now = yield* decodePublicApplicationNow(context.now);
-    const sql = yield* PgClient.PgClient;
-    return yield* sql.withTransaction(executeCommandInTransaction(command, context, sql, now)).pipe(
-      Effect.catchTag("SqlError", () => Effect.fail(persistenceError("public application transaction"))),
-    );
+    const sql = yield* Database;
+    return yield* sql
+      .withTransaction(executeCommandInTransaction(command, context, sql, now))
+      .pipe(
+        Effect.catchTag("SqlError", () =>
+          Effect.fail(persistenceError("public application transaction")),
+        ),
+      );
   });
 
 export const submitPublicApplication = (
   input: unknown,
   context: PublicApplicationSubmitContext,
-): Effect.Effect<PublicApplicationSubmitResult, PublicApplicationError, PgClient.PgClient> =>
+): Effect.Effect<PublicApplicationSubmitResult, PublicApplicationError, Database> =>
   executePublicApplicationCommand(input, context);
 
 export const listPublicApplicationCatalog = (
   context: PublicApplicationCatalogContext,
-): Effect.Effect<PublicApplicationCatalog, PublicApplicationError, PgClient.PgClient> =>
+): Effect.Effect<PublicApplicationCatalog, PublicApplicationError, Database> =>
   Effect.gen(function* () {
     const now = yield* decodePublicApplicationNow(context.now);
-    const sql = yield* PgClient.PgClient;
+    const sql = yield* Database;
     const rows = yield* sql<CatalogRow>`
-      WITH eligible AS (
-        SELECT p.department_id, p.end_at,
-          ROW_NUMBER() OVER (
-            PARTITION BY p.department_id
-            ORDER BY p.start_at DESC, p.admission_period_id ASC
-          ) AS period_rank
-        FROM admission_periods p
-        INNER JOIN admission_period_semesters s ON s.semester_id = p.semester_id
-        WHERE s.start_at <= ${now}::timestamptz AND ${now}::timestamptz < s.end_at
-          AND p.start_at <= ${now}::timestamptz AND ${now}::timestamptz < p.end_at
-      )
-      SELECT d.department_id,
-        COALESCE(NULLIF(d.name, ''), d.department_id) AS department_name,
-        to_char(e.end_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS closes_at,
-        f.field_of_study_id,
-        f.name AS field_of_study_name
-      FROM eligible e
-      INNER JOIN admission_period_departments d ON d.department_id = e.department_id
-      LEFT JOIN admission_period_fields_of_study f
-        ON f.department_id = e.department_id AND f.active = TRUE
-      WHERE e.period_rank = 1
-      ORDER BY d.department_id, f.field_of_study_id
-    `.pipe(
-      Effect.catchTag("SqlError", () => Effect.fail(persistenceError("read public application catalog"))),
+    WITH eligible AS (
+      SELECT p.department_id, p.end_at,
+        ROW_NUMBER() OVER (
+          PARTITION BY p.department_id
+          ORDER BY p.start_at DESC, p.admission_period_id ASC
+        ) AS period_rank
+      FROM admission_periods p
+      INNER JOIN admission_period_semesters s ON s.semester_id = p.semester_id
+      WHERE s.start_at <= ${now}::timestamptz AND ${now}::timestamptz < s.end_at
+        AND p.start_at <= ${now}::timestamptz AND ${now}::timestamptz < p.end_at
+    )
+    SELECT d.department_id,
+      COALESCE(NULLIF(d.name, ''), d.department_id) AS department_name,
+      to_char(e.end_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS closes_at,
+      f.field_of_study_id,
+      f.name AS field_of_study_name
+    FROM eligible e
+    INNER JOIN admission_period_departments d ON d.department_id = e.department_id
+    LEFT JOIN admission_period_fields_of_study f
+      ON f.department_id = e.department_id AND f.active = TRUE
+    WHERE e.period_rank = 1
+    ORDER BY d.department_id, f.field_of_study_id
+  `.pipe(
+      Effect.catchTag("SqlError", () =>
+        Effect.fail(persistenceError("read public application catalog")),
+      ),
     );
     const departments = new Map<
       string,
-      { departmentId: string; name: string; closesAt: string; fieldsOfStudy: Array<{ fieldOfStudyId: string; name: string }> }
+      {
+        departmentId: string;
+        name: string;
+        closesAt: string;
+        fieldsOfStudy: Array<{ fieldOfStudyId: string; name: string }>;
+      }
     >();
     for (const row of rows) {
       const existing = departments.get(row.department_id);
-      const department =
-        existing ?? {
-          departmentId: row.department_id,
-          name: row.department_name,
-          closesAt: row.closes_at,
-          fieldsOfStudy: [],
-        };
+      const department = existing ?? {
+        departmentId: row.department_id,
+        name: row.department_name,
+        closesAt: row.closes_at,
+        fieldsOfStudy: [],
+      };
       if (row.field_of_study_id !== null && row.field_of_study_name !== null) {
         department.fieldsOfStudy.push({
           fieldOfStudyId: row.field_of_study_id,
@@ -572,19 +591,21 @@ export const listPublicApplicationCatalog = (
   });
 export const findPublicApplicationConfirmation = (
   applicationId: string,
-): Effect.Effect<PublicApplicationConfirmation, PublicApplicationError, PgClient.PgClient> =>
+): Effect.Effect<PublicApplicationConfirmation, PublicApplicationError, Database> =>
   Effect.gen(function* () {
     const normalizedId = applicationId.trim();
     if (normalizedId.length === 0) {
       return yield* new PublicApplicationDecodeError({ message: "invalid application identifier" });
     }
-    const sql = yield* PgClient.PgClient;
+    const sql = yield* Database;
     const rows = yield* sql<{ readonly application_id: string }>`
-      SELECT application_id
-      FROM admission_applications
-      WHERE application_id = ${normalizedId}
-    `.pipe(
-      Effect.catchTag("SqlError", () => Effect.fail(persistenceError("read application confirmation"))),
+    SELECT application_id
+    FROM admission_applications
+    WHERE application_id = ${normalizedId}
+  `.pipe(
+      Effect.catchTag("SqlError", () =>
+        Effect.fail(persistenceError("read application confirmation")),
+      ),
     );
     if (rows[0] === undefined) {
       return yield* new PublicApplicationNotFound({ applicationId: normalizedId });

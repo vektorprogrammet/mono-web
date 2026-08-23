@@ -10,23 +10,26 @@
     "./laws": "./src/laws.ts",
     "./report": "./src/report.ts",
     "./fixtures": "./src/fixtures.ts",
+    "./capabilities": "./src/capabilities.ts",
     "./receipt": "./src/receipt/index.ts",
     "./receipt/postgres": "./src/receipt/postgres-index.ts",
     "./application": "./src/application/index.ts",
-    "./admission-period": "./src/admission-period/index.ts"
+    "./admission-period": "./src/admission-period/index.ts",
+    "./admissions": "./src/admissions/index.ts",
+    "./database": "./src/database/index.ts",
+    "./evidence": "./src/tutor/evidence.ts",
+    "./receipt/proof": "./src/receipt/proof-index.ts"
   },
   "scripts": {
     "report": "bun run src/main.ts",
-    "proof:receipt": "bun run src/receipt/postgres-proof-main.ts",
     "proof:d1": "bun run src/tutor/d1-proof.ts",
-    "test": "vitest run && bun run src/main.ts --fixtures && bun run src/tutor/main.ts --fixtures && bun run proof:d1 && bun run proof:receipt",
+    "test": "vitest run && bun run src/main.ts --fixtures && bun run src/tutor/main.ts --fixtures && bun run proof:d1",
     "check-types": "tsc --noEmit",
     "build": "tsc --noEmit",
     "lint": "oxlint"
   },
   "dependencies": {
     "@effect/sql-d1": "catalog:effect-v4",
-    "@effect/sql-pg": "catalog:effect-v4",
     "effect": "catalog:effect-v4"
   },
   "devDependencies": {

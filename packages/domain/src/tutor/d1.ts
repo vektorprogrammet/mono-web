@@ -1,10 +1,6 @@
 import * as D1Client from "@effect/sql-d1/D1Client";
 import { Effect, Schema } from "effect";
-import {
-  canonicalJsonBytes,
-  canonicalJson,
-  sha256Hex,
-} from "./evidence.js";
+import { canonicalJsonBytes, canonicalJson, sha256Hex } from "./evidence.js";
 import {
   ConductInterviewV1Schema,
   DescriptorSchema,
@@ -46,7 +42,10 @@ export class D1IntegrityError extends Error {
   readonly reasonCode = "D1_INTEGRITY";
   readonly lifecycle = "Drift";
 
-  constructor(readonly reason: D1IntegrityReason, detail: string) {
+  constructor(
+    readonly reason: D1IntegrityReason,
+    detail: string,
+  ) {
     super(`${reason}: ${detail}`);
     this.name = "D1IntegrityError";
   }
@@ -259,13 +258,19 @@ export const normalizeBlobBytes = (value: unknown): Uint8Array => {
   if (ArrayBuffer.isView(value)) {
     return new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
   }
-  if (Array.isArray(value) && value.every((entry) => Number.isInteger(entry) && entry >= 0 && entry <= 255)) {
+  if (
+    Array.isArray(value) &&
+    value.every((entry) => Number.isInteger(entry) && entry >= 0 && entry <= 255)
+  ) {
     return Uint8Array.from(value);
   }
   throw new D1IntegrityError("BLOB_RUNTIME_TYPE", "returned value is not a byte representation");
 };
 
-const normalizeBlob = (value: unknown, field: string): Effect.Effect<Uint8Array, D1IntegrityError> =>
+const normalizeBlob = (
+  value: unknown,
+  field: string,
+): Effect.Effect<Uint8Array, D1IntegrityError> =>
   Effect.try({
     try: () => normalizeBlobBytes(value),
     catch: (error) =>
@@ -294,34 +299,55 @@ const decodeCanonicalJson = (
     });
     const canonical = yield* Effect.try({
       try: () => canonicalJsonBytes(parsed),
-      catch: () => new D1IntegrityError("BLOB_NON_CANONICAL", `${field}: canonical encoding failed`),
+      catch: () =>
+        new D1IntegrityError("BLOB_NON_CANONICAL", `${field}: canonical encoding failed`),
     });
     if (!bytesEqual(bytes, canonical)) {
-      return yield* Effect.fail(new D1IntegrityError("BLOB_NON_CANONICAL", `${field}: bytes are not canonical`));
+      return yield* Effect.fail(
+        new D1IntegrityError("BLOB_NON_CANONICAL", `${field}: bytes are not canonical`),
+      );
     }
     return { bytes, value: parsed };
   });
 
 const decodeStoredCommand = (
   value: unknown,
-): Effect.Effect<{ readonly bytes: Uint8Array; readonly command: ConductInterviewV1 }, D1IntegrityError> =>
+): Effect.Effect<
+  { readonly bytes: Uint8Array; readonly command: ConductInterviewV1 },
+  D1IntegrityError
+> =>
   Effect.gen(function* () {
     const decoded = yield* decodeCanonicalJson(value, "command_bytes");
     const command = yield* decodeConductInterviewV1(decoded.value).pipe(
-      Effect.mapError(() => new D1IntegrityError("BLOB_NON_CANONICAL", "command_bytes: closed command decode failed")),
+      Effect.mapError(
+        () =>
+          new D1IntegrityError("BLOB_NON_CANONICAL", "command_bytes: closed command decode failed"),
+      ),
     );
     const canonical = canonicalJsonBytes(command);
     if (!bytesEqual(decoded.bytes, canonical)) {
-      return yield* Effect.fail(new D1IntegrityError("BLOB_NON_CANONICAL", "command_bytes: decoded bytes differ"));
+      return yield* Effect.fail(
+        new D1IntegrityError("BLOB_NON_CANONICAL", "command_bytes: decoded bytes differ"),
+      );
     }
     return { bytes: decoded.bytes, command };
   });
 
-const decodeStoredDescriptor = (value: unknown): Effect.Effect<{ readonly bytes: Uint8Array; readonly descriptor: Descriptor }, D1IntegrityError> =>
+const decodeStoredDescriptor = (
+  value: unknown,
+): Effect.Effect<
+  { readonly bytes: Uint8Array; readonly descriptor: Descriptor },
+  D1IntegrityError
+> =>
   Effect.gen(function* () {
     const decoded = yield* decodeCanonicalJson(value, "descriptor_bytes");
-    const descriptor = yield* Schema.decodeUnknownEffect(DescriptorSchema, { onExcessProperty: "error" })(decoded.value).pipe(
-      Effect.mapError(() => new D1IntegrityError("BLOB_NON_CANONICAL", "descriptor_bytes: descriptor decode failed")),
+    const descriptor = yield* Schema.decodeUnknownEffect(DescriptorSchema, {
+      onExcessProperty: "error",
+    })(decoded.value).pipe(
+      Effect.mapError(
+        () =>
+          new D1IntegrityError("BLOB_NON_CANONICAL", "descriptor_bytes: descriptor decode failed"),
+      ),
     );
     return { bytes: decoded.bytes, descriptor };
   });
@@ -332,7 +358,7 @@ const queryRows = <A extends Record<string, unknown>>(
   binds: ReadonlyArray<unknown>,
 ): Effect.Effect<ReadonlyArray<A>, D1BatchError> =>
   d1.batch([d1.unsafe<A>(sql, binds)]).pipe(
-    Effect.map((results) => ((results as unknown as ReadonlyArray<ReadonlyArray<A>>)[0] ?? [])),
+    Effect.map((results) => (results as unknown as ReadonlyArray<ReadonlyArray<A>>)[0] ?? []),
     Effect.mapError((error) => new D1BatchError("read", sqlErrorDetail(error), error)),
   );
 
@@ -341,11 +367,19 @@ const readHead = (
   stream: StreamKey,
 ): Effect.Effect<StreamHead | undefined, TutorD1Failure> =>
   Effect.gen(function* () {
-    const rows = yield* queryRows<Record<string, unknown>>(d1, HEAD_LOOKUP_SQL, streamBinds(stream));
+    const rows = yield* queryRows<Record<string, unknown>>(
+      d1,
+      HEAD_LOOKUP_SQL,
+      streamBinds(stream),
+    );
     if (rows.length === 0) return undefined;
-    if (rows.length !== 1) return yield* Effect.fail(new D1IntegrityError("ROW_SHAPE", "head lookup returned more than one row"));
+    if (rows.length !== 1)
+      return yield* Effect.fail(
+        new D1IntegrityError("ROW_SHAPE", "head lookup returned more than one row"),
+      );
     const row = rows[0];
-    if (row === undefined) return yield* Effect.fail(new D1IntegrityError("ROW_SHAPE", "head row disappeared"));
+    if (row === undefined)
+      return yield* Effect.fail(new D1IntegrityError("ROW_SHAPE", "head row disappeared"));
     if (
       typeof row.person_id !== "string" ||
       typeof row.department_id !== "string" ||
@@ -357,7 +391,9 @@ const readHead = (
       row.current_version < 0 ||
       (row.last_command_id !== null && typeof row.last_command_id !== "string")
     ) {
-      return yield* Effect.fail(new D1IntegrityError("ROW_SHAPE", "head row has invalid indexed values"));
+      return yield* Effect.fail(
+        new D1IntegrityError("ROW_SHAPE", "head row has invalid indexed values"),
+      );
     }
     return row as unknown as StreamHead;
   });
@@ -378,7 +414,9 @@ const indexedStream = (row: ReplayEventRow): Effect.Effect<StreamKey, D1Integrit
       !Number.isInteger(row.semester_year) ||
       (row.semester_term !== "Vår" && row.semester_term !== "Høst")
     ) {
-      return yield* Effect.fail(new D1IntegrityError("ROW_SHAPE", "event stream columns have invalid values"));
+      return yield* Effect.fail(
+        new D1IntegrityError("ROW_SHAPE", "event stream columns have invalid values"),
+      );
     }
     return {
       personId: row.person_id,
@@ -397,7 +435,9 @@ const decodeReplayEvent = (
   Effect.gen(function* () {
     const rowStream = yield* indexedStream(row);
     if (!streamEqual(rowStream, requestedStream)) {
-      return yield* Effect.fail(new D1IntegrityError("ROW_STREAM", `row ${index + 1} stream differs from query stream`));
+      return yield* Effect.fail(
+        new D1IntegrityError("ROW_STREAM", `row ${index + 1} stream differs from query stream`),
+      );
     }
     if (
       typeof row.event_id !== "string" ||
@@ -410,7 +450,9 @@ const decodeReplayEvent = (
       typeof row.causation_id !== "string" ||
       typeof row.correlation_id !== "string"
     ) {
-      return yield* Effect.fail(new D1IntegrityError("ROW_SHAPE", `row ${index + 1} has invalid indexed values`));
+      return yield* Effect.fail(
+        new D1IntegrityError("ROW_SHAPE", `row ${index + 1} has invalid indexed values`),
+      );
     }
     const decoderKey = `${row.event_type}:${row.schema_version}`;
     if (!eventDecoderKeys.has(decoderKey)) {
@@ -435,11 +477,18 @@ const decodeReplayEvent = (
     };
     for (const [key, expected] of Object.entries(expectedIndexed)) {
       if (row[key as keyof ReplayEventRow] !== expected) {
-        return yield* Effect.fail(new D1IntegrityError("ROW_INDEX_MISMATCH", `row ${index + 1} ${key} differs from envelope`));
+        return yield* Effect.fail(
+          new D1IntegrityError(
+            "ROW_INDEX_MISMATCH",
+            `row ${index + 1} ${key} differs from envelope`,
+          ),
+        );
       }
     }
     if (!bytesEqual(decoded.bytes, canonicalJsonBytes(event))) {
-      return yield* Effect.fail(new D1IntegrityError("BLOB_NON_CANONICAL", `row ${index + 1} envelope bytes changed`));
+      return yield* Effect.fail(
+        new D1IntegrityError("BLOB_NON_CANONICAL", `row ${index + 1} envelope bytes changed`),
+      );
     }
     return event;
   });
@@ -457,7 +506,9 @@ export const validateReplayRows = (
       return yield* Effect.fail(new D1IntegrityError("EMPTY_STREAM", "replay returned no events"));
     }
     const folded = yield* foldEvents(events).pipe(
-      Effect.mapError((error) => new D1IntegrityError("REPLAY_FOLD", `${error._tag}:${error.reasonCode}`)),
+      Effect.mapError(
+        (error) => new D1IntegrityError("REPLAY_FOLD", `${error._tag}:${error.reasonCode}`),
+      ),
     );
     return { rows, events, folded } as ReplayResult;
   });
@@ -478,15 +529,23 @@ const readReceipt = (
   Effect.gen(function* () {
     const rows = yield* queryRows<Record<string, unknown>>(d1, RECEIPT_LOOKUP_SQL, [commandId]);
     if (rows.length === 0) return undefined;
-    if (rows.length !== 1) return yield* Effect.fail(new D1IntegrityError("ROW_SHAPE", "receipt lookup returned more than one row"));
+    if (rows.length !== 1)
+      return yield* Effect.fail(
+        new D1IntegrityError("ROW_SHAPE", "receipt lookup returned more than one row"),
+      );
     const row = rows[0];
-    if (row === undefined) return yield* Effect.fail(new D1IntegrityError("ROW_SHAPE", "receipt row disappeared"));
+    if (row === undefined)
+      return yield* Effect.fail(new D1IntegrityError("ROW_SHAPE", "receipt row disappeared"));
     if (row.command_id !== commandId) {
-      return yield* Effect.fail(new D1IntegrityError("ROW_SHAPE", "receipt command ID differs from lookup"));
+      return yield* Effect.fail(
+        new D1IntegrityError("ROW_SHAPE", "receipt command ID differs from lookup"),
+      );
     }
     const command = yield* decodeStoredCommand(row.command_bytes);
     if (command.command.commandId !== commandId) {
-      return yield* Effect.fail(new D1IntegrityError("ROW_INDEX_MISMATCH", "receipt command bytes differ from command_id"));
+      return yield* Effect.fail(
+        new D1IntegrityError("ROW_INDEX_MISMATCH", "receipt command bytes differ from command_id"),
+      );
     }
     const result = yield* decodeCanonicalJson(row.result_bytes, "result_bytes");
     const descriptor = yield* decodeStoredDescriptor(row.descriptor_bytes);
@@ -578,7 +637,9 @@ const classifyBatchFailure = (
       currentHead.current_version !== expectedHead.current_version ||
       currentHead.last_command_id !== expectedHead.last_command_id
     ) {
-      return yield* Effect.fail(new StaleState(command.expectedVersion, currentHead.current_version));
+      return yield* Effect.fail(
+        new StaleState(command.expectedVersion, currentHead.current_version),
+      );
     }
     return yield* Effect.fail(original);
   });
@@ -610,15 +671,20 @@ const appendAccepted = (
     }
 
     const head = yield* readHead(d1, command.stream);
-    if (head === undefined) return yield* Effect.fail(new InvalidTransition("EMPTY_STREAM", undefined));
+    if (head === undefined)
+      return yield* Effect.fail(new InvalidTransition("EMPTY_STREAM", undefined));
     preflightHead = head;
     const replay = yield* readStream(d1, command.stream);
     if (head.current_version !== replay.events.length) {
-      return yield* Effect.fail(new D1IntegrityError("HEAD_MISMATCH", "head version differs from folded event count"));
+      return yield* Effect.fail(
+        new D1IntegrityError("HEAD_MISMATCH", "head version differs from folded event count"),
+      );
     }
     const lastEvent = replay.events[replay.events.length - 1];
     if (lastEvent === undefined || head.last_command_id !== lastEvent.causationId) {
-      return yield* Effect.fail(new D1IntegrityError("HEAD_MISMATCH", "head token differs from last event causation"));
+      return yield* Effect.fail(
+        new D1IntegrityError("HEAD_MISMATCH", "head token differs from last event causation"),
+      );
     }
 
     const transition = yield* conductInterview(
@@ -630,32 +696,45 @@ const appendAccepted = (
       command,
     );
     if (transition._tag !== "AcceptedResult") {
-      return yield* Effect.fail(new D1IntegrityError("RESULT_SHAPE", "accepted append transition returned duplicate"));
+      return yield* Effect.fail(
+        new D1IntegrityError("RESULT_SHAPE", "accepted append transition returned duplicate"),
+      );
     }
     const event = transition.state.events[transition.state.events.length - 1];
-    if (event === undefined) return yield* Effect.fail(new D1IntegrityError("RESULT_SHAPE", "accepted transition had no event"));
+    if (event === undefined)
+      return yield* Effect.fail(
+        new D1IntegrityError("RESULT_SHAPE", "accepted transition had no event"),
+      );
     const resultBytes = canonicalJsonBytes(transition.observation);
     const descriptorBytes = canonicalJsonBytes(transition.observation.descriptor);
-    const plan = buildBatchPlan(command, event, resultBytes, descriptorBytes, lastEvent.causationId);
+    const plan = buildBatchPlan(
+      command,
+      event,
+      resultBytes,
+      descriptorBytes,
+      lastEvent.causationId,
+    );
 
     if (options?.beforeBatch !== undefined) {
       yield* Effect.promise(() => options.beforeBatch!(plan));
     }
 
-    const result = yield* d1.batch([
-      d1.unsafe<Record<string, unknown>>(plan.statements[0].sql, plan.statements[0].binds),
-      d1.unsafe<Record<string, unknown>>(plan.statements[1].sql, plan.statements[1].binds),
-      d1.unsafe<Record<string, unknown>>(plan.statements[2].sql, plan.statements[2].binds),
-    ]).pipe(
-      Effect.mapError((error) => new D1BatchError("append", sqlErrorDetail(error), error)),
-    );
+    const result = yield* d1
+      .batch([
+        d1.unsafe<Record<string, unknown>>(plan.statements[0].sql, plan.statements[0].binds),
+        d1.unsafe<Record<string, unknown>>(plan.statements[1].sql, plan.statements[1].binds),
+        d1.unsafe<Record<string, unknown>>(plan.statements[2].sql, plan.statements[2].binds),
+      ])
+      .pipe(Effect.mapError((error) => new D1BatchError("append", sqlErrorDetail(error), error)));
     const resultZero = (result[0] ?? []) as ReadonlyArray<Record<string, unknown>>;
     if (
       resultZero.length !== 1 ||
       resultZero[0]?.current_version !== plan.newVersion ||
       resultZero[0]?.last_command_id !== command.commandId
     ) {
-      return yield* Effect.fail(new D1IntegrityError("RESULT_SHAPE", "batch result 0 did not verify the CAS row"));
+      return yield* Effect.fail(
+        new D1IntegrityError("RESULT_SHAPE", "batch result 0 did not verify the CAS row"),
+      );
     }
     return {
       _tag: "AcceptedResult" as const,

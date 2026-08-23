@@ -26,7 +26,7 @@ const RECEIPT_PG_DATA_ROOT = process.env.RECEIPT_PG_DATA_ROOT;
 const RECEIPT_PG_PORT = process.env.RECEIPT_PG_PORT ?? "55432";
 const RECEIPT_APPROVAL_EVIDENCE_FILE = process.env.RECEIPT_APPROVAL_EVIDENCE_FILE;
 const DASHBOARD_ORIGIN = process.env.DASHBOARD_ORIGIN ?? "http://127.0.0.1:5174";
-const RECEIPT_API_ORIGIN = process.env.RECEIPT_API_ORIGIN ?? "http://127.0.0.1:8790";
+const BACKEND_ORIGIN = process.env.BACKEND_ORIGIN ?? "http://127.0.0.1:8790";
 const REAL_RECEIPT_APPROVAL_E2E = process.env.REAL_RECEIPT_APPROVAL_E2E === "1";
 const RECEIPT_DATE = "2026-08-22";
 const RECEIPT_BYTES = Buffer.from(
@@ -237,7 +237,7 @@ async function observeDurablePostgresFailure(
   );
   let failure: { readonly status: number; readonly tag: string } | undefined;
   try {
-    const response = await request.get(`${RECEIPT_API_ORIGIN}/api/admin/receipts`, {
+    const response = await request.get(`${BACKEND_ORIGIN}/api/admin/receipts`, {
       headers: authorization(token),
       timeout: 5_000,
     });
@@ -262,7 +262,7 @@ async function submitReceipt(
   amountOre: number,
 ): Promise<SubmittedReceipt> {
   const submissionCommandId = randomUUID();
-  const response = await request.post(`${RECEIPT_API_ORIGIN}/api/receipts/submit`, {
+  const response = await request.post(`${BACKEND_ORIGIN}/api/receipts/submit`, {
     headers: authorization(token),
     multipart: {
       commandId: submissionCommandId,
@@ -285,7 +285,7 @@ async function submitReceipt(
     replayed: false,
   });
 
-  const ownedResponse = await request.get(`${RECEIPT_API_ORIGIN}/api/receipts`, {
+  const ownedResponse = await request.get(`${BACKEND_ORIGIN}/api/receipts`, {
     headers: authorization(token),
   });
   expect(ownedResponse.status()).toBe(200);
@@ -306,7 +306,7 @@ async function listForApproval(
   status?: ReceiptStatus,
 ): Promise<z.infer<typeof receiptPageSchema>> {
   const query = status === undefined ? "" : `?status=${encodeURIComponent(status)}`;
-  const response = await request.get(`${RECEIPT_API_ORIGIN}/api/admin/receipts${query}`, {
+  const response = await request.get(`${BACKEND_ORIGIN}/api/admin/receipts${query}`, {
     headers: authorization(token),
   });
   expect(response.status()).toBe(200);
@@ -401,27 +401,27 @@ test.describe("Native scoped Receipt approval journey", () => {
     request,
   }) => {
     const environment = approvalEnvironment();
-    const unauthenticatedResponse = await request.get(`${RECEIPT_API_ORIGIN}/api/admin/receipts`);
+    const unauthenticatedResponse = await request.get(`${BACKEND_ORIGIN}/api/admin/receipts`);
     expect(unauthenticatedResponse.status()).toBe(401);
     const unauthenticatedTag = await responseErrorTag(unauthenticatedResponse);
     expect(unauthenticatedTag).toBe("UnauthenticatedActor");
     await expectUnauthenticatedBrowser(browser);
 
-    const expiredApiResponse = await request.get(`${RECEIPT_API_ORIGIN}/api/admin/receipts`, {
+    const expiredApiResponse = await request.get(`${BACKEND_ORIGIN}/api/admin/receipts`, {
       headers: authorization("invalid-local-receipt-approval-token"),
     });
     expect(expiredApiResponse.status()).toBe(401);
     const expiredApiTag = await responseErrorTag(expiredApiResponse);
     expect(expiredApiTag).toBe("UnauthenticatedActor");
 
-    const inactiveResponse = await request.get(`${RECEIPT_API_ORIGIN}/api/admin/receipts`, {
+    const inactiveResponse = await request.get(`${BACKEND_ORIGIN}/api/admin/receipts`, {
       headers: authorization(environment.inactiveToken),
     });
     expect(inactiveResponse.status()).toBe(403);
     const inactiveTag = await responseErrorTag(inactiveResponse);
     expect(inactiveTag).toBe("InactiveActor");
 
-    const noneScopeResponse = await request.get(`${RECEIPT_API_ORIGIN}/api/admin/receipts`, {
+    const noneScopeResponse = await request.get(`${BACKEND_ORIGIN}/api/admin/receipts`, {
       headers: authorization(environment.noneScopeToken),
     });
     expect(noneScopeResponse.status()).toBe(403);
@@ -468,7 +468,7 @@ test.describe("Native scoped Receipt approval journey", () => {
     const fileIdentitiesBefore = await readFileIdentities();
 
     const inactiveCommandResponse = await request.post(
-      `${RECEIPT_API_ORIGIN}/api/admin/receipts/${encodeURIComponent(refundReceipt.projection.receiptId)}/refund`,
+      `${BACKEND_ORIGIN}/api/admin/receipts/${encodeURIComponent(refundReceipt.projection.receiptId)}/refund`,
       {
         headers: authorization(environment.inactiveToken),
         data: {
@@ -482,7 +482,7 @@ test.describe("Native scoped Receipt approval journey", () => {
     expect(inactiveCommandTag).toBe("InactiveActor");
 
     const malformedJsonResponse = await request.post(
-      `${RECEIPT_API_ORIGIN}/api/admin/receipts/${encodeURIComponent(refundReceipt.projection.receiptId)}/refund`,
+      `${BACKEND_ORIGIN}/api/admin/receipts/${encodeURIComponent(refundReceipt.projection.receiptId)}/refund`,
       {
         headers: {
           ...authorization(environment.departmentAToken),
@@ -496,7 +496,7 @@ test.describe("Native scoped Receipt approval journey", () => {
     expect(malformedJsonTag).toBe("ReceiptDecodeError");
 
     const excessJsonResponse = await request.post(
-      `${RECEIPT_API_ORIGIN}/api/admin/receipts/${encodeURIComponent(refundReceipt.projection.receiptId)}/refund`,
+      `${BACKEND_ORIGIN}/api/admin/receipts/${encodeURIComponent(refundReceipt.projection.receiptId)}/refund`,
       {
         headers: authorization(environment.departmentAToken),
         data: {
@@ -511,7 +511,7 @@ test.describe("Native scoped Receipt approval journey", () => {
     expect(excessJsonTag).toBe("ReceiptDecodeError");
 
     const queryRejectedResponse = await request.post(
-      `${RECEIPT_API_ORIGIN}/api/admin/receipts/${encodeURIComponent(refundReceipt.projection.receiptId)}/refund?unexpected=1`,
+      `${BACKEND_ORIGIN}/api/admin/receipts/${encodeURIComponent(refundReceipt.projection.receiptId)}/refund?unexpected=1`,
       {
         headers: authorization(environment.departmentAToken),
         data: {
@@ -525,7 +525,7 @@ test.describe("Native scoped Receipt approval journey", () => {
     expect(queryRejectedTag).toBe("ReceiptDecodeError");
 
     const invalidFilterResponse = await request.get(
-      `${RECEIPT_API_ORIGIN}/api/admin/receipts?status=Pending&unexpected=1`,
+      `${BACKEND_ORIGIN}/api/admin/receipts?status=Pending&unexpected=1`,
       {
         headers: authorization(environment.departmentAToken),
       },
@@ -603,7 +603,7 @@ test.describe("Native scoped Receipt approval journey", () => {
     await expect(receiptRowFor(page, rejectReceipt.projection.receiptId)).toHaveCount(1);
 
     const foreignScopeResponse = await request.post(
-      `${RECEIPT_API_ORIGIN}/api/admin/receipts/${encodeURIComponent(rejectReceipt.projection.receiptId)}/refund`,
+      `${BACKEND_ORIGIN}/api/admin/receipts/${encodeURIComponent(rejectReceipt.projection.receiptId)}/refund`,
       {
         headers: authorization(environment.departmentAToken),
         data: {
@@ -618,7 +618,7 @@ test.describe("Native scoped Receipt approval journey", () => {
 
     const absentReceiptId = `receipt-absent-${randomUUID()}`;
     const absentScopeResponse = await request.post(
-      `${RECEIPT_API_ORIGIN}/api/admin/receipts/${encodeURIComponent(absentReceiptId)}/refund`,
+      `${BACKEND_ORIGIN}/api/admin/receipts/${encodeURIComponent(absentReceiptId)}/refund`,
       {
         headers: authorization(environment.departmentAToken),
         data: {
@@ -632,7 +632,7 @@ test.describe("Native scoped Receipt approval journey", () => {
     expect(absentScopeTag).toBe(foreignScopeTag);
 
     const globalAbsentResponse = await request.post(
-      `${RECEIPT_API_ORIGIN}/api/admin/receipts/${encodeURIComponent(absentReceiptId)}/refund`,
+      `${BACKEND_ORIGIN}/api/admin/receipts/${encodeURIComponent(absentReceiptId)}/refund`,
       {
         headers: authorization(environment.globalToken),
         data: {
@@ -695,7 +695,7 @@ test.describe("Native scoped Receipt approval journey", () => {
     await expectNoResolutionControls(refundRow);
 
     const refundReplayResponse = await request.post(
-      `${RECEIPT_API_ORIGIN}/api/admin/receipts/${encodeURIComponent(refundReceipt.projection.receiptId)}/refund`,
+      `${BACKEND_ORIGIN}/api/admin/receipts/${encodeURIComponent(refundReceipt.projection.receiptId)}/refund`,
       {
         headers: authorization(environment.globalToken),
         data: {
@@ -715,7 +715,7 @@ test.describe("Native scoped Receipt approval journey", () => {
     });
 
     const conflictingReplayResponse = await request.post(
-      `${RECEIPT_API_ORIGIN}/api/admin/receipts/${encodeURIComponent(refundReceipt.projection.receiptId)}/refund`,
+      `${BACKEND_ORIGIN}/api/admin/receipts/${encodeURIComponent(refundReceipt.projection.receiptId)}/refund`,
       {
         headers: authorization(environment.globalToken),
         data: {
@@ -729,7 +729,7 @@ test.describe("Native scoped Receipt approval journey", () => {
     expect(conflictingReplayTag).toBe("DuplicateReceiptCommandConflict");
 
     const staleTerminalResponse = await request.post(
-      `${RECEIPT_API_ORIGIN}/api/admin/receipts/${encodeURIComponent(refundReceipt.projection.receiptId)}/reject`,
+      `${BACKEND_ORIGIN}/api/admin/receipts/${encodeURIComponent(refundReceipt.projection.receiptId)}/reject`,
       {
         headers: authorization(environment.globalToken),
         data: {
@@ -743,7 +743,7 @@ test.describe("Native scoped Receipt approval journey", () => {
     expect(staleTerminalTag).toBe("StaleReceiptRevision");
 
     const terminalRefundResponse = await request.post(
-      `${RECEIPT_API_ORIGIN}/api/admin/receipts/${encodeURIComponent(refundReceipt.projection.receiptId)}/reject`,
+      `${BACKEND_ORIGIN}/api/admin/receipts/${encodeURIComponent(refundReceipt.projection.receiptId)}/reject`,
       {
         headers: authorization(environment.globalToken),
         data: {
@@ -767,7 +767,7 @@ test.describe("Native scoped Receipt approval journey", () => {
     await expectNoResolutionControls(rejectRow);
 
     const rejectReplayResponse = await request.post(
-      `${RECEIPT_API_ORIGIN}/api/admin/receipts/${encodeURIComponent(rejectReceipt.projection.receiptId)}/reject`,
+      `${BACKEND_ORIGIN}/api/admin/receipts/${encodeURIComponent(rejectReceipt.projection.receiptId)}/reject`,
       {
         headers: authorization(environment.globalToken),
         data: {
@@ -787,7 +787,7 @@ test.describe("Native scoped Receipt approval journey", () => {
     });
 
     const terminalRejectResponse = await request.post(
-      `${RECEIPT_API_ORIGIN}/api/admin/receipts/${encodeURIComponent(rejectReceipt.projection.receiptId)}/refund`,
+      `${BACKEND_ORIGIN}/api/admin/receipts/${encodeURIComponent(rejectReceipt.projection.receiptId)}/refund`,
       {
         headers: authorization(environment.globalToken),
         data: {
@@ -809,7 +809,7 @@ test.describe("Native scoped Receipt approval journey", () => {
 
     const externalResolutionCommandId = randomUUID();
     const externalResolutionResponse = await request.post(
-      `${RECEIPT_API_ORIGIN}/api/admin/receipts/${encodeURIComponent(staleReceipt.projection.receiptId)}/reject`,
+      `${BACKEND_ORIGIN}/api/admin/receipts/${encodeURIComponent(staleReceipt.projection.receiptId)}/reject`,
       {
         headers: authorization(environment.globalToken),
         data: {
@@ -843,7 +843,7 @@ test.describe("Native scoped Receipt approval journey", () => {
     const concurrentRejectCommandId = randomUUID();
     const [concurrentRefundResponse, concurrentRejectResponse] = await Promise.all([
       request.post(
-        `${RECEIPT_API_ORIGIN}/api/admin/receipts/${encodeURIComponent(concurrentReceipt.projection.receiptId)}/refund`,
+        `${BACKEND_ORIGIN}/api/admin/receipts/${encodeURIComponent(concurrentReceipt.projection.receiptId)}/refund`,
         {
           headers: authorization(environment.globalToken),
           data: {
@@ -853,7 +853,7 @@ test.describe("Native scoped Receipt approval journey", () => {
         },
       ),
       request.post(
-        `${RECEIPT_API_ORIGIN}/api/admin/receipts/${encodeURIComponent(concurrentReceipt.projection.receiptId)}/reject`,
+        `${BACKEND_ORIGIN}/api/admin/receipts/${encodeURIComponent(concurrentReceipt.projection.receiptId)}/reject`,
         {
           headers: authorization(environment.globalToken),
           data: {
@@ -902,7 +902,7 @@ test.describe("Native scoped Receipt approval journey", () => {
     expect(["StaleReceiptRevision", "InvalidReceiptTransition"]).toContain(concurrentLoserTag);
 
     const concurrentReplayResponse = await request.post(
-      `${RECEIPT_API_ORIGIN}/api/admin/receipts/${encodeURIComponent(concurrentReceipt.projection.receiptId)}/${concurrentWinner.intent}`,
+      `${BACKEND_ORIGIN}/api/admin/receipts/${encodeURIComponent(concurrentReceipt.projection.receiptId)}/${concurrentWinner.intent}`,
       {
         headers: authorization(environment.globalToken),
         data: {

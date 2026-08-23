@@ -1,9 +1,6 @@
-import * as PgClient from "@effect/sql-pg/PgClient";
+import { Database, type DatabaseShape } from "../database/service.js";
 import { Effect, Schema } from "effect";
 import {
-  AdmissionApplicationAlreadyExists,
-  AdmissionApplicationDecodeError,
-  AdmissionApplicationPersistenceError,
   AdmissionPeriodDecodeError,
   AdmissionPeriodNotFound,
   AdmissionPeriodPersistenceError,
@@ -11,13 +8,10 @@ import {
   AdmissionRoleDenied,
   DepartmentNotFound,
   DepartmentRequired,
-  DuplicateAdmissionApplicationCommandConflict,
   DuplicateAdmissionPeriodCommandConflict,
   InactiveActor,
-  NoOpenAdmissionPeriod,
   SemesterNotFound,
   StaleAdmissionPeriodRevision,
-  type AdmissionApplicationFailure,
   type AdmissionPeriodFailure,
 } from "./errors.js";
 import { admissionPeriodCommandDigest, canonicalJson } from "./digest.js";
@@ -36,21 +30,11 @@ import {
   type AdmissionPeriodProjection,
   type AdmissionSemester,
 } from "./schema.js";
-import {
-  AdmissionApplicationSchema,
-  SubmitAdmissionApplicationCommandSchema,
-  SubmitAdmissionApplicationInputSchema,
-  type AdmissionApplication,
-  type AdmissionApplicationSubmitContext,
-  type AdmissionApplicationTransactionResult,
-  type SubmitAdmissionApplicationCommand,
-  type SubmitAdmissionApplicationInput,
-} from "./application.js";
 import type {
   AdmissionPeriodCommandContext,
   AdmissionPeriodManagementContext,
   AdmissionPeriodTransactionResult,
-} from "./service.js";
+} from "./context.js";
 import { contextForActor, decideAdmissionPeriod } from "./update.js";
 
 interface AdmissionPeriodRow {
@@ -79,22 +63,8 @@ interface PeriodCommandReceiptRow {
   readonly admission_period_id: string;
 }
 
-interface ApplicationCommandReceiptRow {
-  readonly command_sha256: string;
-  readonly application_json: unknown;
-}
-
-interface ApplicationRow {
-  readonly application_id: string;
-  readonly applicant_id: string;
-  readonly admission_period_id: string;
-}
-
 const periodPersistenceError = (operation: string, cause: unknown) =>
   new AdmissionPeriodPersistenceError({ operation, message: String(cause) });
-
-const applicationPersistenceError = (operation: string, cause: unknown) =>
-  new AdmissionApplicationPersistenceError({ operation, message: String(cause) });
 
 const decodePeriodRow = (
   row: AdmissionPeriodRow,
@@ -132,10 +102,12 @@ const decodeSemesterRow = (
     semesterId: row.semester_id,
     startAt: row.start_at,
     endAt: row.end_at,
-  }).pipe(Effect.mapError((cause) => periodPersistenceError("decode admission semester row", cause)));
+  }).pipe(
+    Effect.mapError((cause) => periodPersistenceError("decode admission semester row", cause)),
+  );
 
 const findPeriodForUpdate = (
-  sql: PgClient.PgClient,
+  sql: DatabaseShape,
   admissionPeriodId: string,
 ): Effect.Effect<AdmissionPeriod | undefined, AdmissionPeriodPersistenceError> =>
   sql<AdmissionPeriodRow>`
@@ -156,7 +128,7 @@ const findPeriodForUpdate = (
   );
 
 const findPeriodByPairForUpdate = (
-  sql: PgClient.PgClient,
+  sql: DatabaseShape,
   departmentId: string,
   semesterId: string,
 ): Effect.Effect<AdmissionPeriod | undefined, AdmissionPeriodPersistenceError> =>
@@ -178,7 +150,7 @@ const findPeriodByPairForUpdate = (
   );
 
 const findSemester = (
-  sql: PgClient.PgClient,
+  sql: DatabaseShape,
   semesterId: string,
 ): Effect.Effect<AdmissionSemester | undefined, AdmissionPeriodPersistenceError> =>
   sql<SemesterRow>`
@@ -197,7 +169,7 @@ const findSemester = (
   );
 
 const departmentExists = (
-  sql: PgClient.PgClient,
+  sql: DatabaseShape,
   departmentId: string,
 ): Effect.Effect<boolean, AdmissionPeriodPersistenceError> =>
   sql<{ readonly department_id: string }>`
@@ -212,7 +184,7 @@ const departmentExists = (
   );
 
 const findPeriodCommandReceipt = (
-  sql: PgClient.PgClient,
+  sql: DatabaseShape,
   commandId: string,
 ): Effect.Effect<PeriodCommandReceiptRow | undefined, AdmissionPeriodPersistenceError> =>
   sql<PeriodCommandReceiptRow>`
@@ -238,9 +210,16 @@ const observationFromStored = (
     Effect.flatMap((observation) =>
       observation._tag === "Created" || observation._tag === "Revised"
         ? Effect.succeed(observation)
-        : Effect.fail(periodPersistenceError("stored admission observation is not replayable", observation._tag)),
+        : Effect.fail(
+            periodPersistenceError(
+              "stored admission observation is not replayable",
+              observation._tag,
+            ),
+          ),
     ),
-    Effect.mapError((cause) => periodPersistenceError("decode stored admission observation", cause)),
+    Effect.mapError((cause) =>
+      periodPersistenceError("decode stored admission observation", cause),
+    ),
   );
 
 const checkActor = (
@@ -262,7 +241,7 @@ const actorCanAccessDepartment = (actor: AdmissionPeriodActor, departmentId: str
   actor._tag === "GlobalAdmin" || actor.departmentId === departmentId;
 
 const writePeriod = (
-  sql: PgClient.PgClient,
+  sql: DatabaseShape,
   period: AdmissionPeriod,
   previous: AdmissionPeriod | undefined,
 ): Effect.Effect<void, AdmissionPeriodFailure> => {
@@ -311,7 +290,7 @@ const writePeriod = (
 };
 
 const writePeriodCommandReceipt = (
-  sql: PgClient.PgClient,
+  sql: DatabaseShape,
   command: AdmissionPeriodCommand,
   commandDigest: string,
   observation: AdmissionPeriodObservation,
@@ -319,14 +298,14 @@ const writePeriodCommandReceipt = (
   now: string,
 ): Effect.Effect<void, AdmissionPeriodPersistenceError> =>
   sql`
-    INSERT INTO admission_period_command_receipts (
-      command_id, command_sha256, command_json, observation_json,
-      admission_period_id, committed_at
-    ) VALUES (
-      ${command.commandId}, ${commandDigest}, ${sql.json(JSON.parse(canonicalJson(command)))},
-      ${sql.json(observation)}, ${period.id}, ${now}
-    )
-  `.pipe(
+  INSERT INTO admission_period_command_receipts (
+    command_id, command_sha256, command_json, observation_json,
+    admission_period_id, committed_at
+  ) VALUES (
+    ${command.commandId}, ${commandDigest}, ${sql.json(JSON.parse(canonicalJson(command)))},
+    ${sql.json(observation)}, ${period.id}, ${now}
+  )
+`.pipe(
     Effect.asVoid,
     Effect.catchTag("SqlError", (cause) =>
       Effect.fail(periodPersistenceError("insert admission command receipt", cause)),
@@ -334,20 +313,20 @@ const writePeriodCommandReceipt = (
   );
 
 const writeOutbox = (
-  sql: PgClient.PgClient,
+  sql: DatabaseShape,
   requests: ReadonlyArray<AdmissionPeriodOutboxRequest>,
 ): Effect.Effect<void, AdmissionPeriodPersistenceError> =>
   Effect.forEach(
     requests,
     (request, ordinal) =>
       sql`
-        INSERT INTO admission_period_outbox (
-          effect_id, effect_type, admission_period_id, command_id, ordinal, payload_json
-        ) VALUES (
-          ${request.effectId}, ${request._tag}, ${request.admissionPeriodId},
-          ${request.commandId}, ${ordinal}, ${sql.json(request)}
-        )
-      `.pipe(Effect.asVoid),
+      INSERT INTO admission_period_outbox (
+        effect_id, effect_type, admission_period_id, command_id, ordinal, payload_json
+      ) VALUES (
+        ${request.effectId}, ${request._tag}, ${request.admissionPeriodId},
+        ${request.commandId}, ${ordinal}, ${sql.json(request)}
+      )
+    `.pipe(Effect.asVoid),
     { discard: true },
   ).pipe(
     Effect.catchTag("SqlError", (cause) =>
@@ -356,7 +335,7 @@ const writeOutbox = (
   );
 
 const writeAudit = (
-  sql: PgClient.PgClient,
+  sql: DatabaseShape,
   command: AdmissionPeriodCommand,
   period: AdmissionPeriod,
   actorPersonId: string,
@@ -364,14 +343,14 @@ const writeAudit = (
   now: string,
 ): Effect.Effect<void, AdmissionPeriodPersistenceError> =>
   sql`
-    INSERT INTO admission_period_audit (
-      command_id, admission_period_id, actor_person_id, action,
-      admission_period_revision, occurred_at
-    ) VALUES (
-      ${command.commandId}, ${period.id}, ${actorPersonId},
-      ${action}, ${period.revision}, ${now}
-    )
-  `.pipe(
+  INSERT INTO admission_period_audit (
+    command_id, admission_period_id, actor_person_id, action,
+    admission_period_revision, occurred_at
+  ) VALUES (
+    ${command.commandId}, ${period.id}, ${actorPersonId},
+    ${action}, ${period.revision}, ${now}
+  )
+`.pipe(
     Effect.asVoid,
     Effect.catchTag("SqlError", (cause) =>
       Effect.fail(periodPersistenceError("insert admission audit", cause)),
@@ -414,27 +393,15 @@ export const decodeAdmissionPeriodCommand = (
     onExcessProperty: "error",
   }).pipe(Effect.mapError((cause) => new AdmissionPeriodDecodeError({ message: String(cause) })));
 
-export const migrateAdmissionPeriodPostgres = (
-  migrationSql: string,
-): Effect.Effect<void, AdmissionPeriodPersistenceError, PgClient.PgClient> =>
-  Effect.gen(function* () {
-    const sql = yield* PgClient.PgClient;
-    yield* sql.unsafe(migrationSql).pipe(
-      Effect.catchTag("SqlError", (cause) =>
-        Effect.fail(periodPersistenceError("migrate admission period schema", cause)),
-      ),
-    );
-  });
-
 export const executeAdmissionPeriodCommand = (
   input: unknown,
   context: AdmissionPeriodCommandContext,
-): Effect.Effect<AdmissionPeriodTransactionResult, AdmissionPeriodFailure, PgClient.PgClient> =>
+): Effect.Effect<AdmissionPeriodTransactionResult, AdmissionPeriodFailure, Database> =>
   Effect.gen(function* () {
     const command = yield* decodeAdmissionPeriodCommand(input);
     yield* checkActor(context.actor);
     yield* checkNow(context.now);
-    const sql = yield* PgClient.PgClient;
+    const sql = yield* Database;
     const commandDigest = admissionPeriodCommandDigest(command);
 
     return yield* sql
@@ -469,10 +436,10 @@ export const executeAdmissionPeriodCommand = (
           if (command._tag === "CreateAdmissionPeriod") {
             const departmentId = yield* effectiveCreateDepartment(command, context.actor);
             yield* sql`
-              SELECT pg_advisory_xact_lock(
-                hashtextextended(${`${departmentId}:${command.semesterId}`}, 0)
-              )
-            `.pipe(
+            SELECT pg_advisory_xact_lock(
+              hashtextextended(${`${departmentId}:${command.semesterId}`}, 0)
+            )
+          `.pipe(
               Effect.asVoid,
               Effect.catchTag("SqlError", (cause) =>
                 Effect.fail(periodPersistenceError("lock admission department semester", cause)),
@@ -545,7 +512,7 @@ export const executeAdmissionPeriodCommand = (
   });
 
 const projectionRows = (
-  sql: PgClient.PgClient,
+  sql: DatabaseShape,
   now: string,
   departmentId?: string,
 ): Effect.Effect<ReadonlyArray<AdmissionPeriodProjection>, AdmissionPeriodPersistenceError> => {
@@ -588,11 +555,11 @@ const projectionRows = (
 
 export const listAdmissionPeriodsForManagement = (
   context: AdmissionPeriodManagementContext,
-): Effect.Effect<ReadonlyArray<AdmissionPeriodProjection>, AdmissionPeriodFailure, PgClient.PgClient> =>
+): Effect.Effect<ReadonlyArray<AdmissionPeriodProjection>, AdmissionPeriodFailure, Database> =>
   Effect.gen(function* () {
     yield* checkActor(context.actor);
     yield* checkNow(context.now);
-    const sql = yield* PgClient.PgClient;
+    const sql = yield* Database;
     return yield* projectionRows(
       sql,
       context.now,
@@ -602,10 +569,10 @@ export const listAdmissionPeriodsForManagement = (
 
 export const listOpenAdmissionPeriods = (
   now: string,
-): Effect.Effect<ReadonlyArray<AdmissionPeriodProjection>, AdmissionPeriodFailure, PgClient.PgClient> =>
+): Effect.Effect<ReadonlyArray<AdmissionPeriodProjection>, AdmissionPeriodFailure, Database> =>
   Effect.gen(function* () {
     yield* checkNow(now);
-    const sql = yield* PgClient.PgClient;
+    const sql = yield* Database;
     const rows = yield* projectionRows(sql, now);
     return rows.filter((row) => row.eligible);
   });
@@ -622,243 +589,3 @@ export const admissionPeriodProjectionFor = (
     Date.parse(period.startAt) <= Date.parse(now) &&
     Date.parse(now) < Date.parse(period.endAt),
 });
-
-const decodeApplicationRow = (
-  row: ApplicationRow,
-): Effect.Effect<AdmissionApplication, AdmissionApplicationPersistenceError> =>
-  Schema.decodeUnknownEffect(AdmissionApplicationSchema)({
-    id: row.application_id,
-    applicantId: row.applicant_id,
-    admissionPeriodId: row.admission_period_id,
-  }).pipe(
-    Effect.mapError((cause) => applicationPersistenceError("decode admission application row", cause)),
-  );
-
-const decodeStoredApplication = (
-  json: unknown,
-): Effect.Effect<AdmissionApplication, AdmissionApplicationPersistenceError> =>
-  Schema.decodeUnknownEffect(AdmissionApplicationSchema)(json, {
-    onExcessProperty: "error",
-  }).pipe(
-    Effect.mapError((cause) =>
-      applicationPersistenceError("decode stored admission application", cause),
-    ),
-  );
-
-const findApplication = (
-  sql: PgClient.PgClient,
-  applicationId: string,
-): Effect.Effect<AdmissionApplication | undefined, AdmissionApplicationPersistenceError> =>
-  sql<ApplicationRow>`
-    SELECT application_id, applicant_id, admission_period_id
-    FROM admission_applications
-    WHERE application_id = ${applicationId}
-    FOR UPDATE
-  `.pipe(
-    Effect.flatMap((rows) =>
-      rows[0] === undefined ? Effect.succeed(undefined) : decodeApplicationRow(rows[0]),
-    ),
-    Effect.catchTag("SqlError", (cause) =>
-      Effect.fail(applicationPersistenceError("read admission application", cause)),
-    ),
-  );
-
-const findApplicationCommandReceipt = (
-  sql: PgClient.PgClient,
-  commandId: string,
-): Effect.Effect<ApplicationCommandReceiptRow | undefined, AdmissionApplicationPersistenceError> =>
-  sql<ApplicationCommandReceiptRow>`
-    SELECT command_sha256, application_json
-    FROM admission_application_command_receipts
-    WHERE command_id = ${commandId}
-  `.pipe(
-    Effect.map((rows) => rows[0]),
-    Effect.catchTag("SqlError", (cause) =>
-      Effect.fail(applicationPersistenceError("read admission application command receipt", cause)),
-    ),
-  );
-
-const findOpenPeriodForDepartment = (
-  sql: PgClient.PgClient,
-  departmentId: string,
-  now: string,
-): Effect.Effect<AdmissionPeriod | undefined, AdmissionApplicationPersistenceError> =>
-  sql<AdmissionPeriodRow>`
-    SELECT p.admission_period_id, p.department_id, p.semester_id,
-      to_char(p.start_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS start_at,
-      to_char(p.end_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS end_at,
-      p.revision, p.last_command_id
-    FROM admission_periods p
-    INNER JOIN admission_period_semesters s ON s.semester_id = p.semester_id
-    WHERE p.department_id = ${departmentId}
-      AND s.start_at <= ${now}::timestamptz AND ${now}::timestamptz < s.end_at
-      AND p.start_at <= ${now}::timestamptz AND ${now}::timestamptz < p.end_at
-    ORDER BY p.start_at DESC, p.admission_period_id ASC
-    LIMIT 1
-    FOR UPDATE OF p
-  `.pipe(
-    Effect.flatMap((rows) =>
-      rows[0] === undefined
-        ? Effect.succeed(undefined)
-        : decodePeriodRow(rows[0]).pipe(
-            Effect.mapError((cause) =>
-              applicationPersistenceError("decode open admission period", cause),
-            ),
-          ),
-    ),
-    Effect.catchTag("SqlError", (cause) =>
-      Effect.fail(applicationPersistenceError("find open admission period", cause)),
-    ),
-  );
-
-const writeApplication = (
-  sql: PgClient.PgClient,
-  application: AdmissionApplication,
-  now: string,
-): Effect.Effect<void, AdmissionApplicationPersistenceError> =>
-  sql`
-    INSERT INTO admission_applications (
-      application_id, applicant_id, admission_period_id, created_at
-    ) VALUES (
-      ${application.id}, ${application.applicantId}, ${application.admissionPeriodId}, ${now}
-    )
-  `.pipe(
-    Effect.asVoid,
-    Effect.catchTag("SqlError", (cause) =>
-      Effect.fail(applicationPersistenceError("insert admission application", cause)),
-    ),
-  );
-
-const writeApplicationCommandReceipt = (
-  sql: PgClient.PgClient,
-  command: SubmitAdmissionApplicationCommand,
-  commandDigest: string,
-  application: AdmissionApplication,
-  now: string,
-): Effect.Effect<void, AdmissionApplicationPersistenceError> =>
-  sql`
-    INSERT INTO admission_application_command_receipts (
-      command_id, command_sha256, command_json, application_json, committed_at
-    ) VALUES (
-      ${command.commandId}, ${commandDigest},
-      ${sql.json(JSON.parse(canonicalJson(command)))}, ${sql.json(application)}, ${now}
-    )
-  `.pipe(
-    Effect.asVoid,
-    Effect.catchTag("SqlError", (cause) =>
-      Effect.fail(applicationPersistenceError("insert admission application command receipt", cause)),
-    ),
-  );
-
-export const decodeSubmitAdmissionApplicationCommand = (
-  input: unknown,
-): Effect.Effect<SubmitAdmissionApplicationCommand, AdmissionApplicationDecodeError> =>
-  Schema.decodeUnknownEffect(SubmitAdmissionApplicationCommandSchema)(input, {
-    onExcessProperty: "error",
-  }).pipe(
-    Effect.mapError((cause) => new AdmissionApplicationDecodeError({ message: String(cause) })),
-  );
-
-export const decodeSubmitAdmissionApplicationInput = (
-  input: unknown,
-): Effect.Effect<SubmitAdmissionApplicationInput, AdmissionApplicationDecodeError> =>
-  Schema.decodeUnknownEffect(SubmitAdmissionApplicationInputSchema)(input, {
-    onExcessProperty: "error",
-  }).pipe(
-    Effect.mapError((cause) => new AdmissionApplicationDecodeError({ message: String(cause) })),
-  );
-
-export const migrateAdmissionApplicationPostgres = (
-  migrationSql: string,
-): Effect.Effect<void, AdmissionApplicationPersistenceError, PgClient.PgClient> =>
-  Effect.gen(function* () {
-    const sql = yield* PgClient.PgClient;
-    yield* sql.unsafe(migrationSql).pipe(
-      Effect.catchTag("SqlError", (cause) =>
-        Effect.fail(applicationPersistenceError("migrate admission application schema", cause)),
-      ),
-    );
-  });
-
-const executeApplicationCommand = (
-  command: SubmitAdmissionApplicationCommand,
-  context: AdmissionApplicationSubmitContext,
-  sql: PgClient.PgClient,
-): Effect.Effect<AdmissionApplicationTransactionResult, AdmissionApplicationFailure> =>
-  Effect.gen(function* () {
-    if (!isRfc3339Instant(context.now)) {
-      return yield* new AdmissionApplicationDecodeError({
-        message: "now must be an RFC 3339 instant",
-      });
-    }
-    const commandDigest = admissionPeriodCommandDigest(command);
-    yield* sql`SELECT pg_advisory_xact_lock(hashtextextended(${command.commandId}, 0))`.pipe(
-      Effect.asVoid,
-      Effect.catchTag("SqlError", (cause) =>
-        Effect.fail(applicationPersistenceError("lock admission application command", cause)),
-      ),
-    );
-    const stored = yield* findApplicationCommandReceipt(sql, command.commandId);
-    if (stored !== undefined) {
-      if (stored.command_sha256 !== commandDigest) {
-        return yield* new DuplicateAdmissionApplicationCommandConflict({
-          commandId: command.commandId,
-        });
-      }
-      const application = yield* decodeStoredApplication(stored.application_json);
-      return { application, replayed: true };
-    }
-
-    const applicationId =
-      context.applicationId ?? `admission-application-${commandDigest.slice(0, 32)}`;
-    const existing = yield* findApplication(sql, applicationId);
-    if (existing !== undefined) {
-      return yield* new AdmissionApplicationAlreadyExists({ applicationId });
-    }
-    const period = yield* findOpenPeriodForDepartment(sql, command.departmentId, context.now);
-    if (period === undefined) {
-      return yield* new NoOpenAdmissionPeriod({ departmentId: command.departmentId });
-    }
-    const application: AdmissionApplication = {
-      id: applicationId,
-      applicantId: command.applicantId,
-      admissionPeriodId: period.id,
-    };
-    yield* writeApplication(sql, application, context.now);
-    yield* writeApplicationCommandReceipt(sql, command, commandDigest, application, context.now);
-    return { application, replayed: false };
-  });
-
-export const executeAdmissionApplicationCommand = (
-  input: unknown,
-  context: AdmissionApplicationSubmitContext,
-): Effect.Effect<AdmissionApplicationTransactionResult, AdmissionApplicationFailure, PgClient.PgClient> =>
-  Effect.gen(function* () {
-    const command = yield* decodeSubmitAdmissionApplicationCommand(input);
-    const sql = yield* PgClient.PgClient;
-    return yield* sql.withTransaction(executeApplicationCommand(command, context, sql)).pipe(
-      Effect.catchTag("SqlError", (cause) =>
-        Effect.fail(applicationPersistenceError("admission application transaction", cause)),
-      ),
-    );
-  });
-
-export const submitAdmissionApplication = (
-  input: unknown,
-  context: AdmissionApplicationSubmitContext,
-): Effect.Effect<AdmissionApplicationTransactionResult, AdmissionApplicationFailure, PgClient.PgClient> =>
-  Effect.gen(function* () {
-    const inputValue = yield* decodeSubmitAdmissionApplicationInput(input);
-    return yield* executeAdmissionApplicationCommand(
-      { _tag: "SubmitAdmissionApplication", ...inputValue },
-      context,
-    );
-  });
-
-export const findAdmissionApplication = (
-  applicationId: string,
-): Effect.Effect<AdmissionApplication | undefined, AdmissionApplicationPersistenceError, PgClient.PgClient> =>
-  Effect.gen(function* () {
-    const sql = yield* PgClient.PgClient;
-    return yield* findApplication(sql, applicationId);
-  });

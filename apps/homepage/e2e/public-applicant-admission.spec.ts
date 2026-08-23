@@ -9,15 +9,11 @@ import {
   type Page,
 } from "@playwright/test";
 
-const REAL_PUBLIC_APPLICATION_E2E =
-  process.env.REAL_PUBLIC_APPLICATION_E2E === "1";
-const HOMEPAGE_ORIGIN =
-  process.env.HOMEPAGE_ORIGIN ?? "http://127.0.0.1:8787";
-const ADMISSION_API_ORIGIN =
-  process.env.ADMISSION_API_ORIGIN ?? "http://127.0.0.1:8792";
+const REAL_PUBLIC_APPLICATION_E2E = process.env.REAL_PUBLIC_APPLICATION_E2E === "1";
+const HOMEPAGE_ORIGIN = process.env.HOMEPAGE_ORIGIN ?? "http://127.0.0.1:8787";
+const BACKEND_ORIGIN = process.env.BACKEND_ORIGIN ?? "http://127.0.0.1:8792";
 const LOCAL_HOMEPAGE_HOST = "p000.vektor.phibkro.org";
 const DEPARTMENT_ID = "department-trondheim";
-const FOREIGN_DEPARTMENT_ID = "department-bergen";
 const FIELD_OF_STUDY_ID = "field-mathematics";
 const INACTIVE_FIELD_OF_STUDY_ID = "field-inactive";
 const FOREIGN_FIELD_OF_STUDY_ID = "field-foreign";
@@ -62,10 +58,7 @@ const errorSchema = Schema.Struct({
   error: Schema.Struct({ tag: Schema.String }),
 });
 
-const decodeStrict = <A>(
-  schema: Schema.ConstraintDecoder<A, never>,
-  value: unknown,
-): A =>
+const decodeStrict = <A>(schema: Schema.ConstraintDecoder<A, never>, value: unknown): A =>
   Schema.decodeUnknownSync(schema)(value, { onExcessProperty: "error" });
 
 function requiredEnvironment(name: string): string {
@@ -84,7 +77,6 @@ type ApplicationInput = {
   readonly fieldOfStudyId: string;
   readonly yearOfStudy: number;
 };
-
 
 function applicationInput(
   commandId: string,
@@ -115,19 +107,13 @@ async function expectErrorTag(
 }
 
 async function seriousCriticalViolations(page: Page): Promise<number> {
-  const result = await new AxeBuilder({ page })
-    .include('section[id="sok"]')
-    .analyze();
+  const result = await new AxeBuilder({ page }).include('section[id="sok"]').analyze();
   return result.violations.filter(
-    (violation) =>
-      violation.impact === "serious" || violation.impact === "critical",
+    (violation) => violation.impact === "serious" || violation.impact === "critical",
   ).length;
 }
 
-async function fillApplicationForm(
-  page: Page,
-  input: ApplicationInput,
-): Promise<void> {
+async function fillApplicationForm(page: Page, input: ApplicationInput): Promise<void> {
   await page.getByLabel("Avdeling").selectOption(input.departmentId);
   await page.getByLabel("Studieretning").selectOption(input.fieldOfStudyId);
   await page.getByLabel("Studieår").selectOption(String(input.yearOfStudy));
@@ -139,32 +125,21 @@ async function fillApplicationForm(
 }
 
 async function catalog(request: APIRequestContext) {
-  const response = await request.get(
-    `${ADMISSION_API_ORIGIN}/api/applications/catalog`,
-  );
+  const response = await request.get(`${BACKEND_ORIGIN}/api/applications/catalog`);
   expect(response.ok()).toBe(true);
   return decodeStrict(catalogSchema, await response.json());
 }
 
 test.describe("Public applicant admission", () => {
-  test.skip(
-    !REAL_PUBLIC_APPLICATION_E2E,
-    "run through the disposable PostgreSQL homepage runner",
-  );
+  test.skip(!REAL_PUBLIC_APPLICATION_E2E, "run through the disposable PostgreSQL homepage runner");
 
   test("submits through the homepage and proves public rejection laws", async ({
     page,
     request,
   }) => {
-    const evidencePath = requiredEnvironment(
-      "PUBLIC_APPLICATION_E2E_EVIDENCE_PATH",
-    );
-    const admissionPeriodId = requiredEnvironment(
-      "PUBLIC_APPLICATION_E2E_PERIOD_ID",
-    );
-    const leaderToken = requiredEnvironment(
-      "PUBLIC_APPLICATION_E2E_LEADER_TOKEN",
-    );
+    const evidencePath = requiredEnvironment("PUBLIC_APPLICATION_E2E_EVIDENCE_PATH");
+    const admissionPeriodId = requiredEnvironment("PUBLIC_APPLICATION_E2E_PERIOD_ID");
+    const leaderToken = requiredEnvironment("PUBLIC_APPLICATION_E2E_LEADER_TOKEN");
     const rateLimitAttempts = Number(
       requiredEnvironment("PUBLIC_APPLICATION_E2E_RATE_LIMIT_ATTEMPTS"),
     );
@@ -211,9 +186,7 @@ test.describe("Public applicant admission", () => {
     });
 
     await page.goto("/assistenter");
-    await expect(
-      page.getByRole("heading", { name: "Send inn søknad" }),
-    ).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Send inn søknad" })).toBeVisible();
     await expect(page.getByLabel("Avdeling")).toContainText("Trondheim");
     await page.getByLabel("Avdeling").selectOption(DEPARTMENT_ID);
     await expect(page.getByLabel("Studieretning")).toContainText("Matematikk");
@@ -223,9 +196,7 @@ test.describe("Public applicant admission", () => {
     const acceptedInput = applicationInput("browser-replaced-command-id");
     await fillApplicationForm(page, acceptedInput);
     await page.getByRole("button", { name: "Send søknad" }).click();
-    await expect(
-      page.getByRole("heading", { name: "Søknaden er mottatt" }),
-    ).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Søknaden er mottatt" })).toBeVisible();
     expect(submittedCommandId).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
     );
@@ -242,9 +213,7 @@ test.describe("Public applicant admission", () => {
         "yearOfStudy",
       ].sort(),
     );
-    const applicationId = await page
-      .getByTestId("application-id")
-      .textContent();
+    const applicationId = await page.getByTestId("application-id").textContent();
     expect(applicationId).toBeTruthy();
     if (!applicationId) throw new Error("Opaque application ID was absent");
     const confirmationAxeViolations = await seriousCriticalViolations(page);
@@ -254,12 +223,9 @@ test.describe("Public applicant admission", () => {
       expect(confirmationPage).not.toContain(canary);
     }
 
-    const replayResponse = await request.post(
-      `${ADMISSION_API_ORIGIN}/api/applications`,
-      {
-        data: applicationInput(submittedCommandId),
-      },
-    );
+    const replayResponse = await request.post(`${BACKEND_ORIGIN}/api/applications`, {
+      data: applicationInput(submittedCommandId),
+    });
     expect(replayResponse.ok()).toBe(true);
     const replay = decodeStrict(submittedSchema, await replayResponse.json());
     expect(replay).toEqual({
@@ -269,18 +235,16 @@ test.describe("Public applicant admission", () => {
     });
 
     const confirmationResponse = await request.get(
-      `${ADMISSION_API_ORIGIN}/api/applications/${applicationId}/confirmation`,
+      `${BACKEND_ORIGIN}/api/applications/${applicationId}/confirmation`,
     );
     expect(confirmationResponse.ok()).toBe(true);
-    expect(
-      decodeStrict(confirmationSchema, await confirmationResponse.json()),
-    ).toEqual({
+    expect(decodeStrict(confirmationSchema, await confirmationResponse.json())).toEqual({
       _tag: "ApplicationConfirmed",
       applicationId,
     });
 
     const replayConflict = await expectErrorTag(
-      await request.post(`${ADMISSION_API_ORIGIN}/api/applications`, {
+      await request.post(`${BACKEND_ORIGIN}/api/applications`, {
         data: applicationInput(submittedCommandId, {
           phone: "+47 911 11 111",
         }),
@@ -297,23 +261,13 @@ test.describe("Public applicant admission", () => {
     });
     await fillApplicationForm(page, duplicateInput);
     await page.getByRole("button", { name: "Send søknad" }).click();
-    const duplicateAlert = page.locator(
-      '[data-error-tag="DuplicatePublicApplication"]',
-    );
+    const duplicateAlert = page.locator('[data-error-tag="DuplicatePublicApplication"]');
     await expect(duplicateAlert).toBeVisible();
-    await expect(page.getByLabel("Fornavn")).toHaveValue(
-      duplicateInput.firstName,
-    );
-    await expect(page.getByLabel("Etternavn")).toHaveValue(
-      duplicateInput.lastName,
-    );
+    await expect(page.getByLabel("Fornavn")).toHaveValue(duplicateInput.firstName);
+    await expect(page.getByLabel("Etternavn")).toHaveValue(duplicateInput.lastName);
     await expect(page.getByLabel("E-post")).toHaveValue(duplicateInput.email);
-    await expect(page.getByLabel("Telefonnummer")).toHaveValue(
-      duplicateInput.phone,
-    );
-    const duplicateCommandId = await page
-      .locator('input[name="commandId"]')
-      .inputValue();
+    await expect(page.getByLabel("Telefonnummer")).toHaveValue(duplicateInput.phone);
+    const duplicateCommandId = await page.locator('input[name="commandId"]').inputValue();
     expect(duplicateCommandId).not.toBe(submittedCommandId);
     const errorAxeViolations = await seriousCriticalViolations(page);
     expect(errorAxeViolations).toBe(0);
@@ -330,7 +284,7 @@ test.describe("Public applicant admission", () => {
     const validationTags: string[] = [];
     for (const data of malformedInputs) {
       const rejection = await expectErrorTag(
-        await request.post(`${ADMISSION_API_ORIGIN}/api/applications`, {
+        await request.post(`${BACKEND_ORIGIN}/api/applications`, {
           data,
         }),
         "PublicApplicationDecodeError",
@@ -339,7 +293,7 @@ test.describe("Public applicant admission", () => {
     }
 
     const excess = await expectErrorTag(
-      await request.post(`${ADMISSION_API_ORIGIN}/api/applications`, {
+      await request.post(`${BACKEND_ORIGIN}/api/applications`, {
         data: {
           ...applicationInput("invalid-excess"),
           applicantId: "browser-must-not-select-identity",
@@ -348,7 +302,7 @@ test.describe("Public applicant admission", () => {
       "PublicApplicationDecodeError",
     );
     const malformedJson = await expectErrorTag(
-      await request.fetch(`${ADMISSION_API_ORIGIN}/api/applications`, {
+      await request.fetch(`${BACKEND_ORIGIN}/api/applications`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         data: "{",
@@ -356,7 +310,7 @@ test.describe("Public applicant admission", () => {
       "PublicApplicationDecodeError",
     );
     const wrongContentType = await expectErrorTag(
-      await request.fetch(`${ADMISSION_API_ORIGIN}/api/applications`, {
+      await request.fetch(`${BACKEND_ORIGIN}/api/applications`, {
         method: "POST",
         headers: { "content-type": "text/plain" },
         data: JSON.stringify(applicationInput("invalid-content-type")),
@@ -364,7 +318,7 @@ test.describe("Public applicant admission", () => {
       "PublicApplicationDecodeError",
     );
     const bodyLimit = await expectErrorTag(
-      await request.post(`${ADMISSION_API_ORIGIN}/api/applications`, {
+      await request.post(`${BACKEND_ORIGIN}/api/applications`, {
         data: applicationInput("invalid-body-limit", {
           firstName: "x".repeat(131_072),
         }),
@@ -372,7 +326,7 @@ test.describe("Public applicant admission", () => {
       "RequestBodyTooLarge",
     );
     const unknownDepartment = await expectErrorTag(
-      await request.post(`${ADMISSION_API_ORIGIN}/api/applications`, {
+      await request.post(`${BACKEND_ORIGIN}/api/applications`, {
         data: applicationInput("unknown-department", {
           departmentId: "department-unknown",
         }),
@@ -380,7 +334,7 @@ test.describe("Public applicant admission", () => {
       "DepartmentNotFound",
     );
     const unknownField = await expectErrorTag(
-      await request.post(`${ADMISSION_API_ORIGIN}/api/applications`, {
+      await request.post(`${BACKEND_ORIGIN}/api/applications`, {
         data: applicationInput("unknown-field", {
           fieldOfStudyId: "field-unknown",
         }),
@@ -388,7 +342,7 @@ test.describe("Public applicant admission", () => {
       "FieldOfStudyNotFound",
     );
     const inactiveField = await expectErrorTag(
-      await request.post(`${ADMISSION_API_ORIGIN}/api/applications`, {
+      await request.post(`${BACKEND_ORIGIN}/api/applications`, {
         data: applicationInput("inactive-field", {
           fieldOfStudyId: INACTIVE_FIELD_OF_STUDY_ID,
         }),
@@ -396,7 +350,7 @@ test.describe("Public applicant admission", () => {
       "FieldOfStudyInactive",
     );
     const crossDepartmentField = await expectErrorTag(
-      await request.post(`${ADMISSION_API_ORIGIN}/api/applications`, {
+      await request.post(`${BACKEND_ORIGIN}/api/applications`, {
         data: applicationInput("cross-department-field", {
           fieldOfStudyId: FOREIGN_FIELD_OF_STUDY_ID,
         }),
@@ -413,29 +367,20 @@ test.describe("Public applicant admission", () => {
       }),
     ] as const;
     const concurrentResponses = await Promise.all(
-      concurrentInputs.map((data) =>
-        request.post(`${ADMISSION_API_ORIGIN}/api/applications`, { data }),
-      ),
+      concurrentInputs.map((data) => request.post(`${BACKEND_ORIGIN}/api/applications`, { data })),
     );
-    const concurrentAccepted = concurrentResponses.filter((response) =>
-      response.ok(),
-    );
-    const concurrentRejected = concurrentResponses.filter(
-      (response) => !response.ok(),
-    );
+    const concurrentAccepted = concurrentResponses.filter((response) => response.ok());
+    const concurrentRejected = concurrentResponses.filter((response) => !response.ok());
     expect(concurrentAccepted).toHaveLength(1);
     expect(concurrentRejected).toHaveLength(1);
-    const concurrentObservation = decodeStrict(
-      submittedSchema,
-      await concurrentAccepted[0].json(),
-    );
+    const concurrentObservation = decodeStrict(submittedSchema, await concurrentAccepted[0].json());
     const concurrentDuplicate = await expectErrorTag(
       concurrentRejected[0],
       "DuplicatePublicApplication",
     );
 
     const closeResponse = await request.post(
-      `${ADMISSION_API_ORIGIN}/api/admin/admission-periods/${admissionPeriodId}/revise`,
+      `${BACKEND_ORIGIN}/api/admin/admission-periods/${admissionPeriodId}/revise`,
       {
         headers: { authorization: `Bearer ${leaderToken}` },
         data: {
@@ -449,14 +394,14 @@ test.describe("Public applicant admission", () => {
     expect(closeResponse.ok()).toBe(true);
 
     const confirmationAfterClose = await request.get(
-      `${ADMISSION_API_ORIGIN}/api/applications/${applicationId}/confirmation`,
+      `${BACKEND_ORIGIN}/api/applications/${applicationId}/confirmation`,
     );
     expect(confirmationAfterClose.ok()).toBe(true);
-    expect(
-      decodeStrict(confirmationSchema, await confirmationAfterClose.json()),
-    ).toMatchObject({ applicationId });
+    expect(decodeStrict(confirmationSchema, await confirmationAfterClose.json())).toMatchObject({
+      applicationId,
+    });
     const closedApplication = await expectErrorTag(
-      await request.post(`${ADMISSION_API_ORIGIN}/api/applications`, {
+      await request.post(`${BACKEND_ORIGIN}/api/applications`, {
         data: applicationInput("application-after-close", {
           email: "after-close-0039@example.invalid",
         }),
@@ -465,22 +410,15 @@ test.describe("Public applicant admission", () => {
     );
     expect((await catalog(request)).departments).toEqual([]);
     await page.reload();
-    await expect(
-      page.getByRole("heading", { name: "Ingen opptak er åpne nå" }),
-    ).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Ingen opptak er åpne nå" })).toBeVisible();
 
-    let rateLimited:
-      | { readonly status: number; readonly tag: string }
-      | undefined;
+    let rateLimited: { readonly status: number; readonly tag: string } | undefined;
     for (let index = 0; index < rateLimitAttempts && !rateLimited; index += 1) {
-      const response = await request.post(
-        `${ADMISSION_API_ORIGIN}/api/applications`,
-        {
-          data: applicationInput(`rate-limit-${index}`, {
-            email: `rate-limit-${index}@example.invalid`,
-          }),
-        },
-      );
+      const response = await request.post(`${BACKEND_ORIGIN}/api/applications`, {
+        data: applicationInput(`rate-limit-${index}`, {
+          email: `rate-limit-${index}@example.invalid`,
+        }),
+      });
       if (!response.ok()) {
         const decoded = decodeStrict(errorSchema, await response.json());
         if (decoded.error.tag === "PublicApplicationRateLimitExceeded") {
@@ -495,9 +433,7 @@ test.describe("Public applicant admission", () => {
 
     const lifecycle = {
       catalog: {
-        departmentIds: initialCatalog.departments.map(
-          (department) => department.departmentId,
-        ),
+        departmentIds: initialCatalog.departments.map((department) => department.departmentId),
         fieldIds: initialCatalog.departments.flatMap((department) =>
           department.fieldsOfStudy.map((field) => field.fieldOfStudyId),
         ),

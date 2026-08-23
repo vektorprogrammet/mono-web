@@ -1,4 +1,4 @@
-import * as PgClient from "@effect/sql-pg/PgClient";
+import { Database, type DatabaseShape } from "../database/service.js";
 import { Effect, Schema } from "effect";
 import { canonicalJson, canonicalJsonBytes, sha256Hex } from "../tutor/evidence.js";
 import {
@@ -72,7 +72,7 @@ const receiptFromRow = (row: ReceiptRow): Effect.Effect<Receipt, ReceiptPersiste
   }).pipe(Effect.mapError((cause) => persistenceError("decode receipt row", cause)));
 
 const findReceipt = (
-  sql: PgClient.PgClient,
+  sql: DatabaseShape,
   receiptId: string,
 ): Effect.Effect<Receipt | undefined, ReceiptPersistenceError> =>
   sql<ReceiptRow>`
@@ -98,7 +98,7 @@ const findReceipt = (
   );
 
 const findCommandReceipt = (
-  sql: PgClient.PgClient,
+  sql: DatabaseShape,
   commandId: string,
 ): Effect.Effect<CommandReceiptRow | undefined, ReceiptPersistenceError> =>
   sql<CommandReceiptRow>`
@@ -113,7 +113,7 @@ const findCommandReceipt = (
   );
 
 const storeReceipt = (
-  sql: PgClient.PgClient,
+  sql: DatabaseShape,
   receipt: Receipt,
   previous: Receipt | undefined,
 ): Effect.Effect<void, ReceiptFailure> => {
@@ -173,20 +173,20 @@ const storeReceipt = (
 };
 
 const storeOutbox = (
-  sql: PgClient.PgClient,
+  sql: DatabaseShape,
   requests: ReadonlyArray<ReceiptOutboxRequest>,
 ): Effect.Effect<void, ReceiptPersistenceError> =>
   Effect.forEach(
     requests,
     (request, ordinal) =>
       sql`
-        INSERT INTO economy_receipt_outbox (
-          effect_id, effect_type, receipt_id, command_id, ordinal, payload_json
-        ) VALUES (
-          ${request.effectId}, ${request._tag}, ${request.receiptId},
-          ${request.commandId}, ${ordinal}, ${sql.json(request)}
-        )
-      `.pipe(Effect.asVoid),
+      INSERT INTO economy_receipt_outbox (
+        effect_id, effect_type, receipt_id, command_id, ordinal, payload_json
+      ) VALUES (
+        ${request.effectId}, ${request._tag}, ${request.receiptId},
+        ${request.commandId}, ${ordinal}, ${sql.json(request)}
+      )
+    `.pipe(Effect.asVoid),
     { discard: true },
   ).pipe(
     Effect.catchTag("SqlError", (cause) => Effect.fail(persistenceError("insert outbox", cause))),
@@ -194,30 +194,30 @@ const storeOutbox = (
 
 export const storeReceiptImportResult = (
   result: ReceiptImportResult,
-): Effect.Effect<void, ReceiptPersistenceError, PgClient.PgClient> =>
+): Effect.Effect<void, ReceiptPersistenceError, Database> =>
   Effect.gen(function* () {
-    const sql = yield* PgClient.PgClient;
+    const sql = yield* Database;
     const provenance = result.provenance;
     yield* sql`
-      INSERT INTO economy_receipt_import_ledger (
-        source_repository, source_revision, snapshot_id, source_watermark,
-        source_primary_key, source_digest, transformation_revision,
-        target_semantic_identity, destination_identity, result,
-        reconciliation_result, reasons_json
-      ) VALUES (
-        ${provenance.sourceRepository}, ${provenance.sourceRevision},
-        ${provenance.snapshotId}, ${provenance.sourceWatermark},
-        ${result.sourcePrimaryKey}, ${provenance.sourceDigest},
-        ${provenance.transformationRevision},
-        ${result._tag === "AcceptedReceiptImport" ? result.receipt.visualId : result.sourcePrimaryKey},
-        ${provenance.destinationIdentity},
-        ${result._tag === "AcceptedReceiptImport" ? "Accepted" : "Quarantined"},
-        ${result.reconciliation},
-        ${sql.json({
-          reasons: result._tag === "QuarantinedReceiptImport" ? result.reasons : [],
-        })}
-      )
-    `.pipe(
+    INSERT INTO economy_receipt_import_ledger (
+      source_repository, source_revision, snapshot_id, source_watermark,
+      source_primary_key, source_digest, transformation_revision,
+      target_semantic_identity, destination_identity, result,
+      reconciliation_result, reasons_json
+    ) VALUES (
+      ${provenance.sourceRepository}, ${provenance.sourceRevision},
+      ${provenance.snapshotId}, ${provenance.sourceWatermark},
+      ${result.sourcePrimaryKey}, ${provenance.sourceDigest},
+      ${provenance.transformationRevision},
+      ${result._tag === "AcceptedReceiptImport" ? result.receipt.visualId : result.sourcePrimaryKey},
+      ${provenance.destinationIdentity},
+      ${result._tag === "AcceptedReceiptImport" ? "Accepted" : "Quarantined"},
+      ${result.reconciliation},
+      ${sql.json({
+        reasons: result._tag === "QuarantinedReceiptImport" ? result.reasons : [],
+      })}
+    )
+  `.pipe(
       Effect.asVoid,
       Effect.catchTag("SqlError", (cause) =>
         Effect.fail(persistenceError("insert import ledger", cause)),
@@ -225,29 +225,15 @@ export const storeReceiptImportResult = (
     );
   });
 
-export const migrateReceiptPostgres = (
-  migrationSql: string,
-): Effect.Effect<void, ReceiptPersistenceError, PgClient.PgClient> =>
-  Effect.gen(function* () {
-    const sql = yield* PgClient.PgClient;
-    yield* sql
-      .unsafe(migrationSql)
-      .pipe(
-        Effect.catchTag("SqlError", (cause) =>
-          Effect.fail(persistenceError("migrate receipt schema", cause)),
-        ),
-      );
-  });
-
 export const executeReceiptCommand = (
   input: unknown,
   context: ReceiptDecisionContext,
-): Effect.Effect<ReceiptTransactionResult, ReceiptFailure, PgClient.PgClient> =>
+): Effect.Effect<ReceiptTransactionResult, ReceiptFailure, Database> =>
   Effect.gen(function* () {
     const command = yield* Schema.decodeUnknownEffect(ReceiptCommandSchema)(input, {
       onExcessProperty: "error",
     }).pipe(Effect.mapError((cause) => new ReceiptDecodeError({ message: String(cause) })));
-    const sql = yield* PgClient.PgClient;
+    const sql = yield* Database;
     const commandJson = canonicalJson(command);
     const commandDigest = sha256Hex(canonicalJsonBytes(command));
 
@@ -285,29 +271,29 @@ export const executeReceiptCommand = (
           const decision = yield* decideReceipt(previous, command, context);
           yield* storeReceipt(sql, decision.receipt, previous);
           yield* sql`
-          INSERT INTO economy_receipt_command_receipts (
-            command_id, command_sha256, command_json, observation_json,
-            receipt_id, committed_at
-          ) VALUES (
-            ${command.commandId}, ${commandDigest}, ${sql.json(JSON.parse(commandJson))},
-            ${sql.json(decision.observation)}, ${decision.receipt.receiptId}, ${context.now}
-          )
-        `.pipe(
+        INSERT INTO economy_receipt_command_receipts (
+          command_id, command_sha256, command_json, observation_json,
+          receipt_id, committed_at
+        ) VALUES (
+          ${command.commandId}, ${commandDigest}, ${sql.json(JSON.parse(commandJson))},
+          ${sql.json(decision.observation)}, ${decision.receipt.receiptId}, ${context.now}
+        )
+      `.pipe(
             Effect.catchTag("SqlError", (cause) =>
               Effect.fail(persistenceError("insert command receipt", cause)),
             ),
           );
           yield* storeOutbox(sql, decision.outbox);
           yield* sql`
-          INSERT INTO economy_receipt_audit (
-            command_id, receipt_id, actor_person_id, action,
-            receipt_revision, occurred_at
-          ) VALUES (
-            ${command.commandId}, ${decision.receipt.receiptId},
-            ${command.actor.personId}, ${decision.auditAction},
-            ${decision.receipt.revision}, ${context.now}
-          )
-        `.pipe(
+        INSERT INTO economy_receipt_audit (
+          command_id, receipt_id, actor_person_id, action,
+          receipt_revision, occurred_at
+        ) VALUES (
+          ${command.commandId}, ${decision.receipt.receiptId},
+          ${command.actor.personId}, ${decision.auditAction},
+          ${decision.receipt.revision}, ${context.now}
+        )
+      `.pipe(
             Effect.catchTag("SqlError", (cause) =>
               Effect.fail(persistenceError("insert audit", cause)),
             ),

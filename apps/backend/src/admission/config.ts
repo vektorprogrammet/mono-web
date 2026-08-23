@@ -10,9 +10,6 @@ export interface AdmissionApiRateLimit {
 }
 
 export interface AdmissionApiConfig {
-  readonly host: string;
-  readonly port: number;
-  readonly postgresUrl: string;
   readonly tokens: ReadonlyMap<string, AdmissionApiPrincipal>;
   readonly maxBodyBytes: number;
   readonly rateLimit: AdmissionApiRateLimit;
@@ -88,16 +85,6 @@ const parseTokens = (raw: string | undefined): ReadonlyMap<string, AdmissionApiP
   return result;
 };
 
-const parsePort = (raw: string | undefined): number => {
-  const value = raw ?? "8790";
-  if (!/^\d+$/.test(value)) throw new Error("ADMISSION_API_PORT must be an integer");
-  const port = Number(value);
-  if (!Number.isSafeInteger(port) || port < 1 || port > 65535) {
-    throw new Error("ADMISSION_API_PORT is outside the valid range");
-  }
-  return port;
-};
-
 const parsePositiveInteger = (raw: string | undefined, fallback: number, field: string): number => {
   const value = raw ?? String(fallback);
   if (!/^\d+$/.test(value)) throw new Error(`${field} must be an integer`);
@@ -106,13 +93,6 @@ const parsePositiveInteger = (raw: string | undefined, fallback: number, field: 
     throw new Error(`${field} must be a positive safe integer`);
   }
   return parsed;
-};
-
-const loopbackHost = (host: string): string => {
-  if (host !== "127.0.0.1" && host !== "localhost" && host !== "::1") {
-    throw new Error("ADMISSION_API_HOST must be loopback");
-  }
-  return host;
 };
 
 const isInstant = (value: string): boolean =>
@@ -149,29 +129,26 @@ export const makeAdmissionApiRateLimit = (
 export const makeAdmissionApiConfig = (
   env: Readonly<Record<string, string | undefined>> = process.env,
 ): AdmissionApiConfig => {
-  const configuredNow = env.ADMISSION_FIXED_NOW ?? env.ADMISSION_API_NOW;
+  const configuredNow = env.ADMISSION_FIXED_NOW;
   if (configuredNow !== undefined && !isInstant(configuredNow)) {
     throw new Error("ADMISSION_FIXED_NOW must be an RFC 3339 instant");
   }
   const maxBodyBytes = parsePositiveInteger(
-    env.ADMISSION_MAX_BODY_BYTES ?? env.ADMISSION_API_MAX_BODY_BYTES,
+    env.ADMISSION_MAX_BODY_BYTES,
     16_384,
     "ADMISSION_MAX_BODY_BYTES",
   );
   const rateLimitMax = parsePositiveInteger(
-    env.ADMISSION_RATE_LIMIT_MAX ?? env.ADMISSION_API_RATE_LIMIT_MAX,
+    env.ADMISSION_RATE_LIMIT_MAX,
     5,
     "ADMISSION_RATE_LIMIT_MAX",
   );
   const rateLimitWindow = parsePositiveInteger(
-    env.ADMISSION_RATE_LIMIT_WINDOW_MS ?? env.ADMISSION_API_RATE_LIMIT_WINDOW_MS,
+    env.ADMISSION_RATE_LIMIT_WINDOW_MS,
     60_000,
     "ADMISSION_RATE_LIMIT_WINDOW_MS",
   );
   return {
-    host: loopbackHost(env.ADMISSION_API_HOST ?? "127.0.0.1"),
-    port: parsePort(env.ADMISSION_API_PORT),
-    postgresUrl: nonEmpty(env.ADMISSION_PG_URL, "ADMISSION_PG_URL"),
     tokens: parseTokens(env.ADMISSION_AUTH_TOKENS),
     maxBodyBytes,
     rateLimit: makeAdmissionApiRateLimit(rateLimitMax, rateLimitWindow),

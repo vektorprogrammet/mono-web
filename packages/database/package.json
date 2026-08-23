@@ -1,5 +1,5 @@
 {
-  "name": "@vektorprogrammet/admission-api",
+  "name": "@vektorprogrammet/database",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -7,8 +7,8 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "start": "bun run src/main.ts",
-    "dev": "bun run --watch src/main.ts",
+    "test": "vitest run && bun run proof:receipt",
+    "proof:receipt": "bun run src/receipt-postgres-proof-main.ts",
     "check-types": "tsc --noEmit",
     "build": "tsc --noEmit",
     "lint": "oxlint"
@@ -19,8 +19,11 @@
     "effect": "catalog:effect-v4"
   },
   "devDependencies": {
+    "@effect/sql-pglite": "catalog:effect-v4",
+    "@effect/vitest": "catalog:effect-v4",
     "@types/node": "^22",
     "oxlint": "^1.41.0",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "catalog:effect-v4"
   }
 }

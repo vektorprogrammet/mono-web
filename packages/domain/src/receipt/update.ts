@@ -110,14 +110,9 @@ const observation = (commandId: string, receipt: Receipt): ReceiptObservation =>
 });
 
 const effect = makeReceiptOutboxRequest;
-type KeepCurrentFileSelection = Extract<
-  ReceiptFileSelection,
-  { readonly _tag: "KeepCurrentFile" }
->;
+type KeepCurrentFileSelection = Extract<ReceiptFileSelection, { readonly _tag: "KeepCurrentFile" }>;
 
-const isKeepCurrentFile = (
-  file: ReceiptFileSelection,
-): file is KeepCurrentFileSelection =>
+const isKeepCurrentFile = (file: ReceiptFileSelection): file is KeepCurrentFileSelection =>
   "_tag" in file && file._tag === "KeepCurrentFile";
 
 const decideCommand = (

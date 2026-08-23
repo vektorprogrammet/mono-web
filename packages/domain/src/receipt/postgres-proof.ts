@@ -1,13 +1,9 @@
-import * as PgClient from "@effect/sql-pg/PgClient";
+import { Database, type DatabaseShape } from "../database/service.js";
 import assert from "node:assert/strict";
 import { Effect } from "effect";
 import { canonicalJsonBytes, sha256Hex } from "../tutor/evidence.js";
 import { importLegacyReceipts, type ReceiptImportProvenance } from "./import.js";
-import {
-  executeReceiptCommand,
-  migrateReceiptPostgres,
-  storeReceiptImportResult,
-} from "./postgres.js";
+import { executeReceiptCommand, storeReceiptImportResult } from "./postgres.js";
 import { listApproverReceipts, listAssistantReceipts, receiptStatusTotals } from "./projections.js";
 import type { LegacyReceiptRow, ReceiptActor, ReceiptFile } from "./schema.js";
 
@@ -111,22 +107,19 @@ const submit = (commandId: string, description: string, receiptFile = file) => (
   file: receiptFile,
 });
 
-const count = (sql: PgClient.PgClient, table: string) =>
+const count = (sql: DatabaseShape, table: string) =>
   sql
     .unsafe<CountRow>(`SELECT count(*)::text AS count FROM ${table}`)
     .pipe(Effect.map((rows) => Number(rows[0]?.count ?? "0")));
 
-export const runReceiptPostgresProof = (
-  migrationSql: string,
-): Effect.Effect<ReceiptProofEvidence, unknown, PgClient.PgClient> =>
+export const runReceiptPostgresProof: Effect.Effect<ReceiptProofEvidence, unknown, Database> =
   Effect.gen(function* () {
-    const sql = yield* PgClient.PgClient;
-    yield* migrateReceiptPostgres(migrationSql);
+    const sql = yield* Database;
     yield* sql.unsafe(`
-      TRUNCATE economy_receipt_outbox, economy_receipt_audit,
-        economy_receipt_command_receipts, economy_receipts,
-        economy_receipt_import_ledger CASCADE
-    `);
+    TRUNCATE economy_receipt_outbox, economy_receipt_audit,
+      economy_receipt_command_receipts, economy_receipts,
+      economy_receipt_import_ledger CASCADE
+  `);
 
     const firstContext = context("proof-receipt-1", "PROOF-0001", "2026-08-20T12:00:00.000Z");
     const submitted = yield* executeReceiptCommand(
@@ -213,18 +206,18 @@ export const runReceiptPostgresProof = (
     );
 
     yield* sql.unsafe(`
-      CREATE OR REPLACE FUNCTION reject_receipt_proof_audit() RETURNS trigger AS $$
-      BEGIN
-        IF NEW.command_id = 'proof-command-rollback' THEN
-          RAISE EXCEPTION 'receipt proof rollback injection';
-        END IF;
-        RETURN NEW;
-      END;
-      $$ LANGUAGE plpgsql;
-      CREATE TRIGGER receipt_proof_audit_failure
-        BEFORE INSERT ON economy_receipt_audit
-        FOR EACH ROW EXECUTE FUNCTION reject_receipt_proof_audit();
-    `);
+    CREATE OR REPLACE FUNCTION reject_receipt_proof_audit() RETURNS trigger AS $$
+    BEGIN
+      IF NEW.command_id = 'proof-command-rollback' THEN
+        RAISE EXCEPTION 'receipt proof rollback injection';
+      END IF;
+      RETURN NEW;
+    END;
+    $$ LANGUAGE plpgsql;
+    CREATE TRIGGER receipt_proof_audit_failure
+      BEFORE INSERT ON economy_receipt_audit
+      FOR EACH ROW EXECUTE FUNCTION reject_receipt_proof_audit();
+  `);
     const failedTransaction = yield* Effect.exit(
       executeReceiptCommand(
         submit("proof-command-rollback", "Rollback after durable writes", rollbackFile),
@@ -232,9 +225,9 @@ export const runReceiptPostgresProof = (
       ),
     );
     yield* sql.unsafe(`
-      DROP TRIGGER receipt_proof_audit_failure ON economy_receipt_audit;
-      DROP FUNCTION reject_receipt_proof_audit();
-    `);
+    DROP TRIGGER receipt_proof_audit_failure ON economy_receipt_audit;
+    DROP FUNCTION reject_receipt_proof_audit();
+  `);
 
     const provenance = (
       row: LegacyReceiptRow,
@@ -303,9 +296,9 @@ export const runReceiptPostgresProof = (
       count(sql, "economy_receipt_audit"),
       count(sql, "economy_receipt_import_ledger"),
       sql<{ readonly count: string }>`
-          SELECT count(*)::text AS count FROM economy_receipts
-          WHERE receipt_id = 'proof-receipt-3'
-        `.pipe(Effect.map((rows) => Number(rows[0]?.count ?? "0"))),
+        SELECT count(*)::text AS count FROM economy_receipts
+        WHERE receipt_id = 'proof-receipt-3'
+      `.pipe(Effect.map((rows) => Number(rows[0]?.count ?? "0"))),
     ]);
 
     const evidence: ReceiptProofEvidence = {

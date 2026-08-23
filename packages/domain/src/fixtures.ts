@@ -74,11 +74,15 @@ const input = (
   globalMemberships: ReadonlyArray<unknown>,
 ): RawDatasetInput => ({ departments, teams, teamMemberships, executiveBoards, globalMemberships });
 
-const localAuthority = (entries: ReadonlyArray<readonly [number, ReadonlyArray<number>]>): PersonAuthorityProjection =>
-  authorityFromEntries(entries);
+const localAuthority = (
+  entries: ReadonlyArray<readonly [number, ReadonlyArray<number>]>,
+): PersonAuthorityProjection => authorityFromEntries(entries);
 
-
-const oneLocal = (departmentId: number | null = 10, userId = 1, teamId: number | null = 100): RawDatasetInput =>
+const oneLocal = (
+  departmentId: number | null = 10,
+  userId = 1,
+  teamId: number | null = 100,
+): RawDatasetInput =>
   input(
     departmentId === null ? [{ id: 10 }] : [{ id: departmentId }],
     [{ id: 100, departmentId }],
@@ -103,7 +107,10 @@ const fixtureDefinitions: ReadonlyArray<FixtureDefinition> = [
     id: "F-local-set-valued",
     input: input(
       [{ id: 10 }, { id: 20 }],
-      [{ id: 100, departmentId: 10 }, { id: 200, departmentId: 20 }],
+      [
+        { id: 100, departmentId: 10 },
+        { id: 200, departmentId: 20 },
+      ],
       [
         { id: 1, userId: 1, teamId: 100 },
         { id: 2, userId: 1, teamId: 200 },
@@ -126,7 +133,8 @@ const fixtureDefinitions: ReadonlyArray<FixtureDefinition> = [
     personAuthority: localAuthority([[1, [20]]]),
     expectedStatus: "FAIL",
     expectedReasonCodes: ["ACCEPT_LOCAL", "LOCAL_DEPARTMENT_MISMATCH"],
-    predicate: (result) => result.relation.localAcceptedEdges === 1 && result.personComparison.mismatches === 1,
+    predicate: (result) =>
+      result.relation.localAcceptedEdges === 1 && result.personComparison.mismatches === 1,
   },
   {
     id: "F-local-null",
@@ -224,7 +232,8 @@ const fixtureDefinitions: ReadonlyArray<FixtureDefinition> = [
     personAuthority: localAuthority([]),
     expectedStatus: "INFO",
     expectedReasonCodes: [],
-    predicate: (result) => result.checked === 0 && result.relationCompleteness === "PARTIAL" && result.drift,
+    predicate: (result) =>
+      result.checked === 0 && result.relationCompleteness === "PARTIAL" && result.drift,
   },
   {
     id: "F-duplicate-targets",
@@ -301,7 +310,11 @@ const fixtureDefinitions: ReadonlyArray<FixtureDefinition> = [
           "team_membership.json": "[]",
           "executive_board_membership.json": "[]",
         };
-        await Promise.all(Object.entries(files).map(([file, contents]) => writeFile(join(directory, file), contents, "utf8")));
+        await Promise.all(
+          Object.entries(files).map(([file, contents]) =>
+            writeFile(join(directory, file), contents, "utf8"),
+          ),
+        );
         try {
           await loadDataset(directory);
           return undefined;
@@ -337,7 +350,7 @@ const failedObservation = (
     exactReasonCodes &&
     (result === undefined
       ? error?.code === "MISSING_INPUT" && error.file === "executive_board.json"
-      : fixture.predicate?.(result) ?? true);
+      : (fixture.predicate?.(result) ?? true));
   return {
     fixture: fixture.id,
     expectedStatus: fixture.expectedStatus,
@@ -395,12 +408,14 @@ const assertBoundaryFixtures = async (): Promise<void> => {
   };
   try {
     await expectAuthorityFailure("[", "INVALID_JSON");
-    await expectAuthorityFailure('[{"userId":1,"departmentIds":["not valid JSON"]}]', "INVALID_PERSON_AUTHORITY");
+    await expectAuthorityFailure(
+      '[{"userId":1,"departmentIds":["not valid JSON"]}]',
+      "INVALID_PERSON_AUTHORITY",
+    );
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
 };
-
 
 export const runSyntheticFixtures = async (): Promise<ReadonlyArray<FixtureObservation>> => {
   await assertBoundaryFixtures();
@@ -423,7 +438,10 @@ export const runSyntheticFixtures = async (): Promise<ReadonlyArray<FixtureObser
       });
       observations.push(failedObservation(fixture, result, undefined));
     } catch (error: unknown) {
-      const safeError = error instanceof DatasetInputError ? error : new DatasetInputError("INVALID_ARGUMENT", "fixture");
+      const safeError =
+        error instanceof DatasetInputError
+          ? error
+          : new DatasetInputError("INVALID_ARGUMENT", "fixture");
       observations.push(failedObservation(fixture, undefined, safeError));
     }
   }
@@ -431,4 +449,5 @@ export const runSyntheticFixtures = async (): Promise<ReadonlyArray<FixtureObser
 };
 
 export const allFixturesPass = (observations: ReadonlyArray<FixtureObservation>): boolean =>
-  observations.length === FIXTURE_IDS.length && observations.every((observation) => observation.passed);
+  observations.length === FIXTURE_IDS.length &&
+  observations.every((observation) => observation.passed);

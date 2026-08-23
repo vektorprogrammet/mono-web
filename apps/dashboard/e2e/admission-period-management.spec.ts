@@ -10,8 +10,7 @@ import {
 } from "@playwright/test";
 
 const DASHBOARD_ORIGIN = process.env.DASHBOARD_ORIGIN ?? "http://127.0.0.1:5174";
-const ADMISSION_API_ORIGIN =
-  process.env.ADMISSION_API_ORIGIN ?? "http://127.0.0.1:8791";
+const BACKEND_ORIGIN = process.env.BACKEND_ORIGIN ?? "http://127.0.0.1:8791";
 const REAL_ADMISSION_PERIOD_E2E = process.env.REAL_ADMISSION_PERIOD_E2E === "1";
 const DEPARTMENT_ID = "department-trondheim";
 const FOREIGN_DEPARTMENT_ID = "department-bergen";
@@ -74,10 +73,7 @@ const applicationSubmissionSchema = Schema.Struct({
   applicationId: Schema.String,
 });
 
-const decodeStrict = <A>(
-  schema: Schema.ConstraintDecoder<A, never>,
-  value: unknown,
-): A =>
+const decodeStrict = <A>(schema: Schema.ConstraintDecoder<A, never>, value: unknown): A =>
   Schema.decodeUnknownSync(schema)(value, { onExcessProperty: "error" });
 
 const requiredEnvironment = (name: string): string => {
@@ -122,17 +118,15 @@ async function readManagementPage(
   request: APIRequestContext,
   token: string,
 ): Promise<typeof periodPageSchema.Type> {
-  const response = await request.get(`${ADMISSION_API_ORIGIN}/api/admin/admission-periods`, {
+  const response = await request.get(`${BACKEND_ORIGIN}/api/admin/admission-periods`, {
     headers: authorization(token),
   });
   expect(response.ok()).toBe(true);
   return decodeStrict(periodPageSchema, await response.json());
 }
 
-async function readOpenPage(
-  request: APIRequestContext,
-): Promise<typeof periodPageSchema.Type> {
-  const response = await request.get(`${ADMISSION_API_ORIGIN}/api/admission-periods/open`);
+async function readOpenPage(request: APIRequestContext): Promise<typeof periodPageSchema.Type> {
+  const response = await request.get(`${BACKEND_ORIGIN}/api/admission-periods/open`);
   expect(response.ok()).toBe(true);
   return decodeStrict(periodPageSchema, await response.json());
 }
@@ -169,9 +163,7 @@ test.describe("Native admission-period management", () => {
     const createError = page.locator('[data-error-tag="AdmissionPeriodFormError"]');
     await expect(createError).toBeVisible();
     await expect(page.getByLabel("Semester-ID", { exact: false })).toHaveValue(SEMESTER_ID);
-    await expect(page.getByLabel("Starter (UTC)", { exact: false })).toHaveValue(
-      OPEN_START_INPUT,
-    );
+    await expect(page.getByLabel("Starter (UTC)", { exact: false })).toHaveValue(OPEN_START_INPUT);
     const createCommandId = await page
       .locator('form[aria-labelledby="admission-period-create-title"] input[name="commandId"]')
       .inputValue();
@@ -210,21 +202,15 @@ test.describe("Native admission-period management", () => {
     const openBeforeClose = await readOpenPage(request);
     expect(openBeforeClose.items.map((period) => period.id)).toContain(admissionPeriodId);
 
-    const unauthenticated = await request.get(
-      `${ADMISSION_API_ORIGIN}/api/admin/admission-periods`,
-    );
-    const unauthenticatedError = await expectErrorTag(
-      unauthenticated,
-      "UnauthenticatedActor",
-    );
-    const inactive = await request.get(`${ADMISSION_API_ORIGIN}/api/admin/admission-periods`, {
+    const unauthenticated = await request.get(`${BACKEND_ORIGIN}/api/admin/admission-periods`);
+    const unauthenticatedError = await expectErrorTag(unauthenticated, "UnauthenticatedActor");
+    const inactive = await request.get(`${BACKEND_ORIGIN}/api/admin/admission-periods`, {
       headers: authorization(inactiveToken),
     });
     const inactiveError = await expectErrorTag(inactive, "InactiveActor");
-    const roleDenied = await request.get(
-      `${ADMISSION_API_ORIGIN}/api/admin/admission-periods`,
-      { headers: authorization(roleDeniedToken) },
-    );
+    const roleDenied = await request.get(`${BACKEND_ORIGIN}/api/admin/admission-periods`, {
+      headers: authorization(roleDeniedToken),
+    });
     const roleDeniedError = await expectErrorTag(roleDenied, "AdmissionRoleDenied");
 
     const originalCreate = {
@@ -233,17 +219,17 @@ test.describe("Native admission-period management", () => {
       startAt: OPEN_START,
       endAt: OPEN_END,
     };
-    const replayResponse = await request.post(
-      `${ADMISSION_API_ORIGIN}/api/admin/admission-periods`,
-      { headers: authorization(leaderToken), data: originalCreate },
-    );
+    const replayResponse = await request.post(`${BACKEND_ORIGIN}/api/admin/admission-periods`, {
+      headers: authorization(leaderToken),
+      data: originalCreate,
+    });
     expect(replayResponse.ok()).toBe(true);
     const replay = decodeStrict(observationSchema, await replayResponse.json());
     expect(replay._tag).toBe("Replayed");
     expect(periodFromObservation(replay).id).toBe(admissionPeriodId);
 
     const replayConflictResponse = await request.post(
-      `${ADMISSION_API_ORIGIN}/api/admin/admission-periods`,
+      `${BACKEND_ORIGIN}/api/admin/admission-periods`,
       {
         headers: authorization(leaderToken),
         data: { ...originalCreate, endAt: "2031-09-30T20:00:00.000Z" },
@@ -254,19 +240,13 @@ test.describe("Native admission-period management", () => {
       "DuplicateAdmissionPeriodCommandConflict",
     );
 
-    const duplicateResponse = await request.post(
-      `${ADMISSION_API_ORIGIN}/api/admin/admission-periods`,
-      {
-        headers: authorization(leaderToken),
-        data: { ...originalCreate, commandId: "admission-e2e-duplicate" },
-      },
-    );
-    const duplicate = await expectErrorTag(
-      duplicateResponse,
-      "AdmissionPeriodAlreadyExists",
-    );
+    const duplicateResponse = await request.post(`${BACKEND_ORIGIN}/api/admin/admission-periods`, {
+      headers: authorization(leaderToken),
+      data: { ...originalCreate, commandId: "admission-e2e-duplicate" },
+    });
+    const duplicate = await expectErrorTag(duplicateResponse, "AdmissionPeriodAlreadyExists");
     const invalidWindowResponse = await request.post(
-      `${ADMISSION_API_ORIGIN}/api/admin/admission-periods`,
+      `${BACKEND_ORIGIN}/api/admin/admission-periods`,
       {
         headers: authorization(leaderToken),
         data: {
@@ -281,35 +261,26 @@ test.describe("Native admission-period management", () => {
       invalidWindowResponse,
       "InvalidAdmissionPeriodWindow",
     );
-    const crossScopeResponse = await request.post(
-      `${ADMISSION_API_ORIGIN}/api/admin/admission-periods`,
-      {
-        headers: authorization(leaderToken),
-        data: {
-          ...originalCreate,
-          commandId: "admission-e2e-cross-scope",
-          departmentId: FOREIGN_DEPARTMENT_ID,
-        },
+    const crossScopeResponse = await request.post(`${BACKEND_ORIGIN}/api/admin/admission-periods`, {
+      headers: authorization(leaderToken),
+      data: {
+        ...originalCreate,
+        commandId: "admission-e2e-cross-scope",
+        departmentId: FOREIGN_DEPARTMENT_ID,
       },
-    );
+    });
     const crossScope = await expectErrorTag(crossScopeResponse, "AdmissionScopeDenied");
-    const malformedResponse = await request.post(
-      `${ADMISSION_API_ORIGIN}/api/admin/admission-periods`,
-      {
-        headers: {
-          ...authorization(leaderToken),
-          "content-type": "application/json",
-        },
-        data: JSON.stringify({ ...originalCreate, browserAuthority: true }),
+    const malformedResponse = await request.post(`${BACKEND_ORIGIN}/api/admin/admission-periods`, {
+      headers: {
+        ...authorization(leaderToken),
+        "content-type": "application/json",
       },
-    );
-    const malformed = await expectErrorTag(
-      malformedResponse,
-      "AdmissionPeriodDecodeError",
-    );
+      data: JSON.stringify({ ...originalCreate, browserAuthority: true }),
+    });
+    const malformed = await expectErrorTag(malformedResponse, "AdmissionPeriodDecodeError");
 
     const applicationCommandId = "admission-e2e-application-before-close";
-    const applicationResponse = await request.post(`${ADMISSION_API_ORIGIN}/api/applications`, {
+    const applicationResponse = await request.post(`${BACKEND_ORIGIN}/api/applications`, {
       data: {
         commandId: applicationCommandId,
         departmentId: DEPARTMENT_ID,
@@ -346,10 +317,10 @@ test.describe("Native admission-period management", () => {
     ] as const;
     const concurrentResponses = await Promise.all(
       concurrentBodies.map((data) =>
-        request.post(
-          `${ADMISSION_API_ORIGIN}/api/admin/admission-periods/${admissionPeriodId}/revise`,
-          { headers: authorization(leaderToken), data },
-        ),
+        request.post(`${BACKEND_ORIGIN}/api/admin/admission-periods/${admissionPeriodId}/revise`, {
+          headers: authorization(leaderToken),
+          data,
+        }),
       ),
     );
     const winnerIndexes = concurrentResponses
@@ -358,10 +329,7 @@ test.describe("Native admission-period management", () => {
     expect(winnerIndexes).toHaveLength(1);
     const winnerIndex = winnerIndexes[0];
     const loserIndex = winnerIndex === 0 ? 1 : 0;
-    const winner = decodeStrict(
-      observationSchema,
-      await concurrentResponses[winnerIndex].json(),
-    );
+    const winner = decodeStrict(observationSchema, await concurrentResponses[winnerIndex].json());
     expect(periodFromObservation(winner).revision).toBe(1);
     const concurrentLoser = await expectErrorTag(
       concurrentResponses[loserIndex],
@@ -378,9 +346,7 @@ test.describe("Native admission-period management", () => {
     const revisionEnd = revisionPanel.getByLabel("Slutter (UTC)", { exact: false });
     await revisionEnd.fill("2032-01-01T12:00");
     await revisionPanel.getByRole("button", { name: "Lagre ny versjon" }).click();
-    const outsideSemesterError = page.locator(
-      '[data-error-tag="AdmissionWindowOutsideSemester"]',
-    );
+    const outsideSemesterError = page.locator('[data-error-tag="AdmissionWindowOutsideSemester"]');
     await expect(outsideSemesterError).toBeVisible();
     await expect(revisionEnd).toHaveValue("2032-01-01T12:00");
     const closeCommandId = await revisionPanel.locator('input[name="commandId"]').inputValue();
@@ -396,7 +362,7 @@ test.describe("Native admission-period management", () => {
     await expect(closedRow.locator('[data-eligibility="ineligible"]')).toBeVisible();
 
     const staleResponse = await request.post(
-      `${ADMISSION_API_ORIGIN}/api/admin/admission-periods/${admissionPeriodId}/revise`,
+      `${BACKEND_ORIGIN}/api/admin/admission-periods/${admissionPeriodId}/revise`,
       {
         headers: authorization(leaderToken),
         data: {
@@ -411,22 +377,19 @@ test.describe("Native admission-period management", () => {
     const openAfterClose = await readOpenPage(request);
     expect(openAfterClose.items).toEqual([]);
 
-    const rejectedApplicationResponse = await request.post(
-      `${ADMISSION_API_ORIGIN}/api/applications`,
-      {
-        data: {
-          commandId: "admission-e2e-application-after-close",
-          departmentId: DEPARTMENT_ID,
-          firstName: "Closed Period",
-          lastName: "Applicant",
-          phone: "+47 900 00 138",
-          email: "admission-proof-after-close@example.invalid",
-          gender: 1,
-          fieldOfStudyId: FIELD_OF_STUDY_ID,
-          yearOfStudy: 2,
-        },
+    const rejectedApplicationResponse = await request.post(`${BACKEND_ORIGIN}/api/applications`, {
+      data: {
+        commandId: "admission-e2e-application-after-close",
+        departmentId: DEPARTMENT_ID,
+        firstName: "Closed Period",
+        lastName: "Applicant",
+        phone: "+47 900 00 138",
+        email: "admission-proof-after-close@example.invalid",
+        gender: 1,
+        fieldOfStudyId: FIELD_OF_STUDY_ID,
+        yearOfStudy: 2,
       },
-    );
+    });
     const rejectedApplication = await expectErrorTag(
       rejectedApplicationResponse,
       "NoEligibleAdmissionPeriod",

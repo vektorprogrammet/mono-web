@@ -1,4 +1,4 @@
-import * as PgClient from "@effect/sql-pg/PgClient";
+import { Database } from "../database/service.js";
 import { Cause, Effect } from "effect";
 import { ReceiptAuxiliaryEffects } from "./auxiliary-service.js";
 import { ReceiptFileService, type ReceiptFileRecordingSnapshot } from "./file-service.js";
@@ -9,7 +9,7 @@ import {
   recoverStaleReceiptOutbox,
   type ReceiptOutboxDeliveryResult,
 } from "./outbox.js";
-import { executeReceiptCommand, migrateReceiptPostgres } from "./postgres.js";
+import { executeReceiptCommand } from "./postgres.js";
 import type { ReceiptActor, ReceiptFile } from "./schema.js";
 
 interface OutboxStateRow {
@@ -178,7 +178,7 @@ const drain = (
 ): Effect.Effect<
   ReadonlyArray<ReceiptOutboxDeliveryResult>,
   import("./errors.js").ReceiptPersistenceError,
-  PgClient.PgClient | ReceiptFileService | ReceiptAuxiliaryEffects
+  Database | ReceiptFileService | ReceiptAuxiliaryEffects
 > =>
   Effect.forEach(
     Array.from({ length: count }, (_, index) => index),
@@ -186,19 +186,17 @@ const drain = (
   );
 
 export const runReceiptFileProof = (
-  migrationSql: string,
   fileSnapshot: Effect.Effect<ReceiptFileRecordingSnapshot>,
   failNextFileEffect: (effectId: string) => Effect.Effect<void>,
   auxiliaryEffectIds: Effect.Effect<ReadonlyArray<string>>,
 ): Effect.Effect<
   ReceiptFileProofEvidence,
   unknown,
-  PgClient.PgClient | ReceiptFileService | ReceiptAuxiliaryEffects
+  Database | ReceiptFileService | ReceiptAuxiliaryEffects
 > =>
   Effect.gen(function* () {
-    const sql = yield* PgClient.PgClient;
+    const sql = yield* Database;
     const files = yield* ReceiptFileService;
-    yield* migrateReceiptPostgres(migrationSql);
     yield* sql.unsafe(`
       TRUNCATE economy_receipt_outbox, economy_receipt_audit,
         economy_receipt_command_receipts, economy_receipts,
@@ -250,7 +248,7 @@ export const runReceiptFileProof = (
       CREATE UNIQUE INDEX economy_receipt_outbox_command_ordinal
         ON economy_receipt_outbox (command_id, ordinal);
     `);
-    yield* migrateReceiptPostgres(migrationSql);
+    yield* sql.migrate;
     const upgradedSchema = yield* schemaDefinition();
     if (JSON.stringify(freshSchema) !== JSON.stringify(upgradedSchema)) {
       throw new Error("fresh and upgraded Receipt schemas differ");

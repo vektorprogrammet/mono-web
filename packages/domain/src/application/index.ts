@@ -4,7 +4,5 @@ export * from "./errors.js";
 export * from "./postgres.js";
 export * from "./outbox.js";
 export * from "./proof.js";
-export * from "./postgres-layer.js";
 export * from "./schema.js";
-export * from "./service.js";
 export * from "./validation.js";

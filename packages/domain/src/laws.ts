@@ -107,7 +107,10 @@ const addSample = (
 ): void => {
   const reasonSamples = samples[code];
   if (reasonSamples.length < 3) reasonSamples.push(sample);
-  if (allSamples.length < 20 && !allSamples.some((item) => item.source === sample.source && item.id === sample.id)) {
+  if (
+    allSamples.length < 20 &&
+    !allSamples.some((item) => item.source === sample.source && item.id === sample.id)
+  ) {
     allSamples.push(sample);
   }
 };
@@ -140,7 +143,10 @@ export const runSDep2Team = (dataset: Dataset, options: SDep2TeamOptions = {}): 
     violations += 1;
   };
 
-  const recordRelationSuccess = (code: "ACCEPT_LOCAL" | "ACCEPT_GLOBAL", sample: TechnicalSample): void => {
+  const recordRelationSuccess = (
+    code: "ACCEPT_LOCAL" | "ACCEPT_GLOBAL",
+    sample: TechnicalSample,
+  ): void => {
     increment(reasonCounts, code);
     addSample(reasonSamples, allSamples, code, sample);
   };
@@ -230,8 +236,12 @@ export const runSDep2Team = (dataset: Dataset, options: SDep2TeamOptions = {}): 
   }
 
   const localUsers = new Set(localDepartmentsByUser.keys());
-  const localMultiDepartmentUsers = [...localDepartmentsByUser.values()].filter((departments) => departments.size > 1).length;
-  const globalUsersWithLocalMembership = [...globalUsers].filter((userId) => localUsers.has(userId)).length;
+  const localMultiDepartmentUsers = [...localDepartmentsByUser.values()].filter(
+    (departments) => departments.size > 1,
+  ).length;
+  const globalUsersWithLocalMembership = [...globalUsers].filter((userId) =>
+    localUsers.has(userId),
+  ).length;
   const globalUsersWithoutLocalMembership = globalUsers.size - globalUsersWithLocalMembership;
   const checked = dataset.teamMemberships.length + dataset.globalMemberships.length;
   const unresolvedCoverage =
@@ -253,7 +263,11 @@ export const runSDep2Team = (dataset: Dataset, options: SDep2TeamOptions = {}): 
   const personStatus: PersonComparison["status"] =
     options.personAuthority === undefined ? "UNAVAILABLE" : personCompleteness;
   const status: LawStatus =
-    violations > 0 ? "FAIL" : relationCompleteness === "FULL" && personCompleteness === "FULL" ? "PASS" : "INFO";
+    violations > 0
+      ? "FAIL"
+      : relationCompleteness === "FULL" && personCompleteness === "FULL"
+        ? "PASS"
+        : "INFO";
   const drift = status !== "PASS";
 
   const immutableReasonSamples = {} as Record<ReasonCode, ReadonlyArray<TechnicalSample>>;
@@ -296,7 +310,10 @@ export const runSDep2Team = (dataset: Dataset, options: SDep2TeamOptions = {}): 
       snapshot: options.snapshotId ?? "unspecified",
       ...(options.snapshotHash === undefined ? {} : { hash: options.snapshotHash }),
       files: sourceFiles,
-      tables: ["team_membership.team_id→team.department_id→department.id", "executive_board_membership.board_id→executive_board.id"],
+      tables: [
+        "team_membership.team_id→team.department_id→department.id",
+        "executive_board_membership.board_id→executive_board.id",
+      ],
       scope: { team: "Local", executiveBoard: "Global" },
       pii: "none",
     },

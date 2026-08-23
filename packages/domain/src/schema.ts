@@ -74,7 +74,10 @@ type IssueNode = {
   readonly ast?: SchemaAST.AST;
 };
 
-const astForIssue = (issue: SchemaIssue.Issue, fallback: SchemaAST.AST | undefined): SchemaAST.AST | undefined => {
+const astForIssue = (
+  issue: SchemaIssue.Issue,
+  fallback: SchemaAST.AST | undefined,
+): SchemaAST.AST | undefined => {
   switch (issue._tag) {
     case "Composite":
     case "AnyOf":
@@ -157,7 +160,10 @@ const inspectAstShape = (ast: SchemaAST.AST, shape: AstShape, seen: Set<SchemaAS
   }
 };
 
-const astAtPath = (ast: SchemaAST.AST | undefined, path: ReadonlyArray<PropertyKey>): SchemaAST.AST | undefined => {
+const astAtPath = (
+  ast: SchemaAST.AST | undefined,
+  path: ReadonlyArray<PropertyKey>,
+): SchemaAST.AST | undefined => {
   let current = ast;
   for (const segment of path) {
     if (current === undefined || !SchemaAST.isObjects(current)) return undefined;
@@ -169,7 +175,12 @@ const astAtPath = (ast: SchemaAST.AST | undefined, path: ReadonlyArray<PropertyK
 };
 
 const issueShape = (nodes: ReadonlyArray<IssueNode>): AstShape => {
-  const shape: AstShape = { hasIntegerNumber: false, hasNull: false, hasBoolean: false, hasString: false };
+  const shape: AstShape = {
+    hasIntegerNumber: false,
+    hasNull: false,
+    hasBoolean: false,
+    hasString: false,
+  };
   const rootAst = nodes.find((node) => node.path.length === 0)?.ast;
   const fieldNode = nodes.find((node) => node.path.length > 0);
   const fieldAst =
@@ -229,7 +240,8 @@ const safeFailureCode = (issue: SchemaIssue.Issue): SchemaFailureCode => {
   const nodes = collectIssueNodes(issue);
   if (hasIssueTag(nodes, "UnexpectedKey")) return "UNEXPECTED_FIELD";
   if (hasIssueTag(nodes, "MissingKey")) return "MISSING_FIELD";
-  if (nodes.some((node) => node.path.length === 0 && node.tag === "InvalidType")) return "ROW_NOT_OBJECT";
+  if (nodes.some((node) => node.path.length === 0 && node.tag === "InvalidType"))
+    return "ROW_NOT_OBJECT";
 
   const hasTypeOrFilterFailure =
     hasIssueTag(nodes, "InvalidType") ||
@@ -237,7 +249,8 @@ const safeFailureCode = (issue: SchemaIssue.Issue): SchemaFailureCode => {
     hasIssueTag(nodes, "InvalidValue") ||
     hasIssueTag(nodes, "AnyOf");
   const shape = issueShape(nodes);
-  if (hasTypeOrFilterFailure && shape.hasNull && shape.hasIntegerNumber) return "INVALID_NULLABLE_INTEGER";
+  if (hasTypeOrFilterFailure && shape.hasNull && shape.hasIntegerNumber)
+    return "INVALID_NULLABLE_INTEGER";
   if (hasTypeOrFilterFailure && shape.hasBoolean) return "INVALID_BOOLEAN";
   if (hasTypeOrFilterFailure && shape.hasString) return "INVALID_STRING";
   return "INVALID_INTEGER";
@@ -245,7 +258,10 @@ const safeFailureCode = (issue: SchemaIssue.Issue): SchemaFailureCode => {
 
 const safeFailureMessage = (code: SchemaFailureCode): string => `schema rejected row (${code})`;
 
-const decodeWith = <A>(schema: Schema.ConstraintDecoder<A, never>, value: unknown): DecodeResult<A> => {
+const decodeWith = <A>(
+  schema: Schema.ConstraintDecoder<A, never>,
+  value: unknown,
+): DecodeResult<A> => {
   const decoded = Schema.decodeUnknownResult(schema, { onExcessProperty: "error" })(value);
   if (Result.isSuccess(decoded)) return { ok: true, value: decoded.success };
   const code = safeFailureCode(decoded.failure.issue);
@@ -267,7 +283,10 @@ export const decodeTeam = (value: unknown): DecodeResult<TeamRow> => {
 export const decodeTeamMembership = (value: unknown): DecodeResult<TeamMembershipRow> => {
   const decoded = decodeWith(TeamMembershipRowSchema, value);
   return decoded.ok
-    ? { ok: true, value: { id: decoded.value.id, userId: decoded.value.userId, teamId: decoded.value.teamId } }
+    ? {
+        ok: true,
+        value: { id: decoded.value.id, userId: decoded.value.userId, teamId: decoded.value.teamId },
+      }
     : decoded;
 };
 
@@ -279,7 +298,14 @@ export const decodeGlobalContainer = (value: unknown): DecodeResult<GlobalContai
 export const decodeGlobalMembership = (value: unknown): DecodeResult<GlobalMembershipRow> => {
   const decoded = decodeWith(GlobalMembershipRowSchema, value);
   return decoded.ok
-    ? { ok: true, value: { id: decoded.value.id, userId: decoded.value.userId, boardId: decoded.value.boardId } }
+    ? {
+        ok: true,
+        value: {
+          id: decoded.value.id,
+          userId: decoded.value.userId,
+          boardId: decoded.value.boardId,
+        },
+      }
     : decoded;
 };
 

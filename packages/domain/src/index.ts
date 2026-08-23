@@ -66,3 +66,7 @@ export {
 } from "./schema.js";
 export * from "./admission-period/index.js";
 export * from "./application/index.js";
+export * from "./admissions/index.js";
+export * from "./capabilities.js";
+
+export * from "./database/index.js";

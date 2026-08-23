@@ -1,9 +1,6 @@
 import { canonicalJsonBytes, sha256Hex } from "../tutor/evidence.js";
 export { canonicalJson } from "../tutor/evidence.js";
-import type {
-  PublicApplicationSubmitInput,
-  SubmitPublicApplicationCommand,
-} from "./schema.js";
+import type { PublicApplicationSubmitInput, SubmitPublicApplicationCommand } from "./schema.js";
 
 export type PublicApplicationCommandPayload = PublicApplicationSubmitInput;
 
@@ -36,4 +33,3 @@ export const publicApplicationIdForCommand = (
 export const publicApplicantIdForCommand = (
   command: PublicApplicationSubmitInput | SubmitPublicApplicationCommand,
 ): string => `applicant-${publicApplicationCommandDigest(command).slice(0, 32)}`;
-

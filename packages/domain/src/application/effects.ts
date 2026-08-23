@@ -29,7 +29,9 @@ export const PublicApplicationOutboxRequestSchema = Schema.TaggedUnion({
     email: PublicApplicationEmailSchema,
     activationDigest: Schema.optional(
       Schema.String.pipe(
-        Schema.check(Schema.makeFilter((value) => /^[a-f0-9]{64}$/u.test(value), { message: "a digest" })),
+        Schema.check(
+          Schema.makeFilter((value) => /^[a-f0-9]{64}$/u.test(value), { message: "a digest" }),
+        ),
       ),
     ),
   },
@@ -70,7 +72,8 @@ export interface PublicApplicationRecordingInterpreter extends PublicApplication
   readonly snapshot: () => ReadonlyArray<PublicApplicationEffectEvidence>;
 }
 
-const effectKindOf = (request: PublicApplicationOutboxRequest): PublicApplicationEffectKind => request._tag;
+const effectKindOf = (request: PublicApplicationOutboxRequest): PublicApplicationEffectKind =>
+  request._tag;
 
 export const makePublicApplicationOutboxRequests = (
   command: PublicApplicationSubmitInput | SubmitPublicApplicationCommand,
@@ -107,40 +110,43 @@ export const makePublicApplicationOutboxRequests = (
   return [activation, subscription, audit];
 };
 
-export const makeRecordingPublicApplicationEffectInterpreter = (): PublicApplicationRecordingInterpreter => {
-  const attempts = new Map<string, number>();
-  const failedOnce = new Set<string>();
-  const delivered = new Map<string, PublicApplicationEffectEvidence>();
-  return {
-    failOnce: (effectId) => {
-      failedOnce.add(effectId);
-    },
-    snapshot: () => [...delivered.values()],
-    deliver: (request, ordinal) =>
-      Effect.gen(function* () {
-        const nextAttempts = (attempts.get(request.effectId) ?? 0) + 1;
-        attempts.set(request.effectId, nextAttempts);
-        if (failedOnce.delete(request.effectId)) {
-          return yield* new PublicApplicationEffectDeliveryError({ effectId: request.effectId });
-        }
-        const evidence: PublicApplicationEffectEvidence = {
-          effectId: request.effectId,
-          kind: effectKindOf(request),
-          ordinal,
-          attempts: nextAttempts,
-          status: "Delivered",
-        };
-        delivered.set(request.effectId, evidence);
-        return evidence;
-      }),
+export const makeRecordingPublicApplicationEffectInterpreter =
+  (): PublicApplicationRecordingInterpreter => {
+    const attempts = new Map<string, number>();
+    const failedOnce = new Set<string>();
+    const delivered = new Map<string, PublicApplicationEffectEvidence>();
+    return {
+      failOnce: (effectId) => {
+        failedOnce.add(effectId);
+      },
+      snapshot: () => [...delivered.values()],
+      deliver: (request, ordinal) =>
+        Effect.gen(function* () {
+          const nextAttempts = (attempts.get(request.effectId) ?? 0) + 1;
+          attempts.set(request.effectId, nextAttempts);
+          if (failedOnce.delete(request.effectId)) {
+            return yield* new PublicApplicationEffectDeliveryError({ effectId: request.effectId });
+          }
+          const evidence: PublicApplicationEffectEvidence = {
+            effectId: request.effectId,
+            kind: effectKindOf(request),
+            ordinal,
+            attempts: nextAttempts,
+            status: "Delivered",
+          };
+          delivered.set(request.effectId, evidence);
+          return evidence;
+        }),
+    };
   };
-};
 
 export const recordPublicApplicationEffects = (
   requests: ReadonlyArray<PublicApplicationOutboxRequest>,
   interpreter = makeRecordingPublicApplicationEffectInterpreter(),
-): Effect.Effect<ReadonlyArray<PublicApplicationEffectEvidence>, PublicApplicationEffectDeliveryError> =>
-  Effect.forEach(requests, (request, ordinal) => interpreter.deliver(request, ordinal));
+): Effect.Effect<
+  ReadonlyArray<PublicApplicationEffectEvidence>,
+  PublicApplicationEffectDeliveryError
+> => Effect.forEach(requests, (request, ordinal) => interpreter.deliver(request, ordinal));
 
 export interface PublicApplicationRecordingProof {
   readonly specId: "0039";

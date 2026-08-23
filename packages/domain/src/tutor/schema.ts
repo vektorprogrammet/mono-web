@@ -228,9 +228,7 @@ export const EvidenceCaseSchema = Schema.Struct({
   streamVersion: Schema.Int.check(
     Schema.isBetween({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER }),
   ),
-  eventCount: Schema.Int.check(
-    Schema.isBetween({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER }),
-  ),
+  eventCount: Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER })),
   descriptorCount: Schema.Int.check(
     Schema.isBetween({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER }),
   ),

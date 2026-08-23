@@ -11,9 +11,8 @@ const dashboardRoot = fileURLToPath(new URL("../", import.meta.url));
 const sdkRoot = fileURLToPath(new URL("../../../packages/sdk/", import.meta.url));
 const composeFile = join(repositoryRoot, "docker-compose.yml");
 const dashboardOrigin = "http://127.0.0.1:5174";
-const admissionApiOrigin = "http://127.0.0.1:8791";
-const postgresUrl =
-  "postgres://receipt:receipt@127.0.0.1:55432/receipt_proof?connect_timeout=1";
+const backendOrigin = "http://127.0.0.1:8791";
+const postgresUrl = "postgres://receipt:receipt@127.0.0.1:55432/receipt_proof?connect_timeout=1";
 const composeProject = `mono-web-admission-0038-${process.pid}`;
 const commandTimeoutMs = 300_000;
 const shutdownTimeoutMs = 5_000;
@@ -410,7 +409,11 @@ function assertDurableEvidence(postgres, lifecycle) {
   ];
   const auditCommandIds = audits.map((audit) => audit.commandId);
   const outboxCommandIds = outbox.map((effect) => effect.commandId);
-  const expectedActions = ["AdmissionPeriodCreated", "AdmissionPeriodRevised", "AdmissionPeriodRevised"];
+  const expectedActions = [
+    "AdmissionPeriodCreated",
+    "AdmissionPeriodRevised",
+    "AdmissionPeriodRevised",
+  ];
 
   if (
     postgres.periodCount !== 1 ||
@@ -503,11 +506,7 @@ async function main() {
   });
   const receiptTokens = JSON.stringify({
     [leaderToken]: receiptPrincipal("leader-trondheim", departmentId, true),
-    [foreignLeaderToken]: receiptPrincipal(
-      "leader-bergen",
-      foreignDepartmentId,
-      true,
-    ),
+    [foreignLeaderToken]: receiptPrincipal("leader-bergen", foreignDepartmentId, true),
     [globalAdminToken]: receiptPrincipal("global-administrator", departmentId, true),
     [inactiveToken]: receiptPrincipal("inactive-leader", departmentId, false),
     [roleDeniedToken]: receiptPrincipal("member-trondheim", departmentId, true),
@@ -518,15 +517,11 @@ async function main() {
 
   const apiEnvironment = {
     ...baseEnvironment,
-    ADMISSION_API_HOST: "127.0.0.1",
-    ADMISSION_API_PORT: "8791",
-    ADMISSION_PG_URL: postgresUrl,
+    BACKEND_HOST: "127.0.0.1",
+    BACKEND_PORT: "8791",
+    BACKEND_PG_URL: postgresUrl,
     ADMISSION_AUTH_TOKENS: admissionTokens,
     ADMISSION_FIXED_NOW: fixedClock,
-    ADMISSION_API_NOW: fixedClock,
-    RECEIPT_API_HOST: "127.0.0.1",
-    RECEIPT_API_PORT: "8791",
-    RECEIPT_PG_URL: postgresUrl,
     RECEIPT_AUTH_TOKENS: receiptTokens,
     RECEIPT_STAGING_ROOT: stagingRoot,
     RECEIPT_COMMITTED_ROOT: committedRoot,
@@ -535,13 +530,13 @@ async function main() {
   };
   const dashboardEnvironment = {
     ...baseEnvironment,
-    API_URL: admissionApiOrigin,
-    VITE_API_URL: admissionApiOrigin,
+    API_URL: backendOrigin,
+    VITE_API_URL: backendOrigin,
   };
   const playwrightEnvironment = {
     ...dashboardEnvironment,
     REAL_ADMISSION_PERIOD_E2E: "1",
-    ADMISSION_API_ORIGIN: admissionApiOrigin,
+    BACKEND_ORIGIN: backendOrigin,
     DASHBOARD_ORIGIN: dashboardOrigin,
     ADMISSION_E2E_LEADER_TOKEN: leaderToken,
     ADMISSION_E2E_FOREIGN_LEADER_TOKEN: foreignLeaderToken,
@@ -638,17 +633,17 @@ async function main() {
       await startLocalPostgres(postgresDataRoot, baseEnvironment);
     }
 
-    const configuredApiCommand = process.env.ADMISSION_API_COMMAND;
-    apiProcess = configuredApiCommand
-      ? startProcess("/bin/sh", ["-c", configuredApiCommand], {
+    const configuredBackendCommand = process.env.BACKEND_COMMAND;
+    apiProcess = configuredBackendCommand
+      ? startProcess("/bin/sh", ["-c", configuredBackendCommand], {
           cwd: repositoryRoot,
           env: apiEnvironment,
         })
-      : startProcess("bun", ["run", "--cwd", "apps/admission-api", "start"], {
+      : startProcess("bun", ["run", "--cwd", "apps/backend", "start"], {
           cwd: repositoryRoot,
           env: apiEnvironment,
         });
-    await waitForHttp(`${admissionApiOrigin}/health`, apiProcess, "Native admission API");
+    await waitForHttp(`${backendOrigin}/health`, apiProcess, "Unified native backend");
     await seedReferenceData(baseEnvironment);
 
     await runCommand("bun", ["run", "build"], {
@@ -701,7 +696,7 @@ async function main() {
     evidence = {
       topology: {
         dashboard: "loopback-react-router",
-        api: "native-effect-admission",
+        api: "unified-native-effect-backend",
         database:
           postgresTopology === "docker"
             ? "disposable-postgresql-docker"
@@ -727,10 +722,7 @@ async function main() {
   }
 
   if (primaryError !== undefined && cleanupError !== undefined) {
-    throw new AggregateError(
-      [primaryError, cleanupError],
-      "Admission journey and cleanup failed",
-    );
+    throw new AggregateError([primaryError, cleanupError], "Admission journey and cleanup failed");
   }
   if (primaryError !== undefined) throw primaryError;
   if (cleanupError !== undefined) throw cleanupError;

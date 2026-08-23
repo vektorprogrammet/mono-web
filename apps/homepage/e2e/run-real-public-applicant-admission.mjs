@@ -8,15 +8,12 @@ import { fileURLToPath } from "node:url";
 
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
 const homepageRoot = fileURLToPath(new URL("../", import.meta.url));
-const sdkRoot = fileURLToPath(
-  new URL("../../../packages/sdk/", import.meta.url),
-);
+const sdkRoot = fileURLToPath(new URL("../../../packages/sdk/", import.meta.url));
 const composeFile = join(repositoryRoot, "docker-compose.yml");
 const homepageOrigin = "http://127.0.0.1:8787";
 const homepageHost = "p000.vektor.phibkro.org";
-const admissionApiOrigin = "http://127.0.0.1:8792";
-const postgresUrl =
-  "postgres://receipt:receipt@127.0.0.1:55432/receipt_proof?connect_timeout=1";
+const backendOrigin = "http://127.0.0.1:8792";
+const postgresUrl = "postgres://receipt:receipt@127.0.0.1:55432/receipt_proof?connect_timeout=1";
 const composeProject = `mono-web-public-application-0039-${process.pid}`;
 const commandTimeoutMs = 300_000;
 const shutdownTimeoutMs = 5_000;
@@ -57,12 +54,7 @@ function assertPortAvailable(port) {
     });
     socket.once("error", (error) => {
       socket.destroy();
-      if (
-        error &&
-        typeof error === "object" &&
-        "code" in error &&
-        error.code === "ECONNREFUSED"
-      ) {
+      if (error && typeof error === "object" && "code" in error && error.code === "ECONNREFUSED") {
         resolvePort();
         return;
       }
@@ -77,9 +69,7 @@ function runCommand(command, args, options) {
     const child = spawn(command, args, {
       cwd: options.cwd,
       env: options.env,
-      stdio: captureOutput
-        ? ["ignore", "pipe", "pipe"]
-        : ["ignore", "inherit", "inherit"],
+      stdio: captureOutput ? ["ignore", "pipe", "pipe"] : ["ignore", "inherit", "inherit"],
       detached: true,
     });
     commandProcesses.add(child);
@@ -113,17 +103,13 @@ function runCommand(command, args, options) {
       clearTimeout(timeout);
       if (code === 0) {
         resolveCommand(
-          captureOutput
-            ? { stdout: Buffer.concat(stdout).toString("utf8") }
-            : undefined,
+          captureOutput ? { stdout: Buffer.concat(stdout).toString("utf8") } : undefined,
         );
         return;
       }
       rejectCommand(
         new Error(
-          `${options.label} exited with ${
-            signal === null ? `code ${code}` : `signal ${signal}`
-          }`,
+          `${options.label} exited with ${signal === null ? `code ${code}` : `signal ${signal}`}`,
         ),
       );
     });
@@ -142,19 +128,11 @@ function startProcess(command, args, options) {
 }
 
 function runNixPostgres(command, args, options) {
-  return runCommand(
-    "nix",
-    ["shell", nixPostgresPackage, "--command", command, ...args],
-    options,
-  );
+  return runCommand("nix", ["shell", nixPostgresPackage, "--command", command, ...args], options);
 }
 
 async function stopProcess(child) {
-  if (
-    child === undefined ||
-    child.exitCode !== null ||
-    child.pid === undefined
-  ) {
+  if (child === undefined || child.exitCode !== null || child.pid === undefined) {
     return;
   }
 
@@ -162,12 +140,7 @@ async function stopProcess(child) {
   try {
     process.kill(-child.pid, "SIGTERM");
   } catch (error) {
-    if (
-      !error ||
-      typeof error !== "object" ||
-      !("code" in error) ||
-      error.code !== "ESRCH"
-    ) {
+    if (!error || typeof error !== "object" || !("code" in error) || error.code !== "ESRCH") {
       throw new Error("Could not stop local process group");
     }
     return;
@@ -182,12 +155,7 @@ async function stopProcess(child) {
   try {
     process.kill(-child.pid, "SIGKILL");
   } catch (error) {
-    if (
-      !error ||
-      typeof error !== "object" ||
-      !("code" in error) ||
-      error.code !== "ESRCH"
-    ) {
+    if (!error || typeof error !== "object" || !("code" in error) || error.code !== "ESRCH") {
       throw new Error("Could not terminate local process group");
     }
   }
@@ -232,16 +200,7 @@ async function waitForPostgres(environment) {
               "-d",
               "receipt_proof",
             ]
-          : [
-              "-h",
-              "127.0.0.1",
-              "-p",
-              String(postgresPort),
-              "-U",
-              "receipt",
-              "-d",
-              "receipt_proof",
-            ];
+          : ["-h", "127.0.0.1", "-p", String(postgresPort), "-U", "receipt", "-d", "receipt_proof"];
       const options = {
         cwd: repositoryRoot,
         env: environment,
@@ -258,9 +217,7 @@ async function waitForPostgres(environment) {
       await sleep(250);
     }
   }
-  throw new Error(
-    "Disposable public-application PostgreSQL did not become ready",
-  );
+  throw new Error("Disposable public-application PostgreSQL did not become ready");
 }
 
 async function initializeLocalPostgres(dataRoot, environment) {
@@ -286,15 +243,7 @@ async function initializeLocalPostgres(dataRoot, environment) {
   await startExistingLocalPostgres(dataRoot, environment);
   await runNixPostgres(
     "createdb",
-    [
-      "-h",
-      "127.0.0.1",
-      "-p",
-      String(postgresPort),
-      "-U",
-      "receipt",
-      "receipt_proof",
-    ],
+    ["-h", "127.0.0.1", "-p", String(postgresPort), "-U", "receipt", "receipt_proof"],
     {
       cwd: repositoryRoot,
       env: environment,
@@ -326,15 +275,11 @@ async function startExistingLocalPostgres(dataRoot, environment) {
 }
 
 async function stopLocalPostgres(dataRoot, environment) {
-  await runNixPostgres(
-    "pg_ctl",
-    ["-D", dataRoot, "-m", "fast", "-w", "stop"],
-    {
-      cwd: repositoryRoot,
-      env: environment,
-      label: "Local public-application PostgreSQL stop",
-    },
-  );
+  await runNixPostgres("pg_ctl", ["-D", dataRoot, "-m", "fast", "-w", "stop"], {
+    cwd: repositoryRoot,
+    env: environment,
+    label: "Local public-application PostgreSQL stop",
+  });
 }
 
 async function pathExists(path) {
@@ -342,12 +287,7 @@ async function pathExists(path) {
     await access(path);
     return true;
   } catch (error) {
-    if (
-      error &&
-      typeof error === "object" &&
-      "code" in error &&
-      error.code === "ENOENT"
-    ) {
+    if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") {
       return false;
     }
     throw error;
@@ -432,22 +372,19 @@ async function seedReferenceData(environment) {
 }
 
 async function createOpenPeriod(leaderToken) {
-  const response = await fetch(
-    `${admissionApiOrigin}/api/admin/admission-periods`,
-    {
-      method: "POST",
-      headers: {
-        authorization: `Bearer ${leaderToken}`,
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({
-        commandId: "open-public-application-period-0039",
-        semesterId,
-        startAt: openStart,
-        endAt: openEnd,
-      }),
+  const response = await fetch(`${backendOrigin}/api/admin/admission-periods`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${leaderToken}`,
+      "content-type": "application/json",
     },
-  );
+    body: JSON.stringify({
+      commandId: "open-public-application-period-0039",
+      semesterId,
+      startAt: openStart,
+      endAt: openEnd,
+    }),
+  });
   if (!response.ok) {
     throw new Error("Could not create the public-application admission period");
   }
@@ -579,13 +516,8 @@ function assertDurableEvidence(postgres, lifecycle, delivery, persistenceFailure
     "CreateAdmissionSubscription",
     "WriteApplicationAudit",
   ];
-  const applicationIds = postgres.applications.map(
-    (application) => application.applicationId,
-  );
-  const outboxByApplication = Object.groupBy(
-    postgres.outbox,
-    (effect) => effect.applicationId,
-  );
+  const applicationIds = postgres.applications.map((application) => application.applicationId);
+  const outboxByApplication = Object.groupBy(postgres.outbox, (effect) => effect.applicationId);
   const auditCommandIds = postgres.audits.map((audit) => audit.commandId);
   const commandIds = postgres.commands.map((command) => command.commandId);
 
@@ -610,10 +542,8 @@ function assertDurableEvidence(postgres, lifecycle, delivery, persistenceFailure
     lifecycle.closing.rejection.tag !== "NoEligibleAdmissionPeriod" ||
     lifecycle.concurrent.rejected.tag !== "DuplicatePublicApplication" ||
     lifecycle.rejections.duplicate.tag !== "DuplicatePublicApplication" ||
-    lifecycle.rejections.replayConflict.tag !==
-      "DuplicatePublicApplicationCommandConflict" ||
-    lifecycle.rejections.rateLimited.tag !==
-      "PublicApplicationRateLimitExceeded" ||
+    lifecycle.rejections.replayConflict.tag !== "DuplicatePublicApplicationCommandConflict" ||
+    lifecycle.rejections.rateLimited.tag !== "PublicApplicationRateLimitExceeded" ||
     lifecycle.rejections.bodyLimit.tag !== "RequestBodyTooLarge" ||
     persistenceFailure.tag !== "PublicApplicationPersistenceError" ||
     postgres.audits.some(
@@ -624,9 +554,7 @@ function assertDurableEvidence(postgres, lifecycle, delivery, persistenceFailure
     ) ||
     commandIds.some((commandId) => !auditCommandIds.includes(commandId)) ||
     postgres.outbox.some(
-      (effect) =>
-        effect.status !== "Delivered" ||
-        effect.lastFailureTag !== null,
+      (effect) => effect.status !== "Delivered" || effect.lastFailureTag !== null,
     ) ||
     delivery.appliedEffectIds.length !== 6 ||
     new Set(delivery.appliedEffectIds).size !== 6
@@ -639,17 +567,14 @@ function assertDurableEvidence(postgres, lifecycle, delivery, persistenceFailure
   for (const applicationId of applicationIds) {
     const effects = outboxByApplication[applicationId] ?? [];
     if (
-      effects.map((effect) => effect.effectType).join(",") !==
-        expectedKinds.join(",") ||
+      effects.map((effect) => effect.effectType).join(",") !== expectedKinds.join(",") ||
       effects.map((effect) => effect.ordinal).join(",") !== "0,1,2"
     ) {
       throw new Error("Public-application effects were not delivered in order");
     }
   }
 
-  const retried = postgres.outbox.find(
-    (effect) => effect.effectId === delivery.retriedEffectId,
-  );
+  const retried = postgres.outbox.find((effect) => effect.effectId === delivery.retriedEffectId);
   if (
     retried?.attempts !== 2 ||
     delivery.injectedFailureTag !== "InjectedRecordingFailure" ||
@@ -663,15 +588,7 @@ async function stopPostgres(dataRoot, environment) {
   if (postgresTopology === "docker") {
     await runCommand(
       "docker",
-      [
-        "compose",
-        "-f",
-        composeFile,
-        "-p",
-        composeProject,
-        "stop",
-        "receipt-postgres",
-      ],
+      ["compose", "-f", composeFile, "-p", composeProject, "stop", "receipt-postgres"],
       {
         cwd: repositoryRoot,
         env: environment,
@@ -687,15 +604,7 @@ async function restartPostgres(dataRoot, environment) {
   if (postgresTopology === "docker") {
     await runCommand(
       "docker",
-      [
-        "compose",
-        "-f",
-        composeFile,
-        "-p",
-        composeProject,
-        "start",
-        "receipt-postgres",
-      ],
+      ["compose", "-f", composeFile, "-p", composeProject, "start", "receipt-postgres"],
       {
         cwd: repositoryRoot,
         env: environment,
@@ -712,7 +621,7 @@ async function exercisePostgresFailure(dataRoot, environment) {
   await stopPostgres(dataRoot, environment);
   let response;
   try {
-    response = await fetch(`${admissionApiOrigin}/api/applications`, {
+    response = await fetch(`${backendOrigin}/api/applications`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
@@ -742,17 +651,13 @@ async function exercisePostgresFailure(dataRoot, environment) {
 
 async function main() {
   if (!remoteEvidenceAuthorized) {
-    throw new Error(
-      "The real public-applicant journey is authorized only in isolated remote CI",
-    );
+    throw new Error("The real public-applicant journey is authorized only in isolated remote CI");
   }
   if (!process.env.PUBLIC_APPLICATION_EVIDENCE_PATH) {
     throw new Error("PUBLIC_APPLICATION_EVIDENCE_PATH is required");
   }
   if (postgresTopology !== "docker") {
-    throw new Error(
-      "Isolated remote CI requires Docker-backed disposable PostgreSQL",
-    );
+    throw new Error("Isolated remote CI requires Docker-backed disposable PostgreSQL");
   }
   await Promise.all([
     assertPortAvailable(8787),
@@ -760,14 +665,9 @@ async function main() {
     assertPortAvailable(postgresPort),
   ]);
 
-  const temporaryRoot = await mkdtemp(
-    join(tmpdir(), "mono-web-public-application-0039-"),
-  );
+  const temporaryRoot = await mkdtemp(join(tmpdir(), "mono-web-public-application-0039-"));
   const postgresDataRoot = join(temporaryRoot, "postgres");
-  const lifecycleEvidencePath = join(
-    temporaryRoot,
-    "public-application-lifecycle.json",
-  );
+  const lifecycleEvidencePath = join(temporaryRoot, "public-application-lifecycle.json");
   const leaderToken = randomBytes(32).toString("base64url");
   const admissionTokens = JSON.stringify({
     [leaderToken]: {
@@ -775,6 +675,15 @@ async function main() {
       personId: "leader-trondheim",
       departmentId,
       active: true,
+    },
+  });
+  const receiptTokens = JSON.stringify({
+    [leaderToken]: {
+      personId: "leader-trondheim",
+      departmentId,
+      active: true,
+      paymentAccountCiphertext: randomBytes(32).toString("base64url"),
+      approvalScope: { _tag: "None" },
     },
   });
   const baseEnvironment = { ...process.env };
@@ -785,20 +694,19 @@ async function main() {
 
   const apiEnvironment = {
     ...baseEnvironment,
-    ADMISSION_API_HOST: "127.0.0.1",
-    ADMISSION_API_PORT: "8792",
-    ADMISSION_PG_URL: postgresUrl,
+    BACKEND_HOST: "127.0.0.1",
+    BACKEND_PORT: "8792",
+    BACKEND_PG_URL: postgresUrl,
     ADMISSION_AUTH_TOKENS: admissionTokens,
     ADMISSION_FIXED_NOW: fixedClock,
-    ADMISSION_API_NOW: fixedClock,
     ADMISSION_MAX_BODY_BYTES: "16384",
-    ADMISSION_API_MAX_BODY_BYTES: "16384",
     ADMISSION_RATE_LIMIT_MAX: "64",
     ADMISSION_RATE_LIMIT_WINDOW_MS: "600000",
+    RECEIPT_AUTH_TOKENS: receiptTokens,
   };
   const homepageEnvironment = {
     ...baseEnvironment,
-    API_URL: admissionApiOrigin,
+    API_URL: backendOrigin,
   };
 
   let postgresStarted = false;
@@ -812,11 +720,7 @@ async function main() {
     cleaned = true;
     const cleanupErrors = [];
 
-    for (const processToStop of [
-      ...commandProcesses,
-      homepageProcess,
-      apiProcess,
-    ]) {
+    for (const processToStop of [...commandProcesses, homepageProcess, apiProcess]) {
       try {
         await stopProcess(processToStop);
       } catch (error) {
@@ -845,9 +749,7 @@ async function main() {
               label: "Disposable public-application PostgreSQL cleanup",
             },
           );
-        } else if (
-          await pathExists(join(postgresDataRoot, "postmaster.pid"))
-        ) {
+        } else if (await pathExists(join(postgresDataRoot, "postmaster.pid"))) {
           await stopLocalPostgres(postgresDataRoot, baseEnvironment);
         }
       } catch (error) {
@@ -862,10 +764,7 @@ async function main() {
     }
 
     if (cleanupErrors.length > 0) {
-      throw new AggregateError(
-        cleanupErrors,
-        "Public-application topology cleanup failed",
-      );
+      throw new AggregateError(cleanupErrors, "Public-application topology cleanup failed");
     }
   };
 
@@ -885,16 +784,7 @@ async function main() {
     if (postgresTopology === "docker") {
       await runCommand(
         "docker",
-        [
-          "compose",
-          "-f",
-          composeFile,
-          "-p",
-          composeProject,
-          "up",
-          "-d",
-          "receipt-postgres",
-        ],
+        ["compose", "-f", composeFile, "-p", composeProject, "up", "-d", "receipt-postgres"],
         {
           cwd: repositoryRoot,
           env: baseEnvironment,
@@ -906,19 +796,17 @@ async function main() {
       await initializeLocalPostgres(postgresDataRoot, baseEnvironment);
     }
 
-    apiProcess = startProcess(
-      "bun",
-      ["run", "--cwd", "apps/admission-api", "start"],
-      {
-        cwd: repositoryRoot,
-        env: apiEnvironment,
-      },
-    );
-    await waitForHttp(
-      `${admissionApiOrigin}/health`,
-      apiProcess,
-      "Native public-application API",
-    );
+    const configuredBackendCommand = process.env.BACKEND_COMMAND;
+    apiProcess = configuredBackendCommand
+      ? startProcess("/bin/sh", ["-c", configuredBackendCommand], {
+          cwd: repositoryRoot,
+          env: apiEnvironment,
+        })
+      : startProcess("bun", ["run", "--cwd", "apps/backend", "start"], {
+          cwd: repositoryRoot,
+          env: apiEnvironment,
+        });
+    await waitForHttp(`${backendOrigin}/health`, apiProcess, "Unified native backend");
     await seedReferenceData(baseEnvironment);
     const admissionPeriodId = await createOpenPeriod(leaderToken);
 
@@ -936,18 +824,15 @@ async function main() {
       cwd: homepageRoot,
       env: homepageEnvironment,
     });
-    await waitForHttp(
-      `${homepageOrigin}/health`,
-      homepageProcess,
-      "Homepage",
-      { headers: { host: homepageHost } },
-    );
+    await waitForHttp(`${homepageOrigin}/health`, homepageProcess, "Homepage", {
+      headers: { host: homepageHost },
+    });
 
     const playwrightEnvironment = {
       ...homepageEnvironment,
       REAL_PUBLIC_APPLICATION_E2E: "1",
       HOMEPAGE_ORIGIN: homepageOrigin,
-      ADMISSION_API_ORIGIN: admissionApiOrigin,
+      BACKEND_ORIGIN: backendOrigin,
       PUBLIC_APPLICATION_E2E_EVIDENCE_PATH: lifecycleEvidencePath,
       PUBLIC_APPLICATION_E2E_PERIOD_ID: admissionPeriodId,
       PUBLIC_APPLICATION_E2E_LEADER_TOKEN: leaderToken,
@@ -974,45 +859,32 @@ async function main() {
       },
     );
 
-    const lifecycle = JSON.parse(
-      await readFile(lifecycleEvidencePath, "utf8"),
-    );
+    const lifecycle = JSON.parse(await readFile(lifecycleEvidencePath, "utf8"));
     const delivery = await runOutboxDelivery(baseEnvironment);
     const postgresBeforeFailure = await readPostgresEvidence(baseEnvironment);
 
     await stopProcess(apiProcess);
-    apiProcess = startProcess(
-      "bun",
-      ["run", "--cwd", "apps/admission-api", "start"],
-      { cwd: repositoryRoot, env: apiEnvironment },
-    );
-    await waitForHttp(
-      `${admissionApiOrigin}/health`,
-      apiProcess,
-      "Restarted public-application API",
-    );
-    const persistenceFailure = await exercisePostgresFailure(
-      postgresDataRoot,
-      baseEnvironment,
-    );
+    apiProcess = configuredBackendCommand
+      ? startProcess("/bin/sh", ["-c", configuredBackendCommand], {
+          cwd: repositoryRoot,
+          env: apiEnvironment,
+        })
+      : startProcess("bun", ["run", "--cwd", "apps/backend", "start"], {
+          cwd: repositoryRoot,
+          env: apiEnvironment,
+        });
+    await waitForHttp(`${backendOrigin}/health`, apiProcess, "Restarted unified backend");
+    const persistenceFailure = await exercisePostgresFailure(postgresDataRoot, baseEnvironment);
     const postgresAfterFailure = await readPostgresEvidence(baseEnvironment);
-    if (
-      JSON.stringify(postgresBeforeFailure) !==
-      JSON.stringify(postgresAfterFailure)
-    ) {
+    if (JSON.stringify(postgresBeforeFailure) !== JSON.stringify(postgresAfterFailure)) {
       throw new Error("PostgreSQL rejection mutated public-application state");
     }
-    assertDurableEvidence(
-      postgresAfterFailure,
-      lifecycle,
-      delivery,
-      persistenceFailure,
-    );
+    assertDurableEvidence(postgresAfterFailure, lifecycle, delivery, persistenceFailure);
 
     evidence = {
       topology: {
         homepage: "loopback-built-cloudflare-worker-preview",
-        api: "native-effect-public-application",
+        api: "unified-native-effect-backend",
         database:
           postgresTopology === "docker"
             ? "disposable-postgresql-docker"
@@ -1072,21 +944,16 @@ async function main() {
       throw new Error("Public-application evidence exposed private material");
     }
   }
-  await writeFile(
-    process.env.PUBLIC_APPLICATION_EVIDENCE_PATH,
-    `${serializedEvidence}\n`,
-    { encoding: "utf8", mode: 0o600 },
-  );
+  await writeFile(process.env.PUBLIC_APPLICATION_EVIDENCE_PATH, `${serializedEvidence}\n`, {
+    encoding: "utf8",
+    mode: 0o600,
+  });
   process.stdout.write(`${serializedEvidence}\n`);
 }
 
 main().catch((error) => {
   process.stderr.write(
-    `${
-      error instanceof Error
-        ? error.message
-        : "Real public-application runner failed"
-    }\n`,
+    `${error instanceof Error ? error.message : "Real public-application runner failed"}\n`,
   );
   process.exitCode = 1;
 });

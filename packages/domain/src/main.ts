@@ -112,7 +112,9 @@ const emit = async (text: string, output: string | undefined): Promise<void> => 
   process.stdout.write(text.endsWith("\n") ? text : `${text}\n`);
 };
 
-export const main = async (args: ReadonlyArray<string> = process.argv.slice(2)): Promise<number> => {
+export const main = async (
+  args: ReadonlyArray<string> = process.argv.slice(2),
+): Promise<number> => {
   try {
     const options = parseArgs(args);
     if (options.help) {
@@ -127,14 +129,17 @@ export const main = async (args: ReadonlyArray<string> = process.argv.slice(2)):
     }
     const dataset = await loadDataset(options.dataDir ?? "");
     const personAuthority =
-      options.personAuthorityFile === undefined ? undefined : await loadPersonAuthority(options.personAuthorityFile);
+      options.personAuthorityFile === undefined
+        ? undefined
+        : await loadPersonAuthority(options.personAuthorityFile);
     const result = runSDep2Team(dataset, {
       snapshotId: options.snapshotId,
       snapshotHash: options.snapshotHash,
       personAuthority,
     });
     const report = createMachineReport(result);
-    const rendered = options.format === "markdown" ? renderMarkdown(report) : JSON.stringify(report, null, 2);
+    const rendered =
+      options.format === "markdown" ? renderMarkdown(report) : JSON.stringify(report, null, 2);
     await emit(rendered, options.output);
     return report.status === "PASS" && !report.drift ? 0 : 1;
   } catch (error: unknown) {

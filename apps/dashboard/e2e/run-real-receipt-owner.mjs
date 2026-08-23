@@ -11,9 +11,8 @@ const dashboardRoot = fileURLToPath(new URL("../", import.meta.url));
 const sdkRoot = fileURLToPath(new URL("../../../packages/sdk/", import.meta.url));
 const composeFile = join(repositoryRoot, "docker-compose.yml");
 const dashboardOrigin = "http://127.0.0.1:5174";
-const receiptApiOrigin = "http://127.0.0.1:8790";
-const postgresUrl =
-  "postgres://receipt:receipt@127.0.0.1:55432/receipt_proof?connect_timeout=1";
+const backendOrigin = "http://127.0.0.1:8790";
+const postgresUrl = "postgres://receipt:receipt@127.0.0.1:55432/receipt_proof?connect_timeout=1";
 const composeProject = `mono-web-receipt-0036-${process.pid}`;
 const commandTimeoutMs = 300_000;
 const shutdownTimeoutMs = 5_000;
@@ -401,9 +400,7 @@ function assertDurableEvidence(postgres, privateFile, lifecycle) {
   const replacementDelete = outbox.find(
     (row) => row.effectId === "receipt-owner-e2e-replacement:DeleteReceiptFile",
   );
-  const replacementAudit = audits.find(
-    (row) => row.commandId === "receipt-owner-e2e-replacement",
-  );
+  const replacementAudit = audits.find((row) => row.commandId === "receipt-owner-e2e-replacement");
   const beforeFailure = lifecycle?.beforeFailure;
   const afterRetry = lifecycle?.afterRetry;
   if (
@@ -471,31 +468,46 @@ async function main() {
       approvalScope: { _tag: "None" },
     },
   });
+  const admissionTokens = JSON.stringify({
+    [token]: {
+      _tag: "Member",
+      personId: "assistant-1",
+      departmentId: "department-1",
+      active: true,
+    },
+    [foreignToken]: {
+      _tag: "Member",
+      personId: "assistant-2",
+      departmentId: "department-1",
+      active: true,
+    },
+  });
   const baseEnvironment = { ...process.env };
   delete baseEnvironment.API_MODE;
   delete baseEnvironment.VITE_API_MODE;
 
   const apiEnvironment = {
     ...baseEnvironment,
-    RECEIPT_PG_URL: postgresUrl,
-    RECEIPT_API_PORT: "8790",
+    BACKEND_HOST: "127.0.0.1",
+    BACKEND_PORT: "8790",
+    BACKEND_PG_URL: postgresUrl,
+    ADMISSION_AUTH_TOKENS: admissionTokens,
     RECEIPT_STAGING_ROOT: stagingRoot,
     RECEIPT_COMMITTED_ROOT: committedRoot,
     RECEIPT_MAX_FILE_BYTES: "10485760",
     RECEIPT_AUTH_TOKENS: actorTokens,
     RECEIPT_E2E_TEST_MODE: "1",
-    RECEIPT_E2E_FAIL_PROMOTION_EFFECT_ID:
-      "receipt-owner-e2e-replacement:PromoteReceiptFile",
+    RECEIPT_E2E_FAIL_PROMOTION_EFFECT_ID: "receipt-owner-e2e-replacement:PromoteReceiptFile",
   };
   const dashboardEnvironment = {
     ...baseEnvironment,
-    API_URL: receiptApiOrigin,
-    VITE_API_URL: receiptApiOrigin,
+    API_URL: backendOrigin,
+    VITE_API_URL: backendOrigin,
   };
   const playwrightEnvironment = {
     ...dashboardEnvironment,
     REAL_RECEIPT_OWNER_E2E: "1",
-    RECEIPT_API_ORIGIN: receiptApiOrigin,
+    BACKEND_ORIGIN: backendOrigin,
     DASHBOARD_ORIGIN: dashboardOrigin,
     RECEIPT_E2E_TOKEN: token,
     RECEIPT_E2E_FOREIGN_TOKEN: foreignToken,
@@ -595,17 +607,17 @@ async function main() {
       await startLocalPostgres(postgresDataRoot, baseEnvironment);
     }
 
-    const configuredApiCommand = process.env.RECEIPT_API_COMMAND;
-    apiProcess = configuredApiCommand
-      ? startProcess("/bin/sh", ["-c", configuredApiCommand], {
+    const configuredBackendCommand = process.env.BACKEND_COMMAND;
+    apiProcess = configuredBackendCommand
+      ? startProcess("/bin/sh", ["-c", configuredBackendCommand], {
           cwd: repositoryRoot,
           env: apiEnvironment,
         })
-      : startProcess("bun", ["run", "--cwd", "apps/receipt-api", "start"], {
+      : startProcess("bun", ["run", "--cwd", "apps/backend", "start"], {
           cwd: repositoryRoot,
           env: apiEnvironment,
         });
-    await waitForHttp(`${receiptApiOrigin}/health`, apiProcess, "Native Receipt API");
+    await waitForHttp(`${backendOrigin}/health`, apiProcess, "Unified native backend");
     await runCommand("bun", ["run", "build"], {
       cwd: sdkRoot,
       env: dashboardEnvironment,
@@ -663,7 +675,7 @@ async function main() {
     evidence = {
       topology: {
         dashboard: "loopback-react-router",
-        api: "native-effect-receipt",
+        api: "unified-native-effect-backend",
         database:
           postgresTopology === "docker"
             ? "disposable-postgresql-docker"

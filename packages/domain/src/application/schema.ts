@@ -3,15 +3,12 @@ import { Schema } from "effect";
 /** Stable IDs are opaque, non-empty, and free of control characters. */
 export const PublicApplicationIdSchema = Schema.String.pipe(
   Schema.check(
-    Schema.makeFilter(
-      (value) => value.trim().length > 0 && !/[\p{Cc}\p{Cf}]/u.test(value),
-      { message: "a non-empty stable identifier" },
-    ),
+    Schema.makeFilter((value) => value.trim().length > 0 && !/[\p{Cc}\p{Cf}]/u.test(value), {
+      message: "a non-empty stable identifier",
+    }),
   ),
 );
 export type PublicApplicationId = typeof PublicApplicationIdSchema.Type;
-
-
 
 export const isPublicApplicationName = (value: string): boolean => {
   const normalized = value.trim();
@@ -57,11 +54,15 @@ export const PublicApplicationGenderSchema = Schema.Literals([0, 1]);
 export type PublicApplicationGender = typeof PublicApplicationGenderSchema.Type;
 
 export const PublicApplicationYearOfStudySchema = Schema.Int.pipe(
-  Schema.check(Schema.makeFilter((value) => value >= 1 && value <= 5, { message: "a year from 1 to 5" })),
+  Schema.check(
+    Schema.makeFilter((value) => value >= 1 && value <= 5, { message: "a year from 1 to 5" }),
+  ),
 );
 
 const Sha256Schema = Schema.String.pipe(
-  Schema.check(Schema.makeFilter((value) => /^[a-f0-9]{64}$/u.test(value), { message: "a SHA-256 digest" })),
+  Schema.check(
+    Schema.makeFilter((value) => /^[a-f0-9]{64}$/u.test(value), { message: "a SHA-256 digest" }),
+  ),
 );
 
 const PublicApplicationInstantPattern =
@@ -145,7 +146,8 @@ export const PublicApplicationSubmitObservationSchema = Schema.TaggedUnion({
     applicationId: PublicApplicationIdSchema,
   },
 });
-export type PublicApplicationSubmitObservation = typeof PublicApplicationSubmitObservationSchema.Type;
+export type PublicApplicationSubmitObservation =
+  typeof PublicApplicationSubmitObservationSchema.Type;
 
 export const PublicApplicationObservationSchema = PublicApplicationSubmitObservationSchema;
 export type PublicApplicationObservation = PublicApplicationSubmitObservation;
@@ -158,17 +160,26 @@ export type PublicApplicationConfirmation = typeof PublicApplicationConfirmation
 
 export const PublicApplicationFieldOfStudySchema = Schema.Struct({
   fieldOfStudyId: PublicApplicationIdSchema,
-  name: Schema.String.pipe(Schema.check(Schema.makeFilter((value) => value.trim().length > 0, { message: "a field name" }))),
+  name: Schema.String.pipe(
+    Schema.check(
+      Schema.makeFilter((value) => value.trim().length > 0, { message: "a field name" }),
+    ),
+  ),
 });
 export type PublicApplicationFieldOfStudy = typeof PublicApplicationFieldOfStudySchema.Type;
 
 export const PublicApplicationCatalogDepartmentSchema = Schema.Struct({
   departmentId: PublicApplicationIdSchema,
-  name: Schema.String.pipe(Schema.check(Schema.makeFilter((value) => value.trim().length > 0, { message: "a department name" }))),
+  name: Schema.String.pipe(
+    Schema.check(
+      Schema.makeFilter((value) => value.trim().length > 0, { message: "a department name" }),
+    ),
+  ),
   closesAt: PublicApplicationInstantSchema,
   fieldsOfStudy: Schema.Array(PublicApplicationFieldOfStudySchema),
 });
-export type PublicApplicationCatalogDepartment = typeof PublicApplicationCatalogDepartmentSchema.Type;
+export type PublicApplicationCatalogDepartment =
+  typeof PublicApplicationCatalogDepartmentSchema.Type;
 
 export const PublicApplicationCatalogSchema = Schema.Struct({
   departments: Schema.Array(PublicApplicationCatalogDepartmentSchema),

@@ -81,7 +81,11 @@ const SEED_EVENT_3 = {
   correlationId: FIXTURE_CORRELATION_ID,
 } satisfies EventEnvelopeV1;
 
-export const FIXTURE_SEED_EVENTS: ReadonlyArray<EventEnvelopeV1> = [SEED_EVENT_1, SEED_EVENT_2, SEED_EVENT_3];
+export const FIXTURE_SEED_EVENTS: ReadonlyArray<EventEnvelopeV1> = [
+  SEED_EVENT_1,
+  SEED_EVENT_2,
+  SEED_EVENT_3,
+];
 
 export const FIXTURE_COMMAND: ConductInterviewV1 = {
   schemaVersion: 1,
@@ -205,9 +209,18 @@ export const runTutorFixture = (): TutorFixtureRun => {
   const acceptedState = accepted.state;
   assert(acceptedState.events.length === 4, "accepted event count must be four");
   assert(descriptorCount(acceptedState) === 1, "accepted descriptor count must be one");
-  assert(accepted.observation.projection.status === "completed", "accepted projection must be completed");
-  assert(accepted.observation.eventId === CONDUCTED_EVENT_ID, "conducted event identity must be fixed");
-  assert(accepted.observation.descriptor.idempotencyKey === "post-commit:evt-0014-004", "descriptor key mismatch");
+  assert(
+    accepted.observation.projection.status === "completed",
+    "accepted projection must be completed",
+  );
+  assert(
+    accepted.observation.eventId === CONDUCTED_EVENT_ID,
+    "conducted event identity must be fixed",
+  );
+  assert(
+    accepted.observation.descriptor.idempotencyKey === "post-commit:evt-0014-004",
+    "descriptor key mismatch",
+  );
 
   const malformedCommand: unknown = {
     ...FIXTURE_COMMAND,
@@ -216,7 +229,10 @@ export const runTutorFixture = (): TutorFixtureRun => {
   };
   const malformedFailure = runFailure(conductInterview(acceptedState, malformedCommand));
   assert(malformedFailure._tag === "DecodeError", "malformed command must be a decode error");
-  assert(acceptedState.events.length === 4 && descriptorCount(acceptedState) === 1, "malformed changed state");
+  assert(
+    acceptedState.events.length === 4 && descriptorCount(acceptedState) === 1,
+    "malformed changed state",
+  );
 
   const staleCommand: unknown = {
     ...FIXTURE_COMMAND,
@@ -232,34 +248,84 @@ export const runTutorFixture = (): TutorFixtureRun => {
     expectedVersion: 4,
   };
   const terminalFailure = runFailure(conductInterview(acceptedState, terminalCommand));
-  assert(terminalFailure._tag === "InvalidTransition", "terminal command must be an invalid transition");
+  assert(
+    terminalFailure._tag === "InvalidTransition",
+    "terminal command must be an invalid transition",
+  );
   assert(terminalFailure.reasonCode === "TERMINAL_CONDUCTED", "terminal law reason mismatch");
 
   const duplicate = runSync(conductInterview(acceptedState, FIXTURE_COMMAND));
   assert(duplicate._tag === "DuplicateResult", "identical command must be duplicate");
   assert(duplicate.state === acceptedState, "duplicate must preserve state identity");
-  assert(duplicate.observationBytes === accepted.observationBytes, "duplicate observation bytes changed");
-  assert(acceptedState.events.length === 4 && descriptorCount(acceptedState) === 1, "duplicate appended state");
+  assert(
+    duplicate.observationBytes === accepted.observationBytes,
+    "duplicate observation bytes changed",
+  );
+  assert(
+    acceptedState.events.length === 4 && descriptorCount(acceptedState) === 1,
+    "duplicate appended state",
+  );
 
   const duplicateConflictCommand: unknown = {
     ...FIXTURE_COMMAND,
     scores: { ...FIXTURE_COMMAND.scores, explanatoryPower: 7 },
   };
-  const duplicateConflictFailure = runFailure(conductInterview(acceptedState, duplicateConflictCommand));
+  const duplicateConflictFailure = runFailure(
+    conductInterview(acceptedState, duplicateConflictCommand),
+  );
   assert(
     duplicateConflictFailure._tag === "DuplicateCommandConflict",
     "changed duplicate command must conflict",
   );
-  assert(acceptedState.events.length === 4 && descriptorCount(acceptedState) === 1, "duplicate conflict changed state");
+  assert(
+    acceptedState.events.length === 4 && descriptorCount(acceptedState) === 1,
+    "duplicate conflict changed state",
+  );
 
   const cases: ReadonlyArray<EvidenceCase> = [
     caseObservation("step-01-seed", "accepted", "SEED_ACCEPTED", FIXTURE_ID, seedState),
-    caseObservation("step-02-command-decode", "accepted", "COMMAND_DECODED", FIXTURE_COMMAND_ID, seedState),
-    caseObservation("step-03-conduct", "accepted", "INTERVIEW_CONDUCTED", FIXTURE_COMMAND_ID, acceptedState),
-    caseObservation("step-04-malformed", "rejected", malformedFailure.reasonCode, MALFORMED_COMMAND_ID, acceptedState),
-    caseObservation("step-05-stale", "stale", staleFailure.reasonCode, STALE_COMMAND_ID, acceptedState),
-    caseObservation("step-06-terminal", "terminal", terminalFailure.reasonCode, TERMINAL_COMMAND_ID, acceptedState),
-    caseObservation("step-07-duplicate", "duplicate", "DUPLICATE_IDEMPOTENT", FIXTURE_COMMAND_ID, acceptedState),
+    caseObservation(
+      "step-02-command-decode",
+      "accepted",
+      "COMMAND_DECODED",
+      FIXTURE_COMMAND_ID,
+      seedState,
+    ),
+    caseObservation(
+      "step-03-conduct",
+      "accepted",
+      "INTERVIEW_CONDUCTED",
+      FIXTURE_COMMAND_ID,
+      acceptedState,
+    ),
+    caseObservation(
+      "step-04-malformed",
+      "rejected",
+      malformedFailure.reasonCode,
+      MALFORMED_COMMAND_ID,
+      acceptedState,
+    ),
+    caseObservation(
+      "step-05-stale",
+      "stale",
+      staleFailure.reasonCode,
+      STALE_COMMAND_ID,
+      acceptedState,
+    ),
+    caseObservation(
+      "step-06-terminal",
+      "terminal",
+      terminalFailure.reasonCode,
+      TERMINAL_COMMAND_ID,
+      acceptedState,
+    ),
+    caseObservation(
+      "step-07-duplicate",
+      "duplicate",
+      "DUPLICATE_IDEMPOTENT",
+      FIXTURE_COMMAND_ID,
+      acceptedState,
+    ),
     caseObservation(
       "step-08-duplicate-conflict",
       "duplicate-conflict",
@@ -267,12 +333,22 @@ export const runTutorFixture = (): TutorFixtureRun => {
       FIXTURE_COMMAND_ID,
       acceptedState,
     ),
-    caseObservation("step-09-evidence", "accepted", "EVIDENCE_REPEATABLE", FIXTURE_COMMAND_ID, acceptedState),
+    caseObservation(
+      "step-09-evidence",
+      "accepted",
+      "EVIDENCE_REPEATABLE",
+      FIXTURE_COMMAND_ID,
+      acceptedState,
+    ),
   ];
   const scenarioCount = cases.length;
   assert(scenarioCount === 9, "fixture must contain exactly nine journey cases");
 
-  const crossStreamCommand: unknown = { ...FIXTURE_COMMAND, commandId: "cmd-0014-cross-stream", stream: OTHER_STREAM };
+  const crossStreamCommand: unknown = {
+    ...FIXTURE_COMMAND,
+    commandId: "cmd-0014-cross-stream",
+    stream: OTHER_STREAM,
+  };
   const crossStreamFailure = runFailure(conductInterview(acceptedState, crossStreamCommand));
   const emptyStreamFailure = runFailure(foldEvents([]));
   const gapFailure = runFailure(
@@ -282,7 +358,11 @@ export const runTutorFixture = (): TutorFixtureRun => {
     foldEvents([SEED_EVENT_1, { ...SEED_EVENT_2, eventType: "InterviewAccepted" }, SEED_EVENT_3]),
   );
   const occurredAtRewindFailure = runFailure(
-    foldEvents([SEED_EVENT_1, { ...SEED_EVENT_2, occurredAt: "2026-08-11T08:59:00Z" }, SEED_EVENT_3]),
+    foldEvents([
+      SEED_EVENT_1,
+      { ...SEED_EVENT_2, occurredAt: "2026-08-11T08:59:00Z" },
+      SEED_EVENT_3,
+    ]),
   );
   const duplicateEventFailure = runFailure(
     foldEvents([SEED_EVENT_1, { ...SEED_EVENT_2, eventId: SEED_EVENT_1.eventId }, SEED_EVENT_3]),
@@ -295,7 +375,11 @@ export const runTutorFixture = (): TutorFixtureRun => {
   );
   const schemaVersionFailure = runFailure(foldEvents([{ ...SEED_EVENT_1, schemaVersion: 2 }]));
   const invitedState = runSync(createTutorState([SEED_EVENT_1, SEED_EVENT_2]));
-  const invitedCommand: unknown = { ...FIXTURE_COMMAND, commandId: "cmd-0014-invited", expectedVersion: 2 };
+  const invitedCommand: unknown = {
+    ...FIXTURE_COMMAND,
+    commandId: "cmd-0014-invited",
+    expectedVersion: 2,
+  };
   const invitedFailure = runFailure(conductInterview(invitedState, invitedCommand));
   const incompleteAnswerFailure = runFailure(
     conductInterview(acceptedState, {
@@ -313,20 +397,91 @@ export const runTutorFixture = (): TutorFixtureRun => {
   );
 
   const counterexampleReceipts: ReadonlyArray<CounterexampleReceipt> = [
-    preservedCounterexample("counterexample-cross-stream", "StreamMismatch", "STREAM_MISMATCH", crossStreamFailure, acceptedState),
-    preservedCounterexample("counterexample-empty-stream", "InvalidTransition", "EMPTY_STREAM", emptyStreamFailure, seedState),
-    preservedCounterexample("counterexample-gap", "OutOfOrderEvent", "STREAM_VERSION_GAP", gapFailure, seedState),
-    preservedCounterexample("counterexample-canonical-sequence", "InvalidTransition", "CANONICAL_SEQUENCE", canonicalSequenceFailure, seedState),
-    preservedCounterexample("counterexample-occurred-at-rewind", "OutOfOrderEvent", "OCCURRED_AT_REWIND", occurredAtRewindFailure, seedState),
-    preservedCounterexample("counterexample-duplicate-event", "DuplicateEvent", "DUPLICATE_EVENT_ID", duplicateEventFailure, seedState),
-    preservedCounterexample("counterexample-event-stream", "StreamMismatch", "STREAM_MISMATCH", eventStreamFailure, seedState),
-    preservedCounterexample("counterexample-event-correlation", "StreamMismatch", "STREAM_MISMATCH", eventCorrelationFailure, seedState),
-    preservedCounterexample("counterexample-schema-version", "DecodeError", "DECODE_ERROR", schemaVersionFailure, seedState),
-    preservedCounterexample("counterexample-invited", "InvalidTransition", "CONDUCT_REQUIRES_ACCEPTED", invitedFailure, invitedState),
-    preservedCounterexample("counterexample-answer-cardinality", "DecodeError", "DECODE_ERROR", incompleteAnswerFailure, acceptedState),
-    preservedCounterexample("counterexample-score-bound", "DecodeError", "DECODE_ERROR", invalidScoreFailure, acceptedState),
+    preservedCounterexample(
+      "counterexample-cross-stream",
+      "StreamMismatch",
+      "STREAM_MISMATCH",
+      crossStreamFailure,
+      acceptedState,
+    ),
+    preservedCounterexample(
+      "counterexample-empty-stream",
+      "InvalidTransition",
+      "EMPTY_STREAM",
+      emptyStreamFailure,
+      seedState,
+    ),
+    preservedCounterexample(
+      "counterexample-gap",
+      "OutOfOrderEvent",
+      "STREAM_VERSION_GAP",
+      gapFailure,
+      seedState,
+    ),
+    preservedCounterexample(
+      "counterexample-canonical-sequence",
+      "InvalidTransition",
+      "CANONICAL_SEQUENCE",
+      canonicalSequenceFailure,
+      seedState,
+    ),
+    preservedCounterexample(
+      "counterexample-occurred-at-rewind",
+      "OutOfOrderEvent",
+      "OCCURRED_AT_REWIND",
+      occurredAtRewindFailure,
+      seedState,
+    ),
+    preservedCounterexample(
+      "counterexample-duplicate-event",
+      "DuplicateEvent",
+      "DUPLICATE_EVENT_ID",
+      duplicateEventFailure,
+      seedState,
+    ),
+    preservedCounterexample(
+      "counterexample-event-stream",
+      "StreamMismatch",
+      "STREAM_MISMATCH",
+      eventStreamFailure,
+      seedState,
+    ),
+    preservedCounterexample(
+      "counterexample-event-correlation",
+      "StreamMismatch",
+      "STREAM_MISMATCH",
+      eventCorrelationFailure,
+      seedState,
+    ),
+    preservedCounterexample(
+      "counterexample-schema-version",
+      "DecodeError",
+      "DECODE_ERROR",
+      schemaVersionFailure,
+      seedState,
+    ),
+    preservedCounterexample(
+      "counterexample-invited",
+      "InvalidTransition",
+      "CONDUCT_REQUIRES_ACCEPTED",
+      invitedFailure,
+      invitedState,
+    ),
+    preservedCounterexample(
+      "counterexample-answer-cardinality",
+      "DecodeError",
+      "DECODE_ERROR",
+      incompleteAnswerFailure,
+      acceptedState,
+    ),
+    preservedCounterexample(
+      "counterexample-score-bound",
+      "DecodeError",
+      "DECODE_ERROR",
+      invalidScoreFailure,
+      acceptedState,
+    ),
   ];
-
 
   const finalFolded = runSync(foldEvents(acceptedState.events));
   const finalProjection = projectFoldedState(finalFolded);
@@ -371,20 +526,35 @@ export const runTutorFixture = (): TutorFixtureRun => {
   const secondArtifact = renderEvidence(evidenceDocument);
   const independentlyEncodedJson = canonicalEvidenceJson(evidenceDocument);
   const independentlyEncodedBytes = canonicalEvidenceBytes(evidenceDocument);
-  assert(firstArtifact.canonicalJson === secondArtifact.canonicalJson, "evidence canonical JSON changed");
-  assert(firstArtifact.canonicalJson === independentlyEncodedJson, "evidence JSON renderer disagrees");
+  assert(
+    firstArtifact.canonicalJson === secondArtifact.canonicalJson,
+    "evidence canonical JSON changed",
+  );
+  assert(
+    firstArtifact.canonicalJson === independentlyEncodedJson,
+    "evidence JSON renderer disagrees",
+  );
   assert(firstArtifact.digest === secondArtifact.digest, "evidence digest changed");
-  assert(firstArtifact.bytes.length === secondArtifact.bytes.length, "evidence byte length changed");
+  assert(
+    firstArtifact.bytes.length === secondArtifact.bytes.length,
+    "evidence byte length changed",
+  );
   assert(
     firstArtifact.bytes.every((byte, index) => byte === secondArtifact.bytes[index]),
     "evidence bytes changed",
   );
-  assert(firstArtifact.bytes.length === independentlyEncodedBytes.length, "evidence bytes renderer disagrees");
+  assert(
+    firstArtifact.bytes.length === independentlyEncodedBytes.length,
+    "evidence bytes renderer disagrees",
+  );
   assert(
     firstArtifact.bytes.every((byte, index) => byte === independentlyEncodedBytes[index]),
     "evidence bytes renderer disagrees",
   );
-  assert(firstArtifact.canonicalJson.endsWith("}") && firstArtifact.bytes.at(-1) === 10, "evidence newline missing");
+  assert(
+    firstArtifact.canonicalJson.endsWith("}") && firstArtifact.bytes.at(-1) === 10,
+    "evidence newline missing",
+  );
 
   return {
     passed: true,
