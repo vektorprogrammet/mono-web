@@ -1,4 +1,4 @@
-import { Schema } from "effect"
+import { Schema } from "effect";
 
 // --- Page (generic collection response, post-Hydra-unwrap) ---
 
@@ -15,15 +15,22 @@ export class Page<A> {
 export const PaginationParams = Schema.Struct({
   page: Schema.optional(Schema.Number),
   pageSize: Schema.optional(Schema.Number),
-})
-export type PaginationParams = Schema.Schema.Type<typeof PaginationParams>
+});
+export type PaginationParams = Schema.Schema.Type<typeof PaginationParams>;
 
 // --- Shared domain types ---
 
 export class Department extends Schema.Class<Department>("Department")({
   id: Schema.Number,
   name: Schema.String,
+  shortName: Schema.String,
+  email: Schema.String,
+  address: Schema.NullOr(Schema.String),
   city: Schema.String,
+  latitude: Schema.NullOr(Schema.String),
+  longitude: Schema.NullOr(Schema.String),
+  logoPath: Schema.NullOr(Schema.String),
+  active: Schema.Boolean,
 }) {}
 
 export class Team extends Schema.Class<Team>("Team")({

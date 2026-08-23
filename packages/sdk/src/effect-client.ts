@@ -18,6 +18,7 @@ import { createAdminSchedulingDomain } from "./domains/admin/scheduling.js";
 import { createAdminTeamsDomain } from "./domains/admin/teams.js";
 import { createAdminMiscDomain } from "./domains/admin/misc.js";
 import { createPublicMiscDomain } from "./domains/public/misc.js";
+import { createPublicContactMessageDomain } from "./domains/public/contact-message.js";
 import { createPublicTeamsDomain } from "./domains/public/teams.js";
 import { createAdminUsersDomain } from "./domains/admin/users.js";
 import { createAdmissionApplicationsDomain } from "./domains/admission-applications.js";
@@ -110,6 +111,7 @@ export {
   PublicApplicationConfirmation,
   PublicApplicationConfirmationSchema,
 } from "./schemas/admission-application.js";
+export { ContactMessageInput, ContactMessageInputSchema } from "./schemas/contact-message.js";
 export type { Receipt, AdminReceipt, ReceiptInput } from "./schemas/receipt.js";
 export type { Application, ApplicationDetail } from "./schemas/application.js";
 export {
@@ -153,6 +155,7 @@ export function createEffectClient(baseUrl: string | undefined, options?: Client
   const adminMisc = createAdminMiscDomain(transport);
   const publicMisc = createPublicMiscDomain(transport);
   const publicTeams = createPublicTeamsDomain(transport);
+  const publicContactMessages = createPublicContactMessageDomain(transport);
 
   return {
     auth: createAuthDomain(transport),
@@ -176,6 +179,7 @@ export function createEffectClient(baseUrl: string | undefined, options?: Client
       fieldOfStudies: publicMisc.fieldOfStudies.bind(publicMisc),
       sponsors: publicMisc.sponsors.bind(publicMisc),
       teams: publicTeams.list.bind(publicTeams),
+      contactMessages: publicContactMessages,
     },
     context,
   };

@@ -20,6 +20,7 @@ import { createAdminSchedulingDomain } from "./domains/admin/scheduling.js";
 import { createAdminTeamsDomain } from "./domains/admin/teams.js";
 import { createAdminMiscDomain } from "./domains/admin/misc.js";
 import { createPublicMiscDomain } from "./domains/public/misc.js";
+import { createPublicContactMessageDomain } from "./domains/public/contact-message.js";
 import { createPublicTeamsDomain } from "./domains/public/teams.js";
 import { createAdminUsersDomain } from "./domains/admin/users.js";
 import { createAdmissionApplicationsDomain } from "./domains/admission-applications.js";
@@ -156,6 +157,7 @@ export {
   PublicApplicationConfirmation,
   PublicApplicationConfirmationSchema,
 } from "./schemas/admission-application.js";
+export { ContactMessageInput, ContactMessageInputSchema } from "./schemas/contact-message.js";
 export type { Application, ApplicationDetail } from "./schemas/application.js";
 export {
   AdminInterviewList,
@@ -226,6 +228,7 @@ export function createClient(baseUrl: string | undefined, options?: ClientOption
   const adminMisc = createAdminMiscDomain(transport);
   const publicMisc = createPublicMiscDomain(transport);
   const publicTeams = createPublicTeamsDomain(transport);
+  const publicContactMessages = createPublicContactMessageDomain(transport);
 
   return {
     auth: promisifyDomain(createAuthDomain(transport)),
@@ -249,6 +252,7 @@ export function createClient(baseUrl: string | undefined, options?: ClientOption
       fieldOfStudies: promisify(publicMisc.fieldOfStudies.bind(publicMisc)),
       sponsors: promisify(publicMisc.sponsors.bind(publicMisc)),
       teams: promisify(publicTeams.list.bind(publicTeams)),
+      contactMessages: promisifyDomain(publicContactMessages),
     },
     context,
   };

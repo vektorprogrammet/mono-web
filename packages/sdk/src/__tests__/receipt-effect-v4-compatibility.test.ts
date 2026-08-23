@@ -97,6 +97,7 @@ describe("Effect v4 Receipt compatibility", () => {
       expectMethods(client.admin.teams, ["list", "interest"])
       expectMethods(client.admin, ["mailingLists", "admissionStats"])
       expectMethods(client.public, ["departments", "fieldOfStudies", "sponsors", "teams"])
+      expectMethods(client.public.contactMessages, ["submit"])
     }
 
     const promiseResult = promiseClient.admin.receipts.list({ status: "pending", page: 1, pageSize: 2 })

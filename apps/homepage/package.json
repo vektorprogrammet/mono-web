@@ -19,6 +19,7 @@
     "e2e:show-report": "playwright show-report",
     "e2e:install": "playwright install",
     "e2e:applicant:real": "node e2e/run-real-public-applicant-admission.mjs",
+    "e2e:contact:real": "node e2e/run-real-public-contact-message.mjs",
     "lint": "oxlint",
     "format": "oxfmt --write"
   },

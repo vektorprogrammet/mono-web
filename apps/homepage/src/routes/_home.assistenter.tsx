@@ -14,7 +14,7 @@ import { getAssistantFaqs } from "~/api/faq";
 import { Divider } from "~/components/divider";
 import { PublicApplicationForm } from "~/components/public-application-form";
 import { Button } from "~/components/ui/button";
-import { createPublicApplicationClient } from "~/lib/application-api.server";
+import { createHomepageApiClient } from "~/lib/api.server";
 import {
   mapPublicApplicationError,
   parsePublicApplicationForm,
@@ -25,7 +25,7 @@ import type { Route } from "./+types/_home.assistenter";
 
 
 export async function loader(): Promise<PublicApplicationLoaderData> {
-  const client = createPublicApplicationClient();
+  const client = createHomepageApiClient();
 
   try {
     const catalog = await client.applications.catalog();
@@ -72,7 +72,7 @@ export async function action({
     };
   }
 
-  const client = createPublicApplicationClient();
+  const client = createHomepageApiClient();
   try {
     const submitted = await client.applications.submit(parsed.value);
     const confirmation = await client.applications.confirmation(

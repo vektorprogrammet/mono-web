@@ -2,13 +2,13 @@
 
 ## Metadata
 
-| Field | Value |
-|---|---|
-| Goal | Replace the legacy public contact-message journey with one native journey |
-| Status | Frozen |
-| Actor | Public visitor |
-| Dependency | Public department API, contact-message API, and typed SDK transport |
-| Evidence | Local PostgreSQL and browser run |
+| Field      | Value                                                                                     |
+| ---------- | ----------------------------------------------------------------------------------------- |
+| Goal       | Replace the legacy public contact-message journey with one native journey                 |
+| Status     | Frozen                                                                                    |
+| Actor      | Public visitor                                                                            |
+| Dependency | Public department API, contact-message API, and typed SDK transport                       |
+| Evidence   | Local Symfony API test and browser run                                                    |
 | Scope hold | The operator must accept or replace the legacy reCAPTCHA disposition before Goal 1 closes |
 
 ## User journey
@@ -54,7 +54,7 @@ The `/kontakt/:department` route selects the matching active department. The rou
 
 The `/kontakt` route selects the first active department from the API response. This default does not close the legacy geolocation parity gap.
 
-The page shows the selected department name, email address, postal address, and contact person. Missing optional values remain absent.
+The page shows the selected department name, email address, postal address, and city. Missing optional values remain absent.
 
 ### Contact command
 
@@ -72,7 +72,8 @@ The SDK sends `POST /contact_messages` with `application/json`. The SDK returns 
 
 ### Failure results
 
-The form shows one Norwegian validation message for incomplete or malformed input. The form keeps non-sensitive input after this result.
+The form shows one Norwegian validation message for incomplete or malformed input. The browser keeps the draft after this result.
+The action response contains no submitted values.
 
 The form shows one rate-limit message for HTTP `429`. The form shows one general failure message for other API failures.
 
@@ -89,7 +90,7 @@ The zero-gap register must keep this difference open. An external accepted-inten
 ## Definition of done
 
 1. SDK tests prove input decoding, one JSON request, empty `201` success, and typed failure mapping.
-2. A server test proves one valid command and invalid field rejection.
+2. A server test proves one valid command, one mail request, and invalid field rejection.
 3. A browser journey selects a live department and sends one message.
 4. The browser journey observes the selected department identifier in the API request.
 5. The browser journey observes one success result and one rejected result.
