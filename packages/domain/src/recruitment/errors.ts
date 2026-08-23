@@ -5,6 +5,7 @@ import {
   InterviewSchemaId,
   RecruitmentAssignmentCommandId,
   RecruitmentInterviewId,
+  RecruitmentScheduleCommandId,
 } from "./schema.js";
 
 export class RecruitmentDecodeError extends Schema.TaggedError<RecruitmentDecodeError>()(
@@ -73,6 +74,35 @@ export class RecruitmentAssignmentCommandConflict extends Schema.TaggedError<Rec
   "RecruitmentAssignmentCommandConflict",
   { commandId: RecruitmentAssignmentCommandId },
 ) {}
+export class RecruitmentInterviewNotFound extends Schema.TaggedError<RecruitmentInterviewNotFound>()(
+  "RecruitmentInterviewNotFound",
+  { interviewId: RecruitmentInterviewId },
+) {}
+
+export class RecruitmentInterviewAlreadyScheduled extends Schema.TaggedError<RecruitmentInterviewAlreadyScheduled>()(
+  "RecruitmentInterviewAlreadyScheduled",
+  { interviewId: RecruitmentInterviewId },
+) {}
+
+export class RecruitmentInterviewStaleRevision extends Schema.TaggedError<RecruitmentInterviewStaleRevision>()(
+  "RecruitmentInterviewStaleRevision",
+  {
+    interviewId: RecruitmentInterviewId,
+    expectedRevision: Schema.Int,
+    actualRevision: Schema.Int,
+  },
+) {}
+
+export class RecruitmentScheduleCommandConflict extends Schema.TaggedError<RecruitmentScheduleCommandConflict>()(
+  "RecruitmentScheduleCommandConflict",
+  { commandId: RecruitmentScheduleCommandId },
+) {}
+
+export class RecruitmentScheduleInPast extends Schema.TaggedError<RecruitmentScheduleInPast>()(
+  "RecruitmentScheduleInPast",
+  { interviewId: RecruitmentInterviewId },
+) {}
+
 
 export class RecruitmentInvalidContext extends Schema.TaggedError<RecruitmentInvalidContext>()(
   "RecruitmentInvalidContext",

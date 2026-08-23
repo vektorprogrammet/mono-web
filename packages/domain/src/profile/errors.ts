@@ -14,6 +14,12 @@ export class ProfileQueryLimitExceeded extends Schema.TaggedError<ProfileQueryLi
 export class ProfileNotFound extends Schema.TaggedError<ProfileNotFound>()("ProfileNotFound", {
   personId: PersonId,
 }) {}
+export class ProfileContactNotFound extends Schema.TaggedError<ProfileContactNotFound>()(
+  "ProfileContactNotFound",
+  {
+    personId: PersonId,
+  },
+) {}
 
 export class ProfilePersistenceError extends Schema.TaggedError<ProfilePersistenceError>()(
   "ProfilePersistenceError",
@@ -24,4 +30,5 @@ export type ProfileFailure =
   | ProfileDecodeError
   | ProfileQueryLimitExceeded
   | ProfileNotFound
+  | ProfileContactNotFound
   | ProfilePersistenceError;

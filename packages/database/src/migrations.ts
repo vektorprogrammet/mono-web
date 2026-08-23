@@ -50,6 +50,10 @@ const recruitmentMigrationUrl = new URL(
   "../migrations/0010-native-recruitment-applicant-assignment.sql",
   import.meta.url,
 );
+const recruitmentSchedulingMigrationUrl = new URL(
+  "../migrations/0011-native-recruitment-interview-scheduling.sql",
+  import.meta.url,
+);
 
 export type ExecuteMigration = (
   source: string,
@@ -112,9 +116,14 @@ export const databaseMigrationLoader = (execute: ExecuteMigration) =>
       recruitmentMigrationUrl,
       execute,
     ),
+    "11_native-recruitment-interview-scheduling": migration(
+      "native-recruitment-interview-scheduling",
+      recruitmentSchedulingMigrationUrl,
+      execute,
+    ),
   });
 
-export const databaseSchemaRevision = "10_native-recruitment-applicant-assignment";
+export const databaseSchemaRevision = "11_native-recruitment-interview-scheduling";
 export const runDatabaseMigrations = (execute: ExecuteMigration) =>
   Migrator.make({})({
     loader: databaseMigrationLoader(execute),

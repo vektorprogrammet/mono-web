@@ -12,6 +12,11 @@ import type {
   RecruitmentAssignmentContext,
   RecruitmentAssignmentResult,
   RecruitmentReadAssignmentBoardContext,
+  RecruitmentReadSchedulingBoardContext,
+  RecruitmentScheduleCommand,
+  RecruitmentScheduleContext,
+  RecruitmentScheduleResult,
+  RecruitmentSchedulingBoard,
 } from "./schema.js";
 import type {
   RecruitmentAdmissionPeriodNotFound,
@@ -22,14 +27,18 @@ import type {
   RecruitmentDecodeError,
   RecruitmentInactiveActor,
   RecruitmentInterviewerNotEligible,
+  RecruitmentInterviewAlreadyScheduled,
+  RecruitmentInterviewNotFound,
   RecruitmentInterviewSchemaInactive,
   RecruitmentInterviewSchemaNotFound,
+  RecruitmentInterviewStaleRevision,
   RecruitmentInvalidContext,
   RecruitmentPersistenceError,
   RecruitmentRoleDenied,
+  RecruitmentScheduleCommandConflict,
+  RecruitmentScheduleInPast,
   RecruitmentScopeDenied,
 } from "./errors.js";
-
 export type RecruitmentFailure =
   | RecruitmentDecodeError
   | RecruitmentInactiveActor
@@ -43,6 +52,11 @@ export type RecruitmentFailure =
   | RecruitmentInterviewSchemaInactive
   | RecruitmentInterviewerNotEligible
   | RecruitmentAssignmentCommandConflict
+  | RecruitmentInterviewNotFound
+  | RecruitmentInterviewAlreadyScheduled
+  | RecruitmentInterviewStaleRevision
+  | RecruitmentScheduleCommandConflict
+  | RecruitmentScheduleInPast
   | RecruitmentInvalidContext
   | RecruitmentPersistenceError
   | AdmissionPeriodFailure
@@ -59,6 +73,13 @@ export interface RecruitmentShape {
     command: RecruitmentAssignmentCommand,
     context: RecruitmentAssignmentContext,
   ) => Effect.Effect<RecruitmentAssignmentResult, RecruitmentFailure>;
+  readonly readSchedulingBoard: (
+    context: RecruitmentReadSchedulingBoardContext,
+  ) => Effect.Effect<RecruitmentSchedulingBoard, RecruitmentFailure>;
+  readonly scheduleInterview: (
+    command: RecruitmentScheduleCommand,
+    context: RecruitmentScheduleContext,
+  ) => Effect.Effect<RecruitmentScheduleResult, RecruitmentFailure>;
 }
 
 export class Recruitment extends Context.Service<Recruitment, RecruitmentShape>()(

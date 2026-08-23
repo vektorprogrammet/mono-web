@@ -4,6 +4,7 @@ import { Database } from "../database/service.js";
 import { Organization } from "../organization/service.js";
 import { Profile } from "../profile/service.js";
 import { assignApplicant, readAssignmentBoard } from "./postgres.js";
+import { readSchedulingBoard, scheduleInterview } from "./scheduling-postgres.js";
 import { Recruitment } from "./service.js";
 
 /** Live Recruitment authority; all supporting capabilities remain explicit. */
@@ -24,6 +25,20 @@ export const RecruitmentLive = Layer.effect(
         ),
       assignApplicant: (command, context) =>
         assignApplicant(command, context).pipe(
+          Effect.provideService(Database, database),
+          Effect.provideService(Admissions, admissions),
+          Effect.provideService(Organization, organization),
+          Effect.provideService(Profile, profile),
+        ),
+      readSchedulingBoard: (context) =>
+        readSchedulingBoard(context).pipe(
+          Effect.provideService(Database, database),
+          Effect.provideService(Admissions, admissions),
+          Effect.provideService(Organization, organization),
+          Effect.provideService(Profile, profile),
+        ),
+      scheduleInterview: (command, context) =>
+        scheduleInterview(command, context).pipe(
           Effect.provideService(Database, database),
           Effect.provideService(Admissions, admissions),
           Effect.provideService(Organization, organization),

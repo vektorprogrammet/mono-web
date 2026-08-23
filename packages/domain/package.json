@@ -19,6 +19,7 @@
     "./organization": "./src/organization/index.ts",
     "./profile": "./src/profile/index.ts",
     "./recruitment": "./src/recruitment/index.ts",
+    "./notification": "./src/notification/index.ts",
     "./database": "./src/database/index.ts",
     "./evidence": "./src/tutor/evidence.ts",
     "./receipt/proof": "./src/receipt/proof-index.ts"

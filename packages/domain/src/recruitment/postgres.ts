@@ -70,7 +70,6 @@ interface ApplicationBoardRow {
   readonly interviewSchemaId: string | null;
   readonly assignedByPersonId: string | null;
   readonly assignedAt: string | null;
-  readonly interviewState: string | null;
   readonly scheduledAt: string | null;
   readonly interviewRevision: number | null;
 }
@@ -98,8 +97,6 @@ interface StoredInterviewRow {
   readonly interviewSchemaId: string;
   readonly assignedByPersonId: string;
   readonly assignedAt: string;
-  readonly state: string;
-  readonly scheduledAt: string | null;
   readonly revision: number;
 }
 
@@ -123,7 +120,6 @@ const ApplicationBoardRowSchema = Schema.Struct({
   interviewSchemaId: Schema.NullOr(Schema.String),
   assignedByPersonId: Schema.NullOr(Schema.String),
   assignedAt: Schema.NullOr(Schema.String),
-  interviewState: Schema.NullOr(Schema.String),
   scheduledAt: Schema.NullOr(Schema.String),
   interviewRevision: Schema.NullOr(Schema.Number),
 });
@@ -151,8 +147,6 @@ const StoredInterviewRowSchema = Schema.Struct({
   interviewSchemaId: Schema.String,
   assignedByPersonId: Schema.String,
   assignedAt: Schema.String,
-  state: Schema.String,
-  scheduledAt: Schema.NullOr(Schema.String),
   revision: Schema.Number,
 });
 
@@ -327,14 +321,14 @@ const readBoardRows = (
       CASE WHEN i.assigned_at IS NULL THEN NULL
         ELSE to_char(i.assigned_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
       END AS "assignedAt",
-      i.state AS "interviewState",
-      CASE WHEN i.scheduled_at IS NULL THEN NULL
-        ELSE to_char(i.scheduled_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+      CASE WHEN s.scheduled_at IS NULL THEN NULL
+        ELSE to_char(s.scheduled_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
       END AS "scheduledAt",
       i.revision AS "interviewRevision"
     FROM admission_applications a
     INNER JOIN admission_applicants p ON p.applicant_id = a.applicant_id
     LEFT JOIN recruitment_interviews i ON i.application_id = a.application_id
+    LEFT JOIN recruitment_interview_schedules s ON s.interview_id = i.interview_id
     WHERE a.admission_period_id = ${periodId}
       AND a.department_id = ${departmentId}
     ORDER BY a.submitted_at ASC, a.application_id ASC
@@ -375,7 +369,12 @@ const candidateForRow = (
       email: decodedRow.email,
       submittedAt: decodedRow.submittedAt,
       applicationState: "Received" as const,
-      interviewState: decodedRow.interviewId === null ? "Unassigned" : "NoContact",
+      interviewState:
+        decodedRow.interviewId === null
+          ? "Unassigned"
+          : decodedRow.scheduledAt === null
+            ? "NoContact"
+            : "Scheduled",
       interviewer,
       interviewSchema,
       scheduledAt: decodedRow.scheduledAt,
@@ -489,10 +488,6 @@ const readInterviewForApplication = (
       interview_schema_id AS "interviewSchemaId",
       assigned_by_person_id AS "assignedByPersonId",
       to_char(assigned_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "assignedAt",
-      state,
-      CASE WHEN scheduled_at IS NULL THEN NULL
-        ELSE to_char(scheduled_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
-      END AS "scheduledAt",
       revision
     FROM recruitment_interviews
     WHERE application_id = ${applicationId}
@@ -548,8 +543,6 @@ const buildInterview = (
       interviewSchemaId: row.interviewSchemaId,
       assignedByPersonId: row.assignedByPersonId,
       assignedAt: row.assignedAt,
-      state: row.state,
-      scheduledAt: row.scheduledAt,
       revision: row.revision,
     },
     "recruitment interview",
@@ -569,8 +562,6 @@ const writeInterview = (
       interview_schema_id,
       assigned_by_person_id,
       assigned_at,
-      state,
-      scheduled_at,
       revision
     ) VALUES (
       ${context.interviewId},
@@ -580,8 +571,6 @@ const writeInterview = (
       ${command.interviewSchemaId},
       ${context.actor.personId},
       ${context.now},
-      'NoContact',
-      NULL,
       0
     )
     RETURNING
@@ -592,8 +581,6 @@ const writeInterview = (
       interview_schema_id AS "interviewSchemaId",
       assigned_by_person_id AS "assignedByPersonId",
       to_char(assigned_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "assignedAt",
-      state,
-      NULL AS "scheduledAt",
       revision
   `.pipe(
     Effect.flatMap((rows) =>

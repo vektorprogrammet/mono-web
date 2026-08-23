@@ -10,9 +10,11 @@ import {
   PublicApplicationEmailSchema,
   PublicApplicationIdSchema,
   PublicApplicationNameSchema,
+  PublicApplicationPhoneSchema,
 } from "../application/schema.js";
 import { DepartmentId, PersonId } from "../organization/schema.js";
 import { isRfc3339Instant, Rfc3339InstantSchema } from "../time.js";
+import { PersonContactEmail, PersonContactPhone } from "../profile/schema.js";
 
 const StableId = Schema.String.pipe(
   Schema.check(
@@ -40,6 +42,19 @@ export const RecruitmentAssignmentCommandId = StableId.pipe(
   Schema.brand("RecruitmentAssignmentCommandId"),
 );
 export type RecruitmentAssignmentCommandId = typeof RecruitmentAssignmentCommandId.Type;
+export const RecruitmentScheduleCommandId = StableId.pipe(
+  Schema.brand("RecruitmentScheduleCommandId"),
+);
+export type RecruitmentScheduleCommandId = typeof RecruitmentScheduleCommandId.Type;
+
+export const RecruitmentInvitationId = StableId.pipe(Schema.brand("RecruitmentInvitationId"));
+export type RecruitmentInvitationId = typeof RecruitmentInvitationId.Type;
+
+export const RecruitmentNotificationEffectId = StableId.pipe(
+  Schema.brand("RecruitmentNotificationEffectId"),
+);
+export type RecruitmentNotificationEffectId = typeof RecruitmentNotificationEffectId.Type;
+
 
 export const RecruitmentActorSchema = AdmissionPeriodActorSchema;
 export type RecruitmentActor = AdmissionPeriodActor;
@@ -93,9 +108,6 @@ export type InterviewSchemaJsonCreate = typeof InterviewSchema.jsonCreate.Type;
 export type InterviewSchemaJsonUpdate = typeof InterviewSchema.jsonUpdate.Type;
 export type InterviewSchemaValue = typeof InterviewSchema.Type;
 
-export const RecruitmentInterviewStateSchema = Schema.Literals(["NoContact"]);
-export type RecruitmentInterviewState = typeof RecruitmentInterviewStateSchema.Type;
-
 export class RecruitmentInterview extends Model.Class<RecruitmentInterview>(
   "Recruitment.RecruitmentInterview",
 )({
@@ -134,16 +146,6 @@ export class RecruitmentInterview extends Model.Class<RecruitmentInterview>(
     insert: Rfc3339InstantSchema,
     json: Rfc3339InstantSchema,
   }),
-  state: Model.Field({
-    select: RecruitmentInterviewStateSchema,
-    insert: RecruitmentInterviewStateSchema,
-    json: RecruitmentInterviewStateSchema,
-  }),
-  scheduledAt: Model.Field({
-    select: Schema.NullOr(Rfc3339InstantSchema),
-    insert: Schema.NullOr(Rfc3339InstantSchema),
-    json: Schema.NullOr(Rfc3339InstantSchema),
-  }),
   revision: Model.GeneratedByDb(Revision),
 }) {}
 
@@ -151,6 +153,129 @@ export type RecruitmentInterviewSelect = typeof RecruitmentInterview.Encoded;
 export type RecruitmentInterviewInsert = typeof RecruitmentInterview.insert.Encoded;
 export type RecruitmentInterviewJson = typeof RecruitmentInterview.json.Type;
 export type RecruitmentInterviewValue = typeof RecruitmentInterview.Type;
+
+const ScheduleMessage = Schema.String.pipe(
+  Schema.check(
+    Schema.makeFilter((value) => value.trim().length > 0, {
+      message: "a non-empty schedule message",
+    }),
+    Schema.isMaxLength(2_000),
+  ),
+);
+const HttpsMapLink = Schema.String.pipe(
+  Schema.check(
+    Schema.makeFilter((value) => {
+      try {
+        const url = new URL(value);
+        return (
+          url.protocol === "https:" &&
+          url.username.length === 0 &&
+          url.password.length === 0
+        );
+      } catch {
+        return false;
+      }
+    }, { message: "an HTTPS URL without user credentials" }),
+  ),
+);
+const CapabilitySha256 = Schema.String.pipe(
+  Schema.check(
+    Schema.makeFilter((value) => /^[a-f0-9]{64}$/u.test(value), {
+      message: "a lowercase SHA-256 digest",
+    }),
+  ),
+);
+
+export class RecruitmentInterviewSchedule extends Model.Class<RecruitmentInterviewSchedule>(
+  "Recruitment.RecruitmentInterviewSchedule",
+)({
+  interviewId: Model.Field({
+    select: RecruitmentInterviewId,
+    insert: RecruitmentInterviewId,
+    json: RecruitmentInterviewId,
+  }),
+  scheduledAt: Model.Field({
+    select: Rfc3339InstantSchema,
+    insert: Rfc3339InstantSchema,
+    json: Rfc3339InstantSchema,
+  }),
+  room: Model.Field({
+    select: Name,
+    insert: Name,
+    json: Name,
+  }),
+  campus: Model.Field({
+    select: Schema.NullOr(Name),
+    insert: Schema.NullOr(Name),
+    json: Schema.NullOr(Name),
+  }),
+  mapLink: Model.Field({
+    select: Schema.NullOr(HttpsMapLink),
+    insert: Schema.NullOr(HttpsMapLink),
+    json: Schema.NullOr(HttpsMapLink),
+  }),
+  message: Model.Field({
+    select: ScheduleMessage,
+    insert: ScheduleMessage,
+    json: ScheduleMessage,
+  }),
+  scheduledByPersonId: Model.Field({
+    select: PersonId,
+    insert: PersonId,
+    json: PersonId,
+  }),
+  committedAt: Model.Field({
+    select: Rfc3339InstantSchema,
+    insert: Rfc3339InstantSchema,
+    json: Rfc3339InstantSchema,
+  }),
+  scheduleRevision: Model.Field({
+    select: Revision,
+    insert: Revision,
+    json: Revision,
+  }),
+}) {}
+
+export type RecruitmentInterviewScheduleSelect = typeof RecruitmentInterviewSchedule.Encoded;
+export type RecruitmentInterviewScheduleValue = typeof RecruitmentInterviewSchedule.Type;
+
+export const RecruitmentInvitationResponseStateSchema = Schema.Literals(["Pending"]);
+export type RecruitmentInvitationResponseState =
+  typeof RecruitmentInvitationResponseStateSchema.Type;
+
+export class RecruitmentInvitation extends Model.Class<RecruitmentInvitation>(
+  "Recruitment.RecruitmentInvitation",
+)({
+  invitationId: Model.Field({
+    select: RecruitmentInvitationId,
+    insert: RecruitmentInvitationId,
+  }),
+  interviewId: Model.Field({
+    select: RecruitmentInterviewId,
+    insert: RecruitmentInterviewId,
+  }),
+  scheduleRevision: Model.Field({
+    select: Revision,
+    insert: Revision,
+  }),
+  capabilitySha256: Model.Field({
+    select: CapabilitySha256,
+    insert: CapabilitySha256,
+  }),
+  responseState: Model.Field({
+    select: RecruitmentInvitationResponseStateSchema,
+    insert: RecruitmentInvitationResponseStateSchema,
+    update: RecruitmentInvitationResponseStateSchema,
+  }),
+  createdAt: Model.Field({
+    select: Rfc3339InstantSchema,
+    insert: Rfc3339InstantSchema,
+  }),
+}) {}
+
+export type RecruitmentInvitationSelect = typeof RecruitmentInvitation.Encoded;
+export type RecruitmentInvitationValue = typeof RecruitmentInvitation.Type;
+
 
 export const RecruitmentInterviewerOptionSchema = Schema.Struct({
   personId: PersonId,
@@ -167,8 +292,13 @@ export const RecruitmentInterviewSchemaOptionSchema = Schema.Struct({
 });
 export type RecruitmentInterviewSchemaOption = typeof RecruitmentInterviewSchemaOptionSchema.Type;
 
-export const RecruitmentInterviewStateForBoardSchema = Schema.Literals(["Unassigned", "NoContact"]);
-export type RecruitmentInterviewStateForBoard = typeof RecruitmentInterviewStateForBoardSchema.Type;
+export const RecruitmentInterviewStateForBoardSchema = Schema.Literals([
+  "Unassigned",
+  "NoContact",
+  "Scheduled",
+]);
+export type RecruitmentInterviewStateForBoard =
+  typeof RecruitmentInterviewStateForBoardSchema.Type;
 
 export const RecruitmentApplicationStateSchema = Schema.Literals(["Received"]);
 export type RecruitmentApplicationState = typeof RecruitmentApplicationStateSchema.Type;
@@ -217,6 +347,95 @@ export const RecruitmentAssignmentResultSchema = Schema.Struct({
   replayed: Schema.Boolean,
 });
 export type RecruitmentAssignmentResult = typeof RecruitmentAssignmentResultSchema.Type;
+export const RecruitmentNotificationDeliveryStateSchema = Schema.Literals([
+  "Pending",
+  "Processing",
+  "Delivered",
+  "Failed",
+  "Quarantined",
+]);
+export type RecruitmentNotificationDeliveryState =
+  typeof RecruitmentNotificationDeliveryStateSchema.Type;
+
+export const RecruitmentSchedulingApplicantSchema = Schema.Struct({
+  applicationId: PublicApplicationIdSchema,
+  applicantId: ApplicantIdSchema,
+  firstName: PublicApplicationNameSchema,
+  lastName: PublicApplicationNameSchema,
+  email: PublicApplicationEmailSchema,
+  phone: PublicApplicationPhoneSchema,
+});
+export type RecruitmentSchedulingApplicant = typeof RecruitmentSchedulingApplicantSchema.Type;
+
+export const RecruitmentSchedulingInterviewerSchema = Schema.Struct({
+  personId: PersonId,
+  displayName: Name,
+  email: PersonContactEmail,
+  phone: PersonContactPhone,
+});
+export type RecruitmentSchedulingInterviewer =
+  typeof RecruitmentSchedulingInterviewerSchema.Type;
+
+export const RecruitmentSchedulingInterviewSchema = Schema.Struct({
+  interviewId: RecruitmentInterviewId,
+  applicationId: PublicApplicationIdSchema,
+  departmentId: DepartmentId,
+  interviewer: RecruitmentSchedulingInterviewerSchema,
+  applicant: RecruitmentSchedulingApplicantSchema,
+  revision: Revision,
+  schedule: Schema.NullOr(RecruitmentInterviewSchedule),
+  responseState: Schema.NullOr(RecruitmentInvitationResponseStateSchema),
+  notificationState: Schema.NullOr(RecruitmentNotificationDeliveryStateSchema),
+});
+export type RecruitmentSchedulingInterview = typeof RecruitmentSchedulingInterviewSchema.Type;
+
+export const RecruitmentSchedulingBoardSchema = Schema.Struct({
+  departmentId: DepartmentId,
+  interviews: Schema.Array(RecruitmentSchedulingInterviewSchema),
+});
+export type RecruitmentSchedulingBoard = typeof RecruitmentSchedulingBoardSchema.Type;
+
+export const RecruitmentScheduleCommandSchema = Schema.Struct({
+  commandId: RecruitmentScheduleCommandId,
+  interviewId: RecruitmentInterviewId,
+  expectedRevision: Revision,
+  scheduledAt: Rfc3339InstantSchema,
+  room: Name,
+  campus: Schema.NullOr(Name),
+  mapLink: Schema.NullOr(HttpsMapLink),
+  message: ScheduleMessage,
+});
+export type RecruitmentScheduleCommand = typeof RecruitmentScheduleCommandSchema.Type;
+
+export const RecruitmentScheduleObservationSchema = Schema.Struct({
+  _tag: Schema.Literals(["InterviewScheduled"]),
+  commandId: RecruitmentScheduleCommandId,
+  interviewId: RecruitmentInterviewId,
+  schedule: RecruitmentInterviewSchedule,
+  interviewRevision: Revision,
+  responseState: RecruitmentInvitationResponseStateSchema,
+  notificationState: RecruitmentNotificationDeliveryStateSchema,
+});
+export type RecruitmentScheduleObservation = typeof RecruitmentScheduleObservationSchema.Type;
+
+export const RecruitmentScheduleResultSchema = Schema.Struct({
+  observation: RecruitmentScheduleObservationSchema,
+  replayed: Schema.Boolean,
+});
+export type RecruitmentScheduleResult = typeof RecruitmentScheduleResultSchema.Type;
+
+export interface RecruitmentReadSchedulingBoardContext {
+  readonly actor: RecruitmentActor;
+  readonly now: string;
+}
+
+export interface RecruitmentScheduleContext {
+  readonly actor: RecruitmentActor;
+  readonly now: string;
+  readonly invitationId: RecruitmentInvitationId;
+  readonly responseCapability: string;
+}
+
 
 export interface RecruitmentReadAssignmentBoardContext {
   readonly actor: RecruitmentActor;
