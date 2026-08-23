@@ -7,17 +7,19 @@
 | Field | Value |
 |---|---|
 | Goal | Replace the public applicant submission and confirmation journey |
-| Status | Frozen and accepted for local implementation; no production cutover authority |
+| Status | Frozen and accepted for isolated remote implementation; no local browser execution or production cutover authority |
 | Depends on | Design spec 0038 at `f0a2e79`; ADR 0004; ADR 0005 |
 | Actor | Anonymous prospective applicant |
 | Journey authority | `intent://journey:applicant:submit-public-application:v1`; parity projection `intent://journey:parity:applicant_admission:v1` |
-| Environment | Loopback homepage and native API, disposable PostgreSQL, recording-only effects, real Chromium |
+| Environment | Isolated remote CI; loopback-bound homepage and native API; disposable PostgreSQL 17; recording-only effects; one real Chromium worker |
 
 ## Source authority and corrections
 
 The legacy public form establishes these visible inputs: first name, last name, phone, email, gender (`0` man, `1` woman), department-scoped field of study, and year of study (`1..5`). Submission resolves an active admission period, reuses an existing user by email, persists the application, emits `ApplicationCreatedEvent`, and redirects to confirmation. New users receive an activation/confirmation message; subscription creation is best-effort.
 
 This contract does not preserve legacy defects: duplicate checks without a database constraint, inconsistent strict/inclusive boundary rules, ambiguous overlapping periods, boolean `NotBlank` behavior, persistence before fallible synchronous email, account-role mutation hidden inside submission, or PII-bearing confirmation. Spec 0038's half-open semester-and-period eligibility remains canonical. Migration prose that lists weekday/preferences on the new-applicant form or claims authentication is required is stale and not authoritative for this journey.
+
+The original local evidence environment is superseded. An attempted workstation run caused unacceptable memory pressure before homepage readiness. The behavioral contract is unchanged, but its real PostgreSQL and Chromium proof must run in isolated remote CI with bounded one-shot processes, hard timeouts, resource telemetry, and cleanup evidence. Local browser or PostgreSQL execution is not authorized.
 
 ## User journey
 
@@ -29,7 +31,7 @@ This contract does not preserve legacy defects: duplicate checks without a datab
 6. One PostgreSQL transaction locks command identity and normalized applicant identity, resolves the eligible period and department-scoped field, creates or reuses the applicant identity, rejects an existing application for the same period, persists the application, command receipt, audit row, and ordered outbox requests, then commits.
 7. The API returns only `{ _tag: "Submitted", commandId, applicationId }`. It never returns applicant identity, email, activation material, internal user ID, or admission-period identity.
 8. The homepage renders a confirmation using the opaque application ID and clears the form only after acceptance.
-9. Recording-only local interpreters deliver ordered `SendApplicantActivationOrConfirmation`, `CreateAdmissionSubscription`, and `WriteApplicationAudit` effects. Same-command replay does not duplicate them.
+9. Recording-only interpreters deliver ordered `SendApplicantActivationOrConfirmation`, `CreateAdmissionSubscription`, and `WriteApplicationAudit` effects without external network access. Same-command replay does not duplicate them.
 
 ## Canonical model
 
@@ -141,7 +143,7 @@ Accepted submission emits, in order:
 2. `CreateAdmissionSubscription`;
 3. `WriteApplicationAudit`.
 
-The effect request may contain private delivery material in the protected outbox payload, but evidence records only effect IDs, kinds, order, attempts, and delivery state. Local proof interpreters record delivery without network access. Provider adapters and production account activation are not authorized by this slice. Account-login capability remains a later identity journey; this slice proves durable activation intent, not delivered email or successful login.
+The effect request may contain private delivery material in the protected outbox payload, but evidence records only effect IDs, kinds, order, attempts, and delivery state. Recording-only proof interpreters run without external network access. Provider adapters and production account activation are not authorized by this slice. Account-login capability remains a later identity journey; this slice proves durable activation intent, not delivered email or successful login.
 
 ## Migration and compatibility
 
@@ -151,7 +153,7 @@ Existing minimal rows from spec 0038 are disposable proof data, not production a
 
 ## Evidence and definition of done
 
-One deterministic runner starts disposable PostgreSQL, native API, homepage, and Chromium with a fixed clock and recording effects. Secret-free evidence proves:
+One deterministic remote CI runner starts disposable PostgreSQL, the native API, a one-shot built homepage, and one Chromium worker with a fixed clock and recording effects. The runner has hard process and job timeouts, captures bounded resource and failure diagnostics, and emits secret-free evidence proving:
 
 - eligible department/field catalog comes from PostgreSQL, not static city flags;
 - the real homepage form submits every required field through the SDK;
@@ -164,6 +166,6 @@ One deterministic runner starts disposable PostgreSQL, native API, homepage, and
 - ordered outbox delivery, retry without duplicate provider effect, and audit identity;
 - page and evidence contain no submitted names, email, phone, activation bytes, database credentials, or raw outbox payload;
 - Axe finds no serious or critical violations in form, error, and confirmation states;
-- cleanup removes the database/temp roots and releases ports.
+- cleanup removes disposable database/temp roots, releases ports, and terminates every process it owns.
 
 The journey is falsified if it calls Symfony, renders fixture application state, uses the hard-coded city-open map, accepts browser-selected identity/status/period authority, performs provider delivery in-request, exposes PII in confirmation/evidence, permits duplicate applications, bypasses the SDK, mocks PostgreSQL, or cannot clean up. Focused package gates and root `check-types`, `lint`, `build`, and `test` must pass on the committed artifact; unrelated pre-existing failures require exact evidence.

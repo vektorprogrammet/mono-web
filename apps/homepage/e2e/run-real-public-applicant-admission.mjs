@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { spawn, spawnSync } from "node:child_process";
-import { access, mkdtemp, mkdir, readFile, rm } from "node:fs/promises";
+import { access, mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -22,6 +22,9 @@ const commandTimeoutMs = 300_000;
 const shutdownTimeoutMs = 5_000;
 const postgresPort = 55432;
 const nixPostgresPackage = "nixpkgs#postgresql_17";
+const remoteEvidenceAuthorized =
+  process.env.CI === "true" &&
+  process.env.PUBLIC_APPLICATION_REMOTE_EVIDENCE === "1";
 const fixedClock = "2031-09-15T12:00:00.000Z";
 const departmentId = "department-trondheim";
 const foreignDepartmentId = "department-bergen";
@@ -741,6 +744,19 @@ async function exercisePostgresFailure(dataRoot, environment) {
 }
 
 async function main() {
+  if (!remoteEvidenceAuthorized) {
+    throw new Error(
+      "The real public-applicant journey is authorized only in isolated remote CI",
+    );
+  }
+  if (!process.env.PUBLIC_APPLICATION_EVIDENCE_PATH) {
+    throw new Error("PUBLIC_APPLICATION_EVIDENCE_PATH is required");
+  }
+  if (postgresTopology !== "docker") {
+    throw new Error(
+      "Isolated remote CI requires Docker-backed disposable PostgreSQL",
+    );
+  }
   await Promise.all([
     assertPortAvailable(8787),
     assertPortAvailable(8792),
@@ -912,22 +928,15 @@ async function main() {
       env: homepageEnvironment,
       label: "Public-application SDK build",
     });
-    homepageProcess = startProcess(
-      "nix",
-      [
-        "shell",
-        "nixpkgs#nodejs_24",
-        "--command",
-        "node",
-        "node_modules/@react-router/dev/dist/cli/index.js",
-        "dev",
-        "--host",
-        "127.0.0.1",
-        "--port",
-        "8787",
-      ],
-      { cwd: homepageRoot, env: homepageEnvironment },
-    );
+    await runCommand("bun", ["run", "worker:build"], {
+      cwd: homepageRoot,
+      env: homepageEnvironment,
+      label: "Public-application homepage build",
+    });
+    homepageProcess = startProcess("bun", ["run", "worker:dev"], {
+      cwd: homepageRoot,
+      env: homepageEnvironment,
+    });
     await waitForHttp(
       `${homepageOrigin}/health`,
       homepageProcess,
@@ -945,15 +954,16 @@ async function main() {
       PUBLIC_APPLICATION_E2E_LEADER_TOKEN: leaderToken,
       PUBLIC_APPLICATION_E2E_RATE_LIMIT_ATTEMPTS: "80",
     };
+    playwrightEnvironment.PUBLIC_APPLICATION_PLAYWRIGHT_ARTIFACT_ROOT = join(
+      temporaryRoot,
+      "playwright",
+    );
     await runCommand(
-      "nix",
+      "bun",
       [
-        "shell",
-        "nixpkgs#nodejs_24",
-        "--command",
-        "node",
-        "./node_modules/@playwright/test/cli.js",
-        "test",
+        "run",
+        "e2e:test",
+        "--",
         "e2e/public-applicant-admission.spec.ts",
         "--project=chromium",
         "--workers=1",
@@ -1003,13 +1013,13 @@ async function main() {
 
     evidence = {
       topology: {
-        homepage: "loopback-react-router",
+        homepage: "loopback-built-cloudflare-worker-preview",
         api: "native-effect-public-application",
         database:
           postgresTopology === "docker"
             ? "disposable-postgresql-docker"
             : "disposable-postgresql-local-nix",
-        browser: "real-chromium",
+        browser: "real-chromium-single-worker",
         effects: "recording-only-bounded-outbox",
         fixedClock,
       },
@@ -1064,6 +1074,11 @@ async function main() {
       throw new Error("Public-application evidence exposed private material");
     }
   }
+  await writeFile(
+    process.env.PUBLIC_APPLICATION_EVIDENCE_PATH,
+    `${serializedEvidence}\n`,
+    { encoding: "utf8", mode: 0o600 },
+  );
   process.stdout.write(`${serializedEvidence}\n`);
 }
 

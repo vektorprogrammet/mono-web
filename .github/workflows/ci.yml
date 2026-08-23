@@ -49,6 +49,55 @@ jobs:
       - name: Test
         run: bun turbo test
 
+  applicant-evidence:
+    name: Public applicant (PostgreSQL and Chromium)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install frozen dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Install isolated Chromium
+        run: bun run --cwd apps/homepage e2e:install --with-deps chromium
+
+      - name: Run bounded public-applicant journey
+        env:
+          CI: "true"
+          PUBLIC_APPLICATION_REMOTE_EVIDENCE: "1"
+          PUBLIC_APPLICATION_EVIDENCE_PATH: ${{ runner.temp }}/public-applicant-admission/evidence.json
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          evidence_dir="${RUNNER_TEMP}/public-applicant-admission"
+          install -d -m 700 "$evidence_dir"
+          /usr/bin/time \
+            --verbose \
+            --output="$evidence_dir/resources.txt" \
+            timeout --signal=TERM --kill-after=10s 15m \
+            bun run --cwd apps/homepage e2e:applicant:real
+          test -s "$PUBLIC_APPLICATION_EVIDENCE_PATH"
+
+      - name: Upload sanitized applicant evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: public-applicant-admission-${{ github.sha }}
+          path: ${{ runner.temp }}/public-applicant-admission
+          if-no-files-found: error
+          retention-days: 1
+
   php:
     name: PHP (lint, analyse, test)
     runs-on: ubuntu-latest

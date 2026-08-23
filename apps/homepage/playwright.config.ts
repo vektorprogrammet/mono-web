@@ -11,7 +11,9 @@ export const HOMEPAGE_PLAYWRIGHT_INPUTS = {
   stage: "p000",
   viewport: { width: 1440, height: 900 },
 } as const;
-const artifactRoot = join(tmpdir(), "monoweb-homepage-dev-0011");
+const artifactRoot =
+  process.env.PUBLIC_APPLICATION_PLAYWRIGHT_ARTIFACT_ROOT ??
+  join(tmpdir(), "monoweb-homepage-dev-0011");
 const chromiumExecutablePath = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH;
 const externallyManagedServer =
   process.env.REAL_PUBLIC_APPLICATION_E2E === "1";
