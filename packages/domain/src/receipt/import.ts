@@ -15,6 +15,7 @@ export type ReceiptQuarantineReason =
   | "MissingVisualId"
   | "DuplicateVisualId"
   | "SourceIdentityCollision"
+  | "InvalidDestinationIdentity"
   | "InvalidAmount"
   | "UnsupportedFile"
   | "InvalidFileIdentity"
@@ -95,9 +96,14 @@ export const importLegacyReceipt = (
   const amountOre = exactOre(row.amountDecimal);
   const importedStatus = status(row.status);
 
-  if (row.ownerPersonId === null) reasons.push("UnresolvedOwner");
-  if (row.departmentId === null) reasons.push("UnresolvedDepartment");
-  if (row.visualId === null) reasons.push("MissingVisualId");
+  if (row.ownerPersonId === null || row.ownerPersonId.length === 0) {
+    reasons.push("UnresolvedOwner");
+  }
+  if (row.departmentId === null || row.departmentId.length === 0) {
+    reasons.push("UnresolvedDepartment");
+  }
+  if (row.visualId === null || row.visualId.length === 0) reasons.push("MissingVisualId");
+  if (receiptId.length === 0) reasons.push("InvalidDestinationIdentity");
   if (amountOre === undefined) reasons.push("InvalidAmount");
   if (row.description.length === 0 || row.description.length > 5000) {
     reasons.push("InvalidDescription");
@@ -111,7 +117,9 @@ export const importLegacyReceipt = (
   ) {
     reasons.push("RefundDateContradiction");
   }
-  if (row.paymentAccountCiphertext === null) reasons.push("MissingPaymentAccount");
+  if (row.paymentAccountCiphertext === null || row.paymentAccountCiphertext.length === 0) {
+    reasons.push("MissingPaymentAccount");
+  }
   if (row.file === null) {
     reasons.push("MissingFile");
   } else {

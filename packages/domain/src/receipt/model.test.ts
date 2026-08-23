@@ -21,6 +21,22 @@ it("derives Receipt persistence and JSON variants from one model", () => {
     "submittedAt",
     "visualId",
   ]);
+  expect(keys(Receipt.insert.fields)).toEqual([
+    "amountOre",
+    "currency",
+    "departmentId",
+    "description",
+    "file",
+    "ownerPersonId",
+    "paymentAccountCiphertext",
+    "receiptDate",
+    "receiptId",
+    "refundDate",
+    "revision",
+    "status",
+    "submittedAt",
+    "visualId",
+  ]);
   expect(keys(Receipt.update.fields)).toEqual([
     "amountOre",
     "description",

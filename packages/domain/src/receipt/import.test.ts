@@ -100,6 +100,13 @@ it("covers every row-local Receipt quarantine reason", () => {
   }
 });
 
+it("quarantines an invalid destination identity without throwing", () => {
+  expect(importLegacyReceipt(validRow, "", provenance)).toMatchObject({
+    _tag: "QuarantinedReceiptImport",
+    reasons: expect.arrayContaining(["InvalidDestinationIdentity"]),
+  });
+});
+
 it("quarantines every member of duplicate source and visual identity sets", () => {
   const duplicate = {
     row: validRow,

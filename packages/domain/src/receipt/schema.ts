@@ -32,6 +32,12 @@ export type ReceiptId = typeof ReceiptId.Type;
 export const ReceiptVisualId = NonEmpty.pipe(Schema.brand("ReceiptVisualId"));
 export type ReceiptVisualId = typeof ReceiptVisualId.Type;
 
+export const ReceiptDecisionContextSchema = Schema.Struct({
+  receiptId: ReceiptId,
+  visualId: ReceiptVisualId,
+  now: IsoInstant,
+});
+
 export const ReceiptStatusSchema = Schema.Literals([
   "Pending",
   "Refunded",
@@ -152,14 +158,14 @@ export class Receipt extends Model.Class<Receipt>("Receipt")({
     insert: NonEmpty,
     json: NonEmpty,
   }),
-  amountOre: PositiveOre,
+  amountOre: ReceiptPayloadFields.amountOre,
   currency: Model.Field({
     select: Schema.Literal("NOK"),
     insert: Schema.Literal("NOK"),
     json: Schema.Literal("NOK"),
   }),
-  description: Schema.String.pipe(Schema.check(Schema.isMinLength(1), Schema.isMaxLength(5000))),
-  receiptDate: IsoDate,
+  description: ReceiptPayloadFields.description,
+  receiptDate: ReceiptPayloadFields.receiptDate,
   submittedAt: Model.Field({
     select: IsoInstant,
     insert: IsoInstant,

@@ -1,18 +1,21 @@
 import { Database } from "../database/service.js";
 import { Effect } from "effect";
 import { ReceiptNotFound, ReceiptPersistenceError } from "./errors.js";
+import type { Receipt } from "./schema.js";
 
-export interface ReceiptListItem {
-  readonly receiptId: string;
-  readonly visualId: string;
-  readonly ownerPersonId: string;
-  readonly departmentId: string;
-  readonly description: string;
+export interface ReceiptListItem extends Pick<
+  Receipt,
+  | "receiptId"
+  | "visualId"
+  | "ownerPersonId"
+  | "departmentId"
+  | "description"
+  | "currency"
+  | "status"
+  | "receiptDate"
+  | "revision"
+> {
   readonly amountOre: string;
-  readonly currency: "NOK";
-  readonly status: "Pending" | "Refunded" | "Rejected" | "Withdrawn";
-  readonly receiptDate: string;
-  readonly revision: number;
 }
 
 export interface ReceiptStatusTotal {
@@ -97,9 +100,7 @@ export const receiptStatusTotals: Effect.Effect<
   );
 });
 export interface OwnedReceiptProjectionItem extends ReceiptListItem {
-  readonly currency: "NOK";
-  readonly description: string;
-  readonly submittedAt: string;
+  readonly submittedAt: Receipt["submittedAt"];
 }
 
 export const listOwnedReceiptProjection = (

@@ -115,9 +115,39 @@ describe("DatabaseTest", () => {
       visualId: "PGLITE-0001",
       now: "2026-08-23T12:00:00.000Z",
     };
+    await expect(
+      runtime.runPromise(
+        Economy.use(({ executeReceipt }) =>
+          executeReceipt(command, { ...context, now: "2026-08-23 12:00:00" }),
+        ),
+      ),
+    ).rejects.toMatchObject({ _tag: "ReceiptDecodeError" });
+
     const execute = Economy.use(({ executeReceipt }) => executeReceipt(command, context));
 
     const first = await runtime.runPromise(execute);
+    await runtime.runPromise(
+      Database.use((database) =>
+        database`
+          UPDATE economy_receipt_command_receipts
+          SET observation_json = ${database.json({ ...first.observation, unexpected: true })}
+          WHERE command_id = ${command.commandId}
+        `.pipe(Effect.asVoid),
+      ),
+    );
+    await expect(runtime.runPromise(execute)).rejects.toMatchObject({
+      _tag: "ReceiptPersistenceError",
+      operation: "decode stored observation",
+    });
+    await runtime.runPromise(
+      Database.use((database) =>
+        database`
+          UPDATE economy_receipt_command_receipts
+          SET observation_json = ${database.json(first.observation)}
+          WHERE command_id = ${command.commandId}
+        `.pipe(Effect.asVoid),
+      ),
+    );
     const replay = await runtime.runPromise(execute);
 
     expect(first.observation.status).toBe("Pending");

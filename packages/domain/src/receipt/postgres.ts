@@ -9,7 +9,12 @@ import {
   type ReceiptFailure,
 } from "./errors.js";
 import type { ReceiptImportResult } from "./import.js";
-import { Receipt, ReceiptCommandSchema, ReceiptObservationSchema } from "./schema.js";
+import {
+  Receipt,
+  ReceiptCommandSchema,
+  ReceiptDecisionContextSchema,
+  ReceiptObservationSchema,
+} from "./schema.js";
 import type { ReceiptTransactionResult } from "./service.js";
 import { decideReceipt, type ReceiptDecisionContext, type ReceiptOutboxRequest } from "./update.js";
 
@@ -208,6 +213,12 @@ export const executeReceiptCommand = (
     const command = yield* Schema.decodeUnknownEffect(ReceiptCommandSchema)(input, {
       onExcessProperty: "error",
     }).pipe(Effect.mapError((cause) => new ReceiptDecodeError({ message: String(cause) })));
+    const decodedContext = yield* Schema.decodeUnknownEffect(ReceiptDecisionContextSchema)(
+      context,
+      {
+        onExcessProperty: "error",
+      },
+    ).pipe(Effect.mapError((cause) => new ReceiptDecodeError({ message: String(cause) })));
     const sql = yield* Database;
     const commandJson = canonicalJson(command);
     const commandDigest = sha256Hex(canonicalJsonBytes(command));
@@ -230,6 +241,7 @@ export const executeReceiptCommand = (
             }
             const storedObservation = yield* Schema.decodeUnknownEffect(ReceiptObservationSchema)(
               stored.observation_json,
+              { onExcessProperty: "error" },
             ).pipe(
               Effect.mapError((cause) => persistenceError("decode stored observation", cause)),
             );
@@ -241,9 +253,9 @@ export const executeReceiptCommand = (
           }
 
           const receiptId =
-            command._tag === "SubmitReceipt" ? context.receiptId : command.receiptId;
+            command._tag === "SubmitReceipt" ? decodedContext.receiptId : command.receiptId;
           const previous = yield* findReceipt(sql, receiptId);
-          const decision = yield* decideReceipt(previous, command, context);
+          const decision = yield* decideReceipt(previous, command, decodedContext);
           yield* storeReceipt(sql, decision.receipt, previous);
           yield* sql`
         INSERT INTO economy_receipt_command_receipts (
@@ -251,7 +263,7 @@ export const executeReceiptCommand = (
           receipt_id, committed_at
         ) VALUES (
           ${command.commandId}, ${commandDigest}, ${sql.json(JSON.parse(commandJson))},
-          ${sql.json(decision.observation)}, ${decision.receipt.receiptId}, ${context.now}
+          ${sql.json(decision.observation)}, ${decision.receipt.receiptId}, ${decodedContext.now}
         )
       `.pipe(
             Effect.catchTag("SqlError", (cause) =>
@@ -266,7 +278,7 @@ export const executeReceiptCommand = (
         ) VALUES (
           ${command.commandId}, ${decision.receipt.receiptId},
           ${command.actor.personId}, ${decision.auditAction},
-          ${decision.receipt.revision}, ${context.now}
+          ${decision.receipt.revision}, ${decodedContext.now}
         )
       `.pipe(
             Effect.catchTag("SqlError", (cause) =>
