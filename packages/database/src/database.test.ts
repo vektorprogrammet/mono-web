@@ -428,6 +428,30 @@ describe("DatabaseTest", () => {
             activationToken: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQ",
           },
         );
+        yield* executePublicApplicationCommand(
+          {
+            commandId: "legacy-delivered-application-submit",
+            departmentId: "outbox-department",
+            firstName: "Delivered",
+            lastName: "Legacy",
+            phone: "+47 44444444",
+            email: "legacy.delivered@example.invalid",
+            gender: 1,
+            fieldOfStudyId: "outbox-field",
+            yearOfStudy: 3,
+          },
+          {
+            now: "2031-09-15T12:21:00.000Z",
+            applicantId: "legacy-delivered-applicant",
+            applicationId: "legacy-delivered-application",
+            activationToken: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQ",
+          },
+        );
+        yield* database`
+          UPDATE admission_application_outbox
+          SET status = 'Delivered'
+          WHERE command_id = 'legacy-delivered-application-submit'
+        `;
         yield* database`
           UPDATE admission_application_outbox
           SET payload_json =
@@ -446,22 +470,59 @@ describe("DatabaseTest", () => {
         `;
         yield* database.migrate;
         return yield* database<{
+          readonly command_id: string;
           readonly ordinal: number;
           readonly status: string;
           readonly claim_id: string | null;
           readonly last_failure_tag: string | null;
           readonly payload_json: unknown;
         }>`
-          SELECT ordinal, status, claim_id, last_failure_tag, payload_json
+          SELECT command_id, ordinal, status, claim_id, last_failure_tag, payload_json
           FROM admission_application_outbox
-          WHERE command_id = 'legacy-effect-application-submit'
-          ORDER BY ordinal
+          WHERE command_id IN (
+            'legacy-effect-application-submit',
+            'legacy-delivered-application-submit'
+          )
+          ORDER BY command_id, ordinal
         `;
       }),
     );
 
-    expect(evidence).toEqual([
+    expect(
+      evidence.filter((row) => row.command_id === "legacy-delivered-application-submit"),
+    ).toEqual([
       {
+        command_id: "legacy-delivered-application-submit",
+        ordinal: 0,
+        status: "Delivered",
+        claim_id: null,
+        last_failure_tag: null,
+        payload_json: {},
+      },
+      {
+        command_id: "legacy-delivered-application-submit",
+        ordinal: 1,
+        status: "Delivered",
+        claim_id: null,
+        last_failure_tag: null,
+        payload_json: {},
+      },
+      {
+        command_id: "legacy-delivered-application-submit",
+        ordinal: 2,
+        status: "Delivered",
+        claim_id: null,
+        last_failure_tag: null,
+        payload_json: {},
+      },
+    ]);
+
+    const quarantined = evidence.filter(
+      (row) => row.command_id === "legacy-effect-application-submit",
+    );
+    expect(quarantined).toEqual([
+      {
+        command_id: "legacy-effect-application-submit",
         ordinal: 0,
         status: "Quarantined",
         claim_id: null,
@@ -469,6 +530,7 @@ describe("DatabaseTest", () => {
         payload_json: {},
       },
       {
+        command_id: "legacy-effect-application-submit",
         ordinal: 1,
         status: "Quarantined",
         claim_id: null,
@@ -476,6 +538,7 @@ describe("DatabaseTest", () => {
         payload_json: {},
       },
       {
+        command_id: "legacy-effect-application-submit",
         ordinal: 2,
         status: "Quarantined",
         claim_id: null,
