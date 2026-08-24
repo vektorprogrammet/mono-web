@@ -7,6 +7,7 @@ import { PersonContactEmail, PersonContactPhone } from "../profile/schema.js";
 import {
   RecruitmentInvitationId,
   RecruitmentInterviewSchedule,
+  RecruitmentInstantSchema,
   RecruitmentNotificationEffectId,
   RecruitmentScheduleCommandId,
   RecruitmentInterviewId,

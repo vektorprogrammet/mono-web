@@ -1,4 +1,9 @@
-import { Admissions } from "../admissions/service.js";
+import { Admissions, type AdmissionsShape } from "../admissions/service.js";
+import { ADMISSIONS_APPLICANT_CONTACT_READ_LIMIT } from "../application/postgres.js";
+import {
+  PublicApplicationIdSchema,
+  type ApplicantContactProjection,
+} from "../application/schema.js";
 import { Database, type DatabaseShape } from "../database/service.js";
 import { Organization, type OrganizationShape } from "../organization/service.js";
 import { DepartmentId, PersonId, type Membership } from "../organization/schema.js";
@@ -13,6 +18,7 @@ import { compareRfc3339Instants } from "../time.js";
 import { canonicalJson, canonicalJsonBytes, sha256Hex } from "../tutor/evidence.js";
 import { Effect, Schema } from "effect";
 import {
+  RecruitmentApplicationNotFound,
   RecruitmentDecodeError,
   RecruitmentInactiveActor,
   RecruitmentInterviewAlreadyScheduled,
@@ -62,11 +68,6 @@ interface SchedulingBoardRow {
   readonly applicationId: string;
   readonly departmentId: string;
   readonly interviewerPersonId: string;
-  readonly applicantId: string;
-  readonly firstName: string;
-  readonly lastName: string;
-  readonly email: string;
-  readonly phone: string;
   readonly revision: number;
   readonly scheduledAt: string | null;
   readonly room: string | null;
@@ -85,9 +86,6 @@ interface SchedulingInterviewRow {
   readonly applicationId: string;
   readonly departmentId: string;
   readonly interviewerPersonId: string;
-  readonly applicantId: string;
-  readonly applicantEmail: string;
-  readonly applicantPhone: string;
   readonly revision: number;
 }
 
@@ -103,11 +101,6 @@ const SchedulingBoardRowSchema = Schema.Struct({
   applicationId: Schema.String,
   departmentId: Schema.String,
   interviewerPersonId: Schema.String,
-  applicantId: Schema.String,
-  firstName: Schema.String,
-  lastName: Schema.String,
-  email: Schema.String,
-  phone: Schema.String,
   revision: Schema.Number,
   scheduledAt: Schema.NullOr(Schema.String),
   room: Schema.NullOr(Schema.String),
@@ -126,9 +119,6 @@ const SchedulingInterviewRowSchema = Schema.Struct({
   applicationId: Schema.String,
   departmentId: Schema.String,
   interviewerPersonId: Schema.String,
-  applicantId: Schema.String,
-  applicantEmail: Schema.String,
-  applicantPhone: Schema.String,
   revision: Schema.Number,
 });
 
@@ -144,6 +134,17 @@ const persistenceError = (operation: string, cause?: unknown): RecruitmentPersis
     operation,
     message: cause instanceof Error ? cause.message : "recruitment persistence failed",
   });
+const readApplicantContacts = (
+  admissions: AdmissionsShape,
+  applicationIds: ReadonlyArray<typeof PublicApplicationIdSchema.Type>,
+): Effect.Effect<ReadonlyArray<ApplicantContactProjection>, RecruitmentFailure> =>
+  admissions.readApplicantContacts(applicationIds).pipe(
+    Effect.mapError((failure) =>
+      failure._tag === "PublicApplicationNotFound"
+        ? new RecruitmentApplicationNotFound({ applicationId: failure.applicationId })
+        : persistenceError("read Admissions applicant contacts", failure),
+    ),
+  );
 
 const decode = <A>(schema: Schema.ConstraintDecoder<A, never>, value: unknown, operation: string) =>
   Schema.decodeUnknownEffect(schema)(value, { onExcessProperty: "error" }).pipe(
@@ -212,11 +213,6 @@ const readSchedulingRows = (
       i.application_id AS "applicationId",
       i.department_id AS "departmentId",
       i.interviewer_person_id AS "interviewerPersonId",
-      a.applicant_id AS "applicantId",
-      p.first_name AS "firstName",
-      p.last_name AS "lastName",
-      p.email,
-      p.phone,
       i.revision,
       CASE WHEN s.scheduled_at IS NULL THEN NULL
         ELSE to_char(s.scheduled_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
@@ -233,8 +229,6 @@ const readSchedulingRows = (
       invitation.response_state AS "responseState",
       outbox.status AS "notificationState"
     FROM recruitment_interviews i
-    INNER JOIN admission_applications a ON a.application_id = i.application_id
-    INNER JOIN admission_applicants p ON p.applicant_id = a.applicant_id
     LEFT JOIN recruitment_interview_schedules s ON s.interview_id = i.interview_id
     LEFT JOIN recruitment_invitations invitation ON invitation.interview_id = i.interview_id
     LEFT JOIN recruitment_invitation_outbox outbox ON outbox.invitation_id = invitation.invitation_id
@@ -293,6 +287,7 @@ const scheduleFromRow = (
 const schedulingBoard = (
   context: RecruitmentReadSchedulingBoardContext,
   sql: DatabaseShape,
+  admissions: AdmissionsShape,
   organization: OrganizationShape,
   profile: ProfileShape,
 ): Effect.Effect<RecruitmentSchedulingBoard, RecruitmentFailure> =>
@@ -302,6 +297,23 @@ const schedulingBoard = (
     const interviewerIds = [...new Set(rows.map((row) => row.interviewerPersonId))].map((value) =>
       PersonId.make(value),
     );
+    const applicationIds = [...new Set(rows.map((row) => row.applicationId))].map((value) =>
+      PublicApplicationIdSchema.make(value),
+    );
+    const applicantContactByApplicationId = new Map<string, ApplicantContactProjection>();
+    for (
+      let offset = 0;
+      offset < applicationIds.length;
+      offset += ADMISSIONS_APPLICANT_CONTACT_READ_LIMIT
+    ) {
+      const batch = applicationIds.slice(
+        offset,
+        offset + ADMISSIONS_APPLICANT_CONTACT_READ_LIMIT,
+      );
+      for (const value of yield* readApplicantContacts(admissions, batch)) {
+        applicantContactByApplicationId.set(String(value.applicationId), value);
+      }
+    }
     const profileById = new Map<string, PersonProfile>();
     const contactById = new Map<string, PersonContactProfile>();
     for (let offset = 0; offset < interviewerIds.length; offset += PROFILE_READ_LIMIT) {
@@ -318,8 +330,13 @@ const schedulingBoard = (
       const row = yield* decode(SchedulingBoardRowSchema, rawRow, "scheduling board row");
       const interviewerProfile = profileById.get(row.interviewerPersonId);
       const interviewerContact = contactById.get(row.interviewerPersonId);
-      if (interviewerProfile === undefined || interviewerContact === undefined) {
-        return yield* persistenceError("resolve scheduling interviewer profile");
+      const applicantContact = applicantContactByApplicationId.get(row.applicationId);
+      if (
+        interviewerProfile === undefined ||
+        interviewerContact === undefined ||
+        applicantContact === undefined
+      ) {
+        return yield* persistenceError("resolve scheduling board authorities");
       }
       const schedule = yield* scheduleFromRow(row);
       interviews.push(
@@ -335,14 +352,7 @@ const schedulingBoard = (
               email: interviewerContact.email,
               phone: interviewerContact.phone,
             },
-            applicant: {
-              applicationId: row.applicationId,
-              applicantId: row.applicantId,
-              firstName: row.firstName,
-              lastName: row.lastName,
-              email: row.email,
-              phone: row.phone,
-            },
+            applicant: applicantContact,
             revision: row.revision,
             schedule,
             responseState: row.responseState,
@@ -369,13 +379,8 @@ const readSchedulingInterview = (
       i.application_id AS "applicationId",
       i.department_id AS "departmentId",
       i.interviewer_person_id AS "interviewerPersonId",
-      a.applicant_id AS "applicantId",
-      applicant.email AS "applicantEmail",
-      applicant.phone AS "applicantPhone",
       i.revision
     FROM recruitment_interviews i
-    INNER JOIN admission_applications a ON a.application_id = i.application_id
-    INNER JOIN admission_applicants applicant ON applicant.applicant_id = a.applicant_id
     WHERE i.interview_id = ${interviewId}
     FOR UPDATE
   `.pipe(
@@ -434,6 +439,7 @@ const writeScheduleRows = (
   command: RecruitmentScheduleCommand,
   context: RecruitmentScheduleContext & { readonly actor: DepartmentActor },
   interview: SchedulingInterviewRow,
+  applicantContact: ApplicantContactProjection,
   interviewerDisplayName: string,
   interviewerEmail: string,
   interviewerPhone: string,
@@ -554,8 +560,8 @@ const writeScheduleRows = (
         interviewId: command.interviewId,
         invitationId: context.invitationId,
         scheduleRevision,
-        applicantEmail: interview.applicantEmail,
-        applicantPhone: interview.applicantPhone,
+        applicantEmail: applicantContact.email,
+        applicantPhone: applicantContact.phone,
         interviewerDisplayName,
         interviewerEmail,
         interviewerPhone,
@@ -590,6 +596,7 @@ const scheduleInTransaction = (
   command: RecruitmentScheduleCommand,
   context: RecruitmentScheduleContext,
   sql: DatabaseShape,
+  admissions: AdmissionsShape,
   organization: OrganizationShape,
   profile: ProfileShape,
   digest: string,
@@ -662,6 +669,12 @@ const scheduleInTransaction = (
     if (compareRfc3339Instants(command.scheduledAt, context.now) <= 0) {
       return yield* new RecruitmentScheduleInPast({ interviewId: command.interviewId });
     }
+    const [applicantContact] = yield* readApplicantContacts(admissions, [
+      PublicApplicationIdSchema.make(interview.applicationId),
+    ]);
+    if (applicantContact === undefined) {
+      return yield* persistenceError("resolve scheduled applicant contact");
+    }
     const [interviewerProfile] = yield* profile.readProfiles([
       PersonId.make(interview.interviewerPersonId),
     ]);
@@ -676,6 +689,7 @@ const scheduleInTransaction = (
       command,
       { ...context, actor },
       interview,
+      applicantContact,
       personProfileDisplayName(interviewerProfile),
       interviewerContact.email,
       interviewerContact.phone,
@@ -698,12 +712,13 @@ export const readSchedulingBoard = (
   Effect.gen(function* () {
     const actor = yield* decode(RecruitmentActorSchema, context.actor, "recruitment actor");
     const sql = yield* Database;
-    yield* Admissions;
+    const admissions = yield* Admissions;
     const organization = yield* Organization;
     const profile = yield* Profile;
     return yield* schedulingBoard(
       { actor, now: context.now },
       sql,
+      admissions,
       organization,
       profile,
     );
@@ -733,7 +748,7 @@ export const scheduleInterview = (
       return yield* new RecruitmentInvalidContext({ message: "invalid response capability" });
     }
     const sql = yield* Database;
-    yield* Admissions;
+    const admissions = yield* Admissions;
     const organization = yield* Organization;
     const profile = yield* Profile;
     const digest = sha256Hex(canonicalJsonBytes(decodedCommand));
@@ -748,6 +763,7 @@ export const scheduleInterview = (
             responseCapability: context.responseCapability,
           },
           sql,
+          admissions,
           organization,
           profile,
           digest,
