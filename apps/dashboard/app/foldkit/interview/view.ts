@@ -1,50 +1,50 @@
-import { Button, Input } from "@foldkit/ui"
-import { AsyncData, FieldValidation } from "foldkit"
-import type { Html, HtmlBuilder } from "foldkit/html"
-import { invitationFailureMessage, type InvitationResponseObservation } from "./bridge"
+import { Button, Input } from "@foldkit/ui";
+import { AsyncData, FieldValidation } from "foldkit";
+import type { Html, HtmlBuilder } from "foldkit/html";
+import { invitationFailureMessage, type InvitationResponseObservation } from "./bridge";
 import {
   ConfirmedInvitation,
   RejectedInvitation,
   RequestedNewInvitationTime,
   UpdatedResponseMessage,
   type Message,
-} from "./message"
-import type { Model } from "./model"
+} from "./message";
+import type { Model } from "./model";
 
 const statusLabel = (status: InvitationResponseObservation["responseState"]): string => {
   switch (status) {
     case "Pending":
-      return "Venter på svar"
+      return "Venter på svar";
     case "Accepted":
-      return "Akseptert"
+      return "Akseptert";
     case "Rejected":
-      return "Avvist"
+      return "Avvist";
     case "RequestedNewTime":
-      return "Ønsker nytt tidspunkt"
+      return "Ønsker nytt tidspunkt";
   }
-}
+};
 
 const statusClass = (status: InvitationResponseObservation["responseState"]): string => {
   switch (status) {
     case "Pending":
-      return "pending"
+      return "pending";
     case "Accepted":
-      return "accepted"
+      return "accepted";
     case "Rejected":
-      return "rejected"
+      return "rejected";
     case "RequestedNewTime":
-      return "requested-new-time"
+      return "requested-new-time";
   }
-}
+};
 
 const formatInstant = (instant: string): string => {
-  const parsed = new Date(instant)
-  if (!Number.isFinite(parsed.getTime())) return instant
+  const parsed = new Date(instant);
+  if (!Number.isFinite(parsed.getTime())) return instant;
   return new Intl.DateTimeFormat("nb-NO", {
     dateStyle: "long",
     timeStyle: "short",
-  }).format(parsed)
-}
+  }).format(parsed);
+};
 
 const fieldError = (id: string, field: Model["responseMessage"], h: HtmlBuilder<Message>): Html =>
   field._tag === "Invalid"
@@ -52,14 +52,14 @@ const fieldError = (id: string, field: Model["responseMessage"], h: HtmlBuilder<
         [h.Id(`${id}-error`), h.Class("fk-field-error"), h.Role("alert")],
         [field.errors.join(" ")],
       )
-    : h.empty
+    : h.empty;
 
 const textField = (
   config: {
-    id: string
-    value: string
-    field: Model["responseMessage"]
-    isDisabled: boolean
+    id: string;
+    value: string;
+    field: Model["responseMessage"];
+    isDisabled: boolean;
   },
   h: HtmlBuilder<Message>,
 ): Html =>
@@ -77,15 +77,16 @@ const textField = (
           [
             h.label([...label, h.Class("fk-label")], ["Melding"]),
             h.input([...input, h.Class("fk-input")]),
-            h.p([...description, h.Class("fk-field-hint")], [
-              "Valgfritt når du avviser. Påkrevd når du ber om nytt tidspunkt.",
-            ]),
+            h.p(
+              [...description, h.Class("fk-field-hint")],
+              ["Valgfritt når du avviser. Påkrevd når du ber om nytt tidspunkt."],
+            ),
             fieldError(config.id, config.field, h),
           ],
         ),
     },
     h,
-  )
+  );
 
 const actionButton = (
   label: string,
@@ -103,37 +104,35 @@ const actionButton = (
         h.button([...button, h.Class(`fk-button fk-button--${variant}`)], [label]),
     },
     h,
-  )
+  );
 
 const statusPill = (
   status: InvitationResponseObservation["responseState"],
   h: HtmlBuilder<Message>,
-): Html =>
-  h.span(
-    [h.Class(`fk-status fk-status--${statusClass(status)}`)],
-    [statusLabel(status)],
-  )
+): Html => h.span([h.Class(`fk-status fk-status--${statusClass(status)}`)], [statusLabel(status)]);
 
 const invitationSuccess = (model: Model, h: HtmlBuilder<Message>): Html => {
-  const current = AsyncData.getData(model.invitationResponse)
-  if (current._tag === "None") return h.empty
-  const observation = current.value
-  const isPending = observation.responseState === "Pending"
-  const isResponding = model.selectedAction !== null
-  const heading = observation.responseState === "Accepted"
-    ? "Intervjutiden er akseptert"
-    : observation.responseState === "Rejected"
-      ? "Intervjuinvitasjonen er avvist"
-      : observation.responseState === "RequestedNewTime"
-        ? "Nytt tidspunkt er ønsket"
-        : "Svar på intervjutid"
-  const lead = observation.responseState === "Accepted"
-    ? "Takk. Vi har registrert svaret ditt."
-    : observation.responseState === "Rejected"
-      ? "Vi har registrert at du ikke kan delta."
-      : observation.responseState === "RequestedNewTime"
-        ? "Vi tar kontakt når vi har funnet et nytt tidspunkt."
-        : "Se over tidspunkt og sted før du svarer på invitasjonen."
+  const current = AsyncData.getData(model.invitationResponse);
+  if (current._tag === "None") return h.empty;
+  const observation = current.value;
+  const isPending = observation.responseState === "Pending";
+  const isResponding = model.selectedAction !== null;
+  const heading =
+    observation.responseState === "Accepted"
+      ? "Intervjutiden er akseptert"
+      : observation.responseState === "Rejected"
+        ? "Intervjuinvitasjonen er avvist"
+        : observation.responseState === "RequestedNewTime"
+          ? "Nytt tidspunkt er ønsket"
+          : "Svar på intervjutid";
+  const lead =
+    observation.responseState === "Accepted"
+      ? "Takk. Vi har registrert svaret ditt."
+      : observation.responseState === "Rejected"
+        ? "Vi har registrert at du ikke kan delta."
+        : observation.responseState === "RequestedNewTime"
+          ? "Vi tar kontakt når vi har funnet et nytt tidspunkt."
+          : "Se over tidspunkt og sted før du svarer på invitasjonen.";
 
   return h.article(
     [h.Class("fk-response-card"), h.AriaLabelledBy("response-heading")],
@@ -155,25 +154,14 @@ const invitationSuccess = (model: Model, h: HtmlBuilder<Message>): Html => {
       h.dl(
         [h.Class("fk-details fk-details--candidate")],
         [
-          h.div(
-            [],
-            [h.dt([], ["Tidspunkt"]), h.dd([], [formatInstant(observation.scheduledAt)])],
-          ),
+          h.div([], [h.dt([], ["Tidspunkt"]), h.dd([], [formatInstant(observation.scheduledAt)])]),
           h.div([], [h.dt([], ["Rom"]), h.dd([], [observation.room])]),
-          h.div([], [
-            h.dt([], ["Campus"]),
-            h.dd([], [observation.campus ?? "Ikke oppgitt"]),
-          ]),
+          h.div([], [h.dt([], ["Campus"]), h.dd([], [observation.campus ?? "Ikke oppgitt"])]),
           observation.responseMessage === null ||
-          (
-            observation.responseState !== "Rejected" &&
-            observation.responseState !== "RequestedNewTime"
-          )
+          (observation.responseState !== "Rejected" &&
+            observation.responseState !== "RequestedNewTime")
             ? h.empty
-            : h.div([], [
-                h.dt([], ["Melding"]),
-                h.dd([], [observation.responseMessage]),
-              ]),
+            : h.div([], [h.dt([], ["Melding"]), h.dd([], [observation.responseMessage])]),
         ],
       ),
       isPending
@@ -225,8 +213,8 @@ const invitationSuccess = (model: Model, h: HtmlBuilder<Message>): Html => {
             ["Svaret er registrert. Du trenger ikke gjøre noe mer."],
           ),
     ],
-  )
-}
+  );
+};
 
 export const view = (model: Model, h: HtmlBuilder<Message>): Html =>
   h.main(
@@ -262,13 +250,15 @@ export const view = (model: Model, h: HtmlBuilder<Message>): Html =>
       }),
       model.validationFeedback === null
         ? h.empty
-        : h.div([h.Class("fk-feedback fk-feedback--error"), h.Role("alert")], [
-            model.validationFeedback,
-          ]),
+        : h.div(
+            [h.Class("fk-feedback fk-feedback--error"), h.Role("alert")],
+            [model.validationFeedback],
+          ),
       model.failure === null
         ? h.empty
-        : h.div([h.Class("fk-feedback fk-feedback--error"), h.Role("alert")], [
-            invitationFailureMessage(model.failure),
-          ]),
+        : h.div(
+            [h.Class("fk-feedback fk-feedback--error"), h.Role("alert")],
+            [invitationFailureMessage(model.failure)],
+          ),
     ],
-  )
+  );

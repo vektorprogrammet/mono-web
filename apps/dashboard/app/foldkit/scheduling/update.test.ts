@@ -125,11 +125,7 @@ const validDraft = (transition: SchedulingUpdate): ReadyModel => {
     initialModel(),
     OpenedSchedule({ interviewId: unscheduledBoard.interviews[0]!.interviewId }),
   );
-  model = advance(
-    transition,
-    model,
-    UpdatedScheduledAt({ value: "2031-09-14T15:00:00+02:00" }),
-  );
+  model = advance(transition, model, UpdatedScheduledAt({ value: "2031-09-14T15:00:00+02:00" }));
   model = advance(transition, model, UpdatedRoom({ value: "Rom 50" }));
   model = advance(transition, model, UpdatedCampus({ value: "Gløshaugen" }));
   model = advance(
@@ -137,11 +133,7 @@ const validDraft = (transition: SchedulingUpdate): ReadyModel => {
     model,
     UpdatedMapLink({ value: "https://maps.example.invalid/interview-50" }),
   );
-  return advance(
-    transition,
-    model,
-    UpdatedMessage({ value: "Vi ser frem til å møte deg." }),
-  );
+  return advance(transition, model, UpdatedMessage({ value: "Vi ser frem til å møte deg." }));
 };
 
 const responseBoard = decodeBoard({
@@ -184,7 +176,9 @@ const responseBoard = decodeBoard({
 
 describe("Foldkit scheduling transitions", () => {
   it("projects every invitation response label and only provided response messages", () => {
-    const model = ready(makeInitialModel({ _tag: "Loaded", board: responseBoard }, "response-test"));
+    const model = ready(
+      makeInitialModel({ _tag: "Loaded", board: responseBoard }, "response-test"),
+    );
     const board = AsyncData.getData(model.board);
     expect(board._tag).toBe("Some");
     if (board._tag !== "Some") throw new Error("expected the response board observation");

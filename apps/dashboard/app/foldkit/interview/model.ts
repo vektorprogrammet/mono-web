@@ -1,18 +1,18 @@
-import { Schema as S } from "effect"
-import { AsyncData, FieldValidation } from "foldkit"
+import { Schema as S } from "effect";
+import { AsyncData, FieldValidation } from "foldkit";
 import {
   InvitationBridgeFailureSchema,
   InvitationResponseActionSchema,
   InvitationResponseObservationSchema,
   InvitationResponseRequestIdSchema,
-} from "./bridge"
+} from "./bridge";
 
 export const InvitationResponseData = AsyncData.Schema(
   InvitationResponseObservationSchema,
   InvitationBridgeFailureSchema,
-)
+);
 
-const StringField = FieldValidation.Field(S.String)
+const StringField = FieldValidation.Field(S.String);
 
 export const Model = S.Struct({
   responseMessage: StringField,
@@ -21,8 +21,8 @@ export const Model = S.Struct({
   requestId: InvitationResponseRequestIdSchema,
   failure: S.NullOr(InvitationBridgeFailureSchema),
   validationFeedback: S.NullOr(S.String),
-})
-export type Model = S.Schema.Type<typeof Model>
+});
+export type Model = S.Schema.Type<typeof Model>;
 
 export const makeInitialModel = (): Model => ({
   responseMessage: FieldValidation.NotValidated({ value: "" }),
@@ -31,4 +31,4 @@ export const makeInitialModel = (): Model => ({
   requestId: 0,
   failure: null,
   validationFeedback: null,
-})
+});

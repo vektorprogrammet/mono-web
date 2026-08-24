@@ -726,12 +726,16 @@ async function startRecordingProxy(targetOrigin, actorsByToken, actorsByCapabili
     const requestBytes = Buffer.concat(chunks);
     const requestJson = parseJsonBody(requestBytes);
     const capabilityHeader = request.headers[invitationCapabilityHeader];
-    const capabilityValue = Array.isArray(capabilityHeader) ? capabilityHeader[0] : capabilityHeader;
+    const capabilityValue = Array.isArray(capabilityHeader)
+      ? capabilityHeader[0]
+      : capabilityHeader;
     const invitationActor =
-      typeof capabilityValue === "string" ? actorsByCapability.get(capabilityValue) ?? null : null;
+      typeof capabilityValue === "string"
+        ? (actorsByCapability.get(capabilityValue) ?? null)
+        : null;
     const nonCapabilityHeaders = Object.entries(request.headers)
       .filter(([name]) => name !== invitationCapabilityHeader)
-      .map(([, value]) => (Array.isArray(value) ? value.join(",") : value ?? ""))
+      .map(([, value]) => (Array.isArray(value) ? value.join(",") : (value ?? "")))
       .join("\n");
     const record = {
       method,
@@ -1062,8 +1066,7 @@ function assertCommittedEvidence(evidence) {
       row.outbox.length !== responseCase.expectedOutboxCount ||
       row.outbox.some(
         (entry) =>
-          entry.effectId !==
-            `recruitment-invitation-response:${responseCase.invitationId}:1` ||
+          entry.effectId !== `recruitment-invitation-response:${responseCase.invitationId}:1` ||
           entry.effectType !== "SendInterviewInvitationResponse" ||
           entry.invitationId !== responseCase.invitationId ||
           entry.interviewId !== responseCase.interviewId ||
@@ -1124,8 +1127,7 @@ function assertDeliveredEvidence(evidence, committedEvidence) {
     if (responseCase.expectedOutboxCount === 1) {
       const delivery = after.outbox[0];
       if (
-        delivery?.effectId !==
-          `recruitment-invitation-response:${responseCase.invitationId}:1` ||
+        delivery?.effectId !== `recruitment-invitation-response:${responseCase.invitationId}:1` ||
         delivery?.effectType !== "SendInterviewInvitationResponse" ||
         delivery?.invitationId !== responseCase.invitationId ||
         delivery?.interviewId !== responseCase.interviewId ||
@@ -1188,7 +1190,9 @@ function assertBrowserEvidence(browser) {
     !Array.isArray(browser?.applicantCases) ||
     browser.applicantCases.length !== 3
   ) {
-    throw new Error("Browser evidence did not prove the complete native invitation-response journey");
+    throw new Error(
+      "Browser evidence did not prove the complete native invitation-response journey",
+    );
   }
   const accepted = browser.applicantCases.find(({ key }) => key === "accepted");
   const rejected = browser.applicantCases.find(({ key }) => key === "rejected");
@@ -1245,25 +1249,103 @@ function assertNativeTransport(records) {
   const expected = [
     { method: "GET", path: readPath, status: 200, invitationActor: "accepted", bearerActor: null },
     { method: "GET", path: readPath, status: 200, invitationActor: "accepted", bearerActor: null },
-    { method: "POST", path: responseCases[0].commandPath, status: 204, invitationActor: "accepted", bearerActor: null },
+    {
+      method: "POST",
+      path: responseCases[0].commandPath,
+      status: 204,
+      invitationActor: "accepted",
+      bearerActor: null,
+    },
     { method: "GET", path: readPath, status: 200, invitationActor: "accepted", bearerActor: null },
-    { method: "POST", path: responseCases[0].commandPath, status: 409, invitationActor: "accepted", bearerActor: null },
+    {
+      method: "POST",
+      path: responseCases[0].commandPath,
+      status: 409,
+      invitationActor: "accepted",
+      bearerActor: null,
+    },
     { method: "GET", path: readPath, status: 200, invitationActor: "accepted", bearerActor: null },
     { method: "GET", path: readPath, status: 200, invitationActor: "rejected", bearerActor: null },
     { method: "GET", path: readPath, status: 200, invitationActor: "rejected", bearerActor: null },
-    { method: "POST", path: responseCases[1].commandPath, status: 204, invitationActor: "rejected", bearerActor: null },
+    {
+      method: "POST",
+      path: responseCases[1].commandPath,
+      status: 204,
+      invitationActor: "rejected",
+      bearerActor: null,
+    },
     { method: "GET", path: readPath, status: 200, invitationActor: "rejected", bearerActor: null },
-    { method: "POST", path: responseCases[1].commandPath, status: 409, invitationActor: "rejected", bearerActor: null },
+    {
+      method: "POST",
+      path: responseCases[1].commandPath,
+      status: 409,
+      invitationActor: "rejected",
+      bearerActor: null,
+    },
     { method: "GET", path: readPath, status: 200, invitationActor: "rejected", bearerActor: null },
-    { method: "GET", path: readPath, status: 200, invitationActor: "requested-new-time", bearerActor: null },
-    { method: "GET", path: readPath, status: 200, invitationActor: "requested-new-time", bearerActor: null },
-    { method: "GET", path: readPath, status: 200, invitationActor: "requested-new-time", bearerActor: null },
-    { method: "POST", path: responseCases[2].commandPath, status: 204, invitationActor: "requested-new-time", bearerActor: null },
-    { method: "GET", path: readPath, status: 200, invitationActor: "requested-new-time", bearerActor: null },
-    { method: "POST", path: responseCases[2].commandPath, status: 409, invitationActor: "requested-new-time", bearerActor: null },
-    { method: "GET", path: readPath, status: 200, invitationActor: "requested-new-time", bearerActor: null },
-    { method: "GET", path: boardPath, status: 200, invitationActor: null, bearerActor: "DepartmentLeader" },
-    { method: "GET", path: boardPath, status: 200, invitationActor: null, bearerActor: "DepartmentLeader" },
+    {
+      method: "GET",
+      path: readPath,
+      status: 200,
+      invitationActor: "requested-new-time",
+      bearerActor: null,
+    },
+    {
+      method: "GET",
+      path: readPath,
+      status: 200,
+      invitationActor: "requested-new-time",
+      bearerActor: null,
+    },
+    {
+      method: "GET",
+      path: readPath,
+      status: 200,
+      invitationActor: "requested-new-time",
+      bearerActor: null,
+    },
+    {
+      method: "POST",
+      path: responseCases[2].commandPath,
+      status: 204,
+      invitationActor: "requested-new-time",
+      bearerActor: null,
+    },
+    {
+      method: "GET",
+      path: readPath,
+      status: 200,
+      invitationActor: "requested-new-time",
+      bearerActor: null,
+    },
+    {
+      method: "POST",
+      path: responseCases[2].commandPath,
+      status: 409,
+      invitationActor: "requested-new-time",
+      bearerActor: null,
+    },
+    {
+      method: "GET",
+      path: readPath,
+      status: 200,
+      invitationActor: "requested-new-time",
+      bearerActor: null,
+    },
+    {
+      method: "GET",
+      path: boardPath,
+      status: 200,
+      invitationActor: null,
+      bearerActor: "DepartmentLeader",
+    },
+    {
+      method: "GET",
+      path: boardPath,
+      status: 200,
+      invitationActor: null,
+      bearerActor: "DepartmentLeader",
+    },
     { method: "GET", path: boardPath, status: 200, invitationActor: null, bearerActor: "Member" },
     { method: "GET", path: boardPath, status: 200, invitationActor: null, bearerActor: "Member" },
   ];
@@ -1313,7 +1395,7 @@ function assertRecordingEvidence(recording, committedEvidence, deliveredEvidence
         result?.claim?.attempts !== 1 ||
         typeof result?.claim?.effectId !== "string" ||
         result.claim.effectId.length === 0 ||
-        result?.notificationEvidence?.effectId !== result?.claim?.effectId
+        result?.notificationEvidence?.effectId !== result?.claim?.effectId,
     ) ||
     !Array.isArray(recording?.responseRequests) ||
     recording.responseRequests.length !== 2
@@ -1329,8 +1411,7 @@ function assertRecordingEvidence(recording, committedEvidence, deliveredEvidence
     );
     if (
       request?._tag !== "SendInterviewInvitationResponse" ||
-      request?.effectId !==
-        `recruitment-invitation-response:${responseCase.invitationId}:1` ||
+      request?.effectId !== `recruitment-invitation-response:${responseCase.invitationId}:1` ||
       request?.invitationId !== responseCase.invitationId ||
       request?.interviewId !== responseCase.interviewId ||
       request?.scheduleRevision !== 1 ||
@@ -1342,7 +1423,9 @@ function assertRecordingEvidence(recording, committedEvidence, deliveredEvidence
       request?.interviewerEmail !== "irene.intervjuer@example.invalid" ||
       request?.interviewerPhone !== "+47 900 00 512"
     ) {
-      throw new Error("Recording gateway did not observe an approved response notification request");
+      throw new Error(
+        "Recording gateway did not observe an approved response notification request",
+      );
     }
     const before = committedEvidence.find(({ key }) => key === responseCase.key);
     const after = deliveredEvidence.find(({ key }) => key === responseCase.key);
@@ -1378,7 +1461,9 @@ async function prepareReceiptInputs(playwrightOutput) {
     .filter((value) => value.length > 0);
   const sourcePaths = [runnerPath, specPath];
   if (sourceRefIds.length === 0 || sourceRefIds.length > sourcePaths.length) {
-    throw new Error("Native invitation-response evidence expects one or two runner source references");
+    throw new Error(
+      "Native invitation-response evidence expects one or two runner source references",
+    );
   }
   const runnerSourceInputBytes = await Promise.all(
     sourceRefIds.map(async (sourceRefId, index) => ({
@@ -1538,10 +1623,7 @@ async function main() {
       cleanupErrors.push(error);
     }
     if (cleanupErrors.length > 0) {
-      throw new AggregateError(
-        cleanupErrors,
-        "Native invitation-response topology cleanup failed",
-      );
+      throw new AggregateError(cleanupErrors, "Native invitation-response topology cleanup failed");
     }
   };
 
@@ -1593,9 +1675,7 @@ async function main() {
         [`Bearer ${leaderToken}`, "DepartmentLeader"],
         [`Bearer ${memberToken}`, "Member"],
       ]),
-      new Map(
-        responseCases.map(({ key }) => [rawCapabilitiesByCase[key], key]),
-      ),
+      new Map(responseCases.map(({ key }) => [rawCapabilitiesByCase[key], key])),
     );
     const dashboardEnvironment = {
       ...baseEnvironment,
@@ -1669,10 +1749,7 @@ async function main() {
     );
     assertBrowserEvidence(browser);
     assertNativeTransport(proxy.records);
-    if (
-      apiProcess.rawCapabilityObserved() ||
-      dashboardProcess.rawCapabilityObserved()
-    ) {
+    if (apiProcess.rawCapabilityObserved() || dashboardProcess.rawCapabilityObserved()) {
       throw new Error("A native process log contained a raw invitation capability");
     }
 
@@ -1709,15 +1786,13 @@ async function main() {
       },
       browser,
       nativeTransport: {
-        records: proxy.records.map(
-          ({ method, path, status, bearerActor, invitationActor }) => ({
-            method,
-            path,
-            status,
-            bearerActor,
-            invitationActor,
-          }),
-        ),
+        records: proxy.records.map(({ method, path, status, bearerActor, invitationActor }) => ({
+          method,
+          path,
+          status,
+          bearerActor,
+          invitationActor,
+        })),
         operationOrderingConfirmed: true,
         legacyRequests: 0,
         externalRequests: 0,

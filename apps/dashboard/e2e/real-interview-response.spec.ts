@@ -12,8 +12,7 @@ import {
 } from "@playwright/test";
 
 const DASHBOARD_ORIGIN = process.env.DASHBOARD_ORIGIN ?? "http://127.0.0.1:5185";
-const REAL_NATIVE_INVITATION_RESPONSE_E2E =
-  process.env.REAL_NATIVE_INVITATION_RESPONSE_E2E === "1";
+const REAL_NATIVE_INVITATION_RESPONSE_E2E = process.env.REAL_NATIVE_INVITATION_RESPONSE_E2E === "1";
 const INVITATION_COOKIE = "recruitment_invitation_capability";
 
 type ResponseState = "Pending" | "Accepted" | "Rejected" | "RequestedNewTime";
@@ -24,10 +23,7 @@ type ApplicantCase = {
   readonly scheduledAt: string;
   readonly room: string;
   readonly campus: string;
-  readonly operation:
-    | "confirmInvitation"
-    | "rejectInvitation"
-    | "requestNewInvitationTime";
+  readonly operation: "confirmInvitation" | "rejectInvitation" | "requestNewInvitationTime";
   readonly actionLabel: string;
   readonly finalState: Exclude<ResponseState, "Pending">;
   readonly stateLabel: string;
@@ -149,8 +145,7 @@ const observePage = (
       ) {
         observation.rawCapabilityLeak = true;
       } else {
-        observation.capabilityExchanges[actor] =
-          (observation.capabilityExchanges[actor] ?? 0) + 1;
+        observation.capabilityExchanges[actor] = (observation.capabilityExchanges[actor] ?? 0) + 1;
       }
     }
     const postData = request.postData();
@@ -231,7 +226,6 @@ const bridgeFetch = async (
   return { status: result.status, body };
 };
 
-
 const assertObservation = (
   value: unknown,
   responseCase: ApplicantCase,
@@ -246,7 +240,6 @@ const assertObservation = (
     responseMessage,
   });
 };
-
 
 const authenticate = async (context: BrowserContext, tokenEnvironment: string): Promise<void> => {
   await context.addCookies([
@@ -373,7 +366,7 @@ const runCommandWithFreshReadGate = async (
       throw new Error("A successful invitation response command returned interface data");
     }
     await waitForDeferred(readArrived, "Post-command applicant read");
-    if (await page.getByText(responseCase.stateLabel, { exact: true }).count() !== 0) {
+    if ((await page.getByText(responseCase.stateLabel, { exact: true }).count()) !== 0) {
       throw new Error("The applicant interface changed before its fresh server read");
     }
     const freshReadResponse = waitForBridgeResponse(page, "readInvitationResponse");
@@ -518,7 +511,8 @@ test.describe("Native recruitment invitation response", () => {
             { operation: "readInvitationResponse" },
             capabilities,
           );
-          if (preserved.status !== 200) throw new Error("Invalid response preservation read failed");
+          if (preserved.status !== 200)
+            throw new Error("Invalid response preservation read failed");
           assertObservation(preserved.body, responseCase, "Pending", null);
           const pendingAccessibility = await new AxeBuilder({ page })
             .include("main.foldkit-interview")
@@ -538,11 +532,7 @@ test.describe("Native recruitment invitation response", () => {
         if (responseCase.responseMessage !== null) {
           await page.getByLabel("Melding", { exact: true }).fill(responseCase.responseMessage);
         }
-        const commandEvidence = await runCommandWithFreshReadGate(
-          page,
-          responseCase,
-          capabilities,
-        );
+        const commandEvidence = await runCommandWithFreshReadGate(page, responseCase, capabilities);
         await expect(page.getByText(responseCase.stateLabel, { exact: true })).toBeVisible();
         if (responseCase.responseMessage !== null) {
           await expect(page.getByText(responseCase.responseMessage, { exact: true })).toBeVisible();
@@ -572,7 +562,8 @@ test.describe("Native recruitment invitation response", () => {
           { operation: "readInvitationResponse" },
           capabilities,
         );
-        if (repeatedRead.status !== 200) throw new Error("Repeated response preservation read failed");
+        if (repeatedRead.status !== 200)
+          throw new Error("Repeated response preservation read failed");
         assertObservation(
           repeatedRead.body,
           responseCase,
@@ -636,7 +627,8 @@ test.describe("Native recruitment invitation response", () => {
         );
         await page.getByRole("button", { name: "Hent oppdatert oversikt", exact: true }).click();
         const boardResponse = await freshBoardResponse;
-        if (boardResponse.status() !== 200) throw new Error("Fresh staff board read did not succeed");
+        if (boardResponse.status() !== 200)
+          throw new Error("Fresh staff board read did not succeed");
         await readResponseBody(boardResponse, capabilities);
 
         for (const responseCase of APPLICANT_CASES) {
