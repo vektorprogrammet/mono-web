@@ -27,6 +27,7 @@
   "devDependencies": {
     "@effect/sql-pglite": "catalog:effect-v4",
     "@effect/vitest": "catalog:effect-v4",
+    "@electric-sql/pglite": "^0.5.6",
     "@types/node": "^22",
     "oxlint": "^1.41.0",
     "typescript": "^5",

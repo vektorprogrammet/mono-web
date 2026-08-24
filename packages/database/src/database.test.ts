@@ -323,6 +323,7 @@ describe("DatabaseTest", () => {
               'organization_field_of_studies',
               'organization_command_receipts',
               'organization_creation_audit',
+              'organization_global_administrator_grants',
               'person_profiles',
               'person_contact_profiles',
               'recruitment_interview_schemas',
@@ -348,7 +349,7 @@ describe("DatabaseTest", () => {
     );
 
     expect(evidence).toEqual({
-      revision: "13_native-organization-administration",
+      revision: "16_person-keyed-organization-authority",
       migrations: [
         { migration_id: 1, name: "receipt-authority" },
         { migration_id: 2, name: "admission-period-authority" },
@@ -363,6 +364,9 @@ describe("DatabaseTest", () => {
         { migration_id: 11, name: "native-recruitment-interview-scheduling" },
         { migration_id: 12, name: "native-recruitment-invitation-response" },
         { migration_id: 13, name: "native-organization-administration" },
+        { migration_id: 14, name: "native-profile-self-edit" },
+        { migration_id: 15, name: "native-identity-better-auth" },
+        { migration_id: 16, name: "person-keyed-organization-authority" },
       ],
       tables: [
         "admission_applications",
@@ -372,6 +376,7 @@ describe("DatabaseTest", () => {
         "organization_creation_audit",
         "organization_departments",
         "organization_field_of_studies",
+        "organization_global_administrator_grants",
         "organization_memberships",
         "organization_teams",
         "person_contact_profiles",
@@ -3840,7 +3845,7 @@ describe("DatabaseTest", () => {
       }),
     );
 
-    expect(evidence.schemaRevision).toBe("13_native-organization-administration");
+    expect(evidence.schemaRevision).toBe("16_person-keyed-organization-authority");
     expect(evidence.denied._tag).toBe("OrganizationRoleDenied");
     expect(evidence.deniedRows).toBe(0);
     expect(evidence.departmentCreated.committed).toBe(true);

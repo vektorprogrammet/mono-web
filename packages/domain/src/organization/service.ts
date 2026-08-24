@@ -8,6 +8,7 @@ import type {
   CreateTeamResult,
   OrganizationActor,
 } from "./administration-schema.js";
+import type { OrganizationAuthorityInstant, OrganizationPersonAuthority } from "./authority.js";
 import type {
   DepartmentNotFound,
   MembershipInvalidInterval,
@@ -26,6 +27,7 @@ import type {
   FieldOfStudy,
   Membership,
   MembershipId,
+  PersonId,
   Team,
   TeamId,
 } from "./schema.js";
@@ -57,10 +59,7 @@ export interface OrganizationShape {
   readonly listTeams: (
     departmentId?: DepartmentId,
   ) => Effect.Effect<ReadonlyArray<Team>, OrganizationListFailure>;
-  readonly listFieldOfStudies: Effect.Effect<
-    ReadonlyArray<FieldOfStudy>,
-    OrganizationListFailure
-  >;
+  readonly listFieldOfStudies: Effect.Effect<ReadonlyArray<FieldOfStudy>, OrganizationListFailure>;
   readonly createDepartment: (
     command: CreateDepartmentCommand,
     actor: OrganizationActor,
@@ -85,6 +84,13 @@ export interface OrganizationShape {
   readonly listHistoricalMemberships: Effect.Effect<
     ReadonlyArray<Membership>,
     OrganizationPersistenceError | OrganizationDecodeError
+  >;
+  readonly resolvePersonAuthority: (
+    personId: PersonId,
+    authorizationInstant: OrganizationAuthorityInstant,
+  ) => Effect.Effect<
+    OrganizationPersonAuthority,
+    OrganizationDecodeError | OrganizationPersistenceError
   >;
   readonly reviseMembership: (
     command: Extract<MembershipRevisionCommand, { readonly _tag: "ReviseMembership" }>,
