@@ -87,21 +87,21 @@ export const deriveOrganizationDirectoryFacts = (
     );
     const grantRows = yield* sql<DirectoryGrantRow>`
       SELECT
-        grant.person_id AS "personId",
+        g.person_id AS "personId",
         CASE
           WHEN COALESCE(
             bool_or(
-              grant.start_at <= ${evaluatedAt}::timestamptz
-              AND (grant.end_at IS NULL OR ${evaluatedAt}::timestamptz < grant.end_at)
+              g.start_at <= ${evaluatedAt}::timestamptz
+              AND (g.end_at IS NULL OR ${evaluatedAt}::timestamptz < g.end_at)
             ),
             FALSE
           ) THEN 'Active'
           WHEN count(*) > 0 THEN 'Inactive'
           ELSE 'Absent'
         END AS "globalAdministrator"
-      FROM organization_global_administrator_grants AS grant
-      WHERE ${sql.in("grant.person_id", personIds)}
-      GROUP BY grant.person_id
+      FROM organization_global_administrator_grants AS g
+      WHERE ${sql.in("g.person_id", personIds)}
+      GROUP BY g.person_id
     `.pipe(
       Effect.catchTag("SqlError", (cause) =>
         Effect.fail(
