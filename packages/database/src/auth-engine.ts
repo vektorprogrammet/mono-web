@@ -51,7 +51,6 @@ export const makeAuthEngine = (
         // Session rows join user rows server-side; keep default for now.
         joins: false,
       },
-      cookiePrefix: "vp",
     },
     user: {
       // auth.user.id IS PersonId - set explicitly at seed/creation time.
