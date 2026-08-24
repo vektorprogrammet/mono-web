@@ -302,7 +302,7 @@ const replayCommand: RecruitmentScheduleCommand = {
 const proof = Effect.gen(function* () {
   const sql = yield* Database;
   const recruitment = yield* Recruitment;
-  assert.equal(sql.schemaRevision, "11_native-recruitment-interview-scheduling");
+  assert.equal(sql.schemaRevision, "12_native-recruitment-invitation-response");
   yield* resetCohort(sql);
   yield* seedCohort(sql);
 
