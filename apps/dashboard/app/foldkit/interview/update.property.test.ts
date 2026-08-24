@@ -250,6 +250,21 @@ it("requires a bounded message only when requesting a new time", () => {
   expect(commands[0]?.args).toEqual({ requestId: requested.requestId, message: "x".repeat(2_000) });
 });
 
+it("rejects a capability-shaped new-time message before creating a browser command", () => {
+  const capabilityShaped = {
+    ...pendingModel(),
+    responseMessage: FieldValidation.NotValidated({
+      value: `Flytt intervjuet ${"A".repeat(43)} takk`,
+    }),
+  };
+
+  const [next, commands] = update(capabilityShaped, RequestedNewInvitationTime());
+
+  expect(next.selectedAction).toBeNull();
+  expect(next.validationFeedback).not.toBeNull();
+  expect(commands).toEqual([]);
+});
+
 it("excludes every competing action while one command is in flight", () => {
   const [inFlight] = update(pendingModel(), ConfirmedInvitation());
 

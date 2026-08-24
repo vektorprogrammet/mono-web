@@ -1,3 +1,8 @@
+import {
+  decodeInvitationInteractionId,
+  INVITATION_INTERACTION_ATTRIBUTE,
+  type InvitationInteractionId,
+} from "./bridge";
 import { createBrowserInterviewClient } from "./browser-client";
 import { embedInterview } from "./main";
 
@@ -10,16 +15,48 @@ export const registerInterviewElement = (): void => {
   customElements.define(
     CANDIDATE_ELEMENT,
     class extends HTMLElement {
+      static readonly observedAttributes = [INVITATION_INTERACTION_ATTRIBUTE];
+
       readonly #container = document.createElement("div");
       #dispose: (() => void) | undefined;
 
-      connectedCallback(): void {
+      #mount(): void {
         if (this.#dispose !== undefined) return;
+        let interactionId: InvitationInteractionId;
+        try {
+          interactionId = decodeInvitationInteractionId(
+            this.getAttribute(INVITATION_INTERACTION_ATTRIBUTE),
+          );
+        } catch {
+          this.replaceChildren();
+          return;
+        }
         this.#container.id = "foldkit-candidate-response";
         this.replaceChildren(this.#container);
         this.#dispose = embedInterview(this.#container, {
-          client: createBrowserInterviewClient(),
+          client: createBrowserInterviewClient(interactionId),
         });
+      }
+
+      connectedCallback(): void {
+        this.#mount();
+      }
+
+      attributeChangedCallback(
+        name: string,
+        previousValue: string | null,
+        currentValue: string | null,
+      ): void {
+        if (
+          name !== INVITATION_INTERACTION_ATTRIBUTE ||
+          previousValue === currentValue ||
+          !this.isConnected
+        ) {
+          return;
+        }
+        this.#dispose?.();
+        this.#dispose = undefined;
+        this.#mount();
       }
 
       disconnectedCallback(): void {

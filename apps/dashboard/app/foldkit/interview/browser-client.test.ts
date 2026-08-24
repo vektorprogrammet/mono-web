@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Effect } from "effect";
 import { createBrowserInterviewClient } from "./browser-client";
+import { INVITATION_INTERACTION_HEADER } from "./bridge";
 
 const observation = {
   scheduledAt: "2031-09-20T13:30:00.000Z",
@@ -9,6 +10,8 @@ const observation = {
   responseState: "Pending",
   responseMessage: null,
 } as const;
+
+const interactionId = "a".repeat(32);
 
 const jsonResponse = (value: unknown, status = 200): Response =>
   new Response(JSON.stringify(value), {
@@ -28,13 +31,13 @@ describe("browser invitation response bridge", () => {
     vi.unstubAllGlobals();
   });
 
-  it("uses capability-free bridge operations for the complete invitation domain", async () => {
+  it("sends the strict interaction binding on every capability-free bridge operation", async () => {
     fetchMock
       .mockResolvedValueOnce(jsonResponse(observation))
       .mockResolvedValueOnce(new Response(null, { status: 204 }))
       .mockResolvedValueOnce(new Response(null, { status: 204 }))
       .mockResolvedValueOnce(new Response(null, { status: 204 }));
-    const client = createBrowserInterviewClient().recruitmentInvitationResponses;
+    const client = createBrowserInterviewClient(interactionId).recruitmentInvitationResponses;
 
     await Effect.runPromise(client.read());
     await Effect.runPromise(client.confirm());
@@ -51,12 +54,19 @@ describe("browser invitation response bridge", () => {
     expect(fetchMock.mock.calls.every(([, init]) => init?.credentials === "same-origin")).toBe(
       true,
     );
+    expect(
+      fetchMock.mock.calls.every(
+        ([, init]) => new Headers(init?.headers).get(INVITATION_INTERACTION_HEADER) === interactionId,
+      ),
+    ).toBe(true);
   });
 
   it("strictly decodes the applicant observation", async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse({ ...observation, invitationId: "forbidden" }));
     const failure = await Effect.runPromise(
-      createBrowserInterviewClient().recruitmentInvitationResponses.read().pipe(Effect.flip),
+      createBrowserInterviewClient(interactionId).recruitmentInvitationResponses.read().pipe(
+        Effect.flip,
+      ),
     );
 
     expect(failure._tag).toBe("InvitationUnavailable");
@@ -73,7 +83,9 @@ describe("browser invitation response bridge", () => {
       ),
     );
     const failure = await Effect.runPromise(
-      createBrowserInterviewClient().recruitmentInvitationResponses.confirm().pipe(Effect.flip),
+      createBrowserInterviewClient(interactionId).recruitmentInvitationResponses
+        .confirm()
+        .pipe(Effect.flip),
     );
 
     expect(failure).toEqual({
@@ -83,7 +95,7 @@ describe("browser invitation response bridge", () => {
   });
 
   it("maps malformed failures and unexpected success statuses to unavailable", async () => {
-    const client = createBrowserInterviewClient().recruitmentInvitationResponses;
+    const client = createBrowserInterviewClient(interactionId).recruitmentInvitationResponses;
     fetchMock
       .mockResolvedValueOnce(jsonResponse({ message: "unsafe persistence detail" }, 503))
       .mockResolvedValueOnce(jsonResponse(observation, 201));
@@ -93,5 +105,10 @@ describe("browser invitation response bridge", () => {
 
     expect(malformed._tag).toBe("InvitationUnavailable");
     expect(unexpected._tag).toBe("InvitationUnavailable");
+  });
+
+  it("rejects a malformed interaction binding before bridge fetch", () => {
+    expect(() => createBrowserInterviewClient("not-an-interaction")).toThrow();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

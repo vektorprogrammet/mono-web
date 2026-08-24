@@ -13,7 +13,9 @@ import {
 
 const DASHBOARD_ORIGIN = process.env.DASHBOARD_ORIGIN ?? "http://127.0.0.1:5185";
 const REAL_NATIVE_INVITATION_RESPONSE_E2E = process.env.REAL_NATIVE_INVITATION_RESPONSE_E2E === "1";
-const INVITATION_COOKIE = "recruitment_invitation_capability";
+const INVITATION_COOKIE_PREFIX = "recruitment_invitation_capability_";
+const INVITATION_INTERACTION_HEADER = "X-Recruitment-Invitation-Interaction-Id";
+const INVITATION_INTERACTION_PATTERN = /^[a-f0-9]{32}$/;
 
 type ResponseState = "Pending" | "Accepted" | "Rejected" | "RequestedNewTime";
 type ApplicantCase = {
@@ -200,20 +202,48 @@ const readResponseBody = async (
   }
 };
 
+const interactionIdForPage = (page: Page): string => {
+  const url = new URL(page.url());
+  const parameters = [...url.searchParams.entries()];
+  const interactionId = parameters[0]?.[1];
+  if (
+    url.origin !== DASHBOARD_ORIGIN ||
+    url.pathname !== "/interview-response/redacted" ||
+    parameters.length !== 1 ||
+    parameters[0]?.[0] !== "interactionId" ||
+    interactionId === undefined ||
+    !INVITATION_INTERACTION_PATTERN.test(interactionId)
+  ) {
+    throw new Error("Applicant navigation did not expose one strict interaction binding");
+  }
+  return interactionId;
+};
+
 const bridgeFetch = async (
   page: Page,
   payload: Readonly<Record<string, unknown>>,
   capabilities: readonly string[],
 ): Promise<{ readonly status: number; readonly body: unknown }> => {
-  const result = await page.evaluate(async (body) => {
-    const response = await fetch("/interview", {
-      method: "POST",
-      credentials: "same-origin",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    return { status: response.status, text: await response.text() };
-  }, payload);
+  const interactionId = interactionIdForPage(page);
+  const result = await page.evaluate(
+    async ({ body, interactionId, interactionHeader }) => {
+      const response = await fetch("/interview", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: {
+          "content-type": "application/json",
+          [interactionHeader]: interactionId,
+        },
+        body: JSON.stringify(body),
+      });
+      return { status: response.status, text: await response.text() };
+    },
+    {
+      body: payload,
+      interactionId,
+      interactionHeader: INVITATION_INTERACTION_HEADER,
+    },
+  );
   assertCapabilityAbsent(result.text, capabilities);
   let body: unknown;
   if (result.text.length > 0) {
@@ -261,13 +291,12 @@ const assertApplicantPrivacy = async (
 ): Promise<{
   readonly httpOnly: true;
   readonly sameSite: "Strict";
-  readonly path: "/";
+  readonly path: "/interview";
   readonly session: true;
   readonly valueMatchesExchange: true;
+  readonly interactionBound: true;
 }> => {
-  if (page.url() !== `${DASHBOARD_ORIGIN}/interview-response/redacted`) {
-    throw new Error("Applicant navigation did not finish on the redacted route");
-  }
+  const interactionId = interactionIdForPage(page);
   const [content, bodyText, readableCookie, browserStorage, cookies] = await Promise.all([
     page.content(),
     page.locator("body").innerText(),
@@ -276,7 +305,7 @@ const assertApplicantPrivacy = async (
       local: Object.entries(localStorage),
       session: Object.entries(sessionStorage),
     })),
-    context.cookies(DASHBOARD_ORIGIN),
+    context.cookies(`${DASHBOARD_ORIGIN}/interview`),
   ]);
   assertCapabilityAbsent(page.url(), capabilities);
   assertCapabilityAbsent(content, capabilities);
@@ -284,23 +313,38 @@ const assertApplicantPrivacy = async (
   assertCapabilityAbsent(readableCookie, capabilities);
   assertCapabilityAbsent(browserStorage, capabilities);
 
-  const invitationCookies = cookies.filter((cookie) => cookie.name === INVITATION_COOKIE);
-  const invitationCookie = invitationCookies[0];
+  const expectedCookieName = `${INVITATION_COOKIE_PREFIX}${interactionId}`;
+  const invitationCookies = cookies.filter((cookie) =>
+    cookie.name.startsWith(INVITATION_COOKIE_PREFIX),
+  );
+  const invitationCookie = invitationCookies.find((cookie) => cookie.name === expectedCookieName);
   if (
-    invitationCookies.length !== 1 ||
     invitationCookie === undefined ||
     invitationCookie.value !== expectedCapability ||
     invitationCookie.httpOnly !== true ||
     invitationCookie.sameSite !== "Strict" ||
-    invitationCookie.path !== "/" ||
-    invitationCookie.expires !== -1
+    invitationCookie.path !== "/interview" ||
+    invitationCookie.expires !== -1 ||
+    invitationCookies.some(
+      (cookie) =>
+        !INVITATION_INTERACTION_PATTERN.test(
+          cookie.name.slice(INVITATION_COOKIE_PREFIX.length),
+        ) ||
+        !capabilities.includes(cookie.value) ||
+        cookie.httpOnly !== true ||
+        cookie.sameSite !== "Strict" ||
+        cookie.path !== "/interview" ||
+        cookie.expires !== -1,
+    ) ||
+    new Set(invitationCookies.map((cookie) => cookie.name)).size !== invitationCookies.length
   ) {
-    throw new Error("The server-held invitation cookie violated its privacy contract");
+    throw new Error("The server-held invitation cookies violated their interaction bindings");
   }
   if (
     cookies.some(
       (cookie) =>
-        cookie.name !== INVITATION_COOKIE && containsCapability(cookie.value, capabilities),
+        !cookie.name.startsWith(INVITATION_COOKIE_PREFIX) &&
+        containsCapability(cookie.value, capabilities),
     )
   ) {
     throw new Error("A raw invitation capability entered an unrelated browser cookie");
@@ -308,9 +352,10 @@ const assertApplicantPrivacy = async (
   return {
     httpOnly: true,
     sameSite: "Strict",
-    path: "/",
+    path: "/interview",
     session: true,
     valueMatchesExchange: true,
+    interactionBound: true,
   };
 };
 
@@ -440,164 +485,261 @@ test.describe("Native recruitment invitation response", () => {
       rawCapabilityLeak: false,
     };
     const applicantEvidence: Array<Record<string, unknown>> = [];
+    const applicantGroups: ReadonlyArray<ReadonlyArray<ApplicantCase>> = [
+      APPLICANT_CASES.filter(({ key }) => key !== "requested-new-time"),
+      APPLICANT_CASES.filter(({ key }) => key === "requested-new-time"),
+    ];
     let applicantContextsClosed = 0;
+    let tabBindingEvidence: Record<string, unknown> | null = null;
     let accessibilityRuns = 0;
 
-    for (const responseCase of APPLICANT_CASES) {
-      const capability = capabilitiesByCase[responseCase.key];
+    for (const responseCases of applicantGroups) {
       const context = await browser.newContext({
         baseURL: DASHBOARD_ORIGIN,
         viewport: { width: 1440, height: 900 },
       });
       try {
-        const page = await context.newPage();
-        const actor = `Applicant:${responseCase.key}`;
-        observePage(page, actor, capability, capabilities, observation);
-        const initialReadResponse = waitForBridgeResponse(page, "readInvitationResponse");
-        await page.goto(`/interview-response/${capability}`);
-        const initialRead = await initialReadResponse;
-        if (initialRead.status() !== 200) throw new Error("Initial applicant read did not succeed");
-        assertObservation(
-          await readResponseBody(initialRead, capabilities),
-          responseCase,
-          "Pending",
-          null,
-        );
-        await expect(page).toHaveURL(`${DASHBOARD_ORIGIN}/interview-response/redacted`);
-        await expect(
-          page.getByRole("heading", { name: "Svar på intervjutid", exact: true }),
-        ).toBeVisible();
-        await expect(page.getByText(responseCase.room, { exact: true })).toBeVisible();
-        await expect(page.getByText(responseCase.campus, { exact: true })).toBeVisible();
-        await expect(page.getByText("Venter på svar", { exact: true })).toBeVisible();
-        const cookieEvidence = await assertApplicantPrivacy(
-          context,
-          page,
-          capability,
-          capabilities,
-        );
-
-        let invalidBlankEvidence: Record<string, unknown> | null = null;
-        if (responseCase.key === "requested-new-time") {
-          const operationsBeforeClientValidation = observation.bridgeOperations.length;
-          await page.getByRole("button", { name: responseCase.actionLabel, exact: true }).click();
-          await expect(
-            page.getByRole("alert").filter({
-              hasText: "Skriv en melding før du ber om nytt tidspunkt.",
-            }),
-          ).toBeVisible();
-          await page.waitForTimeout(100);
-          if (observation.bridgeOperations.length !== operationsBeforeClientValidation) {
-            throw new Error("Blank new-time input crossed the Foldkit command boundary");
+        const tabs: Array<{
+          readonly responseCase: ApplicantCase;
+          readonly capability: string;
+          readonly page: Page;
+        }> = [];
+        for (const responseCase of responseCases) {
+          const capability = capabilitiesByCase[responseCase.key];
+          const page = await context.newPage();
+          const actor = `Applicant:${responseCase.key}`;
+          observePage(page, actor, capability, capabilities, observation);
+          const initialReadResponse = waitForBridgeResponse(page, "readInvitationResponse");
+          await page.goto(`/interview-response/${capability}`);
+          const initialRead = await initialReadResponse;
+          if (initialRead.status() !== 200) {
+            throw new Error("Initial applicant read did not succeed");
           }
+          assertObservation(
+            await readResponseBody(initialRead, capabilities),
+            responseCase,
+            "Pending",
+            null,
+          );
+          interactionIdForPage(page);
+          await expect(
+            page.getByRole("heading", { name: "Svar på intervjutid", exact: true }),
+          ).toBeVisible();
+          await expect(page.getByText(responseCase.room, { exact: true })).toBeVisible();
+          await expect(page.getByText(responseCase.campus, { exact: true })).toBeVisible();
           await expect(page.getByText("Venter på svar", { exact: true })).toBeVisible();
+          tabs.push({ responseCase, capability, page });
+        }
 
-          const invalid = await bridgeFetch(
+        if (tabs.length === 2) {
+          const interactionIds = tabs.map(({ page }) => interactionIdForPage(page));
+          if (new Set(interactionIds).size !== interactionIds.length) {
+            throw new Error("Two invitation tabs received the same interaction id");
+          }
+          const expectedCookieNames = interactionIds
+            .map((interactionId) => `${INVITATION_COOKIE_PREFIX}${interactionId}`)
+            .sort();
+          const cookieNamesBeforeInvalidExchange = (
+            await context.cookies(`${DASHBOARD_ORIGIN}/interview`)
+          )
+            .filter((cookie) => cookie.name.startsWith(INVITATION_COOKIE_PREFIX))
+            .map((cookie) => cookie.name)
+            .sort();
+          if (
+            JSON.stringify(cookieNamesBeforeInvalidExchange) !==
+            JSON.stringify(expectedCookieNames)
+          ) {
+            throw new Error("Two invitation tabs did not retain distinct capability cookies");
+          }
+
+          const invalidPage = await context.newPage();
+          observePage(invalidPage, "Applicant:invalid-exchange", null, capabilities, observation);
+          const invalidExchangeResponse = await invalidPage.goto("/interview-response/invalid");
+          if (
+            invalidExchangeResponse?.status() !== 404 ||
+            new URL(invalidPage.url()).pathname !== "/interview-response/redacted"
+          ) {
+            throw new Error("Invalid invitation exchange did not fail on the redacted route");
+          }
+          await invalidPage.close();
+
+          const cookieNamesAfterInvalidExchange = (
+            await context.cookies(`${DASHBOARD_ORIGIN}/interview`)
+          )
+            .filter((cookie) => cookie.name.startsWith(INVITATION_COOKIE_PREFIX))
+            .map((cookie) => cookie.name)
+            .sort();
+          if (
+            JSON.stringify(cookieNamesAfterInvalidExchange) !==
+            JSON.stringify(cookieNamesBeforeInvalidExchange)
+          ) {
+            throw new Error("Invalid invitation exchange erased another tab binding");
+          }
+          tabBindingEvidence = {
+            sameBrowserContext: true,
+            exchangedTabs: 2,
+            distinctInteractionIds: true,
+            distinctCookieNames: true,
+            invalidExchangeStatus: 404,
+            invalidExchangePreservedBindings: true,
+          };
+        }
+
+        for (const { responseCase, capability, page } of tabs) {
+          const cookieEvidence = await assertApplicantPrivacy(
+            context,
             page,
-            { operation: "requestNewInvitationTime", message: "   " },
+            capability,
+            capabilities,
+          );
+
+          let invalidBlankEvidence: Record<string, unknown> | null = null;
+          let capabilityShapedMessageEvidence: Record<string, unknown> | null = null;
+          if (responseCase.key === "requested-new-time") {
+            const operationsBeforeClientValidation = observation.bridgeOperations.length;
+            await page.getByRole("button", { name: responseCase.actionLabel, exact: true }).click();
+            await expect(
+              page.getByRole("alert").filter({
+                hasText: "Skriv en melding før du ber om nytt tidspunkt.",
+              }),
+            ).toBeVisible();
+            await page.waitForTimeout(100);
+            if (observation.bridgeOperations.length !== operationsBeforeClientValidation) {
+              throw new Error("Blank new-time input crossed the Foldkit command boundary");
+            }
+            await expect(page.getByText("Venter på svar", { exact: true })).toBeVisible();
+
+            await page
+              .getByLabel("Melding", { exact: true })
+              .fill(`Flytt intervjuet ${capabilitiesByCase.accepted} takk`);
+            const operationsBeforeCapabilityMessage = observation.bridgeOperations.length;
+            await page.getByRole("button", { name: responseCase.actionLabel, exact: true }).click();
+            await expect(page.getByRole("alert")).toBeVisible();
+            await page.waitForTimeout(100);
+            if (observation.bridgeOperations.length !== operationsBeforeCapabilityMessage) {
+              throw new Error("Capability-shaped input crossed the Foldkit command boundary");
+            }
+            await expect(page.getByText("Venter på svar", { exact: true })).toBeVisible();
+            capabilityShapedMessageEvidence = {
+              clientCommandBlocked: true,
+              bridgeFetchAttempted: false,
+              preservedState: "Pending",
+            };
+
+            const invalid = await bridgeFetch(
+              page,
+              { operation: "requestNewInvitationTime", message: "   " },
+              capabilities,
+            );
+            if (
+              invalid.status !== 422 ||
+              typeof invalid.body !== "object" ||
+              invalid.body === null ||
+              !("_tag" in invalid.body) ||
+              invalid.body._tag !== "InvitationDecodeError"
+            ) {
+              throw new Error("The strict bridge did not reject blank new-time input");
+            }
+            const preserved = await bridgeFetch(
+              page,
+              { operation: "readInvitationResponse" },
+              capabilities,
+            );
+            if (preserved.status !== 200) {
+              throw new Error("Invalid response preservation read failed");
+            }
+            assertObservation(preserved.body, responseCase, "Pending", null);
+            const pendingAccessibility = await new AxeBuilder({ page })
+              .include("main.foldkit-interview")
+              .analyze();
+            if (pendingAccessibility.violations.length !== 0) {
+              throw new Error("Applicant pending validation state has accessibility violations");
+            }
+            accessibilityRuns += 1;
+            invalidBlankEvidence = {
+              clientCommandBlocked: true,
+              bridgeStatus: 422,
+              freshReadStatus: 200,
+              preservedState: "Pending",
+            };
+          }
+
+          if (responseCase.responseMessage !== null) {
+            await page.getByLabel("Melding", { exact: true }).fill(responseCase.responseMessage);
+          }
+          const commandEvidence = await runCommandWithFreshReadGate(
+            page,
+            responseCase,
+            capabilities,
+          );
+          await expect(page.getByText(responseCase.stateLabel, { exact: true })).toBeVisible();
+          if (responseCase.responseMessage !== null) {
+            await expect(page.getByText(responseCase.responseMessage, { exact: true })).toBeVisible();
+          }
+
+          const repeated = await bridgeFetch(
+            page,
+            responseCase.responseMessage === null
+              ? { operation: responseCase.operation }
+              : {
+                  operation: responseCase.operation,
+                  message: responseCase.responseMessage,
+                },
             capabilities,
           );
           if (
-            invalid.status !== 422 ||
-            typeof invalid.body !== "object" ||
-            invalid.body === null ||
-            !("_tag" in invalid.body) ||
-            invalid.body._tag !== "InvitationDecodeError"
+            repeated.status !== 409 ||
+            typeof repeated.body !== "object" ||
+            repeated.body === null ||
+            !("_tag" in repeated.body) ||
+            repeated.body._tag !== "InvitationAlreadyResponded"
           ) {
-            throw new Error("The strict bridge did not reject blank new-time input");
+            throw new Error("A repeated invitation response did not return the typed conflict");
           }
-          const preserved = await bridgeFetch(
+          const repeatedRead = await bridgeFetch(
             page,
             { operation: "readInvitationResponse" },
             capabilities,
           );
-          if (preserved.status !== 200)
-            throw new Error("Invalid response preservation read failed");
-          assertObservation(preserved.body, responseCase, "Pending", null);
-          const pendingAccessibility = await new AxeBuilder({ page })
+          if (repeatedRead.status !== 200) {
+            throw new Error("Repeated response preservation read failed");
+          }
+          assertObservation(
+            repeatedRead.body,
+            responseCase,
+            responseCase.finalState,
+            responseCase.responseMessage,
+          );
+          await expect(page.getByText(responseCase.stateLabel, { exact: true })).toBeVisible();
+          await assertApplicantPrivacy(context, page, capability, capabilities);
+
+          const accessibility = await new AxeBuilder({ page })
             .include("main.foldkit-interview")
             .analyze();
-          if (pendingAccessibility.violations.length !== 0) {
-            throw new Error("Applicant pending validation state has accessibility violations");
+          if (accessibility.violations.length !== 0) {
+            throw new Error("Applicant response state has accessibility violations");
           }
           accessibilityRuns += 1;
-          invalidBlankEvidence = {
-            clientCommandBlocked: true,
-            bridgeStatus: 422,
-            freshReadStatus: 200,
-            preservedState: "Pending",
-          };
+          applicantEvidence.push({
+            key: responseCase.key,
+            applicantName: responseCase.applicantName,
+            initialReadStatus: 200,
+            initialState: "Pending",
+            commandStatus: commandEvidence.commandStatus,
+            commandResultUsedAsObservation: false,
+            freshReadStatus: commandEvidence.freshReadStatus,
+            finalState: responseCase.finalState,
+            responseMessage: responseCase.responseMessage,
+            repeatedStatus: 409,
+            repeatedFreshReadStatus: 200,
+            repeatedState: responseCase.finalState,
+            scheduleRetained: true,
+            invalidBlank: invalidBlankEvidence,
+            capabilityShapedMessage: capabilityShapedMessageEvidence,
+            cookie: cookieEvidence,
+            redactedUrl: true,
+          });
         }
-
-        if (responseCase.responseMessage !== null) {
-          await page.getByLabel("Melding", { exact: true }).fill(responseCase.responseMessage);
-        }
-        const commandEvidence = await runCommandWithFreshReadGate(page, responseCase, capabilities);
-        await expect(page.getByText(responseCase.stateLabel, { exact: true })).toBeVisible();
-        if (responseCase.responseMessage !== null) {
-          await expect(page.getByText(responseCase.responseMessage, { exact: true })).toBeVisible();
-        }
-
-        const repeated = await bridgeFetch(
-          page,
-          responseCase.responseMessage === null
-            ? { operation: responseCase.operation }
-            : {
-                operation: responseCase.operation,
-                message: responseCase.responseMessage,
-              },
-          capabilities,
-        );
-        if (
-          repeated.status !== 409 ||
-          typeof repeated.body !== "object" ||
-          repeated.body === null ||
-          !("_tag" in repeated.body) ||
-          repeated.body._tag !== "InvitationAlreadyResponded"
-        ) {
-          throw new Error("A repeated invitation response did not return the typed conflict");
-        }
-        const repeatedRead = await bridgeFetch(
-          page,
-          { operation: "readInvitationResponse" },
-          capabilities,
-        );
-        if (repeatedRead.status !== 200)
-          throw new Error("Repeated response preservation read failed");
-        assertObservation(
-          repeatedRead.body,
-          responseCase,
-          responseCase.finalState,
-          responseCase.responseMessage,
-        );
-        await expect(page.getByText(responseCase.stateLabel, { exact: true })).toBeVisible();
-        await assertApplicantPrivacy(context, page, capability, capabilities);
-
-        const accessibility = await new AxeBuilder({ page })
-          .include("main.foldkit-interview")
-          .analyze();
-        if (accessibility.violations.length !== 0) {
-          throw new Error("Applicant response state has accessibility violations");
-        }
-        accessibilityRuns += 1;
-        applicantEvidence.push({
-          key: responseCase.key,
-          applicantName: responseCase.applicantName,
-          initialReadStatus: 200,
-          initialState: "Pending",
-          commandStatus: commandEvidence.commandStatus,
-          commandResultUsedAsObservation: false,
-          freshReadStatus: commandEvidence.freshReadStatus,
-          finalState: responseCase.finalState,
-          responseMessage: responseCase.responseMessage,
-          repeatedStatus: 409,
-          repeatedFreshReadStatus: 200,
-          repeatedState: responseCase.finalState,
-          scheduleRetained: true,
-          invalidBlank: invalidBlankEvidence,
-          cookie: cookieEvidence,
-          redactedUrl: true,
-        });
       } finally {
         await context.close();
         applicantContextsClosed += 1;
@@ -670,11 +812,11 @@ test.describe("Native recruitment invitation response", () => {
 
     const expectedBridgeOperations = [
       { actor: "Applicant:accepted", operation: "readInvitationResponse" },
-      { actor: "Applicant:accepted", operation: "confirmInvitation" },
-      { actor: "Applicant:accepted", operation: "readInvitationResponse" },
-      { actor: "Applicant:accepted", operation: "confirmInvitation" },
-      { actor: "Applicant:accepted", operation: "readInvitationResponse" },
       { actor: "Applicant:rejected", operation: "readInvitationResponse" },
+      { actor: "Applicant:accepted", operation: "confirmInvitation" },
+      { actor: "Applicant:accepted", operation: "readInvitationResponse" },
+      { actor: "Applicant:accepted", operation: "confirmInvitation" },
+      { actor: "Applicant:accepted", operation: "readInvitationResponse" },
       { actor: "Applicant:rejected", operation: "rejectInvitation" },
       { actor: "Applicant:rejected", operation: "readInvitationResponse" },
       { actor: "Applicant:rejected", operation: "rejectInvitation" },
@@ -695,17 +837,23 @@ test.describe("Native recruitment invitation response", () => {
       "Applicant:rejected": 1,
       "Applicant:requested-new-time": 1,
     });
-    if (applicantContextsClosed !== 3 || staffContextsClosed !== 2) {
-      throw new Error("Browser contexts were not independently released");
+    if (
+      applicantContextsClosed !== 2 ||
+      staffContextsClosed !== 2 ||
+      tabBindingEvidence === null
+    ) {
+      throw new Error("Browser contexts or shared invitation tab evidence were incomplete");
     }
     assertNoObservedFailures(observation);
 
     const evidence = {
       topology: "native-postgresql-foldkit-chromium",
       applicantContexts: {
-        separate: true,
+        isolatedFromStaff: true,
+        sharedTabContext: true,
         closed: applicantContextsClosed,
       },
+      tabBinding: tabBindingEvidence,
       applicantCases: applicantEvidence,
       staffContexts: {
         independent: true,

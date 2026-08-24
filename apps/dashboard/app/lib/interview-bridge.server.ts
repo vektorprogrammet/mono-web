@@ -1,13 +1,16 @@
 import { RecruitmentInvitationCapabilitySchema, type Sdk } from "@vektorprogrammet/sdk";
 import { Schema as S } from "effect";
 import {
-  InvitationBridgeOperationSchema,
+  decodeInvitationInteractionId,
+  INVITATION_INTERACTION_HEADER,
   type InvitationBridgeFailure,
   type InvitationBridgeOperation,
+  type InvitationInteractionId,
+  InvitationBridgeOperationSchema,
 } from "../foldkit/interview/bridge";
 import { createServerClient } from "./api.server";
 
-const InvitationCapabilityCookie = "recruitment_invitation_capability";
+export const InvitationCapabilityCookiePrefix = "recruitment_invitation_capability_";
 const MaximumBridgeBodyBytes = 4_096;
 const SecureCookieAttribute = process.env.NODE_ENV === "production" ? "; Secure" : "";
 
@@ -19,19 +22,37 @@ export const responseHeaders = {
 
 export const ownerEnabled = (): boolean => process.env.DASHBOARD_INTERVIEW_OWNER === "foldkit";
 
+const invitationInteractionId = (request: Request): InvitationInteractionId => {
+  try {
+    return decodeInvitationInteractionId(request.headers.get(INVITATION_INTERACTION_HEADER));
+  } catch {
+    throw {
+      _tag: "InvitationDecodeError",
+      message: "Invalid invitation interaction binding",
+    } satisfies InvitationBridgeFailure;
+  }
+};
+
 const invitationCapability = (
   request: Request,
 ): typeof RecruitmentInvitationCapabilitySchema.Type => {
-  const cookie = request.headers.get("cookie") ?? "";
-  const encoded = cookie.match(new RegExp(`(?:^|;\\s*)${InvitationCapabilityCookie}=([^;]*)`))?.[1];
-  if (encoded === undefined) {
+  const cookieName = `${InvitationCapabilityCookiePrefix}${invitationInteractionId(request)}`;
+  const cookiePrefix = `${cookieName}=`;
+  const encodedValues = (request.headers.get("cookie") ?? "")
+    .split(";")
+    .map((cookie) => cookie.trim())
+    .filter((cookie) => cookie.startsWith(cookiePrefix))
+    .map((cookie) => cookie.slice(cookiePrefix.length));
+  if (encodedValues.length !== 1) {
     throw {
       _tag: "InvitationNotFound",
       message: "Invitation capability unavailable",
     } satisfies InvitationBridgeFailure;
   }
   try {
-    return S.decodeUnknownSync(RecruitmentInvitationCapabilitySchema)(decodeURIComponent(encoded));
+    return S.decodeUnknownSync(RecruitmentInvitationCapabilitySchema)(
+      decodeURIComponent(encodedValues[0] ?? ""),
+    );
   } catch {
     throw {
       _tag: "InvitationNotFound",
@@ -40,18 +61,30 @@ const invitationCapability = (
   }
 };
 
-export const createInvitationCapabilityCookie = (capability: string): string =>
-  `${InvitationCapabilityCookie}=${encodeURIComponent(capability)}; Path=/; HttpOnly; SameSite=Strict${SecureCookieAttribute}`;
-
-export const clearInvitationCapabilityCookie = (): string =>
-  `${InvitationCapabilityCookie}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT${SecureCookieAttribute}`;
-
 const decodeExchangeCapability = (
   capability: unknown,
 ): typeof RecruitmentInvitationCapabilitySchema.Type =>
   S.decodeUnknownSync(RecruitmentInvitationCapabilitySchema)(capability, {
     onExcessProperty: "error",
   });
+
+export const createInvitationInteractionId = (): InvitationInteractionId => {
+  const randomBytes = crypto.getRandomValues(new Uint8Array(16));
+  let interactionId = "";
+  for (const byte of randomBytes) interactionId += byte.toString(16).padStart(2, "0");
+  return decodeInvitationInteractionId(interactionId);
+};
+
+export const createInvitationCapabilityCookie = (
+  interactionId: InvitationInteractionId,
+  capability: string,
+): string => {
+  const cookieName = `${InvitationCapabilityCookiePrefix}${decodeInvitationInteractionId(
+    interactionId,
+  )}`;
+  const decodedCapability = decodeExchangeCapability(capability);
+  return `${cookieName}=${encodeURIComponent(decodedCapability)}; Path=/interview; HttpOnly; SameSite=Strict${SecureCookieAttribute}`;
+};
 
 export const readInvitationCapability = async (capability: string): Promise<unknown> =>
   createServerClient().recruitmentInvitationResponses.read(decodeExchangeCapability(capability));

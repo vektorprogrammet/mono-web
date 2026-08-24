@@ -1,7 +1,7 @@
 import { redirect } from "react-router";
 import {
-  clearInvitationCapabilityCookie,
   createInvitationCapabilityCookie,
+  createInvitationInteractionId,
   readInvitationCapability,
   responseHeaders,
 } from "../lib/interview-bridge.server";
@@ -18,18 +18,17 @@ export async function loader({ params }: Route.LoaderArgs) {
   try {
     await readInvitationCapability(capability);
   } catch {
-    throw redirect(redactedLocation, {
-      headers: {
-        ...responseHeaders,
-        "Set-Cookie": clearInvitationCapabilityCookie(),
-      },
-    });
+    throw redirect(redactedLocation, { headers: responseHeaders });
   }
 
-  throw redirect(redactedLocation, {
+  const interactionId = createInvitationInteractionId();
+  const redactedInteractionLocation = `${redactedLocation}?${new URLSearchParams({
+    interactionId,
+  })}`;
+  throw redirect(redactedInteractionLocation, {
     headers: {
       ...responseHeaders,
-      "Set-Cookie": createInvitationCapabilityCookie(capability),
+      "Set-Cookie": createInvitationCapabilityCookie(interactionId, capability),
     },
   });
 }

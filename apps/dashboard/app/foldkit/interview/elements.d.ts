@@ -6,7 +6,9 @@ declare module "react" {
       "vektor-interview-response": DetailedHTMLProps<
         HTMLAttributes<HTMLElement>,
         HTMLElement
-      >
+      > & {
+        "interaction-id": string
+      }
     }
   }
 }

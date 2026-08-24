@@ -1160,11 +1160,11 @@ function assertDeliveredEvidence(evidence, committedEvidence) {
 function assertBrowserEvidence(browser) {
   const expectedOperations = [
     { actor: "Applicant:accepted", operation: "readInvitationResponse" },
-    { actor: "Applicant:accepted", operation: "confirmInvitation" },
-    { actor: "Applicant:accepted", operation: "readInvitationResponse" },
-    { actor: "Applicant:accepted", operation: "confirmInvitation" },
-    { actor: "Applicant:accepted", operation: "readInvitationResponse" },
     { actor: "Applicant:rejected", operation: "readInvitationResponse" },
+    { actor: "Applicant:accepted", operation: "confirmInvitation" },
+    { actor: "Applicant:accepted", operation: "readInvitationResponse" },
+    { actor: "Applicant:accepted", operation: "confirmInvitation" },
+    { actor: "Applicant:accepted", operation: "readInvitationResponse" },
     { actor: "Applicant:rejected", operation: "rejectInvitation" },
     { actor: "Applicant:rejected", operation: "readInvitationResponse" },
     { actor: "Applicant:rejected", operation: "rejectInvitation" },
@@ -1181,8 +1181,15 @@ function assertBrowserEvidence(browser) {
   ];
   if (
     browser?.topology !== "native-postgresql-foldkit-chromium" ||
-    browser?.applicantContexts?.separate !== true ||
-    browser?.applicantContexts?.closed !== 3 ||
+    browser?.applicantContexts?.isolatedFromStaff !== true ||
+    browser?.applicantContexts?.sharedTabContext !== true ||
+    browser?.applicantContexts?.closed !== 2 ||
+    browser?.tabBinding?.sameBrowserContext !== true ||
+    browser?.tabBinding?.exchangedTabs !== 2 ||
+    browser?.tabBinding?.distinctInteractionIds !== true ||
+    browser?.tabBinding?.distinctCookieNames !== true ||
+    browser?.tabBinding?.invalidExchangeStatus !== 404 ||
+    browser?.tabBinding?.invalidExchangePreservedBindings !== true ||
     browser?.staffContexts?.independent !== true ||
     browser?.staffContexts?.closed !== 2 ||
     browser?.capabilityExchangeRequests !== 3 ||
@@ -1225,9 +1232,10 @@ function assertBrowserEvidence(browser) {
       entry?.redactedUrl !== true ||
       entry?.cookie?.httpOnly !== true ||
       entry?.cookie?.sameSite !== "Strict" ||
-      entry?.cookie?.path !== "/" ||
+      entry?.cookie?.path !== "/interview" ||
       entry?.cookie?.session !== true ||
-      entry?.cookie?.valueMatchesExchange !== true
+      entry?.cookie?.valueMatchesExchange !== true ||
+      entry?.cookie?.interactionBound !== true
     ) {
       throw new Error("An applicant browser context did not prove fresh-read response semantics");
     }
@@ -1237,6 +1245,9 @@ function assertBrowserEvidence(browser) {
     requested?.invalidBlank?.bridgeStatus !== 422 ||
     requested?.invalidBlank?.freshReadStatus !== 200 ||
     requested?.invalidBlank?.preservedState !== "Pending" ||
+    requested?.capabilityShapedMessage?.clientCommandBlocked !== true ||
+    requested?.capabilityShapedMessage?.bridgeFetchAttempted !== false ||
+    requested?.capabilityShapedMessage?.preservedState !== "Pending" ||
     browser?.staffContexts?.observations?.DepartmentLeader?.freshReadStatus !== 200 ||
     browser?.staffContexts?.observations?.DepartmentLeader?.acceptedVisible !== true ||
     browser?.staffContexts?.observations?.DepartmentLeader?.requestedNewTimeVisible !== true ||
@@ -1258,6 +1269,8 @@ function assertNativeTransport(records) {
   const expected = [
     { method: "GET", path: readPath, status: 200, invitationActor: "accepted", bearerActor: null },
     { method: "GET", path: readPath, status: 200, invitationActor: "accepted", bearerActor: null },
+    { method: "GET", path: readPath, status: 200, invitationActor: "rejected", bearerActor: null },
+    { method: "GET", path: readPath, status: 200, invitationActor: "rejected", bearerActor: null },
     {
       method: "POST",
       path: responseCases[0].commandPath,
@@ -1274,8 +1287,6 @@ function assertNativeTransport(records) {
       bearerActor: null,
     },
     { method: "GET", path: readPath, status: 200, invitationActor: "accepted", bearerActor: null },
-    { method: "GET", path: readPath, status: 200, invitationActor: "rejected", bearerActor: null },
-    { method: "GET", path: readPath, status: 200, invitationActor: "rejected", bearerActor: null },
     {
       method: "POST",
       path: responseCases[1].commandPath,

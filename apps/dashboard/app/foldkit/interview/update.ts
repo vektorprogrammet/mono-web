@@ -1,15 +1,22 @@
-import { Match as M } from "effect";
+import { RecruitmentInvitationResponseMessageSchema } from "@vektorprogrammet/sdk/effect";
+import { Match as M, Schema as S } from "effect";
 import { AsyncData, type Command, FieldValidation } from "foldkit";
 import type { InterviewCommands } from "./command";
 import type { InvitationResponseAction, InvitationResponseObservation } from "./bridge";
 import type { Message } from "./message";
 import { InvitationResponseData, type Model } from "./model";
 
+const isInvitationResponseMessage = S.is(RecruitmentInvitationResponseMessageSchema);
+
 const requiredResponseMessageRules = FieldValidation.makeRules({
   required: "Feltet må fylles ut.",
   isEmpty: (value) => value.trim() === "",
   rules: [
     [(value) => value.trim().length <= 2_000, "Meldingen kan ikke være lengre enn 2000 tegn."],
+    [
+      (value) => isInvitationResponseMessage(value.trim()),
+      "Meldingen inneholder innhold som ikke er tillatt.",
+    ],
   ],
 });
 
@@ -18,6 +25,10 @@ const optionalResponseMessageRules = FieldValidation.makeRules({
   isEmpty: () => false,
   rules: [
     [(value) => value.trim().length <= 2_000, "Meldingen kan ikke være lengre enn 2000 tegn."],
+    [
+      (value) => value.trim() === "" || isInvitationResponseMessage(value.trim()),
+      "Meldingen inneholder innhold som ikke er tillatt.",
+    ],
   ],
 });
 

@@ -1,9 +1,12 @@
 import { Effect, Schema as S } from "effect";
 import {
+  decodeInvitationInteractionId,
   InvitationBridgeFailureSchema,
   type InvitationBridgeFailure,
+  type InvitationInteractionId,
   type InvitationResponseObservation,
   InvitationResponseObservationSchema,
+  INVITATION_INTERACTION_HEADER,
 } from "./bridge";
 
 export interface InvitationResponseClient {
@@ -36,6 +39,7 @@ const toFailure = (cause: unknown): InvitationBridgeFailure => {
 };
 
 const bridgeRequest = <A>(
+  interactionId: InvitationInteractionId,
   body: Record<string, unknown>,
   expectedStatus: 200 | 204,
   decode: (value: unknown) => A,
@@ -45,7 +49,10 @@ const bridgeRequest = <A>(
       const response = await fetch("/interview", {
         method: "POST",
         credentials: "same-origin",
-        headers: { "content-type": "application/json" },
+        headers: {
+          "content-type": "application/json",
+          [INVITATION_INTERACTION_HEADER]: interactionId,
+        },
         body: JSON.stringify(body),
       });
       if (!response.ok) throw decodeFailure(await response.json());
@@ -60,18 +67,37 @@ const bridgeRequest = <A>(
     catch: toFailure,
   });
 
-export const createBrowserInterviewClient = (): InvitationResponseClient => ({
-  recruitmentInvitationResponses: {
-    read: () =>
-      bridgeRequest({ operation: "readInvitationResponse" }, 200, (value) =>
-        S.decodeUnknownSync(InvitationResponseObservationSchema)(value, {
-          onExcessProperty: "error",
-        }),
-      ),
-    confirm: () => bridgeRequest({ operation: "confirmInvitation" }, 204, () => undefined),
-    reject: ({ message }) =>
-      bridgeRequest({ operation: "rejectInvitation", message }, 204, () => undefined),
-    requestNewTime: ({ message }) =>
-      bridgeRequest({ operation: "requestNewInvitationTime", message }, 204, () => undefined),
-  },
-});
+export const createBrowserInterviewClient = (interactionId: unknown): InvitationResponseClient => {
+  const decodedInteractionId = decodeInvitationInteractionId(interactionId);
+  return {
+    recruitmentInvitationResponses: {
+      read: () =>
+        bridgeRequest(decodedInteractionId, { operation: "readInvitationResponse" }, 200, (value) =>
+          S.decodeUnknownSync(InvitationResponseObservationSchema)(value, {
+            onExcessProperty: "error",
+          }),
+        ),
+      confirm: () =>
+        bridgeRequest(
+          decodedInteractionId,
+          { operation: "confirmInvitation" },
+          204,
+          () => undefined,
+        ),
+      reject: ({ message }) =>
+        bridgeRequest(
+          decodedInteractionId,
+          { operation: "rejectInvitation", message },
+          204,
+          () => undefined,
+        ),
+      requestNewTime: ({ message }) =>
+        bridgeRequest(
+          decodedInteractionId,
+          { operation: "requestNewInvitationTime", message },
+          204,
+          () => undefined,
+        ),
+    },
+  };
+};

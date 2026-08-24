@@ -2,12 +2,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const bridge = vi.hoisted(() => ({
   readInvitationCapability: vi.fn(),
+  createInvitationInteractionId: vi.fn(),
   createInvitationCapabilityCookie: vi.fn(
-    (capability: string) =>
-      `recruitment_invitation_capability=${capability}; HttpOnly; SameSite=Strict`,
-  ),
-  clearInvitationCapabilityCookie: vi.fn(
-    () => "recruitment_invitation_capability=; HttpOnly; SameSite=Strict; Max-Age=0",
+    (interactionId: string, capability: string) =>
+      `recruitment_invitation_capability_${interactionId}=${capability}; Path=/interview; HttpOnly; SameSite=Strict`,
   ),
 }));
 
@@ -34,38 +32,79 @@ const thrownRedirect = async (capability: string): Promise<Response> => {
 describe("recruitment invitation capability exchange", () => {
   beforeEach(() => {
     bridge.readInvitationCapability.mockReset().mockResolvedValue({ responseState: "Pending" });
+    bridge.createInvitationInteractionId.mockReset();
     bridge.createInvitationCapabilityCookie.mockClear();
-    bridge.clearInvitationCapabilityCookie.mockClear();
   });
 
-  it("validates once, stores the server-held cookie, and redirects to the redacted route", async () => {
-    const capability = "A".repeat(43);
-    const response = await thrownRedirect(capability);
+  it("mints distinct bindings after validation and redirects each exchange without capability exposure", async () => {
+    const firstCapability = "A".repeat(43);
+    const secondCapability = "B".repeat(43);
+    const firstInteractionId = "a".repeat(32);
+    const secondInteractionId = "b".repeat(32);
+    bridge.createInvitationInteractionId
+      .mockReturnValueOnce(firstInteractionId)
+      .mockReturnValueOnce(secondInteractionId);
 
-    expect(response.status).toBe(302);
-    expect(response.headers.get("location")).toBe("/interview-response/redacted");
-    expect(response.headers.get("set-cookie")).toContain("HttpOnly");
-    expect(response.headers.get("set-cookie")).toContain("SameSite=Strict");
-    expect(bridge.readInvitationCapability).toHaveBeenCalledWith(capability);
-    expect(bridge.createInvitationCapabilityCookie).toHaveBeenCalledWith(capability);
+    const firstResponse = await thrownRedirect(firstCapability);
+    const secondResponse = await thrownRedirect(secondCapability);
+
+    expect(firstResponse.status).toBe(302);
+    expect(secondResponse.status).toBe(302);
+    expect(firstResponse.headers.get("location")).toBe(
+      `/interview-response/redacted?interactionId=${firstInteractionId}`,
+    );
+    expect(secondResponse.headers.get("location")).toBe(
+      `/interview-response/redacted?interactionId=${secondInteractionId}`,
+    );
+    expect(firstResponse.headers.get("location")).not.toContain(firstCapability);
+    expect(secondResponse.headers.get("location")).not.toContain(secondCapability);
+    expect(firstResponse.headers.get("set-cookie")).toContain(
+      `recruitment_invitation_capability_${firstInteractionId}=`,
+    );
+    expect(secondResponse.headers.get("set-cookie")).toContain(
+      `recruitment_invitation_capability_${secondInteractionId}=`,
+    );
+    expect(firstResponse.headers.get("set-cookie")).not.toBe(
+      secondResponse.headers.get("set-cookie"),
+    );
+    expect(bridge.readInvitationCapability).toHaveBeenNthCalledWith(1, firstCapability);
+    expect(bridge.readInvitationCapability).toHaveBeenNthCalledWith(2, secondCapability);
+    expect(bridge.createInvitationCapabilityCookie).toHaveBeenNthCalledWith(
+      1,
+      firstInteractionId,
+      firstCapability,
+    );
+    expect(bridge.createInvitationCapabilityCookie).toHaveBeenNthCalledWith(
+      2,
+      secondInteractionId,
+      secondCapability,
+    );
+    expect(bridge.readInvitationCapability.mock.invocationCallOrder[0]).toBeLessThan(
+      bridge.createInvitationInteractionId.mock.invocationCallOrder[0] ?? 0,
+    );
+    expect(bridge.readInvitationCapability.mock.invocationCallOrder[1]).toBeLessThan(
+      bridge.createInvitationInteractionId.mock.invocationCallOrder[1] ?? 0,
+    );
   });
 
-  it("clears an older cookie when the supplied capability is malformed, unknown, or superseded", async () => {
+  it("does not mint, replace, or clear a binding when capability validation fails", async () => {
     bridge.readInvitationCapability.mockRejectedValueOnce(new Error("opaque not found"));
     const response = await thrownRedirect("invalid");
 
     expect(response.status).toBe(302);
     expect(response.headers.get("location")).toBe("/interview-response/redacted");
-    expect(response.headers.get("set-cookie")).toContain("Max-Age=0");
+    expect(response.headers.get("set-cookie")).toBeNull();
+    expect(bridge.createInvitationInteractionId).not.toHaveBeenCalled();
     expect(bridge.createInvitationCapabilityCookie).not.toHaveBeenCalled();
-    expect(bridge.clearInvitationCapabilityCookie).toHaveBeenCalledOnce();
   });
 
   it("does not exchange the redacted route sentinel", async () => {
     const response = await thrownRedirect("redacted");
 
     expect(response.status).toBe(302);
+    expect(response.headers.get("location")).toBe("/interview-response/redacted");
     expect(response.headers.get("set-cookie")).toBeNull();
     expect(bridge.readInvitationCapability).not.toHaveBeenCalled();
+    expect(bridge.createInvitationInteractionId).not.toHaveBeenCalled();
   });
 });

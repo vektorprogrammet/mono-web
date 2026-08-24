@@ -4,6 +4,15 @@ import {
 } from "@vektorprogrammet/sdk/effect";
 import { Schema as S } from "effect";
 
+export const InvitationInteractionIdSchema = S.String.check(S.isPattern(/^[a-f0-9]{32}$/));
+export type InvitationInteractionId = S.Schema.Type<typeof InvitationInteractionIdSchema>;
+
+export const INVITATION_INTERACTION_HEADER = "X-Recruitment-Invitation-Interaction-Id";
+export const INVITATION_INTERACTION_ATTRIBUTE = "interaction-id";
+
+export const decodeInvitationInteractionId = (value: unknown): InvitationInteractionId =>
+  S.decodeUnknownSync(InvitationInteractionIdSchema)(value);
+
 export const InvitationResponseActionSchema = S.Literals(["Confirm", "Reject", "RequestNewTime"]);
 export type InvitationResponseAction = S.Schema.Type<typeof InvitationResponseActionSchema>;
 
