@@ -1,6 +1,7 @@
 import { Context, Effect } from "effect";
 import type {
   RecruitmentInvitationOutboxRequest,
+  RecruitmentInvitationResponseOutboxRequest,
   RecruitmentNotificationDeliveryError,
   RecruitmentNotificationEvidence,
 } from "../recruitment/effects.js";
@@ -8,6 +9,9 @@ import type {
 export interface NotificationGatewayShape {
   readonly deliverInterviewInvitation: (
     request: RecruitmentInvitationOutboxRequest,
+  ) => Effect.Effect<RecruitmentNotificationEvidence, RecruitmentNotificationDeliveryError>;
+  readonly deliverInterviewInvitationResponse: (
+    request: RecruitmentInvitationResponseOutboxRequest,
   ) => Effect.Effect<RecruitmentNotificationEvidence, RecruitmentNotificationDeliveryError>;
 }
 

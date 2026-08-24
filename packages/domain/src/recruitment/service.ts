@@ -11,6 +11,12 @@ import type {
   RecruitmentAssignmentCommand,
   RecruitmentAssignmentContext,
   RecruitmentAssignmentResult,
+  RecruitmentInvitationCapability,
+  RecruitmentInvitationResponseContext,
+  RecruitmentInvitationRejectInput,
+  RecruitmentInvitationRequestNewTimeInput,
+  RecruitmentInvitationResponseObservation,
+  RecruitmentInvitationResponseResult,
   RecruitmentReadAssignmentBoardContext,
   RecruitmentReadSchedulingBoardContext,
   RecruitmentScheduleCommand,
@@ -29,6 +35,8 @@ import type {
   RecruitmentInterviewerNotEligible,
   RecruitmentInterviewAlreadyScheduled,
   RecruitmentInterviewNotFound,
+  RecruitmentInvitationAlreadyResponded,
+  RecruitmentInvitationNotFound,
   RecruitmentInterviewSchemaInactive,
   RecruitmentInterviewSchemaNotFound,
   RecruitmentInterviewStaleRevision,
@@ -55,6 +63,8 @@ export type RecruitmentFailure =
   | RecruitmentInterviewNotFound
   | RecruitmentInterviewAlreadyScheduled
   | RecruitmentInterviewStaleRevision
+  | RecruitmentInvitationNotFound
+  | RecruitmentInvitationAlreadyResponded
   | RecruitmentScheduleCommandConflict
   | RecruitmentScheduleInPast
   | RecruitmentInvalidContext
@@ -80,6 +90,23 @@ export interface RecruitmentShape {
     command: RecruitmentScheduleCommand,
     context: RecruitmentScheduleContext,
   ) => Effect.Effect<RecruitmentScheduleResult, RecruitmentFailure>;
+  readonly readInvitationResponse: (
+    capability: RecruitmentInvitationCapability,
+  ) => Effect.Effect<RecruitmentInvitationResponseObservation, RecruitmentFailure>;
+  readonly confirmInvitation: (
+    capability: RecruitmentInvitationCapability,
+    context: RecruitmentInvitationResponseContext,
+  ) => Effect.Effect<RecruitmentInvitationResponseResult, RecruitmentFailure>;
+  readonly rejectInvitation: (
+    capability: RecruitmentInvitationCapability,
+    input: RecruitmentInvitationRejectInput,
+    context: RecruitmentInvitationResponseContext,
+  ) => Effect.Effect<RecruitmentInvitationResponseResult, RecruitmentFailure>;
+  readonly requestNewInvitationTime: (
+    capability: RecruitmentInvitationCapability,
+    input: RecruitmentInvitationRequestNewTimeInput,
+    context: RecruitmentInvitationResponseContext,
+  ) => Effect.Effect<RecruitmentInvitationResponseResult, RecruitmentFailure>;
 }
 
 export class Recruitment extends Context.Service<Recruitment, RecruitmentShape>()(

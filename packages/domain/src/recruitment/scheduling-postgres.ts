@@ -75,6 +75,7 @@ interface SchedulingBoardRow {
   readonly committedAt: string | null;
   readonly scheduleRevision: number | null;
   readonly responseState: string | null;
+  readonly responseMessage: string | null;
   readonly notificationState: string | null;
 }
 
@@ -108,6 +109,7 @@ const SchedulingBoardRowSchema = Schema.Struct({
   committedAt: Schema.NullOr(Schema.String),
   scheduleRevision: Schema.NullOr(Schema.Number),
   responseState: Schema.NullOr(Schema.String),
+  responseMessage: Schema.NullOr(Schema.String),
   notificationState: Schema.NullOr(Schema.String),
 });
 
@@ -226,13 +228,17 @@ const readSchedulingRows = (
       END AS "committedAt",
       s.schedule_revision AS "scheduleRevision",
       invitation.response_state AS "responseState",
+      invitation.response_message AS "responseMessage",
       outbox.status AS "notificationState"
     FROM recruitment_interviews i
     LEFT JOIN recruitment_interview_schedules s ON s.interview_id = i.interview_id
-    LEFT JOIN recruitment_invitations invitation ON invitation.interview_id = i.interview_id
+    LEFT JOIN recruitment_invitations invitation
+      ON invitation.interview_id = i.interview_id
+      AND invitation.superseded_at IS NULL
     LEFT JOIN recruitment_invitation_outbox outbox ON outbox.invitation_id = invitation.invitation_id
     WHERE i.department_id = ${actor.departmentId}
       AND (${actor._tag === "DepartmentLeader"} OR i.interviewer_person_id = ${actor.personId})
+      AND (${actor._tag === "DepartmentLeader"} OR invitation.response_state IS DISTINCT FROM 'Rejected')
     ORDER BY i.assigned_at ASC, i.interview_id ASC
   `.pipe(
     Effect.catchTag("SqlError", (cause) =>
@@ -352,6 +358,7 @@ const schedulingBoard = (
             revision: row.revision,
             schedule,
             responseState: row.responseState,
+            responseMessage: row.responseMessage,
             notificationState: row.notificationState,
           },
           "scheduling interview observation",

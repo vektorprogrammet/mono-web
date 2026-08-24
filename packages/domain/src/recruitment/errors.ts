@@ -79,6 +79,16 @@ export class RecruitmentInterviewNotFound extends Schema.TaggedError<Recruitment
   { interviewId: RecruitmentInterviewId },
 ) {}
 
+export class RecruitmentInvitationNotFound extends Schema.TaggedError<RecruitmentInvitationNotFound>()(
+  "RecruitmentInvitationNotFound",
+  {},
+) {}
+
+export class RecruitmentInvitationAlreadyResponded extends Schema.TaggedError<RecruitmentInvitationAlreadyResponded>()(
+  "RecruitmentInvitationAlreadyResponded",
+  {},
+) {}
+
 export class RecruitmentInterviewAlreadyScheduled extends Schema.TaggedError<RecruitmentInterviewAlreadyScheduled>()(
   "RecruitmentInterviewAlreadyScheduled",
   { interviewId: RecruitmentInterviewId },

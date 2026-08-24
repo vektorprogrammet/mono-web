@@ -27,15 +27,21 @@ import { OrganizationLive } from "@vektorprogrammet/domain/organization";
 import { ProfileLive } from "@vektorprogrammet/domain/profile";
 import {
   deliverNextRecruitmentInvitation,
+  deliverNextRecruitmentInvitationResponse,
   InterviewSchemaId,
   Recruitment,
   RecruitmentAssignmentCommandId,
   RecruitmentInterviewId,
   RecruitmentInvitationId,
+  RecruitmentInvitationCapabilitySchema,
   RecruitmentLive,
   RecruitmentScheduleCommandId,
+  RecruitmentNotificationDeliveryError,
 } from "@vektorprogrammet/domain/recruitment";
-import { makeRecordingNotificationGateway } from "@vektorprogrammet/domain/notification";
+import {
+  makeRecordingNotificationGateway,
+  NotificationGateway,
+} from "@vektorprogrammet/domain/notification";
 import { Economy, importLegacyReceipt } from "@vektorprogrammet/domain/receipt";
 import { EconomyLive } from "@vektorprogrammet/domain/receipt/postgres";
 import { storeReceiptImportResult } from "../../domain/src/receipt/postgres.js";
@@ -319,7 +325,9 @@ describe("DatabaseTest", () => {
               'recruitment_invitations',
               'recruitment_schedule_command_receipts',
               'recruitment_schedule_audit',
-              'recruitment_invitation_outbox'
+              'recruitment_invitation_outbox',
+              'recruitment_invitation_response_audit',
+              'recruitment_invitation_response_outbox'
             )
           ORDER BY table_name
         `;
@@ -332,7 +340,7 @@ describe("DatabaseTest", () => {
     );
 
     expect(evidence).toEqual({
-      revision: "11_native-recruitment-interview-scheduling",
+      revision: "12_native-recruitment-invitation-response",
       migrations: [
         { migration_id: 1, name: "receipt-authority" },
         { migration_id: 2, name: "admission-period-authority" },
@@ -345,6 +353,7 @@ describe("DatabaseTest", () => {
         { migration_id: 9, name: "import-occurrence-authority" },
         { migration_id: 10, name: "native-recruitment-applicant-assignment" },
         { migration_id: 11, name: "native-recruitment-interview-scheduling" },
+        { migration_id: 12, name: "native-recruitment-invitation-response" },
       ],
       tables: [
         "admission_applications",
@@ -361,6 +370,8 @@ describe("DatabaseTest", () => {
         "recruitment_interview_schemas",
         "recruitment_interviews",
         "recruitment_invitation_outbox",
+        "recruitment_invitation_response_audit",
+        "recruitment_invitation_response_outbox",
         "recruitment_invitations",
         "recruitment_schedule_audit",
         "recruitment_schedule_command_receipts",
@@ -856,6 +867,7 @@ describe("DatabaseTest", () => {
           revision: 0,
           schedule: null,
           responseState: null,
+          responseMessage: null,
           notificationState: null,
         },
       ],
@@ -1224,6 +1236,520 @@ describe("DatabaseTest", () => {
         outbox: "0",
       },
     ]);
+  });
+
+  it("records all invitation outcomes with atomic audits, conditional outbox, and fresh projections", async () => {
+    const gateway = makeRecordingNotificationGateway("2031-09-15T12:10:00.000Z");
+    const evidence = await recruitmentRuntime.runPromise(
+      Effect.gen(function* () {
+        const database = yield* Database;
+        const recruitment = yield* Recruitment;
+        const cases = [
+          { fixtureId: "response-accepted", action: "Accepted" as const },
+          { fixtureId: "response-rejected", action: "Rejected" as const },
+          { fixtureId: "response-new-time", action: "RequestedNewTime" as const },
+        ];
+        const observations = [];
+        for (const item of cases) {
+          const fixture = yield* seedSchedulingFixture(item.fixtureId);
+          yield* recruitment.scheduleInterview(fixture.command, {
+            actor: fixture.actor,
+            now: fixture.now,
+            invitationId: fixture.invitationId,
+            responseCapability: fixture.responseCapability,
+          });
+          const capability = RecruitmentInvitationCapabilitySchema.make(
+            fixture.responseCapability,
+          );
+          const pending = yield* recruitment.readInvitationResponse(capability);
+          const context = { now: "2031-09-15T12:03:00.000Z" };
+          const result =
+            item.action === "Accepted"
+              ? yield* recruitment.confirmInvitation(capability, context)
+              : item.action === "Rejected"
+                ? yield* recruitment.rejectInvitation(capability, { message: "   " }, context)
+                : yield* recruitment.requestNewInvitationTime(
+                    capability,
+                    { message: "  Please offer an afternoon time.  " },
+                    context,
+                  );
+          const freshApplicant = yield* recruitment.readInvitationResponse(capability);
+          const freshLeader = yield* recruitment.readSchedulingBoard({
+            actor: fixture.actor,
+            now: context.now,
+          });
+          const freshMember = yield* recruitment.readSchedulingBoard({
+            actor: {
+              _tag: "Member",
+              personId: fixture.interviewerPersonId,
+              departmentId: fixture.departmentId,
+              active: true,
+            },
+            now: context.now,
+          });
+          const persisted = yield* database<{
+            readonly responseState: string;
+            readonly responseMessage: string | null;
+            readonly responded: boolean;
+            readonly responseRevision: number;
+            readonly audits: string;
+            readonly outbox: string;
+            readonly capabilityAbsent: boolean;
+          }>`
+            SELECT
+              invitation.response_state AS "responseState",
+              invitation.response_message AS "responseMessage",
+              invitation.responded_at IS NOT NULL AS responded,
+              invitation.response_revision AS "responseRevision",
+              (
+                SELECT count(*)::text
+                FROM recruitment_invitation_response_audit AS audit
+                WHERE audit.invitation_id = invitation.invitation_id
+              ) AS audits,
+              (
+                SELECT count(*)::text
+                FROM recruitment_invitation_response_outbox AS outbox
+                WHERE outbox.invitation_id = invitation.invitation_id
+              ) AS outbox,
+              NOT EXISTS (
+                SELECT 1
+                FROM (
+                  SELECT to_jsonb(canonical_invitation)::text AS artifact
+                  FROM recruitment_invitations AS canonical_invitation
+                  WHERE canonical_invitation.invitation_id = invitation.invitation_id
+                  UNION ALL
+                  SELECT to_jsonb(audit)::text
+                  FROM recruitment_invitation_response_audit AS audit
+                  WHERE audit.invitation_id = invitation.invitation_id
+                  UNION ALL
+                  SELECT to_jsonb(outbox)::text
+                  FROM recruitment_invitation_response_outbox AS outbox
+                  WHERE outbox.invitation_id = invitation.invitation_id
+                ) AS canonical_artifacts
+                WHERE canonical_artifacts.artifact LIKE ${`%${fixture.responseCapability}%`}
+              ) AS "capabilityAbsent"
+            FROM recruitment_invitations AS invitation
+            WHERE invitation.invitation_id = ${fixture.invitationId}
+          `;
+          observations.push({
+            action: item.action,
+            pending,
+            result,
+            freshApplicant,
+            leader: freshLeader.interviews.map((interview) => ({
+              responseState: interview.responseState,
+              responseMessage: interview.responseMessage,
+            })),
+            member: freshMember.interviews.map((interview) => ({
+              responseState: interview.responseState,
+              responseMessage: interview.responseMessage,
+            })),
+            persisted,
+          });
+        }
+        const deliveries = [
+          yield* deliverNextRecruitmentInvitationResponse(
+            "response-recording-claim-1",
+            "2031-09-15T12:08:00.000Z",
+          ).pipe(Effect.provide(gateway.layer)),
+          yield* deliverNextRecruitmentInvitationResponse(
+            "response-recording-claim-2",
+            "2031-09-15T12:09:00.000Z",
+          ).pipe(Effect.provide(gateway.layer)),
+        ];
+        return { observations, deliveries };
+      }),
+    );
+
+    expect(evidence.observations.map((item) => item.pending.responseState)).toEqual([
+      "Pending",
+      "Pending",
+      "Pending",
+    ]);
+    expect(evidence.observations.map((item) => item.result)).toEqual([
+      expect.objectContaining({
+        _tag: "InvitationResponseRecorded",
+        responseState: "Accepted",
+        responseMessage: null,
+        responseRevision: 1,
+        notificationState: "NotRequired",
+      }),
+      expect.objectContaining({
+        _tag: "InvitationResponseRecorded",
+        responseState: "Rejected",
+        responseMessage: null,
+        responseRevision: 1,
+        notificationState: "Pending",
+      }),
+      expect.objectContaining({
+        _tag: "InvitationResponseRecorded",
+        responseState: "RequestedNewTime",
+        responseMessage: "Please offer an afternoon time.",
+        responseRevision: 1,
+        notificationState: "Pending",
+      }),
+    ]);
+    expect(evidence.observations.map((item) => item.freshApplicant.responseState)).toEqual([
+      "Accepted",
+      "Rejected",
+      "RequestedNewTime",
+    ]);
+    expect(evidence.observations.map((item) => item.persisted)).toEqual([
+      [
+        {
+          responseState: "Accepted",
+          responseMessage: null,
+          responded: true,
+          responseRevision: 1,
+          audits: "1",
+          outbox: "0",
+          capabilityAbsent: true,
+        },
+      ],
+      [
+        {
+          responseState: "Rejected",
+          responseMessage: null,
+          responded: true,
+          responseRevision: 1,
+          audits: "1",
+          outbox: "1",
+          capabilityAbsent: true,
+        },
+      ],
+      [
+        {
+          responseState: "RequestedNewTime",
+          responseMessage: "Please offer an afternoon time.",
+          responded: true,
+          responseRevision: 1,
+          audits: "1",
+          outbox: "1",
+          capabilityAbsent: true,
+        },
+      ],
+    ]);
+    expect(evidence.observations.map((item) => item.leader)).toEqual([
+      [{ responseState: "Accepted", responseMessage: null }],
+      [{ responseState: "Rejected", responseMessage: null }],
+      [
+        {
+          responseState: "RequestedNewTime",
+          responseMessage: "Please offer an afternoon time.",
+        },
+      ],
+    ]);
+    expect(evidence.observations.map((item) => item.member)).toEqual([
+      [{ responseState: "Accepted", responseMessage: null }],
+      [],
+      [
+        {
+          responseState: "RequestedNewTime",
+          responseMessage: "Please offer an afternoon time.",
+        },
+      ],
+    ]);
+    expect(evidence.deliveries.map((delivery) => delivery._tag)).toEqual([
+      "Delivered",
+      "Delivered",
+    ]);
+    expect(gateway.requests).toEqual([]);
+    expect(gateway.responseRequests).toHaveLength(2);
+    expect(gateway.responseRequests.every((request) => !("responseCapability" in request))).toBe(
+      true,
+    );
+  });
+
+  it("isolates unknown and superseded capabilities and keeps one response winner", async () => {
+    const evidence = await recruitmentRuntime.runPromise(
+      Effect.gen(function* () {
+        const database = yield* Database;
+        const recruitment = yield* Recruitment;
+
+        const winnerFixture = yield* seedSchedulingFixture("response-one-winner");
+        yield* recruitment.scheduleInterview(winnerFixture.command, {
+          actor: winnerFixture.actor,
+          now: winnerFixture.now,
+          invitationId: winnerFixture.invitationId,
+          responseCapability: winnerFixture.responseCapability,
+        });
+        const winnerCapability = RecruitmentInvitationCapabilitySchema.make(
+          winnerFixture.responseCapability,
+        );
+        const outcomes = yield* Effect.all(
+          [
+            Effect.result(
+              recruitment.confirmInvitation(winnerCapability, {
+                now: "2031-09-15T12:03:00.000Z",
+              }),
+            ),
+            Effect.result(
+              recruitment.confirmInvitation(winnerCapability, {
+                now: "2031-09-15T12:03:00.000Z",
+              }),
+            ),
+          ],
+          { concurrency: "unbounded" },
+        );
+        const outcomeTags = outcomes.map((outcome) =>
+          outcome._tag === "Success"
+            ? `Recorded:${outcome.success.responseState}`
+            : outcome.failure._tag,
+        );
+        const winnerRows = yield* database<{
+          readonly audits: string;
+          readonly outbox: string;
+          readonly responseRevision: number;
+        }>`
+          SELECT
+            (
+              SELECT count(*)::text
+              FROM recruitment_invitation_response_audit
+              WHERE invitation_id = ${winnerFixture.invitationId}
+            ) AS audits,
+            (
+              SELECT count(*)::text
+              FROM recruitment_invitation_response_outbox
+              WHERE invitation_id = ${winnerFixture.invitationId}
+            ) AS outbox,
+            response_revision AS "responseRevision"
+          FROM recruitment_invitations
+          WHERE invitation_id = ${winnerFixture.invitationId}
+        `;
+
+        const unknown = yield* Effect.flip(
+          recruitment.readInvitationResponse(
+            RecruitmentInvitationCapabilitySchema.make("u".repeat(43)),
+          ),
+        );
+
+        const supersededFixture = yield* seedSchedulingFixture("response-superseded");
+        yield* recruitment.scheduleInterview(supersededFixture.command, {
+          actor: supersededFixture.actor,
+          now: supersededFixture.now,
+          invitationId: supersededFixture.invitationId,
+          responseCapability: supersededFixture.responseCapability,
+        });
+        yield* database`
+          UPDATE recruitment_invitations
+          SET superseded_at = '2031-09-15T12:01:00.000Z'
+          WHERE invitation_id = ${supersededFixture.invitationId}
+        `;
+        const supersededCapability = RecruitmentInvitationCapabilitySchema.make(
+          supersededFixture.responseCapability,
+        );
+        const supersededRead = yield* Effect.flip(
+          recruitment.readInvitationResponse(supersededCapability),
+        );
+        const supersededWrite = yield* Effect.flip(
+          recruitment.confirmInvitation(supersededCapability, {
+            now: "2031-09-15T12:03:00.000Z",
+          }),
+        );
+
+        const invalidFixture = yield* seedSchedulingFixture("response-invalid-new-time");
+        yield* recruitment.scheduleInterview(invalidFixture.command, {
+          actor: invalidFixture.actor,
+          now: invalidFixture.now,
+          invitationId: invalidFixture.invitationId,
+          responseCapability: invalidFixture.responseCapability,
+        });
+        const invalidInput = yield* Effect.flip(
+          recruitment.requestNewInvitationTime(
+            RecruitmentInvitationCapabilitySchema.make(invalidFixture.responseCapability),
+            { message: "   " },
+            { now: "2031-09-15T12:03:00.000Z" },
+          ),
+        );
+
+        const rollbackFixture = yield* seedSchedulingFixture("response-rollback");
+        yield* recruitment.scheduleInterview(rollbackFixture.command, {
+          actor: rollbackFixture.actor,
+          now: rollbackFixture.now,
+          invitationId: rollbackFixture.invitationId,
+          responseCapability: rollbackFixture.responseCapability,
+        });
+        const rollback = yield* Effect.result(
+          database.withTransaction(
+            Effect.gen(function* () {
+              yield* database`
+                UPDATE recruitment_invitations
+                SET response_state = 'Accepted',
+                  response_message = NULL,
+                  responded_at = '2031-09-15T12:03:00.000Z',
+                  response_revision = 1
+                WHERE invitation_id = ${rollbackFixture.invitationId}
+              `;
+              yield* database`
+                INSERT INTO recruitment_invitation_response_audit (
+                  invitation_id,
+                  interview_id,
+                  schedule_revision,
+                  response_revision,
+                  response_state,
+                  response_message,
+                  responded_at
+                ) VALUES (
+                  ${rollbackFixture.invitationId},
+                  ${rollbackFixture.interviewId},
+                  1,
+                  1,
+                  'RequestedNewTime',
+                  NULL,
+                  '2031-09-15T12:03:00.000Z'
+                )
+              `;
+            }),
+          ),
+        );
+        const afterRollback = yield* database<{
+          readonly responseState: string;
+          readonly responseRevision: number;
+          readonly audits: string;
+          readonly outbox: string;
+        }>`
+          SELECT
+            invitation.response_state AS "responseState",
+            invitation.response_revision AS "responseRevision",
+            (
+              SELECT count(*)::text
+              FROM recruitment_invitation_response_audit
+              WHERE invitation_id = invitation.invitation_id
+            ) AS audits,
+            (
+              SELECT count(*)::text
+              FROM recruitment_invitation_response_outbox
+              WHERE invitation_id = invitation.invitation_id
+            ) AS outbox
+          FROM recruitment_invitations AS invitation
+          WHERE invitation.invitation_id = ${rollbackFixture.invitationId}
+        `;
+        const illegalRow = yield* Effect.result(database`
+          UPDATE recruitment_invitations
+          SET response_state = 'RequestedNewTime',
+            response_message = NULL,
+            responded_at = '2031-09-15T12:03:00.000Z',
+            response_revision = 1
+          WHERE invitation_id = ${rollbackFixture.invitationId}
+        `);
+        return {
+          outcomeTags,
+          winnerRows,
+          unknown,
+          supersededRead,
+          supersededWrite,
+          invalidInput,
+          rollback,
+          afterRollback,
+          illegalRow,
+        };
+      }),
+    );
+
+    expect(evidence.outcomeTags).toHaveLength(2);
+    expect(evidence.outcomeTags.filter((tag) => tag.startsWith("Recorded:"))).toHaveLength(1);
+    expect(evidence.outcomeTags).toContain("RecruitmentInvitationAlreadyResponded");
+    expect(evidence.winnerRows[0]).toEqual({
+      audits: "1",
+      outbox: "0",
+      responseRevision: 1,
+    });
+    expect(evidence.unknown._tag).toBe("RecruitmentInvitationNotFound");
+    expect(evidence.supersededRead._tag).toBe("RecruitmentInvitationNotFound");
+    expect(evidence.supersededWrite._tag).toBe("RecruitmentInvitationNotFound");
+    expect(evidence.invalidInput._tag).toBe("RecruitmentDecodeError");
+    expect(evidence.rollback._tag).toBe("Failure");
+    expect(evidence.afterRollback).toEqual([
+      { responseState: "Pending", responseRevision: 0, audits: "0", outbox: "0" },
+    ]);
+    expect(evidence.illegalRow._tag).toBe("Failure");
+  });
+
+  it("keeps a committed response when response-notification delivery fails", async () => {
+    const fixtureId = "response-delivery-failure";
+    const failingGateway = Layer.succeed(
+      NotificationGateway,
+      NotificationGateway.of({
+        deliverInterviewInvitation: (request) =>
+          Effect.fail(
+            new RecruitmentNotificationDeliveryError({
+              effectId: request.effectId,
+              message: "Recording delivery failed",
+            }),
+          ),
+        deliverInterviewInvitationResponse: (request) =>
+          Effect.fail(
+            new RecruitmentNotificationDeliveryError({
+              effectId: request.effectId,
+              message: "Recording delivery failed",
+            }),
+          ),
+      }),
+    );
+    const recording = makeRecordingNotificationGateway("2031-09-15T12:08:00.000Z");
+    const evidence = await recruitmentRuntime.runPromise(
+      Effect.gen(function* () {
+        const database = yield* Database;
+        const recruitment = yield* Recruitment;
+        const fixture = yield* seedSchedulingFixture(fixtureId);
+        yield* recruitment.scheduleInterview(fixture.command, {
+          actor: fixture.actor,
+          now: fixture.now,
+          invitationId: fixture.invitationId,
+          responseCapability: fixture.responseCapability,
+        });
+        const recorded = yield* recruitment.rejectInvitation(
+          RecruitmentInvitationCapabilitySchema.make(fixture.responseCapability),
+          { message: "Cannot attend." },
+          { now: "2031-09-15T12:03:00.000Z" },
+        );
+        const failedDelivery = yield* deliverNextRecruitmentInvitationResponse(
+          "response-failure-claim",
+          "2031-09-15T12:04:00.000Z",
+        ).pipe(Effect.provide(failingGateway));
+        const afterFailure = yield* database<{
+          readonly responseState: string;
+          readonly responseRevision: number;
+          readonly audits: string;
+          readonly outboxStatus: string;
+        }>`
+          SELECT
+            invitation.response_state AS "responseState",
+            invitation.response_revision AS "responseRevision",
+            (
+              SELECT count(*)::text
+              FROM recruitment_invitation_response_audit
+              WHERE invitation_id = invitation.invitation_id
+            ) AS audits,
+            (
+              SELECT status
+              FROM recruitment_invitation_response_outbox
+              WHERE invitation_id = invitation.invitation_id
+            ) AS "outboxStatus"
+          FROM recruitment_invitations AS invitation
+          WHERE invitation.invitation_id = ${fixture.invitationId}
+        `;
+        const recoveredDelivery = yield* deliverNextRecruitmentInvitationResponse(
+          "response-retry-claim",
+          "2031-09-15T12:05:00.000Z",
+        ).pipe(Effect.provide(recording.layer));
+        return { recorded, failedDelivery, afterFailure, recoveredDelivery };
+      }),
+    );
+
+    expect(evidence.recorded.responseState).toBe("Rejected");
+    expect(evidence.failedDelivery._tag).toBe("Failed");
+    expect(evidence.afterFailure).toEqual([
+      {
+        responseState: "Rejected",
+        responseRevision: 1,
+        audits: "1",
+        outboxStatus: "Failed",
+      },
+    ]);
+    expect(evidence.recoveredDelivery._tag).toBe("Delivered");
+    expect(recording.requests).toEqual([]);
+    expect(recording.responseRequests).toHaveLength(1);
   });
 
   it("enforces scheduling map and contact-email relational constraints", async () => {

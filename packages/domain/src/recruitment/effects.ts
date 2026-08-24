@@ -6,6 +6,7 @@ import {
 import { PersonContactEmail, PersonContactPhone } from "../profile/schema.js";
 import {
   RecruitmentInvitationId,
+  RecruitmentInvitationResponseMessageSchema,
   RecruitmentInterviewSchedule,
   RecruitmentInstantSchema,
   RecruitmentNotificationEffectId,
@@ -41,6 +42,33 @@ export const RecruitmentInvitationOutboxRequestSchema = Schema.Struct({
 });
 export type RecruitmentInvitationOutboxRequest =
   typeof RecruitmentInvitationOutboxRequestSchema.Type;
+
+export const RecruitmentInvitationResponseOutboxRequestFieldSchemas = {
+  _tag: Schema.Literals(["SendInterviewInvitationResponse"]),
+  effectId: RecruitmentNotificationEffectId,
+  invitationId: RecruitmentInvitationId,
+  interviewId: RecruitmentInterviewId,
+  scheduleRevision: Revision,
+  responseRevision: Revision,
+  applicantDisplayName: NonEmpty,
+  interviewerEmail: PersonContactEmail,
+  interviewerPhone: PersonContactPhone,
+  scheduledAt: RecruitmentInterviewSchedule.fields.scheduledAt,
+};
+export const RecruitmentInvitationResponseOutboxRequestSchema = Schema.Union([
+  Schema.Struct({
+    ...RecruitmentInvitationResponseOutboxRequestFieldSchemas,
+    responseState: Schema.Literals(["Rejected"]),
+    responseMessage: Schema.NullOr(RecruitmentInvitationResponseMessageSchema),
+  }),
+  Schema.Struct({
+    ...RecruitmentInvitationResponseOutboxRequestFieldSchemas,
+    responseState: Schema.Literals(["RequestedNewTime"]),
+    responseMessage: RecruitmentInvitationResponseMessageSchema,
+  }),
+]);
+export type RecruitmentInvitationResponseOutboxRequest =
+  typeof RecruitmentInvitationResponseOutboxRequestSchema.Type;
 
 export const RecruitmentNotificationEvidenceSchema = Schema.Struct({
   effectId: RecruitmentNotificationEffectId,

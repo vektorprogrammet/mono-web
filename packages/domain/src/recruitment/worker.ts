@@ -5,6 +5,10 @@ import { Profile } from "../profile/service.js";
 import { Duration, Effect } from "effect";
 import { RecruitmentPersistenceError } from "./errors.js";
 import { deliverNextRecruitmentInvitation, recoverStaleRecruitmentInvitations } from "./outbox.js";
+import {
+  deliverNextRecruitmentInvitationResponse,
+  recoverStaleRecruitmentInvitationResponses,
+} from "./response-outbox.js";
 
 export interface RecruitmentInvitationWorkerOptions {
   readonly workerId: string;
@@ -35,7 +39,12 @@ export const runRecruitmentInvitationWorker = (
     const now = options.now();
     const claimedBefore = new Date(Date.parse(now) - options.staleClaimMilliseconds).toISOString();
     yield* recoverStaleRecruitmentInvitations(claimedBefore);
+    yield* recoverStaleRecruitmentInvitationResponses(claimedBefore);
     yield* deliverNextRecruitmentInvitation(`${options.workerId}:${claimSequence++}`, now);
+    yield* deliverNextRecruitmentInvitationResponse(
+      `${options.workerId}:response:${claimSequence++}`,
+      now,
+    );
     yield* Effect.sleep(Duration.millis(options.pollIntervalMilliseconds));
   });
   return Effect.sync(() => options.onStart?.()).pipe(
