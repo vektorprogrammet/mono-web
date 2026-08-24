@@ -66,6 +66,10 @@ const profileSelfEditMigrationUrl = new URL(
   "../migrations/0014-native-profile-self-edit.sql",
   import.meta.url,
 );
+const nativeIdentityMigrationUrl = new URL(
+  "../migrations/0015-native-identity-better-auth.sql",
+  import.meta.url,
+);
 
 export type ExecuteMigration = (
   source: string,
@@ -148,9 +152,14 @@ export const databaseMigrationLoader = (execute: ExecuteMigration) =>
       profileSelfEditMigrationUrl,
       execute,
     ),
+    "15_native-identity-better-auth": migration(
+      "native-identity-better-auth",
+      nativeIdentityMigrationUrl,
+      execute,
+    ),
   });
 
-export const databaseSchemaRevision = "14_native-profile-self-edit";
+export const databaseSchemaRevision = "15_native-identity-better-auth";
 export const runDatabaseMigrations = (execute: ExecuteMigration) =>
   Migrator.make({})({
     loader: databaseMigrationLoader(execute),
