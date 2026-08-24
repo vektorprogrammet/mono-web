@@ -1,12 +1,15 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
-import { DatabaseLive } from "../../../packages/database/src/index.ts";
+import { DatabaseLive } from "../../../packages/database/src/index.js";
+import { AdmissionsLive } from "../../../packages/domain/src/admissions/index.js";
+import { OrganizationLive } from "../../../packages/domain/src/organization/index.js";
+import { ProfileLive } from "../../../packages/domain/src/profile/index.js";
 import {
   deliverNextRecruitmentInvitation,
   invitationPayloadForEvidence,
-} from "../../../packages/domain/src/recruitment/index.ts";
-import { makeRecordingNotificationGateway } from "../../../packages/domain/src/notification/index.ts";
-import { Effect, Redacted } from "effect";
+} from "../../../packages/domain/src/recruitment/index.js";
+import { makeRecordingNotificationGateway } from "../../../packages/domain/src/notification/index.js";
+import { Effect, Layer, Redacted } from "effect";
 
 const requiredEnvironment = (name: string): string => {
   const value = process.env[name];
@@ -24,6 +27,17 @@ const databaseLayer = DatabaseLive({
   applicationName: "native-scheduling-recording-evidence",
   maxConnections: 1,
 });
+const admissionsLayer = AdmissionsLive.pipe(Layer.provide(databaseLayer));
+const organizationLayer = OrganizationLive.pipe(Layer.provide(databaseLayer));
+const profileLayer = ProfileLive.pipe(
+  Layer.provide(Layer.merge(databaseLayer, organizationLayer)),
+);
+const authorityLayers = Layer.mergeAll(
+  databaseLayer,
+  admissionsLayer,
+  organizationLayer,
+  profileLayer,
+);
 
 let providerNetworkRequests = 0;
 const originalFetch = globalThis.fetch;
@@ -37,7 +51,7 @@ try {
     Effect.scoped(
       deliverNextRecruitmentInvitation("native-scheduling-recording-claim", claimedAt).pipe(
         Effect.provide(recording.layer),
-        Effect.provide(databaseLayer),
+        Effect.provide(authorityLayers),
       ),
     ),
   );
