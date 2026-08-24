@@ -70,7 +70,7 @@ See [homepage.md](homepage.md) for details.
 | Finance | utlegg | Read-only list |
 | Analytics | statistikk, epostliste | Read-only |
 | Admin | brukere, avdelinger, linjer, opptaksperioder | Read-only or empty shells |
-| Profile | profile, profile/rediger | Partially functional |
+| Profile | profile, profile/rediger | Native authority live (spec 0053): Foldkit editor, `GET`/`PUT /api/me`, revision + replay + audit; identity cutover pending |
 
 See [dashboard.md](dashboard.md) for details.
 
