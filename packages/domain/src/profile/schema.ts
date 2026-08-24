@@ -13,13 +13,13 @@ const Email = Schema.String.pipe(
   Schema.check(
     Schema.makeFilter(
       (value) => {
-        const normalized = value.trim();
-        const separator = normalized.indexOf("@");
+        const separator = value.indexOf("@");
         return (
-          normalized.length <= 320 &&
+          value.length <= 320 &&
           separator > 0 &&
-          separator === normalized.lastIndexOf("@") &&
-          separator < normalized.length - 1
+          separator === value.lastIndexOf("@") &&
+          separator < value.length - 1 &&
+          !/[\p{White_Space}\p{Cc}\p{Cf}]/u.test(value)
         );
       },
       { message: "a valid email address" },

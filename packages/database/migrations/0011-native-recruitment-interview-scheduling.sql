@@ -5,6 +5,9 @@ CREATE TABLE IF NOT EXISTS person_contact_profiles (
   revision integer NOT NULL DEFAULT 0,
   CONSTRAINT person_contact_profiles_email_nonempty CHECK (btrim(email) <> ''),
   CONSTRAINT person_contact_profiles_email_length CHECK (char_length(email) <= 320),
+  CONSTRAINT person_contact_profiles_email_shape CHECK (
+    email !~ '[^!-~]' AND email ~ '^[^@]+@[^@]+$'
+  ),
   CONSTRAINT person_contact_profiles_phone_nonempty CHECK (btrim(phone) <> ''),
   CONSTRAINT person_contact_profiles_phone_length CHECK (char_length(phone) <= 32),
   CONSTRAINT person_contact_profiles_revision_nonnegative CHECK (revision >= 0)
@@ -36,7 +39,10 @@ CREATE TABLE IF NOT EXISTS recruitment_interview_schedules (
     campus IS NULL OR char_length(campus) <= 250
   ),
   CONSTRAINT recruitment_interview_schedules_map_https CHECK (
-    map_link IS NULL OR map_link ~ '^https://[^/@:]+(?:[/:?#]|$)'
+    map_link IS NULL OR (
+      map_link !~ '[^!-~]'
+      AND map_link ~ '^https://(?:(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)*[A-Za-z](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?|(?:(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\.){3}(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9]))(?::(?:[1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5]))?(?:[/?#][!-~]*)?$'
+    )
   ),
   CONSTRAINT recruitment_interview_schedules_message_nonempty CHECK (btrim(message) <> ''),
   CONSTRAINT recruitment_interview_schedules_message_length CHECK (

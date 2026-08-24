@@ -2,8 +2,13 @@ import { Admissions } from "../admissions/service.js";
 import { Database, type DatabaseShape } from "../database/service.js";
 import { Organization, type OrganizationShape } from "../organization/service.js";
 import { DepartmentId, PersonId, type Membership } from "../organization/schema.js";
+import { PROFILE_READ_LIMIT } from "../profile/postgres.js";
 import { Profile, type ProfileShape } from "../profile/service.js";
-import { personProfileDisplayName } from "../profile/schema.js";
+import {
+  personProfileDisplayName,
+  type PersonContactProfile,
+  type PersonProfile,
+} from "../profile/schema.js";
 import { compareRfc3339Instants } from "../time.js";
 import { canonicalJson, canonicalJsonBytes, sha256Hex } from "../tutor/evidence.js";
 import { Effect, Schema } from "effect";
@@ -163,6 +168,7 @@ const memberHasActiveDepartmentMembership = (
   Effect.gen(function* () {
     const teams = yield* organization.listTeams(actor.departmentId);
     for (const team of teams) {
+      if (!team.active) continue;
       const memberships = yield* organization.listMembershipsForTeam(team.teamId);
       if (
         memberships.some(
@@ -296,10 +302,17 @@ const schedulingBoard = (
     const interviewerIds = [...new Set(rows.map((row) => row.interviewerPersonId))].map((value) =>
       PersonId.make(value),
     );
-    const profiles = yield* profile.readProfiles(interviewerIds);
-    const contacts = yield* profile.readContacts(interviewerIds);
-    const profileById = new Map(profiles.map((value) => [String(value.personId), value]));
-    const contactById = new Map(contacts.map((value) => [String(value.personId), value]));
+    const profileById = new Map<string, PersonProfile>();
+    const contactById = new Map<string, PersonContactProfile>();
+    for (let offset = 0; offset < interviewerIds.length; offset += PROFILE_READ_LIMIT) {
+      const batch = interviewerIds.slice(offset, offset + PROFILE_READ_LIMIT);
+      for (const value of yield* profile.readProfiles(batch)) {
+        profileById.set(String(value.personId), value);
+      }
+      for (const value of yield* profile.readContacts(batch)) {
+        contactById.set(String(value.personId), value);
+      }
+    }
     const interviews: RecruitmentSchedulingInterview[] = [];
     for (const rawRow of rows) {
       const row = yield* decode(SchedulingBoardRowSchema, rawRow, "scheduling board row");
@@ -575,8 +588,9 @@ const writeScheduleRows = (
 
 const scheduleInTransaction = (
   command: RecruitmentScheduleCommand,
-  context: RecruitmentScheduleContext & { readonly actor: DepartmentActor },
+  context: RecruitmentScheduleContext,
   sql: DatabaseShape,
+  organization: OrganizationShape,
   profile: ProfileShape,
   digest: string,
 ): Effect.Effect<RecruitmentScheduleResult, RecruitmentFailure> =>
@@ -597,28 +611,26 @@ const scheduleInTransaction = (
     if (interview === undefined) {
       return yield* new RecruitmentInterviewNotFound({ interviewId: command.interviewId });
     }
-    if (interview.departmentId !== context.actor.departmentId) {
+    const actor = yield* authorizeActor(context.actor, context.now, organization);
+    if (interview.departmentId !== actor.departmentId) {
       return yield* new RecruitmentScopeDenied({
-        personId: context.actor.personId,
+        personId: actor.personId,
         departmentId: DepartmentId.make(interview.departmentId),
       });
     }
-    if (
-      context.actor._tag === "Member" &&
-      interview.interviewerPersonId !== context.actor.personId
-    ) {
+    if (actor._tag === "Member" && interview.interviewerPersonId !== actor.personId) {
       return yield* new RecruitmentScopeDenied({
-        personId: context.actor.personId,
-        departmentId: context.actor.departmentId,
+        personId: actor.personId,
+        departmentId: actor.departmentId,
       });
     }
     const storedReceipt = yield* readStoredScheduleReceipt(sql, command.commandId);
     if (storedReceipt !== undefined) {
-      if (storedReceipt.interviewId !== command.interviewId) {
-        return yield* persistenceError("validate schedule receipt interview linkage");
-      }
       if (storedReceipt.commandSha256 !== digest) {
         return yield* new RecruitmentScheduleCommandConflict({ commandId: command.commandId });
+      }
+      if (storedReceipt.interviewId !== command.interviewId) {
+        return yield* persistenceError("validate schedule receipt interview linkage");
       }
       const observation = yield* decode(
         RecruitmentScheduleObservationSchema,
@@ -662,7 +674,7 @@ const scheduleInTransaction = (
     const observation = yield* writeScheduleRows(
       sql,
       command,
-      context,
+      { ...context, actor },
       interview,
       personProfileDisplayName(interviewerProfile),
       interviewerContact.email,
@@ -724,19 +736,19 @@ export const scheduleInterview = (
     yield* Admissions;
     const organization = yield* Organization;
     const profile = yield* Profile;
-    const authorizedActor = yield* authorizeActor(actor, context.now, organization);
     const digest = sha256Hex(canonicalJsonBytes(decodedCommand));
     return yield* sql
       .withTransaction(
         scheduleInTransaction(
           decodedCommand,
           {
-            actor: authorizedActor,
+            actor,
             now: context.now,
             invitationId,
             responseCapability: context.responseCapability,
           },
           sql,
+          organization,
           profile,
           digest,
         ),
