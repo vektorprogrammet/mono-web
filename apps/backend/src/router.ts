@@ -1,21 +1,23 @@
 import { Admissions } from "@vektorprogrammet/domain/admissions";
+import { Auth } from "@vektorprogrammet/domain/auth";
 import { databaseHealth, type Database } from "@vektorprogrammet/domain/database";
 import type { Organization } from "@vektorprogrammet/domain/organization";
 import { Profile } from "@vektorprogrammet/domain/profile";
 import { Recruitment } from "@vektorprogrammet/domain/recruitment";
 import { Economy } from "@vektorprogrammet/domain/receipt";
-import { Effect } from "effect";
+import { DateTime, Effect } from "effect";
 import { makeAdmissionApiHttp } from "./admission/http.js";
 import type { BackendConfig } from "./config.js";
 import { makeOrganizationApiHttp } from "./organization/http.js";
 import { makeProfileApiHttp } from "./profile/http.js";
 import { makeReceiptApiHttp } from "./receipt/http.js";
 import { makeRecruitmentApiHttp } from "./recruitment/http.js";
+
 export type BackendRun = <A, E>(
   effect: Effect.Effect<
     A,
     E,
-    Database | Admissions | Economy | Organization | Profile | Recruitment
+    Database | Admissions | Economy | Organization | Profile | Recruitment | Auth
   >,
 ) => Promise<A>;
 
@@ -62,15 +64,44 @@ const isRecruitmentRoute = (pathname: string): boolean =>
   pathname === "/api/recruitment/invitation-response/request-new-time" ||
   pathname === "/api/admin/recruitment/interviews/schedule";
 
-export const makeBackendHttp = (config: BackendConfig, run: BackendRun): BackendHttp => {
+/**
+ * The better-auth Request -> Response handler mounted at /api/auth/*.
+ * Supplied by the composition root from the ONE Layer-scoped engine so the
+ * HTTP surface and the Auth Service share a single session authority.
+ */
+export interface BackendAuthHandler {
+  readonly handle: (request: Request) => Promise<Response>;
+}
+
+export const makeBackendHttp = (
+  config: BackendConfig,
+  run: BackendRun,
+  authHandler: BackendAuthHandler,
+): BackendHttp => {
   const admission = makeAdmissionApiHttp({ config: config.admission, run });
   const receipt = makeReceiptApiHttp({ config: config.receipt, run });
   const recruitment = makeRecruitmentApiHttp({ config: config.recruitment, run });
   const organization = makeOrganizationApiHttp({ config: config.organization, run });
   const profile = makeProfileApiHttp({ config, run });
+
+  /** Strict session read: raw Cookie header in, actor projection or 401 out. */
+  const meSession = async (request: Request): Promise<Response> => {
+    const cookie = request.headers.get("cookie") ?? undefined;
+    const actor = await run(
+      Auth.use(({ resolveSession }) => Effect.promise(() => resolveSession(cookie))),
+    );
+    return jsonResponse({
+      personId: actor.personId,
+      expiresAt: DateTime.toDateUtc(actor.expiresAt).toISOString(),
+    });
+  };
+
   return {
     fetch: async (request) => {
       const pathname = new URL(request.url).pathname;
+      if (pathname === "/api/auth/" || pathname.startsWith("/api/auth/")) {
+        return authHandler.handle(request);
+      }
       if (isOrganizationRoute(pathname)) return organization.fetch(request);
       if (request.method === "OPTIONS") return new Response(null, { status: 204 });
       if (request.method === "GET" && pathname === "/health") {
@@ -79,6 +110,13 @@ export const makeBackendHttp = (config: BackendConfig, run: BackendRun): Backend
           return jsonResponse({ status: "ok" });
         } catch {
           return jsonResponse({ status: "unavailable" }, 503);
+        }
+      }
+      if (request.method === "GET" && pathname === "/api/me/session") {
+        try {
+          return await meSession(request);
+        } catch {
+          return jsonResponse({ error: { tag: "UnauthenticatedActor" } }, 401);
         }
       }
       if (pathname === "/api/me") return profile.fetch(request);

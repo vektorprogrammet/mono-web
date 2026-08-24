@@ -14,10 +14,19 @@ export interface PublicApplicationEffectConfig {
   readonly deliveryTimeoutMilliseconds: number;
 }
 
+export interface BackendAuthConfig {
+  readonly postgresUrl: string;
+  readonly secret: string;
+  /** Dashboard origin; better-auth issues cookies for this base URL. */
+  readonly baseURL: string;
+}
+
 export interface BackendConfig {
   readonly host: string;
   readonly port: number;
   readonly postgresUrl: string;
+  /** Native identity engine inputs (spec 0054). */
+  readonly auth: BackendAuthConfig;
   readonly admission: AdmissionApiConfig;
   readonly receipt: ReceiptApiConfig;
   readonly recruitment: RecruitmentApiConfig;
@@ -143,10 +152,20 @@ export const makeBackendConfig = (
   const receipt = makeReceiptApiConfig(env);
   assertSharedActorFacts(admission, receipt);
   const effects = publicApplicationEffectConfig(env);
+  const postgresUrl = nonEmpty(env.BACKEND_PG_URL, "BACKEND_PG_URL");
+  const secret = nonEmpty(env.BETTER_AUTH_SECRET, "BETTER_AUTH_SECRET");
+  if (secret.length < 32) {
+    throw new Error("BETTER_AUTH_SECRET must be at least 32 characters");
+  }
   return {
     host: loopbackHost(env.BACKEND_HOST),
     port: parsePort(env.BACKEND_PORT),
-    postgresUrl: nonEmpty(env.BACKEND_PG_URL, "BACKEND_PG_URL"),
+    postgresUrl,
+    auth: {
+      postgresUrl,
+      secret,
+      baseURL: nonEmpty(env.BETTER_AUTH_URL ?? "http://127.0.0.1:5174", "BETTER_AUTH_URL"),
+    },
     admission,
     receipt,
     recruitment: makeRecruitmentApiConfig(admission),
