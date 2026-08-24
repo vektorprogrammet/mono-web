@@ -44,6 +44,40 @@ export type PersonContactEmail = typeof PersonContactEmail.Type;
 export const PersonContactPhone = Phone;
 export type PersonContactPhone = typeof PersonContactPhone.Type;
 
+const ProfileCommandIdValue = Schema.String.pipe(
+  Schema.check(
+    Schema.makeFilter((value) => value.trim().length > 0, {
+      message: "a non-empty profile command identifier",
+    }),
+  ),
+);
+
+export const ProfileCommandId = ProfileCommandIdValue.pipe(Schema.brand("ProfileCommandId"));
+export type ProfileCommandId = typeof ProfileCommandId.Type;
+
+export const UpdateOwnProfileCommand = Schema.Struct({
+  _tag: Schema.Literals(["UpdateOwnProfile"]),
+  commandId: ProfileCommandId,
+  expectedNameRevision: Revision,
+  expectedContactRevision: Revision,
+  firstName: Name,
+  lastName: Name,
+  email: PersonContactEmail,
+  phone: PersonContactPhone,
+});
+export type UpdateOwnProfileCommand = typeof UpdateOwnProfileCommand.Type;
+
+export const OwnProfile = Schema.Struct({
+  personId: PersonId,
+  firstName: Name,
+  lastName: Name,
+  email: PersonContactEmail,
+  phone: PersonContactPhone,
+  nameRevision: Revision,
+  contactRevision: Revision,
+});
+export type OwnProfile = typeof OwnProfile.Type;
+
 /** The canonical person-name record. Names are owned by Profile, not Recruitment. */
 export class PersonProfile extends Model.Class<PersonProfile>("Profile.PersonProfile")({
   personId: Model.Field({

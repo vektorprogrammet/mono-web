@@ -1,5 +1,6 @@
 import { Schema } from "effect";
 import { PersonId } from "../organization/schema.js";
+import { ProfileCommandId } from "./schema.js";
 
 export class ProfileDecodeError extends Schema.TaggedError<ProfileDecodeError>()(
   "ProfileDecodeError",
@@ -21,6 +22,22 @@ export class ProfileContactNotFound extends Schema.TaggedError<ProfileContactNot
   },
 ) {}
 
+export class ProfileStaleRevision extends Schema.TaggedError<ProfileStaleRevision>()(
+  "ProfileStaleRevision",
+  {
+    personId: PersonId,
+    expectedNameRevision: Schema.Int,
+    actualNameRevision: Schema.Int,
+    expectedContactRevision: Schema.Int,
+    actualContactRevision: Schema.Int,
+  },
+) {}
+
+export class ProfileCommandConflict extends Schema.TaggedError<ProfileCommandConflict>()(
+  "ProfileCommandConflict",
+  { commandId: ProfileCommandId },
+) {}
+
 export class ProfilePersistenceError extends Schema.TaggedError<ProfilePersistenceError>()(
   "ProfilePersistenceError",
   { operation: Schema.String, message: Schema.String },
@@ -31,4 +48,6 @@ export type ProfileFailure =
   | ProfileQueryLimitExceeded
   | ProfileNotFound
   | ProfileContactNotFound
+  | ProfileStaleRevision
+  | ProfileCommandConflict
   | ProfilePersistenceError;

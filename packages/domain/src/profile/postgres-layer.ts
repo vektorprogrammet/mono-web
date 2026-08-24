@@ -1,7 +1,12 @@
 import { Effect, Layer } from "effect";
 import { Database } from "../database/service.js";
 import { Organization } from "../organization/service.js";
-import { readPersonContacts, readPersonProfiles } from "./postgres.js";
+import {
+  readOwnProfile as readOwnProfilePostgres,
+  readPersonContacts,
+  readPersonProfiles,
+  updateOwnProfile as updateOwnProfilePostgres,
+} from "./postgres.js";
 import { Profile } from "./service.js";
 
 /** Live Profile authority; both Database and Organization remain explicit requirements. */
@@ -21,6 +26,10 @@ export const ProfileLive = Layer.effect(
           Effect.provideService(Database, database),
           Effect.provideService(Organization, organization),
         ),
+      readOwnProfile: (personId) =>
+        readOwnProfilePostgres(personId).pipe(Effect.provideService(Database, database)),
+      updateOwnProfile: (input) =>
+        updateOwnProfilePostgres(input).pipe(Effect.provideService(Database, database)),
     });
   }),
 );

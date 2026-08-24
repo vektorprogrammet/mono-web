@@ -62,6 +62,10 @@ const organizationAdministrationMigrationUrl = new URL(
   "../migrations/0013-native-organization-administration.sql",
   import.meta.url,
 );
+const profileSelfEditMigrationUrl = new URL(
+  "../migrations/0014-native-profile-self-edit.sql",
+  import.meta.url,
+);
 
 export type ExecuteMigration = (
   source: string,
@@ -139,9 +143,14 @@ export const databaseMigrationLoader = (execute: ExecuteMigration) =>
       organizationAdministrationMigrationUrl,
       execute,
     ),
+    "14_native-profile-self-edit": migration(
+      "native-profile-self-edit",
+      profileSelfEditMigrationUrl,
+      execute,
+    ),
   });
 
-export const databaseSchemaRevision = "13_native-organization-administration";
+export const databaseSchemaRevision = "14_native-profile-self-edit";
 export const runDatabaseMigrations = (execute: ExecuteMigration) =>
   Migrator.make({})({
     loader: databaseMigrationLoader(execute),
