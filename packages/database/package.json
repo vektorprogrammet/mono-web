@@ -9,6 +9,7 @@
   "scripts": {
     "test": "vitest run",
     "proof:receipt": "bun run src/receipt-postgres-proof-main.ts",
+    "proof:scheduling-postgres": "bun run src/scheduling-postgres-proof-main.ts",
     "check-types": "tsc --noEmit",
     "build": "tsc --noEmit",
     "lint": "oxlint"
