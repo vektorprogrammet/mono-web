@@ -1,4 +1,3 @@
-import { Pool } from "pg"
 import { makeAuthEngine } from "./auth-engine.js"
 
 /**
