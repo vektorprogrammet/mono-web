@@ -9,7 +9,7 @@ const bridge = vi.hoisted(() => ({
   ),
 }));
 
-vi.mock("../lib/interview-bridge.server", () => ({
+vi.mock("./interview-bridge.server", () => ({
   ...bridge,
   responseHeaders: {
     "Cache-Control": "no-store",
@@ -17,7 +17,7 @@ vi.mock("../lib/interview-bridge.server", () => ({
   },
 }));
 
-import { loader } from "./interview-response.$capability";
+import { loader } from "../routes/interview-response.$capability";
 
 const thrownRedirect = async (capability: string): Promise<Response> => {
   try {

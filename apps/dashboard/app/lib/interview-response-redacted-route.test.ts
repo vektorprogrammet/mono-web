@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { loader } from "./interview-response.redacted";
+import { loader } from "../routes/interview-response.redacted";
 
 const load = (url: string) => loader({ request: new Request(url) } as never);
 
