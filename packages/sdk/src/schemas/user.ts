@@ -3,13 +3,13 @@
  */
 
 import { Schema } from "effect"
-import { PersonId } from "./organization.js"
 
 const NonEmpty = Schema.String.pipe(
   Schema.check(
     Schema.makeFilter((value) => value.trim().length > 0, { message: "a non-empty string" }),
   ),
 )
+const ProfilePersonId = NonEmpty.pipe(Schema.brand("ProfilePersonId"))
 const Name = Schema.String.pipe(
   Schema.check(
     Schema.makeFilter((value) => value.trim().length > 0, { message: "a non-empty name" }),
@@ -85,7 +85,7 @@ export const UpdateOwnProfileCommand = Schema.Struct({
 export type UpdateOwnProfileCommand = typeof UpdateOwnProfileCommand.Type
 
 export const UserProfile = Schema.Struct({
-  personId: PersonId,
+  personId: ProfilePersonId,
   firstName: Name,
   lastName: Name,
   email: Email,
