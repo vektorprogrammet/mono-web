@@ -315,6 +315,8 @@ describe("DatabaseTest", () => {
           WHERE table_schema = 'public'
             AND table_name IN (
               'economy_receipts',
+              'economy_payment_authorities',
+              'economy_receipt_approval_grants',
               'admission_periods',
               'admission_applications',
               'organization_departments',
@@ -323,6 +325,7 @@ describe("DatabaseTest", () => {
               'organization_field_of_studies',
               'organization_command_receipts',
               'organization_creation_audit',
+              'organization_global_administrator_grants',
               'person_profiles',
               'person_contact_profiles',
               'recruitment_interview_schemas',
@@ -348,7 +351,7 @@ describe("DatabaseTest", () => {
     );
 
     expect(evidence).toEqual({
-      revision: "13_native-organization-administration",
+      revision: "17_person-keyed-receipt-authority",
       migrations: [
         { migration_id: 1, name: "receipt-authority" },
         { migration_id: 2, name: "admission-period-authority" },
@@ -363,15 +366,22 @@ describe("DatabaseTest", () => {
         { migration_id: 11, name: "native-recruitment-interview-scheduling" },
         { migration_id: 12, name: "native-recruitment-invitation-response" },
         { migration_id: 13, name: "native-organization-administration" },
+        { migration_id: 14, name: "native-profile-self-edit" },
+        { migration_id: 15, name: "native-identity-better-auth" },
+        { migration_id: 16, name: "person-keyed-organization-authority" },
+        { migration_id: 17, name: "person-keyed-receipt-authority" },
       ],
       tables: [
         "admission_applications",
         "admission_periods",
+        "economy_payment_authorities",
+        "economy_receipt_approval_grants",
         "economy_receipts",
         "organization_command_receipts",
         "organization_creation_audit",
         "organization_departments",
         "organization_field_of_studies",
+        "organization_global_administrator_grants",
         "organization_memberships",
         "organization_teams",
         "person_contact_profiles",
@@ -3840,7 +3850,7 @@ describe("DatabaseTest", () => {
       }),
     );
 
-    expect(evidence.schemaRevision).toBe("13_native-organization-administration");
+    expect(evidence.schemaRevision).toBe("17_person-keyed-receipt-authority");
     expect(evidence.denied._tag).toBe("OrganizationRoleDenied");
     expect(evidence.deniedRows).toBe(0);
     expect(evidence.departmentCreated.committed).toBe(true);

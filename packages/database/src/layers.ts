@@ -1,5 +1,6 @@
 import * as PgClient from "@effect/sql-pg/PgClient";
 import * as PgliteClient from "@effect/sql-pglite/PgliteClient";
+import { btree_gist } from "@electric-sql/pglite/contrib/btree_gist";
 import { Effect, Layer } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import {
@@ -89,7 +90,20 @@ export const DatabaseLive = (
   observer?: DatabaseLayerObserver,
 ) => DatabaseFromPg(observer).pipe(Layer.provide(PgClient.layer(config)));
 
+const pgliteTestConfig = (
+  config?: Parameters<typeof PgliteClient.layer>[0],
+): Parameters<typeof PgliteClient.layer>[0] => {
+  if (config !== undefined && "liveClient" in config) return config;
+  return {
+    ...config,
+    extensions: {
+      btree_gist,
+      ...config?.extensions,
+    },
+  };
+};
+
 export const DatabaseTest = (
   config?: Parameters<typeof PgliteClient.layer>[0],
   observer?: DatabaseLayerObserver,
-) => DatabaseFromPglite(observer).pipe(Layer.provide(PgliteClient.layer(config)));
+) => DatabaseFromPglite(observer).pipe(Layer.provide(PgliteClient.layer(pgliteTestConfig(config))));

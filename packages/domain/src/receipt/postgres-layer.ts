@@ -1,5 +1,6 @@
 import { Database } from "../database/service.js";
 import { Effect, Layer } from "effect";
+import { resolveReceiptAuthority as resolveReceiptAuthorityPostgres } from "./authority-postgres.js";
 import {
   deliverNextReceiptOutbox,
   listStaleReceiptOutboxClaimIds,
@@ -22,6 +23,12 @@ export const EconomyLive = Layer.effect(
     return Economy.of({
       executeReceipt: (input, context) =>
         executeReceiptCommand(input, context).pipe(Effect.provideService(Database, database)),
+      resolveReceiptAuthority: (personId, authorizationInstant, organizationProjection) =>
+        resolveReceiptAuthorityPostgres(
+          personId,
+          authorizationInstant,
+          organizationProjection,
+        ).pipe(Effect.provideService(Database, database)),
       listOwnedReceipts: (ownerPersonId, status) =>
         listOwnedReceiptProjection(ownerPersonId, status).pipe(
           Effect.provideService(Database, database),

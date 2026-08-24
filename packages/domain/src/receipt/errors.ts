@@ -1,4 +1,6 @@
 import { Schema } from "effect";
+import { DepartmentId, PersonId } from "../organization/schema.js";
+import { Rfc3339InstantSchema } from "../time.js";
 
 export class ReceiptDecodeError extends Schema.TaggedError<ReceiptDecodeError>()(
   "ReceiptDecodeError",
@@ -52,6 +54,49 @@ export class ReceiptPersistenceError extends Schema.TaggedError<ReceiptPersisten
   "ReceiptPersistenceError",
   { operation: Schema.String, message: Schema.String },
 ) {}
+export const ReceiptAuthorityOperationSchema = Schema.Literals([
+  "Submission",
+  "DepartmentApproval",
+  "GlobalApproval",
+  "Owner",
+]);
+export type ReceiptAuthorityOperation = typeof ReceiptAuthorityOperationSchema.Type;
+
+export class ReceiptAuthorityDenied extends Schema.TaggedError<ReceiptAuthorityDenied>()(
+  "ReceiptAuthorityDenied",
+  {
+    personId: PersonId,
+    operation: ReceiptAuthorityOperationSchema,
+    departmentId: Schema.NullOr(DepartmentId),
+  },
+) {}
+
+export class AmbiguousReceiptPaymentAuthority extends Schema.TaggedError<AmbiguousReceiptPaymentAuthority>()(
+  "AmbiguousReceiptPaymentAuthority",
+  {
+    personId: PersonId,
+    departmentIds: Schema.Array(DepartmentId),
+  },
+) {}
+
+export class ReceiptAuthorityProjectionMismatch extends Schema.TaggedError<ReceiptAuthorityProjectionMismatch>()(
+  "ReceiptAuthorityProjectionMismatch",
+  {
+    personId: PersonId,
+    authorizationInstant: Rfc3339InstantSchema,
+    organizationPersonId: PersonId,
+    organizationEvaluatedAt: Rfc3339InstantSchema,
+  },
+) {}
+
+export type ReceiptAuthorityMappingError =
+  | ReceiptAuthorityDenied
+  | AmbiguousReceiptPaymentAuthority;
+
+export type ReceiptAuthorityResolutionError =
+  | ReceiptDecodeError
+  | ReceiptPersistenceError
+  | ReceiptAuthorityProjectionMismatch;
 
 export type ReceiptFailure =
   | ReceiptDecodeError

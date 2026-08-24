@@ -5,6 +5,7 @@ import {
   createOrganizationTeam,
   listOrganizationFieldOfStudies,
 } from "./administration-postgres.js";
+import { resolveOrganizationPersonAuthority } from "./authority-postgres.js";
 import { Effect, Layer } from "effect";
 import {
   importOrganizationSnapshot,
@@ -55,6 +56,10 @@ export const OrganizationLive = Layer.effect(
       listHistoricalMemberships: listOrganizationHistoricalMemberships().pipe(
         Effect.provideService(Database, database),
       ),
+      resolvePersonAuthority: (personId, authorizationInstant) =>
+        resolveOrganizationPersonAuthority(personId, authorizationInstant).pipe(
+          Effect.provideService(Database, database),
+        ),
       reviseMembership: (command) =>
         reviseOrganizationMembership(command).pipe(Effect.provideService(Database, database)),
       suspendMembership: (command) =>
