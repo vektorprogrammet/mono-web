@@ -247,10 +247,7 @@ describe("native recruitment HTTP boundary", () => {
     const capabilitySequence = "Z".repeat(43);
     const invalidResponses = await Promise.all([
       send("/api/recruitment/invitation-response/reject", capabilitySequence),
-      send(
-        "/api/recruitment/invitation-response/reject",
-        `Cannot attend (${capabilitySequence})`,
-      ),
+      send("/api/recruitment/invitation-response/reject", `Cannot attend (${capabilitySequence})`),
       send("/api/recruitment/invitation-response/request-new-time", capabilitySequence),
       send(
         "/api/recruitment/invitation-response/request-new-time",

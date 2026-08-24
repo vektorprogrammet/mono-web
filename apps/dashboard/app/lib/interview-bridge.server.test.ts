@@ -194,9 +194,9 @@ describe("server-held recruitment invitation bridge", () => {
       },
     });
 
-    await expect(
-      runOperation(request, { operation: "readInvitationResponse" }),
-    ).resolves.toEqual({ responseState: "Pending" });
+    await expect(runOperation(request, { operation: "readInvitationResponse" })).resolves.toEqual({
+      responseState: "Pending",
+    });
     expect(createServerClient).toHaveBeenCalledOnce();
     expect(read).toHaveBeenCalledWith(requestedCapability);
   });

@@ -56,7 +56,8 @@ describe("browser invitation response bridge", () => {
     );
     expect(
       fetchMock.mock.calls.every(
-        ([, init]) => new Headers(init?.headers).get(INVITATION_INTERACTION_HEADER) === interactionId,
+        ([, init]) =>
+          new Headers(init?.headers).get(INVITATION_INTERACTION_HEADER) === interactionId,
       ),
     ).toBe(true);
   });
@@ -64,9 +65,9 @@ describe("browser invitation response bridge", () => {
   it("strictly decodes the applicant observation", async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse({ ...observation, invitationId: "forbidden" }));
     const failure = await Effect.runPromise(
-      createBrowserInterviewClient(interactionId).recruitmentInvitationResponses.read().pipe(
-        Effect.flip,
-      ),
+      createBrowserInterviewClient(interactionId)
+        .recruitmentInvitationResponses.read()
+        .pipe(Effect.flip),
     );
 
     expect(failure._tag).toBe("InvitationUnavailable");
@@ -83,8 +84,8 @@ describe("browser invitation response bridge", () => {
       ),
     );
     const failure = await Effect.runPromise(
-      createBrowserInterviewClient(interactionId).recruitmentInvitationResponses
-        .confirm()
+      createBrowserInterviewClient(interactionId)
+        .recruitmentInvitationResponses.confirm()
         .pipe(Effect.flip),
     );
 

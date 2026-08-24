@@ -241,13 +241,19 @@ it("requires a bounded message only when requesting a new time", () => {
   expect(invalidNewTime.validationFeedback).toContain("nytt tidspunkt");
   expect(invalidNewTimeCommands).toEqual([]);
 
+  const validMaximumMessage = Array.from({ length: 2_000 }, (_, index) =>
+    index % 43 === 42 ? " " : "x",
+  ).join("");
   const valid = {
     ...pendingModel(),
-    responseMessage: FieldValidation.NotValidated({ value: `  ${"x".repeat(2_000)}  ` }),
+    responseMessage: FieldValidation.NotValidated({ value: `  ${validMaximumMessage}  ` }),
   };
   const [requested, commands] = update(valid, RequestedNewInvitationTime());
   expect(requested.selectedAction).toBe("RequestNewTime");
-  expect(commands[0]?.args).toEqual({ requestId: requested.requestId, message: "x".repeat(2_000) });
+  expect(commands[0]?.args).toEqual({
+    requestId: requested.requestId,
+    message: validMaximumMessage,
+  });
 });
 
 it("rejects a capability-shaped new-time message before creating a browser command", () => {

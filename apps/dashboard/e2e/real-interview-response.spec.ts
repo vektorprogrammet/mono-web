@@ -327,9 +327,7 @@ const assertApplicantPrivacy = async (
     invitationCookie.expires !== -1 ||
     invitationCookies.some(
       (cookie) =>
-        !INVITATION_INTERACTION_PATTERN.test(
-          cookie.name.slice(INVITATION_COOKIE_PREFIX.length),
-        ) ||
+        !INVITATION_INTERACTION_PATTERN.test(cookie.name.slice(INVITATION_COOKIE_PREFIX.length)) ||
         !capabilities.includes(cookie.value) ||
         cookie.httpOnly !== true ||
         cookie.sameSite !== "Strict" ||
@@ -546,8 +544,7 @@ test.describe("Native recruitment invitation response", () => {
             .map((cookie) => cookie.name)
             .sort();
           if (
-            JSON.stringify(cookieNamesBeforeInvalidExchange) !==
-            JSON.stringify(expectedCookieNames)
+            JSON.stringify(cookieNamesBeforeInvalidExchange) !== JSON.stringify(expectedCookieNames)
           ) {
             throw new Error("Two invitation tabs did not retain distinct capability cookies");
           }
@@ -674,7 +671,9 @@ test.describe("Native recruitment invitation response", () => {
           );
           await expect(page.getByText(responseCase.stateLabel, { exact: true })).toBeVisible();
           if (responseCase.responseMessage !== null) {
-            await expect(page.getByText(responseCase.responseMessage, { exact: true })).toBeVisible();
+            await expect(
+              page.getByText(responseCase.responseMessage, { exact: true }),
+            ).toBeVisible();
           }
 
           const repeated = await bridgeFetch(
@@ -837,11 +836,7 @@ test.describe("Native recruitment invitation response", () => {
       "Applicant:rejected": 1,
       "Applicant:requested-new-time": 1,
     });
-    if (
-      applicantContextsClosed !== 2 ||
-      staffContextsClosed !== 2 ||
-      tabBindingEvidence === null
-    ) {
+    if (applicantContextsClosed !== 2 || staffContextsClosed !== 2 || tabBindingEvidence === null) {
       throw new Error("Browser contexts or shared invitation tab evidence were incomplete");
     }
     assertNoObservedFailures(observation);

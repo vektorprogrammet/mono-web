@@ -130,10 +130,7 @@ it.effect("normalizes optional rejection messages without weakening new-time mes
         ),
       ),
     ).toBeDefined();
-    for (const message of [
-      capabilitySequence,
-      `Please use another time (${capabilitySequence})`,
-    ]) {
+    for (const message of [capabilitySequence, `Please use another time (${capabilitySequence})`]) {
       expect(
         yield* Effect.flip(
           Schema.decodeUnknownEffect(RecruitmentInvitationRejectInputSchema)(
