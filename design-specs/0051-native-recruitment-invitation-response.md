@@ -4,18 +4,19 @@
 
 ## Metadata
 
-| Field | Value |
-|---|---|
-| Status | Frozen revision 0051.1 before implementation |
-| Base | `1f7fe7424cd06e26a9713fd284c77fce71ee990e` |
-| Goal | Replace the Symfony invitation-response seam with one native Recruitment authority and one full-Foldkit applicant journey |
-| Actor | Applicant who holds the current invitation capability |
-| Observers | Active department leader and assigned active interviewer |
-| Routes | `/interview-response/:capability` and `/interview-response/redacted` |
-| Dependency | Native interview scheduling from design spec 0050 |
-| Architecture | Design specs 0040 and 0045 |
-| Operator boundary | No production data, credentials, deployment, remote provider, or external notification effect |
-| Scope hold | Identity credentials, sessions, and access-policy authority remain final |
+| Field             | Value                                                                                                                                                                                |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Status            | Frozen revision 0051.2 after the pre-integration security gate                                                                                                                       |
+| Base              | `1f7fe7424cd06e26a9713fd284c77fce71ee990e`                                                                                                                                           |
+| Goal              | Replace the Symfony invitation-response seam with one native Recruitment authority and one full-Foldkit applicant journey                                                            |
+| Actor             | Applicant who holds the current invitation capability                                                                                                                                |
+| Observers         | Active department leader and assigned active interviewer                                                                                                                             |
+| Routes            | `/interview-response/:capability` and `/interview-response/redacted`                                                                                                                 |
+| Dependency        | Native interview scheduling from design spec 0050                                                                                                                                    |
+| Architecture      | Design specs 0040 and 0045                                                                                                                                                           |
+| Operator boundary | No production data, credentials, deployment, remote provider, or external notification effect                                                                                        |
+| Scope hold        | Identity credentials, sessions, and access-policy authority remain final                                                                                                             |
+| Revision          | 0051.2 binds every browser page to one exchanged capability and rejects capability-shaped response messages before any authority transition; 0051.1 made rejection messages optional |
 
 ## Problem
 
@@ -249,6 +250,8 @@ The public boundary maps malformed, unknown, and superseded capabilities to one 
 
 Invalid input returns a typed `422` response. A non-Pending transition returns a typed `409` response.
 
+Response messages reject every 43-character base64url capability-shaped sequence before the Service transition. The database repeats this confinement law for canonical response, audit, and outbox message fields.
+
 The SDK exposes one public Recruitment invitation domain. It does not retain the Symfony `interviewResponses` domain or compatibility paths.
 
 The staff Recruitment SDK decodes every expanded response state strictly.
@@ -256,6 +259,8 @@ The staff Recruitment SDK decodes every expanded response state strictly.
 ## Foldkit ownership
 
 React Router owns route matching, capability exchange, cookie transport, the same-origin action bridge, and initial rendering.
+
+Each successful exchange creates a cryptographically random, non-secret interaction identifier. The HttpOnly capability cookie is named for that interaction. The redacted page and every bridge request carry only the interaction identifier. The server resolves exactly that cookie before each read or transition. Opening or invalidating another invitation cannot retarget or erase an existing tab's authority.
 
 Foldkit owns all applicant interaction state:
 
@@ -390,6 +395,9 @@ The slice is incomplete if one condition occurs:
 - The backend requires an Identity session for the applicant capability.
 - A malformed, unknown, or superseded capability reveals invitation facts.
 - A non-Pending or competing command changes a row.
+- A second valid capability exchange retargets an earlier tab's read or irreversible transition.
+- An invalid capability exchange clears another tab's interaction binding.
+- A capability-shaped sequence reaches a response, audit, outbox, projection, rendered page, log, or evidence artifact through a response message.
 - Two concurrent transitions both succeed.
 - A response commits without its audit fact.
 - A required notification request is absent or duplicated.
