@@ -66,6 +66,26 @@ const profile: ProfileShape = {
           }),
       ),
     ),
+  readOwnProfile: (personId) =>
+    Effect.succeed({
+      personId,
+      firstName: "Member",
+      lastName: "One",
+      email: "member@example.invalid",
+      phone: "90000000",
+      nameRevision: 0,
+      contactRevision: 0,
+    }),
+  updateOwnProfile: ({ actorPersonId }) =>
+    Effect.succeed({
+      personId: actorPersonId,
+      firstName: "Member",
+      lastName: "One",
+      email: "member@example.invalid",
+      phone: "90000000",
+      nameRevision: 0,
+      contactRevision: 0,
+    }),
 };
 const organization = {
   listDepartments: Effect.succeed([]),
@@ -104,7 +124,7 @@ describe("unified backend router", () => {
       missing,
     ] = await Promise.all([
       request("/health"),
-      request("/api/me/profile", { headers: { authorization: `Bearer ${token}` } }),
+      request("/api/me", { headers: { authorization: `Bearer ${token}` } }),
       request("/api/departments"),
       request("/api/admin/admission-periods"),
       request("/api/receipts"),
@@ -119,13 +139,16 @@ describe("unified backend router", () => {
     });
     expect({ status: profile.status, body: await profile.json() }).toEqual({
       status: 200,
-      body: expect.objectContaining({
+      body: {
+        personId: "member-1",
         firstName: "Member",
         lastName: "One",
-        userName: null,
-        email: "",
+        email: "member@example.invalid",
+        phone: "90000000",
         role: "ROLE_TEAM_MEMBER",
-      }),
+        nameRevision: 0,
+        contactRevision: 0,
+      },
     });
     expect({
       status: organizationResponse.status,
