@@ -52,6 +52,8 @@ const Phone = Schema.String.pipe(
 
 export const SessionActor = Schema.Struct({
   personId: ProfilePersonId,
+  /** Backend session contract: ISO instant of the underlying auth session. */
+  expiresAt: Schema.optional(Schema.String),
 })
 export type SessionActor = typeof SessionActor.Type
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { Effect, Schema } from "effect"
-import { UserProfile } from "../schemas/user.js"
+import { SessionActor, UserProfile } from "../schemas/user.js"
 
 describe("UserProfile", () => {
   it("decodes the exact native profile actor projection", async () => {
@@ -19,5 +19,27 @@ describe("UserProfile", () => {
     )
 
     expect(profile).toEqual(expected)
+  })
+})
+
+describe("SessionActor", () => {
+  const strictDecode = (payload: unknown) =>
+    Schema.decodeUnknownSync(SessionActor)(payload, { onExcessProperty: "error" })
+
+  it("accepts the backend /api/me/session payload with expiresAt", () => {
+    expect(
+      strictDecode({ personId: "x", expiresAt: "2026-08-25T14:54:13.221Z" }),
+    ).toEqual({
+      personId: "x",
+      expiresAt: "2026-08-25T14:54:13.221Z",
+    })
+  })
+
+  it("accepts the backend session payload when expiresAt is absent", () => {
+    expect(strictDecode({ personId: "x" })).toEqual({ personId: "x" })
+  })
+
+  it("still rejects unknown session properties under strict decoding", () => {
+    expect(() => strictDecode({ personId: "x", actor: true })).toThrow()
   })
 })
