@@ -5,6 +5,7 @@ import {
   DepartmentJsonSchema,
   FieldOfStudyJsonSchema,
   Organization,
+  PersonId,
   TeamJsonSchema,
   type OrganizationShape,
 } from "@vektorprogrammet/domain/organization";
@@ -188,7 +189,20 @@ const run = (<A, E, R>(effect: Effect.Effect<A, E, R>): Promise<A> =>
     effect.pipe(Effect.provideService(Organization, organization)) as Effect.Effect<A, E>,
   )) as BackendRun;
 
-const http = makeOrganizationApiHttp({ config, run });
+const http = makeOrganizationApiHttp({
+  config,
+  resolveActor: async (request) => {
+    const authHeader = request.headers.get("authorization");
+    if (authHeader === null || !authHeader.startsWith("Bearer ")) {
+      throw Object.assign(new Error("UnauthenticatedActor"), { _tag: "UnauthenticatedActor" });
+    }
+    if (authHeader === `Bearer ${ADMIN_TOKEN}`) {
+      return { _tag: "OrganizationAdministrator", personId: PersonId.make("person-admin") };
+    }
+    return { _tag: "OrganizationMember", personId: PersonId.make("person-member") };
+  },
+  run,
+});
 const request = (pathname: string, init?: RequestInit): Promise<Response> =>
   http.fetch(new Request(`http://backend.test${pathname}`, init));
 const post = (
@@ -348,9 +362,9 @@ describe("Organization HTTP boundary", () => {
     expect(preflight.headers.get("access-control-allow-origin")).toBe("*");
   });
 
-  it("requires a configured bounded bearer token without deriving Identity authority", async () => {
-    const missing = await post("/api/admin/departments", "not-configured", createDepartmentCommand);
-    expect(await responseBody(missing)).toEqual({
+  it("fails closed for an unauthenticated request and rejects identity-derived actor fields", async () => {
+    const anonymous = await request("/api/admin/departments", { method: "POST" });
+    expect(await responseBody(anonymous)).toEqual({
       status: 401,
       body: { error: { tag: "UnauthenticatedActor" } },
     });

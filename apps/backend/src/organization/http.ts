@@ -17,6 +17,8 @@ import type { OrganizationApiConfig } from "./config.js";
 
 export interface OrganizationApiHttpOptions {
   readonly config: OrganizationApiConfig;
+  /** Cookie -> Organization projection -> OrganizationAdministrator|Member. */
+  readonly resolveActor: (request: Request) => Promise<OrganizationActor>;
   readonly run: BackendRun;
 }
 
@@ -101,16 +103,16 @@ const assertNoQuery = (request: Request): void => {
   }
 };
 
-const bearerToken = (request: Request): string | undefined => {
-  const authorization = request.headers.get("authorization");
-  return authorization === null ? undefined : /^Bearer ([^\s]+)$/u.exec(authorization)?.[1];
-};
-
-const actorFor = (request: Request, config: OrganizationApiConfig): OrganizationActor => {
-  const token = bearerToken(request);
-  const actor = token === undefined ? undefined : config.actorsByToken.get(token);
-  if (actor === undefined) throw taggedError("UnauthenticatedActor");
-  return actor;
+const actorFor = async (
+  request: Request,
+  input: OrganizationApiHttpOptions,
+): Promise<OrganizationActor> => {
+  try {
+    return await input.resolveActor(request);
+  } catch (cause) {
+    if (cause !== null && typeof cause === "object" && "_tag" in cause) throw cause;
+    throw taggedError("UnauthenticatedActor");
+  }
 };
 
 const readBoundedBody = async (request: Request, maxBytes: number): Promise<string> => {
@@ -227,7 +229,7 @@ const createDepartment = async (
   input: OrganizationApiHttpOptions,
 ): Promise<Response> => {
   assertNoQuery(request);
-  const actor = actorFor(request, input.config);
+  const actor = await actorFor(request, input);
   const command = await decodeCommand(request, CreateDepartmentCommandSchema, input);
   const result = await input.run(
     Organization.use(({ createDepartment }) => createDepartment(command, actor)),
@@ -245,7 +247,7 @@ const createTeam = async (
   input: OrganizationApiHttpOptions,
 ): Promise<Response> => {
   assertNoQuery(request);
-  const actor = actorFor(request, input.config);
+  const actor = await actorFor(request, input);
   const command = await decodeCommand(request, CreateTeamCommandSchema, input);
   const result = await input.run(
     Organization.use(({ createTeam }) => createTeam(command, actor)),
@@ -258,7 +260,7 @@ const createFieldOfStudy = async (
   input: OrganizationApiHttpOptions,
 ): Promise<Response> => {
   assertNoQuery(request);
-  const actor = actorFor(request, input.config);
+  const actor = await actorFor(request, input);
   const command = await decodeCommand(request, CreateFieldOfStudyCommandSchema, input);
   const result = await input.run(
     Organization.use(({ createFieldOfStudy }) => createFieldOfStudy(command, actor)),

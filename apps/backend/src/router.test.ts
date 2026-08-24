@@ -1,4 +1,10 @@
 import type { Admissions } from "@vektorprogrammet/domain/admissions";
+import {
+  Auth,
+  AuthenticatedActor,
+  AuthSessionNotFound,
+  type AuthShape,
+} from "@vektorprogrammet/domain/auth";
 import { Database, type DatabaseShape } from "@vektorprogrammet/domain/database";
 import { Organization, type OrganizationShape } from "@vektorprogrammet/domain/organization";
 import {
@@ -9,7 +15,7 @@ import {
 } from "@vektorprogrammet/domain/profile";
 import type { Economy } from "@vektorprogrammet/domain/receipt";
 import type { Recruitment } from "@vektorprogrammet/domain/recruitment";
-import { Effect } from "effect";
+import { DateTime, Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import { makeBackendConfig } from "./config.js";
 import { makeBackendHttp, type BackendRun } from "./router.js";
@@ -17,6 +23,7 @@ import { makeBackendHttp, type BackendRun } from "./router.js";
 const token = "shared-token";
 const environment = {
   BACKEND_PG_URL: "postgres://test.invalid/vektorprogrammet",
+  BETTER_AUTH_SECRET: "router-test-secret-with-at-least-32-characters!",
   PUBLIC_APPLICATION_EFFECT_MODE: "disabled",
   ADMISSION_AUTH_TOKENS: JSON.stringify({
     [token]: {
@@ -76,27 +83,46 @@ const profile: ProfileShape = {
       nameRevision: 0,
       contactRevision: 0,
     }),
-  updateOwnProfile: ({ actorPersonId }) =>
-    Effect.succeed({
-      personId: actorPersonId,
-      firstName: "Member",
-      lastName: "One",
-      email: "member@example.invalid",
-      phone: "90000000",
-      nameRevision: 0,
-      contactRevision: 0,
-    }),
+  updateOwnProfile: (input) =>
+    Effect.as(
+      profile.readOwnProfile(input.actorPersonId),
+      {
+        personId: input.actorPersonId,
+        firstName: input.command.firstName,
+        lastName: input.command.lastName,
+        email: input.command.email,
+        phone: input.command.phone,
+        nameRevision: input.command.expectedNameRevision + 1,
+        contactRevision: input.command.expectedContactRevision + 1,
+      },
+    ),
 };
 const organization = {
   listDepartments: Effect.succeed([]),
   listTeams: () => Effect.succeed([]),
   listFieldOfStudies: Effect.succeed([]),
+  resolvePersonAuthority: () =>
+    Effect.succeed({
+      personId: "member-1",
+      evaluatedAt: "2031-09-15T12:00:00.000Z",
+      globalAdministrator: "Absent",
+      memberships: [
+        {
+          membershipId: "membership-1",
+          teamId: "team-1",
+          departmentId: "department-1",
+          active: true,
+          teamLeader: false,
+        },
+      ],
+    }),
 } as unknown as OrganizationShape;
+
 const successfulRun: BackendRun = <A, E>(
   effect: Effect.Effect<
     A,
     E,
-    Database | Admissions | Economy | Organization | Profile | Recruitment
+    Database | Admissions | Economy | Organization | Profile | Recruitment | Auth
   >,
 ): Promise<A> =>
   Effect.runPromise(
@@ -104,9 +130,25 @@ const successfulRun: BackendRun = <A, E>(
       Effect.provideService(Database, database),
       Effect.provideService(Profile, profile),
       Effect.provideService(Organization, organization),
+      Effect.provideService(Auth, {
+        signIn: () => Promise.reject(new Error("unexpected sign-in")),
+        resolveSession: async (cookieHeader: string | undefined) => {
+          if (cookieHeader !== undefined && cookieHeader.includes(`${token}=`)) {
+            return new AuthenticatedActor({
+              personId: "member-1" as never,
+              sessionId: "session-1",
+              expiresAt: DateTime.makeUnsafe(new Date("2031-09-16T12:00:00.000Z")),
+            });
+          }
+          throw new AuthSessionNotFound({ sessionToken: "" });
+        },
+        signOut: async () => undefined,
+      } as unknown as AuthShape),
     ) as Effect.Effect<A, E>,
   );
-const backend = makeBackendHttp(config, successfulRun);
+const backend = makeBackendHttp(config, successfulRun, {
+  handle: async () => new Response(null, { status: 404 }),
+});
 
 const request = (pathname: string, init?: RequestInit): Promise<Response> =>
   backend.fetch(new Request(`http://backend.test${pathname}`, init));
@@ -124,7 +166,7 @@ describe("unified backend router", () => {
       missing,
     ] = await Promise.all([
       request("/health"),
-      request("/api/me", { headers: { authorization: `Bearer ${token}` } }),
+      request("/api/me", { headers: { cookie: `${token}=value` } }),
       request("/api/departments"),
       request("/api/admin/admission-periods"),
       request("/api/receipts"),
@@ -180,6 +222,33 @@ describe("unified backend router", () => {
       status: 404,
       body: { error: { tag: "RouteNotFound" } },
     });
+  });
+
+  it("serves GET /api/me/session from the session cookie and fails closed without one", async () => {
+    const ok = await request("/api/me/session", { headers: { cookie: `${token}=value; other=1` } });
+    expect({ status: ok.status, body: await ok.json() }).toEqual({
+      status: 200,
+      body: {
+        personId: "member-1",
+        expiresAt: "2031-09-16T12:00:00.000Z",
+      },
+    });
+
+    const anonymous = await request("/api/me/session");
+    expect(anonymous.status).toBe(401);
+    expect(await anonymous.json()).toEqual({ error: { tag: "UnauthenticatedActor" } });
+  });
+
+  it("mounts the auth engine handler over the /api/auth/* surface", async () => {
+    const calls: Array<string> = [];
+    const probingBackend = makeBackendHttp(config, successfulRun, {
+      handle: async (request) => new Response(`auth-saw:${new URL(request.url).pathname}`),
+    });
+    void calls;
+    for (const path of ["/api/auth/get-session", "/api/auth/sign-in/email", "/api/auth/"]) {
+      const response = await probingBackend.fetch(new Request(`http://backend.test${path}`, { method: "POST" }));
+      expect(await response.text()).toBe(`auth-saw:${path}`);
+    }
   });
 
   it("rejects conflicting identity facts at the process boundary", () => {

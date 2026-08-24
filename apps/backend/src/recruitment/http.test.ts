@@ -49,6 +49,7 @@ const invitationObservation = Schema.decodeUnknownSync(
 
 const backend = makeRecruitmentApiHttp({
   config,
+  resolveActor: async () => config.tokens.get(token)!.actor,
   run: async <A>(): Promise<A> => undefined as A,
 });
 
@@ -104,14 +105,27 @@ const makePublicBackend = () => {
     )) as RecruitmentApiHttpOptions["run"];
   return {
     calls,
-    backend: makeRecruitmentApiHttp({ config, run }),
+    backend: makeRecruitmentApiHttp({
+      config,
+      resolveActor: async () => config.tokens.get(token)!.actor,
+      run,
+    }),
   };
 };
 
 describe("native recruitment HTTP boundary", () => {
   it("requires the exact board status query and credentials", async () => {
     const missingStatus = await request("/api/admin/recruitment/assignment-board");
-    const missingCredentials = await request("/api/admin/recruitment/assignment-board?status=new");
+    const rejectingBackend = makeRecruitmentApiHttp({
+      config,
+      resolveActor: async () => {
+        throw Object.assign(new Error("UnauthenticatedActor"), { _tag: "UnauthenticatedActor" });
+      },
+      run: async <A>(): Promise<A> => undefined as A,
+    });
+    const missingCredentials = await rejectingBackend.fetch(
+      new Request("http://backend.test/api/admin/recruitment/assignment-board?status=new"),
+    );
 
     expect(missingStatus.status).toBe(422);
     expect(missingCredentials.status).toBe(401);
@@ -447,6 +461,7 @@ describe("native recruitment HTTP boundary", () => {
   it("strictly decodes the public read response before returning it", async () => {
     const invalidBackend = makeRecruitmentApiHttp({
       config,
+      resolveActor: async () => config.tokens.get(token)!.actor,
       run: async <A>(): Promise<A> =>
         ({
           ...invitationObservation,
@@ -547,6 +562,7 @@ describe("native recruitment HTTP boundary", () => {
     async (sourceTag, expectedTag, expectedStatus) => {
       const failedBackend = makeRecruitmentApiHttp({
         config,
+        resolveActor: async () => config.tokens.get(token)!.actor,
         run: async <A>(): Promise<A> => {
           throw Object.assign(new Error(sourceTag), { _tag: sourceTag });
         },

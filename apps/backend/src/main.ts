@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
-import { DatabaseLive } from "@vektorprogrammet/database";
+import { AuthEngine, AuthEngineLive, AuthLive, DatabaseLive } from "@vektorprogrammet/database";
 import { runPublicApplicationOutboxWorker } from "@vektorprogrammet/domain/application";
 import { Admissions, AdmissionsLive } from "@vektorprogrammet/domain/admissions";
+import { Auth } from "@vektorprogrammet/domain/auth";
 import { databaseHealth, type Database } from "@vektorprogrammet/domain/database";
 import { Organization, OrganizationLive } from "@vektorprogrammet/domain/organization";
 import { Profile, ProfileLive } from "@vektorprogrammet/domain/profile";
@@ -12,6 +13,7 @@ import { Effect, Exit, Fiber, Layer, ManagedRuntime, Redacted } from "effect";
 import { makeHttpPublicApplicationEffectInterpreter } from "./application/effects.js";
 import { makeBackendConfig } from "./config.js";
 import { makeBackendHttp } from "./router.js";
+
 
 declare const Bun: {
   serve: (options: {
@@ -43,15 +45,24 @@ const capabilityLayers = Layer.mergeAll(
   profileLayer,
   recruitmentLayer,
 );
-const runtime = ManagedRuntime.make(Layer.merge(databaseLayer, capabilityLayers));
+const authLayers = Layer.merge(AuthLive(config.auth), AuthEngineLive(config.auth));
+const runtime = ManagedRuntime.make(Layer.mergeAll(databaseLayer, capabilityLayers, authLayers));
 const run = <A, E>(
   effect: Effect.Effect<
     A,
     E,
-    Database | Admissions | Economy | Organization | Profile | Recruitment
+    Database | Admissions | Economy | Organization | Profile | Recruitment | Auth
   >,
 ): Promise<A> => runtime.runPromise(effect);
-const api = makeBackendHttp(config, run);
+const api = makeBackendHttp(config, run, {
+  handle: (request) =>
+    runtime.runPromise(
+      Effect.gen(function* () {
+        const engine = yield* AuthEngine;
+        return yield* Effect.promise(() => engine.handler(request));
+      }),
+    ),
+});
 
 try {
   await run(databaseHealth);
