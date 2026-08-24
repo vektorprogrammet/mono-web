@@ -137,7 +137,7 @@ const organization = {
   }),
   listTeams: () => Effect.succeed([team]),
   listFieldOfStudies: Effect.succeed([fieldOfStudy]),
-  createDepartment: (command: typeof createDepartmentCommand, actor: { readonly _tag: string }) => {
+  createDepartment: (command: { readonly commandId: string }, actor: { readonly _tag: string }) => {
     createCalls += 1;
     if (actor._tag === "OrganizationMember") {
       return Effect.fail({ _tag: "OrganizationRoleDenied" } as never);
