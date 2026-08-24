@@ -1,4 +1,10 @@
 import { Database } from "../database/service.js";
+import {
+  createOrganizationDepartment,
+  createOrganizationFieldOfStudy,
+  createOrganizationTeam,
+  listOrganizationFieldOfStudies,
+} from "./administration-postgres.js";
 import { Effect, Layer } from "effect";
 import {
   importOrganizationSnapshot,
@@ -29,6 +35,19 @@ export const OrganizationLive = Layer.effect(
         readOrganizationTeam(teamId).pipe(Effect.provideService(Database, database)),
       listTeams: (departmentId) =>
         listOrganizationTeams(departmentId).pipe(Effect.provideService(Database, database)),
+      listFieldOfStudies: listOrganizationFieldOfStudies().pipe(
+        Effect.provideService(Database, database),
+      ),
+      createDepartment: (command, actor) =>
+        createOrganizationDepartment(command, actor).pipe(
+          Effect.provideService(Database, database),
+        ),
+      createTeam: (command, actor) =>
+        createOrganizationTeam(command, actor).pipe(Effect.provideService(Database, database)),
+      createFieldOfStudy: (command, actor) =>
+        createOrganizationFieldOfStudy(command, actor).pipe(
+          Effect.provideService(Database, database),
+        ),
       readMembership: (membershipId) =>
         readOrganizationMembership(membershipId).pipe(Effect.provideService(Database, database)),
       listMembershipsForTeam: (teamId) =>

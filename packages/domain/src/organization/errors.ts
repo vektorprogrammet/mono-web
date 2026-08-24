@@ -1,5 +1,6 @@
 import { Schema } from "effect";
-import { DepartmentId, MembershipId, TeamId } from "./schema.js";
+import { DepartmentId, MembershipId, PersonId, TeamId } from "./schema.js";
+import { OrganizationCommandId } from "./administration-schema.js";
 
 const NonEmpty = Schema.String.pipe(Schema.check(Schema.isMinLength(1)));
 
@@ -11,6 +12,24 @@ export class OrganizationDecodeError extends Schema.TaggedError<OrganizationDeco
 export class OrganizationPersistenceError extends Schema.TaggedError<OrganizationPersistenceError>()(
   "OrganizationPersistenceError",
   { operation: NonEmpty, message: NonEmpty },
+) {}
+
+export class OrganizationRoleDenied extends Schema.TaggedError<OrganizationRoleDenied>()(
+  "OrganizationRoleDenied",
+  {
+    actorPersonId: PersonId,
+    requiredRole: Schema.Literals(["OrganizationAdministrator"]),
+  },
+) {}
+
+export class OrganizationInvalidReference extends Schema.TaggedError<OrganizationInvalidReference>()(
+  "OrganizationInvalidReference",
+  { referenceKind: Schema.Literals(["Department"]) },
+) {}
+
+export class OrganizationCommandConflict extends Schema.TaggedError<OrganizationCommandConflict>()(
+  "OrganizationCommandConflict",
+  { commandId: OrganizationCommandId },
 ) {}
 
 export class DepartmentNotFound extends Schema.TaggedError<DepartmentNotFound>()(
@@ -60,6 +79,9 @@ export type OrganizationFailure =
   | OrganizationDecodeError
   | OrganizationPersistenceError
   | DepartmentNotFound
+  | OrganizationRoleDenied
+  | OrganizationInvalidReference
+  | OrganizationCommandConflict
   | TeamNotFound
   | MembershipNotFound
   | MembershipStaleRevision
@@ -83,3 +105,10 @@ export type OrganizationMembershipFailure =
   | MembershipInvalidInterval
   | MembershipImmutableField
   | MembershipRevisionConflict;
+
+export type OrganizationCommandFailure =
+  | OrganizationDecodeError
+  | OrganizationPersistenceError
+  | OrganizationRoleDenied
+  | OrganizationInvalidReference
+  | OrganizationCommandConflict;

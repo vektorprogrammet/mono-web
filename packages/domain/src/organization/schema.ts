@@ -26,6 +26,9 @@ export type DepartmentId = typeof DepartmentId.Type;
 export const TeamId = NonEmpty.pipe(Schema.brand("TeamId"));
 export type TeamId = typeof TeamId.Type;
 
+export const FieldOfStudyId = NonEmpty.pipe(Schema.brand("FieldOfStudyId"));
+export type FieldOfStudyId = typeof FieldOfStudyId.Type;
+
 export const MembershipId = NonEmpty.pipe(Schema.brand("MembershipId"));
 export type MembershipId = typeof MembershipId.Type;
 
@@ -107,7 +110,6 @@ export class Department extends Model.Class<Department>("Organization.Department
     insert: nullableText(255),
     update: nullableText(255),
     json: nullableText(255),
-    jsonCreate: nullableText(255),
     jsonUpdate: nullableText(255),
   }),
   logoPath: Model.Field({
@@ -115,7 +117,6 @@ export class Department extends Model.Class<Department>("Organization.Department
     insert: nullableText(255),
     update: nullableText(255),
     json: nullableText(255),
-    jsonCreate: nullableText(255),
     jsonUpdate: nullableText(255),
   }),
   active: Model.Field({
@@ -123,7 +124,6 @@ export class Department extends Model.Class<Department>("Organization.Department
     insert: BooleanValue,
     update: BooleanValue,
     json: BooleanValue,
-    jsonCreate: BooleanValue,
     jsonUpdate: BooleanValue,
   }),
   revision: Model.GeneratedByDb(Revision),
@@ -139,6 +139,7 @@ export class Team extends Model.Class<Team>("Organization.Team")({
     select: DepartmentId,
     insert: DepartmentId,
     json: DepartmentId,
+    jsonCreate: DepartmentId,
   }),
   name: Model.Field({
     select: text(250),
@@ -194,6 +195,44 @@ export class Team extends Model.Class<Team>("Organization.Team")({
     update: BooleanValue,
     json: BooleanValue,
     jsonCreate: BooleanValue,
+    jsonUpdate: BooleanValue,
+  }),
+  revision: Model.GeneratedByDb(Revision),
+}) {}
+
+export class FieldOfStudy extends Model.Class<FieldOfStudy>("Organization.FieldOfStudy")({
+  fieldOfStudyId: Model.Field({
+    select: FieldOfStudyId,
+    insert: FieldOfStudyId,
+    json: FieldOfStudyId,
+  }),
+  name: Model.Field({
+    select: text(250),
+    insert: text(250),
+    update: text(250),
+    json: text(250),
+    jsonCreate: text(250),
+    jsonUpdate: text(250),
+  }),
+  shortName: Model.Field({
+    select: text(50),
+    insert: text(50),
+    update: text(50),
+    json: text(50),
+    jsonCreate: text(50),
+    jsonUpdate: text(50),
+  }),
+  departmentId: Model.Field({
+    select: Schema.NullOr(DepartmentId),
+    insert: Schema.NullOr(DepartmentId),
+    json: Schema.NullOr(DepartmentId),
+    jsonCreate: Schema.NullOr(DepartmentId),
+  }),
+  active: Model.Field({
+    select: BooleanValue,
+    insert: BooleanValue,
+    update: BooleanValue,
+    json: BooleanValue,
     jsonUpdate: BooleanValue,
   }),
   revision: Model.GeneratedByDb(Revision),
@@ -272,6 +311,17 @@ export type TeamUpdate = typeof Team.update.Encoded;
 export type TeamJson = typeof Team.json.Type;
 export type TeamJsonCreate = typeof Team.jsonCreate.Type;
 export type TeamJsonUpdate = typeof Team.jsonUpdate.Type;
+
+export type FieldOfStudySelect = typeof FieldOfStudy.Encoded;
+export type FieldOfStudyInsert = typeof FieldOfStudy.insert.Encoded;
+export type FieldOfStudyUpdate = typeof FieldOfStudy.update.Encoded;
+export type FieldOfStudyJson = typeof FieldOfStudy.json.Type;
+export type FieldOfStudyJsonCreate = typeof FieldOfStudy.jsonCreate.Type;
+export type FieldOfStudyJsonUpdate = typeof FieldOfStudy.jsonUpdate.Type;
+
+export const DepartmentJsonSchema = Department.json;
+export const TeamJsonSchema = Team.json;
+export const FieldOfStudyJsonSchema = FieldOfStudy.json;
 
 export type MembershipSelect = typeof Membership.Encoded;
 export type MembershipInsert = typeof Membership.insert.Encoded;

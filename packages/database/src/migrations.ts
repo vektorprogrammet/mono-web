@@ -58,6 +58,10 @@ const recruitmentInvitationResponseMigrationUrl = new URL(
   "../migrations/0012-native-recruitment-invitation-response.sql",
   import.meta.url,
 );
+const organizationAdministrationMigrationUrl = new URL(
+  "../migrations/0013-native-organization-administration.sql",
+  import.meta.url,
+);
 
 export type ExecuteMigration = (
   source: string,
@@ -130,9 +134,14 @@ export const databaseMigrationLoader = (execute: ExecuteMigration) =>
       recruitmentInvitationResponseMigrationUrl,
       execute,
     ),
+    "13_native-organization-administration": migration(
+      "native-organization-administration",
+      organizationAdministrationMigrationUrl,
+      execute,
+    ),
   });
 
-export const databaseSchemaRevision = "12_native-recruitment-invitation-response";
+export const databaseSchemaRevision = "13_native-organization-administration";
 export const runDatabaseMigrations = (execute: ExecuteMigration) =>
   Migrator.make({})({
     loader: databaseMigrationLoader(execute),

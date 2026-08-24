@@ -1,5 +1,14 @@
 import { Context, Effect } from "effect";
 import type {
+  CreateDepartmentCommand,
+  CreateDepartmentResult,
+  CreateFieldOfStudyCommand,
+  CreateFieldOfStudyResult,
+  CreateTeamCommand,
+  CreateTeamResult,
+  OrganizationActor,
+} from "./administration-schema.js";
+import type {
   DepartmentNotFound,
   MembershipInvalidInterval,
   MembershipNotFound,
@@ -8,12 +17,22 @@ import type {
   OrganizationDecodeError,
   OrganizationImportError,
   OrganizationPersistenceError,
+  OrganizationCommandFailure,
   TeamNotFound,
 } from "./errors.js";
-import type { Department, DepartmentId, Membership, MembershipId, Team, TeamId } from "./schema.js";
+import type {
+  Department,
+  DepartmentId,
+  FieldOfStudy,
+  Membership,
+  MembershipId,
+  Team,
+  TeamId,
+} from "./schema.js";
 import type { LegacyOrganizationSnapshot, OrganizationImportResult } from "./import.js";
 import type { MembershipRevisionCommand } from "./transitions.js";
 
+export type OrganizationListFailure = OrganizationDecodeError | OrganizationPersistenceError;
 export type OrganizationReadError =
   | OrganizationDecodeError
   | OrganizationPersistenceError
@@ -33,14 +52,27 @@ export interface OrganizationShape {
   readonly readDepartment: (
     departmentId: DepartmentId,
   ) => Effect.Effect<Department, OrganizationReadError>;
-  readonly listDepartments: Effect.Effect<
-    ReadonlyArray<Department>,
-    OrganizationPersistenceError | OrganizationDecodeError
-  >;
+  readonly listDepartments: Effect.Effect<ReadonlyArray<Department>, OrganizationListFailure>;
   readonly readTeam: (teamId: TeamId) => Effect.Effect<Team, OrganizationReadError>;
   readonly listTeams: (
     departmentId?: DepartmentId,
-  ) => Effect.Effect<ReadonlyArray<Team>, OrganizationPersistenceError | OrganizationDecodeError>;
+  ) => Effect.Effect<ReadonlyArray<Team>, OrganizationListFailure>;
+  readonly listFieldOfStudies: Effect.Effect<
+    ReadonlyArray<FieldOfStudy>,
+    OrganizationListFailure
+  >;
+  readonly createDepartment: (
+    command: CreateDepartmentCommand,
+    actor: OrganizationActor,
+  ) => Effect.Effect<CreateDepartmentResult, OrganizationCommandFailure>;
+  readonly createTeam: (
+    command: CreateTeamCommand,
+    actor: OrganizationActor,
+  ) => Effect.Effect<CreateTeamResult, OrganizationCommandFailure>;
+  readonly createFieldOfStudy: (
+    command: CreateFieldOfStudyCommand,
+    actor: OrganizationActor,
+  ) => Effect.Effect<CreateFieldOfStudyResult, OrganizationCommandFailure>;
   readonly readMembership: (
     membershipId: MembershipId,
   ) => Effect.Effect<Membership, OrganizationReadError>;

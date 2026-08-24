@@ -23,7 +23,12 @@ import { importOrganizationSnapshot } from "../../domain/src/organization/postgr
 import { DepartmentId, PersonId, SemesterId } from "../../domain/src/organization/schema.js";
 import { Database } from "@vektorprogrammet/domain/database";
 import { AdmissionsLive } from "@vektorprogrammet/domain/admissions";
-import { OrganizationLive } from "@vektorprogrammet/domain/organization";
+import {
+  departmentIdForCommand,
+  Organization,
+  OrganizationCommandId,
+  OrganizationLive,
+} from "@vektorprogrammet/domain/organization";
 import { ProfileLive } from "@vektorprogrammet/domain/profile";
 import {
   deliverNextRecruitmentInvitation,
@@ -315,6 +320,9 @@ describe("DatabaseTest", () => {
               'organization_departments',
               'organization_teams',
               'organization_memberships',
+              'organization_field_of_studies',
+              'organization_command_receipts',
+              'organization_creation_audit',
               'person_profiles',
               'person_contact_profiles',
               'recruitment_interview_schemas',
@@ -340,7 +348,7 @@ describe("DatabaseTest", () => {
     );
 
     expect(evidence).toEqual({
-      revision: "12_native-recruitment-invitation-response",
+      revision: "13_native-organization-administration",
       migrations: [
         { migration_id: 1, name: "receipt-authority" },
         { migration_id: 2, name: "admission-period-authority" },
@@ -354,12 +362,16 @@ describe("DatabaseTest", () => {
         { migration_id: 10, name: "native-recruitment-applicant-assignment" },
         { migration_id: 11, name: "native-recruitment-interview-scheduling" },
         { migration_id: 12, name: "native-recruitment-invitation-response" },
+        { migration_id: 13, name: "native-organization-administration" },
       ],
       tables: [
         "admission_applications",
         "admission_periods",
         "economy_receipts",
+        "organization_command_receipts",
+        "organization_creation_audit",
         "organization_departments",
+        "organization_field_of_studies",
         "organization_memberships",
         "organization_teams",
         "person_contact_profiles",
@@ -3495,5 +3507,378 @@ describe("DatabaseTest", () => {
     }
 
     expect(releaseCount).toBe(1);
+  });
+
+  it("executes native Organization administration atomically against PGlite", async () => {
+    const evidence = await recruitmentRuntime.runPromise(
+      Effect.gen(function* () {
+        const database = yield* Database;
+        const organization = yield* Organization;
+        yield* database.migrate;
+        yield* database.migrate;
+
+        const administrator = {
+          _tag: "OrganizationAdministrator" as const,
+          personId: PersonId.make("organization-pglite-administrator"),
+        };
+        const member = {
+          _tag: "OrganizationMember" as const,
+          personId: PersonId.make("organization-pglite-member"),
+        };
+
+        const deniedCommand = {
+          _tag: "CreateDepartment" as const,
+          commandId: OrganizationCommandId.make("organization-pglite-denied-department"),
+          name: "Denied Department",
+          shortName: "DENY",
+          email: "denied@example.invalid",
+          address: null,
+          city: "Bergen",
+          latitude: null,
+          longitude: null,
+        };
+        const denied = yield* Effect.flip(
+          organization.createDepartment(deniedCommand, member),
+        );
+        const deniedRows = yield* database<{ readonly count: string }>`
+          SELECT (
+            (SELECT count(*) FROM organization_departments
+              WHERE native_creation_command_id = ${deniedCommand.commandId})
+            + (SELECT count(*) FROM organization_command_receipts
+              WHERE command_id = ${deniedCommand.commandId})
+            + (SELECT count(*) FROM organization_creation_audit
+              WHERE command_id = ${deniedCommand.commandId})
+          )::text AS count
+        `;
+
+        const departmentCommand = {
+          _tag: "CreateDepartment" as const,
+          commandId: OrganizationCommandId.make("organization-pglite-department"),
+          name: "PGlite Department",
+          shortName: "PGL",
+          email: "pglite-department@example.invalid",
+          address: "Test Street 1",
+          city: "Bergen",
+          latitude: "60.3913",
+          longitude: "5.3221",
+        };
+        const departmentCreated = yield* organization.createDepartment(
+          departmentCommand,
+          administrator,
+        );
+        const departmentReplayed = yield* organization.createDepartment(
+          departmentCommand,
+          administrator,
+        );
+        const departmentConflict = yield* Effect.flip(
+          organization.createDepartment(
+            { ...departmentCommand, name: "Changed PGlite Department" },
+            administrator,
+          ),
+        );
+        if (departmentCreated.observation._tag !== "DepartmentCreated") {
+          return yield* Effect.fail(new Error("expected DepartmentCreated"));
+        }
+        if (departmentReplayed.observation._tag !== "Replayed") {
+          return yield* Effect.fail(new Error("expected Department replay"));
+        }
+        expect(departmentReplayed.observation.original).toEqual(departmentCreated.observation);
+        const departmentId = departmentCreated.observation.department.departmentId;
+
+        const teamCommand = {
+          _tag: "CreateTeam" as const,
+          commandId: OrganizationCommandId.make("organization-pglite-team"),
+          departmentId,
+          name: "PGlite Team",
+          email: null,
+          description: "Native Organization team",
+          shortDescription: null,
+          acceptApplication: true,
+          deadline: "2036-09-20T10:00:00.000Z",
+          active: true,
+        };
+        const teamCreated = yield* organization.createTeam(teamCommand, administrator);
+        const teamReplayed = yield* organization.createTeam(teamCommand, administrator);
+        if (
+          teamCreated.observation._tag !== "TeamCreated" ||
+          teamReplayed.observation._tag !== "Replayed"
+        ) {
+          return yield* Effect.fail(new Error("expected Team create and replay"));
+        }
+        expect(teamReplayed.observation.original).toEqual(teamCreated.observation);
+
+        const fieldCommand = {
+          _tag: "CreateFieldOfStudy" as const,
+          commandId: OrganizationCommandId.make("organization-pglite-field"),
+          name: "Computer Science",
+          shortName: "CS",
+          departmentId: null,
+        };
+        const fieldCreated = yield* organization.createFieldOfStudy(
+          fieldCommand,
+          administrator,
+        );
+        const fieldReplayed = yield* organization.createFieldOfStudy(
+          fieldCommand,
+          administrator,
+        );
+        if (
+          fieldCreated.observation._tag !== "FieldOfStudyCreated" ||
+          fieldReplayed.observation._tag !== "Replayed"
+        ) {
+          return yield* Effect.fail(new Error("expected FieldOfStudy create and replay"));
+        }
+        expect(fieldReplayed.observation.original).toEqual(fieldCreated.observation);
+        const scopedFieldCommand = {
+          ...fieldCommand,
+          commandId: OrganizationCommandId.make("organization-pglite-scoped-field"),
+          name: "Department Computer Science",
+          shortName: "DCS",
+          departmentId,
+        };
+        const scopedFieldCreated = yield* organization.createFieldOfStudy(
+          scopedFieldCommand,
+          administrator,
+        );
+
+        const invalidTeamCommand = {
+          ...teamCommand,
+          commandId: OrganizationCommandId.make("organization-pglite-invalid-team"),
+          departmentId: DepartmentId.make("organization-pglite-unknown-department"),
+        };
+        const invalidReference = yield* Effect.flip(
+          organization.createTeam(invalidTeamCommand, administrator),
+        );
+        const invalidFieldCommand = {
+          ...fieldCommand,
+          commandId: OrganizationCommandId.make("organization-pglite-invalid-field"),
+          departmentId: DepartmentId.make("organization-pglite-unknown-field-department"),
+        };
+        const invalidFieldReference = yield* Effect.flip(
+          organization.createFieldOfStudy(invalidFieldCommand, administrator),
+        );
+        const invalidRows = yield* database<{ readonly count: string }>`
+          SELECT (
+            (SELECT count(*) FROM organization_teams
+              WHERE native_creation_command_id = ${invalidTeamCommand.commandId})
+            + (SELECT count(*) FROM organization_command_receipts
+              WHERE command_id = ${invalidTeamCommand.commandId})
+            + (SELECT count(*) FROM organization_creation_audit
+              WHERE command_id = ${invalidTeamCommand.commandId})
+            + (SELECT count(*) FROM organization_field_of_studies
+              WHERE native_creation_command_id = ${invalidFieldCommand.commandId})
+            + (SELECT count(*) FROM organization_command_receipts
+              WHERE command_id = ${invalidFieldCommand.commandId})
+            + (SELECT count(*) FROM organization_creation_audit
+              WHERE command_id = ${invalidFieldCommand.commandId})
+          )::text AS count
+        `;
+
+        const rollbackCommandId = OrganizationCommandId.make(
+          "organization-pglite-deferred-rollback",
+        );
+        const rollbackDepartmentId = departmentIdForCommand(rollbackCommandId);
+        const rollback = yield* Effect.exit(
+          database.withTransaction(
+            database`
+              INSERT INTO organization_departments (
+                department_id,
+                name,
+                short_name,
+                email,
+                city,
+                native_creation_command_id
+              ) VALUES (
+                ${rollbackDepartmentId},
+                'Rollback Department',
+                'ROLL',
+                'rollback@example.invalid',
+                'Bergen',
+                ${rollbackCommandId}
+              )
+            `,
+          ),
+        );
+        const rollbackRows = yield* database<{ readonly count: string }>`
+          SELECT count(*)::text AS count
+          FROM organization_departments
+          WHERE department_id = ${rollbackDepartmentId}
+        `;
+
+        yield* database`
+          INSERT INTO organization_departments (
+            department_id,
+            name,
+            short_name,
+            email,
+            city
+          ) VALUES (
+            'organization-pglite-imported-department',
+            'Imported Department',
+            'IMP',
+            'imported@example.invalid',
+            'Bergen'
+          )
+        `;
+        yield* database`
+          INSERT INTO organization_teams (team_id, department_id, name)
+          VALUES (
+            'organization-pglite-imported-team',
+            'organization-pglite-imported-department',
+            'Imported Team'
+          )
+        `;
+        const imported = yield* database<{
+          readonly departmentCommandId: string | null;
+          readonly teamCommandId: string | null;
+        }>`
+          SELECT
+            department.native_creation_command_id AS "departmentCommandId",
+            team.native_creation_command_id AS "teamCommandId"
+          FROM organization_departments AS department
+          INNER JOIN organization_teams AS team
+            ON team.department_id = department.department_id
+          WHERE department.department_id = 'organization-pglite-imported-department'
+            AND team.team_id = 'organization-pglite-imported-team'
+        `;
+
+        const linkage = yield* database<{
+          readonly receipts: string;
+          readonly audits: string;
+          readonly entities: string;
+          readonly exactLinks: string;
+        }>`
+          WITH accepted(command_id) AS (
+            VALUES
+              (${departmentCommand.commandId}::text),
+              (${teamCommand.commandId}::text),
+              (${fieldCommand.commandId}::text),
+              (${scopedFieldCommand.commandId}::text)
+          ),
+          linked AS (
+            SELECT
+              receipt.command_id,
+              receipt.entity_kind,
+              receipt.entity_id,
+              receipt.actor_person_id,
+              receipt.committed_at,
+              audit.command_id AS audit_command_id,
+              CASE receipt.entity_kind
+                WHEN 'Department' THEN department.native_creation_command_id
+                WHEN 'Team' THEN team.native_creation_command_id
+                WHEN 'FieldOfStudy' THEN field.native_creation_command_id
+              END AS entity_command_id
+            FROM accepted
+            INNER JOIN organization_command_receipts AS receipt
+              ON receipt.command_id = accepted.command_id
+            INNER JOIN organization_creation_audit AS audit
+              ON audit.command_id = receipt.command_id
+              AND audit.entity_kind = receipt.entity_kind
+              AND audit.entity_id = receipt.entity_id
+              AND audit.actor_person_id = receipt.actor_person_id
+              AND audit.occurred_at = receipt.committed_at
+            LEFT JOIN organization_departments AS department
+              ON receipt.entity_kind = 'Department'
+              AND department.department_id = receipt.entity_id
+            LEFT JOIN organization_teams AS team
+              ON receipt.entity_kind = 'Team'
+              AND team.team_id = receipt.entity_id
+            LEFT JOIN organization_field_of_studies AS field
+              ON receipt.entity_kind = 'FieldOfStudy'
+              AND field.field_of_study_id = receipt.entity_id
+          )
+          SELECT
+            (SELECT count(*)::text
+              FROM organization_command_receipts
+              INNER JOIN accepted USING (command_id)) AS receipts,
+            (SELECT count(*)::text
+              FROM organization_creation_audit
+              INNER JOIN accepted USING (command_id)) AS audits,
+            (SELECT count(*)::text FROM linked
+              WHERE entity_command_id = command_id) AS entities,
+            (SELECT count(*)::text FROM linked
+              WHERE audit_command_id = command_id
+                AND entity_command_id = command_id) AS "exactLinks"
+        `;
+
+        const departments = yield* organization.listDepartments;
+        const teams = yield* organization.listTeams();
+        const fields = yield* organization.listFieldOfStudies;
+
+        return {
+          schemaRevision: database.schemaRevision,
+          denied,
+          deniedRows: Number(deniedRows[0]?.count ?? "-1"),
+          departmentCreated,
+          departmentReplayed,
+          departmentConflict,
+          teamCreated,
+          teamReplayed,
+          fieldCreated,
+          fieldReplayed,
+          scopedFieldCreated,
+          invalidReference,
+          invalidFieldReference,
+          invalidRows: Number(invalidRows[0]?.count ?? "-1"),
+          rollbackTag: rollback._tag,
+          rollbackRows: Number(rollbackRows[0]?.count ?? "-1"),
+          imported: imported[0],
+          linkage: {
+            receipts: Number(linkage[0]?.receipts ?? "-1"),
+            audits: Number(linkage[0]?.audits ?? "-1"),
+            entities: Number(linkage[0]?.entities ?? "-1"),
+            exactLinks: Number(linkage[0]?.exactLinks ?? "-1"),
+          },
+          publicLists: {
+            departments: departments.some(
+              (department) => department.departmentId === departmentId,
+            ),
+            teams: teams.some(
+              (team) =>
+                teamCreated.observation._tag === "TeamCreated" &&
+                team.teamId === teamCreated.observation.team.teamId,
+            ),
+            fields: fields.some(
+              (field) =>
+                fieldCreated.observation._tag === "FieldOfStudyCreated" &&
+                field.fieldOfStudyId === fieldCreated.observation.fieldOfStudy.fieldOfStudyId,
+            ),
+          },
+        };
+      }),
+    );
+
+    expect(evidence.schemaRevision).toBe("13_native-organization-administration");
+    expect(evidence.denied._tag).toBe("OrganizationRoleDenied");
+    expect(evidence.deniedRows).toBe(0);
+    expect(evidence.departmentCreated.committed).toBe(true);
+    expect(evidence.departmentReplayed.committed).toBe(false);
+    expect(evidence.departmentReplayed.observation._tag).toBe("Replayed");
+    expect(evidence.departmentConflict._tag).toBe("OrganizationCommandConflict");
+    expect(evidence.teamCreated.committed).toBe(true);
+    expect(evidence.teamReplayed.committed).toBe(false);
+    expect(evidence.fieldCreated.committed).toBe(true);
+    expect(evidence.fieldReplayed.committed).toBe(false);
+    expect(evidence.scopedFieldCreated.committed).toBe(true);
+    expect(evidence.invalidReference._tag).toBe("OrganizationInvalidReference");
+    expect(evidence.invalidFieldReference._tag).toBe("OrganizationInvalidReference");
+    expect(evidence.invalidRows).toBe(0);
+    expect(evidence.rollbackTag).toBe("Failure");
+    expect(evidence.rollbackRows).toBe(0);
+    expect(evidence.imported).toEqual({
+      departmentCommandId: null,
+      teamCommandId: null,
+    });
+    expect(evidence.linkage).toEqual({
+      receipts: 4,
+      audits: 4,
+      entities: 4,
+      exactLinks: 4,
+    });
+    expect(evidence.publicLists).toEqual({
+      departments: true,
+      teams: true,
+      fields: true,
+    });
   });
 });
