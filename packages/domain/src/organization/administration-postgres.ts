@@ -120,28 +120,28 @@ const readDepartment = (
   sql: DatabaseShape,
   departmentId: DepartmentId,
 ): Effect.Effect<Department, OrganizationDecodeError | OrganizationPersistenceError> =>
-  sql<DepartmentSelect>`
-    SELECT
-      department_id AS "departmentId",
-      name,
-      short_name AS "shortName",
-      email,
-      address,
-      city,
-      latitude,
-      longitude,
-      slack_channel AS "slackChannel",
-      logo_path AS "logoPath",
-      active,
-      revision
-    FROM organization_departments
-    WHERE department_id = ${departmentId}
-  `.pipe(
-    Effect.flatMap((rows) =>
-      rows[0] === undefined
-        ? Effect.fail(persistenceError("read created Department"))
-        : decodeDepartment(rows[0]),
-    ),
+  Effect.gen(function* () {
+    const rows = yield* sql<DepartmentSelect>`
+      SELECT
+        department_id AS "departmentId",
+        name,
+        short_name AS "shortName",
+        email,
+        address,
+        city,
+        latitude,
+        longitude,
+        slack_channel AS "slackChannel",
+        logo_path AS "logoPath",
+        active,
+        revision
+      FROM organization_departments
+      WHERE department_id = ${departmentId}
+    `;
+    const row = rows[0];
+    if (row === undefined) return yield* persistenceError("read created Department");
+    return yield* decodeDepartment(row);
+  }).pipe(
     Effect.catchTag("SqlError", (cause) =>
       Effect.fail(persistenceError("read created Department", cause)),
     ),
@@ -151,26 +151,28 @@ const readTeam = (
   sql: DatabaseShape,
   teamId: TeamId,
 ): Effect.Effect<Team, OrganizationDecodeError | OrganizationPersistenceError> =>
-  sql<TeamSelect>`
-    SELECT
-      team_id AS "teamId",
-      department_id AS "departmentId",
-      name,
-      email,
-      description,
-      short_description AS "shortDescription",
-      accept_application AS "acceptApplication",
-      CASE WHEN deadline IS NULL THEN NULL
-        ELSE to_char(deadline AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
-      END AS deadline,
-      active,
-      revision
-    FROM organization_teams
-    WHERE team_id = ${teamId}
-  `.pipe(
-    Effect.flatMap((rows) =>
-      rows[0] === undefined ? Effect.fail(persistenceError("read created Team")) : decodeTeam(rows[0]),
-    ),
+  Effect.gen(function* () {
+    const rows = yield* sql<TeamSelect>`
+      SELECT
+        team_id AS "teamId",
+        department_id AS "departmentId",
+        name,
+        email,
+        description,
+        short_description AS "shortDescription",
+        accept_application AS "acceptApplication",
+        CASE WHEN deadline IS NULL THEN NULL
+          ELSE to_char(deadline AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+        END AS deadline,
+        active,
+        revision
+      FROM organization_teams
+      WHERE team_id = ${teamId}
+    `;
+    const row = rows[0];
+    if (row === undefined) return yield* persistenceError("read created Team");
+    return yield* decodeTeam(row);
+  }).pipe(
     Effect.catchTag("SqlError", (cause) =>
       Effect.fail(persistenceError("read created Team", cause)),
     ),
@@ -180,22 +182,22 @@ const readFieldOfStudy = (
   sql: DatabaseShape,
   fieldOfStudyId: FieldOfStudyId,
 ): Effect.Effect<FieldOfStudy, OrganizationDecodeError | OrganizationPersistenceError> =>
-  sql<FieldOfStudySelect>`
-    SELECT
-      field_of_study_id AS "fieldOfStudyId",
-      name,
-      short_name AS "shortName",
-      department_id AS "departmentId",
-      active,
-      revision
-    FROM organization_field_of_studies
-    WHERE field_of_study_id = ${fieldOfStudyId}
-  `.pipe(
-    Effect.flatMap((rows) =>
-      rows[0] === undefined
-        ? Effect.fail(persistenceError("read created FieldOfStudy"))
-        : decodeFieldOfStudy(rows[0]),
-    ),
+  Effect.gen(function* () {
+    const rows = yield* sql<FieldOfStudySelect>`
+      SELECT
+        field_of_study_id AS "fieldOfStudyId",
+        name,
+        short_name AS "shortName",
+        department_id AS "departmentId",
+        active,
+        revision
+      FROM organization_field_of_studies
+      WHERE field_of_study_id = ${fieldOfStudyId}
+    `;
+    const row = rows[0];
+    if (row === undefined) return yield* persistenceError("read created FieldOfStudy");
+    return yield* decodeFieldOfStudy(row);
+  }).pipe(
     Effect.catchTag("SqlError", (cause) =>
       Effect.fail(persistenceError("read created FieldOfStudy", cause)),
     ),
@@ -364,55 +366,55 @@ const insertDepartment = (
   command: CreateDepartmentCommand,
 ): Effect.Effect<Department, OrganizationDecodeError | OrganizationPersistenceError> => {
   const departmentId = departmentIdForCommand(command.commandId);
-  return sql<DepartmentSelect>`
-    INSERT INTO organization_departments (
-      department_id,
-      name,
-      short_name,
-      email,
-      address,
-      city,
-      latitude,
-      longitude,
-      slack_channel,
-      logo_path,
-      active,
-      revision,
-      native_creation_command_id
-    ) VALUES (
-      ${departmentId},
-      ${command.name},
-      ${command.shortName},
-      ${command.email},
-      ${command.address},
-      ${command.city},
-      ${command.latitude},
-      ${command.longitude},
-      NULL,
-      NULL,
-      TRUE,
-      0,
-      ${command.commandId}
-    )
-    RETURNING
-      department_id AS "departmentId",
-      name,
-      short_name AS "shortName",
-      email,
-      address,
-      city,
-      latitude,
-      longitude,
-      slack_channel AS "slackChannel",
-      logo_path AS "logoPath",
-      active,
-      revision
-  `.pipe(
-    Effect.flatMap((rows) =>
-      rows[0] === undefined
-        ? Effect.fail(persistenceError("insert Organization Department"))
-        : decodeDepartment(rows[0]),
-    ),
+  return Effect.gen(function* () {
+    const rows = yield* sql<DepartmentSelect>`
+      INSERT INTO organization_departments (
+        department_id,
+        name,
+        short_name,
+        email,
+        address,
+        city,
+        latitude,
+        longitude,
+        slack_channel,
+        logo_path,
+        active,
+        revision,
+        native_creation_command_id
+      ) VALUES (
+        ${departmentId},
+        ${command.name},
+        ${command.shortName},
+        ${command.email},
+        ${command.address},
+        ${command.city},
+        ${command.latitude},
+        ${command.longitude},
+        NULL,
+        NULL,
+        TRUE,
+        0,
+        ${command.commandId}
+      )
+      RETURNING
+        department_id AS "departmentId",
+        name,
+        short_name AS "shortName",
+        email,
+        address,
+        city,
+        latitude,
+        longitude,
+        slack_channel AS "slackChannel",
+        logo_path AS "logoPath",
+        active,
+        revision
+    `;
+    const row = rows[0];
+    if (row === undefined) return yield* persistenceError("insert Organization Department");
+    return yield* decodeDepartment(row);
+  }).pipe(
     Effect.catchTag("SqlError", (cause) =>
       Effect.fail(persistenceError("insert Organization Department", cause)),
     ),
@@ -424,51 +426,51 @@ const insertTeam = (
   command: CreateTeamCommand,
 ): Effect.Effect<Team, OrganizationDecodeError | OrganizationPersistenceError> => {
   const teamId = teamIdForCommand(command.commandId);
-  return sql<TeamSelect>`
-    INSERT INTO organization_teams (
-      team_id,
-      department_id,
-      name,
-      email,
-      description,
-      short_description,
-      accept_application,
-      deadline,
-      active,
-      revision,
-      native_creation_command_id
-    ) VALUES (
-      ${teamId},
-      ${command.departmentId},
-      ${command.name},
-      ${command.email},
-      ${command.description},
-      ${command.shortDescription},
-      ${command.acceptApplication},
-      ${command.deadline},
-      ${command.active},
-      0,
-      ${command.commandId}
-    )
-    RETURNING
-      team_id AS "teamId",
-      department_id AS "departmentId",
-      name,
-      email,
-      description,
-      short_description AS "shortDescription",
-      accept_application AS "acceptApplication",
-      CASE WHEN deadline IS NULL THEN NULL
-        ELSE to_char(deadline AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
-      END AS deadline,
-      active,
-      revision
-  `.pipe(
-    Effect.flatMap((rows) =>
-      rows[0] === undefined
-        ? Effect.fail(persistenceError("insert Organization Team"))
-        : decodeTeam(rows[0]),
-    ),
+  return Effect.gen(function* () {
+    const rows = yield* sql<TeamSelect>`
+      INSERT INTO organization_teams (
+        team_id,
+        department_id,
+        name,
+        email,
+        description,
+        short_description,
+        accept_application,
+        deadline,
+        active,
+        revision,
+        native_creation_command_id
+      ) VALUES (
+        ${teamId},
+        ${command.departmentId},
+        ${command.name},
+        ${command.email},
+        ${command.description},
+        ${command.shortDescription},
+        ${command.acceptApplication},
+        ${command.deadline},
+        ${command.active},
+        0,
+        ${command.commandId}
+      )
+      RETURNING
+        team_id AS "teamId",
+        department_id AS "departmentId",
+        name,
+        email,
+        description,
+        short_description AS "shortDescription",
+        accept_application AS "acceptApplication",
+        CASE WHEN deadline IS NULL THEN NULL
+          ELSE to_char(deadline AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+        END AS deadline,
+        active,
+        revision
+    `;
+    const row = rows[0];
+    if (row === undefined) return yield* persistenceError("insert Organization Team");
+    return yield* decodeTeam(row);
+  }).pipe(
     Effect.catchTag("SqlError", (cause) =>
       Effect.fail(persistenceError("insert Organization Team", cause)),
     ),
@@ -480,37 +482,37 @@ const insertFieldOfStudy = (
   command: CreateFieldOfStudyCommand,
 ): Effect.Effect<FieldOfStudy, OrganizationDecodeError | OrganizationPersistenceError> => {
   const fieldOfStudyId = fieldOfStudyIdForCommand(command.commandId);
-  return sql<FieldOfStudySelect>`
-    INSERT INTO organization_field_of_studies (
-      field_of_study_id,
-      name,
-      short_name,
-      department_id,
-      active,
-      revision,
-      native_creation_command_id
-    ) VALUES (
-      ${fieldOfStudyId},
-      ${command.name},
-      ${command.shortName},
-      ${command.departmentId},
-      TRUE,
-      0,
-      ${command.commandId}
-    )
-    RETURNING
-      field_of_study_id AS "fieldOfStudyId",
-      name,
-      short_name AS "shortName",
-      department_id AS "departmentId",
-      active,
-      revision
-  `.pipe(
-    Effect.flatMap((rows) =>
-      rows[0] === undefined
-        ? Effect.fail(persistenceError("insert Organization FieldOfStudy"))
-        : decodeFieldOfStudy(rows[0]),
-    ),
+  return Effect.gen(function* () {
+    const rows = yield* sql<FieldOfStudySelect>`
+      INSERT INTO organization_field_of_studies (
+        field_of_study_id,
+        name,
+        short_name,
+        department_id,
+        active,
+        revision,
+        native_creation_command_id
+      ) VALUES (
+        ${fieldOfStudyId},
+        ${command.name},
+        ${command.shortName},
+        ${command.departmentId},
+        TRUE,
+        0,
+        ${command.commandId}
+      )
+      RETURNING
+        field_of_study_id AS "fieldOfStudyId",
+        name,
+        short_name AS "shortName",
+        department_id AS "departmentId",
+        active,
+        revision
+    `;
+    const row = rows[0];
+    if (row === undefined) return yield* persistenceError("insert Organization FieldOfStudy");
+    return yield* decodeFieldOfStudy(row);
+  }).pipe(
     Effect.catchTag("SqlError", (cause) =>
       Effect.fail(persistenceError("insert Organization FieldOfStudy", cause)),
     ),

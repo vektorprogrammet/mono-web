@@ -1,7 +1,6 @@
 import { expect, it } from "@effect/vitest";
 import { Effect, Schema } from "effect";
 import {
-  CreateDepartmentCommandSchema,
   CreateFieldOfStudyCommandSchema,
   CreateTeamCommandSchema,
   OrganizationCommandId,
