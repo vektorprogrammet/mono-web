@@ -349,7 +349,7 @@ export const RecruitmentInvitationResponseObservationSchema = Schema.Union([
   Schema.Struct({
     ...RecruitmentInvitationResponseObservationFields,
     responseState: Schema.Literals(["Pending", "Accepted"]),
-    responseMessage: Schema.Literal(null),
+    responseMessage: Schema.Null,
   }),
   Schema.Struct({
     ...RecruitmentInvitationResponseObservationFields,
@@ -383,7 +383,7 @@ export const RecruitmentInvitationResponseResultSchema = Schema.Union([
   Schema.Struct({
     ...RecruitmentInvitationResponseResultFields,
     responseState: Schema.Literals(["Accepted"]),
-    responseMessage: Schema.Literal(null),
+    responseMessage: Schema.Null,
     notificationState: Schema.Literals(["NotRequired"]),
   }),
   Schema.Struct({
@@ -512,13 +512,13 @@ const RecruitmentSchedulingInterviewFields = {
 export const RecruitmentSchedulingInterviewSchema = Schema.Union([
   Schema.Struct({
     ...RecruitmentSchedulingInterviewFields,
-    responseState: Schema.Literal(null),
-    responseMessage: Schema.Literal(null),
+    responseState: Schema.Null,
+    responseMessage: Schema.Null,
   }),
   Schema.Struct({
     ...RecruitmentSchedulingInterviewFields,
     responseState: Schema.Literals(["Pending", "Accepted"]),
-    responseMessage: Schema.Literal(null),
+    responseMessage: Schema.Null,
   }),
   Schema.Struct({
     ...RecruitmentSchedulingInterviewFields,
