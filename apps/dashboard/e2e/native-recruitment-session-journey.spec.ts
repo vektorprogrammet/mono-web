@@ -49,14 +49,15 @@ test.describe("Native recruitment assignment journey (spec 0049)", () => {
     await expect(page.getByRole("heading", { level: 1, name: "Søkere" })).toBeVisible();
 
     // 3. The Foldkit board renders the seeded unassigned applicant.
-    const applicantRow = page.getByRole("row").filter({ hasText: applicantName });
+    const applicantRow = page
+      .getByRole("row")
+      .filter({ hasText: applicantName })
+      .filter({ hasText: "Ikke tildelt" });
     await expect(applicantRow).toBeVisible();
-    await expect(applicantRow).toContainText("Ikke tildelt");
 
     // 4. Select the Nye søkere filter; the unassigned candidate stays visible.
     await page.getByRole("button", { name: "Nye søkere" }).click();
     await expect(applicantRow).toBeVisible();
-    await expect(applicantRow).toContainText("Ikke tildelt");
 
     // 5. Open the unassigned applicant dialog.
     await applicantRow.getByRole("button", { name: `Tildel intervju til ${applicantName}` }).click();
@@ -70,16 +71,25 @@ test.describe("Native recruitment assignment journey (spec 0049)", () => {
       .selectOption({ label: schemaOptionLabel });
     await dialog.getByRole("button", { name: "Tildel intervju", exact: true }).click();
 
-    // 7. Success feedback, dialog closed, fresh board shows NoContact + interviewer.
+    // 7. Success feedback, dialog closed, and the fresh post-command board read
+    // replaces the board model. Under the Nye søkere filter the newly assigned
+    // candidate legitimately leaves the filtered board, so the refreshed row is
+    // verified on the Alle søkere view.
     await expect(page.getByRole("status").filter({ hasText: "Intervjuet er tildelt." })).toBeVisible();
     await expect(page.getByRole("dialog")).toHaveCount(0);
-    await expect(applicantRow).toContainText("Ikke kontaktet");
-    await expect(applicantRow).toContainText(interviewerName);
+    await page.getByRole("button", { name: "Alle søkere" }).click();
+    const assignedRow = page
+      .getByRole("row")
+      .filter({ hasText: applicantName })
+      .filter({ hasText: "Ikke kontaktet" });
+    await expect(assignedRow).toContainText(interviewerName);
 
     // 8. Only the fresh post-command board read may replace the board model.
+    // True operation tail: the command, exactly one fresh post-command board
+    // read replacing the model, then the Alle søkere re-read above.
     expect(bridgeOperations.slice(-3)).toEqual([
-      "readAssignmentBoard",
       "assignApplicant",
+      "readAssignmentBoard",
       "readAssignmentBoard",
     ]);
   });
