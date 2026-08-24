@@ -232,22 +232,24 @@ const readOwnProfileWith = (
       ON contact.person_id = profile.person_id
     WHERE profile.person_id = ${personId}
   `.pipe(
-    Effect.flatMap((rows) => {
-      const row = rows[0];
-      if (row === undefined) return Effect.fail(new ProfileNotFound({ personId }));
-      if (row.contactPersonId === null) {
-        return Effect.fail(new ProfileContactNotFound({ personId }));
-      }
-      return decodeOwnProfileValue({
-        personId: row.personId,
-        firstName: row.firstName,
-        lastName: row.lastName,
-        email: row.email,
-        phone: row.phone,
-        nameRevision: row.nameRevision,
-        contactRevision: row.contactRevision,
-      });
-    }),
+    Effect.flatMap((rows) =>
+      Effect.gen(function* () {
+        const row = rows[0];
+        if (row === undefined) return yield* new ProfileNotFound({ personId });
+        if (row.contactPersonId === null) {
+          return yield* new ProfileContactNotFound({ personId });
+        }
+        return yield* decodeOwnProfileValue({
+          personId: row.personId,
+          firstName: row.firstName,
+          lastName: row.lastName,
+          email: row.email,
+          phone: row.phone,
+          nameRevision: row.nameRevision,
+          contactRevision: row.contactRevision,
+        });
+      }),
+    ),
     Effect.catchTag("SqlError", (cause) =>
       Effect.fail(persistenceError("read own Profile", cause)),
     ),
@@ -358,9 +360,13 @@ const updatePersonProfile = (
       revision
   `.pipe(
     Effect.flatMap((rows) =>
-      rows[0] === undefined
-        ? Effect.fail(persistenceError("update locked own Profile name row"))
-        : decodeProfile(rows[0]),
+      Effect.gen(function* () {
+        const row = rows[0];
+        if (row === undefined) {
+          return yield* persistenceError("update locked own Profile name row");
+        }
+        return yield* decodeProfile(row);
+      }),
     ),
     Effect.catchTag("SqlError", (cause) =>
       Effect.fail(persistenceError("update own Profile name row", cause)),
@@ -387,9 +393,13 @@ const updatePersonContact = (
       revision
   `.pipe(
     Effect.flatMap((rows) =>
-      rows[0] === undefined
-        ? Effect.fail(persistenceError("update locked own Profile contact row"))
-        : decodeContact(rows[0]),
+      Effect.gen(function* () {
+        const row = rows[0];
+        if (row === undefined) {
+          return yield* persistenceError("update locked own Profile contact row");
+        }
+        return yield* decodeContact(row);
+      }),
     ),
     Effect.catchTag("SqlError", (cause) =>
       Effect.fail(persistenceError("update own Profile contact row", cause)),
