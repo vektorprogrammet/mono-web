@@ -1458,6 +1458,259 @@ describe("DatabaseTest", () => {
     );
   });
 
+  it("replays message confinement and rolls back every capability-shaped response surface", async () => {
+    const evidence = await recruitmentRuntime.runPromise(
+      Effect.gen(function* () {
+        const database = yield* Database;
+        const recruitment = yield* Recruitment;
+        yield* database`
+          DELETE FROM vektorprogrammet_schema_migrations
+          WHERE migration_id = 12
+        `;
+        yield* database.migrate;
+        const [replayedMigration] = yield* database<{ readonly count: string }>`
+          SELECT count(*)::text AS count
+          FROM vektorprogrammet_schema_migrations
+          WHERE migration_id = 12
+        `;
+
+        const fixture = yield* seedSchedulingFixture("response-message-confinement");
+        yield* recruitment.scheduleInterview(fixture.command, {
+          actor: fixture.actor,
+          now: fixture.now,
+          invitationId: fixture.invitationId,
+          responseCapability: fixture.responseCapability,
+        });
+        const responseInstant = "2031-09-15T12:03:00.000Z";
+        const ordinaryMessage = "Cannot attend the proposed time.";
+        const capabilitySequence = "C".repeat(43);
+        const embeddedCapabilitySequence = `Do not persist (${capabilitySequence}) here`;
+        const outboxEffectId = `recruitment-invitation-response:${fixture.invitationId}:1`;
+        const before = yield* database<{
+          readonly responseState: string;
+          readonly responseMessage: string | null;
+          readonly responseRevision: number;
+          readonly audits: string;
+          readonly outbox: string;
+        }>`
+          SELECT
+            invitation.response_state AS "responseState",
+            invitation.response_message AS "responseMessage",
+            invitation.response_revision AS "responseRevision",
+            (
+              SELECT count(*)::text
+              FROM recruitment_invitation_response_audit
+              WHERE invitation_id = invitation.invitation_id
+            ) AS audits,
+            (
+              SELECT count(*)::text
+              FROM recruitment_invitation_response_outbox
+              WHERE invitation_id = invitation.invitation_id
+            ) AS outbox
+          FROM recruitment_invitations AS invitation
+          WHERE invitation.invitation_id = ${fixture.invitationId}
+        `;
+        const stageRejectedInvitation = (message: string) => database`
+          UPDATE recruitment_invitations
+          SET response_state = 'Rejected',
+            response_message = ${message},
+            responded_at = ${responseInstant},
+            response_revision = 1
+          WHERE invitation_id = ${fixture.invitationId}
+        `;
+        const insertAudit = (message: string) => database`
+          INSERT INTO recruitment_invitation_response_audit (
+            invitation_id,
+            interview_id,
+            schedule_revision,
+            response_revision,
+            response_state,
+            response_message,
+            responded_at
+          ) VALUES (
+            ${fixture.invitationId},
+            ${fixture.interviewId},
+            1,
+            1,
+            'Rejected',
+            ${message},
+            ${responseInstant}
+          )
+        `;
+        const invitationMessage = yield* Effect.result(
+          database.withTransaction(
+            Effect.gen(function* () {
+              yield* stageRejectedInvitation(capabilitySequence);
+              return yield* Effect.fail("InvitationMessageConfinementMissing");
+            }),
+          ),
+        );
+        const auditMessage = yield* Effect.result(
+          database.withTransaction(
+            Effect.gen(function* () {
+              yield* stageRejectedInvitation(ordinaryMessage);
+              yield* insertAudit(embeddedCapabilitySequence);
+              return yield* Effect.fail("AuditMessageConfinementMissing");
+            }),
+          ),
+        );
+        const outboxMessage = yield* Effect.result(
+          database.withTransaction(
+            Effect.gen(function* () {
+              yield* stageRejectedInvitation(ordinaryMessage);
+              yield* insertAudit(ordinaryMessage);
+              yield* database`
+                INSERT INTO recruitment_invitation_response_outbox (
+                  effect_id,
+                  effect_type,
+                  invitation_id,
+                  interview_id,
+                  schedule_revision,
+                  response_revision,
+                  response_state,
+                  response_message,
+                  ordinal,
+                  payload_json
+                ) VALUES (
+                  ${outboxEffectId},
+                  'SendInterviewInvitationResponse',
+                  ${fixture.invitationId},
+                  ${fixture.interviewId},
+                  1,
+                  1,
+                  'Rejected',
+                  ${capabilitySequence},
+                  0,
+                  '{}'::jsonb
+                )
+              `;
+              return yield* Effect.fail("OutboxMessageConfinementMissing");
+            }),
+          ),
+        );
+        const outboxPayload = yield* Effect.result(
+          database.withTransaction(
+            Effect.gen(function* () {
+              yield* stageRejectedInvitation(ordinaryMessage);
+              yield* insertAudit(ordinaryMessage);
+              yield* database`
+                INSERT INTO recruitment_invitation_response_outbox (
+                  effect_id,
+                  effect_type,
+                  invitation_id,
+                  interview_id,
+                  schedule_revision,
+                  response_revision,
+                  response_state,
+                  response_message,
+                  ordinal,
+                  payload_json
+                ) VALUES (
+                  ${outboxEffectId},
+                  'SendInterviewInvitationResponse',
+                  ${fixture.invitationId},
+                  ${fixture.interviewId},
+                  1,
+                  1,
+                  'Rejected',
+                  ${ordinaryMessage},
+                  0,
+                  jsonb_build_object('note', ${embeddedCapabilitySequence})
+                )
+              `;
+              return yield* Effect.fail("OutboxPayloadConfinementMissing");
+            }),
+          ),
+        );
+        const afterCounterexamples = yield* database<{
+          readonly responseState: string;
+          readonly responseMessage: string | null;
+          readonly responseRevision: number;
+          readonly audits: string;
+          readonly outbox: string;
+        }>`
+          SELECT
+            invitation.response_state AS "responseState",
+            invitation.response_message AS "responseMessage",
+            invitation.response_revision AS "responseRevision",
+            (
+              SELECT count(*)::text
+              FROM recruitment_invitation_response_audit
+              WHERE invitation_id = invitation.invitation_id
+            ) AS audits,
+            (
+              SELECT count(*)::text
+              FROM recruitment_invitation_response_outbox
+              WHERE invitation_id = invitation.invitation_id
+            ) AS outbox
+          FROM recruitment_invitations AS invitation
+          WHERE invitation.invitation_id = ${fixture.invitationId}
+        `;
+
+        const validNearbyMessage = "V".repeat(42);
+        const validResult = yield* recruitment.rejectInvitation(
+          RecruitmentInvitationCapabilitySchema.make(fixture.responseCapability),
+          { message: validNearbyMessage },
+          { now: responseInstant },
+        );
+        const validRows = yield* database<{
+          readonly invitationMessage: string | null;
+          readonly auditMessage: string | null;
+          readonly outboxMessage: string | null;
+          readonly payloadMessage: string | null;
+        }>`
+          SELECT
+            invitation.response_message AS "invitationMessage",
+            audit.response_message AS "auditMessage",
+            outbox.response_message AS "outboxMessage",
+            outbox.payload_json ->> 'responseMessage' AS "payloadMessage"
+          FROM recruitment_invitations AS invitation
+          INNER JOIN recruitment_invitation_response_audit AS audit
+            ON audit.invitation_id = invitation.invitation_id
+          INNER JOIN recruitment_invitation_response_outbox AS outbox
+            ON outbox.invitation_id = invitation.invitation_id
+          WHERE invitation.invitation_id = ${fixture.invitationId}
+        `;
+        return {
+          replayedMigration,
+          counterexamples: [invitationMessage, auditMessage, outboxMessage, outboxPayload],
+          before,
+          afterCounterexamples,
+          validNearbyMessage,
+          validResult,
+          validRows,
+        };
+      }),
+    );
+
+    expect(evidence.replayedMigration).toEqual({ count: "1" });
+    for (const counterexample of evidence.counterexamples) {
+      expect(counterexample._tag).toBe("Failure");
+      if (counterexample._tag === "Failure") {
+        expect(counterexample.failure).toMatchObject({ _tag: "SqlError" });
+      }
+    }
+    expect(evidence.afterCounterexamples).toEqual(evidence.before);
+    expect(evidence.before).toEqual([
+      {
+        responseState: "Pending",
+        responseMessage: null,
+        responseRevision: 0,
+        audits: "0",
+        outbox: "0",
+      },
+    ]);
+    expect(evidence.validResult.responseMessage).toBe(evidence.validNearbyMessage);
+    expect(evidence.validRows).toEqual([
+      {
+        invitationMessage: evidence.validNearbyMessage,
+        auditMessage: evidence.validNearbyMessage,
+        outboxMessage: evidence.validNearbyMessage,
+        payloadMessage: evidence.validNearbyMessage,
+      },
+    ]);
+  });
+
   it("rejects relationally incomplete invitation response commits", async () => {
     const evidence = await recruitmentRuntime.runPromise(
       Effect.gen(function* () {

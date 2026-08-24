@@ -59,6 +59,12 @@ describe("native Recruitment invitation response SDK", () => {
         RecruitmentInvitationResponseMessageSchema,
       )("  Please use another time  "),
     ).toBe("Please use another time");
+    const validNearbyMessage = "B".repeat(42);
+    expect(
+      Schema.decodeUnknownSync(
+        RecruitmentInvitationResponseMessageSchema,
+      )(`  ${validNearbyMessage}  `),
+    ).toBe(validNearbyMessage);
     expect(() =>
       Schema.decodeUnknownSync(
         RecruitmentInvitationCapabilitySchema,
@@ -79,6 +85,16 @@ describe("native Recruitment invitation response SDK", () => {
         RecruitmentInvitationResponseMessageSchema,
       )("x".repeat(2_001)),
     ).toThrow();
+    for (const message of [
+      capabilityValue,
+      `Do not store (${capabilityValue}) in this response`,
+    ]) {
+      expect(() =>
+        Schema.decodeUnknownSync(
+          RecruitmentInvitationResponseMessageSchema,
+        )(message),
+      ).toThrow();
+    }
     expect(
       Schema.decodeUnknownSync(
         RecruitmentInvitationRejectInputSchema,
@@ -120,6 +136,21 @@ describe("native Recruitment invitation response SDK", () => {
         { onExcessProperty: "error" },
       ),
     ).toThrow();
+    for (const message of [
+      capabilityValue,
+      `Please use another time (${capabilityValue})`,
+    ]) {
+      expect(() =>
+        Schema.decodeUnknownSync(
+          RecruitmentInvitationRejectInputSchema,
+        )({ message }, { onExcessProperty: "error" }),
+      ).toThrow();
+      expect(() =>
+        Schema.decodeUnknownSync(
+          RecruitmentInvitationRequestNewTimeInputSchema,
+        )({ message }, { onExcessProperty: "error" }),
+      ).toThrow();
+    }
     expect(() =>
       Schema.decodeUnknownSync(
         RecruitmentInvitationResponseObservationSchema,
@@ -284,6 +315,17 @@ describe("native Recruitment invitation response SDK", () => {
         message: "x".repeat(2_001),
       }),
     ).rejects.toBeInstanceOf(RecruitmentDecodeSdkError);
+    for (const message of [
+      capabilityValue,
+      `Please reschedule (${capabilityValue})`,
+    ]) {
+      await expect(
+        client.recruitmentInvitationResponses.reject(capability, { message }),
+      ).rejects.toBeInstanceOf(RecruitmentDecodeSdkError);
+      await expect(
+        client.recruitmentInvitationResponses.requestNewTime(capability, { message }),
+      ).rejects.toBeInstanceOf(RecruitmentDecodeSdkError);
+    }
     expect(fetchMock).not.toHaveBeenCalled();
   });
 

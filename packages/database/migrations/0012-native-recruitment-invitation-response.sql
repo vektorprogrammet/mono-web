@@ -19,6 +19,7 @@ ALTER TABLE recruitment_invitations
       response_message = btrim(response_message)
       AND response_message <> ''
       AND char_length(response_message) <= 2000
+      AND response_message !~ '[A-Za-z0-9_-]{43}'
     )
   ),
   ADD CONSTRAINT recruitment_invitations_response_consistency CHECK (
@@ -94,6 +95,7 @@ CREATE TABLE IF NOT EXISTS recruitment_invitation_response_audit (
       response_message = btrim(response_message)
       AND response_message <> ''
       AND char_length(response_message) <= 2000
+      AND response_message !~ '[A-Za-z0-9_-]{43}'
     )
   ),
   CONSTRAINT recruitment_invitation_response_audit_link_unique
@@ -153,6 +155,7 @@ CREATE TABLE IF NOT EXISTS recruitment_invitation_response_outbox (
           response_message = btrim(response_message)
           AND response_message <> ''
           AND char_length(response_message) <= 2000
+          AND response_message !~ '[A-Za-z0-9_-]{43}'
         )
       )
     )
@@ -162,6 +165,7 @@ CREATE TABLE IF NOT EXISTS recruitment_invitation_response_outbox (
       AND response_message = btrim(response_message)
       AND response_message <> ''
       AND char_length(response_message) <= 2000
+      AND response_message !~ '[A-Za-z0-9_-]{43}'
     )
   ),
   CONSTRAINT recruitment_invitation_response_outbox_payload_object CHECK (
@@ -169,6 +173,9 @@ CREATE TABLE IF NOT EXISTS recruitment_invitation_response_outbox (
   ),
   CONSTRAINT recruitment_invitation_response_outbox_payload_capability_absent CHECK (
     NOT (payload_json ?| ARRAY['responseCapability', 'capability', 'capabilitySha256'])
+  ),
+  CONSTRAINT recruitment_invitation_response_outbox_payload_confinement CHECK (
+    payload_json::text !~ '[A-Za-z0-9_-]{43}'
   ),
   CONSTRAINT recruitment_invitation_response_outbox_invitation_unique UNIQUE (invitation_id),
   CONSTRAINT recruitment_invitation_response_outbox_claim_check CHECK (
@@ -191,6 +198,49 @@ CREATE TABLE IF NOT EXISTS recruitment_invitation_response_outbox (
       response_state
     )
 );
+
+ALTER TABLE recruitment_invitation_response_audit
+  DROP CONSTRAINT IF EXISTS recruitment_invitation_response_audit_message_value;
+
+ALTER TABLE recruitment_invitation_response_audit
+  ADD CONSTRAINT recruitment_invitation_response_audit_message_value CHECK (
+    response_message IS NULL OR (
+      response_message = btrim(response_message)
+      AND response_message <> ''
+      AND char_length(response_message) <= 2000
+      AND response_message !~ '[A-Za-z0-9_-]{43}'
+    )
+  );
+
+ALTER TABLE recruitment_invitation_response_outbox
+  DROP CONSTRAINT IF EXISTS recruitment_invitation_response_outbox_message,
+  DROP CONSTRAINT IF EXISTS recruitment_invitation_response_outbox_payload_confinement;
+
+ALTER TABLE recruitment_invitation_response_outbox
+  ADD CONSTRAINT recruitment_invitation_response_outbox_message CHECK (
+    (
+      response_state = 'Rejected'
+      AND (
+        response_message IS NULL OR (
+          response_message = btrim(response_message)
+          AND response_message <> ''
+          AND char_length(response_message) <= 2000
+          AND response_message !~ '[A-Za-z0-9_-]{43}'
+        )
+      )
+    )
+    OR (
+      response_state = 'RequestedNewTime'
+      AND response_message IS NOT NULL
+      AND response_message = btrim(response_message)
+      AND response_message <> ''
+      AND char_length(response_message) <= 2000
+      AND response_message !~ '[A-Za-z0-9_-]{43}'
+    )
+  ),
+  ADD CONSTRAINT recruitment_invitation_response_outbox_payload_confinement CHECK (
+    payload_json::text !~ '[A-Za-z0-9_-]{43}'
+  );
 
 CREATE UNIQUE INDEX IF NOT EXISTS recruitment_invitation_response_outbox_active_claim_unique
   ON recruitment_invitation_response_outbox (claim_id)

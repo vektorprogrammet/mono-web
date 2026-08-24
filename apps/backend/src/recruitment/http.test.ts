@@ -231,6 +231,112 @@ describe("native recruitment HTTP boundary", () => {
     ]);
   });
 
+  it("confines capability-shaped response messages before Recruitment", async () => {
+    const { backend: publicBackend, calls } = makePublicBackend();
+    const send = (path: string, message: string): Promise<Response> =>
+      publicBackend.fetch(
+        new Request(`http://backend.test${path}`, {
+          method: "POST",
+          headers: {
+            ...invitationHeaders,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({ message }),
+        }),
+      );
+    const capabilitySequence = "Z".repeat(43);
+    const invalidResponses = await Promise.all([
+      send("/api/recruitment/invitation-response/reject", capabilitySequence),
+      send(
+        "/api/recruitment/invitation-response/reject",
+        `Cannot attend (${capabilitySequence})`,
+      ),
+      send("/api/recruitment/invitation-response/request-new-time", capabilitySequence),
+      send(
+        "/api/recruitment/invitation-response/request-new-time",
+        `Please reschedule (${capabilitySequence})`,
+      ),
+    ]);
+
+    for (const response of invalidResponses) {
+      expect({
+        status: response.status,
+        body: await response.json(),
+      }).toEqual({
+        status: 422,
+        body: { error: { tag: "RecruitmentDecodeError" } },
+      });
+    }
+    expect(calls).toEqual([]);
+
+    const validNearbyMessage = "B".repeat(42);
+    const rejectNearby = await send(
+      "/api/recruitment/invitation-response/reject",
+      validNearbyMessage,
+    );
+    const rejectOrdinary = await send(
+      "/api/recruitment/invitation-response/reject",
+      "Cannot attend this time.",
+    );
+    const rejectBlank = await send("/api/recruitment/invitation-response/reject", "   ");
+    const requestNearby = await send(
+      "/api/recruitment/invitation-response/request-new-time",
+      validNearbyMessage,
+    );
+    const requestOrdinary = await send(
+      "/api/recruitment/invitation-response/request-new-time",
+      "Could we meet Thursday?",
+    );
+    for (const response of [
+      rejectNearby,
+      rejectOrdinary,
+      rejectBlank,
+      requestNearby,
+      requestOrdinary,
+    ]) {
+      expect(response.status).toBe(204);
+      expect(await response.text()).toBe("");
+    }
+    expect(calls).toEqual([
+      {
+        operation: "rejectInvitation",
+        arguments: [
+          invitationCapability,
+          { message: validNearbyMessage },
+          { now: "2031-09-15T12:00:00.000Z" },
+        ],
+      },
+      {
+        operation: "rejectInvitation",
+        arguments: [
+          invitationCapability,
+          { message: "Cannot attend this time." },
+          { now: "2031-09-15T12:00:00.000Z" },
+        ],
+      },
+      {
+        operation: "rejectInvitation",
+        arguments: [invitationCapability, {}, { now: "2031-09-15T12:00:00.000Z" }],
+      },
+      {
+        operation: "requestNewInvitationTime",
+        arguments: [
+          invitationCapability,
+          { message: validNearbyMessage },
+          { now: "2031-09-15T12:00:00.000Z" },
+        ],
+      },
+      {
+        operation: "requestNewInvitationTime",
+        arguments: [
+          invitationCapability,
+          { message: "Could we meet Thursday?" },
+          { now: "2031-09-15T12:00:00.000Z" },
+        ],
+      },
+    ]);
+  });
+
   it("strictly rejects malformed public headers, queries, and bodies before Recruitment", async () => {
     const { backend: publicBackend, calls } = makePublicBackend();
     const publicRequest = (path: string, init?: RequestInit): Promise<Response> =>

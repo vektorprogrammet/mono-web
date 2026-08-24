@@ -70,25 +70,40 @@ it.effect("decodes only exact invitation capabilities and every response state",
   }),
 );
 
-it.effect("trims non-empty response messages and rejects blank or oversized values", () =>
-  Effect.gen(function* () {
-    expect(
-      yield* Schema.decodeUnknownEffect(RecruitmentInvitationResponseMessageSchema)(
-        "  Please offer another time.  ",
-      ),
-    ).toBe("Please offer another time.");
-    for (const invalid of ["   ", "x".repeat(2_001)]) {
+it.effect(
+  "normalizes response messages while confining exact and embedded capability sequences",
+  () =>
+    Effect.gen(function* () {
+      const capabilitySequence = "A".repeat(43);
+      const validNearbyMessage = "B".repeat(42);
       expect(
-        yield* Effect.flip(
-          Schema.decodeUnknownEffect(RecruitmentInvitationResponseMessageSchema)(invalid),
+        yield* Schema.decodeUnknownEffect(RecruitmentInvitationResponseMessageSchema)(
+          "  Please offer another time.  ",
         ),
-      ).toBeDefined();
-    }
-  }),
+      ).toBe("Please offer another time.");
+      expect(
+        yield* Schema.decodeUnknownEffect(RecruitmentInvitationResponseMessageSchema)(
+          `  ${validNearbyMessage}  `,
+        ),
+      ).toBe(validNearbyMessage);
+      for (const invalid of [
+        "   ",
+        "x".repeat(2_001),
+        capabilitySequence,
+        `Do not store (${capabilitySequence}) in this message`,
+      ]) {
+        expect(
+          yield* Effect.flip(
+            Schema.decodeUnknownEffect(RecruitmentInvitationResponseMessageSchema)(invalid),
+          ),
+        ).toBeDefined();
+      }
+    }),
 );
 
 it.effect("normalizes optional rejection messages without weakening new-time messages", () =>
   Effect.gen(function* () {
+    const capabilitySequence = "A".repeat(43);
     expect(
       yield* Schema.decodeUnknownEffect(RecruitmentInvitationRejectInputSchema)(
         {},
@@ -115,6 +130,27 @@ it.effect("normalizes optional rejection messages without weakening new-time mes
         ),
       ),
     ).toBeDefined();
+    for (const message of [
+      capabilitySequence,
+      `Please use another time (${capabilitySequence})`,
+    ]) {
+      expect(
+        yield* Effect.flip(
+          Schema.decodeUnknownEffect(RecruitmentInvitationRejectInputSchema)(
+            { message },
+            { onExcessProperty: "error" },
+          ),
+        ),
+      ).toBeDefined();
+      expect(
+        yield* Effect.flip(
+          Schema.decodeUnknownEffect(RecruitmentInvitationRequestNewTimeInputSchema)(
+            { message },
+            { onExcessProperty: "error" },
+          ),
+        ),
+      ).toBeDefined();
+    }
   }),
 );
 

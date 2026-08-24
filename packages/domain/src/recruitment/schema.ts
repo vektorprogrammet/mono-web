@@ -258,12 +258,16 @@ export const RecruitmentInvitationResponseStateSchema = Schema.Literals([
 export type RecruitmentInvitationResponseState =
   typeof RecruitmentInvitationResponseStateSchema.Type;
 
+const RecruitmentInvitationCapabilitySequencePattern = /[A-Za-z0-9_-]{43}/u;
 const TrimmedRecruitmentInvitationResponseMessageSchema = Schema.String.pipe(
   Schema.check(
     Schema.makeFilter((value) => value.length > 0 && value === value.trim(), {
       message: "a trimmed non-empty invitation response message",
     }),
     Schema.isMaxLength(2_000),
+    Schema.makeFilter((value) => !RecruitmentInvitationCapabilitySequencePattern.test(value), {
+      message: "an invitation response message without a 43-character base64url sequence",
+    }),
   ),
 );
 export const RecruitmentInvitationResponseMessageSchema = Schema.String.pipe(

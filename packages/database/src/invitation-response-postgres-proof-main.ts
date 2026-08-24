@@ -31,15 +31,17 @@ const cohort = {
   leaderPersonId: "invitation-response-pg-proof-leader",
   interviewerPersonId: "invitation-response-pg-proof-interviewer",
   interviewSchemaId: "invitation-response-pg-proof-schema",
-  raceInterviewId: "invitation-response-pg-proof-interview-race",
-  deliveryInterviewId: "invitation-response-pg-proof-interview-delivery",
-  raceInvitationId: "invitation-response-pg-proof-invitation-race",
-  deliveryInvitationId: "invitation-response-pg-proof-invitation-delivery",
+  raceInterviewId: "inv-response-pg-proof-interview-race",
+  deliveryInterviewId: "inv-response-pg-proof-interview-delivery",
+  raceInvitationId: "inv-response-pg-proof-invitation-race",
+  deliveryInvitationId: "inv-response-pg-proof-invitation-delivery",
 } as const;
 
 const raceCapability = "R".repeat(43);
 const deliveryCapability = "D".repeat(43);
 const responseInstant = "2035-09-15T12:03:00.000Z";
+const capabilityShapedMessage = "C".repeat(43);
+const validNearbyMessage = "V".repeat(42);
 
 const makeProofLayer = (url: Redacted.Redacted<string>, applicationName: string) => {
   const databaseLayer = DatabaseLive({
@@ -359,6 +361,199 @@ const contender = (
     return { action, pid: connection?.pid ?? -1, outcome };
   });
 
+const proveMessageConfinement = (sql: DatabaseShape) =>
+  Effect.gen(function* () {
+    const ordinaryMessage = "Cannot attend the proposed time.";
+    const embeddedCapabilitySequence = `Do not persist (${capabilityShapedMessage}) here`;
+    const outboxEffectId = `recruitment-invitation-response:${cohort.raceInvitationId}:1`;
+    const [migration] = yield* sql<{ readonly count: string }>`
+      SELECT count(*)::text AS count
+      FROM vektorprogrammet_schema_migrations
+      WHERE migration_id = 12
+    `;
+    const before = yield* sql<{
+      readonly responseState: string;
+      readonly responseMessage: string | null;
+      readonly responseRevision: number;
+      readonly audits: string;
+      readonly outbox: string;
+    }>`
+      SELECT
+        invitation.response_state AS "responseState",
+        invitation.response_message AS "responseMessage",
+        invitation.response_revision AS "responseRevision",
+        (
+          SELECT count(*)::text
+          FROM recruitment_invitation_response_audit
+          WHERE invitation_id = invitation.invitation_id
+        ) AS audits,
+        (
+          SELECT count(*)::text
+          FROM recruitment_invitation_response_outbox
+          WHERE invitation_id = invitation.invitation_id
+        ) AS outbox
+      FROM recruitment_invitations AS invitation
+      WHERE invitation.invitation_id = ${cohort.raceInvitationId}
+    `;
+    const stageRejectedInvitation = (message: string) => sql`
+      UPDATE recruitment_invitations
+      SET response_state = 'Rejected',
+        response_message = ${message},
+        responded_at = ${responseInstant},
+        response_revision = 1
+      WHERE invitation_id = ${cohort.raceInvitationId}
+    `;
+    const insertAudit = (message: string) => sql`
+      INSERT INTO recruitment_invitation_response_audit (
+        invitation_id,
+        interview_id,
+        schedule_revision,
+        response_revision,
+        response_state,
+        response_message,
+        responded_at
+      ) VALUES (
+        ${cohort.raceInvitationId},
+        ${cohort.raceInterviewId},
+        1,
+        1,
+        'Rejected',
+        ${message},
+        ${responseInstant}
+      )
+    `;
+    const invitationMessage = yield* Effect.result(
+      sql.withTransaction(
+        Effect.gen(function* () {
+          yield* stageRejectedInvitation(capabilityShapedMessage);
+          return yield* Effect.fail("InvitationMessageConfinementMissing");
+        }),
+      ),
+    );
+    const auditMessage = yield* Effect.result(
+      sql.withTransaction(
+        Effect.gen(function* () {
+          yield* stageRejectedInvitation(ordinaryMessage);
+          yield* insertAudit(embeddedCapabilitySequence);
+          return yield* Effect.fail("AuditMessageConfinementMissing");
+        }),
+      ),
+    );
+    const outboxMessage = yield* Effect.result(
+      sql.withTransaction(
+        Effect.gen(function* () {
+          yield* stageRejectedInvitation(ordinaryMessage);
+          yield* insertAudit(ordinaryMessage);
+          yield* sql`
+            INSERT INTO recruitment_invitation_response_outbox (
+              effect_id,
+              effect_type,
+              invitation_id,
+              interview_id,
+              schedule_revision,
+              response_revision,
+              response_state,
+              response_message,
+              ordinal,
+              payload_json
+            ) VALUES (
+              ${outboxEffectId},
+              'SendInterviewInvitationResponse',
+              ${cohort.raceInvitationId},
+              ${cohort.raceInterviewId},
+              1,
+              1,
+              'Rejected',
+              ${capabilityShapedMessage},
+              0,
+              '{}'::jsonb
+            )
+          `;
+          return yield* Effect.fail("OutboxMessageConfinementMissing");
+        }),
+      ),
+    );
+    const outboxPayload = yield* Effect.result(
+      sql.withTransaction(
+        Effect.gen(function* () {
+          yield* stageRejectedInvitation(ordinaryMessage);
+          yield* insertAudit(ordinaryMessage);
+          yield* sql`
+            INSERT INTO recruitment_invitation_response_outbox (
+              effect_id,
+              effect_type,
+              invitation_id,
+              interview_id,
+              schedule_revision,
+              response_revision,
+              response_state,
+              response_message,
+              ordinal,
+              payload_json
+            ) VALUES (
+              ${outboxEffectId},
+              'SendInterviewInvitationResponse',
+              ${cohort.raceInvitationId},
+              ${cohort.raceInterviewId},
+              1,
+              1,
+              'Rejected',
+              ${ordinaryMessage},
+              0,
+              jsonb_build_object('note', ${embeddedCapabilitySequence})
+            )
+          `;
+          return yield* Effect.fail("OutboxPayloadConfinementMissing");
+        }),
+      ),
+    );
+    const after = yield* sql<{
+      readonly responseState: string;
+      readonly responseMessage: string | null;
+      readonly responseRevision: number;
+      readonly audits: string;
+      readonly outbox: string;
+    }>`
+      SELECT
+        invitation.response_state AS "responseState",
+        invitation.response_message AS "responseMessage",
+        invitation.response_revision AS "responseRevision",
+        (
+          SELECT count(*)::text
+          FROM recruitment_invitation_response_audit
+          WHERE invitation_id = invitation.invitation_id
+        ) AS audits,
+        (
+          SELECT count(*)::text
+          FROM recruitment_invitation_response_outbox
+          WHERE invitation_id = invitation.invitation_id
+        ) AS outbox
+      FROM recruitment_invitations AS invitation
+      WHERE invitation.invitation_id = ${cohort.raceInvitationId}
+    `;
+    const constraintRejections = [
+      invitationMessage,
+      auditMessage,
+      outboxMessage,
+      outboxPayload,
+    ].map(
+      (result) =>
+        result._tag === "Failure" &&
+        typeof result.failure === "object" &&
+        result.failure !== null &&
+        "_tag" in result.failure &&
+        result.failure._tag === "SqlError",
+    );
+    return {
+      migrationReplayed: migration?.count === "1",
+      invitationMessageRejected: constraintRejections[0] === true,
+      auditMessageRejected: constraintRejections[1] === true,
+      outboxMessageRejected: constraintRejections[2] === true,
+      outboxPayloadRejected: constraintRejections[3] === true,
+      rollbackPreserved: canonicalJson(before) === canonicalJson(after),
+    };
+  });
+
 const proof = (databaseUrl: Redacted.Redacted<string>) =>
   Effect.gen(function* () {
     const setupLayer = makeProofLayer(databaseUrl, "recruitment-invitation-response-proof-setup");
@@ -366,8 +561,22 @@ const proof = (databaseUrl: Redacted.Redacted<string>) =>
       const sql = yield* Database;
       assert.equal(sql.schemaRevision, "12_native-recruitment-invitation-response");
       yield* resetCohort(sql);
+      yield* sql`
+        DELETE FROM vektorprogrammet_schema_migrations
+        WHERE migration_id = 12
+      `;
+      yield* sql.migrate;
       yield* seedCohort(sql);
     }).pipe(Effect.provide(setupLayer));
+
+    const messageConfinement = yield* Effect.gen(function* () {
+      const sql = yield* Database;
+      return yield* proveMessageConfinement(sql);
+    }).pipe(
+      Effect.provide(
+        makeProofLayer(databaseUrl, "recruitment-invitation-response-proof-confinement"),
+      ),
+    );
 
     const rollbackResult = yield* Effect.gen(function* () {
       const sql = yield* Database;
@@ -494,9 +703,23 @@ const proof = (databaseUrl: Redacted.Redacted<string>) =>
 
       const deliveryRecorded = yield* recruitment.rejectInvitation(
         RecruitmentInvitationCapabilitySchema.make(deliveryCapability),
-        { message: "Cannot attend the proposed time." },
+        { message: validNearbyMessage },
         { now: "2035-09-15T12:04:00.000Z" },
       );
+      const [validNearby] = yield* sql<{ readonly stored: boolean }>`
+        SELECT
+          invitation.response_message = ${validNearbyMessage}
+          AND audit.response_message = ${validNearbyMessage}
+          AND outbox.response_message = ${validNearbyMessage}
+          AND (outbox.payload_json ->> 'responseMessage') = ${validNearbyMessage}
+            AS stored
+        FROM recruitment_invitations AS invitation
+        INNER JOIN recruitment_invitation_response_audit AS audit
+          ON audit.invitation_id = invitation.invitation_id
+        INNER JOIN recruitment_invitation_response_outbox AS outbox
+          ON outbox.invitation_id = invitation.invitation_id
+        WHERE invitation.invitation_id = ${cohort.deliveryInvitationId}
+      `;
       const failedDelivery = yield* deliverNextRecruitmentInvitationResponse(
         "invitation-response-proof-failed-claim",
         "2035-09-15T12:05:00.000Z",
@@ -560,6 +783,7 @@ const proof = (databaseUrl: Redacted.Redacted<string>) =>
         raceRow,
         invalidRelationalWrite,
         deliveryRecorded,
+        validNearbyMessageStored: validNearby?.stored === true,
         failedDelivery,
         afterFailure,
         recoveredDelivery,
@@ -598,6 +822,10 @@ const proof = (databaseUrl: Redacted.Redacted<string>) =>
       relationalConstraint: {
         invalidResponseRejected: durable.invalidRelationalWrite._tag === "Failure",
       },
+      messageConfinement: {
+        ...messageConfinement,
+        validNearbyMessageStored: durable.validNearbyMessageStored,
+      },
       deliveryIsolation: {
         responseCommittedBeforeDelivery: durable.deliveryRecorded.responseState === "Rejected",
         failedDeliveryObserved: durable.failedDelivery._tag === "Failed",
@@ -626,6 +854,15 @@ const proof = (databaseUrl: Redacted.Redacted<string>) =>
     assert.equal(evidence.rollback.forcedRollbackObserved, true);
     assert.equal(evidence.rollback.rowLockReleased, true);
     assert.equal(evidence.relationalConstraint.invalidResponseRejected, true);
+    assert.deepEqual(evidence.messageConfinement, {
+      migrationReplayed: true,
+      invitationMessageRejected: true,
+      auditMessageRejected: true,
+      outboxMessageRejected: true,
+      outboxPayloadRejected: true,
+      rollbackPreserved: true,
+      validNearbyMessageStored: true,
+    });
     assert.deepEqual(evidence.deliveryIsolation, {
       responseCommittedBeforeDelivery: true,
       failedDeliveryObserved: true,
@@ -647,6 +884,7 @@ const program = Effect.gen(function* () {
   const canonicalEvidence = canonicalJson(evidence);
   assert.equal(canonicalEvidence.includes(raceCapability), false);
   assert.equal(canonicalEvidence.includes(deliveryCapability), false);
+  assert.equal(canonicalEvidence.includes(capabilityShapedMessage), false);
   const evidenceSha256 = sha256Hex(canonicalJsonBytes(evidence));
   yield* Effect.sync(() =>
     process.stdout.write(`${canonicalJson({ ...evidence, evidenceSha256 })}\n`),
