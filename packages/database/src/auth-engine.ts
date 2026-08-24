@@ -18,16 +18,22 @@ export interface AuthEngineConfig {
   readonly baseURL: string
 }
 
-export const makeAuthEngine = (config: AuthEngineConfig) =>
+export const makeAuthPool = (config: AuthEngineConfig) =>
+  new Pool({
+    connectionString: config.postgresUrl,
+    options: "-c search_path=auth",
+    max: 4,
+    application_name: "vektorprogrammet-auth",
+  })
+
+export const makeAuthEngine = (
+  config: AuthEngineConfig,
+  database: Pool = makeAuthPool(config),
+) =>
   betterAuth({
     secret: config.secret,
     baseURL: config.baseURL,
-    database: new Pool({
-      connectionString: config.postgresUrl,
-      options: "-c search_path=auth",
-      max: 4,
-      application_name: "vektorprogrammet-auth",
-    }),
+    database,
     emailAndPassword: {
       enabled: true,
       minPasswordLength: 12,
