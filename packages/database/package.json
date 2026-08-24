@@ -18,8 +18,11 @@
   },
   "dependencies": {
     "@effect/sql-pg": "catalog:effect-v4",
+    "@types/pg": "^8.23.1",
     "@vektorprogrammet/domain": "workspace:*",
-    "effect": "catalog:effect-v4"
+    "better-auth": "^1.7.1",
+    "effect": "catalog:effect-v4",
+    "pg": "8"
   },
   "devDependencies": {
     "@effect/sql-pglite": "catalog:effect-v4",
