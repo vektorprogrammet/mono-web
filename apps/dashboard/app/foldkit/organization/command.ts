@@ -24,67 +24,61 @@ export const makeOrganizationCatalogCommands = (
       catalogKind: OrganizationCatalogKind,
       requestId: OrganizationCatalogRequestId,
     },
-    messages: [
-      SucceededTeamCatalog,
-      SucceededFieldOfStudyCatalog,
-      FailedOrganizationCatalog,
-    ],
+    messages: [SucceededTeamCatalog, SucceededFieldOfStudyCatalog, FailedOrganizationCatalog],
     execute: ({ catalogKind, requestId }) => {
-      const load =
-        catalogKind === "Team"
-          ? Effect.all(
-              [
-                client.public.organization.listDepartments(),
-                client.public.organization.listTeams(),
-              ] as const,
-              { concurrency: 2 },
-            ).pipe(
-              Effect.map(([freshDepartments, freshTeams]) =>
-                SucceededTeamCatalog({
-                  requestId,
-                  catalogKind,
-                  snapshot: {
-                    _tag: "Team",
-                    departments: freshDepartments,
-                    records: freshTeams,
-                  },
-                }),
-              ),
-            )
-          : Effect.all(
-              [
-                client.public.organization.listDepartments(),
-                client.public.organization.listFieldOfStudies(),
-              ] as const,
-              { concurrency: 2 },
-            ).pipe(
-              Effect.map(([freshDepartments, freshFields]) =>
-                SucceededFieldOfStudyCatalog({
-                  requestId,
-                  catalogKind,
-                  snapshot: {
-                    _tag: "FieldOfStudy",
-                    departments: freshDepartments,
-                    records: freshFields,
-                  },
-                }),
-              ),
-            );
+      const failure = () =>
+        Effect.succeed(
+          FailedOrganizationCatalog({
+            requestId,
+            catalogKind,
+            message:
+              catalogKind === "Team"
+                ? "Teamoversikten kunne ikke hentes. Prøv på nytt."
+                : "Studieretningene kunne ikke hentes. Prøv på nytt.",
+          }),
+        );
 
-      return load.pipe(
-        Effect.catch(() =>
-          Effect.succeed(
-            FailedOrganizationCatalog({
-              requestId,
-              catalogKind,
-              message:
-                catalogKind === "Team"
-                  ? "Teamoversikten kunne ikke hentes. Prøv på nytt."
-                  : "Studieretningene kunne ikke hentes. Prøv på nytt.",
-            }),
-          ),
-        ),
-      );
+      return catalogKind === "Team"
+        ? Effect.all(
+            [
+              client.public.organization.listDepartments(),
+              client.public.organization.listTeams(),
+            ] as const,
+            { concurrency: 2 },
+          ).pipe(
+            Effect.map(([freshDepartments, freshTeams]) =>
+              SucceededTeamCatalog({
+                requestId,
+                catalogKind,
+                snapshot: {
+                  _tag: "Team",
+                  departments: freshDepartments,
+                  records: freshTeams,
+                },
+              }),
+            ),
+            Effect.catch(failure),
+          )
+        : Effect.all(
+            [
+              client.public.organization.listDepartments(),
+              client.public.organization.listFieldOfStudies(),
+            ] as const,
+            { concurrency: 2 },
+          ).pipe(
+            Effect.map(([freshDepartments, freshFields]) =>
+              SucceededFieldOfStudyCatalog({
+                requestId,
+                catalogKind,
+                snapshot: {
+                  _tag: "FieldOfStudy",
+                  departments: freshDepartments,
+                  records: freshFields,
+                },
+              }),
+            ),
+            Effect.catch(failure),
+          );
     },
   });
 

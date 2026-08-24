@@ -45,9 +45,7 @@ const descendants = (node: RenderedNode): ReadonlyArray<RenderedNode> => [
 ];
 
 const textContent = (node: RenderedNode): string =>
-  node.children
-    .map((child) => (typeof child === "string" ? child : textContent(child)))
-    .join("");
+  node.children.map((child) => (typeof child === "string" ? child : textContent(child))).join("");
 
 const hasAttribute = (node: RenderedNode, name: string, value: unknown): boolean =>
   node.attributes.some(
@@ -61,8 +59,8 @@ const department = S.decodeUnknownSync(DepartmentJsonSchema)({
   email: "trondheim@example.invalid",
   address: "Høgskoleringen 1",
   city: "Trondheim",
-  latitude: 63.418,
-  longitude: 10.402,
+  latitude: "63.418",
+  longitude: "10.402",
   slackChannel: null,
   logoPath: null,
   active: true,
@@ -126,11 +124,9 @@ const assertAccessibleTable = (
   expect(tableNodes.some((node) => node.tag === "caption" && textContent(node) === caption)).toBe(
     true,
   );
-  expect(
-    tableNodes.some(
-      (node) => node.tag === "th" && hasAttribute(node, "Scope", "col"),
-    ),
-  ).toBe(true);
+  expect(tableNodes.some((node) => node.tag === "th" && hasAttribute(node, "Scope", "col"))).toBe(
+    true,
+  );
   expect(
     tableNodes.some(
       (node) =>

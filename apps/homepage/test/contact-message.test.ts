@@ -1,22 +1,27 @@
-import type { DepartmentJson } from "@vektorprogrammet/sdk";
+import { DepartmentJsonSchema, type DepartmentJson } from "@vektorprogrammet/sdk";
+import { Schema } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { contactDepartmentSlug, type ContactFormValues } from "../src/lib/contact-message";
 import { loadContactPage, submitContactMessage } from "../src/lib/contact-message.server";
 
-const department = {
-  departmentId: "department-17",
-  name: "Vektorprogrammet Ås",
-  shortName: "Ås",
-  email: "aas@example.com",
-  address: "Universitetsveien 1",
-  city: "Ås",
-  latitude: "59.66",
-  longitude: "10.77",
-  slackChannel: null,
-  logoPath: null,
-  active: true,
-  revision: 0,
-} as const satisfies DepartmentJson;
+const makeDepartment = (overrides: Record<string, unknown> = {}): DepartmentJson =>
+  Schema.decodeUnknownSync(DepartmentJsonSchema)({
+    departmentId: "department-17",
+    name: "Vektorprogrammet Ås",
+    shortName: "Ås",
+    email: "aas@example.com",
+    address: "Universitetsveien 1",
+    city: "Ås",
+    latitude: "59.66",
+    longitude: "10.77",
+    slackChannel: null,
+    logoPath: null,
+    active: true,
+    revision: 0,
+    ...overrides,
+  });
+
+const department = makeDepartment();
 
 const departmentsResponse = (members: readonly DepartmentJson[] = [department]) =>
   new Response(JSON.stringify(members), {
@@ -78,19 +83,16 @@ describe("homepage contact-message boundary", () => {
     vi.stubEnv("API_URL", "http://api.test");
     vi.stubGlobal(
       "fetch",
-      vi
-        .fn()
-        .mockResolvedValue(
-          departmentsResponse([
-            department,
-            {
-              ...department,
-              departmentId: "department-18",
-              name: "Vektorprogrammet Aas",
-              shortName: "Aas",
-            },
-          ]),
-        ),
+      vi.fn().mockResolvedValue(
+        departmentsResponse([
+          department,
+          makeDepartment({
+            departmentId: "department-18",
+            name: "Vektorprogrammet Aas",
+            shortName: "Aas",
+          }),
+        ]),
+      ),
     );
 
     await expect(loadContactPage("aas")).rejects.toMatchObject({ status: 503 });

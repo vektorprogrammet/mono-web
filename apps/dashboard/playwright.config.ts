@@ -23,6 +23,7 @@ const realReceiptOwnerMode = process.env.REAL_RECEIPT_OWNER_E2E === "1";
 const realAdmissionPeriodMode = process.env.REAL_ADMISSION_PERIOD_E2E === "1";
 const realNativeSchedulingMode = process.env.REAL_NATIVE_SCHEDULING_E2E === "1";
 const realNativeInvitationResponseMode = process.env.REAL_NATIVE_INVITATION_RESPONSE_E2E === "1";
+const realNativeOrganizationMode = process.env.REAL_NATIVE_ORGANIZATION_E2E === "1";
 const realSymfonyMode =
   realSymfonyCoreMode ||
   realSymfonyRecruitmentMode ||
@@ -35,7 +36,8 @@ const externalTopologyMode =
   realReceiptOwnerMode ||
   realAdmissionPeriodMode ||
   realNativeSchedulingMode ||
-  realNativeInvitationResponseMode;
+  realNativeInvitationResponseMode ||
+  realNativeOrganizationMode;
 
 const fixtureServer = {
   command: "node e2e/fixtures/login-api.mjs",
@@ -71,7 +73,8 @@ export default defineConfig({
       realReceiptOwnerMode ||
       realAdmissionPeriodMode ||
       realNativeSchedulingMode ||
-      realNativeInvitationResponseMode
+      realNativeInvitationResponseMode ||
+      realNativeOrganizationMode
         ? externalDashboardOrigin
         : realSymfonyCoreMode
           ? realSymfonyCoreOrigin

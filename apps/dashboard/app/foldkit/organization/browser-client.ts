@@ -8,9 +8,9 @@ import { apiUrl, createEffectClient } from "@vektorprogrammet/sdk/effect";
 import type { Effect } from "effect";
 
 export interface OrganizationCatalogOperations {
-  readonly listDepartments: () => Effect.Effect<DepartmentJson[], InternalSdkError>;
-  readonly listTeams: () => Effect.Effect<TeamJson[], InternalSdkError>;
-  readonly listFieldOfStudies: () => Effect.Effect<FieldOfStudyJson[], InternalSdkError>;
+  readonly listDepartments: () => Effect.Effect<readonly DepartmentJson[], InternalSdkError>;
+  readonly listTeams: () => Effect.Effect<readonly TeamJson[], InternalSdkError>;
+  readonly listFieldOfStudies: () => Effect.Effect<readonly FieldOfStudyJson[], InternalSdkError>;
 }
 
 export interface OrganizationCatalogClient {

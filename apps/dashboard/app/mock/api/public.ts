@@ -1,9 +1,4 @@
-import type { FieldOfStudy, Sponsor, Team } from "@vektorprogrammet/sdk";
-
-export const fixtureFieldOfStudies: ReadonlyArray<FieldOfStudy> = [
-  { id: 1, name: "Matematikk" },
-  { id: 2, name: "Informatikk" },
-];
+import type { Sponsor } from "@vektorprogrammet/sdk";
 
 export const fixtureSponsors: ReadonlyArray<Sponsor> = [
   {
@@ -12,9 +7,4 @@ export const fixtureSponsors: ReadonlyArray<Sponsor> = [
     logoUrl: null,
     url: "https://example.invalid/partner",
   },
-];
-
-export const fixtureTeams: ReadonlyArray<Team> = [
-  { id: 1, name: "Rekruttering" },
-  { id: 2, name: "IT" },
 ];

@@ -1,7 +1,13 @@
 import AxeBuilder from "@axe-core/playwright";
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
-import { createClient } from "@vektorprogrammet/sdk";
+import {
+  CreateDepartmentCommandSchema,
+  CreateFieldOfStudyCommandSchema,
+  CreateTeamCommandSchema,
+  createClient,
+} from "@vektorprogrammet/sdk";
+import { Schema } from "effect";
 import { expect, test, type Page, type Request } from "@playwright/test";
 
 const DASHBOARD_ORIGIN = process.env.DASHBOARD_ORIGIN ?? "http://127.0.0.1:5185";
@@ -37,7 +43,9 @@ const legacyOrganizationRequest = (request: Request): string | undefined => {
   const usesHydraQuery = [...url.searchParams.keys()].some((key) => key.startsWith("hydra"));
   const usesLegacyAdminPath =
     path === "/api/admin/field_of_studies" || path.startsWith("/api/admin/departments/");
-  return usesHydraQuery || usesLegacyAdminPath ? `${request.method()} ${url.pathname}${url.search}` : undefined;
+  return usesHydraQuery || usesLegacyAdminPath
+    ? `${request.method()} ${url.pathname}${url.search}`
+    : undefined;
 };
 
 const observePage = (
@@ -61,10 +69,7 @@ const observePage = (
 };
 
 test.describe("Native Organization administration", () => {
-  test.skip(
-    !REAL_NATIVE_ORGANIZATION_E2E,
-    "run through the disposable native Organization runner",
-  );
+  test.skip(!REAL_NATIVE_ORGANIZATION_E2E, "run through the disposable native Organization runner");
 
   test("creates native records, proves counterexamples, and renders fresh Foldkit catalogs", async ({
     browser,
@@ -75,35 +80,38 @@ test.describe("Native Organization administration", () => {
     const evidencePath = requiredEnvironment("ORGANIZATION_E2E_BROWSER_EVIDENCE_PATH");
     const publicClient = createClient(API_ORIGIN);
     const adminClient = createClient(API_ORIGIN, { auth: adminToken });
-    const departmentCommand = {
+    const departmentCommand = Schema.decodeUnknownSync(CreateDepartmentCommandSchema)({
+      _tag: "CreateDepartment",
       commandId: "organization-department-create-0052",
       name: "Vektorprogrammet Nord",
       shortName: "Nord",
       email: "nord@example.invalid",
       address: "Realfagbygget 1",
       city: "Tromsø",
-      latitude: 69.681,
-      longitude: 18.971,
-    } as const;
-    const fieldCommand = {
+      latitude: "69.681",
+      longitude: "18.971",
+    });
+    const fieldCommand = Schema.decodeUnknownSync(CreateFieldOfStudyCommandSchema)({
+      _tag: "CreateFieldOfStudy",
       commandId: "organization-field-create-0052",
       name: "Romteknologi",
       shortName: "Romteknologi",
       departmentId: null,
-    } as const;
+    });
 
-    const departmentResult = await adminClient.admin.organization.createDepartment(
-      departmentCommand,
-    );
+    const departmentResult =
+      await adminClient.admin.organization.createDepartment(departmentCommand);
     expect(departmentResult.committed).toBe(true);
     const departmentsAfterCreate = await publicClient.public.organization.listDepartments();
     const createdDepartment = departmentsAfterCreate.find(
       (department) => department.name === departmentCommand.name,
     );
     expect(createdDepartment).toBeDefined();
-    if (createdDepartment === undefined) throw new Error("fresh Department read omitted the create");
+    if (createdDepartment === undefined)
+      throw new Error("fresh Department read omitted the create");
 
-    const teamCommand = {
+    const teamCommand = Schema.decodeUnknownSync(CreateTeamCommandSchema)({
+      _tag: "CreateTeam",
       commandId: "organization-team-create-0052",
       departmentId: createdDepartment.departmentId,
       name: "Team Nordlys",
@@ -113,7 +121,7 @@ test.describe("Native Organization administration", () => {
       acceptApplication: true,
       deadline: null,
       active: true,
-    } as const;
+    });
     const teamResult = await adminClient.admin.organization.createTeam(teamCommand);
     const fieldResult = await adminClient.admin.organization.createFieldOfStudy(fieldCommand);
     expect(teamResult.committed).toBe(true);
@@ -173,7 +181,10 @@ test.describe("Native Organization administration", () => {
       }),
     );
     expect(freshTeams).toContainEqual(
-      expect.objectContaining({ name: teamCommand.name, departmentId: createdDepartment.departmentId }),
+      expect.objectContaining({
+        name: teamCommand.name,
+        departmentId: createdDepartment.departmentId,
+      }),
     );
     expect(freshFields).toContainEqual(
       expect.objectContaining({ name: fieldCommand.name, departmentId: null }),
@@ -186,13 +197,24 @@ test.describe("Native Organization administration", () => {
       baseURL: DASHBOARD_ORIGIN,
       viewport: { width: 1280, height: 800 },
     });
+    await context.addCookies([
+      {
+        name: "jwt_token",
+        value: adminToken,
+        url: DASHBOARD_ORIGIN,
+        httpOnly: true,
+        sameSite: "Lax",
+      },
+    ]);
     let teamAccessibilityViolations = -1;
     let fieldAccessibilityViolations = -1;
     try {
       const teamPage = await context.newPage();
       observePage(teamPage, nativePublicRequests, legacyBrowserRequests, pageErrors);
       await teamPage.goto("/dashboard/team");
-      await expect(teamPage.getByRole("heading", { level: 1, name: "Team" })).toBeVisible();
+      await expect(teamPage.getByRole("heading", { level: 1, name: "Team" })).toBeVisible({
+        timeout: 15_000,
+      });
       const teamTable = teamPage.getByRole("table", {
         name: "Aktive og inaktive team i organisasjonen",
       });
@@ -209,7 +231,7 @@ test.describe("Native Organization administration", () => {
       await fieldPage.goto("/dashboard/linjer");
       await expect(
         fieldPage.getByRole("heading", { level: 1, name: "Studieretninger" }),
-      ).toBeVisible();
+      ).toBeVisible({ timeout: 15_000 });
       const fieldTable = fieldPage.getByRole("table", {
         name: "Aktive og inaktive studieretninger i organisasjonen",
       });

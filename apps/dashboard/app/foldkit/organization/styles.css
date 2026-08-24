@@ -106,7 +106,7 @@ vektor-organization-catalog {
 }
 
 .organization-catalog__results-heading p {
-  color: var(--organization-color-muted-foreground);
+  color: var(--organization-color-foreground);
   font-size: var(--organization-text-small);
 }
 
