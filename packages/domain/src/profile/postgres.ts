@@ -48,7 +48,6 @@ const decodeContact = (
     ),
   );
 
-
 const readProfile = (
   sql: DatabaseShape,
   personId: PersonId,
@@ -89,7 +88,6 @@ const readContact = (
       Effect.fail(persistenceError("read person contact", cause)),
     ),
   );
-
 
 export const readPersonProfiles = (
   personIds: ReadonlyArray<PersonId>,

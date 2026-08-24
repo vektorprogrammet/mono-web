@@ -55,7 +55,6 @@ export const RecruitmentNotificationEffectId = StableId.pipe(
 );
 export type RecruitmentNotificationEffectId = typeof RecruitmentNotificationEffectId.Type;
 
-
 export const RecruitmentActorSchema = AdmissionPeriodActorSchema;
 export type RecruitmentActor = AdmissionPeriodActor;
 
@@ -164,18 +163,19 @@ const ScheduleMessage = Schema.String.pipe(
 );
 const HttpsMapLink = Schema.String.pipe(
   Schema.check(
-    Schema.makeFilter((value) => {
-      try {
-        const url = new URL(value);
-        return (
-          url.protocol === "https:" &&
-          url.username.length === 0 &&
-          url.password.length === 0
-        );
-      } catch {
-        return false;
-      }
-    }, { message: "an HTTPS URL without user credentials" }),
+    Schema.makeFilter(
+      (value) => {
+        try {
+          const url = new URL(value);
+          return (
+            url.protocol === "https:" && url.username.length === 0 && url.password.length === 0
+          );
+        } catch {
+          return false;
+        }
+      },
+      { message: "an HTTPS URL without user credentials" },
+    ),
   ),
 );
 const CapabilitySha256 = Schema.String.pipe(
@@ -276,7 +276,6 @@ export class RecruitmentInvitation extends Model.Class<RecruitmentInvitation>(
 export type RecruitmentInvitationSelect = typeof RecruitmentInvitation.Encoded;
 export type RecruitmentInvitationValue = typeof RecruitmentInvitation.Type;
 
-
 export const RecruitmentInterviewerOptionSchema = Schema.Struct({
   personId: PersonId,
   displayName: Name,
@@ -297,8 +296,7 @@ export const RecruitmentInterviewStateForBoardSchema = Schema.Literals([
   "NoContact",
   "Scheduled",
 ]);
-export type RecruitmentInterviewStateForBoard =
-  typeof RecruitmentInterviewStateForBoardSchema.Type;
+export type RecruitmentInterviewStateForBoard = typeof RecruitmentInterviewStateForBoardSchema.Type;
 
 export const RecruitmentApplicationStateSchema = Schema.Literals(["Received"]);
 export type RecruitmentApplicationState = typeof RecruitmentApplicationStateSchema.Type;
@@ -373,8 +371,7 @@ export const RecruitmentSchedulingInterviewerSchema = Schema.Struct({
   email: PersonContactEmail,
   phone: PersonContactPhone,
 });
-export type RecruitmentSchedulingInterviewer =
-  typeof RecruitmentSchedulingInterviewerSchema.Type;
+export type RecruitmentSchedulingInterviewer = typeof RecruitmentSchedulingInterviewerSchema.Type;
 
 export const RecruitmentSchedulingInterviewSchema = Schema.Struct({
   interviewId: RecruitmentInterviewId,
@@ -435,7 +432,6 @@ export interface RecruitmentScheduleContext {
   readonly invitationId: RecruitmentInvitationId;
   readonly responseCapability: string;
 }
-
 
 export interface RecruitmentReadAssignmentBoardContext {
   readonly actor: RecruitmentActor;

@@ -3,7 +3,7 @@ import { embedDashboard } from "./main";
 const DASHBOARD_ELEMENT = "vektor-foldkit-dashboard";
 const DASHBOARD_INPUT_ATTRIBUTE = "dashboard-input";
 
-const registerDashboardElement = (): void => {
+export const registerDashboardElement = (): void => {
   if (typeof window === "undefined" || typeof customElements === "undefined") {
     return;
   }
@@ -34,7 +34,5 @@ const registerDashboardElement = (): void => {
     },
   );
 };
-
-registerDashboardElement();
 
 export { DASHBOARD_ELEMENT, DASHBOARD_INPUT_ATTRIBUTE };

@@ -43,10 +43,7 @@ export interface AdmissionsShape {
   ) => Effect.Effect<PublicApplicationConfirmation, PublicApplicationError>;
   readonly readApplicantContacts: (
     applicationIds: ReadonlyArray<PublicApplicationId>,
-  ) => Effect.Effect<
-    ReadonlyArray<ApplicantContactProjection>,
-    ApplicantContactProjectionFailure
-  >;
+  ) => Effect.Effect<ReadonlyArray<ApplicantContactProjection>, ApplicantContactProjectionFailure>;
 }
 
 export class Admissions extends Context.Service<Admissions, AdmissionsShape>()(

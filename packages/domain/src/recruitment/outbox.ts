@@ -190,9 +190,7 @@ const canonicalEnvelopeMatches = (
 ): boolean => {
   const expectedCommandSha256 = sha256Hex(canonicalJsonBytes(command));
   const expectedEffectId = `recruitment-invitation:${canonical.receiptCommandSha256}`;
-  const responseCapabilitySha256 = sha256Hex(
-    new TextEncoder().encode(request.responseCapability),
-  );
+  const responseCapabilitySha256 = sha256Hex(new TextEncoder().encode(request.responseCapability));
   const observedSchedule = observation.schedule;
   return (
     row.effectType === "SendInterviewInvitation" &&
@@ -251,7 +249,6 @@ const canonicalEnvelopeMatches = (
     sameInstant(canonical.invitationCreatedAt, canonical.scheduleCommittedAt)
   );
 };
-
 
 const claimInTransaction = (
   sql: DatabaseShape,
@@ -561,7 +558,6 @@ export const releaseRecruitmentInvitation = (
     );
   });
 
-
 export const recoverStaleRecruitmentInvitations = (
   claimedBefore: string,
 ): Effect.Effect<number, RecruitmentPersistenceError, Database> =>
@@ -619,12 +615,11 @@ export const deliverNextRecruitmentInvitation = (
     (claim) => (claim === undefined ? Effect.void : releaseRecruitmentInvitation(claim)),
   );
 
-export const invitationPayloadForEvidence = (
-  request: RecruitmentInvitationOutboxRequest,
-): string => canonicalJson({
-  ...request,
-  responseCapability: "[REDACTED]",
-});
+export const invitationPayloadForEvidence = (request: RecruitmentInvitationOutboxRequest): string =>
+  canonicalJson({
+    ...request,
+    responseCapability: "[REDACTED]",
+  });
 
 export type RecruitmentInvitationOutboxFailure =
   | RecruitmentPersistenceError

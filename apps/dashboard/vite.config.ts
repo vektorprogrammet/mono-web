@@ -1,6 +1,7 @@
 import { createReadStream, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { reactRouter } from "@react-router/dev/vite";
+import { foldkit } from "@foldkit/vite-plugin";
 import tailwindcss from "@tailwindcss/vite";
 import { defineConfig, type Plugin } from "vite";
 
@@ -27,7 +28,7 @@ const defaultProfileImage = (): Plugin => ({
 });
 
 export default defineConfig({
-  plugins: [reactRouter(), tailwindcss(), defaultProfileImage()],
+  plugins: [reactRouter(), foldkit(), tailwindcss(), defaultProfileImage()],
   resolve: {
     alias: {
       "@/components": "/app/components",

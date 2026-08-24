@@ -309,16 +309,10 @@ const proof = Effect.gen(function* () {
   const differentCommandResults = yield* Effect.all(
     [
       Effect.exit(
-        recruitment.scheduleInterview(
-          commandA,
-          makeContext(cohort.invitationAId, "a".repeat(43)),
-        ),
+        recruitment.scheduleInterview(commandA, makeContext(cohort.invitationAId, "a".repeat(43))),
       ),
       Effect.exit(
-        recruitment.scheduleInterview(
-          commandB,
-          makeContext(cohort.invitationBId, "b".repeat(43)),
-        ),
+        recruitment.scheduleInterview(commandB, makeContext(cohort.invitationBId, "b".repeat(43))),
       ),
     ],
     { concurrency: "unbounded" },
@@ -497,9 +491,7 @@ const program = Effect.gen(function* () {
     profileLayer,
   );
   const recruitmentLayer = RecruitmentLive.pipe(Layer.provide(supportLayer));
-  const evidence = yield* proof.pipe(
-    Effect.provide(Layer.merge(supportLayer, recruitmentLayer)),
-  );
+  const evidence = yield* proof.pipe(Effect.provide(Layer.merge(supportLayer, recruitmentLayer)));
   const evidenceSha256 = sha256Hex(canonicalJsonBytes(evidence));
   yield* Effect.sync(() =>
     process.stdout.write(`${canonicalJson({ ...evidence, evidenceSha256 })}\n`),

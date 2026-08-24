@@ -80,6 +80,7 @@
       "devDependencies": {
         "@cloudflare/vite-plugin": "^1.13.12",
         "@effect/vitest": "catalog:effect-v4",
+        "@foldkit/vite-plugin": "0.15.0",
         "@playwright/test": "^1.51.1",
         "@react-router/dev": "^8.3.0",
         "@tailwindcss/postcss": "^4.0.17",
@@ -599,6 +600,8 @@
     "@floating-ui/utils": ["@floating-ui/utils@0.2.11", "", {}, "sha512-RiB/yIh78pcIxl6lLMG0CgBXAZ2Y0eVHqMPYugu+9U0AeT6YBeiJpf7lbdJNIugFP5SIjwNRgo4DhR1Qxi26Gg=="],
 
     "@foldkit/ui": ["@foldkit/ui@0.148.1", "", { "dependencies": { "@floating-ui/dom": "^1.7.6" }, "peerDependencies": { "effect": "4.0.0-rc.109", "foldkit": "^0" } }, "sha512-jyqAFwjti5kTQafMs0nZjf5V69Ty63wzWuhGMSbAafK3d+YZgkUrmIiQ5RI0+w3vU6E7bqJ7FwJ9zxgOBjFs+g=="],
+
+    "@foldkit/vite-plugin": ["@foldkit/vite-plugin@0.15.0", "", { "dependencies": { "magic-string": "^0.30.21", "ws": "^8.21.0" }, "peerDependencies": { "effect": "4.0.0-rc.109", "foldkit": "^0", "vite": "^7.0.0 || ^8.0.0" } }, "sha512-H0+sdhSn43GaNeIaZuf8/uZT1wBcIIuva/75wqKWLHdqA6lcp6LbKm8GhwCi+IuqSVyB6hkaq+c3ll6lAIgxqA=="],
 
     "@fortawesome/fontawesome-free": ["@fortawesome/fontawesome-free@5.4.1", "", {}, "sha512-ZcxfUmLFl4RLG71cPeZcTXRa6rt3xLnMmomAb7aYKRzUmlRRj7E8EVqSwYSXBiV2x6XpSQmGOQmNQx6HSeSwVQ=="],
 

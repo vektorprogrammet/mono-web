@@ -32,9 +32,7 @@ const Phone = Schema.String.pipe(
       (value) => {
         const normalized = value.trim();
         return (
-          normalized.length > 0 &&
-          normalized.length <= 32 &&
-          /^[+\d][\d\s().-]*$/u.test(normalized)
+          normalized.length > 0 && normalized.length <= 32 && /^[+\d][\d\s().-]*$/u.test(normalized)
         );
       },
       { message: "a valid phone number" },
@@ -45,7 +43,6 @@ export const PersonContactEmail = Email;
 export type PersonContactEmail = typeof PersonContactEmail.Type;
 export const PersonContactPhone = Phone;
 export type PersonContactPhone = typeof PersonContactPhone.Type;
-
 
 /** The canonical person-name record. Names are owned by Profile, not Recruitment. */
 export class PersonProfile extends Model.Class<PersonProfile>("Profile.PersonProfile")({

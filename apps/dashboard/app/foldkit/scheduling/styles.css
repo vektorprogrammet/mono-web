@@ -167,7 +167,7 @@ vektor-recruitment-scheduling {
 .fs-field-hint,
 .fs-notification-note,
 .fs-map-preview {
-  color: var(--fd-color-muted);
+  color: var(--fd-color-text);
 }
 
 .fs-status {
@@ -182,7 +182,7 @@ vektor-recruitment-scheduling {
 }
 
 .fs-status--scheduled {
-  color: var(--fd-color-link-hover);
+  color: var(--fd-color-text);
   border-color: var(--fd-color-link);
 }
 
@@ -205,7 +205,7 @@ vektor-recruitment-scheduling {
 .fs-contact-grid dt,
 .fs-details dt,
 .fs-dialog__authority dt {
-  color: var(--fd-color-muted);
+  color: var(--fd-color-text);
   font-size: var(--fd-font-size-sm);
   font-weight: 700;
 }

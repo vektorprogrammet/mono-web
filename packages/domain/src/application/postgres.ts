@@ -664,9 +664,10 @@ export const readApplicantContacts = (
         limit: ADMISSIONS_APPLICANT_CONTACT_READ_LIMIT,
       });
     }
-    const decodedIds = yield* Schema.decodeUnknownEffect(
-      Schema.Array(PublicApplicationIdSchema),
-    )(applicationIds, { onExcessProperty: "error" }).pipe(
+    const decodedIds = yield* Schema.decodeUnknownEffect(Schema.Array(PublicApplicationIdSchema))(
+      applicationIds,
+      { onExcessProperty: "error" },
+    ).pipe(
       Effect.mapError(
         () => new PublicApplicationDecodeError({ message: "invalid application identifier batch" }),
       ),

@@ -15,13 +15,15 @@ const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
 const dashboardRoot = fileURLToPath(new URL("../", import.meta.url));
 const sdkRoot = fileURLToPath(new URL("../../../packages/sdk/", import.meta.url));
 const composeFile = join(repositoryRoot, "docker-compose.yml");
-const dashboardOrigin = "http://127.0.0.1:5174";
-const backendOrigin = "http://127.0.0.1:8791";
-const postgresUrl = "postgres://receipt:receipt@127.0.0.1:55432/receipt_proof?connect_timeout=1";
+const dashboardPort = 5184;
+const backendPort = 8796;
+const postgresPort = 55432;
+const dashboardOrigin = `http://127.0.0.1:${dashboardPort}`;
+const backendOrigin = `http://127.0.0.1:${backendPort}`;
+const postgresUrl = `postgres://receipt:receipt@127.0.0.1:${postgresPort}/receipt_proof?connect_timeout=1`;
 const composeProject = `mono-web-native-scheduling-0050-${process.pid}`;
 const commandTimeoutMs = 300_000;
 const shutdownTimeoutMs = 5_000;
-const postgresPort = 55432;
 const nixPostgresPackage = "nixpkgs#postgresql_17";
 const fixedClock = "2031-09-15T12:00:00.000Z";
 const departmentId = "department-native-scheduling-0050";
@@ -56,10 +58,7 @@ const dockerAvailable =
 const postgresTopology = dockerAvailable ? "docker" : "local";
 const runnerPath = fileURLToPath(import.meta.url);
 const specPath = join(dashboardRoot, "e2e/native-recruitment-interview-scheduling.spec.ts");
-const recordingDriverPath = join(
-  dashboardRoot,
-  "e2e/record-native-recruitment-invitation.ts",
-);
+const recordingDriverPath = join(dashboardRoot, "e2e/record-native-recruitment-invitation.ts");
 
 const seedSql = `
 BEGIN;
@@ -148,6 +147,19 @@ function assertPortAvailable(port) {
     });
   });
 }
+async function waitForPortRelease(port) {
+  let lastError;
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    try {
+      await assertPortAvailable(port);
+      return;
+    } catch (error) {
+      lastError = error;
+      await sleep(100);
+    }
+  }
+  throw lastError;
+}
 
 function signalProcessGroup(child, signal) {
   if (child.pid === undefined) return;
@@ -206,9 +218,8 @@ function runCommand(command, args, options) {
         resolveCommand(captureOutput ? output : undefined);
         return;
       }
-      const detail = captureOutput && output.stderr.trim().length > 0
-        ? `: ${output.stderr.trim()}`
-        : "";
+      const detail =
+        captureOutput && output.stderr.trim().length > 0 ? `: ${output.stderr.trim()}` : "";
       rejectCommand(
         new Error(
           `${options.label} exited with ${signal === null ? `code ${code}` : `signal ${signal}`}${detail}`,
@@ -265,23 +276,24 @@ async function waitForPostgres(environment) {
   const deadline = Date.now() + commandTimeoutMs;
   while (Date.now() < deadline) {
     try {
-      const args = postgresTopology === "docker"
-        ? [
-            "compose",
-            "-f",
-            composeFile,
-            "-p",
-            composeProject,
-            "exec",
-            "-T",
-            "receipt-postgres",
-            "pg_isready",
-            "-U",
-            "receipt",
-            "-d",
-            "receipt_proof",
-          ]
-        : ["-h", "127.0.0.1", "-p", String(postgresPort), "-U", "receipt", "-d", "receipt_proof"];
+      const args =
+        postgresTopology === "docker"
+          ? [
+              "compose",
+              "-f",
+              composeFile,
+              "-p",
+              composeProject,
+              "exec",
+              "-T",
+              "receipt-postgres",
+              "pg_isready",
+              "-U",
+              "receipt",
+              "-d",
+              "receipt_proof",
+            ]
+          : ["-h", "127.0.0.1", "-p", String(postgresPort), "-U", "receipt", "-d", "receipt_proof"];
       const options = {
         cwd: repositoryRoot,
         env: environment,
@@ -369,42 +381,43 @@ async function pathExists(path) {
 }
 
 async function runPsql(sql, environment, label) {
-  const args = postgresTopology === "docker"
-    ? [
-        "compose",
-        "-f",
-        composeFile,
-        "-p",
-        composeProject,
-        "exec",
-        "-T",
-        "receipt-postgres",
-        "psql",
-        "-U",
-        "receipt",
-        "-d",
-        "receipt_proof",
-        "-At",
-        "-v",
-        "ON_ERROR_STOP=1",
-        "-c",
-        sql,
-      ]
-    : [
-        "-h",
-        "127.0.0.1",
-        "-p",
-        String(postgresPort),
-        "-U",
-        "receipt",
-        "-d",
-        "receipt_proof",
-        "-At",
-        "-v",
-        "ON_ERROR_STOP=1",
-        "-c",
-        sql,
-      ];
+  const args =
+    postgresTopology === "docker"
+      ? [
+          "compose",
+          "-f",
+          composeFile,
+          "-p",
+          composeProject,
+          "exec",
+          "-T",
+          "receipt-postgres",
+          "psql",
+          "-U",
+          "receipt",
+          "-d",
+          "receipt_proof",
+          "-At",
+          "-v",
+          "ON_ERROR_STOP=1",
+          "-c",
+          sql,
+        ]
+      : [
+          "-h",
+          "127.0.0.1",
+          "-p",
+          String(postgresPort),
+          "-U",
+          "receipt",
+          "-d",
+          "receipt_proof",
+          "-At",
+          "-v",
+          "ON_ERROR_STOP=1",
+          "-c",
+          sql,
+        ];
   const options = {
     cwd: repositoryRoot,
     env: environment,
@@ -514,7 +527,15 @@ async function startRecordingProxy(targetOrigin, actorsByToken) {
       closed = true;
       server.closeAllConnections?.();
       await new Promise((resolveClose, rejectClose) => {
-        server.close((error) => (error === undefined ? resolveClose() : rejectClose(error)));
+        server.close((error) =>
+          error === undefined ||
+          (typeof error === "object" &&
+            error !== null &&
+            "code" in error &&
+            error.code === "ERR_SERVER_NOT_RUNNING")
+            ? resolveClose()
+            : rejectClose(error),
+        );
       });
     },
   };
@@ -628,16 +649,20 @@ const assertEqual = (actual, expected, label) => {
 };
 
 function assertPendingScheduleEvidence(evidence) {
-  assertEqual(evidence.schedule, {
-    interviewId,
-    scheduledAt: schedule.scheduledAt,
-    room: schedule.room,
-    campus: schedule.campus,
-    mapLink: schedule.mapLink,
-    message: schedule.message,
-    scheduledByPersonId: actorPersonId,
-    scheduleRevision: 1,
-  }, "Stored schedule");
+  assertEqual(
+    evidence.schedule,
+    {
+      interviewId,
+      scheduledAt: schedule.scheduledAt,
+      room: schedule.room,
+      campus: schedule.campus,
+      mapLink: schedule.mapLink,
+      message: schedule.message,
+      scheduledByPersonId: actorPersonId,
+      scheduleRevision: 1,
+    },
+    "Stored schedule",
+  );
   assertEqual(evidence.interviewRevision, 1, "Interview revision");
   if (
     evidence.invitation?.interviewId !== interviewId ||
@@ -665,13 +690,17 @@ function assertPendingScheduleEvidence(evidence) {
   ) {
     throw new Error("Invitation outbox was not one pending canonical request");
   }
-  assertEqual(evidence.counts, {
-    schedules: 1,
-    invitations: 1,
-    receipts: 1,
-    audits: 1,
-    outbox: 1,
-  }, "Atomic scheduling row counts");
+  assertEqual(
+    evidence.counts,
+    {
+      schedules: 1,
+      invitations: 1,
+      receipts: 1,
+      audits: 1,
+      outbox: 1,
+    },
+    "Atomic scheduling row counts",
+  );
 }
 
 function assertRecordingEvidence(recording, before, after) {
@@ -720,12 +749,13 @@ function assertRecordingEvidence(recording, before, after) {
   assertEqual(after.counts, before.counts, "Post-interpretation scheduling row counts");
 }
 
-const receiptRequested = () => [
-  "RUNTIME_EVIDENCE_RECEIPT_PATH",
-  "RUNTIME_EVIDENCE_LEGACY_REVISION_REF_ID",
-  "RUNTIME_EVIDENCE_MONO_REVISION_REF_ID",
-  "RUNTIME_EVIDENCE_RUNNER_SOURCE_REF_IDS",
-].some((name) => typeof process.env[name] === "string" && process.env[name].length > 0);
+const receiptRequested = () =>
+  [
+    "RUNTIME_EVIDENCE_RECEIPT_PATH",
+    "RUNTIME_EVIDENCE_LEGACY_REVISION_REF_ID",
+    "RUNTIME_EVIDENCE_MONO_REVISION_REF_ID",
+    "RUNTIME_EVIDENCE_RUNNER_SOURCE_REF_IDS",
+  ].some((name) => typeof process.env[name] === "string" && process.env[name].length > 0);
 
 async function emitReceipt(playwrightOutput) {
   if (!receiptRequested()) return;
@@ -735,7 +765,9 @@ async function emitReceipt(playwrightOutput) {
     .filter((value) => value.length > 0);
   const sourcePaths = [runnerPath, specPath, recordingDriverPath];
   if (sourceRefIds.length === 0 || sourceRefIds.length > sourcePaths.length) {
-    throw new Error("Native scheduling runtime evidence expects one to three runner source references");
+    throw new Error(
+      "Native scheduling runtime evidence expects one to three runner source references",
+    );
   }
   const runnerSourceInputBytes = await Promise.all(
     sourceRefIds.map(async (sourceRefId, index) => ({
@@ -759,9 +791,9 @@ async function emitReceipt(playwrightOutput) {
 
 async function main() {
   await Promise.all([
-    assertPortAvailable(5174),
-    assertPortAvailable(8791),
-    assertPortAvailable(55432),
+    assertPortAvailable(dashboardPort),
+    assertPortAvailable(backendPort),
+    assertPortAvailable(postgresPort),
   ]);
 
   const temporaryRoot = await mkdtemp(join(tmpdir(), "mono-web-native-scheduling-0050-"));
@@ -809,7 +841,7 @@ async function main() {
   const apiEnvironment = {
     ...baseEnvironment,
     BACKEND_HOST: "127.0.0.1",
-    BACKEND_PORT: "8791",
+    BACKEND_PORT: String(backendPort),
     BACKEND_PG_URL: postgresUrl,
     PUBLIC_APPLICATION_EFFECT_MODE: "disabled",
     ADMISSION_AUTH_TOKENS: admissionTokens,
@@ -823,6 +855,7 @@ async function main() {
 
   let postgresStarted = false;
   let apiProcess;
+  let dashboardProcess;
   let proxy;
   let evidence;
   let cleaned = false;
@@ -830,6 +863,11 @@ async function main() {
     if (cleaned) return;
     cleaned = true;
     const cleanupErrors = [];
+    try {
+      await stopProcess(dashboardProcess);
+    } catch (error) {
+      cleanupErrors.push(error);
+    }
     if (proxy !== undefined) {
       try {
         await proxy.close();
@@ -945,6 +983,19 @@ async function main() {
       env: journeyEnvironment,
       label: "Native scheduling SDK build",
     });
+    dashboardProcess = startProcess(
+      process.env.PLAYWRIGHT_NODE_EXECUTABLE ?? "node",
+      [
+        "node_modules/@react-router/dev/dist/cli/index.js",
+        "dev",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        String(dashboardPort),
+      ],
+      { cwd: dashboardRoot, env: journeyEnvironment },
+    );
+    await waitForHttp(`${dashboardOrigin}/login`, dashboardProcess, "Dashboard");
 
     const playwrightArgs = [
       "./node_modules/@playwright/test/cli.js",
@@ -1019,8 +1070,8 @@ async function main() {
           request.requestHasResponseCapability ||
           request.responseHasResponseCapability,
       ) ||
-      proxy.records.some(({ path }) =>
-        path === "/api/admin/interviews" || path.startsWith("/api/admin/interviews/")
+      proxy.records.some(
+        ({ path }) => path === "/api/admin/interviews" || path.startsWith("/api/admin/interviews/"),
       )
     ) {
       throw new Error("Native scheduling transport used legacy authority or exposed a capability");
@@ -1045,9 +1096,10 @@ async function main() {
       topology: {
         dashboard: "loopback-react-router-playwright-server",
         api: "unified-native-effect-backend",
-        database: postgresTopology === "docker"
-          ? "disposable-postgresql-docker"
-          : "disposable-postgresql-local-nix",
+        database:
+          postgresTopology === "docker"
+            ? "disposable-postgresql-docker"
+            : "disposable-postgresql-local-nix",
         browser: "real-chromium",
         notification: "recording-gateway-no-network",
         fixedClock,
@@ -1090,9 +1142,9 @@ async function main() {
       throw new Error("Native scheduling cleanup left the temporary root behind");
     }
     await Promise.all([
-      assertPortAvailable(5174),
-      assertPortAvailable(8791),
-      assertPortAvailable(55432),
+      waitForPortRelease(dashboardPort),
+      waitForPortRelease(backendPort),
+      waitForPortRelease(postgresPort),
     ]);
   } catch (error) {
     cleanupError = error;
@@ -1116,17 +1168,22 @@ async function main() {
       cleanup: {
         postgresRemoved: true,
         temporaryRootRemoved: true,
-        portsReleased: [5174, 8791, 55432],
+        portsReleased: [dashboardPort, backendPort, postgresPort],
       },
     })}\n`,
   );
 }
 
+const errorDetail = (error) =>
+  error instanceof AggregateError
+    ? `${error.message}: ${error.errors.map(errorDetail).join("; ")}`
+    : error instanceof Error
+      ? error.message
+      : String(error);
+
 main().catch((error) => {
   process.stderr.write(
-    `Real native recruitment interview scheduling runner failed: ${
-      error instanceof Error ? error.message : String(error)
-    }\n`,
+    `Real native recruitment interview scheduling runner failed: ${errorDetail(error)}\n`,
   );
   process.exitCode = 1;
 });

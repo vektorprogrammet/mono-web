@@ -39,8 +39,10 @@ const bridgeOperation = (request: Request): string | undefined => {
   }
   try {
     const payload: unknown = request.postDataJSON();
-    return typeof payload === "object" && payload !== null && "operation" in payload &&
-        typeof payload.operation === "string"
+    return typeof payload === "object" &&
+      payload !== null &&
+      "operation" in payload &&
+      typeof payload.operation === "string"
       ? payload.operation
       : undefined;
   } catch {
@@ -52,10 +54,7 @@ const applicantCard = (page: Page, applicantName: string) =>
   page.getByRole("article").filter({ hasText: applicantName });
 
 test.describe("Native recruitment interview scheduling", () => {
-  test.skip(
-    !REAL_NATIVE_SCHEDULING_E2E,
-    "run through the disposable native scheduling runner",
-  );
+  test.skip(!REAL_NATIVE_SCHEDULING_E2E, "run through the disposable native scheduling runner");
 
   test("schedules through Foldkit, refreshes, and survives an independent browser context", async ({
     browser,
@@ -65,6 +64,7 @@ test.describe("Native recruitment interview scheduling", () => {
     const evidencePath = requiredEnvironment("SCHEDULING_E2E_BROWSER_EVIDENCE_PATH");
     const bridgeOperations: string[] = [];
     const legacyBrowserRequests: string[] = [];
+    const pageErrors: string[] = [];
     const observeRequests = (page: Page): void => {
       page.on("request", (request) => {
         const pathname = new URL(request.url()).pathname;
@@ -78,6 +78,7 @@ test.describe("Native recruitment interview scheduling", () => {
           legacyBrowserRequests.push(`${request.method()} ${pathname} ${operation ?? ""}`.trim());
         }
       });
+      page.on("pageerror", (error) => pageErrors.push(error.message));
     };
 
     const firstContext = await browser.newContext({
@@ -168,12 +169,11 @@ test.describe("Native recruitment interview scheduling", () => {
       await expect(persistedCard).toContainText(SCHEDULE.mapLink);
       await expect(persistedCard).toContainText("Venter på svar");
       await expect(persistedCard).toContainText("Lagt i kø");
-      await expect(persistedCard.getByRole("button", { name: "Planlegg intervju" })).toHaveCount(
-        0,
-      );
+      await expect(persistedCard.getByRole("button", { name: "Planlegg intervju" })).toHaveCount(0);
       expect(bridgeOperations).toEqual(["scheduleInterview", "readSchedulingBoard"]);
       expect(legacyBrowserRequests).toEqual([]);
       expect(await page.locator("body").innerText()).not.toContain("responseCapability");
+      expect(pageErrors).toEqual([]);
     } finally {
       await verificationContext.close();
     }
@@ -189,6 +189,7 @@ test.describe("Native recruitment interview scheduling", () => {
         legacyBrowserRequests,
         expectedSchedule: SCHEDULE,
         accessibilityViolations: 0,
+        pageErrors,
         rawCapabilityObserved: false,
       })}\n`,
       "utf8",

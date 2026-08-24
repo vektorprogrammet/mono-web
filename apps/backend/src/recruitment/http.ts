@@ -241,9 +241,7 @@ const readSchedulingBoard = async (
   if (new URL(request.url).search !== "") throw taggedError("RecruitmentDecodeError");
   const actor = principalFor(request, input.config);
   const observation = await input.run(
-    Recruitment.use(({ readSchedulingBoard: read }) =>
-      read({ actor, now: input.config.now() }),
-    ),
+    Recruitment.use(({ readSchedulingBoard: read }) => read({ actor, now: input.config.now() })),
   );
   return jsonResponse(observation);
 };

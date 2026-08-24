@@ -745,10 +745,7 @@ describe("DatabaseTest", () => {
         const accepted = yield* recruitment.scheduleInterview(fixture.command, context);
         const replayed = yield* recruitment.scheduleInterview(fixture.command, context);
         const conflictingReplay = yield* Effect.flip(
-          recruitment.scheduleInterview(
-            { ...fixture.command, room: "A-102" },
-            context,
-          ),
+          recruitment.scheduleInterview({ ...fixture.command, room: "A-102" }, context),
         );
         const pendingPersistence = yield* database<{
           readonly schedules: string;
@@ -1156,9 +1153,7 @@ describe("DatabaseTest", () => {
             {
               actor: scheduledFixture.actor,
               now: scheduledFixture.now,
-              invitationId: RecruitmentInvitationId.make(
-                "scheduling-already-second-invitation",
-              ),
+              invitationId: RecruitmentInvitationId.make("scheduling-already-second-invitation"),
               responseCapability: "scheduling-already-second".padEnd(43, "_"),
             },
           ),
@@ -1292,10 +1287,7 @@ describe("DatabaseTest", () => {
       }),
     );
 
-    expect([evidence.invalidMap._tag, evidence.invalidEmail._tag]).toEqual([
-      "Failure",
-      "Failure",
-    ]);
+    expect([evidence.invalidMap._tag, evidence.invalidEmail._tag]).toEqual(["Failure", "Failure"]);
     if (evidence.invalidMap._tag === "Failure") {
       expect(evidence.invalidMap.failure).toMatchObject({ _tag: "SqlError" });
     }

@@ -58,10 +58,7 @@ import {
   type RecruitmentSchedulingInterview,
 } from "./schema.js";
 
-type DepartmentActor = Extract<
-  RecruitmentActor,
-  { readonly _tag: "DepartmentLeader" | "Member" }
->;
+type DepartmentActor = Extract<RecruitmentActor, { readonly _tag: "DepartmentLeader" | "Member" }>;
 
 interface SchedulingBoardRow {
   readonly interviewId: string;
@@ -138,13 +135,15 @@ const readApplicantContacts = (
   admissions: AdmissionsShape,
   applicationIds: ReadonlyArray<typeof PublicApplicationIdSchema.Type>,
 ): Effect.Effect<ReadonlyArray<ApplicantContactProjection>, RecruitmentFailure> =>
-  admissions.readApplicantContacts(applicationIds).pipe(
-    Effect.mapError((failure) =>
-      failure._tag === "PublicApplicationNotFound"
-        ? new RecruitmentApplicationNotFound({ applicationId: failure.applicationId })
-        : persistenceError("read Admissions applicant contacts", failure),
-    ),
-  );
+  admissions
+    .readApplicantContacts(applicationIds)
+    .pipe(
+      Effect.mapError((failure) =>
+        failure._tag === "PublicApplicationNotFound"
+          ? new RecruitmentApplicationNotFound({ applicationId: failure.applicationId })
+          : persistenceError("read Admissions applicant contacts", failure),
+      ),
+    );
 
 const decode = <A>(schema: Schema.ConstraintDecoder<A, never>, value: unknown, operation: string) =>
   Schema.decodeUnknownEffect(schema)(value, { onExcessProperty: "error" }).pipe(
@@ -306,10 +305,7 @@ const schedulingBoard = (
       offset < applicationIds.length;
       offset += ADMISSIONS_APPLICANT_CONTACT_READ_LIMIT
     ) {
-      const batch = applicationIds.slice(
-        offset,
-        offset + ADMISSIONS_APPLICANT_CONTACT_READ_LIMIT,
-      );
+      const batch = applicationIds.slice(offset, offset + ADMISSIONS_APPLICANT_CONTACT_READ_LIMIT);
       for (const value of yield* readApplicantContacts(admissions, batch)) {
         applicantContactByApplicationId.set(String(value.applicationId), value);
       }

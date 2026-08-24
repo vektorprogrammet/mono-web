@@ -4,10 +4,7 @@ import { NotificationGateway } from "../notification/service.js";
 import { Profile } from "../profile/service.js";
 import { Duration, Effect } from "effect";
 import { RecruitmentPersistenceError } from "./errors.js";
-import {
-  deliverNextRecruitmentInvitation,
-  recoverStaleRecruitmentInvitations,
-} from "./outbox.js";
+import { deliverNextRecruitmentInvitation, recoverStaleRecruitmentInvitations } from "./outbox.js";
 
 export interface RecruitmentInvitationWorkerOptions {
   readonly workerId: string;
@@ -36,14 +33,9 @@ export const runRecruitmentInvitationWorker = (
   let claimSequence = 0;
   const tick = Effect.gen(function* () {
     const now = options.now();
-    const claimedBefore = new Date(
-      Date.parse(now) - options.staleClaimMilliseconds,
-    ).toISOString();
+    const claimedBefore = new Date(Date.parse(now) - options.staleClaimMilliseconds).toISOString();
     yield* recoverStaleRecruitmentInvitations(claimedBefore);
-    yield* deliverNextRecruitmentInvitation(
-      `${options.workerId}:${claimSequence++}`,
-      now,
-    );
+    yield* deliverNextRecruitmentInvitation(`${options.workerId}:${claimSequence++}`, now);
     yield* Effect.sleep(Duration.millis(options.pollIntervalMilliseconds));
   });
   return Effect.sync(() => options.onStart?.()).pipe(

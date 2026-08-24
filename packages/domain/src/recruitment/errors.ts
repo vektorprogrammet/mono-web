@@ -103,7 +103,6 @@ export class RecruitmentScheduleInPast extends Schema.TaggedError<RecruitmentSch
   { interviewId: RecruitmentInterviewId },
 ) {}
 
-
 export class RecruitmentInvalidContext extends Schema.TaggedError<RecruitmentInvalidContext>()(
   "RecruitmentInvalidContext",
   { message: Schema.String },

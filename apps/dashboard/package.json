@@ -80,6 +80,7 @@
   "devDependencies": {
     "@cloudflare/vite-plugin": "^1.13.12",
     "@effect/vitest": "catalog:effect-v4",
+    "@foldkit/vite-plugin": "0.15.0",
     "@playwright/test": "^1.51.1",
     "@react-router/dev": "^8.3.0",
     "@tailwindcss/postcss": "^4.0.17",
