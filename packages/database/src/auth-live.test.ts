@@ -4,7 +4,7 @@ import { Effect, ManagedRuntime } from "effect"
 import { Pool } from "pg"
 import { afterAll, describe, expect, it } from "vitest"
 import { Auth } from "@vektorprogrammet/domain/auth"
-import { AuthLive, AuthEngine } from "./auth-live.js"
+import { AuthLive, AuthEngine, AuthEngineLive } from "./auth-live.js"
 
 /**
  * Focused spec 0054 checks for the Layer-scoped better-auth engine behind
@@ -62,6 +62,25 @@ const seedCredentialIdentity = async () => {
     }).pipe(Effect.provide(AuthLive(config))),
   )
 }
+/**
+ * Resets the auth schema to a freshly-migrated state so each suite starts
+ * from the checked-in 0015 DDL, mirroring the proof mains' reset ritual.
+ */
+const resetAuthSchema = async () => {
+  const cleanup = new Pool({ connectionString: config.postgresUrl })
+  await cleanup.query(`DROP SCHEMA IF EXISTS auth CASCADE`)
+  // Re-apply the checked-in migration so the auth schema is byte-identical.
+  await cleanup.query(
+    await readFile(
+      new URL("../migrations/0015-native-identity-better-auth.sql", import.meta.url),
+      "utf8",
+    ),
+  )
+  await cleanup.query(
+    `DELETE FROM public.vektorprogrammet_schema_migrations WHERE migration_id = 15`,
+  )
+  await cleanup.end()
+}
 
 const dsl = authTestUrl === undefined ? describe.skip : describe
 
@@ -92,19 +111,7 @@ dsl("AuthLive (spec 0054)", () => {
          ON CONFLICT DO NOTHING`,
         [cohort.personId],
       )
-      const cleanup = new Pool({ connectionString: config.postgresUrl })
-      await cleanup.query(`DROP SCHEMA IF EXISTS auth CASCADE`)
-      // Re-apply the checked-in migration so the auth schema is byte-identical.
-      await cleanup.query(
-        await readFile(
-          new URL("../migrations/0015-native-identity-better-auth.sql", import.meta.url),
-          "utf8",
-        ),
-      )
-      await cleanup.query(
-        `DELETE FROM public.vektorprogrammet_schema_migrations WHERE migration_id = 15`,
-      )
-      await cleanup.end()
+      await resetAuthSchema()
       await seedCredentialIdentity()
       await runtime.runPromise(
         Effect.gen(function* () {
@@ -148,4 +155,62 @@ dsl("AuthLive (spec 0054)", () => {
       }),
     )
   })
+})
+
+/**
+ * Regression guard for the AuthEngineLive pool-lifetime bug (spec 0054):
+ * wrapping `makeAuthEngineService(config)` in an inner `Effect.scoped`
+ * closed the engine's pg Pool during layer construction, so every call
+ * after build failed with "Cannot use a pool after calling end on the
+ * pool". Building from `AuthEngineLive` must keep the pool alive for the
+ * whole runtime, including across awaits outside Effect.
+ */
+const engineRuntime = authTestUrl === undefined ? undefined : ManagedRuntime.make(AuthEngineLive(config))
+
+dsl("AuthEngineLive keeps its pg Pool alive for the whole Layer lifetime", () => {
+  afterAll(async () => {
+    await engineRuntime?.dispose()
+  })
+
+  it(
+    "serves two sequential handler calls about a second apart",
+    async () => {
+      assertDisposable(config.postgresUrl)
+      await resetAuthSchema()
+      await seedCredentialIdentity()
+      await engineRuntime!.runPromise(
+        Effect.gen(function* () {
+          const engine = yield* AuthEngine
+
+          // A first sign-in proves the pool works right after build; the
+          // sleep spans real time so a pool closed during layer build would
+          // surface as "Cannot use a pool after calling end on the pool"
+          // on the second call below.
+          const first = yield* Effect.tryPromise(() =>
+            engine.handler(
+              new Request("http://127.0.0.1:8790/api/auth/sign-in/email", {
+                method: "POST",
+                headers: new Headers({ "content-type": "application/json" }),
+                body: JSON.stringify({ email: cohort.email, password: cohort.password }),
+              }),
+            ),
+          )
+          expect(first.ok).toBe(true)
+          yield* Effect.sleep("1 seconds")
+
+          const second = yield* Effect.tryPromise(() =>
+            engine.handler(
+              new Request("http://127.0.0.1:8790/api/auth/sign-in/email", {
+                method: "POST",
+                headers: new Headers({ "content-type": "application/json" }),
+                body: JSON.stringify({ email: cohort.email, password: cohort.password }),
+              }),
+            ),
+          )
+          expect(second.ok).toBe(true)
+        }),
+      )
+    },
+    120_000,
+  )
 })

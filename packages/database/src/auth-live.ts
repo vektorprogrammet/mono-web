@@ -113,7 +113,7 @@ const makeAuthEngineService = (
 
 /** The shared scoped engine layer for a given auth configuration. */
 export const AuthEngineLive = (config: AuthEngineConfig): Layer.Layer<AuthEngine> =>
-  Layer.effect(AuthEngine, Effect.scoped(makeAuthEngineService(config)))
+  Layer.effect(AuthEngine, makeAuthEngineService(config))
 
 /**
  * ONE scoped construction exposing both the engine service (for the
