@@ -15,6 +15,7 @@ import {
   type AuthEngineConfig,
 } from "./auth-engine.js";
 import { DatabaseLive } from "./layers.js";
+import { databaseSchemaRevision } from "./migrations.js";
 
 const proofCohort = {
   id: "identity-postgres-proof-0054-v1",
@@ -47,7 +48,7 @@ const assertDisposableDatabaseUrl = (postgresUrl: string) => {
   );
 };
 
-const resetIdentityCohort = async (pool: Pool) => {
+const resetIdentityCohort = async (pool: Pool, migrationId: number) => {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
@@ -68,7 +69,7 @@ const resetIdentityCohort = async (pool: Pool) => {
     );
     if (migrationTable.rows[0]?.tableName !== null) {
       await client.query(
-        `DELETE FROM public.vektorprogrammet_schema_migrations WHERE migration_id = 15`,
+        `DELETE FROM public.vektorprogrammet_schema_migrations WHERE migration_id >= ${migrationId}`,
       );
     }
 
@@ -80,6 +81,8 @@ const resetIdentityCohort = async (pool: Pool) => {
     client.release();
   }
 };
+
+const identityMigrationId = 15;
 
 const applyIdentityMigration = (postgresUrl: string) => {
   const databaseLayer = DatabaseLive({
@@ -439,9 +442,9 @@ const runIdentityPostgresProof = async (postgresUrl: string) => {
   let independentAuthPool: Pool | undefined;
 
   try {
-    await resetIdentityCohort(observer);
+    await resetIdentityCohort(observer, identityMigrationId);
     const schemaRevision = await applyIdentityMigration(postgresUrl);
-    assert.equal(schemaRevision, "15_native-identity-better-auth");
+    assert.equal(schemaRevision, databaseSchemaRevision);
     const migration = await inspectIdentitySchema(observer);
 
     const authConfig: AuthEngineConfig = {
@@ -467,7 +470,7 @@ const runIdentityPostgresProof = async (postgresUrl: string) => {
       specId: "0054" as const,
       database: "PostgreSQL" as const,
       cohort: proofCohort.id,
-      schemaRevision: "15_native-identity-better-auth" as const,
+      schemaRevision: databaseSchemaRevision,
       passed: true as const,
       migration,
       authConnection: { searchPath },

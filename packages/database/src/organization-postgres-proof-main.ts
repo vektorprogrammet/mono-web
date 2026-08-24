@@ -10,12 +10,17 @@ import {
 } from "@vektorprogrammet/domain/organization";
 import { Config, Deferred, Effect, Fiber, Layer, Redacted } from "effect";
 import { DatabaseLive } from "./layers.js";
+import { databaseSchemaRevision } from "./migrations.js";
 
 const proofCohort = {
   id: "organization-postgres-proof-0052-v1",
   replayCommandId: "organization-postgres-proof-replay-command",
   conflictCommandId: "organization-postgres-proof-conflict-command",
 } as const;
+
+const headSeparator = databaseSchemaRevision.indexOf("_");
+const headMigrationId = Number(databaseSchemaRevision.slice(0, headSeparator));
+const headMigrationName = databaseSchemaRevision.slice(headSeparator + 1);
 
 const administrator = {
   _tag: "OrganizationAdministrator" as const,
@@ -136,18 +141,18 @@ const program = Effect.scoped(
     const databaseUrl = yield* Config.redacted("DATABASE_URL");
     const setup = yield* Effect.gen(function* () {
       const sql = yield* Database;
-      assert.equal(sql.schemaRevision, "13_native-organization-administration");
+      assert.equal(sql.schemaRevision, databaseSchemaRevision);
       yield* resetProofCohort(sql);
       yield* sql`
         DELETE FROM vektorprogrammet_schema_migrations
-        WHERE migration_id = 13
+        WHERE migration_id = ${headMigrationId}
       `;
       yield* sql.migrate;
       const [migration] = yield* sql<{ readonly count: string }>`
         SELECT count(*)::text AS count
         FROM vektorprogrammet_schema_migrations
-        WHERE migration_id = 13
-          AND name = 'native-organization-administration'
+        WHERE migration_id = ${headMigrationId}
+          AND name = ${headMigrationName}
       `;
       return { migrationReplayed: Number(migration?.count ?? "-1") === 1 };
     }).pipe(
@@ -245,7 +250,7 @@ const program = Effect.scoped(
     const evidence = {
       specId: "0052" as const,
       database: "PostgreSQL" as const,
-      schemaRevision: "13_native-organization-administration" as const,
+      schemaRevision: databaseSchemaRevision,
       cohort: proofCohort.id,
       passed: true as const,
       migration: setup,
