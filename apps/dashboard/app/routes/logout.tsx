@@ -1,10 +1,10 @@
 import { redirect } from "react-router";
-import { createLogoutCookie } from "../lib/auth.server";
+import { signOut } from "../lib/auth.server";
 import type { Route } from "./+types/logout";
 
-export async function action(_args: Route.ActionArgs) {
+export async function action({ request }: Route.ActionArgs) {
   return redirect("/login", {
-    headers: { "Set-Cookie": createLogoutCookie() },
+    headers: await signOut(request),
   });
 }
 

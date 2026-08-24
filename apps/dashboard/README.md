@@ -62,58 +62,16 @@ bun run --cwd apps/dashboard check-types
 
 ### Testing
 
-Before this correction, W0 browser reachability was observed only through a
-temporary diagnosis. Implementation `36cadc3` was under review, so that result
-was not a green tracked-file claim. The accepted tracked five-file correction
-is the authoritative W0 login reachability probe, not a product or visual
-test suite.
-
-Run the tracked-file journey from the repository root. Set the
-noncommitted runtime inputs first:
+Run focused unit checks and the browser suite from the repository root:
 
 ```sh
-# from the repository root; set these noncommitted operator inputs first
-: "${BUN_1_3_10_BIN:?set to an already-cached Bun 1.3.10 executable}"
-: "${NODE_22_BIN:?set to a Node 22 executable}"
-test -x "$BUN_1_3_10_BIN"
-test -x "$NODE_22_BIN"
-test "$("$BUN_1_3_10_BIN" --version)" = "1.3.10"
-test "$("$NODE_22_BIN" -p \
-  'Number(process.versions.node.split(".")[0]) >= 22 && process.versions.bun === undefined ? "ok" : "bad"')" = "ok"
-export BUN_1_3_10_BIN NODE_22_BIN
-
-# Optional only when Playwright's managed Chromium is unavailable:
-# export PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH="<operator-supplied-system-chromium>"
-
-unshare -Urn sh -c '
-  ip link set lo up 2>/dev/null || true
-  CI=1 \
-  PATH="$(dirname "$NODE_22_BIN"):$(dirname "$BUN_1_3_10_BIN"):$PATH" \
-    "$BUN_1_3_10_BIN" run --cwd apps/dashboard test:e2e:w0
-'
+bun run --cwd apps/dashboard test
+bun run --cwd apps/dashboard test:e2e
 ```
 
-The package-owned `test:e2e:w0` script is the single source for the five
-fixture environment values, the tracked named test, the Chromium project, and
-`--retries=0`. In exact fixture mode, Playwright starts the tracked
-`node e2e/fixtures/login-api.mjs` first, gates readiness on
-`http://127.0.0.1:8788/health`, then starts the dashboard on
-`http://127.0.0.1:5174`; no disposable fixture, temporary config, test copy,
-or wrapper is used. The named test is skipped outside the exact fixture mode
-pair and, in fixture mode, proves this exact sanitized event:
-
-```json
-{"events":[{"method":"POST","path":"/api/login","username":"invalid@test.com"}]}
-```
-
-The fixture stdout must contain exactly one bounded
-`w0-login-fixture ready seed=dashboard-cutover-0010` line and one graceful
-`w0-login-fixture shutdown signal=SIGTERM` line. These lines are lifecycle
-provenance; the health URL is the readiness gate. The journey requires
-validated Node `>=22` and Bun `1.3.10`, denies non-loopback traffic, and
-accepts the optional runtime Chromium executable only when a managed
-Playwright browser is unavailable. No workstation path or unobserved browser
-installation command is documented.
+The invalid-credentials browser check runs only in the real native identity
+topology (`REAL_NATIVE_IDENTITY_E2E=1`). It never starts or trusts an
+authentication fixture.
 
 ### Deployment
 

@@ -29,8 +29,8 @@ const mockStatistics: Statistics = {
 export async function loader({ request }: Route.LoaderArgs) {
   if (isFixtureMode) return { statistics: mockStatistics };
 
-  const token = requireAuth(request);
-  const client = createAuthenticatedClient(token);
+  const cookie = await requireAuth(request);
+  const client = createAuthenticatedClient(cookie);
 
   try {
     const statistics = await client.admin.admissionStats();

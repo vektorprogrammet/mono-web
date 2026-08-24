@@ -28,9 +28,9 @@ const statusFor = (failure: RecruitmentBridgeFailure): number =>
   );
 
 export async function action({ request }: Route.ActionArgs) {
-  let token: string;
+  let cookie: string;
   try {
-    token = requireAuth(request);
+    cookie = await requireAuth(request);
   } catch {
     const failure: RecruitmentBridgeFailure = {
       _tag: "Unauthorized",
@@ -47,7 +47,7 @@ export async function action({ request }: Route.ActionArgs) {
       });
     }
     const operation = decodedRequest.operation;
-    const recruitment = createAuthenticatedClient(token).admin.recruitment;
+    const recruitment = createAuthenticatedClient(cookie).admin.recruitment;
 
     switch (operation.operation) {
       case "readAssignmentBoard":

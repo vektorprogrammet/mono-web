@@ -19,14 +19,14 @@ const responseHeaders = {
 
 
 export async function loader({ request }: Route.LoaderArgs) {
-  const token = requireAuth(request);
-  const client = createAuthenticatedClient(token);
+  const cookie = await requireAuth(request);
+  const client = createAuthenticatedClient(cookie);
 
   let observation: S.Schema.Type<typeof UserProfile>;
   try {
     observation = await client.me.profile();
   } catch {
-    throw expiredSessionRedirect();
+    throw await expiredSessionRedirect(request);
   }
 
   // Strict re-decode at the route boundary so the serialized element input can

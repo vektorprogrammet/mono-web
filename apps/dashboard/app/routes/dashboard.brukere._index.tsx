@@ -12,8 +12,8 @@ import { getActiveUsers, getInactiveUsers } from "../mock/api/data-brukere";
 export async function loader({ request }: Route.LoaderArgs) {
   if (isFixtureMode) return { users: null };
 
-  const token = requireAuth(request);
-  const client = createAuthenticatedClient(token);
+  const cookie = await requireAuth(request);
+  const client = createAuthenticatedClient(cookie);
 
   try {
     const users = await client.admin.users.list();

@@ -9,8 +9,8 @@ import type { Route } from "./+types/dashboard.skoler._index";
 type SchoolRow = Pick<SchedulingSchool, "id" | "name" | "capacity">;
 
 export async function loader({ request }: Route.LoaderArgs) {
-  const token = requireAuth(request);
-  const client = createAuthenticatedClient(token);
+  const cookie = await requireAuth(request);
+  const client = createAuthenticatedClient(cookie);
   const result = await client.admin.scheduling.schools();
   const schools = result.items.map(({ id, name, capacity }) => ({
     id,

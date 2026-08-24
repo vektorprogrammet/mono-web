@@ -2,16 +2,15 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useState } from "react";
 import { Form, Link, redirect, useActionData, useSearchParams } from "react-router";
-import { createClient, apiUrl, RateLimitedError } from "@vektorprogrammet/sdk";
 import {
-  createAuthCookie,
-  getToken,
+  hasAuthenticatedSession,
+  safeRedirect,
+  signInWithEmail,
 } from "../lib/auth.server";
 import type { Route } from "./+types/login";
 
 export async function loader({ request }: Route.LoaderArgs) {
-  const token = getToken(request);
-  if (token) throw redirect("/dashboard");
+  if (await hasAuthenticatedSession(request)) throw redirect("/dashboard");
   return null;
 }
 
@@ -24,17 +23,17 @@ export async function action({ request }: Route.ActionArgs) {
     return { error: "Brukernavn og passord er påkrevd" };
   }
 
-  const sdk = createClient(apiUrl);
-  try {
-    const { token } = await sdk.auth.login(username, password);
-    return redirect("/dashboard", {
-      headers: { "Set-Cookie": createAuthCookie(token, request) },
-    });
-  } catch (e) {
-    if (e instanceof RateLimitedError) {
+  const result = await signInWithEmail(request, username, password);
+  switch (result._tag) {
+    case "Authenticated":
+      return redirect(safeRedirect(form.get("redirectTo")), {
+        headers: result.headers,
+      });
+    case "RateLimited":
       return { error: "For mange innloggingsforsøk. Prøv igjen om 15 minutter." };
-    }
-    return { error: "Feil brukernavn eller passord" };
+    case "InvalidCredentials":
+    case "Unavailable":
+      return { error: "Feil brukernavn eller passord" };
   }
 }
 
@@ -55,6 +54,11 @@ export default function Login() {
         </div>
 
         <Form method="post" className="space-y-4">
+          <input
+            type="hidden"
+            name="redirectTo"
+            value={searchParams.get("redirectTo") ?? ""}
+          />
           {passwordReset && (
             <p className="rounded bg-green-50 p-2 text-center text-green-700 text-sm">
               Passordet ditt er tilbakestilt. Logg inn med ditt nye passord.

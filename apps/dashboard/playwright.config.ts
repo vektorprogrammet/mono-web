@@ -9,9 +9,6 @@ const w0Viewport = { width: 1440, height: 900 };
 const genericDashboardOrigin = "http://127.0.0.1:5174";
 const externalDashboardOrigin = process.env.DASHBOARD_ORIGIN ?? genericDashboardOrigin;
 const realSymfonyCoreOrigin = process.env.API_URL ?? "http://127.0.0.1:8000";
-const apiMode = process.env.API_MODE;
-const viteApiMode = process.env.VITE_API_MODE;
-const fixtureMode = apiMode === "fixture" && viteApiMode === "fixture";
 const realSymfonyCoreMode = process.env.REAL_SYMFONY_CORE_E2E === "1";
 const realSymfonyRecruitmentMode = process.env.REAL_SYMFONY_RECRUITMENT_E2E === "1";
 const realSymfonySchedulingMode = process.env.REAL_SYMFONY_INTERVIEW_SCHEDULING_E2E === "1";
@@ -24,6 +21,7 @@ const realAdmissionPeriodMode = process.env.REAL_ADMISSION_PERIOD_E2E === "1";
 const realNativeSchedulingMode = process.env.REAL_NATIVE_SCHEDULING_E2E === "1";
 const realNativeInvitationResponseMode = process.env.REAL_NATIVE_INVITATION_RESPONSE_E2E === "1";
 const realNativeOrganizationMode = process.env.REAL_NATIVE_ORGANIZATION_E2E === "1";
+const realNativeIdentityMode = process.env.REAL_NATIVE_IDENTITY_E2E === "1";
 const realSymfonyMode =
   realSymfonyCoreMode ||
   realSymfonyRecruitmentMode ||
@@ -37,16 +35,9 @@ const externalTopologyMode =
   realAdmissionPeriodMode ||
   realNativeSchedulingMode ||
   realNativeInvitationResponseMode ||
-  realNativeOrganizationMode;
+  realNativeOrganizationMode ||
+  realNativeIdentityMode;
 
-const fixtureServer = {
-  command: "node e2e/fixtures/login-api.mjs",
-  url: "http://127.0.0.1:8788/health",
-  timeout: 120_000,
-  reuseExistingServer: false,
-  stdout: "pipe" as const,
-  gracefulShutdown: { signal: "SIGTERM" as const, timeout: 5_000 },
-};
 const dashboardServer = {
   command: "bun run dev --host 127.0.0.1 --port 5174",
   url: genericDashboardOrigin,
@@ -66,7 +57,7 @@ export default defineConfig({
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
-  workers: externalTopologyMode || fixtureMode || process.env.CI ? 1 : undefined,
+  workers: externalTopologyMode || process.env.CI ? 1 : undefined,
   reporter: "html",
   use: {
     baseURL:
@@ -74,7 +65,8 @@ export default defineConfig({
       realAdmissionPeriodMode ||
       realNativeSchedulingMode ||
       realNativeInvitationResponseMode ||
-      realNativeOrganizationMode
+      realNativeOrganizationMode ||
+      realNativeIdentityMode
         ? externalDashboardOrigin
         : realSymfonyCoreMode
           ? realSymfonyCoreOrigin
@@ -142,9 +134,5 @@ export default defineConfig({
               use: { ...devices["Desktop Safari"], viewport: w0Viewport },
             },
           ],
-  webServer: externalTopologyMode
-    ? undefined
-    : fixtureMode
-      ? [fixtureServer, dashboardServer]
-      : dashboardServer,
+  webServer: externalTopologyMode ? undefined : dashboardServer,
 });

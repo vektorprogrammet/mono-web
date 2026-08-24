@@ -12,7 +12,6 @@
     "format": "oxfmt --write",
     "test": "vitest run",
     "test:e2e": "node ./node_modules/@playwright/test/cli.js test",
-    "test:e2e:w0": "API_URL=http://127.0.0.1:8788 VITE_API_URL=http://127.0.0.1:8788 API_MODE=fixture VITE_API_MODE=fixture DASHBOARD_CUTOVER_FIXTURE_SEED=dashboard-cutover-0010 node ./node_modules/@playwright/test/cli.js test e2e/auth.spec.ts -g \"shows error on invalid credentials\" --project=chromium --retries=0",
     "e2e:test": "node ./node_modules/@playwright/test/cli.js test",
     "e2e:test:ui": "node ./node_modules/@playwright/test/cli.js test --ui",
     "e2e:test:chrome": "node ./node_modules/@playwright/test/cli.js test --project=chromium",

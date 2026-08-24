@@ -7,8 +7,8 @@ import { createAuthenticatedClient } from "../lib/api.server";
 import type { Route } from "./+types/dashboard.assistenter._index";
 
 export async function loader({ request }: Route.LoaderArgs) {
-  const token = requireAuth(request);
-  const client = createAuthenticatedClient(token);
+  const cookie = await requireAuth(request);
+  const client = createAuthenticatedClient(cookie);
   const result = await client.admin.scheduling.assistants();
 
   return { assistants: result.items };

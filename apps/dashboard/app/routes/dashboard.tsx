@@ -33,7 +33,6 @@ import {
 } from "react-router";
 import { expiredSessionRedirect, requireAuth } from "../lib/auth.server";
 import { createAuthenticatedClient } from "../lib/api.server";
-import { isFixtureMode } from "@vektorprogrammet/sdk";
 import type { Route } from "./+types/dashboard";
 import { useTheme } from "../lib/theme";
 
@@ -69,16 +68,9 @@ import {
   useSidebar,
 } from "@/ui/sidebar";
 
-const fallbackUser = {
-  name: "Fixture Operator",
-  email: "operator@fixture.example.invalid",
-};
-
 export async function loader({ request }: Route.LoaderArgs) {
-  if (isFixtureMode) return { user: fallbackUser, isAdmin: true };
-
-  const token = requireAuth(request);
-  const client = createAuthenticatedClient(token);
+  const cookie = await requireAuth(request);
+  const client = createAuthenticatedClient(cookie);
 
   try {
     const data = await client.me.profile();
@@ -92,7 +84,7 @@ export async function loader({ request }: Route.LoaderArgs) {
       isAdmin,
     };
   } catch {
-    throw expiredSessionRedirect();
+    throw await expiredSessionRedirect(request);
   }
 }
 

@@ -19,8 +19,8 @@ import type { Route } from "./+types/dashboard.profile._index";
 export async function loader({ request }: Route.LoaderArgs) {
   if (isFixtureMode) return { profile: getProfileData(), fixture: true as const };
 
-  const token = requireAuth(request);
-  const client = createAuthenticatedClient(token);
+  const cookie = await requireAuth(request);
+  const client = createAuthenticatedClient(cookie);
   const profile = await loadProfile(() => client.me.profile());
 
   return { profile, fixture: false as const };

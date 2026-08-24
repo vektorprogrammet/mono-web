@@ -233,7 +233,6 @@ async function main() {
     API_MODE: "",
     VITE_API_MODE: "",
   };
-  delete dashboardEnv.DASHBOARD_CUTOVER_FIXTURE_SEED;
 
   const cleanup = async () => {
     if (cleaned) return;

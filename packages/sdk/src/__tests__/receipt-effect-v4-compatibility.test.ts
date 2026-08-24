@@ -76,8 +76,9 @@ describe("Effect v4 Receipt compatibility", () => {
       return makeResponse(200, validHydra)
     })
 
-    const promiseClient = createClient(FIXTURE_URL, { auth: "trace-token" })
-    const effectClient = createEffectClient(FIXTURE_URL, { auth: "trace-token" })
+    const rawCookie = "theme=dark; better-auth.session_token=trace-session"
+    const promiseClient = createClient(FIXTURE_URL, { cookie: rawCookie })
+    const effectClient = createEffectClient(FIXTURE_URL, { cookie: rawCookie })
 
     for (const client of [promiseClient, effectClient]) {
       expect(client).toHaveProperty("auth")
@@ -85,9 +86,8 @@ describe("Effect v4 Receipt compatibility", () => {
       expect(client).toHaveProperty("receipts")
       expect(client).toHaveProperty("admin")
       expect(client).toHaveProperty("public")
-      expect(client).toHaveProperty("context")
-      expectMethods(client.auth, ["login", "resetPassword", "setPassword"])
-      expectMethods(client.me, ["profile", "dashboard", "updateProfile"])
+      expectMethods(client.auth, ["resetPassword", "setPassword"])
+      expectMethods(client.me, ["session", "profile", "dashboard", "updateProfile"])
       expectMethods(client.receipts, ["list", "create", "update", "delete"])
       expectMethods(client.admin.receipts, ["list", "approve", "reject", "reopen"])
       expectMethods(client.admin.applications, ["list", "get", "delete", "bulkDelete"])
@@ -168,7 +168,7 @@ describe("Effect v4 Receipt compatibility", () => {
       requests.push({ url: requestUrl(input), init: init ?? {} })
       return makeResponse(200, validHydra)
     })
-    const client = createClient(FIXTURE_URL, { auth: "trace-token" })
+    const client = createClient(FIXTURE_URL, { cookie: "better-auth.session_token=trace-session" })
 
     const result = await client.admin.receipts.list({ status: "pending", page: 1, pageSize: 2 })
     expect(result).toMatchObject({ items: [expect.anything()], totalItems: 1, page: 1, pageSize: 2 })
@@ -189,12 +189,12 @@ describe("Effect v4 Receipt compatibility", () => {
 
     expect(requests[0]?.url).toBe(`${FIXTURE_URL}/api/admin/receipts?status=pending&page=1&itemsPerPage=2`)
     expect(header(requests[0]?.init, "Accept")).toBe("application/ld+json")
-    expect(header(requests[0]?.init, "Authorization")).toBe("Bearer trace-token")
+    expect(header(requests[0]?.init, "Cookie")).toBe("better-auth.session_token=trace-session")
   })
 
   it("returns a direct Effect list value with the same Page-compatible result", async () => {
     fetchMock.mockResolvedValue(makeResponse(200, validHydra))
-    const client = createEffectClient(FIXTURE_URL, { auth: "trace-token" })
+    const client = createEffectClient(FIXTURE_URL, { cookie: "better-auth.session_token=trace-session" })
     const effect = client.admin.receipts.list({ status: "pending", page: 1, pageSize: 2 })
     expect(Effect.isEffect(effect)).toBe(true)
 
@@ -210,15 +210,15 @@ describe("Effect v4 Receipt compatibility", () => {
       requests.push({ url: requestUrl(input), init: init ?? {} })
       return makeResponse(204, undefined, false)
     })
-    const promiseClient = createClient(FIXTURE_URL, { auth: "trace-token" })
+    const promiseClient = createClient(FIXTURE_URL, { cookie: "better-auth.session_token=trace-session" })
     await expect(promiseClient.admin.receipts.approve(42)).resolves.toBeUndefined()
     expect(requests[0]?.url).toBe(`${FIXTURE_URL}/api/admin/receipts/42/status`)
     expect(requests[0]?.init.method).toBe("PUT")
-    expect(header(requests[0]?.init, "Authorization")).toBe("Bearer trace-token")
+    expect(header(requests[0]?.init, "Cookie")).toBe("better-auth.session_token=trace-session")
     expect(JSON.parse(String(requests[0]?.init.body))).toEqual({ status: "refunded" })
 
     requests = []
-    const effectClient = createEffectClient(FIXTURE_URL, { auth: "trace-token" })
+    const effectClient = createEffectClient(FIXTURE_URL, { cookie: "better-auth.session_token=trace-session" })
     const effect = effectClient.admin.receipts.approve(42)
     expect(Effect.isEffect(effect)).toBe(true)
     await expect(Effect.runPromise(effect)).resolves.toBeUndefined()
@@ -284,20 +284,20 @@ describe("Effect v4 Receipt compatibility", () => {
     expect(effectNetworkError).toMatchObject({ _tag: "Network" })
   })
 
-  it("resolves async auth for each request without changing the public seam", async () => {
+  it("resolves an async Cookie header for each request", async () => {
     fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
       requests.push({ url: requestUrl(input), init: init ?? {} })
       return makeResponse(200, validHydra)
     })
-    const auth = vi.fn().mockResolvedValue("trace-token")
-    const client = createClient(FIXTURE_URL, { auth })
+    const cookieProvider = vi.fn().mockResolvedValue("better-auth.session_token=trace-session")
+    const client = createClient(FIXTURE_URL, { cookie: cookieProvider })
 
     await client.admin.receipts.list()
     await client.admin.receipts.list()
 
-    expect(auth).toHaveBeenCalledTimes(2)
-    expect(header(requests[0]?.init, "Authorization")).toBe("Bearer trace-token")
-    expect(header(requests[1]?.init, "Authorization")).toBe("Bearer trace-token")
+    expect(cookieProvider).toHaveBeenCalledTimes(2)
+    expect(header(requests[0]?.init, "Cookie")).toBe("better-auth.session_token=trace-session")
+    expect(header(requests[1]?.init, "Cookie")).toBe("better-auth.session_token=trace-session")
   })
 
   it("propagates fiber interruption to fetch and leaves no owned request work", async () => {
@@ -438,7 +438,7 @@ describe("Application status typed decode", () => {
     expect(requests.map(({ url }) => url)).toEqual([
       `${APPLICATION_FIXTURE_URL}/api/admin/applications`,
     ])
-    expect(requests.every(({ init }) => header(init, "Authorization") === undefined)).toBe(true)
+    expect(requests.every(({ init }) => header(init, "Cookie") === undefined)).toBe(true)
   })
 
   it("rejects unknown application status through the Promise detail channel", async () => {

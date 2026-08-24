@@ -111,8 +111,8 @@ function parseApprovalCommand(
 }
 
 export async function loader({ request }: Route.LoaderArgs) {
-  const token = requireAuth(request);
-  const client = createAuthenticatedClient(token);
+  const cookie = await requireAuth(request);
+  const client = createAuthenticatedClient(cookie);
   const requestedStatus = new URL(request.url).searchParams.get("status");
 
   if (requestedStatus !== null && !isReceiptStatus(requestedStatus)) {
@@ -138,7 +138,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     };
   } catch (error) {
     if (isUnauthorizedError(error)) {
-      throw expiredSessionRedirect();
+      throw await expiredSessionRedirect(request);
     }
     return {
       receipts: [] as ApprovalReceiptView[],
@@ -149,8 +149,8 @@ export async function loader({ request }: Route.LoaderArgs) {
 }
 
 export async function action({ request }: Route.ActionArgs) {
-  const token = requireAuth(request);
-  const client = createAuthenticatedClient(token);
+  const cookie = await requireAuth(request);
+  const client = createAuthenticatedClient(cookie);
   const form = await request.formData();
   const intentValue = readFormText(form, "_intent");
 
@@ -196,7 +196,7 @@ export async function action({ request }: Route.ActionArgs) {
     };
   } catch (error) {
     if (isUnauthorizedError(error)) {
-      throw expiredSessionRedirect();
+      throw await expiredSessionRedirect(request);
     }
     return {
       success: false as const,

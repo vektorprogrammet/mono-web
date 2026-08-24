@@ -6,7 +6,6 @@
  */
 
 import { apiUrl } from "./config.js";
-import { createContext } from "./context.js";
 import { createAuthDomain } from "./domains/auth.js";
 import { createMeDomain } from "./domains/me.js";
 import { createReceiptsDomain } from "./domains/receipts.js";
@@ -25,7 +24,7 @@ import { createPublicContactMessageDomain } from "./domains/public/contact-messa
 import { createAdminUsersDomain } from "./domains/admin/users.js";
 import { createAdmissionApplicationsDomain } from "./domains/admission-applications.js";
 import { createAdmissionPeriodsDomain } from "./domains/admission-period.js";
-import { createTransport, type AuthOption } from "./transport.js";
+import { createTransport, type CookieOption } from "./transport.js";
 
 // --- Public re-exports ---
 export type {
@@ -45,7 +44,6 @@ export type {
   RecruitmentRejectionTag,
   OrganizationRejectionTag,
 } from "./errors.js";
-export type { ClientContext } from "./context.js";
 export { apiUrl, isFixtureMode } from "./config.js";
 
 export {
@@ -129,6 +127,7 @@ export {
 } from "./schemas/interview.js";
 export {
   ProfileCommandId,
+  SessionActor,
   UpdateOwnProfileCommand,
   UserProfile,
   UserRole,
@@ -262,15 +261,13 @@ export type {
 // --- Client options ---
 
 export type ClientOptions = {
-  auth?: AuthOption;
+  cookie?: CookieOption;
 };
 
 // --- Effect client factory ---
 
 export function createEffectClient(baseUrl: string | undefined, options?: ClientOptions) {
-  const transport = createTransport(baseUrl, options?.auth);
-  const initialToken = typeof options?.auth === "string" ? options.auth : undefined;
-  const context = createContext(initialToken);
+  const transport = createTransport(baseUrl, options?.cookie);
 
   const adminMisc = createAdminMiscDomain(transport);
   const publicMisc = createPublicMiscDomain(transport);
@@ -301,14 +298,12 @@ export function createEffectClient(baseUrl: string | undefined, options?: Client
       sponsors: publicMisc.sponsors.bind(publicMisc),
       contactMessages: publicContactMessages,
     },
-    context,
   };
 }
 /**
  * Creates an Effect SDK client from SDK-owned runtime configuration.
  *
- * The base URL remains optional and is validated lazily by the transport. An
- * auth option may carry an opaque transport credential; actor and grant
+ * A cookie option carries the exact server-side Cookie header; actor and grant
  * authority remain server-owned.
  */
 export function createConfiguredEffectClient(options?: ClientOptions) {

@@ -11,8 +11,8 @@ type MailingListEntry = Pick<MailingList, "name"> & {
 };
 
 export async function loader({ request }: Route.LoaderArgs) {
-  const token = requireAuth(request);
-  const client = createAuthenticatedClient(token);
+  const cookie = await requireAuth(request);
+  const client = createAuthenticatedClient(cookie);
   const lists = await client.admin.mailingLists();
   const mailingLists = lists.flatMap((list) =>
     list.emails.map((email) => ({ name: list.name, email })),
