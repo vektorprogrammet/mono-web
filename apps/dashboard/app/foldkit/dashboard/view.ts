@@ -1,15 +1,9 @@
 import { Button, Disclosure } from "@foldkit/ui";
 import { Option, Schema as S } from "effect";
 import type { Html, HtmlBuilder, TagName } from "foldkit/html";
-import {
-  RECRUITMENT_ELEMENT,
-  RECRUITMENT_INPUT_ATTRIBUTE,
-} from "../recruitment/elements";
+import { RECRUITMENT_ELEMENT, RECRUITMENT_INPUT_ATTRIBUTE } from "../recruitment/elements";
 import { RecruitmentInputJson } from "../recruitment/model";
-import {
-  SCHEDULING_ELEMENT,
-  SCHEDULING_INPUT_ATTRIBUTE,
-} from "../scheduling/elements";
+import { SCHEDULING_ELEMENT, SCHEDULING_INPUT_ATTRIBUTE } from "../scheduling/elements";
 import { SchedulingInputJson } from "../scheduling/model";
 import {
   ActivatedNavigation,
@@ -417,29 +411,27 @@ const readyView = (model: ReadyModel, h: HtmlBuilder<Message>): Html => {
           breadcrumbsView(model, h),
           h.main(
             [h.Id("fd-main"), h.Class("fd-main"), h.Tabindex(-1)],
-            [
-              ...(model.scheduling !== null
+            model.scheduling !== null
+              ? [
+                  h.keyed(SCHEDULING_ELEMENT as TagName)("foldkit-recruitment-scheduling", [
+                    h.Id("fd-scheduling-program"),
+                    h.Attribute(
+                      SCHEDULING_INPUT_ATTRIBUTE,
+                      S.encodeSync(SchedulingInputJson)(model.scheduling),
+                    ),
+                  ]),
+                ]
+              : model.recruitment !== null
                 ? [
-                    h.keyed(SCHEDULING_ELEMENT as TagName)("foldkit-recruitment-scheduling", [
-                      h.Id("fd-scheduling-program"),
+                    h.keyed(RECRUITMENT_ELEMENT as TagName)("foldkit-recruitment-board", [
+                      h.Id("fd-recruitment-program"),
                       h.Attribute(
-                        SCHEDULING_INPUT_ATTRIBUTE,
-                        S.encodeSync(SchedulingInputJson)(model.scheduling),
+                        RECRUITMENT_INPUT_ATTRIBUTE,
+                        S.encodeSync(RecruitmentInputJson)(model.recruitment),
                       ),
                     ]),
                   ]
-                : model.recruitment !== null
-                  ? [
-                      h.keyed(RECRUITMENT_ELEMENT as TagName)("foldkit-recruitment-board", [
-                        h.Id("fd-recruitment-program"),
-                        h.Attribute(
-                          RECRUITMENT_INPUT_ATTRIBUTE,
-                          S.encodeSync(RecruitmentInputJson)(model.recruitment),
-                        ),
-                      ]),
-                    ]
-                  : [landingView(model, h)]),
-            ],
+                : [landingView(model, h)],
           ),
         ],
       ),
