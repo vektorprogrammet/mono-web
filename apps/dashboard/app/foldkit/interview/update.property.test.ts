@@ -10,10 +10,12 @@ import {
   FailedInvitationResponse,
   FailedReadInvitationResponse,
   Message,
+  OpenedInvitationResponse,
   RejectedInvitation,
   RequestedNewInvitationTime,
   SucceededInvitationResponse,
   SucceededReadInvitationResponse,
+  UpdatedResponseMessage,
 } from "./message";
 import { InvitationResponseData, Model, makeInitialModel } from "./model";
 import { makeUpdate } from "./update";
@@ -53,6 +55,76 @@ const bridgeFailure = {
   _tag: "InvitationAlreadyResponded",
   message: "Invitation already responded",
 } as const;
+
+const responseStateArbitrary = fc.constantFrom(
+  "Pending" as const,
+  "Accepted" as const,
+  "Rejected" as const,
+  "RequestedNewTime" as const,
+);
+const observationArbitrary = responseStateArbitrary.map(decodeObservation);
+const requestIdArbitrary = fc.integer({ min: 0, max: 1_000 });
+const actionArbitrary = fc.constantFrom(
+  "Confirm" as const,
+  "Reject" as const,
+  "RequestNewTime" as const,
+);
+const failureArbitrary = fc
+  .tuple(
+    fc.constantFrom(
+      "InvitationNotFound" as const,
+      "InvitationAlreadyResponded" as const,
+      "InvitationDecodeError" as const,
+      "InvitationUnavailable" as const,
+    ),
+    fc.string({ maxLength: 128 }),
+  )
+  .map(([_tag, message]) => ({ _tag, message }));
+const invitationDataArbitrary = fc.oneof(
+  fc.constant(InvitationResponseData.Idle()),
+  fc.constant(InvitationResponseData.Loading()),
+  observationArbitrary.map((data) => InvitationResponseData.Refreshing({ data })),
+  failureArbitrary.map((error) => InvitationResponseData.Failure({ error })),
+  fc
+    .tuple(observationArbitrary, failureArbitrary)
+    .map(([data, error]) => InvitationResponseData.Stale({ data, error })),
+  observationArbitrary.map((data) => InvitationResponseData.Success({ data })),
+);
+const modelArbitrary = fc.record({
+  responseMessage: fc
+    .string({ maxLength: 2_100 })
+    .map((value) => FieldValidation.NotValidated({ value })),
+  invitationResponse: invitationDataArbitrary,
+  selectedAction: fc.oneof(fc.constant(null), actionArbitrary),
+  requestId: requestIdArbitrary,
+  failure: fc.oneof(fc.constant(null), failureArbitrary),
+  validationFeedback: fc.oneof(fc.constant(null), fc.string({ maxLength: 128 })),
+});
+const messageArbitrary = fc.oneof(
+  fc.constant(OpenedInvitationResponse()),
+  requestIdArbitrary.chain((requestId) =>
+    observationArbitrary.map((observation) =>
+      SucceededReadInvitationResponse({ requestId, observation }),
+    ),
+  ),
+  requestIdArbitrary.chain((requestId) =>
+    failureArbitrary.map((failure) => FailedReadInvitationResponse({ requestId, failure })),
+  ),
+  fc.string({ maxLength: 2_100 }).map((value) => UpdatedResponseMessage({ value })),
+  fc.constant(ConfirmedInvitation()),
+  fc.constant(RejectedInvitation()),
+  fc.constant(RequestedNewInvitationTime()),
+  fc
+    .tuple(requestIdArbitrary, actionArbitrary, observationArbitrary)
+    .map(([requestId, action, observation]) =>
+      SucceededInvitationResponse({ requestId, action, observation }),
+    ),
+  fc
+    .tuple(requestIdArbitrary, actionArbitrary, failureArbitrary)
+    .map(([requestId, action, failure]) =>
+      FailedInvitationResponse({ requestId, action, failure }),
+    ),
+);
 
 it("loads every native response state through a current read observation", () => {
   for (const responseState of ["Pending", "Accepted", "Rejected", "RequestedNewTime"] as const) {
@@ -255,8 +327,8 @@ it("does not adopt a fresh read that contradicts the completed operation", () =>
 it.prop(
   "every generated model and message preserves the model schema",
   {
-    model: S.toArbitrary(Model)(fc),
-    message: S.toArbitrary(Message)(fc),
+    model: modelArbitrary,
+    message: messageArbitrary,
   },
   ({ model, message }) => {
     const [next] = update(model, message);

@@ -514,9 +514,14 @@ function runNixPostgres(command, args, options) {
   return runCommand("nix", ["shell", nixPostgresPackage, "--command", command, ...args], options);
 }
 
+function processHasExited(child) {
+  return child.exitCode !== null || child.signalCode !== null;
+}
+
 async function stopProcess(child) {
-  if (child === undefined || child.exitCode !== null || child.pid === undefined) return;
+  if (child === undefined || child.pid === undefined || processHasExited(child)) return;
   const exited = new Promise((resolveExit) => child.once("exit", resolveExit));
+  if (processHasExited(child)) return;
   signalProcessGroup(child, "SIGTERM");
   const stopped = await Promise.race([
     exited.then(() => true),
@@ -524,13 +529,17 @@ async function stopProcess(child) {
   ]);
   if (stopped) return;
   signalProcessGroup(child, "SIGKILL");
-  await exited;
+  const killed = await Promise.race([
+    exited.then(() => true),
+    sleep(shutdownTimeoutMs).then(() => false),
+  ]);
+  if (!killed) throw new Error(`Process group ${child.pid} did not exit after SIGKILL`);
 }
 
 async function waitForHttp(url, child, label) {
   const deadline = Date.now() + commandTimeoutMs;
   while (Date.now() < deadline) {
-    if (child.exitCode !== null) throw new Error(`${label} exited before readiness`);
+    if (processHasExited(child)) throw new Error(`${label} exited before readiness`);
     try {
       const response = await fetch(url, { redirect: "manual" });
       if (response.status >= 200 && response.status < 500) return;
