@@ -14,7 +14,7 @@ import { useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { NavLink, href, useLoaderData, useNavigate } from "react-router";
 import { z } from "zod";
-import { createClient, apiUrl, isFixtureMode, type FieldOfStudy } from "@vektorprogrammet/sdk";
+import { createClient, apiUrl, isFixtureMode } from "@vektorprogrammet/sdk";
 import { getProfileData } from "../mock/api/data-profile";
 import { linjer } from "../mock/api/linjer";
 
@@ -37,14 +37,9 @@ const formSchema = z.object({
 
 export async function loader() {
   if (isFixtureMode) return { studyLines: linjer };
-  try {
-    const client = createClient(apiUrl);
-    const fieldOfStudies = await client.public.fieldOfStudies() as FieldOfStudy[];
-    const studyLines = fieldOfStudies.map((f) => f.name);
-    return { studyLines };
-  } catch {
-    return { studyLines: linjer };
-  }
+  const client = createClient(apiUrl);
+  const fieldOfStudies = await client.public.organization.listFieldOfStudies();
+  return { studyLines: fieldOfStudies.map((field) => field.name) };
 }
 
 // biome-ignore lint/style/noDefaultExport: Route Modules require default export https://reactrouter.com/start/framework/route-module
