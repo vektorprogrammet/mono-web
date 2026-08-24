@@ -33,13 +33,6 @@ export default function Profile() {
     <>
       <div className="mx-10 mt-10 flex flex-col">
         <section className="items-center gap-4 lg:mb-8 lg:grid lg:grid-cols-3 lg:flex-row">
-          {profile.profileImage ? (
-            <img
-              className="h-40 w-40 self-end justify-self-center rounded-full object-cover"
-              alt="Profilbilde"
-              src={profile.profileImage}
-            />
-          ) : null}
           <div className="flex flex-col items-center self-end lg:items-start">
             <h1 className="mb-2 font-semibold text-2xl lg:mb-4 lg:text-4xl">
               {profile.firstName} {profile.lastName}
@@ -94,10 +87,6 @@ export default function Profile() {
                   <TableCell className="truncate">
                     {fixture ? profile.department : "Ikke tilgjengelig"}
                   </TableCell>
-                </TableRow>
-                <TableRow>
-                  <TableCell className="w-2/5 font-medium">Linje:</TableCell>
-                  <TableCell className="truncate">{profile.study ?? "Ikke oppgitt"}</TableCell>
                 </TableRow>
                 <TableRow>
                   <TableCell className="w-2/5 font-medium">Telefon:</TableCell>

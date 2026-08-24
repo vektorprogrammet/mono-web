@@ -38,8 +38,7 @@ import type { Route } from "./+types/dashboard";
 import { useTheme } from "../lib/theme";
 
 import { cn } from "@/lib/utils";
-import { Avatar, AvatarFallback, AvatarImage } from "@/ui/avatar";
-import { publicAssetUrl } from "@/lib/public-asset";
+import { Avatar, AvatarFallback } from "@/ui/avatar";
 import { Breadcrumb, BreadcrumbItem, BreadcrumbList, BreadcrumbSeparator } from "@/ui/breadcrumb";
 import {
   DropdownMenu,
@@ -73,7 +72,6 @@ import {
 const fallbackUser = {
   name: "Fixture Operator",
   email: "operator@fixture.example.invalid",
-  avatar: "https://assets.example.invalid/fixture/avatar.svg",
 };
 
 export async function loader({ request }: Route.LoaderArgs) {
@@ -84,14 +82,12 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   try {
     const data = await client.me.profile();
-    const role = (data as Record<string, unknown>).role as string | undefined;
-    const isAdmin = role === "ROLE_ADMIN" || role === "ROLE_TEAM_LEADER";
+    const isAdmin = data.role === "ROLE_ADMIN" || data.role === "ROLE_TEAM_LEADER";
 
     return {
       user: {
         name: `${data.firstName} ${data.lastName}`,
         email: data.email,
-        avatar: publicAssetUrl(data.profilePhoto as string | null | undefined),
       },
       isAdmin,
     };
@@ -106,7 +102,6 @@ function UserMenu({
   user: {
     name: string;
     email: string;
-    avatar: string;
   };
 }) {
   const isMobile = useSidebar();
@@ -121,7 +116,6 @@ function UserMenu({
               tooltip="User menu"
             >
               <Avatar className="h-8 w-8 rounded-lg">
-                <AvatarImage src={user.avatar} alt={user.name} />
                 <AvatarFallback className="rounded-lg">Profil</AvatarFallback>
               </Avatar>
               <div className="grid flex-1 text-left text-sm leading-tight">

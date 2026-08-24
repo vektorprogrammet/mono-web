@@ -17,6 +17,9 @@ export const ProfileBridgeFailure = S.Struct({
 });
 export type ProfileBridgeFailure = S.Schema.Type<typeof ProfileBridgeFailure>;
 
+// Tags arrive either as native Effect tags (capitalized, e.g.
+// "ProfileCommandConflict") or as public SDK error types from the
+// promise boundary (lowercase, e.g. "conflict"). Match both.
 const errorTag = (error: unknown): string => {
   if (typeof error !== "object" || error === null) return "";
   if ("_tag" in error && typeof error._tag === "string") return error._tag;
@@ -28,16 +31,27 @@ const errorTag = (error: unknown): string => {
 export const toProfileBridgeFailure = (error: unknown): ProfileBridgeFailure => {
   const tag = errorTag(error);
 
-  if (tag.includes("Unauthenticated") || tag === "Unauthorized") {
+  if (
+    tag === "unauthorized" ||
+    tag.includes("Unauthenticated") ||
+    tag === "Unauthorized"
+  ) {
     return { _tag: "Unauthorized", message: "Sesjonen har utløpt. Logg inn på nytt." };
   }
-  if (tag.includes("Forbidden") || tag.includes("Inactive")) {
+  if (tag === "forbidden" || tag.includes("Forbidden") || tag.includes("Inactive")) {
     return { _tag: "Forbidden", message: "Du mangler tillatelse til å endre profilen." };
   }
-  if (tag.includes("NotFound") || tag.includes("ProfileContact")) {
+  if (tag === "not_found" || tag.includes("NotFound") || tag.includes("ProfileContact")) {
     return { _tag: "NotFound", message: "Fant ikke profildataene." };
   }
-  if (tag.includes("Stale") || tag.includes("Revision") || tag.includes("RevisionConflict")) {
+  if (
+    tag === "conflict" ||
+    tag.includes("Stale") ||
+    tag.includes("Revision") ||
+    tag.includes("CommandConflict") ||
+    tag.includes("Duplicate") ||
+    tag.includes("Replay")
+  ) {
     return {
       _tag: "Conflict",
       message:
@@ -54,19 +68,19 @@ export const toProfileBridgeFailure = (error: unknown): ProfileBridgeFailure => 
       message: "Lagringen ble ikke registrert fordi samme kommando allerede er utført.",
     };
   }
-  if (tag.includes("Validation") || tag.includes("Decode")) {
+  if (tag === "validation" || tag.includes("Validation") || tag.includes("Decode")) {
     return {
       _tag: "Validation",
       message: "Serveren godtok ikke verdienne. Kontroller feltene og prøv igjen.",
     };
   }
-  if (tag.includes("RateLimited")) {
+  if (tag === "rate_limited" || tag.includes("RateLimited")) {
     return {
       _tag: "RateLimited",
       message: "For mange forespørsler. Vent litt og prøv på nytt.",
     };
   }
-  if (tag.includes("Configuration")) {
+  if (tag === "configuration" || tag.includes("Configuration")) {
     return { _tag: "Configuration", message: "Tjenesten er feilkonfigurert." };
   }
   return { _tag: "Network", message: "Kunne ikke lagre profilen. Prøv på nytt." };

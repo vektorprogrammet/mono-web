@@ -10,7 +10,6 @@ import {
 import type { SchedulingInput } from "../foldkit/scheduling/model";
 import { createAuthenticatedClient } from "../lib/api.server";
 import { expiredSessionRedirect, requireAuth } from "../lib/auth.server";
-import { publicAssetUrl } from "../lib/public-asset";
 import type { Route } from "./+types/dashboard_.intervjuer._index";
 
 const responseHeaders = {
@@ -51,12 +50,11 @@ export async function loader({ request }: Route.LoaderArgs) {
     };
   }
 
-  const avatar = publicAssetUrl(profile.profilePhoto);
   const dashboardInput = S.decodeUnknownSync(DashboardInput)(
     {
       identity: {
         name: `${profile.firstName} ${profile.lastName}`.trim(),
-        avatar: avatar.length === 0 ? null : avatar,
+        avatar: null,
       },
       role: profile.role,
       activePath: new URL(request.url).pathname,

@@ -1,13 +1,12 @@
 import { UpdateOwnProfileCommand, UserProfile } from "@vektorprogrammet/sdk/effect";
 import { Schema as S } from "effect";
-import { AsyncData, FieldValidation } from "foldkit";
+import { FieldValidation } from "foldkit";
 import { ProfileBridgeFailure, ProfileRequestId } from "./bridge";
-export const ProfileObservationData = AsyncData.Schema(UserProfile, ProfileBridgeFailure);
 
 const StringField = FieldValidation.Field(S.String);
 
 export const Model = S.Struct({
-  profile: ProfileObservationData.schema,
+  profile: UserProfile,
   firstName: StringField,
   lastName: StringField,
   email: StringField,
@@ -25,11 +24,11 @@ export const makeInitialModel = (
   profile: S.Schema.Type<typeof UserProfile>,
   commandIdSeed: string,
 ): Model => ({
-  profile: ProfileObservationData.Success({ data: profile }),
+  profile,
   firstName: FieldValidation.NotValidated({ value: profile.firstName }),
   lastName: FieldValidation.NotValidated({ value: profile.lastName }),
   email: FieldValidation.NotValidated({ value: profile.email }),
-  phone: FieldValidation.NotValidated({ value: profile.phone ?? "" }),
+  phone: FieldValidation.NotValidated({ value: profile.phone }),
   isSaving: false,
   requestId: 0,
   commandIdSeed,
@@ -39,7 +38,5 @@ export const makeInitialModel = (
 });
 
 export type ProfileCommand = S.Schema.Type<typeof UpdateOwnProfileCommand>;
-
 export const ProfileInputJson = S.fromJsonString(UserProfile);
-
 export type UserProfileObservation = S.Schema.Type<typeof UserProfile>;

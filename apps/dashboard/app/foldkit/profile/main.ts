@@ -1,8 +1,6 @@
-import { Schema as S } from "effect";
 import { Runtime } from "foldkit";
 import type { ProfileClient } from "./browser-client";
 import { makeProfileCommands } from "./command";
-import { OpenedProfileEditor } from "./message";
 import { Model, makeInitialModel, type UserProfileObservation } from "./model";
 import "./styles.css";
 import { makeUpdate } from "./update";
@@ -41,8 +39,6 @@ export function embedProfileEditor(
     },
   });
 
-  void S.is;
-  void OpenedProfileEditor;
   const handle = Runtime.embed(program);
   return () => handle.dispose();
 }

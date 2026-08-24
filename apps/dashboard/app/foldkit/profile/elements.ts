@@ -25,13 +25,17 @@ export const registerProfileEditorElement = (): void => {
         try {
           const serialized = this.getAttribute(PROFILE_INPUT_ATTRIBUTE);
           if (serialized === null) throw new Error("missing profile input");
+          const commandIdSeed = this.getAttribute(PROFILE_SEED_ATTRIBUTE);
+          if (commandIdSeed === null || commandIdSeed.length === 0) {
+            throw new Error("missing Profile command ID seed");
+          }
           const initialProfile: UserProfileObservation = S.decodeUnknownSync(
             ProfileInputJson,
           )(serialized, { onExcessProperty: "error" });
           const client: ProfileClient = createBrowserProfileClient();
           this.#dispose = embedProfileEditor(this.#container, {
             client,
-            commandIdSeed: window.crypto.randomUUID(),
+            commandIdSeed,
             initialProfile,
           });
         } catch {
