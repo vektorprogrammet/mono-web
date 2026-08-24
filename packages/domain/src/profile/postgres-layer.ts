@@ -2,6 +2,7 @@ import { Effect, Layer } from "effect";
 import { Database } from "../database/service.js";
 import { Organization } from "../organization/service.js";
 import {
+  readDirectoryPage as readDirectoryPagePostgres,
   readOwnProfile as readOwnProfilePostgres,
   readPersonContacts,
   readPersonProfiles,
@@ -30,6 +31,11 @@ export const ProfileLive = Layer.effect(
         readOwnProfilePostgres(personId).pipe(Effect.provideService(Database, database)),
       updateOwnProfile: (input) =>
         updateOwnProfilePostgres(input).pipe(Effect.provideService(Database, database)),
+      readDirectoryPage: (input) =>
+        readDirectoryPagePostgres(input).pipe(
+          Effect.provideService(Database, database),
+          Effect.provideService(Organization, organization),
+        ),
     });
   }),
 );

@@ -1,6 +1,7 @@
 import { Database, type DatabaseShape } from "../database/service.js";
 import { Organization } from "../organization/service.js";
 import { PersonId } from "../organization/schema.js";
+import type { DirectoryEntry, DirectoryPage, ReadDirectoryPageInput } from "./service.js";
 import { canonicalJson, canonicalJsonBytes, sha256Hex } from "../tutor/evidence.js";
 import { Effect, Schema } from "effect";
 import {
@@ -568,4 +569,116 @@ export const updateOwnProfile = (
           Effect.fail(persistenceError("update own Profile transaction", cause)),
         ),
       );
+  });
+
+const DIRECTORY_CURSOR_VERSION = "v1";
+
+interface DirectoryJoinedRow {
+  readonly personId: string;
+  readonly firstName: string;
+  readonly lastName: string;
+  readonly email: string | null;
+  readonly phone: string | null;
+}
+
+/** Encodes the last sort tuple as an opaque, strictly decodable cursor. */
+export const encodeDirectoryCursor = (entry: {
+  readonly lastName: string;
+  readonly firstName: string;
+  readonly personId: string;
+}): string =>
+  Buffer.from(
+    JSON.stringify([DIRECTORY_CURSOR_VERSION, entry.lastName, entry.firstName, entry.personId]),
+    "utf8",
+  ).toString("base64");
+
+/**
+ * Decodes a directory cursor. Anything malformed — bad base64, wrong shape,
+ * unknown version — is the typed decode failure the HTTP layer maps to 422.
+ */
+export const decodeDirectoryCursor = (
+  cursor: string,
+): Effect.Effect<{ lastName: string; firstName: string; personId: string }, ProfileDecodeError> =>
+  Effect.gen(function* () {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(Buffer.from(cursor, "base64").toString("utf8")) as unknown;
+    } catch {
+      return yield* new ProfileDecodeError({ message: "malformed Profile directory cursor" });
+    }
+    if (
+      !Array.isArray(parsed) ||
+      parsed.length !== 4 ||
+      parsed[0] !== DIRECTORY_CURSOR_VERSION ||
+      typeof parsed[1] !== "string" ||
+      typeof parsed[2] !== "string" ||
+      typeof parsed[3] !== "string"
+    ) {
+      return yield* new ProfileDecodeError({ message: "malformed Profile directory cursor" });
+    }
+    return { lastName: parsed[1], firstName: parsed[2], personId: parsed[3] };
+  });
+
+/**
+ * Scans one page of the directory from a single snapshot. Ordering is
+ * lastName, then firstName, then personId; the keyset predicate resumes
+ * strictly after the decoded cursor tuple so page boundaries neither
+ * duplicate nor drop a person. A scanned person without a contact row is the
+ * typed ProfileContactNotFound failure: the directory never fabricates
+ * contact values and never silently drops the row.
+ */
+export const readDirectoryPage = (
+  input: ReadDirectoryPageInput,
+): Effect.Effect<DirectoryPage, ProfileFailure, Database | Organization> =>
+  Effect.gen(function* () {
+    // Keep Organization explicit in the Profile composition graph, matching
+    // every other Profile read; Organization owns each row's departments and
+    // activity while Profile owns names and contacts.
+    yield* Organization;
+    if (!Number.isSafeInteger(input.limit) || input.limit <= 0) {
+      return yield* new ProfileQueryLimitExceeded({ limit: input.limit });
+    }
+    const cursorTuple =
+      input.cursor === undefined ? undefined : yield* decodeDirectoryCursor(input.cursor);
+    const sql = yield* Database;
+    const rows = yield* sql<DirectoryJoinedRow>`
+      SELECT
+        profile.person_id AS "personId",
+        profile.first_name AS "firstName",
+        profile.last_name AS "lastName",
+        contact.email,
+        contact.phone
+      FROM person_profiles AS profile
+      INNER JOIN person_contact_profiles AS contact
+        ON contact.person_id = profile.person_id
+      WHERE ${cursorTuple === undefined}
+        OR (
+          profile.last_name, profile.first_name, profile.person_id
+        ) > (${cursorTuple?.lastName}, ${cursorTuple?.firstName}, ${cursorTuple?.personId})
+      ORDER BY profile.last_name ASC, profile.first_name ASC, profile.person_id ASC
+      LIMIT ${input.limit + 1}
+    `.pipe(
+      Effect.catchTag("SqlError", (cause) =>
+        Effect.fail(persistenceError("read Profile directory page", cause)),
+      ),
+    );
+    const entries: Array<DirectoryEntry> = [];
+    for (const row of rows) {
+      if (row.email === null || row.phone === null) {
+        return yield* new ProfileContactNotFound({ personId: PersonId.make(row.personId) });
+      }
+      entries.push({
+        personId: PersonId.make(row.personId),
+        firstName: row.firstName,
+        lastName: row.lastName,
+        email: row.email,
+        phone: row.phone,
+      });
+    }
+    if (entries.length <= input.limit) return { entries };
+    const last = entries[input.limit - 1]!;
+    return {
+      entries: entries.slice(0, input.limit),
+      nextCursor: encodeDirectoryCursor(last),
+    };
   });
