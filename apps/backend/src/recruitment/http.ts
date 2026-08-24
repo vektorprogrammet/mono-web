@@ -57,7 +57,7 @@ const jsonResponse = (body: unknown, status = 200): Response =>
   });
 
 const RECRUITMENT_INVITATION_CAPABILITY_HEADER = "X-Recruitment-Invitation-Capability";
-const RecruitmentInvitationConfirmBodySchema = Schema.Struct({});
+const RecruitmentInvitationConfirmBodySchema = Schema.Record(Schema.String, Schema.Never);
 
 const emptyResponse = (): Response =>
   new Response(null, {
