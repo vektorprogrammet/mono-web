@@ -20,23 +20,6 @@ export type PaginationParams = Schema.Schema.Type<typeof PaginationParams>;
 
 // --- Shared domain types ---
 
-export class Department extends Schema.Class<Department>("Department")({
-  id: Schema.Number,
-  name: Schema.String,
-  shortName: Schema.String,
-  email: Schema.String,
-  address: Schema.NullOr(Schema.String),
-  city: Schema.String,
-  latitude: Schema.NullOr(Schema.String),
-  longitude: Schema.NullOr(Schema.String),
-  logoPath: Schema.NullOr(Schema.String),
-  active: Schema.Boolean,
-}) {}
-
-export class Team extends Schema.Class<Team>("Team")({
-  id: Schema.Number,
-  name: Schema.String,
-}) {}
 
 export class TeamInterest extends Schema.Class<TeamInterest>("TeamInterest")({
   id: Schema.Number,
@@ -44,10 +27,6 @@ export class TeamInterest extends Schema.Class<TeamInterest>("TeamInterest")({
   teamName: Schema.String,
 }) {}
 
-export class FieldOfStudy extends Schema.Class<FieldOfStudy>("FieldOfStudy")({
-  id: Schema.Number,
-  name: Schema.String,
-}) {}
 
 export class Sponsor extends Schema.Class<Sponsor>("Sponsor")({
   id: Schema.Number,

@@ -4,7 +4,7 @@ import { RateLimitedError, ValidationError, createClient } from "../promise.js";
 const validInput = {
   name: "Ola Nordmann",
   email: "ola@example.com",
-  departmentId: 7,
+  departmentId: "department-7",
   subject: "Spørsmål om Vektorprogrammet",
   message: "Når starter neste opptak?",
 } as const;
@@ -44,6 +44,12 @@ describe("public contact-message SDK", () => {
         ...validInput,
         email: "not-an-email",
       }),
+    ).rejects.toBeInstanceOf(ValidationError);
+    await expect(
+      client.public.contactMessages.submit({
+        ...validInput,
+        departmentId: 7,
+      } as never),
     ).rejects.toBeInstanceOf(ValidationError);
     await expect(
       client.public.contactMessages.submit({

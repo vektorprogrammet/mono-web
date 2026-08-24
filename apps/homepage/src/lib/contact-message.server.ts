@@ -1,4 +1,4 @@
-import { RateLimitedError, ValidationError, type Department } from "@vektorprogrammet/sdk";
+import { RateLimitedError, ValidationError, type DepartmentJson } from "@vektorprogrammet/sdk";
 import { createHomepageApiClient } from "./api.server";
 import {
   type ContactActionData,
@@ -7,8 +7,10 @@ import {
   contactDepartmentSlug,
 } from "./contact-message";
 
-async function activeDepartments(): Promise<readonly Department[]> {
-  const departments = (await createHomepageApiClient().public.departments()).filter(
+async function activeDepartments(): Promise<readonly DepartmentJson[]> {
+  const departments = (
+    await createHomepageApiClient().public.organization.listDepartments()
+  ).filter(
     (department) => department.active,
   );
   const slugs = new Set<string>();
@@ -64,7 +66,7 @@ export async function submitContactMessage(
   try {
     await createHomepageApiClient().public.contactMessages.submit({
       ...values,
-      departmentId: page.selectedDepartment.id,
+      departmentId: page.selectedDepartment.departmentId,
     });
     return { ok: true };
   } catch (error) {

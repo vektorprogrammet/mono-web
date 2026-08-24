@@ -38,14 +38,16 @@ describe("createClient", () => {
     expect(client.admin).toHaveProperty("users")
     expect(client.admin).toHaveProperty("scheduling")
     expect(client.admin).toHaveProperty("teams")
+    expect(client.admin).toHaveProperty("organization")
   })
 
-  it("public namespace has expected methods", () => {
+  it("public namespace has expected domains", () => {
     const client = createClient("http://api.test")
-    expect(typeof client.public.departments).toBe("function")
-    expect(typeof client.public.fieldOfStudies).toBe("function")
+    expect(client.public).toHaveProperty("organization")
+    expect(typeof client.public.organization.listDepartments).toBe("function")
+    expect(typeof client.public.organization.listFieldOfStudies).toBe("function")
+    expect(typeof client.public.organization.listTeams).toBe("function")
     expect(typeof client.public.sponsors).toBe("function")
-    expect(typeof client.public.teams).toBe("function")
   })
 
   it("uses the server's canonical current-user profile route", async () => {

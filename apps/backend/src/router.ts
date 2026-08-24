@@ -7,6 +7,7 @@ import { Economy } from "@vektorprogrammet/domain/receipt";
 import { Effect } from "effect";
 import { makeAdmissionApiHttp } from "./admission/http.js";
 import type { BackendConfig } from "./config.js";
+import { makeOrganizationApiHttp } from "./organization/http.js";
 import { makeReceiptApiHttp } from "./receipt/http.js";
 import { makeRecruitmentApiHttp } from "./recruitment/http.js";
 export type BackendRun = <A, E>(
@@ -96,6 +97,14 @@ const isReceiptRoute = (pathname: string): boolean =>
   pathname.startsWith("/api/admin/receipts/") ||
   pathname.startsWith("/api/e2e/receipts/");
 
+
+const isOrganizationRoute = (pathname: string): boolean =>
+  pathname === "/api/departments" ||
+  pathname === "/api/teams" ||
+  pathname === "/api/field_of_studies" ||
+  pathname === "/api/admin/departments" ||
+  pathname === "/api/admin/teams" ||
+  pathname === "/api/admin/field-of-studies";
 const isRecruitmentRoute = (pathname: string): boolean =>
   pathname === "/api/admin/recruitment/assignment-board" ||
   pathname === "/api/admin/recruitment/interviews/assign" ||
@@ -110,9 +119,11 @@ export const makeBackendHttp = (config: BackendConfig, run: BackendRun): Backend
   const admission = makeAdmissionApiHttp({ config: config.admission, run });
   const receipt = makeReceiptApiHttp({ config: config.receipt, run });
   const recruitment = makeRecruitmentApiHttp({ config: config.recruitment, run });
+  const organization = makeOrganizationApiHttp({ config: config.organization, run });
   return {
     fetch: async (request) => {
       const pathname = new URL(request.url).pathname;
+      if (isOrganizationRoute(pathname)) return organization.fetch(request);
       if (request.method === "OPTIONS") return new Response(null, { status: 204 });
       if (request.method === "GET" && pathname === "/health") {
         try {

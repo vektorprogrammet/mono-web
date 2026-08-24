@@ -20,7 +20,8 @@ export type SdkErrorType =
   | "receipt_rejection"
   | "admission_period_rejection"
   | "public_application_rejection"
-  | "recruitment_rejection";
+  | "recruitment_rejection"
+  | "organization_rejection";
 
 export type AdmissionPeriodRejectionTag =
   | "UnauthenticatedActor"
@@ -90,6 +91,15 @@ export type RecruitmentRejectionTag =
   | "ProfileContactNotFound"
   | "RecruitmentDecodeError"
   | "RecruitmentPersistenceError";
+
+export type OrganizationRejectionTag =
+  | "UnauthenticatedActor"
+  | "OrganizationRoleDenied"
+  | "OrganizationInvalidReference"
+  | "OrganizationCommandConflict"
+  | "OrganizationDecodeError"
+  | "RequestBodyTooLarge"
+  | "OrganizationPersistenceError";
 
 export class SdkError extends Error {
   readonly type: SdkErrorType;
@@ -417,6 +427,67 @@ export class RecruitmentPersistenceSdkError extends RecruitmentRejectionError {
     this.name = "RecruitmentPersistenceSdkError";
   }
 }
+
+export class OrganizationRejectionError extends SdkError {
+  readonly _tag: OrganizationRejectionTag;
+  readonly organizationTag: OrganizationRejectionTag;
+
+  constructor(tag: OrganizationRejectionTag) {
+    super("organization_rejection", tag);
+    this.name = "OrganizationRejectionError";
+    this._tag = tag;
+    this.organizationTag = tag;
+  }
+}
+
+export class OrganizationUnauthenticatedActorError extends OrganizationRejectionError {
+  constructor() {
+    super("UnauthenticatedActor");
+    this.name = "OrganizationUnauthenticatedActorError";
+  }
+}
+
+export class OrganizationRoleDeniedError extends OrganizationRejectionError {
+  constructor() {
+    super("OrganizationRoleDenied");
+    this.name = "OrganizationRoleDeniedError";
+  }
+}
+
+export class OrganizationInvalidReferenceError extends OrganizationRejectionError {
+  constructor() {
+    super("OrganizationInvalidReference");
+    this.name = "OrganizationInvalidReferenceError";
+  }
+}
+
+export class OrganizationCommandConflictError extends OrganizationRejectionError {
+  constructor() {
+    super("OrganizationCommandConflict");
+    this.name = "OrganizationCommandConflictError";
+  }
+}
+
+export class OrganizationDecodeSdkError extends OrganizationRejectionError {
+  constructor() {
+    super("OrganizationDecodeError");
+    this.name = "OrganizationDecodeSdkError";
+  }
+}
+
+export class OrganizationRequestBodyTooLargeError extends OrganizationRejectionError {
+  constructor() {
+    super("RequestBodyTooLarge");
+    this.name = "OrganizationRequestBodyTooLargeError";
+  }
+}
+
+export class OrganizationPersistenceSdkError extends OrganizationRejectionError {
+  constructor() {
+    super("OrganizationPersistenceError");
+    this.name = "OrganizationPersistenceSdkError";
+  }
+}
 export class AdmissionPeriodRejectionError extends SdkError {
   readonly _tag: AdmissionPeriodRejectionTag;
   readonly admissionTag: AdmissionPeriodRejectionTag;
@@ -636,6 +707,41 @@ export class RateLimited extends Schema.TaggedError<RateLimited>()("RateLimited"
 export class Configuration extends Schema.TaggedError<Configuration>()("Configuration", {
   message: Schema.String,
 }) {}
+
+export class OrganizationUnauthenticatedActor extends Schema.TaggedError<OrganizationUnauthenticatedActor>()(
+  "UnauthenticatedActor",
+  {},
+) {}
+
+export class OrganizationRoleDenied extends Schema.TaggedError<OrganizationRoleDenied>()(
+  "OrganizationRoleDenied",
+  {},
+) {}
+
+export class OrganizationInvalidReference extends Schema.TaggedError<OrganizationInvalidReference>()(
+  "OrganizationInvalidReference",
+  {},
+) {}
+
+export class OrganizationCommandConflict extends Schema.TaggedError<OrganizationCommandConflict>()(
+  "OrganizationCommandConflict",
+  {},
+) {}
+
+export class OrganizationDecodeError extends Schema.TaggedError<OrganizationDecodeError>()(
+  "OrganizationDecodeError",
+  {},
+) {}
+
+export class OrganizationRequestBodyTooLarge extends Schema.TaggedError<OrganizationRequestBodyTooLarge>()(
+  "RequestBodyTooLarge",
+  {},
+) {}
+
+export class OrganizationPersistenceError extends Schema.TaggedError<OrganizationPersistenceError>()(
+  "OrganizationPersistenceError",
+  {},
+) {}
 
 export class UnauthenticatedActor extends Schema.TaggedError<UnauthenticatedActor>()(
   "UnauthenticatedActor",
@@ -948,6 +1054,15 @@ export type RecruitmentFailure =
   | RecruitmentProfileContactNotFound
   | RecruitmentPersistenceError;
 
+export type OrganizationFailure =
+  | OrganizationUnauthenticatedActor
+  | OrganizationRoleDenied
+  | OrganizationInvalidReference
+  | OrganizationCommandConflict
+  | OrganizationDecodeError
+  | OrganizationRequestBodyTooLarge
+  | OrganizationPersistenceError;
+
 export type PublicApplicationSdkError = PublicApplicationFailure;
 
 export type AdmissionPeriodSdkError = AdmissionPeriodFailure;
@@ -955,6 +1070,8 @@ export type AdmissionPeriodSdkError = AdmissionPeriodFailure;
 export type ReceiptSdkError = ReceiptFailure;
 
 export type RecruitmentSdkError = RecruitmentFailure;
+
+export type OrganizationSdkError = OrganizationFailure;
 
 export type InternalSdkError =
   | Unauthorized
@@ -967,13 +1084,20 @@ export type InternalSdkError =
   | ReceiptFailure
   | AdmissionPeriodFailure
   | PublicApplicationFailure
-  | RecruitmentFailure;
+  | RecruitmentFailure
+  | OrganizationFailure;
 
 /**
  * Maps an internal Effect TaggedError to a public SdkError subclass.
  * Used at the Effect.runPromise boundary.
  */
 export function toSdkError(error: InternalSdkError): SdkError {
+  if (error instanceof OrganizationUnauthenticatedActor) {
+    return new OrganizationUnauthenticatedActorError();
+  }
+  if (error instanceof OrganizationRequestBodyTooLarge) {
+    return new OrganizationRequestBodyTooLargeError();
+  }
   if (error instanceof RecruitmentUnauthenticatedActor) {
     return new RecruitmentUnauthenticatedActorError();
   }
@@ -995,6 +1119,16 @@ export function toSdkError(error: InternalSdkError): SdkError {
       return new RateLimitedError(error.message);
     case "Configuration":
       return new ConfigurationError(error.message);
+    case "OrganizationRoleDenied":
+      return new OrganizationRoleDeniedError();
+    case "OrganizationInvalidReference":
+      return new OrganizationInvalidReferenceError();
+    case "OrganizationCommandConflict":
+      return new OrganizationCommandConflictError();
+    case "OrganizationDecodeError":
+      return new OrganizationDecodeSdkError();
+    case "OrganizationPersistenceError":
+      return new OrganizationPersistenceSdkError();
     case "UnauthenticatedActor":
       return new UnauthenticatedActorError();
     case "InactiveActor":

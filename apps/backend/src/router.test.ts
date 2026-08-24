@@ -1,6 +1,6 @@
 import type { Admissions } from "@vektorprogrammet/domain/admissions";
 import { Database, type DatabaseShape } from "@vektorprogrammet/domain/database";
-import type { Organization } from "@vektorprogrammet/domain/organization";
+import { Organization, type OrganizationShape } from "@vektorprogrammet/domain/organization";
 import {
   PersonContactProfile,
   PersonProfile,
@@ -36,6 +36,12 @@ const environment = {
       approvalScope: { _tag: "None" },
     },
   }),
+  ORGANIZATION_AUTH_TOKENS: JSON.stringify({
+    [token]: {
+      _tag: "OrganizationMember",
+      personId: "member-1",
+    },
+  }),
 } as const;
 const config = makeBackendConfig(environment);
 
@@ -61,6 +67,11 @@ const profile: ProfileShape = {
       ),
     ),
 };
+const organization = {
+  listDepartments: Effect.succeed([]),
+  listTeams: () => Effect.succeed([]),
+  listFieldOfStudies: Effect.succeed([]),
+} as unknown as OrganizationShape;
 const successfulRun: BackendRun = <A, E>(
   effect: Effect.Effect<
     A,
@@ -72,6 +83,7 @@ const successfulRun: BackendRun = <A, E>(
     effect.pipe(
       Effect.provideService(Database, database),
       Effect.provideService(Profile, profile),
+      Effect.provideService(Organization, organization),
     ) as Effect.Effect<A, E>,
   );
 const backend = makeBackendHttp(config, successfulRun);
@@ -80,17 +92,26 @@ const request = (pathname: string, init?: RequestInit): Promise<Response> =>
   backend.fetch(new Request(`http://backend.test${pathname}`, init));
 
 describe("unified backend router", () => {
-  it("owns health, Profile, Admission, Receipt, and Recruitment routes on one listener", async () => {
-    const [health, profile, admission, receipt, recruitment, publicRecruitment, missing] =
-      await Promise.all([
-        request("/health"),
-        request("/api/me/profile", { headers: { authorization: `Bearer ${token}` } }),
-        request("/api/admin/admission-periods"),
-        request("/api/receipts"),
-        request("/api/admin/recruitment/assignment-board?status=new"),
-        request("/api/recruitment/invitation-response"),
-        request("/api/not-a-capability"),
-      ]);
+  it("owns health, Profile, Organization, Admission, Receipt, and Recruitment routes", async () => {
+    const [
+      health,
+      profile,
+      organizationResponse,
+      admission,
+      receipt,
+      recruitment,
+      publicRecruitment,
+      missing,
+    ] = await Promise.all([
+      request("/health"),
+      request("/api/me/profile", { headers: { authorization: `Bearer ${token}` } }),
+      request("/api/departments"),
+      request("/api/admin/admission-periods"),
+      request("/api/receipts"),
+      request("/api/admin/recruitment/assignment-board?status=new"),
+      request("/api/recruitment/invitation-response"),
+      request("/api/not-a-capability"),
+    ]);
 
     expect({ status: health.status, body: await health.json() }).toEqual({
       status: 200,
@@ -105,6 +126,13 @@ describe("unified backend router", () => {
         email: "",
         role: "ROLE_TEAM_MEMBER",
       }),
+    });
+    expect({
+      status: organizationResponse.status,
+      body: await organizationResponse.json(),
+    }).toEqual({
+      status: 200,
+      body: [],
     });
     expect({ status: admission.status, body: await admission.json() }).toEqual({
       status: 401,

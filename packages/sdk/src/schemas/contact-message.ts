@@ -1,4 +1,5 @@
 import { Schema } from "effect";
+import { DepartmentId } from "./organization.js";
 
 const nonEmptyText = (message: string) =>
   Schema.String.pipe(
@@ -13,13 +14,6 @@ const Email = Schema.String.pipe(
   ),
 );
 
-const DepartmentId = Schema.Int.pipe(
-  Schema.check(
-    Schema.makeFilter((value) => value > 0, {
-      message: "must be a positive department identifier",
-    }),
-  ),
-);
 
 const Message = Schema.String.pipe(
   Schema.check(

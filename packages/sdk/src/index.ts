@@ -26,8 +26,17 @@ export {
   ReceiptFileNotStagedError,
   ReceiptPersistenceSdkError,
 } from "./errors.js";
-export type { SdkErrorType } from "./errors.js";
-export type { ReceiptRejectionTag } from "./errors.js";
+export type { SdkErrorType, ReceiptRejectionTag, OrganizationRejectionTag } from "./errors.js";
+export {
+  OrganizationRejectionError,
+  OrganizationUnauthenticatedActorError,
+  OrganizationRoleDeniedError,
+  OrganizationInvalidReferenceError,
+  OrganizationCommandConflictError,
+  OrganizationDecodeSdkError,
+  OrganizationRequestBodyTooLargeError,
+  OrganizationPersistenceSdkError,
+} from "./errors.js";
 
 export type { Receipt, AdminReceipt, ReceiptInput } from "./schemas/receipt.js";
 export {
@@ -71,16 +80,63 @@ export {
 export { ContactMessageInput, ContactMessageInputSchema } from "./schemas/contact-message.js";
 export type { User, UserProfile } from "./schemas/user.js";
 export type { DashboardStats } from "./schemas/dashboard.js";
+export type { TeamInterest, Sponsor, MailingList, AdmissionStats, Page } from "./schemas/common.js";
+export {
+  DepartmentId,
+  TeamId,
+  FieldOfStudyId,
+  OrganizationCommandId,
+  OrganizationEntityKindSchema,
+  DepartmentJsonSchema,
+  TeamJsonSchema,
+  FieldOfStudyJsonSchema,
+  DepartmentListSchema,
+  TeamListSchema,
+  FieldOfStudyListSchema,
+  CreateDepartmentCommandSchema,
+  CreateTeamCommandSchema,
+  CreateFieldOfStudyCommandSchema,
+  OrganizationCreateCommandSchema,
+  DepartmentCreatedObservationSchema,
+  TeamCreatedObservationSchema,
+  FieldOfStudyCreatedObservationSchema,
+  OrganizationCreatedObservationSchema,
+  DepartmentReplayedObservationSchema,
+  TeamReplayedObservationSchema,
+  FieldOfStudyReplayedObservationSchema,
+  OrganizationReplayedObservationSchema,
+  OrganizationCreateObservationSchema,
+  CreateDepartmentResultSchema,
+  CreateTeamResultSchema,
+  CreateFieldOfStudyResultSchema,
+  OrganizationCreateResultSchema,
+} from "./schemas/organization.js";
 export type {
-  Department,
-  Team,
-  TeamInterest,
-  FieldOfStudy,
-  Sponsor,
-  MailingList,
-  AdmissionStats,
-  Page,
-} from "./schemas/common.js";
+  OrganizationEntityKind,
+  DepartmentJson,
+  TeamJson,
+  FieldOfStudyJson,
+  DepartmentList,
+  TeamList,
+  FieldOfStudyList,
+  CreateDepartmentCommand,
+  CreateTeamCommand,
+  CreateFieldOfStudyCommand,
+  OrganizationCreateCommand,
+  DepartmentCreatedObservation,
+  TeamCreatedObservation,
+  FieldOfStudyCreatedObservation,
+  OrganizationCreatedObservation,
+  DepartmentReplayedObservation,
+  TeamReplayedObservation,
+  FieldOfStudyReplayedObservation,
+  OrganizationReplayedObservation,
+  OrganizationCreateObservation,
+  CreateDepartmentResult,
+  CreateTeamResult,
+  CreateFieldOfStudyResult,
+  OrganizationCreateResult,
+} from "./schemas/organization.js";
 export type { SchedulingAssistant, SchedulingSchool, Substitute } from "./schemas/scheduling.js";
 export type { ClientContext } from "./context.js";
 

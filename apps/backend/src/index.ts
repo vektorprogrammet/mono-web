@@ -6,5 +6,7 @@ export * from "./receipt/config.js";
 export * from "./receipt/filesystem.js";
 export * from "./receipt/http.js";
 
+export * from "./organization/config.js";
+export * from "./organization/http.js";
 export * from "./recruitment/config.js";
 export * from "./recruitment/http.js";

@@ -16,11 +16,12 @@ import { createAdminInterviewsDomain } from "./domains/admin/interviews.js";
 import { createAdminRecruitmentDomain } from "./domains/admin/recruitment.js";
 import { createAdminSchedulingDomain } from "./domains/admin/scheduling.js";
 import { createRecruitmentInvitationResponsesDomain } from "./domains/recruitment-invitation-responses.js";
+import { createAdminOrganizationDomain } from "./domains/admin/organization.js";
 import { createAdminTeamsDomain } from "./domains/admin/teams.js";
 import { createAdminMiscDomain } from "./domains/admin/misc.js";
 import { createPublicMiscDomain } from "./domains/public/misc.js";
+import { createPublicOrganizationDomain } from "./domains/public/organization.js";
 import { createPublicContactMessageDomain } from "./domains/public/contact-message.js";
-import { createPublicTeamsDomain } from "./domains/public/teams.js";
 import { createAdminUsersDomain } from "./domains/admin/users.js";
 import { createAdmissionApplicationsDomain } from "./domains/admission-applications.js";
 import { createAdmissionPeriodsDomain } from "./domains/admission-period.js";
@@ -36,12 +37,13 @@ export type {
   PublicApplicationSdkError,
   RecruitmentFailure,
   RecruitmentSdkError,
-} from "./errors.js";
-export type {
+  OrganizationFailure,
+  OrganizationSdkError,
   ReceiptRejectionTag,
   AdmissionPeriodRejectionTag,
   PublicApplicationRejectionTag,
   RecruitmentRejectionTag,
+  OrganizationRejectionTag,
 } from "./errors.js";
 export type { ClientContext } from "./context.js";
 export { apiUrl, isFixtureMode } from "./config.js";
@@ -127,16 +129,63 @@ export {
 } from "./schemas/interview.js";
 export type { User, UserProfile } from "./schemas/user.js";
 export type { DashboardStats } from "./schemas/dashboard.js";
+export type { TeamInterest, Sponsor, MailingList, AdmissionStats, Page } from "./schemas/common.js";
+export {
+  DepartmentId,
+  TeamId,
+  FieldOfStudyId,
+  OrganizationCommandId,
+  OrganizationEntityKindSchema,
+  DepartmentJsonSchema,
+  TeamJsonSchema,
+  FieldOfStudyJsonSchema,
+  DepartmentListSchema,
+  TeamListSchema,
+  FieldOfStudyListSchema,
+  CreateDepartmentCommandSchema,
+  CreateTeamCommandSchema,
+  CreateFieldOfStudyCommandSchema,
+  OrganizationCreateCommandSchema,
+  DepartmentCreatedObservationSchema,
+  TeamCreatedObservationSchema,
+  FieldOfStudyCreatedObservationSchema,
+  OrganizationCreatedObservationSchema,
+  DepartmentReplayedObservationSchema,
+  TeamReplayedObservationSchema,
+  FieldOfStudyReplayedObservationSchema,
+  OrganizationReplayedObservationSchema,
+  OrganizationCreateObservationSchema,
+  CreateDepartmentResultSchema,
+  CreateTeamResultSchema,
+  CreateFieldOfStudyResultSchema,
+  OrganizationCreateResultSchema,
+} from "./schemas/organization.js";
 export type {
-  Department,
-  Team,
-  TeamInterest,
-  FieldOfStudy,
-  Sponsor,
-  MailingList,
-  AdmissionStats,
-  Page,
-} from "./schemas/common.js";
+  OrganizationEntityKind,
+  DepartmentJson,
+  TeamJson,
+  FieldOfStudyJson,
+  DepartmentList,
+  TeamList,
+  FieldOfStudyList,
+  CreateDepartmentCommand,
+  CreateTeamCommand,
+  CreateFieldOfStudyCommand,
+  OrganizationCreateCommand,
+  DepartmentCreatedObservation,
+  TeamCreatedObservation,
+  FieldOfStudyCreatedObservation,
+  OrganizationCreatedObservation,
+  DepartmentReplayedObservation,
+  TeamReplayedObservation,
+  FieldOfStudyReplayedObservation,
+  OrganizationReplayedObservation,
+  OrganizationCreateObservation,
+  CreateDepartmentResult,
+  CreateTeamResult,
+  CreateFieldOfStudyResult,
+  OrganizationCreateResult,
+} from "./schemas/organization.js";
 export type { SchedulingAssistant, SchedulingSchool, Substitute } from "./schemas/scheduling.js";
 
 export {
@@ -219,7 +268,6 @@ export function createEffectClient(baseUrl: string | undefined, options?: Client
 
   const adminMisc = createAdminMiscDomain(transport);
   const publicMisc = createPublicMiscDomain(transport);
-  const publicTeams = createPublicTeamsDomain(transport);
   const publicContactMessages = createPublicContactMessageDomain(transport);
 
   return {
@@ -235,6 +283,7 @@ export function createEffectClient(baseUrl: string | undefined, options?: Client
       recruitment: createAdminRecruitmentDomain(transport),
       users: createAdminUsersDomain(transport),
       scheduling: createAdminSchedulingDomain(transport),
+      organization: createAdminOrganizationDomain(transport),
       teams: createAdminTeamsDomain(transport),
       mailingLists: adminMisc.mailingLists.bind(adminMisc),
       admissionStats: adminMisc.admissionStats.bind(adminMisc),
@@ -242,10 +291,8 @@ export function createEffectClient(baseUrl: string | undefined, options?: Client
     recruitmentInvitationResponses:
       createRecruitmentInvitationResponsesDomain(transport),
     public: {
-      departments: publicMisc.departments.bind(publicMisc),
-      fieldOfStudies: publicMisc.fieldOfStudies.bind(publicMisc),
+      organization: createPublicOrganizationDomain(transport),
       sponsors: publicMisc.sponsors.bind(publicMisc),
-      teams: publicTeams.list.bind(publicTeams),
       contactMessages: publicContactMessages,
     },
     context,

@@ -94,9 +94,19 @@ describe("Effect v4 Receipt compatibility", () => {
       expectMethods(client.admin.interviews, ["list", "assign", "schedule", "conduct", "cancel", "schemas"])
       expectMethods(client.admin.users, ["list"])
       expectMethods(client.admin.scheduling, ["assistants", "schools", "substitutes"])
-      expectMethods(client.admin.teams, ["list", "interest"])
+      expectMethods(client.admin.teams, ["interest"])
+      expectMethods(client.admin.organization, [
+        "createDepartment",
+        "createTeam",
+        "createFieldOfStudy",
+      ])
       expectMethods(client.admin, ["mailingLists", "admissionStats"])
-      expectMethods(client.public, ["departments", "fieldOfStudies", "sponsors", "teams"])
+      expectMethods(client.public, ["sponsors"])
+      expectMethods(client.public.organization, [
+        "listDepartments",
+        "listTeams",
+        "listFieldOfStudies",
+      ])
       expectMethods(client.public.contactMessages, ["submit"])
     }
 

@@ -1,10 +1,10 @@
-import type { Department } from "@vektorprogrammet/sdk";
+import type { DepartmentJson } from "@vektorprogrammet/sdk";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { contactDepartmentSlug, type ContactFormValues } from "../src/lib/contact-message";
 import { loadContactPage, submitContactMessage } from "../src/lib/contact-message.server";
 
 const department = {
-  id: 17,
+  departmentId: "department-17",
   name: "Vektorprogrammet Ås",
   shortName: "Ås",
   email: "aas@example.com",
@@ -12,18 +12,17 @@ const department = {
   city: "Ås",
   latitude: "59.66",
   longitude: "10.77",
+  slackChannel: null,
   logoPath: null,
   active: true,
-} as const satisfies Department;
+  revision: 0,
+} as const satisfies DepartmentJson;
 
-const departmentsResponse = (members: readonly Department[] = [department]) =>
-  new Response(
-    JSON.stringify({
-      "hydra:member": members,
-      "hydra:totalItems": members.length,
-    }),
-    { status: 200, headers: { "content-type": "application/ld+json" } },
-  );
+const departmentsResponse = (members: readonly DepartmentJson[] = [department]) =>
+  new Response(JSON.stringify(members), {
+    status: 200,
+    headers: { "content-type": "application/json" },
+  });
 
 const formRequest = (values: ContactFormValues): Request =>
   new Request("http://homepage.test/kontakt/aas", {
@@ -64,7 +63,7 @@ describe("homepage contact-message boundary", () => {
     expect(url).toBe("http://api.test/api/contact_messages");
     expect(JSON.parse(String(init.body))).toEqual({
       ...values,
-      departmentId: department.id,
+      departmentId: department.departmentId,
     });
   });
 
@@ -84,7 +83,12 @@ describe("homepage contact-message boundary", () => {
         .mockResolvedValue(
           departmentsResponse([
             department,
-            { ...department, id: 18, name: "Vektorprogrammet Aas", shortName: "Aas" },
+            {
+              ...department,
+              departmentId: "department-18",
+              name: "Vektorprogrammet Aas",
+              shortName: "Aas",
+            },
           ]),
         ),
     );

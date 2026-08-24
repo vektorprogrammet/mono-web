@@ -70,6 +70,13 @@ import {
   RecruitmentScheduleInPast,
   RecruitmentProfileContactNotFound,
   RecruitmentPersistenceError,
+  OrganizationUnauthenticatedActor,
+  OrganizationRoleDenied,
+  OrganizationInvalidReference,
+  OrganizationCommandConflict,
+  OrganizationDecodeError,
+  OrganizationRequestBodyTooLarge,
+  OrganizationPersistenceError,
   type InternalSdkError,
 } from "./errors.js";
 import { parseViolations } from "./adapter/errors.js";
@@ -213,7 +220,7 @@ const publicApplicationFailureFromBody = (body: unknown): InternalSdkError | und
   }
 };
 
-const StrictRecruitmentFailureBodySchema = Schema.Struct({
+const StrictNativeFailureBodySchema = Schema.Struct({
   error: Schema.Struct({ tag: Schema.String }),
 });
 
@@ -224,7 +231,7 @@ const recruitmentFailureFromBody = (
   let tag: unknown;
   if (strict) {
     try {
-      tag = Schema.decodeUnknownSync(StrictRecruitmentFailureBodySchema)(
+      tag = Schema.decodeUnknownSync(StrictNativeFailureBodySchema)(
         body,
         { onExcessProperty: "error" },
       ).error.tag;
@@ -295,6 +302,51 @@ const recruitmentFailureFromBody = (
   }
 };
 
+const organizationFailureFromBody = (
+  body: unknown,
+  strict: boolean,
+): InternalSdkError | undefined => {
+  let tag: unknown;
+  if (strict) {
+    try {
+      tag = Schema.decodeUnknownSync(StrictNativeFailureBodySchema)(body, {
+        onExcessProperty: "error",
+      }).error.tag;
+    } catch {
+      return new OrganizationDecodeError();
+    }
+  } else {
+    if (typeof body !== "object" || body === null) return undefined;
+    const root = body as Record<string, unknown>;
+    const error =
+      typeof root.error === "object" && root.error !== null
+        ? (root.error as Record<string, unknown>)
+        : root;
+    tag = error.tag ?? error._tag;
+  }
+  if (typeof tag !== "string") {
+    return strict ? new OrganizationDecodeError() : undefined;
+  }
+  switch (tag) {
+    case "UnauthenticatedActor":
+      return new OrganizationUnauthenticatedActor();
+    case "OrganizationRoleDenied":
+      return new OrganizationRoleDenied();
+    case "OrganizationInvalidReference":
+      return new OrganizationInvalidReference();
+    case "OrganizationCommandConflict":
+      return new OrganizationCommandConflict();
+    case "OrganizationDecodeError":
+      return new OrganizationDecodeError();
+    case "RequestBodyTooLarge":
+      return new OrganizationRequestBodyTooLarge();
+    case "OrganizationPersistenceError":
+      return new OrganizationPersistenceError();
+    default:
+      return strict ? new OrganizationDecodeError() : undefined;
+  }
+};
+
 /**
  * Maps HTTP status codes to InternalSdkError.
  *
@@ -307,11 +359,13 @@ const mapStatusToError = (
   options?: DecodeOptions,
 ): InternalSdkError => {
   const typedError =
-    options?.errorFamily === "public_application"
-      ? publicApplicationFailureFromBody(body)
-      : options?.errorFamily === "recruitment"
-        ? recruitmentFailureFromBody(body, options.strict === true)
-        : receiptFailureFromBody(body);
+    options?.errorFamily === "organization"
+      ? organizationFailureFromBody(body, options.strict === true)
+      : options?.errorFamily === "public_application"
+        ? publicApplicationFailureFromBody(body)
+        : options?.errorFamily === "recruitment"
+          ? recruitmentFailureFromBody(body, options.strict === true)
+          : receiptFailureFromBody(body);
   if (typedError !== undefined) return typedError;
   if (status === 401 || status === 403) return new Unauthorized({ message: `HTTP ${status}` });
   if (status === 404) return new NotFound({ message: "Not found" });
@@ -326,10 +380,10 @@ const mapStatusToError = (
 export type DecodeOptions = {
   readonly strict?: boolean;
   readonly decodeError?: () => InternalSdkError;
-  readonly errorFamily?: "public_application" | "recruitment";
+  readonly errorFamily?: "public_application" | "recruitment" | "organization";
   readonly headers?: Readonly<Record<string, string>>;
   readonly includeAuth?: boolean;
-  readonly expectedStatus?: number;
+  readonly expectedStatus?: number | ReadonlyArray<number>;
 };
 
 export interface Transport {
@@ -512,6 +566,19 @@ export function createTransport(baseUrl: string | undefined, auth?: AuthOption):
             ),
           );
         }
+        if (
+          options?.expectedStatus !== undefined &&
+          (typeof options.expectedStatus === "number"
+            ? response.status !== options.expectedStatus
+            : !options.expectedStatus.includes(response.status))
+        ) {
+          return Effect.fail(
+            options.decodeError?.() ??
+              new Network({
+                message: `Unexpected HTTP ${response.status}`,
+              }),
+          );
+        }
         return readBoundedJson(response);
       }),
     );
@@ -550,7 +617,9 @@ export function createTransport(baseUrl: string | undefined, auth?: AuthOption):
         }
         if (
           options?.expectedStatus !== undefined &&
-          response.status !== options.expectedStatus
+          (typeof options.expectedStatus === "number"
+            ? response.status !== options.expectedStatus
+            : !options.expectedStatus.includes(response.status))
         ) {
           return Effect.fail(
             options.decodeError?.() ??

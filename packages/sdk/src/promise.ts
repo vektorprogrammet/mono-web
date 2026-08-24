@@ -17,12 +17,13 @@ import { createAdminApplicationsDomain } from "./domains/admin/applications.js";
 import { createAdminInterviewsDomain } from "./domains/admin/interviews.js";
 import { createAdminRecruitmentDomain } from "./domains/admin/recruitment.js";
 import { createRecruitmentInvitationResponsesDomain } from "./domains/recruitment-invitation-responses.js";
+import { createAdminOrganizationDomain } from "./domains/admin/organization.js";
 import { createAdminSchedulingDomain } from "./domains/admin/scheduling.js";
 import { createAdminTeamsDomain } from "./domains/admin/teams.js";
 import { createAdminMiscDomain } from "./domains/admin/misc.js";
 import { createPublicMiscDomain } from "./domains/public/misc.js";
+import { createPublicOrganizationDomain } from "./domains/public/organization.js";
 import { createPublicContactMessageDomain } from "./domains/public/contact-message.js";
-import { createPublicTeamsDomain } from "./domains/public/teams.js";
 import { createAdminUsersDomain } from "./domains/admin/users.js";
 import { createAdmissionApplicationsDomain } from "./domains/admission-applications.js";
 import { createAdmissionPeriodsDomain } from "./domains/admission-period.js";
@@ -103,6 +104,14 @@ export {
   RecruitmentScheduleCommandConflictError,
   RecruitmentScheduleInPastError,
   RecruitmentProfileContactNotFoundError,
+  OrganizationRejectionError,
+  OrganizationUnauthenticatedActorError,
+  OrganizationRoleDeniedError,
+  OrganizationInvalidReferenceError,
+  OrganizationCommandConflictError,
+  OrganizationDecodeSdkError,
+  OrganizationRequestBodyTooLargeError,
+  OrganizationPersistenceSdkError,
 } from "./errors.js";
 export type {
   SdkErrorType,
@@ -110,6 +119,7 @@ export type {
   AdmissionPeriodRejectionTag,
   PublicApplicationRejectionTag,
   RecruitmentRejectionTag,
+  OrganizationRejectionTag,
 } from "./errors.js";
 
 export type { Receipt, AdminReceipt, ReceiptInput } from "./schemas/receipt.js";
@@ -258,16 +268,63 @@ export type {
 } from "./schemas/recruitment.js";
 export type { User, UserProfile } from "./schemas/user.js";
 export type { DashboardStats } from "./schemas/dashboard.js";
+export type { TeamInterest, Sponsor, MailingList, AdmissionStats, Page } from "./schemas/common.js";
+export {
+  DepartmentId,
+  TeamId,
+  FieldOfStudyId,
+  OrganizationCommandId,
+  OrganizationEntityKindSchema,
+  DepartmentJsonSchema,
+  TeamJsonSchema,
+  FieldOfStudyJsonSchema,
+  DepartmentListSchema,
+  TeamListSchema,
+  FieldOfStudyListSchema,
+  CreateDepartmentCommandSchema,
+  CreateTeamCommandSchema,
+  CreateFieldOfStudyCommandSchema,
+  OrganizationCreateCommandSchema,
+  DepartmentCreatedObservationSchema,
+  TeamCreatedObservationSchema,
+  FieldOfStudyCreatedObservationSchema,
+  OrganizationCreatedObservationSchema,
+  DepartmentReplayedObservationSchema,
+  TeamReplayedObservationSchema,
+  FieldOfStudyReplayedObservationSchema,
+  OrganizationReplayedObservationSchema,
+  OrganizationCreateObservationSchema,
+  CreateDepartmentResultSchema,
+  CreateTeamResultSchema,
+  CreateFieldOfStudyResultSchema,
+  OrganizationCreateResultSchema,
+} from "./schemas/organization.js";
 export type {
-  Department,
-  Team,
-  TeamInterest,
-  FieldOfStudy,
-  Sponsor,
-  MailingList,
-  AdmissionStats,
-  Page,
-} from "./schemas/common.js";
+  OrganizationEntityKind,
+  DepartmentJson,
+  TeamJson,
+  FieldOfStudyJson,
+  DepartmentList,
+  TeamList,
+  FieldOfStudyList,
+  CreateDepartmentCommand,
+  CreateTeamCommand,
+  CreateFieldOfStudyCommand,
+  OrganizationCreateCommand,
+  DepartmentCreatedObservation,
+  TeamCreatedObservation,
+  FieldOfStudyCreatedObservation,
+  OrganizationCreatedObservation,
+  DepartmentReplayedObservation,
+  TeamReplayedObservation,
+  FieldOfStudyReplayedObservation,
+  OrganizationReplayedObservation,
+  OrganizationCreateObservation,
+  CreateDepartmentResult,
+  CreateTeamResult,
+  CreateFieldOfStudyResult,
+  OrganizationCreateResult,
+} from "./schemas/organization.js";
 export type { SchedulingAssistant, SchedulingSchool, Substitute } from "./schemas/scheduling.js";
 
 // --- Client options ---
@@ -313,7 +370,6 @@ export function createClient(baseUrl: string | undefined, options?: ClientOption
 
   const adminMisc = createAdminMiscDomain(transport);
   const publicMisc = createPublicMiscDomain(transport);
-  const publicTeams = createPublicTeamsDomain(transport);
   const publicContactMessages = createPublicContactMessageDomain(transport);
 
   return {
@@ -329,6 +385,7 @@ export function createClient(baseUrl: string | undefined, options?: ClientOption
       recruitment: promisifyDomain(createAdminRecruitmentDomain(transport)),
       users: promisifyDomain(createAdminUsersDomain(transport)),
       scheduling: promisifyDomain(createAdminSchedulingDomain(transport)),
+      organization: promisifyDomain(createAdminOrganizationDomain(transport)),
       teams: promisifyDomain(createAdminTeamsDomain(transport)),
       mailingLists: promisify(adminMisc.mailingLists.bind(adminMisc)),
       admissionStats: promisify(adminMisc.admissionStats.bind(adminMisc)),
@@ -337,10 +394,8 @@ export function createClient(baseUrl: string | undefined, options?: ClientOption
       createRecruitmentInvitationResponsesDomain(transport),
     ),
     public: {
-      departments: promisify(publicMisc.departments.bind(publicMisc)),
-      fieldOfStudies: promisify(publicMisc.fieldOfStudies.bind(publicMisc)),
+      organization: promisifyDomain(createPublicOrganizationDomain(transport)),
       sponsors: promisify(publicMisc.sponsors.bind(publicMisc)),
-      teams: promisify(publicTeams.list.bind(publicTeams)),
       contactMessages: promisifyDomain(publicContactMessages),
     },
     context,

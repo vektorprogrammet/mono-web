@@ -1,4 +1,4 @@
-import type { Department } from "@vektorprogrammet/sdk";
+import type { DepartmentJson } from "@vektorprogrammet/sdk";
 import { Mail, MapPin } from "lucide-react";
 import { Form, Link, useActionData, useNavigation } from "react-router";
 import { Button } from "~/components/ui/button";
@@ -11,8 +11,8 @@ export function ContactTabs({
   department,
   departments,
 }: {
-  readonly department: Department;
-  readonly departments: readonly Department[];
+  readonly department: DepartmentJson;
+  readonly departments: readonly DepartmentJson[];
 }) {
   const actionData = useActionData<ContactActionData>();
   const navigation = useNavigation();
@@ -22,9 +22,9 @@ export function ContactTabs({
     <div className="mb-6 flex w-full flex-col gap-8 px-5 md:max-w-6xl lg:flex-row">
       <nav aria-label="Velg avdeling" className="flex min-w-48 flex-wrap gap-2 lg:flex-col">
         {departments.map((item) => {
-          const selected = item.id === department.id;
+          const selected = item.departmentId === department.departmentId;
           return (
-            <Button asChild variant={selected ? "default" : "outline"} key={item.id}>
+            <Button asChild variant={selected ? "default" : "outline"} key={item.departmentId}>
               <Link
                 to={`/kontakt/${contactDepartmentSlug(item)}`}
                 aria-current={selected ? "page" : undefined}
