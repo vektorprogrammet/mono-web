@@ -13,6 +13,7 @@
     "proof:invitation-response-postgres": "bun run src/invitation-response-postgres-proof-main.ts",
     "proof:organization-postgres": "bun run src/organization-postgres-proof-main.ts",
     "proof:identity-postgres": "bun run src/identity-postgres-proof-main.ts",
+    "identity:seed": "bun run src/identity-seed-main.ts",
     "check-types": "tsc --noEmit",
     "build": "tsc --noEmit",
     "lint": "oxlint"
