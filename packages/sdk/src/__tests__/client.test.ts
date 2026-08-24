@@ -4,7 +4,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
-import { createClient } from "../promise.js"
+import { createClient, ValidationError } from "../promise.js"
 
 describe("createClient", () => {
   beforeEach(() => {
@@ -27,7 +27,6 @@ describe("createClient", () => {
     expect(client).toHaveProperty("receipts")
     expect(client).toHaveProperty("admin")
     expect(client).toHaveProperty("public")
-    expect(client).toHaveProperty("context")
   })
 
   it("admin namespace has expected sub-domains", () => {
@@ -48,6 +47,39 @@ describe("createClient", () => {
     expect(typeof client.public.organization.listFieldOfStudies).toBe("function")
     expect(typeof client.public.organization.listTeams).toBe("function")
     expect(typeof client.public.sponsors).toBe("function")
+  })
+
+  it("strictly reads the current session actor with the exact Cookie header", async () => {
+    const rawCookie =
+      "theme=dark; better-auth.session_token=session-value; invitation_capability=opaque"
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ personId: "person-1" }),
+    } as Response)
+    const client = createClient("http://api.test", { cookie: rawCookie })
+
+    await expect(client.me.session()).resolves.toEqual({ personId: "person-1" })
+    expect(fetch).toHaveBeenCalledWith(
+      "http://api.test/api/me/session",
+      expect.objectContaining({
+        method: "GET",
+        headers: expect.objectContaining({ Cookie: rawCookie }),
+      }),
+    )
+  })
+
+  it("rejects a malformed session actor projection", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ personId: "person-1", role: "admin" }),
+    } as Response)
+    const client = createClient("http://api.test", {
+      cookie: "better-auth.session_token=session-value",
+    })
+
+    await expect(client.me.session()).rejects.toBeInstanceOf(ValidationError)
   })
 
   it("uses the server's canonical current-user profile route", async () => {
@@ -106,22 +138,4 @@ describe("createClient", () => {
     }
   })
 
-  it("context is a ClientContext object", () => {
-    const client = createClient("http://api.test")
-    expect(client.context).toBeDefined()
-    expect(typeof client.context.hasRole).toBe("function")
-    expect(typeof client.context.isInDepartment).toBe("function")
-    expect(client.context.isAuthenticated).toBe(false)
-  })
-
-  it("context reflects auth token when string auth is provided", () => {
-    // Build a JWT with ROLE_USER
-    const payload = JSON.stringify({ roles: ["ROLE_USER"], userId: 5, department: null, teams: [] })
-    const encoded = btoa(payload).replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "")
-    const token = `header.${encoded}.sig`
-
-    const client = createClient("http://api.test", { auth: token })
-    expect(client.context.isAuthenticated).toBe(true)
-    expect(client.context.role).toBe("user")
-  })
 })

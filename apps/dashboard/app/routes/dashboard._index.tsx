@@ -29,8 +29,8 @@ const mockDashboard: DashboardData = {
 export async function loader({ request }: Route.LoaderArgs) {
   if (isFixtureMode) return { dashboard: mockDashboard };
 
-  const token = requireAuth(request);
-  const client = createAuthenticatedClient(token);
+  const cookie = await requireAuth(request);
+  const client = createAuthenticatedClient(cookie);
 
   try {
     const dashboard = await client.me.dashboard();

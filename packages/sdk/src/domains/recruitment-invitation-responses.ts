@@ -78,7 +78,7 @@ const invitationRequestOptions = (
   errorFamily: "recruitment" as const,
   decodeError: () => new RecruitmentDecodeError(),
   headers: { [INVITATION_CAPABILITY_HEADER]: capability },
-  includeAuth: false,
+  includeCookie: false,
   ...(expectedStatus === undefined ? {} : { expectedStatus }),
 });
 

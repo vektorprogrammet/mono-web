@@ -1,10 +1,11 @@
 import { Effect, Schema } from "effect"
 import type { Transport } from "../transport.js"
 import { Validation, type InternalSdkError } from "../errors.js"
-import { UpdateOwnProfileCommand, UserProfile } from "../schemas/user.js"
+import { SessionActor, UpdateOwnProfileCommand, UserProfile } from "../schemas/user.js"
 import { DashboardStats } from "../schemas/dashboard.js"
 
 export interface MeDomain {
+  session(): Effect.Effect<SessionActor, InternalSdkError>
   profile(): Effect.Effect<UserProfile, InternalSdkError>
   dashboard(): Effect.Effect<DashboardStats, InternalSdkError>
   updateProfile(
@@ -16,6 +17,14 @@ const strictProfile = {
   strict: true,
   decodeError: () =>
     new Validation({ message: "Invalid profile representation", fields: {} }),
+  expectedStatus: 200,
+  headers: { Accept: "application/json" },
+} as const
+
+const strictSession = {
+  strict: true,
+  decodeError: () =>
+    new Validation({ message: "Invalid session actor representation", fields: {} }),
   expectedStatus: 200,
   headers: { Accept: "application/json" },
 } as const
@@ -33,6 +42,9 @@ const decodeProfileCommand = (
 
 export function createMeDomain(transport: Transport): MeDomain {
   return {
+    session() {
+      return transport.get("/api/me/session", SessionActor, undefined, strictSession)
+    },
     profile() {
       return transport.get("/api/me", UserProfile, undefined, strictProfile)
     },

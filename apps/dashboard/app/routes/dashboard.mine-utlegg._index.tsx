@@ -171,8 +171,8 @@ function parseReceiptFile(form: FormData, required: boolean): ParseResult<File |
 }
 
 export async function loader({ request }: Route.LoaderArgs) {
-  const token = requireAuth(request);
-  const client = createAuthenticatedClient(token);
+  const cookie = await requireAuth(request);
+  const client = createAuthenticatedClient(cookie);
 
   try {
     const result = await client.receipts.listOwned();
@@ -182,7 +182,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     };
   } catch (error) {
     if (isUnauthorizedError(error)) {
-      throw expiredSessionRedirect();
+      throw await expiredSessionRedirect(request);
     }
     return {
       receipts: [] as OwnedReceiptView[],
@@ -192,8 +192,8 @@ export async function loader({ request }: Route.LoaderArgs) {
 }
 
 export async function action({ request }: Route.ActionArgs) {
-  const token = requireAuth(request);
-  const client = createAuthenticatedClient(token);
+  const cookie = await requireAuth(request);
+  const client = createAuthenticatedClient(cookie);
   const form = await request.formData();
   const commandId = readFormText(form, "commandId")?.trim() || crypto.randomUUID();
   const intent = readFormText(form, "_intent");
@@ -236,7 +236,7 @@ export async function action({ request }: Route.ActionArgs) {
       return { success: true as const, intent: "submit" as const, submission };
     } catch (error) {
       if (isUnauthorizedError(error)) {
-        throw expiredSessionRedirect();
+        throw await expiredSessionRedirect(request);
       }
       return {
         success: false as const,
@@ -309,7 +309,7 @@ export async function action({ request }: Route.ActionArgs) {
       return { success: true as const, intent, mutationNotice };
     } catch (error) {
       if (isUnauthorizedError(error)) {
-        throw expiredSessionRedirect();
+        throw await expiredSessionRedirect(request);
       }
       const mappedError = mapOwnedReceiptError(error);
       const mutationFailure: ReceiptOwnerMutationFailure = {
@@ -353,7 +353,7 @@ export async function action({ request }: Route.ActionArgs) {
       return { success: true as const, intent, mutationNotice };
     } catch (error) {
       if (isUnauthorizedError(error)) {
-        throw expiredSessionRedirect();
+        throw await expiredSessionRedirect(request);
       }
       const mutationFailure: ReceiptOwnerMutationFailure = {
         intent,

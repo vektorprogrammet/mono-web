@@ -80,6 +80,7 @@ export {
 export { ContactMessageInput, ContactMessageInputSchema } from "./schemas/contact-message.js";
 export {
   ProfileCommandId,
+  SessionActor,
   UpdateOwnProfileCommand,
   UserProfile,
   UserRole,
@@ -144,7 +145,6 @@ export type {
   OrganizationCreateResult,
 } from "./schemas/organization.js";
 export type { SchedulingAssistant, SchedulingSchool, Substitute } from "./schemas/scheduling.js";
-export type { ClientContext } from "./context.js";
 
 export {
   AdmissionPeriodRejectionError,

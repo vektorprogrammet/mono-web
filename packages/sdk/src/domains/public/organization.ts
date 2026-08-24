@@ -20,7 +20,7 @@ const strictPublicOrganization = {
   strict: true,
   errorFamily: "organization" as const,
   decodeError: () => new OrganizationDecodeError(),
-  includeAuth: false,
+  includeCookie: false,
   expectedStatus: 200,
   headers: { Accept: "application/json" },
 };

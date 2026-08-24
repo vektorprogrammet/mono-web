@@ -258,7 +258,7 @@ describe("recruitment SDK transport", () => {
       .mockResolvedValueOnce(response(200, schedulingBoard))
       .mockResolvedValueOnce(response(200, scheduleResult));
     vi.stubGlobal("fetch", fetchMock);
-    const client = createClient("http://api.test", { auth: "leader-token" });
+    const client = createClient("http://api.test", { cookie: "better-auth.session_token=leader-session" });
 
     await expect(client.admin.recruitment.readAssignmentBoard({ status: "new" })).resolves.toEqual(
       board,
@@ -293,7 +293,7 @@ describe("recruitment SDK transport", () => {
       .mockResolvedValueOnce(response(401, { error: { tag: "UnauthenticatedActor" } }))
       .mockResolvedValueOnce(response(200, { ...board, unexpected: true }));
     vi.stubGlobal("fetch", fetchMock);
-    const client = createClient("http://api.test", { auth: "expired-token" });
+    const client = createClient("http://api.test", { cookie: "better-auth.session_token=expired-session" });
 
     await expect(
       client.admin.recruitment.readAssignmentBoard({ status: "new" }),

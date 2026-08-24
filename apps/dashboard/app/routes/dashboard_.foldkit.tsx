@@ -18,14 +18,14 @@ export async function loader({ request }: Route.LoaderArgs) {
     throw new Response(null, { status: 404, headers: responseHeaders });
   }
 
-  const token = requireAuth(request);
-  const client = createAuthenticatedClient(token);
+  const cookie = await requireAuth(request);
+  const client = createAuthenticatedClient(cookie);
 
   let profile;
   try {
     profile = await client.me.profile();
   } catch {
-    throw expiredSessionRedirect();
+    throw await expiredSessionRedirect(request);
   }
 
   if (!isDashboardRole(profile.role)) {

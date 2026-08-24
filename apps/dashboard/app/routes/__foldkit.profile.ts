@@ -36,9 +36,9 @@ const statusFor = (failure: ProfileBridgeFailure["_tag"]): number => {
 };
 
 export async function action({ request }: Route.ActionArgs) {
-  let token: string;
+  let cookie: string;
   try {
-    token = requireAuth(request);
+    cookie = await requireAuth(request);
   } catch {
     return data(
       {
@@ -69,7 +69,7 @@ export async function action({ request }: Route.ActionArgs) {
     );
   }
 
-  const client = createAuthenticatedClient(token);
+  const client = createAuthenticatedClient(cookie);
   try {
     await client.me.updateProfile(command);
     const fresh = await client.me.profile();

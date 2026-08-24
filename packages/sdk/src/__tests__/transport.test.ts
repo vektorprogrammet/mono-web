@@ -89,27 +89,30 @@ describe("createTransport", () => {
     });
   });
 
-  describe("auth", () => {
-    it("sends static string auth as Bearer header", async () => {
+  describe("Cookie forwarding", () => {
+    it("sends the exact static Cookie header", async () => {
       mockFetch.mockResolvedValueOnce(makeFetchResponse(200, { name: "Bob" }));
-      const transport = createTransport("http://api.test", "my-token");
+      const rawCookie = "theme=dark; better-auth.session_token=session-value";
+      const transport = createTransport("http://api.test", rawCookie);
       await run(transport.get("/test", SimpleSchema));
       const [, init] = mockFetch.mock.calls[0] as [string, RequestInit];
-      expect((init.headers as Record<string, string>)["Authorization"]).toBe("Bearer my-token");
+      expect((init.headers as Record<string, string>).Cookie).toBe(rawCookie);
     });
 
-    it("calls auth function before each request and uses returned token", async () => {
-      const authFn = vi.fn().mockResolvedValue("dynamic-token");
+    it("calls a Cookie provider before each request", async () => {
+      const cookieProvider = vi
+        .fn()
+        .mockResolvedValue("better-auth.session_token=dynamic-session");
       mockFetch.mockResolvedValue(makeFetchResponse(200, { name: "Bob" }));
-      const transport = createTransport("http://api.test", authFn);
+      const transport = createTransport("http://api.test", cookieProvider);
 
       await run(transport.get("/test", SimpleSchema));
       await run(transport.get("/test", SimpleSchema));
 
-      expect(authFn).toHaveBeenCalledTimes(2);
+      expect(cookieProvider).toHaveBeenCalledTimes(2);
       const [, init] = mockFetch.mock.calls[0] as [string, RequestInit];
-      expect((init.headers as Record<string, string>)["Authorization"]).toBe(
-        "Bearer dynamic-token",
+      expect((init.headers as Record<string, string>).Cookie).toBe(
+        "better-auth.session_token=dynamic-session",
       );
     });
   });

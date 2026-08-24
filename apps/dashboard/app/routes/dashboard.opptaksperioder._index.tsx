@@ -15,8 +15,8 @@ import { expiredSessionRedirect, requireAuth } from "../lib/auth.server";
 import type { Route } from "./+types/dashboard.opptaksperioder._index";
 
 export async function loader({ request }: Route.LoaderArgs) {
-  const token = requireAuth(request);
-  const client = createAuthenticatedClient(token);
+  const cookie = await requireAuth(request);
+  const client = createAuthenticatedClient(cookie);
 
   try {
     const result = await client.admissionPeriods.listForManagement();
@@ -26,7 +26,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     };
   } catch (error) {
     if (isAdmissionPeriodUnauthorizedError(error)) {
-      throw expiredSessionRedirect();
+      throw await expiredSessionRedirect(request);
     }
     return {
       periods: [] as AdmissionPeriodView[],
@@ -36,8 +36,8 @@ export async function loader({ request }: Route.LoaderArgs) {
 }
 
 export async function action({ request }: Route.ActionArgs) {
-  const token = requireAuth(request);
-  const client = createAuthenticatedClient(token);
+  const cookie = await requireAuth(request);
+  const client = createAuthenticatedClient(cookie);
   const form = await request.formData();
   const parsed = parseAdmissionPeriodForm(form, crypto.randomUUID());
 
@@ -69,7 +69,7 @@ export async function action({ request }: Route.ActionArgs) {
     };
   } catch (error) {
     if (isAdmissionPeriodUnauthorizedError(error)) {
-      throw expiredSessionRedirect();
+      throw await expiredSessionRedirect(request);
     }
     const mappedError = mapAdmissionPeriodError(error);
     if (command._tag === "CreateAdmissionPeriod") {

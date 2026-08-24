@@ -9,8 +9,8 @@ import type { Route } from "./+types/dashboard.teaminteresse._index";
 type TeamInterestRow = Pick<TeamInterest, "id" | "userName" | "teamName">;
 
 export async function loader({ request }: Route.LoaderArgs) {
-  const token = requireAuth(request);
-  const client = createAuthenticatedClient(token);
+  const cookie = await requireAuth(request);
+  const client = createAuthenticatedClient(cookie);
   const result = await client.admin.teams.interest();
   const teamInterest = result.items.map(({ id, userName, teamName }) => ({
     id,

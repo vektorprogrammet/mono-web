@@ -197,9 +197,7 @@ describe("native Recruitment invitation response SDK", () => {
     fetchMock
       .mockResolvedValueOnce(jsonResponse(200, observation))
       .mockResolvedValue(new Response(null, { status: 204 }));
-    const client = createClient("http://api.test", {
-      auth: "identity-token-must-not-be-sent",
-    });
+    const client = createClient("http://api.test", { cookie: "better-auth.session_token=must-not-be-sent" });
 
     const readResult =
       await client.recruitmentInvitationResponses.read(capability);
@@ -228,7 +226,7 @@ describe("native Recruitment invitation response SDK", () => {
         capability: new Headers(init.headers).get(
           "X-Recruitment-Invitation-Capability",
         ),
-        authorization: new Headers(init.headers).get("authorization"),
+        cookie: new Headers(init.headers).get("cookie"),
         body: init.body,
       })),
     ).toEqual([
@@ -236,35 +234,35 @@ describe("native Recruitment invitation response SDK", () => {
         url: "http://api.test/api/recruitment/invitation-response",
         method: "GET",
         capability: capabilityValue,
-        authorization: null,
+        cookie: null,
         body: undefined,
       },
       {
         url: "http://api.test/api/recruitment/invitation-response/confirm",
         method: "POST",
         capability: capabilityValue,
-        authorization: null,
+        cookie: null,
         body: "{}",
       },
       {
         url: "http://api.test/api/recruitment/invitation-response/reject",
         method: "POST",
         capability: capabilityValue,
-        authorization: null,
+        cookie: null,
         body: JSON.stringify({ message: "I cannot attend" }),
       },
       {
         url: "http://api.test/api/recruitment/invitation-response/reject",
         method: "POST",
         capability: capabilityValue,
-        authorization: null,
+        cookie: null,
         body: "{}",
       },
       {
         url: "http://api.test/api/recruitment/invitation-response/reject",
         method: "POST",
         capability: capabilityValue,
-        authorization: null,
+        cookie: null,
         body: "{}",
       },
       {
@@ -272,7 +270,7 @@ describe("native Recruitment invitation response SDK", () => {
           "http://api.test/api/recruitment/invitation-response/request-new-time",
         method: "POST",
         capability: capabilityValue,
-        authorization: null,
+        cookie: null,
         body: JSON.stringify({ message: "Could we meet Thursday?" }),
       },
     ]);

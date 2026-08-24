@@ -1,8 +1,8 @@
 /**
- * Transport layer — wraps fetch with auth resolution and error mapping.
+ * Transport layer — wraps fetch with Cookie resolution and error mapping.
  *
  * All request helpers return Effect<A, InternalSdkError> where A is decoded via Schema.
- * The caller provides the Schema; the transport handles HTTP, auth, and error mapping.
+ * The caller provides the Schema; the transport handles HTTP, cookies, and error mapping.
  */
 
 import { Effect, Schema, pipe } from "effect";
@@ -83,20 +83,20 @@ import { parseViolations } from "./adapter/errors.js";
 
 const MAX_JSON_RESPONSE_BYTES = 1_048_576;
 
-export type AuthOption = string | (() => string | Promise<string>);
+export type CookieOption = string | (() => string | Promise<string>);
 export type QueryParams = Record<string, string | number | undefined>;
 
 /**
- * Resolves the auth token — supports static string or async function.
+ * Resolves the raw Cookie header — supports a static value or async function.
  */
-const resolveAuth = (auth: AuthOption): Effect.Effect<string, Network> =>
-  typeof auth === "string"
-    ? Effect.succeed(auth)
+const resolveCookie = (cookie: CookieOption): Effect.Effect<string, Network> =>
+  typeof cookie === "string"
+    ? Effect.succeed(cookie)
     : Effect.tryPromise({
-        try: () => Promise.resolve(auth()),
+        try: () => Promise.resolve(cookie()),
         catch: (cause) =>
           new Network({
-            message: cause instanceof Error ? cause.message : "Failed to resolve auth",
+            message: cause instanceof Error ? cause.message : "Failed to resolve Cookie header",
             cause,
           }),
       });
@@ -382,7 +382,7 @@ export type DecodeOptions = {
   readonly decodeError?: () => InternalSdkError;
   readonly errorFamily?: "public_application" | "recruitment" | "organization";
   readonly headers?: Readonly<Record<string, string>>;
-  readonly includeAuth?: boolean;
+  readonly includeCookie?: boolean;
   readonly expectedStatus?: number | ReadonlyArray<number>;
 };
 
@@ -433,7 +433,7 @@ export interface Transport {
 /**
  * Creates a Transport backed by fetch.
  *
- * Auth is injected into every request as a Bearer token header.
+ * A raw Cookie header is injected into authenticated requests.
  * Responses are decoded through the provided Schema.
  * HTTP errors are mapped to InternalSdkError.
  *
@@ -441,17 +441,17 @@ export interface Transport {
  * keeps factories and verb construction lazy while making configuration failure
  * observable through the typed error channel before fetch is called.
  */
-export function createTransport(baseUrl: string | undefined, auth?: AuthOption): Transport {
+export function createTransport(baseUrl: string | undefined, cookie?: CookieOption): Transport {
   const buildHeaders = (
     extra?: Readonly<Record<string, string>>,
-    includeAuth = true,
+    includeCookie = true,
   ): Effect.Effect<Record<string, string>, Network> => {
     const headers: Record<string, string> = { ...extra };
-    if (!auth || !includeAuth) return Effect.succeed(headers);
+    if (!cookie || !includeCookie) return Effect.succeed(headers);
     return pipe(
-      resolveAuth(auth),
-      Effect.map((token) => {
-        headers["Authorization"] = `Bearer ${token}`;
+      resolveCookie(cookie),
+      Effect.map((rawCookie) => {
+        headers.Cookie = rawCookie;
         return headers;
       }),
     );
@@ -555,7 +555,7 @@ export function createTransport(baseUrl: string | undefined, auth?: AuthOption):
           ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
           ...extraHeaders,
         },
-        options?.includeAuth !== false,
+        options?.includeCookie !== false,
       ),
       Effect.flatMap((headers) =>
         executeFetch(url, {
@@ -602,7 +602,7 @@ export function createTransport(baseUrl: string | undefined, auth?: AuthOption):
           ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
           ...extraHeaders,
         },
-        options?.includeAuth !== false,
+        options?.includeCookie !== false,
       ),
       Effect.flatMap((headers) =>
         executeFetch(url, {

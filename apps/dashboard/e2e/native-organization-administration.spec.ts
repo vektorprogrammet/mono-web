@@ -29,6 +29,9 @@ const requiredEnvironment = (name: string): string => {
   return value;
 };
 
+const sessionCookie = (value: string): string =>
+  `better-auth.session_token=${value}`;
+
 const responseBody = async (response: { json(): Promise<unknown> }): Promise<unknown> => {
   try {
     return await response.json();
@@ -79,7 +82,7 @@ test.describe("Native Organization administration", () => {
     const memberToken = requiredEnvironment("ORGANIZATION_E2E_MEMBER_TOKEN");
     const evidencePath = requiredEnvironment("ORGANIZATION_E2E_BROWSER_EVIDENCE_PATH");
     const publicClient = createClient(API_ORIGIN);
-    const adminClient = createClient(API_ORIGIN, { auth: adminToken });
+    const adminClient = createClient(API_ORIGIN, { cookie: sessionCookie(adminToken) });
     const departmentCommand = Schema.decodeUnknownSync(CreateDepartmentCommandSchema)({
       _tag: "CreateDepartment",
       commandId: "organization-department-create-0052",
@@ -129,7 +132,7 @@ test.describe("Native Organization administration", () => {
 
     const unknownReferenceResponse = await request.post(`${API_ORIGIN}/api/admin/teams`, {
       headers: {
-        Authorization: `Bearer ${adminToken}`,
+        Cookie: sessionCookie(adminToken),
         "Content-Type": "application/json",
       },
       data: {
@@ -142,7 +145,7 @@ test.describe("Native Organization administration", () => {
 
     const memberDeniedResponse = await request.post(`${API_ORIGIN}/api/admin/departments`, {
       headers: {
-        Authorization: `Bearer ${memberToken}`,
+        Cookie: sessionCookie(memberToken),
         "Content-Type": "application/json",
       },
       data: { ...departmentCommand, commandId: "organization-member-denied-0052" },
@@ -151,7 +154,7 @@ test.describe("Native Organization administration", () => {
 
     const exactReplayResponse = await request.post(`${API_ORIGIN}/api/admin/departments`, {
       headers: {
-        Authorization: `Bearer ${adminToken}`,
+        Cookie: sessionCookie(adminToken),
         "Content-Type": "application/json",
       },
       data: departmentCommand,
@@ -162,7 +165,7 @@ test.describe("Native Organization administration", () => {
 
     const changedReplayResponse = await request.post(`${API_ORIGIN}/api/admin/departments`, {
       headers: {
-        Authorization: `Bearer ${adminToken}`,
+        Cookie: sessionCookie(adminToken),
         "Content-Type": "application/json",
       },
       data: { ...departmentCommand, name: "Et annet navn" },
@@ -199,7 +202,7 @@ test.describe("Native Organization administration", () => {
     });
     await context.addCookies([
       {
-        name: "jwt_token",
+        name: "better-auth.session_token",
         value: adminToken,
         url: DASHBOARD_ORIGIN,
         httpOnly: true,

@@ -6,9 +6,8 @@
  */
 
 import { Effect } from "effect";
-import { createTransport, type AuthOption } from "./transport.js";
+import { createTransport, type CookieOption } from "./transport.js";
 import { toSdkError, type InternalSdkError } from "./errors.js";
-import { createContext } from "./context.js";
 import { createAuthDomain } from "./domains/auth.js";
 import { createMeDomain } from "./domains/me.js";
 import { createReceiptsDomain } from "./domains/receipts.js";
@@ -30,7 +29,6 @@ import { createAdmissionPeriodsDomain } from "./domains/admission-period.js";
 
 // --- Public re-exports ---
 
-export type { ClientContext } from "./context.js";
 export { apiUrl, isFixtureMode } from "./config.js";
 export {
   SdkError,
@@ -268,6 +266,7 @@ export type {
 } from "./schemas/recruitment.js";
 export {
   ProfileCommandId,
+  SessionActor,
   UpdateOwnProfileCommand,
   UserProfile,
   UserRole,
@@ -336,7 +335,7 @@ export type { SchedulingAssistant, SchedulingSchool, Substitute } from "./schema
 // --- Client options ---
 
 export type ClientOptions = {
-  auth?: AuthOption;
+  cookie?: CookieOption;
 };
 
 // --- Promisify helpers ---
@@ -370,9 +369,7 @@ function promisifyDomain<T extends object>(
 
 // --- Client factory ---
 export function createClient(baseUrl: string | undefined, options?: ClientOptions) {
-  const transport = createTransport(baseUrl, options?.auth);
-  const initialToken = typeof options?.auth === "string" ? options.auth : undefined;
-  const context = createContext(initialToken);
+  const transport = createTransport(baseUrl, options?.cookie);
 
   const adminMisc = createAdminMiscDomain(transport);
   const publicMisc = createPublicMiscDomain(transport);
@@ -404,7 +401,6 @@ export function createClient(baseUrl: string | undefined, options?: ClientOption
       sponsors: promisify(publicMisc.sponsors.bind(publicMisc)),
       contactMessages: promisifyDomain(publicContactMessages),
     },
-    context,
   };
 }
 

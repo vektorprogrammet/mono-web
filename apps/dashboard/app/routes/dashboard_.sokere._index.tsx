@@ -19,14 +19,14 @@ const responseHeaders = {
 } as const;
 
 export async function loader({ request }: Route.LoaderArgs) {
-  const token = requireAuth(request);
-  const client = createAuthenticatedClient(token);
+  const cookie = await requireAuth(request);
+  const client = createAuthenticatedClient(cookie);
 
   let profile;
   try {
     profile = await client.me.profile();
   } catch {
-    throw expiredSessionRedirect();
+    throw await expiredSessionRedirect(request);
   }
 
   if (!isDashboardRole(profile.role) || profile.role !== "ROLE_TEAM_LEADER") {
@@ -47,7 +47,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     recruitment = { _tag: "Loaded", status, board };
   } catch (error) {
     const failure = toRecruitmentBridgeFailure(error);
-    if (failure._tag === "Unauthorized") throw expiredSessionRedirect();
+    if (failure._tag === "Unauthorized") throw await expiredSessionRedirect(request);
     if (failure._tag === "Forbidden") {
       throw new Response(null, { status: 403, headers: responseHeaders });
     }

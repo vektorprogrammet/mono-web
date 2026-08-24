@@ -50,9 +50,10 @@ const Phone = Schema.String.pipe(
   ),
 )
 
-export class LoginResponse extends Schema.Class<LoginResponse>("LoginResponse")({
-  token: Schema.String,
-}) {}
+export const SessionActor = Schema.Struct({
+  personId: ProfilePersonId,
+})
+export type SessionActor = typeof SessionActor.Type
 
 export class User extends Schema.Class<User>("User")({
   id: Schema.Number,

@@ -31,7 +31,7 @@ describe("native admission and public application SDK", () => {
     const page = { items: [projection], totalItems: 1 };
     const fetchMock = vi.fn().mockResolvedValue(response(200, page));
     vi.stubGlobal("fetch", fetchMock);
-    const client = createClient("http://api.test", { auth: "leader-token" });
+    const client = createClient("http://api.test", { cookie: "better-auth.session_token=leader-session" });
 
     await expect(client.admissionPeriods.listForManagement()).resolves.toEqual(page);
     expect(fetchMock).toHaveBeenCalledWith(
@@ -52,7 +52,7 @@ describe("native admission and public application SDK", () => {
       .mockResolvedValueOnce(response(201, created))
       .mockResolvedValueOnce(response(200, revised));
     vi.stubGlobal("fetch", fetchMock);
-    const client = createClient("http://api.test", { auth: "leader-token" });
+    const client = createClient("http://api.test", { cookie: "better-auth.session_token=leader-session" });
 
     await expect(
       client.admissionPeriods.create({
@@ -85,7 +85,7 @@ describe("native admission and public application SDK", () => {
   it("rejects excess authority fields before making a request", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
-    const client = createClient("http://api.test", { auth: "leader-token" });
+    const client = createClient("http://api.test", { cookie: "better-auth.session_token=leader-session" });
 
     await expect(
       client.admissionPeriods.create({
