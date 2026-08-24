@@ -2,7 +2,6 @@ import { type Database } from "@vektorprogrammet/domain/database";
 import { Effect, Schema } from "effect";
 import {
   AdmissionPeriodDecodeError,
-  AdmissionScopeDenied,
   InactiveActor,
   UnauthenticatedActor,
   AdmissionPeriodCommandId,
@@ -17,10 +16,19 @@ import {
   PublicApplicationDecodeError,
   PublicApplicationSubmitInputSchema,
 } from "@vektorprogrammet/domain/application";
-import type { AdmissionApiConfig, AdmissionApiPrincipal } from "./config.js";
+import type { AdmissionApiConfig } from "./config.js";
 
 export interface AdmissionApiHttpOptions {
   readonly config: AdmissionApiConfig;
+  /**
+   * Resolves the session cookie into a department-scoped actor (spec 0055).
+   * `departmentScope` carries canonical request state (payload department or
+   * the period's immutable department); undefined means global-only scope.
+   */
+  readonly resolveActor: (
+    request: Request,
+    departmentScope?: string,
+  ) => Promise<AdmissionPeriodActor>;
   readonly run: <A, E>(effect: Effect.Effect<A, E, Database | Admissions>) => Promise<A>;
 }
 
@@ -107,21 +115,22 @@ const runDatabase = <A, E>(
   run: AdmissionApiHttpOptions["run"],
 ): Promise<A> => run(effect);
 
-const principalFor = (
-  request: Request,
-  tokens: ReadonlyMap<string, AdmissionApiPrincipal>,
-): AdmissionApiPrincipal => {
-  const authorization = request.headers.get("authorization");
-  const match = authorization === null ? undefined : /^Bearer ([^\s]+)$/.exec(authorization);
-  const principal = match?.[1] === undefined ? undefined : tokens.get(match[1]);
-  if (principal === undefined)
-    throw new UnauthenticatedActor({ message: "authentication required" });
-  return principal;
+const requireActive = (actor: AdmissionPeriodActor): AdmissionPeriodActor => {
+  if (!actor.active) throw new InactiveActor({ personId: actor.personId });
+  return actor;
 };
 
-const requireActive = (principal: AdmissionApiPrincipal): AdmissionPeriodActor => {
-  if (!principal.actor.active) throw new InactiveActor({ personId: principal.actor.personId });
-  return principal.actor;
+const actorFor = async (
+  request: Request,
+  input: AdmissionApiHttpOptions,
+  departmentScope?: string,
+): Promise<AdmissionPeriodActor> => {
+  try {
+    return await input.resolveActor(request, departmentScope);
+  } catch (cause) {
+    if (cause !== null && typeof cause === "object" && "_tag" in cause) throw cause;
+    throw new UnauthenticatedActor({ message: "authentication required" });
+  }
 };
 
 const requireNoQuery = (request: Request, tag = "AdmissionPeriodDecodeError"): void => {
@@ -228,7 +237,7 @@ const listManagement = async (
   input: AdmissionApiHttpOptions,
 ): Promise<Response> => {
   requireNoQuery(request);
-  const actor = requireActive(principalFor(request, input.config.tokens));
+  const actor = requireActive(await actorFor(request, input));
   const rows = await runDatabase(
     Admissions.use(({ listAdmissionPeriodsForManagement }) =>
       listAdmissionPeriodsForManagement({ actor, now: input.config.now() }),
@@ -240,19 +249,13 @@ const listManagement = async (
 
 const create = async (request: Request, input: AdmissionApiHttpOptions): Promise<Response> => {
   requireNoQuery(request);
-  const actor = requireActive(principalFor(request, input.config.tokens));
   const payload = await decodeJson(
     request,
     createPayloadSchema,
     input.config.maxBodyBytes,
     "AdmissionPeriodDecodeError",
   );
-  if (actor._tag === "DepartmentLeader" && payload.departmentId !== undefined) {
-    throw new AdmissionScopeDenied({
-      personId: actor.personId,
-      departmentId: payload.departmentId,
-    });
-  }
+  const actor = requireActive(await input.resolveActor(request));
   const result = await executeCommand(
     { _tag: "CreateAdmissionPeriod", ...payload },
     { actor, now: input.config.now(), admissionPeriodId: input.config.nextAdmissionPeriodId() },
@@ -267,7 +270,7 @@ const revise = async (
   input: AdmissionApiHttpOptions,
 ): Promise<Response> => {
   requireNoQuery(request);
-  const actor = requireActive(principalFor(request, input.config.tokens));
+  const actor = requireActive(await actorFor(request, input));
   const typedAdmissionPeriodId = AdmissionPeriodId.make(admissionPeriodId);
   const payload = await decodeJson(
     request,

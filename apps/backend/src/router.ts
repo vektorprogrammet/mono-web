@@ -1,4 +1,6 @@
 import { Admissions } from "@vektorprogrammet/domain/admissions";
+import { DepartmentId } from "@vektorprogrammet/domain/organization";
+import { InactiveActor, UnauthenticatedActor } from "@vektorprogrammet/domain/admission-period";
 import { Auth } from "@vektorprogrammet/domain/auth";
 import { databaseHealth, type Database } from "@vektorprogrammet/domain/database";
 import type { Organization } from "@vektorprogrammet/domain/organization";
@@ -6,7 +8,12 @@ import { Profile } from "@vektorprogrammet/domain/profile";
 import { Recruitment } from "@vektorprogrammet/domain/recruitment";
 import { Economy } from "@vektorprogrammet/domain/receipt";
 import { DateTime, Effect } from "effect";
+import type { AdmissionPeriodActor } from "@vektorprogrammet/domain/admission-period";
 import { makeAdmissionApiHttp } from "./admission/http.js";
+import {
+  admissionActorForDepartment,
+  resolvePersonAuthority,
+} from "./authority.js";
 import type { BackendConfig } from "./config.js";
 import { makeOrganizationApiHttp } from "./organization/http.js";
 import { makeProfileApiHttp } from "./profile/http.js";
@@ -78,9 +85,45 @@ export const makeBackendHttp = (
   run: BackendRun,
   authHandler: BackendAuthHandler,
 ): BackendHttp => {
-  const admission = makeAdmissionApiHttp({ config: config.admission, run });
+  /**
+   * Cookie -> Organization projection -> department-scoped admission actor.
+   * The department scope comes from canonical request state (payload or the
+   * period's immutable department). One authorizationInstant covers session
+   * resolution, projection, and mapping.
+   */
+  const resolveAdmissionActor = async (
+    request: Request,
+    departmentScope?: string,
+  ): Promise<AdmissionPeriodActor> => {
+    const cookie = request.headers.get("cookie") ?? undefined;
+    if (departmentScope === undefined) {
+      // No canonical scope: only an active global administrator is authorized.
+      const authority = await resolvePersonAuthority(cookie, { run });
+      if (authority.globalAdministrator !== "Active") {
+        throw authority.globalAdministrator === "Inactive"
+          ? new InactiveActor({ personId: authority.personId })
+          : new UnauthenticatedActor({ message: "no authority for unscoped management route" });
+      }
+      return {
+        _tag: "GlobalAdmin",
+        personId: authority.personId,
+        active: true,
+      };
+    }
+    const authority = await resolvePersonAuthority(cookie, { run });
+    return admissionActorForDepartment(authority, DepartmentId.make(departmentScope));
+  };
+  const admission = makeAdmissionApiHttp({
+    config: config.admission,
+    resolveActor: resolveAdmissionActor,
+    run,
+  });
   const receipt = makeReceiptApiHttp({ config: config.receipt, run });
-  const recruitment = makeRecruitmentApiHttp({ config: config.recruitment, run });
+  const recruitment = makeRecruitmentApiHttp({
+    config: config.recruitment,
+    resolveActor: async (request) => resolveAdmissionActor(request),
+    run,
+  });
   const organization = makeOrganizationApiHttp({ config: config.organization, run });
   const profile = makeProfileApiHttp({ config, run });
 

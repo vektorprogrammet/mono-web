@@ -3,7 +3,6 @@ import { Admissions } from "@vektorprogrammet/domain/admissions";
 import { Profile } from "@vektorprogrammet/domain/profile";
 import {
   Recruitment,
-  RecruitmentActorSchema,
   RecruitmentAssignmentBoardQuerySchema,
   RecruitmentAssignmentCommandSchema,
   RecruitmentDecodeError,
@@ -22,6 +21,8 @@ import { type RecruitmentApiConfig } from "./config.js";
 
 export interface RecruitmentApiHttpOptions {
   readonly config: RecruitmentApiConfig;
+  /** Cookie -> Organization projection -> recruitment actor (spec 0055). */
+  readonly resolveActor: (request: Request) => Promise<RecruitmentActor>;
   readonly run: <A, E>(
     effect: Effect.Effect<
       A,
@@ -239,17 +240,15 @@ const decodeInvitationObservation = (
   }
 };
 
-const principalFor = (request: Request, config: RecruitmentApiConfig): RecruitmentActor => {
-  const authorization = request.headers.get("authorization");
-  const match = authorization === null ? undefined : /^Bearer ([^\s]+)$/.exec(authorization);
-  const principal = match?.[1] === undefined ? undefined : config.tokens.get(match[1]);
-  if (principal === undefined) throw taggedError("UnauthenticatedActor");
+const actorFor = async (
+  request: Request,
+  input: RecruitmentApiHttpOptions,
+): Promise<RecruitmentActor> => {
   try {
-    return Schema.decodeUnknownSync(RecruitmentActorSchema)(principal.actor, {
-      onExcessProperty: "error",
-    });
-  } catch {
-    throw new RecruitmentDecodeError({ message: "invalid authenticated actor" });
+    return await input.resolveActor(request);
+  } catch (cause) {
+    if (cause !== null && typeof cause === "object" && "_tag" in cause) throw cause;
+    throw taggedError("UnauthenticatedActor");
   }
 };
 
@@ -273,7 +272,7 @@ const readAssignmentBoard = async (
   input: RecruitmentApiHttpOptions,
 ): Promise<Response> => {
   const query = decodeBoardQuery(request);
-  const actor = principalFor(request, input.config);
+  const actor = await actorFor(request, input);
   const observation = await input.run(
     Recruitment.use(({ readAssignmentBoard: read }) =>
       read(query, { actor, now: input.config.now() }),
@@ -287,7 +286,7 @@ const readSchedulingBoard = async (
   input: RecruitmentApiHttpOptions,
 ): Promise<Response> => {
   if (new URL(request.url).search !== "") throw taggedError("RecruitmentDecodeError");
-  const actor = principalFor(request, input.config);
+  const actor = await actorFor(request, input);
   const observation = await input.run(
     Recruitment.use(({ readSchedulingBoard: read }) => read({ actor, now: input.config.now() })),
   );
@@ -299,7 +298,7 @@ const assignApplicant = async (
   input: RecruitmentApiHttpOptions,
 ): Promise<Response> => {
   if (new URL(request.url).search !== "") throw taggedError("RecruitmentDecodeError");
-  const actor = principalFor(request, input.config);
+  const actor = await actorFor(request, input);
   const command = await decodeJson(
     request,
     RecruitmentAssignmentCommandSchema,
@@ -322,7 +321,7 @@ const scheduleInterview = async (
   input: RecruitmentApiHttpOptions,
 ): Promise<Response> => {
   if (new URL(request.url).search !== "") throw taggedError("RecruitmentDecodeError");
-  const actor = principalFor(request, input.config);
+  const actor = await actorFor(request, input);
   const command = await decodeJson(
     request,
     RecruitmentScheduleCommandSchema,
