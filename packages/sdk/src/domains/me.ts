@@ -1,25 +1,50 @@
-import { Effect } from "effect"
+import { Effect, Schema } from "effect"
 import type { Transport } from "../transport.js"
-import type { InternalSdkError } from "../errors.js"
-import { UserProfile } from "../schemas/user.js"
+import { Validation, type InternalSdkError } from "../errors.js"
+import { UpdateOwnProfileCommand, UserProfile } from "../schemas/user.js"
 import { DashboardStats } from "../schemas/dashboard.js"
 
 export interface MeDomain {
   profile(): Effect.Effect<UserProfile, InternalSdkError>
   dashboard(): Effect.Effect<DashboardStats, InternalSdkError>
-  updateProfile(data: Partial<typeof UserProfile.Type>): Effect.Effect<void, InternalSdkError>
+  updateProfile(
+    command: UpdateOwnProfileCommand,
+  ): Effect.Effect<UserProfile, InternalSdkError>
 }
+
+const strictProfile = {
+  strict: true,
+  decodeError: () =>
+    new Validation({ message: "Invalid profile representation", fields: {} }),
+  expectedStatus: 200,
+  headers: { Accept: "application/json" },
+} as const
+
+const decodeProfileCommand = (
+  command: unknown,
+): Effect.Effect<UpdateOwnProfileCommand, Validation> =>
+  Schema.decodeUnknownEffect(UpdateOwnProfileCommand)(command, {
+    onExcessProperty: "error",
+  }).pipe(
+    Effect.mapError(
+      () => new Validation({ message: "Invalid profile representation", fields: {} }),
+    ),
+  )
 
 export function createMeDomain(transport: Transport): MeDomain {
   return {
     profile() {
-      return transport.get("/api/me", UserProfile)
+      return transport.get("/api/me", UserProfile, undefined, strictProfile)
     },
     dashboard() {
       return transport.get("/api/me/dashboard", DashboardStats)
     },
-    updateProfile(data) {
-      return transport.put("/api/me", data)
+    updateProfile(command) {
+      return decodeProfileCommand(command).pipe(
+        Effect.flatMap((validCommand) =>
+          transport.put("/api/me", validCommand, UserProfile, strictProfile),
+        ),
+      )
     },
   }
 }

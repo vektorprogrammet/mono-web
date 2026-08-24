@@ -266,7 +266,13 @@ export type {
   RecruitmentScheduleResult,
   RecruitmentInterviewSchemaOption,
 } from "./schemas/recruitment.js";
-export type { User, UserProfile } from "./schemas/user.js";
+export {
+  ProfileCommandId,
+  UpdateOwnProfileCommand,
+  UserProfile,
+  UserRole,
+  type User,
+} from "./schemas/user.js";
 export type { DashboardStats } from "./schemas/dashboard.js";
 export type { TeamInterest, Sponsor, MailingList, AdmissionStats, Page } from "./schemas/common.js";
 export {

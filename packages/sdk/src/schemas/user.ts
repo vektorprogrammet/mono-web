@@ -2,7 +2,53 @@
  * User schemas — shared between auth and admin domains.
  */
 
-import { Effect, Schema } from "effect"
+import { Schema } from "effect"
+import { PersonId } from "./organization.js"
+
+const NonEmpty = Schema.String.pipe(
+  Schema.check(
+    Schema.makeFilter((value) => value.trim().length > 0, { message: "a non-empty string" }),
+  ),
+)
+const Name = Schema.String.pipe(
+  Schema.check(
+    Schema.makeFilter((value) => value.trim().length > 0, { message: "a non-empty name" }),
+    Schema.isMaxLength(100),
+  ),
+)
+const Revision = Schema.Int.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(0)))
+const Email = Schema.String.pipe(
+  Schema.check(
+    Schema.makeFilter(
+      (value) => {
+        const separator = value.indexOf("@")
+        return (
+          value.length <= 320 &&
+          separator > 0 &&
+          separator === value.lastIndexOf("@") &&
+          separator < value.length - 1 &&
+          !/[\p{White_Space}\p{Cc}\p{Cf}]/u.test(value)
+        )
+      },
+      { message: "a valid email address" },
+    ),
+  ),
+)
+const Phone = Schema.String.pipe(
+  Schema.check(
+    Schema.makeFilter(
+      (value) => {
+        const normalized = value.trim()
+        return (
+          normalized.length > 0 &&
+          normalized.length <= 32 &&
+          /^[+\d][\d\s().-]*$/u.test(normalized)
+        )
+      },
+      { message: "a valid phone number" },
+    ),
+  ),
+)
 
 export class LoginResponse extends Schema.Class<LoginResponse>("LoginResponse")({
   token: Schema.String,
@@ -16,43 +62,36 @@ export class User extends Schema.Class<User>("User")({
   role: Schema.String,
 }) {}
 
-export class UserProfile extends Schema.Class<UserProfile>("UserProfile")({
-  id: Schema.NullOr(Schema.Number).pipe(
-    Schema.optional,
-    Schema.withDecodingDefaultType(Effect.succeed(null)),
-  ),
-  firstName: Schema.String,
-  lastName: Schema.String,
-  userName: Schema.NullOr(Schema.String).pipe(
-    Schema.optional,
-    Schema.withDecodingDefaultType(Effect.succeed(null)),
-  ),
-  email: Schema.String,
-  phone: Schema.NullOr(Schema.String).pipe(
-    Schema.optional,
-    Schema.withDecodingDefaultType(Effect.succeed(null)),
-  ),
-  gender: Schema.NullOr(Schema.Number).pipe(
-    Schema.optional,
-    Schema.withDecodingDefaultType(Effect.succeed(null)),
-  ),
-  fieldOfStudy: Schema.NullOr(
-    Schema.Struct({
-      id: Schema.Number,
-      name: Schema.String,
-      shortName: Schema.String,
-    }),
-  ).pipe(
-    Schema.optional,
-    Schema.withDecodingDefaultType(Effect.succeed(null)),
-  ),
-  accountNumber: Schema.NullOr(Schema.String).pipe(
-    Schema.optional,
-    Schema.withDecodingDefaultType(Effect.succeed(null)),
-  ),
-  role: Schema.String,
-  profilePhoto: Schema.NullOr(Schema.String).pipe(
-    Schema.optional,
-    Schema.withDecodingDefaultType(Effect.succeed(null)),
-  ),
-}) {}
+export const ProfileCommandId = NonEmpty.pipe(Schema.brand("ProfileCommandId"))
+export type ProfileCommandId = typeof ProfileCommandId.Type
+
+export const UserRole = Schema.Literals([
+  "ROLE_ADMIN",
+  "ROLE_TEAM_LEADER",
+  "ROLE_TEAM_MEMBER",
+])
+export type UserRole = typeof UserRole.Type
+
+export const UpdateOwnProfileCommand = Schema.Struct({
+  _tag: Schema.Literals(["UpdateOwnProfile"]),
+  commandId: ProfileCommandId,
+  expectedNameRevision: Revision,
+  expectedContactRevision: Revision,
+  firstName: Name,
+  lastName: Name,
+  email: Email,
+  phone: Phone,
+})
+export type UpdateOwnProfileCommand = typeof UpdateOwnProfileCommand.Type
+
+export const UserProfile = Schema.Struct({
+  personId: PersonId,
+  firstName: Name,
+  lastName: Name,
+  email: Email,
+  phone: Phone,
+  role: UserRole,
+  nameRevision: Revision,
+  contactRevision: Revision,
+})
+export type UserProfile = typeof UserProfile.Type

@@ -414,6 +414,12 @@ export interface Transport {
     options?: DecodeOptions,
   ): Effect.Effect<void, InternalSdkError>;
   put(url: string, body: unknown): Effect.Effect<void, InternalSdkError>;
+  put<A>(
+    url: string,
+    body: unknown,
+    schema: Schema.ConstraintDecoder<A, never>,
+    options?: DecodeOptions,
+  ): Effect.Effect<A, InternalSdkError>;
   del(url: string): Effect.Effect<void, InternalSdkError>;
   postFormData<A>(
     url: string,
@@ -647,6 +653,35 @@ export function createTransport(baseUrl: string | undefined, auth?: AuthOption):
       );
     };
 
+  function put(url: string, body: unknown): Effect.Effect<void, InternalSdkError>;
+  function put<A>(
+    url: string,
+    body: unknown,
+    schema: Schema.ConstraintDecoder<A, never>,
+    options?: DecodeOptions,
+  ): Effect.Effect<A, InternalSdkError>;
+  function put<A>(
+    url: string,
+    body: unknown,
+    schema?: Schema.ConstraintDecoder<A, never>,
+    options?: DecodeOptions,
+  ): Effect.Effect<A | void, InternalSdkError> {
+    return pipe(
+      buildUrl(url),
+      Effect.flatMap((resolvedUrl) =>
+        schema === undefined
+          ? executeVoid(resolvedUrl, "PUT", body)
+          : executeJson(
+              resolvedUrl,
+              "PUT",
+              body,
+              options?.headers,
+              options,
+            ).pipe(Effect.flatMap(decodeWith(schema, options))),
+      ),
+    );
+  }
+
   return {
     get<A>(
       url: string,
@@ -738,12 +773,7 @@ export function createTransport(baseUrl: string | undefined, auth?: AuthOption):
       );
     },
 
-    put(url: string, body: unknown) {
-      return pipe(
-        buildUrl(url),
-        Effect.flatMap((resolvedUrl) => executeVoid(resolvedUrl, "PUT", body)),
-      );
-    },
+    put,
 
     del(url: string) {
       return pipe(

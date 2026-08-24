@@ -8,6 +8,7 @@ import { Effect } from "effect";
 import { makeAdmissionApiHttp } from "./admission/http.js";
 import type { BackendConfig } from "./config.js";
 import { makeOrganizationApiHttp } from "./organization/http.js";
+import { makeProfileApiHttp } from "./profile/http.js";
 import { makeReceiptApiHttp } from "./receipt/http.js";
 import { makeRecruitmentApiHttp } from "./recruitment/http.js";
 export type BackendRun = <A, E>(
@@ -30,60 +31,6 @@ const jsonResponse = (body: unknown, status = 200): Response =>
       "cache-control": "no-store",
     },
   });
-
-const bearerToken = (request: Request): string | undefined => {
-  const authorization = request.headers.get("authorization");
-  return authorization === null ? undefined : /^Bearer ([^\s]+)$/.exec(authorization)?.[1];
-};
-
-const profileResponse = async (
-  request: Request,
-  config: BackendConfig,
-  run: BackendRun,
-): Promise<Response> => {
-  const token = bearerToken(request);
-  const admissionPrincipal = token === undefined ? undefined : config.admission.tokens.get(token);
-  const receiptPrincipal = token === undefined ? undefined : config.receipt.tokens.get(token);
-  const recruitmentPrincipal =
-    token === undefined ? undefined : config.recruitment.tokens.get(token);
-  const actor = admissionPrincipal?.actor ?? receiptPrincipal?.actor ?? recruitmentPrincipal?.actor;
-  if (actor === undefined) return jsonResponse({ error: { tag: "UnauthenticatedActor" } }, 401);
-  if (!actor.active) return jsonResponse({ error: { tag: "InactiveActor" } }, 403);
-
-  const role =
-    "_tag" in actor
-      ? actor._tag === "DepartmentLeader"
-        ? "ROLE_TEAM_LEADER"
-        : actor._tag === "GlobalAdmin"
-          ? "ROLE_ADMIN"
-          : "ROLE_TEAM_MEMBER"
-      : actor.approvalScope._tag === "Global"
-        ? "ROLE_ADMIN"
-        : actor.approvalScope._tag === "Department"
-          ? "ROLE_TEAM_LEADER"
-          : "ROLE_TEAM_MEMBER";
-  try {
-    const [profile] = await run(Profile.use(({ readProfiles }) => readProfiles([actor.personId])));
-    if (profile === undefined) {
-      return jsonResponse({ error: { tag: "ProfileNotFound" } }, 404);
-    }
-    return jsonResponse({
-      id: null,
-      firstName: profile.firstName,
-      lastName: profile.lastName,
-      userName: null,
-      email: "",
-      phone: null,
-      gender: null,
-      fieldOfStudy: null,
-      accountNumber: null,
-      role,
-      profilePhoto: null,
-    });
-  } catch {
-    return jsonResponse({ error: { tag: "ProfileUnavailable" } }, 503);
-  }
-};
 
 const isAdmissionRoute = (pathname: string): boolean =>
   pathname === "/api/admission-periods/open" ||
@@ -120,6 +67,7 @@ export const makeBackendHttp = (config: BackendConfig, run: BackendRun): Backend
   const receipt = makeReceiptApiHttp({ config: config.receipt, run });
   const recruitment = makeRecruitmentApiHttp({ config: config.recruitment, run });
   const organization = makeOrganizationApiHttp({ config: config.organization, run });
+  const profile = makeProfileApiHttp({ config, run });
   return {
     fetch: async (request) => {
       const pathname = new URL(request.url).pathname;
@@ -133,9 +81,7 @@ export const makeBackendHttp = (config: BackendConfig, run: BackendRun): Backend
           return jsonResponse({ status: "unavailable" }, 503);
         }
       }
-      if (request.method === "GET" && (pathname === "/api/me" || pathname === "/api/me/profile")) {
-        return profileResponse(request, config, run);
-      }
+      if (pathname === "/api/me") return profile.fetch(request);
       if (isRecruitmentRoute(pathname)) return recruitment.fetch(request);
       if (isAdmissionRoute(pathname)) return admission.fetch(request);
       if (isReceiptRoute(pathname)) return receipt.fetch(request);
