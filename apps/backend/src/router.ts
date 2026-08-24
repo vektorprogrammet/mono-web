@@ -13,6 +13,7 @@ import { makeAdmissionApiHttp } from "./admission/http.js";
 import {
   admissionActorForDepartment,
   organizationActorFrom,
+  profileRoleFrom,
   resolvePersonAuthority,
 } from "./authority.js";
 import type { BackendConfig } from "./config.js";
@@ -134,7 +135,23 @@ export const makeBackendHttp = (
     },
     run,
   });
-  const profile = makeProfileApiHttp({ config, run });
+  const profile = makeProfileApiHttp({
+    config,
+    resolveActor: async (request) => {
+      const cookie = request.headers.get("cookie") ?? undefined;
+      const authority = await resolvePersonAuthority(cookie, { run });
+      // Decision-based translation: Deny(NotInScope/AuthorityInactive) becomes
+      // the typed profile denial instead of an ambiguous default role.
+      const decision = profileRoleFrom(authority);
+      if (decision._tag === "Deny") {
+        throw decision.reason === "AuthorityInactive"
+          ? new InactiveActor({ personId: authority.personId })
+          : new UnauthenticatedActor({ message: "no organization authority" });
+      }
+      return { personId: authority.personId, role: decision.value };
+    },
+    run,
+  });
 
   /** Strict session read: raw Cookie header in, actor projection or 401 out. */
   const meSession = async (request: Request): Promise<Response> => {

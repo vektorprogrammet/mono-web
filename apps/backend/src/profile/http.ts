@@ -9,6 +9,11 @@ import type { BackendRun } from "../router.js";
 
 export interface ProfileApiHttpOptions {
   readonly config: BackendConfig;
+  /**
+   * Cookie -> Organization projection -> {personId, role Decision}.
+   * Deny(reason) is translated here into the typed profile denial.
+   */
+  readonly resolveActor: (request: Request) => Promise<ProfileActor>;
   readonly run: BackendRun;
 }
 
@@ -97,30 +102,16 @@ interface ProfileActor {
   readonly role: UserRole;
 }
 
-const actorFor = (request: Request, config: BackendConfig): ProfileActor => {
-  const authorization = request.headers.get("authorization");
-  const token =
-    authorization === null ? undefined : /^Bearer ([^\s]+)$/u.exec(authorization)?.[1];
-  const admissionPrincipal = token === undefined ? undefined : config.admission.tokens.get(token);
-  const receiptPrincipal = token === undefined ? undefined : config.receipt.tokens.get(token);
-  const recruitmentPrincipal = token === undefined ? undefined : config.recruitment.tokens.get(token);
-  const actor = admissionPrincipal?.actor ?? receiptPrincipal?.actor ?? recruitmentPrincipal?.actor;
-  if (actor === undefined) throw taggedError("UnauthenticatedActor");
-  if (!actor.active) throw taggedError("InactiveActor");
-
-  const role: UserRole =
-    "_tag" in actor
-      ? actor._tag === "DepartmentLeader"
-        ? "ROLE_TEAM_LEADER"
-        : actor._tag === "GlobalAdmin"
-          ? "ROLE_ADMIN"
-          : "ROLE_TEAM_MEMBER"
-      : actor.approvalScope._tag === "Global"
-        ? "ROLE_ADMIN"
-        : actor.approvalScope._tag === "Department"
-          ? "ROLE_TEAM_LEADER"
-          : "ROLE_TEAM_MEMBER";
-  return { personId: actor.personId, role };
+const actorFor = async (
+  request: Request,
+  input: ProfileApiHttpOptions,
+): Promise<ProfileActor> => {
+  try {
+    return await input.resolveActor(request);
+  } catch (cause) {
+    if (cause !== null && typeof cause === "object" && "_tag" in cause) throw cause;
+    throw taggedError("UnauthenticatedActor");
+  }
 };
 
 const decodeCommand = async (
@@ -173,7 +164,7 @@ const readOwnProfile = async (
   request: Request,
   input: ProfileApiHttpOptions,
 ): Promise<Response> => {
-  const actor = actorFor(request, input.config);
+  const actor = await actorFor(request, input);
   const profile = await input.run(
     Profile.use(({ readOwnProfile }) => readOwnProfile(actor.personId)),
   );
@@ -184,7 +175,7 @@ const updateOwnProfile = async (
   request: Request,
   input: ProfileApiHttpOptions,
 ): Promise<Response> => {
-  const actor = actorFor(request, input.config);
+  const actor = await actorFor(request, input);
   const command = await decodeCommand(request, input);
   const profile = await input.run(
     Profile.use(({ updateOwnProfile, readOwnProfile }) =>

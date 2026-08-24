@@ -101,6 +101,21 @@ const organization = {
   listDepartments: Effect.succeed([]),
   listTeams: () => Effect.succeed([]),
   listFieldOfStudies: Effect.succeed([]),
+  resolvePersonAuthority: () =>
+    Effect.succeed({
+      personId: "member-1",
+      evaluatedAt: "2031-09-15T12:00:00.000Z",
+      globalAdministrator: "Absent",
+      memberships: [
+        {
+          membershipId: "membership-1",
+          teamId: "team-1",
+          departmentId: "department-1",
+          active: true,
+          teamLeader: false,
+        },
+      ],
+    }),
 } as unknown as OrganizationShape;
 
 const successfulRun: BackendRun = <A, E>(
@@ -151,7 +166,7 @@ describe("unified backend router", () => {
       missing,
     ] = await Promise.all([
       request("/health"),
-      request("/api/me", { headers: { authorization: `Bearer ${token}` } }),
+      request("/api/me", { headers: { cookie: `${token}=value` } }),
       request("/api/departments"),
       request("/api/admin/admission-periods"),
       request("/api/receipts"),
