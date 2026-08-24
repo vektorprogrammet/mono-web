@@ -369,7 +369,7 @@ const proveMessageConfinement = (sql: DatabaseShape) =>
     const [migration] = yield* sql<{ readonly count: string }>`
       SELECT count(*)::text AS count
       FROM vektorprogrammet_schema_migrations
-      WHERE migration_id = 12
+      WHERE migration_id = 13
     `;
     const before = yield* sql<{
       readonly responseState: string;
@@ -559,11 +559,11 @@ const proof = (databaseUrl: Redacted.Redacted<string>) =>
     const setupLayer = makeProofLayer(databaseUrl, "recruitment-invitation-response-proof-setup");
     yield* Effect.gen(function* () {
       const sql = yield* Database;
-      assert.equal(sql.schemaRevision, "12_native-recruitment-invitation-response");
+      assert.equal(sql.schemaRevision, "13_native-organization-administration");
       yield* resetCohort(sql);
       yield* sql`
         DELETE FROM vektorprogrammet_schema_migrations
-        WHERE migration_id = 12
+        WHERE migration_id = 13
       `;
       yield* sql.migrate;
       yield* seedCohort(sql);
@@ -801,7 +801,7 @@ const proof = (databaseUrl: Redacted.Redacted<string>) =>
     const evidence = {
       specId: "0051" as const,
       database: "PostgreSQL" as const,
-      schemaRevision: "12_native-recruitment-invitation-response" as const,
+      schemaRevision: "13_native-organization-administration" as const,
       cohort: cohort.id,
       passed: true as const,
       concurrency: {

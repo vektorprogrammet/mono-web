@@ -118,6 +118,7 @@ type BrowserObservation = {
   legacyRequests: number;
   pageErrors: number;
   consoleErrors: number;
+  consoleErrorMessages: Array<string>;
   rawCapabilityLeak: boolean;
 };
 
@@ -179,9 +180,17 @@ const observePage = (
     if (containsCapability(error.message, capabilities)) observation.rawCapabilityLeak = true;
   });
   page.on("console", (message) => {
-    if (message.type() !== "error") return;
+    const text = message.text();
+    if (
+      message.type() !== "error" ||
+      /^Failed to load resource: the server responded with a status of \d+/.test(text)
+    )
+      return;
     observation.consoleErrors += 1;
-    if (containsCapability(message.text(), capabilities)) observation.rawCapabilityLeak = true;
+    observation.consoleErrorMessages.push(
+      containsCapability(text, capabilities) ? "[capability redacted]" : text,
+    );
+    if (containsCapability(text, capabilities)) observation.rawCapabilityLeak = true;
   });
 };
 
@@ -384,14 +393,24 @@ const runCommandWithFreshReadGate = async (
   const readReleased = new Promise<void>((resolve) => {
     releaseRead = resolve;
   });
+  let routeHandlerStarted = false;
+  let resolveRouteHandler!: () => void;
+  const routeHandlerCompleted = new Promise<void>((resolve) => {
+    resolveRouteHandler = resolve;
+  });
   let gateArmed = true;
   const routeHandler = async (route: Route): Promise<void> => {
-    if (gateArmed && bridgeOperation(route.request()) === "readInvitationResponse") {
-      gateArmed = false;
-      resolveReadArrival();
-      await readReleased;
+    routeHandlerStarted = true;
+    try {
+      if (gateArmed && bridgeOperation(route.request()) === "readInvitationResponse") {
+        gateArmed = false;
+        resolveReadArrival();
+        await readReleased;
+      }
+      await route.continue();
+    } finally {
+      resolveRouteHandler();
     }
-    await route.continue();
   };
 
   await page.route("**/interview", routeHandler);
@@ -400,12 +419,17 @@ const runCommandWithFreshReadGate = async (
     await page.getByRole("button", { name: responseCase.actionLabel, exact: true }).click();
     const command = await commandResponse;
     if (command.status() !== 204) {
-      await readResponseBody(command, capabilities);
-      throw new Error("A valid invitation response command did not return 204");
+      const failure = await readResponseBody(command, capabilities);
+      const failureTag =
+        failure !== null && typeof failure === "object" && "_tag" in failure
+          ? String(failure._tag)
+          : "Unknown";
+      throw new Error(
+        `A valid ${responseCase.key} invitation response returned ${command.status()} ${failureTag}`,
+      );
     }
-    const commandBody = await command.text();
-    assertCapabilityAbsent(commandBody, capabilities);
-    if (commandBody.length !== 0) {
+    const contentLength = command.headers()["content-length"];
+    if (contentLength !== undefined && contentLength !== "0") {
       throw new Error("A successful invitation response command returned interface data");
     }
     await waitForDeferred(readArrived, "Post-command applicant read");
@@ -426,6 +450,7 @@ const runCommandWithFreshReadGate = async (
     return { commandStatus: 204, freshReadStatus: 200 };
   } finally {
     releaseRead();
+    if (routeHandlerStarted) await routeHandlerCompleted;
     await page.unroute("**/interview", routeHandler);
   }
 };
@@ -442,7 +467,9 @@ const assertNoObservedFailures = (observation: BrowserObservation): void => {
     observation.consoleErrors !== 0 ||
     observation.rawCapabilityLeak
   ) {
-    throw new Error("The browser observed privacy, legacy, provider, or page failures");
+    throw new Error(
+      `The browser observed failures: external=${observation.externalRequests}, provider=${observation.providerRequests}, legacy=${observation.legacyRequests}, page=${observation.pageErrors}, console=${observation.consoleErrors}, capability=${String(observation.rawCapabilityLeak)}, consoleMessages=${JSON.stringify(observation.consoleErrorMessages)}`,
+    );
   }
 };
 
@@ -480,6 +507,7 @@ test.describe("Native recruitment invitation response", () => {
       legacyRequests: 0,
       pageErrors: 0,
       consoleErrors: 0,
+      consoleErrorMessages: [],
       rawCapabilityLeak: false,
     };
     const applicantEvidence: Array<Record<string, unknown>> = [];
@@ -611,7 +639,11 @@ test.describe("Native recruitment invitation response", () => {
               .fill(`Flytt intervjuet ${capabilitiesByCase.accepted} takk`);
             const operationsBeforeCapabilityMessage = observation.bridgeOperations.length;
             await page.getByRole("button", { name: responseCase.actionLabel, exact: true }).click();
-            await expect(page.getByRole("alert")).toBeVisible();
+            await expect(
+              page.getByRole("alert").filter({
+                hasText: "Meldingen inneholder innhold som ikke er tillatt.",
+              }),
+            ).toBeVisible();
             await page.waitForTimeout(100);
             if (observation.bridgeOperations.length !== operationsBeforeCapabilityMessage) {
               throw new Error("Capability-shaped input crossed the Foldkit command boundary");

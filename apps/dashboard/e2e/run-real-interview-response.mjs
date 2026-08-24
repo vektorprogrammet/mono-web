@@ -14,6 +14,7 @@ import {
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
 const dashboardRoot = fileURLToPath(new URL("../", import.meta.url));
 const sdkRoot = fileURLToPath(new URL("../../../packages/sdk/", import.meta.url));
+const domainRoot = fileURLToPath(new URL("../../../packages/domain/", import.meta.url));
 const composeFile = join(repositoryRoot, "docker-compose.yml");
 const runnerPath = fileURLToPath(import.meta.url);
 const specPath = join(dashboardRoot, "e2e/real-interview-response.spec.ts");
@@ -269,15 +270,15 @@ COMMIT;
 `;
 
 const recordingDriverSource = String.raw`
-import { DatabaseLive } from "./packages/database/src/index.js";
-import { AdmissionsLive } from "./packages/domain/src/admissions/index.js";
-import { OrganizationLive } from "./packages/domain/src/organization/index.js";
-import { ProfileLive } from "./packages/domain/src/profile/index.js";
+import { DatabaseLive } from "../database/src/index.js";
+import { AdmissionsLive } from "./src/admissions/index.js";
+import { OrganizationLive } from "./src/organization/index.js";
+import { ProfileLive } from "./src/profile/index.js";
 import {
   deliverNextRecruitmentInvitationResponse,
   invitationResponsePayloadForEvidence,
-} from "./packages/domain/src/recruitment/index.js";
-import { makeRecordingNotificationGateway } from "./packages/domain/src/notification/index.js";
+} from "./src/recruitment/index.js";
+import { makeRecordingNotificationGateway } from "./src/notification/index.js";
 import { Effect, Layer, Redacted } from "effect";
 
 const databaseUrl = process.env.BACKEND_PG_URL;
@@ -389,6 +390,12 @@ function makeLeakScanner() {
   };
 }
 
+function boundedFailureDiagnostics(output) {
+  const combined = `${output.stdout}\n${output.stderr}`.trim();
+  if (combined.length === 0) return "";
+  return combined.replace(/[A-Za-z0-9_-]{32,}/g, "[redacted]").slice(-4_000);
+}
+
 function assertPortAvailable(port) {
   return new Promise((resolvePort, rejectPort) => {
     const socket = createConnection({ host: "127.0.0.1", port });
@@ -486,9 +493,12 @@ function runCommand(command, args, options) {
         resolveCommand(options.captureOutput === true ? output : undefined);
         return;
       }
+      const diagnostics = boundedFailureDiagnostics(output);
       rejectCommand(
         new Error(
-          `${options.label} exited with ${signal === null ? `code ${code}` : `signal ${signal}`}`,
+          `${options.label} exited with ${
+            signal === null ? `code ${code}` : `signal ${signal}`
+          }${diagnostics.length === 0 ? "" : `\n${diagnostics}`}`,
         ),
       );
     });
@@ -503,10 +513,19 @@ function startProcess(command, args, options) {
     detached: true,
   });
   const scanner = makeLeakScanner();
-  child.stdout.on("data", scanner.observe);
-  child.stderr.on("data", scanner.observe);
+  let stdout = "";
+  let stderr = "";
+  child.stdout.on("data", (chunk) => {
+    scanner.observe(chunk);
+    stdout = `${stdout}${Buffer.from(chunk).toString("utf8")}`.slice(-4_000);
+  });
+  child.stderr.on("data", (chunk) => {
+    scanner.observe(chunk);
+    stderr = `${stderr}${Buffer.from(chunk).toString("utf8")}`.slice(-4_000);
+  });
   child.once("error", () => undefined);
   child.rawCapabilityObserved = scanner.leaked;
+  child.diagnostics = () => (scanner.leaked() ? "" : boundedFailureDiagnostics({ stdout, stderr }));
   return child;
 }
 
@@ -1266,6 +1285,7 @@ function assertBrowserEvidence(browser) {
 function assertNativeTransport(records) {
   const readPath = "/api/recruitment/invitation-response";
   const boardPath = "/api/admin/recruitment/interviews/scheduling-board";
+  const profilePath = "/api/me";
   const expected = [
     { method: "GET", path: readPath, status: 200, invitationActor: "accepted", bearerActor: null },
     { method: "GET", path: readPath, status: 200, invitationActor: "accepted", bearerActor: null },
@@ -1354,6 +1374,13 @@ function assertNativeTransport(records) {
     },
     {
       method: "GET",
+      path: profilePath,
+      status: 200,
+      invitationActor: null,
+      bearerActor: "DepartmentLeader",
+    },
+    {
+      method: "GET",
       path: boardPath,
       status: 200,
       invitationActor: null,
@@ -1366,6 +1393,7 @@ function assertNativeTransport(records) {
       invitationActor: null,
       bearerActor: "DepartmentLeader",
     },
+    { method: "GET", path: profilePath, status: 200, invitationActor: null, bearerActor: "Member" },
     { method: "GET", path: boardPath, status: 200, invitationActor: null, bearerActor: "Member" },
     { method: "GET", path: boardPath, status: 200, invitationActor: null, bearerActor: "Member" },
   ];
@@ -1382,6 +1410,7 @@ function assertNativeTransport(records) {
   );
   const allowedPaths = new Set([
     readPath,
+    profilePath,
     boardPath,
     ...responseCases.map(({ commandPath }) => commandPath),
   ]);
@@ -1573,6 +1602,8 @@ async function main() {
     BACKEND_PG_URL: postgresUrl,
     PUBLIC_APPLICATION_EFFECT_MODE: "disabled",
     ADMISSION_AUTH_TOKENS: admissionTokens,
+    ORGANIZATION_AUTH_TOKENS:
+      '{"inert-organization-token":{"_tag":"OrganizationMember","personId":"person-inert-organization-runner"}}',
     ADMISSION_FIXED_NOW: fixedClock,
     RECEIPT_AUTH_TOKENS: receiptTokens,
     RECEIPT_STAGING_ROOT: stagingRoot,
@@ -1777,7 +1808,7 @@ async function main() {
     assertCommittedEvidence(committedEvidence);
     await assertCanonicalDatabasePrivacy(baseEnvironment);
     const recordingResult = await runCommand("bun", ["--eval", recordingDriverSource], {
-      cwd: repositoryRoot,
+      cwd: domainRoot,
       env: { ...baseEnvironment, BACKEND_PG_URL: postgresUrl },
       label: "Recording invitation-response NotificationGateway interpreter",
       captureOutput: true,
@@ -1843,7 +1874,32 @@ async function main() {
     };
     assertNoRawCapability(evidence, "Final native invitation-response evidence");
   } catch (error) {
-    primaryError = error;
+    const transportDiagnostics =
+      proxy === undefined
+        ? ""
+        : JSON.stringify(
+            proxy.records.map(({ method, path, status, bearerActor, invitationActor }) => ({
+              method,
+              path,
+              status,
+              bearerActor,
+              invitationActor,
+            })),
+          );
+    const processDiagnostics = [
+      ["backend", apiProcess?.diagnostics?.()],
+      ["dashboard", dashboardProcess?.diagnostics?.()],
+      ["transport", transportDiagnostics],
+    ]
+      .filter(([, diagnostics]) => typeof diagnostics === "string" && diagnostics.length > 0)
+      .map(([label, diagnostics]) => `${label}:\n${diagnostics}`)
+      .join("\n");
+    primaryError =
+      processDiagnostics.length === 0
+        ? error
+        : new Error(
+            `${error instanceof Error ? error.message : String(error)}\n${processDiagnostics}`,
+          );
   }
 
   const releasedPorts = [dashboardPort, backendPort, postgresPort];

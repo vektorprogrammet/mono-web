@@ -19,7 +19,7 @@ ALTER TABLE recruitment_invitations
       response_message = btrim(response_message)
       AND response_message <> ''
       AND char_length(response_message) <= 2000
-      AND response_message !~ '[A-Za-z0-9_-]{43}'
+      AND response_message !~ '(^|[^A-Za-z0-9_-])[A-Za-z0-9_-]{43}($|[^A-Za-z0-9_-])'
     )
   ),
   ADD CONSTRAINT recruitment_invitations_response_consistency CHECK (
@@ -95,7 +95,7 @@ CREATE TABLE IF NOT EXISTS recruitment_invitation_response_audit (
       response_message = btrim(response_message)
       AND response_message <> ''
       AND char_length(response_message) <= 2000
-      AND response_message !~ '[A-Za-z0-9_-]{43}'
+      AND response_message !~ '(^|[^A-Za-z0-9_-])[A-Za-z0-9_-]{43}($|[^A-Za-z0-9_-])'
     )
   ),
   CONSTRAINT recruitment_invitation_response_audit_link_unique
@@ -155,7 +155,7 @@ CREATE TABLE IF NOT EXISTS recruitment_invitation_response_outbox (
           response_message = btrim(response_message)
           AND response_message <> ''
           AND char_length(response_message) <= 2000
-          AND response_message !~ '[A-Za-z0-9_-]{43}'
+          AND response_message !~ '(^|[^A-Za-z0-9_-])[A-Za-z0-9_-]{43}($|[^A-Za-z0-9_-])'
         )
       )
     )
@@ -165,7 +165,7 @@ CREATE TABLE IF NOT EXISTS recruitment_invitation_response_outbox (
       AND response_message = btrim(response_message)
       AND response_message <> ''
       AND char_length(response_message) <= 2000
-      AND response_message !~ '[A-Za-z0-9_-]{43}'
+      AND response_message !~ '(^|[^A-Za-z0-9_-])[A-Za-z0-9_-]{43}($|[^A-Za-z0-9_-])'
     )
   ),
   CONSTRAINT recruitment_invitation_response_outbox_payload_object CHECK (
@@ -175,7 +175,7 @@ CREATE TABLE IF NOT EXISTS recruitment_invitation_response_outbox (
     NOT (payload_json ?| ARRAY['responseCapability', 'capability', 'capabilitySha256'])
   ),
   CONSTRAINT recruitment_invitation_response_outbox_payload_confinement CHECK (
-    payload_json::text !~ '[A-Za-z0-9_-]{43}'
+    payload_json::text !~ '(^|[^A-Za-z0-9_-])[A-Za-z0-9_-]{43}($|[^A-Za-z0-9_-])'
   ),
   CONSTRAINT recruitment_invitation_response_outbox_invitation_unique UNIQUE (invitation_id),
   CONSTRAINT recruitment_invitation_response_outbox_claim_check CHECK (
@@ -208,7 +208,7 @@ ALTER TABLE recruitment_invitation_response_audit
       response_message = btrim(response_message)
       AND response_message <> ''
       AND char_length(response_message) <= 2000
-      AND response_message !~ '[A-Za-z0-9_-]{43}'
+      AND response_message !~ '(^|[^A-Za-z0-9_-])[A-Za-z0-9_-]{43}($|[^A-Za-z0-9_-])'
     )
   );
 
@@ -225,7 +225,7 @@ ALTER TABLE recruitment_invitation_response_outbox
           response_message = btrim(response_message)
           AND response_message <> ''
           AND char_length(response_message) <= 2000
-          AND response_message !~ '[A-Za-z0-9_-]{43}'
+          AND response_message !~ '(^|[^A-Za-z0-9_-])[A-Za-z0-9_-]{43}($|[^A-Za-z0-9_-])'
         )
       )
     )
@@ -235,11 +235,11 @@ ALTER TABLE recruitment_invitation_response_outbox
       AND response_message = btrim(response_message)
       AND response_message <> ''
       AND char_length(response_message) <= 2000
-      AND response_message !~ '[A-Za-z0-9_-]{43}'
+      AND response_message !~ '(^|[^A-Za-z0-9_-])[A-Za-z0-9_-]{43}($|[^A-Za-z0-9_-])'
     )
   ),
   ADD CONSTRAINT recruitment_invitation_response_outbox_payload_confinement CHECK (
-    payload_json::text !~ '[A-Za-z0-9_-]{43}'
+    payload_json::text !~ '(^|[^A-Za-z0-9_-])[A-Za-z0-9_-]{43}($|[^A-Za-z0-9_-])'
   );
 
 CREATE UNIQUE INDEX IF NOT EXISTS recruitment_invitation_response_outbox_active_claim_unique

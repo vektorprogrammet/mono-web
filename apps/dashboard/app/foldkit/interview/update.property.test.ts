@@ -9,7 +9,6 @@ import {
   ConfirmedInvitation,
   FailedInvitationResponse,
   FailedReadInvitationResponse,
-  type Message,
   OpenedInvitationResponse,
   RejectedInvitation,
   RequestedNewInvitationTime,
@@ -238,7 +237,11 @@ it("requires a bounded message only when requesting a new time", () => {
   const [invalidNewTime, invalidNewTimeCommands] = update(tooLong, RequestedNewInvitationTime());
   expect(invalidReject.validationFeedback).toContain("2000");
   expect(invalidRejectCommands).toEqual([]);
-  expect(invalidNewTime.validationFeedback).toContain("nytt tidspunkt");
+  expect(invalidNewTime.validationFeedback).toBeNull();
+  expect(invalidNewTime.responseMessage).toMatchObject({
+    _tag: "Invalid",
+    errors: expect.arrayContaining([expect.stringContaining("2000")]),
+  });
   expect(invalidNewTimeCommands).toEqual([]);
 
   const validMaximumMessage = Array.from({ length: 2_000 }, (_, index) =>
@@ -267,7 +270,11 @@ it("rejects a capability-shaped new-time message before creating a browser comma
   const [next, commands] = update(capabilityShaped, RequestedNewInvitationTime());
 
   expect(next.selectedAction).toBeNull();
-  expect(next.validationFeedback).not.toBeNull();
+  expect(next.validationFeedback).toBeNull();
+  expect(next.responseMessage).toMatchObject({
+    _tag: "Invalid",
+    errors: expect.arrayContaining([expect.stringContaining("ikke er tillatt")]),
+  });
   expect(commands).toEqual([]);
 });
 

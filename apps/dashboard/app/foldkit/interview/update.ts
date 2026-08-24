@@ -184,7 +184,10 @@ export const makeUpdate =
                 ...model,
                 responseMessage,
                 failure: null,
-                validationFeedback: "Skriv en melding før du ber om nytt tidspunkt.",
+                validationFeedback:
+                  model.responseMessage.value.trim().length === 0
+                    ? "Skriv en melding før du ber om nytt tidspunkt."
+                    : null,
               },
               [],
             ];

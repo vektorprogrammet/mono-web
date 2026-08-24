@@ -1477,16 +1477,18 @@ describe("DatabaseTest", () => {
         const recruitment = yield* Recruitment;
         yield* database`
           DELETE FROM vektorprogrammet_schema_migrations
-          WHERE migration_id = 12
+          WHERE migration_id = 13
         `;
         yield* database.migrate;
         const [replayedMigration] = yield* database<{ readonly count: string }>`
           SELECT count(*)::text AS count
           FROM vektorprogrammet_schema_migrations
-          WHERE migration_id = 12
+          WHERE migration_id = 13
         `;
 
-        const fixture = yield* seedSchedulingFixture("response-message-confinement");
+        const fixture = yield* seedSchedulingFixture(
+          "response-message-confinement-with-long-stable-identifier",
+        );
         yield* recruitment.scheduleInterview(fixture.command, {
           actor: fixture.actor,
           now: fixture.now,
@@ -2301,7 +2303,7 @@ describe("DatabaseTest", () => {
     );
 
     expect(second).toBe(first);
-    expect(rows).toEqual([{ migration_count: "12" }]);
+    expect(rows).toEqual([{ migration_count: "13" }]);
   });
 
   it("executes Admissions and Organization authority adapters against PGlite", async () => {
@@ -3537,9 +3539,7 @@ describe("DatabaseTest", () => {
           latitude: null,
           longitude: null,
         };
-        const denied = yield* Effect.flip(
-          organization.createDepartment(deniedCommand, member),
-        );
+        const denied = yield* Effect.flip(organization.createDepartment(deniedCommand, member));
         const deniedRows = yield* database<{ readonly count: string }>`
           SELECT (
             (SELECT count(*) FROM organization_departments
@@ -3614,14 +3614,8 @@ describe("DatabaseTest", () => {
           shortName: "CS",
           departmentId: null,
         };
-        const fieldCreated = yield* organization.createFieldOfStudy(
-          fieldCommand,
-          administrator,
-        );
-        const fieldReplayed = yield* organization.createFieldOfStudy(
-          fieldCommand,
-          administrator,
-        );
+        const fieldCreated = yield* organization.createFieldOfStudy(fieldCommand, administrator);
+        const fieldReplayed = yield* organization.createFieldOfStudy(fieldCommand, administrator);
         if (
           fieldCreated.observation._tag !== "FieldOfStudyCreated" ||
           fieldReplayed.observation._tag !== "Replayed"
@@ -3830,9 +3824,7 @@ describe("DatabaseTest", () => {
             exactLinks: Number(linkage[0]?.exactLinks ?? "-1"),
           },
           publicLists: {
-            departments: departments.some(
-              (department) => department.departmentId === departmentId,
-            ),
+            departments: departments.some((department) => department.departmentId === departmentId),
             teams: teams.some(
               (team) =>
                 teamCreated.observation._tag === "TeamCreated" &&
