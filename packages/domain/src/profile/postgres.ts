@@ -649,7 +649,7 @@ export const readDirectoryPage = (
         contact.email,
         contact.phone
       FROM person_profiles AS profile
-      INNER JOIN person_contact_profiles AS contact
+      LEFT JOIN person_contact_profiles AS contact
         ON contact.person_id = profile.person_id
       WHERE ${cursorTuple === undefined}
         OR (
