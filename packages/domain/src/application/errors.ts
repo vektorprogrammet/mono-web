@@ -53,10 +53,21 @@ export class PublicApplicationNotFound extends Schema.TaggedError<PublicApplicat
   { applicationId: PublicApplicationIdSchema },
 ) {}
 
+export class PublicApplicationQueryLimitExceeded extends Schema.TaggedError<PublicApplicationQueryLimitExceeded>()(
+  "PublicApplicationQueryLimitExceeded",
+  { limit: Schema.Int },
+) {}
+
 export class PublicApplicationPersistenceError extends Schema.TaggedError<PublicApplicationPersistenceError>()(
   "PublicApplicationPersistenceError",
   { operation: Schema.String, message: Schema.String },
 ) {}
+
+export type ApplicantContactProjectionFailure =
+  | PublicApplicationDecodeError
+  | PublicApplicationNotFound
+  | PublicApplicationQueryLimitExceeded
+  | PublicApplicationPersistenceError;
 
 /** Transport adapters may use these typed failures before entering the transaction. */
 export class RequestBodyTooLarge extends Schema.TaggedError<RequestBodyTooLarge>()(
@@ -80,6 +91,7 @@ export type PublicApplicationError =
   | DuplicatePublicApplication
   | DuplicatePublicApplicationCommandConflict
   | PublicApplicationNotFound
+  | PublicApplicationQueryLimitExceeded
   | PublicApplicationPersistenceError
   | RequestBodyTooLarge
   | PublicApplicationRateLimitExceeded;

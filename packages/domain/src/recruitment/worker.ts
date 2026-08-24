@@ -1,7 +1,9 @@
+import { Admissions } from "../admissions/service.js";
 import { Database } from "../database/service.js";
 import { NotificationGateway } from "../notification/service.js";
+import { Profile } from "../profile/service.js";
 import { Duration, Effect } from "effect";
-import { RecruitmentDecodeError, RecruitmentPersistenceError } from "./errors.js";
+import { RecruitmentPersistenceError } from "./errors.js";
 import {
   deliverNextRecruitmentInvitation,
   recoverStaleRecruitmentInvitations,
@@ -26,8 +28,8 @@ export const runRecruitmentInvitationWorker = (
   options: RecruitmentInvitationWorkerOptions,
 ): Effect.Effect<
   never,
-  RecruitmentPersistenceError | RecruitmentDecodeError,
-  Database | NotificationGateway
+  RecruitmentPersistenceError,
+  Admissions | Database | NotificationGateway | Profile
 > => {
   positiveInteger(options.pollIntervalMilliseconds, "poll interval");
   positiveInteger(options.staleClaimMilliseconds, "stale claim interval");

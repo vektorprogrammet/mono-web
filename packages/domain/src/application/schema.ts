@@ -213,6 +213,20 @@ export class PublicApplication extends Model.Class<PublicApplication>("PublicApp
 
 export const PublicApplicationSchema = PublicApplication;
 
+/**
+ * Admissions-owned applicant contact projection. The application identity is the lookup key;
+ * every field is derived from the persisted application and applicant Models.
+ */
+export const ApplicantContactProjectionSchema = Schema.Struct({
+  applicationId: PublicApplication.fields.id,
+  applicantId: ApplicantRecord.fields.id,
+  firstName: ApplicantRecord.fields.firstName,
+  lastName: ApplicantRecord.fields.lastName,
+  email: ApplicantRecord.fields.email,
+  phone: ApplicantRecord.fields.phone,
+});
+export type ApplicantContactProjection = typeof ApplicantContactProjectionSchema.Type;
+
 const ApplicantCreateFields = ApplicantRecord.jsonCreate.fields;
 const ApplicantInsertFields = ApplicantRecord.insert.fields;
 

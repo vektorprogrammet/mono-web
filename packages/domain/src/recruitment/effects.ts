@@ -6,10 +6,10 @@ import {
 import { PersonContactEmail, PersonContactPhone } from "../profile/schema.js";
 import {
   RecruitmentInvitationId,
+  RecruitmentInterviewSchedule,
   RecruitmentNotificationEffectId,
   RecruitmentScheduleCommandId,
   RecruitmentInterviewId,
-  RecruitmentInstantSchema,
 } from "./schema.js";
 
 const NonEmpty = Schema.String.pipe(
@@ -31,11 +31,11 @@ export const RecruitmentInvitationOutboxRequestSchema = Schema.Struct({
   interviewerDisplayName: NonEmpty,
   interviewerEmail: PersonContactEmail,
   interviewerPhone: PersonContactPhone,
-  scheduledAt: RecruitmentInstantSchema,
-  room: NonEmpty,
-  campus: Schema.NullOr(NonEmpty),
-  mapLink: Schema.NullOr(Schema.String),
-  message: NonEmpty,
+  scheduledAt: RecruitmentInterviewSchedule.fields.scheduledAt,
+  room: RecruitmentInterviewSchedule.fields.room,
+  campus: RecruitmentInterviewSchedule.fields.campus,
+  mapLink: RecruitmentInterviewSchedule.fields.mapLink,
+  message: RecruitmentInterviewSchedule.fields.message,
   responseCapability: NonEmpty,
 });
 export type RecruitmentInvitationOutboxRequest =

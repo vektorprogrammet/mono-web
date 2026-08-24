@@ -7,6 +7,7 @@ import {
   AdmissionPeriod,
 } from "../admission-period/schema.js";
 import {
+  type ApplicantContactProjectionFailure,
   AmbiguousAdmissionPeriod,
   DuplicatePublicApplication,
   DuplicatePublicApplicationCommandConflict,
@@ -17,6 +18,7 @@ import {
   PublicApplicationDecodeError,
   PublicApplicationDepartmentNotFound,
   PublicApplicationNotFound,
+  PublicApplicationQueryLimitExceeded,
   PublicApplicationPersistenceError,
   type PublicApplicationError,
 } from "./errors.js";
@@ -37,12 +39,15 @@ import {
   decodeSubmitPublicApplicationCommand,
 } from "./validation.js";
 import {
+  ApplicantContactProjectionSchema,
   ApplicantRecord,
   PublicApplicationCatalogSchema,
   PublicApplicationConfirmationSchema,
   PublicApplicationActivationTokenSchema,
   PublicApplication,
   PublicApplicationIdSchema,
+  type ApplicantContactProjection,
+  type PublicApplicationId,
   PublicApplicationSubmitObservationSchema,
   type PublicApplicationCatalog,
   type PublicApplicationCatalogContext,
@@ -53,6 +58,17 @@ import {
   type PublicApplicationSubmitResult,
   type SubmitPublicApplicationCommand,
 } from "./schema.js";
+
+export const ADMISSIONS_APPLICANT_CONTACT_READ_LIMIT = 100;
+
+interface ApplicantContactRow {
+  readonly applicationId: string;
+  readonly applicantId: string;
+  readonly firstName: string;
+  readonly lastName: string;
+  readonly email: string;
+  readonly phone: string;
+}
 
 interface CommandReceiptRow {
   readonly command_sha256: string;
@@ -629,6 +645,88 @@ export const findPublicApplicationConfirmation = (
       _tag: "ApplicationConfirmed",
       applicationId: rows[0].application_id,
     }).pipe(Effect.mapError(() => persistenceError("decode application confirmation")));
+  });
+
+/**
+ * Reads canonical applicant contacts in one bounded batch. The application identity remains the
+ * key so callers cannot substitute a contact from another application owned by the same applicant.
+ */
+export const readApplicantContacts = (
+  applicationIds: ReadonlyArray<PublicApplicationId>,
+): Effect.Effect<
+  ReadonlyArray<ApplicantContactProjection>,
+  ApplicantContactProjectionFailure,
+  Database
+> =>
+  Effect.gen(function* () {
+    if (applicationIds.length > ADMISSIONS_APPLICANT_CONTACT_READ_LIMIT) {
+      return yield* new PublicApplicationQueryLimitExceeded({
+        limit: ADMISSIONS_APPLICANT_CONTACT_READ_LIMIT,
+      });
+    }
+    const decodedIds = yield* Schema.decodeUnknownEffect(
+      Schema.Array(PublicApplicationIdSchema),
+    )(applicationIds, { onExcessProperty: "error" }).pipe(
+      Effect.mapError(
+        () => new PublicApplicationDecodeError({ message: "invalid application identifier batch" }),
+      ),
+    );
+    const uniqueIds = [...new Set(decodedIds)].sort((left, right) => left.localeCompare(right));
+    if (uniqueIds.length === 0) return [];
+
+    const sql = yield* Database;
+    const rows = yield* sql<ApplicantContactRow>`
+      WITH requested AS (
+        SELECT value AS application_id
+        FROM jsonb_array_elements_text(${canonicalJson(uniqueIds)}::jsonb) AS ids(value)
+      )
+      SELECT
+        application.application_id AS "applicationId",
+        applicant.applicant_id AS "applicantId",
+        applicant.first_name AS "firstName",
+        applicant.last_name AS "lastName",
+        applicant.email,
+        applicant.phone
+      FROM requested
+      INNER JOIN admission_applications AS application
+        ON application.application_id = requested.application_id
+      INNER JOIN admission_applicants AS applicant
+        ON applicant.applicant_id = application.applicant_id
+      ORDER BY application.application_id ASC
+    `.pipe(
+      Effect.catchTag("SqlError", () =>
+        Effect.fail(persistenceError("read applicant contact projections")),
+      ),
+    );
+
+    const byApplicationId = new Map<string, ApplicantContactProjection>();
+    for (const row of rows) {
+      const contact = yield* Schema.decodeUnknownEffect(ApplicantContactProjectionSchema)(row, {
+        onExcessProperty: "error",
+      }).pipe(
+        Effect.mapError(
+          () =>
+            new PublicApplicationDecodeError({
+              message: "invalid persisted applicant contact projection",
+            }),
+        ),
+      );
+      if (byApplicationId.has(contact.applicationId)) {
+        return yield* new PublicApplicationDecodeError({
+          message: "duplicate persisted applicant contact projection",
+        });
+      }
+      byApplicationId.set(contact.applicationId, contact);
+    }
+    const contacts: ApplicantContactProjection[] = [];
+    for (const applicationId of uniqueIds) {
+      const contact = byApplicationId.get(applicationId);
+      if (contact === undefined) {
+        return yield* new PublicApplicationNotFound({ applicationId });
+      }
+      contacts.push(contact);
+    }
+    return contacts;
   });
 
 export const decodePublicApplicationCommand = decodeSubmitPublicApplicationCommand;
