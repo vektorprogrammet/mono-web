@@ -1,11 +1,14 @@
 ALTER TABLE recruitment_invitations
-  ADD COLUMN response_message text NULL,
-  ADD COLUMN responded_at timestamptz NULL,
-  ADD COLUMN response_revision integer NOT NULL DEFAULT 0,
-  ADD COLUMN superseded_at timestamptz NULL;
+  ADD COLUMN IF NOT EXISTS response_message text NULL,
+  ADD COLUMN IF NOT EXISTS responded_at timestamptz NULL,
+  ADD COLUMN IF NOT EXISTS response_revision integer NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS superseded_at timestamptz NULL;
 
 ALTER TABLE recruitment_invitations
-  DROP CONSTRAINT recruitment_invitations_response_state;
+  DROP CONSTRAINT IF EXISTS recruitment_invitations_response_state,
+  DROP CONSTRAINT IF EXISTS recruitment_invitations_response_message,
+  DROP CONSTRAINT IF EXISTS recruitment_invitations_response_consistency,
+  DROP CONSTRAINT IF EXISTS recruitment_invitations_superseded_after_creation;
 
 ALTER TABLE recruitment_invitations
   ADD CONSTRAINT recruitment_invitations_response_state CHECK (
@@ -45,24 +48,25 @@ ALTER TABLE recruitment_invitations
   ),
   ADD CONSTRAINT recruitment_invitations_superseded_after_creation CHECK (
     superseded_at IS NULL OR superseded_at >= created_at
-  ),
-  ADD CONSTRAINT recruitment_invitations_response_link_unique
-    UNIQUE (
-      invitation_id,
-      interview_id,
-      schedule_revision,
-      response_revision,
-      response_state
-    );
+  );
 
 ALTER TABLE recruitment_invitations
-  DROP CONSTRAINT recruitment_invitations_interview_unique;
+  DROP CONSTRAINT IF EXISTS recruitment_invitations_interview_unique;
 
-CREATE UNIQUE INDEX recruitment_invitations_current_interview_unique
+CREATE UNIQUE INDEX IF NOT EXISTS recruitment_invitations_current_interview_unique
   ON recruitment_invitations (interview_id)
   WHERE superseded_at IS NULL;
 
-CREATE TABLE recruitment_invitation_response_audit (
+CREATE UNIQUE INDEX IF NOT EXISTS recruitment_invitations_response_link_unique
+  ON recruitment_invitations (
+    invitation_id,
+    interview_id,
+    schedule_revision,
+    response_revision,
+    response_state
+  );
+
+CREATE TABLE IF NOT EXISTS recruitment_invitation_response_audit (
   invitation_id text PRIMARY KEY,
   interview_id text NOT NULL,
   schedule_revision integer NOT NULL,
@@ -117,7 +121,7 @@ CREATE TABLE recruitment_invitation_response_audit (
     )
 );
 
-CREATE TABLE recruitment_invitation_response_outbox (
+CREATE TABLE IF NOT EXISTS recruitment_invitation_response_outbox (
   effect_id text PRIMARY KEY,
   effect_type text NOT NULL CHECK (effect_type = 'SendInterviewInvitationResponse'),
   invitation_id text NOT NULL,
@@ -188,8 +192,8 @@ CREATE TABLE recruitment_invitation_response_outbox (
     )
 );
 
-CREATE UNIQUE INDEX recruitment_invitation_response_outbox_active_claim_unique
+CREATE UNIQUE INDEX IF NOT EXISTS recruitment_invitation_response_outbox_active_claim_unique
   ON recruitment_invitation_response_outbox (claim_id)
   WHERE claim_id IS NOT NULL;
-CREATE INDEX recruitment_invitation_response_outbox_pending_order
+CREATE INDEX IF NOT EXISTS recruitment_invitation_response_outbox_pending_order
   ON recruitment_invitation_response_outbox (status, invitation_id, ordinal);

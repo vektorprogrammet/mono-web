@@ -1324,7 +1324,7 @@ describe("DatabaseTest", () => {
                   FROM recruitment_invitation_response_outbox AS outbox
                   WHERE outbox.invitation_id = invitation.invitation_id
                 ) AS canonical_artifacts
-                WHERE canonical_artifacts.artifact LIKE ${`%${fixture.responseCapability}%`}
+                WHERE strpos(canonical_artifacts.artifact, ${fixture.responseCapability}) > 0
               ) AS "capabilityAbsent"
             FROM recruitment_invitations AS invitation
             WHERE invitation.invitation_id = ${fixture.invitationId}
@@ -1842,7 +1842,7 @@ describe("DatabaseTest", () => {
     );
 
     expect(second).toBe(first);
-    expect(rows).toEqual([{ migration_count: "11" }]);
+    expect(rows).toEqual([{ migration_count: "12" }]);
   });
 
   it("executes Admissions and Organization authority adapters against PGlite", async () => {
