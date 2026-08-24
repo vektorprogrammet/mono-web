@@ -315,6 +315,8 @@ describe("DatabaseTest", () => {
           WHERE table_schema = 'public'
             AND table_name IN (
               'economy_receipts',
+              'economy_payment_authorities',
+              'economy_receipt_approval_grants',
               'admission_periods',
               'admission_applications',
               'organization_departments',
@@ -349,7 +351,7 @@ describe("DatabaseTest", () => {
     );
 
     expect(evidence).toEqual({
-      revision: "16_person-keyed-organization-authority",
+      revision: "17_person-keyed-receipt-authority",
       migrations: [
         { migration_id: 1, name: "receipt-authority" },
         { migration_id: 2, name: "admission-period-authority" },
@@ -367,10 +369,13 @@ describe("DatabaseTest", () => {
         { migration_id: 14, name: "native-profile-self-edit" },
         { migration_id: 15, name: "native-identity-better-auth" },
         { migration_id: 16, name: "person-keyed-organization-authority" },
+        { migration_id: 17, name: "person-keyed-receipt-authority" },
       ],
       tables: [
         "admission_applications",
         "admission_periods",
+        "economy_payment_authorities",
+        "economy_receipt_approval_grants",
         "economy_receipts",
         "organization_command_receipts",
         "organization_creation_audit",
@@ -3845,7 +3850,7 @@ describe("DatabaseTest", () => {
       }),
     );
 
-    expect(evidence.schemaRevision).toBe("16_person-keyed-organization-authority");
+    expect(evidence.schemaRevision).toBe("17_person-keyed-receipt-authority");
     expect(evidence.denied._tag).toBe("OrganizationRoleDenied");
     expect(evidence.deniedRows).toBe(0);
     expect(evidence.departmentCreated.committed).toBe(true);

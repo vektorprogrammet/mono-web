@@ -1,6 +1,17 @@
 import { Context, Effect } from "effect";
+import type {
+  OrganizationAuthorityInstant,
+  OrganizationPersonAuthority,
+} from "../organization/authority.js";
+import type { PersonId } from "../organization/schema.js";
+import type { ReceiptAuthority } from "./authority.js";
 import type { ReceiptAuxiliaryEffects } from "./auxiliary-service.js";
-import type { ReceiptFailure, ReceiptNotFound, ReceiptPersistenceError } from "./errors.js";
+import type {
+  ReceiptAuthorityResolutionError,
+  ReceiptFailure,
+  ReceiptNotFound,
+  ReceiptPersistenceError,
+} from "./errors.js";
 import type { ReceiptFileService } from "./file-service.js";
 import type { ReceiptOutboxDeliveryResult } from "./outbox.js";
 import type {
@@ -24,6 +35,11 @@ export interface EconomyShape {
     input: unknown,
     context: ReceiptDecisionContext,
   ) => Effect.Effect<ReceiptTransactionResult, ReceiptFailure>;
+  readonly resolveReceiptAuthority: (
+    personId: PersonId,
+    authorizationInstant: OrganizationAuthorityInstant,
+    organizationProjection: OrganizationPersonAuthority,
+  ) => Effect.Effect<ReceiptAuthority, ReceiptAuthorityResolutionError>;
   readonly listOwnedReceipts: (
     ownerPersonId: string,
     status?: ReceiptStatus,
