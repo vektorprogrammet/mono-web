@@ -52,13 +52,13 @@ it.effect("strictly decodes board status and assignment commands", () =>
 it.effect("decodes only exact invitation capabilities and every response state", () =>
   Effect.gen(function* () {
     const capability = "aB09_-".padEnd(43, "x");
-    expect(yield* Schema.decodeUnknownEffect(RecruitmentInvitationCapabilitySchema)(capability)).toBe(
-      capability,
-    );
+    expect(
+      yield* Schema.decodeUnknownEffect(RecruitmentInvitationCapabilitySchema)(capability),
+    ).toBe(capability);
     for (const state of ["Pending", "Accepted", "Rejected", "RequestedNewTime"] as const) {
-      expect(yield* Schema.decodeUnknownEffect(RecruitmentInvitationResponseStateSchema)(state)).toBe(
-        state,
-      );
+      expect(
+        yield* Schema.decodeUnknownEffect(RecruitmentInvitationResponseStateSchema)(state),
+      ).toBe(state);
     }
     for (const invalid of [capability.slice(1), `${capability}x`, capability.replace("_", "=")]) {
       expect(
@@ -185,10 +185,9 @@ it.effect("rejects impossible response state and message pairs at every observat
     ]) {
       expect(
         yield* Effect.flip(
-          Schema.decodeUnknownEffect(RecruitmentInvitationResponseObservationSchema)(
-            invalid,
-            { onExcessProperty: "error" },
-          ),
+          Schema.decodeUnknownEffect(RecruitmentInvitationResponseObservationSchema)(invalid, {
+            onExcessProperty: "error",
+          }),
         ),
       ).toBeDefined();
     }

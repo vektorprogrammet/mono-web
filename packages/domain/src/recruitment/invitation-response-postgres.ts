@@ -218,13 +218,15 @@ const responseContacts = (
 > =>
   Effect.gen(function* () {
     const applicationId = PublicApplicationIdSchema.make(row.applicationId);
-    const applicantRead = yield* admissions.readApplicantContacts([applicationId]).pipe(
-      Effect.mapError((failure) =>
-        failure._tag === "PublicApplicationNotFound"
-          ? persistenceError("resolve invitation response applicant", failure)
-          : persistenceError("read invitation response applicant", failure),
-      ),
-    );
+    const applicantRead = yield* admissions
+      .readApplicantContacts([applicationId])
+      .pipe(
+        Effect.mapError((failure) =>
+          failure._tag === "PublicApplicationNotFound"
+            ? persistenceError("resolve invitation response applicant", failure)
+            : persistenceError("read invitation response applicant", failure),
+        ),
+      );
     const applicant = applicantRead[0];
     if (applicant === undefined || applicant.applicationId !== applicationId) {
       return yield* persistenceError("resolve invitation response applicant");
@@ -424,11 +426,7 @@ const transitionInvitation = (
 
 export const readInvitationResponse = (
   capability: RecruitmentInvitationCapability,
-): Effect.Effect<
-  RecruitmentInvitationResponseObservation,
-  RecruitmentFailure,
-  Database
-> =>
+): Effect.Effect<RecruitmentInvitationResponseObservation, RecruitmentFailure, Database> =>
   Effect.gen(function* () {
     const decodedCapability = yield* decodeCapability(capability);
     const sql = yield* Database;

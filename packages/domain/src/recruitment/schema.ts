@@ -247,8 +247,7 @@ export const RecruitmentInvitationCapabilitySchema = Schema.String.pipe(
   ),
   Schema.brand("RecruitmentInvitationCapability"),
 );
-export type RecruitmentInvitationCapability =
-  typeof RecruitmentInvitationCapabilitySchema.Type;
+export type RecruitmentInvitationCapability = typeof RecruitmentInvitationCapabilitySchema.Type;
 
 export const RecruitmentInvitationResponseStateSchema = Schema.Literals([
   "Pending",
@@ -292,8 +291,7 @@ export const RecruitmentInvitationRejectInputSchema =
       encode: SchemaGetter.transform((input: { readonly message?: string }) => input),
     }),
   );
-export type RecruitmentInvitationRejectInput =
-  typeof RecruitmentInvitationRejectInputSchema.Type;
+export type RecruitmentInvitationRejectInput = typeof RecruitmentInvitationRejectInputSchema.Type;
 
 export const RecruitmentInvitationRequestNewTimeInputSchema = Schema.Struct({
   message: RecruitmentInvitationResponseMessageSchema,
@@ -325,9 +323,7 @@ export class RecruitmentInvitation extends Model.Class<RecruitmentInvitation>(
     insert: RecruitmentInvitationResponseStateSchema,
     update: RecruitmentInvitationResponseStateSchema,
   }),
-  responseMessage: Model.GeneratedByDb(
-    Schema.NullOr(RecruitmentInvitationResponseMessageSchema),
-  ),
+  responseMessage: Model.GeneratedByDb(Schema.NullOr(RecruitmentInvitationResponseMessageSchema)),
   respondedAt: Model.GeneratedByDb(Schema.NullOr(Rfc3339InstantSchema)),
   responseRevision: Model.GeneratedByDb(Revision),
   supersededAt: Model.GeneratedByDb(Schema.NullOr(Rfc3339InstantSchema)),

@@ -9,10 +9,7 @@ import { DepartmentId, PersonId } from "@vektorprogrammet/domain/organization";
 import { Effect, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import type { RecruitmentApiConfig } from "./config.js";
-import {
-  makeRecruitmentApiHttp,
-  type RecruitmentApiHttpOptions,
-} from "./http.js";
+import { makeRecruitmentApiHttp, type RecruitmentApiHttpOptions } from "./http.js";
 
 const token = "recruitment-token";
 const config: RecruitmentApiConfig = {
@@ -101,9 +98,7 @@ const makePublicBackend = () => {
         return undefined as never;
       }),
   };
-  const run = ((
-    effect: Effect.Effect<unknown, unknown, Recruitment>,
-  ): Promise<unknown> =>
+  const run = ((effect: Effect.Effect<unknown, unknown, Recruitment>): Promise<unknown> =>
     Effect.runPromise(
       effect.pipe(Effect.provideService(Recruitment, recruitment)),
     )) as RecruitmentApiHttpOptions["run"];
@@ -125,40 +120,28 @@ describe("native recruitment HTTP boundary", () => {
 
   it("serves all public invitation routes without an Identity token", async () => {
     const { backend: publicBackend, calls } = makePublicBackend();
-    const publicRequest = (
-      path: string,
-      init?: RequestInit,
-    ): Promise<Response> =>
-      publicBackend.fetch(
-        new Request(`http://backend.test${path}`, init),
-      );
+    const publicRequest = (path: string, init?: RequestInit): Promise<Response> =>
+      publicBackend.fetch(new Request(`http://backend.test${path}`, init));
 
-    const read = await publicRequest(
-      "/api/recruitment/invitation-response",
-      { headers: invitationHeaders },
-    );
-    const confirm = await publicRequest(
-      "/api/recruitment/invitation-response/confirm",
-      {
-        method: "POST",
-        headers: {
-          ...invitationHeaders,
-          "content-type": "application/json",
-        },
-        body: "{}",
+    const read = await publicRequest("/api/recruitment/invitation-response", {
+      headers: invitationHeaders,
+    });
+    const confirm = await publicRequest("/api/recruitment/invitation-response/confirm", {
+      method: "POST",
+      headers: {
+        ...invitationHeaders,
+        "content-type": "application/json",
       },
-    );
-    const reject = await publicRequest(
-      "/api/recruitment/invitation-response/reject",
-      {
-        method: "POST",
-        headers: {
-          ...invitationHeaders,
-          "content-type": "application/json",
-        },
-        body: JSON.stringify({ message: "  I cannot attend  " }),
+      body: "{}",
+    });
+    const reject = await publicRequest("/api/recruitment/invitation-response/reject", {
+      method: "POST",
+      headers: {
+        ...invitationHeaders,
+        "content-type": "application/json",
       },
-    );
+      body: JSON.stringify({ message: "  I cannot attend  " }),
+    });
     const rejectWithoutMessage = await publicRequest(
       "/api/recruitment/invitation-response/reject",
       {
@@ -170,17 +153,14 @@ describe("native recruitment HTTP boundary", () => {
         body: "{}",
       },
     );
-    const rejectBlankMessage = await publicRequest(
-      "/api/recruitment/invitation-response/reject",
-      {
-        method: "POST",
-        headers: {
-          ...invitationHeaders,
-          "content-type": "application/json",
-        },
-        body: JSON.stringify({ message: "   " }),
+    const rejectBlankMessage = await publicRequest("/api/recruitment/invitation-response/reject", {
+      method: "POST",
+      headers: {
+        ...invitationHeaders,
+        "content-type": "application/json",
       },
-    );
+      body: JSON.stringify({ message: "   " }),
+    });
     const requestNewTime = await publicRequest(
       "/api/recruitment/invitation-response/request-new-time",
       {
@@ -222,10 +202,7 @@ describe("native recruitment HTTP boundary", () => {
       },
       {
         operation: "confirmInvitation",
-        arguments: [
-          invitationCapability,
-          { now: "2031-09-15T12:00:00.000Z" },
-        ],
+        arguments: [invitationCapability, { now: "2031-09-15T12:00:00.000Z" }],
       },
       {
         operation: "rejectInvitation",
@@ -237,19 +214,11 @@ describe("native recruitment HTTP boundary", () => {
       },
       {
         operation: "rejectInvitation",
-        arguments: [
-          invitationCapability,
-          {},
-          { now: "2031-09-15T12:00:00.000Z" },
-        ],
+        arguments: [invitationCapability, {}, { now: "2031-09-15T12:00:00.000Z" }],
       },
       {
         operation: "rejectInvitation",
-        arguments: [
-          invitationCapability,
-          {},
-          { now: "2031-09-15T12:00:00.000Z" },
-        ],
+        arguments: [invitationCapability, {}, { now: "2031-09-15T12:00:00.000Z" }],
       },
       {
         operation: "requestNewInvitationTime",
@@ -264,13 +233,8 @@ describe("native recruitment HTTP boundary", () => {
 
   it("strictly rejects malformed public headers, queries, and bodies before Recruitment", async () => {
     const { backend: publicBackend, calls } = makePublicBackend();
-    const publicRequest = (
-      path: string,
-      init?: RequestInit,
-    ): Promise<Response> =>
-      publicBackend.fetch(
-        new Request(`http://backend.test${path}`, init),
-      );
+    const publicRequest = (path: string, init?: RequestInit): Promise<Response> =>
+      publicBackend.fetch(new Request(`http://backend.test${path}`, init));
     const jsonHeaders = {
       ...invitationHeaders,
       "content-type": "application/json",
@@ -284,56 +248,40 @@ describe("native recruitment HTTP boundary", () => {
       }),
     ]);
     const decodeResponses = await Promise.all([
-      publicRequest(
-        "/api/recruitment/invitation-response?unexpected=true",
-        { headers: invitationHeaders },
-      ),
-      publicRequest(
-        "/api/recruitment/invitation-response/confirm",
-        {
-          method: "POST",
-          headers: jsonHeaders,
-          body: JSON.stringify({ unexpected: true }),
-        },
-      ),
-      publicRequest(
-        "/api/recruitment/invitation-response/reject",
-        {
-          method: "POST",
-          headers: jsonHeaders,
-          body: JSON.stringify({ message: null }),
-        },
-      ),
-      publicRequest(
-        "/api/recruitment/invitation-response/reject",
-        {
-          method: "POST",
-          headers: jsonHeaders,
-          body: JSON.stringify({
-            message: "Cannot attend",
-            unexpected: true,
-          }),
-        },
-      ),
-      publicRequest(
-        "/api/recruitment/invitation-response/request-new-time",
-        {
-          method: "POST",
-          headers: jsonHeaders,
-          body: JSON.stringify({}),
-        },
-      ),
-      publicRequest(
-        "/api/recruitment/invitation-response/request-new-time",
-        {
-          method: "POST",
-          headers: jsonHeaders,
-          body: JSON.stringify({
-            message: "Thursday",
-            unexpected: true,
-          }),
-        },
-      ),
+      publicRequest("/api/recruitment/invitation-response?unexpected=true", {
+        headers: invitationHeaders,
+      }),
+      publicRequest("/api/recruitment/invitation-response/confirm", {
+        method: "POST",
+        headers: jsonHeaders,
+        body: JSON.stringify({ unexpected: true }),
+      }),
+      publicRequest("/api/recruitment/invitation-response/reject", {
+        method: "POST",
+        headers: jsonHeaders,
+        body: JSON.stringify({ message: null }),
+      }),
+      publicRequest("/api/recruitment/invitation-response/reject", {
+        method: "POST",
+        headers: jsonHeaders,
+        body: JSON.stringify({
+          message: "Cannot attend",
+          unexpected: true,
+        }),
+      }),
+      publicRequest("/api/recruitment/invitation-response/request-new-time", {
+        method: "POST",
+        headers: jsonHeaders,
+        body: JSON.stringify({}),
+      }),
+      publicRequest("/api/recruitment/invitation-response/request-new-time", {
+        method: "POST",
+        headers: jsonHeaders,
+        body: JSON.stringify({
+          message: "Thursday",
+          unexpected: true,
+        }),
+      }),
     ]);
 
     for (const response of capabilityResponses) {
@@ -404,10 +352,9 @@ describe("native recruitment HTTP boundary", () => {
         }) as A,
     });
     const response = await invalidBackend.fetch(
-      new Request(
-        "http://backend.test/api/recruitment/invitation-response",
-        { headers: invitationHeaders },
-      ),
+      new Request("http://backend.test/api/recruitment/invitation-response", {
+        headers: invitationHeaders,
+      }),
     );
 
     const payload = await response.text();
@@ -482,11 +429,7 @@ describe("native recruitment HTTP boundary", () => {
     ["RecruitmentApplicationAlreadyAssigned", "RecruitmentApplicationAlreadyAssigned", 409],
     ["RecruitmentAmbiguousAdmissionPeriod", "RecruitmentAmbiguousAdmissionPeriod", 409],
     ["RecruitmentAssignmentCommandConflict", "RecruitmentAssignmentCommandConflict", 409],
-    [
-      "RecruitmentInvitationAlreadyResponded",
-      "RecruitmentInvitationAlreadyResponded",
-      409,
-    ],
+    ["RecruitmentInvitationAlreadyResponded", "RecruitmentInvitationAlreadyResponded", 409],
     ["RecruitmentInterviewSchemaInactive", "RecruitmentInterviewSchemaInactive", 422],
     ["RecruitmentPersistenceError", "RecruitmentPersistenceError", 503],
     ["ProfileNotFound", "RecruitmentPersistenceError", 503],

@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
-import {
-  AdmissionsLive,
-} from "@vektorprogrammet/domain/admissions";
+import { AdmissionsLive } from "@vektorprogrammet/domain/admissions";
 import { Database, type DatabaseShape } from "@vektorprogrammet/domain/database";
 import { canonicalJson, canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/evidence";
-import { NotificationGateway, makeRecordingNotificationGateway } from "@vektorprogrammet/domain/notification";
+import {
+  NotificationGateway,
+  makeRecordingNotificationGateway,
+} from "@vektorprogrammet/domain/notification";
 import { OrganizationLive } from "@vektorprogrammet/domain/organization";
 import { ProfileLive } from "@vektorprogrammet/domain/profile";
 import {
@@ -302,9 +303,7 @@ const seedCohort = (sql: DatabaseShape) =>
           )
       `;
       const raceCapabilitySha256 = sha256Hex(new TextEncoder().encode(raceCapability));
-      const deliveryCapabilitySha256 = sha256Hex(
-        new TextEncoder().encode(deliveryCapability),
-      );
+      const deliveryCapabilitySha256 = sha256Hex(new TextEncoder().encode(deliveryCapability));
       yield* sql`
         INSERT INTO recruitment_invitations (
           invitation_id,
@@ -362,10 +361,7 @@ const contender = (
 
 const proof = (databaseUrl: Redacted.Redacted<string>) =>
   Effect.gen(function* () {
-    const setupLayer = makeProofLayer(
-      databaseUrl,
-      "recruitment-invitation-response-proof-setup",
-    );
+    const setupLayer = makeProofLayer(databaseUrl, "recruitment-invitation-response-proof-setup");
     yield* Effect.gen(function* () {
       const sql = yield* Database;
       assert.equal(sql.schemaRevision, "12_native-recruitment-invitation-response");
@@ -389,9 +385,7 @@ const proof = (databaseUrl: Redacted.Redacted<string>) =>
         ),
       );
     }).pipe(
-      Effect.provide(
-        makeProofLayer(databaseUrl, "recruitment-invitation-response-proof-rollback"),
-      ),
+      Effect.provide(makeProofLayer(databaseUrl, "recruitment-invitation-response-proof-rollback")),
     );
 
     const lockReleased = yield* Effect.gen(function* () {
@@ -498,7 +492,6 @@ const proof = (databaseUrl: Redacted.Redacted<string>) =>
         "2035-09-15T12:03:30.000Z",
       ).pipe(Effect.provide(raceDrainRecording.layer));
 
-
       const deliveryRecorded = yield* recruitment.rejectInvitation(
         RecruitmentInvitationCapabilitySchema.make(deliveryCapability),
         { message: "Cannot attend the proposed time." },
@@ -573,9 +566,7 @@ const proof = (databaseUrl: Redacted.Redacted<string>) =>
         capabilityAbsent: privacy?.capabilityAbsent === true,
       };
     }).pipe(
-      Effect.provide(
-        makeProofLayer(databaseUrl, "recruitment-invitation-response-proof-observer"),
-      ),
+      Effect.provide(makeProofLayer(databaseUrl, "recruitment-invitation-response-proof-observer")),
     );
 
     const outcomeTags = contenders.map((entry) =>

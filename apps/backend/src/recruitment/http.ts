@@ -56,8 +56,7 @@ const jsonResponse = (body: unknown, status = 200): Response =>
     },
   });
 
-const RECRUITMENT_INVITATION_CAPABILITY_HEADER =
-  "X-Recruitment-Invitation-Capability";
+const RECRUITMENT_INVITATION_CAPABILITY_HEADER = "X-Recruitment-Invitation-Capability";
 const RecruitmentInvitationConfirmBodySchema = Schema.Struct({});
 
 const emptyResponse = (): Response =>
@@ -218,14 +217,11 @@ const assertNoQuery = (request: Request): void => {
 const invitationCapabilityFor = (
   request: Request,
 ): typeof RecruitmentInvitationCapabilitySchema.Type => {
-  const capability = request.headers.get(
-    RECRUITMENT_INVITATION_CAPABILITY_HEADER,
-  );
+  const capability = request.headers.get(RECRUITMENT_INVITATION_CAPABILITY_HEADER);
   try {
-    return Schema.decodeUnknownSync(RecruitmentInvitationCapabilitySchema)(
-      capability,
-      { onExcessProperty: "error" },
-    );
+    return Schema.decodeUnknownSync(RecruitmentInvitationCapabilitySchema)(capability, {
+      onExcessProperty: "error",
+    });
   } catch {
     throw taggedError("RecruitmentInvitationNotFound");
   }
@@ -235,9 +231,9 @@ const decodeInvitationObservation = (
   value: unknown,
 ): typeof RecruitmentInvitationResponseObservationSchema.Type => {
   try {
-    return Schema.decodeUnknownSync(
-      RecruitmentInvitationResponseObservationSchema,
-    )(value, { onExcessProperty: "error" });
+    return Schema.decodeUnknownSync(RecruitmentInvitationResponseObservationSchema)(value, {
+      onExcessProperty: "error",
+    });
   } catch {
     throw taggedError("RecruitmentPersistenceError");
   }
@@ -361,16 +357,10 @@ const confirmInvitation = async (
 ): Promise<Response> => {
   assertNoQuery(request);
   const capability = invitationCapabilityFor(request);
-  await decodeJson(
-    request,
-    RecruitmentInvitationConfirmBodySchema,
-    input.config.maxBodyBytes,
-  );
+  await decodeJson(request, RecruitmentInvitationConfirmBodySchema, input.config.maxBodyBytes);
   const now = input.config.now();
   await input.run(
-    Recruitment.use(({ confirmInvitation: confirm }) =>
-      confirm(capability, { now }),
-    ),
+    Recruitment.use(({ confirmInvitation: confirm }) => confirm(capability, { now })),
   );
   return emptyResponse();
 };
@@ -388,9 +378,7 @@ const rejectInvitation = async (
   );
   const now = input.config.now();
   await input.run(
-    Recruitment.use(({ rejectInvitation: reject }) =>
-      reject(capability, body, { now }),
-    ),
+    Recruitment.use(({ rejectInvitation: reject }) => reject(capability, body, { now })),
   );
   return emptyResponse();
 };
@@ -419,10 +407,7 @@ export const makeRecruitmentApiHttp = (input: RecruitmentApiHttpOptions): Recrui
   fetch: async (request) => {
     const url = new URL(request.url);
     try {
-      if (
-        request.method === "GET" &&
-        url.pathname === "/api/recruitment/invitation-response"
-      ) {
+      if (request.method === "GET" && url.pathname === "/api/recruitment/invitation-response") {
         return await readInvitationResponse(request, input);
       }
       if (
@@ -439,8 +424,7 @@ export const makeRecruitmentApiHttp = (input: RecruitmentApiHttpOptions): Recrui
       }
       if (
         request.method === "POST" &&
-        url.pathname ===
-          "/api/recruitment/invitation-response/request-new-time"
+        url.pathname === "/api/recruitment/invitation-response/request-new-time"
       ) {
         return await requestNewInvitationTime(request, input);
       }

@@ -15,10 +15,7 @@ import {
   type RecruitmentNotificationDeliveryError,
   type RecruitmentNotificationEvidence,
 } from "./effects.js";
-import {
-  RecruitmentInstantSchema,
-  RecruitmentInvitationResponseMessageSchema,
-} from "./schema.js";
+import { RecruitmentInstantSchema, RecruitmentInvitationResponseMessageSchema } from "./schema.js";
 
 interface ClaimedInvitationResponseRow {
   readonly effectId: string;
@@ -205,10 +202,7 @@ const claimInTransaction = (
   profile: ProfileShape,
   claimId: string,
   claimedAt: string,
-): Effect.Effect<
-  ClaimedRecruitmentInvitationResponse | undefined,
-  RecruitmentPersistenceError
-> =>
+): Effect.Effect<ClaimedRecruitmentInvitationResponse | undefined, RecruitmentPersistenceError> =>
   Effect.gen(function* () {
     const rows = yield* sql<ClaimedInvitationResponseRow>`
       WITH candidate AS (
@@ -543,8 +537,7 @@ export const deliverNextRecruitmentInvitationResponse = (
         );
       });
     },
-    (claim) =>
-      claim === undefined ? Effect.void : releaseRecruitmentInvitationResponse(claim),
+    (claim) => (claim === undefined ? Effect.void : releaseRecruitmentInvitationResponse(claim)),
   );
 
 export const invitationResponsePayloadForEvidence = (

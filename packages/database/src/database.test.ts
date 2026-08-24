@@ -1258,9 +1258,7 @@ describe("DatabaseTest", () => {
             invitationId: fixture.invitationId,
             responseCapability: fixture.responseCapability,
           });
-          const capability = RecruitmentInvitationCapabilitySchema.make(
-            fixture.responseCapability,
-          );
+          const capability = RecruitmentInvitationCapabilitySchema.make(fixture.responseCapability);
           const pending = yield* recruitment.readInvitationResponse(capability);
           const context = { now: "2031-09-15T12:03:00.000Z" };
           const result =
