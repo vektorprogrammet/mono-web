@@ -7,7 +7,7 @@ const chromiumExecutablePath =
   (existsSync(systemChromium) ? systemChromium : undefined);
 const w0Viewport = { width: 1440, height: 900 };
 const genericDashboardOrigin = "http://127.0.0.1:5174";
-const realSymfonyDashboardOrigin = process.env.DASHBOARD_ORIGIN ?? genericDashboardOrigin;
+const externalDashboardOrigin = process.env.DASHBOARD_ORIGIN ?? genericDashboardOrigin;
 const realSymfonyCoreOrigin = process.env.API_URL ?? "http://127.0.0.1:8000";
 const apiMode = process.env.API_MODE;
 const viteApiMode = process.env.VITE_API_MODE;
@@ -15,7 +15,6 @@ const fixtureMode = apiMode === "fixture" && viteApiMode === "fixture";
 const realSymfonyCoreMode = process.env.REAL_SYMFONY_CORE_E2E === "1";
 const realSymfonyRecruitmentMode = process.env.REAL_SYMFONY_RECRUITMENT_E2E === "1";
 const realSymfonySchedulingMode = process.env.REAL_SYMFONY_INTERVIEW_SCHEDULING_E2E === "1";
-const realSymfonyResponseMode = process.env.REAL_SYMFONY_INTERVIEW_RESPONSE_E2E === "1";
 const realSymfonyContentOpsMode = process.env.REAL_SYMFONY_CONTENT_OPS_E2E === "1";
 const realSymfonyOrgOperationsMode = process.env.REAL_SYMFONY_ORG_OPERATIONS_E2E === "1";
 const realSymfonyBackgroundOperationsMode =
@@ -23,16 +22,21 @@ const realSymfonyBackgroundOperationsMode =
 const realReceiptOwnerMode = process.env.REAL_RECEIPT_OWNER_E2E === "1";
 const realAdmissionPeriodMode = process.env.REAL_ADMISSION_PERIOD_E2E === "1";
 const realNativeSchedulingMode = process.env.REAL_NATIVE_SCHEDULING_E2E === "1";
+const realNativeInvitationResponseMode =
+  process.env.REAL_NATIVE_INVITATION_RESPONSE_E2E === "1";
 const realSymfonyMode =
   realSymfonyCoreMode ||
   realSymfonyRecruitmentMode ||
   realSymfonySchedulingMode ||
-  realSymfonyResponseMode ||
   realSymfonyContentOpsMode ||
   realSymfonyOrgOperationsMode ||
   realSymfonyBackgroundOperationsMode;
 const externalTopologyMode =
-  realSymfonyMode || realReceiptOwnerMode || realAdmissionPeriodMode || realNativeSchedulingMode;
+  realSymfonyMode ||
+  realReceiptOwnerMode ||
+  realAdmissionPeriodMode ||
+  realNativeSchedulingMode ||
+  realNativeInvitationResponseMode;
 
 const fixtureServer = {
   command: "node e2e/fixtures/login-api.mjs",
@@ -65,12 +69,15 @@ export default defineConfig({
   reporter: "html",
   use: {
     baseURL:
-      realReceiptOwnerMode || realAdmissionPeriodMode || realNativeSchedulingMode
-        ? realSymfonyDashboardOrigin
+      realReceiptOwnerMode ||
+      realAdmissionPeriodMode ||
+      realNativeSchedulingMode ||
+      realNativeInvitationResponseMode
+        ? externalDashboardOrigin
         : realSymfonyCoreMode
           ? realSymfonyCoreOrigin
           : realSymfonyMode
-            ? realSymfonyDashboardOrigin
+            ? externalDashboardOrigin
             : genericDashboardOrigin,
     trace: "off",
   },

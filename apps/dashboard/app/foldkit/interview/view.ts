@@ -1,31 +1,49 @@
 import { Button, Input } from "@foldkit/ui"
-import type { InterviewSchedulingStatus } from "@vektorprogrammet/sdk/effect"
 import { AsyncData, FieldValidation } from "foldkit"
 import type { Html, HtmlBuilder } from "foldkit/html"
+import { invitationFailureMessage, type InvitationResponseObservation } from "./bridge"
 import {
-  ConfirmedCandidate,
-  RejectedCandidate,
-  RequestedNewTimeCandidate,
+  ConfirmedInvitation,
+  RejectedInvitation,
+  RequestedNewInvitationTime,
   UpdatedResponseMessage,
   type Message,
 } from "./message"
 import type { Model } from "./model"
 
-const statusLabel = (status: InterviewSchedulingStatus): string => {
+const statusLabel = (status: InvitationResponseObservation["responseState"]): string => {
   switch (status) {
-    case "created":
-      return "Ikke planlagt"
-    case "pending":
-      return "Invitert"
-    case "accepted":
+    case "Pending":
+      return "Venter på svar"
+    case "Accepted":
       return "Akseptert"
-    case "request_new_time":
+    case "Rejected":
+      return "Avvist"
+    case "RequestedNewTime":
       return "Ønsker nytt tidspunkt"
-    case "cancelled":
-      return "Avlyst"
-    case "no_contact":
-      return "Ikke oppnådd kontakt"
   }
+}
+
+const statusClass = (status: InvitationResponseObservation["responseState"]): string => {
+  switch (status) {
+    case "Pending":
+      return "pending"
+    case "Accepted":
+      return "accepted"
+    case "Rejected":
+      return "rejected"
+    case "RequestedNewTime":
+      return "requested-new-time"
+  }
+}
+
+const formatInstant = (instant: string): string => {
+  const parsed = new Date(instant)
+  if (!Number.isFinite(parsed.getTime())) return instant
+  return new Intl.DateTimeFormat("nb-NO", {
+    dateStyle: "long",
+    timeStyle: "short",
+  }).format(parsed)
 }
 
 const fieldError = (id: string, field: Model["responseMessage"], h: HtmlBuilder<Message>): Html =>
@@ -39,11 +57,8 @@ const fieldError = (id: string, field: Model["responseMessage"], h: HtmlBuilder<
 const textField = (
   config: {
     id: string
-    label: string
     value: string
     field: Model["responseMessage"]
-    placeholder: string
-    onInput: (value: string) => Message
     isDisabled: boolean
   },
   h: HtmlBuilder<Message>,
@@ -52,18 +67,18 @@ const textField = (
     {
       id: config.id,
       value: config.value,
-      onInput: config.onInput,
-      placeholder: config.placeholder,
+      onInput: (value) => UpdatedResponseMessage({ value }),
+      placeholder: "Skriv en melding hvis du ikke kan møte eller trenger et annet tidspunkt.",
       isDisabled: config.isDisabled,
       isInvalid: FieldValidation.isInvalid(config.field),
       toView: ({ input, label, description }) =>
         h.div(
           [h.Class("fk-field")],
           [
-            h.label([...label, h.Class("fk-label")], [config.label]),
+            h.label([...label, h.Class("fk-label")], ["Melding"]),
             h.input([...input, h.Class("fk-input")]),
             h.p([...description, h.Class("fk-field-hint")], [
-              "Valgfritt, unntatt når du ber om nytt tidspunkt.",
+              "Valgfritt når du avviser. Påkrevd når du ber om nytt tidspunkt.",
             ]),
             fieldError(config.id, config.field, h),
           ],
@@ -90,38 +105,36 @@ const actionButton = (
     h,
   )
 
-const feedbackView = (feedback: string | null, h: HtmlBuilder<Message>): Html =>
-  feedback === null
-    ? h.empty
-    : h.div([h.Class("fk-feedback"), h.Role("status"), h.AriaLive("polite")], [feedback])
+const statusPill = (
+  status: InvitationResponseObservation["responseState"],
+  h: HtmlBuilder<Message>,
+): Html =>
+  h.span(
+    [h.Class(`fk-status fk-status--${statusClass(status)}`)],
+    [statusLabel(status)],
+  )
 
-const statusPill = (status: InterviewSchedulingStatus, h: HtmlBuilder<Message>): Html =>
-  h.span([h.Class(`fk-status fk-status--${status}`)], [statusLabel(status)])
-
-const candidateSuccess = (model: Model, h: HtmlBuilder<Message>): Html => {
-  const candidate = AsyncData.getData(model.candidate)
-  if (candidate._tag === "None") return h.empty
-  const status = candidate.value.schedulingStatus
-  const isPending = status === "pending"
-  const isAccepted = status === "accepted"
-  const isRejected = status === "cancelled"
-  const isRequestingNewTime = status === "request_new_time"
-  const isResponding = model.isConfirming || model.isRejecting || model.isRequestingNewTime
-  const canRespond = isPending && !isResponding
-  const heading = isAccepted
+const invitationSuccess = (model: Model, h: HtmlBuilder<Message>): Html => {
+  const current = AsyncData.getData(model.invitationResponse)
+  if (current._tag === "None") return h.empty
+  const observation = current.value
+  const isPending = observation.responseState === "Pending"
+  const isResponding = model.selectedAction !== null
+  const heading = observation.responseState === "Accepted"
     ? "Intervjutiden er akseptert"
-    : isRejected
+    : observation.responseState === "Rejected"
       ? "Intervjuinvitasjonen er avvist"
-      : isRequestingNewTime
+      : observation.responseState === "RequestedNewTime"
         ? "Nytt tidspunkt er ønsket"
         : "Svar på intervjutid"
-  const lead = isAccepted
+  const lead = observation.responseState === "Accepted"
     ? "Takk. Vi har registrert svaret ditt."
-    : isRejected
+    : observation.responseState === "Rejected"
       ? "Vi har registrert at du ikke kan delta."
-      : isRequestingNewTime
+      : observation.responseState === "RequestedNewTime"
         ? "Vi tar kontakt når vi har funnet et nytt tidspunkt."
         : "Se over tidspunkt og sted før du svarer på invitasjonen."
+
   return h.article(
     [h.Class("fk-response-card"), h.AriaLabelledBy("response-heading")],
     [
@@ -135,7 +148,7 @@ const candidateSuccess = (model: Model, h: HtmlBuilder<Message>): Html => {
               h.h1([h.Id("response-heading")], [heading]),
             ],
           ),
-          statusPill(status, h),
+          statusPill(observation.responseState, h),
         ],
       ),
       h.p([h.Class("fk-lead")], [lead]),
@@ -144,13 +157,23 @@ const candidateSuccess = (model: Model, h: HtmlBuilder<Message>): Html => {
         [
           h.div(
             [],
-            [h.dt([], ["Tidspunkt"]), h.dd([], [candidate.value.interviewTime ?? "Ikke oppgitt"])],
+            [h.dt([], ["Tidspunkt"]), h.dd([], [formatInstant(observation.scheduledAt)])],
           ),
-          h.div([], [h.dt([], ["Rom"]), h.dd([], [candidate.value.room ?? "Ikke oppgitt"])]),
+          h.div([], [h.dt([], ["Rom"]), h.dd([], [observation.room])]),
           h.div([], [
             h.dt([], ["Campus"]),
-            h.dd([], [candidate.value.campus ?? "Ikke oppgitt"]),
+            h.dd([], [observation.campus ?? "Ikke oppgitt"]),
           ]),
+          observation.responseMessage === null ||
+          (
+            observation.responseState !== "Rejected" &&
+            observation.responseState !== "RequestedNewTime"
+          )
+            ? h.empty
+            : h.div([], [
+                h.dt([], ["Melding"]),
+                h.dd([], [observation.responseMessage]),
+              ]),
         ],
       ),
       isPending
@@ -160,11 +183,8 @@ const candidateSuccess = (model: Model, h: HtmlBuilder<Message>): Html => {
               textField(
                 {
                   id: "response-message",
-                  label: "Melding",
                   value: model.responseMessage.value,
                   field: model.responseMessage,
-                  placeholder: "Skriv en melding hvis du trenger et annet tidspunkt.",
-                  onInput: (value) => UpdatedResponseMessage({ value }),
                   isDisabled: isResponding,
                 },
                 h,
@@ -173,22 +193,26 @@ const candidateSuccess = (model: Model, h: HtmlBuilder<Message>): Html => {
                 [h.Class("fk-actions")],
                 [
                   actionButton(
-                    model.isConfirming ? "Registrerer svar …" : "Bekreft intervjutid",
-                    ConfirmedCandidate(),
-                    !canRespond,
+                    model.selectedAction === "Confirm"
+                      ? "Registrerer svar …"
+                      : "Bekreft intervjutid",
+                    ConfirmedInvitation(),
+                    isResponding,
                     h,
                   ),
                   actionButton(
-                    model.isRejecting ? "Registrerer svar …" : "Avvis intervju",
-                    RejectedCandidate(),
-                    !canRespond,
+                    model.selectedAction === "Reject" ? "Registrerer svar …" : "Avvis intervju",
+                    RejectedInvitation(),
+                    isResponding,
                     h,
                     "secondary",
                   ),
                   actionButton(
-                    model.isRequestingNewTime ? "Registrerer svar …" : "Be om nytt tidspunkt",
-                    RequestedNewTimeCandidate(),
-                    !canRespond,
+                    model.selectedAction === "RequestNewTime"
+                      ? "Registrerer svar …"
+                      : "Be om nytt tidspunkt",
+                    RequestedNewInvitationTime(),
+                    isResponding,
                     h,
                     "secondary",
                   ),
@@ -208,7 +232,7 @@ export const view = (model: Model, h: HtmlBuilder<Message>): Html =>
   h.main(
     [h.Class("foldkit-interview foldkit-interview--candidate")],
     [
-      AsyncData.match(model.candidate, {
+      AsyncData.match(model.invitationResponse, {
         onIdle: () =>
           h.div([h.Class("fk-loading"), h.Role("status")], ["Forbereder invitasjonen …"]),
         onLoading: () =>
@@ -219,23 +243,32 @@ export const view = (model: Model, h: HtmlBuilder<Message>): Html =>
               h.span([], ["Henter intervjutid …"]),
             ],
           ),
-        onRefreshing: () => candidateSuccess(model, h),
-        onFailure: (error) =>
+        onRefreshing: () => invitationSuccess(model, h),
+        onFailure: (failure) =>
           h.section(
             [h.Class("fk-error fk-error--candidate"), h.Role("alert")],
             [
               h.p([h.Class("fk-eyebrow")], ["Intervjuinvitasjon"]),
               h.h1([], ["Invitasjonen er ikke tilgjengelig"]),
-              h.p([], [error]),
+              h.p([], [invitationFailureMessage(failure)]),
             ],
           ),
         onStale: ({ error }) =>
           h.section(
             [h.Class("fk-error fk-error--candidate"), h.Role("alert")],
-            [h.h1([], ["Kunne ikke oppdatere svaret"]), h.p([], [error])],
+            [h.h1([], ["Kunne ikke oppdatere svaret"]), h.p([], [invitationFailureMessage(error)])],
           ),
-        onSuccess: () => candidateSuccess(model, h),
+        onSuccess: () => invitationSuccess(model, h),
       }),
-      feedbackView(model.feedback, h),
+      model.validationFeedback === null
+        ? h.empty
+        : h.div([h.Class("fk-feedback fk-feedback--error"), h.Role("alert")], [
+            model.validationFeedback,
+          ]),
+      model.failure === null
+        ? h.empty
+        : h.div([h.Class("fk-feedback fk-feedback--error"), h.Role("alert")], [
+            invitationFailureMessage(model.failure),
+          ]),
     ],
   )

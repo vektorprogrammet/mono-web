@@ -89,8 +89,22 @@ const formatInstant = (instant: string): string => {
   }).format(parsed);
 };
 
-const responseLabel = (state: RecruitmentSchedulingInterview["responseState"]): string =>
-  state === "Pending" ? "Venter på svar" : "Ikke invitert";
+export const responseLabel = (
+  state: RecruitmentSchedulingInterview["responseState"],
+): string => {
+  switch (state) {
+    case "Pending":
+      return "Venter på svar";
+    case "Accepted":
+      return "Akseptert";
+    case "Rejected":
+      return "Avvist";
+    case "RequestedNewTime":
+      return "Ønsker nytt tidspunkt";
+    case null:
+      return "Ikke invitert";
+  }
+};
 
 const notificationLabel = (
   state: RecruitmentSchedulingInterview["notificationState"],
@@ -137,6 +151,19 @@ const scheduleDetails = (
       h.dt([], ["Svar fra søker"]),
       h.dd([], [responseLabel(interview.responseState)]),
     ]),
+    ...(
+      interview.responseMessage === null ||
+      (
+        interview.responseState !== "Rejected" &&
+        interview.responseState !== "RequestedNewTime"
+      )
+      ? []
+      : [
+          h.div([], [
+            h.dt([], ["Melding fra søker"]),
+            h.dd([], [interview.responseMessage]),
+          ]),
+        ]),
     h.div([], [
       h.dt([], ["Invitasjon"]),
       h.dd([], [notificationLabel(interview.notificationState)]),

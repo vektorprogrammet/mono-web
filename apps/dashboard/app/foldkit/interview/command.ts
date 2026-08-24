@@ -1,84 +1,111 @@
-import { ResponseCapability } from "@vektorprogrammet/sdk/effect"
+import { RecruitmentInvitationResponseMessageSchema } from "@vektorprogrammet/sdk/effect"
 import { Effect, Schema as S } from "effect"
 import { Command } from "foldkit"
-import type { InterviewResponseClient } from "./browser-client"
+import type { InvitationResponseClient } from "./browser-client"
+import { InvitationResponseRequestIdSchema } from "./bridge"
 import {
-  FailedCandidateResponse,
-  FailedReadCandidate,
-  SucceededCandidateResponse,
-  SucceededReadCandidate,
+  FailedInvitationResponse,
+  FailedReadInvitationResponse,
+  SucceededInvitationResponse,
+  SucceededReadInvitationResponse,
   type Message,
 } from "./message"
 
-const candidateUnavailable = "Invitasjonen er ikke tilgjengelig."
-
 export interface InterviewCommands {
-  readonly ReadCandidate: () => Command.Command<Message>
-  readonly ConfirmCandidate: () => Command.Command<Message>
-  readonly RejectCandidate: (args: { readonly message: string }) => Command.Command<Message>
-  readonly RequestNewTimeCandidate: (args: {
+  readonly ReadInvitationResponse: (args: {
+    readonly requestId: number
+  }) => Command.Command<Message>
+  readonly ConfirmInvitation: (args: {
+    readonly requestId: number
+  }) => Command.Command<Message>
+  readonly RejectInvitation: (args: {
+    readonly requestId: number
+    readonly message: string | null
+  }) => Command.Command<Message>
+  readonly RequestNewInvitationTime: (args: {
+    readonly requestId: number
     readonly message: string
   }) => Command.Command<Message>
 }
 
 export const makeInterviewCommands = (
-  client: InterviewResponseClient,
-  rawResponseCapability: string | null,
+  client: InvitationResponseClient,
 ): InterviewCommands => {
-  const ReadCandidate = Command.define("ReadCandidate", {
-    messages: [SucceededReadCandidate, FailedReadCandidate],
-    execute: S.decodeUnknownEffect(ResponseCapability)(rawResponseCapability).pipe(
-      Effect.flatMap((capability) => client.interviewResponses.read(capability)),
-      Effect.map((candidate) => SucceededReadCandidate({ candidate })),
-      Effect.catch(() =>
-        Effect.succeed(FailedReadCandidate({ message: candidateUnavailable }))
-      ),
-    ),
-  })
-
-  const ConfirmCandidate = Command.define("ConfirmCandidate", {
-    messages: [SucceededCandidateResponse, FailedCandidateResponse],
-    execute: S.decodeUnknownEffect(ResponseCapability)(rawResponseCapability).pipe(
-      Effect.flatMap((capability) => client.interviewResponses.confirm(capability)),
-      Effect.as(SucceededCandidateResponse()),
-      Effect.catch(() =>
-        Effect.succeed(FailedCandidateResponse({ message: candidateUnavailable }))
-      ),
-    ),
-  })
-
-  const RejectCandidate = Command.define("RejectCandidate", {
-    args: { message: S.String },
-    messages: [SucceededCandidateResponse, FailedCandidateResponse],
-    execute: ({ message }) =>
-      S.decodeUnknownEffect(ResponseCapability)(rawResponseCapability).pipe(
-        Effect.flatMap((capability) => client.interviewResponses.reject(capability, message)),
-        Effect.as(SucceededCandidateResponse()),
-        Effect.catch(() =>
-          Effect.succeed(FailedCandidateResponse({ message: candidateUnavailable }))
+  const ReadInvitationResponse = Command.define("ReadInvitationResponse", {
+    args: { requestId: InvitationResponseRequestIdSchema },
+    messages: [SucceededReadInvitationResponse, FailedReadInvitationResponse],
+    execute: ({ requestId }) =>
+      client.recruitmentInvitationResponses.read().pipe(
+        Effect.map((observation) =>
+          SucceededReadInvitationResponse({ requestId, observation })
+        ),
+        Effect.catch((failure) =>
+          Effect.succeed(FailedReadInvitationResponse({ requestId, failure }))
         ),
       ),
   })
 
-  const RequestNewTimeCandidate = Command.define("RequestNewTimeCandidate", {
-    args: { message: S.String },
-    messages: [SucceededCandidateResponse, FailedCandidateResponse],
-    execute: ({ message }) =>
-      S.decodeUnknownEffect(ResponseCapability)(rawResponseCapability).pipe(
-        Effect.flatMap((capability) =>
-          client.interviewResponses.requestNewTime(capability, message)
+  const ConfirmInvitation = Command.define("ConfirmInvitation", {
+    args: { requestId: InvitationResponseRequestIdSchema },
+    messages: [SucceededInvitationResponse, FailedInvitationResponse],
+    execute: ({ requestId }) =>
+      client.recruitmentInvitationResponses.confirm().pipe(
+        Effect.flatMap(() => client.recruitmentInvitationResponses.read()),
+        Effect.map((observation) =>
+          SucceededInvitationResponse({ requestId, action: "Confirm", observation })
         ),
-        Effect.as(SucceededCandidateResponse()),
-        Effect.catch(() =>
-          Effect.succeed(FailedCandidateResponse({ message: candidateUnavailable }))
+        Effect.catch((failure) =>
+          Effect.succeed(
+            FailedInvitationResponse({ requestId, action: "Confirm", failure }),
+          )
+        ),
+      ),
+  })
+
+  const RejectInvitation = Command.define("RejectInvitation", {
+    args: {
+      requestId: InvitationResponseRequestIdSchema,
+      message: S.NullOr(RecruitmentInvitationResponseMessageSchema),
+    },
+    messages: [SucceededInvitationResponse, FailedInvitationResponse],
+    execute: ({ requestId, message }) =>
+      client.recruitmentInvitationResponses.reject({ message }).pipe(
+        Effect.flatMap(() => client.recruitmentInvitationResponses.read()),
+        Effect.map((observation) =>
+          SucceededInvitationResponse({ requestId, action: "Reject", observation })
+        ),
+        Effect.catch((failure) =>
+          Effect.succeed(
+            FailedInvitationResponse({ requestId, action: "Reject", failure }),
+          )
+        ),
+      ),
+  })
+
+  const RequestNewInvitationTime = Command.define("RequestNewInvitationTime", {
+    args: {
+      requestId: InvitationResponseRequestIdSchema,
+      message: RecruitmentInvitationResponseMessageSchema,
+    },
+    messages: [SucceededInvitationResponse, FailedInvitationResponse],
+    execute: ({ requestId, message }) =>
+      client.recruitmentInvitationResponses.requestNewTime({ message }).pipe(
+        Effect.flatMap(() => client.recruitmentInvitationResponses.read()),
+        Effect.map((observation) =>
+          SucceededInvitationResponse({ requestId, action: "RequestNewTime", observation })
+        ),
+        Effect.catch((failure) =>
+          Effect.succeed(
+            FailedInvitationResponse({ requestId, action: "RequestNewTime", failure }),
+          )
         ),
       ),
   })
 
   return {
-    ReadCandidate,
-    ConfirmCandidate,
-    RejectCandidate,
-    RequestNewTimeCandidate,
+    ReadInvitationResponse,
+    ConfirmInvitation,
+    RejectInvitation,
+    RequestNewInvitationTime,
   }
 }

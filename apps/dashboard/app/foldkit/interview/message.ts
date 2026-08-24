@@ -1,28 +1,45 @@
-import { CandidateInterviewView } from "@vektorprogrammet/sdk/effect"
 import { Schema as S } from "effect"
 import { m } from "foldkit/message"
+import {
+  InvitationBridgeFailureSchema,
+  InvitationResponseActionSchema,
+  InvitationResponseObservationSchema,
+  InvitationResponseRequestIdSchema,
+} from "./bridge"
 
-export const OpenedCandidate = m("OpenedCandidate")
-export const SucceededReadCandidate = m("SucceededReadCandidate", {
-  candidate: CandidateInterviewView,
+export const OpenedInvitationResponse = m("OpenedInvitationResponse")
+export const SucceededReadInvitationResponse = m("SucceededReadInvitationResponse", {
+  requestId: InvitationResponseRequestIdSchema,
+  observation: InvitationResponseObservationSchema,
 })
-export const FailedReadCandidate = m("FailedReadCandidate", { message: S.String })
+export const FailedReadInvitationResponse = m("FailedReadInvitationResponse", {
+  requestId: InvitationResponseRequestIdSchema,
+  failure: InvitationBridgeFailureSchema,
+})
 export const UpdatedResponseMessage = m("UpdatedResponseMessage", { value: S.String })
-export const ConfirmedCandidate = m("ConfirmedCandidate")
-export const RejectedCandidate = m("RejectedCandidate")
-export const RequestedNewTimeCandidate = m("RequestedNewTimeCandidate")
-export const SucceededCandidateResponse = m("SucceededCandidateResponse")
-export const FailedCandidateResponse = m("FailedCandidateResponse", { message: S.String })
+export const ConfirmedInvitation = m("ConfirmedInvitation")
+export const RejectedInvitation = m("RejectedInvitation")
+export const RequestedNewInvitationTime = m("RequestedNewInvitationTime")
+export const SucceededInvitationResponse = m("SucceededInvitationResponse", {
+  requestId: InvitationResponseRequestIdSchema,
+  action: InvitationResponseActionSchema,
+  observation: InvitationResponseObservationSchema,
+})
+export const FailedInvitationResponse = m("FailedInvitationResponse", {
+  requestId: InvitationResponseRequestIdSchema,
+  action: InvitationResponseActionSchema,
+  failure: InvitationBridgeFailureSchema,
+})
 
 export const Message = S.Union([
-  OpenedCandidate,
-  SucceededReadCandidate,
-  FailedReadCandidate,
+  OpenedInvitationResponse,
+  SucceededReadInvitationResponse,
+  FailedReadInvitationResponse,
   UpdatedResponseMessage,
-  ConfirmedCandidate,
-  RejectedCandidate,
-  RequestedNewTimeCandidate,
-  SucceededCandidateResponse,
-  FailedCandidateResponse,
+  ConfirmedInvitation,
+  RejectedInvitation,
+  RequestedNewInvitationTime,
+  SucceededInvitationResponse,
+  FailedInvitationResponse,
 ])
 export type Message = S.Schema.Type<typeof Message>

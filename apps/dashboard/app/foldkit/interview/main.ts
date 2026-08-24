@@ -1,28 +1,27 @@
 import { Runtime } from "foldkit"
-import type { InterviewResponseClient } from "./browser-client"
+import type { InvitationResponseClient } from "./browser-client"
 import { makeInterviewCommands } from "./command"
-import { OpenedCandidate } from "./message"
+import { OpenedInvitationResponse } from "./message"
 import { Model, makeInitialModel } from "./model"
 import "./styles.css"
 import { makeUpdate } from "./update"
 import { view } from "./view"
 
 export interface InterviewRuntimeInput {
-  readonly responseCapability: string | null
-  readonly client: InterviewResponseClient
+  readonly client: InvitationResponseClient
 }
 
 export function embedInterview(
   container: HTMLElement,
   input: InterviewRuntimeInput,
 ): () => void {
-  const commands = makeInterviewCommands(input.client, input.responseCapability)
+  const commands = makeInterviewCommands(input.client)
   const update = makeUpdate(commands)
   const initialModel = makeInitialModel()
   const program = Runtime.makeElement({
     Model,
     container,
-    init: () => update(initialModel, OpenedCandidate()),
+    init: () => update(initialModel, OpenedInvitationResponse()),
     update,
     view,
     devTools: false,

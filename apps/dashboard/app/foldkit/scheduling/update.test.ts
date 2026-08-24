@@ -24,8 +24,12 @@ import {
 } from "./message";
 import { makeInitialModel, type Model, type ReadyModel } from "./model";
 import { makeUpdate } from "./update";
+import { responseLabel } from "./view";
 
-const decodeBoard = S.decodeUnknownSync(RecruitmentSchedulingBoardSchema);
+const decodeBoard = (value: unknown) =>
+  S.decodeUnknownSync(RecruitmentSchedulingBoardSchema)(value, {
+    onExcessProperty: "error",
+  });
 const decodeResult = S.decodeUnknownSync(RecruitmentScheduleResultSchema);
 
 const rawInterview = {
@@ -56,6 +60,7 @@ const unscheduledBoard = decodeBoard({
       revision: 0,
       schedule: null,
       responseState: null,
+      responseMessage: null,
       notificationState: null,
     },
   ],
@@ -81,6 +86,7 @@ const freshBoard = decodeBoard({
       revision: 1,
       schedule: freshSchedule,
       responseState: "Pending",
+      responseMessage: null,
       notificationState: "Pending",
     },
   ],
@@ -138,7 +144,87 @@ const validDraft = (transition: SchedulingUpdate): ReadyModel => {
   );
 };
 
+const responseBoard = decodeBoard({
+  departmentId: rawInterview.departmentId,
+  interviews: [
+    {
+      ...rawInterview,
+      revision: 1,
+      schedule: freshSchedule,
+      responseState: "Pending",
+      responseMessage: null,
+      notificationState: "Pending",
+    },
+    {
+      ...rawInterview,
+      revision: 1,
+      schedule: freshSchedule,
+      responseState: "Accepted",
+      responseMessage: null,
+      notificationState: "Delivered",
+    },
+    {
+      ...rawInterview,
+      revision: 1,
+      schedule: freshSchedule,
+      responseState: "Rejected",
+      responseMessage: "Jeg kan dessverre ikke delta.",
+      notificationState: "Pending",
+    },
+    {
+      ...rawInterview,
+      revision: 1,
+      schedule: freshSchedule,
+      responseState: "RequestedNewTime",
+      responseMessage: "Kan vi avtale et senere tidspunkt?",
+      notificationState: "Pending",
+    },
+  ],
+});
+
 describe("Foldkit scheduling transitions", () => {
+  it("projects every invitation response label and only provided response messages", () => {
+    const model = ready(makeInitialModel({ _tag: "Loaded", board: responseBoard }, "response-test"));
+    const board = AsyncData.getData(model.board);
+    expect(board._tag).toBe("Some");
+    if (board._tag !== "Some") throw new Error("expected the response board observation");
+
+    expect(
+      board.value.interviews.map((interview) => ({
+        label: responseLabel(interview.responseState),
+        ...(interview.responseMessage === null ? {} : { message: interview.responseMessage }),
+      })),
+    ).toEqual([
+      { label: "Venter på svar" },
+      { label: "Akseptert" },
+      { label: "Avvist", message: "Jeg kan dessverre ikke delta." },
+      {
+        label: "Ønsker nytt tidspunkt",
+        message: "Kan vi avtale et senere tidspunkt?",
+      },
+    ]);
+  });
+
+  it("rejects capability and response-notification payload fields from board observations", () => {
+    expect(() =>
+      decodeBoard({
+        departmentId: rawInterview.departmentId,
+        interviews: [
+          {
+            ...rawInterview,
+            revision: 1,
+            schedule: freshSchedule,
+            responseState: "Rejected",
+            responseMessage: "Jeg kan dessverre ikke delta.",
+            notificationState: "Pending",
+            invitationCapability: "forbidden",
+            responseNotificationPayload: { recipient: "forbidden@example.invalid" },
+          },
+        ],
+      }),
+    ).toThrow();
+  });
+
   it("emits no schedule command for an invalid form", () => {
     const opened = advance(
       update,

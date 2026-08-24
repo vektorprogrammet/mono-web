@@ -1,97 +1,86 @@
+import { Effect, Schema as S } from "effect"
 import {
-  CandidateInterviewView,
-  ResponseCapability,
-} from "@vektorprogrammet/sdk/effect"
-import { Effect, Schema } from "effect"
+  InvitationBridgeFailureSchema,
+  type InvitationBridgeFailure,
+  type InvitationResponseObservation,
+  InvitationResponseObservationSchema,
+} from "./bridge"
 
-type BridgeFailure = {
-  readonly _tag:
-    | "Unauthorized"
-    | "NotFound"
-    | "Validation"
-    | "Conflict"
-    | "Network"
-    | "RateLimited"
-    | "Configuration"
-  readonly message: string
-}
-
-type CandidateBridgeOperation =
-  | "readCandidate"
-  | "confirmCandidate"
-  | "rejectCandidate"
-  | "requestNewTimeCandidate"
-
-export interface InterviewResponseClient {
-  readonly interviewResponses: Readonly<{
-    readonly read: (
-      capability: typeof ResponseCapability.Type,
-    ) => Effect.Effect<typeof CandidateInterviewView.Type, BridgeFailure>
-    readonly confirm: (
-      capability: typeof ResponseCapability.Type,
-    ) => Effect.Effect<void, BridgeFailure>
-    readonly reject: (
-      capability: typeof ResponseCapability.Type,
-      message?: string,
-    ) => Effect.Effect<void, BridgeFailure>
-    readonly requestNewTime: (
-      capability: typeof ResponseCapability.Type,
-      message: string,
-    ) => Effect.Effect<void, BridgeFailure>
+export interface InvitationResponseClient {
+  readonly recruitmentInvitationResponses: Readonly<{
+    readonly read: () => Effect.Effect<InvitationResponseObservation, InvitationBridgeFailure>
+    readonly confirm: () => Effect.Effect<void, InvitationBridgeFailure>
+    readonly reject: (input: {
+      readonly message: string | null
+    }) => Effect.Effect<void, InvitationBridgeFailure>
+    readonly requestNewTime: (input: {
+      readonly message: string
+    }) => Effect.Effect<void, InvitationBridgeFailure>
   }>
 }
 
+const decodeFailure = (value: unknown): InvitationBridgeFailure =>
+  S.decodeUnknownSync(InvitationBridgeFailureSchema)(value, {
+    onExcessProperty: "error",
+  })
+
+
+const toFailure = (cause: unknown): InvitationBridgeFailure => {
+  try {
+    return decodeFailure(cause)
+  } catch {
+    return {
+      _tag: "InvitationUnavailable",
+      message: "Invitation response bridge unavailable",
+    }
+  }
+}
+
 const bridgeRequest = <A>(
-  operation: CandidateBridgeOperation,
   body: Record<string, unknown>,
+  expectedStatus: 200 | 204,
   decode: (value: unknown) => A,
-): Effect.Effect<A, BridgeFailure> =>
+): Effect.Effect<A, InvitationBridgeFailure> =>
   Effect.tryPromise({
     try: async () => {
       const response = await fetch("/interview", {
         method: "POST",
         credentials: "same-origin",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ operation, ...body }),
+        body: JSON.stringify(body),
       })
-      const payload: unknown = await response.json()
-      if (!response.ok) throw payload
-      return decode(payload)
-    },
-    catch: (cause): BridgeFailure => {
-      if (
-        typeof cause === "object" &&
-        cause !== null &&
-        "_tag" in cause &&
-        "message" in cause &&
-        typeof cause._tag === "string" &&
-        typeof cause.message === "string"
-      ) {
-        const tag = cause._tag
-        if (
-          tag === "Unauthorized" ||
-          tag === "NotFound" ||
-          tag === "Validation" ||
-          tag === "Conflict" ||
-          tag === "Network" ||
-          tag === "RateLimited" ||
-          tag === "Configuration"
-        ) {
-          return { _tag: tag, message: cause.message }
-        }
+      if (!response.ok) throw decodeFailure(await response.json())
+      if (response.status !== expectedStatus) {
+        throw {
+          _tag: "InvitationUnavailable",
+          message: "Invitation response bridge unavailable",
+        } satisfies InvitationBridgeFailure
       }
-      return { _tag: "Network", message: "Same-origin interview request failed" }
+      return expectedStatus === 204 ? decode(undefined) : decode(await response.json())
     },
+    catch: toFailure,
   })
 
-export const createBrowserInterviewClient = (): InterviewResponseClient => ({
-  interviewResponses: {
-    read: (_capability) =>
-      bridgeRequest("readCandidate", {}, Schema.decodeUnknownSync(CandidateInterviewView)),
-    confirm: (_capability) => bridgeRequest("confirmCandidate", {}, () => undefined),
-    reject: (_capability, message) =>
-      bridgeRequest("rejectCandidate", { message: message ?? "" }, () => undefined),
-    requestNewTime: (_capability, message) =>
-      bridgeRequest("requestNewTimeCandidate", { message }, () => undefined),
+export const createBrowserInterviewClient = (): InvitationResponseClient => ({
+  recruitmentInvitationResponses: {
+    read: () =>
+      bridgeRequest(
+        { operation: "readInvitationResponse" },
+        200,
+        (value) =>
+          S.decodeUnknownSync(InvitationResponseObservationSchema)(value, {
+            onExcessProperty: "error",
+          }),
+      ),
+    confirm: () =>
+      bridgeRequest({ operation: "confirmInvitation" }, 204, () => undefined),
+    reject: ({ message }) =>
+      bridgeRequest({ operation: "rejectInvitation", message }, 204, () => undefined),
+    requestNewTime: ({ message }) =>
+      bridgeRequest(
+        { operation: "requestNewInvitationTime", message },
+        204,
+        () => undefined,
+      ),
   },
 })

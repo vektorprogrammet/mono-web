@@ -86,15 +86,14 @@
 .fk-context-summary dd,
 .fk-details dd { margin: .2rem 0 0; overflow-wrap: anywhere; }
 .fk-status { border-radius: 999px; display: inline-flex; font-size: .8rem; font-weight: 800; padding: .3rem .65rem; white-space: nowrap; }
-.fk-status--created { background: #e2e8f0; }
 .fk-status--pending { background: #fef3c7; color: #92400e; }
 .fk-status--accepted { background: #dcfce7; color: #166534; }
-.fk-status--cancelled,
-.fk-status--no_contact { background: #fee2e2; color: #991b1b; }
-.fk-status--request_new_time { background: #ffedd5; color: #9a3412; }
+.fk-status--rejected { background: #fee2e2; color: #991b1b; }
+.fk-status--requested-new-time { background: #ffedd5; color: #9a3412; }
 .fk-schedule-form { border-top: 1px solid var(--fk-line); margin-top: 1rem; padding-top: 1rem; }
 .fk-feedback,
 .fk-confirmation { border-radius: .75rem; background: #dcfce7; color: #166534; font-weight: 700; padding: .8rem 1rem; }
+.fk-feedback--error { background: #fee2e2; color: #991b1b; }
 .fk-error { border-color: #fecaca; background: #fff7f7; color: #991b1b; }
 .fk-loading,
 .fk-guidance { color: var(--fk-muted); }
