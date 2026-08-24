@@ -18,3 +18,9 @@ create index "session_userId_idx" on auth."session" ("userId");
 create index "account_userId_idx" on auth."account" ("userId");
 
 create index "verification_identifier_idx" on auth."verification" ("identifier");
+
+-- Project authority constraint: an authenticated identity is a canonical PersonId.
+alter table auth."user"
+  add constraint "auth_user_person_profile_fk"
+  foreign key ("id") references public.person_profiles ("person_id")
+  on delete restrict;
