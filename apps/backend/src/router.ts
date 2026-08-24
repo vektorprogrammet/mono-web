@@ -12,6 +12,7 @@ import type { AdmissionPeriodActor } from "@vektorprogrammet/domain/admission-pe
 import { makeAdmissionApiHttp } from "./admission/http.js";
 import {
   admissionActorForDepartment,
+  organizationActorFrom,
   resolvePersonAuthority,
 } from "./authority.js";
 import type { BackendConfig } from "./config.js";
@@ -124,7 +125,15 @@ export const makeBackendHttp = (
     resolveActor: async (request) => resolveAdmissionActor(request),
     run,
   });
-  const organization = makeOrganizationApiHttp({ config: config.organization, run });
+  const organization = makeOrganizationApiHttp({
+    config: config.organization,
+    resolveActor: async (request) => {
+      const cookie = request.headers.get("cookie") ?? undefined;
+      const authority = await resolvePersonAuthority(cookie, { run });
+      return organizationActorFrom(authority);
+    },
+    run,
+  });
   const profile = makeProfileApiHttp({ config, run });
 
   /** Strict session read: raw Cookie header in, actor projection or 401 out. */
