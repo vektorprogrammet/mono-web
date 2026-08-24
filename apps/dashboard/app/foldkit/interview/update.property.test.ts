@@ -9,7 +9,7 @@ import {
   ConfirmedInvitation,
   FailedInvitationResponse,
   FailedReadInvitationResponse,
-  Message,
+  type Message,
   OpenedInvitationResponse,
   RejectedInvitation,
   RequestedNewInvitationTime,
