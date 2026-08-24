@@ -79,6 +79,13 @@ export class AmbiguousReceiptPaymentAuthority extends Schema.TaggedError<Ambiguo
   },
 ) {}
 
+/** The request must select one department when several active payment
+ *  authorities apply; Economy never picks a primary department. */
+export class AmbiguousPaymentSelection extends Schema.TaggedError<AmbiguousPaymentSelection>()(
+  "AmbiguousPaymentSelection",
+  { personId: PersonId, departmentIds: Schema.Array(DepartmentId) },
+) {}
+
 export class ReceiptAuthorityProjectionMismatch extends Schema.TaggedError<ReceiptAuthorityProjectionMismatch>()(
   "ReceiptAuthorityProjectionMismatch",
   {
@@ -109,4 +116,5 @@ export type ReceiptFailure =
   | StaleReceiptRevision
   | InvalidReceiptTransition
   | DuplicateReceiptCommandConflict
+  | AmbiguousPaymentSelection
   | ReceiptPersistenceError;

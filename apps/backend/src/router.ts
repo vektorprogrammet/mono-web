@@ -14,12 +14,16 @@ import {
   admissionActorForDepartment,
   organizationActorFrom,
   profileRoleFrom,
+  resolveAuthenticatedPerson,
   resolvePersonAuthority,
 } from "./authority.js";
 import type { BackendConfig } from "./config.js";
 import { makeOrganizationApiHttp } from "./organization/http.js";
 import { makeProfileApiHttp } from "./profile/http.js";
-import { makeReceiptApiHttp } from "./receipt/http.js";
+import {
+  makeReceiptApiHttp,
+  type ReceiptAuthorityResolvers,
+} from "./receipt/http.js";
 import { makeRecruitmentApiHttp } from "./recruitment/http.js";
 
 export type BackendRun = <A, E>(
@@ -120,7 +124,34 @@ export const makeBackendHttp = (
     resolveActor: resolveAdmissionActor,
     run,
   });
-  const receipt = makeReceiptApiHttp({ config: config.receipt, run });
+  /**
+   * Cookie -> PersonId -> ReceiptAuthority (spec 0055): the Organization
+   * projection captures ONE authorizationInstant; Economy composes its
+   * payment/approval facts with that same-instant projection.
+   */
+  const resolveReceiptAuthorityFor: ReceiptAuthorityResolvers["resolveAuthority"] = async (
+    cookieHeader,
+  ) => {
+    const authorityProjection = await resolvePersonAuthority(cookieHeader, { run });
+    return await run(
+      Economy.use(({ resolveReceiptAuthority }) =>
+        resolveReceiptAuthority(
+          authorityProjection.personId,
+          authorityProjection.evaluatedAt,
+          authorityProjection,
+        ),
+      ),
+    );
+  };
+  const receipt = makeReceiptApiHttp({
+    config: config.receipt,
+    authority: {
+      resolveAuthority: resolveReceiptAuthorityFor,
+      resolvePersonId: async (cookieHeader) =>
+        resolveAuthenticatedPerson(cookieHeader, { run }),
+    },
+    run,
+  });
   const recruitment = makeRecruitmentApiHttp({
     config: config.recruitment,
     resolveActor: async (request) => resolveAdmissionActor(request),
