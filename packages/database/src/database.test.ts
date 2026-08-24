@@ -26,12 +26,16 @@ import { AdmissionsLive } from "@vektorprogrammet/domain/admissions";
 import { OrganizationLive } from "@vektorprogrammet/domain/organization";
 import { ProfileLive } from "@vektorprogrammet/domain/profile";
 import {
+  deliverNextRecruitmentInvitation,
   InterviewSchemaId,
   Recruitment,
   RecruitmentAssignmentCommandId,
   RecruitmentInterviewId,
+  RecruitmentInvitationId,
   RecruitmentLive,
+  RecruitmentScheduleCommandId,
 } from "@vektorprogrammet/domain/recruitment";
+import { makeRecordingNotificationGateway } from "@vektorprogrammet/domain/notification";
 import { Economy, importLegacyReceipt } from "@vektorprogrammet/domain/receipt";
 import { EconomyLive } from "@vektorprogrammet/domain/receipt/postgres";
 import { storeReceiptImportResult } from "../../domain/src/receipt/postgres.js";
@@ -70,6 +74,211 @@ const recruitmentRuntime = ManagedRuntime.make(
   ),
 );
 
+const seedSchedulingFixture = (fixtureId: string) =>
+  Effect.gen(function* () {
+    const database = yield* Database;
+    const recruitment = yield* Recruitment;
+    const departmentId = DepartmentId.make(`${fixtureId}-department`);
+    const semesterId = SemesterId.make(`${fixtureId}-semester`);
+    const admissionPeriodId = AdmissionPeriodId.make(`${fixtureId}-period`);
+    const applicantId = ApplicantIdSchema.make(`${fixtureId}-applicant`);
+    const applicationId = PublicApplicationIdSchema.make(`${fixtureId}-application`);
+    const leaderPersonId = PersonId.make(`${fixtureId}-leader`);
+    const interviewerPersonId = PersonId.make(`${fixtureId}-interviewer`);
+    const interviewSchemaId = InterviewSchemaId.make(`${fixtureId}-schema`);
+    const interviewId = RecruitmentInterviewId.make(`${fixtureId}-interview`);
+    const now = "2031-09-15T12:00:00.000Z";
+    const actor = {
+      _tag: "DepartmentLeader" as const,
+      personId: leaderPersonId,
+      departmentId,
+      active: true,
+    };
+
+    yield* database`
+      INSERT INTO admission_period_departments (department_id, name)
+      VALUES (${departmentId}, ${`Department ${fixtureId}`})
+    `;
+    yield* database`
+      INSERT INTO admission_period_semesters (semester_id, start_at, end_at)
+      VALUES (
+        ${semesterId},
+        '2031-08-01T00:00:00.000Z',
+        '2032-01-01T00:00:00.000Z'
+      )
+    `;
+    yield* database`
+      INSERT INTO admission_periods (
+        admission_period_id,
+        department_id,
+        semester_id,
+        start_at,
+        end_at,
+        last_command_id
+      )
+      VALUES (
+        ${admissionPeriodId},
+        ${departmentId},
+        ${semesterId},
+        '2031-09-01T00:00:00.000Z',
+        '2031-10-01T00:00:00.000Z',
+        ${`${fixtureId}-period-created`}
+      )
+    `;
+    yield* database`
+      INSERT INTO admission_period_fields_of_study (
+        field_of_study_id,
+        department_id,
+        name
+      )
+      VALUES (${`${fixtureId}-field`}, ${departmentId}, 'Computer Science')
+    `;
+    yield* database`
+      INSERT INTO admission_applicants (
+        applicant_id,
+        normalized_email,
+        email,
+        first_name,
+        last_name,
+        phone,
+        gender,
+        field_of_study_id,
+        year_of_study
+      )
+      VALUES (
+        ${applicantId},
+        ${`${fixtureId}@example.invalid`},
+        ${`${fixtureId}@example.invalid`},
+        'Ada',
+        'Applicant',
+        '90000000',
+        1,
+        ${`${fixtureId}-field`},
+        2
+      )
+    `;
+    yield* database`
+      INSERT INTO admission_applications (
+        application_id,
+        applicant_id,
+        admission_period_id,
+        department_id,
+        field_of_study_id,
+        year_of_study,
+        submitted_at
+      )
+      VALUES (
+        ${applicationId},
+        ${applicantId},
+        ${admissionPeriodId},
+        ${departmentId},
+        ${`${fixtureId}-field`},
+        2,
+        '2031-09-10T12:00:00.000Z'
+      )
+    `;
+    yield* database`
+      INSERT INTO organization_departments (
+        department_id,
+        name,
+        short_name,
+        email,
+        city
+      )
+      VALUES (
+        ${departmentId},
+        ${`Department ${fixtureId}`},
+        ${fixtureId.slice(0, 12)},
+        ${`${fixtureId}-department@example.invalid`},
+        'Bergen'
+      )
+    `;
+    yield* database`
+      INSERT INTO organization_teams (team_id, department_id, name)
+      VALUES (${`${fixtureId}-team`}, ${departmentId}, ${`Team ${fixtureId}`})
+    `;
+    yield* database`
+      INSERT INTO organization_memberships (
+        membership_id,
+        person_id,
+        team_id,
+        start_at,
+        position_id,
+        is_team_leader
+      )
+      VALUES
+        (
+          ${`${fixtureId}-leader-membership`},
+          ${leaderPersonId},
+          ${`${fixtureId}-team`},
+          '2031-01-01T00:00:00.000Z',
+          'leader',
+          TRUE
+        ),
+        (
+          ${`${fixtureId}-interviewer-membership`},
+          ${interviewerPersonId},
+          ${`${fixtureId}-team`},
+          '2031-01-01T00:00:00.000Z',
+          'assistant',
+          FALSE
+        )
+    `;
+    yield* database`
+      INSERT INTO person_profiles (person_id, first_name, last_name)
+      VALUES
+        (${leaderPersonId}, 'Lise', 'Leader'),
+        (${interviewerPersonId}, 'Ivar', 'Interviewer')
+    `;
+    yield* database`
+      INSERT INTO person_contact_profiles (person_id, email, phone)
+      VALUES (
+        ${interviewerPersonId},
+        ${`${fixtureId}-interviewer@example.invalid`},
+        '91111111'
+      )
+    `;
+    yield* database`
+      INSERT INTO recruitment_interview_schemas (
+        interview_schema_id,
+        name,
+        question_count
+      )
+      VALUES (${interviewSchemaId}, 'Standard interview', 8)
+    `;
+    yield* recruitment.assignApplicant(
+      {
+        commandId: RecruitmentAssignmentCommandId.make(`${fixtureId}-assignment-command`),
+        applicationId,
+        interviewerPersonId,
+        interviewSchemaId,
+      },
+      { actor, now, interviewId },
+    );
+
+    return {
+      actor,
+      now,
+      departmentId,
+      applicationId,
+      applicantId,
+      interviewerPersonId,
+      interviewId,
+      invitationId: RecruitmentInvitationId.make(`${fixtureId}-invitation`),
+      responseCapability: fixtureId.padEnd(43, "_").slice(0, 43),
+      command: {
+        commandId: RecruitmentScheduleCommandId.make(`${fixtureId}-schedule-command`),
+        interviewId,
+        expectedRevision: 0,
+        scheduledAt: "2031-09-20T10:00:00.000Z",
+        room: "A-101",
+        campus: "Main Campus",
+        mapLink: "https://maps.example.invalid/interview-room",
+        message: "Welcome to your interview.",
+      },
+    };
+  });
+
 afterAll(async () => {
   await runtime.dispose();
   await recruitmentRuntime.dispose();
@@ -101,10 +310,16 @@ describe("DatabaseTest", () => {
               'organization_teams',
               'organization_memberships',
               'person_profiles',
+              'person_contact_profiles',
               'recruitment_interview_schemas',
               'recruitment_interviews',
               'recruitment_assignment_command_receipts',
-              'recruitment_assignment_audit'
+              'recruitment_assignment_audit',
+              'recruitment_interview_schedules',
+              'recruitment_invitations',
+              'recruitment_schedule_command_receipts',
+              'recruitment_schedule_audit',
+              'recruitment_invitation_outbox'
             )
           ORDER BY table_name
         `;
@@ -117,7 +332,7 @@ describe("DatabaseTest", () => {
     );
 
     expect(evidence).toEqual({
-      revision: "10_native-recruitment-applicant-assignment",
+      revision: "11_native-recruitment-interview-scheduling",
       migrations: [
         { migration_id: 1, name: "receipt-authority" },
         { migration_id: 2, name: "admission-period-authority" },
@@ -129,6 +344,7 @@ describe("DatabaseTest", () => {
         { migration_id: 8, name: "organization-authority" },
         { migration_id: 9, name: "import-occurrence-authority" },
         { migration_id: 10, name: "native-recruitment-applicant-assignment" },
+        { migration_id: 11, name: "native-recruitment-interview-scheduling" },
       ],
       tables: [
         "admission_applications",
@@ -137,11 +353,17 @@ describe("DatabaseTest", () => {
         "organization_departments",
         "organization_memberships",
         "organization_teams",
+        "person_contact_profiles",
         "person_profiles",
         "recruitment_assignment_audit",
         "recruitment_assignment_command_receipts",
+        "recruitment_interview_schedules",
         "recruitment_interview_schemas",
         "recruitment_interviews",
+        "recruitment_invitation_outbox",
+        "recruitment_invitations",
+        "recruitment_schedule_audit",
+        "recruitment_schedule_command_receipts",
       ],
     });
   });
@@ -459,15 +681,20 @@ describe("DatabaseTest", () => {
       },
     ]);
     expect(evidence.assigned).toEqual({
-      observation: expect.objectContaining({
+      observation: {
         _tag: "ApplicantAssigned",
-        interview: expect.objectContaining({
+        commandId: "recruitment-command",
+        interview: {
           interviewId: "recruitment-interview",
           applicationId: "recruitment-application",
-          state: "NoContact",
+          departmentId: "recruitment-department",
+          interviewerPersonId: "recruitment-interviewer",
+          interviewSchemaId: "recruitment-schema",
+          assignedByPersonId: "recruitment-leader",
+          assignedAt: "2031-09-15T12:00:00.000Z",
           revision: 0,
-        }),
-      }),
+        },
+      },
       replayed: false,
     });
     expect(evidence.replayed).toEqual({
@@ -496,6 +723,594 @@ describe("DatabaseTest", () => {
     }
   });
 
+  it("projects and schedules Recruitment interviews atomically against PGlite", async () => {
+    const fixtureId = "scheduling-main";
+    const deliveredAt = "2031-09-15T12:05:00.000Z";
+    const gateway = makeRecordingNotificationGateway(deliveredAt);
+    const evidence = await recruitmentRuntime.runPromise(
+      Effect.gen(function* () {
+        const database = yield* Database;
+        const recruitment = yield* Recruitment;
+        const fixture = yield* seedSchedulingFixture(fixtureId);
+        const context = {
+          actor: fixture.actor,
+          now: fixture.now,
+          invitationId: fixture.invitationId,
+          responseCapability: fixture.responseCapability,
+        };
+        const before = yield* recruitment.readSchedulingBoard({
+          actor: fixture.actor,
+          now: fixture.now,
+        });
+        const accepted = yield* recruitment.scheduleInterview(fixture.command, context);
+        const replayed = yield* recruitment.scheduleInterview(fixture.command, context);
+        const conflictingReplay = yield* Effect.flip(
+          recruitment.scheduleInterview(
+            { ...fixture.command, room: "A-102" },
+            context,
+          ),
+        );
+        const pendingPersistence = yield* database<{
+          readonly schedules: string;
+          readonly invitations: string;
+          readonly receipts: string;
+          readonly audits: string;
+          readonly outbox: string;
+          readonly interviewRevision: string;
+        }>`
+          SELECT
+            (
+              SELECT count(*)::text
+              FROM recruitment_interview_schedules
+              WHERE interview_id = ${fixture.interviewId}
+            ) AS schedules,
+            (
+              SELECT count(*)::text
+              FROM recruitment_invitations
+              WHERE interview_id = ${fixture.interviewId}
+            ) AS invitations,
+            (
+              SELECT count(*)::text
+              FROM recruitment_schedule_command_receipts
+              WHERE interview_id = ${fixture.interviewId}
+            ) AS receipts,
+            (
+              SELECT count(*)::text
+              FROM recruitment_schedule_audit
+              WHERE interview_id = ${fixture.interviewId}
+            ) AS audits,
+            (
+              SELECT count(*)::text
+              FROM recruitment_invitation_outbox
+              WHERE interview_id = ${fixture.interviewId}
+            ) AS outbox,
+            (
+              SELECT revision::text
+              FROM recruitment_interviews
+              WHERE interview_id = ${fixture.interviewId}
+            ) AS "interviewRevision"
+        `;
+        const pendingBoard = yield* recruitment.readSchedulingBoard({
+          actor: fixture.actor,
+          now: fixture.now,
+        });
+        const delivery = yield* deliverNextRecruitmentInvitation(
+          `${fixtureId}-claim`,
+          "2031-09-15T12:04:00.000Z",
+        ).pipe(Effect.provide(gateway.layer));
+        const deliveredBoard = yield* recruitment.readSchedulingBoard({
+          actor: fixture.actor,
+          now: fixture.now,
+        });
+        const deliveredOutbox = yield* database<{
+          readonly status: string;
+          readonly attempts: number;
+          readonly payload: string;
+          readonly deliveredAt: string | null;
+        }>`
+          SELECT
+            status,
+            attempts,
+            payload_json::text AS payload,
+            CASE WHEN delivered_at IS NULL THEN NULL
+              ELSE to_char(
+                delivered_at AT TIME ZONE 'UTC',
+                'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'
+              )
+            END AS "deliveredAt"
+          FROM recruitment_invitation_outbox
+          WHERE command_id = ${fixture.command.commandId}
+        `;
+        return {
+          before,
+          accepted,
+          replayed,
+          conflictingReplay,
+          pendingPersistence,
+          pendingBoard,
+          delivery,
+          deliveredBoard,
+          deliveredOutbox,
+        };
+      }),
+    );
+
+    expect(evidence.before).toEqual({
+      departmentId: `${fixtureId}-department`,
+      interviews: [
+        {
+          interviewId: `${fixtureId}-interview`,
+          applicationId: `${fixtureId}-application`,
+          departmentId: `${fixtureId}-department`,
+          interviewer: {
+            personId: `${fixtureId}-interviewer`,
+            displayName: "Ivar Interviewer",
+            email: `${fixtureId}-interviewer@example.invalid`,
+            phone: "91111111",
+          },
+          applicant: {
+            applicationId: `${fixtureId}-application`,
+            applicantId: `${fixtureId}-applicant`,
+            firstName: "Ada",
+            lastName: "Applicant",
+            email: `${fixtureId}@example.invalid`,
+            phone: "90000000",
+          },
+          revision: 0,
+          schedule: null,
+          responseState: null,
+          notificationState: null,
+        },
+      ],
+    });
+    expect(evidence.accepted).toEqual({
+      observation: {
+        _tag: "InterviewScheduled",
+        commandId: `${fixtureId}-schedule-command`,
+        interviewId: `${fixtureId}-interview`,
+        schedule: {
+          interviewId: `${fixtureId}-interview`,
+          scheduledAt: "2031-09-20T10:00:00.000Z",
+          room: "A-101",
+          campus: "Main Campus",
+          mapLink: "https://maps.example.invalid/interview-room",
+          message: "Welcome to your interview.",
+          scheduledByPersonId: `${fixtureId}-leader`,
+          committedAt: "2031-09-15T12:00:00.000Z",
+          scheduleRevision: 1,
+        },
+        interviewRevision: 1,
+        responseState: "Pending",
+        notificationState: "Pending",
+      },
+      replayed: false,
+    });
+    expect(evidence.replayed).toEqual({
+      observation: evidence.accepted.observation,
+      replayed: true,
+    });
+    expect(evidence.conflictingReplay._tag).toBe("RecruitmentScheduleCommandConflict");
+    expect(evidence.pendingPersistence).toEqual([
+      {
+        schedules: "1",
+        invitations: "1",
+        receipts: "1",
+        audits: "1",
+        outbox: "1",
+        interviewRevision: "1",
+      },
+    ]);
+    expect(evidence.pendingBoard.interviews).toEqual([
+      expect.objectContaining({
+        interviewId: `${fixtureId}-interview`,
+        revision: 1,
+        schedule: evidence.accepted.observation.schedule,
+        responseState: "Pending",
+        notificationState: "Pending",
+      }),
+    ]);
+    expect(evidence.delivery._tag).toBe("Delivered");
+    expect(gateway.requests).toEqual([
+      expect.objectContaining({
+        _tag: "SendInterviewInvitation",
+        commandId: `${fixtureId}-schedule-command`,
+        interviewId: `${fixtureId}-interview`,
+        invitationId: `${fixtureId}-invitation`,
+        scheduleRevision: 1,
+        applicantEmail: `${fixtureId}@example.invalid`,
+        applicantPhone: "90000000",
+        interviewerDisplayName: "Ivar Interviewer",
+        interviewerEmail: `${fixtureId}-interviewer@example.invalid`,
+        interviewerPhone: "91111111",
+        scheduledAt: "2031-09-20T10:00:00.000Z",
+        room: "A-101",
+        responseCapability: fixtureId.padEnd(43, "_").slice(0, 43),
+      }),
+    ]);
+    expect(evidence.deliveredOutbox).toEqual([
+      {
+        status: "Delivered",
+        attempts: 1,
+        payload: "{}",
+        deliveredAt,
+      },
+    ]);
+    expect(evidence.deliveredBoard.interviews[0]).toEqual(
+      expect.objectContaining({
+        interviewId: `${fixtureId}-interview`,
+        responseState: "Pending",
+        notificationState: "Delivered",
+      }),
+    );
+  });
+
+  it("quarantines a poison invitation and keeps a later Pending invitation eligible", async () => {
+    const firstFixtureId = "scheduling-poison-first";
+    const laterFixtureId = "scheduling-poison-later";
+    const gateway = makeRecordingNotificationGateway("2031-09-15T12:04:00.000Z");
+    const evidence = await recruitmentRuntime.runPromise(
+      Effect.gen(function* () {
+        const database = yield* Database;
+        const recruitment = yield* Recruitment;
+        const first = yield* seedSchedulingFixture(firstFixtureId);
+        const later = yield* seedSchedulingFixture(laterFixtureId);
+        yield* recruitment.scheduleInterview(first.command, {
+          actor: first.actor,
+          now: first.now,
+          invitationId: first.invitationId,
+          responseCapability: first.responseCapability,
+        });
+        yield* recruitment.scheduleInterview(later.command, {
+          actor: later.actor,
+          now: "2031-09-15T12:01:00.000Z",
+          invitationId: later.invitationId,
+          responseCapability: later.responseCapability,
+        });
+        yield* database`
+          UPDATE recruitment_invitation_outbox
+          SET payload_json = '{"_tag":"Poison"}'::jsonb
+          WHERE command_id = ${first.command.commandId}
+        `;
+        const quarantinePass = yield* deliverNextRecruitmentInvitation(
+          "scheduling-poison-claim",
+          "2031-09-15T12:02:00.000Z",
+        ).pipe(Effect.provide(gateway.layer));
+        const requestsAfterQuarantine = gateway.requests.length;
+        const afterQuarantine = yield* database<{
+          readonly commandId: string;
+          readonly status: string;
+          readonly attempts: number;
+          readonly payloadScrubbed: boolean;
+          readonly lastFailureTag: string | null;
+        }>`
+          SELECT
+            command_id AS "commandId",
+            status,
+            attempts,
+            payload_json = '{}'::jsonb AS "payloadScrubbed",
+            last_failure_tag AS "lastFailureTag"
+          FROM recruitment_invitation_outbox
+          WHERE command_id IN (
+            ${first.command.commandId},
+            ${later.command.commandId}
+          )
+          ORDER BY CASE
+            WHEN command_id = ${first.command.commandId} THEN 0
+            ELSE 1
+          END
+        `;
+        const continuedPass = yield* deliverNextRecruitmentInvitation(
+          "scheduling-later-claim",
+          "2031-09-15T12:03:00.000Z",
+        ).pipe(Effect.provide(gateway.layer));
+        const finalRows = yield* database<{
+          readonly commandId: string;
+          readonly status: string;
+          readonly attempts: number;
+          readonly payloadScrubbed: boolean;
+          readonly lastFailureTag: string | null;
+        }>`
+          SELECT
+            command_id AS "commandId",
+            status,
+            attempts,
+            payload_json = '{}'::jsonb AS "payloadScrubbed",
+            last_failure_tag AS "lastFailureTag"
+          FROM recruitment_invitation_outbox
+          WHERE command_id IN (
+            ${first.command.commandId},
+            ${later.command.commandId}
+          )
+          ORDER BY CASE
+            WHEN command_id = ${first.command.commandId} THEN 0
+            ELSE 1
+          END
+        `;
+        return {
+          quarantinePass,
+          requestsAfterQuarantine,
+          afterQuarantine,
+          continuedPass,
+          finalRows,
+        };
+      }),
+    );
+
+    expect(evidence.quarantinePass).toEqual({ _tag: "Idle" });
+    expect(evidence.requestsAfterQuarantine).toBe(0);
+    expect(evidence.afterQuarantine).toEqual([
+      {
+        commandId: `${firstFixtureId}-schedule-command`,
+        status: "Quarantined",
+        attempts: 1,
+        payloadScrubbed: true,
+        lastFailureTag: "RecruitmentDecodeError",
+      },
+      {
+        commandId: `${laterFixtureId}-schedule-command`,
+        status: "Pending",
+        attempts: 0,
+        payloadScrubbed: false,
+        lastFailureTag: null,
+      },
+    ]);
+    expect(evidence.continuedPass._tag).toBe("Delivered");
+    expect(gateway.requests).toHaveLength(1);
+    expect(gateway.requests[0]?.commandId).toBe(`${laterFixtureId}-schedule-command`);
+    expect(evidence.finalRows).toEqual([
+      {
+        commandId: `${firstFixtureId}-schedule-command`,
+        status: "Quarantined",
+        attempts: 1,
+        payloadScrubbed: true,
+        lastFailureTag: "RecruitmentDecodeError",
+      },
+      {
+        commandId: `${laterFixtureId}-schedule-command`,
+        status: "Delivered",
+        attempts: 1,
+        payloadScrubbed: true,
+        lastFailureTag: null,
+      },
+    ]);
+  });
+
+  it("rolls back failed schedules and leaves stale or already-scheduled interviews unchanged", async () => {
+    const evidence = await recruitmentRuntime.runPromise(
+      Effect.gen(function* () {
+        const database = yield* Database;
+        const recruitment = yield* Recruitment;
+        const readScheduleWrites = (interviewId: string) =>
+          database<{
+            readonly revision: string;
+            readonly schedules: string;
+            readonly invitations: string;
+            readonly receipts: string;
+            readonly audits: string;
+            readonly outbox: string;
+          }>`
+            SELECT
+              (
+                SELECT revision::text
+                FROM recruitment_interviews
+                WHERE interview_id = ${interviewId}
+              ) AS revision,
+              (
+                SELECT count(*)::text
+                FROM recruitment_interview_schedules
+                WHERE interview_id = ${interviewId}
+              ) AS schedules,
+              (
+                SELECT count(*)::text
+                FROM recruitment_invitations
+                WHERE interview_id = ${interviewId}
+              ) AS invitations,
+              (
+                SELECT count(*)::text
+                FROM recruitment_schedule_command_receipts
+                WHERE interview_id = ${interviewId}
+              ) AS receipts,
+              (
+                SELECT count(*)::text
+                FROM recruitment_schedule_audit
+                WHERE interview_id = ${interviewId}
+              ) AS audits,
+              (
+                SELECT count(*)::text
+                FROM recruitment_invitation_outbox
+                WHERE interview_id = ${interviewId}
+              ) AS outbox
+          `;
+
+        const staleFixture = yield* seedSchedulingFixture("scheduling-stale");
+        const staleFailure = yield* Effect.flip(
+          recruitment.scheduleInterview(
+            { ...staleFixture.command, expectedRevision: 1 },
+            {
+              actor: staleFixture.actor,
+              now: staleFixture.now,
+              invitationId: staleFixture.invitationId,
+              responseCapability: staleFixture.responseCapability,
+            },
+          ),
+        );
+        const staleWrites = yield* readScheduleWrites(staleFixture.interviewId);
+
+        const scheduledFixture = yield* seedSchedulingFixture("scheduling-already");
+        yield* recruitment.scheduleInterview(scheduledFixture.command, {
+          actor: scheduledFixture.actor,
+          now: scheduledFixture.now,
+          invitationId: scheduledFixture.invitationId,
+          responseCapability: scheduledFixture.responseCapability,
+        });
+        const beforeAlreadyScheduled = yield* readScheduleWrites(scheduledFixture.interviewId);
+        const alreadyScheduledFailure = yield* Effect.flip(
+          recruitment.scheduleInterview(
+            {
+              ...scheduledFixture.command,
+              commandId: RecruitmentScheduleCommandId.make(
+                "scheduling-already-second-schedule-command",
+              ),
+              expectedRevision: 1,
+            },
+            {
+              actor: scheduledFixture.actor,
+              now: scheduledFixture.now,
+              invitationId: RecruitmentInvitationId.make(
+                "scheduling-already-second-invitation",
+              ),
+              responseCapability: "scheduling-already-second".padEnd(43, "_"),
+            },
+          ),
+        );
+        const afterAlreadyScheduled = yield* readScheduleWrites(scheduledFixture.interviewId);
+
+        const rollbackFixture = yield* seedSchedulingFixture("scheduling-rollback");
+        const rollbackFailure = yield* Effect.flip(
+          recruitment.scheduleInterview(rollbackFixture.command, {
+            actor: rollbackFixture.actor,
+            now: rollbackFixture.now,
+            invitationId: scheduledFixture.invitationId,
+            responseCapability: rollbackFixture.responseCapability,
+          }),
+        );
+        const rollbackWrites = yield* readScheduleWrites(rollbackFixture.interviewId);
+        return {
+          staleFailure,
+          staleWrites,
+          alreadyScheduledFailure,
+          beforeAlreadyScheduled,
+          afterAlreadyScheduled,
+          rollbackFailure,
+          rollbackWrites,
+        };
+      }),
+    );
+
+    expect(evidence.staleFailure).toMatchObject({
+      _tag: "RecruitmentInterviewStaleRevision",
+      interviewId: "scheduling-stale-interview",
+      expectedRevision: 1,
+      actualRevision: 0,
+    });
+    expect(evidence.staleWrites).toEqual([
+      {
+        revision: "0",
+        schedules: "0",
+        invitations: "0",
+        receipts: "0",
+        audits: "0",
+        outbox: "0",
+      },
+    ]);
+    expect(evidence.alreadyScheduledFailure).toMatchObject({
+      _tag: "RecruitmentInterviewAlreadyScheduled",
+      interviewId: "scheduling-already-interview",
+    });
+    expect(evidence.beforeAlreadyScheduled).toEqual([
+      {
+        revision: "1",
+        schedules: "1",
+        invitations: "1",
+        receipts: "1",
+        audits: "1",
+        outbox: "1",
+      },
+    ]);
+    expect(evidence.afterAlreadyScheduled).toEqual(evidence.beforeAlreadyScheduled);
+    expect(evidence.rollbackFailure._tag).toBe("RecruitmentPersistenceError");
+    expect(evidence.rollbackWrites).toEqual([
+      {
+        revision: "0",
+        schedules: "0",
+        invitations: "0",
+        receipts: "0",
+        audits: "0",
+        outbox: "0",
+      },
+    ]);
+  });
+
+  it("enforces scheduling map and contact-email relational constraints", async () => {
+    const fixtureId = "scheduling-constraints";
+    const evidence = await recruitmentRuntime.runPromise(
+      Effect.gen(function* () {
+        const database = yield* Database;
+        const fixture = yield* seedSchedulingFixture(fixtureId);
+        const invalidMap = yield* Effect.result(database`
+          INSERT INTO recruitment_interview_schedules (
+            interview_id,
+            scheduled_at,
+            room,
+            campus,
+            map_link,
+            message,
+            scheduled_by_person_id,
+            committed_at,
+            schedule_revision
+          )
+          VALUES (
+            ${fixture.interviewId},
+            '2031-09-20T10:00:00.000Z',
+            'A-101',
+            'Main Campus',
+            'http://maps.example.invalid/interview-room',
+            'Welcome to your interview.',
+            ${fixture.actor.personId},
+            ${fixture.now},
+            1
+          )
+        `);
+        const invalidEmail = yield* Effect.result(database`
+          UPDATE person_contact_profiles
+          SET email = 'not-an-email'
+          WHERE person_id = ${fixture.interviewerPersonId}
+        `);
+        const persisted = yield* database<{
+          readonly schedules: string;
+          readonly interviewRevision: string;
+          readonly interviewerEmail: string;
+        }>`
+          SELECT
+            (
+              SELECT count(*)::text
+              FROM recruitment_interview_schedules
+              WHERE interview_id = ${fixture.interviewId}
+            ) AS schedules,
+            (
+              SELECT revision::text
+              FROM recruitment_interviews
+              WHERE interview_id = ${fixture.interviewId}
+            ) AS "interviewRevision",
+            (
+              SELECT email
+              FROM person_contact_profiles
+              WHERE person_id = ${fixture.interviewerPersonId}
+            ) AS "interviewerEmail"
+        `;
+        return { invalidMap, invalidEmail, persisted };
+      }),
+    );
+
+    expect([evidence.invalidMap._tag, evidence.invalidEmail._tag]).toEqual([
+      "Failure",
+      "Failure",
+    ]);
+    if (evidence.invalidMap._tag === "Failure") {
+      expect(evidence.invalidMap.failure).toMatchObject({ _tag: "SqlError" });
+    }
+    if (evidence.invalidEmail._tag === "Failure") {
+      expect(evidence.invalidEmail.failure).toMatchObject({ _tag: "SqlError" });
+    }
+    expect(evidence.persisted).toEqual([
+      {
+        schedules: "0",
+        interviewRevision: "0",
+        interviewerEmail: `${fixtureId}-interviewer@example.invalid`,
+      },
+    ]);
+  });
+
   it("reuses one capability and reruns the manifest without duplicate migrations", async () => {
     const first = await runtime.runPromise(Database);
     await runtime.runPromise(Database.use((database) => database.migrate));
@@ -511,7 +1326,7 @@ describe("DatabaseTest", () => {
     );
 
     expect(second).toBe(first);
-    expect(rows).toEqual([{ migration_count: "10" }]);
+    expect(rows).toEqual([{ migration_count: "11" }]);
   });
 
   it("executes Admissions and Organization authority adapters against PGlite", async () => {
