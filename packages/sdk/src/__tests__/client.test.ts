@@ -90,27 +90,43 @@ describe("createClient", () => {
         status: 200,
         json: () =>
           Promise.resolve({
-            id: 1,
+            personId: "person-ada",
             firstName: "Ada",
             lastName: "Lovelace",
-            userName: "ada",
             email: "ada@example.invalid",
-            phone: null,
-            gender: null,
-            fieldOfStudy: null,
-            accountNumber: null,
-            role: "ROLE_USER",
-            profilePhoto: null,
+            phone: "+47 900 00 000",
+            role: "ROLE_TEAM_MEMBER",
+            nameRevision: 2,
+            contactRevision: 3,
           }),
       } as Response)
       .mockResolvedValueOnce({
         ok: true,
-        status: 204,
-        json: () => Promise.resolve({}),
+        status: 200,
+        json: () =>
+          Promise.resolve({
+            personId: "person-ada",
+            firstName: "Ada",
+            lastName: "Lovelace",
+            email: "ada@example.invalid",
+            phone: "+47 900 00 000",
+            role: "ROLE_TEAM_MEMBER",
+            nameRevision: 3,
+            contactRevision: 4,
+          }),
       } as Response)
 
     await client.me.profile()
-    await client.me.updateProfile({ firstName: "Ada" })
+    await client.me.updateProfile({
+      _tag: "UpdateOwnProfile",
+      commandId: "command-profile-update",
+      expectedNameRevision: 2,
+      expectedContactRevision: 3,
+      firstName: "Ada",
+      lastName: "Lovelace",
+      email: "ada@example.invalid",
+      phone: "+47 900 00 000",
+    })
 
     expect(fetch).toHaveBeenNthCalledWith(
       1,

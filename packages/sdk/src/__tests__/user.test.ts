@@ -3,22 +3,21 @@ import { Effect, Schema } from "effect"
 import { UserProfile } from "../schemas/user.js"
 
 describe("UserProfile", () => {
-  it("decodes a Symfony profile that omits nullable accountNumber", async () => {
+  it("decodes the exact native profile actor projection", async () => {
+    const expected = {
+      personId: "person-team-leader-0028",
+      firstName: "Teamleder",
+      lastName: "0028",
+      email: "recruitment-leader-0028@example.invalid",
+      phone: "+47 900 00 000",
+      role: "ROLE_TEAM_LEADER",
+      nameRevision: 4,
+      contactRevision: 6,
+    } as const
     const profile = await Effect.runPromise(
-      Schema.decodeUnknownEffect(UserProfile)({
-        id: 1,
-        firstName: "Teamleder",
-        lastName: "0028",
-        userName: "recruitment-leader-0028",
-        email: "recruitment-leader-0028@example.invalid",
-        phone: "00000000",
-        gender: 0,
-        fieldOfStudy: null,
-        role: "ROLE_TEAM_LEADER",
-        profilePhoto: "images/defaultProfile.png",
-      }),
+      Schema.decodeUnknownEffect(UserProfile)(expected),
     )
 
-    expect(profile.accountNumber).toBeNull()
+    expect(profile).toEqual(expected)
   })
 })
