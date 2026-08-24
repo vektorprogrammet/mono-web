@@ -57,6 +57,7 @@ export type PublicApplicationRejectionTag =
 export type ReceiptRejectionTag =
   | "UnauthenticatedActor"
   | "InactiveActor"
+  | "NotInScope"
   | "ReceiptOwnerDenied"
   | "ReceiptScopeDenied"
   | "ReceiptDecodeError"
@@ -189,6 +190,13 @@ export class InactiveActorError extends ReceiptRejectionError {
   constructor() {
     super("InactiveActor");
     this.name = "InactiveActorError";
+  }
+}
+
+export class NotInScopeError extends ReceiptRejectionError {
+  constructor() {
+    super("NotInScope");
+    this.name = "NotInScopeError";
   }
 }
 
@@ -750,6 +758,8 @@ export class UnauthenticatedActor extends Schema.TaggedError<UnauthenticatedActo
 
 export class InactiveActor extends Schema.TaggedError<InactiveActor>()("InactiveActor", {}) {}
 
+export class NotInScope extends Schema.TaggedError<NotInScope>()("NotInScope", {}) {}
+
 export class ReceiptOwnerDenied extends Schema.TaggedError<ReceiptOwnerDenied>()(
   "ReceiptOwnerDenied",
   {},
@@ -990,6 +1000,7 @@ export class PublicApplicationPersistenceError extends Schema.TaggedError<Public
 export type ReceiptFailure =
   | UnauthenticatedActor
   | InactiveActor
+  | NotInScope
   | ReceiptOwnerDenied
   | ReceiptScopeDenied
   | ReceiptDecodeError
@@ -1133,6 +1144,8 @@ export function toSdkError(error: InternalSdkError): SdkError {
       return new UnauthenticatedActorError();
     case "InactiveActor":
       return new InactiveActorError();
+    case "NotInScope":
+      return new NotInScopeError();
     case "ReceiptOwnerDenied":
       return new ReceiptOwnerDeniedError();
     case "ReceiptScopeDenied":

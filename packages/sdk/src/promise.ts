@@ -42,6 +42,7 @@ export {
   ReceiptRejectionError,
   UnauthenticatedActorError,
   InactiveActorError,
+  NotInScopeError,
   ReceiptOwnerDeniedError,
   ReceiptScopeDeniedError,
   ReceiptDecodeSdkError,

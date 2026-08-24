@@ -4,7 +4,13 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { ColumnDef } from "@tanstack/react-table";
 import { useLoaderData } from "react-router";
-import { isFixtureMode, UnauthorizedError, type DirectoryEntry } from "@vektorprogrammet/sdk";
+import {
+  InactiveActorError,
+  isFixtureMode,
+  NotInScopeError,
+  UnauthorizedError,
+  type DirectoryEntry,
+} from "@vektorprogrammet/sdk";
 import { expiredSessionRedirect, requireAuth } from "../lib/auth.server";
 import { createAuthenticatedClient } from "../lib/api.server";
 import type { Route } from "./+types/dashboard.brukere._index";
@@ -49,6 +55,9 @@ export async function loader({ request }: Route.LoaderArgs) {
   } catch (error) {
     if (error instanceof UnauthorizedError) {
       throw await expiredSessionRedirect(request);
+    }
+    if (error instanceof InactiveActorError || error instanceof NotInScopeError) {
+      return { users: null, error: "denied" as const };
     }
     console.error("brukere directory load failed", error);
     return { users: null, error: "unavailable" as const };
@@ -100,13 +109,18 @@ export default function Brukere() {
   const data = useLoaderData<typeof loader>();
   const activeUsers = data.users?.activeUsers ?? [];
   const inActiveUsers = data.users?.inactiveUsers ?? [];
-  const denied = !data.users;
+  const unavailable = "error" in data && data.error === "unavailable";
+  const denied = !data.users && !unavailable;
   return (
     <>
       <h1>Brukere</h1>
       <section className="flex w-full min-w-0 flex-col items-center ">
         <h1 className="mb-10 font-semibold text-2xl">Brukere</h1>
-        {denied ? (
+        {unavailable ? (
+          <p className="mb-6 text-center text-gray-600" role="alert">
+            Brukerlisten kunne ikke lastes. Prøv igjen senere.
+          </p>
+        ) : denied ? (
           <p className="mb-6 text-center text-gray-600" role="alert">
             Du har ikke tilgang til brukerlisten. Listen er bare tilgjengelig for aktive
             globaladministratorer og avdelingsledere.

@@ -16,6 +16,7 @@ import {
   Configuration,
   UnauthenticatedActor,
   InactiveActor,
+  NotInScope,
   ReceiptOwnerDenied,
   ReceiptScopeDenied,
   ReceiptDecodeError,
@@ -116,6 +117,8 @@ const receiptFailureFromBody = (body: unknown): InternalSdkError | undefined => 
       return new UnauthenticatedActor();
     case "InactiveActor":
       return new InactiveActor();
+    case "NotInScope":
+      return new NotInScope();
     case "ReceiptOwnerDenied":
       return new ReceiptOwnerDenied();
     case "ReceiptScopeDenied":

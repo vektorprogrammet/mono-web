@@ -12,7 +12,7 @@ import {
   DirectoryEntrySchema,
   createAdminUsersDomain,
 } from "../domains/admin/users.js";
-import { OrganizationDecodeError } from "../errors.js";
+import { NotInScope, NotInScopeError, OrganizationDecodeError, toSdkError } from "../errors.js";
 
 function run<A>(effect: Effect.Effect<A, any>): Promise<A> {
   return Effect.runPromise(effect);
@@ -152,5 +152,14 @@ describe("admin users list()", () => {
     const domain = createAdminUsersDomain(transport);
     const error = await runFail(domain.list());
     expect(error).toBeInstanceOf(OrganizationDecodeError);
+  });
+
+  it("preserves a typed NotInScope 403 through the Promise boundary", async () => {
+    mockFetch.mockResolvedValueOnce(makeFetchResponse(403, { error: { tag: "NotInScope" } }));
+    const transport = createTransport("http://api.test");
+    const domain = createAdminUsersDomain(transport);
+    const internal = await runFail(domain.list());
+    expect(internal).toBeInstanceOf(NotInScope);
+    expect(toSdkError(internal)).toBeInstanceOf(NotInScopeError);
   });
 });
