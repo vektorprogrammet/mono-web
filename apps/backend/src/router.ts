@@ -14,6 +14,7 @@ import {
   admissionActorForDepartment,
   organizationActorFrom,
   profileRoleFrom,
+  recruitmentBoardActorFrom,
   resolveAuthenticatedPerson,
   resolvePersonAuthority,
 } from "./authority.js";
@@ -154,7 +155,16 @@ export const makeBackendHttp = (
   });
   const recruitment = makeRecruitmentApiHttp({
     config: config.recruitment,
-    resolveActor: async (request) => resolveAdmissionActor(request),
+    // Spec 0055 §Recruitment actor: board queries use ALL authorized
+    // departments. One active-leader department selects its scope; ambiguity
+    // fails closed. GlobalAdmin never passes (domain rejects it downstream).
+    resolveActor: async (request) => {
+      const authority = await resolvePersonAuthority(
+        request.headers.get("cookie") ?? undefined,
+        { run },
+      );
+      return recruitmentBoardActorFrom(authority);
+    },
     run,
   });
   const organization = makeOrganizationApiHttp({

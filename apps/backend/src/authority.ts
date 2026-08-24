@@ -126,3 +126,33 @@ export const organizationActorFrom = (
 export const profileRoleFrom = (
   authority: OrganizationPersonAuthority,
 ): Decision<ProfileRole> => mapOrganizationAuthorityToProfileRole(authority);
+
+/**
+ * Board queries use ALL authorized departments (spec 0055 §Recruitment actor).
+ * A person with active memberships in exactly one department reads that
+ * department's board; a multi-department person must select a scope (the
+ * request cannot invent one), so the ambiguity fails closed until canonical
+ * request state carries a department selection.
+ * Global administrators are NOT recruiters: the domain checkContext rejects
+ * GlobalAdmin on recruitment routes, so no GlobalAdmin pass-through exists here.
+ */
+export const recruitmentBoardActorFrom = (
+  authority: OrganizationPersonAuthority,
+): RecruitmentActor => {
+  const departments = [
+    ...new Set(
+      authority.memberships
+        .filter((membership) => membership.active)
+        .map((membership) => membership.departmentId),
+    ),
+  ].sort();
+  if (departments.length === 1) {
+    return admissionActorForDepartment(authority, departments[0]!);
+  }
+  throw new UnauthenticatedActor({
+    message:
+      departments.length === 0
+        ? "no authorized recruitment department"
+        : `recruitment board requires one department selection; authorized departments: ${departments.join(", ")}`,
+  });
+};
