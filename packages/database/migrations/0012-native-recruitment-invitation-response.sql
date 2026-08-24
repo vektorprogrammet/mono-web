@@ -197,3 +197,151 @@ CREATE UNIQUE INDEX IF NOT EXISTS recruitment_invitation_response_outbox_active_
   WHERE claim_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS recruitment_invitation_response_outbox_pending_order
   ON recruitment_invitation_response_outbox (status, invitation_id, ordinal);
+
+CREATE OR REPLACE FUNCTION assert_recruitment_invitation_response_links(
+  target_invitation_id text
+) RETURNS void AS $$
+DECLARE
+  invitation_row recruitment_invitations%ROWTYPE;
+  matching_audit_count integer;
+  total_audit_count integer;
+  matching_outbox_count integer;
+  total_outbox_count integer;
+BEGIN
+  SELECT *
+  INTO invitation_row
+  FROM recruitment_invitations
+  WHERE invitation_id = target_invitation_id;
+
+  IF NOT FOUND THEN
+    RETURN;
+  END IF;
+
+  SELECT
+    count(*)::integer,
+    count(*) FILTER (
+      WHERE audit.interview_id = invitation_row.interview_id
+        AND audit.schedule_revision = invitation_row.schedule_revision
+        AND audit.response_revision = invitation_row.response_revision
+        AND audit.response_state = invitation_row.response_state
+        AND audit.response_message IS NOT DISTINCT FROM invitation_row.response_message
+        AND audit.responded_at = invitation_row.responded_at
+    )::integer
+  INTO total_audit_count, matching_audit_count
+  FROM recruitment_invitation_response_audit AS audit
+  WHERE audit.invitation_id = target_invitation_id;
+
+  SELECT
+    count(*)::integer,
+    count(*) FILTER (
+      WHERE outbox.interview_id = invitation_row.interview_id
+        AND outbox.schedule_revision = invitation_row.schedule_revision
+        AND outbox.response_revision = invitation_row.response_revision
+        AND outbox.response_state = invitation_row.response_state
+        AND outbox.response_message IS NOT DISTINCT FROM invitation_row.response_message
+    )::integer
+  INTO total_outbox_count, matching_outbox_count
+  FROM recruitment_invitation_response_outbox AS outbox
+  WHERE outbox.invitation_id = target_invitation_id;
+
+  IF invitation_row.response_state = 'Pending' THEN
+    IF total_audit_count <> 0 OR total_outbox_count <> 0 THEN
+      RAISE EXCEPTION 'Pending invitation response cannot have audit or outbox rows';
+    END IF;
+    RETURN;
+  END IF;
+
+  IF total_audit_count <> 1 OR matching_audit_count <> 1 THEN
+    RAISE EXCEPTION 'Invitation response requires one matching audit row';
+  END IF;
+
+  IF invitation_row.response_state = 'Accepted' THEN
+    IF total_outbox_count <> 0 THEN
+      RAISE EXCEPTION 'Accepted invitation response cannot have an outbox row';
+    END IF;
+  ELSIF total_outbox_count <> 1 OR matching_outbox_count <> 1 THEN
+    RAISE EXCEPTION 'Invitation response requires one matching outbox row';
+  END IF;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION enforce_recruitment_invitation_response_links()
+RETURNS trigger AS $$
+BEGIN
+  IF TG_OP = 'DELETE' THEN
+    PERFORM assert_recruitment_invitation_response_links(OLD.invitation_id);
+  ELSIF TG_OP = 'INSERT' THEN
+    PERFORM assert_recruitment_invitation_response_links(NEW.invitation_id);
+  ELSE
+    PERFORM assert_recruitment_invitation_response_links(OLD.invitation_id);
+    IF NEW.invitation_id IS DISTINCT FROM OLD.invitation_id THEN
+      PERFORM assert_recruitment_invitation_response_links(NEW.invitation_id);
+    END IF;
+  END IF;
+  RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS recruitment_invitations_response_links
+  ON recruitment_invitations;
+CREATE CONSTRAINT TRIGGER recruitment_invitations_response_links
+  AFTER INSERT OR UPDATE OR DELETE ON recruitment_invitations
+  DEFERRABLE INITIALLY DEFERRED
+  FOR EACH ROW
+  EXECUTE FUNCTION enforce_recruitment_invitation_response_links();
+
+DROP TRIGGER IF EXISTS recruitment_invitation_response_audit_links
+  ON recruitment_invitation_response_audit;
+CREATE CONSTRAINT TRIGGER recruitment_invitation_response_audit_links
+  AFTER INSERT OR UPDATE OR DELETE ON recruitment_invitation_response_audit
+  DEFERRABLE INITIALLY DEFERRED
+  FOR EACH ROW
+  EXECUTE FUNCTION enforce_recruitment_invitation_response_links();
+
+DROP TRIGGER IF EXISTS recruitment_invitation_response_outbox_links
+  ON recruitment_invitation_response_outbox;
+CREATE CONSTRAINT TRIGGER recruitment_invitation_response_outbox_links
+  AFTER INSERT OR UPDATE OR DELETE ON recruitment_invitation_response_outbox
+  DEFERRABLE INITIALLY DEFERRED
+  FOR EACH ROW
+  EXECUTE FUNCTION enforce_recruitment_invitation_response_links();
+
+CREATE OR REPLACE FUNCTION prevent_recruitment_invitation_response_audit_mutation()
+RETURNS trigger AS $$
+BEGIN
+  RAISE EXCEPTION 'Invitation response audit rows are immutable';
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS recruitment_invitation_response_audit_immutable
+  ON recruitment_invitation_response_audit;
+CREATE TRIGGER recruitment_invitation_response_audit_immutable
+  BEFORE UPDATE OR DELETE ON recruitment_invitation_response_audit
+  FOR EACH ROW
+  EXECUTE FUNCTION prevent_recruitment_invitation_response_audit_mutation();
+
+CREATE OR REPLACE FUNCTION preserve_recruitment_invitation_response_outbox_request()
+RETURNS trigger AS $$
+BEGIN
+  IF NEW.effect_id IS DISTINCT FROM OLD.effect_id
+    OR NEW.effect_type IS DISTINCT FROM OLD.effect_type
+    OR NEW.invitation_id IS DISTINCT FROM OLD.invitation_id
+    OR NEW.interview_id IS DISTINCT FROM OLD.interview_id
+    OR NEW.schedule_revision IS DISTINCT FROM OLD.schedule_revision
+    OR NEW.response_revision IS DISTINCT FROM OLD.response_revision
+    OR NEW.response_state IS DISTINCT FROM OLD.response_state
+    OR NEW.response_message IS DISTINCT FROM OLD.response_message
+    OR NEW.ordinal IS DISTINCT FROM OLD.ordinal
+  THEN
+    RAISE EXCEPTION 'Invitation response outbox request is immutable';
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS recruitment_invitation_response_outbox_request_immutable
+  ON recruitment_invitation_response_outbox;
+CREATE TRIGGER recruitment_invitation_response_outbox_request_immutable
+  BEFORE UPDATE ON recruitment_invitation_response_outbox
+  FOR EACH ROW
+  EXECUTE FUNCTION preserve_recruitment_invitation_response_outbox_request();

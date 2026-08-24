@@ -1458,6 +1458,200 @@ describe("DatabaseTest", () => {
     );
   });
 
+  it("rejects relationally incomplete invitation response commits", async () => {
+    const evidence = await recruitmentRuntime.runPromise(
+      Effect.gen(function* () {
+        const database = yield* Database;
+        const recruitment = yield* Recruitment;
+        const missingAuditFixture = yield* seedSchedulingFixture("response-link-missing-audit");
+        const missingOutboxFixture = yield* seedSchedulingFixture("response-link-missing-outbox");
+        const mismatchedOutboxFixture = yield* seedSchedulingFixture(
+          "response-link-mismatched-outbox",
+        );
+
+        for (const fixture of [
+          missingAuditFixture,
+          missingOutboxFixture,
+          mismatchedOutboxFixture,
+        ]) {
+          yield* recruitment.scheduleInterview(fixture.command, {
+            actor: fixture.actor,
+            now: fixture.now,
+            invitationId: fixture.invitationId,
+            responseCapability: fixture.responseCapability,
+          });
+        }
+
+        const missingAudit = yield* Effect.result(
+          database.withTransaction(
+            Effect.gen(function* () {
+              yield* database`
+                UPDATE recruitment_invitations
+                SET response_state = 'Accepted',
+                  response_message = NULL,
+                  responded_at = '2031-09-15T12:03:00.000Z',
+                  response_revision = 1
+                WHERE invitation_id = ${missingAuditFixture.invitationId}
+              `;
+              yield* database`SET CONSTRAINTS ALL IMMEDIATE`;
+            }),
+          ),
+        );
+        const missingOutbox = yield* Effect.result(
+          database.withTransaction(
+            Effect.gen(function* () {
+              yield* database`
+                UPDATE recruitment_invitations
+                SET response_state = 'Rejected',
+                  response_message = NULL,
+                  responded_at = '2031-09-15T12:03:00.000Z',
+                  response_revision = 1
+                WHERE invitation_id = ${missingOutboxFixture.invitationId}
+              `;
+              yield* database`
+                INSERT INTO recruitment_invitation_response_audit (
+                  invitation_id,
+                  interview_id,
+                  schedule_revision,
+                  response_revision,
+                  response_state,
+                  response_message,
+                  responded_at
+                ) VALUES (
+                  ${missingOutboxFixture.invitationId},
+                  ${missingOutboxFixture.interviewId},
+                  1,
+                  1,
+                  'Rejected',
+                  NULL,
+                  '2031-09-15T12:03:00.000Z'
+                )
+              `;
+              yield* database`SET CONSTRAINTS ALL IMMEDIATE`;
+            }),
+          ),
+        );
+        const mismatchedOutbox = yield* Effect.result(
+          database.withTransaction(
+            Effect.gen(function* () {
+              yield* database`
+                UPDATE recruitment_invitations
+                SET response_state = 'Rejected',
+                  response_message = NULL,
+                  responded_at = '2031-09-15T12:03:00.000Z',
+                  response_revision = 1
+                WHERE invitation_id = ${mismatchedOutboxFixture.invitationId}
+              `;
+              yield* database`
+                INSERT INTO recruitment_invitation_response_audit (
+                  invitation_id,
+                  interview_id,
+                  schedule_revision,
+                  response_revision,
+                  response_state,
+                  response_message,
+                  responded_at
+                ) VALUES (
+                  ${mismatchedOutboxFixture.invitationId},
+                  ${mismatchedOutboxFixture.interviewId},
+                  1,
+                  1,
+                  'Rejected',
+                  NULL,
+                  '2031-09-15T12:03:00.000Z'
+                )
+              `;
+              yield* database`
+                INSERT INTO recruitment_invitation_response_outbox (
+                  effect_id,
+                  effect_type,
+                  invitation_id,
+                  interview_id,
+                  schedule_revision,
+                  response_revision,
+                  response_state,
+                  response_message,
+                  ordinal,
+                  payload_json
+                ) VALUES (
+                  ${`recruitment-invitation-response:${mismatchedOutboxFixture.invitationId}:1`},
+                  'SendInterviewInvitationResponse',
+                  ${mismatchedOutboxFixture.invitationId},
+                  ${mismatchedOutboxFixture.interviewId},
+                  1,
+                  1,
+                  'Rejected',
+                  'Different message',
+                  0,
+                  '{}'::jsonb
+                )
+              `;
+              yield* database`SET CONSTRAINTS ALL IMMEDIATE`;
+            }),
+          ),
+        );
+        const rows = yield* database<{
+          readonly invitationId: string;
+          readonly responseState: string;
+          readonly responseRevision: number;
+          readonly audits: string;
+          readonly outbox: string;
+        }>`
+          SELECT
+            invitation.invitation_id AS "invitationId",
+            invitation.response_state AS "responseState",
+            invitation.response_revision AS "responseRevision",
+            (
+              SELECT count(*)::text
+              FROM recruitment_invitation_response_audit
+              WHERE invitation_id = invitation.invitation_id
+            ) AS audits,
+            (
+              SELECT count(*)::text
+              FROM recruitment_invitation_response_outbox
+              WHERE invitation_id = invitation.invitation_id
+            ) AS outbox
+          FROM recruitment_invitations AS invitation
+          WHERE invitation.invitation_id IN (
+            ${missingAuditFixture.invitationId},
+            ${missingOutboxFixture.invitationId},
+            ${mismatchedOutboxFixture.invitationId}
+          )
+          ORDER BY invitation.invitation_id
+        `;
+        return {
+          failures: [missingAudit, missingOutbox, mismatchedOutbox].map((result) => result._tag),
+          rows,
+        };
+      }),
+    );
+
+    expect(evidence.failures).toEqual(["Failure", "Failure", "Failure"]);
+    expect(evidence.rows).toEqual([
+      {
+        invitationId: "response-link-mismatched-outbox-invitation",
+        responseState: "Pending",
+        responseRevision: 0,
+        audits: "0",
+        outbox: "0",
+      },
+      {
+        invitationId: "response-link-missing-audit-invitation",
+        responseState: "Pending",
+        responseRevision: 0,
+        audits: "0",
+        outbox: "0",
+      },
+      {
+        invitationId: "response-link-missing-outbox-invitation",
+        responseState: "Pending",
+        responseRevision: 0,
+        audits: "0",
+        outbox: "0",
+      },
+    ]);
+  });
+
   it("isolates unknown and superseded capabilities and keeps one response winner", async () => {
     const evidence = await recruitmentRuntime.runPromise(
       Effect.gen(function* () {
