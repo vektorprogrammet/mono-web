@@ -9,6 +9,7 @@ import type {
   OrganizationActor,
 } from "./administration-schema.js";
 import type { OrganizationAuthorityInstant, OrganizationPersonAuthority } from "./authority.js";
+import type { OrganizationDirectoryFacts } from "./directory.js";
 import type {
   DepartmentNotFound,
   MembershipInvalidInterval,
@@ -90,6 +91,14 @@ export interface OrganizationShape {
     authorizationInstant: OrganizationAuthorityInstant,
   ) => Effect.Effect<
     OrganizationPersonAuthority,
+    OrganizationDecodeError | OrganizationPersistenceError
+  >;
+  /** Spec 0057: per-person directory facts at one authorizationInstant. */
+  readonly deriveDirectoryFacts: (
+    personIds: ReadonlyArray<PersonId>,
+    authorizationInstant: OrganizationAuthorityInstant,
+  ) => Effect.Effect<
+    OrganizationDirectoryFacts,
     OrganizationDecodeError | OrganizationPersistenceError
   >;
   readonly reviseMembership: (
