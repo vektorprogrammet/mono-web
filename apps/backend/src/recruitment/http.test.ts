@@ -1,11 +1,18 @@
 import {
+  Recruitment,
   RecruitmentInterviewId,
   RecruitmentInvitationId,
+  RecruitmentInvitationResponseObservationSchema,
+  type RecruitmentShape,
 } from "@vektorprogrammet/domain/recruitment";
 import { DepartmentId, PersonId } from "@vektorprogrammet/domain/organization";
+import { Effect, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import type { RecruitmentApiConfig } from "./config.js";
-import { makeRecruitmentApiHttp } from "./http.js";
+import {
+  makeRecruitmentApiHttp,
+  type RecruitmentApiHttpOptions,
+} from "./http.js";
 
 const token = "recruitment-token";
 const config: RecruitmentApiConfig = {
@@ -29,6 +36,20 @@ const config: RecruitmentApiConfig = {
   nextResponseCapability: () => "A".repeat(43),
 };
 
+const invitationCapability = "A".repeat(43);
+const invitationHeaders = {
+  "X-Recruitment-Invitation-Capability": invitationCapability,
+};
+const invitationObservation = Schema.decodeUnknownSync(
+  RecruitmentInvitationResponseObservationSchema,
+)({
+  scheduledAt: "2031-09-20T10:00:00.000Z",
+  room: "A101",
+  campus: "Gløshaugen",
+  responseState: "Pending",
+  responseMessage: null,
+});
+
 const backend = makeRecruitmentApiHttp({
   config,
   run: async <A>(): Promise<A> => undefined as A,
@@ -36,6 +57,61 @@ const backend = makeRecruitmentApiHttp({
 
 const request = (path: string, init?: RequestInit): Promise<Response> =>
   backend.fetch(new Request(`http://backend.test${path}`, init));
+
+const makePublicBackend = () => {
+  const calls: Array<{
+    readonly operation: string;
+    readonly arguments: ReadonlyArray<unknown>;
+  }> = [];
+  const recruitment: RecruitmentShape = {
+    readAssignmentBoard: () => Effect.die("unexpected staff method"),
+    assignApplicant: () => Effect.die("unexpected staff method"),
+    readSchedulingBoard: () => Effect.die("unexpected staff method"),
+    scheduleInterview: () => Effect.die("unexpected staff method"),
+    readInvitationResponse: (capability) =>
+      Effect.sync(() => {
+        calls.push({
+          operation: "readInvitationResponse",
+          arguments: [capability],
+        });
+        return invitationObservation;
+      }),
+    confirmInvitation: (capability, context) =>
+      Effect.sync(() => {
+        calls.push({
+          operation: "confirmInvitation",
+          arguments: [capability, context],
+        });
+        return undefined as never;
+      }),
+    rejectInvitation: (capability, input, context) =>
+      Effect.sync(() => {
+        calls.push({
+          operation: "rejectInvitation",
+          arguments: [capability, input, context],
+        });
+        return undefined as never;
+      }),
+    requestNewInvitationTime: (capability, input, context) =>
+      Effect.sync(() => {
+        calls.push({
+          operation: "requestNewInvitationTime",
+          arguments: [capability, input, context],
+        });
+        return undefined as never;
+      }),
+  };
+  const run = ((
+    effect: Effect.Effect<unknown, unknown, Recruitment>,
+  ): Promise<unknown> =>
+    Effect.runPromise(
+      effect.pipe(Effect.provideService(Recruitment, recruitment)),
+    )) as RecruitmentApiHttpOptions["run"];
+  return {
+    calls,
+    backend: makeRecruitmentApiHttp({ config, run }),
+  };
+};
 
 describe("native recruitment HTTP boundary", () => {
   it("requires the exact board status query and credentials", async () => {
@@ -45,6 +121,305 @@ describe("native recruitment HTTP boundary", () => {
     expect(missingStatus.status).toBe(422);
     expect(missingCredentials.status).toBe(401);
     expect(missingCredentials.headers.get("cache-control")).toBe("no-store");
+  });
+
+  it("serves all public invitation routes without an Identity token", async () => {
+    const { backend: publicBackend, calls } = makePublicBackend();
+    const publicRequest = (
+      path: string,
+      init?: RequestInit,
+    ): Promise<Response> =>
+      publicBackend.fetch(
+        new Request(`http://backend.test${path}`, init),
+      );
+
+    const read = await publicRequest(
+      "/api/recruitment/invitation-response",
+      { headers: invitationHeaders },
+    );
+    const confirm = await publicRequest(
+      "/api/recruitment/invitation-response/confirm",
+      {
+        method: "POST",
+        headers: {
+          ...invitationHeaders,
+          "content-type": "application/json",
+        },
+        body: "{}",
+      },
+    );
+    const reject = await publicRequest(
+      "/api/recruitment/invitation-response/reject",
+      {
+        method: "POST",
+        headers: {
+          ...invitationHeaders,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ message: "  I cannot attend  " }),
+      },
+    );
+    const rejectWithoutMessage = await publicRequest(
+      "/api/recruitment/invitation-response/reject",
+      {
+        method: "POST",
+        headers: {
+          ...invitationHeaders,
+          "content-type": "application/json",
+        },
+        body: "{}",
+      },
+    );
+    const rejectBlankMessage = await publicRequest(
+      "/api/recruitment/invitation-response/reject",
+      {
+        method: "POST",
+        headers: {
+          ...invitationHeaders,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ message: "   " }),
+      },
+    );
+    const requestNewTime = await publicRequest(
+      "/api/recruitment/invitation-response/request-new-time",
+      {
+        method: "POST",
+        headers: {
+          ...invitationHeaders,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ message: "  Could we meet Thursday?  " }),
+      },
+    );
+
+    const readPayload = await read.text();
+    expect({
+      status: read.status,
+      body: JSON.parse(readPayload) as unknown,
+    }).toEqual({ status: 200, body: invitationObservation });
+    const commandPayloads: string[] = [];
+    for (const response of [
+      confirm,
+      reject,
+      rejectWithoutMessage,
+      rejectBlankMessage,
+      requestNewTime,
+    ]) {
+      commandPayloads.push(await response.text());
+      expect(response.status).toBe(204);
+      expect(commandPayloads.at(-1)).toBe("");
+      expect(response.headers.get("content-type")).toBeNull();
+      expect(response.headers.get("cache-control")).toBe("no-store");
+    }
+    const returnedPayloads = [readPayload, ...commandPayloads].join("");
+    expect(returnedPayloads).not.toContain(invitationCapability);
+    expect(returnedPayloads).not.toContain("/api/interview-responses");
+    expect(calls).toEqual([
+      {
+        operation: "readInvitationResponse",
+        arguments: [invitationCapability],
+      },
+      {
+        operation: "confirmInvitation",
+        arguments: [
+          invitationCapability,
+          { now: "2031-09-15T12:00:00.000Z" },
+        ],
+      },
+      {
+        operation: "rejectInvitation",
+        arguments: [
+          invitationCapability,
+          { message: "I cannot attend" },
+          { now: "2031-09-15T12:00:00.000Z" },
+        ],
+      },
+      {
+        operation: "rejectInvitation",
+        arguments: [
+          invitationCapability,
+          {},
+          { now: "2031-09-15T12:00:00.000Z" },
+        ],
+      },
+      {
+        operation: "rejectInvitation",
+        arguments: [
+          invitationCapability,
+          {},
+          { now: "2031-09-15T12:00:00.000Z" },
+        ],
+      },
+      {
+        operation: "requestNewInvitationTime",
+        arguments: [
+          invitationCapability,
+          { message: "Could we meet Thursday?" },
+          { now: "2031-09-15T12:00:00.000Z" },
+        ],
+      },
+    ]);
+  });
+
+  it("strictly rejects malformed public headers, queries, and bodies before Recruitment", async () => {
+    const { backend: publicBackend, calls } = makePublicBackend();
+    const publicRequest = (
+      path: string,
+      init?: RequestInit,
+    ): Promise<Response> =>
+      publicBackend.fetch(
+        new Request(`http://backend.test${path}`, init),
+      );
+    const jsonHeaders = {
+      ...invitationHeaders,
+      "content-type": "application/json",
+    };
+    const capabilityResponses = await Promise.all([
+      publicRequest("/api/recruitment/invitation-response"),
+      publicRequest("/api/recruitment/invitation-response", {
+        headers: {
+          "X-Recruitment-Invitation-Capability": "A".repeat(42),
+        },
+      }),
+    ]);
+    const decodeResponses = await Promise.all([
+      publicRequest(
+        "/api/recruitment/invitation-response?unexpected=true",
+        { headers: invitationHeaders },
+      ),
+      publicRequest(
+        "/api/recruitment/invitation-response/confirm",
+        {
+          method: "POST",
+          headers: jsonHeaders,
+          body: JSON.stringify({ unexpected: true }),
+        },
+      ),
+      publicRequest(
+        "/api/recruitment/invitation-response/reject",
+        {
+          method: "POST",
+          headers: jsonHeaders,
+          body: JSON.stringify({ message: null }),
+        },
+      ),
+      publicRequest(
+        "/api/recruitment/invitation-response/reject",
+        {
+          method: "POST",
+          headers: jsonHeaders,
+          body: JSON.stringify({
+            message: "Cannot attend",
+            unexpected: true,
+          }),
+        },
+      ),
+      publicRequest(
+        "/api/recruitment/invitation-response/request-new-time",
+        {
+          method: "POST",
+          headers: jsonHeaders,
+          body: JSON.stringify({}),
+        },
+      ),
+      publicRequest(
+        "/api/recruitment/invitation-response/request-new-time",
+        {
+          method: "POST",
+          headers: jsonHeaders,
+          body: JSON.stringify({
+            message: "Thursday",
+            unexpected: true,
+          }),
+        },
+      ),
+    ]);
+
+    for (const response of capabilityResponses) {
+      expect({
+        status: response.status,
+        body: await response.json(),
+      }).toEqual({
+        status: 404,
+        body: { error: { tag: "RecruitmentInvitationNotFound" } },
+      });
+    }
+    for (const response of decodeResponses) {
+      expect({
+        status: response.status,
+        body: await response.json(),
+      }).toEqual({
+        status: 422,
+        body: { error: { tag: "RecruitmentDecodeError" } },
+      });
+    }
+    expect(calls).toEqual([]);
+  });
+
+  it("enforces the maximum body size on every public POST route", async () => {
+    const { backend: publicBackend, calls } = makePublicBackend();
+    const oversizedBody = JSON.stringify({
+      message: "x".repeat(config.maxBodyBytes),
+    });
+    const responses = await Promise.all(
+      [
+        "/api/recruitment/invitation-response/confirm",
+        "/api/recruitment/invitation-response/reject",
+        "/api/recruitment/invitation-response/request-new-time",
+      ].map((path) =>
+        publicBackend.fetch(
+          new Request(`http://backend.test${path}`, {
+            method: "POST",
+            headers: {
+              ...invitationHeaders,
+              "content-type": "application/json",
+            },
+            body: oversizedBody,
+          }),
+        ),
+      ),
+    );
+
+    for (const response of responses) {
+      expect({
+        status: response.status,
+        body: await response.json(),
+      }).toEqual({
+        status: 413,
+        body: { error: { tag: "RequestBodyTooLarge" } },
+      });
+    }
+    expect(calls).toEqual([]);
+  });
+
+  it("strictly decodes the public read response before returning it", async () => {
+    const invalidBackend = makeRecruitmentApiHttp({
+      config,
+      run: async <A>(): Promise<A> =>
+        ({
+          ...invitationObservation,
+          capability: invitationCapability,
+          legacyPath: "/api/interview-responses",
+        }) as A,
+    });
+    const response = await invalidBackend.fetch(
+      new Request(
+        "http://backend.test/api/recruitment/invitation-response",
+        { headers: invitationHeaders },
+      ),
+    );
+
+    const payload = await response.text();
+    expect(payload).not.toContain(invitationCapability);
+    expect(payload).not.toContain("/api/interview-responses");
+    expect({
+      status: response.status,
+      body: JSON.parse(payload) as unknown,
+    }).toEqual({
+      status: 503,
+      body: { error: { tag: "RecruitmentPersistenceError" } },
+    });
   });
 
   it("rejects excess command properties before executing Recruitment", async () => {
@@ -103,9 +478,15 @@ describe("native recruitment HTTP boundary", () => {
     ["RecruitmentAdmissionPeriodNotFound", "RecruitmentAdmissionPeriodNotFound", 404],
     ["RecruitmentApplicationNotFound", "RecruitmentApplicationNotFound", 404],
     ["RecruitmentInterviewSchemaNotFound", "RecruitmentInterviewSchemaNotFound", 404],
+    ["RecruitmentInvitationNotFound", "RecruitmentInvitationNotFound", 404],
     ["RecruitmentApplicationAlreadyAssigned", "RecruitmentApplicationAlreadyAssigned", 409],
     ["RecruitmentAmbiguousAdmissionPeriod", "RecruitmentAmbiguousAdmissionPeriod", 409],
     ["RecruitmentAssignmentCommandConflict", "RecruitmentAssignmentCommandConflict", 409],
+    [
+      "RecruitmentInvitationAlreadyResponded",
+      "RecruitmentInvitationAlreadyResponded",
+      409,
+    ],
     ["RecruitmentInterviewSchemaInactive", "RecruitmentInterviewSchemaInactive", 422],
     ["RecruitmentPersistenceError", "RecruitmentPersistenceError", 503],
     ["ProfileNotFound", "RecruitmentPersistenceError", 503],

@@ -16,7 +16,7 @@ import { createAdminReceiptsDomain } from "./domains/admin/receipts.js";
 import { createAdminApplicationsDomain } from "./domains/admin/applications.js";
 import { createAdminInterviewsDomain } from "./domains/admin/interviews.js";
 import { createAdminRecruitmentDomain } from "./domains/admin/recruitment.js";
-import { createInterviewResponsesDomain } from "./domains/interview-responses.js";
+import { createRecruitmentInvitationResponsesDomain } from "./domains/recruitment-invitation-responses.js";
 import { createAdminSchedulingDomain } from "./domains/admin/scheduling.js";
 import { createAdminTeamsDomain } from "./domains/admin/teams.js";
 import { createAdminMiscDomain } from "./domains/admin/misc.js";
@@ -96,6 +96,8 @@ export {
   RecruitmentDecodeSdkError,
   RecruitmentPersistenceSdkError,
   RecruitmentInterviewNotFoundError,
+  RecruitmentInvitationNotFoundError,
+  RecruitmentInvitationAlreadyRespondedError,
   RecruitmentInterviewAlreadyScheduledError,
   RecruitmentInterviewStaleRevisionError,
   RecruitmentScheduleCommandConflictError,
@@ -184,12 +186,8 @@ export { ContactMessageInput, ContactMessageInputSchema } from "./schemas/contac
 export type { Application, ApplicationDetail } from "./schemas/application.js";
 export {
   AdminInterviewList,
-  CandidateInterviewView,
   Interview,
   InterviewId,
-  ResponseCapability,
-  InterviewResponseRejectInput,
-  InterviewResponseNewTimeInput,
   InterviewScheduleInput,
   InterviewSchedulingStatus,
 } from "./schemas/interview.js";
@@ -201,6 +199,7 @@ export {
   RecruitmentScheduleCommandId,
   RecruitmentInvitationId,
   RecruitmentNotificationEffectId,
+  RecruitmentInvitationCapabilitySchema,
   RecruitmentApplicationId,
   RecruitmentApplicantId,
   RecruitmentPersonId,
@@ -216,6 +215,10 @@ export {
   RecruitmentInterviewerOptionSchema,
   RecruitmentInterviewSchemaOptionSchema,
   RecruitmentInvitationResponseStateSchema,
+  RecruitmentInvitationResponseMessageSchema,
+  RecruitmentInvitationRejectInputSchema,
+  RecruitmentInvitationRequestNewTimeInputSchema,
+  RecruitmentInvitationResponseObservationSchema,
   RecruitmentNotificationDeliveryStateSchema,
   RecruitmentInterviewScheduleSchema,
   RecruitmentSchedulingApplicantSchema,
@@ -237,6 +240,11 @@ export type {
   RecruitmentInterview,
   RecruitmentInterviewerOption,
   RecruitmentInvitationResponseState,
+  RecruitmentInvitationCapability,
+  RecruitmentInvitationResponseMessage,
+  RecruitmentInvitationRejectInput,
+  RecruitmentInvitationRequestNewTimeInput,
+  RecruitmentInvitationResponseObservation,
   RecruitmentNotificationDeliveryState,
   RecruitmentInterviewSchedule,
   RecruitmentSchedulingApplicant,
@@ -325,7 +333,9 @@ export function createClient(baseUrl: string | undefined, options?: ClientOption
       mailingLists: promisify(adminMisc.mailingLists.bind(adminMisc)),
       admissionStats: promisify(adminMisc.admissionStats.bind(adminMisc)),
     },
-    interviewResponses: promisifyDomain(createInterviewResponsesDomain(transport)),
+    recruitmentInvitationResponses: promisifyDomain(
+      createRecruitmentInvitationResponsesDomain(transport),
+    ),
     public: {
       departments: promisify(publicMisc.departments.bind(publicMisc)),
       fieldOfStudies: promisify(publicMisc.fieldOfStudies.bind(publicMisc)),

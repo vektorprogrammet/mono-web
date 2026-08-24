@@ -62,6 +62,8 @@ import {
   RecruitmentInterviewerNotEligible,
   RecruitmentAssignmentCommandConflict,
   RecruitmentInterviewNotFound,
+  RecruitmentInvitationNotFound,
+  RecruitmentInvitationAlreadyResponded,
   RecruitmentInterviewAlreadyScheduled,
   RecruitmentInterviewStaleRevision,
   RecruitmentScheduleCommandConflict,
@@ -211,15 +213,36 @@ const publicApplicationFailureFromBody = (body: unknown): InternalSdkError | und
   }
 };
 
-const recruitmentFailureFromBody = (body: unknown): InternalSdkError | undefined => {
-  if (typeof body !== "object" || body === null) return undefined;
-  const root = body as Record<string, unknown>;
-  const error =
-    typeof root.error === "object" && root.error !== null
-      ? (root.error as Record<string, unknown>)
-      : root;
-  const tag = error.tag ?? error._tag;
-  if (typeof tag !== "string") return undefined;
+const StrictRecruitmentFailureBodySchema = Schema.Struct({
+  error: Schema.Struct({ tag: Schema.String }),
+});
+
+const recruitmentFailureFromBody = (
+  body: unknown,
+  strict: boolean,
+): InternalSdkError | undefined => {
+  let tag: unknown;
+  if (strict) {
+    try {
+      tag = Schema.decodeUnknownSync(StrictRecruitmentFailureBodySchema)(
+        body,
+        { onExcessProperty: "error" },
+      ).error.tag;
+    } catch {
+      return new RecruitmentDecodeError();
+    }
+  } else {
+    if (typeof body !== "object" || body === null) return undefined;
+    const root = body as Record<string, unknown>;
+    const error =
+      typeof root.error === "object" && root.error !== null
+        ? (root.error as Record<string, unknown>)
+        : root;
+    tag = error.tag ?? error._tag;
+  }
+  if (typeof tag !== "string") {
+    return strict ? new RecruitmentDecodeError() : undefined;
+  }
   switch (tag) {
     case "UnauthenticatedActor":
       return new RecruitmentUnauthenticatedActor();
@@ -247,6 +270,10 @@ const recruitmentFailureFromBody = (body: unknown): InternalSdkError | undefined
       return new RecruitmentAssignmentCommandConflict();
     case "RecruitmentInterviewNotFound":
       return new RecruitmentInterviewNotFound();
+    case "RecruitmentInvitationNotFound":
+      return new RecruitmentInvitationNotFound();
+    case "RecruitmentInvitationAlreadyResponded":
+      return new RecruitmentInvitationAlreadyResponded();
     case "RecruitmentInterviewAlreadyScheduled":
       return new RecruitmentInterviewAlreadyScheduled();
     case "RecruitmentInterviewStaleRevision":
@@ -261,8 +288,10 @@ const recruitmentFailureFromBody = (body: unknown): InternalSdkError | undefined
       return new RecruitmentDecodeError();
     case "RecruitmentPersistenceError":
       return new RecruitmentPersistenceError();
+    case "RequestBodyTooLarge":
+      return new RequestBodyTooLarge();
     default:
-      return undefined;
+      return strict ? new RecruitmentDecodeError() : undefined;
   }
 };
 
@@ -281,7 +310,7 @@ const mapStatusToError = (
     options?.errorFamily === "public_application"
       ? publicApplicationFailureFromBody(body)
       : options?.errorFamily === "recruitment"
-        ? recruitmentFailureFromBody(body)
+        ? recruitmentFailureFromBody(body, options.strict === true)
         : receiptFailureFromBody(body);
   if (typedError !== undefined) return typedError;
   if (status === 401 || status === 403) return new Unauthorized({ message: `HTTP ${status}` });
@@ -298,6 +327,9 @@ export type DecodeOptions = {
   readonly strict?: boolean;
   readonly decodeError?: () => InternalSdkError;
   readonly errorFamily?: "public_application" | "recruitment";
+  readonly headers?: Readonly<Record<string, string>>;
+  readonly includeAuth?: boolean;
+  readonly expectedStatus?: number;
 };
 
 export interface Transport {
@@ -322,7 +354,11 @@ export interface Transport {
     schema: Schema.ConstraintDecoder<A, never>,
     options?: DecodeOptions,
   ): Effect.Effect<A, InternalSdkError>;
-  postVoid(url: string, body: unknown): Effect.Effect<void, InternalSdkError>;
+  postVoid(
+    url: string,
+    body: unknown,
+    options?: DecodeOptions,
+  ): Effect.Effect<void, InternalSdkError>;
   put(url: string, body: unknown): Effect.Effect<void, InternalSdkError>;
   del(url: string): Effect.Effect<void, InternalSdkError>;
   postFormData<A>(
@@ -347,10 +383,11 @@ export interface Transport {
  */
 export function createTransport(baseUrl: string | undefined, auth?: AuthOption): Transport {
   const buildHeaders = (
-    extra?: Record<string, string>,
+    extra?: Readonly<Record<string, string>>,
+    includeAuth = true,
   ): Effect.Effect<Record<string, string>, Network> => {
     const headers: Record<string, string> = { ...extra };
-    if (!auth) return Effect.succeed(headers);
+    if (!auth || !includeAuth) return Effect.succeed(headers);
     return pipe(
       resolveAuth(auth),
       Effect.map((token) => {
@@ -448,15 +485,18 @@ export function createTransport(baseUrl: string | undefined, auth?: AuthOption):
     url: string,
     method: string,
     body?: unknown,
-    extraHeaders?: Record<string, string>,
+    extraHeaders?: Readonly<Record<string, string>>,
     options?: DecodeOptions,
   ): Effect.Effect<unknown, InternalSdkError> =>
     pipe(
-      buildHeaders({
-        Accept: "application/ld+json",
-        ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
-        ...extraHeaders,
-      }),
+      buildHeaders(
+        {
+          Accept: "application/ld+json",
+          ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
+          ...extraHeaders,
+        },
+        options?.includeAuth !== false,
+      ),
       Effect.flatMap((headers) =>
         executeFetch(url, {
           method,
@@ -480,9 +520,17 @@ export function createTransport(baseUrl: string | undefined, auth?: AuthOption):
     url: string,
     method: string,
     body?: unknown,
+    extraHeaders?: Readonly<Record<string, string>>,
+    options?: DecodeOptions,
   ): Effect.Effect<void, InternalSdkError> =>
     pipe(
-      buildHeaders(body !== undefined ? { "Content-Type": "application/json" } : {}),
+      buildHeaders(
+        {
+          ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
+          ...extraHeaders,
+        },
+        options?.includeAuth !== false,
+      ),
       Effect.flatMap((headers) =>
         executeFetch(url, {
           method,
@@ -494,8 +542,21 @@ export function createTransport(baseUrl: string | undefined, auth?: AuthOption):
         if (!response.ok) {
           return readErrorBody(response).pipe(
             Effect.flatMap((responseBody) =>
-              Effect.fail(mapStatusToError(response.status, responseBody)),
+              Effect.fail(
+                mapStatusToError(response.status, responseBody, options),
+              ),
             ),
+          );
+        }
+        if (
+          options?.expectedStatus !== undefined &&
+          response.status !== options.expectedStatus
+        ) {
+          return Effect.fail(
+            options.decodeError?.() ??
+              new Network({
+                message: `Unexpected HTTP ${response.status}`,
+              }),
           );
         }
         return Effect.void;
@@ -527,7 +588,13 @@ export function createTransport(baseUrl: string | undefined, auth?: AuthOption):
       return pipe(
         buildUrl(url, params),
         Effect.flatMap((resolvedUrl) =>
-          executeJson(resolvedUrl, "GET", undefined, undefined, options),
+          executeJson(
+            resolvedUrl,
+            "GET",
+            undefined,
+            options?.headers,
+            options,
+          ),
         ),
         Effect.flatMap(decodeWith(schema, options)),
       );
@@ -548,7 +615,13 @@ export function createTransport(baseUrl: string | undefined, auth?: AuthOption):
       return pipe(
         buildUrl(url, params),
         Effect.flatMap((resolvedUrl) =>
-          executeJson(resolvedUrl, "GET", undefined, undefined, options),
+          executeJson(
+            resolvedUrl,
+            "GET",
+            undefined,
+            options?.headers,
+            options,
+          ),
         ),
         Effect.flatMap(decodeWith(collectionSchema, options)),
         Effect.map(({ "hydra:member": items, "hydra:totalItems": totalItems }) => ({
@@ -568,15 +641,31 @@ export function createTransport(baseUrl: string | undefined, auth?: AuthOption):
     ) {
       return pipe(
         buildUrl(url),
-        Effect.flatMap((resolvedUrl) => executeJson(resolvedUrl, "POST", body, undefined, options)),
+        Effect.flatMap((resolvedUrl) =>
+          executeJson(
+            resolvedUrl,
+            "POST",
+            body,
+            options?.headers,
+            options,
+          ),
+        ),
         Effect.flatMap(decodeWith(schema, options)),
       );
     },
 
-    postVoid(url: string, body: unknown) {
+    postVoid(url: string, body: unknown, options?: DecodeOptions) {
       return pipe(
         buildUrl(url),
-        Effect.flatMap((resolvedUrl) => executeVoid(resolvedUrl, "POST", body)),
+        Effect.flatMap((resolvedUrl) =>
+          executeVoid(
+            resolvedUrl,
+            "POST",
+            body,
+            options?.headers,
+            options,
+          ),
+        ),
       );
     },
 

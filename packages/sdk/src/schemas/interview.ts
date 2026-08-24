@@ -1,5 +1,5 @@
 /**
- * Interview schemas — canonical Symfony list, schedule, and response models.
+ * Interview schemas for the canonical administrative interview API.
  */
 
 import { Schema, SchemaGetter } from "effect"
@@ -18,39 +18,6 @@ export const InterviewSchedulingStatus = Schema.Literals([
 ])
 export type InterviewSchedulingStatus = Schema.Schema.Type<typeof InterviewSchedulingStatus>
 
-const boundedIdentifier = Schema.String.pipe(
-  Schema.check(Schema.isMinLength(1), Schema.isMaxLength(128)),
-  Schema.check(
-    Schema.makeFilter(
-      (value: string) => /^[\w-]+$/.test(value),
-      { message: "letters, numbers, underscores, and hyphens only" },
-    ),
-  ),
-)
-
-export const ResponseCapability = boundedIdentifier.pipe(Schema.brand("ResponseCapability"))
-export type ResponseCapability = typeof ResponseCapability.Type
-
-const responseMessage = Schema.String.pipe(
-  Schema.check(Schema.isMaxLength(2000)),
-)
-
-export const InterviewResponseRejectInput = Schema.Struct({
-  message: responseMessage,
-})
-export type InterviewResponseRejectInput = typeof InterviewResponseRejectInput.Type
-
-export const InterviewResponseNewTimeInput = Schema.Struct({
-  message: responseMessage.pipe(
-    Schema.check(
-      Schema.makeFilter(
-        (value: string) => value.trim().length > 0,
-        { message: "a non-empty message" },
-      ),
-    ),
-  ),
-})
-export type InterviewResponseNewTimeInput = typeof InterviewResponseNewTimeInput.Type
 
 const positiveInteger = Schema.Number.pipe(
   Schema.check(
@@ -173,45 +140,6 @@ export class InterviewSchema_ extends Schema.Class<InterviewSchema_>("InterviewS
   questionCount: Schema.Number,
 }) {}
 
-export class CandidateInterviewView extends Schema.Class<CandidateInterviewView>(
-  "CandidateInterviewView",
-)({
-  schedulingStatus: InterviewSchedulingStatus,
-  interviewTime: Schema.NullOr(Schema.String),
-  room: Schema.NullOr(Schema.String),
-  campus: Schema.NullOr(Schema.String),
-}) {}
-
-const RawCandidateInterviewView = Schema.Struct({
-  id: Schema.Number,
-  scheduled: Schema.NullOr(Schema.String),
-  room: Schema.NullOr(Schema.String),
-  campus: Schema.NullOr(Schema.String),
-  mapLink: Schema.NullOr(Schema.String),
-  interviewerName: Schema.NullOr(Schema.String),
-  status: Schema.String,
-})
-
-
-export const CandidateInterviewViewFromRaw = RawCandidateInterviewView.pipe(
-  Schema.decodeTo(CandidateInterviewView, {
-    decode: SchemaGetter.transform((raw: Schema.Schema.Type<typeof RawCandidateInterviewView>) => ({
-      schedulingStatus: parseInterviewStatusLabel(raw.status),
-      interviewTime: raw.scheduled,
-      room: raw.room,
-      campus: raw.campus,
-    })),
-    encode: SchemaGetter.transform((candidate) => ({
-      id: 0,
-      scheduled: candidate.interviewTime,
-      room: candidate.room,
-      campus: candidate.campus,
-      mapLink: null,
-      interviewerName: null,
-      status: encodeInterviewStatusLabel(candidate.schedulingStatus),
-    })),
-  }),
-)
 
 /**
  * All fields are required because Symfony dispatches each field to the

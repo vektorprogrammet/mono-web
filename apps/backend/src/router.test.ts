@@ -81,12 +81,21 @@ const request = (pathname: string, init?: RequestInit): Promise<Response> =>
 
 describe("unified backend router", () => {
   it("owns health, Profile, Admission, Receipt, and Recruitment routes on one listener", async () => {
-    const [health, profile, admission, receipt, recruitment, missing] = await Promise.all([
+    const [
+      health,
+      profile,
+      admission,
+      receipt,
+      recruitment,
+      publicRecruitment,
+      missing,
+    ] = await Promise.all([
       request("/health"),
       request("/api/me/profile", { headers: { authorization: `Bearer ${token}` } }),
       request("/api/admin/admission-periods"),
       request("/api/receipts"),
       request("/api/admin/recruitment/assignment-board?status=new"),
+      request("/api/recruitment/invitation-response"),
       request("/api/not-a-capability"),
     ]);
 
@@ -115,6 +124,13 @@ describe("unified backend router", () => {
     expect({ status: recruitment.status, body: await recruitment.json() }).toEqual({
       status: 401,
       body: { error: { tag: "UnauthenticatedActor" } },
+    });
+    expect({
+      status: publicRecruitment.status,
+      body: await publicRecruitment.json(),
+    }).toEqual({
+      status: 404,
+      body: { error: { tag: "RecruitmentInvitationNotFound" } },
     });
     expect({ status: missing.status, body: await missing.json() }).toEqual({
       status: 404,

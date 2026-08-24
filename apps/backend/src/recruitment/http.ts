@@ -8,6 +8,10 @@ import {
   RecruitmentAssignmentCommandSchema,
   RecruitmentDecodeError,
   RecruitmentScheduleCommandSchema,
+  RecruitmentInvitationCapabilitySchema,
+  RecruitmentInvitationRejectInputSchema,
+  RecruitmentInvitationRequestNewTimeInputSchema,
+  RecruitmentInvitationResponseObservationSchema,
   type RecruitmentAssignmentBoardQuery,
   type RecruitmentActor,
 } from "@vektorprogrammet/domain/recruitment";
@@ -51,6 +55,16 @@ const jsonResponse = (body: unknown, status = 200): Response =>
       "cache-control": "no-store",
     },
   });
+
+const RECRUITMENT_INVITATION_CAPABILITY_HEADER =
+  "X-Recruitment-Invitation-Capability";
+const RecruitmentInvitationConfirmBodySchema = Schema.Struct({});
+
+const emptyResponse = (): Response =>
+  new Response(null, {
+    status: 204,
+    headers: { "cache-control": "no-store" },
+  });
 const RecruitmentHttpErrorTag = Schema.Literals([
   "UnauthenticatedActor",
   "RecruitmentInactiveActor",
@@ -67,6 +81,8 @@ const RecruitmentHttpErrorTag = Schema.Literals([
   "RecruitmentInterviewAlreadyScheduled",
   "RecruitmentInterviewStaleRevision",
   "RecruitmentScheduleCommandConflict",
+  "RecruitmentInvitationNotFound",
+  "RecruitmentInvitationAlreadyResponded",
   "RecruitmentScheduleInPast",
   "ProfileContactNotFound",
   "RecruitmentDecodeError",
@@ -100,6 +116,7 @@ const statusForErrorTag = (tag: RecruitmentHttpErrorTag): number =>
       "RecruitmentApplicationNotFound",
       "RecruitmentInterviewSchemaNotFound",
       "RecruitmentInterviewNotFound",
+      "RecruitmentInvitationNotFound",
       () => 404,
     ),
     Match.whenOr(
@@ -108,6 +125,7 @@ const statusForErrorTag = (tag: RecruitmentHttpErrorTag): number =>
       "RecruitmentAssignmentCommandConflict",
       "RecruitmentInterviewAlreadyScheduled",
       "RecruitmentInterviewStaleRevision",
+      "RecruitmentInvitationAlreadyResponded",
       "RecruitmentScheduleCommandConflict",
       () => 409,
     ),
@@ -189,6 +207,40 @@ const decodeJson = async <S extends Schema.ConstraintDecoder<unknown, never>>(
       Effect.mapError(() => taggedError(decodeTag)),
     ),
   );
+};
+
+const assertNoQuery = (request: Request): void => {
+  if ([...new URL(request.url).searchParams].length !== 0) {
+    throw taggedError("RecruitmentDecodeError");
+  }
+};
+
+const invitationCapabilityFor = (
+  request: Request,
+): typeof RecruitmentInvitationCapabilitySchema.Type => {
+  const capability = request.headers.get(
+    RECRUITMENT_INVITATION_CAPABILITY_HEADER,
+  );
+  try {
+    return Schema.decodeUnknownSync(RecruitmentInvitationCapabilitySchema)(
+      capability,
+      { onExcessProperty: "error" },
+    );
+  } catch {
+    throw taggedError("RecruitmentInvitationNotFound");
+  }
+};
+
+const decodeInvitationObservation = (
+  value: unknown,
+): typeof RecruitmentInvitationResponseObservationSchema.Type => {
+  try {
+    return Schema.decodeUnknownSync(
+      RecruitmentInvitationResponseObservationSchema,
+    )(value, { onExcessProperty: "error" });
+  } catch {
+    throw taggedError("RecruitmentPersistenceError");
+  }
 };
 
 const principalFor = (request: Request, config: RecruitmentApiConfig): RecruitmentActor => {
@@ -291,10 +343,107 @@ const scheduleInterview = async (
   return jsonResponse({ observation: result.observation, replayed: result.replayed });
 };
 
+const readInvitationResponse = async (
+  request: Request,
+  input: RecruitmentApiHttpOptions,
+): Promise<Response> => {
+  assertNoQuery(request);
+  const capability = invitationCapabilityFor(request);
+  const observation = await input.run(
+    Recruitment.use(({ readInvitationResponse: read }) => read(capability)),
+  );
+  return jsonResponse(decodeInvitationObservation(observation));
+};
+
+const confirmInvitation = async (
+  request: Request,
+  input: RecruitmentApiHttpOptions,
+): Promise<Response> => {
+  assertNoQuery(request);
+  const capability = invitationCapabilityFor(request);
+  await decodeJson(
+    request,
+    RecruitmentInvitationConfirmBodySchema,
+    input.config.maxBodyBytes,
+  );
+  const now = input.config.now();
+  await input.run(
+    Recruitment.use(({ confirmInvitation: confirm }) =>
+      confirm(capability, { now }),
+    ),
+  );
+  return emptyResponse();
+};
+
+const rejectInvitation = async (
+  request: Request,
+  input: RecruitmentApiHttpOptions,
+): Promise<Response> => {
+  assertNoQuery(request);
+  const capability = invitationCapabilityFor(request);
+  const body = await decodeJson(
+    request,
+    RecruitmentInvitationRejectInputSchema,
+    input.config.maxBodyBytes,
+  );
+  const now = input.config.now();
+  await input.run(
+    Recruitment.use(({ rejectInvitation: reject }) =>
+      reject(capability, body, { now }),
+    ),
+  );
+  return emptyResponse();
+};
+
+const requestNewInvitationTime = async (
+  request: Request,
+  input: RecruitmentApiHttpOptions,
+): Promise<Response> => {
+  assertNoQuery(request);
+  const capability = invitationCapabilityFor(request);
+  const body = await decodeJson(
+    request,
+    RecruitmentInvitationRequestNewTimeInputSchema,
+    input.config.maxBodyBytes,
+  );
+  const now = input.config.now();
+  await input.run(
+    Recruitment.use(({ requestNewInvitationTime: requestNewTime }) =>
+      requestNewTime(capability, body, { now }),
+    ),
+  );
+  return emptyResponse();
+};
+
 export const makeRecruitmentApiHttp = (input: RecruitmentApiHttpOptions): RecruitmentApiHttp => ({
   fetch: async (request) => {
     const url = new URL(request.url);
     try {
+      if (
+        request.method === "GET" &&
+        url.pathname === "/api/recruitment/invitation-response"
+      ) {
+        return await readInvitationResponse(request, input);
+      }
+      if (
+        request.method === "POST" &&
+        url.pathname === "/api/recruitment/invitation-response/confirm"
+      ) {
+        return await confirmInvitation(request, input);
+      }
+      if (
+        request.method === "POST" &&
+        url.pathname === "/api/recruitment/invitation-response/reject"
+      ) {
+        return await rejectInvitation(request, input);
+      }
+      if (
+        request.method === "POST" &&
+        url.pathname ===
+          "/api/recruitment/invitation-response/request-new-time"
+      ) {
+        return await requestNewInvitationTime(request, input);
+      }
       if (request.method === "GET" && url.pathname === "/api/admin/recruitment/assignment-board") {
         return await readAssignmentBoard(request, input);
       }

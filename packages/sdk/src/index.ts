@@ -63,12 +63,8 @@ export {
 export type { Application, ApplicationDetail } from "./schemas/application.js";
 export {
   AdminInterviewList,
-  CandidateInterviewView,
   Interview,
   InterviewId,
-  ResponseCapability,
-  InterviewResponseRejectInput,
-  InterviewResponseNewTimeInput,
   InterviewScheduleInput,
   InterviewSchedulingStatus,
 } from "./schemas/interview.js";
@@ -161,6 +157,8 @@ export {
   RecruitmentDecodeSdkError,
   RecruitmentPersistenceSdkError,
   RecruitmentInterviewNotFoundError,
+  RecruitmentInvitationNotFoundError,
+  RecruitmentInvitationAlreadyRespondedError,
   RecruitmentInterviewAlreadyScheduledError,
   RecruitmentInterviewStaleRevisionError,
   RecruitmentScheduleCommandConflictError,
@@ -173,6 +171,7 @@ export {
   RecruitmentScheduleCommandId,
   RecruitmentInvitationId,
   RecruitmentNotificationEffectId,
+  RecruitmentInvitationCapabilitySchema,
   RecruitmentApplicationId,
   RecruitmentApplicantId,
   RecruitmentPersonId,
@@ -188,6 +187,10 @@ export {
   RecruitmentInterviewerOptionSchema,
   RecruitmentInterviewSchemaOptionSchema,
   RecruitmentInvitationResponseStateSchema,
+  RecruitmentInvitationResponseMessageSchema,
+  RecruitmentInvitationRejectInputSchema,
+  RecruitmentInvitationRequestNewTimeInputSchema,
+  RecruitmentInvitationResponseObservationSchema,
   RecruitmentNotificationDeliveryStateSchema,
   RecruitmentInterviewScheduleSchema,
   RecruitmentSchedulingApplicantSchema,
@@ -200,6 +203,11 @@ export {
 } from "./promise.js";
 export type {
   RecruitmentRejectionTag,
+  RecruitmentInvitationCapability,
+  RecruitmentInvitationResponseMessage,
+  RecruitmentInvitationResponseObservation,
+  RecruitmentInvitationRejectInput,
+  RecruitmentInvitationRequestNewTimeInput,
   RecruitmentAssignmentStatus,
   RecruitmentAssignmentBoardQuery,
   RecruitmentAssignmentBoard,

@@ -81,6 +81,8 @@ export type RecruitmentRejectionTag =
   | "RecruitmentInterviewerNotEligible"
   | "RecruitmentAssignmentCommandConflict"
   | "RecruitmentInterviewNotFound"
+  | "RecruitmentInvitationNotFound"
+  | "RecruitmentInvitationAlreadyResponded"
   | "RecruitmentInterviewAlreadyScheduled"
   | "RecruitmentInterviewStaleRevision"
   | "RecruitmentScheduleCommandConflict"
@@ -350,6 +352,20 @@ export class RecruitmentInterviewNotFoundError extends RecruitmentRejectionError
   constructor() {
     super("RecruitmentInterviewNotFound");
     this.name = "RecruitmentInterviewNotFoundError";
+  }
+}
+
+export class RecruitmentInvitationNotFoundError extends RecruitmentRejectionError {
+  constructor() {
+    super("RecruitmentInvitationNotFound");
+    this.name = "RecruitmentInvitationNotFoundError";
+  }
+}
+
+export class RecruitmentInvitationAlreadyRespondedError extends RecruitmentRejectionError {
+  constructor() {
+    super("RecruitmentInvitationAlreadyResponded");
+    this.name = "RecruitmentInvitationAlreadyRespondedError";
   }
 }
 
@@ -705,6 +721,14 @@ export class RecruitmentInterviewNotFound extends Schema.TaggedError<Recruitment
   "RecruitmentInterviewNotFound",
   {},
 ) {}
+export class RecruitmentInvitationNotFound extends Schema.TaggedError<RecruitmentInvitationNotFound>()(
+  "RecruitmentInvitationNotFound",
+  {},
+) {}
+export class RecruitmentInvitationAlreadyResponded extends Schema.TaggedError<RecruitmentInvitationAlreadyResponded>()(
+  "RecruitmentInvitationAlreadyResponded",
+  {},
+) {}
 export class RecruitmentInterviewAlreadyScheduled extends Schema.TaggedError<RecruitmentInterviewAlreadyScheduled>()(
   "RecruitmentInterviewAlreadyScheduled",
   {},
@@ -915,6 +939,8 @@ export type RecruitmentFailure =
   | RecruitmentInterviewerNotEligible
   | RecruitmentAssignmentCommandConflict
   | RecruitmentInterviewNotFound
+  | RecruitmentInvitationNotFound
+  | RecruitmentInvitationAlreadyResponded
   | RecruitmentInterviewAlreadyScheduled
   | RecruitmentInterviewStaleRevision
   | RecruitmentScheduleCommandConflict
@@ -1067,6 +1093,10 @@ export function toSdkError(error: InternalSdkError): SdkError {
       return new RecruitmentAssignmentCommandConflictError();
     case "RecruitmentInterviewNotFound":
       return new RecruitmentInterviewNotFoundError();
+    case "RecruitmentInvitationNotFound":
+      return new RecruitmentInvitationNotFoundError();
+    case "RecruitmentInvitationAlreadyResponded":
+      return new RecruitmentInvitationAlreadyRespondedError();
     case "RecruitmentInterviewAlreadyScheduled":
       return new RecruitmentInterviewAlreadyScheduledError();
     case "RecruitmentInterviewStaleRevision":

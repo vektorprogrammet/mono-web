@@ -15,7 +15,7 @@ import { createAdminApplicationsDomain } from "./domains/admin/applications.js";
 import { createAdminInterviewsDomain } from "./domains/admin/interviews.js";
 import { createAdminRecruitmentDomain } from "./domains/admin/recruitment.js";
 import { createAdminSchedulingDomain } from "./domains/admin/scheduling.js";
-import { createInterviewResponsesDomain } from "./domains/interview-responses.js";
+import { createRecruitmentInvitationResponsesDomain } from "./domains/recruitment-invitation-responses.js";
 import { createAdminTeamsDomain } from "./domains/admin/teams.js";
 import { createAdminMiscDomain } from "./domains/admin/misc.js";
 import { createPublicMiscDomain } from "./domains/public/misc.js";
@@ -120,12 +120,8 @@ export type { Receipt, AdminReceipt, ReceiptInput } from "./schemas/receipt.js";
 export type { Application, ApplicationDetail } from "./schemas/application.js";
 export {
   AdminInterviewList,
-  CandidateInterviewView,
   Interview,
   InterviewId,
-  ResponseCapability,
-  InterviewResponseRejectInput,
-  InterviewResponseNewTimeInput,
   InterviewScheduleInput,
   InterviewSchedulingStatus,
 } from "./schemas/interview.js";
@@ -151,6 +147,7 @@ export {
   RecruitmentScheduleCommandId,
   RecruitmentInvitationId,
   RecruitmentNotificationEffectId,
+  RecruitmentInvitationCapabilitySchema,
   RecruitmentApplicationId,
   RecruitmentApplicantId,
   RecruitmentPersonId,
@@ -166,6 +163,10 @@ export {
   RecruitmentInterviewerOptionSchema,
   RecruitmentInterviewSchemaOptionSchema,
   RecruitmentInvitationResponseStateSchema,
+  RecruitmentInvitationResponseMessageSchema,
+  RecruitmentInvitationRejectInputSchema,
+  RecruitmentInvitationRequestNewTimeInputSchema,
+  RecruitmentInvitationResponseObservationSchema,
   RecruitmentNotificationDeliveryStateSchema,
   RecruitmentInterviewScheduleSchema,
   RecruitmentSchedulingApplicantSchema,
@@ -187,6 +188,11 @@ export type {
   RecruitmentInterviewerOption,
   RecruitmentInterviewSchemaOption,
   RecruitmentInvitationResponseState,
+  RecruitmentInvitationCapability,
+  RecruitmentInvitationResponseMessage,
+  RecruitmentInvitationRejectInput,
+  RecruitmentInvitationRequestNewTimeInput,
+  RecruitmentInvitationResponseObservation,
   RecruitmentNotificationDeliveryState,
   RecruitmentInterviewSchedule,
   RecruitmentSchedulingApplicant,
@@ -233,7 +239,8 @@ export function createEffectClient(baseUrl: string | undefined, options?: Client
       mailingLists: adminMisc.mailingLists.bind(adminMisc),
       admissionStats: adminMisc.admissionStats.bind(adminMisc),
     },
-    interviewResponses: createInterviewResponsesDomain(transport),
+    recruitmentInvitationResponses:
+      createRecruitmentInvitationResponsesDomain(transport),
     public: {
       departments: publicMisc.departments.bind(publicMisc),
       fieldOfStudies: publicMisc.fieldOfStudies.bind(publicMisc),

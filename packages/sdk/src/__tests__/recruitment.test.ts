@@ -4,6 +4,7 @@ import {
   RecruitmentAssignmentBoardQuerySchema,
   RecruitmentAssignmentCommandSchema,
   RecruitmentScheduleCommandSchema,
+  RecruitmentInvitationResponseStateSchema,
   RecruitmentSchedulingBoardSchema,
 } from "../schemas/recruitment.js";
 import {
@@ -55,7 +56,32 @@ const scheduleCommand = {
 } as const;
 const schedulingBoard = {
   departmentId: "department-1",
-  interviews: [],
+  interviews: [
+    {
+      interviewId: "interview-1",
+      applicationId: "application-1",
+      departmentId: "department-1",
+      interviewer: {
+        personId: "person-1",
+        displayName: "Interviewer One",
+        email: "interviewer@example.invalid",
+        phone: "90000000",
+      },
+      applicant: {
+        applicationId: "application-1",
+        applicantId: "applicant-1",
+        firstName: "Applicant",
+        lastName: "One",
+        email: "applicant@example.invalid",
+        phone: "91111111",
+      },
+      revision: 1,
+      schedule: null,
+      responseState: "Rejected",
+      responseMessage: "Unable to attend",
+      notificationState: "Pending",
+    },
+  ],
 } as const;
 const scheduleResult = {
   observation: {
@@ -124,6 +150,102 @@ describe("recruitment SDK wire schemas", () => {
         { onExcessProperty: "error" },
       ),
     ).toThrow();
+  });
+
+  it("strictly decodes every native invitation state and staff response message", () => {
+    for (const state of [
+      "Pending",
+      "Accepted",
+      "Rejected",
+      "RequestedNewTime",
+    ] as const) {
+      expect(
+        Schema.decodeUnknownSync(
+          RecruitmentInvitationResponseStateSchema,
+        )(state),
+      ).toBe(state);
+    }
+    expect(() =>
+      Schema.decodeUnknownSync(
+        RecruitmentInvitationResponseStateSchema,
+      )("Cancelled"),
+    ).toThrow();
+    expect(
+      Schema.decodeUnknownSync(RecruitmentSchedulingBoardSchema)(
+        schedulingBoard,
+        { onExcessProperty: "error" },
+      ).interviews[0],
+    ).toMatchObject({
+      responseState: "Rejected",
+      responseMessage: "Unable to attend",
+    });
+    expect(() =>
+      Schema.decodeUnknownSync(RecruitmentSchedulingBoardSchema)(
+        {
+          ...schedulingBoard,
+          interviews: [
+            {
+              ...schedulingBoard.interviews[0],
+              responseMessage: "Unable to attend",
+              unexpected: true,
+            },
+          ],
+        },
+        { onExcessProperty: "error" },
+      ),
+    ).toThrow();
+    expect(
+      Schema.decodeUnknownSync(RecruitmentSchedulingBoardSchema)(
+        {
+          ...schedulingBoard,
+          interviews: [
+            {
+              ...schedulingBoard.interviews[0],
+              responseState: "Rejected",
+              responseMessage: null,
+            },
+          ],
+        },
+        { onExcessProperty: "error" },
+      ).interviews[0]?.responseMessage,
+    ).toBeNull();
+    expect(
+      Schema.decodeUnknownSync(RecruitmentSchedulingBoardSchema)(
+        {
+          ...schedulingBoard,
+          interviews: [
+            {
+              ...schedulingBoard.interviews[0],
+              responseState: "RequestedNewTime",
+              responseMessage: "  Please reschedule  ",
+            },
+          ],
+        },
+        { onExcessProperty: "error" },
+      ).interviews[0]?.responseMessage,
+    ).toBe("Please reschedule");
+    for (const [responseState, responseMessage] of [
+      [null, "Impossible"],
+      ["Pending", "Impossible"],
+      ["Accepted", "Impossible"],
+      ["RequestedNewTime", null],
+    ] as const) {
+      expect(() =>
+        Schema.decodeUnknownSync(RecruitmentSchedulingBoardSchema)(
+          {
+            ...schedulingBoard,
+            interviews: [
+              {
+                ...schedulingBoard.interviews[0],
+                responseState,
+                responseMessage,
+              },
+            ],
+          },
+          { onExcessProperty: "error" },
+        ),
+      ).toThrow();
+    }
   });
 });
 
