@@ -33,7 +33,8 @@ alter table auth."account" add column if not exists "issuer" text not null;
 
 create unique index if not exists "account_issuer_accountId_uidx" on auth."account" ("issuer", "accountId");
 
--- Project authority constraint: an authenticated identity is a canonical PersonId.
+alter table auth."user" drop constraint if exists "auth_user_person_profile_fk";
+
 alter table auth."user"
   add constraint "auth_user_person_profile_fk"
   foreign key ("id") references public.person_profiles ("person_id")

@@ -1487,13 +1487,13 @@ describe("DatabaseTest", () => {
         const recruitment = yield* Recruitment;
         yield* database`
           DELETE FROM vektorprogrammet_schema_migrations
-          WHERE migration_id = 13
+          WHERE migration_id >= 15
         `;
         yield* database.migrate;
         const [replayedMigration] = yield* database<{ readonly count: string }>`
           SELECT count(*)::text AS count
           FROM vektorprogrammet_schema_migrations
-          WHERE migration_id = 13
+          WHERE migration_id = 15
         `;
 
         const fixture = yield* seedSchedulingFixture(
@@ -2313,7 +2313,7 @@ describe("DatabaseTest", () => {
     );
 
     expect(second).toBe(first);
-    expect(rows).toEqual([{ migration_count: "13" }]);
+    expect(rows).toEqual([{ migration_count: "17" }]);
   });
 
   it("executes Admissions and Organization authority adapters against PGlite", async () => {
