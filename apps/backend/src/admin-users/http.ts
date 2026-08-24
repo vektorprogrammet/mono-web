@@ -72,6 +72,9 @@ const statusForErrorTag = (tag: string): number => {
     case "UnauthenticatedActor":
       return 401;
     case "InactiveActor":
+    case "NotInScope":
+      // Typed scope/inactivity denials are 403 (frozen HTTP table);
+      // 401 is reserved for missing or invalid sessions only.
       return 403;
     case "DirectoryCursorMalformed":
       return 422;
@@ -101,7 +104,7 @@ export const makeAdminUsersApiHttp = (input: AdminUsersApiHttpOptions): AdminUse
       if (decision._tag === "Deny") {
         throw decision.reason === "AuthorityInactive"
           ? taggedError("InactiveActor")
-          : taggedError("UnauthenticatedActor");
+          : taggedError("NotInScope");
       }
       const scope = decision.value;
       const response = await input.run(
@@ -128,7 +131,7 @@ export const makeAdminUsersApiHttp = (input: AdminUsersApiHttpOptions): AdminUse
                   email: entry.email,
                   phone: entry.phone,
                   studyProgramme: null,
-                  departments: [...fact.departments],
+                  departments: [...fact.departmentNames],
                   isActive: fact.isActive,
                 };
                 if (fact.isActive) activeUsers.push(row);

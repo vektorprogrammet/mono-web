@@ -15,6 +15,7 @@ import { DepartmentId, PersonId } from "./schema.js";
 const DirectoryMembershipRowSchema = Schema.Struct({
   personId: PersonId,
   departmentId: DepartmentId,
+  departmentName: Schema.String,
   active: Schema.Boolean,
 });
 type DirectoryMembershipRow = typeof DirectoryMembershipRowSchema.Type;
@@ -54,6 +55,7 @@ export const deriveOrganizationDirectoryFacts = (
       SELECT DISTINCT
         membership.person_id AS "personId",
         department.department_id AS "departmentId",
+        department.name AS "departmentName",
         (
           membership.start_at <= ${evaluatedAt}::timestamptz
           AND (

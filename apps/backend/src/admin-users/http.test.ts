@@ -211,6 +211,9 @@ const organization = {
         return seeds.map((seed) => ({
           personId: personId as never,
           departmentId: seed.departmentId,
+          // The stub resolves canonical names the way the PostgreSQL
+          // interpreter's team->department join does.
+          departmentName: `Name of ${seed.departmentId}`,
           active: seed.active,
         }));
       });
@@ -228,6 +231,7 @@ const organization = {
         if (!facts.has(personId as never)) {
           facts.set(personId as never, {
             departments: [],
+            departmentNames: [],
             isActive: false,
             globalAdministrator: "Absent",
           });
@@ -367,7 +371,8 @@ describe("GET /api/admin/users (spec 0057)", () => {
     expect(body.inactiveUsers.map((row) => row.personId)).toEqual(["person-ended-membership"]);
     expect(body.nextCursor).toBeNull();
     const multi = body.activeUsers.find((row) => row.personId === "person-multi-department");
-    expect(multi?.departments).toEqual([departmentA, departmentB]);
+    // The frozen entry carries department NAMES (spec 0057 falsifier), sorted.
+    expect(multi?.departments).toEqual(["Name of department-a", "Name of department-b"]);
     for (const row of [...body.activeUsers, ...body.inactiveUsers]) {
       expect(Object.keys(row).sort()).toEqual([
         "departments",
@@ -381,6 +386,16 @@ describe("GET /api/admin/users (spec 0057)", () => {
       ]);
       expect(row.studyProgramme).toBeNull();
     }
+  });
+
+  it("denies a caller with no Organization record with typed 403 NotInScope", async () => {
+    resetScenario();
+    // Absent grant plus no memberships at all: NotInScope, never a 401.
+    callerProjection = { globalAdministrator: "Absent" };
+    membershipsByPerson["person-caller"] = [];
+    const response = await request();
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ error: { tag: "NotInScope" } });
   });
 
   it("scopes a department leader to the intersection of their leader departments", async () => {

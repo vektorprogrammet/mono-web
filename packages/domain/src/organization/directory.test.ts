@@ -35,14 +35,25 @@ describe("accumulateOrganizationDirectoryFacts", () => {
       personIds: [person],
       instant,
       memberships: [
-        { personId: person, departmentId: departmentB, active: true },
-        { personId: person, departmentId: departmentA, active: true },
+        {
+          personId: person,
+          departmentId: departmentB,
+          departmentName: "Bergen",
+          active: true,
+        },
+        {
+          personId: person,
+          departmentId: departmentA,
+          departmentName: "Trondheim",
+          active: true,
+        },
       ],
       grants: [],
     });
     const fact = facts.get(person);
     expect(fact).toEqual({
       departments: [departmentA, departmentB],
+      departmentNames: ["Bergen", "Trondheim"],
       isActive: true,
       globalAdministrator: "Absent",
     });
@@ -66,6 +77,7 @@ describe("accumulateOrganizationDirectoryFacts", () => {
     });
     expect(fact(facts)).toEqual({
       departments: [departmentA],
+      departmentNames: [],
       isActive: false,
       globalAdministrator: "Active",
     });

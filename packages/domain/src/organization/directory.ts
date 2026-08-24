@@ -18,6 +18,13 @@ import type { DepartmentId, PersonId } from "./schema.js";
 export interface OrganizationDirectoryFact {
   /** Every distinct department reachable through resolvable memberships, sorted. */
   readonly departments: ReadonlyArray<DepartmentId>;
+  /**
+   * The display name of every department in `departments`, sorted by name.
+   * The spec 0057 falsifier requires the frozen entry to carry department
+   * NAMES (one row per person holding every department), so the derivation
+   * resolves them beside the scope-law identifiers.
+   */
+  readonly departmentNames: ReadonlyArray<string>;
   readonly isActive: boolean;
   readonly globalAdministrator: OrganizationGlobalAdministratorStatus;
 }
@@ -40,6 +47,8 @@ export const accumulateOrganizationDirectoryFacts = (input: {
   readonly memberships: ReadonlyArray<{
     readonly personId: PersonId;
     readonly departmentId: DepartmentId;
+    /** Canonical display name of the membership's department. */
+    readonly departmentName?: string | undefined;
     readonly active: boolean;
   }>;
   readonly grants: ReadonlyArray<{
@@ -51,16 +60,24 @@ export const accumulateOrganizationDirectoryFacts = (input: {
     PersonId,
     {
       departments: Set<DepartmentId>;
+      namesByDepartment: Map<DepartmentId, string>;
       isActive: boolean;
     }
   >();
   for (const personId of input.personIds) {
-    facts.set(personId, { departments: new Set(), isActive: false });
+    facts.set(personId, {
+      departments: new Set(),
+      namesByDepartment: new Map(),
+      isActive: false,
+    });
   }
   for (const membership of input.memberships) {
     const fact = facts.get(membership.personId);
     if (fact === undefined) continue;
     fact.departments.add(membership.departmentId);
+    if (membership.departmentName !== undefined) {
+      fact.namesByDepartment.set(membership.departmentId, membership.departmentName);
+    }
     if (membership.active) fact.isActive = true;
   }
   const grantsByPerson = new Map<PersonId, OrganizationGlobalAdministratorStatus>();
@@ -69,6 +86,9 @@ export const accumulateOrganizationDirectoryFacts = (input: {
   for (const [personId, fact] of facts) {
     result.set(personId, {
       departments: [...fact.departments].sort((left, right) => left.localeCompare(right)),
+      departmentNames: [...fact.namesByDepartment.values()].sort((left, right) =>
+        left.localeCompare(right),
+      ),
       isActive: fact.isActive,
       globalAdministrator: grantsByPerson.get(personId) ?? "Absent",
     });
