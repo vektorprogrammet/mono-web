@@ -20,6 +20,9 @@ export const responseHeaders = {
   "X-Content-Type-Options": "nosniff",
 } as const
 
+export const ownerEnabled = (): boolean =>
+  process.env.DASHBOARD_INTERVIEW_OWNER === "foldkit"
+
 
 const invitationCapability = (
   request: Request,
