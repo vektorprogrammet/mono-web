@@ -1,13 +1,36 @@
-// biome-ignore lint/style/noDefaultExport: Route Modules require default export https://reactrouter.com/start/framework/route-module
+// biome-ignore lint/style/noDefaultExport: Route Modules require default export https://react-router.com/start/framework/route-module
 import { DataTable } from "@/components/data-table";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { ColumnDef } from "@tanstack/react-table";
-import { isFixtureMode } from "@vektorprogrammet/sdk";
-import { requireAuth } from "../lib/auth.server";
+import { useLoaderData } from "react-router";
+import { isFixtureMode, UnauthorizedError, type DirectoryEntry } from "@vektorprogrammet/sdk";
+import { expiredSessionRedirect, requireAuth } from "../lib/auth.server";
 import { createAuthenticatedClient } from "../lib/api.server";
 import type { Route } from "./+types/dashboard.brukere._index";
-import { getActiveUsers, getInactiveUsers } from "../mock/api/data-brukere";
+
+export interface BrukerRow {
+  readonly personId: string;
+  readonly firstName: string;
+  readonly lastName: string;
+  readonly phone: string;
+  readonly mail: string;
+  /** Always null until spec 0058 lands; the column renders an em dash. */
+  readonly studyProgramme: string | null;
+  readonly departments: string[];
+}
+
+function toRow(entry: DirectoryEntry): BrukerRow {
+  return {
+    personId: entry.personId,
+    firstName: entry.firstName,
+    lastName: entry.lastName,
+    phone: entry.phone,
+    mail: entry.email,
+    studyProgramme: null,
+    departments: [...entry.departments],
+  };
+}
 
 export async function loader({ request }: Route.LoaderArgs) {
   if (isFixtureMode) return { users: null };
@@ -17,29 +40,30 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   try {
     const users = await client.admin.users.list();
-    return { users: users ?? null };
-  } catch {
-    return { users: null };
+    return {
+      users: {
+        activeUsers: users.activeUsers.map(toRow),
+        inactiveUsers: users.inactiveUsers.map(toRow),
+      },
+    };
+  } catch (error) {
+    if (error instanceof UnauthorizedError) {
+      throw await expiredSessionRedirect(request);
+    }
+    console.error("brukere directory load failed", error);
+    return { users: null, error: "unavailable" as const };
   }
 }
 
-export type user = {
-  firstName: string;
-  lastName: string;
-  phone: string;
-  mail: string;
-  major: string;
-  place: string;
-  status: string;
-};
+export type user = BrukerRow;
+
 export const columns: Array<ColumnDef<user>> = [
   {
     id: "select",
     header: ({ table }) => (
       <Checkbox
         checked={
-          table.getIsAllPageRowsSelected() ||
-          (table.getIsSomePageRowsSelected() && "indeterminate")
+          table.getIsAllPageRowsSelected() || (table.getIsSomePageRowsSelected() && "indeterminate")
         }
         onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
         aria-label="Select all"
@@ -59,21 +83,36 @@ export const columns: Array<ColumnDef<user>> = [
   { id: "Etternavn", accessorKey: "lastName", header: "Etternavn" },
   { id: "Telefon", accessorKey: "phone", header: "Telefon" },
   { id: "E-post", accessorKey: "mail", header: "E-post" },
-  { id: "Studie", accessorKey: "major", header: "Studie" },
-  { id: "Avdeling", accessorKey: "place", header: "Avdeling" },
+  {
+    id: "Studie",
+    header: "Studie",
+    cell: () => <span>—</span>,
+  },
+  {
+    id: "Avdeling",
+    accessorFn: (row) => row.departments.join(", "),
+    header: "Avdeling",
+    cell: (info) => info.getValue(),
+  },
 ];
+
 export default function Brukere() {
-  const activeUsers = getActiveUsers();
-  const inActiveUsers = getInactiveUsers();
+  const data = useLoaderData<typeof loader>();
+  const activeUsers = data.users?.activeUsers ?? [];
+  const inActiveUsers = data.users?.inactiveUsers ?? [];
+  const denied = !data.users;
   return (
     <>
       <h1>Brukere</h1>
       <section className="flex w-full min-w-0 flex-col items-center ">
         <h1 className="mb-10 font-semibold text-2xl">Brukere</h1>
-        <Tabs
-          defaultValue="active"
-          className="mb-6 w-full max-w-7xl px-4 sm:px-6 lg:px-8"
-        >
+        {denied ? (
+          <p className="mb-6 text-center text-gray-600" role="alert">
+            Du har ikke tilgang til brukerlisten. Listen er bare tilgjengelig for aktive
+            globaladministratorer og avdelingsledere.
+          </p>
+        ) : null}
+        <Tabs defaultValue="active" className="mb-6 w-full max-w-7xl px-4 sm:px-6 lg:px-8">
           <div className="flex justify-center">
             <TabsList className="my-5 flex flex-wrap justify-center">
               <TabsTrigger value="active">Aktive Brukere</TabsTrigger>

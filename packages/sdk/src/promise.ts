@@ -405,3 +405,5 @@ export function createClient(baseUrl: string | undefined, options?: ClientOption
 }
 
 export type Sdk = ReturnType<typeof createClient>;
+
+export type { AdminUsersPage, AdminUsersResult, DirectoryEntry } from "./domains/admin/users.js";

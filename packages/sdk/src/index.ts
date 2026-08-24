@@ -86,6 +86,7 @@ export {
   UserRole,
   type User,
 } from "./schemas/user.js";
+export type { DirectoryEntry, AdminUsersPage, AdminUsersResult } from "./domains/admin/users.js";
 export type { DashboardStats } from "./schemas/dashboard.js";
 export type { TeamInterest, Sponsor, MailingList, AdmissionStats, Page } from "./schemas/common.js";
 export {
