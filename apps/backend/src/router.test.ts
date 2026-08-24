@@ -268,6 +268,19 @@ describe("unified backend router", () => {
     ).toThrow("conflicting actor facts for shared token");
   });
 
+  it("boots with the legacy auth token env maps absent", () => {
+    const {
+      ADMISSION_AUTH_TOKENS: _admissionTokens,
+      RECEIPT_AUTH_TOKENS: _receiptTokens,
+      ORGANIZATION_AUTH_TOKENS: _organizationTokens,
+      ...legacyFreeEnvironment
+    } = environment;
+    const legacyFreeConfig = makeBackendConfig(legacyFreeEnvironment);
+    expect(legacyFreeConfig.admission.tokens.size).toBe(0);
+    expect(legacyFreeConfig.receipt.tokens.size).toBe(0);
+    expect(legacyFreeConfig.organization.actorsByToken.size).toBe(0);
+  });
+
   it("requires TLS for non-loopback application effect providers", () => {
     expect(() =>
       makeBackendConfig({

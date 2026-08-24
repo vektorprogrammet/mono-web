@@ -31,9 +31,7 @@ export interface OrganizationApiConfig {
 }
 
 const parseActorsByToken = (raw: string | undefined): ReadonlyMap<string, OrganizationActor> => {
-  if (raw === undefined || raw.length === 0) {
-    throw new Error("ORGANIZATION_AUTH_TOKENS is required");
-  }
+  if (raw === undefined || raw.length === 0) return new Map();
   if (
     raw.length > MAX_TOKEN_CONFIG_BYTES ||
     new TextEncoder().encode(raw).byteLength > MAX_TOKEN_CONFIG_BYTES
@@ -58,8 +56,8 @@ const parseActorsByToken = (raw: string | undefined): ReadonlyMap<string, Organi
   }
 
   const entries = Object.entries(actors);
-  if (entries.length === 0 || entries.length > MAX_TOKEN_MAPPINGS) {
-    throw new Error(`ORGANIZATION_AUTH_TOKENS must contain 1-${MAX_TOKEN_MAPPINGS} actors`);
+  if (entries.length > MAX_TOKEN_MAPPINGS) {
+    throw new Error(`ORGANIZATION_AUTH_TOKENS must contain at most ${MAX_TOKEN_MAPPINGS} actors`);
   }
   return new Map(entries);
 };

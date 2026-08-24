@@ -81,7 +81,7 @@ const parsePrincipal = (value: unknown): AdmissionApiPrincipal => {
 };
 
 const parseTokens = (raw: string | undefined): ReadonlyMap<string, AdmissionApiPrincipal> => {
-  if (raw === undefined || raw.length === 0) throw new Error("ADMISSION_AUTH_TOKENS is required");
+  if (raw === undefined || raw.length === 0) return new Map();
   let decoded: unknown;
   try {
     decoded = JSON.parse(raw) as unknown;
@@ -94,7 +94,6 @@ const parseTokens = (raw: string | undefined): ReadonlyMap<string, AdmissionApiP
     if (token.length === 0) throw new Error("ADMISSION_AUTH_TOKENS contains an empty token");
     result.set(token, parsePrincipal(value));
   }
-  if (result.size === 0) throw new Error("ADMISSION_AUTH_TOKENS is empty");
   return result;
 };
 

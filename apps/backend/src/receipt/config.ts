@@ -63,7 +63,7 @@ const parsePrincipal = (value: unknown): ReceiptApiPrincipal => {
 };
 
 const parseTokens = (raw: string | undefined): ReadonlyMap<string, ReceiptApiPrincipal> => {
-  if (raw === undefined || raw.length === 0) throw new Error("RECEIPT_AUTH_TOKENS is required");
+  if (raw === undefined || raw.length === 0) return new Map();
   let decoded: unknown;
   try {
     decoded = JSON.parse(raw) as unknown;
@@ -79,7 +79,6 @@ const parseTokens = (raw: string | undefined): ReadonlyMap<string, ReceiptApiPri
     if (result.has(token)) throw new Error("RECEIPT_AUTH_TOKENS contains a duplicate token");
     result.set(token, parsePrincipal(value));
   }
-  if (result.size === 0) throw new Error("RECEIPT_AUTH_TOKENS is empty");
   return result;
 };
 
