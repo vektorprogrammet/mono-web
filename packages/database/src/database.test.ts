@@ -351,7 +351,7 @@ describe("DatabaseTest", () => {
     );
 
     expect(evidence).toEqual({
-      revision: "17_person-keyed-receipt-authority",
+      revision: "18_organization-team-interest",
       migrations: [
         { migration_id: 1, name: "receipt-authority" },
         { migration_id: 2, name: "admission-period-authority" },
@@ -3850,7 +3850,7 @@ describe("DatabaseTest", () => {
       }),
     );
 
-    expect(evidence.schemaRevision).toBe("17_person-keyed-receipt-authority");
+    expect(evidence.schemaRevision).toBe("18_organization-team-interest");
     expect(evidence.denied._tag).toBe("OrganizationRoleDenied");
     expect(evidence.deniedRows).toBe(0);
     expect(evidence.departmentCreated.committed).toBe(true);

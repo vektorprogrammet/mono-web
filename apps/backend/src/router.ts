@@ -174,6 +174,10 @@ export const makeBackendHttp = (
       const authority = await resolvePersonAuthority(cookie, { run });
       return organizationActorFrom(authority);
     },
+    // Specs 0059/0060 leader-scoped reads: one captured authorizationInstant
+    // per request covers session resolution, scope computation, and the read.
+    resolveAuthority: (request) =>
+      resolvePersonAuthority(request.headers.get("cookie") ?? undefined, { run }),
     run,
   });
   const profile = makeProfileApiHttp({

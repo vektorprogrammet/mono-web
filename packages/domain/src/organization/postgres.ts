@@ -1,4 +1,5 @@
 import { Database, type DatabaseShape } from "../database/service.js";
+import * as Statement from "effect/unstable/sql/Statement";
 import { Effect, Schema } from "effect";
 import {
   DepartmentNotFound,
@@ -19,10 +20,13 @@ import {
   Membership,
   MembershipInvariantSchema,
   type MembershipSelect,
-  type DepartmentId,
+  TeamInterestRegistration,
+  type TeamInterestRegistrationSelect,
   type MembershipId,
+  type DepartmentId,
   type TeamId,
 } from "./schema.js";
+import type { TeamInterestFilter } from "./service.js";
 import {
   importLegacyOrganizationEffect,
   type LegacyOrganizationSnapshot,
@@ -649,3 +653,70 @@ export const importOrganizationSnapshot = (
         ),
       );
   });
+
+const decodeTeamInterestRegistration = (
+  row: unknown,
+): Effect.Effect<TeamInterestRegistration, OrganizationDecodeError> =>
+  Schema.decodeUnknownEffect(TeamInterestRegistration)(row, { onExcessProperty: "error" }).pipe(
+    Effect.mapError(
+      (cause) =>
+        new OrganizationDecodeError({
+          operation: "decode TeamInterestRegistration select",
+          message: String(cause),
+        }),
+    ),
+  );
+
+const teamInterestScopeClause = (authorizedDepartmentIds: ReadonlyArray<DepartmentId>) =>
+  Statement.or(
+    authorizedDepartmentIds.map(
+      (departmentId) => `department_id = ${String(departmentId)}`,
+    ),
+  );
+
+const optionalTeamInterestFilters = (filter: TeamInterestFilter): Statement.Fragment => {
+  const clauses: Array<string | Statement.Fragment> = [];
+  if (filter.semesterId !== undefined) {
+    clauses.push(`semester_id = ${String(filter.semesterId)}`);
+  }
+  if (filter.departmentId !== undefined) {
+    clauses.push(`department_id = ${String(filter.departmentId)}`);
+  }
+  return clauses.length === 0 ? Statement.fragment([]) : Statement.and(clauses);
+};
+
+export const listOrganizationTeamInterestRegistrations = (
+  filter: TeamInterestFilter,
+): Effect.Effect<
+  ReadonlyArray<TeamInterestRegistration>,
+  OrganizationDecodeError | OrganizationPersistenceError,
+  Database
+> => {
+  if (filter.authorizedDepartmentIds.length === 0) return Effect.succeed([]);
+  return Effect.gen(function* () {
+    const database = yield* Database;
+    const rows = yield* database<TeamInterestRegistrationSelect>`
+      SELECT
+        registration_id::text AS "registrationId",
+        submitter_name AS "submitterName",
+        submitter_email AS "submitterEmail",
+        team_id AS "teamId",
+        department_id AS "departmentId",
+        semester_id AS "semesterId",
+        to_char(submitted_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+          AS "submittedAt",
+        revision
+      FROM organization_team_interest_registrations
+      WHERE ${teamInterestScopeClause(filter.authorizedDepartmentIds)}
+        AND ${optionalTeamInterestFilters(filter)}
+      ORDER BY registration_id ASC
+    `.pipe(
+      Effect.catchTag("SqlError", (cause) =>
+        Effect.fail(
+          persistenceError("list organization team interest registrations", cause),
+        ),
+      ),
+    );
+    return yield* Effect.forEach(rows, decodeTeamInterestRegistration);
+  });
+};
