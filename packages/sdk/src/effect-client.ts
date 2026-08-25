@@ -48,6 +48,17 @@ export type {
   SchoolsSdkError,
   SchoolsRejectionTag,
 } from "./errors.js";
+export {
+  Configuration,
+  Network,
+  SchoolsAuthorityInactive,
+  SchoolsDecodeError,
+  SchoolsDepartmentNotFound,
+  SchoolsDepartmentOutOfScope,
+  SchoolsNotInScope,
+  SchoolsPersistenceError,
+  SchoolsUnauthenticatedActor,
+} from "./errors.js";
 export { apiUrl, isFixtureMode } from "./config.js";
 
 export {

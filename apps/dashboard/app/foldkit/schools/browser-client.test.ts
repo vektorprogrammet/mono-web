@@ -28,18 +28,14 @@ describe("Schools directory browser client", () => {
 
   beforeEach(() => {
     vi.resetModules();
-    vi.stubEnv("API_URL", "http://api.test");
     vi.stubGlobal("fetch", fetchMock);
     fetchMock.mockReset();
   });
 
   afterEach(() => {
     vi.unstubAllGlobals();
-    vi.unstubAllEnvs();
   });
 
-  // API_URL is captured during ESM evaluation, so these tests intentionally
-  // exercise the module-loading boundary after installing the process input.
   it("sends one credentialed native request with optional department narrowing", async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse(directory));
     const { SchoolDepartmentId } = await import("@vektorprogrammet/sdk/effect");
@@ -54,7 +50,7 @@ describe("Schools directory browser client", () => {
     expect(result).toEqual(directory);
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, init] = fetchMock.mock.calls[0]!;
-    expect(String(url)).toBe("http://api.test/api/admin/schools?department=department-a");
+    expect(String(url)).toBe("/schools?department=department-a");
     expect(init?.method).toBe("GET");
     expect(init?.credentials ?? "same-origin").toBe("same-origin");
   });
@@ -68,5 +64,16 @@ describe("Schools directory browser client", () => {
     );
 
     expect(failure._tag).toBe("SchoolsDecodeError");
+  });
+
+  it("preserves a typed Schools rejection returned by the authenticated bridge", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ error: { tag: "AuthorityInactive" } }, 403));
+    const { createBrowserSchoolsDirectoryClient } = await import("./browser-client");
+
+    const failure = await Effect.runPromise(
+      createBrowserSchoolsDirectoryClient().admin.schools.list().pipe(Effect.flip),
+    );
+
+    expect(failure._tag).toBe("AuthorityInactive");
   });
 });
