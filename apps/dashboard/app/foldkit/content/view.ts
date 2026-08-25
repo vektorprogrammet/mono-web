@@ -17,11 +17,19 @@ import type { Model } from "./model";
 
 const bannerView = (model: Model, h: HtmlBuilder<Message>): Html => {
   if (model.banner === null) return h.empty;
-  const text =
-    model.banner._tag === "Denied"
-      ? model.banner.message
-      : model.banner.message;
-  return h.div([h.Class("content-workspace__banner"), h.Role("alert")], [text]);
+  return h.div(
+    [h.Class("content-workspace__banner"), h.Role("alert")],
+    [
+      h.p([], [model.banner.message]),
+      // A failed load offers exactly one recovery action: a new request id.
+      model.banner._tag === "Failed"
+        ? h.button(
+            [h.Type("button"), h.OnClick(RetriedWorkspace())],
+            ["Prøv igjen"],
+          )
+        : h.empty,
+    ],
+  );
 };
 
 const stateView = (model: Model, h: HtmlBuilder<Message>, h2: Html): Html => {
