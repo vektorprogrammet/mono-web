@@ -1,4 +1,4 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { nodeRuntime } from "../node-runtime.js";
 import { join } from "node:path";
 import { Effect } from "effect";
 import { validateAcceptedIntentAuthoringShape } from "./accepted-intent-schema.js";
@@ -44,7 +44,7 @@ const parseJson = (bytes: Uint8Array, label: string): unknown => {
 
 const readBytes = (path: string): Effect.Effect<Uint8Array, Error> =>
   Effect.tryPromise({
-    try: () => readFile(path),
+    try: () => nodeRuntime.readFile(path),
     catch: (cause) => new Error(`cannot read ${path}`, { cause }),
   });
 
@@ -188,7 +188,7 @@ export const authorAcceptedIntentRegister = (
       );
     const outputBytes = new TextEncoder().encode(canonicalJson(decoded.register));
     yield* Effect.tryPromise({
-      try: () => writeFile(options.outputPath, outputBytes),
+      try: () => nodeRuntime.writeFile(options.outputPath, outputBytes),
       catch: (cause) => new Error(`cannot write ${options.outputPath}`, { cause }),
     });
     return {
@@ -218,12 +218,16 @@ export const parseIntentAuthorArgs = (args: readonly string[]): AuthorAcceptedIn
   inventoryDirectory: argValue(args, "--inventory-directory"),
   outputPath: argValue(args, "--output"),
 });
-
 if (import.meta.main) {
-  Effect.runPromise(authorAcceptedIntentRegister(parseIntentAuthorArgs(process.argv.slice(2))))
-    .then((receipt) => process.stdout.write(canonicalJson(receipt)))
+  nodeRuntime
+    .runPromise(
+      authorAcceptedIntentRegister(parseIntentAuthorArgs(nodeRuntime.process.argv.slice(2))),
+    )
+    .then((receipt) => nodeRuntime.process.stdout.write(canonicalJson(receipt)))
     .catch((cause: unknown) => {
-      process.stderr.write(`${cause instanceof Error ? cause.message : String(cause)}\n`);
-      process.exitCode = 1;
+      nodeRuntime.process.stderr.write(
+        `${cause instanceof Error ? cause.message : String(cause)}\n`,
+      );
+      nodeRuntime.process.setExitCode(1);
     });
 }

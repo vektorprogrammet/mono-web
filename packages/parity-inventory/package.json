@@ -15,7 +15,7 @@
   },
   "scripts": {
     "check-types": "tsc --noEmit",
-    "intent:author": "bun src/intent-author.ts",
+    "intent:author": "bun intent-author-cli.ts",
     "lint": "oxlint",
     "test": "bun test tests"
   },
