@@ -1646,6 +1646,70 @@ describe("C0 source traversal safety", () => {
     }
   });
 
+  test("proceeds past derivation residuals in a clean tracked tree", async () => {
+    const root = gitFixture();
+    try {
+      putFixture(root, ".gitignore", "node_modules/\n.turbo/\ndist/\n");
+      putFixture(root, "node_modules/parity/index.js", "module.exports = 1;\n");
+      putFixture(root, ".turbo/output.txt", "residual");
+      putFixture(root, "packages/sdk/dist/module.js", "export const module = 1;\n");
+      execFileSync("git", ["-C", root, "add", ".gitignore"]);
+      execFileSync("git", ["-C", root, "commit", "-qm", "fixture"]);
+      putFixture(root, "apps/server/config/routes.yaml", "home:\n  path: /home\n");
+      execFileSync("git", ["-C", root, "add", "."]);
+      execFileSync("git", ["-C", root, "commit", "-qm", "authority"]);
+      const snapshot = await Effect.runPromise(
+        scanRootEffect(root, "mono").pipe(Effect.provide(NodeRuntimeLayer)),
+      );
+      expect(snapshot.files.map((file) => file.path)).toEqual([
+        ".gitignore",
+        "apps/server/config/routes.yaml",
+      ]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects ignored authority paths outside the residual register", async () => {
+    const root = gitFixture();
+    try {
+      putFixture(root, ".gitignore", "src/AppBundle/Controller/HomeController.php\n");
+      putFixture(
+        root,
+        "src/AppBundle/Controller/HomeController.php",
+        "<?php\nfinal class Home {}\n",
+      );
+      execFileSync("git", ["-C", root, "add", ".gitignore"]);
+      execFileSync("git", ["-C", root, "commit", "-qm", "fixture"]);
+      await expect(
+        Effect.runPromise(scanRootEffect(root, "legacy").pipe(Effect.provide(NodeRuntimeLayer))),
+      ).rejects.toMatchObject({
+        operation: "scan_root",
+        message: "selected source root contains ignored authority paths: 1",
+      });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects tracked authority paths matched by ignore rules", async () => {
+    const root = gitFixture();
+    try {
+      putFixture(root, ".gitignore", "packages/sdk/dist/**\n");
+      putFixture(root, "packages/sdk/dist/module.js", "export const module = 1;\n");
+      execFileSync("git", ["-C", root, "add", "-f", "."]);
+      execFileSync("git", ["-C", root, "commit", "-qm", "fixture"]);
+      await expect(
+        Effect.runPromise(scanRootEffect(root, "mono").pipe(Effect.provide(NodeRuntimeLayer))),
+      ).rejects.toMatchObject({
+        operation: "scan_root",
+        message: "selected source root contains tracked authority paths matched by ignore rules: 1",
+      });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test("ignores legacy var logs before reading bytes", async () => {
     const root = mkdtempSync("/tmp/functional-parity-tree-");
     try {

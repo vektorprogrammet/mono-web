@@ -675,16 +675,36 @@ const gitState = (
     )
     .split("\0")
     .filter((path) => path.length > 0 && !isMonoProjectionMountPath(rootRef, path));
+  const tracked = commands
+    .executeText("git", ["-C", rootPath, "ls-tree", "-r", "--name-only", "-z", revision], {
+      maxBuffer: MAX_GIT_METADATA_BYTES,
+      stdio: ["ignore", "pipe", "ignore"],
+    })
+    .split("\0")
+    .filter((path) => path.length > 0 && !isMonoProjectionMountPath(rootRef, path));
   const authorityPath = (path: string): boolean =>
     SOURCE_FAMILIES.some(
       (family) =>
         family.authority_line === rootRef &&
         family.patterns.some((pattern) => matchesLiteralPattern(path, pattern)),
     );
-  const ignoredAuthority = ignored.filter(authorityPath);
+  // Git-ignored paths covered by the closed residual register are derivations of a clean
+  // checkout (node_modules, dist, .turbo), not smuggled authority: scans read tracked blobs
+  // only, so they are skipped silently. Ignored authority paths outside the register and
+  // tracked authority paths shadowed by an ignore rule fail closed.
+  const ignoredAuthority = ignored.filter(
+    (path) => authorityPath(path) && effectiveIgnoreRule(rootRef, path) === null,
+  );
   if (ignoredAuthority.length > 0)
     throw new Error(
       `selected source root contains ignored authority paths: ${ignoredAuthority.length}`,
+    );
+  const trackedAuthorityIgnored = tracked.filter(
+    (path) => authorityPath(path) && effectiveIgnoreRule(rootRef, path) !== null,
+  );
+  if (trackedAuthorityIgnored.length > 0)
+    throw new Error(
+      `selected source root contains tracked authority paths matched by ignore rules: ${trackedAuthorityIgnored.length}`,
     );
   const unsafeIgnored = ignored.filter(
     (path) => isUnsafeSourcePath(path) && effectiveIgnoreRule(rootRef, path) === null,
@@ -693,13 +713,6 @@ const gitState = (
     throw new Error(
       `selected source root contains ignored sensitive paths: ${unsafeIgnored.length}`,
     );
-  const tracked = commands
-    .executeText("git", ["-C", rootPath, "ls-tree", "-r", "--name-only", "-z", revision], {
-      maxBuffer: MAX_GIT_METADATA_BYTES,
-      stdio: ["ignore", "pipe", "ignore"],
-    })
-    .split("\0")
-    .filter((path) => path.length > 0 && !isMonoProjectionMountPath(rootRef, path));
   return { revision, trackedPaths: new Set(tracked) };
 };
 
