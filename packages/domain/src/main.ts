@@ -3,11 +3,7 @@ import { createMachineReport, renderMarkdown } from "./report.js";
 import { DatasetInputError, loadDataset, loadPersonAuthority } from "./data.js";
 import { allFixturesPass, runSyntheticFixtures } from "./fixtures.js";
 import { runSDep2Team } from "./laws.js";
-import {
-  writeStandardError,
-  writeStandardOutput,
-  writeTextFile,
-} from "./runtime-services.js";
+import { writeStandardError, writeStandardOutput, writeTextFile } from "./runtime-services.js";
 
 declare global {
   interface ImportMeta {
@@ -162,4 +158,3 @@ export const main = (args: ReadonlyArray<string>) =>
       return writeStandardError(`${JSON.stringify({ error: safeError })}\n`).pipe(Effect.as(1));
     }),
   );
-

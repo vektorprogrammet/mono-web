@@ -54,4 +54,3 @@ export const writeStandardOutput = (text: string): Effect.Effect<void, never, Do
 
 export const writeStandardError = (text: string): Effect.Effect<void, never, DomainProcess> =>
   DomainProcess.use((process) => process.writeStandardError(text));
-

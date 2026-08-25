@@ -53,10 +53,7 @@ const readBytes = (
 
 const sourceManifestDigest = (manifest: SourceManifest): string => sha256(canonicalJson(manifest));
 
-const loadInputs = (
-  fileSystem: ParityFileSystemShape,
-  options: AuthorAcceptedIntentOptions,
-) =>
+const loadInputs = (fileSystem: ParityFileSystemShape, options: AuthorAcceptedIntentOptions) =>
   Effect.gen(function* () {
     const inputBytes = yield* readBytes(fileSystem, options.inputPath);
     assertSafeAcceptedIntentBytes(inputBytes, false);

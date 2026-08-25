@@ -1,9 +1,5 @@
 import { Cause, Context, Effect, Result } from "effect";
-import {
-  DomainProcess,
-  writeStandardError,
-  writeStandardOutput,
-} from "../runtime-services.js";
+import { DomainProcess, writeStandardError, writeStandardOutput } from "../runtime-services.js";
 import { canonicalJson } from "./evidence.js";
 
 const SPEC_ID = "0017";
@@ -48,9 +44,7 @@ export const main = (
   args: ReadonlyArray<string>,
 ): Effect.Effect<number, never, DomainProcess | TutorD1Proof> => {
   if (args.length !== 0) {
-    return writeStandardError("usage: bun run runtime/tutor-d1-proof-main.ts\n").pipe(
-      Effect.as(1),
-    );
+    return writeStandardError("usage: bun run runtime/tutor-d1-proof-main.ts\n").pipe(Effect.as(1));
   }
 
   return TutorD1Proof.use(({ run }) =>

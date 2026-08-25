@@ -68,11 +68,7 @@ interface FixtureDefinition {
   readonly expectedStatus: FixtureStatus;
   readonly expectedReasonCodes: ReadonlyArray<ReasonCode>;
   readonly predicate?: (result: SDep2TeamResult) => boolean;
-  readonly runError?: () => Effect.Effect<
-    DatasetInputError | undefined,
-    unknown,
-    DomainFileSystem
-  >;
+  readonly runError?: () => Effect.Effect<DatasetInputError | undefined, unknown, DomainFileSystem>;
 }
 
 const input = (

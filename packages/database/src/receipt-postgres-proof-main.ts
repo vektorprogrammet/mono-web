@@ -39,4 +39,3 @@ export const program = Effect.gen(function* () {
     process.stdout.write(`${canonicalJson({ ...evidence, evidenceSha256 })}\n`),
   );
 });
-

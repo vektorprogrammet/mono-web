@@ -240,9 +240,7 @@ const openRuntime = async (): Promise<LocalRuntime> => {
 
 const migrationSql = (): Promise<string> =>
   readFile(
-    fileURLToPath(
-      new URL("../src/tutor/migrations/0001-tutor-event-store.sql", import.meta.url),
-    ),
+    fileURLToPath(new URL("../src/tutor/migrations/0001-tutor-event-store.sql", import.meta.url)),
     "utf8",
   );
 
@@ -1293,10 +1291,7 @@ const runJourney = async (schemaHash: string): Promise<D1Evidence> => {
           envelope_bytes: Array.from(normalizeBlobBytes(row.envelope_bytes)),
         }));
         const replay = await Effect.runPromise(
-          runWithTutorD1(
-            db as unknown as D1Binding,
-            validateReplayRows(stream, normalizedRows),
-          ),
+          runWithTutorD1(db as unknown as D1Binding, validateReplayRows(stream, normalizedRows)),
         );
         assert(
           replay.events.length === 4 && replay.folded.events.length === 4,
@@ -1846,10 +1841,7 @@ const TutorD1ProofLive = Layer.succeed(TutorD1Proof, {
 
 const exitCode = await Effect.runPromise(
   Effect.scoped(
-    main(nodeArguments()).pipe(
-      Effect.provide(TutorD1ProofLive),
-      Effect.provide(DomainProcessLive),
-    ),
+    main(nodeArguments()).pipe(Effect.provide(TutorD1ProofLive), Effect.provide(DomainProcessLive)),
   ),
 );
 setNodeExitCode(exitCode);

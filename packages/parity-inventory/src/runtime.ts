@@ -239,13 +239,7 @@ const readAuthorityBlob = (
   )
     throw new Error("intent authority path escapes its checkout");
   const statusBefore = commands
-    .executeText("git", [
-      "-C",
-      authorityRoot,
-      "status",
-      "--porcelain=v1",
-      "--untracked-files=all",
-    ])
+    .executeText("git", ["-C", authorityRoot, "status", "--porcelain=v1", "--untracked-files=all"])
     .trim();
   if (statusBefore.length > 0) throw new Error("intent authority checkout is dirty");
   const tracked = commands
@@ -261,9 +255,7 @@ const readAuthorityBlob = (
     .trim();
   if (!/^100644 [0-9a-f]{40} 0\t/.test(tracked))
     throw new Error("intent authority must be a tracked regular file");
-  const revision = commands
-    .executeText("git", ["-C", authorityRoot, "rev-parse", "HEAD"])
-    .trim();
+  const revision = commands.executeText("git", ["-C", authorityRoot, "rev-parse", "HEAD"]).trim();
   if (!/^[0-9a-f]{40}$/.test(revision)) throw new Error("intent authority revision is unavailable");
   const blobOid = commands
     .executeText("git", ["-C", authorityRoot, "rev-parse", `${revision}:${relativePath}`])
@@ -276,13 +268,7 @@ const readAuthorityBlob = (
   );
   assertSafeAcceptedIntentBytes(bytes);
   const statusAfter = commands
-    .executeText("git", [
-      "-C",
-      authorityRoot,
-      "status",
-      "--porcelain=v1",
-      "--untracked-files=all",
-    ])
+    .executeText("git", ["-C", authorityRoot, "status", "--porcelain=v1", "--untracked-files=all"])
     .trim();
   const revisionAfter = commands
     .executeText("git", ["-C", authorityRoot, "rev-parse", "HEAD"])
@@ -421,13 +407,7 @@ const readRuntimeEvidenceBlob = (
   )
     throw new Error("runtime evidence authority path escapes its checkout");
   const statusBefore = commands
-    .executeText("git", [
-      "-C",
-      authorityRoot,
-      "status",
-      "--porcelain=v1",
-      "--untracked-files=all",
-    ])
+    .executeText("git", ["-C", authorityRoot, "status", "--porcelain=v1", "--untracked-files=all"])
     .trim();
   if (statusBefore.length > 0) throw new Error("runtime evidence authority checkout is dirty");
   const tracked = commands
@@ -443,9 +423,7 @@ const readRuntimeEvidenceBlob = (
     .trim();
   if (!/^100644 [0-9a-f]{40} 0\t/.test(tracked))
     throw new Error("runtime evidence authority must be a tracked regular file");
-  const revision = commands
-    .executeText("git", ["-C", authorityRoot, "rev-parse", "HEAD"])
-    .trim();
+  const revision = commands.executeText("git", ["-C", authorityRoot, "rev-parse", "HEAD"]).trim();
   if (!/^[0-9a-f]{40}$/.test(revision))
     throw new Error("runtime evidence authority revision is unavailable");
   const blobOid = commands
@@ -460,13 +438,7 @@ const readRuntimeEvidenceBlob = (
   );
   const register = assertSafeRuntimeEvidenceBytes(bytes);
   const statusAfter = commands
-    .executeText("git", [
-      "-C",
-      authorityRoot,
-      "status",
-      "--porcelain=v1",
-      "--untracked-files=all",
-    ])
+    .executeText("git", ["-C", authorityRoot, "status", "--porcelain=v1", "--untracked-files=all"])
     .trim();
   const revisionAfter = commands
     .executeText("git", ["-C", authorityRoot, "rev-parse", "HEAD"])
@@ -858,11 +830,7 @@ const scanRoot = (
 export const scanRootEffect = (
   rootPath: string,
   rootRef: "legacy" | "mono",
-): Effect.Effect<
-  RootScanSnapshot,
-  ParityRuntimeError,
-  ParityCommandExecutor | ParityFileSystem
-> =>
+): Effect.Effect<RootScanSnapshot, ParityRuntimeError, ParityCommandExecutor | ParityFileSystem> =>
   Effect.gen(function* () {
     const fileSystem = yield* ParityFileSystem;
     const commands = yield* ParityCommandExecutor;
@@ -892,11 +860,7 @@ export const createManifestContextWithServices = (
 export const createManifestContextEffect = (
   legacyRoot: string,
   monoRoot: string,
-): Effect.Effect<
-  ManifestContext,
-  ParityRuntimeError,
-  ParityCommandExecutor | ParityFileSystem
-> =>
+): Effect.Effect<ManifestContext, ParityRuntimeError, ParityCommandExecutor | ParityFileSystem> =>
   Effect.gen(function* () {
     yield* assertAuthorityRootOwnership(legacyRoot, monoRoot);
     const legacy = yield* scanRootEffect(legacyRoot, "legacy");
@@ -955,7 +919,6 @@ export const readProjectionDirectoryEffect = (
     }),
   );
 
-
 const assertProjectionDirectoryEntries = (
   fileSystem: ParityFileSystemShape,
   directory: string,
@@ -978,11 +941,7 @@ export const writeProjectionSetEffect = (
   intentAuthority: PinnedIntentRegister,
   legacyRoot: string,
   runtimeEvidenceAuthority?: PinnedRuntimeEvidenceRegister,
-): Effect.Effect<
-  void,
-  ParityRuntimeError,
-  ParityCommandExecutor | ParityFileSystem
-> =>
+): Effect.Effect<void, ParityRuntimeError, ParityCommandExecutor | ParityFileSystem> =>
   Effect.gen(function* () {
     const fileSystem = yield* ParityFileSystem;
     const commands = yield* ParityCommandExecutor;
@@ -1013,9 +972,7 @@ export const writeProjectionSetEffect = (
           root,
           projectionDirectory,
         );
-        const staging = fileSystem.makeTempDirectory(
-          join(root, ".functional-parity-staging-"),
-        );
+        const staging = fileSystem.makeTempDirectory(join(root, ".functional-parity-staging-"));
         assertNoSymlinkPath(fileSystem, staging);
         try {
           if (!isMissingPath(fileSystem, directory)) {

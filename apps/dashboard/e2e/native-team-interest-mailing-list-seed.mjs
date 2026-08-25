@@ -67,16 +67,11 @@ export const registrationCounts = { total: 4, trondheim: 3, bergen: 1 };
 
 const parameterRows = (rows) => {
   let index = 0;
-  return rows
-    .map((row) => `(${row.map(() => `$${(index += 1)}`).join(", ")})`)
-    .join(",\n");
+  return rows.map((row) => `(${row.map(() => `$${(index += 1)}`).join(", ")})`).join(",\n");
 };
 
 const insertRows = (client, statement, rows, conflictClause = "") =>
-  client.query(
-    `${statement}\nVALUES\n${parameterRows(rows)}\n${conflictClause}`,
-    rows.flat(),
-  );
+  client.query(`${statement}\nVALUES\n${parameterRows(rows)}\n${conflictClause}`, rows.flat());
 
 const assert = (condition, message) => {
   if (!condition) throw new Error(`journey seed assertion failed: ${message}`);
@@ -154,10 +149,9 @@ async function main() {
       ],
       "ON CONFLICT (person_id) DO NOTHING",
     );
-    await client.query(
-      "DELETE FROM organization_memberships WHERE membership_id = $1",
-      ["membership-0059-team2a-skole"],
-    );
+    await client.query("DELETE FROM organization_memberships WHERE membership_id = $1", [
+      "membership-0059-team2a-skole",
+    ]);
     await insertRows(
       client,
       "INSERT INTO organization_memberships (membership_id, person_id, team_id, deleted_team_name, start_at, end_at, position_id, is_team_leader, is_suspended, revision)",
@@ -240,15 +234,7 @@ async function main() {
     await insertRows(
       client,
       "INSERT INTO organization_global_administrator_grants (grant_id, person_id, start_at, end_at, revision)",
-      [
-        [
-          "grant-0059-admin",
-          journeyPersons.admin.personId,
-          "2026-01-01T00:00:00Z",
-          null,
-          0,
-        ],
-      ],
+      [["grant-0059-admin", journeyPersons.admin.personId, "2026-01-01T00:00:00Z", null, 0]],
       "ON CONFLICT (grant_id) DO NOTHING",
     );
     // Registrations have no natural key; clear prior journey rows so reruns

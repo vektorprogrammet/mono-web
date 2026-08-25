@@ -11,9 +11,8 @@ describe("controlled test runtime lifecycle", () => {
     let releases = 0;
     const layer = Layer.effect(
       RuntimeProbe,
-      Effect.acquireRelease(
-        Effect.succeed({ value: "ready" }),
-        () => Effect.sync(() => void (releases += 1)),
+      Effect.acquireRelease(Effect.succeed({ value: "ready" }), () =>
+        Effect.sync(() => void (releases += 1)),
       ),
     );
     const runtime = makeControlledTestRuntime(layer);

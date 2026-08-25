@@ -1248,8 +1248,7 @@ const freshReplayBytes = (
             path: fixtureInput.path,
             bytes: [...fixtureInput.bytes],
           },
-    fixtureIntentBytes:
-      workspace.intentBytes === null ? null : [...workspace.intentBytes],
+    fixtureIntentBytes: workspace.intentBytes === null ? null : [...workspace.intentBytes],
   };
   const child = commands.spawnText(
     environment.executablePath,
@@ -1835,10 +1834,7 @@ const createFixtureEvidenceAuthority = (
   const directory = join(workspace.directory, "evidence-authority");
   fileSystem.makeDirectory(directory, { recursive: true });
   const path = join(directory, "runtime-evidence.json");
-  fileSystem.writeFile(
-    path,
-    canonicalRuntimeEvidenceBytes(makeRuntimeEvidenceRegister([receipt])),
-  );
+  fileSystem.writeFile(path, canonicalRuntimeEvidenceBytes(makeRuntimeEvidenceRegister([receipt])));
   commands.executeBytes("git", ["-C", directory, "init", "--quiet"]);
   commands.executeBytes("git", [
     "-C",
@@ -1860,11 +1856,7 @@ const createFixtureEvidenceAuthority = (
   return { directory, path };
 };
 
-const appendText = (
-  fileSystem: ParityFileSystemShape,
-  path: string,
-  text: string,
-): void => {
+const appendText = (fileSystem: ParityFileSystemShape, path: string, text: string): void => {
   if (!fileSystem.exists(path)) throw new Error(`fixture source unavailable: ${path}`);
   fileSystem.writeFile(path, `${fileSystem.readText(path)}\n${text}\n`, "utf8");
 };
@@ -1984,11 +1976,7 @@ const mutateFixture = (
       });
       if (!fileSystem.exists(monoRouting))
         fileSystem.writeFile(monoRouting, "# fixture route declarations\n", "utf8");
-      appendText(
-        fileSystem,
-        monoRouting,
-        monoRouteYaml("fixture_extra", "/fixture/extra", "GET"),
-      );
+      appendText(fileSystem, monoRouting, monoRouteYaml("fixture_extra", "/fixture/extra", "GET"));
       return;
     case "F7_method_path_mismatch":
       fileSystem.makeDirectory(join(workspace.root, "apps/server/config"), {
@@ -1996,16 +1984,8 @@ const mutateFixture = (
       });
       if (!fileSystem.exists(monoRouting))
         fileSystem.writeFile(monoRouting, "# fixture route declarations\n", "utf8");
-      appendText(
-        fileSystem,
-        legacyRouting,
-        routeYaml("fixture_changed", "/fixture/legacy", "GET"),
-      );
-      appendText(
-        fileSystem,
-        monoRouting,
-        monoRouteYaml("fixture_changed", "/fixture/mono", "GET"),
-      );
+      appendText(fileSystem, legacyRouting, routeYaml("fixture_changed", "/fixture/legacy", "GET"));
+      appendText(fileSystem, monoRouting, monoRouteYaml("fixture_changed", "/fixture/mono", "GET"));
       return;
     case "F8_openapi_stale":
       fileSystem.writeFile(
@@ -2027,10 +2007,9 @@ const mutateFixture = (
       );
       return;
     case "F9_runtime_unavailable":
-      fileSystem.remove(
-        join(workspace.root, "apps/server/var/parity/api-operations.json"),
-        { force: true },
-      );
+      fileSystem.remove(join(workspace.root, "apps/server/var/parity/api-operations.json"), {
+        force: true,
+      });
       return;
     case "F10_static_runtime_mismatch":
       fileSystem.writeFile(
@@ -2342,7 +2321,13 @@ const runFixtureFalsifier = (
         try {
           // A child process is required here: a static import cannot prove fresh module state, locale, environment, and temporary output roots.
           const firstBytes = freshReplayBytes(fileSystem, commands, environment, workspace, "C");
-          const secondBytes = freshReplayBytes(fileSystem, commands, environment, secondWorkspace, "sv_SE.UTF-8");
+          const secondBytes = freshReplayBytes(
+            fileSystem,
+            commands,
+            environment,
+            secondWorkspace,
+            "sv_SE.UTF-8",
+          );
           const expectedNames = Object.keys(first.bytes).sort(compareByteOrder);
           const firstNames = Object.keys(firstBytes).sort(compareByteOrder);
           const secondNames = Object.keys(secondBytes).sort(compareByteOrder);
@@ -2768,7 +2753,9 @@ const runFixtureFalsifier = (
         causalMatch ? (observedFailure ?? null) : null,
       );
     } finally {
-      yield* Effect.sync(() => fileSystem.remove(workspace.directory, { recursive: true, force: true }));
+      yield* Effect.sync(() =>
+        fileSystem.remove(workspace.directory, { recursive: true, force: true }),
+      );
     }
   });
 interface ProjectionStageEffects {
@@ -2800,11 +2787,7 @@ const runTerminalStageEffect = (
   options: RunOptions,
   generated: GeneratedArtifacts,
   projectionEffects: ProjectionStageEffects = productionProjectionStageEffects,
-): Effect.Effect<
-  RunResult,
-  ParityRuntimeError,
-  ParityCommandExecutor | ParityFileSystem
-> =>
+): Effect.Effect<RunResult, ParityRuntimeError, ParityCommandExecutor | ParityFileSystem> =>
   Effect.gen(function* () {
     const before = yield* observeProjectionEffect(projectionEffects, options.root, false);
     const unknownEntries = before.entries.filter(
@@ -3060,11 +3043,7 @@ interface RunServices {
 const runWithServices = (
   options: RunOptions,
   services: RunServices,
-): Effect.Effect<
-  RunResult,
-  ParityRuntimeError,
-  ParityCommandExecutor | ParityFileSystem
-> =>
+): Effect.Effect<RunResult, ParityRuntimeError, ParityCommandExecutor | ParityFileSystem> =>
   Effect.gen(function* () {
     const generated = yield* services.collect(options);
     const terminalGenerated =
@@ -3255,22 +3234,9 @@ export const runTrustedFixtureTerminalCycle = (): Effect.Effect<
               "user.email",
               "fixture@example.invalid",
             ]);
-            commands.executeBytes("git", [
-              "-C",
-              root,
-              "config",
-              "user.name",
-              "fixture",
-            ]);
+            commands.executeBytes("git", ["-C", root, "config", "user.name", "fixture"]);
             commands.executeBytes("git", ["-C", root, "add", "--all"]);
-            commands.executeBytes("git", [
-              "-C",
-              root,
-              "commit",
-              "--quiet",
-              "-m",
-              "fixture source",
-            ]);
+            commands.executeBytes("git", ["-C", root, "commit", "--quiet", "-m", "fixture source"]);
           }
           refreshFixtureIntentRegister(fileSystem, commands, workspace);
           return workspace;
@@ -3283,183 +3249,181 @@ export const runTrustedFixtureTerminalCycle = (): Effect.Effect<
           }),
       }),
       (workspace) =>
-      Effect.gen(function* () {
-        const authority = createFixtureIntentAuthority(fileSystem, commands, workspace);
-        const evidenceAuthority = createFixtureEvidenceAuthority(fileSystem, commands, workspace);
-        try {
-          const pinned = yield* readPinnedIntentRegisterEffect(
-            authority.path,
-            workspace.legacyRoot,
-            workspace.root,
-            PROJECTION_DIRECTORY,
-          );
-          const pinnedEvidence = yield* readPinnedRuntimeEvidenceRegisterEffect(
-            evidenceAuthority.path,
-            workspace.legacyRoot,
-            workspace.root,
-            PROJECTION_DIRECTORY,
-          );
-          const attachAuthority = (generated: GeneratedArtifacts): GeneratedArtifacts => ({
-            ...generated,
-            intentAuthority: {
-              repository_ref: "external_intent_authority",
-              authority_path: authority.path,
-              revision_ref_id: pinned.revisionRefId,
-              revision: pinned.revision,
-              blob_oid: pinned.blobOid,
-              digest: pinned.digest,
-              immutable: true,
-              authority_root: pinned.authorityRoot,
-              relative_path: pinned.relativePath,
-              bytes: pinned.bytes,
-            },
-            evidenceAuthority: {
-              repository_ref: "external_runtime_evidence_authority",
-              authority_path: `authority://blob/${pinnedEvidence.blobOid}`,
-              revision_ref_id: pinnedEvidence.revisionRefId,
-              revision: pinnedEvidence.revision,
-              blob_oid: pinnedEvidence.blobOid,
-              digest: pinnedEvidence.digest,
-              immutable: true,
-              authority_root: pinnedEvidence.authorityRoot,
-              relative_path: pinnedEvidence.relativePath,
-              bytes: pinnedEvidence.bytes,
-              source_ref_ids: [],
-            },
-            runtimeEvidenceRegister: pinnedEvidence.register,
-          });
-          const collect = (
-            options: RunOptions,
-          ): Effect.Effect<
-            GeneratedArtifacts,
-            ParityRuntimeError,
-            ParityCommandExecutor | ParityFileSystem
-          > =>
-            collectTrustedFixtureArtifacts(
-              workspace,
-              options.mode === "write" ? "write" : "diff",
-            ).pipe(Effect.map(attachAuthority));
-          const writeResult = yield* runWithServices(
-            {
-              root: workspace.root,
-              legacyRoot: workspace.legacyRoot,
-              mode: "write",
-              intentRegisterPath: authority.path,
-            },
-            { collect },
-          );
-          if (writeResult.exitCode !== 14)
-            throw new Error(`fixture write did not return exit 14: ${writeResult.exitCode}`);
-          commands.executeBytes("git", [
-            "-C",
-            workspace.root,
-            "add",
-            "--",
-            ...COMMITTED_PROJECTIONS.map((name) => `${PROJECTION_DIRECTORY}/${name}`),
-          ]);
-          commands.executeBytes("git", [
-            "-C",
-            workspace.root,
-            "commit",
-            "--quiet",
-            "-m",
-            "projection promotion",
-          ]);
-          const diffResult = yield* runWithServices(
-            {
-              root: workspace.root,
-              legacyRoot: workspace.legacyRoot,
-              mode: "diff",
-              intentRegisterPath: authority.path,
-            },
-            { collect },
-          );
-          const beforeIdempotentWrite = Object.fromEntries(
-            COMMITTED_PROJECTIONS.map((name) => [
-              name,
-              fileSystem.readText(join(workspace.root, PROJECTION_DIRECTORY, name)),
-            ]),
-          );
-          const idempotentWriteResult = yield* runWithServices(
-            {
-              root: workspace.root,
-              legacyRoot: workspace.legacyRoot,
-              mode: "write",
-              intentRegisterPath: authority.path,
-            },
-            { collect },
-          );
-          if (idempotentWriteResult.exitCode !== 14)
-            throw new Error(
-              `fixture idempotent write did not return exit 14: ${idempotentWriteResult.exitCode}`,
+        Effect.gen(function* () {
+          const authority = createFixtureIntentAuthority(fileSystem, commands, workspace);
+          const evidenceAuthority = createFixtureEvidenceAuthority(fileSystem, commands, workspace);
+          try {
+            const pinned = yield* readPinnedIntentRegisterEffect(
+              authority.path,
+              workspace.legacyRoot,
+              workspace.root,
+              PROJECTION_DIRECTORY,
             );
-          const afterIdempotentWrite = Object.fromEntries(
-            COMMITTED_PROJECTIONS.map((name) => [
-              name,
-              fileSystem.readText(join(workspace.root, PROJECTION_DIRECTORY, name)),
-            ]),
-          );
-          if (
-            COMMITTED_PROJECTIONS.some(
-              (name) => beforeIdempotentWrite[name] !== afterIdempotentWrite[name],
+            const pinnedEvidence = yield* readPinnedRuntimeEvidenceRegisterEffect(
+              evidenceAuthority.path,
+              workspace.legacyRoot,
+              workspace.root,
+              PROJECTION_DIRECTORY,
+            );
+            const attachAuthority = (generated: GeneratedArtifacts): GeneratedArtifacts => ({
+              ...generated,
+              intentAuthority: {
+                repository_ref: "external_intent_authority",
+                authority_path: authority.path,
+                revision_ref_id: pinned.revisionRefId,
+                revision: pinned.revision,
+                blob_oid: pinned.blobOid,
+                digest: pinned.digest,
+                immutable: true,
+                authority_root: pinned.authorityRoot,
+                relative_path: pinned.relativePath,
+                bytes: pinned.bytes,
+              },
+              evidenceAuthority: {
+                repository_ref: "external_runtime_evidence_authority",
+                authority_path: `authority://blob/${pinnedEvidence.blobOid}`,
+                revision_ref_id: pinnedEvidence.revisionRefId,
+                revision: pinnedEvidence.revision,
+                blob_oid: pinnedEvidence.blobOid,
+                digest: pinnedEvidence.digest,
+                immutable: true,
+                authority_root: pinnedEvidence.authorityRoot,
+                relative_path: pinnedEvidence.relativePath,
+                bytes: pinnedEvidence.bytes,
+                source_ref_ids: [],
+              },
+              runtimeEvidenceRegister: pinnedEvidence.register,
+            });
+            const collect = (
+              options: RunOptions,
+            ): Effect.Effect<
+              GeneratedArtifacts,
+              ParityRuntimeError,
+              ParityCommandExecutor | ParityFileSystem
+            > =>
+              collectTrustedFixtureArtifacts(
+                workspace,
+                options.mode === "write" ? "write" : "diff",
+              ).pipe(Effect.map(attachAuthority));
+            const writeResult = yield* runWithServices(
+              {
+                root: workspace.root,
+                legacyRoot: workspace.legacyRoot,
+                mode: "write",
+                intentRegisterPath: authority.path,
+              },
+              { collect },
+            );
+            if (writeResult.exitCode !== 14)
+              throw new Error(`fixture write did not return exit 14: ${writeResult.exitCode}`);
+            commands.executeBytes("git", [
+              "-C",
+              workspace.root,
+              "add",
+              "--",
+              ...COMMITTED_PROJECTIONS.map((name) => `${PROJECTION_DIRECTORY}/${name}`),
+            ]);
+            commands.executeBytes("git", [
+              "-C",
+              workspace.root,
+              "commit",
+              "--quiet",
+              "-m",
+              "projection promotion",
+            ]);
+            const diffResult = yield* runWithServices(
+              {
+                root: workspace.root,
+                legacyRoot: workspace.legacyRoot,
+                mode: "diff",
+                intentRegisterPath: authority.path,
+              },
+              { collect },
+            );
+            const beforeIdempotentWrite = Object.fromEntries(
+              COMMITTED_PROJECTIONS.map((name) => [
+                name,
+                fileSystem.readText(join(workspace.root, PROJECTION_DIRECTORY, name)),
+              ]),
+            );
+            const idempotentWriteResult = yield* runWithServices(
+              {
+                root: workspace.root,
+                legacyRoot: workspace.legacyRoot,
+                mode: "write",
+                intentRegisterPath: authority.path,
+              },
+              { collect },
+            );
+            if (idempotentWriteResult.exitCode !== 14)
+              throw new Error(
+                `fixture idempotent write did not return exit 14: ${idempotentWriteResult.exitCode}`,
+              );
+            const afterIdempotentWrite = Object.fromEntries(
+              COMMITTED_PROJECTIONS.map((name) => [
+                name,
+                fileSystem.readText(join(workspace.root, PROJECTION_DIRECTORY, name)),
+              ]),
+            );
+            if (
+              COMMITTED_PROJECTIONS.some(
+                (name) => beforeIdempotentWrite[name] !== afterIdempotentWrite[name],
+              )
             )
-          )
-            throw new Error("fixture idempotent write changed projection bytes");
-          const projectionEntries = fileSystem
-            .readDirectory(join(workspace.root, PROJECTION_DIRECTORY))
-            .map((entry) => entry.name)
-            .sort(compareByteOrder);
-          const projectionBytes = Object.fromEntries(
-            COMMITTED_PROJECTIONS.map((name) => [
-              name,
-              fileSystem.readText(join(workspace.root, PROJECTION_DIRECTORY, name)),
-            ]),
-          );
-          const projectionDirectory = join(workspace.root, PROJECTION_DIRECTORY);
-          const missingPath = join(projectionDirectory, "legacy-routes.json");
-          const legacyProjection = projectionBytes["legacy-routes.json"];
-          const monoProjection = projectionBytes["mono-routes.json"];
-          if (legacyProjection === undefined || monoProjection === undefined)
-            throw new Error("fixture projection snapshot missing");
-          fileSystem.remove(missingPath);
-          const missingDiffResult = yield* runWithServices(
-            {
-              root: workspace.root,
-              legacyRoot: workspace.legacyRoot,
-              mode: "diff",
-              intentRegisterPath: authority.path,
-            },
-            { collect },
-          );
-          fileSystem.writeFile(missingPath, legacyProjection, "utf8");
-          const differentPath = join(projectionDirectory, "mono-routes.json");
-          fileSystem.writeFile(differentPath, "stale-generated-artifact", "utf8");
-          const differentDiffResult = yield* runWithServices(
-            {
-              root: workspace.root,
-              legacyRoot: workspace.legacyRoot,
-              mode: "diff",
-              intentRegisterPath: authority.path,
-            },
-            { collect },
-          );
-          fileSystem.writeFile(differentPath, monoProjection, "utf8");
-          return {
-            writeReport: writeResult.report,
-            idempotentWriteReport: idempotentWriteResult.report,
-            diffReport: diffResult.report,
-            missingDiffReport: missingDiffResult.report,
-            differentDiffReport: differentDiffResult.report,
-            projectionEntries,
-            projectionBytes,
-          };
-        } finally {
-          fileSystem.remove(authority.directory, { recursive: true, force: true });
-        }
+              throw new Error("fixture idempotent write changed projection bytes");
+            const projectionEntries = fileSystem
+              .readDirectory(join(workspace.root, PROJECTION_DIRECTORY))
+              .map((entry) => entry.name)
+              .sort(compareByteOrder);
+            const projectionBytes = Object.fromEntries(
+              COMMITTED_PROJECTIONS.map((name) => [
+                name,
+                fileSystem.readText(join(workspace.root, PROJECTION_DIRECTORY, name)),
+              ]),
+            );
+            const projectionDirectory = join(workspace.root, PROJECTION_DIRECTORY);
+            const missingPath = join(projectionDirectory, "legacy-routes.json");
+            const legacyProjection = projectionBytes["legacy-routes.json"];
+            const monoProjection = projectionBytes["mono-routes.json"];
+            if (legacyProjection === undefined || monoProjection === undefined)
+              throw new Error("fixture projection snapshot missing");
+            fileSystem.remove(missingPath);
+            const missingDiffResult = yield* runWithServices(
+              {
+                root: workspace.root,
+                legacyRoot: workspace.legacyRoot,
+                mode: "diff",
+                intentRegisterPath: authority.path,
+              },
+              { collect },
+            );
+            fileSystem.writeFile(missingPath, legacyProjection, "utf8");
+            const differentPath = join(projectionDirectory, "mono-routes.json");
+            fileSystem.writeFile(differentPath, "stale-generated-artifact", "utf8");
+            const differentDiffResult = yield* runWithServices(
+              {
+                root: workspace.root,
+                legacyRoot: workspace.legacyRoot,
+                mode: "diff",
+                intentRegisterPath: authority.path,
+              },
+              { collect },
+            );
+            fileSystem.writeFile(differentPath, monoProjection, "utf8");
+            return {
+              writeReport: writeResult.report,
+              idempotentWriteReport: idempotentWriteResult.report,
+              diffReport: diffResult.report,
+              missingDiffReport: missingDiffResult.report,
+              differentDiffReport: differentDiffResult.report,
+              projectionEntries,
+              projectionBytes,
+            };
+          } finally {
+            fileSystem.remove(authority.directory, { recursive: true, force: true });
+          }
         }),
       (workspace) =>
-        Effect.sync(() =>
-          fileSystem.remove(workspace.directory, { recursive: true, force: true }),
-        ),
+        Effect.sync(() => fileSystem.remove(workspace.directory, { recursive: true, force: true })),
     );
   });

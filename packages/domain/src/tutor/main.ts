@@ -31,4 +31,3 @@ export const main = (args: ReadonlyArray<string>) =>
           ).pipe(Effect.as(1));
         }),
       );
-
