@@ -427,14 +427,6 @@ test.describe("Real Symfony organization operations journeys", () => {
       await symfonyAdminPage.close();
     }
 
-    const freshSchools = await requestJson(page, leaderToken, "GET", "/api/admin/scheduling/schools");
-    expect(freshSchools.response.status()).toBe(200);
-    expect(collectionItems(freshSchools.value)).toEqual(
-      expect.arrayContaining([expect.objectContaining({ name: createdSchoolName })]),
-    );
-    await page.reload({ waitUntil: "networkidle" });
-    await expect(page.getByText(createdSchoolName, { exact: true })).toBeVisible();
-
     const memberToken = await loginViaApi(page, memberUsername);
     await expectStatus(page, memberToken, "POST", "/api/admin/schools", 403, {
       name: "Unauthorized scheduling school 0032",

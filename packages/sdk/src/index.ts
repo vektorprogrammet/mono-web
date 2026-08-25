@@ -146,7 +146,7 @@ export type {
   CreateFieldOfStudyResult,
   OrganizationCreateResult,
 } from "./schemas/organization.js";
-export type { SchedulingAssistant, SchedulingSchool, Substitute } from "./schemas/scheduling.js";
+export type { SchedulingAssistant, Substitute } from "./schemas/scheduling.js";
 
 export {
   AdmissionPeriodRejectionError,

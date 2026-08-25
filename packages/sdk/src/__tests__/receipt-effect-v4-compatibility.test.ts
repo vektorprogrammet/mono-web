@@ -93,7 +93,8 @@ describe("Effect v4 Receipt compatibility", () => {
       expectMethods(client.admin.applications, ["list", "get", "delete", "bulkDelete"])
       expectMethods(client.admin.interviews, ["list", "assign", "schedule", "conduct", "cancel", "schemas"])
       expectMethods(client.admin.users, ["list"])
-      expectMethods(client.admin.scheduling, ["assistants", "schools", "substitutes"])
+      expectMethods(client.admin.scheduling, ["assistants", "substitutes"])
+      expect(client.admin.scheduling).not.toHaveProperty("schools")
       expectMethods(client.admin.teams, ["interest"])
       expectMethods(client.admin.organization, [
         "createDepartment",

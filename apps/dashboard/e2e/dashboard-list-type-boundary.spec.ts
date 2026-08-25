@@ -145,21 +145,6 @@ function handleFixtureRequest(request: IncomingMessage, response: ServerResponse
         ],
       });
       return;
-    case "/api/admin/scheduling/schools":
-      respondJson(request, response, 200, {
-        "hydra:member": [
-          {
-            id: 2801,
-            name: "School-0025",
-            capacity: [
-              { afternoon: 2, morning: 5 },
-              { evening: 1 },
-            ],
-          },
-        ],
-        "hydra:totalItems": 1,
-      });
-      return;
     case "/api/admin/team-interest":
       respondJson(request, response, 200, {
         "hydra:member": [
@@ -270,15 +255,6 @@ test.describe("dashboard list type boundary", () => {
       "schedulingStatus",
     ]);
 
-    await page.goto("/dashboard/skoler");
-    await expect(page.getByRole("heading", { name: "Skoler" })).toBeVisible();
-    await expect(page.getByRole("cell", { name: "School-0025", exact: true })).toBeVisible();
-    await expect(
-      page.getByRole("cell", { name: "afternoon=2, morning=5 | evening=1", exact: true }),
-    ).toBeVisible();
-    await expect(page.getByRole("columnheader", { name: "Antall assistenter", exact: true })).toHaveCount(0);
-    recordVisibleFields("/dashboard/skoler", 1, ["id", "name", "capacity"]);
-
     await page.goto("/dashboard/teaminteresse");
     await expect(page.getByRole("heading", { name: "Teaminteresse" })).toBeVisible();
     await expect(page.getByRole("cell", { name: "User-0025", exact: true })).toBeVisible();
@@ -340,11 +316,6 @@ test.describe("dashboard list type boundary", () => {
         rowCount: 1,
       },
       {
-        route: "/api/admin/scheduling/schools",
-        responseShapeKeys: ["hydra:member", "hydra:totalItems"],
-        rowCount: 1,
-      },
-      {
         route: "/api/admin/team-interest",
         responseShapeKeys: ["hydra:member", "hydra:totalItems"],
         rowCount: 1,
@@ -379,7 +350,6 @@ test.describe("dashboard list type boundary", () => {
       ["/dashboard/assistenter", 1],
       ["/dashboard/epostliste", 2],
       ["/dashboard/intervjuer", 1],
-      ["/dashboard/skoler", 1],
       ["/dashboard/teaminteresse", 1],
       ["/dashboard/vikarer", 1],
     ];
