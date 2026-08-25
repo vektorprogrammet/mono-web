@@ -29,7 +29,7 @@ test.describe("Native mailing-lists journey (spec 0060)", () => {
     // no assistant facts seeded, every department still emits its list with
     // zero emails — an empty-list rendering is a success value per spec 0060.
     await expect(page.getByRole("heading", { name: "E-postliste" })).toBeVisible();
-    await expect(page.locator("tbody tr")).toHaveCount(0);
+    await expect(page.getByRole("cell", { name: "No results.", exact: true })).toBeVisible();
 
     // The native endpoint itself answers with seeded member emails under the
     // expected list names for type=team and type=all (direct projection read).
@@ -45,11 +45,11 @@ test.describe("Native mailing-lists journey (spec 0060)", () => {
     const trondheim = lists.find((list) => list.name === "team-department-0059-trondheim");
     const bergen = lists.find((list) => list.name === "team-department-0059-bergen");
     expect(trondheim?.emails).toEqual([
-      "tiril.team@example.invalid",
-      "torunn.team@example.invalid",
+      "astrid.admin@example.invalid",
       "lars.leader@example.invalid",
       "mona.member@example.invalid",
-      "astrid.admin@example.invalid",
+      "tiril.team@example.invalid",
+      "torunn.team@example.invalid",
     ]);
     // Bergen's only team member (its leader) has no contact profile, so its
     // list survives with zero emails — an empty list is a real success value.
@@ -81,15 +81,17 @@ test.describe("Native mailing-lists journey (spec 0060)", () => {
     await expect(page.getByRole("cell", { name: "first@example.invalid" })).toHaveCount(0);
   });
 
-  test("unknown type denies with 422 before any data leaves the store", async ({ request }) => {
+  test("unknown type denies with 422 before any data leaves the store", async ({ page }) => {
     test.skip(!nativeIdentityMode, "requires the real native identity topology");
 
-    const anonymous = await request.get(`${apiOrigin}/api/admin/mailing-lists`);
+    const anonymous = await page.request.get(`${apiOrigin}/api/admin/mailing-lists`);
     expect(anonymous.status()).toBe(401);
 
-    // Unauthenticated + invalid type: strict decoding maps to 422 only after
-    // auth, so this exercises the decode path with a session-less request.
-    const invalidType = await request.get(`${apiOrigin}/api/admin/mailing-lists?type=bogus`);
-    expect([401, 422]).toContain(invalidType.status());
+    await signIn(page, adminEmail);
+    const invalidType = await page.request.get(`${apiOrigin}/api/admin/mailing-lists?type=bogus`);
+    expect(invalidType.status()).toBe(422);
+    expect(await invalidType.json()).toEqual({
+      error: { tag: "OrganizationDecodeError" },
+    });
   });
 });
