@@ -1,0 +1,87 @@
+/**
+ * Apex edge worker (stage dev-main, hostname vektor.phibkro.org).
+ *
+ * Routing contract:
+ *   /api/*  -> native backend origin (api.vektor.phibkro.org, cloudflared
+ *              tunnel to the authority host running next to Postgres)
+ *   /dashboard* and auth pages -> Dashboard Website.Vite worker
+ *   else    -> Homepage Website.Vite worker
+ *
+ * Additive to p20: shares zero resources with the p20 stack; every physical
+ * resource name is prefixed `vektor-apex-`.
+ */
+import { APEX_IDENTITY } from "./identity.ts";
+import { previewSurface } from "./surface.ts";
+
+interface ApexService {
+  fetch(request: Request): Promise<Response>;
+}
+
+export interface ApexWorkerEnv {
+  readonly Homepage: ApexService;
+  readonly Dashboard: ApexService;
+}
+
+/** Host-exposed backend origin reached through the cloudflared tunnel. */
+export const BACKEND_ORIGIN = "https://api.vektor.phibkro.org";
+
+const ALLOWED_HOSTS: Record<string, true> = {
+  [APEX_IDENTITY.hostname]: true,
+  [APEX_IDENTITY.apiHostname]: true,
+};
+
+/**
+ * The backend answers with a Location header relative to its own
+ * BETTER_AUTH_URL; rewrite absolute redirects back onto the apex origin.
+ */
+const proxyResponse = (backendResponse: Response): Response => {
+  const headers = new Headers(backendResponse.headers);
+  headers.set("x-robots-tag", "noindex");
+  headers.set("cache-control", headers.get("cache-control") ?? "no-store");
+  const location = headers.get("location");
+  if (location !== null && location.startsWith(BACKEND_ORIGIN)) {
+    headers.set("location", `${APEX_IDENTITY.hostname}${location.slice(BACKEND_ORIGIN.length)}`);
+  }
+  return new Response(backendResponse.body, {
+    status: backendResponse.status,
+    statusText: backendResponse.statusText,
+    headers,
+  });
+};
+
+const backendUrl = (url: URL): URL =>
+  new URL(`${url.pathname}${url.search}`, BACKEND_ORIGIN);
+
+export default {
+  async fetch(request: Request, env: ApexWorkerEnv): Promise<Response> {
+    const url = new URL(request.url);
+    const host = request.headers.get("host")?.toLowerCase() ?? "";
+    const surface = previewSurface(url.pathname);
+
+    // The /api leg is served on the dedicated api hostname only.
+    if (surface === "server" && host === APEX_IDENTITY.apiHostname) {
+      return proxyResponse(
+        await fetch(new Request(backendUrl(url), {
+          method: request.method,
+          headers: request.headers,
+          body: request.body,
+          redirect: "manual",
+          duplex: "half",
+        } as RequestInit)),
+      );
+    }
+
+    if (!(host in ALLOWED_HOSTS) || host.includes(APEX_IDENTITY.forbiddenHost)) {
+      return new Response("Forbidden apex destination", {
+        status: 421,
+        headers: { "cache-control": "no-store" },
+      });
+    }
+
+    if (surface === "homepage") return env.Homepage.fetch(request);
+    if (surface === "dashboard") return env.Dashboard.fetch(request);
+
+    // server surface on the apex hostname is not part of this contract.
+    return new Response("Not found", { status: 404 });
+  },
+};

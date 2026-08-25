@@ -3,17 +3,20 @@ import * as Cloudflare from "alchemy/Cloudflare";
 import * as Effect from "effect/Effect";
 import { PREVIEW_IDENTITY } from "./preview/identity.ts";
 import { PreviewWorker } from "./preview/worker-resource.ts";
+import { apexStack } from "./preview/apex.ts";
+import { APEX_IDENTITY } from "./preview/identity.ts";
 
-export { PREVIEW_IDENTITY, PreviewWorker };
+export { PREVIEW_IDENTITY, PreviewWorker, apexStack };
 
 const stageGuard = (stage: string): void => {
-  if (stage !== PREVIEW_IDENTITY.stage) {
-    throw new Error(`Only ${PREVIEW_IDENTITY.stage} is allowed by this delivery stack`);
+  if (stage !== PREVIEW_IDENTITY.stage && stage !== APEX_IDENTITY.stage) {
+    throw new Error(`Only ${PREVIEW_IDENTITY.stage} or ${APEX_IDENTITY.stage} is allowed by this delivery stack`);
   }
-  if (PREVIEW_IDENTITY.hostname.includes("vektorprogrammet.no")) {
+  if (stage === PREVIEW_IDENTITY.stage && PREVIEW_IDENTITY.hostname.includes("vektorprogrammet.no")) {
     throw new Error("Forbidden production host in preview identity");
   }
 };
+
 
 export default Alchemy.Stack(
   "vektor",
@@ -24,7 +27,12 @@ export default Alchemy.Stack(
   Effect.gen(function* () {
     const stage = yield* Alchemy.Stage;
     stageGuard(stage);
-    const domain = PREVIEW_IDENTITY.hostname;
+    const domain = stage === APEX_IDENTITY.stage ? APEX_IDENTITY.hostname : PREVIEW_IDENTITY.hostname;
+
+
+    if (stage === APEX_IDENTITY.stage) {
+      return yield* apexStack;
+    }
 
     const homepage = yield* Cloudflare.Website.Vite("Homepage", {
       rootDir: "../../apps/homepage",

@@ -13,6 +13,39 @@ export const PREVIEW_IDENTITY = {
   forbiddenHost: "vektorprogrammet.no",
 } as const;
 
+/**
+ * Apex preview identity (feat/apex-preview).
+ *
+ * Parallel to the p20 contract: separate stage token, resource prefix, and
+ * state key so plan/deploy/destroy for this stage can never select p20
+ * resources. Hosted on the zone apex vektor.phibkro.org, which the homepage
+ * host allow-list already resolves to the dev-main stage.
+ */
+export const APEX_IDENTITY = {
+  repository: "apex/vektor-apex",
+  app: "vektor",
+  stage: "dev-main",
+  target: "apex-preview",
+  hostname: "vektor.phibkro.org",
+  apiHostname: "api.vektor.phibkro.org",
+  resourcePrefix: "vektor-apex",
+  remoteStateKey: "vektor/dev-main",
+  forbiddenHost: "vektorprogrammet.no",
+} as const;
+
+export const APEX_RESOURCE_KINDS = [
+  "worker",
+  "homepage",
+  "dashboard",
+  "route",
+] as const;
+
+export type ApexResourceKind = (typeof APEX_RESOURCE_KINDS)[number];
+
+export function apexResourceName(kind: ApexResourceKind): string {
+  return `${APEX_IDENTITY.resourcePrefix}-${kind}`;
+}
+
 export const PREVIEW_TAGS = {
   app: PREVIEW_IDENTITY.app,
   stage: PREVIEW_IDENTITY.stage,
