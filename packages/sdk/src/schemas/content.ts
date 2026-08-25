@@ -172,6 +172,9 @@ export const ReviseContentDraftCommandSchema = Schema.Struct({
 });
 export type ReviseContentDraftCommand = typeof ReviseContentDraftCommandSchema.Type;
 
+/** The observation payload of every content command (decoded strictly). */
+export type WorkspaceObservationLike = Record<string, unknown>;
+
 export const PublicationTransitionCommandSchema = Schema.Struct({
   commandId: ContentCommandId,
   articleId: ArticleId,

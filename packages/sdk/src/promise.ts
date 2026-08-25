@@ -437,3 +437,6 @@ export type Sdk = ReturnType<typeof createClient>;
 
 export type { AdminUsersPage, AdminUsersResult, DirectoryEntry } from "./domains/admin/users.js";
 export type { AdminSchoolsDomain } from "./domains/admin/schools.js";
+export { ContentRejectionError } from "./errors.js";
+export type { ContentRejectionTag } from "./errors.js";
+export type { AdminContentDomain } from "./domains/admin/content.js";

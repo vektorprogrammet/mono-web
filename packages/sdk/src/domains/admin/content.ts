@@ -21,6 +21,8 @@ const strictContent = {
 
 const ObservationSchema = Schema.Struct({});
 
+import type { WorkspaceObservationLike } from "../../schemas/content.js";
+
 export interface AdminContentDomain {
   /** Reads the caller-visible workspace in exactly one native request. */
   readonly workspace: (
@@ -28,16 +30,16 @@ export interface AdminContentDomain {
   ) => Effect.Effect<typeof ContentWorkspaceSchema.Type, InternalSdkError>;
   readonly createDraft: (
     command: CreateContentDraftCommand,
-  ) => Effect.Effect<Record<string, unknown>, InternalSdkError>;
+  ) => Effect.Effect<WorkspaceObservationLike, InternalSdkError>;
   readonly reviseDraft: (
     command: ReviseContentDraftCommand,
-  ) => Effect.Effect<Record<string, unknown>, InternalSdkError>;
+  ) => Effect.Effect<WorkspaceObservationLike, InternalSdkError>;
   readonly publish: (
     command: PublicationTransitionCommand,
-  ) => Effect.Effect<Record<string, unknown>, InternalSdkError>;
+  ) => Effect.Effect<WorkspaceObservationLike, InternalSdkError>;
   readonly unpublish: (
     command: PublicationTransitionCommand,
-  ) => Effect.Effect<Record<string, unknown>, InternalSdkError>;
+  ) => Effect.Effect<WorkspaceObservationLike, InternalSdkError>;
 }
 
 export const createAdminContentDomain = (transport: Transport): AdminContentDomain => ({

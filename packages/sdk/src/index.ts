@@ -28,6 +28,8 @@ export {
   ReceiptPersistenceSdkError,
 } from "./errors.js";
 export { ProfileRejectionError } from "./errors.js";
+export { ContentRejectionError } from "./errors.js";
+export type { ContentRejectionTag } from "./errors.js";
 export type {
   SdkErrorType,
   ReceiptRejectionTag,

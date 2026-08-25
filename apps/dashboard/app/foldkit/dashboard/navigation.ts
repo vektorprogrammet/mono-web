@@ -123,6 +123,10 @@ export const navigationSections: ReadonlyArray<NavigationSection> = [
       },
       {
         kind: "link",
+        link: memberLink("Artikler", "/dashboard/artikler"),
+      },
+      {
+        kind: "link",
         link: leaderLink("Linjer", "/dashboard/linjer"),
       },
       {

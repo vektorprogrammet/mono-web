@@ -222,10 +222,32 @@ export {
   SchoolDirectoryEntrySchema,
   SchoolDirectorySchema,
 } from "./schemas/schools.js";
-export type {
-  AdminContentWorkspaceInput,
+export {
   ArticleId,
   ArticleVersionNumber,
+  ContentWorkspaceSchema,
+  CreateContentDraftCommandSchema,
+  PublicationTransitionCommandSchema,
+  PublishedNewsArticleSchema,
+  PublishedNewsListingSchema,
+  PublishedNewsSummarySchema,
+  ReviseContentDraftCommandSchema,
+} from "./schemas/content.js";
+export {
+  ContentArticleNotFound,
+  ContentAuthorityInactive,
+  ContentCommandConflict,
+  ContentDecodeError,
+  ContentDraftNotOwned,
+  ContentIntegritySdkError,
+  ContentNotInScope,
+  ContentNotPublisher,
+  ContentPersistenceSdkError,
+  ContentSlugConflictSdkError,
+  ContentUnauthenticatedActor,
+} from "./errors.js";
+export type {
+  AdminContentWorkspaceInput,
   ContentCommandId,
   ContentWorkspace,
   ContentWorkspaceEntry,
@@ -237,6 +259,7 @@ export type {
   PublishedNewsSummary,
   PublishedNewsVersionRef,
   ReviseContentDraftCommand,
+  WorkspaceObservationLike,
 } from "./schemas/content.js";
 export type {
   SchoolLanguage,
