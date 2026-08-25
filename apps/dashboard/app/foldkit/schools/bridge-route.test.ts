@@ -81,6 +81,18 @@ describe("authenticated Schools Foldkit bridge", () => {
     expect(mocks.list).toHaveBeenCalledTimes(1);
   });
 
+  it("preserves an upstream decode failure as unavailable", async () => {
+    mocks.list.mockRejectedValueOnce(new SchoolsRejectionError("SchoolsDecodeError"));
+
+    const response = await load();
+
+    expect(response.init?.status).toBe(503);
+    expect(response.data).toEqual({
+      error: { tag: "SchoolsDecodeError" },
+    });
+    expect(mocks.list).toHaveBeenCalledTimes(1);
+  });
+
   it("rejects excess query parameters without invoking the backend client", async () => {
     const response = await load("/schools?department=department-a&legacy=1");
 

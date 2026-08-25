@@ -28,11 +28,11 @@ const statusFor = (tag: SchoolsBridgeErrorTag): number => {
     case "SchoolsDepartmentOutOfScope":
       return 403;
     case "SchoolsDepartmentNotFound":
-    case "SchoolsDecodeError":
       return 422;
     case "Network":
       return 502;
     case "SchoolsPersistenceError":
+    case "SchoolsDecodeError":
     case "Configuration":
       return 503;
   }
