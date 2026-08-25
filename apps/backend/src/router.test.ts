@@ -96,6 +96,7 @@ const profile: ProfileShape = {
         contactRevision: input.command.expectedContactRevision + 1,
       },
     ),
+  readDirectoryPage: () => Effect.succeed({ entries: [], nextCursor: undefined }),
 };
 const organization = {
   listDepartments: Effect.succeed([]),

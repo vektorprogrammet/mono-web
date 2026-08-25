@@ -9,6 +9,7 @@ import { Recruitment } from "@vektorprogrammet/domain/recruitment";
 import { Economy } from "@vektorprogrammet/domain/receipt";
 import { DateTime, Effect } from "effect";
 import type { AdmissionPeriodActor } from "@vektorprogrammet/domain/admission-period";
+import { makeAdminUsersApiHttp } from "./admin-users/http.js";
 import { makeAdmissionApiHttp } from "./admission/http.js";
 import {
   admissionActorForDepartment,
@@ -176,6 +177,11 @@ export const makeBackendHttp = (
     },
     run,
   });
+  const adminUsers = makeAdminUsersApiHttp({
+    resolveAuthority: (request) =>
+      resolvePersonAuthority(request.headers.get("cookie") ?? undefined, { run }),
+    run,
+  });
   const profile = makeProfileApiHttp({
     config,
     resolveActor: async (request) => {
@@ -213,6 +219,9 @@ export const makeBackendHttp = (
         return authHandler.handle(request);
       }
       if (isOrganizationRoute(pathname)) return organization.fetch(request);
+      if (request.method === "GET" && pathname === "/api/admin/users") {
+        return adminUsers.fetch(request);
+      }
       if (request.method === "OPTIONS") return new Response(null, { status: 204 });
       if (request.method === "GET" && pathname === "/health") {
         try {

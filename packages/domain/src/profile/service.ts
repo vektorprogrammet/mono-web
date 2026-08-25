@@ -30,6 +30,40 @@ export interface ProfileShape {
   readonly updateOwnProfile: (
     input: UpdateOwnProfileInput,
   ) => Effect.Effect<OwnProfile, ProfileFailure>;
+  /**
+   * Scans the paged Profile directory: person_profiles joined to
+   * person_contact_profiles ordered by lastName, firstName, then personId.
+   * A missing contact row for a scanned person is a typed failure; the
+   * read is read-only.
+   */
+  readonly readDirectoryPage: (
+    input: ReadDirectoryPageInput,
+  ) => Effect.Effect<DirectoryPage, ProfileFailure>;
+}
+
+export interface ReadDirectoryPageInput {
+  /** Maximum number of persons on one page; strictly positive. */
+  readonly limit: number;
+  /**
+   * Opaque continuation token naming the last emitted sort tuple
+   * (lastName, firstName, personId). The next page resumes strictly after it.
+   */
+  readonly cursor?: string;
+}
+
+/** One directory entry: canonical names joined to canonical contacts. */
+export interface DirectoryEntry {
+  readonly personId: PersonId;
+  readonly firstName: string;
+  readonly lastName: string;
+  readonly email: string;
+  readonly phone: string;
+}
+
+export interface DirectoryPage {
+  readonly entries: ReadonlyArray<DirectoryEntry>;
+  /** Names the last emitted sort tuple; absent when the scan is exhausted. */
+  readonly nextCursor?: string;
 }
 
 export class Profile extends Context.Service<Profile, ProfileShape>()(
