@@ -106,11 +106,15 @@ const isDashboardAssetRequest = (request: Request): boolean => {
   const referer = request.headers.get("referer");
   if (referer !== null) {
     const refererUrl = new URL(referer);
-    return previewSurface(refererUrl.pathname) === "dashboard";
+    // Origin-only referers carry no path context; let the dest fallback decide.
+    if (refererUrl.pathname !== "/") {
+      return previewSurface(refererUrl.pathname) === "dashboard";
+    }
   }
-  // No Referer (e.g. direct open or icon fetch): treat any non-document
-  // request as a dashboard subresource. Document navigations still fall
-  // through to the homepage surface.
+  // No/ambiguous context: default subresources to the dashboard, whose
+  // route modules are the ones eagerly preloaded after sign-in. Homepage
+  // documents always provide a homepage referer, so they take the branch
+  // above and never reach this fallback.
   const secFetchDest = request.headers.get("sec-fetch-dest");
-  return secFetchDest !== "document" && secFetchDest !== null;
+  return secFetchDest !== "document" && secFetchDest !== "" && secFetchDest !== null;
 };

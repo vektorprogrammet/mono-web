@@ -32,8 +32,9 @@ export async function action({ request }: Route.ActionArgs) {
     case "RateLimited":
       return { error: "For mange innloggingsforsøk. Prøv igjen om 15 minutter." };
     case "InvalidCredentials":
+      return { error: `Feil brukernavn eller passord [${(result as { diag?: string }).diag ?? "?"}]` };
     case "Unavailable":
-      return { error: "Feil brukernavn eller passord" };
+      return { error: `Tjenesten utilgjengelig [${(result as { diag?: string }).diag ?? "?"}]` };
   }
 }
 

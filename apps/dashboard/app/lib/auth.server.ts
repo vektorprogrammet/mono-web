@@ -16,7 +16,7 @@ export type SignInResult =
   | { readonly _tag: "Authenticated"; readonly headers: Headers }
   | { readonly _tag: "InvalidCredentials" }
   | { readonly _tag: "RateLimited" }
-  | { readonly _tag: "Unavailable" };
+  | { readonly _tag: "Unavailable"; readonly diag?: string };
 
 function backendRequestHeaders(request: Request, includeCookie: boolean): Headers {
   const headers = new Headers({
@@ -87,12 +87,21 @@ export async function signInWithEmail(
       signal: request.signal,
       redirect: "manual",
     });
-  } catch {
-    return { _tag: "Unavailable" };
+  } catch (error) {
+    // TEMP DIAGNOSTIC (remove before final): surface worker-side fetch failure.
+    const diag =
+      error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+    console.error(`[apex-diag] sign-in fetch failed: ${diag}`);
+    return { _tag: "Unavailable" as const, diag };
   }
 
+  console.error(`[apex-diag] backend status=${response.status} url=${response.url}`);
   if (response.status === 429) return { _tag: "RateLimited" };
-  if (!response.ok) return { _tag: "InvalidCredentials" };
+  if (!response.ok) {
+    const bodyText = await response.text().catch(() => "");
+    console.error(`[apex-diag] body=${bodyText.slice(0, 120)}`);
+    return { _tag: "InvalidCredentials", diag: `status ${response.status} ${bodyText.slice(0, 60)}` } as SignInResult;
+  }
 
   const responseHeaders = forwardSetCookieHeaders(response.headers);
   const sessionIssued = responseHeaders

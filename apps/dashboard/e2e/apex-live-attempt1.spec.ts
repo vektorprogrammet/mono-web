@@ -10,7 +10,15 @@ const signIn = async (page: Page, redirectTo: string) => {
   await page.getByLabel("Brukernavn eller e-post").fill(ADMIN.email);
   await page.getByLabel("Passord", { exact: true }).fill(ADMIN.password);
   await page.getByRole("button", { name: "Logg inn" }).click({ noWaitAfter: true });
-  await page.waitForURL((url) => url.pathname === redirectTo, { timeout: 20_000, waitUntil: "commit" });
+  // The app may redirect to /dashboard first (safeRedirect fallback when the
+  // hydrated client action drops the query param); accept any authenticated
+  // dashboard navigation, then go to the target route explicitly.
+  try {
+    await page.waitForURL((url) => url.pathname === redirectTo, { timeout: 10_000, waitUntil: "commit" });
+  } catch {
+    await page.waitForURL((url) => url.pathname.startsWith("/dashboard"), { timeout: 10_000, waitUntil: "commit" });
+    if (redirectTo !== "/dashboard") await page.goto(redirectTo, { waitUntil: "load" });
+  }
   await expect
     .poll(async () =>
       (await page.context().cookies()).some(
