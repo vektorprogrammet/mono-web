@@ -425,7 +425,7 @@ try {
     seed: seedEvidence,
     browser: browserEvidence,
     requestLedger: {
-      bridgePath: "/__foldkit/content",
+      bridgePath: "/content",
       workspaceRequests,
       forcedFailures: forcedFailures.length,
       forwardedSuccesses: forwardedSuccesses.length,

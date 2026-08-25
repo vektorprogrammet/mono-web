@@ -118,22 +118,22 @@ export const createBrowserContentWorkspaceClient = (): ContentWorkspaceClient =>
   admin: {
     content: {
       workspace: () =>
-        request("/__foldkit/content", "GET").pipe(
+        request("/content", "GET").pipe(
           Effect.flatMap((payload) =>
             S.decodeUnknownEffect(ContentWorkspaceSchema)(payload, {
               onExcessProperty: "error",
             }).pipe(Effect.mapError(() => failureFromTag("ContentDecodeError"))),
           ),
         ),
-      createDraft: (command) => request("/__foldkit/content", "POST", command),
+      createDraft: (command) => request("/content", "POST", command),
       reviseDraft: (command) =>
-        request(`/__foldkit/content/drafts/${command.articleId}`, "PATCH", command),
+        request(`/content/drafts/${command.articleId}`, "PATCH", command),
       publish: (command) =>
-        request(`/__foldkit/content/drafts/${command.articleId}/publish`, "POST", {
+        request(`/content/drafts/${command.articleId}/publish`, "POST", {
           commandId: command.commandId,
         }),
       unpublish: (command) =>
-        request(`/__foldkit/content/drafts/${command.articleId}/unpublish`, "POST", {
+        request(`/content/drafts/${command.articleId}/unpublish`, "POST", {
           commandId: command.commandId,
         }),
     },

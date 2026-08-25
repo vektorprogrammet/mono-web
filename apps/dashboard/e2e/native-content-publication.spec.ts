@@ -183,7 +183,7 @@ test.describe("Native Content publication (spec 0062)", () => {
       const publishButtons = author.page.getByRole("button", { name: "Publiser" });
       await expect(publishButtons).toHaveCount(0);
       const directBridge = await author.page.evaluate(async () => {
-        const response = await fetch("/__foldkit/content/drafts/9999/publish", {
+        const response = await fetch("/content/drafts/9999/publish", {
           method: "POST",
           credentials: "same-origin",
           headers: { "content-type": "application/json" },
@@ -260,7 +260,7 @@ test.describe("Native Content publication (spec 0062)", () => {
 
       // --- Request ledger confinement ----------------------------------
       const bridgeRequests = browserRequests.filter((request) =>
-        request.pathname.startsWith("/__foldkit/content"),
+        request.pathname.startsWith("/content"),
       );
       expect(bridgeRequests.length).toBeGreaterThanOrEqual(3);
       expect(browserRequests.filter((request) => request.pathname === "/api/admin/schools")).toEqual(
@@ -284,7 +284,7 @@ test.describe("Native Content publication (spec 0062)", () => {
         realSessionCookie: true,
         bridgeRequests,
         bridgeResponses: browserResponses.filter((response) =>
-          response.pathname.startsWith("/__foldkit/content"),
+          response.pathname.startsWith("/content"),
         ),
         observations,
         pageErrors,
