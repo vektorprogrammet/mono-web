@@ -677,18 +677,20 @@ const teamInterestScopeClause = (
     ),
   );
 
-const optionalTeamInterestFilters = (
+const teamInterestPredicate = (
   database: DatabaseShape,
   filter: TeamInterestFilter,
 ): Statement.Fragment => {
-  const clauses: Array<Statement.Fragment> = [];
+  const clauses: Array<Statement.Fragment> = [
+    teamInterestScopeClause(database, filter.authorizedDepartmentIds),
+  ];
   if (filter.semesterId !== undefined) {
     clauses.push(database`registration.semester_id = ${filter.semesterId}`);
   }
   if (filter.departmentId !== undefined) {
     clauses.push(database`registration.department_id = ${filter.departmentId}`);
   }
-  return clauses.length === 0 ? Statement.fragment([]) : Statement.and(clauses);
+  return Statement.and(clauses);
 };
 
 export const listOrganizationTeamInterestRegistrations = (
@@ -716,8 +718,7 @@ export const listOrganizationTeamInterestRegistrations = (
       FROM organization_team_interest_registrations AS registration
       INNER JOIN organization_teams AS team
         ON team.team_id = registration.team_id
-      WHERE ${teamInterestScopeClause(database, filter.authorizedDepartmentIds)}
-        AND ${optionalTeamInterestFilters(database, filter)}
+      WHERE ${teamInterestPredicate(database, filter)}
       ORDER BY registration.registration_id ASC
     `.pipe(
       Effect.catchTag("SqlError", (cause) =>

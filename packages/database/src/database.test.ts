@@ -3524,7 +3524,7 @@ describe("DatabaseTest", () => {
     expect(releaseCount).toBe(1);
   });
 
-  it("narrows joined team-interest rows by registration department against PGlite", async () => {
+  it("lists authorized team-interest rows in registration order and narrows optional filters against PGlite", async () => {
     const rows = await recruitmentRuntime.runPromise(
       Effect.gen(function* () {
         const database = yield* Database;
@@ -3571,16 +3571,24 @@ describe("DatabaseTest", () => {
             )
         `;
 
-        return yield* listOrganizationTeamInterestRegistrations({
+        const authorizedRows = yield* listOrganizationTeamInterestRegistrations({
+          authorizedDepartmentIds: [departmentA, departmentB],
+        });
+        const filteredRows = yield* listOrganizationTeamInterestRegistrations({
           authorizedDepartmentIds: [departmentA, departmentB],
           departmentId: departmentB,
           semesterId: SemesterId.make("semester-scope"),
         });
+        return { authorizedRows, filteredRows };
       }),
     );
 
-    expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({
+    expect(rows.authorizedRows.map((row) => row.submitterName)).toEqual([
+      "Interested A",
+      "Interested B",
+    ]);
+    expect(rows.filteredRows).toHaveLength(1);
+    expect(rows.filteredRows[0]).toMatchObject({
       submitterName: "Interested B",
       teamName: "Team B",
       departmentId: "team-interest-scope-b",
