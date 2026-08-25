@@ -7,6 +7,12 @@ import type { Organization } from "@vektorprogrammet/domain/organization";
 import { Profile } from "@vektorprogrammet/domain/profile";
 import { Recruitment } from "@vektorprogrammet/domain/recruitment";
 import { Economy } from "@vektorprogrammet/domain/receipt";
+import { ContentManagement } from "@vektorprogrammet/domain/content";
+import { Content } from "@vektorprogrammet/domain/content";
+import type {
+  ContentManagementJourney,
+  PublicNewsJourney,
+} from "./content/http.js";
 import type { Schools } from "@vektorprogrammet/domain/schools";
 import { DateTime, Effect } from "effect";
 import type { AdmissionPeriodActor } from "@vektorprogrammet/domain/admission-period";
@@ -27,13 +33,23 @@ import { makeOrganizationApiHttp } from "./organization/http.js";
 import { makeProfileApiHttp } from "./profile/http.js";
 import { makeReceiptApiHttp, type ReceiptAuthorityResolvers } from "./receipt/http.js";
 import { makeRecruitmentApiHttp } from "./recruitment/http.js";
+import { makeContentManagementApiHttp, makePublicNewsApiHttp } from "./content/http.js";
 import { makeSchoolsApiHttp } from "./schools/http.js";
 
 export type BackendRun = <A, E>(
   effect: Effect.Effect<
     A,
     E,
-    Database | Admissions | Economy | Organization | Profile | Recruitment | Schools | Auth
+    Database
+      | Admissions
+      | Economy
+      | Organization
+      | Profile
+      | Recruitment
+      | Schools
+      | Auth
+      | ContentManagement
+      | Content
   >,
 ) => Promise<A>;
 
@@ -63,6 +79,11 @@ const isAdmissionRoute = (pathname: string): boolean =>
   pathname.startsWith("/api/admin/admission-periods") ||
   pathname === "/api/applications" ||
   pathname.startsWith("/api/applications/");
+const isContentStaffRoute = (pathname: string): boolean =>
+  pathname === "/api/admin/content/workspace" ||
+  pathname.startsWith("/api/admin/content/drafts");
+const isPublicNewsPath = (pathname: string): boolean =>
+  pathname === "/api/news" || pathname.startsWith("/api/news/");
 const isReceiptRoute = (pathname: string): boolean =>
   pathname === "/api/receipts" ||
   pathname.startsWith("/api/receipts/") ||
@@ -199,6 +220,29 @@ export const makeBackendHttp = (
       resolveAuthenticatedPersonAtInstant(request.headers.get("cookie") ?? undefined, { run }),
     run,
   });
+  /**
+   * Spec 0062: staff content routes resolve one PersonId + instant via the
+   * session; the ContentManagement journey re-resolves the Organization
+   * projection inside its own transaction. Public news is unauthenticated.
+   */
+  const content = makeContentManagementApiHttp(
+    (request) =>
+      resolveAuthenticatedPersonAtInstant(request.headers.get("cookie") ?? undefined, { run }),
+    <A>(use: (management: ContentManagementJourney) => Promise<A>): Promise<A> =>
+      run(
+        ContentManagement.use((management) =>
+          Effect.promise(() => use(management as unknown as ContentManagementJourney)),
+        ) as never,
+      ),
+  );
+  const publicNews = makePublicNewsApiHttp(
+    <A>(use: (news: PublicNewsJourney) => Promise<A>): Promise<A> =>
+      run(
+        Content.use((news) =>
+          Effect.promise(() => use(news as unknown as PublicNewsJourney)),
+        ) as never,
+      ),
+  );
   const profile = makeProfileApiHttp({
     config,
     resolveActor: async (request) => {
@@ -271,6 +315,8 @@ export const makeBackendHttp = (
       if (isRecruitmentRoute(pathname)) return recruitment.fetch(request);
       if (isAdmissionRoute(pathname)) return admission.fetch(request);
       if (isReceiptRoute(pathname)) return receipt.fetch(request);
+      if (isContentStaffRoute(pathname)) return content.fetch(request);
+      if (isPublicNewsPath(pathname)) return publicNews.fetch(request);
       return jsonResponse({ error: { tag: "RouteNotFound" } }, 404);
     },
   };

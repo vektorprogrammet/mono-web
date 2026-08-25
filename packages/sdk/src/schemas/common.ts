@@ -20,13 +20,11 @@ export type PaginationParams = Schema.Schema.Type<typeof PaginationParams>;
 
 // --- Shared domain types ---
 
-
 export class TeamInterest extends Schema.Class<TeamInterest>("TeamInterest")({
   id: Schema.Number,
   userName: Schema.String,
   teamName: Schema.String,
 }) {}
-
 
 export class Sponsor extends Schema.Class<Sponsor>("Sponsor")({
   id: Schema.Number,

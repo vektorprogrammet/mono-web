@@ -1,3 +1,4 @@
+import { Content, ContentManagement } from "@vektorprogrammet/domain/content";
 import type { Admissions } from "@vektorprogrammet/domain/admissions";
 import {
   Auth,
@@ -155,7 +156,7 @@ const makeRun =
     effect: Effect.Effect<
       A,
       E,
-      Database | Admissions | Economy | Organization | Profile | Recruitment | Schools | Auth
+      Database | Admissions | Economy | Organization | Profile | Recruitment | Schools | Auth | ContentManagement | Content
     >,
   ): Promise<A> =>
     runTestPromise(

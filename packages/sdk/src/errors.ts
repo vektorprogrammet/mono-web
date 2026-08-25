@@ -22,6 +22,7 @@ export type SdkErrorType =
   | "public_application_rejection"
   | "recruitment_rejection"
   | "organization_rejection"
+  | "content_rejection"
   | "profile_rejection"
   | "schools_rejection";
 
@@ -721,6 +722,32 @@ export class SchoolsRejectionError extends SdkError {
   }
 }
 
+export type ContentRejectionTag =
+  | "UnauthenticatedActor"
+  | "AuthorityInactive"
+  | "NotInScope"
+  | "NotPublisher"
+  | "DraftNotOwned"
+  | "SlugConflict"
+  | "CommandConflict"
+  | "ArticleNotFound"
+  | "DepartmentNotFound"
+  | "ContentDecodeError"
+  | "ContentIntegrityError"
+  | "ContentPersistenceError";
+
+export class ContentRejectionError extends SdkError {
+  readonly _tag: ContentRejectionTag;
+  readonly contentTag: ContentRejectionTag;
+
+  constructor(tag: ContentRejectionTag) {
+    super("content_rejection", tag);
+    this.name = "ContentRejectionError";
+    this._tag = tag;
+    this.contentTag = tag;
+  }
+}
+
 // --- Internal Effect TaggedErrors ---
 
 export class Unauthorized extends Schema.TaggedError<Unauthorized>()("Unauthorized", {
@@ -782,6 +809,58 @@ export class SchoolsDecodeError extends Schema.TaggedError<SchoolsDecodeError>()
 
 export class SchoolsPersistenceError extends Schema.TaggedError<SchoolsPersistenceError>()(
   "SchoolsPersistenceError",
+  {},
+) {}
+
+export class ContentDecodeError extends Schema.TaggedError<ContentDecodeError>()(
+  "ContentDecodeError",
+  {},
+) {}
+
+export class ContentUnauthenticatedActor extends Schema.TaggedError<ContentUnauthenticatedActor>()(
+  "UnauthenticatedActor",
+  {},
+) {}
+
+export class ContentAuthorityInactive extends Schema.TaggedError<ContentAuthorityInactive>()(
+  "AuthorityInactive",
+  {},
+) {}
+
+export class ContentNotInScope extends Schema.TaggedError<ContentNotInScope>()("NotInScope", {}) {}
+
+export class ContentNotPublisher extends Schema.TaggedError<ContentNotPublisher>()(
+  "NotPublisher",
+  {},
+) {}
+
+export class ContentDraftNotOwned extends Schema.TaggedError<ContentDraftNotOwned>()(
+  "DraftNotOwned",
+  {},
+) {}
+
+export class ContentSlugConflictSdkError extends Schema.TaggedError<ContentSlugConflictSdkError>()(
+  "SlugConflict",
+  {},
+) {}
+
+export class ContentCommandConflict extends Schema.TaggedError<ContentCommandConflict>()(
+  "CommandConflict",
+  {},
+) {}
+
+export class ContentArticleNotFound extends Schema.TaggedError<ContentArticleNotFound>()(
+  "ArticleNotFound",
+  {},
+) {}
+
+export class ContentIntegritySdkError extends Schema.TaggedError<ContentIntegritySdkError>()(
+  "ContentIntegrityError",
+  {},
+) {}
+
+export class ContentPersistenceSdkError extends Schema.TaggedError<ContentPersistenceSdkError>()(
+  "ContentPersistenceError",
   {},
 ) {}
 
@@ -1174,6 +1253,21 @@ export type SchoolsFailure =
 
 export type SchoolsSdkError = SchoolsFailure;
 
+export type ContentFailure =
+  | ContentUnauthenticatedActor
+  | ContentAuthorityInactive
+  | ContentNotInScope
+  | ContentNotPublisher
+  | ContentDraftNotOwned
+  | ContentSlugConflictSdkError
+  | ContentCommandConflict
+  | ContentArticleNotFound
+  | ContentDecodeError
+  | ContentIntegritySdkError
+  | ContentPersistenceSdkError;
+
+export type ContentSdkError = ContentFailure;
+
 export type InternalSdkError =
   | Unauthorized
   | NotFound
@@ -1188,7 +1282,8 @@ export type InternalSdkError =
   | RecruitmentFailure
   | OrganizationFailure
   | ProfileFailure
-  | SchoolsFailure;
+  | SchoolsFailure
+  | ContentFailure;
 
 /**
  * Maps an internal Effect TaggedError to a public SdkError subclass.
@@ -1208,6 +1303,20 @@ export function toSdkError(error: InternalSdkError): SdkError {
     error instanceof SchoolsPersistenceError
   ) {
     return new SchoolsRejectionError(error._tag);
+  }
+  if (
+    error instanceof ContentUnauthenticatedActor ||
+    error instanceof ContentAuthorityInactive ||
+    error instanceof ContentNotInScope ||
+    error instanceof ContentNotPublisher ||
+    error instanceof ContentDraftNotOwned ||
+    error instanceof ContentSlugConflictSdkError ||
+    error instanceof ContentCommandConflict ||
+    error instanceof ContentArticleNotFound ||
+    error instanceof ContentIntegritySdkError ||
+    error instanceof ContentPersistenceSdkError
+  ) {
+    return new ContentRejectionError(error._tag as ContentRejectionTag);
   }
   if (error instanceof OrganizationUnauthenticatedActor) {
     return new OrganizationUnauthenticatedActorError();
@@ -1362,5 +1471,11 @@ export function toSdkError(error: InternalSdkError): SdkError {
       return new RecruitmentProfileContactNotFoundError();
     case "RecruitmentPersistenceError":
       return new RecruitmentPersistenceSdkError();
+    case "ContentDecodeError":
+      return new ContentRejectionError("ContentDecodeError");
+    default: {
+      const exhausted: never = error;
+      throw new Error(`unmapped internal sdk error: ${String(exhausted)}`);
+    }
   }
 }

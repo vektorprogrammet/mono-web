@@ -22,6 +22,8 @@ import { createPublicMiscDomain } from "./domains/public/misc.js";
 import { createPublicOrganizationDomain } from "./domains/public/organization.js";
 import { createPublicContactMessageDomain } from "./domains/public/contact-message.js";
 import { createAdminUsersDomain } from "./domains/admin/users.js";
+import { createAdminContentDomain } from "./domains/admin/content.js";
+import { createPublicNewsDomain } from "./domains/public/news.js";
 import { createAdminSchoolsDomain } from "./domains/admin/schools.js";
 import { createAdmissionApplicationsDomain } from "./domains/admission-applications.js";
 import { createAdmissionPeriodsDomain } from "./domains/admission-period.js";
@@ -221,6 +223,22 @@ export {
   SchoolDirectorySchema,
 } from "./schemas/schools.js";
 export type {
+  AdminContentWorkspaceInput,
+  ArticleId,
+  ArticleVersionNumber,
+  ContentCommandId,
+  ContentWorkspace,
+  ContentWorkspaceEntry,
+  CreateContentDraftCommand,
+  PublicNewsListInput,
+  PublicationTransitionCommand,
+  PublishedNewsArticle,
+  PublishedNewsListing,
+  PublishedNewsSummary,
+  PublishedNewsVersionRef,
+  ReviseContentDraftCommand,
+} from "./schemas/content.js";
+export type {
   SchoolLanguage,
   SchoolDirectoryDepartment,
   SchoolDirectoryEntry,
@@ -322,6 +340,7 @@ export function createEffectClient(baseUrl: string | undefined, options?: Client
       recruitment: createAdminRecruitmentDomain(transport),
       users: createAdminUsersDomain(transport),
       schools: createAdminSchoolsDomain(transport),
+      content: createAdminContentDomain(transport),
       scheduling: createAdminSchedulingDomain(transport),
       organization: createAdminOrganizationDomain(transport),
       teams: createAdminTeamsDomain(transport),
@@ -333,6 +352,7 @@ export function createEffectClient(baseUrl: string | undefined, options?: Client
       organization: createPublicOrganizationDomain(transport),
       sponsors: publicMisc.sponsors.bind(publicMisc),
       contactMessages: publicContactMessages,
+      news: createPublicNewsDomain(transport),
     },
   };
 }

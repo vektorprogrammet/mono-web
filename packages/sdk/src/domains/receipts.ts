@@ -47,7 +47,6 @@ const approvalReceiptQuery = (
   return query;
 };
 
-
 export interface ReceiptsDomain {
   // Legacy CRUD remains separate until its own native cut-over specification.
   list(params?: {
@@ -226,12 +225,9 @@ export function createReceiptsDomain(transport: Transport): ReceiptsDomain {
     listForApproval(filter) {
       return decodeCanonical(ReceiptApprovalFilter, filter ?? {}).pipe(
         Effect.flatMap((validFilter) =>
-          transport.get(
-            "/api/admin/receipts",
-            ReceiptPage,
-            approvalReceiptQuery(validFilter),
-            { strict: true },
-          ),
+          transport.get("/api/admin/receipts", ReceiptPage, approvalReceiptQuery(validFilter), {
+            strict: true,
+          }),
         ),
       );
     },

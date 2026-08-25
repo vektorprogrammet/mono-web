@@ -14,7 +14,6 @@ const Email = Schema.String.pipe(
   ),
 );
 
-
 const Message = Schema.String.pipe(
   Schema.check(
     Schema.makeFilter((value) => value.trim().length > 0 && [...value].length <= 5000, {

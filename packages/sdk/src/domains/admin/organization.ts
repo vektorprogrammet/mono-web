@@ -42,9 +42,7 @@ const strictDecode = <S extends Schema.ConstraintDecoder<unknown, never>>(
     Effect.mapError(() => new OrganizationDecodeError()),
   );
 
-export const createAdminOrganizationDomain = (
-  transport: Transport,
-): AdminOrganizationDomain => ({
+export const createAdminOrganizationDomain = (transport: Transport): AdminOrganizationDomain => ({
   createDepartment(command) {
     return strictDecode(CreateDepartmentCommandSchema, command).pipe(
       Effect.flatMap((validCommand) =>

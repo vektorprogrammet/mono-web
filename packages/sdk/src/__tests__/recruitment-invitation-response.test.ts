@@ -1,12 +1,5 @@
 import { Schema } from "effect";
-import {
-  afterEach,
-  beforeEach,
-  describe,
-  expect,
-  it,
-  vi,
-} from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   RecruitmentDecodeSdkError,
   RecruitmentInvitationAlreadyRespondedError,
@@ -23,9 +16,7 @@ import {
 } from "../schemas/recruitment.js";
 
 const capabilityValue = "A".repeat(43);
-const capability = Schema.decodeUnknownSync(
-  RecruitmentInvitationCapabilitySchema,
-)(capabilityValue);
+const capability = Schema.decodeUnknownSync(RecruitmentInvitationCapabilitySchema)(capabilityValue);
 const observation = {
   scheduledAt: "2031-09-20T10:00:00.000Z",
   room: "A101",
@@ -55,122 +46,97 @@ describe("native Recruitment invitation response SDK", () => {
   it("strictly models capability, message, and observation boundaries", () => {
     expect(capability).toBe(capabilityValue);
     expect(
-      Schema.decodeUnknownSync(
-        RecruitmentInvitationResponseMessageSchema,
-      )("  Please use another time  "),
+      Schema.decodeUnknownSync(RecruitmentInvitationResponseMessageSchema)(
+        "  Please use another time  ",
+      ),
     ).toBe("Please use another time");
     const validNearbyMessage = "B".repeat(42);
     expect(
-      Schema.decodeUnknownSync(
-        RecruitmentInvitationResponseMessageSchema,
-      )(`  ${validNearbyMessage}  `),
+      Schema.decodeUnknownSync(RecruitmentInvitationResponseMessageSchema)(
+        `  ${validNearbyMessage}  `,
+      ),
     ).toBe(validNearbyMessage);
     expect(() =>
-      Schema.decodeUnknownSync(
-        RecruitmentInvitationCapabilitySchema,
-      )("A".repeat(42)),
+      Schema.decodeUnknownSync(RecruitmentInvitationCapabilitySchema)("A".repeat(42)),
     ).toThrow();
     expect(() =>
-      Schema.decodeUnknownSync(
-        RecruitmentInvitationCapabilitySchema,
-      )(`${"A".repeat(42)}=`),
+      Schema.decodeUnknownSync(RecruitmentInvitationCapabilitySchema)(`${"A".repeat(42)}=`),
     ).toThrow();
     expect(() =>
-      Schema.decodeUnknownSync(
-        RecruitmentInvitationResponseMessageSchema,
-      )("   "),
+      Schema.decodeUnknownSync(RecruitmentInvitationResponseMessageSchema)("   "),
     ).toThrow();
     expect(() =>
-      Schema.decodeUnknownSync(
-        RecruitmentInvitationResponseMessageSchema,
-      )("x".repeat(2_001)),
+      Schema.decodeUnknownSync(RecruitmentInvitationResponseMessageSchema)("x".repeat(2_001)),
     ).toThrow();
-    for (const message of [
-      capabilityValue,
-      `Do not store (${capabilityValue}) in this response`,
-    ]) {
+    for (const message of [capabilityValue, `Do not store (${capabilityValue}) in this response`]) {
       expect(() =>
-        Schema.decodeUnknownSync(
-          RecruitmentInvitationResponseMessageSchema,
-        )(message),
+        Schema.decodeUnknownSync(RecruitmentInvitationResponseMessageSchema)(message),
       ).toThrow();
     }
+    expect(Schema.decodeUnknownSync(RecruitmentInvitationRejectInputSchema)({})).toEqual({});
     expect(
-      Schema.decodeUnknownSync(
-        RecruitmentInvitationRejectInputSchema,
-      )({}),
+      Schema.decodeUnknownSync(RecruitmentInvitationRejectInputSchema)({ message: "   " }),
     ).toEqual({});
     expect(
-      Schema.decodeUnknownSync(
-        RecruitmentInvitationRejectInputSchema,
-      )({ message: "   " }),
-    ).toEqual({});
-    expect(
-      Schema.decodeUnknownSync(
-        RecruitmentInvitationRejectInputSchema,
-      )({ message: "  Cannot attend  " }),
+      Schema.decodeUnknownSync(RecruitmentInvitationRejectInputSchema)({
+        message: "  Cannot attend  ",
+      }),
     ).toEqual({ message: "Cannot attend" });
     expect(() =>
-      Schema.decodeUnknownSync(
-        RecruitmentInvitationRejectInputSchema,
-      )(
+      Schema.decodeUnknownSync(RecruitmentInvitationRejectInputSchema)(
         { message: "x".repeat(2_001) },
         { onExcessProperty: "error" },
       ),
     ).toThrow();
     expect(() =>
-      Schema.decodeUnknownSync(
-        RecruitmentInvitationRejectInputSchema,
-      )({ unexpected: true }, { onExcessProperty: "error" }),
+      Schema.decodeUnknownSync(RecruitmentInvitationRejectInputSchema)(
+        { unexpected: true },
+        { onExcessProperty: "error" },
+      ),
     ).toThrow();
     expect(() =>
-      Schema.decodeUnknownSync(
-        RecruitmentInvitationRequestNewTimeInputSchema,
-      )({ message: "   " }, { onExcessProperty: "error" }),
+      Schema.decodeUnknownSync(RecruitmentInvitationRequestNewTimeInputSchema)(
+        { message: "   " },
+        { onExcessProperty: "error" },
+      ),
     ).toThrow();
     expect(() =>
-      Schema.decodeUnknownSync(
-        RecruitmentInvitationRequestNewTimeInputSchema,
-      )(
+      Schema.decodeUnknownSync(RecruitmentInvitationRequestNewTimeInputSchema)(
         { message: "Another time", unexpected: true },
         { onExcessProperty: "error" },
       ),
     ).toThrow();
-    for (const message of [
-      capabilityValue,
-      `Please use another time (${capabilityValue})`,
-    ]) {
+    for (const message of [capabilityValue, `Please use another time (${capabilityValue})`]) {
       expect(() =>
-        Schema.decodeUnknownSync(
-          RecruitmentInvitationRejectInputSchema,
-        )({ message }, { onExcessProperty: "error" }),
+        Schema.decodeUnknownSync(RecruitmentInvitationRejectInputSchema)(
+          { message },
+          { onExcessProperty: "error" },
+        ),
       ).toThrow();
       expect(() =>
-        Schema.decodeUnknownSync(
-          RecruitmentInvitationRequestNewTimeInputSchema,
-        )({ message }, { onExcessProperty: "error" }),
+        Schema.decodeUnknownSync(RecruitmentInvitationRequestNewTimeInputSchema)(
+          { message },
+          { onExcessProperty: "error" },
+        ),
       ).toThrow();
     }
     expect(() =>
-      Schema.decodeUnknownSync(
-        RecruitmentInvitationResponseObservationSchema,
-      )({ ...observation, capability: capabilityValue }, {
-        onExcessProperty: "error",
-      }),
+      Schema.decodeUnknownSync(RecruitmentInvitationResponseObservationSchema)(
+        { ...observation, capability: capabilityValue },
+        {
+          onExcessProperty: "error",
+        },
+      ),
     ).toThrow();
     expect(
-      Schema.decodeUnknownSync(
-        RecruitmentInvitationResponseObservationSchema,
-      )({
+      Schema.decodeUnknownSync(RecruitmentInvitationResponseObservationSchema)({
         ...observation,
         responseState: "Rejected",
         responseMessage: "  Cannot attend  ",
       }).responseMessage,
     ).toBe("Cannot attend");
     expect(
-      Schema.decodeUnknownSync(
-        RecruitmentInvitationResponseObservationSchema,
-      )({
+      Schema.decodeUnknownSync(RecruitmentInvitationResponseObservationSchema)({
         ...observation,
         responseState: "Rejected",
         responseMessage: null,
@@ -183,9 +149,7 @@ describe("native Recruitment invitation response SDK", () => {
       ["Rejected", "   "],
     ] as const) {
       expect(() =>
-        Schema.decodeUnknownSync(
-          RecruitmentInvitationResponseObservationSchema,
-        )(
+        Schema.decodeUnknownSync(RecruitmentInvitationResponseObservationSchema)(
           { ...observation, responseState, responseMessage },
           { onExcessProperty: "error" },
         ),
@@ -197,15 +161,14 @@ describe("native Recruitment invitation response SDK", () => {
     fetchMock
       .mockResolvedValueOnce(jsonResponse(200, observation))
       .mockResolvedValue(new Response(null, { status: 204 }));
-    const client = createClient("http://api.test", { cookie: "better-auth.session_token=must-not-be-sent" });
+    const client = createClient("http://api.test", {
+      cookie: "better-auth.session_token=must-not-be-sent",
+    });
 
-    const readResult =
-      await client.recruitmentInvitationResponses.read(capability);
+    const readResult = await client.recruitmentInvitationResponses.read(capability);
     expect(readResult).toEqual(observation);
     expect(JSON.stringify(readResult)).not.toContain(capabilityValue);
-    expect(JSON.stringify(readResult)).not.toContain(
-      "/api/interview-responses",
-    );
+    expect(JSON.stringify(readResult)).not.toContain("/api/interview-responses");
     await client.recruitmentInvitationResponses.confirm(capability);
     await client.recruitmentInvitationResponses.reject(capability, {
       message: "  I cannot attend  ",
@@ -223,9 +186,7 @@ describe("native Recruitment invitation response SDK", () => {
       calls.map(([url, init]) => ({
         url,
         method: init.method,
-        capability: new Headers(init.headers).get(
-          "X-Recruitment-Invitation-Capability",
-        ),
+        capability: new Headers(init.headers).get("X-Recruitment-Invitation-Capability"),
         cookie: new Headers(init.headers).get("cookie"),
         body: init.body,
       })),
@@ -266,8 +227,7 @@ describe("native Recruitment invitation response SDK", () => {
         body: "{}",
       },
       {
-        url:
-          "http://api.test/api/recruitment/invitation-response/request-new-time",
+        url: "http://api.test/api/recruitment/invitation-response/request-new-time",
         method: "POST",
         capability: capabilityValue,
         cookie: null,
@@ -276,9 +236,7 @@ describe("native Recruitment invitation response SDK", () => {
     ]);
     expect(
       calls.every(
-        ([url]) =>
-          !url.includes("/api/interview-responses") &&
-          !url.includes(capabilityValue),
+        ([url]) => !url.includes("/api/interview-responses") && !url.includes(capabilityValue),
       ),
     ).toBe(true);
     expect(client).not.toHaveProperty("interviewResponses");
@@ -288,9 +246,7 @@ describe("native Recruitment invitation response SDK", () => {
     const client = createClient("http://api.test");
 
     await expect(
-      client.recruitmentInvitationResponses.read(
-        "A".repeat(42) as never,
-      ),
+      client.recruitmentInvitationResponses.read("A".repeat(42) as never),
     ).rejects.toBeInstanceOf(RecruitmentInvitationNotFoundError);
     await expect(
       client.recruitmentInvitationResponses.reject(capability, {
@@ -313,10 +269,7 @@ describe("native Recruitment invitation response SDK", () => {
         message: "x".repeat(2_001),
       }),
     ).rejects.toBeInstanceOf(RecruitmentDecodeSdkError);
-    for (const message of [
-      capabilityValue,
-      `Please reschedule (${capabilityValue})`,
-    ]) {
+    for (const message of [capabilityValue, `Please reschedule (${capabilityValue})`]) {
       await expect(
         client.recruitmentInvitationResponses.reject(capability, { message }),
       ).rejects.toBeInstanceOf(RecruitmentDecodeSdkError);
@@ -329,9 +282,7 @@ describe("native Recruitment invitation response SDK", () => {
 
   it("strictly decodes observations, typed failures, and exact 204 responses", async () => {
     fetchMock
-      .mockResolvedValueOnce(
-        jsonResponse(200, { ...observation, unexpected: true }),
-      )
+      .mockResolvedValueOnce(jsonResponse(200, { ...observation, unexpected: true }))
       .mockResolvedValueOnce(
         jsonResponse(404, {
           error: { tag: "RecruitmentInvitationNotFound" },
@@ -342,9 +293,7 @@ describe("native Recruitment invitation response SDK", () => {
           error: { tag: "RecruitmentInvitationAlreadyResponded" },
         }),
       )
-      .mockResolvedValueOnce(
-        jsonResponse(422, { error: { tag: "RecruitmentDecodeError" } }),
-      )
+      .mockResolvedValueOnce(jsonResponse(422, { error: { tag: "RecruitmentDecodeError" } }))
       .mockResolvedValueOnce(
         jsonResponse(503, {
           error: { tag: "RecruitmentPersistenceError" },
@@ -361,15 +310,13 @@ describe("native Recruitment invitation response SDK", () => {
       );
     const client = createClient("http://api.test");
 
-    await expect(
-      client.recruitmentInvitationResponses.read(capability),
-    ).rejects.toBeInstanceOf(RecruitmentDecodeSdkError);
-    await expect(
-      client.recruitmentInvitationResponses.read(capability),
-    ).rejects.toBeInstanceOf(RecruitmentInvitationNotFoundError);
-    await expect(
-      client.recruitmentInvitationResponses.confirm(capability),
-    ).rejects.toBeInstanceOf(
+    await expect(client.recruitmentInvitationResponses.read(capability)).rejects.toBeInstanceOf(
+      RecruitmentDecodeSdkError,
+    );
+    await expect(client.recruitmentInvitationResponses.read(capability)).rejects.toBeInstanceOf(
+      RecruitmentInvitationNotFoundError,
+    );
+    await expect(client.recruitmentInvitationResponses.confirm(capability)).rejects.toBeInstanceOf(
       RecruitmentInvitationAlreadyRespondedError,
     );
     await expect(
@@ -377,14 +324,14 @@ describe("native Recruitment invitation response SDK", () => {
         message: "Cannot attend",
       }),
     ).rejects.toBeInstanceOf(RecruitmentDecodeSdkError);
-    await expect(
-      client.recruitmentInvitationResponses.read(capability),
-    ).rejects.toBeInstanceOf(RecruitmentPersistenceSdkError);
-    await expect(
-      client.recruitmentInvitationResponses.confirm(capability),
-    ).rejects.toBeInstanceOf(RecruitmentDecodeSdkError);
-    await expect(
-      client.recruitmentInvitationResponses.read(capability),
-    ).rejects.toBeInstanceOf(RecruitmentDecodeSdkError);
+    await expect(client.recruitmentInvitationResponses.read(capability)).rejects.toBeInstanceOf(
+      RecruitmentPersistenceSdkError,
+    );
+    await expect(client.recruitmentInvitationResponses.confirm(capability)).rejects.toBeInstanceOf(
+      RecruitmentDecodeSdkError,
+    );
+    await expect(client.recruitmentInvitationResponses.read(capability)).rejects.toBeInstanceOf(
+      RecruitmentDecodeSdkError,
+    );
   });
 });

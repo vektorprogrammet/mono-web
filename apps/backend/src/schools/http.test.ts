@@ -1,3 +1,4 @@
+import { Content, ContentManagement } from "@vektorprogrammet/domain/content";
 import type { Admissions } from "@vektorprogrammet/domain/admissions";
 import { UnauthenticatedActor } from "@vektorprogrammet/domain/admission-period";
 import type { Auth } from "@vektorprogrammet/domain/auth";
@@ -81,14 +82,14 @@ const makeRun = (
     effect: Effect.Effect<
       A,
       E,
-      Database | Admissions | Economy | Organization | Profile | Recruitment | Schools | Auth
+      Database | Admissions | Economy | Organization | Profile | Recruitment | Schools | Auth | ContentManagement | Content
     >,
   ): Promise<A> => {
     const runnable = effect.pipe(
       Effect.provideService(Database, database),
       Effect.provideService(Organization, organization),
       Effect.provideService(Schools, schools),
-    ) as Effect.Effect<A, E>;
+    ) as Effect.Effect<A, E, never>;
     return runTestPromise(runnable);
   };
 };

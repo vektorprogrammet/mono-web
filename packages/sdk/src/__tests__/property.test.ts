@@ -57,25 +57,26 @@ it.prop(
   { status: fc.constantFrom(...INTERVIEW_STATUS_LABELS) },
   ({ status }) => {
     const raw = {
-      interviews: [{
-        id: 42,
-        applicantName: "Ada Lovelace",
-        interviewerName: "Grace Hopper",
-        scheduled: "2026-09-14T15:00:00+02:00",
-        status,
-        interviewed: false,
-        coInterviewer: null,
-        room: "Rom 2",
-        campus: "Gløshaugen",
-        mapLink: "https://maps.example.com/interview",
-      }],
+      interviews: [
+        {
+          id: 42,
+          applicantName: "Ada Lovelace",
+          interviewerName: "Grace Hopper",
+          scheduled: "2026-09-14T15:00:00+02:00",
+          status,
+          interviewed: false,
+          coInterviewer: null,
+          room: "Rom 2",
+          campus: "Gløshaugen",
+          mapLink: "https://maps.example.com/interview",
+        },
+      ],
     };
     const decoded = Schema.decodeUnknownSync(AdminInterviewListFromRaw)(raw);
     expect(Schema.encodeSync(AdminInterviewListFromRaw)(decoded)).toEqual(raw);
   },
   propertyOptions,
 );
-
 
 it.prop(
   "unknown status codes fail closed",

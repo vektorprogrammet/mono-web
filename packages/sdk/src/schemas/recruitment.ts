@@ -3,14 +3,15 @@ import { Rfc3339InstantSchema } from "./admission-period.js";
 
 const StableId = Schema.String.pipe(
   Schema.check(
-    Schema.makeFilter(
-      (value) => value.trim().length > 0 && !/[\p{Cc}\p{Cf}]/u.test(value),
-      { message: "a non-empty stable identifier" },
-    ),
+    Schema.makeFilter((value) => value.trim().length > 0 && !/[\p{Cc}\p{Cf}]/u.test(value), {
+      message: "a non-empty stable identifier",
+    }),
   ),
 );
 const NonEmpty = Schema.String.pipe(
-  Schema.check(Schema.makeFilter((value) => value.trim().length > 0, { message: "a non-empty string" })),
+  Schema.check(
+    Schema.makeFilter((value) => value.trim().length > 0, { message: "a non-empty string" }),
+  ),
 );
 const Revision = Schema.Int.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(0)));
 const NonNegative = Schema.Int.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(0)));
@@ -90,9 +91,7 @@ const PersonContactPhone = Schema.String.pipe(
       (value) => {
         const normalized = value.trim();
         return (
-          normalized.length > 0 &&
-          normalized.length <= 32 &&
-          /^[+\d][\d\s().-]*$/u.test(normalized)
+          normalized.length > 0 && normalized.length <= 32 && /^[+\d][\d\s().-]*$/u.test(normalized)
         );
       },
       { message: "a valid staff phone number" },
@@ -114,9 +113,7 @@ const HttpsMapLink = Schema.String.pipe(
         try {
           const url = new URL(value);
           return (
-            url.protocol === "https:" &&
-            url.username.length === 0 &&
-            url.password.length === 0
+            url.protocol === "https:" && url.username.length === 0 && url.password.length === 0
           );
         } catch {
           return false;
@@ -153,15 +150,13 @@ export type RecruitmentInvitationId = typeof RecruitmentInvitationId.Type;
 
 export const RecruitmentInvitationCapabilitySchema = Schema.String.pipe(
   Schema.check(
-    Schema.makeFilter(
-      (value) => /^[A-Za-z0-9_-]{43}$/u.test(value),
-      { message: "a 43-character base64url invitation capability" },
-    ),
+    Schema.makeFilter((value) => /^[A-Za-z0-9_-]{43}$/u.test(value), {
+      message: "a 43-character base64url invitation capability",
+    }),
   ),
   Schema.brand("RecruitmentInvitationCapability"),
 );
-export type RecruitmentInvitationCapability =
-  typeof RecruitmentInvitationCapabilitySchema.Type;
+export type RecruitmentInvitationCapability = typeof RecruitmentInvitationCapabilitySchema.Type;
 
 export const RecruitmentNotificationEffectId = StableId.pipe(
   Schema.brand("RecruitmentNotificationEffectId"),
@@ -203,14 +198,12 @@ export const RecruitmentInterviewSchemaOptionSchema = Schema.Struct({
 });
 export type RecruitmentInterviewSchemaOption = typeof RecruitmentInterviewSchemaOptionSchema.Type;
 
-
 export const RecruitmentInterviewStateForBoardSchema = Schema.Literals([
   "Unassigned",
   "NoContact",
   "Scheduled",
 ]);
-export type RecruitmentInterviewStateForBoard =
-  typeof RecruitmentInterviewStateForBoardSchema.Type;
+export type RecruitmentInterviewStateForBoard = typeof RecruitmentInterviewStateForBoardSchema.Type;
 
 export const RecruitmentApplicationStateSchema = Schema.Literals(["Received"]);
 export type RecruitmentApplicationState = typeof RecruitmentApplicationStateSchema.Type;
@@ -300,20 +293,16 @@ const RecruitmentInvitationRejectEncodedSchema = Schema.Struct({
 const RecruitmentInvitationRejectNormalizedSchema = Schema.Struct({
   message: Schema.optional(RecruitmentInvitationResponseMessageSchema),
 });
-export const RecruitmentInvitationRejectInputSchema =
-  RecruitmentInvitationRejectEncodedSchema.pipe(
-    Schema.decodeTo(RecruitmentInvitationRejectNormalizedSchema, {
-      decode: SchemaGetter.transform((input) => {
-        const message = input.message?.trim();
-        return message === undefined || message.length === 0
-          ? {}
-          : { message };
-      }),
-      encode: SchemaGetter.transform((input) => input),
+export const RecruitmentInvitationRejectInputSchema = RecruitmentInvitationRejectEncodedSchema.pipe(
+  Schema.decodeTo(RecruitmentInvitationRejectNormalizedSchema, {
+    decode: SchemaGetter.transform((input) => {
+      const message = input.message?.trim();
+      return message === undefined || message.length === 0 ? {} : { message };
     }),
-  );
-export type RecruitmentInvitationRejectInput =
-  typeof RecruitmentInvitationRejectInputSchema.Type;
+    encode: SchemaGetter.transform((input) => input),
+  }),
+);
+export type RecruitmentInvitationRejectInput = typeof RecruitmentInvitationRejectInputSchema.Type;
 
 export const RecruitmentInvitationRequestNewTimeInputSchema = Schema.Struct({
   message: RecruitmentInvitationResponseMessageSchema,
@@ -335,9 +324,7 @@ export const RecruitmentInvitationResponseObservationSchema = Schema.Union([
   Schema.Struct({
     ...RecruitmentInvitationResponseObservationFields,
     responseState: Schema.Literals(["Rejected"]),
-    responseMessage: Schema.NullOr(
-      RecruitmentInvitationResponseMessageSchema,
-    ),
+    responseMessage: Schema.NullOr(RecruitmentInvitationResponseMessageSchema),
   }),
   Schema.Struct({
     ...RecruitmentInvitationResponseObservationFields,
@@ -387,8 +374,7 @@ export const RecruitmentSchedulingInterviewerSchema = Schema.Struct({
   email: PersonContactEmail,
   phone: PersonContactPhone,
 });
-export type RecruitmentSchedulingInterviewer =
-  typeof RecruitmentSchedulingInterviewerSchema.Type;
+export type RecruitmentSchedulingInterviewer = typeof RecruitmentSchedulingInterviewerSchema.Type;
 
 const RecruitmentSchedulingInterviewFields = {
   interviewId: RecruitmentInterviewId,
@@ -398,9 +384,7 @@ const RecruitmentSchedulingInterviewFields = {
   applicant: RecruitmentSchedulingApplicantSchema,
   revision: Revision,
   schedule: Schema.NullOr(RecruitmentInterviewScheduleSchema),
-  notificationState: Schema.NullOr(
-    RecruitmentNotificationDeliveryStateSchema,
-  ),
+  notificationState: Schema.NullOr(RecruitmentNotificationDeliveryStateSchema),
 };
 export const RecruitmentSchedulingInterviewSchema = Schema.Union([
   Schema.Struct({
@@ -416,9 +400,7 @@ export const RecruitmentSchedulingInterviewSchema = Schema.Union([
   Schema.Struct({
     ...RecruitmentSchedulingInterviewFields,
     responseState: Schema.Literals(["Rejected"]),
-    responseMessage: Schema.NullOr(
-      RecruitmentInvitationResponseMessageSchema,
-    ),
+    responseMessage: Schema.NullOr(RecruitmentInvitationResponseMessageSchema),
   }),
   Schema.Struct({
     ...RecruitmentSchedulingInterviewFields,
@@ -426,8 +408,7 @@ export const RecruitmentSchedulingInterviewSchema = Schema.Union([
     responseMessage: RecruitmentInvitationResponseMessageSchema,
   }),
 ]);
-export type RecruitmentSchedulingInterview =
-  typeof RecruitmentSchedulingInterviewSchema.Type;
+export type RecruitmentSchedulingInterview = typeof RecruitmentSchedulingInterviewSchema.Type;
 
 export const RecruitmentSchedulingBoardSchema = Schema.Struct({
   departmentId: RecruitmentDepartmentId,

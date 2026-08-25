@@ -113,7 +113,7 @@ export const encodeInterviewStatusLabel = (status: InterviewSchedulingStatus): s
     case "no_contact":
       return "Ikke oppnådd kontakt";
   }
-}
+};
 
 export const encodeInterviewStatus = (status: InterviewSchedulingStatus): InterviewStatusCode =>
   INTERVIEW_STATUS_CODE_BY_STATUS[status];

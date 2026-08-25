@@ -25,6 +25,8 @@ import { createPublicMiscDomain } from "./domains/public/misc.js";
 import { createPublicOrganizationDomain } from "./domains/public/organization.js";
 import { createPublicContactMessageDomain } from "./domains/public/contact-message.js";
 import { createAdminUsersDomain } from "./domains/admin/users.js";
+import { createAdminContentDomain } from "./domains/admin/content.js";
+import { createPublicNewsDomain } from "./domains/public/news.js";
 import { createAdminSchoolsDomain } from "./domains/admin/schools.js";
 import { createAdmissionApplicationsDomain } from "./domains/admission-applications.js";
 import { createAdmissionPeriodsDomain } from "./domains/admission-period.js";
@@ -411,6 +413,7 @@ export function createClient(baseUrl: string | undefined, options?: ClientOption
       recruitment: promisifyDomain(createAdminRecruitmentDomain(transport), options?.fetch),
       users: promisifyDomain(createAdminUsersDomain(transport), options?.fetch),
       schools: promisifyDomain(createAdminSchoolsDomain(transport), options?.fetch),
+      content: promisifyDomain(createAdminContentDomain(transport), options?.fetch),
       scheduling: promisifyDomain(createAdminSchedulingDomain(transport), options?.fetch),
       organization: promisifyDomain(createAdminOrganizationDomain(transport), options?.fetch),
       teams: promisifyDomain(createAdminTeamsDomain(transport), options?.fetch),
@@ -425,6 +428,7 @@ export function createClient(baseUrl: string | undefined, options?: ClientOption
       organization: promisifyDomain(createPublicOrganizationDomain(transport), options?.fetch),
       sponsors: promisify(publicMisc.sponsors.bind(publicMisc), options?.fetch),
       contactMessages: promisifyDomain(publicContactMessages, options?.fetch),
+      news: promisifyDomain(createPublicNewsDomain(transport), options?.fetch),
     },
   };
 }

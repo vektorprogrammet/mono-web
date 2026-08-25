@@ -10,9 +10,9 @@
  *   GET  /api/admin/interview-schemas
  */
 
-import { Effect, Schema } from "effect"
-import type { Transport } from "../../transport.js"
-import { NotFound, Validation, type InternalSdkError } from "../../errors.js"
+import { Effect, Schema } from "effect";
+import type { Transport } from "../../transport.js";
+import { NotFound, Validation, type InternalSdkError } from "../../errors.js";
 import {
   AdminInterviewListFromRaw,
   Interview,
@@ -20,44 +20,44 @@ import {
   InterviewScheduleInput,
   InterviewSchema_,
   type InterviewScheduleInput as InterviewScheduleInputType,
-} from "../../schemas/interview.js"
+} from "../../schemas/interview.js";
 
 type InterviewList = {
-  readonly items: Interview[]
-  readonly totalItems: number
-}
+  readonly items: Interview[];
+  readonly totalItems: number;
+};
 
 export interface AdminInterviewsDomain {
-  list(): Effect.Effect<InterviewList, InternalSdkError>
-  read(id: number): Effect.Effect<Interview, InternalSdkError>
+  list(): Effect.Effect<InterviewList, InternalSdkError>;
+  read(id: number): Effect.Effect<Interview, InternalSdkError>;
 
   assign(
     applicationId: number,
     interviewerId: number,
     schemaId: number,
-  ): Effect.Effect<void, InternalSdkError>
+  ): Effect.Effect<void, InternalSdkError>;
 
-  schedule(
-    id: number,
-    input: InterviewScheduleInputType,
-  ): Effect.Effect<void, InternalSdkError>
+  schedule(id: number, input: InterviewScheduleInputType): Effect.Effect<void, InternalSdkError>;
 
   conduct(
     id: number,
     score: number | null,
     answers: Record<string, string>,
-  ): Effect.Effect<void, InternalSdkError>
+  ): Effect.Effect<void, InternalSdkError>;
 
-  cancel(id: number): Effect.Effect<void, InternalSdkError>
+  cancel(id: number): Effect.Effect<void, InternalSdkError>;
 
-  schemas(): Effect.Effect<readonly typeof InterviewSchema_.Type[], InternalSdkError>
+  schemas(): Effect.Effect<readonly (typeof InterviewSchema_.Type)[], InternalSdkError>;
 }
 
 const invalidInput = (cause: unknown): Validation =>
   new Validation({
-    message: cause instanceof Error ? `Invalid interview input: ${cause.message}` : "Invalid interview input",
+    message:
+      cause instanceof Error
+        ? `Invalid interview input: ${cause.message}`
+        : "Invalid interview input",
     fields: {},
-  })
+  });
 export function createAdminInterviewsDomain(transport: Transport): AdminInterviewsDomain {
   const list = (): Effect.Effect<InterviewList, InternalSdkError> =>
     transport.get("/api/admin/interviews", AdminInterviewListFromRaw).pipe(
@@ -65,10 +65,9 @@ export function createAdminInterviewsDomain(transport: Transport): AdminIntervie
         items: Array.from(interviews),
         totalItems: interviews.length,
       })),
-    )
+    );
 
   return {
-
     list,
 
     read(id) {
@@ -77,14 +76,14 @@ export function createAdminInterviewsDomain(transport: Transport): AdminIntervie
         Effect.flatMap((validId) =>
           list().pipe(
             Effect.flatMap(({ items }) => {
-              const interview = items.find((candidate) => candidate.id === validId)
+              const interview = items.find((candidate) => candidate.id === validId);
               return interview === undefined
                 ? Effect.fail(new NotFound({ message: "Interview not found" }))
-                : Effect.succeed(interview)
+                : Effect.succeed(interview);
             }),
           ),
         ),
-      )
+      );
     },
 
     assign(applicationId, interviewerId, schemaId) {
@@ -92,7 +91,7 @@ export function createAdminInterviewsDomain(transport: Transport): AdminIntervie
         applicationId,
         interviewerId,
         interviewSchemaId: schemaId,
-      })
+      });
     },
 
     schedule(id, input) {
@@ -104,21 +103,21 @@ export function createAdminInterviewsDomain(transport: Transport): AdminIntervie
         Effect.flatMap(({ interviewId, input: validInput }) =>
           transport.postVoid(`/api/admin/interviews/${interviewId}/schedule`, validInput),
         ),
-      )
+      );
     },
 
     conduct(id, score, answers) {
-      return transport.postVoid(`/api/admin/interviews/${id}/conduct`, { score, answers })
+      return transport.postVoid(`/api/admin/interviews/${id}/conduct`, { score, answers });
     },
 
     cancel(id) {
-      return transport.put(`/api/admin/interviews/${id}/cancel`, {})
+      return transport.put(`/api/admin/interviews/${id}/cancel`, {});
     },
 
     schemas() {
       return transport
         .getCollection("/api/admin/interview-schemas", InterviewSchema_)
-        .pipe(Effect.map(({ items }) => items))
+        .pipe(Effect.map(({ items }) => items));
     },
-  }
+  };
 }

@@ -16,19 +16,13 @@ import {
 } from "../schemas/recruitment.js";
 import type { Transport } from "../transport.js";
 
-const INVITATION_CAPABILITY_HEADER =
-  "X-Recruitment-Invitation-Capability";
+const INVITATION_CAPABILITY_HEADER = "X-Recruitment-Invitation-Capability";
 
 export interface RecruitmentInvitationResponsesDomain {
   read(
     capability: RecruitmentInvitationCapability,
-  ): Effect.Effect<
-    RecruitmentInvitationResponseObservation,
-    InternalSdkError
-  >;
-  confirm(
-    capability: RecruitmentInvitationCapability,
-  ): Effect.Effect<void, InternalSdkError>;
+  ): Effect.Effect<RecruitmentInvitationResponseObservation, InternalSdkError>;
+  confirm(capability: RecruitmentInvitationCapability): Effect.Effect<void, InternalSdkError>;
   reject(
     capability: RecruitmentInvitationCapability,
     input?: RecruitmentInvitationRejectInput,
@@ -41,34 +35,24 @@ export interface RecruitmentInvitationResponsesDomain {
 
 const decodeCapability = (
   capability: unknown,
-): Effect.Effect<
-  RecruitmentInvitationCapability,
-  RecruitmentInvitationNotFound
-> =>
-  Schema.decodeUnknownEffect(RecruitmentInvitationCapabilitySchema)(
-    capability,
-    { onExcessProperty: "error" },
-  ).pipe(Effect.mapError(() => new RecruitmentInvitationNotFound()));
+): Effect.Effect<RecruitmentInvitationCapability, RecruitmentInvitationNotFound> =>
+  Schema.decodeUnknownEffect(RecruitmentInvitationCapabilitySchema)(capability, {
+    onExcessProperty: "error",
+  }).pipe(Effect.mapError(() => new RecruitmentInvitationNotFound()));
 
 const decodeRejectInput = (
   input: unknown,
 ): Effect.Effect<RecruitmentInvitationRejectInput, RecruitmentDecodeError> =>
-  Schema.decodeUnknownEffect(RecruitmentInvitationRejectInputSchema)(
-    input,
-    { onExcessProperty: "error" },
-  ).pipe(Effect.mapError(() => new RecruitmentDecodeError()));
+  Schema.decodeUnknownEffect(RecruitmentInvitationRejectInputSchema)(input, {
+    onExcessProperty: "error",
+  }).pipe(Effect.mapError(() => new RecruitmentDecodeError()));
 
 const decodeRequestNewTimeInput = (
   input: unknown,
-): Effect.Effect<
-  RecruitmentInvitationRequestNewTimeInput,
-  RecruitmentDecodeError
-> =>
-  Schema.decodeUnknownEffect(
-    RecruitmentInvitationRequestNewTimeInputSchema,
-  )(input, { onExcessProperty: "error" }).pipe(
-    Effect.mapError(() => new RecruitmentDecodeError()),
-  );
+): Effect.Effect<RecruitmentInvitationRequestNewTimeInput, RecruitmentDecodeError> =>
+  Schema.decodeUnknownEffect(RecruitmentInvitationRequestNewTimeInputSchema)(input, {
+    onExcessProperty: "error",
+  }).pipe(Effect.mapError(() => new RecruitmentDecodeError()));
 
 const invitationRequestOptions = (
   capability: RecruitmentInvitationCapability,

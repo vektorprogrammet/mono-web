@@ -33,10 +33,17 @@ export interface AdmissionApplicationsDomain {
   ): Effect.Effect<typeof PublicApplicationConfirmation.Type, InternalSdkError>;
 }
 
-export function createAdmissionApplicationsDomain(transport: Transport): AdmissionApplicationsDomain {
+export function createAdmissionApplicationsDomain(
+  transport: Transport,
+): AdmissionApplicationsDomain {
   return {
     catalog() {
-      return transport.get("/api/applications/catalog", PublicApplicationCatalog, undefined, publicDecodeOptions);
+      return transport.get(
+        "/api/applications/catalog",
+        PublicApplicationCatalog,
+        undefined,
+        publicDecodeOptions,
+      );
     },
     submit(input) {
       return decodeCanonical(PublicApplicationSubmitInput, input).pipe(
