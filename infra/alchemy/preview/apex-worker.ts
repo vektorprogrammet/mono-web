@@ -22,8 +22,11 @@ export interface ApexWorkerEnv {
   readonly Dashboard: ApexService;
 }
 
-/** Host-exposed backend origin reached through the cloudflared tunnel. */
-export const BACKEND_ORIGIN = "https://api.vektor.phibkro.org";
+/**
+ * Worker→own-custom-domain subrequests are restricted on Cloudflare, so the
+ * proxy targets a dedicated tunnel hostname that bypasses every worker.
+ */
+export const BACKEND_ORIGIN = "https://origin-api.vektor.phibkro.org";
 
 const ALLOWED_HOSTS: Record<string, true> = {
   [APEX_IDENTITY.hostname]: true,
