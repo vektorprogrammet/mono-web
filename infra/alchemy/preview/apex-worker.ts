@@ -56,20 +56,6 @@ export default {
   async fetch(request: Request, env: ApexWorkerEnv): Promise<Response> {
     const url = new URL(request.url);
     const host = request.headers.get("host")?.toLowerCase() ?? "";
-    const surface = previewSurface(url.pathname);
-
-    // The /api leg is served on the dedicated api hostname only.
-    if (surface === "server" && host === APEX_IDENTITY.apiHostname) {
-      return proxyResponse(
-        await fetch(new Request(backendUrl(url), {
-          method: request.method,
-          headers: request.headers,
-          body: request.body,
-          redirect: "manual",
-          duplex: "half",
-        } as RequestInit)),
-      );
-    }
 
     if (!(host in ALLOWED_HOSTS) || host.includes(APEX_IDENTITY.forbiddenHost)) {
       return new Response("Forbidden apex destination", {
@@ -78,10 +64,20 @@ export default {
       });
     }
 
+    const surface = previewSurface(url.pathname);
     if (surface === "homepage") return env.Homepage.fetch(request);
     if (surface === "dashboard") return env.Dashboard.fetch(request);
 
-    // server surface on the apex hostname is not part of this contract.
-    return new Response("Not found", { status: 404 });
+    // server surface (/api/* and /health): proxy to the backend origin,
+    // reached through the cloudflared tunnel on both allowed hostnames.
+    return proxyResponse(
+      await fetch(new Request(backendUrl(url), {
+        method: request.method,
+        headers: request.headers,
+        body: request.body,
+        redirect: "manual",
+        duplex: "half",
+      } as RequestInit)),
+    );
   },
 };
