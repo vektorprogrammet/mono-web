@@ -324,6 +324,7 @@ describe("DatabaseTest", () => {
               'admission_applications',
               'organization_departments',
               'organization_teams',
+              'organization_team_interest_registrations',
               'organization_memberships',
               'organization_field_of_studies',
               'organization_command_receipts',
@@ -373,6 +374,7 @@ describe("DatabaseTest", () => {
         { migration_id: 15, name: "native-identity-better-auth" },
         { migration_id: 16, name: "person-keyed-organization-authority" },
         { migration_id: 17, name: "person-keyed-receipt-authority" },
+        { migration_id: 18, name: "organization-team-interest" },
       ],
       tables: [
         "admission_applications",
@@ -386,6 +388,7 @@ describe("DatabaseTest", () => {
         "organization_field_of_studies",
         "organization_global_administrator_grants",
         "organization_memberships",
+        "organization_team_interest_registrations",
         "organization_teams",
         "person_contact_profiles",
         "person_profiles",
@@ -2316,7 +2319,7 @@ describe("DatabaseTest", () => {
     );
 
     expect(second).toBe(first);
-    expect(rows).toEqual([{ migration_count: "17" }]);
+    expect(rows).toEqual([{ migration_count: "18" }]);
   });
 
   it("executes Admissions and Organization authority adapters against PGlite", async () => {
