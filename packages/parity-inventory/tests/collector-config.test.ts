@@ -9,17 +9,19 @@ import {
   symlinkSync,
   writeFileSync,
 } from "node:fs";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { NodeRuntimeLayer } from "../node-runtime.js";
 import {
   API_METADATA_SCRIPT,
   API_OPENAPI_SCRIPT,
   buildCollectorSandboxArguments,
   collectorExecutableProvenance,
+  discoverCollectorExecutables,
   collectApiOperations,
   resolveCollectorExecutables,
   routePayloadContainsUnsafe,
   validateCollectorExecutablePath,
+  runTrustedPhpCollectorWithServices,
 } from "../src/api.js";
 import { sha256 } from "../src/canonical.js";
 import {
@@ -27,6 +29,30 @@ import {
   unsafeSourceTextReason,
 } from "../src/source-manifest.js";
 import { scanRootEffect } from "../src/runtime.js";
+import {
+  ParityFileSystem,
+  type ParityCommandExecutorShape,
+  type ParityFileSystemShape,
+} from "../src/services.js";
+
+// Raw node-backed filesystem shape for service-level tests; resolved lazily so the
+// module registers its tests without top-level await.
+const realFileSystemPromise: Promise<ParityFileSystemShape> = Effect.runPromise(
+  Effect.gen(function* () {
+    return yield* ParityFileSystem;
+  }).pipe(Effect.provide(NodeRuntimeLayer)),
+);
+// Command executor stub whose sandbox invocations always fail closed: enough for
+// reaching the execution seam while never spawning real processes.
+const noopCommands: ParityCommandExecutorShape = {
+  executeBytes: () => {
+    throw new Error("collector sandbox execution is unavailable in tests");
+  },
+  executeText: () => {
+    throw new Error("collector command execution is unavailable in tests");
+  },
+  spawnText: () => ({ signal: null, status: 1, stderr: "", stdout: "" }),
+};
 test("route payload safety validates values without treating structural keys as secrets", () => {
   const safe = {
     reset_password: {
@@ -337,6 +363,220 @@ test("production collection does not consume runtime fixtures", async () => {
     expect(result.failures).toEqual(
       expect.arrayContaining([expect.objectContaining({ status: "runtime_unavailable" })]),
     );
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("PATH discovery accepts provenanced executables and rejects every other shape", async () => {
+  const realFileSystem = await realFileSystemPromise;
+  // discoverPathExecutableWithServices only trusts PATH entries under /usr/bin and
+  // /nix/store/<hash>-*/, so the positive case cannot use a /tmp fixture directory.
+  // Instead a fake filesystem maps a handful of /nix/store-shaped virtual paths
+  // onto real fixture files, exercising every lstat/realpath/mode/provenance check;
+  // the remaining cases pin each negative branch against the real filesystem:
+  // trusted-looking directory with wrong basename, untrusted PATH root, missing
+  // PATH, symlinked candidate, group/other-writable mode.
+  const directory = mkdtempSync("/tmp/parity-collector-discovery-");
+  const phpStore = "/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-php-8.3.21/bin";
+  const bwrapStore = "/nix/store/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb-bubblewrap-0.11.2/bin";
+  const phpReal = join(directory, "php");
+  const bwrapReal = join(directory, "bwrap");
+  mkdirSync(directory, { recursive: true });
+  writeFileSync(phpReal, "#!/bin/sh\n");
+  writeFileSync(bwrapReal, "#!/bin/sh\n");
+  chmodSync(phpReal, 0o755);
+  chmodSync(bwrapReal, 0o500);
+  const virtualMap: Record<string, string> = {
+    [`${phpStore}/php`]: phpReal,
+    [`${bwrapStore}/bwrap`]: bwrapReal,
+  };
+  const fakeFileSystem: ParityFileSystemShape = {
+    ...realFileSystem,
+    exists: (path) => realFileSystem.exists(virtualMap[path] ?? path),
+    lstat: (path) => realFileSystem.lstat(virtualMap[path] ?? path),
+    // Virtual paths are canonical inside the emulated world: realpath returns
+    // the virtual path itself for mapped candidates, real behavior otherwise.
+    realpath: (path) => (virtualMap[path] !== undefined ? path : realFileSystem.realpath(path)),
+    readBytes: (path) => realFileSystem.readBytes(virtualMap[path] ?? path),
+    stat: (path) => realFileSystem.stat(virtualMap[path] ?? path),
+  };
+  try {
+    expect(
+      await Effect.runPromise(
+        Effect.sync(() =>
+          discoverCollectorExecutables(fakeFileSystem, { PATH: `${phpStore}:${bwrapStore}` }),
+        ),
+      ),
+    ).toEqual({ phpExecutable: `${phpStore}/php`, bwrapExecutable: `${bwrapStore}/bwrap` });
+    // PATH entry outside /usr/bin and /nix/store/* is skipped entirely.
+    expect(
+      await Effect.runPromise(
+        Effect.sync(() => discoverCollectorExecutables(realFileSystem, { PATH: "/opt/bin" })),
+      ),
+    ).toBeUndefined();
+    // Missing or empty PATH yields no discovery.
+    expect(
+      await Effect.runPromise(Effect.sync(() => discoverCollectorExecutables(realFileSystem, {}))),
+    ).toBeUndefined();
+    // Bare /nix/store is not a trusted PATH entry; trust requires /usr/bin or
+    // /nix/store/<hash>-*/ directories with a provenance-valid candidate name.
+    expect(
+      await Effect.runPromise(
+        Effect.sync(() => discoverCollectorExecutables(realFileSystem, { PATH: "/nix/store" })),
+      ),
+    ).toBeUndefined();
+    // A trusted-shaped nix-store PATH entry without a php candidate leaves
+    // discovery incomplete and rejected.
+    expect(
+      await Effect.runPromise(
+        Effect.sync(() => discoverCollectorExecutables(realFileSystem, { PATH: bwrapStore })),
+      ),
+    ).toBeUndefined();
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("plain git-ignored vendor tree stages collector inputs; absent or symlinked vendor fails closed", async () => {
+  const realFileSystem = await realFileSystemPromise;
+  const APPROVED_TEST_ENV_BYTES = execFileSync("git", ["show", "HEAD:apps/server/.env.test"], {
+    cwd: resolve(import.meta.dir, "../../.."),
+    maxBuffer: 8192,
+  }).toString("utf8");
+  const buildMonoTree = (vendor: "present" | "symlink" | "absent"): string => {
+    const monoRoot = mkdtempSync("/tmp/parity-collector-vendor-");
+    execFileSync("git", ["-C", monoRoot, "init", "-q"]);
+    execFileSync("git", ["-C", monoRoot, "config", "user.email", "parity@example.invalid"]);
+    execFileSync("git", ["-C", monoRoot, "config", "user.name", "parity-test"]);
+    const put = (path: string, bytes: string): void => {
+      mkdirSync(dirname(join(monoRoot, path)), { recursive: true });
+      writeFileSync(join(monoRoot, path), bytes, "utf8");
+    };
+    put("apps/server/.gitignore", "/vendor\n/var\n");
+    put("apps/server/bin/console", "#!/usr/bin/env php\n<?php echo '[]';\n");
+    put("apps/server/composer.json", "{}\n");
+    put("apps/server/composer.lock", "{}\n");
+    put("apps/server/config/bundles.php", "<?php\nreturn [];\n");
+    put("apps/server/src/Controller/HomeController.php", "<?php\nfinal class Home {}\n");
+    put("apps/server/.env.test", APPROVED_TEST_ENV_BYTES);
+    execFileSync("git", ["-C", monoRoot, "add", "-A"]);
+    execFileSync("git", ["-C", monoRoot, "commit", "-qm", "fixture"]);
+    // Vendor variants are created AFTER the commit so they stay untracked and
+    // git-ignored: the scanner never walks them (a committed symlink would make
+    // scanRoot fail on symlinked path components), while staging sees them.
+    if (vendor === "present") {
+      mkdirSync(join(monoRoot, "apps/server/vendor"), { recursive: true });
+      writeFileSync(join(monoRoot, "apps/server/vendor/autoload.php"), "<?php\n");
+    }
+    if (vendor === "symlink")
+      symlinkSync("/nonexistent-vendor-target", join(monoRoot, "apps/server/vendor"));
+    return monoRoot;
+  };
+  const legacyRoot = mkdtempSync("/tmp/parity-collector-legacy-");
+  // Nix-store-shaped stand-in paths satisfy collectorExecutableProvenance while
+  // the actual bytes are ordinary mode-0500 files in the writable fixture tree,
+  // so resolution passes without depending on a host-installed php or bwrap.
+  const phpStandIn = "/nix/store/cccccccccccccccccccccccccccccccc-php-8.3.21/bin/php";
+  const bwrapStandIn = "/nix/store/dddddddddddddddddddddddddddddddd-bubblewrap-0.11.2/bin/bwrap";
+  writeFileSync(join(legacyRoot, "standin-php"), "#!/bin/sh\n");
+  chmodSync(join(legacyRoot, "standin-php"), 0o500);
+  writeFileSync(join(legacyRoot, "standin-bwrap"), "#!/bin/sh\n");
+  chmodSync(join(legacyRoot, "standin-bwrap"), 0o500);
+  const standInMap: Record<string, string> = {
+    [phpStandIn]: join(legacyRoot, "standin-php"),
+    [bwrapStandIn]: join(legacyRoot, "standin-bwrap"),
+  };
+  const standInFileSystem: ParityFileSystemShape = {
+    ...realFileSystem,
+    exists: (path) => realFileSystem.exists(standInMap[path] ?? path),
+    lstat: (path) => realFileSystem.lstat(standInMap[path] ?? path),
+    stat: (path) => realFileSystem.stat(standInMap[path] ?? path),
+    readBytes: (path) => realFileSystem.readBytes(standInMap[path] ?? path),
+    // Stand-in paths are canonical inside the emulated world: realpath returns
+    // the stand-in path itself for mapped candidates, real behavior otherwise.
+    realpath: (path) => (standInMap[path] !== undefined ? path : realFileSystem.realpath(path)),
+  };
+  const runCollector = async (monoRoot: string): Promise<string> => {
+    const legacy = await Effect.runPromise(
+      scanRootEffect(legacyRoot, "legacy").pipe(Effect.provide(NodeRuntimeLayer)),
+    );
+    const mono = await Effect.runPromise(
+      scanRootEffect(monoRoot, "mono").pipe(Effect.provide(NodeRuntimeLayer)),
+    );
+    const context = createManifestContextFromSnapshots(legacy, mono);
+    // The public collectApiOperations wrapper cannot inject configuration, so
+    // this drives runTrustedPhpCollectorWithServices directly with explicit
+    // nix-store-shaped stand-in executables that pass validation on any host;
+    // staging behavior is what differs between the fixtures below.
+    const standInExecutables = {
+      phpExecutable: phpStandIn,
+      bwrapExecutable: bwrapStandIn,
+    };
+    const result = await Effect.runPromise(
+      Effect.sync(() =>
+        runTrustedPhpCollectorWithServices(
+          standInFileSystem,
+          noopCommands,
+          context,
+          ["-r", "echo '[]';"],
+          standInExecutables,
+          "generic",
+          {},
+        ),
+      ),
+    );
+    expect(result.availability).toBe("unavailable");
+    return result.reason ?? "";
+  };
+  const present = buildMonoTree("present");
+  const absent = buildMonoTree("absent");
+  const symlinked = buildMonoTree("symlink");
+  try {
+    // Plain vendor tree passes staging and reaches sandbox execution; the noop
+    // executor then throws, surfacing as COLLECTOR_EXECUTION_FAILED.
+    expect(await runCollector(present)).toBe("COLLECTOR_EXECUTION_FAILED");
+    // Absent vendor or symlinked vendor never reach execution.
+    expect(await runCollector(absent)).toBe("COLLECTOR_INPUTS_UNAVAILABLE");
+    expect(await runCollector(symlinked)).toBe("COLLECTOR_INPUTS_UNAVAILABLE");
+  } finally {
+    rmSync(present, { recursive: true, force: true });
+    rmSync(absent, { recursive: true, force: true });
+    rmSync(symlinked, { recursive: true, force: true });
+    rmSync(legacyRoot, { recursive: true, force: true });
+  }
+});
+
+test("restricted PATH without valid collectors fails before staging", async () => {
+  const realFileSystem = await realFileSystemPromise;
+  const directory = mkdtempSync("/tmp/parity-collector-nopath-");
+  const legacyRoot = join(directory, "legacy");
+  const monoRoot = join(directory, "mono");
+  mkdirSync(legacyRoot);
+  mkdirSync(monoRoot);
+  try {
+    const legacy = await Effect.runPromise(
+      scanRootEffect(legacyRoot, "legacy").pipe(Effect.provide(NodeRuntimeLayer)),
+    );
+    const mono = await Effect.runPromise(
+      scanRootEffect(monoRoot, "mono").pipe(Effect.provide(NodeRuntimeLayer)),
+    );
+    const context = createManifestContextFromSnapshots(legacy, mono);
+    const result = await Effect.runPromise(
+      Effect.sync(() =>
+        runTrustedPhpCollectorWithServices(
+          realFileSystem,
+          noopCommands,
+          context,
+          ["-r", "echo '[]';"],
+          undefined,
+          "generic",
+          {},
+        ),
+      ),
+    );
+    expect(result.reason).toBe("COLLECTOR_EXECUTABLE_CONFIG_MISSING");
+    expect(result.executableDigests).toEqual({ php: null, bwrap: null });
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
