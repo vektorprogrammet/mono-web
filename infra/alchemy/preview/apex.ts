@@ -43,7 +43,21 @@ export const apexStack = Effect.gen(function* () {
   const dashboard = yield* Cloudflare.Website.Vite(`${APEX_IDENTITY.resourcePrefix}-dashboard`, {
     rootDir: "../../apps/dashboard",
     main: "workers/app.ts",
-    env: { PREVIEW_HOST: APEX_IDENTITY.hostname },
+    // API_URL is read by the dashboard's server code (process.env under
+    // nodejs_compat) to call the native backend. It must NOT target a
+    // hostname served by our own worker: worker → own custom domain
+    // subrequests fail. origin-api routes through the same tunnel but
+    // bypasses all workers.
+    env: {
+      PREVIEW_HOST: APEX_IDENTITY.hostname,
+      API_URL: "https://origin-api.vektor.phibkro.org",
+    },
+    // nodejs_compat_populate_process_env mirrors worker env bindings into
+    // process.env so `process.env.API_URL` resolves at runtime.
+    compatibility: {
+      flags: ["nodejs_compat", "nodejs_compat_populate_process_env"],
+      date: "2025-04-01",
+    },
     workersDev: false,
     assets: { runWorkerFirst: true },
   });
