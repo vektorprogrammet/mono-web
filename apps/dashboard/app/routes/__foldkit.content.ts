@@ -6,6 +6,7 @@ import {
 } from "@vektorprogrammet/sdk";
 import { data } from "react-router";
 import { contentBridgeFailure, type ContentBridgeErrorTag } from "../foldkit/content/bridge";
+import { createAuthenticatedClient } from "../lib/api.server";
 import { requireAuth } from "../lib/auth.server";
 import type { Route } from "./+types/__foldkit.content";
 
@@ -65,9 +66,74 @@ export async function loader({ request }: Route.LoaderArgs) {
       headers: responseHeaders,
     });
   }
-  void cookie;
-  return data(contentBridgeFailure("ContentDecodeError"), {
-    status: 422,
-    headers: responseHeaders,
-  });
+
+  try {
+    const client = createAuthenticatedClient(cookie);
+    const workspace = await client.admin.content.workspace();
+    return data(workspace, { headers: responseHeaders });
+  } catch (error) {
+    const tag = tagFrom(error);
+    return data(contentBridgeFailure(tag), {
+      status: statusFor(tag),
+      headers: responseHeaders,
+    });
+  }
+}
+
+export async function action({ request }: Route.ActionArgs) {
+  let cookie: string;
+  try {
+    cookie = await requireAuth(request);
+  } catch (error) {
+    const tag = tagFrom(error);
+    return data(contentBridgeFailure(tag), {
+      status: statusFor(tag),
+      headers: responseHeaders,
+    });
+  }
+
+  const url = new URL(request.url);
+  const command = (await request.json().catch(() => null)) as unknown;
+  if (
+    command === null ||
+    typeof command !== "object" ||
+    !("commandId" in command) ||
+    typeof (command as { commandId: unknown }).commandId !== "string"
+  ) {
+    return data(contentBridgeFailure("ContentDecodeError"), {
+      status: 422,
+      headers: responseHeaders,
+    });
+  }
+
+  const pathParts = url.pathname.split("/").filter(Boolean);
+  // /content/drafts/{id} | /content/drafts/{id}/publish | .../unpublish
+  const articleId = Number(pathParts[2]) as never;
+  const verb = pathParts[3];
+  const commandId = (command as { commandId: string }).commandId as never;
+
+  try {
+    const client = createAuthenticatedClient(cookie);
+    const result =
+      url.pathname === "/content"
+        ? await client.admin.content.createDraft(command as never)
+        : verb === "publish"
+          ? await client.admin.content.publish({
+              commandId,
+              articleId,
+            } as never)
+          : verb === "unpublish"
+            ? await client.admin.content.unpublish({
+                commandId,
+                articleId,
+              } as never)
+            : await client.admin.content.reviseDraft(command as never);
+    return data(result, { headers: responseHeaders });
+  } catch (error) {
+    const tag = tagFrom(error);
+    return data(contentBridgeFailure(tag), {
+      status: statusFor(tag),
+      headers: responseHeaders,
+    });
+  }
 }
