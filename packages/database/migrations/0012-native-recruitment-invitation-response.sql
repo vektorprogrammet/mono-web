@@ -133,7 +133,7 @@ CREATE TABLE IF NOT EXISTS recruitment_invitation_response_outbox (
   response_state text NOT NULL,
   response_message text NULL,
   ordinal integer NOT NULL CHECK (ordinal = 0),
-  effect_body jsonb NOT NULL,
+  payload_json jsonb NOT NULL,
   status text NOT NULL DEFAULT 'Pending'
     CHECK (status IN ('Pending', 'Processing', 'Delivered', 'Failed', 'Quarantined')),
   attempts integer NOT NULL DEFAULT 0 CHECK (attempts >= 0),
@@ -168,14 +168,14 @@ CREATE TABLE IF NOT EXISTS recruitment_invitation_response_outbox (
       AND response_message !~ '(^|[^A-Za-z0-9_-])[A-Za-z0-9_-]{43}($|[^A-Za-z0-9_-])'
     )
   ),
-  CONSTRAINT recruitment_invitation_response_outbox_effect_body_object CHECK (
-    jsonb_typeof(effect_body) = 'object'
+  CONSTRAINT recruitment_invitation_response_outbox_payload_object CHECK (
+    jsonb_typeof(payload_json) = 'object'
   ),
-  CONSTRAINT recruitment_invitation_response_outbox_effect_body_capability_absent CHECK (
-    NOT (effect_body ?| ARRAY['responseCapability', 'capability', 'capabilitySha256'])
+  CONSTRAINT recruitment_invitation_response_outbox_payload_capability_absent CHECK (
+    NOT (payload_json ?| ARRAY['responseCapability', 'capability', 'capabilitySha256'])
   ),
-  CONSTRAINT recruitment_invitation_response_outbox_effect_body_confinement CHECK (
-    effect_body::text !~ '(^|[^A-Za-z0-9_-])[A-Za-z0-9_-]{43}($|[^A-Za-z0-9_-])'
+  CONSTRAINT recruitment_invitation_response_outbox_payload_confinement CHECK (
+    payload_json::text !~ '(^|[^A-Za-z0-9_-])[A-Za-z0-9_-]{43}($|[^A-Za-z0-9_-])'
   ),
   CONSTRAINT recruitment_invitation_response_outbox_invitation_unique UNIQUE (invitation_id),
   CONSTRAINT recruitment_invitation_response_outbox_claim_check CHECK (
@@ -214,7 +214,7 @@ ALTER TABLE recruitment_invitation_response_audit
 
 ALTER TABLE recruitment_invitation_response_outbox
   DROP CONSTRAINT IF EXISTS recruitment_invitation_response_outbox_message,
-  DROP CONSTRAINT IF EXISTS recruitment_invitation_response_outbox_effect_body_confinement;
+  DROP CONSTRAINT IF EXISTS recruitment_invitation_response_outbox_payload_confinement;
 
 ALTER TABLE recruitment_invitation_response_outbox
   ADD CONSTRAINT recruitment_invitation_response_outbox_message CHECK (
@@ -238,8 +238,8 @@ ALTER TABLE recruitment_invitation_response_outbox
       AND response_message !~ '(^|[^A-Za-z0-9_-])[A-Za-z0-9_-]{43}($|[^A-Za-z0-9_-])'
     )
   ),
-  ADD CONSTRAINT recruitment_invitation_response_outbox_effect_body_confinement CHECK (
-    effect_body::text !~ '(^|[^A-Za-z0-9_-])[A-Za-z0-9_-]{43}($|[^A-Za-z0-9_-])'
+  ADD CONSTRAINT recruitment_invitation_response_outbox_payload_confinement CHECK (
+    payload_json::text !~ '(^|[^A-Za-z0-9_-])[A-Za-z0-9_-]{43}($|[^A-Za-z0-9_-])'
   );
 
 CREATE UNIQUE INDEX IF NOT EXISTS recruitment_invitation_response_outbox_active_claim_unique

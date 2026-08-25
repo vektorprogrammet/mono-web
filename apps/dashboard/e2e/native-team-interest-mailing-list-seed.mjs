@@ -5,6 +5,7 @@
  *   node native-team-interest-mailing-list-seed.mjs
  * Requires JOURNEY_SEED_PG_URL (defaults to postgres://postgres@127.0.0.1:45158/postgres).
  */
+import { readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -65,19 +66,64 @@ export const teams = {
 /** Trondheim registrations (leader + admin scope); Bergen is admin-only. */
 export const registrationCounts = { total: 4, trondheim: 3, bergen: 1 };
 
-const parameterRows = (rows) => {
-  let index = 0;
-  return rows.map((row) => `(${row.map(() => `$${(index += 1)}`).join(", ")})`).join(",\n");
+const seedStatementNames = Object.freeze([
+  "seed_departments",
+  "seed_teams",
+  "seed_person_profiles",
+  "seed_person_contact_profiles",
+  "seed_memberships",
+  "seed_global_administrator_grants",
+  "seed_team_interest_registrations",
+]);
+
+const parseSeedStatements = (source) => {
+  const markers = [...source.matchAll(/^-- name: ([a-z][a-z0-9_]*)\r?$/gm)];
+  if (markers.length !== seedStatementNames.length || markers[0]?.index !== 0) {
+    throw new Error("seed SQL authority must contain exactly the named statements");
+  }
+
+  const statements = new Map();
+  for (const [index, marker] of markers.entries()) {
+    const name = marker[1];
+    const start = marker.index + marker[0].length;
+    const end = markers[index + 1]?.index ?? source.length;
+    const statement = source.slice(start, end).trim();
+    if (
+      statement.length === 0 ||
+      !statement.endsWith(";") ||
+      statement.slice(0, -1).includes(";") ||
+      statements.has(name)
+    ) {
+      throw new Error(`invalid named seed SQL statement: ${name}`);
+    }
+    statements.set(name, statement);
+  }
+
+  if (
+    statements.size !== seedStatementNames.length ||
+    seedStatementNames.some((name) => !statements.has(name))
+  ) {
+    throw new Error("seed SQL authority statement names do not match the required seed operations");
+  }
+  return statements;
 };
 
-const insertRows = (client, statement, rows, conflictClause = "") =>
-  client.query(`${statement}\nVALUES\n${parameterRows(rows)}\n${conflictClause}`, rows.flat());
+const executeSeedRows = (client, statements, name, rows) => {
+  const statement = statements.get(name);
+  if (statement === undefined) {
+    throw new Error(`missing named seed SQL statement: ${name}`);
+  }
+  return client.query(statement, [JSON.stringify(rows)]);
+};
 
 const assert = (condition, message) => {
   if (!condition) throw new Error(`journey seed assertion failed: ${message}`);
 };
 
 async function main() {
+  const seedStatements = parseSeedStatements(
+    await readFile(join(here, "native-team-interest-mailing-list-seed.sql"), "utf8"),
+  );
   const observer = new Pool({
     connectionString: postgresUrl,
     options: "-c search_path=public",
@@ -87,201 +133,259 @@ async function main() {
   const client = await observer.connect();
   try {
     await client.query("BEGIN");
-    await insertRows(
-      client,
-      "INSERT INTO organization_departments (department_id, name, short_name, email, city, active, revision)",
-      [
-        [
-          departments.trondheim,
-          "Vektorprogrammet Trondheim",
-          "Trondheim",
-          fixtureEmail("trondheim.0059"),
-          "Trondheim",
-          true,
-          0,
-        ],
-        [
-          departments.bergen,
-          "Vektorprogrammet Bergen",
-          "Bergen",
-          fixtureEmail("bergen.0059"),
-          "Bergen",
-          true,
-          0,
-        ],
-      ],
-      "ON CONFLICT (department_id) DO NOTHING",
-    );
-    await insertRows(
-      client,
-      "INSERT INTO organization_teams (team_id, department_id, name, active, revision)",
-      [
-        [teams.it, departments.trondheim, "IT-Team 0059", true, 0],
-        [teams.pr, departments.trondheim, "PR-Team 0059", true, 0],
-        [teams.skole, departments.bergen, "SkoleTeam 0059", true, 0],
-      ],
-      "ON CONFLICT (team_id) DO NOTHING",
-    );
-    await insertRows(
-      client,
-      "INSERT INTO person_profiles (person_id, first_name, last_name, revision)",
-      [
-        [journeyPersons.admin.personId, "Astrid", "Adminsen", 0],
-        [journeyPersons.leader.personId, "Lars", "Ledersen", 0],
-        [journeyPersons.member.personId, "Mona", "Medlem", 0],
-        ["person-0059-team1a", "Tiril", "Teamsen", 0],
-        ["person-0059-team1b", "Torunn", "Teamto", 0],
-        ["person-0059-team2a", "Thea", "Trondheim", 0],
-        ["person-0059-assistant", "Are", "Assistent", 0],
-      ],
-      "ON CONFLICT (person_id) DO NOTHING",
-    );
-    await insertRows(
-      client,
-      "INSERT INTO person_contact_profiles (person_id, email, phone, revision)",
-      [
-        [journeyPersons.admin.personId, fixtureEmail("astrid.admin"), fixturePhone("001"), 0],
-        [journeyPersons.leader.personId, fixtureEmail("lars.leader"), fixturePhone("002"), 0],
-        [journeyPersons.member.personId, fixtureEmail("mona.member"), fixturePhone("003"), 0],
-        ["person-0059-team1a", fixtureEmail("tiril.team"), fixturePhone("004"), 0],
-        ["person-0059-team1b", fixtureEmail("torunn.team"), fixturePhone("005"), 0],
-        ["person-0059-team2a", fixtureEmail("thea.crew"), fixturePhone("006"), 0],
-      ],
-      "ON CONFLICT (person_id) DO NOTHING",
-    );
+    await executeSeedRows(client, seedStatements, "seed_departments", [
+      {
+        department_id: departments.trondheim,
+        name: "Vektorprogrammet Trondheim",
+        short_name: "Trondheim",
+        email: fixtureEmail("trondheim.0059"),
+        city: "Trondheim",
+        active: true,
+        revision: 0,
+      },
+      {
+        department_id: departments.bergen,
+        name: "Vektorprogrammet Bergen",
+        short_name: "Bergen",
+        email: fixtureEmail("bergen.0059"),
+        city: "Bergen",
+        active: true,
+        revision: 0,
+      },
+    ]);
+    await executeSeedRows(client, seedStatements, "seed_teams", [
+      {
+        team_id: teams.it,
+        department_id: departments.trondheim,
+        name: "IT-Team 0059",
+        active: true,
+        revision: 0,
+      },
+      {
+        team_id: teams.pr,
+        department_id: departments.trondheim,
+        name: "PR-Team 0059",
+        active: true,
+        revision: 0,
+      },
+      {
+        team_id: teams.skole,
+        department_id: departments.bergen,
+        name: "SkoleTeam 0059",
+        active: true,
+        revision: 0,
+      },
+    ]);
+    await executeSeedRows(client, seedStatements, "seed_person_profiles", [
+      {
+        person_id: journeyPersons.admin.personId,
+        first_name: "Astrid",
+        last_name: "Adminsen",
+        revision: 0,
+      },
+      {
+        person_id: journeyPersons.leader.personId,
+        first_name: "Lars",
+        last_name: "Ledersen",
+        revision: 0,
+      },
+      {
+        person_id: journeyPersons.member.personId,
+        first_name: "Mona",
+        last_name: "Medlem",
+        revision: 0,
+      },
+      {
+        person_id: "person-0059-team1a",
+        first_name: "Tiril",
+        last_name: "Teamsen",
+        revision: 0,
+      },
+      {
+        person_id: "person-0059-team1b",
+        first_name: "Torunn",
+        last_name: "Teamto",
+        revision: 0,
+      },
+      {
+        person_id: "person-0059-team2a",
+        first_name: "Thea",
+        last_name: "Trondheim",
+        revision: 0,
+      },
+      {
+        person_id: "person-0059-assistant",
+        first_name: "Are",
+        last_name: "Assistent",
+        revision: 0,
+      },
+    ]);
+    await executeSeedRows(client, seedStatements, "seed_person_contact_profiles", [
+      {
+        person_id: journeyPersons.admin.personId,
+        email: fixtureEmail("astrid.admin"),
+        phone: fixturePhone("001"),
+        revision: 0,
+      },
+      {
+        person_id: journeyPersons.leader.personId,
+        email: fixtureEmail("lars.leader"),
+        phone: fixturePhone("002"),
+        revision: 0,
+      },
+      {
+        person_id: journeyPersons.member.personId,
+        email: fixtureEmail("mona.member"),
+        phone: fixturePhone("003"),
+        revision: 0,
+      },
+      {
+        person_id: "person-0059-team1a",
+        email: fixtureEmail("tiril.team"),
+        phone: fixturePhone("004"),
+        revision: 0,
+      },
+      {
+        person_id: "person-0059-team1b",
+        email: fixtureEmail("torunn.team"),
+        phone: fixturePhone("005"),
+        revision: 0,
+      },
+      {
+        person_id: "person-0059-team2a",
+        email: fixtureEmail("thea.crew"),
+        phone: fixturePhone("006"),
+        revision: 0,
+      },
+      // The Bergen assistant deliberately has no contact profile.
+    ]);
     await client.query("DELETE FROM organization_memberships WHERE membership_id = $1", [
       "membership-0059-team2a-skole",
     ]);
-    await insertRows(
-      client,
-      "INSERT INTO organization_memberships (membership_id, person_id, team_id, deleted_team_name, start_at, end_at, position_id, is_team_leader, is_suspended, revision)",
-      [
-        [
-          "membership-0059-admin-it",
-          journeyPersons.admin.personId,
-          teams.it,
-          null,
-          "2026-01-01T00:00:00Z",
-          null,
-          "medlem",
-          false,
-          false,
-          0,
-        ],
-        [
-          "membership-0059-leader-it",
-          journeyPersons.leader.personId,
-          teams.it,
-          null,
-          "2026-01-01T00:00:00Z",
-          null,
-          "teamleader",
-          true,
-          false,
-          0,
-        ],
-        [
-          "membership-0059-member-pr",
-          journeyPersons.member.personId,
-          teams.pr,
-          null,
-          "2026-01-01T00:00:00Z",
-          null,
-          "medlem",
-          false,
-          false,
-          0,
-        ],
-        [
-          "membership-0059-team1a-it",
-          "person-0059-team1a",
-          teams.it,
-          null,
-          "2026-01-01T00:00:00Z",
-          null,
-          "medlem",
-          false,
-          false,
-          0,
-        ],
-        [
-          "membership-0059-team1b-pr",
-          "person-0059-team1b",
-          teams.pr,
-          null,
-          "2026-01-01T00:00:00Z",
-          null,
-          "medlem",
-          false,
-          false,
-          0,
-        ],
-        [
-          "membership-0059-bergen-leader",
-          "person-0059-assistant",
-          teams.skole,
-          null,
-          "2026-01-01T00:00:00Z",
-          null,
-          "teamleader",
-          true,
-          false,
-          0,
-        ],
-      ],
-      "ON CONFLICT (membership_id) DO NOTHING",
-    );
-    await insertRows(
-      client,
-      "INSERT INTO organization_global_administrator_grants (grant_id, person_id, start_at, end_at, revision)",
-      [["grant-0059-admin", journeyPersons.admin.personId, "2026-01-01T00:00:00Z", null, 0]],
-      "ON CONFLICT (grant_id) DO NOTHING",
-    );
+    await executeSeedRows(client, seedStatements, "seed_memberships", [
+      {
+        membership_id: "membership-0059-admin-it",
+        person_id: journeyPersons.admin.personId,
+        team_id: teams.it,
+        deleted_team_name: null,
+        start_at: "2026-01-01T00:00:00Z",
+        end_at: null,
+        position_id: "medlem",
+        is_team_leader: false,
+        is_suspended: false,
+        revision: 0,
+      },
+      {
+        membership_id: "membership-0059-leader-it",
+        person_id: journeyPersons.leader.personId,
+        team_id: teams.it,
+        deleted_team_name: null,
+        start_at: "2026-01-01T00:00:00Z",
+        end_at: null,
+        position_id: "teamleader",
+        is_team_leader: true,
+        is_suspended: false,
+        revision: 0,
+      },
+      {
+        membership_id: "membership-0059-member-pr",
+        person_id: journeyPersons.member.personId,
+        team_id: teams.pr,
+        deleted_team_name: null,
+        start_at: "2026-01-01T00:00:00Z",
+        end_at: null,
+        position_id: "medlem",
+        is_team_leader: false,
+        is_suspended: false,
+        revision: 0,
+      },
+      {
+        membership_id: "membership-0059-team1a-it",
+        person_id: "person-0059-team1a",
+        team_id: teams.it,
+        deleted_team_name: null,
+        start_at: "2026-01-01T00:00:00Z",
+        end_at: null,
+        position_id: "medlem",
+        is_team_leader: false,
+        is_suspended: false,
+        revision: 0,
+      },
+      {
+        membership_id: "membership-0059-team1b-pr",
+        person_id: "person-0059-team1b",
+        team_id: teams.pr,
+        deleted_team_name: null,
+        start_at: "2026-01-01T00:00:00Z",
+        end_at: null,
+        position_id: "medlem",
+        is_team_leader: false,
+        is_suspended: false,
+        revision: 0,
+      },
+      {
+        membership_id: "membership-0059-bergen-leader",
+        person_id: "person-0059-assistant",
+        team_id: teams.skole,
+        deleted_team_name: null,
+        start_at: "2026-01-01T00:00:00Z",
+        end_at: null,
+        position_id: "teamleader",
+        is_team_leader: true,
+        is_suspended: false,
+        revision: 0,
+      },
+    ]);
+    await executeSeedRows(client, seedStatements, "seed_global_administrator_grants", [
+      {
+        grant_id: "grant-0059-admin",
+        person_id: journeyPersons.admin.personId,
+        start_at: "2026-01-01T00:00:00Z",
+        end_at: null,
+        revision: 0,
+      },
+    ]);
     // Registrations have no natural key; clear prior journey rows so reruns
     // preserve the exact provisioning asserted below.
     await client.query("DELETE FROM organization_team_interest_registrations");
-    await insertRows(
-      client,
-      "INSERT INTO organization_team_interest_registrations (submitter_name, submitter_email, team_id, department_id, semester_id, submitted_at, revision)",
-      [
-        [
-          "Sondre Soker",
-          fixtureEmail("sondre.soker"),
-          teams.it,
-          departments.trondheim,
-          null,
-          "2026-08-10T10:00:00Z",
-          0,
-        ],
-        [
-          "Sigrid Storm",
-          fixtureEmail("sigrid.storm"),
-          teams.it,
-          departments.trondheim,
-          null,
-          "2026-08-11T11:30:00Z",
-          0,
-        ],
-        [
-          "Sverre Strand",
-          fixtureEmail("sverre.strand"),
-          teams.pr,
-          departments.trondheim,
-          null,
-          "2026-08-12T09:15:00Z",
-          0,
-        ],
-        [
-          "Bjornar Bergen",
-          fixtureEmail("bjornar.bergen"),
-          teams.skole,
-          departments.bergen,
-          null,
-          "2026-08-13T14:45:00Z",
-          0,
-        ],
-      ],
-    );
+    await executeSeedRows(client, seedStatements, "seed_team_interest_registrations", [
+      {
+        submitter_name: "Sondre Soker",
+        submitter_email: fixtureEmail("sondre.soker"),
+        team_id: teams.it,
+        department_id: departments.trondheim,
+        semester_id: null,
+        submitted_at: "2026-08-10T10:00:00Z",
+        revision: 0,
+      },
+      {
+        submitter_name: "Sigrid Storm",
+        submitter_email: fixtureEmail("sigrid.storm"),
+        team_id: teams.it,
+        department_id: departments.trondheim,
+        semester_id: null,
+        submitted_at: "2026-08-11T11:30:00Z",
+        revision: 0,
+      },
+      {
+        submitter_name: "Sverre Strand",
+        submitter_email: fixtureEmail("sverre.strand"),
+        team_id: teams.pr,
+        department_id: departments.trondheim,
+        semester_id: null,
+        submitted_at: "2026-08-12T09:15:00Z",
+        revision: 0,
+      },
+      {
+        submitter_name: "Bjornar Bergen",
+        submitter_email: fixtureEmail("bjornar.bergen"),
+        team_id: teams.skole,
+        department_id: departments.bergen,
+        semester_id: null,
+        submitted_at: "2026-08-13T14:45:00Z",
+        revision: 0,
+      },
+    ]);
     await client.query("COMMIT");
 
     const checks = await client.query(

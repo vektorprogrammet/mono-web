@@ -1601,7 +1601,7 @@ describe("DatabaseTest", () => {
                   response_state,
                   response_message,
                   ordinal,
-                  effect_body
+                  payload_json
                 ) VALUES (
                   ${outboxEffectId},
                   'SendInterviewInvitationResponse',
@@ -1635,7 +1635,7 @@ describe("DatabaseTest", () => {
                   response_state,
                   response_message,
                   ordinal,
-                  effect_body
+                  payload_json
                 ) VALUES (
                   ${outboxEffectId},
                   'SendInterviewInvitationResponse',
@@ -1694,7 +1694,7 @@ describe("DatabaseTest", () => {
             invitation.response_message AS "invitationMessage",
             audit.response_message AS "auditMessage",
             outbox.response_message AS "outboxMessage",
-            outbox.effect_body ->> 'responseMessage' AS "payloadMessage"
+            outbox.payload_json ->> 'responseMessage' AS "payloadMessage"
           FROM recruitment_invitations AS invitation
           INNER JOIN recruitment_invitation_response_audit AS audit
             ON audit.invitation_id = invitation.invitation_id
@@ -1856,7 +1856,7 @@ describe("DatabaseTest", () => {
                   response_state,
                   response_message,
                   ordinal,
-                  effect_body
+                  payload_json
                 ) VALUES (
                   ${`recruitment-invitation-response:${mismatchedOutboxFixture.invitationId}:1`},
                   'SendInterviewInvitationResponse',

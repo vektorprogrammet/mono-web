@@ -1853,6 +1853,109 @@ describe("source safety boundary", () => {
       expect(staging).toContain("SMS_DISABLE=true");
     });
 
+    test("accepts migration 0012 DDL comparisons without digest admission", () => {
+      const migrationPath =
+        "packages/database/migrations/0012-native-recruitment-invitation-response.sql";
+      const migration = readFileSync(join(repoRoot, migrationPath));
+      const migrationText = new TextDecoder().decode(migration);
+      expect(unsafeSqlSourceTextReason(migrationText, migrationPath)).toBeNull();
+      expect(sourceTextSafetyReason(migrationPath, migration)).toBeNull();
+      expect(
+        unsafeSqlSourceTextReason(
+          "CREATE TABLE outbox (payload_json jsonb CHECK (jsonb_typeof(payload_json) = 'object'));",
+        ),
+      ).toBeNull();
+      expect(
+        unsafeSqlSourceTextReason("SELECT user_id FROM users WHERE user_id = current_user;"),
+      ).toBeNull();
+    });
+
+    test("rejects sensitive UPDATE SET and procedural assignments", () => {
+      expect(
+        unsafeSqlSourceTextReason(
+          "UPDATE outbox SET payload_json = '{\"responseMessage\":\"concrete\"}'::jsonb WHERE effect_id = 'effect-1';",
+        ),
+      ).toBe("UNSAFE_SOURCE");
+      expect(unsafeSqlSourceTextReason("api_token := 'concrete-token';")).toBe("UNSAFE_SOURCE");
+      expect(unsafeSqlSourceTextReason("SET password TO 'concrete-password';")).toBe(
+        "UNSAFE_SOURCE",
+      );
+      expect(unsafeSqlSourceTextReason("SET LOCAL api_token TO 'concrete-token';")).toBe(
+        "UNSAFE_SOURCE",
+      );
+    });
+
+    test("allows strict parameterized INSERT SELECT recordsets", () => {
+      const statement = `
+        INSERT INTO person_contact_profiles (person_id, email, revision)
+        SELECT seed_row.person_id, seed_row.email, seed_row.revision
+        FROM jsonb_to_recordset($1::jsonb) AS seed_row(
+          person_id text,
+          email text,
+          revision integer
+        )
+        WHERE TRUE
+        ON CONFLICT (person_id) DO NOTHING;
+      `;
+      expect(unsafeSqlSourceTextReason(statement)).toBeNull();
+      expect(
+        sourceTextSafetyReason(
+          "packages/database/migrations/parameterized-recordset-fixture.sql",
+          new TextEncoder().encode(statement),
+        ),
+      ).toBeNull();
+      const seedPath = "apps/dashboard/e2e/native-team-interest-mailing-list-seed.sql";
+      const seed = readFileSync(join(repoRoot, seedPath));
+      expect(unsafeSqlSourceTextReason(new TextDecoder().decode(seed), seedPath)).toBeNull();
+      expect(sourceTextSafetyReason(seedPath, seed)).toBeNull();
+    });
+
+    test("rejects literal, VALUES, and mixed recordset INSERTs", () => {
+      for (const statement of [
+        "INSERT INTO person_profiles (person_id) VALUES ('person-literal');",
+        "INSERT INTO person_profiles (person_id) VALUES ($1);",
+        `INSERT INTO person_profiles (person_id, first_name)
+         SELECT seed_row.person_id, 'Literal'
+         FROM jsonb_to_recordset($1::jsonb) AS seed_row(person_id text, first_name text);`,
+        `INSERT INTO person_profiles (person_id, revision)
+         SELECT seed_row.person_id, 0
+         FROM jsonb_to_recordset($1::jsonb) AS seed_row(person_id text, revision integer);`,
+        `INSERT INTO person_profiles (person_id)
+         SELECT seed_row.person_id
+         FROM jsonb_to_recordset('[{"person_id":"person-literal"}]'::jsonb)
+           AS seed_row(person_id text);`,
+      ]) {
+        expect(unsafeSqlSourceTextReason(statement)).toBe("UNSAFE_SOURCE");
+      }
+    });
+    test("rejects comment stacking and malformed recordset aliases", () => {
+      const safeRecordset = `
+        INSERT INTO person_profiles (person_id)
+        SELECT seed_row.person_id
+        FROM jsonb_to_recordset($1::jsonb) AS seed_row(person_id text);
+      `;
+      for (const statement of [
+        `${safeRecordset}
+         /* stacked literal DML must not inherit the first statement's authority */
+         INSERT INTO person_profiles (person_id) VALUES ('person-literal');`,
+        `${safeRecordset}
+         -- assignment after a safe statement remains independently classified
+         UPDATE users SET password = 'concrete-password';`,
+        "/*!50000 INSERT INTO person_profiles (person_id) VALUES ('person-literal') */;",
+        `INSERT/**/INTO person_profiles (person_id)
+         SELECT seed_row.person_id
+         FROM jsonb_to_recordset($1::jsonb) AS seed_row(person_id text, email text);`,
+        `INSERT INTO person_profiles (person_id)
+         SELECT other_row.person_id
+         FROM jsonb_to_recordset($1::jsonb) AS seed_row(person_id text);`,
+        `INSERT INTO person_profiles (person_id)
+         SELECT seed_row.person_id
+         FROM jsonb_to_recordset($1::jsonb) AS seed_row(person_id text;`,
+      ]) {
+        expect(unsafeSqlSourceTextReason(statement)).toBe("UNSAFE_SOURCE");
+      }
+    });
+
     test("allows the real migration DDL and rejects literal SQL data", () => {
       const migrationPath = "packages/domain/src/tutor/migrations/0001-tutor-event-store.sql";
       const migration = readFileSync(join(repoRoot, migrationPath));

@@ -455,7 +455,7 @@ const proveMessageConfinement = (sql: DatabaseShape) =>
               response_state,
               response_message,
               ordinal,
-              effect_body
+              payload_json
             ) VALUES (
               ${outboxEffectId},
               'SendInterviewInvitationResponse',
@@ -489,7 +489,7 @@ const proveMessageConfinement = (sql: DatabaseShape) =>
               response_state,
               response_message,
               ordinal,
-              effect_body
+              payload_json
             ) VALUES (
               ${outboxEffectId},
               'SendInterviewInvitationResponse',
@@ -711,7 +711,7 @@ const proof = (databaseUrl: Redacted.Redacted<string>) =>
           invitation.response_message = ${validNearbyMessage}
           AND audit.response_message = ${validNearbyMessage}
           AND outbox.response_message = ${validNearbyMessage}
-          AND (outbox.effect_body ->> 'responseMessage') = ${validNearbyMessage}
+          AND (outbox.payload_json ->> 'responseMessage') = ${validNearbyMessage}
             AS stored
         FROM recruitment_invitations AS invitation
         INNER JOIN recruitment_invitation_response_audit AS audit

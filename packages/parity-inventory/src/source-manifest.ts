@@ -900,17 +900,97 @@ const sqlRhsIsSafe = (tokens: readonly SqlToken[]): boolean => {
     return token.kind === "punctuation" && "()[],.".includes(token.value);
   });
 };
+const sqlTokenIsKeyword = (token: SqlToken | undefined, keyword: string): boolean =>
+  token?.kind === "identifier" && token.value.toLowerCase() === keyword;
+const sqlEqualsIsAssignment = (tokens: readonly SqlToken[], operatorIndex: number): boolean => {
+  const operator = tokens[operatorIndex];
+  if (operator?.value !== "=") return false;
+  const depth = operator.depth;
+  let statementStart = 0;
+  for (let index = operatorIndex - 1; index >= 0; index -= 1) {
+    const token = tokens[index];
+    if (token?.value === ";" && token.depth === depth) {
+      statementStart = index + 1;
+      break;
+    }
+  }
+  let firstKeyword: string | null = null;
+  let sawUpdate = false;
+  let inSetClause = false;
+  for (let index = statementStart; index < operatorIndex; index += 1) {
+    const token = tokens[index];
+    if (token?.kind !== "identifier" || token.depth !== depth) continue;
+    const keyword = token.value.toLowerCase();
+    firstKeyword ??= keyword;
+    if (keyword === "update") sawUpdate = true;
+    if (keyword === "set" && (sawUpdate || firstKeyword === "set")) {
+      inSetClause = true;
+      continue;
+    }
+    if (inSetClause && /^(?:from|returning|where)$/u.test(keyword)) inSetClause = false;
+  }
+  return inSetClause;
+};
+const sqlSetToHasUnsafeLiteral = (tokens: readonly SqlToken[]): boolean => {
+  for (const [setIndex, token] of tokens.entries()) {
+    if (!sqlTokenIsKeyword(token, "set")) continue;
+    const depth = token.depth;
+    let statementStart = 0;
+    for (let index = setIndex - 1; index >= 0; index -= 1) {
+      const candidate = tokens[index];
+      if (candidate?.value === ";" && candidate.depth === depth) {
+        statementStart = index + 1;
+        break;
+      }
+    }
+    const firstKeyword = tokens
+      .slice(statementStart, setIndex + 1)
+      .find((candidate) => candidate.kind === "identifier" && candidate.depth === depth);
+    if (!sqlTokenIsKeyword(firstKeyword, "set")) continue;
+    const statementEnd = tokens.findIndex(
+      (candidate, index) =>
+        index > setIndex && candidate.value === ";" && candidate.depth === depth,
+    );
+    const end = statementEnd < 0 ? tokens.length : statementEnd;
+    const toIndex = tokens.findIndex(
+      (candidate, index) =>
+        index > setIndex &&
+        index < end &&
+        candidate.depth === depth &&
+        sqlTokenIsKeyword(candidate, "to"),
+    );
+    if (toIndex < 0) continue;
+    const left = tokens.slice(setIndex + 1, toIndex);
+    if (
+      !left.some((candidate) => {
+        const name = sqlIdentifierName(candidate);
+        return name !== null && isSensitiveKeyName(name);
+      })
+    )
+      continue;
+    if (!sqlRhsIsSafe(tokens.slice(toIndex + 1, end))) return true;
+  }
+  return false;
+};
 const sqlAssignmentHasUnsafeLiteral = (tokens: readonly SqlToken[]): boolean => {
   for (const [index, token] of tokens.entries()) {
-    if (token.kind !== "operator" || !["=", ":", ":="].includes(token.value)) continue;
+    if (
+      token.kind !== "operator" ||
+      (token.value !== ":=" && !sqlEqualsIsAssignment(tokens, index))
+    )
+      continue;
     let start = index;
     while (start > 0) {
       const previous = tokens[start - 1];
       if (previous === undefined) break;
       if (
         previous.value === ";" ||
+        previous.kind === "operator" ||
         (previous.value === "," && previous.depth === token.depth) ||
-        (previous.kind === "identifier" && /^(?:set|where|having)$/iu.test(previous.value))
+        (previous.kind === "identifier" &&
+          /^(?:begin|do|else|having|into|loop|returning|select|set|then|where)$/iu.test(
+            previous.value,
+          ))
       )
         break;
       start -= 1;
@@ -926,12 +1006,155 @@ const sqlAssignmentHasUnsafeLiteral = (tokens: readonly SqlToken[]): boolean => 
     const end = tokens.findIndex(
       (candidate, candidateIndex) =>
         candidateIndex > index &&
-        (candidate.value === ";" || (candidate.value === "," && candidate.depth === token.depth)),
+        (candidate.value === ";" ||
+          (candidate.depth === token.depth &&
+            (candidate.value === "," ||
+              (candidate.kind === "identifier" &&
+                /^(?:from|returning|where)$/iu.test(candidate.value))))),
     );
     const right = tokens.slice(index + 1, end < 0 ? tokens.length : end);
     if (!sqlRhsIsSafe(right)) return true;
   }
   return false;
+};
+const SQL_RECORDSET_COLUMN_TYPES: Readonly<Record<string, true>> = {
+  bigint: true,
+  boolean: true,
+  date: true,
+  integer: true,
+  json: true,
+  jsonb: true,
+  numeric: true,
+  smallint: true,
+  text: true,
+  timestamp: true,
+  timestamptz: true,
+  uuid: true,
+};
+const sqlInsertSelectRecordsetIsSafe = (
+  tokens: readonly SqlToken[],
+  insertIndex: number,
+): boolean => {
+  const insert = tokens[insertIndex];
+  if (!sqlTokenIsKeyword(insert, "insert")) return false;
+  const statementDepth = insert?.depth ?? 0;
+  let statementStart = 0;
+  for (let index = insertIndex - 1; index >= 0; index -= 1) {
+    const token = tokens[index];
+    if (token?.value === ";" && token.depth === statementDepth) {
+      statementStart = index + 1;
+      break;
+    }
+  }
+  if (statementStart !== insertIndex) return false;
+  let statementEnd = tokens.length;
+  for (let index = insertIndex + 1; index < tokens.length; index += 1) {
+    const token = tokens[index];
+    if (token?.value === ";" && token.depth === statementDepth) {
+      statementEnd = index;
+      break;
+    }
+  }
+  for (let index = statementStart; index < statementEnd; index += 1) {
+    if (tokens[index]?.kind === "string") return false;
+  }
+
+  let cursor = insertIndex;
+  const takeKeyword = (keyword: string): boolean => {
+    if (!sqlTokenIsKeyword(tokens[cursor], keyword)) return false;
+    cursor += 1;
+    return true;
+  };
+  const takePunctuation = (value: string): boolean => {
+    const token = tokens[cursor];
+    if (token?.kind !== "punctuation" || token.value !== value) return false;
+    cursor += 1;
+    return true;
+  };
+  const takeIdentifier = (): string | null => {
+    const token = tokens[cursor];
+    if (token === undefined) return null;
+    const name = sqlIdentifierName(token);
+    if (name === null) return null;
+    cursor += 1;
+    return name;
+  };
+
+  if (!takeKeyword("insert") || !takeKeyword("into") || takeIdentifier() === null) return false;
+  while (takePunctuation(".")) {
+    if (takeIdentifier() === null) return false;
+  }
+  if (!takePunctuation("(")) return false;
+  const insertColumns: string[] = [];
+  for (;;) {
+    const column = takeIdentifier();
+    if (column === null) return false;
+    insertColumns.push(column);
+    if (takePunctuation(")")) break;
+    if (!takePunctuation(",")) return false;
+  }
+  if (!takeKeyword("select")) return false;
+  const projectionAliases: string[] = [];
+  const projectionColumns: string[] = [];
+  for (;;) {
+    const alias = takeIdentifier();
+    if (alias === null || !takePunctuation(".")) return false;
+    const column = takeIdentifier();
+    if (column === null) return false;
+    projectionAliases.push(alias);
+    projectionColumns.push(column);
+    if (!takePunctuation(",")) break;
+  }
+  if (
+    !takeKeyword("from") ||
+    !takeKeyword("jsonb_to_recordset") ||
+    !takePunctuation("(") ||
+    !takePunctuation("$")
+  )
+    return false;
+  const parameter = tokens[cursor];
+  if (parameter?.kind !== "identifier" || !/^[1-9][0-9]*$/u.test(parameter.value)) return false;
+  cursor += 1;
+  if (
+    !takePunctuation("::") ||
+    !takeKeyword("jsonb") ||
+    !takePunctuation(")") ||
+    !takeKeyword("as")
+  )
+    return false;
+  const recordsetAlias = takeIdentifier();
+  if (recordsetAlias === null || !takePunctuation("(")) return false;
+  const recordsetColumns: string[] = [];
+  for (;;) {
+    const column = takeIdentifier();
+    const type = takeIdentifier();
+    if (column === null || type === null || SQL_RECORDSET_COLUMN_TYPES[type] !== true) return false;
+    recordsetColumns.push(column);
+    if (takePunctuation(")")) break;
+    if (!takePunctuation(",")) return false;
+  }
+  if (takeKeyword("where") && !takeKeyword("true")) return false;
+  let conflictColumn: string | null = null;
+  if (takeKeyword("on")) {
+    if (!takeKeyword("conflict") || !takePunctuation("(")) return false;
+    conflictColumn = takeIdentifier();
+    if (
+      conflictColumn === null ||
+      !takePunctuation(")") ||
+      !takeKeyword("do") ||
+      !takeKeyword("nothing")
+    )
+      return false;
+  }
+  if (cursor !== statementEnd || insertColumns.length !== recordsetColumns.length) return false;
+  if (projectionColumns.length !== insertColumns.length) return false;
+  if (
+    projectionAliases.some((alias) => alias !== recordsetAlias) ||
+    projectionColumns.some((column, index) => column !== insertColumns[index]) ||
+    recordsetColumns.some((column, index) => column !== insertColumns[index])
+  )
+    return false;
+  return conflictColumn === null || insertColumns.includes(conflictColumn);
 };
 const structuredValueHasUnsafeSensitiveValue = (
   value: unknown,
@@ -1032,13 +1255,13 @@ export const unsafeSqlSourceTextReason = (text: string, _path = ""): "UNSAFE_SOU
   const lexed = sqlTokenize(text);
   if (lexed.malformed) return "UNSAFE_SOURCE";
   const tokens = lexed.tokens;
-  if (sqlAssignmentHasUnsafeLiteral(tokens)) return "UNSAFE_SOURCE";
+  if (sqlAssignmentHasUnsafeLiteral(tokens) || sqlSetToHasUnsafeLiteral(tokens))
+    return "UNSAFE_SOURCE";
   for (let index = 0; index + 1 < tokens.length; index += 1) {
     if (
-      tokens[index]?.kind === "identifier" &&
-      /^insert$/iu.test(tokens[index]?.value ?? "") &&
-      tokens[index + 1]?.kind === "identifier" &&
-      /^into$/iu.test(tokens[index + 1]?.value ?? "")
+      sqlTokenIsKeyword(tokens[index], "insert") &&
+      sqlTokenIsKeyword(tokens[index + 1], "into") &&
+      !sqlInsertSelectRecordsetIsSafe(tokens, index)
     )
       return "UNSAFE_SOURCE";
   }
