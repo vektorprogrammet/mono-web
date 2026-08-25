@@ -70,12 +70,35 @@ BETTER_AUTH_URL="https://vektor.phibkro.org"
 
 DEMO_ADMIN_EMAIL="admin.apex@example.invalid"
 DEMO_ADMIN_PASSWORD="apex-preview-admin-pass-2026"
+# Persons seeded through the repo's identity:seed runner. The administrator
+# gets a global-admin grant below so it can manage schools and other surfaces.
+IDENTITY_SEED_PERSONS="$(
+  printf '%s' '[
+    {"personId":"apex-preview-administrator","firstName":"Astrid","lastName":"Apex","email":"admin.apex@example.invalid","password":"apex-preview-admin-pass-2026"},
+    {"personId":"apex-preview-member","firstName":"Mons","lastName":"Medlem","email":"member.apex@example.invalid","password":"apex-preview-member-pass-2026"}
+  ]'
+)"
+
 
 if [[ ! -f "$STATE_DIR/.seeded" ]]; then
   log "applying migrations and seeding demo data (first run)"
-  SEED_OUT="$(cd "$REPO_ROOT/packages/database" && bun run identity:seed 2>/dev/null)" || {
+  SEED_OUT="$(cd "$REPO_ROOT/packages/database" && \
+    IDENTITY_SEED_PG_URL="$DATABASE_URL" \
+    BETTER_AUTH_URL="$BETTER_AUTH_URL" \
+    IDENTITY_SEED_PERSONS="$IDENTITY_SEED_PERSONS" \
+    bun run identity:seed)" || {
     log "identity seed failed"; exit 1;
   }
+  # Global-administrator grant so the demo admin passes the unscoped
+  # management authority check (same shape as the schools e2e seed).
+  "${PSQL[@]}" -d "$DB_NAME" -q <<-'SQL'
+  INSERT INTO public.person_contact_profiles (person_id, email, phone, revision)
+  VALUES ('apex-preview-administrator', 'admin.apex@example.invalid', '+47 906 10 001', 0)
+  ON CONFLICT (person_id) DO UPDATE SET email = EXCLUDED.email;
+  INSERT INTO organization_global_administrator_grants (grant_id, person_id, start_at, end_at, revision)
+  VALUES ('apex-preview-administrator-grant', 'apex-preview-administrator', '2020-01-01T00:00:00.000Z', NULL, 0)
+  ON CONFLICT (grant_id) DO NOTHING;
+SQL
   printf '%s\n' "$SEED_OUT" >"$STATE_DIR/identity-seed.json"
   printf '%s\n' "$DATABASE_URL" >"$STATE_DIR/db-url.txt"
   : >"$STATE_DIR/.seeded"
