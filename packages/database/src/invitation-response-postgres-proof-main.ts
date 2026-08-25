@@ -17,6 +17,7 @@ import {
 } from "@vektorprogrammet/domain/recruitment";
 import { Config, Deferred, Effect, Fiber, Layer, Redacted } from "effect";
 import { DatabaseLive } from "./layers.js";
+import { runDatabaseMain } from "../runtime/node.js";
 
 const cohort = {
   id: "recruitment-invitation-response-postgres-proof-0051-v1",
@@ -891,7 +892,4 @@ const program = Effect.gen(function* () {
   );
 });
 
-Effect.runPromise(Effect.scoped(program)).catch((cause: unknown) => {
-  process.stderr.write(`${String(cause)}\n`);
-  process.exitCode = 1;
-});
+runDatabaseMain(Effect.scoped(program));

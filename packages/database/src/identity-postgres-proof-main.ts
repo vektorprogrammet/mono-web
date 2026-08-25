@@ -1,10 +1,6 @@
 import assert from "node:assert/strict";
 import { Database } from "@vektorprogrammet/domain/database";
-import {
-  canonicalJson,
-  canonicalJsonBytes,
-  sha256Hex,
-} from "@vektorprogrammet/domain/evidence";
+import { canonicalJson, canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/evidence";
 import { createLocalAccountIssuer } from "better-auth";
 import { Config, Effect, Redacted } from "effect";
 import { Pool } from "pg";
@@ -16,6 +12,7 @@ import {
 } from "./auth-engine.js";
 import { DatabaseLive } from "./layers.js";
 import { databaseSchemaRevision } from "./migrations.js";
+import { runDatabaseEffect, runDatabaseMain } from "../runtime/node.js";
 
 const proofCohort = {
   id: "identity-postgres-proof-0054-v1",
@@ -58,10 +55,10 @@ const resetIdentityCohort = async (pool: Pool, migrationId: number) => {
       `SELECT to_regclass('public.person_profiles')::text AS "tableName"`,
     );
     if (profileTable.rows[0]?.tableName !== null) {
-      await client.query(
-        `DELETE FROM public.person_profiles WHERE person_id IN ($1, $2)`,
-        [proofCohort.personId, proofCohort.orphanPersonId],
-      );
+      await client.query(`DELETE FROM public.person_profiles WHERE person_id IN ($1, $2)`, [
+        proofCohort.personId,
+        proofCohort.orphanPersonId,
+      ]);
     }
 
     const migrationTable = await client.query<{ readonly tableName: string | null }>(
@@ -91,7 +88,7 @@ const applyIdentityMigration = (postgresUrl: string) => {
     maxConnections: 1,
   });
 
-  return Effect.runPromise(
+  return runDatabaseEffect(
     Effect.scoped(
       Effect.gen(function* () {
         const database = yield* Database;
@@ -111,9 +108,7 @@ const inspectIdentitySchema = async (pool: Pool) => {
      FROM public.vektorprogrammet_schema_migrations
      WHERE migration_id = 15`,
   );
-  assert.deepEqual(migration.rows, [
-    { migrationId: 15, name: "native-identity-better-auth" },
-  ]);
+  assert.deepEqual(migration.rows, [{ migrationId: 15, name: "native-identity-better-auth" }]);
 
   const authSchemaTables = await pool.query<{ readonly tableName: string }>(
     `SELECT table_name AS "tableName"
@@ -314,7 +309,10 @@ const sessionCookieFrom = (response: Response) => {
     .find((value) => value.startsWith(`${sessionCookieName}=`));
   if (setCookie === undefined) return undefined;
 
-  const pair = setCookie.slice(0, setCookie.indexOf(";") === -1 ? undefined : setCookie.indexOf(";"));
+  const pair = setCookie.slice(
+    0,
+    setCookie.indexOf(";") === -1 ? undefined : setCookie.indexOf(";"),
+  );
   const separator = pair.indexOf("=");
   assert.ok(separator > 0, "session Set-Cookie must contain a value");
   return {
@@ -497,7 +495,4 @@ const program = Effect.gen(function* () {
   );
 });
 
-Effect.runPromise(program).catch((cause: unknown) => {
-  process.stderr.write(`${String(cause)}\n`);
-  process.exitCode = 1;
-});
+runDatabaseMain(program);

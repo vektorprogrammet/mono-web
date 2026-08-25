@@ -9,6 +9,7 @@ import {
   runReceiptPostgresProof,
 } from "@vektorprogrammet/domain/receipt/proof";
 import { DatabaseLive } from "./layers.js";
+import { runDatabaseMain } from "../runtime/node.js";
 
 const program = Effect.gen(function* () {
   const databaseUrl = yield* Config.redacted("BACKEND_PG_URL").pipe(
@@ -40,7 +41,4 @@ const program = Effect.gen(function* () {
   );
 });
 
-Effect.runPromise(Effect.scoped(program)).catch((cause: unknown) => {
-  process.stderr.write(`${String(cause)}\n`);
-  process.exitCode = 1;
-});
+runDatabaseMain(Effect.scoped(program));

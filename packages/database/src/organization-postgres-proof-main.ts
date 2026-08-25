@@ -11,6 +11,7 @@ import {
 import { Config, Deferred, Effect, Fiber, Layer, Redacted } from "effect";
 import { DatabaseLive } from "./layers.js";
 import { databaseSchemaRevision } from "./migrations.js";
+import { runDatabaseMain } from "../runtime/node.js";
 
 const proofCohort = {
   id: "organization-postgres-proof-0052-v1",
@@ -102,9 +103,7 @@ const contender = (
     `;
     yield* Deferred.succeed(ready, undefined);
     yield* Deferred.await(start);
-    const outcome = yield* Effect.result(
-      organization.createDepartment(command, administrator),
-    );
+    const outcome = yield* Effect.result(organization.createDepartment(command, administrator));
     return { pid: connection?.pid ?? -1, outcome };
   });
 
@@ -155,9 +154,7 @@ const program = Effect.scoped(
           AND name = ${headMigrationName}
       `;
       return { migrationReplayed: Number(migration?.count ?? "-1") === 1 };
-    }).pipe(
-      Effect.provide(makeProofLayer(databaseUrl, "organization-postgres-proof-setup")),
-    );
+    }).pipe(Effect.provide(makeProofLayer(databaseUrl, "organization-postgres-proof-setup")));
 
     const identical = yield* raceDepartmentCommands(
       databaseUrl,
@@ -227,9 +224,7 @@ const program = Effect.scoped(
         entities: Number(row?.entities ?? "-1"),
         exactLinks: Number(row?.exactLinks ?? "-1"),
       };
-    }).pipe(
-      Effect.provide(makeProofLayer(databaseUrl, "organization-postgres-proof-observer")),
-    );
+    }).pipe(Effect.provide(makeProofLayer(databaseUrl, "organization-postgres-proof-observer")));
 
     const identicalSuccesses = identical.filter((entry) => entry.outcome._tag === "Success");
     const identicalCommitted = identicalSuccesses.filter(
@@ -296,7 +291,4 @@ const program = Effect.scoped(
   }),
 );
 
-Effect.runPromise(program).catch((cause: unknown) => {
-  process.stderr.write(`${String(cause)}\n`);
-  process.exitCode = 1;
-});
+runDatabaseMain(program);

@@ -15,6 +15,7 @@ import {
   type RecruitmentScheduleContext,
 } from "@vektorprogrammet/domain/recruitment";
 import { DatabaseLive } from "./layers.js";
+import { runDatabaseMain } from "../runtime/node.js";
 
 const cohort = {
   id: "recruitment-scheduling-postgres-proof-0050-v1",
@@ -498,7 +499,4 @@ const program = Effect.gen(function* () {
   );
 });
 
-Effect.runPromise(Effect.scoped(program)).catch((cause: unknown) => {
-  process.stderr.write(`${String(cause)}\n`);
-  process.exitCode = 1;
-});
+runDatabaseMain(Effect.scoped(program));

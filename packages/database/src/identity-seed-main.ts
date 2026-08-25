@@ -5,6 +5,7 @@ import { Effect, Redacted } from "effect";
 import { Pool } from "pg";
 import { makeAuthEngine, type AuthEngineConfig } from "./auth-engine.js";
 import { DatabaseLive } from "./layers.js";
+import { runDatabaseEffect } from "../runtime/node.js";
 
 /**
  * Native identity seed entrypoint (spec 0054).
@@ -59,10 +60,7 @@ const parsePersons = (raw: string | undefined): ReadonlyArray<SeedPerson> => {
       return stringValue;
     };
     const password = read("password");
-    assert.ok(
-      password.length >= 12,
-      "seed person.password must satisfy minPasswordLength (12)",
-    );
+    assert.ok(password.length >= 12, "seed person.password must satisfy minPasswordLength (12)");
     return {
       personId: read("personId"),
       firstName: read("firstName"),
@@ -74,7 +72,7 @@ const parsePersons = (raw: string | undefined): ReadonlyArray<SeedPerson> => {
 };
 
 const applyMigrations = (postgresUrl: string) =>
-  Effect.runPromise(
+  runDatabaseEffect(
     Effect.scoped(
       Effect.gen(function* () {
         const database = yield* Database;
@@ -156,9 +154,7 @@ try {
   for (const person of persons) {
     outcomes.push(await seedPerson(engine, observer, person));
   }
-  process.stdout.write(
-    `${JSON.stringify({ schemaRevision, seeded: persons.length, outcomes })}\n`,
-  );
+  process.stdout.write(`${JSON.stringify({ schemaRevision, seeded: persons.length, outcomes })}\n`);
 } finally {
   const context = await engine.$context;
   const dbPool = (context.options as { readonly dbPool?: unknown }).dbPool;

@@ -1,16 +1,17 @@
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { Database } from "@vektorprogrammet/domain/database";
-import { Effect, ManagedRuntime } from "effect";
+import { Effect } from "effect";
 import { DatabaseTest } from "../layers.js";
 import {
   backfillDisposablePersonAuthoritiesFromPreConfigEvidence,
   type DisposablePersonAuthorityBackfillResult,
 } from "./disposable-person-authority-backfill.js";
+import { makeControlledTestRuntime } from "../../test/runtime.js";
 
 const EVALUATED_AT = "2031-09-15T12:00:00.000Z";
 const AUTHORITY_START_AT = "2030-01-01T00:00:00.000Z";
 
-const runtime = ManagedRuntime.make(DatabaseTest());
+const runtime = makeControlledTestRuntime(DatabaseTest());
 
 interface AuthoritySnapshotRow {
   readonly id: string;
