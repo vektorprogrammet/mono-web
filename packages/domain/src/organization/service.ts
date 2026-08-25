@@ -11,6 +11,10 @@ import type {
 import type { OrganizationAuthorityInstant, OrganizationPersonAuthority } from "./authority.js";
 import type { OrganizationDirectoryFacts } from "./directory.js";
 import type {
+  SemesterId,
+  TeamInterestRegistration,
+} from "./schema.js";
+import type {
   DepartmentNotFound,
   MembershipInvalidInterval,
   MembershipNotFound,
@@ -33,7 +37,18 @@ import type {
   TeamId,
 } from "./schema.js";
 import type { LegacyOrganizationSnapshot, OrganizationImportResult } from "./import.js";
+import type { MailingList, MailingListType } from "./mailing-lists.js";
+import type { ProfileFailure } from "../profile/errors.js";
+import type { Profile } from "../profile/service.js";
 import type { MembershipRevisionCommand } from "./transitions.js";
+
+/** Spec 0059 read filter: the authorized scope is explicit input (0055). */
+export interface TeamInterestFilter {
+  readonly authorizedDepartmentIds: ReadonlyArray<DepartmentId>;
+  readonly departmentId?: DepartmentId;
+  readonly semesterId?: SemesterId;
+}
+
 
 export type OrganizationListFailure = OrganizationDecodeError | OrganizationPersistenceError;
 export type OrganizationReadError =
@@ -61,6 +76,38 @@ export interface OrganizationShape {
     departmentId?: DepartmentId,
   ) => Effect.Effect<ReadonlyArray<Team>, OrganizationListFailure>;
   readonly listFieldOfStudies: Effect.Effect<ReadonlyArray<FieldOfStudy>, OrganizationListFailure>;
+
+/**
+ * Spec 0059 read: durable team-interest registrations with the referenced
+ * team name, inside the authorized department scope and ordered by
+ * registration_id ASC. No authorization happens here; no narrowing may
+ * exceed the authorized set.
+ */
+  readonly listTeamInterestRegistrations: (
+    filter: TeamInterestFilter,
+  ) => Effect.Effect<
+    ReadonlyArray<TeamInterestRegistration>,
+    OrganizationDecodeError | OrganizationPersistenceError
+  >;
+
+  /**
+   * Spec 0060: pure mailing-list projection over injected member/contact
+   * sources. The adapter supplies team members and assistant facts; Profile
+   * supplies contacts. Zero persistence, stable ordering.
+   */
+  readonly projectMailingLists: (input: {
+    readonly type: MailingListType;
+    readonly authorizedDepartmentIds: ReadonlyArray<DepartmentId>;
+    readonly departmentId?: DepartmentId;
+    readonly semesterId?: SemesterId;
+    readonly assistantsByDepartment?: ReadonlyMap<DepartmentId, ReadonlyArray<PersonId>>;
+    readonly semesterWindow?: { readonly startAt: string; readonly endAt: string };
+  }) => Effect.Effect<
+    ReadonlyArray<MailingList>,
+    OrganizationDecodeError | OrganizationPersistenceError | ProfileFailure,
+    Profile
+  >;
+
   readonly createDepartment: (
     command: CreateDepartmentCommand,
     actor: OrganizationActor,

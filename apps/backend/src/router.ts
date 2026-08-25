@@ -68,7 +68,9 @@ const isOrganizationRoute = (pathname: string): boolean =>
   pathname === "/api/field_of_studies" ||
   pathname === "/api/admin/departments" ||
   pathname === "/api/admin/teams" ||
-  pathname === "/api/admin/field-of-studies";
+  pathname === "/api/admin/field-of-studies" ||
+  pathname === "/api/admin/team-interest" ||
+  pathname === "/api/admin/mailing-lists";
 const isRecruitmentRoute = (pathname: string): boolean =>
   pathname === "/api/admin/recruitment/assignment-board" ||
   pathname === "/api/admin/recruitment/interviews/assign" ||
@@ -175,6 +177,10 @@ export const makeBackendHttp = (
       const authority = await resolvePersonAuthority(cookie, { run });
       return organizationActorFrom(authority);
     },
+    // Specs 0059/0060 leader-scoped reads: one captured authorizationInstant
+    // per request covers session resolution, scope computation, and the read.
+    resolveAuthority: (request) =>
+      resolvePersonAuthority(request.headers.get("cookie") ?? undefined, { run }),
     run,
   });
   const adminUsers = makeAdminUsersApiHttp({

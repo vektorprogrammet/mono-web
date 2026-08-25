@@ -225,6 +225,20 @@ describe("unified backend router", () => {
     });
   });
 
+  it("dispatches team-interest and mailing-list reads through Organization", async () => {
+    const [teamInterest, mailingLists] = await Promise.all([
+      request("/api/admin/team-interest"),
+      request("/api/admin/mailing-lists"),
+    ]);
+
+    for (const response of [teamInterest, mailingLists]) {
+      expect({ status: response.status, body: await response.json() }).toEqual({
+        status: 401,
+        body: { error: { tag: "UnauthenticatedActor" } },
+      });
+    }
+  });
+
   it("serves GET /api/me/session from the session cookie and fails closed without one", async () => {
     const ok = await request("/api/me/session", { headers: { cookie: `${token}=value; other=1` } });
     expect({ status: ok.status, body: await ok.json() }).toEqual({

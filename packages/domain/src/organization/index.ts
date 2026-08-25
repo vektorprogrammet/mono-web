@@ -4,7 +4,7 @@ export * from "./administration-schema.js";
 export * from "./directory.js";
 export * from "./directory-postgres.js";
 export * from "./authority.js";
-export * from "./authority-postgres.js";
+export * from "./mailing-lists.js";
 export * from "./errors.js";
 export * from "./import.js";
 export * from "./postgres-layer.js";

@@ -9,7 +9,11 @@ import {
   FieldOfStudyJsonSchema,
   Organization,
   TeamJsonSchema,
+  type DepartmentId,
   type OrganizationActor,
+  type OrganizationPersonAuthority,
+  type SemesterId,
+  type TeamInterestFilter,
 } from "@vektorprogrammet/domain/organization";
 import { Effect, Match, Schema } from "effect";
 import type { BackendRun } from "../router.js";
@@ -19,6 +23,11 @@ export interface OrganizationApiHttpOptions {
   readonly config: OrganizationApiConfig;
   /** Cookie -> Organization projection -> OrganizationAdministrator|Member. */
   readonly resolveActor: (request: Request) => Promise<OrganizationActor>;
+  /**
+   * Cookie -> full 0055 authority projection for leader-scoped admin reads
+   * (specs 0059/0060). One captured authorizationInstant per request.
+   */
+  readonly resolveAuthority: (request: Request) => Promise<OrganizationPersonAuthority>;
   readonly run: BackendRun;
 }
 
@@ -43,6 +52,18 @@ const OrganizationHttpErrorTagSchema = Schema.Literals([
 ]);
 type OrganizationHttpErrorTag = typeof OrganizationHttpErrorTagSchema.Type;
 const isOrganizationHttpErrorTag = Schema.is(OrganizationHttpErrorTagSchema);
+
+/** Frozen fixture envelope for spec 0059: strict, no extra row fields. */
+const TeamInterestEnvelopeSchema = Schema.Struct({
+  "hydra:member": Schema.Array(
+    Schema.Struct({
+      id: Schema.Number,
+      userName: Schema.String,
+      teamName: Schema.String,
+    }),
+  ),
+  "hydra:totalItems": Schema.Number,
+});
 
 const taggedError = (tag: OrganizationHttpErrorTag): TaggedHttpError => {
   const error = new Error(tag) as TaggedHttpError;
@@ -218,9 +239,7 @@ const listFieldOfStudies = async (
   input: OrganizationApiHttpOptions,
 ): Promise<Response> => {
   assertNoQuery(request);
-  const rows = await input.run(
-    Organization.use(({ listFieldOfStudies }) => listFieldOfStudies),
-  );
+  const rows = await input.run(Organization.use(({ listFieldOfStudies }) => listFieldOfStudies));
   return strictJsonResponse(rows, Schema.Array(FieldOfStudyJsonSchema), input);
 };
 
@@ -249,9 +268,7 @@ const createTeam = async (
   assertNoQuery(request);
   const actor = await actorFor(request, input);
   const command = await decodeCommand(request, CreateTeamCommandSchema, input);
-  const result = await input.run(
-    Organization.use(({ createTeam }) => createTeam(command, actor)),
-  );
+  const result = await input.run(Organization.use(({ createTeam }) => createTeam(command, actor)));
   return strictJsonResponse(result, CreateTeamResultSchema, input, result.committed ? 201 : 200);
 };
 
@@ -273,6 +290,134 @@ const createFieldOfStudy = async (
   );
 };
 
+const MailingListTypeSchema = Schema.Literals(["assistants", "team", "all"]);
+
+const optionalDepartmentParam = (request: Request): DepartmentId | undefined => {
+  const value = new URL(request.url).searchParams.get("department");
+  if (value === null) return undefined;
+  if (value.trim().length === 0 || /[^a-zA-Z0-9._-]/u.test(value)) {
+    throw taggedError("OrganizationDecodeError");
+  }
+  return value as DepartmentId;
+};
+
+const optionalSemesterParam = (request: Request): SemesterId | undefined => {
+  const value = new URL(request.url).searchParams.get("semester");
+  if (value === null) return undefined;
+  if (value.trim().length === 0 || /[^a-zA-Z0-9._-]/u.test(value)) {
+    throw taggedError("OrganizationDecodeError");
+  }
+  return value as SemesterId;
+};
+
+/** Spec 0059/0060 gating: globalAdmin -> all departments, else active-leader union. */
+const authorizedDepartmentScope = async (
+  authority: OrganizationPersonAuthority,
+  input: OrganizationApiHttpOptions,
+): Promise<ReadonlyArray<DepartmentId>> => {
+  if (authority.globalAdministrator === "Active") {
+    const departments = await input.run(Organization.use(({ listDepartments }) => listDepartments));
+    return departments.map((department) => department.departmentId);
+  }
+  const departments = new Set<DepartmentId>();
+  for (const membership of authority.memberships) {
+    if (membership.active && membership.teamLeader) departments.add(membership.departmentId);
+  }
+  return [...departments];
+};
+
+/** Narrows the authorized scope; out-of-scope known department denies with 403. */
+const narrowScopeOrThrow = (
+  authorized: ReadonlyArray<DepartmentId>,
+  departmentId: DepartmentId | undefined,
+): ReadonlyArray<DepartmentId> => {
+  if (departmentId === undefined) {
+    return authorized;
+  }
+  if (!authorized.some((authorizedId) => authorizedId === departmentId)) {
+    throw taggedError("OrganizationRoleDenied");
+  }
+  return [departmentId];
+};
+
+/** Unknown department reference denies with 422 before any data leaves the store. */
+const assertDepartmentsExist = async (
+  input: OrganizationApiHttpOptions,
+  departmentIds: ReadonlyArray<DepartmentId>,
+): Promise<void> => {
+  const known = await input.run(Organization.use(({ listDepartments }) => listDepartments));
+  for (const requested of departmentIds) {
+    if (!known.some((department) => department.departmentId === requested)) {
+      throw taggedError("OrganizationInvalidReference");
+    }
+  }
+};
+
+const listTeamInterest = async (
+  request: Request,
+  input: OrganizationApiHttpOptions,
+): Promise<Response> => {
+  const authority = await input.resolveAuthority(request);
+  const requested = optionalDepartmentParam(request);
+  // An authenticated caller with no active leader membership receives a typed
+  // denial, never an empty success (spec 0059 authorization boundary). An
+  // active global administrator is authorized for all departments even when
+  // their membership list is empty.
+  const leaderScope = await authorizedDepartmentScope(authority, input);
+  if (leaderScope.length === 0 && authority.globalAdministrator !== "Active") {
+    throw taggedError("OrganizationRoleDenied");
+  }
+  const authorized = narrowScopeOrThrow(leaderScope, requested);
+  // Unknown department reference denies with 422 before any data leaves the store.
+  if (requested !== undefined) await assertDepartmentsExist(input, [requested]);
+  const filter: TeamInterestFilter = {
+    authorizedDepartmentIds: authorized,
+    semesterId: optionalSemesterParam(request),
+  };
+  const rows = await input.run(
+    Organization.use(({ listTeamInterestRegistrations }) => listTeamInterestRegistrations(filter)),
+  );
+  const envelope = {
+    "hydra:member": rows.map((row) => ({
+      id: row.registrationId,
+      userName: row.submitterName,
+      teamName: row.teamName,
+    })),
+    "hydra:totalItems": rows.length,
+  };
+  return strictJsonResponse(envelope, TeamInterestEnvelopeSchema, input);
+};
+
+const listMailingLists = async (
+  request: Request,
+  input: OrganizationApiHttpOptions,
+): Promise<Response> => {
+  const rawType = new URL(request.url).searchParams.get("type") ?? "assistants";
+  const decodedType = await input.run(
+    Schema.decodeUnknownEffect(MailingListTypeSchema)(rawType, {
+      onExcessProperty: "error",
+    }).pipe(Effect.mapError(() => taggedError("OrganizationDecodeError"))),
+  );
+  const authority = await input.resolveAuthority(request);
+  const requested = optionalDepartmentParam(request);
+  const leaderScope = await authorizedDepartmentScope(authority, input);
+  if (leaderScope.length === 0 && authority.globalAdministrator !== "Active") {
+    throw taggedError("OrganizationRoleDenied");
+  }
+  const authorized = narrowScopeOrThrow(leaderScope, requested);
+  if (requested !== undefined) await assertDepartmentsExist(input, [requested]);
+  const lists = await input.run(
+    Organization.use(({ projectMailingLists }) =>
+      projectMailingLists({
+        type: decodedType,
+        authorizedDepartmentIds: authorized,
+        semesterId: optionalSemesterParam(request),
+      }),
+    ),
+  );
+  return jsonResponse(lists);
+};
+
 export const makeOrganizationApiHttp = (
   input: OrganizationApiHttpOptions,
 ): OrganizationApiHttp => ({
@@ -288,6 +433,12 @@ export const makeOrganizationApiHttp = (
       }
       if (request.method === "GET" && pathname === "/api/field_of_studies") {
         return await listFieldOfStudies(request, input);
+      }
+      if (request.method === "GET" && pathname === "/api/admin/team-interest") {
+        return await listTeamInterest(request, input);
+      }
+      if (request.method === "GET" && pathname === "/api/admin/mailing-lists") {
+        return await listMailingLists(request, input);
       }
       if (request.method === "POST" && pathname === "/api/admin/departments") {
         return await createDepartment(request, input);

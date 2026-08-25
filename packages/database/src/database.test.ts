@@ -19,7 +19,10 @@ import {
   executeAdmissionPeriodCommand,
   listOpenAdmissionPeriods,
 } from "../../domain/src/admission-period/postgres.js";
-import { importOrganizationSnapshot } from "../../domain/src/organization/postgres.js";
+import {
+  importOrganizationSnapshot,
+  listOrganizationTeamInterestRegistrations,
+} from "../../domain/src/organization/postgres.js";
 import { DepartmentId, PersonId, SemesterId } from "../../domain/src/organization/schema.js";
 import { Database } from "@vektorprogrammet/domain/database";
 import { AdmissionsLive } from "@vektorprogrammet/domain/admissions";
@@ -351,7 +354,7 @@ describe("DatabaseTest", () => {
     );
 
     expect(evidence).toEqual({
-      revision: "17_person-keyed-receipt-authority",
+      revision: "18_organization-team-interest",
       migrations: [
         { migration_id: 1, name: "receipt-authority" },
         { migration_id: 2, name: "admission-period-authority" },
@@ -3521,6 +3524,78 @@ describe("DatabaseTest", () => {
     expect(releaseCount).toBe(1);
   });
 
+  it("lists authorized team-interest rows in registration order and narrows optional filters against PGlite", async () => {
+    const rows = await recruitmentRuntime.runPromise(
+      Effect.gen(function* () {
+        const database = yield* Database;
+        const departmentA = DepartmentId.make("team-interest-scope-a");
+        const departmentB = DepartmentId.make("team-interest-scope-b");
+
+        yield* database`
+          INSERT INTO organization_departments (
+            department_id, name, short_name, email, city
+          ) VALUES
+            (${departmentA}, 'Scope A', 'SCA', 'scope-a@example.invalid', 'Trondheim'),
+            (${departmentB}, 'Scope B', 'SCB', 'scope-b@example.invalid', 'Bergen')
+        `;
+        yield* database`
+          INSERT INTO organization_teams (team_id, department_id, name)
+          VALUES
+            ('team-interest-scope-team-a', ${departmentA}, 'Team A'),
+            ('team-interest-scope-team-b', ${departmentB}, 'Team B')
+        `;
+        yield* database`
+          INSERT INTO organization_team_interest_registrations (
+            submitter_name,
+            submitter_email,
+            team_id,
+            department_id,
+            semester_id,
+            submitted_at
+          ) VALUES
+            (
+              'Interested A',
+              'interested-a@example.invalid',
+              'team-interest-scope-team-a',
+              ${departmentA},
+              'semester-scope',
+              '2031-09-14T10:00:00.000Z'
+            ),
+            (
+              'Interested B',
+              'interested-b@example.invalid',
+              'team-interest-scope-team-b',
+              ${departmentB},
+              'semester-scope',
+              '2031-09-15T10:00:00.000Z'
+            )
+        `;
+
+        const authorizedRows = yield* listOrganizationTeamInterestRegistrations({
+          authorizedDepartmentIds: [departmentA, departmentB],
+        });
+        const filteredRows = yield* listOrganizationTeamInterestRegistrations({
+          authorizedDepartmentIds: [departmentA, departmentB],
+          departmentId: departmentB,
+          semesterId: SemesterId.make("semester-scope"),
+        });
+        return { authorizedRows, filteredRows };
+      }),
+    );
+
+    expect(rows.authorizedRows.map((row) => row.submitterName)).toEqual([
+      "Interested A",
+      "Interested B",
+    ]);
+    expect(rows.filteredRows).toHaveLength(1);
+    expect(rows.filteredRows[0]).toMatchObject({
+      submitterName: "Interested B",
+      teamName: "Team B",
+      departmentId: "team-interest-scope-b",
+      semesterId: "semester-scope",
+    });
+  });
+
   it("executes native Organization administration atomically against PGlite", async () => {
     const evidence = await recruitmentRuntime.runPromise(
       Effect.gen(function* () {
@@ -3850,7 +3925,7 @@ describe("DatabaseTest", () => {
       }),
     );
 
-    expect(evidence.schemaRevision).toBe("17_person-keyed-receipt-authority");
+    expect(evidence.schemaRevision).toBe("18_organization-team-interest");
     expect(evidence.denied._tag).toBe("OrganizationRoleDenied");
     expect(evidence.deniedRows).toBe(0);
     expect(evidence.departmentCreated.committed).toBe(true);

@@ -74,6 +74,10 @@ const personKeyedOrganizationAuthorityMigrationUrl = new URL(
   "../migrations/0016-person-keyed-organization-authority.sql",
   import.meta.url,
 );
+const organizationTeamInterestMigrationUrl = new URL(
+  "../migrations/0018-organization-team-interest.sql",
+  import.meta.url,
+);
 const personKeyedReceiptAuthorityMigrationUrl = new URL(
   "../migrations/0017-person-keyed-receipt-authority.sql",
   import.meta.url,
@@ -175,9 +179,14 @@ export const databaseMigrationLoader = (execute: ExecuteMigration) =>
       personKeyedReceiptAuthorityMigrationUrl,
       execute,
     ),
+    "18_organization-team-interest": migration(
+      "organization-team-interest",
+      organizationTeamInterestMigrationUrl,
+      execute,
+    ),
   });
 
-export const databaseSchemaRevision = "17_person-keyed-receipt-authority";
+export const databaseSchemaRevision = "18_organization-team-interest";
 export const runDatabaseMigrations = (execute: ExecuteMigration) =>
   Migrator.make({})({
     loader: databaseMigrationLoader(execute),

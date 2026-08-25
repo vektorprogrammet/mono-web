@@ -201,6 +201,12 @@ const http = makeOrganizationApiHttp({
     }
     return { _tag: "OrganizationMember", personId: PersonId.make("person-member") };
   },
+  resolveAuthority: async () => ({
+    personId: PersonId.make("person-admin"),
+    evaluatedAt: "2031-09-15T12:00:00.000Z",
+    globalAdministrator: "Active",
+    memberships: [],
+  }),
   run,
 });
 const request = (pathname: string, init?: RequestInit): Promise<Response> =>

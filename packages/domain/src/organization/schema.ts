@@ -19,6 +19,26 @@ const text = (max: number) =>
 const nullableText = (max: number) => Schema.NullOr(text(max));
 const Revision = Schema.Int.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(0)));
 const BooleanValue = Schema.Boolean;
+/** Numeric identity demanded by the frozen SDK TeamInterest schema (spec 0059). */
+const RegistrationNumber = Schema.Number.pipe(
+  Schema.check(
+    Schema.makeFilter(Number.isSafeInteger, { message: "a safe integer" }),
+    Schema.isGreaterThan(0),
+  ),
+);
+const RegistrationNumberFromText = Schema.NumberFromString.pipe(
+  Schema.check(
+    Schema.makeFilter(Number.isSafeInteger, { message: "a safe integer" }),
+    Schema.isGreaterThan(0),
+  ),
+);
+const EmailText = text(255).pipe(
+  Schema.check(
+    Schema.makeFilter((value) => /^[^@\s]+@[^@\s]+$/.test(value), {
+      message: "an email address",
+    }),
+  ),
+);
 
 export const DepartmentId = NonEmpty.pipe(Schema.brand("DepartmentId"));
 export type DepartmentId = typeof DepartmentId.Type;
@@ -299,6 +319,50 @@ export class Membership extends Model.Class<Membership>("Organization.Membership
 }) {}
 
 export type DepartmentSelect = typeof Department.Encoded;
+
+/**
+ * One durable stand registration: one interested person choosing one team
+ * (spec 0059). The submitter has no person identity, so the row keys them by
+ * their submitted email and stores the name verbatim.
+ */
+export class TeamInterestRegistration extends Model.Class<TeamInterestRegistration>(
+  "Organization.TeamInterestRegistration",
+)({
+  registrationId: Model.Field({
+    select: RegistrationNumberFromText,
+    json: RegistrationNumber,
+  }),
+  submitterName: Model.Field({
+    select: text(255),
+    insert: text(255),
+  }),
+  submitterEmail: Model.Field({
+    select: EmailText,
+    insert: EmailText,
+  }),
+  teamId: Model.Field({
+    select: TeamId,
+    insert: TeamId,
+  }),
+  teamName: Model.Field({
+    select: text(250),
+  }),
+  departmentId: Model.Field({
+    select: DepartmentId,
+    insert: DepartmentId,
+  }),
+  semesterId: Model.Field({
+    select: Schema.NullOr(SemesterId),
+    insert: Schema.NullOr(SemesterId),
+  }),
+  submittedAt: Model.Field({
+    select: Rfc3339InstantSchema,
+    insert: Rfc3339InstantSchema,
+  }),
+  revision: Model.GeneratedByDb(Revision),
+}) {}
+
+export type TeamInterestRegistrationSelect = typeof TeamInterestRegistration.Encoded;
 export type DepartmentInsert = typeof Department.insert.Encoded;
 export type DepartmentUpdate = typeof Department.update.Encoded;
 export type DepartmentJson = typeof Department.json.Type;
@@ -359,3 +423,4 @@ export const MembershipInvariantSchema = Membership.pipe(
     }),
   ),
 );
+export type TeamInterestRegistrationInsert = typeof TeamInterestRegistration.insert.Encoded;
