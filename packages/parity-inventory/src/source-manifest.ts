@@ -564,7 +564,7 @@ const unsafePathSegmentPattern =
 const unsafePathExtensionPattern =
   /\.(?:pem|key|p12|pfx|jks|keystore|sqlite|sqlite3|db|dump|bak|backup)$/i;
 const databaseSourceCodePathPattern =
-  /^(?:packages\/database\/(?:package\.json|tsconfig\.json|src\/(?:[^/]+\/)*[^/]+\.ts|migrations\/[^/]+\.sql)|packages\/domain\/src\/database\/[^/]+\.ts)$/;
+  /^(?:packages\/database\/(?:package\.json|tsconfig\.json|(?:src|runtime|test)\/(?:[^/]+\/)*[^/]+\.ts|migrations\/[^/]+\.sql)|packages\/domain\/src\/database\/[^/]+\.ts)$/;
 const canonicalKeyTokens = (value: string): readonly string[] => {
   const words = value
     .normalize("NFC")
