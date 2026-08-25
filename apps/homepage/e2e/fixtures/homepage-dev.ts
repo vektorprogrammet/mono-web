@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { test as base, expect, type Page } from "@playwright/test";
 import { HOMEPAGE_PLAYWRIGHT_INPUTS } from "../../playwright.config";
 import { DEV_CONTENT_SOURCE } from "../../src/lib/dev-content";
+import { countServiceWorkerRegistrations } from "../../browser/service-worker-state";
 
 export const LOCAL_HOST = HOMEPAGE_PLAYWRIGHT_INPUTS.host;
 export const LOOPBACK_ORIGIN = HOMEPAGE_PLAYWRIGHT_INPUTS.origin;
@@ -258,9 +259,7 @@ export async function assertHealthyPage(
   expect(diagnostics.failedResponses).toEqual([]);
   expect(diagnostics.pageErrors).toEqual([]);
   expect(diagnostics.consoleErrors).toEqual([]);
-  const serviceWorkerRegistrations = await page.evaluate(async () =>
-    navigator.serviceWorker ? (await navigator.serviceWorker.getRegistrations()).length : 0,
-  );
+  const serviceWorkerRegistrations = await page.evaluate(countServiceWorkerRegistrations);
   diagnostics.serviceWorkers.checked = true;
   diagnostics.serviceWorkers.absent = serviceWorkerRegistrations === 0;
   expect(diagnostics.serviceWorkers.absent).toBe(true);
