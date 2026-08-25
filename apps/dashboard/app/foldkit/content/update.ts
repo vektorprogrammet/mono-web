@@ -2,7 +2,7 @@ import type { ContentWorkspace } from "@vektorprogrammet/sdk/effect";
 import { Match as M } from "effect";
 import { Command } from "foldkit";
 import type { Message } from "./message";
-import type { Model } from "./model";
+import { makeEditorValues, type Model } from "./model";
 
 export interface WorkspaceCommandFactories {
   readonly LoadWorkspace: (args: { readonly requestId: number }) => Command.Command<Message>;
@@ -214,6 +214,19 @@ export const makeUpdate =
           { ...model, departmentFilter: departmentId },
           [],
         ],
+        DeselectedArticle: () =>
+          [
+            // Fresh-draft mode: empty editor, nothing selected.
+            {
+              ...model,
+              selectedArticleId: null,
+              selectedRevision: null,
+              editor: makeEditorValues(),
+              dirty: false,
+              banner: null,
+            },
+            [],
+          ],
         DismissedBanner: () => [{ ...model, banner: null }, []],
       }),
     );

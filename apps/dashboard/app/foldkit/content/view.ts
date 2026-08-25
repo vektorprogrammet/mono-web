@@ -1,7 +1,7 @@
 import type { ContentWorkspace } from "@vektorprogrammet/sdk/effect";
 import type { Html, HtmlBuilder } from "foldkit/html";
 import type { Message } from "./message";
-import { ChangedDepartmentFilter } from "./message";
+import { ChangedDepartmentFilter, DeselectedArticle } from "./message";
 import {
   DismissedBanner,
   EditedField,
@@ -142,7 +142,15 @@ export const view = (model: Model, h: HtmlBuilder<Message>): Html =>
           ),
         ]),
         h.label([h.For("content-editor-sticky")], ["Festet"]),
-        model.dirty
+        h.button(
+          [
+            h.Type("button"),
+            h.OnClick(DeselectedArticle()),
+            h.Class("content-workspace__new"),
+          ],
+          ["Ny artikkel"],
+        ),
+        model.dirty && model.selectedArticleId === null
           ? h.button(
               [
                 h.Type("button"),
@@ -151,15 +159,17 @@ export const view = (model: Model, h: HtmlBuilder<Message>): Html =>
               ],
               ["Lagre kladd"],
             )
-          : h.button(
+          : h.empty,
+        model.dirty && model.selectedArticleId !== null
+          ? h.button(
               [
                 h.Type("button"),
-                h.Disabled(true),
-                h.Id("content-editor-save"),
-                h.AriaDisabled(true),
+                h.Id("content-editor-revise"),
+                h.OnClick(SubmittedRevise({ commandId: `revise-${Date.now()}` })),
               ],
-              ["Lagre kladd"],
-            ),
+              ["Lagre endringer"],
+            )
+          : h.empty,
         h.button(
           [
             h.Type("button"),

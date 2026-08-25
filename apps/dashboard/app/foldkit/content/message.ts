@@ -45,9 +45,12 @@ export const ChangedDepartmentFilter = m("ChangedDepartmentFilter", {
 });
 
 export const DismissedBanner = m("DismissedBanner");
+/** Clears the selection so the editor becomes a fresh-draft form. */
+export const DeselectedArticle = m("DeselectedArticle");
 
 export const Message = S.Union([
   LoadedWorkspace,
+  DeselectedArticle,
   FailedWorkspace,
   RetriedWorkspace,
   SelectedArticle,
@@ -60,6 +63,7 @@ export const Message = S.Union([
   SubmittedPublish,
   SubmittedUnpublish,
   ChangedDepartmentFilter,
+  DeselectedArticle,
   DismissedBanner,
 ]);
 export type Message = S.Schema.Type<typeof Message>;
