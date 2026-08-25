@@ -67,7 +67,9 @@ const isOrganizationRoute = (pathname: string): boolean =>
   pathname === "/api/field_of_studies" ||
   pathname === "/api/admin/departments" ||
   pathname === "/api/admin/teams" ||
-  pathname === "/api/admin/field-of-studies";
+  pathname === "/api/admin/field-of-studies" ||
+  pathname === "/api/admin/team-interest" ||
+  pathname === "/api/admin/mailing-lists";
 const isRecruitmentRoute = (pathname: string): boolean =>
   pathname === "/api/admin/recruitment/assignment-board" ||
   pathname === "/api/admin/recruitment/interviews/assign" ||
