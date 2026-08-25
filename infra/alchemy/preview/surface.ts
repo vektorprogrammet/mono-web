@@ -8,6 +8,7 @@ export function previewSurface(pathname: string): PreviewSurface {
   // document path (e.g. `/login.data`); classify them by their source route.
   const routePath = pathname.endsWith(".data") ? pathname.slice(0, -".data".length) : pathname;
   if (
+    routePath === "/schools" ||
     routePath === "/dashboard" ||
     routePath.startsWith("/dashboard/") ||
     routePath === "/login" ||
