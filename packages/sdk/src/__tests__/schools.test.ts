@@ -1,7 +1,7 @@
 import { Schema } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  SchoolDepartmentId,
+  DepartmentId,
   SchoolDirectorySchema,
   SchoolsRejectionError,
   createClient,
@@ -80,29 +80,38 @@ describe("Schools SDK wire contract", () => {
     ).toThrow();
   });
 
-  it("makes one authenticated native GET with the optional department only", async () => {
+  it("strictly round-trips a canonical 256-character DepartmentId through list input and response", async () => {
+    const department = DepartmentId.make("d".repeat(256));
+    const directoryWithLongDepartment = {
+      activeSchools: directory.activeSchools.map((school) => ({
+        ...school,
+        departments: [{ departmentId: department, name: "Long Department" }],
+      })),
+      inactiveSchools: directory.inactiveSchools.map((school) => ({
+        ...school,
+        departments: [{ departmentId: department, name: "Long Department" }],
+      })),
+    };
     const observed: Array<{ url: string; cookie: string | null }> = [];
     const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
       observed.push({
         url: String(input),
         cookie: new Headers(init?.headers).get("Cookie"),
       });
-      return response(200, directory);
+      return response(200, directoryWithLongDepartment);
     });
     vi.stubGlobal("fetch", fetchMock);
     const client = createClient("http://api.test", {
       cookie: "better-auth.session_token=admin-session",
     });
 
-    await expect(
-      client.admin.schools.list({
-        department: SchoolDepartmentId.make("department-a"),
-      }),
-    ).resolves.toEqual(directory);
+    const result = await client.admin.schools.list({ department });
 
+    expect(department).toHaveLength(256);
+    expect(Schema.encodeSync(SchoolDirectorySchema)(result)).toEqual(directoryWithLongDepartment);
     expect(observed).toEqual([
       {
-        url: "http://api.test/api/admin/schools?department=department-a",
+        url: `http://api.test/api/admin/schools?department=${department}`,
         cookie: "better-auth.session_token=admin-session",
       },
     ]);

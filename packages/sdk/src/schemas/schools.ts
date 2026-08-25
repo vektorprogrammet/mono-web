@@ -1,4 +1,7 @@
 import { Schema } from "effect";
+import { DepartmentId } from "./organization.js";
+
+export { DepartmentId };
 
 const text = (maxLength: number) =>
   Schema.String.pipe(
@@ -19,14 +22,11 @@ export const SchoolId = Schema.Int.pipe(
 );
 export type SchoolId = typeof SchoolId.Type;
 
-export const SchoolDepartmentId = text(255).pipe(Schema.brand("SchoolDepartmentId"));
-export type SchoolDepartmentId = typeof SchoolDepartmentId.Type;
-
 export const SchoolLanguageSchema = Schema.Literals(["Norwegian", "International"]);
 export type SchoolLanguage = typeof SchoolLanguageSchema.Type;
 
 export const SchoolDirectoryDepartmentSchema = Schema.Struct({
-  departmentId: SchoolDepartmentId,
+  departmentId: DepartmentId,
   name: Schema.String,
 });
 export type SchoolDirectoryDepartment = typeof SchoolDirectoryDepartmentSchema.Type;
@@ -88,5 +88,5 @@ export const SchoolDirectorySchema = Schema.Struct({
 export type SchoolDirectory = typeof SchoolDirectorySchema.Type;
 
 export interface AdminSchoolsListInput {
-  readonly department?: SchoolDepartmentId;
+  readonly department?: DepartmentId;
 }

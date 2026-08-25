@@ -78,6 +78,8 @@ import {
   OrganizationDecodeError,
   OrganizationRequestBodyTooLarge,
   OrganizationPersistenceError,
+  ProfileAuthorityInactive,
+  ProfileNotInScope,
   SchoolsAuthorityInactive,
   SchoolsDecodeError,
   SchoolsDepartmentNotFound,
@@ -356,6 +358,25 @@ const organizationFailureFromBody = (
   }
 };
 
+const profileFailureFromBody = (body: unknown): InternalSdkError | undefined => {
+  let tag: unknown;
+  try {
+    tag = Schema.decodeUnknownSync(StrictNativeFailureBodySchema)(body, {
+      onExcessProperty: "error",
+    }).error.tag;
+  } catch {
+    return undefined;
+  }
+  switch (tag) {
+    case "AuthorityInactive":
+      return new ProfileAuthorityInactive();
+    case "NotInScope":
+      return new ProfileNotInScope();
+    default:
+      return undefined;
+  }
+};
+
 const schoolsFailureFromBody = (body: unknown, strict: boolean): InternalSdkError | undefined => {
   let tag: unknown;
   if (strict) {
@@ -406,15 +427,17 @@ const mapStatusToError = (
   options?: DecodeOptions,
 ): InternalSdkError => {
   const typedError =
-    options?.errorFamily === "schools"
-      ? schoolsFailureFromBody(body, options.strict === true)
-      : options?.errorFamily === "organization"
-        ? organizationFailureFromBody(body, options.strict === true)
-        : options?.errorFamily === "public_application"
-          ? publicApplicationFailureFromBody(body)
-          : options?.errorFamily === "recruitment"
-            ? recruitmentFailureFromBody(body, options.strict === true)
-            : receiptFailureFromBody(body);
+    options?.errorFamily === "profile"
+      ? profileFailureFromBody(body)
+      : options?.errorFamily === "schools"
+        ? schoolsFailureFromBody(body, options.strict === true)
+        : options?.errorFamily === "organization"
+          ? organizationFailureFromBody(body, options.strict === true)
+          : options?.errorFamily === "public_application"
+            ? publicApplicationFailureFromBody(body)
+            : options?.errorFamily === "recruitment"
+              ? recruitmentFailureFromBody(body, options.strict === true)
+              : receiptFailureFromBody(body);
   if (typedError !== undefined) return typedError;
   if (status === 401 || status === 403) return new Unauthorized({ message: `HTTP ${status}` });
   if (status === 404) return new NotFound({ message: "Not found" });
@@ -429,7 +452,12 @@ const mapStatusToError = (
 export type DecodeOptions = {
   readonly strict?: boolean;
   readonly decodeError?: () => InternalSdkError;
-  readonly errorFamily?: "public_application" | "recruitment" | "organization" | "schools";
+  readonly errorFamily?:
+    | "profile"
+    | "public_application"
+    | "recruitment"
+    | "organization"
+    | "schools";
   readonly headers?: Readonly<Record<string, string>>;
   readonly includeCookie?: boolean;
   readonly expectedStatus?: number | ReadonlyArray<number>;

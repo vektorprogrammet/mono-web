@@ -1,4 +1,4 @@
-import { SchoolDepartmentId, SchoolId, type SchoolDirectory } from "@vektorprogrammet/sdk/effect";
+import { DepartmentId, SchoolId, type SchoolDirectory } from "@vektorprogrammet/sdk/effect";
 import type { HtmlBuilder } from "foldkit/html";
 import { describe, expect, it } from "vitest";
 import type { Message } from "./message";
@@ -90,7 +90,7 @@ const hasAttribute = (node: RenderedNode, name: string, value: unknown): boolean
     (attribute) => attribute.name === name && attribute.values.some((entry) => entry === value),
   );
 
-const department = SchoolDepartmentId.make("department-a");
+const department = DepartmentId.make("department-a");
 const directory: SchoolDirectory = {
   activeSchools: [
     {

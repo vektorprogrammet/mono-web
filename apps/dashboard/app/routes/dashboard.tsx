@@ -31,8 +31,8 @@ import {
   useLocation,
   useRouteError,
 } from "react-router";
-import { expiredSessionRedirect, requireAuth } from "../lib/auth.server";
-import { createAuthenticatedClient } from "../lib/api.server";
+import { dashboardShellVisibility } from "../foldkit/dashboard/shell";
+import { loadDashboardShell } from "../foldkit/dashboard/shell.server";
 import type { Route } from "./+types/dashboard";
 import { useTheme } from "../lib/theme";
 
@@ -68,25 +68,7 @@ import {
   useSidebar,
 } from "@/ui/sidebar";
 
-export async function loader({ request }: Route.LoaderArgs) {
-  const cookie = await requireAuth(request);
-  const client = createAuthenticatedClient(cookie);
-
-  try {
-    const data = await client.me.profile();
-    const isAdmin = data.role === "ROLE_ADMIN" || data.role === "ROLE_TEAM_LEADER";
-
-    return {
-      user: {
-        name: `${data.firstName} ${data.lastName}`,
-        email: data.email,
-      },
-      isAdmin,
-    };
-  } catch {
-    throw await expiredSessionRedirect(request);
-  }
-}
+export const loader = ({ request }: Route.LoaderArgs) => loadDashboardShell(request);
 
 function UserMenu({
   user,
@@ -475,14 +457,15 @@ export function ErrorBoundary() {
   );
 }
 
-function LegacyLayout() {
+export function DashboardShellLayout() {
   const { user, isAdmin } = useLoaderData<typeof loader>();
+  const shell = dashboardShellVisibility(user);
   return (
     <SidebarProvider>
       <aside>
         <Sidebar variant="inset" collapsible="icon">
           <SidebarHeader>
-            <UserMenu user={user} />
+            {shell.showIdentityMenu && user !== null ? <UserMenu user={user} /> : null}
           </SidebarHeader>
           <SidebarContent>
             <nav aria-label="primary">
@@ -530,12 +513,14 @@ function LegacyLayout() {
                 </SidebarGroupContent>
               </SidebarGroup>
             </nav>
-            <StatusMenu
-              subTitle="Avdeling"
-              label="Avdelinger"
-              icon={<MapPinned />}
-              status={departments}
-            />
+            {shell.showOrganizationContext ? (
+              <StatusMenu
+                subTitle="Avdeling"
+                label="Avdelinger"
+                icon={<MapPinned />}
+                status={departments}
+              />
+            ) : null}
           </SidebarFooter>
         </Sidebar>
       </aside>
@@ -548,7 +533,7 @@ function LegacyLayout() {
             <Breadcrumbs />
           </div>
         </header>
-        <Outlet />
+        {shell.mountChildRoutes ? <Outlet /> : null}
       </SidebarInset>
     </SidebarProvider>
   );
@@ -556,5 +541,5 @@ function LegacyLayout() {
 
 // biome-ignore lint/style/noDefaultExport: Route Modules require default export https://reactrouter.com/start/framework/route-module
 export default function Layout() {
-  return <LegacyLayout />;
+  return <DashboardShellLayout />;
 }

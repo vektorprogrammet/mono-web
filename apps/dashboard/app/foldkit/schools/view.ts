@@ -1,5 +1,5 @@
 import type { SchoolDirectory, SchoolDirectoryEntry } from "@vektorprogrammet/sdk/effect";
-import { SchoolDepartmentId } from "@vektorprogrammet/sdk/effect";
+import { DepartmentId } from "@vektorprogrammet/sdk/effect";
 import { Input, Select } from "@foldkit/ui";
 import { AsyncData } from "foldkit";
 import type { Html, HtmlBuilder } from "foldkit/html";
@@ -145,7 +145,7 @@ const controls = (model: Model, h: HtmlBuilder<Message>): Html =>
           value: model.department ?? "",
           onChange: (value) =>
             SelectedDepartment({
-              department: value === "" ? null : SchoolDepartmentId.make(value),
+              department: value === "" ? null : DepartmentId.make(value),
             }),
           toView: ({ select, label, description }) =>
             h.div(

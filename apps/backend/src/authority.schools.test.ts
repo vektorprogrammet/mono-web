@@ -1,11 +1,33 @@
-import { Auth, AuthenticatedActor, type AuthShape } from "@vektorprogrammet/domain/auth";
+import { UnauthenticatedActor } from "@vektorprogrammet/domain/admission-period";
+import {
+  Auth,
+  AuthEngineError,
+  AuthenticatedActor,
+  AuthSessionExpired,
+  AuthSessionNotFound,
+  type AuthShape,
+} from "@vektorprogrammet/domain/auth";
 import type { Organization } from "@vektorprogrammet/domain/organization";
 import { DateTime, Effect } from "effect";
 import { expect, it } from "vitest";
 import {
+  resolveAuthenticatedPerson,
   resolveAuthenticatedPersonAtInstant,
   type AuthorityResolutionOptions,
 } from "./authority.js";
+
+const makeRun =
+  (auth: AuthShape): AuthorityResolutionOptions["run"] =>
+  <A, E>(effect: Effect.Effect<A, E, Organization | Auth>): Promise<A> => {
+    const runnable = effect.pipe(Effect.provideService(Auth, auth)) as Effect.Effect<A, E>;
+    return Effect.runPromise(runnable);
+  };
+
+const rejectingAuth = (failure: unknown): AuthShape => ({
+  signIn: () => Promise.reject(new Error("unexpected sign-in")),
+  resolveSession: () => Promise.reject(failure),
+  signOut: () => Promise.resolve(),
+});
 
 it("captures the Schools authorization instant exactly once after session decoding", async () => {
   const events: Array<string> = [];
@@ -21,12 +43,7 @@ it("captures the Schools authorization instant exactly once after session decodi
     },
     signOut: () => Promise.resolve(),
   } satisfies AuthShape);
-  const run: AuthorityResolutionOptions["run"] = <A, E>(
-    effect: Effect.Effect<A, E, Organization | Auth>,
-  ): Promise<A> => {
-    const runnable = effect.pipe(Effect.provideService(Auth, auth)) as Effect.Effect<A, E>;
-    return Effect.runPromise(runnable);
-  };
+  const run = makeRun(auth);
   let clockCalls = 0;
 
   const actor = await resolveAuthenticatedPersonAtInstant("session=valid", {
@@ -44,4 +61,40 @@ it("captures the Schools authorization instant exactly once after session decodi
   });
   expect(clockCalls).toBe(1);
   expect(events).toEqual(["session", "now"]);
+});
+
+it.each([
+  ["missing", new AuthSessionNotFound({ sessionToken: "missing-session" })],
+  ["expired", new AuthSessionExpired({ sessionToken: "expired-session" })],
+] as const)("maps a %s session to unauthenticated authority", async (_name, failure) => {
+  await expect(
+    resolveAuthenticatedPerson("better-auth.session_token=invalid", {
+      run: makeRun(rejectingAuth(failure)),
+    }),
+  ).rejects.toBeInstanceOf(UnauthenticatedActor);
+});
+
+it("preserves a typed authentication engine failure", async () => {
+  const failure = new AuthEngineError({
+    operation: "getSession",
+    message: "authentication provider unavailable",
+  });
+
+  await expect(
+    resolveAuthenticatedPerson("better-auth.session_token=provider-failure", {
+      run: makeRun(rejectingAuth(failure)),
+    }),
+  ).rejects.toBe(failure);
+});
+
+it("maps an unknown session provider rejection to typed infrastructure", async () => {
+  await expect(
+    resolveAuthenticatedPerson("better-auth.session_token=provider-failure", {
+      run: makeRun(rejectingAuth(new Error("connection refused"))),
+    }),
+  ).rejects.toMatchObject({
+    _tag: "AuthEngineError",
+    operation: "resolveSession",
+    message: "connection refused",
+  });
 });

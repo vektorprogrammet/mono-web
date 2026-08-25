@@ -4,7 +4,13 @@ import {
   InactiveActor,
   UnauthenticatedActor,
 } from "@vektorprogrammet/domain/admission-period";
-import { Auth, AuthenticatedActor } from "@vektorprogrammet/domain/auth";
+import {
+  Auth,
+  AuthEngineError,
+  AuthenticatedActor,
+  AuthSessionExpired,
+  AuthSessionNotFound,
+} from "@vektorprogrammet/domain/auth";
 import type {
   DepartmentId,
   OrganizationActor,
@@ -46,11 +52,21 @@ const defaultNow = (): string => new Date().toISOString();
 
 const sessionEffect = (
   cookieHeader: string | undefined,
-): Effect.Effect<AuthenticatedActor, UnauthenticatedActor, Auth> =>
+): Effect.Effect<AuthenticatedActor, AuthEngineError | UnauthenticatedActor, Auth> =>
   Auth.use(({ resolveSession }) =>
     Effect.tryPromise({
       try: () => resolveSession(cookieHeader),
-      catch: () => new UnauthenticatedActor({ message: "authentication required" }),
+      catch: (cause) => {
+        if (cause instanceof AuthSessionNotFound || cause instanceof AuthSessionExpired) {
+          return new UnauthenticatedActor({ message: "authentication required" });
+        }
+        return cause instanceof AuthEngineError
+          ? cause
+          : new AuthEngineError({
+              operation: "resolveSession",
+              message: cause instanceof Error ? cause.message : "authentication provider failure",
+            });
+      },
     }),
   );
 
@@ -59,7 +75,7 @@ const personAuthorityEffect = (
   instant: string,
 ): Effect.Effect<
   OrganizationPersonAuthority,
-  UnauthenticatedActor | OrganizationResolutionError,
+  AuthEngineError | UnauthenticatedActor | OrganizationResolutionError,
   Organization | Auth
 > =>
   Effect.flatMap(sessionEffect(cookieHeader), (actor) =>
@@ -73,6 +89,12 @@ export interface AuthorityResolutionOptions {
   /** Injectable clock; defaults to the current ISO instant. */
   readonly now?: () => string;
 }
+
+/** Resolves the authenticated session while preserving infrastructure failures. */
+export const resolveAuthenticatedSession = (
+  cookieHeader: string | undefined,
+  options: AuthorityResolutionOptions,
+): Promise<AuthenticatedActor> => options.run(sessionEffect(cookieHeader));
 
 /** Cookie -> PersonId only; for adapters that authenticate without roles. */
 export const resolveAuthenticatedPerson = (

@@ -4,7 +4,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
-import { createClient, ValidationError } from "../promise.js"
+import { createClient, ProfileRejectionError, ValidationError } from "../promise.js"
 
 describe("createClient", () => {
   beforeEach(() => {
@@ -139,6 +139,26 @@ describe("createClient", () => {
       expect.objectContaining({ method: "PUT" }),
     )
   })
+
+  it.each(["AuthorityInactive", "NotInScope"] as const)(
+    "preserves the typed profile scope denial %s",
+    async (tag) => {
+      vi.mocked(fetch).mockResolvedValueOnce({
+        ok: false,
+        status: 403,
+        json: () => Promise.resolve({ error: { tag } }),
+      } as Response)
+      const client = createClient("http://api.test", {
+        cookie: "better-auth.session_token=session-value",
+      })
+      const failure = await client.me.profile().catch((error: unknown) => error)
+      expect(failure).toBeInstanceOf(ProfileRejectionError)
+      expect(failure).toMatchObject({
+        name: "ProfileRejectionError",
+        profileTag: tag,
+      })
+    },
+  )
 
   it("domain methods are promise-returning functions", () => {
     const client = createClient("http://api.test")

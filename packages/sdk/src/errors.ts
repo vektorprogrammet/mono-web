@@ -22,6 +22,7 @@ export type SdkErrorType =
   | "public_application_rejection"
   | "recruitment_rejection"
   | "organization_rejection"
+  | "profile_rejection"
   | "schools_rejection";
 
 export type AdmissionPeriodRejectionTag =
@@ -102,6 +103,8 @@ export type OrganizationRejectionTag =
   | "OrganizationDecodeError"
   | "RequestBodyTooLarge"
   | "OrganizationPersistenceError";
+
+export type ProfileRejectionTag = "AuthorityInactive" | "NotInScope";
 
 export type SchoolsRejectionTag =
   | "UnauthenticatedActor"
@@ -443,6 +446,18 @@ export class RecruitmentPersistenceSdkError extends RecruitmentRejectionError {
   constructor() {
     super("RecruitmentPersistenceError");
     this.name = "RecruitmentPersistenceSdkError";
+  }
+}
+
+export class ProfileRejectionError extends SdkError {
+  readonly _tag: ProfileRejectionTag;
+  readonly profileTag: ProfileRejectionTag;
+
+  constructor(tag: ProfileRejectionTag) {
+    super("profile_rejection", tag);
+    this.name = "ProfileRejectionError";
+    this._tag = tag;
+    this.profileTag = tag;
   }
 }
 
@@ -800,6 +815,13 @@ export class OrganizationRequestBodyTooLarge extends Schema.TaggedError<Organiza
   {},
 ) {}
 
+export class ProfileAuthorityInactive extends Schema.TaggedError<ProfileAuthorityInactive>()(
+  "AuthorityInactive",
+  {},
+) {}
+
+export class ProfileNotInScope extends Schema.TaggedError<ProfileNotInScope>()("NotInScope", {}) {}
+
 export class OrganizationPersistenceError extends Schema.TaggedError<OrganizationPersistenceError>()(
   "OrganizationPersistenceError",
   {},
@@ -1138,6 +1160,9 @@ export type RecruitmentSdkError = RecruitmentFailure;
 
 export type OrganizationSdkError = OrganizationFailure;
 
+export type ProfileFailure = ProfileAuthorityInactive | ProfileNotInScope;
+export type ProfileSdkError = ProfileFailure;
+
 export type SchoolsFailure =
   | SchoolsUnauthenticatedActor
   | SchoolsAuthorityInactive
@@ -1162,6 +1187,7 @@ export type InternalSdkError =
   | PublicApplicationFailure
   | RecruitmentFailure
   | OrganizationFailure
+  | ProfileFailure
   | SchoolsFailure;
 
 /**
@@ -1169,6 +1195,9 @@ export type InternalSdkError =
  * Used at the Effect.runPromise boundary.
  */
 export function toSdkError(error: InternalSdkError): SdkError {
+  if (error instanceof ProfileAuthorityInactive || error instanceof ProfileNotInScope) {
+    return new ProfileRejectionError(error._tag);
+  }
   if (
     error instanceof SchoolsUnauthenticatedActor ||
     error instanceof SchoolsAuthorityInactive ||

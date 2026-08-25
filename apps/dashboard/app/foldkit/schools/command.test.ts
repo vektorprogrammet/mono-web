@@ -1,5 +1,5 @@
 import {
-  SchoolDepartmentId,
+  DepartmentId,
   SchoolId,
   type InternalSdkError,
   type SchoolDirectory,
@@ -9,7 +9,7 @@ import { describe, expect, it } from "vitest";
 import type { SchoolsDirectoryClient } from "./browser-client";
 import { makeSchoolsDirectoryCommands } from "./command";
 
-const department = SchoolDepartmentId.make("department-a");
+const department = DepartmentId.make("department-a");
 const directory: SchoolDirectory = {
   activeSchools: [
     {

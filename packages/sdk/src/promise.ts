@@ -112,6 +112,7 @@ export {
   OrganizationDecodeSdkError,
   OrganizationRequestBodyTooLargeError,
   OrganizationPersistenceSdkError,
+  ProfileRejectionError,
   SchoolsRejectionError,
 } from "./errors.js";
 export type {
@@ -121,6 +122,7 @@ export type {
   PublicApplicationRejectionTag,
   RecruitmentRejectionTag,
   OrganizationRejectionTag,
+  ProfileRejectionTag,
   SchoolsRejectionTag,
 } from "./errors.js";
 export type { Receipt, AdminReceipt, ReceiptInput } from "./schemas/receipt.js";
@@ -336,7 +338,6 @@ export type {
 export type { SchedulingAssistant, Substitute } from "./schemas/scheduling.js";
 export {
   SchoolId,
-  SchoolDepartmentId,
   SchoolLanguageSchema,
   SchoolDirectoryDepartmentSchema,
   SchoolDirectoryDepartmentsSchema,

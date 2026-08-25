@@ -141,10 +141,10 @@ export const profileLinks = [
   memberLink("Mine utlegg", "/dashboard/mine-utlegg"),
 ] as const;
 
-export const hasTeamLeaderAccess = (role: DashboardRole): boolean =>
+export const hasTeamLeaderAccess = (role: DashboardRole | null): boolean =>
   role === "ROLE_TEAM_LEADER" || role === "ROLE_ADMIN";
 
-export const canViewLink = (role: DashboardRole, link: NavigationLink): boolean =>
+export const canViewLink = (role: DashboardRole | null, link: NavigationLink): boolean =>
   link.requiredRole === "team-member" || hasTeamLeaderAccess(role);
 
 export const isActivePath = (activePath: string, href: string): boolean =>

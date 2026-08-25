@@ -39,11 +39,14 @@ export type {
   RecruitmentSdkError,
   OrganizationFailure,
   OrganizationSdkError,
+  ProfileFailure,
+  ProfileSdkError,
   ReceiptRejectionTag,
   AdmissionPeriodRejectionTag,
   PublicApplicationRejectionTag,
   RecruitmentRejectionTag,
   OrganizationRejectionTag,
+  ProfileRejectionTag,
   SchoolsFailure,
   SchoolsSdkError,
   SchoolsRejectionTag,
@@ -51,6 +54,8 @@ export type {
 export {
   Configuration,
   Network,
+  ProfileAuthorityInactive,
+  ProfileNotInScope,
   SchoolsAuthorityInactive,
   SchoolsDecodeError,
   SchoolsDepartmentNotFound,
@@ -209,7 +214,6 @@ export type {
 export type { SchedulingAssistant, Substitute } from "./schemas/scheduling.js";
 export {
   SchoolId,
-  SchoolDepartmentId,
   SchoolLanguageSchema,
   SchoolDirectoryDepartmentSchema,
   SchoolDirectoryDepartmentsSchema,

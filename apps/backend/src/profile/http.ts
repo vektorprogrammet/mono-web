@@ -1,8 +1,4 @@
-import {
-  OwnProfile,
-  Profile,
-  UpdateOwnProfileCommand,
-} from "@vektorprogrammet/domain/profile";
+import { OwnProfile, Profile, UpdateOwnProfileCommand } from "@vektorprogrammet/domain/profile";
 import { Effect, Match, Schema } from "effect";
 import type { BackendConfig } from "../config.js";
 import type { BackendRun } from "../router.js";
@@ -37,7 +33,8 @@ const UserProfile = Schema.Struct({
 
 type ProfileHttpErrorTag =
   | "UnauthenticatedActor"
-  | "InactiveActor"
+  | "AuthorityInactive"
+  | "NotInScope"
   | "ProfileDecodeError"
   | "ProfileNotFound"
   | "ProfileContactNotFound"
@@ -47,7 +44,8 @@ type ProfileHttpErrorTag =
 
 const ProfileHttpErrorTag = Schema.Literals([
   "UnauthenticatedActor",
-  "InactiveActor",
+  "AuthorityInactive",
+  "NotInScope",
   "ProfileDecodeError",
   "ProfileNotFound",
   "ProfileContactNotFound",
@@ -84,7 +82,8 @@ const errorTag = (cause: unknown): ProfileHttpErrorTag => {
 
 const statusForErrorTag = (tag: ProfileHttpErrorTag): number =>
   Match.value(tag).pipe(
-    Match.whenOr("UnauthenticatedActor", "InactiveActor", () => 401),
+    Match.when("UnauthenticatedActor", () => 401),
+    Match.whenOr("AuthorityInactive", "NotInScope", () => 403),
     Match.when("ProfileDecodeError", () => 422),
     Match.whenOr("ProfileNotFound", "ProfileContactNotFound", () => 404),
     Match.whenOr("ProfileStaleRevision", "ProfileCommandConflict", () => 409),
@@ -102,15 +101,12 @@ interface ProfileActor {
   readonly role: UserRole;
 }
 
-const actorFor = async (
-  request: Request,
-  input: ProfileApiHttpOptions,
-): Promise<ProfileActor> => {
+const actorFor = async (request: Request, input: ProfileApiHttpOptions): Promise<ProfileActor> => {
   try {
     return await input.resolveActor(request);
   } catch (cause) {
     if (cause !== null && typeof cause === "object" && "_tag" in cause) throw cause;
-    throw taggedError("UnauthenticatedActor");
+    throw taggedError("ProfilePersistenceError");
   }
 };
 

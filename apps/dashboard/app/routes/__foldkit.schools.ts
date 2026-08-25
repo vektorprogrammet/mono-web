@@ -1,7 +1,7 @@
 import {
   ConfigurationError,
   NetworkError,
-  SchoolDepartmentId,
+  DepartmentId,
   SchoolDirectorySchema,
   SchoolsRejectionError,
   UnauthorizedError,
@@ -40,13 +40,18 @@ const statusFor = (tag: SchoolsBridgeErrorTag): number => {
 
 const tagFrom = (error: unknown): SchoolsBridgeErrorTag => {
   if (error instanceof SchoolsRejectionError) return error.schoolsTag;
+  if (error instanceof Response && error.status >= 300 && error.status < 400) {
+    return "UnauthenticatedActor";
+  }
   if (error instanceof UnauthorizedError) return "UnauthenticatedActor";
   if (error instanceof ConfigurationError) return "Configuration";
-  if (error instanceof NetworkError) return "Network";
-  return "Network";
+  if (error instanceof NetworkError) {
+    return error.cause === undefined ? "SchoolsPersistenceError" : "Network";
+  }
+  return "SchoolsPersistenceError";
 };
 
-const decodeDepartment = (request: Request): typeof SchoolDepartmentId.Type | undefined => {
+const decodeDepartment = (request: Request): typeof DepartmentId.Type | undefined => {
   const search = new URL(request.url).searchParams;
   if ([...search.keys()].some((key) => key !== "department")) {
     throw new Error("unexpected Schools bridge query parameter");
@@ -54,21 +59,22 @@ const decodeDepartment = (request: Request): typeof SchoolDepartmentId.Type | un
   const values = search.getAll("department");
   if (values.length === 0) return undefined;
   if (values.length !== 1) throw new Error("duplicate Schools bridge department");
-  return S.decodeUnknownSync(SchoolDepartmentId)(values[0]);
+  return S.decodeUnknownSync(DepartmentId)(values[0]);
 };
 
 export async function loader({ request }: Route.LoaderArgs) {
   let cookie: string;
   try {
     cookie = await requireAuth(request);
-  } catch {
-    return data(schoolsBridgeFailure("UnauthenticatedActor"), {
-      status: 401,
+  } catch (error) {
+    const tag = tagFrom(error);
+    return data(schoolsBridgeFailure(tag), {
+      status: statusFor(tag),
       headers: responseHeaders,
     });
   }
 
-  let department: typeof SchoolDepartmentId.Type | undefined;
+  let department: typeof DepartmentId.Type | undefined;
   try {
     department = decodeDepartment(request);
   } catch {

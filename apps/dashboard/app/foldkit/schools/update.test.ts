@@ -1,4 +1,4 @@
-import { SchoolDepartmentId, SchoolId, type SchoolDirectory } from "@vektorprogrammet/sdk/effect";
+import { DepartmentId, SchoolId, type SchoolDirectory } from "@vektorprogrammet/sdk/effect";
 import { Tabs } from "@foldkit/ui";
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
@@ -15,8 +15,8 @@ import {
 import { SchoolDirectoryData, makeInitialModel } from "./model";
 import { makeUpdate } from "./update";
 
-const departmentA = SchoolDepartmentId.make("department-a");
-const departmentB = SchoolDepartmentId.make("department-b");
+const departmentA = DepartmentId.make("department-a");
+const departmentB = DepartmentId.make("department-b");
 const directory: SchoolDirectory = {
   activeSchools: [
     {
@@ -36,7 +36,7 @@ const directory: SchoolDirectory = {
   inactiveSchools: [],
 };
 
-const listInputs: Array<{ readonly department?: typeof SchoolDepartmentId.Type }> = [];
+const listInputs: Array<{ readonly department?: typeof DepartmentId.Type }> = [];
 const client: SchoolsDirectoryClient = {
   admin: {
     schools: {

@@ -10,7 +10,7 @@ import { canViewLink, navigationSections } from "./navigation";
 import { update } from "./update";
 
 const input = {
-  identity: { name: "Ada Lovelace", avatar: null },
+  user: { name: "Ada Lovelace", avatar: null },
   role: "ROLE_TEAM_MEMBER" as const,
   activePath: "/dashboard/intervjuer",
   summary: { _tag: "Unavailable" as const },

@@ -53,7 +53,7 @@ const failureFromTag = (
   }
 };
 
-const readBridge = async (input: AdminSchoolsListInput): Promise<Response> => {
+const readBridge = async (input: AdminSchoolsListInput, signal: AbortSignal): Promise<Response> => {
   const search = new URLSearchParams();
   if (input.department !== undefined) search.set("department", input.department);
   const query = search.size === 0 ? "" : `?${search.toString()}`;
@@ -61,6 +61,7 @@ const readBridge = async (input: AdminSchoolsListInput): Promise<Response> => {
     method: "GET",
     credentials: "same-origin",
     headers: { accept: "application/json" },
+    signal,
   });
 };
 
@@ -68,7 +69,7 @@ const listDirectory = (
   input: AdminSchoolsListInput = {},
 ): Effect.Effect<SchoolDirectory, InternalSdkError> =>
   Effect.tryPromise({
-    try: () => readBridge(input),
+    try: (signal) => readBridge(input, signal),
     catch: (cause) => new Network({ message: "Schools bridge request failed", cause }),
   }).pipe(
     Effect.flatMap((response) =>

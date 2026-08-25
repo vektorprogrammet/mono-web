@@ -27,7 +27,13 @@ export {
   ReceiptFileNotStagedError,
   ReceiptPersistenceSdkError,
 } from "./errors.js";
-export type { SdkErrorType, ReceiptRejectionTag, OrganizationRejectionTag } from "./errors.js";
+export { ProfileRejectionError } from "./errors.js";
+export type {
+  SdkErrorType,
+  ReceiptRejectionTag,
+  OrganizationRejectionTag,
+  ProfileRejectionTag,
+} from "./errors.js";
 export {
   OrganizationRejectionError,
   OrganizationUnauthenticatedActorError,
@@ -296,7 +302,6 @@ export type {
 export {
   SchoolsRejectionError,
   SchoolId,
-  SchoolDepartmentId,
   SchoolLanguageSchema,
   SchoolDirectoryDepartmentSchema,
   SchoolDirectoryDepartmentsSchema,

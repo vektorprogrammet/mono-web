@@ -19,6 +19,7 @@ import {
   recruitmentBoardActorFrom,
   resolveAuthenticatedPerson,
   resolveAuthenticatedPersonAtInstant,
+  resolveAuthenticatedSession,
   resolvePersonAuthority,
 } from "./authority.js";
 import type { BackendConfig } from "./config.js";
@@ -48,6 +49,14 @@ const jsonResponse = (body: unknown, status = 200): Response =>
       "cache-control": "no-store",
     },
   });
+
+const profileAuthorityError = (
+  tag: "AuthorityInactive" | "NotInScope",
+): Error & { readonly _tag: typeof tag } => {
+  const error = new Error(tag) as Error & { readonly _tag: typeof tag };
+  Object.defineProperty(error, "_tag", { value: tag, enumerable: true });
+  return error;
+};
 
 const isAdmissionRoute = (pathname: string): boolean =>
   pathname === "/api/admission-periods/open" ||
@@ -199,21 +208,22 @@ export const makeBackendHttp = (
       // the typed profile denial instead of an ambiguous default role.
       const decision = profileRoleFrom(authority);
       if (decision._tag === "Deny") {
-        throw decision.reason === "AuthorityInactive"
-          ? new InactiveActor({ personId: authority.personId })
-          : new UnauthenticatedActor({ message: "no organization authority" });
+        if (decision.reason === "Unauthenticated") {
+          throw new UnauthenticatedActor({ message: "profile authority is unauthenticated" });
+        }
+        throw profileAuthorityError(
+          decision.reason === "AuthorityInactive" ? "AuthorityInactive" : "NotInScope",
+        );
       }
       return { personId: authority.personId, role: decision.value };
     },
     run,
   });
 
-  /** Strict session read: raw Cookie header in, actor projection or 401 out. */
+  /** Strict session read: raw Cookie header in, actor projection or typed failure out. */
   const meSession = async (request: Request): Promise<Response> => {
     const cookie = request.headers.get("cookie") ?? undefined;
-    const actor = await run(
-      Auth.use(({ resolveSession }) => Effect.promise(() => resolveSession(cookie))),
-    );
+    const actor = await resolveAuthenticatedSession(cookie, { run });
     return jsonResponse({
       personId: actor.personId,
       expiresAt: DateTime.toDateUtc(actor.expiresAt).toISOString(),
@@ -245,8 +255,16 @@ export const makeBackendHttp = (
       if (request.method === "GET" && pathname === "/api/me/session") {
         try {
           return await meSession(request);
-        } catch {
-          return jsonResponse({ error: { tag: "UnauthenticatedActor" } }, 401);
+        } catch (cause) {
+          const unauthenticated = cause instanceof UnauthenticatedActor;
+          return jsonResponse(
+            {
+              error: {
+                tag: unauthenticated ? "UnauthenticatedActor" : "AuthEngineError",
+              },
+            },
+            unauthenticated ? 401 : 503,
+          );
         }
       }
       if (pathname === "/api/me") return profile.fetch(request);

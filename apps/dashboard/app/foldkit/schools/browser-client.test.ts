@@ -1,5 +1,8 @@
-import { Effect, Schema as S } from "effect";
+import { DepartmentId, SchoolDirectorySchema } from "@vektorprogrammet/sdk/effect";
+import { Effect, Fiber, Schema as S } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createBrowserSchoolsDirectoryClient } from "./browser-client";
+import { SchoolDirectoryData, makeInitialModel, type Model } from "./model";
 
 const directory = {
   activeSchools: [
@@ -27,7 +30,6 @@ describe("Schools directory browser client", () => {
   const fetchMock = vi.fn<typeof fetch>();
 
   beforeEach(() => {
-    vi.resetModules();
     vi.stubGlobal("fetch", fetchMock);
     fetchMock.mockReset();
   });
@@ -38,12 +40,10 @@ describe("Schools directory browser client", () => {
 
   it("sends one credentialed native request with optional department narrowing", async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse(directory));
-    const { SchoolDepartmentId } = await import("@vektorprogrammet/sdk/effect");
-    const { createBrowserSchoolsDirectoryClient } = await import("./browser-client");
 
     const result = await Effect.runPromise(
       createBrowserSchoolsDirectoryClient().admin.schools.list({
-        department: S.decodeUnknownSync(SchoolDepartmentId)("department-a"),
+        department: S.decodeUnknownSync(DepartmentId)("department-a"),
       }),
     );
 
@@ -53,11 +53,65 @@ describe("Schools directory browser client", () => {
     expect(String(url)).toBe("/schools?department=department-a");
     expect(init?.method).toBe("GET");
     expect(init?.credentials ?? "same-origin").toBe("same-origin");
+    expect(init?.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it("aborts the owning runtime's in-flight request without replacing its model", async () => {
+    const started = Promise.withResolvers<void>();
+    let requestSignal: AbortSignal | undefined;
+    let abortObservations = 0;
+    fetchMock.mockImplementationOnce((_input, init) => {
+      const signal = init?.signal ?? undefined;
+      requestSignal = signal;
+      started.resolve();
+      return new Promise<Response>((_resolve, reject) => {
+        if (signal === undefined) {
+          reject(new Error("missing abort signal"));
+          return;
+        }
+        signal.addEventListener(
+          "abort",
+          () => {
+            abortObservations += 1;
+            reject(new Error("aborted"));
+          },
+          { once: true },
+        );
+      });
+    });
+    const existingModel: Model = {
+      ...makeInitialModel(),
+      directory: SchoolDirectoryData.Success({
+        data: S.decodeUnknownSync(SchoolDirectorySchema)(directory),
+      }),
+    };
+    let renderedModel: Model = existingModel;
+    const fiber = Effect.runFork(
+      createBrowserSchoolsDirectoryClient()
+        .admin.schools.list()
+        .pipe(
+          Effect.tap((nextDirectory) =>
+            Effect.sync(() => {
+              renderedModel = {
+                ...renderedModel,
+                directory: SchoolDirectoryData.Success({ data: nextDirectory }),
+              };
+            }),
+          ),
+        ),
+    );
+
+    await started.promise;
+    await Effect.runPromise(Fiber.interrupt(fiber));
+
+    expect(requestSignal).toBeInstanceOf(AbortSignal);
+    expect(requestSignal?.aborted).toBe(true);
+    expect(abortObservations).toBe(1);
+    expect(renderedModel).toBe(existingModel);
   });
 
   it("strictly rejects excess response fields", async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse({ ...directory, legacyCapacity: {} }));
-    const { createBrowserSchoolsDirectoryClient } = await import("./browser-client");
 
     const failure = await Effect.runPromise(
       createBrowserSchoolsDirectoryClient().admin.schools.list().pipe(Effect.flip),
@@ -68,7 +122,6 @@ describe("Schools directory browser client", () => {
 
   it("preserves a typed Schools rejection returned by the authenticated bridge", async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse({ error: { tag: "AuthorityInactive" } }, 403));
-    const { createBrowserSchoolsDirectoryClient } = await import("./browser-client");
 
     const failure = await Effect.runPromise(
       createBrowserSchoolsDirectoryClient().admin.schools.list().pipe(Effect.flip),

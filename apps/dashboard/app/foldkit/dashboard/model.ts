@@ -28,8 +28,8 @@ export const LandingSummary = S.Union([AvailableLandingSummary, UnavailableLandi
 export type LandingSummary = S.Schema.Type<typeof LandingSummary>;
 
 export const DashboardInput = S.Struct({
-  identity: DashboardIdentity,
-  role: DashboardRole,
+  user: S.NullOr(DashboardIdentity),
+  role: S.NullOr(DashboardRole),
   activePath: S.String,
   summary: LandingSummary,
   recruitment: S.NullOr(RecruitmentInput),
@@ -41,8 +41,8 @@ export const DashboardInputJson = S.fromJsonString(DashboardInput);
 
 const ReadyModel = S.Struct({
   _tag: S.Literal("Ready"),
-  identity: DashboardIdentity,
-  role: DashboardRole,
+  user: S.NullOr(DashboardIdentity),
+  role: S.NullOr(DashboardRole),
   activePath: S.String,
   summary: LandingSummary,
   recruitment: S.NullOr(RecruitmentInput),

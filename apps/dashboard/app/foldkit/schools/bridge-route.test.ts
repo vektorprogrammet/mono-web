@@ -1,4 +1,4 @@
-import { SchoolsRejectionError } from "@vektorprogrammet/sdk";
+import { ConfigurationError, NetworkError, SchoolsRejectionError } from "@vektorprogrammet/sdk";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -14,6 +14,8 @@ vi.mock("../../lib/api.server", () => ({
 
 import { loader } from "../../routes/__foldkit.schools";
 
+const departmentId = "d".repeat(256);
+
 const directory = {
   activeSchools: [
     {
@@ -23,7 +25,7 @@ const directory = {
       email: "ada@example.invalid",
       phone: "+47 111 11 111",
       language: "Norwegian" as const,
-      departments: [{ departmentId: "department-a", name: "Avdeling A" }],
+      departments: [{ departmentId, name: "Avdeling A" }],
       isActive: true,
     },
   ],
@@ -43,7 +45,7 @@ describe("authenticated Schools Foldkit bridge", () => {
     mocks.list.mockResolvedValue(directory);
   });
 
-  it("requires the dashboard session before constructing an SDK client", async () => {
+  it("returns 401 for an invalid or expired dashboard session", async () => {
     mocks.requireAuth.mockRejectedValueOnce(new Response(null, { status: 302 }));
 
     const response = await load();
@@ -56,8 +58,38 @@ describe("authenticated Schools Foldkit bridge", () => {
     expect(mocks.list).not.toHaveBeenCalled();
   });
 
-  it("forwards one strictly decoded list call with optional narrowing", async () => {
-    const response = await load("/schools?department=department-a");
+  it.each([
+    [
+      "network failure",
+      new NetworkError("connection refused", new TypeError("connection refused")),
+      502,
+      "Network",
+    ],
+    [
+      "configuration failure",
+      new ConfigurationError("API URL is not configured"),
+      503,
+      "Configuration",
+    ],
+    ["server provider failure", new NetworkError("HTTP 503"), 503, "SchoolsPersistenceError"],
+    ["unknown provider failure", new Error("provider unavailable"), 503, "SchoolsPersistenceError"],
+  ] as const)(
+    "maps a session %s without constructing a Schools client",
+    async (_name, failure, expectedStatus, expectedTag) => {
+      mocks.requireAuth.mockRejectedValueOnce(failure);
+
+      const response = await load();
+
+      expect(response.init?.status).toBe(expectedStatus);
+      expect(response.data).toEqual({ error: { tag: expectedTag } });
+      expect(mocks.createAuthenticatedClient).not.toHaveBeenCalled();
+      expect(mocks.list).not.toHaveBeenCalled();
+    },
+  );
+
+  it("round-trips a canonical 256-character department through the strict bridge", async () => {
+    const response = await load(`/schools?department=${departmentId}`);
+    expect(departmentId).toHaveLength(256);
 
     expect(response.init?.status ?? 200).toBe(200);
     expect(new Headers(response.init?.headers).get("cache-control")).toBe("no-store");
@@ -66,7 +98,7 @@ describe("authenticated Schools Foldkit bridge", () => {
       "better-auth.session_token=session-value",
     );
     expect(mocks.list).toHaveBeenCalledTimes(1);
-    expect(mocks.list).toHaveBeenCalledWith({ department: "department-a" });
+    expect(mocks.list).toHaveBeenCalledWith({ department: departmentId });
   });
 
   it("mirrors a typed backend Schools rejection and status", async () => {

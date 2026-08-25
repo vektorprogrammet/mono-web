@@ -1,7 +1,9 @@
 import type { Admissions } from "@vektorprogrammet/domain/admissions";
 import {
   Auth,
+  AuthEngineError,
   AuthenticatedActor,
+  AuthSessionExpired,
   AuthSessionNotFound,
   type AuthShape,
 } from "@vektorprogrammet/domain/auth";
@@ -146,35 +148,41 @@ const schools = Schools.of({
   listDirectory: () => Effect.succeed({ activeSchools: [], inactiveSchools: [] }),
 });
 
-const successfulRun: BackendRun = <A, E>(
-  effect: Effect.Effect<
-    A,
-    E,
-    Database | Admissions | Economy | Organization | Profile | Recruitment | Schools | Auth
-  >,
-): Promise<A> =>
-  Effect.runPromise(
-    effect.pipe(
-      Effect.provideService(Database, database),
-      Effect.provideService(Profile, profile),
-      Effect.provideService(Organization, organization),
-      Effect.provideService(Schools, schools),
-      Effect.provideService(Auth, {
-        signIn: () => Promise.reject(new Error("unexpected sign-in")),
-        resolveSession: async (cookieHeader: string | undefined) => {
-          if (cookieHeader !== undefined && cookieHeader.includes(`${token}=`)) {
-            return new AuthenticatedActor({
-              personId: "member-1" as never,
-              sessionId: "session-1",
-              expiresAt: DateTime.makeUnsafe(new Date("2031-09-16T12:00:00.000Z")),
-            });
-          }
-          throw new AuthSessionNotFound({ sessionToken: "" });
-        },
-        signOut: async () => undefined,
-      } as unknown as AuthShape),
-    ) as Effect.Effect<A, E>,
-  );
+const makeRun =
+  (auth: AuthShape): BackendRun =>
+  <A, E>(
+    effect: Effect.Effect<
+      A,
+      E,
+      Database | Admissions | Economy | Organization | Profile | Recruitment | Schools | Auth
+    >,
+  ): Promise<A> =>
+    Effect.runPromise(
+      effect.pipe(
+        Effect.provideService(Database, database),
+        Effect.provideService(Profile, profile),
+        Effect.provideService(Organization, organization),
+        Effect.provideService(Schools, schools),
+        Effect.provideService(Auth, auth),
+      ) as Effect.Effect<A, E>,
+    );
+
+const successfulAuth = Auth.of({
+  signIn: () => Promise.reject(new Error("unexpected sign-in")),
+  resolveSession: async (cookieHeader: string | undefined) => {
+    if (cookieHeader !== undefined && cookieHeader.includes(`${token}=`)) {
+      return new AuthenticatedActor({
+        personId: "member-1" as never,
+        sessionId: "session-1",
+        expiresAt: DateTime.makeUnsafe(new Date("2031-09-16T12:00:00.000Z")),
+      });
+    }
+    throw new AuthSessionNotFound({ sessionToken: "" });
+  },
+  signOut: async () => undefined,
+} satisfies AuthShape);
+
+const successfulRun = makeRun(successfulAuth);
 const backend = makeBackendHttp(config, successfulRun, {
   handle: async () => new Response(null, { status: 404 }),
 });
@@ -287,6 +295,48 @@ describe("unified backend router", () => {
     expect(anonymous.status).toBe(401);
     expect(await anonymous.json()).toEqual({ error: { tag: "UnauthenticatedActor" } });
   });
+
+  it.each([
+    [
+      "expired session",
+      new AuthSessionExpired({ sessionToken: "expired-session" }),
+      401,
+      "UnauthenticatedActor",
+    ],
+    [
+      "typed provider failure",
+      new AuthEngineError({
+        operation: "getSession",
+        message: "authentication provider unavailable",
+      }),
+      503,
+      "AuthEngineError",
+    ],
+    ["unknown provider failure", new Error("connection refused"), 503, "AuthEngineError"],
+  ] as const)(
+    "maps %s at the session HTTP boundary",
+    async (_name, failure, expectedStatus, expectedTag) => {
+      const failingBackend = makeBackendHttp(
+        config,
+        makeRun({
+          ...successfulAuth,
+          resolveSession: () => Promise.reject(failure),
+        }),
+        { handle: async () => new Response(null, { status: 404 }) },
+      );
+
+      const response = await failingBackend.fetch(
+        new Request("http://backend.test/api/me/session", {
+          headers: { cookie: "better-auth.session_token=session-value" },
+        }),
+      );
+
+      expect({ status: response.status, body: await response.json() }).toEqual({
+        status: expectedStatus,
+        body: { error: { tag: expectedTag } },
+      });
+    },
+  );
 
   it("mounts the auth engine handler over the /api/auth/* surface", async () => {
     const calls: Array<string> = [];

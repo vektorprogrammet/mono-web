@@ -56,7 +56,7 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   const dashboardInput = S.decodeUnknownSync(DashboardInput)(
     {
-      identity: {
+      user: {
         name: `${profile.firstName} ${profile.lastName}`.trim(),
         avatar: null,
       },

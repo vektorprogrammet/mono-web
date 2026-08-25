@@ -1,5 +1,5 @@
 import {
-  SchoolDepartmentId,
+  DepartmentId,
   SchoolDirectoryDepartmentSchema,
   SchoolDirectorySchema,
 } from "@vektorprogrammet/sdk/effect";
@@ -27,13 +27,13 @@ export const Model = S.Struct({
   selectedTab: SchoolDirectoryTab,
   tabs: Tabs.Model,
   searchText: S.String,
-  department: S.NullOr(SchoolDepartmentId),
+  department: S.NullOr(DepartmentId),
   knownDepartments: S.Array(SchoolDirectoryDepartmentSchema),
 });
 export type Model = S.Schema.Type<typeof Model>;
 
 export const makeInitialModel = (
-  department: S.Schema.Type<typeof SchoolDepartmentId> | null = null,
+  department: S.Schema.Type<typeof DepartmentId> | null = null,
 ): Model => ({
   directory: SchoolDirectoryData.Loading(),
   requestId: 1,

@@ -1,4 +1,4 @@
-import { SchoolDepartmentId, type InternalSdkError } from "@vektorprogrammet/sdk/effect";
+import { DepartmentId, type InternalSdkError } from "@vektorprogrammet/sdk/effect";
 import { Effect, Schema as S } from "effect";
 import { Command } from "foldkit";
 import type { SchoolsDirectoryClient } from "./browser-client";
@@ -9,7 +9,7 @@ import { SchoolDirectoryRequestId } from "./model";
 export interface SchoolsDirectoryCommands {
   readonly LoadDirectory: (args: {
     readonly requestId: S.Schema.Type<typeof SchoolDirectoryRequestId>;
-    readonly department: S.Schema.Type<typeof SchoolDepartmentId> | null;
+    readonly department: S.Schema.Type<typeof DepartmentId> | null;
   }) => Command.Command<Message>;
 }
 
@@ -37,7 +37,7 @@ export const makeSchoolsDirectoryCommands = (
   const LoadDirectory = Command.define("LoadSchoolsDirectory", {
     args: {
       requestId: SchoolDirectoryRequestId,
-      department: S.NullOr(SchoolDepartmentId),
+      department: S.NullOr(DepartmentId),
     },
     messages: [SucceededDirectory, FailedDirectory],
     execute: ({ requestId, department }) =>

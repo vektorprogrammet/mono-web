@@ -15,6 +15,7 @@ export interface MeDomain {
 
 const strictProfile = {
   strict: true,
+  errorFamily: "profile",
   decodeError: () =>
     new Validation({ message: "Invalid profile representation", fields: {} }),
   expectedStatus: 200,
