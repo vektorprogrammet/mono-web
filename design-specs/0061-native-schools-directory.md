@@ -5,12 +5,24 @@
 | Field | Value |
 |---|---|
 | Goal | Replace the dead `/dashboard/skoler` loader with one native school directory read |
-| Status | Frozen before implementation |
+| Status | Frozen revision 0061.1 before HTTP, SDK, and UI implementation |
 | Base | `2e031738d12f94c611426c5ac884861dec227abd` (`2e03173`) |
 | Depends on | 0040 logical capability topology, 0045 Effect Model and Service authority, 0055 person-keyed authorization authorities |
 | Route | `/dashboard/skoler` |
 | HTTP | `GET /api/admin/schools` |
 | Operator boundary | No production import, production data change, credentials, deployment, or external effect |
+
+## Revision history
+
+### 0061.1
+
+The first domain slice exposed a contradiction in the original paging contract.
+
+An HTTP cursor walk uses separate requests. Each request opens a separate transaction and database snapshot.
+
+Revision 0061.1 removes paging before HTTP, SDK, or UI implementation. The full visible directory now comes from one query and one snapshot.
+
+This revision keeps every authority, ownership, and persistence decision from revision 0061.
 
 ## Problem
 
@@ -183,13 +195,12 @@ A later capacity journey must use this canonical weekday shape. It cannot restor
 }
 ```
 
-`SchoolDirectoryPage` contains exactly:
+`SchoolDirectory` contains exactly:
 
 ```text
 {
   activeSchools: SchoolDirectoryEntry[],
-  inactiveSchools: SchoolDirectoryEntry[],
-  nextCursor: string | null
+  inactiveSchools: SchoolDirectoryEntry[]
 }
 ```
 
@@ -211,12 +222,11 @@ Global administrators can also observe an unassigned school. Its `departments` v
 6. A scoped caller never observes an unauthorized department association.
 7. Active state comes only from `School.active`.
 8. Global-administrator status does not change a school's active state.
-9. Rows order by `name COLLATE "C"`, then `schoolId`.
-10. A cursor names the last emitted `(name, schoolId)` tuple.
-11. The next page resumes strictly after that tuple.
-12. A full page walk visits each visible school exactly once inside one snapshot.
-13. Search changes only the Foldkit projection of loaded rows. It creates no server authority.
-14. Capacity rows cannot change any directory byte in this slice.
+9. The full response orders each array by `name COLLATE "C"`, then `schoolId`.
+10. One query materializes the full visible directory inside one read-only snapshot.
+11. Every visible school occurs exactly once in that full response.
+12. Search changes only the Foldkit projection of the fully loaded response. It creates no server authority.
+13. Capacity rows cannot change any directory byte in this slice.
 
 ## Authority matrix
 
@@ -248,19 +258,16 @@ listDirectory(input)
   input:
     scope: All | DepartmentIds<nonempty>
     departmentId?: DepartmentId
-    cursor?: SchoolDirectoryCursor
-    limit: integer in [1, 100]
-  -> SchoolDirectoryPage
+  -> SchoolDirectory
 ```
 
-The default limit is 50 at the HTTP boundary. The Service receives a decoded limit.
+The Service materializes the full visible directory with one query in the journey's read-only snapshot.
 
-`SchoolDirectoryCursor` is opaque outside the capability. It encodes version 1 and the last `(name, schoolId)` tuple.
+It does not expose a cursor, limit, page size, or snapshot handle.
 
 The Service fails with these typed failures only:
 
 - `SchoolsDecodeError`
-- `SchoolsCursorInvalid`
 - `SchoolsPersistenceError`
 
 Authorization is a named journey program, not a second Service:
@@ -323,12 +330,12 @@ There is no legacy-row import or production backfill. A later import requires a 
 The backend adds exactly this native read:
 
 ```text
-GET /api/admin/schools?department=<DepartmentId>&cursor=<opaque>&limit=<1..100>
+GET /api/admin/schools?department=<DepartmentId>
 ```
 
-All query parameters are optional. Unknown parameters fail strict decoding with HTTP 422.
+The endpoint accepts only the optional `department` query. Any other query parameter fails strict decoding with HTTP 422.
 
-The response is the exact `SchoolDirectoryPage` shape. It is not Hydra and has no JSON-LD fields.
+The response is the exact `SchoolDirectory` shape. It is not Hydra and has no JSON-LD fields.
 
 Failure mapping is exact:
 
@@ -338,7 +345,7 @@ Failure mapping is exact:
 | `AuthorityInactive` or `NotInScope` | 403 |
 | Unknown department | 422 |
 | Department outside caller scope | 403 |
-| Malformed cursor, limit, or query | 422 |
+| Malformed or unknown query | 422 |
 | Database or row decode failure | 503 |
 
 `GET /api/admin/scheduling/schools` does not become a native route. No forwarding or compatibility response remains.
@@ -352,9 +359,7 @@ client.admin.schools.list({ department? })
   -> { activeSchools: SchoolDirectoryEntry[], inactiveSchools: SchoolDirectoryEntry[] }
 ```
 
-The method calls `GET /api/admin/schools`. It walks `nextCursor` until the server returns null.
-
-The SDK sends the next cursor only after strict page decoding. It rejects a repeated cursor as a transport decode failure.
+The method makes one strict `GET /api/admin/schools` request. It returns the fully decoded response without a page walker.
 
 The clean cutover removes these parts:
 
@@ -378,13 +383,15 @@ Foldkit owns:
 - search text
 - optional department narrowing
 - request identity
-- page accumulation
+- the fully loaded directory response
 - retry count
 - stale-response rejection
 - empty, loading, denial, failure, and ready states
 - all rendered directory rows
 
 The Foldkit command uses only `client.admin.schools.list()`.
+
+Foldkit search owns the fully loaded response. It does not start another directory request.
 
 A success message replaces the Model only when its request ID matches the active request.
 
@@ -432,10 +439,10 @@ The evidence contains these parts:
 1. Model checks for every derived variant and excess-property rejection.
 2. Pure authority checks for every matrix row at exact interval boundaries.
 3. Pure projection checks for scope intersection, deduplication, tab partition, and stable ordering.
-4. PGlite checks for migration replay, foreign keys, and deterministic cursor walking.
-5. PostgreSQL checks for the read-only snapshot and a concurrent association change between pages.
-6. HTTP checks for 401, all 403 cases, 422 cases, empty success, and strict query decoding.
-7. SDK checks for strict page decoding, full cursor walking, repeated-cursor rejection, and Hydra rejection.
+4. PGlite checks for migration replay, foreign keys, and deterministic full-response ordering.
+5. PostgreSQL checks that one full read keeps one snapshot during a concurrent association change.
+6. HTTP checks for 401, all 403 cases, 422 cases, empty success, one full response, and strict query decoding.
+7. SDK checks for one strict request, exact full-response decoding, excess-property rejection, and Hydra rejection.
 8. Foldkit Update checks for loading, retry, stale result, tab, search, empty, denial, and failure transitions.
 9. Accessibility checks for the heading, tabs, search input, table, alert, and keyboard use.
 10. Real-session Chromium checks against disposable PostgreSQL and the native backend.
@@ -454,7 +461,7 @@ PGlite does not prove PostgreSQL snapshot behavior. Only the PostgreSQL check su
 
 ## Definition of done
 
-1. This frozen contract precedes implementation commits for `/dashboard/skoler`.
+1. Revision 0061.1 is frozen after the first domain slice and before HTTP, SDK, or UI implementation.
 2. The logical capability inventory includes `Schools` with the ownership and dependencies in this contract.
 3. One authoritative `School` model derives all persisted and JSON variants.
 4. The canonical migration creates only the school and department-association tables required by this read.
@@ -462,8 +469,8 @@ PGlite does not prove PostgreSQL snapshot behavior. Only the PostgreSQL check su
 6. `SchoolsLive` requires Database structurally and is built once in the process composition root.
 7. The named directory journey resolves one Organization projection at one `authorizationInstant` in one read-only snapshot.
 8. The team-member scope, administrator scope, inactive denial, and no-authority denial match the matrix.
-9. `GET /api/admin/schools` returns the exact strict page shape and failure statuses.
-10. The SDK exposes only `client.admin.schools.list()` for this directory and walks every page safely.
+9. `GET /api/admin/schools` returns the exact strict `SchoolDirectory` shape and failure statuses in one response.
+10. The SDK exposes only `client.admin.schools.list()` and makes one strict directory request.
 11. The old scheduling-school SDK method, schema export, fixture route, and production caller are removed.
 12. `/dashboard/skoler` is a full-Foldkit owner with no React data or interaction state.
 13. The ready page shows active and inactive tabs, search, and all six frozen columns.
@@ -486,7 +493,7 @@ This contract is incomplete if one condition occurs:
 - A scoped caller observes an unauthorized department association.
 - Capacity state changes a directory byte.
 - A nested group capacity is persisted or synthesized from one weekday record.
-- The response contains Hydra, JSON-LD, a total from Symfony pagination, or an excess field.
+- The response contains Hydra, JSON-LD, or an excess field.
 - The SDK accepts both the native and Symfony-shaped school responses.
 - The backend serves `/api/admin/scheduling/schools` as an alias or forwarder.
 - An HTTP adapter imports SQL or computes the directory projection.
