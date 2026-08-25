@@ -253,6 +253,14 @@ describe("spec 0059 team-interest HTTP boundary", () => {
       { name: "assistants-department-2", emails: [] },
     ]);
   });
+
+  it("rejects an unknown mailing-list type at the decode boundary", async () => {
+    const response = await get("/api/admin/mailing-lists?type=unknown", "session=admin-session");
+    expect(response.status).toBe(422);
+    expect(await response.json()).toEqual({
+      error: { tag: "OrganizationDecodeError" },
+    });
+  });
   it("narrows by department inside scope and denies out-of-scope with 403", async () => {
     const inScope = await get(
       "/api/admin/team-interest?department=department-1",

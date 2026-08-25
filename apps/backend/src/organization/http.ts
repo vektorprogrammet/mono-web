@@ -239,9 +239,7 @@ const listFieldOfStudies = async (
   input: OrganizationApiHttpOptions,
 ): Promise<Response> => {
   assertNoQuery(request);
-  const rows = await input.run(
-    Organization.use(({ listFieldOfStudies }) => listFieldOfStudies),
-  );
+  const rows = await input.run(Organization.use(({ listFieldOfStudies }) => listFieldOfStudies));
   return strictJsonResponse(rows, Schema.Array(FieldOfStudyJsonSchema), input);
 };
 
@@ -270,9 +268,7 @@ const createTeam = async (
   assertNoQuery(request);
   const actor = await actorFor(request, input);
   const command = await decodeCommand(request, CreateTeamCommandSchema, input);
-  const result = await input.run(
-    Organization.use(({ createTeam }) => createTeam(command, actor)),
-  );
+  const result = await input.run(Organization.use(({ createTeam }) => createTeam(command, actor)));
   return strictJsonResponse(result, CreateTeamResultSchema, input, result.committed ? 201 : 200);
 };
 
@@ -296,9 +292,7 @@ const createFieldOfStudy = async (
 
 const MailingListTypeSchema = Schema.Literals(["assistants", "team", "all"]);
 
-const optionalDepartmentParam = (
-  request: Request,
-): DepartmentId | undefined => {
+const optionalDepartmentParam = (request: Request): DepartmentId | undefined => {
   const value = new URL(request.url).searchParams.get("department");
   if (value === null) return undefined;
   if (value.trim().length === 0 || /[^a-zA-Z0-9._-]/u.test(value)) {
@@ -322,9 +316,7 @@ const authorizedDepartmentScope = async (
   input: OrganizationApiHttpOptions,
 ): Promise<ReadonlyArray<DepartmentId>> => {
   if (authority.globalAdministrator === "Active") {
-    const departments = await input.run(
-      Organization.use(({ listDepartments }) => listDepartments),
-    );
+    const departments = await input.run(Organization.use(({ listDepartments }) => listDepartments));
     return departments.map((department) => department.departmentId);
   }
   const departments = new Set<DepartmentId>();
@@ -383,9 +375,7 @@ const listTeamInterest = async (
     semesterId: optionalSemesterParam(request),
   };
   const rows = await input.run(
-    Organization.use(({ listTeamInterestRegistrations }) =>
-      listTeamInterestRegistrations(filter),
-    ),
+    Organization.use(({ listTeamInterestRegistrations }) => listTeamInterestRegistrations(filter)),
   );
   const envelope = {
     "hydra:member": rows.map((row) => ({
@@ -403,9 +393,11 @@ const listMailingLists = async (
   input: OrganizationApiHttpOptions,
 ): Promise<Response> => {
   const rawType = new URL(request.url).searchParams.get("type") ?? "assistants";
-  const decodedType = Schema.decodeUnknownSync(MailingListTypeSchema)(rawType, {
-    onExcessProperty: "error",
-  });
+  const decodedType = await input.run(
+    Schema.decodeUnknownEffect(MailingListTypeSchema)(rawType, {
+      onExcessProperty: "error",
+    }).pipe(Effect.mapError(() => taggedError("OrganizationDecodeError"))),
+  );
   const authority = await input.resolveAuthority(request);
   const requested = optionalDepartmentParam(request);
   const leaderScope = await authorizedDepartmentScope(authority, input);

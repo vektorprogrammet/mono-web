@@ -53,7 +53,7 @@ it.effect("joins the referenced team name into team-interest rows", () => {
       authorizedDepartmentIds: [DepartmentId.make("department-1")],
     });
     expect(statement).toContain("INNER JOIN organization_teams AS team");
-    expect(statement).toContain("team.name AS \"teamName\"");
+    expect(statement).toContain('team.name AS "teamName"');
     expect(registrations[0]?.teamName).toBe("Platform");
   }).pipe(Effect.provideService(Database, database));
 });

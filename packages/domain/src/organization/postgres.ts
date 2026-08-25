@@ -721,9 +721,7 @@ export const listOrganizationTeamInterestRegistrations = (
       ORDER BY registration.registration_id ASC
     `.pipe(
       Effect.catchTag("SqlError", (cause) =>
-        Effect.fail(
-          persistenceError("list organization team interest registrations", cause),
-        ),
+        Effect.fail(persistenceError("list organization team interest registrations", cause)),
       ),
     );
     return yield* Effect.forEach(rows, decodeTeamInterestRegistration);
