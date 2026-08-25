@@ -31,10 +31,9 @@ export class ContentAuthorityInactive extends Schema.TaggedError<ContentAuthorit
 export class ContentNotInScope extends Schema.TaggedError<ContentNotInScope>()("NotInScope", {}) {}
 
 /** An active member attempted a publisher act or touched someone else's draft. */
-export class ContentNotPublisher extends Schema.TaggedError<ContentNotPublisher>()(
-  "NotPublisher",
-  { articleId: ArticleId },
-) {}
+export class ContentNotPublisher extends Schema.TaggedError<ContentNotPublisher>()("NotPublisher", {
+  articleId: ArticleId,
+}) {}
 
 /** The caller revised a draft they do not own. */
 export class ContentDraftNotOwned extends Schema.TaggedError<ContentDraftNotOwned>()(
@@ -87,7 +86,9 @@ export type ContentManagementFailure =
   | ContentDraftNotOwned
   | ContentSlugConflict
   | ContentCommandConflict
-  | ContentDepartmentNotFound;
+  | ContentDepartmentNotFound
+  | ContentIntegrityError
+  | ContentArticleNotFound;
 
 export type ReadContentWorkspaceFailure = ContentManagementFailure;
 

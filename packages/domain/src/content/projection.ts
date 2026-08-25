@@ -150,13 +150,11 @@ export const projectPublishedNewsArticle = (
   bodyHtml,
   previousVersions: [...previousVersions]
     .sort((left, right) => right.versionNumber - left.versionNumber)
-    .map(
-      (version): PublishedNewsArticle["previousVersions"][number] => ({
-        versionNumber: version.versionNumber as never,
-        publishedAt: version.publishedAt,
-        urlPath: `/nyhet/${version.slug}?versjon=${version.versionNumber}`,
-      }),
-    ),
+    .map((version): PublishedNewsArticle["previousVersions"][number] => ({
+      versionNumber: version.versionNumber as never,
+      publishedAt: version.publishedAt,
+      urlPath: `/nyhet/${version.slug}?versjon=${version.versionNumber}`,
+    })),
 });
 
 // --- Slug generation (legacy transliteration law) ---

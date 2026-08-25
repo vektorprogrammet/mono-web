@@ -225,7 +225,8 @@ export const ContentWorkspaceSchema = Schema.Struct({
       Schema.makeFilter(
         (entries) =>
           entries.every(
-            (entry, index) => index === 0 || compareWorkspaceEntries(entries[index - 1]!, entry) < 0,
+            (entry, index) =>
+              index === 0 || compareWorkspaceEntries(entries[index - 1]!, entry) < 0,
           ),
         { message: "workspace entries ordered by updatedAt DESC then articleId DESC" },
       ),
@@ -284,9 +285,11 @@ export const PublishedNewsVersionRefSchema = Schema.Struct({
   versionNumber: VersionJsonFields.versionNumber,
   publishedAt: VersionJsonFields.publishedAt,
   urlPath: Schema.String.pipe(
-    Schema.check(Schema.makeFilter((value) => value.startsWith("/nyhet/"), {
-      message: "a stable /nyhet/ version path",
-    })),
+    Schema.check(
+      Schema.makeFilter((value) => value.startsWith("/nyhet/"), {
+        message: "a stable /nyhet/ version path",
+      }),
+    ),
   ),
 });
 export type PublishedNewsVersionRef = typeof PublishedNewsVersionRefSchema.Type;
@@ -307,8 +310,7 @@ export const PublishedNewsArticleSchema = Schema.Struct({
         (versions) =>
           versions.every(
             (version, index) =>
-              index === 0 ||
-              versions[index - 1]!.versionNumber > version.versionNumber,
+              index === 0 || versions[index - 1]!.versionNumber > version.versionNumber,
           ),
         { message: "previous versions sorted by descending version number" },
       ),
@@ -329,10 +331,9 @@ export const CreateArticleDraftInputSchema = Schema.Struct({
   bodyHtml: ArticleDraft.jsonCreate.fields.bodyHtml,
   departmentIds: Schema.Array(DepartmentId).pipe(
     Schema.check(
-      Schema.makeFilter(
-        (departmentIds) => new Set(departmentIds).size === departmentIds.length,
-        { message: "unique department identifiers" },
-      ),
+      Schema.makeFilter((departmentIds) => new Set(departmentIds).size === departmentIds.length, {
+        message: "unique department identifiers",
+      }),
     ),
   ),
   sticky: Schema.optional(ArticleDraft.jsonCreate.fields.sticky),
@@ -347,10 +348,9 @@ export const ReviseArticleDraftInputSchema = Schema.Struct({
   bodyHtml: ArticleDraft.jsonUpdate.fields.bodyHtml,
   departmentIds: Schema.Array(DepartmentId).pipe(
     Schema.check(
-      Schema.makeFilter(
-        (departmentIds) => new Set(departmentIds).size === departmentIds.length,
-        { message: "unique department identifiers" },
-      ),
+      Schema.makeFilter((departmentIds) => new Set(departmentIds).size === departmentIds.length, {
+        message: "unique department identifiers",
+      }),
     ),
   ),
   sticky: Schema.optional(ArticleDraft.jsonUpdate.fields.sticky),

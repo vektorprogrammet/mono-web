@@ -4,17 +4,16 @@ import type {
   ContentDecodeError,
   ContentArticleNotFound,
 } from "./errors.js";
-import type {
-  PublishedNewsArticle,
-  PublishedNewsListing,
-} from "./schema.js";
+import type { PublishedNewsArticle, PublishedNewsListing } from "./schema.js";
 
 export interface ContentShape {
   readonly readNewsListing: () => Effect.Effect<
     PublishedNewsListing,
     ContentDecodeError | ContentIntegrityError
   >;
-  readonly readPublishedArticle: (slug: string) => Effect.Effect<
+  readonly readPublishedArticle: (
+    slug: string,
+  ) => Effect.Effect<
     PublishedNewsArticle,
     ContentDecodeError | ContentIntegrityError | ContentArticleNotFound
   >;

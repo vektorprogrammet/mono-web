@@ -6,13 +6,10 @@ import type {
 } from "../organization/authority.js";
 import { Organization } from "../organization/service.js";
 import { Profile } from "../profile/service.js";
-import type { DepartmentId, PersonId } from "../organization/schema.js";
+import { DepartmentId, PersonId } from "../organization/schema.js";
+import { normalizeRfc3339Instant, Rfc3339InstantSchema } from "../time.js";
 import { canonicalJson, canonicalJsonBytes, sha256Hex } from "../tutor/evidence.js";
-import {
-  canPublishContent,
-  canReviseDraft,
-  resolveContentActor,
-} from "./actor.js";
+import { canPublishContent, canReviseDraft, resolveContentActor } from "./actor.js";
 import {
   ContentArticleNotFound,
   ContentAuthorityInactive,
@@ -28,14 +25,16 @@ import {
   type ContentManagementFailure,
 } from "./errors.js";
 import {
+  ArticleVersionNumber,
+  ContentWorkspaceQuerySchema,
+  ContentWorkspaceSchema,
   CreateArticleDraftInputSchema,
   PublishArticleInputSchema,
   PublishObservationSchema,
   ReviseArticleDraftInputSchema,
   UnpublishArticleInputSchema,
-  PublishObservationSchema as PublishObservationBoundary,
-  UnpublishObservationSchema as UnpublishObservationBoundary,
-  type ArticleId,
+  UnpublishObservationSchema,
+  ArticleId,
   type ContentWorkspace,
   type ContentWorkspaceQuery,
   type CreateArticleDraftInput,
@@ -54,37 +53,20 @@ const decodeError = (operation: string, cause: unknown): ContentDecodeError =>
 const persistenceError = (operation: string, cause: unknown): ContentPersistenceError =>
   new ContentPersistenceError({ operation, message: String(cause) });
 
-interface DraftRow {
-  readonly articleId: number;
-  readonly title: string;
-  readonly slug: string;
-  readonly bodyHtml: string;
-  readonly sticky: boolean;
-  readonly createdByPersonId: string;
-  readonly createdAt: Date | string;
-  readonly updatedAt: Date | string;
-  readonly currentVersionNumber: number | null;
-  readonly revision: number;
-}
-
-const instantFrom = (value: Date | string): string =>
-  typeof value === "string" ? value : value.toISOString();
+type DraftRow = typeof DraftRowSchema.Type;
 
 const DraftRowSchema = Schema.Struct({
-  articleId: Schema.Int.pipe(Schema.check(Schema.makeFilter(Number.isSafeInteger)), Schema.check(Schema.isGreaterThan(0))),
+  articleId: ArticleId,
+  createdByPersonId: PersonId,
   title: Schema.String,
   slug: Schema.String,
   bodyHtml: Schema.String,
   sticky: Schema.Boolean,
-  createdByPersonId: Schema.String,
-  createdAt: Schema.Union(Schema.Date, Schema.String),
-  updatedAt: Schema.Union(Schema.Date, Schema.String),
-  currentVersionNumber: Schema.NullOr(
-    Schema.Int.pipe(Schema.check(Schema.isGreaterThan(0))),
-  ),
+  createdAt: Rfc3339InstantSchema,
+  updatedAt: Rfc3339InstantSchema,
+  currentVersionNumber: Schema.NullOr(ArticleVersionNumber),
   revision: Schema.Int.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(0))),
 });
-
 
 const departmentIdsForArticles = (
   sql: DatabaseShape,
@@ -113,14 +95,10 @@ const departmentIdsForArticles = (
         }),
       );
 
-const decodeDraftRows = (selected: unknown): ReadonlyArray<DraftRow> => {
-  const rows = Schema.decodeUnknownSync(Schema.Array(DraftRowSchema))(selected);
-  return rows.map((row) => ({
-    ...row,
-    createdAt: instantFrom(row.createdAt),
-    updatedAt: instantFrom(row.updatedAt),
-  }));
-};
+const decodeDraftRows = (selected: unknown): ReadonlyArray<DraftRow> =>
+  Schema.decodeUnknownSync(Schema.Array(DraftRowSchema))(selected, {
+    onExcessProperty: "error",
+  });
 
 /**
  * Reads the caller-visible workspace in one repeatable-read, write-free
@@ -131,11 +109,7 @@ export const readWorkspacePostgres = (input: {
   readonly personId: PersonId;
   readonly authorizationInstant: OrganizationAuthorityInstant;
   readonly query: ContentWorkspaceQuery;
-}): Effect.Effect<
-  ContentWorkspace,
-  ContentManagementFailure,
-  Database | Organization | Profile
-> =>
+}): Effect.Effect<ContentWorkspace, ContentManagementFailure, Database | Organization | Profile> =>
   Effect.gen(function* () {
     const decodedQuery = yield* Schema.decodeUnknownEffect(ContentWorkspaceQuerySchema)(
       input.query,
@@ -166,12 +140,13 @@ export const readWorkspacePostgres = (input: {
               ? new ContentAuthorityInactive({})
               : new ContentNotInScope({});
           }
-          if (decodedQuery.departmentId !== undefined) {
-            yield* organization.readDepartment(decodedQuery.departmentId).pipe(
+          const filterDepartmentId = decodedQuery.departmentId;
+          if (filterDepartmentId !== undefined) {
+            yield* organization.readDepartment(filterDepartmentId).pipe(
               Effect.asVoid,
               Effect.mapError((cause) =>
                 cause._tag === "DepartmentNotFound"
-                  ? new ContentDepartmentNotFound({ departmentId: decodedQuery.departmentId })
+                  ? new ContentDepartmentNotFound({ departmentId: filterDepartmentId })
                   : persistenceError("read content department filter", cause),
               ),
             );
@@ -215,12 +190,10 @@ export const readWorkspacePostgres = (input: {
             });
           });
           const scoped =
-            decodedQuery.departmentId === undefined
+            filterDepartmentId === undefined
               ? visibleDrafts
               : visibleDrafts.filter((draft) =>
-                  (departmentIdsByArticle.get(draft.articleId) ?? []).includes(
-                    decodedQuery.departmentId,
-                  ),
+                  (departmentIdsByArticle.get(draft.articleId) ?? []).includes(filterDepartmentId),
                 );
           // Author display names resolve from one Profile read inside the
           // same snapshot; a missing profile row is a typed integrity
@@ -303,12 +276,20 @@ const findCommandReceipt = (
     ),
   );
 
-const decodeStoredObservation = <T>(
-  schema: Schema.Schema<T, unknown, never>,
+const decodeStoredPublish = (
   stored: unknown,
-): Effect.Effect<T, ContentPersistenceError> =>
-  Schema.decodeUnknownEffect(schema)(stored, { onExcessProperty: "error" }).pipe(
-    Effect.mapError((cause) => persistenceError("decode stored content observation", cause)),
+): Effect.Effect<PublishObservation, ContentPersistenceError> =>
+  Schema.decodeUnknownEffect(PublishObservationSchema)(stored, { onExcessProperty: "error" }).pipe(
+    Effect.mapError((cause) => persistenceError("decode stored publish observation", cause)),
+  );
+
+const decodeStoredUnpublish = (
+  stored: unknown,
+): Effect.Effect<UnpublishObservation, ContentPersistenceError> =>
+  Schema.decodeUnknownEffect(UnpublishObservationSchema)(stored, {
+    onExcessProperty: "error",
+  }).pipe(
+    Effect.mapError((cause) => persistenceError("decode stored unpublish observation", cause)),
   );
 
 const insertReceiptAndAudit = (input: {
@@ -426,29 +407,34 @@ const replaceArticleDepartments = (
   sql: DatabaseShape,
   articleId: number,
   departmentIds: ReadonlyArray<DepartmentId>,
-): Effect.Effect<void, ContentPersistenceError | ContentDepartmentNotFound> =>
-  Effect.gen(function* () {
-    yield* sql`DELETE FROM content_article_departments WHERE article_id = ${articleId}`.pipe(
+): Effect.Effect<void, ContentPersistenceError | ContentDepartmentNotFound> => {
+  const clear = sql`DELETE FROM content_article_departments WHERE article_id = ${articleId}`.pipe(
+    Effect.asVoid,
+    Effect.catchTag("SqlError", (cause) =>
+      Effect.fail(persistenceError("clear content departments", cause)),
+    ),
+  );
+  const insertOne = (departmentId: DepartmentId) =>
+    sql`
+      INSERT INTO content_article_departments (article_id, department_id)
+      VALUES (${articleId}, ${departmentId})
+    `.pipe(
       Effect.asVoid,
+      Effect.catchIf(
+        (cause: unknown): cause is ContentDepartmentNotFound =>
+          String(cause).includes("foreign key"),
+        () => new ContentDepartmentNotFound({ departmentId }),
+      ),
       Effect.catchTag("SqlError", (cause) =>
-        Effect.fail(persistenceError("clear content departments", cause)),
+        Effect.fail(persistenceError("insert content department link", cause)),
       ),
     );
-    for (const departmentId of departmentIds) {
-      yield* sql`
-        INSERT INTO content_article_departments (article_id, department_id)
-        VALUES (${articleId}, ${departmentId})
-      `.pipe(
-        Effect.asVoid,
-        Effect.catchTag("SqlError", (cause) =>
-          String(cause).includes("content_article_departments_department_id_fkey") ||
-          String(cause).includes("foreign key")
-            ? Effect.fail(new ContentDepartmentNotFound({ departmentId }))
-            : Effect.fail(persistenceError("insert content department link", cause)),
-        ),
-      );
-    }
-  });
+  return Effect.flatMap(clear, () =>
+    departmentIds.length === 0
+      ? Effect.void
+      : Effect.forEach(departmentIds, insertOne, { discard: true }),
+  ) as Effect.Effect<void, ContentPersistenceError | ContentDepartmentNotFound>;
+};
 
 /**
  * Creates one draft. The slug is generated from the title with the legacy
@@ -460,17 +446,7 @@ export const createDraftPostgres = (input: {
   readonly personId: PersonId;
   readonly authorizationInstant: OrganizationAuthorityInstant;
 }): Effect.Effect<
-  typeof CreateArticleDraftInputSchema.Type,
-  ContentManagementFailure,
-  Database | Organization
-> => createDraftPostgresImpl(input);
-
-const createDraftPostgresImpl = (input: {
-  readonly command: CreateArticleDraftInput;
-  readonly personId: PersonId;
-  readonly authorizationInstant: OrganizationAuthorityInstant;
-}): Effect.Effect<
-  unknown,
+  { readonly _tag: "DraftCreated"; readonly articleId: ArticleId; readonly slug: string },
   ContentManagementFailure,
   Database | Organization
 > =>
@@ -494,10 +470,7 @@ const createDraftPostgresImpl = (input: {
             personId: input.personId,
             authorizationInstant: input.authorizationInstant,
           });
-          const actor = yield* authorityDecisionOrDenial(
-            authority,
-            input.authorizationInstant,
-          );
+          const actor = yield* authorityDecisionOrDenial(authority, input.authorizationInstant);
           if (actor._tag === "ContentPublisher" || actor._tag === "ContentAdministrator") {
             // Publishers may not create org-wide drafts unless administrators.
           }
@@ -513,25 +486,24 @@ const createDraftPostgresImpl = (input: {
             return yield* new ContentNotInScope({});
           }
           const sticky = command.sticky ?? false;
-          if (sticky && actor._tag !== "ContentAdministrator" && actor._tag !== "ContentPublisher") {
-            return yield* new ContentNotPublisher({ articleId: -1 });
+          if (sticky && actor._tag === "ContentEditor") {
+            const deniedArticleId = ArticleId.make(-1);
+            return yield* new ContentNotPublisher({ articleId: deniedArticleId });
           }
           const baseSlug = slugifyTitle(command.title);
           if (!/^[a-z0-9-]+$/.test(baseSlug) || baseSlug.length === 0) {
             return yield* new ContentSlugConflict({});
           }
           const taken = new Set<string>(
-            (
-              yield* database<{ readonly slug: string }>`
+            (yield* database<{ readonly slug: string }>`
                 SELECT slug FROM content_articles WHERE slug LIKE ${`${baseSlug}%`}
                 UNION ALL
                 SELECT slug FROM content_article_versions WHERE slug LIKE ${`${baseSlug}%`}
               `.pipe(
-                Effect.catchTag("SqlError", (cause) =>
-                  Effect.fail(persistenceError("read existing slugs", cause)),
-                ),
-              )
-            ).map((row) => row.slug),
+              Effect.catchTag("SqlError", (cause) =>
+                Effect.fail(persistenceError("read existing slugs", cause)),
+              ),
+            )).map((row) => row.slug),
           );
           const slug = dedupeSlug(baseSlug, taken);
           const inserted = yield* database<{ readonly articleId: string }>`
@@ -548,7 +520,7 @@ const createDraftPostgresImpl = (input: {
               Effect.fail(persistenceError("insert content draft", cause)),
             ),
           );
-          const articleId = Number(inserted[0]?.articleId);
+          const articleId = ArticleId.make(Number(inserted[0]?.articleId));
           yield* replaceArticleDepartments(database, articleId, command.departmentIds);
           const observation = {
             _tag: "DraftCreated" as const,
@@ -607,17 +579,14 @@ export const publishPostgres = (input: {
             if (stored.payloadSha256 !== payloadDigest) {
               return yield* new ContentCommandConflict({ commandId: command.commandId });
             }
-            return yield* decodeStoredObservation(PublishObservationSchema, stored.resultJson);
+            return yield* decodeStoredPublish(stored.resultJson);
           }
           const authority = yield* resolveAuthorityInTransaction({
             organization,
             personId: input.personId,
             authorizationInstant: input.authorizationInstant,
           });
-          const actor = yield* authorityDecisionOrDenial(
-            authority,
-            input.authorizationInstant,
-          );
+          const actor = yield* authorityDecisionOrDenial(authority, input.authorizationInstant);
           const draft = yield* readDraftForUpdate(database, command.articleId);
           if (draft === undefined) {
             return yield* new ContentArticleNotFound({});
@@ -629,21 +598,29 @@ export const publishPostgres = (input: {
               ? new ContentNotPublisher({ articleId: draft.articleId })
               : new ContentNotInScope({});
           }
-          const nextVersionNumber = (draft.currentVersionNumber ?? 0) + 1;
-          const publishedAt = new Date().toISOString().replace(/\.\d{3}Z$/, ".000Z");
-          yield* database`
+          const nextVersionNumber = ArticleVersionNumber.make(
+            (draft.currentVersionNumber ?? 0) + 1,
+          );
+          // The publish instant is the database transaction's own clock
+          // (spec law 2): now() is inserted and returned as the observation.
+          const insertedVersion = yield* database<{ readonly publishedAt: string }>`
             INSERT INTO content_article_versions (
               article_id, version_number, title, slug, body_html, sticky,
               published_at, published_by_person_id
             ) VALUES (
               ${draft.articleId}, ${nextVersionNumber}, ${draft.title}, ${draft.slug},
-              ${draft.bodyHtml}, ${draft.sticky}, ${publishedAt}, ${input.personId}
+              ${draft.bodyHtml}, ${draft.sticky}, now(), ${input.personId}
             )
+            RETURNING to_char(
+              published_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'
+            ) AS "publishedAt"
           `.pipe(
-            Effect.asVoid,
             Effect.catchTag("SqlError", (cause) =>
               Effect.fail(persistenceError("insert published version", cause)),
             ),
+          );
+          const publishedAt = Rfc3339InstantSchema.make(
+            normalizeRfc3339Instant(insertedVersion[0]!.publishedAt),
           );
           yield* database`
             UPDATE content_articles
@@ -689,10 +666,9 @@ export const unpublishPostgres = (input: {
   readonly authorizationInstant: OrganizationAuthorityInstant;
 }): Effect.Effect<UnpublishObservation, ContentManagementFailure, Database | Organization> =>
   Effect.gen(function* () {
-    const command = yield* Schema.decodeUnknownEffect(UnpublishArticleInputSchema)(
-      input.command,
-      { onExcessProperty: "error" },
-    ).pipe(Effect.mapError((cause) => decodeError("decode unpublish command", cause)));
+    const command = yield* Schema.decodeUnknownEffect(UnpublishArticleInputSchema)(input.command, {
+      onExcessProperty: "error",
+    }).pipe(Effect.mapError((cause) => decodeError("decode unpublish command", cause)));
     const payloadDigest = sha256Hex(canonicalJsonBytes(command));
     const database = yield* Database;
     const organization = yield* Organization;
@@ -711,17 +687,14 @@ export const unpublishPostgres = (input: {
             if (stored.payloadSha256 !== payloadDigest) {
               return yield* new ContentCommandConflict({ commandId: command.commandId });
             }
-            return yield* decodeStoredObservation(UnpublishObservationSchema, stored.resultJson);
+            return yield* decodeStoredUnpublish(stored.resultJson);
           }
           const authority = yield* resolveAuthorityInTransaction({
             organization,
             personId: input.personId,
             authorizationInstant: input.authorizationInstant,
           });
-          const actor = yield* authorityDecisionOrDenial(
-            authority,
-            input.authorizationInstant,
-          );
+          const actor = yield* authorityDecisionOrDenial(authority, input.authorizationInstant);
           const draft = yield* readDraftForUpdate(database, command.articleId);
           if (draft === undefined) {
             return yield* new ContentArticleNotFound({});
@@ -781,10 +754,7 @@ export const reviseDraftPostgres = (input: {
       input.command,
       { onExcessProperty: "error" },
     ).pipe(Effect.mapError((cause) => decodeError("decode revise command", cause)));
-    const sanitizedBody = yield* sanitizeArticleBodyHtml(
-      "sanitize revise body",
-      command.bodyHtml,
-    );
+    const sanitizedBody = yield* sanitizeArticleBodyHtml("sanitize revise body", command.bodyHtml);
     const payloadDigest = sha256Hex(canonicalJsonBytes(command));
     const database = yield* Database;
     const organization = yield* Organization;
@@ -810,10 +780,7 @@ export const reviseDraftPostgres = (input: {
             personId: input.personId,
             authorizationInstant: input.authorizationInstant,
           });
-          const actor = yield* authorityDecisionOrDenial(
-            authority,
-            input.authorizationInstant,
-          );
+          const actor = yield* authorityDecisionOrDenial(authority, input.authorizationInstant);
           const draft = yield* readDraftForUpdate(database, command.articleId);
           if (draft === undefined) {
             return yield* new ContentArticleNotFound({});
@@ -821,11 +788,13 @@ export const reviseDraftPostgres = (input: {
           const departmentIds = yield* departmentIdsForArticles(database, [draft.articleId]);
           const current = departmentIds.get(draft.articleId) ?? [];
           const mergedScope = [...new Set([...current, ...command.departmentIds])];
-          if (!canReviseDraft(actor, {
-            createdByPersonId: draft.createdByPersonId,
-            currentVersionNumber: draft.currentVersionNumber,
-            departmentIds: mergedScope,
-          })) {
+          if (
+            !canReviseDraft(actor, {
+              createdByPersonId: draft.createdByPersonId,
+              currentVersionNumber: draft.currentVersionNumber,
+              departmentIds: mergedScope,
+            })
+          ) {
             return yield* actor._tag === "ContentEditor"
               ? new ContentDraftNotOwned({ articleId: draft.articleId })
               : new ContentNotPublisher({ articleId: draft.articleId });
@@ -848,11 +817,6 @@ export const reviseDraftPostgres = (input: {
               Effect.fail(persistenceError("revise content draft", cause)),
             ),
           );
-          const targetDepartments =
-            actor._tag === "ContentEditor"
-              ? command.departmentIds
-              : [...new Set([...current.filter(() => actor._tag !== "ContentEditor"), ...command.departmentIds])];
-          void targetDepartments;
           yield* replaceArticleDepartments(database, draft.articleId, command.departmentIds);
           const observation = {
             _tag: "DraftRevised" as const,

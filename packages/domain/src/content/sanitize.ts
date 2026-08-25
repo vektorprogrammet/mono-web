@@ -80,5 +80,6 @@ export const sanitizeArticleBodyHtml = (
       });
     }
     return sanitized;
-  }).pipe(Effect.mapError(() => new ContentDecodeError({ operation, message: "sanitizer failure" })));
-
+  }).pipe(
+    Effect.mapError(() => new ContentDecodeError({ operation, message: "sanitizer failure" })),
+  );

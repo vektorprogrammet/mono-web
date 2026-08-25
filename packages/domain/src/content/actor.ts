@@ -55,7 +55,9 @@ export const resolveContentActor = (
 /** The department intersection a publisher may see and revise. */
 export const contentScopeFor = (
   actor: ContentActor,
-): { readonly _tag: "All" } | { readonly _tag: "DepartmentIds"; readonly departmentIds: ReadonlyArray<DepartmentId> } => {
+):
+  | { readonly _tag: "All" }
+  | { readonly _tag: "DepartmentIds"; readonly departmentIds: ReadonlyArray<DepartmentId> } => {
   switch (actor._tag) {
     case "ContentAdministrator":
       return { _tag: "All" };
