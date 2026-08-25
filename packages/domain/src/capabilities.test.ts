@@ -60,6 +60,7 @@ describe("logical capability dependencies", () => {
       Organization: ["Database"],
       Profile: ["Organization"],
       Admissions: ["Database", "Organization"],
+      Schools: ["Database", "Organization"],
       Recruitment: ["Database", "Admissions", "Organization", "Profile"],
       Economy: ["Database", "Identity", "PrivateFileStore", "NotificationGateway"],
       Content: ["ContentManagement"],

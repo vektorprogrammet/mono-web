@@ -19,6 +19,7 @@
     "./admissions": "./src/admissions/index.ts",
     "./organization": "./src/organization/index.ts",
     "./profile": "./src/profile/index.ts",
+    "./schools": "./src/schools/index.ts",
     "./auth": "./src/auth/index.ts",
     "./recruitment": "./src/recruitment/index.ts",
     "./notification": "./src/notification/index.ts",

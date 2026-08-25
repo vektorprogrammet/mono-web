@@ -42,6 +42,10 @@ const organizationMigrationUrl = new URL(
   "../../domain/src/organization/migrations/0001-organization-authority.sql",
   import.meta.url,
 );
+const schoolsMigrationUrl = new URL(
+  "../../domain/src/schools/migrations/0001-schools-directory.sql",
+  import.meta.url,
+);
 const importOccurrenceAuthorityMigrationUrl = new URL(
   "../migrations/0009-import-occurrence-authority.sql",
   import.meta.url,
@@ -184,9 +188,10 @@ export const databaseMigrationLoader = (execute: ExecuteMigration) =>
       organizationTeamInterestMigrationUrl,
       execute,
     ),
+    "19_schools-directory": migration("schools-directory", schoolsMigrationUrl, execute),
   });
 
-export const databaseSchemaRevision = "18_organization-team-interest";
+export const databaseSchemaRevision = "19_schools-directory";
 export const runDatabaseMigrations = (execute: ExecuteMigration) =>
   Migrator.make({})({
     loader: databaseMigrationLoader(execute),
