@@ -10,6 +10,7 @@ import { Effect, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import type { RecruitmentApiConfig } from "./config.js";
 import { makeRecruitmentApiHttp, type RecruitmentApiHttpOptions } from "./http.js";
+import { runTestPromise } from "../../test/runtime.js";
 
 const token = "recruitment-token";
 const config: RecruitmentApiConfig = {
@@ -100,7 +101,7 @@ const makePublicBackend = () => {
       }),
   };
   const run = ((effect: Effect.Effect<unknown, unknown, Recruitment>): Promise<unknown> =>
-    Effect.runPromise(
+    runTestPromise(
       effect.pipe(Effect.provideService(Recruitment, recruitment)),
     )) as RecruitmentApiHttpOptions["run"];
   return {

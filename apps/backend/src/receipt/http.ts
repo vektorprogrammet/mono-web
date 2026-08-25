@@ -24,10 +24,7 @@ import {
   type ReceiptOutboxDeliveryResult,
   ReceiptAuxiliaryEffectConflict,
 } from "@vektorprogrammet/domain/receipt";
-import type {
-  ReceiptActor,
-  ReceiptSubmissionPrincipal,
-} from "@vektorprogrammet/domain/receipt";
+import type { ReceiptActor, ReceiptSubmissionPrincipal } from "@vektorprogrammet/domain/receipt";
 import { DepartmentId } from "@vektorprogrammet/domain/organization";
 import type { ReceiptApiConfig } from "./config.js";
 import {
@@ -340,14 +337,9 @@ const authorityFor = async (
   }
 };
 
-const personIdFor = async (
-  request: Request,
-  options: ReceiptApiHttpOptions,
-): Promise<string> => {
+const personIdFor = async (request: Request, options: ReceiptApiHttpOptions): Promise<string> => {
   try {
-    return await options.authority.resolvePersonId(
-      request.headers.get("cookie") ?? undefined,
-    );
+    return await options.authority.resolvePersonId(request.headers.get("cookie") ?? undefined);
   } catch (cause) {
     if (cause !== null && typeof cause === "object" && "_tag" in cause) throw cause;
     throw new UnauthenticatedActor({ message: "authentication required" });
@@ -369,6 +361,7 @@ const activePaymentDepartment = (authority: ReceiptAuthority): DepartmentId | un
 const submissionPrincipal = (
   authority: ReceiptAuthority,
   departmentId: DepartmentId | undefined,
+  run: ReceiptApiHttpOptions["run"],
 ): Promise<ReceiptSubmissionPrincipal> => {
   if (departmentId === undefined) {
     const active = authority.paymentAuthorities.filter((payment) => payment.active);
@@ -379,7 +372,7 @@ const submissionPrincipal = (
       });
     }
   }
-  return Effect.runPromise(mapReceiptSubmissionPrincipal(authority, departmentId));
+  return run(mapReceiptSubmissionPrincipal(authority, departmentId));
 };
 
 /** Strongest approval scope: active grants win, Global wins within the same
@@ -644,30 +637,22 @@ const submit = async (
 ): Promise<Response> => {
   const queryEntries = [...new URL(request.url).searchParams.entries()];
   const selectedDepartments = queryEntries.filter(([name]) => name === "departmentId");
-  if (
-    queryEntries.some(([name]) => name !== "departmentId") ||
-    selectedDepartments.length > 1
-  ) {
+  if (queryEntries.some(([name]) => name !== "departmentId") || selectedDepartments.length > 1) {
     throw new ReceiptDecodeError({ message: "invalid receipt submission query" });
   }
   const selected = selectedDepartments[0]?.[1];
   if (selected !== undefined && selected.trim().length === 0) {
     throw new ReceiptDecodeError({ message: "invalid departmentId selection" });
   }
-  const departmentId =
-    selected === undefined ? undefined : DepartmentId.make(selected);
+  const departmentId = selected === undefined ? undefined : DepartmentId.make(selected);
   const fields = await decodeMultipart(request, options.config.maxFileBytes);
   // Submission scope per spec 0055: an explicit departmentId query selects the
   // payment authority; a single active authority selects itself; several
   // active authorities without a selection are a typed Ambiguous denial.
   const authority = requireActiveOrganizationAuthority(
-    await authorityFor(
-      request,
-      options,
-      departmentId === undefined ? undefined : { departmentId },
-    ),
+    await authorityFor(request, options, departmentId === undefined ? undefined : { departmentId }),
   );
-  const principal = await submissionPrincipal(authority, departmentId);
+  const principal = await submissionPrincipal(authority, departmentId, options.run);
   let staged: StagedReceiptFile | undefined;
   let committed = false;
   try {
@@ -677,7 +662,7 @@ const submit = async (
       fields.contentType,
       options.config.maxFileBytes,
     );
-    await Effect.runPromise(fileStore.service.stage(staged.file));
+    await options.run(fileStore.service.stage(staged.file));
     const command = {
       _tag: "SubmitReceipt" as const,
       commandId: fields.commandId,
@@ -722,7 +707,7 @@ const revise = async (
     options.run,
   );
   const owned = current.find((row) => row.receiptId === receiptId);
-  const actor: ReceiptActor = await Effect.runPromise(
+  const actor: ReceiptActor = await options.run(
     mapReceiptOwnerActor(
       authority,
       (owned?.departmentId as DepartmentId | undefined) ?? DepartmentId.make(receiptId),
@@ -742,7 +727,7 @@ const revise = async (
         contentType,
         options.config.maxFileBytes,
       );
-      await Effect.runPromise(fileStore.service.stage(staged.file));
+      await options.run(fileStore.service.stage(staged.file));
     }
     const command = {
       _tag: "RevisePendingReceipt" as const,
@@ -786,7 +771,7 @@ const withdraw = async (
     Economy.use(({ listOwnedReceipts }) => listOwnedReceipts(authority.personId)),
     options.run,
   ).then((rows) => rows.find((row) => row.receiptId === receiptId));
-  const actor: ReceiptActor = await Effect.runPromise(
+  const actor: ReceiptActor = await options.run(
     mapReceiptOwnerActor(
       authority,
       (owned?.departmentId as DepartmentId | undefined) ?? DepartmentId.make(receiptId),
@@ -884,27 +869,21 @@ const approvalCommand = async (
   // The target row comes from the authorized projection. Its immutable
   // department selects the mapper scope and cannot be supplied by the caller.
   const projected = await runDatabase(
-    Economy.use(({ listReceiptsForApproval }) =>
-      listReceiptsForApproval(grant.scope),
-    ),
+    Economy.use(({ listReceiptsForApproval }) => listReceiptsForApproval(grant.scope)),
     options.run,
   ).then((rows) => rows.find((row) => row.receiptId === route.receiptId));
   if (projected === undefined) {
     throw new ReceiptScopeDenied({
       receiptId: route.receiptId,
-      departmentId:
-        grant.scope._tag === "Department" ? grant.scope.departmentId : "",
+      departmentId: grant.scope._tag === "Department" ? grant.scope.departmentId : "",
     });
   }
   const receiptDepartmentId = projected.departmentId as DepartmentId;
-  const actor: ReceiptActor =
+  const actor: ReceiptActor = await options.run(
     grant.scope._tag === "Global"
-      ? await Effect.runPromise(
-          mapReceiptGlobalApprovalActor(authority, receiptDepartmentId),
-        )
-      : await Effect.runPromise(
-          mapReceiptDepartmentApprovalActor(authority, receiptDepartmentId),
-        );
+      ? mapReceiptGlobalApprovalActor(authority, receiptDepartmentId)
+      : mapReceiptDepartmentApprovalActor(authority, receiptDepartmentId),
+  );
   const scope: ApprovalListScope = actor.approvalScope as ApprovalListScope;
   const fields = await decodeCommandJson(request, "approval");
   if (new URL(request.url).search.length !== 0) {

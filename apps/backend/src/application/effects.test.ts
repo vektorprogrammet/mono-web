@@ -7,6 +7,7 @@ import {
   PublicApplicationIdSchema,
 } from "@vektorprogrammet/domain/application";
 import { makeHttpPublicApplicationEffectInterpreter } from "./effects.js";
+import { forkTestEffect, runTestPromise } from "../../test/runtime.js";
 
 const request = {
   _tag: "SendApplicantActivationOrConfirmation",
@@ -34,7 +35,7 @@ describe("public application effect gateway", () => {
       return new Response(null, { status: 204 });
     });
 
-    const evidence = await Effect.runPromise(interpreter.deliver(request, 0, 2));
+    const evidence = await runTestPromise(interpreter.deliver(request, 0, 2));
 
     expect(evidence).toEqual({
       effectId: request.effectId,
@@ -56,7 +57,7 @@ describe("public application effect gateway", () => {
       async () => new Response(null, { status: 503 }),
     );
 
-    const failure = await Effect.runPromise(Effect.flip(interpreter.deliver(request, 0, 1)));
+    const failure = await runTestPromise(Effect.flip(interpreter.deliver(request, 0, 1)));
     expect(failure).toMatchObject({
       _tag: "PublicApplicationEffectDeliveryError",
       effectId: request.effectId,
@@ -80,7 +81,7 @@ describe("public application effect gateway", () => {
         }),
     );
 
-    const failure = await Effect.runPromise(Effect.flip(interpreter.deliver(request, 0, 1)));
+    const failure = await runTestPromise(Effect.flip(interpreter.deliver(request, 0, 1)));
 
     expect(failure).toMatchObject({
       _tag: "PublicApplicationEffectDeliveryError",
@@ -104,9 +105,9 @@ describe("public application effect gateway", () => {
       });
     });
 
-    const fiber = Effect.runFork(interpreter.deliver(request, 0, 1));
+    const fiber = forkTestEffect(interpreter.deliver(request, 0, 1));
     await started.promise;
-    await Effect.runPromise(Fiber.interrupt(fiber));
+    await runTestPromise(Fiber.interrupt(fiber));
 
     expect(providerSignal?.aborted).toBe(true);
   });

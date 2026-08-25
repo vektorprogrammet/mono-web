@@ -19,6 +19,7 @@ import { DateTime, Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import { makeBackendConfig } from "./config.js";
 import { makeBackendHttp, type BackendRun } from "./router.js";
+import { runTestPromise } from "../test/runtime.js";
 
 const token = "shared-token";
 const environment = {
@@ -84,18 +85,15 @@ const profile: ProfileShape = {
       contactRevision: 0,
     }),
   updateOwnProfile: (input) =>
-    Effect.as(
-      profile.readOwnProfile(input.actorPersonId),
-      {
-        personId: input.actorPersonId,
-        firstName: input.command.firstName,
-        lastName: input.command.lastName,
-        email: input.command.email,
-        phone: input.command.phone,
-        nameRevision: input.command.expectedNameRevision + 1,
-        contactRevision: input.command.expectedContactRevision + 1,
-      },
-    ),
+    Effect.as(profile.readOwnProfile(input.actorPersonId), {
+      personId: input.actorPersonId,
+      firstName: input.command.firstName,
+      lastName: input.command.lastName,
+      email: input.command.email,
+      phone: input.command.phone,
+      nameRevision: input.command.expectedNameRevision + 1,
+      contactRevision: input.command.expectedContactRevision + 1,
+    }),
   readDirectoryPage: () => Effect.succeed({ entries: [], nextCursor: undefined }),
 };
 const organization = {
@@ -126,7 +124,7 @@ const successfulRun: BackendRun = <A, E>(
     Database | Admissions | Economy | Organization | Profile | Recruitment | Auth
   >,
 ): Promise<A> =>
-  Effect.runPromise(
+  runTestPromise(
     effect.pipe(
       Effect.provideService(Database, database),
       Effect.provideService(Profile, profile),
@@ -261,7 +259,9 @@ describe("unified backend router", () => {
     });
     void calls;
     for (const path of ["/api/auth/get-session", "/api/auth/sign-in/email", "/api/auth/"]) {
-      const response = await probingBackend.fetch(new Request(`http://backend.test${path}`, { method: "POST" }));
+      const response = await probingBackend.fetch(
+        new Request(`http://backend.test${path}`, { method: "POST" }),
+      );
       expect(await response.text()).toBe(`auth-saw:${path}`);
     }
   });

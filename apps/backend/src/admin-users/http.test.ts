@@ -30,6 +30,7 @@ import { DateTime, Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import { makeBackendConfig } from "../config.js";
 import { makeBackendHttp, type BackendRun } from "../router.js";
+import { runTestPromise } from "../../test/runtime.js";
 
 const token = "directory-token";
 const environment = {
@@ -285,7 +286,7 @@ const successfulRun: BackendRun = <A, E>(
     Database | Admissions | Economy | Organization | Profile | Recruitment | Auth
   >,
 ): Promise<A> =>
-  Effect.runPromise(
+  runTestPromise(
     effect.pipe(
       Effect.provideService(Database, database),
       Effect.provideService(Profile, profile),

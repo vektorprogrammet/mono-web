@@ -14,6 +14,7 @@ import { describe, expect, it } from "vitest";
 import type { BackendRun } from "../router.js";
 import { makeOrganizationApiConfig } from "./config.js";
 import { makeOrganizationApiHttp } from "./http.js";
+import { runTestPromise } from "../../test/runtime.js";
 
 const ADMIN_TOKEN = "organization-admin-token";
 const MEMBER_TOKEN = "organization-member-token";
@@ -185,7 +186,7 @@ const organization = {
 } as unknown as OrganizationShape;
 
 const run = (<A, E, R>(effect: Effect.Effect<A, E, R>): Promise<A> =>
-  Effect.runPromise(
+  runTestPromise(
     effect.pipe(Effect.provideService(Organization, organization)) as Effect.Effect<A, E>,
   )) as BackendRun;
 

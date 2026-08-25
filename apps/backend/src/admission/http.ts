@@ -194,11 +194,11 @@ const decodeJson = async <S extends Schema.ConstraintDecoder<unknown, never>>(
     if (cause !== null && typeof cause === "object" && "_tag" in cause) throw cause;
     throw taggedError(tag);
   }
-  return await Effect.runPromise(
-    Schema.decodeUnknownEffect(schema)(body, { onExcessProperty: "error" }).pipe(
-      Effect.mapError(() => taggedError(tag)),
-    ),
-  );
+  try {
+    return await Schema.decodeUnknownPromise(schema)(body, { onExcessProperty: "error" });
+  } catch {
+    throw taggedError(tag);
+  }
 };
 
 const createPayloadSchema = Schema.Struct({
