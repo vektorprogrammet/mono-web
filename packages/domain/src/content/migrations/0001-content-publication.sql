@@ -49,8 +49,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS content_article_versions_slug_number_unique
   ON content_article_versions (slug, version_number);
 
 -- Immutable snapshots: no UPDATE or DELETE ever reaches committed versions.
+DROP RULE IF EXISTS content_article_versions_no_update ON content_article_versions;
 CREATE RULE content_article_versions_no_update AS ON UPDATE
   TO content_article_versions DO INSTEAD NOTHING;
+DROP RULE IF EXISTS content_article_versions_no_delete ON content_article_versions;
 CREATE RULE content_article_versions_no_delete AS ON DELETE
   TO content_article_versions DO INSTEAD NOTHING;
 
