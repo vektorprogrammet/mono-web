@@ -237,17 +237,19 @@ test.describe("Native Schools directory (spec 0061)", () => {
       ] as const) {
         const denied = await openContext(browser, browserRequests, browserResponses, pageErrors);
         contexts.push(denied.context);
-        await signIn(denied.page, person, "/schools");
-        const response = await denied.page.evaluate(async () => {
-          const result = await fetch("/schools", {
-            credentials: "same-origin",
-            headers: { accept: "application/json" },
-          });
-          return { status: result.status, body: await result.json() };
-        });
-        expect(response.status).toBe(403);
-        expect(response.body).toEqual({ error: { tag: expectedTag } });
-        observations[name] = { status: 403, tag: expectedTag };
+        await signIn(denied.page, person, "/dashboard/skoler");
+        await expect(denied.page).toHaveURL(/\/dashboard\/skoler$/);
+        await assertDirectoryShell(denied.page);
+        await expect(
+          denied.page.getByText(
+            expectedTag === "AuthorityInactive"
+              ? "Tilgangen din til skoleoversikten er ikke aktiv."
+              : "Du har ikke tilgang til skoleoversikten.",
+            { exact: true },
+          ),
+        ).toBeVisible();
+        await expect(denied.page.getByText(person.email, { exact: true })).toHaveCount(0);
+        observations[name] = { status: 403, tag: expectedTag, renderedAt: "/dashboard/skoler" };
       }
 
       const bridgeRequests = browserRequests.filter(
