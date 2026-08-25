@@ -145,7 +145,7 @@ vektor-schools-directory {
   background: transparent;
   border: 0;
   border-block-end: calc(2 * var(--schools-border-width)) solid transparent;
-  color: var(--schools-color-muted-foreground);
+  color: var(--schools-color-foreground);
   cursor: pointer;
   font: inherit;
   font-weight: var(--schools-weight-bold);

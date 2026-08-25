@@ -487,14 +487,16 @@ function LegacyLayout() {
           <SidebarContent>
             <nav aria-label="primary">
               <SidebarGroup>
-                <SidebarMenuItem key={"Kontrollpanel"}>
-                  <SidebarMenuButton asChild tooltip={"Kontrollpanel"}>
-                    <Link to={href("/dashboard")} prefetch="intent">
-                      <LayoutDashboard />
-                      <span>Kontrollpanel</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
+                <SidebarMenu>
+                  <SidebarMenuItem key={"Kontrollpanel"}>
+                    <SidebarMenuButton asChild tooltip={"Kontrollpanel"}>
+                      <Link to={href("/dashboard")} prefetch="intent">
+                        <LayoutDashboard />
+                        <span>Kontrollpanel</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                </SidebarMenu>
                 <NavLinks links={mainLinks} />
               </SidebarGroup>
               {isAdmin && (
