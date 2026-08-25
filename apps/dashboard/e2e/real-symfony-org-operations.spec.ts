@@ -57,13 +57,7 @@ const journeys = {
 
 export { journeys };
 
-type JsonValue =
-  | null
-  | boolean
-  | number
-  | string
-  | JsonValue[]
-  | { [key: string]: JsonValue };
+type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
 
 type JsonObject = { [key: string]: JsonValue };
 
@@ -155,7 +149,10 @@ async function loginSymfony(page: Page, username: string): Promise<void> {
   await expect(page).toHaveURL(/\/kontrollpanel$/);
 }
 
-async function fixtureIds(page: Page, token: string): Promise<{ departmentId: number; fieldOfStudyId: number }> {
+async function fixtureIds(
+  page: Page,
+  token: string,
+): Promise<{ departmentId: number; fieldOfStudyId: number }> {
   const departments = await requestJson(page, token, "GET", "/api/departments");
   expect(departments.response.status()).toBe(200);
   const department = collectionItems(departments.value).find(
@@ -204,14 +201,9 @@ test.describe("Real Symfony organization operations journeys", () => {
     if (!receipt) throw new Error("Org operations fixture receipt was not found");
     const receiptId = numericId(receipt);
 
-    await expectStatus(
-      page,
-      leaderToken,
-      "PUT",
-      `/api/admin/receipts/${receiptId}/status`,
-      204,
-      { status: "refunded" },
-    );
+    await expectStatus(page, leaderToken, "PUT", `/api/admin/receipts/${receiptId}/status`, 204, {
+      status: "refunded",
+    });
 
     const freshReceipts = await requestJson(page, leaderToken, "GET", "/api/admin/receipts");
     expect(freshReceipts.response.status()).toBe(200);
@@ -223,22 +215,12 @@ test.describe("Real Symfony organization operations journeys", () => {
     await expect(page.getByRole("heading", { name: "Utlegg", exact: true })).toBeVisible();
 
     const userToken = await loginViaApi(page, userUsername);
-    await expectStatus(
-      page,
-      userToken,
-      "PUT",
-      `/api/admin/receipts/${receiptId}/status`,
-      403,
-      { status: "refunded" },
-    );
-    await expectStatus(
-      page,
-      leaderToken,
-      "PUT",
-      `/api/admin/receipts/${receiptId}/status`,
-      422,
-      { status: "pending" },
-    );
+    await expectStatus(page, userToken, "PUT", `/api/admin/receipts/${receiptId}/status`, 403, {
+      status: "refunded",
+    });
+    await expectStatus(page, leaderToken, "PUT", `/api/admin/receipts/${receiptId}/status`, 422, {
+      status: "pending",
+    });
   });
 
   test("identity-admin", async ({ page }) => {
@@ -265,9 +247,11 @@ test.describe("Real Symfony organization operations journeys", () => {
     expect(isJsonObject(freshUsers.value)).toBe(true);
     const users = isJsonObject(freshUsers.value) ? freshUsers.value.activeUsers : null;
     expect(Array.isArray(users)).toBe(true);
-    expect((users as JsonValue[]).some(
-      (item) => isJsonObject(item) && item.email === createdIdentityEmail,
-    )).toBe(true);
+    expect(
+      (users as JsonValue[]).some(
+        (item) => isJsonObject(item) && item.email === createdIdentityEmail,
+      ),
+    ).toBe(true);
 
     await expectStatus(page, leaderToken, "POST", "/api/admin/users", 422, {
       firstName: "Invalid",
@@ -294,15 +278,21 @@ test.describe("Real Symfony organization operations journeys", () => {
     await expect(page.getByRole("heading", { name: "Team", exact: true })).toBeVisible();
     const { departmentId } = await fixtureIds(page, adminToken);
 
-    const createdDepartment = await requestJson(page, adminToken, "POST", "/api/admin/departments", {
-      name: createdDepartmentName,
-      shortName: "OPS32-NEW",
-      email: "org-operations-created-department-0032@example.invalid",
-      city: "OrgOps Created City 0032",
-      address: "Created by the org admin journey",
-      latitude: "63.4305",
-      longitude: "10.3951",
-    });
+    const createdDepartment = await requestJson(
+      page,
+      adminToken,
+      "POST",
+      "/api/admin/departments",
+      {
+        name: createdDepartmentName,
+        shortName: "OPS32-NEW",
+        email: "org-operations-created-department-0032@example.invalid",
+        city: "OrgOps Created City 0032",
+        address: "Created by the org admin journey",
+        latitude: "63.4305",
+        longitude: "10.3951",
+      },
+    );
     expect(createdDepartment.response.status()).toBe(201);
     const createdDepartmentId = numericId(createdDepartment.value);
 
@@ -325,10 +315,16 @@ test.describe("Real Symfony organization operations journeys", () => {
     expect(createdTeam.response.status()).toBe(201);
     expect(numericId(createdTeam.value)).toBeGreaterThan(0);
 
-    const createdField = await requestJson(page, adminToken, "POST", "/api/admin/field-of-studies", {
-      name: createdFieldName,
-      shortName: "OPS32-LINE",
-    });
+    const createdField = await requestJson(
+      page,
+      adminToken,
+      "POST",
+      "/api/admin/field-of-studies",
+      {
+        name: createdFieldName,
+        shortName: "OPS32-LINE",
+      },
+    );
     expect(createdField.response.status()).toBe(201);
     expect(numericId(createdField.value)).toBeGreaterThan(0);
 
@@ -398,7 +394,9 @@ test.describe("Real Symfony organization operations journeys", () => {
     const symfonyAdminPage = await browser.newPage();
     try {
       await loginSymfony(symfonyAdminPage, adminUsername);
-      await symfonyAdminPage.goto(`${apiOrigin}/kontrollpanel/semesteradmin`, { waitUntil: "networkidle" });
+      await symfonyAdminPage.goto(`${apiOrigin}/kontrollpanel/semesteradmin`, {
+        waitUntil: "networkidle",
+      });
       await expect(symfonyAdminPage.getByText("Vår 2032", { exact: true })).toBeVisible();
 
       const symfonyLeaderPage = await browser.newPage();

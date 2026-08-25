@@ -2,15 +2,15 @@
 
 ## Metadata
 
-| Field | Value |
-|---|---|
-| Goal | Replace the dead `/dashboard/skoler` loader with one native school directory read |
-| Status | Frozen revision 0061.1 before HTTP, SDK, and UI implementation |
-| Base | `2e031738d12f94c611426c5ac884861dec227abd` (`2e03173`) |
-| Depends on | 0040 logical capability topology, 0045 Effect Model and Service authority, 0055 person-keyed authorization authorities |
-| Route | `/dashboard/skoler` |
-| HTTP | `GET /api/admin/schools` |
-| Operator boundary | No production import, production data change, credentials, deployment, or external effect |
+| Field             | Value                                                                                                                  |
+| ----------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| Goal              | Replace the dead `/dashboard/skoler` loader with one native school directory read                                      |
+| Status            | Frozen revision 0061.1 before HTTP, SDK, and UI implementation                                                         |
+| Base              | `2e031738d12f94c611426c5ac884861dec227abd` (`2e03173`)                                                                 |
+| Depends on        | 0040 logical capability topology, 0045 Effect Model and Service authority, 0055 person-keyed authorization authorities |
+| Route             | `/dashboard/skoler`                                                                                                    |
+| HTTP              | `GET /api/admin/schools`                                                                                               |
+| Operator boundary | No production import, production data change, credentials, deployment, or external effect                              |
 
 ## Revision history
 
@@ -91,22 +91,22 @@ The existing topology omitted this capability. That omission does not transfer t
 
 The evidence gives these ownership rules:
 
-| Fact | Owner | Reason |
-|---|---|---|
-| School name, contact, email, phone, language, and active state | `Schools` | These facts describe an external teaching school. They are not entailed by Organization or Admissions state. |
-| School-to-department association | `Schools` | The association says where Vektorprogrammet uses a school. Organization owns the referenced `DepartmentId`. |
-| Weekday capacity for a school, department, and semester | `Schools` | The row is a planning assertion consumed by scheduling. It is not an admission result. |
-| Department identity and active state | `Organization` | This remains canonical Organization state. |
-| Semester identity and calendar | `Organization` | Design spec 0040 already assigns semesters to Organization. |
-| Admission windows and applicants | `Admissions` | These facts do not own a school or its capacity. |
-| Person names and contacts | `Profile` | These facts do not own the free-text school contact. |
-| Assistant assignment to a school | A later operational contract | An assignment is not school reference data. This contract does not assign its owner. |
+| Fact                                                           | Owner                        | Reason                                                                                                       |
+| -------------------------------------------------------------- | ---------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| School name, contact, email, phone, language, and active state | `Schools`                    | These facts describe an external teaching school. They are not entailed by Organization or Admissions state. |
+| School-to-department association                               | `Schools`                    | The association says where Vektorprogrammet uses a school. Organization owns the referenced `DepartmentId`.  |
+| Weekday capacity for a school, department, and semester        | `Schools`                    | The row is a planning assertion consumed by scheduling. It is not an admission result.                       |
+| Department identity and active state                           | `Organization`               | This remains canonical Organization state.                                                                   |
+| Semester identity and calendar                                 | `Organization`               | Design spec 0040 already assigns semesters to Organization.                                                  |
+| Admission windows and applicants                               | `Admissions`                 | These facts do not own a school or its capacity.                                                             |
+| Person names and contacts                                      | `Profile`                    | These facts do not own the free-text school contact.                                                         |
+| Assistant assignment to a school                               | A later operational contract | An assignment is not school reference data. This contract does not assign its owner.                         |
 
 This contract amends the logical capability inventory with this row:
 
-| Capability | Owns | Logical authority dependencies |
-|---|---|---|
-| `Schools` | schools, department associations, semester capacity plans | `Database`, `Organization` |
+| Capability | Owns                                                      | Logical authority dependencies |
+| ---------- | --------------------------------------------------------- | ------------------------------ |
+| `Schools`  | schools, department associations, semester capacity plans | `Database`, `Organization`     |
 
 `Schools` is a capability, not a required process. It runs in the existing native backend process.
 
@@ -122,16 +122,16 @@ A later scheduler can depend on `Schools`. That dependency does not transfer own
 
 `School` is one authoritative `Model.Class` with these fields:
 
-| Field | Schema | Rule |
-|---|---|---|
-| `schoolId` | `SchoolId` | Database generated and immutable |
-| `name` | non-empty string, maximum 255 | Stored verbatim after outer whitespace validation |
-| `contactPerson` | non-empty string, maximum 255 | Free text, not a `PersonId` |
-| `email` | email string, maximum 255 | School contact email |
-| `phone` | non-empty string, maximum 255 | Stored verbatim |
-| `language` | `Norwegian` or `International` | Native replacement for the legacy `international` boolean |
-| `active` | boolean | Controls active and inactive directory tabs |
-| `revision` | nonnegative integer | Database generated, absent from create JSON |
+| Field           | Schema                         | Rule                                                      |
+| --------------- | ------------------------------ | --------------------------------------------------------- |
+| `schoolId`      | `SchoolId`                     | Database generated and immutable                          |
+| `name`          | non-empty string, maximum 255  | Stored verbatim after outer whitespace validation         |
+| `contactPerson` | non-empty string, maximum 255  | Free text, not a `PersonId`                               |
+| `email`         | email string, maximum 255      | School contact email                                      |
+| `phone`         | non-empty string, maximum 255  | Stored verbatim                                           |
+| `language`      | `Norwegian` or `International` | Native replacement for the legacy `international` boolean |
+| `active`        | boolean                        | Controls active and inactive directory tabs               |
+| `revision`      | nonnegative integer            | Database generated, absent from create JSON               |
 
 The persisted model has select, insert, update, JSON-read, JSON-create, and JSON-update variants.
 
@@ -141,11 +141,11 @@ The persisted model has select, insert, update, JSON-read, JSON-create, and JSON
 
 `SchoolDepartment` is one authoritative `Model.Class` with these fields:
 
-| Field | Schema | Rule |
-|---|---|---|
-| `schoolId` | `SchoolId` | References `School` |
-| `departmentId` | `DepartmentId` | References canonical Organization state |
-| `revision` | nonnegative integer | Starts at zero |
+| Field          | Schema              | Rule                                    |
+| -------------- | ------------------- | --------------------------------------- |
+| `schoolId`     | `SchoolId`          | References `School`                     |
+| `departmentId` | `DepartmentId`      | References canonical Organization state |
+| `revision`     | nonnegative integer | Starts at zero                          |
 
 The pair `(schoolId, departmentId)` is the semantic identity. The relation has no primary-department field.
 
@@ -153,18 +153,18 @@ The pair `(schoolId, departmentId)` is the semantic identity. The relation has n
 
 This contract freezes capacity ownership and shape for later consumers. The directory does not read or serialize this model.
 
-| Field | Schema | Rule |
-|---|---|---|
-| `capacityId` | positive safe integer | Database generated and immutable |
-| `schoolId` | `SchoolId` | References `School` |
-| `departmentId` | `DepartmentId` | References Organization |
-| `semesterId` | `SemesterId` | References the Organization-owned semester calendar |
-| `monday` | nonnegative integer | One weekday count |
-| `tuesday` | nonnegative integer | One weekday count |
-| `wednesday` | nonnegative integer | One weekday count |
-| `thursday` | nonnegative integer | One weekday count |
-| `friday` | nonnegative integer | One weekday count |
-| `revision` | nonnegative integer | Starts at zero |
+| Field          | Schema                | Rule                                                |
+| -------------- | --------------------- | --------------------------------------------------- |
+| `capacityId`   | positive safe integer | Database generated and immutable                    |
+| `schoolId`     | `SchoolId`            | References `School`                                 |
+| `departmentId` | `DepartmentId`        | References Organization                             |
+| `semesterId`   | `SemesterId`          | References the Organization-owned semester calendar |
+| `monday`       | nonnegative integer   | One weekday count                                   |
+| `tuesday`      | nonnegative integer   | One weekday count                                   |
+| `wednesday`    | nonnegative integer   | One weekday count                                   |
+| `thursday`     | nonnegative integer   | One weekday count                                   |
+| `friday`       | nonnegative integer   | One weekday count                                   |
+| `revision`     | nonnegative integer   | Starts at zero                                      |
 
 The tuple `(schoolId, departmentId, semesterId)` is unique.
 
@@ -232,14 +232,14 @@ Global administrators can also observe an unassigned school. Its `departments` v
 
 The request captures one `authorizationInstant` after session decoding. Every matrix row uses that instant.
 
-| Caller projection | Scope | Result |
-|---|---|---|
-| Missing or invalid session | None | HTTP 401, `UnauthenticatedActor` |
-| Active global administrator | All departments and unassigned schools | HTTP 200 |
-| One or more active memberships | Union of every active membership department | HTTP 200 |
-| Memberships exist, but none are active | None | HTTP 403, `AuthorityInactive` |
-| Only future or ended administrator grants exist | None | HTTP 403, `AuthorityInactive` |
-| No membership or administrator record exists | None | HTTP 403, `NotInScope` |
+| Caller projection                               | Scope                                       | Result                           |
+| ----------------------------------------------- | ------------------------------------------- | -------------------------------- |
+| Missing or invalid session                      | None                                        | HTTP 401, `UnauthenticatedActor` |
+| Active global administrator                     | All departments and unassigned schools      | HTTP 200                         |
+| One or more active memberships                  | Union of every active membership department | HTTP 200                         |
+| Memberships exist, but none are active          | None                                        | HTTP 403, `AuthorityInactive`    |
+| Only future or ended administrator grants exist | None                                        | HTTP 403, `AuthorityInactive`    |
+| No membership or administrator record exists    | None                                        | HTTP 403, `NotInScope`           |
 
 Team leadership does not increase the read scope. The legacy directory had a team-member read floor.
 
@@ -339,14 +339,14 @@ The response is the exact `SchoolDirectory` shape. It is not Hydra and has no JS
 
 Failure mapping is exact:
 
-| Failure | HTTP status |
-|---|---:|
-| Missing or invalid session | 401 |
-| `AuthorityInactive` or `NotInScope` | 403 |
-| Unknown department | 422 |
-| Department outside caller scope | 403 |
-| Malformed or unknown query | 422 |
-| Database or row decode failure | 503 |
+| Failure                             | HTTP status |
+| ----------------------------------- | ----------: |
+| Missing or invalid session          |         401 |
+| `AuthorityInactive` or `NotInScope` |         403 |
+| Unknown department                  |         422 |
+| Department outside caller scope     |         403 |
+| Malformed or unknown query          |         422 |
+| Database or row decode failure      |         503 |
 
 `GET /api/admin/scheduling/schools` does not become a native route. No forwarding or compatibility response remains.
 

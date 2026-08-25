@@ -10,10 +10,7 @@ import type {
 } from "./administration-schema.js";
 import type { OrganizationAuthorityInstant, OrganizationPersonAuthority } from "./authority.js";
 import type { OrganizationDirectoryFacts } from "./directory.js";
-import type {
-  SemesterId,
-  TeamInterestRegistration,
-} from "./schema.js";
+import type { SemesterId, TeamInterestRegistration } from "./schema.js";
 import type {
   DepartmentNotFound,
   MembershipInvalidInterval,
@@ -49,7 +46,6 @@ export interface TeamInterestFilter {
   readonly semesterId?: SemesterId;
 }
 
-
 export type OrganizationListFailure = OrganizationDecodeError | OrganizationPersistenceError;
 export type OrganizationReadError =
   | OrganizationDecodeError
@@ -77,12 +73,12 @@ export interface OrganizationShape {
   ) => Effect.Effect<ReadonlyArray<Team>, OrganizationListFailure>;
   readonly listFieldOfStudies: Effect.Effect<ReadonlyArray<FieldOfStudy>, OrganizationListFailure>;
 
-/**
- * Spec 0059 read: durable team-interest registrations with the referenced
- * team name, inside the authorized department scope and ordered by
- * registration_id ASC. No authorization happens here; no narrowing may
- * exceed the authorized set.
- */
+  /**
+   * Spec 0059 read: durable team-interest registrations with the referenced
+   * team name, inside the authorized department scope and ordered by
+   * registration_id ASC. No authorization happens here; no narrowing may
+   * exceed the authorized set.
+   */
   readonly listTeamInterestRegistrations: (
     filter: TeamInterestFilter,
   ) => Effect.Effect<

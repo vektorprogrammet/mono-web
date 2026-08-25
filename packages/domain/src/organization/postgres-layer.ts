@@ -26,10 +26,7 @@ import {
   suspendOrganizationMembership,
 } from "./postgres.js";
 import { Organization } from "./service.js";
-import type {
-  OrganizationDecodeError,
-  OrganizationPersistenceError,
-} from "./errors.js";
+import type { OrganizationDecodeError, OrganizationPersistenceError } from "./errors.js";
 import type { ProfileFailure } from "../profile/errors.js";
 import {
   membershipCoversSemester,
@@ -78,7 +75,9 @@ export const OrganizationLive = Layer.effect(
         listOrganizationTeamInterestRegistrations(filter).pipe(
           Effect.provideService(Database, database),
         ),
-      projectMailingLists: (input): Effect.Effect<
+      projectMailingLists: (
+        input,
+      ): Effect.Effect<
         ReadonlyArray<MailingList>,
         OrganizationDecodeError | OrganizationPersistenceError | ProfileFailure,
         Profile
@@ -120,11 +119,7 @@ export const OrganizationLive = Layer.effect(
           }
           const contactByPerson = new Map();
           const uniquePersonIds = [...wantedPersonIds].map((value) => PersonId.make(value));
-          for (
-            let offset = 0;
-            offset < uniquePersonIds.length;
-            offset += PROFILE_READ_LIMIT
-          ) {
+          for (let offset = 0; offset < uniquePersonIds.length; offset += PROFILE_READ_LIMIT) {
             const batch = uniquePersonIds.slice(offset, offset + PROFILE_READ_LIMIT);
             // Missing contacts shrink the list silently (spec 0060 law 4):
             // readContacts fails on any missing row, so probe one by one.

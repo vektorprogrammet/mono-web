@@ -147,9 +147,7 @@ function handleFixtureRequest(request: IncomingMessage, response: ServerResponse
       return;
     case "/api/admin/team-interest":
       respondJson(request, response, 200, {
-        "hydra:member": [
-          { id: 2901, userName: "User-0025", teamName: "Team-0025" },
-        ],
+        "hydra:member": [{ id: 2901, userName: "User-0025", teamName: "Team-0025" }],
         "hydra:totalItems": 1,
       });
       return;
@@ -217,9 +215,13 @@ test.describe("dashboard list type boundary", () => {
     await page.goto("/dashboard/assistenter");
     await expect(page.getByRole("heading", { name: "Assistenter" })).toBeVisible();
     await expect(page.getByRole("cell", { name: "Assistant-0025", exact: true })).toBeVisible();
-    await expect(page.getByRole("cell", { name: "assistant@example.invalid", exact: true })).toBeVisible();
+    await expect(
+      page.getByRole("cell", { name: "assistant@example.invalid", exact: true }),
+    ).toBeVisible();
     await expect(page.getByRole("cell", { name: "nb", exact: true })).toBeVisible();
-    await expect(page.getByRole("cell", { name: "friday=false, monday=true", exact: true })).toBeVisible();
+    await expect(
+      page.getByRole("cell", { name: "friday=false, monday=true", exact: true }),
+    ).toBeVisible();
     await expect(page.getByRole("columnheader", { name: "Skole", exact: true })).toHaveCount(0);
     await expect(page.getByRole("columnheader", { name: "Telefon", exact: true })).toHaveCount(0);
     recordVisibleFields("/dashboard/assistenter", 1, [
@@ -237,8 +239,12 @@ test.describe("dashboard list type boundary", () => {
 
     await page.goto("/dashboard/epostliste");
     await expect(page.getByRole("heading", { name: "E-postliste" })).toBeVisible();
-    await expect(page.getByRole("cell", { name: "first@example.invalid", exact: true })).toBeVisible();
-    await expect(page.getByRole("cell", { name: "second@example.invalid", exact: true })).toBeVisible();
+    await expect(
+      page.getByRole("cell", { name: "first@example.invalid", exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("cell", { name: "second@example.invalid", exact: true }),
+    ).toBeVisible();
     await expect(page.locator("tbody tr")).toHaveCount(2);
     await expect(page.getByText("Empty-0025", { exact: true })).toHaveCount(0);
     recordVisibleFields("/dashboard/epostliste", 2, ["name", "email"]);
@@ -266,7 +272,9 @@ test.describe("dashboard list type boundary", () => {
     await page.goto("/dashboard/vikarer");
     await expect(page.getByRole("heading", { name: "Vikarer" })).toBeVisible();
     await expect(page.getByRole("cell", { name: "Substitute-0025", exact: true })).toBeVisible();
-    await expect(page.getByRole("cell", { name: "substitute@example.invalid", exact: true })).toBeVisible();
+    await expect(
+      page.getByRole("cell", { name: "substitute@example.invalid", exact: true }),
+    ).toBeVisible();
     await expect(page.getByRole("columnheader", { name: "Telefon", exact: true })).toHaveCount(0);
     await expect(page.getByRole("columnheader", { name: "Status", exact: true })).toHaveCount(0);
     await expect(page.getByRole("cell", { name: "true", exact: true })).toHaveCount(2);

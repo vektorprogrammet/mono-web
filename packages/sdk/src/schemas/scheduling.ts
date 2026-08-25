@@ -1,4 +1,4 @@
-import { Schema } from "effect"
+import { Schema } from "effect";
 
 export class SchedulingAssistant extends Schema.Class<SchedulingAssistant>("SchedulingAssistant")({
   id: Schema.Number,
