@@ -15,7 +15,7 @@
 | Spec branch | `spec/0024-zero-gap-parity-inventory` |
 | Implementation candidate | `Unaccepted`. Path `/tmp/mono-web-parity-integration-0023`, branch `impl/0023-functional-parity-integration-baseline`, head `afba5923b09c4748aff6f1825096d50261a6f4e7`. |
 | Candidate relation to `main` | 0 commits behind and 59 commits ahead of `main`. |
-| Current writer mutation | The specification worktree owns only `design-specs/0024-zero-gap-functional-parity-inventory.md`. `OpenApiExportEngineer` owns only `apps/server/config/services.yaml`, `apps/server/tests/App/Support/OpenApiExportTest.php` (new), `packages/sdk/openapi.json`, and `packages/parity-inventory/src/api.ts` in `/tmp/mono-web-parity-integration-0023`, plus the required commit integrations. |
+| Current writer mutation | The specification worktree owns only `design-specs/0024-zero-gap-functional-parity-inventory.md`. `OpenApiExportEngineer` owns only `apps/server/config/services.yaml`, `apps/server/tests/App/Support/OpenApiExportTest.php` (new), `packages/sdk/legacy-symfony-openapi.snapshot.json`, and `packages/parity-inventory/src/api.ts` in `/tmp/mono-web-parity-integration-0023`, plus the required commit integrations. |
 | Active production writer | `OpenApiExportEngineer`, bound to `/tmp/mono-web-parity-integration-0023` during the bounded OpenAPI normalizer repair |
 | Legacy input | Read-only legacy repository evidence; the inventory command never writes to it |
 | Current mono input | `mono-web` at an explicitly selected full revision; the deterministic mono authority revision is a canonical tracked-blob file-set digest that excludes the owned derived projection mount; raw Git `HEAD` is execution provenance only |
@@ -91,13 +91,13 @@ This capsule stays inside `Drift`. It does not accept the candidate or change th
 ### `D-0024-OPENAPI-NORMALIZER-PRECEDENCE`
 
 - **Observation and conflict:** At candidate head `afba5923b09c4748aff6f1825096d50261a6f4e7`, `Main` recorded a focused PHP-trivia test result of 1 pass, 67 filtered, and 0 fail. The exact-head real rerun removed `SOURCE_PARSE_ERROR` and all collector runtime-unavailable reasons. The remaining `OPENAPI_SCHEMA_INVALID` is a real generator and configuration defect.
-- **Observed output conflict:** Both committed `packages/sdk/openapi.json` and the canonical `apps/server` `api:openapi:export` output have non-standard `paths.paths` and model `extensionProperties` wrappers. Direct `ApiPlatform\OpenApi\Serializer\OpenApiNormalizer` output is standard, with 106 slash-prefixed paths and standard components. `debug:container --tag=serializer.normalizer` shows that app-defined `get_set_method_normalizer` has default priority 0 and preempts the API Platform specialized OpenAPI normalizer. `ObjectNormalizer` has priority -1000.
+- **Observed output conflict:** Both committed `packages/sdk/legacy-symfony-openapi.snapshot.json` and the canonical `apps/server` `api:openapi:export` output have non-standard `paths.paths` and model `extensionProperties` wrappers. Direct `ApiPlatform\OpenApi\Serializer\OpenApiNormalizer` output is standard, with 106 slash-prefixed paths and standard components. `debug:container --tag=serializer.normalizer` shows that app-defined `get_set_method_normalizer` has default priority 0 and preempts the API Platform specialized OpenAPI normalizer. `ObjectNormalizer` has priority -1000.
 - **Required repair contract:** Make `GetSetMethodNormalizer` a fallback after specialized normalizers and before `ObjectNormalizer` with explicit priority `-999`. Do not remove it.
 - **Collector seam:** Change the parity runtime OpenAPI collector to obtain the application `serializer` and normalize the factory result with `json` and `spec_version=3`, matching the command seam. Do not use raw `json_encode(factory())`.
-- **Projection boundary:** Regenerate `packages/sdk/openapi.json` only through the existing `apps/server` `api:spec` or `api:openapi:export` command. Never hand-edit the artifact.
+- **Projection boundary:** Regenerate `packages/sdk/legacy-symfony-openapi.snapshot.json` only through the existing `apps/server` `api:spec` or `api:openapi:export` command. Never hand-edit the artifact.
 - **Writer:** `OpenApiExportEngineer`, bound to `/tmp/mono-web-parity-integration-0023`.
 - **Required integration:** Integrate the current head of `spec/0024-zero-gap-parity-inventory` before the repair.
-- **Allowed repair:** Modify only `apps/server/config/services.yaml`, new `apps/server/tests/App/Support/OpenApiExportTest.php`, `packages/sdk/openapi.json`, and `packages/parity-inventory/src/api.ts`. Do not modify another file.
+- **Allowed repair:** Modify only `apps/server/config/services.yaml`, new `apps/server/tests/App/Support/OpenApiExportTest.php`, `packages/sdk/legacy-symfony-openapi.snapshot.json`, and `packages/parity-inventory/src/api.ts`. Do not modify another file.
 - **Regression:** Add a server KernelTest that asserts serializer output has slash-prefixed path keys, no `paths` wrapper, and no `extensionProperties` model keys.
 - **Verification and decision:** `Main` owns focused PHP and TypeScript tests, exact generator replay, and the real inventory rerun. The worker must not run validation beyond the generator required to produce the artifact. The candidate remains unaccepted until `Main` records its disposition.
 
@@ -143,7 +143,7 @@ Each input has one authority role. The generator keeps authority, observation, d
 | Mono declarations | The selected immutable mono source revision and its files | Source authority for current declarations; no claim that source is correct |
 | Resolved mono routes | A local runtime route collector executed at the selected revision | Runtime observation; it cannot replace source provenance |
 | Resolved API operations | API Platform metadata/runtime observation at the selected revision | Runtime observation; it cannot replace resource source files |
-| Committed OpenAPI | `packages/sdk/openapi.json` at the selected revision | Generated projection only; it is never an operation authority |
+| Committed OpenAPI | `packages/sdk/legacy-symfony-openapi.snapshot.json` at the selected revision | Generated projection only; it is never an operation authority |
 | Source manifests | The generator's byte manifest over named source sets | Exact input accounting; a manifest hash proves identity, not correctness |
 | Accepted intent | An immutable external or repository intent reference with revision and hash | May disposition a missing, extra, renamed, split, merged, or intentionally absent row; it cannot waive unresolved, stale, duplicate, or uncovered state |
 | User-journey coverage | Accepted journey references and their immutable source hashes | Coverage relation only; it does not prove the journey ran or behaved correctly |
@@ -848,7 +848,7 @@ openapi-reconciliation.json
 zero-gap-report.json
 ```
 
-The committed projection set contains `source-manifest.json` and the seven inventory files. The regenerated OpenAPI operation reconciliation has one exact artifact home: `openapi-reconciliation.json`. The zero-gap report contains only `openapi_reconciliation_ref`, which MUST resolve to that artifact; it does not duplicate reconciliation fields or operation rows. `packages/sdk/openapi.json` is the committed input projection compared by that reconciliation. `--write` updates only the source manifest and seven inventory files. `--diff` compares that set and regenerates the reconciliation and report.
+The committed projection set contains `source-manifest.json` and the seven inventory files. The regenerated OpenAPI operation reconciliation has one exact artifact home: `openapi-reconciliation.json`. The zero-gap report contains only `openapi_reconciliation_ref`, which MUST resolve to that artifact; it does not duplicate reconciliation fields or operation rows. `packages/sdk/legacy-symfony-openapi.snapshot.json` is the committed input projection compared by that reconciliation. `--write` updates only the source manifest and seven inventory files. `--diff` compares that set and regenerates the reconciliation and report.
 
 Every inventory uses the following envelope:
 
@@ -1093,7 +1093,7 @@ The report carries separate static and runtime digests. If static and runtime di
 
 ### Stale OpenAPI detection
 
-`openapi-reconciliation.json` compares `packages/sdk/openapi.json` with a freshly generated local OpenAPI projection for the same mono revision. The projection is normalized to `(method, path_template, operation_id_or_null, response/schema component digest)`. The comparison records:
+`openapi-reconciliation.json` compares `packages/sdk/legacy-symfony-openapi.snapshot.json` with a freshly generated local OpenAPI projection for the same mono revision. The projection is normalized to `(method, path_template, operation_id_or_null, response/schema component digest)`. The comparison records:
 
 - committed artifact source ref, byte digest, and revision;
 - regenerated projection source ref, command-output digest, and mono revision;
@@ -2169,7 +2169,7 @@ A reviewer MUST reject a run that presents a count, committed OpenAPI file, H3 p
 - Existing H3 route inventory: `evidence/security-h3/0015/current-route-inventory.json`.
 - Existing H3 resource inventory: `evidence/security-h3/0015/current-resource-inventory.json`.
 - Existing H3 source manifest: `evidence/security-h3/0015/source-manifest.json`.
-- Committed OpenAPI projection: `packages/sdk/openapi.json`.
+- Committed OpenAPI projection: `packages/sdk/legacy-symfony-openapi.snapshot.json`.
 - Mono route source families: `apps/server/config/routes.yaml` and `apps/server/src/App/**/Controller/**/*.php`.
 - Mono API source families: `apps/server/src/App/**/Api/Resource/**/*.php`, `apps/server/src/App/**/Api/State/**/*.php`, and `apps/server/src/App/**/Infrastructure/Entity/**/*.php`.
 - Legacy route source families: `app/config/routing*.yml` and `src/AppBundle/**/Controller/**/*.php`.

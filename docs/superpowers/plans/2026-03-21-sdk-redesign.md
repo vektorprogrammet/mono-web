@@ -1717,7 +1717,7 @@ git commit -m "refactor(dashboard): migrate remaining admin routes to new SDK"
 
 **Files:**
 - Delete: `packages/sdk/generated/api.d.ts`
-- Delete: `packages/sdk/openapi.json`
+- Delete: `packages/sdk/legacy-symfony-openapi.snapshot.json`
 - Delete: `packages/sdk/src/query.ts` (React Query wrapper)
 - Delete: `packages/sdk/src/provider.tsx` (React Query provider)
 - Delete: `packages/sdk/src/client.ts` (old openapi-fetch wrapper)
@@ -1728,7 +1728,7 @@ git commit -m "refactor(dashboard): migrate remaining admin routes to new SDK"
 
 ```bash
 cd packages/sdk
-rm -f generated/api.d.ts openapi.json src/query.ts src/provider.tsx src/client.ts
+rm -f generated/api.d.ts legacy-symfony-openapi.snapshot.json src/query.ts src/provider.tsx src/client.ts
 rmdir generated 2>/dev/null || true
 ```
 

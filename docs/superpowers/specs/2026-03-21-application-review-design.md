@@ -201,7 +201,7 @@ Determination logic (ApplicationStatusRule):
 |------|--------|
 | `apps/server/src/App/Admission/Api/State/AdminApplicationListProvider.php` | Inject `ApplicationStatusRule`, add `applicationStatus` to `mapApplication()` |
 | `apps/dashboard/app/routes/dashboard.sokere._index.tsx` | Full rewrite: loader + action + table + filter tabs + assignment dialog |
-| `packages/sdk/openapi.json` | Regenerated after backend change |
+| `packages/sdk/legacy-symfony-openapi.snapshot.json` | Regenerated after backend change |
 | `packages/sdk/generated/api.d.ts` | Regenerated |
 
 ### No new files required
@@ -213,7 +213,7 @@ The `ApplicationStatusRule` already exists. `AdminApplicationListResource.applic
 ## SDK Regeneration
 
 After backend change:
-1. `cd apps/server && php bin/console api:openapi:export --output=../../packages/sdk/openapi.json`
+1. `cd apps/server && php bin/console api:openapi:export --output=../../packages/sdk/legacy-symfony-openapi.snapshot.json`
 2. `cd packages/sdk && bun run generate`
 
 The `applicationStatus` field will appear as `number` in the generated types.

@@ -8,7 +8,7 @@ A shared `@monoweb/sdk` package that auto-generates a type-safe API client from 
 
 ```
 apps/server (Symfony API Platform)
-  → php bin/console api:openapi:export → openapi.json
+  → php bin/console api:openapi:export → legacy-symfony-openapi.snapshot.json
   → openapi-typescript → generated/api.d.ts
   → openapi-fetch + openapi-react-query → typed client + declarative hooks
   → apps/homepage, apps/dashboard import @monoweb/sdk
@@ -20,7 +20,7 @@ apps/server (Symfony API Platform)
 packages/
   sdk/
     package.json            # @monoweb/sdk
-    openapi.json            # committed spec (auto-generated via CLI export)
+    legacy-symfony-openapi.snapshot.json            # committed spec (auto-generated via CLI export)
     tsconfig.json
     src/
       client.ts             # createClient() — imperative openapi-fetch wrapper
@@ -32,7 +32,7 @@ packages/
 
 ### Key files
 
-- `openapi.json` — committed so TS devs can regenerate types without PHP
+- `legacy-symfony-openapi.snapshot.json` — committed so TS devs can regenerate types without PHP
 - `generated/api.d.ts` — committed so apps can type-check without running codegen
 - Both auto-generated, never hand-edited
 
@@ -85,13 +85,13 @@ apps/server#api:spec → packages/sdk#generate → packages/sdk#build → apps/*
 
 | Task | Command | Cache | Notes |
 |------|---------|-------|-------|
-| `api:spec` | `php bin/console api:openapi:export --output=../../packages/sdk/openapi.json` | No | Requires PHP + vendor/ |
-| `generate` | `openapi-typescript openapi.json -o generated/api.d.ts` | By openapi.json hash | Pure codegen |
+| `api:spec` | `php bin/console api:openapi:export --output=../../packages/sdk/legacy-symfony-openapi.snapshot.json` | No | Requires PHP + vendor/ |
+| `generate` | `openapi-typescript legacy-symfony-openapi.snapshot.json -o generated/api.d.ts` | By legacy-symfony-openapi.snapshot.json hash | Pure codegen |
 | `build` | `tsc -b` | Standard | Depends on generate |
 
-**Day-to-day TS work** uses the committed `openapi.json` — no PHP needed. Re-export only when API changes.
+**Day-to-day TS work** uses the committed `legacy-symfony-openapi.snapshot.json` — no PHP needed. Re-export only when API changes.
 
-**CI check** (future): compare committed `openapi.json` against fresh export, fail if they differ.
+**CI check** (future): compare committed `legacy-symfony-openapi.snapshot.json` against fresh export, fail if they differ.
 
 ## Dependencies
 

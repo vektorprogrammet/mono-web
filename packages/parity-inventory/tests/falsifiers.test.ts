@@ -564,7 +564,7 @@ test("real target API identities and normalized H3 edges do not invoke ambient r
     "evidence/security-h3/0015/current-route-inventory.json",
     "evidence/security-h3/0015/current-resource-inventory.json",
     "apps/server/tools/security-h3/0015/generate.ts",
-    "packages/sdk/openapi.json",
+    "packages/sdk/legacy-symfony-openapi.snapshot.json",
   ]);
   const sourceManifest = JSON.parse(
     readFileSync(join(sourceRoot, "evidence/security-h3/0015/source-manifest.json"), "utf8"),
@@ -606,7 +606,7 @@ test("real target API identities and normalized H3 edges do not invoke ambient r
       );
     });
     const openApi = JSON.parse(
-      readFileSync(join(sourceRoot, "packages/sdk/openapi.json"), "utf8"),
+      readFileSync(join(sourceRoot, "packages/sdk/legacy-symfony-openapi.snapshot.json"), "utf8"),
     ) as {
       readonly paths?: Record<string, Record<string, { readonly operationId?: string } | null>>;
     };
@@ -687,7 +687,7 @@ test("OpenAPI route keys remain structural while credential and schema values fa
     const monoRoot = gitFixture();
     const legacyRoot = gitFixture();
     try {
-      putFixture(monoRoot, "packages/sdk/openapi.json", JSON.stringify(openApiPayload));
+      putFixture(monoRoot, "packages/sdk/legacy-symfony-openapi.snapshot.json", JSON.stringify(openApiPayload));
       execFileSync("git", ["-C", monoRoot, "add", "."]);
       execFileSync("git", ["-C", monoRoot, "commit", "-qm", "openapi-safety-boundary"]);
       execFileSync("git", ["-C", legacyRoot, "commit", "--allow-empty", "-qm", "empty-legacy"]);
@@ -1110,7 +1110,7 @@ test("malformed and unsafe OpenAPI documents remain schema-invalid and write-blo
       );
       putFixture(monoRoot, "apps/server/bin/console", "<?php\n");
       putFixture(monoRoot, "apps/server/vendor/autoload.php", "<?php\n");
-      putFixture(monoRoot, "packages/sdk/openapi.json", JSON.stringify(payload));
+      putFixture(monoRoot, "packages/sdk/legacy-symfony-openapi.snapshot.json", JSON.stringify(payload));
       execFileSync("git", ["-C", monoRoot, "add", "."]);
       execFileSync("git", ["-C", monoRoot, "add", "-f", "apps/server/vendor/autoload.php"]);
       execFileSync("git", ["-C", monoRoot, "commit", "-qm", "openapi-boundary"]);
@@ -1224,7 +1224,7 @@ test("runtime defaults resolve omitted API metadata while explicit conflicts rem
     );
     putFixture(
       monoRoot,
-      "packages/sdk/openapi.json",
+      "packages/sdk/legacy-symfony-openapi.snapshot.json",
       JSON.stringify({
         openapi: "3.1.0",
         info: { title: "Fixture API", version: "1.0.0" },
@@ -1299,7 +1299,7 @@ test("OpenAPI prototype-named component changes stale the zero-operation reconci
     putFixture(monoRoot, "apps/server/var/parity/api-operations.json", "[]");
     putFixture(
       monoRoot,
-      "packages/sdk/openapi.json",
+      "packages/sdk/legacy-symfony-openapi.snapshot.json",
       JSON.stringify({
         openapi: "3.1.0",
         info: { title: "Fixture API", version: "1.0.0" },

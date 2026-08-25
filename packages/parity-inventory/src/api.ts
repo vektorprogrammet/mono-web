@@ -158,7 +158,7 @@ const RUNTIME_FIXTURE_PATHS = [
   "runtime/api-operations.json",
   "runtime/api.json",
 ] as const;
-const OPENAPI_PATH = "packages/sdk/openapi.json";
+const OPENAPI_PATH = "packages/sdk/legacy-symfony-openapi.snapshot.json";
 const CONSOLE_PATH = "apps/server/bin/console";
 const H3_GENERATOR_PATH = "apps/server/tools/security-h3/0015/generate.ts";
 const H3_SOURCE_MANIFEST_PATH = "evidence/security-h3/0015/source-manifest.json";

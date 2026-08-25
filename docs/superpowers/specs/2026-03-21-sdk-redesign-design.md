@@ -703,7 +703,7 @@ await sdk.admin.interviews.assign(applicationId, interviewerId, schemaId)
 | File | Reason |
 |------|--------|
 | `generated/api.d.ts` | Types now Schema classes in `schemas/` |
-| `openapi.json` | Moves to `apps/server/` (server concern) |
+| `legacy-symfony-openapi.snapshot.json` | Moves to `apps/server/` (server concern) |
 | `src/query.ts` | React Query is consumer concern |
 | `src/provider.tsx` | React Query is consumer concern |
 

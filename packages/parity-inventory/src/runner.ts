@@ -1507,7 +1507,7 @@ const syntheticFixtureFiles: readonly {
   },
   {
     root: "mono",
-    path: "packages/sdk/openapi.json",
+    path: "packages/sdk/legacy-symfony-openapi.snapshot.json",
     contents: JSON.stringify({
       openapi: "3.1.0",
       info: { title: "Fixture API", version: "1.0.0" },
@@ -1989,7 +1989,7 @@ const mutateFixture = (
       return;
     case "F8_openapi_stale":
       fileSystem.writeFile(
-        join(workspace.root, "packages/sdk/openapi.json"),
+        join(workspace.root, "packages/sdk/legacy-symfony-openapi.snapshot.json"),
         JSON.stringify({
           openapi: "3.1.0",
           info: { title: "Fixture API", version: "1.0.0" },
@@ -2026,7 +2026,7 @@ const mutateFixture = (
         "utf8",
       );
       fileSystem.writeFile(
-        join(workspace.root, "packages/sdk/openapi.json"),
+        join(workspace.root, "packages/sdk/legacy-symfony-openapi.snapshot.json"),
         JSON.stringify({
           openapi: "3.1.0",
           info: { title: "Fixture API", version: "1.0.0" },

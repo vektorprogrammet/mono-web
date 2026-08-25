@@ -60,7 +60,7 @@ The existing write endpoints already scope to the current user and enforce pendi
 ### SDK Regeneration
 
 After backend changes:
-1. `cd apps/server && php bin/console api:openapi:export --output=../../packages/sdk/openapi.json`
+1. `cd apps/server && php bin/console api:openapi:export --output=../../packages/sdk/legacy-symfony-openapi.snapshot.json`
 2. `cd packages/sdk && bun run generate`
 
 ---
@@ -252,7 +252,7 @@ Status transitions are admin-only (handled in the admin receipt page). Users can
 | File | Change |
 |------|--------|
 | `apps/dashboard/app/components/layout/sidebar.tsx` (or user dropdown file) | Add `to="/dashboard/mine-utlegg"` to "Mine Utlegg" nav item |
-| `packages/sdk/openapi.json` | Regenerated |
+| `packages/sdk/legacy-symfony-openapi.snapshot.json` | Regenerated |
 | `packages/sdk/generated/api.d.ts` | Regenerated |
 
 ---

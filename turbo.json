@@ -21,7 +21,7 @@
     },
     "generate": {
       "dependsOn": ["^api:spec"],
-      "inputs": ["openapi.json"],
+      "inputs": ["legacy-symfony-openapi.snapshot.json"],
       "outputs": ["generated/**"]
     },
     "dev": {

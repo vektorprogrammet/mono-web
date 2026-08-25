@@ -482,13 +482,13 @@ git commit -m "test(receipts): e2e API tests for GET /api/my/receipts"
 ### Task 5: Regenerate SDK types
 
 **Files:**
-- Modify: `packages/sdk/openapi.json`
+- Modify: `packages/sdk/legacy-symfony-openapi.snapshot.json`
 - Modify: `packages/sdk/generated/api.d.ts`
 
 - [ ] **Step 1: Export the OpenAPI spec**
 
-Run: `cd apps/server && php bin/console api:openapi:export --output=../../packages/sdk/openapi.json`
-Expected: File updated. Verify: `grep "my/receipts" ../../packages/sdk/openapi.json` — should find the new endpoint.
+Run: `cd apps/server && php bin/console api:openapi:export --output=../../packages/sdk/legacy-symfony-openapi.snapshot.json`
+Expected: File updated. Verify: `grep "my/receipts" ../../packages/sdk/legacy-symfony-openapi.snapshot.json` — should find the new endpoint.
 
 - [ ] **Step 2: Regenerate TypeScript types**
 
@@ -503,7 +503,7 @@ Expected: No TypeScript errors.
 - [ ] **Step 4: Commit**
 
 ```bash
-git add packages/sdk/openapi.json packages/sdk/generated/api.d.ts
+git add packages/sdk/legacy-symfony-openapi.snapshot.json packages/sdk/generated/api.d.ts
 git commit -m "chore(sdk): regenerate types for user receipt list endpoint"
 ```
 

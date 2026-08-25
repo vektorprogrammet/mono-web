@@ -334,7 +334,7 @@ The implementation did not change:
 - `packages/sdk/src/transport.ts`, `errors.ts`, `promise.ts`, `effect-client.ts`, public export files, or unrelated SDK schemas/domains;
 - `packages/sdk/src/__tests__/schemas.test.ts:78-104`; this existing compatibility test is read-only and is not a fifth owned path;
 - `packages/sdk/package.json`, `packages/sdk/tsconfig.json`, root `package.json`, `bun.lock`, `.github/workflows/**`, `.githooks/**`, or dependency metadata;
-- `packages/sdk/openapi.json`, backend, Symfony, API Platform, server, Worker, database, migration, persistence, or domain paths;
+- `packages/sdk/legacy-symfony-openapi.snapshot.json`, backend, Symfony, API Platform, server, Worker, database, migration, persistence, or domain paths;
 - `packages/sdk/dist/**` as a committed path. Ignored output can exist only during a local build and must be removed;
 - provider, cloud, remote, production, credential, PII, data, deployment, release, route-cutover, or publication resources.
 

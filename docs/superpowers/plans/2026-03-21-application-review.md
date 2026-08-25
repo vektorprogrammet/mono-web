@@ -337,14 +337,14 @@ Expected: 0 errors above baseline.
 ### Task 4: Regenerate SDK types
 
 **Files:**
-- Modify: `packages/sdk/openapi.json`
+- Modify: `packages/sdk/legacy-symfony-openapi.snapshot.json`
 - Modify: `packages/sdk/generated/api.d.ts`
 
 **Context:** The `AdminApplicationListResource.applications` array items now include `applicationStatus: int`. Because the property is untyped `array` in PHP, API Platform will expose it as `array` in the schema. The generated TypeScript will type it as `object` or `unknown[]`. After regen, verify the `applicationStatus` field is visible so the frontend can consume it.
 
 - [ ] **Step 1: Export the OpenAPI spec**
 
-Run: `cd apps/server && php bin/console api:openapi:export --output=../../packages/sdk/openapi.json`
+Run: `cd apps/server && php bin/console api:openapi:export --output=../../packages/sdk/legacy-symfony-openapi.snapshot.json`
 Expected: File updated.
 
 - [ ] **Step 2: Regenerate TypeScript types**
@@ -360,7 +360,7 @@ Expected: No TypeScript errors.
 - [ ] **Step 4: Commit**
 
 ```bash
-git add packages/sdk/openapi.json packages/sdk/generated/api.d.ts
+git add packages/sdk/legacy-symfony-openapi.snapshot.json packages/sdk/generated/api.d.ts
 git commit -m "chore(sdk): regenerate types for applicationStatus field in application list"
 ```
 

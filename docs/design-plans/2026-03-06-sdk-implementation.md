@@ -13,7 +13,7 @@
 ### Task 1: Export the OpenAPI spec from Symfony
 
 **Files:**
-- Create: `packages/sdk/openapi.json`
+- Create: `packages/sdk/legacy-symfony-openapi.snapshot.json`
 
 **Context:** The Symfony server at `apps/server` uses API Platform 3.4 which auto-generates an OpenAPI 3.0 spec. We need PHP + composer deps installed to export it.
 
@@ -30,13 +30,13 @@ Expected: vendor/ directory created, no errors.
 
 ```bash
 cd /Users/nori/Projects/ntnu/vektor/v1/monoweb/apps/server
-php bin/console api:openapi:export --output=../../packages/sdk/openapi.json
+php bin/console api:openapi:export --output=../../packages/sdk/legacy-symfony-openapi.snapshot.json
 ```
 
-Expected: `packages/sdk/openapi.json` created. Verify it's valid JSON:
+Expected: `packages/sdk/legacy-symfony-openapi.snapshot.json` created. Verify it's valid JSON:
 
 ```bash
-python3 -c "import json; d=json.load(open('../../packages/sdk/openapi.json')); print(d['info']['title'], d['info']['version'])"
+python3 -c "import json; d=json.load(open('../../packages/sdk/legacy-symfony-openapi.snapshot.json')); print(d['info']['title'], d['info']['version'])"
 ```
 
 Expected output: `Vektorprogrammet API 1.0.0`
@@ -44,7 +44,7 @@ Expected output: `Vektorprogrammet API 1.0.0`
 **Step 3: Verify the spec has paths**
 
 ```bash
-python3 -c "import json; d=json.load(open('/Users/nori/Projects/ntnu/vektor/v1/monoweb/packages/sdk/openapi.json')); print(f\"{len(d['paths'])} paths\")"
+python3 -c "import json; d=json.load(open('/Users/nori/Projects/ntnu/vektor/v1/monoweb/packages/sdk/legacy-symfony-openapi.snapshot.json')); print(f\"{len(d['paths'])} paths\")"
 ```
 
 Expected: Something like `50+ paths` (the 93 endpoints map to ~50 unique paths with multiple methods).
@@ -52,7 +52,7 @@ Expected: Something like `50+ paths` (the 93 endpoints map to ~50 unique paths w
 **Step 4: Commit**
 
 ```bash
-git add packages/sdk/openapi.json
+git add packages/sdk/legacy-symfony-openapi.snapshot.json
 git commit -m "chore: export OpenAPI spec from Symfony API Platform"
 ```
 
@@ -79,7 +79,7 @@ Create `packages/sdk/package.json`:
     ".": "./src/index.ts"
   },
   "scripts": {
-    "generate": "openapi-typescript openapi.json -o generated/api.d.ts",
+    "generate": "openapi-typescript legacy-symfony-openapi.snapshot.json -o generated/api.d.ts",
     "build": "tsc -b",
     "lint": "oxlint"
   },
@@ -163,7 +163,7 @@ git commit -m "feat(sdk): scaffold @monoweb/sdk package"
 
 ```bash
 cd /Users/nori/Projects/ntnu/vektor/v1/monoweb/packages/sdk
-npx openapi-typescript openapi.json -o generated/api.d.ts
+npx openapi-typescript legacy-symfony-openapi.snapshot.json -o generated/api.d.ts
 ```
 
 Expected: `generated/api.d.ts` created with `export interface paths { ... }` containing all API routes.
@@ -278,7 +278,7 @@ git commit -m "feat(sdk): implement createClient and createQueryApi"
 In `apps/server/package.json`, add to `scripts`:
 
 ```json
-"api:spec": "php bin/console api:openapi:export --output=../../packages/sdk/openapi.json"
+"api:spec": "php bin/console api:openapi:export --output=../../packages/sdk/legacy-symfony-openapi.snapshot.json"
 ```
 
 **Step 2: Add generate and api:spec tasks to turbo.json**
@@ -291,7 +291,7 @@ In `turbo.json`, add to `tasks`:
 },
 "generate": {
   "dependsOn": ["^api:spec"],
-  "inputs": ["openapi.json"],
+  "inputs": ["legacy-symfony-openapi.snapshot.json"],
   "outputs": ["generated/**"]
 }
 ```
@@ -313,7 +313,7 @@ Expected: Shows `@monoweb/sdk#generate` in the task list.
 npx turbo generate
 ```
 
-Expected: Runs `openapi-typescript openapi.json -o generated/api.d.ts` successfully.
+Expected: Runs `openapi-typescript legacy-symfony-openapi.snapshot.json -o generated/api.d.ts` successfully.
 
 **Step 5: Commit**
 
@@ -420,7 +420,7 @@ git commit -m "chore(sdk): ignore generated files in oxlint"
 
 ## Acceptance Criteria
 
-1. `packages/sdk/openapi.json` contains the full Symfony API Platform spec
+1. `packages/sdk/legacy-symfony-openapi.snapshot.json` contains the full Symfony API Platform spec
 2. `packages/sdk/generated/api.d.ts` contains generated TypeScript types for all API paths
 3. `packages/sdk/src/index.ts` exports `createClient` and `createQueryApi`
 4. `npx tsc --noEmit` passes in `packages/sdk/`
