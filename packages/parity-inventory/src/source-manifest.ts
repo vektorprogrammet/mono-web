@@ -902,6 +902,35 @@ const sqlRhsIsSafe = (tokens: readonly SqlToken[]): boolean => {
 };
 const sqlTokenIsKeyword = (token: SqlToken | undefined, keyword: string): boolean =>
   token?.kind === "identifier" && token.value.toLowerCase() === keyword;
+const sqlPlainEqualsIsProceduralAssignment = (
+  tokens: readonly SqlToken[],
+  operatorIndex: number,
+  statementStart: number,
+  depth: number,
+): boolean => {
+  let targetStart = operatorIndex - 1;
+  const target = tokens[targetStart];
+  if (target?.kind !== "identifier" || target.depth !== depth) return false;
+  while (targetStart - 2 >= statementStart) {
+    const separator = tokens[targetStart - 1];
+    const qualifier = tokens[targetStart - 2];
+    if (
+      separator?.value !== "." ||
+      separator.depth !== depth ||
+      qualifier?.kind !== "identifier" ||
+      qualifier.depth !== depth
+    )
+      break;
+    targetStart -= 2;
+  }
+  if (targetStart === statementStart) return true;
+  const boundary = tokens[targetStart - 1];
+  return (
+    boundary?.kind === "identifier" &&
+    boundary.depth === depth &&
+    /^(?:begin|else|loop|then)$/iu.test(boundary.value)
+  );
+};
 const sqlEqualsIsAssignment = (tokens: readonly SqlToken[], operatorIndex: number): boolean => {
   const operator = tokens[operatorIndex];
   if (operator?.value !== "=") return false;
@@ -930,6 +959,8 @@ const sqlEqualsIsAssignment = (tokens: readonly SqlToken[], operatorIndex: numbe
     if (inSetClause && /^(?:from|returning|where)$/u.test(keyword)) inSetClause = false;
   }
   if (inSetClause) return true;
+  if (sqlPlainEqualsIsProceduralAssignment(tokens, operatorIndex, statementStart, depth))
+    return true;
   const assignmentTarget = tokens[operatorIndex - 1];
   const variableSigil = tokens[operatorIndex - 2];
   return (

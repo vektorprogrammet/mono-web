@@ -1888,6 +1888,51 @@ describe("source safety boundary", () => {
       );
     });
 
+    test("rejects procedural sensitive assignments without treating comparisons as writes", () => {
+      const assertUnsafeAssignment = (statement: string): void => {
+        expect(unsafeSqlSourceTextReason(statement)).toBe("UNSAFE_SOURCE");
+        expect(
+          sourceTextSafetyReason(
+            "packages/database/migrations/procedural-sensitive-assignment.sql",
+            new TextEncoder().encode(statement),
+          ),
+        ).toBe("UNSAFE_SOURCE");
+      };
+      assertUnsafeAssignment("password = 'concrete-password';");
+      assertUnsafeAssignment("api_token = 'concrete-token';");
+      assertUnsafeAssignment(`
+        CREATE FUNCTION rotate_credentials(should_rotate boolean) RETURNS void
+        LANGUAGE plpgsql AS $procedure$
+        BEGIN
+          password = 'concrete-password';
+          IF should_rotate THEN
+            api_token = 'concrete-token';
+          END IF;
+        END;
+        $procedure$;
+      `);
+      for (const comparison of [
+        "SELECT user_id FROM users WHERE password = $1;",
+        "SELECT user_id FROM users JOIN credentials ON credentials.password = $1;",
+        "CREATE TABLE credential_check (password text, confirmation text, CHECK (password = confirmation));",
+        `DO $procedure$
+         BEGIN
+           IF password = $1 THEN
+             NULL;
+           END IF;
+         END;
+         $procedure$;`,
+      ]) {
+        expect(unsafeSqlSourceTextReason(comparison)).toBeNull();
+        expect(
+          sourceTextSafetyReason(
+            "packages/database/migrations/sensitive-comparison.sql",
+            new TextEncoder().encode(comparison),
+          ),
+        ).toBeNull();
+      }
+    });
+
     test("allows strict parameterized INSERT SELECT recordsets", () => {
       const statement = `
         INSERT INTO person_contact_profiles (person_id, email, revision)
