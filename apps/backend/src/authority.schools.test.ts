@@ -15,12 +15,13 @@ import {
   resolveAuthenticatedPersonAtInstant,
   type AuthorityResolutionOptions,
 } from "./authority.js";
+import { runTestPromise } from "../test/runtime.js";
 
 const makeRun =
   (auth: AuthShape): AuthorityResolutionOptions["run"] =>
   <A, E>(effect: Effect.Effect<A, E, Organization | Auth>): Promise<A> => {
     const runnable = effect.pipe(Effect.provideService(Auth, auth)) as Effect.Effect<A, E>;
-    return Effect.runPromise(runnable);
+    return runTestPromise(runnable);
   };
 
 const rejectingAuth = (failure: unknown): AuthShape => ({

@@ -27,6 +27,7 @@ import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import type { BackendRun } from "../router.js";
 import { makeSchoolsApiHttp } from "./http.js";
+import { runTestPromise } from "../../test/runtime.js";
 
 const personId = PersonId.make("schools-http-person");
 const departmentA = DepartmentId.make("schools-http-a");
@@ -88,7 +89,7 @@ const makeRun = (
       Effect.provideService(Organization, organization),
       Effect.provideService(Schools, schools),
     ) as Effect.Effect<A, E>;
-    return Effect.runPromise(runnable);
+    return runTestPromise(runnable);
   };
 };
 

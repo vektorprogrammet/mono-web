@@ -7,13 +7,16 @@ import {
   PersonId,
 } from "@vektorprogrammet/domain/organization";
 import { readSchoolsDirectory, Schools, SchoolsLive } from "@vektorprogrammet/domain/schools";
-import { Effect, Layer, ManagedRuntime } from "effect";
+import { Effect, Layer } from "effect";
 import { DatabaseTest } from "./layers.js";
+import { makeControlledTestRuntime } from "../test/runtime.js";
 
 const databaseLayer = DatabaseTest();
 const organizationLayer = OrganizationLive.pipe(Layer.provide(databaseLayer));
 const schoolsLayer = SchoolsLive.pipe(Layer.provide(databaseLayer));
-const runtime = ManagedRuntime.make(Layer.mergeAll(databaseLayer, organizationLayer, schoolsLayer));
+const runtime = makeControlledTestRuntime(
+  Layer.mergeAll(databaseLayer, organizationLayer, schoolsLayer),
+);
 
 afterAll(async () => {
   await runtime.dispose();
