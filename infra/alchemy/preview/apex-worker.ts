@@ -65,8 +65,21 @@ export default {
     }
 
     const surface = previewSurface(url.pathname);
+    // Dashboard pages reference their hashed client bundles at /assets/*,
+    // which previewSurface classifies as homepage. Route asset requests to
+    // the dashboard whenever the navigation context says the document came
+    // from a dashboard route; direct asset opens default to the dashboard,
+    // whose entry chunk is the only one reachable without an HTML referrer.
+    if (
+      surface === "homepage" &&
+      url.pathname.startsWith("/assets/") &&
+      isDashboardAssetRequest(request)
+    ) {
+      return env.Dashboard.fetch(request);
+    }
     if (surface === "homepage") return env.Homepage.fetch(request);
     if (surface === "dashboard") return env.Dashboard.fetch(request);
+
 
     // server surface (/api/* and /health): proxy to the backend origin,
     // reached through the cloudflared tunnel on both allowed hostnames.
@@ -80,4 +93,20 @@ export default {
       } as RequestInit)),
     );
   },
+};
+
+/**
+ * Asset subresources belong to whichever app rendered the document that
+ * referenced them. Dashboard documents are exactly the dashboard surface
+ * paths, so their Sec-Fetch-Site/Referer identify them; same-origin
+ * fetch()/module loads inherit the document's context.
+ */
+const isDashboardAssetRequest = (request: Request): boolean => {
+  const referer = request.headers.get("referer");
+  if (referer !== null) {
+    const refererUrl = new URL(referer);
+    return previewSurface(refererUrl.pathname) === "dashboard";
+  }
+  const secFetchDest = request.headers.get("sec-fetch-dest");
+  return secFetchDest !== "document";
 };
