@@ -651,6 +651,14 @@ const approvedSqlSourceDigests = new Map<string, string>([
     "packages/domain/src/application/migrations/0005-public-applicant-activation-snapshot.sql",
     "sha256:427d104599900ac5e6d01ed18121e2b32b9dfc5187c82c0159f9be757db11062",
   ],
+  [
+    "packages/database/migrations/0012-native-recruitment-invitation-response.sql",
+    "sha256:3b5c3ba3f27af2373e149d227c100f4a68aeb75ef43750b1b11c90149718aed5",
+  ],
+  [
+    "apps/dashboard/e2e/native-team-interest-mailing-list-seed.sql",
+    "sha256:bc11c9bdf55571434e20169b133ed7ce66ab6cdd3243bc374079b6c6c00b7b35",
+  ],
 ]);
 const envSourcePathPattern = /(?:^|\/)\.env(?:$|[.-])/i;
 const sqlSourcePathPattern = /\.sql$/i;
