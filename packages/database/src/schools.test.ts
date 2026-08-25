@@ -6,13 +6,7 @@ import {
   OrganizationLive,
   PersonId,
 } from "@vektorprogrammet/domain/organization";
-import {
-  SchoolDirectoryCursor,
-  readSchoolsDirectory,
-  Schools,
-  SchoolsLive,
-  type SchoolDirectoryDepartment,
-} from "@vektorprogrammet/domain/schools";
+import { readSchoolsDirectory, Schools, SchoolsLive } from "@vektorprogrammet/domain/schools";
 import { Effect, Layer, ManagedRuntime } from "effect";
 import { DatabaseTest } from "./layers.js";
 
@@ -151,7 +145,7 @@ describe("Schools application migration in PGlite", () => {
   });
 
   it("runs the named journey against the canonical non-locking Organization projection", async () => {
-    const page = await runtime.runPromise(
+    const directory = await runtime.runPromise(
       Effect.gen(function* () {
         const database = yield* Database;
         const departmentId = DepartmentId.make("schools-journey-pglite");
@@ -192,10 +186,10 @@ describe("Schools application migration in PGlite", () => {
           INSERT INTO schools_directory_departments (school_id, department_id)
           VALUES (${inserted[0]!.schoolId}::bigint, ${departmentId})
         `;
-        const page = yield* readSchoolsDirectory(
+        const directory = yield* readSchoolsDirectory(
           personId,
           OrganizationAuthorityInstantSchema.make("2032-01-01T00:00:00.000Z"),
-          { limit: 50 },
+          {},
         );
         yield* database`
           DELETE FROM schools_directory_schools AS school
@@ -213,14 +207,14 @@ describe("Schools application migration in PGlite", () => {
           DELETE FROM organization_departments AS department
           WHERE department.department_id = ${departmentId}
         `;
-        return page;
+        return directory;
       }),
     );
 
-    expect(page).toEqual({
+    expect(directory).toEqual({
       activeSchools: [
         {
-          schoolId: page.activeSchools[0]?.schoolId,
+          schoolId: directory.activeSchools[0]?.schoolId,
           name: "Journey School",
           contactPerson: "Journey Contact",
           email: "journey-school@example.invalid",
@@ -236,28 +230,27 @@ describe("Schools application migration in PGlite", () => {
         },
       ],
       inactiveSchools: [],
-      nextCursor: null,
     });
   });
 
-  it("walks a deterministic cursor without duplicates and intersects visible departments", async () => {
+  it("returns one deterministic full directory and intersects visible departments", async () => {
     const evidence = await runtime.runPromise(
       Effect.gen(function* () {
         const database = yield* Database;
         const schools = yield* Schools;
-        const departmentA = DepartmentId.make("schools-page-a");
-        const departmentB = DepartmentId.make("schools-page-b");
+        const departmentA = DepartmentId.make("schools-full-a");
+        const departmentB = DepartmentId.make("schools-full-b");
         yield* database`
           INSERT INTO organization_departments (
             department_id, name, short_name, email, city
           ) VALUES
             (
               ${departmentA}, 'Department A', 'SA',
-              'schools-page-a@example.invalid', 'Bergen'
+              'schools-full-a@example.invalid', 'Bergen'
             ),
             (
               ${departmentB}, 'Department B', 'SB',
-              'schools-page-b@example.invalid', 'Trondheim'
+              'schools-full-b@example.invalid', 'Trondheim'
             )
         `;
         const inserted = yield* database<{
@@ -306,31 +299,11 @@ describe("Schools application migration in PGlite", () => {
             (${idByEmail.get("zulu@example.invalid")}::bigint, ${departmentA})
         `;
 
-        const walkedIds: Array<number> = [];
-        let cursor: SchoolDirectoryCursor | undefined;
-        let pageCount = 0;
-        let adminOnlyDepartments: ReadonlyArray<SchoolDirectoryDepartment> | undefined;
-        while (true) {
-          const page = yield* schools.listDirectory({
-            scope: { _tag: "All" },
-            cursor,
-            limit: 2,
-          });
-          walkedIds.push(
-            ...page.activeSchools.map((school) => school.schoolId),
-            ...page.inactiveSchools.map((school) => school.schoolId),
-          );
-          adminOnlyDepartments ??= page.activeSchools.find(
-            (school) => school.email === "admin-only@example.invalid",
-          )?.departments;
-          pageCount += 1;
-          if (page.nextCursor === null) break;
-          cursor = page.nextCursor;
-        }
-
+        const directory = yield* schools.listDirectory({
+          scope: { _tag: "All" },
+        });
         const scoped = yield* schools.listDirectory({
           scope: { _tag: "DepartmentIds", departmentIds: [departmentA, departmentB] },
-          limit: 100,
         });
         const shared = scoped.activeSchools.find(
           (school) => school.email === "shared@example.invalid",
@@ -338,67 +311,61 @@ describe("Schools application migration in PGlite", () => {
         const narrowed = yield* schools.listDirectory({
           scope: { _tag: "DepartmentIds", departmentIds: [departmentA, departmentB] },
           departmentId: departmentA,
-          limit: 100,
         });
         const narrowedShared = narrowed.activeSchools.find(
           (school) => school.email === "shared@example.invalid",
         );
-        const malformedCursorTag = yield* Effect.flip(
-          schools.listDirectory({
-            scope: { _tag: "All" },
-            cursor: SchoolDirectoryCursor.make("not-a-cursor"),
-            limit: 2,
-          }),
-        ).pipe(Effect.map((failure) => failure._tag));
         const exceededScopeTag = yield* Effect.flip(
           schools.listDirectory({
             scope: { _tag: "DepartmentIds", departmentIds: [departmentA] },
             departmentId: departmentB,
-            limit: 2,
           }),
         ).pipe(Effect.map((failure) => failure._tag));
+        const fullSchoolIds = [
+          ...directory.activeSchools.map((school) => school.schoolId),
+          ...directory.inactiveSchools.map((school) => school.schoolId),
+        ];
 
         return {
-          pageCount,
-          walkedIds,
-          expectedIds: inserted
-            .toSorted((left, right) =>
-              left.name === right.name
-                ? Number(left.schoolId) - Number(right.schoolId)
-                : left.name < right.name
-                  ? -1
-                  : 1,
-            )
-            .map((row) => Number(row.schoolId)),
-          uniqueWalkedIds: new Set(walkedIds).size,
+          fullActiveEmails: directory.activeSchools.map((school) => school.email),
+          fullInactiveEmails: directory.inactiveSchools.map((school) => school.email),
+          fullSchoolCount: fullSchoolIds.length,
+          uniqueFullSchoolIds: new Set(fullSchoolIds).size,
           sharedDepartments: shared?.departments,
           narrowedSharedDepartments: narrowedShared?.departments,
-          containsUnassignedInScopedView: scoped.activeSchools.some(
+          scopedActiveEmails: scoped.activeSchools.map((school) => school.email),
+          scopedInactiveEmails: scoped.inactiveSchools.map((school) => school.email),
+          adminOnlyDepartments: directory.activeSchools.find(
             (school) => school.email === "admin-only@example.invalid",
-          ),
-          inactiveEmails: scoped.inactiveSchools.map((school) => school.email),
-          adminOnlyDepartments,
+          )?.departments,
           exceededScopeTag,
-          malformedCursorTag,
         };
       }),
     );
 
     expect(evidence).toEqual({
-      pageCount: 3,
-      walkedIds: evidence.expectedIds,
-      expectedIds: evidence.expectedIds,
-      uniqueWalkedIds: 5,
-      sharedDepartments: [
-        { departmentId: "schools-page-a", name: "Department A" },
-        { departmentId: "schools-page-b", name: "Department B" },
+      fullActiveEmails: [
+        "admin-only@example.invalid",
+        "alpha-a@example.invalid",
+        "alpha-b@example.invalid",
+        "shared@example.invalid",
       ],
-      narrowedSharedDepartments: [{ departmentId: "schools-page-a", name: "Department A" }],
-      containsUnassignedInScopedView: false,
-      inactiveEmails: ["zulu@example.invalid"],
+      fullInactiveEmails: ["zulu@example.invalid"],
+      fullSchoolCount: 5,
+      uniqueFullSchoolIds: 5,
+      sharedDepartments: [
+        { departmentId: "schools-full-a", name: "Department A" },
+        { departmentId: "schools-full-b", name: "Department B" },
+      ],
+      narrowedSharedDepartments: [{ departmentId: "schools-full-a", name: "Department A" }],
+      scopedActiveEmails: [
+        "alpha-a@example.invalid",
+        "alpha-b@example.invalid",
+        "shared@example.invalid",
+      ],
+      scopedInactiveEmails: ["zulu@example.invalid"],
       adminOnlyDepartments: [],
       exceededScopeTag: "SchoolsDecodeError",
-      malformedCursorTag: "SchoolsCursorInvalid",
     });
   });
 });

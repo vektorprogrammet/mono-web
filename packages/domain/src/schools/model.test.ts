@@ -1,11 +1,6 @@
 import { expect, it } from "@effect/vitest";
 import { Effect, Schema } from "effect";
-import {
-  School,
-  SchoolCapacityPlan,
-  SchoolDepartment,
-  SchoolDirectoryPageSchema,
-} from "./schema.js";
+import { School, SchoolCapacityPlan, SchoolDepartment, SchoolDirectorySchema } from "./schema.js";
 
 it("derives the frozen School persistence and JSON variants", () => {
   expect(Object.keys(School.fields).toSorted()).toEqual([
@@ -53,7 +48,7 @@ it("keeps association and capacity identities canonical", () => {
   expect(Object.keys(SchoolCapacityPlan.fields)).not.toContain("groups");
 });
 
-it.effect("strictly decodes the exact directory page and its partition laws", () =>
+it.effect("strictly decodes the exact full directory and its partition laws", () =>
   Effect.gen(function* () {
     const entry = {
       schoolId: 1,
@@ -68,18 +63,17 @@ it.effect("strictly decodes the exact directory page and its partition laws", ()
       ],
       isActive: true,
     };
-    const page = yield* Schema.decodeUnknownEffect(SchoolDirectoryPageSchema)(
-      { activeSchools: [entry], inactiveSchools: [], nextCursor: null },
+    const directory = yield* Schema.decodeUnknownEffect(SchoolDirectorySchema)(
+      { activeSchools: [entry], inactiveSchools: [] },
       { onExcessProperty: "error" },
     );
-    expect(page.activeSchools[0]?.schoolId).toBe(1);
+    expect(directory.activeSchools[0]?.schoolId).toBe(1);
 
     const excessFailure = yield* Effect.flip(
-      Schema.decodeUnknownEffect(SchoolDirectoryPageSchema)(
+      Schema.decodeUnknownEffect(SchoolDirectorySchema)(
         {
           activeSchools: [{ ...entry, capacity: { monday: 2 } }],
           inactiveSchools: [],
-          nextCursor: null,
         },
         { onExcessProperty: "error" },
       ),
@@ -87,15 +81,15 @@ it.effect("strictly decodes the exact directory page and its partition laws", ()
     expect(String(excessFailure)).toContain("capacity");
 
     const partitionFailure = yield* Effect.flip(
-      Schema.decodeUnknownEffect(SchoolDirectoryPageSchema)(
-        { activeSchools: [], inactiveSchools: [entry], nextCursor: null },
-        { onExcessProperty: "error" },
-      ),
+      Schema.decodeUnknownEffect(SchoolDirectorySchema)({
+        activeSchools: [],
+        inactiveSchools: [entry],
+      }),
     );
     expect(String(partitionFailure)).toContain("partitioned");
 
     const departmentOrderFailure = yield* Effect.flip(
-      Schema.decodeUnknownEffect(SchoolDirectoryPageSchema)(
+      Schema.decodeUnknownEffect(SchoolDirectorySchema)(
         {
           activeSchools: [
             {
@@ -104,7 +98,6 @@ it.effect("strictly decodes the exact directory page and its partition laws", ()
             },
           ],
           inactiveSchools: [],
-          nextCursor: null,
         },
         { onExcessProperty: "error" },
       ),

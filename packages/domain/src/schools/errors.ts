@@ -9,11 +9,6 @@ export class SchoolsDecodeError extends Schema.TaggedError<SchoolsDecodeError>()
   },
 ) {}
 
-export class SchoolsCursorInvalid extends Schema.TaggedError<SchoolsCursorInvalid>()(
-  "SchoolsCursorInvalid",
-  { message: Schema.String },
-) {}
-
 export class SchoolsPersistenceError extends Schema.TaggedError<SchoolsPersistenceError>()(
   "SchoolsPersistenceError",
   {
@@ -39,7 +34,7 @@ export class SchoolsDepartmentOutOfScope extends Schema.TaggedError<SchoolsDepar
   { departmentId: DepartmentId },
 ) {}
 
-export type SchoolsFailure = SchoolsDecodeError | SchoolsCursorInvalid | SchoolsPersistenceError;
+export type SchoolsFailure = SchoolsDecodeError | SchoolsPersistenceError;
 
 export type ReadSchoolsDirectoryFailure =
   | SchoolsFailure

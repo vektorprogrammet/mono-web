@@ -15,7 +15,7 @@ import {
 } from "./errors.js";
 import {
   SchoolDirectoryQuerySchema,
-  type SchoolDirectoryPage,
+  type SchoolDirectory,
   type SchoolDirectoryQuery,
 } from "./schema.js";
 import { Schools } from "./service.js";
@@ -35,11 +35,7 @@ export const readSchoolsDirectory = (
   personId: PersonId,
   authorizationInstant: OrganizationAuthorityInstant,
   query: SchoolDirectoryQuery,
-): Effect.Effect<
-  SchoolDirectoryPage,
-  ReadSchoolsDirectoryFailure,
-  Database | Organization | Schools
-> =>
+): Effect.Effect<SchoolDirectory, ReadSchoolsDirectoryFailure, Database | Organization | Schools> =>
   Effect.gen(function* () {
     const decodedQuery = yield* Schema.decodeUnknownEffect(SchoolDirectoryQuerySchema)(query, {
       onExcessProperty: "error",

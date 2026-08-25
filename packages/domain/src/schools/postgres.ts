@@ -1,28 +1,15 @@
 import { Effect, Schema } from "effect";
 import { Database } from "../database/service.js";
+import { SchoolsDecodeError, SchoolsPersistenceError, type SchoolsFailure } from "./errors.js";
 import {
-  SchoolsCursorInvalid,
-  SchoolsDecodeError,
-  SchoolsPersistenceError,
-  type SchoolsFailure,
-} from "./errors.js";
-import {
-  SchoolDirectoryCursor,
   SchoolDirectoryDepartmentsSchema,
   SchoolDirectoryListInputSchema,
-  SchoolDirectoryPageSchema,
+  SchoolDirectorySchema,
   SchoolId,
+  type SchoolDirectory,
   type SchoolDirectoryEntry,
   type SchoolDirectoryListInput,
-  type SchoolDirectoryPage,
 } from "./schema.js";
-
-const CursorPayloadSchema = Schema.Struct({
-  version: Schema.Literal(1),
-  name: Schema.String,
-  schoolId: SchoolId,
-});
-type CursorPayload = typeof CursorPayloadSchema.Type;
 
 const DirectoryRowSchema = Schema.Struct({
   schoolId: Schema.String,
@@ -41,39 +28,6 @@ const decodeError = (operation: string, cause: unknown): SchoolsDecodeError =>
 
 const persistenceError = (operation: string, cause: unknown): SchoolsPersistenceError =>
   new SchoolsPersistenceError({ operation, message: String(cause) });
-
-const encodeCursor = (payload: Omit<CursorPayload, "version">): SchoolDirectoryCursor =>
-  SchoolDirectoryCursor.make(
-    Buffer.from(JSON.stringify({ version: 1, ...payload }), "utf8").toString("base64url"),
-  );
-
-const decodeCursor = (
-  cursor: SchoolDirectoryCursor,
-): Effect.Effect<CursorPayload, SchoolsCursorInvalid> =>
-  Effect.gen(function* () {
-    const bytes = Buffer.from(cursor, "base64url");
-    if (bytes.length === 0 || bytes.toString("base64url") !== cursor) {
-      return yield* new SchoolsCursorInvalid({ message: "malformed Schools directory cursor" });
-    }
-    const source = bytes.toString("utf8");
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(source) as unknown;
-    } catch {
-      return yield* new SchoolsCursorInvalid({ message: "malformed Schools directory cursor" });
-    }
-    const payload = yield* Schema.decodeUnknownEffect(CursorPayloadSchema)(parsed, {
-      onExcessProperty: "error",
-    }).pipe(
-      Effect.mapError(
-        () => new SchoolsCursorInvalid({ message: "malformed Schools directory cursor" }),
-      ),
-    );
-    if (JSON.stringify(payload) !== source) {
-      return yield* new SchoolsCursorInvalid({ message: "non-canonical Schools directory cursor" });
-    }
-    return payload;
-  });
 
 const decodeRows = (
   selected: unknown,
@@ -102,13 +56,13 @@ const decodeRows = (
   });
 
 /**
- * Reads one deterministic keyset page. The visibility EXISTS and aggregation
- * use the same scope, so a school is emitted once and carries only the
- * department intersection the caller may observe.
+ * Reads the full visible directory in deterministic order. The visibility
+ * EXISTS and aggregation use the same scope, so a school is emitted once and
+ * carries only the department intersection the caller may observe.
  */
 export const listSchoolDirectoryPostgres = (
   input: SchoolDirectoryListInput,
-): Effect.Effect<SchoolDirectoryPage, SchoolsFailure, Database> =>
+): Effect.Effect<SchoolDirectory, SchoolsFailure, Database> =>
   Effect.gen(function* () {
     const decoded = yield* Schema.decodeUnknownEffect(SchoolDirectoryListInputSchema)(input, {
       onExcessProperty: "error",
@@ -123,7 +77,6 @@ export const listSchoolDirectoryPostgres = (
         "department narrowing exceeds the authorized scope",
       );
     }
-    const cursor = decoded.cursor === undefined ? undefined : yield* decodeCursor(decoded.cursor);
     const sql = yield* Database;
     const isAll = decoded.scope._tag === "All";
     const departmentIds =
@@ -141,8 +94,6 @@ export const listSchoolDirectoryPostgres = (
         : departmentIds === undefined
           ? sql`TRUE`
           : sql.in("directory_association.department_id", departmentIds);
-    const cursorName = cursor?.name ?? null;
-    const cursorSchoolId = cursor?.schoolId ?? null;
     const selected = yield* sql<DirectoryRow>`
       SELECT
         school.school_id::text AS "schoolId",
@@ -179,31 +130,18 @@ export const listSchoolDirectoryPostgres = (
               AND ${visibilityPredicate}
           )
         )
-        AND (
-          ${cursor === undefined}
-          OR (school.name COLLATE "C", school.school_id) >
-            (${cursorName} COLLATE "C", ${cursorSchoolId}::bigint)
-        )
       ORDER BY school.name COLLATE "C" ASC, school.school_id ASC
-      LIMIT ${decoded.limit + 1}
     `.pipe(
       Effect.catchTag("SqlError", (cause) =>
-        Effect.fail(persistenceError("read Schools directory page", cause)),
+        Effect.fail(persistenceError("read Schools directory", cause)),
       ),
     );
-    const decodedEntries = yield* decodeRows(selected);
-    const hasNextPage = decodedEntries.length > decoded.limit;
-    const emitted = hasNextPage ? decodedEntries.slice(0, decoded.limit) : decodedEntries;
-    const last = emitted.at(-1);
-    const page = {
-      activeSchools: emitted.filter((school) => school.isActive),
-      inactiveSchools: emitted.filter((school) => !school.isActive),
-      nextCursor:
-        hasNextPage && last !== undefined
-          ? encodeCursor({ name: last.name, schoolId: last.schoolId })
-          : null,
+    const entries = yield* decodeRows(selected);
+    const directory = {
+      activeSchools: entries.filter((school) => school.isActive),
+      inactiveSchools: entries.filter((school) => !school.isActive),
     };
-    return yield* Schema.decodeUnknownEffect(SchoolDirectoryPageSchema)(page, {
+    return yield* Schema.decodeUnknownEffect(SchoolDirectorySchema)(directory, {
       onExcessProperty: "error",
-    }).pipe(Effect.mapError((cause) => decodeError("decode Schools directory page", cause)));
+    }).pipe(Effect.mapError((cause) => decodeError("decode Schools directory", cause)));
   });

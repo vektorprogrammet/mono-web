@@ -43,10 +43,9 @@ const authority = (
   ...overrides,
 });
 
-const emptyPage = {
+const emptyDirectory = {
   activeSchools: [],
   inactiveSchools: [],
-  nextCursor: null,
 } as const;
 
 const makeDatabase = (observed: { transactions: number; statements: Array<string> }) => {
@@ -86,17 +85,17 @@ it.effect(
       const schools = Schools.of({
         listDirectory: (input) => {
           observed.listInputs.push(input);
-          return Effect.succeed(emptyPage);
+          return Effect.succeed(emptyDirectory);
         },
       });
 
-      const page = yield* readSchoolsDirectory(personId, authorizationInstant, { limit: 50 }).pipe(
+      const directory = yield* readSchoolsDirectory(personId, authorizationInstant, {}).pipe(
         Effect.provideService(Database, database),
         Effect.provideService(Organization, organization),
         Effect.provideService(Schools, schools),
       );
 
-      expect(page).toEqual(emptyPage);
+      expect(directory).toEqual(emptyDirectory);
       expect(observed.transactions).toBe(1);
       expect(observed.statements).toHaveLength(1);
       expect(observed.statements[0]).toContain("REPEATABLE READ");
@@ -104,7 +103,6 @@ it.effect(
       expect(observed.authorityCalls).toEqual([[personId, authorizationInstant]]);
       expect(observed.listInputs).toEqual([
         {
-          limit: 50,
           scope: { _tag: "DepartmentIds", departmentIds: [departmentA, departmentB] },
         },
       ]);
@@ -115,7 +113,7 @@ it.effect("maps inactive and absent Organization projections to distinct typed d
   Effect.gen(function* () {
     const observed = { transactions: 0, statements: [] as Array<string> };
     const database = makeDatabase(observed);
-    const schools = Schools.of({ listDirectory: () => Effect.succeed(emptyPage) });
+    const schools = Schools.of({ listDirectory: () => Effect.succeed(emptyDirectory) });
     for (const [projection, expectedTag] of [
       [authority({ memberships: [], globalAdministrator: "Inactive" }), "AuthorityInactive"],
       [authority({ memberships: [], globalAdministrator: "Absent" }), "NotInScope"],
@@ -124,7 +122,7 @@ it.effect("maps inactive and absent Organization projections to distinct typed d
         resolvePersonAuthorityForRead: () => Effect.succeed(projection),
       } as never);
       const failure = yield* Effect.flip(
-        readSchoolsDirectory(personId, authorizationInstant, { limit: 50 }).pipe(
+        readSchoolsDirectory(personId, authorizationInstant, {}).pipe(
           Effect.provideService(Database, database),
           Effect.provideService(Organization, organization),
           Effect.provideService(Schools, schools),
@@ -142,7 +140,7 @@ it.effect("checks that a narrowing department exists before rejecting an out-of-
     const schools = Schools.of({
       listDirectory: () => {
         observed.listCalls += 1;
-        return Effect.succeed(emptyPage);
+        return Effect.succeed(emptyDirectory);
       },
     });
     const scopedAuthority = authority({
@@ -157,7 +155,6 @@ it.effect("checks that a narrowing department exists before rejecting an out-of-
     const outsideFailure = yield* Effect.flip(
       readSchoolsDirectory(personId, authorizationInstant, {
         departmentId: departmentB,
-        limit: 50,
       }).pipe(
         Effect.provideService(Database, database),
         Effect.provideService(Organization, knownOrganization),
@@ -173,7 +170,6 @@ it.effect("checks that a narrowing department exists before rejecting an out-of-
     const unknownFailure = yield* Effect.flip(
       readSchoolsDirectory(personId, authorizationInstant, {
         departmentId: departmentB,
-        limit: 50,
       }).pipe(
         Effect.provideService(Database, database),
         Effect.provideService(Organization, unknownOrganization),
@@ -196,11 +192,11 @@ it.effect("rejects an Organization projection evaluated at another instant", () 
     const schools = Schools.of({
       listDirectory: () => {
         observed.listCalls += 1;
-        return Effect.succeed(emptyPage);
+        return Effect.succeed(emptyDirectory);
       },
     });
     const failure = yield* Effect.flip(
-      readSchoolsDirectory(personId, authorizationInstant, { limit: 50 }).pipe(
+      readSchoolsDirectory(personId, authorizationInstant, {}).pipe(
         Effect.provideService(Database, database),
         Effect.provideService(Organization, organization),
         Effect.provideService(Schools, schools),

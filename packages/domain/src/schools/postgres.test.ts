@@ -25,7 +25,7 @@ it.effect("rejects an excess field from the persisted directory row", () =>
     };
     statement.in = () => ({ _tag: "ScopeFragment" });
     const failure = yield* Effect.flip(
-      listSchoolDirectoryPostgres({ scope: { _tag: "All" }, limit: 50 }).pipe(
+      listSchoolDirectoryPostgres({ scope: { _tag: "All" } }).pipe(
         Effect.provideService(Database, statement as unknown as DatabaseShape),
       ),
     );

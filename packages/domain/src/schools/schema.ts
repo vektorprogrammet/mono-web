@@ -238,25 +238,18 @@ export const SchoolDirectoryEntrySchema = Schema.Struct({
 });
 export type SchoolDirectoryEntry = typeof SchoolDirectoryEntrySchema.Type;
 
-export const SchoolDirectoryCursor = Schema.String.pipe(
-  Schema.check(Schema.isMinLength(1)),
-  Schema.brand("SchoolDirectoryCursor"),
-);
-export type SchoolDirectoryCursor = typeof SchoolDirectoryCursor.Type;
-
-export const SchoolDirectoryPageSchema = Schema.Struct({
+export const SchoolDirectorySchema = Schema.Struct({
   activeSchools: Schema.Array(SchoolDirectoryEntrySchema),
   inactiveSchools: Schema.Array(SchoolDirectoryEntrySchema),
-  nextCursor: Schema.NullOr(SchoolDirectoryCursor),
 }).pipe(
   Schema.check(
     Schema.makeFilter(
-      (page) => {
-        if (page.activeSchools.some((school) => !school.isActive)) return false;
-        if (page.inactiveSchools.some((school) => school.isActive)) return false;
+      (directory) => {
+        if (directory.activeSchools.some((school) => !school.isActive)) return false;
+        if (directory.inactiveSchools.some((school) => school.isActive)) return false;
         const schoolIds = [
-          ...page.activeSchools.map((school) => school.schoolId),
-          ...page.inactiveSchools.map((school) => school.schoolId),
+          ...directory.activeSchools.map((school) => school.schoolId),
+          ...directory.inactiveSchools.map((school) => school.schoolId),
         ];
         return new Set(schoolIds).size === schoolIds.length;
       },
@@ -264,7 +257,7 @@ export const SchoolDirectoryPageSchema = Schema.Struct({
     ),
   ),
 );
-export type SchoolDirectoryPage = typeof SchoolDirectoryPageSchema.Type;
+export type SchoolDirectory = typeof SchoolDirectorySchema.Type;
 
 const DepartmentScopeIds = Schema.Array(DepartmentId).pipe(
   Schema.check(
@@ -283,10 +276,6 @@ export type SchoolDirectoryScope = typeof SchoolDirectoryScopeSchema.Type;
 
 export const SchoolDirectoryQuerySchema = Schema.Struct({
   departmentId: Schema.optional(DepartmentId),
-  cursor: Schema.optional(SchoolDirectoryCursor),
-  limit: Schema.Int.pipe(
-    Schema.check(Schema.isGreaterThanOrEqualTo(1), Schema.isLessThanOrEqualTo(100)),
-  ),
 });
 export type SchoolDirectoryQuery = typeof SchoolDirectoryQuerySchema.Type;
 
