@@ -27,7 +27,13 @@ export {
   ReceiptFileNotStagedError,
   ReceiptPersistenceSdkError,
 } from "./errors.js";
-export type { SdkErrorType, ReceiptRejectionTag, OrganizationRejectionTag } from "./errors.js";
+export { ProfileRejectionError } from "./errors.js";
+export type {
+  SdkErrorType,
+  ReceiptRejectionTag,
+  OrganizationRejectionTag,
+  ProfileRejectionTag,
+} from "./errors.js";
 export {
   OrganizationRejectionError,
   OrganizationUnauthenticatedActorError,
@@ -146,7 +152,7 @@ export type {
   CreateFieldOfStudyResult,
   OrganizationCreateResult,
 } from "./schemas/organization.js";
-export type { SchedulingAssistant, SchedulingSchool, Substitute } from "./schemas/scheduling.js";
+export type { SchedulingAssistant, Substitute } from "./schemas/scheduling.js";
 
 export {
   AdmissionPeriodRejectionError,
@@ -292,4 +298,22 @@ export type {
   RecruitmentScheduleCommand,
   RecruitmentScheduleObservation,
   RecruitmentScheduleResult,
+} from "./promise.js";
+export {
+  SchoolsRejectionError,
+  SchoolId,
+  SchoolLanguageSchema,
+  SchoolDirectoryDepartmentSchema,
+  SchoolDirectoryDepartmentsSchema,
+  SchoolDirectoryEntrySchema,
+  SchoolDirectorySchema,
+} from "./promise.js";
+export type {
+  SchoolsRejectionTag,
+  SchoolLanguage,
+  SchoolDirectoryDepartment,
+  SchoolDirectoryEntry,
+  SchoolDirectory,
+  AdminSchoolsListInput,
+  AdminSchoolsDomain,
 } from "./promise.js";

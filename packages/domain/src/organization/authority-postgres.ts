@@ -61,9 +61,10 @@ const membershipFromRow = (
   });
 };
 
-export const resolveOrganizationPersonAuthority = (
+const resolveOrganizationPersonAuthorityWithLockMode = (
   personId: PersonId,
   authorizationInstant: OrganizationAuthorityInstant,
+  lockRows: boolean,
 ): Effect.Effect<
   OrganizationPersonAuthority,
   OrganizationDecodeError | OrganizationPersistenceError,
@@ -74,12 +75,14 @@ export const resolveOrganizationPersonAuthority = (
       authorizationInstant,
     ).pipe(Effect.mapError((cause) => decodeError("decode Organization authority instant", cause)));
     const sql = yield* Database;
+    const globalAdministratorLock = lockRows ? sql`FOR SHARE` : sql``;
+    const membershipLock = lockRows ? sql`FOR SHARE OF membership, team, department` : sql``;
     const selected = yield* sql<OrganizationAuthorityProjectionRow>`
       WITH locked_global_administrator_grants AS MATERIALIZED (
         SELECT grant_id, start_at, end_at
         FROM organization_global_administrator_grants
         WHERE person_id = ${personId}
-        FOR SHARE
+        ${globalAdministratorLock}
       ),
       global_administrator AS (
         SELECT CASE
@@ -117,7 +120,7 @@ export const resolveOrganizationPersonAuthority = (
         INNER JOIN organization_departments AS department
           ON department.department_id = team.department_id
         WHERE membership.person_id = ${personId}
-        FOR SHARE OF membership, team, department
+        ${membershipLock}
       )
       SELECT
         global_administrator."globalAdministrator",
@@ -172,3 +175,15 @@ export const resolveOrganizationPersonAuthority = (
       memberships,
     };
   });
+
+/** Command-safe projection: relevant authority rows are share-locked. */
+export const resolveOrganizationPersonAuthority = (
+  personId: PersonId,
+  authorizationInstant: OrganizationAuthorityInstant,
+) => resolveOrganizationPersonAuthorityWithLockMode(personId, authorizationInstant, true);
+
+/** Read projection for a caller-owned repeatable-read, read-only snapshot. */
+export const resolveOrganizationPersonAuthorityForRead = (
+  personId: PersonId,
+  authorizationInstant: OrganizationAuthorityInstant,
+) => resolveOrganizationPersonAuthorityWithLockMode(personId, authorizationInstant, false);

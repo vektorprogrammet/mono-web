@@ -6,6 +6,7 @@ import {
   type AuthShape,
 } from "@vektorprogrammet/domain/auth";
 import { Database, type DatabaseShape } from "@vektorprogrammet/domain/database";
+import type { Schools } from "@vektorprogrammet/domain/schools";
 import {
   DepartmentId,
   Organization,
@@ -283,7 +284,7 @@ const successfulRun: BackendRun = <A, E>(
   effect: Effect.Effect<
     A,
     E,
-    Database | Admissions | Economy | Organization | Profile | Recruitment | Auth
+    Database | Admissions | Economy | Organization | Profile | Recruitment | Schools | Auth
   >,
 ): Promise<A> =>
   runTestPromise(

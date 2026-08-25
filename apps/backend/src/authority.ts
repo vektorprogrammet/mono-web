@@ -4,10 +4,17 @@ import {
   InactiveActor,
   UnauthenticatedActor,
 } from "@vektorprogrammet/domain/admission-period";
-import { Auth, AuthenticatedActor } from "@vektorprogrammet/domain/auth";
+import {
+  Auth,
+  AuthEngineError,
+  AuthenticatedActor,
+  AuthSessionExpired,
+  AuthSessionNotFound,
+} from "@vektorprogrammet/domain/auth";
 import type {
   DepartmentId,
   OrganizationActor,
+  OrganizationAuthorityInstant,
   OrganizationPersonAuthority,
   PersonId,
   ProfileRole,
@@ -17,6 +24,7 @@ import {
   mapOrganizationAuthorityToOrganizationActor,
   mapOrganizationAuthorityToProfileRole,
   Organization,
+  OrganizationAuthorityInstantSchema,
 } from "@vektorprogrammet/domain/organization";
 import type { Decision } from "@vektorprogrammet/domain/authz";
 import type { RecruitmentActor } from "@vektorprogrammet/domain/recruitment";
@@ -37,20 +45,28 @@ import type {
 } from "@vektorprogrammet/domain/organization";
 
 /** Projection failures are infrastructure-level and surface as typed denials upstream. */
-export type OrganizationResolutionError =
-  | OrganizationDecodeError
-  | OrganizationPersistenceError;
+export type OrganizationResolutionError = OrganizationDecodeError | OrganizationPersistenceError;
 
 /** Injected clock keeps the one-instant-per-request law testable (spec 0055). */
 const defaultNow = (): string => new Date().toISOString();
 
 const sessionEffect = (
   cookieHeader: string | undefined,
-): Effect.Effect<AuthenticatedActor, UnauthenticatedActor, Auth> =>
+): Effect.Effect<AuthenticatedActor, AuthEngineError | UnauthenticatedActor, Auth> =>
   Auth.use(({ resolveSession }) =>
     Effect.tryPromise({
       try: () => resolveSession(cookieHeader),
-      catch: () => new UnauthenticatedActor({ message: "authentication required" }),
+      catch: (cause) => {
+        if (cause instanceof AuthSessionNotFound || cause instanceof AuthSessionExpired) {
+          return new UnauthenticatedActor({ message: "authentication required" });
+        }
+        return cause instanceof AuthEngineError
+          ? cause
+          : new AuthEngineError({
+              operation: "resolveSession",
+              message: cause instanceof Error ? cause.message : "authentication provider failure",
+            });
+      },
     }),
   );
 
@@ -59,7 +75,7 @@ const personAuthorityEffect = (
   instant: string,
 ): Effect.Effect<
   OrganizationPersonAuthority,
-  UnauthenticatedActor | OrganizationResolutionError,
+  AuthEngineError | UnauthenticatedActor | OrganizationResolutionError,
   Organization | Auth
 > =>
   Effect.flatMap(sessionEffect(cookieHeader), (actor) =>
@@ -74,6 +90,12 @@ export interface AuthorityResolutionOptions {
   readonly now?: () => string;
 }
 
+/** Resolves the authenticated session while preserving infrastructure failures. */
+export const resolveAuthenticatedSession = (
+  cookieHeader: string | undefined,
+  options: AuthorityResolutionOptions,
+): Promise<AuthenticatedActor> => options.run(sessionEffect(cookieHeader));
+
 /** Cookie -> PersonId only; for adapters that authenticate without roles. */
 export const resolveAuthenticatedPerson = (
   cookieHeader: string | undefined,
@@ -81,6 +103,30 @@ export const resolveAuthenticatedPerson = (
 ): Promise<PersonId> =>
   options.run(
     Effect.map(sessionEffect(cookieHeader), (actor) => actor.personId as unknown as PersonId),
+  );
+
+export interface AuthenticatedPersonAtInstant {
+  readonly personId: PersonId;
+  readonly authorizationInstant: OrganizationAuthorityInstant;
+}
+
+/**
+ * Authenticates first, then captures exactly one instant for a caller-owned
+ * read-only journey. Organization resolves its projection inside that journey.
+ */
+export const resolveAuthenticatedPersonAtInstant = (
+  cookieHeader: string | undefined,
+  options: AuthorityResolutionOptions,
+): Promise<AuthenticatedPersonAtInstant> =>
+  options.run(
+    Effect.flatMap(sessionEffect(cookieHeader), (actor) =>
+      Effect.sync(() => ({
+        personId: actor.personId as unknown as PersonId,
+        authorizationInstant: OrganizationAuthorityInstantSchema.make(
+          (options.now ?? defaultNow)(),
+        ),
+      })),
+    ),
   );
 
 /** Captures ONE authorizationInstant per request and resolves the full projection. */
@@ -116,16 +162,14 @@ export const recruitmentActorForDepartment = (
 ): RecruitmentActor => admissionActorForDepartment(authority, departmentId);
 
 /** Active global administrator maps to OrganizationAdministrator; everyone else Member. */
-export const organizationActorFrom = (
-  authority: OrganizationPersonAuthority,
-): OrganizationActor => mapOrganizationAuthorityToOrganizationActor(authority);
+export const organizationActorFrom = (authority: OrganizationPersonAuthority): OrganizationActor =>
+  mapOrganizationAuthorityToOrganizationActor(authority);
 
 /** Coarse dashboard role from the full projection (spec 0055 §Profile).
  *  Returns the raw Decision so the adapter can translate Deny(reason) into its
  *  typed denial instead of an ambiguous collapse. */
-export const profileRoleFrom = (
-  authority: OrganizationPersonAuthority,
-): Decision<ProfileRole> => mapOrganizationAuthorityToProfileRole(authority);
+export const profileRoleFrom = (authority: OrganizationPersonAuthority): Decision<ProfileRole> =>
+  mapOrganizationAuthorityToProfileRole(authority);
 
 /**
  * Board queries use ALL authorized departments (spec 0055 §Recruitment actor).

@@ -1,3 +1,9 @@
+import {
+  ConfigurationError,
+  NetworkError,
+  UnauthenticatedActorError,
+  UnauthorizedError,
+} from "@vektorprogrammet/sdk";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const api = vi.hoisted(() => {
@@ -62,15 +68,20 @@ describe("native dashboard authentication", () => {
     expect(api.createAuthenticatedClient).not.toHaveBeenCalled();
   });
 
-  it("fails closed when the strict actor projection cannot be read", async () => {
-    api.session.mockRejectedValue(new Error("revoked"));
+  it.each([
+    ["typed unauthenticated response", new UnauthenticatedActorError()],
+    ["untagged unauthorized response", new UnauthorizedError()],
+  ] as const)("redirects an invalid session after a %s", async (_name, failure) => {
+    api.session.mockRejectedValue(failure);
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue(
-        responseWithCookies(200, [
-          "better-auth.session_token=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0",
-        ]),
-      ),
+      vi
+        .fn()
+        .mockResolvedValue(
+          responseWithCookies(200, [
+            "better-auth.session_token=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0",
+          ]),
+        ),
     );
     const request = new Request("http://dashboard.test/dashboard", {
       headers: { Cookie: "better-auth.session_token=revoked" },
@@ -81,6 +92,24 @@ describe("native dashboard authentication", () => {
       headers: expect.any(Headers),
     });
     await expect(hasAuthenticatedSession(request)).resolves.toBe(false);
+  });
+
+  it.each([
+    ["network", new NetworkError("connection refused", new TypeError("connection refused"))],
+    ["configuration", new ConfigurationError("API URL is not configured")],
+    ["server", new NetworkError("HTTP 503")],
+    ["unknown provider", new Error("authentication provider unavailable")],
+  ] as const)("preserves a %s session inspection failure", async (_name, failure) => {
+    api.session.mockRejectedValue(failure);
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const request = new Request("http://dashboard.test/dashboard", {
+      headers: { Cookie: "better-auth.session_token=session-value" },
+    });
+
+    await expect(requireAuth(request)).rejects.toBe(failure);
+    await expect(hasAuthenticatedSession(request)).rejects.toBe(failure);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("posts email credentials to Better Auth and preserves every Set-Cookie value", async () => {
@@ -104,9 +133,7 @@ describe("native dashboard authentication", () => {
     expect(url).toBe("http://api.test/api/auth/sign-in/email");
     expect(init.method).toBe("POST");
     expect(init.redirect).toBe("manual");
-    expect(new Headers(init.headers).get("Origin")).toBe(
-      "https://dashboard.example",
-    );
+    expect(new Headers(init.headers).get("Origin")).toBe("https://dashboard.example");
     expect(JSON.parse(String(init.body))).toEqual({
       email: "ada@example.com",
       password: "correct horse",
@@ -141,15 +168,11 @@ describe("native dashboard authentication", () => {
     expect(url).toBe("http://api.test/api/auth/sign-out");
     expect((init.headers as Headers).get("Cookie")).toBe(rawCookie);
     expect(init.redirect).toBe("manual");
-    expect(new Headers(init.headers).get("Origin")).toBe(
-      "https://dashboard.example",
-    );
+    expect(new Headers(init.headers).get("Origin")).toBe("https://dashboard.example");
   });
 
   it("allows only same-origin relative post-login redirects", () => {
-    expect(safeRedirect("/dashboard/profile?tab=contact")).toBe(
-      "/dashboard/profile?tab=contact",
-    );
+    expect(safeRedirect("/dashboard/profile?tab=contact")).toBe("/dashboard/profile?tab=contact");
     expect(safeRedirect("https://attacker.example")).toBe("/dashboard");
     expect(safeRedirect("//attacker.example")).toBe("/dashboard");
     expect(safeRedirect("/\\attacker.example")).toBe("/dashboard");

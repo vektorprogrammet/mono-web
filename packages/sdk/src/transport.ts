@@ -79,6 +79,15 @@ import {
   OrganizationDecodeError,
   OrganizationRequestBodyTooLarge,
   OrganizationPersistenceError,
+  ProfileAuthorityInactive,
+  ProfileNotInScope,
+  SchoolsAuthorityInactive,
+  SchoolsDecodeError,
+  SchoolsDepartmentNotFound,
+  SchoolsDepartmentOutOfScope,
+  SchoolsNotInScope,
+  SchoolsPersistenceError,
+  SchoolsUnauthenticatedActor,
   type InternalSdkError,
 } from "./errors.js";
 import { parseViolations } from "./adapter/errors.js";
@@ -353,6 +362,63 @@ const organizationFailureFromBody = (
   }
 };
 
+const profileFailureFromBody = (body: unknown): InternalSdkError | undefined => {
+  let tag: unknown;
+  try {
+    tag = Schema.decodeUnknownSync(StrictNativeFailureBodySchema)(body, {
+      onExcessProperty: "error",
+    }).error.tag;
+  } catch {
+    return undefined;
+  }
+  switch (tag) {
+    case "AuthorityInactive":
+      return new ProfileAuthorityInactive();
+    case "NotInScope":
+      return new ProfileNotInScope();
+    default:
+      return undefined;
+  }
+};
+
+const schoolsFailureFromBody = (body: unknown, strict: boolean): InternalSdkError | undefined => {
+  let tag: unknown;
+  if (strict) {
+    try {
+      tag = Schema.decodeUnknownSync(StrictNativeFailureBodySchema)(body, {
+        onExcessProperty: "error",
+      }).error.tag;
+    } catch {
+      return new SchoolsDecodeError();
+    }
+  } else {
+    if (typeof body !== "object" || body === null) return undefined;
+    const root = body;
+    const error =
+      "error" in root && typeof root.error === "object" && root.error !== null ? root.error : root;
+    tag = "tag" in error ? error.tag : "_tag" in error ? error._tag : undefined;
+  }
+
+  switch (tag) {
+    case "UnauthenticatedActor":
+      return new SchoolsUnauthenticatedActor();
+    case "AuthorityInactive":
+      return new SchoolsAuthorityInactive();
+    case "NotInScope":
+      return new SchoolsNotInScope();
+    case "SchoolsDepartmentNotFound":
+      return new SchoolsDepartmentNotFound();
+    case "SchoolsDepartmentOutOfScope":
+      return new SchoolsDepartmentOutOfScope();
+    case "SchoolsDecodeError":
+      return new SchoolsDecodeError();
+    case "SchoolsPersistenceError":
+      return new SchoolsPersistenceError();
+    default:
+      return strict ? new SchoolsDecodeError() : undefined;
+  }
+};
+
 /**
  * Maps HTTP status codes to InternalSdkError.
  *
@@ -365,13 +431,17 @@ const mapStatusToError = (
   options?: DecodeOptions,
 ): InternalSdkError => {
   const typedError =
-    options?.errorFamily === "organization"
-      ? organizationFailureFromBody(body, options.strict === true)
-      : options?.errorFamily === "public_application"
-        ? publicApplicationFailureFromBody(body)
-        : options?.errorFamily === "recruitment"
-          ? recruitmentFailureFromBody(body, options.strict === true)
-          : receiptFailureFromBody(body);
+    options?.errorFamily === "profile"
+      ? profileFailureFromBody(body)
+      : options?.errorFamily === "schools"
+        ? schoolsFailureFromBody(body, options.strict === true)
+        : options?.errorFamily === "organization"
+          ? organizationFailureFromBody(body, options.strict === true)
+          : options?.errorFamily === "public_application"
+            ? publicApplicationFailureFromBody(body)
+            : options?.errorFamily === "recruitment"
+              ? recruitmentFailureFromBody(body, options.strict === true)
+              : receiptFailureFromBody(body);
   if (typedError !== undefined) return typedError;
   if (status === 401 || status === 403) return new Unauthorized({ message: `HTTP ${status}` });
   if (status === 404) return new NotFound({ message: "Not found" });
@@ -386,7 +456,12 @@ const mapStatusToError = (
 export type DecodeOptions = {
   readonly strict?: boolean;
   readonly decodeError?: () => InternalSdkError;
-  readonly errorFamily?: "public_application" | "recruitment" | "organization";
+  readonly errorFamily?:
+    | "profile"
+    | "public_application"
+    | "recruitment"
+    | "organization"
+    | "schools";
   readonly headers?: Readonly<Record<string, string>>;
   readonly includeCookie?: boolean;
   readonly expectedStatus?: number | ReadonlyArray<number>;

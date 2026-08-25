@@ -1,11 +1,10 @@
 import { Effect } from "effect"
 import type { Transport } from "../../transport.js"
 import type { InternalSdkError } from "../../errors.js"
-import { SchedulingAssistant, SchedulingSchool, Substitute } from "../../schemas/scheduling.js"
+import { SchedulingAssistant, Substitute } from "../../schemas/scheduling.js"
 
 export interface AdminSchedulingDomain {
   assistants(params?: { page?: number; pageSize?: number }): Effect.Effect<{ items: SchedulingAssistant[]; totalItems: number }, InternalSdkError>
-  schools(params?: { page?: number; pageSize?: number }): Effect.Effect<{ items: SchedulingSchool[]; totalItems: number }, InternalSdkError>
   substitutes(params?: { page?: number; pageSize?: number }): Effect.Effect<{ items: Substitute[]; totalItems: number }, InternalSdkError>
 }
 
@@ -16,13 +15,6 @@ export function createAdminSchedulingDomain(transport: Transport): AdminScheduli
       if (params?.page !== undefined) query.page = params.page
       if (params?.pageSize !== undefined) query.itemsPerPage = params.pageSize
       return transport.getCollection("/api/admin/scheduling/assistants", SchedulingAssistant, query)
-    },
-
-    schools(params) {
-      const query: Record<string, string | number | undefined> = {}
-      if (params?.page !== undefined) query.page = params.page
-      if (params?.pageSize !== undefined) query.itemsPerPage = params.pageSize
-      return transport.getCollection("/api/admin/scheduling/schools", SchedulingSchool, query)
     },
 
     substitutes(params) {

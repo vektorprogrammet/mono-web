@@ -1,3 +1,4 @@
+import { UnauthenticatedActorError, UnauthorizedError } from "@vektorprogrammet/sdk";
 import { redirect } from "react-router";
 import { createAuthenticatedClient, serverApiEndpoint } from "./api.server";
 
@@ -43,8 +44,11 @@ async function inspectSession(request: Request): Promise<SessionInspection> {
   try {
     await createAuthenticatedClient(cookie).me.session();
     return { _tag: "Authenticated", cookie };
-  } catch {
-    return { _tag: "Invalid" };
+  } catch (error) {
+    if (error instanceof UnauthorizedError || error instanceof UnauthenticatedActorError) {
+      return { _tag: "Invalid" };
+    }
+    throw error;
   }
 }
 
@@ -79,9 +83,9 @@ export async function signInWithEmail(
   if (!response.ok) return { _tag: "InvalidCredentials" };
 
   const responseHeaders = forwardSetCookieHeaders(response.headers);
-  const sessionIssued = responseHeaders.getSetCookie().some((value) =>
-    SESSION_COOKIE_NAMES.some((name) => value.startsWith(`${name}=`)),
-  );
+  const sessionIssued = responseHeaders
+    .getSetCookie()
+    .some((value) => SESSION_COOKIE_NAMES.some((name) => value.startsWith(`${name}=`)));
   return sessionIssued
     ? { _tag: "Authenticated", headers: responseHeaders }
     : { _tag: "Unavailable" };

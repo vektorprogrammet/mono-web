@@ -14,7 +14,7 @@ import {
   ToggledProfileMenu,
   type Message,
 } from "./message";
-import type { Model, ReadyModel } from "./model";
+import type { DashboardIdentity, Model, ReadyModel } from "./model";
 import {
   admissionLinks,
   canViewLink,
@@ -35,16 +35,13 @@ const initials = (name: string): string =>
     .map((part) => part[0]?.toLocaleUpperCase("nb-NO") ?? "")
     .join("");
 
-const avatarView = (model: ReadyModel, h: HtmlBuilder<Message>): Html =>
-  model.identity.avatar === null
-    ? h.span(
-        [h.Class("fd-avatar fd-avatar--fallback"), h.AriaHidden(true)],
-        [initials(model.identity.name)],
-      )
+const avatarView = (user: DashboardIdentity, h: HtmlBuilder<Message>): Html =>
+  user.avatar === null
+    ? h.span([h.Class("fd-avatar fd-avatar--fallback"), h.AriaHidden(true)], [initials(user.name)])
     : h.img([
         h.Class("fd-avatar"),
-        h.Src(model.identity.avatar),
-        h.Alt(model.identity.name),
+        h.Src(user.avatar),
+        h.Alt(user.name),
         h.Width("75"),
         h.Height("75"),
         h.Decoding("async"),
@@ -140,7 +137,11 @@ const primaryNavigationView = (model: ReadyModel, h: HtmlBuilder<Message>): Html
     ],
   );
 
-const profileMenuView = (model: ReadyModel, h: HtmlBuilder<Message>): Html =>
+const profileMenuView = (
+  model: ReadyModel,
+  user: DashboardIdentity,
+  h: HtmlBuilder<Message>,
+): Html =>
   Disclosure.view(
     {
       id: "fd-profile-menu",
@@ -153,8 +154,8 @@ const profileMenuView = (model: ReadyModel, h: HtmlBuilder<Message>): Html =>
             h.button(
               [...button, h.Class("fd-profile__trigger")],
               [
-                avatarView(model, h),
-                h.span([h.Class("fd-profile__name")], [model.identity.name]),
+                avatarView(user, h),
+                h.span([h.Class("fd-profile__name")], [user.name]),
                 h.span(
                   [
                     h.Class(`fd-disclosure-chevron${model.isProfileMenuOpen ? " is-open" : ""}`),
@@ -222,8 +223,9 @@ const sidebarView = (model: ReadyModel, h: HtmlBuilder<Message>): Html =>
         [h.Class("fd-home-link"), h.Href("/")],
         [h.span([h.AriaHidden(true)], ["‹"]), " Tilbake til forsiden"],
       ),
-      profileMenuView(model, h),
-      h.hr([h.Class("fd-sidebar-rule")]),
+      ...(model.user === null
+        ? []
+        : [profileMenuView(model, model.user, h), h.hr([h.Class("fd-sidebar-rule")])]),
       h.div(
         [h.Class("fd-sidebar__scroll")],
         [

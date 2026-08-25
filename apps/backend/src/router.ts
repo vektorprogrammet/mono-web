@@ -7,6 +7,7 @@ import type { Organization } from "@vektorprogrammet/domain/organization";
 import { Profile } from "@vektorprogrammet/domain/profile";
 import { Recruitment } from "@vektorprogrammet/domain/recruitment";
 import { Economy } from "@vektorprogrammet/domain/receipt";
+import type { Schools } from "@vektorprogrammet/domain/schools";
 import { DateTime, Effect } from "effect";
 import type { AdmissionPeriodActor } from "@vektorprogrammet/domain/admission-period";
 import { makeAdminUsersApiHttp } from "./admin-users/http.js";
@@ -17,22 +18,22 @@ import {
   profileRoleFrom,
   recruitmentBoardActorFrom,
   resolveAuthenticatedPerson,
+  resolveAuthenticatedPersonAtInstant,
+  resolveAuthenticatedSession,
   resolvePersonAuthority,
 } from "./authority.js";
 import type { BackendConfig } from "./config.js";
 import { makeOrganizationApiHttp } from "./organization/http.js";
 import { makeProfileApiHttp } from "./profile/http.js";
-import {
-  makeReceiptApiHttp,
-  type ReceiptAuthorityResolvers,
-} from "./receipt/http.js";
+import { makeReceiptApiHttp, type ReceiptAuthorityResolvers } from "./receipt/http.js";
 import { makeRecruitmentApiHttp } from "./recruitment/http.js";
+import { makeSchoolsApiHttp } from "./schools/http.js";
 
 export type BackendRun = <A, E>(
   effect: Effect.Effect<
     A,
     E,
-    Database | Admissions | Economy | Organization | Profile | Recruitment | Auth
+    Database | Admissions | Economy | Organization | Profile | Recruitment | Schools | Auth
   >,
 ) => Promise<A>;
 
@@ -49,6 +50,14 @@ const jsonResponse = (body: unknown, status = 200): Response =>
     },
   });
 
+const profileAuthorityError = (
+  tag: "AuthorityInactive" | "NotInScope",
+): Error & { readonly _tag: typeof tag } => {
+  const error = new Error(tag) as Error & { readonly _tag: typeof tag };
+  Object.defineProperty(error, "_tag", { value: tag, enumerable: true });
+  return error;
+};
+
 const isAdmissionRoute = (pathname: string): boolean =>
   pathname === "/api/admission-periods/open" ||
   pathname.startsWith("/api/admin/admission-periods") ||
@@ -60,7 +69,6 @@ const isReceiptRoute = (pathname: string): boolean =>
   pathname === "/api/admin/receipts" ||
   pathname.startsWith("/api/admin/receipts/") ||
   pathname.startsWith("/api/e2e/receipts/");
-
 
 const isOrganizationRoute = (pathname: string): boolean =>
   pathname === "/api/departments" ||
@@ -151,8 +159,7 @@ export const makeBackendHttp = (
     config: config.receipt,
     authority: {
       resolveAuthority: resolveReceiptAuthorityFor,
-      resolvePersonId: async (cookieHeader) =>
-        resolveAuthenticatedPerson(cookieHeader, { run }),
+      resolvePersonId: async (cookieHeader) => resolveAuthenticatedPerson(cookieHeader, { run }),
     },
     run,
   });
@@ -162,10 +169,9 @@ export const makeBackendHttp = (
     // departments. One active-leader department selects its scope; ambiguity
     // fails closed. GlobalAdmin never passes (domain rejects it downstream).
     resolveActor: async (request) => {
-      const authority = await resolvePersonAuthority(
-        request.headers.get("cookie") ?? undefined,
-        { run },
-      );
+      const authority = await resolvePersonAuthority(request.headers.get("cookie") ?? undefined, {
+        run,
+      });
       return recruitmentBoardActorFrom(authority);
     },
     run,
@@ -188,6 +194,11 @@ export const makeBackendHttp = (
       resolvePersonAuthority(request.headers.get("cookie") ?? undefined, { run }),
     run,
   });
+  const schools = makeSchoolsApiHttp({
+    resolveActor: (request) =>
+      resolveAuthenticatedPersonAtInstant(request.headers.get("cookie") ?? undefined, { run }),
+    run,
+  });
   const profile = makeProfileApiHttp({
     config,
     resolveActor: async (request) => {
@@ -197,21 +208,22 @@ export const makeBackendHttp = (
       // the typed profile denial instead of an ambiguous default role.
       const decision = profileRoleFrom(authority);
       if (decision._tag === "Deny") {
-        throw decision.reason === "AuthorityInactive"
-          ? new InactiveActor({ personId: authority.personId })
-          : new UnauthenticatedActor({ message: "no organization authority" });
+        if (decision.reason === "Unauthenticated") {
+          throw new UnauthenticatedActor({ message: "profile authority is unauthenticated" });
+        }
+        throw profileAuthorityError(
+          decision.reason === "AuthorityInactive" ? "AuthorityInactive" : "NotInScope",
+        );
       }
       return { personId: authority.personId, role: decision.value };
     },
     run,
   });
 
-  /** Strict session read: raw Cookie header in, actor projection or 401 out. */
+  /** Strict session read: raw Cookie header in, actor projection or typed failure out. */
   const meSession = async (request: Request): Promise<Response> => {
     const cookie = request.headers.get("cookie") ?? undefined;
-    const actor = await run(
-      Auth.use(({ resolveSession }) => Effect.promise(() => resolveSession(cookie))),
-    );
+    const actor = await resolveAuthenticatedSession(cookie, { run });
     return jsonResponse({
       personId: actor.personId,
       expiresAt: DateTime.toDateUtc(actor.expiresAt).toISOString(),
@@ -228,6 +240,9 @@ export const makeBackendHttp = (
       if (request.method === "GET" && pathname === "/api/admin/users") {
         return adminUsers.fetch(request);
       }
+      if (request.method === "GET" && pathname === "/api/admin/schools") {
+        return schools.fetch(request);
+      }
       if (request.method === "OPTIONS") return new Response(null, { status: 204 });
       if (request.method === "GET" && pathname === "/health") {
         try {
@@ -240,8 +255,16 @@ export const makeBackendHttp = (
       if (request.method === "GET" && pathname === "/api/me/session") {
         try {
           return await meSession(request);
-        } catch {
-          return jsonResponse({ error: { tag: "UnauthenticatedActor" } }, 401);
+        } catch (cause) {
+          const unauthenticated = cause instanceof UnauthenticatedActor;
+          return jsonResponse(
+            {
+              error: {
+                tag: unauthenticated ? "UnauthenticatedActor" : "AuthEngineError",
+              },
+            },
+            unauthenticated ? 401 : 503,
+          );
         }
       }
       if (pathname === "/api/me") return profile.fetch(request);

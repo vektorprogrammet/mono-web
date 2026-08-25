@@ -140,6 +140,17 @@ export interface OrganizationShape {
     OrganizationPersonAuthority,
     OrganizationDecodeError | OrganizationPersistenceError
   >;
+  /**
+   * Same canonical projection without row locks, for a caller-owned
+   * repeatable-read, read-only snapshot.
+   */
+  readonly resolvePersonAuthorityForRead: (
+    personId: PersonId,
+    authorizationInstant: OrganizationAuthorityInstant,
+  ) => Effect.Effect<
+    OrganizationPersonAuthority,
+    OrganizationDecodeError | OrganizationPersistenceError
+  >;
   /** Spec 0057: per-person directory facts at one authorizationInstant. */
   readonly deriveDirectoryFacts: (
     personIds: ReadonlyArray<PersonId>,

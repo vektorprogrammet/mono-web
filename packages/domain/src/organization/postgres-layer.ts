@@ -5,7 +5,10 @@ import {
   createOrganizationTeam,
   listOrganizationFieldOfStudies,
 } from "./administration-postgres.js";
-import { resolveOrganizationPersonAuthority } from "./authority-postgres.js";
+import {
+  resolveOrganizationPersonAuthority,
+  resolveOrganizationPersonAuthorityForRead,
+} from "./authority-postgres.js";
 import { deriveOrganizationDirectoryFacts } from "./directory-postgres.js";
 import { Effect, Layer } from "effect";
 import {
@@ -154,6 +157,10 @@ export const OrganizationLive = Layer.effect(
         }),
       resolvePersonAuthority: (personId, authorizationInstant) =>
         resolveOrganizationPersonAuthority(personId, authorizationInstant).pipe(
+          Effect.provideService(Database, database),
+        ),
+      resolvePersonAuthorityForRead: (personId, authorizationInstant) =>
+        resolveOrganizationPersonAuthorityForRead(personId, authorizationInstant).pipe(
           Effect.provideService(Database, database),
         ),
       deriveDirectoryFacts: (personIds, authorizationInstant) =>

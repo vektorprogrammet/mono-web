@@ -1,0 +1,304 @@
+vektor-schools-directory {
+  display: block;
+  inline-size: 100%;
+}
+
+.schools-directory {
+  --schools-color-background: var(--background);
+  --schools-color-foreground: var(--foreground);
+  --schools-color-muted: var(--muted);
+  --schools-color-muted-foreground: var(--muted-foreground);
+  --schools-color-border: var(--border);
+  --schools-color-accent: var(--accent);
+  --schools-color-accent-foreground: var(--accent-foreground);
+  --schools-color-destructive: var(--destructive);
+  --schools-color-ring: var(--ring);
+  --schools-radius-small: var(--radius-sm);
+  --schools-radius-medium: var(--radius-md);
+  --schools-space-1: 0.25rem;
+  --schools-space-2: 0.5rem;
+  --schools-space-3: 0.75rem;
+  --schools-space-4: 1rem;
+  --schools-space-6: 1.5rem;
+  --schools-space-8: 2rem;
+  --schools-text-small: 0.875rem;
+  --schools-text-body: 1rem;
+  --schools-text-heading: 2rem;
+  --schools-line-body: 1.5;
+  --schools-line-heading: 1.2;
+  --schools-weight-medium: 650;
+  --schools-weight-bold: 700;
+  --schools-letter-wide: 0.08em;
+  --schools-border-width: 0.0625rem;
+  --schools-focus-width: 0.1875rem;
+  --schools-table-min-inline-size: 62rem;
+  --schools-control-min-block-size: 2.75rem;
+  --schools-container-max-inline-size: 88rem;
+  --schools-measure: 64ch;
+  --schools-spinner-duration: 800ms;
+  --schools-radius-round: 50%;
+  --schools-visually-hidden-size: 0.0625rem;
+  --schools-transition: 160ms ease-out;
+
+  color: var(--schools-color-foreground);
+  display: grid;
+  gap: var(--schools-space-6);
+  inline-size: 100%;
+  margin-inline: auto;
+  max-inline-size: var(--schools-container-max-inline-size);
+  padding: var(--schools-space-4);
+}
+
+.schools-directory__header {
+  border-block-end: var(--schools-border-width) solid var(--schools-color-border);
+  display: grid;
+  gap: var(--schools-space-2);
+  padding-block: var(--schools-space-4) var(--schools-space-6);
+}
+
+.schools-directory__header h1,
+.schools-directory__header p,
+.schools-directory__empty h2,
+.schools-directory__empty p,
+.schools-directory__error h1,
+.schools-directory__error h2,
+.schools-directory__error p {
+  margin: 0;
+}
+
+.schools-directory__header h1 {
+  font-size: var(--schools-text-heading);
+  line-height: var(--schools-line-heading);
+}
+
+.schools-directory__header > p:last-child {
+  color: var(--schools-color-muted-foreground);
+  font-size: var(--schools-text-body);
+  line-height: var(--schools-line-body);
+  max-inline-size: var(--schools-measure);
+}
+
+.schools-directory__eyebrow {
+  color: var(--schools-color-muted-foreground);
+  font-size: var(--schools-text-small);
+  font-weight: var(--schools-weight-bold);
+  letter-spacing: var(--schools-letter-wide);
+  text-transform: uppercase;
+}
+
+.schools-directory__ready {
+  display: grid;
+  gap: var(--schools-space-6);
+}
+
+.schools-directory__controls {
+  align-items: start;
+  display: grid;
+  gap: var(--schools-space-4);
+  grid-template-columns: minmax(14rem, 2fr) minmax(12rem, 1fr);
+}
+
+.schools-directory__field {
+  display: grid;
+  gap: var(--schools-space-2);
+}
+
+.schools-directory__label {
+  font-size: var(--schools-text-small);
+  font-weight: var(--schools-weight-bold);
+}
+
+.schools-directory__input,
+.schools-directory__select {
+  background: var(--schools-color-background);
+  border: var(--schools-border-width) solid var(--schools-color-border);
+  border-radius: var(--schools-radius-small);
+  color: var(--schools-color-foreground);
+  font: inherit;
+  min-block-size: var(--schools-control-min-block-size);
+  padding: var(--schools-space-2) var(--schools-space-3);
+}
+
+.schools-directory__hint {
+  color: var(--schools-color-muted-foreground);
+  font-size: var(--schools-text-small);
+  line-height: var(--schools-line-body);
+  margin: 0;
+}
+
+.schools-directory__results {
+  border: var(--schools-border-width) solid var(--schools-color-border);
+  border-radius: var(--schools-radius-medium);
+  min-inline-size: 0;
+  overflow: hidden;
+}
+
+.schools-directory__tablist {
+  background: var(--schools-color-muted);
+  display: flex;
+  gap: var(--schools-space-1);
+  overflow-x: auto;
+  padding: var(--schools-space-2);
+}
+
+.schools-directory__tab {
+  background: transparent;
+  border: 0;
+  border-block-end: calc(2 * var(--schools-border-width)) solid transparent;
+  color: var(--schools-color-foreground);
+  cursor: pointer;
+  font: inherit;
+  font-weight: var(--schools-weight-bold);
+  min-block-size: var(--schools-control-min-block-size);
+  padding: var(--schools-space-2) var(--schools-space-4);
+  white-space: nowrap;
+}
+
+.schools-directory__tab[aria-selected="true"] {
+  border-block-end-color: var(--schools-color-foreground);
+  color: var(--schools-color-foreground);
+}
+
+.schools-directory__panel {
+  min-inline-size: 0;
+}
+
+.schools-directory__table-scroll {
+  max-inline-size: 100%;
+  overflow-x: auto;
+}
+
+.schools-directory__table {
+  border-collapse: collapse;
+  inline-size: 100%;
+  min-inline-size: var(--schools-table-min-inline-size);
+}
+
+.schools-directory__table th,
+.schools-directory__table td {
+  border-block-end: var(--schools-border-width) solid var(--schools-color-border);
+  line-height: var(--schools-line-body);
+  padding: var(--schools-space-3) var(--schools-space-4);
+  text-align: start;
+  vertical-align: top;
+}
+
+.schools-directory__table thead th {
+  color: var(--schools-color-muted-foreground);
+  font-size: var(--schools-text-small);
+  font-weight: var(--schools-weight-bold);
+}
+
+.schools-directory__table tbody th {
+  font-weight: var(--schools-weight-medium);
+}
+
+.schools-directory__table tbody tr:last-child > * {
+  border-block-end: 0;
+}
+
+.schools-directory__table tbody tr:hover {
+  background: var(--schools-color-accent);
+  color: var(--schools-color-accent-foreground);
+}
+
+.schools-directory__table a {
+  color: currentColor;
+  text-decoration-thickness: 0.08em;
+  text-underline-offset: var(--schools-space-1);
+}
+
+.schools-directory__loading,
+.schools-directory__empty,
+.schools-directory__error {
+  border: var(--schools-border-width) solid var(--schools-color-border);
+  border-radius: var(--schools-radius-medium);
+  display: grid;
+  gap: var(--schools-space-3);
+  padding: var(--schools-space-6);
+}
+
+.schools-directory__loading {
+  align-items: center;
+  color: var(--schools-color-muted-foreground);
+  grid-template-columns: auto 1fr;
+}
+
+.schools-directory__empty {
+  border: 0;
+  border-radius: 0;
+}
+
+.schools-directory__error {
+  border-color: var(--schools-color-destructive);
+}
+
+.schools-directory__retry {
+  background: var(--schools-color-foreground);
+  border: 0;
+  border-radius: var(--schools-radius-small);
+  color: var(--schools-color-background);
+  cursor: pointer;
+  font: inherit;
+  font-weight: var(--schools-weight-bold);
+  justify-self: start;
+  min-block-size: var(--schools-control-min-block-size);
+  padding: var(--schools-space-2) var(--schools-space-4);
+  transition: background-color var(--schools-transition);
+}
+
+.schools-directory__retry:hover {
+  background: var(--schools-color-accent-foreground);
+}
+
+.schools-directory__input:focus-visible,
+.schools-directory__select:focus-visible,
+.schools-directory__tab:focus-visible,
+.schools-directory__table-scroll:focus-visible,
+.schools-directory__retry:focus-visible {
+  outline: var(--schools-focus-width) solid var(--schools-color-ring);
+  outline-offset: var(--schools-focus-width);
+}
+
+.schools-directory__spinner {
+  animation: schools-spin var(--schools-spinner-duration) linear infinite;
+  block-size: var(--schools-space-4);
+  border: var(--schools-border-width) solid var(--schools-color-border);
+  border-block-start-color: var(--schools-color-foreground);
+  border-radius: var(--schools-radius-round);
+  inline-size: var(--schools-space-4);
+}
+
+.schools-directory__visually-hidden {
+  block-size: var(--schools-visually-hidden-size);
+  clip: rect(0 0 0 0);
+  clip-path: inset(var(--schools-radius-round));
+  inline-size: var(--schools-visually-hidden-size);
+  margin: calc(-1 * var(--schools-visually-hidden-size));
+  overflow: hidden;
+  padding: 0;
+  position: absolute;
+  white-space: nowrap;
+}
+
+@keyframes schools-spin {
+  to {
+    transform: rotate(1turn);
+  }
+}
+
+@media (max-width: 42rem) {
+  .schools-directory__controls {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .schools-directory__spinner {
+    animation: none;
+  }
+
+  .schools-directory__retry {
+    transition: none;
+  }
+}

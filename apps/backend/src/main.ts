@@ -7,6 +7,7 @@ import { databaseHealth, type Database } from "@vektorprogrammet/domain/database
 import { Organization, OrganizationLive } from "@vektorprogrammet/domain/organization";
 import { Profile, ProfileLive } from "@vektorprogrammet/domain/profile";
 import { Recruitment, RecruitmentLive } from "@vektorprogrammet/domain/recruitment";
+import { Schools, SchoolsLive } from "@vektorprogrammet/domain/schools";
 import { Economy } from "@vektorprogrammet/domain/receipt";
 import { EconomyLive } from "@vektorprogrammet/domain/receipt/postgres";
 import { Effect, Exit, Fiber, Layer, Redacted } from "effect";
@@ -35,6 +36,7 @@ const admissionsLayer = AdmissionsLive.pipe(Layer.provide(databaseLayer));
 const economyLayer = EconomyLive.pipe(Layer.provide(databaseLayer));
 const organizationLayer = OrganizationLive.pipe(Layer.provide(databaseLayer));
 const profileLayer = ProfileLive.pipe(Layer.provide(Layer.merge(databaseLayer, organizationLayer)));
+const schoolsLayer = SchoolsLive.pipe(Layer.provide(databaseLayer));
 const recruitmentLayer = RecruitmentLive.pipe(
   Layer.provide(Layer.mergeAll(databaseLayer, admissionsLayer, organizationLayer, profileLayer)),
 );
@@ -43,6 +45,7 @@ const capabilityLayers = Layer.mergeAll(
   economyLayer,
   organizationLayer,
   profileLayer,
+  schoolsLayer,
   recruitmentLayer,
 );
 const authLayers = Layer.merge(AuthLive(config.auth), AuthEngineLive(config.auth));
@@ -51,7 +54,7 @@ const run = <A, E>(
   effect: Effect.Effect<
     A,
     E,
-    Database | Admissions | Economy | Organization | Profile | Recruitment | Auth
+    Database | Admissions | Economy | Organization | Profile | Recruitment | Schools | Auth
   >,
 ): Promise<A> => runtime.runPromise(effect);
 const api = makeBackendHttp(config, run, {

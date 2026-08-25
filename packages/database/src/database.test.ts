@@ -343,6 +343,8 @@ describe("DatabaseTest", () => {
               'recruitment_schedule_audit',
               'recruitment_invitation_outbox',
               'recruitment_invitation_response_audit',
+              'schools_directory_schools',
+              'schools_directory_departments',
               'recruitment_invitation_response_outbox'
             )
           ORDER BY table_name
@@ -356,7 +358,7 @@ describe("DatabaseTest", () => {
     );
 
     expect(evidence).toEqual({
-      revision: "18_organization-team-interest",
+      revision: "19_schools-directory",
       migrations: [
         { migration_id: 1, name: "receipt-authority" },
         { migration_id: 2, name: "admission-period-authority" },
@@ -376,6 +378,7 @@ describe("DatabaseTest", () => {
         { migration_id: 16, name: "person-keyed-organization-authority" },
         { migration_id: 17, name: "person-keyed-receipt-authority" },
         { migration_id: 18, name: "organization-team-interest" },
+        { migration_id: 19, name: "schools-directory" },
       ],
       tables: [
         "admission_applications",
@@ -404,6 +407,8 @@ describe("DatabaseTest", () => {
         "recruitment_invitations",
         "recruitment_schedule_audit",
         "recruitment_schedule_command_receipts",
+        "schools_directory_departments",
+        "schools_directory_schools",
       ],
     });
   });
@@ -2320,7 +2325,7 @@ describe("DatabaseTest", () => {
     );
 
     expect(second).toBe(first);
-    expect(rows).toEqual([{ migration_count: "18" }]);
+    expect(rows).toEqual([{ migration_count: "19" }]);
   });
 
   it("executes Admissions and Organization authority adapters against PGlite", async () => {
@@ -3929,7 +3934,7 @@ describe("DatabaseTest", () => {
       }),
     );
 
-    expect(evidence.schemaRevision).toBe("18_organization-team-interest");
+    expect(evidence.schemaRevision).toBe("19_schools-directory");
     expect(evidence.denied._tag).toBe("OrganizationRoleDenied");
     expect(evidence.deniedRows).toBe(0);
     expect(evidence.departmentCreated.committed).toBe(true);
