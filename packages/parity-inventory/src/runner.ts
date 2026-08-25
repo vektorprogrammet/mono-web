@@ -620,6 +620,7 @@ const generateFromContext = (
   fixtureRuntimeInput?: ApiRuntimeFixtureInput,
   evidenceAuthority: EvidenceAuthorityEvidence | null = null,
   runtimeEvidenceRegister: RuntimeEvidenceRegister | null = null,
+  environment: Readonly<Record<string, string | undefined>> = {},
 ): GeneratedArtifacts => {
   const intentInput: IntentSourceInput | undefined =
     intentAuthority === null
@@ -650,6 +651,7 @@ const generateFromContext = (
     sha256("c1-source-manifest-pending"),
     collectorExecutables,
     mode === "fixture_injection" || falsifierId === "F18_stale_artifact_diff",
+    environment,
   );
   const preliminaryApi = collectApiOperationsWithServices(
     fileSystem,
@@ -660,6 +662,7 @@ const generateFromContext = (
     mode === "fixture_injection" || falsifierId === "F18_stale_artifact_diff",
     collectorExecutables,
     fixtureRuntimeInput,
+    environment,
   );
   const preliminaryC2 = collectC2(context, sha256("c2-source-manifest-pending"));
   if (
@@ -1041,11 +1044,12 @@ export const generateFromRootsEffect = (
 ): Effect.Effect<
   GeneratedArtifacts,
   ParityRuntimeError,
-  ParityCommandExecutor | ParityFileSystem
+  ParityCommandExecutor | ParityExecutionEnvironment | ParityFileSystem
 > =>
   Effect.gen(function* () {
     const fileSystem = yield* ParityFileSystem;
     const commands = yield* ParityCommandExecutor;
+    const executionEnvironment = yield* ParityExecutionEnvironment;
     if (
       (fixtureRuntimeInput !== undefined || fixtureIntentBytes !== undefined) &&
       options.mode !== "fixture_injection"
@@ -1144,6 +1148,7 @@ export const generateFromRootsEffect = (
           fixtureRuntimeInput,
           evidenceAuthority,
           runtimeEvidenceAuthority?.register ?? null,
+          executionEnvironment.environment,
         ),
       catch: (cause) =>
         new ParityRuntimeError({
@@ -1172,7 +1177,7 @@ const generateFixtureFromWorkspaceEffect = (
 ): Effect.Effect<
   GeneratedArtifacts,
   ParityRuntimeError,
-  ParityCommandExecutor | ParityFileSystem
+  ParityCommandExecutor | ParityExecutionEnvironment | ParityFileSystem
 > =>
   Effect.gen(function* () {
     const fileSystem = yield* ParityFileSystem;
@@ -3036,14 +3041,18 @@ interface RunServices {
   ) => Effect.Effect<
     GeneratedArtifacts,
     ParityRuntimeError,
-    ParityCommandExecutor | ParityFileSystem
+    ParityCommandExecutor | ParityFileSystem | ParityExecutionEnvironment
   >;
 }
 
 const runWithServices = (
   options: RunOptions,
   services: RunServices,
-): Effect.Effect<RunResult, ParityRuntimeError, ParityCommandExecutor | ParityFileSystem> =>
+): Effect.Effect<
+  RunResult,
+  ParityRuntimeError,
+  ParityCommandExecutor | ParityExecutionEnvironment | ParityFileSystem
+> =>
   Effect.gen(function* () {
     const generated = yield* services.collect(options);
     const terminalGenerated =
@@ -3194,7 +3203,7 @@ const collectTrustedFixtureArtifacts = (
 ): Effect.Effect<
   GeneratedArtifacts,
   ParityRuntimeError,
-  ParityCommandExecutor | ParityFileSystem
+  ParityCommandExecutor | ParityExecutionEnvironment | ParityFileSystem
 > =>
   generateFixtureFromWorkspaceEffect(
     { root: workspace.root, legacyRoot: workspace.legacyRoot, mode: "fixture_injection" },
@@ -3212,7 +3221,7 @@ export const runTrustedFixtureTerminalCycle = (): Effect.Effect<
     readonly projectionBytes: Readonly<Record<string, string>>;
   },
   ParityRuntimeError,
-  ParityCommandExecutor | ParityFileSystem
+  ParityCommandExecutor | ParityExecutionEnvironment | ParityFileSystem
 > =>
   Effect.gen(function* () {
     const fileSystem = yield* ParityFileSystem;
@@ -3299,7 +3308,7 @@ export const runTrustedFixtureTerminalCycle = (): Effect.Effect<
             ): Effect.Effect<
               GeneratedArtifacts,
               ParityRuntimeError,
-              ParityCommandExecutor | ParityFileSystem
+              ParityCommandExecutor | ParityExecutionEnvironment | ParityFileSystem
             > =>
               collectTrustedFixtureArtifacts(
                 workspace,

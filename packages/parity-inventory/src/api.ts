@@ -329,15 +329,50 @@ const closedCollectorExecutables = (
     typeof value.bwrapExecutable === "string"
   );
 };
+export const discoverPathExecutableWithServices = (
+  fileSystem: ParityFileSystemShape,
+  environment: Readonly<Record<string, string | undefined>>,
+  kind: CollectorExecutableKind,
+): string | null => {
+  const searchPath = environment.PATH;
+  if (typeof searchPath !== "string" || searchPath.length === 0) return null;
+  for (const directory of searchPath.split(":")) {
+    if (directory.length === 0) continue;
+    if (directory !== "/usr/bin" && !directory.startsWith("/nix/store/")) continue;
+    const candidate = `${directory}/${kind}`;
+    if (collectorExecutableProvenance(kind, candidate) === null) continue;
+    try {
+      const link = fileSystem.lstat(candidate);
+      if (link.isSymbolicLink() || !link.isFile()) continue;
+      if ((link.mode & 0o111) === 0 || (link.mode & 0o022) !== 0) continue;
+      if (fileSystem.realpath(candidate) !== candidate) continue;
+    } catch {
+      continue;
+    }
+    return candidate;
+  }
+  return null;
+};
+export const discoverCollectorExecutables = (
+  fileSystem: ParityFileSystemShape,
+  environment: Readonly<Record<string, string | undefined>>,
+): CollectorExecutables | undefined => {
+  const php = discoverPathExecutableWithServices(fileSystem, environment, "php");
+  const bwrap = discoverPathExecutableWithServices(fileSystem, environment, "bwrap");
+  return php === null || bwrap === null
+    ? undefined
+    : { phpExecutable: php, bwrapExecutable: bwrap };
+};
 export const resolveCollectorExecutablesWithServices = (
   fileSystem: ParityFileSystemShape,
   configured?: CollectorExecutables,
+  environment: Readonly<Record<string, string | undefined>> = {},
 ): ValidatedCollectorExecutables | null => {
   const selected =
     configured ??
     (fileSystem.exists(PHP_EXECUTABLE) && fileSystem.exists(BWRAP_EXECUTABLE)
       ? { phpExecutable: PHP_EXECUTABLE, bwrapExecutable: BWRAP_EXECUTABLE }
-      : undefined);
+      : discoverCollectorExecutables(fileSystem, environment));
   if (!closedCollectorExecutables(selected)) return null;
   const php = validateCollectorExecutablePathWithServices(
     fileSystem,
@@ -1375,6 +1410,14 @@ const scannedCollectorFileIsApproved = (
     return false;
   }
 };
+const isPlainVendorTree = (fileSystem: ParityFileSystemShape, vendorRoot: string): boolean => {
+  try {
+    const link = fileSystem.lstat(vendorRoot);
+    return !link.isSymbolicLink() && link.isDirectory();
+  } catch {
+    return false;
+  }
+};
 
 const stageCollectorInputs = (
   fileSystem: ParityFileSystemShape,
@@ -1391,17 +1434,19 @@ const stageCollectorInputs = (
       scannedCollectorFileIsApproved(fileSystem, file),
   );
   const vendorRoot = join(context.scans.mono.rootPath, "apps/server/vendor");
-  let immutableVendorRoot: string;
+  let vendorReal: string | null = null;
   try {
-    immutableVendorRoot = fileSystem.realpath(vendorRoot);
+    vendorReal = fileSystem.realpath(vendorRoot);
   } catch {
     return null;
   }
-  if (
-    !(immutableVendorRoot === "/nix/store" || immutableVendorRoot.startsWith("/nix/store/")) ||
-    !fileSystem.exists(join(immutableVendorRoot, "autoload.php"))
-  )
-    return null;
+  const vendorIsNixStore = vendorReal === "/nix/store" || vendorReal.startsWith("/nix/store/");
+  // The immutable Nix-store vendor mount is the preferred provisioning. A plain
+  // git-ignored vendor directory is accepted as a fallback: the collector stages a
+  // private copy, tmpfs-overlays writable paths, unshares namespaces, and hashes
+  // every observation, so third-party bytes never become first-party source.
+  if (!vendorIsNixStore && !isPlainVendorTree(fileSystem, vendorRoot)) return null;
+  if (!fileSystem.exists(join(vendorReal as string, "autoload.php"))) return null;
   if (
     !files.some((file) => file.path === "apps/server/bin/console") ||
     !files.some((file) => file.path === COLLECTOR_TEST_ENV_PATH)
@@ -1427,7 +1472,7 @@ const stageCollectorInputs = (
           copyVendor(sourceEntry, targetEntry);
         } else if (entry.isFile()) {
           const size = fileSystem.stat(sourceEntry).size;
-          if (!Number.isSafeInteger(size) || size > 16 * 1024 * 1024)
+          if (!Number.isSafeInteger(size) || size > 64 * 1024 * 1024)
             throw new Error(`collector dependency exceeds bounded read limit: ${sourceEntry}`);
           fileSystem.makeDirectory(dirname(targetEntry), { recursive: true, mode: 0o755 });
           fileSystem.writeFile(targetEntry, fileSystem.readBytes(sourceEntry), { mode: 0o644 });
@@ -1438,7 +1483,7 @@ const stageCollectorInputs = (
     };
     const vendorTarget = join(stage, "apps/server/vendor");
     fileSystem.makeDirectory(vendorTarget, { recursive: true, mode: 0o755 });
-    copyVendor(immutableVendorRoot, vendorTarget);
+    copyVendor(vendorReal as string, vendorTarget);
     fileSystem.makeDirectory(join(stage, "apps/server/var"), {
       recursive: true,
       mode: 0o755,
@@ -1457,8 +1502,9 @@ export const runTrustedPhpCollectorWithServices = (
   args: readonly string[],
   configured?: CollectorExecutables,
   safetyPolicy: CollectorSafetyPolicy = "generic",
+  environment: Readonly<Record<string, string | undefined>> = {},
 ): CollectorRun => {
-  const selected = resolveCollectorExecutablesWithServices(fileSystem, configured);
+  const selected = resolveCollectorExecutablesWithServices(fileSystem, configured, environment);
   if (selected === null)
     return unavailableCollector(
       configured === undefined
@@ -1634,6 +1680,7 @@ const collectRuntime = (
   allowFixture: boolean,
   configured?: CollectorExecutables,
   fixtureInput?: ApiRuntimeFixtureInput,
+  environment: Readonly<Record<string, string | undefined>> = {},
 ): RuntimeCollection => {
   const revisionRefId = context.scans.mono.revisionRefId;
   const consoleFile = context.scans.mono.files.find((file) => file.path === CONSOLE_PATH);
@@ -1781,6 +1828,8 @@ const collectRuntime = (
     context,
     metadataArgs,
     configured,
+    "generic",
+    environment,
   );
   if (metadataRun.availability !== "available")
     return unavailable(
@@ -1834,7 +1883,6 @@ const collectRuntime = (
     result: operations,
     availability: "available",
     revisionRefId,
-    executableDigests: metadataRun.executableDigests,
     executableProvenance: metadataRun.executableProvenance,
   });
   const openApiArgs = ["-r", API_OPENAPI_SCRIPT];
@@ -1845,6 +1893,7 @@ const collectRuntime = (
     openApiArgs,
     configured,
     "openapi",
+    environment,
   );
   const sourceRef = consoleRef();
   if (openApiRun.availability !== "available") {
@@ -3781,6 +3830,7 @@ export const collectApiOperationsWithServices = (
   allowFixture = false,
   configured?: CollectorExecutables,
   fixtureInput?: ApiRuntimeFixtureInput,
+  environment: Readonly<Record<string, string | undefined>> = {},
 ): ApiCollection => {
   const parsed = parseDeclarations(context);
   const runtime = collectRuntime(
@@ -3791,6 +3841,7 @@ export const collectApiOperationsWithServices = (
     allowFixture,
     configured,
     fixtureInput,
+    environment,
   );
   const apiPrefix = apiPlatformPrefixFromSource(context);
   const staticRows = makeStaticRows(context, parsed.declarations, runtime);
