@@ -46,8 +46,13 @@ ON CONFLICT (person_id) DO NOTHING;
 -- Memberships: all start 2026-01-01, open-ended (cover the real clock).
 -- Leader: team-leader in IT-Team (Trondheim) only -> scope = Trondheim.
 -- Member: plain member in PR-Team (Trondheim).
--- Bergen has its own leader + member so the admin/leader scoping is observable,
--- but no login persona is attached to Bergen's leader (read-only facts).
+-- Bergen has only its own leader, whose missing contact profile proves that
+-- unresolved contacts are excluded while the department's empty list survives.
+-- Remove the earlier journey-only Bergen member so reruns preserve the frozen
+-- empty-list evidence.
+DELETE FROM organization_memberships
+WHERE membership_id = 'membership-0059-team2a-skole';
+
 INSERT INTO organization_memberships (
   membership_id, person_id, team_id, deleted_team_name, start_at, end_at,
   position_id, is_team_leader, is_suspended, revision
@@ -58,7 +63,6 @@ VALUES
   ('membership-0059-member-pr', 'person-0059-member', 'team-0059-pr', NULL, '2026-01-01T00:00:00Z', NULL, 'medlem', FALSE, FALSE, 0),
   ('membership-0059-team1a-it', 'person-0059-team1a', 'team-0059-it', NULL, '2026-01-01T00:00:00Z', NULL, 'medlem', FALSE, FALSE, 0),
   ('membership-0059-team1b-pr', 'person-0059-team1b', 'team-0059-pr', NULL, '2026-01-01T00:00:00Z', NULL, 'medlem', FALSE, FALSE, 0),
-  ('membership-0059-team2a-skole', 'person-0059-team2a', 'team-0059-skole', NULL, '2026-01-01T00:00:00Z', NULL, 'medlem', FALSE, FALSE, 0),
   ('membership-0059-bergen-leader', 'person-0059-assistant', 'team-0059-skole', NULL, '2026-01-01T00:00:00Z', NULL, 'teamleader', TRUE, FALSE, 0)
 ON CONFLICT (membership_id) DO NOTHING;
 
