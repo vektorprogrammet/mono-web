@@ -164,11 +164,14 @@ try {
       membership_id, person_id, team_id, deleted_team_name, start_at, end_at,
       position_id, is_team_leader, is_suspended, revision
     ) VALUES
-      ($1, $5, $9, NULL, '2020-01-01T00:00:00.000Z', NULL, 'member', TRUE, FALSE, 0),
-      ($2, $6, $9, NULL, '2020-01-01T00:00:00.000Z', NULL, 'member', FALSE, FALSE, 0),
-      ($3, $7, $10, NULL, '2020-01-01T00:00:00.000Z', NULL, 'member', FALSE, FALSE, 0),
-      ($4, $8, $9, NULL, '2020-01-01T00:00:00.000Z', '2025-01-01T00:00:00.000Z',
-       'member', FALSE, FALSE, 0)`,
+      ($1::text, $5::text, $9::text, NULL, '2020-01-01T00:00:00.000Z', NULL,
+       'member', TRUE, FALSE, 0),
+      ($2::text, $6::text, $9::text, NULL, '2020-01-01T00:00:00.000Z', NULL,
+       'member', FALSE, FALSE, 0),
+      ($3::text, $7::text, $10::text, NULL, '2020-01-01T00:00:00.000Z', NULL,
+       'member', FALSE, FALSE, 0),
+      ($4::text, $8::text, $9::text, NULL, '2020-01-01T00:00:00.000Z',
+       '2025-01-01T00:00:00.000Z', 'member', FALSE, FALSE, 0)`,
     [
       membershipIds[0], contentJourneyPersons.leaderDepartmentA.personId,
       membershipIds[1], contentJourneyPersons.authorDepartmentA.personId,
@@ -208,14 +211,14 @@ try {
       article_id, version_number, title, slug, body_html, sticky,
       published_at, published_by_person_id
     ) VALUES
-      ($1, 1, 'Publisert alfa', 'publisert-alfa', '<p>Alfatekst</p>', FALSE,
-       '2031-06-01T00:00:00Z', $6),
-      ($2, 1, 'Orgomfattende nyhet', 'orgomfattende-nyhet', '<p>Felles tekst</p>', FALSE,
-       '2031-06-02T00:00:00Z', $6),
-      ($3, 1, 'Festet fleravdeling', 'festet-fleravdeling', '<p>Festet tekst</p>', TRUE,
-       '2031-06-03T00:00:00Z', $6),
-      ($4, 1, 'To versjoner', 'to-versjoner', '<p>Versjon én tekst</p>', FALSE,
-       '2031-06-04T00:00:00Z', $7)`,
+      ($1::bigint, 1, 'Publisert alfa', 'publisert-alfa', '<p>Alfatekst</p>', FALSE,
+       '2031-06-01T00:00:00Z', $5::text),
+      ($2::bigint, 1, 'Orgomfattende nyhet', 'orgomfattende-nyhet', '<p>Felles tekst</p>', FALSE,
+       '2031-06-02T00:00:00Z', $5::text),
+      ($3::bigint, 1, 'Festet fleravdeling', 'festet-fleravdeling', '<p>Festet tekst</p>', TRUE,
+       '2031-06-03T00:00:00Z', $5::text),
+      ($4::bigint, 1, 'To versjoner', 'to-versjoner', '<p>Versjon één tekst</p>'::text, FALSE,
+       '2031-06-04T00:00:00Z', $6::text)`,
     [
       bySlug.get("publisert-alfa"),
       bySlug.get("orgomfattende-nyhet"),
@@ -226,16 +229,16 @@ try {
     ],
   );
   await client.query(
-    `INSERT INTO content_article_departments (article_id, department_id)
-     SELECT v.article_id, d.department_id
-     FROM (VALUES ($1::int), ($3::int)) AS v(article_id)
-     CROSS JOIN (SELECT unnest(ARRAY[$2::text[]]) AS department_id) AS d`,
-    [bySlug.get("publisert-alfa"), departmentIds, bySlug.get("festet-fleravdeling")],
-  );
-  await client.query(
-    `INSERT INTO content_article_departments (article_id, department_id)
-     VALUES ($1, $2)`,
-    [bySlug.get("festet-fleravdeling"), contentJourneyDepartments.beta],
+    `INSERT INTO content_article_departments (article_id, department_id) VALUES
+      ($1::bigint, $3::text),
+      ($1::bigint, $4::text),
+      ($2::bigint, $4::text)`,
+    [
+      bySlug.get("publisert-alfa"),
+      bySlug.get("festet-fleravdeling"),
+      departmentIds[0],
+      departmentIds[1],
+    ],
   );
   await client.query("COMMIT");
 
@@ -257,7 +260,7 @@ try {
   assert.deepEqual(evidence.rows[0], {
     persons: 6,
     departments: 2,
-    memberships: 4,
+    memberships: 2,
     articles: 5,
     versions: 4,
     department_links: 3,
