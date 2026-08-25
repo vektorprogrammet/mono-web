@@ -173,6 +173,8 @@ function routeProjection(path: string, content: DevContent, census: DevRouteCens
     if (!department) throw new Error(`Missing DEV CONTENT department for route ${path}`);
     return { department };
   }
+  if (path === "/nyheter") return { source: "native-backend:/api/news" };
+  if (path.startsWith("/nyhet/")) return { source: "native-backend:/api/news" };
   if (path === "/om-oss") return { sponsors: content.sponsors, statistics: content.statistics };
   if (path === "/assistenter") return { statistics: content.statistics };
   return { source: DEV_CONTENT_SOURCE };
