@@ -24,7 +24,7 @@ import { createPublicContactMessageDomain } from "./domains/public/contact-messa
 import { createAdminUsersDomain } from "./domains/admin/users.js";
 import { createAdmissionApplicationsDomain } from "./domains/admission-applications.js";
 import { createAdmissionPeriodsDomain } from "./domains/admission-period.js";
-import { createTransport, type CookieOption } from "./transport.js";
+import { createTransport, type CookieOption, type FetchCapability } from "./transport.js";
 
 // --- Public re-exports ---
 export type {
@@ -44,7 +44,7 @@ export type {
   RecruitmentRejectionTag,
   OrganizationRejectionTag,
 } from "./errors.js";
-export { apiUrl, isFixtureMode } from "./config.js";
+export { apiUrl, isFixtureMode, sdkRuntimeConfig } from "./config.js";
 
 export {
   CommandId,
@@ -262,12 +262,13 @@ export type {
 
 export type ClientOptions = {
   cookie?: CookieOption;
+  fetch?: FetchCapability;
 };
 
 // --- Effect client factory ---
 
 export function createEffectClient(baseUrl: string | undefined, options?: ClientOptions) {
-  const transport = createTransport(baseUrl, options?.cookie);
+  const transport = createTransport(baseUrl, options?.cookie, options?.fetch);
 
   const adminMisc = createAdminMiscDomain(transport);
   const publicMisc = createPublicMiscDomain(transport);
@@ -291,8 +292,7 @@ export function createEffectClient(baseUrl: string | undefined, options?: Client
       mailingLists: adminMisc.mailingLists.bind(adminMisc),
       admissionStats: adminMisc.admissionStats.bind(adminMisc),
     },
-    recruitmentInvitationResponses:
-      createRecruitmentInvitationResponsesDomain(transport),
+    recruitmentInvitationResponses: createRecruitmentInvitationResponsesDomain(transport),
     public: {
       organization: createPublicOrganizationDomain(transport),
       sponsors: publicMisc.sponsors.bind(publicMisc),
