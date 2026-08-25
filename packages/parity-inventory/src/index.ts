@@ -9,6 +9,7 @@ export {
   run,
 } from "./runner.js";
 export * from "./source-manifest.js";
+export * from "./services.js";
 export * from "./types.js";
 export * from "./api.js";
 export * from "./effects.js";

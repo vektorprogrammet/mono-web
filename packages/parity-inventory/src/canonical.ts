@@ -1,4 +1,5 @@
-import { nodeRuntime } from "../node-runtime.js";
+import { sha256 as digestSha256 } from "@noble/hashes/sha2.js";
+import { bytesToHex } from "@noble/hashes/utils.js";
 
 const encoder = new TextEncoder();
 
@@ -62,7 +63,8 @@ export const canonicalJson = (value: unknown): string => {
 
 export const canonicalBytes = (value: unknown): Uint8Array => encoder.encode(canonicalJson(value));
 
-export const sha256Hex = nodeRuntime.sha256Hex;
+export const sha256Hex = (value: Uint8Array | string): string =>
+  bytesToHex(digestSha256(typeof value === "string" ? encoder.encode(value) : value));
 
 export const sha256 = (value: Uint8Array | string): string => `sha256:${sha256Hex(value)}`;
 

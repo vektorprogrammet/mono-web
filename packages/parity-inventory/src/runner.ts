@@ -1,19 +1,5 @@
-import { Effect } from "effect";
-import { nodeRuntime } from "../node-runtime.js";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
-const {
-  execFileSync,
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readdirSync,
-  readFileSync,
-  rmSync,
-  spawnSync,
-  tmpdir,
-  writeFileSync,
-} = nodeRuntime;
+import { Effect } from "effect";
 import {
   canonicalJson,
   compareByteOrder,
@@ -24,18 +10,26 @@ import {
 } from "./canonical.js";
 import {
   API_RUNTIME_FIXTURE_PATH,
-  collectApiOperations,
+  collectApiOperationsWithServices,
   reportFailuresFromApi,
   type ApiRuntimeFixtureInput,
 } from "./api.js";
 import { collectC2 } from "./effects.js";
 import {
-  collectRoutes,
+  collectRoutesWithServices,
   routeRowsBySignature,
   setRowMismatch,
   updateEnvelopeRows,
   type CollectedRouteArtifacts,
 } from "./routes.js";
+import {
+  ParityCommandExecutor,
+  type ParityCommandExecutorShape,
+  ParityExecutionEnvironment,
+  type ParityExecutionEnvironmentShape,
+  ParityFileSystem,
+  type ParityFileSystemShape,
+} from "./services.js";
 import {
   finalizeManifest,
   sourceDigestForManifest,
@@ -43,6 +37,7 @@ import {
 } from "./source-manifest.js";
 import {
   createManifestContextEffect,
+  createManifestContextWithServices,
   ParityRuntimeError,
   assertIndependentAuthorityRoots,
   readPinnedIntentRegisterEffect,
@@ -614,6 +609,8 @@ const forbiddenStatesEmpty = (
 };
 
 const generateFromContext = (
+  fileSystem: ParityFileSystemShape,
+  commands: ParityCommandExecutorShape,
   context: ManifestContext,
   mode: RunMode,
   falsifierId: string | null = null,
@@ -646,13 +643,17 @@ const generateFromContext = (
     throw new UnsafeSourceProjectionError(
       "unsafe source metadata encountered during intent loading",
     );
-  const preliminary = collectRoutes(
+  const preliminary = collectRoutesWithServices(
+    fileSystem,
+    commands,
     context,
     sha256("c1-source-manifest-pending"),
     collectorExecutables,
     mode === "fixture_injection" || falsifierId === "F18_stale_artifact_diff",
   );
-  const preliminaryApi = collectApiOperations(
+  const preliminaryApi = collectApiOperationsWithServices(
+    fileSystem,
+    commands,
     context,
     sha256("c1-source-manifest-pending"),
     preliminary.mono.rows,
@@ -1037,8 +1038,14 @@ export const generateFromRootsEffect = (
   options: RunOptions,
   fixtureRuntimeInput?: ApiRuntimeFixtureInput,
   fixtureIntentBytes?: Uint8Array,
-): Effect.Effect<GeneratedArtifacts, ParityRuntimeError> =>
+): Effect.Effect<
+  GeneratedArtifacts,
+  ParityRuntimeError,
+  ParityCommandExecutor | ParityFileSystem
+> =>
   Effect.gen(function* () {
+    const fileSystem = yield* ParityFileSystem;
+    const commands = yield* ParityCommandExecutor;
     if (
       (fixtureRuntimeInput !== undefined || fixtureIntentBytes !== undefined) &&
       options.mode !== "fixture_injection"
@@ -1106,22 +1113,11 @@ export const generateFromRootsEffect = (
               options.root,
               PROJECTION_DIRECTORY,
             );
-    if (intentAuthority !== null && runtimeEvidenceAuthority !== null) {
-      yield* Effect.try({
-        try: () =>
-          assertIndependentAuthorityRoots(
-            intentAuthority.authorityRoot,
-            runtimeEvidenceAuthority.authorityRoot,
-          ),
-        catch: (cause) =>
-          new ParityRuntimeError({
-            operation: "authority_separation",
-            path: options.evidenceRegisterPath ?? options.root,
-            message:
-              cause instanceof Error ? cause.message : "intent and evidence authorities overlap",
-          }),
-      });
-    }
+    if (intentAuthority !== null && runtimeEvidenceAuthority !== null)
+      yield* assertIndependentAuthorityRoots(
+        intentAuthority.authorityRoot,
+        runtimeEvidenceAuthority.authorityRoot,
+      );
     const evidenceAuthority =
       runtimeEvidenceAuthority === null
         ? null
@@ -1137,6 +1133,8 @@ export const generateFromRootsEffect = (
     return yield* Effect.try({
       try: () =>
         generateFromContext(
+          fileSystem,
+          commands,
           context,
           options.mode,
           options.falsifierId ?? null,
@@ -1155,11 +1153,14 @@ export const generateFromRootsEffect = (
         }),
     });
   });
-const fixtureRuntimeInputForRoot = (root: string): ApiRuntimeFixtureInput | undefined => {
+const fixtureRuntimeInputForRoot = (
+  fileSystem: ParityFileSystemShape,
+  root: string,
+): ApiRuntimeFixtureInput | undefined => {
   const path = join(root, API_RUNTIME_FIXTURE_PATH);
-  if (!existsSync(path)) return undefined;
+  if (!fileSystem.exists(path)) return undefined;
   try {
-    return { path: API_RUNTIME_FIXTURE_PATH, bytes: readFileSync(path) };
+    return { path: API_RUNTIME_FIXTURE_PATH, bytes: fileSystem.readBytes(path) };
   } catch {
     return undefined;
   }
@@ -1168,10 +1169,16 @@ const fixtureRuntimeInputForRoot = (root: string): ApiRuntimeFixtureInput | unde
 const generateFixtureFromWorkspaceEffect = (
   options: RunOptions,
   workspace: FixtureWorkspace,
-): Effect.Effect<GeneratedArtifacts, ParityRuntimeError> =>
+): Effect.Effect<
+  GeneratedArtifacts,
+  ParityRuntimeError,
+  ParityCommandExecutor | ParityFileSystem
+> =>
   Effect.gen(function* () {
+    const fileSystem = yield* ParityFileSystem;
+    const commands = yield* ParityCommandExecutor;
     const context = yield* createManifestContextEffect(workspace.legacyRoot, workspace.root);
-    refreshFixtureIntentRegister(workspace);
+    refreshFixtureIntentRegister(fileSystem, commands, workspace);
     const fixtureIntent: IntentSourceInput | undefined =
       workspace.intentBytes === null
         ? undefined
@@ -1184,10 +1191,12 @@ const generateFixtureFromWorkspaceEffect = (
             blobOid: context.scans.mono.revision.revision,
             digest: sha256(workspace.intentBytes),
           };
-    const fixtureRuntimeInput = fixtureRuntimeInputForRoot(workspace.root);
+    const fixtureRuntimeInput = fixtureRuntimeInputForRoot(fileSystem, workspace.root);
     return yield* Effect.try({
       try: () =>
         generateFromContext(
+          fileSystem,
+          commands,
           context,
           "fixture_injection",
           options.falsifierId ?? null,
@@ -1219,47 +1228,41 @@ interface FixtureWorkspace {
   intentBytes: Uint8Array | null;
 }
 const freshReplayBytes = (
+  fileSystem: ParityFileSystemShape,
+  commands: ParityCommandExecutorShape,
+  environment: ParityExecutionEnvironmentShape,
   workspace: FixtureWorkspace,
   locale: string,
 ): Readonly<Record<string, string>> => {
-  const runnerUrl = new URL("./runner.ts", import.meta.url).href;
-  const childCode = [
-    `const { Effect } = await import("effect")`,
-    `const { generateFromRootsEffect } = await import(${JSON.stringify(runnerUrl)})`,
-    `const options = JSON.parse(process.argv.at(-1) ?? "{}")`,
-    `const fixtureRuntimeInput = options.fixtureRuntimeInput === null ? undefined : { path: options.fixtureRuntimeInput.path, bytes: Buffer.from(options.fixtureRuntimeInput.bytesBase64, "base64") }`,
-    `const fixtureIntentBytes = options.fixtureIntentBytesBase64 === null ? undefined : Buffer.from(options.fixtureIntentBytesBase64, "base64")`,
-    `const generated = await Effect.runPromise(generateFromRootsEffect(options, fixtureRuntimeInput, fixtureIntentBytes))`,
-    `process.stdout.write(JSON.stringify(Object.fromEntries(Object.entries(generated.bytes).sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0))))`,
-  ].join(";");
-  const fixtureInput = fixtureRuntimeInputForRoot(workspace.root);
+  const fixtureInput = fixtureRuntimeInputForRoot(fileSystem, workspace.root);
   const childOptions = {
-    root: workspace.root,
-    legacyRoot: workspace.legacyRoot,
-    mode: "fixture_injection",
+    options: {
+      root: workspace.root,
+      legacyRoot: workspace.legacyRoot,
+      mode: "fixture_injection" as const,
+    },
     fixtureRuntimeInput:
       fixtureInput === undefined
         ? null
         : {
             path: fixtureInput.path,
-            bytesBase64: Buffer.from(fixtureInput.bytes).toString("base64"),
+            bytes: [...fixtureInput.bytes],
           },
-    fixtureIntentBytesBase64:
-      workspace.intentBytes === null ? null : Buffer.from(workspace.intentBytes).toString("base64"),
+    fixtureIntentBytes:
+      workspace.intentBytes === null ? null : [...workspace.intentBytes],
   };
-  const child = spawnSync(
-    nodeRuntime.process.execPath,
-    ["-e", childCode, JSON.stringify(childOptions)],
+  const child = commands.spawnText(
+    environment.executablePath,
+    [environment.cliPath, "--internal-fresh-replay", JSON.stringify(childOptions)],
     {
-      cwd: dirname(fileURLToPath(import.meta.url)),
+      cwd: environment.runnerDirectory,
       env: {
-        ...nodeRuntime.process.env,
+        ...environment.environment,
         LANG: locale,
         LC_ALL: locale,
         TZ: "UTC",
         TMPDIR: workspace.directory,
       },
-      encoding: "utf8",
       maxBuffer: 64 * 1024 * 1024,
     },
   );
@@ -1542,16 +1545,30 @@ const syntheticFixtureFiles: readonly {
     ]),
   },
 ];
-const seedFixtureIntentRegister = (root: string, legacyRoot: string): Uint8Array => {
-  const context = nodeRuntime.runSync(createManifestContextEffect(legacyRoot, root));
-  const route = collectRoutes(context, sha256("fixture-register-pending"), undefined, true);
-  const api = collectApiOperations(
+const seedFixtureIntentRegister = (
+  fileSystem: ParityFileSystemShape,
+  commands: ParityCommandExecutorShape,
+  root: string,
+  legacyRoot: string,
+): Uint8Array => {
+  const context = createManifestContextWithServices(fileSystem, commands, legacyRoot, root);
+  const route = collectRoutesWithServices(
+    fileSystem,
+    commands,
+    context,
+    sha256("fixture-register-pending"),
+    undefined,
+    true,
+  );
+  const api = collectApiOperationsWithServices(
+    fileSystem,
+    commands,
     context,
     sha256("fixture-register-pending"),
     route.mono.rows,
     true,
     undefined,
-    fixtureRuntimeInputForRoot(root),
+    fixtureRuntimeInputForRoot(fileSystem, root),
   );
   const c2 = collectC2(context, sha256("fixture-register-pending"));
   const rowsBySurface: Readonly<
@@ -1652,12 +1669,19 @@ const seedFixtureIntentRegister = (root: string, legacyRoot: string): Uint8Array
     intents: [{ ...intent, intent_digest: sha256(canonicalJson(intent)) }],
     journeys: [{ ...journey, journey_digest: sha256(canonicalJson(journey)) }],
   };
-  return Buffer.from(canonicalJson(register), "utf8");
+  return new TextEncoder().encode(canonicalJson(register));
 };
-const refreshFixtureIntentRegister = (workspace: FixtureWorkspace): void => {
+const refreshFixtureIntentRegister = (
+  fileSystem: ParityFileSystemShape,
+  commands: ParityCommandExecutorShape,
+  workspace: FixtureWorkspace,
+): void => {
   if (workspace.intentBytes === null) return;
-  const context = nodeRuntime.runSync(
-    createManifestContextEffect(workspace.legacyRoot, workspace.root),
+  const context = createManifestContextWithServices(
+    fileSystem,
+    commands,
+    workspace.legacyRoot,
+    workspace.root,
   );
   const selectedRevisionRefIds = sortUnique([
     context.scans.legacy.revisionRefId,
@@ -1678,27 +1702,32 @@ const refreshFixtureIntentRegister = (workspace: FixtureWorkspace): void => {
     const next = { ...withoutDigest, selected_revision_ref_ids: selectedRevisionRefIds };
     return { ...next, journey_digest: sha256(canonicalJson(next)) };
   });
-  workspace.intentBytes = Buffer.from(
+  workspace.intentBytes = new TextEncoder().encode(
     canonicalJson({ schema_version: value.schema_version, intents, journeys }),
-    "utf8",
   );
 };
-const createFixtureWorkspace = (_options: RunOptions): FixtureWorkspace => {
-  const directory = mkdtempSync(join(tmpdir(), "functional-parity-falsifier-"));
+const createFixtureWorkspace = (
+  fileSystem: ParityFileSystemShape,
+  commands: ParityCommandExecutorShape,
+  _options: RunOptions,
+): FixtureWorkspace => {
+  const directory = fileSystem.makeTempDirectory(
+    join(fileSystem.temporaryDirectory(), "functional-parity-falsifier-"),
+  );
   const root = join(directory, "mono");
   const legacyRoot = join(directory, "legacy");
   try {
     for (const fixture of syntheticFixtureFiles) {
       const targetRoot = fixture.root === "legacy" ? legacyRoot : root;
       const target = join(targetRoot, fixture.path);
-      mkdirSync(dirname(target), { recursive: true });
-      writeFileSync(target, fixture.contents, "utf8");
+      fileSystem.makeDirectory(dirname(target), { recursive: true });
+      fileSystem.writeFile(target, fixture.contents, "utf8");
     }
     const resourcePath = join(root, "apps/server/src/App/Api/Resource/Fixture.php");
-    const resourceBytes = readFileSync(resourcePath);
-    const resourceDigest = sha256(resourceBytes.toString("utf8")).slice("sha256:".length);
+    const resourceBytes = fileSystem.readBytes(resourcePath);
+    const resourceDigest = sha256(fileSystem.readText(resourcePath)).slice("sha256:".length);
     const resourceRef = `source:apps/server/src/App/Api/Resource/Fixture.php:1:${resourceDigest}`;
-    writeFileSync(
+    fileSystem.writeFile(
       join(root, "evidence/security-h3/0015/source-manifest.json"),
       JSON.stringify([
         {
@@ -1713,19 +1742,19 @@ const createFixtureWorkspace = (_options: RunOptions): FixtureWorkspace => {
       "evidence/security-h3/0015/current-route-inventory.json",
       "evidence/security-h3/0015/current-resource-inventory.json",
     ]) {
-      const artifact = JSON.parse(readFileSync(join(root, artifactPath), "utf8")) as Array<
+      const artifact = JSON.parse(fileSystem.readText(join(root, artifactPath))) as Array<
         Record<string, unknown>
       >;
-      writeFileSync(
+      fileSystem.writeFile(
         join(root, artifactPath),
         JSON.stringify(artifact.map((record) => ({ ...record, source_ref_ids: [resourceRef] }))),
         "utf8",
       );
     }
-    const intentBytes = seedFixtureIntentRegister(root, legacyRoot);
+    const intentBytes = seedFixtureIntentRegister(fileSystem, commands, root, legacyRoot);
     return { directory, root, legacyRoot, intentBytes };
   } catch (cause) {
-    rmSync(directory, { recursive: true, force: true });
+    fileSystem.remove(directory, { recursive: true, force: true });
     throw cause;
   }
 };
@@ -1733,24 +1762,45 @@ interface FixtureIntentAuthority {
   readonly directory: string;
   readonly path: string;
 }
-const createFixtureIntentAuthority = (workspace: FixtureWorkspace): FixtureIntentAuthority => {
+const createFixtureIntentAuthority = (
+  fileSystem: ParityFileSystemShape,
+  commands: ParityCommandExecutorShape,
+  workspace: FixtureWorkspace,
+): FixtureIntentAuthority => {
   const directory = join(workspace.directory, "intent-authority");
-  mkdirSync(directory, { recursive: true });
+  fileSystem.makeDirectory(directory, { recursive: true });
   const path = join(directory, "accepted-intent.json");
   if (workspace.intentBytes === null) throw new Error("fixture intent authority is unavailable");
-  writeFileSync(path, workspace.intentBytes);
-  execFileSync("git", ["-C", directory, "init", "--quiet"]);
-  execFileSync("git", ["-C", directory, "config", "user.email", "fixture@example.invalid"]);
-  execFileSync("git", ["-C", directory, "config", "user.name", "fixture"]);
-  execFileSync("git", ["-C", directory, "add", "--", "accepted-intent.json"]);
-  execFileSync("git", ["-C", directory, "commit", "--quiet", "-m", "fixture intent authority"]);
+  fileSystem.writeFile(path, workspace.intentBytes);
+  commands.executeBytes("git", ["-C", directory, "init", "--quiet"]);
+  commands.executeBytes("git", [
+    "-C",
+    directory,
+    "config",
+    "user.email",
+    "fixture@example.invalid",
+  ]);
+  commands.executeBytes("git", ["-C", directory, "config", "user.name", "fixture"]);
+  commands.executeBytes("git", ["-C", directory, "add", "--", "accepted-intent.json"]);
+  commands.executeBytes("git", [
+    "-C",
+    directory,
+    "commit",
+    "--quiet",
+    "-m",
+    "fixture intent authority",
+  ]);
   return { directory, path };
 };
 interface FixtureEvidenceAuthority {
   readonly directory: string;
   readonly path: string;
 }
-const createFixtureEvidenceAuthority = (workspace: FixtureWorkspace): FixtureEvidenceAuthority => {
+const createFixtureEvidenceAuthority = (
+  fileSystem: ParityFileSystemShape,
+  commands: ParityCommandExecutorShape,
+  workspace: FixtureWorkspace,
+): FixtureEvidenceAuthority => {
   if (workspace.intentBytes === null) throw new Error("fixture intent authority is unavailable");
   const accepted = JSON.parse(new TextDecoder().decode(workspace.intentBytes)) as {
     readonly journeys: readonly [
@@ -1783,14 +1833,23 @@ const createFixtureEvidenceAuthority = (workspace: FixtureWorkspace): FixtureEvi
     artifact_digest: sha256("fixture-sanitized-artifact"),
   });
   const directory = join(workspace.directory, "evidence-authority");
-  mkdirSync(directory, { recursive: true });
+  fileSystem.makeDirectory(directory, { recursive: true });
   const path = join(directory, "runtime-evidence.json");
-  writeFileSync(path, canonicalRuntimeEvidenceBytes(makeRuntimeEvidenceRegister([receipt])));
-  execFileSync("git", ["-C", directory, "init", "--quiet"]);
-  execFileSync("git", ["-C", directory, "config", "user.email", "fixture@example.invalid"]);
-  execFileSync("git", ["-C", directory, "config", "user.name", "fixture"]);
-  execFileSync("git", ["-C", directory, "add", "--", "runtime-evidence.json"]);
-  execFileSync("git", [
+  fileSystem.writeFile(
+    path,
+    canonicalRuntimeEvidenceBytes(makeRuntimeEvidenceRegister([receipt])),
+  );
+  commands.executeBytes("git", ["-C", directory, "init", "--quiet"]);
+  commands.executeBytes("git", [
+    "-C",
+    directory,
+    "config",
+    "user.email",
+    "fixture@example.invalid",
+  ]);
+  commands.executeBytes("git", ["-C", directory, "config", "user.name", "fixture"]);
+  commands.executeBytes("git", ["-C", directory, "add", "--", "runtime-evidence.json"]);
+  commands.executeBytes("git", [
     "-C",
     directory,
     "commit",
@@ -1801,9 +1860,13 @@ const createFixtureEvidenceAuthority = (workspace: FixtureWorkspace): FixtureEvi
   return { directory, path };
 };
 
-const appendText = (path: string, text: string): void => {
-  if (!existsSync(path)) throw new Error(`fixture source unavailable: ${path}`);
-  writeFileSync(path, `${readFileSync(path, "utf8")}\n${text}\n`, "utf8");
+const appendText = (
+  fileSystem: ParityFileSystemShape,
+  path: string,
+  text: string,
+): void => {
+  if (!fileSystem.exists(path)) throw new Error(`fixture source unavailable: ${path}`);
+  fileSystem.writeFile(path, `${fileSystem.readText(path)}\n${text}\n`, "utf8");
 };
 
 interface FixtureSourceInput {
@@ -1860,10 +1923,14 @@ const c2SecurityFixtureInputs = (): readonly FixtureSourceInput[] => {
   ];
 };
 
-const writeFixtureSource = (root: string, fixture: FixtureSourceInput): void => {
+const writeFixtureSource = (
+  fileSystem: ParityFileSystemShape,
+  root: string,
+  fixture: FixtureSourceInput,
+): void => {
   const target = join(root, fixture.path);
-  mkdirSync(dirname(target), { recursive: true });
-  writeFileSync(target, fixture.bytes);
+  fileSystem.makeDirectory(dirname(target), { recursive: true });
+  fileSystem.writeFile(target, fixture.bytes);
 };
 
 const routeYaml = (name: string, path: string, method: string): string =>
@@ -1871,28 +1938,33 @@ const routeYaml = (name: string, path: string, method: string): string =>
 const monoRouteYaml = (name: string, path: string, method: string): string =>
   `${name}:\n    resource: ../src/App/Fixture/Controller/FixtureController.php\n    path: ${path}\n    methods: ['${method}']`;
 
-const mutateFixture = (falsifierId: FalsifierId, workspace: FixtureWorkspace): void => {
+const mutateFixture = (
+  fileSystem: ParityFileSystemShape,
+  falsifierId: FalsifierId,
+  workspace: FixtureWorkspace,
+): void => {
   const legacyRouting = join(workspace.legacyRoot, "app/config/routing.yml");
   const monoRouting = join(workspace.root, "apps/server/config/routes.yaml");
   switch (falsifierId) {
     case "F1_missing_required_source":
       for (const name of ["routing.yml", "routing_api.yml", "routing_dev.yml"])
-        rmSync(join(workspace.legacyRoot, "app/config", name), { force: true });
-      rmSync(join(workspace.legacyRoot, "src/AppBundle/Controller"), {
+        fileSystem.remove(join(workspace.legacyRoot, "app/config", name), { force: true });
+      fileSystem.remove(join(workspace.legacyRoot, "src/AppBundle/Controller"), {
         recursive: true,
         force: true,
       });
       return;
     case "F3_duplicate_legacy_route":
       appendText(
+        fileSystem,
         legacyRouting,
         `${routeYaml("fixture_duplicate", "/fixture/duplicate", "GET")}\n${routeYaml("fixture_duplicate", "/fixture/duplicate", "GET")}`,
       );
       return;
     case "F4_dead_unimported_source": {
       const orphan = join(workspace.legacyRoot, "src/AppBundle/Orphan/Controller");
-      mkdirSync(orphan, { recursive: true });
-      writeFileSync(
+      fileSystem.makeDirectory(orphan, { recursive: true });
+      fileSystem.writeFile(
         join(orphan, "FixtureController.php"),
         `<?php\nnamespace AppBundle\\Orphan\\Controller;\n/** @Route("/fixture/dead", name="fixture_dead", methods={"GET"}) */\nfinal class FixtureController { public function indexAction(): void {} }\n`,
         "utf8",
@@ -1900,23 +1972,43 @@ const mutateFixture = (falsifierId: FalsifierId, workspace: FixtureWorkspace): v
       return;
     }
     case "F5_missing_counterpart":
-      appendText(legacyRouting, routeYaml("fixture_missing", "/fixture/missing", "GET"));
+      appendText(
+        fileSystem,
+        legacyRouting,
+        routeYaml("fixture_missing", "/fixture/missing", "GET"),
+      );
       return;
     case "F6_extra_counterpart":
-      mkdirSync(join(workspace.root, "apps/server/config"), { recursive: true });
-      if (!existsSync(monoRouting))
-        writeFileSync(monoRouting, "# fixture route declarations\n", "utf8");
-      appendText(monoRouting, monoRouteYaml("fixture_extra", "/fixture/extra", "GET"));
+      fileSystem.makeDirectory(join(workspace.root, "apps/server/config"), {
+        recursive: true,
+      });
+      if (!fileSystem.exists(monoRouting))
+        fileSystem.writeFile(monoRouting, "# fixture route declarations\n", "utf8");
+      appendText(
+        fileSystem,
+        monoRouting,
+        monoRouteYaml("fixture_extra", "/fixture/extra", "GET"),
+      );
       return;
     case "F7_method_path_mismatch":
-      mkdirSync(join(workspace.root, "apps/server/config"), { recursive: true });
-      if (!existsSync(monoRouting))
-        writeFileSync(monoRouting, "# fixture route declarations\n", "utf8");
-      appendText(legacyRouting, routeYaml("fixture_changed", "/fixture/legacy", "GET"));
-      appendText(monoRouting, monoRouteYaml("fixture_changed", "/fixture/mono", "GET"));
+      fileSystem.makeDirectory(join(workspace.root, "apps/server/config"), {
+        recursive: true,
+      });
+      if (!fileSystem.exists(monoRouting))
+        fileSystem.writeFile(monoRouting, "# fixture route declarations\n", "utf8");
+      appendText(
+        fileSystem,
+        legacyRouting,
+        routeYaml("fixture_changed", "/fixture/legacy", "GET"),
+      );
+      appendText(
+        fileSystem,
+        monoRouting,
+        monoRouteYaml("fixture_changed", "/fixture/mono", "GET"),
+      );
       return;
     case "F8_openapi_stale":
-      writeFileSync(
+      fileSystem.writeFile(
         join(workspace.root, "packages/sdk/openapi.json"),
         JSON.stringify({
           openapi: "3.1.0",
@@ -1935,10 +2027,13 @@ const mutateFixture = (falsifierId: FalsifierId, workspace: FixtureWorkspace): v
       );
       return;
     case "F9_runtime_unavailable":
-      rmSync(join(workspace.root, "apps/server/var/parity/api-operations.json"), { force: true });
+      fileSystem.remove(
+        join(workspace.root, "apps/server/var/parity/api-operations.json"),
+        { force: true },
+      );
       return;
     case "F10_static_runtime_mismatch":
-      writeFileSync(
+      fileSystem.writeFile(
         join(workspace.root, "apps/server/var/parity/api-operations.json"),
         JSON.stringify([
           {
@@ -1951,14 +2046,17 @@ const mutateFixture = (falsifierId: FalsifierId, workspace: FixtureWorkspace): v
         ]),
         "utf8",
       );
-      writeFileSync(
+      fileSystem.writeFile(
         join(workspace.root, "packages/sdk/openapi.json"),
         JSON.stringify({
           openapi: "3.1.0",
           info: { title: "Fixture API", version: "1.0.0" },
           paths: {
             "/fixture/api-mismatch": {
-              post: { operationId: "fixture_api", responses: { "200": { description: "OK" } } },
+              post: {
+                operationId: "fixture_api",
+                responses: { "200": { description: "OK" } },
+              },
             },
           },
           components: {},
@@ -1971,8 +2069,8 @@ const mutateFixture = (falsifierId: FalsifierId, workspace: FixtureWorkspace): v
         workspace.root,
         "apps/server/src/App/Infrastructure/Command/FixtureCommand.php",
       );
-      const current = readFileSync(commandPath, "utf8");
-      writeFileSync(
+      const current = fileSystem.readText(commandPath);
+      fileSystem.writeFile(
         commandPath,
         current.replace("$this->repository->save", "$this->delegate->perform"),
         "utf8",
@@ -1987,7 +2085,10 @@ const mutateFixture = (falsifierId: FalsifierId, workspace: FixtureWorkspace): v
         "apps/server/src/App/Infrastructure/Command",
         "apps/server/src/App/Infrastructure/EventSubscriber",
       ]) {
-        rmSync(join(workspace.root, relative), { recursive: true, force: true });
+        fileSystem.remove(join(workspace.root, relative), {
+          recursive: true,
+          force: true,
+        });
       }
       return;
     case "F11_intent_missing_or_stale":
@@ -2031,13 +2132,12 @@ const mutateFixture = (falsifierId: FalsifierId, workspace: FixtureWorkspace): v
         return { ...payload, journey_digest: sha256(canonicalJson(payload)) };
       });
       if (removed === 0) throw new Error("fixture coverage ref was not removed");
-      workspace.intentBytes = Buffer.from(
+      workspace.intentBytes = new TextEncoder().encode(
         canonicalJson({
           schema_version: register.schema_version,
           intents: register.intents,
           journeys,
         }),
-        "utf8",
       );
       return;
     }
@@ -2046,7 +2146,7 @@ const mutateFixture = (falsifierId: FalsifierId, workspace: FixtureWorkspace): v
         workspace.root,
         "evidence/security-h3/0015/current-resource-inventory.json",
       );
-      const records = JSON.parse(readFileSync(path, "utf8")) as Array<Record<string, unknown>>;
+      const records = JSON.parse(fileSystem.readText(path)) as Array<Record<string, unknown>>;
       const sourceRefIds = records[0]?.source_ref_ids;
       if (!Array.isArray(sourceRefIds) || sourceRefIds.some((value) => typeof value !== "string"))
         throw new Error("fixture H3 source refs unavailable");
@@ -2056,20 +2156,24 @@ const mutateFixture = (falsifierId: FalsifierId, workspace: FixtureWorkspace): v
         operation_id: "api:App\\Fixture\\Api\\Resource\\FixtureResource:Get:99",
         source_ref_ids: sourceRefIds,
       });
-      writeFileSync(path, JSON.stringify(records), "utf8");
+      fileSystem.writeFile(path, JSON.stringify(records), "utf8");
       return;
     }
     case "F15_secret_or_pii_input": {
       appendText(
+        fileSystem,
         legacyRouting,
         "fixture_secret: { path: /fixture/secret, token: sk_live_fixture_secret, methods: [GET] }",
       );
-      for (const fixture of c2SecurityFixtureInputs()) writeFixtureSource(workspace.root, fixture);
+      for (const fixture of c2SecurityFixtureInputs())
+        writeFixtureSource(fileSystem, workspace.root, fixture);
       return;
     }
     case "F18_stale_artifact_diff":
-      mkdirSync(join(workspace.root, PROJECTION_DIRECTORY), { recursive: true });
-      writeFileSync(
+      fileSystem.makeDirectory(join(workspace.root, PROJECTION_DIRECTORY), {
+        recursive: true,
+      });
+      fileSystem.writeFile(
         join(workspace.root, PROJECTION_DIRECTORY, "legacy-routes.json"),
         "stale-generated-artifact",
         "utf8",
@@ -2083,8 +2187,8 @@ const mutateFixture = (falsifierId: FalsifierId, workspace: FixtureWorkspace): v
       ];
       for (const relative of residuals) {
         const target = join(workspace.root, relative);
-        mkdirSync(dirname(target), { recursive: true });
-        writeFileSync(target, "export const residual = true\n", "utf8");
+        fileSystem.makeDirectory(dirname(target), { recursive: true });
+        fileSystem.writeFile(target, "export const residual = true\n", "utf8");
       }
       return;
     }
@@ -2185,8 +2289,17 @@ const fixtureResultReport = (
   return { exitCode: report.exit_code, report, artifacts: generated, projectionDiff };
 };
 
-const runFixtureFalsifier = (options: RunOptions): Effect.Effect<RunResult, ParityRuntimeError> =>
+const runFixtureFalsifier = (
+  options: RunOptions,
+): Effect.Effect<
+  RunResult,
+  ParityRuntimeError,
+  ParityCommandExecutor | ParityExecutionEnvironment | ParityFileSystem
+> =>
   Effect.gen(function* () {
+    const fileSystem = yield* ParityFileSystem;
+    const commands = yield* ParityCommandExecutor;
+    const environment = yield* ParityExecutionEnvironment;
     const falsifierId = options.falsifierId;
     if (falsifierId === undefined || C0_FALSIFIERS[falsifierId] !== true)
       return yield* Effect.fail(
@@ -2206,7 +2319,7 @@ const runFixtureFalsifier = (options: RunOptions): Effect.Effect<RunResult, Pari
         }),
       );
     const workspace = yield* Effect.try({
-      try: () => createFixtureWorkspace(options),
+      try: () => createFixtureWorkspace(fileSystem, commands, options),
       catch: (cause) =>
         new ParityRuntimeError({
           operation: "fixture_injection",
@@ -2218,7 +2331,7 @@ const runFixtureFalsifier = (options: RunOptions): Effect.Effect<RunResult, Pari
       if (falsifierId === "F0_deterministic_replay") {
         const first = yield* generateFixtureFromWorkspaceEffect(options, workspace);
         const secondWorkspace = yield* Effect.try({
-          try: () => createFixtureWorkspace(options),
+          try: () => createFixtureWorkspace(fileSystem, commands, options),
           catch: (cause) =>
             new ParityRuntimeError({
               operation: "fixture_injection",
@@ -2228,8 +2341,8 @@ const runFixtureFalsifier = (options: RunOptions): Effect.Effect<RunResult, Pari
         });
         try {
           // A child process is required here: a static import cannot prove fresh module state, locale, environment, and temporary output roots.
-          const firstBytes = freshReplayBytes(workspace, "C");
-          const secondBytes = freshReplayBytes(secondWorkspace, "sv_SE.UTF-8");
+          const firstBytes = freshReplayBytes(fileSystem, commands, environment, workspace, "C");
+          const secondBytes = freshReplayBytes(fileSystem, commands, environment, secondWorkspace, "sv_SE.UTF-8");
           const expectedNames = Object.keys(first.bytes).sort(compareByteOrder);
           const firstNames = Object.keys(firstBytes).sort(compareByteOrder);
           const secondNames = Object.keys(secondBytes).sort(compareByteOrder);
@@ -2254,15 +2367,15 @@ const runFixtureFalsifier = (options: RunOptions): Effect.Effect<RunResult, Pari
           );
         } finally {
           yield* Effect.sync(() =>
-            rmSync(secondWorkspace.directory, { recursive: true, force: true }),
+            fileSystem.remove(secondWorkspace.directory, { recursive: true, force: true }),
           );
         }
       }
       if (falsifierId === "F2_source_hash_drift") {
         const generated = yield* generateFixtureFromWorkspaceEffect(options, workspace);
         const source = join(workspace.legacyRoot, "app/config/routing.yml");
-        appendText(source, routeYaml("fixture_drift", "/fixture/drift", "GET"));
-        refreshFixtureIntentRegister(workspace);
+        appendText(fileSystem, source, routeYaml("fixture_drift", "/fixture/drift", "GET"));
+        refreshFixtureIntentRegister(fileSystem, commands, workspace);
         const after = yield* generateFixtureFromWorkspaceEffect(options, workspace);
         const drifted =
           sourceDigestForManifest(after.sourceManifest) !==
@@ -2278,7 +2391,7 @@ const runFixtureFalsifier = (options: RunOptions): Effect.Effect<RunResult, Pari
       }
       if (falsifierId === "F11_intent_missing_or_stale") {
         const baseline = yield* generateFixtureFromWorkspaceEffect(options, workspace);
-        mutateFixture(falsifierId, workspace);
+        mutateFixture(fileSystem, falsifierId, workspace);
         const generated = yield* generateFixtureFromWorkspaceEffect(options, workspace);
         const causal = generated.failures.find(
           (failure) => failure.reason_code === expectation.reasonCode,
@@ -2301,7 +2414,7 @@ const runFixtureFalsifier = (options: RunOptions): Effect.Effect<RunResult, Pari
       }
       if (falsifierId === "F12_uncovered_journey") {
         const baseline = yield* generateFixtureFromWorkspaceEffect(options, workspace);
-        mutateFixture(falsifierId, workspace);
+        mutateFixture(fileSystem, falsifierId, workspace);
         const generated = yield* generateFixtureFromWorkspaceEffect(options, workspace);
         const causal = generated.failures.find(
           (failure) =>
@@ -2326,8 +2439,8 @@ const runFixtureFalsifier = (options: RunOptions): Effect.Effect<RunResult, Pari
       }
       if (falsifierId === "F15_secret_or_pii_input") {
         const baseline = yield* generateFixtureFromWorkspaceEffect(options, workspace);
-        mutateFixture(falsifierId, workspace);
-        refreshFixtureIntentRegister(workspace);
+        mutateFixture(fileSystem, falsifierId, workspace);
+        refreshFixtureIntentRegister(fileSystem, commands, workspace);
         const generated = yield* generateFixtureFromWorkspaceEffect(options, workspace);
         const causal = generated.failures.find(
           (failure) => failure.reason_code === expectation.reasonCode,
@@ -2372,18 +2485,18 @@ const runFixtureFalsifier = (options: RunOptions): Effect.Effect<RunResult, Pari
       }
       if (falsifierId === "F18_stale_artifact_diff") {
         const baseline = yield* generateFixtureFromWorkspaceEffect(options, workspace);
-        const authority = createFixtureIntentAuthority(workspace);
-        const evidenceAuthority = createFixtureEvidenceAuthority(workspace);
+        const authority = createFixtureIntentAuthority(fileSystem, commands, workspace);
+        const evidenceAuthority = createFixtureEvidenceAuthority(fileSystem, commands, workspace);
         const corrupted = "stale-generated-artifact";
         try {
           const projectionDirectory = join(workspace.root, PROJECTION_DIRECTORY);
-          mkdirSync(projectionDirectory, { recursive: true });
+          fileSystem.makeDirectory(projectionDirectory, { recursive: true });
           for (const name of COMMITTED_PROJECTIONS) {
             const bytes = baseline.bytes[name];
             if (bytes === undefined) throw new Error(`fixture projection missing: ${name}`);
-            writeFileSync(join(projectionDirectory, name), bytes, "utf8");
+            fileSystem.writeFile(join(projectionDirectory, name), bytes, "utf8");
           }
-          mutateFixture(falsifierId, workspace);
+          mutateFixture(fileSystem, falsifierId, workspace);
           const diffResult = yield* run({
             root: workspace.root,
             legacyRoot: workspace.legacyRoot,
@@ -2424,14 +2537,14 @@ const runFixtureFalsifier = (options: RunOptions): Effect.Effect<RunResult, Pari
                 diffResult.report.verification.deterministic_diff,
               );
         } finally {
-          rmSync(authority.directory, { recursive: true, force: true });
-          rmSync(evidenceAuthority.directory, { recursive: true, force: true });
+          fileSystem.remove(authority.directory, { recursive: true, force: true });
+          fileSystem.remove(evidenceAuthority.directory, { recursive: true, force: true });
         }
       }
       if (falsifierId === "F19_ignore_residual_precedence") {
         const baseline = yield* generateFixtureFromWorkspaceEffect(options, workspace);
-        mutateFixture(falsifierId, workspace);
-        refreshFixtureIntentRegister(workspace);
+        mutateFixture(fileSystem, falsifierId, workspace);
+        refreshFixtureIntentRegister(fileSystem, commands, workspace);
         const generated = yield* generateFixtureFromWorkspaceEffect(options, workspace);
         const residualPaths = [
           "packages/sdk/dist/module.js",
@@ -2472,8 +2585,8 @@ const runFixtureFalsifier = (options: RunOptions): Effect.Effect<RunResult, Pari
         );
       }
       if (falsifierId === "F16_h3_authority_copy") {
-        mutateFixture(falsifierId, workspace);
-        refreshFixtureIntentRegister(workspace);
+        mutateFixture(fileSystem, falsifierId, workspace);
+        refreshFixtureIntentRegister(fileSystem, commands, workspace);
         const generated = yield* generateFixtureFromWorkspaceEffect(options, workspace);
         const injected = generated.apiRows.find((row) => {
           const details = row.details as unknown as Record<string, unknown>;
@@ -2538,8 +2651,8 @@ const runFixtureFalsifier = (options: RunOptions): Effect.Effect<RunResult, Pari
                   row.status === "absent",
               )
             : true;
-      mutateFixture(falsifierId, workspace);
-      refreshFixtureIntentRegister(workspace);
+      mutateFixture(fileSystem, falsifierId, workspace);
+      refreshFixtureIntentRegister(fileSystem, commands, workspace);
       const generated = yield* generateFixtureFromWorkspaceEffect(options, workspace);
       const routeNameOf = (row: InventoryRow): string | null => {
         if ("route_name" in row.details) return row.details.route_name;
@@ -2655,7 +2768,7 @@ const runFixtureFalsifier = (options: RunOptions): Effect.Effect<RunResult, Pari
         causalMatch ? (observedFailure ?? null) : null,
       );
     } finally {
-      yield* Effect.sync(() => rmSync(workspace.directory, { recursive: true, force: true }));
+      yield* Effect.sync(() => fileSystem.remove(workspace.directory, { recursive: true, force: true }));
     }
   });
 interface ProjectionStageEffects {
@@ -2674,7 +2787,7 @@ const observeProjectionEffect = (
   effects: ProjectionStageEffects,
   root: string,
   writeReceipt: boolean,
-): Effect.Effect<ProjectionObservation, ParityRuntimeError> =>
+): Effect.Effect<ProjectionObservation, ParityRuntimeError, ParityFileSystem> =>
   Effect.gen(function* () {
     const entries = yield* effects.readDirectory(root, PROJECTION_DIRECTORY);
     const bytes: Record<string, string | null> = {};
@@ -2687,7 +2800,11 @@ const runTerminalStageEffect = (
   options: RunOptions,
   generated: GeneratedArtifacts,
   projectionEffects: ProjectionStageEffects = productionProjectionStageEffects,
-): Effect.Effect<RunResult, ParityRuntimeError> =>
+): Effect.Effect<
+  RunResult,
+  ParityRuntimeError,
+  ParityCommandExecutor | ParityFileSystem
+> =>
   Effect.gen(function* () {
     const before = yield* observeProjectionEffect(projectionEffects, options.root, false);
     const unknownEntries = before.entries.filter(
@@ -2931,13 +3048,23 @@ const runTerminalStageEffect = (
   });
 
 interface RunServices {
-  readonly collect: (options: RunOptions) => Effect.Effect<GeneratedArtifacts, ParityRuntimeError>;
+  readonly collect: (
+    options: RunOptions,
+  ) => Effect.Effect<
+    GeneratedArtifacts,
+    ParityRuntimeError,
+    ParityCommandExecutor | ParityFileSystem
+  >;
 }
 
 const runWithServices = (
   options: RunOptions,
   services: RunServices,
-): Effect.Effect<RunResult, ParityRuntimeError> =>
+): Effect.Effect<
+  RunResult,
+  ParityRuntimeError,
+  ParityCommandExecutor | ParityFileSystem
+> =>
   Effect.gen(function* () {
     const generated = yield* services.collect(options);
     const terminalGenerated =
@@ -2963,7 +3090,13 @@ const runWithServices = (
     return yield* runTerminalStageEffect(options, terminalGenerated);
   });
 
-export const run = (options: RunOptions): Effect.Effect<RunResult, ParityRuntimeError> =>
+export const run = (
+  options: RunOptions,
+): Effect.Effect<
+  RunResult,
+  ParityRuntimeError,
+  ParityCommandExecutor | ParityExecutionEnvironment | ParityFileSystem
+> =>
   Effect.gen(function* () {
     if (options.mode === "fixture_injection") {
       if (options.falsifierId === undefined) {
@@ -3079,7 +3212,11 @@ const trustedFixtureArtifacts = (
 const collectTrustedFixtureArtifacts = (
   workspace: FixtureWorkspace,
   mode: "diff" | "write",
-): Effect.Effect<GeneratedArtifacts, ParityRuntimeError> =>
+): Effect.Effect<
+  GeneratedArtifacts,
+  ParityRuntimeError,
+  ParityCommandExecutor | ParityFileSystem
+> =>
   generateFixtureFromWorkspaceEffect(
     { root: workspace.root, legacyRoot: workspace.legacyRoot, mode: "fixture_injection" },
     workspace,
@@ -3095,37 +3232,60 @@ export const runTrustedFixtureTerminalCycle = (): Effect.Effect<
     readonly projectionEntries: readonly string[];
     readonly projectionBytes: Readonly<Record<string, string>>;
   },
-  ParityRuntimeError
+  ParityRuntimeError,
+  ParityCommandExecutor | ParityFileSystem
 > =>
-  Effect.acquireUseRelease(
-    Effect.try({
-      try: () => {
-        const workspace = createFixtureWorkspace({
-          root: ".",
-          legacyRoot: ".",
-          mode: "fixture_injection",
-        });
-        for (const root of [workspace.root, workspace.legacyRoot]) {
-          execFileSync("git", ["-C", root, "init", "--quiet"]);
-          execFileSync("git", ["-C", root, "config", "user.email", "fixture@example.invalid"]);
-          execFileSync("git", ["-C", root, "config", "user.name", "fixture"]);
-          execFileSync("git", ["-C", root, "add", "--all"]);
-          execFileSync("git", ["-C", root, "commit", "--quiet", "-m", "fixture source"]);
-        }
-        refreshFixtureIntentRegister(workspace);
-        return workspace;
-      },
-      catch: (cause) =>
-        new ParityRuntimeError({
-          operation: "fixture_terminal_setup",
-          path: ".",
-          message: cause instanceof Error ? cause.message : "fixture terminal setup failed",
-        }),
-    }),
-    (workspace) =>
+  Effect.gen(function* () {
+    const fileSystem = yield* ParityFileSystem;
+    const commands = yield* ParityCommandExecutor;
+    return yield* Effect.acquireUseRelease(
+      Effect.try({
+        try: () => {
+          const workspace = createFixtureWorkspace(fileSystem, commands, {
+            root: ".",
+            legacyRoot: ".",
+            mode: "fixture_injection",
+          });
+          for (const root of [workspace.root, workspace.legacyRoot]) {
+            commands.executeBytes("git", ["-C", root, "init", "--quiet"]);
+            commands.executeBytes("git", [
+              "-C",
+              root,
+              "config",
+              "user.email",
+              "fixture@example.invalid",
+            ]);
+            commands.executeBytes("git", [
+              "-C",
+              root,
+              "config",
+              "user.name",
+              "fixture",
+            ]);
+            commands.executeBytes("git", ["-C", root, "add", "--all"]);
+            commands.executeBytes("git", [
+              "-C",
+              root,
+              "commit",
+              "--quiet",
+              "-m",
+              "fixture source",
+            ]);
+          }
+          refreshFixtureIntentRegister(fileSystem, commands, workspace);
+          return workspace;
+        },
+        catch: (cause) =>
+          new ParityRuntimeError({
+            operation: "fixture_terminal_setup",
+            path: ".",
+            message: cause instanceof Error ? cause.message : "fixture terminal setup failed",
+          }),
+      }),
+      (workspace) =>
       Effect.gen(function* () {
-        const authority = createFixtureIntentAuthority(workspace);
-        const evidenceAuthority = createFixtureEvidenceAuthority(workspace);
+        const authority = createFixtureIntentAuthority(fileSystem, commands, workspace);
+        const evidenceAuthority = createFixtureEvidenceAuthority(fileSystem, commands, workspace);
         try {
           const pinned = yield* readPinnedIntentRegisterEffect(
             authority.path,
@@ -3170,7 +3330,11 @@ export const runTrustedFixtureTerminalCycle = (): Effect.Effect<
           });
           const collect = (
             options: RunOptions,
-          ): Effect.Effect<GeneratedArtifacts, ParityRuntimeError> =>
+          ): Effect.Effect<
+            GeneratedArtifacts,
+            ParityRuntimeError,
+            ParityCommandExecutor | ParityFileSystem
+          > =>
             collectTrustedFixtureArtifacts(
               workspace,
               options.mode === "write" ? "write" : "diff",
@@ -3186,14 +3350,14 @@ export const runTrustedFixtureTerminalCycle = (): Effect.Effect<
           );
           if (writeResult.exitCode !== 14)
             throw new Error(`fixture write did not return exit 14: ${writeResult.exitCode}`);
-          execFileSync("git", [
+          commands.executeBytes("git", [
             "-C",
             workspace.root,
             "add",
             "--",
             ...COMMITTED_PROJECTIONS.map((name) => `${PROJECTION_DIRECTORY}/${name}`),
           ]);
-          execFileSync("git", [
+          commands.executeBytes("git", [
             "-C",
             workspace.root,
             "commit",
@@ -3213,7 +3377,7 @@ export const runTrustedFixtureTerminalCycle = (): Effect.Effect<
           const beforeIdempotentWrite = Object.fromEntries(
             COMMITTED_PROJECTIONS.map((name) => [
               name,
-              readFileSync(join(workspace.root, PROJECTION_DIRECTORY, name), "utf8"),
+              fileSystem.readText(join(workspace.root, PROJECTION_DIRECTORY, name)),
             ]),
           );
           const idempotentWriteResult = yield* runWithServices(
@@ -3232,7 +3396,7 @@ export const runTrustedFixtureTerminalCycle = (): Effect.Effect<
           const afterIdempotentWrite = Object.fromEntries(
             COMMITTED_PROJECTIONS.map((name) => [
               name,
-              readFileSync(join(workspace.root, PROJECTION_DIRECTORY, name), "utf8"),
+              fileSystem.readText(join(workspace.root, PROJECTION_DIRECTORY, name)),
             ]),
           );
           if (
@@ -3241,13 +3405,14 @@ export const runTrustedFixtureTerminalCycle = (): Effect.Effect<
             )
           )
             throw new Error("fixture idempotent write changed projection bytes");
-          const projectionEntries = readdirSync(join(workspace.root, PROJECTION_DIRECTORY)).sort(
-            compareByteOrder,
-          );
+          const projectionEntries = fileSystem
+            .readDirectory(join(workspace.root, PROJECTION_DIRECTORY))
+            .map((entry) => entry.name)
+            .sort(compareByteOrder);
           const projectionBytes = Object.fromEntries(
             COMMITTED_PROJECTIONS.map((name) => [
               name,
-              readFileSync(join(workspace.root, PROJECTION_DIRECTORY, name), "utf8"),
+              fileSystem.readText(join(workspace.root, PROJECTION_DIRECTORY, name)),
             ]),
           );
           const projectionDirectory = join(workspace.root, PROJECTION_DIRECTORY);
@@ -3256,7 +3421,7 @@ export const runTrustedFixtureTerminalCycle = (): Effect.Effect<
           const monoProjection = projectionBytes["mono-routes.json"];
           if (legacyProjection === undefined || monoProjection === undefined)
             throw new Error("fixture projection snapshot missing");
-          rmSync(missingPath);
+          fileSystem.remove(missingPath);
           const missingDiffResult = yield* runWithServices(
             {
               root: workspace.root,
@@ -3266,9 +3431,9 @@ export const runTrustedFixtureTerminalCycle = (): Effect.Effect<
             },
             { collect },
           );
-          writeFileSync(missingPath, legacyProjection, "utf8");
+          fileSystem.writeFile(missingPath, legacyProjection, "utf8");
           const differentPath = join(projectionDirectory, "mono-routes.json");
-          writeFileSync(differentPath, "stale-generated-artifact", "utf8");
+          fileSystem.writeFile(differentPath, "stale-generated-artifact", "utf8");
           const differentDiffResult = yield* runWithServices(
             {
               root: workspace.root,
@@ -3278,7 +3443,7 @@ export const runTrustedFixtureTerminalCycle = (): Effect.Effect<
             },
             { collect },
           );
-          writeFileSync(differentPath, monoProjection, "utf8");
+          fileSystem.writeFile(differentPath, monoProjection, "utf8");
           return {
             writeReport: writeResult.report,
             idempotentWriteReport: idempotentWriteResult.report,
@@ -3289,8 +3454,12 @@ export const runTrustedFixtureTerminalCycle = (): Effect.Effect<
             projectionBytes,
           };
         } finally {
-          rmSync(authority.directory, { recursive: true, force: true });
+          fileSystem.remove(authority.directory, { recursive: true, force: true });
         }
-      }),
-    (workspace) => Effect.sync(() => rmSync(workspace.directory, { recursive: true, force: true })),
-  );
+        }),
+      (workspace) =>
+        Effect.sync(() =>
+          fileSystem.remove(workspace.directory, { recursive: true, force: true }),
+        ),
+    );
+  });

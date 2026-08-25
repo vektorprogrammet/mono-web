@@ -10,6 +10,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join, resolve } from "node:path";
+import { NodeRuntimeLayer } from "../node-runtime.js";
 import {
   API_METADATA_SCRIPT,
   API_OPENAPI_SCRIPT,
@@ -48,13 +49,11 @@ test("missing collector configuration is a runtime_unavailable observation", asy
   mkdirSync(legacyRoot);
   mkdirSync(monoRoot);
   try {
-    const legacy = await Effect.runPromise(scanRootEffect(legacyRoot, "legacy"));
-    const mono = await Effect.runPromise(scanRootEffect(monoRoot, "mono"));
+    const legacy = await Effect.runPromise(scanRootEffect(legacyRoot, "legacy").pipe(Effect.provide(NodeRuntimeLayer)));
+    const mono = await Effect.runPromise(scanRootEffect(monoRoot, "mono").pipe(Effect.provide(NodeRuntimeLayer)));
     const context = createManifestContextFromSnapshots(legacy, mono);
-    const result = collectApiOperations(
-      context,
-      "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-    );
+    const result = await Effect.runPromise(collectApiOperations(context,
+    "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",).pipe(Effect.provide(NodeRuntimeLayer)));
     expect(result.failures).toEqual(
       expect.arrayContaining([expect.objectContaining({ status: "runtime_unavailable" })]),
     );
@@ -129,7 +128,7 @@ test("tracked collector environment contains only the approved test bytes", asyn
   mkdirSync(join(directory, "apps/server"), { recursive: true });
   writeFileSync(join(directory, "apps/server/.env.test"), expectedBytes);
   try {
-    const mono = await Effect.runPromise(scanRootEffect(directory, "mono"));
+    const mono = await Effect.runPromise(scanRootEffect(directory, "mono").pipe(Effect.provide(NodeRuntimeLayer)));
     const envFiles = mono.files.filter((file) => /(?:^|\/)\.env(?:$|[.-])/iu.test(file.path));
     expect(envFiles.map((file) => file.path)).toEqual(["apps/server/.env.test"]);
     const envFile = envFiles[0];
@@ -148,8 +147,8 @@ test("failed fixture collector bytes become fixed reason-only observations", asy
   mkdirSync(legacyRoot);
   mkdirSync(monoRoot);
   try {
-    const legacy = await Effect.runPromise(scanRootEffect(legacyRoot, "legacy"));
-    const mono = await Effect.runPromise(scanRootEffect(monoRoot, "mono"));
+    const legacy = await Effect.runPromise(scanRootEffect(legacyRoot, "legacy").pipe(Effect.provide(NodeRuntimeLayer)));
+    const mono = await Effect.runPromise(scanRootEffect(monoRoot, "mono").pipe(Effect.provide(NodeRuntimeLayer)));
     const context = createManifestContextFromSnapshots(legacy, mono);
     const cases = [
       { path: "non-utf8", bytes: new Uint8Array([0xff, 0xfe, 0xfd]), reason: "NON_UTF8_OUTPUT" },
@@ -172,14 +171,12 @@ test("failed fixture collector bytes become fixed reason-only observations", asy
       },
     ] as const;
     for (const fixture of cases) {
-      const result = collectApiOperations(
-        context,
-        "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-        [],
-        true,
-        undefined,
-        { path: fixture.path, bytes: fixture.bytes },
-      );
+      const result = await Effect.runPromise(collectApiOperations(context,
+      "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      [],
+      true,
+      undefined,
+      { path: fixture.path, bytes: fixture.bytes },).pipe(Effect.provide(NodeRuntimeLayer)));
       const observation = context.runtimeObservations.at(-1);
       const fixtureSource = context.sources.find(
         (source) => source.path === `fixture://runtime/${fixture.path}`,
@@ -203,7 +200,7 @@ test("failed fixture collector bytes become fixed reason-only observations", asy
   }
 });
 
-test("collector executable validation rejects arbitrary, symlinked, and writable paths", () => {
+test("collector executable validation rejects arbitrary, symlinked, and writable paths", async () => {
   const directory = mkdtempSync("/tmp/parity-collector-validation-");
   const regular = join(directory, "php");
   const link = join(directory, "php-link");
@@ -212,11 +209,28 @@ test("collector executable validation rejects arbitrary, symlinked, and writable
   symlinkSync(regular, link);
   try {
     expect(
-      resolveCollectorExecutables({ phpExecutable: regular, bwrapExecutable: regular }),
+      await Effect.runPromise(
+        resolveCollectorExecutables({
+          phpExecutable: regular,
+          bwrapExecutable: regular,
+        }).pipe(Effect.provide(NodeRuntimeLayer)),
+      ),
     ).toBeNull();
-    expect(validateCollectorExecutablePath("php", link)).toBeNull();
+    expect(
+      await Effect.runPromise(
+        validateCollectorExecutablePath("php", link).pipe(
+          Effect.provide(NodeRuntimeLayer),
+        ),
+      ),
+    ).toBeNull();
     chmodSync(regular, 0o775);
-    expect(validateCollectorExecutablePath("php", regular)).toBeNull();
+    expect(
+      await Effect.runPromise(
+        validateCollectorExecutablePath("php", regular).pipe(
+          Effect.provide(NodeRuntimeLayer),
+        ),
+      ),
+    ).toBeNull();
     expect(lstatSync(link).isSymbolicLink()).toBe(true);
   } finally {
     rmSync(directory, { recursive: true, force: true });
@@ -234,13 +248,15 @@ test("Nix executable shapes are recognized without PATH lookup", () => {
   expect(collectorExecutableProvenance("php", "php")).toBeNull();
 });
 
-test("sandbox invocation binds selected binaries, isolates arguments, and narrows runtime writes", () => {
+test("sandbox invocation binds selected binaries, isolates arguments, and narrows runtime writes", async () => {
   const php = "/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-php-8.3.21/bin/php";
   const bwrap = "/nix/store/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb-bubblewrap-0.11.2/bin/bwrap";
-  const invocation = buildCollectorSandboxArguments(
-    { phpExecutable: php, bwrapExecutable: bwrap },
-    ["-r", "echo 'ok';", "--", "$(touch /tmp/injected)"],
-    "/tmp/staged-source",
+  const invocation = await Effect.runPromise(
+    buildCollectorSandboxArguments(
+      { phpExecutable: php, bwrapExecutable: bwrap },
+      ["-r", "echo 'ok';", "--", "$(touch /tmp/injected)"],
+      "/tmp/staged-source",
+    ).pipe(Effect.provide(NodeRuntimeLayer)),
   );
   expect(invocation.executable).toBe(bwrap);
   expect(invocation.arguments).toEqual(
@@ -289,15 +305,13 @@ test("production collection does not consume runtime fixtures", async () => {
   mkdirSync(legacyRoot);
   writeFileSync(join(monoRoot, "apps/server/var/parity/api-operations.json"), "[]");
   try {
-    const legacy = await Effect.runPromise(scanRootEffect(legacyRoot, "legacy"));
-    const mono = await Effect.runPromise(scanRootEffect(monoRoot, "mono"));
+    const legacy = await Effect.runPromise(scanRootEffect(legacyRoot, "legacy").pipe(Effect.provide(NodeRuntimeLayer)));
+    const mono = await Effect.runPromise(scanRootEffect(monoRoot, "mono").pipe(Effect.provide(NodeRuntimeLayer)));
     const context = createManifestContextFromSnapshots(legacy, mono);
-    const result = collectApiOperations(
-      context,
-      "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-      [],
-      false,
-    );
+    const result = await Effect.runPromise(collectApiOperations(context,
+    "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    [],
+    false,).pipe(Effect.provide(NodeRuntimeLayer)));
     expect(result.failures).toEqual(
       expect.arrayContaining([expect.objectContaining({ status: "runtime_unavailable" })]),
     );

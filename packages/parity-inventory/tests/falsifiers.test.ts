@@ -2,6 +2,7 @@ import { Effect } from "effect";
 import { execFileSync, spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { NodeRuntimeLayer } from "../node-runtime.js";
 import { validateReportBundle, type ProjectionObservation } from "../src/schema.js";
 import { collectApiOperations, type ApiCollection } from "../src/api.js";
 import { collectRoutes } from "../src/routes.js";
@@ -44,14 +45,12 @@ const falsifiers: readonly FalsifierId[] = [
 describe("C0 and C1 fixture falsifiers", () => {
   for (const falsifierId of falsifiers) {
     test(`${falsifierId} uses the frozen synthetic fixture tree`, async () => {
-      const result = await Effect.runPromise(
-        run({
-          root: `/tmp/functional-parity-missing-${falsifierId}`,
-          legacyRoot: `/tmp/functional-parity-missing-legacy-${falsifierId}`,
-          mode: "fixture_injection",
-          falsifierId,
-        }),
-      );
+      const result = await Effect.runPromise(run({
+        root: `/tmp/functional-parity-missing-${falsifierId}`,
+        legacyRoot: `/tmp/functional-parity-missing-legacy-${falsifierId}`,
+        mode: "fixture_injection",
+        falsifierId,
+      }).pipe(Effect.provide(NodeRuntimeLayer)));
       expect(result.exitCode).toBe(13);
       expect(result.report.status).toBe("falsifier_passed");
       expect(result.report.falsifier_id).toBe(falsifierId);
@@ -65,9 +64,7 @@ describe("C0 and C1 fixture falsifiers", () => {
     "F16_h3_authority_copy",
   ] as const) {
     test(`${falsifierId} preserves C1 authority boundaries`, async () => {
-      const result = await Effect.runPromise(
-        run({ root: ".", legacyRoot: ".", mode: "fixture_injection", falsifierId }),
-      );
+      const result = await Effect.runPromise(run({ root: ".", legacyRoot: ".", mode: "fixture_injection", falsifierId }).pipe(Effect.provide(NodeRuntimeLayer)));
       expect(result.exitCode).toBe(13);
       expect(result.report.status).toBe("falsifier_passed");
       expect(result.report.openapi_reconciliation_ref).toBe("openapi-reconciliation.json");
@@ -116,14 +113,12 @@ describe("C0 and C1 fixture falsifiers", () => {
   }
 });
 test("C1 H3 derivation dedup preserves unique route rows and all edge contracts", async () => {
-  const result = await Effect.runPromise(
-    run({
-      root: ".",
-      legacyRoot: ".",
-      mode: "fixture_injection",
-      falsifierId: "F0_deterministic_replay",
-    }),
-  );
+  const result = await Effect.runPromise(run({
+    root: ".",
+    legacyRoot: ".",
+    mode: "fixture_injection",
+    falsifierId: "F0_deterministic_replay",
+  }).pipe(Effect.provide(NodeRuntimeLayer)));
   const artifacts = result.artifacts;
   if (artifacts === undefined) throw new Error("fixture artifacts unavailable");
   const allRows = [
@@ -179,9 +174,7 @@ const c3ReceiptMatrix = [
 describe("C3 falsifier receipts", () => {
   for (const [falsifierId, failureStatus, reasonCode] of c3ReceiptMatrix) {
     test(`${falsifierId} emits a causal sanitized receipt`, async () => {
-      const result = await Effect.runPromise(
-        run({ root: ".", legacyRoot: ".", mode: "fixture_injection", falsifierId }),
-      );
+      const result = await Effect.runPromise(run({ root: ".", legacyRoot: ".", mode: "fixture_injection", falsifierId }).pipe(Effect.provide(NodeRuntimeLayer)));
       expect(result.exitCode).toBe(13);
       expect(result.report.status).toBe("falsifier_passed");
       expect(result.report.falsifier_id).toBe(falsifierId);
@@ -265,14 +258,12 @@ test("terminal write promotion is exit fourteen and does not run diff", () => {
   });
 });
 test("terminal claims require the closed generated artifact bundle", async () => {
-  const result = await Effect.runPromise(
-    run({
-      root: ".",
-      legacyRoot: ".",
-      mode: "fixture_injection",
-      falsifierId: "F0_deterministic_replay",
-    }),
-  );
+  const result = await Effect.runPromise(run({
+    root: ".",
+    legacyRoot: ".",
+    mode: "fixture_injection",
+    falsifierId: "F0_deterministic_replay",
+  }).pipe(Effect.provide(NodeRuntimeLayer)));
   const artifacts = result.artifacts;
   if (artifacts === undefined) throw new Error("fixture artifacts unavailable");
   const observation: ProjectionObservation = {
@@ -316,8 +307,8 @@ const createIntentAuthority = (
 ): { readonly path: string; readonly directory: string } => {
   let selectedRevisionRefIds = ["rev-legacy-test", "rev-mono-intent-test"];
   try {
-    const legacy = Effect.runSync(scanRootEffect(legacyRoot, "legacy"));
-    const mono = Effect.runSync(scanRootEffect(root, "mono"));
+    const legacy = Effect.runSync(scanRootEffect(legacyRoot, "legacy").pipe(Effect.provide(NodeRuntimeLayer)));
+    const mono = Effect.runSync(scanRootEffect(root, "mono").pipe(Effect.provide(NodeRuntimeLayer)));
     const context = createManifestContextFromSnapshots(legacy, mono);
     selectedRevisionRefIds = [legacy.revisionRefId, acceptedIntentRevisionRefId(context)].sort();
   } catch {
@@ -401,8 +392,8 @@ const intentContextFor = async (
   const monoRoot = gitFixture();
   const legacyRoot = gitFixture();
   execFileSync("git", ["-C", legacyRoot, "commit", "--allow-empty", "-qm", "legacy-fixture"]);
-  const legacy = await Effect.runPromise(scanRootEffect(legacyRoot, "legacy"));
-  const mono = await Effect.runPromise(scanRootEffect(monoRoot, "mono"));
+  const legacy = await Effect.runPromise(scanRootEffect(legacyRoot, "legacy").pipe(Effect.provide(NodeRuntimeLayer)));
+  const mono = await Effect.runPromise(scanRootEffect(monoRoot, "mono").pipe(Effect.provide(NodeRuntimeLayer)));
   const context = createManifestContextFromSnapshots(legacy, mono);
   return {
     context,
@@ -423,9 +414,7 @@ const runWithIntentAuthority = async (root: string, legacyRoot: string, mode: "d
   const authority = createIntentAuthority(root, legacyRoot);
   const evidenceAuthority = createEvidenceAuthority(authority.path);
   try {
-    return await Effect.runPromise(
-      run({ root, legacyRoot, intentRegisterPath: authority.path, evidenceRegisterPath: evidenceAuthority.path, mode }),
-    );
+    return await Effect.runPromise(run({ root, legacyRoot, intentRegisterPath: authority.path, evidenceRegisterPath: evidenceAuthority.path, mode }).pipe(Effect.provide(NodeRuntimeLayer)));
   } finally {
     rmSync(authority.directory, { recursive: true, force: true });
     rmSync(evidenceAuthority.directory, { recursive: true, force: true });
@@ -506,7 +495,7 @@ test("external intent authority must remain clean while pinned", () => {
       "utf8",
     );
     expect(() =>
-      Effect.runSync(readPinnedIntentRegisterEffect(authority.path, legacy, mono)),
+      Effect.runSync(readPinnedIntentRegisterEffect(authority.path, legacy, mono).pipe(Effect.provide(NodeRuntimeLayer))),
     ).toThrow();
   } finally {
     rmSync(authority.directory, { recursive: true, force: true });
@@ -539,11 +528,11 @@ test("real target API identities and normalized H3 edges do not invoke ambient r
     execFileSync("git", ["-C", monoRoot, "add", "."]);
     execFileSync("git", ["-C", monoRoot, "commit", "-qm", "real-target-probe"]);
     execFileSync("git", ["-C", legacyRoot, "commit", "--allow-empty", "-qm", "empty-legacy-probe"]);
-    const mono = await Effect.runPromise(scanRootEffect(monoRoot, "mono"));
-    const legacy = await Effect.runPromise(scanRootEffect(legacyRoot, "legacy"));
+    const mono = await Effect.runPromise(scanRootEffect(monoRoot, "mono").pipe(Effect.provide(NodeRuntimeLayer)));
+    const legacy = await Effect.runPromise(scanRootEffect(legacyRoot, "legacy").pipe(Effect.provide(NodeRuntimeLayer)));
     const context = createManifestContextFromSnapshots(legacy, mono);
-    const routes = collectRoutes(context, sha256("real-target-probe"), undefined, true);
-    const api = collectApiOperations(context, sha256("real-target-probe"), routes.mono.rows, false);
+    const routes = await Effect.runPromise(collectRoutes(context, sha256("real-target-probe"), undefined, true).pipe(Effect.provide(NodeRuntimeLayer)));
+    const api = await Effect.runPromise(collectApiOperations(context, sha256("real-target-probe"), routes.mono.rows, false).pipe(Effect.provide(NodeRuntimeLayer)));
     const staticRows = api.rows.filter((row) => row.observation_kinds.includes("static_source"));
     const deleteOperation = staticRows.find((row) => {
       if (!("operation_name" in row.details)) return false;
@@ -627,20 +616,18 @@ test("OpenAPI route keys remain structural while credential and schema values fa
       execFileSync("git", ["-C", monoRoot, "add", "."])
       execFileSync("git", ["-C", monoRoot, "commit", "-qm", "openapi-safety-boundary"])
       execFileSync("git", ["-C", legacyRoot, "commit", "--allow-empty", "-qm", "empty-legacy"])
-      const mono = await Effect.runPromise(scanRootEffect(monoRoot, "mono"))
-      const legacy = await Effect.runPromise(scanRootEffect(legacyRoot, "legacy"))
+      const mono = await Effect.runPromise(scanRootEffect(monoRoot, "mono").pipe(Effect.provide(NodeRuntimeLayer)))
+      const legacy = await Effect.runPromise(scanRootEffect(legacyRoot, "legacy").pipe(Effect.provide(NodeRuntimeLayer)))
       const context = createManifestContextFromSnapshots(legacy, mono)
-      const result = collectApiOperations(
-        context,
-        sha256("openapi-safety-boundary"),
-        [],
-        true,
-        undefined,
-        {
-          path: "openapi-safety-runtime.json",
-          bytes: Buffer.from(JSON.stringify(runtimePayload), "utf8"),
-        },
-      )
+      const result = await Effect.runPromise(collectApiOperations(context,
+      sha256("openapi-safety-boundary"),
+      [],
+      true,
+      undefined,
+      {
+        path: "openapi-safety-runtime.json",
+        bytes: Buffer.from(JSON.stringify(runtimePayload), "utf8"),
+      },).pipe(Effect.provide(NodeRuntimeLayer)))
       const openApiObservation = [...context.runtimeObservations]
         .reverse()
         .find((observation) => observation.collector_kind === "openapi_projection")
@@ -891,17 +878,15 @@ test("nonvalid JSON member scans reject runtime fixtures before digest or observ
     const monoRoot = gitFixture()
     const legacyRoot = gitFixture()
     try {
-      const mono = await Effect.runPromise(scanRootEffect(monoRoot, "mono"))
-      const legacy = await Effect.runPromise(scanRootEffect(legacyRoot, "legacy"))
+      const mono = await Effect.runPromise(scanRootEffect(monoRoot, "mono").pipe(Effect.provide(NodeRuntimeLayer)))
+      const legacy = await Effect.runPromise(scanRootEffect(legacyRoot, "legacy").pipe(Effect.provide(NodeRuntimeLayer)))
       const context = createManifestContextFromSnapshots(legacy, mono)
-      const result = collectApiOperations(
-        context,
-        sha256("json-member-prehash-boundary"),
-        [],
-        true,
-        undefined,
-        { path: "api-operations-malformed.json", bytes },
-      )
+      const result = await Effect.runPromise(collectApiOperations(context,
+      sha256("json-member-prehash-boundary"),
+      [],
+      true,
+      undefined,
+      { path: "api-operations-malformed.json", bytes },).pipe(Effect.provide(NodeRuntimeLayer)))
       return { result, observations: [...context.runtimeObservations], sources: [...context.sources] }
     } finally {
       rmSync(monoRoot, { recursive: true, force: true })
@@ -1009,16 +994,14 @@ test("API resource trivia is accepted while unterminated block comments fail clo
       execFileSync("git", ["-C", monoRoot, "add", "."]);
       execFileSync("git", ["-C", monoRoot, "commit", "-qm", "api-resource-trivia"]);
       execFileSync("git", ["-C", legacyRoot, "commit", "--allow-empty", "-qm", "empty-legacy"]);
-      const legacy = await Effect.runPromise(scanRootEffect(legacyRoot, "legacy"));
-      const mono = await Effect.runPromise(scanRootEffect(monoRoot, "mono"));
-      return collectApiOperations(
-        createManifestContextFromSnapshots(legacy, mono),
-        sha256(source),
-        [],
-        true,
-        undefined,
-        { path: "api-resource-trivia.json", bytes: Buffer.from("[]", "utf8") },
-      );
+      const legacy = await Effect.runPromise(scanRootEffect(legacyRoot, "legacy").pipe(Effect.provide(NodeRuntimeLayer)));
+      const mono = await Effect.runPromise(scanRootEffect(monoRoot, "mono").pipe(Effect.provide(NodeRuntimeLayer)));
+      return await Effect.runPromise(collectApiOperations(createManifestContextFromSnapshots(legacy, mono),
+      sha256(source),
+      [],
+      true,
+      undefined,
+      { path: "api-resource-trivia.json", bytes: Buffer.from("[]", "utf8") },).pipe(Effect.provide(NodeRuntimeLayer)));
     } finally {
       rmSync(monoRoot, { recursive: true, force: true });
       rmSync(legacyRoot, { recursive: true, force: true });
@@ -1094,16 +1077,14 @@ test("runtime defaults resolve omitted API metadata while explicit conflicts rem
     execFileSync("git", ["-C", monoRoot, "add", "."]);
     execFileSync("git", ["-C", monoRoot, "commit", "-qm", "metadata-mismatch"]);
     execFileSync("git", ["-C", legacyRoot, "commit", "--allow-empty", "-qm", "empty-legacy"]);
-    const mono = await Effect.runPromise(scanRootEffect(monoRoot, "mono"));
-    const legacy = await Effect.runPromise(scanRootEffect(legacyRoot, "legacy"));
-    const api = collectApiOperations(
-      createManifestContextFromSnapshots(legacy, mono),
-      sha256("metadata-mismatch"),
-      [],
-      true,
-      undefined,
-      { path: "apps/server/var/parity/api-operations.json", bytes: readFileSync(join(monoRoot, "apps/server/var/parity/api-operations.json")) },
-    );
+    const mono = await Effect.runPromise(scanRootEffect(monoRoot, "mono").pipe(Effect.provide(NodeRuntimeLayer)));
+    const legacy = await Effect.runPromise(scanRootEffect(legacyRoot, "legacy").pipe(Effect.provide(NodeRuntimeLayer)));
+    const api = await Effect.runPromise(collectApiOperations(createManifestContextFromSnapshots(legacy, mono),
+    sha256("metadata-mismatch"),
+    [],
+    true,
+    undefined,
+    { path: "apps/server/var/parity/api-operations.json", bytes: readFileSync(join(monoRoot, "apps/server/var/parity/api-operations.json")) },).pipe(Effect.provide(NodeRuntimeLayer)));
     const changedRows = api.rows.filter(
       (row) =>
         row.status === "changed" &&
@@ -1156,16 +1137,14 @@ test("OpenAPI prototype-named component changes stale the zero-operation reconci
     execFileSync("git", ["-C", monoRoot, "add", "."]);
     execFileSync("git", ["-C", monoRoot, "commit", "-qm", "openapi-alias"]);
     execFileSync("git", ["-C", legacyRoot, "commit", "--allow-empty", "-qm", "empty-legacy"]);
-    const mono = await Effect.runPromise(scanRootEffect(monoRoot, "mono"));
-    const legacy = await Effect.runPromise(scanRootEffect(legacyRoot, "legacy"));
-    const api = collectApiOperations(
-      createManifestContextFromSnapshots(legacy, mono),
-      sha256("openapi-alias"),
-      [],
-      true,
-      undefined,
-      { path: "apps/server/var/parity/api-operations.json", bytes: readFileSync(join(monoRoot, "apps/server/var/parity/api-operations.json")) },
-    );
+    const mono = await Effect.runPromise(scanRootEffect(monoRoot, "mono").pipe(Effect.provide(NodeRuntimeLayer)));
+    const legacy = await Effect.runPromise(scanRootEffect(legacyRoot, "legacy").pipe(Effect.provide(NodeRuntimeLayer)));
+    const api = await Effect.runPromise(collectApiOperations(createManifestContextFromSnapshots(legacy, mono),
+    sha256("openapi-alias"),
+    [],
+    true,
+    undefined,
+    { path: "apps/server/var/parity/api-operations.json", bytes: readFileSync(join(monoRoot, "apps/server/var/parity/api-operations.json")) },).pipe(Effect.provide(NodeRuntimeLayer)));
     expect(api.reconciliation.status).toBe("stale");
     expect(api.reconciliation.committed_document_sha256).not.toBe(
       api.reconciliation.regenerated_document_sha256,
@@ -1194,7 +1173,7 @@ const cliReport = (
       "bun",
       [
         "run",
-        "src/main.ts",
+        "cli.ts",
         "--root",
         root,
         "--legacy-root",
@@ -1312,14 +1291,12 @@ test("fixture injection ignores poisoned authority-root paths", async () => {
   const poisonRoot = join(directory, "authority-file");
   writeFileSync(poisonRoot, "sk_live_51Ab9xY7qP4wR8tU2nM6kL9zC3\n", "utf8");
   try {
-    const result = await Effect.runPromise(
-      run({
-        root: poisonRoot,
-        legacyRoot: poisonRoot,
-        mode: "fixture_injection",
-        falsifierId: "F0_deterministic_replay",
-      }),
-    );
+    const result = await Effect.runPromise(run({
+      root: poisonRoot,
+      legacyRoot: poisonRoot,
+      mode: "fixture_injection",
+      falsifierId: "F0_deterministic_replay",
+    }).pipe(Effect.provide(NodeRuntimeLayer)));
     expect(result.exitCode).toBe(13);
     expect(result.report.status).toBe("falsifier_passed");
   } finally {
@@ -1375,7 +1352,7 @@ describe("C0 source traversal safety", () => {
       putFixture(root, path, "fixture-bytes\n");
       execFileSync("git", ["-C", root, "add", "."]);
       execFileSync("git", ["-C", root, "commit", "-qm", "fixture"]);
-      const snapshot = await Effect.runPromise(scanRootEffect(root, "mono"));
+      const snapshot = await Effect.runPromise(scanRootEffect(root, "mono").pipe(Effect.provide(NodeRuntimeLayer)));
       const nonAscii = snapshot.files.find((file) => file.path === path);
       expect(new TextDecoder().decode(nonAscii?.bytes ?? new Uint8Array())).toContain(
         "fixture-bytes",
@@ -1392,7 +1369,7 @@ describe("C0 source traversal safety", () => {
       putFixture(root, piiPath, "<?php\nfinal class User {}\n");
       execFileSync("git", ["-C", root, "add", "."]);
       execFileSync("git", ["-C", root, "commit", "-qm", "fixture"]);
-      await expect(Effect.runPromise(scanRootEffect(root, "mono"))).rejects.toMatchObject({
+      await expect(Effect.runPromise(scanRootEffect(root, "mono").pipe(Effect.provide(NodeRuntimeLayer)))).rejects.toMatchObject({
         operation: "scan_root",
         message: expect.stringContaining("unsafe source metadata"),
       });
@@ -1413,7 +1390,7 @@ describe("C0 source traversal safety", () => {
         execFileSync("git", ["-C", root, "add", "."]);
         execFileSync("git", ["-C", root, "commit", "-qm", "fixture"]);
         try {
-          await Effect.runPromise(scanRootEffect(root, "mono"));
+          await Effect.runPromise(scanRootEffect(root, "mono").pipe(Effect.provide(NodeRuntimeLayer)));
         } catch (error) {
           failures.push({
             operation: (error as { operation?: string }).operation ?? "",
@@ -1441,7 +1418,7 @@ describe("C0 source traversal safety", () => {
       putFixture(root, path, "<?php\n$token = 'fixture';\n");
       execFileSync("git", ["-C", root, "add", "."]);
       execFileSync("git", ["-C", root, "commit", "-qm", "fixture"]);
-      const snapshot = await Effect.runPromise(scanRootEffect(root, "legacy"));
+      const snapshot = await Effect.runPromise(scanRootEffect(root, "legacy").pipe(Effect.provide(NodeRuntimeLayer)));
       const file = snapshot.files.find((entry) => entry.path === path);
       expect(file?.unsafe).toBe(false);
       expect(file?.digest).toMatch(/^sha256:/);
@@ -1457,7 +1434,7 @@ describe("C0 source traversal safety", () => {
       putFixture(root, "app/config/routing.yml", "home:\\n  path: /home\\n");
       execFileSync("git", ["-C", root, "add", ".gitignore"]);
       execFileSync("git", ["-C", root, "commit", "-qm", "fixture"]);
-      await expect(Effect.runPromise(scanRootEffect(root, "legacy"))).rejects.toMatchObject({
+      await expect(Effect.runPromise(scanRootEffect(root, "legacy").pipe(Effect.provide(NodeRuntimeLayer)))).rejects.toMatchObject({
         operation: "scan_root",
       });
     } finally {
@@ -1470,7 +1447,7 @@ describe("C0 source traversal safety", () => {
     try {
       const path = "var/logs/.gitkeep";
       putFixture(root, path, "\xff\xfe");
-      const snapshot = await Effect.runPromise(scanRootEffect(root, "legacy"));
+      const snapshot = await Effect.runPromise(scanRootEffect(root, "legacy").pipe(Effect.provide(NodeRuntimeLayer)));
       const file = snapshot.files.find((entry) => entry.path === path);
       expect(file?.bytes).toBeNull();
       expect(file?.byteLength).toBeNull();
@@ -1561,7 +1538,7 @@ describe("source safety boundary", () => {
         }
         execFileSync("git", ["-C", root, "add", "."]);
         execFileSync("git", ["-C", root, "commit", "-qm", "ignored-logs"]);
-        const snapshot = await Effect.runPromise(scanRootEffect(root, "legacy"));
+        const snapshot = await Effect.runPromise(scanRootEffect(root, "legacy").pipe(Effect.provide(NodeRuntimeLayer)));
         const context = createManifestContextFromSnapshots(snapshot, snapshot);
         for (const path of paths) {
           const file = snapshot.files.find((entry) => entry.path === path);
@@ -1604,28 +1581,24 @@ describe("source safety boundary", () => {
         putFixture(root, path, payload);
         execFileSync("git", ["-C", root, "add", "."]);
         execFileSync("git", ["-C", root, "commit", "-qm", "fixture-runtime"]);
-        const snapshot = await Effect.runPromise(scanRootEffect(root, "mono"));
+        const snapshot = await Effect.runPromise(scanRootEffect(root, "mono").pipe(Effect.provide(NodeRuntimeLayer)));
         const baselineContext = createManifestContextFromSnapshots(snapshot, snapshot);
         const baselineBytes = new TextEncoder().encode(payload.replace("fixture_get", "fixture_other"));
-        collectApiOperations(
-          baselineContext,
-          sha256("fixture-boundary-baseline"),
-          [],
-          true,
-          undefined,
-          { path, bytes: baselineBytes },
-        );
+        await Effect.runPromise(collectApiOperations(baselineContext,
+        sha256("fixture-boundary-baseline"),
+        [],
+        true,
+        undefined,
+        { path, bytes: baselineBytes },).pipe(Effect.provide(NodeRuntimeLayer)));
         const baseline = finalizeManifest(baselineContext);
         const context = createManifestContextFromSnapshots(snapshot, snapshot);
         const bytes = readFileSync(join(root, path));
-        collectApiOperations(
-          context,
-          sha256("fixture-boundary"),
-          [],
-          true,
-          undefined,
-          { path, bytes },
-        );
+        await Effect.runPromise(collectApiOperations(context,
+        sha256("fixture-boundary"),
+        [],
+        true,
+        undefined,
+        { path, bytes },).pipe(Effect.provide(NodeRuntimeLayer)));
         const manifest = finalizeManifest(context);
         const census = manifest.root_census.find((entry) => entry.path === path);
         expect(snapshot.files.find((entry) => entry.path === path)).toMatchObject({
@@ -1796,7 +1769,7 @@ describe("source safety boundary", () => {
           putFixture(root, path, contents);
           execFileSync("git", ["-C", root, "add", "."]);
           execFileSync("git", ["-C", root, "commit", "-qm", "unsafe-source"]);
-          await expect(Effect.runPromise(scanRootEffect(root, "mono"))).rejects.toMatchObject({
+          await expect(Effect.runPromise(scanRootEffect(root, "mono").pipe(Effect.provide(NodeRuntimeLayer)))).rejects.toMatchObject({
             operation: "scan_root",
             message: "unsafe source content encountered before manifest construction",
           });
@@ -1814,7 +1787,7 @@ describe("source safety boundary", () => {
         writeFileSync(path, Buffer.from([0x41, 0xff, 0xfe]));
         execFileSync("git", ["-C", root, "add", "."]);
         execFileSync("git", ["-C", root, "commit", "-qm", "invalid-utf8"]);
-        await expect(Effect.runPromise(scanRootEffect(root, "mono"))).rejects.toMatchObject({
+        await expect(Effect.runPromise(scanRootEffect(root, "mono").pipe(Effect.provide(NodeRuntimeLayer)))).rejects.toMatchObject({
           operation: "scan_root",
           message: "invalid UTF-8 source content encountered before manifest construction",
         });
@@ -1833,7 +1806,7 @@ describe("source safety boundary", () => {
         );
         execFileSync("git", ["-C", root, "add", "."]);
         execFileSync("git", ["-C", root, "commit", "-qm", "projection"]);
-        const snapshot = await Effect.runPromise(scanRootEffect(root, "mono"));
+        const snapshot = await Effect.runPromise(scanRootEffect(root, "mono").pipe(Effect.provide(NodeRuntimeLayer)));
         expect(
           snapshot.files.some((entry) => entry.path.startsWith("evidence/functional-parity/")),
         ).toBe(false);
@@ -1866,7 +1839,7 @@ describe("source safety boundary", () => {
       putFixture(root, hashedAsset, "fixture-bytes\n");
       execFileSync("git", ["-C", root, "add", "."]);
       execFileSync("git", ["-C", root, "commit", "-qm", "fixture"]);
-      const snapshot = await Effect.runPromise(scanRootEffect(root, "mono"));
+      const snapshot = await Effect.runPromise(scanRootEffect(root, "mono").pipe(Effect.provide(NodeRuntimeLayer)));
       const asset = snapshot.files.find((file) => file.path === hashedAsset);
       expect(asset?.unsafe).toBe(false);
       expect(unsafeSourceScalarReason(hashedAsset, "path")).toBeNull();

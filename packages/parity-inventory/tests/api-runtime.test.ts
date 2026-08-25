@@ -1,6 +1,7 @@
 import { Effect } from "effect"
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
+import { NodeRuntimeLayer } from "../node-runtime.js"
 import { canonicalApiPlatformPath, canonicalApiPlatformRouteName, collectApiOperations } from "../src/api.js"
 import { collectRoutes } from "../src/routes.js"
 import { canonicalRouteKey, sha256 } from "../src/canonical.js"
@@ -67,46 +68,44 @@ test("API Platform prefix reconciliation covers declared routes and retains gene
     "<?php\nnamespace App\\Fixture\\Api\\Resource;\nuse ApiPlatform\\Metadata\\ApiResource;\nuse ApiPlatform\\Metadata\\Get;\n#[ApiResource(operations: [new Get(uriTemplate: '/things')])]\nfinal class Thing {}\n",
   )
   try {
-    const legacy = await Effect.runPromise(scanRootEffect(legacyRoot, "legacy"))
-    const mono = await Effect.runPromise(scanRootEffect(monoRoot, "mono"))
+    const legacy = await Effect.runPromise(scanRootEffect(legacyRoot, "legacy").pipe(Effect.provide(NodeRuntimeLayer)))
+    const mono = await Effect.runPromise(scanRootEffect(monoRoot, "mono").pipe(Effect.provide(NodeRuntimeLayer)))
     const context = createManifestContextFromSnapshots(legacy, mono)
-    const routeCollection = collectRoutes(context, sha256("api-prefix-routes"), undefined, true)
+    const routeCollection = await Effect.runPromise(collectRoutes(context, sha256("api-prefix-routes"), undefined, true).pipe(Effect.provide(NodeRuntimeLayer)))
     const routeRows = routeCollection.mono.rows as InventoryRow[]
     routeRows.push(
       runtimeRoute("row-declared-route", "_api_/things_get", "/api/things", "GET"),
       runtimeRoute("row-declared-head", "_api_/things_get", "/api/things", "HEAD"),
       runtimeRoute("row-generated-route", "_api_/things/{id}{._format}_get", "/api/things/{id}.{_format}", "GET"),
     )
-    const result = collectApiOperations(
-      context,
-      sha256("api-prefix-test"),
-      routeRows,
-      true,
-      undefined,
-      {
-        path: "fixture-api-prefix",
-        bytes: new TextEncoder().encode(
-          JSON.stringify([
-            {
-              resource_class_ref: "App\\Fixture\\Api\\Resource\\Thing",
-              resource_key: "Thing",
-              operation_name: "Get",
-              method: "GET",
-              uri_template: "/api/things",
-              operation_id: "_api_/things_get",
-            },
-            {
-              resource_class_ref: "App\\Fixture\\Api\\Resource\\Thing",
-              resource_key: "Thing",
-              operation_name: "NotExposed",
-              method: "GET",
-              uri_template: "/api/things/{id}{._format}",
-              operation_id: "_api_/things/{id}{._format}_get",
-            },
-          ]),
-        ),
-      },
-    )
+    const result = await Effect.runPromise(collectApiOperations(context,
+    sha256("api-prefix-test"),
+    routeRows,
+    true,
+    undefined,
+    {
+      path: "fixture-api-prefix",
+      bytes: new TextEncoder().encode(
+        JSON.stringify([
+          {
+            resource_class_ref: "App\\Fixture\\Api\\Resource\\Thing",
+            resource_key: "Thing",
+            operation_name: "Get",
+            method: "GET",
+            uri_template: "/api/things",
+            operation_id: "_api_/things_get",
+          },
+          {
+            resource_class_ref: "App\\Fixture\\Api\\Resource\\Thing",
+            resource_key: "Thing",
+            operation_name: "NotExposed",
+            method: "GET",
+            uri_template: "/api/things/{id}{._format}",
+            operation_id: "_api_/things/{id}{._format}_get",
+          },
+        ]),
+      ),
+    },).pipe(Effect.provide(NodeRuntimeLayer)))
     const declared = result.h3RouteRows.find((row) => row.row_id === "row-declared-route")
     const generated = result.h3RouteRows.find((row) => row.row_id === "row-generated-route")
     expect(declared).toBeUndefined()
@@ -144,57 +143,55 @@ test("omitted StaticContent Get pairs with the default item operation and route 
     "<?php\nnamespace App\\Content\\Api\\State;\nfinal class StaticContentByHtmlIdProvider {}\n",
   )
   try {
-    const legacy = await Effect.runPromise(scanRootEffect(legacyRoot, "legacy"))
-    const mono = await Effect.runPromise(scanRootEffect(monoRoot, "mono"))
+    const legacy = await Effect.runPromise(scanRootEffect(legacyRoot, "legacy").pipe(Effect.provide(NodeRuntimeLayer)))
+    const mono = await Effect.runPromise(scanRootEffect(monoRoot, "mono").pipe(Effect.provide(NodeRuntimeLayer)))
     const context = createManifestContextFromSnapshots(legacy, mono)
     const routeRows = [
       runtimeRoute("row-static-content-default-route", "_api_/static_contents/{id}{._format}_get", "/api/static_contents/{id}.{_format}", "GET"),
       runtimeRoute("row-static-content-custom-route", "_api_/static-content/by-html-id/{htmlId}_get", "/api/static-content/by-html-id/{htmlId}", "GET"),
     ]
-    const result = collectApiOperations(
-      context,
-      sha256("static-content-default-get"),
-      routeRows,
-      true,
-      undefined,
-      {
-        path: "fixture-static-content",
-        bytes: new TextEncoder().encode(
-          JSON.stringify([
-            {
-              resource_class_ref: "App\\Content\\Infrastructure\\Entity\\StaticContent",
-              resource_key: "StaticContent",
-              operation_name: "Get",
-              method: "GET",
-              uri_template: "/static-content/by-html-id/{htmlId}",
-              operation_id: "_api_/static-content/by-html-id/{htmlId}_get",
-              provider_ref: "App\\Content\\Api\\State\\StaticContentByHtmlIdProvider",
-              processor_ref: "ApiPlatform\\Doctrine\\Orm\\State\\PersistProcessor",
-            },
-            {
-              resource_class_ref: "App\\Content\\Infrastructure\\Entity\\StaticContent",
-              resource_key: "StaticContent",
-              operation_name: "Get",
-              method: "GET",
-              uri_template: "/api/static_contents/{id}{._format}",
-              operation_id: "_api_/static_contents/{id}{._format}_get",
-              provider_ref: "ApiPlatform\\Doctrine\\Orm\\State\\ItemProvider",
-              processor_ref: "ApiPlatform\\Doctrine\\Orm\\State\\PersistProcessor",
-            },
-            {
-              resource_class_ref: "App\\Content\\Infrastructure\\Entity\\StaticContent",
-              resource_key: "StaticContent",
-              operation_name: "GetCollection",
-              method: "GET",
-              uri_template: "/api/static_contents{._format}",
-              operation_id: "_api_/static_contents{._format}_get_collection",
-              provider_ref: "ApiPlatform\\Doctrine\\Orm\\State\\CollectionProvider",
-              processor_ref: "ApiPlatform\\Doctrine\\Orm\\State\\PersistProcessor",
-            },
-          ]),
-        ),
-      },
-    )
+    const result = await Effect.runPromise(collectApiOperations(context,
+    sha256("static-content-default-get"),
+    routeRows,
+    true,
+    undefined,
+    {
+      path: "fixture-static-content",
+      bytes: new TextEncoder().encode(
+        JSON.stringify([
+          {
+            resource_class_ref: "App\\Content\\Infrastructure\\Entity\\StaticContent",
+            resource_key: "StaticContent",
+            operation_name: "Get",
+            method: "GET",
+            uri_template: "/static-content/by-html-id/{htmlId}",
+            operation_id: "_api_/static-content/by-html-id/{htmlId}_get",
+            provider_ref: "App\\Content\\Api\\State\\StaticContentByHtmlIdProvider",
+            processor_ref: "ApiPlatform\\Doctrine\\Orm\\State\\PersistProcessor",
+          },
+          {
+            resource_class_ref: "App\\Content\\Infrastructure\\Entity\\StaticContent",
+            resource_key: "StaticContent",
+            operation_name: "Get",
+            method: "GET",
+            uri_template: "/api/static_contents/{id}{._format}",
+            operation_id: "_api_/static_contents/{id}{._format}_get",
+            provider_ref: "ApiPlatform\\Doctrine\\Orm\\State\\ItemProvider",
+            processor_ref: "ApiPlatform\\Doctrine\\Orm\\State\\PersistProcessor",
+          },
+          {
+            resource_class_ref: "App\\Content\\Infrastructure\\Entity\\StaticContent",
+            resource_key: "StaticContent",
+            operation_name: "GetCollection",
+            method: "GET",
+            uri_template: "/api/static_contents{._format}",
+            operation_id: "_api_/static_contents{._format}_get_collection",
+            provider_ref: "ApiPlatform\\Doctrine\\Orm\\State\\CollectionProvider",
+            processor_ref: "ApiPlatform\\Doctrine\\Orm\\State\\PersistProcessor",
+          },
+        ]),
+      ),
+    },).pipe(Effect.provide(NodeRuntimeLayer)))
     const staticRows = result.rows.filter(
       (row) =>
         row.observation_kinds.includes("static_source") &&

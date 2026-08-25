@@ -1,4 +1,3 @@
-import { nodeRuntime } from "../node-runtime.js";
 import { join } from "node:path";
 import { Effect } from "effect";
 import { validateAcceptedIntentAuthoringShape } from "./accepted-intent-schema.js";
@@ -6,6 +5,7 @@ import { canonicalJson, compareByteOrder, sha256, sortUnique } from "./canonical
 import { tryDecodeAcceptedIntentRegister } from "./coverage.js";
 import { assertSafeAcceptedIntentBytes } from "./coverage.js";
 import { validateInventory, validateSourceManifest } from "./schema.js";
+import { ParityFileSystem, type ParityFileSystemShape } from "./services.js";
 import type { InventoryEnvelope, InventoryKind, SourceManifest } from "./types.js";
 
 const INVENTORY_FILES = [
@@ -42,29 +42,41 @@ const parseJson = (bytes: Uint8Array, label: string): unknown => {
   }
 };
 
-const readBytes = (path: string): Effect.Effect<Uint8Array, Error> =>
+const readBytes = (
+  fileSystem: ParityFileSystemShape,
+  path: string,
+): Effect.Effect<Uint8Array, Error> =>
   Effect.tryPromise({
-    try: () => nodeRuntime.readFile(path),
+    try: () => fileSystem.readBytesPromise(path),
     catch: (cause) => new Error(`cannot read ${path}`, { cause }),
   });
 
 const sourceManifestDigest = (manifest: SourceManifest): string => sha256(canonicalJson(manifest));
 
-const loadInputs = (options: AuthorAcceptedIntentOptions) =>
+const loadInputs = (
+  fileSystem: ParityFileSystemShape,
+  options: AuthorAcceptedIntentOptions,
+) =>
   Effect.gen(function* () {
-    const inputBytes = yield* readBytes(options.inputPath);
+    const inputBytes = yield* readBytes(fileSystem, options.inputPath);
     assertSafeAcceptedIntentBytes(inputBytes, false);
     const input = parseJson(inputBytes, "accepted intent authoring input");
     if (!validateAcceptedIntentAuthoringShape(input))
       throw new Error("accepted intent authoring input is schema-invalid");
 
-    const manifest = parseJson(yield* readBytes(options.sourceManifestPath), "source manifest");
+    const manifest = parseJson(
+      yield* readBytes(fileSystem, options.sourceManifestPath),
+      "source manifest",
+    );
     if (!validateSourceManifest(manifest)) throw new Error("source manifest is schema-invalid");
     const manifestSha256 = sourceManifestDigest(manifest);
 
     const inventories: InventoryEnvelope[] = [];
     for (const file of INVENTORY_FILES) {
-      const inventory = parseJson(yield* readBytes(join(options.inventoryDirectory, file)), file);
+      const inventory = parseJson(
+        yield* readBytes(fileSystem, join(options.inventoryDirectory, file)),
+        file,
+      );
       if (!validateInventory(inventory)) throw new Error(`${file} is schema-invalid`);
       if (inventory.source_manifest_sha256 !== manifestSha256)
         throw new Error(`${file} does not derive from the supplied source manifest`);
@@ -77,9 +89,10 @@ const sortStrings = (values: readonly string[]): string[] => [...values].sort(co
 
 export const authorAcceptedIntentRegister = (
   options: AuthorAcceptedIntentOptions,
-): Effect.Effect<AcceptedIntentAuthorReceipt, Error> =>
+): Effect.Effect<AcceptedIntentAuthorReceipt, Error, ParityFileSystem> =>
   Effect.gen(function* () {
-    const { input, manifest, inventories } = yield* loadInputs(options);
+    const fileSystem = yield* ParityFileSystem;
+    const { input, manifest, inventories } = yield* loadInputs(fileSystem, options);
     const expectedRevisionRefIds = sortStrings(
       manifest.revisions
         .filter(
@@ -188,7 +201,7 @@ export const authorAcceptedIntentRegister = (
       );
     const outputBytes = new TextEncoder().encode(canonicalJson(decoded.register));
     yield* Effect.tryPromise({
-      try: () => nodeRuntime.writeFile(options.outputPath, outputBytes),
+      try: () => fileSystem.writeBytesPromise(options.outputPath, outputBytes),
       catch: (cause) => new Error(`cannot write ${options.outputPath}`, { cause }),
     });
     return {
@@ -218,16 +231,3 @@ export const parseIntentAuthorArgs = (args: readonly string[]): AuthorAcceptedIn
   inventoryDirectory: argValue(args, "--inventory-directory"),
   outputPath: argValue(args, "--output"),
 });
-if (import.meta.main) {
-  nodeRuntime
-    .runPromise(
-      authorAcceptedIntentRegister(parseIntentAuthorArgs(nodeRuntime.process.argv.slice(2))),
-    )
-    .then((receipt) => nodeRuntime.process.stdout.write(canonicalJson(receipt)))
-    .catch((cause: unknown) => {
-      nodeRuntime.process.stderr.write(
-        `${cause instanceof Error ? cause.message : String(cause)}\n`,
-      );
-      nodeRuntime.process.setExitCode(1);
-    });
-}

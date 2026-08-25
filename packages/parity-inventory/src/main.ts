@@ -1,8 +1,13 @@
 import { Effect } from "effect";
-import { nodeRuntime } from "../node-runtime.js";
 import { canonicalJson, failureId } from "./canonical.js";
 import { FALSIFIERS, run, type FalsifierId, type RunMode } from "./runner.js";
 import { ParityRuntimeError } from "./runtime.js";
+import {
+  ParityCommandExecutor,
+  ParityExecutionEnvironment,
+  ParityFileSystem,
+  ParityTerminal,
+} from "./services.js";
 import type { CollectorExecutables, ZeroGapReport } from "./types.js";
 
 const USAGE = [
@@ -240,54 +245,55 @@ const runtimeErrorReport = (error: ParityRuntimeError): ZeroGapReport => {
     },
   };
 };
-const writeStdout = (text: string): void => {
-  nodeRuntime.process.stdout.write(text);
-};
-const writeStderr = (text: string): void => {
-  nodeRuntime.process.stderr.write(text);
-};
 
 export const main = (
-  args: readonly string[] = nodeRuntime.process.argv.slice(2),
-): Effect.Effect<number> => {
-  const program = Effect.gen(function* () {
-    const parsed = yield* Effect.try({
-      try: () => parseArgs(args),
-      catch: (error) => (error instanceof Error ? error : new Error("command error")),
+  args?: readonly string[],
+): Effect.Effect<
+  number,
+  never,
+  ParityCommandExecutor | ParityExecutionEnvironment | ParityFileSystem | ParityTerminal
+> =>
+  Effect.gen(function* () {
+    const environment = yield* ParityExecutionEnvironment;
+    const terminal = yield* ParityTerminal;
+    const programArgs = args ?? environment.arguments.slice(2);
+    const program = Effect.gen(function* () {
+      const parsed = yield* Effect.try({
+        try: () => parseArgs(programArgs),
+        catch: (error) => (error instanceof Error ? error : new Error("command error")),
+      });
+      if (parsed.help) {
+        yield* Effect.sync(() => terminal.writeStandardOutput(`${USAGE}\n`));
+        return 0;
+      }
+      const result = yield* run({
+        root: parsed.root,
+        legacyRoot: parsed.legacyRoot,
+        intentRegisterPath: parsed.intentRegisterPath,
+        evidenceRegisterPath: parsed.evidenceRegisterPath,
+        mode: parsed.mode,
+        falsifierId: parsed.falsifierId,
+        collectorExecutables: parsed.collectorExecutables,
+      });
+      yield* Effect.sync(() =>
+        terminal.writeStandardOutput(`${canonicalJson(result.report)}\n`),
+      );
+      return result.exitCode;
     });
-    if (parsed.help) {
-      yield* Effect.sync(() => writeStdout(`${USAGE}\n`));
-      return 0;
-    }
-    const result = yield* run({
-      root: parsed.root,
-      legacyRoot: parsed.legacyRoot,
-      intentRegisterPath: parsed.intentRegisterPath,
-      evidenceRegisterPath: parsed.evidenceRegisterPath,
-      mode: parsed.mode,
-      falsifierId: parsed.falsifierId,
-      collectorExecutables: parsed.collectorExecutables,
-    });
-    yield* Effect.sync(() => writeStdout(`${canonicalJson(result.report)}\n`));
-    return result.exitCode;
+    return yield* program.pipe(
+      Effect.catchIf(
+        (_error): _error is Error => true,
+        (error) =>
+          Effect.sync(() => {
+            const report =
+              error instanceof ParityRuntimeError
+                ? runtimeErrorReport(error)
+                : commandErrorReport(error instanceof Error ? error.message : "command error");
+            if (!(error instanceof ParityRuntimeError))
+              terminal.writeStandardError(`${USAGE}\n`);
+            terminal.writeStandardOutput(`${canonicalJson(report)}\n`);
+            return report.exit_code;
+          }),
+      ),
+    );
   });
-  return program.pipe(
-    Effect.catchIf(
-      (_error): _error is Error => true,
-      (error) =>
-        Effect.sync(() => {
-          const report =
-            error instanceof ParityRuntimeError
-              ? runtimeErrorReport(error)
-              : commandErrorReport(error instanceof Error ? error.message : "command error");
-          if (!(error instanceof ParityRuntimeError)) writeStderr(`${USAGE}\n`);
-          writeStdout(`${canonicalJson(report)}\n`);
-          return report.exit_code;
-        }),
-    ),
-  );
-};
-if (import.meta.main) {
-  const exitCode = await nodeRuntime.runPromise(main());
-  nodeRuntime.process.setExitCode(exitCode);
-}

@@ -2,6 +2,7 @@ import { Effect } from "effect"
 import { execFileSync } from "node:child_process"
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { dirname, join } from "node:path"
+import { NodeRuntimeLayer } from "../node-runtime.js"
 import { applyAcceptedAbsent, collectC2 } from "../src/effects.js"
 import { collectRoutes } from "../src/routes.js"
 import { acceptedIntentRevisionRefId } from "../src/coverage.js"
@@ -23,13 +24,13 @@ const put = (root: string, path: string, contents: string): void => {
 }
 
 const contextFor = async (legacyRoot: string, monoRoot: string) => {
-  const legacy = await Effect.runPromise(scanRootEffect(legacyRoot, "legacy"))
-  const mono = await Effect.runPromise(scanRootEffect(monoRoot, "mono"))
+  const legacy = await Effect.runPromise(scanRootEffect(legacyRoot, "legacy").pipe(Effect.provide(NodeRuntimeLayer)))
+  const mono = await Effect.runPromise(scanRootEffect(monoRoot, "mono").pipe(Effect.provide(NodeRuntimeLayer)))
   return createManifestContextFromSnapshots(legacy, mono)
 }
 const runWithIntentAuthority = async (root: string, legacyRoot: string, mode: "diff" | "write") => {
-  const legacy = await Effect.runPromise(scanRootEffect(legacyRoot, "legacy"))
-  const mono = await Effect.runPromise(scanRootEffect(root, "mono"))
+  const legacy = await Effect.runPromise(scanRootEffect(legacyRoot, "legacy").pipe(Effect.provide(NodeRuntimeLayer)))
+  const mono = await Effect.runPromise(scanRootEffect(root, "mono").pipe(Effect.provide(NodeRuntimeLayer)))
   const context = createManifestContextFromSnapshots(legacy, mono)
   const selectedRevisionRefIds = [legacy.revisionRefId, acceptedIntentRevisionRefId(context)].sort()
   const intentPayload = {
@@ -89,7 +90,7 @@ const runWithIntentAuthority = async (root: string, legacyRoot: string, mode: "d
   execFileSync("git", ["-C", evidenceAuthority, "add", "--", "runtime-evidence.json"])
   execFileSync("git", ["-C", evidenceAuthority, "commit", "-qm", "runtime-evidence-authority"])
   try {
-    return await Effect.runPromise(run({ root, legacyRoot, intentRegisterPath: path, evidenceRegisterPath: evidencePath, mode }))
+    return await Effect.runPromise(run({ root, legacyRoot, intentRegisterPath: path, evidenceRegisterPath: evidencePath, mode }).pipe(Effect.provide(NodeRuntimeLayer)))
   } finally {
     rmSync(authority, { recursive: true, force: true })
     rmSync(evidenceAuthority, { recursive: true, force: true })
@@ -97,7 +98,7 @@ const runWithIntentAuthority = async (root: string, legacyRoot: string, mode: "d
 }
 
 test("terminal pipeline reaches write14 then fresh post-commit diff0 with stable bytes", async () => {
-  const cycle = await Effect.runPromise(runTrustedFixtureTerminalCycle())
+  const cycle = await Effect.runPromise(runTrustedFixtureTerminalCycle().pipe(Effect.provide(NodeRuntimeLayer)))
   expect(cycle.writeReport).toMatchObject({
     status: "projection_written",
     exit_code: 14,
@@ -151,7 +152,7 @@ test("accepted dispositions remove their collected failures from the report", ()
 
 
 test("F13 retains an unknown effect with causal row and source attribution", async () => {
-  const result = await Effect.runPromise(run({ root: ".", legacyRoot: ".", mode: "fixture_injection", falsifierId: "F13_unknown_effect" }))
+  const result = await Effect.runPromise(run({ root: ".", legacyRoot: ".", mode: "fixture_injection", falsifierId: "F13_unknown_effect" }).pipe(Effect.provide(NodeRuntimeLayer)))
   expect(result.exitCode).toBe(13)
   expect(result.report.status).toBe("falsifier_passed")
   expect(result.report.failures).toEqual(expect.arrayContaining([expect.objectContaining({ reason_code: "UNKNOWN_EFFECT", status: "unresolved", row_ids: expect.any(Array), source_ref_ids: expect.any(Array) })]))
@@ -164,7 +165,7 @@ test("F13 retains an unknown effect with causal row and source attribution", asy
 })
 
 test("F14 leaves absent schedules unaccounted until an accepted_absent intent is supplied", async () => {
-  const result = await Effect.runPromise(run({ root: ".", legacyRoot: ".", mode: "fixture_injection", falsifierId: "F14_absent_schedule" }))
+  const result = await Effect.runPromise(run({ root: ".", legacyRoot: ".", mode: "fixture_injection", falsifierId: "F14_absent_schedule" }).pipe(Effect.provide(NodeRuntimeLayer)))
   expect(result.exitCode).toBe(13)
   expect(result.report.status).toBe("falsifier_passed")
   const absent = result.artifacts?.scheduledBackgroundWorkflows.rows.find((row) => row.status === "absent")
@@ -204,7 +205,7 @@ final class DocblockController {}
 final class MalformedDocblockController {}
 `)
     const context = await contextFor(legacyRoot, monoRoot)
-    const routes = collectRoutes(context, sha256("route-docblock-c2"))
+    const routes = await Effect.runPromise(collectRoutes(context, sha256("route-docblock-c2")).pipe(Effect.provide(NodeRuntimeLayer)))
     const safe = routes.legacy.rows.find((row) => "route_name" in row.details && row.details.route_name === "doc_safe")
     const malformed = routes.legacy.rows.find((row) => "route_name" in row.details && row.details.route_name === "doc_malformed")
     expect(safe).toMatchObject({ details: { path_template: "/doc-safe", methods_declared: ["GET", "POST"] } })
@@ -286,7 +287,7 @@ final class MalformedController
 }
 `)
     const context = await contextFor(legacyRoot, monoRoot)
-    const routes = collectRoutes(context, sha256("route-optional-name-c2"), undefined, true)
+    const routes = await Effect.runPromise(collectRoutes(context, sha256("route-optional-name-c2"), undefined, true).pipe(Effect.provide(NodeRuntimeLayer)))
     const legacyRows = routes.legacy.rows.filter((row) => row.details.declaration_kind === "controller_annotation")
     const monoRows = routes.mono.rows.filter((row) => row.details.declaration_kind === "controller_attribute")
     const targetRows = [...legacyRows, ...monoRows].filter((row) => JSON.stringify(row.details).match(/(Party|Account|Assistant)Controller/))
@@ -655,7 +656,7 @@ test("typed fixture-injected integrations redact credentials and raw payloads", 
     legacyRoot: ".",
     mode: "fixture_injection",
     falsifierId: "F15_secret_or_pii_input",
-  }))
+  }).pipe(Effect.provide(NodeRuntimeLayer)))
   expect(result.exitCode).toBe(13)
   expect(result.report.status).toBe("falsifier_passed")
   const integrations = result.artifacts?.externalIntegrations

@@ -8,9 +8,11 @@
     "./api": "./src/api.ts",
     "./canonical": "./src/canonical.ts",
     "./effects": "./src/effects.ts",
+    "./node-runtime": "./node-runtime.ts",
     "./intent-author": "./src/intent-author.ts",
     "./runtime-evidence": "./src/runtime-evidence.ts",
     "./routes": "./src/routes.ts",
+    "./services": "./src/services.ts",
     "./schemas/*": "./schemas/*"
   },
   "scripts": {
@@ -20,6 +22,7 @@
     "test": "bun test tests"
   },
   "dependencies": {
+    "@noble/hashes": "2.3.0",
     "ajv": "8.17.1",
     "effect": "catalog:effect-v4",
     "yaml": "2.8.2"

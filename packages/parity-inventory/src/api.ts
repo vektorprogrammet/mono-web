@@ -1,20 +1,6 @@
-import { nodeRuntime } from "../node-runtime.js";
 import { dirname, isAbsolute, join } from "node:path";
+import { Effect } from "effect";
 import { parseDocument } from "yaml";
-const {
-  execFileSync,
-  existsSync,
-  lstatSync,
-  mkdirSync,
-  mkdtempSync,
-  readdirSync,
-  readFileSync,
-  realpathSync,
-  rmSync,
-  statSync,
-  tmpdir,
-  writeFileSync,
-} = nodeRuntime;
 import {
   canonicalJson,
   compareByteOrder,
@@ -45,6 +31,12 @@ import {
 } from "./source-manifest.js";
 import { inspectJsonMembers } from "./json-safety.js";
 import { skipPhpTrivia } from "./php-trivia.js";
+import {
+  ParityCommandExecutor,
+  type ParityCommandExecutorShape,
+  ParityFileSystem,
+  type ParityFileSystemShape,
+} from "./services.js";
 import type {
   ApiOperationDetails,
   CollectorExecutableProvenance,
@@ -286,7 +278,8 @@ export const collectorExecutableProvenance = (
   if (kind === "bwrap" && BWRAP_NIX_PATTERN.test(path)) return "nix-store";
   return null;
 };
-export const validateCollectorExecutablePath = (
+export const validateCollectorExecutablePathWithServices = (
+  fileSystem: ParityFileSystemShape,
   kind: CollectorExecutableKind,
   requestedPath: string,
 ): ValidatedCollectorExecutable | null => {
@@ -294,9 +287,9 @@ export const validateCollectorExecutablePath = (
   const provenance = collectorExecutableProvenance(kind, requestedPath);
   if (provenance === null) return null;
   try {
-    const link = lstatSync(requestedPath);
-    const canonicalPath = realpathSync(requestedPath);
-    const stat = statSync(requestedPath);
+    const link = fileSystem.lstat(requestedPath);
+    const canonicalPath = fileSystem.realpath(requestedPath);
+    const stat = fileSystem.stat(requestedPath);
     if (
       link.isSymbolicLink() ||
       canonicalPath !== requestedPath ||
@@ -306,11 +299,23 @@ export const validateCollectorExecutablePath = (
     )
       return null;
     if (collectorExecutableProvenance(kind, canonicalPath) !== provenance) return null;
-    return { kind, path: canonicalPath, digest: sha256(readFileSync(canonicalPath)), provenance };
+    return {
+      kind,
+      path: canonicalPath,
+      digest: sha256(fileSystem.readBytes(canonicalPath)),
+      provenance,
+    };
   } catch {
     return null;
   }
 };
+export const validateCollectorExecutablePath = (
+  kind: CollectorExecutableKind,
+  requestedPath: string,
+): Effect.Effect<ValidatedCollectorExecutable | null, never, ParityFileSystem> =>
+  ParityFileSystem.use((fileSystem) =>
+    Effect.sync(() => validateCollectorExecutablePathWithServices(fileSystem, kind, requestedPath)),
+  );
 const closedCollectorExecutables = (
   value: CollectorExecutables | undefined,
 ): value is CollectorExecutables => {
@@ -324,29 +329,45 @@ const closedCollectorExecutables = (
     typeof value.bwrapExecutable === "string"
   );
 };
-export const resolveCollectorExecutables = (
+export const resolveCollectorExecutablesWithServices = (
+  fileSystem: ParityFileSystemShape,
   configured?: CollectorExecutables,
 ): ValidatedCollectorExecutables | null => {
   const selected =
     configured ??
-    (existsSync(PHP_EXECUTABLE) && existsSync(BWRAP_EXECUTABLE)
+    (fileSystem.exists(PHP_EXECUTABLE) && fileSystem.exists(BWRAP_EXECUTABLE)
       ? { phpExecutable: PHP_EXECUTABLE, bwrapExecutable: BWRAP_EXECUTABLE }
       : undefined);
   if (!closedCollectorExecutables(selected)) return null;
-  const php = validateCollectorExecutablePath("php", selected.phpExecutable);
-  const bwrap = validateCollectorExecutablePath("bwrap", selected.bwrapExecutable);
+  const php = validateCollectorExecutablePathWithServices(
+    fileSystem,
+    "php",
+    selected.phpExecutable,
+  );
+  const bwrap = validateCollectorExecutablePathWithServices(
+    fileSystem,
+    "bwrap",
+    selected.bwrapExecutable,
+  );
   return php === null || bwrap === null ? null : { php, bwrap };
 };
+export const resolveCollectorExecutables = (
+  configured?: CollectorExecutables,
+): Effect.Effect<ValidatedCollectorExecutables | null, never, ParityFileSystem> =>
+  ParityFileSystem.use((fileSystem) =>
+    Effect.sync(() => resolveCollectorExecutablesWithServices(fileSystem, configured)),
+  );
 const collectorNeedsNixStore = (executables: CollectorExecutables): boolean =>
   collectorExecutableProvenance("php", executables.phpExecutable) === "nix-store" ||
   collectorExecutableProvenance("bwrap", executables.bwrapExecutable) === "nix-store";
-export const buildCollectorSandboxArguments = (
+export const buildCollectorSandboxArgumentsWithServices = (
+  fileSystem: ParityFileSystemShape,
   executables: CollectorExecutables,
   args: readonly string[],
   workspacePath = "/workspace",
 ): CollectorSandboxInvocation => {
   const libraryBinds = ["/lib", "/lib64", "/usr/lib"]
-    .filter((path) => existsSync(path))
+    .filter((path) => fileSystem.exists(path))
     .flatMap((path) => ["--ro-bind", path, path]);
   const nixStoreBind = collectorNeedsNixStore(executables)
     ? ["--dir", "/nix", "--ro-bind", "/nix/store", "/nix/store"]
@@ -409,6 +430,16 @@ export const buildCollectorSandboxArguments = (
     ],
   };
 };
+export const buildCollectorSandboxArguments = (
+  executables: CollectorExecutables,
+  args: readonly string[],
+  workspacePath = "/workspace",
+): Effect.Effect<CollectorSandboxInvocation, never, ParityFileSystem> =>
+  ParityFileSystem.use((fileSystem) =>
+    Effect.sync(() =>
+      buildCollectorSandboxArgumentsWithServices(fileSystem, executables, args, workspacePath),
+    ),
+  );
 const PHP_EXECUTABLE = "/usr/bin/php";
 const BWRAP_EXECUTABLE = "/usr/bin/bwrap";
 
@@ -1327,22 +1358,28 @@ const collectorStagePath = (path: string): boolean =>
       path.startsWith("apps/server/src/") ||
       path.startsWith("apps/server/vendor/")));
 
-const scannedCollectorFileIsApproved = (file: ScanFile): boolean => {
+const scannedCollectorFileIsApproved = (
+  fileSystem: ParityFileSystemShape,
+  file: ScanFile,
+): boolean => {
   if (file.path !== COLLECTOR_TEST_ENV_PATH) return true;
   if (file.bytes === null || sourceTextSafetyReason(file.path, file.bytes) !== null) return false;
   try {
-    const link = lstatSync(file.absolutePath);
+    const link = fileSystem.lstat(file.absolutePath);
     return (
       !link.isSymbolicLink() &&
       link.isFile() &&
-      realpathSync(file.absolutePath) === file.absolutePath
+      fileSystem.realpath(file.absolutePath) === file.absolutePath
     );
   } catch {
     return false;
   }
 };
 
-const stageCollectorInputs = (context: ManifestContext): string | null => {
+const stageCollectorInputs = (
+  fileSystem: ParityFileSystemShape,
+  context: ManifestContext,
+): string | null => {
   const files = context.scans.mono.files.filter(
     (file) =>
       collectorStagePath(file.path) &&
@@ -1351,18 +1388,18 @@ const stageCollectorInputs = (context: ManifestContext): string | null => {
       file.availability === "available" &&
       file.bytes !== null &&
       !file.unsafe &&
-      scannedCollectorFileIsApproved(file),
+      scannedCollectorFileIsApproved(fileSystem, file),
   );
   const vendorRoot = join(context.scans.mono.rootPath, "apps/server/vendor");
   let immutableVendorRoot: string;
   try {
-    immutableVendorRoot = realpathSync(vendorRoot);
+    immutableVendorRoot = fileSystem.realpath(vendorRoot);
   } catch {
     return null;
   }
   if (
     !(immutableVendorRoot === "/nix/store" || immutableVendorRoot.startsWith("/nix/store/")) ||
-    !existsSync(join(immutableVendorRoot, "autoload.php"))
+    !fileSystem.exists(join(immutableVendorRoot, "autoload.php"))
   )
     return null;
   if (
@@ -1370,51 +1407,58 @@ const stageCollectorInputs = (context: ManifestContext): string | null => {
     !files.some((file) => file.path === COLLECTOR_TEST_ENV_PATH)
   )
     return null;
-  const stage = mkdtempSync(join(tmpdir(), "parity-api-collector-"));
+  const stage = fileSystem.makeTempDirectory(
+    join(fileSystem.temporaryDirectory(), "parity-api-collector-"),
+  );
   try {
     for (const file of files) {
       const target = join(stage, file.path);
-      mkdirSync(dirname(target), { recursive: true, mode: 0o755 });
-      writeFileSync(target, file.bytes as Uint8Array, { mode: 0o644 });
+      fileSystem.makeDirectory(dirname(target), { recursive: true, mode: 0o755 });
+      fileSystem.writeFile(target, file.bytes as Uint8Array, { mode: 0o644 });
     }
     const copyVendor = (source: string, target: string): void => {
-      for (const entry of readdirSync(source, { withFileTypes: true })) {
+      for (const entry of fileSystem.readDirectory(source)) {
         const sourceEntry = join(source, entry.name);
         const targetEntry = join(target, entry.name);
         if (entry.isSymbolicLink())
           throw new Error(`collector dependency is a symbolic link: ${sourceEntry}`);
         if (entry.isDirectory()) {
-          mkdirSync(targetEntry, { recursive: true, mode: 0o755 });
+          fileSystem.makeDirectory(targetEntry, { recursive: true, mode: 0o755 });
           copyVendor(sourceEntry, targetEntry);
         } else if (entry.isFile()) {
-          const size = statSync(sourceEntry).size;
+          const size = fileSystem.stat(sourceEntry).size;
           if (!Number.isSafeInteger(size) || size > 16 * 1024 * 1024)
             throw new Error(`collector dependency exceeds bounded read limit: ${sourceEntry}`);
-          mkdirSync(dirname(targetEntry), { recursive: true, mode: 0o755 });
-          writeFileSync(targetEntry, readFileSync(sourceEntry), { mode: 0o644 });
+          fileSystem.makeDirectory(dirname(targetEntry), { recursive: true, mode: 0o755 });
+          fileSystem.writeFile(targetEntry, fileSystem.readBytes(sourceEntry), { mode: 0o644 });
         } else {
           throw new Error(`collector dependency is not a regular file: ${sourceEntry}`);
         }
       }
     };
     const vendorTarget = join(stage, "apps/server/vendor");
-    mkdirSync(vendorTarget, { recursive: true, mode: 0o755 });
+    fileSystem.makeDirectory(vendorTarget, { recursive: true, mode: 0o755 });
     copyVendor(immutableVendorRoot, vendorTarget);
-    mkdirSync(join(stage, "apps/server/var"), { recursive: true, mode: 0o755 });
+    fileSystem.makeDirectory(join(stage, "apps/server/var"), {
+      recursive: true,
+      mode: 0o755,
+    });
     return stage;
   } catch {
-    rmSync(stage, { recursive: true, force: true });
+    fileSystem.remove(stage, { recursive: true, force: true });
     return null;
   }
 };
 
-export const runTrustedPhpCollector = (
+export const runTrustedPhpCollectorWithServices = (
+  fileSystem: ParityFileSystemShape,
+  commands: ParityCommandExecutorShape,
   context: ManifestContext,
   args: readonly string[],
   configured?: CollectorExecutables,
   safetyPolicy: CollectorSafetyPolicy = "generic",
 ): CollectorRun => {
-  const selected = resolveCollectorExecutables(configured);
+  const selected = resolveCollectorExecutablesWithServices(fileSystem, configured);
   if (selected === null)
     return unavailableCollector(
       configured === undefined
@@ -1429,7 +1473,7 @@ export const runTrustedPhpCollector = (
     php: selected.php.provenance,
     bwrap: selected.bwrap.provenance,
   };
-  const stage = stageCollectorInputs(context);
+  const stage = stageCollectorInputs(fileSystem, context);
   if (stage === null)
     return unavailableCollector(
       "COLLECTOR_INPUTS_UNAVAILABLE",
@@ -1444,8 +1488,13 @@ export const runTrustedPhpCollector = (
       phpExecutable: selected.php.path,
       bwrapExecutable: selected.bwrap.path,
     };
-    const invocation = buildCollectorSandboxArguments(executableConfig, args, stage);
-    const output = execFileSync(invocation.executable, invocation.arguments, {
+    const invocation = buildCollectorSandboxArgumentsWithServices(
+      fileSystem,
+      executableConfig,
+      args,
+      stage,
+    );
+    const output = commands.executeBytes(invocation.executable, invocation.arguments, {
       cwd: stage,
       stdio: ["ignore", "pipe", "pipe"],
       timeout: 60_000,
@@ -1524,9 +1573,27 @@ export const runTrustedPhpCollector = (
       executableProvenance,
     );
   } finally {
-    rmSync(stage, { recursive: true, force: true });
+    fileSystem.remove(stage, { recursive: true, force: true });
   }
 };
+export const runTrustedPhpCollector = (
+  context: ManifestContext,
+  args: readonly string[],
+  configured?: CollectorExecutables,
+  safetyPolicy: CollectorSafetyPolicy = "generic",
+): Effect.Effect<CollectorRun, never, ParityCommandExecutor | ParityFileSystem> =>
+  Effect.gen(function* () {
+    const fileSystem = yield* ParityFileSystem;
+    const commands = yield* ParityCommandExecutor;
+    return runTrustedPhpCollectorWithServices(
+      fileSystem,
+      commands,
+      context,
+      args,
+      configured,
+      safetyPolicy,
+    );
+  });
 
 const payloadContainsUnsafe = (value: unknown, _fieldName = "field"): boolean =>
   unsafeStructuredValueReason(value) !== null;
@@ -1560,6 +1627,8 @@ const runtimeOpenApiFromOperations = (
   };
 };
 const collectRuntime = (
+  fileSystem: ParityFileSystemShape,
+  commands: ParityCommandExecutorShape,
   context: ManifestContext,
   declarations: readonly ApiDeclaration[],
   allowFixture: boolean,
@@ -1706,7 +1775,13 @@ const collectRuntime = (
       .filter((value): value is string => value !== null),
   );
   const metadataArgs = ["-r", API_METADATA_SCRIPT, "--", JSON.stringify(resourceClasses)];
-  const metadataRun = runTrustedPhpCollector(context, metadataArgs, configured);
+  const metadataRun = runTrustedPhpCollectorWithServices(
+    fileSystem,
+    commands,
+    context,
+    metadataArgs,
+    configured,
+  );
   if (metadataRun.availability !== "available")
     return unavailable(
       "api_platform_metadata",
@@ -1763,7 +1838,14 @@ const collectRuntime = (
     executableProvenance: metadataRun.executableProvenance,
   });
   const openApiArgs = ["-r", API_OPENAPI_SCRIPT];
-  const openApiRun = runTrustedPhpCollector(context, openApiArgs, configured, "openapi");
+  const openApiRun = runTrustedPhpCollectorWithServices(
+    fileSystem,
+    commands,
+    context,
+    openApiArgs,
+    configured,
+    "openapi",
+  );
   const sourceRef = consoleRef();
   if (openApiRun.availability !== "available") {
     const reason = openApiRun.reason ?? "RUNTIME_UNAVAILABLE";
@@ -3690,7 +3772,9 @@ const makeEnvelope = (
   derivation_edges: [...edges].sort((left, right) => compareByteOrder(left.edge_id, right.edge_id)),
 });
 
-export const collectApiOperations = (
+export const collectApiOperationsWithServices = (
+  fileSystem: ParityFileSystemShape,
+  commands: ParityCommandExecutorShape,
   context: ManifestContext,
   sourceManifestSha256: string,
   routeRows: readonly InventoryRow[] = [],
@@ -3700,6 +3784,8 @@ export const collectApiOperations = (
 ): ApiCollection => {
   const parsed = parseDeclarations(context);
   const runtime = collectRuntime(
+    fileSystem,
+    commands,
     context,
     parsed.declarations,
     allowFixture,
@@ -3998,6 +4084,29 @@ export const collectApiOperations = (
     h3RouteObservations: h3.routeObservations,
   };
 };
+
+export const collectApiOperations = (
+  context: ManifestContext,
+  sourceManifestSha256: string,
+  routeRows: readonly InventoryRow[] = [],
+  allowFixture = false,
+  configured?: CollectorExecutables,
+  fixtureInput?: ApiRuntimeFixtureInput,
+): Effect.Effect<ApiCollection, never, ParityCommandExecutor | ParityFileSystem> =>
+  Effect.gen(function* () {
+    const fileSystem = yield* ParityFileSystem;
+    const commands = yield* ParityCommandExecutor;
+    return collectApiOperationsWithServices(
+      fileSystem,
+      commands,
+      context,
+      sourceManifestSha256,
+      routeRows,
+      allowFixture,
+      configured,
+      fixtureInput,
+    );
+  });
 
 export const reportFailuresFromApi = (
   failures: readonly ApiCollectionFailure[],

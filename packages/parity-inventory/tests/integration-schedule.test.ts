@@ -1,6 +1,7 @@
 import { Effect } from "effect"
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { dirname, join } from "node:path"
+import { NodeRuntimeLayer } from "../node-runtime.js"
 import { collectC2 } from "../src/effects.js"
 import { sha256 } from "../src/canonical.js"
 import { createManifestContextFromSnapshots } from "../src/source-manifest.js"
@@ -13,8 +14,8 @@ const put = (root: string, path: string, contents: string): void => {
 }
 
 const contextFor = async (legacyRoot: string, monoRoot: string) => {
-  const legacy = await Effect.runPromise(scanRootEffect(legacyRoot, "legacy"))
-  const mono = await Effect.runPromise(scanRootEffect(monoRoot, "mono"))
+  const legacy = await Effect.runPromise(scanRootEffect(legacyRoot, "legacy").pipe(Effect.provide(NodeRuntimeLayer)))
+  const mono = await Effect.runPromise(scanRootEffect(monoRoot, "mono").pipe(Effect.provide(NodeRuntimeLayer)))
   return createManifestContextFromSnapshots(legacy, mono)
 }
 

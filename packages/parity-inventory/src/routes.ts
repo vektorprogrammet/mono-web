@@ -1,3 +1,4 @@
+import { Effect } from "effect"
 import { parseDocument, type Document } from "yaml"
 import {
   canonicalJson,
@@ -14,7 +15,13 @@ import {
 } from "./canonical.js"
 import { addSourceReference, matchesLiteralPattern, readSourceText, sanitizeScalar, SOURCE_FAMILIES, unsafeScalarReason, type ManifestContext } from "./source-manifest.js"
 import { lineCommentEnd, skipPhpTrivia } from "./php-trivia.js"
-import { canonicalApiPlatformPath, canonicalApiPlatformRouteName, isApiPlatformGeneratedRouteName, routePayloadContainsUnsafe, runTrustedPhpCollector, recordRuntimeObservation, type CollectorRun } from "./api.js"
+import { canonicalApiPlatformPath, canonicalApiPlatformRouteName, isApiPlatformGeneratedRouteName, routePayloadContainsUnsafe, runTrustedPhpCollectorWithServices, recordRuntimeObservation, type CollectorRun } from "./api.js"
+import {
+  ParityCommandExecutor,
+  type ParityCommandExecutorShape,
+  ParityFileSystem,
+  type ParityFileSystemShape,
+} from "./services.js"
 import type {
   CollectorExecutables,
   InventoryEnvelope,
@@ -580,7 +587,12 @@ const runtimeRouteSourceRef = (context: ManifestContext): string => {
     : sourceForFailure(context, "mono", ROUTE_CONSOLE_PATH, "mono_route_runtime_observation", "source_unavailable", "SOURCE_UNAVAILABLE")
 }
 
-const collectRuntimeRoutes = (context: ManifestContext, configured?: CollectorExecutables): RuntimeRouteCollection => {
+const collectRuntimeRoutes = (
+  fileSystem: ParityFileSystemShape,
+  commands: ParityCommandExecutorShape,
+  context: ManifestContext,
+  configured?: CollectorExecutables,
+): RuntimeRouteCollection => {
   const revisionRefId = context.scans.mono.revisionRefId
   const sourceRefId = runtimeRouteSourceRef(context)
   const consoleFile = context.scans.mono.files.find((file) => file.path === ROUTE_CONSOLE_PATH)
@@ -604,7 +616,14 @@ const collectRuntimeRoutes = (context: ManifestContext, configured?: CollectorEx
     return { routes: [], observation, sourceRefId, failures: [{ source_ref_id: sourceRefId, reason_code: reason, status: sourceStatus }] }
   }
   if (consoleFile === undefined || consoleFile.availability !== "available") return unavailable("RUNTIME_UNAVAILABLE")
-  const run = runTrustedPhpCollector(context, ROUTE_COLLECTOR_ARGS, configured, "route")
+  const run = runTrustedPhpCollectorWithServices(
+    fileSystem,
+    commands,
+    context,
+    ROUTE_COLLECTOR_ARGS,
+    configured,
+    "route",
+  )
   if (run.availability !== "available") return unavailable(run.reason ?? "RUNTIME_UNAVAILABLE", run)
   const decoded = decodeRuntimeRouteOutput(run.stdout)
   if (decoded.routes === null) {
@@ -1327,7 +1346,9 @@ export interface CollectedRouteArtifacts {
   readonly declarations: CollectedRoutes
   readonly runtimeObservation: RuntimeObservation
 }
-export const collectRoutes = (
+export const collectRoutesWithServices = (
+  fileSystem: ParityFileSystemShape,
+  commands: ParityCommandExecutorShape,
   context: ManifestContext,
   sourceManifestSha256: string,
   configured?: CollectorExecutables,
@@ -1361,7 +1382,7 @@ export const collectRoutes = (
       runtimeObservation,
     }
   }
-  const runtime = collectRuntimeRoutes(context, configured)
+  const runtime = collectRuntimeRoutes(fileSystem, commands, context, configured)
   const monoStaticRows = makeRows(context, mono.declarations, "mono", runtime.observation)
   const reconciled = reconcileRuntimeRoutes(context.scans.mono.revisionRefId, monoStaticRows, runtime)
   applyDuplicateGroups(reconciled.rows)
@@ -1373,6 +1394,29 @@ export const collectRoutes = (
     runtimeObservation: runtime.observation,
   }
 }
+
+export const collectRoutes = (
+  context: ManifestContext,
+  sourceManifestSha256: string,
+  configured?: CollectorExecutables,
+  allowFixture = false,
+): Effect.Effect<
+  CollectedRouteArtifacts,
+  never,
+  ParityCommandExecutor | ParityFileSystem
+> =>
+  Effect.gen(function* () {
+    const fileSystem = yield* ParityFileSystem
+    const commands = yield* ParityCommandExecutor
+    return collectRoutesWithServices(
+      fileSystem,
+      commands,
+      context,
+      sourceManifestSha256,
+      configured,
+      allowFixture,
+    )
+  })
 
 export const routeRowsBySignature = (inventory: InventoryEnvelope): Map<string, InventoryRow[]> => {
   const result = new Map<string, InventoryRow[]>()
