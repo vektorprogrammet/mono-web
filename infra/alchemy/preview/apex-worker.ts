@@ -68,14 +68,12 @@ export default {
     }
 
     const surface = previewSurface(url.pathname);
-    // Dashboard pages reference their hashed client bundles at /assets/*,
-    // which previewSurface classifies as homepage. Route asset requests to
-    // the dashboard whenever the navigation context says the document came
-    // from a dashboard route; direct asset opens default to the dashboard,
-    // whose entry chunk is the only one reachable without an HTML referrer.
+    // Dashboard pages reference hashed bundles at /assets/* and the shared
+    // logo at /vektor-logo-circle.svg — paths previewSurface classifies as
+    // homepage. When the navigation context (Referer) identifies a dashboard
+    // document, serve these subresources from the dashboard worker instead.
     if (
       surface === "homepage" &&
-      url.pathname.startsWith("/assets/") &&
       isDashboardAssetRequest(request)
     ) {
       return env.Dashboard.fetch(request);
@@ -110,6 +108,9 @@ const isDashboardAssetRequest = (request: Request): boolean => {
     const refererUrl = new URL(referer);
     return previewSurface(refererUrl.pathname) === "dashboard";
   }
+  // No Referer (e.g. direct open or icon fetch): treat any non-document
+  // request as a dashboard subresource. Document navigations still fall
+  // through to the homepage surface.
   const secFetchDest = request.headers.get("sec-fetch-dest");
-  return secFetchDest !== "document";
+  return secFetchDest !== "document" && secFetchDest !== null;
 };
