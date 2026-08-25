@@ -15,12 +15,6 @@ type HomepageEnv = {
   };
 };
 
-type HomepageExecutionContext = {
-  waitUntil(promise: Promise<unknown>): void;
-  passThroughOnException(): void;
-};
-
-
 const requestHandler = createRequestHandler(
   () => import("virtual:react-router/server-build"),
   import.meta.env.MODE,
@@ -87,11 +81,7 @@ function isStaticAssetPath(pathname: string): boolean {
 }
 
 export default {
-  async fetch(
-    request: Request,
-    env: HomepageEnv,
-    ctx: HomepageExecutionContext,
-  ): Promise<Response> {
+  async fetch(request: Request, env: HomepageEnv): Promise<Response> {
     const rawHost = request.headers.get("host");
     if (!rawHost) return invalidHostResponse();
 

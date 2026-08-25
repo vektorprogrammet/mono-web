@@ -17,8 +17,12 @@ const dashboardPort = 5174;
 const serverRoot = fileURLToPath(new URL("../../server/", import.meta.url));
 const dashboardRoot = fileURLToPath(new URL("../", import.meta.url));
 const sdkRoot = fileURLToPath(new URL("../../../packages/sdk/", import.meta.url));
-const runnerSourcePath = fileURLToPath(new URL("./run-real-symfony-org-operations.mjs", import.meta.url));
-const specSourcePath = fileURLToPath(new URL("./real-symfony-org-operations.spec.ts", import.meta.url));
+const runnerSourcePath = fileURLToPath(
+  new URL("./run-real-symfony-org-operations.mjs", import.meta.url),
+);
+const specSourcePath = fileURLToPath(
+  new URL("./real-symfony-org-operations.spec.ts", import.meta.url),
+);
 const fixtureSourcePath = fileURLToPath(
   new URL("../../server/tests/Fixtures/OrgOperationsJourneyFixture.php", import.meta.url),
 );
@@ -64,7 +68,8 @@ const journeys = [
   },
 ];
 
-const sleep = (milliseconds) => new Promise((resolveSleep) => setTimeout(resolveSleep, milliseconds));
+const sleep = (milliseconds) =>
+  new Promise((resolveSleep) => setTimeout(resolveSleep, milliseconds));
 
 function assertPortAvailable(port) {
   return new Promise((resolvePort, rejectPort) => {
@@ -120,10 +125,7 @@ function runCommand(command, args, options) {
     child.once("error", (error) => settle(rejectCommand, error));
     child.once(captureOutput ? "close" : "exit", (code, signal) => {
       if (code === 0) {
-        settle(
-          resolveCommand,
-          captureOutput ? { stdout: Buffer.concat(stdoutChunks) } : undefined,
-        );
+        settle(resolveCommand, captureOutput ? { stdout: Buffer.concat(stdoutChunks) } : undefined);
         return;
       }
       settle(
@@ -340,7 +342,10 @@ async function main() {
       }
     }
     if (cleanupErrors.length > 0) {
-      throw new AggregateError(cleanupErrors, "Real Symfony organization operations cleanup failed");
+      throw new AggregateError(
+        cleanupErrors,
+        "Real Symfony organization operations cleanup failed",
+      );
     }
   };
 
@@ -357,6 +362,7 @@ async function main() {
   process.once("SIGTERM", handleSignal);
 
   let primaryError;
+  let primaryFailed = false;
   try {
     await rm(symfonyCacheDir, { recursive: true, force: true });
     await rm(symfonyLogDir, { recursive: true, force: true });
@@ -364,11 +370,10 @@ async function main() {
       cwd: serverRoot,
       env: serverEnv,
     });
-    await runCommand(
-      "openssl",
-      ["rsa", "-pubout", "-in", privateKeyPath, "-out", publicKeyPath],
-      { cwd: serverRoot, env: serverEnv },
-    );
+    await runCommand("openssl", ["rsa", "-pubout", "-in", privateKeyPath, "-out", publicKeyPath], {
+      cwd: serverRoot,
+      env: serverEnv,
+    });
     await chmod(privateKeyPath, 0o600);
 
     await runCommand(
@@ -428,11 +433,11 @@ require $_SERVER['DOCUMENT_ROOT'].'/index.php';
       "--project=real-symfony",
     ];
     if (receiptRequested) e2eArgs.push("--reporter=json");
-    const e2eResult = await runCommand(
-      process.env.PLAYWRIGHT_NODE_EXECUTABLE ?? "node",
-      e2eArgs,
-      { cwd: dashboardRoot, env: dashboardEnv, captureOutput: receiptRequested },
-    );
+    const e2eResult = await runCommand(process.env.PLAYWRIGHT_NODE_EXECUTABLE ?? "node", e2eArgs, {
+      cwd: dashboardRoot,
+      env: dashboardEnv,
+      captureOutput: receiptRequested,
+    });
 
     if (receiptRequested) {
       const runnerSourceRefIds = (process.env.RUNTIME_EVIDENCE_RUNNER_SOURCE_REF_IDS ?? "")
@@ -457,21 +462,29 @@ require $_SERVER['DOCUMENT_ROOT'].'/index.php';
     }
   } catch (error) {
     primaryError = error;
-    throw error;
+    primaryFailed = true;
+  }
+
+  let cleanupError;
+  let cleanupFailed = false;
+  try {
+    await cleanup();
+  } catch (error) {
+    cleanupError = error;
+    cleanupFailed = true;
   } finally {
-    try {
-      await cleanup();
-    } catch (cleanupError) {
-      if (primaryError) {
-        console.error(cleanupError instanceof Error ? cleanupError.message : cleanupError);
-      } else {
-        throw cleanupError;
-      }
-    } finally {
-      process.removeListener("SIGINT", handleSignal);
-      process.removeListener("SIGTERM", handleSignal);
+    process.removeListener("SIGINT", handleSignal);
+    process.removeListener("SIGTERM", handleSignal);
+  }
+
+  if (cleanupFailed) {
+    if (primaryError) {
+      console.error(cleanupError instanceof Error ? cleanupError.message : cleanupError);
+    } else {
+      throw cleanupError;
     }
   }
+  if (primaryFailed) throw primaryError;
 }
 
 if (process.versions.bun === undefined) {

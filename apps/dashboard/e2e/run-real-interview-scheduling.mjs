@@ -5,7 +5,10 @@ import { createConnection } from "node:net";
 import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { emitRuntimeEvidenceReceipt, sanitizePlaywrightArtifact } from "./runtime-evidence-receipt.mjs";
+import {
+  emitRuntimeEvidenceReceipt,
+  sanitizePlaywrightArtifact,
+} from "./runtime-evidence-receipt.mjs";
 
 const dashboardOrigin = "http://127.0.0.1:5174";
 const journeyRefId = "intent://journey:recruitment:interview-scheduling:v1";
@@ -25,7 +28,8 @@ const sdkRoot = fileURLToPath(new URL("../../../packages/sdk/", import.meta.url)
 const commandTimeoutMs = 120_000;
 const shutdownTimeoutMs = 5_000;
 
-const sleep = (milliseconds) => new Promise((resolveSleep) => setTimeout(resolveSleep, milliseconds));
+const sleep = (milliseconds) =>
+  new Promise((resolveSleep) => setTimeout(resolveSleep, milliseconds));
 
 function assertPortAvailable(port) {
   return new Promise((resolvePort, rejectPort) => {
@@ -161,7 +165,9 @@ function runCommand(command, args, options) {
       }
       settle(
         rejectCommand,
-        new Error(`${command} ${args.join(" ")} exited with ${signal ? `signal ${signal}` : `code ${code}`}`),
+        new Error(
+          `${command} ${args.join(" ")} exited with ${signal ? `signal ${signal}` : `code ${code}`}`,
+        ),
       );
     });
   });
@@ -325,12 +331,15 @@ async function main() {
         cleanupErrors.push(error);
       }
     }
-    if (cleanupErrors.length > 0) throw new AggregateError(cleanupErrors, "Real Symfony e2e cleanup failed");
+    if (cleanupErrors.length > 0)
+      throw new AggregateError(cleanupErrors, "Real Symfony e2e cleanup failed");
   };
 
   const handleSignal = (signal) => {
     void cleanup()
-      .catch((cleanupError) => console.error(cleanupError instanceof Error ? cleanupError.message : cleanupError))
+      .catch((cleanupError) =>
+        console.error(cleanupError instanceof Error ? cleanupError.message : cleanupError),
+      )
       .finally(() => {
         process.exitCode = signal === "SIGINT" ? 130 : 143;
       });
@@ -339,6 +348,7 @@ async function main() {
   process.once("SIGTERM", handleSignal);
 
   let primaryError;
+  let primaryFailed = false;
   try {
     await rm(symfonyCacheDir, { recursive: true, force: true });
     await rm(symfonyLogDir, { recursive: true, force: true });
@@ -354,7 +364,14 @@ async function main() {
 
     await runCommand(
       "php",
-      ["-d", "date.timezone=Europe/Oslo", "bin/console", "doctrine:schema:create", "--env=e2e", "--no-interaction"],
+      [
+        "-d",
+        "date.timezone=Europe/Oslo",
+        "bin/console",
+        "doctrine:schema:create",
+        "--env=e2e",
+        "--no-interaction",
+      ],
       {
         cwd: serverRoot,
         env: serverEnv,
@@ -380,7 +397,15 @@ async function main() {
 
     symfonyProcess = startProcess(
       "php",
-      ["-d", "date.timezone=Europe/Oslo", "-S", "127.0.0.1:8000", "-t", "public", "public/index.php"],
+      [
+        "-d",
+        "date.timezone=Europe/Oslo",
+        "-S",
+        "127.0.0.1:8000",
+        "-t",
+        "public",
+        "public/index.php",
+      ],
       {
         cwd: serverRoot,
         env: serverEnv,
@@ -391,14 +416,10 @@ async function main() {
     await runCommand("bun", ["run", "build"], { cwd: dashboardRoot, env: dashboardEnv });
 
     await assertPortAvailable(5174);
-    dashboardProcess = startProcess(
-      "bun",
-      ["run", "start"],
-      {
-        cwd: dashboardRoot,
-        env: dashboardEnv,
-      },
-    );
+    dashboardProcess = startProcess("bun", ["run", "start"], {
+      cwd: dashboardRoot,
+      env: dashboardEnv,
+    });
     await waitForHttp(`${dashboardOrigin}/login`, dashboardProcess);
 
     const receiptRequested = [
@@ -414,20 +435,26 @@ async function main() {
       "--project=real-symfony",
     ];
     if (receiptRequested) e2eArgs.push("--reporter=json");
-    const e2eResult = await runCommand(
-      process.env.PLAYWRIGHT_NODE_EXECUTABLE ?? "node",
-      e2eArgs,
-      { cwd: dashboardRoot, env: dashboardEnv, captureOutput: receiptRequested },
-    );
+    const e2eResult = await runCommand(process.env.PLAYWRIGHT_NODE_EXECUTABLE ?? "node", e2eArgs, {
+      cwd: dashboardRoot,
+      env: dashboardEnv,
+      captureOutput: receiptRequested,
+    });
     if (receiptRequested) {
       const runnerSourceInputBytes = [
         {
-          sourceRefId: process.env.RUNTIME_EVIDENCE_RUNNER_SOURCE_REF_IDS?.split(",")[0]?.trim() ?? "",
-          bytes: await readFile(fileURLToPath(new URL("./run-real-interview-scheduling.mjs", import.meta.url))),
+          sourceRefId:
+            process.env.RUNTIME_EVIDENCE_RUNNER_SOURCE_REF_IDS?.split(",")[0]?.trim() ?? "",
+          bytes: await readFile(
+            fileURLToPath(new URL("./run-real-interview-scheduling.mjs", import.meta.url)),
+          ),
         },
         {
-          sourceRefId: process.env.RUNTIME_EVIDENCE_RUNNER_SOURCE_REF_IDS?.split(",")[1]?.trim() ?? "",
-          bytes: await readFile(fileURLToPath(new URL("./real-interview-scheduling.spec.ts", import.meta.url))),
+          sourceRefId:
+            process.env.RUNTIME_EVIDENCE_RUNNER_SOURCE_REF_IDS?.split(",")[1]?.trim() ?? "",
+          bytes: await readFile(
+            fileURLToPath(new URL("./real-interview-scheduling.spec.ts", import.meta.url)),
+          ),
         },
       ];
       await emitRuntimeEvidenceReceipt({
@@ -441,28 +468,38 @@ async function main() {
     }
   } catch (error) {
     primaryError = error;
-    throw error;
+    primaryFailed = true;
+  }
+
+  if (primaryError) {
+    await reportSymfonyException(join(symfonyLogDir, "e2e.log"));
+  }
+  let cleanupError;
+  let cleanupFailed = false;
+  try {
+    await cleanup();
+  } catch (error) {
+    cleanupError = error;
+    cleanupFailed = true;
   } finally {
+    process.removeListener("SIGINT", handleSignal);
+    process.removeListener("SIGTERM", handleSignal);
+  }
+
+  if (cleanupFailed) {
     if (primaryError) {
-      await reportSymfonyException(join(symfonyLogDir, "e2e.log"));
-    }
-    try {
-      await cleanup();
-    } catch (cleanupError) {
-      if (primaryError) {
-        console.error(cleanupError instanceof Error ? cleanupError.message : cleanupError);
-      } else {
-        throw cleanupError;
-      }
-    } finally {
-      process.removeListener("SIGINT", handleSignal);
-      process.removeListener("SIGTERM", handleSignal);
+      console.error(cleanupError instanceof Error ? cleanupError.message : cleanupError);
+    } else {
+      throw cleanupError;
     }
   }
+  if (primaryFailed) throw primaryError;
 }
 
 if (process.versions.bun === undefined) {
-  const result = spawnSync("bun", [fileURLToPath(import.meta.url), ...process.argv.slice(2)], { stdio: "inherit" });
+  const result = spawnSync("bun", [fileURLToPath(import.meta.url), ...process.argv.slice(2)], {
+    stdio: "inherit",
+  });
   process.exitCode = result.status ?? 1;
 } else {
   main().catch((error) => {

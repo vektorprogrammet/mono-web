@@ -1,6 +1,6 @@
 import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createConnection } from "node:net";
-import { createHash, randomBytes } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { spawn, spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
@@ -24,16 +24,28 @@ const specSourcePath = fileURLToPath(
 );
 const fixtureSourcePaths = [
   fileURLToPath(
-    new URL("../../server/src/App/Support/DataFixtures/ORM/InterviewRecruiterFixture.php", import.meta.url),
+    new URL(
+      "../../server/src/App/Support/DataFixtures/ORM/InterviewRecruiterFixture.php",
+      import.meta.url,
+    ),
   ),
   fileURLToPath(
-    new URL("../../server/src/App/Support/DataFixtures/ORM/AdmissionOperationsFixture.php", import.meta.url),
+    new URL(
+      "../../server/src/App/Support/DataFixtures/ORM/AdmissionOperationsFixture.php",
+      import.meta.url,
+    ),
   ),
   fileURLToPath(
-    new URL("../../server/src/App/Support/DataFixtures/ORM/BackgroundAutomationFixture.php", import.meta.url),
+    new URL(
+      "../../server/src/App/Support/DataFixtures/ORM/BackgroundAutomationFixture.php",
+      import.meta.url,
+    ),
   ),
   fileURLToPath(
-    new URL("../../server/src/App/Support/DataFixtures/ORM/BackgroundDeliveryFixture.php", import.meta.url),
+    new URL(
+      "../../server/src/App/Support/DataFixtures/ORM/BackgroundDeliveryFixture.php",
+      import.meta.url,
+    ),
   ),
 ];
 const commandTimeoutMs = 120_000;
@@ -70,10 +82,7 @@ const journeys = [
   },
   {
     journeyRefId: "intent://journey:parity:background_automation:v1",
-    stepIds: [
-      "background-automation-command-write",
-      "background-automation-schedule-background",
-    ],
+    stepIds: ["background-automation-command-write", "background-automation-schedule-background"],
   },
   {
     journeyRefId: "intent://journey:parity:background_delivery:v1",
@@ -97,12 +106,7 @@ function assertPortAvailable(port) {
     });
     socket.once("error", (error) => {
       socket.destroy();
-      if (
-        error &&
-        typeof error === "object" &&
-        "code" in error &&
-        error.code === "ECONNREFUSED"
-      ) {
+      if (error && typeof error === "object" && "code" in error && error.code === "ECONNREFUSED") {
         resolvePort();
         return;
       }
@@ -149,10 +153,7 @@ function runCommand(command, args, options) {
     child.once("error", (error) => settle(rejectCommand, error));
     child.once(captureOutput ? "close" : "exit", (code, signal) => {
       if (code === 0) {
-        settle(
-          resolveCommand,
-          captureOutput ? { stdout: Buffer.concat(stdoutChunks) } : undefined,
-        );
+        settle(resolveCommand, captureOutput ? { stdout: Buffer.concat(stdoutChunks) } : undefined);
         return;
       }
       settle(
@@ -208,12 +209,7 @@ function signalProcessGroup(child, signal) {
   try {
     process.kill(-child.pid, signal);
   } catch (error) {
-    if (
-      error &&
-      typeof error === "object" &&
-      "code" in error &&
-      error.code === "ESRCH"
-    ) {
+    if (error && typeof error === "object" && "code" in error && error.code === "ESRCH") {
       return;
     }
     throw error;
@@ -238,10 +234,7 @@ async function stopProcess(child) {
   ]);
   if (graceful || child.exitCode !== null) return;
   signalProcessGroup(child, "SIGKILL");
-  await Promise.race([
-    exited,
-    sleep(shutdownTimeoutMs).then(() => undefined),
-  ]);
+  await Promise.race([exited, sleep(shutdownTimeoutMs).then(() => undefined)]);
 }
 
 function assertDisposableDatabase(databasePath, temporaryRoot) {
@@ -421,6 +414,7 @@ async function main() {
   process.once("SIGTERM", handleSignal);
 
   let primaryError;
+  let primaryFailed = false;
   try {
     await rm(symfonyCacheDir, { recursive: true, force: true });
     await rm(symfonyLogDir, { recursive: true, force: true });
@@ -429,11 +423,10 @@ async function main() {
       cwd: serverRoot,
       env: serverEnv,
     });
-    await runCommand(
-      "openssl",
-      ["rsa", "-pubout", "-in", privateKeyPath, "-out", publicKeyPath],
-      { cwd: serverRoot, env: serverEnv },
-    );
+    await runCommand("openssl", ["rsa", "-pubout", "-in", privateKeyPath, "-out", publicKeyPath], {
+      cwd: serverRoot,
+      env: serverEnv,
+    });
     await chmod(privateKeyPath, 0o600);
 
     await runCommand(
@@ -473,15 +466,7 @@ require $_SERVER['DOCUMENT_ROOT'].'/index.php';
     });
     symfonyProcess = startProcess(
       "php",
-      [
-        "-d",
-        "variables_order=EGPCS",
-        "-S",
-        "127.0.0.1:8000",
-        "-t",
-        "public",
-        routerPath,
-      ],
+      ["-d", "variables_order=EGPCS", "-S", "127.0.0.1:8000", "-t", "public", routerPath],
       { cwd: serverRoot, env: serverEnv },
     );
     await waitForHttp(`${apiOrigin}/api/docs`, symfonyProcess);
@@ -496,11 +481,10 @@ require $_SERVER['DOCUMENT_ROOT'].'/index.php';
     });
     await waitForHttp(`${dashboardOrigin}/login`, dashboardProcess);
 
-    await runCommand(
-      "php",
-      ["bin/console", "app:update:roles", "--env=e2e", "--no-interaction"],
-      { cwd: serverRoot, env: serverEnv },
-    );
+    await runCommand("php", ["bin/console", "app:update:roles", "--env=e2e", "--no-interaction"], {
+      cwd: serverRoot,
+      env: serverEnv,
+    });
     await runCommand(
       "php",
       ["bin/console", "app:admission:send_notifications", "--env=e2e", "--no-interaction"],
@@ -532,7 +516,9 @@ require $_SERVER['DOCUMENT_ROOT'].'/index.php';
       "SELECT COUNT(n.id) FROM admission_notification n JOIN admission_subscriber s ON s.id = n.subscriber_id WHERE s.email = 'background-delivery-subscriber-0032@example.invalid'",
     );
     if (notificationCount !== "2") {
-      throw new Error(`Expected two local admission delivery notifications, got ${notificationCount}`);
+      throw new Error(
+        `Expected two local admission delivery notifications, got ${notificationCount}`,
+      );
     }
     const reminderCount = await queryScalar(
       databasePath,
@@ -556,11 +542,11 @@ require $_SERVER['DOCUMENT_ROOT'].'/index.php';
       "--project=real-symfony",
     ];
     if (receiptRequested) e2eArgs.push("--reporter=json");
-    const e2eResult = await runCommand(
-      process.env.PLAYWRIGHT_NODE_EXECUTABLE ?? "node",
-      e2eArgs,
-      { cwd: dashboardRoot, env: dashboardEnv, captureOutput: receiptRequested },
-    );
+    const e2eResult = await runCommand(process.env.PLAYWRIGHT_NODE_EXECUTABLE ?? "node", e2eArgs, {
+      cwd: dashboardRoot,
+      env: dashboardEnv,
+      captureOutput: receiptRequested,
+    });
 
     const applicationSubscriberCount = await queryScalar(
       databasePath,
@@ -589,7 +575,9 @@ require $_SERVER['DOCUMENT_ROOT'].'/index.php';
         recruiter_reminder_count: recruiterReminderCount,
       };
       const playwrightArtifact = JSON.parse(
-        new TextDecoder("utf-8", { fatal: true }).decode(sanitizePlaywrightArtifact(e2eResult.stdout)),
+        new TextDecoder("utf-8", { fatal: true }).decode(
+          sanitizePlaywrightArtifact(e2eResult.stdout),
+        ),
       );
       await emitRuntimeEvidenceReceipts({
         journeys,
@@ -609,21 +597,29 @@ require $_SERVER['DOCUMENT_ROOT'].'/index.php';
     }
   } catch (error) {
     primaryError = error;
-    throw error;
+    primaryFailed = true;
+  }
+
+  let cleanupError;
+  let cleanupFailed = false;
+  try {
+    await cleanup();
+  } catch (error) {
+    cleanupError = error;
+    cleanupFailed = true;
   } finally {
-    try {
-      await cleanup();
-    } catch (cleanupError) {
-      if (primaryError) {
-        console.error(cleanupError instanceof Error ? cleanupError.message : cleanupError);
-      } else {
-        throw cleanupError;
-      }
-    } finally {
-      process.removeListener("SIGINT", handleSignal);
-      process.removeListener("SIGTERM", handleSignal);
+    process.removeListener("SIGINT", handleSignal);
+    process.removeListener("SIGTERM", handleSignal);
+  }
+
+  if (cleanupFailed) {
+    if (primaryError) {
+      console.error(cleanupError instanceof Error ? cleanupError.message : cleanupError);
+    } else {
+      throw cleanupError;
     }
   }
+  if (primaryFailed) throw primaryError;
 }
 
 if (process.versions.bun === undefined) {
