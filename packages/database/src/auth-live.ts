@@ -1,6 +1,7 @@
 import { Context, Effect, Layer, Scope } from "effect"
 import {
   Auth,
+  AuthSessionNotFound,
   decodeAuthenticatedActor,
   type AuthShape,
 } from "@vektorprogrammet/domain/auth"
@@ -78,7 +79,8 @@ const authShape = (
   resolveSession: async (cookieHeader) => {
     const session = await engine.api.getSession({ headers: cookieHeaders(cookieHeader) })
     if (session?.user == null) {
-      throw new Error("no active session for request cookies")
+      // Typed so the backend maps stale/invalid cookies to UnauthenticatedActor
+      throw new AuthSessionNotFound({ sessionToken: "" })
     }
     return await decodeAuthenticatedActor({
       personId: session.user.id,
