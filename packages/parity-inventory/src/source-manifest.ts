@@ -929,7 +929,16 @@ const sqlEqualsIsAssignment = (tokens: readonly SqlToken[], operatorIndex: numbe
     }
     if (inSetClause && /^(?:from|returning|where)$/u.test(keyword)) inSetClause = false;
   }
-  return inSetClause;
+  if (inSetClause) return true;
+  const assignmentTarget = tokens[operatorIndex - 1];
+  const variableSigil = tokens[operatorIndex - 2];
+  return (
+    firstKeyword === "select" &&
+    assignmentTarget?.kind === "identifier" &&
+    assignmentTarget.depth === depth &&
+    variableSigil?.value === "@" &&
+    variableSigil.depth === depth
+  );
 };
 const sqlSetToHasUnsafeLiteral = (tokens: readonly SqlToken[]): boolean => {
   for (const [setIndex, token] of tokens.entries()) {

@@ -1883,6 +1883,9 @@ describe("source safety boundary", () => {
       expect(unsafeSqlSourceTextReason("SET LOCAL api_token TO 'concrete-token';")).toBe(
         "UNSAFE_SOURCE",
       );
+      expect(unsafeSqlSourceTextReason("SELECT @password = 'concrete-password';")).toBe(
+        "UNSAFE_SOURCE",
+      );
     });
 
     test("allows strict parameterized INSERT SELECT recordsets", () => {
@@ -1941,6 +1944,8 @@ describe("source safety boundary", () => {
         `${safeRecordset}
          -- assignment after a safe statement remains independently classified
          UPDATE users SET password = 'concrete-password';`,
+        `${safeRecordset}
+         SELECT @password = 'concrete-password';`,
         "/*!50000 INSERT INTO person_profiles (person_id) VALUES ('person-literal') */;",
         `INSERT/**/INTO person_profiles (person_id)
          SELECT seed_row.person_id
