@@ -727,6 +727,7 @@ const collectRuntimeRoutes = (
   commands: ParityCommandExecutorShape,
   context: ManifestContext,
   configured?: CollectorExecutables,
+  environment: Readonly<Record<string, string | undefined>> = {},
 ): RuntimeRouteCollection => {
   const revisionRefId = context.scans.mono.revisionRefId;
   const sourceRefId = runtimeRouteSourceRef(context);
@@ -770,6 +771,7 @@ const collectRuntimeRoutes = (
     ROUTE_COLLECTOR_ARGS,
     configured,
     "route",
+    environment,
   );
   if (run.availability !== "available")
     return unavailable(run.reason ?? "RUNTIME_UNAVAILABLE", run);
@@ -1936,6 +1938,7 @@ export const collectRoutesWithServices = (
   sourceManifestSha256: string,
   configured?: CollectorExecutables,
   allowFixture = false,
+  environment: Readonly<Record<string, string | undefined>> = {},
 ): CollectedRouteArtifacts => {
   const legacy = parseLegacy(context);
   const mono = parseMono(context);
@@ -1969,7 +1972,7 @@ export const collectRoutesWithServices = (
       runtimeObservation,
     };
   }
-  const runtime = collectRuntimeRoutes(fileSystem, commands, context, configured);
+  const runtime = collectRuntimeRoutes(fileSystem, commands, context, configured, environment);
   const monoStaticRows = makeRows(context, mono.declarations, "mono", runtime.observation);
   const reconciled = reconcileRuntimeRoutes(
     context.scans.mono.revisionRefId,
