@@ -16,7 +16,7 @@ describe("Schools child route", () => {
     vi.stubGlobal("fetch", request);
 
     // The import is delayed so the request spy also covers route-module evaluation.
-    const schoolsRoute = await import("./dashboard.skoler._index");
+    const schoolsRoute = await import("../../routes/dashboard.skoler._index");
     const markup = renderToStaticMarkup(
       createElement(
         MemoryRouter,
