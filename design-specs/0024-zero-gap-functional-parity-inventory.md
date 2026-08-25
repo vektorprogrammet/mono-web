@@ -4,23 +4,23 @@
 
 ## Metadata
 
-| Field | Value |
-|---|---|
-| Goal | Goal-1 machine-readable functional-parity inventory |
-| Contract | `functional-parity-inventory/v1` and `functional-parity-zero-gap-report/v1` |
-| Specification status | `Accepted` on `2026-08-20`. This records acceptance of the specification only. |
-| Lifecycle state | `Drift` |
-| Dependency | 0023 functional-parity integration baseline at `462691d4c31ed601fba01f8b5f21abb92a547ff9` |
-| Spec worktree | `/tmp/mono-web-parity-inventory-spec-0024` |
-| Spec branch | `spec/0024-zero-gap-parity-inventory` |
-| Implementation candidate | `Unaccepted`. Path `/tmp/mono-web-parity-integration-0023`, branch `impl/0023-functional-parity-integration-baseline`, head `afba5923b09c4748aff6f1825096d50261a6f4e7`. |
-| Candidate relation to `main` | 0 commits behind and 59 commits ahead of `main`. |
-| Current writer mutation | The specification worktree owns only `design-specs/0024-zero-gap-functional-parity-inventory.md`. `OpenApiExportEngineer` owns only `apps/server/config/services.yaml`, `apps/server/tests/App/Support/OpenApiExportTest.php` (new), `packages/sdk/legacy-symfony-openapi.snapshot.json`, and `packages/parity-inventory/src/api.ts` in `/tmp/mono-web-parity-integration-0023`, plus the required commit integrations. |
-| Active production writer | `OpenApiExportEngineer`, bound to `/tmp/mono-web-parity-integration-0023` during the bounded OpenAPI normalizer repair |
-| Legacy input | Read-only legacy repository evidence; the inventory command never writes to it |
-| Current mono input | `mono-web` at an explicitly selected full revision; the deterministic mono authority revision is a canonical tracked-blob file-set digest that excludes the owned derived projection mount; raw Git `HEAD` is execution provenance only |
-| Required execution mode | `frozen` source mode for parity output; `fixture_injection` is exposed only through a named `--falsifier F0_...` run and never writes committed projections |
-| External effects | None. No provider, production, database, credential, or route action is authorized |
+| Field                        | Value                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Goal                         | Goal-1 machine-readable functional-parity inventory                                                                                                                                                                                                                                                                                                                                                                     |
+| Contract                     | `functional-parity-inventory/v1` and `functional-parity-zero-gap-report/v1`                                                                                                                                                                                                                                                                                                                                             |
+| Specification status         | `Accepted` on `2026-08-20`. This records acceptance of the specification only.                                                                                                                                                                                                                                                                                                                                          |
+| Lifecycle state              | `Drift`                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| Dependency                   | 0023 functional-parity integration baseline at `462691d4c31ed601fba01f8b5f21abb92a547ff9`                                                                                                                                                                                                                                                                                                                               |
+| Spec worktree                | `/tmp/mono-web-parity-inventory-spec-0024`                                                                                                                                                                                                                                                                                                                                                                              |
+| Spec branch                  | `spec/0024-zero-gap-parity-inventory`                                                                                                                                                                                                                                                                                                                                                                                   |
+| Implementation candidate     | `Unaccepted`. Path `/tmp/mono-web-parity-integration-0023`, branch `impl/0023-functional-parity-integration-baseline`, head `afba5923b09c4748aff6f1825096d50261a6f4e7`.                                                                                                                                                                                                                                                 |
+| Candidate relation to `main` | 0 commits behind and 59 commits ahead of `main`.                                                                                                                                                                                                                                                                                                                                                                        |
+| Current writer mutation      | The specification worktree owns only `design-specs/0024-zero-gap-functional-parity-inventory.md`. `OpenApiExportEngineer` owns only `apps/server/config/services.yaml`, `apps/server/tests/App/Support/OpenApiExportTest.php` (new), `packages/sdk/legacy-symfony-openapi.snapshot.json`, and `packages/parity-inventory/src/api.ts` in `/tmp/mono-web-parity-integration-0023`, plus the required commit integrations. |
+| Active production writer     | `OpenApiExportEngineer`, bound to `/tmp/mono-web-parity-integration-0023` during the bounded OpenAPI normalizer repair                                                                                                                                                                                                                                                                                                  |
+| Legacy input                 | Read-only legacy repository evidence; the inventory command never writes to it                                                                                                                                                                                                                                                                                                                                          |
+| Current mono input           | `mono-web` at an explicitly selected full revision; the deterministic mono authority revision is a canonical tracked-blob file-set digest that excludes the owned derived projection mount; raw Git `HEAD` is execution provenance only                                                                                                                                                                                 |
+| Required execution mode      | `frozen` source mode for parity output; `fixture_injection` is exposed only through a named `--falsifier F0_...` run and never writes committed projections                                                                                                                                                                                                                                                             |
+| External effects             | None. No provider, production, database, credential, or route action is authorized                                                                                                                                                                                                                                                                                                                                      |
 
 This document is the accepted contract for a future implementation. The candidate named in Metadata is implementation evidence only and is not accepted. This document does not accept a route, remove a declaration, approve an integration, or make a business ruling.
 
@@ -137,19 +137,19 @@ The final statement of this spec is normative: **a zero-gap inventory proves cov
 
 Each input has one authority role. The generator keeps authority, observation, derivation, intent, and execution evidence as separate relations.
 
-| Concern | Sole authority or evidence | Boundary |
-|---|---|---|
-| Legacy declarations | The selected immutable legacy source revision and its files | Read-only source authority for legacy declarations; no acceptance of future behavior |
-| Mono declarations | The selected immutable mono source revision and its files | Source authority for current declarations; no claim that source is correct |
-| Resolved mono routes | A local runtime route collector executed at the selected revision | Runtime observation; it cannot replace source provenance |
-| Resolved API operations | API Platform metadata/runtime observation at the selected revision | Runtime observation; it cannot replace resource source files |
-| Committed OpenAPI | `packages/sdk/legacy-symfony-openapi.snapshot.json` at the selected revision | Generated projection only; it is never an operation authority |
-| Source manifests | The generator's byte manifest over named source sets | Exact input accounting; a manifest hash proves identity, not correctness |
-| Accepted intent | An immutable external or repository intent reference with revision and hash | May disposition a missing, extra, renamed, split, merged, or intentionally absent row; it cannot waive unresolved, stale, duplicate, or uncovered state |
-| User-journey coverage | Accepted journey references and their immutable source hashes | Coverage relation only; it does not prove the journey ran or behaved correctly |
-| Runtime evidence | A separately retained execution-evidence record | Time, host, command, and runtime details; it is not part of deterministic artifact bytes |
-| H3 security inventory | H3 route/resource artifacts and generator as derivation inputs only | Reusable route/resource derivation; never parity authority and never copied as a verdict |
-| Preview route contract | `infra/preview/routes/route-contract.ts` and its projection | Preview deployment scope only; not a functional-parity inventory authority |
+| Concern                 | Sole authority or evidence                                                   | Boundary                                                                                                                                                |
+| ----------------------- | ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Legacy declarations     | The selected immutable legacy source revision and its files                  | Read-only source authority for legacy declarations; no acceptance of future behavior                                                                    |
+| Mono declarations       | The selected immutable mono source revision and its files                    | Source authority for current declarations; no claim that source is correct                                                                              |
+| Resolved mono routes    | A local runtime route collector executed at the selected revision            | Runtime observation; it cannot replace source provenance                                                                                                |
+| Resolved API operations | API Platform metadata/runtime observation at the selected revision           | Runtime observation; it cannot replace resource source files                                                                                            |
+| Committed OpenAPI       | `packages/sdk/legacy-symfony-openapi.snapshot.json` at the selected revision | Generated projection only; it is never an operation authority                                                                                           |
+| Source manifests        | The generator's byte manifest over named source sets                         | Exact input accounting; a manifest hash proves identity, not correctness                                                                                |
+| Accepted intent         | An immutable external or repository intent reference with revision and hash  | May disposition a missing, extra, renamed, split, merged, or intentionally absent row; it cannot waive unresolved, stale, duplicate, or uncovered state |
+| User-journey coverage   | Accepted journey references and their immutable source hashes                | Coverage relation only; it does not prove the journey ran or behaved correctly                                                                          |
+| Runtime evidence        | A separately retained execution-evidence record                              | Time, host, command, and runtime details; it is not part of deterministic artifact bytes                                                                |
+| H3 security inventory   | H3 route/resource artifacts and generator as derivation inputs only          | Reusable route/resource derivation; never parity authority and never copied as a verdict                                                                |
+| Preview route contract  | `infra/preview/routes/route-contract.ts` and its projection                  | Preview deployment scope only; not a functional-parity inventory authority                                                                              |
 
 A hash proves which bytes the generator read. It does not grant authority to the bytes, authenticate an operator, or prove a semantic claim.
 
@@ -163,18 +163,18 @@ The legacy evidence revision observed while this spec was drafted is `d05c261e9f
 
 The following values are current observations from the named evidence lines. They are useful for planning and falsifiers only. They MUST NOT appear as JSON Schema `const`, `minItems`, `maxItems`, or expected-count rules.
 
-| Observation | Current value | Contract treatment |
-|---|---:|---|
-| Legacy active YAML route blocks | 190 | Runtime observation note only |
-| Legacy controller annotations | 49 | Runtime observation note only |
-| Legacy route declarations | 239 declarations and 238 unique signatures | Census note only; duplicate declaration remains visible |
-| Mono controller routes | 229 | Census note only |
-| Mono `ApiResource` classes | 95 | Census note only |
-| Mono API operations | 127 | Census note only |
-| Committed OpenAPI operations | 126 | Observed stale projection; implementation MUST recompute staleness |
-| Legacy custom commands | 6 | Census note only |
-| Mono custom commands | 6 | Census note only |
-| Repository-owned cron trigger schedule | None observed | Absence observation; no business conclusion and no hard-coded zero |
+| Observation                            |                              Current value | Contract treatment                                                 |
+| -------------------------------------- | -----------------------------------------: | ------------------------------------------------------------------ |
+| Legacy active YAML route blocks        |                                        190 | Runtime observation note only                                      |
+| Legacy controller annotations          |                                         49 | Runtime observation note only                                      |
+| Legacy route declarations              | 239 declarations and 238 unique signatures | Census note only; duplicate declaration remains visible            |
+| Mono controller routes                 |                                        229 | Census note only                                                   |
+| Mono `ApiResource` classes             |                                         95 | Census note only                                                   |
+| Mono API operations                    |                                        127 | Census note only                                                   |
+| Committed OpenAPI operations           |                                        126 | Observed stale projection; implementation MUST recompute staleness |
+| Legacy custom commands                 |                                          6 | Census note only                                                   |
+| Mono custom commands                   |                                          6 | Census note only                                                   |
+| Repository-owned cron trigger schedule |                              None observed | Absence observation; no business conclusion and no hard-coded zero |
 
 A changed count is not itself drift. A changed source hash, revision, schema, canonical byte sequence, or explicit reconciliation rule is drift. Every run records observed counts as optional non-normative `observations` records with source references.
 
@@ -197,6 +197,7 @@ Production `--diff` and `--write` runs MUST receive exactly one `--intent-regist
 Accepted-intent records bind the selected legacy revision reference and the projection-independent mono file-set revision reference, plus exact source hashes. They MUST NOT contain, derive, or self-reference the containing authority commit ID. The generated source manifest records the external authority revision, blob OID, and digest separately. Raw mono Git `HEAD` is execution provenance only and MUST NOT enter deterministic projections, source IDs, revision references, or accepted expected refs. Before a projection exchange, the writer rechecks authority `HEAD`, blob OID, bytes, and digest; any change fails closed as source drift.
 
 The projection directory has exactly the eight committed files named by `COMMITTED_PROJECTIONS`. `accepted-intent.json`, aliases, sidecars, symlinks, directories, and any other entry are not reserved or preserved projection content and block read, diff, and write. Fixture falsifiers MAY use an isolated typed intent snapshot, but fixture bytes are not a production authority mechanism.
+
 - **Dead or unimported source** is a source declaration that the expected loader, compiler, router, command registry, scheduler registry, or adapter graph does not import or resolve. It remains a row.
 - **Stale projection** is a committed/generated projection whose normalized source or runtime operation set, source revision, or source hash does not match the selected authority inputs.
 
@@ -204,20 +205,20 @@ The projection directory has exactly the eight committed files named by `COMMITT
 
 Every row has exactly one `status`:
 
-| Status | Meaning | Root command treatment |
-|---|---|---|
-| `covered` | Required source, identity, provenance, and required cross-surface relations exist without a mismatch | Can contribute to `zero_gap` |
-| `accounted` | A mismatch or explicit absence has a valid accepted-intent reference | Can contribute to `zero_gap` only for mismatch kinds that permit disposition |
-| `missing` | An authority row has no counterpart on the other line | Requires exact accepted intent or produces `gaps_found` |
-| `extra` | A current row has no legacy counterpart | Requires exact accepted intent or produces `gaps_found` |
-| `changed` | Counterparts exist but a declared method, template, effect, owner, or contract differs | Requires exact accepted intent or produces `gaps_found` |
-| `uncovered` | No user-journey coverage reference or accepted non-user-facing reference accounts for a parity-relevant row | Always nonzero |
-| `unresolved` | Required source, runtime observation, identity component, import relation, or provenance cannot be resolved | Always nonzero |
-| `duplicate` | Two or more retained rows have the same canonical identity in one authority scope | Always nonzero; an intent ref cannot waive it |
-| `stale` | A generated projection, including OpenAPI, does not match its selected source or runtime projection | Always nonzero; an intent ref cannot waive it |
-| `dead_unimported` | A source declaration is not imported or resolved by its expected loader | Nonzero unless converted to `accounted` by an exact accepted removal/dead-source intent |
-| `absent` | A named source family has no declaration at this revision | Every absent row requires an explicit `accepted_absent` disposition and immutable intent ref before it can become `accounted` |
-| `not_applicable` | The accepted intent explicitly excludes the row kind from this parity scope | Requires an exact accepted-intent reference |
+| Status            | Meaning                                                                                                     | Root command treatment                                                                                                        |
+| ----------------- | ----------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `covered`         | Required source, identity, provenance, and required cross-surface relations exist without a mismatch        | Can contribute to `zero_gap`                                                                                                  |
+| `accounted`       | A mismatch or explicit absence has a valid accepted-intent reference                                        | Can contribute to `zero_gap` only for mismatch kinds that permit disposition                                                  |
+| `missing`         | An authority row has no counterpart on the other line                                                       | Requires exact accepted intent or produces `gaps_found`                                                                       |
+| `extra`           | A current row has no legacy counterpart                                                                     | Requires exact accepted intent or produces `gaps_found`                                                                       |
+| `changed`         | Counterparts exist but a declared method, template, effect, owner, or contract differs                      | Requires exact accepted intent or produces `gaps_found`                                                                       |
+| `uncovered`       | No user-journey coverage reference or accepted non-user-facing reference accounts for a parity-relevant row | Always nonzero                                                                                                                |
+| `unresolved`      | Required source, runtime observation, identity component, import relation, or provenance cannot be resolved | Always nonzero                                                                                                                |
+| `duplicate`       | Two or more retained rows have the same canonical identity in one authority scope                           | Always nonzero; an intent ref cannot waive it                                                                                 |
+| `stale`           | A generated projection, including OpenAPI, does not match its selected source or runtime projection         | Always nonzero; an intent ref cannot waive it                                                                                 |
+| `dead_unimported` | A source declaration is not imported or resolved by its expected loader                                     | Nonzero unless converted to `accounted` by an exact accepted removal/dead-source intent                                       |
+| `absent`          | A named source family has no declaration at this revision                                                   | Every absent row requires an explicit `accepted_absent` disposition and immutable intent ref before it can become `accounted` |
+| `not_applicable`  | The accepted intent explicitly excludes the row kind from this parity scope                                 | Requires an exact accepted-intent reference                                                                                   |
 
 `accounted` is a derived state. The source mismatch remains visible in `mismatch.kind`; the generator never changes a missing or extra source into a covered source.
 
@@ -246,21 +247,21 @@ The accepted-intent reference MUST name every affected row, exact canonical key,
 
 The root command returns exactly one primary status and may list all additional failure statuses. It writes a sanitized deterministic failure report whenever inputs are readable.
 
-| Exit code | Primary status | Trigger |
-|---:|---|---|
-| `0` | `zero_gap` | All required rows are `covered`, validly `accounted`, or explicitly `not_applicable`; no forbidden state remains |
-| `2` | `gaps_found` | Any unaccepted `missing`, `extra`, `changed`, `dead_unimported`, or `absent` row, or any `uncovered` row |
-| `3` | `unresolved` | Any row has unresolved identity, import relation, runtime requirement, source edge, or required field |
-| `4` | `duplicate` | Any duplicate canonical identity remains in any authority scope |
-| `5` | `stale` | Any stale projection remains, including stale committed OpenAPI |
-| `6` | `source_unavailable` | A required source file, revision, command output, or intent reference cannot be read |
-| `7` | `source_hash_drift` | Selected bytes differ from the pinned source, revision, or input manifest |
-| `8` | `schema_invalid` | An artifact or failure report violates its closed JSON Schema or cross-array invariant |
-| `9` | `nondeterministic_output` | Two isolated runs produce different deterministic bytes for identical inputs |
-| `10` | `runtime_unavailable` | A required local runtime collector cannot run or returns unusable output |
-| `11` | `accepted_intent_invalid` | An intent reference is missing, stale, malformed, ambiguous, or does not cover all affected rows |
-| `12` | `command_error` | The canonical command cannot parse its arguments or exits before a more specific status is emitted |
-| `13` | `falsifier_passed` | Named `--mode fixture_injection --falsifier <ID>` reached its expected result; this is not a parity result |
+| Exit code | Primary status            | Trigger                                                                                                          |
+| --------: | ------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+|       `0` | `zero_gap`                | All required rows are `covered`, validly `accounted`, or explicitly `not_applicable`; no forbidden state remains |
+|       `2` | `gaps_found`              | Any unaccepted `missing`, `extra`, `changed`, `dead_unimported`, or `absent` row, or any `uncovered` row         |
+|       `3` | `unresolved`              | Any row has unresolved identity, import relation, runtime requirement, source edge, or required field            |
+|       `4` | `duplicate`               | Any duplicate canonical identity remains in any authority scope                                                  |
+|       `5` | `stale`                   | Any stale projection remains, including stale committed OpenAPI                                                  |
+|       `6` | `source_unavailable`      | A required source file, revision, command output, or intent reference cannot be read                             |
+|       `7` | `source_hash_drift`       | Selected bytes differ from the pinned source, revision, or input manifest                                        |
+|       `8` | `schema_invalid`          | An artifact or failure report violates its closed JSON Schema or cross-array invariant                           |
+|       `9` | `nondeterministic_output` | Two isolated runs produce different deterministic bytes for identical inputs                                     |
+|      `10` | `runtime_unavailable`     | A required local runtime collector cannot run or returns unusable output                                         |
+|      `11` | `accepted_intent_invalid` | An intent reference is missing, stale, malformed, ambiguous, or does not cover all affected rows                 |
+|      `12` | `command_error`           | The canonical command cannot parse its arguments or exits before a more specific status is emitted               |
+|      `13` | `falsifier_passed`        | Named `--mode fixture_injection --falsifier <ID>` reached its expected result; this is not a parity result       |
 
 Failure precedence for production modes is `command_error`, `source_unavailable`, `source_hash_drift`, `schema_invalid`, `nondeterministic_output`, `runtime_unavailable`, `accepted_intent_invalid`, `stale`, `duplicate`, `unresolved`, `gaps_found`, then `projection_written`, then `zero_gap`. Fixture mode returns `falsifier_passed` (exit 13) only when its named falsifier reaches the expected outcome; an unexpected outcome returns the corresponding failure status. `projection_written` is a write-mode completion status, not a failure entry. `failure_statuses` retains every observed failure in byte-sorted order. In particular, a run with any row in `uncovered`, `unresolved`, `stale`, or `duplicate` MUST exit nonzero even when an accepted-intent reference is present.
 
@@ -280,52 +281,53 @@ It regenerates every required deterministic projection in isolation, schema-vali
 
 The implementation expands these logical source families from the selected roots. Each expanded path is represented in the source manifest. Paths are relative to a logical root, sorted by UTF-8 byte order, de-duplicated, and hashed before parsing.
 
-| Source family | Legacy read-only paths | Mono paths | Empty result |
-|---|---|---|---|
-| Route declarations | `app/config/routing.yml`; `app/config/routing_api.yml`; `app/config/routing_dev.yml`; `app/config/routing*.yml`; `src/AppBundle/**/Controller/**/*.php` | `apps/server/config/routes.yaml`; `apps/server/src/App/**/Controller/**/*.php` | No |
-| API resource declarations | `src/AppBundle/**/Controller/Api/**/*.php`; `src/AppBundle/**/Entity/**/*.php`; `src/AppBundle/**/Form/**/*.php` | `apps/server/src/App/**/Api/Resource/**/*.php`; `apps/server/src/App/**/Api/State/**/*.php`; `apps/server/src/App/**/Infrastructure/Entity/**/*.php` | No |
-| Commands and writes | `src/AppBundle/**/Command/**/*.php`; `src/AppBundle/**/Controller/**/*.php`; `src/AppBundle/**/Service/**/*.php`; `src/AppBundle/**/Entity/**/*.php`; `src/AppBundle/**/Event/**/*.php`; `src/AppBundle/**/EventSubscriber/**/*.php`; `src/AppBundle/**/Repository/**/*.php`; `app/config/services*.yml`; `app/config/config*.yml`; `app/config/routing*.yml` | `apps/server/src/App/**/Infrastructure/Command/**/*.php`; `apps/server/src/App/**/Controller/**/*.php`; `apps/server/src/App/**/Infrastructure/Repository/**/*.php`; `apps/server/src/App/**/Infrastructure/AccessControlService.php`; `apps/server/src/App/**/Infrastructure/AdmissionNotifier.php`; `apps/server/src/App/**/Infrastructure/ApplicationAdmission.php`; `apps/server/src/App/**/Infrastructure/ApplicationData.php`; `apps/server/src/App/**/Infrastructure/ApplicationManager.php`; `apps/server/src/App/**/Infrastructure/AssistantHistoryData.php`; `apps/server/src/App/**/Infrastructure/BetaRedirecter.php`; `apps/server/src/App/**/Infrastructure/CompanyEmailMaker.php`; `apps/server/src/App/**/Infrastructure/ContentModeManager.php`; `apps/server/src/App/**/Infrastructure/EmailSender.php`; `apps/server/src/App/**/Infrastructure/FileUploader.php`; `apps/server/src/App/**/Infrastructure/GeoLocation.php`; `apps/server/src/App/**/Infrastructure/InterviewManager.php`; `apps/server/src/App/**/Infrastructure/InterviewNotificationManager.php`; `apps/server/src/App/**/Infrastructure/LogService.php`; `apps/server/src/App/**/Infrastructure/LoginManager.php`; `apps/server/src/App/**/Infrastructure/PasswordManager.php`; `apps/server/src/App/**/Infrastructure/RoleManager.php`; `apps/server/src/App/**/Infrastructure/SbsData.php`; `apps/server/src/App/**/Infrastructure/Slack/SlackMessenger.php`; `apps/server/src/App/**/Infrastructure/Slack/SlackMailer.php`; `apps/server/src/App/**/Infrastructure/SurveyManager.php`; `apps/server/src/App/**/Infrastructure/SurveyNotifier.php`; `apps/server/src/App/**/Infrastructure/TeamMembershipService.php`; `apps/server/src/App/**/Infrastructure/UserGroupCollectionManager.php`; `apps/server/src/App/**/Infrastructure/UserRegistration.php`; `apps/server/src/App/**/Infrastructure/UserService.php`; `apps/server/src/App/**/Infrastructure/Subscriber/**/*.php`; `apps/server/src/App/**/Event/**/*.php`; `apps/server/src/App/**/EventSubscriber/**/*.php`; `apps/server/config/services*.yaml`; `apps/server/config/packages/*.yaml`; `apps/server/config/routes*.yaml`; `apps/server/config/routes/**/*.yaml` | No |
-| Schedules and background work | `app/config/**/*.yml`; `app/config/**/*.yaml`; `src/AppBundle/**/Command/**/*.php`; `src/AppBundle/**/EventSubscriber/**/*.php`; `.github/workflows/**/*.yml`; `.github/workflows/**/*.yaml` | `.github/workflows/**/*.yml`; `.github/workflows/**/*.yaml`; `infra/**/*.ts`; `infra/**/*.tsx`; `infra/**/*.js`; `infra/**/*.mjs`; `infra/**/*.yml`; `infra/**/*.yaml`; `apps/server/config/**/*.yaml`; `apps/server/src/App/**/Infrastructure/Command/**/*.php`; `apps/server/src/App/**/EventSubscriber/**/*.php` | Yes; an empty result emits an `absent` census observation |
-| External integrations | `src/AppBundle/**/Google/**/*.php`; `src/AppBundle/**/Slack/**/*.php`; `src/AppBundle/**/Sms/**/*.php`; `src/AppBundle/**/Mailer/**/*.php`; `src/AppBundle/**/Service/**/*.php`; `src/AppBundle/**/Controller/**/*.php`; `app/config/services*.yml` | `apps/server/src/App/**/Infrastructure/**/*.php`; `apps/server/src/App/**/Support/**/*.php`; `apps/server/src/App/**/Controller/**/*.php`; `packages/**/*.ts`; `packages/**/*.tsx`; `packages/**/*.js`; `.github/workflows/**/*.yml`; `.github/workflows/**/*.yaml`; `infra/**/*.ts`; `infra/**/*.tsx`; `infra/**/*.js`; `infra/**/*.mjs` | No |
-| User-journey references | `docs/**/*.md`; `design-specs/**/*.md` | `docs/**/*.md`; `design-specs/**/*.md`; `apps/**/routes/**/*.tsx`; `apps/**/routes/**/*.ts` | No |
-| H3 derivation evidence | None | `apps/server/tools/security-h3/0015/generate.ts`; `apps/server/tools/security-h3/0015/generate.test.ts`; `apps/server/tools/security-h3/0015/reason-codes.json`; `apps/server/tools/security-h3/0015/schema.json`; `apps/server/tools/security-h3/0015/fixtures/**/*.json`; `evidence/security-h3/0015/current-route-inventory.json`; `evidence/security-h3/0015/current-resource-inventory.json`; `evidence/security-h3/0015/source-manifest.json`; `evidence/security-h3/0015/route-collector.json`; `evidence/security-h3/0015/decision-packet.json` | No |
-| Root census | Full `legacy` census root selected by `--legacy-root` | Full `mono` census root selected by `--root` | No; every regular file is classified exactly once |
-| Accepted-intent register | `--intent-register` path in the separate clean authority checkout | Exact immutable intent bytes, authority commit/blob/digest, and target source revision refs | No; never part of either census root or projection directory |
+| Source family                 | Legacy read-only paths                                                                                                                                                                                                                                                                                                                                        | Mono paths                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | Empty result                                                 |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
+| Route declarations            | `app/config/routing.yml`; `app/config/routing_api.yml`; `app/config/routing_dev.yml`; `app/config/routing*.yml`; `src/AppBundle/**/Controller/**/*.php`                                                                                                                                                                                                       | `apps/server/config/routes.yaml`; `apps/server/src/App/**/Controller/**/*.php`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | No                                                           |
+| API resource declarations     | `src/AppBundle/**/Controller/Api/**/*.php`; `src/AppBundle/**/Entity/**/*.php`; `src/AppBundle/**/Form/**/*.php`                                                                                                                                                                                                                                              | `apps/server/src/App/**/Api/Resource/**/*.php`; `apps/server/src/App/**/Api/State/**/*.php`; `apps/server/src/App/**/Infrastructure/Entity/**/*.php`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | No                                                           |
+| Commands and writes           | `src/AppBundle/**/Command/**/*.php`; `src/AppBundle/**/Controller/**/*.php`; `src/AppBundle/**/Service/**/*.php`; `src/AppBundle/**/Entity/**/*.php`; `src/AppBundle/**/Event/**/*.php`; `src/AppBundle/**/EventSubscriber/**/*.php`; `src/AppBundle/**/Repository/**/*.php`; `app/config/services*.yml`; `app/config/config*.yml`; `app/config/routing*.yml` | `apps/server/src/App/**/Infrastructure/Command/**/*.php`; `apps/server/src/App/**/Controller/**/*.php`; `apps/server/src/App/**/Infrastructure/Repository/**/*.php`; `apps/server/src/App/**/Infrastructure/AccessControlService.php`; `apps/server/src/App/**/Infrastructure/AdmissionNotifier.php`; `apps/server/src/App/**/Infrastructure/ApplicationAdmission.php`; `apps/server/src/App/**/Infrastructure/ApplicationData.php`; `apps/server/src/App/**/Infrastructure/ApplicationManager.php`; `apps/server/src/App/**/Infrastructure/AssistantHistoryData.php`; `apps/server/src/App/**/Infrastructure/BetaRedirecter.php`; `apps/server/src/App/**/Infrastructure/CompanyEmailMaker.php`; `apps/server/src/App/**/Infrastructure/ContentModeManager.php`; `apps/server/src/App/**/Infrastructure/EmailSender.php`; `apps/server/src/App/**/Infrastructure/FileUploader.php`; `apps/server/src/App/**/Infrastructure/GeoLocation.php`; `apps/server/src/App/**/Infrastructure/InterviewManager.php`; `apps/server/src/App/**/Infrastructure/InterviewNotificationManager.php`; `apps/server/src/App/**/Infrastructure/LogService.php`; `apps/server/src/App/**/Infrastructure/LoginManager.php`; `apps/server/src/App/**/Infrastructure/PasswordManager.php`; `apps/server/src/App/**/Infrastructure/RoleManager.php`; `apps/server/src/App/**/Infrastructure/SbsData.php`; `apps/server/src/App/**/Infrastructure/Slack/SlackMessenger.php`; `apps/server/src/App/**/Infrastructure/Slack/SlackMailer.php`; `apps/server/src/App/**/Infrastructure/SurveyManager.php`; `apps/server/src/App/**/Infrastructure/SurveyNotifier.php`; `apps/server/src/App/**/Infrastructure/TeamMembershipService.php`; `apps/server/src/App/**/Infrastructure/UserGroupCollectionManager.php`; `apps/server/src/App/**/Infrastructure/UserRegistration.php`; `apps/server/src/App/**/Infrastructure/UserService.php`; `apps/server/src/App/**/Infrastructure/Subscriber/**/*.php`; `apps/server/src/App/**/Event/**/*.php`; `apps/server/src/App/**/EventSubscriber/**/*.php`; `apps/server/config/services*.yaml`; `apps/server/config/packages/*.yaml`; `apps/server/config/routes*.yaml`; `apps/server/config/routes/**/*.yaml` | No                                                           |
+| Schedules and background work | `app/config/**/*.yml`; `app/config/**/*.yaml`; `src/AppBundle/**/Command/**/*.php`; `src/AppBundle/**/EventSubscriber/**/*.php`; `.github/workflows/**/*.yml`; `.github/workflows/**/*.yaml`                                                                                                                                                                  | `.github/workflows/**/*.yml`; `.github/workflows/**/*.yaml`; `infra/**/*.ts`; `infra/**/*.tsx`; `infra/**/*.js`; `infra/**/*.mjs`; `infra/**/*.yml`; `infra/**/*.yaml`; `apps/server/config/**/*.yaml`; `apps/server/src/App/**/Infrastructure/Command/**/*.php`; `apps/server/src/App/**/EventSubscriber/**/*.php`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | Yes; an empty result emits an `absent` census observation    |
+| External integrations         | `src/AppBundle/**/Google/**/*.php`; `src/AppBundle/**/Slack/**/*.php`; `src/AppBundle/**/Sms/**/*.php`; `src/AppBundle/**/Mailer/**/*.php`; `src/AppBundle/**/Service/**/*.php`; `src/AppBundle/**/Controller/**/*.php`; `app/config/services*.yml`                                                                                                           | `apps/server/src/App/**/Infrastructure/**/*.php`; `apps/server/src/App/**/Support/**/*.php`; `apps/server/src/App/**/Controller/**/*.php`; `packages/**/*.ts`; `packages/**/*.tsx`; `packages/**/*.js`; `.github/workflows/**/*.yml`; `.github/workflows/**/*.yaml`; `infra/**/*.ts`; `infra/**/*.tsx`; `infra/**/*.js`; `infra/**/*.mjs`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | No                                                           |
+| User-journey references       | `docs/**/*.md`; `design-specs/**/*.md`                                                                                                                                                                                                                                                                                                                        | `docs/**/*.md`; `design-specs/**/*.md`; `apps/**/routes/**/*.tsx`; `apps/**/routes/**/*.ts`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | No                                                           |
+| H3 derivation evidence        | None                                                                                                                                                                                                                                                                                                                                                          | `apps/server/tools/security-h3/0015/generate.ts`; `apps/server/tools/security-h3/0015/generate.test.ts`; `apps/server/tools/security-h3/0015/reason-codes.json`; `apps/server/tools/security-h3/0015/schema.json`; `apps/server/tools/security-h3/0015/fixtures/**/*.json`; `evidence/security-h3/0015/current-route-inventory.json`; `evidence/security-h3/0015/current-resource-inventory.json`; `evidence/security-h3/0015/source-manifest.json`; `evidence/security-h3/0015/route-collector.json`; `evidence/security-h3/0015/decision-packet.json`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | No                                                           |
+| Root census                   | Full `legacy` census root selected by `--legacy-root`                                                                                                                                                                                                                                                                                                         | Full `mono` census root selected by `--root`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | No; every regular file is classified exactly once            |
+| Accepted-intent register      | `--intent-register` path in the separate clean authority checkout                                                                                                                                                                                                                                                                                             | Exact immutable intent bytes, authority commit/blob/digest, and target source revision refs                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | No; never part of either census root or projection directory |
+
 ### Explicit census roots and total classification
 
 `legacy` and `mono` are the only census roots. `legacy` binds to the exact path supplied by `--legacy-root`; `mono` binds to the exact checkout supplied by `--root`. The collector enumerates every regular file below each full root, including files that produce no route, API, write, workflow, integration, or journey declaration. It does not narrow a root to the required parity-source globs.
 
 The owned mono derived projection mount `evidence/functional-parity/` is outside the mono census universe even when it is physically nested below `--root`. The collector MUST exclude that mount before path enumeration, source classification, byte hashing, and file-set revision construction. No projection entry, including an invalid or unexpected entry, is a mono census record or source reference; read, diff, and write stages independently enforce the exact-eight closure.
 
-| Census root | Authority | Physical binding | Complete-scan rule |
-|---|---|---|---|
-| `legacy` | `legacy` | `--legacy-root` and the pinned legacy revision | Enumerate every regular file below the root; legacy source is read-only |
-| `mono` | `mono` | `--root` and the selected mono revision | Enumerate every regular file below the root except the pre-enumeration derived projection mount; the 0023 baseline is the first allowed checkpoint |
+| Census root | Authority | Physical binding                               | Complete-scan rule                                                                                                                                 |
+| ----------- | --------- | ---------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `legacy`    | `legacy`  | `--legacy-root` and the pinned legacy revision | Enumerate every regular file below the root; legacy source is read-only                                                                            |
+| `mono`      | `mono`    | `--root` and the selected mono revision        | Enumerate every regular file below the root except the pre-enumeration derived projection mount; the 0023 baseline is the first allowed checkpoint |
 
 The required source families above are parity selectors and may overlap by authority role. They do not define the root census. For each bound root, the collector first applies the ordered residual ignore register, then evaluates the single `**/*` census family and only then applies first-party source-family selectors. Dependency and generated-output residuals therefore remove `packages/sdk/dist/**` from external-integration matching.
 
 For one root, let `M_i` be the set of paths matched by the literal predicate in rule order `i`. The effective predicate is `E_i = M_i \ (M_0 ∪ ... ∪ M_(i-1))`. The collector assigns the first matching effective rule and records exactly one `ignore_rule_id`; raw predicate overlap is expected and is resolved by set difference, not rejected. Rules are ordered by ascending `precedence`, then literal `pattern`, then `ignore_rule_id`; `precedence` is scoped to `root_ref`. A duplicate classification after path normalization is `schema_invalid`; raw overlap is never that failure.
 
-| Precedence | Rule kind | Root scope | Literal predicate | Residual meaning | Rationale |
-|---:|---|---|---|---|---|
-| 10 | `repository_metadata` | `legacy`, `mono` | `**/.git/**` | Repository metadata wins over every later class | Git administrative bytes are not application declarations. |
-| 20 | `dependency_cache` | `legacy`, `mono` | `**/node_modules/**` | Nested node-module trees win over later classes | Nested JavaScript dependency bytes are not first-party declarations. |
-| 21 | `dependency_cache` | `legacy`, `mono` | `**/vendor/**` | Nested vendor trees win after node-module subtraction | Nested third-party dependency bytes are not first-party declarations. |
-| 30 | `generated_output` | `legacy`, `mono` | `**/dist/**` | Distribution output after metadata/dependency subtraction | Distribution output is derived and is not a declaration authority. |
-| 31 | `generated_output` | `legacy`, `mono` | `**/build/**` | Build output after metadata/dependency/dist subtraction | Build output is derived and is not a declaration authority. |
-| 40 | `build_cache` | `legacy`, `mono` | `**/.turbo/**` | Turbo cache after earlier exclusions | Turbo cache bytes are generated build state. |
-| 41 | `build_cache` | `legacy`, `mono` | `**/.cache/**` | Tool cache after earlier exclusions | Tool cache bytes are generated build state. |
-| 50 | `runtime_cache` | `legacy` | `app/cache/**` | Legacy application cache residual | Legacy application cache is generated execution state. |
-| 51 | `runtime_cache` | `legacy` | `cache/**` | Legacy root cache residual | Legacy root cache is generated execution state. |
-| 52 | `runtime_cache` | `legacy` | `var/cache/**` | Legacy var cache residual | Legacy var cache is generated execution state. |
-| 53 | `runtime_cache` | `legacy` | `var/data/**` | Legacy var data residual | Legacy var data is generated runtime state. |
-| 53 | `runtime_cache` | `mono` | `apps/server/var/**` | Mono server runtime residual | Server runtime state is generated execution data. |
-| 60 | `runtime_log` | `legacy` | `app/logs/**` | Legacy application log residual | Legacy application logs are execution evidence. |
-| 61 | `runtime_log` | `legacy` | `logs/**` | Legacy root log residual | Legacy root logs are execution evidence. |
-| 62 | `runtime_log` | `legacy` | `var/logs/**` | Legacy var log residual | Legacy var logs are execution evidence. |
-| 63 | `runtime_log` | `legacy` | `**/npm-debug.log` | Nested legacy npm debug-log residual | Nested npm debug logs are execution evidence. |
-| 70 | `test_support` | `legacy`, `mono` | `**/coverage/**` | Coverage output after earlier exclusions | Coverage output is test evidence, not parity authority. |
-| 80 | `binary_tool` | `legacy` | `composer.phar` | Bundled Composer tool after earlier exclusions | Bundled Composer is an executable tool, not a source declaration. |
+| Precedence | Rule kind             | Root scope       | Literal predicate    | Residual meaning                                          | Rationale                                                             |
+| ---------: | --------------------- | ---------------- | -------------------- | --------------------------------------------------------- | --------------------------------------------------------------------- |
+|         10 | `repository_metadata` | `legacy`, `mono` | `**/.git/**`         | Repository metadata wins over every later class           | Git administrative bytes are not application declarations.            |
+|         20 | `dependency_cache`    | `legacy`, `mono` | `**/node_modules/**` | Nested node-module trees win over later classes           | Nested JavaScript dependency bytes are not first-party declarations.  |
+|         21 | `dependency_cache`    | `legacy`, `mono` | `**/vendor/**`       | Nested vendor trees win after node-module subtraction     | Nested third-party dependency bytes are not first-party declarations. |
+|         30 | `generated_output`    | `legacy`, `mono` | `**/dist/**`         | Distribution output after metadata/dependency subtraction | Distribution output is derived and is not a declaration authority.    |
+|         31 | `generated_output`    | `legacy`, `mono` | `**/build/**`        | Build output after metadata/dependency/dist subtraction   | Build output is derived and is not a declaration authority.           |
+|         40 | `build_cache`         | `legacy`, `mono` | `**/.turbo/**`       | Turbo cache after earlier exclusions                      | Turbo cache bytes are generated build state.                          |
+|         41 | `build_cache`         | `legacy`, `mono` | `**/.cache/**`       | Tool cache after earlier exclusions                       | Tool cache bytes are generated build state.                           |
+|         50 | `runtime_cache`       | `legacy`         | `app/cache/**`       | Legacy application cache residual                         | Legacy application cache is generated execution state.                |
+|         51 | `runtime_cache`       | `legacy`         | `cache/**`           | Legacy root cache residual                                | Legacy root cache is generated execution state.                       |
+|         52 | `runtime_cache`       | `legacy`         | `var/cache/**`       | Legacy var cache residual                                 | Legacy var cache is generated execution state.                        |
+|         53 | `runtime_cache`       | `legacy`         | `var/data/**`        | Legacy var data residual                                  | Legacy var data is generated runtime state.                           |
+|         53 | `runtime_cache`       | `mono`           | `apps/server/var/**` | Mono server runtime residual                              | Server runtime state is generated execution data.                     |
+|         60 | `runtime_log`         | `legacy`         | `app/logs/**`        | Legacy application log residual                           | Legacy application logs are execution evidence.                       |
+|         61 | `runtime_log`         | `legacy`         | `logs/**`            | Legacy root log residual                                  | Legacy root logs are execution evidence.                              |
+|         62 | `runtime_log`         | `legacy`         | `var/logs/**`        | Legacy var log residual                                   | Legacy var logs are execution evidence.                               |
+|         63 | `runtime_log`         | `legacy`         | `**/npm-debug.log`   | Nested legacy npm debug-log residual                      | Nested npm debug logs are execution evidence.                         |
+|         70 | `test_support`        | `legacy`, `mono` | `**/coverage/**`     | Coverage output after earlier exclusions                  | Coverage output is test evidence, not parity authority.               |
+|         80 | `binary_tool`         | `legacy`         | `composer.phar`      | Bundled Composer tool after earlier exclusions            | Bundled Composer is an executable tool, not a source declaration.     |
 
 Each backtick-delimited predicate is a separate register rule. `**` is recursive, can match zero path segments, and is evaluated with `include_hidden: true`; no brace expansion, alias, extension filter, parser filter, or root-anchored dependency predicate is allowed. A path outside all ignore residuals is evaluated by the one `**/*` census family. A readable file with no parity declaration still receives a matched census row and a whole-file source record.
 
@@ -615,6 +617,7 @@ Matched textual config/source files use fatal UTF-8 decoding before hashing. Dot
   ]
 }
 ```
+
 The JSON shape is illustrative. A generated register contains one real rule ID per root-scoped predicate, a root-scoped precedence, `selection: "ordered_set_difference"`, and the exact residual semantics defined above. Raw predicate overlap is not a failure; only more than one normalized classification record for the same root and path is invalid.
 
 ### Source manifest records
@@ -719,7 +722,6 @@ The example uses shape markers for readability. A generated artifact contains a 
 
 The legacy Git revision MAY remain a `git_commit` provenance revision. The mono deterministic revision MUST be `file_set_digest`: SHA-256 over compact canonical JSON for the sorted authoritative tracked Git blob set `{path, sha256}` after pre-enumeration exclusion of `evidence/functional-parity/`. Projection bytes, projection paths, and raw Git `HEAD` MUST NOT enter that digest. A non-Git source MUST use an immutable archive or file-set digest. Runtime command-output records remain deterministic because they contain hashes and exit status, not time or host data; command output bytes are evidence, not source authority.
 
-
 Source references use exact line numbers from the selected bytes when a parser can provide them. A parser that cannot provide an exact line or symbol emits null and a reason code; it does not invent a line. Every row has at least one source reference and one revision reference, or it is `unresolved`.
 
 ### Runtime and static observation classes
@@ -758,14 +760,14 @@ The normalizer MUST preserve a `raw_source_digest` through a source reference, n
 
 Each row has both a declaration identity and a comparison signature.
 
-| Identity | Formula | Purpose |
-|---|---|---|
-| `census_id` | Hash of `{authority_line, root_ref, path, byte_length, sha256, availability, classification, source_ref_ids, ignore_rule_id}` | Retains one deterministic classification outcome for each regular file |
-| `declaration_id` | Hash of `{authority_line, repository_ref, logical_path, declaration_kind, ordinal_within_file}` | Retains every source declaration across source revisions when its logical path and ordinal remain stable |
-| `canonical_key` | Canonical JSON of the kind-specific semantic identity | Exact matching within and across lines |
-| `signature` | Canonical JSON of the cross-line comparison identity | Reconciliation without source-path substitution |
-| `duplicate_group_id` | Hash of `{authority scope, inventory kind, canonical_key}` | Groups exact duplicate identities; null only when no duplicate exists |
-| `row_id` | Hash of `{inventory_kind, declaration_id, canonical_key}` | Stable when the declaration identity and semantic key remain stable |
+| Identity             | Formula                                                                                                                       | Purpose                                                                                                  |
+| -------------------- | ----------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `census_id`          | Hash of `{authority_line, root_ref, path, byte_length, sha256, availability, classification, source_ref_ids, ignore_rule_id}` | Retains one deterministic classification outcome for each regular file                                   |
+| `declaration_id`     | Hash of `{authority_line, repository_ref, logical_path, declaration_kind, ordinal_within_file}`                               | Retains every source declaration across source revisions when its logical path and ordinal remain stable |
+| `canonical_key`      | Canonical JSON of the kind-specific semantic identity                                                                         | Exact matching within and across lines                                                                   |
+| `signature`          | Canonical JSON of the cross-line comparison identity                                                                          | Reconciliation without source-path substitution                                                          |
+| `duplicate_group_id` | Hash of `{authority scope, inventory kind, canonical_key}`                                                                    | Groups exact duplicate identities; null only when no duplicate exists                                    |
+| `row_id`             | Hash of `{inventory_kind, declaration_id, canonical_key}`                                                                     | Stable when the declaration identity and semantic key remain stable                                      |
 
 The hash encoding for these IDs is lowercase SHA-256 over compact canonical UTF-8 JSON, prefixed with the ID label. A row ID is not an approval ID and is not an identity-bearing user identifier.
 
@@ -874,26 +876,26 @@ The inventory and reconciliation files contain no `artifact_sha256` field. Their
 
 Every row in every inventory has these fields:
 
-| Field | Type and rule |
-|---|---|
-| `row_id` | Non-empty deterministic `row-...` string; unique within the complete run |
-| `declaration_id` | Non-empty deterministic source declaration ID |
-| `inventory_kind` | Closed category enum matching the file |
-| `authority_line` | `legacy`, `mono`, or `cross_line` |
-| `canonical_key` | Canonical JSON string or deterministic digest of the kind-specific identity |
-| `signature` | Canonical cross-line signature; no source path or timestamp |
-| `status` | Exact row-state enum above |
-| `observation_kinds` | Unique sorted observation classes |
-| `source_ref_ids` | One or more source manifest IDs |
-| `revision_ref_ids` | One or more immutable revision IDs |
-| `runtime_observation_ref_ids` | Zero or more command-output evidence IDs |
-| `coverage_ref_ids` | Zero or more accepted journey or explicit non-user-facing refs |
-| `accepted_intent_ref_ids` | Zero or more exact accepted-intent refs |
-| `duplicate_group_id` | Deterministic group ID or null |
-| `mismatch` | Closed mismatch object; `kind: "none"` for covered rows |
-| `details` | Closed kind-specific payload selected by `inventory_kind` |
-| `reason_codes` | Unique sorted closed reason-code enum |
-| `related_row_ids` | Unique sorted row IDs for exact reconciliation edges |
+| Field                         | Type and rule                                                               |
+| ----------------------------- | --------------------------------------------------------------------------- |
+| `row_id`                      | Non-empty deterministic `row-...` string; unique within the complete run    |
+| `declaration_id`              | Non-empty deterministic source declaration ID                               |
+| `inventory_kind`              | Closed category enum matching the file                                      |
+| `authority_line`              | `legacy`, `mono`, or `cross_line`                                           |
+| `canonical_key`               | Canonical JSON string or deterministic digest of the kind-specific identity |
+| `signature`                   | Canonical cross-line signature; no source path or timestamp                 |
+| `status`                      | Exact row-state enum above                                                  |
+| `observation_kinds`           | Unique sorted observation classes                                           |
+| `source_ref_ids`              | One or more source manifest IDs                                             |
+| `revision_ref_ids`            | One or more immutable revision IDs                                          |
+| `runtime_observation_ref_ids` | Zero or more command-output evidence IDs                                    |
+| `coverage_ref_ids`            | Zero or more accepted journey or explicit non-user-facing refs              |
+| `accepted_intent_ref_ids`     | Zero or more exact accepted-intent refs                                     |
+| `duplicate_group_id`          | Deterministic group ID or null                                              |
+| `mismatch`                    | Closed mismatch object; `kind: "none"` for covered rows                     |
+| `details`                     | Closed kind-specific payload selected by `inventory_kind`                   |
+| `reason_codes`                | Unique sorted closed reason-code enum                                       |
+| `related_row_ids`             | Unique sorted row IDs for exact reconciliation edges                        |
 
 No row may use an unlisted field. Unknown fields are a schema failure. Free-form source text, raw endpoint responses, secrets, credentials, identities, and payloads are forbidden.
 
@@ -1206,8 +1208,7 @@ An ID collision, duplicate canonical key, missing source edge, or non-canonical 
 8. In `--diff` mode, never write. Compare regenerated source-manifest and inventory projection bytes with the committed projection set, and compare the committed OpenAPI input through `openapi-reconciliation.json`. Missing or different committed bytes are `stale`; they are never `nondeterministic_output`. Set `verification.deterministic_diff: "equal"` only when every committed projection byte and the OpenAPI reconciliation are equal. A blocked comparison records `different` and retains the specific failure.
 9. Run the two isolated replay required by `F0_deterministic_replay`. Only different bytes for identical inputs produce `nondeterministic_output`.
 
-Bundle validation MUST decode artifact bytes through a non-public shape decoder, re-hash those exact bytes, derive report status/counts/digests/mismatches/cross-references/forbidden-state claims from the decoded artifacts, and derive projection diff from an observed filesystem read of the exact-eight projection closure. It MUST NOT trust caller-supplied report flags, `projectionDiff`, cross-reference booleans, or self-authored terminal claims. The production `run` composition root is the sole public mutation path; terminal stage effects, raw projection writers, and injected observation/writer services are module-private. Test-only seams MUST use a trusted deterministic fixture collector and cannot certify a no-op writer. After every write, the terminal stage MUST re-read all eight files from disk and byte-compare them before returning `projection_written`.
-11. Write timestamped execution evidence separately. Execution evidence is not in the deterministic hash chain.
+Bundle validation MUST decode artifact bytes through a non-public shape decoder, re-hash those exact bytes, derive report status/counts/digests/mismatches/cross-references/forbidden-state claims from the decoded artifacts, and derive projection diff from an observed filesystem read of the exact-eight projection closure. It MUST NOT trust caller-supplied report flags, `projectionDiff`, cross-reference booleans, or self-authored terminal claims. The production `run` composition root is the sole public mutation path; terminal stage effects, raw projection writers, and injected observation/writer services are module-private. Test-only seams MUST use a trusted deterministic fixture collector and cannot certify a no-op writer. After every write, the terminal stage MUST re-read all eight files from disk and byte-compare them before returning `projection_written`. 11. Write timestamped execution evidence separately. Execution evidence is not in the deterministic hash chain.
 
 The report is `zero_gap` only after every required row is accounted for and every forbidden status set is empty.
 
@@ -1243,21 +1244,21 @@ Deterministic bytes MUST NOT contain `generated_at`, `started_at`, `finished_at`
 
 The canonical JSON algorithm is recursive object-key sorting, explicit array sorting per table below, compact `JSON.stringify`-equivalent encoding, UTF-8 bytes, and no terminal newline. Numbers use a single JSON representation. Locale collation is forbidden; byte-order comparison is mandatory.
 
-| Array | Sort key |
-|---|---|
-| `sources` | `source_id` |
-| `census_roots` | `root_ref` |
-| `revisions` | `revision_ref_id` |
-| `runtime_observations` | `runtime_observation_ref_id` |
-| `root_census` | `census_id` |
-| `ignore_rules` | `root_ref`, `precedence`, `pattern`, `ignore_rule_id` |
-| `rows` | `row_id` then `canonical_key` |
-| `links` | `relation_kind`, `from_row_id`, `to_row_id` |
-| `derivation_edges` | `edge_id` |
-| `reason_codes` | byte order |
-| `failure_statuses` | byte order |
-| `steps` | `step_id` |
-| `accepted_intent_ref_ids` | byte order |
+| Array                     | Sort key                                              |
+| ------------------------- | ----------------------------------------------------- |
+| `sources`                 | `source_id`                                           |
+| `census_roots`            | `root_ref`                                            |
+| `revisions`               | `revision_ref_id`                                     |
+| `runtime_observations`    | `runtime_observation_ref_id`                          |
+| `root_census`             | `census_id`                                           |
+| `ignore_rules`            | `root_ref`, `precedence`, `pattern`, `ignore_rule_id` |
+| `rows`                    | `row_id` then `canonical_key`                         |
+| `links`                   | `relation_kind`, `from_row_id`, `to_row_id`           |
+| `derivation_edges`        | `edge_id`                                             |
+| `reason_codes`            | byte order                                            |
+| `failure_statuses`        | byte order                                            |
+| `steps`                   | `step_id`                                             |
+| `accepted_intent_ref_ids` | byte order                                            |
 
 ### Timestamped execution evidence
 
@@ -1284,38 +1285,80 @@ Execution evidence MUST NOT be used as a source authority or included in a deter
   "$id": "functional-parity-execution-evidence/v1",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "run_id", "started_at", "finished_at", "duration_ms", "operator_ref", "worktree", "legacy_root", "branch", "revisions", "command", "arguments", "runtime", "exit_code", "status", "deterministic_artifact_sha256", "stdout_ref", "stderr_ref", "cleanup"],
+  "required": [
+    "schema_version",
+    "run_id",
+    "started_at",
+    "finished_at",
+    "duration_ms",
+    "operator_ref",
+    "worktree",
+    "legacy_root",
+    "branch",
+    "revisions",
+    "command",
+    "arguments",
+    "runtime",
+    "exit_code",
+    "status",
+    "deterministic_artifact_sha256",
+    "stdout_ref",
+    "stderr_ref",
+    "cleanup"
+  ],
   "properties": {
-    "$schema": {"type": "string", "const": "https://json-schema.org/draft/2020-12/schema"},
-    "schema_version": {"type": "string", "const": "functional-parity-execution-evidence/v1"},
-    "run_id": {"type": "string", "minLength": 1},
-    "started_at": {"type": "string", "minLength": 1},
-    "finished_at": {"type": "string", "minLength": 1},
-    "duration_ms": {"type": "integer", "minimum": 0},
-    "operator_ref": {"type": ["string", "null"]},
-    "worktree": {"type": "string", "minLength": 1},
-    "legacy_root": {"type": "string", "minLength": 1},
-    "branch": {"type": "string", "minLength": 1},
-    "revisions": {"type": "object", "additionalProperties": false, "patternProperties": {"^[A-Za-z0-9._-]+$": {"type": "string", "minLength": 1}}},
-    "command": {"type": "string", "minLength": 1},
-    "arguments": {"type": "array", "items": {"type": "string"}},
+    "$schema": { "type": "string", "const": "https://json-schema.org/draft/2020-12/schema" },
+    "schema_version": { "type": "string", "const": "functional-parity-execution-evidence/v1" },
+    "run_id": { "type": "string", "minLength": 1 },
+    "started_at": { "type": "string", "minLength": 1 },
+    "finished_at": { "type": "string", "minLength": 1 },
+    "duration_ms": { "type": "integer", "minimum": 0 },
+    "operator_ref": { "type": ["string", "null"] },
+    "worktree": { "type": "string", "minLength": 1 },
+    "legacy_root": { "type": "string", "minLength": 1 },
+    "branch": { "type": "string", "minLength": 1 },
+    "revisions": {
+      "type": "object",
+      "additionalProperties": false,
+      "patternProperties": { "^[A-Za-z0-9._-]+$": { "type": "string", "minLength": 1 } }
+    },
+    "command": { "type": "string", "minLength": 1 },
+    "arguments": { "type": "array", "items": { "type": "string" } },
     "runtime": {
       "type": "object",
       "additionalProperties": false,
       "required": ["runtime_name", "runtime_version", "os", "tool_versions"],
       "properties": {
-        "runtime_name": {"type": "string", "minLength": 1},
-        "runtime_version": {"type": "string", "minLength": 1},
-        "os": {"type": "string", "minLength": 1},
-        "tool_versions": {"type": "object", "additionalProperties": false, "patternProperties": {"^[A-Za-z0-9._-]+$": {"type": "string", "minLength": 1}}}
+        "runtime_name": { "type": "string", "minLength": 1 },
+        "runtime_version": { "type": "string", "minLength": 1 },
+        "os": { "type": "string", "minLength": 1 },
+        "tool_versions": {
+          "type": "object",
+          "additionalProperties": false,
+          "patternProperties": { "^[A-Za-z0-9._-]+$": { "type": "string", "minLength": 1 } }
+        }
       }
     },
-    "exit_code": {"type": "integer"},
-    "status": {"type": "string", "minLength": 1},
-    "deterministic_artifact_sha256": {"type": "object", "additionalProperties": false, "patternProperties": {"^[A-Za-z0-9._-]+$": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}}},
-    "stdout_ref": {"type": ["string", "null"]},
-    "stderr_ref": {"type": ["string", "null"]},
-    "cleanup": {"type": "object", "additionalProperties": false, "required": ["status", "detail"], "properties": {"status": {"type": "string", "enum": ["complete", "failed"]}, "detail": {"type": "string", "minLength": 1}}}
+    "exit_code": { "type": "integer" },
+    "status": { "type": "string", "minLength": 1 },
+    "deterministic_artifact_sha256": {
+      "type": "object",
+      "additionalProperties": false,
+      "patternProperties": {
+        "^[A-Za-z0-9._-]+$": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+      }
+    },
+    "stdout_ref": { "type": ["string", "null"] },
+    "stderr_ref": { "type": ["string", "null"] },
+    "cleanup": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "detail"],
+      "properties": {
+        "status": { "type": "string", "enum": ["complete", "failed"] },
+        "detail": { "type": "string", "minLength": 1 }
+      }
+    }
   }
 }
 ```
@@ -1334,225 +1377,667 @@ The future implementation MUST install byte-equivalent closed JSON Schemas. The 
   "$id": "functional-parity-inventory/v1",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "inventory_kind", "authority_line", "source_manifest_sha256", "revision_ref_ids", "observation_kinds", "rows", "links", "observations", "derivation_edges"],
+  "required": [
+    "schema_version",
+    "inventory_kind",
+    "authority_line",
+    "source_manifest_sha256",
+    "revision_ref_ids",
+    "observation_kinds",
+    "rows",
+    "links",
+    "observations",
+    "derivation_edges"
+  ],
   "properties": {
-    "$schema": {"type": "string", "const": "https://json-schema.org/draft/2020-12/schema"},
-    "schema_version": {"type": "string", "const": "functional-parity-inventory/v1"},
-    "inventory_kind": {"type": "string", "enum": ["legacy_route", "mono_route", "api_operation", "command_write", "schedule_background", "external_integration", "user_journey"]},
-    "authority_line": {"type": "string", "enum": ["legacy", "mono", "cross_line"]},
-    "source_manifest_sha256": {"$ref": "#/$defs/sha256"},
-    "revision_ref_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
-    "observation_kinds": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/observationKind"}},
-    "rows": {"type": "array", "items": {"$ref": "#/$defs/row"}},
-    "links": {"type": "array", "items": {"$ref": "#/$defs/link"}},
-    "observations": {"type": "array", "items": {"$ref": "#/$defs/observation"}},
-    "derivation_edges": {"type": "array", "items": {"$ref": "#/$defs/derivationEdge"}}
+    "$schema": { "type": "string", "const": "https://json-schema.org/draft/2020-12/schema" },
+    "schema_version": { "type": "string", "const": "functional-parity-inventory/v1" },
+    "inventory_kind": {
+      "type": "string",
+      "enum": [
+        "legacy_route",
+        "mono_route",
+        "api_operation",
+        "command_write",
+        "schedule_background",
+        "external_integration",
+        "user_journey"
+      ]
+    },
+    "authority_line": { "type": "string", "enum": ["legacy", "mono", "cross_line"] },
+    "source_manifest_sha256": { "$ref": "#/$defs/sha256" },
+    "revision_ref_ids": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "observation_kinds": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/observationKind" }
+    },
+    "rows": { "type": "array", "items": { "$ref": "#/$defs/row" } },
+    "links": { "type": "array", "items": { "$ref": "#/$defs/link" } },
+    "observations": { "type": "array", "items": { "$ref": "#/$defs/observation" } },
+    "derivation_edges": { "type": "array", "items": { "$ref": "#/$defs/derivationEdge" } }
   },
   "$defs": {
-    "sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
-    "observationKind": {"type": "string", "enum": ["static_source", "runtime_resolution", "runtime_evidence", "generated_projection", "accepted_intent", "derived_h3"]},
-    "rowStatus": {"type": "string", "enum": ["covered", "accounted", "missing", "extra", "changed", "uncovered", "unresolved", "duplicate", "stale", "dead_unimported", "absent", "not_applicable"]},
-    "mismatchKind": {"type": "string", "enum": ["none", "missing", "extra", "changed", "renamed", "split", "merged", "dead_unimported", "absent", "uncovered", "unresolved", "duplicate", "stale", "openapi_stale"]},
+    "sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "observationKind": {
+      "type": "string",
+      "enum": [
+        "static_source",
+        "runtime_resolution",
+        "runtime_evidence",
+        "generated_projection",
+        "accepted_intent",
+        "derived_h3"
+      ]
+    },
+    "rowStatus": {
+      "type": "string",
+      "enum": [
+        "covered",
+        "accounted",
+        "missing",
+        "extra",
+        "changed",
+        "uncovered",
+        "unresolved",
+        "duplicate",
+        "stale",
+        "dead_unimported",
+        "absent",
+        "not_applicable"
+      ]
+    },
+    "mismatchKind": {
+      "type": "string",
+      "enum": [
+        "none",
+        "missing",
+        "extra",
+        "changed",
+        "renamed",
+        "split",
+        "merged",
+        "dead_unimported",
+        "absent",
+        "uncovered",
+        "unresolved",
+        "duplicate",
+        "stale",
+        "openapi_stale"
+      ]
+    },
     "mismatch": {
-      "type": "object", "additionalProperties": false,
+      "type": "object",
+      "additionalProperties": false,
       "required": ["kind", "disposition", "accepted_intent_ref_ids"],
       "properties": {
-        "kind": {"$ref": "#/$defs/mismatchKind"},
-        "disposition": {"type": "string", "enum": ["none", "accepted_missing", "accepted_extra", "accepted_changed", "accepted_renamed", "accepted_split", "accepted_merged", "accepted_dead_source", "accepted_absent", "accepted_not_applicable", "rejected"]},
-        "accepted_intent_ref_ids": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
-        "counterpart_row_ids": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
-        "reason": {"type": ["string", "null"], "maxLength": 500}
+        "kind": { "$ref": "#/$defs/mismatchKind" },
+        "disposition": {
+          "type": "string",
+          "enum": [
+            "none",
+            "accepted_missing",
+            "accepted_extra",
+            "accepted_changed",
+            "accepted_renamed",
+            "accepted_split",
+            "accepted_merged",
+            "accepted_dead_source",
+            "accepted_absent",
+            "accepted_not_applicable",
+            "rejected"
+          ]
+        },
+        "accepted_intent_ref_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "counterpart_row_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "reason": { "type": ["string", "null"], "maxLength": 500 }
       },
       "allOf": [
-        {"if": {"properties": {"disposition": {"enum": ["accepted_missing", "accepted_extra", "accepted_changed", "accepted_renamed", "accepted_split", "accepted_merged", "accepted_dead_source", "accepted_absent", "accepted_not_applicable"]}}}, "then": {"properties": {"accepted_intent_ref_ids": {"minItems": 1}}}},
-        {"if": {"properties": {"disposition": {"enum": ["none", "rejected"]}}}, "then": {"properties": {"accepted_intent_ref_ids": {"maxItems": 0}}}},
-        {"if": {"properties": {"kind": {"const": "absent"}}}, "then": {"properties": {"disposition": {"const": "accepted_absent"}, "accepted_intent_ref_ids": {"minItems": 1}}}}
+        {
+          "if": {
+            "properties": {
+              "disposition": {
+                "enum": [
+                  "accepted_missing",
+                  "accepted_extra",
+                  "accepted_changed",
+                  "accepted_renamed",
+                  "accepted_split",
+                  "accepted_merged",
+                  "accepted_dead_source",
+                  "accepted_absent",
+                  "accepted_not_applicable"
+                ]
+              }
+            }
+          },
+          "then": { "properties": { "accepted_intent_ref_ids": { "minItems": 1 } } }
+        },
+        {
+          "if": { "properties": { "disposition": { "enum": ["none", "rejected"] } } },
+          "then": { "properties": { "accepted_intent_ref_ids": { "maxItems": 0 } } }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "absent" } } },
+          "then": {
+            "properties": {
+              "disposition": { "const": "accepted_absent" },
+              "accepted_intent_ref_ids": { "minItems": 1 }
+            }
+          }
+        }
       ]
     },
     "row": {
-      "type": "object", "additionalProperties": false,
-      "required": ["row_id", "declaration_id", "inventory_kind", "authority_line", "canonical_key", "signature", "status", "observation_kinds", "source_ref_ids", "revision_ref_ids", "runtime_observation_ref_ids", "coverage_ref_ids", "accepted_intent_ref_ids", "duplicate_group_id", "mismatch", "reason_codes", "related_row_ids", "details"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "row_id",
+        "declaration_id",
+        "inventory_kind",
+        "authority_line",
+        "canonical_key",
+        "signature",
+        "status",
+        "observation_kinds",
+        "source_ref_ids",
+        "revision_ref_ids",
+        "runtime_observation_ref_ids",
+        "coverage_ref_ids",
+        "accepted_intent_ref_ids",
+        "duplicate_group_id",
+        "mismatch",
+        "reason_codes",
+        "related_row_ids",
+        "details"
+      ],
       "properties": {
-        "row_id": {"type": "string", "pattern": "^row-[a-f0-9]{64}$"},
-        "declaration_id": {"type": "string", "pattern": "^decl-[a-f0-9]{64}$"},
-        "inventory_kind": {"type": "string", "enum": ["legacy_route", "mono_route", "api_operation", "command_write", "schedule_background", "external_integration", "user_journey"]},
-        "authority_line": {"type": "string", "enum": ["legacy", "mono", "cross_line"]},
-        "canonical_key": {"type": "string", "minLength": 1},
-        "signature": {"type": "string", "minLength": 1},
-        "status": {"$ref": "#/$defs/rowStatus"},
-        "observation_kinds": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/observationKind"}},
-        "source_ref_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
-        "revision_ref_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
-        "runtime_observation_ref_ids": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
-        "coverage_ref_ids": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
-        "accepted_intent_ref_ids": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
-        "duplicate_group_id": {"type": ["string", "null"], "pattern": "^dup-[a-f0-9]{64}$"},
-        "mismatch": {"$ref": "#/$defs/mismatch"},
-        "reason_codes": {"type": "array", "uniqueItems": true, "items": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]{2,63}$"}},
-        "related_row_ids": {"type": "array", "uniqueItems": true, "items": {"type": "string", "pattern": "^row-[a-f0-9]{64}$"}},
+        "row_id": { "type": "string", "pattern": "^row-[a-f0-9]{64}$" },
+        "declaration_id": { "type": "string", "pattern": "^decl-[a-f0-9]{64}$" },
+        "inventory_kind": {
+          "type": "string",
+          "enum": [
+            "legacy_route",
+            "mono_route",
+            "api_operation",
+            "command_write",
+            "schedule_background",
+            "external_integration",
+            "user_journey"
+          ]
+        },
+        "authority_line": { "type": "string", "enum": ["legacy", "mono", "cross_line"] },
+        "canonical_key": { "type": "string", "minLength": 1 },
+        "signature": { "type": "string", "minLength": 1 },
+        "status": { "$ref": "#/$defs/rowStatus" },
+        "observation_kinds": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/observationKind" }
+        },
+        "source_ref_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "revision_ref_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "runtime_observation_ref_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "coverage_ref_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "accepted_intent_ref_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "duplicate_group_id": { "type": ["string", "null"], "pattern": "^dup-[a-f0-9]{64}$" },
+        "mismatch": { "$ref": "#/$defs/mismatch" },
+        "reason_codes": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]{2,63}$" }
+        },
+        "related_row_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^row-[a-f0-9]{64}$" }
+        },
         "details": {}
       },
       "allOf": [
-        {"if": {"properties": {"inventory_kind": {"const": "legacy_route"}}}, "then": {"properties": {"details": {"$ref": "#/$defs/legacyRouteDetails"}}}},
-        {"if": {"properties": {"inventory_kind": {"const": "mono_route"}}}, "then": {"properties": {"details": {"$ref": "#/$defs/monoRouteDetails"}}}},
-        {"if": {"properties": {"inventory_kind": {"const": "api_operation"}}}, "then": {"properties": {"details": {"$ref": "#/$defs/apiOperationDetails"}}}},
-        {"if": {"properties": {"inventory_kind": {"const": "command_write"}}}, "then": {"properties": {"details": {"$ref": "#/$defs/commandWriteDetails"}}}},
-        {"if": {"properties": {"inventory_kind": {"const": "schedule_background"}}}, "then": {"properties": {"details": {"$ref": "#/$defs/scheduleBackgroundDetails"}}}},
-        {"if": {"properties": {"inventory_kind": {"const": "external_integration"}}}, "then": {"properties": {"details": {"$ref": "#/$defs/externalIntegrationDetails"}}}},
-        {"if": {"properties": {"inventory_kind": {"const": "user_journey"}}}, "then": {"properties": {"details": {"$ref": "#/$defs/userJourneyDetails"}}}}
+        {
+          "if": { "properties": { "inventory_kind": { "const": "legacy_route" } } },
+          "then": { "properties": { "details": { "$ref": "#/$defs/legacyRouteDetails" } } }
+        },
+        {
+          "if": { "properties": { "inventory_kind": { "const": "mono_route" } } },
+          "then": { "properties": { "details": { "$ref": "#/$defs/monoRouteDetails" } } }
+        },
+        {
+          "if": { "properties": { "inventory_kind": { "const": "api_operation" } } },
+          "then": { "properties": { "details": { "$ref": "#/$defs/apiOperationDetails" } } }
+        },
+        {
+          "if": { "properties": { "inventory_kind": { "const": "command_write" } } },
+          "then": { "properties": { "details": { "$ref": "#/$defs/commandWriteDetails" } } }
+        },
+        {
+          "if": { "properties": { "inventory_kind": { "const": "schedule_background" } } },
+          "then": { "properties": { "details": { "$ref": "#/$defs/scheduleBackgroundDetails" } } }
+        },
+        {
+          "if": { "properties": { "inventory_kind": { "const": "external_integration" } } },
+          "then": { "properties": { "details": { "$ref": "#/$defs/externalIntegrationDetails" } } }
+        },
+        {
+          "if": { "properties": { "inventory_kind": { "const": "user_journey" } } },
+          "then": { "properties": { "details": { "$ref": "#/$defs/userJourneyDetails" } } }
+        }
       ]
     },
     "link": {
-      "type": "object", "additionalProperties": false,
+      "type": "object",
+      "additionalProperties": false,
       "required": ["relation_id", "relation_kind", "from_row_id", "to_row_id", "source_ref_ids"],
       "properties": {
-        "relation_id": {"type": "string", "pattern": "^rel-[a-f0-9]{64}$"},
-        "relation_kind": {"type": "string", "enum": ["matches", "derives", "imports", "covers", "observes", "reconciles"]},
-        "from_row_id": {"type": "string", "pattern": "^row-[a-f0-9]{64}$"},
-        "to_row_id": {"type": "string", "pattern": "^row-[a-f0-9]{64}$"},
-        "source_ref_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
+        "relation_id": { "type": "string", "pattern": "^rel-[a-f0-9]{64}$" },
+        "relation_kind": {
+          "type": "string",
+          "enum": ["matches", "derives", "imports", "covers", "observes", "reconciles"]
+        },
+        "from_row_id": { "type": "string", "pattern": "^row-[a-f0-9]{64}$" },
+        "to_row_id": { "type": "string", "pattern": "^row-[a-f0-9]{64}$" },
+        "source_ref_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        }
       }
     },
     "observation": {
-      "type": "object", "additionalProperties": false,
-      "required": ["observation_id", "observation_kind", "source_ref_ids", "value_digest", "normative"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "observation_id",
+        "observation_kind",
+        "source_ref_ids",
+        "value_digest",
+        "normative"
+      ],
       "properties": {
-        "observation_id": {"type": "string", "pattern": "^obs-[a-f0-9]{64}$"},
-        "observation_kind": {"$ref": "#/$defs/observationKind"},
-        "source_ref_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
-        "value_digest": {"$ref": "#/$defs/sha256"},
-        "normative": {"type": "boolean", "const": false},
-        "label": {"type": "string", "minLength": 1, "maxLength": 200},
-        "count": {"type": ["integer", "null"], "minimum": 0}
+        "observation_id": { "type": "string", "pattern": "^obs-[a-f0-9]{64}$" },
+        "observation_kind": { "$ref": "#/$defs/observationKind" },
+        "source_ref_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "value_digest": { "$ref": "#/$defs/sha256" },
+        "normative": { "type": "boolean", "const": false },
+        "label": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "count": { "type": ["integer", "null"], "minimum": 0 }
       }
     },
     "derivationEdge": {
-      "type": "object", "additionalProperties": false,
+      "type": "object",
+      "additionalProperties": false,
       "required": ["edge_id", "edge_type", "from_ref_ids", "to_row_ids", "derivation"],
       "properties": {
-        "edge_id": {"type": "string", "pattern": "^edge-[a-f0-9]{64}$"},
-        "edge_type": {"type": "string", "enum": ["authority_input", "observed_inventory", "derived_projection", "reconciles", "coverage", "accepted_intent"]},
-        "from_ref_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
-        "to_row_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "pattern": "^row-[a-f0-9]{64}$"}},
-        "derivation": {"type": "string", "minLength": 1, "maxLength": 500}
+        "edge_id": { "type": "string", "pattern": "^edge-[a-f0-9]{64}$" },
+        "edge_type": {
+          "type": "string",
+          "enum": [
+            "authority_input",
+            "observed_inventory",
+            "derived_projection",
+            "reconciles",
+            "coverage",
+            "accepted_intent"
+          ]
+        },
+        "from_ref_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "to_row_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^row-[a-f0-9]{64}$" }
+        },
+        "derivation": { "type": "string", "minLength": 1, "maxLength": 500 }
       }
     },
     "legacyRouteDetails": {
-      "type": "object", "additionalProperties": false,
-      "required": ["declaration_kind", "route_name", "path_template", "method", "methods_declared", "controller_ref", "import_ref", "deprecated"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "declaration_kind",
+        "route_name",
+        "path_template",
+        "method",
+        "methods_declared",
+        "controller_ref",
+        "import_ref",
+        "deprecated"
+      ],
       "properties": {
-        "declaration_kind": {"type": "string", "enum": ["yaml_route_block", "controller_annotation", "imported_route", "vendor_route", "unknown"]},
-        "route_name": {"type": ["string", "null"]},
-        "path_template": {"type": ["string", "null"]},
-        "method": {"type": ["string", "null"], "pattern": "^[A-Z]+$"},
-        "methods_declared": {"type": "array", "uniqueItems": true, "items": {"type": "string", "pattern": "^[A-Z]+$"}},
-        "controller_ref": {"type": ["string", "null"]},
-        "import_ref": {"type": ["string", "null"]},
-        "deprecated": {"type": "boolean"}
+        "declaration_kind": {
+          "type": "string",
+          "enum": [
+            "yaml_route_block",
+            "controller_annotation",
+            "imported_route",
+            "vendor_route",
+            "unknown"
+          ]
+        },
+        "route_name": { "type": ["string", "null"] },
+        "path_template": { "type": ["string", "null"] },
+        "method": { "type": ["string", "null"], "pattern": "^[A-Z]+$" },
+        "methods_declared": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^[A-Z]+$" }
+        },
+        "controller_ref": { "type": ["string", "null"] },
+        "import_ref": { "type": ["string", "null"] },
+        "deprecated": { "type": "boolean" }
       }
     },
     "monoRouteDetails": {
-      "type": "object", "additionalProperties": false,
-      "required": ["declaration_kind", "route_origin", "route_name", "path_template", "method", "owner_ref", "runtime_resolved", "imported_from_ref"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "declaration_kind",
+        "route_origin",
+        "route_name",
+        "path_template",
+        "method",
+        "owner_ref",
+        "runtime_resolved",
+        "imported_from_ref"
+      ],
       "properties": {
-        "declaration_kind": {"type": "string", "enum": ["controller_attribute", "api_platform", "imported_route", "vendor_route", "unknown"]},
-        "route_origin": {"type": "string", "enum": ["controller", "api_platform", "imported", "vendor"]},
-        "route_name": {"type": ["string", "null"]},
-        "path_template": {"type": ["string", "null"]},
-        "method": {"type": ["string", "null"], "pattern": "^[A-Z]+$"},
-        "owner_ref": {"type": ["string", "null"]},
-        "runtime_resolved": {"type": "boolean"},
-        "imported_from_ref": {"type": ["string", "null"]}
+        "declaration_kind": {
+          "type": "string",
+          "enum": [
+            "controller_attribute",
+            "api_platform",
+            "imported_route",
+            "vendor_route",
+            "unknown"
+          ]
+        },
+        "route_origin": {
+          "type": "string",
+          "enum": ["controller", "api_platform", "imported", "vendor"]
+        },
+        "route_name": { "type": ["string", "null"] },
+        "path_template": { "type": ["string", "null"] },
+        "method": { "type": ["string", "null"], "pattern": "^[A-Z]+$" },
+        "owner_ref": { "type": ["string", "null"] },
+        "runtime_resolved": { "type": "boolean" },
+        "imported_from_ref": { "type": ["string", "null"] }
       }
     },
     "apiOperationDetails": {
-      "type": "object", "additionalProperties": false,
-      "required": ["resource_class_ref", "resource_key", "operation_name", "method", "uri_template", "operation_id", "provider_ref", "processor_ref", "schema_ref", "openapi_projection_ref"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "resource_class_ref",
+        "resource_key",
+        "operation_name",
+        "method",
+        "uri_template",
+        "operation_id",
+        "provider_ref",
+        "processor_ref",
+        "schema_ref",
+        "openapi_projection_ref"
+      ],
       "properties": {
-        "resource_class_ref": {"type": ["string", "null"]},
-        "resource_key": {"type": ["string", "null"]},
-        "operation_name": {"type": ["string", "null"]},
-        "method": {"type": ["string", "null"], "pattern": "^[A-Z]+$"},
-        "uri_template": {"type": ["string", "null"]},
-        "operation_id": {"type": ["string", "null"]},
-        "provider_ref": {"type": ["string", "null"]},
-        "processor_ref": {"type": ["string", "null"]},
-        "schema_ref": {"type": ["string", "null"]},
-        "openapi_projection_ref": {"type": ["string", "null"]}
+        "resource_class_ref": { "type": ["string", "null"] },
+        "resource_key": { "type": ["string", "null"] },
+        "operation_name": { "type": ["string", "null"] },
+        "method": { "type": ["string", "null"], "pattern": "^[A-Z]+$" },
+        "uri_template": { "type": ["string", "null"] },
+        "operation_id": { "type": ["string", "null"] },
+        "provider_ref": { "type": ["string", "null"] },
+        "processor_ref": { "type": ["string", "null"] },
+        "schema_ref": { "type": ["string", "null"] },
+        "openapi_projection_ref": { "type": ["string", "null"] }
       }
     },
     "commandWriteDetails": {
-      "type": "object", "additionalProperties": false,
-      "required": ["entry_kind", "owner_ref", "command_name", "symbol_ref", "effect_classes", "target_refs", "write_contract_ref"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "entry_kind",
+        "owner_ref",
+        "command_name",
+        "symbol_ref",
+        "effect_classes",
+        "target_refs",
+        "write_contract_ref"
+      ],
       "properties": {
-        "entry_kind": {"type": "string", "enum": ["custom_command", "controller_write", "repository_write", "api_processor", "event_handler", "message_consumer", "integration_write", "unknown"]},
-        "owner_ref": {"type": ["string", "null"]},
-        "command_name": {"type": ["string", "null"]},
-        "symbol_ref": {"type": ["string", "null"]},
-        "effect_classes": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "enum": ["read_only", "durable_write", "identity_or_authority", "outbound", "filesystem", "scheduler", "unknown"]}},
-        "target_refs": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
-        "write_contract_ref": {"type": ["string", "null"]}
-      }
-    },
-    "scheduleBackgroundDetails": {
-      "type": "object", "additionalProperties": false,
-      "required": ["trigger_kind", "trigger_identity", "schedule_expression", "owner_ref", "handler_ref", "enabled", "repository_owned", "runtime_registered"],
-      "properties": {
-        "trigger_kind": {"type": "string", "enum": ["cron", "queue", "event", "manual", "workflow_dispatch", "startup", "webhook", "unknown"]},
-        "trigger_identity": {"type": ["string", "null"]},
-        "schedule_expression": {"type": ["string", "null"]},
-        "owner_ref": {"type": ["string", "null"]},
-        "handler_ref": {"type": ["string", "null"]},
-        "enabled": {"type": ["boolean", "null"]},
-        "repository_owned": {"type": "boolean"},
-        "runtime_registered": {"type": ["boolean", "null"]}
-      }
-    },
-    "externalIntegrationDetails": {
-      "type": "object", "additionalProperties": false,
-      "required": ["provider_ref", "direction", "protocol", "endpoint_ref", "credential_slot_ref", "call_site_ref", "contract_ref", "effect_classes"],
-      "properties": {
-        "provider_ref": {"type": ["string", "null"]},
-        "direction": {"type": "string", "enum": ["inbound", "outbound", "bidirectional"]},
-        "protocol": {"type": ["string", "null"]},
-        "endpoint_ref": {"type": ["string", "null"]},
-        "credential_slot_ref": {"type": ["string", "null"]},
-        "call_site_ref": {"type": ["string", "null"]},
-        "contract_ref": {"type": ["string", "null"]},
-        "effect_classes": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "enum": ["read_only", "durable_write", "identity_or_authority", "outbound", "filesystem", "scheduler", "unknown"]}}
-      }
-    },
-    "userJourneyDetails": {
-      "type": "object", "additionalProperties": false,
-      "required": ["journey_ref_id", "journey_key", "intent_ref_id", "steps", "coverage_scope"],
-      "properties": {
-        "journey_ref_id": {"type": "string", "minLength": 1},
-        "journey_key": {"type": "string", "minLength": 1},
-        "intent_ref_id": {"type": "string", "minLength": 1},
-        "steps": {
-          "type": "array", "items": {
-            "type": "object", "additionalProperties": false,
-            "required": ["step_id", "surface", "row_ids", "canonical_signatures", "expected_contract_ref", "runtime_evidence_ref_ids"],
-            "properties": {
-              "step_id": {"type": "string", "minLength": 1},
-              "surface": {"type": "string", "enum": ["legacy_route", "mono_route", "api_operation", "command_write", "schedule_background", "external_integration"]},
-              "row_ids": {"type": "array", "uniqueItems": true, "items": {"type": "string", "pattern": "^row-[a-f0-9]{64}$"}},
-              "canonical_signatures": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
-              "expected_contract_ref": {"type": ["string", "null"]},
-              "runtime_evidence_ref_ids": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
-            },
-            "allOf": [
-              {"anyOf": [
-                {"properties": {"row_ids": {"minItems": 1}}},
-                {"properties": {"canonical_signatures": {"minItems": 1}}}
-              ]}
+        "entry_kind": {
+          "type": "string",
+          "enum": [
+            "custom_command",
+            "controller_write",
+            "repository_write",
+            "api_processor",
+            "event_handler",
+            "message_consumer",
+            "integration_write",
+            "unknown"
+          ]
+        },
+        "owner_ref": { "type": ["string", "null"] },
+        "command_name": { "type": ["string", "null"] },
+        "symbol_ref": { "type": ["string", "null"] },
+        "effect_classes": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "enum": [
+              "read_only",
+              "durable_write",
+              "identity_or_authority",
+              "outbound",
+              "filesystem",
+              "scheduler",
+              "unknown"
             ]
           }
         },
-        "coverage_scope": {"type": "string", "enum": ["user_visible", "operator_visible", "background", "accepted_non_user_facing"]}
+        "target_refs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "write_contract_ref": { "type": ["string", "null"] }
       }
+    },
+    "scheduleBackgroundDetails": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "trigger_kind",
+        "trigger_identity",
+        "schedule_expression",
+        "owner_ref",
+        "handler_ref",
+        "enabled",
+        "repository_owned",
+        "runtime_registered"
+      ],
+      "properties": {
+        "trigger_kind": {
+          "type": "string",
+          "enum": [
+            "cron",
+            "queue",
+            "event",
+            "manual",
+            "workflow_dispatch",
+            "startup",
+            "webhook",
+            "unknown"
+          ]
+        },
+        "trigger_identity": { "type": ["string", "null"] },
+        "schedule_expression": { "type": ["string", "null"] },
+        "owner_ref": { "type": ["string", "null"] },
+        "handler_ref": { "type": ["string", "null"] },
+        "enabled": { "type": ["boolean", "null"] },
+        "repository_owned": { "type": "boolean" },
+        "runtime_registered": { "type": ["boolean", "null"] }
+      }
+    },
+    "externalIntegrationDetails": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "provider_ref",
+        "direction",
+        "protocol",
+        "endpoint_ref",
+        "credential_slot_ref",
+        "call_site_ref",
+        "contract_ref",
+        "effect_classes"
+      ],
+      "properties": {
+        "provider_ref": { "type": ["string", "null"] },
+        "direction": { "type": "string", "enum": ["inbound", "outbound", "bidirectional"] },
+        "protocol": { "type": ["string", "null"] },
+        "endpoint_ref": { "type": ["string", "null"] },
+        "credential_slot_ref": { "type": ["string", "null"] },
+        "call_site_ref": { "type": ["string", "null"] },
+        "contract_ref": { "type": ["string", "null"] },
+        "effect_classes": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "enum": [
+              "read_only",
+              "durable_write",
+              "identity_or_authority",
+              "outbound",
+              "filesystem",
+              "scheduler",
+              "unknown"
+            ]
+          }
+        }
+      }
+    },
+    "userJourneyDetails": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["journey_ref_id", "journey_key", "intent_ref_id", "steps", "coverage_scope"],
+      "properties": {
+        "journey_ref_id": { "type": "string", "minLength": 1 },
+        "journey_key": { "type": "string", "minLength": 1 },
+        "intent_ref_id": { "type": "string", "minLength": 1 },
+        "steps": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "step_id",
+              "surface",
+              "row_ids",
+              "canonical_signatures",
+              "expected_contract_ref",
+              "runtime_evidence_ref_ids"
+            ],
+            "properties": {
+              "step_id": { "type": "string", "minLength": 1 },
+              "surface": {
+                "type": "string",
+                "enum": [
+                  "legacy_route",
+                  "mono_route",
+                  "api_operation",
+                  "command_write",
+                  "schedule_background",
+                  "external_integration"
+                ]
+              },
+              "row_ids": {
+                "type": "array",
+                "uniqueItems": true,
+                "items": { "type": "string", "pattern": "^row-[a-f0-9]{64}$" }
+              },
+              "canonical_signatures": {
+                "type": "array",
+                "uniqueItems": true,
+                "items": { "type": "string", "minLength": 1 }
+              },
+              "expected_contract_ref": { "type": ["string", "null"] },
+              "runtime_evidence_ref_ids": {
+                "type": "array",
+                "uniqueItems": true,
+                "items": { "type": "string", "minLength": 1 }
+              }
+            },
+            "allOf": [
+              {
+                "anyOf": [
+                  { "properties": { "row_ids": { "minItems": 1 } } },
+                  { "properties": { "canonical_signatures": { "minItems": 1 } } }
+                ]
+              }
+            ]
+          }
+        },
+        "coverage_scope": {
+          "type": "string",
+          "enum": ["user_visible", "operator_visible", "background", "accepted_non_user_facing"]
+        }
       }
     }
+  }
 }
 ```
 
@@ -1560,54 +2045,101 @@ The schema's `details` object is closed per inventory file. The implementation M
 
 `source-manifest.json` uses `functional-parity-source-manifest/v1` with `additionalProperties: false` at every object level. It requires `schema_version`, `manifest_id`, `source_set`, `census_roots`, `revisions`, `runtime_observations`, `root_census`, `ignore_rules`, `sources`, and `source_set_sha256`. Each census root requires `root_ref`, `authority_line`, `repository_ref`, `revision_ref_id`, `root_kind: "repository"`, and `scan_mode: "all_regular_files"`. Each revision requires `revision_ref_id`, `repository_ref`, `revision_kind`, `revision`, and `immutable: true`. Each runtime observation requires `runtime_observation_ref_id`, `revision_ref_id`, `collector_kind`, `logical_command_id`, `command`, `argument_digest`, `executable_digests`, `executable_provenance`, `stdout_sha256`, `stderr_sha256`, `exit_code`, `result_sha256`, and `availability`; an observation or source can include `out_of_band: true` for typed fixture evidence that is excluded from the root census and source-set digest. Each ignore rule requires `ignore_rule_id`, `authority_line`, `root_ref`, `precedence`, literal `pattern`, `selection: "ordered_set_difference"`, `rule_kind`, and `rationale`; its effective predicate is the ordered set difference of its literal match from earlier rules in the same root, and its rationale MUST equal the normative `Rationale` value for the root-scoped tuple. Each root-census record requires `census_id`, `authority_line`, `root_ref`, `path`, `byte_length`, `sha256`, `availability`, `classification`, `source_ref_ids`, and `ignore_rule_id`. Each source requires `source_id`, `authority_line`, `authority_role`, `repository_ref`, `revision_ref_id`, `path`, `line_start`, `line_end`, `symbol`, `byte_length`, `sha256`, `capture_mode`, `availability`, and `classification_status`.
 
-
 ```json
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "functional-parity-source-manifest/v1",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "manifest_id", "source_set", "census_roots", "revisions", "runtime_observations", "root_census", "ignore_rules", "sources", "source_set_sha256"],
+  "required": [
+    "schema_version",
+    "manifest_id",
+    "source_set",
+    "census_roots",
+    "revisions",
+    "runtime_observations",
+    "root_census",
+    "ignore_rules",
+    "sources",
+    "source_set_sha256"
+  ],
   "properties": {
-    "$schema": {"type": "string", "const": "https://json-schema.org/draft/2020-12/schema"},
-    "schema_version": {"type": "string", "const": "functional-parity-source-manifest/v1"},
-    "manifest_id": {"type": "string", "pattern": "^source-manifest-[a-f0-9]{64}$"},
-    "source_set": {"type": "string", "minLength": 1},
+    "$schema": { "type": "string", "const": "https://json-schema.org/draft/2020-12/schema" },
+    "schema_version": { "type": "string", "const": "functional-parity-source-manifest/v1" },
+    "manifest_id": { "type": "string", "pattern": "^source-manifest-[a-f0-9]{64}$" },
+    "source_set": { "type": "string", "minLength": 1 },
     "census_roots": {
       "type": "array",
       "minItems": 1,
       "uniqueItems": true,
-      "items": {"$ref": "#/$defs/censusRoot"},
+      "items": { "$ref": "#/$defs/censusRoot" },
       "allOf": [
-        {"contains": {"properties": {"root_ref": {"const": "legacy"}}}},
-        {"contains": {"properties": {"root_ref": {"const": "mono"}}}}
+        { "contains": { "properties": { "root_ref": { "const": "legacy" } } } },
+        { "contains": { "properties": { "root_ref": { "const": "mono" } } } }
       ]
     },
-    "revisions": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/revision"}},
-    "runtime_observations": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/runtimeObservation"}},
-    "root_census": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/rootCensus"}},
-    "ignore_rules": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/ignoreRule"}},
-    "sources": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/source"}},
-    "source_set_sha256": {"$ref": "#/$defs/sha256"},
-    "intent_authority": {"$ref": "#/$defs/intentAuthority"}
+    "revisions": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/revision" }
+    },
+    "runtime_observations": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/runtimeObservation" }
+    },
+    "root_census": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/rootCensus" }
+    },
+    "ignore_rules": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/ignoreRule" }
+    },
+    "sources": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/source" }
+    },
+    "source_set_sha256": { "$ref": "#/$defs/sha256" },
+    "intent_authority": { "$ref": "#/$defs/intentAuthority" }
   },
   "$defs": {
-    "sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
     "censusRoot": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["root_ref", "authority_line", "repository_ref", "revision_ref_id", "root_kind", "scan_mode"],
+      "required": [
+        "root_ref",
+        "authority_line",
+        "repository_ref",
+        "revision_ref_id",
+        "root_kind",
+        "scan_mode"
+      ],
       "properties": {
-        "root_ref": {"type": "string", "enum": ["legacy", "mono"]},
-        "authority_line": {"type": "string", "enum": ["legacy", "mono"]},
-        "repository_ref": {"type": "string", "minLength": 1},
-        "revision_ref_id": {"type": "string", "minLength": 1},
-        "root_kind": {"type": "string", "const": "repository"},
-        "scan_mode": {"type": "string", "const": "all_regular_files"}
+        "root_ref": { "type": "string", "enum": ["legacy", "mono"] },
+        "authority_line": { "type": "string", "enum": ["legacy", "mono"] },
+        "repository_ref": { "type": "string", "minLength": 1 },
+        "revision_ref_id": { "type": "string", "minLength": 1 },
+        "root_kind": { "type": "string", "const": "repository" },
+        "scan_mode": { "type": "string", "const": "all_regular_files" }
       },
       "allOf": [
-        {"if": {"properties": {"root_ref": {"const": "legacy"}}}, "then": {"properties": {"authority_line": {"const": "legacy"}}}},
-        {"if": {"properties": {"root_ref": {"const": "mono"}}}, "then": {"properties": {"authority_line": {"const": "mono"}}}}
+        {
+          "if": { "properties": { "root_ref": { "const": "legacy" } } },
+          "then": { "properties": { "authority_line": { "const": "legacy" } } }
+        },
+        {
+          "if": { "properties": { "root_ref": { "const": "mono" } } },
+          "then": { "properties": { "authority_line": { "const": "mono" } } }
+        }
       ]
     },
     "revision": {
@@ -1615,133 +2147,280 @@ The schema's `details` object is closed per inventory file. The implementation M
       "additionalProperties": false,
       "required": ["revision_ref_id", "repository_ref", "revision_kind", "revision", "immutable"],
       "properties": {
-        "revision_ref_id": {"type": "string", "minLength": 1},
-        "repository_ref": {"type": "string", "minLength": 1},
-        "revision_kind": {"type": "string", "enum": ["git_commit", "archive_digest", "file_set_digest"]},
-        "revision": {"type": "string", "minLength": 1},
-        "immutable": {"type": "boolean", "const": true}
+        "revision_ref_id": { "type": "string", "minLength": 1 },
+        "repository_ref": { "type": "string", "minLength": 1 },
+        "revision_kind": {
+          "type": "string",
+          "enum": ["git_commit", "archive_digest", "file_set_digest"]
+        },
+        "revision": { "type": "string", "minLength": 1 },
+        "immutable": { "type": "boolean", "const": true }
       }
     },
     "runtimeObservation": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["runtime_observation_ref_id", "revision_ref_id", "collector_kind", "logical_command_id", "command", "argument_digest", "executable_digests", "executable_provenance", "stdout_sha256", "stderr_sha256", "exit_code", "result_sha256", "availability"],
+      "required": [
+        "runtime_observation_ref_id",
+        "revision_ref_id",
+        "collector_kind",
+        "logical_command_id",
+        "command",
+        "argument_digest",
+        "executable_digests",
+        "executable_provenance",
+        "stdout_sha256",
+        "stderr_sha256",
+        "exit_code",
+        "result_sha256",
+        "availability"
+      ],
       "properties": {
-        "runtime_observation_ref_id": {"type": "string", "minLength": 1},
-        "revision_ref_id": {"type": "string", "minLength": 1},
-        "collector_kind": {"type": "string", "minLength": 1},
-        "logical_command_id": {"type": "string", "minLength": 1},
-        "command": {"type": "string", "minLength": 1},
-        "argument_digest": {"$ref": "#/$defs/sha256"},
+        "runtime_observation_ref_id": { "type": "string", "minLength": 1 },
+        "revision_ref_id": { "type": "string", "minLength": 1 },
+        "collector_kind": { "type": "string", "minLength": 1 },
+        "logical_command_id": { "type": "string", "minLength": 1 },
+        "command": { "type": "string", "minLength": 1 },
+        "argument_digest": { "$ref": "#/$defs/sha256" },
         "executable_digests": {
-          "type": "object", "additionalProperties": false,
+          "type": "object",
+          "additionalProperties": false,
           "required": ["php", "bwrap"],
           "properties": {
-            "php": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]},
-            "bwrap": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]}
+            "php": { "anyOf": [{ "$ref": "#/$defs/sha256" }, { "type": "null" }] },
+            "bwrap": { "anyOf": [{ "$ref": "#/$defs/sha256" }, { "type": "null" }] }
           }
         },
         "executable_provenance": {
-          "type": "object", "additionalProperties": false,
+          "type": "object",
+          "additionalProperties": false,
           "required": ["php", "bwrap"],
           "properties": {
-            "php": {"enum": ["usr-bin", "nix-store", null]},
-            "bwrap": {"enum": ["usr-bin", "nix-store", null]}
+            "php": { "enum": ["usr-bin", "nix-store", null] },
+            "bwrap": { "enum": ["usr-bin", "nix-store", null] }
           }
         },
-        "stdout_sha256": {"$ref": "#/$defs/sha256"},
-        "stderr_sha256": {"$ref": "#/$defs/sha256"},
-        "exit_code": {"type": "integer"},
-        "result_sha256": {"$ref": "#/$defs/sha256"},
-        "availability": {"type": "string", "enum": ["available", "unavailable"]},
-        "out_of_band": {"type": "boolean", "const": true}
+        "stdout_sha256": { "$ref": "#/$defs/sha256" },
+        "stderr_sha256": { "$ref": "#/$defs/sha256" },
+        "exit_code": { "type": "integer" },
+        "result_sha256": { "$ref": "#/$defs/sha256" },
+        "availability": { "type": "string", "enum": ["available", "unavailable"] },
+        "out_of_band": { "type": "boolean", "const": true }
       }
     },
     "ignoreRule": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["ignore_rule_id", "authority_line", "root_ref", "precedence", "pattern", "selection", "rule_kind", "rationale"],
+      "required": [
+        "ignore_rule_id",
+        "authority_line",
+        "root_ref",
+        "precedence",
+        "pattern",
+        "selection",
+        "rule_kind",
+        "rationale"
+      ],
       "properties": {
-        "ignore_rule_id": {"type": "string", "pattern": "^ignore-[a-f0-9]{64}$"},
-        "authority_line": {"type": "string", "enum": ["legacy", "mono"]},
-        "root_ref": {"type": "string", "enum": ["legacy", "mono"]},
-        "precedence": {"type": "integer", "minimum": 0},
-        "pattern": {"type": "string", "minLength": 1, "not": {"pattern": "^(vendor|node_modules)/"}},
-        "selection": {"type": "string", "const": "ordered_set_difference"},
-        "rule_kind": {"type": "string", "enum": ["repository_metadata", "dependency_cache", "runtime_cache", "runtime_log", "build_cache", "generated_output", "test_support", "binary_tool"]},
-        "rationale": {"type": "string", "minLength": 1, "maxLength": 300}
+        "ignore_rule_id": { "type": "string", "pattern": "^ignore-[a-f0-9]{64}$" },
+        "authority_line": { "type": "string", "enum": ["legacy", "mono"] },
+        "root_ref": { "type": "string", "enum": ["legacy", "mono"] },
+        "precedence": { "type": "integer", "minimum": 0 },
+        "pattern": {
+          "type": "string",
+          "minLength": 1,
+          "not": { "pattern": "^(vendor|node_modules)/" }
+        },
+        "selection": { "type": "string", "const": "ordered_set_difference" },
+        "rule_kind": {
+          "type": "string",
+          "enum": [
+            "repository_metadata",
+            "dependency_cache",
+            "runtime_cache",
+            "runtime_log",
+            "build_cache",
+            "generated_output",
+            "test_support",
+            "binary_tool"
+          ]
+        },
+        "rationale": { "type": "string", "minLength": 1, "maxLength": 300 }
       },
       "allOf": [
-        {"if": {"properties": {"root_ref": {"const": "legacy"}}}, "then": {"properties": {"authority_line": {"const": "legacy"}}}},
-        {"if": {"properties": {"root_ref": {"const": "mono"}}}, "then": {"properties": {"authority_line": {"const": "mono"}}}}
+        {
+          "if": { "properties": { "root_ref": { "const": "legacy" } } },
+          "then": { "properties": { "authority_line": { "const": "legacy" } } }
+        },
+        {
+          "if": { "properties": { "root_ref": { "const": "mono" } } },
+          "then": { "properties": { "authority_line": { "const": "mono" } } }
+        }
       ]
     },
     "rootCensus": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["census_id", "authority_line", "root_ref", "path", "byte_length", "sha256", "availability", "classification", "source_ref_ids", "ignore_rule_id"],
+      "required": [
+        "census_id",
+        "authority_line",
+        "root_ref",
+        "path",
+        "byte_length",
+        "sha256",
+        "availability",
+        "classification",
+        "source_ref_ids",
+        "ignore_rule_id"
+      ],
       "properties": {
-        "census_id": {"type": "string", "pattern": "^census-[a-f0-9]{64}$"},
-        "authority_line": {"type": "string", "enum": ["legacy", "mono"]},
-        "root_ref": {"type": "string", "enum": ["legacy", "mono"]},
-        "path": {"type": "string", "minLength": 1},
-        "byte_length": {"type": ["integer", "null"], "minimum": 0},
-        "sha256": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]},
-        "availability": {"type": "string", "enum": ["available", "unavailable"]},
-        "classification": {"type": "string", "enum": ["matched", "ignored", "unclassified"]},
-        "source_ref_ids": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
-        "ignore_rule_id": {"type": ["string", "null"], "pattern": "^ignore-[a-f0-9]{64}$"}
+        "census_id": { "type": "string", "pattern": "^census-[a-f0-9]{64}$" },
+        "authority_line": { "type": "string", "enum": ["legacy", "mono"] },
+        "root_ref": { "type": "string", "enum": ["legacy", "mono"] },
+        "path": { "type": "string", "minLength": 1 },
+        "byte_length": { "type": ["integer", "null"], "minimum": 0 },
+        "sha256": { "anyOf": [{ "$ref": "#/$defs/sha256" }, { "type": "null" }] },
+        "availability": { "type": "string", "enum": ["available", "unavailable"] },
+        "classification": { "type": "string", "enum": ["matched", "ignored", "unclassified"] },
+        "source_ref_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "ignore_rule_id": { "type": ["string", "null"], "pattern": "^ignore-[a-f0-9]{64}$" }
       },
       "allOf": [
-        {"if": {"properties": {"root_ref": {"const": "legacy"}}}, "then": {"properties": {"authority_line": {"const": "legacy"}}}},
-        {"if": {"properties": {"root_ref": {"const": "mono"}}}, "then": {"properties": {"authority_line": {"const": "mono"}}}},
-        {"if": {"properties": {"classification": {"const": "matched"}}}, "then": {"properties": {"source_ref_ids": {"minItems": 1}, "ignore_rule_id": {"type": "null"}}}},
-        {"if": {"properties": {"classification": {"const": "ignored"}}}, "then": {"properties": {"byte_length": {"type": "null"}, "sha256": {"type": "null"}, "source_ref_ids": {"maxItems": 0}, "ignore_rule_id": {"pattern": "^ignore-[a-f0-9]{64}$"}}, "required": ["ignore_rule_id"]}},
-        {"if": {"properties": {"classification": {"const": "unclassified"}}}, "then": {"properties": {"source_ref_ids": {"minItems": 1}, "ignore_rule_id": {"type": "null"}}}},
-        {"if": {"properties": {"availability": {"const": "unavailable"}}}, "then": {"properties": {"byte_length": {"type": "null"}, "sha256": {"type": "null"}}}}
+        {
+          "if": { "properties": { "root_ref": { "const": "legacy" } } },
+          "then": { "properties": { "authority_line": { "const": "legacy" } } }
+        },
+        {
+          "if": { "properties": { "root_ref": { "const": "mono" } } },
+          "then": { "properties": { "authority_line": { "const": "mono" } } }
+        },
+        {
+          "if": { "properties": { "classification": { "const": "matched" } } },
+          "then": {
+            "properties": {
+              "source_ref_ids": { "minItems": 1 },
+              "ignore_rule_id": { "type": "null" }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "classification": { "const": "ignored" } } },
+          "then": {
+            "properties": {
+              "byte_length": { "type": "null" },
+              "sha256": { "type": "null" },
+              "source_ref_ids": { "maxItems": 0 },
+              "ignore_rule_id": { "pattern": "^ignore-[a-f0-9]{64}$" }
+            },
+            "required": ["ignore_rule_id"]
+          }
+        },
+        {
+          "if": { "properties": { "classification": { "const": "unclassified" } } },
+          "then": {
+            "properties": {
+              "source_ref_ids": { "minItems": 1 },
+              "ignore_rule_id": { "type": "null" }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "availability": { "const": "unavailable" } } },
+          "then": {
+            "properties": { "byte_length": { "type": "null" }, "sha256": { "type": "null" } }
+          }
+        }
       ]
     },
     "source": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["source_id", "authority_line", "authority_role", "repository_ref", "revision_ref_id", "path", "line_start", "line_end", "symbol", "byte_length", "sha256", "capture_mode", "availability", "classification_status"],
+      "required": [
+        "source_id",
+        "authority_line",
+        "authority_role",
+        "repository_ref",
+        "revision_ref_id",
+        "path",
+        "line_start",
+        "line_end",
+        "symbol",
+        "byte_length",
+        "sha256",
+        "capture_mode",
+        "availability",
+        "classification_status"
+      ],
       "properties": {
-        "source_id": {"type": "string", "pattern": "^src-[a-f0-9]{64}$"},
-        "authority_line": {"type": "string", "enum": ["legacy", "mono", "cross_line"]},
-        "authority_role": {"type": "string", "minLength": 1},
-        "repository_ref": {"type": "string", "minLength": 1},
-        "revision_ref_id": {"type": "string", "minLength": 1},
-        "path": {"type": "string", "minLength": 1},
-        "line_start": {"type": ["integer", "null"], "minimum": 1},
-        "line_end": {"type": ["integer", "null"], "minimum": 1},
-        "symbol": {"type": ["string", "null"], "minLength": 1},
-        "byte_length": {"type": ["integer", "null"], "minimum": 0},
-        "sha256": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]},
-        "capture_mode": {"type": "string", "enum": ["static", "runtime", "generated", "accepted_intent"]},
-        "availability": {"type": "string", "enum": ["available", "unavailable"]},
-        "classification_status": {"type": "string", "enum": ["classified", "unclassified"]},
-        "out_of_band": {"type": "boolean", "const": true},
-        "failure_status": {"type": ["string", "null"], "enum": ["source_unavailable", "unresolved", null]},
-        "failure_reason": {"type": ["string", "null"], "pattern": "^[A-Z][A-Z0-9_]{2,63}$"}
+        "source_id": { "type": "string", "pattern": "^src-[a-f0-9]{64}$" },
+        "authority_line": { "type": "string", "enum": ["legacy", "mono", "cross_line"] },
+        "authority_role": { "type": "string", "minLength": 1 },
+        "repository_ref": { "type": "string", "minLength": 1 },
+        "revision_ref_id": { "type": "string", "minLength": 1 },
+        "path": { "type": "string", "minLength": 1 },
+        "line_start": { "type": ["integer", "null"], "minimum": 1 },
+        "line_end": { "type": ["integer", "null"], "minimum": 1 },
+        "symbol": { "type": ["string", "null"], "minLength": 1 },
+        "byte_length": { "type": ["integer", "null"], "minimum": 0 },
+        "sha256": { "anyOf": [{ "$ref": "#/$defs/sha256" }, { "type": "null" }] },
+        "capture_mode": {
+          "type": "string",
+          "enum": ["static", "runtime", "generated", "accepted_intent"]
+        },
+        "availability": { "type": "string", "enum": ["available", "unavailable"] },
+        "classification_status": { "type": "string", "enum": ["classified", "unclassified"] },
+        "out_of_band": { "type": "boolean", "const": true },
+        "failure_status": {
+          "type": ["string", "null"],
+          "enum": ["source_unavailable", "unresolved", null]
+        },
+        "failure_reason": { "type": ["string", "null"], "pattern": "^[A-Z][A-Z0-9_]{2,63}$" }
       },
       "allOf": [
-        {"if": {"properties": {"availability": {"const": "available"}}}, "then": {"properties": {"sha256": {"$ref": "#/$defs/sha256"}}}},
-        {"if": {"properties": {"availability": {"const": "unavailable"}}}, "then": {"properties": {"sha256": {"type": "null"}, "failure_status": {"enum": ["source_unavailable", "unresolved"]}}, "required": ["failure_status", "failure_reason"]}},
-        {"if": {"properties": {"classification_status": {"const": "unclassified"}}}, "then": {"required": ["failure_status", "failure_reason"]}}
+        {
+          "if": { "properties": { "availability": { "const": "available" } } },
+          "then": { "properties": { "sha256": { "$ref": "#/$defs/sha256" } } }
+        },
+        {
+          "if": { "properties": { "availability": { "const": "unavailable" } } },
+          "then": {
+            "properties": {
+              "sha256": { "type": "null" },
+              "failure_status": { "enum": ["source_unavailable", "unresolved"] }
+            },
+            "required": ["failure_status", "failure_reason"]
+          }
+        },
+        {
+          "if": { "properties": { "classification_status": { "const": "unclassified" } } },
+          "then": { "required": ["failure_status", "failure_reason"] }
+        }
       ]
     },
     "intentAuthority": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["repository_ref", "authority_path", "revision_ref_id", "revision", "blob_oid", "digest", "immutable"],
+      "required": [
+        "repository_ref",
+        "authority_path",
+        "revision_ref_id",
+        "revision",
+        "blob_oid",
+        "digest",
+        "immutable"
+      ],
       "properties": {
-        "repository_ref": {"type": "string", "const": "external_intent_authority"},
-        "authority_path": {"type": "string", "minLength": 1},
-        "revision_ref_id": {"type": "string", "pattern": "^rev-[A-Za-z0-9:_-]{1,160}$"},
-        "revision": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
-        "blob_oid": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
-        "digest": {"$ref": "#/$defs/sha256"},
-        "immutable": {"type": "boolean", "const": true}
+        "repository_ref": { "type": "string", "const": "external_intent_authority" },
+        "authority_path": { "type": "string", "minLength": 1 },
+        "revision_ref_id": { "type": "string", "pattern": "^rev-[A-Za-z0-9:_-]{1,160}$" },
+        "revision": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "blob_oid": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "digest": { "$ref": "#/$defs/sha256" },
+        "immutable": { "type": "boolean", "const": true }
       }
     }
   }
@@ -1760,43 +2439,78 @@ The source-manifest schema binds every source row to an immutable revision and e
   "$id": "functional-parity-openapi-reconciliation/v1",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "status", "source_manifest_sha256", "committed_source_ref_ids", "regenerated_source_ref_ids", "committed_sha256", "regenerated_sha256", "only_committed", "only_regenerated", "changed_operations"],
+  "required": [
+    "schema_version",
+    "status",
+    "source_manifest_sha256",
+    "committed_source_ref_ids",
+    "regenerated_source_ref_ids",
+    "committed_sha256",
+    "regenerated_sha256",
+    "only_committed",
+    "only_regenerated",
+    "changed_operations"
+  ],
   "properties": {
-    "$schema": {"type": "string", "const": "https://json-schema.org/draft/2020-12/schema"},
-    "schema_version": {"type": "string", "const": "functional-parity-openapi-reconciliation/v1"},
-    "status": {"type": "string", "enum": ["current", "stale", "unresolved"]},
-    "source_manifest_sha256": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]},
-    "committed_source_ref_ids": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
-    "regenerated_source_ref_ids": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
-    "committed_sha256": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]},
-    "regenerated_sha256": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]},
-    "only_committed": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
-    "only_regenerated": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
-    "changed_operations": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
+    "$schema": { "type": "string", "const": "https://json-schema.org/draft/2020-12/schema" },
+    "schema_version": { "type": "string", "const": "functional-parity-openapi-reconciliation/v1" },
+    "status": { "type": "string", "enum": ["current", "stale", "unresolved"] },
+    "source_manifest_sha256": { "anyOf": [{ "$ref": "#/$defs/sha256" }, { "type": "null" }] },
+    "committed_source_ref_ids": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "regenerated_source_ref_ids": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "committed_sha256": { "anyOf": [{ "$ref": "#/$defs/sha256" }, { "type": "null" }] },
+    "regenerated_sha256": { "anyOf": [{ "$ref": "#/$defs/sha256" }, { "type": "null" }] },
+    "only_committed": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "only_regenerated": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "changed_operations": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    }
   },
   "allOf": [
     {
-      "if": {"properties": {"status": {"const": "current"}}},
+      "if": { "properties": { "status": { "const": "current" } } },
       "then": {
         "properties": {
-          "source_manifest_sha256": {"$ref": "#/$defs/sha256"},
-          "committed_source_ref_ids": {"minItems": 1},
-          "regenerated_source_ref_ids": {"minItems": 1},
-          "committed_sha256": {"$ref": "#/$defs/sha256"},
-          "regenerated_sha256": {"$ref": "#/$defs/sha256"},
-          "only_committed": {"maxItems": 0},
-          "only_regenerated": {"maxItems": 0},
-          "changed_operations": {"maxItems": 0}
+          "source_manifest_sha256": { "$ref": "#/$defs/sha256" },
+          "committed_source_ref_ids": { "minItems": 1 },
+          "regenerated_source_ref_ids": { "minItems": 1 },
+          "committed_sha256": { "$ref": "#/$defs/sha256" },
+          "regenerated_sha256": { "$ref": "#/$defs/sha256" },
+          "only_committed": { "maxItems": 0 },
+          "only_regenerated": { "maxItems": 0 },
+          "changed_operations": { "maxItems": 0 }
         }
       }
     },
     {
-      "if": {"properties": {"status": {"enum": ["stale", "unresolved"]}}},
-      "then": {"properties": {"source_manifest_sha256": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]}}}
+      "if": { "properties": { "status": { "enum": ["stale", "unresolved"] } } },
+      "then": {
+        "properties": {
+          "source_manifest_sha256": { "anyOf": [{ "$ref": "#/$defs/sha256" }, { "type": "null" }] }
+        }
+      }
     }
   ],
   "$defs": {
-    "sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+    "sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
   }
 }
 ```
@@ -1813,129 +2527,364 @@ The source-manifest schema binds every source row to an immutable revision and e
   "$id": "functional-parity-zero-gap-report/v1",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "status", "exit_code", "mode", "falsifier_id", "projection_write", "source_manifest_sha256", "inventory_artifact_sha256", "row_counts", "status_counts", "failures", "mismatches", "openapi_reconciliation_ref", "verification"],
+  "required": [
+    "schema_version",
+    "status",
+    "exit_code",
+    "mode",
+    "falsifier_id",
+    "projection_write",
+    "source_manifest_sha256",
+    "inventory_artifact_sha256",
+    "row_counts",
+    "status_counts",
+    "failures",
+    "mismatches",
+    "openapi_reconciliation_ref",
+    "verification"
+  ],
   "properties": {
-    "$schema": {"type": "string", "const": "https://json-schema.org/draft/2020-12/schema"},
-    "schema_version": {"type": "string", "const": "functional-parity-zero-gap-report/v1"},
-    "status": {"type": "string", "enum": ["zero_gap", "falsifier_passed", "projection_written", "gaps_found", "unresolved", "duplicate", "stale", "source_unavailable", "source_hash_drift", "schema_invalid", "nondeterministic_output", "runtime_unavailable", "accepted_intent_invalid", "command_error"]},
-    "exit_code": {"type": "integer", "enum": [0, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]},
-    "mode": {"type": "string", "enum": ["diff", "write", "fixture_injection"]},
-    "falsifier_id": {"type": ["string", "null"], "enum": [null, "F0_deterministic_replay", "F1_missing_required_source", "F2_source_hash_drift", "F3_duplicate_legacy_route", "F4_dead_unimported_source", "F5_missing_counterpart", "F6_extra_counterpart", "F7_method_path_mismatch", "F8_openapi_stale", "F9_runtime_unavailable", "F10_static_runtime_mismatch", "F11_intent_missing_or_stale", "F12_uncovered_journey", "F13_unknown_effect", "F14_absent_schedule", "F15_secret_or_pii_input", "F16_h3_authority_copy", "F17_locale_order", "F18_stale_artifact_diff", "F19_ignore_residual_precedence"]},
-    "projection_write": {"$ref": "#/$defs/projectionWrite"},
-    "source_manifest_sha256": {"type": ["string", "null"], "pattern": "^sha256:[0-9a-f]{64}$"},
-    "inventory_artifact_sha256": {"type": "object", "patternProperties": {"^[A-Za-z0-9._-]+$": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}}, "additionalProperties": false},
-    "row_counts": {"type": "object", "patternProperties": {"^[A-Za-z0-9._-]+$": {"type": "integer", "minimum": 0}}, "additionalProperties": false},
-    "status_counts": {"type": "object", "patternProperties": {"^[A-Za-z0-9._-]+$": {"type": "integer", "minimum": 0}}, "additionalProperties": false},
-    "failures": {"type": "array", "items": {"$ref": "#/$defs/failure"}},
-    "mismatches": {"type": "array", "items": {"$ref": "#/$defs/mismatch"}},
-    "openapi_reconciliation_ref": {"type": "string", "const": "openapi-reconciliation.json"},
-    "verification": {"$ref": "#/$defs/verification"}
+    "$schema": { "type": "string", "const": "https://json-schema.org/draft/2020-12/schema" },
+    "schema_version": { "type": "string", "const": "functional-parity-zero-gap-report/v1" },
+    "status": {
+      "type": "string",
+      "enum": [
+        "zero_gap",
+        "falsifier_passed",
+        "projection_written",
+        "gaps_found",
+        "unresolved",
+        "duplicate",
+        "stale",
+        "source_unavailable",
+        "source_hash_drift",
+        "schema_invalid",
+        "nondeterministic_output",
+        "runtime_unavailable",
+        "accepted_intent_invalid",
+        "command_error"
+      ]
+    },
+    "exit_code": { "type": "integer", "enum": [0, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14] },
+    "mode": { "type": "string", "enum": ["diff", "write", "fixture_injection"] },
+    "falsifier_id": {
+      "type": ["string", "null"],
+      "enum": [
+        null,
+        "F0_deterministic_replay",
+        "F1_missing_required_source",
+        "F2_source_hash_drift",
+        "F3_duplicate_legacy_route",
+        "F4_dead_unimported_source",
+        "F5_missing_counterpart",
+        "F6_extra_counterpart",
+        "F7_method_path_mismatch",
+        "F8_openapi_stale",
+        "F9_runtime_unavailable",
+        "F10_static_runtime_mismatch",
+        "F11_intent_missing_or_stale",
+        "F12_uncovered_journey",
+        "F13_unknown_effect",
+        "F14_absent_schedule",
+        "F15_secret_or_pii_input",
+        "F16_h3_authority_copy",
+        "F17_locale_order",
+        "F18_stale_artifact_diff",
+        "F19_ignore_residual_precedence"
+      ]
+    },
+    "projection_write": { "$ref": "#/$defs/projectionWrite" },
+    "source_manifest_sha256": { "type": ["string", "null"], "pattern": "^sha256:[0-9a-f]{64}$" },
+    "inventory_artifact_sha256": {
+      "type": "object",
+      "patternProperties": {
+        "^[A-Za-z0-9._-]+$": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+      },
+      "additionalProperties": false
+    },
+    "row_counts": {
+      "type": "object",
+      "patternProperties": { "^[A-Za-z0-9._-]+$": { "type": "integer", "minimum": 0 } },
+      "additionalProperties": false
+    },
+    "status_counts": {
+      "type": "object",
+      "patternProperties": { "^[A-Za-z0-9._-]+$": { "type": "integer", "minimum": 0 } },
+      "additionalProperties": false
+    },
+    "failures": { "type": "array", "items": { "$ref": "#/$defs/failure" } },
+    "mismatches": { "type": "array", "items": { "$ref": "#/$defs/mismatch" } },
+    "openapi_reconciliation_ref": { "type": "string", "const": "openapi-reconciliation.json" },
+    "verification": { "$ref": "#/$defs/verification" }
   },
   "allOf": [
     {
-      "if": {"properties": {"status": {"const": "zero_gap"}}},
+      "if": { "properties": { "status": { "const": "zero_gap" } } },
       "then": {
         "properties": {
-          "exit_code": {"const": 0},
-          "mode": {"const": "diff"},
-          "falsifier_id": {"type": "null"},
-          "projection_write": {"properties": {"status": {"const": "not_requested"}}},
-          "source_manifest_sha256": {"$ref": "#/$defs/sha256"},
-          "inventory_artifact_sha256": {"minProperties": 1},
-          "failures": {"maxItems": 0},
+          "exit_code": { "const": 0 },
+          "mode": { "const": "diff" },
+          "falsifier_id": { "type": "null" },
+          "projection_write": { "properties": { "status": { "const": "not_requested" } } },
+          "source_manifest_sha256": { "$ref": "#/$defs/sha256" },
+          "inventory_artifact_sha256": { "minProperties": 1 },
+          "failures": { "maxItems": 0 },
           "mismatches": {
             "items": {
               "type": "object",
               "required": ["disposition", "accepted_intent_ref_ids"],
               "properties": {
-                "disposition": {"enum": ["accepted_missing", "accepted_extra", "accepted_changed", "accepted_renamed", "accepted_split", "accepted_merged", "accepted_dead_source", "accepted_absent", "accepted_not_applicable"]},
-                "accepted_intent_ref_ids": {"minItems": 1}
+                "disposition": {
+                  "enum": [
+                    "accepted_missing",
+                    "accepted_extra",
+                    "accepted_changed",
+                    "accepted_renamed",
+                    "accepted_split",
+                    "accepted_merged",
+                    "accepted_dead_source",
+                    "accepted_absent",
+                    "accepted_not_applicable"
+                  ]
+                },
+                "accepted_intent_ref_ids": { "minItems": 1 }
               },
-              "not": {"properties": {"disposition": {"enum": ["none", "rejected"]}}}
+              "not": { "properties": { "disposition": { "enum": ["none", "rejected"] } } }
             }
           },
-          "openapi_reconciliation_ref": {"const": "openapi-reconciliation.json"},
+          "openapi_reconciliation_ref": { "const": "openapi-reconciliation.json" },
           "verification": {
             "properties": {
-              "schema_validation": {"const": true},
-              "cross_reference_validation": {"const": true},
-              "deterministic_diff": {"const": "equal"},
-              "forbidden_states_empty": {"const": true}
+              "schema_validation": { "const": true },
+              "cross_reference_validation": { "const": true },
+              "deterministic_diff": { "const": "equal" },
+              "forbidden_states_empty": { "const": true }
             }
           }
         }
       }
     },
     {
-      "if": {"properties": {"mode": {"const": "write"}}},
-      "then": {"properties": {"falsifier_id": {"type": "null"}, "verification": {"properties": {"deterministic_diff": {"const": "not_run"}}}}}
-    },
-    {
-      "if": {"properties": {"mode": {"const": "diff"}}},
-      "then": {"properties": {"falsifier_id": {"type": "null"}, "verification": {"properties": {"deterministic_diff": {"enum": ["equal", "different"]}}}}}
-    },
-    {
-      "if": {"properties": {"mode": {"const": "fixture_injection"}}},
+      "if": { "properties": { "mode": { "const": "write" } } },
       "then": {
-        "required": ["falsifier_id"],
         "properties": {
-          "falsifier_id": {"type": "string", "enum": ["F0_deterministic_replay", "F1_missing_required_source", "F2_source_hash_drift", "F3_duplicate_legacy_route", "F4_dead_unimported_source", "F5_missing_counterpart", "F6_extra_counterpart", "F7_method_path_mismatch", "F8_openapi_stale", "F9_runtime_unavailable", "F10_static_runtime_mismatch", "F11_intent_missing_or_stale", "F12_uncovered_journey", "F13_unknown_effect", "F14_absent_schedule", "F15_secret_or_pii_input", "F16_h3_authority_copy", "F17_locale_order", "F18_stale_artifact_diff", "F19_ignore_residual_precedence"]},
-          "status": {"not": {"const": "zero_gap"}},
-          "projection_write": {"properties": {"status": {"enum": ["not_requested", "blocked"]}}}
+          "falsifier_id": { "type": "null" },
+          "verification": { "properties": { "deterministic_diff": { "const": "not_run" } } }
         }
       }
     },
     {
-      "if": {"properties": {"status": {"const": "falsifier_passed"}}},
-      "then": {"properties": {"exit_code": {"const": 13}, "mode": {"const": "fixture_injection"}}}
+      "if": { "properties": { "mode": { "const": "diff" } } },
+      "then": {
+        "properties": {
+          "falsifier_id": { "type": "null" },
+          "verification": {
+            "properties": { "deterministic_diff": { "enum": ["equal", "different"] } }
+          }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "mode": { "const": "fixture_injection" } } },
+      "then": {
+        "required": ["falsifier_id"],
+        "properties": {
+          "falsifier_id": {
+            "type": "string",
+            "enum": [
+              "F0_deterministic_replay",
+              "F1_missing_required_source",
+              "F2_source_hash_drift",
+              "F3_duplicate_legacy_route",
+              "F4_dead_unimported_source",
+              "F5_missing_counterpart",
+              "F6_extra_counterpart",
+              "F7_method_path_mismatch",
+              "F8_openapi_stale",
+              "F9_runtime_unavailable",
+              "F10_static_runtime_mismatch",
+              "F11_intent_missing_or_stale",
+              "F12_uncovered_journey",
+              "F13_unknown_effect",
+              "F14_absent_schedule",
+              "F15_secret_or_pii_input",
+              "F16_h3_authority_copy",
+              "F17_locale_order",
+              "F18_stale_artifact_diff",
+              "F19_ignore_residual_precedence"
+            ]
+          },
+          "status": { "not": { "const": "zero_gap" } },
+          "projection_write": {
+            "properties": { "status": { "enum": ["not_requested", "blocked"] } }
+          }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "status": { "const": "falsifier_passed" } } },
+      "then": {
+        "properties": { "exit_code": { "const": 13 }, "mode": { "const": "fixture_injection" } }
+      }
     }
   ],
   "$defs": {
-    "sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
     "projectionWrite": {
-      "type": "object", "additionalProperties": false,
+      "type": "object",
+      "additionalProperties": false,
       "required": ["status", "target_ref"],
       "properties": {
-        "status": {"type": "string", "enum": ["not_requested", "written", "blocked"]},
-        "target_ref": {"type": ["string", "null"], "minLength": 1}
+        "status": { "type": "string", "enum": ["not_requested", "written", "blocked"] },
+        "target_ref": { "type": ["string", "null"], "minLength": 1 }
       }
     },
     "failure": {
-      "type": "object", "additionalProperties": false,
+      "type": "object",
+      "additionalProperties": false,
       "required": ["failure_id", "status", "reason_code", "row_ids", "source_ref_ids"],
       "properties": {
-        "failure_id": {"type": "string", "pattern": "^failure-[a-f0-9]{64}$"},
-        "status": {"type": "string", "enum": ["gaps_found", "unresolved", "duplicate", "stale", "source_unavailable", "source_hash_drift", "schema_invalid", "nondeterministic_output", "runtime_unavailable", "accepted_intent_invalid", "command_error"]},
-        "reason_code": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]{2,63}$"},
-        "row_ids": {"type": "array", "uniqueItems": true, "items": {"type": "string", "pattern": "^row-[a-f0-9]{64}$"}},
-        "source_ref_ids": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
-        "accepted_intent_ref_ids": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
+        "failure_id": { "type": "string", "pattern": "^failure-[a-f0-9]{64}$" },
+        "status": {
+          "type": "string",
+          "enum": [
+            "gaps_found",
+            "unresolved",
+            "duplicate",
+            "stale",
+            "source_unavailable",
+            "source_hash_drift",
+            "schema_invalid",
+            "nondeterministic_output",
+            "runtime_unavailable",
+            "accepted_intent_invalid",
+            "command_error"
+          ]
+        },
+        "reason_code": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]{2,63}$" },
+        "row_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^row-[a-f0-9]{64}$" }
+        },
+        "source_ref_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "accepted_intent_ref_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        }
       }
     },
     "mismatch": {
-      "type": "object", "additionalProperties": false,
+      "type": "object",
+      "additionalProperties": false,
       "required": ["kind", "row_ids", "disposition", "accepted_intent_ref_ids"],
       "properties": {
-        "kind": {"type": "string", "enum": ["missing", "extra", "changed", "renamed", "split", "merged", "dead_unimported", "absent", "uncovered", "unresolved", "duplicate", "stale", "openapi_stale"]},
-        "row_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "pattern": "^row-[a-f0-9]{64}$"}},
-        "disposition": {"type": "string", "enum": ["none", "accepted_missing", "accepted_extra", "accepted_changed", "accepted_renamed", "accepted_split", "accepted_merged", "accepted_dead_source", "accepted_absent", "accepted_not_applicable", "rejected"]},
-        "accepted_intent_ref_ids": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
+        "kind": {
+          "type": "string",
+          "enum": [
+            "missing",
+            "extra",
+            "changed",
+            "renamed",
+            "split",
+            "merged",
+            "dead_unimported",
+            "absent",
+            "uncovered",
+            "unresolved",
+            "duplicate",
+            "stale",
+            "openapi_stale"
+          ]
+        },
+        "row_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^row-[a-f0-9]{64}$" }
+        },
+        "disposition": {
+          "type": "string",
+          "enum": [
+            "none",
+            "accepted_missing",
+            "accepted_extra",
+            "accepted_changed",
+            "accepted_renamed",
+            "accepted_split",
+            "accepted_merged",
+            "accepted_dead_source",
+            "accepted_absent",
+            "accepted_not_applicable",
+            "rejected"
+          ]
+        },
+        "accepted_intent_ref_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        }
       },
       "allOf": [
-        {"if": {"properties": {"disposition": {"enum": ["accepted_missing", "accepted_extra", "accepted_changed", "accepted_renamed", "accepted_split", "accepted_merged", "accepted_dead_source", "accepted_absent", "accepted_not_applicable"]}}}, "then": {"properties": {"accepted_intent_ref_ids": {"minItems": 1}}}},
-        {"if": {"properties": {"disposition": {"enum": ["none", "rejected"]}}}, "then": {"properties": {"accepted_intent_ref_ids": {"maxItems": 0}}}},
-        {"if": {"properties": {"kind": {"const": "absent"}}}, "then": {"properties": {"disposition": {"const": "accepted_absent"}, "accepted_intent_ref_ids": {"minItems": 1}}}}
+        {
+          "if": {
+            "properties": {
+              "disposition": {
+                "enum": [
+                  "accepted_missing",
+                  "accepted_extra",
+                  "accepted_changed",
+                  "accepted_renamed",
+                  "accepted_split",
+                  "accepted_merged",
+                  "accepted_dead_source",
+                  "accepted_absent",
+                  "accepted_not_applicable"
+                ]
+              }
+            }
+          },
+          "then": { "properties": { "accepted_intent_ref_ids": { "minItems": 1 } } }
+        },
+        {
+          "if": { "properties": { "disposition": { "enum": ["none", "rejected"] } } },
+          "then": { "properties": { "accepted_intent_ref_ids": { "maxItems": 0 } } }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "absent" } } },
+          "then": {
+            "properties": {
+              "disposition": { "const": "accepted_absent" },
+              "accepted_intent_ref_ids": { "minItems": 1 }
+            }
+          }
+        }
       ]
     },
     "verification": {
-      "type": "object", "additionalProperties": false,
-      "required": ["canonical_json", "schema_validation", "cross_reference_validation", "deterministic_diff", "forbidden_states_empty"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "canonical_json",
+        "schema_validation",
+        "cross_reference_validation",
+        "deterministic_diff",
+        "forbidden_states_empty"
+      ],
       "properties": {
-        "canonical_json": {"type": "string", "const": "recursive-key-sort/byte-order-array-sort/compact-utf8/no-newline"},
-        "schema_validation": {"type": "boolean"},
-        "cross_reference_validation": {"type": "boolean"},
-        "deterministic_diff": {"type": "string", "enum": ["equal", "different", "not_run"]},
-        "forbidden_states_empty": {"type": "boolean"}
+        "canonical_json": {
+          "type": "string",
+          "const": "recursive-key-sort/byte-order-array-sort/compact-utf8/no-newline"
+        },
+        "schema_validation": { "type": "boolean" },
+        "cross_reference_validation": { "type": "boolean" },
+        "deterministic_diff": { "type": "string", "enum": ["equal", "different", "not_run"] },
+        "forbidden_states_empty": { "type": "boolean" }
       }
     }
   }
@@ -1954,16 +2903,16 @@ The generator MUST enforce these invariants after JSON Schema validation:
 
 The generator MUST evaluate `status` and `mismatch.kind` together. It MUST NOT rewrite a forbidden mismatch into `accounted`.
 
-| `mismatch.kind` | Permitted row status | Required disposition |
-|---|---|---|
-| `none` | `covered` or `not_applicable` | `none` for `covered`; `accepted_not_applicable` plus a non-empty intent ref for `not_applicable` |
-| `missing`, `extra`, `changed`, `renamed`, `split`, `merged` | The raw mismatch status, or `accounted` after exact accepted intent | Matching `accepted_*` disposition and a non-empty intent ref for `accounted`; `none` or `rejected` remains a gap |
-| `dead_unimported` | `dead_unimported` or `accounted` | `accepted_dead_source` and a non-empty intent ref are required for `accounted` |
-| `absent` | `absent` or `accounted` | `accepted_absent` and a non-empty intent ref are required for `accounted`; every absent row needs this disposition |
-| `uncovered` | `uncovered` | No disposition can waive missing coverage |
-| `unresolved` | `unresolved` | No disposition can waive unresolved provenance or observation |
-| `duplicate` | `duplicate` | No disposition can waive a duplicate |
-| `stale`, `openapi_stale` | `stale` | No disposition can waive a stale projection |
+| `mismatch.kind`                                             | Permitted row status                                                | Required disposition                                                                                               |
+| ----------------------------------------------------------- | ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `none`                                                      | `covered` or `not_applicable`                                       | `none` for `covered`; `accepted_not_applicable` plus a non-empty intent ref for `not_applicable`                   |
+| `missing`, `extra`, `changed`, `renamed`, `split`, `merged` | The raw mismatch status, or `accounted` after exact accepted intent | Matching `accepted_*` disposition and a non-empty intent ref for `accounted`; `none` or `rejected` remains a gap   |
+| `dead_unimported`                                           | `dead_unimported` or `accounted`                                    | `accepted_dead_source` and a non-empty intent ref are required for `accounted`                                     |
+| `absent`                                                    | `absent` or `accounted`                                             | `accepted_absent` and a non-empty intent ref are required for `accounted`; every absent row needs this disposition |
+| `uncovered`                                                 | `uncovered`                                                         | No disposition can waive missing coverage                                                                          |
+| `unresolved`                                                | `unresolved`                                                        | No disposition can waive unresolved provenance or observation                                                      |
+| `duplicate`                                                 | `duplicate`                                                         | No disposition can waive a duplicate                                                                               |
+| `stale`, `openapi_stale`                                    | `stale`                                                             | No disposition can waive a stale projection                                                                        |
 
 `status: "accounted"` is forbidden for `uncovered`, `unresolved`, `duplicate`, `stale`, and `openapi_stale`. Invariants 3, 5, 7, and 15 below inspect both fields, not only `status`.
 
@@ -1976,7 +2925,7 @@ The generator MUST evaluate `status` and `mismatch.kind` together. It MUST NOT r
 6. Accepted-intent refs cover exact rows and exact source/revision hashes. A stale or broad ref fails.
 7. Every parity-relevant row has a coverage ref or an exact accepted non-user-facing ref. The absence of such a ref is `uncovered`, and no intent ref can waive it.
 8. Every OpenAPI operation is linked to a regenerated API operation or is listed in a stale diff. OpenAPI-only rows cannot become API authority.
-8a. `openapi_reconciliation_ref` resolves exactly to `openapi-reconciliation.json`; that artifact is the sole regenerated OpenAPI reconciliation home. The report carries no second OpenAPI status, digest, operation set, or diff field.
+   8a. `openapi_reconciliation_ref` resolves exactly to `openapi-reconciliation.json`; that artifact is the sole regenerated OpenAPI reconciliation home. The report carries no second OpenAPI status, digest, operation set, or diff field.
 9. Every runtime-only row has a source-unavailable or extra reason; it is never silently imported into source authority.
 10. Every source declaration is represented in an import graph. Dead/unimported edges and every unclassified source-manifest row are retained and reported.
 11. Every deterministic array uses the declared sort key. Locale collation and hash-map iteration order are forbidden.
@@ -1989,36 +2938,36 @@ The generator MUST evaluate `status` and `mismatch.kind` together. It MUST NOT r
 
 The implementation uses these stable reason codes. Reason codes describe an observation; they do not grant authority.
 
-| Code | Trigger | Required treatment |
-|---|---|---|
-| `SOURCE_UNAVAILABLE` | Required file, root, command output, or intent ref cannot be read | Emit sanitized failure; primary status `source_unavailable` |
-| `SOURCE_HASH_DRIFT` | Selected bytes differ from a pinned source/revision/manifest | Stop refresh; primary status `source_hash_drift` |
-| `SOURCE_PARSE_ERROR` | Parser cannot produce a required field | Retain source ref; row `unresolved` |
-| `INVALID_UTF8` | Source is not valid UTF-8 | Do not replace bytes; fail closed |
-| `DUPLICATE_CANONICAL_IDENTITY` | Canonical key repeats in one authority scope | Retain duplicate group; primary status `duplicate` |
-| `DEAD_UNIMPORTED_SOURCE` | Static declaration has no loader/import edge | Retain row; `dead_unimported` or accepted dead disposition |
-| `RUNTIME_ONLY_SOURCE` | Runtime row has no static source edge | Retain as `extra` or `unresolved`; never adopt authority |
-| `RUNTIME_UNAVAILABLE` | Required local collector cannot run | Primary status `runtime_unavailable` |
-| `STATIC_RUNTIME_MISMATCH` | Static and runtime observations disagree | Retain both edges; `changed` or `unresolved` |
-| `METHOD_UNRESOLVED` | Route/API method is malformed, contradictory, or absent where unconstrained `ANY` semantics do not apply | Empty method set; `unresolved` |
-| `KEY_KIND_MISMATCH` | A typed identity uses a different key kind or fallback | `unresolved`; no fallback |
-| `MISSING_COUNTERPART` | Authority row has no current counterpart | `missing`; accepted intent required |
-| `EXTRA_COUNTERPART` | Current row has no authority counterpart | `extra`; accepted intent required |
-| `CHANGED_SIGNATURE` | Counterparts differ in typed identity or contract | `changed`; accepted intent required |
-| `UNSUPPORTED_SPLIT_OR_MERGE` | A split/merge lacks a bounded intent mapping | `unresolved` or `gaps_found` |
-| `STALE_OPENAPI_PROJECTION` | Committed OpenAPI differs from regenerated projection | `stale`; primary status `stale` |
-| `STALE_ARTIFACT` | Committed projection bytes differ from regeneration in `--diff` mode | `stale`; never `nondeterministic_output` |
-| `ACCEPTED_INTENT_REQUIRED` | Mismatch has no exact accepted disposition | `gaps_found` |
-| `ACCEPTED_INTENT_INVALID` | Intent ref is stale, malformed, broad, or conflicting | Primary status `accepted_intent_invalid` |
-| `COVERAGE_REF_REQUIRED` | Row has no journey or accepted non-user-facing ref | `uncovered`; always nonzero |
-| `ABSENT_SOURCE_FAMILY` | A named source family contains no declarations | Emit `absent` observation; every absent row requires `accepted_absent` and an immutable intent ref before `accounted` |
-| `UNKNOWN_EFFECT` | Write or integration effect is untraced | `unresolved`; effect includes `unknown` |
-| `UNKNOWN_INTEGRATION` | Provider/protocol/endpoint cannot be resolved | `unresolved`; do not classify as local |
-| `UNSAFE_SOURCE` | Credential, secret, PII, or raw payload would enter output | Primary status `source_unavailable`; sanitize the value or stop before any artifact claim |
-| `NONDETERMINISTIC_OUTPUT` | Deterministic bytes differ for identical inputs | Primary status `nondeterministic_output` |
-| `SCHEMA_INVALID` | Closed schema or cross-reference invariant fails | Primary status `schema_invalid` |
-| `H3_DERIVATION_ONLY` | Row came from H3 derivation and retains source edge | Informational; never parity authority |
-| `OPENAPI_NOT_AUTHORITY` | OpenAPI row is used as an operation authority | Schema/logic failure; reject the run |
+| Code                           | Trigger                                                                                                  | Required treatment                                                                                                    |
+| ------------------------------ | -------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `SOURCE_UNAVAILABLE`           | Required file, root, command output, or intent ref cannot be read                                        | Emit sanitized failure; primary status `source_unavailable`                                                           |
+| `SOURCE_HASH_DRIFT`            | Selected bytes differ from a pinned source/revision/manifest                                             | Stop refresh; primary status `source_hash_drift`                                                                      |
+| `SOURCE_PARSE_ERROR`           | Parser cannot produce a required field                                                                   | Retain source ref; row `unresolved`                                                                                   |
+| `INVALID_UTF8`                 | Source is not valid UTF-8                                                                                | Do not replace bytes; fail closed                                                                                     |
+| `DUPLICATE_CANONICAL_IDENTITY` | Canonical key repeats in one authority scope                                                             | Retain duplicate group; primary status `duplicate`                                                                    |
+| `DEAD_UNIMPORTED_SOURCE`       | Static declaration has no loader/import edge                                                             | Retain row; `dead_unimported` or accepted dead disposition                                                            |
+| `RUNTIME_ONLY_SOURCE`          | Runtime row has no static source edge                                                                    | Retain as `extra` or `unresolved`; never adopt authority                                                              |
+| `RUNTIME_UNAVAILABLE`          | Required local collector cannot run                                                                      | Primary status `runtime_unavailable`                                                                                  |
+| `STATIC_RUNTIME_MISMATCH`      | Static and runtime observations disagree                                                                 | Retain both edges; `changed` or `unresolved`                                                                          |
+| `METHOD_UNRESOLVED`            | Route/API method is malformed, contradictory, or absent where unconstrained `ANY` semantics do not apply | Empty method set; `unresolved`                                                                                        |
+| `KEY_KIND_MISMATCH`            | A typed identity uses a different key kind or fallback                                                   | `unresolved`; no fallback                                                                                             |
+| `MISSING_COUNTERPART`          | Authority row has no current counterpart                                                                 | `missing`; accepted intent required                                                                                   |
+| `EXTRA_COUNTERPART`            | Current row has no authority counterpart                                                                 | `extra`; accepted intent required                                                                                     |
+| `CHANGED_SIGNATURE`            | Counterparts differ in typed identity or contract                                                        | `changed`; accepted intent required                                                                                   |
+| `UNSUPPORTED_SPLIT_OR_MERGE`   | A split/merge lacks a bounded intent mapping                                                             | `unresolved` or `gaps_found`                                                                                          |
+| `STALE_OPENAPI_PROJECTION`     | Committed OpenAPI differs from regenerated projection                                                    | `stale`; primary status `stale`                                                                                       |
+| `STALE_ARTIFACT`               | Committed projection bytes differ from regeneration in `--diff` mode                                     | `stale`; never `nondeterministic_output`                                                                              |
+| `ACCEPTED_INTENT_REQUIRED`     | Mismatch has no exact accepted disposition                                                               | `gaps_found`                                                                                                          |
+| `ACCEPTED_INTENT_INVALID`      | Intent ref is stale, malformed, broad, or conflicting                                                    | Primary status `accepted_intent_invalid`                                                                              |
+| `COVERAGE_REF_REQUIRED`        | Row has no journey or accepted non-user-facing ref                                                       | `uncovered`; always nonzero                                                                                           |
+| `ABSENT_SOURCE_FAMILY`         | A named source family contains no declarations                                                           | Emit `absent` observation; every absent row requires `accepted_absent` and an immutable intent ref before `accounted` |
+| `UNKNOWN_EFFECT`               | Write or integration effect is untraced                                                                  | `unresolved`; effect includes `unknown`                                                                               |
+| `UNKNOWN_INTEGRATION`          | Provider/protocol/endpoint cannot be resolved                                                            | `unresolved`; do not classify as local                                                                                |
+| `UNSAFE_SOURCE`                | Credential, secret, PII, or raw payload would enter output                                               | Primary status `source_unavailable`; sanitize the value or stop before any artifact claim                             |
+| `NONDETERMINISTIC_OUTPUT`      | Deterministic bytes differ for identical inputs                                                          | Primary status `nondeterministic_output`                                                                              |
+| `SCHEMA_INVALID`               | Closed schema or cross-reference invariant fails                                                         | Primary status `schema_invalid`                                                                                       |
+| `H3_DERIVATION_ONLY`           | Row came from H3 derivation and retains source edge                                                      | Informational; never parity authority                                                                                 |
+| `OPENAPI_NOT_AUTHORITY`        | OpenAPI row is used as an operation authority                                                            | Schema/logic failure; reject the run                                                                                  |
 
 ## Explicit H3 derivation
 
@@ -2034,12 +2983,12 @@ The existing H3 inventory is reusable as a derivation, not as parity authority:
 
 Required derivation edges are:
 
-| Edge | Type | From | To | Meaning |
-|---|---|---|---|---|
-| `E-H3-ROUTE-DERIVATION` | `observed_inventory` | H3 route inventory and its source/hash refs | mono route rows | Normalize route identity and provenance only |
-| `E-H3-RESOURCE-DERIVATION` | `observed_inventory` | H3 resource inventory and its source/hash refs | API operation rows | Normalize resource/operation identity only |
-| `E-H3-CANONICALIZATION` | `derived_projection` | H3 generator canonical JSON algorithm | inventory artifacts | Reuse byte algorithm, not H3 authority |
-| `E-H3-RECONCILIATION` | `reconciles` | H3-derived rows and fresh mono observations | report rows | Expose drift, missing, extra, or stale H3 evidence |
+| Edge                       | Type                 | From                                           | To                  | Meaning                                            |
+| -------------------------- | -------------------- | ---------------------------------------------- | ------------------- | -------------------------------------------------- |
+| `E-H3-ROUTE-DERIVATION`    | `observed_inventory` | H3 route inventory and its source/hash refs    | mono route rows     | Normalize route identity and provenance only       |
+| `E-H3-RESOURCE-DERIVATION` | `observed_inventory` | H3 resource inventory and its source/hash refs | API operation rows  | Normalize resource/operation identity only         |
+| `E-H3-CANONICALIZATION`    | `derived_projection` | H3 generator canonical JSON algorithm          | inventory artifacts | Reuse byte algorithm, not H3 authority             |
+| `E-H3-RECONCILIATION`      | `reconciles`         | H3-derived rows and fresh mono observations    | report rows         | Expose drift, missing, extra, or stale H3 evidence |
 
 The preview route contract is a separate derivation source and cannot replace H3 or parity source evidence.
 
@@ -2048,27 +2997,27 @@ The preview route contract is a separate derivation source and cannot replace H3
 Falsifiers run only in isolated `fixture_injection` mode. They use synthetic source refs and cannot mutate, reread, or hash the frozen legacy or mono authority roots. A falsifier result is execution evidence, never a parity approval.
 The runnable form is `bun run parity:verify -- --root . --legacy-root /srv/share/projects/vektorprogrammet/vektorprogrammet --mode fixture_injection --falsifier F0_deterministic_replay`. `fixture_injection` requires exactly one ID from the F0–F19 register below, runs against synthetic copies only, never writes committed projections, and returns `falsifier_passed` (exit 13) only when that ID's required result is reached.
 
-| ID | Fixture mutation | Required result |
-|---|---|---|
-| `F0_deterministic_replay` | Run identical source bytes twice with different temp paths, locales, and execution times | Identical deterministic bytes; otherwise `nondeterministic_output` |
-| `F1_missing_required_source` | Remove a required source path | `source_unavailable`; no zero-gap report |
-| `F2_source_hash_drift` | Change one source byte after manifest capture | `source_hash_drift`; no refresh |
-| `F3_duplicate_legacy_route` | Add a second declaration with the same normalized route signature | Both rows retained; `duplicate` and nonzero |
-| `F4_dead_unimported_source` | Add a parseable declaration without a loader/import edge | `dead_unimported` or `unresolved`; row retained |
-| `F5_missing_counterpart` | Remove one mono counterpart | `missing`; accepted intent required |
-| `F6_extra_counterpart` | Add one mono-only operation | `extra`; accepted intent required |
-| `F7_method_path_mismatch` | Change method or path while keeping the source name | `changed`; no path/name fallback |
-| `F8_openapi_stale` | Remove or alter one committed OpenAPI operation | `stale` with `STALE_OPENAPI_PROJECTION`; nonzero |
-| `F9_runtime_unavailable` | Make a required local collector fail | `runtime_unavailable`; no static-only success |
-| `F10_static_runtime_mismatch` | Give static and runtime different method/template values | Both observations retained; `changed` or `unresolved` |
-| `F11_intent_missing_or_stale` | Remove or hash-drift an accepted-intent ref | `accepted_intent_invalid` or `gaps_found` |
-| `F12_uncovered_journey` | Remove one row from all journey coverage refs | `uncovered`; always nonzero |
-| `F13_unknown_effect` | Hide a command or integration target | `unresolved` with `UNKNOWN_EFFECT` or `UNKNOWN_INTEGRATION` |
-| `F14_absent_schedule` | Remove a named schedule family without an `accepted_absent` ref | `absent` remains unaccounted and produces `gaps_found`; no inferred schedule |
-| `F15_secret_or_pii_input` | Add a token, email, user ID, or payload to a source field | `source_unavailable` with reason `UNSAFE_SOURCE`; forbidden value never appears |
-| `F16_h3_authority_copy` | Supply only H3 rows and omit their source/derivation edges | `schema_invalid` or `unresolved`; H3 cannot become authority |
-| `F17_locale_order` | Use different locale collations for the same values | Byte-order canonical output remains equal |
-| `F18_stale_artifact_diff` | Modify a committed generated artifact without source change | `stale`; regeneration diff is nonzero |
+| ID                               | Fixture mutation                                                                                                        | Required result                                                                                                                                                      |
+| -------------------------------- | ----------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `F0_deterministic_replay`        | Run identical source bytes twice with different temp paths, locales, and execution times                                | Identical deterministic bytes; otherwise `nondeterministic_output`                                                                                                   |
+| `F1_missing_required_source`     | Remove a required source path                                                                                           | `source_unavailable`; no zero-gap report                                                                                                                             |
+| `F2_source_hash_drift`           | Change one source byte after manifest capture                                                                           | `source_hash_drift`; no refresh                                                                                                                                      |
+| `F3_duplicate_legacy_route`      | Add a second declaration with the same normalized route signature                                                       | Both rows retained; `duplicate` and nonzero                                                                                                                          |
+| `F4_dead_unimported_source`      | Add a parseable declaration without a loader/import edge                                                                | `dead_unimported` or `unresolved`; row retained                                                                                                                      |
+| `F5_missing_counterpart`         | Remove one mono counterpart                                                                                             | `missing`; accepted intent required                                                                                                                                  |
+| `F6_extra_counterpart`           | Add one mono-only operation                                                                                             | `extra`; accepted intent required                                                                                                                                    |
+| `F7_method_path_mismatch`        | Change method or path while keeping the source name                                                                     | `changed`; no path/name fallback                                                                                                                                     |
+| `F8_openapi_stale`               | Remove or alter one committed OpenAPI operation                                                                         | `stale` with `STALE_OPENAPI_PROJECTION`; nonzero                                                                                                                     |
+| `F9_runtime_unavailable`         | Make a required local collector fail                                                                                    | `runtime_unavailable`; no static-only success                                                                                                                        |
+| `F10_static_runtime_mismatch`    | Give static and runtime different method/template values                                                                | Both observations retained; `changed` or `unresolved`                                                                                                                |
+| `F11_intent_missing_or_stale`    | Remove or hash-drift an accepted-intent ref                                                                             | `accepted_intent_invalid` or `gaps_found`                                                                                                                            |
+| `F12_uncovered_journey`          | Remove one row from all journey coverage refs                                                                           | `uncovered`; always nonzero                                                                                                                                          |
+| `F13_unknown_effect`             | Hide a command or integration target                                                                                    | `unresolved` with `UNKNOWN_EFFECT` or `UNKNOWN_INTEGRATION`                                                                                                          |
+| `F14_absent_schedule`            | Remove a named schedule family without an `accepted_absent` ref                                                         | `absent` remains unaccounted and produces `gaps_found`; no inferred schedule                                                                                         |
+| `F15_secret_or_pii_input`        | Add a token, email, user ID, or payload to a source field                                                               | `source_unavailable` with reason `UNSAFE_SOURCE`; forbidden value never appears                                                                                      |
+| `F16_h3_authority_copy`          | Supply only H3 rows and omit their source/derivation edges                                                              | `schema_invalid` or `unresolved`; H3 cannot become authority                                                                                                         |
+| `F17_locale_order`               | Use different locale collations for the same values                                                                     | Byte-order canonical output remains equal                                                                                                                            |
+| `F18_stale_artifact_diff`        | Modify a committed generated artifact without source change                                                             | `stale`; regeneration diff is nonzero                                                                                                                                |
 | `F19_ignore_residual_precedence` | Place fixtures in `packages/sdk/dist/module.js`, `packages/sdk/dist/vendor/module.js`, and a nested `node_modules` path | Dependency residuals win inside dependency trees; generated residual wins for `packages/sdk/dist/module.js`; no duplicate classification or external-integration row |
 
 A falsifier is passed only when it reaches the exact required status, retains the affected rows, emits no forbidden value, and exits nonzero for every forbidden state.
@@ -2093,49 +3042,49 @@ This inventory is one dependency graph, not one giant pull request. The implemen
 
 ### Capsule C0 — closed contract, source manifest, and route surfaces
 
-| Field | Contract |
-|---|---|
-| Branch | `impl/0024a-parity-contract-routes` |
-| Worktree | `/tmp/mono-web-parity-inventory-impl-0024a` |
-| Depends on | 0023 baseline `462691d4c31ed601fba01f8b5f21abb92a547ff9` and this spec |
-| Owns | Closed inventory/source-manifest schemas, canonical serializer, exhaustive source-family expansion, revision/runtime registers, root command entry, legacy routes, and mono routes |
+| Field           | Contract                                                                                                                                                                                                                |
+| --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Branch          | `impl/0024a-parity-contract-routes`                                                                                                                                                                                     |
+| Worktree        | `/tmp/mono-web-parity-inventory-impl-0024a`                                                                                                                                                                             |
+| Depends on      | 0023 baseline `462691d4c31ed601fba01f8b5f21abb92a547ff9` and this spec                                                                                                                                                  |
+| Owns            | Closed inventory/source-manifest schemas, canonical serializer, exhaustive source-family expansion, revision/runtime registers, root command entry, legacy routes, and mono routes                                      |
 | Command surface | `bun run parity:verify -- --root . --legacy-root /srv/share/projects/vektorprogrammet/vektorprogrammet --intent-register <authority-checkout>/accepted-intent.json --mode diff` or the same command with `--mode write` |
-| Falsifiers | `F0_deterministic_replay`, `F1_missing_required_source`, `F2_source_hash_drift`, `F3_duplicate_legacy_route`, `F4_dead_unimported_source`, `F5_missing_counterpart`, `F6_extra_counterpart`, `F7_method_path_mismatch` |
+| Falsifiers      | `F0_deterministic_replay`, `F1_missing_required_source`, `F2_source_hash_drift`, `F3_duplicate_legacy_route`, `F4_dead_unimported_source`, `F5_missing_counterpart`, `F6_extra_counterpart`, `F7_method_path_mismatch`  |
 
 Acceptance for C0 requires that every object schema is closed, source patterns are literal and exhaustive, recursive controller files are included, unclassified files produce blocking rows, revision and runtime registers resolve all references, declaration IDs do not contain revision or source hashes, route examples validate through `details`, duplicate groups retain all rows, and the canonical serializer produces identical bytes for identical inputs. C0 does not claim API, write, workflow, integration, journey, or zero-gap completion.
 
 ### Capsule C1 — API operations, OpenAPI reconciliation, and H3 derivation
 
-| Field | Contract |
-|---|---|
-| Branch | `impl/0024b-parity-api-openapi-h3` |
-| Worktree | `/tmp/mono-web-parity-inventory-impl-0024b` |
-| Depends on | C0 integrated at an immutable revision |
-| Owns | API resource/operation parser, local runtime API collector, normalized regenerated OpenAPI operation set stored only in `openapi-reconciliation.json`, stale OpenAPI report, and explicit H3 route/resource derivation edges |
-| Falsifiers | `F8_openapi_stale`, `F9_runtime_unavailable`, `F10_static_runtime_mismatch`, `F16_h3_authority_copy` |
+| Field      | Contract                                                                                                                                                                                                                     |
+| ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Branch     | `impl/0024b-parity-api-openapi-h3`                                                                                                                                                                                           |
+| Worktree   | `/tmp/mono-web-parity-inventory-impl-0024b`                                                                                                                                                                                  |
+| Depends on | C0 integrated at an immutable revision                                                                                                                                                                                       |
+| Owns       | API resource/operation parser, local runtime API collector, normalized regenerated OpenAPI operation set stored only in `openapi-reconciliation.json`, stale OpenAPI report, and explicit H3 route/resource derivation edges |
+| Falsifiers | `F8_openapi_stale`, `F9_runtime_unavailable`, `F10_static_runtime_mismatch`, `F16_h3_authority_copy`                                                                                                                         |
 
 Acceptance for C1 requires exact API identities, no resource-key fallback, a non-null exact `openapi_reconciliation_ref`, stale projection status and exit 5, runtime register hashes, H3 derivation-only edges, and no H3 or OpenAPI row promoted to authority. C1 does not claim command/write, schedule, integration, journey, or final zero-gap completion.
 
 ### Capsule C2 — commands, writes, schedules, and external integrations
 
-| Field | Contract |
-|---|---|
-| Branch | `impl/0024c-parity-effects-workflows-integrations` |
-| Worktree | `/tmp/mono-web-parity-inventory-impl-0024c` |
-| Depends on | C0 integrated at an immutable revision; C1 is not required for source parsing |
-| Owns | Command/write path inventory, effect classification, schedule/background census, external integration inventory, and import/dead-source edges |
-| Falsifiers | `F13_unknown_effect`, `F14_absent_schedule` |
+| Field      | Contract                                                                                                                                      |
+| ---------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| Branch     | `impl/0024c-parity-effects-workflows-integrations`                                                                                            |
+| Worktree   | `/tmp/mono-web-parity-inventory-impl-0024c`                                                                                                   |
+| Depends on | C0 integrated at an immutable revision; C1 is not required for source parsing                                                                 |
+| Owns       | Command/write path inventory, effect classification, schedule/background census, external integration inventory, and import/dead-source edges |
+| Falsifiers | `F13_unknown_effect`, `F14_absent_schedule`                                                                                                   |
 
 Acceptance for C2 requires literal command/workflow/integration source sets, an `unknown` effect for every untraced path, an explicit absent row for an empty schedule family, an `accepted_absent` ref before any absent row becomes `accounted`, and secret/credential/payload redaction. C2 does not claim user-journey coverage or final zero-gap completion.
 
 ### Capsule C3 — journey coverage, report, write/diff modes, and final gate
 
-| Field | Contract |
-|---|---|
-| Branch | `impl/0024d-parity-report-gate` |
-| Worktree | `/tmp/mono-web-parity-inventory-impl-0024d` |
-| Depends on | C0, C1, and C2 integrated at immutable revisions |
-| Owns | Accepted-intent and journey coverage resolver, cross-artifact invariants, zero-gap report, failure receipts, `--write` projection promotion, `--diff` gate, falsifier receipt aggregation, and cleanup evidence |
+| Field      | Contract                                                                                                                                                                                                                       |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Branch     | `impl/0024d-parity-report-gate`                                                                                                                                                                                                |
+| Worktree   | `/tmp/mono-web-parity-inventory-impl-0024d`                                                                                                                                                                                    |
+| Depends on | C0, C1, and C2 integrated at immutable revisions                                                                                                                                                                               |
+| Owns       | Accepted-intent and journey coverage resolver, cross-artifact invariants, zero-gap report, failure receipts, `--write` projection promotion, `--diff` gate, falsifier receipt aggregation, and cleanup evidence                |
 | Falsifiers | `F11_intent_missing_or_stale`, `F12_uncovered_journey`, `F15_secret_or_pii_input`, `F17_locale_order`, `F18_stale_artifact_diff`, `F19_ignore_residual_precedence`, plus all earlier capsule falsifiers as integration replays |
 
 Acceptance for C3 requires canonical-signature journey refs that survive source revisions, rejection/empty-intent blocking, status-to-mismatch consistency, exact status/exit mapping including `projection_written` exit 14, `--write` with `deterministic_diff: "not_run"` only in write mode, `--diff` with stale-not-nondeterministic classification, and nonzero exit for every forbidden state. C3 is the first capsule allowed to publish a `zero_gap` report, and it can do so only in `--diff` mode with equal committed projection bytes. It also requires a full internal run-pipeline regeneration proof: write returns exit 14, the exact eight files are committed, a fresh post-commit generation/diff returns exit 0 with equal bytes, and no `GeneratedArtifacts` object is reused across the commit. Forged report/projection-diff/cross-reference claims and no-op writers MUST fail closed.
@@ -2146,17 +3095,17 @@ The root command remains the only supported entry point after C3. `--write` is a
 
 A maintainer retains these evidence records for one run:
 
-| Evidence | Proves | Does not prove |
-|---|---|---|
-| Source manifest and revision refs | Exact selected inputs and byte hashes | Semantic correctness or behavior |
-| Static inventories | Parsed source declarations and provenance | Runtime registration or response behavior |
-| Runtime inventories | One local collector observation at one revision | All environments or user behavior |
-| OpenAPI reconciliation | Whether the committed projection is stale for this source | API correctness or client compatibility |
-| Zero-gap report | Coverage accounting and exact unresolved/mismatch status | Functional parity, authorization, UX, or business acceptance |
-| Accepted-intent refs | A bounded external disposition was supplied | Generator-authenticated business approval |
-| User-journey coverage refs | Rows are named by accepted journey steps or explicit non-user-facing scope | The journey ran or behaved correctly |
-| Falsifier receipts | The named failure mode remained visible and fail-closed | Unnamed failure modes |
-| Execution evidence | When, where, and how one command ran | Deterministic artifact truth or future runs |
+| Evidence                          | Proves                                                                     | Does not prove                                               |
+| --------------------------------- | -------------------------------------------------------------------------- | ------------------------------------------------------------ |
+| Source manifest and revision refs | Exact selected inputs and byte hashes                                      | Semantic correctness or behavior                             |
+| Static inventories                | Parsed source declarations and provenance                                  | Runtime registration or response behavior                    |
+| Runtime inventories               | One local collector observation at one revision                            | All environments or user behavior                            |
+| OpenAPI reconciliation            | Whether the committed projection is stale for this source                  | API correctness or client compatibility                      |
+| Zero-gap report                   | Coverage accounting and exact unresolved/mismatch status                   | Functional parity, authorization, UX, or business acceptance |
+| Accepted-intent refs              | A bounded external disposition was supplied                                | Generator-authenticated business approval                    |
+| User-journey coverage refs        | Rows are named by accepted journey steps or explicit non-user-facing scope | The journey ran or behaved correctly                         |
+| Falsifier receipts                | The named failure mode remained visible and fail-closed                    | Unnamed failure modes                                        |
+| Execution evidence                | When, where, and how one command ran                                       | Deterministic artifact truth or future runs                  |
 
 A reviewer MUST reject a run that presents a count, committed OpenAPI file, H3 packet, route contract, successful parse, or local route reachability as proof of parity.
 

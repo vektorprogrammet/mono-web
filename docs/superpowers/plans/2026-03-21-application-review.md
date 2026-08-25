@@ -14,6 +14,7 @@
 ### Task 1: Add `applicationStatus` to `AdminApplicationListProvider`
 
 **Files:**
+
 - Modify: `apps/server/src/App/Admission/Api/State/AdminApplicationListProvider.php`
 
 **Context:** `ApplicationStatusRule::determine()` takes 7 arguments derived from the application entity. The `interviewScheduledFormatted` argument is rule-internal (used in display text only); the API response keeps `interviewScheduled` as ISO 8601. The new `applicationStatus` key holds the integer from `$status->getStep()`.
@@ -88,6 +89,7 @@ mapApplication(), exposing it as 'applicationStatus' (int) in the response."
 ### Task 2: Unit test status computation in `AdminApplicationListProvider`
 
 **Files:**
+
 - Create: `apps/server/tests/App/Admission/Api/State/AdminApplicationListProviderTest.php`
 
 **Context:** The provider is tested in isolation using PHPUnit mocks — no database needed. `ApplicationStatusRule` is tested separately; here we only verify the provider wires inputs correctly and the output array includes the `applicationStatus` key with the expected value. The `Application`, `Interview`, and `User` entities need mocking.
@@ -337,6 +339,7 @@ Expected: 0 errors above baseline.
 ### Task 4: Regenerate SDK types
 
 **Files:**
+
 - Modify: `packages/sdk/legacy-symfony-openapi.snapshot.json`
 - Modify: `packages/sdk/generated/api.d.ts`
 
@@ -371,6 +374,7 @@ git commit -m "chore(sdk): regenerate types for applicationStatus field in appli
 ### Task 5: Rewrite `dashboard.sokere._index.tsx`
 
 **Files:**
+
 - Modify: `apps/dashboard/app/routes/dashboard.sokere._index.tsx`
 
 **Context:** Full rewrite of the stub. The current file uses a hardcoded `DataSokere` mock array with a different shape. The new file introduces: a loader with `?status` forwarding, an action with `intent=assign` and `intent=delete`, status filter tabs, a DataTable with status badges, an "Assign Interview" dialog (shadcn `Dialog` — already present at `apps/dashboard/app/components/ui/dialog.tsx`), and a delete confirmation (`AlertDialog` — already present). The mutation pattern (fetcher.submit → action → SDK → revalidation) mirrors `dashboard.utlegg._index.tsx`.
@@ -435,19 +439,76 @@ type AdminApplicationListData = {
 // ── Mock data ─────────────────────────────────────────────────────────────────
 
 const mockApplications: Application[] = [
-  { id: 1, userName: "Ola Normann", userEmail: "ola@example.com", applicationStatus: 1, interviewStatus: null, interviewScheduled: null, interviewer: null, previousParticipation: false },
-  { id: 2, userName: "Kari Hansen", userEmail: "kari@example.com", applicationStatus: 2, interviewStatus: "Pending", interviewScheduled: "2026-04-10T12:00:00+02:00", interviewer: null, previousParticipation: false },
-  { id: 3, userName: "Per Olsen", userEmail: "per@example.com", applicationStatus: 3, interviewStatus: "Accepted", interviewScheduled: "2026-04-11T14:00:00+02:00", interviewer: "Jonas Berg", previousParticipation: false },
-  { id: 4, userName: "Lise Berg", userEmail: "lise@example.com", applicationStatus: 4, interviewStatus: "Interviewed", interviewScheduled: "2026-04-08T10:00:00+02:00", interviewer: "Jonas Berg", previousParticipation: false },
-  { id: 5, userName: "Ida Vik", userEmail: "ida@example.com", applicationStatus: 5, interviewStatus: null, interviewScheduled: null, interviewer: null, previousParticipation: true },
-  { id: 6, userName: "Bjørn Lund", userEmail: "bjorn@example.com", applicationStatus: -1, interviewStatus: "Cancelled", interviewScheduled: null, interviewer: null, previousParticipation: false },
+  {
+    id: 1,
+    userName: "Ola Normann",
+    userEmail: "ola@example.com",
+    applicationStatus: 1,
+    interviewStatus: null,
+    interviewScheduled: null,
+    interviewer: null,
+    previousParticipation: false,
+  },
+  {
+    id: 2,
+    userName: "Kari Hansen",
+    userEmail: "kari@example.com",
+    applicationStatus: 2,
+    interviewStatus: "Pending",
+    interviewScheduled: "2026-04-10T12:00:00+02:00",
+    interviewer: null,
+    previousParticipation: false,
+  },
+  {
+    id: 3,
+    userName: "Per Olsen",
+    userEmail: "per@example.com",
+    applicationStatus: 3,
+    interviewStatus: "Accepted",
+    interviewScheduled: "2026-04-11T14:00:00+02:00",
+    interviewer: "Jonas Berg",
+    previousParticipation: false,
+  },
+  {
+    id: 4,
+    userName: "Lise Berg",
+    userEmail: "lise@example.com",
+    applicationStatus: 4,
+    interviewStatus: "Interviewed",
+    interviewScheduled: "2026-04-08T10:00:00+02:00",
+    interviewer: "Jonas Berg",
+    previousParticipation: false,
+  },
+  {
+    id: 5,
+    userName: "Ida Vik",
+    userEmail: "ida@example.com",
+    applicationStatus: 5,
+    interviewStatus: null,
+    interviewScheduled: null,
+    interviewer: null,
+    previousParticipation: true,
+  },
+  {
+    id: 6,
+    userName: "Bjørn Lund",
+    userEmail: "bjorn@example.com",
+    applicationStatus: -1,
+    interviewStatus: "Cancelled",
+    interviewScheduled: null,
+    interviewer: null,
+    previousParticipation: false,
+  },
 ];
 
 // ── Loader ────────────────────────────────────────────────────────────────────
 
 export async function loader({ request }: Route.LoaderArgs) {
   if (isFixtureMode) {
-    return { data: { status: "all", applications: mockApplications } as AdminApplicationListData, activeFilter: "all" };
+    return {
+      data: { status: "all", applications: mockApplications } as AdminApplicationListData,
+      activeFilter: "all",
+    };
   }
 
   const token = requireAuth(request);
@@ -508,9 +569,14 @@ const applicationStatusMeta: Record<number, { label: string; className: string }
 };
 
 function ApplicationStatusBadge({ status }: { status: number }) {
-  const meta = applicationStatusMeta[status] ?? { label: String(status), className: "bg-gray-100 text-gray-700" };
+  const meta = applicationStatusMeta[status] ?? {
+    label: String(status),
+    className: "bg-gray-100 text-gray-700",
+  };
   return (
-    <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${meta.className}`}>
+    <span
+      className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${meta.className}`}
+    >
       {meta.label}
     </span>
   );
@@ -681,7 +747,8 @@ function ActionsCell({ application }: { application: Application }) {
           <AlertDialogHeader>
             <AlertDialogTitle>Slett søknad</AlertDialogTitle>
             <AlertDialogDescription>
-              Er du sikker på at du vil slette søknaden til {application.userName}? Dette kan ikke angres.
+              Er du sikker på at du vil slette søknaden til {application.userName}? Dette kan ikke
+              angres.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -800,6 +867,7 @@ export default function Sokere() {
 ```
 
 **Implementation notes:**
+
 - The assignment dialog fetches user/schema options via direct `fetch()` calls on dialog open. This keeps the loader lean (no pre-fetching data the user may never need) and avoids SSR complications. If the API requires a JWT header (not cookie), switch to `useFetcher` with a resource route that wraps the SDK calls.
 - The `activeFilter` comparison handles the "Alle" tab: when no `?status` param is present, `activeFilter` is `"all"` and `filter.value ?? "all"` evaluates to `"all"` for the null entry.
 - `interviewScheduled` is ISO 8601 from the API; `toLocaleString("nb-NO")` formats it for display, matching the spec's requirement that the API returns ISO and the frontend formats.
@@ -808,6 +876,7 @@ export default function Sokere() {
 
 Run: `ls apps/dashboard/app/components/ui/select.tsx`
 If missing, add via shadcn CLI:
+
 ```bash
 cd apps/dashboard && bunx shadcn@latest add select
 ```
@@ -857,6 +926,7 @@ Expected: No type errors.
 
 Run: `cd apps/dashboard && bun run dev`
 Navigate to `/dashboard/sokere`. In fixture mode:
+
 - Table should show 6 rows covering all 7 `applicationStatus` values (including cancelled at -1)
 - Status badges should render with correct colors and Norwegian labels
 - "Tildel intervju" button should appear only for rows where `interviewer === null`

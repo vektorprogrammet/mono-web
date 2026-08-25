@@ -687,7 +687,11 @@ test("OpenAPI route keys remain structural while credential and schema values fa
     const monoRoot = gitFixture();
     const legacyRoot = gitFixture();
     try {
-      putFixture(monoRoot, "packages/sdk/legacy-symfony-openapi.snapshot.json", JSON.stringify(openApiPayload));
+      putFixture(
+        monoRoot,
+        "packages/sdk/legacy-symfony-openapi.snapshot.json",
+        JSON.stringify(openApiPayload),
+      );
       execFileSync("git", ["-C", monoRoot, "add", "."]);
       execFileSync("git", ["-C", monoRoot, "commit", "-qm", "openapi-safety-boundary"]);
       execFileSync("git", ["-C", legacyRoot, "commit", "--allow-empty", "-qm", "empty-legacy"]);
@@ -1110,7 +1114,11 @@ test("malformed and unsafe OpenAPI documents remain schema-invalid and write-blo
       );
       putFixture(monoRoot, "apps/server/bin/console", "<?php\n");
       putFixture(monoRoot, "apps/server/vendor/autoload.php", "<?php\n");
-      putFixture(monoRoot, "packages/sdk/legacy-symfony-openapi.snapshot.json", JSON.stringify(payload));
+      putFixture(
+        monoRoot,
+        "packages/sdk/legacy-symfony-openapi.snapshot.json",
+        JSON.stringify(payload),
+      );
       execFileSync("git", ["-C", monoRoot, "add", "."]);
       execFileSync("git", ["-C", monoRoot, "add", "-f", "apps/server/vendor/autoload.php"]);
       execFileSync("git", ["-C", monoRoot, "commit", "-qm", "openapi-boundary"]);

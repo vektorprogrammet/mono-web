@@ -14,6 +14,7 @@
 ### Task 1: Add `findByUserOrdered()` to ReceiptRepository
 
 **Files:**
+
 - Modify: `apps/server/src/App/Operations/Infrastructure/Repository/ReceiptRepository.php`
 - Test: `apps/server/tests/App/Operations/Infrastructure/Repository/ReceiptRepositoryTest.php`
 
@@ -113,6 +114,7 @@ git commit -m "feat(receipts): add findByUserOrdered repository method with stat
 ### Task 2: Create `UserReceiptListResource` and `UserReceiptListProvider`
 
 **Files:**
+
 - Create: `apps/server/src/App/Operations/Api/Resource/UserReceiptListResource.php`
 - Create: `apps/server/src/App/Operations/Api/State/UserReceiptListProvider.php`
 
@@ -242,6 +244,7 @@ git commit -m "feat(receipts): add GET /api/my/receipts user-scoped list endpoin
 ### Task 3: Unit test `UserReceiptListProvider`
 
 **Files:**
+
 - Create: `apps/server/tests/App/Operations/Api/State/UserReceiptListProviderTest.php`
 
 **Context:** Mirror the `AdminReceiptListProviderTest` pattern. Tests: returns only the current user's receipts, passes status filter to repo, throws on unauthenticated.
@@ -368,6 +371,7 @@ git commit -m "test(receipts): unit tests for UserReceiptListProvider"
 ### Task 4: E2E API tests for `GET /api/my/receipts`
 
 **Files:**
+
 - Create: `apps/server/tests/AppBundle/Api/UserReceiptListApiTest.php`
 
 **Context:** Follow the `AdminReceiptListApiTest` pattern exactly. Uses `JwtAuthTrait` for JWT tokens, `BaseWebTestCase` for the client. The fixture user `assistent` has `ROLE_USER` and should be able to access their own receipts.
@@ -482,6 +486,7 @@ git commit -m "test(receipts): e2e API tests for GET /api/my/receipts"
 ### Task 5: Regenerate SDK types
 
 **Files:**
+
 - Modify: `packages/sdk/legacy-symfony-openapi.snapshot.json`
 - Modify: `packages/sdk/generated/api.d.ts`
 
@@ -514,6 +519,7 @@ git commit -m "chore(sdk): regenerate types for user receipt list endpoint"
 ### Task 6: Create `ReceiptFormDialog` component
 
 **Files:**
+
 - Create: `apps/dashboard/app/components/receipts/ReceiptFormDialog.tsx`
 
 **Context:** Dialog for create and edit. On create: all fields required including file. On edit: description/sum/receiptDate pre-populated, file optional with "Last opp ny fil for å erstatte" hint. Uses hidden `_intent` and `receiptId` fields so the parent route's action can dispatch correctly.
@@ -561,9 +567,7 @@ export default function ReceiptFormDialog({ open, onOpenChange, receipt, error }
           {isEdit && <input type="hidden" name="receiptId" value={receipt.id} />}
 
           <div className="flex flex-col gap-4 py-4">
-            {error && (
-              <p className="rounded bg-red-50 p-3 text-red-600 text-sm">{error}</p>
-            )}
+            {error && <p className="rounded bg-red-50 p-3 text-red-600 text-sm">{error}</p>}
 
             <div className="flex flex-col gap-1.5">
               <label htmlFor="description" className="text-sm font-medium">
@@ -635,9 +639,7 @@ export default function ReceiptFormDialog({ open, onOpenChange, receipt, error }
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Avbryt
             </Button>
-            <Button type="submit">
-              {isEdit ? "Lagre endringer" : "Legg til"}
-            </Button>
+            <Button type="submit">{isEdit ? "Lagre endringer" : "Legg til"}</Button>
           </DialogFooter>
         </Form>
       </DialogContent>
@@ -658,6 +660,7 @@ git commit -m "feat(dashboard): add ReceiptFormDialog component for create/edit"
 ### Task 7: Create `DeleteReceiptDialog` component
 
 **Files:**
+
 - Create: `apps/dashboard/app/components/receipts/DeleteReceiptDialog.tsx`
 
 **Context:** Uses shadcn `AlertDialog` (already installed from the admin receipts task). Submits via `fetcher.submit` like the admin status actions — avoids full-page navigation, keeps the dialog close animation intact.
@@ -728,6 +731,7 @@ git commit -m "feat(dashboard): add DeleteReceiptDialog component"
 ### Task 8: Create the `dashboard.mine-utlegg._index.tsx` route
 
 **Files:**
+
 - Create: `apps/dashboard/app/routes/dashboard.mine-utlegg._index.tsx`
 
 **Context:** New route. Loader fetches from `GET /api/my/receipts`. Single action handles create/edit/delete via `_intent`. Create/edit use raw `fetch()` with `FormData` for multipart (SDK doesn't support multipart). Delete uses the SDK client. `API_BASE_URL` comes from `apiUrl` imported from `@vektorprogrammet/sdk` — same base the SDK client uses, keeping raw fetch consistent.
@@ -759,9 +763,36 @@ type Receipt = {
 };
 
 const mockReceipts: Receipt[] = [
-  { id: 1, visualId: "1a2b3c", description: "Bussreise til skolen", sum: 150, receiptDate: "2025-01-10", submitDate: "2025-01-10", status: "pending", refundDate: null },
-  { id: 2, visualId: "4d5e6f", description: "Materiell til undervisning", sum: 320, receiptDate: "2025-01-12", submitDate: "2025-01-12", status: "refunded", refundDate: "2025-02-01" },
-  { id: 3, visualId: "7a8b9c", description: "Lunsj teamsamling", sum: 200, receiptDate: "2025-01-14", submitDate: "2025-01-14", status: "rejected", refundDate: null },
+  {
+    id: 1,
+    visualId: "1a2b3c",
+    description: "Bussreise til skolen",
+    sum: 150,
+    receiptDate: "2025-01-10",
+    submitDate: "2025-01-10",
+    status: "pending",
+    refundDate: null,
+  },
+  {
+    id: 2,
+    visualId: "4d5e6f",
+    description: "Materiell til undervisning",
+    sum: 320,
+    receiptDate: "2025-01-12",
+    submitDate: "2025-01-12",
+    status: "refunded",
+    refundDate: "2025-02-01",
+  },
+  {
+    id: 3,
+    visualId: "7a8b9c",
+    description: "Lunsj teamsamling",
+    sum: 200,
+    receiptDate: "2025-01-14",
+    submitDate: "2025-01-14",
+    status: "rejected",
+    refundDate: null,
+  },
 ];
 
 export async function loader({ request }: Route.LoaderArgs) {
@@ -796,9 +827,7 @@ export async function action({ request }: Route.ActionArgs) {
   if (intent === "create" || intent === "edit") {
     const method = intent === "create" ? "POST" : "PUT";
     const id = form.get("receiptId")?.toString();
-    const url = intent === "create"
-      ? "/api/receipts"
-      : `/api/receipts/${id}`;
+    const url = intent === "create" ? "/api/receipts" : `/api/receipts/${id}`;
 
     const body = new FormData();
     body.append("description", form.get("description")?.toString() ?? "");
@@ -835,7 +864,9 @@ const statusColors: Record<string, string> = {
 
 function StatusBadge({ status }: { status: string }) {
   return (
-    <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${statusColors[status] ?? ""}`}>
+    <span
+      className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${statusColors[status] ?? ""}`}
+    >
       {statusLabels[status] ?? status}
     </span>
   );
@@ -908,11 +939,7 @@ export default function MineUtlegg() {
       id: "actions",
       header: "Handlinger",
       cell: ({ row }) => (
-        <ActionsCell
-          receipt={row.original}
-          onEdit={setEditReceipt}
-          onDelete={setDeleteId}
-        />
+        <ActionsCell receipt={row.original} onEdit={setEditReceipt} onDelete={setDeleteId} />
       ),
     },
   ];
@@ -934,16 +961,14 @@ export default function MineUtlegg() {
         <DataTable columns={columns} data={receipts ?? []} />
       </div>
 
-      <ReceiptFormDialog
-        open={createOpen}
-        onOpenChange={setCreateOpen}
-        error={actionError}
-      />
+      <ReceiptFormDialog open={createOpen} onOpenChange={setCreateOpen} error={actionError} />
 
       {editReceipt && (
         <ReceiptFormDialog
           open={editReceipt !== null}
-          onOpenChange={(open) => { if (!open) setEditReceipt(null); }}
+          onOpenChange={(open) => {
+            if (!open) setEditReceipt(null);
+          }}
           receipt={editReceipt}
           error={actionError}
         />
@@ -952,7 +977,9 @@ export default function MineUtlegg() {
       {deleteId !== null && (
         <DeleteReceiptDialog
           open={deleteId !== null}
-          onOpenChange={(open) => { if (!open) setDeleteId(null); }}
+          onOpenChange={(open) => {
+            if (!open) setDeleteId(null);
+          }}
           receiptId={deleteId}
         />
       )}
@@ -983,6 +1010,7 @@ git commit -m "feat(dashboard): add Mine Utlegg page with create/edit/delete and
 ### Task 9: Wire the navigation link
 
 **Files:**
+
 - Modify: `apps/dashboard/app/routes/dashboard.tsx`
 
 **Context:** The "Mine Utlegg" `DropdownMenuItem` at line ~149 is currently a bare `DropdownMenuItem` with no link. Wrap it in a `Link` following the same pattern as the "Profil" item directly above it.
@@ -1051,6 +1079,7 @@ Expected: `GET /api/my/receipts` present.
 
 Run: `cd apps/dashboard && bun run dev`
 Navigate to `/dashboard/mine-utlegg`. Verify:
+
 - Table renders with 3 mock receipts
 - "Venter" receipt shows Rediger + Slett buttons
 - "Refundert" and "Avvist" receipts show no buttons

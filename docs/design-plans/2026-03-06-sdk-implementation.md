@@ -13,6 +13,7 @@
 ### Task 1: Export the OpenAPI spec from Symfony
 
 **Files:**
+
 - Create: `packages/sdk/legacy-symfony-openapi.snapshot.json`
 
 **Context:** The Symfony server at `apps/server` uses API Platform 3.4 which auto-generates an OpenAPI 3.0 spec. We need PHP + composer deps installed to export it.
@@ -61,6 +62,7 @@ git commit -m "chore: export OpenAPI spec from Symfony API Platform"
 ### Task 2: Create the SDK package scaffold
 
 **Files:**
+
 - Create: `packages/sdk/package.json`
 - Create: `packages/sdk/tsconfig.json`
 - Create: `packages/sdk/src/index.ts` (empty placeholder)
@@ -157,6 +159,7 @@ git commit -m "feat(sdk): scaffold @monoweb/sdk package"
 ### Task 3: Generate TypeScript types from the OpenAPI spec
 
 **Files:**
+
 - Create: `packages/sdk/generated/api.d.ts`
 
 **Step 1: Run openapi-typescript**
@@ -197,6 +200,7 @@ git commit -m "feat(sdk): generate TypeScript types from OpenAPI spec"
 ### Task 4: Implement the SDK client modules
 
 **Files:**
+
 - Create: `packages/sdk/src/client.ts`
 - Create: `packages/sdk/src/query.ts`
 - Modify: `packages/sdk/src/index.ts`
@@ -209,10 +213,7 @@ Create `packages/sdk/src/client.ts`:
 import createFetchClient from "openapi-fetch";
 import type { paths } from "../generated/api";
 
-export function createClient(
-  baseUrl: string,
-  options?: Parameters<typeof createFetchClient>[0],
-) {
+export function createClient(baseUrl: string, options?: Parameters<typeof createFetchClient>[0]) {
   return createFetchClient<paths>({ baseUrl, ...options });
 }
 
@@ -228,10 +229,7 @@ import createFetchClient from "openapi-fetch";
 import createQueryClient from "openapi-react-query";
 import type { paths } from "../generated/api";
 
-export function createQueryApi(
-  baseUrl: string,
-  options?: Parameters<typeof createFetchClient>[0],
-) {
+export function createQueryApi(baseUrl: string, options?: Parameters<typeof createFetchClient>[0]) {
   const fetchClient = createFetchClient<paths>({ baseUrl, ...options });
   return createQueryClient(fetchClient);
 }
@@ -270,6 +268,7 @@ git commit -m "feat(sdk): implement createClient and createQueryApi"
 ### Task 5: Add turbo pipeline tasks
 
 **Files:**
+
 - Modify: `turbo.json`
 - Modify: `apps/server/package.json` (add api:spec script)
 
@@ -327,6 +326,7 @@ git commit -m "feat(sdk): add turbo pipeline — api:spec → generate → build
 ### Task 6: Verify end-to-end with a smoke test
 
 **Files:**
+
 - Create: `packages/sdk/src/smoke.test.ts` (temporary, delete after verification)
 
 **Step 1: Write a quick type-level smoke test**
@@ -381,6 +381,7 @@ git commit -m "feat(sdk): verify end-to-end type safety"
 ### Task 7: Update root configuration and clean up
 
 **Files:**
+
 - Modify: `.oxlintrc.json` (ignore generated files)
 - Modify: `.gitignore` (optional: note about generated files)
 

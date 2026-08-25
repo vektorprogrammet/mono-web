@@ -17,6 +17,7 @@
 ### Task 1: Setup — dependencies, tsconfig, package.json exports
 
 **Files:**
+
 - Modify: `packages/sdk/package.json`
 - Modify: `packages/sdk/tsconfig.json`
 
@@ -112,6 +113,7 @@ git commit -m "chore(sdk): replace openapi-fetch deps with effect + @effect/plat
 ### Task 2: Error hierarchy
 
 **Files:**
+
 - Create: `packages/sdk/src/errors.ts`
 
 **Context:** The public error surface is a class hierarchy rooted at `SdkError`. Consumers use `instanceof` checks and the `.type` discriminant. Internally, each maps to a `Schema.TaggedError` for Effect's typed error channel. The `toSdkError()` function at the Effect→Promise boundary maps internal errors to public ones.
@@ -126,118 +128,98 @@ git commit -m "chore(sdk): replace openapi-fetch deps with effect + @effect/plat
  * Internally, Effect TaggedErrors are mapped to these at the runPromise boundary.
  */
 
-import { Schema } from "effect"
+import { Schema } from "effect";
 
 // --- Public error classes (exported to consumers) ---
 
 export type SdkErrorType =
-  | "unauthorized"
-  | "not_found"
-  | "validation"
-  | "conflict"
-  | "network"
-  | "rate_limited"
+  "unauthorized" | "not_found" | "validation" | "conflict" | "network" | "rate_limited";
 
 export class SdkError extends Error {
-  readonly type: SdkErrorType
+  readonly type: SdkErrorType;
 
   constructor(type: SdkErrorType, message: string, options?: ErrorOptions) {
-    super(message, options)
-    this.type = type
-    this.name = "SdkError"
+    super(message, options);
+    this.type = type;
+    this.name = "SdkError";
   }
 }
 
 export class UnauthorizedError extends SdkError {
   constructor(message = "Unauthorized") {
-    super("unauthorized", message)
-    this.name = "UnauthorizedError"
+    super("unauthorized", message);
+    this.name = "UnauthorizedError";
   }
 }
 
 export class NotFoundError extends SdkError {
   constructor(message = "Not found") {
-    super("not_found", message)
-    this.name = "NotFoundError"
+    super("not_found", message);
+    this.name = "NotFoundError";
   }
 }
 
 export class ValidationError extends SdkError {
-  readonly fields: Record<string, string>
+  readonly fields: Record<string, string>;
 
   constructor(message = "Validation failed", fields: Record<string, string> = {}) {
-    super("validation", message)
-    this.name = "ValidationError"
-    this.fields = fields
+    super("validation", message);
+    this.name = "ValidationError";
+    this.fields = fields;
   }
 }
 
 export class ConflictError extends SdkError {
   constructor(message = "Conflict") {
-    super("conflict", message)
-    this.name = "ConflictError"
+    super("conflict", message);
+    this.name = "ConflictError";
   }
 }
 
 export class NetworkError extends SdkError {
-  override readonly cause: unknown
+  override readonly cause: unknown;
 
   constructor(message = "Network error", cause?: unknown) {
-    super("network", message, { cause })
-    this.name = "NetworkError"
-    this.cause = cause
+    super("network", message, { cause });
+    this.name = "NetworkError";
+    this.cause = cause;
   }
 }
 
 export class RateLimitedError extends SdkError {
   constructor(message = "Rate limited") {
-    super("rate_limited", message)
-    this.name = "RateLimitedError"
+    super("rate_limited", message);
+    this.name = "RateLimitedError";
   }
 }
 
 // --- Internal Effect TaggedErrors ---
 
-export class Unauthorized extends Schema.TaggedError<Unauthorized>()(
-  "Unauthorized",
-  { message: Schema.String },
-) {}
+export class Unauthorized extends Schema.TaggedError<Unauthorized>()("Unauthorized", {
+  message: Schema.String,
+}) {}
 
-export class NotFound extends Schema.TaggedError<NotFound>()(
-  "NotFound",
-  { message: Schema.String },
-) {}
+export class NotFound extends Schema.TaggedError<NotFound>()("NotFound", {
+  message: Schema.String,
+}) {}
 
-export class Validation extends Schema.TaggedError<Validation>()(
-  "Validation",
-  {
-    message: Schema.String,
-    fields: Schema.Record({ key: Schema.String, value: Schema.String }),
-  },
-) {}
+export class Validation extends Schema.TaggedError<Validation>()("Validation", {
+  message: Schema.String,
+  fields: Schema.Record({ key: Schema.String, value: Schema.String }),
+}) {}
 
-export class Conflict extends Schema.TaggedError<Conflict>()(
-  "Conflict",
-  { message: Schema.String },
-) {}
+export class Conflict extends Schema.TaggedError<Conflict>()("Conflict", {
+  message: Schema.String,
+}) {}
 
-export class Network extends Schema.TaggedError<Network>()(
-  "Network",
-  { message: Schema.String },
-) {}
+export class Network extends Schema.TaggedError<Network>()("Network", { message: Schema.String }) {}
 
-export class RateLimited extends Schema.TaggedError<RateLimited>()(
-  "RateLimited",
-  { message: Schema.String },
-) {}
+export class RateLimited extends Schema.TaggedError<RateLimited>()("RateLimited", {
+  message: Schema.String,
+}) {}
 
 export type InternalSdkError =
-  | Unauthorized
-  | NotFound
-  | Validation
-  | Conflict
-  | Network
-  | RateLimited
+  Unauthorized | NotFound | Validation | Conflict | Network | RateLimited;
 
 /**
  * Maps an internal Effect TaggedError to a public SdkError subclass.
@@ -246,17 +228,17 @@ export type InternalSdkError =
 export function toSdkError(error: InternalSdkError): SdkError {
   switch (error._tag) {
     case "Unauthorized":
-      return new UnauthorizedError(error.message)
+      return new UnauthorizedError(error.message);
     case "NotFound":
-      return new NotFoundError(error.message)
+      return new NotFoundError(error.message);
     case "Validation":
-      return new ValidationError(error.message, error.fields as Record<string, string>)
+      return new ValidationError(error.message, error.fields as Record<string, string>);
     case "Conflict":
-      return new ConflictError(error.message)
+      return new ConflictError(error.message);
     case "Network":
-      return new NetworkError(error.message)
+      return new NetworkError(error.message);
     case "RateLimited":
-      return new RateLimitedError(error.message)
+      return new RateLimitedError(error.message);
   }
 }
 ```
@@ -278,6 +260,7 @@ git commit -m "feat(sdk): add SdkError class hierarchy and Effect TaggedError in
 ### Task 3: Transport — Effect HttpClient wrapper
 
 **Files:**
+
 - Create: `packages/sdk/src/transport.ts`
 
 **Context:** This wraps `@effect/platform`'s `HttpClient` with auth resolution and request helpers. The auth option is `string | (() => string | Promise<string>) | undefined`. Every request helper returns `Effect<T, InternalSdkError>` — the caller supplies a Schema to decode the response. HTTP status codes map to typed errors: 401→Unauthorized, 404→NotFound, 409→Conflict, 422→Validation, 429→RateLimited, network failures→Network.
@@ -292,14 +275,24 @@ git commit -m "feat(sdk): add SdkError class hierarchy and Effect TaggedError in
  * The caller provides the Schema; the transport handles HTTP, auth, and error mapping.
  */
 
-import { Effect, Layer, Schema, pipe } from "effect"
-import { HttpClient, HttpClientRequest, HttpClientResponse, HttpClientError } from "@effect/platform"
+import { Effect, Layer, Schema, pipe } from "effect";
 import {
-  Unauthorized, NotFound, Validation, Conflict, Network, RateLimited,
+  HttpClient,
+  HttpClientRequest,
+  HttpClientResponse,
+  HttpClientError,
+} from "@effect/platform";
+import {
+  Unauthorized,
+  NotFound,
+  Validation,
+  Conflict,
+  Network,
+  RateLimited,
   type InternalSdkError,
-} from "./errors.js"
+} from "./errors.js";
 
-export type AuthOption = string | (() => string | Promise<string>)
+export type AuthOption = string | (() => string | Promise<string>);
 
 /**
  * Resolves the auth token — supports static string or async function.
@@ -308,35 +301,51 @@ const resolveAuth = (auth: AuthOption): Effect.Effect<string> =>
   typeof auth === "string"
     ? Effect.succeed(auth)
     : Effect.promise(async () => {
-        const result = auth()
-        return result instanceof Promise ? result : result
-      })
+        const result = auth();
+        return result instanceof Promise ? result : result;
+      });
 
 /**
  * Maps HTTP status codes and network errors to InternalSdkError.
  */
 const mapHttpError = (error: HttpClientError.HttpClientError): InternalSdkError => {
   if (error._tag === "ResponseError") {
-    const status = error.response.status
-    if (status === 401 || status === 403) return new Unauthorized({ message: `HTTP ${status}` })
-    if (status === 404) return new NotFound({ message: "Not found" })
-    if (status === 409) return new Conflict({ message: "Conflict" })
-    if (status === 422) return new Validation({ message: "Validation failed", fields: {} })
-    if (status === 429) return new RateLimited({ message: "Rate limited" })
-    return new Network({ message: `HTTP ${status}` })
+    const status = error.response.status;
+    if (status === 401 || status === 403) return new Unauthorized({ message: `HTTP ${status}` });
+    if (status === 404) return new NotFound({ message: "Not found" });
+    if (status === 409) return new Conflict({ message: "Conflict" });
+    if (status === 422) return new Validation({ message: "Validation failed", fields: {} });
+    if (status === 429) return new RateLimited({ message: "Rate limited" });
+    return new Network({ message: `HTTP ${status}` });
   }
-  return new Network({ message: error.message })
-}
+  return new Network({ message: error.message });
+};
 
 export interface Transport {
-  get<A, I>(url: string, schema: Schema.Schema<A, I>, params?: Record<string, string | number | undefined>): Effect.Effect<A, InternalSdkError>
-  getCollection<A, I>(url: string, itemSchema: Schema.Schema<A, I>, params?: Record<string, string | number | undefined>): Effect.Effect<{ items: A[], totalItems: number }, InternalSdkError>
-  post<A, I>(url: string, body: unknown, schema: Schema.Schema<A, I>): Effect.Effect<A, InternalSdkError>
-  postVoid(url: string, body: unknown): Effect.Effect<void, InternalSdkError>
-  put(url: string, body: unknown): Effect.Effect<void, InternalSdkError>
-  del(url: string): Effect.Effect<void, InternalSdkError>
-  postFormData<A, I>(url: string, formData: FormData, schema: Schema.Schema<A, I>): Effect.Effect<A, InternalSdkError>
-  postFormDataVoid(url: string, formData: FormData): Effect.Effect<void, InternalSdkError>
+  get<A, I>(
+    url: string,
+    schema: Schema.Schema<A, I>,
+    params?: Record<string, string | number | undefined>,
+  ): Effect.Effect<A, InternalSdkError>;
+  getCollection<A, I>(
+    url: string,
+    itemSchema: Schema.Schema<A, I>,
+    params?: Record<string, string | number | undefined>,
+  ): Effect.Effect<{ items: A[]; totalItems: number }, InternalSdkError>;
+  post<A, I>(
+    url: string,
+    body: unknown,
+    schema: Schema.Schema<A, I>,
+  ): Effect.Effect<A, InternalSdkError>;
+  postVoid(url: string, body: unknown): Effect.Effect<void, InternalSdkError>;
+  put(url: string, body: unknown): Effect.Effect<void, InternalSdkError>;
+  del(url: string): Effect.Effect<void, InternalSdkError>;
+  postFormData<A, I>(
+    url: string,
+    formData: FormData,
+    schema: Schema.Schema<A, I>,
+  ): Effect.Effect<A, InternalSdkError>;
+  postFormDataVoid(url: string, formData: FormData): Effect.Effect<void, InternalSdkError>;
 }
 
 /**
@@ -350,26 +359,28 @@ export function createTransport(baseUrl: string, auth?: AuthOption): Transport {
   const withAuth = (
     request: HttpClientRequest.HttpClientRequest,
   ): Effect.Effect<HttpClientRequest.HttpClientRequest> => {
-    if (!auth) return Effect.succeed(request)
+    if (!auth) return Effect.succeed(request);
     return pipe(
       resolveAuth(auth),
       Effect.map((token) =>
         HttpClientRequest.setHeader(request, "Authorization", `Bearer ${token}`),
       ),
-    )
-  }
+    );
+  };
 
   const buildUrl = (path: string, params?: Record<string, string | number | undefined>): string => {
-    const url = new URL(path, baseUrl)
+    const url = new URL(path, baseUrl);
     if (params) {
       for (const [key, value] of Object.entries(params)) {
-        if (value !== undefined) url.searchParams.set(key, String(value))
+        if (value !== undefined) url.searchParams.set(key, String(value));
       }
     }
-    return url.toString()
-  }
+    return url.toString();
+  };
 
-  const executeJson = (request: HttpClientRequest.HttpClientRequest): Effect.Effect<unknown, InternalSdkError> =>
+  const executeJson = (
+    request: HttpClientRequest.HttpClientRequest,
+  ): Effect.Effect<unknown, InternalSdkError> =>
     pipe(
       withAuth(request),
       Effect.flatMap((req) =>
@@ -380,9 +391,11 @@ export function createTransport(baseUrl: string, auth?: AuthOption): Transport {
           Effect.catchTag("RequestError", (e) => Effect.fail(mapHttpError(e))),
         ),
       ),
-    )
+    );
 
-  const executeVoid = (request: HttpClientRequest.HttpClientRequest): Effect.Effect<void, InternalSdkError> =>
+  const executeVoid = (
+    request: HttpClientRequest.HttpClientRequest,
+  ): Effect.Effect<void, InternalSdkError> =>
     pipe(
       withAuth(request),
       Effect.flatMap((req) =>
@@ -393,37 +406,49 @@ export function createTransport(baseUrl: string, auth?: AuthOption): Transport {
           Effect.catchTag("RequestError", (e) => Effect.fail(mapHttpError(e))),
         ),
       ),
-    )
+    );
 
   return {
-    get<A, I>(url: string, schema: Schema.Schema<A, I>, params?: Record<string, string | number | undefined>) {
+    get<A, I>(
+      url: string,
+      schema: Schema.Schema<A, I>,
+      params?: Record<string, string | number | undefined>,
+    ) {
       return pipe(
         executeJson(HttpClientRequest.get(buildUrl(url, params))),
         Effect.flatMap((json) =>
           Schema.decodeUnknown(schema)(json).pipe(
-            Effect.mapError((e) => new Validation({ message: `Decode error: ${e.message}`, fields: {} })),
+            Effect.mapError(
+              (e) => new Validation({ message: `Decode error: ${e.message}`, fields: {} }),
+            ),
           ),
         ),
-      )
+      );
     },
 
-    getCollection<A, I>(url: string, itemSchema: Schema.Schema<A, I>, params?: Record<string, string | number | undefined>) {
+    getCollection<A, I>(
+      url: string,
+      itemSchema: Schema.Schema<A, I>,
+      params?: Record<string, string | number | undefined>,
+    ) {
       // Hydra collections: { "hydra:member": [...], "hydra:totalItems": N }
       return pipe(
         executeJson(HttpClientRequest.get(buildUrl(url, params))),
         Effect.flatMap((json: any) => {
-          const members: unknown[] = json?.["hydra:member"] ?? []
-          const totalItems: number = json?.["hydra:totalItems"] ?? 0
+          const members: unknown[] = json?.["hydra:member"] ?? [];
+          const totalItems: number = json?.["hydra:totalItems"] ?? 0;
           return pipe(
             Effect.forEach(members, (item) =>
               Schema.decodeUnknown(itemSchema)(item).pipe(
-                Effect.mapError((e) => new Validation({ message: `Decode error: ${e.message}`, fields: {} })),
+                Effect.mapError(
+                  (e) => new Validation({ message: `Decode error: ${e.message}`, fields: {} }),
+                ),
               ),
             ),
             Effect.map((items) => ({ items, totalItems })),
-          )
+          );
         }),
-      )
+      );
     },
 
     post<A, I>(url: string, body: unknown, schema: Schema.Schema<A, I>) {
@@ -435,10 +460,12 @@ export function createTransport(baseUrl: string, auth?: AuthOption): Transport {
         ),
         Effect.flatMap((json) =>
           Schema.decodeUnknown(schema)(json).pipe(
-            Effect.mapError((e) => new Validation({ message: `Decode error: ${e.message}`, fields: {} })),
+            Effect.mapError(
+              (e) => new Validation({ message: `Decode error: ${e.message}`, fields: {} }),
+            ),
           ),
         ),
-      )
+      );
     },
 
     postVoid(url: string, body: unknown) {
@@ -446,7 +473,7 @@ export function createTransport(baseUrl: string, auth?: AuthOption): Transport {
         HttpClientRequest.post(buildUrl(url)).pipe(
           HttpClientRequest.jsonBody(body),
         ) as HttpClientRequest.HttpClientRequest,
-      )
+      );
     },
 
     put(url: string, body: unknown) {
@@ -454,40 +481,39 @@ export function createTransport(baseUrl: string, auth?: AuthOption): Transport {
         HttpClientRequest.put(buildUrl(url)).pipe(
           HttpClientRequest.jsonBody(body),
         ) as HttpClientRequest.HttpClientRequest,
-      )
+      );
     },
 
     del(url: string) {
-      return executeVoid(HttpClientRequest.del(buildUrl(url)))
+      return executeVoid(HttpClientRequest.del(buildUrl(url)));
     },
 
     postFormData<A, I>(url: string, formData: FormData, schema: Schema.Schema<A, I>) {
       return pipe(
         executeJson(
-          HttpClientRequest.post(buildUrl(url)).pipe(
-            HttpClientRequest.formDataBody(formData),
-          ),
+          HttpClientRequest.post(buildUrl(url)).pipe(HttpClientRequest.formDataBody(formData)),
         ),
         Effect.flatMap((json) =>
           Schema.decodeUnknown(schema)(json).pipe(
-            Effect.mapError((e) => new Validation({ message: `Decode error: ${e.message}`, fields: {} })),
+            Effect.mapError(
+              (e) => new Validation({ message: `Decode error: ${e.message}`, fields: {} }),
+            ),
           ),
         ),
-      )
+      );
     },
 
     postFormDataVoid(url: string, formData: FormData) {
       return executeVoid(
-        HttpClientRequest.post(buildUrl(url)).pipe(
-          HttpClientRequest.formDataBody(formData),
-        ),
-      )
+        HttpClientRequest.post(buildUrl(url)).pipe(HttpClientRequest.formDataBody(formData)),
+      );
     },
-  }
+  };
 }
 ```
 
 **Important:** The exact `@effect/platform` API may differ from what's shown here. Before implementing, check the actual API:
+
 - `HttpClient.fetchOk` may be `HttpClient.execute` or similar
 - `HttpClientRequest.setHeader` may use a different signature
 - `HttpClientRequest.jsonBody` may return an Effect, not a plain request
@@ -512,6 +538,7 @@ git commit -m "feat(sdk): add Effect-based transport layer with auth and error m
 ### Task 4: Adapter utilities
 
 **Files:**
+
 - Create: `packages/sdk/src/adapter/status.ts`
 - Create: `packages/sdk/src/adapter/dates.ts`
 - Create: `packages/sdk/src/adapter/iri.ts`
@@ -536,7 +563,7 @@ const APPLICATION_STATUS_MAP: Record<number, string> = {
   4: "completed",
   5: "assigned",
   [-1]: "cancelled",
-}
+};
 
 const INTERVIEW_STATUS_MAP: Record<number, string> = {
   0: "pending",
@@ -544,25 +571,24 @@ const INTERVIEW_STATUS_MAP: Record<number, string> = {
   2: "request_new_time",
   3: "cancelled",
   4: "no_contact",
-}
+};
 
 export type ApplicationStatus =
-  | "not_received" | "received" | "invited" | "accepted"
-  | "completed" | "assigned" | "cancelled"
+  "not_received" | "received" | "invited" | "accepted" | "completed" | "assigned" | "cancelled";
 
 export type InterviewSchedulingStatus =
-  | "pending" | "accepted" | "request_new_time" | "cancelled" | "no_contact"
+  "pending" | "accepted" | "request_new_time" | "cancelled" | "no_contact";
 
 export function parseApplicationStatus(raw: number): ApplicationStatus {
-  const status = APPLICATION_STATUS_MAP[raw]
-  if (!status) throw new Error(`Unknown application status: ${raw}`)
-  return status as ApplicationStatus
+  const status = APPLICATION_STATUS_MAP[raw];
+  if (!status) throw new Error(`Unknown application status: ${raw}`);
+  return status as ApplicationStatus;
 }
 
 export function parseInterviewStatus(raw: number): InterviewSchedulingStatus {
-  const status = INTERVIEW_STATUS_MAP[raw]
-  if (!status) throw new Error(`Unknown interview status: ${raw}`)
-  return status as InterviewSchedulingStatus
+  const status = INTERVIEW_STATUS_MAP[raw];
+  if (!status) throw new Error(`Unknown interview status: ${raw}`);
+  return status as InterviewSchedulingStatus;
 }
 ```
 
@@ -573,20 +599,16 @@ export function parseInterviewStatus(raw: number): InterviewSchedulingStatus {
  * ISO date string → Date parsing for Schema.transform pipelines.
  */
 
-import { Schema } from "effect"
+import { Schema } from "effect";
 
 /**
  * Schema transform: ISO date string from API → JavaScript Date.
  * Accepts full ISO 8601 ("2026-01-10T12:00:00+01:00") or date-only ("2026-01-10").
  */
-export const DateFromIso = Schema.transform(
-  Schema.String,
-  Schema.DateFromSelf,
-  {
-    decode: (s) => new Date(s),
-    encode: (d) => d.toISOString(),
-  },
-)
+export const DateFromIso = Schema.transform(Schema.String, Schema.DateFromSelf, {
+  decode: (s) => new Date(s),
+  encode: (d) => d.toISOString(),
+});
 
 /**
  * Nullable variant — null stays null, string becomes Date.
@@ -598,7 +620,7 @@ export const NullableDateFromIso = Schema.transform(
     decode: (s) => (s === null ? null : new Date(s)),
     encode: (d) => (d === null ? null : d.toISOString()),
   },
-)
+);
 ```
 
 - [ ] **Step 3: Create `packages/sdk/src/adapter/iri.ts`**
@@ -610,13 +632,13 @@ export const NullableDateFromIso = Schema.transform(
  */
 
 export function parseIri(iri: string): number {
-  const match = iri.match(/\/(\d+)$/)
-  if (!match) throw new Error(`Invalid IRI: ${iri}`)
-  return Number(match[1])
+  const match = iri.match(/\/(\d+)$/);
+  if (!match) throw new Error(`Invalid IRI: ${iri}`);
+  return Number(match[1]);
 }
 
 export function parseOptionalIri(iri: string | null): number | null {
-  return iri === null ? null : parseIri(iri)
+  return iri === null ? null : parseIri(iri);
 }
 ```
 
@@ -631,17 +653,17 @@ export function parseOptionalIri(iri: string | null): number | null {
  */
 
 export function parseViolations(body: unknown): Record<string, string> {
-  if (typeof body !== "object" || body === null) return {}
-  const violations = (body as any)["violations"]
-  if (!Array.isArray(violations)) return {}
+  if (typeof body !== "object" || body === null) return {};
+  const violations = (body as any)["violations"];
+  if (!Array.isArray(violations)) return {};
 
-  const fields: Record<string, string> = {}
+  const fields: Record<string, string> = {};
   for (const v of violations) {
     if (typeof v?.propertyPath === "string" && typeof v?.message === "string") {
-      fields[v.propertyPath] = v.message
+      fields[v.propertyPath] = v.message;
     }
   }
-  return fields
+  return fields;
 }
 ```
 
@@ -661,6 +683,7 @@ git commit -m "feat(sdk): add adapter utilities — status maps, date parsing, I
 ### Task 5: Client context — JWT decode
 
 **Files:**
+
 - Create: `packages/sdk/src/context.ts`
 
 **Context:** The client context is decoded from the JWT at creation time. No server call. The JWT payload contains `roles`, `department`, `teams`, `userId`. The `hasRole` method checks role hierarchy: admin > team_leader > team_member > user.
@@ -674,13 +697,13 @@ git commit -m "feat(sdk): add adapter utilities — status maps, date parsing, I
  */
 
 export interface ClientContext {
-  readonly isAuthenticated: boolean
-  readonly role: "user" | "team_member" | "team_leader" | "admin" | null
-  readonly department: { id: number; name: string } | null
-  readonly teams: { id: number; name: string }[]
-  readonly userId: number | null
-  hasRole(role: "user" | "team_member" | "team_leader" | "admin"): boolean
-  isInDepartment(departmentId: number): boolean
+  readonly isAuthenticated: boolean;
+  readonly role: "user" | "team_member" | "team_leader" | "admin" | null;
+  readonly department: { id: number; name: string } | null;
+  readonly teams: { id: number; name: string }[];
+  readonly userId: number | null;
+  hasRole(role: "user" | "team_member" | "team_leader" | "admin"): boolean;
+  isInDepartment(departmentId: number): boolean;
 }
 
 const ROLE_HIERARCHY: Record<string, number> = {
@@ -688,7 +711,7 @@ const ROLE_HIERARCHY: Record<string, number> = {
   team_member: 1,
   team_leader: 2,
   admin: 3,
-}
+};
 
 /**
  * Decodes a JWT token (base64url) without verification.
@@ -696,23 +719,23 @@ const ROLE_HIERARCHY: Record<string, number> = {
  */
 function decodeJwtPayload(token: string): Record<string, unknown> {
   try {
-    const parts = token.split(".")
-    if (parts.length !== 3) return {}
-    const payload = parts[1]!
-    const json = atob(payload.replace(/-/g, "+").replace(/_/g, "/"))
-    return JSON.parse(json)
+    const parts = token.split(".");
+    if (parts.length !== 3) return {};
+    const payload = parts[1]!;
+    const json = atob(payload.replace(/-/g, "+").replace(/_/g, "/"));
+    return JSON.parse(json);
   } catch {
-    return {}
+    return {};
   }
 }
 
 function extractRole(roles: unknown): ClientContext["role"] {
-  if (!Array.isArray(roles)) return null
-  if (roles.includes("ROLE_ADMIN")) return "admin"
-  if (roles.includes("ROLE_TEAM_LEADER")) return "team_leader"
-  if (roles.includes("ROLE_TEAM_MEMBER")) return "team_member"
-  if (roles.includes("ROLE_USER")) return "user"
-  return null
+  if (!Array.isArray(roles)) return null;
+  if (roles.includes("ROLE_ADMIN")) return "admin";
+  if (roles.includes("ROLE_TEAM_LEADER")) return "team_leader";
+  if (roles.includes("ROLE_TEAM_MEMBER")) return "team_member";
+  if (roles.includes("ROLE_USER")) return "user";
+  return null;
 }
 
 export function createContext(token?: string): ClientContext {
@@ -725,14 +748,14 @@ export function createContext(token?: string): ClientContext {
       userId: null,
       hasRole: () => false,
       isInDepartment: () => false,
-    }
+    };
   }
 
-  const claims = decodeJwtPayload(token)
-  const role = extractRole(claims.roles)
-  const department = claims.department as { id: number; name: string } | null ?? null
-  const teams = (Array.isArray(claims.teams) ? claims.teams : []) as { id: number; name: string }[]
-  const userId = typeof claims.userId === "number" ? claims.userId : null
+  const claims = decodeJwtPayload(token);
+  const role = extractRole(claims.roles);
+  const department = (claims.department as { id: number; name: string } | null) ?? null;
+  const teams = (Array.isArray(claims.teams) ? claims.teams : []) as { id: number; name: string }[];
+  const userId = typeof claims.userId === "number" ? claims.userId : null;
 
   return {
     isAuthenticated: true,
@@ -741,13 +764,13 @@ export function createContext(token?: string): ClientContext {
     teams,
     userId,
     hasRole(requiredRole) {
-      if (!role) return false
-      return ROLE_HIERARCHY[role]! >= ROLE_HIERARCHY[requiredRole]!
+      if (!role) return false;
+      return ROLE_HIERARCHY[role]! >= ROLE_HIERARCHY[requiredRole]!;
     },
     isInDepartment(departmentId) {
-      return department?.id === departmentId
+      return department?.id === departmentId;
     },
-  }
+  };
 }
 ```
 
@@ -771,6 +794,7 @@ git commit -m "feat(sdk): add JWT-based client context for UI role/department ch
 ### Task 6: Common schemas — Page, shared primitives
 
 **Files:**
+
 - Create: `packages/sdk/src/schemas/common.ts`
 
 **Context:** `Page<T>` is the generic collection response after Hydra unwrapping. Shared primitives include the department, team, sponsor, and field-of-study types used across multiple domains.
@@ -778,7 +802,7 @@ git commit -m "feat(sdk): add JWT-based client context for UI role/department ch
 - [ ] **Step 1: Create `packages/sdk/src/schemas/common.ts`**
 
 ```typescript
-import { Schema } from "effect"
+import { Schema } from "effect";
 
 // --- Page (generic collection response, post-Hydra-unwrap) ---
 
@@ -795,8 +819,8 @@ export class Page<A> {
 export const PaginationParams = Schema.Struct({
   page: Schema.optional(Schema.Number),
   pageSize: Schema.optional(Schema.Number),
-})
-export type PaginationParams = Schema.Schema.Type<typeof PaginationParams>
+});
+export type PaginationParams = Schema.Schema.Type<typeof PaginationParams>;
 
 // --- Shared domain types ---
 
@@ -859,6 +883,7 @@ git commit -m "feat(sdk): add common Schema classes — Page, Department, Team, 
 ### Task 7: Auth domain
 
 **Files:**
+
 - Create: `packages/sdk/src/schemas/user.ts`
 - Create: `packages/sdk/src/domains/auth.ts`
 
@@ -867,7 +892,7 @@ git commit -m "feat(sdk): add common Schema classes — Page, Department, Team, 
 - [ ] **Step 1: Create `packages/sdk/src/schemas/user.ts`**
 
 ```typescript
-import { Schema } from "effect"
+import { Schema } from "effect";
 
 export class LoginResponse extends Schema.Class<LoginResponse>("LoginResponse")({
   token: Schema.String,
@@ -896,29 +921,29 @@ export class UserProfile extends Schema.Class<UserProfile>("UserProfile")({
 - [ ] **Step 2: Create `packages/sdk/src/domains/auth.ts`**
 
 ```typescript
-import { Effect } from "effect"
-import type { Transport } from "../transport.js"
-import { LoginResponse } from "../schemas/user.js"
-import type { InternalSdkError } from "../errors.js"
+import { Effect } from "effect";
+import type { Transport } from "../transport.js";
+import { LoginResponse } from "../schemas/user.js";
+import type { InternalSdkError } from "../errors.js";
 
 export interface AuthDomain {
-  login(username: string, password: string): Effect.Effect<{ token: string }, InternalSdkError>
-  resetPassword(email: string): Effect.Effect<void, InternalSdkError>
-  setPassword(code: string, password: string): Effect.Effect<void, InternalSdkError>
+  login(username: string, password: string): Effect.Effect<{ token: string }, InternalSdkError>;
+  resetPassword(email: string): Effect.Effect<void, InternalSdkError>;
+  setPassword(code: string, password: string): Effect.Effect<void, InternalSdkError>;
 }
 
 export function createAuthDomain(transport: Transport): AuthDomain {
   return {
     login(username, password) {
-      return transport.post("/api/login", { username, password }, LoginResponse)
+      return transport.post("/api/login", { username, password }, LoginResponse);
     },
     resetPassword(email) {
-      return transport.postVoid("/api/reset-password", { email })
+      return transport.postVoid("/api/reset-password", { email });
     },
     setPassword(code, password) {
-      return transport.postVoid("/api/set-password", { code, password })
+      return transport.postVoid("/api/set-password", { code, password });
     },
-  }
+  };
 }
 ```
 
@@ -938,11 +963,13 @@ git commit -m "feat(sdk): add auth domain — login, resetPassword, setPassword"
 ### Task 8: Receipts domain (reference implementation)
 
 **Files:**
+
 - Create: `packages/sdk/src/schemas/receipt.ts`
 - Create: `packages/sdk/src/domains/receipts.ts`
 - Create: `packages/sdk/src/domains/admin/receipts.ts`
 
 **Context:** This is the most complete domain — user CRUD + admin operations + file upload. All other domains follow this pattern. The receipts domain demonstrates:
+
 - Schema.Class with computed properties (`isPending`, `formattedAmount`)
 - Hydra collection unwrapping via `transport.getCollection`
 - Form data upload for receipts with photos
@@ -951,7 +978,7 @@ git commit -m "feat(sdk): add auth domain — login, resetPassword, setPassword"
 - [ ] **Step 1: Create `packages/sdk/src/schemas/receipt.ts`**
 
 ```typescript
-import { Schema } from "effect"
+import { Schema } from "effect";
 
 export class Receipt extends Schema.Class<Receipt>("Receipt")({
   id: Schema.Number,
@@ -963,8 +990,12 @@ export class Receipt extends Schema.Class<Receipt>("Receipt")({
   status: Schema.Literal("pending", "refunded", "rejected"),
   refundDate: Schema.NullOr(Schema.String),
 }) {
-  get isPending() { return this.status === "pending" }
-  get formattedAmount() { return `${this.sum} kr` }
+  get isPending() {
+    return this.status === "pending";
+  }
+  get formattedAmount() {
+    return `${this.sum} kr`;
+  }
 }
 
 export class AdminReceipt extends Schema.Class<AdminReceipt>("AdminReceipt")({
@@ -985,7 +1016,9 @@ export class ReceiptInput extends Schema.Class<ReceiptInput>("ReceiptInput")({
   receiptDate: Schema.String.pipe(Schema.pattern(/^\d{4}-\d{2}-\d{2}$/)),
 }) {}
 
-export class ReceiptCreateResponse extends Schema.Class<ReceiptCreateResponse>("ReceiptCreateResponse")({
+export class ReceiptCreateResponse extends Schema.Class<ReceiptCreateResponse>(
+  "ReceiptCreateResponse",
+)({
   id: Schema.Number,
 }) {}
 ```
@@ -995,98 +1028,113 @@ export class ReceiptCreateResponse extends Schema.Class<ReceiptCreateResponse>("
 - [ ] **Step 2: Create `packages/sdk/src/domains/receipts.ts`** (user receipts)
 
 ```typescript
-import { Effect } from "effect"
-import type { Transport } from "../transport.js"
-import type { InternalSdkError } from "../errors.js"
-import type { Page } from "../schemas/common.js"
-import { Receipt, ReceiptCreateResponse, ReceiptInput } from "../schemas/receipt.js"
+import { Effect } from "effect";
+import type { Transport } from "../transport.js";
+import type { InternalSdkError } from "../errors.js";
+import type { Page } from "../schemas/common.js";
+import { Receipt, ReceiptCreateResponse, ReceiptInput } from "../schemas/receipt.js";
 
 export interface ReceiptsDomain {
-  list(params?: { status?: string; page?: number; pageSize?: number }): Effect.Effect<Page<Receipt>, InternalSdkError>
-  create(input: typeof ReceiptInput.Type, file?: File): Effect.Effect<{ id: number }, InternalSdkError>
-  update(id: number, input: typeof ReceiptInput.Type, file?: File): Effect.Effect<void, InternalSdkError>
-  delete(id: number): Effect.Effect<void, InternalSdkError>
+  list(params?: {
+    status?: string;
+    page?: number;
+    pageSize?: number;
+  }): Effect.Effect<Page<Receipt>, InternalSdkError>;
+  create(
+    input: typeof ReceiptInput.Type,
+    file?: File,
+  ): Effect.Effect<{ id: number }, InternalSdkError>;
+  update(
+    id: number,
+    input: typeof ReceiptInput.Type,
+    file?: File,
+  ): Effect.Effect<void, InternalSdkError>;
+  delete(id: number): Effect.Effect<void, InternalSdkError>;
 }
 
 export function createReceiptsDomain(transport: Transport): ReceiptsDomain {
   return {
     list(params) {
-      const query: Record<string, string | number | undefined> = {}
-      if (params?.status) query.status = params.status
-      if (params?.page) query.page = params.page
-      if (params?.pageSize) query.itemsPerPage = params.pageSize
-      return transport.getCollection("/api/receipts", Receipt, query)
+      const query: Record<string, string | number | undefined> = {};
+      if (params?.status) query.status = params.status;
+      if (params?.page) query.page = params.page;
+      if (params?.pageSize) query.itemsPerPage = params.pageSize;
+      return transport.getCollection("/api/receipts", Receipt, query);
     },
 
     create(input, file) {
       if (file) {
-        const formData = new FormData()
-        formData.append("description", input.description)
-        formData.append("sum", String(input.sum))
-        formData.append("receiptDate", input.receiptDate)
-        formData.append("file", file)
-        return transport.postFormData("/api/receipts", formData, ReceiptCreateResponse)
+        const formData = new FormData();
+        formData.append("description", input.description);
+        formData.append("sum", String(input.sum));
+        formData.append("receiptDate", input.receiptDate);
+        formData.append("file", file);
+        return transport.postFormData("/api/receipts", formData, ReceiptCreateResponse);
       }
-      return transport.post("/api/receipts", input, ReceiptCreateResponse)
+      return transport.post("/api/receipts", input, ReceiptCreateResponse);
     },
 
     update(id, input, file) {
       if (file) {
-        const formData = new FormData()
-        formData.append("description", input.description)
-        formData.append("sum", String(input.sum))
-        formData.append("receiptDate", input.receiptDate)
-        formData.append("file", file)
-        return transport.postFormDataVoid(`/api/receipts/${id}`, formData)
+        const formData = new FormData();
+        formData.append("description", input.description);
+        formData.append("sum", String(input.sum));
+        formData.append("receiptDate", input.receiptDate);
+        formData.append("file", file);
+        return transport.postFormDataVoid(`/api/receipts/${id}`, formData);
       }
-      return transport.put(`/api/receipts/${id}`, input)
+      return transport.put(`/api/receipts/${id}`, input);
     },
 
     delete(id) {
-      return transport.del(`/api/receipts/${id}`)
+      return transport.del(`/api/receipts/${id}`);
     },
-  }
+  };
 }
 ```
 
 - [ ] **Step 3: Create `packages/sdk/src/domains/admin/receipts.ts`** (admin operations)
 
 ```typescript
-import { Effect } from "effect"
-import type { Transport } from "../../transport.js"
-import type { InternalSdkError } from "../../errors.js"
-import type { Page } from "../../schemas/common.js"
-import { AdminReceipt } from "../../schemas/receipt.js"
+import { Effect } from "effect";
+import type { Transport } from "../../transport.js";
+import type { InternalSdkError } from "../../errors.js";
+import type { Page } from "../../schemas/common.js";
+import { AdminReceipt } from "../../schemas/receipt.js";
 
 export interface AdminReceiptsDomain {
-  list(params?: { status?: string; page?: number; pageSize?: number }): Effect.Effect<Page<AdminReceipt>, InternalSdkError>
-  approve(id: number): Effect.Effect<void, InternalSdkError>
-  reject(id: number): Effect.Effect<void, InternalSdkError>
-  reopen(id: number): Effect.Effect<void, InternalSdkError>
+  list(params?: {
+    status?: string;
+    page?: number;
+    pageSize?: number;
+  }): Effect.Effect<Page<AdminReceipt>, InternalSdkError>;
+  approve(id: number): Effect.Effect<void, InternalSdkError>;
+  reject(id: number): Effect.Effect<void, InternalSdkError>;
+  reopen(id: number): Effect.Effect<void, InternalSdkError>;
 }
 
 export function createAdminReceiptsDomain(transport: Transport): AdminReceiptsDomain {
   return {
     list(params) {
-      const query: Record<string, string | number | undefined> = {}
-      if (params?.status) query.status = params.status
-      if (params?.page) query.page = params.page
-      if (params?.pageSize) query.itemsPerPage = params.pageSize
-      return transport.getCollection("/api/admin/receipts", AdminReceipt, query)
+      const query: Record<string, string | number | undefined> = {};
+      if (params?.status) query.status = params.status;
+      if (params?.page) query.page = params.page;
+      if (params?.pageSize) query.itemsPerPage = params.pageSize;
+      return transport.getCollection("/api/admin/receipts", AdminReceipt, query);
     },
 
     approve(id) {
-      return transport.put(`/api/admin/receipts/${id}/status`, { status: "refunded" })
+      return transport.put(`/api/admin/receipts/${id}/status`, { status: "refunded" });
     },
 
     reject(id) {
-      return transport.put(`/api/admin/receipts/${id}/status`, { status: "rejected" })
+      return transport.put(`/api/admin/receipts/${id}/status`, { status: "rejected" });
     },
 
     reopen(id) {
-      return transport.put(`/api/admin/receipts/${id}/status`, { status: "pending" })
+      return transport.put(`/api/admin/receipts/${id}/status`, { status: "pending" });
     },
-  }
+  };
 }
 ```
 
@@ -1106,6 +1154,7 @@ git commit -m "feat(sdk): add receipts domain — user CRUD + admin approve/reje
 ### Task 9: Me domain
 
 **Files:**
+
 - Create: `packages/sdk/src/schemas/dashboard.ts`
 - Create: `packages/sdk/src/domains/me.ts`
 
@@ -1123,6 +1172,7 @@ class DashboardStats extends Schema.Class<DashboardStats>("DashboardStats")({
 ```
 
 Domain methods:
+
 - `profile()` → `transport.get("/api/me/profile", UserProfile)`
 - `dashboard()` → `transport.get("/api/me/dashboard", DashboardStats)`
 - `updateProfile(data)` → `transport.put("/api/me/profile", data)`
@@ -1140,6 +1190,7 @@ git commit -m "feat(sdk): add me domain — profile, dashboard, updateProfile"
 ### Task 10: Applications domain
 
 **Files:**
+
 - Create: `packages/sdk/src/schemas/application.ts`
 - Create: `packages/sdk/src/domains/admin/applications.ts`
 
@@ -1148,9 +1199,14 @@ git commit -m "feat(sdk): add me domain — profile, dashboard, updateProfile"
 ```typescript
 // schemas/application.ts
 const ApplicationStatus = Schema.Literal(
-  "not_received", "received", "invited", "accepted",
-  "completed", "assigned", "cancelled"
-)
+  "not_received",
+  "received",
+  "invited",
+  "accepted",
+  "completed",
+  "assigned",
+  "cancelled",
+);
 
 class Application extends Schema.Class<Application>("Application")({
   id: Schema.Number,
@@ -1164,11 +1220,15 @@ class Application extends Schema.Class<Application>("Application")({
 }) {
   get statusLabel(): string {
     const labels: Record<string, string> = {
-      not_received: "Ikke mottatt", received: "Mottatt", invited: "Invitert",
-      accepted: "Akseptert", completed: "Fullført", assigned: "Tildelt skole",
+      not_received: "Ikke mottatt",
+      received: "Mottatt",
+      invited: "Invitert",
+      accepted: "Akseptert",
+      completed: "Fullført",
+      assigned: "Tildelt skole",
       cancelled: "Avbrutt",
-    }
-    return labels[this.status] ?? this.status
+    };
+    return labels[this.status] ?? this.status;
   }
 }
 ```
@@ -1194,6 +1254,7 @@ const ApplicationFromRaw = Schema.transform(RawApplication, Application, {
 ```
 
 Domain methods:
+
 - `list(params?)` → `transport.getCollection("/api/admin/applications", ApplicationFromRaw, query)`
 - `get(id)` → `transport.get("/api/admin/applications/${id}", ApplicationFromRaw)`
 - `delete(id)` → `transport.del("/api/admin/applications/${id}")`
@@ -1212,12 +1273,14 @@ git commit -m "feat(sdk): add applications domain with status integer→string d
 ### Task 11: Interviews domain
 
 **Files:**
+
 - Create: `packages/sdk/src/schemas/interview.ts`
 - Create: `packages/sdk/src/domains/admin/interviews.ts`
 
 **Follow the receipts pattern.** Uses `parseInterviewStatus` from `adapter/status.ts` for the `schedulingStatus` field. Domain methods map to the spec's interview operations.
 
 Domain methods:
+
 - `list(params?)` → getCollection
 - `assign(applicationId, interviewerId, schemaId)` → postVoid
 - `schedule(id, input)` → put
@@ -1238,6 +1301,7 @@ git commit -m "feat(sdk): add interviews domain — assign, schedule, conduct, c
 ### Task 12: Users domain
 
 **Files:**
+
 - Create: `packages/sdk/src/domains/admin/users.ts`
 
 **Simple.** Single method: `list()` → returns `{ active: User[], inactive: User[] }`. The server splits users into two arrays. Use the `User` schema from `schemas/user.ts`.
@@ -1255,6 +1319,7 @@ git commit -m "feat(sdk): add users domain — active/inactive split"
 ### Task 13: Scheduling domain
 
 **Files:**
+
 - Create: `packages/sdk/src/schemas/scheduling.ts`
 - Create: `packages/sdk/src/domains/admin/scheduling.ts`
 
@@ -1273,11 +1338,13 @@ git commit -m "feat(sdk): add scheduling domain — assistants, schools, substit
 ### Task 14: Teams domain
 
 **Files:**
+
 - Create: `packages/sdk/src/domains/admin/teams.ts`
 
 **Simple.** Uses `Team` and `TeamInterest` from `schemas/common.ts`.
 
 Domain methods:
+
 - `list()` → `transport.get("/api/admin/teams", Schema.Array(Team))`
 - `interest()` → `transport.getCollection("/api/admin/team-interest", TeamInterest)`
 
@@ -1294,6 +1361,7 @@ git commit -m "feat(sdk): add teams domain — list, interest"
 ### Task 15: Misc + Public domains
 
 **Files:**
+
 - Create: `packages/sdk/src/domains/admin/misc.ts`
 - Create: `packages/sdk/src/domains/public.ts`
 
@@ -1314,6 +1382,7 @@ git commit -m "feat(sdk): add misc and public domains — mailing lists, stats, 
 ### Task 16: Client factory — createClient (Promise surface)
 
 **Files:**
+
 - Create: `packages/sdk/src/sdk.ts`
 - Create: `packages/sdk/src/promise.ts`
 
@@ -1324,32 +1393,32 @@ git commit -m "feat(sdk): add misc and public domains — mailing lists, stats, 
 This defines the Sdk type — the assembled client with all domains. Both Promise and Effect exports share this structure.
 
 ```typescript
-import type { Effect } from "effect"
-import type { InternalSdkError } from "./errors.js"
-import type { ClientContext } from "./context.js"
-import type { AuthDomain } from "./domains/auth.js"
-import type { ReceiptsDomain } from "./domains/receipts.js"
-import type { AdminReceiptsDomain } from "./domains/admin/receipts.js"
+import type { Effect } from "effect";
+import type { InternalSdkError } from "./errors.js";
+import type { ClientContext } from "./context.js";
+import type { AuthDomain } from "./domains/auth.js";
+import type { ReceiptsDomain } from "./domains/receipts.js";
+import type { AdminReceiptsDomain } from "./domains/admin/receipts.js";
 // ... import all other domain types
 
 export interface AdminDomain {
-  receipts: AdminReceiptsDomain
-  applications: AdminApplicationsDomain
-  interviews: AdminInterviewsDomain
-  users: AdminUsersDomain
-  scheduling: AdminSchedulingDomain
-  teams: AdminTeamsDomain
-  mailingLists(): Effect.Effect<MailingList[], InternalSdkError>
-  admissionStats(): Effect.Effect<AdmissionStats, InternalSdkError>
+  receipts: AdminReceiptsDomain;
+  applications: AdminApplicationsDomain;
+  interviews: AdminInterviewsDomain;
+  users: AdminUsersDomain;
+  scheduling: AdminSchedulingDomain;
+  teams: AdminTeamsDomain;
+  mailingLists(): Effect.Effect<MailingList[], InternalSdkError>;
+  admissionStats(): Effect.Effect<AdmissionStats, InternalSdkError>;
 }
 
 export interface EffectSdk {
-  auth: AuthDomain
-  me: MeDomain
-  receipts: ReceiptsDomain
-  admin: AdminDomain
-  public: PublicDomain
-  context: ClientContext
+  auth: AuthDomain;
+  me: MeDomain;
+  receipts: ReceiptsDomain;
+  admin: AdminDomain;
+  public: PublicDomain;
+  context: ClientContext;
 }
 ```
 
@@ -1358,26 +1427,34 @@ export interface EffectSdk {
 This wraps the Effect SDK, converting every method from `Effect<A, E>` to `Promise<A>` that throws `SdkError`.
 
 ```typescript
-import { Effect } from "effect"
-import { createTransport, type AuthOption } from "./transport.js"
-import { toSdkError, type InternalSdkError } from "./errors.js"
-import { createContext, type ClientContext } from "./context.js"
-import { createAuthDomain } from "./domains/auth.js"
-import { createReceiptsDomain } from "./domains/receipts.js"
-import { createAdminReceiptsDomain } from "./domains/admin/receipts.js"
+import { Effect } from "effect";
+import { createTransport, type AuthOption } from "./transport.js";
+import { toSdkError, type InternalSdkError } from "./errors.js";
+import { createContext, type ClientContext } from "./context.js";
+import { createAuthDomain } from "./domains/auth.js";
+import { createReceiptsDomain } from "./domains/receipts.js";
+import { createAdminReceiptsDomain } from "./domains/admin/receipts.js";
 // ... import all domain factories
 
-export type { ClientContext }
-export { SdkError, UnauthorizedError, NotFoundError, ValidationError, ConflictError, NetworkError, RateLimitedError } from "./errors.js"
+export type { ClientContext };
+export {
+  SdkError,
+  UnauthorizedError,
+  NotFoundError,
+  ValidationError,
+  ConflictError,
+  NetworkError,
+  RateLimitedError,
+} from "./errors.js";
 
 // Re-export all schema types for consumers
-export type { Receipt, AdminReceipt, ReceiptInput } from "./schemas/receipt.js"
-export type { Application } from "./schemas/application.js"
+export type { Receipt, AdminReceipt, ReceiptInput } from "./schemas/receipt.js";
+export type { Application } from "./schemas/application.js";
 // ... all other schema type re-exports
 
 export type ClientOptions = {
-  auth?: AuthOption
-}
+  auth?: AuthOption;
+};
 
 /**
  * Wraps an Effect method into a Promise that throws SdkError on failure.
@@ -1391,38 +1468,44 @@ function promisify<Args extends unknown[], A>(
         Effect.mapError(toSdkError),
         Effect.catchAll((e) => Effect.fail(e)), // ensures SdkError is thrown
       ),
-    )
+    );
 }
 
 /**
  * Wraps an entire domain object — every method becomes Promise-returning.
  */
-function promisifyDomain<T extends Record<string, (...args: any[]) => Effect.Effect<any, InternalSdkError>>>(
+function promisifyDomain<
+  T extends Record<string, (...args: any[]) => Effect.Effect<any, InternalSdkError>>,
+>(
   domain: T,
-): { [K in keyof T]: T[K] extends (...args: infer A) => Effect.Effect<infer R, any> ? (...args: A) => Promise<R> : never } {
-  const result: any = {}
+): {
+  [K in keyof T]: T[K] extends (...args: infer A) => Effect.Effect<infer R, any>
+    ? (...args: A) => Promise<R>
+    : never;
+} {
+  const result: any = {};
   for (const key of Object.keys(domain)) {
-    result[key] = promisify(domain[key as keyof T] as any)
+    result[key] = promisify(domain[key as keyof T] as any);
   }
-  return result
+  return result;
 }
 
 export function createClient(baseUrl: string, options?: ClientOptions) {
-  const transport = createTransport(baseUrl, options?.auth)
-  const initialToken = typeof options?.auth === "string" ? options.auth : undefined
-  const context = createContext(initialToken)
+  const transport = createTransport(baseUrl, options?.auth);
+  const initialToken = typeof options?.auth === "string" ? options.auth : undefined;
+  const context = createContext(initialToken);
 
-  const auth = createAuthDomain(transport)
-  const me = createMeDomain(transport)
-  const receipts = createReceiptsDomain(transport)
-  const adminReceipts = createAdminReceiptsDomain(transport)
-  const adminApplications = createAdminApplicationsDomain(transport)
-  const adminInterviews = createAdminInterviewsDomain(transport)
-  const adminUsers = createAdminUsersDomain(transport)
-  const adminScheduling = createAdminSchedulingDomain(transport)
-  const adminTeams = createAdminTeamsDomain(transport)
-  const adminMisc = createAdminMiscDomain(transport)
-  const publicDomain = createPublicDomain(transport)
+  const auth = createAuthDomain(transport);
+  const me = createMeDomain(transport);
+  const receipts = createReceiptsDomain(transport);
+  const adminReceipts = createAdminReceiptsDomain(transport);
+  const adminApplications = createAdminApplicationsDomain(transport);
+  const adminInterviews = createAdminInterviewsDomain(transport);
+  const adminUsers = createAdminUsersDomain(transport);
+  const adminScheduling = createAdminSchedulingDomain(transport);
+  const adminTeams = createAdminTeamsDomain(transport);
+  const adminMisc = createAdminMiscDomain(transport);
+  const publicDomain = createPublicDomain(transport);
 
   return {
     auth: promisifyDomain(auth),
@@ -1440,10 +1523,10 @@ export function createClient(baseUrl: string, options?: ClientOptions) {
     },
     public: promisifyDomain(publicDomain),
     context,
-  }
+  };
 }
 
-export type Sdk = ReturnType<typeof createClient>
+export type Sdk = ReturnType<typeof createClient>;
 ```
 
 - [ ] **Step 3: Verify it compiles**
@@ -1462,6 +1545,7 @@ git commit -m "feat(sdk): add createClient factory with Promise surface and prom
 ### Task 17: Effect client export
 
 **Files:**
+
 - Create: `packages/sdk/src/effect-client.ts`
 
 **Context:** The Effect export (`"./effect"`) exposes the same domain structure but without Promise wrapping. Consumers who use Effect directly import from `@vektorprogrammet/sdk/effect`.
@@ -1469,28 +1553,28 @@ git commit -m "feat(sdk): add createClient factory with Promise surface and prom
 - [ ] **Step 1: Create `packages/sdk/src/effect-client.ts`**
 
 ```typescript
-import { createTransport, type AuthOption } from "./transport.js"
-import { createContext } from "./context.js"
-import { createAuthDomain } from "./domains/auth.js"
-import { createReceiptsDomain } from "./domains/receipts.js"
-import { createAdminReceiptsDomain } from "./domains/admin/receipts.js"
+import { createTransport, type AuthOption } from "./transport.js";
+import { createContext } from "./context.js";
+import { createAuthDomain } from "./domains/auth.js";
+import { createReceiptsDomain } from "./domains/receipts.js";
+import { createAdminReceiptsDomain } from "./domains/admin/receipts.js";
 // ... import all domain factories
 
-export type { InternalSdkError } from "./errors.js"
-export type { ClientContext } from "./context.js"
+export type { InternalSdkError } from "./errors.js";
+export type { ClientContext } from "./context.js";
 
 // Re-export all schema types
-export type { Receipt, AdminReceipt, ReceiptInput } from "./schemas/receipt.js"
+export type { Receipt, AdminReceipt, ReceiptInput } from "./schemas/receipt.js";
 // ... all other schema type re-exports
 
 export type ClientOptions = {
-  auth?: AuthOption
-}
+  auth?: AuthOption;
+};
 
 export function createEffectClient(baseUrl: string, options?: ClientOptions) {
-  const transport = createTransport(baseUrl, options?.auth)
-  const initialToken = typeof options?.auth === "string" ? options.auth : undefined
-  const context = createContext(initialToken)
+  const transport = createTransport(baseUrl, options?.auth);
+  const initialToken = typeof options?.auth === "string" ? options.auth : undefined;
+  const context = createContext(initialToken);
 
   return {
     auth: createAuthDomain(transport),
@@ -1508,10 +1592,10 @@ export function createEffectClient(baseUrl: string, options?: ClientOptions) {
     },
     public: createPublicDomain(transport),
     context,
-  }
+  };
 }
 
-export type EffectSdk = ReturnType<typeof createEffectClient>
+export type EffectSdk = ReturnType<typeof createEffectClient>;
 ```
 
 - [ ] **Step 2: Verify it compiles**
@@ -1530,6 +1614,7 @@ git commit -m "feat(sdk): add createEffectClient for Effect-native consumers"
 ### Task 18: Public API — index exports
 
 **Files:**
+
 - Modify: `packages/sdk/src/index.ts` (replace contents)
 
 **Context:** The old `index.ts` exports `createClient`, `createQueryApi`, `QueryProvider`, `apiUrl`, `isFixtureMode`, pre-configured instances, and `paths`. The new version exports only what consumers need. `apiUrl` and `isFixtureMode` stay (they're used by the dashboard).
@@ -1538,8 +1623,8 @@ git commit -m "feat(sdk): add createEffectClient for Effect-native consumers"
 
 ```typescript
 // Re-export the Promise surface as the default API
-export { createClient, type Sdk, type ClientOptions } from "./promise.js"
-export { apiUrl, isFixtureMode } from "./config.js"
+export { createClient, type Sdk, type ClientOptions } from "./promise.js";
+export { apiUrl, isFixtureMode } from "./config.js";
 
 // Error types for instanceof checks
 export {
@@ -1550,19 +1635,25 @@ export {
   ConflictError,
   NetworkError,
   RateLimitedError,
-} from "./errors.js"
+} from "./errors.js";
 
 // Domain types (re-exported from Schema classes)
-export type { Receipt, AdminReceipt, ReceiptInput } from "./schemas/receipt.js"
-export type { Application } from "./schemas/application.js"
-export type { Interview } from "./schemas/interview.js"
-export type { User, UserProfile, LoginResponse } from "./schemas/user.js"
-export type { DashboardStats } from "./schemas/dashboard.js"
+export type { Receipt, AdminReceipt, ReceiptInput } from "./schemas/receipt.js";
+export type { Application } from "./schemas/application.js";
+export type { Interview } from "./schemas/interview.js";
+export type { User, UserProfile, LoginResponse } from "./schemas/user.js";
+export type { DashboardStats } from "./schemas/dashboard.js";
 export type {
-  Department, Team, TeamInterest, FieldOfStudy, Sponsor,
-  MailingList, AdmissionStats, Page,
-} from "./schemas/common.js"
-export type { ClientContext } from "./context.js"
+  Department,
+  Team,
+  TeamInterest,
+  FieldOfStudy,
+  Sponsor,
+  MailingList,
+  AdmissionStats,
+  Page,
+} from "./schemas/common.js";
+export type { ClientContext } from "./context.js";
 ```
 
 - [ ] **Step 2: Build the full SDK**
@@ -1589,6 +1680,7 @@ git commit -m "feat(sdk): update index.ts with new public API exports"
 ### Task 19: Replace `api.server.ts`
 
 **Files:**
+
 - Modify: `apps/dashboard/app/lib/api.server.ts`
 
 **Context:** The current file imports `createClient` from the SDK and wraps it with auth headers. The new SDK handles auth internally — just pass the token to `createClient`.
@@ -1596,11 +1688,11 @@ git commit -m "feat(sdk): update index.ts with new public API exports"
 - [ ] **Step 1: Update `apps/dashboard/app/lib/api.server.ts`**
 
 ```typescript
-import { createClient } from "@vektorprogrammet/sdk"
-import { apiUrl } from "@vektorprogrammet/sdk"
+import { createClient } from "@vektorprogrammet/sdk";
+import { apiUrl } from "@vektorprogrammet/sdk";
 
 export function createAuthenticatedClient(token: string) {
-  return createClient(apiUrl, { auth: token })
+  return createClient(apiUrl, { auth: token });
 }
 ```
 
@@ -1623,6 +1715,7 @@ git commit -m "refactor(dashboard): update api.server.ts to use new SDK createCl
 ### Task 20: Migrate dashboard routes
 
 **Files (18 routes to migrate):**
+
 - `apps/dashboard/app/routes/login.tsx`
 - `apps/dashboard/app/routes/glemt-passord.tsx`
 - `apps/dashboard/app/routes/tilbakestill-passord.$code.tsx`
@@ -1654,43 +1747,52 @@ git commit -m "refactor(dashboard): update api.server.ts to use new SDK createCl
 **Example — login.tsx migration:**
 
 Before:
+
 ```typescript
-const client = createClient(apiUrl)
-const { data, error, response } = await client.POST("/api/login", { body: { username, password } })
-if (error || !data?.token) { /* handle error */ }
+const client = createClient(apiUrl);
+const { data, error, response } = await client.POST("/api/login", { body: { username, password } });
+if (error || !data?.token) {
+  /* handle error */
+}
 ```
 
 After:
+
 ```typescript
-const sdk = createClient(apiUrl)
+const sdk = createClient(apiUrl);
 try {
-  const { token } = await sdk.auth.login(username, password)
-  return redirect("/dashboard", { headers: { "Set-Cookie": createAuthCookie(token) } })
+  const { token } = await sdk.auth.login(username, password);
+  return redirect("/dashboard", { headers: { "Set-Cookie": createAuthCookie(token) } });
 } catch (e) {
   if (e instanceof RateLimitedError) {
-    return { error: "For mange innloggingsforsøk. Prøv igjen om 15 minutter." }
+    return { error: "For mange innloggingsforsøk. Prøv igjen om 15 minutter." };
   }
-  return { error: "Feil brukernavn eller passord" }
+  return { error: "Feil brukernavn eller passord" };
 }
 ```
 
 **Example — receipts route migration:**
 
 Before:
+
 ```typescript
-const { data } = await client.GET("/api/admin/receipts" as any, { params: { query: status ? { status } : {} } })
-const receipts = ((data as any)?.["hydra:member"] as Receipt[]) ?? []
+const { data } = await client.GET("/api/admin/receipts" as any, {
+  params: { query: status ? { status } : {} },
+});
+const receipts = ((data as any)?.["hydra:member"] as Receipt[]) ?? [];
 ```
 
 After:
+
 ```typescript
-const sdk = createClient(apiUrl, { auth: token })
-const { items: receipts } = await sdk.admin.receipts.list({ status })
+const sdk = createClient(apiUrl, { auth: token });
+const { items: receipts } = await sdk.admin.receipts.list({ status });
 ```
 
 - [ ] **Step 1: Migrate each route** (parallelize across workers)
 
 For each route:
+
 1. Read the current file
 2. Identify all SDK calls (`client.GET`, `client.POST`, `client.PUT`, `client.DELETE`)
 3. Replace with domain method calls
@@ -1716,6 +1818,7 @@ git commit -m "refactor(dashboard): migrate remaining admin routes to new SDK"
 ### Task 21: Cleanup — remove old SDK files and dependencies
 
 **Files:**
+
 - Delete: `packages/sdk/generated/api.d.ts`
 - Delete: `packages/sdk/legacy-symfony-openapi.snapshot.json`
 - Delete: `packages/sdk/src/query.ts` (React Query wrapper)
@@ -1761,6 +1864,7 @@ All consumers use createClient with domain methods instead."
 ### Task 22: Transport tests
 
 **Files:**
+
 - Create: `packages/sdk/src/__tests__/transport.test.ts`
 
 **Context:** Test the transport layer with a mock HttpClient. Verify auth resolution (static string, async function, undefined), Hydra collection unwrapping, and HTTP status → error mapping.
@@ -1770,6 +1874,7 @@ All consumers use createClient with domain methods instead."
 Use `@effect/vitest` with `it.effect` for Effect-native test assertions. Mock the fetch layer by providing a custom `HttpClient` that returns canned responses.
 
 Key test cases:
+
 - Static auth token is sent as `Authorization: Bearer <token>`
 - Dynamic auth function is called before each request
 - No auth option → no Authorization header
@@ -1799,11 +1904,13 @@ git commit -m "test(sdk): transport layer tests — auth, error mapping, Hydra u
 ### Task 23: Adapter tests
 
 **Files:**
+
 - Create: `packages/sdk/src/__tests__/adapter.test.ts`
 
 **Context:** Test the pure adapter functions in isolation.
 
 Key test cases:
+
 - `parseApplicationStatus(0)` → `"not_received"`, ..., `parseApplicationStatus(-1)` → `"cancelled"`
 - `parseApplicationStatus(99)` → throws
 - `parseInterviewStatus(0)` → `"pending"`, ..., `parseInterviewStatus(4)` → `"no_contact"`
@@ -1826,6 +1933,7 @@ git commit -m "test(sdk): adapter utility tests — status maps, IRI parsing, vi
 ### Task 24: Schema round-trip tests
 
 **Files:**
+
 - Create: `packages/sdk/src/__tests__/schemas.test.ts`
 
 **Context:** Every Schema class round-trips through encode/decode using `Arbitrary.make`. This catches Schema definition bugs (e.g., wrong field types, missing optional markers).
@@ -1835,16 +1943,16 @@ git commit -m "test(sdk): adapter utility tests — status maps, IRI parsing, vi
 Use `it.prop` from `@effect/vitest` with `Arbitrary.make(SchemaClass)` for each Schema class:
 
 ```typescript
-import { it } from "@effect/vitest"
-import { Schema, Arbitrary } from "effect"
-import { Receipt } from "../schemas/receipt.js"
+import { it } from "@effect/vitest";
+import { Schema, Arbitrary } from "effect";
+import { Receipt } from "../schemas/receipt.js";
 // ... import all schema classes
 
 it.prop("Receipt round-trips", [Arbitrary.make(Receipt)], (receipt) => {
-  const encoded = Schema.encodeSync(Receipt)(receipt)
-  const decoded = Schema.decodeUnknownSync(Receipt)(encoded)
-  expect(decoded).toEqual(receipt)
-})
+  const encoded = Schema.encodeSync(Receipt)(receipt);
+  const decoded = Schema.decodeUnknownSync(Receipt)(encoded);
+  expect(decoded).toEqual(receipt);
+});
 
 // Repeat for: AdminReceipt, Application, Interview, User, UserProfile,
 // DashboardStats, Department, Team, Sponsor, FieldOfStudy, etc.
@@ -1867,9 +1975,11 @@ git commit -m "test(sdk): Schema round-trip property tests for all domain types"
 ### Task 25: Context tests
 
 **Files:**
+
 - Create: `packages/sdk/src/__tests__/context.test.ts`
 
 Key test cases:
+
 - `createContext()` → unauthenticated context (all null/false)
 - `createContext(validJwt)` → extracts role, department, teams, userId
 - `context.hasRole("team_leader")` → true when role is admin, true when role is team_leader, false when role is team_member

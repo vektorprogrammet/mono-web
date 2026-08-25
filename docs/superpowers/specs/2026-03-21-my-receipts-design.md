@@ -49,17 +49,18 @@ No `picturePath` exposed — file download is out of scope for MVP.
 
 #### Existing Endpoints (unchanged)
 
-| Method | Path | Security | Notes |
-|--------|------|----------|-------|
-| `POST /api/receipts` | Create | `ROLE_USER` | multipart/form-data |
-| `PUT /api/receipts/{id}` | Edit own + pending only | `ROLE_USER` | multipart/form-data |
-| `DELETE /api/receipts/{id}` | Owner + pending, or `ROLE_TEAM_LEADER` | `ROLE_USER` | — |
+| Method                      | Path                                   | Security    | Notes               |
+| --------------------------- | -------------------------------------- | ----------- | ------------------- |
+| `POST /api/receipts`        | Create                                 | `ROLE_USER` | multipart/form-data |
+| `PUT /api/receipts/{id}`    | Edit own + pending only                | `ROLE_USER` | multipart/form-data |
+| `DELETE /api/receipts/{id}` | Owner + pending, or `ROLE_TEAM_LEADER` | `ROLE_USER` | —                   |
 
 The existing write endpoints already scope to the current user and enforce pending-only edits/deletes. No changes needed.
 
 ### SDK Regeneration
 
 After backend changes:
+
 1. `cd apps/server && php bin/console api:openapi:export --output=../../packages/sdk/legacy-symfony-openapi.snapshot.json`
 2. `cd packages/sdk && bun run generate`
 
@@ -108,9 +109,7 @@ export async function action({ request }: Route.ActionArgs) {
     // File upload via raw fetch — SDK does not support multipart
     const method = intent === "create" ? "POST" : "PUT";
     const id = form.get("receiptId")?.toString();
-    const url = intent === "create"
-      ? "/api/receipts"
-      : `/api/receipts/${id}`;
+    const url = intent === "create" ? "/api/receipts" : `/api/receipts/${id}`;
 
     const body = new FormData();
     body.append("description", form.get("description") ?? "");
@@ -139,39 +138,41 @@ export async function action({ request }: Route.ActionArgs) {
 #### Component
 
 **Layout:**
+
 - Page heading: "Mine Utlegg"
 - "Legg til utlegg" button (top right) → opens create dialog
 - DataTable (existing TanStack Table wrapper)
 
 **Columns:**
 
-| Column | Source | Notes |
-|--------|--------|-------|
-| Visual ID | `visualId` | Hex identifier |
-| Beskrivelse | `description` | Truncated at ~60 chars |
-| Beløp | `sum` | Formatted as `{n} kr` |
-| Dato | `receiptDate` | Locale formatted; empty if null |
-| Sendt inn | `submitDate` | Locale formatted; empty if null |
-| Status | `status` | Badge (see below) |
-| Handlinger | — | Edit + Delete, conditional on status |
+| Column      | Source        | Notes                                |
+| ----------- | ------------- | ------------------------------------ |
+| Visual ID   | `visualId`    | Hex identifier                       |
+| Beskrivelse | `description` | Truncated at ~60 chars               |
+| Beløp       | `sum`         | Formatted as `{n} kr`                |
+| Dato        | `receiptDate` | Locale formatted; empty if null      |
+| Sendt inn   | `submitDate`  | Locale formatted; empty if null      |
+| Status      | `status`      | Badge (see below)                    |
+| Handlinger  | —             | Edit + Delete, conditional on status |
 
 **Status badges:**
 
-| Status | Badge color |
-|--------|-------------|
-| `pending` | Yellow |
-| `refunded` | Green |
-| `rejected` | Red |
+| Status     | Badge color |
+| ---------- | ----------- |
+| `pending`  | Yellow      |
+| `refunded` | Green       |
+| `rejected` | Red         |
 
 **Action buttons per status:**
 
-| Status | Edit | Delete |
-|--------|------|--------|
-| `pending` | Yes | Yes |
-| `refunded` | No | No |
-| `rejected` | No | No |
+| Status     | Edit | Delete |
+| ---------- | ---- | ------ |
+| `pending`  | Yes  | Yes    |
+| `refunded` | No   | No     |
+| `rejected` | No   | No     |
 
 **Create/Edit dialog (`ReceiptFormDialog`):**
+
 - Fields: Beskrivelse (textarea), Beløp (number input, NOK), Dato (date picker, **required**), Kvitteringsbilde (file input, image or PDF)
 - The `receiptDate` field is required in the form. If omitted server-side, the API defaults to the server creation timestamp — making it required in the UI avoids this silent fallback and ensures the user always sets an explicit date.
 - On edit: pre-populate description, sum, receiptDate. File input shows "Last opp ny fil for å erstatte" hint. File is optional on edit.
@@ -179,6 +180,7 @@ export async function action({ request }: Route.ActionArgs) {
 - Validation: description required, sum > 0 required, receiptDate required, file required on create
 
 **Delete dialog:**
+
 - shadcn `AlertDialog`: "Er du sikker? Utlegget vil bli slettet permanent."
 - Confirm calls action with `_intent=delete`
 
@@ -199,6 +201,7 @@ Add `to="/dashboard/mine-utlegg"` to the existing "Mine Utlegg" `<NavLink>` (cur
 ## File Upload — Detailed Design
 
 The existing `FileUploader::uploadReceipt(Request $request)` in the backend:
+
 - Reads the file from the raw Symfony `Request` object (not from a DTO)
 - Picks the first file key it finds — the field **must** be named `picture`
 - Validates MIME type (image or PDF)
@@ -239,21 +242,21 @@ Status transitions are admin-only (handled in the admin receipt page). Users can
 
 ### New files
 
-| File | Purpose |
-|------|---------|
-| `apps/server/src/App/Operations/Api/Resource/UserReceiptListResource.php` | List item DTO for user's own receipts |
-| `apps/server/src/App/Operations/Api/State/UserReceiptListProvider.php` | User-scoped collection provider |
-| `apps/dashboard/app/routes/dashboard.mine-utlegg._index.tsx` | Route: loader + action + page component |
-| `apps/dashboard/app/components/receipts/ReceiptFormDialog.tsx` | Create/edit dialog with file upload field |
-| `apps/dashboard/app/components/receipts/DeleteReceiptDialog.tsx` | Delete confirmation dialog |
+| File                                                                      | Purpose                                   |
+| ------------------------------------------------------------------------- | ----------------------------------------- |
+| `apps/server/src/App/Operations/Api/Resource/UserReceiptListResource.php` | List item DTO for user's own receipts     |
+| `apps/server/src/App/Operations/Api/State/UserReceiptListProvider.php`    | User-scoped collection provider           |
+| `apps/dashboard/app/routes/dashboard.mine-utlegg._index.tsx`              | Route: loader + action + page component   |
+| `apps/dashboard/app/components/receipts/ReceiptFormDialog.tsx`            | Create/edit dialog with file upload field |
+| `apps/dashboard/app/components/receipts/DeleteReceiptDialog.tsx`          | Delete confirmation dialog                |
 
 ### Modified files
 
-| File | Change |
-|------|--------|
+| File                                                                       | Change                                                      |
+| -------------------------------------------------------------------------- | ----------------------------------------------------------- |
 | `apps/dashboard/app/components/layout/sidebar.tsx` (or user dropdown file) | Add `to="/dashboard/mine-utlegg"` to "Mine Utlegg" nav item |
-| `packages/sdk/legacy-symfony-openapi.snapshot.json` | Regenerated |
-| `packages/sdk/generated/api.d.ts` | Regenerated |
+| `packages/sdk/legacy-symfony-openapi.snapshot.json`                        | Regenerated                                                 |
+| `packages/sdk/generated/api.d.ts`                                          | Regenerated                                                 |
 
 ---
 

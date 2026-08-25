@@ -7,6 +7,7 @@ Replace the openapi-fetch SDK with a domain-first typed client. Effect internals
 ## Problem
 
 The current SDK wraps `openapi-fetch` with types generated from the Symfony OpenAPI spec:
+
 - `paths` interface generates as empty — all path types resolve to `never`
 - Every call requires `as any` casts, defeating type safety
 - Hydra envelopes (`hydra:member`) leak into consumers
@@ -21,29 +22,29 @@ Two entrypoints from the same codebase. The Effect SDK is the real implementatio
 ### Default — plain promises
 
 ```typescript
-import { createClient } from "@vektorprogrammet/sdk"
+import { createClient } from "@vektorprogrammet/sdk";
 
 // Static token (server-side loaders)
-const client = createClient("https://api.example.com", { auth: token })
+const client = createClient("https://api.example.com", { auth: token });
 
 // Dynamic token (client-side, supports refresh)
-const client = createClient("https://api.example.com", { auth: () => getOrRefreshToken() })
+const client = createClient("https://api.example.com", { auth: () => getOrRefreshToken() });
 
 // No auth (public endpoints only)
-const client = createClient("https://api.example.com")
+const client = createClient("https://api.example.com");
 
-const page = await client.receipts.list({ status: "pending", page: 1, pageSize: 30 })
+const page = await client.receipts.list({ status: "pending", page: 1, pageSize: 30 });
 // page: { items: Receipt[], totalItems: number, page: number, pageSize: number }
 ```
 
 ### Effect-native — for consumers who want Effect composition
 
 ```typescript
-import { createEffectClient } from "@vektorprogrammet/sdk/effect"
+import { createEffectClient } from "@vektorprogrammet/sdk/effect";
 
-const client = createEffectClient("https://api.example.com", { auth: token })
+const client = createEffectClient("https://api.example.com", { auth: token });
 
-const page = yield* client.receipts.list({ status: "pending" })
+const page = yield * client.receipts.list({ status: "pending" });
 // Effect<Page<Receipt>, SdkError, never>
 ```
 
@@ -63,8 +64,8 @@ The Effect SDK returns `Effect<T, SdkError>`. The Promise SDK wraps with `Effect
 
 ```typescript
 type ClientOptions = {
-  auth?: string | (() => string | Promise<string>)
-}
+  auth?: string | (() => string | Promise<string>);
+};
 ```
 
 - **`string`** — static token, used as-is for every request
@@ -76,15 +77,15 @@ type ClientOptions = {
 Decoded from the JWT at creation time. No server call. Used by the UI for conditional rendering (show/hide buttons, route guards), not for security — the server enforces all access rules.
 
 ```typescript
-sdk.context.isAuthenticated    // boolean
-sdk.context.role               // "user" | "team_member" | "team_leader" | "admin" | null
-sdk.context.department         // { id: number, name: string } | null
-sdk.context.teams              // { id: number, name: string }[]
-sdk.context.userId             // number | null
+sdk.context.isAuthenticated; // boolean
+sdk.context.role; // "user" | "team_member" | "team_leader" | "admin" | null
+sdk.context.department; // { id: number, name: string } | null
+sdk.context.teams; // { id: number, name: string }[]
+sdk.context.userId; // number | null
 
 // UI usage — not security, just convenience
-sdk.context.hasRole("team_leader")          // boolean — true if role >= team_leader
-sdk.context.isInDepartment(departmentId)    // boolean
+sdk.context.hasRole("team_leader"); // boolean — true if role >= team_leader
+sdk.context.isInDepartment(departmentId); // boolean
 ```
 
 When `token` is omitted (public/unauthenticated SDK), `context.isAuthenticated` is false and all role/department fields are null. Public endpoints (`sdk.public.*`) still work.
@@ -193,16 +194,21 @@ class Receipt extends Schema.Class<Receipt>("Receipt")({
   status: Schema.Literal("pending", "refunded", "rejected"),
   refundDate: Schema.NullOr(Schema.Date),
 }) {
-  get isPending() { return this.status === "pending" }
-  get formattedAmount() { return `${this.sum} kr` }
+  get isPending() {
+    return this.status === "pending";
+  }
+  get formattedAmount() {
+    return `${this.sum} kr`;
+  }
 }
 
 // Public: inferred from Schema, re-exported from index.ts
-export type Receipt = Schema.Schema.Type<typeof Receipt>
+export type Receipt = Schema.Schema.Type<typeof Receipt>;
 // Consumers see: { id: number, visualId: string, ..., isPending: boolean, formattedAmount: string }
 ```
 
 Schema classes provide:
+
 - **Runtime validation** — adapter decodes API responses through Schema, catching malformed data
 - **Transform pipeline** — `Schema.transform` composes HTTP JSON → domain object (date strings → Date, integers → enums)
 - **Methods on instances** — `receipt.isPending`, `receipt.formattedAmount`, `application.statusLabel`
@@ -223,8 +229,12 @@ class Receipt extends Schema.Class<Receipt>("Receipt")({
   status: Schema.Literal("pending", "refunded", "rejected"),
   refundDate: Schema.NullOr(Schema.Date),
 }) {
-  get isPending() { return this.status === "pending" }
-  get formattedAmount() { return `${this.sum} kr` }
+  get isPending() {
+    return this.status === "pending";
+  }
+  get formattedAmount() {
+    return `${this.sum} kr`;
+  }
 }
 
 class AdminReceipt extends Schema.Class<AdminReceipt>("AdminReceipt")({
@@ -248,15 +258,20 @@ class ReceiptInput extends Schema.Class<ReceiptInput>("ReceiptInput")({
 
 ```typescript
 const ApplicationStatus = Schema.Literal(
-  "not_received", "received", "invited", "accepted",
-  "completed", "assigned", "cancelled"
-)
+  "not_received",
+  "received",
+  "invited",
+  "accepted",
+  "completed",
+  "assigned",
+  "cancelled",
+);
 
 class Application extends Schema.Class<Application>("Application")({
   id: Schema.Number,
   userName: Schema.String,
   userEmail: Schema.String,
-  status: ApplicationStatus,             // derived in adapter, never an integer
+  status: ApplicationStatus, // derived in adapter, never an integer
   interviewStatus: Schema.NullOr(Schema.String),
   interviewer: Schema.NullOr(Schema.String),
   interviewScheduled: Schema.NullOr(Schema.Date),
@@ -272,13 +287,14 @@ class Application extends Schema.Class<Application>("Application")({
       Match.when("assigned", () => "Tildelt skole"),
       Match.when("cancelled", () => "Avbrutt"),
       Match.exhaustive,
-    )
+    );
   }
 }
 // Consumer sees: { ..., status: ApplicationStatus, statusLabel: string }
 ```
 
 Status derivation (adapter responsibility, matching `ApplicationManager::getApplicationStatus()`):
+
 ```
 status(app) =
   | "assigned"     if app.user.isActiveAssistant()
@@ -297,8 +313,12 @@ status(app) =
 
 ```typescript
 const InterviewSchedulingStatus = Schema.Literal(
-  "no_contact", "pending", "accepted", "request_new_time", "cancelled"
-)
+  "no_contact",
+  "pending",
+  "accepted",
+  "request_new_time",
+  "cancelled",
+);
 
 class Interview extends Schema.Class<Interview>("Interview")({
   id: Schema.Number,
@@ -313,19 +333,21 @@ class Interview extends Schema.Class<Interview>("Interview")({
 class InterviewSchema_ extends Schema.Class<InterviewSchema_>("InterviewSchema")({
   id: Schema.Number,
   name: Schema.String,
-}) {}  // Interview questionnaire template (not a JSON schema)
+}) {} // Interview questionnaire template (not a JSON schema)
 
-class InterviewScheduleInput extends Schema.Class<InterviewScheduleInput>("InterviewScheduleInput")({
-  datetime: Schema.Date,
-  room: Schema.NullOr(Schema.String),
-  interviewerId: Schema.Number,
-}) {}
+class InterviewScheduleInput extends Schema.Class<InterviewScheduleInput>("InterviewScheduleInput")(
+  {
+    datetime: Schema.Date,
+    room: Schema.NullOr(Schema.String),
+    interviewerId: Schema.Number,
+  },
+) {}
 
 interface InterviewScore {
-  explanatoryPower: number
-  roleModel: number
-  suitability: number
-  suitableAssistant: number
+  explanatoryPower: number;
+  roleModel: number;
+  suitability: number;
+  suitableAssistant: number;
 }
 ```
 
@@ -333,22 +355,22 @@ interface InterviewScore {
 
 ```typescript
 interface User {
-  id: number
-  firstName: string
-  lastName: string
-  email: string
-  role: string
+  id: number;
+  firstName: string;
+  lastName: string;
+  email: string;
+  role: string;
 }
 
 interface UserProfile {
-  id: number
-  firstName: string
-  lastName: string
-  email: string
-  phone: string | null
-  department: string
-  fieldOfStudy: string | null
-  profilePhoto: string | null
+  id: number;
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string | null;
+  department: string;
+  fieldOfStudy: string | null;
+  profilePhoto: string | null;
 }
 ```
 
@@ -356,11 +378,11 @@ interface UserProfile {
 
 ```typescript
 interface DashboardStats {
-  name: string
-  department: string
-  activeAssistants: number
-  pendingApplications: number
-  upcomingInterviews: number
+  name: string;
+  department: string;
+  activeAssistants: number;
+  pendingApplications: number;
+  upcomingInterviews: number;
 }
 ```
 
@@ -368,52 +390,52 @@ interface DashboardStats {
 
 ```typescript
 interface Department {
-  id: number
-  name: string
-  city: string
+  id: number;
+  name: string;
+  city: string;
 }
 
 interface Team {
-  id: number
-  name: string
+  id: number;
+  name: string;
 }
 
 interface TeamInterest {
-  id: number
-  userName: string
-  teamName: string
+  id: number;
+  userName: string;
+  teamName: string;
 }
 
 interface FieldOfStudy {
-  id: number
-  name: string
+  id: number;
+  name: string;
 }
 
 interface Sponsor {
-  id: number
-  name: string
-  logoUrl: string | null
-  url: string | null
+  id: number;
+  name: string;
+  logoUrl: string | null;
+  url: string | null;
 }
 
 interface MailingList {
-  name: string
-  emails: string[]
+  name: string;
+  emails: string[];
 }
 
 interface AdmissionStats {
-  totalApplicants: number
-  accepted: number
-  rejected: number
-  interviewed: number
-  assignedAssistants: number
+  totalApplicants: number;
+  accepted: number;
+  rejected: number;
+  interviewed: number;
+  assignedAssistants: number;
 }
 
 interface Page<T> {
-  items: T[]
-  totalItems: number
-  page: number
-  pageSize: number
+  items: T[];
+  totalItems: number;
+  page: number;
+  pageSize: number;
 }
 ```
 
@@ -425,36 +447,40 @@ All methods throw on failure. Idiomatic JS — consumers use try/catch.
 
 ```typescript
 class SdkError extends Error {
-  type: "unauthorized" | "not_found" | "validation" | "conflict" | "network" | "rate_limited"
+  type: "unauthorized" | "not_found" | "validation" | "conflict" | "network" | "rate_limited";
 }
 
-class UnauthorizedError extends SdkError { type = "unauthorized" as const }
-class NotFoundError extends SdkError { type = "not_found" as const }
+class UnauthorizedError extends SdkError {
+  type = "unauthorized" as const;
+}
+class NotFoundError extends SdkError {
+  type = "not_found" as const;
+}
 class ValidationError extends SdkError {
-  type = "validation" as const
-  fields: Record<string, string>
+  type = "validation" as const;
+  fields: Record<string, string>;
 }
 class ConflictError extends SdkError {
-  type = "conflict" as const
+  type = "conflict" as const;
 }
 class NetworkError extends SdkError {
-  type = "network" as const
-  cause: unknown
+  type = "network" as const;
+  cause: unknown;
 }
 class RateLimitedError extends SdkError {
-  type = "rate_limited" as const
-}  // maps from HTTP 429
+  type = "rate_limited" as const;
+} // maps from HTTP 429
 ```
 
 Consumer usage:
 
 ```typescript
 // Simple — let errors propagate (React Router error boundary catches)
-const page = await client.admin.receipts.list()
+const page = await client.admin.receipts.list();
 
 // Granular — catch specific error types
 try {
-  await client.admin.receipts.approve(id)
+  await client.admin.receipts.approve(id);
 } catch (e) {
   if (e instanceof ConflictError) {
     // receipt already refunded — show message
@@ -462,7 +488,7 @@ try {
   if (e instanceof NotFoundError) {
     // receipt deleted — refresh list
   }
-  throw e  // unexpected errors propagate
+  throw e; // unexpected errors propagate
 }
 ```
 
@@ -499,19 +525,20 @@ Domain models are `Schema.Class` with `Schema.transform` from API response shape
 
 The Symfony adapter is the only layer that changes when `@monoweb/api` replaces Symfony. It handles:
 
-| Concern | Symfony adapter | Future TS adapter |
-|---------|----------------|-------------------|
-| Collections | `hydra:member` → `Page<T>` | Direct `Page<T>` |
-| Application status | Integer (0-5, -1) → string enum | Direct string enum |
-| Interview status | Integer (0-4) → string enum | Direct string enum |
-| Dates | ISO string → `Date` | ISO string → `Date` |
-| IRI references | `/api/users/42` → `42` | Direct ID |
-| Errors | API Platform violation list → `SdkError` | Direct error shape |
-| Receipt photo | `/uploads/receipts/abc.jpg` → full URL | Direct URL |
+| Concern            | Symfony adapter                          | Future TS adapter   |
+| ------------------ | ---------------------------------------- | ------------------- |
+| Collections        | `hydra:member` → `Page<T>`               | Direct `Page<T>`    |
+| Application status | Integer (0-5, -1) → string enum          | Direct string enum  |
+| Interview status   | Integer (0-4) → string enum              | Direct string enum  |
+| Dates              | ISO string → `Date`                      | ISO string → `Date` |
+| IRI references     | `/api/users/42` → `42`                   | Direct ID           |
+| Errors             | API Platform violation list → `SdkError` | Direct error shape  |
+| Receipt photo      | `/uploads/receipts/abc.jpg` → full URL   | Direct URL          |
 
 ### Status derivation
 
 Application status integers map as:
+
 ```
 0 (APPLICATION_NOT_RECEIVED) → "not_received"
 1 (APPLICATION_RECEIVED)     → "received"
@@ -523,6 +550,7 @@ Application status integers map as:
 ```
 
 Interview scheduling status integers map as:
+
 ```
 0 (PENDING)          → "pending"
 1 (ACCEPTED)         → "accepted"
@@ -576,82 +604,87 @@ packages/sdk/src/
 ### Login route
 
 **Before:**
+
 ```typescript
 // apps/dashboard/app/routes/login.tsx
-import { createClient, apiUrl } from "@vektorprogrammet/sdk"
+import { createClient, apiUrl } from "@vektorprogrammet/sdk";
 
-const client = createClient(apiUrl)
+const client = createClient(apiUrl);
 const { data, error, response } = await client.POST("/api/login", {
   body: { username, password },
-})
+});
 
 if (error || !data?.token) {
   if (response?.status === 429) {
-    return { error: "For mange innloggingsforsøk. Prøv igjen om 15 minutter." }
+    return { error: "For mange innloggingsforsøk. Prøv igjen om 15 minutter." };
   }
-  return { error: "Feil brukernavn eller passord" }
+  return { error: "Feil brukernavn eller passord" };
 }
 
 return redirect("/dashboard", {
   headers: { "Set-Cookie": createAuthCookie(data.token) },
-})
+});
 ```
 
 **After:**
-```typescript
-import { createClient } from "@vektorprogrammet/sdk"
 
-const sdk = createClient(apiUrl)
+```typescript
+import { createClient } from "@vektorprogrammet/sdk";
+
+const sdk = createClient(apiUrl);
 try {
-  const { token } = await sdk.auth.login(username, password)
+  const { token } = await sdk.auth.login(username, password);
   return redirect("/dashboard", {
     headers: { "Set-Cookie": createAuthCookie(token) },
-  })
+  });
 } catch (e) {
   // SdkError with type discrimination
-  return { error: "Feil brukernavn eller passord" }
+  return { error: "Feil brukernavn eller passord" };
 }
 ```
 
 ### Receipts route
 
 **Before:**
+
 ```typescript
 // apps/dashboard/app/routes/dashboard.utlegg._index.tsx
-const client = createAuthenticatedClient(token)
+const client = createAuthenticatedClient(token);
 const { data } = await client.GET("/api/admin/receipts" as any, {
   params: { query: status ? { status } : {} },
-})
-const receipts = ((data as any)?.["hydra:member"] as Receipt[]) ?? []
+});
+const receipts = ((data as any)?.["hydra:member"] as Receipt[]) ?? [];
 
 // Action: status change via raw PUT
 await client.PUT("/api/admin/receipts/{id}/status" as any, {
   params: { path: { id: receiptId } },
   body: { status: newStatus },
-})
+});
 ```
 
 **After:**
-```typescript
-import { createClient } from "@vektorprogrammet/sdk"
 
-const sdk = createClient(apiUrl, { auth: token })
-const { items: receipts } = await sdk.admin.receipts.list({ status })
+```typescript
+import { createClient } from "@vektorprogrammet/sdk";
+
+const sdk = createClient(apiUrl, { auth: token });
+const { items: receipts } = await sdk.admin.receipts.list({ status });
 
 // Action: domain operations
 try {
-  await sdk.admin.receipts.approve(receiptId)
+  await sdk.admin.receipts.approve(receiptId);
 } catch (e) {
   if (e instanceof ConflictError || e instanceof NotFoundError) {
-    return { error: e.type }  // "not_found" | "conflict"
+    return { error: e.type }; // "not_found" | "conflict"
   }
-  throw e
+  throw e;
 }
 ```
 
 ### Applications route
 
 **Before:**
+
 ```typescript
 // apps/dashboard/app/routes/dashboard.sokere._index.tsx
 type Application = {
@@ -675,24 +708,27 @@ await client.POST("/api/admin/interviews/assign" as any, {
 ```
 
 **After:**
-```typescript
-import { createClient, type Application } from "@vektorprogrammet/sdk"
 
-const sdk = createClient(apiUrl, { auth: token })
-const { items: applications } = await sdk.admin.applications.list({ status })
+```typescript
+import { createClient, type Application } from "@vektorprogrammet/sdk";
+
+const sdk = createClient(apiUrl, { auth: token });
+const { items: applications } = await sdk.admin.applications.list({ status });
 // application.status is "received" | "invited" | ... — no integer mapping needed
 
 // Action: domain operation
-await sdk.admin.interviews.assign(applicationId, interviewerId, schemaId)
+await sdk.admin.interviews.assign(applicationId, interviewerId, schemaId);
 ```
 
 ## Dependencies
 
 ### Add
+
 - `effect`
 - `@effect/platform`
 
 ### Remove
+
 - `openapi-fetch`
 - `openapi-react-query`
 - `openapi-typescript` (devDep)
@@ -700,12 +736,13 @@ await sdk.admin.interviews.assign(applicationId, interviewerId, schemaId)
 - `react` (peer)
 
 ### Remove files
-| File | Reason |
-|------|--------|
-| `generated/api.d.ts` | Types now Schema classes in `schemas/` |
+
+| File                                   | Reason                                   |
+| -------------------------------------- | ---------------------------------------- |
+| `generated/api.d.ts`                   | Types now Schema classes in `schemas/`   |
 | `legacy-symfony-openapi.snapshot.json` | Moves to `apps/server/` (server concern) |
-| `src/query.ts` | React Query is consumer concern |
-| `src/provider.tsx` | React Query is consumer concern |
+| `src/query.ts`                         | React Query is consumer concern          |
+| `src/provider.tsx`                     | React Query is consumer concern          |
 
 ## Testing
 
@@ -725,10 +762,10 @@ Every Schema class round-trips through encode/decode using `@effect/schema` Arbi
 
 ```typescript
 it.prop("Receipt round-trips", [Arbitrary.make(Receipt)], (receipt) => {
-  const encoded = Schema.encodeSync(Receipt)(receipt)
-  const decoded = Schema.decodeUnknownSync(Receipt)(encoded)
-  expect(decoded).toEqual(receipt)
-})
+  const encoded = Schema.encodeSync(Receipt)(receipt);
+  const decoded = Schema.decodeUnknownSync(Receipt)(encoded);
+  expect(decoded).toEqual(receipt);
+});
 ```
 
 ### Integration — dashboard e2e
@@ -739,13 +776,13 @@ Existing dashboard routes serve as integration tests. Migrate one route, verify 
 
 Dedicated test suite for `deriveApplicationStatus` — the most complex adapter logic. Test cases from the contract:
 
-| Input | Expected |
-|-------|----------|
+| Input                                           | Expected                           |
+| ----------------------------------------------- | ---------------------------------- |
 | `isActiveAssistant = true, interview.cancelled` | `"assigned"` (assistant overrides) |
-| `hasBeenAssistant = true` | `"completed"` |
-| `interview.status = ACCEPTED(1)` | `"accepted"` |
-| `interview.status = CANCELLED(3)` | `"cancelled"` |
-| `interview.status = PENDING(0)` | `"invited"` |
-| `interview.status = NO_CONTACT(4)` | `"received"` |
-| `interview = null, admissionPeriod != null` | `"received"` |
-| `interview = null, admissionPeriod = null` | `"not_received"` |
+| `hasBeenAssistant = true`                       | `"completed"`                      |
+| `interview.status = ACCEPTED(1)`                | `"accepted"`                       |
+| `interview.status = CANCELLED(3)`               | `"cancelled"`                      |
+| `interview.status = PENDING(0)`                 | `"invited"`                        |
+| `interview.status = NO_CONTACT(4)`              | `"received"`                       |
+| `interview = null, admissionPeriod != null`     | `"received"`                       |
+| `interview = null, admissionPeriod = null`      | `"not_received"`                   |

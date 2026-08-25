@@ -103,6 +103,7 @@ export async function action({ request }: Route.ActionArgs) {
 #### Component
 
 **Layout:**
+
 - Status filter tabs (URL search param `?status=`): All | Nye (new) | Tildelt (assigned) | Intervjuet (interviewed) | Eksisterende (existing). The "All" tab omits the `?status` param entirely — the backend returns all applications when no status is provided. Unrecognized status values return `[]`.
 - DataTable (existing TanStack Table wrapper). When data is null or the applications array is empty, render an empty table with "Ingen søkere" message.
 - "Assign Interview" dialog (shadcn `Dialog`)
@@ -110,34 +111,34 @@ export async function action({ request }: Route.ActionArgs) {
 
 **Columns:**
 
-| Column | Source | Notes |
-|--------|--------|-------|
-| Navn | `userName` | — |
-| E-post | `userEmail` | — |
-| Status | `applicationStatus` | Badge with color per status constant |
-| Intervjustatus | `interviewStatus` | Text, nullable |
-| Intervjuer | `interviewer` | Nullable |
-| Tidspunkt | `interviewScheduled` | Locale formatted, nullable |
-| Handlinger | — | Action buttons |
+| Column         | Source               | Notes                                |
+| -------------- | -------------------- | ------------------------------------ |
+| Navn           | `userName`           | —                                    |
+| E-post         | `userEmail`          | —                                    |
+| Status         | `applicationStatus`  | Badge with color per status constant |
+| Intervjustatus | `interviewStatus`    | Text, nullable                       |
+| Intervjuer     | `interviewer`        | Nullable                             |
+| Tidspunkt      | `interviewScheduled` | Locale formatted, nullable           |
+| Handlinger     | —                    | Action buttons                       |
 
 **Status badge colors:**
 
-| `applicationStatus` | Label | Color |
-|---------------------|-------|-------|
-| `CANCELLED` (-1) | Kansellert | Red |
-| `APPLICATION_NOT_RECEIVED` (0) | Ikke mottatt | Gray |
-| `APPLICATION_RECEIVED` (1) | Søknad mottatt | Blue |
-| `INVITED_TO_INTERVIEW` (2) | Invitert | Yellow |
-| `INTERVIEW_ACCEPTED` (3) | Tidspunkt godtatt | Orange |
-| `INTERVIEW_COMPLETED` (4) | Intervju gjennomført | Green |
-| `ASSIGNED_TO_SCHOOL` (5) | Tatt opp | Emerald |
+| `applicationStatus`            | Label                | Color   |
+| ------------------------------ | -------------------- | ------- |
+| `CANCELLED` (-1)               | Kansellert           | Red     |
+| `APPLICATION_NOT_RECEIVED` (0) | Ikke mottatt         | Gray    |
+| `APPLICATION_RECEIVED` (1)     | Søknad mottatt       | Blue    |
+| `INVITED_TO_INTERVIEW` (2)     | Invitert             | Yellow  |
+| `INTERVIEW_ACCEPTED` (3)       | Tidspunkt godtatt    | Orange  |
+| `INTERVIEW_COMPLETED` (4)      | Intervju gjennomført | Green   |
+| `ASSIGNED_TO_SCHOOL` (5)       | Tatt opp             | Emerald |
 
 **Action buttons per row:**
 
-| Condition | Available Action |
-|-----------|-----------------|
+| Condition               | Available Action                        |
+| ----------------------- | --------------------------------------- |
 | No interviewer assigned | "Tildel intervju" → opens assign dialog |
-| Any application | "Slett" → opens delete confirm dialog |
+| Any application         | "Slett" → opens delete confirm dialog   |
 
 #### Interview Assignment Dialog
 
@@ -147,6 +148,7 @@ Opens when user clicks "Tildel intervju" for an application row. Two parallel da
 2. `GET /api/admin/interview-schemas` — to populate schema dropdown. Returns Hydra collection of `{ id, name, questionCount }`.
 
 Dialog fields:
+
 - Interviewer select: `{firstName} {lastName}` options from active team leaders/admins
 - Interview schema select: `{name}` options
 - Submit button: "Tildel" → `useFetcher` POST with `intent=assign`, `applicationId`, `interviewerId`, `interviewSchemaId`
@@ -197,12 +199,12 @@ Determination logic (ApplicationStatusRule):
 
 ### Modified files
 
-| File | Change |
-|------|--------|
+| File                                                                       | Change                                                                        |
+| -------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
 | `apps/server/src/App/Admission/Api/State/AdminApplicationListProvider.php` | Inject `ApplicationStatusRule`, add `applicationStatus` to `mapApplication()` |
-| `apps/dashboard/app/routes/dashboard.sokere._index.tsx` | Full rewrite: loader + action + table + filter tabs + assignment dialog |
-| `packages/sdk/legacy-symfony-openapi.snapshot.json` | Regenerated after backend change |
-| `packages/sdk/generated/api.d.ts` | Regenerated |
+| `apps/dashboard/app/routes/dashboard.sokere._index.tsx`                    | Full rewrite: loader + action + table + filter tabs + assignment dialog       |
+| `packages/sdk/legacy-symfony-openapi.snapshot.json`                        | Regenerated after backend change                                              |
+| `packages/sdk/generated/api.d.ts`                                          | Regenerated                                                                   |
 
 ### No new files required
 
@@ -213,6 +215,7 @@ The `ApplicationStatusRule` already exists. `AdminApplicationListResource.applic
 ## SDK Regeneration
 
 After backend change:
+
 1. `cd apps/server && php bin/console api:openapi:export --output=../../packages/sdk/legacy-symfony-openapi.snapshot.json`
 2. `cd packages/sdk && bun run generate`
 

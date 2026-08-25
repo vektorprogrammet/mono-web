@@ -83,11 +83,11 @@ Both are fully typed — path autocomplete, request body types, response types, 
 apps/server#api:spec → packages/sdk#generate → packages/sdk#build → apps/*#build
 ```
 
-| Task | Command | Cache | Notes |
-|------|---------|-------|-------|
-| `api:spec` | `php bin/console api:openapi:export --output=../../packages/sdk/legacy-symfony-openapi.snapshot.json` | No | Requires PHP + vendor/ |
-| `generate` | `openapi-typescript legacy-symfony-openapi.snapshot.json -o generated/api.d.ts` | By legacy-symfony-openapi.snapshot.json hash | Pure codegen |
-| `build` | `tsc -b` | Standard | Depends on generate |
+| Task       | Command                                                                                               | Cache                                        | Notes                  |
+| ---------- | ----------------------------------------------------------------------------------------------------- | -------------------------------------------- | ---------------------- |
+| `api:spec` | `php bin/console api:openapi:export --output=../../packages/sdk/legacy-symfony-openapi.snapshot.json` | No                                           | Requires PHP + vendor/ |
+| `generate` | `openapi-typescript legacy-symfony-openapi.snapshot.json -o generated/api.d.ts`                       | By legacy-symfony-openapi.snapshot.json hash | Pure codegen           |
+| `build`    | `tsc -b`                                                                                              | Standard                                     | Depends on generate    |
 
 **Day-to-day TS work** uses the committed `legacy-symfony-openapi.snapshot.json` — no PHP needed. Re-export only when API changes.
 
@@ -97,12 +97,12 @@ apps/server#api:spec → packages/sdk#generate → packages/sdk#build → apps/*
 
 ### packages/sdk
 
-| Dependency | Type | Purpose |
-|-----------|------|---------|
-| `openapi-fetch` | runtime | 1kb type-safe fetch wrapper |
-| `openapi-react-query` | runtime | Declarative TanStack Query integration |
-| `openapi-typescript` | dev | CLI codegen (spec → types) |
-| `@tanstack/react-query` | peer | Apps provide their own version |
+| Dependency              | Type    | Purpose                                |
+| ----------------------- | ------- | -------------------------------------- |
+| `openapi-fetch`         | runtime | 1kb type-safe fetch wrapper            |
+| `openapi-react-query`   | runtime | Declarative TanStack Query integration |
+| `openapi-typescript`    | dev     | CLI codegen (spec → types)             |
+| `@tanstack/react-query` | peer    | Apps provide their own version         |
 
 ### Apps add
 
@@ -125,6 +125,7 @@ Or dynamically via openapi-fetch middleware for token refresh patterns.
 ## Migration Path
 
 When the TS api replaces a Symfony endpoint:
+
 1. The TS api serves the same OpenAPI path with the same schema
 2. Re-export the spec (now from TS api instead of Symfony)
 3. Regenerate types
@@ -134,11 +135,11 @@ The SDK is the abstraction boundary. Apps never know which backend serves the da
 
 ## Decisions
 
-| Decision | Rationale |
-|----------|-----------|
-| `openapi-typescript` + `openapi-fetch` | Most popular (2.5M/wk), types-only codegen, minimal surface area |
-| `openapi-react-query` for declarative layer | Same ecosystem, 1kb wrapper, zero-maintenance hooks |
-| Both imperative + declarative exported | Let devs choose; no lock-in to one pattern |
-| Committed spec + types | TS devs never need PHP; freshness enforced by CI |
-| CLI export (not runtime fetch) | No running server needed; works in CI without MySQL |
-| Peer dep on @tanstack/react-query | Apps control their own version |
+| Decision                                    | Rationale                                                        |
+| ------------------------------------------- | ---------------------------------------------------------------- |
+| `openapi-typescript` + `openapi-fetch`      | Most popular (2.5M/wk), types-only codegen, minimal surface area |
+| `openapi-react-query` for declarative layer | Same ecosystem, 1kb wrapper, zero-maintenance hooks              |
+| Both imperative + declarative exported      | Let devs choose; no lock-in to one pattern                       |
+| Committed spec + types                      | TS devs never need PHP; freshness enforced by CI                 |
+| CLI export (not runtime fetch)              | No running server needed; works in CI without MySQL              |
+| Peer dep on @tanstack/react-query           | Apps control their own version                                   |
