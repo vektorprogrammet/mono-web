@@ -22,6 +22,7 @@ import { createPublicMiscDomain } from "./domains/public/misc.js";
 import { createPublicOrganizationDomain } from "./domains/public/organization.js";
 import { createPublicContactMessageDomain } from "./domains/public/contact-message.js";
 import { createAdminUsersDomain } from "./domains/admin/users.js";
+import { createAdminSchoolsDomain } from "./domains/admin/schools.js";
 import { createAdmissionApplicationsDomain } from "./domains/admission-applications.js";
 import { createAdmissionPeriodsDomain } from "./domains/admission-period.js";
 import { createTransport, type CookieOption } from "./transport.js";
@@ -43,6 +44,9 @@ export type {
   PublicApplicationRejectionTag,
   RecruitmentRejectionTag,
   OrganizationRejectionTag,
+  SchoolsFailure,
+  SchoolsSdkError,
+  SchoolsRejectionTag,
 } from "./errors.js";
 export { apiUrl, isFixtureMode } from "./config.js";
 
@@ -192,6 +196,22 @@ export type {
   OrganizationCreateResult,
 } from "./schemas/organization.js";
 export type { SchedulingAssistant, SchedulingSchool, Substitute } from "./schemas/scheduling.js";
+export {
+  SchoolId,
+  SchoolDepartmentId,
+  SchoolLanguageSchema,
+  SchoolDirectoryDepartmentSchema,
+  SchoolDirectoryDepartmentsSchema,
+  SchoolDirectoryEntrySchema,
+  SchoolDirectorySchema,
+} from "./schemas/schools.js";
+export type {
+  SchoolLanguage,
+  SchoolDirectoryDepartment,
+  SchoolDirectoryEntry,
+  SchoolDirectory,
+  AdminSchoolsListInput,
+} from "./schemas/schools.js";
 
 export {
   RecruitmentAdmissionPeriodId,
@@ -285,14 +305,14 @@ export function createEffectClient(baseUrl: string | undefined, options?: Client
       interviews: createAdminInterviewsDomain(transport),
       recruitment: createAdminRecruitmentDomain(transport),
       users: createAdminUsersDomain(transport),
+      schools: createAdminSchoolsDomain(transport),
       scheduling: createAdminSchedulingDomain(transport),
       organization: createAdminOrganizationDomain(transport),
       teams: createAdminTeamsDomain(transport),
       mailingLists: adminMisc.mailingLists.bind(adminMisc),
       admissionStats: adminMisc.admissionStats.bind(adminMisc),
     },
-    recruitmentInvitationResponses:
-      createRecruitmentInvitationResponsesDomain(transport),
+    recruitmentInvitationResponses: createRecruitmentInvitationResponsesDomain(transport),
     public: {
       organization: createPublicOrganizationDomain(transport),
       sponsors: publicMisc.sponsors.bind(publicMisc),

@@ -16,6 +16,7 @@ import {
   type RecruitmentActor,
   type RecruitmentShape,
 } from "@vektorprogrammet/domain/recruitment";
+import type { Schools } from "@vektorprogrammet/domain/schools";
 import { DateTime, Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import { makeBackendConfig } from "./config.js";
@@ -107,7 +108,7 @@ const run: BackendRun = <A, E>(
   effect: Effect.Effect<
     A,
     E,
-    Database | Admissions | Economy | Organization | Profile | RecruitmentService | Auth
+    Database | Admissions | Economy | Organization | Profile | RecruitmentService | Schools | Auth
   >,
 ): Promise<A> =>
   Effect.runPromise(

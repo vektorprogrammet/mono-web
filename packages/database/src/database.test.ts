@@ -2324,7 +2324,7 @@ describe("DatabaseTest", () => {
     );
 
     expect(second).toBe(first);
-    expect(rows).toEqual([{ migration_count: "18" }]);
+    expect(rows).toEqual([{ migration_count: "19" }]);
   });
 
   it("executes Admissions and Organization authority adapters against PGlite", async () => {
@@ -3933,7 +3933,7 @@ describe("DatabaseTest", () => {
       }),
     );
 
-    expect(evidence.schemaRevision).toBe("18_organization-team-interest");
+    expect(evidence.schemaRevision).toBe("19_schools-directory");
     expect(evidence.denied._tag).toBe("OrganizationRoleDenied");
     expect(evidence.deniedRows).toBe(0);
     expect(evidence.departmentCreated.committed).toBe(true);

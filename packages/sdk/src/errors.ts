@@ -21,7 +21,8 @@ export type SdkErrorType =
   | "admission_period_rejection"
   | "public_application_rejection"
   | "recruitment_rejection"
-  | "organization_rejection";
+  | "organization_rejection"
+  | "schools_rejection";
 
 export type AdmissionPeriodRejectionTag =
   | "UnauthenticatedActor"
@@ -101,6 +102,15 @@ export type OrganizationRejectionTag =
   | "OrganizationDecodeError"
   | "RequestBodyTooLarge"
   | "OrganizationPersistenceError";
+
+export type SchoolsRejectionTag =
+  | "UnauthenticatedActor"
+  | "AuthorityInactive"
+  | "NotInScope"
+  | "SchoolsDepartmentNotFound"
+  | "SchoolsDepartmentOutOfScope"
+  | "SchoolsDecodeError"
+  | "SchoolsPersistenceError";
 
 export class SdkError extends Error {
   readonly type: SdkErrorType;
@@ -684,6 +694,18 @@ export class PublicApplicationPersistenceSdkError extends PublicApplicationRejec
   }
 }
 
+export class SchoolsRejectionError extends SdkError {
+  readonly _tag: SchoolsRejectionTag;
+  readonly schoolsTag: SchoolsRejectionTag;
+
+  constructor(tag: SchoolsRejectionTag) {
+    super("schools_rejection", tag);
+    this.name = "SchoolsRejectionError";
+    this._tag = tag;
+    this.schoolsTag = tag;
+  }
+}
+
 // --- Internal Effect TaggedErrors ---
 
 export class Unauthorized extends Schema.TaggedError<Unauthorized>()("Unauthorized", {
@@ -715,6 +737,38 @@ export class RateLimited extends Schema.TaggedError<RateLimited>()("RateLimited"
 export class Configuration extends Schema.TaggedError<Configuration>()("Configuration", {
   message: Schema.String,
 }) {}
+
+export class SchoolsUnauthenticatedActor extends Schema.TaggedError<SchoolsUnauthenticatedActor>()(
+  "UnauthenticatedActor",
+  {},
+) {}
+
+export class SchoolsAuthorityInactive extends Schema.TaggedError<SchoolsAuthorityInactive>()(
+  "AuthorityInactive",
+  {},
+) {}
+
+export class SchoolsNotInScope extends Schema.TaggedError<SchoolsNotInScope>()("NotInScope", {}) {}
+
+export class SchoolsDepartmentNotFound extends Schema.TaggedError<SchoolsDepartmentNotFound>()(
+  "SchoolsDepartmentNotFound",
+  {},
+) {}
+
+export class SchoolsDepartmentOutOfScope extends Schema.TaggedError<SchoolsDepartmentOutOfScope>()(
+  "SchoolsDepartmentOutOfScope",
+  {},
+) {}
+
+export class SchoolsDecodeError extends Schema.TaggedError<SchoolsDecodeError>()(
+  "SchoolsDecodeError",
+  {},
+) {}
+
+export class SchoolsPersistenceError extends Schema.TaggedError<SchoolsPersistenceError>()(
+  "SchoolsPersistenceError",
+  {},
+) {}
 
 export class OrganizationUnauthenticatedActor extends Schema.TaggedError<OrganizationUnauthenticatedActor>()(
   "UnauthenticatedActor",
@@ -1084,6 +1138,17 @@ export type RecruitmentSdkError = RecruitmentFailure;
 
 export type OrganizationSdkError = OrganizationFailure;
 
+export type SchoolsFailure =
+  | SchoolsUnauthenticatedActor
+  | SchoolsAuthorityInactive
+  | SchoolsNotInScope
+  | SchoolsDepartmentNotFound
+  | SchoolsDepartmentOutOfScope
+  | SchoolsDecodeError
+  | SchoolsPersistenceError;
+
+export type SchoolsSdkError = SchoolsFailure;
+
 export type InternalSdkError =
   | Unauthorized
   | NotFound
@@ -1096,13 +1161,25 @@ export type InternalSdkError =
   | AdmissionPeriodFailure
   | PublicApplicationFailure
   | RecruitmentFailure
-  | OrganizationFailure;
+  | OrganizationFailure
+  | SchoolsFailure;
 
 /**
  * Maps an internal Effect TaggedError to a public SdkError subclass.
  * Used at the Effect.runPromise boundary.
  */
 export function toSdkError(error: InternalSdkError): SdkError {
+  if (
+    error instanceof SchoolsUnauthenticatedActor ||
+    error instanceof SchoolsAuthorityInactive ||
+    error instanceof SchoolsNotInScope ||
+    error instanceof SchoolsDepartmentNotFound ||
+    error instanceof SchoolsDepartmentOutOfScope ||
+    error instanceof SchoolsDecodeError ||
+    error instanceof SchoolsPersistenceError
+  ) {
+    return new SchoolsRejectionError(error._tag);
+  }
   if (error instanceof OrganizationUnauthenticatedActor) {
     return new OrganizationUnauthenticatedActorError();
   }

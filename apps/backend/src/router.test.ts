@@ -6,7 +6,12 @@ import {
   type AuthShape,
 } from "@vektorprogrammet/domain/auth";
 import { Database, type DatabaseShape } from "@vektorprogrammet/domain/database";
-import { Organization, type OrganizationShape } from "@vektorprogrammet/domain/organization";
+import {
+  Organization,
+  type OrganizationAuthorityInstant,
+  type OrganizationShape,
+  type PersonId,
+} from "@vektorprogrammet/domain/organization";
 import {
   PersonContactProfile,
   PersonProfile,
@@ -15,6 +20,7 @@ import {
 } from "@vektorprogrammet/domain/profile";
 import type { Economy } from "@vektorprogrammet/domain/receipt";
 import type { Recruitment } from "@vektorprogrammet/domain/recruitment";
+import { Schools } from "@vektorprogrammet/domain/schools";
 import { DateTime, Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import { makeBackendConfig } from "./config.js";
@@ -52,7 +58,10 @@ const environment = {
 } as const;
 const config = makeBackendConfig(environment);
 
-const database = { health: Effect.void } as unknown as DatabaseShape;
+const database = Object.assign((() => Effect.succeed([])) as unknown as DatabaseShape, {
+  health: Effect.void,
+  withTransaction: <A, E, R>(effect: Effect.Effect<A, E, R>) => effect,
+});
 const profile: ProfileShape = {
   readProfiles: (personIds) =>
     Effect.succeed(
@@ -84,18 +93,15 @@ const profile: ProfileShape = {
       contactRevision: 0,
     }),
   updateOwnProfile: (input) =>
-    Effect.as(
-      profile.readOwnProfile(input.actorPersonId),
-      {
-        personId: input.actorPersonId,
-        firstName: input.command.firstName,
-        lastName: input.command.lastName,
-        email: input.command.email,
-        phone: input.command.phone,
-        nameRevision: input.command.expectedNameRevision + 1,
-        contactRevision: input.command.expectedContactRevision + 1,
-      },
-    ),
+    Effect.as(profile.readOwnProfile(input.actorPersonId), {
+      personId: input.actorPersonId,
+      firstName: input.command.firstName,
+      lastName: input.command.lastName,
+      email: input.command.email,
+      phone: input.command.phone,
+      nameRevision: input.command.expectedNameRevision + 1,
+      contactRevision: input.command.expectedContactRevision + 1,
+    }),
   readDirectoryPage: () => Effect.succeed({ entries: [], nextCursor: undefined }),
 };
 const organization = {
@@ -117,13 +123,34 @@ const organization = {
         },
       ],
     }),
+  resolvePersonAuthorityForRead: (
+    personId: PersonId,
+    authorizationInstant: OrganizationAuthorityInstant,
+  ) =>
+    Effect.succeed({
+      personId,
+      evaluatedAt: authorizationInstant,
+      globalAdministrator: "Absent",
+      memberships: [
+        {
+          membershipId: "membership-1",
+          teamId: "team-1",
+          departmentId: "department-1",
+          active: true,
+          teamLeader: false,
+        },
+      ],
+    }),
 } as unknown as OrganizationShape;
+const schools = Schools.of({
+  listDirectory: () => Effect.succeed({ activeSchools: [], inactiveSchools: [] }),
+});
 
 const successfulRun: BackendRun = <A, E>(
   effect: Effect.Effect<
     A,
     E,
-    Database | Admissions | Economy | Organization | Profile | Recruitment | Auth
+    Database | Admissions | Economy | Organization | Profile | Recruitment | Schools | Auth
   >,
 ): Promise<A> =>
   Effect.runPromise(
@@ -131,6 +158,7 @@ const successfulRun: BackendRun = <A, E>(
       Effect.provideService(Database, database),
       Effect.provideService(Profile, profile),
       Effect.provideService(Organization, organization),
+      Effect.provideService(Schools, schools),
       Effect.provideService(Auth, {
         signIn: () => Promise.reject(new Error("unexpected sign-in")),
         resolveSession: async (cookieHeader: string | undefined) => {
@@ -155,11 +183,12 @@ const request = (pathname: string, init?: RequestInit): Promise<Response> =>
   backend.fetch(new Request(`http://backend.test${pathname}`, init));
 
 describe("unified backend router", () => {
-  it("owns health, Profile, Organization, Admission, Receipt, and Recruitment routes", async () => {
+  it("owns health, Profile, Organization, Schools, Admission, Receipt, and Recruitment routes", async () => {
     const [
       health,
       profile,
       organizationResponse,
+      schoolsResponse,
       admission,
       receipt,
       recruitment,
@@ -169,6 +198,7 @@ describe("unified backend router", () => {
       request("/health"),
       request("/api/me", { headers: { cookie: `${token}=value` } }),
       request("/api/departments"),
+      request("/api/admin/schools", { headers: { cookie: `${token}=value` } }),
       request("/api/admin/admission-periods"),
       request("/api/receipts"),
       request("/api/admin/recruitment/assignment-board?status=new"),
@@ -199,6 +229,10 @@ describe("unified backend router", () => {
     }).toEqual({
       status: 200,
       body: [],
+    });
+    expect({ status: schoolsResponse.status, body: await schoolsResponse.json() }).toEqual({
+      status: 200,
+      body: { activeSchools: [], inactiveSchools: [] },
     });
     expect({ status: admission.status, body: await admission.json() }).toEqual({
       status: 401,
@@ -261,7 +295,9 @@ describe("unified backend router", () => {
     });
     void calls;
     for (const path of ["/api/auth/get-session", "/api/auth/sign-in/email", "/api/auth/"]) {
-      const response = await probingBackend.fetch(new Request(`http://backend.test${path}`, { method: "POST" }));
+      const response = await probingBackend.fetch(
+        new Request(`http://backend.test${path}`, { method: "POST" }),
+      );
       expect(await response.text()).toBe(`auth-saw:${path}`);
     }
   });

@@ -24,6 +24,7 @@ import { createPublicMiscDomain } from "./domains/public/misc.js";
 import { createPublicOrganizationDomain } from "./domains/public/organization.js";
 import { createPublicContactMessageDomain } from "./domains/public/contact-message.js";
 import { createAdminUsersDomain } from "./domains/admin/users.js";
+import { createAdminSchoolsDomain } from "./domains/admin/schools.js";
 import { createAdmissionApplicationsDomain } from "./domains/admission-applications.js";
 import { createAdmissionPeriodsDomain } from "./domains/admission-period.js";
 
@@ -111,6 +112,7 @@ export {
   OrganizationDecodeSdkError,
   OrganizationRequestBodyTooLargeError,
   OrganizationPersistenceSdkError,
+  SchoolsRejectionError,
 } from "./errors.js";
 export type {
   SdkErrorType,
@@ -119,8 +121,8 @@ export type {
   PublicApplicationRejectionTag,
   RecruitmentRejectionTag,
   OrganizationRejectionTag,
+  SchoolsRejectionTag,
 } from "./errors.js";
-
 export type { Receipt, AdminReceipt, ReceiptInput } from "./schemas/receipt.js";
 export {
   CommandId,
@@ -332,6 +334,22 @@ export type {
   OrganizationCreateResult,
 } from "./schemas/organization.js";
 export type { SchedulingAssistant, SchedulingSchool, Substitute } from "./schemas/scheduling.js";
+export {
+  SchoolId,
+  SchoolDepartmentId,
+  SchoolLanguageSchema,
+  SchoolDirectoryDepartmentSchema,
+  SchoolDirectoryDepartmentsSchema,
+  SchoolDirectoryEntrySchema,
+  SchoolDirectorySchema,
+} from "./schemas/schools.js";
+export type {
+  SchoolLanguage,
+  SchoolDirectoryDepartment,
+  SchoolDirectoryEntry,
+  SchoolDirectory,
+  AdminSchoolsListInput,
+} from "./schemas/schools.js";
 
 // --- Client options ---
 
@@ -388,6 +406,7 @@ export function createClient(baseUrl: string | undefined, options?: ClientOption
       interviews: promisifyDomain(createAdminInterviewsDomain(transport)),
       recruitment: promisifyDomain(createAdminRecruitmentDomain(transport)),
       users: promisifyDomain(createAdminUsersDomain(transport)),
+      schools: promisifyDomain(createAdminSchoolsDomain(transport)),
       scheduling: promisifyDomain(createAdminSchedulingDomain(transport)),
       organization: promisifyDomain(createAdminOrganizationDomain(transport)),
       teams: promisifyDomain(createAdminTeamsDomain(transport)),
@@ -408,3 +427,4 @@ export function createClient(baseUrl: string | undefined, options?: ClientOption
 export type Sdk = ReturnType<typeof createClient>;
 
 export type { AdminUsersPage, AdminUsersResult, DirectoryEntry } from "./domains/admin/users.js";
+export type { AdminSchoolsDomain } from "./domains/admin/schools.js";

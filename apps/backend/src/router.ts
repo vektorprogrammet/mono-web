@@ -7,6 +7,7 @@ import type { Organization } from "@vektorprogrammet/domain/organization";
 import { Profile } from "@vektorprogrammet/domain/profile";
 import { Recruitment } from "@vektorprogrammet/domain/recruitment";
 import { Economy } from "@vektorprogrammet/domain/receipt";
+import type { Schools } from "@vektorprogrammet/domain/schools";
 import { DateTime, Effect } from "effect";
 import type { AdmissionPeriodActor } from "@vektorprogrammet/domain/admission-period";
 import { makeAdminUsersApiHttp } from "./admin-users/http.js";
@@ -17,22 +18,21 @@ import {
   profileRoleFrom,
   recruitmentBoardActorFrom,
   resolveAuthenticatedPerson,
+  resolveAuthenticatedPersonAtInstant,
   resolvePersonAuthority,
 } from "./authority.js";
 import type { BackendConfig } from "./config.js";
 import { makeOrganizationApiHttp } from "./organization/http.js";
 import { makeProfileApiHttp } from "./profile/http.js";
-import {
-  makeReceiptApiHttp,
-  type ReceiptAuthorityResolvers,
-} from "./receipt/http.js";
+import { makeReceiptApiHttp, type ReceiptAuthorityResolvers } from "./receipt/http.js";
 import { makeRecruitmentApiHttp } from "./recruitment/http.js";
+import { makeSchoolsApiHttp } from "./schools/http.js";
 
 export type BackendRun = <A, E>(
   effect: Effect.Effect<
     A,
     E,
-    Database | Admissions | Economy | Organization | Profile | Recruitment | Auth
+    Database | Admissions | Economy | Organization | Profile | Recruitment | Schools | Auth
   >,
 ) => Promise<A>;
 
@@ -60,7 +60,6 @@ const isReceiptRoute = (pathname: string): boolean =>
   pathname === "/api/admin/receipts" ||
   pathname.startsWith("/api/admin/receipts/") ||
   pathname.startsWith("/api/e2e/receipts/");
-
 
 const isOrganizationRoute = (pathname: string): boolean =>
   pathname === "/api/departments" ||
@@ -151,8 +150,7 @@ export const makeBackendHttp = (
     config: config.receipt,
     authority: {
       resolveAuthority: resolveReceiptAuthorityFor,
-      resolvePersonId: async (cookieHeader) =>
-        resolveAuthenticatedPerson(cookieHeader, { run }),
+      resolvePersonId: async (cookieHeader) => resolveAuthenticatedPerson(cookieHeader, { run }),
     },
     run,
   });
@@ -162,10 +160,9 @@ export const makeBackendHttp = (
     // departments. One active-leader department selects its scope; ambiguity
     // fails closed. GlobalAdmin never passes (domain rejects it downstream).
     resolveActor: async (request) => {
-      const authority = await resolvePersonAuthority(
-        request.headers.get("cookie") ?? undefined,
-        { run },
-      );
+      const authority = await resolvePersonAuthority(request.headers.get("cookie") ?? undefined, {
+        run,
+      });
       return recruitmentBoardActorFrom(authority);
     },
     run,
@@ -186,6 +183,11 @@ export const makeBackendHttp = (
   const adminUsers = makeAdminUsersApiHttp({
     resolveAuthority: (request) =>
       resolvePersonAuthority(request.headers.get("cookie") ?? undefined, { run }),
+    run,
+  });
+  const schools = makeSchoolsApiHttp({
+    resolveActor: (request) =>
+      resolveAuthenticatedPersonAtInstant(request.headers.get("cookie") ?? undefined, { run }),
     run,
   });
   const profile = makeProfileApiHttp({
@@ -227,6 +229,9 @@ export const makeBackendHttp = (
       if (isOrganizationRoute(pathname)) return organization.fetch(request);
       if (request.method === "GET" && pathname === "/api/admin/users") {
         return adminUsers.fetch(request);
+      }
+      if (request.method === "GET" && pathname === "/api/admin/schools") {
+        return schools.fetch(request);
       }
       if (request.method === "OPTIONS") return new Response(null, { status: 204 });
       if (request.method === "GET" && pathname === "/health") {

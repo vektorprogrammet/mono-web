@@ -293,3 +293,22 @@ export type {
   RecruitmentScheduleObservation,
   RecruitmentScheduleResult,
 } from "./promise.js";
+export {
+  SchoolsRejectionError,
+  SchoolId,
+  SchoolDepartmentId,
+  SchoolLanguageSchema,
+  SchoolDirectoryDepartmentSchema,
+  SchoolDirectoryDepartmentsSchema,
+  SchoolDirectoryEntrySchema,
+  SchoolDirectorySchema,
+} from "./promise.js";
+export type {
+  SchoolsRejectionTag,
+  SchoolLanguage,
+  SchoolDirectoryDepartment,
+  SchoolDirectoryEntry,
+  SchoolDirectory,
+  AdminSchoolsListInput,
+  AdminSchoolsDomain,
+} from "./promise.js";
