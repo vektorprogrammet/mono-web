@@ -6,6 +6,7 @@ import { EconomyLive } from "./receipt/postgres-layer.js";
 import { Organization, OrganizationLive } from "./organization/index.js";
 import { Profile, ProfileLive } from "./profile/index.js";
 import { Recruitment, RecruitmentLive } from "./recruitment/index.js";
+import { Schools, SchoolsLive } from "./schools/index.js";
 import type { Layer } from "effect";
 import {
   capabilityAuthorityDependencies,
@@ -33,12 +34,14 @@ const implementedCapabilityLayers = {
   Economy: EconomyLive,
   Organization: OrganizationLive,
   Profile: ProfileLive,
+  Schools: SchoolsLive,
   Recruitment: RecruitmentLive,
 } satisfies {
   readonly Admissions: Layer.Layer<Admissions, never, Database>;
   readonly Economy: Layer.Layer<Economy, never, Database>;
   readonly Organization: Layer.Layer<Organization, never, Database>;
   readonly Profile: Layer.Layer<Profile, never, Database | Organization>;
+  readonly Schools: Layer.Layer<Schools, never, Database>;
   readonly Recruitment: Layer.Layer<
     Recruitment,
     never,
@@ -77,6 +80,7 @@ describe("logical capability dependencies", () => {
       "Organization",
       "Profile",
       "Recruitment",
+      "Schools",
     ]);
   });
 });

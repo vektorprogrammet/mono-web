@@ -124,6 +124,12 @@ export class SchoolDepartment extends Model.Class<SchoolDepartment>("Schools.Sch
   }),
   revision: Model.GeneratedByDb(Revision),
 }) {}
+export type SchoolDepartmentSelect = typeof SchoolDepartment.Encoded;
+export type SchoolDepartmentInsert = typeof SchoolDepartment.insert.Encoded;
+export type SchoolDepartmentUpdate = typeof SchoolDepartment.update.Encoded;
+export type SchoolDepartmentJson = typeof SchoolDepartment.json.Type;
+export type SchoolDepartmentJsonCreate = typeof SchoolDepartment.jsonCreate.Type;
+export type SchoolDepartmentJsonUpdate = typeof SchoolDepartment.jsonUpdate.Type;
 
 /** Frozen canonical capacity shape for a later capacity journey. */
 export class SchoolCapacityPlan extends Model.Class<SchoolCapacityPlan>(
@@ -190,6 +196,12 @@ export class SchoolCapacityPlan extends Model.Class<SchoolCapacityPlan>(
   }),
   revision: Model.GeneratedByDb(Revision),
 }) {}
+export type SchoolCapacityPlanSelect = typeof SchoolCapacityPlan.Encoded;
+export type SchoolCapacityPlanInsert = typeof SchoolCapacityPlan.insert.Encoded;
+export type SchoolCapacityPlanUpdate = typeof SchoolCapacityPlan.update.Encoded;
+export type SchoolCapacityPlanJson = typeof SchoolCapacityPlan.json.Type;
+export type SchoolCapacityPlanJsonCreate = typeof SchoolCapacityPlan.jsonCreate.Type;
+export type SchoolCapacityPlanJsonUpdate = typeof SchoolCapacityPlan.jsonUpdate.Type;
 
 export const SchoolDirectoryDepartmentSchema = Schema.Struct({
   departmentId: DepartmentId,
@@ -269,12 +281,17 @@ export const SchoolDirectoryScopeSchema = Schema.TaggedUnion({
 });
 export type SchoolDirectoryScope = typeof SchoolDirectoryScopeSchema.Type;
 
-export const SchoolDirectoryListInputSchema = Schema.Struct({
-  scope: SchoolDirectoryScopeSchema,
+export const SchoolDirectoryQuerySchema = Schema.Struct({
   departmentId: Schema.optional(DepartmentId),
   cursor: Schema.optional(SchoolDirectoryCursor),
   limit: Schema.Int.pipe(
     Schema.check(Schema.isGreaterThanOrEqualTo(1), Schema.isLessThanOrEqualTo(100)),
   ),
+});
+export type SchoolDirectoryQuery = typeof SchoolDirectoryQuerySchema.Type;
+
+export const SchoolDirectoryListInputSchema = Schema.Struct({
+  scope: SchoolDirectoryScopeSchema,
+  ...SchoolDirectoryQuerySchema.fields,
 });
 export type SchoolDirectoryListInput = typeof SchoolDirectoryListInputSchema.Type;
