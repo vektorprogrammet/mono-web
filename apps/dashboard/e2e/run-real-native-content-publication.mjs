@@ -316,16 +316,20 @@ try {
 
   // The public news surface reads the same authoritative PostgreSQL through
   // the native backend; the homepage worker runs against the recording proxy.
-  homepage = start("bun", ["run", "dev"], {
+  run("bun", ["run", "worker:build"], {
     cwd: homepageRoot,
-    env: {
-      ...process.env,
-      API_URL: upstreamOrigin,
-      HOST: "127.0.0.1",
-      PORT: String(homepagePort),
-    },
-    label: "Homepage worker (dev)",
+    env: { ...process.env, API_URL: upstreamOrigin },
+    label: "Homepage production build",
   });
+  homepage = start(
+    "bunx",
+    ["vite", "preview", "--host", "127.0.0.1", "--port", String(homepagePort), "--strictPort"],
+    {
+      cwd: homepageRoot,
+      env: { ...process.env, API_URL: upstreamOrigin },
+      label: "Homepage worker",
+    },
+  );
   await waitForHttp(`${homepageOrigin}/nyheter`, "Homepage startup");
 
   recordingUpstream = await startRecordingUpstream(ledger);
