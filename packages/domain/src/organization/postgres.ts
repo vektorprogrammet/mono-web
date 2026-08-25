@@ -667,20 +667,26 @@ const decodeTeamInterestRegistration = (
     ),
   );
 
-const teamInterestScopeClause = (authorizedDepartmentIds: ReadonlyArray<DepartmentId>) =>
+const teamInterestScopeClause = (
+  database: DatabaseShape,
+  authorizedDepartmentIds: ReadonlyArray<DepartmentId>,
+) =>
   Statement.or(
     authorizedDepartmentIds.map(
-      (departmentId) => `registration.department_id = ${String(departmentId)}`,
+      (departmentId) => database`registration.department_id = ${departmentId}`,
     ),
   );
 
-const optionalTeamInterestFilters = (filter: TeamInterestFilter): Statement.Fragment => {
-  const clauses: Array<string | Statement.Fragment> = [];
+const optionalTeamInterestFilters = (
+  database: DatabaseShape,
+  filter: TeamInterestFilter,
+): Statement.Fragment => {
+  const clauses: Array<Statement.Fragment> = [];
   if (filter.semesterId !== undefined) {
-    clauses.push(`registration.semester_id = ${String(filter.semesterId)}`);
+    clauses.push(database`registration.semester_id = ${filter.semesterId}`);
   }
   if (filter.departmentId !== undefined) {
-    clauses.push(`registration.department_id = ${String(filter.departmentId)}`);
+    clauses.push(database`registration.department_id = ${filter.departmentId}`);
   }
   return clauses.length === 0 ? Statement.fragment([]) : Statement.and(clauses);
 };
@@ -710,8 +716,8 @@ export const listOrganizationTeamInterestRegistrations = (
       FROM organization_team_interest_registrations AS registration
       INNER JOIN organization_teams AS team
         ON team.team_id = registration.team_id
-      WHERE ${teamInterestScopeClause(filter.authorizedDepartmentIds)}
-        AND ${optionalTeamInterestFilters(filter)}
+      WHERE ${teamInterestScopeClause(database, filter.authorizedDepartmentIds)}
+        AND ${optionalTeamInterestFilters(database, filter)}
       ORDER BY registration.registration_id ASC
     `.pipe(
       Effect.catchTag("SqlError", (cause) =>

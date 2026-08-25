@@ -26,6 +26,12 @@ const RegistrationNumber = Schema.Number.pipe(
     Schema.isGreaterThan(0),
   ),
 );
+const RegistrationNumberFromText = Schema.NumberFromString.pipe(
+  Schema.check(
+    Schema.makeFilter(Number.isSafeInteger, { message: "a safe integer" }),
+    Schema.isGreaterThan(0),
+  ),
+);
 const EmailText = text(255).pipe(
   Schema.check(
     Schema.makeFilter((value) => /^[^@\s]+@[^@\s]+$/.test(value), {
@@ -322,7 +328,10 @@ export type DepartmentSelect = typeof Department.Encoded;
 export class TeamInterestRegistration extends Model.Class<TeamInterestRegistration>(
   "Organization.TeamInterestRegistration",
 )({
-  registrationId: Model.GeneratedByDb(RegistrationNumber),
+  registrationId: Model.Field({
+    select: RegistrationNumberFromText,
+    json: RegistrationNumber,
+  }),
   submitterName: Model.Field({
     select: text(255),
     insert: text(255),

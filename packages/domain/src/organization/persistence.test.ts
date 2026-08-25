@@ -35,7 +35,7 @@ it.effect("joins the referenced team name into team-interest rows", () => {
     statement = strings.join("?");
     return Effect.succeed([
       {
-        registrationId: 1,
+        registrationId: "1",
         submitterName: "Interested Person",
         submitterEmail: "interested@example.invalid",
         teamId: "team-1",

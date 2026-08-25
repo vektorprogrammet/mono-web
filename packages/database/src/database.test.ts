@@ -19,7 +19,10 @@ import {
   executeAdmissionPeriodCommand,
   listOpenAdmissionPeriods,
 } from "../../domain/src/admission-period/postgres.js";
-import { importOrganizationSnapshot } from "../../domain/src/organization/postgres.js";
+import {
+  importOrganizationSnapshot,
+  listOrganizationTeamInterestRegistrations,
+} from "../../domain/src/organization/postgres.js";
 import { DepartmentId, PersonId, SemesterId } from "../../domain/src/organization/schema.js";
 import { Database } from "@vektorprogrammet/domain/database";
 import { AdmissionsLive } from "@vektorprogrammet/domain/admissions";
@@ -3519,6 +3522,70 @@ describe("DatabaseTest", () => {
     }
 
     expect(releaseCount).toBe(1);
+  });
+
+  it("narrows joined team-interest rows by registration department against PGlite", async () => {
+    const rows = await recruitmentRuntime.runPromise(
+      Effect.gen(function* () {
+        const database = yield* Database;
+        const departmentA = DepartmentId.make("team-interest-scope-a");
+        const departmentB = DepartmentId.make("team-interest-scope-b");
+
+        yield* database`
+          INSERT INTO organization_departments (
+            department_id, name, short_name, email, city
+          ) VALUES
+            (${departmentA}, 'Scope A', 'SCA', 'scope-a@example.invalid', 'Trondheim'),
+            (${departmentB}, 'Scope B', 'SCB', 'scope-b@example.invalid', 'Bergen')
+        `;
+        yield* database`
+          INSERT INTO organization_teams (team_id, department_id, name)
+          VALUES
+            ('team-interest-scope-team-a', ${departmentA}, 'Team A'),
+            ('team-interest-scope-team-b', ${departmentB}, 'Team B')
+        `;
+        yield* database`
+          INSERT INTO organization_team_interest_registrations (
+            submitter_name,
+            submitter_email,
+            team_id,
+            department_id,
+            semester_id,
+            submitted_at
+          ) VALUES
+            (
+              'Interested A',
+              'interested-a@example.invalid',
+              'team-interest-scope-team-a',
+              ${departmentA},
+              'semester-scope',
+              '2031-09-14T10:00:00.000Z'
+            ),
+            (
+              'Interested B',
+              'interested-b@example.invalid',
+              'team-interest-scope-team-b',
+              ${departmentB},
+              'semester-scope',
+              '2031-09-15T10:00:00.000Z'
+            )
+        `;
+
+        return yield* listOrganizationTeamInterestRegistrations({
+          authorizedDepartmentIds: [departmentA, departmentB],
+          departmentId: departmentB,
+          semesterId: SemesterId.make("semester-scope"),
+        });
+      }),
+    );
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      submitterName: "Interested B",
+      teamName: "Team B",
+      departmentId: "team-interest-scope-b",
+      semesterId: "semester-scope",
+    });
   });
 
   it("executes native Organization administration atomically against PGlite", async () => {
