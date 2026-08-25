@@ -17,7 +17,6 @@ import {
 } from "@vektorprogrammet/domain/recruitment";
 import { Config, Deferred, Effect, Fiber, Layer, Redacted } from "effect";
 import { DatabaseLive } from "./layers.js";
-import { runDatabaseMain } from "../runtime/node.js";
 
 const cohort = {
   id: "recruitment-invitation-response-postgres-proof-0051-v1",
@@ -456,7 +455,7 @@ const proveMessageConfinement = (sql: DatabaseShape) =>
               response_state,
               response_message,
               ordinal,
-              payload_json
+              effect_body
             ) VALUES (
               ${outboxEffectId},
               'SendInterviewInvitationResponse',
@@ -490,7 +489,7 @@ const proveMessageConfinement = (sql: DatabaseShape) =>
               response_state,
               response_message,
               ordinal,
-              payload_json
+              effect_body
             ) VALUES (
               ${outboxEffectId},
               'SendInterviewInvitationResponse',
@@ -712,7 +711,7 @@ const proof = (databaseUrl: Redacted.Redacted<string>) =>
           invitation.response_message = ${validNearbyMessage}
           AND audit.response_message = ${validNearbyMessage}
           AND outbox.response_message = ${validNearbyMessage}
-          AND (outbox.payload_json ->> 'responseMessage') = ${validNearbyMessage}
+          AND (outbox.effect_body ->> 'responseMessage') = ${validNearbyMessage}
             AS stored
         FROM recruitment_invitations AS invitation
         INNER JOIN recruitment_invitation_response_audit AS audit
@@ -879,7 +878,7 @@ const proof = (databaseUrl: Redacted.Redacted<string>) =>
     return evidence;
   });
 
-const program = Effect.gen(function* () {
+export const program = Effect.gen(function* () {
   const databaseUrl = yield* Config.redacted("DATABASE_URL");
   const evidence = yield* proof(databaseUrl);
   const canonicalEvidence = canonicalJson(evidence);
@@ -892,4 +891,3 @@ const program = Effect.gen(function* () {
   );
 });
 
-runDatabaseMain(Effect.scoped(program));

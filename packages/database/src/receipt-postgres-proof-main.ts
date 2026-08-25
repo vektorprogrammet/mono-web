@@ -9,9 +9,8 @@ import {
   runReceiptPostgresProof,
 } from "@vektorprogrammet/domain/receipt/proof";
 import { DatabaseLive } from "./layers.js";
-import { runDatabaseMain } from "../runtime/node.js";
 
-const program = Effect.gen(function* () {
+export const program = Effect.gen(function* () {
   const databaseUrl = yield* Config.redacted("BACKEND_PG_URL").pipe(
     Config.withDefault(Redacted.make("postgres://receipt:receipt@127.0.0.1:55432/receipt_proof")),
   );
@@ -41,4 +40,3 @@ const program = Effect.gen(function* () {
   );
 });
 
-runDatabaseMain(Effect.scoped(program));

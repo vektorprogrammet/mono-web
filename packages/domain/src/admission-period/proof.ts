@@ -1,5 +1,4 @@
 import { Effect } from "effect";
-import { runDomainSync } from "../../runtime/node.js";
 import { DepartmentId, PersonId, SemesterId } from "../organization/schema.js";
 import { admissionPeriodCommandDigest } from "./digest.js";
 import { decideAdmissionPeriod } from "./update.js";
@@ -148,5 +147,4 @@ export const admissionPeriodProof = Effect.gen(function* () {
   } satisfies AdmissionPeriodProofEvidence;
 });
 
-export const runAdmissionPeriodProof = (): AdmissionPeriodProofEvidence =>
-  runDomainSync(admissionPeriodProof);
+export const runAdmissionPeriodProof = () => admissionPeriodProof;

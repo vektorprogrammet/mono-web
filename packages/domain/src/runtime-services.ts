@@ -2,6 +2,7 @@ import { Context, Effect } from "effect";
 
 export interface DomainFileSystemShape {
   readonly readTextFile: (path: string | URL) => Effect.Effect<string, unknown>;
+  readonly joinPath: (directory: string, file: string) => string;
   readonly writeTextFile: (
     path: string | URL,
     contents: string | Uint8Array,
@@ -23,18 +24,16 @@ export class DomainProcess extends Context.Service<DomainProcess, DomainProcessS
   "@vektorprogrammet/domain/DomainProcess",
 ) {}
 
-export interface DomainSha256Shape {
-  readonly digestHex: (bytes: Uint8Array) => string;
-}
-
-export class DomainSha256 extends Context.Service<DomainSha256, DomainSha256Shape>()(
-  "@vektorprogrammet/domain/DomainSha256",
-) {}
-
 export const readTextFile = (
   path: string | URL,
 ): Effect.Effect<string, unknown, DomainFileSystem> =>
   DomainFileSystem.use((fileSystem) => fileSystem.readTextFile(path));
+
+export const joinPath = (
+  directory: string,
+  file: string,
+): Effect.Effect<string, never, DomainFileSystem> =>
+  DomainFileSystem.use((fileSystem) => Effect.succeed(fileSystem.joinPath(directory, file)));
 
 export const writeTextFile = (
   path: string | URL,
@@ -56,5 +55,3 @@ export const writeStandardOutput = (text: string): Effect.Effect<void, never, Do
 export const writeStandardError = (text: string): Effect.Effect<void, never, DomainProcess> =>
   DomainProcess.use((process) => process.writeStandardError(text));
 
-export const sha256HexEffect = (bytes: Uint8Array): Effect.Effect<string, never, DomainSha256> =>
-  DomainSha256.use((sha256) => Effect.succeed(sha256.digestHex(bytes)));

@@ -1,6 +1,6 @@
-import { runDomainSync } from "../../runtime/node.js";
+import { sha256 } from "@noble/hashes/sha2.js";
+import { bytesToHex } from "@noble/hashes/utils.js";
 import type { Evidence } from "./schema.js";
-import { sha256HexEffect } from "../runtime-services.js";
 
 export type JsonValue =
   | null
@@ -38,7 +38,7 @@ export const canonicalJson = (value: unknown): string => encodeJsonValue(sortedJ
 export const canonicalJsonBytes = (value: unknown): Uint8Array =>
   new TextEncoder().encode(canonicalJson(value));
 
-export const sha256Hex = (bytes: Uint8Array): string => runDomainSync(sha256HexEffect(bytes));
+export const sha256Hex = (bytes: Uint8Array): string => bytesToHex(sha256(bytes));
 
 export const canonicalEvidenceJson = (evidence: Evidence): string => {
   const orderedEntries: ReadonlyArray<readonly [string, unknown]> = [

@@ -15,7 +15,6 @@ import {
   type RecruitmentScheduleContext,
 } from "@vektorprogrammet/domain/recruitment";
 import { DatabaseLive } from "./layers.js";
-import { runDatabaseMain } from "../runtime/node.js";
 
 const cohort = {
   id: "recruitment-scheduling-postgres-proof-0050-v1",
@@ -473,7 +472,7 @@ const proof = Effect.gen(function* () {
   return evidence;
 });
 
-const program = Effect.gen(function* () {
+export const program = Effect.gen(function* () {
   const databaseUrl = yield* Config.redacted("DATABASE_URL");
   const databaseLayer = DatabaseLive({
     url: Redacted.make(Redacted.value(databaseUrl)),
@@ -499,4 +498,3 @@ const program = Effect.gen(function* () {
   );
 });
 
-runDatabaseMain(Effect.scoped(program));

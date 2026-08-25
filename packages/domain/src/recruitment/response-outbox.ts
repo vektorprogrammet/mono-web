@@ -140,7 +140,7 @@ const quarantineResponseClaim = (
         claim_id = NULL,
         claimed_at = NULL,
         last_failure_tag = ${failureTag},
-        payload_json = '{}'::jsonb
+        effect_body = '{}'::jsonb
       WHERE effect_id = ${effectId}
         AND status = 'Processing'
         AND claim_id = ${claimId}
@@ -238,7 +238,7 @@ const claimInTransaction = (
         outbox.ordinal,
         outbox.claim_id AS "claimId",
         outbox.attempts,
-        outbox.payload_json AS "payloadJson"
+        outbox.effect_body AS "payloadJson"
     `.pipe(
       Effect.catchTag("SqlError", (cause) =>
         Effect.fail(persistenceError("claim invitation response outbox", cause)),
@@ -418,7 +418,7 @@ export const completeRecruitmentInvitationResponse = (
         claimed_at = NULL,
         delivered_at = ${evidence.deliveredAt},
         last_failure_tag = NULL,
-        payload_json = '{}'::jsonb
+        effect_body = '{}'::jsonb
       WHERE effect_id = ${claim.effectId}
         AND status = 'Processing'
         AND claim_id = ${claim.claimId}

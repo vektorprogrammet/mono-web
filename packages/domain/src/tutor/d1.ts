@@ -1,6 +1,5 @@
 import * as D1Client from "@effect/sql-d1/D1Client";
 import { Effect, Schema } from "effect";
-import { runDomainPromise } from "../../runtime/node.js";
 import { canonicalJsonBytes, canonicalJson, sha256Hex } from "./evidence.js";
 import {
   ConductInterviewV1Schema,
@@ -772,10 +771,8 @@ export type TutorD1Store = Effect.Success<typeof makeTutorD1Store>;
 export const runWithTutorD1 = <A, E>(
   db: D1Binding,
   effect: Effect.Effect<A, E, D1Client.D1Client>,
-): Promise<A> =>
-  runDomainPromise(
-    Effect.scoped(effect.pipe(Effect.provide(D1Client.layer({ db })))) as Effect.Effect<A, E>,
-  );
+): Effect.Effect<A, E> =>
+  Effect.scoped(effect.pipe(Effect.provide(D1Client.layer({ db })))) as Effect.Effect<A, E>;
 
 export const decodePersistedResult = (value: unknown): unknown => {
   const bytes = normalizeBlobBytes(value);

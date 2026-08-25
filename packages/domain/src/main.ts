@@ -1,14 +1,13 @@
-import {
-  nodeArguments,
-  setNodeExitCode,
-  writeStandardErrorAtNodeBoundary,
-  writeStandardOutputAtNodeBoundary,
-  writeTextFileAtNodeBoundary,
-} from "../runtime/node.js";
+import { Cause, Effect, Result } from "effect";
 import { createMachineReport, renderMarkdown } from "./report.js";
 import { DatasetInputError, loadDataset, loadPersonAuthority } from "./data.js";
 import { allFixturesPass, runSyntheticFixtures } from "./fixtures.js";
 import { runSDep2Team } from "./laws.js";
+import {
+  writeStandardError,
+  writeStandardOutput,
+  writeTextFile,
+} from "./runtime-services.js";
 
 declare global {
   interface ImportMeta {
@@ -45,7 +44,7 @@ class CliError extends Error {
 }
 
 const USAGE = [
-  "Usage: bun run src/main.ts --data-dir DATA_DIR [options]",
+  "Usage: bun run runtime/main.ts --data-dir DATA_DIR [options]",
   "",
   "Options:",
   "  --data-dir PATH          Explicit sanitized five-file input directory",
@@ -113,29 +112,33 @@ const parseArgs = (args: ReadonlyArray<string>): CliOptions => {
   return { dataDir, personAuthorityFile, snapshotId, snapshotHash, format, output, fixtures, help };
 };
 
-const emit = async (text: string, output: string | undefined): Promise<void> => {
-  if (output !== undefined) await writeTextFileAtNodeBoundary(output, text);
-  writeStandardOutputAtNodeBoundary(text.endsWith("\n") ? text : `${text}\n`);
-};
+const emit = (text: string, output: string | undefined) =>
+  Effect.gen(function* () {
+    if (output !== undefined) yield* writeTextFile(output, text);
+    yield* writeStandardOutput(text.endsWith("\n") ? text : `${text}\n`);
+  });
 
-export const main = async (args: ReadonlyArray<string> = nodeArguments()): Promise<number> => {
-  try {
-    const options = parseArgs(args);
+export const main = (args: ReadonlyArray<string>) =>
+  Effect.gen(function* () {
+    const options = yield* Effect.try({
+      try: () => parseArgs(args),
+      catch: (cause) => cause,
+    });
     if (options.help) {
-      await emit(USAGE, options.output);
+      yield* emit(USAGE, options.output);
       return 0;
     }
     if (options.fixtures) {
-      const fixtures = await runSyntheticFixtures();
+      const fixtures = yield* runSyntheticFixtures();
       const all = allFixturesPass(fixtures);
-      await emit(JSON.stringify({ fixtures, all, pii: "none" }, null, 2), options.output);
+      yield* emit(JSON.stringify({ fixtures, all, pii: "none" }, null, 2), options.output);
       return all ? 0 : 1;
     }
-    const dataset = await loadDataset(options.dataDir ?? "");
+    const dataset = yield* loadDataset(options.dataDir ?? "");
     const personAuthority =
       options.personAuthorityFile === undefined
         ? undefined
-        : await loadPersonAuthority(options.personAuthorityFile);
+        : yield* loadPersonAuthority(options.personAuthorityFile);
     const result = runSDep2Team(dataset, {
       snapshotId: options.snapshotId,
       snapshotHash: options.snapshotHash,
@@ -144,21 +147,19 @@ export const main = async (args: ReadonlyArray<string> = nodeArguments()): Promi
     const report = createMachineReport(result);
     const rendered =
       options.format === "markdown" ? renderMarkdown(report) : JSON.stringify(report, null, 2);
-    await emit(rendered, options.output);
+    yield* emit(rendered, options.output);
     return report.status === "PASS" && !report.drift ? 0 : 1;
-  } catch (error: unknown) {
-    const safeError =
-      error instanceof DatasetInputError
-        ? { code: error.code, file: error.file, message: error.message }
-        : error instanceof CliError
+  }).pipe(
+    Effect.catchCause((cause) => {
+      const failure = Cause.findError(cause);
+      const error = Result.isSuccess(failure) ? failure.success : undefined;
+      const safeError =
+        error instanceof DatasetInputError
           ? { code: error.code, file: error.file, message: error.message }
-          : { code: "COMMAND_ERROR", file: "cli", message: "command failed" };
-    writeStandardErrorAtNodeBoundary(`${JSON.stringify({ error: safeError })}\n`);
-    return 1;
-  }
-};
+          : error instanceof CliError
+            ? { code: error.code, file: error.file, message: error.message }
+            : { code: "COMMAND_ERROR", file: "cli", message: "command failed" };
+      return writeStandardError(`${JSON.stringify({ error: safeError })}\n`).pipe(Effect.as(1));
+    }),
+  );
 
-if (import.meta.main) {
-  const exitCode = await main();
-  setNodeExitCode(exitCode);
-}

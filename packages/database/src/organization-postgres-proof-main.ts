@@ -11,7 +11,6 @@ import {
 import { Config, Deferred, Effect, Fiber, Layer, Redacted } from "effect";
 import { DatabaseLive } from "./layers.js";
 import { databaseSchemaRevision } from "./migrations.js";
-import { runDatabaseMain } from "../runtime/node.js";
 
 const proofCohort = {
   id: "organization-postgres-proof-0052-v1",
@@ -135,7 +134,7 @@ const raceDepartmentCommands = (
     });
   });
 
-const program = Effect.scoped(
+export const program = Effect.scoped(
   Effect.gen(function* () {
     const databaseUrl = yield* Config.redacted("DATABASE_URL");
     const setup = yield* Effect.gen(function* () {
@@ -291,4 +290,3 @@ const program = Effect.scoped(
   }),
 );
 
-runDatabaseMain(program);

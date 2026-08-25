@@ -347,7 +347,7 @@ const recordInvitationResponse = (
           response_state,
           response_message,
           ordinal,
-          payload_json
+          effect_body
         ) VALUES (
           ${request.effectId},
           ${request._tag},

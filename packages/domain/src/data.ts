@@ -1,7 +1,5 @@
-import { join } from "node:path";
 import { Effect, Result, Schema } from "effect";
-import { runDomainPromise } from "../runtime/node.js";
-import { DomainFileSystem, readTextFile } from "./runtime-services.js";
+import { DomainFileSystem, joinPath, readTextFile } from "./runtime-services.js";
 import {
   decodeDepartment,
   decodeGlobalContainer,
@@ -200,7 +198,8 @@ const readJson = (
   dataDir: string,
   file: RequiredFile,
 ): Effect.Effect<unknown, DatasetInputError, DomainFileSystem> =>
-  readTextFile(join(dataDir, file)).pipe(
+  joinPath(dataDir, file).pipe(
+    Effect.flatMap(readTextFile),
     Effect.mapError(
       (error) =>
         new DatasetInputError(
@@ -247,8 +246,7 @@ export const loadDatasetEffect = (
   });
 };
 
-export const loadDataset = (dataDir: string): Promise<Dataset> =>
-  runDomainPromise(loadDatasetEffect(dataDir));
+export const loadDataset = loadDatasetEffect;
 
 export const authorityFromEntries = (
   entries: ReadonlyArray<readonly [number, ReadonlyArray<number>]>,
@@ -319,5 +317,4 @@ export const loadPersonAuthorityEffect = (
     }),
   );
 
-export const loadPersonAuthority = (filePath: string): Promise<PersonAuthorityProjection> =>
-  runDomainPromise(loadPersonAuthorityEffect(filePath));
+export const loadPersonAuthority = loadPersonAuthorityEffect;
