@@ -20,6 +20,7 @@
     "./admission-period": "./src/admission-period/index.ts",
     "./admissions": "./src/admissions/index.ts",
     "./organization": "./src/organization/index.ts",
+    "./content": "./src/content/index.ts",
     "./profile": "./src/profile/index.ts",
     "./schools": "./src/schools/index.ts",
     "./auth": "./src/auth/index.ts",

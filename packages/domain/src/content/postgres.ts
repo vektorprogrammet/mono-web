@@ -26,6 +26,7 @@ import {
 } from "./errors.js";
 import {
   ArticleVersionNumber,
+  ContentCommandId,
   ContentWorkspaceQuerySchema,
   ContentWorkspaceSchema,
   CreateArticleDraftInputSchema,
@@ -744,11 +745,27 @@ export const unpublishPostgres = (input: {
       );
   });
 
+const ReviseReplaySchema = Schema.Struct({
+  _tag: Schema.Literals(["DraftRevised"]),
+  commandId: ContentCommandId,
+  articleId: ArticleId,
+  revision: Schema.Int.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(0))),
+});
+
 export const reviseDraftPostgres = (input: {
   readonly command: ReviseArticleDraftInput;
   readonly personId: PersonId;
   readonly authorizationInstant: OrganizationAuthorityInstant;
-}): Effect.Effect<unknown, ContentManagementFailure, Database | Organization> =>
+}): Effect.Effect<
+  {
+    readonly _tag: "DraftRevised";
+    readonly commandId: typeof ReviseArticleDraftInputSchema.fields.commandId.Type;
+    readonly articleId: ArticleId;
+    readonly revision: number;
+  },
+  ContentManagementFailure,
+  Database | Organization
+> =>
   Effect.gen(function* () {
     const command = yield* Schema.decodeUnknownEffect(ReviseArticleDraftInputSchema)(
       input.command,
@@ -773,7 +790,8 @@ export const reviseDraftPostgres = (input: {
             if (stored.payloadSha256 !== payloadDigest) {
               return yield* new ContentCommandConflict({ commandId: command.commandId });
             }
-            return stored.resultJson;
+            const replayed = Schema.decodeUnknownSync(ReviseReplaySchema)(stored.resultJson);
+            return replayed;
           }
           const authority = yield* resolveAuthorityInTransaction({
             organization,

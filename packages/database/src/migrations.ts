@@ -42,6 +42,10 @@ const organizationMigrationUrl = new URL(
   "../../domain/src/organization/migrations/0001-organization-authority.sql",
   import.meta.url,
 );
+const contentPublicationMigrationUrl = new URL(
+  "../../domain/src/content/migrations/0001-content-publication.sql",
+  import.meta.url,
+);
 const schoolsMigrationUrl = new URL(
   "../../domain/src/schools/migrations/0001-schools-directory.sql",
   import.meta.url,
@@ -189,9 +193,14 @@ export const databaseMigrationLoader = (execute: ExecuteMigration) =>
       execute,
     ),
     "19_schools-directory": migration("schools-directory", schoolsMigrationUrl, execute),
+    "20_content-publication": migration(
+      "content-publication",
+      contentPublicationMigrationUrl,
+      execute,
+    ),
   });
 
-export const databaseSchemaRevision = "19_schools-directory";
+export const databaseSchemaRevision = "20_content-publication";
 export const runDatabaseMigrations = (execute: ExecuteMigration) =>
   Migrator.make({})({
     loader: databaseMigrationLoader(execute),

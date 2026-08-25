@@ -94,15 +94,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS content_publication_audit_command_unique
 CREATE UNIQUE INDEX IF NOT EXISTS content_articles_slug_unique
   ON content_articles (slug);
 
--- Partial listing index over rows that are their article's current version.
+-- Listing order index over published snapshots; the read-time inner join on
+-- the articles' current_version_number restricts it to current rows.
 CREATE UNIQUE INDEX IF NOT EXISTS content_article_versions_current_listing_order
-  ON content_article_versions (sticky DESC, published_at DESC, article_id DESC)
-  WHERE EXISTS (
-    SELECT 1
-    FROM content_articles AS article
-    WHERE article.article_id = content_article_versions.article_id
-      AND article.current_version_number = content_article_versions.version_number
-  );
+  ON content_article_versions (sticky DESC, published_at DESC, article_id DESC);
 
 CREATE INDEX IF NOT EXISTS content_articles_current_version_fk_order
   ON content_articles (current_version_number);
