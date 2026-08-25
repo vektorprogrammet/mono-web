@@ -31,6 +31,23 @@ const department = Schema.decodeUnknownSync(DepartmentJsonSchema)(
   },
   { onExcessProperty: "error" },
 );
+const secondDepartment = Schema.decodeUnknownSync(DepartmentJsonSchema)(
+  {
+    departmentId: "department-2",
+    name: "Department Two",
+    shortName: "TWO",
+    email: "two@example.invalid",
+    address: null,
+    city: "Bergen",
+    latitude: null,
+    longitude: null,
+    slackChannel: null,
+    logoPath: null,
+    active: true,
+    revision: 0,
+  },
+  { onExcessProperty: "error" },
+);
 
 const registrationRows = [
   {
@@ -55,26 +72,54 @@ const registrationRows = [
     submittedAt: "2031-09-14T10:00:00.000Z",
     revision: 3,
   },
+  {
+    registrationId: 3,
+    submitterName: "User C",
+    submitterEmail: "c@example.invalid",
+    teamId: "team-2",
+    teamName: "Team Two",
+    departmentId: "department-2",
+    semesterId: null,
+    submittedAt: "2031-09-16T10:00:00.000Z",
+    revision: 0,
+  },
 ] as const;
 let lastTeamInterestFilter: {
   authorizedDepartmentIds: ReadonlyArray<string>;
   semesterId?: string;
 };
 const organization = {
-  listDepartments: Effect.succeed([department]),
+  listDepartments: Effect.succeed([department, secondDepartment]),
   listTeams: () => Effect.succeed([]),
   listFieldOfStudies: Effect.succeed([]),
   listTeamInterestRegistrations: (filter: {
     authorizedDepartmentIds: ReadonlyArray<string>;
+    semesterId?: string;
   }) =>
     Effect.sync(() => {
       lastTeamInterestFilter = filter;
       const authorized = filter.authorizedDepartmentIds;
       const rows = registrationRows
-        .filter((row) => authorized.includes(row.departmentId))
+        .filter(
+          (row) =>
+            authorized.includes(row.departmentId) &&
+            (filter.semesterId === undefined || row.semesterId === filter.semesterId),
+        )
         .toSorted((left, right) => left.registrationId - right.registrationId);
       return rows.map((row) => ({ ...row }));
     }),
+  projectMailingLists: (input: {
+    type: "assistants" | "team" | "all";
+    authorizedDepartmentIds: ReadonlyArray<string>;
+  }) =>
+    Effect.succeed(
+      input.authorizedDepartmentIds
+        .map((departmentId) => ({
+          name: `${input.type}-${departmentId}`,
+          emails: [],
+        }))
+        .toSorted((left, right) => left.name.localeCompare(right.name)),
+    ),
 } as unknown as OrganizationShape;
 
 type AuthorityByToken = {
@@ -87,7 +132,12 @@ type AuthorityByToken = {
 };
 
 const authorityForToken = (cookie: string | null): AuthorityByToken => {
-  if (cookie?.includes("admin-session")) return { globalAdministrator: "Active", memberships: [] };
+  if (cookie?.includes("admin-session")) {
+    return {
+      globalAdministrator: "Active",
+      memberships: [{ departmentId: "department-1", active: true, teamLeader: false }],
+    };
+  }
   if (cookie?.includes("leader-session")) {
     return {
       globalAdministrator: "Absent",
@@ -180,11 +230,28 @@ describe("spec 0059 team-interest HTTP boundary", () => {
     expect(lastTeamInterestFilter.authorizedDepartmentIds).toEqual(["department-1"]);
   });
 
-  it("gives an active global administrator all departments and supports empty success", async () => {
-    const response = await get("/api/admin/team-interest?semester=nope", "session=admin-session");
-    expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ "hydra:member": [], "hydra:totalItems": 0 });
-    expect(lastTeamInterestFilter.semesterId).toBe("nope");
+  it("gives a global administrator every department despite having one membership", async () => {
+    const teamInterest = await get("/api/admin/team-interest", "session=admin-session");
+    expect(teamInterest.status).toBe(200);
+    expect(await teamInterest.json()).toEqual({
+      "hydra:member": [
+        { id: 1, userName: "User A", teamName: "Team One" },
+        { id: 2, userName: "User B", teamName: "Team One" },
+        { id: 3, userName: "User C", teamName: "Team Two" },
+      ],
+      "hydra:totalItems": 3,
+    });
+    expect(lastTeamInterestFilter.authorizedDepartmentIds).toEqual([
+      "department-1",
+      "department-2",
+    ]);
+
+    const mailingLists = await get("/api/admin/mailing-lists", "session=admin-session");
+    expect(mailingLists.status).toBe(200);
+    expect(await mailingLists.json()).toEqual([
+      { name: "assistants-department-1", emails: [] },
+      { name: "assistants-department-2", emails: [] },
+    ]);
   });
   it("narrows by department inside scope and denies out-of-scope with 403", async () => {
     const inScope = await get(

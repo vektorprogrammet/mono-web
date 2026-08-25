@@ -317,13 +317,15 @@ const optionalSemesterParam = (request: Request): SemesterId | undefined => {
 };
 
 /** Spec 0059/0060 gating: globalAdmin -> all departments, else active-leader union. */
-const authorizedLeaderScope = (
+const authorizedDepartmentScope = async (
   authority: OrganizationPersonAuthority,
-): ReadonlyArray<DepartmentId> => {
+  input: OrganizationApiHttpOptions,
+): Promise<ReadonlyArray<DepartmentId>> => {
   if (authority.globalAdministrator === "Active") {
-    return authority.memberships
-      .filter((membership) => membership.active)
-      .map((membership) => membership.departmentId);
+    const departments = await input.run(
+      Organization.use(({ listDepartments }) => listDepartments),
+    );
+    return departments.map((department) => department.departmentId);
   }
   const departments = new Set<DepartmentId>();
   for (const membership of authority.memberships) {
@@ -369,7 +371,7 @@ const listTeamInterest = async (
   // denial, never an empty success (spec 0059 authorization boundary). An
   // active global administrator is authorized for all departments even when
   // their membership list is empty.
-  const leaderScope = authorizedLeaderScope(authority);
+  const leaderScope = await authorizedDepartmentScope(authority, input);
   if (leaderScope.length === 0 && authority.globalAdministrator !== "Active") {
     throw taggedError("OrganizationRoleDenied");
   }
@@ -406,7 +408,7 @@ const listMailingLists = async (
   });
   const authority = await input.resolveAuthority(request);
   const requested = optionalDepartmentParam(request);
-  const leaderScope = authorizedLeaderScope(authority);
+  const leaderScope = await authorizedDepartmentScope(authority, input);
   if (leaderScope.length === 0 && authority.globalAdministrator !== "Active") {
     throw taggedError("OrganizationRoleDenied");
   }
