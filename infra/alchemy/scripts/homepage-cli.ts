@@ -220,7 +220,11 @@ export function main(
     return executeHomepageCli(argv, options);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    const report = options.report ?? ((line: string): void => process.stderr.write(`${line}\n`));
+    const report =
+      options.report ??
+      ((line: string): void => {
+        process.stderr.write(`${line}\n`);
+      });
     report(`homepage-cli: ${message}`);
     report(usage());
     return 1;
