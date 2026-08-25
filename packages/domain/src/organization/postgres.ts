@@ -670,17 +670,17 @@ const decodeTeamInterestRegistration = (
 const teamInterestScopeClause = (authorizedDepartmentIds: ReadonlyArray<DepartmentId>) =>
   Statement.or(
     authorizedDepartmentIds.map(
-      (departmentId) => `department_id = ${String(departmentId)}`,
+      (departmentId) => `registration.department_id = ${String(departmentId)}`,
     ),
   );
 
 const optionalTeamInterestFilters = (filter: TeamInterestFilter): Statement.Fragment => {
   const clauses: Array<string | Statement.Fragment> = [];
   if (filter.semesterId !== undefined) {
-    clauses.push(`semester_id = ${String(filter.semesterId)}`);
+    clauses.push(`registration.semester_id = ${String(filter.semesterId)}`);
   }
   if (filter.departmentId !== undefined) {
-    clauses.push(`department_id = ${String(filter.departmentId)}`);
+    clauses.push(`registration.department_id = ${String(filter.departmentId)}`);
   }
   return clauses.length === 0 ? Statement.fragment([]) : Statement.and(clauses);
 };
@@ -697,19 +697,22 @@ export const listOrganizationTeamInterestRegistrations = (
     const database = yield* Database;
     const rows = yield* database<TeamInterestRegistrationSelect>`
       SELECT
-        registration_id::text AS "registrationId",
-        submitter_name AS "submitterName",
-        submitter_email AS "submitterEmail",
-        team_id AS "teamId",
-        department_id AS "departmentId",
-        semester_id AS "semesterId",
-        to_char(submitted_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+        registration.registration_id::text AS "registrationId",
+        registration.submitter_name AS "submitterName",
+        registration.submitter_email AS "submitterEmail",
+        registration.team_id AS "teamId",
+        team.name AS "teamName",
+        registration.department_id AS "departmentId",
+        registration.semester_id AS "semesterId",
+        to_char(registration.submitted_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
           AS "submittedAt",
-        revision
-      FROM organization_team_interest_registrations
+        registration.revision
+      FROM organization_team_interest_registrations AS registration
+      INNER JOIN organization_teams AS team
+        ON team.team_id = registration.team_id
       WHERE ${teamInterestScopeClause(filter.authorizedDepartmentIds)}
         AND ${optionalTeamInterestFilters(filter)}
-      ORDER BY registration_id ASC
+      ORDER BY registration.registration_id ASC
     `.pipe(
       Effect.catchTag("SqlError", (cause) =>
         Effect.fail(

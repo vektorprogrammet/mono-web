@@ -38,6 +38,7 @@ const registrationRows = [
     submitterName: "User B",
     submitterEmail: "b@example.invalid",
     teamId: "team-1",
+    teamName: "Team One",
     departmentId: "department-1",
     semesterId: null,
     submittedAt: "2031-09-15T10:00:00.000Z",
@@ -48,6 +49,7 @@ const registrationRows = [
     submitterName: "User A",
     submitterEmail: "a@example.invalid",
     teamId: "team-1",
+    teamName: "Team One",
     departmentId: "department-1",
     semesterId: "semester-host",
     submittedAt: "2031-09-14T10:00:00.000Z",
@@ -169,8 +171,8 @@ describe("spec 0059 team-interest HTTP boundary", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({
       "hydra:member": [
-        { id: 1, userName: "User A", teamName: "team-1" },
-        { id: 2, userName: "User B", teamName: "team-1" },
+        { id: 1, userName: "User A", teamName: "Team One" },
+        { id: 2, userName: "User B", teamName: "Team One" },
       ],
       "hydra:totalItems": 2,
     });

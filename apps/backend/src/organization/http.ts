@@ -389,7 +389,7 @@ const listTeamInterest = async (
     "hydra:member": rows.map((row) => ({
       id: row.registrationId,
       userName: row.submitterName,
-      teamName: row.teamId,
+      teamName: row.teamName,
     })),
     "hydra:totalItems": rows.length,
   };

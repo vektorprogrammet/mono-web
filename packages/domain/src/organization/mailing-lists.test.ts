@@ -1,13 +1,12 @@
 import { expect, it } from "@effect/vitest";
-import { PersonId, SemesterId } from "./schema.js";
+import { DepartmentId, PersonId } from "./schema.js";
 import {
   projectOrganizationMailingLists,
   type MailingListsProjectInput,
 } from "./mailing-lists.js";
 
-const departmentA = "department-a" as const;
-const departmentB = "department-b" as const;
-const semester = SemesterId.make("semester-2031-host");
+const departmentA = DepartmentId.make("department-a");
+const departmentB = DepartmentId.make("department-b");
 
 const person = (id: string) => PersonId.make(id);
 

@@ -335,6 +335,9 @@ export class TeamInterestRegistration extends Model.Class<TeamInterestRegistrati
     select: TeamId,
     insert: TeamId,
   }),
+  teamName: Model.Field({
+    select: text(250),
+  }),
   departmentId: Model.Field({
     select: DepartmentId,
     insert: DepartmentId,

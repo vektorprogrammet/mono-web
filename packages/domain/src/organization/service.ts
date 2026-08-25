@@ -80,9 +80,10 @@ export interface OrganizationShape {
   readonly listFieldOfStudies: Effect.Effect<ReadonlyArray<FieldOfStudy>, OrganizationListFailure>;
 
 /**
- * Spec 0059 read: durable team-interest registrations inside the authorized
- * department scope, ordered by registration_id ASC. No authorization happens
- * here; no narrowing may exceed the authorized set.
+ * Spec 0059 read: durable team-interest registrations with the referenced
+ * team name, inside the authorized department scope and ordered by
+ * registration_id ASC. No authorization happens here; no narrowing may
+ * exceed the authorized set.
  */
   readonly listTeamInterestRegistrations: (
     filter: TeamInterestFilter,
