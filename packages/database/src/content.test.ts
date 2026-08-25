@@ -63,7 +63,59 @@ describe("Content publication migration in PGlite (spec 0062)", () => {
   });
 
   it("enforces version-number uniqueness, slug constraints, and department restrict", async () => {
-    void Effect.runPromise; // keep the Effect import meaningful for lint
-    expect(true).toBe(true);
+    const outcome = await runtime.runPromise(
+      Effect.gen(function* () {
+        const database = yield* Database;
+        yield* database`
+          INSERT INTO organization_departments (
+            department_id, name, short_name, email, city
+          ) VALUES ('content-test-dep', 'Testavdeling', 'TAV', 'tav@example.invalid', 'Oslo')
+        `;
+        const insertDraft = (slug: string) =>
+          database`
+            INSERT INTO content_articles (title, slug, body_html, sticky, created_by_person_id)
+            VALUES (${`Tittel ${slug}`}, ${slug}, '<p>x</p>', FALSE, 'person-1')
+          `;
+        yield* insertDraft("unikt-lenkenavn");
+        const idRows = yield* database<{ readonly articleId: number }>`
+          SELECT article_id AS "articleId" FROM content_articles WHERE slug = 'unikt-lenkenavn'
+        `;
+        const articleId = Number(idRows[0]!.articleId);
+
+        // A duplicate slug across drafts is rejected.
+        const duplicateSlug = yield* Effect.exit(insertDraft("unikt-lenkenavn"));
+        const duplicateSlugRejected = duplicateSlug._tag === "Failure";
+
+        yield* database`
+          INSERT INTO content_article_departments (article_id, department_id)
+          VALUES (${articleId}, 'content-test-dep')
+        `;
+
+        const insertVersion = (version: number) =>
+          database`
+            INSERT INTO content_article_versions (
+              article_id, version_number, title, slug, body_html, sticky,
+              published_at, published_by_person_id
+            ) VALUES (${articleId}, ${version}, 'T', 'unikt-lenkenavn', '<p>x</p>', FALSE, now(), 'person-1')
+          `.pipe(Effect.asVoid);
+        yield* insertVersion(1);
+        // The same (article, version) pair is a PK violation.
+        const duplicateVersion = yield* Effect.exit(insertVersion(1));
+        const duplicateVersionRejected = duplicateVersion._tag === "Failure";
+
+        // FK RESTRICT blocks deleting a department still referenced.
+        const restrict = yield* Effect.exit(
+          database`DELETE FROM organization_departments WHERE department_id = 'content-test-dep'`.pipe(Effect.asVoid),
+        );
+        const restrictBlocked = restrict._tag === "Failure";
+
+        return { duplicateSlugRejected, duplicateVersionRejected, restrictBlocked };
+      }),
+    );
+    expect(outcome).toEqual({
+      duplicateSlugRejected: true,
+      duplicateVersionRejected: true,
+      restrictBlocked: true,
+    });
   });
 });
