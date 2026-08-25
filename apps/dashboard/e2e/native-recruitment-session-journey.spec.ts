@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 
 const nativeIdentityMode = process.env.REAL_NATIVE_IDENTITY_E2E === "1";
 
@@ -16,9 +16,7 @@ const schemaOptionLabel = "Førstegangsintervju (8 spørsmål)";
  * REAL_NATIVE_IDENTITY_E2E=1 plus backend+dashboard booted by the caller.
  */
 test.describe("Native recruitment assignment journey (spec 0049)", () => {
-  test("leader signs in and assigns an interviewee from a fresh board read", async ({
-    page,
-  }) => {
+  test("leader signs in and assigns an interviewee from a fresh board read", async ({ page }) => {
     test.skip(!nativeIdentityMode, "requires the real native identity topology");
 
     const bridgeOperations: string[] = [];
@@ -60,22 +58,24 @@ test.describe("Native recruitment assignment journey (spec 0049)", () => {
     await expect(applicantRow).toBeVisible();
 
     // 5. Open the unassigned applicant dialog.
-    await applicantRow.getByRole("button", { name: `Tildel intervju til ${applicantName}` }).click();
+    await applicantRow
+      .getByRole("button", { name: `Tildel intervju til ${applicantName}` })
+      .click();
     const dialog = page.getByRole("dialog");
     await expect(dialog).toBeVisible();
 
     // 6. Pick one active interviewer and one active schema, submit once.
     await dialog.getByLabel("Intervjuer").selectOption({ label: interviewerName });
-    await dialog
-      .getByLabel("Intervjuskjema")
-      .selectOption({ label: schemaOptionLabel });
+    await dialog.getByLabel("Intervjuskjema").selectOption({ label: schemaOptionLabel });
     await dialog.getByRole("button", { name: "Tildel intervju", exact: true }).click();
 
     // 7. Success feedback, dialog closed, and the fresh post-command board read
     // replaces the board model. Under the Nye søkere filter the newly assigned
     // candidate legitimately leaves the filtered board, so the refreshed row is
     // verified on the Alle søkere view.
-    await expect(page.getByRole("status").filter({ hasText: "Intervjuet er tildelt." })).toBeVisible();
+    await expect(
+      page.getByRole("status").filter({ hasText: "Intervjuet er tildelt." }),
+    ).toBeVisible();
     await expect(page.getByRole("dialog")).toHaveCount(0);
     await page.getByRole("button", { name: "Alle søkere" }).click();
     const assignedRow = page

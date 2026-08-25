@@ -2,10 +2,12 @@ import { chmod, mkdtemp, readFile, rm } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { randomBytes } from "node:crypto";
 import { spawn, spawnSync } from "node:child_process";
-import { once } from "node:events";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { emitRuntimeEvidenceReceipts, sanitizePlaywrightArtifact } from "./runtime-evidence-receipt.mjs";
+import {
+  emitRuntimeEvidenceReceipts,
+  sanitizePlaywrightArtifact,
+} from "./runtime-evidence-receipt.mjs";
 
 const dashboardOrigin = "http://127.0.0.1:5174";
 const journeyRefId = "intent://journey:recruitment:applicant-assignment:v1";
@@ -79,7 +81,9 @@ function runCommand(command, args, options) {
       }
       settle(
         rejectCommand,
-        new Error(`${command} ${args.join(" ")} exited with ${signal ? `signal ${signal}` : `code ${code}`}`),
+        new Error(
+          `${command} ${args.join(" ")} exited with ${signal ? `signal ${signal}` : `code ${code}`}`,
+        ),
       );
     });
   });
@@ -110,9 +114,7 @@ async function waitForHttp(url, child) {
     try {
       const response = await fetch(url, { redirect: "manual" });
       const body = await response.text();
-      const phpFailure = /\b(?:Warning|Fatal error|Parse error|Notice):/i.test(
-        body,
-      );
+      const phpFailure = /\b(?:Warning|Fatal error|Parse error|Notice):/i.test(body);
       if (phpFailure) {
         lastError = "PHP runtime failure in readiness response";
       } else if (response.status < 500) {
@@ -134,12 +136,7 @@ function signalProcessGroup(child, signal) {
   try {
     process.kill(-child.pid, signal);
   } catch (error) {
-    if (
-      error &&
-      typeof error === "object" &&
-      "code" in error &&
-      error.code === "ESRCH"
-    ) {
+    if (error && typeof error === "object" && "code" in error && error.code === "ESRCH") {
       return;
     }
     throw error;
@@ -166,10 +163,7 @@ async function stopProcess(child) {
   if (graceful || child.exitCode !== null) return;
 
   signalProcessGroup(child, "SIGKILL");
-  await Promise.race([
-    exited,
-    sleep(shutdownTimeoutMs).then(() => undefined),
-  ]);
+  await Promise.race([exited, sleep(shutdownTimeoutMs).then(() => undefined)]);
 }
 function assertDisposableDatabase(databasePath, temporaryRoot) {
   const resolvedDatabasePath = resolve(databasePath);
@@ -192,12 +186,9 @@ function assertDisposableDatabaseUrl(databaseUrl, temporaryRoot) {
   assertDisposableDatabase(databaseUrl.slice(prefix.length), temporaryRoot);
 }
 
-
 async function main() {
   requireOpenSsl();
-  const temporaryRoot = await mkdtemp(
-    join(tmpdir(), "mono-web-proof-0028-"),
-  );
+  const temporaryRoot = await mkdtemp(join(tmpdir(), "mono-web-proof-0028-"));
   const databasePath = join(temporaryRoot, "recruitment.sqlite");
   const privateKeyPath = join(temporaryRoot, "jwt-private.pem");
   const publicKeyPath = join(temporaryRoot, "jwt-public.pem");
@@ -280,11 +271,7 @@ async function main() {
   const handleSignal = (signal) => {
     void cleanup()
       .catch((cleanupError) => {
-        console.error(
-          cleanupError instanceof Error
-            ? cleanupError.message
-            : cleanupError,
-        );
+        console.error(cleanupError instanceof Error ? cleanupError.message : cleanupError);
       })
       .finally(() => {
         process.exitCode = signal === "SIGINT" ? 130 : 143;
@@ -294,6 +281,7 @@ async function main() {
   process.once("SIGTERM", handleSignal);
 
   let primaryError;
+  let primaryFailed = false;
   try {
     await rm(symfonyCacheDir, { recursive: true, force: true });
     await rm(symfonyLogDir, { recursive: true, force: true });
@@ -301,11 +289,10 @@ async function main() {
       cwd: serverRoot,
       env: serverEnv,
     });
-    await runCommand(
-      "openssl",
-      ["rsa", "-pubout", "-in", privateKeyPath, "-out", publicKeyPath],
-      { cwd: serverRoot, env: serverEnv },
-    );
+    await runCommand("openssl", ["rsa", "-pubout", "-in", privateKeyPath, "-out", publicKeyPath], {
+      cwd: serverRoot,
+      env: serverEnv,
+    });
     await chmod(privateKeyPath, 0o600);
 
     await runCommand(
@@ -330,15 +317,7 @@ async function main() {
 
     symfonyProcess = startProcess(
       "php",
-      [
-        "-d",
-        "variables_order=EGPCS",
-        "-S",
-        "127.0.0.1:8000",
-        "-t",
-        "public",
-        "public/index.php",
-      ],
+      ["-d", "variables_order=EGPCS", "-S", "127.0.0.1:8000", "-t", "public", "public/index.php"],
       { cwd: serverRoot, env: serverEnv },
     );
     await waitForHttp(`${apiOrigin}/api/docs`, symfonyProcess);
@@ -351,11 +330,10 @@ async function main() {
       env: dashboardEnv,
     });
 
-    dashboardProcess = startProcess(
-      "bun",
-      ["run", "start"],
-      { cwd: dashboardRoot, env: dashboardEnv },
-    );
+    dashboardProcess = startProcess("bun", ["run", "start"], {
+      cwd: dashboardRoot,
+      env: dashboardEnv,
+    });
     await waitForHttp(`${dashboardOrigin}/login`, dashboardProcess);
 
     const receiptRequested = [
@@ -371,33 +349,41 @@ async function main() {
       "--project=real-symfony",
     ];
     if (receiptRequested) e2eArgs.push("--reporter=json");
-    const e2eResult = await runCommand(
-      process.env.PLAYWRIGHT_NODE_EXECUTABLE ?? "node",
-      e2eArgs,
-      { cwd: dashboardRoot, env: dashboardEnv, captureOutput: receiptRequested },
-    );
+    const e2eResult = await runCommand(process.env.PLAYWRIGHT_NODE_EXECUTABLE ?? "node", e2eArgs, {
+      cwd: dashboardRoot,
+      env: dashboardEnv,
+      captureOutput: receiptRequested,
+    });
     if (receiptRequested) {
       const runnerSourceInputBytes = [
         {
-          sourceRefId: process.env.RUNTIME_EVIDENCE_RUNNER_SOURCE_REF_IDS?.split(",")[0]?.trim() ?? "",
-          bytes: await readFile(fileURLToPath(new URL("./run-real-symfony-recruitment.mjs", import.meta.url))),
+          sourceRefId:
+            process.env.RUNTIME_EVIDENCE_RUNNER_SOURCE_REF_IDS?.split(",")[0]?.trim() ?? "",
+          bytes: await readFile(
+            fileURLToPath(new URL("./run-real-symfony-recruitment.mjs", import.meta.url)),
+          ),
         },
         {
-          sourceRefId: process.env.RUNTIME_EVIDENCE_RUNNER_SOURCE_REF_IDS?.split(",")[1]?.trim() ?? "",
-          bytes: await readFile(fileURLToPath(new URL("./real-symfony-recruitment.spec.ts", import.meta.url))),
+          sourceRefId:
+            process.env.RUNTIME_EVIDENCE_RUNNER_SOURCE_REF_IDS?.split(",")[1]?.trim() ?? "",
+          bytes: await readFile(
+            fileURLToPath(new URL("./real-symfony-recruitment.spec.ts", import.meta.url)),
+          ),
         },
       ];
       const explicitJourneyOverride =
         process.env.RUNTIME_EVIDENCE_JOURNEY_REF_ID !== undefined ||
         process.env.RUNTIME_EVIDENCE_STEP_IDS !== undefined;
       const evidenceJourneys = explicitJourneyOverride
-        ? [{
-          journeyRefId: process.env.RUNTIME_EVIDENCE_JOURNEY_REF_ID ?? journeyRefId,
-          stepIds: process.env.RUNTIME_EVIDENCE_STEP_IDS
-            ?.split(",")
-            .map((stepId) => stepId.trim())
-            .filter((stepId) => stepId.length > 0) ?? journeyStepIds,
-        }]
+        ? [
+            {
+              journeyRefId: process.env.RUNTIME_EVIDENCE_JOURNEY_REF_ID ?? journeyRefId,
+              stepIds:
+                process.env.RUNTIME_EVIDENCE_STEP_IDS?.split(",")
+                  .map((stepId) => stepId.trim())
+                  .filter((stepId) => stepId.length > 0) ?? journeyStepIds,
+            },
+          ]
         : defaultJourneyEntries;
       await emitRuntimeEvidenceReceipts({
         journeys: evidenceJourneys,
@@ -409,27 +395,35 @@ async function main() {
     }
   } catch (error) {
     primaryError = error;
-    throw error;
+    primaryFailed = true;
+  }
+
+  let cleanupError;
+  let cleanupFailed = false;
+  try {
+    await cleanup();
+  } catch (error) {
+    cleanupError = error;
+    cleanupFailed = true;
   } finally {
-    try {
-      await cleanup();
-    } catch (cleanupError) {
-      if (primaryError) {
-        console.error(
-          cleanupError instanceof Error ? cleanupError.message : cleanupError,
-        );
-      } else {
-        throw cleanupError;
-      }
-    } finally {
-      process.removeListener("SIGINT", handleSignal);
-      process.removeListener("SIGTERM", handleSignal);
+    process.removeListener("SIGINT", handleSignal);
+    process.removeListener("SIGTERM", handleSignal);
+  }
+
+  if (cleanupFailed) {
+    if (primaryError) {
+      console.error(cleanupError instanceof Error ? cleanupError.message : cleanupError);
+    } else {
+      throw cleanupError;
     }
   }
+  if (primaryFailed) throw primaryError;
 }
 
 if (process.versions.bun === undefined) {
-  const result = spawnSync("bun", [fileURLToPath(import.meta.url), ...process.argv.slice(2)], { stdio: "inherit" });
+  const result = spawnSync("bun", [fileURLToPath(import.meta.url), ...process.argv.slice(2)], {
+    stdio: "inherit",
+  });
   process.exitCode = result.status ?? 1;
 } else {
   main().catch((error) => {

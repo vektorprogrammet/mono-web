@@ -5,7 +5,10 @@ import { randomBytes } from "node:crypto";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
-import { emitRuntimeEvidenceReceipts, sanitizePlaywrightArtifact } from "./runtime-evidence-receipt.mjs";
+import {
+  emitRuntimeEvidenceReceipts,
+  sanitizePlaywrightArtifact,
+} from "./runtime-evidence-receipt.mjs";
 
 const apiOrigin = "http://127.0.0.1:8000";
 const apiPort = 8000;
@@ -25,10 +28,21 @@ const specRelativePaths = [
   "e2e/real-framework-runtime-plumbing.spec.ts",
 ];
 const fixturePaths = [
-  fileURLToPath(new URL("../../server/tests/Fixtures/ContentPublicationJourneyFixture.php", import.meta.url)),
-  fileURLToPath(new URL("../../server/tests/Fixtures/SurveyAdminJourneyFixture.php", import.meta.url)),
-  fileURLToPath(new URL("../../server/tests/Fixtures/PlatformOpsJourneyFixture.php", import.meta.url)),
-  fileURLToPath(new URL("../../server/tests/Fixtures/FrameworkRuntimePlumbingJourneyFixture.php", import.meta.url)),
+  fileURLToPath(
+    new URL("../../server/tests/Fixtures/ContentPublicationJourneyFixture.php", import.meta.url),
+  ),
+  fileURLToPath(
+    new URL("../../server/tests/Fixtures/SurveyAdminJourneyFixture.php", import.meta.url),
+  ),
+  fileURLToPath(
+    new URL("../../server/tests/Fixtures/PlatformOpsJourneyFixture.php", import.meta.url),
+  ),
+  fileURLToPath(
+    new URL(
+      "../../server/tests/Fixtures/FrameworkRuntimePlumbingJourneyFixture.php",
+      import.meta.url,
+    ),
+  ),
 ];
 const fixtureGroups = [
   "content-publication",
@@ -39,13 +53,18 @@ const fixtureGroups = [
 const commandTimeoutMs = 180_000;
 const shutdownTimeoutMs = 5_000;
 
-const sleep = (milliseconds) => new Promise((resolveSleep) => setTimeout(resolveSleep, milliseconds));
+const sleep = (milliseconds) =>
+  new Promise((resolveSleep) => setTimeout(resolveSleep, milliseconds));
 
 async function assertPortAvailable(port) {
   await new Promise((resolvePromise, rejectPromise) => {
     const server = createServer();
-    server.once("error", (error) => rejectPromise(new Error(`Loopback port ${port} is unavailable: ${error.message}`)));
-    server.listen(port, "127.0.0.1", () => server.close((closeError) => closeError ? rejectPromise(closeError) : resolvePromise()));
+    server.once("error", (error) =>
+      rejectPromise(new Error(`Loopback port ${port} is unavailable: ${error.message}`)),
+    );
+    server.listen(port, "127.0.0.1", () =>
+      server.close((closeError) => (closeError ? rejectPromise(closeError) : resolvePromise())),
+    );
   });
 }
 
@@ -84,7 +103,11 @@ function runCommand(command, args, { cwd, env, captureOutput = false } = {}) {
         resolvePromise({ stdout: Buffer.concat(stdout), stderr: Buffer.concat(stderr) });
         return;
       }
-      rejectPromise(new Error(`${command} ${args.join(" ")} failed (${code ?? signal})${errorOutput ? `: ${errorOutput.slice(-4000)}` : output ? `: ${output.slice(-4000)}` : ""}`));
+      rejectPromise(
+        new Error(
+          `${command} ${args.join(" ")} failed (${code ?? signal})${errorOutput ? `: ${errorOutput.slice(-4000)}` : output ? `: ${output.slice(-4000)}` : ""}`,
+        ),
+      );
     });
   });
 }
@@ -105,7 +128,8 @@ async function waitForHttp(url, child) {
   const deadline = Date.now() + commandTimeoutMs;
   let lastError = "";
   while (Date.now() < deadline) {
-    if (child.exitCode !== null) throw new Error(`Symfony server exited before ${url} became ready`);
+    if (child.exitCode !== null)
+      throw new Error(`Symfony server exited before ${url} became ready`);
     try {
       const response = await fetch(url);
       if (response.status < 500) return;
@@ -123,7 +147,8 @@ function signalProcessGroup(child, signal) {
   try {
     process.kill(-child.pid, signal);
   } catch (error) {
-    if (!(error && typeof error === "object" && "code" in error && error.code === "ESRCH")) throw error;
+    if (!(error && typeof error === "object" && "code" in error && error.code === "ESRCH"))
+      throw error;
   }
 }
 
@@ -136,7 +161,10 @@ async function stopProcess(child) {
     child.once("exit", resolvePromise);
   });
   signalProcessGroup(child, "SIGTERM");
-  const graceful = await Promise.race([exited.then(() => true), sleep(shutdownTimeoutMs).then(() => false)]);
+  const graceful = await Promise.race([
+    exited.then(() => true),
+    sleep(shutdownTimeoutMs).then(() => false),
+  ]);
   if (graceful || child.exitCode !== null) return;
   signalProcessGroup(child, "SIGKILL");
   await Promise.race([exited, sleep(shutdownTimeoutMs).then(() => undefined)]);
@@ -158,7 +186,8 @@ function assertDisposableDatabase(databasePath, temporaryRoot) {
 
 function assertDisposableDatabaseUrl(databaseUrl, temporaryRoot) {
   const prefix = "sqlite:///";
-  if (!databaseUrl.startsWith(prefix)) throw new Error(`Refusing non-SQLite e2e database URL: ${databaseUrl}`);
+  if (!databaseUrl.startsWith(prefix))
+    throw new Error(`Refusing non-SQLite e2e database URL: ${databaseUrl}`);
   assertDisposableDatabase(databaseUrl.slice(prefix.length), temporaryRoot);
 }
 
@@ -243,7 +272,14 @@ async function main() {
     } catch (error) {
       cleanupErrors.push(error);
     }
-    for (const directory of [temporaryRoot, symfonyCacheDir, symfonyLogDir, symfonySessionDir, playwrightResultsDir, playwrightReportDir]) {
+    for (const directory of [
+      temporaryRoot,
+      symfonyCacheDir,
+      symfonyLogDir,
+      symfonySessionDir,
+      playwrightResultsDir,
+      playwrightReportDir,
+    ]) {
       try {
         await rm(directory, { recursive: true, force: true });
       } catch (error) {
@@ -257,41 +293,73 @@ async function main() {
         cleanupErrors.push(error);
       }
     }
-    if (cleanupErrors.length > 0) throw new AggregateError(cleanupErrors, "Real Symfony content operations cleanup failed");
+    if (cleanupErrors.length > 0)
+      throw new AggregateError(cleanupErrors, "Real Symfony content operations cleanup failed");
   };
 
   const handleSignal = (signal) => {
     void cleanup()
       .catch((error) => console.error(error instanceof Error ? error.message : error))
-      .finally(() => { process.exitCode = signal === "SIGINT" ? 130 : 143; });
+      .finally(() => {
+        process.exitCode = signal === "SIGINT" ? 130 : 143;
+      });
   };
   process.once("SIGINT", handleSignal);
   process.once("SIGTERM", handleSignal);
 
   let primaryError;
+  let primaryFailed = false;
   try {
     await rm(symfonyCacheDir, { recursive: true, force: true });
     await rm(symfonyLogDir, { recursive: true, force: true });
-    await runCommand("openssl", ["genrsa", "-out", privateKeyPath, "2048"], { cwd: serverRoot, env: serverEnv });
-    await runCommand("openssl", ["rsa", "-pubout", "-in", privateKeyPath, "-out", publicKeyPath], { cwd: serverRoot, env: serverEnv });
+    await runCommand("openssl", ["genrsa", "-out", privateKeyPath, "2048"], {
+      cwd: serverRoot,
+      env: serverEnv,
+    });
+    await runCommand("openssl", ["rsa", "-pubout", "-in", privateKeyPath, "-out", publicKeyPath], {
+      cwd: serverRoot,
+      env: serverEnv,
+    });
     await chmod(privateKeyPath, 0o600);
 
-    await runCommand("php", ["bin/console", "doctrine:schema:create", "--env=e2e", "--no-interaction"], { cwd: serverRoot, env: serverEnv });
+    await runCommand(
+      "php",
+      ["bin/console", "doctrine:schema:create", "--env=e2e", "--no-interaction"],
+      { cwd: serverRoot, env: serverEnv },
+    );
     const fixtureArgs = ["bin/console", "doctrine:fixtures:load", "--env=e2e", "--no-interaction"];
     for (const group of fixtureGroups) fixtureArgs.push(`--group=${group}`);
     await runCommand("php", fixtureArgs, { cwd: serverRoot, env: serverEnv });
 
-    const fixtureInputBytes = Buffer.concat(await Promise.all(fixturePaths.map((path) => readFile(path))));
-    await writeFile(routerPath, `<?php
+    const fixtureInputBytes = Buffer.concat(
+      await Promise.all(fixturePaths.map((path) => readFile(path))),
+    );
+    await writeFile(
+      routerPath,
+      `<?php
 $path = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
 if (is_string($path) && is_file($_SERVER['DOCUMENT_ROOT'].$path)) {
     return false;
 }
 require $_SERVER['DOCUMENT_ROOT'].'/index.php';
-`, "utf8");
+`,
+      "utf8",
+    );
 
     await runCommand("bun", ["run", "build:prod"], { cwd: serverRoot, env: serverEnv });
-    symfonyProcess = startProcess("php", ["-d", "variables_order=EGPCS", "-S", `${apiOrigin.replace("http://", "")}`, "-t", "public", routerPath], { cwd: serverRoot, env: serverEnv });
+    symfonyProcess = startProcess(
+      "php",
+      [
+        "-d",
+        "variables_order=EGPCS",
+        "-S",
+        `${apiOrigin.replace("http://", "")}`,
+        "-t",
+        "public",
+        routerPath,
+      ],
+      { cwd: serverRoot, env: serverEnv },
+    );
     await waitForHttp(`${apiOrigin}/api/docs`, symfonyProcess);
 
     const receiptRequested = [
@@ -319,7 +387,9 @@ require $_SERVER['DOCUMENT_ROOT'].'/index.php';
         .map((value) => value.trim())
         .filter((value) => value.length > 0);
       if (runnerSourceRefIds.length !== specPaths.length + 1) {
-        throw new Error(`Runtime evidence requires exactly ${specPaths.length + 1} runner source references for this batch runner and its specs.`);
+        throw new Error(
+          `Runtime evidence requires exactly ${specPaths.length + 1} runner source references for this batch runner and its specs.`,
+        );
       }
       const runnerSourceInputBytes = await Promise.all([
         (async () => ({
@@ -377,21 +447,33 @@ require $_SERVER['DOCUMENT_ROOT'].'/index.php';
     }
   } catch (error) {
     primaryError = error;
-    throw error;
+    primaryFailed = true;
+  }
+
+  let cleanupError;
+  let cleanupFailed = false;
+  try {
+    await cleanup();
+  } catch (error) {
+    cleanupError = error;
+    cleanupFailed = true;
   } finally {
-    try {
-      await cleanup();
-    } catch (cleanupError) {
-      if (primaryError) console.error(cleanupError instanceof Error ? cleanupError.message : cleanupError);
-      else throw cleanupError;
-    }
     process.removeListener("SIGINT", handleSignal);
     process.removeListener("SIGTERM", handleSignal);
   }
+
+  if (cleanupFailed) {
+    if (primaryError)
+      console.error(cleanupError instanceof Error ? cleanupError.message : cleanupError);
+    else throw cleanupError;
+  }
+  if (primaryFailed) throw primaryError;
 }
 
 if (process.versions.bun === undefined) {
-  const result = spawnSync("bun", [fileURLToPath(import.meta.url), ...process.argv.slice(2)], { stdio: "inherit" });
+  const result = spawnSync("bun", [fileURLToPath(import.meta.url), ...process.argv.slice(2)], {
+    stdio: "inherit",
+  });
   process.exitCode = result.status ?? 1;
 } else {
   main().catch((error) => {

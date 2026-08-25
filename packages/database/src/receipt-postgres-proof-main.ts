@@ -10,7 +10,7 @@ import {
 } from "@vektorprogrammet/domain/receipt/proof";
 import { DatabaseLive } from "./layers.js";
 
-const program = Effect.gen(function* () {
+export const program = Effect.gen(function* () {
   const databaseUrl = yield* Config.redacted("BACKEND_PG_URL").pipe(
     Config.withDefault(Redacted.make("postgres://receipt:receipt@127.0.0.1:55432/receipt_proof")),
   );
@@ -38,9 +38,4 @@ const program = Effect.gen(function* () {
   yield* Effect.sync(() =>
     process.stdout.write(`${canonicalJson({ ...evidence, evidenceSha256 })}\n`),
   );
-});
-
-Effect.runPromise(Effect.scoped(program)).catch((cause: unknown) => {
-  process.stderr.write(`${String(cause)}\n`);
-  process.exitCode = 1;
 });

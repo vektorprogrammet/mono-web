@@ -771,10 +771,8 @@ export type TutorD1Store = Effect.Success<typeof makeTutorD1Store>;
 export const runWithTutorD1 = <A, E>(
   db: D1Binding,
   effect: Effect.Effect<A, E, D1Client.D1Client>,
-): Promise<A> =>
-  Effect.runPromise(
-    Effect.scoped(effect.pipe(Effect.provide(D1Client.layer({ db })))) as Effect.Effect<A, E>,
-  );
+): Effect.Effect<A, E> =>
+  Effect.scoped(effect.pipe(Effect.provide(D1Client.layer({ db })))) as Effect.Effect<A, E>;
 
 export const decodePersistedResult = (value: unknown): unknown => {
   const bytes = normalizeBlobBytes(value);

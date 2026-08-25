@@ -1,8 +1,14 @@
-import { Effect } from "effect"
-import { canonicalJson, failureId } from "./canonical.js"
-import { FALSIFIERS, run, type FalsifierId, type RunMode } from "./runner.js"
-import { ParityRuntimeError } from "./runtime.js"
-import type { CollectorExecutables, ZeroGapReport } from "./types.js"
+import { Effect } from "effect";
+import { canonicalJson, failureId } from "./canonical.js";
+import { FALSIFIERS, run, type FalsifierId, type RunMode } from "./runner.js";
+import { ParityRuntimeError } from "./runtime.js";
+import {
+  ParityCommandExecutor,
+  ParityExecutionEnvironment,
+  ParityFileSystem,
+  ParityTerminal,
+} from "./services.js";
+import type { CollectorExecutables, ZeroGapReport } from "./types.js";
 
 const USAGE = [
   "Usage: bun run parity:verify -- --root <mono-root> --legacy-root <legacy-root> --intent-register <external-intent-authority-checkout-file> --evidence-register <external-runtime-evidence-authority-checkout-file> --mode <diff|write|fixture_injection> [--php-executable <absolute-canonical-php>] [--bwrap-executable <absolute-canonical-bwrap>] [--falsifier F0..F19]",
@@ -13,101 +19,134 @@ const USAGE = [
   "  fixture_injection run one named isolated falsifier; never writes projections",
   "",
   "Collector executables default to /usr/bin/php and /usr/bin/bwrap when both canonical files are present.",
-].join("\n")
+].join("\n");
 
 interface ParsedArgs {
-  readonly root: string
-  readonly legacyRoot: string
-  readonly intentRegisterPath?: string
-  readonly evidenceRegisterPath?: string
-  readonly mode: RunMode
-  readonly falsifierId?: FalsifierId
-  readonly collectorExecutables?: CollectorExecutables
-  readonly help: boolean
+  readonly root: string;
+  readonly legacyRoot: string;
+  readonly intentRegisterPath?: string;
+  readonly evidenceRegisterPath?: string;
+  readonly mode: RunMode;
+  readonly falsifierId?: FalsifierId;
+  readonly collectorExecutables?: CollectorExecutables;
+  readonly help: boolean;
 }
 
 const valueAfter = (args: readonly string[], index: number, option: string): string => {
-  const value = args[index + 1]
-  if (value === undefined || value.startsWith("--")) throw new Error(`${option} requires a value`)
-  return value
-}
+  const value = args[index + 1];
+  if (value === undefined || value.startsWith("--")) throw new Error(`${option} requires a value`);
+  return value;
+};
 
 const parseArgs = (args: readonly string[]): ParsedArgs => {
-  let root: string | undefined
-  let legacyRoot: string | undefined
-  let intentRegisterPath: string | undefined
-  let evidenceRegisterPath: string | undefined
-  let mode: RunMode | undefined
-  let falsifierId: FalsifierId | undefined
-  let phpExecutable: string | undefined
-  let bwrapExecutable: string | undefined
-  let help = false
+  let root: string | undefined;
+  let legacyRoot: string | undefined;
+  let intentRegisterPath: string | undefined;
+  let evidenceRegisterPath: string | undefined;
+  let mode: RunMode | undefined;
+  let falsifierId: FalsifierId | undefined;
+  let phpExecutable: string | undefined;
+  let bwrapExecutable: string | undefined;
+  let help = false;
   for (let index = 0; index < args.length; index += 1) {
-    const argument = args[index]
+    const argument = args[index];
     if (argument === "--help" || argument === "-h") {
-      help = true
-      continue
+      help = true;
+      continue;
     }
     if (argument === "--root") {
-      root = valueAfter(args, index, argument)
-      index += 1
-      continue
+      root = valueAfter(args, index, argument);
+      index += 1;
+      continue;
     }
     if (argument === "--legacy-root") {
-      legacyRoot = valueAfter(args, index, argument)
-      index += 1
-      continue
+      legacyRoot = valueAfter(args, index, argument);
+      index += 1;
+      continue;
     }
     if (argument === "--intent-register") {
-      intentRegisterPath = valueAfter(args, index, argument)
-      index += 1
-      continue
+      intentRegisterPath = valueAfter(args, index, argument);
+      index += 1;
+      continue;
     }
     if (argument === "--evidence-register") {
-      evidenceRegisterPath = valueAfter(args, index, argument)
-      index += 1
-      continue
+      evidenceRegisterPath = valueAfter(args, index, argument);
+      index += 1;
+      continue;
     }
     if (argument === "--php-executable") {
-      phpExecutable = valueAfter(args, index, argument)
-      index += 1
-      continue
+      phpExecutable = valueAfter(args, index, argument);
+      index += 1;
+      continue;
     }
     if (argument === "--bwrap-executable") {
-      bwrapExecutable = valueAfter(args, index, argument)
-      index += 1
-      continue
+      bwrapExecutable = valueAfter(args, index, argument);
+      index += 1;
+      continue;
     }
     if (argument === "--mode") {
-      const value = valueAfter(args, index, argument)
-      if (value !== "diff" && value !== "write" && value !== "fixture_injection") throw new Error(`invalid mode: ${value}`)
-      mode = value
-      index += 1
-      continue
+      const value = valueAfter(args, index, argument);
+      if (value !== "diff" && value !== "write" && value !== "fixture_injection")
+        throw new Error(`invalid mode: ${value}`);
+      mode = value;
+      index += 1;
+      continue;
     }
     if (argument === "--falsifier") {
-      const value = valueAfter(args, index, argument)
-      if (!(FALSIFIERS as readonly string[]).includes(value)) throw new Error(`invalid falsifier: ${value}`)
-      falsifierId = value as FalsifierId
-      index += 1
-      continue
+      const value = valueAfter(args, index, argument);
+      if (!(FALSIFIERS as readonly string[]).includes(value))
+        throw new Error(`invalid falsifier: ${value}`);
+      falsifierId = value as FalsifierId;
+      index += 1;
+      continue;
     }
-    if (argument === "--") continue
-    throw new Error(`unknown option: ${argument}`)
+    if (argument === "--") continue;
+    throw new Error(`unknown option: ${argument}`);
   }
-  const collectorExecutables: CollectorExecutables | undefined = phpExecutable === undefined && bwrapExecutable === undefined ? undefined : { phpExecutable: phpExecutable ?? "/usr/bin/php", bwrapExecutable: bwrapExecutable ?? "/usr/bin/bwrap" }
-  if (help) return { root: root ?? ".", legacyRoot: legacyRoot ?? ".", intentRegisterPath, evidenceRegisterPath, mode: mode ?? "diff", falsifierId, collectorExecutables, help }
-  if (root === undefined || legacyRoot === undefined || mode === undefined) throw new Error("--root, --legacy-root, and --mode are required")
-  if (mode !== "fixture_injection" && intentRegisterPath === undefined) throw new Error("--intent-register is required for diff and write modes")
-  if (mode !== "fixture_injection" && evidenceRegisterPath === undefined) throw new Error("--evidence-register is required for diff and write modes")
-  if (mode === "fixture_injection" && (falsifierId === undefined)) throw new Error("fixture_injection requires exactly one --falsifier")
-  if (mode === "fixture_injection" && evidenceRegisterPath !== undefined) throw new Error("--evidence-register is forbidden in fixture_injection mode")
-  if (mode !== "fixture_injection" && falsifierId !== undefined) throw new Error("--falsifier is only valid in fixture_injection mode")
-  return { root, legacyRoot, intentRegisterPath, evidenceRegisterPath, mode, falsifierId, collectorExecutables, help }
-}
+  const collectorExecutables: CollectorExecutables | undefined =
+    phpExecutable === undefined && bwrapExecutable === undefined
+      ? undefined
+      : {
+          phpExecutable: phpExecutable ?? "/usr/bin/php",
+          bwrapExecutable: bwrapExecutable ?? "/usr/bin/bwrap",
+        };
+  if (help)
+    return {
+      root: root ?? ".",
+      legacyRoot: legacyRoot ?? ".",
+      intentRegisterPath,
+      evidenceRegisterPath,
+      mode: mode ?? "diff",
+      falsifierId,
+      collectorExecutables,
+      help,
+    };
+  if (root === undefined || legacyRoot === undefined || mode === undefined)
+    throw new Error("--root, --legacy-root, and --mode are required");
+  if (mode !== "fixture_injection" && intentRegisterPath === undefined)
+    throw new Error("--intent-register is required for diff and write modes");
+  if (mode !== "fixture_injection" && evidenceRegisterPath === undefined)
+    throw new Error("--evidence-register is required for diff and write modes");
+  if (mode === "fixture_injection" && falsifierId === undefined)
+    throw new Error("fixture_injection requires exactly one --falsifier");
+  if (mode === "fixture_injection" && evidenceRegisterPath !== undefined)
+    throw new Error("--evidence-register is forbidden in fixture_injection mode");
+  if (mode !== "fixture_injection" && falsifierId !== undefined)
+    throw new Error("--falsifier is only valid in fixture_injection mode");
+  return {
+    root,
+    legacyRoot,
+    intentRegisterPath,
+    evidenceRegisterPath,
+    mode,
+    falsifierId,
+    collectorExecutables,
+    help,
+  };
+};
 
 const commandErrorReport = (message: string): ZeroGapReport => {
-  const sourceRefIds: string[] = []
+  const sourceRefIds: string[] = [];
   const failure = {
     failure_id: failureId("command_error", "COMMAND_ARGUMENT_ERROR", [], sourceRefIds),
     status: "command_error" as const,
@@ -115,7 +154,7 @@ const commandErrorReport = (message: string): ZeroGapReport => {
     row_ids: [],
     source_ref_ids: sourceRefIds,
     accepted_intent_ref_ids: [],
-  }
+  };
   return {
     $schema: "https://json-schema.org/draft/2020-12/schema",
     schema_version: "functional-parity-zero-gap-report/v1",
@@ -128,7 +167,12 @@ const commandErrorReport = (message: string): ZeroGapReport => {
     inventory_artifact_sha256: {},
     row_counts: {},
     status_counts: {},
-    failures: [{ ...failure, reason_code: message.length > 0 ? "COMMAND_ARGUMENT_ERROR" : failure.reason_code }],
+    failures: [
+      {
+        ...failure,
+        reason_code: message.length > 0 ? "COMMAND_ARGUMENT_ERROR" : failure.reason_code,
+      },
+    ],
     mismatches: [],
     openapi_reconciliation_ref: "openapi-reconciliation.json",
     verification: {
@@ -138,19 +182,37 @@ const commandErrorReport = (message: string): ZeroGapReport => {
       deterministic_diff: "different",
       forbidden_states_empty: false,
     },
-  }
-}
+  };
+};
 
 const runtimeErrorReport = (error: ParityRuntimeError): ZeroGapReport => {
-  const evidenceInvalid = error.operation === "runtime_evidence_authority" && /^EVIDENCE_/.test(error.message)
-  const unsafe = (error.operation === "scan_root" || error.operation === "unsafe_source") && /(unsafe source metadata|sensitive paths|projection construction)/i.test(error.message)
-  const drift = !unsafe && !evidenceInvalid && (
-    (error.operation === "scan_root" && /(dirty|changed during scan|revision)/i.test(error.message)) ||
-    ((error.operation === "intent_authority" || error.operation === "runtime_evidence_authority" || error.operation === "write_projection") && /(dirty|changed|drift|revision)/i.test(error.message))
-  )
-  const status = evidenceInvalid ? "accepted_intent_invalid" as const : drift ? "source_hash_drift" as const : "source_unavailable" as const
-  const reasonCode = evidenceInvalid ? error.message : unsafe ? "UNSAFE_SOURCE" : drift ? "SOURCE_HASH_DRIFT" : "SOURCE_UNAVAILABLE"
-  const exitCode = evidenceInvalid ? 11 : drift ? 7 : 6
+  const evidenceInvalid =
+    error.operation === "runtime_evidence_authority" && error.message.startsWith("EVIDENCE_");
+  const unsafe =
+    (error.operation === "scan_root" || error.operation === "unsafe_source") &&
+    /(unsafe source metadata|sensitive paths|projection construction)/i.test(error.message);
+  const drift =
+    !unsafe &&
+    !evidenceInvalid &&
+    ((error.operation === "scan_root" &&
+      /(dirty|changed during scan|revision)/i.test(error.message)) ||
+      ((error.operation === "intent_authority" ||
+        error.operation === "runtime_evidence_authority" ||
+        error.operation === "write_projection") &&
+        /(dirty|changed|drift|revision)/i.test(error.message)));
+  const status = evidenceInvalid
+    ? ("accepted_intent_invalid" as const)
+    : drift
+      ? ("source_hash_drift" as const)
+      : ("source_unavailable" as const);
+  const reasonCode = evidenceInvalid
+    ? error.message
+    : unsafe
+      ? "UNSAFE_SOURCE"
+      : drift
+        ? "SOURCE_HASH_DRIFT"
+        : "SOURCE_UNAVAILABLE";
+  const exitCode = evidenceInvalid ? 11 : drift ? 7 : 6;
   const failure = {
     failure_id: failureId(status, reasonCode, [], []),
     status,
@@ -158,7 +220,7 @@ const runtimeErrorReport = (error: ParityRuntimeError): ZeroGapReport => {
     row_ids: [],
     source_ref_ids: [],
     accepted_intent_ref_ids: [],
-  }
+  };
   return {
     $schema: "https://json-schema.org/draft/2020-12/schema",
     schema_version: "functional-parity-zero-gap-report/v1",
@@ -181,41 +243,54 @@ const runtimeErrorReport = (error: ParityRuntimeError): ZeroGapReport => {
       deterministic_diff: "different",
       forbidden_states_empty: false,
     },
-  }
-}
-const writeStdout = (text: string): void => { process.stdout.write(text) }
-const writeStderr = (text: string): void => { process.stderr.write(text) }
+  };
+};
 
-export const main = (args: readonly string[] = process.argv.slice(2)): Effect.Effect<number> => {
-  const program = Effect.gen(function* () {
-    const parsed = yield* Effect.try({
-      try: () => parseArgs(args),
-      catch: (error) => error instanceof Error ? error : new Error("command error"),
-    })
-    if (parsed.help) {
-      yield* Effect.sync(() => writeStdout(`${USAGE}\n`))
-      return 0
-    }
-    const result = yield* run({ root: parsed.root, legacyRoot: parsed.legacyRoot, intentRegisterPath: parsed.intentRegisterPath, evidenceRegisterPath: parsed.evidenceRegisterPath, mode: parsed.mode, falsifierId: parsed.falsifierId, collectorExecutables: parsed.collectorExecutables })
-    yield* Effect.sync(() => writeStdout(`${canonicalJson(result.report)}\n`))
-    return result.exitCode
-  })
-  return program.pipe(
-    Effect.catchIf(
-      (_error): _error is Error => true,
-      (error) =>
-        Effect.sync(() => {
-          const report = error instanceof ParityRuntimeError ? runtimeErrorReport(error) : commandErrorReport(error instanceof Error ? error.message : "command error")
-          if (!(error instanceof ParityRuntimeError)) writeStderr(`${USAGE}\n`)
-          writeStdout(`${canonicalJson(report)}\n`)
-          return report.exit_code
-        }),
-    ),
-  )
-}
-
-if (import.meta.main) {
-  Effect.runPromise(main()).then((exitCode) => {
-    process.exitCode = exitCode
-  })
-}
+export const main = (
+  args?: readonly string[],
+): Effect.Effect<
+  number,
+  never,
+  ParityCommandExecutor | ParityExecutionEnvironment | ParityFileSystem | ParityTerminal
+> =>
+  Effect.gen(function* () {
+    const environment = yield* ParityExecutionEnvironment;
+    const terminal = yield* ParityTerminal;
+    const programArgs = args ?? environment.arguments.slice(2);
+    const program = Effect.gen(function* () {
+      const parsed = yield* Effect.try({
+        try: () => parseArgs(programArgs),
+        catch: (error) => (error instanceof Error ? error : new Error("command error")),
+      });
+      if (parsed.help) {
+        yield* Effect.sync(() => terminal.writeStandardOutput(`${USAGE}\n`));
+        return 0;
+      }
+      const result = yield* run({
+        root: parsed.root,
+        legacyRoot: parsed.legacyRoot,
+        intentRegisterPath: parsed.intentRegisterPath,
+        evidenceRegisterPath: parsed.evidenceRegisterPath,
+        mode: parsed.mode,
+        falsifierId: parsed.falsifierId,
+        collectorExecutables: parsed.collectorExecutables,
+      });
+      yield* Effect.sync(() => terminal.writeStandardOutput(`${canonicalJson(result.report)}\n`));
+      return result.exitCode;
+    });
+    return yield* program.pipe(
+      Effect.catchIf(
+        (_error): _error is Error => true,
+        (error) =>
+          Effect.sync(() => {
+            const report =
+              error instanceof ParityRuntimeError
+                ? runtimeErrorReport(error)
+                : commandErrorReport(error instanceof Error ? error.message : "command error");
+            if (!(error instanceof ParityRuntimeError)) terminal.writeStandardError(`${USAGE}\n`);
+            terminal.writeStandardOutput(`${canonicalJson(report)}\n`);
+            return report.exit_code;
+          }),
+      ),
+    );
+  });

@@ -1,10 +1,6 @@
 import assert from "node:assert/strict";
 import { Database } from "@vektorprogrammet/domain/database";
-import {
-  canonicalJson,
-  canonicalJsonBytes,
-  sha256Hex,
-} from "@vektorprogrammet/domain/evidence";
+import { canonicalJson, canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/evidence";
 import { createLocalAccountIssuer } from "better-auth";
 import { Config, Effect, Redacted } from "effect";
 import { Pool } from "pg";
@@ -58,10 +54,10 @@ const resetIdentityCohort = async (pool: Pool, migrationId: number) => {
       `SELECT to_regclass('public.person_profiles')::text AS "tableName"`,
     );
     if (profileTable.rows[0]?.tableName !== null) {
-      await client.query(
-        `DELETE FROM public.person_profiles WHERE person_id IN ($1, $2)`,
-        [proofCohort.personId, proofCohort.orphanPersonId],
-      );
+      await client.query(`DELETE FROM public.person_profiles WHERE person_id IN ($1, $2)`, [
+        proofCohort.personId,
+        proofCohort.orphanPersonId,
+      ]);
     }
 
     const migrationTable = await client.query<{ readonly tableName: string | null }>(
@@ -91,14 +87,12 @@ const applyIdentityMigration = (postgresUrl: string) => {
     maxConnections: 1,
   });
 
-  return Effect.runPromise(
-    Effect.scoped(
-      Effect.gen(function* () {
-        const database = yield* Database;
-        yield* database.health;
-        return database.schemaRevision;
-      }).pipe(Effect.provide(databaseLayer)),
-    ),
+  return Effect.scoped(
+    Effect.gen(function* () {
+      const database = yield* Database;
+      yield* database.health;
+      return database.schemaRevision;
+    }).pipe(Effect.provide(databaseLayer)),
   );
 };
 
@@ -111,9 +105,7 @@ const inspectIdentitySchema = async (pool: Pool) => {
      FROM public.vektorprogrammet_schema_migrations
      WHERE migration_id = 15`,
   );
-  assert.deepEqual(migration.rows, [
-    { migrationId: 15, name: "native-identity-better-auth" },
-  ]);
+  assert.deepEqual(migration.rows, [{ migrationId: 15, name: "native-identity-better-auth" }]);
 
   const authSchemaTables = await pool.query<{ readonly tableName: string }>(
     `SELECT table_name AS "tableName"
@@ -314,7 +306,10 @@ const sessionCookieFrom = (response: Response) => {
     .find((value) => value.startsWith(`${sessionCookieName}=`));
   if (setCookie === undefined) return undefined;
 
-  const pair = setCookie.slice(0, setCookie.indexOf(";") === -1 ? undefined : setCookie.indexOf(";"));
+  const pair = setCookie.slice(
+    0,
+    setCookie.indexOf(";") === -1 ? undefined : setCookie.indexOf(";"),
+  );
   const separator = pair.indexOf("=");
   assert.ok(separator > 0, "session Set-Cookie must contain a value");
   return {
@@ -430,74 +425,85 @@ const exerciseCredentialsAndSessions = async (
   };
 };
 
-const runIdentityPostgresProof = async (postgresUrl: string) => {
-  assertDisposableDatabaseUrl(postgresUrl);
-  const observer = new Pool({
-    connectionString: postgresUrl,
-    options: "-c search_path=public",
-    max: 1,
-    application_name: "identity-postgres-proof-observer",
-  });
-  let authPool: Pool | undefined;
-  let independentAuthPool: Pool | undefined;
+const runIdentityPostgresProof = (postgresUrl: string) =>
+  Effect.acquireUseRelease(
+    Effect.sync(() => {
+      assertDisposableDatabaseUrl(postgresUrl);
+      return {
+        observer: new Pool({
+          connectionString: postgresUrl,
+          options: "-c search_path=public",
+          max: 1,
+          application_name: "identity-postgres-proof-observer",
+        }),
+        authPools: [] as Array<Pool>,
+      };
+    }),
+    (resources) =>
+      Effect.gen(function* () {
+        yield* Effect.tryPromise({
+          try: () => resetIdentityCohort(resources.observer, identityMigrationId),
+          catch: (cause) => cause,
+        });
+        const schemaRevision = yield* applyIdentityMigration(postgresUrl);
+        assert.equal(schemaRevision, databaseSchemaRevision);
 
-  try {
-    await resetIdentityCohort(observer, identityMigrationId);
-    const schemaRevision = await applyIdentityMigration(postgresUrl);
-    assert.equal(schemaRevision, databaseSchemaRevision);
-    const migration = await inspectIdentitySchema(observer);
+        return yield* Effect.tryPromise({
+          try: async () => {
+            const migration = await inspectIdentitySchema(resources.observer);
+            const authConfig: AuthEngineConfig = {
+              postgresUrl,
+              secret: "identity-postgres-proof-0054-secret-at-least-thirty-two-characters",
+              baseURL: proofBaseUrl,
+            };
+            const authPool = makeAuthPool(authConfig);
+            resources.authPools.push(authPool);
+            const independentAuthPool = makeAuthPool(authConfig);
+            resources.authPools.push(independentAuthPool);
+            const engine = makeAuthEngine(authConfig, authPool);
+            const independentlyConstructedEngine = makeAuthEngine(authConfig, independentAuthPool);
 
-    const authConfig: AuthEngineConfig = {
-      postgresUrl,
-      secret: "identity-postgres-proof-0054-secret-at-least-thirty-two-characters",
-      baseURL: proofBaseUrl,
-    };
-    authPool = makeAuthPool(authConfig);
-    independentAuthPool = makeAuthPool(authConfig);
-    const engine = makeAuthEngine(authConfig, authPool);
-    const independentlyConstructedEngine = makeAuthEngine(authConfig, independentAuthPool);
+            const searchPath = await assertAuthSearchPath(authPool);
+            await assertAuthSearchPath(independentAuthPool);
+            const identity = await seedCallerSuppliedIdentity(engine, resources.observer);
+            const authentication = await exerciseCredentialsAndSessions(
+              engine,
+              independentlyConstructedEngine,
+              resources.observer,
+            );
 
-    const searchPath = await assertAuthSearchPath(authPool);
-    await assertAuthSearchPath(independentAuthPool);
-    const identity = await seedCallerSuppliedIdentity(engine, observer);
-    const authentication = await exerciseCredentialsAndSessions(
-      engine,
-      independentlyConstructedEngine,
-      observer,
-    );
+            return {
+              specId: "0054" as const,
+              database: "PostgreSQL" as const,
+              cohort: proofCohort.id,
+              schemaRevision: databaseSchemaRevision,
+              passed: true as const,
+              migration,
+              authConnection: { searchPath },
+              identity,
+              ...authentication,
+            };
+          },
+          catch: (cause) => cause,
+        });
+      }),
+    (resources) =>
+      Effect.tryPromise({
+        try: async () => {
+          await Promise.all([
+            resources.observer.end(),
+            ...resources.authPools.map((pool) => pool.end()),
+          ]);
+        },
+        catch: (cause) => cause,
+      }),
+  );
 
-    return {
-      specId: "0054" as const,
-      database: "PostgreSQL" as const,
-      cohort: proofCohort.id,
-      schemaRevision: databaseSchemaRevision,
-      passed: true as const,
-      migration,
-      authConnection: { searchPath },
-      identity,
-      ...authentication,
-    };
-  } finally {
-    const releases: Array<Promise<void>> = [observer.end()];
-    if (authPool !== undefined) releases.push(authPool.end());
-    if (independentAuthPool !== undefined) releases.push(independentAuthPool.end());
-    await Promise.all(releases);
-  }
-};
-
-const program = Effect.gen(function* () {
+export const program = Effect.gen(function* () {
   const databaseUrl = yield* Config.redacted("DATABASE_URL");
-  const evidence = yield* Effect.tryPromise({
-    try: () => runIdentityPostgresProof(Redacted.value(databaseUrl)),
-    catch: (cause) => cause,
-  });
+  const evidence = yield* runIdentityPostgresProof(Redacted.value(databaseUrl));
   const evidenceSha256 = sha256Hex(canonicalJsonBytes(evidence));
   yield* Effect.sync(() =>
     process.stdout.write(`${canonicalJson({ ...evidence, evidenceSha256 })}\n`),
   );
-});
-
-Effect.runPromise(program).catch((cause: unknown) => {
-  process.stderr.write(`${String(cause)}\n`);
-  process.exitCode = 1;
 });

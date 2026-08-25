@@ -102,9 +102,7 @@ const contender = (
     `;
     yield* Deferred.succeed(ready, undefined);
     yield* Deferred.await(start);
-    const outcome = yield* Effect.result(
-      organization.createDepartment(command, administrator),
-    );
+    const outcome = yield* Effect.result(organization.createDepartment(command, administrator));
     return { pid: connection?.pid ?? -1, outcome };
   });
 
@@ -136,7 +134,7 @@ const raceDepartmentCommands = (
     });
   });
 
-const program = Effect.scoped(
+export const program = Effect.scoped(
   Effect.gen(function* () {
     const databaseUrl = yield* Config.redacted("DATABASE_URL");
     const setup = yield* Effect.gen(function* () {
@@ -155,9 +153,7 @@ const program = Effect.scoped(
           AND name = ${headMigrationName}
       `;
       return { migrationReplayed: Number(migration?.count ?? "-1") === 1 };
-    }).pipe(
-      Effect.provide(makeProofLayer(databaseUrl, "organization-postgres-proof-setup")),
-    );
+    }).pipe(Effect.provide(makeProofLayer(databaseUrl, "organization-postgres-proof-setup")));
 
     const identical = yield* raceDepartmentCommands(
       databaseUrl,
@@ -227,9 +223,7 @@ const program = Effect.scoped(
         entities: Number(row?.entities ?? "-1"),
         exactLinks: Number(row?.exactLinks ?? "-1"),
       };
-    }).pipe(
-      Effect.provide(makeProofLayer(databaseUrl, "organization-postgres-proof-observer")),
-    );
+    }).pipe(Effect.provide(makeProofLayer(databaseUrl, "organization-postgres-proof-observer")));
 
     const identicalSuccesses = identical.filter((entry) => entry.outcome._tag === "Success");
     const identicalCommitted = identicalSuccesses.filter(
@@ -295,8 +289,3 @@ const program = Effect.scoped(
     );
   }),
 );
-
-Effect.runPromise(program).catch((cause: unknown) => {
-  process.stderr.write(`${String(cause)}\n`);
-  process.exitCode = 1;
-});

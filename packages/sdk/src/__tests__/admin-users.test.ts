@@ -4,7 +4,7 @@
  * and the nextCursor page walk with the unchanged list() two-array contract.
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach, afterAll } from "vitest";
 import { Effect, Schema } from "effect";
 import { createTransport } from "../transport.js";
 import {
@@ -13,13 +13,17 @@ import {
   createAdminUsersDomain,
 } from "../domains/admin/users.js";
 import { NotInScope, NotInScopeError, OrganizationDecodeError, toSdkError } from "../errors.js";
+import { makeTestRuntime } from "../../test/runtime.js";
+
+const testRuntime = makeTestRuntime();
+afterAll(() => testRuntime.dispose());
 
 function run<A>(effect: Effect.Effect<A, any>): Promise<A> {
-  return Effect.runPromise(effect);
+  return testRuntime.runPromise(effect);
 }
 
 function runFail<E>(effect: Effect.Effect<any, E>): Promise<E> {
-  return Effect.runPromise(effect.pipe(Effect.flip));
+  return testRuntime.runPromise(effect.pipe(Effect.flip));
 }
 
 function makeFetchResponse(status: number, body: unknown): Response {

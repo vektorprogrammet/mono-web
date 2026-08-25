@@ -20,6 +20,7 @@ import { DateTime, Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import { makeBackendConfig } from "./config.js";
 import { makeBackendHttp, type BackendRun } from "./router.js";
+import { runTestPromise } from "../test/runtime.js";
 
 const leaderToken = "leader-session-token";
 const memberToken = "member-session-token";
@@ -110,7 +111,7 @@ const run: BackendRun = <A, E>(
     Database | Admissions | Economy | Organization | Profile | RecruitmentService | Auth
   >,
 ): Promise<A> =>
-  Effect.runPromise(
+  runTestPromise(
     effect.pipe(
       Effect.provideService(Database, database),
       Effect.provideService(OrganizationService, organization),

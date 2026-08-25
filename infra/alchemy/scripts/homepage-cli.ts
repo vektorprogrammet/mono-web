@@ -168,8 +168,7 @@ function runAlchemy(parsed: ParsedCloudCommand, options: HomepageCliOptions): nu
   // Keep this import-free and shell-free: the only executable is the local
   // standalone install, and the declaration is always the checked-in entrypoint.
   const standaloneDirectory =
-    options.standaloneDirectory ??
-    resolve(dirname(fileURLToPath(import.meta.url)), "..");
+    options.standaloneDirectory ?? resolve(dirname(fileURLToPath(import.meta.url)), "..");
   const alchemyBinary = resolve(standaloneDirectory, "node_modules/.bin/alchemy");
   const childEnvironment = {
     ...(options.env ?? process.env),
@@ -221,7 +220,11 @@ export function main(
     return executeHomepageCli(argv, options);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    const report = options.report ?? console.error;
+    const report =
+      options.report ??
+      ((line: string): void => {
+        process.stderr.write(`${line}\n`);
+      });
     report(`homepage-cli: ${message}`);
     report(usage());
     return 1;
@@ -229,6 +232,5 @@ export function main(
 }
 
 const invokedDirectly =
-  process.argv[1] !== undefined &&
-  resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+  process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 if (invokedDirectly) process.exit(main());

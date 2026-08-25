@@ -878,7 +878,7 @@ const proof = (databaseUrl: Redacted.Redacted<string>) =>
     return evidence;
   });
 
-const program = Effect.gen(function* () {
+export const program = Effect.gen(function* () {
   const databaseUrl = yield* Config.redacted("DATABASE_URL");
   const evidence = yield* proof(databaseUrl);
   const canonicalEvidence = canonicalJson(evidence);
@@ -889,9 +889,4 @@ const program = Effect.gen(function* () {
   yield* Effect.sync(() =>
     process.stdout.write(`${canonicalJson({ ...evidence, evidenceSha256 })}\n`),
   );
-});
-
-Effect.runPromise(Effect.scoped(program)).catch((cause: unknown) => {
-  process.stderr.write(`${String(cause)}\n`);
-  process.exitCode = 1;
 });

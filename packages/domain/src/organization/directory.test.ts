@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "@effect/vitest";
 import { Effect } from "effect";
 import {
   accumulateOrganizationDirectoryFacts,
@@ -182,24 +182,28 @@ describe("directoryRowInScope", () => {
 });
 
 describe("directory cursors", () => {
-  it("round-trips the last sort tuple", async () => {
-    const tuple = { lastName: "Ærø", firstName: "Ada", personId: "person-42" };
-    const decoded = await Effect.runPromise(decodeDirectoryCursor(encodeDirectoryCursor(tuple)));
-    expect(decoded).toEqual(tuple);
-  });
+  it.effect("round-trips the last sort tuple", () =>
+    Effect.gen(function* () {
+      const tuple = { lastName: "Ærø", firstName: "Ada", personId: "person-42" };
+      const decoded = yield* decodeDirectoryCursor(encodeDirectoryCursor(tuple));
+      expect(decoded).toEqual(tuple);
+    }),
+  );
 
-  it("rejects malformed cursors as typed decode failures", async () => {
-    const malformed = [
-      "not-base64-json!!",
-      Buffer.from("[1,2]", "utf8").toString("base64"),
-      Buffer.from(JSON.stringify(["v9", "a", "b", "c"]), "utf8").toString("base64"),
-      Buffer.from(JSON.stringify("v1"), "utf8").toString("base64"),
-    ];
-    for (const cursor of malformed) {
-      const failure = await Effect.runPromise(Effect.flip(decodeDirectoryCursor(cursor)));
-      expect(failure._tag).toBe("ProfileDecodeError");
-    }
-  });
+  it.effect("rejects malformed cursors as typed decode failures", () =>
+    Effect.gen(function* () {
+      const malformed = [
+        "not-base64-json!!",
+        Buffer.from("[1,2]", "utf8").toString("base64"),
+        Buffer.from(JSON.stringify(["v9", "a", "b", "c"]), "utf8").toString("base64"),
+        Buffer.from(JSON.stringify("v1"), "utf8").toString("base64"),
+      ];
+      for (const cursor of malformed) {
+        const failure = yield* Effect.flip(decodeDirectoryCursor(cursor));
+        expect(failure._tag).toBe("ProfileDecodeError");
+      }
+    }),
+  );
 });
 
 function fact(map: OrganizationDirectoryFacts) {

@@ -200,6 +200,7 @@
       "version": "0.1.0",
       "dependencies": {
         "@effect/sql-d1": "catalog:effect-v4",
+        "@noble/hashes": "2.3.0",
         "effect": "catalog:effect-v4",
       },
       "devDependencies": {
@@ -215,6 +216,7 @@
       "name": "@monoweb/parity-inventory",
       "version": "0.1.0",
       "dependencies": {
+        "@noble/hashes": "2.3.0",
         "ajv": "8.17.1",
         "effect": "catalog:effect-v4",
         "yaml": "2.8.2",

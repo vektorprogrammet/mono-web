@@ -3,13 +3,7 @@ import { Match as M, Schema as S } from "effect";
 import { FieldValidation } from "foldkit";
 import type { Command } from "foldkit";
 import type { ProfileCommands } from "./command";
-import {
-  FailedProfileSave,
-  SubmittedProfile,
-  SucceededProfileSave,
-  UpdatedProfileField,
-  type Message,
-} from "./message";
+import type { Message } from "./message";
 import type { Model, UserProfileObservation } from "./model";
 
 const nameRules = FieldValidation.makeRules({
@@ -43,10 +37,7 @@ const phoneRules = FieldValidation.makeRules({
   isEmpty: (value) => value.trim() === "",
   rules: [
     [(value) => value.trim().length <= 32, "Telefonnummeret er for langt."],
-    [
-      (value) => /^[+\d][\d\s().-]*$/u.test(value.trim()),
-      "Telefonnummeret er på feil format.",
-    ],
+    [(value) => /^[+\d][\d\s().-]*$/u.test(value.trim()), "Telefonnummeret er på feil format."],
   ],
 });
 
@@ -72,8 +63,7 @@ export const makeUpdate =
       M.tagsExhaustive({
         UpdatedProfileField: ({ field, value }) => {
           if (model.isSaving) return [model, []];
-          const rules =
-            field === "email" ? emailRules : field === "phone" ? phoneRules : nameRules;
+          const rules = field === "email" ? emailRules : field === "phone" ? phoneRules : nameRules;
           return [
             {
               ...model,
@@ -115,8 +105,7 @@ export const makeUpdate =
                   ...makeInitialFrom(model, profile),
                   isSaving: false,
                   commandSequence: model.commandSequence + 1,
-                  status:
-                    "Profilen er lagret. De viste verdiene kommer fra en fersk lesning.",
+                  status: "Profilen er lagret. De viste verdiene kommer fra en fersk lesning.",
                 },
                 [],
               ],

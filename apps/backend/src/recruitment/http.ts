@@ -202,11 +202,11 @@ const decodeJson = async <S extends Schema.ConstraintDecoder<unknown, never>>(
     if (cause !== null && typeof cause === "object" && "_tag" in cause) throw cause;
     throw taggedError(decodeTag);
   }
-  return await Effect.runPromise(
-    Schema.decodeUnknownEffect(schema)(body, { onExcessProperty: "error" }).pipe(
-      Effect.mapError(() => taggedError(decodeTag)),
-    ),
-  );
+  try {
+    return await Schema.decodeUnknownPromise(schema)(body, { onExcessProperty: "error" });
+  } catch {
+    throw taggedError(decodeTag);
+  }
 };
 
 const assertNoQuery = (request: Request): void => {

@@ -110,19 +110,18 @@ const OTHER_STREAM: StreamKey = {
   personId: "person-synth-0014-other",
 };
 
-const runSync = <A, E>(effect: Effect.Effect<A, E>): A => {
-  const exit = Effect.runSyncExit(effect);
-  if (Exit.isSuccess(exit)) return exit.value;
-  throw new Error("fixture expected effect success");
-};
-
-const runFailure = <A, E>(effect: Effect.Effect<A, E>): E => {
-  const exit = Effect.runSyncExit(effect);
-  if (Exit.isSuccess(exit)) throw new Error("fixture expected effect failure");
-  const failure = Cause.findError(exit.cause);
-  if (Result.isSuccess(failure)) return failure.success;
-  throw new Error("fixture effect failed without a typed error");
-};
+const expectFailure = <A, E>(effect: Effect.Effect<A, E>): Effect.Effect<E, Error> =>
+  Effect.exit(effect).pipe(
+    Effect.flatMap((exit) => {
+      if (Exit.isSuccess(exit)) {
+        return Effect.fail(new Error("fixture expected effect failure"));
+      }
+      const failure = Cause.findError(exit.cause);
+      return Result.isSuccess(failure)
+        ? Effect.succeed(failure.success)
+        : Effect.fail(new Error("fixture effect failed without a typed error"));
+    }),
+  );
 
 const assert = (condition: boolean, message: string): void => {
   if (!condition) throw new Error(message);
@@ -193,379 +192,390 @@ export interface TutorFixtureRun {
   readonly evidence: EvidenceArtifact;
 }
 
-export const runTutorFixture = (): TutorFixtureRun => {
-  const seedState = runSync(createTutorState(FIXTURE_SEED_EVENTS));
-  const seedFolded = runSync(foldEvents(seedState.events));
-  const seedProjection = projectFoldedState(seedFolded);
-  assert(seedProjection.status === "accepted", "seed projection must be accepted");
-  assert(seedState.events.length === 3, "seed event count must be three");
-  assert(descriptorCount(seedState) === 0, "seed descriptor count must be zero");
+export const runTutorFixture = (): Effect.Effect<TutorFixtureRun, unknown> =>
+  Effect.gen(function* () {
+    const seedState = yield* createTutorState(FIXTURE_SEED_EVENTS);
+    const seedFolded = yield* foldEvents(seedState.events);
+    const seedProjection = projectFoldedState(seedFolded);
+    assert(seedProjection.status === "accepted", "seed projection must be accepted");
+    assert(seedState.events.length === 3, "seed event count must be three");
+    assert(descriptorCount(seedState) === 0, "seed descriptor count must be zero");
 
-  const decodedCommand = runSync(decodeConductInterviewV1(FIXTURE_COMMAND));
-  assert(decodedCommand.commandId === FIXTURE_COMMAND_ID, "fixture command decode failed");
+    const decodedCommand = yield* decodeConductInterviewV1(FIXTURE_COMMAND);
+    assert(decodedCommand.commandId === FIXTURE_COMMAND_ID, "fixture command decode failed");
 
-  const accepted = runSync(conductInterview(seedState, FIXTURE_COMMAND));
-  assert(accepted._tag === "AcceptedResult", "conduct command must be accepted");
-  const acceptedState = accepted.state;
-  assert(acceptedState.events.length === 4, "accepted event count must be four");
-  assert(descriptorCount(acceptedState) === 1, "accepted descriptor count must be one");
-  assert(
-    accepted.observation.projection.status === "completed",
-    "accepted projection must be completed",
-  );
-  assert(
-    accepted.observation.eventId === CONDUCTED_EVENT_ID,
-    "conducted event identity must be fixed",
-  );
-  assert(
-    accepted.observation.descriptor.idempotencyKey === "post-commit:evt-0014-004",
-    "descriptor key mismatch",
-  );
+    const accepted = yield* conductInterview(seedState, FIXTURE_COMMAND);
+    assert(accepted._tag === "AcceptedResult", "conduct command must be accepted");
+    const acceptedState = accepted.state;
+    assert(acceptedState.events.length === 4, "accepted event count must be four");
+    assert(descriptorCount(acceptedState) === 1, "accepted descriptor count must be one");
+    assert(
+      accepted.observation.projection.status === "completed",
+      "accepted projection must be completed",
+    );
+    assert(
+      accepted.observation.eventId === CONDUCTED_EVENT_ID,
+      "conducted event identity must be fixed",
+    );
+    assert(
+      accepted.observation.descriptor.idempotencyKey === "post-commit:evt-0014-004",
+      "descriptor key mismatch",
+    );
 
-  const malformedCommand: unknown = {
-    ...FIXTURE_COMMAND,
-    commandId: MALFORMED_COMMAND_ID,
-    extraField: "reject",
-  };
-  const malformedFailure = runFailure(conductInterview(acceptedState, malformedCommand));
-  assert(malformedFailure._tag === "DecodeError", "malformed command must be a decode error");
-  assert(
-    acceptedState.events.length === 4 && descriptorCount(acceptedState) === 1,
-    "malformed changed state",
-  );
-
-  const staleCommand: unknown = {
-    ...FIXTURE_COMMAND,
-    commandId: STALE_COMMAND_ID,
-    expectedVersion: 2,
-  };
-  const staleFailure = runFailure(conductInterview(acceptedState, staleCommand));
-  assert(staleFailure._tag === "StaleState", "stale command must be stale");
-
-  const terminalCommand: unknown = {
-    ...FIXTURE_COMMAND,
-    commandId: TERMINAL_COMMAND_ID,
-    expectedVersion: 4,
-  };
-  const terminalFailure = runFailure(conductInterview(acceptedState, terminalCommand));
-  assert(
-    terminalFailure._tag === "InvalidTransition",
-    "terminal command must be an invalid transition",
-  );
-  assert(terminalFailure.reasonCode === "TERMINAL_CONDUCTED", "terminal law reason mismatch");
-
-  const duplicate = runSync(conductInterview(acceptedState, FIXTURE_COMMAND));
-  assert(duplicate._tag === "DuplicateResult", "identical command must be duplicate");
-  assert(duplicate.state === acceptedState, "duplicate must preserve state identity");
-  assert(
-    duplicate.observationBytes === accepted.observationBytes,
-    "duplicate observation bytes changed",
-  );
-  assert(
-    acceptedState.events.length === 4 && descriptorCount(acceptedState) === 1,
-    "duplicate appended state",
-  );
-
-  const duplicateConflictCommand: unknown = {
-    ...FIXTURE_COMMAND,
-    scores: { ...FIXTURE_COMMAND.scores, explanatoryPower: 7 },
-  };
-  const duplicateConflictFailure = runFailure(
-    conductInterview(acceptedState, duplicateConflictCommand),
-  );
-  assert(
-    duplicateConflictFailure._tag === "DuplicateCommandConflict",
-    "changed duplicate command must conflict",
-  );
-  assert(
-    acceptedState.events.length === 4 && descriptorCount(acceptedState) === 1,
-    "duplicate conflict changed state",
-  );
-
-  const cases: ReadonlyArray<EvidenceCase> = [
-    caseObservation("step-01-seed", "accepted", "SEED_ACCEPTED", FIXTURE_ID, seedState),
-    caseObservation(
-      "step-02-command-decode",
-      "accepted",
-      "COMMAND_DECODED",
-      FIXTURE_COMMAND_ID,
-      seedState,
-    ),
-    caseObservation(
-      "step-03-conduct",
-      "accepted",
-      "INTERVIEW_CONDUCTED",
-      FIXTURE_COMMAND_ID,
-      acceptedState,
-    ),
-    caseObservation(
-      "step-04-malformed",
-      "rejected",
-      malformedFailure.reasonCode,
-      MALFORMED_COMMAND_ID,
-      acceptedState,
-    ),
-    caseObservation(
-      "step-05-stale",
-      "stale",
-      staleFailure.reasonCode,
-      STALE_COMMAND_ID,
-      acceptedState,
-    ),
-    caseObservation(
-      "step-06-terminal",
-      "terminal",
-      terminalFailure.reasonCode,
-      TERMINAL_COMMAND_ID,
-      acceptedState,
-    ),
-    caseObservation(
-      "step-07-duplicate",
-      "duplicate",
-      "DUPLICATE_IDEMPOTENT",
-      FIXTURE_COMMAND_ID,
-      acceptedState,
-    ),
-    caseObservation(
-      "step-08-duplicate-conflict",
-      "duplicate-conflict",
-      duplicateConflictFailure.reasonCode,
-      FIXTURE_COMMAND_ID,
-      acceptedState,
-    ),
-    caseObservation(
-      "step-09-evidence",
-      "accepted",
-      "EVIDENCE_REPEATABLE",
-      FIXTURE_COMMAND_ID,
-      acceptedState,
-    ),
-  ];
-  const scenarioCount = cases.length;
-  assert(scenarioCount === 9, "fixture must contain exactly nine journey cases");
-
-  const crossStreamCommand: unknown = {
-    ...FIXTURE_COMMAND,
-    commandId: "cmd-0014-cross-stream",
-    stream: OTHER_STREAM,
-  };
-  const crossStreamFailure = runFailure(conductInterview(acceptedState, crossStreamCommand));
-  const emptyStreamFailure = runFailure(foldEvents([]));
-  const gapFailure = runFailure(
-    foldEvents([SEED_EVENT_1, { ...SEED_EVENT_2, streamVersion: 3 }, SEED_EVENT_3]),
-  );
-  const canonicalSequenceFailure = runFailure(
-    foldEvents([SEED_EVENT_1, { ...SEED_EVENT_2, eventType: "InterviewAccepted" }, SEED_EVENT_3]),
-  );
-  const occurredAtRewindFailure = runFailure(
-    foldEvents([
-      SEED_EVENT_1,
-      { ...SEED_EVENT_2, occurredAt: "2026-08-11T08:59:00Z" },
-      SEED_EVENT_3,
-    ]),
-  );
-  const duplicateEventFailure = runFailure(
-    foldEvents([SEED_EVENT_1, { ...SEED_EVENT_2, eventId: SEED_EVENT_1.eventId }, SEED_EVENT_3]),
-  );
-  const eventStreamFailure = runFailure(
-    foldEvents([SEED_EVENT_1, { ...SEED_EVENT_2, stream: OTHER_STREAM }, SEED_EVENT_3]),
-  );
-  const eventCorrelationFailure = runFailure(
-    foldEvents([SEED_EVENT_1, { ...SEED_EVENT_2, correlationId: "corr-0014-other" }, SEED_EVENT_3]),
-  );
-  const schemaVersionFailure = runFailure(foldEvents([{ ...SEED_EVENT_1, schemaVersion: 2 }]));
-  const invitedState = runSync(createTutorState([SEED_EVENT_1, SEED_EVENT_2]));
-  const invitedCommand: unknown = {
-    ...FIXTURE_COMMAND,
-    commandId: "cmd-0014-invited",
-    expectedVersion: 2,
-  };
-  const invitedFailure = runFailure(conductInterview(invitedState, invitedCommand));
-  const incompleteAnswerFailure = runFailure(
-    conductInterview(acceptedState, {
+    const malformedCommand: unknown = {
       ...FIXTURE_COMMAND,
-      commandId: "cmd-0014-incomplete-answer",
-      scores: { ...FIXTURE_COMMAND.scores, answers: { "q-0014-a": "answer-a" } },
-    }),
-  );
-  const invalidScoreFailure = runFailure(
-    conductInterview(acceptedState, {
+      commandId: MALFORMED_COMMAND_ID,
+      extraField: "reject",
+    };
+    const malformedFailure = yield* expectFailure(
+      conductInterview(acceptedState, malformedCommand),
+    );
+    assert(malformedFailure._tag === "DecodeError", "malformed command must be a decode error");
+    assert(
+      acceptedState.events.length === 4 && descriptorCount(acceptedState) === 1,
+      "malformed changed state",
+    );
+
+    const staleCommand: unknown = {
       ...FIXTURE_COMMAND,
-      commandId: "cmd-0014-invalid-score",
-      scores: { ...FIXTURE_COMMAND.scores, explanatoryPower: 11 },
-    }),
-  );
+      commandId: STALE_COMMAND_ID,
+      expectedVersion: 2,
+    };
+    const staleFailure = yield* expectFailure(conductInterview(acceptedState, staleCommand));
+    assert(staleFailure._tag === "StaleState", "stale command must be stale");
 
-  const counterexampleReceipts: ReadonlyArray<CounterexampleReceipt> = [
-    preservedCounterexample(
-      "counterexample-cross-stream",
-      "StreamMismatch",
-      "STREAM_MISMATCH",
-      crossStreamFailure,
-      acceptedState,
-    ),
-    preservedCounterexample(
-      "counterexample-empty-stream",
-      "InvalidTransition",
-      "EMPTY_STREAM",
-      emptyStreamFailure,
-      seedState,
-    ),
-    preservedCounterexample(
-      "counterexample-gap",
-      "OutOfOrderEvent",
-      "STREAM_VERSION_GAP",
-      gapFailure,
-      seedState,
-    ),
-    preservedCounterexample(
-      "counterexample-canonical-sequence",
-      "InvalidTransition",
-      "CANONICAL_SEQUENCE",
-      canonicalSequenceFailure,
-      seedState,
-    ),
-    preservedCounterexample(
-      "counterexample-occurred-at-rewind",
-      "OutOfOrderEvent",
-      "OCCURRED_AT_REWIND",
-      occurredAtRewindFailure,
-      seedState,
-    ),
-    preservedCounterexample(
-      "counterexample-duplicate-event",
-      "DuplicateEvent",
-      "DUPLICATE_EVENT_ID",
-      duplicateEventFailure,
-      seedState,
-    ),
-    preservedCounterexample(
-      "counterexample-event-stream",
-      "StreamMismatch",
-      "STREAM_MISMATCH",
-      eventStreamFailure,
-      seedState,
-    ),
-    preservedCounterexample(
-      "counterexample-event-correlation",
-      "StreamMismatch",
-      "STREAM_MISMATCH",
-      eventCorrelationFailure,
-      seedState,
-    ),
-    preservedCounterexample(
-      "counterexample-schema-version",
-      "DecodeError",
-      "DECODE_ERROR",
-      schemaVersionFailure,
-      seedState,
-    ),
-    preservedCounterexample(
-      "counterexample-invited",
-      "InvalidTransition",
-      "CONDUCT_REQUIRES_ACCEPTED",
-      invitedFailure,
-      invitedState,
-    ),
-    preservedCounterexample(
-      "counterexample-answer-cardinality",
-      "DecodeError",
-      "DECODE_ERROR",
-      incompleteAnswerFailure,
-      acceptedState,
-    ),
-    preservedCounterexample(
-      "counterexample-score-bound",
-      "DecodeError",
-      "DECODE_ERROR",
-      invalidScoreFailure,
-      acceptedState,
-    ),
-  ];
+    const terminalCommand: unknown = {
+      ...FIXTURE_COMMAND,
+      commandId: TERMINAL_COMMAND_ID,
+      expectedVersion: 4,
+    };
+    const terminalFailure = yield* expectFailure(conductInterview(acceptedState, terminalCommand));
+    assert(
+      terminalFailure._tag === "InvalidTransition",
+      "terminal command must be an invalid transition",
+    );
+    assert(terminalFailure.reasonCode === "TERMINAL_CONDUCTED", "terminal law reason mismatch");
 
-  const finalFolded = runSync(foldEvents(acceptedState.events));
-  const finalProjection = projectFoldedState(finalFolded);
-  const finalDescriptor = accepted.observation.descriptor;
-  const evidenceDocument: Evidence = {
-    formatVersion: 1,
-    specId: "0014",
-    baseCommit: BASE_COMMIT,
-    fixtureId: FIXTURE_ID,
-    schemaVersion: 1,
-    correlationId: FIXTURE_CORRELATION_ID,
-    stream: FIXTURE_STREAM,
-    cases,
-    projection: finalProjection,
-    eventIds: acceptedState.events.map((event) => event.eventId),
-    effectDescriptors: [finalDescriptor],
-    provenance: {
-      effectSource: "local-effect-source",
-      effectVersion: "4.0.0-beta.107",
-      effectSourceHash: EFFECT_SOURCE_HASH,
-      sourceCommandId: FIXTURE_COMMAND_ID,
+    const duplicate = yield* conductInterview(acceptedState, FIXTURE_COMMAND);
+    assert(duplicate._tag === "DuplicateResult", "identical command must be duplicate");
+    assert(duplicate.state === acceptedState, "duplicate must preserve state identity");
+    assert(
+      duplicate.observationBytes === accepted.observationBytes,
+      "duplicate observation bytes changed",
+    );
+    assert(
+      acceptedState.events.length === 4 && descriptorCount(acceptedState) === 1,
+      "duplicate appended state",
+    );
+
+    const duplicateConflictCommand: unknown = {
+      ...FIXTURE_COMMAND,
+      scores: { ...FIXTURE_COMMAND.scores, explanatoryPower: 7 },
+    };
+    const duplicateConflictFailure = yield* expectFailure(
+      conductInterview(acceptedState, duplicateConflictCommand),
+    );
+    assert(
+      duplicateConflictFailure._tag === "DuplicateCommandConflict",
+      "changed duplicate command must conflict",
+    );
+    assert(
+      acceptedState.events.length === 4 && descriptorCount(acceptedState) === 1,
+      "duplicate conflict changed state",
+    );
+
+    const cases: ReadonlyArray<EvidenceCase> = [
+      caseObservation("step-01-seed", "accepted", "SEED_ACCEPTED", FIXTURE_ID, seedState),
+      caseObservation(
+        "step-02-command-decode",
+        "accepted",
+        "COMMAND_DECODED",
+        FIXTURE_COMMAND_ID,
+        seedState,
+      ),
+      caseObservation(
+        "step-03-conduct",
+        "accepted",
+        "INTERVIEW_CONDUCTED",
+        FIXTURE_COMMAND_ID,
+        acceptedState,
+      ),
+      caseObservation(
+        "step-04-malformed",
+        "rejected",
+        malformedFailure.reasonCode,
+        MALFORMED_COMMAND_ID,
+        acceptedState,
+      ),
+      caseObservation(
+        "step-05-stale",
+        "stale",
+        staleFailure.reasonCode,
+        STALE_COMMAND_ID,
+        acceptedState,
+      ),
+      caseObservation(
+        "step-06-terminal",
+        "terminal",
+        terminalFailure.reasonCode,
+        TERMINAL_COMMAND_ID,
+        acceptedState,
+      ),
+      caseObservation(
+        "step-07-duplicate",
+        "duplicate",
+        "DUPLICATE_IDEMPOTENT",
+        FIXTURE_COMMAND_ID,
+        acceptedState,
+      ),
+      caseObservation(
+        "step-08-duplicate-conflict",
+        "duplicate-conflict",
+        duplicateConflictFailure.reasonCode,
+        FIXTURE_COMMAND_ID,
+        acceptedState,
+      ),
+      caseObservation(
+        "step-09-evidence",
+        "accepted",
+        "EVIDENCE_REPEATABLE",
+        FIXTURE_COMMAND_ID,
+        acceptedState,
+      ),
+    ];
+    const scenarioCount = cases.length;
+    assert(scenarioCount === 9, "fixture must contain exactly nine journey cases");
+
+    const crossStreamCommand: unknown = {
+      ...FIXTURE_COMMAND,
+      commandId: "cmd-0014-cross-stream",
+      stream: OTHER_STREAM,
+    };
+    const crossStreamFailure = yield* expectFailure(
+      conductInterview(acceptedState, crossStreamCommand),
+    );
+    const emptyStreamFailure = yield* expectFailure(foldEvents([]));
+    const gapFailure = yield* expectFailure(
+      foldEvents([SEED_EVENT_1, { ...SEED_EVENT_2, streamVersion: 3 }, SEED_EVENT_3]),
+    );
+    const canonicalSequenceFailure = yield* expectFailure(
+      foldEvents([SEED_EVENT_1, { ...SEED_EVENT_2, eventType: "InterviewAccepted" }, SEED_EVENT_3]),
+    );
+    const occurredAtRewindFailure = yield* expectFailure(
+      foldEvents([
+        SEED_EVENT_1,
+        { ...SEED_EVENT_2, occurredAt: "2026-08-11T08:59:00Z" },
+        SEED_EVENT_3,
+      ]),
+    );
+    const duplicateEventFailure = yield* expectFailure(
+      foldEvents([SEED_EVENT_1, { ...SEED_EVENT_2, eventId: SEED_EVENT_1.eventId }, SEED_EVENT_3]),
+    );
+    const eventStreamFailure = yield* expectFailure(
+      foldEvents([SEED_EVENT_1, { ...SEED_EVENT_2, stream: OTHER_STREAM }, SEED_EVENT_3]),
+    );
+    const eventCorrelationFailure = yield* expectFailure(
+      foldEvents([
+        SEED_EVENT_1,
+        { ...SEED_EVENT_2, correlationId: "corr-0014-other" },
+        SEED_EVENT_3,
+      ]),
+    );
+    const schemaVersionFailure = yield* expectFailure(
+      foldEvents([{ ...SEED_EVENT_1, schemaVersion: 2 }]),
+    );
+    const invitedState = yield* createTutorState([SEED_EVENT_1, SEED_EVENT_2]);
+    const invitedCommand: unknown = {
+      ...FIXTURE_COMMAND,
+      commandId: "cmd-0014-invited",
+      expectedVersion: 2,
+    };
+    const invitedFailure = yield* expectFailure(conductInterview(invitedState, invitedCommand));
+    const incompleteAnswerFailure = yield* expectFailure(
+      conductInterview(acceptedState, {
+        ...FIXTURE_COMMAND,
+        commandId: "cmd-0014-incomplete-answer",
+        scores: { ...FIXTURE_COMMAND.scores, answers: { "q-0014-a": "answer-a" } },
+      }),
+    );
+    const invalidScoreFailure = yield* expectFailure(
+      conductInterview(acceptedState, {
+        ...FIXTURE_COMMAND,
+        commandId: "cmd-0014-invalid-score",
+        scores: { ...FIXTURE_COMMAND.scores, explanatoryPower: 11 },
+      }),
+    );
+
+    const counterexampleReceipts: ReadonlyArray<CounterexampleReceipt> = [
+      preservedCounterexample(
+        "counterexample-cross-stream",
+        "StreamMismatch",
+        "STREAM_MISMATCH",
+        crossStreamFailure,
+        acceptedState,
+      ),
+      preservedCounterexample(
+        "counterexample-empty-stream",
+        "InvalidTransition",
+        "EMPTY_STREAM",
+        emptyStreamFailure,
+        seedState,
+      ),
+      preservedCounterexample(
+        "counterexample-gap",
+        "OutOfOrderEvent",
+        "STREAM_VERSION_GAP",
+        gapFailure,
+        seedState,
+      ),
+      preservedCounterexample(
+        "counterexample-canonical-sequence",
+        "InvalidTransition",
+        "CANONICAL_SEQUENCE",
+        canonicalSequenceFailure,
+        seedState,
+      ),
+      preservedCounterexample(
+        "counterexample-occurred-at-rewind",
+        "OutOfOrderEvent",
+        "OCCURRED_AT_REWIND",
+        occurredAtRewindFailure,
+        seedState,
+      ),
+      preservedCounterexample(
+        "counterexample-duplicate-event",
+        "DuplicateEvent",
+        "DUPLICATE_EVENT_ID",
+        duplicateEventFailure,
+        seedState,
+      ),
+      preservedCounterexample(
+        "counterexample-event-stream",
+        "StreamMismatch",
+        "STREAM_MISMATCH",
+        eventStreamFailure,
+        seedState,
+      ),
+      preservedCounterexample(
+        "counterexample-event-correlation",
+        "StreamMismatch",
+        "STREAM_MISMATCH",
+        eventCorrelationFailure,
+        seedState,
+      ),
+      preservedCounterexample(
+        "counterexample-schema-version",
+        "DecodeError",
+        "DECODE_ERROR",
+        schemaVersionFailure,
+        seedState,
+      ),
+      preservedCounterexample(
+        "counterexample-invited",
+        "InvalidTransition",
+        "CONDUCT_REQUIRES_ACCEPTED",
+        invitedFailure,
+        invitedState,
+      ),
+      preservedCounterexample(
+        "counterexample-answer-cardinality",
+        "DecodeError",
+        "DECODE_ERROR",
+        incompleteAnswerFailure,
+        acceptedState,
+      ),
+      preservedCounterexample(
+        "counterexample-score-bound",
+        "DecodeError",
+        "DECODE_ERROR",
+        invalidScoreFailure,
+        acceptedState,
+      ),
+    ];
+
+    const finalFolded = yield* foldEvents(acceptedState.events);
+    const finalProjection = projectFoldedState(finalFolded);
+    const finalDescriptor = accepted.observation.descriptor;
+    const evidenceDocument: Evidence = {
+      formatVersion: 1,
+      specId: "0014",
+      baseCommit: BASE_COMMIT,
+      fixtureId: FIXTURE_ID,
+      schemaVersion: 1,
+      correlationId: FIXTURE_CORRELATION_ID,
+      stream: FIXTURE_STREAM,
+      cases,
+      projection: finalProjection,
       eventIds: acceptedState.events.map((event) => event.eventId),
-      limits: [
-        "pure-in-memory-tracer",
-        "synthetic-input-only",
-        "no-persistence-proof",
-        "no-backend-parity-proof",
-        "no-authorization-proof",
-        "no-delivery-proof",
-        "no-ui-proof",
-        "no-deployment-proof",
-        "no-provider-proof",
-        "no-public-content-proof",
-        "no-production-proof",
-      ],
+      effectDescriptors: [finalDescriptor],
+      provenance: {
+        effectSource: "local-effect-source",
+        effectVersion: "4.0.0-beta.107",
+        effectSourceHash: EFFECT_SOURCE_HASH,
+        sourceCommandId: FIXTURE_COMMAND_ID,
+        eventIds: acceptedState.events.map((event) => event.eventId),
+        limits: [
+          "pure-in-memory-tracer",
+          "synthetic-input-only",
+          "no-persistence-proof",
+          "no-backend-parity-proof",
+          "no-authorization-proof",
+          "no-delivery-proof",
+          "no-ui-proof",
+          "no-deployment-proof",
+          "no-provider-proof",
+          "no-public-content-proof",
+          "no-production-proof",
+        ],
+        counterexampleReceipts,
+      },
+    };
+
+    yield* decodeEvidence(evidenceDocument);
+    const firstArtifact = renderEvidence(evidenceDocument);
+    const secondArtifact = renderEvidence(evidenceDocument);
+    const independentlyEncodedJson = canonicalEvidenceJson(evidenceDocument);
+    const independentlyEncodedBytes = canonicalEvidenceBytes(evidenceDocument);
+    assert(
+      firstArtifact.canonicalJson === secondArtifact.canonicalJson,
+      "evidence canonical JSON changed",
+    );
+    assert(
+      firstArtifact.canonicalJson === independentlyEncodedJson,
+      "evidence JSON renderer disagrees",
+    );
+    assert(firstArtifact.digest === secondArtifact.digest, "evidence digest changed");
+    assert(
+      firstArtifact.bytes.length === secondArtifact.bytes.length,
+      "evidence byte length changed",
+    );
+    assert(
+      firstArtifact.bytes.every((byte, index) => byte === secondArtifact.bytes[index]),
+      "evidence bytes changed",
+    );
+    assert(
+      firstArtifact.bytes.length === independentlyEncodedBytes.length,
+      "evidence bytes renderer disagrees",
+    );
+    assert(
+      firstArtifact.bytes.every((byte, index) => byte === independentlyEncodedBytes[index]),
+      "evidence bytes renderer disagrees",
+    );
+    assert(
+      firstArtifact.canonicalJson.endsWith("}") && firstArtifact.bytes.at(-1) === 10,
+      "evidence newline missing",
+    );
+
+    return {
+      passed: true,
+      scenarioCount,
+      statusCounts: statusCounts(cases),
+      reasonCounts: reasonCounts(cases),
+      eventCount: 4,
+      descriptorCount: 1,
       counterexampleReceipts,
-    },
-  };
-
-  runSync(decodeEvidence(evidenceDocument));
-  const firstArtifact = renderEvidence(evidenceDocument);
-  const secondArtifact = renderEvidence(evidenceDocument);
-  const independentlyEncodedJson = canonicalEvidenceJson(evidenceDocument);
-  const independentlyEncodedBytes = canonicalEvidenceBytes(evidenceDocument);
-  assert(
-    firstArtifact.canonicalJson === secondArtifact.canonicalJson,
-    "evidence canonical JSON changed",
-  );
-  assert(
-    firstArtifact.canonicalJson === independentlyEncodedJson,
-    "evidence JSON renderer disagrees",
-  );
-  assert(firstArtifact.digest === secondArtifact.digest, "evidence digest changed");
-  assert(
-    firstArtifact.bytes.length === secondArtifact.bytes.length,
-    "evidence byte length changed",
-  );
-  assert(
-    firstArtifact.bytes.every((byte, index) => byte === secondArtifact.bytes[index]),
-    "evidence bytes changed",
-  );
-  assert(
-    firstArtifact.bytes.length === independentlyEncodedBytes.length,
-    "evidence bytes renderer disagrees",
-  );
-  assert(
-    firstArtifact.bytes.every((byte, index) => byte === independentlyEncodedBytes[index]),
-    "evidence bytes renderer disagrees",
-  );
-  assert(
-    firstArtifact.canonicalJson.endsWith("}") && firstArtifact.bytes.at(-1) === 10,
-    "evidence newline missing",
-  );
-
-  return {
-    passed: true,
-    scenarioCount,
-    statusCounts: statusCounts(cases),
-    reasonCounts: reasonCounts(cases),
-    eventCount: 4,
-    descriptorCount: 1,
-    counterexampleReceipts,
-    evidence: firstArtifact,
-  };
-};
+      evidence: firstArtifact,
+    };
+  });
 
 export type FixtureTransitionResult = ConductInterviewResult;

@@ -1,4 +1,5 @@
-import { parseDocument, type Document } from "yaml"
+import { Effect } from "effect";
+import { parseDocument, type Document } from "yaml";
 import {
   canonicalJson,
   observationId,
@@ -11,10 +12,32 @@ import {
   rowId,
   sha256,
   sortUnique,
-} from "./canonical.js"
-import { addSourceReference, matchesLiteralPattern, readSourceText, sanitizeScalar, SOURCE_FAMILIES, unsafeScalarReason, type ManifestContext } from "./source-manifest.js"
-import { lineCommentEnd, skipPhpTrivia } from "./php-trivia.js"
-import { canonicalApiPlatformPath, canonicalApiPlatformRouteName, isApiPlatformGeneratedRouteName, routePayloadContainsUnsafe, runTrustedPhpCollector, recordRuntimeObservation, type CollectorRun } from "./api.js"
+} from "./canonical.js";
+import {
+  addSourceReference,
+  matchesLiteralPattern,
+  readSourceText,
+  sanitizeScalar,
+  SOURCE_FAMILIES,
+  unsafeScalarReason,
+  type ManifestContext,
+} from "./source-manifest.js";
+import { lineCommentEnd, skipPhpTrivia } from "./php-trivia.js";
+import {
+  canonicalApiPlatformPath,
+  canonicalApiPlatformRouteName,
+  isApiPlatformGeneratedRouteName,
+  routePayloadContainsUnsafe,
+  runTrustedPhpCollectorWithServices,
+  recordRuntimeObservation,
+  type CollectorRun,
+} from "./api.js";
+import {
+  ParityCommandExecutor,
+  type ParityCommandExecutorShape,
+  ParityFileSystem,
+  type ParityFileSystemShape,
+} from "./services.js";
 import type {
   CollectorExecutables,
   InventoryEnvelope,
@@ -26,513 +49,600 @@ import type {
   MonoRouteDetails,
   RouteParseFailure,
   RuntimeObservation,
-} from "./types.js"
+} from "./types.js";
 
 interface RouteDeclaration {
-  readonly authority: "legacy" | "mono"
-  readonly logicalPath: string
-  readonly declarationKind: LegacyRouteDetails["declaration_kind"] | MonoRouteDetails["declaration_kind"]
-  readonly routeOrigin?: MonoRouteDetails["route_origin"]
-  readonly routeName: string | null
-  readonly pathTemplate: string | null
-  readonly methods: readonly string[]
-  readonly controllerRef: string | null
-  readonly importRef: string | null
-  readonly ownerRef: string | null
-  readonly lineStart: number | null
-  readonly lineEnd: number | null
-  readonly symbol: string | null
-  readonly deprecated: boolean
-  readonly imported: boolean
-  readonly runtimeResolved: boolean
-  readonly ordinal: number
-  readonly sourceRefId: string
-  readonly reasonCodes: readonly string[]
+  readonly authority: "legacy" | "mono";
+  readonly logicalPath: string;
+  readonly declarationKind:
+    | LegacyRouteDetails["declaration_kind"]
+    | MonoRouteDetails["declaration_kind"];
+  readonly routeOrigin?: MonoRouteDetails["route_origin"];
+  readonly routeName: string | null;
+  readonly pathTemplate: string | null;
+  readonly methods: readonly string[];
+  readonly controllerRef: string | null;
+  readonly importRef: string | null;
+  readonly ownerRef: string | null;
+  readonly lineStart: number | null;
+  readonly lineEnd: number | null;
+  readonly symbol: string | null;
+  readonly deprecated: boolean;
+  readonly imported: boolean;
+  readonly runtimeResolved: boolean;
+  readonly ordinal: number;
+  readonly sourceRefId: string;
+  readonly reasonCodes: readonly string[];
 }
 
 interface CollectedRoutes {
-  readonly legacy: readonly RouteDeclaration[]
-  readonly mono: readonly RouteDeclaration[]
-  readonly failures: readonly RouteParseFailure[]
+  readonly legacy: readonly RouteDeclaration[];
+  readonly mono: readonly RouteDeclaration[];
+  readonly failures: readonly RouteParseFailure[];
 }
 
 export interface RuntimeRoute {
-  readonly routeName: string
-  readonly pathTemplate: string
-  readonly methods: readonly string[]
-  readonly controllerRef?: string | null
+  readonly routeName: string;
+  readonly pathTemplate: string;
+  readonly methods: readonly string[];
+  readonly controllerRef?: string | null;
 }
 
 interface RuntimeRouteCollection {
-  readonly routes: readonly RuntimeRoute[]
-  readonly observation: RuntimeObservation
-  readonly sourceRefId: string
-  readonly failures: readonly RouteParseFailure[]
+  readonly routes: readonly RuntimeRoute[];
+  readonly observation: RuntimeObservation;
+  readonly sourceRefId: string;
+  readonly failures: readonly RouteParseFailure[];
 }
 
-const SUPPORTED_METHODS = new Set(["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "CONNECT", "TRACE"])
-const ROUTE_CONSOLE_PATH = "apps/server/bin/console"
-const ROUTE_COMMAND = "php bin/console debug:router --format=json --env=test --no-debug"
-const ROUTE_LOGICAL_COMMAND_ID = "debug:router"
-const ROUTE_COLLECTOR_ARGS = [ROUTE_CONSOLE_PATH, "debug:router", "--format=json", "--env=test", "--no-debug"] as const
+const SUPPORTED_METHODS = new Set([
+  "GET",
+  "HEAD",
+  "POST",
+  "PUT",
+  "PATCH",
+  "DELETE",
+  "OPTIONS",
+  "CONNECT",
+  "TRACE",
+]);
+const ROUTE_CONSOLE_PATH = "apps/server/bin/console";
+const ROUTE_COMMAND = "php bin/console debug:router --format=json --env=test --no-debug";
+const ROUTE_LOGICAL_COMMAND_ID = "debug:router";
+const ROUTE_COLLECTOR_ARGS = [
+  ROUTE_CONSOLE_PATH,
+  "debug:router",
+  "--format=json",
+  "--env=test",
+  "--no-debug",
+] as const;
 
 const runtimeRouteMethods = (value: unknown): readonly string[] | null => {
-  if (value === undefined || value === null) return []
-  const values = Array.isArray(value) ? value : typeof value === "string" ? [value] : null
-  if (values === null) return null
-  const tokens: string[] = []
-  let unresolved = false
+  if (value === undefined || value === null) return [];
+  const values = Array.isArray(value) ? value : typeof value === "string" ? [value] : null;
+  if (values === null) return null;
+  const tokens: string[] = [];
+  let unresolved = false;
   for (const entry of values) {
-    if (typeof entry !== "string") return null
-    if (entry.trim().length === 0) continue
-    const pieces = entry.split("|")
-    if (pieces.some((piece) => piece.trim().length === 0)) return null
+    if (typeof entry !== "string") return null;
+    if (entry.trim().length === 0) continue;
+    const pieces = entry.split("|");
+    if (pieces.some((piece) => piece.trim().length === 0)) return null;
     for (const piece of pieces) {
-      const normalized = normalizeScalar(piece)
-      if (normalized === null || normalized.length === 0) return null
-      const safe = sanitizeScalar(normalized, "method")
-      if (safe === null) return null
-      const method = safe.toUpperCase()
+      const normalized = normalizeScalar(piece);
+      if (normalized === null || normalized.length === 0) return null;
+      const safe = sanitizeScalar(normalized, "method");
+      if (safe === null) return null;
+      const method = safe.toUpperCase();
       if (method === "ANY") {
-        unresolved = true
-        continue
+        unresolved = true;
+        continue;
       }
-      if (!SUPPORTED_METHODS.has(method)) return null
-      tokens.push(method)
+      if (!SUPPORTED_METHODS.has(method)) return null;
+      tokens.push(method);
     }
   }
-  return unresolved ? [] : sortUnique(tokens)
-}
+  return unresolved ? [] : sortUnique(tokens);
+};
 
 export const decodeRuntimeRoutePayload = (payload: unknown): readonly RuntimeRoute[] | null => {
-  if (routePayloadContainsUnsafe(payload) || payload === null || typeof payload !== "object" || Array.isArray(payload)) return null
-  const routes: RuntimeRoute[] = []
-  for (const [rawRouteName, rawEntry] of Object.entries(payload as Record<string, unknown>)) {
-    const routeName = sanitizeScalar(rawRouteName, "route_name")
-    if (routeName === null || routeName.length === 0 || rawEntry === null || typeof rawEntry !== "object" || Array.isArray(rawEntry)) return null
-    const pathValue = (rawEntry as Record<string, unknown>).path
-    if (typeof pathValue !== "string") return null
-    const safePath = sanitizeScalar(pathValue, "route_path")
-    const pathTemplate = normalizePath(safePath)
-    if (pathTemplate === null || pathTemplate.length === 0) return null
-    const methods = runtimeRouteMethods((rawEntry as Record<string, unknown>).method)
-    if (methods === null) return null
-    const defaults = (rawEntry as Record<string, unknown>).defaults
-    const rawController = defaults !== null && typeof defaults === "object" && !Array.isArray(defaults)
-      ? (defaults as Record<string, unknown>)._controller
-      : undefined
-    const controllerRef = typeof rawController === "string" ? sanitizeScalar(rawController, "controller") : null
-    routes.push({ routeName, pathTemplate, methods, controllerRef: controllerRef === null || controllerRef.length === 0 ? null : controllerRef })
-  }
-  return routes.sort((left, right) =>
-    compareByteOrder(left.routeName, right.routeName) ||
-    compareByteOrder(left.pathTemplate, right.pathTemplate) ||
-    compareByteOrder(canonicalJson(left.methods), canonicalJson(right.methods)) ||
-    compareByteOrder(canonicalJson(left.controllerRef), canonicalJson(right.controllerRef)),
+  if (
+    routePayloadContainsUnsafe(payload) ||
+    payload === null ||
+    typeof payload !== "object" ||
+    Array.isArray(payload)
   )
-}
-
-const decodeRuntimeRouteOutput = (text: string): { readonly routes: readonly RuntimeRoute[] | null; readonly reasonCode: string | null } => {
-  let payload: unknown
-  try {
-    payload = JSON.parse(text) as unknown
-  } catch {
-    return { routes: null, reasonCode: "SOURCE_PARSE_ERROR" }
+    return null;
+  const routes: RuntimeRoute[] = [];
+  for (const [rawRouteName, rawEntry] of Object.entries(payload as Record<string, unknown>)) {
+    const routeName = sanitizeScalar(rawRouteName, "route_name");
+    if (
+      routeName === null ||
+      routeName.length === 0 ||
+      rawEntry === null ||
+      typeof rawEntry !== "object" ||
+      Array.isArray(rawEntry)
+    )
+      return null;
+    const pathValue = (rawEntry as Record<string, unknown>).path;
+    if (typeof pathValue !== "string") return null;
+    const safePath = sanitizeScalar(pathValue, "route_path");
+    const pathTemplate = normalizePath(safePath);
+    if (pathTemplate === null || pathTemplate.length === 0) return null;
+    const methods = runtimeRouteMethods((rawEntry as Record<string, unknown>).method);
+    if (methods === null) return null;
+    const defaults = (rawEntry as Record<string, unknown>).defaults;
+    const rawController =
+      defaults !== null && typeof defaults === "object" && !Array.isArray(defaults)
+        ? (defaults as Record<string, unknown>)._controller
+        : undefined;
+    const controllerRef =
+      typeof rawController === "string" ? sanitizeScalar(rawController, "controller") : null;
+    routes.push({
+      routeName,
+      pathTemplate,
+      methods,
+      controllerRef: controllerRef === null || controllerRef.length === 0 ? null : controllerRef,
+    });
   }
-  const routes = decodeRuntimeRoutePayload(payload)
-  return routes === null ? { routes: null, reasonCode: "SOURCE_PARSE_ERROR" } : { routes, reasonCode: null }
-}
-const PATH = /(?:^|[,\s])path\s*[:=]\s*(['"])(.*?)\1/is
-const NAME = /(?:^|[,\s])name\s*[:=]\s*(['"])(.*?)\1/is
+  return routes.sort(
+    (left, right) =>
+      compareByteOrder(left.routeName, right.routeName) ||
+      compareByteOrder(left.pathTemplate, right.pathTemplate) ||
+      compareByteOrder(canonicalJson(left.methods), canonicalJson(right.methods)) ||
+      compareByteOrder(canonicalJson(left.controllerRef), canonicalJson(right.controllerRef)),
+  );
+};
+
+const decodeRuntimeRouteOutput = (
+  text: string,
+): { readonly routes: readonly RuntimeRoute[] | null; readonly reasonCode: string | null } => {
+  let payload: unknown;
+  try {
+    payload = JSON.parse(text) as unknown;
+  } catch {
+    return { routes: null, reasonCode: "SOURCE_PARSE_ERROR" };
+  }
+  const routes = decodeRuntimeRoutePayload(payload);
+  return routes === null
+    ? { routes: null, reasonCode: "SOURCE_PARSE_ERROR" }
+    : { routes, reasonCode: null };
+};
+const PATH = /(?:^|[,\s])path\s*[:=]\s*(['"])(.*?)\1/is;
+const NAME = /(?:^|[,\s])name\s*[:=]\s*(['"])(.*?)\1/is;
 
 const lineAt = (source: string, offset: number): number => {
-  let line = 1
-  for (let index = 0; index < offset; index += 1) if (source[index] === "\n") line += 1
-  return line
-}
+  let line = 1;
+  for (let index = 0; index < offset; index += 1) if (source[index] === "\n") line += 1;
+  return line;
+};
 
-
-const balanced = (source: string, start: number, open: string, close: string): { readonly body: string; readonly end: number } | null => {
+const balanced = (
+  source: string,
+  start: number,
+  open: string,
+  close: string,
+): { readonly body: string; readonly end: number } | null => {
   const closingByOpening = new Map([
     ["(", ")"],
     ["[", "]"],
     ["{", "}"],
-  ])
-  const stack: string[] = [close]
-  let quote: string | null = null
-  let comment: "line" | "block" | null = null
-  let escaped = false
+  ]);
+  const stack: string[] = [close];
+  let quote: string | null = null;
+  let comment: "line" | "block" | null = null;
+  let escaped = false;
   for (let index = start; index < source.length; index += 1) {
-    const char = source[index] ?? ""
-    const next = source[index + 1] ?? ""
+    const char = source[index] ?? "";
+    const next = source[index + 1] ?? "";
     if (comment === "line") {
-      if (char === "\r" || char === "\n") comment = null
-      continue
+      if (char === "\r" || char === "\n") comment = null;
+      continue;
     }
     if (comment === "block") {
       if (char === "*" && next === "/") {
-        comment = null
-        index += 1
+        comment = null;
+        index += 1;
       }
-      continue
+      continue;
     }
     if (quote !== null) {
-      if (escaped) escaped = false
-      else if (char === "\\") escaped = true
-      else if (char === quote) quote = null
-      continue
+      if (escaped) escaped = false;
+      else if (char === "\\") escaped = true;
+      else if (char === quote) quote = null;
+      continue;
     }
-    if (char === "\"" || char === "'") {
-      quote = char
-      continue
+    if (char === '"' || char === "'") {
+      quote = char;
+      continue;
     }
     if (char === "/" && next === "/") {
-      comment = "line"
-      index += 1
-      continue
+      comment = "line";
+      index += 1;
+      continue;
     }
     if (char === "/" && next === "*") {
-      comment = "block"
-      index += 1
-      continue
+      comment = "block";
+      index += 1;
+      continue;
     }
     if (char === "#") {
-      comment = "line"
-      continue
+      comment = "line";
+      continue;
     }
-    const nestedClose = closingByOpening.get(char)
+    const nestedClose = closingByOpening.get(char);
     if (nestedClose !== undefined) {
       if (index === start) {
-        if (char !== open) return null
-        continue
+        if (char !== open) return null;
+        continue;
       }
-      stack.push(nestedClose)
-      continue
+      stack.push(nestedClose);
+      continue;
     }
     if (char === ")" || char === "]" || char === "}") {
-      if (stack.at(-1) !== char) return null
-      stack.pop()
-      if (stack.length === 0) return { body: source.slice(start + 1, index), end: index + 1 }
+      if (stack.at(-1) !== char) return null;
+      stack.pop();
+      if (stack.length === 0) return { body: source.slice(start + 1, index), end: index + 1 };
     }
   }
-  return null
-}
+  return null;
+};
 
 const quotedValues = (value: string): string[] => {
-  const result: string[] = []
-  const pattern = /(['"])((?:\\.|(?!\1).)*)\1/g
+  const result: string[] = [];
+  const pattern = /(['"])((?:\\.|(?!\1).)*)\1/g;
   for (const match of value.matchAll(pattern)) {
-    const prefix = value.slice(0, match.index).trimEnd()
-    const previous = prefix.at(-1)
-    if (previous === "=" || previous === ":" || previous === "{" || previous === "[" || previous === ",") continue
-    const text = match[2]
-    if (text !== undefined) result.push(text.replaceAll('\\"', '"').replaceAll("\\'", "'"))
+    const prefix = value.slice(0, match.index).trimEnd();
+    const previous = prefix.at(-1);
+    if (
+      previous === "=" ||
+      previous === ":" ||
+      previous === "{" ||
+      previous === "[" ||
+      previous === ","
+    )
+      continue;
+    const text = match[2];
+    if (text !== undefined) result.push(text.replaceAll('\\"', '"').replaceAll("\\'", "'"));
   }
-  return result
-}
+  return result;
+};
 
 interface ParsedMethods {
-  readonly methods: string[]
-  readonly unsafe: boolean
+  readonly methods: string[];
+  readonly unsafe: boolean;
 }
 
 const normalizeRouteMethods = (values: readonly unknown[]): ParsedMethods => {
-  const methods: string[] = []
-  let unsafe = false
+  const methods: string[] = [];
+  let unsafe = false;
   for (const value of values) {
     if (typeof value !== "string") {
-      unsafe = true
-      continue
+      unsafe = true;
+      continue;
     }
     for (const raw of value.split(",")) {
-      const normalized = normalizeScalar(raw)
-      if (normalized === null || normalized.length === 0) continue
-      const safe = sanitizeScalar(normalized, "method")
+      const normalized = normalizeScalar(raw);
+      if (normalized === null || normalized.length === 0) continue;
+      const safe = sanitizeScalar(normalized, "method");
       if (safe === null || !SUPPORTED_METHODS.has(normalized.toUpperCase())) {
-        unsafe = true
-        continue
+        unsafe = true;
+        continue;
       }
-      methods.push(normalized.toUpperCase())
+      methods.push(normalized.toUpperCase());
     }
   }
-  return { methods: sortUnique(methods), unsafe }
-}
+  return { methods: sortUnique(methods), unsafe };
+};
 
 const parseMethodBody = (body: string): ParsedMethods => {
-  const values: string[] = []
-  let quoted = false
-  let unquoted = false
-  let malformed = false
-  let previousToken = false
-  let index = 0
+  const values: string[] = [];
+  let quoted = false;
+  let unquoted = false;
+  let malformed = false;
+  let previousToken = false;
+  let index = 0;
   while (index < body.length) {
-    while (index < body.length && /\s/.test(body[index] ?? "")) index += 1
-    if (index >= body.length) break
+    while (index < body.length && /\s/.test(body[index] ?? "")) index += 1;
+    if (index >= body.length) break;
     if (body[index] === "/" && body[index + 1] === "*") {
-      const end = body.indexOf("*/", index + 2)
+      const end = body.indexOf("*/", index + 2);
       if (end < 0) {
-        malformed = true
-        break
+        malformed = true;
+        break;
       }
-      index = end + 2
-      continue
+      index = end + 2;
+      continue;
     }
     if ((body[index] === "/" && body[index + 1] === "/") || body[index] === "#") {
-      index = lineCommentEnd(body, index + (body[index] === "#" ? 1 : 2))
-      continue
+      index = lineCommentEnd(body, index + (body[index] === "#" ? 1 : 2));
+      continue;
     }
     if (body[index] === ",") {
-      previousToken = false
-      index += 1
-      continue
+      previousToken = false;
+      index += 1;
+      continue;
     }
-    if (previousToken) malformed = true
-    const start = index
-    const first = body[index]
-    if (first === "'" || first === "\"") {
-      quoted = true
-      const quote = first
-      index += 1
-      let escaped = false
-      let closed = false
-      let token = ""
+    if (previousToken) malformed = true;
+    const start = index;
+    const first = body[index];
+    if (first === "'" || first === '"') {
+      quoted = true;
+      const quote = first;
+      index += 1;
+      let escaped = false;
+      let closed = false;
+      let token = "";
       while (index < body.length) {
-        const char = body[index] ?? ""
-        index += 1
+        const char = body[index] ?? "";
+        index += 1;
         if (escaped) {
-          token += char
-          escaped = false
+          token += char;
+          escaped = false;
         } else if (char === "\\") {
-          escaped = true
+          escaped = true;
         } else if (char === quote) {
-          closed = true
-          break
+          closed = true;
+          break;
         } else {
-          token += char
+          token += char;
         }
       }
       if (!closed || escaped) {
-        malformed = true
-        break
+        malformed = true;
+        break;
       }
-      values.push(token)
+      values.push(token);
     } else {
-      unquoted = true
-      while (index < body.length && !/[\s,]/.test(body[index] ?? "")) index += 1
-      const token = body.slice(start, index)
-      if (token.length === 0) malformed = true
-      else values.push(token)
+      unquoted = true;
+      while (index < body.length && !/[\s,]/.test(body[index] ?? "")) index += 1;
+      const token = body.slice(start, index);
+      if (token.length === 0) malformed = true;
+      else values.push(token);
     }
-    previousToken = true
+    previousToken = true;
   }
-  const parsed = normalizeRouteMethods(values)
-  return { methods: parsed.methods, unsafe: parsed.unsafe || malformed || (quoted && unquoted) }
-}
+  const parsed = normalizeRouteMethods(values);
+  return { methods: parsed.methods, unsafe: parsed.unsafe || malformed || (quoted && unquoted) };
+};
 
-
-const keyValueStarts = (source: string, keyName: string): { readonly starts: number[]; readonly unsafe: boolean } => {
-  const starts: number[] = []
-  const key = keyName.toLowerCase()
-  const keyLength = key.length
-  let quote: string | null = null
-  let comment: "line" | "block" | null = null
-  let escaped = false
-  let depth = 0
+const keyValueStarts = (
+  source: string,
+  keyName: string,
+): { readonly starts: number[]; readonly unsafe: boolean } => {
+  const starts: number[] = [];
+  const key = keyName.toLowerCase();
+  const keyLength = key.length;
+  let quote: string | null = null;
+  let comment: "line" | "block" | null = null;
+  let escaped = false;
+  let depth = 0;
   for (let index = 0; index < source.length; index += 1) {
-    const char = source[index] ?? ""
-    const next = source[index + 1] ?? ""
+    const char = source[index] ?? "";
+    const next = source[index + 1] ?? "";
     if (comment === "line") {
-      if (char === "\r" || char === "\n") comment = null
-      continue
+      if (char === "\r" || char === "\n") comment = null;
+      continue;
     }
     if (comment === "block") {
       if (char === "*" && next === "/") {
-        comment = null
-        index += 1
+        comment = null;
+        index += 1;
       }
-      continue
+      continue;
     }
     if (quote !== null) {
-      if (escaped) escaped = false
-      else if (char === "\\") escaped = true
-      else if (char === quote) quote = null
-      continue
+      if (escaped) escaped = false;
+      else if (char === "\\") escaped = true;
+      else if (char === quote) quote = null;
+      continue;
     }
-    if (char === "\"" || char === "'") {
-      quote = char
-      continue
+    if (char === '"' || char === "'") {
+      quote = char;
+      continue;
     }
     if (char === "/" && next === "/") {
-      comment = "line"
-      index += 1
-      continue
+      comment = "line";
+      index += 1;
+      continue;
     }
     if (char === "/" && next === "*") {
-      comment = "block"
-      index += 1
-      continue
+      comment = "block";
+      index += 1;
+      continue;
     }
     if (char === "#") {
-      comment = "line"
-      continue
+      comment = "line";
+      continue;
     }
     if (char === "[" || char === "{" || char === "(") {
-      depth += 1
-      continue
+      depth += 1;
+      continue;
     }
     if (char === "]" || char === "}" || char === ")") {
-      if (depth === 0) continue
-      depth -= 1
-      continue
+      if (depth === 0) continue;
+      depth -= 1;
+      continue;
     }
-    if (depth !== 0 || source.slice(index, index + keyLength).toLowerCase() !== key) continue
-    const before = source[index - 1]
-    const after = source[index + keyLength]
-    if ((before !== undefined && /[A-Za-z0-9_]/.test(before)) || (after !== undefined && /[A-Za-z0-9_]/.test(after))) continue
-    const separator = skipPhpTrivia(source, index + keyLength)
-    if (separator.malformed) return { starts: [], unsafe: true }
-    let cursor = separator.cursor
-    if (source[cursor] !== ":" && source[cursor] !== "=") continue
-    cursor += 1
-    const value = skipPhpTrivia(source, cursor)
-    if (value.malformed) return { starts: [], unsafe: true }
-    starts.push(value.cursor)
-    index = value.cursor - 1
+    if (depth !== 0 || source.slice(index, index + keyLength).toLowerCase() !== key) continue;
+    const before = source[index - 1];
+    const after = source[index + keyLength];
+    if (
+      (before !== undefined && /[A-Za-z0-9_]/.test(before)) ||
+      (after !== undefined && /[A-Za-z0-9_]/.test(after))
+    )
+      continue;
+    const separator = skipPhpTrivia(source, index + keyLength);
+    if (separator.malformed) return { starts: [], unsafe: true };
+    let cursor = separator.cursor;
+    if (source[cursor] !== ":" && source[cursor] !== "=") continue;
+    cursor += 1;
+    const value = skipPhpTrivia(source, cursor);
+    if (value.malformed) return { starts: [], unsafe: true };
+    starts.push(value.cursor);
+    index = value.cursor - 1;
   }
-  return { starts, unsafe: quote !== null || comment === "block" }
-}
+  return { starts, unsafe: quote !== null || comment === "block" };
+};
 
-const methodKeyValueStarts = (source: string): { readonly starts: number[]; readonly unsafe: boolean } => keyValueStarts(source, "methods")
+const methodKeyValueStarts = (
+  source: string,
+): { readonly starts: number[]; readonly unsafe: boolean } => keyValueStarts(source, "methods");
 
 const parseMethods = (value: string): ParsedMethods => {
-  const parsedStarts = methodKeyValueStarts(value)
-  if (parsedStarts.unsafe) return { methods: [], unsafe: true }
-  const starts = parsedStarts.starts
-  if (starts.length === 0) return { methods: [], unsafe: false }
-  if (starts.length !== 1) return { methods: [], unsafe: true }
-  const start = starts[0]
-  if (start === undefined || start >= value.length) return { methods: [], unsafe: true }
-  const opener = value[start]
+  const parsedStarts = methodKeyValueStarts(value);
+  if (parsedStarts.unsafe) return { methods: [], unsafe: true };
+  const starts = parsedStarts.starts;
+  if (starts.length === 0) return { methods: [], unsafe: false };
+  if (starts.length !== 1) return { methods: [], unsafe: true };
+  const start = starts[0];
+  if (start === undefined || start >= value.length) return { methods: [], unsafe: true };
+  const opener = value[start];
   if (opener === "[" || opener === "{") {
-    const parsed = balanced(value, start, opener, opener === "[" ? "]" : "}")
-    if (parsed === null) return { methods: [], unsafe: true }
-    const trailing = value.slice(parsed.end).trim()
-    const result = parseMethodBody(parsed.body)
-    return { methods: result.methods, unsafe: result.unsafe || (trailing.length > 0 && !trailing.startsWith(",")) }
+    const parsed = balanced(value, start, opener, opener === "[" ? "]" : "}");
+    if (parsed === null) return { methods: [], unsafe: true };
+    const trailing = value.slice(parsed.end).trim();
+    const result = parseMethodBody(parsed.body);
+    return {
+      methods: result.methods,
+      unsafe: result.unsafe || (trailing.length > 0 && !trailing.startsWith(",")),
+    };
   }
-  return parseMethodBody(value.slice(start))
-}
+  return parseMethodBody(value.slice(start));
+};
 interface ParsedScalar {
-  readonly value: string | null
-  readonly present: boolean
-  readonly unsafe: boolean
+  readonly value: string | null;
+  readonly present: boolean;
+  readonly unsafe: boolean;
 }
 
 const routeScalarContext = (fieldName: string): string => {
-  if (fieldName === "path") return "route_path"
-  if (fieldName === "name") return "route_name"
-  if (fieldName === "_controller" || fieldName === "controller") return "controller"
-  return fieldName
-}
+  if (fieldName === "path") return "route_path";
+  if (fieldName === "name") return "route_name";
+  if (fieldName === "_controller" || fieldName === "controller") return "controller";
+  return fieldName;
+};
 
 const parsedScalar = (value: string | null, fieldName: string): ParsedScalar => {
-  const normalized = normalizeScalar(value)
-  if (normalized === null) return { value: null, present: value !== null, unsafe: false }
-  const context = routeScalarContext(fieldName)
-  return { value: sanitizeScalar(normalized, context), present: true, unsafe: unsafeScalarReason(normalized, context) !== null }
-}
+  const normalized = normalizeScalar(value);
+  if (normalized === null) return { value: null, present: value !== null, unsafe: false };
+  const context = routeScalarContext(fieldName);
+  return {
+    value: sanitizeScalar(normalized, context),
+    present: true,
+    unsafe: unsafeScalarReason(normalized, context) !== null,
+  };
+};
 
 const parseNamed = (value: string, expression: RegExp, fieldName: string): ParsedScalar => {
-  const match = value.match(expression)
-  return parsedScalar(match?.[2] ?? null, fieldName)
-}
+  const match = value.match(expression);
+  return parsedScalar(match?.[2] ?? null, fieldName);
+};
 
 interface ParsedRoutePayload {
-  readonly path: string | null
-  readonly name: string | null
-  readonly methods: string[]
-  readonly reasonCodes: readonly string[]
+  readonly path: string | null;
+  readonly name: string | null;
+  readonly methods: string[];
+  readonly reasonCodes: readonly string[];
 }
 
 const normalizePhpDocContinuationTrivia = (value: string): string => {
-  let normalized = ""
-  let quote: string | null = null
-  let escaped = false
+  let normalized = "";
+  let quote: string | null = null;
+  let escaped = false;
   for (let index = 0; index < value.length; index += 1) {
-    const character = value[index] ?? ""
+    const character = value[index] ?? "";
     if (quote !== null) {
-      normalized += character
-      if (escaped) escaped = false
-      else if (character === "\\") escaped = true
-      else if (character === quote) quote = null
-      continue
+      normalized += character;
+      if (escaped) escaped = false;
+      else if (character === "\\") escaped = true;
+      else if (character === quote) quote = null;
+      continue;
     }
     if (character === "'" || character === '"') {
-      quote = character
-      normalized += character
-      continue
+      quote = character;
+      normalized += character;
+      continue;
     }
     if (character === "\r" || character === "\n") {
-      normalized += character
+      normalized += character;
       if (character === "\r" && value[index + 1] === "\n") {
-        normalized += "\n"
-        index += 1
+        normalized += "\n";
+        index += 1;
       }
-      let cursor = index + 1
-      while (cursor < value.length && (value[cursor] === " " || value[cursor] === "\t")) cursor += 1
+      let cursor = index + 1;
+      while (cursor < value.length && (value[cursor] === " " || value[cursor] === "\t"))
+        cursor += 1;
       if (value[cursor] === "*") {
-        index = cursor
-        if (value[index + 1] === " " || value[index + 1] === "\t") index += 1
+        index = cursor;
+        if (value[index + 1] === " " || value[index + 1] === "\t") index += 1;
       }
-      continue
+      continue;
     }
-    normalized += character
+    normalized += character;
   }
-  return normalized
-}
+  return normalized;
+};
 
 const parseRoutePayload = (payload: string, positionalPath = true): ParsedRoutePayload => {
-  const pathKeys = keyValueStarts(payload, "path")
-  const nameKeys = keyValueStarts(payload, "name")
-  const namedPath = pathKeys.starts.length > 0 || pathKeys.unsafe ? parseNamed(payload, PATH, "path") : { value: null, present: false, unsafe: false }
-  const first = positionalPath ? quotedValues(payload)[0] ?? null : null
-  const positional = parsedScalar(first, "path")
-  const hasNamedPath = pathKeys.starts.length > 0 || pathKeys.unsafe
-  const selectedPath = hasNamedPath ? namedPath : positional
-  const name = nameKeys.starts.length > 0 || nameKeys.unsafe ? parseNamed(payload, NAME, "name") : { value: null, present: false, unsafe: false }
-  const parsedMethods = parseMethods(payload)
-  const malformedPath = pathKeys.unsafe || pathKeys.starts.length > 1 || (pathKeys.starts.length === 1 && !namedPath.present)
-  const malformedName = nameKeys.unsafe || nameKeys.starts.length > 1 || (nameKeys.starts.length === 1 && (!name.present || name.value === null))
-  const unsafe = selectedPath.unsafe || name.unsafe || parsedMethods.unsafe
-  const reasonCodes = unsafe ? ["UNSAFE_SOURCE"] : []
-  if (malformedPath || malformedName) reasonCodes.push("SOURCE_PARSE_ERROR")
+  const pathKeys = keyValueStarts(payload, "path");
+  const nameKeys = keyValueStarts(payload, "name");
+  const namedPath =
+    pathKeys.starts.length > 0 || pathKeys.unsafe
+      ? parseNamed(payload, PATH, "path")
+      : { value: null, present: false, unsafe: false };
+  const first = positionalPath ? (quotedValues(payload)[0] ?? null) : null;
+  const positional = parsedScalar(first, "path");
+  const hasNamedPath = pathKeys.starts.length > 0 || pathKeys.unsafe;
+  const selectedPath = hasNamedPath ? namedPath : positional;
+  const name =
+    nameKeys.starts.length > 0 || nameKeys.unsafe
+      ? parseNamed(payload, NAME, "name")
+      : { value: null, present: false, unsafe: false };
+  const parsedMethods = parseMethods(payload);
+  const malformedPath =
+    pathKeys.unsafe ||
+    pathKeys.starts.length > 1 ||
+    (pathKeys.starts.length === 1 && !namedPath.present);
+  const malformedName =
+    nameKeys.unsafe ||
+    nameKeys.starts.length > 1 ||
+    (nameKeys.starts.length === 1 && (!name.present || name.value === null));
+  const unsafe = selectedPath.unsafe || name.unsafe || parsedMethods.unsafe;
+  const reasonCodes = unsafe ? ["UNSAFE_SOURCE"] : [];
+  if (malformedPath || malformedName) reasonCodes.push("SOURCE_PARSE_ERROR");
   return {
     path: normalizePath(selectedPath.value),
     name: name.value,
     methods: parsedMethods.methods,
     reasonCodes,
-  }
-}
+  };
+};
 
-const namespaceOf = (source: string): string => normalizeScalar(source.match(/namespace\s+([^;]+);/i)?.[1] ?? null) ?? ""
+const namespaceOf = (source: string): string =>
+  normalizeScalar(source.match(/namespace\s+([^;]+);/i)?.[1] ?? null) ?? "";
 
 const classBefore = (source: string, offset: number): string | null => {
-  let result: string | null = null
-  const prefix = source.slice(0, offset)
-  for (const match of prefix.matchAll(/\bclass\s+([A-Za-z_][A-Za-z0-9_]*)/g)) result = match[1] ?? result
-  return result
-}
+  let result: string | null = null;
+  const prefix = source.slice(0, offset);
+  for (const match of prefix.matchAll(/\bclass\s+([A-Za-z_][A-Za-z0-9_]*)/g))
+    result = match[1] ?? result;
+  return result;
+};
 
-const methodAfter = (source: string, offset: number): string | null => normalizeScalar(source.slice(offset).match(/\bfunction\s+&?\s*([A-Za-z_][A-Za-z0-9_]*)/i)?.[1] ?? null)
+const methodAfter = (source: string, offset: number): string | null =>
+  normalizeScalar(
+    source.slice(offset).match(/\bfunction\s+&?\s*([A-Za-z_][A-Za-z0-9_]*)/i)?.[1] ?? null,
+  );
 
 const ownerRef = (source: string, offset: number, end: number): string | null => {
-  const className = classBefore(source, offset)
-  if (className === null) return null
-  const method = methodAfter(source, end)
-  const namespace = namespaceOf(source)
-  const qualifiedClass = namespace.length > 0 ? `${namespace}\\${className}` : className
-  return method === null ? qualifiedClass : `${qualifiedClass}::${method}`
-}
+  const className = classBefore(source, offset);
+  if (className === null) return null;
+  const method = methodAfter(source, end);
+  const namespace = namespaceOf(source);
+  const qualifiedClass = namespace.length > 0 ? `${namespace}\\${className}` : className;
+  return method === null ? qualifiedClass : `${qualifiedClass}::${method}`;
+};
 
 const phpSourceRef = (
   context: ManifestContext,
@@ -542,50 +652,87 @@ const phpSourceRef = (
   lineEnd: number,
   symbol: string | null,
   role: string,
-): string => addSourceReference(context, {
-  authorityLine: authority,
-  authorityRole: role,
-  rootRef: authority,
-  path: logicalPath,
-  lineStart,
-  lineEnd,
-  symbol,
-})
+): string =>
+  addSourceReference(context, {
+    authorityLine: authority,
+    authorityRole: role,
+    rootRef: authority,
+    path: logicalPath,
+    lineStart,
+    lineEnd,
+    symbol,
+  });
 
-const yamlSourceRef = (context: ManifestContext, authority: "legacy" | "mono", path: string, lineStart: number, lineEnd: number): string => addSourceReference(context, {
-  authorityLine: authority,
-  authorityRole: authority === "legacy" ? "legacy_route_authority" : "mono_route_authority",
-  rootRef: authority,
-  path,
-  lineStart,
-  lineEnd,
-  symbol: null,
-})
+const yamlSourceRef = (
+  context: ManifestContext,
+  authority: "legacy" | "mono",
+  path: string,
+  lineStart: number,
+  lineEnd: number,
+): string =>
+  addSourceReference(context, {
+    authorityLine: authority,
+    authorityRole: authority === "legacy" ? "legacy_route_authority" : "mono_route_authority",
+    rootRef: authority,
+    path,
+    lineStart,
+    lineEnd,
+    symbol: null,
+  });
 
-const sourceForFailure = (context: ManifestContext, authority: "legacy" | "mono", path: string, role: string, status: RouteParseFailure["status"] = "unresolved", reasonCode = "SOURCE_PARSE_ERROR"): string => addSourceReference(context, {
-  authorityLine: authority,
-  authorityRole: role,
-  rootRef: authority,
-  path,
-  lineStart: null,
-  lineEnd: null,
-  symbol: null,
-  failureStatus: status,
-  failureReason: reasonCode,
-})
+const sourceForFailure = (
+  context: ManifestContext,
+  authority: "legacy" | "mono",
+  path: string,
+  role: string,
+  status: RouteParseFailure["status"] = "unresolved",
+  reasonCode = "SOURCE_PARSE_ERROR",
+): string =>
+  addSourceReference(context, {
+    authorityLine: authority,
+    authorityRole: role,
+    rootRef: authority,
+    path,
+    lineStart: null,
+    lineEnd: null,
+    symbol: null,
+    failureStatus: status,
+    failureReason: reasonCode,
+  });
 const runtimeRouteSourceRef = (context: ManifestContext): string => {
-  const consoleFile = context.scans.mono.files.find((file) => file.path === ROUTE_CONSOLE_PATH)
+  const consoleFile = context.scans.mono.files.find((file) => file.path === ROUTE_CONSOLE_PATH);
   return consoleFile?.availability === "available"
-    ? addSourceReference(context, { authorityLine: "mono", authorityRole: "mono_route_runtime_observation", rootRef: "mono", path: ROUTE_CONSOLE_PATH, lineStart: null, lineEnd: null, symbol: null, captureMode: "runtime" })
-    : sourceForFailure(context, "mono", ROUTE_CONSOLE_PATH, "mono_route_runtime_observation", "source_unavailable", "SOURCE_UNAVAILABLE")
-}
+    ? addSourceReference(context, {
+        authorityLine: "mono",
+        authorityRole: "mono_route_runtime_observation",
+        rootRef: "mono",
+        path: ROUTE_CONSOLE_PATH,
+        lineStart: null,
+        lineEnd: null,
+        symbol: null,
+        captureMode: "runtime",
+      })
+    : sourceForFailure(
+        context,
+        "mono",
+        ROUTE_CONSOLE_PATH,
+        "mono_route_runtime_observation",
+        "source_unavailable",
+        "SOURCE_UNAVAILABLE",
+      );
+};
 
-const collectRuntimeRoutes = (context: ManifestContext, configured?: CollectorExecutables): RuntimeRouteCollection => {
-  const revisionRefId = context.scans.mono.revisionRefId
-  const sourceRefId = runtimeRouteSourceRef(context)
-  const consoleFile = context.scans.mono.files.find((file) => file.path === ROUTE_CONSOLE_PATH)
+const collectRuntimeRoutes = (
+  fileSystem: ParityFileSystemShape,
+  commands: ParityCommandExecutorShape,
+  context: ManifestContext,
+  configured?: CollectorExecutables,
+): RuntimeRouteCollection => {
+  const revisionRefId = context.scans.mono.revisionRefId;
+  const sourceRefId = runtimeRouteSourceRef(context);
+  const consoleFile = context.scans.mono.files.find((file) => file.path === ROUTE_CONSOLE_PATH);
   const unavailable = (reason: string, run?: CollectorRun): RuntimeRouteCollection => {
-    const reasonBytes = new TextEncoder().encode(reason)
+    const reasonBytes = new TextEncoder().encode(reason);
     const observation = recordRuntimeObservation(context, {
       collectorKind: "route_collector",
       logicalCommandId: ROUTE_LOGICAL_COMMAND_ID,
@@ -599,14 +746,34 @@ const collectRuntimeRoutes = (context: ManifestContext, configured?: CollectorEx
       revisionRefId,
       executableDigests: run?.executableDigests,
       executableProvenance: run?.executableProvenance,
-    })
-    const sourceStatus: RouteParseFailure["status"] = ["UNSAFE_SOURCE", "NON_UTF8_OUTPUT", "SOURCE_PARSE_ERROR"].includes(reason) ? "source_unavailable" : "unresolved"
-    return { routes: [], observation, sourceRefId, failures: [{ source_ref_id: sourceRefId, reason_code: reason, status: sourceStatus }] }
-  }
-  if (consoleFile === undefined || consoleFile.availability !== "available") return unavailable("RUNTIME_UNAVAILABLE")
-  const run = runTrustedPhpCollector(context, ROUTE_COLLECTOR_ARGS, configured, "route")
-  if (run.availability !== "available") return unavailable(run.reason ?? "RUNTIME_UNAVAILABLE", run)
-  const decoded = decodeRuntimeRouteOutput(run.stdout)
+    });
+    const sourceStatus: RouteParseFailure["status"] = [
+      "UNSAFE_SOURCE",
+      "NON_UTF8_OUTPUT",
+      "SOURCE_PARSE_ERROR",
+    ].includes(reason)
+      ? "source_unavailable"
+      : "unresolved";
+    return {
+      routes: [],
+      observation,
+      sourceRefId,
+      failures: [{ source_ref_id: sourceRefId, reason_code: reason, status: sourceStatus }],
+    };
+  };
+  if (consoleFile === undefined || consoleFile.availability !== "available")
+    return unavailable("RUNTIME_UNAVAILABLE");
+  const run = runTrustedPhpCollectorWithServices(
+    fileSystem,
+    commands,
+    context,
+    ROUTE_COLLECTOR_ARGS,
+    configured,
+    "route",
+  );
+  if (run.availability !== "available")
+    return unavailable(run.reason ?? "RUNTIME_UNAVAILABLE", run);
+  const decoded = decodeRuntimeRouteOutput(run.stdout);
   if (decoded.routes === null) {
     const observation = recordRuntimeObservation(context, {
       collectorKind: "route_collector",
@@ -621,8 +788,19 @@ const collectRuntimeRoutes = (context: ManifestContext, configured?: CollectorEx
       revisionRefId,
       executableDigests: run.executableDigests,
       executableProvenance: run.executableProvenance,
-    })
-    return { routes: [], observation, sourceRefId, failures: [{ source_ref_id: sourceRefId, reason_code: decoded.reasonCode ?? "SOURCE_PARSE_ERROR", status: "source_unavailable" }] }
+    });
+    return {
+      routes: [],
+      observation,
+      sourceRefId,
+      failures: [
+        {
+          source_ref_id: sourceRefId,
+          reason_code: decoded.reasonCode ?? "SOURCE_PARSE_ERROR",
+          status: "source_unavailable",
+        },
+      ],
+    };
   }
   const observation = recordRuntimeObservation(context, {
     collectorKind: "route_collector",
@@ -637,117 +815,190 @@ const collectRuntimeRoutes = (context: ManifestContext, configured?: CollectorEx
     revisionRefId,
     executableDigests: run.executableDigests,
     executableProvenance: run.executableProvenance,
-  })
-  return { routes: decoded.routes, observation, sourceRefId, failures: [] }
-}
-const makeImportedPrefixes = (declarations: readonly RouteDeclaration[]): string[] => sortUnique(declarations.map((declaration) => declaration.importRef).filter((value): value is string => value !== null))
+  });
+  return { routes: decoded.routes, observation, sourceRefId, failures: [] };
+};
+const makeImportedPrefixes = (declarations: readonly RouteDeclaration[]): string[] =>
+  sortUnique(
+    declarations
+      .map((declaration) => declaration.importRef)
+      .filter((value): value is string => value !== null),
+  );
 
 const sourceFamilyPatterns = (authority: "legacy" | "mono", familyId: string): readonly string[] =>
-  SOURCE_FAMILIES.find((family) => family.authority_line === authority && family.family_id === familyId)?.patterns ?? []
+  SOURCE_FAMILIES.find(
+    (family) => family.authority_line === authority && family.family_id === familyId,
+  )?.patterns ?? [];
 
-const filesMatchingFamily = (context: ManifestContext, authority: "legacy" | "mono", familyId: string, extension: RegExp): readonly { readonly path: string; readonly availability: "available" | "unavailable" }[] =>
-  context.scans[authority].files.filter((file) => file.availability === "available" && extension.test(file.path) && sourceFamilyPatterns(authority, familyId).some((pattern) => matchesLiteralPattern(file.path, pattern))).sort((a, b) => compareByteOrder(a.path, b.path))
-const importedController = (authority: "legacy" | "mono", path: string, prefixes: readonly string[]): boolean => {
-  if (authority === "legacy") return prefixes.some((prefix) => prefix.includes("AppBundle/Controller") && path.startsWith("src/AppBundle/Controller/"))
+const filesMatchingFamily = (
+  context: ManifestContext,
+  authority: "legacy" | "mono",
+  familyId: string,
+  extension: RegExp,
+): readonly { readonly path: string; readonly availability: "available" | "unavailable" }[] =>
+  context.scans[authority].files
+    .filter(
+      (file) =>
+        file.availability === "available" &&
+        extension.test(file.path) &&
+        sourceFamilyPatterns(authority, familyId).some((pattern) =>
+          matchesLiteralPattern(file.path, pattern),
+        ),
+    )
+    .sort((a, b) => compareByteOrder(a.path, b.path));
+const importedController = (
+  authority: "legacy" | "mono",
+  path: string,
+  prefixes: readonly string[],
+): boolean => {
+  if (authority === "legacy")
+    return prefixes.some(
+      (prefix) =>
+        prefix.includes("AppBundle/Controller") && path.startsWith("src/AppBundle/Controller/"),
+    );
   return prefixes.some((prefix) => {
-    let normalized = prefix.replace(/^\.\.\//, "")
-    if (normalized.startsWith("src/")) normalized = `apps/server/${normalized}`
-    return normalized.includes("src/App/") && normalized.includes("/Controller") && path.startsWith(normalized.replace(/\/$/, "") + "/")
-  })
-}
+    let normalized = prefix.replace(/^\.\.\//, "");
+    if (normalized.startsWith("src/")) normalized = `apps/server/${normalized}`;
+    return (
+      normalized.includes("src/App/") &&
+      normalized.includes("/Controller") &&
+      path.startsWith(normalized.replace(/\/$/, "") + "/")
+    );
+  });
+};
 
 const objectValue = (value: unknown, key: string): unknown => {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) return undefined
-  return (value as Record<string, unknown>)[key]
-}
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return undefined;
+  return (value as Record<string, unknown>)[key];
+};
 
 const stringValue = (value: unknown, key: string): ParsedScalar => {
-  const found = objectValue(value, key)
-  return parsedScalar(typeof found === "string" ? found : null, key)
-}
+  const found = objectValue(value, key);
+  return parsedScalar(typeof found === "string" ? found : null, key);
+};
 
 const methodsValue = (value: unknown): ParsedMethods => {
-  const methods = objectValue(value, "methods")
-  if (Array.isArray(methods)) return normalizeRouteMethods(methods)
-  if (typeof methods === "string") return normalizeRouteMethods([methods])
-  if (methods === undefined || methods === null) return { methods: [], unsafe: false }
-  return { methods: [], unsafe: true }
-}
+  const methods = objectValue(value, "methods");
+  if (Array.isArray(methods)) return normalizeRouteMethods(methods);
+  if (typeof methods === "string") return normalizeRouteMethods([methods]);
+  if (methods === undefined || methods === null) return { methods: [], unsafe: false };
+  return { methods: [], unsafe: true };
+};
 
 const controllerValue = (value: unknown): ParsedScalar => {
-  const defaults = objectValue(value, "defaults")
-  const fromDefaults = stringValue(defaults, "_controller")
-  return fromDefaults.present ? fromDefaults : stringValue(value, "controller")
-}
+  const defaults = objectValue(value, "defaults");
+  const fromDefaults = stringValue(defaults, "_controller");
+  return fromDefaults.present ? fromDefaults : stringValue(value, "controller");
+};
 const unsafeRoutePayload = (value: unknown, fieldName = "field"): boolean => {
-  if (typeof value === "string") return unsafeScalarReason(value, fieldName) !== null
-  if (Array.isArray(value)) return value.some((entry) => unsafeRoutePayload(entry, fieldName))
-  if (value !== null && typeof value === "object") return Object.entries(value).some(([key, entry]) => unsafeRoutePayload(entry, key))
-  return false
-}
+  if (typeof value === "string") return unsafeScalarReason(value, fieldName) !== null;
+  if (Array.isArray(value)) return value.some((entry) => unsafeRoutePayload(entry, fieldName));
+  if (value !== null && typeof value === "object")
+    return Object.entries(value).some(([key, entry]) => unsafeRoutePayload(entry, key));
+  return false;
+};
 
 const routeReasonCodes = (
-  route: Pick<RouteDeclaration, "pathTemplate" | "methods" | "routeName" | "reasonCodes"> & { readonly routeNameRequired?: boolean },
+  route: Pick<RouteDeclaration, "pathTemplate" | "methods" | "routeName" | "reasonCodes"> & {
+    readonly routeNameRequired?: boolean;
+  },
 ): string[] => {
-  const reasons = [...route.reasonCodes]
-  if (route.pathTemplate === null) reasons.push("SOURCE_PARSE_ERROR")
-  if (route.methods.length === 0) reasons.push("METHOD_UNRESOLVED")
-  if (route.routeNameRequired === true && route.routeName === null) reasons.push("SOURCE_PARSE_ERROR")
-  return sortUnique(reasons)
-}
+  const reasons = [...route.reasonCodes];
+  if (route.pathTemplate === null) reasons.push("SOURCE_PARSE_ERROR");
+  if (route.methods.length === 0) reasons.push("METHOD_UNRESOLVED");
+  if (route.routeNameRequired === true && route.routeName === null)
+    reasons.push("SOURCE_PARSE_ERROR");
+  return sortUnique(reasons);
+};
 const parseYamlRoutes = (
   context: ManifestContext,
   authority: "legacy" | "mono",
   path: string,
   text: string,
 ): { readonly declarations: RouteDeclaration[]; readonly failures: RouteParseFailure[] } => {
-  const declarations: RouteDeclaration[] = []
-  const failures: RouteParseFailure[] = []
-  const role = authority === "legacy" ? "legacy_route_authority" : "mono_route_authority"
-  let document: Document.Parsed
+  const declarations: RouteDeclaration[] = [];
+  const failures: RouteParseFailure[] = [];
+  const role = authority === "legacy" ? "legacy_route_authority" : "mono_route_authority";
+  let document: Document.Parsed;
   try {
-    document = parseDocument(text, { prettyErrors: false })
-    if (document.errors.some((error) => error.code !== "DUPLICATE_KEY")) throw new Error("yaml document errors")
+    document = parseDocument(text, { prettyErrors: false });
+    if (document.errors.some((error) => error.code !== "DUPLICATE_KEY"))
+      throw new Error("yaml document errors");
   } catch {
-    const sourceRefId = sourceForFailure(context, authority, path, role)
-    failures.push({ source_ref_id: sourceRefId, reason_code: "SOURCE_PARSE_ERROR", status: "unresolved" })
-    return { declarations, failures }
+    const sourceRefId = sourceForFailure(context, authority, path, role);
+    failures.push({
+      source_ref_id: sourceRefId,
+      reason_code: "SOURCE_PARSE_ERROR",
+      status: "unresolved",
+    });
+    return { declarations, failures };
   }
-  const contents = document.contents
-  const items = contents !== null && typeof contents === "object" && "items" in contents && Array.isArray(contents.items) ? contents.items : []
+  const contents = document.contents;
+  const items =
+    contents !== null &&
+    typeof contents === "object" &&
+    "items" in contents &&
+    Array.isArray(contents.items)
+      ? contents.items
+      : [];
   const nodeValue = (node: unknown): unknown => {
-    if (node !== null && typeof node === "object" && "toJSON" in node && typeof node.toJSON === "function") return node.toJSON()
-    return node
-  }
-  const entries: Array<readonly [string, unknown]> = []
+    if (
+      node !== null &&
+      typeof node === "object" &&
+      "toJSON" in node &&
+      typeof node.toJSON === "function"
+    )
+      return node.toJSON();
+    return node;
+  };
+  const entries: Array<readonly [string, unknown]> = [];
   for (const item of items) {
-    if (item === null || typeof item !== "object" || !("key" in item) || !("value" in item)) continue
-    const routeName = nodeValue(item.key)
-    if (typeof routeName !== "string") continue
-    entries.push([routeName, nodeValue(item.value)])
+    if (item === null || typeof item !== "object" || !("key" in item) || !("value" in item))
+      continue;
+    const routeName = nodeValue(item.key);
+    if (typeof routeName !== "string") continue;
+    entries.push([routeName, nodeValue(item.value)]);
   }
-  if (entries.length === 0) return { declarations, failures }
-  const nextStart = new Map<string, number>()
+  if (entries.length === 0) return { declarations, failures };
+  const nextStart = new Map<string, number>();
   entries.forEach(([routeName, value], index) => {
-    const offset = nextStart.get(routeName) ?? 0
-    const start = text.indexOf(`${routeName}:`, offset)
-    if (start >= 0) nextStart.set(routeName, start + routeName.length + 1)
-    const lineStart = start < 0 ? null : lineAt(text, start)
-    const lineEnd = lineStart
-    const resource = stringValue(value, "resource")
-    const pathValue = stringValue(value, "path")
-    const methods = methodsValue(value)
-    const controllerRef = controllerValue(value)
-    const typeValue = stringValue(value, "type")
-    const payloadUnsafe = unsafeRoutePayload(value)
-    const routeNameValue = parsedScalar(routeName, "route_name")
-    const vendor = resource.value?.startsWith("@") === true
-    const apiPlatform = typeValue.value === "api_platform"
-    const pathTemplate = normalizePath(pathValue.value)
-    const declarationKind: RouteDeclaration["declarationKind"] = resource.value !== null && pathTemplate === null ? (vendor ? "vendor_route" : "imported_route") : authority === "legacy" ? "yaml_route_block" : apiPlatform ? "api_platform" : "imported_route"
-    const routeOrigin = authority === "mono" ? (vendor ? "vendor" : apiPlatform ? "api_platform" : resource.value !== null ? "imported" : "imported") : undefined
-    const line = lineStart ?? 1
-    const sourceRefId = yamlSourceRef(context, authority, path, line, lineEnd ?? line)
+    const offset = nextStart.get(routeName) ?? 0;
+    const start = text.indexOf(`${routeName}:`, offset);
+    if (start >= 0) nextStart.set(routeName, start + routeName.length + 1);
+    const lineStart = start < 0 ? null : lineAt(text, start);
+    const lineEnd = lineStart;
+    const resource = stringValue(value, "resource");
+    const pathValue = stringValue(value, "path");
+    const methods = methodsValue(value);
+    const controllerRef = controllerValue(value);
+    const typeValue = stringValue(value, "type");
+    const payloadUnsafe = unsafeRoutePayload(value);
+    const routeNameValue = parsedScalar(routeName, "route_name");
+    const vendor = resource.value?.startsWith("@") === true;
+    const apiPlatform = typeValue.value === "api_platform";
+    const pathTemplate = normalizePath(pathValue.value);
+    const declarationKind: RouteDeclaration["declarationKind"] =
+      resource.value !== null && pathTemplate === null
+        ? vendor
+          ? "vendor_route"
+          : "imported_route"
+        : authority === "legacy"
+          ? "yaml_route_block"
+          : apiPlatform
+            ? "api_platform"
+            : "imported_route";
+    const routeOrigin =
+      authority === "mono"
+        ? vendor
+          ? "vendor"
+          : apiPlatform
+            ? "api_platform"
+            : resource.value !== null
+              ? "imported"
+              : "imported"
+        : undefined;
+    const line = lineStart ?? 1;
+    const sourceRefId = yamlSourceRef(context, authority, path, line, lineEnd ?? line);
     declarations.push({
       authority,
       logicalPath: path,
@@ -767,40 +1018,79 @@ const parseYamlRoutes = (
       runtimeResolved: false,
       ordinal: index + 1,
       sourceRefId,
-      reasonCodes: routeReasonCodes({ pathTemplate, methods: methods.methods, routeName: routeNameValue.value, routeNameRequired: true, reasonCodes: payloadUnsafe || resource.unsafe || pathValue.unsafe || methods.unsafe || typeValue.unsafe || controllerRef.unsafe || routeNameValue.unsafe ? ["UNSAFE_SOURCE"] : [] }),
-    })
-  })
-  return { declarations, failures }
-}
+      reasonCodes: routeReasonCodes({
+        pathTemplate,
+        methods: methods.methods,
+        routeName: routeNameValue.value,
+        routeNameRequired: true,
+        reasonCodes:
+          payloadUnsafe ||
+          resource.unsafe ||
+          pathValue.unsafe ||
+          methods.unsafe ||
+          typeValue.unsafe ||
+          controllerRef.unsafe ||
+          routeNameValue.unsafe
+            ? ["UNSAFE_SOURCE"]
+            : [],
+      }),
+    });
+  });
+  return { declarations, failures };
+};
 
-const parseLegacyAnnotations = (context: ManifestContext, path: string, text: string): { readonly declarations: RouteDeclaration[]; readonly failures: RouteParseFailure[] } => {
-  const declarations: RouteDeclaration[] = []
-  const failures: RouteParseFailure[] = []
-  let ordinal = 0
-  let cursor = 0
+const parseLegacyAnnotations = (
+  context: ManifestContext,
+  path: string,
+  text: string,
+): { readonly declarations: RouteDeclaration[]; readonly failures: RouteParseFailure[] } => {
+  const declarations: RouteDeclaration[] = [];
+  const failures: RouteParseFailure[] = [];
+  let ordinal = 0;
+  let cursor = 0;
   while (cursor < text.length) {
-    const marker = text.indexOf("@Route", cursor)
-    if (marker < 0) break
-    const open = text.indexOf("(", marker + 6)
+    const marker = text.indexOf("@Route", cursor);
+    if (marker < 0) break;
+    const open = text.indexOf("(", marker + 6);
     if (open < 0) {
-      cursor = marker + 6
-      continue
+      cursor = marker + 6;
+      continue;
     }
-    const parsed = balanced(text, open, "(", ")")
+    const parsed = balanced(text, open, "(", ")");
     if (parsed === null) {
-      const line = lineAt(text, marker)
-      const sourceRefId = phpSourceRef(context, "legacy", path, line, line, null, "legacy_route_authority")
-      failures.push({ source_ref_id: sourceRefId, reason_code: "SOURCE_PARSE_ERROR", status: "unresolved" })
-      break
+      const line = lineAt(text, marker);
+      const sourceRefId = phpSourceRef(
+        context,
+        "legacy",
+        path,
+        line,
+        line,
+        null,
+        "legacy_route_authority",
+      );
+      failures.push({
+        source_ref_id: sourceRefId,
+        reason_code: "SOURCE_PARSE_ERROR",
+        status: "unresolved",
+      });
+      break;
     }
-    ordinal += 1
-    const route = parseRoutePayload(normalizePhpDocContinuationTrivia(parsed.body))
-    const lineStart = lineAt(text, marker)
-    const lineEnd = lineAt(text, parsed.end)
-    const rawOwner = ownerRef(text, marker, parsed.end)
-    const ownerUnsafe = rawOwner !== null && unsafeScalarReason(rawOwner, "owner") !== null
-    const owner = ownerUnsafe ? null : rawOwner
-    const sourceRefId = phpSourceRef(context, "legacy", path, lineStart, lineEnd, ownerUnsafe ? "unsafe-source-redacted" : rawOwner, "legacy_route_authority")
+    ordinal += 1;
+    const route = parseRoutePayload(normalizePhpDocContinuationTrivia(parsed.body));
+    const lineStart = lineAt(text, marker);
+    const lineEnd = lineAt(text, parsed.end);
+    const rawOwner = ownerRef(text, marker, parsed.end);
+    const ownerUnsafe = rawOwner !== null && unsafeScalarReason(rawOwner, "owner") !== null;
+    const owner = ownerUnsafe ? null : rawOwner;
+    const sourceRefId = phpSourceRef(
+      context,
+      "legacy",
+      path,
+      lineStart,
+      lineEnd,
+      ownerUnsafe ? "unsafe-source-redacted" : rawOwner,
+      "legacy_route_authority",
+    );
     declarations.push({
       authority: "legacy",
       logicalPath: path,
@@ -819,47 +1109,104 @@ const parseLegacyAnnotations = (context: ManifestContext, path: string, text: st
       runtimeResolved: false,
       ordinal,
       sourceRefId,
-      reasonCodes: routeReasonCodes({ pathTemplate: route.path, methods: route.methods, routeName: route.name, reasonCodes: ownerUnsafe ? [...route.reasonCodes, "UNSAFE_SOURCE"] : route.reasonCodes }),
-    })
-    cursor = parsed.end
+      reasonCodes: routeReasonCodes({
+        pathTemplate: route.path,
+        methods: route.methods,
+        routeName: route.name,
+        reasonCodes: ownerUnsafe ? [...route.reasonCodes, "UNSAFE_SOURCE"] : route.reasonCodes,
+      }),
+    });
+    cursor = parsed.end;
   }
-  return { declarations, failures }
-}
+  return { declarations, failures };
+};
 
-const parseAttributePayload = (payload: string, attributeName: string): { readonly path: string | null; readonly name: string | null; readonly methods: string[]; readonly reasonCodes: readonly string[]; readonly routeOrigin: MonoRouteDetails["route_origin"]; readonly declarationKind: MonoRouteDetails["declaration_kind"] } => {
-  const route = parseRoutePayload(payload)
-  const upper = attributeName.toUpperCase()
-  const methodByAttribute: Record<string, string> = { GET: "GET", POST: "POST", PUT: "PUT", PATCH: "PATCH", DELETE: "DELETE", HEAD: "HEAD", OPTIONS: "OPTIONS", TRACE: "TRACE" }
-  const method = methodByAttribute[upper]
-  const methods = method === undefined ? route.methods : [method]
-  const isApi = attributeName !== "Route" && method !== undefined
-  return { path: route.path, name: route.name, methods, reasonCodes: route.reasonCodes, routeOrigin: isApi ? "api_platform" : "controller", declarationKind: isApi ? "api_platform" : "controller_attribute" }
-}
-const parseMonoAttributes = (context: ManifestContext, path: string, text: string): { readonly declarations: RouteDeclaration[]; readonly failures: RouteParseFailure[] } => {
-  const declarations: RouteDeclaration[] = []
-  const failures: RouteParseFailure[] = []
-  const pattern = /#\[\s*(Route|Get|Post|Put|Patch|Delete|Head|Options|Trace)\s*/g
-  let match: RegExpExecArray | null
-  let ordinal = 0
+const parseAttributePayload = (
+  payload: string,
+  attributeName: string,
+): {
+  readonly path: string | null;
+  readonly name: string | null;
+  readonly methods: string[];
+  readonly reasonCodes: readonly string[];
+  readonly routeOrigin: MonoRouteDetails["route_origin"];
+  readonly declarationKind: MonoRouteDetails["declaration_kind"];
+} => {
+  const route = parseRoutePayload(payload);
+  const upper = attributeName.toUpperCase();
+  const methodByAttribute: Record<string, string> = {
+    GET: "GET",
+    POST: "POST",
+    PUT: "PUT",
+    PATCH: "PATCH",
+    DELETE: "DELETE",
+    HEAD: "HEAD",
+    OPTIONS: "OPTIONS",
+    TRACE: "TRACE",
+  };
+  const method = methodByAttribute[upper];
+  const methods = method === undefined ? route.methods : [method];
+  const isApi = attributeName !== "Route" && method !== undefined;
+  return {
+    path: route.path,
+    name: route.name,
+    methods,
+    reasonCodes: route.reasonCodes,
+    routeOrigin: isApi ? "api_platform" : "controller",
+    declarationKind: isApi ? "api_platform" : "controller_attribute",
+  };
+};
+const parseMonoAttributes = (
+  context: ManifestContext,
+  path: string,
+  text: string,
+): { readonly declarations: RouteDeclaration[]; readonly failures: RouteParseFailure[] } => {
+  const declarations: RouteDeclaration[] = [];
+  const failures: RouteParseFailure[] = [];
+  const pattern = /#\[\s*(Route|Get|Post|Put|Patch|Delete|Head|Options|Trace)\s*/g;
+  let match: RegExpExecArray | null;
+  let ordinal = 0;
   while ((match = pattern.exec(text)) !== null) {
-    const name = match[1] ?? "Route"
-    const open = text.indexOf("(", match.index + match[0].length)
-    const hasPayload = open >= 0 && open < text.indexOf("]", match.index + match[0].length)
-    const parsed = hasPayload ? balanced(text, open, "(", ")") : { body: "", end: match.index + match[0].length }
+    const name = match[1] ?? "Route";
+    const open = text.indexOf("(", match.index + match[0].length);
+    const hasPayload = open >= 0 && open < text.indexOf("]", match.index + match[0].length);
+    const parsed = hasPayload
+      ? balanced(text, open, "(", ")")
+      : { body: "", end: match.index + match[0].length };
     if (parsed === null) {
-      const line = lineAt(text, match.index)
-      const sourceRefId = phpSourceRef(context, "mono", path, line, line, null, "mono_route_authority")
-      failures.push({ source_ref_id: sourceRefId, reason_code: "SOURCE_PARSE_ERROR", status: "unresolved" })
-      continue
+      const line = lineAt(text, match.index);
+      const sourceRefId = phpSourceRef(
+        context,
+        "mono",
+        path,
+        line,
+        line,
+        null,
+        "mono_route_authority",
+      );
+      failures.push({
+        source_ref_id: sourceRefId,
+        reason_code: "SOURCE_PARSE_ERROR",
+        status: "unresolved",
+      });
+      continue;
     }
-    ordinal += 1
-    const route = parseAttributePayload(parsed.body, name)
-    const lineStart = lineAt(text, match.index)
-    const lineEnd = lineAt(text, parsed.end)
-    const rawOwner = ownerRef(text, match.index, parsed.end)
-    const ownerUnsafe = rawOwner !== null && unsafeScalarReason(rawOwner, "owner") !== null
-    const owner = ownerUnsafe ? null : rawOwner
-    const sourceRefId = phpSourceRef(context, "mono", path, lineStart, lineEnd, ownerUnsafe ? "unsafe-source-redacted" : rawOwner, "mono_route_authority")
+    ordinal += 1;
+    const route = parseAttributePayload(parsed.body, name);
+    const lineStart = lineAt(text, match.index);
+    const lineEnd = lineAt(text, parsed.end);
+    const rawOwner = ownerRef(text, match.index, parsed.end);
+    const ownerUnsafe = rawOwner !== null && unsafeScalarReason(rawOwner, "owner") !== null;
+    const owner = ownerUnsafe ? null : rawOwner;
+    const sourceRefId = phpSourceRef(
+      context,
+      "mono",
+      path,
+      lineStart,
+      lineEnd,
+      ownerUnsafe ? "unsafe-source-redacted" : rawOwner,
+      "mono_route_authority",
+    );
     declarations.push({
       authority: "mono",
       logicalPath: path,
@@ -879,70 +1226,147 @@ const parseMonoAttributes = (context: ManifestContext, path: string, text: strin
       runtimeResolved: false,
       ordinal,
       sourceRefId,
-      reasonCodes: routeReasonCodes({ pathTemplate: route.path, methods: route.methods, routeName: route.name, reasonCodes: ownerUnsafe ? [...route.reasonCodes, "UNSAFE_SOURCE"] : route.reasonCodes }),
-    })
-    pattern.lastIndex = Math.max(pattern.lastIndex, parsed.end)
+      reasonCodes: routeReasonCodes({
+        pathTemplate: route.path,
+        methods: route.methods,
+        routeName: route.name,
+        reasonCodes: ownerUnsafe ? [...route.reasonCodes, "UNSAFE_SOURCE"] : route.reasonCodes,
+      }),
+    });
+    pattern.lastIndex = Math.max(pattern.lastIndex, parsed.end);
   }
-  return { declarations, failures }
-}
+  return { declarations, failures };
+};
 
-const parseLegacy = (context: ManifestContext): { readonly declarations: RouteDeclaration[]; readonly failures: RouteParseFailure[] } => {
-  const declarations: RouteDeclaration[] = []
-  const failures: RouteParseFailure[] = []
-  const yamlFiles = context.scans.legacy.files.filter((file) => file.availability === "available" && /^app\/config\/routing.*\.ya?ml$/.test(file.path)).sort((a, b) => compareByteOrder(a.path, b.path))
+const parseLegacy = (
+  context: ManifestContext,
+): { readonly declarations: RouteDeclaration[]; readonly failures: RouteParseFailure[] } => {
+  const declarations: RouteDeclaration[] = [];
+  const failures: RouteParseFailure[] = [];
+  const yamlFiles = context.scans.legacy.files
+    .filter(
+      (file) =>
+        file.availability === "available" && /^app\/config\/routing.*\.ya?ml$/.test(file.path),
+    )
+    .sort((a, b) => compareByteOrder(a.path, b.path));
   for (const file of yamlFiles) {
-    const text = readSourceText(context, "legacy", file.path)
+    const text = readSourceText(context, "legacy", file.path);
     if (text === null) {
-      failures.push({ source_ref_id: sourceForFailure(context, "legacy", file.path, "legacy_route_authority"), reason_code: "SOURCE_UNAVAILABLE", status: "source_unavailable" })
-      continue
+      failures.push({
+        source_ref_id: sourceForFailure(context, "legacy", file.path, "legacy_route_authority"),
+        reason_code: "SOURCE_UNAVAILABLE",
+        status: "source_unavailable",
+      });
+      continue;
     }
-    const parsed = parseYamlRoutes(context, "legacy", file.path, text)
-    declarations.push(...parsed.declarations)
-    failures.push(...parsed.failures)
+    const parsed = parseYamlRoutes(context, "legacy", file.path, text);
+    declarations.push(...parsed.declarations);
+    failures.push(...parsed.failures);
   }
-  const controllerFiles = filesMatchingFamily(context, "legacy", "legacy_routes", /\.php$/)
+  const controllerFiles = filesMatchingFamily(context, "legacy", "legacy_routes", /\.php$/);
   for (const file of controllerFiles) {
-    const text = readSourceText(context, "legacy", file.path)
+    const text = readSourceText(context, "legacy", file.path);
     if (text === null) {
-      failures.push({ source_ref_id: sourceForFailure(context, "legacy", file.path, "legacy_route_authority"), reason_code: "SOURCE_UNAVAILABLE", status: "source_unavailable" })
-      continue
+      failures.push({
+        source_ref_id: sourceForFailure(context, "legacy", file.path, "legacy_route_authority"),
+        reason_code: "SOURCE_UNAVAILABLE",
+        status: "source_unavailable",
+      });
+      continue;
     }
-    const parsed = parseLegacyAnnotations(context, file.path, text)
-    declarations.push(...parsed.declarations)
-    failures.push(...parsed.failures)
+    const parsed = parseLegacyAnnotations(context, file.path, text);
+    declarations.push(...parsed.declarations);
+    failures.push(...parsed.failures);
   }
-  const imports = makeImportedPrefixes(declarations)
-  return { declarations: declarations.map((declaration) => declaration.declarationKind === "controller_annotation" ? { ...declaration, imported: importedController("legacy", declaration.logicalPath, imports), reasonCodes: importedController("legacy", declaration.logicalPath, imports) ? declaration.reasonCodes : sortUnique([...declaration.reasonCodes, "DEAD_UNIMPORTED_SOURCE"]) } : declaration), failures }
-}
+  const imports = makeImportedPrefixes(declarations);
+  return {
+    declarations: declarations.map((declaration) =>
+      declaration.declarationKind === "controller_annotation"
+        ? {
+            ...declaration,
+            imported: importedController("legacy", declaration.logicalPath, imports),
+            reasonCodes: importedController("legacy", declaration.logicalPath, imports)
+              ? declaration.reasonCodes
+              : sortUnique([...declaration.reasonCodes, "DEAD_UNIMPORTED_SOURCE"]),
+          }
+        : declaration,
+    ),
+    failures,
+  };
+};
 
-const parseMono = (context: ManifestContext): { readonly declarations: RouteDeclaration[]; readonly failures: RouteParseFailure[] } => {
-  const declarations: RouteDeclaration[] = []
-  const failures: RouteParseFailure[] = []
-  const yaml = context.scans.mono.files.find((file) => file.path === "apps/server/config/routes.yaml" && file.availability === "available")
+const parseMono = (
+  context: ManifestContext,
+): { readonly declarations: RouteDeclaration[]; readonly failures: RouteParseFailure[] } => {
+  const declarations: RouteDeclaration[] = [];
+  const failures: RouteParseFailure[] = [];
+  const yaml = context.scans.mono.files.find(
+    (file) => file.path === "apps/server/config/routes.yaml" && file.availability === "available",
+  );
   if (yaml !== undefined) {
-    const text = readSourceText(context, "mono", yaml.path)
+    const text = readSourceText(context, "mono", yaml.path);
     if (text !== null) {
-      const parsed = parseYamlRoutes(context, "mono", yaml.path, text)
-      declarations.push(...parsed.declarations)
-      failures.push(...parsed.failures)
+      const parsed = parseYamlRoutes(context, "mono", yaml.path, text);
+      declarations.push(...parsed.declarations);
+      failures.push(...parsed.failures);
     }
   }
-  const controllerFiles = filesMatchingFamily(context, "mono", "mono_routes", /\.php$/)
+  const controllerFiles = filesMatchingFamily(context, "mono", "mono_routes", /\.php$/);
   for (const file of controllerFiles) {
-    const text = readSourceText(context, "mono", file.path)
+    const text = readSourceText(context, "mono", file.path);
     if (text === null) {
-      failures.push({ source_ref_id: sourceForFailure(context, "mono", file.path, "mono_route_authority"), reason_code: "SOURCE_UNAVAILABLE", status: "source_unavailable" })
-      continue
+      failures.push({
+        source_ref_id: sourceForFailure(context, "mono", file.path, "mono_route_authority"),
+        reason_code: "SOURCE_UNAVAILABLE",
+        status: "source_unavailable",
+      });
+      continue;
     }
-    const parsed = parseMonoAttributes(context, file.path, text)
-    declarations.push(...parsed.declarations)
-    failures.push(...parsed.failures)
+    const parsed = parseMonoAttributes(context, file.path, text);
+    declarations.push(...parsed.declarations);
+    failures.push(...parsed.failures);
   }
-  const imports = declarations.filter((declaration) => declaration.importRef !== null)
-  return { declarations: declarations.map((declaration) => declaration.declarationKind === "controller_attribute" || declaration.declarationKind === "api_platform" ? { ...declaration, imported: importedController("mono", declaration.logicalPath, imports.map((entry) => entry.importRef).filter((value): value is string => value !== null)), reasonCodes: importedController("mono", declaration.logicalPath, imports.map((entry) => entry.importRef).filter((value): value is string => value !== null)) ? declaration.reasonCodes : sortUnique([...declaration.reasonCodes, "DEAD_UNIMPORTED_SOURCE"]) } : declaration), failures }
-}
+  const imports = declarations.filter((declaration) => declaration.importRef !== null);
+  return {
+    declarations: declarations.map((declaration) =>
+      declaration.declarationKind === "controller_attribute" ||
+      declaration.declarationKind === "api_platform"
+        ? {
+            ...declaration,
+            imported: importedController(
+              "mono",
+              declaration.logicalPath,
+              imports
+                .map((entry) => entry.importRef)
+                .filter((value): value is string => value !== null),
+            ),
+            reasonCodes: importedController(
+              "mono",
+              declaration.logicalPath,
+              imports
+                .map((entry) => entry.importRef)
+                .filter((value): value is string => value !== null),
+            )
+              ? declaration.reasonCodes
+              : sortUnique([...declaration.reasonCodes, "DEAD_UNIMPORTED_SOURCE"]),
+          }
+        : declaration,
+    ),
+    failures,
+  };
+};
 
-const rowMismatch = (kind: Mismatch["kind"], counterpartRowIds: readonly string[], reason: string | null): Mismatch => ({ kind, disposition: "none", accepted_intent_ref_ids: [], counterpart_row_ids: sortUnique(counterpartRowIds), reason })
+const rowMismatch = (
+  kind: Mismatch["kind"],
+  counterpartRowIds: readonly string[],
+  reason: string | null,
+): Mismatch => ({
+  kind,
+  disposition: "none",
+  accepted_intent_ref_ids: [],
+  counterpart_row_ids: sortUnique(counterpartRowIds),
+  reason,
+});
 
 const routeCanonicalKey = (
   method: string | null,
@@ -950,9 +1374,13 @@ const routeCanonicalKey = (
   routeName: string | null,
   routeOrigin: RouteDeclaration["routeOrigin"],
 ): string => {
-  if (routeOrigin !== "api_platform") return canonicalRouteKey(method, pathTemplate, routeName)
-  return canonicalRouteKey(method, canonicalApiPlatformPath(pathTemplate), canonicalApiPlatformRouteName(routeName))
-}
+  if (routeOrigin !== "api_platform") return canonicalRouteKey(method, pathTemplate, routeName);
+  return canonicalRouteKey(
+    method,
+    canonicalApiPlatformPath(pathTemplate),
+    canonicalApiPlatformRouteName(routeName),
+  );
+};
 
 const makeRows = (
   context: ManifestContext,
@@ -960,35 +1388,92 @@ const makeRows = (
   authority: "legacy" | "mono",
   runtimeObservation: RuntimeObservation | null = null,
 ): InventoryRow[] => {
-  const inventoryKind = authority === "legacy" ? "legacy_route" : "mono_route"
-  const importDeclarations = declarations.filter((declaration) => declaration.pathTemplate === null && declaration.importRef !== null)
-  const rows: InventoryRow[] = []
+  const inventoryKind = authority === "legacy" ? "legacy_route" : "mono_route";
+  const importDeclarations = declarations.filter(
+    (declaration) => declaration.pathTemplate === null && declaration.importRef !== null,
+  );
+  const rows: InventoryRow[] = [];
   for (const declaration of declarations) {
-    if (declaration.pathTemplate === null && declaration.importRef !== null) continue
-    const unconstrained = declaration.pathTemplate !== null
-      && declaration.methods.length === 0
-      && !declaration.reasonCodes.includes("UNSAFE_SOURCE")
-    const methods = unconstrained ? ["ANY"] : declaration.methods.length > 0 ? declaration.methods : [null]
-    const declaredMethods = unconstrained ? ["ANY"] : declaration.methods
-    const declarationIdentity = declarationId(authority, authority, declaration.logicalPath, declaration.declarationKind, declaration.ordinal)
+    if (declaration.pathTemplate === null && declaration.importRef !== null) continue;
+    const unconstrained =
+      declaration.pathTemplate !== null &&
+      declaration.methods.length === 0 &&
+      !declaration.reasonCodes.includes("UNSAFE_SOURCE");
+    const methods = unconstrained
+      ? ["ANY"]
+      : declaration.methods.length > 0
+        ? declaration.methods
+        : [null];
+    const declaredMethods = unconstrained ? ["ANY"] : declaration.methods;
+    const declarationIdentity = declarationId(
+      authority,
+      authority,
+      declaration.logicalPath,
+      declaration.declarationKind,
+      declaration.ordinal,
+    );
     for (const method of methods) {
-      const canonicalKey = routeCanonicalKey(method, declaration.pathTemplate, declaration.routeName, declaration.routeOrigin)
-      const rowIdentity = rowId(inventoryKind, declarationIdentity, canonicalKey)
+      const canonicalKey = routeCanonicalKey(
+        method,
+        declaration.pathTemplate,
+        declaration.routeName,
+        declaration.routeOrigin,
+      );
+      const rowIdentity = rowId(inventoryKind, declarationIdentity, canonicalKey);
       const reasonCodes = routeReasonCodes({
         pathTemplate: declaration.pathTemplate,
         methods: declaredMethods,
         routeName: declaration.routeName,
-        reasonCodes: declaration.reasonCodes.filter((reason) => !(unconstrained && reason === "METHOD_UNRESOLVED")),
-      })
-      if (!declaration.imported && declaration.declarationKind !== "yaml_route_block" && declaration.declarationKind !== "imported_route" && declaration.declarationKind !== "vendor_route") reasonCodes.push("DEAD_UNIMPORTED_SOURCE")
-      const status: InventoryRow["status"] = declaration.pathTemplate === null || declaredMethods.length === 0 || reasonCodes.includes("SOURCE_PARSE_ERROR") ? "unresolved" : declaration.imported ? "covered" : "dead_unimported"
-      const details: LegacyRouteDetails | MonoRouteDetails = authority === "legacy"
-        ? { declaration_kind: declaration.declarationKind as LegacyRouteDetails["declaration_kind"], route_name: declaration.routeName, path_template: declaration.pathTemplate, method, methods_declared: declaredMethods, controller_ref: declaration.controllerRef, import_ref: declaration.importRef, deprecated: declaration.deprecated }
-        : { declaration_kind: declaration.declarationKind as MonoRouteDetails["declaration_kind"], route_origin: declaration.routeOrigin ?? "imported", route_name: declaration.routeName, path_template: declaration.pathTemplate, method, owner_ref: declaration.ownerRef, runtime_resolved: declaration.runtimeResolved, imported_from_ref: declaration.importRef }
+        reasonCodes: declaration.reasonCodes.filter(
+          (reason) => !(unconstrained && reason === "METHOD_UNRESOLVED"),
+        ),
+      });
+      if (
+        !declaration.imported &&
+        declaration.declarationKind !== "yaml_route_block" &&
+        declaration.declarationKind !== "imported_route" &&
+        declaration.declarationKind !== "vendor_route"
+      )
+        reasonCodes.push("DEAD_UNIMPORTED_SOURCE");
+      const status: InventoryRow["status"] =
+        declaration.pathTemplate === null ||
+        declaredMethods.length === 0 ||
+        reasonCodes.includes("SOURCE_PARSE_ERROR")
+          ? "unresolved"
+          : declaration.imported
+            ? "covered"
+            : "dead_unimported";
+      const details: LegacyRouteDetails | MonoRouteDetails =
+        authority === "legacy"
+          ? {
+              declaration_kind:
+                declaration.declarationKind as LegacyRouteDetails["declaration_kind"],
+              route_name: declaration.routeName,
+              path_template: declaration.pathTemplate,
+              method,
+              methods_declared: declaredMethods,
+              controller_ref: declaration.controllerRef,
+              import_ref: declaration.importRef,
+              deprecated: declaration.deprecated,
+            }
+          : {
+              declaration_kind: declaration.declarationKind as MonoRouteDetails["declaration_kind"],
+              route_origin: declaration.routeOrigin ?? "imported",
+              route_name: declaration.routeName,
+              path_template: declaration.pathTemplate,
+              method,
+              owner_ref: declaration.ownerRef,
+              runtime_resolved: declaration.runtimeResolved,
+              imported_from_ref: declaration.importRef,
+            };
       const importerSourceRefIds = importDeclarations
-        .filter((candidate) => candidate.importRef !== null && importedController(authority, declaration.logicalPath, [candidate.importRef]))
-        .map((candidate) => candidate.sourceRefId)
-      const sourceRefIds = sortUnique([declaration.sourceRefId, ...importerSourceRefIds])
+        .filter(
+          (candidate) =>
+            candidate.importRef !== null &&
+            importedController(authority, declaration.logicalPath, [candidate.importRef]),
+        )
+        .map((candidate) => candidate.sourceRefId);
+      const sourceRefIds = sortUnique([declaration.sourceRefId, ...importerSourceRefIds]);
       rows.push({
         row_id: rowIdentity,
         declaration_id: declarationIdentity,
@@ -1000,19 +1485,28 @@ const makeRows = (
         observation_kinds: ["static_source"],
         source_ref_ids: sourceRefIds,
         revision_ref_ids: [context.scans[authority].revisionRefId],
-        mismatch: rowMismatch(status === "unresolved" ? "unresolved" : status === "dead_unimported" ? "dead_unimported" : "none", [], status === "covered" ? null : sortUnique(reasonCodes)[0] ?? null),
-        runtime_observation_ref_ids: runtimeObservation === null ? [] : [runtimeObservation.runtime_observation_ref_id],
+        mismatch: rowMismatch(
+          status === "unresolved"
+            ? "unresolved"
+            : status === "dead_unimported"
+              ? "dead_unimported"
+              : "none",
+          [],
+          status === "covered" ? null : (sortUnique(reasonCodes)[0] ?? null),
+        ),
+        runtime_observation_ref_ids:
+          runtimeObservation === null ? [] : [runtimeObservation.runtime_observation_ref_id],
         coverage_ref_ids: [],
         accepted_intent_ref_ids: [],
         duplicate_group_id: null,
         reason_codes: sortUnique(reasonCodes),
         related_row_ids: [],
         details,
-      })
+      });
     }
   }
-  return rows
-}
+  return rows;
+};
 
 const FRAMEWORK_GENERATED_ROUTE_NAMES: Readonly<Record<string, true>> = {
   api_doc: true,
@@ -1026,11 +1520,15 @@ const FRAMEWORK_GENERATED_ROUTE_NAMES: Readonly<Record<string, true>> = {
   _api_validation_errors_problem: true,
   liip_imagine_filter: true,
   liip_imagine_filter_runtime: true,
-}
+};
 
-const runtimeRouteDetails = (route: RuntimeRoute, method: string | null, runtimeResolved = true): MonoRouteDetails => {
-  const apiPlatform = isApiPlatformGeneratedRouteName(route.routeName)
-  const vendor = FRAMEWORK_GENERATED_ROUTE_NAMES[route.routeName] === true
+const runtimeRouteDetails = (
+  route: RuntimeRoute,
+  method: string | null,
+  runtimeResolved = true,
+): MonoRouteDetails => {
+  const apiPlatform = isApiPlatformGeneratedRouteName(route.routeName);
+  const vendor = FRAMEWORK_GENERATED_ROUTE_NAMES[route.routeName] === true;
   return {
     declaration_kind: apiPlatform ? "api_platform" : vendor ? "vendor_route" : "unknown",
     route_origin: apiPlatform ? "api_platform" : vendor ? "vendor" : "imported",
@@ -1040,20 +1538,34 @@ const runtimeRouteDetails = (route: RuntimeRoute, method: string | null, runtime
     owner_ref: route.controllerRef ?? null,
     runtime_resolved: runtimeResolved,
     imported_from_ref: null,
-  }
-}
+  };
+};
 
-const makeRuntimeRows = (revisionRefId: string, runtime: RuntimeRouteCollection): InventoryRow[] => {
-  const rows: InventoryRow[] = []
-  let ordinal = 0
+const makeRuntimeRows = (
+  revisionRefId: string,
+  runtime: RuntimeRouteCollection,
+): InventoryRow[] => {
+  const rows: InventoryRow[] = [];
+  let ordinal = 0;
   for (const route of runtime.routes) {
-    const methods = route.methods.length > 0 ? route.methods : ["ANY"]
+    const methods = route.methods.length > 0 ? route.methods : ["ANY"];
     for (const method of methods) {
-      ordinal += 1
-      const details = runtimeRouteDetails(route, method)
-      const canonicalKey = routeCanonicalKey(method, route.pathTemplate, route.routeName, details.route_origin)
-      const declarationIdentity = declarationId("mono", "mono", ROUTE_CONSOLE_PATH, "runtime_route", ordinal)
-      const rowIdentity = rowId("mono_route", declarationIdentity, canonicalKey)
+      ordinal += 1;
+      const details = runtimeRouteDetails(route, method);
+      const canonicalKey = routeCanonicalKey(
+        method,
+        route.pathTemplate,
+        route.routeName,
+        details.route_origin,
+      );
+      const declarationIdentity = declarationId(
+        "mono",
+        "mono",
+        ROUTE_CONSOLE_PATH,
+        "runtime_route",
+        ordinal,
+      );
+      const rowIdentity = rowId("mono_route", declarationIdentity, canonicalKey);
       rows.push({
         row_id: rowIdentity,
         declaration_id: declarationIdentity,
@@ -1073,14 +1585,19 @@ const makeRuntimeRows = (revisionRefId: string, runtime: RuntimeRouteCollection)
         reason_codes: ["RUNTIME_ONLY_SOURCE"],
         related_row_ids: [],
         details,
-      })
+      });
     }
   }
-  return rows
-}
+  return rows;
+};
 
-const routeDetailsComparable = (row: InventoryRow): Pick<MonoRouteDetails, "route_name" | "path_template" | "method" | "route_origin" | "owner_ref" | "imported_from_ref"> => {
-  const details = row.details as MonoRouteDetails
+const routeDetailsComparable = (
+  row: InventoryRow,
+): Pick<
+  MonoRouteDetails,
+  "route_name" | "path_template" | "method" | "route_origin" | "owner_ref" | "imported_from_ref"
+> => {
+  const details = row.details as MonoRouteDetails;
   return {
     route_name: details.route_name,
     path_template: details.path_template,
@@ -1088,64 +1605,76 @@ const routeDetailsComparable = (row: InventoryRow): Pick<MonoRouteDetails, "rout
     route_origin: details.route_origin,
     owner_ref: details.owner_ref,
     imported_from_ref: details.imported_from_ref,
-  }
-}
+  };
+};
 
 const sameRouteName = (
   left: Pick<MonoRouteDetails, "route_name" | "route_origin">,
   right: Pick<MonoRouteDetails, "route_name" | "route_origin">,
 ): boolean => {
-  if (left.route_name === right.route_name) return true
-  if (left.route_name === null || right.route_name === null || left.route_origin !== "api_platform") return false
-  if (!isApiPlatformGeneratedRouteName(left.route_name) || !isApiPlatformGeneratedRouteName(right.route_name)) return false
-  return canonicalApiPlatformRouteName(left.route_name) === canonicalApiPlatformRouteName(right.route_name)
-}
+  if (left.route_name === right.route_name) return true;
+  if (left.route_name === null || right.route_name === null || left.route_origin !== "api_platform")
+    return false;
+  if (
+    !isApiPlatformGeneratedRouteName(left.route_name) ||
+    !isApiPlatformGeneratedRouteName(right.route_name)
+  )
+    return false;
+  return (
+    canonicalApiPlatformRouteName(left.route_name) ===
+    canonicalApiPlatformRouteName(right.route_name)
+  );
+};
 
 const sameRoutePath = (
   left: Pick<MonoRouteDetails, "path_template" | "route_origin">,
   right: Pick<MonoRouteDetails, "path_template" | "route_origin">,
 ): boolean => {
-  if (left.path_template === right.path_template) return true
-  if (left.route_origin !== "api_platform") return false
-  return canonicalApiPlatformPath(left.path_template) === canonicalApiPlatformPath(right.path_template)
-}
+  if (left.path_template === right.path_template) return true;
+  if (left.route_origin !== "api_platform") return false;
+  return (
+    canonicalApiPlatformPath(left.path_template) === canonicalApiPlatformPath(right.path_template)
+  );
+};
 
 const sameRouteMethod = (
   left: Pick<MonoRouteDetails, "method" | "route_origin">,
   right: Pick<MonoRouteDetails, "method" | "route_origin">,
 ): boolean => {
-  if (left.method === right.method) return true
-  return left.route_origin === "api_platform" && left.method === "GET" && right.method === "HEAD"
-}
+  if (left.method === right.method) return true;
+  return left.route_origin === "api_platform" && left.method === "GET" && right.method === "HEAD";
+};
 const sameRouteOwner = (
   left: Pick<MonoRouteDetails, "owner_ref">,
   right: Pick<MonoRouteDetails, "owner_ref">,
-): boolean => left.owner_ref === null || right.owner_ref === null || left.owner_ref === right.owner_ref
+): boolean =>
+  left.owner_ref === null || right.owner_ref === null || left.owner_ref === right.owner_ref;
 
 const sameRouteImport = (
   left: Pick<MonoRouteDetails, "route_origin" | "imported_from_ref">,
   right: Pick<MonoRouteDetails, "route_origin" | "imported_from_ref">,
 ): boolean => {
-  if (left.imported_from_ref !== null && right.imported_from_ref !== null) return left.imported_from_ref === right.imported_from_ref
-  if (left.route_origin === right.route_origin) return true
-  return left.route_origin === "controller" && right.route_origin === "imported"
-}
+  if (left.imported_from_ref !== null && right.imported_from_ref !== null)
+    return left.imported_from_ref === right.imported_from_ref;
+  if (left.route_origin === right.route_origin) return true;
+  return left.route_origin === "controller" && right.route_origin === "imported";
+};
 
 const sameRouteProvenance = (
   left: Pick<MonoRouteDetails, "owner_ref" | "route_origin" | "imported_from_ref">,
   right: Pick<MonoRouteDetails, "owner_ref" | "route_origin" | "imported_from_ref">,
-): boolean => sameRouteOwner(left, right) && sameRouteImport(left, right)
+): boolean => sameRouteOwner(left, right) && sameRouteImport(left, right);
 
 const sameRoutePathAndMethod = (left: InventoryRow, right: InventoryRow): boolean => {
-  const a = routeDetailsComparable(left)
-  const b = routeDetailsComparable(right)
-  return sameRoutePath(a, b) && a.method === b.method && sameRouteProvenance(a, b)
-}
+  const a = routeDetailsComparable(left);
+  const b = routeDetailsComparable(right);
+  return sameRoutePath(a, b) && a.method === b.method && sameRouteProvenance(a, b);
+};
 
 const unnamedRouteMatches = (left: InventoryRow, right: InventoryRow): boolean => {
-  const details = routeDetailsComparable(left)
-  return details.route_name === null && sameRoutePathAndMethod(left, right)
-}
+  const details = routeDetailsComparable(left);
+  return details.route_name === null && sameRoutePathAndMethod(left, right);
+};
 
 const uniqueUnnamedRouteMatch = (
   staticRow: InventoryRow,
@@ -1154,70 +1683,93 @@ const uniqueUnnamedRouteMatch = (
 ): number => {
   const candidates = runtimeRows
     .map((candidate, index) => ({ candidate, index }))
-    .filter(({ candidate, index }) => !runtimeUsed.has(index) && unnamedRouteMatches(staticRow, candidate))
-  return candidates.length === 1 ? candidates[0]?.index ?? -1 : -1
-}
+    .filter(
+      ({ candidate, index }) =>
+        !runtimeUsed.has(index) && unnamedRouteMatches(staticRow, candidate),
+    );
+  return candidates.length === 1 ? (candidates[0]?.index ?? -1) : -1;
+};
 
 const sameRouteIdentity = (
   left: Pick<MonoRouteDetails, "route_name" | "path_template" | "route_origin">,
   right: Pick<MonoRouteDetails, "route_name" | "path_template" | "route_origin">,
-): boolean => sameRouteName(left, right) && sameRoutePath(left, right)
+): boolean => sameRouteName(left, right) && sameRoutePath(left, right);
 
 const sameRouteObservation = (left: InventoryRow, right: InventoryRow): boolean => {
-  const a = routeDetailsComparable(left)
-  const b = routeDetailsComparable(right)
-  return sameRouteIdentity(a, b) && sameRouteMethod(a, b) && sameRouteProvenance(a, b)
-}
+  const a = routeDetailsComparable(left);
+  const b = routeDetailsComparable(right);
+  return sameRouteIdentity(a, b) && sameRouteMethod(a, b) && sameRouteProvenance(a, b);
+};
 
 const routeNameMatches = (left: InventoryRow, right: InventoryRow): boolean => {
-  const a = routeDetailsComparable(left)
-  const b = routeDetailsComparable(right)
-  return a.route_name !== null && sameRouteName(a, b)
-}
+  const a = routeDetailsComparable(left);
+  const b = routeDetailsComparable(right);
+  return a.route_name !== null && sameRouteName(a, b);
+};
 
 const reconcileRuntimeRoutes = (
   revisionRefId: string,
   staticRows: readonly InventoryRow[],
   runtime: RuntimeRouteCollection,
 ): { readonly rows: InventoryRow[]; readonly links: readonly InventoryLink[] } => {
-  const runtimeRows = makeRuntimeRows(revisionRefId, runtime)
-  const rows: InventoryRow[] = [...staticRows, ...runtimeRows]
-  const links: InventoryLink[] = []
-  const runtimeUsed = new Set<number>()
-  const collapsedRuntimeRowIds = new Set<string>()
+  const runtimeRows = makeRuntimeRows(revisionRefId, runtime);
+  const rows: InventoryRow[] = [...staticRows, ...runtimeRows];
+  const links: InventoryLink[] = [];
+  const runtimeUsed = new Set<number>();
+  const collapsedRuntimeRowIds = new Set<string>();
   for (const staticRow of staticRows) {
-    const exactIndex = runtimeRows.findIndex((candidate, index) => !runtimeUsed.has(index) && sameRouteObservation(staticRow, candidate))
-    const namedIndex = exactIndex >= 0
-      ? exactIndex
-      : runtimeRows.findIndex((candidate, index) => !runtimeUsed.has(index) && routeNameMatches(staticRow, candidate))
-    const staticDetails = staticRow.details as MonoRouteDetails
-    const runtimeIndex = namedIndex >= 0
-      ? namedIndex
-      : staticDetails.route_name === null
-        ? uniqueUnnamedRouteMatch(staticRow, runtimeRows, runtimeUsed)
-        : -1
-    const staticIndex = rows.findIndex((candidate) => candidate.row_id === staticRow.row_id)
+    const exactIndex = runtimeRows.findIndex(
+      (candidate, index) => !runtimeUsed.has(index) && sameRouteObservation(staticRow, candidate),
+    );
+    const namedIndex =
+      exactIndex >= 0
+        ? exactIndex
+        : runtimeRows.findIndex(
+            (candidate, index) => !runtimeUsed.has(index) && routeNameMatches(staticRow, candidate),
+          );
+    const staticDetails = staticRow.details as MonoRouteDetails;
+    const runtimeIndex =
+      namedIndex >= 0
+        ? namedIndex
+        : staticDetails.route_name === null
+          ? uniqueUnnamedRouteMatch(staticRow, runtimeRows, runtimeUsed)
+          : -1;
+    const staticIndex = rows.findIndex((candidate) => candidate.row_id === staticRow.row_id);
     if (runtimeIndex < 0) {
-      const reason = runtime.observation.availability === "available"
-        ? runtime.failures[0]?.reason_code ?? "RUNTIME_ROUTE_UNRESOLVED"
-        : runtime.failures[0]?.reason_code ?? "RUNTIME_UNAVAILABLE"
-      const status: InventoryRow["status"] = runtime.observation.availability === "available" && staticRow.status === "dead_unimported" ? "dead_unimported" : "unresolved"
-      const mismatchKind: Mismatch["kind"] = status === "dead_unimported" ? "dead_unimported" : "unresolved"
-      rows[staticIndex] = { ...staticRow, runtime_observation_ref_ids: [runtime.observation.runtime_observation_ref_id], status, mismatch: rowMismatch(mismatchKind, [], reason), reason_codes: sortUnique([...staticRow.reason_codes, reason]) }
-      continue
+      const reason =
+        runtime.observation.availability === "available"
+          ? (runtime.failures[0]?.reason_code ?? "RUNTIME_ROUTE_UNRESOLVED")
+          : (runtime.failures[0]?.reason_code ?? "RUNTIME_UNAVAILABLE");
+      const status: InventoryRow["status"] =
+        runtime.observation.availability === "available" && staticRow.status === "dead_unimported"
+          ? "dead_unimported"
+          : "unresolved";
+      const mismatchKind: Mismatch["kind"] =
+        status === "dead_unimported" ? "dead_unimported" : "unresolved";
+      rows[staticIndex] = {
+        ...staticRow,
+        runtime_observation_ref_ids: [runtime.observation.runtime_observation_ref_id],
+        status,
+        mismatch: rowMismatch(mismatchKind, [], reason),
+        reason_codes: sortUnique([...staticRow.reason_codes, reason]),
+      };
+      continue;
     }
-    runtimeUsed.add(runtimeIndex)
-    const runtimeRow = runtimeRows[runtimeIndex]
-    if (runtimeRow === undefined) continue
-    const changed = staticDetails.route_name === null
-      ? !sameRoutePathAndMethod(staticRow, runtimeRow)
-      : !sameRouteObservation(staticRow, runtimeRow)
+    runtimeUsed.add(runtimeIndex);
+    const runtimeRow = runtimeRows[runtimeIndex];
+    if (runtimeRow === undefined) continue;
+    const changed =
+      staticDetails.route_name === null
+        ? !sameRoutePathAndMethod(staticRow, runtimeRow)
+        : !sameRouteObservation(staticRow, runtimeRow);
     if (!changed) {
-      const status: InventoryRow["status"] = staticRow.status === "unresolved" ? "unresolved" : "covered"
-      const reasonCodes = status === "covered"
-        ? staticRow.reason_codes.filter((reasonCode) => reasonCode !== "DEAD_UNIMPORTED_SOURCE")
-        : staticRow.reason_codes
-      const reason = status === "covered" ? null : reasonCodes[0] ?? null
+      const status: InventoryRow["status"] =
+        staticRow.status === "unresolved" ? "unresolved" : "covered";
+      const reasonCodes =
+        status === "covered"
+          ? staticRow.reason_codes.filter((reasonCode) => reasonCode !== "DEAD_UNIMPORTED_SOURCE")
+          : staticRow.reason_codes;
+      const reason = status === "covered" ? null : (reasonCodes[0] ?? null);
       rows[staticIndex] = {
         ...staticRow,
         status,
@@ -1228,22 +1780,35 @@ const reconcileRuntimeRoutes = (
         reason_codes: reasonCodes,
         related_row_ids: [],
         details: { ...staticDetails, runtime_resolved: true },
-      }
+      };
       if (staticDetails.route_origin === "api_platform" && staticDetails.method === "GET") {
         for (const [index, candidate] of runtimeRows.entries()) {
-          if (runtimeUsed.has(index)) continue
-          const candidateDetails = candidate.details as MonoRouteDetails
-          if (candidateDetails.method !== "HEAD" || !sameRouteIdentity(staticDetails, candidateDetails)) continue
-          runtimeUsed.add(index)
-          collapsedRuntimeRowIds.add(candidate.row_id)
+          if (runtimeUsed.has(index)) continue;
+          const candidateDetails = candidate.details as MonoRouteDetails;
+          if (
+            candidateDetails.method !== "HEAD" ||
+            !sameRouteIdentity(staticDetails, candidateDetails)
+          )
+            continue;
+          runtimeUsed.add(index);
+          collapsedRuntimeRowIds.add(candidate.row_id);
         }
       }
-      collapsedRuntimeRowIds.add(runtimeRow.row_id)
-      continue
+      collapsedRuntimeRowIds.add(runtimeRow.row_id);
+      continue;
     }
-    const reason = "STATIC_RUNTIME_MISMATCH"
-    const relationIdValue = relationId("reconciles", staticRow.row_id, runtimeRow.row_id, [...staticRow.source_ref_ids, ...runtimeRow.source_ref_ids])
-    links.push({ relation_id: relationIdValue, relation_kind: "reconciles", from_row_id: staticRow.row_id, to_row_id: runtimeRow.row_id, source_ref_ids: sortUnique([...staticRow.source_ref_ids, ...runtimeRow.source_ref_ids]) })
+    const reason = "STATIC_RUNTIME_MISMATCH";
+    const relationIdValue = relationId("reconciles", staticRow.row_id, runtimeRow.row_id, [
+      ...staticRow.source_ref_ids,
+      ...runtimeRow.source_ref_ids,
+    ]);
+    links.push({
+      relation_id: relationIdValue,
+      relation_kind: "reconciles",
+      from_row_id: staticRow.row_id,
+      to_row_id: runtimeRow.row_id,
+      source_ref_ids: sortUnique([...staticRow.source_ref_ids, ...runtimeRow.source_ref_ids]),
+    });
     rows[staticIndex] = {
       ...staticRow,
       status: "changed",
@@ -1253,12 +1818,20 @@ const reconcileRuntimeRoutes = (
       reason_codes: sortUnique([...staticRow.reason_codes, reason]),
       related_row_ids: [runtimeRow.row_id],
       details: { ...staticDetails, runtime_resolved: true },
-    }
-    const runtimeIndexInRows = rows.findIndex((candidate) => candidate.row_id === runtimeRow.row_id)
-    rows[runtimeIndexInRows] = { ...runtimeRow, status: "changed", mismatch: rowMismatch("changed", [staticRow.row_id], reason), reason_codes: [reason], related_row_ids: [staticRow.row_id] }
+    };
+    const runtimeIndexInRows = rows.findIndex(
+      (candidate) => candidate.row_id === runtimeRow.row_id,
+    );
+    rows[runtimeIndexInRows] = {
+      ...runtimeRow,
+      status: "changed",
+      mismatch: rowMismatch("changed", [staticRow.row_id], reason),
+      reason_codes: [reason],
+      related_row_ids: [staticRow.row_id],
+    };
   }
-  return { rows: rows.filter((row) => !collapsedRuntimeRowIds.has(row.row_id)), links }
-}
+  return { rows: rows.filter((row) => !collapsedRuntimeRowIds.has(row.row_id)), links };
+};
 export const reconcileRuntimeRouteRows = (
   revisionRefId: string,
   staticRows: readonly InventoryRow[],
@@ -1267,37 +1840,60 @@ export const reconcileRuntimeRouteRows = (
   sourceRefId: string,
   failures: readonly RouteParseFailure[] = [],
 ): { readonly rows: InventoryRow[]; readonly links: readonly InventoryLink[] } =>
-  reconcileRuntimeRoutes(revisionRefId, staticRows, { routes: runtimeRoutes, observation: runtimeObservation, sourceRefId, failures })
+  reconcileRuntimeRoutes(revisionRefId, staticRows, {
+    routes: runtimeRoutes,
+    observation: runtimeObservation,
+    sourceRefId,
+    failures,
+  });
 
 const applyDuplicateGroups = (rows: InventoryRow[]): void => {
-  const groups = new Map<string, InventoryRow[]>()
-  for (const row of rows.filter((candidate) => candidate.observation_kinds.includes("static_source"))) {
-    const key = `${row.authority_line}\u0000${row.inventory_kind}\u0000${row.canonical_key}`
-    const group = groups.get(key)
-    if (group === undefined) groups.set(key, [row])
-    else group.push(row)
+  const groups = new Map<string, InventoryRow[]>();
+  for (const row of rows.filter((candidate) =>
+    candidate.observation_kinds.includes("static_source"),
+  )) {
+    const key = `${row.authority_line}\u0000${row.inventory_kind}\u0000${row.canonical_key}`;
+    const group = groups.get(key);
+    if (group === undefined) groups.set(key, [row]);
+    else group.push(row);
   }
   for (const group of groups.values()) {
-    if (group.length < 2) continue
-    const first = group[0]
-    if (first === undefined) continue
-    const duplicateGroupId = `dup-${sha256(canonicalJson({ authority_scope: first.authority_line, inventory_kind: first.inventory_kind, canonical_key: first.canonical_key })).slice(7)}`
+    if (group.length < 2) continue;
+    const first = group[0];
+    if (first === undefined) continue;
+    const duplicateGroupId = `dup-${sha256(canonicalJson({ authority_scope: first.authority_line, inventory_kind: first.inventory_kind, canonical_key: first.canonical_key })).slice(7)}`;
     for (const row of group) {
-      const index = rows.indexOf(row)
-      rows[index] = { ...row, status: "duplicate", duplicate_group_id: duplicateGroupId, mismatch: rowMismatch("duplicate", group.filter((candidate) => candidate.row_id !== row.row_id).map((candidate) => candidate.row_id), "DUPLICATE_CANONICAL_IDENTITY"), reason_codes: sortUnique([...row.reason_codes, "DUPLICATE_CANONICAL_IDENTITY"]) }
+      const index = rows.indexOf(row);
+      rows[index] = {
+        ...row,
+        status: "duplicate",
+        duplicate_group_id: duplicateGroupId,
+        mismatch: rowMismatch(
+          "duplicate",
+          group
+            .filter((candidate) => candidate.row_id !== row.row_id)
+            .map((candidate) => candidate.row_id),
+          "DUPLICATE_CANONICAL_IDENTITY",
+        ),
+        reason_codes: sortUnique([...row.reason_codes, "DUPLICATE_CANONICAL_IDENTITY"]),
+      };
     }
   }
-}
+};
 
 const runtimeInventoryObservation = (runtime: RuntimeRouteCollection): InventoryObservation => ({
-  observation_id: observationId("runtime_resolution", [runtime.sourceRefId], runtime.observation.result_sha256),
+  observation_id: observationId(
+    "runtime_resolution",
+    [runtime.sourceRefId],
+    runtime.observation.result_sha256,
+  ),
   observation_kind: "runtime_resolution",
   source_ref_ids: [runtime.sourceRefId],
   value_digest: runtime.observation.result_sha256,
   normative: false,
   label: "local_route_runtime",
   count: runtime.routes.length,
-})
+});
 
 const makeEnvelope = (
   context: ManifestContext,
@@ -1313,33 +1909,41 @@ const makeEnvelope = (
   authority_line: authority,
   source_manifest_sha256: sourceManifestSha256,
   revision_ref_ids: [context.scans[authority].revisionRefId],
-  observation_kinds: authority === "mono" && runtime?.observation.availability === "available" ? ["static_source", "runtime_resolution"] : ["static_source"],
-  rows: [...rows].sort((a, b) => compareByteOrder(a.row_id, b.row_id) || compareByteOrder(a.canonical_key, b.canonical_key)),
+  observation_kinds:
+    authority === "mono" && runtime?.observation.availability === "available"
+      ? ["static_source", "runtime_resolution"]
+      : ["static_source"],
+  rows: [...rows].sort(
+    (a, b) =>
+      compareByteOrder(a.row_id, b.row_id) || compareByteOrder(a.canonical_key, b.canonical_key),
+  ),
   links: [...links].sort((left, right) => compareByteOrder(left.relation_id, right.relation_id)),
   observations: runtime === null ? [] : [runtimeInventoryObservation(runtime)],
   derivation_edges: [],
-})
+});
 
 export interface CollectedRouteArtifacts {
-  readonly legacy: InventoryEnvelope
-  readonly mono: InventoryEnvelope
-  readonly failures: readonly RouteParseFailure[]
-  readonly declarations: CollectedRoutes
-  readonly runtimeObservation: RuntimeObservation
+  readonly legacy: InventoryEnvelope;
+  readonly mono: InventoryEnvelope;
+  readonly failures: readonly RouteParseFailure[];
+  readonly declarations: CollectedRoutes;
+  readonly runtimeObservation: RuntimeObservation;
 }
-export const collectRoutes = (
+export const collectRoutesWithServices = (
+  fileSystem: ParityFileSystemShape,
+  commands: ParityCommandExecutorShape,
   context: ManifestContext,
   sourceManifestSha256: string,
   configured?: CollectorExecutables,
   allowFixture = false,
 ): CollectedRouteArtifacts => {
-  const legacy = parseLegacy(context)
-  const mono = parseMono(context)
-  const legacyRows = makeRows(context, legacy.declarations, "legacy")
-  applyDuplicateGroups(legacyRows)
+  const legacy = parseLegacy(context);
+  const mono = parseMono(context);
+  const legacyRows = makeRows(context, legacy.declarations, "legacy");
+  applyDuplicateGroups(legacyRows);
   if (allowFixture) {
-    const monoRows = makeRows(context, mono.declarations, "mono")
-    applyDuplicateGroups(monoRows)
+    const monoRows = makeRows(context, mono.declarations, "mono");
+    applyDuplicateGroups(monoRows);
     const runtimeObservation = recordRuntimeObservation(context, {
       collectorKind: "route_collector",
       logicalCommandId: "fixture-route-runtime",
@@ -1352,42 +1956,115 @@ export const collectRoutes = (
       availability: "available",
       revisionRefId: context.scans.mono.revisionRefId,
       outOfBand: true,
-    })
+    });
     return {
       legacy: makeEnvelope(context, "legacy", legacyRows, sourceManifestSha256),
       mono: makeEnvelope(context, "mono", monoRows, sourceManifestSha256),
       failures: [...legacy.failures, ...mono.failures],
-      declarations: { legacy: legacy.declarations, mono: mono.declarations, failures: [...legacy.failures, ...mono.failures] },
+      declarations: {
+        legacy: legacy.declarations,
+        mono: mono.declarations,
+        failures: [...legacy.failures, ...mono.failures],
+      },
       runtimeObservation,
-    }
+    };
   }
-  const runtime = collectRuntimeRoutes(context, configured)
-  const monoStaticRows = makeRows(context, mono.declarations, "mono", runtime.observation)
-  const reconciled = reconcileRuntimeRoutes(context.scans.mono.revisionRefId, monoStaticRows, runtime)
-  applyDuplicateGroups(reconciled.rows)
+  const runtime = collectRuntimeRoutes(fileSystem, commands, context, configured);
+  const monoStaticRows = makeRows(context, mono.declarations, "mono", runtime.observation);
+  const reconciled = reconcileRuntimeRoutes(
+    context.scans.mono.revisionRefId,
+    monoStaticRows,
+    runtime,
+  );
+  applyDuplicateGroups(reconciled.rows);
   return {
     legacy: makeEnvelope(context, "legacy", legacyRows, sourceManifestSha256),
-    mono: makeEnvelope(context, "mono", reconciled.rows, sourceManifestSha256, runtime, reconciled.links),
+    mono: makeEnvelope(
+      context,
+      "mono",
+      reconciled.rows,
+      sourceManifestSha256,
+      runtime,
+      reconciled.links,
+    ),
     failures: [...legacy.failures, ...mono.failures, ...runtime.failures],
-    declarations: { legacy: legacy.declarations, mono: mono.declarations, failures: [...legacy.failures, ...mono.failures, ...runtime.failures] },
+    declarations: {
+      legacy: legacy.declarations,
+      mono: mono.declarations,
+      failures: [...legacy.failures, ...mono.failures, ...runtime.failures],
+    },
     runtimeObservation: runtime.observation,
-  }
-}
+  };
+};
+
+export const collectRoutes = (
+  context: ManifestContext,
+  sourceManifestSha256: string,
+  configured?: CollectorExecutables,
+  allowFixture = false,
+): Effect.Effect<CollectedRouteArtifacts, never, ParityCommandExecutor | ParityFileSystem> =>
+  Effect.gen(function* () {
+    const fileSystem = yield* ParityFileSystem;
+    const commands = yield* ParityCommandExecutor;
+    return collectRoutesWithServices(
+      fileSystem,
+      commands,
+      context,
+      sourceManifestSha256,
+      configured,
+      allowFixture,
+    );
+  });
 
 export const routeRowsBySignature = (inventory: InventoryEnvelope): Map<string, InventoryRow[]> => {
-  const result = new Map<string, InventoryRow[]>()
+  const result = new Map<string, InventoryRow[]>();
   for (const row of inventory.rows) {
-    const rows = result.get(row.signature)
-    if (rows === undefined) result.set(row.signature, [row])
-    else rows.push(row)
+    const rows = result.get(row.signature);
+    if (rows === undefined) result.set(row.signature, [row]);
+    else rows.push(row);
   }
-  return result
-}
+  return result;
+};
 
-export const setRowMismatch = (row: InventoryRow, kind: Mismatch["kind"], counterparts: readonly string[], reason: string): InventoryRow => {
-  const status: InventoryRow["status"] = kind === "duplicate" ? "duplicate" : kind === "unresolved" ? "unresolved" : kind === "dead_unimported" ? "dead_unimported" : kind === "missing" ? "missing" : kind === "extra" ? "extra" : kind === "changed" ? "changed" : kind === "uncovered" ? "uncovered" : "covered"
-  const reasonCodes = reason.length > 0 ? sortUnique([...row.reason_codes, reason]) : row.reason_codes
-  return { ...row, status, mismatch: rowMismatch(kind, counterparts, reason.length > 0 ? reason : null), reason_codes: reasonCodes }
-}
+export const setRowMismatch = (
+  row: InventoryRow,
+  kind: Mismatch["kind"],
+  counterparts: readonly string[],
+  reason: string,
+): InventoryRow => {
+  const status: InventoryRow["status"] =
+    kind === "duplicate"
+      ? "duplicate"
+      : kind === "unresolved"
+        ? "unresolved"
+        : kind === "dead_unimported"
+          ? "dead_unimported"
+          : kind === "missing"
+            ? "missing"
+            : kind === "extra"
+              ? "extra"
+              : kind === "changed"
+                ? "changed"
+                : kind === "uncovered"
+                  ? "uncovered"
+                  : "covered";
+  const reasonCodes =
+    reason.length > 0 ? sortUnique([...row.reason_codes, reason]) : row.reason_codes;
+  return {
+    ...row,
+    status,
+    mismatch: rowMismatch(kind, counterparts, reason.length > 0 ? reason : null),
+    reason_codes: reasonCodes,
+  };
+};
 
-export const updateEnvelopeRows = (inventory: InventoryEnvelope, rows: readonly InventoryRow[]): InventoryEnvelope => ({ ...inventory, rows: [...rows].sort((a, b) => compareByteOrder(a.row_id, b.row_id) || compareByteOrder(a.canonical_key, b.canonical_key)) })
+export const updateEnvelopeRows = (
+  inventory: InventoryEnvelope,
+  rows: readonly InventoryRow[],
+): InventoryEnvelope => ({
+  ...inventory,
+  rows: [...rows].sort(
+    (a, b) =>
+      compareByteOrder(a.row_id, b.row_id) || compareByteOrder(a.canonical_key, b.canonical_key),
+  ),
+});

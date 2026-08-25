@@ -14,10 +14,18 @@ const apiOrigin = "http://127.0.0.1:8000";
 const apiPort = 8000;
 const serverRoot = fileURLToPath(new URL("../../server/", import.meta.url));
 const dashboardRoot = fileURLToPath(new URL("../", import.meta.url));
-const runnerSourcePath = fileURLToPath(new URL("./run-real-symfony-core-journeys.mjs", import.meta.url));
-const specSourcePath = fileURLToPath(new URL("./real-symfony-core-journeys.spec.ts", import.meta.url));
-const fixtureSourcePath = fileURLToPath(new URL("../../server/tests/Fixtures/CoreUserJourneyFixture.php", import.meta.url));
-const receiptImageSourcePath = fileURLToPath(new URL("../../server/images/receipts/698c00086228f.png", import.meta.url));
+const runnerSourcePath = fileURLToPath(
+  new URL("./run-real-symfony-core-journeys.mjs", import.meta.url),
+);
+const specSourcePath = fileURLToPath(
+  new URL("./real-symfony-core-journeys.spec.ts", import.meta.url),
+);
+const fixtureSourcePath = fileURLToPath(
+  new URL("../../server/tests/Fixtures/CoreUserJourneyFixture.php", import.meta.url),
+);
+const receiptImageSourcePath = fileURLToPath(
+  new URL("../../server/images/receipts/698c00086228f.png", import.meta.url),
+);
 const commandTimeoutMs = 120_000;
 const shutdownTimeoutMs = 5_000;
 
@@ -51,11 +59,7 @@ const journeys = [
   },
   {
     journeyRefId: "intent://journey:parity:files_media:v1",
-    stepIds: [
-      "files-media-command-write",
-      "files-media-legacy-route",
-      "files-media-mono-route",
-    ],
+    stepIds: ["files-media-command-write", "files-media-legacy-route", "files-media-mono-route"],
   },
   {
     journeyRefId: "intent://journey:parity:identity_self:v1",
@@ -154,10 +158,7 @@ function runCommand(command, args, options) {
     child.once("error", (error) => settle(rejectCommand, error));
     child.once(captureOutput ? "close" : "exit", (code, signal) => {
       if (code === 0) {
-        settle(
-          resolveCommand,
-          captureOutput ? { stdout: Buffer.concat(stdoutChunks) } : undefined,
-        );
+        settle(resolveCommand, captureOutput ? { stdout: Buffer.concat(stdoutChunks) } : undefined);
         return;
       }
       settle(
@@ -217,12 +218,7 @@ function signalProcessGroup(child, signal) {
   try {
     process.kill(-child.pid, signal);
   } catch (error) {
-    if (
-      error &&
-      typeof error === "object" &&
-      "code" in error &&
-      error.code === "ESRCH"
-    ) {
+    if (error && typeof error === "object" && "code" in error && error.code === "ESRCH") {
       return;
     }
     throw error;
@@ -249,10 +245,7 @@ async function stopProcess(child) {
   if (graceful || child.exitCode !== null) return;
 
   signalProcessGroup(child, "SIGKILL");
-  await Promise.race([
-    exited,
-    sleep(shutdownTimeoutMs).then(() => undefined),
-  ]);
+  await Promise.race([exited, sleep(shutdownTimeoutMs).then(() => undefined)]);
 }
 
 function assertDisposableDatabase(databasePath, temporaryRoot) {
@@ -404,6 +397,7 @@ async function main() {
   process.once("SIGTERM", handleSignal);
 
   let primaryError;
+  let primaryFailed = false;
   try {
     await rm(symfonyCacheDir, { recursive: true, force: true });
     await rm(symfonyLogDir, { recursive: true, force: true });
@@ -411,11 +405,10 @@ async function main() {
       cwd: serverRoot,
       env: serverEnv,
     });
-    await runCommand(
-      "openssl",
-      ["rsa", "-pubout", "-in", privateKeyPath, "-out", publicKeyPath],
-      { cwd: serverRoot, env: serverEnv },
-    );
+    await runCommand("openssl", ["rsa", "-pubout", "-in", privateKeyPath, "-out", publicKeyPath], {
+      cwd: serverRoot,
+      env: serverEnv,
+    });
     await chmod(privateKeyPath, 0o600);
 
     await runCommand(
@@ -450,7 +443,6 @@ require $_SERVER['DOCUMENT_ROOT'].'/index.php';
       "utf8",
     );
 
-
     await runCommand("bun", ["run", "build:prod"], {
       cwd: serverRoot,
       env: serverEnv,
@@ -484,11 +476,11 @@ require $_SERVER['DOCUMENT_ROOT'].'/index.php';
       "--project=real-symfony",
     ];
     if (receiptRequested) e2eArgs.push("--reporter=json");
-    const e2eResult = await runCommand(
-      process.env.PLAYWRIGHT_NODE_EXECUTABLE ?? "node",
-      e2eArgs,
-      { cwd: dashboardRoot, env: dashboardEnv, captureOutput: receiptRequested },
-    );
+    const e2eResult = await runCommand(process.env.PLAYWRIGHT_NODE_EXECUTABLE ?? "node", e2eArgs, {
+      cwd: dashboardRoot,
+      env: dashboardEnv,
+      captureOutput: receiptRequested,
+    });
 
     if (receiptRequested) {
       const runnerSourceRefIds = (process.env.RUNTIME_EVIDENCE_RUNNER_SOURCE_REF_IDS ?? "")
@@ -520,21 +512,29 @@ require $_SERVER['DOCUMENT_ROOT'].'/index.php';
     }
   } catch (error) {
     primaryError = error;
-    throw error;
+    primaryFailed = true;
+  }
+
+  let cleanupError;
+  let cleanupFailed = false;
+  try {
+    await cleanup();
+  } catch (error) {
+    cleanupError = error;
+    cleanupFailed = true;
   } finally {
-    try {
-      await cleanup();
-    } catch (cleanupError) {
-      if (primaryError) {
-        console.error(cleanupError instanceof Error ? cleanupError.message : cleanupError);
-      } else {
-        throw cleanupError;
-      }
-    } finally {
-      process.removeListener("SIGINT", handleSignal);
-      process.removeListener("SIGTERM", handleSignal);
+    process.removeListener("SIGINT", handleSignal);
+    process.removeListener("SIGTERM", handleSignal);
+  }
+
+  if (cleanupFailed) {
+    if (primaryError) {
+      console.error(cleanupError instanceof Error ? cleanupError.message : cleanupError);
+    } else {
+      throw cleanupError;
     }
   }
+  if (primaryFailed) throw primaryError;
 }
 
 if (process.versions.bun === undefined) {

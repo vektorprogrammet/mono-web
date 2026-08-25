@@ -9,11 +9,11 @@ import { Profile, ProfileLive } from "@vektorprogrammet/domain/profile";
 import { Recruitment, RecruitmentLive } from "@vektorprogrammet/domain/recruitment";
 import { Economy } from "@vektorprogrammet/domain/receipt";
 import { EconomyLive } from "@vektorprogrammet/domain/receipt/postgres";
-import { Effect, Exit, Fiber, Layer, ManagedRuntime, Redacted } from "effect";
+import { Effect, Exit, Fiber, Layer, Redacted } from "effect";
 import { makeHttpPublicApplicationEffectInterpreter } from "./application/effects.js";
 import { makeBackendConfig } from "./config.js";
 import { makeBackendHttp } from "./router.js";
-
+import { makeBackendRuntime } from "../runtime.js";
 
 declare const Bun: {
   serve: (options: {
@@ -46,7 +46,7 @@ const capabilityLayers = Layer.mergeAll(
   recruitmentLayer,
 );
 const authLayers = Layer.merge(AuthLive(config.auth), AuthEngineLive(config.auth));
-const runtime = ManagedRuntime.make(Layer.mergeAll(databaseLayer, capabilityLayers, authLayers));
+const runtime = makeBackendRuntime(Layer.mergeAll(databaseLayer, capabilityLayers, authLayers));
 const run = <A, E>(
   effect: Effect.Effect<
     A,

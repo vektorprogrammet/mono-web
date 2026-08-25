@@ -6,6 +6,7 @@
  */
 
 import { Effect, Schema, pipe } from "effect";
+import { FetchHttpClient } from "effect/unstable/http";
 import {
   Unauthorized,
   NotFound,
@@ -85,6 +86,9 @@ import { parseViolations } from "./adapter/errors.js";
 const MAX_JSON_RESPONSE_BYTES = 1_048_576;
 
 export type CookieOption = string | (() => string | Promise<string>);
+export interface FetchCapability {
+  (input: string | URL | Request, init?: RequestInit): Promise<Response>;
+}
 export type QueryParams = Record<string, string | number | undefined>;
 
 /**
@@ -234,10 +238,9 @@ const recruitmentFailureFromBody = (
   let tag: unknown;
   if (strict) {
     try {
-      tag = Schema.decodeUnknownSync(StrictNativeFailureBodySchema)(
-        body,
-        { onExcessProperty: "error" },
-      ).error.tag;
+      tag = Schema.decodeUnknownSync(StrictNativeFailureBodySchema)(body, {
+        onExcessProperty: "error",
+      }).error.tag;
     } catch {
       return new RecruitmentDecodeError();
     }
@@ -444,7 +447,11 @@ export interface Transport {
  * keeps factories and verb construction lazy while making configuration failure
  * observable through the typed error channel before fetch is called.
  */
-export function createTransport(baseUrl: string | undefined, cookie?: CookieOption): Transport {
+export function createTransport(
+  baseUrl: string | undefined,
+  cookie?: CookieOption,
+  fetchOverride?: FetchCapability,
+): Transport {
   const buildHeaders = (
     extra?: Readonly<Record<string, string>>,
     includeCookie = true,
@@ -485,14 +492,18 @@ export function createTransport(baseUrl: string | undefined, cookie?: CookieOpti
     });
 
   const executeFetch = (url: string, init: RequestInit): Effect.Effect<Response, Network> =>
-    Effect.tryPromise({
-      try: (signal) => fetch(url, { ...init, signal }),
-      catch: (cause) =>
-        new Network({
-          message: cause instanceof Error ? cause.message : "Network error",
-          cause,
+    Effect.flatMap(
+      fetchOverride === undefined ? FetchHttpClient.Fetch : Effect.succeed(fetchOverride),
+      (fetch) =>
+        Effect.tryPromise({
+          try: (signal) => fetch(url, { ...init, signal }),
+          catch: (cause) =>
+            new Network({
+              message: cause instanceof Error ? cause.message : "Network error",
+              cause,
+            }),
         }),
-    });
+    );
 
   const readBoundedJson = (response: Response): Effect.Effect<unknown, Network> =>
     Effect.tryPromise({
@@ -618,9 +629,7 @@ export function createTransport(baseUrl: string | undefined, cookie?: CookieOpti
         if (!response.ok) {
           return readErrorBody(response).pipe(
             Effect.flatMap((responseBody) =>
-              Effect.fail(
-                mapStatusToError(response.status, responseBody, options),
-              ),
+              Effect.fail(mapStatusToError(response.status, responseBody, options)),
             ),
           );
         }
@@ -674,13 +683,9 @@ export function createTransport(baseUrl: string | undefined, cookie?: CookieOpti
       Effect.flatMap((resolvedUrl) =>
         schema === undefined
           ? executeVoid(resolvedUrl, "PUT", body)
-          : executeJson(
-              resolvedUrl,
-              "PUT",
-              body,
-              options?.headers,
-              options,
-            ).pipe(Effect.flatMap(decodeWith(schema, options))),
+          : executeJson(resolvedUrl, "PUT", body, options?.headers, options).pipe(
+              Effect.flatMap(decodeWith(schema, options)),
+            ),
       ),
     );
   }
@@ -695,13 +700,7 @@ export function createTransport(baseUrl: string | undefined, cookie?: CookieOpti
       return pipe(
         buildUrl(url, params),
         Effect.flatMap((resolvedUrl) =>
-          executeJson(
-            resolvedUrl,
-            "GET",
-            undefined,
-            options?.headers,
-            options,
-          ),
+          executeJson(resolvedUrl, "GET", undefined, options?.headers, options),
         ),
         Effect.flatMap(decodeWith(schema, options)),
       );
@@ -722,13 +721,7 @@ export function createTransport(baseUrl: string | undefined, cookie?: CookieOpti
       return pipe(
         buildUrl(url, params),
         Effect.flatMap((resolvedUrl) =>
-          executeJson(
-            resolvedUrl,
-            "GET",
-            undefined,
-            options?.headers,
-            options,
-          ),
+          executeJson(resolvedUrl, "GET", undefined, options?.headers, options),
         ),
         Effect.flatMap(decodeWith(collectionSchema, options)),
         Effect.map(({ "hydra:member": items, "hydra:totalItems": totalItems }) => ({
@@ -749,13 +742,7 @@ export function createTransport(baseUrl: string | undefined, cookie?: CookieOpti
       return pipe(
         buildUrl(url),
         Effect.flatMap((resolvedUrl) =>
-          executeJson(
-            resolvedUrl,
-            "POST",
-            body,
-            options?.headers,
-            options,
-          ),
+          executeJson(resolvedUrl, "POST", body, options?.headers, options),
         ),
         Effect.flatMap(decodeWith(schema, options)),
       );
@@ -765,13 +752,7 @@ export function createTransport(baseUrl: string | undefined, cookie?: CookieOpti
       return pipe(
         buildUrl(url),
         Effect.flatMap((resolvedUrl) =>
-          executeVoid(
-            resolvedUrl,
-            "POST",
-            body,
-            options?.headers,
-            options,
-          ),
+          executeVoid(resolvedUrl, "POST", body, options?.headers, options),
         ),
       );
     },

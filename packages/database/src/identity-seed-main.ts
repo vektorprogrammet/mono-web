@@ -59,10 +59,7 @@ const parsePersons = (raw: string | undefined): ReadonlyArray<SeedPerson> => {
       return stringValue;
     };
     const password = read("password");
-    assert.ok(
-      password.length >= 12,
-      "seed person.password must satisfy minPasswordLength (12)",
-    );
+    assert.ok(password.length >= 12, "seed person.password must satisfy minPasswordLength (12)");
     return {
       personId: read("personId"),
       firstName: read("firstName"),
@@ -74,20 +71,18 @@ const parsePersons = (raw: string | undefined): ReadonlyArray<SeedPerson> => {
 };
 
 const applyMigrations = (postgresUrl: string) =>
-  Effect.runPromise(
-    Effect.scoped(
-      Effect.gen(function* () {
-        const database = yield* Database;
-        yield* database.health;
-        return database.schemaRevision;
-      }).pipe(
-        Effect.provide(
-          DatabaseLive({
-            url: Redacted.make(postgresUrl),
-            applicationName: "identity-seed-migration",
-            maxConnections: 1,
-          }),
-        ),
+  Effect.scoped(
+    Effect.gen(function* () {
+      const database = yield* Database;
+      yield* database.health;
+      return database.schemaRevision;
+    }).pipe(
+      Effect.provide(
+        DatabaseLive({
+          url: Redacted.make(postgresUrl),
+          applicationName: "identity-seed-migration",
+          maxConnections: 1,
+        }),
       ),
     ),
   );
@@ -132,38 +127,72 @@ const seedPerson = async (
   return { personId: person.personId, action: "created" };
 };
 
-const postgresUrl = process.env.IDENTITY_SEED_PG_URL ?? defaultSeedUrl;
-const persons = parsePersons(process.env.IDENTITY_SEED_PERSONS);
-assertLoopbackDatabaseUrl(postgresUrl);
+export const program = Effect.gen(function* () {
+  const postgresUrl = process.env.IDENTITY_SEED_PG_URL ?? defaultSeedUrl;
+  const persons = parsePersons(process.env.IDENTITY_SEED_PERSONS);
+  assertLoopbackDatabaseUrl(postgresUrl);
+  const schemaRevision = yield* applyMigrations(postgresUrl);
 
-const schemaRevision = await applyMigrations(postgresUrl);
-
-const config: AuthEngineConfig = {
-  postgresUrl,
-  secret: process.env.BETTER_AUTH_SECRET ?? "identity-seed-disposable-secret-0123456789abcdef",
-  baseURL: process.env.BETTER_AUTH_URL ?? "http://127.0.0.1:5174",
-};
-const engine = makeAuthEngine(config);
-const observer = new Pool({
-  connectionString: postgresUrl,
-  options: "-c search_path=public",
-  max: 1,
-  application_name: "identity-seed-observer",
-});
-
-try {
-  const outcomes = [];
-  for (const person of persons) {
-    outcomes.push(await seedPerson(engine, observer, person));
-  }
-  process.stdout.write(
-    `${JSON.stringify({ schemaRevision, seeded: persons.length, outcomes })}\n`,
+  const config: AuthEngineConfig = {
+    postgresUrl,
+    secret: process.env.BETTER_AUTH_SECRET ?? "identity-seed-disposable-secret-0123456789abcdef",
+    baseURL: process.env.BETTER_AUTH_URL ?? "http://127.0.0.1:5174",
+  };
+  const outcomes = yield* Effect.acquireUseRelease(
+    Effect.sync(
+      () =>
+        new Pool({
+          connectionString: postgresUrl,
+          options: "-c search_path=public",
+          max: 1,
+          application_name: "identity-seed-observer",
+        }),
+    ),
+    (observer) =>
+      Effect.acquireUseRelease(
+        Effect.sync(() => makeAuthEngine(config)),
+        (engine) =>
+          Effect.tryPromise({
+            try: async () => {
+              const seeded = [];
+              for (const person of persons) {
+                seeded.push(await seedPerson(engine, observer, person));
+              }
+              return seeded;
+            },
+            catch: (cause) => cause,
+          }),
+        (engine) =>
+          Effect.tryPromise({
+            try: async () => {
+              const context = await engine.$context;
+              const options: unknown = context.options;
+              const dbPool =
+                typeof options === "object" && options !== null && "dbPool" in options
+                  ? options.dbPool
+                  : undefined;
+              if (
+                typeof dbPool === "object" &&
+                dbPool !== null &&
+                "end" in dbPool &&
+                typeof dbPool.end === "function"
+              ) {
+                await dbPool.end.call(dbPool);
+              }
+            },
+            catch: (cause) => cause,
+          }),
+      ),
+    (observer) =>
+      Effect.tryPromise({
+        try: () => observer.end(),
+        catch: (cause) => cause,
+      }),
   );
-} finally {
-  const context = await engine.$context;
-  const dbPool = (context.options as { readonly dbPool?: unknown }).dbPool;
-  if (dbPool !== undefined && dbPool !== null && typeof (dbPool as Pool).end === "function") {
-    await (dbPool as Pool).end();
-  }
-  await observer.end();
-}
+
+  yield* Effect.sync(() =>
+    process.stdout.write(
+      `${JSON.stringify({ schemaRevision, seeded: persons.length, outcomes })}\n`,
+    ),
+  );
+});

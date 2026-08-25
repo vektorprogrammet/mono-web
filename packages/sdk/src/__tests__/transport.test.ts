@@ -3,18 +3,22 @@
  * Mocks globalThis.fetch to exercise HTTP mapping, auth injection, and error mapping.
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach, afterAll } from "vitest";
 import { Effect, Schema } from "effect";
 import { createTransport } from "../transport.js";
 import { createAdminInterviewsDomain } from "../domains/admin/interviews.js";
+import { makeTestRuntime } from "../../test/runtime.js";
+
+const testRuntime = makeTestRuntime();
+afterAll(() => testRuntime.dispose());
 
 // Helper: run an Effect to a Promise, mapping InternalSdkError to public SdkError
 function run<A>(effect: Effect.Effect<A, any>): Promise<A> {
-  return Effect.runPromise(effect);
+  return testRuntime.runPromise(effect);
 }
 
 function runFail<E>(effect: Effect.Effect<any, E>): Promise<E> {
-  return Effect.runPromise(effect.pipe(Effect.flip));
+  return testRuntime.runPromise(effect.pipe(Effect.flip));
 }
 
 function makeFetchResponse(status: number, body: unknown): Response {
@@ -100,9 +104,7 @@ describe("createTransport", () => {
     });
 
     it("calls a Cookie provider before each request", async () => {
-      const cookieProvider = vi
-        .fn()
-        .mockResolvedValue("better-auth.session_token=dynamic-session");
+      const cookieProvider = vi.fn().mockResolvedValue("better-auth.session_token=dynamic-session");
       mockFetch.mockResolvedValue(makeFetchResponse(200, { name: "Bob" }));
       const transport = createTransport("http://api.test", cookieProvider);
 

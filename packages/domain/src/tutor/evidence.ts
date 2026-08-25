@@ -1,4 +1,5 @@
-import { createHash } from "node:crypto";
+import { sha256 } from "@noble/hashes/sha2.js";
+import { bytesToHex } from "@noble/hashes/utils.js";
 import type { Evidence } from "./schema.js";
 
 export type JsonValue =
@@ -37,8 +38,7 @@ export const canonicalJson = (value: unknown): string => encodeJsonValue(sortedJ
 export const canonicalJsonBytes = (value: unknown): Uint8Array =>
   new TextEncoder().encode(canonicalJson(value));
 
-export const sha256Hex = (bytes: Uint8Array): string =>
-  createHash("sha256").update(bytes).digest("hex");
+export const sha256Hex = (bytes: Uint8Array): string => bytesToHex(sha256(bytes));
 
 export const canonicalEvidenceJson = (evidence: Evidence): string => {
   const orderedEntries: ReadonlyArray<readonly [string, unknown]> = [

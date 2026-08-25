@@ -6,8 +6,9 @@
  */
 
 import { Effect } from "effect";
-import { createTransport, type CookieOption } from "./transport.js";
-import { toSdkError, type InternalSdkError } from "./errors.js";
+import { createTransport, type CookieOption, type FetchCapability } from "./transport.js";
+import type { InternalSdkError } from "./errors.js";
+import { executeSdkPromise } from "./adapter/promise-runtime.js";
 import { createAuthDomain } from "./domains/auth.js";
 import { createMeDomain } from "./domains/me.js";
 import { createReceiptsDomain } from "./domains/receipts.js";
@@ -28,8 +29,7 @@ import { createAdmissionApplicationsDomain } from "./domains/admission-applicati
 import { createAdmissionPeriodsDomain } from "./domains/admission-period.js";
 
 // --- Public re-exports ---
-
-export { apiUrl, isFixtureMode } from "./config.js";
+export { apiUrl, isFixtureMode, sdkRuntimeConfig } from "./config.js";
 export {
   SdkError,
   UnauthorizedError,
@@ -337,6 +337,7 @@ export type { SchedulingAssistant, SchedulingSchool, Substitute } from "./schema
 
 export type ClientOptions = {
   cookie?: CookieOption;
+  fetch?: FetchCapability;
 };
 
 // --- Promisify helpers ---
@@ -347,8 +348,9 @@ export type ClientOptions = {
  */
 function promisify<Args extends unknown[], A>(
   fn: (...args: Args) => Effect.Effect<A, InternalSdkError>,
+  fetch?: FetchCapability,
 ): (...args: Args) => Promise<A> {
-  return (...args) => Effect.runPromise(fn(...args).pipe(Effect.mapError(toSdkError)));
+  return (...args) => executeSdkPromise(fn(...args), fetch);
 }
 
 /**
@@ -356,6 +358,7 @@ function promisify<Args extends unknown[], A>(
  */
 function promisifyDomain<T extends object>(
   domain: T,
+  fetch?: FetchCapability,
 ): {
   [K in keyof T]: T[K] extends (...args: infer A) => Effect.Effect<infer R, any>
     ? (...args: A) => Promise<R>
@@ -363,7 +366,7 @@ function promisifyDomain<T extends object>(
 } {
   const result: Record<string, unknown> = {};
   for (const key of Object.keys(domain)) {
-    result[key] = promisify((domain as any)[key] as any);
+    result[key] = promisify((domain as any)[key] as any, fetch);
   }
   return result as any;
 }
@@ -377,30 +380,31 @@ export function createClient(baseUrl: string | undefined, options?: ClientOption
   const publicContactMessages = createPublicContactMessageDomain(transport);
 
   return {
-    auth: promisifyDomain(createAuthDomain(transport)),
-    me: promisifyDomain(createMeDomain(transport)),
-    receipts: promisifyDomain(createReceiptsDomain(transport)),
-    admissionPeriods: promisifyDomain(createAdmissionPeriodsDomain(transport)),
-    applications: promisifyDomain(createAdmissionApplicationsDomain(transport)),
+    auth: promisifyDomain(createAuthDomain(transport), options?.fetch),
+    me: promisifyDomain(createMeDomain(transport), options?.fetch),
+    receipts: promisifyDomain(createReceiptsDomain(transport), options?.fetch),
+    admissionPeriods: promisifyDomain(createAdmissionPeriodsDomain(transport), options?.fetch),
+    applications: promisifyDomain(createAdmissionApplicationsDomain(transport), options?.fetch),
     admin: {
-      receipts: promisifyDomain(createAdminReceiptsDomain(transport)),
-      applications: promisifyDomain(createAdminApplicationsDomain(transport)),
-      interviews: promisifyDomain(createAdminInterviewsDomain(transport)),
-      recruitment: promisifyDomain(createAdminRecruitmentDomain(transport)),
-      users: promisifyDomain(createAdminUsersDomain(transport)),
-      scheduling: promisifyDomain(createAdminSchedulingDomain(transport)),
-      organization: promisifyDomain(createAdminOrganizationDomain(transport)),
-      teams: promisifyDomain(createAdminTeamsDomain(transport)),
-      mailingLists: promisify(adminMisc.mailingLists.bind(adminMisc)),
-      admissionStats: promisify(adminMisc.admissionStats.bind(adminMisc)),
+      receipts: promisifyDomain(createAdminReceiptsDomain(transport), options?.fetch),
+      applications: promisifyDomain(createAdminApplicationsDomain(transport), options?.fetch),
+      interviews: promisifyDomain(createAdminInterviewsDomain(transport), options?.fetch),
+      recruitment: promisifyDomain(createAdminRecruitmentDomain(transport), options?.fetch),
+      users: promisifyDomain(createAdminUsersDomain(transport), options?.fetch),
+      scheduling: promisifyDomain(createAdminSchedulingDomain(transport), options?.fetch),
+      organization: promisifyDomain(createAdminOrganizationDomain(transport), options?.fetch),
+      teams: promisifyDomain(createAdminTeamsDomain(transport), options?.fetch),
+      mailingLists: promisify(adminMisc.mailingLists.bind(adminMisc), options?.fetch),
+      admissionStats: promisify(adminMisc.admissionStats.bind(adminMisc), options?.fetch),
     },
     recruitmentInvitationResponses: promisifyDomain(
       createRecruitmentInvitationResponsesDomain(transport),
+      options?.fetch,
     ),
     public: {
-      organization: promisifyDomain(createPublicOrganizationDomain(transport)),
-      sponsors: promisify(publicMisc.sponsors.bind(publicMisc)),
-      contactMessages: promisifyDomain(publicContactMessages),
+      organization: promisifyDomain(createPublicOrganizationDomain(transport), options?.fetch),
+      sponsors: promisify(publicMisc.sponsors.bind(publicMisc), options?.fetch),
+      contactMessages: promisifyDomain(publicContactMessages, options?.fetch),
     },
   };
 }

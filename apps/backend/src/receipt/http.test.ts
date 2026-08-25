@@ -24,11 +24,8 @@ import { Effect, Layer, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import type { ReceiptApiConfig } from "./config.js";
 import type { ReceiptFileStore } from "./filesystem.js";
-import {
-  makeReceiptApiHttp,
-  type ReceiptApiHttp,
-  type ReceiptApiHttpOptions,
-} from "./http.js";
+import { makeReceiptApiHttp, type ReceiptApiHttp, type ReceiptApiHttpOptions } from "./http.js";
+import { runTestPromise } from "../../test/runtime.js";
 
 const personId = PersonId.make("person-receipt-http");
 const departmentOne = DepartmentId.make("department-one");
@@ -137,10 +134,10 @@ const harness = (options: HarnessOptions = {}) => {
   const economy: EconomyShape = {
     resolveReceiptAuthority: () => Effect.die("unexpected authority service call"),
     executeReceipt,
-    listOwnedReceipts: () => Effect.succeed(options.ownedRows as never ?? []),
+    listOwnedReceipts: () => Effect.succeed((options.ownedRows as never) ?? []),
     listReceiptsForApproval: (scope) => {
       approvalScopes.push(scope);
-      return Effect.succeed(options.approvalRows as never ?? []);
+      return Effect.succeed((options.approvalRows as never) ?? []);
     },
     readReceiptLifecycleEvidence: () => Effect.die("unexpected evidence read"),
     receiptStatusTotals: Effect.succeed([]),
@@ -149,10 +146,8 @@ const harness = (options: HarnessOptions = {}) => {
     deliverNextOutboxEffect: () => Effect.succeed({ _tag: "Idle" }),
   };
   const database = { health: Effect.void } as unknown as DatabaseShape;
-  const run = (<A, E>(
-    effect: Effect.Effect<A, E, Database | Economy>,
-  ): Promise<A> =>
-    Effect.runPromise(
+  const run = (<A, E>(effect: Effect.Effect<A, E, Database | Economy>): Promise<A> =>
+    runTestPromise(
       effect.pipe(
         Effect.provideService(Database, database),
         Effect.provideService(Economy, economy),
@@ -183,16 +178,10 @@ const harness = (options: HarnessOptions = {}) => {
   return { http, commands, approvalScopes, counts: () => ({ authorityCalls, personCalls }) };
 };
 
-const request = (
-  http: ReceiptApiHttp,
-  pathname: string,
-  init?: RequestInit,
-): Promise<Response> => http.fetch(new Request(`http://backend.test${pathname}`, init));
+const request = (http: ReceiptApiHttp, pathname: string, init?: RequestInit): Promise<Response> =>
+  http.fetch(new Request(`http://backend.test${pathname}`, init));
 
-const multipartRequest = (
-  http: ReceiptApiHttp,
-  pathname: string,
-): Promise<Response> => {
+const multipartRequest = (http: ReceiptApiHttp, pathname: string): Promise<Response> => {
   const boundary = "receipt-http-test-boundary";
   const body = [
     `--${boundary}\r\nContent-Disposition: form-data; name="commandId"\r\n\r\ncommand-one\r\n`,
@@ -309,9 +298,7 @@ describe("receipt HTTP authority resolution (spec 0055)", () => {
       active: true,
       approvalScope: { _tag: "Department", departmentId: departmentTwo },
     });
-    expect(state.approvalScopes).toEqual([
-      { _tag: "Department", departmentId: departmentTwo },
-    ]);
+    expect(state.approvalScopes).toEqual([{ _tag: "Department", departmentId: departmentTwo }]);
   });
 
   it("denies inactive Organization authority and absent approval scope", async () => {

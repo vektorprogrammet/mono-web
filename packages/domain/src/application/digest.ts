@@ -1,5 +1,4 @@
 import { canonicalJsonBytes, sha256Hex } from "../tutor/evidence.js";
-import { createHash } from "node:crypto";
 export { canonicalJson } from "../tutor/evidence.js";
 import {
   ApplicantIdSchema,
@@ -37,7 +36,7 @@ export const publicApplicationCommandDigest = (
 ): string => sha256Hex(publicApplicationCommandBytes(command));
 
 export const publicApplicationActivationDigest = (activationToken: string): string =>
-  createHash("sha256").update(activationToken, "utf8").digest("hex");
+  sha256Hex(new TextEncoder().encode(activationToken));
 
 export const publicApplicationIdForCommand = (
   command: PublicApplicationSubmitInput | SubmitPublicApplicationCommand,

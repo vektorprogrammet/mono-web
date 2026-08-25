@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "@effect/vitest";
 import { Effect } from "effect";
 import { AdmissionFieldOfStudyId, AdmissionPeriodId } from "../admission-period/schema.js";
 import { DepartmentId } from "../organization/schema.js";
@@ -52,80 +52,79 @@ const applicant = {
 } as const;
 
 describe("public applicant domain", () => {
-  it("normalizes identity without changing the exact field set", async () => {
-    const normalized = await Effect.runPromise(decodePublicApplicationSubmitInput(input));
-    expect(normalized).toEqual({
-      ...input,
-      firstName: "Ada",
-      lastName: "Lovelace",
-      phone: "+47 12345678",
-      email: "ada@example.com",
-    });
-    expect(Object.keys(normalized)).toEqual([
-      "commandId",
-      "departmentId",
-      "firstName",
-      "lastName",
-      "phone",
-      "email",
-      "gender",
-      "fieldOfStudyId",
-      "yearOfStudy",
-    ]);
-  });
-
-  it("uses normalized canonical bytes for replay identity", async () => {
-    const normalized = await Effect.runPromise(decodePublicApplicationSubmitInput(input));
-    const equivalent = await Effect.runPromise(
-      decodePublicApplicationSubmitInput({
+  it.effect("normalizes identity without changing the exact field set", () =>
+    Effect.gen(function* () {
+      const normalized = yield* decodePublicApplicationSubmitInput(input);
+      expect(normalized).toEqual({
         ...input,
         firstName: "Ada",
         lastName: "Lovelace",
         phone: "+47 12345678",
         email: "ada@example.com",
-      }),
-    );
-    expect(publicApplicationCommandDigest(normalized)).toBe(
-      publicApplicationCommandDigest(equivalent),
-    );
-  });
+      });
+      expect(Object.keys(normalized)).toEqual([
+        "commandId",
+        "departmentId",
+        "firstName",
+        "lastName",
+        "phone",
+        "email",
+        "gender",
+        "fieldOfStudyId",
+        "yearOfStudy",
+      ]);
+    }),
+  );
 
-  it("records only ordered effect metadata and deduplicates delivery state", async () => {
-    const normalized = await Effect.runPromise(decodePublicApplicationSubmitInput(input));
-    const requests = makePublicApplicationOutboxRequests(
-      normalized,
-      application,
-      applicant,
-      applicant.email,
-      activationToken,
-    );
-    expect(requests[0]).toMatchObject({ activationToken });
-    const interpreter = makeRecordingPublicApplicationEffectInterpreter();
-    const first = await Effect.runPromise(recordPublicApplicationEffects(requests, interpreter));
-    const retry = await Effect.runPromise(
-      recordPublicApplicationEffects([requests[0]!], interpreter),
-    );
-    expect(first.map((entry) => entry.kind)).toEqual([
-      "SendApplicantActivationOrConfirmation",
-      "CreateAdmissionSubscription",
-      "WriteApplicationAudit",
-    ]);
-    expect(retry[0]?.attempts).toBe(2);
-    expect(interpreter.duplicateDeliveryCount()).toBe(1);
-    expect(interpreter.snapshot()).toHaveLength(3);
-    expect(first[0]).not.toHaveProperty("email");
-    expect(
-      Effect.runSync(
-        PublicApplicationSubmitObservationSchema.makeEffect({
-          _tag: "Submitted",
-          commandId: normalized.commandId,
-          applicationId: application.id,
-        }),
-      ),
-    ).toEqual({
-      _tag: "Submitted",
-      commandId: normalized.commandId,
-      applicationId: application.id,
-    });
-  });
+  it.effect("uses normalized canonical bytes for replay identity", () =>
+    Effect.gen(function* () {
+      const normalized = yield* decodePublicApplicationSubmitInput(input);
+      const equivalent = yield* decodePublicApplicationSubmitInput({
+        ...input,
+        firstName: "Ada",
+        lastName: "Lovelace",
+        phone: "+47 12345678",
+        email: "ada@example.com",
+      });
+      expect(publicApplicationCommandDigest(normalized)).toBe(
+        publicApplicationCommandDigest(equivalent),
+      );
+    }),
+  );
+
+  it.effect("records only ordered effect metadata and deduplicates delivery state", () =>
+    Effect.gen(function* () {
+      const normalized = yield* decodePublicApplicationSubmitInput(input);
+      const requests = makePublicApplicationOutboxRequests(
+        normalized,
+        application,
+        applicant,
+        applicant.email,
+        activationToken,
+      );
+      expect(requests[0]).toMatchObject({ activationToken });
+      const interpreter = makeRecordingPublicApplicationEffectInterpreter();
+      const first = yield* recordPublicApplicationEffects(requests, interpreter);
+      const retry = yield* recordPublicApplicationEffects([requests[0]!], interpreter);
+      expect(first.map((entry) => entry.kind)).toEqual([
+        "SendApplicantActivationOrConfirmation",
+        "CreateAdmissionSubscription",
+        "WriteApplicationAudit",
+      ]);
+      expect(retry[0]?.attempts).toBe(2);
+      expect(interpreter.duplicateDeliveryCount()).toBe(1);
+      expect(interpreter.snapshot()).toHaveLength(3);
+      expect(first[0]).not.toHaveProperty("email");
+      const observation = yield* PublicApplicationSubmitObservationSchema.makeEffect({
+        _tag: "Submitted",
+        commandId: normalized.commandId,
+        applicationId: application.id,
+      });
+      expect(observation).toEqual({
+        _tag: "Submitted",
+        commandId: normalized.commandId,
+        applicationId: application.id,
+      });
+    }),
+  );
 });

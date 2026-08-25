@@ -1,6 +1,6 @@
 // Re-export the Promise surface as the default API
 export { createClient, type Sdk, type ClientOptions } from "./promise.js";
-export { apiUrl, isFixtureMode } from "./config.js";
+export { apiUrl, isFixtureMode, sdkRuntimeConfig } from "./config.js";
 
 // Error types for instanceof checks
 export {

@@ -53,11 +53,12 @@ import {
 import { Economy, importLegacyReceipt } from "@vektorprogrammet/domain/receipt";
 import { EconomyLive } from "@vektorprogrammet/domain/receipt/postgres";
 import { storeReceiptImportResult } from "../../domain/src/receipt/postgres.js";
-import { Deferred, Effect, Fiber, Layer, ManagedRuntime } from "effect";
+import { Deferred, Effect, Fiber, Layer } from "effect";
 import { DatabaseTest } from "./layers.js";
+import { makeControlledTestRuntime } from "../test/runtime.js";
 
 const databaseLayer = DatabaseTest();
-const runtime = ManagedRuntime.make(
+const runtime = makeControlledTestRuntime(
   Layer.merge(databaseLayer, EconomyLive.pipe(Layer.provide(databaseLayer))),
 );
 const recruitmentDatabaseLayer = DatabaseTest();
@@ -76,7 +77,7 @@ const recruitmentCapabilityLayer = RecruitmentLive.pipe(
     ),
   ),
 );
-const recruitmentRuntime = ManagedRuntime.make(
+const recruitmentRuntime = makeControlledTestRuntime(
   Layer.merge(
     recruitmentDatabaseLayer,
     Layer.mergeAll(
@@ -3495,7 +3496,7 @@ describe("DatabaseTest", () => {
     let acquisitionCount = 0;
     let migrationCount = 0;
     let releaseCount = 0;
-    const observedRuntime = ManagedRuntime.make(
+    const observedRuntime = makeControlledTestRuntime(
       DatabaseTest(undefined, {
         onAcquire: () => {
           acquisitionCount += 1;

@@ -10,6 +10,7 @@ import {
   type Response,
   type Route,
 } from "@playwright/test";
+import { readBrowserStorage, readDocumentCookie } from "../browser/interview-response-state.js";
 
 const DASHBOARD_ORIGIN = process.env.DASHBOARD_ORIGIN ?? "http://127.0.0.1:5185";
 const REAL_NATIVE_INVITATION_RESPONSE_E2E = process.env.REAL_NATIVE_INVITATION_RESPONSE_E2E === "1";
@@ -309,11 +310,8 @@ const assertApplicantPrivacy = async (
   const [content, bodyText, readableCookie, browserStorage, cookies] = await Promise.all([
     page.content(),
     page.locator("body").innerText(),
-    page.evaluate(() => document.cookie),
-    page.evaluate(() => ({
-      local: Object.entries(localStorage),
-      session: Object.entries(sessionStorage),
-    })),
+    page.evaluate(readDocumentCookie),
+    page.evaluate(readBrowserStorage),
     context.cookies(`${DASHBOARD_ORIGIN}/interview`),
   ]);
   assertCapabilityAbsent(page.url(), capabilities);
