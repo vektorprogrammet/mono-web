@@ -30,7 +30,7 @@ test.describe("Native team-interest journey (spec 0059)", () => {
     await expect(page.getByRole("heading", { name: "Teaminteresse" })).toBeVisible();
     await expect(page.getByRole("cell", { name: "Sondre Soker", exact: true })).toBeVisible();
     // Contract: teamName serializes the referenced team's NAME, not its id.
-    await expect(page.getByRole("cell", { name: "IT-Team 0059", exact: true })).toBeVisible();
+    await expect(page.getByRole("cell", { name: "IT-Team 0059", exact: true })).toHaveCount(2);
     // Four seeded registrations total (three Trondheim + one Bergen): the
     // active global administrator's scope covers every department.
     await expect(page.locator("tbody tr")).toHaveCount(4);
