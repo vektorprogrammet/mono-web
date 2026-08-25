@@ -45,7 +45,19 @@ async function inspectSession(request: Request): Promise<SessionInspection> {
     await createAuthenticatedClient(cookie).me.session();
     return { _tag: "Authenticated", cookie };
   } catch (error) {
-    if (error instanceof UnauthorizedError || error instanceof UnauthenticatedActorError) {
+    // The transport raises tagged Schema errors (Unauthorized /
+    // UnauthenticatedActor) for 401/403 responses; the legacy SdkError
+    // subclasses are kept for compatibility with older call sites.
+    const tag =
+      error !== null && typeof error === "object" && "_tag" in error
+        ? String(error._tag)
+        : undefined;
+    if (
+      error instanceof UnauthorizedError ||
+      error instanceof UnauthenticatedActorError ||
+      tag === "Unauthorized" ||
+      tag === "UnauthenticatedActor"
+    ) {
       return { _tag: "Invalid" };
     }
     throw error;
