@@ -1,9 +1,15 @@
+import {
+  nodeArguments,
+  setNodeExitCode,
+  writeStandardErrorAtNodeBoundary,
+  writeStandardOutputAtNodeBoundary,
+} from "../../runtime/node.js";
 import { canonicalJson } from "./evidence.js";
 import { FIXTURE_ID, runTutorFixture } from "./fixture.js";
 
-export const main = (args: ReadonlyArray<string> = process.argv.slice(2)): number => {
+export const main = (args: ReadonlyArray<string> = nodeArguments()): number => {
   if (args.length !== 1 || args[0] !== "--fixtures") {
-    process.stderr.write("usage: bun run src/tutor/main.ts --fixtures\n");
+    writeStandardErrorAtNodeBoundary("usage: bun run src/tutor/main.ts --fixtures\n");
     return 1;
   }
 
@@ -20,13 +26,15 @@ export const main = (args: ReadonlyArray<string> = process.argv.slice(2)): numbe
       evidenceByteLength: run.evidence.bytes.length,
       counterexampleReceipts: run.counterexampleReceipts,
     };
-    process.stdout.write(`${canonicalJson(summary)}\n${run.evidence.canonicalJson}\n`);
+    writeStandardOutputAtNodeBoundary(`${canonicalJson(summary)}\n${run.evidence.canonicalJson}\n`);
     return 0;
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "tutor fixture failed";
-    process.stderr.write(`${canonicalJson({ fixtureId: FIXTURE_ID, error: message })}\n`);
+    writeStandardErrorAtNodeBoundary(
+      `${canonicalJson({ fixtureId: FIXTURE_ID, error: message })}\n`,
+    );
     return 1;
   }
 };
 
-if (import.meta.main) process.exitCode = main();
+if (import.meta.main) setNodeExitCode(main());

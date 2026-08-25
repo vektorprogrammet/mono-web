@@ -1,4 +1,10 @@
-import { readFile } from "node:fs/promises";
+import {
+  nodeArguments,
+  readTextFileAtNodeBoundary,
+  setNodeExitCode,
+  writeStandardErrorAtNodeBoundary,
+  writeStandardOutputAtNodeBoundary,
+} from "../../runtime/node.js";
 import { fileURLToPath } from "node:url";
 import { Miniflare } from "miniflare";
 import { Effect } from "effect";
@@ -237,9 +243,8 @@ const openRuntime = async (): Promise<LocalRuntime> => {
 };
 
 const migrationSql = async (): Promise<string> =>
-  readFile(
+  readTextFileAtNodeBoundary(
     fileURLToPath(new URL("./migrations/0001-tutor-event-store.sql", import.meta.url)),
-    "utf8",
   );
 
 const applyMigration = async (db: LocalBinding, sql: string): Promise<void> => {
@@ -1809,16 +1814,14 @@ export const runD1Proof = async (): Promise<D1ProofRun> => {
   return { passed: true, evidence: firstRender, secondRender, reasonCounts };
 };
 
-export const main = async (
-  args: ReadonlyArray<string> = process.argv.slice(2),
-): Promise<number> => {
+export const main = async (args: ReadonlyArray<string> = nodeArguments()): Promise<number> => {
   if (args.length !== 0) {
-    process.stderr.write("usage: bun run src/tutor/d1-proof.ts\n");
+    writeStandardErrorAtNodeBoundary("usage: bun run src/tutor/d1-proof.ts\n");
     return 1;
   }
   try {
     const run = await runD1Proof();
-    process.stdout.write(
+    writeStandardOutputAtNodeBoundary(
       `${canonicalJson({
         specId: SPEC_ID,
         passed: run.passed,
@@ -1834,11 +1837,11 @@ export const main = async (
     );
     return 0;
   } catch (error) {
-    process.stderr.write(
+    writeStandardErrorAtNodeBoundary(
       `${canonicalJson({ specId: SPEC_ID, passed: false, error: `${errorTag(error)}:${errorReason(error)}` })}\n`,
     );
     return 1;
   }
 };
 
-if (import.meta.main) process.exitCode = await main();
+if (import.meta.main) setNodeExitCode(await main());

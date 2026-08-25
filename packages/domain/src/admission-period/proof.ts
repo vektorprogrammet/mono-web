@@ -1,4 +1,5 @@
 import { Effect } from "effect";
+import { runDomainSync } from "../../runtime/node.js";
 import { DepartmentId, PersonId, SemesterId } from "../organization/schema.js";
 import { admissionPeriodCommandDigest } from "./digest.js";
 import { decideAdmissionPeriod } from "./update.js";
@@ -65,25 +66,36 @@ const proofCreate: AdmissionPeriodCommand = {
   endAt: "2026-12-01T00:00:00.000Z",
 };
 
-export const runAdmissionPeriodProof = (): AdmissionPeriodProofEvidence => {
-  const created = Effect.runSync(
-    decideAdmissionPeriod(undefined, proofCreate, {
+export const admissionPeriodProof = Effect.gen(function* () {
+  const created = yield* decideAdmissionPeriod(undefined, proofCreate, {
+    actor: proofActor,
+    semester: proofSemester,
+    now: "2026-09-15T12:00:00.000Z",
+    admissionPeriodId: AdmissionPeriodId.make("proof-period"),
+  });
+  const revised = yield* decideAdmissionPeriod(
+    created.period,
+    {
+      _tag: "ReviseAdmissionPeriod",
+      commandId: AdmissionPeriodCommandId.make("proof-revise"),
+      admissionPeriodId: created.period.id,
+      expectedRevision: 0,
+      startAt: "2026-09-01T00:00:00.000Z",
+      endAt: "2026-09-15T00:00:00.000Z",
+    },
+    {
       actor: proofActor,
       semester: proofSemester,
       now: "2026-09-15T12:00:00.000Z",
-      admissionPeriodId: AdmissionPeriodId.make("proof-period"),
-    }),
+    },
   );
-  const revised = Effect.runSync(
+  const invalid = yield* Effect.exit(
     decideAdmissionPeriod(
-      created.period,
+      undefined,
       {
-        _tag: "ReviseAdmissionPeriod",
-        commandId: AdmissionPeriodCommandId.make("proof-revise"),
-        admissionPeriodId: created.period.id,
-        expectedRevision: 0,
-        startAt: "2026-09-01T00:00:00.000Z",
-        endAt: "2026-09-15T00:00:00.000Z",
+        ...proofCreate,
+        commandId: AdmissionPeriodCommandId.make("proof-invalid"),
+        endAt: proofCreate.startAt,
       },
       {
         actor: proofActor,
@@ -92,38 +104,19 @@ export const runAdmissionPeriodProof = (): AdmissionPeriodProofEvidence => {
       },
     ),
   );
-  const invalid = Effect.runSync(
-    Effect.exit(
-      decideAdmissionPeriod(
-        undefined,
-        {
-          ...proofCreate,
-          commandId: AdmissionPeriodCommandId.make("proof-invalid"),
-          endAt: proofCreate.startAt,
-        },
-        {
-          actor: proofActor,
-          semester: proofSemester,
-          now: "2026-09-15T12:00:00.000Z",
-        },
-      ),
-    ),
-  );
-  const crossDepartment = Effect.runSync(
-    Effect.exit(
-      decideAdmissionPeriod(
-        undefined,
-        {
-          ...proofCreate,
-          commandId: AdmissionPeriodCommandId.make("proof-cross"),
-          departmentId: DepartmentId.make("other-department"),
-        },
-        {
-          actor: proofActor,
-          semester: proofSemester,
-          now: "2026-09-15T12:00:00.000Z",
-        },
-      ),
+  const crossDepartment = yield* Effect.exit(
+    decideAdmissionPeriod(
+      undefined,
+      {
+        ...proofCreate,
+        commandId: AdmissionPeriodCommandId.make("proof-cross"),
+        departmentId: DepartmentId.make("other-department"),
+      },
+      {
+        actor: proofActor,
+        semester: proofSemester,
+        now: "2026-09-15T12:00:00.000Z",
+      },
     ),
   );
   return {
@@ -152,5 +145,8 @@ export const runAdmissionPeriodProof = (): AdmissionPeriodProofEvidence => {
         admissionPeriodCommandDigest(proofCreate) ===
         admissionPeriodCommandDigest({ ...proofCreate }),
     },
-  };
-};
+  } satisfies AdmissionPeriodProofEvidence;
+});
+
+export const runAdmissionPeriodProof = (): AdmissionPeriodProofEvidence =>
+  runDomainSync(admissionPeriodProof);

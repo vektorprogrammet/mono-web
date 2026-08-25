@@ -1,4 +1,10 @@
-import { writeFile } from "node:fs/promises";
+import {
+  nodeArguments,
+  setNodeExitCode,
+  writeStandardErrorAtNodeBoundary,
+  writeStandardOutputAtNodeBoundary,
+  writeTextFileAtNodeBoundary,
+} from "../runtime/node.js";
 import { createMachineReport, renderMarkdown } from "./report.js";
 import { DatasetInputError, loadDataset, loadPersonAuthority } from "./data.js";
 import { allFixturesPass, runSyntheticFixtures } from "./fixtures.js";
@@ -108,13 +114,11 @@ const parseArgs = (args: ReadonlyArray<string>): CliOptions => {
 };
 
 const emit = async (text: string, output: string | undefined): Promise<void> => {
-  if (output !== undefined) await writeFile(output, text, "utf8");
-  process.stdout.write(text.endsWith("\n") ? text : `${text}\n`);
+  if (output !== undefined) await writeTextFileAtNodeBoundary(output, text);
+  writeStandardOutputAtNodeBoundary(text.endsWith("\n") ? text : `${text}\n`);
 };
 
-export const main = async (
-  args: ReadonlyArray<string> = process.argv.slice(2),
-): Promise<number> => {
+export const main = async (args: ReadonlyArray<string> = nodeArguments()): Promise<number> => {
   try {
     const options = parseArgs(args);
     if (options.help) {
@@ -149,12 +153,12 @@ export const main = async (
         : error instanceof CliError
           ? { code: error.code, file: error.file, message: error.message }
           : { code: "COMMAND_ERROR", file: "cli", message: "command failed" };
-    process.stderr.write(`${JSON.stringify({ error: safeError })}\n`);
+    writeStandardErrorAtNodeBoundary(`${JSON.stringify({ error: safeError })}\n`);
     return 1;
   }
 };
 
 if (import.meta.main) {
   const exitCode = await main();
-  process.exitCode = exitCode;
+  setNodeExitCode(exitCode);
 }

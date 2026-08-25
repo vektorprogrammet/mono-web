@@ -1,6 +1,7 @@
-import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { Result, Schema } from "effect";
+import { Effect, Result, Schema } from "effect";
+import { runDomainPromise } from "../runtime/node.js";
+import { DomainFileSystem, readTextFile } from "./runtime-services.js";
 import {
   decodeDepartment,
   decodeGlobalContainer,
@@ -195,44 +196,59 @@ const readErrorCode = (error: unknown): string | undefined => {
   return typeof code === "string" ? code : undefined;
 };
 
-const readJson = async (dataDir: string, file: RequiredFile): Promise<unknown> => {
-  let source: string;
-  try {
-    source = await readFile(join(dataDir, file), "utf8");
-  } catch (error: unknown) {
-    if (readErrorCode(error) === "ENOENT") {
-      throw new DatasetInputError(
-        "MISSING_INPUT",
-        file,
-        "required sanitized input file is missing",
-      );
-    }
-    throw new DatasetInputError(
-      "READ_FAILED",
-      file,
-      "required sanitized input file could not be read",
+const readJson = (
+  dataDir: string,
+  file: RequiredFile,
+): Effect.Effect<unknown, DatasetInputError, DomainFileSystem> =>
+  readTextFile(join(dataDir, file)).pipe(
+    Effect.mapError(
+      (error) =>
+        new DatasetInputError(
+          readErrorCode(error) === "ENOENT" ? "MISSING_INPUT" : "READ_FAILED",
+          file,
+          readErrorCode(error) === "ENOENT"
+            ? "required sanitized input file is missing"
+            : "required sanitized input file could not be read",
+        ),
+    ),
+    Effect.flatMap((source) => {
+      const decoded = Schema.decodeUnknownResult(JsonUnknownSchema)(source);
+      return Result.isSuccess(decoded)
+        ? Effect.succeed(decoded.success)
+        : Effect.fail(new DatasetInputError("INVALID_JSON", file, "input file is not valid JSON"));
+    }),
+  );
+
+export const loadDatasetEffect = (
+  dataDir: string,
+): Effect.Effect<Dataset, DatasetInputError, DomainFileSystem> => {
+  if (dataDir.trim().length === 0) {
+    return Effect.fail(
+      new DatasetInputError(
+        "INVALID_ARGUMENT",
+        "dataDir",
+        "dataDir must be an explicit non-empty path",
+      ),
     );
   }
-  const decoded = Schema.decodeUnknownResult(JsonUnknownSchema)(source);
-  if (Result.isSuccess(decoded)) return decoded.success;
-  throw new DatasetInputError("INVALID_JSON", file, "input file is not valid JSON");
+  return Effect.gen(function* () {
+    const departments = yield* readJson(dataDir, "department.json");
+    const teams = yield* readJson(dataDir, "team.json");
+    const teamMemberships = yield* readJson(dataDir, "team_membership.json");
+    const executiveBoards = yield* readJson(dataDir, "executive_board.json");
+    const globalMemberships = yield* readJson(dataDir, "executive_board_membership.json");
+    return buildDataset({
+      departments,
+      teams,
+      teamMemberships,
+      executiveBoards,
+      globalMemberships,
+    });
+  });
 };
 
-export const loadDataset = async (dataDir: string): Promise<Dataset> => {
-  if (dataDir.trim().length === 0) {
-    throw new DatasetInputError(
-      "INVALID_ARGUMENT",
-      "dataDir",
-      "dataDir must be an explicit non-empty path",
-    );
-  }
-  const departments = await readJson(dataDir, "department.json");
-  const teams = await readJson(dataDir, "team.json");
-  const teamMemberships = await readJson(dataDir, "team_membership.json");
-  const executiveBoards = await readJson(dataDir, "executive_board.json");
-  const globalMemberships = await readJson(dataDir, "executive_board_membership.json");
-  return buildDataset({ departments, teams, teamMemberships, executiveBoards, globalMemberships });
-};
+export const loadDataset = (dataDir: string): Promise<Dataset> =>
+  runDomainPromise(loadDatasetEffect(dataDir));
 
 export const authorityFromEntries = (
   entries: ReadonlyArray<readonly [number, ReadonlyArray<number>]>,
@@ -246,56 +262,62 @@ export const authorityFromEntries = (
   return { departmentIdsByUser, userIds };
 };
 
-export const loadPersonAuthority = async (filePath: string): Promise<PersonAuthorityProjection> => {
-  let source: string;
-  try {
-    source = await readFile(filePath, "utf8");
-  } catch (error: unknown) {
-    if (readErrorCode(error) === "ENOENT") {
-      throw new DatasetInputError(
-        "MISSING_INPUT",
-        "person-authority",
-        "person authority file is missing",
-      );
-    }
-    throw new DatasetInputError(
-      "READ_FAILED",
-      "person-authority",
-      "person authority file could not be read",
-    );
-  }
+export const loadPersonAuthorityEffect = (
+  filePath: string,
+): Effect.Effect<PersonAuthorityProjection, DatasetInputError, DomainFileSystem> =>
+  readTextFile(filePath).pipe(
+    Effect.mapError(
+      (error) =>
+        new DatasetInputError(
+          readErrorCode(error) === "ENOENT" ? "MISSING_INPUT" : "READ_FAILED",
+          "person-authority",
+          readErrorCode(error) === "ENOENT"
+            ? "person authority file is missing"
+            : "person authority file could not be read",
+        ),
+    ),
+    Effect.flatMap((source) => {
+      const parsed = Schema.decodeUnknownResult(JsonUnknownSchema)(source);
+      if (!Result.isSuccess(parsed)) {
+        return Effect.fail(
+          new DatasetInputError(
+            "INVALID_JSON",
+            "person-authority",
+            "person authority file is not valid JSON",
+          ),
+        );
+      }
+      const decoded = Schema.decodeUnknownResult(PersonAuthorityRowsSchema, {
+        onExcessProperty: "error",
+      })(parsed.success);
+      if (!Result.isSuccess(decoded)) {
+        return Effect.fail(
+          new DatasetInputError(
+            "INVALID_PERSON_AUTHORITY",
+            "person-authority",
+            "person authority file is invalid",
+          ),
+        );
+      }
 
-  const parsed = Schema.decodeUnknownResult(JsonUnknownSchema)(source);
-  if (!Result.isSuccess(parsed)) {
-    throw new DatasetInputError(
-      "INVALID_JSON",
-      "person-authority",
-      "person authority file is not valid JSON",
-    );
-  }
-  const decoded = Schema.decodeUnknownResult(PersonAuthorityRowsSchema, {
-    onExcessProperty: "error",
-  })(parsed.success);
-  if (!Result.isSuccess(decoded)) {
-    throw new DatasetInputError(
-      "INVALID_PERSON_AUTHORITY",
-      "person-authority",
-      "person authority file is invalid",
-    );
-  }
+      const entries: Array<readonly [number, ReadonlyArray<number>]> = [];
+      const seen = new Set<number>();
+      for (const row of decoded.success) {
+        if (seen.has(row.userId)) {
+          return Effect.fail(
+            new DatasetInputError(
+              "DUPLICATE_PERSON_AUTHORITY",
+              "person-authority",
+              "person authority user is duplicated",
+            ),
+          );
+        }
+        seen.add(row.userId);
+        entries.push([row.userId, row.departmentIds]);
+      }
+      return Effect.succeed(authorityFromEntries(entries));
+    }),
+  );
 
-  const entries: Array<readonly [number, ReadonlyArray<number>]> = [];
-  const seen = new Set<number>();
-  for (const row of decoded.success) {
-    if (seen.has(row.userId)) {
-      throw new DatasetInputError(
-        "DUPLICATE_PERSON_AUTHORITY",
-        "person-authority",
-        "person authority user is duplicated",
-      );
-    }
-    seen.add(row.userId);
-    entries.push([row.userId, row.departmentIds]);
-  }
-  return authorityFromEntries(entries);
-};
+export const loadPersonAuthority = (filePath: string): Promise<PersonAuthorityProjection> =>
+  runDomainPromise(loadPersonAuthorityEffect(filePath));

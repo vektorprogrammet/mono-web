@@ -1,4 +1,5 @@
 import { Cause, Effect, Exit, Result } from "effect";
+import { runDomainSyncExit } from "../../runtime/node.js";
 import type {
   ConductInterviewV1,
   CounterexampleReceipt,
@@ -111,13 +112,13 @@ const OTHER_STREAM: StreamKey = {
 };
 
 const runSync = <A, E>(effect: Effect.Effect<A, E>): A => {
-  const exit = Effect.runSyncExit(effect);
+  const exit = runDomainSyncExit(effect);
   if (Exit.isSuccess(exit)) return exit.value;
   throw new Error("fixture expected effect success");
 };
 
 const runFailure = <A, E>(effect: Effect.Effect<A, E>): E => {
-  const exit = Effect.runSyncExit(effect);
+  const exit = runDomainSyncExit(effect);
   if (Exit.isSuccess(exit)) throw new Error("fixture expected effect failure");
   const failure = Cause.findError(exit.cause);
   if (Result.isSuccess(failure)) return failure.success;

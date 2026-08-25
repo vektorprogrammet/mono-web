@@ -1,6 +1,9 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
+import {
+  makeTempDirectoryAtNodeBoundary,
+  removeTreeAtNodeBoundary,
+  writeTextFileAtNodeBoundary,
+} from "../runtime/node.js";
 import {
   authorityFromEntries,
   buildDataset,
@@ -302,7 +305,7 @@ const fixtureDefinitions: ReadonlyArray<FixtureDefinition> = [
     expectedStatus: "ERROR",
     expectedReasonCodes: [],
     runError: async () => {
-      const directory = await mkdtemp(join(tmpdir(), "domain-f-input-missing-"));
+      const directory = await makeTempDirectoryAtNodeBoundary("domain-f-input-missing-");
       try {
         const files: Readonly<Record<string, string>> = {
           "department.json": "[]",
@@ -312,7 +315,7 @@ const fixtureDefinitions: ReadonlyArray<FixtureDefinition> = [
         };
         await Promise.all(
           Object.entries(files).map(([file, contents]) =>
-            writeFile(join(directory, file), contents, "utf8"),
+            writeTextFileAtNodeBoundary(join(directory, file), contents),
           ),
         );
         try {
@@ -322,7 +325,7 @@ const fixtureDefinitions: ReadonlyArray<FixtureDefinition> = [
           return error instanceof DatasetInputError ? error : undefined;
         }
       } finally {
-        await rm(directory, { recursive: true, force: true });
+        await removeTreeAtNodeBoundary(directory);
       }
     },
   },
@@ -392,10 +395,10 @@ const assertBoundaryFixtures = async (): Promise<void> => {
     throw new Error("boundary fixture did not classify a nullable non-integer structurally");
   }
 
-  const directory = await mkdtemp(join(tmpdir(), "domain-schema-boundary-"));
+  const directory = await makeTempDirectoryAtNodeBoundary("domain-schema-boundary-");
   const authorityPath = join(directory, "person-authority.json");
   const expectAuthorityFailure = async (contents: string, expectedCode: string): Promise<void> => {
-    await writeFile(authorityPath, contents, "utf8");
+    await writeTextFileAtNodeBoundary(authorityPath, contents);
     let error: unknown;
     try {
       await loadPersonAuthority(authorityPath);
@@ -413,7 +416,7 @@ const assertBoundaryFixtures = async (): Promise<void> => {
       "INVALID_PERSON_AUTHORITY",
     );
   } finally {
-    await rm(directory, { recursive: true, force: true });
+    await removeTreeAtNodeBoundary(directory);
   }
 };
 
