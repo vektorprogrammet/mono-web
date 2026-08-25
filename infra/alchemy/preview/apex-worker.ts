@@ -97,24 +97,18 @@ export default {
 };
 
 /**
- * Asset subresources belong to whichever app rendered the document that
- * referenced them. Dashboard documents are exactly the dashboard surface
- * paths, so their Sec-Fetch-Site/Referer identify them; same-origin
- * fetch()/module loads inherit the document's context.
+ * Subresources belong to whichever app rendered the referencing document.
+ * A Referer whose path maps to the dashboard surface (including react-router
+ * `.data` requests for dashboard routes) is served by the dashboard worker;
+ * everything else stays on the homepage. Requests without a Referer default
+ * to the homepage, matching direct navigation of homepage-owned paths.
  */
 const isDashboardAssetRequest = (request: Request): boolean => {
   const referer = request.headers.get("referer");
-  if (referer !== null) {
-    const refererUrl = new URL(referer);
-    // Origin-only referers carry no path context; let the dest fallback decide.
-    if (refererUrl.pathname !== "/") {
-      return previewSurface(refererUrl.pathname) === "dashboard";
-    }
+  if (referer === null) return true;
+  try {
+    return previewSurface(new URL(referer).pathname) === "dashboard";
+  } catch {
+    return true;
   }
-  // No/ambiguous context: default subresources to the dashboard, whose
-  // route modules are the ones eagerly preloaded after sign-in. Homepage
-  // documents always provide a homepage referer, so they take the branch
-  // above and never reach this fallback.
-  const secFetchDest = request.headers.get("sec-fetch-dest");
-  return secFetchDest !== "document" && secFetchDest !== "" && secFetchDest !== null;
 };
