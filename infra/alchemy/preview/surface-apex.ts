@@ -20,6 +20,7 @@ export function apexSurface(pathname: string): ApexSurface {
   if (
     routePath === "/schools" ||
     routePath === "/content" ||
+    routePath === "/dashboard" ||
     routePath.startsWith("/dashboard/") ||
     routePath === "/login" ||
     routePath === "/logout" ||

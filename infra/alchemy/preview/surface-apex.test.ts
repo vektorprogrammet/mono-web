@@ -7,9 +7,10 @@ describe("apexSurface", () => {
     expect(apexSurface("/content.data")).toBe("dashboard");
     expect(apexSurface("/content?operation=load")).toBe("dashboard");
   });
-
   it("routes the authenticated schools bridge to dashboard", () => {
     expect(apexSurface("/schools")).toBe("dashboard");
     expect(apexSurface("/schools.data")).toBe("dashboard");
+    expect(apexSurface("/dashboard")).toBe("dashboard");
+    expect(apexSurface("/dashboard.data")).toBe("dashboard");
   });
 });
