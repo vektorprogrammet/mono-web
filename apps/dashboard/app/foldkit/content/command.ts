@@ -75,24 +75,18 @@ export interface WorkspaceCommandDeps {
 
 export const makeContentWorkspaceCommands = (
   client: ContentWorkspaceClient,
-  ): { LoadWorkspace: WorkspaceCommandFactories["LoadWorkspace"] } => {
-  const loadDefinition = Command.define("LoadContentWorkspace", {
-    args: { requestId: S.Int.check(S.isGreaterThanOrEqualTo(1)) },
-    messages: [LoadedWorkspace, FailedWorkspace],
-    execute: ({ requestId }: { readonly requestId: number }) =>
-      client.admin.content.workspace().pipe(
+): WorkspaceCommandFactories => {
+  return {
+    LoadWorkspace: (({ requestId }) => ({
+      name: "LoadContentWorkspace",
+      args: { requestId },
+      effect: client.admin.content.workspace().pipe(
         Effect.map((workspace) => LoadedWorkspace({ requestId, workspace })),
         Effect.catch((error) =>
           Effect.succeed(FailedWorkspace({ requestId, failure: failureFrom(error) })),
         ),
       ),
-  });
-
-  const LoadWorkspace: WorkspaceCommandFactories["LoadWorkspace"] = ({ requestId }) =>
-    loadDefinition({ requestId });
-
-  return {
-    LoadWorkspace,
+    })) as WorkspaceCommandFactories["LoadWorkspace"],
   };
 };
 
