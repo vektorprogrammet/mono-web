@@ -164,13 +164,13 @@ try {
       membership_id, person_id, team_id, deleted_team_name, start_at, end_at,
       position_id, is_team_leader, is_suspended, revision
     ) VALUES
-      ($1::text, $5::text, $9::text, NULL, '2020-01-01T00:00:00.000Z', NULL,
+      ($1::text, $2::text, $9::text, NULL, '2020-01-01T00:00:00.000Z', NULL,
        'member', TRUE, FALSE, 0),
-      ($2::text, $6::text, $9::text, NULL, '2020-01-01T00:00:00.000Z', NULL,
+      ($3::text, $4::text, $9::text, NULL, '2020-01-01T00:00:00.000Z', NULL,
        'member', FALSE, FALSE, 0),
-      ($3::text, $7::text, $10::text, NULL, '2020-01-01T00:00:00.000Z', NULL,
+      ($5::text, $6::text, $10::text, NULL, '2020-01-01T00:00:00.000Z', NULL,
        'member', FALSE, FALSE, 0),
-      ($4::text, $8::text, $9::text, NULL, '2020-01-01T00:00:00.000Z',
+      ($7::text, $8::text, $9::text, NULL, '2020-01-01T00:00:00.000Z',
        '2025-01-01T00:00:00.000Z', 'member', FALSE, FALSE, 0)`,
     [
       membershipIds[0],
@@ -267,7 +267,7 @@ try {
   assert.deepEqual(evidence.rows[0], {
     persons: 6,
     departments: 2,
-    memberships: 2,
+    memberships: 4,
     articles: 5,
     versions: 4,
     department_links: 4,
