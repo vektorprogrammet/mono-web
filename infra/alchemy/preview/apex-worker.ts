@@ -67,6 +67,17 @@ export default {
       });
     }
 
+    // GET /api/health is a first-class probe: map it directly to the
+    // backend's /health so it never depends on API route matching.
+    if (url.pathname === "/api/health" && request.method === "GET") {
+      return proxyResponse(
+        await fetch(new Request(backendUrl(new URL("/health", url.origin)), {
+          method: "GET",
+          headers: request.headers,
+        })),
+      );
+    }
+
     const surface = apexSurface(url.pathname);
     if (surface === "homepage") return env.Homepage.fetch(request);
     if (surface === "dashboard") return env.Dashboard.fetch(request);

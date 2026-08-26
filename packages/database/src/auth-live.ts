@@ -80,6 +80,8 @@ const authShape = (
     const session = await engine.api.getSession({ headers: cookieHeaders(cookieHeader) })
     if (session?.user == null) {
       // Typed so the backend maps stale/invalid cookies to UnauthenticatedActor
+      // (401) instead of an untagged AuthEngineError (503). The sessionToken
+      // field is deliberately empty: never echo session tokens into errors.
       throw new AuthSessionNotFound({ sessionToken: "" })
     }
     return await decodeAuthenticatedActor({
