@@ -3,12 +3,14 @@ import type { Config } from "@react-router/dev/config";
 /**
  * `allowedActionOrigins` feeds React Router's server-side CSRF origin check
  * for form actions. The apex preview terminates TLS at Cloudflare and the
- * edge worker forwards the browser's Origin (https://vektor.phibkro.org)
- * to this app, which is served on http://127.0.0.1:<port> locally, so the
- * apex origin must be explicitly trusted.
+ * edge worker forwards the browser's Origin to this app, which is served on
+ * a local port, so the apex origin must be explicitly trusted. The origin is
+ * taken from PREVIEW_HOST so other deployments keep the default (empty) list.
  */
+const previewHost = process.env.PREVIEW_HOST;
+
 export default {
   appDirectory: "app",
   ssr: true,
-  allowedActionOrigins: ["https://vektor.phibkro.org"],
+  ...(previewHost ? { allowedActionOrigins: [`https://${previewHost}`] } : {}),
 } satisfies Config;
