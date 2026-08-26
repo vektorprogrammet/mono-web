@@ -66,12 +66,23 @@ describe("public news author attribution", () => {
     }),
   );
 
-  it.effect("uses the article creator in published detail even for a historical version", () =>
+  it.effect("links only older published versions for every selected detail version", () =>
     Effect.gen(function* () {
       const requested: Array<string> = [];
       const database = makeDatabase((statement) => {
         if (statement.includes("FROM content_article_versions AS version")) {
           return [
+            {
+              articleId: 1,
+              versionNumber: 3,
+              slug: "creator-attribution",
+              title: "Creator attribution",
+              sticky: false,
+              bodyHtml: "<p>new body</p>",
+              publishedAt: "2030-02-01T00:00:00.000Z",
+              createdByPersonId: creatorId,
+              publishedByPersonId: publisherId,
+            },
             {
               articleId: 1,
               versionNumber: 2,
@@ -100,14 +111,50 @@ describe("public news author attribution", () => {
         return [];
       });
 
-      const article = yield* readPublishedArticlePostgres("creator-attribution", 1).pipe(
-        Effect.provideService(Database, database),
-        Effect.provideService(Profile, profile(requested)),
-      );
+      for (const testCase of [
+        { versionNumber: 1, previousVersions: [] },
+        {
+          versionNumber: 2,
+          previousVersions: [
+            {
+              versionNumber: 1,
+              publishedAt: "2029-12-01T00:00:00.000Z",
+              urlPath: "/nyhet/creator-attribution?versjon=1",
+            },
+          ],
+        },
+        {
+          versionNumber: 3,
+          previousVersions: [
+            {
+              versionNumber: 2,
+              publishedAt,
+              urlPath: "/nyhet/creator-attribution?versjon=2",
+            },
+            {
+              versionNumber: 1,
+              publishedAt: "2029-12-01T00:00:00.000Z",
+              urlPath: "/nyhet/creator-attribution?versjon=1",
+            },
+          ],
+        },
+      ] as const) {
+        const article = yield* readPublishedArticlePostgres(
+          "creator-attribution",
+          testCase.versionNumber,
+        ).pipe(
+          Effect.provideService(Database, database),
+          Effect.provideService(Profile, profile(requested)),
+        );
 
-      expect(requested).toEqual([creatorId]);
-      expect(article.authorDisplayName).toBe("Article Creator");
-      expect(article.bodyHtml).toBe("<p>old body</p>");
+        expect(article.authorDisplayName).toBe("Article Creator");
+        if (testCase.versionNumber === 1) {
+          expect(article.bodyHtml).toBe("<p>old body</p>");
+        }
+        expect(article.previousVersions).toEqual(testCase.previousVersions);
+      }
+
+      expect(requested).toEqual([creatorId, creatorId, creatorId]);
     }),
   );
 });

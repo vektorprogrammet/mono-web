@@ -224,11 +224,14 @@ export const readPublishedArticlePostgres = (
               message: `no profile resolved for author ${selected.createdByPersonId}`,
             });
           }
-          const previousVersions = versions.slice(1).map((row) => ({
-            versionNumber: row.versionNumber,
-            publishedAt: row.publishedAt,
-            urlPath: `/nyhet/${slug}?versjon=${row.versionNumber}`,
-          }));
+          const previousVersions = versions
+            .filter((version) => version.versionNumber < selected.versionNumber)
+            .sort((left, right) => right.versionNumber - left.versionNumber)
+            .map((row) => ({
+              versionNumber: row.versionNumber,
+              publishedAt: row.publishedAt,
+              urlPath: `/nyhet/${slug}?versjon=${row.versionNumber}`,
+            }));
           return yield* Schema.decodeUnknownEffect(PublishedNewsArticleSchema)(
             {
               slug: selected.slug,
