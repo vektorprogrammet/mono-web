@@ -255,6 +255,13 @@ export const readWorkspacePostgres = (input: {
         }),
       )
       .pipe(
+        Effect.tapError((cause) =>
+          Effect.sync(() => {
+            process.stderr?.write?.(
+              `[content-ws-debug] failure: ${JSON.stringify(String(cause))}\n`,
+            );
+          }),
+        ),
         Effect.catchTag("SqlError", (cause) =>
           Effect.fail(persistenceError("content workspace snapshot", cause)),
         ),
