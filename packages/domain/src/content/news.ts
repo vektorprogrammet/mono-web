@@ -83,6 +83,7 @@ export const readNewsListingPostgres = (): Effect.Effect<
             INNER JOIN content_articles AS article
               ON article.article_id = version.article_id
              AND article.current_version_number = version.version_number
+            ORDER BY version.sticky DESC, version.published_at DESC, version.article_id DESC
           `.pipe(
             Effect.catchTag("SqlError", (cause) => integrityError("read news listing", cause)),
           );

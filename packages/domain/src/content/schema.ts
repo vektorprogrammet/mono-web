@@ -261,7 +261,7 @@ const compareSummaries = (left: PublishedNewsSummary, right: PublishedNewsSummar
   if (left.publishedAt !== right.publishedAt) {
     return left.publishedAt < right.publishedAt ? 1 : -1;
   }
-  return right.slug.localeCompare(left.slug);
+  return 0;
 };
 
 export const PublishedNewsListingSchema = Schema.Struct({
@@ -270,10 +270,10 @@ export const PublishedNewsListingSchema = Schema.Struct({
       Schema.makeFilter(
         (articles) =>
           articles.every(
-            (article, index) => index === 0 || compareSummaries(articles[index - 1]!, article) < 0,
+            (article, index) => index === 0 || compareSummaries(articles[index - 1]!, article) <= 0,
           ),
         {
-          message: "listing ordered sticky-first, then publishedAt DESC, then slug DESC",
+          message: "listing ordered sticky-first, then publishedAt DESC",
         },
       ),
     ),

@@ -102,7 +102,7 @@ export const projectNewsSummaries = (input: {
     return summary satisfies typeof PublishedNewsSummarySchema.Type;
   });
 
-/** Sticky-first ordering law: sticky DESC, publishedAt DESC, slug DESC. */
+/** Sticky-first ordering; equal instants preserve the caller's article-id order. */
 export const orderNewsSummaries = (
   summaries: ReadonlyArray<PublishedNewsSummary>,
 ): PublishedNewsListing => {
@@ -111,7 +111,7 @@ export const orderNewsSummaries = (
     if (left.publishedAt !== right.publishedAt) {
       return left.publishedAt < right.publishedAt ? 1 : -1;
     }
-    return right.slug.localeCompare(left.slug);
+    return 0;
   });
   return { articles: ordered } satisfies typeof PublishedNewsListingSchema.Type;
 };
