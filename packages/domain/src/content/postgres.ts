@@ -618,10 +618,8 @@ export const publishPostgres = (input: {
           const actor = yield* authorityDecisionOrDenial(authority, input.authorizationInstant);
           const draft = yield* readDraftForUpdate(database, command.articleId);
           if (draft === undefined) {
-            process.stderr?.write?.(`[publish-debug] draft not found for article ${command.articleId}\n`);
-            return yield* new ContentArticleNotFound({});
+              return yield* new ContentArticleNotFound({});
           }
-          process.stderr?.write?.(`[publish-debug] actor=${actor._tag} draftDeptCount=${(departmentIds.get(draft.articleId) ?? []).length}\n`);
           const departmentIds = yield* departmentIdsForArticles(database, [draft.articleId]);
           const draftDepartments = departmentIds.get(draft.articleId) ?? [];
           if (!canPublishContent(actor, draftDepartments)) {

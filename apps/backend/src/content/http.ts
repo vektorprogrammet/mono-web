@@ -191,7 +191,6 @@ export const makeContentManagementApiHttp = (
         const { operation: _op, ...payload } = body as Record<string, unknown>;
         const actor = await resolveActor(request);
         let observation: unknown;
-        process.stderr.write(`[op-debug] dispatching ${operation} articleId=${String(payload.articleId)} commandId=${String(payload.commandId)}\n`);
         if (operation === "publish") {
           observation = await run(
             publishPostgres({
@@ -248,7 +247,6 @@ export const makeContentManagementApiHttp = (
             }),
           );
         }
-        process.stderr.write(`[op-debug] ${operation} ok\n`);
         return jsonResponse(observation, 201, noStore);
       }
       const reviseMatch = /^\/api\/admin\/content\/drafts\/(\d+)$/.exec(pathname);
