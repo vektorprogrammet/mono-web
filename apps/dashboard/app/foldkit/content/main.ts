@@ -1,4 +1,5 @@
-import { makeContentWorkspaceCommands } from "./command";
+import { failureFrom, makeContentWorkspaceCommands } from "./command";
+import { FailedCommand } from "./message";
 import type { ContentWorkspaceClient } from "./browser-client";
 import { Effect } from "effect";
 import { Runtime } from "foldkit";
@@ -24,14 +25,17 @@ export const embedContentWorkspace = (
       name: "SubmitContentCreate",
       args: { requestId },
       effect: Effect.gen(function* () {
-          yield* input.client.admin.content.createDraft({
-            commandId,
-            title,
-            bodyHtml,
-            departmentIds,
-            sticky,
-          } as never);
-          return yield* load.LoadWorkspace({ requestId: requestId + 1 }).effect;
+        yield* input.client.admin.content
+          .createDraft({ commandId, title, bodyHtml, departmentIds, sticky } as never)
+          .pipe(
+            Effect.catch(() =>
+              Effect.succeed(FailedCommand({
+                requestId: requestId + 1,
+                failure: { _tag: "Failed", message: "Lagring feilet. Prøv på nytt." },
+              }) as unknown as Message),
+            ),
+          );
+        return yield* load.LoadWorkspace({ requestId: requestId + 1 }).effect;
       }),
     }),
     SubmitRevise: ({
@@ -46,34 +50,47 @@ export const embedContentWorkspace = (
     }) => ({
       name: "SubmitContentRevise",
       args: { requestId },
-      effect: Effect.gen(function* () {
-          yield* input.client.admin.content.reviseDraft({
-            commandId,
-            articleId,
-            expectedRevision,
-            title,
-            bodyHtml,
-            departmentIds,
-            sticky,
-          } as never);
-        return yield* load.LoadWorkspace({ requestId: requestId + 1 }).effect;
-      }),
+      effect: input.client.admin.content
+        .reviseDraft({ commandId, articleId, expectedRevision, title, bodyHtml, departmentIds, sticky } as never)
+        .pipe(
+          Effect.flatMap(() => load.LoadWorkspace({ requestId: requestId + 1 }).effect),
+          Effect.catch(() =>
+            Effect.succeed(FailedCommand({
+              requestId: requestId + 1,
+              failure: { _tag: "Failed", message: "Lagring feilet. Prøv på nytt." },
+            }) as unknown as Message),
+          ),
+        ),
     }),
     SubmitPublish: ({ requestId, commandId, articleId }) => ({
       name: "SubmitContentPublish",
       args: { requestId },
-      effect: Effect.gen(function* () {
-        yield* input.client.admin.content.publish({ commandId, articleId } as never);
-        return yield* load.LoadWorkspace({ requestId: requestId + 1 }).effect;
-      }),
+      effect: input.client.admin.content
+        .publish({ commandId, articleId } as never)
+        .pipe(
+          Effect.flatMap(() => load.LoadWorkspace({ requestId: requestId + 1 }).effect),
+          Effect.catch(() =>
+            Effect.succeed(FailedCommand({
+              requestId: requestId + 1,
+              failure: { _tag: "Failed", message: "Lagring feilet. Prøv på nytt." },
+            }) as unknown as Message),
+          ),
+        ),
     }),
     SubmitUnpublish: ({ requestId, commandId, articleId }) => ({
       name: "SubmitContentUnpublish",
       args: { requestId },
-      effect: Effect.gen(function* () {
-        yield* input.client.admin.content.unpublish({ commandId, articleId } as never);
-        return yield* load.LoadWorkspace({ requestId: requestId + 1 }).effect;
-      }),
+      effect: input.client.admin.content
+        .unpublish({ commandId, articleId } as never)
+        .pipe(
+          Effect.flatMap(() => load.LoadWorkspace({ requestId: requestId + 1 }).effect),
+          Effect.catch(() =>
+            Effect.succeed(FailedCommand({
+              requestId: requestId + 1,
+              failure: { _tag: "Failed", message: "Lagring feilet. Prøv på nytt." },
+            }) as unknown as Message),
+          ),
+        ),
     }),
   };
   const program = Runtime.makeElement({
