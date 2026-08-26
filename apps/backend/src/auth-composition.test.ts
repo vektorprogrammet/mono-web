@@ -2,12 +2,34 @@ import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 
 const mainSource = await readFile(new URL("./main.ts", import.meta.url), "utf8");
+const authoritySource = await readFile(new URL("./authority.ts", import.meta.url), "utf8");
+const authLiveSource = await readFile(
+  new URL("../../../packages/database/src/auth-live.ts", import.meta.url),
+  "utf8",
+);
 
-describe("backend auth composition", () => {
-  it("uses AuthLive as the sole auth authority and lifecycle owner", () => {
+describe("backend identity composition", () => {
+  it("uses AuthLive as the sole identity authority and lifecycle owner", () => {
+    expect(mainSource).toContain('from "@vektorprogrammet/domain/identity"');
     expect(mainSource).toContain("const authLayers = AuthLive(config.auth);");
+    expect(mainSource).toContain("| Identity");
     expect(mainSource.match(/\bAuthLive\(config\.auth\)/g)).toHaveLength(1);
     expect(mainSource).not.toContain("AuthEngineLive");
     expect(mainSource).not.toMatch(/Layer\.merge\(AuthLive\(config\.auth\)/);
+  });
+
+  it("constructs one engine service for the combined Identity/AuthEngine layer", () => {
+    const authLiveBody = authLiveSource.slice(authLiveSource.indexOf("export const AuthLive"));
+    expect(authLiveBody.match(/makeAuthEngineService\(config\)/g)).toHaveLength(1);
+    expect(authLiveBody).toContain("Context.make(Identity");
+    expect(authLiveBody).toContain("Context.make(AuthEngine");
+  });
+
+  it("keeps production authority code on Identity, never the engine or legacy Auth service", () => {
+    expect(authoritySource).toContain('from "@vektorprogrammet/domain/identity"');
+    expect(authoritySource).toContain("Identity.use");
+    expect(authoritySource).not.toMatch(/from ["']@vektorprogrammet\/domain\/auth["']/);
+    expect(authoritySource).not.toMatch(/\bAuth\.use/);
+    expect(authoritySource).not.toMatch(/as unknown as PersonId/);
   });
 });

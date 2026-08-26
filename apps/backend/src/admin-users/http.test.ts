@@ -1,10 +1,10 @@
 import type { Admissions } from "@vektorprogrammet/domain/admissions";
 import {
-  Auth,
-  AuthenticatedActor,
-  AuthSessionNotFound,
-  type AuthShape,
-} from "@vektorprogrammet/domain/auth";
+  Identity,
+  IdentityActor,
+  IdentitySessionNotFound,
+  type IdentityShape,
+} from "@vektorprogrammet/domain/identity";
 import { Database, type DatabaseShape } from "@vektorprogrammet/domain/database";
 import { Content } from "@vektorprogrammet/domain/content";
 import { ContentManagement } from "@vektorprogrammet/domain/content";
@@ -12,6 +12,7 @@ import type { Schools } from "@vektorprogrammet/domain/schools";
 import {
   DepartmentId,
   Organization,
+  PersonId,
   accumulateOrganizationDirectoryFacts,
   type OrganizationDirectoryFact,
   type OrganizationDirectoryFacts,
@@ -281,7 +282,6 @@ const resetScenario = () => {
 };
 
 resetScenario();
-
 const successfulRun: BackendRun = <A, E>(
   effect: Effect.Effect<
     A,
@@ -293,7 +293,7 @@ const successfulRun: BackendRun = <A, E>(
     | Profile
     | Recruitment
     | Schools
-    | Auth
+    | Identity
     | ContentManagement
     | Content
   >,
@@ -303,20 +303,20 @@ const successfulRun: BackendRun = <A, E>(
       Effect.provideService(Database, database),
       Effect.provideService(Profile, profile),
       Effect.provideService(Organization, organization),
-      Effect.provideService(Auth, {
+      Effect.provideService(Identity, {
         signIn: () => Promise.reject(new Error("unexpected sign-in")),
         resolveSession: async (cookieHeader: string | undefined) => {
           if (cookieHeader !== undefined && cookieHeader.includes(`${token}=`)) {
-            return new AuthenticatedActor({
-              personId: "person-caller" as never,
+            return new IdentityActor({
+              personId: PersonId.make("person-caller"),
               sessionId: "session-1",
-              expiresAt: DateTime.makeUnsafe(new Date("2031-09-16T12:00:00.000Z")),
+              expiresAt: DateTime.makeUnsafe(new Date("2031-09-16T00:00:00.000Z")),
             });
           }
-          throw new AuthSessionNotFound({ sessionToken: "" });
+          throw new IdentitySessionNotFound({ sessionToken: "" });
         },
         signOut: async () => undefined,
-      } as unknown as AuthShape),
+      } satisfies IdentityShape),
     ) as Effect.Effect<A, E>,
   );
 

@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { AuthEngine, AuthLive, DatabaseLive } from "@vektorprogrammet/database";
 import { runPublicApplicationOutboxWorker } from "@vektorprogrammet/domain/application";
 import { Admissions, AdmissionsLive } from "@vektorprogrammet/domain/admissions";
-import { Auth } from "@vektorprogrammet/domain/auth";
+import { Identity } from "@vektorprogrammet/domain/identity";
 import { databaseHealth, type Database } from "@vektorprogrammet/domain/database";
 import { Organization, OrganizationLive } from "@vektorprogrammet/domain/organization";
 import { Profile, ProfileLive } from "@vektorprogrammet/domain/profile";
@@ -69,7 +69,7 @@ const run = <A, E>(
     | Profile
     | Recruitment
     | Schools
-    | Auth
+    | Identity
     | ContentManagement
     | Content
   >,

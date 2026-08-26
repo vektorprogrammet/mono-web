@@ -1,7 +1,7 @@
 import { Content, ContentManagement } from "@vektorprogrammet/domain/content";
 import type { Admissions } from "@vektorprogrammet/domain/admissions";
 import { UnauthenticatedActor } from "@vektorprogrammet/domain/admission-period";
-import type { Auth } from "@vektorprogrammet/domain/auth";
+import type { Identity } from "@vektorprogrammet/domain/identity";
 import { Database, type DatabaseShape } from "@vektorprogrammet/domain/database";
 import {
   DepartmentId,
@@ -89,7 +89,7 @@ const makeRun = (
       | Profile
       | Recruitment
       | Schools
-      | Auth
+      | Identity
       | ContentManagement
       | Content
     >,

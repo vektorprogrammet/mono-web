@@ -3,7 +3,7 @@ import { createLocalAccountIssuer } from "better-auth";
 import { Effect } from "effect";
 import { Pool } from "pg";
 import { afterAll, describe, expect, it } from "vitest";
-import { Auth } from "@vektorprogrammet/domain/auth";
+import { Identity } from "@vektorprogrammet/domain/identity";
 import { AuthLive, AuthEngine, AuthEngineLive } from "./auth-live.js";
 import { makeControlledTestRuntime } from "../test/runtime.js";
 
@@ -115,10 +115,10 @@ dsl("AuthLive (spec 0054)", () => {
     await runtime.runPromise(
       Effect.gen(function* () {
         const engine = yield* AuthEngine;
-        const auth = yield* Auth;
+        const identity = yield* Identity;
 
         const signedIn = yield* Effect.tryPromise(() =>
-          auth.signIn({ email: cohort.email, password: cohort.password }),
+          identity.signIn({ email: cohort.email, password: cohort.password }),
         );
         const cookie = signedIn.setCookie.split(";")[0] ?? signedIn.setCookie;
         expect(signedIn.actor.personId).toBe(cohort.personId);
@@ -135,8 +135,10 @@ dsl("AuthLive (spec 0054)", () => {
         };
         expect(handlerBody.user?.id).toBe(cohort.personId);
 
-        yield* Effect.tryPromise(() => auth.signOut(cookie));
-        const revoked = yield* Effect.exit(Effect.tryPromise(() => auth.resolveSession(cookie)));
+        yield* Effect.tryPromise(() => identity.signOut(cookie));
+        const revoked = yield* Effect.exit(
+          Effect.tryPromise(() => identity.resolveSession(cookie)),
+        );
         expect(revoked._tag).toBe("Failure");
       }),
     );
@@ -146,9 +148,9 @@ dsl("AuthLive (spec 0054)", () => {
     assertDisposable(config.postgresUrl);
     await runtime.runPromise(
       Effect.gen(function* () {
-        const auth = yield* Auth;
+        const identity = yield* Identity;
         const result = yield* Effect.exit(
-          Effect.tryPromise(() => auth.resolveSession("vp.session_token=unknown")),
+          Effect.tryPromise(() => identity.resolveSession("vp.session_token=unknown")),
         );
         expect(result._tag).toBe("Failure");
       }),

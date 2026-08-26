@@ -23,7 +23,7 @@
     "./content": "./src/content/index.ts",
     "./profile": "./src/profile/index.ts",
     "./schools": "./src/schools/index.ts",
-    "./auth": "./src/auth/index.ts",
+    "./identity": "./src/identity/index.ts",
     "./recruitment": "./src/recruitment/index.ts",
     "./notification": "./src/notification/index.ts",
     "./database": "./src/database/index.ts",

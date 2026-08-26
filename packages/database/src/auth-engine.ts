@@ -1,11 +1,11 @@
-import { betterAuth } from "better-auth"
-import { Pool } from "pg"
+import { betterAuth } from "better-auth";
+import { Pool } from "pg";
 
 /**
  * AuthLive engine wiring (spec 0054).
  *
  * The better-auth instance is the session/credential ENGINE behind the
- * `Auth` Service. It depends on the vektorprogrammet PostgreSQL via a plain
+ * `Identity` Service. It depends on the vektorprogrammet PostgreSQL via a plain
  * pg Pool pointed at the same authoritative database; its tables live in the
  * dedicated `auth` schema so domain tables in `public` stay untouched.
  * Roles and access policy are NEVER read here - this module resolves
@@ -13,9 +13,9 @@ import { Pool } from "pg"
  */
 export interface AuthEngineConfig {
   /** Same connection string as BACKEND_PG_URL; auth schema via search_path. */
-  readonly postgresUrl: string
-  readonly secret: string
-  readonly baseURL: string
+  readonly postgresUrl: string;
+  readonly secret: string;
+  readonly baseURL: string;
 }
 
 export const makeAuthPool = (config: AuthEngineConfig) =>
@@ -24,12 +24,9 @@ export const makeAuthPool = (config: AuthEngineConfig) =>
     options: "-c search_path=auth",
     max: 4,
     application_name: "vektorprogrammet-auth",
-  })
+  });
 
-export const makeAuthEngine = (
-  config: AuthEngineConfig,
-  database: Pool = makeAuthPool(config),
-) =>
+export const makeAuthEngine = (config: AuthEngineConfig, database: Pool = makeAuthPool(config)) =>
   betterAuth({
     secret: config.secret,
     baseURL: config.baseURL,
@@ -56,6 +53,6 @@ export const makeAuthEngine = (
       // auth.user.id IS PersonId - set explicitly at seed/creation time.
       modelName: "user",
     },
-  })
+  });
 
-export type AuthEngine = ReturnType<typeof makeAuthEngine>
+export type AuthEngine = ReturnType<typeof makeAuthEngine>;

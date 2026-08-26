@@ -1,13 +1,17 @@
 import { Content, ContentManagement } from "@vektorprogrammet/domain/content";
 import type { Admissions } from "@vektorprogrammet/domain/admissions";
 import {
-  Auth,
-  AuthenticatedActor,
-  AuthSessionNotFound,
-  type AuthShape,
-} from "@vektorprogrammet/domain/auth";
+  Identity,
+  IdentityActor,
+  IdentitySessionNotFound,
+  type IdentityShape,
+} from "@vektorprogrammet/domain/identity";
 import { Database, type DatabaseShape } from "@vektorprogrammet/domain/database";
-import { Organization, type OrganizationShape } from "@vektorprogrammet/domain/organization";
+import {
+  Organization,
+  PersonId,
+  type OrganizationShape,
+} from "@vektorprogrammet/domain/organization";
 import { Organization as OrganizationService } from "@vektorprogrammet/domain/organization";
 import type { Economy } from "@vektorprogrammet/domain/receipt";
 import type { Profile } from "@vektorprogrammet/domain/profile";
@@ -117,7 +121,7 @@ const run: BackendRun = <A, E>(
     | Profile
     | RecruitmentService
     | Schools
-    | Auth
+    | Identity
     | ContentManagement
     | Content
   >,
@@ -127,23 +131,23 @@ const run: BackendRun = <A, E>(
       Effect.provideService(Database, database),
       Effect.provideService(OrganizationService, organization),
       Effect.provideService(RecruitmentService, recruitment),
-      Effect.provideService(Auth, {
+      Effect.provideService(Identity, {
         signIn: () => Promise.reject(new Error("unexpected sign-in")),
         resolveSession: async (cookieHeader: string | undefined) => {
           const matched = Object.keys(membershipsByToken).find((token) =>
             cookieHeader?.includes(`${token}=`),
           );
           if (matched !== undefined) {
-            return new AuthenticatedActor({
-              personId: personIdForToken(matched) as never,
+            return new IdentityActor({
+              personId: PersonId.make(personIdForToken(matched)),
               sessionId: "session-1",
               expiresAt: DateTime.makeUnsafe(new Date("2031-09-16T12:00:00.000Z")),
             });
           }
-          throw new AuthSessionNotFound({ sessionToken: "" });
+          throw new IdentitySessionNotFound({ sessionToken: "" });
         },
         signOut: async () => undefined,
-      } as unknown as AuthShape),
+      } satisfies IdentityShape),
     ) as Effect.Effect<A, E>,
   );
 

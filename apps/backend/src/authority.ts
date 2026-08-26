@@ -5,12 +5,12 @@ import {
   UnauthenticatedActor,
 } from "@vektorprogrammet/domain/admission-period";
 import {
-  Auth,
-  AuthEngineError,
-  AuthenticatedActor,
-  AuthSessionExpired,
-  AuthSessionNotFound,
-} from "@vektorprogrammet/domain/auth";
+  Identity,
+  IdentityEngineError,
+  IdentityActor,
+  IdentitySessionExpired,
+  IdentitySessionNotFound,
+} from "@vektorprogrammet/domain/identity";
 import type {
   DepartmentId,
   OrganizationActor,
@@ -28,13 +28,11 @@ import {
 } from "@vektorprogrammet/domain/organization";
 import type { Decision } from "@vektorprogrammet/domain/authz";
 import type { RecruitmentActor } from "@vektorprogrammet/domain/recruitment";
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 
 /**
- * Person-keyed authority resolution (spec 0055) for the backend HTTP adapters.
- *
- * Flow: request Cookie -> Auth.resolveSession -> PersonId + one
- * authorizationInstant -> Organization.resolvePersonAuthority -> request-
+ * Flow: request Cookie -> Identity.resolveSession -> canonical PersonId +
+ * one authorizationInstant -> Organization.resolvePersonAuthority -> request-
  * specific actor via the frozen 0055 mappers. Identity never contributes role
  * facts; the auth schema is not an input to any projection.
  */
@@ -50,21 +48,24 @@ export type OrganizationResolutionError = OrganizationDecodeError | Organization
 /** Injected clock keeps the one-instant-per-request law testable (spec 0055). */
 const defaultNow = (): string => new Date().toISOString();
 
+const decodeAuthorizationInstant = (value: string): OrganizationAuthorityInstant =>
+  Schema.decodeUnknownSync(OrganizationAuthorityInstantSchema)(value);
+
 const sessionEffect = (
   cookieHeader: string | undefined,
-): Effect.Effect<AuthenticatedActor, AuthEngineError | UnauthenticatedActor, Auth> =>
-  Auth.use(({ resolveSession }) =>
+): Effect.Effect<IdentityActor, IdentityEngineError | UnauthenticatedActor, Identity> =>
+  Identity.use(({ resolveSession }) =>
     Effect.tryPromise({
       try: () => resolveSession(cookieHeader),
       catch: (cause) => {
-        if (cause instanceof AuthSessionNotFound || cause instanceof AuthSessionExpired) {
+        if (cause instanceof IdentitySessionNotFound || cause instanceof IdentitySessionExpired) {
           return new UnauthenticatedActor({ message: "authentication required" });
         }
-        return cause instanceof AuthEngineError
+        return cause instanceof IdentityEngineError
           ? cause
-          : new AuthEngineError({
+          : new IdentityEngineError({
               operation: "resolveSession",
-              message: cause instanceof Error ? cause.message : "authentication provider failure",
+              message: cause instanceof Error ? cause.message : "identity provider failure",
             });
       },
     }),
@@ -72,20 +73,20 @@ const sessionEffect = (
 
 const personAuthorityEffect = (
   cookieHeader: string | undefined,
-  instant: string,
+  instant: OrganizationAuthorityInstant,
 ): Effect.Effect<
   OrganizationPersonAuthority,
-  AuthEngineError | UnauthenticatedActor | OrganizationResolutionError,
-  Organization | Auth
+  IdentityEngineError | UnauthenticatedActor | OrganizationResolutionError,
+  Organization | Identity
 > =>
   Effect.flatMap(sessionEffect(cookieHeader), (actor) =>
     Organization.use(({ resolvePersonAuthority }) =>
-      resolvePersonAuthority(actor.personId as unknown as PersonId, instant as never),
+      resolvePersonAuthority(actor.personId, instant),
     ),
   );
 
 export interface AuthorityResolutionOptions {
-  readonly run: <A, E>(effect: Effect.Effect<A, E, Organization | Auth>) => Promise<A>;
+  readonly run: <A, E>(effect: Effect.Effect<A, E, Organization | Identity>) => Promise<A>;
   /** Injectable clock; defaults to the current ISO instant. */
   readonly now?: () => string;
 }
@@ -94,16 +95,14 @@ export interface AuthorityResolutionOptions {
 export const resolveAuthenticatedSession = (
   cookieHeader: string | undefined,
   options: AuthorityResolutionOptions,
-): Promise<AuthenticatedActor> => options.run(sessionEffect(cookieHeader));
+): Promise<IdentityActor> => options.run(sessionEffect(cookieHeader));
 
-/** Cookie -> PersonId only; for adapters that authenticate without roles. */
+/** Cookie -> canonical PersonId only; for adapters that authenticate without roles. */
 export const resolveAuthenticatedPerson = (
   cookieHeader: string | undefined,
   options: AuthorityResolutionOptions,
 ): Promise<PersonId> =>
-  options.run(
-    Effect.map(sessionEffect(cookieHeader), (actor) => actor.personId as unknown as PersonId),
-  );
+  options.run(Effect.map(sessionEffect(cookieHeader), (actor) => actor.personId));
 
 export interface AuthenticatedPersonAtInstant {
   readonly personId: PersonId;
@@ -121,10 +120,8 @@ export const resolveAuthenticatedPersonAtInstant = (
   options.run(
     Effect.flatMap(sessionEffect(cookieHeader), (actor) =>
       Effect.sync(() => ({
-        personId: actor.personId as unknown as PersonId,
-        authorizationInstant: OrganizationAuthorityInstantSchema.make(
-          (options.now ?? defaultNow)(),
-        ),
+        personId: actor.personId,
+        authorizationInstant: decodeAuthorizationInstant((options.now ?? defaultNow)()),
       })),
     ),
   );
@@ -134,7 +131,7 @@ export const resolvePersonAuthority = (
   cookieHeader: string | undefined,
   options: AuthorityResolutionOptions,
 ): Promise<OrganizationPersonAuthority> => {
-  const instant = (options.now ?? defaultNow)();
+  const instant = decodeAuthorizationInstant((options.now ?? defaultNow)());
   return options.run(personAuthorityEffect(cookieHeader, instant));
 };
 

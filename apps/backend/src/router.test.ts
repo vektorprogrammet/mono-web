@@ -1,19 +1,19 @@
 import { Content, ContentManagement } from "@vektorprogrammet/domain/content";
 import type { Admissions } from "@vektorprogrammet/domain/admissions";
 import {
-  Auth,
-  AuthEngineError,
-  AuthenticatedActor,
-  AuthSessionExpired,
-  AuthSessionNotFound,
-  type AuthShape,
-} from "@vektorprogrammet/domain/auth";
+  Identity,
+  IdentityEngineError,
+  IdentityActor,
+  IdentitySessionExpired,
+  IdentitySessionNotFound,
+  type IdentityShape,
+} from "@vektorprogrammet/domain/identity";
 import { Database, type DatabaseShape } from "@vektorprogrammet/domain/database";
 import {
   Organization,
+  PersonId,
   type OrganizationAuthorityInstant,
   type OrganizationShape,
-  type PersonId,
 } from "@vektorprogrammet/domain/organization";
 import {
   PersonContactProfile,
@@ -151,7 +151,7 @@ const schools = Schools.of({
 });
 
 const makeRun =
-  (auth: AuthShape): BackendRun =>
+  (identity: IdentityShape): BackendRun =>
   <A, E>(
     effect: Effect.Effect<
       A,
@@ -163,7 +163,7 @@ const makeRun =
       | Profile
       | Recruitment
       | Schools
-      | Auth
+      | Identity
       | ContentManagement
       | Content
     >,
@@ -174,26 +174,26 @@ const makeRun =
         Effect.provideService(Profile, profile),
         Effect.provideService(Organization, organization),
         Effect.provideService(Schools, schools),
-        Effect.provideService(Auth, auth),
+        Effect.provideService(Identity, identity),
       ) as Effect.Effect<A, E>,
     );
 
-const successfulAuth = Auth.of({
+const successfulIdentity = Identity.of({
   signIn: () => Promise.reject(new Error("unexpected sign-in")),
   resolveSession: async (cookieHeader: string | undefined) => {
     if (cookieHeader !== undefined && cookieHeader.includes(`${token}=`)) {
-      return new AuthenticatedActor({
-        personId: "member-1" as never,
+      return new IdentityActor({
+        personId: PersonId.make("member-1"),
         sessionId: "session-1",
         expiresAt: DateTime.makeUnsafe(new Date("2031-09-16T12:00:00.000Z")),
       });
     }
-    throw new AuthSessionNotFound({ sessionToken: "" });
+    throw new IdentitySessionNotFound({ sessionToken: "" });
   },
   signOut: async () => undefined,
-} satisfies AuthShape);
+} satisfies IdentityShape);
 
-const successfulRun = makeRun(successfulAuth);
+const successfulRun = makeRun(successfulIdentity);
 const backend = makeBackendHttp(config, successfulRun, {
   handle: async () => new Response(null, { status: 404 }),
 });
@@ -327,27 +327,27 @@ describe("unified backend router", () => {
   it.each([
     [
       "expired session",
-      new AuthSessionExpired({ sessionToken: "expired-session" }),
+      new IdentitySessionExpired({ sessionToken: "expired-session" }),
       401,
       "UnauthenticatedActor",
     ],
     [
       "typed provider failure",
-      new AuthEngineError({
+      new IdentityEngineError({
         operation: "getSession",
         message: "authentication provider unavailable",
       }),
       503,
-      "AuthEngineError",
+      "IdentityEngineError",
     ],
-    ["unknown provider failure", new Error("connection refused"), 503, "AuthEngineError"],
+    ["unknown provider failure", new Error("connection refused"), 503, "IdentityEngineError"],
   ] as const)(
     "maps %s at the session HTTP boundary",
     async (_name, failure, expectedStatus, expectedTag) => {
       const failingBackend = makeBackendHttp(
         config,
         makeRun({
-          ...successfulAuth,
+          ...successfulIdentity,
           resolveSession: () => Promise.reject(failure),
         }),
         { handle: async () => new Response(null, { status: 404 }) },

@@ -1,12 +1,13 @@
 import { UnauthenticatedActor } from "@vektorprogrammet/domain/admission-period";
 import {
-  Auth,
-  AuthEngineError,
-  AuthenticatedActor,
-  AuthSessionExpired,
-  AuthSessionNotFound,
-  type AuthShape,
-} from "@vektorprogrammet/domain/auth";
+  Identity,
+  IdentityEngineError,
+  IdentityActor,
+  IdentitySessionExpired,
+  IdentitySessionNotFound,
+  type IdentityShape,
+} from "@vektorprogrammet/domain/identity";
+import { PersonId } from "@vektorprogrammet/domain/organization";
 import type { Organization } from "@vektorprogrammet/domain/organization";
 import { DateTime, Effect } from "effect";
 import { expect, it } from "vitest";
@@ -18,13 +19,13 @@ import {
 import { runTestPromise } from "../test/runtime.js";
 
 const makeRun =
-  (auth: AuthShape): AuthorityResolutionOptions["run"] =>
-  <A, E>(effect: Effect.Effect<A, E, Organization | Auth>): Promise<A> => {
-    const runnable = effect.pipe(Effect.provideService(Auth, auth)) as Effect.Effect<A, E>;
+  (identity: IdentityShape): AuthorityResolutionOptions["run"] =>
+  <A, E>(effect: Effect.Effect<A, E, Organization | Identity>): Promise<A> => {
+    const runnable = effect.pipe(Effect.provideService(Identity, identity)) as Effect.Effect<A, E>;
     return runTestPromise(runnable);
   };
 
-const rejectingAuth = (failure: unknown): AuthShape => ({
+const rejectingIdentity = (failure: unknown): IdentityShape => ({
   signIn: () => Promise.reject(new Error("unexpected sign-in")),
   resolveSession: () => Promise.reject(failure),
   signOut: () => Promise.resolve(),
@@ -32,19 +33,19 @@ const rejectingAuth = (failure: unknown): AuthShape => ({
 
 it("captures the Schools authorization instant exactly once after session decoding", async () => {
   const events: Array<string> = [];
-  const auth = Auth.of({
+  const identity = Identity.of({
     signIn: () => Promise.reject(new Error("unexpected sign-in")),
     resolveSession: async () => {
       events.push("session");
-      return new AuthenticatedActor({
-        personId: "schools-authority-person" as never,
+      return new IdentityActor({
+        personId: PersonId.make("schools-authority-person"),
         sessionId: "schools-session",
         expiresAt: DateTime.makeUnsafe(new Date("2032-05-02T00:00:00.000Z")),
       });
     },
     signOut: () => Promise.resolve(),
-  } satisfies AuthShape);
-  const run = makeRun(auth);
+  } satisfies IdentityShape);
+  const run = makeRun(identity);
   let clockCalls = 0;
 
   const actor = await resolveAuthenticatedPersonAtInstant("session=valid", {
@@ -65,25 +66,25 @@ it("captures the Schools authorization instant exactly once after session decodi
 });
 
 it.each([
-  ["missing", new AuthSessionNotFound({ sessionToken: "missing-session" })],
-  ["expired", new AuthSessionExpired({ sessionToken: "expired-session" })],
+  ["missing", new IdentitySessionNotFound({ sessionToken: "missing-session" })],
+  ["expired", new IdentitySessionExpired({ sessionToken: "expired-session" })],
 ] as const)("maps a %s session to unauthenticated authority", async (_name, failure) => {
   await expect(
     resolveAuthenticatedPerson("better-auth.session_token=invalid", {
-      run: makeRun(rejectingAuth(failure)),
+      run: makeRun(rejectingIdentity(failure)),
     }),
   ).rejects.toBeInstanceOf(UnauthenticatedActor);
 });
 
 it("preserves a typed authentication engine failure", async () => {
-  const failure = new AuthEngineError({
+  const failure = new IdentityEngineError({
     operation: "getSession",
     message: "authentication provider unavailable",
   });
 
   await expect(
     resolveAuthenticatedPerson("better-auth.session_token=provider-failure", {
-      run: makeRun(rejectingAuth(failure)),
+      run: makeRun(rejectingIdentity(failure)),
     }),
   ).rejects.toBe(failure);
 });
@@ -91,10 +92,10 @@ it("preserves a typed authentication engine failure", async () => {
 it("maps an unknown session provider rejection to typed infrastructure", async () => {
   await expect(
     resolveAuthenticatedPerson("better-auth.session_token=provider-failure", {
-      run: makeRun(rejectingAuth(new Error("connection refused"))),
+      run: makeRun(rejectingIdentity(new Error("connection refused"))),
     }),
   ).rejects.toMatchObject({
-    _tag: "AuthEngineError",
+    _tag: "IdentityEngineError",
     operation: "resolveSession",
     message: "connection refused",
   });

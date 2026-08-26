@@ -1,7 +1,7 @@
 import { Admissions } from "@vektorprogrammet/domain/admissions";
 import { DepartmentId } from "@vektorprogrammet/domain/organization";
 import { InactiveActor, UnauthenticatedActor } from "@vektorprogrammet/domain/admission-period";
-import { Auth } from "@vektorprogrammet/domain/auth";
+import { Identity } from "@vektorprogrammet/domain/identity";
 import { databaseHealth, type Database } from "@vektorprogrammet/domain/database";
 import type { Organization } from "@vektorprogrammet/domain/organization";
 import { Profile } from "@vektorprogrammet/domain/profile";
@@ -43,7 +43,7 @@ export type BackendRun = <A, E>(
     | Profile
     | Recruitment
     | Schools
-    | Auth
+    | Identity
     | ContentManagement
     | Content
   >,
@@ -110,7 +110,7 @@ const isRecruitmentRoute = (pathname: string): boolean =>
 /**
  * The better-auth Request -> Response handler mounted at /api/auth/*.
  * Supplied by the composition root from the ONE Layer-scoped engine so the
- * HTTP surface and the Auth Service share a single session authority.
+ * HTTP surface and the Identity Service share a single session authority.
  */
 export interface BackendAuthHandler {
   readonly handle: (request: Request) => Promise<Response>;
@@ -291,7 +291,7 @@ export const makeBackendHttp = (
           return jsonResponse(
             {
               error: {
-                tag: unauthenticated ? "UnauthenticatedActor" : "AuthEngineError",
+                tag: unauthenticated ? "UnauthenticatedActor" : "IdentityEngineError",
               },
             },
             unauthenticated ? 401 : 503,
