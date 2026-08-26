@@ -92,13 +92,27 @@ CREATE TABLE IF NOT EXISTS content_publication_audit (
 
 CREATE UNIQUE INDEX IF NOT EXISTS content_publication_audit_command_unique
   ON content_publication_audit (command_id);
+CREATE OR REPLACE FUNCTION prevent_content_publication_audit_mutation()
+RETURNS trigger AS $$
+BEGIN
+  RAISE EXCEPTION 'Content publication audit rows are immutable';
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS content_publication_audit_immutable
+  ON content_publication_audit;
+CREATE TRIGGER content_publication_audit_immutable
+  BEFORE UPDATE OR DELETE ON content_publication_audit
+  FOR EACH ROW
+  EXECUTE FUNCTION prevent_content_publication_audit_mutation();
+
 
 CREATE UNIQUE INDEX IF NOT EXISTS content_articles_slug_unique
   ON content_articles (slug);
 
 -- Listing order index over published snapshots; the read-time inner join on
 -- the articles' current_version_number restricts it to current rows.
-CREATE UNIQUE INDEX IF NOT EXISTS content_article_versions_current_listing_order
+CREATE INDEX IF NOT EXISTS content_article_versions_current_listing_order
   ON content_article_versions (sticky DESC, published_at DESC, article_id DESC);
 
 CREATE INDEX IF NOT EXISTS content_articles_current_version_fk_order

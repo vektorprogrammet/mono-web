@@ -814,6 +814,11 @@ export const publishPostgres = (input: {
           const nextVersionNumber = ArticleVersionNumber.make(
             Number(nextVersionRows[0]?.nextVersionNumber),
           );
+          const sanitizedBody = yield* sanitizeArticleBodyHtml(
+            "sanitize publish body",
+            draft.bodyHtml,
+          );
+
           // The publish instant is the database transaction's own clock
           // (spec law 2): now() is inserted and returned as the observation.
           const insertedVersion = yield* database<{ readonly publishedAt: string }>`
@@ -822,7 +827,7 @@ export const publishPostgres = (input: {
               published_at, published_by_person_id
             ) VALUES (
               ${draft.articleId}, ${nextVersionNumber}, ${draft.title}, ${draft.slug},
-              ${draft.bodyHtml}, ${draft.sticky}, now(), ${input.personId}
+              ${sanitizedBody}, ${draft.sticky}, now(), ${input.personId}
             )
             RETURNING to_char(
               published_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'

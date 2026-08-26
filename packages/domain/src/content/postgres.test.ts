@@ -466,6 +466,120 @@ describe("content command receipts and sequencing", () => {
       expect(observation.versionNumber).toBe(4);
     }),
   );
+  it.effect("sanitizes a preexisting working copy before publication", () =>
+    Effect.gen(function* () {
+      let publishedBody: string | undefined;
+      const publishDatabase = makeDatabase((statement, values) => {
+        if (statement.includes("FROM content_publication_command_receipts")) {
+          return Effect.succeed([]);
+        }
+        if (
+          statement.includes("FROM content_articles AS article") &&
+          statement.includes("FOR UPDATE")
+        ) {
+          return Effect.succeed([
+            {
+              articleId: 41,
+              createdByPersonId: personId,
+              title: "Preexisting article",
+              slug: "preexisting-article",
+              bodyHtml: "<p>before</p><script>alert(1)</script><p>after</p>",
+              sticky: false,
+              createdAt: "2030-01-01T00:00:00.000Z",
+              updatedAt: "2030-01-01T00:00:00.000Z",
+              currentVersionNumber: null,
+              revision: 5,
+            },
+          ]);
+        }
+        if (statement.includes("MAX(version_number)")) {
+          return Effect.succeed([{ nextVersionNumber: 1 }]);
+        }
+        if (statement.includes("INSERT INTO content_article_versions")) {
+          publishedBody = values[4] as string;
+          return Effect.succeed([{ publishedAt: "2030-01-02T00:00:00.000Z" }]);
+        }
+        return Effect.succeed([]);
+      });
+      const administratorAuthority: OrganizationPersonAuthority = {
+        personId,
+        evaluatedAt: authorizationInstant,
+        globalAdministrator: "Active",
+        memberships: [],
+      };
+
+      yield* publishPostgres({
+        command: { commandId: "content-publish-sanitizes-body", articleId: 41 } as never,
+        personId,
+        authorizationInstant,
+      }).pipe(
+        Effect.provideService(Database, publishDatabase),
+        Effect.provideService(Organization, {
+          resolvePersonAuthorityForRead: () => Effect.succeed(administratorAuthority),
+        } as never),
+      );
+
+      expect(publishedBody).toBe("<p>before</p><p>after</p>");
+    }),
+  );
+  it.effect("rejects an unsafe preexisting working copy before immutable insertion", () =>
+    Effect.gen(function* () {
+      let immutableInsertAttempted = false;
+      const publishDatabase = makeDatabase((statement) => {
+        if (statement.includes("FROM content_publication_command_receipts")) {
+          return Effect.succeed([]);
+        }
+        if (
+          statement.includes("FROM content_articles AS article") &&
+          statement.includes("FOR UPDATE")
+        ) {
+          return Effect.succeed([
+            {
+              articleId: 41,
+              createdByPersonId: personId,
+              title: "Unsafe article",
+              slug: "unsafe-article",
+              bodyHtml: '<p><a href="java&#x73;cript:alert(1)">unsafe</a></p>',
+              sticky: false,
+              createdAt: "2030-01-01T00:00:00.000Z",
+              updatedAt: "2030-01-01T00:00:00.000Z",
+              currentVersionNumber: null,
+              revision: 5,
+            },
+          ]);
+        }
+        if (statement.includes("MAX(version_number)")) {
+          return Effect.succeed([{ nextVersionNumber: 1 }]);
+        }
+        if (statement.includes("INSERT INTO content_article_versions")) {
+          immutableInsertAttempted = true;
+        }
+        return Effect.succeed([]);
+      });
+      const administratorAuthority: OrganizationPersonAuthority = {
+        personId,
+        evaluatedAt: authorizationInstant,
+        globalAdministrator: "Active",
+        memberships: [],
+      };
+
+      const failure = yield* Effect.flip(
+        publishPostgres({
+          command: { commandId: "content-publish-rejects-unsafe-body", articleId: 41 } as never,
+          personId,
+          authorizationInstant,
+        }).pipe(
+          Effect.provideService(Database, publishDatabase),
+          Effect.provideService(Organization, {
+            resolvePersonAuthorityForRead: () => Effect.succeed(administratorAuthority),
+          } as never),
+        ),
+      );
+
+      expect(failure._tag).toBe("ContentDecodeError");
+      expect(immutableInsertAttempted).toBe(false);
+    }),
+  );
 });
 
 describe("content create department authority", () => {
