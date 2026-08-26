@@ -141,9 +141,9 @@ export const view = (model: Model, h: HtmlBuilder<Message>): Html =>
           h.textarea(
             [
               h.Id("content-editor-body"),
+              h.Value(model.editor.bodyHtml),
               h.OnInput((value) => EditedField({ title: null, bodyHtml: value, sticky: null })),
             ],
-            [model.editor.bodyHtml],
           ),
           ...model.knownDepartments.map(({ departmentId, name }) =>
             h.div(
