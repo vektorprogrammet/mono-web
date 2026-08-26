@@ -1,10 +1,11 @@
-import { describe, expect, it } from "vitest";
 import { Schema } from "effect";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   ContentWorkspaceSchema,
   CreateContentDraftCommandSchema,
   PublishedNewsArticleSchema,
 } from "../src/schemas/content.js";
+import { createClient } from "../src/promise.js";
 
 const strictDecode = <A>(
   schema: Schema.Schema<A, unknown, never>,
@@ -16,6 +17,12 @@ const strictDecode = <A>(
     return undefined;
   }
 };
+
+const response = (status: number, body: unknown): Response =>
+  new Response(JSON.stringify(body), {
+    status,
+    headers: { "content-type": "application/json" },
+  });
 
 const validWorkspace = {
   entries: [
@@ -34,6 +41,9 @@ const validWorkspace = {
   ],
 };
 
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 describe("content sdk schemas", () => {
   it("decodes the exact workspace shape", () => {
     expect(strictDecode(ContentWorkspaceSchema, validWorkspace)).toEqual(validWorkspace);
@@ -108,5 +118,55 @@ describe("content sdk schemas", () => {
       entries: [{ ...validWorkspace.entries[0], createdByPersonId: "person-9" }],
     };
     expect(strictDecode(ContentWorkspaceSchema, leaked)).toBeUndefined();
+  });
+});
+
+describe("content sdk transport", () => {
+  it("uses exactly the five frozen staff methods and paths", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(response(200, validWorkspace))
+      .mockResolvedValueOnce(response(201, {}))
+      .mockResolvedValueOnce(response(200, {}))
+      .mockResolvedValueOnce(response(200, {}))
+      .mockResolvedValueOnce(response(200, {}));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = createClient("http://api.test", {
+      cookie: "better-auth.session_token=content-session",
+    });
+    const create = {
+      commandId: "create-1",
+      title: "Tittel",
+      bodyHtml: "<p>Brødtekst</p>",
+      departmentIds: ["dep-1"],
+    };
+    const revise = {
+      ...create,
+      commandId: "revise-1",
+      articleId: 7,
+      expectedRevision: 0,
+      sticky: false,
+    };
+
+    await client.admin.content.workspace();
+    await client.admin.content.createDraft(create as never);
+    await client.admin.content.reviseDraft(revise as never);
+    await client.admin.content.publish({ commandId: "publish-1", articleId: 7 as never });
+    await client.admin.content.unpublish({ commandId: "unpublish-1", articleId: 7 as never });
+
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      "http://api.test/api/admin/content/workspace",
+      "http://api.test/api/admin/content/drafts",
+      "http://api.test/api/admin/content/articles/7",
+      "http://api.test/api/admin/content/articles/7/publish",
+      "http://api.test/api/admin/content/articles/7/unpublish",
+    ]);
+    expect(fetchMock.mock.calls.map(([, init]) => (init as RequestInit).method)).toEqual([
+      "GET",
+      "POST",
+      "PUT",
+      "POST",
+      "POST",
+    ]);
   });
 });

@@ -126,24 +126,21 @@ export const readNewsListingPostgres = (): Effect.Effect<
   });
 
 /**
- * Resolves one currently-published article by canonical slug with its
- * descending previous versions. Unknown or withdrawn slugs fail with the
- * same typed not-found; a draft is indistinguishable from absence (law 5).
+ * Resolves the current or one immutable historical version while the article
+ * remains published. Unknown, withdrawn, and unknown-version reads share the
+ * same typed not-found result.
  */
 export const readPublishedArticlePostgres = (
   slug: string,
+  versionNumber?: number,
 ): Effect.Effect<
   PublishedNewsArticle,
   ContentDecodeError | ContentIntegrityError | ArticleNotFound,
   Database | Profile
 > =>
   Effect.gen(function* () {
-    const listing = yield* readNewsListingPostgres();
-    const summary = listing.articles.find((article) => article.slug === slug);
-    if (summary === undefined) {
-      return yield* Effect.fail({ _tag: "ArticleNotFound" } as const satisfies ArticleNotFound);
-    }
     const database = yield* Database;
+    const profile = yield* Profile;
     return yield* database
       .withTransaction(
         Effect.gen(function* () {
@@ -151,21 +148,31 @@ export const readPublishedArticlePostgres = (
             Effect.asVoid,
           );
           const versions = yield* database<{
+            readonly articleId: number;
             readonly versionNumber: number;
+            readonly slug: string;
+            readonly title: string;
+            readonly sticky: boolean;
             readonly bodyHtml: string;
             readonly publishedAt: string;
+            readonly publishedByPersonId: string;
           }>`
             SELECT
+              version.article_id AS "articleId",
               version.version_number AS "versionNumber",
+              version.slug,
+              version.title,
+              version.sticky,
               version.body_html AS "bodyHtml",
               to_char(
                 version.published_at AT TIME ZONE 'UTC',
                 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'
-              ) AS "publishedAt"
+              ) AS "publishedAt",
+              version.published_by_person_id AS "publishedByPersonId"
             FROM content_article_versions AS version
             INNER JOIN content_articles AS article
               ON article.article_id = version.article_id
-             AND article.current_version_number = version.version_number
+             AND article.current_version_number IS NOT NULL
             WHERE version.slug = ${slug}
             ORDER BY version.version_number DESC
           `.pipe(
@@ -179,13 +186,43 @@ export const readPublishedArticlePostgres = (
               _tag: "ArticleNotFound",
             } as const satisfies ArticleNotFound);
           }
+          const selected =
+            versionNumber === undefined
+              ? current
+              : versions.find((version) => version.versionNumber === versionNumber);
+          if (selected === undefined) {
+            return yield* Effect.fail({
+              _tag: "ArticleNotFound",
+            } as const satisfies ArticleNotFound);
+          }
+          const departments = yield* readDepartments(database, [selected.articleId]);
+          const profiles = yield* profile
+            .readProfiles([selected.publishedByPersonId] as never)
+            .pipe(Effect.mapError((cause) => integrityError("resolve news author", cause)));
+          const author = profiles.find((entry) => entry.personId === selected.publishedByPersonId);
+          if (author === undefined) {
+            return yield* new ContentIntegrityError({
+              operation: "resolve news author",
+              message: `no profile resolved for publisher ${selected.publishedByPersonId}`,
+            });
+          }
           const previousVersions = versions.slice(1).map((row) => ({
             versionNumber: row.versionNumber,
             publishedAt: row.publishedAt,
             slug,
           }));
           return yield* Schema.decodeUnknownEffect(PublishedNewsArticleSchema)(
-            { ...summary, bodyHtml: current.bodyHtml, previousVersions },
+            {
+              slug: selected.slug,
+              title: selected.title,
+              sticky: selected.sticky,
+              publishedAt: selected.publishedAt,
+              authorDisplayName: `${author.firstName} ${author.lastName}`,
+              departmentIds: [...(departments.get(selected.articleId) ?? [])],
+              hasImage: false,
+              bodyHtml: selected.bodyHtml,
+              previousVersions,
+            },
             { onExcessProperty: "error" },
           ).pipe(Effect.mapError((cause) => integrityError("decode published article", cause)));
         }),

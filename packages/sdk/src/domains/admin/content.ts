@@ -59,21 +59,21 @@ export const createAdminContentDomain = (transport: Transport): AdminContentDoma
     ),
   reviseDraft: (command) =>
     transport.put(
-      `/api/admin/content/drafts/${command.articleId}`,
+      `/api/admin/content/articles/${command.articleId}`,
       Schema.encodeSync(ReviseContentDraftCommandSchema)(command),
       ObservationSchema as never,
       strictContent,
     ),
   publish: (command) =>
     transport.post(
-      `/api/admin/content/drafts/${command.articleId}/publish`,
+      `/api/admin/content/articles/${command.articleId}/publish`,
       Schema.encodeSync(PublicationTransitionCommandSchema)(command),
       ObservationSchema as never,
       strictContent,
     ),
   unpublish: (command) =>
     transport.post(
-      `/api/admin/content/drafts/${command.articleId}/unpublish`,
+      `/api/admin/content/articles/${command.articleId}/unpublish`,
       Schema.encodeSync(PublicationTransitionCommandSchema)(command),
       ObservationSchema as never,
       strictContent,

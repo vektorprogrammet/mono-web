@@ -22,6 +22,7 @@ export interface ContentShape {
    */
   readonly readPublishedArticle: (
     slug: string,
+    versionNumber?: number,
   ) => Effect.Effect<
     PublishedNewsArticle,
     ContentDecodeError | ContentIntegrityError | ArticleNotFound

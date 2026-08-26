@@ -209,11 +209,6 @@ export const readWorkspacePostgres = (input: {
             ...new Set(scoped.map((draft) => draft.createdByPersonId)),
           ].sort();
           const profiles = yield* profile.readProfiles(authorPersonIds as never).pipe(
-            Effect.tapError((cause) =>
-              Effect.sync(() => {
-                process.stderr?.write?.(`[content-debug] profile error: ${JSON.stringify(String(cause))}\n`);
-              }),
-            ),
             Effect.mapError((cause) =>
               cause._tag === "ProfileContactNotFound" || cause._tag === "ProfileNotFound"
                 ? new ContentIntegrityError({
@@ -255,22 +250,12 @@ export const readWorkspacePostgres = (input: {
             };
           });
           const workspace = { entries };
-          process.stderr?.write?.(
-            `[content-ws-entries] ${JSON.stringify(workspace.entries.map((e) => e.departmentIds))}\n`,
-          );
           return yield* Schema.decodeUnknownEffect(ContentWorkspaceSchema)(workspace, {
             onExcessProperty: "error",
           }).pipe(Effect.mapError((cause) => decodeError("decode content workspace", cause)));
         }),
       )
       .pipe(
-        Effect.tapError((cause) =>
-          Effect.sync(() => {
-            process.stderr?.write?.(
-              `[content-ws-debug] failure: ${JSON.stringify(String(cause))}\n`,
-            );
-          }),
-        ),
         Effect.catchTag("SqlError", (cause) =>
           Effect.fail(persistenceError("content workspace snapshot", cause)),
         ),
@@ -573,7 +558,6 @@ export const createDraftPostgres = (input: {
   });
 
 export const publishPostgres = (input: {
-  __log?: (msg: string) => void;
   readonly command: PublishArticleInput;
   readonly personId: PersonId;
   readonly authorizationInstant: OrganizationAuthorityInstant;
@@ -581,13 +565,7 @@ export const publishPostgres = (input: {
   Effect.gen(function* () {
     const command = yield* Schema.decodeUnknownEffect(PublishArticleInputSchema)(input.command, {
       onExcessProperty: "error",
-    }).pipe(
-      Effect.tapError((cause) =>
-        Effect.sync(() => process.stderr?.write?.(`[publish-debug] decode failed: ${String(cause)}\n`)),
-      ),
-      Effect.mapError((cause) => decodeError("decode publish command", cause)),
-    );
-    process.stderr?.write?.(`[publish-debug] decoded commandId=${command.commandId} articleId=${command.articleId}\n`);
+    }).pipe(Effect.mapError((cause) => decodeError("decode publish command", cause)));
     const payloadDigest = sha256Hex(canonicalJsonBytes(command));
     const database = yield* Database;
     const organization = yield* Organization;
@@ -618,7 +596,7 @@ export const publishPostgres = (input: {
           const actor = yield* authorityDecisionOrDenial(authority, input.authorizationInstant);
           const draft = yield* readDraftForUpdate(database, command.articleId);
           if (draft === undefined) {
-              return yield* new ContentArticleNotFound({});
+            return yield* new ContentArticleNotFound({});
           }
           const departmentIds = yield* departmentIdsForArticles(database, [draft.articleId]);
           const draftDepartments = departmentIds.get(draft.articleId) ?? [];

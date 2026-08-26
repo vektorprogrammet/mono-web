@@ -27,9 +27,8 @@ export interface NewsDetailData {
 export const NEWS_TEASER_COUNT = 5;
 
 /** Sticky-first first-five slice of the SAME listing read (law: teaser). */
-export const teaserFrom = (
-  listing: PublishedNewsListing,
-): readonly PublishedNewsSummary[] => listing.articles.slice(0, NEWS_TEASER_COUNT);
+export const teaserFrom = (listing: PublishedNewsListing): readonly PublishedNewsSummary[] =>
+  listing.articles.slice(0, NEWS_TEASER_COUNT);
 
 /**
  * Resolves a visitor-facing department selection to an id through the
@@ -94,26 +93,5 @@ export const stripUnsafeBody = (bodyHtml: string): string =>
     .replace(/<(script|iframe|object|embed)\b[\s\S]*?<\/\1\s*>/gi, "")
     .replace(/<\/?(script|iframe|object|embed)\b[^>]*>/gi, "")
     .replace(/\son[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, "");
-
-/** Resolves a ?versjon=N request against previousVersions only. */
-export const resolveVersionedBody = (
-  article: PublishedNewsArticle,
-  versionParam: string | undefined,
-): { readonly bodyHtml: string; readonly matched: boolean } => {
-  if (versionParam === undefined) return { bodyHtml: article.bodyHtml, matched: true };
-  const requested = Number(versionParam);
-  if (!Number.isSafeInteger(requested) || requested <= 0) {
-    return { bodyHtml: "", matched: false };
-  }
-  if (requested === article.previousVersions[0]?.versionNumber + 0) {
-    // The current version number never appears in previousVersions; only the
-    // canonical slug serves it. A ?versjon equal to current resolves too.
-    return { bodyHtml: article.bodyHtml, matched: true };
-  }
-  const known = article.previousVersions.some(
-    (version) => version.versionNumber === requested,
-  );
-  return { bodyHtml: article.bodyHtml, matched: known };
-};
 
 export type { ContentWorkspace };

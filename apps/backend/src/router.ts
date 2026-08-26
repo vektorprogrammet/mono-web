@@ -9,7 +9,10 @@ import { Recruitment } from "@vektorprogrammet/domain/recruitment";
 import { Economy } from "@vektorprogrammet/domain/receipt";
 import { ContentManagement } from "@vektorprogrammet/domain/content";
 import { Content } from "@vektorprogrammet/domain/content";
-import { readPublishedArticlePostgres, readNewsListingPostgres } from "@vektorprogrammet/domain/content";
+import {
+  readPublishedArticlePostgres,
+  readNewsListingPostgres,
+} from "@vektorprogrammet/domain/content";
 import type { Schools } from "@vektorprogrammet/domain/schools";
 import { DateTime, Effect } from "effect";
 import type { AdmissionPeriodActor } from "@vektorprogrammet/domain/admission-period";
@@ -37,16 +40,16 @@ export type BackendRun = <A, E>(
   effect: Effect.Effect<
     A,
     E,
-    Database
-      | Admissions
-      | Economy
-      | Organization
-      | Profile
-      | Recruitment
-      | Schools
-      | Auth
-      | ContentManagement
-      | Content
+    | Database
+    | Admissions
+    | Economy
+    | Organization
+    | Profile
+    | Recruitment
+    | Schools
+    | Auth
+    | ContentManagement
+    | Content
   >,
 ) => Promise<A>;
 
@@ -78,7 +81,8 @@ const isAdmissionRoute = (pathname: string): boolean =>
   pathname.startsWith("/api/applications/");
 const isContentStaffRoute = (pathname: string): boolean =>
   pathname === "/api/admin/content/workspace" ||
-  pathname.startsWith("/api/admin/content/drafts");
+  pathname === "/api/admin/content/drafts" ||
+  pathname.startsWith("/api/admin/content/articles/");
 const isPublicNewsPath = (pathname: string): boolean =>
   pathname === "/api/news" || pathname.startsWith("/api/news/");
 const isReceiptRoute = (pathname: string): boolean =>
@@ -231,7 +235,7 @@ export const makeBackendHttp = (
   );
   const publicNews = makePublicNewsApiHttp(
     () => run(readNewsListingPostgres()),
-    (slug) => run(readPublishedArticlePostgres(slug)),
+    (slug, versionNumber) => run(readPublishedArticlePostgres(slug, versionNumber)),
   );
 
   const profile = makeProfileApiHttp({

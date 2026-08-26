@@ -37,9 +37,13 @@ vi.mock("../src/lib/api.server", () => ({
           mocks.bumpListing();
           return mocks.listResult;
         },
-        read: async (slug: string) => {
+        read: async (slug: string, input?: { readonly version?: number }) => {
           const article = mocks.readArticle;
-          if (article === undefined || ("notFound" in article && article.notFound)) {
+          if (
+            article === undefined ||
+            ("notFound" in article && article.notFound) ||
+            input?.version === 99
+          ) {
             throw new NotFoundError(`not found: ${slug}`);
           }
           if ("networkError" in article && article.networkError) {
@@ -47,7 +51,9 @@ vi.mock("../src/lib/api.server", () => ({
               readonly type = "network";
             })("network down");
           }
-          return article;
+          return input?.version === 1
+            ? { ...article, bodyHtml: "<p>eldre, uforanderlige bytes</p>" }
+            : article;
         },
       },
       organization: {
@@ -57,11 +63,7 @@ vi.mock("../src/lib/api.server", () => ({
   }),
 }));
 
-import {
-  loadNewsArticle,
-  loadNewsListing,
-  loadNewsTeaser,
-} from "../src/lib/news.server";
+import { loadNewsArticle, loadNewsListing, loadNewsTeaser } from "../src/lib/news.server";
 import {
   applyDepartmentFilter,
   isBodySafeForRender,
@@ -120,11 +122,17 @@ describe("news loaders", () => {
       hasImage: false,
       bodyHtml: "<p>x</p>",
       previousVersions: [
-        { versionNumber: 1, publishedAt: "2031-01-01T00:00:00.000Z", urlPath: "/nyhet/nyhet?versjon=1" },
+        {
+          versionNumber: 1,
+          publishedAt: "2031-01-01T00:00:00.000Z",
+          urlPath: "/nyhet/nyhet?versjon=1",
+        },
       ],
     };
     await expect(loadNewsArticle("nyhet", "99")).rejects.toMatchObject({ status: 404 });
-    await expect(loadNewsArticle("nyhet", "1")).resolves.toBeTruthy();
+    await expect(loadNewsArticle("nyhet", "1")).resolves.toMatchObject({
+      article: { bodyHtml: "<p>eldre, uforanderlige bytes</p>" },
+    });
   });
 
   it("maps upstream network/decode/persistence failures to 503", async () => {
@@ -151,14 +159,14 @@ describe("news loaders", () => {
 describe("render-time body defense", () => {
   it("refuses script and iframe payloads", () => {
     expect(isBodySafeForRender("<p>trygg tekst</p>")).toBe(true);
-    expect(isBodySafeForRender('<script>alert(1)</script>')).toBe(false);
+    expect(isBodySafeForRender("<script>alert(1)</script>")).toBe(false);
     expect(isBodySafeForRender('<iframe src="https://evil.example"></iframe>')).toBe(false);
-    expect(isBodySafeForRender('<img src=x onerror=alert(1)>')).toBe(false);
-    expect(isBodySafeForRender('javascript:void(0)')).toBe(false);
+    expect(isBodySafeForRender("<img src=x onerror=alert(1)>")).toBe(false);
+    expect(isBodySafeForRender("javascript:void(0)")).toBe(false);
   });
 
   it("strips unsafe bytes instead of rendering them", () => {
-    const stripped = stripUnsafeBody('<script>alert(1)</script><p>beholdes</p>');
+    const stripped = stripUnsafeBody("<script>alert(1)</script><p>beholdes</p>");
     expect(stripped).not.toContain("script");
     expect(stripped).toContain("beholdes");
   });

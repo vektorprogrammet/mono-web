@@ -78,10 +78,8 @@ const errorResponse = (cause: unknown, extraHeaders: Record<string, string> = {}
   }
 };
 
-const strictDecode = <A>(
-  schema: Schema.ConstraintDecoder<A, never>,
-  input: unknown,
-): A => Schema.decodeUnknownSync(schema as never)(input, { onExcessProperty: "error" }) as A;
+const strictDecode = <A>(schema: Schema.ConstraintDecoder<A, never>, input: unknown): A =>
+  Schema.decodeUnknownSync(schema as never)(input, { onExcessProperty: "error" }) as A;
 
 const decodeJsonBody = async (request: Request): Promise<unknown> => {
   try {
@@ -141,6 +139,21 @@ const slugFromPath = (pathname: string): string => {
   return decodeURIComponent(match[1]);
 };
 
+const versionFromQuery = (request: Request): number | undefined => {
+  const parameters = [...new URL(request.url).searchParams];
+  if (parameters.some(([key]) => key !== "version")) {
+    throw new ContentHttpDecodeError("unexpected news detail query parameter");
+  }
+  const values = parameters.filter(([key]) => key === "version").map(([, value]) => value);
+  if (values.length > 1) throw new ContentHttpDecodeError("duplicate version parameter");
+  if (values.length === 0) return undefined;
+  const version = Number(values[0]);
+  if (!Number.isSafeInteger(version) || version <= 0) {
+    throw new ContentHttpDecodeError("version must be a positive integer");
+  }
+  return version;
+};
+
 const decodeReviseBody = async (
   request: Request,
 ): Promise<typeof ReviseArticleDraftInputSchema.Type> => {
@@ -169,101 +182,31 @@ export const makeContentManagementApiHttp = (
       if (request.method === "GET" && pathname === "/api/admin/content/workspace") {
         const query = departmentFromQuery(request);
         const actor = await resolveActor(request);
-        const workspace = await run(
-          readWorkspacePostgres({ ...contextOf(actor), query }),
-        );
+        const workspace = await run(readWorkspacePostgres({ ...contextOf(actor), query }));
         return jsonResponse(workspace);
       }
       if (request.method === "POST" && pathname === "/api/admin/content/drafts") {
         const command = await decodeCreateBody(request);
         const actor = await resolveActor(request);
-        const observation = await run(
-          createDraftPostgres({ command, ...contextOf(actor) }),
-        );
+        const observation = await run(createDraftPostgres({ command, ...contextOf(actor) }));
         return jsonResponse(observation, 201, noStore);
       }
-      if (request.method === "POST" && pathname === "/api/admin/content") {
-        const body = await decodeJsonBody(request);
-        const operation =
-          typeof (body as { operation?: unknown }).operation === "string"
-            ? String((body as { operation?: unknown }).operation)
-            : "createDraft";
-        const { operation: _op, ...payload } = body as Record<string, unknown>;
-        const actor = await resolveActor(request);
-        let observation: unknown;
-        if (operation === "publish") {
-          observation = await run(
-            publishPostgres({
-              command: {
-                commandId: ContentCommandId.make(payload.commandId as string),
-                articleId: ArticleId.make(Number(payload.articleId)),
-              },
-              ...contextOf(actor),
-            }),
-          );
-        } else if (operation === "unpublish") {
-          observation = await run(
-            unpublishPostgres({
-              command: {
-                commandId: ContentCommandId.make(payload.commandId as string),
-                articleId: ArticleId.make(Number(payload.articleId)),
-              },
-              ...contextOf(actor),
-            }),
-          );
-        } else if (operation === "reviseDraft") {
-          observation = await run(
-            reviseDraftPostgres({
-              command: {
-                commandId: ContentCommandId.make(payload.commandId as string),
-                articleId: ArticleId.make(Number(payload.articleId)),
-                expectedRevision: Number(payload.expectedRevision),
-                title: payload.title as string,
-                bodyHtml: payload.bodyHtml as string,
-                departmentIds: payload.departmentIds as never,
-                sticky: Boolean(payload.sticky),
-              },
-              ...contextOf(actor),
-            }),
-          );
-        } else if (operation === "reviseDraft") {
-          const command = await decodeJsonBody(request).then((b) =>
-            strictDecode(ReviseArticleDraftInputSchema, b),
-          );
-          observation = await run(
-            reviseDraftPostgres({ command, ...contextOf(actor) }),
-          );
-        } else {
-          observation = await run(
-            createDraftPostgres({
-              command: strictDecode(CreateArticleDraftInputSchema, {
-                commandId: payload.commandId,
-                title: payload.title,
-                bodyHtml: payload.bodyHtml,
-                departmentIds: payload.departmentIds,
-                sticky: payload.sticky,
-              }),
-              ...contextOf(actor),
-            }),
-          );
-        }
-        return jsonResponse(observation, 201, noStore);
-      }
-      const reviseMatch = /^\/api\/admin\/content\/drafts\/(\d+)$/.exec(pathname);
-      if (request.method === "PATCH" && reviseMatch !== null) {
-        const articleId = articleIdFromPath(pathname, /^\/api\/admin\/content\/drafts\/(\d+)$/);
+      const reviseMatch = /^\/api\/admin\/content\/articles\/(\d+)$/.exec(pathname);
+      if (request.method === "PUT" && reviseMatch !== null) {
+        const articleId = articleIdFromPath(pathname, /^\/api\/admin\/content\/articles\/(\d+)$/);
         const command = await decodeReviseBody(request);
+        if (command.articleId !== articleId) {
+          throw new ContentHttpDecodeError("article body and path identifiers must match");
+        }
         const actor = await resolveActor(request);
-        const observation = await run(
-          reviseDraftPostgres({ command: { ...command, articleId }, ...contextOf(actor) }),
-        );
+        const observation = await run(reviseDraftPostgres({ command, ...contextOf(actor) }));
         return jsonResponse(observation, 200, noStore);
       }
-      const publishMatch = /^\/api\/admin\/content\/drafts\/(\d+)\/publish$/.exec(pathname);
+      const publishMatch = /^\/api\/admin\/content\/articles\/(\d+)\/publish$/.exec(pathname);
       if (request.method === "POST" && publishMatch !== null) {
         const articleId = articleIdFromPath(
           pathname,
-          /^\/api\/admin\/content\/drafts\/(\d+)\/publish$/,
+          /^\/api\/admin\/content\/articles\/(\d+)\/publish$/,
         );
         const commandId = await commandIdFromBody(request);
         const actor = await resolveActor(request);
@@ -275,11 +218,11 @@ export const makeContentManagementApiHttp = (
         );
         return jsonResponse(observation, 200, noStore);
       }
-      const unpublishMatch = /^\/api\/admin\/content\/drafts\/(\d+)\/unpublish$/.exec(pathname);
+      const unpublishMatch = /^\/api\/admin\/content\/articles\/(\d+)\/unpublish$/.exec(pathname);
       if (request.method === "POST" && unpublishMatch !== null) {
         const articleId = articleIdFromPath(
           pathname,
-          /^\/api\/admin\/content\/drafts\/(\d+)\/unpublish$/,
+          /^\/api\/admin\/content\/articles\/(\d+)\/unpublish$/,
         );
         const commandId = await commandIdFromBody(request);
         const actor = await resolveActor(request);
@@ -301,7 +244,7 @@ export const makeContentManagementApiHttp = (
 /** Public news adapter: unauthenticated reads with no-store semantics. */
 export const makePublicNewsApiHttp = (
   readNewsListing: () => Promise<unknown>,
-  readPublishedArticle: (slug: string) => Promise<unknown>,
+  readPublishedArticle: (slug: string, versionNumber?: number) => Promise<unknown>,
 ): ContentApiHttp => ({
   fetch: async (request) => {
     const url = new URL(request.url);
@@ -315,7 +258,7 @@ export const makePublicNewsApiHttp = (
       if (request.method === "GET" && detailMatch !== null) {
         const slug = slugFromPath(url.pathname);
         try {
-          const article = await readPublishedArticle(slug);
+          const article = await readPublishedArticle(slug, versionFromQuery(request));
           return jsonResponse(article, 200, noStore);
         } catch (cause) {
           return errorResponse(cause, noStore);
@@ -323,7 +266,7 @@ export const makePublicNewsApiHttp = (
       }
       return jsonResponse({ error: { tag: "RouteNotFound" } }, 404, noStore);
     } catch (cause) {
-      return errorResponse(cause);
+      return errorResponse(cause, noStore);
     }
   },
 });

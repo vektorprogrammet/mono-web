@@ -12,10 +12,7 @@ import {
   ContentSlugConflict,
 } from "@vektorprogrammet/domain/content";
 import type { ContentRequestActor } from "./http.js";
-import {
-  makeContentManagementApiHttp,
-  makePublicNewsApiHttp,
-} from "./http.js";
+import { makeContentManagementApiHttp, makePublicNewsApiHttp } from "./http.js";
 import { Effect } from "effect";
 
 const actor: ContentRequestActor = {
@@ -29,11 +26,9 @@ const okActor = async (): Promise<ContentRequestActor> => actor;
  * A `run` stub that always rejects with the canned typed cause — the same
  * rejection channel the adapter's errorResponse observes in production.
  */
-const failingRun =
-  (journeyFailure: unknown) =>
-  async (): Promise<never> => {
-    throw journeyFailure;
-  };
+const failingRun = (journeyFailure: unknown) => async (): Promise<never> => {
+  throw journeyFailure;
+};
 
 const okActorRun = <A, E>(effect: Effect.Effect<A, E, never>): Promise<A> =>
   Effect.runPromise(effect);
@@ -87,10 +82,7 @@ describe("content http boundaries", () => {
       },
     ];
     for (const { tag, status, failure } of cases) {
-      const api = makeContentManagementApiHttp(
-        okActor,
-        failingRun(failure) as never,
-      );
+      const api = makeContentManagementApiHttp(okActor, failingRun(failure) as never);
       const response = await api.fetch(
         jsonRequest("/api/admin/content/drafts", "POST", {
           commandId: "cmd-1",
@@ -103,7 +95,6 @@ describe("content http boundaries", () => {
       await expect(response.json()).resolves.toEqual({ error: { tag } });
     }
   });
-
 
   it("maps unauthenticated actor resolution to 401", async () => {
     const rejectingResolveActor = async (): Promise<ContentRequestActor> => {
@@ -143,6 +134,73 @@ describe("content http boundaries", () => {
     const response = await api.fetch(jsonRequest("/api/admin/content/unknown", "GET"));
     expect(response.status).toBe(404);
     expect(ranEffect).toBe(false);
+  });
+
+  it("serves only the five frozen staff endpoint shapes and methods", async () => {
+    const accepted = [
+      jsonRequest("/api/admin/content/workspace", "GET"),
+      jsonRequest("/api/admin/content/drafts", "POST", {
+        commandId: "create-1",
+        title: "T",
+        bodyHtml: "<p>x</p>",
+        departmentIds: [],
+      }),
+      jsonRequest("/api/admin/content/articles/7", "PUT", {
+        commandId: "revise-1",
+        articleId: 7,
+        expectedRevision: 0,
+        title: "T",
+        bodyHtml: "<p>x</p>",
+        departmentIds: [],
+        sticky: false,
+      }),
+      jsonRequest("/api/admin/content/articles/7/publish", "POST", {
+        commandId: "publish-1",
+      }),
+      jsonRequest("/api/admin/content/articles/7/unpublish", "POST", {
+        commandId: "unpublish-1",
+      }),
+    ];
+    for (const request of accepted) {
+      const api = makeContentManagementApiHttp(
+        okActor,
+        failingRun(new ContentNotInScope({})) as never,
+      );
+      const response = await api.fetch(request);
+      expect(response.status).toBe(403);
+    }
+
+    const aliases = [
+      jsonRequest("/api/admin/content", "POST", {
+        operation: "publish",
+        commandId: "alias-1",
+        articleId: 7,
+      }),
+      jsonRequest("/api/admin/content/drafts/7", "PUT", {
+        commandId: "alias-2",
+      }),
+      jsonRequest("/api/admin/content/drafts/7", "PATCH", {
+        commandId: "alias-3",
+      }),
+      jsonRequest("/api/admin/content/drafts/7/publish", "POST", {
+        commandId: "alias-4",
+      }),
+      jsonRequest("/api/admin/content/drafts/7/unpublish", "POST", {
+        commandId: "alias-5",
+      }),
+      jsonRequest("/api/admin/content/articles/7", "PATCH", {
+        commandId: "alias-6",
+      }),
+    ];
+    for (const request of aliases) {
+      const api = makeContentManagementApiHttp(
+        okActor,
+        failingRun(new Error("an alias must never invoke a journey")) as never,
+      );
+      const response = await api.fetch(request);
+      expect(response.status).toBe(404);
+      await expect(response.json()).resolves.toEqual({ error: { tag: "RouteNotFound" } });
+    }
   });
 
   it("keeps a missing public slug indistinguishable and no-store", async () => {

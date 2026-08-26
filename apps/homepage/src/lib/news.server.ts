@@ -1,7 +1,4 @@
-import type {
-  PublishedNewsArticle,
-  PublishedNewsListing,
-} from "@vektorprogrammet/sdk";
+import type { PublishedNewsArticle, PublishedNewsListing } from "@vektorprogrammet/sdk";
 import { NotFoundError } from "@vektorprogrammet/sdk";
 import { createHomepageApiClient } from "./api.server";
 import {
@@ -9,7 +6,6 @@ import {
   isBodySafeForRender,
   NEWS_TEASER_COUNT,
   resolveDepartmentFilter,
-  resolveVersionedBody,
   stripUnsafeBody,
   type NewsDetailData,
   type NewsListingData,
@@ -31,9 +27,7 @@ const notFound = (): Response => new Response("Nyheten finnes ikke.", { status: 
 
 const isNotFoundLike = (error: unknown): boolean => error instanceof NotFoundError;
 
-const readListing = async (
-  departmentId: string | null,
-): Promise<PublishedNewsListing> => {
+const readListing = async (departmentId: string | null): Promise<PublishedNewsListing> => {
   const client = createHomepageApiClient();
   try {
     return await client.public.news.list(
@@ -45,19 +39,20 @@ const readListing = async (
   }
 };
 
-export const loadNewsListing = async (
-  departmentSlugOrId?: string,
-): Promise<NewsListingData> => {
+export const loadNewsListing = async (departmentSlugOrId?: string): Promise<NewsListingData> => {
   const client = createHomepageApiClient();
-  const departments = await client.public.organization.listDepartments().catch(
-    (): readonly never[] => [],
-  );
+  const departments = await client.public.organization
+    .listDepartments()
+    .catch((): readonly never[] => []);
   const { departmentId, degraded } = resolveDepartmentFilter(departments, departmentSlugOrId);
   // One fresh listing read per render; the filter is applied client-side on
   // the already-read snapshot so the teaser and the listing share one read.
   const full = await readListing(null);
   if (degraded) {
-    return { listing: full, notice: { kind: "filter-degraded", departmentId: departmentSlugOrId ?? "" } };
+    return {
+      listing: full,
+      notice: { kind: "filter-degraded", departmentId: departmentSlugOrId ?? "" },
+    };
   }
   return { listing: applyDepartmentFilter(full, departmentId), notice: null };
 };
@@ -72,19 +67,22 @@ export const loadNewsArticle = async (
   versionParam?: string,
 ): Promise<NewsDetailData> => {
   const client = createHomepageApiClient();
+  const version = versionParam === undefined ? undefined : Number(versionParam);
+  if (version !== undefined && (!Number.isSafeInteger(version) || version <= 0)) {
+    throw notFound();
+  }
   let article: PublishedNewsArticle;
   try {
-    article = await client.public.news.read(slug);
+    article = await client.public.news.read(slug, version === undefined ? {} : { version });
   } catch (error) {
-    // A draft, withdrawn article, or unknown slug is the same plain 404.
+    // A draft, withdrawn article, unknown slug, or unknown immutable version
+    // is the same plain 404.
     if (isNotFoundLike(error)) throw notFound();
     throw upstreamFailure();
   }
-  const { bodyHtml, matched } = resolveVersionedBody(article, versionParam);
-  if (!matched) throw notFound();
-  if (!isBodySafeForRender(bodyHtml)) {
+  if (!isBodySafeForRender(article.bodyHtml)) {
     // Defense-in-depth: strip instead of render if unsafe bytes ever surface.
-    return { article: { ...article, bodyHtml: stripUnsafeBody(bodyHtml) } };
+    return { article: { ...article, bodyHtml: stripUnsafeBody(article.bodyHtml) } };
   }
   return { article };
 };

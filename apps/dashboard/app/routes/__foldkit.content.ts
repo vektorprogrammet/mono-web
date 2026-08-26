@@ -92,7 +92,6 @@ export async function action({ request }: Route.ActionArgs) {
     });
   }
 
-  const url = new URL(request.url);
   const command = (await request.json().catch(() => null)) as unknown;
   if (
     command === null ||
@@ -106,11 +105,8 @@ export async function action({ request }: Route.ActionArgs) {
     });
   }
 
-  // Single-endpoint convention (matching recruitment/profile bridges):
-  // POST /content with { operation, ...payload }.
   const rawOperation = (command as { operation?: unknown }).operation;
-  const operation =
-    typeof rawOperation === "string" ? rawOperation : "createDraft";
+  const operation = typeof rawOperation === "string" ? rawOperation : "createDraft";
   const articleId = Number((command as { articleId?: unknown }).articleId ?? 0) as never;
   const commandId = (command as { commandId: string }).commandId as never;
 
@@ -127,7 +123,6 @@ export async function action({ request }: Route.ActionArgs) {
     return data(result, { headers: responseHeaders });
   } catch (error) {
     const tag = tagFrom(error);
-    console.error("[content-bridge] action failure", tag, (error as Error)?.stack ?? error);
     return data(contentBridgeFailure(tag), {
       status: statusFor(tag),
       headers: responseHeaders,

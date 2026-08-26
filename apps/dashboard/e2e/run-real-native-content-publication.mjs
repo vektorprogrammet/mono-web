@@ -256,9 +256,7 @@ const ledger = [];
 
 try {
   await Promise.all(
-    [postgresPort, dashboardPort, backendPort, upstreamPort, homepagePort].map(
-      assertPortAvailable,
-    ),
+    [postgresPort, dashboardPort, backendPort, upstreamPort, homepagePort].map(assertPortAvailable),
   );
   const version = run("postgres", ["--version"], { label: "PostgreSQL version" }).stdout.trim();
   assert.match(version, /PostgreSQL\) 17\./u, "the Content journey requires PostgreSQL 17");
@@ -313,6 +311,25 @@ try {
     label: "Native backend",
   });
   await waitForHttp(`${backendOrigin}/health`, "Native backend startup");
+
+  const offSpecAliasChecks = [];
+  for (const [method, pathname, body] of [
+    ["POST", "/api/admin/content", { operation: "publish", commandId: "alias-1", articleId: 1 }],
+    ["PUT", "/api/admin/content/drafts/1", { commandId: "alias-2" }],
+    ["PATCH", "/api/admin/content/drafts/1", { commandId: "alias-3" }],
+    ["POST", "/api/admin/content/drafts/1/publish", { commandId: "alias-4" }],
+    ["POST", "/api/admin/content/drafts/1/unpublish", { commandId: "alias-5" }],
+    ["PATCH", "/api/admin/content/articles/1", { commandId: "alias-6" }],
+  ]) {
+    const response = await fetch(`${backendOrigin}${pathname}`, {
+      method,
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    assert.equal(response.status, 404, `${method} ${pathname} must not be served`);
+    assert.deepEqual(await response.json(), { error: { tag: "RouteNotFound" } });
+    offSpecAliasChecks.push({ method, pathname, status: response.status });
+  }
 
   // The public news surface reads the same authoritative PostgreSQL through
   // the native backend; the homepage worker runs against the recording proxy.
@@ -404,12 +421,23 @@ try {
     ledger.some((entry) => !entry.forced && entry.status === 403),
     "typed authority denials must reach the backend",
   );
+  const staffRequests = ledger.filter((entry) => entry.pathname.startsWith("/api/admin/content"));
+  for (const entry of staffRequests) {
+    const exact =
+      (entry.method === "GET" && entry.pathname === "/api/admin/content/workspace") ||
+      (entry.method === "POST" && entry.pathname === "/api/admin/content/drafts") ||
+      (entry.method === "PUT" && /^\/api\/admin\/content\/articles\/\d+$/u.test(entry.pathname)) ||
+      (entry.method === "POST" &&
+        /^\/api\/admin\/content\/articles\/\d+\/(?:publish|unpublish)$/u.test(entry.pathname));
+    assert.equal(exact, true, `off-spec staff request observed: ${entry.method} ${entry.pathname}`);
+  }
   assert.deepEqual(
     ledger.filter(
       (entry) =>
         entry.pathname.includes("/kontrollpanel") ||
         entry.pathname.includes("/api/articles") ||
-        /\/nyhet\/.*symfony/i.test(entry.pathname) ||
+        entry.pathname === "/api/admin/content" ||
+        /^\/api\/admin\/content\/drafts\/\d+/u.test(entry.pathname) ||
         entry.pathname.includes("/mock/api") ||
         entry.pathname.startsWith("/fixtures"),
     ),
@@ -431,6 +459,8 @@ try {
       forwardedSuccesses: forwardedSuccesses.length,
       legacyRequests: [],
       fixtureRequests: [],
+      offSpecAliasChecks,
+      exactStaffRequests: staffRequests,
     },
     playwrightTail: browser.stdout.trim().split("\n").slice(-8),
   };

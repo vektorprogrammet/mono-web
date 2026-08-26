@@ -173,11 +173,16 @@ try {
       ($4::text, $8::text, $9::text, NULL, '2020-01-01T00:00:00.000Z',
        '2025-01-01T00:00:00.000Z', 'member', FALSE, FALSE, 0)`,
     [
-      membershipIds[0], contentJourneyPersons.leaderDepartmentA.personId,
-      membershipIds[1], contentJourneyPersons.authorDepartmentA.personId,
-      membershipIds[2], contentJourneyPersons.memberDepartmentB.personId,
-      membershipIds[3], contentJourneyPersons.endedOnlyMember.personId,
-      teamIds[0], teamIds[1],
+      membershipIds[0],
+      contentJourneyPersons.leaderDepartmentA.personId,
+      membershipIds[1],
+      contentJourneyPersons.authorDepartmentA.personId,
+      membershipIds[2],
+      contentJourneyPersons.memberDepartmentB.personId,
+      membershipIds[3],
+      contentJourneyPersons.endedOnlyMember.personId,
+      teamIds[0],
+      teamIds[1],
     ],
   );
 
@@ -217,7 +222,7 @@ try {
        '2031-06-02T00:00:00Z', $5::text),
       ($3::bigint, 1, 'Festet fleravdeling', 'festet-fleravdeling', '<p>Festet tekst</p>', TRUE,
        '2031-06-03T00:00:00Z', $5::text),
-      ($4::bigint, 1, 'To versjoner', 'to-versjoner', '<p>Versjon één tekst</p>'::text, FALSE,
+      ($4::bigint, 1, 'To versjoner', 'to-versjoner', '<p>Versjon én tekst</p>'::text, FALSE,
        '2031-06-04T00:00:00Z', $6::text)`,
     [
       bySlug.get("publisert-alfa"),

@@ -29,10 +29,12 @@ export const embedContentWorkspace = (
           .createDraft({ commandId, title, bodyHtml, departmentIds, sticky } as never)
           .pipe(
             Effect.catch(() =>
-              Effect.succeed(FailedCommand({
-                requestId: requestId,
-                failure: { _tag: "Failed", message: "Lagring feilet. Prøv på nytt." },
-              }) as unknown as Message),
+              Effect.succeed(
+                FailedCommand({
+                  requestId: requestId,
+                  failure: { _tag: "Failed", message: "Lagring feilet. Prøv på nytt." },
+                }) as unknown as Message,
+              ),
             ),
           );
         return yield* LoadWorkspace({ requestId: requestId }).effect;
@@ -51,46 +53,56 @@ export const embedContentWorkspace = (
       name: "SubmitContentRevise",
       args: { requestId },
       effect: input.client.admin.content
-        .reviseDraft({ commandId, articleId, expectedRevision, title, bodyHtml, departmentIds, sticky } as never)
+        .reviseDraft({
+          commandId,
+          articleId,
+          expectedRevision,
+          title,
+          bodyHtml,
+          departmentIds,
+          sticky,
+        } as never)
         .pipe(
           Effect.flatMap(() => LoadWorkspace({ requestId: requestId }).effect),
           Effect.catch(() =>
-            Effect.succeed(FailedCommand({
-              requestId: requestId,
-              failure: { _tag: "Failed", message: "Lagring feilet. Prøv på nytt." },
-            }) as unknown as Message),
+            Effect.succeed(
+              FailedCommand({
+                requestId: requestId,
+                failure: { _tag: "Failed", message: "Lagring feilet. Prøv på nytt." },
+              }) as unknown as Message,
+            ),
           ),
         ),
     }),
     SubmitPublish: ({ requestId, commandId, articleId }) => ({
       name: "SubmitContentPublish",
       args: { requestId },
-      effect: input.client.admin.content
-        .publish({ commandId, articleId } as never)
-        .pipe(
-          Effect.flatMap(() => LoadWorkspace({ requestId: requestId }).effect),
-          Effect.catch(() =>
-            Effect.succeed(FailedCommand({
-              requestId: requestId,
+      effect: input.client.admin.content.publish({ commandId, articleId } as never).pipe(
+        Effect.flatMap(() => LoadWorkspace({ requestId }).effect),
+        Effect.catch(() =>
+          Effect.succeed(
+            FailedCommand({
+              requestId,
               failure: { _tag: "Failed", message: "Lagring feilet. Prøv på nytt." },
-            }) as unknown as Message),
+            }) as unknown as Message,
           ),
         ),
+      ),
     }),
     SubmitUnpublish: ({ requestId, commandId, articleId }) => ({
       name: "SubmitContentUnpublish",
       args: { requestId },
-      effect: input.client.admin.content
-        .unpublish({ commandId, articleId } as never)
-        .pipe(
-          Effect.flatMap(() => LoadWorkspace({ requestId: requestId }).effect),
-          Effect.catch(() =>
-            Effect.succeed(FailedCommand({
+      effect: input.client.admin.content.unpublish({ commandId, articleId } as never).pipe(
+        Effect.flatMap(() => LoadWorkspace({ requestId: requestId }).effect),
+        Effect.catch(() =>
+          Effect.succeed(
+            FailedCommand({
               requestId: requestId,
               failure: { _tag: "Failed", message: "Lagring feilet. Prøv på nytt." },
-            }) as unknown as Message),
+            }) as unknown as Message,
           ),
         ),
+      ),
     }),
   };
   const program = Runtime.makeElement({

@@ -95,8 +95,8 @@ export const ContentLive: Layer.Layer<Content, never, Database | Organization | 
             Effect.provideService(Organization, organization),
             Effect.provideService(Profile, profile),
           ),
-        readPublishedArticle: (slug) =>
-          readPublishedArticlePostgres(slug).pipe(
+        readPublishedArticle: (slug, versionNumber) =>
+          readPublishedArticlePostgres(slug, versionNumber).pipe(
             Effect.provideService(Database, database),
             Effect.provideService(Organization, organization),
             Effect.provideService(Profile, profile),

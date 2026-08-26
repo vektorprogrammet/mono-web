@@ -21,8 +21,11 @@ export interface PublicNewsDomain {
   readonly list: (
     input?: PublicNewsListInput,
   ) => Effect.Effect<PublishedNewsListing, InternalSdkError>;
-  /** One detail read; an unknown or withdrawn slug surfaces NotFound. */
-  readonly read: (slug: string) => Effect.Effect<PublishedNewsArticle, InternalSdkError>;
+  /** One detail read; an unknown or withdrawn slug/version surfaces NotFound. */
+  readonly read: (
+    slug: string,
+    input?: { readonly version?: number },
+  ) => Effect.Effect<PublishedNewsArticle, InternalSdkError>;
 }
 
 export const createPublicNewsDomain = (transport: Transport): PublicNewsDomain => ({
@@ -33,11 +36,11 @@ export const createPublicNewsDomain = (transport: Transport): PublicNewsDomain =
       input.department === undefined ? undefined : { department: input.department },
       strictContent,
     ),
-  read: (slug) =>
+  read: (slug, input = {}) =>
     transport.get(
       `/api/news/${encodeURIComponent(slug)}`,
       PublishedNewsArticleSchema,
-      undefined,
+      input.version === undefined ? undefined : { version: input.version },
       strictContent,
     ),
 });
