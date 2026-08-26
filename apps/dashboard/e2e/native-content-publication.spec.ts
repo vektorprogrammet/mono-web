@@ -140,6 +140,15 @@ test.describe("Native Content publication (spec 0062)", () => {
         .getByLabel(departmentAlpha, { exact: true })
         .check();
       await administrator.page.getByRole("button", { name: "Lagre kladd" }).click();
+      await expect
+        .poll(
+          async () =>
+            (await administrator.page.getByRole("button").allInnerTexts()).some((t) =>
+              t.includes("Fersk nyhet fra admin"),
+            ),
+          { timeout: 10_000 },
+        )
+        .toBe(true);
       await expect(
         administrator.page
           .getByRole("button", { name: /Fersk nyhet fra admin/ })
