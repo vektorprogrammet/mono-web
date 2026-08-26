@@ -164,7 +164,6 @@ export const view = (model: Model, h: HtmlBuilder<Message>): Html =>
                     h.Id(`content-dept-${id}`),
                     h.Type("checkbox"),
                     h.Name(`content-dept-${id}`),
-                    h.Value(id),
                     h.Checked(model.editor.departmentIds.includes(id as never)),
                     h.OnChange((checked: string) =>
                       ChangedDepartmentSelection({
