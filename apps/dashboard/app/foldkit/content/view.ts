@@ -138,13 +138,11 @@ export const view = (model: Model, h: HtmlBuilder<Message>): Html =>
             h.OnInput((value) => EditedField({ title: value, bodyHtml: null, sticky: null })),
           ]),
           h.label([h.For("content-editor-body")], ["Brødtekst"]),
-          h.textarea(
-            [
-              h.Id("content-editor-body"),
-              h.Value(model.editor.bodyHtml),
-              h.OnInput((value) => EditedField({ title: null, bodyHtml: value, sticky: null })),
-            ],
-          ),
+          h.textarea([
+            h.Id("content-editor-body"),
+            h.Value(model.editor.bodyHtml),
+            h.OnInput((value) => EditedField({ title: null, bodyHtml: value, sticky: null })),
+          ]),
           ...model.knownDepartments.map(({ departmentId, name }) =>
             h.div(
               [h.Class("content-workspace__dept-option")],
