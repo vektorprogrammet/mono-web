@@ -20,35 +20,30 @@ const failureFrom = (
   readonly _tag: "Denied" | "Failed";
   readonly message: string;
 } => {
-  if (error instanceof Error && "contentTag" in error) {
-    const tag = String((error as { readonly contentTag: unknown }).contentTag);
-    switch (tag) {
-      case "UnauthenticatedActor":
-        return { _tag: "Denied", message: "Økten din er utløpt. Logg inn på nytt." };
-      case "AuthorityInactive":
-        return {
-          _tag: "Denied",
-          message: "Tilgangen din til artikkeladministrasjon er ikke aktiv.",
-        };
-      case "NotInScope":
-        return { _tag: "Denied", message: "Du har ikke tilgang til artikkeladministrasjon." };
-      case "NotPublisher":
-        return {
-          _tag: "Denied",
-          message: "Kun ledere og administratorer kan publisere, avpublisere eller endre reklame.",
-        };
-      case "DraftNotOwned":
-        return { _tag: "Denied", message: "Du kan bare redigere egne kladder." };
-      case "SlugConflict":
-        return { _tag: "Failed", message: "Lenkenavnet er allerede i bruk. Prøv et annet navn." };
-      case "CommandConflict":
-        return {
-          _tag: "Failed",
-          message: "Artikkelen er endret av andre samtidig. Last siden på nytt.",
-        };
-      default:
-        break;
-    }
+  switch (error._tag) {
+    case "UnauthenticatedActor":
+      return { _tag: "Denied", message: "Økten din er utløpt. Logg inn på nytt." };
+    case "AuthorityInactive":
+      return {
+        _tag: "Denied",
+        message: "Tilgangen din til artikkeladministrasjon er ikke aktiv.",
+      };
+    case "NotInScope":
+      return { _tag: "Denied", message: "Du har ikke tilgang til artikkeladministrasjon." };
+    case "NotPublisher":
+      return {
+        _tag: "Denied",
+        message: "Kun ledere og administratorer kan publisere, avpublisere eller endre reklame.",
+      };
+    case "DraftNotOwned":
+      return { _tag: "Denied", message: "Du kan bare redigere egne kladder." };
+    case "SlugConflict":
+      return { _tag: "Failed", message: "Lenkenavnet er allerede i bruk. Prøv et annet navn." };
+    case "CommandConflict":
+      return {
+        _tag: "Failed",
+        message: "Artikkelen er endret av andre samtidig. Last siden på nytt.",
+      };
   }
   return { _tag: "Failed", message: "Artikkeladministrasjonen kunne ikke hentes. Prøv på nytt." };
 };
