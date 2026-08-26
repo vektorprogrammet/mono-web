@@ -5,6 +5,7 @@ import { Organization } from "../organization/service.js";
 import { Profile } from "../profile/service.js";
 import { assignApplicant, readAssignmentBoard } from "./postgres.js";
 import { readSchedulingBoard, scheduleInterview } from "./scheduling-postgres.js";
+import { readInterviewConduct, finalizeInterview, cancelInterview } from "./conduct-postgres.js";
 import {
   confirmInvitation,
   readInvitationResponse,
@@ -63,6 +64,23 @@ export const RecruitmentLive = Layer.effect(
           Effect.provideService(Database, database),
           Effect.provideService(Admissions, admissions),
           Effect.provideService(Profile, profile),
+        ),
+      readInterviewConduct: (interviewId, context) =>
+        readInterviewConduct(interviewId, context).pipe(
+          Effect.provideService(Database, database),
+          Effect.provideService(Admissions, admissions),
+          Effect.provideService(Organization, organization),
+        ),
+      finalizeInterview: (command, context) =>
+        finalizeInterview(command, context).pipe(
+          Effect.provideService(Database, database),
+          Effect.provideService(Admissions, admissions),
+          Effect.provideService(Organization, organization),
+        ),
+      cancelInterview: (command, context) =>
+        cancelInterview(command, context).pipe(
+          Effect.provideService(Database, database),
+          Effect.provideService(Organization, organization),
         ),
       requestNewInvitationTime: (capability, input, context) =>
         requestNewInvitationTime(capability, input, context).pipe(

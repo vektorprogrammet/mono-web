@@ -120,14 +120,14 @@ export class RecruitmentInterviewQuestionSnapshot extends Model.Class<Recruitmen
     json: NonNegative,
   }),
   prompt: Model.Field({
-    select: Schema.String,
-    insert: Schema.String,
-    json: Schema.String,
+    select: QuestionPrompt,
+    insert: QuestionPrompt,
+    json: QuestionPrompt,
   }),
   helpText: Model.Field({
-    select: Schema.NullOr(Schema.String),
-    insert: Schema.NullOr(Schema.String),
-    json: Schema.NullOr(Schema.String),
+    select: Schema.NullOr(QuestionHelpText),
+    insert: Schema.NullOr(QuestionHelpText),
+    json: Schema.NullOr(QuestionHelpText),
   }),
   kind: Model.Field({
     select: RecruitmentInterviewQuestionKindSchema,
@@ -135,9 +135,9 @@ export class RecruitmentInterviewQuestionSnapshot extends Model.Class<Recruitmen
     json: RecruitmentInterviewQuestionKindSchema,
   }),
   alternatives: Model.Field({
-    select: Schema.Array(Schema.String),
-    insert: Schema.Array(Schema.String),
-    json: Schema.Array(Schema.String),
+    select: Schema.Array(QuestionAlternative),
+    insert: Schema.Array(QuestionAlternative),
+    json: Schema.Array(QuestionAlternative),
   }),
 }) {}
 
@@ -709,3 +709,216 @@ export interface RecruitmentAssignmentContext {
 
 export const isRecruitmentNow = isRfc3339Instant;
 export const RecruitmentInstantSchema = Rfc3339InstantSchema;
+export const RecruitmentConductCommandId = StableId.pipe(
+  Schema.brand("RecruitmentConductCommandId"),
+);
+export type RecruitmentConductCommandId = typeof RecruitmentConductCommandId.Type;
+
+export const RecruitmentCancellationCommandId = StableId.pipe(
+  Schema.brand("RecruitmentCancellationCommandId"),
+);
+export type RecruitmentCancellationCommandId = typeof RecruitmentCancellationCommandId.Type;
+
+export const RecruitmentInterviewAnswerSchema = Schema.Struct({
+  questionId: StableId,
+  answer: Schema.Union([Schema.String, Schema.Array(Schema.String)]),
+});
+export type RecruitmentInterviewAnswer = typeof RecruitmentInterviewAnswerSchema.Type;
+
+export const RecruitmentInterviewScoreSchema = Schema.Struct({
+  explanatoryPower: Schema.Int.pipe(
+    Schema.check(
+      Schema.makeFilter((value) => value >= 0 && value <= 10, {
+        message: "explanatory power must be an integer from 0 to 10",
+      }),
+    ),
+  ),
+  roleModel: Schema.Int.pipe(
+    Schema.check(
+      Schema.makeFilter((value) => value >= 0 && value <= 10, {
+        message: "role model must be an integer from 0 to 10",
+      }),
+    ),
+  ),
+  suitability: Schema.Int.pipe(
+    Schema.check(
+      Schema.makeFilter((value) => value >= 0 && value <= 10, {
+        message: "suitability must be an integer from 0 to 10",
+      }),
+    ),
+  ),
+});
+export type RecruitmentInterviewScore = typeof RecruitmentInterviewScoreSchema.Type;
+
+export class RecruitmentInterviewConduct extends Model.Class<RecruitmentInterviewConduct>(
+  "Recruitment.RecruitmentInterviewConduct",
+)({
+  interviewId: Model.Field({
+    select: RecruitmentInterviewId,
+    insert: RecruitmentInterviewId,
+    json: RecruitmentInterviewId,
+  }),
+  answers: Model.Field({
+    select: Schema.Array(RecruitmentInterviewAnswerSchema),
+    insert: Schema.Array(RecruitmentInterviewAnswerSchema),
+    json: Schema.Array(RecruitmentInterviewAnswerSchema),
+  }),
+  score: Model.Field({
+    select: RecruitmentInterviewScoreSchema,
+    insert: RecruitmentInterviewScoreSchema,
+    json: RecruitmentInterviewScoreSchema,
+  }),
+  finalizedByPersonId: Model.Field({
+    select: PersonId,
+    insert: PersonId,
+    json: PersonId,
+  }),
+  finalizedAt: Model.Field({
+    select: Rfc3339InstantSchema,
+    insert: Rfc3339InstantSchema,
+    json: Rfc3339InstantSchema,
+  }),
+  interviewRevision: Model.Field({
+    select: Revision,
+    insert: Revision,
+    json: Revision,
+  }),
+}) {}
+
+export type RecruitmentInterviewConductSelect = typeof RecruitmentInterviewConduct.Encoded;
+export type RecruitmentInterviewConductInsert = typeof RecruitmentInterviewConduct.insert.Encoded;
+export type RecruitmentInterviewConductJson = typeof RecruitmentInterviewConduct.json.Type;
+export type RecruitmentInterviewConductValue = typeof RecruitmentInterviewConduct.Type;
+
+export class RecruitmentInterviewCancellation extends Model.Class<RecruitmentInterviewCancellation>(
+  "Recruitment.RecruitmentInterviewCancellation",
+)({
+  interviewId: Model.Field({
+    select: RecruitmentInterviewId,
+    insert: RecruitmentInterviewId,
+    json: RecruitmentInterviewId,
+  }),
+  cancelledByPersonId: Model.Field({
+    select: PersonId,
+    insert: PersonId,
+    json: PersonId,
+  }),
+  cancelledAt: Model.Field({
+    select: Rfc3339InstantSchema,
+    insert: Rfc3339InstantSchema,
+    json: Rfc3339InstantSchema,
+  }),
+  interviewRevision: Model.Field({
+    select: Revision,
+    insert: Revision,
+    json: Revision,
+  }),
+}) {}
+
+export type RecruitmentInterviewCancellationSelect =
+  typeof RecruitmentInterviewCancellation.Encoded;
+export type RecruitmentInterviewCancellationInsert =
+  typeof RecruitmentInterviewCancellation.insert.Encoded;
+export type RecruitmentInterviewCancellationJson =
+  typeof RecruitmentInterviewCancellation.json.Type;
+export type RecruitmentInterviewCancellationValue = typeof RecruitmentInterviewCancellation.Type;
+
+export const FinalizeInterviewCommandSchema = Schema.Struct({
+  commandId: RecruitmentConductCommandId,
+  interviewId: RecruitmentInterviewId,
+  expectedRevision: Revision,
+  answers: Schema.Array(RecruitmentInterviewAnswerSchema),
+  score: RecruitmentInterviewScoreSchema,
+});
+export type FinalizeInterviewCommand = typeof FinalizeInterviewCommandSchema.Type;
+
+export const CancelInterviewCommandSchema = Schema.Struct({
+  commandId: RecruitmentCancellationCommandId,
+  interviewId: RecruitmentInterviewId,
+  expectedRevision: Revision,
+});
+export type CancelInterviewCommand = typeof CancelInterviewCommandSchema.Type;
+
+export const FinalizeInterviewObservationSchema = Schema.Struct({
+  _tag: Schema.Literals(["InterviewFinalized"]),
+  commandId: RecruitmentConductCommandId,
+  interviewId: RecruitmentInterviewId,
+  interviewRevision: Revision,
+  finalizedAt: Rfc3339InstantSchema,
+  completionState: Schema.Literals(["Completed"]),
+  cancellationState: Schema.Literals(["NotCancelled"]),
+});
+export type FinalizeInterviewObservation = typeof FinalizeInterviewObservationSchema.Type;
+
+export const CancelInterviewObservationSchema = Schema.Struct({
+  _tag: Schema.Literals(["InterviewCancelled"]),
+  commandId: RecruitmentCancellationCommandId,
+  interviewId: RecruitmentInterviewId,
+  interviewRevision: Revision,
+  cancelledAt: Rfc3339InstantSchema,
+  completionState: Schema.Literals(["NotCompleted"]),
+  cancellationState: Schema.Literals(["Cancelled"]),
+});
+export type CancelInterviewObservation = typeof CancelInterviewObservationSchema.Type;
+
+export const FinalizeInterviewResultSchema = Schema.Struct({
+  observation: FinalizeInterviewObservationSchema,
+  replayed: Schema.Boolean,
+});
+export type FinalizeInterviewResult = typeof FinalizeInterviewResultSchema.Type;
+
+export const CancelInterviewResultSchema = Schema.Struct({
+  observation: CancelInterviewObservationSchema,
+  replayed: Schema.Boolean,
+});
+export type CancelInterviewResult = typeof CancelInterviewResultSchema.Type;
+
+export const RecruitmentConductActorSchema = Schema.Struct({
+  personId: PersonId,
+  departmentId: DepartmentId,
+  active: Schema.Boolean,
+  membershipActive: Schema.Boolean,
+  teamActive: Schema.Boolean,
+  departmentActive: Schema.Boolean,
+});
+export type RecruitmentConductActor = typeof RecruitmentConductActorSchema.Type;
+
+export interface RecruitmentConductState {
+  readonly interview: RecruitmentInterviewValue;
+  readonly schedule: RecruitmentInterviewScheduleValue | null;
+  readonly invitationResponse: RecruitmentInvitationResponseState | null;
+  readonly questions: ReadonlyArray<RecruitmentInterviewQuestionSnapshotValue>;
+  readonly conduct: RecruitmentInterviewConductValue | null;
+  readonly cancellation: RecruitmentInterviewCancellationValue | null;
+  readonly revision: number;
+}
+
+export interface RecruitmentConductContext {
+  readonly actor: RecruitmentActor;
+  readonly now: string;
+  readonly authorizationInstant?: string;
+}
+
+export const RecruitmentInterviewConductObservationSchema = Schema.Struct({
+  interviewId: RecruitmentInterviewId,
+  applicationId: PublicApplicationIdSchema,
+  applicant: Schema.Struct({
+    applicantId: ApplicantIdSchema,
+    firstName: PublicApplicationNameSchema,
+    lastName: PublicApplicationNameSchema,
+  }),
+  schedule: RecruitmentInterviewSchedule,
+  invitationResponse: Schema.Literals(["Accepted"]),
+  questions: Schema.Array(RecruitmentInterviewQuestionSnapshot),
+  answers: Schema.Array(RecruitmentInterviewAnswerSchema),
+  score: Schema.NullOr(RecruitmentInterviewScoreSchema),
+  completionState: Schema.Literals(["NotCompleted", "Completed"]),
+  cancellationState: Schema.Literals(["NotCancelled", "Cancelled"]),
+  finalizedAt: Schema.NullOr(Rfc3339InstantSchema),
+  cancelledAt: Schema.NullOr(Rfc3339InstantSchema),
+  revision: Revision,
+  canFinalize: Schema.Boolean,
+  canCancel: Schema.Boolean,
+});
+export type RecruitmentInterviewConductObservation =
+  typeof RecruitmentInterviewConductObservationSchema.Type;

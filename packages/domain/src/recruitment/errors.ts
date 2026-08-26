@@ -4,6 +4,8 @@ import { DepartmentId, PersonId } from "../organization/schema.js";
 import {
   InterviewSchemaId,
   RecruitmentAssignmentCommandId,
+  RecruitmentConductCommandId,
+  RecruitmentCancellationCommandId,
   RecruitmentInterviewId,
   RecruitmentScheduleCommandId,
 } from "./schema.js";
@@ -128,4 +130,34 @@ export class InterviewQuestionsUnavailable extends Schema.TaggedError<InterviewQ
 export class RecruitmentPersistenceError extends Schema.TaggedError<RecruitmentPersistenceError>()(
   "RecruitmentPersistenceError",
   { operation: Schema.String, message: Schema.String },
+) {}
+
+export class RecruitmentLifecycleCommandConflict extends Schema.TaggedError<RecruitmentLifecycleCommandConflict>()(
+  "RecruitmentLifecycleCommandConflict",
+  { commandId: Schema.Union([RecruitmentConductCommandId, RecruitmentCancellationCommandId]) },
+) {}
+
+export class RecruitmentInterviewAlreadyFinalized extends Schema.TaggedError<RecruitmentInterviewAlreadyFinalized>()(
+  "RecruitmentInterviewAlreadyFinalized",
+  { interviewId: RecruitmentInterviewId },
+) {}
+
+export class RecruitmentInterviewAlreadyCancelled extends Schema.TaggedError<RecruitmentInterviewAlreadyCancelled>()(
+  "RecruitmentInterviewAlreadyCancelled",
+  { interviewId: RecruitmentInterviewId },
+) {}
+
+export class RecruitmentInvitationNotAccepted extends Schema.TaggedError<RecruitmentInvitationNotAccepted>()(
+  "RecruitmentInvitationNotAccepted",
+  { interviewId: RecruitmentInterviewId, responseState: Schema.String },
+) {}
+
+export class RecruitmentInterviewNotScheduled extends Schema.TaggedError<RecruitmentInterviewNotScheduled>()(
+  "RecruitmentInterviewNotScheduled",
+  { interviewId: RecruitmentInterviewId },
+) {}
+
+export class RecruitmentConductValidationError extends Schema.TaggedError<RecruitmentConductValidationError>()(
+  "RecruitmentConductValidationError",
+  { interviewId: RecruitmentInterviewId, message: Schema.String },
 ) {}

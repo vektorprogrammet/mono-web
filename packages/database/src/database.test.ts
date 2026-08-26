@@ -44,6 +44,8 @@ import {
   RecruitmentInvitationCapabilitySchema,
   RecruitmentLive,
   RecruitmentScheduleCommandId,
+  RecruitmentConductCommandId,
+  RecruitmentCancellationCommandId,
   RecruitmentNotificationDeliveryError,
 } from "@vektorprogrammet/domain/recruitment";
 import {
@@ -4112,6 +4114,163 @@ describe("DatabaseTest", () => {
       departments: true,
       teams: true,
       fields: true,
+    });
+  });
+  it("finalizes native Recruitment conduct atomically and replays without writes in PGlite", async () => {
+    const fixtureId = "conduct-core";
+    const evidence = await recruitmentRuntime.runPromise(
+      Effect.gen(function* () {
+        const database = yield* Database;
+        const recruitment = yield* Recruitment;
+        const fixture = yield* seedSchedulingFixture(fixtureId);
+        yield* recruitment.scheduleInterview(fixture.command, {
+          actor: fixture.actor,
+          now: fixture.now,
+          invitationId: fixture.invitationId,
+          responseCapability: fixture.responseCapability,
+        });
+        yield* database.withTransaction(
+          Effect.gen(function* () {
+            yield* database`
+              UPDATE recruitment_invitations
+              SET response_state = 'Accepted',
+                  responded_at = '2031-09-15T12:01:00.000Z',
+                  response_revision = 1
+              WHERE invitation_id = ${fixture.invitationId}
+            `;
+            yield* database`
+              INSERT INTO recruitment_invitation_response_audit (
+                invitation_id, interview_id, schedule_revision, response_revision,
+                response_state, response_message, responded_at
+              ) VALUES (
+                ${fixture.invitationId}, ${fixture.interviewId}, 1, 1,
+                'Accepted', NULL, '2031-09-15T12:01:00.000Z'
+              )
+            `;
+          }),
+        );
+        const context = {
+          actor: {
+            _tag: "Member" as const,
+            personId: fixture.interviewerPersonId,
+            departmentId: fixture.departmentId,
+            active: true,
+          },
+          now: "2031-09-15T12:02:00.000Z",
+        };
+        const before = yield* recruitment.readInterviewConduct(fixture.interviewId, context);
+        const answers = Array.from({ length: 8 }, (_, ordinal) => ({
+          questionId: `${fixtureId}-q${ordinal}`,
+          answer: `Answer ${ordinal}`,
+        }));
+        const command = {
+          commandId: RecruitmentConductCommandId.make(`${fixtureId}-finalize`),
+          interviewId: fixture.interviewId,
+          expectedRevision: 1,
+          answers,
+          score: { explanatoryPower: 0, roleModel: 10, suitability: 5 },
+        };
+        const finalized = yield* recruitment.finalizeInterview(command, context);
+        const replayed = yield* recruitment.finalizeInterview(command, context);
+        const after = yield* recruitment.readInterviewConduct(fixture.interviewId, context);
+        const counts = yield* database<{
+          readonly conducts: string;
+          readonly receipts: string;
+          readonly audits: string;
+          readonly revision: string;
+        }>`
+          SELECT
+            (SELECT count(*)::text FROM recruitment_interview_conducts WHERE interview_id = ${fixture.interviewId}) AS conducts,
+            (SELECT count(*)::text FROM recruitment_interview_lifecycle_command_receipts WHERE interview_id = ${fixture.interviewId}) AS receipts,
+            (SELECT count(*)::text FROM recruitment_interview_lifecycle_audit WHERE interview_id = ${fixture.interviewId}) AS audits,
+            (SELECT revision::text FROM recruitment_interviews WHERE interview_id = ${fixture.interviewId}) AS revision
+        `;
+        return {
+          before: before.completionState,
+          finalized: finalized.replayed,
+          replayed: replayed.replayed,
+          after: [after.completionState, after.score],
+          counts,
+        };
+      }),
+    );
+    expect(evidence).toEqual({
+      before: "NotCompleted",
+      finalized: false,
+      replayed: true,
+      after: ["Completed", { explanatoryPower: 0, roleModel: 10, suitability: 5 }],
+      counts: [{ conducts: "1", receipts: "1", audits: "1", revision: "2" }],
+    });
+  });
+  it("cancels native Recruitment interviews atomically in PGlite", async () => {
+    const evidence = await recruitmentRuntime.runPromise(
+      Effect.gen(function* () {
+        const database = yield* Database;
+        const recruitment = yield* Recruitment;
+        const fixture = yield* seedSchedulingFixture("conduct-cancel");
+        yield* recruitment.scheduleInterview(fixture.command, {
+          actor: fixture.actor,
+          now: fixture.now,
+          invitationId: fixture.invitationId,
+          responseCapability: fixture.responseCapability,
+        });
+        yield* database.withTransaction(
+          Effect.gen(function* () {
+            yield* database`
+              UPDATE recruitment_invitations
+              SET response_state = 'Accepted',
+                  responded_at = '2031-09-15T12:01:00.000Z',
+                  response_revision = 1
+              WHERE invitation_id = ${fixture.invitationId}
+            `;
+            yield* database`
+              INSERT INTO recruitment_invitation_response_audit (
+                invitation_id, interview_id, schedule_revision, response_revision,
+                response_state, response_message, responded_at
+              ) VALUES (
+                ${fixture.invitationId}, ${fixture.interviewId}, 1, 1,
+                'Accepted', NULL, '2031-09-15T12:01:00.000Z'
+              )
+            `;
+          }),
+        );
+        const context = {
+          actor: {
+            _tag: "Member" as const,
+            personId: fixture.interviewerPersonId,
+            departmentId: fixture.departmentId,
+            active: true,
+          },
+          now: "2031-09-15T12:02:00.000Z",
+        };
+        const cancelled = yield* recruitment.cancelInterview(
+          {
+            commandId: RecruitmentCancellationCommandId.make("conduct-cancel-command"),
+            interviewId: fixture.interviewId,
+            expectedRevision: 1,
+          },
+          context,
+        );
+        const after = yield* recruitment.readInterviewConduct(fixture.interviewId, context);
+        const counts = yield* database<{
+          readonly cancellations: string;
+          readonly receipts: string;
+          readonly audits: string;
+          readonly revision: string;
+        }>`
+          SELECT
+            (SELECT count(*)::text FROM recruitment_interview_cancellations WHERE interview_id = ${fixture.interviewId}) AS cancellations,
+            (SELECT count(*)::text FROM recruitment_interview_lifecycle_command_receipts WHERE interview_id = ${fixture.interviewId}) AS receipts,
+            (SELECT count(*)::text FROM recruitment_interview_lifecycle_audit WHERE interview_id = ${fixture.interviewId}) AS audits,
+            (SELECT revision::text FROM recruitment_interviews WHERE interview_id = ${fixture.interviewId}) AS revision
+        `;
+        return { replayed: cancelled.replayed, state: after.cancellationState, counts };
+      }),
+    );
+    expect(evidence).toEqual({
+      replayed: false,
+      state: "Cancelled",
+      counts: [{ cancellations: "1", receipts: "1", audits: "1", revision: "2" }],
     });
   });
 });

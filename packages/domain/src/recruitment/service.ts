@@ -23,6 +23,13 @@ import type {
   RecruitmentScheduleContext,
   RecruitmentScheduleResult,
   RecruitmentSchedulingBoard,
+  RecruitmentConductContext,
+  RecruitmentInterviewConductObservation,
+  FinalizeInterviewCommand,
+  FinalizeInterviewResult,
+  CancelInterviewCommand,
+  RecruitmentInterviewId,
+  CancelInterviewResult,
 } from "./schema.js";
 import type {
   RecruitmentAdmissionPeriodNotFound,
@@ -34,6 +41,10 @@ import type {
   RecruitmentInactiveActor,
   RecruitmentInterviewerNotEligible,
   RecruitmentInterviewNotFound,
+  RecruitmentInterviewAlreadyFinalized,
+  RecruitmentInterviewAlreadyCancelled,
+  RecruitmentInterviewNotScheduled,
+  RecruitmentInvitationNotAccepted,
   RecruitmentInterviewAlreadyScheduled,
   RecruitmentInterviewSchemaInactive,
   RecruitmentInterviewSchemaNotFound,
@@ -47,6 +58,8 @@ import type {
   RecruitmentRoleDenied,
   RecruitmentScopeDenied,
   InterviewQuestionsUnavailable,
+  RecruitmentLifecycleCommandConflict,
+  RecruitmentConductValidationError,
 } from "./errors.js";
 export type RecruitmentFailure =
   | RecruitmentDecodeError
@@ -68,9 +81,15 @@ export type RecruitmentFailure =
   | RecruitmentInvitationAlreadyResponded
   | RecruitmentScheduleCommandConflict
   | RecruitmentScheduleInPast
-  | RecruitmentInvalidContext
   | InterviewQuestionsUnavailable
+  | RecruitmentInvalidContext
   | RecruitmentPersistenceError
+  | RecruitmentLifecycleCommandConflict
+  | RecruitmentInterviewAlreadyFinalized
+  | RecruitmentInterviewAlreadyCancelled
+  | RecruitmentInterviewNotScheduled
+  | RecruitmentInvitationNotAccepted
+  | RecruitmentConductValidationError
   | AdmissionPeriodFailure
   | OrganizationDecodeError
   | OrganizationPersistenceError
@@ -109,6 +128,18 @@ export interface RecruitmentShape {
     input: RecruitmentInvitationRequestNewTimeInput,
     context: RecruitmentInvitationResponseContext,
   ) => Effect.Effect<RecruitmentInvitationResponseResult, RecruitmentFailure>;
+  readonly readInterviewConduct: (
+    interviewId: RecruitmentInterviewId,
+    context: RecruitmentConductContext,
+  ) => Effect.Effect<RecruitmentInterviewConductObservation, RecruitmentFailure>;
+  readonly finalizeInterview: (
+    command: FinalizeInterviewCommand,
+    context: RecruitmentConductContext,
+  ) => Effect.Effect<FinalizeInterviewResult, RecruitmentFailure>;
+  readonly cancelInterview: (
+    command: CancelInterviewCommand,
+    context: RecruitmentConductContext,
+  ) => Effect.Effect<CancelInterviewResult, RecruitmentFailure>;
 }
 
 export class Recruitment extends Context.Service<Recruitment, RecruitmentShape>()(
