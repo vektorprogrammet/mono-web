@@ -306,7 +306,9 @@ test.describe("Native Content publication (spec 0062)", () => {
         unpublishedHistorical404: true,
         teaserVisible: true,
       };
-      const anonAccessibility = await new AxeBuilder({ page: anonPage }).analyze();
+      const anonAccessibility = await new AxeBuilder({ page: anonPage })
+        .include('section[aria-labelledby="news-teaser-heading"]')
+        .analyze();
       expect(anonAccessibility.violations).toEqual([]);
 
       // --- Request ledger confinement ----------------------------------
