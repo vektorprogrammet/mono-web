@@ -42,8 +42,34 @@ const statusFor = (tag: ContentBridgeErrorTag): number => {
   }
 };
 
+const contentRejectionTagFrom = (error: unknown): ContentBridgeErrorTag | undefined => {
+  let tag: unknown;
+  if (error instanceof ContentRejectionError) {
+    tag = error.contentTag;
+  } else if (typeof error === "object" && error !== null && "contentTag" in error) {
+    tag = error.contentTag;
+  }
+  switch (tag) {
+    case "UnauthenticatedActor":
+    case "AuthorityInactive":
+    case "NotInScope":
+    case "NotPublisher":
+    case "DraftNotOwned":
+    case "SlugConflict":
+    case "CommandConflict":
+    case "ArticleNotFound":
+    case "ContentDecodeError":
+    case "ContentIntegrityError":
+    case "ContentPersistenceError":
+      return tag;
+    default:
+      return undefined;
+  }
+};
+
 const tagFrom = (error: unknown): ContentBridgeErrorTag => {
-  if (error instanceof ContentRejectionError) return error.contentTag;
+  const contentTag = contentRejectionTagFrom(error);
+  if (contentTag !== undefined) return contentTag;
   if (error instanceof Response && error.status >= 300 && error.status < 400) {
     return "UnauthenticatedActor";
   }

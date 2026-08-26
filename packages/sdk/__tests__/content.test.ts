@@ -5,7 +5,7 @@ import {
   CreateContentDraftCommandSchema,
   PublishedNewsArticleSchema,
 } from "../src/schemas/content.js";
-import { createClient } from "../src/promise.js";
+import { ContentRejectionError, createClient } from "../src/promise.js";
 
 const strictDecode = <A>(
   schema: Schema.Schema<A, unknown, never>,
@@ -181,5 +181,20 @@ describe("content sdk transport", () => {
       "http://api.test/api/news?department=department-a",
     ]);
     expect(fetchMock.mock.calls.map(([, init]) => (init as RequestInit).method)).toEqual(["GET"]);
+  });
+
+  it("preserves typed Content denial tags at the Promise boundary", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValueOnce(response(403, { error: { tag: "AuthorityInactive" } })),
+    );
+    const client = createClient("http://api.test");
+
+    await expect(client.admin.content.workspace()).rejects.toEqual(
+      expect.objectContaining({
+        name: ContentRejectionError.name,
+        contentTag: "AuthorityInactive",
+      }),
+    );
   });
 });
