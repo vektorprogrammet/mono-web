@@ -33,7 +33,7 @@ const readDepartments = (
   articleIds.length === 0
     ? Effect.succeed(new Map())
     : database<{ readonly articleId: number; readonly departmentId: DepartmentId }>`
-        SELECT article_id AS "articleId", department_id
+        SELECT article_id AS "articleId", department_id AS "departmentId"
         FROM content_article_departments
         WHERE ${database.in("article_id", articleIds)}
         ORDER BY article_id, department_id
