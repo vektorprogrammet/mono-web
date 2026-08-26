@@ -20,7 +20,8 @@ const homepagePort = 45264;
 const dashboardOrigin = `http://127.0.0.1:${dashboardPort}`;
 const backendOrigin = `http://127.0.0.1:${backendPort}`;
 const upstreamOrigin = `http://127.0.0.1:${upstreamPort}`;
-const homepageOrigin = `http://127.0.0.1:${homepagePort}`;
+const homepageOrigin = `http://p000.vektor.phibkro.org:${homepagePort}`;
+const homepageListenOrigin = `http://127.0.0.1:${homepagePort}`;
 const postgresUrl = `postgres://postgres@127.0.0.1:${postgresPort}/content_e2e_0062`;
 const betterAuthSecret = "content-e2e-0062-secret-with-more-than-32-characters";
 
@@ -347,7 +348,7 @@ try {
       label: "Homepage worker",
     },
   );
-  await waitForHttp(`${homepageOrigin}/nyheter`, "Homepage startup");
+  await waitForHttp(`${homepageListenOrigin}/nyheter`, "Homepage startup");
 
   recordingUpstream = await startRecordingUpstream(ledger);
   const upstreamHealth = await fetch(`${upstreamOrigin}/health`);

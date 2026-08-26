@@ -178,9 +178,7 @@ test.describe("Native Content publication (spec 0062)", () => {
 
       // A separate anonymous context observes both the new canonical bytes
       // and the immutable first-version bytes before withdrawal.
-      const anonymous = await browser.newContext({
-        extraHTTPHeaders: { Host: "p000.vektor.phibkro.org" },
-      });
+      const anonymous = await browser.newContext();
       contexts.push(anonymous);
       const anonPage = await anonymous.newPage();
       anonPage.on("pageerror", (error) => pageErrors.push(error.message));

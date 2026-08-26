@@ -37,6 +37,16 @@ const externalTopologyMode =
   realNativeInvitationResponseMode ||
   realNativeOrganizationMode ||
   realNativeIdentityMode;
+const contentHomepageHost =
+  realNativeIdentityMode && process.env.CONTENT_E2E_HOMEPAGE_ORIGIN !== undefined
+    ? new URL(process.env.CONTENT_E2E_HOMEPAGE_ORIGIN).hostname
+    : undefined;
+const contentChromiumLaunchOptions = {
+  ...(chromiumExecutablePath === undefined ? {} : { executablePath: chromiumExecutablePath }),
+  ...(contentHomepageHost === undefined
+    ? {}
+    : { args: [`--host-resolver-rules=MAP ${contentHomepageHost} 127.0.0.1`] }),
+};
 
 const dashboardServer = {
   command: "bun run dev --host 127.0.0.1 --port 5174",
@@ -120,9 +130,7 @@ export default defineConfig({
               use: {
                 ...devices["Desktop Chrome"],
                 viewport: w0Viewport,
-                launchOptions: chromiumExecutablePath
-                  ? { executablePath: chromiumExecutablePath }
-                  : undefined,
+                launchOptions: contentChromiumLaunchOptions,
               },
             },
             {
