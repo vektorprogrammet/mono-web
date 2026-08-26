@@ -142,10 +142,13 @@ test.describe("Native Content publication (spec 0062)", () => {
       await administrator.page.getByRole("button", { name: "Lagre kladd" }).click();
       await expect
         .poll(
-          async () =>
-            (await administrator.page.getByRole("button").allInnerTexts()).some((t) =>
-              t.includes("Fersk nyhet fra admin"),
-            ),
+          async () => {
+            const texts = await administrator.page.getByRole("button").allInnerTexts();
+            if (process.env.CONTENT_DEBUG) {
+              process.stdout.write(`[buttons] ${JSON.stringify(texts)}\n`);
+            }
+            return texts.some((t) => t.includes("Fersk nyhet fra admin"));
+          },
           { timeout: 10_000 },
         )
         .toBe(true);
