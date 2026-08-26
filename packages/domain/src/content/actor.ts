@@ -13,7 +13,11 @@ export type ContentActor =
       readonly personId: PersonId;
       readonly departmentIds: ReadonlyArray<DepartmentId>;
     }
-  | { readonly _tag: "ContentEditor"; readonly personId: PersonId };
+  | {
+      readonly _tag: "ContentEditor";
+      readonly personId: PersonId;
+      readonly departmentIds: ReadonlyArray<DepartmentId>;
+    };
 
 export type ContentActorDenial = "AuthorityInactive" | "NotInScope";
 
@@ -49,7 +53,11 @@ export const resolveContentActor = (
       departmentIds,
     });
   }
-  return allow<ContentActor>({ _tag: "ContentEditor", personId: authority.personId });
+  return allow<ContentActor>({
+    _tag: "ContentEditor",
+    personId: authority.personId,
+    departmentIds,
+  });
 };
 
 /** The department intersection a publisher may see and revise. */
@@ -95,7 +103,7 @@ export const canReviseDraft = (
 ): boolean => {
   if (actor._tag === "ContentAdministrator") return true;
   if (actor._tag === "ContentEditor") {
-    const editor: { readonly _tag: "ContentEditor"; readonly personId: PersonId } = actor;
+    const editor = actor;
     return (
       draft.createdByPersonId === editor.personId &&
       draft.departmentIds.length > 0 &&
@@ -112,8 +120,4 @@ export const canReviseDraft = (
 };
 
 const authorityDepartmentIds = (actor: ContentActor): ReadonlyArray<DepartmentId> =>
-  actor._tag === "ContentAdministrator"
-    ? []
-    : actor._tag === "ContentPublisher"
-      ? actor.departmentIds
-      : [];
+  actor._tag === "ContentAdministrator" ? [] : actor.departmentIds;
