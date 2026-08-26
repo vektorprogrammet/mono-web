@@ -90,9 +90,9 @@ export async function signInWithEmail(
   } catch {
     return { _tag: "Unavailable" };
   }
-
   if (response.status === 429) return { _tag: "RateLimited" };
-  if (!response.ok) return { _tag: "InvalidCredentials" };
+  if (response.status === 401) return { _tag: "InvalidCredentials" };
+  if (!response.ok) return { _tag: "Unavailable" };
 
   const responseHeaders = forwardSetCookieHeaders(response.headers);
   const sessionIssued = responseHeaders

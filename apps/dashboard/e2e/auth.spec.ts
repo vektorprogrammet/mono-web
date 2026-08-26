@@ -6,7 +6,7 @@ test.describe("Login page", () => {
     await page.goto("/login");
 
     await expect(page.getByRole("heading", { name: "Vektorprogrammet" })).toBeVisible();
-    await expect(page.getByLabel("Brukernavn eller e-post")).toBeVisible();
+    await expect(page.getByLabel("E-post")).toBeVisible();
     await expect(page.getByLabel("Passord")).toBeVisible();
     await expect(page.getByRole("button", { name: "Logg inn" })).toBeVisible();
   });
@@ -16,11 +16,11 @@ test.describe("Login page", () => {
 
     await page.goto("/login");
     expect(page.viewportSize()).toEqual({ width: 1440, height: 900 });
-    await page.getByLabel("Brukernavn eller e-post").fill("invalid@test.com");
+    await page.getByLabel("E-post").fill("invalid@test.com");
     await page.getByLabel("Passord").fill("wrongpassword");
     await page.getByRole("button", { name: "Logg inn" }).click();
 
-    await expect(page.getByText("Feil brukernavn eller passord")).toBeVisible();
+    await expect(page.getByText("Feil e-post eller passord")).toBeVisible();
   });
 
   test("redirects unauthenticated users to login", async ({ page }) => {

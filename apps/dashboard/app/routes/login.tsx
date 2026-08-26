@@ -2,11 +2,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useState } from "react";
 import { Form, Link, redirect, useActionData, useSearchParams } from "react-router";
-import {
-  hasAuthenticatedSession,
-  safeRedirect,
-  signInWithEmail,
-} from "../lib/auth.server";
+import { hasAuthenticatedSession, safeRedirect, signInWithEmail } from "../lib/auth.server";
 import type { Route } from "./+types/login";
 
 export async function loader({ request }: Route.LoaderArgs) {
@@ -16,14 +12,14 @@ export async function loader({ request }: Route.LoaderArgs) {
 
 export async function action({ request }: Route.ActionArgs) {
   const form = await request.formData();
-  const username = form.get("username")?.toString() ?? "";
+  const email = form.get("email")?.toString() ?? "";
   const password = form.get("password")?.toString() ?? "";
 
-  if (!username || !password) {
-    return { error: "Brukernavn og passord er påkrevd" };
+  if (!email || !password) {
+    return { error: "E-post og passord er påkrevd" };
   }
 
-  const result = await signInWithEmail(request, username, password);
+  const result = await signInWithEmail(request, email, password);
   switch (result._tag) {
     case "Authenticated":
       return redirect(safeRedirect(form.get("redirectTo")), {
@@ -32,9 +28,9 @@ export async function action({ request }: Route.ActionArgs) {
     case "RateLimited":
       return { error: "For mange innloggingsforsøk. Prøv igjen om 15 minutter." };
     case "InvalidCredentials":
-      return { error: "Feil brukernavn eller passord" };
+      return { error: "Feil e-post eller passord" };
     case "Unavailable":
-      return { error: "Feil brukernavn eller passord" };
+      return { error: "Tjenesten er midlertidig utilgjengelig. Prøv igjen senere." };
   }
 }
 
@@ -55,11 +51,7 @@ export default function Login() {
         </div>
 
         <Form method="post" className="space-y-4">
-          <input
-            type="hidden"
-            name="redirectTo"
-            value={searchParams.get("redirectTo") ?? ""}
-          />
+          <input type="hidden" name="redirectTo" value={searchParams.get("redirectTo") ?? ""} />
           {passwordReset && (
             <p className="rounded bg-green-50 p-2 text-center text-green-700 text-sm">
               Passordet ditt er tilbakestilt. Logg inn med ditt nye passord.
@@ -77,16 +69,10 @@ export default function Login() {
           )}
 
           <div className="space-y-2">
-            <label htmlFor="username" className="font-medium text-sm">
-              Brukernavn eller e-post
+            <label htmlFor="email" className="font-medium text-sm">
+              E-post
             </label>
-            <Input
-              id="username"
-              name="username"
-              type="text"
-              autoComplete="username"
-              required
-            />
+            <Input id="email" name="email" type="email" autoComplete="email" required />
           </div>
 
           <div className="space-y-2">

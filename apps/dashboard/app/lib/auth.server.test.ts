@@ -8,15 +8,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const api = vi.hoisted(() => {
   const session = vi.fn();
+  const serverApiEndpoint = vi.fn((path: string) => `http://api.test${path}`);
   return {
     session,
+    serverApiEndpoint,
     createAuthenticatedClient: vi.fn(() => ({ me: { session } })),
   };
 });
 
 vi.mock("./api.server", () => ({
   createAuthenticatedClient: api.createAuthenticatedClient,
-  serverApiEndpoint: (path: string) => `http://api.test${path}`,
+  serverApiEndpoint: api.serverApiEndpoint,
 }));
 
 import {
@@ -27,15 +29,20 @@ import {
   signOut,
 } from "./auth.server";
 
-function responseWithCookies(status: number, cookies: ReadonlyArray<string>): Response {
+function responseWithCookies(
+  status: number,
+  cookies: ReadonlyArray<string>,
+  body = "body must remain opaque",
+): Response {
   const headers = new Headers();
   for (const cookie of cookies) headers.append("Set-Cookie", cookie);
-  return new Response("body must remain opaque", { status, headers });
+  return new Response(body, { status, headers });
 }
 
 describe("native dashboard authentication", () => {
   beforeEach(() => {
     api.session.mockReset();
+    api.serverApiEndpoint.mockImplementation((path: string) => `http://api.test${path}`);
     api.createAuthenticatedClient.mockClear();
   });
 
@@ -140,12 +147,34 @@ describe("native dashboard authentication", () => {
     });
   });
 
-  it("maps invalid Better Auth credentials without relying on the response body", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("not json", { status: 401 })));
+  it.each([
+    [401, "InvalidCredentials"],
+    [429, "RateLimited"],
+    [422, "Unavailable"],
+    [500, "Unavailable"],
+    [503, "Unavailable"],
+  ] as const)("maps a %s sign-in response to a safe typed outcome", async (status, tag) => {
+    const response = responseWithCookies(
+      status,
+      [],
+      "provider-secret=do-not-return; BETTER_AUTH_SECRET=never-leak",
+    );
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response));
     const request = new Request("http://dashboard.test/login", { method: "POST" });
 
     await expect(signInWithEmail(request, "invalid@example.com", "wrong")).resolves.toEqual({
-      _tag: "InvalidCredentials",
+      _tag: tag,
+    });
+    expect(response.bodyUsed).toBe(false);
+  });
+  it("maps an endpoint configuration failure to Unavailable without exposing its details", async () => {
+    api.serverApiEndpoint.mockImplementation(() => {
+      throw new Error("API URL missing; BETTER_AUTH_SECRET=never-leak");
+    });
+    const request = new Request("http://dashboard.test/login", { method: "POST" });
+
+    await expect(signInWithEmail(request, "ada@example.com", "wrong")).resolves.toEqual({
+      _tag: "Unavailable",
     });
   });
 
