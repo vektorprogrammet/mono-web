@@ -124,6 +124,33 @@ describe("content http boundaries", () => {
     expect(ranEffect).toBe(false);
   });
 
+  it("maps malformed and path-mismatched command bodies to 422 before running", async () => {
+    let ranEffect = false;
+    const run = async <A>(effect: Effect.Effect<A, never, never>): Promise<A> => {
+      ranEffect = true;
+      return (await Effect.runPromise(effect)) as never;
+    };
+    const api = makeContentManagementApiHttp(okActor, run as unknown as BackendRun);
+    const excess = await api.fetch(
+      jsonRequest("/api/admin/content/drafts", "POST", {
+        commandId: "create-extra",
+        title: "T",
+        bodyHtml: "<p>x</p>",
+        departmentIds: [],
+        operation: "legacy",
+      }),
+    );
+    expect(excess.status).toBe(422);
+    const mismatch = await api.fetch(
+      jsonRequest("/api/admin/content/articles/7/publish", "POST", {
+        commandId: "publish-mismatch",
+        articleId: 8,
+      }),
+    );
+    expect(mismatch.status).toBe(422);
+    expect(ranEffect).toBe(false);
+  });
+
   it("answers unknown staff paths with RouteNotFound 404", async () => {
     let ranEffect = false;
     const run = async <A>(effect: Effect.Effect<A, never, never>): Promise<A> => {
@@ -156,9 +183,11 @@ describe("content http boundaries", () => {
       }),
       jsonRequest("/api/admin/content/articles/7/publish", "POST", {
         commandId: "publish-1",
+        articleId: 7,
       }),
       jsonRequest("/api/admin/content/articles/7/unpublish", "POST", {
         commandId: "unpublish-1",
+        articleId: 7,
       }),
     ];
     for (const request of accepted) {

@@ -1,9 +1,10 @@
 import {
   ArticleId,
-  ContentCommandId,
   ContentWorkspaceQuerySchema,
   CreateArticleDraftInputSchema,
+  PublishArticleInputSchema,
   ReviseArticleDraftInputSchema,
+  UnpublishArticleInputSchema,
   type ContentWorkspaceQuery,
 } from "@vektorprogrammet/domain/content";
 import type { OrganizationAuthorityInstant, PersonId } from "@vektorprogrammet/domain/organization";
@@ -66,7 +67,7 @@ const reportServerFailure = (tag: string, cause: unknown): void => {
 
 const errorResponse = (cause: unknown, extraHeaders: Record<string, string> = {}): Response => {
   if (cause instanceof ContentHttpDecodeError) {
-    return jsonResponse({ error: { tag: cause._tag } }, cause.status);
+    return jsonResponse({ error: { tag: cause._tag } }, cause.status, extraHeaders);
   }
   const tag =
     typeof cause === "object" && cause !== null && "_tag" in cause
@@ -98,8 +99,15 @@ const errorResponse = (cause: unknown, extraHeaders: Record<string, string> = {}
   }
 };
 
-const strictDecode = <A>(schema: Schema.ConstraintDecoder<A, never>, input: unknown): A =>
-  Schema.decodeUnknownSync(schema as never)(input, { onExcessProperty: "error" }) as A;
+const strictDecode = <A>(schema: Schema.ConstraintDecoder<A, never>, input: unknown): A => {
+  try {
+    return Schema.decodeUnknownSync(schema as never)(input, {
+      onExcessProperty: "error",
+    }) as A;
+  } catch {
+    throw new ContentHttpDecodeError("request input did not match the content schema");
+  }
+};
 
 const decodeJsonBody = async (request: Request): Promise<unknown> => {
   try {
@@ -118,10 +126,7 @@ const departmentFromQuery = (request: Request): ContentWorkspaceQuery => {
   if (values.length > 1) throw new ContentHttpDecodeError("duplicate department parameter");
   const emptyQuery: ContentWorkspaceQuery = {};
   if (values.length === 0) return emptyQuery;
-  return Schema.decodeUnknownSync(ContentWorkspaceQuerySchema)(
-    { department: values[0] },
-    { onExcessProperty: "error" },
-  );
+  return strictDecode(ContentWorkspaceQuerySchema, { department: values[0] });
 };
 
 const decodeCreateBody = async (
@@ -131,13 +136,15 @@ const decodeCreateBody = async (
   return strictDecode(CreateArticleDraftInputSchema, body);
 };
 
-const ContentCommandBodySchema = Schema.Struct({ commandId: ContentCommandId });
+const decodePublishBody = async (
+  request: Request,
+): Promise<typeof PublishArticleInputSchema.Type> =>
+  strictDecode(PublishArticleInputSchema, await decodeJsonBody(request));
 
-const commandIdFromBody = async (request: Request): Promise<ContentCommandId> => {
-  const body = await decodeJsonBody(request);
-  const decoded = strictDecode(ContentCommandBodySchema, body);
-  return decoded.commandId;
-};
+const decodeUnpublishBody = async (
+  request: Request,
+): Promise<typeof UnpublishArticleInputSchema.Type> =>
+  strictDecode(UnpublishArticleInputSchema, await decodeJsonBody(request));
 
 const articleIdFromPath = (pathname: string, pattern: RegExp): ArticleId => {
   const match = pattern.exec(pathname);
@@ -228,14 +235,12 @@ export const makeContentManagementApiHttp = (
           pathname,
           /^\/api\/admin\/content\/articles\/(\d+)\/publish$/,
         );
-        const commandId = await commandIdFromBody(request);
+        const command = await decodePublishBody(request);
+        if (command.articleId !== articleId) {
+          throw new ContentHttpDecodeError("article body and path identifiers must match");
+        }
         const actor = await resolveActor(request);
-        const observation = await run(
-          publishPostgres({
-            command: { commandId, articleId },
-            ...contextOf(actor),
-          }),
-        );
+        const observation = await run(publishPostgres({ command, ...contextOf(actor) }));
         return jsonResponse(observation, 200, noStore);
       }
       const unpublishMatch = /^\/api\/admin\/content\/articles\/(\d+)\/unpublish$/.exec(pathname);
@@ -244,14 +249,12 @@ export const makeContentManagementApiHttp = (
           pathname,
           /^\/api\/admin\/content\/articles\/(\d+)\/unpublish$/,
         );
-        const commandId = await commandIdFromBody(request);
+        const command = await decodeUnpublishBody(request);
+        if (command.articleId !== articleId) {
+          throw new ContentHttpDecodeError("article body and path identifiers must match");
+        }
         const actor = await resolveActor(request);
-        const observation = await run(
-          unpublishPostgres({
-            command: { commandId, articleId },
-            ...contextOf(actor),
-          }),
-        );
+        const observation = await run(unpublishPostgres({ command, ...contextOf(actor) }));
         return jsonResponse(observation, 200, noStore);
       }
       return jsonResponse({ error: { tag: "RouteNotFound" } }, 404);
