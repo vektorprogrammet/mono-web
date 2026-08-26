@@ -70,9 +70,9 @@ const rows = (model: Model, h: HtmlBuilder<Message>): Html => {
               h.OnClick(SelectedArticle({ articleId: entry.articleId })),
             ],
             [
-              `${entry.sticky ? "★ " : ""}${entry.title} — ${entry.status} · ${
-                entry.authorDisplayName
-              }`,
+              `${entry.sticky ? "★ " : ""}${entry.title} — ${
+                entry.status === "Draft" ? "Kladd" : "Publisert"
+              } · ${entry.authorDisplayName}`,
             ],
           ),
           ...(entry.canPublish
