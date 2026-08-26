@@ -96,6 +96,7 @@ import {
   ContentSlugConflictSdkError,
   ContentCommandConflict,
   ContentArticleNotFound,
+  ContentDepartmentNotFound,
   ContentDecodeError,
   ContentIntegritySdkError,
   ContentPersistenceSdkError,
@@ -469,6 +470,8 @@ const contentFailureFromBody = (body: unknown, strict: boolean): InternalSdkErro
       return new ContentCommandConflict();
     case "ArticleNotFound":
       return new ContentArticleNotFound();
+    case "DepartmentNotFound":
+      return new ContentDepartmentNotFound();
     case "ContentDecodeError":
       return new ContentDecodeError();
     case "ContentIntegrityError":

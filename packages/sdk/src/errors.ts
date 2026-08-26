@@ -1266,6 +1266,7 @@ export type ContentFailure =
   | ContentSlugConflictSdkError
   | ContentCommandConflict
   | ContentArticleNotFound
+  | ContentDepartmentNotFound
   | ContentDecodeError
   | ContentIntegritySdkError
   | ContentPersistenceSdkError;
@@ -1317,6 +1318,8 @@ export function toSdkError(error: InternalSdkError): SdkError {
     error instanceof ContentSlugConflictSdkError ||
     error instanceof ContentCommandConflict ||
     error instanceof ContentArticleNotFound ||
+    error instanceof ContentDepartmentNotFound ||
+    error instanceof ContentDecodeError ||
     error instanceof ContentIntegritySdkError ||
     error instanceof ContentPersistenceSdkError
   ) {
@@ -1475,8 +1478,6 @@ export function toSdkError(error: InternalSdkError): SdkError {
       return new RecruitmentProfileContactNotFoundError();
     case "RecruitmentPersistenceError":
       return new RecruitmentPersistenceSdkError();
-    case "ContentDecodeError":
-      return new ContentRejectionError("ContentDecodeError");
     default: {
       const exhausted: never = error;
       throw new Error(`unmapped internal sdk error: ${String(exhausted)}`);
