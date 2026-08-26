@@ -371,6 +371,20 @@ The evidence contains these parts:
 
 The browser journey signs in through the real login page and never injects a bearer token. It drives the full staff arc — create, revise, publish, revise, republish, unpublish — with the administrator and leader personas, observes typed denials for the plain member and the authority-less personas, and then, in an anonymous second context with no shared cookies, reads the public listing and detail pages: published content visible with correct author name and ordering, the old version still resolvable after republication, and the article absent from listing and canonical URL after unpublish. A request ledger records every upstream call and must contain zero Symfony requests, zero `/kontrollpanel` or legacy `/nyhet` hits, and zero fixture-server requests. PGlite never stands in for PostgreSQL concurrency proof.
 
+### Runtime receipt invocation
+
+The native Content runner emits no repository receipt by default. To request one, set all four runtime-evidence variables and use a JSON path under `evidence/functional-parity/runtime/`; the runner writes canonical schema-validated bytes only after the real Chromium journey passes:
+
+```sh
+RUNTIME_EVIDENCE_RECEIPT_PATH=evidence/functional-parity/runtime/content-0062.json \
+RUNTIME_EVIDENCE_LEGACY_REVISION_REF_ID=<selected-legacy-revision> \
+RUNTIME_EVIDENCE_MONO_REVISION_REF_ID=<tested-mono-revision> \
+RUNTIME_EVIDENCE_RUNNER_SOURCE_REF_IDS=<runner-source-ref>,<spec-source-ref> \
+bun run --cwd apps/dashboard e2e:real-content-publication
+```
+
+The receipt path is confined to the declared repository evidence directory. An ordinary run writes no repository evidence.
+
 ## Definition of done
 
 1. This frozen spec precedes any implementation commit for content publication.

@@ -6,6 +6,10 @@ import { createConnection, createServer as createNetServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  emitNativeRuntimeEvidenceReceipts,
+  sanitizePlaywrightArtifact,
+} from "./runtime-evidence-receipt.mjs";
 
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
 const dashboardRoot = fileURLToPath(new URL("../", import.meta.url));
@@ -21,6 +25,37 @@ const backendOrigin = `http://127.0.0.1:${backendPort}`;
 const upstreamOrigin = `http://127.0.0.1:${upstreamPort}`;
 const postgresUrl = `postgres://postgres@127.0.0.1:${postgresPort}/schools_e2e_0061`;
 const betterAuthSecret = "schools-e2e-0061-secret-with-more-than-32-characters";
+const runnerPath = fileURLToPath(import.meta.url);
+const specPath = join(dashboardRoot, "e2e/native-schools-directory.spec.ts");
+const seedPath = join(dashboardRoot, "e2e/native-schools-directory-seed.mjs");
+const journeyRefId = "intent://journey:parity:schools_directory:v1";
+const journeyStepIds = [
+  "schools-directory-api-operation",
+  "schools-directory-command-write",
+  "schools-directory-mono-route",
+];
+const receiptEnvironment = [
+  "RUNTIME_EVIDENCE_RECEIPT_PATH",
+  "RUNTIME_EVIDENCE_LEGACY_REVISION_REF_ID",
+  "RUNTIME_EVIDENCE_MONO_REVISION_REF_ID",
+  "RUNTIME_EVIDENCE_RUNNER_SOURCE_REF_IDS",
+];
+const receiptRequested = () =>
+  receiptEnvironment.some(
+    (name) => typeof process.env[name] === "string" && process.env[name].length > 0,
+  );
+
+const emitReceipt = async (playwrightOutput) => {
+  if (!receiptRequested()) return null;
+  return emitNativeRuntimeEvidenceReceipts({
+    repositoryRoot,
+    sourcePaths: [runnerPath, specPath, seedPath],
+    journeys: [{ journeyRefId, stepIds: journeyStepIds }],
+    fixtureId: "native-schools-directory-0061",
+    fixtureInputBytes: await readFile(seedPath),
+    artifactBytes: sanitizePlaywrightArtifact(Buffer.from(playwrightOutput, "utf8")),
+  });
+};
 
 const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 const withTimeout = (promise, milliseconds, label) =>
@@ -352,7 +387,7 @@ try {
       "test",
       "e2e/native-schools-directory.spec.ts",
       "--project=chromium",
-      "--reporter=line",
+      receiptRequested() ? "--reporter=json" : "--reporter=line",
       "--workers=1",
       "--retries=0",
     ],
@@ -368,6 +403,7 @@ try {
   );
   const browserEvidence = JSON.parse(await readFile(browserEvidencePath, "utf8"));
   assert.equal(browserEvidence.passed, true);
+  await emitReceipt(browser.stdout);
 
   const schoolsRequests = ledger.filter((entry) => entry.pathname === "/api/admin/schools");
   const forcedFailures = schoolsRequests.filter((entry) => entry.forced);

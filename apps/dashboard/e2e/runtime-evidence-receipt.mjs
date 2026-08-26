@@ -1,7 +1,6 @@
 import { createHash } from "node:crypto";
-import { mkdir, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
-
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { dirname, relative, resolve, sep } from "node:path";
 const SOURCE_REF = /^src-[a-f0-9]{64}$/;
 const REVISION_REF = /^rev-[A-Za-z0-9:_-]{1,160}$/;
 const JOURNEY_REF = /^intent:\/\/[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
@@ -79,6 +78,76 @@ const requiredEnvironment = (name) => {
   return value;
 };
 
+export const NATIVE_RUNTIME_EVIDENCE_DIRECTORY = "evidence/functional-parity/runtime";
+
+export const resolveNativeRuntimeEvidencePath = (
+  repositoryRoot,
+  requestedPath = process.env.RUNTIME_EVIDENCE_RECEIPT_PATH,
+) => {
+  if (requestedPath === undefined || requestedPath.length === 0) return null;
+  const root = resolve(repositoryRoot, NATIVE_RUNTIME_EVIDENCE_DIRECTORY);
+  const candidate = resolve(repositoryRoot, requestedPath);
+  const relativePath = relative(root, candidate);
+  if (
+    relativePath.length === 0 ||
+    relativePath.startsWith(`..${sep}`) ||
+    relativePath === ".." ||
+    relativePath.startsWith(sep) ||
+    !candidate.endsWith(".json")
+  ) {
+    throw new Error(
+      `Native runtime evidence must be a JSON file under ${NATIVE_RUNTIME_EVIDENCE_DIRECTORY}`,
+    );
+  }
+  return candidate;
+};
+
+const runtimeEvidenceRequested = () =>
+  [
+    "RUNTIME_EVIDENCE_RECEIPT_PATH",
+    "RUNTIME_EVIDENCE_LEGACY_REVISION_REF_ID",
+    "RUNTIME_EVIDENCE_MONO_REVISION_REF_ID",
+    "RUNTIME_EVIDENCE_RUNNER_SOURCE_REF_IDS",
+  ].some((name) => typeof process.env[name] === "string" && process.env[name].length > 0);
+
+export async function emitNativeRuntimeEvidenceReceipts({
+  repositoryRoot,
+  sourcePaths,
+  journeys,
+  fixtureId,
+  fixtureInputBytes,
+  artifactBytes,
+}) {
+  if (!runtimeEvidenceRequested()) return null;
+  const outputPath = resolveNativeRuntimeEvidencePath(repositoryRoot);
+  if (outputPath === null) {
+    throw new Error("Native runtime evidence requires RUNTIME_EVIDENCE_RECEIPT_PATH");
+  }
+  const sourceRefIds = requiredEnvironment("RUNTIME_EVIDENCE_RUNNER_SOURCE_REF_IDS")
+    .split(",")
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0);
+  if (sourceRefIds.length === 0 || sourceRefIds.length > sourcePaths.length) {
+    throw new Error(
+      `Native runtime evidence expects one to ${sourcePaths.length} runner source references`,
+    );
+  }
+  const runnerSourceInputBytes = await Promise.all(
+    sourceRefIds.map(async (sourceRefId, index) => ({
+      sourceRefId,
+      bytes: await readFile(sourcePaths[index]),
+    })),
+  );
+  return emitRuntimeEvidenceReceipts({
+    journeys,
+    fixtureId,
+    runnerSourceInputBytes,
+    fixtureInputBytes,
+    artifactBytes,
+    outputPath,
+  });
+}
+
 const asBytes = (value, name) => {
   if (!(value instanceof Uint8Array) || value.byteLength === 0) {
     throw new Error(`Missing prerequisite: ${name} must contain non-empty bytes`);
@@ -92,6 +161,7 @@ export async function emitRuntimeEvidenceReceipts({
   runnerSourceInputBytes,
   fixtureInputBytes,
   artifactBytes,
+  outputPath,
 }) {
   const receiptEnvironment = [
     "RUNTIME_EVIDENCE_RECEIPT_PATH",
@@ -105,7 +175,7 @@ export async function emitRuntimeEvidenceReceipts({
   });
   if (configured.length === 0) return null;
 
-  const outputPath = requiredEnvironment("RUNTIME_EVIDENCE_RECEIPT_PATH");
+  const resolvedOutputPath = outputPath ?? requiredEnvironment("RUNTIME_EVIDENCE_RECEIPT_PATH");
   const legacyRevisionRefId = requiredEnvironment("RUNTIME_EVIDENCE_LEGACY_REVISION_REF_ID");
   const monoRevisionRefId = requiredEnvironment("RUNTIME_EVIDENCE_MONO_REVISION_REF_ID");
   const runnerSourceRefIds = requiredEnvironment("RUNTIME_EVIDENCE_RUNNER_SOURCE_REF_IDS")
@@ -195,6 +265,7 @@ export async function emitRuntimeEvidenceReceipts({
   const outcome = runtimeEvidenceOutcome(sanitizedArtifactBytes);
   const fixtureBytes = asBytes(fixtureInputBytes, `fixture input bytes for ${fixtureId}`);
   const {
+    assertSafeRuntimeEvidenceBytes,
     canonicalRuntimeEvidenceBytes,
     makeRuntimeEvidenceReceipt,
     makeRuntimeEvidenceRegister,
@@ -215,8 +286,9 @@ export async function emitRuntimeEvidenceReceipts({
     }),
   );
   const bytes = canonicalRuntimeEvidenceBytes(makeRuntimeEvidenceRegister(receipts));
-  await mkdir(dirname(outputPath), { recursive: true });
-  await writeFile(outputPath, bytes, { encoding: "utf8" });
+  assertSafeRuntimeEvidenceBytes(new TextEncoder().encode(bytes));
+  await mkdir(dirname(resolvedOutputPath), { recursive: true });
+  await writeFile(resolvedOutputPath, bytes, { encoding: "utf8" });
   return receipts.map(({ receipt_ref_id }) => receipt_ref_id);
 }
 
@@ -227,6 +299,7 @@ export async function emitRuntimeEvidenceReceipt({
   runnerSourceInputBytes,
   fixtureInputBytes,
   artifactBytes,
+  outputPath,
 }) {
   const receiptRefs = await emitRuntimeEvidenceReceipts({
     journeys: [{ journeyRefId, stepIds }],
@@ -234,6 +307,7 @@ export async function emitRuntimeEvidenceReceipt({
     runnerSourceInputBytes,
     fixtureInputBytes,
     artifactBytes,
+    outputPath,
   });
   return receiptRefs === null ? null : receiptRefs[0];
 }

@@ -6,6 +6,10 @@ import { createConnection, createServer as createNetServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  emitNativeRuntimeEvidenceReceipts,
+  sanitizePlaywrightArtifact,
+} from "./runtime-evidence-receipt.mjs";
 
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
 const dashboardRoot = fileURLToPath(new URL("../", import.meta.url));
@@ -24,6 +28,51 @@ const homepageOrigin = `http://p000.vektor.phibkro.org:${homepagePort}`;
 const homepageListenOrigin = `http://127.0.0.1:${homepagePort}`;
 const postgresUrl = `postgres://postgres@127.0.0.1:${postgresPort}/content_e2e_0062`;
 const betterAuthSecret = "content-e2e-0062-secret-with-more-than-32-characters";
+const runnerPath = fileURLToPath(import.meta.url);
+const specPath = join(dashboardRoot, "e2e/native-content-publication.spec.ts");
+const seedPath = join(dashboardRoot, "e2e/native-content-publication-seed.mjs");
+const journeyDefinitions = [
+  {
+    journeyRefId: "intent://journey:parity:content_publication:v1",
+    stepIds: [
+      "content-publication-api-operation",
+      "content-publication-command-write",
+      "content-publication-legacy-route",
+      "content-publication-mono-route",
+    ],
+  },
+  {
+    journeyRefId: "intent://journey:parity:content_public:v1",
+    stepIds: [
+      "content-public-api-operation",
+      "content-public-command-write",
+      "content-public-legacy-route",
+      "content-public-mono-route",
+    ],
+  },
+];
+const receiptEnvironment = [
+  "RUNTIME_EVIDENCE_RECEIPT_PATH",
+  "RUNTIME_EVIDENCE_LEGACY_REVISION_REF_ID",
+  "RUNTIME_EVIDENCE_MONO_REVISION_REF_ID",
+  "RUNTIME_EVIDENCE_RUNNER_SOURCE_REF_IDS",
+];
+const receiptRequested = () =>
+  receiptEnvironment.some(
+    (name) => typeof process.env[name] === "string" && process.env[name].length > 0,
+  );
+
+const emitReceipt = async (playwrightOutput) => {
+  if (!receiptRequested()) return null;
+  return emitNativeRuntimeEvidenceReceipts({
+    repositoryRoot,
+    sourcePaths: [runnerPath, specPath, seedPath],
+    journeys: journeyDefinitions,
+    fixtureId: "native-content-publication-0062",
+    fixtureInputBytes: await readFile(seedPath),
+    artifactBytes: sanitizePlaywrightArtifact(Buffer.from(playwrightOutput, "utf8")),
+  });
+};
 
 const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 const withTimeout = (promise, milliseconds, label) =>
@@ -391,7 +440,7 @@ try {
       "test",
       "e2e/native-content-publication.spec.ts",
       "--project=chromium",
-      "--reporter=line",
+      receiptRequested() ? "--reporter=json" : "--reporter=line",
       "--workers=1",
       "--retries=0",
     ],
@@ -409,6 +458,7 @@ try {
   );
   const browserEvidence = JSON.parse(await readFile(browserEvidencePath, "utf8"));
   assert.equal(browserEvidence.passed, true);
+  await emitReceipt(browser.stdout);
 
   const workspaceRequests = ledger.filter(
     (entry) => entry.pathname === "/api/admin/content/workspace",

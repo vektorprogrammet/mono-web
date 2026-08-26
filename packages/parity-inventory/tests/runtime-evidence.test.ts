@@ -202,4 +202,62 @@ describe("runtime evidence register", () => {
       rmSync(outputDirectory, { recursive: true, force: true })
     }
   })
+  test("confines native receipts to the declared repository evidence directory", async () => {
+    const helper = await import("../../../apps/dashboard/e2e/runtime-evidence-receipt.mjs")
+    const repositoryRoot = mkdtempSync("/tmp/native-runtime-evidence-path-")
+    try {
+      expect(
+        helper.resolveNativeRuntimeEvidencePath(
+          repositoryRoot,
+          "evidence/functional-parity/runtime/schools.json",
+        ),
+      ).toBe(join(repositoryRoot, "evidence/functional-parity/runtime/schools.json"))
+      expect(() =>
+        helper.resolveNativeRuntimeEvidencePath(
+          repositoryRoot,
+          "evidence/functional-parity/runtime/../outside.json",
+        ),
+      ).toThrow("under evidence/functional-parity/runtime")
+      expect(() =>
+        helper.resolveNativeRuntimeEvidencePath(repositoryRoot, "/tmp/outside.json"),
+      ).toThrow("under evidence/functional-parity/runtime")
+      expect(() =>
+        helper.resolveNativeRuntimeEvidencePath(repositoryRoot, "evidence/other.json"),
+      ).toThrow("under evidence/functional-parity/runtime")
+      expect(() =>
+        helper.resolveNativeRuntimeEvidencePath(repositoryRoot, "evidence/functional-parity/runtime"),
+      ).toThrow("JSON file")
+    } finally {
+      rmSync(repositoryRoot, { recursive: true, force: true })
+    }
+  })
+  test("does not emit a native receipt unless explicitly configured", async () => {
+    const helper = await import("../../../apps/dashboard/e2e/runtime-evidence-receipt.mjs")
+    const names = [
+      "RUNTIME_EVIDENCE_RECEIPT_PATH",
+      "RUNTIME_EVIDENCE_LEGACY_REVISION_REF_ID",
+      "RUNTIME_EVIDENCE_MONO_REVISION_REF_ID",
+      "RUNTIME_EVIDENCE_RUNNER_SOURCE_REF_IDS",
+    ] as const
+    const previous = new Map(names.map((name) => [name, process.env[name]]))
+    try {
+      for (const name of names) delete process.env[name]
+      await expect(
+        helper.emitNativeRuntimeEvidenceReceipts({
+          repositoryRoot: "/tmp/native-runtime-evidence-default",
+          sourcePaths: [],
+          journeys: [],
+          fixtureId: "default-noop",
+          fixtureInputBytes: new TextEncoder().encode("unused"),
+          artifactBytes: new TextEncoder().encode("unused"),
+        }),
+      ).resolves.toBeNull()
+    } finally {
+      for (const name of names) {
+        const value = previous.get(name)
+        if (value === undefined) delete process.env[name]
+        else process.env[name] = value
+      }
+    }
+  })
 })

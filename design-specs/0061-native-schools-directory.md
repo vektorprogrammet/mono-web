@@ -457,6 +457,20 @@ The browser switches tabs, searches by school and contact, and retries one force
 
 A request ledger records no call to Symfony, `/api/admin/scheduling/schools`, or a fixture server.
 
+### Runtime receipt invocation
+
+The native Schools runner emits no repository receipt by default. To request one, set all four runtime-evidence variables and use a JSON path under `evidence/functional-parity/runtime/`; the runner writes canonical schema-validated bytes only after the real Chromium journey passes:
+
+```sh
+RUNTIME_EVIDENCE_RECEIPT_PATH=evidence/functional-parity/runtime/schools-0061.json \
+RUNTIME_EVIDENCE_LEGACY_REVISION_REF_ID=<selected-legacy-revision> \
+RUNTIME_EVIDENCE_MONO_REVISION_REF_ID=<tested-mono-revision> \
+RUNTIME_EVIDENCE_RUNNER_SOURCE_REF_IDS=<runner-source-ref>,<spec-source-ref> \
+bun run --cwd apps/dashboard e2e:real-schools
+```
+
+The receipt path is confined to the declared repository evidence directory. An ordinary run writes no repository evidence.
+
 PGlite does not prove PostgreSQL snapshot behavior. Only the PostgreSQL check supports that claim.
 
 ## Definition of done
