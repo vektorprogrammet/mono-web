@@ -231,7 +231,7 @@ export const makeBackendHttp = (
     <A>(use: (management: ContentManagementJourney) => Promise<A>): Promise<A> =>
       run(
         ContentManagement.use((management) =>
-          Effect.promise(() => use(management as unknown as ContentManagementJourney)),
+          Effect.tryPromise(() => use(management as unknown as ContentManagementJourney)),
         ) as never,
       ),
   );
@@ -239,7 +239,7 @@ export const makeBackendHttp = (
     <A>(use: (news: PublicNewsJourney) => Promise<A>): Promise<A> =>
       run(
         Content.use((news) =>
-          Effect.promise(() => use(news as unknown as PublicNewsJourney)),
+          Effect.tryPromise(() => use(news as unknown as PublicNewsJourney)),
         ) as never,
       ),
   );
