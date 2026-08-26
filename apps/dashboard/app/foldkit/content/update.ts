@@ -55,9 +55,6 @@ export const makeUpdate =
       M.withReturnType<UpdateResult>(),
       M.tagsExhaustive({
         LoadedWorkspace: ({ requestId, workspace }) => {
-          process.stderr?.write?.(
-            `[ws-msg] LoadedWorkspace incoming=${requestId} model=${model.requestId}\n`,
-          );
           // Stale-result rejection: a mismatched requestId leaves the Model unchanged.
           if (requestId !== model.requestId) return [model, []];
           return [{ ...model, workspace: { _tag: "Success", data: workspace } }, []];
@@ -175,9 +172,6 @@ export const makeUpdate =
           ];
         },
         SucceededSave: ({ requestId, workspace }) => {
-          process.stderr?.write?.(
-            `[ws-msg] SucceededSave incoming=${requestId} model=${model.requestId}\n`,
-          );
           // A stale success leaves the Model unchanged.
           if (requestId !== model.requestId) return [model, []];
           return [{ ...model, workspace: { _tag: "Success", data: workspace } }, []];
