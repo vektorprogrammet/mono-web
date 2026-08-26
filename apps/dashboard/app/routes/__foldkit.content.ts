@@ -109,29 +109,22 @@ export async function action({ request }: Route.ActionArgs) {
 
   // Single-endpoint convention (matching recruitment/profile bridges):
   // POST /content with { operation, ...payload }.
+  const rawOperation = (command as { operation?: unknown }).operation;
   const operation =
-    typeof (command as { operation?: unknown }).operation === "string"
-      ? (command as { operation: string }).operation
-      : "createDraft";
+    typeof rawOperation === "string" ? rawOperation : "createDraft";
   const articleId = Number((command as { articleId?: unknown }).articleId ?? 0) as never;
   const commandId = (command as { commandId: string }).commandId as never;
 
   try {
     const client = createAuthenticatedClient(cookie);
     const result =
-      url.pathname === "/content"
-        ? await client.admin.content.createDraft(command as never)
-        : verb === "publish"
-          ? await client.admin.content.publish({
-              commandId,
-              articleId,
-            } as never)
-          : verb === "unpublish"
-            ? await client.admin.content.unpublish({
-                commandId,
-                articleId,
-              } as never)
-            : await client.admin.content.reviseDraft(command as never);
+      operation === "publish"
+        ? await client.admin.content.publish({ commandId, articleId } as never)
+        : operation === "unpublish"
+          ? await client.admin.content.unpublish({ commandId, articleId } as never)
+          : operation === "reviseDraft"
+            ? await client.admin.content.reviseDraft(command as never)
+            : await client.admin.content.createDraft(command as never);
     return data(result, { headers: responseHeaders });
   } catch (error) {
     const tag = tagFrom(error);
