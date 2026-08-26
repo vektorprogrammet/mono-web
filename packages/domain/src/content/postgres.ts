@@ -92,6 +92,9 @@ const departmentIdsForArticles = (
             list.push(row.departmentId as DepartmentId);
             map.set(key, list);
           }
+          for (const [key, list] of map) {
+            map.set(key, [...list].sort());
+          }
           return map;
         }),
       );
