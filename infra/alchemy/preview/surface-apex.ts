@@ -13,10 +13,13 @@ export function apexSurface(pathname: string): ApexSurface {
   if (pathname === "/health" || pathname === "/api" || pathname.startsWith("/api/")) {
     return "server";
   }
-  const routePath = pathname.endsWith(".data") ? pathname.slice(0, -".data".length) : pathname;
+  const routePathWithQuery = pathname.split(/[?#]/u, 1)[0] ?? pathname;
+  const routePath = routePathWithQuery.endsWith(".data")
+    ? routePathWithQuery.slice(0, -".data".length)
+    : routePathWithQuery;
   if (
     routePath === "/schools" ||
-    routePath === "/dashboard" ||
+    routePath === "/content" ||
     routePath.startsWith("/dashboard/") ||
     routePath === "/login" ||
     routePath === "/logout" ||
