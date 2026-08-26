@@ -1,0 +1,20 @@
+import { test } from "@playwright/test";
+test.skip(process.env.APEX_LIVE_E2E !== "1");
+const PW = process.env.APEX_ADMIN_PASSWORD ?? "";
+test("smoke diag", async ({ page }) => {
+  const cerr: string[] = [];
+  const bad: string[] = [];
+  page.on("console", m => { if (m.type() === "error") cerr.push(m.text().slice(0,100)); });
+  page.on("response", r => { if (r.status() >= 400) bad.push(`${r.status()} ${r.url().slice(0,90)}`); });
+  await page.goto("/login");
+  await page.locator("#username").fill("admin.apex@example.invalid");
+  await page.locator("#password").fill(PW);
+  await page.getByRole("button", { name: "Logg inn" }).click({ noWaitAfter: true });
+  await page.waitForTimeout(4000);
+  console.log("URL1:" + page.url());
+  await page.goto("/dashboard/skoler", { waitUntil: "load" });
+  await page.waitForTimeout(3000);
+  console.log("EL:" + await page.locator("vektor-schools-directory").count());
+  console.log("CERR:" + JSON.stringify(cerr));
+  console.log("BAD:" + JSON.stringify(bad));
+});
