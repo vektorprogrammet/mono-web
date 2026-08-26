@@ -15,6 +15,7 @@ import {
   type Message,
 } from "./message";
 import type { DashboardIdentity, Model, ReadyModel } from "./model";
+import { vektorLogoCircleUrl } from "../../assets/logo-url";
 import {
   admissionLinks,
   canViewLink,
@@ -237,7 +238,7 @@ const sidebarView = (model: ReadyModel, h: HtmlBuilder<Message>): Html =>
                 [h.Href("/"), h.Class("fd-sidebar-footer__link")],
                 [
                   h.img([
-                    h.Src("/vektor-logo-circle.svg"),
+                    h.Src(vektorLogoCircleUrl),
                     h.Alt("Vektorprogrammet"),
                     h.Width("72"),
                     h.Height("72"),

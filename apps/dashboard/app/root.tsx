@@ -11,6 +11,7 @@ import {
   ScrollRestoration,
   useRouteError,
 } from "react-router";
+import { vektorLogoCircleUrl } from "./assets/logo-url";
 import { ThemeProvider } from "./lib/theme";
 import { isFixtureMode } from "@vektorprogrammet/sdk";
 
@@ -28,7 +29,7 @@ export function Layout({ children }: { children: ReactNode }) {
       <head>
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <link rel="icon" href="/vektor-logo-circle.svg" />
+        <link rel="icon" href={vektorLogoCircleUrl} />
 
         <Meta />
         <Links />
