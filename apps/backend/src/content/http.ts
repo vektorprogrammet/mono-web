@@ -46,6 +46,24 @@ const jsonResponse = (
 
 const noStore = { "cache-control": "no-store" };
 
+const reportServerFailure = (tag: string, cause: unknown): void => {
+  const operation =
+    typeof cause === "object" &&
+    cause !== null &&
+    "operation" in cause &&
+    typeof cause.operation === "string"
+      ? cause.operation
+      : "content request";
+  const message =
+    typeof cause === "object" &&
+    cause !== null &&
+    "message" in cause &&
+    typeof cause.message === "string"
+      ? cause.message
+      : String(cause);
+  process.stderr.write(`${tag} in ${operation}: ${message}\n`);
+};
+
 const errorResponse = (cause: unknown, extraHeaders: Record<string, string> = {}): Response => {
   if (cause instanceof ContentHttpDecodeError) {
     return jsonResponse({ error: { tag: cause._tag } }, cause.status);
@@ -72,8 +90,10 @@ const errorResponse = (cause: unknown, extraHeaders: Record<string, string> = {}
       return jsonResponse({ error: { tag } }, 422);
     case "ContentIntegrityError":
     case "ContentPersistenceError":
+      reportServerFailure(tag, cause);
       return jsonResponse({ error: { tag } }, 503);
     default:
+      reportServerFailure("ContentPersistenceError", cause);
       return jsonResponse({ error: { tag: "ContentPersistenceError" } }, 503);
   }
 };
