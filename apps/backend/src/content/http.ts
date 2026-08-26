@@ -106,6 +106,13 @@ const departmentFromQuery = (request: Request): ContentWorkspaceQuery => {
   );
 };
 
+const decodeCreateBody = async (
+  request: Request,
+): Promise<typeof CreateArticleDraftInputSchema.Type> => {
+  const body = await decodeJsonBody(request);
+  return strictDecode(CreateArticleDraftInputSchema, body);
+};
+
 const ContentCommandBodySchema = Schema.Struct({ commandId: ContentCommandId });
 
 const commandIdFromBody = async (request: Request): Promise<ContentCommandId> => {
@@ -132,13 +139,6 @@ const slugFromPath = (pathname: string): string => {
     throw new ContentHttpDecodeError("slug path parameter missing");
   }
   return decodeURIComponent(match[1]);
-};
-
-const decodeCreateBody = async (
-  request: Request,
-): Promise<typeof CreateArticleDraftInputSchema.Type> => {
-  const body = await decodeJsonBody(request);
-  return strictDecode(CreateArticleDraftInputSchema, body);
 };
 
 const decodeReviseBody = async (
@@ -180,6 +180,66 @@ export const makeContentManagementApiHttp = (
         const observation = await run(
           createDraftPostgres({ command, ...contextOf(actor) }),
         );
+        return jsonResponse(observation, 201, noStore);
+      }
+      if (request.method === "POST" && pathname === "/api/admin/content") {
+        const body = await decodeJsonBody(request);
+        const operation =
+          typeof (body as { operation?: unknown }).operation === "string"
+            ? String((body as { operation?: unknown }).operation)
+            : "createDraft";
+        const { operation: _op, ...payload } = body as Record<string, unknown>;
+        const actor = await resolveActor(request);
+        let observation: unknown;
+        if (operation === "publish") {
+          observation = await run(
+            publishPostgres({
+              command: {
+                commandId: ContentCommandId.make(payload.commandId as string),
+                articleId: ArticleId.make(Number(payload.articleId)),
+              },
+              ...contextOf(actor),
+            }),
+          );
+        } else if (operation === "unpublish") {
+          observation = await run(
+            unpublishPostgres({
+              command: {
+                commandId: ContentCommandId.make(payload.commandId as string),
+                articleId: ArticleId.make(Number(payload.articleId)),
+              },
+              ...contextOf(actor),
+            }),
+          );
+        } else if (operation === "reviseDraft") {
+          observation = await run(
+            reviseDraftPostgres({
+              command: {
+                commandId: ContentCommandId.make(payload.commandId as string),
+                articleId: ArticleId.make(Number(payload.articleId)),
+                expectedRevision: Number(payload.expectedRevision),
+                title: payload.title as string,
+                bodyHtml: payload.bodyHtml as string,
+                departmentIds: payload.departmentIds as never,
+                sticky: Boolean(payload.sticky),
+              },
+              ...contextOf(actor),
+            }),
+          );
+        } else {
+          observation = await run(
+            createDraftPostgres({
+              command: strictDecode(CreateArticleDraftInputSchema, {
+                commandId: payload.commandId,
+                title: payload.title,
+                bodyHtml: payload.bodyHtml,
+                departmentIds: payload.departmentIds,
+                sticky: payload.sticky,
+              }),
+              ...contextOf(actor),
+            }),
+          );
+        }
         return jsonResponse(observation, 201, noStore);
       }
       const reviseMatch = /^\/api\/admin\/content\/drafts\/(\d+)$/.exec(pathname);
