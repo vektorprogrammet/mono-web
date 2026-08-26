@@ -151,7 +151,7 @@ test.describe("Native Content publication (spec 0062)", () => {
       const freshRow = administrator.page
         .getByRole("listitem")
         .filter({ hasText: "Fersk nyhet fra admin" });
-      await freshRow.getByRole("button", { name: "Publiser" }).click();
+      await freshRow.getByRole("button", { name: "Publiser", exact: true }).click();
       await expect(freshRow.getByText("Publisert")).toBeVisible();
 
       observations.administratorArc = {
@@ -173,7 +173,7 @@ test.describe("Native Content publication (spec 0062)", () => {
       await leader.page.getByLabel("Brødtekst").fill("<p>Versjon to tekst</p>");
       await leader.page.getByRole("button", { name: "Lagre endringer" }).click();
       await expect(leader.page.locator('[data-dirty="false"]')).toBeAttached();
-      await twoVersionRow.getByRole("button", { name: "Publiser" }).click();
+      await twoVersionRow.getByRole("button", { name: "Publiser", exact: true }).click();
       await expect(twoVersionRow.getByText("Publisert").first()).toBeVisible();
 
       // A separate anonymous context observes both the new canonical bytes
@@ -198,7 +198,7 @@ test.describe("Native Content publication (spec 0062)", () => {
 
       // Withdrawal is observable on the next fresh anonymous reads,
       // including the historical path.
-      await twoVersionRow.getByRole("button", { name: "Avpubliser" }).click();
+      await twoVersionRow.getByRole("button", { name: "Avpubliser", exact: true }).click();
       await expect(twoVersionRow.getByText("Kladd").first()).toBeVisible();
       const afterWithdrawal = await anonPage.goto(`${homepageOrigin}/nyheter`);
       expect(afterWithdrawal?.status()).toBe(200);
@@ -224,7 +224,7 @@ test.describe("Native Content publication (spec 0062)", () => {
         .getByRole("listitem")
         .filter({ hasText: "Kladd fra forfatter" });
       await expect(authorDraftRow).toBeVisible();
-      const publishButtons = author.page.getByRole("button", { name: "Publiser" });
+      const publishButtons = author.page.getByRole("button", { name: "Publiser", exact: true });
       await expect(publishButtons).toHaveCount(0);
       const authorDraftId = Number(await authorDraftRow.getAttribute("data-article-id"));
       expect(Number.isSafeInteger(authorDraftId)).toBe(true);
