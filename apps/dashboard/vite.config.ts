@@ -28,6 +28,7 @@ const defaultProfileImage = (): Plugin => ({
 });
 
 export default defineConfig({
+  base: "/dashboard/",
   plugins: [reactRouter(), foldkit(), tailwindcss(), defaultProfileImage()],
   resolve: {
     alias: {

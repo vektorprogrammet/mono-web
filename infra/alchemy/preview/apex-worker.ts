@@ -68,19 +68,8 @@ export default {
     }
 
     const surface = apexSurface(url.pathname);
-    // Dashboard pages reference hashed bundles at /assets/* and the shared
-    // logo at /vektor-logo-circle.svg — paths the shared p20 classifier treats
-    // homepage. When the navigation context (Referer) identifies a dashboard
-    // document, serve these subresources from the dashboard worker instead.
-    if (
-      surface === "homepage" &&
-      isDashboardAssetRequest(request)
-    ) {
-      return env.Dashboard.fetch(request);
-    }
     if (surface === "homepage") return env.Homepage.fetch(request);
     if (surface === "dashboard") return env.Dashboard.fetch(request);
-
 
     // server surface (/api/* and /health): proxy to the backend origin,
     // reached through the cloudflared tunnel on both allowed hostnames.
@@ -96,29 +85,3 @@ export default {
   },
 };
 
-/**
- * Subresources belong to whichever app rendered the referencing document.
- * A Referer whose path maps to the dashboard surface (including react-router
- * `.data` requests for dashboard routes) is served by the dashboard worker;
- * everything else stays on the homepage. Requests without a Referer default
- * to the homepage, matching direct navigation of homepage-owned paths.
- */
-const isDashboardAssetRequest = (request: Request): boolean => {
-  // Only subresources can be re-routed; document navigations must keep the
-  // pathname-based surface so "/" stays on the homepage.
-  const dest = request.headers.get("sec-fetch-dest");
-  if (dest === null || dest === "" || dest === "document") return false;
-
-  const referer = request.headers.get("referer");
-  if (referer === null) return true;
-  try {
-    const refererPath = new URL(referer).pathname;
-    // Module chains report the importing script as the referer; dashboard
-    // route modules are imported by other /assets/* scripts, so treat an
-    // asset referer as dashboard context instead of misrouting to homepage.
-    if (refererPath.startsWith("/assets/")) return true;
-    return apexSurface(refererPath) === "dashboard";
-  } catch {
-    return true;
-  }
-};
