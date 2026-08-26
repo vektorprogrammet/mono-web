@@ -197,10 +197,17 @@ export const makeContentManagementApiHttp = (
       if (request.method === "GET" && pathname === "/api/admin/content/workspace") {
         const query = departmentFromQuery(request);
         const actor = await resolveActor(request);
-        const workspace = await runManagement((management) =>
-          management.readWorkspace(contextOf(actor), query),
-        );
-        return jsonResponse(workspace);
+        try {
+          const workspace = await runManagement((management) =>
+            management.readWorkspace(contextOf(actor), query),
+          );
+          return jsonResponse(workspace);
+        } catch (cause) {
+          process.stderr.write(
+            `[ws-debug] ${String((cause as Error)?.stack ?? cause)}\n`,
+          );
+          throw cause;
+        }
       }
       if (request.method === "POST" && pathname === "/api/admin/content/drafts") {
         const command = await decodeCreateBody(request);
