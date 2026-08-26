@@ -704,12 +704,24 @@ export const createDraftPostgres = (input: {
                 typeof cause === "object" && cause !== null && "cause" in cause
                   ? cause.cause
                   : cause;
+              const sqlReason =
+                typeof cause === "object" && cause !== null && "reason" in cause
+                  ? cause.reason
+                  : undefined;
               const code =
                 typeof driverCause === "object" && driverCause !== null && "code" in driverCause
                   ? driverCause.code
                   : undefined;
+              const constraint =
+                typeof sqlReason === "object" &&
+                sqlReason !== null &&
+                "constraint" in sqlReason &&
+                typeof sqlReason.constraint === "string"
+                  ? sqlReason.constraint
+                  : undefined;
               const description = `${String(cause)} ${String(driverCause)}`;
               return code === "23505" ||
+                constraint === "content_articles_slug_unique" ||
                 description.includes("content_articles_slug_unique") ||
                 description.includes("content_articles_slug_key")
                 ? new ContentSlugConflict({})
