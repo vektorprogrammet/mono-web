@@ -255,6 +255,9 @@ export const readWorkspacePostgres = (input: {
             };
           });
           const workspace = { entries };
+          process.stderr?.write?.(
+            `[content-ws-entries] ${JSON.stringify(workspace.entries.map((e) => e.departmentIds))}\n`,
+          );
           return yield* Schema.decodeUnknownEffect(ContentWorkspaceSchema)(workspace, {
             onExcessProperty: "error",
           }).pipe(Effect.mapError((cause) => decodeError("decode content workspace", cause)));
