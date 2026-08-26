@@ -168,6 +168,12 @@ test.describe("Native Content publication (spec 0062)", () => {
           .first(),
       ).toBeVisible();
 
+      // Select the created draft's row to load it into the editor.
+      await administrator.page
+        .getByRole("button", { name: /Fersk nyhet fra admin/ })
+        .first()
+        .click();
+
       // Revise the working copy.
       await administrator.page.getByLabel("Brødtekst").fill("<p>Revidert utkast.</p>");
       await administrator.page.getByRole("button", { name: "Lagre endringer" }).click();
