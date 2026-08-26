@@ -131,7 +131,7 @@ test.describe("Native Content publication (spec 0062)", () => {
       await administrator.page.getByRole("button", { name: "Ny artikkel" }).click();
       await administrator.page.getByLabel("Tittel").fill("Fersk nyhet fra admin");
       await administrator.page.getByLabel("Brødtekst").fill("<p>Første utkast av fersk nyhet.</p>");
-      await administrator.page.getByLabel(departmentAlpha, { exact: true }).check();
+      await administrator.page.locator(`#content-dept-${departmentAlpha}`).check();
       await administrator.page.getByRole("button", { name: "Lagre kladd" }).click();
 
       await expect(
