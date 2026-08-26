@@ -1,5 +1,5 @@
 import {
-  ArticleSlug,
+  ArticleId,
   ContentCommandId,
   ContentWorkspaceQuerySchema,
   CreateArticleDraftInputSchema,
@@ -7,7 +7,15 @@ import {
   type ContentWorkspaceQuery,
 } from "@vektorprogrammet/domain/content";
 import type { OrganizationAuthorityInstant, PersonId } from "@vektorprogrammet/domain/organization";
+import {
+  createDraftPostgres,
+  publishPostgres,
+  readWorkspacePostgres,
+  reviseDraftPostgres,
+  unpublishPostgres,
+} from "@vektorprogrammet/domain/content";
 import { Schema } from "effect";
+import type { BackendRun } from "../router.js";
 
 export interface ContentRequestActor {
   readonly personId: PersonId;
@@ -17,21 +25,6 @@ export interface ContentRequestActor {
 export interface ContentApiHttp {
   readonly fetch: (request: Request) => Promise<Response>;
 }
-
-/** Strict decode of one command body; unknown properties fail with 422. */
-const decodeCreateBody = async (
-  request: Request,
-): Promise<typeof CreateArticleDraftInputSchema.Type> => {
-  const body = await decodeJsonBody(request);
-  return decodeStrict(CreateArticleDraftInputSchema, body);
-};
-
-const decodeReviseBody = async (
-  request: Request,
-): Promise<typeof ReviseArticleDraftInputSchema.Type> => {
-  const body = await decodeJsonBody(request);
-  return decodeStrict(ReviseArticleDraftInputSchema, body);
-};
 
 class ContentHttpDecodeError extends Error {
   readonly _tag = "ContentDecodeError";
@@ -53,7 +46,7 @@ const jsonResponse = (
 
 const noStore = { "cache-control": "no-store" };
 
-const errorResponse = (cause: unknown): Response => {
+const errorResponse = (cause: unknown, extraHeaders: Record<string, string> = {}): Response => {
   if (cause instanceof ContentHttpDecodeError) {
     return jsonResponse({ error: { tag: cause._tag } }, cause.status);
   }
@@ -63,14 +56,14 @@ const errorResponse = (cause: unknown): Response => {
       : "ContentPersistenceError";
   switch (tag) {
     case "UnauthenticatedActor":
-      return jsonResponse({ error: { tag } }, 401);
+      return jsonResponse({ error: { tag } }, 401, extraHeaders);
     case "AuthorityInactive":
     case "NotInScope":
     case "NotPublisher":
     case "DraftNotOwned":
-      return jsonResponse({ error: { tag } }, 403);
+      return jsonResponse({ error: { tag } }, 403, extraHeaders);
     case "ArticleNotFound":
-      return jsonResponse({ error: { tag } }, 404, noStore);
+      return jsonResponse({ error: { tag } }, 404, extraHeaders);
     case "CommandConflict":
     case "SlugConflict":
       return jsonResponse({ error: { tag } }, 409);
@@ -85,8 +78,10 @@ const errorResponse = (cause: unknown): Response => {
   }
 };
 
-const decodeStrict = <A>(schema: Schema.ConstraintDecoder<A, never>, input: unknown): A =>
-  Schema.decodeUnknownSync(schema as never)(input, { onExcessProperty: "error" }) as A;
+const strictDecode = <A>(
+  schema: Schema.ConstraintDecoder<A, never>,
+  input: unknown,
+): A => Schema.decodeUnknownSync(schema as never)(input, { onExcessProperty: "error" }) as A;
 
 const decodeJsonBody = async (request: Request): Promise<unknown> => {
   try {
@@ -115,11 +110,11 @@ const ContentCommandBodySchema = Schema.Struct({ commandId: ContentCommandId });
 
 const commandIdFromBody = async (request: Request): Promise<ContentCommandId> => {
   const body = await decodeJsonBody(request);
-  const decoded = await decodeStrict(ContentCommandBodySchema, body);
+  const decoded = strictDecode(ContentCommandBodySchema, body);
   return decoded.commandId;
 };
 
-const articleIdFromPath = (pathname: string, pattern: RegExp): number => {
+const articleIdFromPath = (pathname: string, pattern: RegExp): ArticleId => {
   const match = pattern.exec(pathname);
   if (match === null || match[1] === undefined) {
     throw new ContentHttpDecodeError("article path parameter missing");
@@ -128,7 +123,7 @@ const articleIdFromPath = (pathname: string, pattern: RegExp): number => {
   if (!Number.isSafeInteger(parsed) || parsed <= 0) {
     throw new ContentHttpDecodeError("article path parameter must be a positive integer");
   }
-  return parsed;
+  return ArticleId.make(parsed);
 };
 
 const slugFromPath = (pathname: string): string => {
@@ -139,6 +134,20 @@ const slugFromPath = (pathname: string): string => {
   return decodeURIComponent(match[1]);
 };
 
+const decodeCreateBody = async (
+  request: Request,
+): Promise<typeof CreateArticleDraftInputSchema.Type> => {
+  const body = await decodeJsonBody(request);
+  return strictDecode(CreateArticleDraftInputSchema, body);
+};
+
+const decodeReviseBody = async (
+  request: Request,
+): Promise<typeof ReviseArticleDraftInputSchema.Type> => {
+  const body = await decodeJsonBody(request);
+  return strictDecode(ReviseArticleDraftInputSchema, body);
+};
+
 const contextOf = (actor: ContentRequestActor) => ({
   personId: actor.personId,
   authorizationInstant: actor.authorizationInstant,
@@ -147,49 +156,12 @@ const contextOf = (actor: ContentRequestActor) => ({
 /**
  * Native ContentManagement adapter (spec 0062 §HTTP boundaries). It owns
  * transport only: strict decoding, one actor resolution per request, journey
- * invocation, and the frozen status mapping. No SQL, no Layer construction.
+ * invocation through `run` exactly like the schools adapter. No SQL, no Layer
+ * construction.
  */
-export interface ContentManagementJourney {
-  readonly readWorkspace: (
-    context: {
-      readonly personId: PersonId;
-      readonly authorizationInstant: OrganizationAuthorityInstant;
-    },
-    query: ContentWorkspaceQuery,
-  ) => Promise<unknown>;
-  readonly createDraft: (
-    command: typeof CreateArticleDraftInputSchema.Type,
-    context: {
-      readonly personId: PersonId;
-      readonly authorizationInstant: OrganizationAuthorityInstant;
-    },
-  ) => Promise<unknown>;
-  readonly reviseDraft: (
-    command: Record<string, unknown>,
-    context: {
-      readonly personId: PersonId;
-      readonly authorizationInstant: OrganizationAuthorityInstant;
-    },
-  ) => Promise<unknown>;
-  readonly publish: (
-    command: { readonly commandId: ContentCommandId; readonly articleId: number },
-    context: {
-      readonly personId: PersonId;
-      readonly authorizationInstant: OrganizationAuthorityInstant;
-    },
-  ) => Promise<unknown>;
-  readonly unpublish: (
-    command: { readonly commandId: ContentCommandId; readonly articleId: number },
-    context: {
-      readonly personId: PersonId;
-      readonly authorizationInstant: OrganizationAuthorityInstant;
-    },
-  ) => Promise<unknown>;
-}
-
 export const makeContentManagementApiHttp = (
   resolveActor: (request: Request) => Promise<ContentRequestActor>,
-  runManagement: <A>(use: (management: ContentManagementJourney) => Promise<A>) => Promise<A>,
+  run: BackendRun,
 ): ContentApiHttp => ({
   fetch: async (request) => {
     const pathname = new URL(request.url).pathname;
@@ -197,23 +169,16 @@ export const makeContentManagementApiHttp = (
       if (request.method === "GET" && pathname === "/api/admin/content/workspace") {
         const query = departmentFromQuery(request);
         const actor = await resolveActor(request);
-        try {
-          const workspace = await runManagement((management) =>
-            management.readWorkspace(contextOf(actor), query),
-          );
-          return jsonResponse(workspace);
-        } catch (cause) {
-          process.stderr.write(
-            `[ws-debug] ${String((cause as Error)?.stack ?? cause)}\n`,
-          );
-          throw cause;
-        }
+        const workspace = await run(
+          readWorkspacePostgres({ ...contextOf(actor), query }),
+        );
+        return jsonResponse(workspace);
       }
       if (request.method === "POST" && pathname === "/api/admin/content/drafts") {
         const command = await decodeCreateBody(request);
         const actor = await resolveActor(request);
-        const observation = await runManagement((management) =>
-          management.createDraft(command, contextOf(actor)),
+        const observation = await run(
+          createDraftPostgres({ command, ...contextOf(actor) }),
         );
         return jsonResponse(observation, 201, noStore);
       }
@@ -222,8 +187,8 @@ export const makeContentManagementApiHttp = (
         const articleId = articleIdFromPath(pathname, /^\/api\/admin\/content\/drafts\/(\d+)$/);
         const command = await decodeReviseBody(request);
         const actor = await resolveActor(request);
-        const observation = await runManagement((management) =>
-          management.reviseDraft({ ...command, articleId }, contextOf(actor)),
+        const observation = await run(
+          reviseDraftPostgres({ command: { ...command, articleId }, ...contextOf(actor) }),
         );
         return jsonResponse(observation, 200, noStore);
       }
@@ -235,8 +200,11 @@ export const makeContentManagementApiHttp = (
         );
         const commandId = await commandIdFromBody(request);
         const actor = await resolveActor(request);
-        const observation = await runManagement((management) =>
-          management.publish({ commandId, articleId }, contextOf(actor)),
+        const observation = await run(
+          publishPostgres({
+            command: { commandId, articleId },
+            ...contextOf(actor),
+          }),
         );
         return jsonResponse(observation, 200, noStore);
       }
@@ -248,8 +216,11 @@ export const makeContentManagementApiHttp = (
         );
         const commandId = await commandIdFromBody(request);
         const actor = await resolveActor(request);
-        const observation = await runManagement((management) =>
-          management.unpublish({ commandId, articleId }, contextOf(actor)),
+        const observation = await run(
+          unpublishPostgres({
+            command: { commandId, articleId },
+            ...contextOf(actor),
+          }),
         );
         return jsonResponse(observation, 200, noStore);
       }
@@ -260,31 +231,28 @@ export const makeContentManagementApiHttp = (
   },
 });
 
-/**
- * Public news adapter: unauthenticated reads with no-store semantics. A slug
- * miss is the same typed ArticleNotFound as any staff unknown-article 404.
- */
-export interface PublicNewsJourney {
-  readonly readNewsListing: () => Promise<unknown>;
-  readonly readPublishedArticle: (slug: string) => Promise<unknown>;
-}
-
+/** Public news adapter: unauthenticated reads with no-store semantics. */
 export const makePublicNewsApiHttp = (
-  runNews: <A>(use: (news: PublicNewsJourney) => Promise<A>) => Promise<A>,
+  readNewsListing: () => Promise<unknown>,
+  readPublishedArticle: (slug: string) => Promise<unknown>,
 ): ContentApiHttp => ({
   fetch: async (request) => {
     const url = new URL(request.url);
     try {
       if (request.method === "GET" && url.pathname === "/api/news") {
         departmentFromQuery(request);
-        const listing = await runNews((news) => news.readNewsListing());
+        const listing = await readNewsListing();
         return jsonResponse(listing, 200, noStore);
       }
       const detailMatch = /^\/api\/news\/([^/]+)$/.exec(url.pathname);
       if (request.method === "GET" && detailMatch !== null) {
-        const slug = ArticleSlug.make(slugFromPath(url.pathname));
-        const article = await runNews((news) => news.readPublishedArticle(slug as string));
-        return jsonResponse(article, 200, noStore);
+        const slug = slugFromPath(url.pathname);
+        try {
+          const article = await readPublishedArticle(slug);
+          return jsonResponse(article, 200, noStore);
+        } catch (cause) {
+          return errorResponse(cause, noStore);
+        }
       }
       return jsonResponse({ error: { tag: "RouteNotFound" } }, 404, noStore);
     } catch (cause) {

@@ -9,10 +9,7 @@ import { Recruitment } from "@vektorprogrammet/domain/recruitment";
 import { Economy } from "@vektorprogrammet/domain/receipt";
 import { ContentManagement } from "@vektorprogrammet/domain/content";
 import { Content } from "@vektorprogrammet/domain/content";
-import type {
-  ContentManagementJourney,
-  PublicNewsJourney,
-} from "./content/http.js";
+import { readPublishedArticlePostgres, readNewsListingPostgres } from "@vektorprogrammet/domain/content";
 import type { Schools } from "@vektorprogrammet/domain/schools";
 import { DateTime, Effect } from "effect";
 import type { AdmissionPeriodActor } from "@vektorprogrammet/domain/admission-period";
@@ -222,35 +219,21 @@ export const makeBackendHttp = (
   });
   /**
    * Spec 0062: staff content routes resolve one PersonId + instant via the
-   * session; the ContentManagement journey re-resolves the Organization
-   * projection inside its own transaction. Public news is unauthenticated.
+   * session; each journey resolves the Organization projection inside its own
+   * transaction. Public news is unauthenticated. Journeys are invoked
+   * directly through `run` exactly like the schools adapter — no Promise
+   * bridging inside an Effect.
    */
   const content = makeContentManagementApiHttp(
-    (request) =>
+    (request: Request) =>
       resolveAuthenticatedPersonAtInstant(request.headers.get("cookie") ?? undefined, { run }),
-    <A>(use: (management: ContentManagementJourney) => Promise<A>): Promise<A> =>
-      run(
-        ContentManagement.use((management) =>
-          Effect.tryPromise({
-            try: () => use(management as unknown as ContentManagementJourney),
-            catch: (cause) => {
-              process.stderr.write(
-                `[router-journey] ${String((cause as Error)?.stack ?? cause)}\n`,
-              );
-              return cause as Error;
-            },
-          }),
-        ) as never,
-      ),
+    run,
   );
   const publicNews = makePublicNewsApiHttp(
-    <A>(use: (news: PublicNewsJourney) => Promise<A>): Promise<A> =>
-      run(
-        Content.use((news) =>
-          Effect.tryPromise(() => use(news as unknown as PublicNewsJourney)),
-        ) as never,
-      ),
+    () => run(readNewsListingPostgres()),
+    (slug) => run(readPublishedArticlePostgres(slug)),
   );
+
   const profile = makeProfileApiHttp({
     config,
     resolveActor: async (request) => {

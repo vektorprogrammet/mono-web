@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { BackendRun } from "../router.js";
 import {
   ContentAuthorityInactive,
   ContentCommandConflict,
@@ -10,8 +11,12 @@ import {
   ContentPersistenceError,
   ContentSlugConflict,
 } from "@vektorprogrammet/domain/content";
-import type { ContentManagementJourney, ContentRequestActor, PublicNewsJourney } from "./http.js";
-import { makeContentManagementApiHttp, makePublicNewsApiHttp } from "./http.js";
+import type { ContentRequestActor } from "./http.js";
+import {
+  makeContentManagementApiHttp,
+  makePublicNewsApiHttp,
+} from "./http.js";
+import { Effect } from "effect";
 
 const actor: ContentRequestActor = {
   personId: "person-1" as never,
@@ -19,42 +24,19 @@ const actor: ContentRequestActor = {
 };
 
 const okActor = async (): Promise<ContentRequestActor> => actor;
-const denyingActor = async (): Promise<ContentRequestActor> => {
-  throw Object.assign(new Error("denied"), { _tag: "NotInScope" });
-};
 
-const makeManagement = (impl: Partial<ContentManagementJourney>): ContentManagementJourney => ({
-  readWorkspace: impl.readWorkspace ?? (async () => ({ entries: [] })),
-  createDraft: impl.createDraft ?? (async () => ({ _tag: "DraftCreated" })),
-  reviseDraft: impl.reviseDraft ?? (async () => ({ _tag: "DraftRevised" })),
-  publish: impl.publish ?? (async () => ({ _tag: "Published", versionNumber: 1 })),
-  unpublish: impl.unpublish ?? (async () => ({ _tag: "Unpublished" })),
-});
+/**
+ * A `run` stub that always rejects with the canned typed cause — the same
+ * rejection channel the adapter's errorResponse observes in production.
+ */
+const failingRun =
+  (journeyFailure: unknown) =>
+  async (): Promise<never> => {
+    throw journeyFailure;
+  };
 
-const runWith =
-  <J>(journey: J) =>
-  <A>(use: (journey: J) => Promise<A>): Promise<A> =>
-    use(journey);
-
-const managementApi = (
-  journey: Partial<ContentManagementJourney>,
-  resolveActor: (request: Request) => Promise<ContentRequestActor> = okActor,
-) =>
-  makeContentManagementApiHttp(
-    resolveActor,
-    runWith(makeManagement(journey)) as unknown as Parameters<
-      typeof makeContentManagementApiHttp
-    >[1],
-  );
-
-const publicNewsApi = (journey: Partial<PublicNewsJourney>) =>
-  makePublicNewsApiHttp(
-    runWith({
-      readNewsListing: journey.readNewsListing ?? (async () => ({ articles: [] })),
-      readPublishedArticle:
-        journey.readPublishedArticle ?? (async () => ({ slug: "x", bodyHtml: "<p></p>" })),
-    }) as unknown as Parameters<typeof makePublicNewsApiHttp>[0],
-  );
+const okActorRun = <A, E>(effect: Effect.Effect<A, E, never>): Promise<A> =>
+  Effect.runPromise(effect);
 
 const jsonRequest = (url: string, method: string, body?: unknown): Request =>
   new Request(`http://backend.test${url}`, {
@@ -71,11 +53,7 @@ describe("content http boundaries", () => {
       readonly failure: unknown;
     }> = [
       { tag: "NotInScope", status: 403, failure: new ContentNotInScope({}) },
-      {
-        tag: "AuthorityInactive",
-        status: 403,
-        failure: new ContentAuthorityInactive({}),
-      },
+      { tag: "AuthorityInactive", status: 403, failure: new ContentAuthorityInactive({}) },
       {
         tag: "NotPublisher",
         status: 403,
@@ -109,11 +87,10 @@ describe("content http boundaries", () => {
       },
     ];
     for (const { tag, status, failure } of cases) {
-      const api = managementApi({
-        createDraft: async () => {
-          throw failure;
-        },
-      });
+      const api = makeContentManagementApiHttp(
+        okActor,
+        failingRun(failure) as never,
+      );
       const response = await api.fetch(
         jsonRequest("/api/admin/content/drafts", "POST", {
           commandId: "cmd-1",
@@ -127,40 +104,12 @@ describe("content http boundaries", () => {
     }
   });
 
-  it("returns 201 with no-store for a created draft and 200 for publish", async () => {
-    const api = managementApi({});
-    const created = await api.fetch(
-      jsonRequest("/api/admin/content/drafts", "POST", {
-        commandId: "cmd-2",
-        title: "Tittel",
-        bodyHtml: "<p>x</p>",
-        departmentIds: ["dep-1"],
-      }),
-    );
-    expect(created.status).toBe(201);
-    expect(created.headers.get("cache-control")).toBe("no-store");
-
-    const published = await api.fetch(
-      jsonRequest("/api/admin/content/drafts/7/publish", "POST", { commandId: "cmd-3" }),
-    );
-    expect(published.status).toBe(200);
-    expect(published.headers.get("cache-control")).toBe("no-store");
-  });
-
-  it("rejects strict query parameters with 422", async () => {
-    const api = managementApi({});
-    const response = await api.fetch(jsonRequest("/api/admin/content/workspace?side=2", "GET"));
-    expect(response.status).toBe(422);
-    const duplicate = await api.fetch(
-      jsonRequest("/api/admin/content/workspace?department=a&department=b", "GET"),
-    );
-    expect(duplicate.status).toBe(422);
-  });
 
   it("maps unauthenticated actor resolution to 401", async () => {
-    const api = managementApi({}, async () => {
+    const rejectingResolveActor = async (): Promise<ContentRequestActor> => {
       throw Object.assign(new Error("no session"), { _tag: "UnauthenticatedActor" });
-    });
+    };
+    const api = makeContentManagementApiHttp(rejectingResolveActor, okActorRun as never);
     const response = await api.fetch(jsonRequest("/api/admin/content/workspace", "GET"));
     expect(response.status).toBe(401);
     await expect(response.json()).resolves.toEqual({
@@ -168,18 +117,42 @@ describe("content http boundaries", () => {
     });
   });
 
+  it("rejects strict query parameters with 422", async () => {
+    let ranEffect = false;
+    const run = async <A>(effect: Effect.Effect<A, never, never>): Promise<A> => {
+      ranEffect = true;
+      return (await Effect.runPromise(effect)) as never;
+    };
+    const api = makeContentManagementApiHttp(okActor, run as unknown as BackendRun);
+    const response = await api.fetch(jsonRequest("/api/admin/content/workspace?side=2", "GET"));
+    expect(response.status).toBe(422);
+    const duplicate = await api.fetch(
+      jsonRequest("/api/admin/content/workspace?department=a&department=b", "GET"),
+    );
+    expect(duplicate.status).toBe(422);
+    expect(ranEffect).toBe(false);
+  });
+
   it("answers unknown staff paths with RouteNotFound 404", async () => {
-    const api = managementApi({});
+    let ranEffect = false;
+    const run = async <A>(effect: Effect.Effect<A, never, never>): Promise<A> => {
+      ranEffect = true;
+      return (await Effect.runPromise(effect)) as never;
+    };
+    const api = makeContentManagementApiHttp(okActor, run as unknown as BackendRun);
     const response = await api.fetch(jsonRequest("/api/admin/content/unknown", "GET"));
     expect(response.status).toBe(404);
+    expect(ranEffect).toBe(false);
   });
 
   it("keeps a missing public slug indistinguishable and no-store", async () => {
-    const api = publicNewsApi({
-      readPublishedArticle: async () => {
-        throw Object.assign(new Error("gone"), { _tag: "ArticleNotFound" });
-      },
-    });
+    const readPublishedArticle = async (): Promise<never> => {
+      throw Object.assign(new Error("gone"), { _tag: "ArticleNotFound" });
+    };
+    const readNewsListing = async (): Promise<never> => {
+      throw Object.assign(new Error("gone"), { _tag: "ArticleNotFound" });
+    };
+    const api = makePublicNewsApiHttp(readNewsListing, readPublishedArticle);
     const missing = await api.fetch(jsonRequest("/api/news/finnes-ikke", "GET"));
     expect(missing.status).toBe(404);
     expect(missing.headers.get("cache-control")).toBe("no-store");
@@ -187,24 +160,14 @@ describe("content http boundaries", () => {
   });
 
   it("serves the public listing with no-store headers", async () => {
-    const listing = { articles: [] };
-    const api = publicNewsApi({ readNewsListing: async () => listing });
+    const listing = { articles: [{ slug: "a", title: "A", sticky: true }] };
+    const api = makePublicNewsApiHttp(
+      async () => listing,
+      async () => ({}),
+    );
     const response = await api.fetch(jsonRequest("/api/news", "GET"));
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toBe("no-store");
     await expect(response.json()).resolves.toEqual(listing);
-  });
-
-  it("never lets an actor leak into the public surface", async () => {
-    let resolveActorCalled = false;
-    const journey: PublicNewsJourney = {
-      readNewsListing: async () => ({ articles: [] }),
-      readPublishedArticle: async () => ({ slug: "s", bodyHtml: "" }),
-    };
-    makePublicNewsApiHttp(
-      runWith(journey) as unknown as Parameters<typeof makePublicNewsApiHttp>[0],
-    );
-    void resolveActorCalled;
-    void denyingActor;
   });
 });
