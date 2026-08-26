@@ -11,7 +11,7 @@ const apiOrigin = process.env.API_URL ?? "http://127.0.0.1:8790";
 
 const signIn = async (page: Page, email: string) => {
   await page.goto("/login");
-  await page.getByLabel("Brukernavn eller e-post").fill(email);
+  await page.getByLabel("E-post").fill(email);
   await page.getByLabel("Passord").fill(password);
   await page.getByRole("button", { name: "Logg inn" }).click();
   await page.waitForURL(/\/dashboard$/);

@@ -24,7 +24,7 @@ const fixtureNames = ["Ola Nordmann", "Kari Nordmann", "Trond Nordmann", "Heidi 
 
 async function signInFromLogin(page: Page, email: string, password: string): Promise<void> {
   await page.goto("/login");
-  await page.getByLabel("Brukernavn eller e-post").fill(email);
+  await page.getByLabel("E-post").fill(email);
   await page.getByLabel("Passord").fill(password);
   await page.getByRole("button", { name: "Logg inn" }).click();
 }

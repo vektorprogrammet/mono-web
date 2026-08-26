@@ -37,7 +37,7 @@ test.describe("Native recruitment assignment journey (spec 0049)", () => {
 
     // 1. Sign in as the seeded active team leader through the login form.
     await page.goto("/login");
-    await page.getByLabel("Brukernavn eller e-post").fill(leaderEmail);
+    await page.getByLabel("E-post").fill(leaderEmail);
     await page.getByLabel("Passord").fill(leaderPassword);
     await page.getByRole("button", { name: "Logg inn" }).click();
     await page.waitForURL(/\/dashboard$/);

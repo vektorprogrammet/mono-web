@@ -70,7 +70,7 @@ const signIn = async (
   redirectTo: string,
 ) => {
   await page.goto(`/login?redirectTo=${encodeURIComponent(redirectTo)}`);
-  await page.getByLabel("Brukernavn eller e-post").fill(person.email);
+  await page.getByLabel("E-post").fill(person.email);
   await page.getByLabel("Passord", { exact: true }).fill(person.password);
   await page.getByRole("button", { name: "Logg inn" }).click({ noWaitAfter: true });
   try {

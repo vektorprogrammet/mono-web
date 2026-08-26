@@ -14,7 +14,7 @@ test.describe("Native authenticated session journey (spec 0054)", () => {
 
     // Sign in through the real login form.
     await page.goto("/login");
-    await page.getByLabel("Brukernavn eller e-post").fill(adminEmail);
+    await page.getByLabel("E-post").fill(adminEmail);
     await page.getByLabel("Passord").fill(adminPassword);
     await page.getByRole("button", { name: "Logg inn" }).click();
     await page.waitForURL(/\/dashboard$/);
