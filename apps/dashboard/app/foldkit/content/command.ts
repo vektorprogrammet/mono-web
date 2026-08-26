@@ -75,7 +75,9 @@ export interface WorkspaceCommandDeps {
 
 export const makeContentWorkspaceCommands = (
   client: ContentWorkspaceClient,
-): WorkspaceCommandFactories => {
+): {
+  readonly LoadWorkspace: WorkspaceCommandFactories["LoadWorkspace"];
+} => {
   return {
     LoadWorkspace: (({ requestId }) => ({
       name: "LoadContentWorkspace",
