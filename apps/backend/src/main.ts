@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { AuthEngine, AuthEngineLive, AuthLive, DatabaseLive } from "@vektorprogrammet/database";
+import { AuthEngine, AuthLive, DatabaseLive } from "@vektorprogrammet/database";
 import { runPublicApplicationOutboxWorker } from "@vektorprogrammet/domain/application";
 import { Admissions, AdmissionsLive } from "@vektorprogrammet/domain/admissions";
 import { Auth } from "@vektorprogrammet/domain/auth";
@@ -56,7 +56,7 @@ const capabilityLayers = Layer.mergeAll(
   contentManagementLayer,
   contentLayer,
 );
-const authLayers = Layer.merge(AuthLive(config.auth), AuthEngineLive(config.auth));
+const authLayers = AuthLive(config.auth);
 const runtime = makeBackendRuntime(Layer.mergeAll(databaseLayer, capabilityLayers, authLayers));
 const run = <A, E>(
   effect: Effect.Effect<
