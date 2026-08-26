@@ -110,8 +110,15 @@ const rows = (model: Model, h: HtmlBuilder<Message>): Html => {
   );
 };
 
+export const debugWorkspaceTag = (model: Model): string =>
+  `${model.workspace._tag}:${model.workspace._tag === "Success" ? model.workspace.data.entries.length : -1}`;
+
 export const view = (model: Model, h: HtmlBuilder<Message>): Html =>
-  h.section([h.Class("content-workspace"), h.AriaLabelledBy("content-workspace-title")], [
+  h.section([
+    h.Class("content-workspace"),
+    h.DataAttribute("ws-tag", debugWorkspaceTag(model)),
+    h.AriaLabelledBy("content-workspace-title"),
+  ], [
     h.header([h.Class("content-workspace__header")], [
       h.p([h.Class("content-workspace__eyebrow")], ["Innhold"]),
       h.h1([h.Id("content-workspace-title")], ["Artikler"]),
