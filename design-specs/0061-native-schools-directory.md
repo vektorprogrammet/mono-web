@@ -5,7 +5,7 @@
 | Field             | Value                                                                                                                  |
 | ----------------- | ---------------------------------------------------------------------------------------------------------------------- |
 | Goal              | Replace the dead `/dashboard/skoler` loader with one native school directory read                                      |
-| Status            | Frozen revision 0061.1 before HTTP, SDK, and UI implementation                                                         |
+| Status            | Contract remains frozen at revision 0061.1; implementation is present at integrated branch `f07b86d7babc041ee5f947b41381de094586e9d6`; runtime and acceptance evidence are pending |
 | Base              | `2e031738d12f94c611426c5ac884861dec227abd` (`2e03173`)                                                                 |
 | Depends on        | 0040 logical capability topology, 0045 Effect Model and Service authority, 0055 person-keyed authorization authorities |
 | Route             | `/dashboard/skoler`                                                                                                    |

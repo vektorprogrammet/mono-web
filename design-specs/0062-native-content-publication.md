@@ -5,7 +5,7 @@
 | Field             | Value                                                                                                                                                                                                      |
 | ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Goal              | Replace the Symfony article-admin seam with one native editorial authority and serve published news to the public homepage with zero legacy requests                                                       |
-| Status            | Frozen before implementation                                                                                                                                                                               |
+| Status            | Contract remains frozen; implementation is present at integrated branch `f07b86d7babc041ee5f947b41381de094586e9d6`; runtime and acceptance evidence are pending |
 | Base              | `13f6952ea7965c26fb40101635f3e5c850f0065e` (`13f6952`)                                                                                                                                                     |
 | Depends on        | 0040 logical capability topology, 0045 Effect Model/Service authority (0045.2 Layers), 0054 native Identity sessions, 0055 person-keyed authorization authorities, 0061 native journey/evidence precedents |
 | Actors            | Staff editor: active member, active team leader, or active global Organization administrator                                                                                                               |

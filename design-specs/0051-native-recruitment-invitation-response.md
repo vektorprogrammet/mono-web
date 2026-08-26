@@ -6,7 +6,7 @@
 
 | Field             | Value                                                                                                                                                                                |
 | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Status            | Frozen revision 0051.2 after the pre-integration security gate                                                                                                                       |
+| Status            | Contract remains frozen at revision 0051.2; implementation is present at integrated branch `f07b86d7babc041ee5f947b41381de094586e9d6`; runtime and acceptance evidence are pending |
 | Base              | `1f7fe7424cd06e26a9713fd284c77fce71ee990e`                                                                                                                                           |
 | Goal              | Replace the Symfony invitation-response seam with one native Recruitment authority and one full-Foldkit applicant journey                                                            |
 | Actor             | Applicant who holds the current invitation capability                                                                                                                                |

@@ -4,7 +4,7 @@
 
 | Field | Value |
 |---|---|
-| Status | Frozen before implementation |
+| Status | Contract remains frozen; implementation is present at integrated branch `f07b86d7babc041ee5f947b41381de094586e9d6`; runtime and acceptance evidence are pending |
 | Base | `9c73f10e4eb41477b3efb5e0e3334deb2ec2926b` (`9c73f10`) |
 | Goal | Give an authenticated member one native path to read and edit the member profile |
 | Actor | Authenticated active member |

@@ -4,7 +4,7 @@
 
 | Field | Value |
 |---|---|
-| Status | Frozen before implementation |
+| Status | Contract remains frozen; implementation is present at integrated branch `f07b86d7babc041ee5f947b41381de094586e9d6`; runtime and acceptance evidence are pending |
 | Base | `dd2425f8ea21c2f61cdff9bb518a1e726d8dac64` (`dd2425f`) |
 | Goal | Replace the Symfony scheduling seam with one native Recruitment transition and one full-Foldkit staff journey |
 | Actors | Active department leader or assigned active interviewer |

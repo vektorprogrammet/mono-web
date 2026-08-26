@@ -5,7 +5,7 @@
 | Field | Value |
 |---|---|
 | Goal | Replace the mocked `/dashboard/brukere` page with one native admin user directory owned by Profile, with Organization-derived department and status |
-| Status | Frozen before implementation |
+| Status | Contract remains frozen; implementation is present at integrated branch `f07b86d7babc041ee5f947b41381de094586e9d6`; runtime and acceptance evidence are pending |
 | Base | `eb01f9126351b838b430c5291c4bbb2e4ee4a820` (`eb01f91`) |
 | Depends on | 0040 logical capability topology, 0045 Effect Model/Service authority, 0053 native Profile self-edit, 0055 person-keyed authorization authorities |
 | Required by | 0058 Organization-owned person field-of-study association (named follow-up contract) |

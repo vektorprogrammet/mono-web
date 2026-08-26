@@ -4,7 +4,7 @@
 
 | Field | Value |
 |---|---|
-| Status | Frozen before implementation |
+| Status | Contract remains frozen; implementation is present at integrated branch `f07b86d7babc041ee5f947b41381de094586e9d6`; runtime and acceptance evidence are pending |
 | Base | `d867bf7b7eea44412e267127006f8c7c7dbadab2` (`d867bf7`) |
 | Goal | Replace the Symfony applicant-assignment seam with one native Recruitment authority and one full-Foldkit team-leader journey |
 | Actor | Active department team leader |

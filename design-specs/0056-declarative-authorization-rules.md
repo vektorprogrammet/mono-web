@@ -5,7 +5,7 @@
 | Field | Value |
 |---|---|
 | Goal | Let operators grant surfaced capabilities through persistent rules that inject typed evidence facts into the pure capability algebra |
-| Status | Frozen before implementation |
+| Status | Contract remains frozen; implementation not started |
 | Base | `dd3aaf67cfaf822abf82d8617bf504f7ca1a0788` |
 | Depends on | 0055 person-keyed authorization authorities, 0040 logical capability topology, 0045 Effect Model/Service authority |
 | Required by | 0054 native Identity authority via Better Auth |

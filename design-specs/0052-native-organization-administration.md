@@ -6,7 +6,7 @@
 
 | Field             | Value                                                                                                                                                                              |
 | ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Status            | Frozen before implementation                                                                                                                                                       |
+| Status            | Contract remains frozen; implementation is present at integrated branch `f07b86d7babc041ee5f947b41381de094586e9d6`; runtime and acceptance evidence are pending |
 | Base              | `ac942572d63d7de4a05354d2be699d785af90f1a` (`ac94257`)                                                                                                                             |
 | Goal              | Replace the Symfony Organization administration seam with one native Organization authority and fresh public views                                                                 |
 | Actor             | Existing active organization administrator from the bounded test-principal configuration                                                                                           |

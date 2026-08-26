@@ -5,7 +5,7 @@
 | Field | Value |
 |---|---|
 | Goal | Provide authority-owned person-to-role resolution before the native Identity cutover |
-| Status | Frozen before implementation |
+| Status | Contract remains frozen; implementation is present at integrated branch `f07b86d7babc041ee5f947b41381de094586e9d6`; runtime and acceptance evidence are pending |
 | Base | `dd3aaf6` |
 | Depends on | 0040 logical capability topology, 0045 Effect Model/Service authority, current Organization, Admissions, Recruitment, Profile, and Economy models |
 | Required by | 0054 native Identity authority via Better Auth |

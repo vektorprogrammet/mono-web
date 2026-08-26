@@ -5,7 +5,7 @@
 | Field | Value |
 |---|---|
 | Goal | Replace Symfony credentials/sessions and the fixture login path with one native Identity authority built on Better Auth, without giving it roles or access policy |
-| Status | Frozen before implementation |
+| Status | Contract remains frozen; implementation is present at integrated branch `f07b86d7babc041ee5f947b41381de094586e9d6`; runtime and acceptance evidence are pending |
 | Base | `88ed2d6` |
 | Depends on | 0039 database capability, 0040 capability topology, 0045 Effect Model/Service authority, 0053 Profile self-edit (proven pattern for actor-bound commands) |
 | Operator boundary | No production data, remote PostgreSQL, provider, credential, deployment, or external notification effect. Disposable local PostgreSQL and Chromium evidence only |

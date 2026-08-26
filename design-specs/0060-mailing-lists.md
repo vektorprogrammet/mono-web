@@ -5,7 +5,7 @@
 | Field | Value |
 |---|---|
 | Goal | Serve the dashboard mailing-list page from a pure Organization read-time projection with no new persisted state |
-| Status | Frozen before implementation |
+| Status | Contract remains frozen; implementation is present at integrated branch `f07b86d7babc041ee5f947b41381de094586e9d6`; runtime and acceptance evidence are pending |
 | Base | `eb01f91` (`eb01f9126351b838b430c5291c4bbb2e4ee4a820`) |
 | Depends on | 0040 logical capability topology, 0052 native Organization administration, 0055 person-keyed authorization authorities |
 | Operator boundary | No production import, production data change, credential change, deployment, or external effect |
