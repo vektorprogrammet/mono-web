@@ -209,7 +209,7 @@ export const readPublishedArticlePostgres = (
           const previousVersions = versions.slice(1).map((row) => ({
             versionNumber: row.versionNumber,
             publishedAt: row.publishedAt,
-            slug,
+            urlPath: `/nyhet/${slug}?versjon=${row.versionNumber}`,
           }));
           return yield* Schema.decodeUnknownEffect(PublishedNewsArticleSchema)(
             {
