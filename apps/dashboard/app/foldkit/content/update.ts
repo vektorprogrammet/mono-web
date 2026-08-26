@@ -214,19 +214,18 @@ export const makeUpdate =
           { ...model, departmentFilter: departmentId },
           [],
         ],
-        DeselectedArticle: () =>
-          [
-            // Fresh-draft mode: empty editor, nothing selected.
-            {
-              ...model,
-              selectedArticleId: null,
-              selectedRevision: null,
-              editor: makeEditorValues(),
-              dirty: false,
-              banner: null,
-            },
-            [],
-          ],
+        DeselectedArticle: () => [
+          // Fresh-draft mode: empty editor, nothing selected.
+          {
+            ...model,
+            selectedArticleId: null,
+            selectedRevision: null,
+            editor: makeEditorValues(),
+            dirty: false,
+            banner: null,
+          },
+          [],
+        ],
         DismissedBanner: () => [{ ...model, banner: null }, []],
       }),
     );

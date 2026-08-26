@@ -128,10 +128,8 @@ export const createBrowserContentWorkspaceClient = (): ContentWorkspaceClient =>
       createDraft: (command) => request("/content", "POST", command),
       reviseDraft: (command) =>
         request("/content", "POST", { operation: "reviseDraft", ...command }),
-      publish: (command) =>
-        request("/content", "POST", { operation: "publish", ...command }),
-      unpublish: (command) =>
-        request("/content", "POST", { operation: "unpublish", ...command }),
+      publish: (command) => request("/content", "POST", { operation: "publish", ...command }),
+      unpublish: (command) => request("/content", "POST", { operation: "unpublish", ...command }),
     },
   },
 });

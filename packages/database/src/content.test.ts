@@ -49,9 +49,7 @@ describe("Content publication migration in PGlite (spec 0062)", () => {
     );
 
     expect(evidence.revision).toBe("20_content-publication");
-    expect(evidence.migrationRows).toEqual([
-      { migrationId: 20, name: "content-publication" },
-    ]);
+    expect(evidence.migrationRows).toEqual([{ migrationId: 20, name: "content-publication" }]);
     expect(evidence.tableNames).toEqual([
       "content_article_departments",
       "content_article_versions",
@@ -105,7 +103,9 @@ describe("Content publication migration in PGlite (spec 0062)", () => {
 
         // FK RESTRICT blocks deleting a department still referenced.
         const restrict = yield* Effect.exit(
-          database`DELETE FROM organization_departments WHERE department_id = 'content-test-dep'`.pipe(Effect.asVoid),
+          database`DELETE FROM organization_departments WHERE department_id = 'content-test-dep'`.pipe(
+            Effect.asVoid,
+          ),
         );
         const restrictBlocked = restrict._tag === "Failure";
 

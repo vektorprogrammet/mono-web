@@ -1,7 +1,13 @@
 import { Link, useLoaderData } from "react-router";
 import { loadNewsArticle } from "~/lib/news.server";
 
-export async function loader({ request, params }: { request: Request; params: { readonly slug?: string } }) {
+export async function loader({
+  request,
+  params,
+}: {
+  request: Request;
+  params: { readonly slug?: string };
+}) {
   const slug = params.slug ?? "";
   const versionParam = new URL(request.url).searchParams.get("versjon") ?? undefined;
   // Fresh server-side read per render; a draft/withdrawn/unknown slug is a
@@ -17,8 +23,7 @@ export default function Nyhet() {
       <article>
         <h1 className="font-bold text-3xl">{article.title}</h1>
         <p className="text-muted-foreground text-sm">
-          {article.authorDisplayName} ·{" "}
-          {new Date(article.publishedAt).toLocaleDateString("nb-NO")}
+          {article.authorDisplayName} · {new Date(article.publishedAt).toLocaleDateString("nb-NO")}
         </p>
         {/* bodyHtml is sanitized at write time by the backend domain sanitizer
             (spec law 6 / DoD 15) and re-checked in the loader before render. */}

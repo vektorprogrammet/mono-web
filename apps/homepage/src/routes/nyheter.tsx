@@ -25,15 +25,13 @@ export default function Nyheter() {
         <ul className="flex flex-col gap-6">
           {listing.articles.map((article) => (
             <li key={article.slug} className="flex flex-col gap-1">
-              <Link
-                to={`/nyhet/${article.slug}`}
-                className="font-semibold text-lg hover:underline"
-              >
+              <Link to={`/nyhet/${article.slug}`} className="font-semibold text-lg hover:underline">
                 {article.sticky ? "★ " : ""}
                 {article.title}
               </Link>
               <p className="text-muted-foreground text-sm">
-                {article.authorDisplayName} · {new Date(article.publishedAt).toLocaleDateString("nb-NO")}
+                {article.authorDisplayName} ·{" "}
+                {new Date(article.publishedAt).toLocaleDateString("nb-NO")}
               </p>
             </li>
           ))}

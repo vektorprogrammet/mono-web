@@ -2,19 +2,13 @@ import { buttonVariants } from "@/components/ui/button";
 import { Link, useLoaderData } from "react-router";
 import { loadNewsTeaser } from "~/lib/news.server";
 import { Button } from "~/components/ui/button";
-import {
-  BUILD_COMMIT,
-  BUILD_CONTENT_DIGEST,
-  BUILD_ROUTE_DIGEST,
-} from "~/lib/build-provenance";
+import { BUILD_COMMIT, BUILD_CONTENT_DIGEST, BUILD_ROUTE_DIGEST } from "~/lib/build-provenance";
 import type { PublishedNewsSummary } from "@vektorprogrammet/sdk";
-import {
-  DEV_CONTENT,
-  DEV_CONTENT_SOURCE,
-  type DevContent,
-} from "~/lib/dev-content";
+import { DEV_CONTENT, DEV_CONTENT_SOURCE, type DevContent } from "~/lib/dev-content";
 
-export async function loader(): Promise<DevContent & { newsTeaser: readonly PublishedNewsSummary[] }> {
+export async function loader(): Promise<
+  DevContent & { newsTeaser: readonly PublishedNewsSummary[] }
+> {
   const teaser = await loadNewsTeaser();
   // Fresh server-side news read per render; DEV_CONTENT still feeds
   // sponsors/teams/statistics until their own journeys cut over, but no
