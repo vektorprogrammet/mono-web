@@ -191,7 +191,7 @@ try {
   //   2. published in dept A
   //   3. published org-wide (empty departments)
   //   4. published sticky multi-department (A+B)
-  //   5. two-version republication case: version 1 already committed
+  //   5. two-version republication case in dept A: version 1 already committed
   await client.query(
     `INSERT INTO content_articles (
       title, slug, body_html, sticky, created_by_person_id, current_version_number
@@ -235,12 +235,14 @@ try {
   );
   await client.query(
     `INSERT INTO content_article_departments (article_id, department_id) VALUES
-      ($1::bigint, $3::text),
       ($1::bigint, $4::text),
-      ($2::bigint, $4::text)`,
+      ($2::bigint, $4::text),
+      ($2::bigint, $5::text),
+      ($3::bigint, $4::text)`,
     [
       bySlug.get("publisert-alfa"),
       bySlug.get("festet-fleravdeling"),
+      bySlug.get("to-versjoner"),
       departmentIds[0],
       departmentIds[1],
     ],
@@ -268,7 +270,7 @@ try {
     memberships: 2,
     articles: 5,
     versions: 4,
-    department_links: 3,
+    department_links: 4,
     published_articles: 4,
     sticky_articles: 1,
   });
