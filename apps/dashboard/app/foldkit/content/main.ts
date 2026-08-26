@@ -1,7 +1,8 @@
 import type { ContentWorkspaceClient } from "./browser-client";
+import { makeContentWorkspaceCommands } from "./command";
 import { Effect } from "effect";
 import { Runtime } from "foldkit";
-import { makeContentWorkspaceCommands } from "./command";
+import type { Message } from "./message";
 import { FailedCommand, SucceededSave } from "./message";
 import { Model, makeInitialModel, type ContentFailure } from "./model";
 import "./styles.css";
@@ -20,6 +21,7 @@ const runSubmit = (
   articleId?: number,
 ): Effect.Effect<ReadonlyArray<never>, never, never> => {
   const command = { ...args, articleId };
+  void verb;
   const outcome =
     verb === "create"
       ? client.admin.content.createDraft(command as never)
@@ -28,8 +30,10 @@ const runSubmit = (
         : verb === "publish"
           ? client.admin.content.publish(command as never)
           : client.admin.content.unpublish(command as never);
-  void outcome;
-  return Effect.succeed([] as never);
+  return outcome.pipe(
+    Effect.map(() => [] as never),
+    Effect.catch(() => Effect.succeed([] as never)),
+  );
 };
 
 const failure = (message: string): ContentFailure => ({ _tag: "Failed", message });
@@ -42,22 +46,22 @@ const makeCommandFactories = (
   SubmitCreate: ({ requestId }) => ({
     name: "SubmitContentCreate",
     args: { requestId },
-    effect: undefined as never,
+    effect: runSubmit(client, "create")({ requestId, commandId: "", title: "", bodyHtml: "", departmentIds: [], sticky: false }).effect,
   }),
   SubmitRevise: ({ requestId }) => ({
     name: "SubmitContentRevise",
     args: { requestId },
-    effect: undefined as never,
+    effect: runSubmit(client, "revise")({ requestId, commandId: "", articleId: 0, expectedRevision: 0, title: "", bodyHtml: "", departmentIds: [], sticky: false }).effect,
   }),
   SubmitPublish: ({ requestId }) => ({
     name: "SubmitContentPublish",
     args: { requestId },
-    effect: undefined as never,
+    effect: runSubmit(client, "publish")({ requestId, commandId: "", articleId: 0 }).effect,
   }),
   SubmitUnpublish: ({ requestId }) => ({
     name: "SubmitContentUnpublish",
     args: { requestId },
-    effect: undefined as never,
+    effect: runSubmit(client, "unpublish")({ requestId, commandId: "", articleId: 0 }).effect,
   }),
 });
 
