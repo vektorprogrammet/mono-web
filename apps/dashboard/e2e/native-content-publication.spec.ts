@@ -122,14 +122,17 @@ test.describe("Native Content publication (spec 0062)", () => {
       await expect(failureAlert).toContainText("kunne ikke hentes");
       await failureAlert.getByRole("button", { name: "Prøv igjen" }).click();
       await administrator.page.waitForTimeout(3000);
+      await administrator.page.waitForTimeout(2000);
       const wsTag = await administrator.page
-        .locator(".content-workspace")
-        .first()
-        .getAttribute("data-ws-tag");
-      const rowCount = await administrator.page
-        .locator(".content-workspace__select")
-        .count();
-      process.stdout.write(`[probe] wsTag=${String(wsTag)} rowCount=${rowCount}\n`);
+        .locator("vektor-article-workspace")
+        .evaluate((el) => ({
+          hasSection: el.querySelector(".content-workspace") !== null,
+          sectionCount: el.querySelectorAll(".content-workspace").length,
+          htmlLength: el.innerHTML.length,
+          bodySnippet: (el.querySelector(".content-workspace")?.textContent ?? "").slice(0, 200),
+        }))
+        .catch((error) => ({ error: String(error) }));
+      process.stdout.write(`[probe] ${JSON.stringify(wsTag)}\n`);
       await expect(
         administrator.page.getByRole("button", { name: /Kladd fra forfatter/ }).first(),
       ).toBeVisible({ timeout: 15_000 });

@@ -110,8 +110,15 @@ const rows = (model: Model, h: HtmlBuilder<Message>): Html => {
   );
 };
 
-export const debugWorkspaceTag = (model: Model): string =>
-  `${model.workspace._tag}:${model.workspace._tag === "Success" ? model.workspace.data.entries.length : -1}`;
+export const debugWorkspaceTag = (model: Model): string => {
+  try {
+    return `${model.workspace._tag}:${
+      model.workspace._tag === "Success" ? model.workspace.data.entries.length : -1
+    }`;
+  } catch {
+    return "error";
+  }
+};
 
 export const view = (model: Model, h: HtmlBuilder<Message>): Html =>
   h.section([
