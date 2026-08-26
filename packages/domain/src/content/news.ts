@@ -86,7 +86,7 @@ export const readNewsListingPostgres = (
           }
           const rows = yield* database<CurrentVersionRow>`
             SELECT
-              version.article_id AS "articleId",
+              CAST(version.article_id AS integer) AS "articleId",
               version.slug,
               version.title,
               version.sticky,
@@ -176,7 +176,7 @@ export const readPublishedArticlePostgres = (
             readonly publishedByPersonId: string;
           }>`
             SELECT
-              version.article_id AS "articleId",
+              CAST(version.article_id AS integer) AS "articleId",
               version.version_number AS "versionNumber",
               version.slug,
               version.title,
