@@ -121,6 +121,15 @@ test.describe("Native Content publication (spec 0062)", () => {
       const failureAlert = administrator.page.getByRole("alert");
       await expect(failureAlert).toContainText("kunne ikke hentes");
       await failureAlert.getByRole("button", { name: "Prøv igjen" }).click();
+      await administrator.page.waitForTimeout(3000);
+      const wsTag = await administrator.page
+        .locator(".content-workspace")
+        .first()
+        .getAttribute("data-ws-tag");
+      const rowCount = await administrator.page
+        .locator(".content-workspace__select")
+        .count();
+      process.stdout.write(`[probe] wsTag=${String(wsTag)} rowCount=${rowCount}\n`);
       await expect(
         administrator.page.getByRole("button", { name: /Kladd fra forfatter/ }).first(),
       ).toBeVisible({ timeout: 15_000 });
