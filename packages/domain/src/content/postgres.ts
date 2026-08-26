@@ -154,7 +154,7 @@ export const readWorkspacePostgres = (input: {
           }
           const rows = yield* database<DraftRow>`
             SELECT
-              article.article_id AS "articleId",
+              CAST(article.article_id AS integer) AS "articleId",
               article.title,
               article.slug,
               article.body_html AS "bodyHtml",
@@ -396,7 +396,7 @@ const readDraftForUpdate = (
 ): Effect.Effect<DraftRow | undefined, ContentPersistenceError> =>
   sql<DraftRow>`
     SELECT
-      article.article_id AS "articleId",
+      CAST(article.article_id AS integer) AS "articleId",
       article.title,
       article.slug,
       article.body_html AS "bodyHtml",
