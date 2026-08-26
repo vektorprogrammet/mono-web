@@ -164,13 +164,12 @@ export const view = (model: Model, h: HtmlBuilder<Message>): Html =>
             }
           }
           for (const id of model.editor.departmentIds) options.add(id);
-          return [...options].map(
-            (id) =>
+          return [...options].map((id) =>
+            h.div([h.Class("content-workspace__dept-option")], [
               h.input([
                 h.Id(`content-dept-${id}`),
                 h.Type("checkbox"),
                 h.Name(`content-dept-${id}`),
-                h.AriaLabel(id),
                 h.Value(id),
                 h.Checked(model.editor.departmentIds.includes(id as never)),
                 h.OnChange((checked: string) =>
@@ -180,6 +179,8 @@ export const view = (model: Model, h: HtmlBuilder<Message>): Html =>
                   }),
                 ),
               ]),
+              h.label([h.For(`content-dept-${id}`)], [id]),
+            ]),
           );
         })(),
         h.input([
