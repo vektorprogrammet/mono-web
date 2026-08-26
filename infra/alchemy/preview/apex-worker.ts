@@ -11,7 +11,7 @@
  * resource name is prefixed `vektor-apex-`.
  */
 import { APEX_IDENTITY } from "./identity.ts";
-import { previewSurface } from "./surface.ts";
+import { apexSurface } from "./surface-apex.ts";
 
 interface ApexService {
   fetch(request: Request): Promise<Response>;
@@ -67,9 +67,9 @@ export default {
       });
     }
 
-    const surface = previewSurface(url.pathname);
+    const surface = apexSurface(url.pathname);
     // Dashboard pages reference hashed bundles at /assets/* and the shared
-    // logo at /vektor-logo-circle.svg — paths previewSurface classifies as
+    // logo at /vektor-logo-circle.svg — paths the shared p20 classifier treats
     // homepage. When the navigation context (Referer) identifies a dashboard
     // document, serve these subresources from the dashboard worker instead.
     if (
@@ -117,7 +117,7 @@ const isDashboardAssetRequest = (request: Request): boolean => {
     // route modules are imported by other /assets/* scripts, so treat an
     // asset referer as dashboard context instead of misrouting to homepage.
     if (refererPath.startsWith("/assets/")) return true;
-    return previewSurface(refererPath) === "dashboard";
+    return apexSurface(refererPath) === "dashboard";
   } catch {
     return true;
   }
