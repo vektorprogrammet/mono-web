@@ -112,6 +112,9 @@ test.describe("Native Content publication (spec 0062)", () => {
         pageErrors,
       );
       contexts.push(administrator.context);
+      administrator.page.on("console", (message) => {
+        if (message.type() === "error") process.stdout.write(`[console-error] ${message.text()}\n`);
+      });
       await signIn(administrator.page, persons.administrator, "/dashboard/artikler");
       await expect(
         administrator.page.getByRole("heading", { name: "Artikler", exact: true }),
