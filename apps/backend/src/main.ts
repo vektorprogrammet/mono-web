@@ -7,6 +7,8 @@ import { databaseHealth, type Database } from "@vektorprogrammet/domain/database
 import { Organization, OrganizationLive } from "@vektorprogrammet/domain/organization";
 import { Profile, ProfileLive } from "@vektorprogrammet/domain/profile";
 import { Recruitment, RecruitmentLive } from "@vektorprogrammet/domain/recruitment";
+import { Content, ContentLive } from "@vektorprogrammet/domain/content";
+import { ContentManagement, ContentManagementLive } from "@vektorprogrammet/domain/content";
 import { Schools, SchoolsLive } from "@vektorprogrammet/domain/schools";
 import { Economy } from "@vektorprogrammet/domain/receipt";
 import { EconomyLive } from "@vektorprogrammet/domain/receipt/postgres";
@@ -37,6 +39,10 @@ const economyLayer = EconomyLive.pipe(Layer.provide(databaseLayer));
 const organizationLayer = OrganizationLive.pipe(Layer.provide(databaseLayer));
 const profileLayer = ProfileLive.pipe(Layer.provide(Layer.merge(databaseLayer, organizationLayer)));
 const schoolsLayer = SchoolsLive.pipe(Layer.provide(databaseLayer));
+const contentManagementLayer = ContentManagementLive.pipe(Layer.provide(databaseLayer));
+const contentLayer = ContentLive.pipe(
+  Layer.provide(Layer.mergeAll(databaseLayer, organizationLayer, profileLayer)),
+);
 const recruitmentLayer = RecruitmentLive.pipe(
   Layer.provide(Layer.mergeAll(databaseLayer, admissionsLayer, organizationLayer, profileLayer)),
 );
@@ -47,6 +53,8 @@ const capabilityLayers = Layer.mergeAll(
   profileLayer,
   schoolsLayer,
   recruitmentLayer,
+  contentManagementLayer,
+  contentLayer,
 );
 const authLayers = Layer.merge(AuthLive(config.auth), AuthEngineLive(config.auth));
 const runtime = makeBackendRuntime(Layer.mergeAll(databaseLayer, capabilityLayers, authLayers));
@@ -54,7 +62,16 @@ const run = <A, E>(
   effect: Effect.Effect<
     A,
     E,
-    Database | Admissions | Economy | Organization | Profile | Recruitment | Schools | Auth
+    | Database
+    | Admissions
+    | Economy
+    | Organization
+    | Profile
+    | Recruitment
+    | Schools
+    | Auth
+    | ContentManagement
+    | Content
   >,
 ): Promise<A> => runtime.runPromise(effect);
 const api = makeBackendHttp(config, run, {

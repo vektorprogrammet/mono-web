@@ -88,6 +88,18 @@ import {
   SchoolsNotInScope,
   SchoolsPersistenceError,
   SchoolsUnauthenticatedActor,
+  ContentUnauthenticatedActor,
+  ContentAuthorityInactive,
+  ContentNotInScope,
+  ContentNotPublisher,
+  ContentDraftNotOwned,
+  ContentSlugConflictSdkError,
+  ContentCommandConflict,
+  ContentArticleNotFound,
+  ContentDepartmentNotFound,
+  ContentDecodeError,
+  ContentIntegritySdkError,
+  ContentPersistenceSdkError,
   type InternalSdkError,
 } from "./errors.js";
 import { parseViolations } from "./adapter/errors.js";
@@ -419,6 +431,58 @@ const schoolsFailureFromBody = (body: unknown, strict: boolean): InternalSdkErro
   }
 };
 
+const contentFailureFromBody = (body: unknown, strict: boolean): InternalSdkError | undefined => {
+  let tag: unknown;
+  if (strict) {
+    try {
+      tag = Schema.decodeUnknownSync(StrictNativeFailureBodySchema)(body, {
+        onExcessProperty: "error",
+      }).error.tag;
+    } catch {
+      return new ContentDecodeError();
+    }
+  } else {
+    if (typeof body !== "object" || body === null) return undefined;
+    const root = body as Record<string, unknown>;
+    const error =
+      typeof root.error === "object" && root.error !== null
+        ? (root.error as Record<string, unknown>)
+        : root;
+    tag = error.tag ?? error._tag;
+  }
+  if (typeof tag !== "string") {
+    return strict ? new ContentDecodeError() : undefined;
+  }
+  switch (tag) {
+    case "UnauthenticatedActor":
+      return new ContentUnauthenticatedActor();
+    case "AuthorityInactive":
+      return new ContentAuthorityInactive();
+    case "NotInScope":
+      return new ContentNotInScope();
+    case "NotPublisher":
+      return new ContentNotPublisher();
+    case "DraftNotOwned":
+      return new ContentDraftNotOwned();
+    case "SlugConflict":
+      return new ContentSlugConflictSdkError();
+    case "CommandConflict":
+      return new ContentCommandConflict();
+    case "ArticleNotFound":
+      return new ContentArticleNotFound();
+    case "DepartmentNotFound":
+      return new ContentDepartmentNotFound();
+    case "ContentDecodeError":
+      return new ContentDecodeError();
+    case "ContentIntegrityError":
+      return new ContentIntegritySdkError();
+    case "ContentPersistenceError":
+      return new ContentPersistenceSdkError();
+    default:
+      return strict ? new ContentDecodeError() : undefined;
+  }
+};
+
 /**
  * Maps HTTP status codes to InternalSdkError.
  *
@@ -435,13 +499,15 @@ const mapStatusToError = (
       ? profileFailureFromBody(body)
       : options?.errorFamily === "schools"
         ? schoolsFailureFromBody(body, options.strict === true)
-        : options?.errorFamily === "organization"
-          ? organizationFailureFromBody(body, options.strict === true)
-          : options?.errorFamily === "public_application"
-            ? publicApplicationFailureFromBody(body)
-            : options?.errorFamily === "recruitment"
-              ? recruitmentFailureFromBody(body, options.strict === true)
-              : receiptFailureFromBody(body);
+        : options?.errorFamily === "content"
+          ? contentFailureFromBody(body, options.strict === true)
+          : options?.errorFamily === "organization"
+            ? organizationFailureFromBody(body, options.strict === true)
+            : options?.errorFamily === "public_application"
+              ? publicApplicationFailureFromBody(body)
+              : options?.errorFamily === "recruitment"
+                ? recruitmentFailureFromBody(body, options.strict === true)
+                : receiptFailureFromBody(body);
   if (typedError !== undefined) return typedError;
   if (status === 401 || status === 403) return new Unauthorized({ message: `HTTP ${status}` });
   if (status === 404) return new NotFound({ message: "Not found" });
@@ -461,7 +527,8 @@ export type DecodeOptions = {
     | "public_application"
     | "recruitment"
     | "organization"
-    | "schools";
+    | "schools"
+    | "content";
   readonly headers?: Readonly<Record<string, string>>;
   readonly includeCookie?: boolean;
   readonly expectedStatus?: number | ReadonlyArray<number>;

@@ -183,7 +183,9 @@ describe("Organization SDK transport", () => {
       .mockResolvedValueOnce(response(201, teamResult))
       .mockResolvedValueOnce(response(201, fieldOfStudyResult));
     vi.stubGlobal("fetch", fetchMock);
-    const client = createClient("http://api.test", { cookie: "better-auth.session_token=admin-session" });
+    const client = createClient("http://api.test", {
+      cookie: "better-auth.session_token=admin-session",
+    });
 
     await expect(client.public.organization.listDepartments()).resolves.toEqual([department]);
     await expect(client.public.organization.listTeams()).resolves.toEqual([team]);
@@ -217,7 +219,9 @@ describe("Organization SDK transport", () => {
     ].entries()) {
       const init = fetchMock.mock.calls[index + 3]?.[1] as RequestInit;
       expect(JSON.parse(String(init.body))).toEqual(command);
-      expect((init.headers as Record<string, string>).Cookie).toBe("better-auth.session_token=admin-session");
+      expect((init.headers as Record<string, string>).Cookie).toBe(
+        "better-auth.session_token=admin-session",
+      );
     }
   });
 
@@ -228,7 +232,9 @@ describe("Organization SDK transport", () => {
       .mockResolvedValueOnce(response(200, [{ ...department, receipt: "private" }]))
       .mockResolvedValueOnce(response(202, departmentResult));
     vi.stubGlobal("fetch", fetchMock);
-    const client = createClient("http://api.test", { cookie: "better-auth.session_token=admin-session" });
+    const client = createClient("http://api.test", {
+      cookie: "better-auth.session_token=admin-session",
+    });
 
     await expect(
       client.admin.organization.createDepartment(createDepartmentCommand),
@@ -244,7 +250,9 @@ describe("Organization SDK transport", () => {
   it("rejects excess request properties before fetch", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
-    const client = createClient("http://api.test", { cookie: "better-auth.session_token=admin-session" });
+    const client = createClient("http://api.test", {
+      cookie: "better-auth.session_token=admin-session",
+    });
 
     await expect(
       client.admin.organization.createDepartment({
@@ -266,7 +274,9 @@ describe("Organization SDK transport", () => {
       .mockResolvedValueOnce(response(413, { error: { tag: "RequestBodyTooLarge" } }))
       .mockResolvedValueOnce(response(503, { error: { tag: "OrganizationPersistenceError" } }));
     vi.stubGlobal("fetch", fetchMock);
-    const client = createClient("http://api.test", { cookie: "better-auth.session_token=admin-session" });
+    const client = createClient("http://api.test", {
+      cookie: "better-auth.session_token=admin-session",
+    });
     const create = () => client.admin.organization.createDepartment(createDepartmentCommand);
 
     await expect(create()).rejects.toBeInstanceOf(OrganizationUnauthenticatedActorError);

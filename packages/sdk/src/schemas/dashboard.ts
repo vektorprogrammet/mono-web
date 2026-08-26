@@ -1,4 +1,4 @@
-import { Schema } from "effect"
+import { Schema } from "effect";
 
 export class DashboardStats extends Schema.Class<DashboardStats>("DashboardStats")({
   name: Schema.String,

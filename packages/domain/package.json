@@ -20,6 +20,7 @@
     "./admission-period": "./src/admission-period/index.ts",
     "./admissions": "./src/admissions/index.ts",
     "./organization": "./src/organization/index.ts",
+    "./content": "./src/content/index.ts",
     "./profile": "./src/profile/index.ts",
     "./schools": "./src/schools/index.ts",
     "./auth": "./src/auth/index.ts",
@@ -40,7 +41,8 @@
   "dependencies": {
     "@effect/sql-d1": "catalog:effect-v4",
     "@noble/hashes": "2.3.0",
-    "effect": "catalog:effect-v4"
+    "effect": "catalog:effect-v4",
+    "parse5": "8.0.1"
   },
   "devDependencies": {
     "@effect/vitest": "catalog:effect-v4",

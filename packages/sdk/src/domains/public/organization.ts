@@ -25,9 +25,7 @@ const strictPublicOrganization = {
   headers: { Accept: "application/json" },
 };
 
-export const createPublicOrganizationDomain = (
-  transport: Transport,
-): PublicOrganizationDomain => ({
+export const createPublicOrganizationDomain = (transport: Transport): PublicOrganizationDomain => ({
   listDepartments() {
     return transport.get(
       "/api/departments",

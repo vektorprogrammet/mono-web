@@ -31,7 +31,9 @@ describe("native admission and public application SDK", () => {
     const page = { items: [projection], totalItems: 1 };
     const fetchMock = vi.fn().mockResolvedValue(response(200, page));
     vi.stubGlobal("fetch", fetchMock);
-    const client = createClient("http://api.test", { cookie: "better-auth.session_token=leader-session" });
+    const client = createClient("http://api.test", {
+      cookie: "better-auth.session_token=leader-session",
+    });
 
     await expect(client.admissionPeriods.listForManagement()).resolves.toEqual(page);
     expect(fetchMock).toHaveBeenCalledWith(
@@ -45,14 +47,21 @@ describe("native admission and public application SDK", () => {
     const revised = {
       _tag: "Revised",
       commandId: "command-revise",
-      period: { ...period, endAt: "2026-08-20T00:00:00.000Z", revision: 1, lastCommandId: "command-revise" },
+      period: {
+        ...period,
+        endAt: "2026-08-20T00:00:00.000Z",
+        revision: 1,
+        lastCommandId: "command-revise",
+      },
     };
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(response(201, created))
       .mockResolvedValueOnce(response(200, revised));
     vi.stubGlobal("fetch", fetchMock);
-    const client = createClient("http://api.test", { cookie: "better-auth.session_token=leader-session" });
+    const client = createClient("http://api.test", {
+      cookie: "better-auth.session_token=leader-session",
+    });
 
     await expect(
       client.admissionPeriods.create({
@@ -85,7 +94,9 @@ describe("native admission and public application SDK", () => {
   it("rejects excess authority fields before making a request", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
-    const client = createClient("http://api.test", { cookie: "better-auth.session_token=leader-session" });
+    const client = createClient("http://api.test", {
+      cookie: "better-auth.session_token=leader-session",
+    });
 
     await expect(
       client.admissionPeriods.create({
@@ -161,9 +172,9 @@ describe("native admission and public application SDK", () => {
   });
 
   it("maps typed public rejection tags and rejects excess fields before transport", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      response(409, { error: { tag: "NoEligibleAdmissionPeriod" } }),
-    );
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(response(409, { error: { tag: "NoEligibleAdmissionPeriod" } }));
     vi.stubGlobal("fetch", fetchMock);
     const client = createClient("http://api.test");
 
@@ -197,12 +208,12 @@ describe("native admission and public application SDK", () => {
       }),
     ).rejects.toBeInstanceOf(NoEligibleAdmissionPeriodError);
 
-    const rateLimitedFetch = vi.fn().mockResolvedValue(
-      response(429, { error: { tag: "PublicApplicationRateLimitExceeded" } }),
-    );
+    const rateLimitedFetch = vi
+      .fn()
+      .mockResolvedValue(response(429, { error: { tag: "PublicApplicationRateLimitExceeded" } }));
     vi.stubGlobal("fetch", rateLimitedFetch);
-    await expect(
-      client.applications.confirmation("application-1"),
-    ).rejects.toBeInstanceOf(PublicApplicationRateLimitExceededError);
+    await expect(client.applications.confirmation("application-1")).rejects.toBeInstanceOf(
+      PublicApplicationRateLimitExceededError,
+    );
   });
 });

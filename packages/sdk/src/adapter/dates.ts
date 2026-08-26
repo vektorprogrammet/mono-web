@@ -2,16 +2,15 @@
  * ISO date string -> Date parsing for Schema.decodeTo pipelines.
  */
 
-import { Schema, SchemaGetter } from "effect"
+import { Schema, SchemaGetter } from "effect";
 
 const ValidIsoDateString = Schema.String.pipe(
   Schema.check(
-    Schema.makeFilter(
-      (value: string) => !Number.isNaN(new Date(value).getTime()),
-      { message: "a valid ISO date string" },
-    ),
+    Schema.makeFilter((value: string) => !Number.isNaN(new Date(value).getTime()), {
+      message: "a valid ISO date string",
+    }),
   ),
-)
+);
 
 /**
  * Schema transform: ISO date string from API -> JavaScript Date.
@@ -23,7 +22,7 @@ export const DateFromIso = ValidIsoDateString.pipe(
     decode: SchemaGetter.transform((s: string) => new Date(s)),
     encode: SchemaGetter.transform((d: Date) => d.toISOString()),
   }),
-)
+);
 
 /**
  * Nullable variant -- null stays null, string becomes Date.
@@ -33,4 +32,4 @@ export const NullableDateFromIso = Schema.NullOr(ValidIsoDateString).pipe(
     decode: SchemaGetter.transform((s: string | null) => (s === null ? null : new Date(s))),
     encode: SchemaGetter.transform((d: Date | null) => (d === null ? null : d.toISOString())),
   }),
-)
+);

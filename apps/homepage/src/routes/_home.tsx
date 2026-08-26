@@ -14,11 +14,7 @@ import {
   DrawerHeader,
   DrawerTrigger,
 } from "~/components/ui/drawer";
-import {
-  BUILD_COMMIT,
-  BUILD_CONTENT_DIGEST,
-  BUILD_ROUTE_DIGEST,
-} from "~/lib/build-provenance";
+import { BUILD_COMMIT, BUILD_CONTENT_DIGEST, BUILD_ROUTE_DIGEST } from "~/lib/build-provenance";
 import { DEV_CONTENT, DEV_CONTENT_SOURCE } from "~/lib/dev-content";
 import { resolveHomepageRequest, type HomepageRequest } from "~/lib/host";
 import "~/home.css";
@@ -52,7 +48,6 @@ function DevContentBanner({ requestInfo }: { requestInfo: HomepageRequest }) {
     <aside
       className="mx-auto mt-4 w-[calc(100%-2rem)] max-w-6xl rounded-lg border-2 border-amber-500 bg-amber-100 px-4 py-3 text-center font-semibold text-amber-950 shadow-sm"
       data-testid="dev-content-banner"
-      role="status"
     >
       DEV CONTENT · {requestInfo.stage} · {requestInfo.host} · {DEV_CONTENT_SOURCE} · {BUILD_COMMIT}{" "}
       · {BUILD_CONTENT_DIGEST} · {BUILD_ROUTE_DIGEST}

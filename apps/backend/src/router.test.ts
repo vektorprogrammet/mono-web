@@ -1,3 +1,4 @@
+import { Content, ContentManagement } from "@vektorprogrammet/domain/content";
 import type { Admissions } from "@vektorprogrammet/domain/admissions";
 import {
   Auth,
@@ -155,7 +156,16 @@ const makeRun =
     effect: Effect.Effect<
       A,
       E,
-      Database | Admissions | Economy | Organization | Profile | Recruitment | Schools | Auth
+      | Database
+      | Admissions
+      | Economy
+      | Organization
+      | Profile
+      | Recruitment
+      | Schools
+      | Auth
+      | ContentManagement
+      | Content
     >,
   ): Promise<A> =>
     runTestPromise(
@@ -266,6 +276,23 @@ describe("unified backend router", () => {
       status: 404,
       body: { error: { tag: "RouteNotFound" } },
     });
+  });
+
+  it("leaves every off-spec content alias at the unified 404 boundary", async () => {
+    const responses = await Promise.all([
+      request("/api/admin/content/drafts", { method: "POST" }),
+      request("/api/admin/content/drafts/7", { method: "PUT" }),
+      request("/api/admin/content", { method: "POST" }),
+      request("/api/articles", { method: "GET" }),
+      request("/articles/7", { method: "GET" }),
+    ]);
+
+    for (const response of responses) {
+      expect({ status: response.status, body: await response.json() }).toEqual({
+        status: 404,
+        body: { error: { tag: "RouteNotFound" } },
+      });
+    }
   });
 
   it("dispatches team-interest and mailing-list reads through Organization", async () => {

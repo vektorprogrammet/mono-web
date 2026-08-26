@@ -48,6 +48,7 @@ export default defineConfig({
     __BUILD_COMMIT__: JSON.stringify(identity.commit),
     __BUILD_CONTENT_DIGEST__: JSON.stringify(identity.digest),
     __BUILD_ROUTE_DIGEST__: JSON.stringify(identity.routeDigest),
+    __HOMEPAGE_API_URL__: JSON.stringify(process.env.API_URL ?? null),
   },
   plugins: [...cloudflarePlugins, ...reactRouter()],
   build: {

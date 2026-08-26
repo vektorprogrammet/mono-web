@@ -1,19 +1,19 @@
 import { buttonVariants } from "@/components/ui/button";
 import { Link, useLoaderData } from "react-router";
+import { loadNewsTeaser } from "~/lib/news.server";
 import { Button } from "~/components/ui/button";
-import {
-  BUILD_COMMIT,
-  BUILD_CONTENT_DIGEST,
-  BUILD_ROUTE_DIGEST,
-} from "~/lib/build-provenance";
-import {
-  DEV_CONTENT,
-  DEV_CONTENT_SOURCE,
-  type DevContent,
-} from "~/lib/dev-content";
+import { BUILD_COMMIT, BUILD_CONTENT_DIGEST, BUILD_ROUTE_DIGEST } from "~/lib/build-provenance";
+import type { PublishedNewsSummary } from "@vektorprogrammet/sdk";
+import { DEV_CONTENT, DEV_CONTENT_SOURCE, type DevContent } from "~/lib/dev-content";
 
-export function loader(): DevContent {
-  return DEV_CONTENT;
+export async function loader(): Promise<
+  DevContent & { newsTeaser: readonly PublishedNewsSummary[] }
+> {
+  const teaser = await loadNewsTeaser();
+  // Fresh server-side news read per render; DEV_CONTENT still feeds
+  // sponsors/teams/statistics until their own journeys cut over, but no
+  // article byte comes from it (spec law 2).
+  return { ...DEV_CONTENT, newsTeaser: teaser.articles };
 }
 
 // biome-ignore lint/style/noDefaultExport: Route Modules require default export https://reactrouter.com/start/framework/route-module
@@ -71,6 +71,8 @@ export default function MainPage() {
         />
       </div>
 
+      <NewsTeaser articles={content.newsTeaser} />
+
       <div className="mx-auto flex max-w-4xl flex-col gap-16 px-6 py-16">
         <SponsorGroup title="DEV CONTENT-hovedsponsorer" sponsors={featuredSponsors} />
         <SponsorGroup title="DEV CONTENT-samarbeidspartnere" sponsors={supportingSponsors} />
@@ -125,6 +127,40 @@ function SponsorGroup({ title, sponsors }: { title: string; sponsors: DevContent
           </a>
         ))}
       </div>
+    </section>
+  );
+}
+
+function NewsTeaser({
+  articles,
+}: {
+  readonly articles: readonly {
+    readonly slug: string;
+    readonly title: string;
+    readonly sticky: boolean;
+    readonly authorDisplayName: string;
+    readonly hasImage: boolean;
+    readonly imageUrl?: string;
+  }[];
+}) {
+  if (articles.length === 0) return null;
+  return (
+    <section aria-labelledby="news-teaser-heading" className="mx-auto max-w-4xl px-6 pb-8">
+      <h2 id="news-teaser-heading" className="mb-6 font-bold text-2xl">
+        Nyheter
+      </h2>
+      <ul className="flex flex-col gap-4">
+        {articles.map((article) => (
+          <li key={article.slug} className="flex items-center gap-4">
+            {/* Sticky leads; imageless entries never render an <img>. */}
+            {!article.hasImage && null}
+            <Link to={`/nyhet/${article.slug}`} className="hover:underline">
+              {article.sticky ? "★ " : ""}
+              {article.title}
+            </Link>
+          </li>
+        ))}
+      </ul>
     </section>
   );
 }

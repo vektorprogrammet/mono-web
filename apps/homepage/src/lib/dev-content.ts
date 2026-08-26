@@ -401,6 +401,8 @@ export const DEV_ROUTE_CENSUS: DevRouteCensus = {
     "/foreldre",
     "/kontakt",
     "/kontakt/:department",
+    "/nyheter",
+    "/nyhet/:slug",
     "/om-oss",
     "/skoler",
     "/team",

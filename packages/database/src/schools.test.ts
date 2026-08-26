@@ -23,7 +23,7 @@ afterAll(async () => {
 });
 
 describe("Schools application migration in PGlite", () => {
-  it("uses revision 19 and replays the ordered application manifest without changing rows", async () => {
+  it("replays the ordered application manifest through revision 20 without changing rows", async () => {
     const evidence = await runtime.runPromise(
       Effect.gen(function* () {
         const database = yield* Database;
@@ -64,7 +64,7 @@ describe("Schools application migration in PGlite", () => {
     );
 
     expect(evidence).toEqual({
-      revision: "19_schools-directory",
+      revision: "20_content-publication",
       migrationRows: [{ migrationId: 19, name: "schools-directory" }],
       schoolCount: "1",
     });

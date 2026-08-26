@@ -38,7 +38,9 @@ describe("canonical owner Receipt capability", () => {
   it("submits the exact multipart wire fields and preserves the observation", async () => {
     const fetchMock = vi.fn().mockResolvedValue(response(200, observation));
     vi.stubGlobal("fetch", fetchMock);
-    const client = createClient("http://api.test", { cookie: "better-auth.session_token=owner-session" });
+    const client = createClient("http://api.test", {
+      cookie: "better-auth.session_token=owner-session",
+    });
     const file = new File(["receipt"], "receipt.pdf", { type: "application/pdf" });
 
     const result = await client.receipts.submit(
@@ -55,7 +57,9 @@ describe("canonical owner Receipt capability", () => {
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toBe("http://api.test/api/receipts/submit");
     expect(init.method).toBe("POST");
-    expect((init.headers as Record<string, string>).Cookie).toBe("better-auth.session_token=owner-session");
+    expect((init.headers as Record<string, string>).Cookie).toBe(
+      "better-auth.session_token=owner-session",
+    );
     expect((init.headers as Record<string, string>)["Content-Type"]).toBeUndefined();
 
     const body = init.body as FormData;
@@ -81,7 +85,9 @@ describe("canonical owner Receipt capability", () => {
         response(200, { ...observation, commandId: "command-2", revision: 2 }),
       );
     vi.stubGlobal("fetch", fetchMock);
-    const client = createClient("http://api.test", { cookie: "better-auth.session_token=owner-session" });
+    const client = createClient("http://api.test", {
+      cookie: "better-auth.session_token=owner-session",
+    });
     const input = {
       commandId: "command-1",
       description: "Updated train ticket",
@@ -93,7 +99,9 @@ describe("canonical owner Receipt capability", () => {
     const [firstUrl, firstInit] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(firstUrl).toBe("http://api.test/api/receipts/receipt-1/revise");
     expect(firstInit.method).toBe("POST");
-    expect((firstInit.headers as Record<string, string>).Cookie).toBe("better-auth.session_token=owner-session");
+    expect((firstInit.headers as Record<string, string>).Cookie).toBe(
+      "better-auth.session_token=owner-session",
+    );
     const firstBody = firstInit.body as FormData;
     expect(Array.from(firstBody.keys())).toEqual([
       "commandId",
@@ -138,7 +146,9 @@ describe("canonical owner Receipt capability", () => {
         response(200, { ...observation, commandId: "command-3", status: "Withdrawn", revision: 3 }),
       );
     vi.stubGlobal("fetch", fetchMock);
-    const client = createClient("http://api.test", { cookie: "better-auth.session_token=owner-session" });
+    const client = createClient("http://api.test", {
+      cookie: "better-auth.session_token=owner-session",
+    });
 
     await expect(client.receipts.withdraw("receipt-1", 2, "command-3")).resolves.toMatchObject({
       commandId: "command-3",
@@ -148,7 +158,9 @@ describe("canonical owner Receipt capability", () => {
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toBe("http://api.test/api/receipts/receipt-1/withdraw");
     expect(init.method).toBe("POST");
-    expect((init.headers as Record<string, string>).Cookie).toBe("better-auth.session_token=owner-session");
+    expect((init.headers as Record<string, string>).Cookie).toBe(
+      "better-auth.session_token=owner-session",
+    );
     expect((init.headers as Record<string, string>)["Content-Type"]).toBe("application/json");
     expect(JSON.parse(String(init.body))).toEqual({
       commandId: "command-3",
@@ -191,7 +203,9 @@ describe("canonical owner Receipt capability", () => {
         }),
       );
     vi.stubGlobal("fetch", fetchMock);
-    const client = createClient("http://api.test", { cookie: "better-auth.session_token=owner-session" });
+    const client = createClient("http://api.test", {
+      cookie: "better-auth.session_token=owner-session",
+    });
 
     await expect(client.receipts.listOwned()).resolves.toEqual({
       items: [projection],
@@ -200,7 +214,9 @@ describe("canonical owner Receipt capability", () => {
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toBe("http://api.test/api/receipts");
     expect(init.method).toBe("GET");
-    expect((init.headers as Record<string, string>).Cookie).toBe("better-auth.session_token=owner-session");
+    expect((init.headers as Record<string, string>).Cookie).toBe(
+      "better-auth.session_token=owner-session",
+    );
 
     await expect(client.receipts.listOwned()).rejects.toMatchObject({
       type: "receipt_rejection",
@@ -216,7 +232,9 @@ describe("canonical owner Receipt capability", () => {
     ["ReceiptFileNotStaged", 422],
   ] as const)("preserves the native %s rejection", async (tag, status) => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response(status, { error: { tag } })));
-    const client = createClient("http://api.test", { cookie: "better-auth.session_token=owner-session" });
+    const client = createClient("http://api.test", {
+      cookie: "better-auth.session_token=owner-session",
+    });
 
     await expect(client.receipts.listOwned()).rejects.toMatchObject({
       type: "receipt_rejection",

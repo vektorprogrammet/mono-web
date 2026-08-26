@@ -12,6 +12,7 @@
     "proof:scheduling-postgres": "bun run runtime/scheduling-postgres-proof-main.ts",
     "proof:invitation-response-postgres": "bun run runtime/invitation-response-postgres-proof-main.ts",
     "proof:organization-postgres": "bun run runtime/organization-postgres-proof-main.ts",
+    "proof:content-postgres": "bun run runtime/content-postgres-proof-main.ts",
     "proof:identity-postgres": "bun run runtime/identity-postgres-proof-main.ts",
     "proof:schools-postgres": "bun run runtime/schools-postgres-proof-main.ts",
     "identity:seed": "bun run runtime/identity-seed-main.ts",

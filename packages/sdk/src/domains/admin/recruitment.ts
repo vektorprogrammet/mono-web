@@ -15,10 +15,7 @@ import {
   type RecruitmentScheduleResult,
   type RecruitmentSchedulingBoard,
 } from "../../schemas/recruitment.js";
-import {
-  RecruitmentDecodeError,
-  type InternalSdkError,
-} from "../../errors.js";
+import { RecruitmentDecodeError, type InternalSdkError } from "../../errors.js";
 import type { Transport } from "../../transport.js";
 
 export interface AdminRecruitmentDomain {
@@ -61,9 +58,7 @@ const decodeScheduleCommand = (
     onExcessProperty: "error",
   }).pipe(Effect.mapError(() => new RecruitmentDecodeError()));
 
-export const createAdminRecruitmentDomain = (
-  transport: Transport,
-): AdminRecruitmentDomain => ({
+export const createAdminRecruitmentDomain = (transport: Transport): AdminRecruitmentDomain => ({
   readAssignmentBoard(query) {
     return decodeQuery(query).pipe(
       Effect.flatMap((validQuery) =>

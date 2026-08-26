@@ -2,11 +2,8 @@
  * Interview schemas for the canonical administrative interview API.
  */
 
-import { Schema, SchemaGetter } from "effect"
-import {
-  encodeInterviewStatusLabel,
-  parseInterviewStatusLabel,
-} from "../adapter/status.js"
+import { Schema, SchemaGetter } from "effect";
+import { encodeInterviewStatusLabel, parseInterviewStatusLabel } from "../adapter/status.js";
 
 export const InterviewSchedulingStatus = Schema.Literals([
   "created",
@@ -15,38 +12,34 @@ export const InterviewSchedulingStatus = Schema.Literals([
   "request_new_time",
   "cancelled",
   "no_contact",
-])
-export type InterviewSchedulingStatus = Schema.Schema.Type<typeof InterviewSchedulingStatus>
-
+]);
+export type InterviewSchedulingStatus = Schema.Schema.Type<typeof InterviewSchedulingStatus>;
 
 const positiveInteger = Schema.Number.pipe(
   Schema.check(
-    Schema.makeFilter(
-      (value: number) => Number.isInteger(value) && value > 0,
-      { message: "a positive integer" },
-    ),
+    Schema.makeFilter((value: number) => Number.isInteger(value) && value > 0, {
+      message: "a positive integer",
+    }),
   ),
-)
+);
 
-export const InterviewId = positiveInteger.pipe(Schema.brand("InterviewId"))
-export type InterviewId = typeof InterviewId.Type
+export const InterviewId = positiveInteger.pipe(Schema.brand("InterviewId"));
+export type InterviewId = typeof InterviewId.Type;
 
 const nonEmptyString = Schema.String.pipe(
   Schema.check(
-    Schema.makeFilter(
-      (value: string) => value.trim().length > 0,
-      { message: "a non-empty string" },
-    ),
+    Schema.makeFilter((value: string) => value.trim().length > 0, {
+      message: "a non-empty string",
+    }),
   ),
-)
+);
 const validDatetime = nonEmptyString.pipe(
   Schema.check(
-    Schema.makeFilter(
-      (value: string) => Number.isFinite(Date.parse(value)),
-      { message: "a valid datetime" },
-    ),
+    Schema.makeFilter((value: string) => Number.isFinite(Date.parse(value)), {
+      message: "a valid datetime",
+    }),
   ),
-)
+);
 
 /**
  * The single typed interview model used by the admin list and fresh reads.
@@ -77,10 +70,10 @@ const RawInterview = Schema.Struct({
   room: Schema.NullOr(Schema.String),
   campus: Schema.NullOr(Schema.String),
   mapLink: Schema.NullOr(Schema.String),
-})
+});
 
-type RawInterviewType = Schema.Schema.Type<typeof RawInterview>
-type InterviewEncoded = Schema.Codec.Encoded<typeof Interview>
+type RawInterviewType = Schema.Schema.Type<typeof RawInterview>;
+type InterviewEncoded = Schema.Codec.Encoded<typeof Interview>;
 
 const decodeInterview = (raw: RawInterviewType): InterviewEncoded => ({
   id: Schema.decodeUnknownSync(InterviewId)(raw.id),
@@ -93,7 +86,7 @@ const decodeInterview = (raw: RawInterviewType): InterviewEncoded => ({
   room: raw.room,
   campus: raw.campus,
   mapLink: raw.mapLink,
-})
+});
 
 const encodeInterview = (interview: InterviewEncoded): RawInterviewType => ({
   id: interview.id,
@@ -106,14 +99,14 @@ const encodeInterview = (interview: InterviewEncoded): RawInterviewType => ({
   room: interview.room,
   campus: interview.campus,
   mapLink: interview.mapLink,
-})
+});
 
 export const InterviewFromRaw = RawInterview.pipe(
   Schema.decodeTo(Interview, {
     decode: SchemaGetter.transform(decodeInterview),
     encode: SchemaGetter.transform(encodeInterview),
   }),
-)
+);
 
 export class AdminInterviewList extends Schema.Class<AdminInterviewList>("AdminInterviewList")({
   interviews: Schema.Array(Interview),
@@ -121,7 +114,7 @@ export class AdminInterviewList extends Schema.Class<AdminInterviewList>("AdminI
 
 const RawAdminInterviewList = Schema.Struct({
   interviews: Schema.Array(RawInterview),
-})
+});
 
 export const AdminInterviewListFromRaw = RawAdminInterviewList.pipe(
   Schema.decodeTo(AdminInterviewList, {
@@ -132,14 +125,13 @@ export const AdminInterviewListFromRaw = RawAdminInterviewList.pipe(
       interviews: list.interviews.map(encodeInterview),
     })),
   }),
-)
+);
 
 export class InterviewSchema_ extends Schema.Class<InterviewSchema_>("InterviewSchema")({
   id: Schema.Number,
   name: Schema.String,
   questionCount: Schema.Number,
 }) {}
-
 
 /**
  * All fields are required because Symfony dispatches each field to the

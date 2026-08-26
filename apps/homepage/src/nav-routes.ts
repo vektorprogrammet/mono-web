@@ -7,5 +7,6 @@ export const navRoutes = [
   { path: href("/team"), name: "Team" },
   { path: href("/foreldre"), name: "Foreldre" },
   { path: href("/skoler"), name: "Skoler" },
+  { path: href("/nyheter"), name: "Nyheter" },
   { path: href("/kontakt"), name: "Kontakt" },
 ];

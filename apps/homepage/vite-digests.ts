@@ -51,7 +51,8 @@ export function canonicalJson(value: unknown): string {
       .join(",")}}`;
   }
   const serialized = JSON.stringify(value);
-  if (serialized === undefined) throw new Error("Digest input contains unsupported undefined value");
+  if (serialized === undefined)
+    throw new Error("Digest input contains unsupported undefined value");
   return serialized;
 }
 
@@ -77,10 +78,7 @@ function listFiles(directory: string): string[] {
 }
 export const ROUTE_SOURCE_ROOTS = ["src/api", "src/routes"] as const;
 
-function sourceManifestEntry(
-  projectRoot: string,
-  absolutePath: string,
-): RouteSourceManifestEntry {
+function sourceManifestEntry(projectRoot: string, absolutePath: string): RouteSourceManifestEntry {
   const bytes = readFileSync(absolutePath);
   return {
     source: projectRelativePath(projectRoot, absolutePath),
@@ -97,7 +95,6 @@ export function buildRouteSourceManifest(projectRoot: string): readonly RouteSou
   ).sort((left, right) => compareStrings(left.source, right.source));
 }
 
-
 function projectRelativePath(projectRoot: string, absolutePath: string): string {
   return relative(projectRoot, absolutePath).split(sep).join("/");
 }
@@ -113,7 +110,6 @@ export function buildApprovedAssetManifest(projectRoot: string): readonly AssetM
     };
   });
 }
-
 
 function collectAssetPaths(value: unknown): readonly string[] {
   const paths = new Set<string>();
@@ -167,12 +163,12 @@ function routeProjection(path: string, content: DevContent, census: DevRouteCens
     return { departments: content.departments };
   }
   if (path.startsWith("/kontakt/")) {
-    const department = content.departments.find(
-      (item) => `/kontakt/${item.id}` === path,
-    );
+    const department = content.departments.find((item) => `/kontakt/${item.id}` === path);
     if (!department) throw new Error(`Missing DEV CONTENT department for route ${path}`);
     return { department };
   }
+  if (path === "/nyheter") return { source: "native-backend:/api/news" };
+  if (path.startsWith("/nyhet/")) return { source: "native-backend:/api/news" };
   if (path === "/om-oss") return { sponsors: content.sponsors, statistics: content.statistics };
   if (path === "/assistenter") return { statistics: content.statistics };
   return { source: DEV_CONTENT_SOURCE };
@@ -215,7 +211,10 @@ export function computeContentDigest(
 
 export function computeRouteDigest(
   census: DevRouteCensus,
-  inputs: Pick<HomepageDigestInputs, "assetManifest" | "routeSourceManifest" | "routeContentProjectionManifest">,
+  inputs: Pick<
+    HomepageDigestInputs,
+    "assetManifest" | "routeSourceManifest" | "routeContentProjectionManifest"
+  >,
 ): string {
   return digestCanonicalJson({
     DEV_ROUTE_CENSUS: census,

@@ -36,9 +36,13 @@ afterEach(() => {
 
 describe("canonical Receipt approval capability", () => {
   it("lists the strict approval projection with only the canonical status filter", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(response(200, { items: [projection], totalItems: 1 }));
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(response(200, { items: [projection], totalItems: 1 }));
     vi.stubGlobal("fetch", fetchMock);
-    const client = createClient("http://api.test", { cookie: "better-auth.session_token=approver-session" });
+    const client = createClient("http://api.test", {
+      cookie: "better-auth.session_token=approver-session",
+    });
 
     await expect(client.receipts.listForApproval({ status: "Pending" })).resolves.toEqual({
       items: [projection],
@@ -49,15 +53,23 @@ describe("canonical Receipt approval capability", () => {
     expect(url).toBe("http://api.test/api/admin/receipts?status=Pending");
     expect(init.method).toBe("GET");
     expect((init.headers as Record<string, string>).Accept).toBe("application/ld+json");
-    expect((init.headers as Record<string, string>).Cookie).toBe("better-auth.session_token=approver-session");
+    expect((init.headers as Record<string, string>).Cookie).toBe(
+      "better-auth.session_token=approver-session",
+    );
   });
 
   it("maps canonical 403 ReceiptScopeDenied to a typed public error", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(response(403, { error: { tag: "ReceiptScopeDenied" } }));
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(response(403, { error: { tag: "ReceiptScopeDenied" } }));
     vi.stubGlobal("fetch", fetchMock);
-    const client = createClient("http://api.test", { cookie: "better-auth.session_token=approver-session" });
+    const client = createClient("http://api.test", {
+      cookie: "better-auth.session_token=approver-session",
+    });
 
-    const error = await client.receipts.listForApproval({ status: "Pending" }).catch((caught: unknown) => caught);
+    const error = await client.receipts
+      .listForApproval({ status: "Pending" })
+      .catch((caught: unknown) => caught);
 
     expect(error).toBeInstanceOf(ReceiptScopeDeniedError);
     expect(error).not.toBeInstanceOf(UnauthorizedError);
@@ -71,9 +83,13 @@ describe("canonical Receipt approval capability", () => {
   it("keeps untagged 403 responses as UnauthorizedError", async () => {
     const fetchMock = vi.fn().mockResolvedValue(response(403, {}));
     vi.stubGlobal("fetch", fetchMock);
-    const client = createClient("http://api.test", { cookie: "better-auth.session_token=approver-session" });
+    const client = createClient("http://api.test", {
+      cookie: "better-auth.session_token=approver-session",
+    });
 
-    const error = await client.receipts.listForApproval({ status: "Pending" }).catch((caught: unknown) => caught);
+    const error = await client.receipts
+      .listForApproval({ status: "Pending" })
+      .catch((caught: unknown) => caught);
 
     expect(error).toBeInstanceOf(UnauthorizedError);
     expect(error).not.toBeInstanceOf(ReceiptScopeDeniedError);
@@ -82,7 +98,9 @@ describe("canonical Receipt approval capability", () => {
   it("rejects authority fields in approval filters before making a request", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
-    const client = createClient("http://api.test", { cookie: "better-auth.session_token=approver-session" });
+    const client = createClient("http://api.test", {
+      cookie: "better-auth.session_token=approver-session",
+    });
 
     await expect(
       client.receipts.listForApproval({ departmentId: "department-1" } as never),
@@ -97,7 +115,9 @@ describe("canonical Receipt approval capability", () => {
   it("refunds through the semantic JSON route with the exact resolution body", async () => {
     const fetchMock = vi.fn().mockResolvedValue(response(200, observation));
     vi.stubGlobal("fetch", fetchMock);
-    const client = createClient("http://api.test", { cookie: "better-auth.session_token=approver-session" });
+    const client = createClient("http://api.test", {
+      cookie: "better-auth.session_token=approver-session",
+    });
 
     await expect(client.receipts.refund("receipt-1", 0, "command-refund")).resolves.toEqual(
       observation,
@@ -106,7 +126,9 @@ describe("canonical Receipt approval capability", () => {
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toBe("http://api.test/api/admin/receipts/receipt-1/refund");
     expect(init.method).toBe("POST");
-    expect((init.headers as Record<string, string>).Cookie).toBe("better-auth.session_token=approver-session");
+    expect((init.headers as Record<string, string>).Cookie).toBe(
+      "better-auth.session_token=approver-session",
+    );
     expect((init.headers as Record<string, string>)["Content-Type"]).toBe("application/json");
     expect(JSON.parse(String(init.body))).toEqual({
       commandId: "command-refund",
@@ -117,10 +139,14 @@ describe("canonical Receipt approval capability", () => {
   it("rejects through the semantic JSON route and strictly decodes observations", async () => {
     const fetchMock = vi
       .fn()
-      .mockResolvedValueOnce(response(200, { ...observation, commandId: "command-reject", status: "Rejected" }))
+      .mockResolvedValueOnce(
+        response(200, { ...observation, commandId: "command-reject", status: "Rejected" }),
+      )
       .mockResolvedValueOnce(response(200, { ...observation, unexpected: true }));
     vi.stubGlobal("fetch", fetchMock);
-    const client = createClient("http://api.test", { cookie: "better-auth.session_token=approver-session" });
+    const client = createClient("http://api.test", {
+      cookie: "better-auth.session_token=approver-session",
+    });
 
     await expect(client.receipts.reject("receipt-1", 0, "command-reject")).resolves.toMatchObject({
       commandId: "command-reject",

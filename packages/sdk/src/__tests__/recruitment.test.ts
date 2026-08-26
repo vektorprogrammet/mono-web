@@ -153,28 +153,16 @@ describe("recruitment SDK wire schemas", () => {
   });
 
   it("strictly decodes every native invitation state and staff response message", () => {
-    for (const state of [
-      "Pending",
-      "Accepted",
-      "Rejected",
-      "RequestedNewTime",
-    ] as const) {
-      expect(
-        Schema.decodeUnknownSync(
-          RecruitmentInvitationResponseStateSchema,
-        )(state),
-      ).toBe(state);
+    for (const state of ["Pending", "Accepted", "Rejected", "RequestedNewTime"] as const) {
+      expect(Schema.decodeUnknownSync(RecruitmentInvitationResponseStateSchema)(state)).toBe(state);
     }
     expect(() =>
-      Schema.decodeUnknownSync(
-        RecruitmentInvitationResponseStateSchema,
-      )("Cancelled"),
+      Schema.decodeUnknownSync(RecruitmentInvitationResponseStateSchema)("Cancelled"),
     ).toThrow();
     expect(
-      Schema.decodeUnknownSync(RecruitmentSchedulingBoardSchema)(
-        schedulingBoard,
-        { onExcessProperty: "error" },
-      ).interviews[0],
+      Schema.decodeUnknownSync(RecruitmentSchedulingBoardSchema)(schedulingBoard, {
+        onExcessProperty: "error",
+      }).interviews[0],
     ).toMatchObject({
       responseState: "Rejected",
       responseMessage: "Unable to attend",
@@ -258,7 +246,9 @@ describe("recruitment SDK transport", () => {
       .mockResolvedValueOnce(response(200, schedulingBoard))
       .mockResolvedValueOnce(response(200, scheduleResult));
     vi.stubGlobal("fetch", fetchMock);
-    const client = createClient("http://api.test", { cookie: "better-auth.session_token=leader-session" });
+    const client = createClient("http://api.test", {
+      cookie: "better-auth.session_token=leader-session",
+    });
 
     await expect(client.admin.recruitment.readAssignmentBoard({ status: "new" })).resolves.toEqual(
       board,
@@ -293,7 +283,9 @@ describe("recruitment SDK transport", () => {
       .mockResolvedValueOnce(response(401, { error: { tag: "UnauthenticatedActor" } }))
       .mockResolvedValueOnce(response(200, { ...board, unexpected: true }));
     vi.stubGlobal("fetch", fetchMock);
-    const client = createClient("http://api.test", { cookie: "better-auth.session_token=expired-session" });
+    const client = createClient("http://api.test", {
+      cookie: "better-auth.session_token=expired-session",
+    });
 
     await expect(
       client.admin.recruitment.readAssignmentBoard({ status: "new" }),

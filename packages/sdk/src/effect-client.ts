@@ -22,6 +22,8 @@ import { createPublicMiscDomain } from "./domains/public/misc.js";
 import { createPublicOrganizationDomain } from "./domains/public/organization.js";
 import { createPublicContactMessageDomain } from "./domains/public/contact-message.js";
 import { createAdminUsersDomain } from "./domains/admin/users.js";
+import { createAdminContentDomain } from "./domains/admin/content.js";
+import { createPublicNewsDomain } from "./domains/public/news.js";
 import { createAdminSchoolsDomain } from "./domains/admin/schools.js";
 import { createAdmissionApplicationsDomain } from "./domains/admission-applications.js";
 import { createAdmissionPeriodsDomain } from "./domains/admission-period.js";
@@ -220,6 +222,55 @@ export {
   SchoolDirectoryEntrySchema,
   SchoolDirectorySchema,
 } from "./schemas/schools.js";
+export {
+  ArticleId,
+  ArticleVersionNumber,
+  ContentArticleDetailSchema,
+  ContentWorkspaceSchema,
+  CreateArticleDraftObservationSchema,
+  CreateContentDraftCommandSchema,
+  PublicationTransitionCommandSchema,
+  PublishObservationSchema,
+  PublishedNewsArticleSchema,
+  PublishedNewsListingSchema,
+  PublishedNewsSummarySchema,
+  ReviseArticleDraftObservationSchema,
+  ReviseContentDraftCommandSchema,
+  UnpublishObservationSchema,
+} from "./schemas/content.js";
+export {
+  ContentArticleNotFound,
+  ContentAuthorityInactive,
+  ContentCommandConflict,
+  ContentDecodeError,
+  ContentDepartmentNotFound,
+  ContentDraftNotOwned,
+  ContentIntegritySdkError,
+  ContentNotInScope,
+  ContentNotPublisher,
+  ContentPersistenceSdkError,
+  ContentSlugConflictSdkError,
+  ContentUnauthenticatedActor,
+} from "./errors.js";
+export type {
+  AdminContentWorkspaceInput,
+  ContentArticleDetail,
+  ContentCommandId,
+  ContentWorkspace,
+  ContentWorkspaceEntry,
+  CreateArticleDraftObservation,
+  CreateContentDraftCommand,
+  PublicNewsListInput,
+  PublicationTransitionCommand,
+  PublishObservation,
+  PublishedNewsArticle,
+  PublishedNewsListing,
+  PublishedNewsSummary,
+  PublishedNewsVersionRef,
+  ReviseArticleDraftObservation,
+  ReviseContentDraftCommand,
+  UnpublishObservation,
+} from "./schemas/content.js";
 export type {
   SchoolLanguage,
   SchoolDirectoryDepartment,
@@ -322,6 +373,7 @@ export function createEffectClient(baseUrl: string | undefined, options?: Client
       recruitment: createAdminRecruitmentDomain(transport),
       users: createAdminUsersDomain(transport),
       schools: createAdminSchoolsDomain(transport),
+      content: createAdminContentDomain(transport),
       scheduling: createAdminSchedulingDomain(transport),
       organization: createAdminOrganizationDomain(transport),
       teams: createAdminTeamsDomain(transport),
@@ -333,6 +385,7 @@ export function createEffectClient(baseUrl: string | undefined, options?: Client
       organization: createPublicOrganizationDomain(transport),
       sponsors: publicMisc.sponsors.bind(publicMisc),
       contactMessages: publicContactMessages,
+      news: createPublicNewsDomain(transport),
     },
   };
 }

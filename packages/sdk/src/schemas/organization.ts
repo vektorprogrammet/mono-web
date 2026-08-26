@@ -32,11 +32,7 @@ export type FieldOfStudyId = typeof FieldOfStudyId.Type;
 export const OrganizationCommandId = StableId.pipe(Schema.brand("OrganizationCommandId"));
 export type OrganizationCommandId = typeof OrganizationCommandId.Type;
 
-export const OrganizationEntityKindSchema = Schema.Literals([
-  "Department",
-  "Team",
-  "FieldOfStudy",
-]);
+export const OrganizationEntityKindSchema = Schema.Literals(["Department", "Team", "FieldOfStudy"]);
 export type OrganizationEntityKind = typeof OrganizationEntityKindSchema.Type;
 
 const DepartmentJsonFields = {
@@ -52,7 +48,6 @@ const DepartmentJsonFields = {
   active: Schema.Boolean,
 };
 
-
 const TeamJsonFields = {
   teamId: TeamId,
   departmentId: DepartmentId,
@@ -65,7 +60,6 @@ const TeamJsonFields = {
   active: Schema.Boolean,
 };
 
-
 const FieldOfStudyJsonFields = {
   fieldOfStudyId: FieldOfStudyId,
   name: text(250),
@@ -73,7 +67,6 @@ const FieldOfStudyJsonFields = {
   departmentId: Schema.NullOr(DepartmentId),
   active: Schema.Boolean,
 };
-
 
 export const DepartmentJsonSchema = Schema.Struct({
   ...DepartmentJsonFields,
@@ -179,8 +172,7 @@ export const DepartmentReplayedObservationSchema = Schema.Struct({
   commandId: OrganizationCommandId,
   original: DepartmentCreatedObservationSchema,
 });
-export type DepartmentReplayedObservation =
-  typeof DepartmentReplayedObservationSchema.Type;
+export type DepartmentReplayedObservation = typeof DepartmentReplayedObservationSchema.Type;
 
 export const TeamReplayedObservationSchema = Schema.Struct({
   _tag: Schema.Literals(["Replayed"]),
@@ -194,16 +186,14 @@ export const FieldOfStudyReplayedObservationSchema = Schema.Struct({
   commandId: OrganizationCommandId,
   original: FieldOfStudyCreatedObservationSchema,
 });
-export type FieldOfStudyReplayedObservation =
-  typeof FieldOfStudyReplayedObservationSchema.Type;
+export type FieldOfStudyReplayedObservation = typeof FieldOfStudyReplayedObservationSchema.Type;
 
 export const OrganizationReplayedObservationSchema = Schema.Union([
   DepartmentReplayedObservationSchema,
   TeamReplayedObservationSchema,
   FieldOfStudyReplayedObservationSchema,
 ]);
-export type OrganizationReplayedObservation =
-  typeof OrganizationReplayedObservationSchema.Type;
+export type OrganizationReplayedObservation = typeof OrganizationReplayedObservationSchema.Type;
 
 export const OrganizationCreateObservationSchema = Schema.Union([
   OrganizationCreatedObservationSchema,

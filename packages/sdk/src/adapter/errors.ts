@@ -6,15 +6,15 @@
  */
 
 export function parseViolations(body: unknown): Record<string, string> {
-  if (typeof body !== "object" || body === null) return {}
-  const violations = (body as Record<string, unknown>)["violations"]
-  if (!Array.isArray(violations)) return {}
+  if (typeof body !== "object" || body === null) return {};
+  const violations = (body as Record<string, unknown>)["violations"];
+  if (!Array.isArray(violations)) return {};
 
-  const fields: Record<string, string> = {}
+  const fields: Record<string, string> = {};
   for (const v of violations) {
     if (typeof v?.propertyPath === "string" && typeof v?.message === "string") {
-      fields[v.propertyPath] = v.message
+      fields[v.propertyPath] = v.message;
     }
   }
-  return fields
+  return fields;
 }

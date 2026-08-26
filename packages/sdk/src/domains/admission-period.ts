@@ -37,12 +37,9 @@ export interface AdmissionPeriodsDomain {
 export function createAdmissionPeriodsDomain(transport: Transport): AdmissionPeriodsDomain {
   return {
     listForManagement() {
-      return transport.get(
-        "/api/admin/admission-periods",
-        AdmissionPeriodPage,
-        undefined,
-        { strict: true },
-      );
+      return transport.get("/api/admin/admission-periods", AdmissionPeriodPage, undefined, {
+        strict: true,
+      });
     },
 
     create(input) {
@@ -76,12 +73,9 @@ export function createAdmissionPeriodsDomain(transport: Transport): AdmissionPer
     },
 
     listOpen() {
-      return transport.get(
-        "/api/admission-periods/open",
-        AdmissionPeriodPage,
-        undefined,
-        { strict: true },
-      );
+      return transport.get("/api/admission-periods/open", AdmissionPeriodPage, undefined, {
+        strict: true,
+      });
     },
   };
 }

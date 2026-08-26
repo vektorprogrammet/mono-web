@@ -12,10 +12,9 @@ const StableId = Schema.String.pipe(
 const boundedText = (max: number, message: string) =>
   Schema.String.pipe(
     Schema.check(
-      Schema.makeFilter(
-        (value) => value.trim().length > 0 && [...value].length <= max,
-        { message },
-      ),
+      Schema.makeFilter((value) => value.trim().length > 0 && [...value].length <= max, {
+        message,
+      }),
     ),
   );
 
@@ -24,9 +23,7 @@ const ApplicantPhone = boundedText(32, "must be a non-empty phone value of at mo
 const ApplicantEmail = Schema.String.pipe(
   Schema.check(
     Schema.makeFilter(
-      (value) =>
-        value.trim().length <= 254 &&
-        /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim()),
+      (value) => value.trim().length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim()),
       { message: "must be a valid email address of at most 254 characters" },
     ),
   ),
@@ -90,7 +87,6 @@ export class PublicApplicationConfirmation extends Schema.Class<PublicApplicatio
   _tag: Schema.Literals(["ApplicationConfirmed"]),
   applicationId: StableId,
 }) {}
-
 
 export const PublicApplicationSubmitInputSchema = PublicApplicationSubmitInput;
 export const PublicApplicationSubmitResponseSchema = PublicApplicationSubmitResponse;
