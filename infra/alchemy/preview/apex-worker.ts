@@ -104,6 +104,11 @@ export default {
  * to the homepage, matching direct navigation of homepage-owned paths.
  */
 const isDashboardAssetRequest = (request: Request): boolean => {
+  // Only subresources can be re-routed; document navigations must keep the
+  // pathname-based surface so "/" stays on the homepage.
+  const dest = request.headers.get("sec-fetch-dest");
+  if (dest === null || dest === "" || dest === "document") return false;
+
   const referer = request.headers.get("referer");
   if (referer === null) return true;
   try {

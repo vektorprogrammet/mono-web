@@ -24,6 +24,8 @@ test.describe("Apex live verification v2", () => {
     const adminPage = await adminContext.newPage();
     adminPage.on("console", (m) => { if (m.type() === "error") consoleErrors.push(m.text()); });
     adminPage.on("pageerror", (e) => pageErrors.push(e.message));
+    const badUrls: string[] = [];
+    adminPage.on("response", (r) => { if (r.status() >= 400) badUrls.push(`${r.status()} ${r.request().method()} ${r.url().slice(0, 90)}`); });
 
     // Sign in from the browser context via the same-origin API leg:
     await adminPage.goto("/login", { waitUntil: "load" });
@@ -59,6 +61,8 @@ test.describe("Apex live verification v2", () => {
     expect(response?.status()).toBe(200);
     expect((await anonPage.content()).length).toBeGreaterThan(5000);
     await anonContext.close();
+    // TEMP: dump bad URLs seen on admin page
+    process.stdout.write(`BADURLS=${JSON.stringify(badUrls)}\n`);
 
     expect(consoleErrors).toEqual([]);
     expect(pageErrors).toEqual([]);
