@@ -159,7 +159,7 @@ describe("Foldkit content workspace transitions", () => {
     const selected = update(initial, { _tag: "SelectedArticle", articleId: article1 });
     const before = issued.length;
     // entry.canPublish is false for this editor-owned draft row.
-    const denied = update(selected[0], { _tag: "SubmittedPublish", commandId: "cmd-p" });
+    const denied = update(selected[0], { _tag: "SubmittedPublish", commandId: "cmd-p", articleId: article2 });
     expect(denied[0]).toEqual(selected[0]);
     expect(issued.slice(before)).toEqual([]);
 
@@ -167,7 +167,7 @@ describe("Foldkit content workspace transitions", () => {
       _tag: "SelectedArticle",
       articleId: article2,
     });
-    const allowed = update(publishedRow[0], { _tag: "SubmittedUnpublish", commandId: "cmd-u" });
+    const allowed = update(publishedRow[0], { _tag: "SubmittedUnpublish", commandId: "cmd-u", articleId: article2 });
     expect(allowed[0].requestId).toBe(2);
     expect(issued.slice(before)).toEqual(["unpublish:2"]);
   });

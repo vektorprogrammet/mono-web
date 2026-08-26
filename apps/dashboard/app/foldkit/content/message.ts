@@ -36,8 +36,14 @@ export const FailedCommand = m("FailedCommand", {
 });
 
 /** Publisher capability is required in the Model before these issue a command. */
-export const SubmittedPublish = m("SubmittedPublish", { commandId: S.String });
-export const SubmittedUnpublish = m("SubmittedUnpublish", { commandId: S.String });
+export const SubmittedPublish = m("SubmittedPublish", {
+  commandId: S.String,
+  articleId: ArticleId,
+});
+export const SubmittedUnpublish = m("SubmittedUnpublish", {
+  commandId: S.String,
+  articleId: ArticleId,
+});
 
 /** Client-side narrowing only; never triggers a server request. */
 export const ChangedDepartmentFilter = m("ChangedDepartmentFilter", {

@@ -85,7 +85,12 @@ const rows = (model: Model, h: HtmlBuilder<Message>): Html => {
                 h.button(
                   [
                     h.Type("button"),
-                    h.OnClick(SubmittedPublish({ commandId: `publish-${entry.articleId}` })),
+                    h.OnClick(
+                      SubmittedPublish({
+                        commandId: `publish-${entry.articleId}`,
+                        articleId: entry.articleId,
+                      }),
+                    ),
                   ],
                   ["Publiser"],
                 ),
@@ -95,7 +100,10 @@ const rows = (model: Model, h: HtmlBuilder<Message>): Html => {
                         [
                           h.Type("button"),
                           h.OnClick(
-                            SubmittedUnpublish({ commandId: `unpublish-${entry.articleId}` }),
+                            SubmittedUnpublish({
+                              commandId: `unpublish-${entry.articleId}`,
+                              articleId: entry.articleId,
+                            }),
                           ),
                         ],
                         ["Avpubliser"],
