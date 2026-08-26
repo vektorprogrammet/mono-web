@@ -53,6 +53,33 @@ describe("content editor scope", () => {
     ).toBe(false);
   });
 });
+describe("published article revision boundary", () => {
+  const published = {
+    createdByPersonId: editorId,
+    currentVersionNumber: 1,
+    departmentIds: [departmentA],
+  } as const;
+
+  it("blocks a member while leaders and administrators may revise", () => {
+    expect(canReviseDraft(editor, published)).toBe(false);
+    expect(
+      canReviseDraft(
+        {
+          _tag: "ContentPublisher",
+          personId: "leader" as PersonId,
+          departmentIds: [departmentA],
+        },
+        published,
+      ),
+    ).toBe(true);
+    expect(
+      canReviseDraft(
+        { _tag: "ContentAdministrator", personId: "administrator" as PersonId },
+        published,
+      ),
+    ).toBe(true);
+  });
+});
 
 describe("content actor derivation", () => {
   const authority = (

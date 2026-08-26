@@ -116,6 +116,7 @@ export const canReviseDraft = (
   if (actor._tag === "ContentEditor") {
     const editor = actor;
     return (
+      draft.currentVersionNumber === null &&
       draft.createdByPersonId === editor.personId &&
       draft.departmentIds.length > 0 &&
       draft.departmentIds.every((departmentId) =>

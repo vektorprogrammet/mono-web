@@ -156,6 +156,31 @@ describe("content article detail authority", () => {
       expect("createdByPersonId" in detail).toBe(false);
     }),
   );
+  it.effect("blocks the member author from revising their published article", () =>
+    Effect.gen(function* () {
+      const publishedOwnDatabase = makeDatabase((statement) =>
+        Effect.succeed(
+          statement.includes("FROM content_articles AS article")
+            ? [{ ...storedDetail, currentVersionNumber: 1 }]
+            : statement.includes("FROM content_article_departments")
+              ? [{ articleId: storedDetail.articleId, departmentId: ownDepartmentId }]
+              : [],
+        ),
+      );
+      const failure = yield* Effect.flip(
+        readArticleDetailPostgres({
+          articleId: storedDetail.articleId as never,
+          personId,
+          authorizationInstant,
+        }).pipe(
+          Effect.provideService(Database, publishedOwnDatabase),
+          Effect.provideService(Organization, organization),
+          Effect.provideService(Profile, {} as never),
+        ),
+      );
+      expect(failure._tag).toBe("DraftNotOwned");
+    }),
+  );
 
   it.effect("maps absence and foreign drafts to typed failures", () =>
     Effect.gen(function* () {

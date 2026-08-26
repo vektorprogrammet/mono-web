@@ -228,6 +228,45 @@ test.describe("Native Content publication (spec 0062)", () => {
       await twoVersionRow.getByRole("button", { name: "Publiser", exact: true }).click();
       await expect(twoVersionRow.getByText("Publisert").first()).toBeVisible();
 
+      // A plain member owns this article but may not revise it once published.
+      const publishedAuthor = await openContext(
+        browser,
+        browserRequests,
+        browserResponses,
+        pageErrors,
+      );
+      contexts.push(publishedAuthor.context);
+      await signIn(publishedAuthor.page, persons.authorDepartmentA, "/dashboard/artikler");
+      const publishedMemberRevision = await publishedAuthor.page.evaluate(
+        async ({ articleId, departmentId }: { articleId: number; departmentId: string }) => {
+          const response = await fetch("/content", {
+            method: "POST",
+            credentials: "same-origin",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              operation: "reviseDraft",
+              commandId: "author-published-revise-denial",
+              articleId,
+              expectedRevision: 0,
+              title: "To versjoner",
+              bodyHtml: "<p>Uautorisert publisert endring</p>",
+              departmentIds: [departmentId],
+              sticky: false,
+            }),
+          });
+          return { status: response.status, body: (await response.json()) as unknown };
+        },
+        { articleId: twoVersionArticleId, departmentId: departmentAlpha },
+      );
+      expect(publishedMemberRevision).toEqual({
+        status: 403,
+        body: { error: { tag: "DraftNotOwned" } },
+      });
+      observations.memberPublishedRevisionDenial = {
+        status: 403,
+        tag: "DraftNotOwned",
+      };
+
       // A separate anonymous context records the full public request ledger
       // while observing both the new canonical bytes and immutable version.
       const anonymous = await openContext(browser, browserRequests, browserResponses, pageErrors);
