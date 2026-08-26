@@ -107,7 +107,12 @@ const isDashboardAssetRequest = (request: Request): boolean => {
   const referer = request.headers.get("referer");
   if (referer === null) return true;
   try {
-    return previewSurface(new URL(referer).pathname) === "dashboard";
+    const refererPath = new URL(referer).pathname;
+    // Module chains report the importing script as the referer; dashboard
+    // route modules are imported by other /assets/* scripts, so treat an
+    // asset referer as dashboard context instead of misrouting to homepage.
+    if (refererPath.startsWith("/assets/")) return true;
+    return previewSurface(refererPath) === "dashboard";
   } catch {
     return true;
   }
