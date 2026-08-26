@@ -136,7 +136,9 @@ test.describe("Native Content publication (spec 0062)", () => {
       await administrator.page
         .getByLabel("Brødtekst")
         .fill("<p>Første utkast av fersk nyhet.</p>");
-      await administrator.page.getByRole("checkbox", { name: departmentAlpha }).check();
+      await administrator.page
+        .getByLabel(departmentAlpha, { exact: true })
+        .check();
       await administrator.page.getByRole("button", { name: "Lagre kladd" }).click();
       await expect(administrator.page.getByText("Fersk nyhet fra admin").first()).toBeVisible();
 

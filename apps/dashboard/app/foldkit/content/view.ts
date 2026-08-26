@@ -1,7 +1,12 @@
 import type { ContentWorkspace } from "@vektorprogrammet/sdk/effect";
+import { DepartmentId as DepartmentIdSchema } from "@vektorprogrammet/sdk/effect";
 import type { Html, HtmlBuilder } from "foldkit/html";
 import type { Message } from "./message";
-import { ChangedDepartmentFilter, DeselectedArticle } from "./message";
+import {
+  ChangedDepartmentFilter,
+  ChangedDepartmentSelection,
+  DeselectedArticle,
+} from "./message";
 import {
   DismissedBanner,
   EditedField,
@@ -133,6 +138,32 @@ export const view = (model: Model, h: HtmlBuilder<Message>): Html =>
           ],
           [model.editor.bodyHtml],
         ),
+        ...(() => {
+          const options = new Set<string>();
+          if (model.workspace._tag === "Success") {
+            for (const entry of model.workspace.data.entries) {
+              for (const id of entry.departmentIds) options.add(id);
+            }
+          }
+          for (const id of model.editor.departmentIds) options.add(id);
+          return [...options].map(
+            (id) =>
+              h.input([
+                h.Id(`content-dept-${id}`),
+                h.Type("checkbox"),
+                h.Name(`content-dept-${id}`),
+                h.AriaLabel(id),
+                h.Value(id),
+                h.Checked(model.editor.departmentIds.includes(id as never)),
+                h.OnChange((checked: string) =>
+                  ChangedDepartmentSelection({
+                    departmentId: DepartmentIdSchema.make(id),
+                    checked: checked === "on",
+                  }),
+                ),
+              ]),
+          );
+        })(),
         h.input([
           h.Id("content-editor-sticky"),
           h.Type("checkbox"),
