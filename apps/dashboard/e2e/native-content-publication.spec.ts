@@ -133,17 +133,6 @@ test.describe("Native Content publication (spec 0062)", () => {
       await expect(
         administrator.page.getByRole("button", { name: /Kladd fra forfatter/ }).first(),
       ).toBeVisible({ timeout: 15_000 });
-      const wsTag = await administrator.page
-        .locator(".content-workspace")
-        .first()
-        .getAttribute("data-ws-tag")
-        .catch(() => null);
-      process.stdout.write(`[ws-tag] ${String(wsTag)}\n`);
-      process.stdout.write(
-        `[rows] ${JSON.stringify(
-          await administrator.page.locator(".content-workspace__select").allInnerTexts(),
-        )}\n`,
-      );
 
       // Create a draft through the editor pane.
       await administrator.page.getByRole("button", { name: "Ny artikkel" }).click();
