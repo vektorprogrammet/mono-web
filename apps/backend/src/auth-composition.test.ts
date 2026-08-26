@@ -7,6 +7,10 @@ const authLiveSource = await readFile(
   new URL("../../../packages/database/src/auth-live.ts", import.meta.url),
   "utf8",
 );
+const databaseIndexSource = await readFile(
+  new URL("../../../packages/database/src/index.ts", import.meta.url),
+  "utf8",
+);
 
 describe("backend identity composition", () => {
   it("uses AuthLive as the sole identity authority and lifecycle owner", () => {
@@ -16,6 +20,8 @@ describe("backend identity composition", () => {
     expect(mainSource.match(/\bAuthLive\(config\.auth\)/g)).toHaveLength(1);
     expect(mainSource).not.toContain("AuthEngineLive");
     expect(mainSource).not.toMatch(/Layer\.merge\(AuthLive\(config\.auth\)/);
+    expect(authLiveSource).not.toContain("export const AuthEngineLive");
+    expect(databaseIndexSource).not.toContain("AuthEngineLive");
   });
 
   it("constructs one engine service for the combined Identity/AuthEngine layer", () => {

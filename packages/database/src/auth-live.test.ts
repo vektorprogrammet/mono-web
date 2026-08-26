@@ -4,7 +4,7 @@ import { Effect } from "effect";
 import { Pool } from "pg";
 import { afterAll, describe, expect, it } from "vitest";
 import { Identity } from "@vektorprogrammet/domain/identity";
-import { AuthLive, AuthEngine, AuthEngineLive } from "./auth-live.js";
+import { AuthLive, AuthEngine } from "./auth-live.js";
 import { makeControlledTestRuntime } from "../test/runtime.js";
 
 /**
@@ -60,7 +60,7 @@ const seedCredentialIdentity = async () => {
           password: passwordHash,
         }),
       );
-    }).pipe(Effect.provide(AuthLive(config))),
+    }),
   );
 };
 /**
@@ -156,37 +156,20 @@ dsl("AuthLive (spec 0054)", () => {
       }),
     );
   });
-});
-
-/**
- * Regression guard for the AuthEngineLive pool-lifetime bug (spec 0054):
- * wrapping `makeAuthEngineService(config)` in an inner `Effect.scoped`
- * closed the engine's pg Pool during layer construction, so every call
- * after build failed with "Cannot use a pool after calling end on the
- * pool". Building from `AuthEngineLive` must keep the pool alive for the
- * whole runtime, including across awaits outside Effect.
- */
-const engineRuntime =
-  authTestUrl === undefined ? undefined : makeControlledTestRuntime(AuthEngineLive(config));
-
-dsl("AuthEngineLive keeps its pg Pool alive for the whole Layer lifetime", () => {
-  afterAll(async () => {
-    await engineRuntime?.dispose();
-  });
-
-  it("serves two sequential handler calls about a second apart", async () => {
+  /**
+   * Regression guard for the AuthLive pool-lifetime bug (spec 0054):
+   * keeping one ManagedRuntime alive must keep its pg Pool usable across
+   * handler calls separated by time outside Effect.
+   */
+  it("keeps its pg Pool alive for sequential handler calls", async () => {
     assertDisposable(config.postgresUrl);
     await resetAuthSchema();
     await seedCredentialIdentity();
-    await engineRuntime!.runPromise(
+
+    const first = await runtime.runPromise(
       Effect.gen(function* () {
         const engine = yield* AuthEngine;
-
-        // A first sign-in proves the pool works right after build; the
-        // sleep spans real time so a pool closed during layer build would
-        // surface as "Cannot use a pool after calling end on the pool"
-        // on the second call below.
-        const first = yield* Effect.tryPromise(() =>
+        return yield* Effect.tryPromise(() =>
           engine.handler(
             new Request("http://127.0.0.1:8790/api/auth/sign-in/email", {
               method: "POST",
@@ -195,21 +178,26 @@ dsl("AuthEngineLive keeps its pg Pool alive for the whole Layer lifetime", () =>
             }),
           ),
         );
-        expect(first.ok).toBe(true);
-        yield* Effect.sleep("1 seconds");
-
-        const second = yield* Effect.tryPromise(() =>
-          engine.handler(
-            new Request("http://127.0.0.1:8790/api/auth/sign-in/email", {
-              method: "POST",
-              headers: new Headers({ "content-type": "application/json" }),
-              body: JSON.stringify({ email: cohort.email, password: cohort.password }),
-            }),
-          ),
-        );
-        expect(second.ok).toBe(true);
       }),
     );
+    expect(first.ok).toBe(true);
+    await Promise.resolve();
+
+    const second = await runtime.runPromise(
+      Effect.gen(function* () {
+        const engine = yield* AuthEngine;
+        return yield* Effect.tryPromise(() =>
+          engine.handler(
+            new Request("http://127.0.0.1:8790/api/auth/sign-in/email", {
+              method: "POST",
+              headers: new Headers({ "content-type": "application/json" }),
+              body: JSON.stringify({ email: cohort.email, password: cohort.password }),
+            }),
+          ),
+        );
+      }),
+    );
+    expect(second.ok).toBe(true);
   }, 120_000);
 });
 

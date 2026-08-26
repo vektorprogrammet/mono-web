@@ -126,10 +126,6 @@ const makeAuthEngineService = (
     ({ pool }) => Effect.promise(() => pool.end()).pipe(Effect.ignore, Effect.asVoid),
   ).pipe(Effect.map(({ service }) => service));
 
-/** The shared scoped engine layer for a given auth configuration. */
-export const AuthEngineLive = (config: AuthEngineConfig): Layer.Layer<AuthEngine> =>
-  Layer.effect(AuthEngine, makeAuthEngineService(config));
-
 /**
  * ONE scoped construction exposing both the engine service (for the
  * /api/auth/* handler) and the Identity interpretation. A single acquisition
