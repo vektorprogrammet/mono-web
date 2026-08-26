@@ -261,6 +261,20 @@ const seedSchedulingFixture = (fixtureId: string) =>
       )
       VALUES (${interviewSchemaId}, 'Standard interview', 8)
     `;
+    yield* database`
+      INSERT INTO recruitment_interview_schema_questions (
+        interview_schema_id, question_id, ordinal, prompt, help_text, kind, alternatives
+      )
+      VALUES
+        (${interviewSchemaId}, ${`${fixtureId}-q0`}, 0, 'Question 0', NULL, 'text', '[]'::jsonb),
+        (${interviewSchemaId}, ${`${fixtureId}-q1`}, 1, 'Question 1', NULL, 'text', '[]'::jsonb),
+        (${interviewSchemaId}, ${`${fixtureId}-q2`}, 2, 'Question 2', NULL, 'text', '[]'::jsonb),
+        (${interviewSchemaId}, ${`${fixtureId}-q3`}, 3, 'Question 3', NULL, 'text', '[]'::jsonb),
+        (${interviewSchemaId}, ${`${fixtureId}-q4`}, 4, 'Question 4', NULL, 'text', '[]'::jsonb),
+        (${interviewSchemaId}, ${`${fixtureId}-q5`}, 5, 'Question 5', NULL, 'text', '[]'::jsonb),
+        (${interviewSchemaId}, ${`${fixtureId}-q6`}, 6, 'Question 6', NULL, 'text', '[]'::jsonb),
+        (${interviewSchemaId}, ${`${fixtureId}-q7`}, 7, 'Question 7', NULL, 'text', '[]'::jsonb)
+    `;
     yield* recruitment.assignApplicant(
       {
         commandId: RecruitmentAssignmentCommandId.make(`${fixtureId}-assignment-command`),
@@ -300,7 +314,7 @@ afterAll(async () => {
 });
 
 describe("DatabaseTest", () => {
-  it("constructs the complete schema before it exposes the capability", async () => {
+  it("constructs the complete schema in PGlite before it exposes the capability", async () => {
     const evidence = await runtime.runPromise(
       Effect.gen(function* () {
         const database = yield* Database;
@@ -334,7 +348,9 @@ describe("DatabaseTest", () => {
               'person_profiles',
               'person_contact_profiles',
               'recruitment_interview_schemas',
+              'recruitment_interview_schema_questions',
               'recruitment_interviews',
+              'recruitment_interview_question_snapshots',
               'recruitment_assignment_command_receipts',
               'recruitment_assignment_audit',
               'recruitment_interview_schedules',
@@ -356,9 +372,8 @@ describe("DatabaseTest", () => {
         };
       }),
     );
-
     expect(evidence).toEqual({
-      revision: "20_content-publication",
+      revision: "21_native-recruitment-interview-conduct",
       migrations: [
         { migration_id: 1, name: "receipt-authority" },
         { migration_id: 2, name: "admission-period-authority" },
@@ -380,6 +395,7 @@ describe("DatabaseTest", () => {
         { migration_id: 18, name: "organization-team-interest" },
         { migration_id: 19, name: "schools-directory" },
         { migration_id: 20, name: "content-publication" },
+        { migration_id: 21, name: "native-recruitment-interview-conduct" },
       ],
       tables: [
         "admission_applications",
@@ -399,7 +415,9 @@ describe("DatabaseTest", () => {
         "person_profiles",
         "recruitment_assignment_audit",
         "recruitment_assignment_command_receipts",
+        "recruitment_interview_question_snapshots",
         "recruitment_interview_schedules",
+        "recruitment_interview_schema_questions",
         "recruitment_interview_schemas",
         "recruitment_interviews",
         "recruitment_invitation_outbox",
@@ -562,6 +580,20 @@ describe("DatabaseTest", () => {
           )
           VALUES ('recruitment-schema', 'Standard interview', 8)
         `;
+        yield* database`
+          INSERT INTO recruitment_interview_schema_questions (
+            interview_schema_id, question_id, ordinal, prompt, help_text, kind, alternatives
+          )
+          VALUES
+            ('recruitment-schema', 'recruitment-q0', 0, 'Question 0', NULL, 'text', '[]'::jsonb),
+            ('recruitment-schema', 'recruitment-q1', 1, 'Question 1', NULL, 'text', '[]'::jsonb),
+            ('recruitment-schema', 'recruitment-q2', 2, 'Question 2', NULL, 'text', '[]'::jsonb),
+            ('recruitment-schema', 'recruitment-q3', 3, 'Question 3', NULL, 'text', '[]'::jsonb),
+            ('recruitment-schema', 'recruitment-q4', 4, 'Question 4', NULL, 'text', '[]'::jsonb),
+            ('recruitment-schema', 'recruitment-q5', 5, 'Question 5', NULL, 'text', '[]'::jsonb),
+            ('recruitment-schema', 'recruitment-q6', 6, 'Question 6', NULL, 'text', '[]'::jsonb),
+            ('recruitment-schema', 'recruitment-q7', 7, 'Question 7', NULL, 'text', '[]'::jsonb)
+        `;
 
         const actor = {
           _tag: "DepartmentLeader" as const,
@@ -582,6 +614,17 @@ describe("DatabaseTest", () => {
           now,
           interviewId: RecruitmentInterviewId.make("recruitment-interview"),
         });
+        const snapshotMutation = {
+          update: yield* Effect.result(database`
+            UPDATE recruitment_interview_question_snapshots
+            SET prompt = 'Mutated'
+            WHERE interview_id = 'recruitment-interview' AND ordinal = 0
+          `),
+          delete: yield* Effect.result(database`
+            DELETE FROM recruitment_interview_question_snapshots
+            WHERE interview_id = 'recruitment-interview' AND ordinal = 0
+          `),
+        };
         const replayed = yield* recruitment.assignApplicant(command, {
           actor,
           now,
@@ -630,6 +673,91 @@ describe("DatabaseTest", () => {
             (SELECT count(*)::text FROM recruitment_assignment_command_receipts) AS receipts,
             (SELECT count(*)::text FROM recruitment_assignment_audit) AS audits,
             (SELECT count(*)::text FROM recruitment_interviews) AS interviews
+        `;
+        const sourceBefore = yield* database<{
+          readonly interviews: string;
+          readonly receipts: string;
+          readonly snapshots: string;
+        }>`
+          SELECT
+            (SELECT count(*)::text FROM recruitment_interviews) AS interviews,
+            (SELECT count(*)::text FROM recruitment_assignment_command_receipts) AS receipts,
+            (SELECT count(*)::text FROM recruitment_interview_question_snapshots) AS snapshots
+        `;
+        yield* database`
+          DELETE FROM recruitment_interview_schema_questions
+          WHERE interview_schema_id = 'recruitment-schema'
+        `;
+        const missingSource = yield* Effect.flip(
+          recruitment.assignApplicant(
+            {
+              ...command,
+              commandId: RecruitmentAssignmentCommandId.make("missing-source-command"),
+            },
+            { actor, now, interviewId: RecruitmentInterviewId.make("missing-source-interview") },
+          ),
+        );
+        yield* database`
+          INSERT INTO recruitment_interview_schema_questions (
+            interview_schema_id, question_id, ordinal, prompt, help_text, kind, alternatives
+          )
+          VALUES
+            ('recruitment-schema', 'recruitment-q0', 0, 'Question 0', NULL, 'text', '[]'::jsonb),
+            ('recruitment-schema', 'recruitment-q1', 1, 'Question 1', NULL, 'text', '[]'::jsonb),
+            ('recruitment-schema', 'recruitment-q2', 2, 'Question 2', NULL, 'text', '[]'::jsonb),
+            ('recruitment-schema', 'recruitment-q3', 3, 'Question 3', NULL, 'text', '[]'::jsonb),
+            ('recruitment-schema', 'recruitment-q4', 4, 'Question 4', NULL, 'text', '[]'::jsonb),
+            ('recruitment-schema', 'recruitment-q5', 5, 'Question 5', NULL, 'text', '[]'::jsonb),
+            ('recruitment-schema', 'recruitment-q6', 6, 'Question 6', NULL, 'text', '[]'::jsonb),
+            ('recruitment-schema', 'recruitment-q7', 7, 'Question 7', NULL, 'text', '[]'::jsonb)
+        `;
+        yield* database`
+          DELETE FROM recruitment_interview_schema_questions
+          WHERE interview_schema_id = 'recruitment-schema' AND ordinal = 7
+        `;
+        const partialSource = yield* Effect.flip(
+          recruitment.assignApplicant(
+            {
+              ...command,
+              commandId: RecruitmentAssignmentCommandId.make("partial-source-command"),
+            },
+            { actor, now, interviewId: RecruitmentInterviewId.make("partial-source-interview") },
+          ),
+        );
+        yield* database`
+          INSERT INTO recruitment_interview_schema_questions (
+            interview_schema_id, question_id, ordinal, prompt, help_text, kind, alternatives
+          )
+          VALUES ('recruitment-schema', 'recruitment-q7', 7, 'Question 7', NULL, 'text', '[]'::jsonb)
+        `;
+        yield* database`
+          UPDATE recruitment_interview_schema_questions
+          SET ordinal = 8
+          WHERE interview_schema_id = 'recruitment-schema' AND question_id = 'recruitment-q7'
+        `;
+        const invalidSource = yield* Effect.flip(
+          recruitment.assignApplicant(
+            {
+              ...command,
+              commandId: RecruitmentAssignmentCommandId.make("invalid-source-command"),
+            },
+            { actor, now, interviewId: RecruitmentInterviewId.make("invalid-source-interview") },
+          ),
+        );
+        yield* database`
+          UPDATE recruitment_interview_schema_questions
+          SET ordinal = 7
+          WHERE interview_schema_id = 'recruitment-schema' AND question_id = 'recruitment-q7'
+        `;
+        const sourceAfter = yield* database<{
+          readonly interviews: string;
+          readonly receipts: string;
+          readonly snapshots: string;
+        }>`
+          SELECT
+            (SELECT count(*)::text FROM recruitment_interviews) AS interviews,
+            (SELECT count(*)::text FROM recruitment_assignment_command_receipts) AS receipts,
+            (SELECT count(*)::text FROM recruitment_interview_question_snapshots) AS snapshots
         `;
         const applicationScopeResult = yield* Effect.result(
           database.withTransaction(
@@ -693,12 +821,18 @@ describe("DatabaseTest", () => {
         return {
           before,
           assigned,
+          snapshotMutation,
           replayed,
           conflictingReplay,
           duplicateAssignment,
           closedPeriodReplay,
           after,
           persistence,
+          sourceBefore,
+          missingSource,
+          partialSource,
+          invalidSource,
+          sourceAfter,
           applicationScopeResult,
           receiptLinkResult,
           blankAssignerResult,
@@ -706,7 +840,6 @@ describe("DatabaseTest", () => {
         };
       }),
     );
-
     expect(evidence.before.candidates).toEqual([
       expect.objectContaining({
         applicationId: "recruitment-application",
@@ -743,6 +876,15 @@ describe("DatabaseTest", () => {
       },
       replayed: false,
     });
+    expect(evidence.snapshotMutation.update._tag).toBe("Failure");
+    expect(evidence.snapshotMutation.delete._tag).toBe("Failure");
+    if (
+      evidence.snapshotMutation.update._tag === "Failure" &&
+      evidence.snapshotMutation.delete._tag === "Failure"
+    ) {
+      expect(evidence.snapshotMutation.update.failure).toMatchObject({ _tag: "SqlError" });
+      expect(evidence.snapshotMutation.delete.failure).toMatchObject({ _tag: "SqlError" });
+    }
     expect(evidence.replayed).toEqual({
       observation: evidence.assigned.observation,
       replayed: true,
@@ -752,6 +894,10 @@ describe("DatabaseTest", () => {
     expect(evidence.closedPeriodReplay._tag).toBe("RecruitmentAdmissionPeriodNotFound");
     expect(evidence.after.candidates).toEqual([]);
     expect(evidence.persistence).toEqual([{ receipts: "1", audits: "1", interviews: "1" }]);
+    expect(evidence.missingSource._tag).toBe("InterviewQuestionsUnavailable");
+    expect(evidence.partialSource._tag).toBe("InterviewQuestionsUnavailable");
+    expect(evidence.invalidSource._tag).toBe("InterviewQuestionsUnavailable");
+    expect(evidence.sourceAfter).toEqual(evidence.sourceBefore);
     const constraintResults = [
       evidence.applicationScopeResult,
       evidence.receiptLinkResult,
@@ -2326,7 +2472,7 @@ describe("DatabaseTest", () => {
     );
 
     expect(second).toBe(first);
-    expect(rows).toEqual([{ migration_count: "20" }]);
+    expect(rows).toEqual([{ migration_count: "21" }]);
   });
 
   it("executes Admissions and Organization authority adapters against PGlite", async () => {
@@ -3935,7 +4081,7 @@ describe("DatabaseTest", () => {
       }),
     );
 
-    expect(evidence.schemaRevision).toBe("20_content-publication");
+    expect(evidence.schemaRevision).toBe("21_native-recruitment-interview-conduct");
     expect(evidence.denied._tag).toBe("OrganizationRoleDenied");
     expect(evidence.deniedRows).toBe(0);
     expect(evidence.departmentCreated.committed).toBe(true);

@@ -117,6 +117,13 @@ export class RecruitmentInvalidContext extends Schema.TaggedError<RecruitmentInv
   "RecruitmentInvalidContext",
   { message: Schema.String },
 ) {}
+export class InterviewQuestionsUnavailable extends Schema.TaggedError<InterviewQuestionsUnavailable>()(
+  "InterviewQuestionsUnavailable",
+  {
+    interviewSchemaId: InterviewSchemaId,
+    reason: Schema.String,
+  },
+) {}
 
 export class RecruitmentPersistenceError extends Schema.TaggedError<RecruitmentPersistenceError>()(
   "RecruitmentPersistenceError",

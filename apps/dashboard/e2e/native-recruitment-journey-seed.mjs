@@ -190,6 +190,18 @@ INSERT INTO recruitment_interview_schemas (
 )
 VALUES ('${interviewSchemaId}', 'Førstegangsintervju', 8, TRUE, 0)
 ON CONFLICT (interview_schema_id) DO NOTHING;
+INSERT INTO recruitment_interview_schema_questions (
+  interview_schema_id, question_id, ordinal, prompt, help_text, kind, alternatives
+) VALUES
+  ('${interviewSchemaId}', '${interviewSchemaId}-q0', 0, 'Question 0', NULL, 'text', '[]'::jsonb),
+  ('${interviewSchemaId}', '${interviewSchemaId}-q1', 1, 'Question 1', NULL, 'text', '[]'::jsonb),
+  ('${interviewSchemaId}', '${interviewSchemaId}-q2', 2, 'Question 2', NULL, 'text', '[]'::jsonb),
+  ('${interviewSchemaId}', '${interviewSchemaId}-q3', 3, 'Question 3', NULL, 'text', '[]'::jsonb),
+  ('${interviewSchemaId}', '${interviewSchemaId}-q4', 4, 'Question 4', NULL, 'text', '[]'::jsonb),
+  ('${interviewSchemaId}', '${interviewSchemaId}-q5', 5, 'Question 5', NULL, 'text', '[]'::jsonb),
+  ('${interviewSchemaId}', '${interviewSchemaId}-q6', 6, 'Question 6', NULL, 'text', '[]'::jsonb),
+  ('${interviewSchemaId}', '${interviewSchemaId}-q7', 7, 'Question 7', NULL, 'text', '[]'::jsonb)
+ON CONFLICT (interview_schema_id, question_id) DO NOTHING;
 
 COMMIT;
 `;

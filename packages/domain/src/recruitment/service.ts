@@ -33,19 +33,20 @@ import type {
   RecruitmentDecodeError,
   RecruitmentInactiveActor,
   RecruitmentInterviewerNotEligible,
-  RecruitmentInterviewAlreadyScheduled,
   RecruitmentInterviewNotFound,
-  RecruitmentInvitationAlreadyResponded,
-  RecruitmentInvitationNotFound,
+  RecruitmentInterviewAlreadyScheduled,
   RecruitmentInterviewSchemaInactive,
   RecruitmentInterviewSchemaNotFound,
   RecruitmentInterviewStaleRevision,
+  RecruitmentInvitationAlreadyResponded,
+  RecruitmentInvitationNotFound,
+  RecruitmentScheduleCommandConflict,
+  RecruitmentScheduleInPast,
   RecruitmentInvalidContext,
   RecruitmentPersistenceError,
   RecruitmentRoleDenied,
-  RecruitmentScheduleCommandConflict,
-  RecruitmentScheduleInPast,
   RecruitmentScopeDenied,
+  InterviewQuestionsUnavailable,
 } from "./errors.js";
 export type RecruitmentFailure =
   | RecruitmentDecodeError
@@ -68,6 +69,7 @@ export type RecruitmentFailure =
   | RecruitmentScheduleCommandConflict
   | RecruitmentScheduleInPast
   | RecruitmentInvalidContext
+  | InterviewQuestionsUnavailable
   | RecruitmentPersistenceError
   | AdmissionPeriodFailure
   | OrganizationDecodeError

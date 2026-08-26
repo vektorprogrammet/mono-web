@@ -238,6 +238,20 @@ const seedCohort = (sql: DatabaseShape) =>
         VALUES (${cohort.interviewSchemaId}, 'Invitation response proof interview', 8)
       `;
       yield* sql`
+        INSERT INTO recruitment_interview_schema_questions (
+          interview_schema_id, question_id, ordinal, prompt, help_text, kind, alternatives
+        )
+        VALUES
+          (${cohort.interviewSchemaId}, ${`${cohort.interviewSchemaId}-q0`}, 0, 'Question 0', NULL, 'text', '[]'::jsonb),
+          (${cohort.interviewSchemaId}, ${`${cohort.interviewSchemaId}-q1`}, 1, 'Question 1', NULL, 'text', '[]'::jsonb),
+          (${cohort.interviewSchemaId}, ${`${cohort.interviewSchemaId}-q2`}, 2, 'Question 2', NULL, 'text', '[]'::jsonb),
+          (${cohort.interviewSchemaId}, ${`${cohort.interviewSchemaId}-q3`}, 3, 'Question 3', NULL, 'text', '[]'::jsonb),
+          (${cohort.interviewSchemaId}, ${`${cohort.interviewSchemaId}-q4`}, 4, 'Question 4', NULL, 'text', '[]'::jsonb),
+          (${cohort.interviewSchemaId}, ${`${cohort.interviewSchemaId}-q5`}, 5, 'Question 5', NULL, 'text', '[]'::jsonb),
+          (${cohort.interviewSchemaId}, ${`${cohort.interviewSchemaId}-q6`}, 6, 'Question 6', NULL, 'text', '[]'::jsonb),
+          (${cohort.interviewSchemaId}, ${`${cohort.interviewSchemaId}-q7`}, 7, 'Question 7', NULL, 'text', '[]'::jsonb)
+      `;
+      yield* sql`
         INSERT INTO recruitment_interviews (
           interview_id,
           application_id,

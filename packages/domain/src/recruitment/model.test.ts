@@ -1,10 +1,13 @@
 import { expect, it } from "@effect/vitest";
 import { Effect, Schema } from "effect";
 import {
+  InterviewQuestionDefinitionSchema,
   InterviewSchema,
   RecruitmentAssignmentBoardQuerySchema,
   RecruitmentAssignmentCommandSchema,
   RecruitmentInterview,
+  RecruitmentInterviewQuestionSnapshot,
+  RecruitmentInterviewQuestionSourceSchema,
   RecruitmentInvitationCapabilitySchema,
   RecruitmentInvitationRejectInputSchema,
   RecruitmentInvitationRequestNewTimeInputSchema,
@@ -14,6 +17,53 @@ import {
   RecruitmentInvitationResponseStateSchema,
   RecruitmentSchedulingInterviewSchema,
 } from "./schema.js";
+const sourceQuestion = (ordinal: number, questionId = `question-${ordinal}`) => ({
+  questionId,
+  ordinal,
+  prompt: `Question ${ordinal}`,
+  helpText: null,
+  kind: "text" as const,
+  alternatives: [],
+});
+
+it.effect("strictly validates native question sources and immutable snapshots", () =>
+  Effect.gen(function* () {
+    const source = [sourceQuestion(0), sourceQuestion(1)];
+    expect(
+      yield* Schema.decodeUnknownEffect(RecruitmentInterviewQuestionSourceSchema)(source, {
+        onExcessProperty: "error",
+      }),
+    ).toEqual(source);
+    for (const invalid of [
+      [sourceQuestion(0), sourceQuestion(2)],
+      [sourceQuestion(0), sourceQuestion(1, "question-0")],
+      [{ ...sourceQuestion(0), kind: "radio", alternatives: [] }],
+      [{ ...sourceQuestion(0), kind: "bogus" }],
+      [{ ...sourceQuestion(0), extra: true }],
+    ]) {
+      expect(
+        yield* Effect.flip(
+          Schema.decodeUnknownEffect(RecruitmentInterviewQuestionSourceSchema)(invalid, {
+            onExcessProperty: "error",
+          }),
+        ),
+      ).toBeDefined();
+    }
+    expect(Object.keys(RecruitmentInterviewQuestionSnapshot.update.fields)).toEqual([]);
+    expect(Object.keys(RecruitmentInterviewQuestionSnapshot.insert.fields)).toEqual([
+      "interviewId",
+      "questionId",
+      "ordinal",
+      "prompt",
+      "helpText",
+      "kind",
+      "alternatives",
+    ]);
+    yield* Schema.decodeUnknownEffect(InterviewQuestionDefinitionSchema)(sourceQuestion(0), {
+      onExcessProperty: "error",
+    });
+  }),
+);
 
 it("derives immutable Recruitment Models without generated revision inputs", () => {
   expect(Object.keys(InterviewSchema.insert.fields)).not.toContain("revision");

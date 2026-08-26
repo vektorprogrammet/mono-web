@@ -16,15 +16,20 @@ import {
   RecruitmentDecodeError,
   RecruitmentInactiveActor,
   RecruitmentInterviewerNotEligible,
-  RecruitmentInterviewSchemaInactive,
   RecruitmentInterviewSchemaNotFound,
   RecruitmentInvalidContext,
   RecruitmentPersistenceError,
   RecruitmentRoleDenied,
   RecruitmentScopeDenied,
+  InterviewQuestionsUnavailable,
 } from "./errors.js";
 import {
+  InterviewQuestionDefinitionSchema,
+  type InterviewQuestionDefinition,
+  RecruitmentInterviewQuestionSourceSchema,
+  RecruitmentInterviewQuestionSnapshot,
   InterviewSchema,
+  InterviewSchemaId,
   type InterviewSchemaValue,
   RecruitmentActorSchema,
   RecruitmentAssignmentBoardQuerySchema,
@@ -82,6 +87,15 @@ interface InterviewSchemaRow {
   readonly revision: number;
 }
 
+interface InterviewQuestionRow {
+  readonly questionId: string;
+  readonly ordinal: number;
+  readonly prompt: string;
+  readonly helpText: string | null;
+  readonly kind: string;
+  readonly alternatives: unknown;
+}
+
 interface StoredReceiptRow {
   readonly commandSha256: string;
   readonly applicationId: string;
@@ -130,6 +144,14 @@ const InterviewSchemaRowSchema = Schema.Struct({
   questionCount: Schema.Number,
   active: Schema.Boolean,
   revision: Schema.Number,
+});
+const InterviewQuestionRowSchema = Schema.Struct({
+  questionId: Schema.String,
+  ordinal: Schema.Number,
+  prompt: Schema.String,
+  helpText: Schema.NullOr(Schema.String),
+  kind: Schema.String,
+  alternatives: Schema.Unknown,
 });
 
 const StoredReceiptRowSchema = Schema.Struct({
@@ -525,10 +547,146 @@ const readInterviewSchema = (
             Effect.flatMap((row) => decode(InterviewSchema, row, "interview schema")),
           ),
     ),
+
     Effect.catchTag("SqlError", (cause) =>
       Effect.fail(persistenceError("read interview schema", cause)),
     ),
   );
+const questionsUnavailable = (
+  interviewSchemaId: string,
+  reason: string,
+): InterviewQuestionsUnavailable =>
+  new InterviewQuestionsUnavailable({
+    interviewSchemaId: InterviewSchemaId.make(interviewSchemaId),
+    reason,
+  });
+
+const readQuestionSource = (
+  sql: DatabaseShape,
+  interviewSchemaId: string,
+  questionCount: number,
+): Effect.Effect<ReadonlyArray<InterviewQuestionDefinition>, RecruitmentFailure> =>
+  sql<InterviewQuestionRow>`
+    SELECT
+      question_id AS "questionId",
+      ordinal,
+      prompt,
+      help_text AS "helpText",
+      kind,
+      alternatives
+    FROM recruitment_interview_schema_questions
+    WHERE interview_schema_id = ${interviewSchemaId}
+    ORDER BY ordinal
+    FOR SHARE
+  `.pipe(
+    Effect.flatMap((rows) =>
+      Effect.gen(function* () {
+        if (rows.length !== questionCount) {
+          return yield* questionsUnavailable(
+            interviewSchemaId,
+            `expected ${questionCount} questions but found ${rows.length}`,
+          );
+        }
+        const questions: Array<InterviewQuestionDefinition> = [];
+        for (const row of rows) {
+          const decodedRow = yield* decode(
+            InterviewQuestionRowSchema,
+            row,
+            "interview question source row",
+          ).pipe(
+            Effect.mapError(() =>
+              questionsUnavailable(interviewSchemaId, "invalid question source row"),
+            ),
+          );
+          const question = yield* decode(
+            InterviewQuestionDefinitionSchema,
+            decodedRow,
+            "interview question definition",
+          ).pipe(
+            Effect.mapError(() =>
+              questionsUnavailable(interviewSchemaId, "invalid question definition"),
+            ),
+          );
+          questions.push(question);
+        }
+        return yield* decode(
+          RecruitmentInterviewQuestionSourceSchema,
+          questions,
+          "interview question source",
+        ).pipe(
+          Effect.mapError(() =>
+            questionsUnavailable(interviewSchemaId, "question source is not complete"),
+          ),
+        );
+      }),
+    ),
+    Effect.catchTag("SqlError", () =>
+      Effect.fail(questionsUnavailable(interviewSchemaId, "question source unavailable")),
+    ),
+  );
+const readQuestionSnapshotCount = (
+  sql: DatabaseShape,
+  interviewId: string,
+): Effect.Effect<number, RecruitmentFailure> =>
+  sql<{ readonly interviewId: string }>`
+    SELECT interview_id AS "interviewId"
+    FROM recruitment_interview_question_snapshots
+    WHERE interview_id = ${interviewId}
+    ORDER BY ordinal
+    FOR SHARE
+  `.pipe(
+    Effect.map((rows) => rows.length),
+    Effect.catchTag("SqlError", (cause) =>
+      Effect.fail(persistenceError("read interview question snapshot count", cause)),
+    ),
+  );
+
+const writeQuestionSnapshots = (
+  sql: DatabaseShape,
+  interview: RecruitmentInterviewValue,
+  questions: ReadonlyArray<InterviewQuestionDefinition>,
+): Effect.Effect<void, RecruitmentFailure> =>
+  Effect.gen(function* () {
+    for (const question of questions) {
+      const snapshot = yield* decode(
+        RecruitmentInterviewQuestionSnapshot,
+        {
+          interviewId: interview.interviewId,
+          questionId: question.questionId,
+          ordinal: question.ordinal,
+          prompt: question.prompt,
+          helpText: question.helpText,
+          kind: question.kind,
+          alternatives: question.alternatives,
+        },
+        "interview question snapshot",
+      );
+      yield* sql`
+        INSERT INTO recruitment_interview_question_snapshots (
+          interview_id,
+          question_id,
+          ordinal,
+          prompt,
+          help_text,
+          kind,
+          alternatives
+        ) VALUES (
+          ${snapshot.interviewId},
+          ${snapshot.questionId},
+          ${snapshot.ordinal},
+          ${snapshot.prompt},
+          ${snapshot.helpText},
+          ${snapshot.kind},
+          ${sql.json(snapshot.alternatives)}
+        )
+      `.pipe(
+        Effect.asVoid,
+        Effect.catchTag("SqlError", (cause) =>
+          Effect.fail(persistenceError("insert interview question snapshot", cause)),
+        ),
+      );
+    }
+  });
 
 const buildInterview = (
   row: StoredInterviewRow,
@@ -724,23 +882,42 @@ const assignmentInTransaction = (
       );
     }
     const existing = yield* readInterviewForApplication(sql, command.applicationId);
-    if (existing !== undefined) {
-      return yield* new RecruitmentApplicationAlreadyAssigned({
-        applicationId: command.applicationId,
-        interviewId: RecruitmentInterviewId.make(existing.interviewId),
-      });
-    }
     const interviewSchema = yield* readInterviewSchema(sql, command.interviewSchemaId);
     if (interviewSchema === undefined) {
       return yield* new RecruitmentInterviewSchemaNotFound({
         interviewSchemaId: command.interviewSchemaId,
       });
     }
-    if (!interviewSchema.active) {
-      return yield* new RecruitmentInterviewSchemaInactive({
-        interviewSchemaId: command.interviewSchemaId,
+    if (existing !== undefined) {
+      const existingSchema = yield* readInterviewSchema(sql, existing.interviewSchemaId);
+      if (existingSchema === undefined) {
+        return yield* questionsUnavailable(
+          existing.interviewSchemaId,
+          "assigned interview references a missing schema",
+        );
+      }
+      const existingQuestions = yield* readQuestionSource(
+        sql,
+        existing.interviewSchemaId,
+        existingSchema.questionCount,
+      );
+      const snapshotCount = yield* readQuestionSnapshotCount(sql, existing.interviewId);
+      if (snapshotCount !== existingQuestions.length) {
+        return yield* questionsUnavailable(
+          existing.interviewSchemaId,
+          "assigned interview has no complete question snapshot",
+        );
+      }
+      return yield* new RecruitmentApplicationAlreadyAssigned({
+        applicationId: command.applicationId,
+        interviewId: RecruitmentInterviewId.make(existing.interviewId),
       });
     }
+    const questions = yield* readQuestionSource(
+      sql,
+      command.interviewSchemaId,
+      interviewSchema.questionCount,
+    );
     const eligibleIds = yield* liveInterviewerIds(
       organization,
       context.actor.departmentId,
@@ -754,6 +931,7 @@ const assignmentInTransaction = (
     }
     yield* profile.readProfiles([command.interviewerPersonId]);
     const interview = yield* writeInterview(sql, command, context);
+    yield* writeQuestionSnapshots(sql, interview, questions);
     const observation = yield* decode(
       RecruitmentAssignmentObservationSchema,
       { _tag: "ApplicantAssigned", commandId: command.commandId, interview },

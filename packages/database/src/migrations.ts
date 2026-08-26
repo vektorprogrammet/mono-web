@@ -90,7 +90,10 @@ const personKeyedReceiptAuthorityMigrationUrl = new URL(
   "../migrations/0017-person-keyed-receipt-authority.sql",
   import.meta.url,
 );
-
+const nativeRecruitmentInterviewConductMigrationUrl = new URL(
+  "../migrations/0021-native-recruitment-interview-conduct.sql",
+  import.meta.url,
+);
 export type ExecuteMigration = (
   source: string,
 ) => Effect.Effect<void, unknown, SqlClient.SqlClient>;
@@ -198,9 +201,13 @@ export const databaseMigrationLoader = (execute: ExecuteMigration) =>
       contentPublicationMigrationUrl,
       execute,
     ),
+    "21_native-recruitment-interview-conduct": migration(
+      "native-recruitment-interview-conduct",
+      nativeRecruitmentInterviewConductMigrationUrl,
+      execute,
+    ),
   });
-
-export const databaseSchemaRevision = "20_content-publication";
+export const databaseSchemaRevision = "21_native-recruitment-interview-conduct";
 export const runDatabaseMigrations = (execute: ExecuteMigration) =>
   Migrator.make({})({
     loader: databaseMigrationLoader(execute),

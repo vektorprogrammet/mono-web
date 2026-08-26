@@ -37,6 +37,118 @@ export type InterviewSchemaId = typeof InterviewSchemaId.Type;
 
 export const RecruitmentInterviewId = StableId.pipe(Schema.brand("RecruitmentInterviewId"));
 export type RecruitmentInterviewId = typeof RecruitmentInterviewId.Type;
+const QuestionPrompt = Schema.String.pipe(
+  Schema.check(
+    Schema.makeFilter((value) => value.length > 0 && value === value.trim(), {
+      message: "a trimmed non-empty question prompt",
+    }),
+    Schema.isMaxLength(5_000),
+  ),
+);
+const QuestionHelpText = Schema.String.pipe(
+  Schema.check(
+    Schema.makeFilter((value) => value.length <= 5_000, {
+      message: "question help text is too long",
+    }),
+  ),
+);
+const QuestionAlternative = QuestionPrompt;
+export const RecruitmentInterviewQuestionKindSchema = Schema.Literals([
+  "text",
+  "list",
+  "radio",
+  "check",
+]);
+export type RecruitmentInterviewQuestionKind = typeof RecruitmentInterviewQuestionKindSchema.Type;
+
+const questionDefinitionFields = {
+  questionId: StableId,
+  ordinal: NonNegative,
+  prompt: QuestionPrompt,
+  helpText: Schema.NullOr(QuestionHelpText),
+  kind: RecruitmentInterviewQuestionKindSchema,
+  alternatives: Schema.Array(QuestionAlternative),
+};
+const validQuestionDefinition = Schema.makeFilter(
+  (question: {
+    readonly kind: RecruitmentInterviewQuestionKind;
+    readonly alternatives: ReadonlyArray<string>;
+  }) =>
+    new Set(question.alternatives).size === question.alternatives.length &&
+    (question.kind === "text"
+      ? question.alternatives.length === 0
+      : question.alternatives.length > 0),
+  { message: "question alternatives do not match the question kind" },
+);
+
+export const InterviewQuestionDefinitionSchema = Schema.Struct(questionDefinitionFields).pipe(
+  Schema.check(validQuestionDefinition),
+);
+export type InterviewQuestionDefinition = typeof InterviewQuestionDefinitionSchema.Type;
+
+export const RecruitmentInterviewQuestionSourceSchema = Schema.Array(
+  InterviewQuestionDefinitionSchema,
+).pipe(
+  Schema.check(
+    Schema.makeFilter(
+      (questions) =>
+        new Set(questions.map((question) => question.questionId)).size === questions.length &&
+        questions.every((question, index) => question.ordinal === index),
+      { message: "question IDs and ordinals must be unique and contiguous from zero" },
+    ),
+  ),
+);
+export type RecruitmentInterviewQuestionSource =
+  typeof RecruitmentInterviewQuestionSourceSchema.Type;
+
+export class RecruitmentInterviewQuestionSnapshot extends Model.Class<RecruitmentInterviewQuestionSnapshot>(
+  "Recruitment.RecruitmentInterviewQuestionSnapshot",
+)({
+  interviewId: Model.Field({
+    select: RecruitmentInterviewId,
+    insert: RecruitmentInterviewId,
+    json: RecruitmentInterviewId,
+  }),
+  questionId: Model.Field({
+    select: StableId,
+    insert: StableId,
+    json: StableId,
+  }),
+  ordinal: Model.Field({
+    select: NonNegative,
+    insert: NonNegative,
+    json: NonNegative,
+  }),
+  prompt: Model.Field({
+    select: Schema.String,
+    insert: Schema.String,
+    json: Schema.String,
+  }),
+  helpText: Model.Field({
+    select: Schema.NullOr(Schema.String),
+    insert: Schema.NullOr(Schema.String),
+    json: Schema.NullOr(Schema.String),
+  }),
+  kind: Model.Field({
+    select: RecruitmentInterviewQuestionKindSchema,
+    insert: RecruitmentInterviewQuestionKindSchema,
+    json: RecruitmentInterviewQuestionKindSchema,
+  }),
+  alternatives: Model.Field({
+    select: Schema.Array(Schema.String),
+    insert: Schema.Array(Schema.String),
+    json: Schema.Array(Schema.String),
+  }),
+}) {}
+
+export type RecruitmentInterviewQuestionSnapshotSelect =
+  typeof RecruitmentInterviewQuestionSnapshot.Encoded;
+export type RecruitmentInterviewQuestionSnapshotInsert =
+  typeof RecruitmentInterviewQuestionSnapshot.insert.Encoded;
+export type RecruitmentInterviewQuestionSnapshotJson =
+  typeof RecruitmentInterviewQuestionSnapshot.json.Type;
+export type RecruitmentInterviewQuestionSnapshotValue =
+  typeof RecruitmentInterviewQuestionSnapshot.Type;
 
 export const RecruitmentAssignmentCommandId = StableId.pipe(
   Schema.brand("RecruitmentAssignmentCommandId"),
