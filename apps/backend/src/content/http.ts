@@ -1,5 +1,7 @@
 import {
   ArticleId,
+  Content,
+  ContentManagement,
   ContentWorkspaceQuerySchema,
   CreateArticleDraftInputSchema,
   PublishArticleInputSchema,
@@ -8,14 +10,7 @@ import {
   type ContentWorkspaceQuery,
 } from "@vektorprogrammet/domain/content";
 import type { OrganizationAuthorityInstant, PersonId } from "@vektorprogrammet/domain/organization";
-import {
-  createDraftPostgres,
-  publishPostgres,
-  readWorkspacePostgres,
-  reviseDraftPostgres,
-  unpublishPostgres,
-} from "@vektorprogrammet/domain/content";
-import { Schema } from "effect";
+import { Effect, Schema } from "effect";
 import type { BackendRun } from "../router.js";
 
 export interface ContentRequestActor {
@@ -209,13 +204,23 @@ export const makeContentManagementApiHttp = (
       if (request.method === "GET" && pathname === "/api/admin/content/workspace") {
         const query = departmentFromQuery(request);
         const actor = await resolveActor(request);
-        const workspace = await run(readWorkspacePostgres({ ...contextOf(actor), query }));
+        const workspace = await run(
+          Effect.gen(function* () {
+            const content = yield* ContentManagement;
+            return yield* content.readWorkspace(contextOf(actor), query);
+          }),
+        );
         return jsonResponse(workspace);
       }
       if (request.method === "POST" && pathname === "/api/admin/content/drafts") {
         const command = await decodeCreateBody(request);
         const actor = await resolveActor(request);
-        const observation = await run(createDraftPostgres({ command, ...contextOf(actor) }));
+        const observation = await run(
+          Effect.gen(function* () {
+            const content = yield* ContentManagement;
+            return yield* content.createDraft(command, contextOf(actor));
+          }),
+        );
         return jsonResponse(observation, 201, noStore);
       }
       const reviseMatch = /^\/api\/admin\/content\/articles\/(\d+)$/.exec(pathname);
@@ -226,7 +231,12 @@ export const makeContentManagementApiHttp = (
           throw new ContentHttpDecodeError("article body and path identifiers must match");
         }
         const actor = await resolveActor(request);
-        const observation = await run(reviseDraftPostgres({ command, ...contextOf(actor) }));
+        const observation = await run(
+          Effect.gen(function* () {
+            const content = yield* ContentManagement;
+            return yield* content.reviseDraft(command, contextOf(actor));
+          }),
+        );
         return jsonResponse(observation, 200, noStore);
       }
       const publishMatch = /^\/api\/admin\/content\/articles\/(\d+)\/publish$/.exec(pathname);
@@ -240,7 +250,12 @@ export const makeContentManagementApiHttp = (
           throw new ContentHttpDecodeError("article body and path identifiers must match");
         }
         const actor = await resolveActor(request);
-        const observation = await run(publishPostgres({ command, ...contextOf(actor) }));
+        const observation = await run(
+          Effect.gen(function* () {
+            const content = yield* ContentManagement;
+            return yield* content.publish(command, contextOf(actor));
+          }),
+        );
         return jsonResponse(observation, 200, noStore);
       }
       const unpublishMatch = /^\/api\/admin\/content\/articles\/(\d+)\/unpublish$/.exec(pathname);
@@ -254,7 +269,12 @@ export const makeContentManagementApiHttp = (
           throw new ContentHttpDecodeError("article body and path identifiers must match");
         }
         const actor = await resolveActor(request);
-        const observation = await run(unpublishPostgres({ command, ...contextOf(actor) }));
+        const observation = await run(
+          Effect.gen(function* () {
+            const content = yield* ContentManagement;
+            return yield* content.unpublish(command, contextOf(actor));
+          }),
+        );
         return jsonResponse(observation, 200, noStore);
       }
       return jsonResponse({ error: { tag: "RouteNotFound" } }, 404);
@@ -265,23 +285,31 @@ export const makeContentManagementApiHttp = (
 });
 
 /** Public news adapter: unauthenticated reads with no-store semantics. */
-export const makePublicNewsApiHttp = (
-  readNewsListing: () => Promise<unknown>,
-  readPublishedArticle: (slug: string, versionNumber?: number) => Promise<unknown>,
-): ContentApiHttp => ({
+export const makePublicNewsApiHttp = (run: BackendRun): ContentApiHttp => ({
   fetch: async (request) => {
     const url = new URL(request.url);
     try {
       if (request.method === "GET" && url.pathname === "/api/news") {
         departmentFromQuery(request);
-        const listing = await readNewsListing();
+        const listing = await run(
+          Effect.gen(function* () {
+            const content = yield* Content;
+            return yield* content.readNewsListing();
+          }),
+        );
         return jsonResponse(listing, 200, noStore);
       }
       const detailMatch = /^\/api\/news\/([^/]+)$/.exec(url.pathname);
       if (request.method === "GET" && detailMatch !== null) {
         const slug = slugFromPath(url.pathname);
         try {
-          const article = await readPublishedArticle(slug, versionFromQuery(request));
+          const versionNumber = versionFromQuery(request);
+          const article = await run(
+            Effect.gen(function* () {
+              const content = yield* Content;
+              return yield* content.readPublishedArticle(slug, versionNumber);
+            }),
+          );
           return jsonResponse(article, 200, noStore);
         } catch (cause) {
           return errorResponse(cause, noStore);

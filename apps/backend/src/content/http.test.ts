@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { BackendRun } from "../router.js";
 import {
+  Content,
   ContentAuthorityInactive,
   ContentCommandConflict,
   ContentDecodeError,
@@ -32,6 +33,29 @@ const failingRun = (journeyFailure: unknown) => async (): Promise<never> => {
 
 const okActorRun = <A, E>(effect: Effect.Effect<A, E, never>): Promise<A> =>
   Effect.runPromise(effect);
+
+const makePublicApi = (
+  readNewsListing: () => Promise<unknown>,
+  readPublishedArticle: (slug: string, versionNumber?: number) => Promise<unknown>,
+) => {
+  const service = Content.of({
+    readNewsListing: () =>
+      Effect.tryPromise({
+        try: readNewsListing,
+        catch: (cause) => cause,
+      }) as never,
+    readPublishedArticle: (slug, versionNumber) =>
+      Effect.tryPromise({
+        try: () => readPublishedArticle(slug, versionNumber),
+        catch: (cause) => cause,
+      }) as never,
+  });
+  const run = <A, E, R>(effect: Effect.Effect<A, E, R>): Promise<A> =>
+    Effect.runPromise(
+      effect.pipe(Effect.provideService(Content, service)) as Effect.Effect<A, E, never>,
+    );
+  return makePublicNewsApiHttp(run as BackendRun);
+};
 
 const jsonRequest = (url: string, method: string, body?: unknown): Request =>
   new Request(`http://backend.test${url}`, {
@@ -239,7 +263,7 @@ describe("content http boundaries", () => {
     const readNewsListing = async (): Promise<never> => {
       throw Object.assign(new Error("gone"), { _tag: "ArticleNotFound" });
     };
-    const api = makePublicNewsApiHttp(readNewsListing, readPublishedArticle);
+    const api = makePublicApi(readNewsListing, readPublishedArticle);
     const missing = await api.fetch(jsonRequest("/api/news/finnes-ikke", "GET"));
     expect(missing.status).toBe(404);
     expect(missing.headers.get("cache-control")).toBe("no-store");
@@ -248,7 +272,7 @@ describe("content http boundaries", () => {
 
   it("serves the public listing with no-store headers", async () => {
     const listing = { articles: [{ slug: "a", title: "A", sticky: true }] };
-    const api = makePublicNewsApiHttp(
+    const api = makePublicApi(
       async () => listing,
       async () => ({}),
     );
