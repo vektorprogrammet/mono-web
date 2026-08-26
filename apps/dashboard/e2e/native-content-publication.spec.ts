@@ -121,8 +121,13 @@ test.describe("Native Content publication (spec 0062)", () => {
       const failureAlert = administrator.page.getByRole("alert");
       await expect(failureAlert).toContainText("kunne ikke hentes");
       await failureAlert.getByRole("button", { name: "Prøv igjen" }).click();
+      const rowText = await administrator.page
+        .locator(".content-workspace__select")
+        .first()
+        .innerText();
+      process.stdout.write(`[row-text] ${JSON.stringify(rowText)}\n`);
       await expect(
-        administrator.page.getByText("Kladd fra forfatter", { exact: true }).first(),
+        administrator.page.getByRole("button", { name: /Kladd fra forfatter/ }).first(),
       ).toBeVisible();
 
       // Create a draft through the editor pane.
