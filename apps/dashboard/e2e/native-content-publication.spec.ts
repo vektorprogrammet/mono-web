@@ -140,7 +140,11 @@ test.describe("Native Content publication (spec 0062)", () => {
         .getByLabel(departmentAlpha, { exact: true })
         .check();
       await administrator.page.getByRole("button", { name: "Lagre kladd" }).click();
-      await expect(administrator.page.getByText("Fersk nyhet fra admin").first()).toBeVisible();
+      await expect(
+        administrator.page
+          .getByRole("button", { name: /Fersk nyhet fra admin/ })
+          .first(),
+      ).toBeVisible();
 
       // Revise the working copy.
       await administrator.page.getByLabel("Brødtekst").fill("<p>Revidert utkast.</p>");
