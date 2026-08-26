@@ -107,10 +107,13 @@ export async function action({ request }: Route.ActionArgs) {
     });
   }
 
-  const pathParts = url.pathname.split("/").filter(Boolean);
-  // /content/drafts/{id} | /content/drafts/{id}/publish | .../unpublish
-  const articleId = Number(pathParts[2]) as never;
-  const verb = pathParts[3];
+  // Single-endpoint convention (matching recruitment/profile bridges):
+  // POST /content with { operation, ...payload }.
+  const operation =
+    typeof (command as { operation?: unknown }).operation === "string"
+      ? (command as { operation: string }).operation
+      : "createDraft";
+  const articleId = Number((command as { articleId?: unknown }).articleId ?? 0) as never;
   const commandId = (command as { commandId: string }).commandId as never;
 
   try {

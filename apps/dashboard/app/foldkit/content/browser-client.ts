@@ -127,15 +127,11 @@ export const createBrowserContentWorkspaceClient = (): ContentWorkspaceClient =>
         ),
       createDraft: (command) => request("/content", "POST", command),
       reviseDraft: (command) =>
-        request(`/content/drafts/${command.articleId}`, "PATCH", command),
+        request("/content", "POST", { operation: "reviseDraft", ...command }),
       publish: (command) =>
-        request(`/content/drafts/${command.articleId}/publish`, "POST", {
-          commandId: command.commandId,
-        }),
+        request("/content", "POST", { operation: "publish", ...command }),
       unpublish: (command) =>
-        request(`/content/drafts/${command.articleId}/unpublish`, "POST", {
-          commandId: command.commandId,
-        }),
+        request("/content", "POST", { operation: "unpublish", ...command }),
     },
   },
 });
