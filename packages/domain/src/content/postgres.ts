@@ -160,8 +160,8 @@ export const readWorkspacePostgres = (input: {
               article.body_html AS "bodyHtml",
               article.sticky,
               article.created_by_person_id AS "createdByPersonId",
-              article.created_at AS "createdAt",
-              article.updated_at AS "updatedAt",
+              to_char(article.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "createdAt",
+              to_char(article.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "updatedAt",
               article.current_version_number AS "currentVersionNumber",
               article.revision
             FROM content_articles AS article
