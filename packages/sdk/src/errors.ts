@@ -853,6 +853,10 @@ export class ContentArticleNotFound extends Schema.TaggedError<ContentArticleNot
   "ArticleNotFound",
   {},
 ) {}
+export class ContentDepartmentNotFound extends Schema.TaggedError<ContentDepartmentNotFound>()(
+  "DepartmentNotFound",
+  {},
+) {}
 
 export class ContentIntegritySdkError extends Schema.TaggedError<ContentIntegritySdkError>()(
   "ContentIntegrityError",
