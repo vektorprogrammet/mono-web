@@ -93,7 +93,10 @@ const departmentIdsForArticles = (
             map.set(key, list);
           }
           for (const [key, list] of map) {
-            map.set(key, [...list].sort());
+            map.set(
+              key,
+              [...list].sort((left, right) => left.localeCompare(right)),
+            );
           }
           return map;
         }),
