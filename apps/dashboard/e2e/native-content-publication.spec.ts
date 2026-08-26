@@ -121,7 +121,7 @@ test.describe("Native Content publication (spec 0062)", () => {
 
       // Forced upstream failure renders a retry banner; retry succeeds.
       const failureAlert = administrator.page.getByRole("alert");
-      await expect(failureAlert).toContainText("kunne ikke hentes");
+      await expect(failureAlert).toContainText("midlertidig utilgjengelig");
       await failureAlert.getByRole("button", { name: "Prøv igjen" }).click();
       await expect(
         administrator.page.getByRole("button", { name: /Kladd fra forfatter/ }).first(),
