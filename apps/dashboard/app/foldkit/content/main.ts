@@ -17,10 +17,10 @@ export const embedContentWorkspace = (
   container: HTMLElement,
   input: ContentWorkspaceRuntimeInput,
 ): (() => void) => {
-  const load = makeContentWorkspaceCommands(input.client);
+  const { LoadWorkspace } = makeContentWorkspaceCommands(input.client);
   const initialModel = makeInitialModel();
   const commandFactories: WorkspaceCommandFactories = {
-    LoadWorkspace: load.LoadWorkspace,
+    LoadWorkspace,
     SubmitCreate: ({ requestId, commandId, title, bodyHtml, departmentIds, sticky }) => ({
       name: "SubmitContentCreate",
       args: { requestId },
@@ -35,7 +35,7 @@ export const embedContentWorkspace = (
               }) as unknown as Message),
             ),
           );
-        return yield* load.LoadWorkspace({ requestId: requestId + 1 }).effect;
+        return yield* LoadWorkspace({ requestId: requestId + 1 }).effect;
       }),
     }),
     SubmitRevise: ({
@@ -53,7 +53,7 @@ export const embedContentWorkspace = (
       effect: input.client.admin.content
         .reviseDraft({ commandId, articleId, expectedRevision, title, bodyHtml, departmentIds, sticky } as never)
         .pipe(
-          Effect.flatMap(() => load.LoadWorkspace({ requestId: requestId + 1 }).effect),
+          Effect.flatMap(() => LoadWorkspace({ requestId: requestId + 1 }).effect),
           Effect.catch(() =>
             Effect.succeed(FailedCommand({
               requestId: requestId + 1,
@@ -68,7 +68,7 @@ export const embedContentWorkspace = (
       effect: input.client.admin.content
         .publish({ commandId, articleId } as never)
         .pipe(
-          Effect.flatMap(() => load.LoadWorkspace({ requestId: requestId + 1 }).effect),
+          Effect.flatMap(() => LoadWorkspace({ requestId: requestId + 1 }).effect),
           Effect.catch(() =>
             Effect.succeed(FailedCommand({
               requestId: requestId + 1,
@@ -83,7 +83,7 @@ export const embedContentWorkspace = (
       effect: input.client.admin.content
         .unpublish({ commandId, articleId } as never)
         .pipe(
-          Effect.flatMap(() => load.LoadWorkspace({ requestId: requestId + 1 }).effect),
+          Effect.flatMap(() => LoadWorkspace({ requestId: requestId + 1 }).effect),
           Effect.catch(() =>
             Effect.succeed(FailedCommand({
               requestId: requestId + 1,

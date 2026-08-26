@@ -1,13 +1,14 @@
 import type { InternalSdkError } from "@vektorprogrammet/sdk/effect";
+import { Effect, Schema as S } from "effect";
+import { Command } from "foldkit";
+import type { ContentWorkspaceClient } from "./browser-client";
+import { FailedCommand, FailedWorkspace, LoadedWorkspace, type Message } from "./message";
 import type {
   CreateContentDraftCommand,
   PublicationTransitionCommand,
   ReviseContentDraftCommand,
 } from "@vektorprogrammet/sdk/effect";
-import { Effect } from "effect";
-import { Command } from "foldkit";
-import type { ContentWorkspaceClient } from "./browser-client";
-import { FailedWorkspace, LoadedWorkspace, type Message } from "./message";
+import type { WorkspaceCommandFactories } from "./update";
 
 export interface ContentWorkspaceCommands {
   readonly LoadWorkspace: (args: { readonly requestId: number }) => Command.Command<Message>;
@@ -74,19 +75,28 @@ export interface WorkspaceCommandDeps {
 
 export const makeContentWorkspaceCommands = (
   client: ContentWorkspaceClient,
-): {
-  readonly LoadWorkspace: (args: { readonly requestId: number }) => Command.Command<Message>;
-} => ({
-  LoadWorkspace: ({ requestId }) => ({
-    name: "LoadContentWorkspace",
-    args: { requestId },
-    effect: client.admin.content.workspace().pipe(
-      Effect.map((workspace) => LoadedWorkspace({ requestId, workspace })),
-      Effect.catch((error) =>
-        Effect.succeed(FailedWorkspace({ requestId, failure: failureFrom(error) })),
+  ): { LoadWorkspace: WorkspaceCommandFactories["LoadWorkspace"] } => {
+  const loadDefinition = Command.define("LoadContentWorkspace", {
+    args: { requestId: S.Int.check(S.isGreaterThanOrEqualTo(1)) },
+    messages: [LoadedWorkspace, FailedWorkspace],
+    execute: ({ requestId }: { readonly requestId: number }) =>
+      client.admin.content.workspace().pipe(
+        Effect.map((workspace) => LoadedWorkspace({ requestId, workspace })),
+        Effect.catch(() =>
+          Effect.succeed(FailedWorkspace({
+            requestId,
+            failure: { _tag: "Failed" as const, message: "Lagring feilet. Prøv på nytt." },
+          })),
+        ),
       ),
-    ),
-  }),
-});
+  });
+
+  const LoadWorkspace: WorkspaceCommandFactories["LoadWorkspace"] = ({ requestId }) =>
+    loadDefinition({ requestId });
+
+  return {
+    LoadWorkspace,
+  };
+};
 
 export { failureFrom };
