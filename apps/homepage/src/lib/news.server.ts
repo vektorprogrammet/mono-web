@@ -1,5 +1,5 @@
 import type { PublishedNewsArticle, PublishedNewsListing } from "@vektorprogrammet/sdk";
-import { NotFoundError } from "@vektorprogrammet/sdk";
+import { ContentRejectionError, NotFoundError } from "@vektorprogrammet/sdk";
 import { createHomepageApiClient } from "./api.server";
 import {
   applyDepartmentFilter,
@@ -25,7 +25,9 @@ const upstreamFailure = (): Response =>
 
 const notFound = (): Response => new Response("Nyheten finnes ikke.", { status: 404 });
 
-const isNotFoundLike = (error: unknown): boolean => error instanceof NotFoundError;
+const isNotFoundLike = (error: unknown): boolean =>
+  error instanceof NotFoundError ||
+  (error instanceof ContentRejectionError && error.contentTag === "ArticleNotFound");
 
 const readListing = async (departmentId: string | null): Promise<PublishedNewsListing> => {
   const client = createHomepageApiClient();

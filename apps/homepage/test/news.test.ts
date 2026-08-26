@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { NotFoundError } from "@vektorprogrammet/sdk";
+import { ContentRejectionError } from "@vektorprogrammet/sdk";
 
 const mocks = vi.hoisted(() => {
   let listingCalls = 0;
@@ -44,7 +44,7 @@ vi.mock("../src/lib/api.server", () => ({
             ("notFound" in article && article.notFound) ||
             input?.version === 99
           ) {
-            throw new NotFoundError(`not found: ${slug}`);
+            throw new ContentRejectionError("ArticleNotFound");
           }
           if ("networkError" in article && article.networkError) {
             throw new (class extends Error {
