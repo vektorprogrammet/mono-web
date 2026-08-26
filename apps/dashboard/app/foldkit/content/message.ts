@@ -1,15 +1,26 @@
-import { ArticleId, ContentWorkspaceSchema, DepartmentId } from "@vektorprogrammet/sdk/effect";
+import {
+  ArticleId,
+  ContentArticleDetailSchema,
+  ContentWorkspaceSchema,
+  CreateArticleDraftObservationSchema,
+  DepartmentId,
+} from "@vektorprogrammet/sdk/effect";
 import { Schema as S } from "effect";
 import { m } from "foldkit/message";
-import { ContentFailure, ContentRequestId } from "./model";
+import { ContentFailure, ContentRequestId, KnownDepartmentSchema } from "./model";
 
 export const LoadedWorkspace = m("LoadedWorkspace", {
   requestId: ContentRequestId,
   workspace: ContentWorkspaceSchema,
+  knownDepartments: S.Array(KnownDepartmentSchema),
 });
 export const FailedWorkspace = m("FailedWorkspace", {
   requestId: ContentRequestId,
   failure: ContentFailure,
+});
+export const LoadedArticleDetail = m("LoadedArticleDetail", {
+  requestId: ContentRequestId,
+  detail: ContentArticleDetailSchema,
 });
 export const RetriedWorkspace = m("RetriedWorkspace");
 
@@ -28,7 +39,10 @@ export const SubmittedCreate = m("SubmittedCreate", { commandId: S.String });
 export const SubmittedRevise = m("SubmittedRevise", { commandId: S.String });
 export const SucceededSave = m("SucceededSave", {
   requestId: ContentRequestId,
-  workspace: ContentWorkspaceSchema,
+  draft: CreateArticleDraftObservationSchema,
+});
+export const SucceededTransition = m("SucceededTransition", {
+  requestId: ContentRequestId,
 });
 export const FailedCommand = m("FailedCommand", {
   requestId: ContentRequestId,
@@ -56,7 +70,7 @@ export const DeselectedArticle = m("DeselectedArticle");
 
 export const Message = S.Union([
   LoadedWorkspace,
-  DeselectedArticle,
+  LoadedArticleDetail,
   FailedWorkspace,
   RetriedWorkspace,
   SelectedArticle,
@@ -66,6 +80,7 @@ export const Message = S.Union([
   SubmittedRevise,
   SucceededSave,
   FailedCommand,
+  SucceededTransition,
   SubmittedPublish,
   SubmittedUnpublish,
   ChangedDepartmentFilter,

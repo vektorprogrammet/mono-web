@@ -3,10 +3,8 @@ import { ContentRejectionError, NotFoundError } from "@vektorprogrammet/sdk";
 import { createHomepageApiClient } from "./api.server";
 import {
   applyDepartmentFilter,
-  isBodySafeForRender,
   NEWS_TEASER_COUNT,
   resolveDepartmentFilter,
-  stripUnsafeBody,
   type NewsDetailData,
   type NewsListingData,
 } from "./news";
@@ -73,18 +71,21 @@ export const loadNewsArticle = async (
   if (version !== undefined && (!Number.isSafeInteger(version) || version <= 0)) {
     throw notFound();
   }
-  let article: PublishedNewsArticle;
   try {
-    article = await client.public.news.read(slug, version === undefined ? {} : { version });
+    const [article, listing] = await Promise.all([
+      client.public.news.read(slug, version === undefined ? {} : { version }),
+      client.public.news.list({}),
+    ]);
+    return {
+      article,
+      otherNews: listing.articles
+        .filter((summary) => summary.slug !== article.slug)
+        .slice(0, NEWS_TEASER_COUNT),
+    };
   } catch (error) {
     // A draft, withdrawn article, unknown slug, or unknown immutable version
     // is the same plain 404.
     if (isNotFoundLike(error)) throw notFound();
     throw upstreamFailure();
   }
-  if (!isBodySafeForRender(article.bodyHtml)) {
-    // Defense-in-depth: strip instead of render if unsafe bytes ever surface.
-    return { article: { ...article, bodyHtml: stripUnsafeBody(article.bodyHtml) } };
-  }
-  return { article };
 };

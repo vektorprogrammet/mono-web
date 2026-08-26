@@ -6,6 +6,10 @@ import { makeEditorValues, type Model } from "./model";
 
 export interface WorkspaceCommandFactories {
   readonly LoadWorkspace: (args: { readonly requestId: number }) => Command.Command<Message>;
+  readonly LoadArticleDetail: (args: {
+    readonly requestId: number;
+    readonly articleId: number;
+  }) => Command.Command<Message>;
   readonly SubmitCreate: (args: {
     readonly requestId: number;
     readonly commandId: string;
@@ -54,10 +58,42 @@ export const makeUpdate =
     M.value(message).pipe(
       M.withReturnType<UpdateResult>(),
       M.tagsExhaustive({
-        LoadedWorkspace: ({ requestId, workspace }) => {
+        LoadedWorkspace: ({ requestId, workspace, knownDepartments }) => {
           // Stale-result rejection: a mismatched requestId leaves the Model unchanged.
           if (requestId !== model.requestId) return [model, []];
-          return [{ ...model, workspace: { _tag: "Success", data: workspace } }, []];
+          return [
+            {
+              ...model,
+              workspace: { _tag: "Success", data: workspace },
+              knownDepartments: [...knownDepartments],
+            },
+            [],
+          ];
+        },
+        LoadedArticleDetail: ({ requestId, detail }) => {
+          if (
+            requestId !== model.requestId ||
+            model.selectedArticleId !== detail.articleId ||
+            model.pendingCommand !== "Detail"
+          ) {
+            return [model, []];
+          }
+          return [
+            {
+              ...model,
+              selectedRevision: detail.revision,
+              editor: {
+                title: detail.title,
+                bodyHtml: detail.bodyHtml,
+                departmentIds: [...detail.departmentIds],
+                sticky: detail.sticky,
+              },
+              dirty: false,
+              pendingCommand: null,
+              banner: null,
+            },
+            [],
+          ];
         },
         FailedWorkspace: ({ requestId, failure }) => {
           if (requestId !== model.requestId) return [model, []];
@@ -67,6 +103,7 @@ export const makeUpdate =
           ];
         },
         RetriedWorkspace: () => {
+          if (model.pendingCommand !== null) return [model, []];
           // A retry creates a new request id.
           const requestId = model.requestId + 1;
           return [
@@ -81,27 +118,31 @@ export const makeUpdate =
           ];
         },
         SelectedArticle: ({ articleId }) => {
-          // Load detail into the editor pane; clear stale banners.
-          if (model.workspace._tag !== "Success") return [model, []];
+          if (model.workspace._tag !== "Success" || model.pendingCommand !== null) {
+            return [model, []];
+          }
           const entry = model.workspace.data.entries.find(
             (candidate) => candidate.articleId === articleId,
           );
           if (entry === undefined) return [model, []];
+          if (!entry.canRevise) return [model, []];
+          if (model.selectedArticleId === articleId && model.selectedRevision !== null) {
+            return [{ ...model, banner: null }, []];
+          }
+          const requestId = model.requestId + 1;
+          const changedSelection = model.selectedArticleId !== articleId;
           return [
             {
               ...model,
+              requestId,
               selectedArticleId: articleId,
               selectedRevision: null,
-              editor: {
-                title: entry.title,
-                bodyHtml: "",
-                departmentIds: [...entry.departmentIds],
-                sticky: entry.sticky,
-              },
-              dirty: false,
+              editor: changedSelection ? makeEditorValues() : model.editor,
+              dirty: changedSelection ? false : model.dirty,
+              pendingCommand: "Detail",
               banner: null,
             },
-            [],
+            [commands.LoadArticleDetail({ requestId, articleId })],
           ];
         },
         EditedField: ({ title, bodyHtml, sticky }) => [
@@ -129,10 +170,12 @@ export const makeUpdate =
           return [{ ...model, editor: { ...model.editor, departmentIds: next }, dirty: true }, []];
         },
         SubmittedCreate: ({ commandId }) => {
-          if (!model.dirty || model.selectedArticleId !== null) return [model, []];
+          if (!model.dirty || model.selectedArticleId !== null || model.pendingCommand !== null) {
+            return [model, []];
+          }
           const requestId = model.requestId + 1;
           return [
-            { ...model, requestId, dirty: false },
+            { ...model, requestId, pendingCommand: "Create", banner: null },
             [
               commands.SubmitCreate({
                 requestId,
@@ -146,7 +189,9 @@ export const makeUpdate =
           ];
         },
         SubmittedRevise: ({ commandId }) => {
-          if (!model.dirty) return [model, []];
+          if (!model.dirty || model.selectedRevision === null || model.pendingCommand !== null) {
+            return [model, []];
+          }
           const entry =
             model.workspace._tag === "Success" && model.selectedArticleId !== null
               ? model.workspace.data.entries.find(
@@ -156,13 +201,13 @@ export const makeUpdate =
           if (entry === undefined || !entry.canRevise) return [model, []];
           const requestId = model.requestId + 1;
           return [
-            { ...model, requestId, dirty: false },
+            { ...model, requestId, pendingCommand: "Revise", banner: null },
             [
               commands.SubmitRevise({
                 requestId,
                 commandId,
                 articleId: entry.articleId,
-                expectedRevision: model.selectedRevision ?? 0,
+                expectedRevision: model.selectedRevision,
                 title: model.editor.title,
                 bodyHtml: model.editor.bodyHtml,
                 departmentIds: model.editor.departmentIds,
@@ -171,42 +216,109 @@ export const makeUpdate =
             ],
           ];
         },
-        SucceededSave: ({ requestId, workspace }) => {
+        SucceededSave: ({ requestId, draft }) => {
           // A stale success leaves the Model unchanged.
           if (requestId !== model.requestId) return [model, []];
-          return [{ ...model, workspace: { _tag: "Success", data: workspace } }, []];
-        },
-        FailedCommand: ({ requestId, failure }) => {
-          // Show the typed safe failure; preserve selections. Stale failures
-          // leave the Model unchanged.
-          if (requestId !== model.requestId) return [model, []];
-          return [{ ...model, banner: failure }, []];
-        },
-        SubmittedPublish: ({ commandId }) => {
-          // Publisher capability must already hold in the Model.
-          if (model.workspace._tag !== "Success" || model.selectedArticleId === null)
-            return [model, []];
-          const entry = model.workspace.data.entries.find(
-            (candidate) => candidate.articleId === model.selectedArticleId,
-          );
-          if (entry === undefined || !entry.canPublish) return [model, []];
-          const requestId = model.requestId + 1;
+          const workspace =
+            model.workspace._tag === "Success"
+              ? {
+                  _tag: "Success" as const,
+                  data: {
+                    entries: model.workspace.data.entries.map((entry) =>
+                      entry.articleId === draft.articleId
+                        ? {
+                            ...entry,
+                            title: draft.title,
+                            slug: draft.slug,
+                            status:
+                              draft.currentVersionNumber === null
+                                ? ("Draft" as const)
+                                : ("Published" as const),
+                            sticky: draft.sticky,
+                            updatedAt: draft.updatedAt,
+                          }
+                        : entry,
+                    ),
+                  },
+                }
+              : model.workspace;
           return [
-            { ...model, requestId },
-            [commands.SubmitPublish({ requestId, commandId, articleId: entry.articleId })],
+            {
+              ...model,
+              workspace,
+              selectedArticleId: draft.articleId,
+              selectedRevision: draft.revision,
+              editor: {
+                title: draft.title,
+                bodyHtml: draft.bodyHtml,
+                departmentIds: [...model.editor.departmentIds],
+                sticky: draft.sticky,
+              },
+              dirty: false,
+              pendingCommand: null,
+              banner: null,
+            },
+            [commands.LoadWorkspace({ requestId })],
           ];
         },
-        SubmittedUnpublish: ({ commandId }) => {
-          if (model.workspace._tag !== "Success" || model.selectedArticleId === null)
+        SucceededTransition: ({ requestId }) => {
+          if (requestId !== model.requestId) return [model, []];
+          return [
+            { ...model, selectedRevision: null, pendingCommand: null, banner: null },
+            [commands.LoadWorkspace({ requestId })],
+          ];
+        },
+        FailedCommand: ({ requestId, failure }) => {
+          // Show the typed safe failure; preserve selection, editor, and dirty state.
+          if (requestId !== model.requestId) return [model, []];
+          return [
+            {
+              ...model,
+              selectedRevision: failure.tag === "CommandConflict" ? null : model.selectedRevision,
+              pendingCommand: null,
+              banner: failure,
+            },
+            [],
+          ];
+        },
+        SubmittedPublish: ({ commandId, articleId }) => {
+          if (model.workspace._tag !== "Success" || model.pendingCommand !== null) {
             return [model, []];
+          }
           const entry = model.workspace.data.entries.find(
-            (candidate) => candidate.articleId === model.selectedArticleId,
+            (candidate) => candidate.articleId === articleId,
           );
           if (entry === undefined || !entry.canPublish) return [model, []];
           const requestId = model.requestId + 1;
           return [
-            { ...model, requestId },
-            [commands.SubmitUnpublish({ requestId, commandId, articleId: entry.articleId })],
+            {
+              ...model,
+              requestId,
+              selectedArticleId: articleId,
+              pendingCommand: "Publish",
+              banner: null,
+            },
+            [commands.SubmitPublish({ requestId, commandId, articleId })],
+          ];
+        },
+        SubmittedUnpublish: ({ commandId, articleId }) => {
+          if (model.workspace._tag !== "Success" || model.pendingCommand !== null) {
+            return [model, []];
+          }
+          const entry = model.workspace.data.entries.find(
+            (candidate) => candidate.articleId === articleId,
+          );
+          if (entry === undefined || !entry.canPublish) return [model, []];
+          const requestId = model.requestId + 1;
+          return [
+            {
+              ...model,
+              requestId,
+              selectedArticleId: articleId,
+              pendingCommand: "Unpublish",
+              banner: null,
+            },
+            [commands.SubmitUnpublish({ requestId, commandId, articleId })],
           ];
         },
         ChangedDepartmentFilter: ({ departmentId }) => [
@@ -214,18 +326,20 @@ export const makeUpdate =
           { ...model, departmentFilter: departmentId },
           [],
         ],
-        DeselectedArticle: () => [
-          // Fresh-draft mode: empty editor, nothing selected.
-          {
-            ...model,
-            selectedArticleId: null,
-            selectedRevision: null,
-            editor: makeEditorValues(),
-            dirty: false,
-            banner: null,
-          },
-          [],
-        ],
+        DeselectedArticle: () => {
+          if (model.pendingCommand !== null) return [model, []];
+          return [
+            {
+              ...model,
+              selectedArticleId: null,
+              selectedRevision: null,
+              editor: makeEditorValues(),
+              dirty: false,
+              banner: null,
+            },
+            [],
+          ];
+        },
         DismissedBanner: () => [{ ...model, banner: null }, []],
       }),
     );

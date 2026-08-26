@@ -1,8 +1,10 @@
 import {
+  Configuration,
   ContentArticleNotFound,
   ContentAuthorityInactive,
   ContentCommandConflict,
   ContentDecodeError,
+  ContentDepartmentNotFound,
   ContentDraftNotOwned,
   ContentIntegritySdkError,
   ContentNotInScope,
@@ -10,29 +12,47 @@ import {
   ContentPersistenceSdkError,
   ContentSlugConflictSdkError,
   ContentUnauthenticatedActor,
-  ContentWorkspaceSchema,
-  type ContentWorkspace,
+  ContentArticleDetailSchema,
+  CreateArticleDraftObservationSchema,
+  Network,
+  PublishObservationSchema,
+  ReviseArticleDraftObservationSchema,
+  UnpublishObservationSchema,
+  type ContentArticleDetail,
+  type CreateArticleDraftObservation,
   type CreateContentDraftCommand,
   type InternalSdkError,
   type PublicationTransitionCommand,
+  type PublishObservation,
+  type ReviseArticleDraftObservation,
   type ReviseContentDraftCommand,
+  type UnpublishObservation,
 } from "@vektorprogrammet/sdk/effect";
 import { Effect, Schema as S } from "effect";
+import {
+  ContentBridgeFailureSchema,
+  ContentWorkspaceBootstrapSchema,
+  type ContentBridgeErrorTag,
+  type ContentWorkspaceBootstrap,
+} from "./bridge";
 
 export interface ContentWorkspaceOperations {
-  readonly workspace: () => Effect.Effect<ContentWorkspace, InternalSdkError>;
+  readonly workspace: () => Effect.Effect<ContentWorkspaceBootstrap, InternalSdkError>;
+  readonly readArticle: (
+    articleId: number,
+  ) => Effect.Effect<ContentArticleDetail, InternalSdkError>;
   readonly createDraft: (
     command: CreateContentDraftCommand,
-  ) => Effect.Effect<ContentWorkspace, InternalSdkError>;
+  ) => Effect.Effect<CreateArticleDraftObservation, InternalSdkError>;
   readonly reviseDraft: (
     command: ReviseContentDraftCommand,
-  ) => Effect.Effect<ContentWorkspace, InternalSdkError>;
+  ) => Effect.Effect<ReviseArticleDraftObservation, InternalSdkError>;
   readonly publish: (
     command: PublicationTransitionCommand,
-  ) => Effect.Effect<ContentWorkspace, InternalSdkError>;
+  ) => Effect.Effect<PublishObservation, InternalSdkError>;
   readonly unpublish: (
     command: PublicationTransitionCommand,
-  ) => Effect.Effect<ContentWorkspace, InternalSdkError>;
+  ) => Effect.Effect<UnpublishObservation, InternalSdkError>;
 }
 
 export interface ContentWorkspaceClient {
@@ -42,10 +62,9 @@ export interface ContentWorkspaceClient {
 }
 
 /**
- * Maps the bridge's `{ error: { tag } }` body onto the SDK's own typed
- * internal errors so downstream failureFrom() can read `contentTag`/`_tag`.
+ * Maps the bridge's strictly decoded tag onto the SDK's typed internal errors.
  */
-const failureFromTag = (tag: string): InternalSdkError => {
+const failureFromTag = (tag: ContentBridgeErrorTag): InternalSdkError => {
   switch (tag) {
     case "UnauthenticatedActor":
       return new ContentUnauthenticatedActor();
@@ -63,12 +82,18 @@ const failureFromTag = (tag: string): InternalSdkError => {
       return new ContentCommandConflict();
     case "ArticleNotFound":
       return new ContentArticleNotFound();
+    case "DepartmentNotFound":
+      return new ContentDepartmentNotFound();
+    case "ContentDecodeError":
+      return new ContentDecodeError();
     case "ContentIntegrityError":
       return new ContentIntegritySdkError();
     case "ContentPersistenceError":
       return new ContentPersistenceSdkError();
-    default:
-      return new ContentDecodeError();
+    case "Network":
+      return new Network({ message: "Content bridge request failed" });
+    case "Configuration":
+      return new Configuration({ message: "Content bridge is not configured" });
   }
 };
 
@@ -91,45 +116,61 @@ const readBridge = async (
 };
 
 const request = <A>(
+  schema: S.Decoder<A, never>,
   url: string,
   method: string,
   body?: unknown,
 ): Effect.Effect<A, InternalSdkError> =>
   Effect.tryPromise({
     try: () => readBridge(url, method, body),
-    catch: () => failureFromTag("Network"),
+    catch: (cause) => new Network({ message: "Content bridge request failed", cause }),
   }).pipe(
-    Effect.flatMap(({ response, payload }) =>
-      response.ok ? Effect.succeed(payload as A) : Effect.fail(failureFromTag(readTag(payload))),
-    ),
+    Effect.flatMap(({ response, payload }) => {
+      if (!response.ok) {
+        try {
+          const failure = S.decodeUnknownSync(ContentBridgeFailureSchema)(payload, {
+            onExcessProperty: "error",
+          });
+          return Effect.fail(failureFromTag(failure.error.tag));
+        } catch {
+          return Effect.fail(new ContentDecodeError());
+        }
+      }
+      return S.decodeUnknownEffect(schema)(payload, {
+        onExcessProperty: "error",
+      }).pipe(Effect.mapError(() => new ContentDecodeError()));
+    }),
   );
-
-const readTag = (payload: unknown): string => {
-  if (typeof payload === "object" && payload !== null && "error" in payload) {
-    const error = (payload as { readonly error: unknown }).error;
-    if (typeof error === "object" && error !== null && "tag" in error) {
-      return String((error as { readonly tag: unknown }).tag);
-    }
-  }
-  return "ContentPersistenceError";
-};
 
 export const createBrowserContentWorkspaceClient = (): ContentWorkspaceClient => ({
   admin: {
     content: {
-      workspace: () =>
-        request("/content", "GET").pipe(
-          Effect.flatMap((payload) =>
-            S.decodeUnknownEffect(ContentWorkspaceSchema)(payload, {
-              onExcessProperty: "error",
-            }).pipe(Effect.mapError(() => failureFromTag("ContentDecodeError"))),
-          ),
-        ),
-      createDraft: (command) => request("/content", "POST", command),
+      workspace: () => request(ContentWorkspaceBootstrapSchema, "/content", "GET"),
+      readArticle: (articleId) =>
+        request(ContentArticleDetailSchema, "/content", "POST", {
+          operation: "readArticle",
+          articleId,
+        }),
+      createDraft: (command) =>
+        request(CreateArticleDraftObservationSchema, "/content", "POST", {
+          operation: "createDraft",
+          ...command,
+        }),
       reviseDraft: (command) =>
-        request("/content", "POST", { operation: "reviseDraft", ...command }),
-      publish: (command) => request("/content", "POST", { operation: "publish", ...command }),
-      unpublish: (command) => request("/content", "POST", { operation: "unpublish", ...command }),
+        request(ReviseArticleDraftObservationSchema, "/content", "POST", {
+          operation: "reviseDraft",
+          ...command,
+        }),
+      publish: (command) =>
+        request(PublishObservationSchema, "/content", "POST", {
+          operation: "publish",
+          ...command,
+        }),
+      unpublish: (command) =>
+        request(UnpublishObservationSchema, "/content", "POST", {
+          operation: "unpublish",
+          ...command,
+        }),
     },
   },
 });

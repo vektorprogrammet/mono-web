@@ -77,7 +77,7 @@ const isAdmissionRoute = (pathname: string): boolean =>
   pathname.startsWith("/api/applications/");
 const isContentStaffRoute = (pathname: string): boolean =>
   pathname === "/api/admin/content/workspace" ||
-  pathname === "/api/admin/content/drafts" ||
+  pathname === "/api/admin/content/articles" ||
   pathname.startsWith("/api/admin/content/articles/");
 const isPublicNewsPath = (pathname: string): boolean =>
   pathname === "/api/news" || pathname.startsWith("/api/news/");

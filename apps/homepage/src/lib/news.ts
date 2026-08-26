@@ -22,9 +22,11 @@ export interface NewsListingData {
 
 export interface NewsDetailData {
   readonly article: PublishedNewsArticle;
+  readonly otherNews: readonly PublishedNewsSummary[];
 }
 
 export const NEWS_TEASER_COUNT = 5;
+export const NEWS_PAGE_SIZE = 10;
 
 /** Sticky-first first-five slice of the SAME listing read (law: teaser). */
 export const teaserFrom = (listing: PublishedNewsListing): readonly PublishedNewsSummary[] =>
@@ -66,32 +68,18 @@ export const applyDepartmentFilter = (
   departmentId === null
     ? listing
     : {
-        articles: listing.articles.filter((article) =>
-          article.departmentIds.includes(departmentId as never),
+        articles: listing.articles.filter(
+          (article) =>
+            article.departmentIds.length === 0 ||
+            article.departmentIds.includes(departmentId as never),
         ),
       };
 
-/**
- * Defense-in-depth body check before any public render.
- *
- * Primary sanitization happens at WRITE time in the backend
- * (@vektorprogrammet/domain content sanitizer, spec law 6 / DoD item 15):
- * stored bytes cannot carry script/iframe because every create/revise runs
- * the write-time sanitizer and refuses unclosed script documents. This
- * re-check guarantees no stored byte escapes to HTML even if an older row
- * predates the sanitizer contract.
- */
-const FORBIDDEN_BODY_PATTERN =
-  /<(script|iframe|object|embed)\b|<\/(script|iframe)>|\son[a-z]+\s*=|(?:javascript|vbscript)\s*:/i;
-
-export const isBodySafeForRender = (bodyHtml: string): boolean =>
-  !FORBIDDEN_BODY_PATTERN.test(bodyHtml);
-
-export const stripUnsafeBody = (bodyHtml: string): string =>
-  bodyHtml
-    .replaceAll(/<!--[\s\S]*?-->/g, "")
-    .replace(/<(script|iframe|object|embed)\b[\s\S]*?<\/\1\s*>/gi, "")
-    .replace(/<\/?(script|iframe|object|embed)\b[^>]*>/gi, "")
-    .replace(/\son[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, "");
+export const paginateNewsListing = (
+  listing: PublishedNewsListing,
+  page: number,
+): PublishedNewsListing => ({
+  articles: listing.articles.slice((page - 1) * NEWS_PAGE_SIZE, page * NEWS_PAGE_SIZE),
+});
 
 export type { ContentWorkspace };

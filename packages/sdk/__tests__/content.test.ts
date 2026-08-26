@@ -1,9 +1,14 @@
 import { Schema } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  ContentArticleDetailSchema,
   ContentWorkspaceSchema,
+  CreateArticleDraftObservationSchema,
   CreateContentDraftCommandSchema,
+  PublishObservationSchema,
   PublishedNewsArticleSchema,
+  ReviseArticleDraftObservationSchema,
+  UnpublishObservationSchema,
 } from "../src/schemas/content.js";
 import { ContentRejectionError, createClient } from "../src/promise.js";
 
@@ -39,6 +44,40 @@ const validWorkspace = {
       authorDisplayName: "Forfatter",
     },
   ],
+};
+
+const validDraftObservation = {
+  articleId: 7,
+  title: "Tittel",
+  slug: "tittel",
+  bodyHtml: "<p>Brødtekst</p>",
+  sticky: false,
+  createdAt: "2031-01-01T00:00:00.000Z",
+  updatedAt: "2031-01-01T00:01:00.000Z",
+  currentVersionNumber: null,
+  revision: 0,
+};
+const validDetail = {
+  ...validDraftObservation,
+  status: "Draft",
+  departmentIds: ["dep-1"],
+  canRevise: true,
+  canPublish: false,
+  authorDisplayName: "Forfatter",
+};
+
+const validPublishObservation = {
+  _tag: "Published",
+  commandId: "publish-1",
+  articleId: 7,
+  versionNumber: 1,
+  publishedAt: "2031-01-01T00:02:00.000Z",
+};
+
+const validUnpublishObservation = {
+  _tag: "Unpublished",
+  commandId: "unpublish-1",
+  articleId: 7,
 };
 
 afterEach(() => {
@@ -83,6 +122,27 @@ describe("content sdk schemas", () => {
     ).toBeUndefined();
   });
 
+  it("uses distinct strict schemas for every mutation observation", () => {
+    const observations = [
+      [CreateArticleDraftObservationSchema, validDraftObservation],
+      [ReviseArticleDraftObservationSchema, { ...validDraftObservation, revision: 1 }],
+      [PublishObservationSchema, validPublishObservation],
+      [UnpublishObservationSchema, validUnpublishObservation],
+    ] as const;
+
+    for (const [schema, observation] of observations) {
+      expect(strictDecode(schema as never, observation)).toEqual(observation);
+      expect(strictDecode(schema as never, { ...observation, extra: true })).toBeUndefined();
+      expect(
+        strictDecode(schema as never, { ...observation, "hydra:member": [observation] }),
+      ).toBeUndefined();
+    }
+    const { revision: _, ...missingRevision } = validDraftObservation;
+    expect(strictDecode(CreateArticleDraftObservationSchema, missingRevision)).toBeUndefined();
+    expect(strictDecode(PublishObservationSchema, validUnpublishObservation)).toBeUndefined();
+    expect(strictDecode(UnpublishObservationSchema, validPublishObservation)).toBeUndefined();
+  });
+
   it("decodes the public article with previous versions", () => {
     const article = {
       slug: "nyhet",
@@ -118,18 +178,26 @@ describe("content sdk schemas", () => {
       entries: [{ ...validWorkspace.entries[0], createdByPersonId: "person-9" }],
     };
     expect(strictDecode(ContentWorkspaceSchema, leaked)).toBeUndefined();
+    expect(strictDecode(ContentArticleDetailSchema, validDetail)).toEqual(validDetail);
+    expect(
+      strictDecode(ContentArticleDetailSchema, {
+        ...validDetail,
+        createdByPersonId: "person-9",
+      }),
+    ).toBeUndefined();
   });
 });
 
 describe("content sdk transport", () => {
-  it("uses exactly the five frozen staff methods and paths", async () => {
+  it("uses exactly the six frozen 0062.1 staff methods and paths", async () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(response(200, validWorkspace))
-      .mockResolvedValueOnce(response(201, {}))
-      .mockResolvedValueOnce(response(200, {}))
-      .mockResolvedValueOnce(response(200, {}))
-      .mockResolvedValueOnce(response(200, {}));
+      .mockResolvedValueOnce(response(200, validDetail))
+      .mockResolvedValueOnce(response(201, validDraftObservation))
+      .mockResolvedValueOnce(response(200, { ...validDraftObservation, revision: 1 }))
+      .mockResolvedValueOnce(response(200, validPublishObservation))
+      .mockResolvedValueOnce(response(200, validUnpublishObservation));
     vi.stubGlobal("fetch", fetchMock);
     const client = createClient("http://api.test", {
       cookie: "better-auth.session_token=content-session",
@@ -148,20 +216,33 @@ describe("content sdk transport", () => {
       sticky: false,
     };
 
-    await client.admin.content.workspace();
-    await client.admin.content.createDraft(create as never);
-    await client.admin.content.reviseDraft(revise as never);
-    await client.admin.content.publish({ commandId: "publish-1", articleId: 7 as never });
-    await client.admin.content.unpublish({ commandId: "unpublish-1", articleId: 7 as never });
+    const results = [
+      await client.admin.content.workspace(),
+      await client.admin.content.read(7 as never),
+      await client.admin.content.createDraft(create as never),
+      await client.admin.content.reviseDraft(revise as never),
+      await client.admin.content.publish({ commandId: "publish-1", articleId: 7 as never }),
+      await client.admin.content.unpublish({ commandId: "unpublish-1", articleId: 7 as never }),
+    ];
+    expect(results).toEqual([
+      validWorkspace,
+      validDetail,
+      validDraftObservation,
+      { ...validDraftObservation, revision: 1 },
+      validPublishObservation,
+      validUnpublishObservation,
+    ]);
 
     expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
       "http://api.test/api/admin/content/workspace",
-      "http://api.test/api/admin/content/drafts",
+      "http://api.test/api/admin/content/articles/7",
+      "http://api.test/api/admin/content/articles",
       "http://api.test/api/admin/content/articles/7",
       "http://api.test/api/admin/content/articles/7/publish",
       "http://api.test/api/admin/content/articles/7/unpublish",
     ]);
     expect(fetchMock.mock.calls.map(([, init]) => (init as RequestInit).method)).toEqual([
+      "GET",
       "GET",
       "POST",
       "PUT",
@@ -183,18 +264,71 @@ describe("content sdk transport", () => {
     expect(fetchMock.mock.calls.map(([, init]) => (init as RequestInit).method)).toEqual(["GET"]);
   });
 
-  it("preserves typed Content denial tags at the Promise boundary", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValueOnce(response(403, { error: { tag: "AuthorityInactive" } })),
-    );
-    const client = createClient("http://api.test");
+  it("preserves every declared Content rejection tag at the Promise boundary", async () => {
+    const cases = [
+      [401, "UnauthenticatedActor"],
+      [403, "AuthorityInactive"],
+      [403, "NotInScope"],
+      [403, "NotPublisher"],
+      [403, "DraftNotOwned"],
+      [422, "SlugConflict"],
+      [409, "CommandConflict"],
+      [404, "ArticleNotFound"],
+      [422, "DepartmentNotFound"],
+      [422, "ContentDecodeError"],
+      [503, "ContentIntegrityError"],
+      [503, "ContentPersistenceError"],
+    ] as const;
 
-    await expect(client.admin.content.workspace()).rejects.toEqual(
-      expect.objectContaining({
-        name: ContentRejectionError.name,
-        contentTag: "AuthorityInactive",
-      }),
-    );
+    for (const [status, tag] of cases) {
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(response(status, { error: { tag } })));
+      const client = createClient("http://api.test");
+      await expect(client.admin.content.workspace()).rejects.toEqual(
+        expect.objectContaining({
+          name: ContentRejectionError.name,
+          contentTag: tag,
+        }),
+      );
+    }
+  });
+
+  it("rejects unknown or polluted failure tags instead of preserving spoof values", async () => {
+    for (const body of [
+      { error: { tag: "MadeUpContentFailure" } },
+      { error: { tag: "NotInScope" }, "hydra:description": "spoof" },
+    ]) {
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(response(403, body)));
+      const client = createClient("http://api.test");
+      await expect(client.admin.content.workspace()).rejects.toEqual(
+        expect.objectContaining({
+          name: ContentRejectionError.name,
+          contentTag: "ContentDecodeError",
+        }),
+      );
+    }
+  });
+
+  it("rejects missing, excess, and Hydra mutation responses", async () => {
+    for (const body of [
+      {},
+      { ...validDraftObservation, excess: true },
+      { ...validDraftObservation, "hydra:member": [validDraftObservation] },
+    ]) {
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(response(201, body)));
+      const client = createClient("http://api.test");
+      await expect(
+        client.admin.content.createDraft({
+          commandId: "create-strict",
+          title: "Tittel",
+          bodyHtml: "<p>Brødtekst</p>",
+          departmentIds: [],
+        } as never),
+      ).rejects.toEqual(
+        expect.objectContaining({
+          name: ContentRejectionError.name,
+          contentTag: "ContentDecodeError",
+        }),
+      );
+    }
   });
 });

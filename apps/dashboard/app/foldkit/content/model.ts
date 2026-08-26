@@ -5,10 +5,28 @@ import { AsyncData } from "foldkit";
 
 export const ContentRequestId = S.Int.check(S.isGreaterThanOrEqualTo(1));
 
+export const ContentFailureTag = S.Literals([
+  "UnauthenticatedActor",
+  "AuthorityInactive",
+  "NotInScope",
+  "NotPublisher",
+  "DraftNotOwned",
+  "SlugConflict",
+  "CommandConflict",
+  "ArticleNotFound",
+  "DepartmentNotFound",
+  "ContentDecodeError",
+  "ContentIntegrityError",
+  "ContentPersistenceError",
+  "Network",
+  "Configuration",
+]);
+export type ContentFailureTag = S.Schema.Type<typeof ContentFailureTag>;
+
 /** Typed safe failure rendered as denial or failure banners. */
 export const ContentFailure = S.TaggedUnion({
-  Denied: { message: S.String },
-  Failed: { message: S.String },
+  Denied: { tag: ContentFailureTag, message: S.String },
+  Failed: { tag: ContentFailureTag, message: S.String },
 });
 export type ContentFailure = S.Schema.Type<typeof ContentFailure>;
 
@@ -18,6 +36,12 @@ const EditorValues = S.Struct({
   departmentIds: S.Array(DepartmentId),
   sticky: S.Boolean,
 });
+
+export const KnownDepartmentSchema = S.Struct({
+  departmentId: DepartmentId,
+  name: S.String,
+});
+export type KnownDepartment = S.Schema.Type<typeof KnownDepartmentSchema>;
 
 export const makeEditorValues = (): S.Schema.Type<typeof EditorValues> => ({
   title: "",
@@ -37,17 +61,13 @@ export const Model = S.Struct({
   requestId: ContentRequestId,
   retryCount: S.Int.check(S.isGreaterThanOrEqualTo(0)),
   selectedArticleId: S.NullOr(ArticleId),
-  /** The revision the editor form was seeded from; null when nothing loaded. */
+  /** Null when the selected row has no full ArticleDraftJson observation. */
   selectedRevision: S.NullOr(S.Int.check(S.isGreaterThanOrEqualTo(0))),
   editor: EditorValues,
   dirty: S.Boolean,
+  pendingCommand: S.NullOr(S.Literals(["Detail", "Create", "Revise", "Publish", "Unpublish"])),
   departmentFilter: S.NullOr(DepartmentId),
-  knownDepartments: S.Array(
-    S.Struct({
-      departmentId: DepartmentId,
-      name: S.String,
-    }),
-  ),
+  knownDepartments: S.Array(KnownDepartmentSchema),
   banner: S.NullOr(ContentFailure),
 });
 export type Model = S.Schema.Type<typeof Model>;
@@ -60,6 +80,7 @@ export const makeInitialModel = (): Model => ({
   selectedRevision: null,
   editor: makeEditorValues(),
   dirty: false,
+  pendingCommand: null,
   departmentFilter: null,
   knownDepartments: [],
   banner: null,

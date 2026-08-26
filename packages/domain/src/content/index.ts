@@ -1,6 +1,7 @@
 export * from "./actor.js";
 export * from "./content-service.js";
 export * from "./errors.js";
+export * from "./journeys.js";
 export * from "./news.js";
 export * from "./postgres-layer.js";
 export * from "./postgres.js";

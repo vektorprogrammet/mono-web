@@ -35,24 +35,35 @@ export const resolveContentActor = (
   if (authority.globalAdministrator === "Active") {
     return allow<ContentActor>({ _tag: "ContentAdministrator", personId: authority.personId });
   }
+  if (authority.globalAdministrator === "Inactive") {
+    return deny<ContentActor>("AuthorityInactive");
+  }
   let hasMembershipRecord = false;
-  const activeDepartmentIds = new Set<DepartmentId>();
+  const activeMemberships: Array<OrganizationAuthorityMembership> = [];
   for (const membership of authority.memberships as ReadonlyArray<OrganizationAuthorityMembership>) {
     hasMembershipRecord = true;
-    if (!membership.active) continue;
-    activeDepartmentIds.add(membership.departmentId);
+    if (membership.active) activeMemberships.push(membership);
   }
-  if (activeDepartmentIds.size === 0) {
+  if (activeMemberships.length === 0) {
     return deny<ContentActor>(hasMembershipRecord ? "AuthorityInactive" : "NotInScope");
   }
-  const departmentIds = [...activeDepartmentIds].sort(compareDepartmentId);
-  if (authority.memberships.some((membership) => membership.active && membership.teamLeader)) {
+  const leaderDepartmentIds = [
+    ...new Set(
+      activeMemberships
+        .filter((membership) => membership.teamLeader)
+        .map((membership) => membership.departmentId),
+    ),
+  ].sort(compareDepartmentId);
+  if (leaderDepartmentIds.length > 0) {
     return allow<ContentActor>({
       _tag: "ContentPublisher",
       personId: authority.personId,
-      departmentIds,
+      departmentIds: leaderDepartmentIds,
     });
   }
+  const departmentIds = [
+    ...new Set(activeMemberships.map((membership) => membership.departmentId)),
+  ].sort(compareDepartmentId);
   return allow<ContentActor>({
     _tag: "ContentEditor",
     personId: authority.personId,
@@ -72,7 +83,7 @@ export const contentScopeFor = (
     case "ContentPublisher":
       return { _tag: "DepartmentIds", departmentIds: actor.departmentIds };
     case "ContentEditor":
-      return { _tag: "All" };
+      return { _tag: "DepartmentIds", departmentIds: actor.departmentIds };
   }
 };
 

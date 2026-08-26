@@ -427,7 +427,8 @@ try {
   for (const entry of staffRequests) {
     const exact =
       (entry.method === "GET" && entry.pathname === "/api/admin/content/workspace") ||
-      (entry.method === "POST" && entry.pathname === "/api/admin/content/drafts") ||
+      (entry.method === "POST" && entry.pathname === "/api/admin/content/articles") ||
+      (entry.method === "GET" && /^\/api\/admin\/content\/articles\/\d+$/u.test(entry.pathname)) ||
       (entry.method === "PUT" && /^\/api\/admin\/content\/articles\/\d+$/u.test(entry.pathname)) ||
       (entry.method === "POST" &&
         /^\/api\/admin\/content\/articles\/\d+\/(?:publish|unpublish)$/u.test(entry.pathname));

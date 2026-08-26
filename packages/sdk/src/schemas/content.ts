@@ -172,8 +172,62 @@ export const ReviseContentDraftCommandSchema = Schema.Struct({
 });
 export type ReviseContentDraftCommand = typeof ReviseContentDraftCommandSchema.Type;
 
-/** The observation payload of every content command (decoded strictly). */
-export type WorkspaceObservationLike = Record<string, unknown>;
+const ArticleDraftObservationFields = {
+  articleId: ArticleId,
+  title: text(255),
+  slug: ContentWorkspaceEntrySchema.fields.slug,
+  bodyHtml: CreateContentDraftCommandSchema.fields.bodyHtml,
+  sticky: Schema.Boolean,
+  createdAt: Schema.String,
+  updatedAt: Schema.String,
+  currentVersionNumber: Schema.NullOr(ArticleVersionNumber),
+  revision: Schema.Int.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(0))),
+};
+
+/** Strict ArticleDraftJson returned only by create. */
+export const CreateArticleDraftObservationSchema = Schema.Struct({
+  ...ArticleDraftObservationFields,
+});
+export type CreateArticleDraftObservation = typeof CreateArticleDraftObservationSchema.Type;
+
+/** Strict ArticleDraftJson returned only by revise. */
+export const ReviseArticleDraftObservationSchema = Schema.Struct({
+  ...ArticleDraftObservationFields,
+});
+export type ReviseArticleDraftObservation = typeof ReviseArticleDraftObservationSchema.Type;
+export const ContentArticleDetailSchema = Schema.Struct({
+  articleId: ContentWorkspaceEntrySchema.fields.articleId,
+  title: ContentWorkspaceEntrySchema.fields.title,
+  slug: ContentWorkspaceEntrySchema.fields.slug,
+  status: ContentWorkspaceEntrySchema.fields.status,
+  bodyHtml: ArticleDraftObservationFields.bodyHtml,
+  sticky: ContentWorkspaceEntrySchema.fields.sticky,
+  createdAt: ArticleDraftObservationFields.createdAt,
+  updatedAt: ContentWorkspaceEntrySchema.fields.updatedAt,
+  currentVersionNumber: ArticleDraftObservationFields.currentVersionNumber,
+  revision: ArticleDraftObservationFields.revision,
+  departmentIds: ContentWorkspaceEntrySchema.fields.departmentIds,
+  canRevise: ContentWorkspaceEntrySchema.fields.canRevise,
+  canPublish: ContentWorkspaceEntrySchema.fields.canPublish,
+  authorDisplayName: ContentWorkspaceEntrySchema.fields.authorDisplayName,
+});
+export type ContentArticleDetail = typeof ContentArticleDetailSchema.Type;
+
+export const PublishObservationSchema = Schema.Struct({
+  _tag: Schema.Literals(["Published"]),
+  commandId: ContentCommandId,
+  articleId: ArticleId,
+  versionNumber: ArticleVersionNumber,
+  publishedAt: Schema.String,
+});
+export type PublishObservation = typeof PublishObservationSchema.Type;
+
+export const UnpublishObservationSchema = Schema.Struct({
+  _tag: Schema.Literals(["Unpublished"]),
+  commandId: ContentCommandId,
+  articleId: ArticleId,
+});
+export type UnpublishObservation = typeof UnpublishObservationSchema.Type;
 
 export const PublicationTransitionCommandSchema = Schema.Struct({
   commandId: ContentCommandId,

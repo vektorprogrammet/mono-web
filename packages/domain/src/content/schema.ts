@@ -213,6 +213,23 @@ export const ContentWorkspaceEntrySchema = Schema.Struct({
   authorDisplayName: PersonDisplayName,
 });
 export type ContentWorkspaceEntry = typeof ContentWorkspaceEntrySchema.Type;
+export const ContentArticleDetailSchema = Schema.Struct({
+  articleId: DraftJsonFields.articleId,
+  title: DraftJsonFields.title,
+  slug: DraftJsonFields.slug,
+  status: ArticleStatusSchema,
+  bodyHtml: DraftJsonFields.bodyHtml,
+  sticky: DraftJsonFields.sticky,
+  createdAt: DraftJsonFields.createdAt,
+  updatedAt: DraftJsonFields.updatedAt,
+  currentVersionNumber: DraftJsonFields.currentVersionNumber,
+  revision: DraftJsonFields.revision,
+  departmentIds: DepartmentScopeIds,
+  canRevise: Schema.Boolean,
+  canPublish: Schema.Boolean,
+  authorDisplayName: PersonDisplayName,
+});
+export type ContentArticleDetail = typeof ContentArticleDetailSchema.Type;
 
 const compareWorkspaceEntries = (left: ContentWorkspaceEntry, right: ContentWorkspaceEntry) => {
   if (left.updatedAt !== right.updatedAt) return left.updatedAt < right.updatedAt ? 1 : -1;

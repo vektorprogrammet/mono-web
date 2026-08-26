@@ -1,7 +1,5 @@
-import { Context, Effect, Layer } from "effect";
-import { Database, type DatabaseShape } from "../database/service.js";
-import { OrganizationLive } from "../organization/postgres-layer.js";
-import { ProfileLive } from "../profile/postgres-layer.js";
+import { Effect, Layer } from "effect";
+import { Database } from "../database/service.js";
 import { Profile } from "../profile/service.js";
 import { Organization } from "../organization/service.js";
 import { Content } from "./content-service.js";
@@ -9,6 +7,7 @@ import { readNewsListingPostgres, readPublishedArticlePostgres } from "./news.js
 import {
   createDraftPostgres,
   publishPostgres,
+  readArticleDetailPostgres,
   readWorkspacePostgres,
   reviseDraftPostgres,
   unpublishPostgres,
@@ -16,61 +15,35 @@ import {
 import { ContentManagement } from "./service.js";
 
 /**
- * Derives the Organization authority over the SAME database instance this
- * layer owns, scoped to the layer's lifetime (built once, disposed once with
- * the ManagedRuntime). No runtime is constructed here.
- */
-const organizationLayerFor = (database: DatabaseShape): Layer.Layer<Organization> =>
-  OrganizationLive.pipe(Layer.provide(Layer.succeed(Database, database)));
-
-const profileLayerFor = (database: DatabaseShape): Layer.Layer<Profile> =>
-  ProfileLive.pipe(
-    Layer.provide(
-      Layer.mergeAll(Layer.succeed(Database, database), organizationLayerFor(database)),
-    ),
-  );
-
-/**
- * Live ContentManagement editorial authority (spec 0062 §Service and Layer
- * contract): `Layer<ContentManagement, never, Database>`. It reuses the
- * process Database, constructs no runtime, and disposes with the
- * ManagedRuntime.
+ * Live ContentManagement editorial authority. The layer captures only the
+ * process-owned Database; Organization and Profile remain requirements of the
+ * returned operation Effects and are supplied by the composition root.
  */
 export const ContentManagementLive: Layer.Layer<ContentManagement, never, Database> = Layer.effect(
   ContentManagement,
   Effect.gen(function* () {
     const database = yield* Database;
-    const organizationContext = yield* Layer.build(organizationLayerFor(database));
-    const organization = Context.get(organizationContext, Organization);
-    const profileContext = yield* Layer.build(profileLayerFor(database));
-    const profile = Context.get(profileContext, Profile);
     return ContentManagement.of({
+      readArticleDetail: (articleId, context) =>
+        readArticleDetailPostgres({ articleId, ...context }).pipe(
+          Effect.provideService(Database, database),
+        ),
       readWorkspace: (context, query) =>
         readWorkspacePostgres({ ...context, query }).pipe(
           Effect.provideService(Database, database),
-          Effect.provideService(Organization, organization),
-          Effect.provideService(Profile, profile),
         ),
       createDraft: (command, context) =>
         createDraftPostgres({ command, ...context }).pipe(
           Effect.provideService(Database, database),
-          Effect.provideService(Organization, organization),
         ),
       reviseDraft: (command, context) =>
         reviseDraftPostgres({ command, ...context }).pipe(
           Effect.provideService(Database, database),
-          Effect.provideService(Organization, organization),
         ),
       publish: (command, context) =>
-        publishPostgres({ command, ...context }).pipe(
-          Effect.provideService(Database, database),
-          Effect.provideService(Organization, organization),
-        ),
+        publishPostgres({ command, ...context }).pipe(Effect.provideService(Database, database)),
       unpublish: (command, context) =>
-        unpublishPostgres({ command, ...context }).pipe(
-          Effect.provideService(Database, database),
-          Effect.provideService(Organization, organization),
-        ),
+        unpublishPostgres({ command, ...context }).pipe(Effect.provideService(Database, database)),
     });
   }),
 );

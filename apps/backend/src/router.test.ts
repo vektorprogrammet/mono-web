@@ -278,6 +278,23 @@ describe("unified backend router", () => {
     });
   });
 
+  it("leaves every off-spec content alias at the unified 404 boundary", async () => {
+    const responses = await Promise.all([
+      request("/api/admin/content/drafts", { method: "POST" }),
+      request("/api/admin/content/drafts/7", { method: "PUT" }),
+      request("/api/admin/content", { method: "POST" }),
+      request("/api/articles", { method: "GET" }),
+      request("/articles/7", { method: "GET" }),
+    ]);
+
+    for (const response of responses) {
+      expect({ status: response.status, body: await response.json() }).toEqual({
+        status: 404,
+        body: { error: { tag: "RouteNotFound" } },
+      });
+    }
+  });
+
   it("dispatches team-interest and mailing-list reads through Organization", async () => {
     const [teamInterest, mailingLists] = await Promise.all([
       request("/api/admin/team-interest"),

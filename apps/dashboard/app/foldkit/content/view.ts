@@ -1,4 +1,3 @@
-import type { ContentWorkspace } from "@vektorprogrammet/sdk/effect";
 import { DepartmentId as DepartmentIdSchema } from "@vektorprogrammet/sdk/effect";
 import type { Html, HtmlBuilder } from "foldkit/html";
 import type { Message } from "./message";
@@ -30,7 +29,7 @@ const bannerView = (model: Model, h: HtmlBuilder<Message>): Html => {
   );
 };
 
-const stateView = (model: Model, h: HtmlBuilder<Message>, h2: Html): Html => {
+const stateView = (model: Model, h: HtmlBuilder<Message>): Html => {
   if (model.workspace._tag === "Loading") {
     return h.p(
       [h.Role("status"), h.Class("content-workspace__loading")],
@@ -43,8 +42,6 @@ const stateView = (model: Model, h: HtmlBuilder<Message>, h2: Html): Html => {
       [h.h3([], ["Ingen artikler vist"]), h.p([], ["Prøv å laste på nytt."])],
     );
   }
-  void model;
-  void h2;
   return h.empty;
 };
 
@@ -123,7 +120,7 @@ export const view = (model: Model, h: HtmlBuilder<Message>): Html =>
           h.p([h.Class("content-workspace__eyebrow")], ["Innhold"]),
           h.h1([h.Id("content-workspace-title")], ["Artikler"]),
           bannerView(model, h),
-          model.workspace._tag === "Loading" ? stateView(model, h, h.empty) : rows(model, h),
+          model.workspace._tag === "Loading" ? stateView(model, h) : rows(model, h),
         ],
       ),
       h.section(
@@ -148,35 +145,26 @@ export const view = (model: Model, h: HtmlBuilder<Message>): Html =>
             ],
             [model.editor.bodyHtml],
           ),
-          ...(() => {
-            const options = new Set<string>();
-            if (model.workspace._tag === "Success") {
-              for (const entry of model.workspace.data.entries) {
-                for (const id of entry.departmentIds) options.add(id);
-              }
-            }
-            for (const id of model.editor.departmentIds) options.add(id);
-            return [...options].map((id) =>
-              h.div(
-                [h.Class("content-workspace__dept-option")],
-                [
-                  h.input([
-                    h.Id(`content-dept-${id}`),
-                    h.Type("checkbox"),
-                    h.Name(`content-dept-${id}`),
-                    h.Checked(model.editor.departmentIds.includes(id as never)),
-                    h.OnChange((checked: string) =>
-                      ChangedDepartmentSelection({
-                        departmentId: DepartmentIdSchema.make(id),
-                        checked: checked === "on",
-                      }),
-                    ),
-                  ]),
-                  h.label([h.For(`content-dept-${id}`)], [id]),
-                ],
-              ),
-            );
-          })(),
+          ...model.knownDepartments.map(({ departmentId, name }) =>
+            h.div(
+              [h.Class("content-workspace__dept-option")],
+              [
+                h.input([
+                  h.Id(`content-dept-${departmentId}`),
+                  h.Type("checkbox"),
+                  h.Name(`content-dept-${departmentId}`),
+                  h.Checked(model.editor.departmentIds.includes(departmentId)),
+                  h.OnChange((checked: string) =>
+                    ChangedDepartmentSelection({
+                      departmentId: DepartmentIdSchema.make(departmentId),
+                      checked: checked === "on",
+                    }),
+                  ),
+                ]),
+                h.label([h.For(`content-dept-${departmentId}`)], [name]),
+              ],
+            ),
+          ),
           h.input([
             h.Id("content-editor-sticky"),
             h.Type("checkbox"),
@@ -190,7 +178,7 @@ export const view = (model: Model, h: HtmlBuilder<Message>): Html =>
             [h.Type("button"), h.OnClick(DeselectedArticle()), h.Class("content-workspace__new")],
             ["Ny artikkel"],
           ),
-          model.dirty && model.selectedArticleId === null
+          model.dirty && model.selectedArticleId === null && model.pendingCommand === null
             ? h.button(
                 [
                   h.Type("button"),
@@ -200,7 +188,10 @@ export const view = (model: Model, h: HtmlBuilder<Message>): Html =>
                 ["Lagre kladd"],
               )
             : h.empty,
-          model.dirty && model.selectedArticleId !== null
+          model.dirty &&
+          model.selectedArticleId !== null &&
+          model.selectedRevision !== null &&
+          model.pendingCommand === null
             ? h.button(
                 [
                   h.Type("button"),
@@ -208,6 +199,12 @@ export const view = (model: Model, h: HtmlBuilder<Message>): Html =>
                   h.OnClick(SubmittedRevise({ commandId: `revise-${Date.now()}` })),
                 ],
                 ["Lagre endringer"],
+              )
+            : h.empty,
+          model.dirty && model.selectedArticleId !== null && model.selectedRevision === null
+            ? h.p(
+                [h.Role("status"), h.Class("content-workspace__revision-unavailable")],
+                ["Arbeidskopien mangler revisjonsdata og kan ikke lagres trygt."],
               )
             : h.empty,
           h.button(
@@ -227,15 +224,15 @@ export const view = (model: Model, h: HtmlBuilder<Message>): Html =>
                 ChangedDepartmentFilter({ departmentId: value === "" ? null : (value as never) }),
               ),
             ],
-            [],
+            [
+              h.option([h.Value("")], ["Alle avdelinger"]),
+              ...model.knownDepartments.map((department) =>
+                h.option([h.Value(department.departmentId)], [department.name]),
+              ),
+            ],
           ),
           h.button([h.Type("button"), h.OnClick(RetriedWorkspace())], ["Last på nytt"]),
         ],
       ),
     ],
   );
-
-void SubmittedRevise;
-void visibleEntries;
-type Unused<T> = T;
-void ({} as unknown as Unused<ContentWorkspace>);

@@ -2,18 +2,26 @@
 
 ## Metadata
 
-| Field | Value |
-|---|---|
-| Goal | Replace the Symfony article-admin seam with one native editorial authority and serve published news to the public homepage with zero legacy requests |
-| Status | Frozen before implementation |
-| Base | `13f6952ea7965c26fb40101635f3e5c850f0065e` (`13f6952`) |
-| Depends on | 0040 logical capability topology, 0045 Effect Model/Service authority (0045.2 Layers), 0054 native Identity sessions, 0055 person-keyed authorization authorities, 0061 native journey/evidence precedents |
-| Actors | Staff editor: active member, active team leader, or active global Organization administrator |
-| Route | `/dashboard/artikler` (staff), `/nyheter` and `/nyhet/{slug}` (public) |
-| Journey authority | `intent://journey:parity:content_publication:v1` and `intent://journey:parity:content_public:v1` from design spec 0024 |
-| Architecture | Design spec 0040 assigns `Content` and `ContentManagement` their logical authorities; Database, Organization, and Profile requirements remain explicit until the process composition root |
-| Operator boundary | No production import, production data change, credential change, deployment, or external effect. Disposable local PostgreSQL and Chromium evidence only |
-| Scope hold | Identity credentials, sessions, and the Better Auth cutover remain spec 0054's contract; this spec does not touch them |
+| Field             | Value                                                                                                                                                                                                      |
+| ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Goal              | Replace the Symfony article-admin seam with one native editorial authority and serve published news to the public homepage with zero legacy requests                                                       |
+| Status            | Frozen before implementation                                                                                                                                                                               |
+| Base              | `13f6952ea7965c26fb40101635f3e5c850f0065e` (`13f6952`)                                                                                                                                                     |
+| Depends on        | 0040 logical capability topology, 0045 Effect Model/Service authority (0045.2 Layers), 0054 native Identity sessions, 0055 person-keyed authorization authorities, 0061 native journey/evidence precedents |
+| Actors            | Staff editor: active member, active team leader, or active global Organization administrator                                                                                                               |
+| Route             | `/dashboard/artikler` (staff), `/nyheter` and `/nyhet/{slug}` (public)                                                                                                                                     |
+| Journey authority | `intent://journey:parity:content_publication:v1` and `intent://journey:parity:content_public:v1` from design spec 0024                                                                                     |
+| Architecture      | Design spec 0040 assigns `Content` and `ContentManagement` their logical authorities; Database, Organization, and Profile requirements remain explicit until the process composition root                  |
+| Operator boundary | No production import, production data change, credential change, deployment, or external effect. Disposable local PostgreSQL and Chromium evidence only                                                    |
+| Scope hold        | Identity credentials, sessions, and the Better Auth cutover remain spec 0054's contract; this spec does not touch them                                                                                     |
+
+### Amendment 0062.1 — exact staff working-copy detail
+
+This amendment supersedes only the staff endpoint, SDK, Foldkit selection, and evidence clauses named below. The original workspace observation intentionally excludes `bodyHtml` and `revision`, but an optimistic revision cannot safely start from that summary. A fresh selection therefore reads one authorized working copy instead of inventing revision `0`, reusing stale editor bytes, or widening the workspace response.
+
+The one additional endpoint is `GET /api/admin/content/articles/{articleId}`. It returns exactly `articleId`, `title`, `slug`, `status`, `bodyHtml`, `sticky`, `createdAt`, `updatedAt`, `currentVersionNumber`, `revision`, `departmentIds`, `canRevise`, `canPublish`, and `authorDisplayName`. It never returns `createdByPersonId`. `ContentManagement` resolves current Organization authority inside the same repeatable-read transaction as the article, department, and author projections. Missing articles return 404; known but unauthorized working copies return the existing typed 403 denial. No public endpoint or public shape changes.
+
+The SDK method is `client.admin.content.read(articleId)`. Foldkit issues it when an editable row is selected, accepts the result only under the current request identity and matching article id, and only then exposes body and revision for mutation. `CommandConflict` invalidates the selected revision so a subsequent selection must perform a fresh detail read. Browser evidence must cover a fresh selection, strict detail decoding, absence of the private creator id, a stale-revision conflict, and a successful repeated revision after a new detail read.
 
 ## Problem
 
@@ -71,23 +79,23 @@ This contract uses these sources:
 
 Design spec 0040 already assigns these capabilities. This contract binds the article journey to them and amends only the implemented-Layer table.
 
-| Fact | Owner | Reason |
-|---|---|---|
-| Draft rows: title, body, slug assignment, sticky, department associations, working-copy revisions | `ContentManagement` | Mutable editorial state with low authority profile |
-| The act of publishing and unpublishing, command receipts, audit facts | `ContentManagement` | Publication is the editorial workflow's transition, not a public-read rule |
-| Immutable published versions and their resolvability | `ContentManagement` | Versions are written once by the publish transition; nobody else writes them |
-| Publication rules: what is visible, ordering, filters, public projection shape | `Content` | Read-time rules over published state, per 0040 |
-| Department identity, active state, names | `Organization` | Canonical Organization state; content stores references only |
-| Person display names of authors | `Profile` | Display projection joined at read time; never copied into content rows |
-| Session-to-PersonId resolution | `Identity` | Spec 0054; untouched here |
-| Image bytes | A later media contract | Upload pipelines are out of scope; this journey stores references only |
+| Fact                                                                                              | Owner                  | Reason                                                                       |
+| ------------------------------------------------------------------------------------------------- | ---------------------- | ---------------------------------------------------------------------------- |
+| Draft rows: title, body, slug assignment, sticky, department associations, working-copy revisions | `ContentManagement`    | Mutable editorial state with low authority profile                           |
+| The act of publishing and unpublishing, command receipts, audit facts                             | `ContentManagement`    | Publication is the editorial workflow's transition, not a public-read rule   |
+| Immutable published versions and their resolvability                                              | `ContentManagement`    | Versions are written once by the publish transition; nobody else writes them |
+| Publication rules: what is visible, ordering, filters, public projection shape                    | `Content`              | Read-time rules over published state, per 0040                               |
+| Department identity, active state, names                                                          | `Organization`         | Canonical Organization state; content stores references only                 |
+| Person display names of authors                                                                   | `Profile`              | Display projection joined at read time; never copied into content rows       |
+| Session-to-PersonId resolution                                                                    | `Identity`             | Spec 0054; untouched here                                                    |
+| Image bytes                                                                                       | A later media contract | Upload pipelines are out of scope; this journey stores references only       |
 
 Implemented-Layer amendment to the 0040.2 table:
 
-| Implemented Layer | Output | Direct Layer input |
-|---|---|---|
-| `ContentManagementLive` | `ContentManagement` | `Database` |
-| `ContentLive` | `Content` | `Database`, `Organization`, `Profile` |
+| Implemented Layer       | Output              | Direct Layer input                    |
+| ----------------------- | ------------------- | ------------------------------------- |
+| `ContentManagementLive` | `ContentManagement` | `Database`                            |
+| `ContentLive`           | `Content`           | `Database`, `Organization`, `Profile` |
 
 Admissions, Recruitment, Economy, Schools, and NotificationGateway are neither logical nor Layer inputs to this journey. `Content`'s logical dependence on `ContentManagement` is realized as read-after-write over distinct tables: `Content` reads only rows that `ContentManagement` transitions write, and writes nothing.
 
@@ -95,13 +103,13 @@ Admissions, Recruitment, Economy, Schools, and NotificationGateway are neither l
 
 Authorization reuses spec 0055 exactly. There is no content-role table, no editorial permission row, and no new grant type. Each staff request captures one `authorizationInstant`; `Organization.resolvePersonAuthority(personId, instant)` produces the complete projection; the mapper derives the content actor:
 
-| Organization projection | Content actor | Powers |
-|---|---|---|
-| Active global administrator | `ContentAdministrator { personId }` | See all articles; create, revise, publish, unpublish; may leave departments empty (org-wide article) |
-| Only ended or future grants/memberships | Inactive editor | Nothing; typed denial |
-| At least one active leader membership | `ContentPublisher { personId, departmentIds }` | See and revise all drafts scoped to the intersection of `departmentIds`; publish, unpublish those articles; may not publish org-wide (empty-department) articles |
-| Active memberships, none leading | `ContentEditor { personId }` | Create drafts carrying at least one department within active memberships; revise own drafts only; see own drafts plus all published articles |
-| No membership and no grant | None | Typed `NotInScope` |
+| Organization projection                 | Content actor                                  | Powers                                                                                                                                                           |
+| --------------------------------------- | ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Active global administrator             | `ContentAdministrator { personId }`            | See all articles; create, revise, publish, unpublish; may leave departments empty (org-wide article)                                                             |
+| Only ended or future grants/memberships | Inactive editor                                | Nothing; typed denial                                                                                                                                            |
+| At least one active leader membership   | `ContentPublisher { personId, departmentIds }` | See and revise all drafts scoped to the intersection of `departmentIds`; publish, unpublish those articles; may not publish org-wide (empty-department) articles |
+| Active memberships, none leading        | `ContentEditor { personId }`                   | Create drafts carrying at least one department within active memberships; revise own drafts only; see own drafts plus all published articles                     |
+| No membership and no grant              | None                                           | Typed `NotInScope`                                                                                                                                               |
 
 Corrections of legacy accidents, stated openly: legacy allowed any team member to tick `Publisert` and to edit any colleague's article without checks. The felt journey treats publication as a leadership act and draft editing as an ownership boundary; this contract narrows both deliberately rather than preserving the missing checks as design. Delete is a separate later contract; nothing in this slice deletes article rows.
 
@@ -119,18 +127,18 @@ The public surface has no actor: listing and detail reads are unauthenticated, r
 
 ### ArticleDraft (ContentManagement)
 
-| Field | Schema | Rule |
-|---|---|---|
-| `articleId` | `ArticleId` | Database generated and immutable; absent from create JSON |
-| `title` | non-empty string, maximum 255 | Stored verbatim after outer whitespace validation |
-| `slug` | `ArticleSlug` | Assigned by the server at creation; immutable afterwards |
-| `bodyHtml` | sanitized HTML string, maximum 100000 | Sanitized at every write; see the editorial laws |
-| `sticky` | boolean | Defaults to false; only publishers may set true |
-| `createdByPersonId` | `PersonId` | Server-set from the actor; private: absent from every public JSON variant |
-| `createdAt` | instant | Database generated |
-| `updatedAt` | instant | Database generated on every working-copy write |
-| `currentVersionNumber` | `ArticleVersionNumber?` | Null while draft; set by publish; cleared by unpublish |
-| `revision` | nonnegative integer | Optimistic concurrency token; absent from create JSON |
+| Field                  | Schema                                | Rule                                                                      |
+| ---------------------- | ------------------------------------- | ------------------------------------------------------------------------- |
+| `articleId`            | `ArticleId`                           | Database generated and immutable; absent from create JSON                 |
+| `title`                | non-empty string, maximum 255         | Stored verbatim after outer whitespace validation                         |
+| `slug`                 | `ArticleSlug`                         | Assigned by the server at creation; immutable afterwards                  |
+| `bodyHtml`             | sanitized HTML string, maximum 100000 | Sanitized at every write; see the editorial laws                          |
+| `sticky`               | boolean                               | Defaults to false; only publishers may set true                           |
+| `createdByPersonId`    | `PersonId`                            | Server-set from the actor; private: absent from every public JSON variant |
+| `createdAt`            | instant                               | Database generated                                                        |
+| `updatedAt`            | instant                               | Database generated on every working-copy write                            |
+| `currentVersionNumber` | `ArticleVersionNumber?`               | Null while draft; set by publish; cleared by unpublish                    |
+| `revision`             | nonnegative integer                   | Optimistic concurrency token; absent from create JSON                     |
 
 `ArticleDraft` has select, insert, update, JSON-read, JSON-create, and JSON-update variants. The staff JSON variant additionally carries `authorDisplayName`, `status` (`Draft` | `Published`), and `departmentIds`; it never carries another person's `createdByPersonId` to a mere editor.
 
@@ -138,16 +146,16 @@ The public surface has no actor: listing and detail reads are unauthenticated, r
 
 Immutable after commit. No update variant exists.
 
-| Field | Schema | Rule |
-|---|---|---|
-| `articleId` | `ArticleId` | References the draft row |
-| `versionNumber` | `ArticleVersionNumber` | Unique per article, increments by one per publish |
-| `title` | non-empty string, maximum 255 | Snapshot of the working copy at publish |
-| `slug` | `ArticleSlug` | Snapshot; equal to the draft slug |
-| `bodyHtml` | sanitized HTML string | Snapshot |
-| `sticky` | boolean | Snapshot |
-| `publishedAt` | instant | Transaction instant of the publish command |
-| `publishedByPersonId` | `PersonId` | Private: absent from every public JSON variant |
+| Field                 | Schema                        | Rule                                              |
+| --------------------- | ----------------------------- | ------------------------------------------------- |
+| `articleId`           | `ArticleId`                   | References the draft row                          |
+| `versionNumber`       | `ArticleVersionNumber`        | Unique per article, increments by one per publish |
+| `title`               | non-empty string, maximum 255 | Snapshot of the working copy at publish           |
+| `slug`                | `ArticleSlug`                 | Snapshot; equal to the draft slug                 |
+| `bodyHtml`            | sanitized HTML string         | Snapshot                                          |
+| `sticky`              | boolean                       | Snapshot                                          |
+| `publishedAt`         | instant                       | Transaction instant of the publish command        |
+| `publishedByPersonId` | `PersonId`                    | Private: absent from every public JSON variant    |
 
 ### ArticleDepartment
 
@@ -179,16 +187,16 @@ Immutable after commit. No update variant exists.
 
 Every staff request captures one `authorizationInstant` after session decoding; all rows use that instant.
 
-| Caller projection | Result |
-|---|---|
-| Missing or invalid session | HTTP 401, `UnauthenticatedActor` |
-| Active global administrator | HTTP 200 on every staff operation |
-| Active team leader, article intersects leader departments | HTTP 200, including publish and unpublish |
-| Active team leader, org-wide (empty-department) article | HTTP 403, `NotInScope` |
-| Active member, own draft, revise/list | HTTP 200 |
-| Active member, foreign draft, or any publish/unpublish | HTTP 403, `NotPublisher` or `DraftNotOwned` |
-| Memberships or grants exist but none active | HTTP 403, `AuthorityInactive` |
-| No membership or administrator record | HTTP 403, `NotInScope` |
+| Caller projection                                         | Result                                      |
+| --------------------------------------------------------- | ------------------------------------------- |
+| Missing or invalid session                                | HTTP 401, `UnauthenticatedActor`            |
+| Active global administrator                               | HTTP 200 on every staff operation           |
+| Active team leader, article intersects leader departments | HTTP 200, including publish and unpublish   |
+| Active team leader, org-wide (empty-department) article   | HTTP 403, `NotInScope`                      |
+| Active member, own draft, revise/list                     | HTTP 200                                    |
+| Active member, foreign draft, or any publish/unpublish    | HTTP 403, `NotPublisher` or `DraftNotOwned` |
+| Memberships or grants exist but none active               | HTTP 403, `AuthorityInactive`               |
+| No membership or administrator record                     | HTTP 403, `NotInScope`                      |
 
 An optional `department` filter on the staff workspace narrows the authorized set; it can never create authority. An unknown department id is HTTP 422; a known department outside scope is HTTP 403. Sticky changes ride the publish/revise commands and require publisher authority.
 
@@ -255,6 +263,7 @@ The native backend adds exactly these staff endpoints:
 
 ```text
 GET    /api/admin/content/workspace?department=<DepartmentId>
+GET    /api/admin/content/articles/{articleId}
 POST   /api/admin/content/articles
 PUT    /api/admin/content/articles/{articleId}
 POST   /api/admin/content/articles/{articleId}/publish
@@ -263,14 +272,14 @@ POST   /api/admin/content/articles/{articleId}/unpublish
 
 Any other query parameter fails strict decoding with HTTP 422. Failure mapping is exact:
 
-| Failure | HTTP status |
-|---|---|
-| Missing or invalid session | 401 |
-| `AuthorityInactive`, `NotInScope`, `NotPublisher`, `DraftNotOwned` | 403 |
-| Unknown article | 404 |
-| Malformed body, unknown query, slug-rule violation | 422 |
-| `CommandConflict` | 409 |
-| Database or row decode failure | 503 |
+| Failure                                                            | HTTP status |
+| ------------------------------------------------------------------ | ----------- |
+| Missing or invalid session                                         | 401         |
+| `AuthorityInactive`, `NotInScope`, `NotPublisher`, `DraftNotOwned` | 403         |
+| Unknown article                                                    | 404         |
+| Malformed body, unknown query, slug-rule violation                 | 422         |
+| `CommandConflict`                                                  | 409         |
+| Database or row decode failure                                     | 503         |
 
 The native backend adds exactly these public endpoints:
 
@@ -289,6 +298,7 @@ The SDK adds two strict domains:
 
 ```text
 client.admin.content.workspace({ department? })
+client.admin.content.read(articleId)
 client.admin.content.createDraft(command)
 client.admin.content.reviseDraft(command)
 client.admin.content.publish(command)
@@ -308,15 +318,15 @@ Foldkit owns: remote `AsyncData`, the workspace listing, the selected article, t
 
 Legal transitions include at least:
 
-| Message | Transition |
-|---|---|
-| `SelectedArticle(articleId)` | Load detail into the editor pane; clear stale banners |
-| `EditedField(change)` | Mark dirty; validate locally; send nothing |
-| `SubmittedCreate` / `SubmittedRevise` | Issue one decoded command under a new request id |
-| `SucceededSave(workspace)` | Replace the Model only when the request id matches; clear dirty |
-| `SubmittedPublish` / `SubmittedUnpublish` | Require publisher capability in the Model; issue one command |
-| `FailedCommand(tag)` | Show the typed safe failure; preserve selections |
-| `ChangedDepartmentFilter(departmentId?)` | Narrow the visible rows; no new server request |
+| Message                                   | Transition                                                                                                                  |
+| ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `SelectedArticle(articleId)`              | Issue one strict working-copy detail read; load body and revision only for a current matching response; clear stale banners |
+| `EditedField(change)`                     | Mark dirty; validate locally; send nothing                                                                                  |
+| `SubmittedCreate` / `SubmittedRevise`     | Issue one decoded command under a new request id                                                                            |
+| `SucceededSave(workspace)`                | Replace the Model only when the request id matches; clear dirty                                                             |
+| `SubmittedPublish` / `SubmittedUnpublish` | Require publisher capability in the Model; issue one command                                                                |
+| `FailedCommand(tag)`                      | Show the typed safe failure and preserve selection/editor bytes; invalidate the selected revision after `CommandConflict`   |
+| `ChangedDepartmentFilter(departmentId?)`  | Narrow the visible rows; no new server request                                                                              |
 
 Commands travel the same-origin bridge route (`__foldkit.content.ts`) using only `client.admin.content.*`; the bridge maps tags to statuses exactly like the schools bridge. A retry creates a new request id; a stale success or failure leaves the Model unchanged. React owns no `useState`, `useEffect`, `useFetcher`, loader fetch, or fallback data. The navigation marks `Artikler` as a staff link visible to members and up.
 
@@ -381,6 +391,8 @@ The browser journey signs in through the real login page and never injects a bea
 16. Focused model, migration, database, HTTP, SDK, Foldkit, accessibility, and real-session browser checks pass over deterministic non-production data.
 17. The browser request ledger records zero Symfony, legacy article-route, or fixture-server requests during both the staff and anonymous public journeys.
 18. No production import, dual write, compatibility endpoint, credential change, deployment, or external effect occurs; identity remains exactly spec 0054's cutover, untouched.
+19. The only amended staff route is `GET /api/admin/content/articles/{articleId}`; strict route tests reject aliases and unknown query parameters.
+20. Fresh-load browser evidence selects an existing row, observes the exact private working-copy projection without `createdByPersonId`, proves a stale revision returns typed `CommandConflict`, reloads detail, and then completes a repeated revision.
 
 ## Falsifiers
 

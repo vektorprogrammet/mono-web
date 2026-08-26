@@ -223,14 +223,13 @@ try {
       ($3::bigint, 1, 'Festet fleravdeling', 'festet-fleravdeling', '<p>Festet tekst</p>', TRUE,
        '2031-06-03T00:00:00Z', $5::text),
       ($4::bigint, 1, 'To versjoner', 'to-versjoner', '<p>Versjon én tekst</p>'::text, FALSE,
-       '2031-06-04T00:00:00Z', $6::text)`,
+       '2031-06-04T00:00:00Z', $5::text)`,
     [
       bySlug.get("publisert-alfa"),
       bySlug.get("orgomfattende-nyhet"),
       bySlug.get("festet-fleravdeling"),
       bySlug.get("to-versjoner"),
       contentJourneyPersons.administrator.personId,
-      contentJourneyPersons.authorDepartmentA.personId,
     ],
   );
   await client.query(

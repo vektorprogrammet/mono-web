@@ -143,6 +143,9 @@ test.describe("Native Content publication (spec 0062)", () => {
         .getByRole("button", { name: /Fersk nyhet fra admin/ })
         .first()
         .click();
+      await expect(administrator.page.getByLabel("Brødtekst")).toHaveValue(
+        "<p>Første utkast av fersk nyhet.</p>",
+      );
 
       // Revise the working copy.
       await administrator.page.getByLabel("Brødtekst").fill("<p>Revidert utkast.</p>");
@@ -172,26 +175,76 @@ test.describe("Native Content publication (spec 0062)", () => {
       const twoVersionRow = leader.page.getByRole("listitem").filter({ hasText: "To versjoner" });
       await expect(twoVersionRow).toBeVisible();
       await twoVersionRow.getByRole("button", { name: /To versjoner/ }).click();
+      await expect(leader.page.getByLabel("Brødtekst")).toHaveValue("<p>Versjon én tekst</p>");
+      const twoVersionArticleId = Number(await twoVersionRow.getAttribute("data-article-id"));
+      const concurrentRevision = await leader.page.evaluate(async (articleId) => {
+        const detailResponse = await fetch("/content", {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ operation: "readArticle", articleId }),
+        });
+        const detail = (await detailResponse.json()) as Record<string, unknown>;
+        const reviseResponse = await fetch("/content", {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            operation: "reviseDraft",
+            commandId: "leader-concurrent-revise",
+            articleId,
+            expectedRevision: detail.revision,
+            title: detail.title,
+            bodyHtml: "<p>Ekstern samtidig endring</p>",
+            departmentIds: detail.departmentIds,
+            sticky: detail.sticky,
+          }),
+        });
+        return {
+          detailStatus: detailResponse.status,
+          detail,
+          reviseStatus: reviseResponse.status,
+        };
+      }, twoVersionArticleId);
+      expect(concurrentRevision.detailStatus).toBe(200);
+      expect(concurrentRevision.detail.bodyHtml).toBe("<p>Versjon én tekst</p>");
+      expect(concurrentRevision.detail.revision).toBe(0);
+      expect(concurrentRevision.detail).not.toHaveProperty("createdByPersonId");
+      expect(concurrentRevision.reviseStatus).toBe(200);
+
+      // The stale editor copy fails with a typed optimistic-concurrency conflict.
+      await leader.page.getByLabel("Brødtekst").fill("<p>Utdatert forsøk</p>");
+      await leader.page.getByRole("button", { name: "Lagre endringer" }).click();
+      await expect(leader.page.getByRole("alert")).toContainText("endret av andre samtidig");
+
+      // Re-selecting performs another strict detail read and permits repeated revision.
+      await twoVersionRow.getByRole("button", { name: /To versjoner/ }).click();
+      await expect(leader.page.getByLabel("Brødtekst")).toHaveValue(
+        "<p>Ekstern samtidig endring</p>",
+      );
       await leader.page.getByLabel("Brødtekst").fill("<p>Versjon to tekst</p>");
       await leader.page.getByRole("button", { name: "Lagre endringer" }).click();
       await expect(leader.page.locator('[data-dirty="false"]')).toBeAttached();
       await twoVersionRow.getByRole("button", { name: "Publiser", exact: true }).click();
       await expect(twoVersionRow.getByText("Publisert").first()).toBeVisible();
 
-      // A separate anonymous context observes both the new canonical bytes
-      // and the immutable first-version bytes before withdrawal.
-      const anonymous = await browser.newContext();
-      contexts.push(anonymous);
-      const anonPage = await anonymous.newPage();
-      anonPage.on("pageerror", (error) => pageErrors.push(error.message));
+      // A separate anonymous context records the full public request ledger
+      // while observing both the new canonical bytes and immutable version.
+      const anonymous = await openContext(browser, browserRequests, browserResponses, pageErrors);
+      contexts.push(anonymous.context);
+      const anonPage = anonymous.page;
       const republished = await anonPage.goto(`${homepageOrigin}/nyhet/to-versjoner`);
       expect(republished?.status()).toBe(200);
       await expect(anonPage.getByText("Versjon to tekst")).toBeVisible();
       const oldVersion = await anonPage.goto(`${homepageOrigin}/nyhet/to-versjoner?versjon=1`);
       expect(oldVersion?.status()).toBe(200);
       await expect(anonPage.getByText("Versjon én tekst")).toBeVisible();
+      await expect(anonPage.getByText("Erik Forfatter")).toBeVisible();
       observations.leaderRepublish = {
-        revisedWorkingCopy: true,
+        strictDetailRead: true,
+        privateCreatorIdAbsent: true,
+        staleRevisionConflict: true,
+        repeatedRevisionRecovered: true,
         newCanonicalBytes: true,
         immutableVersionOneBytes: true,
       };
@@ -214,6 +267,22 @@ test.describe("Native Content publication (spec 0062)", () => {
         canonical404: true,
         historical404: true,
       };
+
+      // Republishing after withdrawal must allocate the next immutable number
+      // instead of attempting to reuse version 1 or 2.
+      await twoVersionRow.getByRole("button", { name: "Publiser", exact: true }).click();
+      await expect(twoVersionRow.getByText("Publisert").first()).toBeVisible();
+      const versionThree = await anonPage.goto(`${homepageOrigin}/nyhet/to-versjoner?versjon=3`);
+      expect(versionThree?.status()).toBe(200);
+      await expect(anonPage.getByText("Versjon to tekst")).toBeVisible();
+      observations.republishAfterWithdrawal = {
+        versionThreeResolvable: true,
+        authorRemainsCreator: true,
+      };
+
+      // Restore the withdrawn state for the remaining public absence checks.
+      await twoVersionRow.getByRole("button", { name: "Avpubliser", exact: true }).click();
+      await expect(twoVersionRow.getByText("Kladd").first()).toBeVisible();
 
       // --- Member author: publish denied (typed NotPublisher) ----------
       const author = await openContext(browser, browserRequests, browserResponses, pageErrors);
@@ -290,6 +359,7 @@ test.describe("Native Content publication (spec 0062)", () => {
       expect(detail?.status()).toBe(200);
       await expect(anonPage.getByRole("heading", { name: "Publisert alfa" })).toBeVisible();
       await expect(anonPage.getByText("Ada Administrator")).toBeVisible();
+      await expect(anonPage.getByRole("heading", { name: "Andre nyheter" })).toBeVisible();
 
       // The republished and historical bytes were observed before the
       // withdrawal above; both paths are now proven absent.
@@ -315,6 +385,15 @@ test.describe("Native Content publication (spec 0062)", () => {
       const bridgeRequests = browserRequests.filter((request) =>
         request.pathname.startsWith("/content"),
       );
+      const publicRequests = browserRequests.filter(
+        (request) =>
+          request.pathname === "/" ||
+          request.pathname === "/nyheter" ||
+          request.pathname.startsWith("/nyhet/") ||
+          request.pathname.startsWith("/api/news"),
+      );
+      expect(publicRequests.some((request) => request.pathname === "/nyheter")).toBe(true);
+      expect(publicRequests.some((request) => request.pathname.startsWith("/nyhet/"))).toBe(true);
       expect(bridgeRequests.length).toBeGreaterThanOrEqual(3);
       expect(
         browserRequests.filter((request) => request.pathname === "/api/admin/schools"),
@@ -339,6 +418,7 @@ test.describe("Native Content publication (spec 0062)", () => {
         bridgeResponses: browserResponses.filter((response) =>
           response.pathname.startsWith("/content"),
         ),
+        publicRequests,
         observations,
         pageErrors,
         accessibilityViolations: accessibility.violations,

@@ -1,9 +1,14 @@
 import {
   ConfigurationError,
   ContentRejectionError,
+  CreateContentDraftCommandSchema,
   NetworkError,
+  PublicationTransitionCommandSchema,
+  ReviseContentDraftCommandSchema,
   UnauthorizedError,
 } from "@vektorprogrammet/sdk";
+import { ArticleId } from "@vektorprogrammet/sdk/effect";
+import { Schema as S } from "effect";
 import { data } from "react-router";
 import { contentBridgeFailure, type ContentBridgeErrorTag } from "../foldkit/content/bridge";
 import { createAuthenticatedClient } from "../lib/api.server";
@@ -15,6 +20,29 @@ const responseHeaders = {
   "Referrer-Policy": "no-referrer",
   "X-Content-Type-Options": "nosniff",
 } as const;
+
+const ContentBridgeActionSchema = S.Union([
+  S.Struct({
+    operation: S.Literals(["readArticle"]),
+    articleId: ArticleId,
+  }),
+  S.Struct({
+    operation: S.Literals(["createDraft"]),
+    ...CreateContentDraftCommandSchema.fields,
+  }),
+  S.Struct({
+    operation: S.Literals(["reviseDraft"]),
+    ...ReviseContentDraftCommandSchema.fields,
+  }),
+  S.Struct({
+    operation: S.Literals(["publish"]),
+    ...PublicationTransitionCommandSchema.fields,
+  }),
+  S.Struct({
+    operation: S.Literals(["unpublish"]),
+    ...PublicationTransitionCommandSchema.fields,
+  }),
+]);
 
 const statusFor = (tag: ContentBridgeErrorTag): number => {
   switch (tag) {
@@ -28,11 +56,13 @@ const statusFor = (tag: ContentBridgeErrorTag): number => {
     case "ArticleNotFound":
       return 404;
     case "SlugConflict":
+    case "DepartmentNotFound":
+    case "ContentDecodeError":
+      return 422;
     case "CommandConflict":
       return 409;
     case "Network":
       return 502;
-    case "ContentDecodeError":
     case "ContentIntegrityError":
     case "ContentPersistenceError":
     case "Configuration":
@@ -58,6 +88,7 @@ const contentRejectionTagFrom = (error: unknown): ContentBridgeErrorTag | undefi
     case "SlugConflict":
     case "CommandConflict":
     case "ArticleNotFound":
+    case "DepartmentNotFound":
     case "ContentDecodeError":
     case "ContentIntegrityError":
     case "ContentPersistenceError":
@@ -95,8 +126,19 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   try {
     const client = createAuthenticatedClient(cookie);
-    const workspace = await client.admin.content.workspace();
-    return data(workspace, { headers: responseHeaders });
+    const [workspace, departments] = await Promise.all([
+      client.admin.content.workspace(),
+      client.public.organization.listDepartments(),
+    ]);
+    return data(
+      {
+        workspace,
+        knownDepartments: departments
+          .filter((department) => department.active)
+          .map(({ departmentId, name }) => ({ departmentId, name })),
+      },
+      { headers: responseHeaders },
+    );
   } catch (error) {
     const tag = tagFrom(error);
     return data(contentBridgeFailure(tag), {
@@ -118,35 +160,51 @@ export async function action({ request }: Route.ActionArgs) {
     });
   }
 
-  const command = (await request.json().catch(() => null)) as unknown;
-  if (
-    command === null ||
-    typeof command !== "object" ||
-    !("commandId" in command) ||
-    typeof (command as { commandId: unknown }).commandId !== "string"
-  ) {
+  let command: typeof ContentBridgeActionSchema.Type;
+  try {
+    command = S.decodeUnknownSync(ContentBridgeActionSchema)(
+      await request.json().catch(() => null),
+      { onExcessProperty: "error" },
+    );
+  } catch {
     return data(contentBridgeFailure("ContentDecodeError"), {
       status: 422,
       headers: responseHeaders,
     });
   }
 
-  const rawOperation = (command as { operation?: unknown }).operation;
-  const operation = typeof rawOperation === "string" ? rawOperation : "createDraft";
-  const articleId = Number((command as { articleId?: unknown }).articleId ?? 0) as never;
-  const commandId = (command as { commandId: string }).commandId as never;
-
   try {
     const client = createAuthenticatedClient(cookie);
-    const result =
-      operation === "publish"
-        ? await client.admin.content.publish({ commandId, articleId } as never)
-        : operation === "unpublish"
-          ? await client.admin.content.unpublish({ commandId, articleId } as never)
-          : operation === "reviseDraft"
-            ? await client.admin.content.reviseDraft(command as never)
-            : await client.admin.content.createDraft(command as never);
-    return data(result, { headers: responseHeaders });
+    switch (command.operation) {
+      case "readArticle":
+        return data(await client.admin.content.read(command.articleId), {
+          headers: responseHeaders,
+        });
+      case "createDraft": {
+        const { operation: _, ...contentCommand } = command;
+        return data(await client.admin.content.createDraft(contentCommand), {
+          headers: responseHeaders,
+        });
+      }
+      case "reviseDraft": {
+        const { operation: _, ...contentCommand } = command;
+        return data(await client.admin.content.reviseDraft(contentCommand), {
+          headers: responseHeaders,
+        });
+      }
+      case "publish": {
+        const { operation: _, ...contentCommand } = command;
+        return data(await client.admin.content.publish(contentCommand), {
+          headers: responseHeaders,
+        });
+      }
+      case "unpublish": {
+        const { operation: _, ...contentCommand } = command;
+        return data(await client.admin.content.unpublish(contentCommand), {
+          headers: responseHeaders,
+        });
+      }
+    }
   } catch (error) {
     const tag = tagFrom(error);
     return data(contentBridgeFailure(tag), {

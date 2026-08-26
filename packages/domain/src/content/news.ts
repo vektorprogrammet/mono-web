@@ -23,7 +23,7 @@ interface CurrentVersionRow {
   readonly title: string;
   readonly sticky: boolean;
   readonly publishedAt: string;
-  readonly publishedByPersonId: string;
+  readonly createdByPersonId: string;
 }
 
 const readDepartments = (
@@ -94,7 +94,7 @@ export const readNewsListingPostgres = (
                 version.published_at AT TIME ZONE 'UTC',
                 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'
               ) AS "publishedAt",
-              version.published_by_person_id AS "publishedByPersonId"
+              article.created_by_person_id AS "createdByPersonId"
             FROM content_article_versions AS version
             INNER JOIN content_articles AS article
               ON article.article_id = version.article_id
@@ -109,7 +109,7 @@ export const readNewsListingPostgres = (
           const departmentIdsByArticle = yield* readDepartments(database, [
             ...new Set(rows.map((row) => row.articleId)),
           ]);
-          const authorPersonIds = [...new Set(rows.map((row) => row.publishedByPersonId))].sort();
+          const authorPersonIds = [...new Set(rows.map((row) => row.createdByPersonId))].sort();
           const profiles = yield* profile
             .readProfiles(authorPersonIds as never)
             .pipe(Effect.mapError((cause) => integrityError("resolve news authors", cause)));
@@ -120,7 +120,7 @@ export const readNewsListingPostgres = (
             if (!namesByPerson.has(personId)) {
               return yield* new ContentIntegrityError({
                 operation: "resolve news authors",
-                message: `no profile resolved for publisher ${personId}`,
+                message: `no profile resolved for author ${personId}`,
               });
             }
           }
@@ -129,7 +129,7 @@ export const readNewsListingPostgres = (
             title: row.title,
             sticky: row.sticky,
             publishedAt: row.publishedAt,
-            authorDisplayName: namesByPerson.get(row.publishedByPersonId) ?? "",
+            authorDisplayName: namesByPerson.get(row.createdByPersonId) ?? "",
             departmentIds: [...(departmentIdsByArticle.get(row.articleId) ?? [])],
             hasImage: false,
           }));
@@ -173,7 +173,7 @@ export const readPublishedArticlePostgres = (
             readonly sticky: boolean;
             readonly bodyHtml: string;
             readonly publishedAt: string;
-            readonly publishedByPersonId: string;
+            readonly createdByPersonId: string;
           }>`
             SELECT
               CAST(version.article_id AS integer) AS "articleId",
@@ -186,7 +186,7 @@ export const readPublishedArticlePostgres = (
                 version.published_at AT TIME ZONE 'UTC',
                 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'
               ) AS "publishedAt",
-              version.published_by_person_id AS "publishedByPersonId"
+              article.created_by_person_id AS "createdByPersonId"
             FROM content_article_versions AS version
             INNER JOIN content_articles AS article
               ON article.article_id = version.article_id
@@ -215,13 +215,13 @@ export const readPublishedArticlePostgres = (
           }
           const departments = yield* readDepartments(database, [selected.articleId]);
           const profiles = yield* profile
-            .readProfiles([selected.publishedByPersonId] as never)
+            .readProfiles([selected.createdByPersonId] as never)
             .pipe(Effect.mapError((cause) => integrityError("resolve news author", cause)));
-          const author = profiles.find((entry) => entry.personId === selected.publishedByPersonId);
+          const author = profiles.find((entry) => entry.personId === selected.createdByPersonId);
           if (author === undefined) {
             return yield* new ContentIntegrityError({
               operation: "resolve news author",
-              message: `no profile resolved for publisher ${selected.publishedByPersonId}`,
+              message: `no profile resolved for author ${selected.createdByPersonId}`,
             });
           }
           const previousVersions = versions.slice(1).map((row) => ({

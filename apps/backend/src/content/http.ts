@@ -1,7 +1,9 @@
 import {
   ArticleId,
-  Content,
-  ContentManagement,
+  readPublicNews,
+  runContentArticleDetail,
+  runContentWorkspace,
+  runPublicationTransition,
   ContentWorkspaceQuerySchema,
   CreateArticleDraftInputSchema,
   PublishArticleInputSchema,
@@ -10,7 +12,7 @@ import {
   type ContentWorkspaceQuery,
 } from "@vektorprogrammet/domain/content";
 import type { OrganizationAuthorityInstant, PersonId } from "@vektorprogrammet/domain/organization";
-import { Effect, Schema } from "effect";
+import { Schema } from "effect";
 import type { BackendRun } from "../router.js";
 
 export interface ContentRequestActor {
@@ -79,8 +81,8 @@ const errorResponse = (cause: unknown, extraHeaders: Record<string, string> = {}
     case "ArticleNotFound":
       return jsonResponse({ error: { tag } }, 404, extraHeaders);
     case "CommandConflict":
-    case "SlugConflict":
       return jsonResponse({ error: { tag } }, 409);
+    case "SlugConflict":
     case "ContentDecodeError":
     case "DepartmentNotFound":
       return jsonResponse({ error: { tag } }, 422);
@@ -183,11 +185,6 @@ const decodeReviseBody = async (
   return strictDecode(ReviseArticleDraftInputSchema, body);
 };
 
-const contextOf = (actor: ContentRequestActor) => ({
-  personId: actor.personId,
-  authorizationInstant: actor.authorizationInstant,
-});
-
 /**
  * Native ContentManagement adapter (spec 0062 §HTTP boundaries). It owns
  * transport only: strict decoding, one actor resolution per request, journey
@@ -205,23 +202,32 @@ export const makeContentManagementApiHttp = (
         const query = departmentFromQuery(request);
         const actor = await resolveActor(request);
         const workspace = await run(
-          Effect.gen(function* () {
-            const content = yield* ContentManagement;
-            return yield* content.readWorkspace(contextOf(actor), query);
-          }),
+          runContentWorkspace(actor.personId, actor.authorizationInstant, query),
         );
         return jsonResponse(workspace);
       }
-      if (request.method === "POST" && pathname === "/api/admin/content/drafts") {
+      if (request.method === "POST" && pathname === "/api/admin/content/articles") {
         const command = await decodeCreateBody(request);
         const actor = await resolveActor(request);
         const observation = await run(
-          Effect.gen(function* () {
-            const content = yield* ContentManagement;
-            return yield* content.createDraft(command, contextOf(actor));
+          runPublicationTransition(actor.personId, actor.authorizationInstant, {
+            _tag: "CreateDraft",
+            command,
           }),
         );
         return jsonResponse(observation, 201, noStore);
+      }
+      const detailMatch = /^\/api\/admin\/content\/articles\/(\d+)$/.exec(pathname);
+      if (request.method === "GET" && detailMatch !== null) {
+        if ([...new URL(request.url).searchParams].length > 0) {
+          throw new ContentHttpDecodeError("unexpected content detail query parameter");
+        }
+        const articleId = articleIdFromPath(pathname, /^\/api\/admin\/content\/articles\/(\d+)$/);
+        const actor = await resolveActor(request);
+        const detail = await run(
+          runContentArticleDetail(actor.personId, actor.authorizationInstant, articleId),
+        );
+        return jsonResponse(detail, 200, noStore);
       }
       const reviseMatch = /^\/api\/admin\/content\/articles\/(\d+)$/.exec(pathname);
       if (request.method === "PUT" && reviseMatch !== null) {
@@ -232,9 +238,9 @@ export const makeContentManagementApiHttp = (
         }
         const actor = await resolveActor(request);
         const observation = await run(
-          Effect.gen(function* () {
-            const content = yield* ContentManagement;
-            return yield* content.reviseDraft(command, contextOf(actor));
+          runPublicationTransition(actor.personId, actor.authorizationInstant, {
+            _tag: "ReviseDraft",
+            command,
           }),
         );
         return jsonResponse(observation, 200, noStore);
@@ -251,9 +257,9 @@ export const makeContentManagementApiHttp = (
         }
         const actor = await resolveActor(request);
         const observation = await run(
-          Effect.gen(function* () {
-            const content = yield* ContentManagement;
-            return yield* content.publish(command, contextOf(actor));
+          runPublicationTransition(actor.personId, actor.authorizationInstant, {
+            _tag: "Publish",
+            command,
           }),
         );
         return jsonResponse(observation, 200, noStore);
@@ -270,9 +276,9 @@ export const makeContentManagementApiHttp = (
         }
         const actor = await resolveActor(request);
         const observation = await run(
-          Effect.gen(function* () {
-            const content = yield* ContentManagement;
-            return yield* content.unpublish(command, contextOf(actor));
+          runPublicationTransition(actor.personId, actor.authorizationInstant, {
+            _tag: "Unpublish",
+            command,
           }),
         );
         return jsonResponse(observation, 200, noStore);
@@ -292,10 +298,7 @@ export const makePublicNewsApiHttp = (run: BackendRun): ContentApiHttp => ({
       if (request.method === "GET" && url.pathname === "/api/news") {
         const query = departmentFromQuery(request);
         const listing = await run(
-          Effect.gen(function* () {
-            const content = yield* Content;
-            return yield* content.readNewsListing(query.departmentId);
-          }),
+          readPublicNews({ _tag: "Listing", departmentId: query.departmentId }),
         );
         return jsonResponse(listing, 200, noStore);
       }
@@ -304,12 +307,7 @@ export const makePublicNewsApiHttp = (run: BackendRun): ContentApiHttp => ({
         const slug = slugFromPath(url.pathname);
         try {
           const versionNumber = versionFromQuery(request);
-          const article = await run(
-            Effect.gen(function* () {
-              const content = yield* Content;
-              return yield* content.readPublishedArticle(slug, versionNumber);
-            }),
-          );
+          const article = await run(readPublicNews({ _tag: "Article", slug, versionNumber }));
           return jsonResponse(article, 200, noStore);
         } catch (cause) {
           return errorResponse(cause, noStore);

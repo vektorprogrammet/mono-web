@@ -12,6 +12,9 @@ import {
   ContentPersistenceError,
   ContentSlugConflict,
 } from "@vektorprogrammet/domain/content";
+import { Database } from "@vektorprogrammet/domain/database";
+import { Organization } from "@vektorprogrammet/domain/organization";
+import { Profile } from "@vektorprogrammet/domain/profile";
 import type { ContentRequestActor } from "./http.js";
 import { makeContentManagementApiHttp, makePublicNewsApiHttp } from "./http.js";
 import { Effect } from "effect";
@@ -52,7 +55,12 @@ const makePublicApi = (
   });
   const run = <A, E, R>(effect: Effect.Effect<A, E, R>): Promise<A> =>
     Effect.runPromise(
-      effect.pipe(Effect.provideService(Content, service)) as Effect.Effect<A, E, never>,
+      effect.pipe(
+        Effect.provideService(Content, service),
+        Effect.provideService(Database, {} as never),
+        Effect.provideService(Organization, {} as never),
+        Effect.provideService(Profile, {} as never),
+      ) as Effect.Effect<A, E, never>,
     );
   return makePublicNewsApiHttp(run as BackendRun);
 };
@@ -83,7 +91,7 @@ describe("content http boundaries", () => {
         status: 403,
         failure: new ContentDraftNotOwned({ articleId: 1 as never }),
       },
-      { tag: "SlugConflict", status: 409, failure: new ContentSlugConflict({}) },
+      { tag: "SlugConflict", status: 422, failure: new ContentSlugConflict({}) },
       {
         tag: "CommandConflict",
         status: 409,
@@ -108,7 +116,7 @@ describe("content http boundaries", () => {
     for (const { tag, status, failure } of cases) {
       const api = makeContentManagementApiHttp(okActor, failingRun(failure) as never);
       const response = await api.fetch(
-        jsonRequest("/api/admin/content/drafts", "POST", {
+        jsonRequest("/api/admin/content/articles", "POST", {
           commandId: "cmd-1",
           title: "T",
           bodyHtml: "<p>x</p>",
@@ -156,7 +164,7 @@ describe("content http boundaries", () => {
     };
     const api = makeContentManagementApiHttp(okActor, run as unknown as BackendRun);
     const excess = await api.fetch(
-      jsonRequest("/api/admin/content/drafts", "POST", {
+      jsonRequest("/api/admin/content/articles", "POST", {
         commandId: "create-extra",
         title: "T",
         bodyHtml: "<p>x</p>",
@@ -187,15 +195,16 @@ describe("content http boundaries", () => {
     expect(ranEffect).toBe(false);
   });
 
-  it("serves only the five frozen staff endpoint shapes and methods", async () => {
+  it("serves only the six frozen 0062.1 staff endpoint shapes and methods", async () => {
     const accepted = [
       jsonRequest("/api/admin/content/workspace", "GET"),
-      jsonRequest("/api/admin/content/drafts", "POST", {
+      jsonRequest("/api/admin/content/articles", "POST", {
         commandId: "create-1",
         title: "T",
         bodyHtml: "<p>x</p>",
         departmentIds: [],
       }),
+      jsonRequest("/api/admin/content/articles/7", "GET"),
       jsonRequest("/api/admin/content/articles/7", "PUT", {
         commandId: "revise-1",
         articleId: 7,
@@ -224,6 +233,12 @@ describe("content http boundaries", () => {
     }
 
     const aliases = [
+      jsonRequest("/api/admin/content/drafts", "POST", {
+        commandId: "off-spec-create",
+        title: "T",
+        bodyHtml: "<p>x</p>",
+        departmentIds: [],
+      }),
       jsonRequest("/api/admin/content", "POST", {
         operation: "publish",
         commandId: "alias-1",
@@ -254,6 +269,28 @@ describe("content http boundaries", () => {
       expect(response.status).toBe(404);
       await expect(response.json()).resolves.toEqual({ error: { tag: "RouteNotFound" } });
     }
+  });
+  it("maps staff detail scope denial to 403 and absence to 404", async () => {
+    for (const [failure, status, tag] of [
+      [new ContentDraftNotOwned({ articleId: 7 as never }), 403, "DraftNotOwned"],
+      [Object.assign(new Error("missing"), { _tag: "ArticleNotFound" }), 404, "ArticleNotFound"],
+    ] as const) {
+      const api = makeContentManagementApiHttp(okActor, failingRun(failure) as never);
+      const response = await api.fetch(jsonRequest("/api/admin/content/articles/7", "GET"));
+      expect(response.status).toBe(status);
+      await expect(response.json()).resolves.toEqual({ error: { tag } });
+    }
+
+    let ranEffect = false;
+    const api = makeContentManagementApiHttp(okActor, (async () => {
+      ranEffect = true;
+      return undefined as never;
+    }) as BackendRun);
+    const strictQuery = await api.fetch(
+      jsonRequest("/api/admin/content/articles/7?include=authorId", "GET"),
+    );
+    expect(strictQuery.status).toBe(422);
+    expect(ranEffect).toBe(false);
   });
 
   it("keeps a missing public slug indistinguishable and no-store", async () => {

@@ -40,11 +40,8 @@ const organizationLayer = OrganizationLive.pipe(Layer.provide(databaseLayer));
 const profileLayer = ProfileLive.pipe(Layer.provide(Layer.merge(databaseLayer, organizationLayer)));
 const schoolsLayer = SchoolsLive.pipe(Layer.provide(databaseLayer));
 const contentManagementLayer = ContentManagementLive.pipe(Layer.provide(databaseLayer));
-const profileForContentLayer = ProfileLive.pipe(
-  Layer.provide(Layer.merge(databaseLayer, organizationLayer)),
-);
 const contentLayer = ContentLive.pipe(
-  Layer.provide(Layer.mergeAll(databaseLayer, organizationLayer, profileForContentLayer)),
+  Layer.provide(Layer.mergeAll(databaseLayer, organizationLayer, profileLayer)),
 );
 const recruitmentLayer = RecruitmentLive.pipe(
   Layer.provide(Layer.mergeAll(databaseLayer, admissionsLayer, organizationLayer, profileLayer)),

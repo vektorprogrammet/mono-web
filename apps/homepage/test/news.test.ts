@@ -66,9 +66,8 @@ vi.mock("../src/lib/api.server", () => ({
 import { loadNewsArticle, loadNewsListing, loadNewsTeaser } from "../src/lib/news.server";
 import {
   applyDepartmentFilter,
-  isBodySafeForRender,
+  paginateNewsListing,
   resolveDepartmentFilter,
-  stripUnsafeBody,
 } from "../src/lib/news";
 
 const summary = (overrides: Record<string, unknown> = {}): Record<string, unknown> => ({
@@ -150,24 +149,45 @@ describe("news loaders", () => {
     const resolvedVanished = resolveDepartmentFilter(departments as never, "borte");
     expect(resolvedVanished.degraded).toBe(true);
 
-    const listing = { articles: [summary({ departmentIds: ["department-a"] })] } as never;
+    const listing = {
+      articles: [
+        summary({ slug: "department", departmentIds: ["department-a"] }),
+        summary({ slug: "organization", departmentIds: [] }),
+        summary({ slug: "other", departmentIds: ["department-b"] }),
+      ],
+    } as never;
     const filtered = applyDepartmentFilter(listing, "department-a");
-    expect(filtered.articles).toHaveLength(1);
-  });
-});
-
-describe("render-time body defense", () => {
-  it("refuses script and iframe payloads", () => {
-    expect(isBodySafeForRender("<p>trygg tekst</p>")).toBe(true);
-    expect(isBodySafeForRender("<script>alert(1)</script>")).toBe(false);
-    expect(isBodySafeForRender('<iframe src="https://evil.example"></iframe>')).toBe(false);
-    expect(isBodySafeForRender("<img src=x onerror=alert(1)>")).toBe(false);
-    expect(isBodySafeForRender("javascript:void(0)")).toBe(false);
+    expect(filtered.articles.map((article) => article.slug)).toEqual([
+      "department",
+      "organization",
+    ]);
   });
 
-  it("strips unsafe bytes instead of rendering them", () => {
-    const stripped = stripUnsafeBody("<script>alert(1)</script><p>beholdes</p>");
-    expect(stripped).not.toContain("script");
-    expect(stripped).toContain("beholdes");
+  it("paginates the fully loaded listing in pure pages of ten", () => {
+    const listing = {
+      articles: Array.from({ length: 21 }, (_, index) => summary({ slug: `nyhet-${index}` })),
+    } as never;
+    expect(paginateNewsListing(listing, 2).articles.map((article) => article.slug)).toEqual(
+      Array.from({ length: 10 }, (_, index) => `nyhet-${index + 10}`),
+    );
+    expect(paginateNewsListing(listing, 3).articles.map((article) => article.slug)).toEqual([
+      "nyhet-20",
+    ]);
+  });
+
+  it("loads one other-news listing for a detail render", async () => {
+    mocks.readArticle = {
+      ...summary({ slug: "current" }),
+      bodyHtml: "<p>current</p>",
+      previousVersions: [],
+    };
+    mocks.listResult = {
+      articles: [summary({ slug: "current" }), summary({ slug: "other" })],
+    };
+
+    await expect(loadNewsArticle("current")).resolves.toMatchObject({
+      otherNews: [{ slug: "other" }],
+    });
+    expect(mocks.listingCalls).toBe(1);
   });
 });
