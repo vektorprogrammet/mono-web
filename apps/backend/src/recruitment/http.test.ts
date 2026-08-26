@@ -67,6 +67,9 @@ const makePublicBackend = () => {
     assignApplicant: () => Effect.die("unexpected staff method"),
     readSchedulingBoard: () => Effect.die("unexpected staff method"),
     scheduleInterview: () => Effect.die("unexpected staff method"),
+    readInterviewConduct: () => Effect.die("unexpected conduct method"),
+    finalizeInterview: () => Effect.die("unexpected conduct method"),
+    cancelInterview: () => Effect.die("unexpected conduct method"),
     readInvitationResponse: (capability) =>
       Effect.sync(() => {
         calls.push({
