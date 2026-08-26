@@ -203,6 +203,11 @@ export const readWorkspacePostgres = (input: {
             ...new Set(scoped.map((draft) => draft.createdByPersonId)),
           ].sort();
           const profiles = yield* profile.readProfiles(authorPersonIds as never).pipe(
+            Effect.tapError((cause) =>
+              Effect.sync(() => {
+                process.stderr?.write?.(`[content-debug] profile error: ${JSON.stringify(String(cause))}\n`);
+              }),
+            ),
             Effect.mapError((cause) =>
               cause._tag === "ProfileContactNotFound" || cause._tag === "ProfileNotFound"
                 ? new ContentIntegrityError({
