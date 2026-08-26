@@ -231,7 +231,15 @@ export const makeBackendHttp = (
     <A>(use: (management: ContentManagementJourney) => Promise<A>): Promise<A> =>
       run(
         ContentManagement.use((management) =>
-          Effect.tryPromise(() => use(management as unknown as ContentManagementJourney)),
+          Effect.tryPromise({
+            try: () => use(management as unknown as ContentManagementJourney),
+            catch: (cause) => {
+              process.stderr.write(
+                `[router-journey] ${String((cause as Error)?.stack ?? cause)}\n`,
+              );
+              return cause as Error;
+            },
+          }),
         ) as never,
       ),
   );
