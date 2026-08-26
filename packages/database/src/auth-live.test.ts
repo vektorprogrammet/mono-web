@@ -1,10 +1,11 @@
-import { readFile } from "node:fs/promises";
 import { createLocalAccountIssuer } from "better-auth";
-import { Effect } from "effect";
+import { Effect, Layer, Redacted } from "effect";
 import { Pool } from "pg";
 import { afterAll, describe, expect, it } from "vitest";
+import { Database } from "@vektorprogrammet/domain/database";
 import { Identity } from "@vektorprogrammet/domain/identity";
 import { AuthLive, AuthEngine } from "./auth-live.js";
+import { DatabaseLive } from "./layers.js";
 import { makeControlledTestRuntime } from "../test/runtime.js";
 
 /**
@@ -63,54 +64,39 @@ const seedCredentialIdentity = async () => {
     }),
   );
 };
-/**
- * Resets the auth schema to a freshly-migrated state so each suite starts
- * from the checked-in 0015 DDL, mirroring the proof mains' reset ritual.
- */
-const resetAuthSchema = async () => {
-  const cleanup = new Pool({ connectionString: config.postgresUrl });
-  await cleanup.query(`DROP SCHEMA IF EXISTS auth CASCADE`);
-  // Re-apply the checked-in migration so the auth schema is byte-identical.
-  await cleanup.query(
-    await readFile(
-      new URL("../migrations/0015-native-identity-better-auth.sql", import.meta.url),
-      "utf8",
-    ),
-  );
-  await cleanup.query(
-    `DELETE FROM public.vektorprogrammet_schema_migrations WHERE migration_id = 15`,
-  );
-  await cleanup.end();
+const resetAuthData = async (pool: Pool) => {
+  await pool.query(`DELETE FROM auth."session"`);
+  await pool.query(`DELETE FROM auth."account"`);
+  await pool.query(`DELETE FROM auth."user"`);
 };
-
 const dsl = authTestUrl === undefined ? describe.skip : describe;
 
-// One runtime per suite mirrors src/database.test.ts execution style and keeps
-// the scoped auth engine (and its pool) alive across both tests.
-const runtime = makeControlledTestRuntime(AuthLive(config));
+const databaseLayer = DatabaseLive({
+  url: Redacted.make(config.postgresUrl),
+  applicationName: "auth-live-focused-test",
+  maxConnections: 4,
+});
+const runtime = makeControlledTestRuntime(AuthLive(config).pipe(Layer.provideMerge(databaseLayer)));
 
 dsl("AuthLive (spec 0054)", () => {
   let observer: Pool | undefined;
 
   afterAll(async () => {
-    // auth.user rows reference person_profiles, so only the pool is closed
-    // here; the next run's `DROP SCHEMA IF EXISTS auth CASCADE` plus the
-    // person delete in the main test body reset the cohort.
     if (observer !== undefined) {
       await observer.end();
     }
   });
 
   it("signs in against real credentials, resolves the cookie to the seeded PersonId, and fails closed after sign-out", async () => {
-    assertDisposable(config.postgresUrl);
+    await runtime.runPromise(Database.use((database) => database.health));
     observer = new Pool({ connectionString: config.postgresUrl });
+    await resetAuthData(observer);
     await observer.query(
       `INSERT INTO public.person_profiles (person_id, first_name, last_name)
          VALUES ($1, 'Auth', 'Live Test')
          ON CONFLICT DO NOTHING`,
       [cohort.personId],
     );
-    await resetAuthSchema();
     await seedCredentialIdentity();
     await runtime.runPromise(
       Effect.gen(function* () {
@@ -163,7 +149,10 @@ dsl("AuthLive (spec 0054)", () => {
    */
   it("keeps its pg Pool alive for sequential handler calls", async () => {
     assertDisposable(config.postgresUrl);
-    await resetAuthSchema();
+    if (observer === undefined) {
+      observer = new Pool({ connectionString: config.postgresUrl });
+    }
+    await resetAuthData(observer);
     await seedCredentialIdentity();
 
     const first = await runtime.runPromise(

@@ -1,4 +1,4 @@
-import { Context, Effect, Layer, Scope } from "effect";
+import { Context, Effect, Layer } from "effect";
 import {
   Identity,
   IdentityEngineError,
@@ -8,7 +8,8 @@ import {
   decodeIdentityActor,
   type IdentityShape,
 } from "@vektorprogrammet/domain/identity";
-import { makeAuthEngine, makeAuthPool, type AuthEngineConfig } from "./auth-engine.js";
+import { DatabasePgPool } from "./layers.js";
+import { makeAuthEngine, type AuthEngineConfig } from "./auth-engine.js";
 
 /**
  * AuthLive (spec 0054): the concrete `Identity` Service interpretation.
@@ -19,9 +20,9 @@ import { makeAuthEngine, makeAuthPool, type AuthEngineConfig } from "./auth-engi
  * interface from @vektorprogrammet/domain/identity plus the standard Request ->
  * Response auth handler mounted at /api/auth/*.
  *
- * The engine and its pg Pool are constructed ONCE per Layer scope. Both the
- * Identity Service and the AuthEngine service share that single instance, and
- * releasing any Layer built over it closes the pool.
+ * The Database layer constructs one pg Pool for all PostgreSQL capabilities.
+ * AuthLive constructs one Better Auth engine over that pool; both Identity and
+ * AuthEngine share it, and Database layer disposal closes the pool.
  */
 
 /** The one better-auth instance behind this module's services. */
@@ -107,32 +108,27 @@ const identityShape = (engine: AuthEngineInstance): IdentityShape => ({
   },
 });
 
-/** One engine + its pg Pool per scope; release closes the pool. */
+/** The shared DatabasePgPool owns the pool lifetime; AuthLive only owns the engine. */
 const makeAuthEngineService = (
   config: AuthEngineConfig,
-): Effect.Effect<AuthEngineService, never, Scope.Scope> =>
-  Effect.acquireRelease(
-    Effect.sync(() => {
-      const pool = makeAuthPool(config);
-      const engine = makeAuthEngine(config, pool);
-      return {
-        pool,
-        service: {
-          engine,
-          handler: (request: Request) => engine.handler(request),
-        } satisfies AuthEngineService,
-      };
-    }),
-    ({ pool }) => Effect.promise(() => pool.end()).pipe(Effect.ignore, Effect.asVoid),
-  ).pipe(Effect.map(({ service }) => service));
+): Effect.Effect<AuthEngineService, never, DatabasePgPool> =>
+  Effect.gen(function* () {
+    const pool = yield* DatabasePgPool;
+    const engine = makeAuthEngine(config, pool);
+    return {
+      engine,
+      handler: (request: Request) => engine.handler(request),
+    } satisfies AuthEngineService;
+  });
 
 /**
  * ONE scoped construction exposing both the engine service (for the
- * /api/auth/* handler) and the Identity interpretation. A single acquisition
- * is essential: splitting into nested layers would close the engine's pool
- * when an inner build scope ends while request handlers still need it.
+ * /api/auth/* handler) and the Identity interpretation. The Database layer
+ * supplies the shared pool, so this layer creates no competing pool.
  */
-export const AuthLive = (config: AuthEngineConfig): Layer.Layer<Identity | AuthEngine> =>
+export const AuthLive = (
+  config: AuthEngineConfig,
+): Layer.Layer<Identity | AuthEngine, never, DatabasePgPool> =>
   Layer.effectContext(
     Effect.map(makeAuthEngineService(config), (service) =>
       Context.merge(

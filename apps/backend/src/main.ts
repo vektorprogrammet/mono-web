@@ -56,7 +56,7 @@ const capabilityLayers = Layer.mergeAll(
   contentManagementLayer,
   contentLayer,
 );
-const authLayers = AuthLive(config.auth);
+const authLayers = AuthLive(config.auth).pipe(Layer.provide(databaseLayer));
 const runtime = makeBackendRuntime(Layer.mergeAll(databaseLayer, capabilityLayers, authLayers));
 const run = <A, E>(
   effect: Effect.Effect<

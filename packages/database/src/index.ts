@@ -1,4 +1,8 @@
-export * from "./layers.js";
+export {
+  DatabaseLive,
+  DatabaseTest,
+  type DatabaseLayerObserver,
+} from "./layers.js";
 export * from "./migrations.js";
 export {
   AuthEngine,

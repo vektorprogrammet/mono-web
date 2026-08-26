@@ -15,7 +15,9 @@ const databaseIndexSource = await readFile(
 describe("backend identity composition", () => {
   it("uses AuthLive as the sole identity authority and lifecycle owner", () => {
     expect(mainSource).toContain('from "@vektorprogrammet/domain/identity"');
-    expect(mainSource).toContain("const authLayers = AuthLive(config.auth);");
+    expect(mainSource).toContain(
+      "const authLayers = AuthLive(config.auth).pipe(Layer.provide(databaseLayer));",
+    );
     expect(mainSource).toContain("| Identity");
     expect(mainSource.match(/\bAuthLive\(config\.auth\)/g)).toHaveLength(1);
     expect(mainSource).not.toContain("AuthEngineLive");
