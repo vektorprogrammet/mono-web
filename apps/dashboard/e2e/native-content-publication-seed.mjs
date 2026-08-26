@@ -272,7 +272,7 @@ try {
     memberships: 4,
     articles: 5,
     versions: 4,
-    departmentLinks: 5,
+    department_links: 5,
     published_articles: 4,
     sticky_articles: 1,
   });
