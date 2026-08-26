@@ -1,4 +1,4 @@
-import { failureFrom, makeContentWorkspaceCommands } from "./command";
+import { makeContentWorkspaceCommands } from "./command";
 import { FailedCommand } from "./message";
 import type { ContentWorkspaceClient } from "./browser-client";
 import { Effect } from "effect";

@@ -1,8 +1,8 @@
 import type { InternalSdkError } from "@vektorprogrammet/sdk/effect";
-import { Effect, Schema as S } from "effect";
+import { Effect } from "effect";
 import { Command } from "foldkit";
 import type { ContentWorkspaceClient } from "./browser-client";
-import { FailedCommand, FailedWorkspace, LoadedWorkspace, type Message } from "./message";
+import { FailedWorkspace, LoadedWorkspace, type Message } from "./message";
 import type {
   CreateContentDraftCommand,
   PublicationTransitionCommand,
