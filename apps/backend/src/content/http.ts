@@ -227,6 +227,13 @@ export const makeContentManagementApiHttp = (
               ...contextOf(actor),
             }),
           );
+        } else if (operation === "reviseDraft") {
+          const command = await decodeJsonBody(request).then((b) =>
+            strictDecode(ReviseArticleDraftInputSchema, b),
+          );
+          observation = await run(
+            reviseDraftPostgres({ command, ...contextOf(actor) }),
+          );
         } else {
           observation = await run(
             createDraftPostgres({
