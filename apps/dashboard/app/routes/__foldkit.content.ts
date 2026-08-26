@@ -73,6 +73,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     return data(workspace, { headers: responseHeaders });
   } catch (error) {
     const tag = tagFrom(error);
+    console.error("[content-bridge] loader failure", tag, error);
     return data(contentBridgeFailure(tag), {
       status: statusFor(tag),
       headers: responseHeaders,
