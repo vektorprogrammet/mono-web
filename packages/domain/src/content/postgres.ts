@@ -76,7 +76,7 @@ const departmentIdsForArticles = (
   articleIds.length === 0
     ? Effect.succeed(new Map())
     : sql<{ readonly articleId: string; readonly departmentId: string }>`
-        SELECT article_id::text AS "articleId", department_id
+        SELECT article_id::text AS "articleId", department_id AS "departmentId"
         FROM content_article_departments
         WHERE ${sql.in("article_id", articleIds)}
         ORDER BY article_id, department_id
