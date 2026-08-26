@@ -78,6 +78,12 @@ export default {
       );
     }
 
+    // Shared brand assets exist identically in both apps' public roots;
+    // serve them from the homepage so unprefixed requests resolve.
+    if (url.pathname === "/vektor-logo-circle.svg") {
+      return env.Homepage.fetch(request);
+    }
+
     const surface = apexSurface(url.pathname);
     if (surface === "homepage") return env.Homepage.fetch(request);
     if (surface === "dashboard") return env.Dashboard.fetch(request);
