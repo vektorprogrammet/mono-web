@@ -26,7 +26,6 @@ import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 
-
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
 const databaseRoot = join(repositoryRoot, "packages", "database");
 
@@ -211,19 +210,15 @@ const assert = (condition, message) => {
 };
 
 const runIdentitySeed = () => {
-  const result = spawnSync(
-    "bun",
-    ["run", "identity:seed"],
-    {
-      cwd: databaseRoot,
-      env: {
-        ...process.env,
-        IDENTITY_SEED_PG_URL: postgresUrl,
-        IDENTITY_SEED_PERSONS: JSON.stringify(Object.values(journeyPersons)),
-      },
-      encoding: "utf8",
+  const result = spawnSync("bun", ["run", "identity:seed"], {
+    cwd: databaseRoot,
+    env: {
+      ...process.env,
+      IDENTITY_SEED_PG_URL: postgresUrl,
+      IDENTITY_SEED_PERSONS: JSON.stringify(Object.values(journeyPersons)),
     },
-  );
+    encoding: "utf8",
+  });
   assert(result.status === 0, `identity:seed failed:\n${result.stdout}\n${result.stderr}`);
   process.stdout.write(`identity:seed: ${result.stdout.trim().split("\n").pop()}\n`);
 };
@@ -256,10 +251,7 @@ async function main() {
     assert(Number(counts.applications) === 1, "exactly one applicant application");
     assert(Number(counts.open_periods) === 1, "open admission period present");
     assert(Number(counts.leader_memberships) >= 1, "active team-leader membership");
-    assert(
-      Number(counts.interviewer_memberships) === 2,
-      "two active interviewer memberships",
-    );
+    assert(Number(counts.interviewer_memberships) === 2, "two active interviewer memberships");
     assert(Number(counts.schemas) === 1, "one active interview schema");
     assert(Number(counts.contacts) === 3, "three contact profiles");
     assert(Number(counts.users) === 3, "three login-capable auth users");
