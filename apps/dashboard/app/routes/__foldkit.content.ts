@@ -128,6 +128,7 @@ export async function action({ request }: Route.ActionArgs) {
     return data(result, { headers: responseHeaders });
   } catch (error) {
     const tag = tagFrom(error);
+    console.error("[content-bridge] action failure", tag, (error as Error)?.stack ?? error);
     return data(contentBridgeFailure(tag), {
       status: statusFor(tag),
       headers: responseHeaders,
