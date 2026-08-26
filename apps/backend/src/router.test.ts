@@ -156,7 +156,16 @@ const makeRun =
     effect: Effect.Effect<
       A,
       E,
-      Database | Admissions | Economy | Organization | Profile | Recruitment | Schools | Auth | ContentManagement | Content
+      | Database
+      | Admissions
+      | Economy
+      | Organization
+      | Profile
+      | Recruitment
+      | Schools
+      | Auth
+      | ContentManagement
+      | Content
     >,
   ): Promise<A> =>
     runTestPromise(
