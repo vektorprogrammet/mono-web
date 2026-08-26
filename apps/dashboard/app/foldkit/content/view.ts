@@ -135,7 +135,11 @@ export const view = (model: Model, h: HtmlBuilder<Message>): Html =>
         : rows(model, h),
     ]),
     h.section(
-      [h.Class("content-workspace__editor"), h.AriaLabel("Artikkelfelt")],
+      [
+        h.Class("content-workspace__editor"),
+        h.DataAttribute("dirty", String(model.dirty)),
+        h.AriaLabel("Artikkelfelt"),
+      ],
       [
         h.label([h.For("content-editor-title")], ["Tittel"]),
         h.input([
