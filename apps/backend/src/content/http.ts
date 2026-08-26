@@ -240,6 +240,7 @@ export const makeContentManagementApiHttp = (
             }),
           );
         }
+        process.stderr.write(`[op-debug] ${operation} ok\n`);
         return jsonResponse(observation, 201, noStore);
       }
       const reviseMatch = /^\/api\/admin\/content\/drafts\/(\d+)$/.exec(pathname);
