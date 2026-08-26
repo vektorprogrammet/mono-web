@@ -131,8 +131,9 @@ export const filterNewsListingByDepartment = (
   departmentId === undefined
     ? listing
     : {
-        articles: listing.articles.filter((article) =>
-          article.departmentIds.includes(departmentId),
+        articles: listing.articles.filter(
+          (article) =>
+            article.departmentIds.length === 0 || article.departmentIds.includes(departmentId),
         ),
       };
 

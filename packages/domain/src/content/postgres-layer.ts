@@ -89,8 +89,8 @@ export const ContentLive: Layer.Layer<Content, never, Database | Organization | 
       const organization = yield* Organization;
       const profile = yield* Profile;
       return Content.of({
-        readNewsListing: () =>
-          readNewsListingPostgres().pipe(
+        readNewsListing: (departmentId) =>
+          readNewsListingPostgres(departmentId).pipe(
             Effect.provideService(Database, database),
             Effect.provideService(Organization, organization),
             Effect.provideService(Profile, profile),

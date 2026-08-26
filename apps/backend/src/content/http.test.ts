@@ -35,13 +35,13 @@ const okActorRun = <A, E>(effect: Effect.Effect<A, E, never>): Promise<A> =>
   Effect.runPromise(effect);
 
 const makePublicApi = (
-  readNewsListing: () => Promise<unknown>,
+  readNewsListing: (departmentId?: string) => Promise<unknown>,
   readPublishedArticle: (slug: string, versionNumber?: number) => Promise<unknown>,
 ) => {
   const service = Content.of({
-    readNewsListing: () =>
+    readNewsListing: (departmentId) =>
       Effect.tryPromise({
-        try: readNewsListing,
+        try: () => readNewsListing(departmentId),
         catch: (cause) => cause,
       }) as never,
     readPublishedArticle: (slug, versionNumber) =>
@@ -280,5 +280,33 @@ describe("content http boundaries", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toBe("no-store");
     await expect(response.json()).resolves.toEqual(listing);
+  });
+
+  it("threads the public department filter and rejects unknown or excess query input", async () => {
+    const requestedDepartments: Array<string | undefined> = [];
+    const listing = { articles: [{ slug: "organization-wide" }, { slug: "department-a" }] };
+    const api = makePublicApi(
+      async (departmentId) => {
+        requestedDepartments.push(departmentId);
+        if (departmentId === "unknown") {
+          throw new ContentDepartmentNotFound({ departmentId: departmentId as never });
+        }
+        return listing;
+      },
+      async () => ({}),
+    );
+
+    const narrowed = await api.fetch(jsonRequest("/api/news?department=department-a", "GET"));
+    expect(narrowed.status).toBe(200);
+    expect(requestedDepartments).toEqual(["department-a"]);
+    await expect(narrowed.json()).resolves.toEqual(listing);
+
+    const unknown = await api.fetch(jsonRequest("/api/news?department=unknown", "GET"));
+    expect(unknown.status).toBe(422);
+    await expect(unknown.json()).resolves.toEqual({ error: { tag: "DepartmentNotFound" } });
+
+    const excess = await api.fetch(jsonRequest("/api/news?department=department-a&page=1", "GET"));
+    expect(excess.status).toBe(422);
+    await expect(excess.json()).resolves.toEqual({ error: { tag: "ContentDecodeError" } });
   });
 });

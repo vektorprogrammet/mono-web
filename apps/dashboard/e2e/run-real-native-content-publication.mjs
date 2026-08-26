@@ -402,6 +402,7 @@ try {
         REAL_NATIVE_IDENTITY_E2E: "1",
         CONTENT_E2E_BROWSER_EVIDENCE_PATH: browserEvidencePath,
         CONTENT_E2E_HOMEPAGE_ORIGIN: homepageOrigin,
+        CONTENT_E2E_API_ORIGIN: upstreamOrigin,
       },
       label: "Native Content Chromium journey",
     },

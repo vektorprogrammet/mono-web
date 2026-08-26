@@ -235,11 +235,13 @@ try {
   );
   await client.query(
     `INSERT INTO content_article_departments (article_id, department_id) VALUES
-      ($1::bigint, $4::text),
-      ($2::bigint, $4::text),
+      ($1::bigint, $5::text),
       ($2::bigint, $5::text),
-      ($3::bigint, $4::text)`,
+      ($3::bigint, $5::text),
+      ($3::bigint, $6::text),
+      ($4::bigint, $5::text)`,
     [
+      bySlug.get("kladd-fra-forfatter"),
       bySlug.get("publisert-alfa"),
       bySlug.get("festet-fleravdeling"),
       bySlug.get("to-versjoner"),
@@ -270,7 +272,7 @@ try {
     memberships: 4,
     articles: 5,
     versions: 4,
-    department_links: 4,
+    departmentLinks: 5,
     published_articles: 4,
     sticky_articles: 1,
   });

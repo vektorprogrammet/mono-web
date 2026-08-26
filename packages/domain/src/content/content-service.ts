@@ -1,5 +1,10 @@
 import { Context, Effect } from "effect";
-import type { ContentDecodeError, ContentIntegrityError } from "./errors.js";
+import type {
+  ContentDecodeError,
+  ContentDepartmentNotFound,
+  ContentIntegrityError,
+} from "./errors.js";
+import type { DepartmentId } from "../organization/schema.js";
 import type { PublishedNewsArticle, PublishedNewsListing } from "./schema.js";
 
 /** Typed not-found carries no draft-existence information (law 5). */
@@ -10,11 +15,13 @@ export interface ArticleNotFound {
 export interface ContentShape {
   /**
    * One complete listing snapshot, sticky-first then publishedAt DESC then
-   * slug DESC; pagination is a pure caller-side slice (law 10).
+   * articleId DESC; pagination is a pure caller-side slice (law 10).
    */
-  readonly readNewsListing: () => Effect.Effect<
+  readonly readNewsListing: (
+    departmentId?: DepartmentId,
+  ) => Effect.Effect<
     PublishedNewsListing,
-    ContentDecodeError | ContentIntegrityError
+    ContentDecodeError | ContentDepartmentNotFound | ContentIntegrityError
   >;
   /**
    * Resolves one currently-published article by canonical slug with its

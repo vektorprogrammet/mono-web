@@ -121,7 +121,7 @@ const departmentFromQuery = (request: Request): ContentWorkspaceQuery => {
   if (values.length > 1) throw new ContentHttpDecodeError("duplicate department parameter");
   const emptyQuery: ContentWorkspaceQuery = {};
   if (values.length === 0) return emptyQuery;
-  return strictDecode(ContentWorkspaceQuerySchema, { department: values[0] });
+  return strictDecode(ContentWorkspaceQuerySchema, { departmentId: values[0] });
 };
 
 const decodeCreateBody = async (
@@ -290,11 +290,11 @@ export const makePublicNewsApiHttp = (run: BackendRun): ContentApiHttp => ({
     const url = new URL(request.url);
     try {
       if (request.method === "GET" && url.pathname === "/api/news") {
-        departmentFromQuery(request);
+        const query = departmentFromQuery(request);
         const listing = await run(
           Effect.gen(function* () {
             const content = yield* Content;
-            return yield* content.readNewsListing();
+            return yield* content.readNewsListing(query.departmentId);
           }),
         );
         return jsonResponse(listing, 200, noStore);

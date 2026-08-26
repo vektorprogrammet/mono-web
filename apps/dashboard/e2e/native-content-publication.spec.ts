@@ -5,7 +5,9 @@ import { expect, test, type Browser, type BrowserContext, type Page } from "@pla
 const realNativeIdentity = process.env.REAL_NATIVE_IDENTITY_E2E === "1";
 const evidencePath = process.env.CONTENT_E2E_BROWSER_EVIDENCE_PATH;
 const homepageOrigin = process.env.CONTENT_E2E_HOMEPAGE_ORIGIN ?? "http://127.0.0.1:45264";
+const contentApiOrigin = process.env.CONTENT_E2E_API_ORIGIN ?? "http://127.0.0.1:45263";
 const departmentAlpha = "content-e2e-0062-department-alpha";
+const departmentBeta = "content-e2e-0062-department-beta";
 const persons = {
   administrator: {
     email: "administrator.content.0062@example.invalid",
@@ -271,6 +273,18 @@ test.describe("Native Content publication (spec 0062)", () => {
       await expect(anonPage.getByText("Publisert alfa")).toBeVisible();
       await expect(anonPage.getByText("To versjoner")).toHaveCount(0);
 
+      const departmentListing = await anonPage.request.get(
+        `${contentApiOrigin}/api/news?department=${departmentBeta}`,
+      );
+      expect(departmentListing.status()).toBe(200);
+      const departmentListingBody = (await departmentListing.json()) as {
+        readonly articles: ReadonlyArray<{ readonly slug: string }>;
+      };
+      expect(departmentListingBody.articles.map((article) => article.slug)).toEqual([
+        "festet-fleravdeling",
+        "orgomfattende-nyhet",
+      ]);
+
       // Detail with author display name.
       const detail = await anonPage.goto(`${homepageOrigin}/nyhet/publisert-alfa`);
       expect(detail?.status()).toBe(200);
@@ -285,6 +299,7 @@ test.describe("Native Content publication (spec 0062)", () => {
       await expect(anonPage.getByRole("heading", { name: "Nyheter" })).toBeVisible();
       observations.publicReads = {
         listingVisible: true,
+        departmentFilterNarrowed: true,
         detailAuthorShown: true,
         oldVersionResolvableBeforeWithdrawal: true,
         unpublishedCanonical404: true,

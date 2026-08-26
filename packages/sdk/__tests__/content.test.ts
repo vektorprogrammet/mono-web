@@ -169,4 +169,17 @@ describe("content sdk transport", () => {
       "POST",
     ]);
   });
+
+  it("serializes the public department filter on the frozen news endpoint", async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(response(200, { articles: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = createClient("http://api.test");
+
+    await client.public.news.list({ department: "department-a" as never });
+
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      "http://api.test/api/news?department=department-a",
+    ]);
+    expect(fetchMock.mock.calls.map(([, init]) => (init as RequestInit).method)).toEqual(["GET"]);
+  });
 });

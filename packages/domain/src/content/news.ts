@@ -2,8 +2,10 @@ import { Effect, Schema } from "effect";
 import type { DatabaseShape } from "../database/service.js";
 import { Database } from "../database/service.js";
 import type { DepartmentId } from "../organization/schema.js";
+import { Organization } from "../organization/service.js";
 import { Profile } from "../profile/service.js";
-import { ContentDecodeError, ContentIntegrityError } from "./errors.js";
+import { ContentDecodeError, ContentDepartmentNotFound, ContentIntegrityError } from "./errors.js";
+import { filterNewsListingByDepartment } from "./projection.js";
 import type { ArticleNotFound } from "./content-service.js";
 import {
   PublishedNewsArticleSchema,
@@ -53,14 +55,17 @@ const readDepartments = (
  * write-free snapshot (laws 5, 7, 8). The inner join on the current-version
  * pointer admits only published state; drafts never surface.
  */
-export const readNewsListingPostgres = (): Effect.Effect<
+export const readNewsListingPostgres = (
+  departmentId?: DepartmentId,
+): Effect.Effect<
   PublishedNewsListing,
-  ContentDecodeError | ContentIntegrityError,
-  Database | Profile
+  ContentDecodeError | ContentDepartmentNotFound | ContentIntegrityError,
+  Database | Organization | Profile
 > =>
   Effect.gen(function* () {
     const database = yield* Database;
     const profile = yield* Profile;
+    const organization = yield* Organization;
 
     return yield* database
       .withTransaction(
@@ -68,6 +73,17 @@ export const readNewsListingPostgres = (): Effect.Effect<
           yield* database`SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY`.pipe(
             Effect.asVoid,
           );
+          if (departmentId !== undefined) {
+            yield* organization
+              .readDepartment(departmentId)
+              .pipe(
+                Effect.mapError((cause) =>
+                  cause._tag === "DepartmentNotFound"
+                    ? new ContentDepartmentNotFound({ departmentId })
+                    : integrityError("validate news department", cause),
+                ),
+              );
+          }
           const rows = yield* database<CurrentVersionRow>`
             SELECT
               version.article_id AS "articleId",
@@ -117,10 +133,11 @@ export const readNewsListingPostgres = (): Effect.Effect<
             departmentIds: [...(departmentIdsByArticle.get(row.articleId) ?? [])],
             hasImage: false,
           }));
-          return yield* Schema.decodeUnknownEffect(PublishedNewsListingSchema)(
+          const listing = yield* Schema.decodeUnknownEffect(PublishedNewsListingSchema)(
             { articles },
             { onExcessProperty: "error" },
           ).pipe(Effect.mapError((cause) => integrityError("decode news listing", cause)));
+          return filterNewsListingByDepartment(listing, departmentId);
         }),
       )
       .pipe(Effect.catchTag("SqlError", (cause) => integrityError("news listing snapshot", cause)));
