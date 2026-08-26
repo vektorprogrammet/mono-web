@@ -82,11 +82,8 @@ export const makeContentWorkspaceCommands = (
     execute: ({ requestId }: { readonly requestId: number }) =>
       client.admin.content.workspace().pipe(
         Effect.map((workspace) => LoadedWorkspace({ requestId, workspace })),
-        Effect.catch(() =>
-          Effect.succeed(FailedWorkspace({
-            requestId,
-            failure: { _tag: "Failed" as const, message: "Lagring feilet. Prøv på nytt." },
-          })),
+        Effect.catch((error) =>
+          Effect.succeed(FailedWorkspace({ requestId, failure: failureFrom(error) })),
         ),
       ),
   });
