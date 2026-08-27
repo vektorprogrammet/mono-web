@@ -4,8 +4,8 @@
 
 | Field | Value |
 |---|---|
-| Status | Contract remains frozen; Amendments 0050.1, 0050.2, and 0050.3 authorize evidence-harness, disposable-fixture, and presentation corrections only; implementation is present at integrated branch `f07b86d7babc041ee5f947b41381de094586e9d6`; runtime and acceptance evidence remain pending |
-| Revision | Amendments 0050.1, 0050.2, and 0050.3 record observed native Identity, fixture, presentation, and harness prerequisites; runtime evidence remains pending |
+| Status | Contract remains frozen; Amendments 0050.1, 0050.2, 0050.3, and 0050.4 authorize evidence-harness, disposable-fixture, presentation, and bounded runner corrections only; implementation is present at integrated branch `f07b86d7babc041ee5f947b41381de094586e9d6`; runtime and acceptance evidence remain pending |
+| Revision | Amendments 0050.1, 0050.2, 0050.3, and 0050.4 record observed native Identity, fixture, presentation, harness, and cold-start prerequisites; runtime evidence remains pending |
 | Base | `dd2425f8ea21c2f61cdff9bb518a1e726d8dac64` (`dd2425f`) |
 | Goal | Replace the Symfony scheduling seam with one native Recruitment transition and one full-Foldkit staff journey |
 | Actors | Active department leader or assigned active interviewer |
@@ -64,6 +64,21 @@ The correction must not change state transitions, API boundaries, authority chec
 The evidence runner can set the existing `REAL_NATIVE_CONDUCT_E2E=1` base-path mode. This mode serves `/login` and native dashboard routes at the configured root. This is harness topology only, not a product route change.
 
 This amendment preserves the operator boundary. It authorizes no production data, remote provider, credential, deployment, or external notification effect. Runtime and acceptance evidence remain pending.
+
+## Amendment 0050.4 — scheduling runner cold-start evidence observation
+
+Cold-start dependency optimization in React Router and Vite can repeat the initial scheduling-board `GET` once. The real Chromium journey, session-cookie authentication, schedule `POST`, fresh post-command `GET`, independent-context `GET`, status assertion, and no-legacy boundaries remain required.
+
+This amendment authorizes one bounded runner correction:
+
+- Await dependency optimization before the journey and accept exactly one leading scheduling-board `GET`, or
+- Accept exactly two leading scheduling-board `GET` requests when optimization repeats the initial read.
+
+After the permitted leading board read or reads, require exactly one schedule `POST`, one fresh post-command `GET`, and one independent-context `GET`. Reject any other extra, reordered, or failed request.
+
+This correction applies only to the evidence runner. It must preserve product behavior, all prior scheduling semantics, and the existing operator boundary. It authorizes no product change, route change, authentication change, legacy request, production data, remote provider, credential, deployment, or external notification effect.
+
+Runtime and acceptance evidence remain pending.
 
 ## Problem
 
