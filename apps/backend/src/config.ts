@@ -1,8 +1,5 @@
 import { makeAdmissionApiConfig, type AdmissionApiConfig } from "./admission/config.js";
-import {
-  makeOrganizationApiConfig,
-  type OrganizationApiConfig,
-} from "./organization/config.js";
+import { makeOrganizationApiConfig, type OrganizationApiConfig } from "./organization/config.js";
 import { makeReceiptApiConfig, type ReceiptApiConfig } from "./receipt/config.js";
 import { makeRecruitmentApiConfig, type RecruitmentApiConfig } from "./recruitment/config.js";
 

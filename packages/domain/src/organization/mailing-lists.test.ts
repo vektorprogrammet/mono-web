@@ -1,16 +1,14 @@
 import { expect, it } from "@effect/vitest";
 import { DepartmentId, PersonId } from "./schema.js";
-import {
-  projectOrganizationMailingLists,
-  type MailingListsProjectInput,
-} from "./mailing-lists.js";
+import { projectOrganizationMailingLists, type MailingListsProjectInput } from "./mailing-lists.js";
 
 const departmentA = DepartmentId.make("department-a");
 const departmentB = DepartmentId.make("department-b");
 
 const person = (id: string) => PersonId.make(id);
 
-const contactFor = (personId: string, email: string) => [person(personId), { name: personId, email }] as const;
+const contactFor = (personId: string, email: string) =>
+  [person(personId), { name: personId, email }] as const;
 
 const baseInput = (overrides?: Partial<MailingListsProjectInput>): MailingListsProjectInput => ({
   type: "assistants",
@@ -24,10 +22,11 @@ const baseInput = (overrides?: Partial<MailingListsProjectInput>): MailingListsP
 it("projects assistants-only lists from the assistant-history seam", () => {
   const lists = projectOrganizationMailingLists(
     baseInput({
-      assistantsByDepartment: new Map([
-        [departmentA, [person("p-2"), person("p-1")]],
+      assistantsByDepartment: new Map([[departmentA, [person("p-2"), person("p-1")]]]),
+      contacts: new Map([
+        contactFor("p-1", "one@example.invalid"),
+        contactFor("p-2", "two@example.invalid"),
       ]),
-      contacts: new Map([contactFor("p-1", "one@example.invalid"), contactFor("p-2", "two@example.invalid")]),
     }),
   );
   expect(lists).toEqual([
@@ -91,7 +90,10 @@ it("orders lists by name across departments and narrows by requested department"
         [departmentA, [person("a")]],
         [departmentB, [person("b")]],
       ]),
-      contacts: new Map([contactFor("a", "a@example.invalid"), contactFor("b", "b@example.invalid")]),
+      contacts: new Map([
+        contactFor("a", "a@example.invalid"),
+        contactFor("b", "b@example.invalid"),
+      ]),
     }),
   );
   expect(lists.map((list) => list.name)).toEqual([
@@ -107,7 +109,10 @@ it("orders lists by name across departments and narrows by requested department"
         [departmentA, [person("a")]],
         [departmentB, [person("b")]],
       ]),
-      contacts: new Map([contactFor("a", "a@example.invalid"), contactFor("b", "b@example.invalid")]),
+      contacts: new Map([
+        contactFor("a", "a@example.invalid"),
+        contactFor("b", "b@example.invalid"),
+      ]),
     }),
   );
   expect(narrowed.map((list) => list.name)).toEqual([`assistants-${departmentB}`]);

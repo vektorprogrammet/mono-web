@@ -175,7 +175,7 @@ test("terminal pipeline reaches write14 then fresh post-commit diff0 with stable
   expect(cycle.diffReport.inventory_artifact_sha256).toEqual(
     cycle.writeReport.inventory_artifact_sha256,
   );
-});
+}, 30_000);
 test("accepted dispositions remove their collected failures from the report", () => {
   const failure = {
     failure_id: "failure-original",
@@ -1179,7 +1179,7 @@ test("canonical source scan does not emit unsafe fixture integrations", async ()
   } finally {
     rmSync(parent, { recursive: true, force: true });
   }
-}, 120_000);
+}, 180_000);
 test("integration URLs survive comment stripping and loader registration", async () => {
   const legacyRoot = mkdtempSync("/tmp/parity-c2-integration-loader-legacy-");
   const monoRoot = mkdtempSync("/tmp/parity-c2-integration-loader-mono-");

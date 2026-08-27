@@ -18,11 +18,7 @@ const NonEmpty = Schema.String.pipe(
 export const OrganizationCommandId = NonEmpty.pipe(Schema.brand("OrganizationCommandId"));
 export type OrganizationCommandId = typeof OrganizationCommandId.Type;
 
-export const OrganizationEntityKindSchema = Schema.Literals([
-  "Department",
-  "Team",
-  "FieldOfStudy",
-]);
+export const OrganizationEntityKindSchema = Schema.Literals(["Department", "Team", "FieldOfStudy"]);
 export type OrganizationEntityKind = typeof OrganizationEntityKindSchema.Type;
 
 export const OrganizationAdministratorSchema = Schema.Struct({
@@ -118,8 +114,7 @@ export const FieldOfStudyReplayedObservationSchema = Schema.Struct({
   commandId: OrganizationCommandId,
   original: FieldOfStudyCreatedObservationSchema,
 });
-export type FieldOfStudyReplayedObservation =
-  typeof FieldOfStudyReplayedObservationSchema.Type;
+export type FieldOfStudyReplayedObservation = typeof FieldOfStudyReplayedObservationSchema.Type;
 
 export const OrganizationReplayedObservationSchema = Schema.Union([
   DepartmentReplayedObservationSchema,

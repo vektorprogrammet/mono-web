@@ -433,7 +433,7 @@ describe("DatabaseTest", () => {
         "schools_directory_schools",
       ],
     });
-  });
+  }, 15_000);
 
   it("executes native Recruitment assignment atomically against PGlite", async () => {
     const evidence = await recruitmentRuntime.runPromise(

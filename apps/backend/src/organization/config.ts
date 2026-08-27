@@ -10,18 +10,14 @@ const MAX_REQUEST_BODY_BYTES = 1_048_576;
 
 const BearerTokenSchema = Schema.String.pipe(
   Schema.check(
-    Schema.makeFilter(
-      (value) => value.length > 0 && value.length <= 512 && !/\s/u.test(value),
-      { message: "a bounded bearer token" },
-    ),
+    Schema.makeFilter((value) => value.length > 0 && value.length <= 512 && !/\s/u.test(value), {
+      message: "a bounded bearer token",
+    }),
   ),
 );
 const OrganizationTokenMapSchema = Schema.Record(BearerTokenSchema, OrganizationActorSchema);
 const BoundedBodyBytesSchema = Schema.Int.pipe(
-  Schema.check(
-    Schema.isGreaterThan(0),
-    Schema.isLessThanOrEqualTo(MAX_REQUEST_BODY_BYTES),
-  ),
+  Schema.check(Schema.isGreaterThan(0), Schema.isLessThanOrEqualTo(MAX_REQUEST_BODY_BYTES)),
 );
 
 export interface OrganizationApiConfig {

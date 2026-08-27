@@ -80,9 +80,7 @@ const decodeTeam = (row: unknown): Effect.Effect<Team, OrganizationDecodeError> 
     Effect.mapError((cause) => decodeError("decode created Team", cause)),
   );
 
-const decodeFieldOfStudy = (
-  row: unknown,
-): Effect.Effect<FieldOfStudy, OrganizationDecodeError> =>
+const decodeFieldOfStudy = (row: unknown): Effect.Effect<FieldOfStudy, OrganizationDecodeError> =>
   Schema.decodeUnknownEffect(FieldOfStudy)(row, { onExcessProperty: "error" }).pipe(
     Effect.mapError((cause) => decodeError("decode created FieldOfStudy", cause)),
   );
@@ -326,7 +324,10 @@ const decodeTeamReplay = (
 const decodeFieldOfStudyReplay = (
   commandId: OrganizationCommandId,
   receipt: OrganizationCommandReceiptRow,
-): Effect.Effect<CreateFieldOfStudyResult, OrganizationDecodeError | OrganizationPersistenceError> =>
+): Effect.Effect<
+  CreateFieldOfStudyResult,
+  OrganizationDecodeError | OrganizationPersistenceError
+> =>
   Schema.decodeUnknownEffect(FieldOfStudyCreatedObservationSchema)(receipt.observationJson, {
     onExcessProperty: "error",
   }).pipe(
@@ -535,7 +536,8 @@ export const createOrganizationDepartment = (
           const receipt = yield* readReceipt(sql, command.commandId).pipe(
             Effect.flatMap((stored) => receiptOrConflict(stored, digest, command.commandId)),
           );
-          if (receipt !== undefined) return yield* decodeDepartmentReplay(command.commandId, receipt);
+          if (receipt !== undefined)
+            return yield* decodeDepartmentReplay(command.commandId, receipt);
           yield* authorizeOrganizationActor(actor);
           const inserted = yield* insertDepartment(sql, command);
           const observation: DepartmentCreatedObservation = {

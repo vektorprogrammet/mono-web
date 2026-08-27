@@ -179,9 +179,7 @@ it("derives stable, kind-separated IDs from the complete SHA-256 digest", () => 
     commandId,
     _tag: "CreateDepartment" as const,
   };
-  expect(organizationCommandDigest(departmentCommand)).toBe(
-    organizationCommandDigest(reordered),
-  );
+  expect(organizationCommandDigest(departmentCommand)).toBe(organizationCommandDigest(reordered));
   expect(organizationCommandDigest({ ...departmentCommand, name: "Changed" })).not.toBe(
     organizationCommandDigest(departmentCommand),
   );

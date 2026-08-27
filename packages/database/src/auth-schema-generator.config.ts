@@ -1,4 +1,4 @@
-import { makeAuthEngine } from "./auth-engine.js"
+import { makeAuthEngine } from "./auth-engine.js";
 
 /**
  * Generator-only config for migration 0015 provenance (spec 0054).
@@ -13,9 +13,7 @@ import { makeAuthEngine } from "./auth-engine.js"
  * auth-engine.ts; this file only re-exports the engine for the CLI.
  */
 export const auth = makeAuthEngine({
-  postgresUrl:
-    process.env.AUTH_GENERATE_PG_URL ??
-    "postgres://postgres@127.0.0.1:45121/postgres",
+  postgresUrl: process.env.AUTH_GENERATE_PG_URL ?? "postgres://postgres@127.0.0.1:45121/postgres",
   secret: process.env.BETTER_AUTH_SECRET ?? "generator-only-not-a-runtime-secret",
   baseURL: process.env.BETTER_AUTH_URL ?? "http://localhost:3000",
-})
+});

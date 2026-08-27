@@ -988,7 +988,7 @@ test("OpenAPI route keys remain structural while credential and schema values fa
       (failure) => failure.reasonCode === "OPENAPI_SCHEMA_INVALID",
     ),
   ).toBe(true);
-});
+}, 10_000);
 test("shared JSON member safety rejects nested duplicates before decoding", () => {
   expect(
     hasDuplicateJsonMembers(

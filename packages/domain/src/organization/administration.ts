@@ -106,9 +106,8 @@ export const departmentIdForCommand = (commandId: OrganizationCommandId): Depart
 export const teamIdForCommand = (commandId: OrganizationCommandId): TeamIdType =>
   organizationEntityIdForCommand("Team", commandId);
 
-export const fieldOfStudyIdForCommand = (
-  commandId: OrganizationCommandId,
-): FieldOfStudyIdType => organizationEntityIdForCommand("FieldOfStudy", commandId);
+export const fieldOfStudyIdForCommand = (commandId: OrganizationCommandId): FieldOfStudyIdType =>
+  organizationEntityIdForCommand("FieldOfStudy", commandId);
 
 export const authorizeOrganizationActor = (
   actor: OrganizationActor,
