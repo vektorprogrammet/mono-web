@@ -129,9 +129,7 @@ export default defineConfig({
               use: {
                 ...devices["Desktop Chrome"],
                 viewport: w0Viewport,
-                launchOptions: chromiumExecutablePath
-                  ? { executablePath: chromiumExecutablePath }
-                  : undefined,
+                launchOptions: contentChromiumLaunchOptions,
               },
             },
           ]
