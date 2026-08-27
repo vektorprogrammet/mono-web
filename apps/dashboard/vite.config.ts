@@ -28,7 +28,7 @@ const defaultProfileImage = (): Plugin => ({
 });
 
 export default defineConfig({
-  base: "/dashboard/",
+  base: process.env.REAL_NATIVE_CONDUCT_E2E === "1" ? "/" : "/dashboard/",
   plugins: [reactRouter(), foldkit(), tailwindcss(), defaultProfileImage()],
   resolve: {
     alias: {

@@ -1,8 +1,6 @@
-import { existsSync } from "node:fs";
 import { defineConfig, devices } from "@playwright/test";
 
-const chromiumExecutablePath =
-  process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE ?? undefined;
+const chromiumExecutablePath = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE ?? undefined;
 const externalDashboardOrigin = process.env.DASHBOARD_ORIGIN ?? "https://vektor.phibkro.org";
 
 export default defineConfig({
@@ -22,7 +20,9 @@ export default defineConfig({
       use: {
         ...devices["Desktop Chrome"],
         viewport: { width: 1440, height: 900 },
-        launchOptions: chromiumExecutablePath ? { executablePath: chromiumExecutablePath } : undefined,
+        launchOptions: chromiumExecutablePath
+          ? { executablePath: chromiumExecutablePath }
+          : undefined,
       },
     },
   ],
