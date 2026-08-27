@@ -354,10 +354,10 @@ This evidence slice is done only when all conditions are observed and recorded:
 ## Lifecycle and handoff
 
 - **Specified:** satisfied by this frozen evidence contract at `design-specs/0065-native-identity-browser-evidence.md`.
-- **Ready:** requires independent review of this document, the observed topology defect, the 0054 implementation, and the future implementation capsule anchored to the exact base.
-- **Building:** limited to one isolated implementation worktree. The future writer can correct Playwright topology and the CI gate, then add the one evidence runner and its required tests without changing 0054 semantics.
-- **Experienceable:** entered only after the complete disposable PostgreSQL and Chromium receipt, request ledger, accessibility output, old-cookie replay, rate-limit output, and cleanup proof exist in the one-to-one handoff or PR.
-- **Conforming:** entered only after a blind-first verifier receives this frozen spec, the corrected implementation, and sanitized objective evidence before author rationale, with no linked `Drift`.
+- **Ready:** historical superseded state. Independent review and the implementation capsule are now recorded by the later closeout amendment.
+- **Building:** historical superseded state. The isolated implementation worktree produced the corrected topology, gate, runner, and required evidence.
+- **Experienceable:** satisfied by the recorded disposable real PostgreSQL and Chromium receipt, including the request ledger, accessibility output, old-cookie replay, rate-limit output, and cleanup proof.
+- **Conforming:** pending blind-first independent disposition. No conformance is claimed; hosted CI was not run.
 - **Release-ready / Operating:** not entered. This slice has no production, remote, deployment, provider, publication, or credential authority.
 - **Drift:** any falsifier, source mismatch, mixed topology, boundary breach, incomplete receipt, or disagreement with spec 0054 blocks the slice. The product lead routes intent disagreement to `Specified`. An implementation-only correction returns to `Building`.
 
