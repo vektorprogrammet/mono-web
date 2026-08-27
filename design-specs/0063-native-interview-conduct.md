@@ -7,8 +7,9 @@
 | Field | Value |
 |---|---|
 | Goal | Replace the legacy interview-conduct and staff-cancellation seam with one native Recruitment transition and one full-Foldkit assigned-interviewer journey |
-| Status | Frozen before implementation |
+| Status | Implementation present; real Chromium journey passed at integrated commit `b114cde` |
 | Base | `0818c1ab86561623ec40afb131e99680fab1b686` (`0818c1ab`) |
+| Implementation revision | `b114cdeadc32e7bb4134cf5d89384883f93d8e11` (`b114cde`) |
 | Depends on | 0040 logical capability topology; 0045 Effect Model/Service authority; 0049 native Recruitment assignment; 0050 native Recruitment scheduling; 0051 native Recruitment invitation response; 0054 Identity sessions; 0055 person-keyed authorization; 0056 declarative authorization |
 | Actor | Active team member who is the assigned interviewer for the interview |
 | Route | `/dashboard/intervjuer` |
@@ -491,7 +492,19 @@ The interview lock orders concurrent finalization and cancellation. Exactly one 
 
 ## Evidence plan
 
-All evidence below is acceptance work for the implementation revision. This frozen document does not claim that any item has passed.
+Implementation is present. The following runtime evidence passed at integrated commit `b114cde`; it does not replace this evidence plan:
+
+### Observed integrated runtime evidence (`b114cde`)
+
+Runner command: `bun run --cwd apps/dashboard e2e:real-conduct`
+
+The temporary runner output was observed for this note. It is not a committed runtime receipt.
+
+The runner used disposable loopback PostgreSQL and real Chromium. Native login succeeded with the real session cookie. Chromium finalized one accepted scheduled interview and then performed fresh conduct and board reads. It observed `Completed`. One independent stale finalize returned HTTP `409` with `RecruitmentInterviewStaleRevision`. Chromium canceled a second accepted scheduled interview and then performed fresh conduct and board reads. It observed `Cancelled`.
+
+The browser evidence recorded zero accessibility violations and zero page errors. The request ledger recorded no legacy conduct, status, schema-admin, or cancellation route and no raw capability. The database evidence recorded `interviews=2`, `schedules=2`, `acceptedInvitations=2`, `snapshots=8`, `conducts=1`, `cancellations=1`, `receipts=2`, `audits=2`, `finalizedReceipts=1`, `cancelledReceipts=1`, `finalizedAudits=1`, `cancelledAudits=1`, and `forbiddenFields=false`.
+
+All other evidence-plan items remain unclaimed unless directly established by existing tests. In particular, this note does not claim concurrent finalization and cancellation, suspension ordering, rollback, or the full HTTP, SDK, and Foldkit evidence matrix.
 
 ### Static and model evidence
 
