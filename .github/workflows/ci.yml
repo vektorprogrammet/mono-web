@@ -163,6 +163,29 @@ jobs:
             echo "::error title=Native identity browser gate unavailable::The selected gate requires NATIVE_IDENTITY_BACKEND_ORIGIN and NATIVE_IDENTITY_DASHBOARD_ORIGIN repository variables for a disposable native backend/dashboard already seeded with Better Auth credentials. No production credentials are accepted."
             exit 1
           fi
+          validate_loopback_origin() {
+            local name="$1"
+            local value="$2"
+            node --input-type=module - "$name" "$value" <<'NODE'
+          const [, , name, value] = process.argv;
+          const url = new URL(value);
+          const loopbackHosts = new Set(["127.0.0.1", "[::1]", "localhost"]);
+          if (
+            !["http:", "https:"].includes(url.protocol) ||
+            !loopbackHosts.has(url.hostname) ||
+            url.username !== "" ||
+            url.password !== "" ||
+            url.pathname !== "/" ||
+            url.search !== "" ||
+            url.hash !== ""
+          ) {
+            console.error(`${name} must be a loopback origin without credentials or a path`);
+            process.exit(1);
+          }
+          NODE
+          }
+          validate_loopback_origin "NATIVE_IDENTITY_BACKEND_ORIGIN" "$NATIVE_IDENTITY_BACKEND_ORIGIN"
+          validate_loopback_origin "NATIVE_IDENTITY_DASHBOARD_ORIGIN" "$NATIVE_IDENTITY_DASHBOARD_ORIGIN"
           curl --fail --silent --show-error "$NATIVE_IDENTITY_BACKEND_ORIGIN/health" >/dev/null
           curl --fail --silent --show-error "$NATIVE_IDENTITY_DASHBOARD_ORIGIN/login" >/dev/null
           bun run --cwd apps/dashboard e2e:test:chrome -- e2e/native-session-journey.spec.ts

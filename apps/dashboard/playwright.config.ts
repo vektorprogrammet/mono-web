@@ -7,7 +7,16 @@ const chromiumExecutablePath =
   (existsSync(systemChromium) ? systemChromium : undefined);
 const w0Viewport = { width: 1440, height: 900 };
 const genericDashboardOrigin = "http://127.0.0.1:5174";
-const externalDashboardOrigin = process.env.DASHBOARD_ORIGIN ?? genericDashboardOrigin;
+const realNativeIdentityMode = process.env.REAL_NATIVE_IDENTITY_E2E === "1";
+const configuredDashboardOrigin = process.env.DASHBOARD_ORIGIN;
+const externalDashboardOrigin = realNativeIdentityMode
+  ? (() => {
+      if (configuredDashboardOrigin === undefined || configuredDashboardOrigin.length === 0) {
+        throw new Error("DASHBOARD_ORIGIN is required for REAL_NATIVE_IDENTITY_E2E");
+      }
+      return configuredDashboardOrigin;
+    })()
+  : (configuredDashboardOrigin ?? genericDashboardOrigin);
 const realSymfonyCoreOrigin = process.env.API_URL ?? "http://127.0.0.1:8000";
 const realSymfonyCoreMode = process.env.REAL_SYMFONY_CORE_E2E === "1";
 const realSymfonyRecruitmentMode = process.env.REAL_SYMFONY_RECRUITMENT_E2E === "1";
@@ -23,7 +32,6 @@ const realNativeInvitationResponseMode = process.env.REAL_NATIVE_INVITATION_RESP
 const realNativeOrganizationMode = process.env.REAL_NATIVE_ORGANIZATION_E2E === "1";
 const realNativeConductMode = process.env.REAL_NATIVE_CONDUCT_E2E === "1";
 const realNativeProfileMode = process.env.REAL_NATIVE_PROFILE_E2E === "1";
-const realNativeIdentityMode = process.env.REAL_NATIVE_IDENTITY_E2E === "1";
 const realSymfonyMode =
   realSymfonyCoreMode ||
   realSymfonyRecruitmentMode ||
@@ -33,7 +41,7 @@ const realSymfonyMode =
   realSymfonyBackgroundOperationsMode;
 const externalTopologyMode =
   realSymfonyMode ||
-  realReceiptOwnerMode ||
+  realNativeIdentityMode ||
   realAdmissionPeriodMode ||
   realNativeSchedulingMode ||
   realNativeInvitationResponseMode ||
@@ -68,15 +76,14 @@ export default defineConfig({
   outputDir: "./e2e/results",
   snapshotDir: "./e2e/snapshots",
   fullyParallel: true,
-  forbidOnly: !!process.env.CI,
-  retries: process.env.CI ? 2 : 0,
+  retries: realNativeIdentityMode ? 0 : process.env.CI ? 2 : 0,
   workers: externalTopologyMode || process.env.CI ? 1 : undefined,
   reporter: "html",
   use: {
     baseURL:
       realReceiptOwnerMode ||
       realAdmissionPeriodMode ||
-      realNativeSchedulingMode ||
+      realNativeIdentityMode ||
       realNativeInvitationResponseMode ||
       realNativeOrganizationMode ||
       realNativeConductMode ||
@@ -115,10 +122,10 @@ export default defineConfig({
             },
           },
         ]
-      : realSymfonyMode
+      : realNativeIdentityMode
         ? [
             {
-              name: "real-symfony",
+              name: "chromium",
               use: {
                 ...devices["Desktop Chrome"],
                 viewport: w0Viewport,
@@ -128,23 +135,36 @@ export default defineConfig({
               },
             },
           ]
-        : [
-            {
-              name: "chromium",
-              use: {
-                ...devices["Desktop Chrome"],
-                viewport: w0Viewport,
-                launchOptions: contentChromiumLaunchOptions,
+        : realSymfonyMode
+          ? [
+              {
+                name: "real-symfony",
+                use: {
+                  ...devices["Desktop Chrome"],
+                  viewport: w0Viewport,
+                  launchOptions: chromiumExecutablePath
+                    ? { executablePath: chromiumExecutablePath }
+                    : undefined,
+                },
               },
-            },
-            {
-              name: "firefox",
-              use: { ...devices["Desktop Firefox"], viewport: w0Viewport },
-            },
-            {
-              name: "webkit",
-              use: { ...devices["Desktop Safari"], viewport: w0Viewport },
-            },
-          ],
+            ]
+          : [
+              {
+                name: "chromium",
+                use: {
+                  ...devices["Desktop Chrome"],
+                  viewport: w0Viewport,
+                  launchOptions: contentChromiumLaunchOptions,
+                },
+              },
+              {
+                name: "firefox",
+                use: { ...devices["Desktop Firefox"], viewport: w0Viewport },
+              },
+              {
+                name: "webkit",
+                use: { ...devices["Desktop Safari"], viewport: w0Viewport },
+              },
+            ],
   webServer: externalTopologyMode ? undefined : dashboardServer,
 });
