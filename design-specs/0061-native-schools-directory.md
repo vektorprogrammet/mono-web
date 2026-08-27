@@ -5,7 +5,7 @@
 | Field             | Value                                                                                                                  |
 | ----------------- | ---------------------------------------------------------------------------------------------------------------------- |
 | Goal              | Replace the dead `/dashboard/skoler` loader with one native school directory read                                      |
-| Status            | Contract remains frozen at revision 0061.1; implementation is present at integrated branch `f07b86d7babc041ee5f947b41381de094586e9d6`; runtime and acceptance evidence are pending |
+| Status            | Contract remains frozen at revision 0061.1; implementation and local runtime/acceptance evidence are present at integrated commit `6867e0802d1adf4597d0473de0940c8a90b37783` (`6867e`), with implementation lineage preserved as `f07b86d7babc041ee5f947b41381de094586e9d6` |
 | Base              | `2e031738d12f94c611426c5ac884861dec227abd` (`2e03173`)                                                                 |
 | Depends on        | 0040 logical capability topology, 0045 Effect Model and Service authority, 0055 person-keyed authorization authorities |
 | Route             | `/dashboard/skoler`                                                                                                    |
@@ -23,6 +23,20 @@ An HTTP cursor walk uses separate requests. Each request opens a separate transa
 Revision 0061.1 removes paging before HTTP, SDK, or UI implementation. The full visible directory now comes from one query and one snapshot.
 
 This revision keeps every authority, ownership, and persistence decision from revision 0061.
+
+### 0061.2
+
+Implementation and local evidence are present at integrated commit `6867e080` (`6867e`); the implementation lineage remains `f07b86d7...`. The exact local gate was observed:
+
+```sh
+bun run --cwd apps/dashboard e2e:real-schools
+```
+
+The PostgreSQL proof used a read-only `REPEATABLE READ` snapshot, independent connections, and the paused-department-A versus later-department-B observation. The deterministic seed contained 5 persons, 3 departments, 4 memberships, and 6 schools: 4 active and 2 inactive, 1 unassigned, 2 shared associations, and 0 empty. One real-session Chromium test observed a forced 503, then 6x200 and 2x403 responses; it exercised authority, tabs, search, and retry. It reported no page or accessibility errors. The legacy/fixture ledger was empty, and cleanup completed.
+
+Two bounded fixes were included: the seed sets `search_path=auth,public` to match migration 19 after auth schema creation; the stale-database test references exported `databaseSchemaRevision` instead of literal 20.
+
+No hosted CI, production, or remote evidence is claimed. No repository receipt was requested; the evidence is the stdout artifact only.
 
 ## Problem
 
