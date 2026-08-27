@@ -1,4 +1,5 @@
 import { RecruitmentInterviewConductObservationSchema } from "@vektorprogrammet/sdk";
+import { Dialog } from "@foldkit/ui";
 import { RecruitmentSchedulingBoardSchema } from "@vektorprogrammet/sdk/effect";
 import type { HtmlBuilder } from "foldkit/html";
 import { FieldValidation } from "foldkit";
@@ -20,6 +21,22 @@ interface RenderedNode {
   readonly attributes: ReadonlyArray<RenderedAttribute>;
   readonly children: ReadonlyArray<RenderedNode | string>;
 }
+interface RenderedSubmodelConfig {
+  readonly viewInputs: unknown;
+}
+
+interface RenderedDialogViewInputs {
+  readonly toView: (render: {
+    readonly dialog: ReadonlyArray<RenderedAttribute>;
+    readonly backdrop: ReadonlyArray<RenderedAttribute>;
+    readonly panel: ReadonlyArray<RenderedAttribute>;
+    readonly title: ReadonlyArray<RenderedAttribute>;
+    readonly description: ReadonlyArray<RenderedAttribute>;
+    readonly initialFocus: ReadonlyArray<RenderedAttribute>;
+    readonly closeButton: ReadonlyArray<RenderedAttribute>;
+    readonly isVisible: boolean;
+  }) => RenderedNode;
+}
 
 const renderedNode = (tag: string, args: ReadonlyArray<unknown>): RenderedNode => ({
   tag,
@@ -32,7 +49,19 @@ const htmlBuilder = new Proxy(
   {
     get: (_target, property) => {
       if (property === "empty") return renderedNode("empty", []);
-      if (property === "submodel") return () => renderedNode("empty", []);
+      if (property === "submodel") {
+        return ({ viewInputs }: RenderedSubmodelConfig) =>
+          (viewInputs as RenderedDialogViewInputs).toView({
+            dialog: [],
+            backdrop: [],
+            panel: [],
+            title: [],
+            description: [],
+            initialFocus: [{ name: "DataAttribute", values: ["foldkit-dialog-initial-focus", ""] }],
+            closeButton: [],
+            isVisible: true,
+          });
+      }
       const name = String(property);
       return (...args: ReadonlyArray<unknown>) =>
         /^[A-Z]/.test(name) ? { name, values: args } : renderedNode(name, args);
@@ -173,6 +202,11 @@ const readyModel = (model: Model): ReadyModel => {
   if (model._tag !== "Ready") throw new Error("expected ready model");
   return model;
 };
+const conductConfirmationModel = (action: "Finalize" | "Cancel"): ReadyModel => {
+  const initial = readyModel(terminalModel("Completed"));
+  const [conductDialog] = Dialog.open(initial.conductDialog);
+  return { ...initial, conductDialog, pendingConductAction: action };
+};
 
 const checkboxChange = (model: ReadyModel, checkboxId: string): ((checked: boolean) => Message) => {
   const rendered = view(model, htmlBuilder) as unknown as RenderedNode;
@@ -216,6 +250,21 @@ describe("Foldkit scheduling conduct view", () => {
     expect(cancelledControls).toHaveLength(3);
     expect(cancelledControls.every((node) => hasAttribute(node, "Disabled", true))).toBe(true);
     expect(cancelledNodes.some((node) => node.tag === "select")).toBe(false);
+  });
+  it("renders the dialog initial-focus marker on the confirmation control", () => {
+    const rendered = view(
+      conductConfirmationModel("Finalize"),
+      htmlBuilder,
+    ) as unknown as RenderedNode;
+    const confirmation = descendants(rendered).find(
+      (node) => node.tag === "button" && textContent(node) === "Fullfør intervju",
+    );
+
+    expect(confirmation).toBeDefined();
+    expect(
+      confirmation !== undefined &&
+        hasAttribute(confirmation, "DataAttribute", "foldkit-dialog-initial-focus"),
+    ).toBe(true);
   });
 
   it("maps native checkbox checked state through answer updates", () => {

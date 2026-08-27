@@ -768,7 +768,7 @@ const conductDialogView = (model: ReadyModel, h: HtmlBuilder<Message>): Html =>
     model: model.conductDialog,
     view: Dialog.view,
     viewInputs: {
-      toView: ({ dialog, backdrop, panel, title, description, isVisible }) =>
+      toView: ({ dialog, backdrop, panel, title, description, initialFocus, isVisible }) =>
         h.dialog(
           [...dialog, h.Class("fs-dialog")],
           isVisible && model.pendingConductAction !== null
@@ -803,15 +803,28 @@ const conductDialogView = (model: ReadyModel, h: HtmlBuilder<Message>): Html =>
                           "fs-button fs-button--secondary",
                           h,
                         ),
-                        actionButton(
-                          model.pendingConductAction === "Finalize"
-                            ? "Fullfør intervju"
-                            : "Avlys intervju",
-                          model.pendingConductAction === "Finalize"
-                            ? ConfirmedFinalize()
-                            : ConfirmedCancel(),
-                          false,
-                          "fs-button fs-button--primary",
+                        Button.view(
+                          {
+                            onClick:
+                              model.pendingConductAction === "Finalize"
+                                ? ConfirmedFinalize()
+                                : ConfirmedCancel(),
+                            isDisabled: false,
+                            type: "button",
+                            toView: ({ button }) =>
+                              h.button(
+                                [
+                                  ...button,
+                                  ...initialFocus,
+                                  h.Class("fs-button fs-button--primary"),
+                                ],
+                                [
+                                  model.pendingConductAction === "Finalize"
+                                    ? "Fullfør intervju"
+                                    : "Avlys intervju",
+                                ],
+                              ),
+                          },
                           h,
                         ),
                       ],
