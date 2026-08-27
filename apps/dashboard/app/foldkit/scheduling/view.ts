@@ -554,10 +554,9 @@ const questionView = (
                   h.OnChange((checked) =>
                     ChangedAnswer({
                       questionId: question.questionId,
-                      answer:
-                        checked === "on"
-                          ? [...selectedValues, alternative]
-                          : selectedValues.filter((value) => value !== alternative),
+                      answer: checked
+                        ? [...selectedValues, alternative]
+                        : selectedValues.filter((value) => value !== alternative),
                     }),
                   ),
                 ]),

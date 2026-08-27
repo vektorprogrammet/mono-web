@@ -6,6 +6,8 @@ import { Schema as S } from "effect";
 import { describe, expect, it } from "vitest";
 import type { Message } from "./message";
 import { ConductData, makeInitialModel, type Model, type ReadyModel } from "./model";
+import type { SchedulingCommands } from "./command";
+import { makeUpdate } from "./update";
 import { view } from "./view";
 
 interface RenderedAttribute {
@@ -163,9 +165,26 @@ const terminalModel = (state: "Completed" | "Cancelled"): Model => {
     answers: detail.answers,
     score,
   };
+
   return model;
 };
 
+const readyModel = (model: Model): ReadyModel => {
+  if (model._tag !== "Ready") throw new Error("expected ready model");
+  return model;
+};
+
+const checkboxChange = (model: ReadyModel, checkboxId: string): ((checked: boolean) => Message) => {
+  const rendered = view(model, htmlBuilder) as unknown as RenderedNode;
+  const checkbox = descendants(rendered).find(
+    (node) => node.tag === "input" && attribute(node, "Id") === checkboxId,
+  );
+  if (checkbox === undefined) throw new Error(`checkbox ${checkboxId} not found`);
+  const onChange = attribute(checkbox, "OnChange");
+  if (typeof onChange !== "function")
+    throw new Error(`checkbox ${checkboxId} has no change handler`);
+  return onChange as (checked: boolean) => Message;
+};
 describe("Foldkit scheduling conduct view", () => {
   it("keeps the scheduling heading and makes terminal answers and stored score read-only", () => {
     const completed = view(terminalModel("Completed"), htmlBuilder) as unknown as RenderedNode;
@@ -197,5 +216,21 @@ describe("Foldkit scheduling conduct view", () => {
     expect(cancelledControls).toHaveLength(3);
     expect(cancelledControls.every((node) => hasAttribute(node, "Disabled", true))).toBe(true);
     expect(cancelledNodes.some((node) => node.tag === "select")).toBe(false);
+  });
+
+  it("maps native checkbox checked state through answer updates", () => {
+    const update = makeUpdate({} as SchedulingCommands);
+    const initial = readyModel(terminalModel("Completed"));
+    const checkedMessage = checkboxChange(initial, "question-question-check-1")(true);
+    const checked = readyModel(update(initial, checkedMessage)[0]);
+    expect(
+      checked.answers.find((answer) => answer.questionId === "question-check")?.answer,
+    ).toEqual(["Nysgjerrig", "Samarbeidsvillig"]);
+
+    const uncheckedMessage = checkboxChange(checked, "question-question-check-1")(false);
+    const unchecked = readyModel(update(checked, uncheckedMessage)[0]);
+    expect(
+      unchecked.answers.find((answer) => answer.questionId === "question-check")?.answer,
+    ).toEqual(["Nysgjerrig"]);
   });
 });
