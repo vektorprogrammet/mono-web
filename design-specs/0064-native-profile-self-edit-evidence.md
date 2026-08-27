@@ -5,7 +5,7 @@
 | Field | Value |
 |---|---|
 | Stable ID | `0064` |
-| Status | **Frozen** — evidence-only contract; source implementation is present at base `0e5f12424e8f31f9c62cd805cd9ea42a15a0ba51`; no 0064 runner, source code, or test is included in this revision |
+| Status | **Evidence observed** — the runner is present at integrated commit `b44c038f752e2b27c452d30c192ecc345f070b45`; original source base `0e5f12424e8f31f9c62cd805cd9ea42a15a0ba51` remains provenance; Amendment 0064.1 remains the only source correction |
 | Base | `0e5f12424e8f31f9c62cd805cd9ea42a15a0ba51` (`0e5f124`) from `/tmp/mono-web-final-integration` |
 | Parent contract | [`0053-native-profile-self-edit.md`](./0053-native-profile-self-edit.md) |
 | Goal | Produce one objective real-PostgreSQL and real-Chromium receipt for the already implemented Profile self-edit journey |
@@ -37,6 +37,24 @@ message `"Profilen er endret av en annen. Last siden på nytt for å se de
 nyeste verdiene."`. No other bridge mapping, Profile behavior, HTTP/SDK
 contract, UI structure, accessibility requirement, evidence assertion, or
 0053 semantic clause may change.
+
+## Amendment 0064.2 — observed local runtime gate
+
+The integrated evidence runner is present at commit `b44c038f752e2b27c452d30c192ecc345f070b45`. Its original source base remains `0e5f12424e8f31f9c62cd805cd9ea42a15a0ba51`. Amendment 0064.1 remains the only source correction.
+
+The observed local gate was:
+
+```text
+bun run --cwd apps/dashboard e2e:real-profile
+```
+
+One Chromium test passed against disposable PostgreSQL. The runtime receipt recorded the exact `baseCommit` `b44c038f752e2b27c452d30c192ecc345f070b45`, worktree, branch, Node, Bun, PostgreSQL, and Chromium versions. It recorded the real Better Auth login and Profile journey.
+
+The receipt recorded all four field edits, the fresh read after save, and the reload observation. It recorded a typed stale `409`, two independent PostgreSQL contenders with one success and one stale result, final revisions `4` and `4`, one receipt, an identical replay, and a changed-payload conflict.
+
+The receipt recorded strict ledger statuses with no forbidden paths. Axe reported zero violations in all four states. Cleanup removed the temporary PostgreSQL root and closed all ports.
+
+Hosted CI did not run. This amendment claims no production or remote evidence.
 
 ## Dependencies and evidence authorities
 
@@ -275,9 +293,9 @@ This evidence slice is done only when all conditions are observed and recorded:
 ## Lifecycle and handoff
 
 - **Specified:** satisfied by this frozen evidence contract at `design-specs/0064-native-profile-self-edit-evidence.md`.
-- **Ready:** requires independent review of this frozen document and a future evidence capsule anchored to the exact current integration head.
-- **Building:** limited to one isolated evidence implementation worktree. The future writer must not modify the 0053 source contract or unrelated implementation paths.
-- **Experienceable:** entered only after the complete real PostgreSQL and Chromium receipt, ledger, accessibility output, and cleanup proof exist in the one-to-one handoff or PR.
-- **Conforming:** entered only after a blind-first verifier receives the frozen spec, source implementation, and sanitized objective evidence before author rationale, with no linked Drift.
+- **Ready:** historical; superseded by the observed local runtime gate at integrated commit `b44c038f752e2b27c452d30c192ecc345f070b45`.
+- **Building:** historical; superseded by the integrated evidence runner at commit `b44c038f752e2b27c452d30c192ecc345f070b45`.
+- **Experienceable:** satisfied by the observed real PostgreSQL and Chromium receipt, ledger, accessibility output, and cleanup proof.
+- **Conforming:** pending blind-first independent disposition of the frozen spec, source implementation, and sanitized objective evidence, with no linked Drift.
 - **Release-ready / Operating:** not entered. This evidence run has no production, public, deployment, or provider authority.
 - **Drift:** any falsifier, source mismatch, boundary breach, incomplete receipt, or disagreement with spec 0053 blocks the slice. The product lead routes intent disagreement back to `Specified` and implementation-only correction back to `Building`.
