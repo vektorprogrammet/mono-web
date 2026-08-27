@@ -111,111 +111,113 @@ const migration = (name: string, url: URL, execute: ExecuteMigration) =>
     yield* execute(source);
   });
 
+export const databaseMigrationDefinitions = [
+  { id: "1_receipt-authority", name: "receipt-authority", url: receiptMigrationUrl },
+  {
+    id: "2_admission-period-authority",
+    name: "admission-period-authority",
+    url: admissionPeriodMigrationUrl,
+  },
+  {
+    id: "3_public-applicant-admission",
+    name: "public-applicant-admission",
+    url: publicApplicantMigrationUrl,
+  },
+  {
+    id: "4_receipt-authority-upgrade-replay",
+    name: "receipt-authority-upgrade-replay",
+    url: receiptMigrationUrl,
+  },
+  {
+    id: "5_public-applicant-effect-lifecycle",
+    name: "public-applicant-effect-lifecycle",
+    url: publicApplicantEffectLifecycleMigrationUrl,
+  },
+  {
+    id: "6_public-applicant-delivered-payload-cleanup",
+    name: "public-applicant-delivered-payload-cleanup",
+    url: publicApplicantDeliveredPayloadCleanupMigrationUrl,
+  },
+  {
+    id: "7_public-applicant-activation-snapshot",
+    name: "public-applicant-activation-snapshot",
+    url: publicApplicantActivationSnapshotMigrationUrl,
+  },
+  { id: "8_organization-authority", name: "organization-authority", url: organizationMigrationUrl },
+  {
+    id: "9_import-occurrence-authority",
+    name: "import-occurrence-authority",
+    url: importOccurrenceAuthorityMigrationUrl,
+  },
+  {
+    id: "10_native-recruitment-applicant-assignment",
+    name: "native-recruitment-applicant-assignment",
+    url: recruitmentMigrationUrl,
+  },
+  {
+    id: "11_native-recruitment-interview-scheduling",
+    name: "native-recruitment-interview-scheduling",
+    url: recruitmentSchedulingMigrationUrl,
+  },
+  {
+    id: "12_native-recruitment-invitation-response",
+    name: "native-recruitment-invitation-response",
+    url: recruitmentInvitationResponseMigrationUrl,
+  },
+  {
+    id: "13_native-organization-administration",
+    name: "native-organization-administration",
+    url: organizationAdministrationMigrationUrl,
+  },
+  {
+    id: "14_native-profile-self-edit",
+    name: "native-profile-self-edit",
+    url: profileSelfEditMigrationUrl,
+  },
+  {
+    id: "15_native-identity-better-auth",
+    name: "native-identity-better-auth",
+    url: nativeIdentityMigrationUrl,
+  },
+  {
+    id: "16_person-keyed-organization-authority",
+    name: "person-keyed-organization-authority",
+    url: personKeyedOrganizationAuthorityMigrationUrl,
+  },
+  {
+    id: "17_person-keyed-receipt-authority",
+    name: "person-keyed-receipt-authority",
+    url: personKeyedReceiptAuthorityMigrationUrl,
+  },
+  {
+    id: "18_organization-team-interest",
+    name: "organization-team-interest",
+    url: organizationTeamInterestMigrationUrl,
+  },
+  { id: "19_schools-directory", name: "schools-directory", url: schoolsMigrationUrl },
+  {
+    id: "20_content-publication",
+    name: "content-publication",
+    url: contentPublicationMigrationUrl,
+  },
+  {
+    id: "21_native-recruitment-interview-conduct",
+    name: "native-recruitment-interview-conduct",
+    url: nativeRecruitmentInterviewConductMigrationUrl,
+  },
+  {
+    id: "22_native-domain-schema-boundary",
+    name: "native-domain-schema-boundary",
+    url: nativeDomainSchemaBoundaryMigrationUrl,
+  },
+] as const;
+
 export const databaseMigrationLoader = (execute: ExecuteMigration) =>
-  Migrator.fromRecord({
-    "1_receipt-authority": migration("receipt-authority", receiptMigrationUrl, execute),
-    "2_admission-period-authority": migration(
-      "admission-period-authority",
-      admissionPeriodMigrationUrl,
-      execute,
+  Migrator.fromRecord(
+    Object.fromEntries(
+      databaseMigrationDefinitions.map(({ id, name, url }) => [id, migration(name, url, execute)]),
     ),
-    "3_public-applicant-admission": migration(
-      "public-applicant-admission",
-      publicApplicantMigrationUrl,
-      execute,
-    ),
-    "4_receipt-authority-upgrade-replay": migration(
-      "receipt-authority-upgrade-replay",
-      receiptMigrationUrl,
-      execute,
-    ),
-    "5_public-applicant-effect-lifecycle": migration(
-      "public-applicant-effect-lifecycle",
-      publicApplicantEffectLifecycleMigrationUrl,
-      execute,
-    ),
-    "6_public-applicant-delivered-payload-cleanup": migration(
-      "public-applicant-delivered-payload-cleanup",
-      publicApplicantDeliveredPayloadCleanupMigrationUrl,
-      execute,
-    ),
-    "7_public-applicant-activation-snapshot": migration(
-      "public-applicant-activation-snapshot",
-      publicApplicantActivationSnapshotMigrationUrl,
-      execute,
-    ),
-    "8_organization-authority": migration(
-      "organization-authority",
-      organizationMigrationUrl,
-      execute,
-    ),
-    "9_import-occurrence-authority": migration(
-      "import-occurrence-authority",
-      importOccurrenceAuthorityMigrationUrl,
-      execute,
-    ),
-    "10_native-recruitment-applicant-assignment": migration(
-      "native-recruitment-applicant-assignment",
-      recruitmentMigrationUrl,
-      execute,
-    ),
-    "11_native-recruitment-interview-scheduling": migration(
-      "native-recruitment-interview-scheduling",
-      recruitmentSchedulingMigrationUrl,
-      execute,
-    ),
-    "12_native-recruitment-invitation-response": migration(
-      "native-recruitment-invitation-response",
-      recruitmentInvitationResponseMigrationUrl,
-      execute,
-    ),
-    "13_native-organization-administration": migration(
-      "native-organization-administration",
-      organizationAdministrationMigrationUrl,
-      execute,
-    ),
-    "14_native-profile-self-edit": migration(
-      "native-profile-self-edit",
-      profileSelfEditMigrationUrl,
-      execute,
-    ),
-    "15_native-identity-better-auth": migration(
-      "native-identity-better-auth",
-      nativeIdentityMigrationUrl,
-      execute,
-    ),
-    "16_person-keyed-organization-authority": migration(
-      "person-keyed-organization-authority",
-      personKeyedOrganizationAuthorityMigrationUrl,
-      execute,
-    ),
-    "17_person-keyed-receipt-authority": migration(
-      "person-keyed-receipt-authority",
-      personKeyedReceiptAuthorityMigrationUrl,
-      execute,
-    ),
-    "18_organization-team-interest": migration(
-      "organization-team-interest",
-      organizationTeamInterestMigrationUrl,
-      execute,
-    ),
-    "19_schools-directory": migration("schools-directory", schoolsMigrationUrl, execute),
-    "20_content-publication": migration(
-      "content-publication",
-      contentPublicationMigrationUrl,
-      execute,
-    ),
-    "21_native-recruitment-interview-conduct": migration(
-      "native-recruitment-interview-conduct",
-      nativeRecruitmentInterviewConductMigrationUrl,
-      execute,
-    ),
-    "22_native-domain-schema-boundary": migration(
-      "native-domain-schema-boundary",
-      nativeDomainSchemaBoundaryMigrationUrl,
-      execute,
-    ),
-  });
+  );
 export const databaseSchemaRevision = "22_native-domain-schema-boundary";
 export const runDatabaseMigrations = (execute: ExecuteMigration) =>
   Migrator.make({})({

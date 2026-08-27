@@ -1,5 +1,15 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import { Database } from "@vektorprogrammet/domain/database";
+import { Effect, ManagedRuntime, Redacted } from "effect";
+import * as PgClient from "@effect/sql-pg/PgClient";
+import * as SqlClient from "effect/unstable/sql/SqlClient";
+import {
+  databaseMigrationDefinitions,
+  type ExecuteMigration,
+  runDatabaseMigrations,
+} from "./migrations.js";
+import { DatabaseLive } from "./layers.js";
 import { Pool, type PoolClient, type QueryResultRow } from "pg";
 
 const inventory = [
@@ -34,31 +44,6 @@ const nativeFunctions = [
   "prevent_recruitment_interview_question_snapshot_mutation",
   "prevent_recruitment_interview_lifecycle_mutation",
 ] as const;
-const sourcePaths = [
-  "../../domain/src/receipt/migrations/0001-receipt-authority.sql",
-  "../../domain/src/admission-period/migrations/0001-admission-period-authority.sql",
-  "../../domain/src/application/migrations/0002-public-applicant-admission.sql",
-  "../../domain/src/receipt/migrations/0001-receipt-authority.sql",
-  "../../domain/src/application/migrations/0003-public-applicant-effect-lifecycle.sql",
-  "../../domain/src/application/migrations/0004-public-applicant-delivered-payload-cleanup.sql",
-  "../../domain/src/application/migrations/0005-public-applicant-activation-snapshot.sql",
-  "../../domain/src/organization/migrations/0001-organization-authority.sql",
-  "../migrations/0009-import-occurrence-authority.sql",
-  "../migrations/0010-native-recruitment-applicant-assignment.sql",
-  "../migrations/0011-native-recruitment-interview-scheduling.sql",
-  "../migrations/0012-native-recruitment-invitation-response.sql",
-  "../migrations/0013-native-organization-administration.sql",
-  "../migrations/0014-native-profile-self-edit.sql",
-  "../migrations/0015-native-identity-better-auth.sql",
-  "../migrations/0016-person-keyed-organization-authority.sql",
-  "../migrations/0017-person-keyed-receipt-authority.sql",
-  "../migrations/0018-organization-team-interest.sql",
-  "../../domain/src/schools/migrations/0001-schools-directory.sql",
-  "../../domain/src/content/migrations/0001-content-publication.sql",
-  "../migrations/0021-native-recruitment-interview-conduct.sql",
-  "../migrations/0022-native-domain-schema-boundary.sql",
-].map((path) => new URL(path, import.meta.url));
-const historicalSourcePaths = sourcePaths.slice(0, -1);
 
 const databaseUrl = (name: string): string => {
   const value = process.env[name];
@@ -77,14 +62,59 @@ const query = async <T extends QueryResultRow = QueryResultRow>(
   text: string,
   values: unknown[] = [],
 ) => (await client.query<T>(text, values)).rows;
+const runRegisteredMigrations = async (url: string) => {
+  const execute: ExecuteMigration = (source) =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      yield* sql.unsafe("SET LOCAL search_path TO auth, public");
+      yield* sql.unsafe(source);
+    });
+  await Effect.runPromise(
+    runDatabaseMigrations(execute).pipe(
+      Effect.provide(
+        PgClient.layer({
+          url: Redacted.make(url),
+          applicationName: "schema-boundary-registered-loader",
+          maxConnections: 1,
+        }),
+      ),
+      Effect.scoped,
+    ),
+  );
+};
 
-const runSource = async (pool: Pool, sourceUrl: URL): Promise<void> => {
-  const source = await readFile(sourceUrl, "utf8");
+const runHistoricalSources = async (pool: Pool) => {
+  for (const { url } of databaseMigrationDefinitions.slice(0, -1)) {
+    const source = await readFile(url, "utf8");
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query("SET LOCAL search_path TO auth, public");
+      await client.query(source);
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
-    await client.query("SET LOCAL search_path TO auth, public");
-    await client.query(source);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS public.vektorprogrammet_schema_migrations (
+        migration_id integer PRIMARY KEY,
+        created_at timestamptz NOT NULL DEFAULT now(),
+        name text NOT NULL
+      )
+    `);
+    for (const [index, { name }] of databaseMigrationDefinitions.slice(0, -1).entries()) {
+      await client.query(
+        "INSERT INTO public.vektorprogrammet_schema_migrations (migration_id, name) VALUES ($1, $2)",
+        [index + 1, name],
+      );
+    }
     await client.query("COMMIT");
   } catch (error) {
     await client.query("ROLLBACK");
@@ -92,10 +122,6 @@ const runSource = async (pool: Pool, sourceUrl: URL): Promise<void> => {
   } finally {
     client.release();
   }
-};
-
-const runSources = async (pool: Pool, sources: readonly URL[]) => {
-  for (const source of sources) await runSource(pool, source);
 };
 
 const relationName = (schema: "auth" | "public", table: string) => `"${schema}"."${table}"`;
@@ -468,6 +494,19 @@ const comparableTables = (tables: TableEvidence[]) =>
       rules: metadata.rules.map(normalizeMetadataRecord),
     },
   }));
+const triggerTargets = (tables: TableEvidence[]) =>
+  tables
+    .flatMap(({ table, metadata }) =>
+      metadata.triggers.map(({ trigger_name, function_oid, definition }) => ({
+        table,
+        trigger_name,
+        function_oid,
+        definition: normalizeSql(definition),
+      })),
+    )
+    .sort((left, right) =>
+      `${left.table}.${left.trigger_name}`.localeCompare(`${right.table}.${right.trigger_name}`),
+    );
 
 const assertImmutableMutations = async (client: PoolClient) => {
   const mutations = [
@@ -488,39 +527,80 @@ const assertImmutableMutations = async (client: PoolClient) => {
 };
 
 const runNormalDatabaseRead = async (url: string) => {
-  const pool = new Pool({
-    connectionString: url,
-    max: 1,
-    options: "-c search_path=auth,public",
-    application_name: "schema-boundary-proof",
-  });
-  const client = await pool.connect();
+  const runtime = ManagedRuntime.make(
+    DatabaseLive({
+      url: Redacted.make(url),
+      applicationName: "schema-boundary-proof",
+      maxConnections: 1,
+    }),
+  );
   try {
-    return await query<{ readonly count: string }>(
-      client,
-      `SELECT count(*)::text AS "count" FROM public.recruitment_interview_question_snapshots`,
+    return await runtime.runPromise(
+      Effect.gen(function* () {
+        const database = yield* Database;
+        return yield* database<{
+          readonly organizationGrantCount: string;
+          readonly paymentAuthorityCount: string;
+          readonly approvalGrantCount: string;
+          readonly teamInterestCount: string;
+          readonly schoolCount: string;
+          readonly schoolDepartmentCount: string;
+          readonly articleCount: string;
+          readonly articleVersionCount: string;
+          readonly articleDepartmentCount: string;
+          readonly publicationReceiptCount: string;
+          readonly publicationAuditCount: string;
+          readonly schemaQuestionCount: string;
+          readonly questionSnapshotCount: string;
+          readonly conductCount: string;
+          readonly cancellationCount: string;
+          readonly lifecycleReceiptCount: string;
+          readonly lifecycleAuditCount: string;
+        }>`
+          SELECT
+            (SELECT count(*)::text FROM public.organization_global_administrator_grants) AS "organizationGrantCount",
+            (SELECT count(*)::text FROM public.economy_payment_authorities) AS "paymentAuthorityCount",
+            (SELECT count(*)::text FROM public.economy_receipt_approval_grants) AS "approvalGrantCount",
+            (SELECT count(*)::text FROM public.organization_team_interest_registrations) AS "teamInterestCount",
+            (SELECT count(*)::text FROM public.schools_directory_schools) AS "schoolCount",
+            (SELECT count(*)::text FROM public.schools_directory_departments) AS "schoolDepartmentCount",
+            (SELECT count(*)::text FROM public.content_articles) AS "articleCount",
+            (SELECT count(*)::text FROM public.content_article_versions) AS "articleVersionCount",
+            (SELECT count(*)::text FROM public.content_article_departments) AS "articleDepartmentCount",
+            (SELECT count(*)::text FROM public.content_publication_command_receipts) AS "publicationReceiptCount",
+            (SELECT count(*)::text FROM public.content_publication_audit) AS "publicationAuditCount",
+            (SELECT count(*)::text FROM public.recruitment_interview_schema_questions) AS "schemaQuestionCount",
+            (SELECT count(*)::text FROM public.recruitment_interview_question_snapshots) AS "questionSnapshotCount",
+            (SELECT count(*)::text FROM public.recruitment_interview_conducts) AS "conductCount",
+            (SELECT count(*)::text FROM public.recruitment_interview_cancellations) AS "cancellationCount",
+            (SELECT count(*)::text FROM public.recruitment_interview_lifecycle_command_receipts) AS "lifecycleReceiptCount",
+            (SELECT count(*)::text FROM public.recruitment_interview_lifecycle_audit) AS "lifecycleAuditCount"
+        `;
+      }),
     );
   } finally {
-    client.release();
-    await pool.end();
+    await runtime.dispose();
   }
 };
 
 const main = async () => {
+  const freshUrl = databaseUrl("SCHEMA_BOUNDARY_FRESH_DATABASE_URL");
+  const upgradeUrl = databaseUrl("SCHEMA_BOUNDARY_UPGRADE_DATABASE_URL");
+  const collisionUrl = databaseUrl("SCHEMA_BOUNDARY_COLLISION_DATABASE_URL");
   const freshPool = new Pool({
-    connectionString: databaseUrl("SCHEMA_BOUNDARY_FRESH_DATABASE_URL"),
+    connectionString: freshUrl,
     max: 1,
   });
   const upgradePool = new Pool({
-    connectionString: databaseUrl("SCHEMA_BOUNDARY_UPGRADE_DATABASE_URL"),
+    connectionString: upgradeUrl,
     max: 1,
   });
   const collisionPool = new Pool({
-    connectionString: databaseUrl("SCHEMA_BOUNDARY_COLLISION_DATABASE_URL"),
+    connectionString: collisionUrl,
     max: 1,
   });
   try {
-    await runSources(freshPool, sourcePaths);
+    await runRegisteredMigrations(freshUrl);
     const freshClient = await freshPool.connect();
     let freshCatalog: CatalogEvidence;
     try {
@@ -532,12 +612,14 @@ const main = async () => {
     } finally {
       freshClient.release();
     }
-    const normalRuntimeRead = await runNormalDatabaseRead(
-      databaseUrl("SCHEMA_BOUNDARY_FRESH_DATABASE_URL"),
+    const normalRuntimeRead = await runNormalDatabaseRead(freshUrl);
+    assert.equal(normalRuntimeRead.length, 1);
+    assert.deepEqual(
+      Object.values(normalRuntimeRead[0]!),
+      Array.from({ length: 17 }, () => "1"),
     );
-    assert.deepEqual(normalRuntimeRead, [{ count: "1" }]);
 
-    await runSources(upgradePool, historicalSourcePaths);
+    await runHistoricalSources(upgradePool);
     const upgradeClient = await upgradePool.connect();
     let before: SchemaEvidence;
     try {
@@ -552,7 +634,7 @@ const main = async () => {
     } finally {
       upgradeClient.release();
     }
-    await runSource(upgradePool, sourcePaths.at(-1)!);
+    await runRegisteredMigrations(upgradeUrl);
     const afterClient = await upgradePool.connect();
     let after: SchemaEvidence;
     try {
@@ -573,6 +655,7 @@ const main = async () => {
           function_body,
         })),
       );
+      assert.deepEqual(triggerTargets(after.tables), triggerTargets(before.tables));
       await assertImmutableMutations(afterClient);
       await afterClient.query("SET search_path TO auth, public");
       await afterClient.query("CREATE TABLE auth.content_articles (article_id bigint NOT NULL)");
@@ -598,7 +681,7 @@ const main = async () => {
     } finally {
       afterClient.release();
     }
-    await runSource(upgradePool, sourcePaths.at(-1)!);
+    await runRegisteredMigrations(upgradeUrl);
     const secondClient = await upgradePool.connect();
     try {
       const afterSecond: SchemaEvidence = {
@@ -612,7 +695,7 @@ const main = async () => {
       secondClient.release();
     }
 
-    await runSources(collisionPool, historicalSourcePaths);
+    await runHistoricalSources(collisionPool);
     const collisionClient = await collisionPool.connect();
     await collisionClient.query(
       "CREATE TABLE public.content_articles (article_id bigint NOT NULL)",
@@ -624,7 +707,7 @@ const main = async () => {
       $$;
     `);
     collisionClient.release();
-    await assert.rejects(() => runSource(collisionPool, sourcePaths.at(-1)!));
+    await assert.rejects(() => runRegisteredMigrations(collisionUrl));
     const rollbackClient = await collisionPool.connect();
     try {
       const rollback = await catalogEvidence(rollbackClient);
@@ -689,4 +772,4 @@ const main = async () => {
   }
 };
 
-await main();
+export const program = Effect.promise(() => main());
