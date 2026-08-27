@@ -355,3 +355,52 @@ This evidence slice is done only when all conditions are observed and recorded:
 - **Conforming:** entered only after a blind-first verifier receives this frozen spec, the corrected implementation, and sanitized objective evidence before author rationale, with no linked `Drift`.
 - **Release-ready / Operating:** not entered. This slice has no production, remote, deployment, provider, publication, or credential authority.
 - **Drift:** any falsifier, source mismatch, mixed topology, boundary breach, incomplete receipt, or disagreement with spec 0054 blocks the slice. The product lead routes intent disagreement to `Specified`. An implementation-only correction returns to `Building`.
+
+
+## Amendment 0065.1 - corrected external native topology
+
+This amendment records the observed correction present at implementation commit
+`2bcc38a605c9c85dcc1be722dff361138c801827` (`2bcc38a`) in
+`apps/dashboard/playwright.config.ts` and `.github/workflows/ci.yml`. It is a
+documentation-only amendment. It does not replace, narrow, or weaken any
+requirement, semantic clause, exclusion, falsifier, or operator boundary above.
+
+The original `34b4792c4c8cc4ec57be230a31310a2071eddb9d` (`34b4792`) entry in
+Metadata remains the preserved source observation: it is the revision at which
+the mixed-topology defect was observed, and it remains part of the source
+history. After that correction, the evidence implementation base is explicitly
+frozen to the current commit `2bcc38a605c9c85dcc1be722dff361138c801827`
+(`2bcc38a`). No evidence implementation may claim a base earlier than this
+correction or silently substitute another revision.
+
+### Observed Playwright correction
+
+At the amended evidence base, `REAL_NATIVE_IDENTITY_E2E=1`:
+
+- participates in `externalTopologyMode`;
+- selects `DASHBOARD_ORIGIN` exactly as Playwright `use.baseURL`;
+- sets `webServer` to `undefined`, so Playwright does not start or reuse a
+  local dashboard server;
+- uses one Chromium project and one worker; and
+- disables retries (`retries=0`) for the identity evidence run.
+
+`API_URL` remains the native dashboard's server-side backend target. It is not
+the Playwright base URL and is not a direct API client or probe target for the
+runner. The browser therefore remains bounded to the supplied
+`DASHBOARD_ORIGIN`, subject to every existing topology and ledger requirement.
+
+### Observed CI boundary correction
+
+The amended CI identity-browser gate still supplies `API_URL` from the native
+backend origin and `DASHBOARD_ORIGIN` from the native dashboard origin. Before
+the Chromium journey, it fails closed when either required origin is absent and
+validates each configured origin as an HTTP or HTTPS loopback origin without
+credentials, a path, a query, or a fragment. It then checks the native backend
+health path and dashboard login path before running the existing one-project
+Chromium journey.
+
+These observations establish the corrected external topology only. They do not
+constitute the PostgreSQL, browser journey, request-ledger, accessibility,
+revocation, rate-limit, cleanup, or sanitized-receipt evidence required by this
+spec. All such semantic and evidentiary requirements remain unchanged and must
+still be observed independently.
