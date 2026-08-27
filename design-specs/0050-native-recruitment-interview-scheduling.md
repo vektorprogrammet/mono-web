@@ -4,8 +4,8 @@
 
 | Field | Value |
 |---|---|
-| Status | Contract remains frozen; Amendments 0050.1 and 0050.2 authorize evidence-harness and disposable-fixture corrections only; implementation is present at integrated branch `f07b86d7babc041ee5f947b41381de094586e9d6`; runtime and acceptance evidence remain pending |
-| Revision | Amendments 0050.1 and 0050.2 record observed native Identity and fixture prerequisites; runtime evidence remains pending |
+| Status | Contract remains frozen; Amendments 0050.1, 0050.2, and 0050.3 authorize evidence-harness, disposable-fixture, and presentation corrections only; implementation is present at integrated branch `f07b86d7babc041ee5f947b41381de094586e9d6`; runtime and acceptance evidence remain pending |
+| Revision | Amendments 0050.1, 0050.2, and 0050.3 record observed native Identity, fixture, presentation, and harness prerequisites; runtime evidence remains pending |
 | Base | `dd2425f8ea21c2f61cdff9bb518a1e726d8dac64` (`dd2425f`) |
 | Goal | Replace the Symfony scheduling seam with one native Recruitment transition and one full-Foldkit staff journey |
 | Actors | Active department leader or assigned active interviewer |
@@ -49,6 +49,21 @@ After the separately frozen schema-boundary correction in spec 0066, fixture SQL
 This amendment authorizes only these disposable fixture changes. It does not authorize product changes, access-policy changes, migration edits, legacy routes, production or provider effects, or bearer tokens. It does not alter the frozen scheduling journey, actor or authority semantics, transaction or notification semantics, falsifiers, non-goals, or operator boundary.
 
 Runtime and acceptance evidence remain pending until the corrected fixture and harness produce the evidence required below.
+
+## Amendment 0050.3 — scheduling feedback and base-path evidence correction
+
+The native journey has a presentation gap. After the fresh board read, `update.ts` stores scheduling success in `ReadyModel.feedback`. However, `app/foldkit/scheduling/view.ts` renders only `conductFeedback`. Therefore, a completed scheduling journey gives no visible success status.
+
+This amendment authorizes the smallest product correction:
+
+- Render the existing `model.feedback` on the scheduling page.
+- Expose the feedback as an accessible status message.
+
+The correction must not change state transitions, API boundaries, authority checks, notification semantics, or board freshness semantics. The fresh board read remains the only observation that can close the dialog and show success. No new feedback state, endpoint, or success source is authorized.
+
+The evidence runner can set the existing `REAL_NATIVE_CONDUCT_E2E=1` base-path mode. This mode serves `/login` and native dashboard routes at the configured root. This is harness topology only, not a product route change.
+
+This amendment preserves the operator boundary. It authorizes no production data, remote provider, credential, deployment, or external notification effect. Runtime and acceptance evidence remain pending.
 
 ## Problem
 
