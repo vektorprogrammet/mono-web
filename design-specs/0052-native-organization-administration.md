@@ -6,7 +6,8 @@
 
 | Field             | Value                                                                                                                                                                              |
 | ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Status            | Contract remains frozen; implementation is present at integrated branch `f07b86d7babc041ee5f947b41381de094586e9d6`; runtime and acceptance evidence are pending |
+| Status            | Contract remains frozen. The baseline implementation is present at `f07b86d7babc041ee5f947b41381de094586e9d6`. Amendment 0052.1 implementation and runtime and acceptance evidence remain pending |
+| Revision          | Amendment 0052.1 authorizes bounded disposable Identity fixtures and evidence-harness corrections before implementation |
 | Base              | `ac942572d63d7de4a05354d2be699d785af90f1a` (`ac94257`)                                                                                                                             |
 | Goal              | Replace the Symfony Organization administration seam with one native Organization authority and fresh public views                                                                 |
 | Actor             | Existing active organization administrator from the bounded test-principal configuration                                                                                           |
@@ -16,6 +17,44 @@
 | Architecture      | Design specs 0040, 0045, and 0048                                                                                                                                                  |
 | Operator boundary | No production data, credentials, remote database, provider, deployment, or external notification effect                                                                            |
 | Scope hold        | Identity credentials, sessions, role storage, and final access-policy authority remain last                                                                                        |
+
+## Amendment 0052.1 — native Identity and Organization evidence correction
+
+The integrated backend resolves protected Organization requests through Identity and canonical Organization authority. The frozen runner instead supplies configured bearer tokens as session cookies.
+
+Those values are not Better Auth sessions. They cannot prove the two required actors.
+
+This amendment controls only conflicting harness and fixture statements below. All frozen command and product semantics remain authoritative.
+
+This amendment authorizes these corrections for one disposable evidence run:
+
+- Seed only the two synthetic Organization personas through the existing `identity:seed` entrypoint.
+- Give each persona a disposable `person_contact_profiles` fixture for `/api/me` and the dashboard shell.
+- Generate one process-scoped `BETTER_AUTH_SECRET` and define one process-scoped `BETTER_AUTH_URL`.
+- Pass both values to the seed, backend, dashboard, and browser processes. Set the URL to the dashboard origin.
+- Authenticate each persona through the rendered native sign-in form.
+- Require a Better Auth session cookie and resolve `/api/session` to the expected person ID.
+- Give the administrator persona one active canonical grant in `organization_global_administrator_grants`.
+- Give the member persona one active, unsuspended, non-leader membership and its disposable Department and Team fixtures.
+- Send protected HTTP and SDK requests with the session cookie and no `Authorization` header.
+- Forward every upstream `Set-Cookie` value through the recording proxy with `Headers.getSetCookie()`.
+- Correct the recorder to classify this transport as session-cookie authentication, not bearer authentication.
+- Record `sessionCookieAuth=true` and `authorizationHeaderPresent=false`.
+- Associate each recorded actor with the resolved session person ID and canonical authority fixture, not a bearer-token map.
+
+The grant must produce `OrganizationAdministrator`. The ordinary membership must produce `OrganizationMember`.
+
+Only the administrator can use the three frozen create commands. The ordinary member must receive the frozen typed `403` response without a write.
+
+The correction must preserve the strict command shapes and all response codes. It must preserve fresh public reads and both Foldkit views.
+
+The correction must preserve the transaction order, atomic receipt and audit writes, exact replay, and changed-replay conflict laws.
+
+No corrected request can reach Symfony, a compatibility handler, a fallback, or a fixture API. The public routes remain unauthenticated.
+
+This amendment authorizes no product authorization change, access-policy change, production data, persistent credential, deployment, remote provider, or external notification effect.
+
+Identity credentials, sessions, role storage, and final access-policy authority remain in the final scope hold. Amendment implementation and evidence remain pending.
 
 ## Problem
 
