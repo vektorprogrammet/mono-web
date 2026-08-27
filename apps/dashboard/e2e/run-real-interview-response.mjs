@@ -14,6 +14,7 @@ import {
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
 const dashboardRoot = fileURLToPath(new URL("../", import.meta.url));
 const sdkRoot = fileURLToPath(new URL("../../../packages/sdk/", import.meta.url));
+const databaseRoot = fileURLToPath(new URL("../../../packages/database/", import.meta.url));
 const domainRoot = fileURLToPath(new URL("../../../packages/domain/", import.meta.url));
 const composeFile = join(repositoryRoot, "docker-compose.yml");
 const runnerPath = fileURLToPath(import.meta.url);
@@ -30,6 +31,10 @@ const shutdownTimeoutMs = 5_000;
 const nixPostgresPackage = "nixpkgs#postgresql_17";
 const fixedClock = "2031-09-15T12:00:00.000Z";
 const responseDeliveredAt = "2031-09-15T12:01:00.000Z";
+const leaderEmail = "lina.lagleder@example.invalid";
+const interviewerEmail = "irene.intervjuer@example.invalid";
+const personaPassword = "native-invitation-response-0051-secret";
+const betterAuthSecret = randomBytes(32).toString("base64url");
 const departmentId = "department-native-invitation-response-0051";
 const semesterId = "semester-native-invitation-response-0051";
 const admissionPeriodId = "admission-period-native-invitation-response-0051";
@@ -228,9 +233,15 @@ VALUES ('${recruitmentTeamId}', '${departmentId}', 'Rekruttering', TRUE, 0);
 INSERT INTO organization_memberships (
   membership_id, person_id, team_id, deleted_team_name, start_at, end_at,
   position_id, is_team_leader, is_suspended, revision
-) VALUES (
+) VALUES
+(
+  'membership-native-invitation-response-leader-0051', '${leaderPersonId}',
+  '${recruitmentTeamId}', NULL, '2020-01-01T00:00:00.000Z', NULL,
+  'teamleader', TRUE, FALSE, 0
+),
+(
   'membership-native-invitation-response-member-0051', '${interviewerPersonId}',
-  '${recruitmentTeamId}', NULL, '2031-01-01T00:00:00.000Z', NULL,
+  '${recruitmentTeamId}', NULL, '2020-01-01T00:00:00.000Z', NULL,
   'interviewer', FALSE, FALSE, 0
 );
 INSERT INTO recruitment_interview_schemas (
@@ -745,6 +756,16 @@ const hasObjectKey = (value, key) => {
     ([entryKey, entryValue]) => entryKey === key || hasObjectKey(entryValue, key),
   );
 };
+const sessionCookieNames = new Set([
+  "better-auth.session_token",
+  "__Secure-better-auth.session_token",
+]);
+const hasSessionCookie = (cookieHeader) =>
+  typeof cookieHeader === "string" &&
+  cookieHeader.split(";").some((pair) => {
+    const separator = pair.indexOf("=");
+    return separator > 0 && sessionCookieNames.has(pair.slice(0, separator).trim());
+  });
 
 const parseJsonBody = (bytes) => {
   if (bytes.byteLength === 0) return undefined;
@@ -754,8 +775,7 @@ const parseJsonBody = (bytes) => {
     return undefined;
   }
 };
-
-async function startRecordingProxy(targetOrigin, actorsByToken, actorsByCapability) {
+async function startRecordingProxy(targetOrigin, actorsByCapability) {
   const records = [];
   const server = createServer(async (request, response) => {
     const method = request.method ?? "GET";
@@ -779,7 +799,8 @@ async function startRecordingProxy(targetOrigin, actorsByToken, actorsByCapabili
     const record = {
       method,
       path,
-      bearerActor: actorsByToken.get(request.headers.authorization ?? "") ?? null,
+      sessionCookieAuth: hasSessionCookie(request.headers.cookie),
+      authorizationHeaderPresent: request.headers.authorization !== undefined,
       invitationActor,
       requestHasInvitationCapability: typeof capabilityValue === "string",
       requestInvitationCapabilityValid:
@@ -836,9 +857,14 @@ async function startRecordingProxy(targetOrigin, actorsByToken, actorsByCapabili
         containsRawCapability(responseHeaders);
       response.statusCode = upstream.status;
       for (const [name, value] of upstream.headers.entries()) {
-        if (["content-encoding", "content-length", "transfer-encoding"].includes(name)) continue;
+        if (
+          ["content-encoding", "content-length", "set-cookie", "transfer-encoding"].includes(name)
+        )
+          continue;
         response.setHeader(name, value);
       }
+      const setCookie = upstream.headers.getSetCookie();
+      if (setCookie.length > 0) response.setHeader("set-cookie", setCookie);
       response.setHeader("content-length", String(responseBytes.byteLength));
       response.end(responseBytes);
     } catch {
@@ -1228,6 +1254,8 @@ function assertBrowserEvidence(browser) {
     browser?.legacyBrowserRequests !== 0 ||
     browser?.externalBrowserRequests !== 0 ||
     browser?.providerBrowserRequests !== 0 ||
+    !Array.isArray(browser?.bearerRequests) ||
+    browser.bearerRequests.length !== 0 ||
     browser?.pageErrors !== 0 ||
     browser?.consoleErrors !== 0 ||
     browser?.rawCapabilityObservedOutsideExchange !== false ||
@@ -1279,6 +1307,12 @@ function assertBrowserEvidence(browser) {
     requested?.capabilityShapedMessage?.bridgeFetchAttempted !== false ||
     requested?.capabilityShapedMessage?.preservedState !== "Pending" ||
     browser?.staffContexts?.observations?.DepartmentLeader?.freshReadStatus !== 200 ||
+    JSON.stringify(browser?.staffContexts?.observations?.DepartmentLeader?.sessionCookieNames) !==
+      JSON.stringify(["better-auth.session_token"]) ||
+    browser?.staffContexts?.observations?.DepartmentLeader?.nativeLogin !== true ||
+    JSON.stringify(browser?.staffContexts?.observations?.Member?.sessionCookieNames) !==
+      JSON.stringify(["better-auth.session_token"]) ||
+    browser?.staffContexts?.observations?.Member?.nativeLogin !== true ||
     browser?.staffContexts?.observations?.DepartmentLeader?.acceptedVisible !== true ||
     browser?.staffContexts?.observations?.DepartmentLeader?.requestedNewTimeVisible !== true ||
     browser?.staffContexts?.observations?.DepartmentLeader?.responseMessagesProjected !== true ||
@@ -1298,133 +1332,261 @@ function assertNativeTransport(records) {
   const boardPath = "/api/admin/recruitment/interviews/scheduling-board";
   const profilePath = "/api/me";
   const expected = [
-    { method: "GET", path: readPath, status: 200, invitationActor: "accepted", bearerActor: null },
-    { method: "GET", path: readPath, status: 200, invitationActor: "accepted", bearerActor: null },
-    { method: "GET", path: readPath, status: 200, invitationActor: "rejected", bearerActor: null },
-    { method: "GET", path: readPath, status: 200, invitationActor: "rejected", bearerActor: null },
+    {
+      method: "GET",
+      path: readPath,
+      status: 200,
+      invitationActor: "accepted",
+      sessionCookieAuth: false,
+      authorizationHeaderPresent: false,
+    },
+    {
+      method: "GET",
+      path: readPath,
+      status: 200,
+      invitationActor: "accepted",
+      sessionCookieAuth: false,
+      authorizationHeaderPresent: false,
+    },
+    {
+      method: "GET",
+      path: readPath,
+      status: 200,
+      invitationActor: "rejected",
+      sessionCookieAuth: false,
+      authorizationHeaderPresent: false,
+    },
+    {
+      method: "GET",
+      path: readPath,
+      status: 200,
+      invitationActor: "rejected",
+      sessionCookieAuth: false,
+      authorizationHeaderPresent: false,
+    },
     {
       method: "POST",
       path: responseCases[0].commandPath,
       status: 204,
       invitationActor: "accepted",
-      bearerActor: null,
+      sessionCookieAuth: false,
+      authorizationHeaderPresent: false,
     },
-    { method: "GET", path: readPath, status: 200, invitationActor: "accepted", bearerActor: null },
+    {
+      method: "GET",
+      path: readPath,
+      status: 200,
+      invitationActor: "accepted",
+      sessionCookieAuth: false,
+      authorizationHeaderPresent: false,
+    },
     {
       method: "POST",
       path: responseCases[0].commandPath,
       status: 409,
       invitationActor: "accepted",
-      bearerActor: null,
+      sessionCookieAuth: false,
+      authorizationHeaderPresent: false,
     },
-    { method: "GET", path: readPath, status: 200, invitationActor: "accepted", bearerActor: null },
+    {
+      method: "GET",
+      path: readPath,
+      status: 200,
+      invitationActor: "accepted",
+      sessionCookieAuth: false,
+      authorizationHeaderPresent: false,
+    },
     {
       method: "POST",
       path: responseCases[1].commandPath,
       status: 204,
       invitationActor: "rejected",
-      bearerActor: null,
+      sessionCookieAuth: false,
+      authorizationHeaderPresent: false,
     },
-    { method: "GET", path: readPath, status: 200, invitationActor: "rejected", bearerActor: null },
+    {
+      method: "GET",
+      path: readPath,
+      status: 200,
+      invitationActor: "rejected",
+      sessionCookieAuth: false,
+      authorizationHeaderPresent: false,
+    },
     {
       method: "POST",
       path: responseCases[1].commandPath,
       status: 409,
       invitationActor: "rejected",
-      bearerActor: null,
-    },
-    { method: "GET", path: readPath, status: 200, invitationActor: "rejected", bearerActor: null },
-    {
-      method: "GET",
-      path: readPath,
-      status: 200,
-      invitationActor: "requested-new-time",
-      bearerActor: null,
+      sessionCookieAuth: false,
+      authorizationHeaderPresent: false,
     },
     {
       method: "GET",
       path: readPath,
       status: 200,
-      invitationActor: "requested-new-time",
-      bearerActor: null,
+      invitationActor: "rejected",
+      sessionCookieAuth: false,
+      authorizationHeaderPresent: false,
     },
     {
       method: "GET",
       path: readPath,
       status: 200,
       invitationActor: "requested-new-time",
-      bearerActor: null,
+      sessionCookieAuth: false,
+      authorizationHeaderPresent: false,
+    },
+    {
+      method: "GET",
+      path: readPath,
+      status: 200,
+      invitationActor: "requested-new-time",
+      sessionCookieAuth: false,
+      authorizationHeaderPresent: false,
+    },
+    {
+      method: "GET",
+      path: readPath,
+      status: 200,
+      invitationActor: "requested-new-time",
+      sessionCookieAuth: false,
+      authorizationHeaderPresent: false,
     },
     {
       method: "POST",
       path: responseCases[2].commandPath,
       status: 204,
       invitationActor: "requested-new-time",
-      bearerActor: null,
+      sessionCookieAuth: false,
+      authorizationHeaderPresent: false,
     },
     {
       method: "GET",
       path: readPath,
       status: 200,
       invitationActor: "requested-new-time",
-      bearerActor: null,
+      sessionCookieAuth: false,
+      authorizationHeaderPresent: false,
     },
     {
       method: "POST",
       path: responseCases[2].commandPath,
       status: 409,
       invitationActor: "requested-new-time",
-      bearerActor: null,
+      sessionCookieAuth: false,
+      authorizationHeaderPresent: false,
     },
     {
       method: "GET",
       path: readPath,
       status: 200,
       invitationActor: "requested-new-time",
-      bearerActor: null,
+      sessionCookieAuth: false,
+      authorizationHeaderPresent: false,
     },
     {
       method: "GET",
       path: profilePath,
       status: 200,
       invitationActor: null,
-      bearerActor: "DepartmentLeader",
+      sessionCookieAuth: true,
+      authorizationHeaderPresent: false,
+    },
+    {
+      method: "GET",
+      path: profilePath,
+      status: 200,
+      invitationActor: null,
+      sessionCookieAuth: true,
+      authorizationHeaderPresent: false,
     },
     {
       method: "GET",
       path: boardPath,
       status: 200,
       invitationActor: null,
-      bearerActor: "DepartmentLeader",
+      sessionCookieAuth: true,
+      authorizationHeaderPresent: false,
     },
     {
       method: "GET",
       path: boardPath,
       status: 200,
       invitationActor: null,
-      bearerActor: "DepartmentLeader",
+      sessionCookieAuth: true,
+      authorizationHeaderPresent: false,
     },
-    { method: "GET", path: profilePath, status: 200, invitationActor: null, bearerActor: "Member" },
-    { method: "GET", path: boardPath, status: 200, invitationActor: null, bearerActor: "Member" },
-    { method: "GET", path: boardPath, status: 200, invitationActor: null, bearerActor: "Member" },
+    {
+      method: "GET",
+      path: profilePath,
+      status: 200,
+      invitationActor: null,
+      sessionCookieAuth: true,
+      authorizationHeaderPresent: false,
+    },
+    {
+      method: "GET",
+      path: profilePath,
+      status: 200,
+      invitationActor: null,
+      sessionCookieAuth: true,
+      authorizationHeaderPresent: false,
+    },
+    {
+      method: "GET",
+      path: boardPath,
+      status: 200,
+      invitationActor: null,
+      sessionCookieAuth: true,
+      authorizationHeaderPresent: false,
+    },
+    {
+      method: "GET",
+      path: boardPath,
+      status: 200,
+      invitationActor: null,
+      sessionCookieAuth: true,
+      authorizationHeaderPresent: false,
+    },
   ];
-  assertEqual(
-    records.map(({ method, path, status, invitationActor, bearerActor }) => ({
-      method,
-      path,
-      status,
-      invitationActor,
-      bearerActor,
-    })),
-    expected,
-    "Native invitation-response transport order",
-  );
   const allowedPaths = new Set([
+    "/api/auth/sign-in/email",
+    "/api/me/session",
+    "/api/me/dashboard",
     readPath,
     profilePath,
     boardPath,
     ...responseCases.map(({ commandPath }) => commandPath),
   ]);
+  const nativeRecords = records.filter(({ path }) =>
+    [
+      readPath,
+      profilePath,
+      boardPath,
+      ...responseCases.map(({ commandPath }) => commandPath),
+    ].includes(path),
+  );
+  assertEqual(
+    nativeRecords.map(
+      ({
+        method,
+        path,
+        status,
+        invitationActor,
+        sessionCookieAuth,
+        authorizationHeaderPresent,
+      }) => ({
+        method,
+        path,
+        status,
+        invitationActor,
+        sessionCookieAuth,
+        authorizationHeaderPresent,
+      }),
+    ),
+    expected,
+    "Native invitation-response transport order",
+  );
   if (
     records.some(
       (record) =>
@@ -1433,11 +1595,14 @@ function assertNativeTransport(records) {
         record.responseHasResponseCapabilityField ||
         record.requestRawCapabilityOutsideDedicatedHeader ||
         record.responseRawCapability ||
+        record.authorizationHeaderPresent ||
         (record.invitationActor !== null &&
           (!record.requestHasInvitationCapability ||
             !record.requestInvitationCapabilityValid ||
-            record.bearerActor !== null)) ||
-        (record.bearerActor !== null && record.requestHasInvitationCapability),
+            record.sessionCookieAuth)) ||
+        (record.invitationActor === null &&
+          !record.path.startsWith("/api/auth/") &&
+          !record.sessionCookieAuth),
     )
   ) {
     throw new Error("Native transport exposed capability data or crossed an authority boundary");
@@ -1574,34 +1739,23 @@ async function main() {
     mkdir(stagingRoot, { recursive: true }),
     mkdir(committedRoot, { recursive: true }),
   ]);
-
-  const leaderToken = randomBytes(32).toString("base64url");
-  const memberToken = randomBytes(32).toString("base64url");
-  const admissionTokens = JSON.stringify({
-    [leaderToken]: {
-      _tag: "DepartmentLeader",
+  const identitySeedPersons = [
+    {
       personId: leaderPersonId,
-      departmentId,
-      active: true,
+      firstName: "Lina",
+      lastName: "Lagleder",
+      email: leaderEmail,
+      password: personaPassword,
     },
-    [memberToken]: {
-      _tag: "Member",
+    {
       personId: interviewerPersonId,
-      departmentId,
-      active: true,
+      firstName: "Irene",
+      lastName: "Intervjuer",
+      email: interviewerEmail,
+      password: personaPassword,
     },
-  });
-  const receiptPrincipal = (personId) => ({
-    personId,
-    departmentId,
-    active: true,
-    paymentAccountCiphertext: randomBytes(32).toString("base64url"),
-    approvalScope: { _tag: "None" },
-  });
-  const receiptTokens = JSON.stringify({
-    [leaderToken]: receiptPrincipal(leaderPersonId),
-    [memberToken]: receiptPrincipal(interviewerPersonId),
-  });
+  ];
+
   const baseEnvironment = { ...process.env };
   delete baseEnvironment.API_MODE;
   delete baseEnvironment.VITE_API_MODE;
@@ -1611,12 +1765,10 @@ async function main() {
     BACKEND_HOST: "127.0.0.1",
     BACKEND_PORT: String(backendPort),
     BACKEND_PG_URL: postgresUrl,
+    BETTER_AUTH_SECRET: betterAuthSecret,
+    BETTER_AUTH_URL: dashboardOrigin,
     PUBLIC_APPLICATION_EFFECT_MODE: "disabled",
-    ADMISSION_AUTH_TOKENS: admissionTokens,
-    ORGANIZATION_AUTH_TOKENS:
-      '{"inert-organization-token":{"_tag":"OrganizationMember","personId":"person-inert-organization-runner"}}',
     ADMISSION_FIXED_NOW: fixedClock,
-    RECEIPT_AUTH_TOKENS: receiptTokens,
     RECEIPT_STAGING_ROOT: stagingRoot,
     RECEIPT_COMMITTED_ROOT: committedRoot,
     RECEIPT_MAX_FILE_BYTES: "10485760",
@@ -1727,16 +1879,21 @@ async function main() {
         });
     await waitForHttp(`${backendOrigin}/health`, apiProcess, "Unified native backend");
     await runPsql(seedSql, baseEnvironment, "Native invitation-response fixture seed");
+    await runCommand("bun", ["run", "identity:seed"], {
+      cwd: databaseRoot,
+      env: {
+        ...apiEnvironment,
+        IDENTITY_SEED_PG_URL: postgresUrl,
+        IDENTITY_SEED_PERSONS: JSON.stringify(identitySeedPersons),
+      },
+      label: "Disposable invitation-response Identity seed",
+    });
     const seededEvidence = await readResponseEvidence(baseEnvironment);
     assertSeedEvidence(seededEvidence);
     await assertCanonicalDatabasePrivacy(baseEnvironment);
 
     proxy = await startRecordingProxy(
       backendOrigin,
-      new Map([
-        [`Bearer ${leaderToken}`, "DepartmentLeader"],
-        [`Bearer ${memberToken}`, "Member"],
-      ]),
       new Map(responseCases.map(({ key }) => [rawCapabilitiesByCase[key], key])),
     );
     const dashboardEnvironment = {
@@ -1744,7 +1901,10 @@ async function main() {
       API_URL: proxy.origin,
       VITE_API_URL: proxy.origin,
       DASHBOARD_ORIGIN: dashboardOrigin,
+      BETTER_AUTH_SECRET: betterAuthSecret,
+      BETTER_AUTH_URL: dashboardOrigin,
       REAL_NATIVE_INVITATION_RESPONSE_E2E: "1",
+      REAL_NATIVE_CONDUCT_E2E: "1",
       NODE_ENV: "development",
       TZ: "Europe/Oslo",
       HOST: "127.0.0.1",
@@ -1756,8 +1916,10 @@ async function main() {
       INVITATION_RESPONSE_E2E_REJECTED_CAPABILITY: rawCapabilitiesByCase.rejected,
       INVITATION_RESPONSE_E2E_REQUESTED_NEW_TIME_CAPABILITY:
         rawCapabilitiesByCase["requested-new-time"],
-      INVITATION_RESPONSE_E2E_LEADER_TOKEN: leaderToken,
-      INVITATION_RESPONSE_E2E_MEMBER_TOKEN: memberToken,
+      INVITATION_RESPONSE_E2E_LEADER_EMAIL: leaderEmail,
+      INVITATION_RESPONSE_E2E_LEADER_PASSWORD: personaPassword,
+      INVITATION_RESPONSE_E2E_MEMBER_EMAIL: interviewerEmail,
+      INVITATION_RESPONSE_E2E_MEMBER_PASSWORD: personaPassword,
       INVITATION_RESPONSE_E2E_BROWSER_EVIDENCE_PATH: browserEvidencePath,
     };
 
@@ -1848,13 +2010,23 @@ async function main() {
       },
       browser,
       nativeTransport: {
-        records: proxy.records.map(({ method, path, status, bearerActor, invitationActor }) => ({
-          method,
-          path,
-          status,
-          bearerActor,
-          invitationActor,
-        })),
+        records: proxy.records.map(
+          ({
+            method,
+            path,
+            status,
+            sessionCookieAuth,
+            authorizationHeaderPresent,
+            invitationActor,
+          }) => ({
+            method,
+            path,
+            status,
+            sessionCookieAuth,
+            authorizationHeaderPresent,
+            invitationActor,
+          }),
+        ),
         operationOrderingConfirmed: true,
         legacyRequests: 0,
         externalRequests: 0,
@@ -1889,13 +2061,23 @@ async function main() {
       proxy === undefined
         ? ""
         : JSON.stringify(
-            proxy.records.map(({ method, path, status, bearerActor, invitationActor }) => ({
-              method,
-              path,
-              status,
-              bearerActor,
-              invitationActor,
-            })),
+            proxy.records.map(
+              ({
+                method,
+                path,
+                status,
+                sessionCookieAuth,
+                authorizationHeaderPresent,
+                invitationActor,
+              }) => ({
+                method,
+                path,
+                status,
+                sessionCookieAuth,
+                authorizationHeaderPresent,
+                invitationActor,
+              }),
+            ),
           );
     const processDiagnostics = [
       ["backend", apiProcess?.diagnostics?.()],

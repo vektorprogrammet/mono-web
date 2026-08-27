@@ -114,6 +114,7 @@ const bridgeOperation = (request: Request): string | undefined => {
 type BrowserObservation = {
   readonly bridgeOperations: Array<{ actor: string; operation: string }>;
   readonly capabilityExchanges: Record<string, number>;
+  readonly bearerRequests: Array<string>;
   externalRequests: number;
   providerRequests: number;
   legacyRequests: number;
@@ -135,6 +136,7 @@ const observePage = (
     const pathname = url.pathname;
     const operation = bridgeOperation(request);
     if (operation !== undefined) observation.bridgeOperations.push({ actor, operation });
+    if (request.headers().authorization !== undefined) observation.bearerRequests.push(pathname);
 
     const requestContainsCapability = containsCapability(request.url(), capabilities);
     if (requestContainsCapability) {
@@ -281,16 +283,34 @@ const assertObservation = (
   });
 };
 
-const authenticate = async (context: BrowserContext, tokenEnvironment: string): Promise<void> => {
-  await context.addCookies([
-    {
-      name: "jwt_token",
-      value: requiredEnvironment(tokenEnvironment),
-      url: DASHBOARD_ORIGIN,
-      httpOnly: true,
-      sameSite: "Lax",
-    },
-  ]);
+const authenticate = async (
+  page: Page,
+  emailEnvironment: string,
+  passwordEnvironment: string,
+): Promise<ReadonlyArray<string>> => {
+  await page.goto("/login");
+  await page.getByLabel("E-post").fill(requiredEnvironment(emailEnvironment));
+  await page.getByLabel("Passord", { exact: true }).fill(requiredEnvironment(passwordEnvironment));
+  await page.getByRole("button", { name: "Logg inn" }).click();
+  try {
+    await page.waitForURL(/\/dashboard\/?$/, { timeout: 5_000 });
+  } catch (error) {
+    throw new Error(
+      `native login did not redirect: ${page.url()} ${await page.locator("body").innerText()}`,
+      { cause: error },
+    );
+  }
+  const sessionCookieNames = (await page.context().cookies(DASHBOARD_ORIGIN))
+    .filter(
+      ({ name }) =>
+        name === "better-auth.session_token" || name === "__Secure-better-auth.session_token",
+    )
+    .map(({ name }) => name)
+    .sort();
+  if (sessionCookieNames.length === 0) {
+    throw new Error("native login did not issue a Better Auth session cookie");
+  }
+  return sessionCookieNames;
 };
 
 const assertApplicantPrivacy = async (
@@ -461,12 +481,13 @@ const assertNoObservedFailures = (observation: BrowserObservation): void => {
     observation.externalRequests !== 0 ||
     observation.providerRequests !== 0 ||
     observation.legacyRequests !== 0 ||
+    observation.bearerRequests.length !== 0 ||
     observation.pageErrors !== 0 ||
     observation.consoleErrors !== 0 ||
     observation.rawCapabilityLeak
   ) {
     throw new Error(
-      `The browser observed failures: external=${observation.externalRequests}, provider=${observation.providerRequests}, legacy=${observation.legacyRequests}, page=${observation.pageErrors}, console=${observation.consoleErrors}, capability=${String(observation.rawCapabilityLeak)}, consoleMessages=${JSON.stringify(observation.consoleErrorMessages)}`,
+      `The browser observed failures: external=${observation.externalRequests}, provider=${observation.providerRequests}, legacy=${observation.legacyRequests}, bearer=${observation.bearerRequests.length}, page=${observation.pageErrors}, console=${observation.consoleErrors}, capability=${String(observation.rawCapabilityLeak)}, consoleMessages=${JSON.stringify(observation.consoleErrorMessages)}`,
     );
   }
 };
@@ -500,6 +521,7 @@ test.describe("Native recruitment invitation response", () => {
     const observation: BrowserObservation = {
       bridgeOperations: [],
       capabilityExchanges: {},
+      bearerRequests: [],
       externalRequests: 0,
       providerRequests: 0,
       legacyRequests: 0,
@@ -778,21 +800,32 @@ test.describe("Native recruitment invitation response", () => {
     const staffEvidence: Record<string, unknown> = {};
     let staffContextsClosed = 0;
     for (const staffCase of [
-      { actor: "DepartmentLeader", token: "INVITATION_RESPONSE_E2E_LEADER_TOKEN" },
-      { actor: "Member", token: "INVITATION_RESPONSE_E2E_MEMBER_TOKEN" },
+      {
+        actor: "DepartmentLeader",
+        email: "INVITATION_RESPONSE_E2E_LEADER_EMAIL",
+        password: "INVITATION_RESPONSE_E2E_LEADER_PASSWORD",
+      },
+      {
+        actor: "Member",
+        email: "INVITATION_RESPONSE_E2E_MEMBER_EMAIL",
+        password: "INVITATION_RESPONSE_E2E_MEMBER_PASSWORD",
+      },
     ] as const) {
       const context = await browser.newContext({
         baseURL: DASHBOARD_ORIGIN,
         viewport: { width: 1440, height: 900 },
       });
       try {
-        await authenticate(context, staffCase.token);
         const page = await context.newPage();
+        const sessionCookieNames = await authenticate(page, staffCase.email, staffCase.password);
+        if (JSON.stringify(sessionCookieNames) !== JSON.stringify(["better-auth.session_token"])) {
+          throw new Error("Native login issued an unexpected Better Auth session cookie");
+        }
         observePage(page, staffCase.actor, null, capabilities, observation);
         await page.goto("/dashboard/intervjuer");
         await expect(
           page.getByRole("heading", { level: 1, name: "Planlegg intervjuer" }),
-        ).toBeVisible();
+        ).toBeVisible({ timeout: 30_000 });
         const freshBoardResponse = page.waitForResponse(
           (response) => bridgeOperation(response.request()) === "readSchedulingBoard",
         );
@@ -828,6 +861,8 @@ test.describe("Native recruitment invitation response", () => {
         assertCapabilityAbsent(await page.locator("body").innerText(), capabilities);
         staffEvidence[staffCase.actor] = {
           freshReadStatus: 200,
+          sessionCookieNames,
+          nativeLogin: true,
           acceptedVisible: true,
           rejectedVisible: staffCase.actor === "DepartmentLeader",
           requestedNewTimeVisible: true,
@@ -886,6 +921,7 @@ test.describe("Native recruitment invitation response", () => {
         observations: staffEvidence,
       },
       bridgeOperations: observation.bridgeOperations,
+      bearerRequests: observation.bearerRequests,
       capabilityExchangeRequests: 3,
       operationOrderingConfirmed: true,
       accessibilityRuns,
