@@ -6,7 +6,7 @@
 
 | Field             | Value                                                                                                                                                                                |
 | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Status            | Contract remains frozen at revision 0051.2; implementation is present at integrated branch `f07b86d7babc041ee5f947b41381de094586e9d6`; runtime and acceptance evidence are pending |
+| Status            | Contract is frozen at revision 0051.3. The receipt amendment implementation, runtime evidence, and acceptance evidence are pending                                                 |
 | Base              | `1f7fe7424cd06e26a9713fd284c77fce71ee990e`                                                                                                                                           |
 | Goal              | Replace the Symfony invitation-response seam with one native Recruitment authority and one full-Foldkit applicant journey                                                            |
 | Actor             | Applicant who holds the current invitation capability                                                                                                                                |
@@ -16,7 +16,34 @@
 | Architecture      | Design specs 0040 and 0045                                                                                                                                                           |
 | Operator boundary | No production data, credentials, deployment, remote provider, or external notification effect                                                                                        |
 | Scope hold        | Identity credentials, sessions, and access-policy authority remain final                                                                                                             |
-| Revision          | 0051.2 binds every browser page to one exchanged capability and rejects capability-shaped response messages before any authority transition; 0051.1 made rejection messages optional |
+| Revision          | 0051.3 adds a bounded scheduling receipt to the existing browser run. 0051.2 bound each browser page to one exchanged capability                                                       |
+
+## Amendment 0051.3 - scheduling receipt evidence
+
+This bounded amendment changes only the evidence topology for the existing 0051 invitation browser run.
+
+The run must emit a fifth canonical receipt for `intent://journey:recruitment:interview-scheduling:v1`.
+
+This receipt covers exactly these steps:
+
+- `applicant-loads-response`.
+- `applicant-accepts-interview`.
+- `fresh-read-accepted-interview`.
+
+The scheduling runner from design spec 0050 retains these other four steps:
+
+- `interviewer-session-login`.
+- `leader-session-login`.
+- `load-assigned-interviews`.
+- `schedule-interview`.
+
+The 0050 scheduling runner ends with the applicant response state at `Pending`. It does not observe an applicant response.
+
+Design spec 0051 owns the later transition from `Pending` to `Accepted` and the three applicant-response observations.
+
+This amendment does not change a product route, product state, authority, fixture, or operator boundary.
+
+It authorizes no other product or evidence change.
 
 ## Problem
 
@@ -286,6 +313,7 @@ One native browser run emits separate canonical receipts for these accepted jour
 - `intent://journey:parity:applicant_notify_self:v1`.
 - `intent://journey:parity:interview_candidate:v1`.
 - `intent://journey:parity:interview_recruiter:v1`.
+- `intent://journey:recruitment:interview-scheduling:v1`.
 
 The invitation-response receipt covers these exact steps:
 
@@ -298,6 +326,12 @@ The invitation-response receipt covers these exact steps:
 - `fresh-interviewer-response-read`.
 - `invalid-response-preserves-state`.
 - `response-capability-remains-private`.
+
+The scheduling-journey receipt covers these exact steps:
+
+- `applicant-loads-response`.
+- `applicant-accepts-interview`.
+- `fresh-read-accepted-interview`.
 
 The three broad parity receipts cover their existing four exact step identifiers. The runtime-evidence authority must accept the native receipts.
 
@@ -361,7 +395,7 @@ Request capture observes no Symfony response request and no provider-network req
 
 The browser URL, DOM, console, request artifacts, database evidence, and canonical receipts contain no raw capability.
 
-The browser run emits the four canonical parity receipts named by this contract.
+The browser run emits the five canonical parity receipts named by this contract.
 
 ## Definition of done
 
@@ -382,8 +416,8 @@ The browser run emits the four canonical parity receipts named by this contract.
 15. Disposable PostgreSQL concurrency and rollback proofs pass.
 16. Focused domain, backend, SDK, Foldkit, accessibility, and browser checks pass.
 17. The real native browser journey passes with zero provider-network requests.
-18. The runtime-evidence authority accepts four native receipts.
-19. The parity inventory links the native receipts to all four accepted journey references.
+18. The runtime-evidence authority accepts five native receipts.
+19. The parity inventory links all five accepted journey references to the required native receipts.
 20. Root format, type, lint, test, build, and migration replay checks pass on the committed revision.
 
 ## Falsifiers
