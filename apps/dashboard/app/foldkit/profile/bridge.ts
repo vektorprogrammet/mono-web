@@ -31,11 +31,7 @@ const errorTag = (error: unknown): string => {
 export const toProfileBridgeFailure = (error: unknown): ProfileBridgeFailure => {
   const tag = errorTag(error);
 
-  if (
-    tag === "unauthorized" ||
-    tag.includes("Unauthenticated") ||
-    tag === "Unauthorized"
-  ) {
+  if (tag === "unauthorized" || tag.includes("Unauthenticated") || tag === "Unauthorized") {
     return { _tag: "Unauthorized", message: "Sesjonen har utløpt. Logg inn på nytt." };
   }
   if (tag === "forbidden" || tag.includes("Forbidden") || tag.includes("Inactive")) {
@@ -55,15 +51,10 @@ export const toProfileBridgeFailure = (error: unknown): ProfileBridgeFailure => 
   ) {
     return {
       _tag: "Conflict",
-      message:
-        "Profilen er endret av en annen. Last siden på nytt for å se de nyeste verdiene.",
+      message: "Profilen er endret av en annen. Last siden på nytt for å se de nyeste verdiene.",
     };
   }
-  if (
-    tag.includes("CommandConflict") ||
-    tag.includes("Duplicate") ||
-    tag.includes("Replay")
-  ) {
+  if (tag.includes("CommandConflict") || tag.includes("Duplicate") || tag.includes("Replay")) {
     return {
       _tag: "Conflict",
       message: "Lagringen ble ikke registrert fordi samme kommando allerede er utført.",
