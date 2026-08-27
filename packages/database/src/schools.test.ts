@@ -1,5 +1,6 @@
 import { afterAll, describe, expect, it } from "vitest";
 import { Database } from "@vektorprogrammet/domain/database";
+import { databaseSchemaRevision } from "./migrations.js";
 import {
   DepartmentId,
   OrganizationAuthorityInstantSchema,
@@ -64,7 +65,7 @@ describe("Schools application migration in PGlite", () => {
     );
 
     expect(evidence).toEqual({
-      revision: "20_content-publication",
+      revision: databaseSchemaRevision,
       migrationRows: [{ migrationId: 19, name: "schools-directory" }],
       schoolCount: "1",
     });
