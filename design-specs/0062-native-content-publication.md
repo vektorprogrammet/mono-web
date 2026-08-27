@@ -5,7 +5,7 @@
 | Field             | Value                                                                                                                                                                                                      |
 | ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Goal              | Replace the Symfony article-admin seam with one native editorial authority and serve published news to the public homepage with zero legacy requests                                                       |
-| Status            | Contract remains frozen; implementation is present at integrated branch `f07b86d7babc041ee5f947b41381de094586e9d6`; runtime and acceptance evidence are pending |
+| Status            | Contract remains frozen; implementation and evidence are present at integrated commit `58e3899495e2c8cd77de7c12e19d06cb63b5fde6` (`58e389`); original implementation lineage remains `f07b86d7babc041ee5f947b41381de094586e9d6`; base remains `13f6952ea7965c26fb40101635f3e5c850f0065e` (`13f6952`) |
 | Base              | `13f6952ea7965c26fb40101635f3e5c850f0065e` (`13f6952`)                                                                                                                                                     |
 | Depends on        | 0040 logical capability topology, 0045 Effect Model/Service authority (0045.2 Layers), 0054 native Identity sessions, 0055 person-keyed authorization authorities, 0061 native journey/evidence precedents |
 | Actors            | Staff editor: active member, active team leader, or active global Organization administrator                                                                                                               |
@@ -22,6 +22,22 @@ This amendment supersedes only the staff endpoint, SDK, Foldkit selection, and e
 The one additional endpoint is `GET /api/admin/content/articles/{articleId}`. It returns exactly `articleId`, `title`, `slug`, `status`, `bodyHtml`, `sticky`, `createdAt`, `updatedAt`, `currentVersionNumber`, `revision`, `departmentIds`, `canRevise`, `canPublish`, and `authorDisplayName`. It never returns `createdByPersonId`. `ContentManagement` resolves current Organization authority inside the same repeatable-read transaction as the article, department, and author projections. Missing articles return 404; known but unauthorized working copies return the existing typed 403 denial. No public endpoint or public shape changes.
 
 The SDK method is `client.admin.content.read(articleId)`. Foldkit issues it when an editable row is selected, accepts the result only under the current request identity and matching article id, and only then exposes body and revision for mutation. `CommandConflict` invalidates the selected revision so a subsequent selection must perform a fresh detail read. Browser evidence must cover a fresh selection, strict detail decoding, absence of the private creator id, a stale-revision conflict, and a successful repeated revision after a new detail read.
+
+### Amendment 0062.2 — integrated runtime evidence
+
+Implementation and acceptance evidence are present at integrated commit `58e3899` (full ref `58e3899495e2c8cd77de7c12e19d06cb63b5fde6`). The original implementation lineage is `f07b86d7babc041ee5f947b41381de094586e9d6`; the base is `13f6952ea7965c26fb40101635f3e5c850f0065e`. The exact local command passed one Chromium journey against disposable PostgreSQL 17.11:
+
+```sh
+bun run --cwd apps/dashboard e2e:real-content-publication
+```
+
+The seed contained 6 persons, 2 departments, 4 memberships, 5 articles, 4 versions, 5 links, 4 published articles, and 1 sticky article. The staff journey covered create, revise, publish, stale `409`, refresh, republish, and `403` denial. The anonymous journey covered listing, detail, old-version access, unpublish `404`, republish, and the front-page teaser. Forced workspace `503` handling passed, followed by 12 successes. The run made 9 public requests.
+
+The request ledger recorded no legacy or fixture requests. Off-spec aliases returned `404`. The run recorded no page or accessibility errors. Builds, typechecks, format, lint, and cleanup passed.
+
+The harness fixes are bounded. The content seed uses `search_path=auth,public`, matching post-0015 runtime schema resolution. The Playwright real-native project applies the existing content host resolver for `p000`; it does not change the host guard or product routes.
+
+Hosted CI did not run. No production or remote evidence is claimed. No repository receipt was requested; the run produced a stdout artifact only.
 
 ## Problem
 
