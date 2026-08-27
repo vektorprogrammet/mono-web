@@ -94,6 +94,10 @@ const nativeRecruitmentInterviewConductMigrationUrl = new URL(
   "../migrations/0021-native-recruitment-interview-conduct.sql",
   import.meta.url,
 );
+const nativeDomainSchemaBoundaryMigrationUrl = new URL(
+  "../migrations/0022-native-domain-schema-boundary.sql",
+  import.meta.url,
+);
 export type ExecuteMigration = (
   source: string,
 ) => Effect.Effect<void, unknown, SqlClient.SqlClient>;
@@ -206,8 +210,13 @@ export const databaseMigrationLoader = (execute: ExecuteMigration) =>
       nativeRecruitmentInterviewConductMigrationUrl,
       execute,
     ),
+    "22_native-domain-schema-boundary": migration(
+      "native-domain-schema-boundary",
+      nativeDomainSchemaBoundaryMigrationUrl,
+      execute,
+    ),
   });
-export const databaseSchemaRevision = "21_native-recruitment-interview-conduct";
+export const databaseSchemaRevision = "22_native-domain-schema-boundary";
 export const runDatabaseMigrations = (execute: ExecuteMigration) =>
   Migrator.make({})({
     loader: databaseMigrationLoader(execute),

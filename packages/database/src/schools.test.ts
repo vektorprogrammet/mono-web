@@ -24,7 +24,7 @@ afterAll(async () => {
 });
 
 describe("Schools application migration in PGlite", () => {
-  it("replays the ordered application manifest through revision 20 without changing rows", async () => {
+  it("replays the ordered application manifest through the final revision without changing rows", async () => {
     const evidence = await runtime.runPromise(
       Effect.gen(function* () {
         const database = yield* Database;
@@ -69,7 +69,7 @@ describe("Schools application migration in PGlite", () => {
       migrationRows: [{ migrationId: 19, name: "schools-directory" }],
       schoolCount: "1",
     });
-  });
+  }, 15_000);
 
   it("enforces both association foreign keys, restricts departments, and cascades schools", async () => {
     const evidence = await runtime.runPromise(

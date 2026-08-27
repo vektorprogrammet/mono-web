@@ -375,7 +375,7 @@ describe("DatabaseTest", () => {
       }),
     );
     expect(evidence).toEqual({
-      revision: "21_native-recruitment-interview-conduct",
+      revision: "22_native-domain-schema-boundary",
       migrations: [
         { migration_id: 1, name: "receipt-authority" },
         { migration_id: 2, name: "admission-period-authority" },
@@ -398,6 +398,7 @@ describe("DatabaseTest", () => {
         { migration_id: 19, name: "schools-directory" },
         { migration_id: 20, name: "content-publication" },
         { migration_id: 21, name: "native-recruitment-interview-conduct" },
+        { migration_id: 22, name: "native-domain-schema-boundary" },
       ],
       tables: [
         "admission_applications",
@@ -2474,7 +2475,7 @@ describe("DatabaseTest", () => {
     );
 
     expect(second).toBe(first);
-    expect(rows).toEqual([{ migration_count: "21" }]);
+    expect(rows).toEqual([{ migration_count: "22" }]);
   });
 
   it("executes Admissions and Organization authority adapters against PGlite", async () => {
@@ -4083,7 +4084,7 @@ describe("DatabaseTest", () => {
       }),
     );
 
-    expect(evidence.schemaRevision).toBe("21_native-recruitment-interview-conduct");
+    expect(evidence.schemaRevision).toBe("22_native-domain-schema-boundary");
     expect(evidence.denied._tag).toBe("OrganizationRoleDenied");
     expect(evidence.deniedRows).toBe(0);
     expect(evidence.departmentCreated.committed).toBe(true);

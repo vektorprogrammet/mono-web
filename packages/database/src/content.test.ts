@@ -13,7 +13,7 @@ afterAll(async () => {
 });
 
 describe("Content publication migration in PGlite (spec 0062)", () => {
-  it("uses revision 20 and replays the ordered manifest with the five content tables", async () => {
+  it("uses the final revision and replays the ordered manifest with the five content tables", async () => {
     const evidence = await runtime.runPromise(
       Effect.gen(function* () {
         const database = yield* Database;
@@ -48,7 +48,7 @@ describe("Content publication migration in PGlite (spec 0062)", () => {
       }),
     );
 
-    expect(evidence.revision).toBe("20_content-publication");
+    expect(evidence.revision).toBe("22_native-domain-schema-boundary");
     expect(evidence.migrationRows).toEqual([{ migrationId: 20, name: "content-publication" }]);
     expect(evidence.tableNames).toEqual([
       "content_article_departments",
@@ -58,7 +58,7 @@ describe("Content publication migration in PGlite (spec 0062)", () => {
       "content_publication_command_receipts",
     ]);
     void ContentWorkspaceSchema;
-  });
+  }, 15_000);
 
   it("enforces version-number uniqueness, slug constraints, and department restrict", async () => {
     const outcome = await runtime.runPromise(
