@@ -4,8 +4,8 @@
 
 | Field | Value |
 |---|---|
-| Status | Contract remains frozen; Amendment 0050.1 authorizes an evidence-harness correction only; implementation is present at integrated branch `f07b86d7babc041ee5f947b41381de094586e9d6`; runtime and acceptance evidence remain pending |
-| Revision | Amendment 0050.1 records observed native Identity evidence-harness drift; runtime evidence remains pending |
+| Status | Contract remains frozen; Amendments 0050.1 and 0050.2 authorize evidence-harness and disposable-fixture corrections only; implementation is present at integrated branch `f07b86d7babc041ee5f947b41381de094586e9d6`; runtime and acceptance evidence remain pending |
+| Revision | Amendments 0050.1 and 0050.2 record observed native Identity and fixture prerequisites; runtime evidence remains pending |
 | Base | `dd2425f8ea21c2f61cdff9bb518a1e726d8dac64` (`dd2425f`) |
 | Goal | Replace the Symfony scheduling seam with one native Recruitment transition and one full-Foldkit staff journey |
 | Actors | Active department leader or assigned active interviewer |
@@ -31,6 +31,24 @@ This amendment authorizes one evidence-harness correction:
 The correction must not change product behavior, access policies, legacy routes, or production effects. It must not add a compatibility route, retain token-map authentication for this journey, or contact an external provider.
 
 Runtime and acceptance evidence remain pending until the corrected harness produces the evidence required below.
+
+## Amendment 0050.2 — scheduling fixture evidence prerequisites
+
+The native Identity correction in Amendment 0050.1 exposed two additional fixture prerequisites. These prerequisites make the frozen actor matrix and schema boundary observable without changing scheduling semantics.
+
+The disposable fixture must provide the following leader authority:
+
+- an active, unsuspended organization membership for the leader persona;
+- `is_team_leader=true` on that membership;
+- a live team or department interval that contains the scheduled interview interval.
+
+This membership must make the frozen `DepartmentLeader` actor matrix representable. The fixture must not grant authority through a substitute role, token, legacy route, or access-policy change.
+
+After the separately frozen schema-boundary correction in spec 0066, fixture SQL must use the public domain schema. It must not use an auth search-path workaround. The fixture must seed conduct-question rows through the domain-owned public tables.
+
+This amendment authorizes only these disposable fixture changes. It does not authorize product changes, access-policy changes, migration edits, legacy routes, production or provider effects, or bearer tokens. It does not alter the frozen scheduling journey, actor or authority semantics, transaction or notification semantics, falsifiers, non-goals, or operator boundary.
+
+Runtime and acceptance evidence remain pending until the corrected fixture and harness produce the evidence required below.
 
 ## Problem
 
