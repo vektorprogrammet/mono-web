@@ -23,6 +23,7 @@ import {
   resolveAuthenticatedPersonAtInstant,
   resolveAuthenticatedSession,
   resolvePersonAuthority,
+  resolvePersonAuthorityAfterSession,
 } from "./authority.js";
 import type { BackendConfig } from "./config.js";
 import { makeOrganizationApiHttp } from "./organization/http.js";
@@ -105,6 +106,7 @@ const isRecruitmentRoute = (pathname: string): boolean =>
   pathname === "/api/recruitment/invitation-response/confirm" ||
   pathname === "/api/recruitment/invitation-response/reject" ||
   pathname === "/api/recruitment/invitation-response/request-new-time" ||
+  pathname.startsWith("/api/admin/recruitment/interviews/") ||
   pathname === "/api/admin/recruitment/interviews/schedule";
 
 /**
@@ -183,9 +185,22 @@ export const makeBackendHttp = (
   });
   const recruitment = makeRecruitmentApiHttp({
     config: config.recruitment,
-    // Spec 0055 §Recruitment actor: board queries use ALL authorized
-    // departments. One active-leader department selects its scope; ambiguity
-    // fails closed. GlobalAdmin never passes (domain rejects it downstream).
+    resolveConductContext: async (request) => {
+      const authority = await resolvePersonAuthorityAfterSession(
+        request.headers.get("cookie") ?? undefined,
+        { run },
+      );
+      return {
+        actor: {
+          _tag: "Member",
+          personId: authority.personId,
+          departmentId: DepartmentId.make(authority.memberships[0]?.departmentId ?? "conduct"),
+          active: true,
+        },
+        authorizationInstant: authority.evaluatedAt,
+      };
+    },
+    // Existing scheduling/assignment routes retain their 0055 actor mapping.
     resolveActor: async (request) => {
       const authority = await resolvePersonAuthority(request.headers.get("cookie") ?? undefined, {
         run,

@@ -135,6 +135,23 @@ export const resolvePersonAuthority = (
   return options.run(personAuthorityEffect(cookieHeader, instant));
 };
 
+/** Resolves Identity first, then captures one authorization instant for a request. */
+export const resolvePersonAuthorityAfterSession = (
+  cookieHeader: string | undefined,
+  options: AuthorityResolutionOptions,
+): Promise<OrganizationPersonAuthority> =>
+  options.run(
+    Effect.flatMap(sessionEffect(cookieHeader), (actor) =>
+      Effect.flatMap(
+        Effect.sync(() => decodeAuthorizationInstant((options.now ?? defaultNow)())),
+        (instant) =>
+          Organization.use(({ resolvePersonAuthority }) =>
+            resolvePersonAuthority(actor.personId, instant),
+          ),
+      ),
+    ),
+  );
+
 /**
  * Maps the projection onto the admission actor for one department scope.
  * Denials become typed 403-family errors (AuthorityInactive / NotInScope).

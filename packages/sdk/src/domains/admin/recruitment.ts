@@ -1,5 +1,11 @@
 import { Effect, Schema } from "effect";
 import {
+  CancelInterviewCommandSchema,
+  CancelInterviewResultSchema,
+  FinalizeInterviewCommandSchema,
+  FinalizeInterviewResultSchema,
+  RecruitmentInterviewConductObservationSchema,
+  RecruitmentInterviewId,
   RecruitmentAssignmentBoardSchema,
   RecruitmentAssignmentBoardQuerySchema,
   RecruitmentAssignmentCommandSchema,
@@ -7,6 +13,11 @@ import {
   RecruitmentScheduleCommandSchema,
   RecruitmentScheduleResultSchema,
   RecruitmentSchedulingBoardSchema,
+  type CancelInterviewCommand,
+  type CancelInterviewResult,
+  type FinalizeInterviewCommand,
+  type FinalizeInterviewResult,
+  type RecruitmentInterviewConductObservation,
   type RecruitmentAssignmentBoard,
   type RecruitmentAssignmentBoardQuery,
   type RecruitmentAssignmentCommand,
@@ -29,8 +40,16 @@ export interface AdminRecruitmentDomain {
   scheduleInterview(
     command: RecruitmentScheduleCommand,
   ): Effect.Effect<RecruitmentScheduleResult, InternalSdkError>;
+  readInterviewConduct(
+    interviewId: RecruitmentInterviewId,
+  ): Effect.Effect<RecruitmentInterviewConductObservation, InternalSdkError>;
+  finalizeInterview(
+    command: FinalizeInterviewCommand,
+  ): Effect.Effect<FinalizeInterviewResult, InternalSdkError>;
+  cancelInterview(
+    command: CancelInterviewCommand,
+  ): Effect.Effect<CancelInterviewResult, InternalSdkError>;
 }
-
 const strictRecruitment = {
   strict: true,
   errorFamily: "recruitment" as const,
@@ -55,6 +74,27 @@ const decodeScheduleCommand = (
   command: unknown,
 ): Effect.Effect<RecruitmentScheduleCommand, RecruitmentDecodeError> =>
   Schema.decodeUnknownEffect(RecruitmentScheduleCommandSchema)(command, {
+    onExcessProperty: "error",
+  }).pipe(Effect.mapError(() => new RecruitmentDecodeError()));
+
+const decodeConductInterviewId = (
+  interviewId: unknown,
+): Effect.Effect<RecruitmentInterviewId, RecruitmentDecodeError> =>
+  Schema.decodeUnknownEffect(RecruitmentInterviewId)(interviewId, {
+    onExcessProperty: "error",
+  }).pipe(Effect.mapError(() => new RecruitmentDecodeError()));
+
+const decodeFinalizeCommand = (
+  command: unknown,
+): Effect.Effect<FinalizeInterviewCommand, RecruitmentDecodeError> =>
+  Schema.decodeUnknownEffect(FinalizeInterviewCommandSchema)(command, {
+    onExcessProperty: "error",
+  }).pipe(Effect.mapError(() => new RecruitmentDecodeError()));
+
+const decodeCancelCommand = (
+  command: unknown,
+): Effect.Effect<CancelInterviewCommand, RecruitmentDecodeError> =>
+  Schema.decodeUnknownEffect(CancelInterviewCommandSchema)(command, {
     onExcessProperty: "error",
   }).pipe(Effect.mapError(() => new RecruitmentDecodeError()));
 
@@ -101,6 +141,45 @@ export const createAdminRecruitmentDomain = (transport: Transport): AdminRecruit
           "/api/admin/recruitment/interviews/schedule",
           validCommand,
           RecruitmentScheduleResultSchema,
+          strictRecruitment,
+        ),
+      ),
+    );
+  },
+
+  readInterviewConduct(interviewId) {
+    return decodeConductInterviewId(interviewId).pipe(
+      Effect.flatMap((validInterviewId) =>
+        transport.get(
+          `/api/admin/recruitment/interviews/${encodeURIComponent(validInterviewId)}/conduct`,
+          RecruitmentInterviewConductObservationSchema,
+          undefined,
+          strictRecruitment,
+        ),
+      ),
+    );
+  },
+
+  finalizeInterview(command) {
+    return decodeFinalizeCommand(command).pipe(
+      Effect.flatMap((validCommand) =>
+        transport.post(
+          `/api/admin/recruitment/interviews/${encodeURIComponent(validCommand.interviewId)}/finalize`,
+          validCommand,
+          FinalizeInterviewResultSchema,
+          strictRecruitment,
+        ),
+      ),
+    );
+  },
+
+  cancelInterview(command) {
+    return decodeCancelCommand(command).pipe(
+      Effect.flatMap((validCommand) =>
+        transport.post(
+          `/api/admin/recruitment/interviews/${encodeURIComponent(validCommand.interviewId)}/cancel`,
+          validCommand,
+          CancelInterviewResultSchema,
           strictRecruitment,
         ),
       ),

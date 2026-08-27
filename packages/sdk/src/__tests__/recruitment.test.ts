@@ -295,3 +295,97 @@ describe("recruitment SDK transport", () => {
     ).rejects.toBeInstanceOf(RecruitmentDecodeSdkError);
   });
 });
+
+describe("recruitment conduct SDK boundary", () => {
+  it("makes one strict native request per conduct method and rejects excess results", async () => {
+    const conduct = {
+      interviewId: "interview-1",
+      applicationId: "application-1",
+      applicant: { applicantId: "applicant-1", firstName: "Ada", lastName: "Lovelace" },
+      schedule: {
+        interviewId: "interview-1",
+        scheduledAt: "2031-09-20T10:00:00.000Z",
+        room: "A101",
+        campus: null,
+        mapLink: null,
+        message: "Interview",
+        scheduledByPersonId: "person-1",
+        committedAt: "2031-09-15T12:00:00.000Z",
+        scheduleRevision: 1,
+      },
+      invitationResponse: "Accepted",
+      questions: [],
+      answers: [],
+      score: null,
+      completionState: "NotCompleted",
+      cancellationState: "NotCancelled",
+      finalizedAt: null,
+      cancelledAt: null,
+      revision: 1,
+      canFinalize: true,
+      canCancel: true,
+    } as const;
+    const finalized = {
+      observation: {
+        _tag: "InterviewFinalized",
+        commandId: "command-1",
+        interviewId: "interview-1",
+        interviewRevision: 2,
+        finalizedAt: "2031-09-15T12:00:00.000Z",
+        completionState: "Completed",
+        cancellationState: "NotCancelled",
+      },
+      replayed: false,
+    } as const;
+    const cancelled = {
+      observation: {
+        _tag: "InterviewCancelled",
+        commandId: "cancel-1",
+        interviewId: "interview-1",
+        interviewRevision: 2,
+        cancelledAt: "2031-09-15T12:00:00.000Z",
+        completionState: "NotCompleted",
+        cancellationState: "Cancelled",
+      },
+      replayed: false,
+    } as const;
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(response(200, conduct))
+      .mockResolvedValueOnce(response(200, finalized))
+      .mockResolvedValueOnce(response(200, cancelled))
+      .mockResolvedValueOnce(response(200, { ...conduct, legacy: true }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = createClient("http://api.test", { cookie: "better-auth.session_token=session" });
+
+    await expect(client.admin.recruitment.readInterviewConduct("interview-1")).resolves.toEqual(conduct);
+    await expect(
+      client.admin.recruitment.finalizeInterview({
+        commandId: "command-1",
+        interviewId: "interview-1",
+        expectedRevision: 1,
+        answers: [],
+        score: { explanatoryPower: 0, roleModel: 10, suitability: 5 },
+      }),
+    ).resolves.toEqual(finalized);
+    await expect(
+      client.admin.recruitment.cancelInterview({
+        commandId: "cancel-1",
+        interviewId: "interview-1",
+        expectedRevision: 1,
+      }),
+    ).resolves.toEqual(cancelled);
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      "http://api.test/api/admin/recruitment/interviews/interview-1/conduct",
+    );
+    expect(fetchMock.mock.calls[1]?.[0]).toBe(
+      "http://api.test/api/admin/recruitment/interviews/interview-1/finalize",
+    );
+    expect(fetchMock.mock.calls[2]?.[0]).toBe(
+      "http://api.test/api/admin/recruitment/interviews/interview-1/cancel",
+    );
+    await expect(client.admin.recruitment.readInterviewConduct("interview-1")).rejects.toBeInstanceOf(
+      RecruitmentDecodeSdkError,
+    );
+  });
+});

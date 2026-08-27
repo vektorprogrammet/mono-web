@@ -447,3 +447,119 @@ export type RecruitmentScheduleResult = typeof RecruitmentScheduleResultSchema.T
 
 export const RecruitmentAssignmentBoardObservationSchema = RecruitmentAssignmentBoardSchema;
 export type RecruitmentAssignmentBoardObservation = RecruitmentAssignmentBoard;
+
+export const RecruitmentConductCommandId = StableId.pipe(
+  Schema.brand("RecruitmentConductCommandId"),
+);
+export type RecruitmentConductCommandId = typeof RecruitmentConductCommandId.Type;
+
+export const RecruitmentCancellationCommandId = StableId.pipe(
+  Schema.brand("RecruitmentCancellationCommandId"),
+);
+export type RecruitmentCancellationCommandId = typeof RecruitmentCancellationCommandId.Type;
+
+export const RecruitmentInterviewQuestionSnapshotSchema = Schema.Struct({
+  interviewId: RecruitmentInterviewId,
+  questionId: StableId,
+  ordinal: NonNegative,
+  prompt: Schema.String.pipe(
+    Schema.check(Schema.makeFilter((value) => value.length > 0 && value.length <= 5_000)),
+  ),
+  helpText: Schema.NullOr(
+    Schema.String.pipe(Schema.check(Schema.makeFilter((value) => value.length <= 5_000))),
+  ),
+  kind: Schema.Literals(["text", "list", "radio", "check"]),
+  alternatives: Schema.Array(
+    Schema.String.pipe(
+      Schema.check(Schema.makeFilter((value) => value.length > 0 && value.length <= 5_000)),
+    ),
+  ),
+});
+export type RecruitmentInterviewQuestionSnapshot =
+  typeof RecruitmentInterviewQuestionSnapshotSchema.Type;
+
+export const RecruitmentInterviewAnswerSchema = Schema.Struct({
+  questionId: StableId,
+  answer: Schema.Union([Schema.String, Schema.Array(Schema.String)]),
+});
+export type RecruitmentInterviewAnswer = typeof RecruitmentInterviewAnswerSchema.Type;
+export const RecruitmentInterviewScoreSchema = Schema.Struct({
+  explanatoryPower: Schema.Int.pipe(Schema.check(Schema.isBetween({ minimum: 0, maximum: 10 }))),
+  roleModel: Schema.Int.pipe(Schema.check(Schema.isBetween({ minimum: 0, maximum: 10 }))),
+  suitability: Schema.Int.pipe(Schema.check(Schema.isBetween({ minimum: 0, maximum: 10 }))),
+});
+export type RecruitmentInterviewScore = typeof RecruitmentInterviewScoreSchema.Type;
+
+export const FinalizeInterviewCommandSchema = Schema.Struct({
+  commandId: RecruitmentConductCommandId,
+  interviewId: RecruitmentInterviewId,
+  expectedRevision: Revision,
+  answers: Schema.Array(RecruitmentInterviewAnswerSchema),
+  score: RecruitmentInterviewScoreSchema,
+});
+export type FinalizeInterviewCommand = typeof FinalizeInterviewCommandSchema.Type;
+
+export const CancelInterviewCommandSchema = Schema.Struct({
+  commandId: RecruitmentCancellationCommandId,
+  interviewId: RecruitmentInterviewId,
+  expectedRevision: Revision,
+});
+export type CancelInterviewCommand = typeof CancelInterviewCommandSchema.Type;
+
+export const RecruitmentInterviewConductObservationSchema = Schema.Struct({
+  interviewId: RecruitmentInterviewId,
+  applicationId: RecruitmentApplicationId,
+  applicant: Schema.Struct({
+    applicantId: RecruitmentApplicantId,
+    firstName: ApplicantName,
+    lastName: ApplicantName,
+  }),
+  schedule: RecruitmentInterviewScheduleSchema,
+  invitationResponse: Schema.Literals(["Accepted"]),
+  questions: Schema.Array(RecruitmentInterviewQuestionSnapshotSchema),
+  answers: Schema.Array(RecruitmentInterviewAnswerSchema),
+  score: Schema.NullOr(RecruitmentInterviewScoreSchema),
+  completionState: Schema.Literals(["NotCompleted", "Completed"]),
+  cancellationState: Schema.Literals(["NotCancelled", "Cancelled"]),
+  finalizedAt: Schema.NullOr(Rfc3339InstantSchema),
+  cancelledAt: Schema.NullOr(Rfc3339InstantSchema),
+  revision: Revision,
+  canFinalize: Schema.Boolean,
+  canCancel: Schema.Boolean,
+});
+export type RecruitmentInterviewConductObservation =
+  typeof RecruitmentInterviewConductObservationSchema.Type;
+
+export const FinalizeInterviewObservationSchema = Schema.Struct({
+  _tag: Schema.Literals(["InterviewFinalized"]),
+  commandId: RecruitmentConductCommandId,
+  interviewId: RecruitmentInterviewId,
+  interviewRevision: Revision,
+  finalizedAt: Rfc3339InstantSchema,
+  completionState: Schema.Literals(["Completed"]),
+  cancellationState: Schema.Literals(["NotCancelled"]),
+});
+export type FinalizeInterviewObservation = typeof FinalizeInterviewObservationSchema.Type;
+
+export const CancelInterviewObservationSchema = Schema.Struct({
+  _tag: Schema.Literals(["InterviewCancelled"]),
+  commandId: RecruitmentCancellationCommandId,
+  interviewId: RecruitmentInterviewId,
+  interviewRevision: Revision,
+  cancelledAt: Rfc3339InstantSchema,
+  completionState: Schema.Literals(["NotCompleted"]),
+  cancellationState: Schema.Literals(["Cancelled"]),
+});
+export type CancelInterviewObservation = typeof CancelInterviewObservationSchema.Type;
+
+export const FinalizeInterviewResultSchema = Schema.Struct({
+  observation: FinalizeInterviewObservationSchema,
+  replayed: Schema.Boolean,
+});
+export type FinalizeInterviewResult = typeof FinalizeInterviewResultSchema.Type;
+
+export const CancelInterviewResultSchema = Schema.Struct({
+  observation: CancelInterviewObservationSchema,
+  replayed: Schema.Boolean,
+});
+export type CancelInterviewResult = typeof CancelInterviewResultSchema.Type;

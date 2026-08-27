@@ -94,7 +94,15 @@ export type RecruitmentRejectionTag =
   | "RecruitmentScheduleInPast"
   | "ProfileContactNotFound"
   | "RecruitmentDecodeError"
-  | "RecruitmentPersistenceError";
+  | "RecruitmentPersistenceError"
+  | "RecruitmentLifecycleCommandConflict"
+  | "RecruitmentInterviewAlreadyFinalized"
+  | "RecruitmentInterviewAlreadyCancelled"
+  | "RecruitmentInvitationNotAccepted"
+  | "RecruitmentInterviewNotScheduled"
+  | "RecruitmentConductValidationError"
+  | "InterviewQuestionsUnavailable"
+  | "RecruitmentInvalidContext";
 
 export type OrganizationRejectionTag =
   | "UnauthenticatedActor"
@@ -447,6 +455,55 @@ export class RecruitmentPersistenceSdkError extends RecruitmentRejectionError {
   constructor() {
     super("RecruitmentPersistenceError");
     this.name = "RecruitmentPersistenceSdkError";
+  }
+}
+
+export class RecruitmentLifecycleCommandConflictError extends RecruitmentRejectionError {
+  constructor() {
+    super("RecruitmentLifecycleCommandConflict");
+    this.name = "RecruitmentLifecycleCommandConflictError";
+  }
+}
+export class RecruitmentInterviewAlreadyFinalizedError extends RecruitmentRejectionError {
+  constructor() {
+    super("RecruitmentInterviewAlreadyFinalized");
+    this.name = "RecruitmentInterviewAlreadyFinalizedError";
+  }
+}
+export class RecruitmentInterviewAlreadyCancelledError extends RecruitmentRejectionError {
+  constructor() {
+    super("RecruitmentInterviewAlreadyCancelled");
+    this.name = "RecruitmentInterviewAlreadyCancelledError";
+  }
+}
+export class RecruitmentInvitationNotAcceptedError extends RecruitmentRejectionError {
+  constructor() {
+    super("RecruitmentInvitationNotAccepted");
+    this.name = "RecruitmentInvitationNotAcceptedError";
+  }
+}
+export class RecruitmentInterviewNotScheduledError extends RecruitmentRejectionError {
+  constructor() {
+    super("RecruitmentInterviewNotScheduled");
+    this.name = "RecruitmentInterviewNotScheduledError";
+  }
+}
+export class RecruitmentConductValidationSdkError extends RecruitmentRejectionError {
+  constructor() {
+    super("RecruitmentConductValidationError");
+    this.name = "RecruitmentConductValidationSdkError";
+  }
+}
+export class InterviewQuestionsUnavailableError extends RecruitmentRejectionError {
+  constructor() {
+    super("InterviewQuestionsUnavailable");
+    this.name = "InterviewQuestionsUnavailableError";
+  }
+}
+export class RecruitmentInvalidContextError extends RecruitmentRejectionError {
+  constructor() {
+    super("RecruitmentInvalidContext");
+    this.name = "RecruitmentInvalidContextError";
   }
 }
 
@@ -1029,6 +1086,39 @@ export class RecruitmentPersistenceError extends Schema.TaggedError<RecruitmentP
   {},
 ) {}
 
+export class RecruitmentLifecycleCommandConflict extends Schema.TaggedError<RecruitmentLifecycleCommandConflict>()(
+  "RecruitmentLifecycleCommandConflict",
+  {},
+) {}
+export class RecruitmentInterviewAlreadyFinalized extends Schema.TaggedError<RecruitmentInterviewAlreadyFinalized>()(
+  "RecruitmentInterviewAlreadyFinalized",
+  {},
+) {}
+export class RecruitmentInterviewAlreadyCancelled extends Schema.TaggedError<RecruitmentInterviewAlreadyCancelled>()(
+  "RecruitmentInterviewAlreadyCancelled",
+  {},
+) {}
+export class RecruitmentInvitationNotAccepted extends Schema.TaggedError<RecruitmentInvitationNotAccepted>()(
+  "RecruitmentInvitationNotAccepted",
+  {},
+) {}
+export class RecruitmentInterviewNotScheduled extends Schema.TaggedError<RecruitmentInterviewNotScheduled>()(
+  "RecruitmentInterviewNotScheduled",
+  {},
+) {}
+export class RecruitmentConductValidationError extends Schema.TaggedError<RecruitmentConductValidationError>()(
+  "RecruitmentConductValidationError",
+  {},
+) {}
+export class InterviewQuestionsUnavailable extends Schema.TaggedError<InterviewQuestionsUnavailable>()(
+  "InterviewQuestionsUnavailable",
+  {},
+) {}
+export class RecruitmentInvalidContext extends Schema.TaggedError<RecruitmentInvalidContext>()(
+  "RecruitmentInvalidContext",
+  {},
+) {}
+
 export class DuplicateReceiptCommandConflict extends Schema.TaggedError<DuplicateReceiptCommandConflict>()(
   "DuplicateReceiptCommandConflict",
   {},
@@ -1199,7 +1289,6 @@ export type PublicApplicationFailure =
   | PublicApplicationRateLimitExceeded
   | PublicApplicationNotFound
   | PublicApplicationPersistenceError;
-
 export type RecruitmentFailure =
   | RecruitmentUnauthenticatedActor
   | RecruitmentDecodeError
@@ -1222,7 +1311,15 @@ export type RecruitmentFailure =
   | RecruitmentScheduleCommandConflict
   | RecruitmentScheduleInPast
   | RecruitmentProfileContactNotFound
-  | RecruitmentPersistenceError;
+  | RecruitmentPersistenceError
+  | RecruitmentLifecycleCommandConflict
+  | RecruitmentInterviewAlreadyFinalized
+  | RecruitmentInterviewAlreadyCancelled
+  | RecruitmentInvitationNotAccepted
+  | RecruitmentInterviewNotScheduled
+  | RecruitmentConductValidationError
+  | InterviewQuestionsUnavailable
+  | RecruitmentInvalidContext;
 
 export type OrganizationFailure =
   | OrganizationUnauthenticatedActor
@@ -1474,6 +1571,22 @@ export function toSdkError(error: InternalSdkError): SdkError {
       return new RecruitmentScheduleCommandConflictError();
     case "RecruitmentScheduleInPast":
       return new RecruitmentScheduleInPastError();
+    case "RecruitmentLifecycleCommandConflict":
+      return new RecruitmentLifecycleCommandConflictError();
+    case "RecruitmentInterviewAlreadyFinalized":
+      return new RecruitmentInterviewAlreadyFinalizedError();
+    case "RecruitmentInterviewAlreadyCancelled":
+      return new RecruitmentInterviewAlreadyCancelledError();
+    case "RecruitmentInvitationNotAccepted":
+      return new RecruitmentInvitationNotAcceptedError();
+    case "RecruitmentInterviewNotScheduled":
+      return new RecruitmentInterviewNotScheduledError();
+    case "RecruitmentConductValidationError":
+      return new RecruitmentConductValidationSdkError();
+    case "InterviewQuestionsUnavailable":
+      return new InterviewQuestionsUnavailableError();
+    case "RecruitmentInvalidContext":
+      return new RecruitmentInvalidContextError();
     case "ProfileContactNotFound":
       return new RecruitmentProfileContactNotFoundError();
     case "RecruitmentPersistenceError":

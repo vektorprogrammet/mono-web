@@ -3,9 +3,15 @@ import { Admissions } from "@vektorprogrammet/domain/admissions";
 import { Profile } from "@vektorprogrammet/domain/profile";
 import {
   Recruitment,
+  RecruitmentDecodeError,
+  CancelInterviewCommandSchema,
+  FinalizeInterviewCommandSchema,
+  FinalizeInterviewResultSchema,
+  RecruitmentInterviewConductObservationSchema,
+  CancelInterviewResultSchema,
+  RecruitmentInterviewId,
   RecruitmentAssignmentBoardQuerySchema,
   RecruitmentAssignmentCommandSchema,
-  RecruitmentDecodeError,
   RecruitmentScheduleCommandSchema,
   RecruitmentInvitationCapabilitySchema,
   RecruitmentInvitationRejectInputSchema,
@@ -18,11 +24,19 @@ import { Organization } from "@vektorprogrammet/domain/organization";
 import { Economy } from "@vektorprogrammet/domain/receipt";
 import { Effect, Match, Schema } from "effect";
 import { type RecruitmentApiConfig } from "./config.js";
+export interface RecruitmentConductContextResolution {
+  readonly actor: RecruitmentActor;
+  readonly authorizationInstant: string;
+}
 
 export interface RecruitmentApiHttpOptions {
   readonly config: RecruitmentApiConfig;
   /** Cookie -> Organization projection -> recruitment actor (spec 0055). */
   readonly resolveActor: (request: Request) => Promise<RecruitmentActor>;
+  /** Better Auth session -> one post-session authorization instant for conduct. */
+  readonly resolveConductContext?: (
+    request: Request,
+  ) => Promise<RecruitmentConductContextResolution>;
   readonly run: <A, E>(
     effect: Effect.Effect<
       A,
@@ -88,6 +102,13 @@ const RecruitmentHttpErrorTag = Schema.Literals([
   "RecruitmentDecodeError",
   "RecruitmentInterviewSchemaInactive",
   "RecruitmentPersistenceError",
+  "RecruitmentLifecycleCommandConflict",
+  "RecruitmentInterviewAlreadyFinalized",
+  "RecruitmentInterviewAlreadyCancelled",
+  "RecruitmentInvitationNotAccepted",
+  "RecruitmentInterviewNotScheduled",
+  "RecruitmentConductValidationError",
+  "InterviewQuestionsUnavailable",
   "RequestBodyTooLarge",
 ]);
 type RecruitmentHttpErrorTag = typeof RecruitmentHttpErrorTag.Type;
@@ -127,16 +148,27 @@ const statusForErrorTag = (tag: RecruitmentHttpErrorTag): number =>
       "RecruitmentInterviewStaleRevision",
       "RecruitmentInvitationAlreadyResponded",
       "RecruitmentScheduleCommandConflict",
+      "RecruitmentLifecycleCommandConflict",
+      "RecruitmentInterviewAlreadyFinalized",
+      "RecruitmentInterviewAlreadyCancelled",
+      "RecruitmentInvitationNotAccepted",
+      "RecruitmentInterviewNotScheduled",
       () => 409,
     ),
     Match.whenOr(
       "RecruitmentDecodeError",
       "RecruitmentInterviewSchemaInactive",
       "RecruitmentScheduleInPast",
+      "RecruitmentConductValidationError",
       () => 422,
     ),
     Match.when("RequestBodyTooLarge", () => 413),
-    Match.whenOr("ProfileContactNotFound", "RecruitmentPersistenceError", () => 503),
+    Match.whenOr(
+      "ProfileContactNotFound",
+      "RecruitmentPersistenceError",
+      "InterviewQuestionsUnavailable",
+      () => 503,
+    ),
     Match.exhaustive,
   );
 
@@ -251,6 +283,51 @@ const actorFor = async (
     throw taggedError("UnauthenticatedActor");
   }
 };
+const decodeHttpResponse = async <A>(
+  schema: Schema.ConstraintDecoder<A, never>,
+  value: unknown,
+): Promise<A> => {
+  try {
+    return await Schema.decodeUnknownPromise(schema)(value, { onExcessProperty: "error" });
+  } catch {
+    throw taggedError("RecruitmentPersistenceError");
+  }
+};
+
+const decodeInterviewPath = (request: Request, operation: "conduct" | "finalize" | "cancel") => {
+  const pathname = new URL(request.url).pathname;
+  const prefix = "/api/admin/recruitment/interviews/";
+  const suffix = `/${operation}`;
+  if (!pathname.startsWith(prefix) || !pathname.endsWith(suffix)) {
+    throw taggedError("RecruitmentDecodeError");
+  }
+  const encodedId = pathname.slice(prefix.length, -suffix.length);
+  if (encodedId.length === 0 || encodedId.includes("/")) {
+    throw taggedError("RecruitmentDecodeError");
+  }
+  try {
+    const interviewId = decodeURIComponent(encodedId);
+    if (interviewId.includes("/")) throw new Error("encoded path separator");
+    return Schema.decodeUnknownSync(RecruitmentInterviewId)(interviewId, {
+      onExcessProperty: "error",
+    });
+  } catch {
+    throw taggedError("RecruitmentDecodeError");
+  }
+};
+
+const conductContextFor = async (
+  request: Request,
+  input: RecruitmentApiHttpOptions,
+): Promise<RecruitmentConductContextResolution> => {
+  if (input.resolveConductContext !== undefined) {
+    return await input.resolveConductContext(request);
+  }
+  return {
+    actor: await actorFor(request, input),
+    authorizationInstant: input.config.now(),
+  };
+};
 
 const decodeBoardQuery = (request: Request): RecruitmentAssignmentBoardQuery => {
   const params = [...new URL(request.url).searchParams.entries()];
@@ -338,6 +415,77 @@ const scheduleInterview = async (
   return jsonResponse({ observation: result.observation, replayed: result.replayed });
 };
 
+const readInterviewConduct = async (
+  request: Request,
+  input: RecruitmentApiHttpOptions,
+): Promise<Response> => {
+  assertNoQuery(request);
+  const interviewId = decodeInterviewPath(request, "conduct");
+  const context = await conductContextFor(request, input);
+  const observation = await input.run(
+    Recruitment.use(({ readInterviewConduct: read }) =>
+      read(interviewId, {
+        actor: context.actor,
+        now: input.config.now(),
+        authorizationInstant: context.authorizationInstant,
+      }),
+    ),
+  );
+  return jsonResponse(
+    await decodeHttpResponse(RecruitmentInterviewConductObservationSchema, observation),
+  );
+};
+
+const finalizeInterview = async (
+  request: Request,
+  input: RecruitmentApiHttpOptions,
+): Promise<Response> => {
+  assertNoQuery(request);
+  const interviewId = decodeInterviewPath(request, "finalize");
+  const command = await decodeJson(
+    request,
+    FinalizeInterviewCommandSchema,
+    input.config.maxBodyBytes,
+  );
+  if (command.interviewId !== interviewId) throw taggedError("RecruitmentDecodeError");
+  const context = await conductContextFor(request, input);
+  const result = await input.run(
+    Recruitment.use(({ finalizeInterview: finalize }) =>
+      finalize(command, {
+        actor: context.actor,
+        now: input.config.now(),
+        authorizationInstant: context.authorizationInstant,
+      }),
+    ),
+  );
+  return jsonResponse(await decodeHttpResponse(FinalizeInterviewResultSchema, result));
+};
+
+const cancelInterview = async (
+  request: Request,
+  input: RecruitmentApiHttpOptions,
+): Promise<Response> => {
+  assertNoQuery(request);
+  const interviewId = decodeInterviewPath(request, "cancel");
+  const command = await decodeJson(
+    request,
+    CancelInterviewCommandSchema,
+    input.config.maxBodyBytes,
+  );
+  if (command.interviewId !== interviewId) throw taggedError("RecruitmentDecodeError");
+  const context = await conductContextFor(request, input);
+  const result = await input.run(
+    Recruitment.use(({ cancelInterview: cancel }) =>
+      cancel(command, {
+        actor: context.actor,
+        now: input.config.now(),
+        authorizationInstant: context.authorizationInstant,
+      }),
+    ),
+  );
+  return jsonResponse(await decodeHttpResponse(CancelInterviewResultSchema, result));
+};
+
 const readInvitationResponse = async (
   request: Request,
   input: RecruitmentApiHttpOptions,
@@ -406,6 +554,24 @@ export const makeRecruitmentApiHttp = (input: RecruitmentApiHttpOptions): Recrui
   fetch: async (request) => {
     const url = new URL(request.url);
     try {
+      if (
+        request.method === "GET" &&
+        /^\/api\/admin\/recruitment\/interviews\/.*\/conduct(?:\/.*)?$/u.test(url.pathname)
+      ) {
+        return await readInterviewConduct(request, input);
+      }
+      if (
+        request.method === "POST" &&
+        /^\/api\/admin\/recruitment\/interviews\/.*\/finalize(?:\/.*)?$/u.test(url.pathname)
+      ) {
+        return await finalizeInterview(request, input);
+      }
+      if (
+        request.method === "POST" &&
+        /^\/api\/admin\/recruitment\/interviews\/.*\/cancel(?:\/.*)?$/u.test(url.pathname)
+      ) {
+        return await cancelInterview(request, input);
+      }
       if (request.method === "GET" && url.pathname === "/api/recruitment/invitation-response") {
         return await readInvitationResponse(request, input);
       }

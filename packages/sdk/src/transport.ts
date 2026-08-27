@@ -72,6 +72,14 @@ import {
   RecruitmentScheduleInPast,
   RecruitmentProfileContactNotFound,
   RecruitmentPersistenceError,
+  RecruitmentLifecycleCommandConflict,
+  RecruitmentInterviewAlreadyFinalized,
+  RecruitmentInterviewAlreadyCancelled,
+  RecruitmentInvitationNotAccepted,
+  RecruitmentInterviewNotScheduled,
+  RecruitmentConductValidationError,
+  InterviewQuestionsUnavailable,
+  RecruitmentInvalidContext,
   OrganizationUnauthenticatedActor,
   OrganizationRoleDenied,
   OrganizationInvalidReference,
@@ -322,6 +330,22 @@ const recruitmentFailureFromBody = (
       return new RecruitmentDecodeError();
     case "RecruitmentPersistenceError":
       return new RecruitmentPersistenceError();
+    case "RecruitmentLifecycleCommandConflict":
+      return new RecruitmentLifecycleCommandConflict();
+    case "RecruitmentInterviewAlreadyFinalized":
+      return new RecruitmentInterviewAlreadyFinalized();
+    case "RecruitmentInterviewAlreadyCancelled":
+      return new RecruitmentInterviewAlreadyCancelled();
+    case "RecruitmentInvitationNotAccepted":
+      return new RecruitmentInvitationNotAccepted();
+    case "RecruitmentInterviewNotScheduled":
+      return new RecruitmentInterviewNotScheduled();
+    case "RecruitmentConductValidationError":
+      return new RecruitmentConductValidationError();
+    case "InterviewQuestionsUnavailable":
+      return new InterviewQuestionsUnavailable();
+    case "RecruitmentInvalidContext":
+      return new RecruitmentInvalidContext();
     case "RequestBodyTooLarge":
       return new RequestBodyTooLarge();
     default:
