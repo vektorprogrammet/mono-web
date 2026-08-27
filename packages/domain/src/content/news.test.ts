@@ -38,7 +38,7 @@ describe("public news author attribution", () => {
     Effect.gen(function* () {
       const requested: Array<string> = [];
       const database = makeDatabase((statement) => {
-        if (statement.includes("FROM content_article_versions AS version")) {
+        if (statement.includes("FROM public.content_article_versions AS version")) {
           return [
             {
               articleId: 1,
@@ -51,7 +51,7 @@ describe("public news author attribution", () => {
             },
           ];
         }
-        if (statement.includes("FROM content_article_departments")) return [];
+        if (statement.includes("FROM public.content_article_departments")) return [];
         return [];
       });
 
@@ -70,7 +70,7 @@ describe("public news author attribution", () => {
     Effect.gen(function* () {
       const requested: Array<string> = [];
       const database = makeDatabase((statement) => {
-        if (statement.includes("FROM content_article_versions AS version")) {
+        if (statement.includes("FROM public.content_article_versions AS version")) {
           return [
             {
               articleId: 1,
@@ -107,7 +107,7 @@ describe("public news author attribution", () => {
             },
           ];
         }
-        if (statement.includes("FROM content_article_departments")) return [];
+        if (statement.includes("FROM public.content_article_departments")) return [];
         return [];
       });
 

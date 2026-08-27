@@ -80,7 +80,7 @@ const departmentIdsForArticles = (
     ? Effect.succeed(new Map())
     : sql<{ readonly articleId: string; readonly departmentId: string }>`
         SELECT article_id::text AS "articleId", department_id AS "departmentId"
-        FROM content_article_departments
+        FROM public.content_article_departments
         WHERE ${sql.in("article_id", articleIds)}
         ORDER BY article_id, department_id
       `.pipe(
@@ -179,7 +179,7 @@ export const readWorkspacePostgres = (input: {
               to_char(article.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "updatedAt",
               article.current_version_number AS "currentVersionNumber",
               article.revision
-            FROM content_articles AS article
+            FROM public.content_articles AS article
             ORDER BY article.updated_at DESC, article.article_id DESC
           `.pipe(
             Effect.catchTag("SqlError", (cause) =>
@@ -328,7 +328,7 @@ export const readArticleDetailPostgres = (input: {
               to_char(article.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "updatedAt",
               article.current_version_number AS "currentVersionNumber",
               article.revision
-            FROM content_articles AS article
+            FROM public.content_articles AS article
             WHERE article.article_id = ${articleId}
           `.pipe(
             Effect.catchTag("SqlError", (cause) =>
@@ -417,7 +417,7 @@ const findCommandReceipt = (
       kind,
       payload_sha256 AS "payloadSha256",
       result_json AS "resultJson"
-    FROM content_publication_command_receipts
+    FROM public.content_publication_command_receipts
     WHERE command_id = ${commandId}
   `.pipe(
     Effect.map((rows) => rows[0]),
@@ -480,7 +480,7 @@ const insertReceiptAndAudit = (input: {
   const { sql } = input;
   return Effect.gen(function* () {
     yield* sql`
-      INSERT INTO content_publication_command_receipts (
+      INSERT INTO public.content_publication_command_receipts (
         command_id, article_id, kind, payload_sha256, result_json, committed_at
       ) VALUES (
         ${input.commandId},
@@ -497,7 +497,7 @@ const insertReceiptAndAudit = (input: {
       ),
     );
     yield* sql`
-      INSERT INTO content_publication_audit (
+      INSERT INTO public.content_publication_audit (
         command_id, article_id, actor_person_id, action, version_number, occurred_at
       ) VALUES (
         ${input.commandId}, ${input.articleId}, ${input.actorPersonId}, ${input.action},
@@ -567,7 +567,7 @@ const readDraftForUpdate = (
       to_char(article.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "updatedAt",
       article.current_version_number AS "currentVersionNumber",
       article.revision
-    FROM content_articles AS article
+    FROM public.content_articles AS article
     WHERE article.article_id = ${articleId}
     FOR UPDATE
   `.pipe(
@@ -582,15 +582,16 @@ const replaceArticleDepartments = (
   articleId: number,
   departmentIds: ReadonlyArray<DepartmentId>,
 ): Effect.Effect<void, ContentPersistenceError | ContentDepartmentNotFound> => {
-  const clear = sql`DELETE FROM content_article_departments WHERE article_id = ${articleId}`.pipe(
-    Effect.asVoid,
-    Effect.catchTag("SqlError", (cause) =>
-      Effect.fail(persistenceError("clear content departments", cause)),
-    ),
-  );
+  const clear =
+    sql`DELETE FROM public.content_article_departments WHERE article_id = ${articleId}`.pipe(
+      Effect.asVoid,
+      Effect.catchTag("SqlError", (cause) =>
+        Effect.fail(persistenceError("clear content departments", cause)),
+      ),
+    );
   const insertOne = (departmentId: DepartmentId) =>
     sql`
-      INSERT INTO content_article_departments (article_id, department_id)
+      INSERT INTO public.content_article_departments (article_id, department_id)
       VALUES (${articleId}, ${departmentId})
     `.pipe(
       Effect.asVoid,
@@ -670,9 +671,9 @@ export const createDraftPostgres = (input: {
           }
           const taken = new Set<string>(
             (yield* database<{ readonly slug: string }>`
-                SELECT slug FROM content_articles WHERE slug LIKE ${`${baseSlug}%`}
+                SELECT slug FROM public.content_articles WHERE slug LIKE ${`${baseSlug}%`}
                 UNION ALL
-                SELECT slug FROM content_article_versions WHERE slug LIKE ${`${baseSlug}%`}
+                SELECT slug FROM public.content_article_versions WHERE slug LIKE ${`${baseSlug}%`}
               `.pipe(
               Effect.catchTag("SqlError", (cause) =>
                 Effect.fail(persistenceError("read existing slugs", cause)),
@@ -681,7 +682,7 @@ export const createDraftPostgres = (input: {
           );
           const slug = dedupeSlug(baseSlug, taken);
           const inserted = yield* database<ArticleDraftJson>`
-            INSERT INTO content_articles (
+            INSERT INTO public.content_articles (
               title, slug, body_html, sticky, created_by_person_id,
               created_at, updated_at, current_version_number, revision
             ) VALUES (
@@ -804,7 +805,7 @@ export const publishPostgres = (input: {
           }
           const nextVersionRows = yield* database<{ readonly nextVersionNumber: number }>`
             SELECT CAST(COALESCE(MAX(version_number), 0) + 1 AS integer) AS "nextVersionNumber"
-            FROM content_article_versions
+            FROM public.content_article_versions
             WHERE article_id = ${draft.articleId}
           `.pipe(
             Effect.catchTag("SqlError", (cause) =>
@@ -822,7 +823,7 @@ export const publishPostgres = (input: {
           // The publish instant is the database transaction's own clock
           // (spec law 2): now() is inserted and returned as the observation.
           const insertedVersion = yield* database<{ readonly publishedAt: string }>`
-            INSERT INTO content_article_versions (
+            INSERT INTO public.content_article_versions (
               article_id, version_number, title, slug, body_html, sticky,
               published_at, published_by_person_id
             ) VALUES (
@@ -841,7 +842,7 @@ export const publishPostgres = (input: {
             normalizeRfc3339Instant(insertedVersion[0]!.publishedAt),
           );
           yield* database`
-            UPDATE content_articles
+            UPDATE public.content_articles
             SET current_version_number = ${nextVersionNumber}, revision = revision + 1
             WHERE article_id = ${draft.articleId}
           `.pipe(
@@ -928,7 +929,7 @@ export const unpublishPostgres = (input: {
             return yield* new ContentCommandConflict({ commandId: command.commandId });
           }
           yield* database`
-            UPDATE content_articles
+            UPDATE public.content_articles
             SET current_version_number = NULL, revision = revision + 1
             WHERE article_id = ${draft.articleId}
           `.pipe(
@@ -1038,7 +1039,7 @@ export const reviseDraftPostgres = (input: {
             return yield* new ContentNotPublisher({ articleId: draft.articleId });
           }
           const revised = yield* database<ArticleDraftJson>`
-            UPDATE content_articles
+            UPDATE public.content_articles
             SET title = ${command.title}, body_html = ${sanitizedBody}, sticky = ${sticky},
                 updated_at = now(), revision = revision + 1
             WHERE article_id = ${draft.articleId}

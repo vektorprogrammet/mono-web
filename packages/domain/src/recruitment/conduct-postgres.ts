@@ -195,7 +195,7 @@ const readQuestions = (sql: DatabaseShape, interviewId: string, lock: boolean) =
   sql<Record<string, unknown>>`
     SELECT interview_id AS "interviewId", question_id AS "questionId", ordinal, prompt,
       help_text AS "helpText", kind, alternatives
-    FROM recruitment_interview_question_snapshots WHERE interview_id = ${interviewId}
+    FROM public.recruitment_interview_question_snapshots WHERE interview_id = ${interviewId}
     ORDER BY ordinal ASC ${lock ? sql`FOR UPDATE` : sql``}
   `.pipe(
     Effect.flatMap((rows) =>
@@ -214,7 +214,7 @@ const readConduct = (sql: DatabaseShape, interviewId: string, lock: boolean) =>
       suitability, finalized_by_person_id AS "finalizedByPersonId",
       to_char(finalized_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "finalizedAt",
       interview_revision AS "interviewRevision"
-    FROM recruitment_interview_conducts WHERE interview_id = ${interviewId}
+    FROM public.recruitment_interview_conducts WHERE interview_id = ${interviewId}
     ${lock ? sql`FOR UPDATE` : sql``}
   `.pipe(
     Effect.flatMap((rows) =>
@@ -242,7 +242,7 @@ const readCancellation = (sql: DatabaseShape, interviewId: string, lock: boolean
     SELECT cancelled_by_person_id AS "cancelledByPersonId",
       to_char(cancelled_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "cancelledAt",
       interview_revision AS "interviewRevision"
-    FROM recruitment_interview_cancellations WHERE interview_id = ${interviewId}
+    FROM public.recruitment_interview_cancellations WHERE interview_id = ${interviewId}
     ${lock ? sql`FOR UPDATE` : sql``}
   `.pipe(
     Effect.flatMap((rows) =>
@@ -267,7 +267,7 @@ const readReceipt = (sql: DatabaseShape, commandId: string, lock: boolean) =>
   sql<ReceiptRow>`
     SELECT command_sha256 AS "commandSha256", interview_id AS "interviewId", kind,
       resulting_revision AS "resultingRevision", observation_json AS "observationJson"
-    FROM recruitment_interview_lifecycle_command_receipts WHERE command_id = ${commandId}
+    FROM public.recruitment_interview_lifecycle_command_receipts WHERE command_id = ${commandId}
     ${lock ? sql`FOR UPDATE` : sql``}
   `.pipe(
     Effect.flatMap((rows) =>
@@ -550,9 +550,9 @@ const finalizeInTransaction = (
         expectedRevision: command.expectedRevision,
         actualRevision: loaded.interview.revision,
       });
-    yield* sql`INSERT INTO recruitment_interview_conducts (interview_id, answers, explanatory_power, role_model, suitability, finalized_by_person_id, finalized_at, interview_revision) VALUES (${conduct.interviewId}, ${canonicalJson(conduct.answers)}::jsonb, ${conduct.score.explanatoryPower}, ${conduct.score.roleModel}, ${conduct.score.suitability}, ${conduct.finalizedByPersonId}, ${conduct.finalizedAt}, ${conduct.interviewRevision})`;
-    yield* sql`INSERT INTO recruitment_interview_lifecycle_command_receipts (command_id, command_sha256, command_json, observation_json, kind, interview_id, resulting_revision, committed_at) VALUES (${command.commandId}, ${digest}, ${canonicalJson(command)}::jsonb, ${canonicalJson(transition.observation)}::jsonb, 'InterviewFinalized', ${command.interviewId}, ${transition.observation.interviewRevision}, ${context.now})`;
-    yield* sql`INSERT INTO recruitment_interview_lifecycle_audit (command_id, interview_id, kind, actor_person_id, resulting_revision, occurred_at) VALUES (${command.commandId}, ${command.interviewId}, 'InterviewFinalized', ${loaded.actor.personId}, ${transition.observation.interviewRevision}, ${context.now})`;
+    yield* sql`INSERT INTO public.recruitment_interview_conducts (interview_id, answers, explanatory_power, role_model, suitability, finalized_by_person_id, finalized_at, interview_revision) VALUES (${conduct.interviewId}, ${canonicalJson(conduct.answers)}::jsonb, ${conduct.score.explanatoryPower}, ${conduct.score.roleModel}, ${conduct.score.suitability}, ${conduct.finalizedByPersonId}, ${conduct.finalizedAt}, ${conduct.interviewRevision})`;
+    yield* sql`INSERT INTO public.recruitment_interview_lifecycle_command_receipts (command_id, command_sha256, command_json, observation_json, kind, interview_id, resulting_revision, committed_at) VALUES (${command.commandId}, ${digest}, ${canonicalJson(command)}::jsonb, ${canonicalJson(transition.observation)}::jsonb, 'InterviewFinalized', ${command.interviewId}, ${transition.observation.interviewRevision}, ${context.now})`;
+    yield* sql`INSERT INTO public.recruitment_interview_lifecycle_audit (command_id, interview_id, kind, actor_person_id, resulting_revision, occurred_at) VALUES (${command.commandId}, ${command.interviewId}, 'InterviewFinalized', ${loaded.actor.personId}, ${transition.observation.interviewRevision}, ${context.now})`;
     return yield* decode(
       FinalizeInterviewResultSchema,
       { observation: transition.observation, replayed: false },
@@ -619,9 +619,9 @@ const cancelInTransaction = (
         expectedRevision: command.expectedRevision,
         actualRevision: loaded.interview.revision,
       });
-    yield* sql`INSERT INTO recruitment_interview_cancellations (interview_id, cancelled_by_person_id, cancelled_at, interview_revision) VALUES (${cancellation.interviewId}, ${cancellation.cancelledByPersonId}, ${cancellation.cancelledAt}, ${cancellation.interviewRevision})`;
-    yield* sql`INSERT INTO recruitment_interview_lifecycle_command_receipts (command_id, command_sha256, command_json, observation_json, kind, interview_id, resulting_revision, committed_at) VALUES (${command.commandId}, ${digest}, ${canonicalJson(command)}::jsonb, ${canonicalJson(transition.observation)}::jsonb, 'InterviewCancelled', ${command.interviewId}, ${transition.observation.interviewRevision}, ${context.now})`;
-    yield* sql`INSERT INTO recruitment_interview_lifecycle_audit (command_id, interview_id, kind, actor_person_id, resulting_revision, occurred_at) VALUES (${command.commandId}, ${command.interviewId}, 'InterviewCancelled', ${loaded.actor.personId}, ${transition.observation.interviewRevision}, ${context.now})`;
+    yield* sql`INSERT INTO public.recruitment_interview_cancellations (interview_id, cancelled_by_person_id, cancelled_at, interview_revision) VALUES (${cancellation.interviewId}, ${cancellation.cancelledByPersonId}, ${cancellation.cancelledAt}, ${cancellation.interviewRevision})`;
+    yield* sql`INSERT INTO public.recruitment_interview_lifecycle_command_receipts (command_id, command_sha256, command_json, observation_json, kind, interview_id, resulting_revision, committed_at) VALUES (${command.commandId}, ${digest}, ${canonicalJson(command)}::jsonb, ${canonicalJson(transition.observation)}::jsonb, 'InterviewCancelled', ${command.interviewId}, ${transition.observation.interviewRevision}, ${context.now})`;
+    yield* sql`INSERT INTO public.recruitment_interview_lifecycle_audit (command_id, interview_id, kind, actor_person_id, resulting_revision, occurred_at) VALUES (${command.commandId}, ${command.interviewId}, 'InterviewCancelled', ${loaded.actor.personId}, ${transition.observation.interviewRevision}, ${context.now})`;
     return yield* decode(
       CancelInterviewResultSchema,
       { observation: transition.observation, replayed: false },

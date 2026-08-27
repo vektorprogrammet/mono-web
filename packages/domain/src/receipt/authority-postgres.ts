@@ -150,7 +150,7 @@ export const resolveReceiptAuthority = (
           start_at,
           end_at,
           revision
-        FROM economy_payment_authorities
+        FROM public.economy_payment_authorities
         WHERE person_id = ${personId}
         FOR SHARE
       ),
@@ -163,7 +163,7 @@ export const resolveReceiptAuthority = (
           start_at,
           end_at,
           revision
-        FROM economy_receipt_approval_grants
+        FROM public.economy_receipt_approval_grants
         WHERE person_id = ${personId}
         FOR SHARE
       ),

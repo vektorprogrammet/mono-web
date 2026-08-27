@@ -87,7 +87,7 @@ const run = async () => {
       `SELECT
          (SELECT count(*) FROM public.person_profiles WHERE person_id = $1) AS profiles,
          (SELECT count(*) FROM public.person_contact_profiles WHERE person_id = $1) AS contacts,
-         (SELECT count(*) FROM auth.organization_global_administrator_grants
+         (SELECT count(*) FROM public.organization_global_administrator_grants
            WHERE person_id = $1 AND start_at <= now() AND (end_at IS NULL OR now() < end_at)) AS grants,
          (SELECT count(*) FROM auth."user" WHERE id = $1) AS users,
          (SELECT count(*) FROM auth.account WHERE "userId" = $1 AND "providerId" = 'credential') AS accounts,

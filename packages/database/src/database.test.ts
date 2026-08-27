@@ -264,7 +264,7 @@ const seedSchedulingFixture = (fixtureId: string) =>
       VALUES (${interviewSchemaId}, 'Standard interview', 8)
     `;
     yield* database`
-      INSERT INTO recruitment_interview_schema_questions (
+      INSERT INTO public.recruitment_interview_schema_questions (
         interview_schema_id, question_id, ordinal, prompt, help_text, kind, alternatives
       )
       VALUES
@@ -584,7 +584,7 @@ describe("DatabaseTest", () => {
           VALUES ('recruitment-schema', 'Standard interview', 8)
         `;
         yield* database`
-          INSERT INTO recruitment_interview_schema_questions (
+          INSERT INTO public.recruitment_interview_schema_questions (
             interview_schema_id, question_id, ordinal, prompt, help_text, kind, alternatives
           )
           VALUES
@@ -619,12 +619,12 @@ describe("DatabaseTest", () => {
         });
         const snapshotMutation = {
           update: yield* Effect.result(database`
-            UPDATE recruitment_interview_question_snapshots
+            UPDATE public.recruitment_interview_question_snapshots
             SET prompt = 'Mutated'
             WHERE interview_id = 'recruitment-interview' AND ordinal = 0
           `),
           delete: yield* Effect.result(database`
-            DELETE FROM recruitment_interview_question_snapshots
+            DELETE FROM public.recruitment_interview_question_snapshots
             WHERE interview_id = 'recruitment-interview' AND ordinal = 0
           `),
         };
@@ -685,10 +685,10 @@ describe("DatabaseTest", () => {
           SELECT
             (SELECT count(*)::text FROM recruitment_interviews) AS interviews,
             (SELECT count(*)::text FROM recruitment_assignment_command_receipts) AS receipts,
-            (SELECT count(*)::text FROM recruitment_interview_question_snapshots) AS snapshots
+            (SELECT count(*)::text FROM public.recruitment_interview_question_snapshots) AS snapshots
         `;
         yield* database`
-          DELETE FROM recruitment_interview_schema_questions
+          DELETE FROM public.recruitment_interview_schema_questions
           WHERE interview_schema_id = 'recruitment-schema'
         `;
         const missingSource = yield* Effect.flip(
@@ -701,7 +701,7 @@ describe("DatabaseTest", () => {
           ),
         );
         yield* database`
-          INSERT INTO recruitment_interview_schema_questions (
+          INSERT INTO public.recruitment_interview_schema_questions (
             interview_schema_id, question_id, ordinal, prompt, help_text, kind, alternatives
           )
           VALUES
@@ -715,7 +715,7 @@ describe("DatabaseTest", () => {
             ('recruitment-schema', 'recruitment-q7', 7, 'Question 7', NULL, 'text', '[]'::jsonb)
         `;
         yield* database`
-          DELETE FROM recruitment_interview_schema_questions
+          DELETE FROM public.recruitment_interview_schema_questions
           WHERE interview_schema_id = 'recruitment-schema' AND ordinal = 7
         `;
         const partialSource = yield* Effect.flip(
@@ -728,13 +728,13 @@ describe("DatabaseTest", () => {
           ),
         );
         yield* database`
-          INSERT INTO recruitment_interview_schema_questions (
+          INSERT INTO public.recruitment_interview_schema_questions (
             interview_schema_id, question_id, ordinal, prompt, help_text, kind, alternatives
           )
           VALUES ('recruitment-schema', 'recruitment-q7', 7, 'Question 7', NULL, 'text', '[]'::jsonb)
         `;
         yield* database`
-          UPDATE recruitment_interview_schema_questions
+          UPDATE public.recruitment_interview_schema_questions
           SET ordinal = 8
           WHERE interview_schema_id = 'recruitment-schema' AND question_id = 'recruitment-q7'
         `;
@@ -748,7 +748,7 @@ describe("DatabaseTest", () => {
           ),
         );
         yield* database`
-          UPDATE recruitment_interview_schema_questions
+          UPDATE public.recruitment_interview_schema_questions
           SET ordinal = 7
           WHERE interview_schema_id = 'recruitment-schema' AND question_id = 'recruitment-q7'
         `;
@@ -760,7 +760,7 @@ describe("DatabaseTest", () => {
           SELECT
             (SELECT count(*)::text FROM recruitment_interviews) AS interviews,
             (SELECT count(*)::text FROM recruitment_assignment_command_receipts) AS receipts,
-            (SELECT count(*)::text FROM recruitment_interview_question_snapshots) AS snapshots
+            (SELECT count(*)::text FROM public.recruitment_interview_question_snapshots) AS snapshots
         `;
         const applicationScopeResult = yield* Effect.result(
           database.withTransaction(
@@ -3704,7 +3704,7 @@ describe("DatabaseTest", () => {
             ('team-interest-scope-team-b', ${departmentB}, 'Team B')
         `;
         yield* database`
-          INSERT INTO organization_team_interest_registrations (
+          INSERT INTO public.organization_team_interest_registrations (
             submitter_name,
             submitter_email,
             team_id,
@@ -4181,9 +4181,9 @@ describe("DatabaseTest", () => {
           readonly revision: string;
         }>`
           SELECT
-            (SELECT count(*)::text FROM recruitment_interview_conducts WHERE interview_id = ${fixture.interviewId}) AS conducts,
-            (SELECT count(*)::text FROM recruitment_interview_lifecycle_command_receipts WHERE interview_id = ${fixture.interviewId}) AS receipts,
-            (SELECT count(*)::text FROM recruitment_interview_lifecycle_audit WHERE interview_id = ${fixture.interviewId}) AS audits,
+            (SELECT count(*)::text FROM public.recruitment_interview_conducts WHERE interview_id = ${fixture.interviewId}) AS conducts,
+            (SELECT count(*)::text FROM public.recruitment_interview_lifecycle_command_receipts WHERE interview_id = ${fixture.interviewId}) AS receipts,
+            (SELECT count(*)::text FROM public.recruitment_interview_lifecycle_audit WHERE interview_id = ${fixture.interviewId}) AS audits,
             (SELECT revision::text FROM recruitment_interviews WHERE interview_id = ${fixture.interviewId}) AS revision
         `;
         return {
@@ -4260,9 +4260,9 @@ describe("DatabaseTest", () => {
           readonly revision: string;
         }>`
           SELECT
-            (SELECT count(*)::text FROM recruitment_interview_cancellations WHERE interview_id = ${fixture.interviewId}) AS cancellations,
-            (SELECT count(*)::text FROM recruitment_interview_lifecycle_command_receipts WHERE interview_id = ${fixture.interviewId}) AS receipts,
-            (SELECT count(*)::text FROM recruitment_interview_lifecycle_audit WHERE interview_id = ${fixture.interviewId}) AS audits,
+            (SELECT count(*)::text FROM public.recruitment_interview_cancellations WHERE interview_id = ${fixture.interviewId}) AS cancellations,
+            (SELECT count(*)::text FROM public.recruitment_interview_lifecycle_command_receipts WHERE interview_id = ${fixture.interviewId}) AS receipts,
+            (SELECT count(*)::text FROM public.recruitment_interview_lifecycle_audit WHERE interview_id = ${fixture.interviewId}) AS audits,
             (SELECT revision::text FROM recruitment_interviews WHERE interview_id = ${fixture.interviewId}) AS revision
         `;
         return { replayed: cancelled.replayed, state: after.cancellationState, counts };

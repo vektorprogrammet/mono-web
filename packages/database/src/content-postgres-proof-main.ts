@@ -47,7 +47,7 @@ const pauseAfterSlugScan = (
         unknown
       >;
       const strings = argumentsList[0] as TemplateStringsArray;
-      if (!strings.join("?").includes("SELECT slug FROM content_articles")) return statement;
+      if (!strings.join("?").includes("SELECT slug FROM public.content_articles")) return statement;
       return statement.pipe(
         Effect.tap(() =>
           Deferred.succeed(ready, undefined).pipe(Effect.andThen(Deferred.await(start))),
@@ -72,7 +72,8 @@ const pauseAfterVersionInsert = (
         unknown
       >;
       const strings = argumentsList[0] as TemplateStringsArray;
-      if (!strings.join("?").includes("INSERT INTO content_article_versions")) return statement;
+      if (!strings.join("?").includes("INSERT INTO public.content_article_versions"))
+        return statement;
       return statement.pipe(
         Effect.tap(() =>
           Deferred.succeed(ready, undefined).pipe(Effect.andThen(Deferred.await(resume))),
@@ -127,7 +128,7 @@ const pauseAfterListingRows = (
       const strings = argumentsList[0] as TemplateStringsArray;
       const sqlText = strings.join("?");
       if (
-        !sqlText.includes("FROM content_article_versions AS version") ||
+        !sqlText.includes("FROM public.content_article_versions AS version") ||
         !sqlText.includes('AS "publishedByPersonId"')
       ) {
         return statement;
@@ -138,7 +139,7 @@ const pauseAfterListingRows = (
             Effect.andThen(Deferred.await(resume)),
             Effect.andThen(sql<{ readonly versionNumber: number | null }>`
               SELECT CAST(current_version_number AS integer) AS "versionNumber"
-              FROM content_articles
+              FROM public.content_articles
               WHERE article_id = ${articleId}
             `),
             Effect.tap((versions) =>
@@ -197,7 +198,7 @@ export const program = Effect.scoped(
         VALUES (${personId}, 'Content', 'Proof Administrator')
       `;
       yield* sql`
-        INSERT INTO organization_global_administrator_grants (
+        INSERT INTO public.organization_global_administrator_grants (
           grant_id, person_id, start_at, end_at, revision
         ) VALUES (${`content-proof-grant-${runId}`}, ${personId}, '2030-01-01T00:00:00Z', NULL, 0)
       `;
@@ -223,9 +224,9 @@ export const program = Effect.scoped(
       const sql = yield* Database;
       const [counts] = yield* sql<{ readonly receipts: string; readonly audits: string }>`
         SELECT
-          (SELECT count(*)::text FROM content_publication_command_receipts
+          (SELECT count(*)::text FROM public.content_publication_command_receipts
             WHERE command_id = ${replayCommand.commandId}) AS receipts,
-          (SELECT count(*)::text FROM content_publication_audit
+          (SELECT count(*)::text FROM public.content_publication_audit
             WHERE command_id = ${replayCommand.commandId}) AS audits
       `;
       return { first, second, counts };
@@ -321,7 +322,7 @@ export const program = Effect.scoped(
       const sql = yield* Database;
       const versions = yield* sql<{ readonly versionNumber: number }>`
         SELECT version_number AS "versionNumber"
-        FROM content_article_versions
+        FROM public.content_article_versions
         WHERE article_id = ${raceArticle.success.articleId}
         ORDER BY version_number
       `;
@@ -394,15 +395,15 @@ export const program = Effect.scoped(
       }>`
         SELECT
           CAST(article.current_version_number AS integer) AS "currentVersionNumber",
-          (SELECT count(*)::text FROM content_article_versions AS version
+          (SELECT count(*)::text FROM public.content_article_versions AS version
             WHERE version.article_id = article.article_id) AS versions,
-          (SELECT count(*)::text FROM content_publication_command_receipts AS receipt
+          (SELECT count(*)::text FROM public.content_publication_command_receipts AS receipt
             WHERE receipt.command_id IN (${atomicPublishCommandId}, ${atomicUnpublishCommandId}))
             AS receipts,
-          (SELECT count(*)::text FROM content_publication_audit AS audit
+          (SELECT count(*)::text FROM public.content_publication_audit AS audit
             WHERE audit.command_id IN (${atomicPublishCommandId}, ${atomicUnpublishCommandId}))
             AS audits
-        FROM content_articles AS article
+        FROM public.content_articles AS article
         WHERE article.article_id = ${replay.first.articleId}
       `;
     }).pipe(Effect.provide(makeProofLayer(databaseUrl, "content-postgres-proof-atomic-facts")));
@@ -436,7 +437,7 @@ export const program = Effect.scoped(
     const concurrentPublish = yield* Effect.gen(function* () {
       const sql = yield* Database;
       yield* sql`
-        UPDATE content_articles
+        UPDATE public.content_articles
         SET title = ${snapshotTitle}, updated_at = now(), revision = revision + 1
         WHERE article_id = ${raceArticle.success.articleId}
       `;
@@ -462,7 +463,7 @@ export const program = Effect.scoped(
       const sql = yield* Database;
       const rows = yield* sql<{ readonly versionNumber: number | null }>`
         SELECT CAST(current_version_number AS integer) AS "versionNumber"
-        FROM content_articles
+        FROM public.content_articles
         WHERE article_id = ${raceArticle.success.articleId}
       `;
       return rows[0]?.versionNumber ?? null;

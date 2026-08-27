@@ -53,6 +53,34 @@ describe("native domain schema boundary", () => {
     expect(sourceTables).toEqual([...inventory].sort());
   });
 
+  it("keeps qualified inventory reads independent of search_path", async () => {
+    const evidence = await runtime.runPromise(
+      Effect.gen(function* () {
+        const database = yield* Database;
+        yield* database`
+          CREATE TABLE auth.content_articles (article_id bigint NOT NULL)
+        `;
+        yield* database`
+          INSERT INTO auth.content_articles (article_id) VALUES (9007199254740991)
+        `;
+        yield* database`SET search_path TO auth, public`;
+        const authFirst = yield* database<{ readonly count: string }>`
+          SELECT count(*)::text AS "count" FROM public.content_articles
+        `;
+        yield* database`SET search_path TO public`;
+        const publicFirst = yield* database<{ readonly count: string }>`
+          SELECT count(*)::text AS "count" FROM public.content_articles
+        `;
+        yield* database`DROP TABLE auth.content_articles`;
+        yield* database`SET search_path TO auth, public`;
+        return { authFirst, publicFirst };
+      }),
+    );
+
+    expect(evidence.authFirst).toEqual(evidence.publicFirst);
+    expect(evidence.authFirst).toEqual([{ count: "0" }]);
+  }, 15_000);
+
   it("places the complete post-identity inventory in public on fresh replay", async () => {
     const evidence = await runtime.runPromise(
       Effect.gen(function* () {

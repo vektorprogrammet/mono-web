@@ -15,6 +15,7 @@
     "proof:content-postgres": "bun run runtime/content-postgres-proof-main.ts",
     "proof:schools-postgres": "bun run runtime/schools-postgres-proof-main.ts",
     "proof:identity-postgres": "bun run runtime/identity-postgres-proof-main.ts",
+    "proof:schema-boundary-postgres": "bun run src/schema-boundary-postgres-proof-main.ts",
     "proof:profile-postgres": "bun run runtime/profile-postgres-proof-main.ts",
     "identity:seed": "bun run runtime/identity-seed-main.ts",
     "proof:identity-browser": "bun run runtime/identity-browser-proof-main.ts",

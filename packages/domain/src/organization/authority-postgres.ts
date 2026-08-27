@@ -80,7 +80,7 @@ const resolveOrganizationPersonAuthorityWithLockMode = (
     const selected = yield* sql<OrganizationAuthorityProjectionRow>`
       WITH locked_global_administrator_grants AS MATERIALIZED (
         SELECT grant_id, start_at, end_at
-        FROM organization_global_administrator_grants
+        FROM public.organization_global_administrator_grants
         WHERE person_id = ${personId}
         ${globalAdministratorLock}
       ),

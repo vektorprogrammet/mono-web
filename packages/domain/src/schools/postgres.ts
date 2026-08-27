@@ -111,7 +111,7 @@ export const listSchoolDirectoryPostgres = (
               )
               ORDER BY department.department_id COLLATE "C" ASC
             )
-            FROM schools_directory_departments AS directory_association
+            FROM public.schools_directory_departments AS directory_association
             INNER JOIN organization_departments AS department
               ON department.department_id = directory_association.department_id
             WHERE directory_association.school_id = school.school_id
@@ -120,12 +120,12 @@ export const listSchoolDirectoryPostgres = (
           '[]'::jsonb
         ) AS "departments",
         school.active AS "isActive"
-      FROM schools_directory_schools AS school
+      FROM public.schools_directory_schools AS school
       WHERE (
           ${includeUnassigned}
           OR EXISTS (
             SELECT 1
-            FROM schools_directory_departments AS visible_association
+            FROM public.schools_directory_departments AS visible_association
             WHERE visible_association.school_id = school.school_id
               AND ${visibilityPredicate}
           )

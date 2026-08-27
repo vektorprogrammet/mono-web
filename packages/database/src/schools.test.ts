@@ -29,7 +29,7 @@ describe("Schools application migration in PGlite", () => {
       Effect.gen(function* () {
         const database = yield* Database;
         yield* database`
-          INSERT INTO schools_directory_schools (
+          INSERT INTO public.schools_directory_schools (
             name, contact_person, email, phone, language, active
           ) VALUES (
             'Replay School', 'Replay Contact', 'replay@example.invalid', '+47 900 00 001',
@@ -49,11 +49,11 @@ describe("Schools application migration in PGlite", () => {
         `;
         const schoolRows = yield* database<{ readonly count: string }>`
           SELECT count(*)::text AS "count"
-          FROM schools_directory_schools AS school
+          FROM public.schools_directory_schools AS school
           WHERE school.name = 'Replay School'
         `;
         yield* database`
-          DELETE FROM schools_directory_schools AS school
+          DELETE FROM public.schools_directory_schools AS school
           WHERE school.name = 'Replay School'
         `;
         return {
@@ -84,7 +84,7 @@ describe("Schools application migration in PGlite", () => {
           )
         `;
         const schools = yield* database<{ readonly schoolId: string }>`
-          INSERT INTO schools_directory_schools (
+          INSERT INTO public.schools_directory_schools (
             name, contact_person, email, phone, language, active
           ) VALUES (
             'Foreign Key School', 'FK Contact', 'fk@example.invalid', '+47 900 00 002',
@@ -94,19 +94,19 @@ describe("Schools application migration in PGlite", () => {
         `;
         const schoolId = schools[0]!.schoolId;
         yield* database`
-          INSERT INTO schools_directory_departments (school_id, department_id)
+          INSERT INTO public.schools_directory_departments (school_id, department_id)
           VALUES (${schoolId}::bigint, 'schools-fk-department')
         `;
 
         const missingSchoolFailure = yield* Effect.flip(
           database`
-            INSERT INTO schools_directory_departments (school_id, department_id)
+            INSERT INTO public.schools_directory_departments (school_id, department_id)
             VALUES (9007199254740991, 'schools-fk-department')
           `,
         );
         const missingDepartmentFailure = yield* Effect.flip(
           database`
-            INSERT INTO schools_directory_departments (school_id, department_id)
+            INSERT INTO public.schools_directory_departments (school_id, department_id)
             VALUES (${schoolId}::bigint, 'schools-missing-department')
           `,
         );
@@ -118,12 +118,12 @@ describe("Schools application migration in PGlite", () => {
         );
 
         yield* database`
-          DELETE FROM schools_directory_schools AS school
+          DELETE FROM public.schools_directory_schools AS school
           WHERE school.school_id = ${schoolId}::bigint
         `;
         const associations = yield* database<{ readonly count: string }>`
           SELECT count(*)::text AS "count"
-          FROM schools_directory_departments AS association
+          FROM public.schools_directory_departments AS association
           WHERE association.school_id = ${schoolId}::bigint
         `;
         yield* database`
@@ -178,7 +178,7 @@ describe("Schools application migration in PGlite", () => {
           )
         `;
         const inserted = yield* database<{ readonly schoolId: string }>`
-          INSERT INTO schools_directory_schools (
+          INSERT INTO public.schools_directory_schools (
             name, contact_person, email, phone, language, active
           ) VALUES (
             'Journey School', 'Journey Contact', 'journey-school@example.invalid',
@@ -187,7 +187,7 @@ describe("Schools application migration in PGlite", () => {
           RETURNING school_id::text AS "schoolId"
         `;
         yield* database`
-          INSERT INTO schools_directory_departments (school_id, department_id)
+          INSERT INTO public.schools_directory_departments (school_id, department_id)
           VALUES (${inserted[0]!.schoolId}::bigint, ${departmentId})
         `;
         const directory = yield* readSchoolsDirectory(
@@ -196,7 +196,7 @@ describe("Schools application migration in PGlite", () => {
           {},
         );
         yield* database`
-          DELETE FROM schools_directory_schools AS school
+          DELETE FROM public.schools_directory_schools AS school
           WHERE school.school_id = ${inserted[0]!.schoolId}::bigint
         `;
         yield* database`
@@ -262,7 +262,7 @@ describe("Schools application migration in PGlite", () => {
           readonly email: string;
           readonly name: string;
         }>`
-          INSERT INTO schools_directory_schools (
+          INSERT INTO public.schools_directory_schools (
             name, contact_person, email, phone, language, active
           ) VALUES
             (
@@ -294,7 +294,7 @@ describe("Schools application migration in PGlite", () => {
           inserted.map((row) => [row.email, Number(row.schoolId)] as const),
         );
         yield* database`
-          INSERT INTO schools_directory_departments (school_id, department_id)
+          INSERT INTO public.schools_directory_departments (school_id, department_id)
           VALUES
             (${idByEmail.get("alpha-a@example.invalid")}::bigint, ${departmentA}),
             (${idByEmail.get("alpha-b@example.invalid")}::bigint, ${departmentB}),

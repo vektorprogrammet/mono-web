@@ -71,12 +71,12 @@ describe("Content publication migration in PGlite (spec 0062)", () => {
         `;
         const insertDraft = (slug: string) =>
           database`
-            INSERT INTO content_articles (title, slug, body_html, sticky, created_by_person_id)
+            INSERT INTO public.content_articles (title, slug, body_html, sticky, created_by_person_id)
             VALUES (${`Tittel ${slug}`}, ${slug}, '<p>x</p>', FALSE, 'person-1')
           `;
         yield* insertDraft("unikt-lenkenavn");
         const idRows = yield* database<{ readonly articleId: number }>`
-          SELECT article_id AS "articleId" FROM content_articles WHERE slug = 'unikt-lenkenavn'
+          SELECT article_id AS "articleId" FROM public.content_articles WHERE slug = 'unikt-lenkenavn'
         `;
         const articleId = Number(idRows[0]!.articleId);
 
@@ -85,13 +85,13 @@ describe("Content publication migration in PGlite (spec 0062)", () => {
         const duplicateSlugRejected = duplicateSlug._tag === "Failure";
 
         yield* database`
-          INSERT INTO content_article_departments (article_id, department_id)
+          INSERT INTO public.content_article_departments (article_id, department_id)
           VALUES (${articleId}, 'content-test-dep')
         `;
 
         const insertVersion = (version: number) =>
           database`
-            INSERT INTO content_article_versions (
+            INSERT INTO public.content_article_versions (
               article_id, version_number, title, slug, body_html, sticky,
               published_at, published_by_person_id
             ) VALUES (
@@ -115,7 +115,7 @@ describe("Content publication migration in PGlite (spec 0062)", () => {
         const listingIndexIsNonUnique = listingIndexRows[0]?.isUnique === false;
 
         yield* database`
-          INSERT INTO content_publication_command_receipts (
+          INSERT INTO public.content_publication_command_receipts (
             command_id, article_id, kind, payload_sha256, result_json, committed_at
           ) VALUES (
             'content-audit-protection-command', ${articleId}, 'CreateDraft',
@@ -123,7 +123,7 @@ describe("Content publication migration in PGlite (spec 0062)", () => {
           )
         `;
         yield* database`
-          INSERT INTO content_publication_audit (
+          INSERT INTO public.content_publication_audit (
             command_id, article_id, actor_person_id, action, version_number, occurred_at
           ) VALUES (
             'content-audit-protection-command', ${articleId}, 'person-1',
@@ -132,13 +132,13 @@ describe("Content publication migration in PGlite (spec 0062)", () => {
         `;
         const auditRows = yield* database<{ readonly auditId: number }>`
           SELECT audit_id AS "auditId"
-          FROM content_publication_audit
+          FROM public.content_publication_audit
           WHERE command_id = 'content-audit-protection-command'
         `;
         const auditInsertWorked = auditRows.length === 1;
         const auditUpdate = yield* Effect.exit(
           database`
-            UPDATE content_publication_audit
+            UPDATE public.content_publication_audit
             SET action = 'Publish'
             WHERE command_id = 'content-audit-protection-command'
           `.pipe(Effect.asVoid),
@@ -146,7 +146,7 @@ describe("Content publication migration in PGlite (spec 0062)", () => {
         const auditUpdateRejected = auditUpdate._tag === "Failure";
         const auditDelete = yield* Effect.exit(
           database`
-            DELETE FROM content_publication_audit
+            DELETE FROM public.content_publication_audit
             WHERE command_id = 'content-audit-protection-command'
           `.pipe(Effect.asVoid),
         );

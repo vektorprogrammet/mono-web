@@ -34,7 +34,7 @@ const readDepartments = (
     ? Effect.succeed(new Map())
     : database<{ readonly articleId: number; readonly departmentId: DepartmentId }>`
         SELECT article_id AS "articleId", department_id AS "departmentId"
-        FROM content_article_departments
+        FROM public.content_article_departments
         WHERE ${database.in("article_id", articleIds)}
         ORDER BY article_id, department_id
       `.pipe(
@@ -95,8 +95,8 @@ export const readNewsListingPostgres = (
                 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'
               ) AS "publishedAt",
               article.created_by_person_id AS "createdByPersonId"
-            FROM content_article_versions AS version
-            INNER JOIN content_articles AS article
+            FROM public.content_article_versions AS version
+            INNER JOIN public.content_articles AS article
               ON article.article_id = version.article_id
              AND article.current_version_number = version.version_number
             ORDER BY version.sticky DESC, version.published_at DESC, version.article_id DESC
@@ -187,8 +187,8 @@ export const readPublishedArticlePostgres = (
                 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'
               ) AS "publishedAt",
               article.created_by_person_id AS "createdByPersonId"
-            FROM content_article_versions AS version
-            INNER JOIN content_articles AS article
+            FROM public.content_article_versions AS version
+            INNER JOIN public.content_articles AS article
               ON article.article_id = version.article_id
              AND article.current_version_number IS NOT NULL
             WHERE version.slug = ${slug}

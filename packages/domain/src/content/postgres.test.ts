@@ -115,9 +115,9 @@ describe("content article detail authority", () => {
 
   const detailDatabase = makeDatabase((statement) =>
     Effect.succeed(
-      statement.includes("FROM content_articles AS article")
+      statement.includes("FROM public.content_articles AS article")
         ? [storedDetail]
-        : statement.includes("FROM content_article_departments")
+        : statement.includes("FROM public.content_article_departments")
           ? [{ articleId: storedDetail.articleId, departmentId: ownDepartmentId }]
           : [],
     ),
@@ -160,9 +160,9 @@ describe("content article detail authority", () => {
     Effect.gen(function* () {
       const publishedOwnDatabase = makeDatabase((statement) =>
         Effect.succeed(
-          statement.includes("FROM content_articles AS article")
+          statement.includes("FROM public.content_articles AS article")
             ? [{ ...storedDetail, currentVersionNumber: 1 }]
-            : statement.includes("FROM content_article_departments")
+            : statement.includes("FROM public.content_article_departments")
               ? [{ articleId: storedDetail.articleId, departmentId: ownDepartmentId }]
               : [],
         ),
@@ -199,9 +199,9 @@ describe("content article detail authority", () => {
 
       const foreignDatabase = makeDatabase((statement) =>
         Effect.succeed(
-          statement.includes("FROM content_articles AS article")
+          statement.includes("FROM public.content_articles AS article")
             ? [{ ...storedDetail, createdByPersonId: "another-editor" }]
-            : statement.includes("FROM content_article_departments")
+            : statement.includes("FROM public.content_article_departments")
               ? [{ articleId: storedDetail.articleId, departmentId: ownDepartmentId }]
               : [],
         ),
@@ -248,7 +248,7 @@ describe("content command receipts and sequencing", () => {
       let authorityReads = 0;
       const replayDatabase = makeDatabase((statement) =>
         Effect.succeed(
-          statement.includes("FROM content_publication_command_receipts")
+          statement.includes("FROM public.content_publication_command_receipts")
             ? [
                 {
                   commandId: createCommand.commandId,
@@ -283,7 +283,7 @@ describe("content command receipts and sequencing", () => {
     Effect.gen(function* () {
       const reusedKindDatabase = makeDatabase((statement) =>
         Effect.succeed(
-          statement.includes("FROM content_publication_command_receipts")
+          statement.includes("FROM public.content_publication_command_receipts")
             ? [
                 {
                   commandId: createCommand.commandId,
@@ -314,7 +314,7 @@ describe("content command receipts and sequencing", () => {
     Effect.gen(function* () {
       const reusedBytesDatabase = makeDatabase((statement) =>
         Effect.succeed(
-          statement.includes("FROM content_publication_command_receipts")
+          statement.includes("FROM public.content_publication_command_receipts")
             ? [
                 {
                   commandId: createCommand.commandId,
@@ -345,7 +345,7 @@ describe("content command receipts and sequencing", () => {
     Effect.gen(function* () {
       const invalidObservationDatabase = makeDatabase((statement) =>
         Effect.succeed(
-          statement.includes("FROM content_publication_command_receipts")
+          statement.includes("FROM public.content_publication_command_receipts")
             ? [
                 {
                   commandId: createCommand.commandId,
@@ -375,7 +375,7 @@ describe("content command receipts and sequencing", () => {
   it.effect("maps a lost unique-slug insertion race to SlugConflict", () =>
     Effect.gen(function* () {
       const uniqueRaceDatabase = makeDatabase((statement) => {
-        if (statement.includes("INSERT INTO content_articles")) {
+        if (statement.includes("INSERT INTO public.content_articles")) {
           return Effect.fail({
             _tag: "SqlError",
             cause: { code: "23505", constraint: "content_articles_slug_unique" },
@@ -414,11 +414,11 @@ describe("content command receipts and sequencing", () => {
     Effect.gen(function* () {
       let selectedImmutableMaximum = false;
       const republishDatabase = makeDatabase((statement) => {
-        if (statement.includes("FROM content_publication_command_receipts")) {
+        if (statement.includes("FROM public.content_publication_command_receipts")) {
           return Effect.succeed([]);
         }
         if (
-          statement.includes("FROM content_articles AS article") &&
+          statement.includes("FROM public.content_articles AS article") &&
           statement.includes("FOR UPDATE")
         ) {
           return Effect.succeed([
@@ -440,7 +440,7 @@ describe("content command receipts and sequencing", () => {
           selectedImmutableMaximum = true;
           return Effect.succeed([{ nextVersionNumber: 4 }]);
         }
-        if (statement.includes("INSERT INTO content_article_versions")) {
+        if (statement.includes("INSERT INTO public.content_article_versions")) {
           return Effect.succeed([{ publishedAt: "2030-01-02T00:00:00.000Z" }]);
         }
         return Effect.succeed([]);
@@ -470,11 +470,11 @@ describe("content command receipts and sequencing", () => {
     Effect.gen(function* () {
       let publishedBody: string | undefined;
       const publishDatabase = makeDatabase((statement, values) => {
-        if (statement.includes("FROM content_publication_command_receipts")) {
+        if (statement.includes("FROM public.content_publication_command_receipts")) {
           return Effect.succeed([]);
         }
         if (
-          statement.includes("FROM content_articles AS article") &&
+          statement.includes("FROM public.content_articles AS article") &&
           statement.includes("FOR UPDATE")
         ) {
           return Effect.succeed([
@@ -495,7 +495,7 @@ describe("content command receipts and sequencing", () => {
         if (statement.includes("MAX(version_number)")) {
           return Effect.succeed([{ nextVersionNumber: 1 }]);
         }
-        if (statement.includes("INSERT INTO content_article_versions")) {
+        if (statement.includes("INSERT INTO public.content_article_versions")) {
           publishedBody = values[4] as string;
           return Effect.succeed([{ publishedAt: "2030-01-02T00:00:00.000Z" }]);
         }
@@ -526,11 +526,11 @@ describe("content command receipts and sequencing", () => {
     Effect.gen(function* () {
       let immutableInsertAttempted = false;
       const publishDatabase = makeDatabase((statement) => {
-        if (statement.includes("FROM content_publication_command_receipts")) {
+        if (statement.includes("FROM public.content_publication_command_receipts")) {
           return Effect.succeed([]);
         }
         if (
-          statement.includes("FROM content_articles AS article") &&
+          statement.includes("FROM public.content_articles AS article") &&
           statement.includes("FOR UPDATE")
         ) {
           return Effect.succeed([
@@ -551,7 +551,7 @@ describe("content command receipts and sequencing", () => {
         if (statement.includes("MAX(version_number)")) {
           return Effect.succeed([{ nextVersionNumber: 1 }]);
         }
-        if (statement.includes("INSERT INTO content_article_versions")) {
+        if (statement.includes("INSERT INTO public.content_article_versions")) {
           immutableInsertAttempted = true;
         }
         return Effect.succeed([]);

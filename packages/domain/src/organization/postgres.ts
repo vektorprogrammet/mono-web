@@ -715,7 +715,7 @@ export const listOrganizationTeamInterestRegistrations = (
         to_char(registration.submitted_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
           AS "submittedAt",
         registration.revision
-      FROM organization_team_interest_registrations AS registration
+      FROM public.organization_team_interest_registrations AS registration
       INNER JOIN organization_teams AS team
         ON team.team_id = registration.team_id
       WHERE ${teamInterestPredicate(database, filter)}

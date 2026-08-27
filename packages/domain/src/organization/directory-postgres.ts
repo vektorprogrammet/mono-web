@@ -101,7 +101,7 @@ export const deriveOrganizationDirectoryFacts = (
           WHEN count(*) > 0 THEN 'Inactive'
           ELSE 'Absent'
         END AS "globalAdministrator"
-      FROM organization_global_administrator_grants AS g
+      FROM public.organization_global_administrator_grants AS g
       WHERE ${sql.in("g.person_id", personIds)}
       GROUP BY g.person_id
     `.pipe(

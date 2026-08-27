@@ -61,11 +61,11 @@ const makeProofLayer = (databaseUrl: Redacted.Redacted<string>) => {
 const cleanupCohort = (sql: DatabaseShape) =>
   Effect.gen(function* () {
     yield* sql`
-      DELETE FROM schools_directory_schools AS school
+      DELETE FROM public.schools_directory_schools AS school
       WHERE school.email = ${proofCohort.schoolEmail}
     `;
     yield* sql`
-      DELETE FROM organization_global_administrator_grants AS administrator
+      DELETE FROM public.organization_global_administrator_grants AS administrator
       WHERE administrator.grant_id = ${proofCohort.grantId}
     `;
     yield* sql`
@@ -90,7 +90,7 @@ const resetAndSeed = (sql: DatabaseShape) =>
         VALUES (${proofCohort.personId}, 'Snapshot', 'Administrator', 0)
       `;
       yield* sql`
-        INSERT INTO organization_global_administrator_grants (
+        INSERT INTO public.organization_global_administrator_grants (
           grant_id,
           person_id,
           start_at,
@@ -134,7 +134,7 @@ const resetAndSeed = (sql: DatabaseShape) =>
           )
       `;
       const inserted = yield* sql<{ readonly schoolId: string }>`
-        INSERT INTO schools_directory_schools (
+        INSERT INTO public.schools_directory_schools (
           name,
           contact_person,
           email,
@@ -156,7 +156,7 @@ const resetAndSeed = (sql: DatabaseShape) =>
       const schoolId = inserted[0]?.schoolId;
       assert.ok(schoolId, "proof school insert must return an identifier");
       yield* sql`
-        INSERT INTO schools_directory_departments (school_id, department_id, revision)
+        INSERT INTO public.schools_directory_departments (school_id, department_id, revision)
         VALUES (${schoolId}::bigint, ${proofCohort.departmentA}, 0)
       `;
       return schoolId;
@@ -218,12 +218,12 @@ export const program = Effect.scoped(
             SELECT pg_backend_pid() AS pid
           `;
           yield* database`
-            DELETE FROM schools_directory_departments AS association
+            DELETE FROM public.schools_directory_departments AS association
             WHERE association.school_id = ${schoolId}::bigint
               AND association.department_id = ${proofCohort.departmentA}
           `;
           yield* database`
-            INSERT INTO schools_directory_departments (school_id, department_id, revision)
+            INSERT INTO public.schools_directory_departments (school_id, department_id, revision)
             VALUES (${schoolId}::bigint, ${proofCohort.departmentB}, 0)
           `;
           return connection;

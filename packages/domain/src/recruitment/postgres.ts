@@ -574,7 +574,7 @@ const readQuestionSource = (
       help_text AS "helpText",
       kind,
       alternatives
-    FROM recruitment_interview_schema_questions
+    FROM public.recruitment_interview_schema_questions
     WHERE interview_schema_id = ${interviewSchemaId}
     ORDER BY ordinal
     FOR SHARE
@@ -630,7 +630,7 @@ const readQuestionSnapshotCount = (
 ): Effect.Effect<number, RecruitmentFailure> =>
   sql<{ readonly interviewId: string }>`
     SELECT interview_id AS "interviewId"
-    FROM recruitment_interview_question_snapshots
+    FROM public.recruitment_interview_question_snapshots
     WHERE interview_id = ${interviewId}
     ORDER BY ordinal
     FOR SHARE
@@ -662,7 +662,7 @@ const writeQuestionSnapshots = (
         "interview question snapshot",
       );
       yield* sql`
-        INSERT INTO recruitment_interview_question_snapshots (
+        INSERT INTO public.recruitment_interview_question_snapshots (
           interview_id,
           question_id,
           ordinal,

@@ -591,12 +591,12 @@ const readAdministratorStatus = (sql: DatabaseShape, personId: string, evaluated
     SELECT
       EXISTS (
         SELECT 1
-        FROM organization_global_administrator_grants
+        FROM public.organization_global_administrator_grants
         WHERE person_id = ${personId}
       ) AS "known",
       EXISTS (
         SELECT 1
-        FROM organization_global_administrator_grants
+        FROM public.organization_global_administrator_grants
         WHERE person_id = ${personId}
           AND start_at <= ${evaluatedAt}::timestamptz
           AND (end_at IS NULL OR ${evaluatedAt}::timestamptz < end_at)
@@ -626,7 +626,7 @@ const overlappingAdministratorGrants = (sql: DatabaseShape, row: GlobalAdministr
         start_at = ${row.startAt}::timestamptz
         AND end_at IS NOT DISTINCT FROM ${row.endAt}::timestamptz
       ) AS "sameFact"
-    FROM organization_global_administrator_grants
+    FROM public.organization_global_administrator_grants
     WHERE person_id = ${row.personId}
       AND tstzrange(start_at, end_at, '[)')
         && tstzrange(${row.startAt}::timestamptz, ${row.endAt}::timestamptz, '[)')
@@ -642,7 +642,7 @@ const overlappingPaymentAuthorities = (sql: DatabaseShape, row: ReceiptPaymentAu
         AND start_at = ${row.startAt}::timestamptz
         AND end_at IS NOT DISTINCT FROM ${row.endAt}::timestamptz
       ) AS "sameFact"
-    FROM economy_payment_authorities
+    FROM public.economy_payment_authorities
     WHERE person_id = ${row.personId}
       AND department_id = ${row.departmentId}
       AND tstzrange(start_at, end_at, '[)')
@@ -658,7 +658,7 @@ const overlappingApprovalGrants = (sql: DatabaseShape, row: ReceiptApprovalGrant
         start_at = ${row.startAt}::timestamptz
         AND end_at IS NOT DISTINCT FROM ${row.endAt}::timestamptz
       ) AS "sameFact"
-    FROM economy_receipt_approval_grants
+    FROM public.economy_receipt_approval_grants
     WHERE person_id = ${row.personId}
       AND scope = ${row.scope}
       AND department_id IS NOT DISTINCT FROM ${row.departmentId}
@@ -954,7 +954,7 @@ export const backfillDisposablePersonAuthoritiesFromPreConfigEvidence = (
 
           for (const row of administratorInserts) {
             yield* sql`
-              INSERT INTO organization_global_administrator_grants (
+              INSERT INTO public.organization_global_administrator_grants (
                 grant_id, person_id, start_at, end_at, revision
               ) VALUES (
                 ${row.grantId}, ${row.personId}, ${row.startAt}::timestamptz,
@@ -965,7 +965,7 @@ export const backfillDisposablePersonAuthoritiesFromPreConfigEvidence = (
           }
           for (const row of paymentInserts) {
             yield* sql`
-              INSERT INTO economy_payment_authorities (
+              INSERT INTO public.economy_payment_authorities (
                 payment_authority_id, person_id, department_id, payment_account_ciphertext,
                 start_at, end_at, revision
               ) VALUES (
@@ -978,7 +978,7 @@ export const backfillDisposablePersonAuthoritiesFromPreConfigEvidence = (
           }
           for (const row of approvalInserts) {
             yield* sql`
-              INSERT INTO economy_receipt_approval_grants (
+              INSERT INTO public.economy_receipt_approval_grants (
                 approval_grant_id, person_id, scope, department_id, start_at, end_at, revision
               ) VALUES (
                 ${row.grantId}, ${row.personId}, ${row.scope}, ${row.departmentId},

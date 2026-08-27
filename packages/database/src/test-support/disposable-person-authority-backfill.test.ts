@@ -46,9 +46,9 @@ const preConfigEvidence = (
 
 const resetDisposableFixture = Effect.gen(function* () {
   const sql = yield* Database;
-  yield* sql`DELETE FROM economy_receipt_approval_grants`;
-  yield* sql`DELETE FROM economy_payment_authorities`;
-  yield* sql`DELETE FROM organization_global_administrator_grants`;
+  yield* sql`DELETE FROM public.economy_receipt_approval_grants`;
+  yield* sql`DELETE FROM public.economy_payment_authorities`;
+  yield* sql`DELETE FROM public.organization_global_administrator_grants`;
   yield* sql`DELETE FROM organization_memberships`;
   yield* sql`DELETE FROM organization_teams`;
   yield* sql`DELETE FROM organization_departments`;
@@ -113,7 +113,7 @@ const readAuthoritySnapshot = Effect.gen(function* () {
       NULL::text AS "departmentId",
       NULL::text AS "scope",
       NULL::text AS "paymentAccountCiphertext"
-    FROM organization_global_administrator_grants
+    FROM public.organization_global_administrator_grants
     ORDER BY grant_id
   `;
   const payments = yield* sql<AuthoritySnapshotRow>`
@@ -123,7 +123,7 @@ const readAuthoritySnapshot = Effect.gen(function* () {
       department_id AS "departmentId",
       NULL::text AS "scope",
       payment_account_ciphertext AS "paymentAccountCiphertext"
-    FROM economy_payment_authorities
+    FROM public.economy_payment_authorities
     ORDER BY payment_authority_id
   `;
   const approvals = yield* sql<AuthoritySnapshotRow>`
@@ -133,7 +133,7 @@ const readAuthoritySnapshot = Effect.gen(function* () {
       department_id AS "departmentId",
       scope,
       NULL::text AS "paymentAccountCiphertext"
-    FROM economy_receipt_approval_grants
+    FROM public.economy_receipt_approval_grants
     ORDER BY approval_grant_id
   `;
   return { administrators, payments, approvals };
@@ -157,15 +157,15 @@ const countInsertedAuthorities = Effect.gen(function* () {
   const [administrators, payments, approvals] = yield* Effect.all([
     sql<CountRow>`
       SELECT count(*)::text AS "count"
-      FROM organization_global_administrator_grants
+      FROM public.organization_global_administrator_grants
     `,
     sql<CountRow>`
       SELECT count(*)::text AS "count"
-      FROM economy_payment_authorities
+      FROM public.economy_payment_authorities
     `,
     sql<CountRow>`
       SELECT count(*)::text AS "count"
-      FROM economy_receipt_approval_grants
+      FROM public.economy_receipt_approval_grants
     `,
   ]);
   return {
@@ -270,9 +270,9 @@ describe("disposable person-authority token evidence backfill", () => {
     await runtime.runPromise(
       Effect.gen(function* () {
         const sql = yield* Database;
-        yield* sql`DELETE FROM economy_receipt_approval_grants`;
-        yield* sql`DELETE FROM economy_payment_authorities`;
-        yield* sql`DELETE FROM organization_global_administrator_grants`;
+        yield* sql`DELETE FROM public.economy_receipt_approval_grants`;
+        yield* sql`DELETE FROM public.economy_payment_authorities`;
+        yield* sql`DELETE FROM public.organization_global_administrator_grants`;
       }),
     );
     const second = await runtime.runPromise(
@@ -426,7 +426,7 @@ describe("disposable person-authority token evidence backfill", () => {
     await runtime.runPromise(
       Database.use(
         (sql) => sql`
-        INSERT INTO organization_global_administrator_grants (
+        INSERT INTO public.organization_global_administrator_grants (
           grant_id, person_id, start_at, end_at, revision
         ) VALUES (
           'ambiguous-existing-grant', 'authority-admin',
