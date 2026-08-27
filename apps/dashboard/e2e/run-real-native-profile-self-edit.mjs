@@ -429,10 +429,24 @@ const main = async () => {
       capture: true,
       label: "Chromium version",
     });
+    const baseCommit = await run("git", ["rev-parse", "HEAD"], {
+      cwd: repositoryRoot,
+      env: baseEnvironment,
+      capture: true,
+      label: "Git base commit",
+    });
+    const branch = await run("git", ["branch", "--show-current"], {
+      cwd: repositoryRoot,
+      env: baseEnvironment,
+      capture: true,
+      label: "Git branch",
+    });
     evidence = {
       specId: "0064",
       passed: true,
-      baseCommit: "30ae86d623dce832208e9ce44446d3a02d0aec0a",
+      baseCommit: baseCommit.stdout.trim(),
+      worktree: repositoryRoot,
+      branch: branch.stdout.trim() || "detached",
       command: "bun run --cwd apps/dashboard e2e:real-profile",
       topology: {
         postgres: "disposable-loopback-postgresql",
