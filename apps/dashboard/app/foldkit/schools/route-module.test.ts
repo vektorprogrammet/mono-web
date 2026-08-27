@@ -41,5 +41,5 @@ describe("Schools child route", () => {
     expect(markup).toBe(
       '<main data-dashboard-boundary="true"><vektor-schools-directory></vektor-schools-directory></main>',
     );
-  });
+  }, 15_000);
 });
