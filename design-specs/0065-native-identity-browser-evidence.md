@@ -5,8 +5,9 @@
 | Field | Value |
 |---|---|
 | Stable ID | `0065` |
-| Status | **Frozen** — evidence-only contract. This commit adds no runner, source code, test, dependency, route, or CI change |
-| Base | `34b4792c4c8cc4ec57be230a31310a2071eddb9d` (`34b4792`) from `/tmp/mono-web-final-integration` |
+| Status | **Implemented — disposable evidence capsule passed**. This commit adds no runner, source code, test, dependency, route, or CI change |
+| Base / source observation | `34b4792c4c8cc4ec57be230a31310a2071eddb9d` (`34b4792`) from `/tmp/mono-web-final-integration`; preserved as the original source observation and amendment lineage |
+| Evidence implementation | Present at integrated commit `0ac645ef44f9cc52a3f588f0dc6e6f7b5ee61194` (`0ac645e`) |
 | Parent contract | [`0054-native-identity-better-auth.md`](./0054-native-identity-better-auth.md) |
 | Goal | Produce one objective real-Chromium and real-PostgreSQL receipt for the implemented native Better Auth login and session journey |
 | Journey count | One browser journey, with session revocation, old-cookie replay, rate-limit, database, ledger, and accessibility observations inside the same disposable run |
@@ -18,7 +19,11 @@
 
 This document freezes the missing browser-evidence contract for spec 0054. It does not replace or narrow any semantic clause in spec 0054. If this document and spec 0054 disagree, stop and enter `Drift`. Do not change either document to make the run pass.
 
-The source implementation exists at the base revision. Runtime evidence is missing. This source fact is not browser or PostgreSQL evidence.
+The source implementation exists at the original base revision, where runtime evidence was missing. This source fact is not browser or PostgreSQL evidence. The 0065 evidence implementation is now present at integrated commit `0ac645e`; the disposable real PostgreSQL and Chromium capsule passed there, as recorded below.
+
+## Observed evidence capsule
+
+At integrated commit `0ac645e`, `bun run --cwd apps/dashboard e2e:real-identity` passed one Chromium test against disposable real PostgreSQL. The observed evidence included exactly `3x401 + 7x429` native statuses, session projection and reload, logout, old-cookie replay returning `401`, database revocation and live-session proof, the request ledger, axe `0`, and cleanup with closed ports. Hosted CI was not run; no production or remote evidence is claimed.
 
 ## Observed topology defect
 
@@ -431,3 +436,22 @@ The first complete rate-limit run observed one serious `color-contrast` violatio
 This amendment authorizes only the smallest color or style correction for that existing error paragraph so that the frozen login accessibility requirement passes. For example, use a darker red text token. Preserve the paragraph DOM structure, text, semantics, authentication behavior, and every other requirement in this spec and its parent contract.
 
 Do not redesign the login page or change any other source, runner, configuration, workflow, CI, route, dependency, test, or evidence contract. Evidence implementation must begin from the resulting amended commit.
+
+## Amendment 0065.4 - integrated disposable evidence closeout
+
+This documentation-only amendment records that the 0065 evidence implementation is
+present and that the disposable real PostgreSQL and Chromium capsule passed at
+integrated commit `0ac645ef44f9cc52a3f588f0dc6e6f7b5ee61194` (`0ac645e`).
+The original `34b4792c4c8cc4ec57be230a31310a2071eddb9d` (`34b4792`) source
+observation remains preserved in Metadata and in the amendment lineage above.
+
+The observed command was
+`bun run --cwd apps/dashboard e2e:real-identity` passed one Chromium test with
+exactly `3x401 + 7x429` native statuses, session projection and reload, logout,
+old-cookie replay `401`, database revocation and live-session proof, the request
+ledger, axe `0`, and cleanup with closed ports.
+Hosted CI was not run. This closeout claims no production or remote evidence.
+
+This amendment preserves every semantic clause, falsifier, exclusion, and
+operator boundary in this spec and does not authorize any source, runner,
+configuration, workflow, CI, route, dependency, test, or production change.
