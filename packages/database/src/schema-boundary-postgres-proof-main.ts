@@ -213,7 +213,7 @@ const metadataEvidence = async (
         ON attribute.attrelid = relation.oid
        AND attribute.attnum = dependency.refobjsubid
      WHERE dependency.classid = 'pg_catalog.pg_class'::regclass
-       AND dependency.deptype = 'a'
+       AND dependency.deptype IN ('a', 'i')
        AND table_namespace.nspname = $1
        AND relation.relname = $2
      ORDER BY column_name
@@ -549,7 +549,11 @@ const normalizeMetadataRecord = (record: QueryResultRow) =>
   Object.fromEntries(
     Object.entries(record).map(([key, value]) => [
       key,
-      typeof value === "string" ? normalizeSql(value) : value,
+      key.endsWith("_schema") && (value === "auth" || value === "public")
+        ? ""
+        : typeof value === "string"
+          ? normalizeSql(value)
+          : value,
     ]),
   );
 const comparableTables = (tables: TableEvidence[]) =>
