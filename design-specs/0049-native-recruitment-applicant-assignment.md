@@ -4,14 +4,76 @@
 
 | Field | Value |
 |---|---|
-| Status | Contract remains frozen; implementation is present at integrated branch `f07b86d7babc041ee5f947b41381de094586e9d6`; runtime and acceptance evidence are pending |
+| Status | Contract remains frozen. Amendment 0049.1 authorizes one bounded evidence-harness correction only. Amendment implementation, runtime evidence, and acceptance evidence are pending. |
+| Revision | Amendment 0049.1 records the native Identity and receipt evidence contract. Implementation and evidence remain pending. |
 | Base | `d867bf7b7eea44412e267127006f8c7c7dbadab2` (`d867bf7`) |
 | Goal | Replace the Symfony applicant-assignment seam with one native Recruitment authority and one full-Foldkit team-leader journey |
 | Actor | Active department team leader |
 | Route | `/dashboard/sokere` |
-| Preserved journey authority | `intent://journey/recruitment:review-applicants:v1` from design spec 0028 |
+| Preserved journey authorities | `intent://journey:recruitment:applicant-assignment:v1` and `intent://journey:recruitment:review-applicants:v1` from the accepted intent authority |
 | Architecture | Design spec 0045.2; Database, Admissions, Organization, and Profile requirements remain explicit until the process composition root |
 | Operator boundary | No production data, remote PostgreSQL, provider, credential, deployment, or external-notification effect |
+
+## Amendment 0049.1 — native Identity and receipt evidence correction
+
+The integrated dashboard uses native Better Auth session cookies through Identity. The old recruitment runner uses a `jwt_token` cookie and legacy token maps.
+
+This drift concerns the evidence harness only. This amendment does not change any frozen product semantics or scope hold.
+
+This amendment authorizes one bounded evidence-harness correction:
+
+- Create a disposable local database and apply the canonical migrations.
+- Set `ADMISSION_FIXED_NOW` to one deterministic instant inside the existing native seed interval.
+- Run the existing `native-recruitment-journey-seed.mjs` against that fixed clock.
+- Seed the synthetic team-leader identity through the existing disposable `identity:seed` entrypoint.
+- Pass one process-scoped `BETTER_AUTH_SECRET` and `BETTER_AUTH_URL` to the backend and dashboard processes.
+- Authenticate the team leader through the rendered native sign-in form in real Chromium.
+- Observe the issued `better-auth.session_token` cookie after sign-in.
+- Use the resulting Better Auth session cookie for each native Recruitment request.
+- Capture each browser request and require no `Authorization` header.
+- Run Axe against the rendered applicant-assignment page.
+
+After sign-in, the capture must contain this exact native Recruitment request sequence:
+
+1. `GET /api/admin/recruitment/assignment-board?status=all`.
+2. `GET /api/admin/recruitment/assignment-board?status=new`.
+3. `POST /api/admin/recruitment/interviews/assign`.
+4. A fresh `GET /api/admin/recruitment/assignment-board?status=new`.
+5. `GET /api/admin/recruitment/assignment-board?status=all`.
+
+Every request must return `200`. The runner must reject each missing, additional, reordered, failed, Symfony, legacy, or compatibility request.
+
+The browser must observe the visible choices, assignment success, closed dialog, selected interviewer, and `Ikke kontaktet` state. The fresh read remains the only success authority.
+
+After the browser run, the runner must observe exactly one persisted row of each type for the seeded application:
+
+- A Recruitment interview.
+- An assignment command receipt.
+- An assignment audit fact.
+
+One passing artifact must support both journeys. The runner must emit two separate canonical receipts from that artifact.
+
+The applicant-assignment receipt uses `intent://journey:recruitment:applicant-assignment:v1` and these accepted steps:
+
+- `mono-session-login`
+- `load-applicant-list`
+- `load-interviewer-options`
+- `load-interview-schema-options`
+- `assign-interview`
+- `fresh-read-applicant-list`
+
+The review receipt uses `intent://journey:recruitment:review-applicants:v1` and these accepted steps:
+
+- `mono-session-login`
+- `list-current-applicants`
+
+The harness must not use JWT cookies, token maps, fixture authentication adapters, bearer injection, compatibility routes, or Symfony requests.
+
+The correction must not change product authentication policy, access policy, product routes, frozen authority semantics, or transaction semantics.
+
+It authorizes no production data, external provider, production credential, deployment, or remote effect. Local PostgreSQL persistence is not PostgreSQL concurrency evidence.
+
+Implementation, runtime evidence, and acceptance evidence remain pending.
 
 ## Problem
 
