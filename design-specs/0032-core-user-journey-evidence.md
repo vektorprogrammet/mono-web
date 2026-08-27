@@ -8,9 +8,41 @@
 |---|---|
 | Goal | Goal-1 runtime evidence for every accepted user-visible journey |
 | Contract | `functional-parity-runtime-evidence/v1` |
-| Lifecycle state | `Specified` |
+| Lifecycle state | `Frozen` at amendment `0032.1`. No product, provider, production, or operator authority is granted |
 | Dependencies | 0024 zero-gap inventory, 0027 accepted journey authority, 0030 runtime evidence receipts |
 | Current worktree | `/tmp/mono-web-parity-integration-0023` |
+| Amendment | `0032.1` freezes the `e2e:real-background-operations` evidence contract before runner edits |
+| Amendment base | `412fb078cb9458866cb8d9a2b59c349bb92692a6` |
+
+## Amendment 0032.1 - deterministic background-operation evidence
+
+This bounded amendment owns the `e2e:real-background-operations` evidence contract. It does not change Symfony or native product behavior.
+
+The runner must control the clock for the positive info-meeting fixture. The fixture load and notification commands must use this clock.
+
+The fixed `Europe/Oslo` instant must make the meeting occur today and in the future.
+
+The runner must observe exactly one notification row with `info_meeting=false`. It must observe exactly one row with `info_meeting=true`.
+
+Thus, the accepted multiset is exactly `{info_meeting:false,true}` for the fixture subscriber. A count-only assertion does not satisfy this contract.
+
+One row does not satisfy this contract. An assertion that accepts one or two rows does not satisfy this contract.
+
+Design spec 0051 is the sole receipt authority for `intent://journey:parity:interview_recruiter:v1`. This runner must not produce its legacy receipt.
+
+This runner must produce receipts only for these accepted journeys:
+
+- `intent://journey:parity:admission_operations:v1`.
+- `intent://journey:parity:background_automation:v1`.
+- `intent://journey:parity:background_delivery:v1`.
+
+The runner must preserve its existing legacy observations for these three journeys. It must not weaken or replace their persisted-outcome checks.
+
+Legacy observations remain local evidence only. They do not supersede native authority from design spec 0051.
+
+This amendment authorizes evidence-harness edits only. It authorizes no provider call, production effect, deployment, credential change, or production-data access.
+
+The existing operator boundary remains unchanged. An operator must separately authorize every external effect.
 
 ## User journey
 
