@@ -528,6 +528,7 @@ const questionView = (
   const controls =
     question.kind === "text"
       ? [
+          h.label([h.For(`question-${question.questionId}`), h.Class("fs-label")], ["Svar"]),
           h.textarea(
             [
               ...inputAttrs,
