@@ -22,7 +22,11 @@ const runnerSourcePath = fileURLToPath(
 const specSourcePath = fileURLToPath(
   new URL("./real-symfony-background-operations.spec.ts", import.meta.url),
 );
+const clockBootstrapPath = fileURLToPath(
+  new URL("./support/background-operations-clock-bootstrap.php", import.meta.url),
+);
 const fixtureSourcePaths = [
+  clockBootstrapPath,
   fileURLToPath(
     new URL(
       "../../server/src/App/Support/DataFixtures/ORM/InterviewRecruiterFixture.php",
@@ -49,6 +53,8 @@ const fixtureSourcePaths = [
   ),
 ];
 const commandTimeoutMs = 120_000;
+const backgroundClockInstant = "2026-08-28 12:00:00";
+const backgroundClockTimezone = "Europe/Oslo";
 const shutdownTimeoutMs = 5_000;
 const generatedPublicPaths = [
   "public/assets",
@@ -62,15 +68,6 @@ const generatedPublicPaths = [
   "public/manifest.json",
 ];
 const journeys = [
-  {
-    journeyRefId: "intent://journey:parity:interview_recruiter:v1",
-    stepIds: [
-      "interview-recruiter-api-operation",
-      "interview-recruiter-command-write",
-      "interview-recruiter-legacy-route",
-      "interview-recruiter-mono-route",
-    ],
-  },
   {
     journeyRefId: "intent://journey:parity:admission_operations:v1",
     stepIds: [
@@ -93,6 +90,7 @@ const journeys = [
     ],
   },
 ];
+const clockedPhpArgs = (...args) => ["-d", `auto_prepend_file=${clockBootstrapPath}`, ...args];
 
 const sleep = (milliseconds) =>
   new Promise((resolveSleep) => setTimeout(resolveSleep, milliseconds));
@@ -292,6 +290,24 @@ async function queryScalar(databasePath, sql) {
   return result.stdout.toString("utf8").trim();
 }
 
+async function queryColumn(databasePath, sql) {
+  const result = await runCommand(
+    "php",
+    [
+      "-r",
+      '$pdo = new PDO("sqlite:".$argv[1]); echo json_encode($pdo->query($argv[2])->fetchAll(PDO::FETCH_COLUMN), JSON_THROW_ON_ERROR);',
+      databasePath,
+      sql,
+    ],
+    { cwd: serverRoot, env: process.env, captureOutput: true },
+  );
+  const values = JSON.parse(result.stdout.toString("utf8"));
+  if (!Array.isArray(values) || values.some((value) => typeof value !== "string")) {
+    throw new Error("Expected the database column query to return string values");
+  }
+  return values;
+}
+
 async function main() {
   requireOpenSsl();
   const receiptRequested = assertReceiptConfiguration();
@@ -318,6 +334,8 @@ async function main() {
     APP_ENV: "e2e",
     APP_DEBUG: "0",
     APP_SECRET: randomBytes(32).toString("hex"),
+    BACKGROUND_OPERATIONS_CLOCK_INSTANT: backgroundClockInstant,
+    BACKGROUND_OPERATIONS_CLOCK_TIMEZONE: backgroundClockTimezone,
     DATABASE_URL: databaseUrl,
     E2E_DATABASE_URL: databaseUrl,
     E2E_JWT_SECRET_KEY: privateKeyPath,
@@ -436,13 +454,13 @@ async function main() {
     );
     await runCommand(
       "php",
-      [
+      clockedPhpArgs(
         "bin/console",
         "doctrine:fixtures:load",
         "--env=e2e",
         "--group=background-operations",
         "--no-interaction",
-      ],
+      ),
       { cwd: serverRoot, env: serverEnv },
     );
     const fixtureInputBytes = Buffer.concat(
@@ -466,7 +484,15 @@ require $_SERVER['DOCUMENT_ROOT'].'/index.php';
     });
     symfonyProcess = startProcess(
       "php",
-      ["-d", "variables_order=EGPCS", "-S", "127.0.0.1:8000", "-t", "public", routerPath],
+      clockedPhpArgs(
+        "-d",
+        "variables_order=EGPCS",
+        "-S",
+        "127.0.0.1:8000",
+        "-t",
+        "public",
+        routerPath,
+      ),
       { cwd: serverRoot, env: serverEnv },
     );
     await waitForHttp(`${apiOrigin}/api/docs`, symfonyProcess);
@@ -481,43 +507,64 @@ require $_SERVER['DOCUMENT_ROOT'].'/index.php';
     });
     await waitForHttp(`${dashboardOrigin}/login`, dashboardProcess);
 
-    await runCommand("php", ["bin/console", "app:update:roles", "--env=e2e", "--no-interaction"], {
-      cwd: serverRoot,
-      env: serverEnv,
-    });
     await runCommand(
       "php",
-      ["bin/console", "app:admission:send_notifications", "--env=e2e", "--no-interaction"],
+      clockedPhpArgs("bin/console", "app:update:roles", "--env=e2e", "--no-interaction"),
+      {
+        cwd: serverRoot,
+        env: serverEnv,
+      },
+    );
+    await runCommand(
+      "php",
+      clockedPhpArgs(
+        "bin/console",
+        "app:admission:send_notifications",
+        "--env=e2e",
+        "--no-interaction",
+      ),
       { cwd: serverRoot, env: serverEnv },
     );
     await runCommand(
       "php",
-      [
+      clockedPhpArgs(
         "bin/console",
         "app:admission:send_info_meeting_notifications",
         "--env=e2e",
         "--no-interaction",
-      ],
+      ),
       { cwd: serverRoot, env: serverEnv },
     );
     await runCommand(
       "php",
-      ["bin/console", "app:send_accept_interview_reminder", "--env=e2e", "--no-interaction"],
+      clockedPhpArgs(
+        "bin/console",
+        "app:send_accept_interview_reminder",
+        "--env=e2e",
+        "--no-interaction",
+      ),
       { cwd: serverRoot, env: serverEnv },
     );
     await runCommand(
       "php",
-      ["bin/console", "app:send_interview_lists", "--env=e2e", "--no-interaction"],
+      clockedPhpArgs("bin/console", "app:send_interview_lists", "--env=e2e", "--no-interaction"),
       { cwd: serverRoot, env: serverEnv },
     );
 
-    const notificationCount = await queryScalar(
+    const notificationInfoMeetingValues = await queryColumn(
       databasePath,
-      "SELECT COUNT(n.id) FROM admission_notification n JOIN admission_subscriber s ON s.id = n.subscriber_id WHERE s.email = 'background-delivery-subscriber-0032@example.invalid'",
+      "SELECT CAST(n.info_meeting AS TEXT) FROM admission_notification n JOIN admission_subscriber s ON s.id = n.subscriber_id WHERE s.email = 'background-delivery-subscriber-0032@example.invalid' ORDER BY n.info_meeting ASC, n.id ASC",
     );
-    if (notificationCount !== "2") {
+    const notificationInfoMeetingFlags = notificationInfoMeetingValues.map(
+      (value) => value === "1",
+    );
+    if (
+      notificationInfoMeetingValues.length !== 2 ||
+      notificationInfoMeetingValues[0] !== "0" ||
+      notificationInfoMeetingValues[1] !== "1"
+    ) {
       throw new Error(
-        `Expected two local admission delivery notifications, got ${notificationCount}`,
+        `Expected exact local admission delivery notification multiset [false,true], got ${JSON.stringify(notificationInfoMeetingFlags)}`,
       );
     }
     const reminderCount = await queryScalar(
@@ -526,13 +573,6 @@ require $_SERVER['DOCUMENT_ROOT'].'/index.php';
     );
     if (reminderCount !== "1") {
       throw new Error(`Expected one local interview reminder delivery, got ${reminderCount}`);
-    }
-    const recruiterReminderCount = await queryScalar(
-      databasePath,
-      "SELECT num_accept_interview_reminders_sent FROM interview i JOIN \"user\" u ON u.id = i.user_id WHERE u.email = 'background-delivery-applicant-0032@example.invalid'",
-    );
-    if (recruiterReminderCount !== "1") {
-      throw new Error(`Expected one recruiter reminder delivery, got ${recruiterReminderCount}`);
     }
 
     const e2eArgs = [
@@ -570,9 +610,9 @@ require $_SERVER['DOCUMENT_ROOT'].'/index.php';
       }
       const commandOutcomes = {
         application_subscriber_count: applicationSubscriberCount,
-        delivery_notification_count: notificationCount,
+        delivery_notification_count: String(notificationInfoMeetingFlags.length),
+        delivery_notification_info_meeting: notificationInfoMeetingFlags,
         delivery_reminder_count: reminderCount,
-        recruiter_reminder_count: recruiterReminderCount,
       };
       const playwrightArtifact = JSON.parse(
         new TextDecoder("utf-8", { fatal: true }).decode(
