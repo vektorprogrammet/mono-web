@@ -30,9 +30,10 @@
     "e2e:real-background-operations": "bun e2e/run-real-symfony-background-operations.mjs",
     "e2e:real-scheduling": "bun e2e/run-real-native-recruitment-interview-scheduling.mjs",
     "e2e:real-conduct": "bun e2e/run-real-native-recruitment-interview-conduct.mjs",
-    "e2e:real-interview-response": "bun e2e/run-real-interview-response.mjs",
     "e2e:real-organization": "bun e2e/run-real-native-organization-administration.mjs",
     "e2e:real-schools": "bun e2e/run-real-native-schools-directory.mjs",
+    "e2e:real-interview-response": "bun e2e/run-real-interview-response.mjs",
+    "e2e:real-profile": "node e2e/run-real-native-profile-self-edit.mjs",
     "e2e:real-content-ops": "bun e2e/run-real-content-ops.mjs",
     "e2e:merge-runtime-evidence": "bun e2e/merge-runtime-evidence.mjs"
   },

@@ -22,6 +22,7 @@ const realNativeSchedulingMode = process.env.REAL_NATIVE_SCHEDULING_E2E === "1";
 const realNativeInvitationResponseMode = process.env.REAL_NATIVE_INVITATION_RESPONSE_E2E === "1";
 const realNativeOrganizationMode = process.env.REAL_NATIVE_ORGANIZATION_E2E === "1";
 const realNativeConductMode = process.env.REAL_NATIVE_CONDUCT_E2E === "1";
+const realNativeProfileMode = process.env.REAL_NATIVE_PROFILE_E2E === "1";
 const realNativeIdentityMode = process.env.REAL_NATIVE_IDENTITY_E2E === "1";
 const realSymfonyMode =
   realSymfonyCoreMode ||
@@ -37,7 +38,8 @@ const externalTopologyMode =
   realNativeSchedulingMode ||
   realNativeInvitationResponseMode ||
   realNativeOrganizationMode ||
-  realNativeConductMode;
+  realNativeConductMode ||
+  realNativeProfileMode;
 const contentHomepageHost =
   realNativeIdentityMode && process.env.CONTENT_E2E_HOMEPAGE_ORIGIN !== undefined
     ? new URL(process.env.CONTENT_E2E_HOMEPAGE_ORIGIN).hostname
@@ -77,7 +79,8 @@ export default defineConfig({
       realNativeSchedulingMode ||
       realNativeInvitationResponseMode ||
       realNativeOrganizationMode ||
-      realNativeConductMode
+      realNativeConductMode ||
+      realNativeProfileMode
         ? externalDashboardOrigin
         : realSymfonyCoreMode
           ? realSymfonyCoreOrigin

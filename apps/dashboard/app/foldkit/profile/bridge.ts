@@ -46,6 +46,7 @@ export const toProfileBridgeFailure = (error: unknown): ProfileBridgeFailure => 
   }
   if (
     tag === "conflict" ||
+    tag === "Conflict" ||
     tag.includes("Stale") ||
     tag.includes("Revision") ||
     tag.includes("CommandConflict") ||

@@ -16,9 +16,27 @@
 | Evidence destination | Sanitized one-to-one implementation handoff or PR evidence section; an ordinary run does not create a repository evidence file |
 | Operator boundary | Disposable loopback PostgreSQL, native backend, dashboard, and recording proxy only; no production, remote database, Symfony, provider, deployment, or external notification effect |
 
-This document freezes the missing runtime-evidence contract. It does not replace, amend, or narrow any semantic clause in spec 0053. If this document and spec 0053 disagree, stop and enter `Drift`; do not repair the disagreement by changing the implementation or this evidence contract.
+This document freezes the missing runtime-evidence contract. Except for the explicitly scoped source correction in Amendment 0064.1, it does not replace, amend, or narrow any semantic clause in spec 0053. If this document and spec 0053 disagree outside that amendment, stop and enter `Drift`; do not repair the disagreement by changing the implementation or this evidence contract.
 
 The current source review finds the required path in place. The editor loader calls the strict SDK profile read, the Foldkit program owns edit state and commands, the bridge sends `PUT /profile`, the backend exposes `GET` and `PUT /api/me`, and the Profile PostgreSQL layer owns the two profile rows plus the command receipt. This source review is not runtime evidence.
+
+## Amendment 0064.1 — observed bridge tag correction
+
+The first strict 0064 evidence attempt reached the real native `409` stale
+response, but the existing dashboard bridge rendered the generic network
+failure message. The SDK's actual typed error has `_tag: "Conflict"`; the
+bridge recognized lowercase `"conflict"` and specific native tags, but not
+the SDK tag. This is an observed source mismatch, not a change to the 0053
+contract.
+
+This amendment narrows the allowed source correction to the existing
+`apps/dashboard/app/foldkit/profile/bridge.ts` mapping only: recognize the
+SDK's typed `_tag: "Conflict"` (and the existing stale-error tags) as the
+existing typed stale-conflict UI failure, with `_tag: "Conflict"` and the
+message `"Profilen er endret av en annen. Last siden på nytt for å se de
+nyeste verdiene."`. No other bridge mapping, Profile behavior, HTTP/SDK
+contract, UI structure, accessibility requirement, evidence assertion, or
+0053 semantic clause may change.
 
 ## Dependencies and evidence authorities
 
