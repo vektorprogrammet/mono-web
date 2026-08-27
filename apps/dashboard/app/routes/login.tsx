@@ -63,7 +63,7 @@ export default function Login() {
             </p>
           )}
           {actionData?.error && (
-            <p className="rounded bg-red-50 p-2 text-center text-red-600 text-sm">
+            <p className="rounded bg-red-50 p-2 text-center text-red-700 text-sm">
               {actionData.error}
             </p>
           )}
@@ -89,7 +89,7 @@ export default function Login() {
               />
               <button
                 type="button"
-                className="absolute top-1/2 right-3 -translate-y-1/2 text-gray-400 text-xs hover:text-gray-600"
+                className="absolute top-1/2 right-3 -translate-y-1/2 text-gray-600 text-xs hover:text-gray-700"
                 onClick={() => setShowPassword(!showPassword)}
               >
                 {showPassword ? "Skjul" : "Vis"}

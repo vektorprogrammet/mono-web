@@ -121,75 +121,46 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-  identity-browser-gate:
-    name: Native identity browser gate (requires backend and seed)
-    if: ${{ vars.NATIVE_IDENTITY_BROWSER_GATE == '1' }}
+  identity-browser-evidence:
+    name: Native identity browser evidence (fresh PostgreSQL and Chromium)
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 15
     permissions:
       contents: read
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.3.10
-
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-
       - name: Install frozen dependencies
         run: bun install --frozen-lockfile
-
       - name: Install isolated Chromium
         working-directory: apps/dashboard
         run: node ./node_modules/@playwright/test/cli.js install --with-deps chromium
-
-      - name: Run native identity browser gate against supplied topology
+      - name: Create private identity browser evidence directory
+        run: install -d -m 700 "$RUNNER_TEMP/native-identity-0065"
+      - name: Run bounded native Identity browser capsule
+        shell: bash
         env:
           CI: "true"
-          REAL_NATIVE_IDENTITY_E2E: "1"
-          API_URL: ${{ vars.NATIVE_IDENTITY_BACKEND_ORIGIN }}
-          DASHBOARD_ORIGIN: ${{ vars.NATIVE_IDENTITY_DASHBOARD_ORIGIN }}
-          NATIVE_IDENTITY_BACKEND_ORIGIN: ${{ vars.NATIVE_IDENTITY_BACKEND_ORIGIN }}
-          NATIVE_IDENTITY_DASHBOARD_ORIGIN: ${{ vars.NATIVE_IDENTITY_DASHBOARD_ORIGIN }}
-        shell: bash
         run: |
           set -Eeuo pipefail
-          if [[ -z "$NATIVE_IDENTITY_BACKEND_ORIGIN" || -z "$NATIVE_IDENTITY_DASHBOARD_ORIGIN" ]]; then
-            echo "::error title=Native identity browser gate unavailable::The selected gate requires NATIVE_IDENTITY_BACKEND_ORIGIN and NATIVE_IDENTITY_DASHBOARD_ORIGIN repository variables for a disposable native backend/dashboard already seeded with Better Auth credentials. No production credentials are accepted."
-            exit 1
-          fi
-          validate_loopback_origin() {
-            local name="$1"
-            local value="$2"
-            node --input-type=module - "$name" "$value" <<'NODE'
-          const [, , name, value] = process.argv;
-          const url = new URL(value);
-          const loopbackHosts = new Set(["127.0.0.1", "[::1]", "localhost"]);
-          if (
-            !["http:", "https:"].includes(url.protocol) ||
-            !loopbackHosts.has(url.hostname) ||
-            url.username !== "" ||
-            url.password !== "" ||
-            url.pathname !== "/" ||
-            url.search !== "" ||
-            url.hash !== ""
-          ) {
-            console.error(`${name} must be a loopback origin without credentials or a path`);
-            process.exit(1);
-          }
-          NODE
-          }
-          validate_loopback_origin "NATIVE_IDENTITY_BACKEND_ORIGIN" "$NATIVE_IDENTITY_BACKEND_ORIGIN"
-          validate_loopback_origin "NATIVE_IDENTITY_DASHBOARD_ORIGIN" "$NATIVE_IDENTITY_DASHBOARD_ORIGIN"
-          curl --fail --silent --show-error "$NATIVE_IDENTITY_BACKEND_ORIGIN/health" >/dev/null
-          curl --fail --silent --show-error "$NATIVE_IDENTITY_DASHBOARD_ORIGIN/login" >/dev/null
-          bun run --cwd apps/dashboard e2e:test:chrome -- e2e/native-session-journey.spec.ts
-
+          bun run --cwd apps/dashboard e2e:real-identity \
+            | tee "$RUNNER_TEMP/native-identity-0065/receipt.json"
+          test -s "$RUNNER_TEMP/native-identity-0065/receipt.json"
+      - name: Upload sanitized native Identity evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: native-identity-0065-${{ github.sha }}
+          path: ${{ runner.temp }}/native-identity-0065
+          if-no-files-found: error
+          retention-days: 1
   applicant-evidence:
     name: Public applicant (PostgreSQL and Chromium)
     runs-on: ubuntu-latest

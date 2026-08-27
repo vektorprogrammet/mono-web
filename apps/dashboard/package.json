@@ -35,6 +35,7 @@
     "e2e:real-interview-response": "bun e2e/run-real-interview-response.mjs",
     "e2e:real-profile": "node e2e/run-real-native-profile-self-edit.mjs",
     "e2e:real-content-ops": "bun e2e/run-real-content-ops.mjs",
+    "e2e:real-identity": "node e2e/run-real-native-identity-browser.mjs",
     "e2e:merge-runtime-evidence": "bun e2e/merge-runtime-evidence.mjs"
   },
   "dependencies": {

@@ -17,6 +17,7 @@
     "proof:identity-postgres": "bun run runtime/identity-postgres-proof-main.ts",
     "proof:profile-postgres": "bun run runtime/profile-postgres-proof-main.ts",
     "identity:seed": "bun run runtime/identity-seed-main.ts",
+    "proof:identity-browser": "bun run runtime/identity-browser-proof-main.ts",
     "check-types": "tsc --noEmit",
     "build": "tsc --noEmit",
     "lint": "oxlint"
