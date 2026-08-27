@@ -423,3 +423,11 @@ After this correction, evidence implementation must begin from the resulting
 amended current commit. The evidence implementation must not begin from
 `cdf3343a6e67ab37304931b26d93037ca0133977` or an earlier commit. This amendment
 does not itself authorize evidence implementation or any other source change.
+
+## Amendment 0065.3 - first complete rate-limit accessibility observation
+
+The first complete rate-limit run observed one serious `color-contrast` violation on the existing login error paragraph at `apps/dashboard/app/routes/login.tsx:65-68`. The paragraph uses `text-red-600` on `bg-red-50`. The measured contrast ratio is `4.36`, below the required `4.5` ratio.
+
+This amendment authorizes only the smallest color or style correction for that existing error paragraph so that the frozen login accessibility requirement passes. For example, use a darker red text token. Preserve the paragraph DOM structure, text, semantics, authentication behavior, and every other requirement in this spec and its parent contract.
+
+Do not redesign the login page or change any other source, runner, configuration, workflow, CI, route, dependency, test, or evidence contract. Evidence implementation must begin from the resulting amended commit.
