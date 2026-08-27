@@ -140,6 +140,9 @@ type CatalogEvidence = {
 };
 type TableMetadata = {
   columns: QueryResultRow[];
+  identity: QueryResultRow[];
+  sequenceOwnership: QueryResultRow[];
+  dependencies: QueryResultRow[];
   constraints: QueryResultRow[];
   indexes: QueryResultRow[];
   triggers: Array<{ trigger_name: string; definition: string; function_oid: string }>;
@@ -177,6 +180,67 @@ const metadataEvidence = async (
      ORDER BY ordinal_position
   `,
     [schema, table],
+  );
+  const identity = await query(
+    client,
+    `
+    SELECT column_name, is_identity, identity_generation
+      FROM information_schema.columns
+     WHERE table_schema = $1 AND table_name = $2
+     ORDER BY ordinal_position
+    `,
+    [schema, table],
+  );
+  const sequenceOwnership = await query(
+    client,
+    `
+    SELECT sequence_namespace.nspname AS sequence_schema,
+           sequence.relname AS sequence_name,
+           table_namespace.nspname AS table_schema,
+           relation.relname AS table_name,
+           attribute.attname AS column_name,
+           dependency.deptype AS dependency_type
+      FROM pg_catalog.pg_depend AS dependency
+      INNER JOIN pg_catalog.pg_class AS sequence
+        ON sequence.oid = dependency.objid AND sequence.relkind = 'S'
+      INNER JOIN pg_catalog.pg_namespace AS sequence_namespace
+        ON sequence_namespace.oid = sequence.relnamespace
+      INNER JOIN pg_catalog.pg_class AS relation
+        ON relation.oid = dependency.refobjid
+      INNER JOIN pg_catalog.pg_namespace AS table_namespace
+        ON table_namespace.oid = relation.relnamespace
+      INNER JOIN pg_catalog.pg_attribute AS attribute
+        ON attribute.attrelid = relation.oid
+       AND attribute.attnum = dependency.refobjsubid
+     WHERE dependency.classid = 'pg_catalog.pg_class'::regclass
+       AND dependency.deptype = 'a'
+       AND table_namespace.nspname = $1
+       AND relation.relname = $2
+     ORDER BY column_name
+    `,
+    [schema, table],
+  );
+  const dependencies = await query(
+    client,
+    `
+    SELECT pg_catalog.pg_identify_object(
+             dependency.classid, dependency.objid, dependency.objsubid
+           ) AS dependent_object,
+           pg_catalog.pg_identify_object(
+             dependency.refclassid, dependency.refobjid, dependency.refobjsubid
+           ) AS referenced_object,
+           dependency.deptype AS dependency_type
+      FROM pg_catalog.pg_depend AS dependency
+     WHERE (
+             dependency.refclassid = 'pg_catalog.pg_class'::regclass
+         AND dependency.refobjid = $1::regclass
+       ) OR (
+             dependency.classid = 'pg_catalog.pg_class'::regclass
+         AND dependency.objid = $1::regclass
+       )
+     ORDER BY dependent_object, referenced_object, dependency_type
+    `,
+    [`${schema}.${table}`],
   );
   const constraints = await query(
     client,
@@ -228,7 +292,16 @@ const metadataEvidence = async (
   `,
     [schema, table],
   );
-  return { columns, constraints, indexes, triggers, rules };
+  return {
+    columns,
+    identity,
+    sequenceOwnership,
+    dependencies,
+    constraints,
+    indexes,
+    triggers,
+    rules,
+  };
 };
 
 const catalogEvidence = async (client: PoolClient): Promise<CatalogEvidence> => {
@@ -470,7 +543,8 @@ type SchemaEvidence = {
   catalog: CatalogEvidence;
   tables: TableEvidence[];
 };
-const normalizeSql = (value: string) => value.replace(/\b(?:auth|public)\./g, "");
+const normalizeSql = (value: string) =>
+  value.replace(/\b(?:auth|public)\./g, "").replace(/,(?:auth|public)(?=[,)])/g, ",");
 const normalizeMetadataRecord = (record: QueryResultRow) =>
   Object.fromEntries(
     Object.entries(record).map(([key, value]) => [
@@ -485,6 +559,9 @@ const comparableTables = (tables: TableEvidence[]) =>
     digest,
     metadata: {
       columns: metadata.columns.map(normalizeMetadataRecord),
+      identity: metadata.identity.map(normalizeMetadataRecord),
+      sequenceOwnership: metadata.sequenceOwnership.map(normalizeMetadataRecord),
+      dependencies: metadata.dependencies.map(normalizeMetadataRecord),
       constraints: metadata.constraints.map(normalizeMetadataRecord),
       indexes: metadata.indexes.map(normalizeMetadataRecord),
       triggers: metadata.triggers.map(({ trigger_name, definition }) => ({
@@ -538,7 +615,43 @@ const runNormalDatabaseRead = async (url: string) => {
     return await runtime.runPromise(
       Effect.gen(function* () {
         const database = yield* Database;
-        return yield* database<{
+        const organizationWrite = yield* database<{ readonly grantId: string }>`
+          UPDATE public.organization_global_administrator_grants
+          SET revision = revision + 1
+          WHERE grant_id = 'schema-boundary-grant'
+          RETURNING grant_id AS "grantId"
+        `;
+        const paymentWrite = yield* database<{ readonly paymentAuthorityId: string }>`
+          UPDATE public.economy_payment_authorities
+          SET revision = revision + 1
+          WHERE payment_authority_id = 'schema-boundary-payment'
+          RETURNING payment_authority_id AS "paymentAuthorityId"
+        `;
+        const teamInterestWrite = yield* database<{ readonly registrationId: string }>`
+          UPDATE public.organization_team_interest_registrations
+          SET submitter_name = 'Schema Runtime Submitter', revision = revision + 1
+          WHERE submitter_email = 'schema-submitter@example.invalid'
+          RETURNING registration_id AS "registrationId"
+        `;
+        const schoolWrite = yield* database<{ readonly schoolId: number }>`
+          UPDATE public.schools_directory_schools
+          SET contact_person = 'Schema Runtime Contact'
+          WHERE email = 'schema-school@example.invalid'
+          RETURNING school_id AS "schoolId"
+        `;
+        const articleWrite = yield* database<{ readonly articleId: number }>`
+          UPDATE public.content_articles
+          SET title = 'Schema Runtime Article'
+          WHERE slug = 'schema-article'
+          RETURNING article_id AS "articleId"
+        `;
+        const schemaQuestionWrite = yield* database<{ readonly questionId: string }>`
+          UPDATE public.recruitment_interview_schema_questions
+          SET prompt = 'Schema runtime question'
+          WHERE question_id = 'schema-boundary-question'
+          RETURNING question_id AS "questionId"
+        `;
+        const reads = yield* database<{
           readonly organizationGrantCount: string;
           readonly paymentAuthorityCount: string;
           readonly approvalGrantCount: string;
@@ -576,6 +689,17 @@ const runNormalDatabaseRead = async (url: string) => {
             (SELECT count(*)::text FROM public.recruitment_interview_lifecycle_command_receipts) AS "lifecycleReceiptCount",
             (SELECT count(*)::text FROM public.recruitment_interview_lifecycle_audit) AS "lifecycleAuditCount"
         `;
+        return {
+          reads,
+          writes: [
+            organizationWrite,
+            paymentWrite,
+            teamInterestWrite,
+            schoolWrite,
+            articleWrite,
+            schemaQuestionWrite,
+          ],
+        };
       }),
     );
   } finally {
@@ -612,10 +736,14 @@ const main = async () => {
     } finally {
       freshClient.release();
     }
-    const normalRuntimeRead = await runNormalDatabaseRead(freshUrl);
-    assert.equal(normalRuntimeRead.length, 1);
+    const normalRuntimeEvidence = await runNormalDatabaseRead(freshUrl);
     assert.deepEqual(
-      Object.values(normalRuntimeRead[0]!),
+      normalRuntimeEvidence.writes.map((rows) => rows.length),
+      Array.from({ length: 6 }, () => 1),
+    );
+    assert.equal(normalRuntimeEvidence.reads.length, 1);
+    assert.deepEqual(
+      Object.values(normalRuntimeEvidence.reads[0]!),
       Array.from({ length: 17 }, () => "1"),
     );
 
@@ -765,6 +893,7 @@ const main = async () => {
         upgradeBefore: before.catalog,
         upgradeAfter: after.catalog,
         collisionRollback: true,
+        normalRuntimeEvidence,
       })}\n`,
     );
   } finally {
