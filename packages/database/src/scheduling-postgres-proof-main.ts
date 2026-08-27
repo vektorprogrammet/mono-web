@@ -231,7 +231,7 @@ const seedCohort = (sql: DatabaseShape) =>
         VALUES (${cohort.interviewSchemaId}, 'Scheduling proof interview', 8)
       `;
       yield* sql`
-        INSERT INTO recruitment_interview_schema_questions (
+        INSERT INTO public.recruitment_interview_schema_questions (
           interview_schema_id, question_id, ordinal, prompt, help_text, kind, alternatives
         )
         VALUES

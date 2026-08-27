@@ -21,6 +21,13 @@ const inventory = [
   "recruitment_interview_lifecycle_command_receipts",
   "recruitment_interview_lifecycle_audit",
 ] as const;
+const schedulingTables = [
+  "recruitment_interview_schedules",
+  "recruitment_invitations",
+  "recruitment_schedule_command_receipts",
+  "recruitment_schedule_audit",
+  "recruitment_invitation_outbox",
+] as const;
 const betterAuthTables = ["user", "session", "account", "verification"] as const;
 const nativeFunctions = [
   "prevent_content_publication_audit_mutation",
@@ -92,6 +99,32 @@ const runSources = async (pool: Pool, sources: readonly URL[]) => {
 };
 
 const relationName = (schema: "auth" | "public", table: string) => `"${schema}"."${table}"`;
+type CatalogRelation = { table_name: string; schema_name: string };
+type CatalogEvidence = {
+  relations: CatalogRelation[];
+  scheduling: CatalogRelation[];
+  auth: Array<{ table_name: string }>;
+  publicAuth: Array<{ table_name: string }>;
+  identityLink: Array<{ linked: boolean }>;
+  functions: Array<{
+    function_name: string;
+    schema_name: string;
+    function_body: string;
+  }>;
+};
+type TableMetadata = {
+  columns: QueryResultRow[];
+  constraints: QueryResultRow[];
+  indexes: QueryResultRow[];
+  triggers: Array<{ trigger_name: string; definition: string; function_oid: string }>;
+  rules: QueryResultRow[];
+};
+type TableEvidence = {
+  table: string;
+  count: string;
+  digest: string;
+  metadata: TableMetadata;
+};
 
 const tableEvidence = async (client: PoolClient, schema: "auth" | "public", table: string) => {
   const relation = relationName(schema, table);
@@ -104,7 +137,11 @@ const tableEvidence = async (client: PoolClient, schema: "auth" | "public", tabl
   return rows[0]!;
 };
 
-const metadataEvidence = async (client: PoolClient, schema: "auth" | "public", table: string) => {
+const metadataEvidence = async (
+  client: PoolClient,
+  schema: "auth" | "public",
+  table: string,
+): Promise<TableMetadata> => {
   const columns = await query(
     client,
     `
@@ -138,10 +175,15 @@ const metadataEvidence = async (client: PoolClient, schema: "auth" | "public", t
   `,
     [schema, table],
   );
-  const triggers = await query(
+  const triggers = await query<{
+    trigger_name: string;
+    definition: string;
+    function_oid: string;
+  }>(
     client,
     `
-    SELECT trigger.tgname AS trigger_name, pg_catalog.pg_get_triggerdef(trigger.oid) AS definition
+    SELECT trigger.tgname AS trigger_name, pg_catalog.pg_get_triggerdef(trigger.oid) AS definition,
+           trigger.tgfoid::text AS function_oid
       FROM pg_catalog.pg_trigger AS trigger
       INNER JOIN pg_catalog.pg_class AS relation ON relation.oid = trigger.tgrelid
       INNER JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = relation.relnamespace
@@ -163,7 +205,7 @@ const metadataEvidence = async (client: PoolClient, schema: "auth" | "public", t
   return { columns, constraints, indexes, triggers, rules };
 };
 
-const catalogEvidence = async (client: PoolClient) => {
+const catalogEvidence = async (client: PoolClient): Promise<CatalogEvidence> => {
   const relations = await query<{ table_name: string; schema_name: string }>(
     client,
     `
@@ -188,10 +230,48 @@ const catalogEvidence = async (client: PoolClient) => {
   `,
     [[...betterAuthTables]],
   );
-  const functions = await query<{ function_name: string; schema_name: string }>(
+  const scheduling = await query<{ table_name: string; schema_name: string }>(
     client,
     `
-    SELECT procedure.proname AS function_name, namespace.nspname AS schema_name
+    SELECT relation.relname AS table_name, namespace.nspname AS schema_name
+      FROM pg_catalog.pg_class AS relation
+      INNER JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = relation.relnamespace
+     WHERE relation.relname = ANY($1::text[]) AND namespace.nspname IN ('auth', 'public')
+       AND relation.relkind IN ('r', 'p', 'f')
+     ORDER BY relation.relname, namespace.nspname
+    `,
+    [[...schedulingTables]],
+  );
+  const publicAuth = await query<{ table_name: string }>(
+    client,
+    `
+    SELECT relation.relname AS table_name
+      FROM pg_catalog.pg_class AS relation
+      INNER JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = relation.relnamespace
+     WHERE namespace.nspname = 'public' AND relation.relname = ANY($1::text[])
+     ORDER BY relation.relname
+    `,
+    [[...betterAuthTables]],
+  );
+  const identityLink = await query<{ linked: boolean }>(
+    client,
+    `
+    SELECT auth_user."id" = profile.person_id AS linked
+      FROM auth."user" AS auth_user
+      INNER JOIN public.person_profiles AS profile ON profile.person_id = auth_user."id"
+     ORDER BY auth_user."id"
+     LIMIT 1
+    `,
+  );
+  const functions = await query<{
+    function_name: string;
+    schema_name: string;
+    function_body: string;
+  }>(
+    client,
+    `
+    SELECT procedure.proname AS function_name, namespace.nspname AS schema_name,
+           procedure.prosrc AS function_body
       FROM pg_catalog.pg_proc AS procedure
       INNER JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = procedure.pronamespace
      WHERE procedure.proname = ANY($1::text[]) AND procedure.pronargs = 0
@@ -199,23 +279,30 @@ const catalogEvidence = async (client: PoolClient) => {
     `,
     [[...nativeFunctions]],
   );
-  return { relations, auth, functions };
+  return { relations, scheduling, auth, publicAuth, identityLink, functions };
 };
 
 const assertCatalog = (
   catalog: Awaited<ReturnType<typeof catalogEvidence>>,
   schema: "auth" | "public",
+  identitySeeded = false,
 ) => {
   assert.deepEqual(
     catalog.relations,
     [...inventory].sort().map((table_name) => ({ table_name, schema_name: schema })),
   );
   assert.deepEqual(
+    catalog.scheduling,
+    [...schedulingTables].sort().map((table_name) => ({ table_name, schema_name: "public" })),
+  );
+  assert.deepEqual(
     catalog.auth,
     [...betterAuthTables].sort().map((table_name) => ({ table_name })),
   );
+  assert.deepEqual(catalog.publicAuth, []);
+  assert.deepEqual(catalog.identityLink, identitySeeded ? [{ linked: true }] : []);
   assert.deepEqual(
-    catalog.functions,
+    catalog.functions.map(({ function_name, schema_name }) => ({ function_name, schema_name })),
     [...nativeFunctions].sort().map((function_name) => ({ function_name, schema_name: schema })),
   );
 };
@@ -224,6 +311,10 @@ const seedParents = async (client: PoolClient) => {
   await client.query(`
     INSERT INTO public.person_profiles (person_id, first_name, last_name, revision)
     VALUES ('schema-boundary-person', 'Schema', 'Boundary', 0), ('schema-boundary-interviewer', 'Interview', 'Person', 0)
+  `);
+  await client.query(`
+    INSERT INTO auth."user" ("id", "name", "email", "emailVerified", "createdAt", "updatedAt")
+    VALUES ('schema-boundary-person', 'Schema Boundary', 'schema-auth@example.invalid', TRUE, '2030-01-01T00:00:00Z', '2030-01-01T00:00:00Z')
   `);
   await client.query(`
     INSERT INTO public.organization_departments (department_id, name, short_name, email, city)
@@ -336,8 +427,11 @@ const seedInventory = async (client: PoolClient, schema: "auth" | "public") => {
   );
 };
 
-const evidenceForSchema = async (client: PoolClient, schema: "auth" | "public") => {
-  const rows = [];
+const evidenceForSchema = async (
+  client: PoolClient,
+  schema: "auth" | "public",
+): Promise<TableEvidence[]> => {
+  const rows: TableEvidence[] = [];
   for (const table of inventory)
     rows.push({
       table,
@@ -345,6 +439,71 @@ const evidenceForSchema = async (client: PoolClient, schema: "auth" | "public") 
       metadata: await metadataEvidence(client, schema, table),
     });
   return rows;
+};
+type SchemaEvidence = {
+  catalog: CatalogEvidence;
+  tables: TableEvidence[];
+};
+const normalizeSql = (value: string) => value.replace(/\b(?:auth|public)\./g, "");
+const normalizeMetadataRecord = (record: QueryResultRow) =>
+  Object.fromEntries(
+    Object.entries(record).map(([key, value]) => [
+      key,
+      typeof value === "string" ? normalizeSql(value) : value,
+    ]),
+  );
+const comparableTables = (tables: TableEvidence[]) =>
+  tables.map(({ table, count, digest, metadata }) => ({
+    table,
+    count,
+    digest,
+    metadata: {
+      columns: metadata.columns.map(normalizeMetadataRecord),
+      constraints: metadata.constraints.map(normalizeMetadataRecord),
+      indexes: metadata.indexes.map(normalizeMetadataRecord),
+      triggers: metadata.triggers.map(({ trigger_name, definition }) => ({
+        trigger_name,
+        definition: normalizeSql(definition),
+      })),
+      rules: metadata.rules.map(normalizeMetadataRecord),
+    },
+  }));
+
+const assertImmutableMutations = async (client: PoolClient) => {
+  const mutations = [
+    `UPDATE public.content_publication_audit SET command_id = command_id`,
+    `DELETE FROM public.content_publication_audit`,
+    `UPDATE public.recruitment_interview_question_snapshots SET prompt = prompt`,
+    `DELETE FROM public.recruitment_interview_question_snapshots`,
+    `UPDATE public.recruitment_interview_conducts SET answers = answers`,
+    `DELETE FROM public.recruitment_interview_conducts`,
+    `UPDATE public.recruitment_interview_cancellations SET interview_id = interview_id`,
+    `DELETE FROM public.recruitment_interview_cancellations`,
+    `UPDATE public.recruitment_interview_lifecycle_command_receipts SET command_id = command_id`,
+    `DELETE FROM public.recruitment_interview_lifecycle_command_receipts`,
+    `UPDATE public.recruitment_interview_lifecycle_audit SET command_id = command_id`,
+    `DELETE FROM public.recruitment_interview_lifecycle_audit`,
+  ];
+  for (const statement of mutations) await assert.rejects(() => client.query(statement));
+};
+
+const runNormalDatabaseRead = async (url: string) => {
+  const pool = new Pool({
+    connectionString: url,
+    max: 1,
+    options: "-c search_path=auth,public",
+    application_name: "schema-boundary-proof",
+  });
+  const client = await pool.connect();
+  try {
+    return await query<{ readonly count: string }>(
+      client,
+      `SELECT count(*)::text AS "count" FROM public.recruitment_interview_question_snapshots`,
+    );
+  } finally {
+    client.release();
+    await pool.end();
+  }
 };
 
 const main = async () => {
@@ -363,20 +522,24 @@ const main = async () => {
   try {
     await runSources(freshPool, sourcePaths);
     const freshClient = await freshPool.connect();
-    let freshCatalog;
+    let freshCatalog: CatalogEvidence;
     try {
-      freshCatalog = await catalogEvidence(freshClient);
-      assertCatalog(freshCatalog, "public");
       await seedParents(freshClient);
       await freshClient.query("SET search_path TO auth, public");
       await seedInventory(freshClient, "public");
+      freshCatalog = await catalogEvidence(freshClient);
+      assertCatalog(freshCatalog, "public", true);
     } finally {
       freshClient.release();
     }
+    const normalRuntimeRead = await runNormalDatabaseRead(
+      databaseUrl("SCHEMA_BOUNDARY_FRESH_DATABASE_URL"),
+    );
+    assert.deepEqual(normalRuntimeRead, [{ count: "1" }]);
 
     await runSources(upgradePool, historicalSourcePaths);
     const upgradeClient = await upgradePool.connect();
-    let before;
+    let before: SchemaEvidence;
     try {
       await seedParents(upgradeClient);
       await upgradeClient.query("SET search_path TO auth, public");
@@ -385,35 +548,50 @@ const main = async () => {
         catalog: await catalogEvidence(upgradeClient),
         tables: await evidenceForSchema(upgradeClient, "auth"),
       };
-      assertCatalog(before.catalog, "auth");
+      assertCatalog(before.catalog, "auth", true);
     } finally {
       upgradeClient.release();
     }
     await runSource(upgradePool, sourcePaths.at(-1)!);
     const afterClient = await upgradePool.connect();
-    let after;
+    let after: SchemaEvidence;
     try {
       after = {
         catalog: await catalogEvidence(afterClient),
         tables: await evidenceForSchema(afterClient, "public"),
       };
-      assertCatalog(after.catalog, "public");
+      assertCatalog(after.catalog, "public", true);
+      assert.deepEqual(after.catalog, freshCatalog);
+      assert.deepEqual(comparableTables(after.tables), comparableTables(before.tables));
       assert.deepEqual(
-        after.tables.map(({ table, count, digest }) => ({ table, count, digest })),
-        before.tables.map(({ table, count, digest }) => ({ table, count, digest })),
+        after.catalog.functions.map(({ function_name, function_body }) => ({
+          function_name,
+          function_body,
+        })),
+        before.catalog.functions.map(({ function_name, function_body }) => ({
+          function_name,
+          function_body,
+        })),
       );
+      await assertImmutableMutations(afterClient);
       await afterClient.query("SET search_path TO auth, public");
       await afterClient.query("CREATE TABLE auth.content_articles (article_id bigint NOT NULL)");
       await afterClient.query("INSERT INTO auth.content_articles VALUES (1)");
-      const authFirst = await query(
-        afterClient,
-        "SELECT count(*)::text AS count FROM public.content_articles",
-      );
+      const readInventory = async () => {
+        const rows = [];
+        for (const table of inventory)
+          rows.push({
+            table,
+            value: await query(
+              afterClient,
+              `SELECT count(*)::text AS count FROM public."${table}"`,
+            ),
+          });
+        return rows;
+      };
+      const authFirst = await readInventory();
       await afterClient.query("SET search_path TO public");
-      const publicFirst = await query(
-        afterClient,
-        "SELECT count(*)::text AS count FROM public.content_articles",
-      );
+      const publicFirst = await readInventory();
       assert.deepEqual(authFirst, publicFirst);
       await afterClient.query("DROP TABLE auth.content_articles");
       await afterClient.query("SET search_path TO auth, public");
@@ -421,38 +599,77 @@ const main = async () => {
       afterClient.release();
     }
     await runSource(upgradePool, sourcePaths.at(-1)!);
+    const secondClient = await upgradePool.connect();
+    try {
+      const afterSecond: SchemaEvidence = {
+        catalog: await catalogEvidence(secondClient),
+        tables: await evidenceForSchema(secondClient, "public"),
+      };
+      assertCatalog(afterSecond.catalog, "public", true);
+      assert.deepEqual(afterSecond.catalog, after.catalog);
+      assert.deepEqual(comparableTables(afterSecond.tables), comparableTables(after.tables));
+    } finally {
+      secondClient.release();
+    }
 
     await runSources(collisionPool, historicalSourcePaths);
     const collisionClient = await collisionPool.connect();
     await collisionClient.query(
       "CREATE TABLE public.content_articles (article_id bigint NOT NULL)",
     );
+    await collisionClient.query(`
+      CREATE FUNCTION public.prevent_content_publication_audit_mutation()
+      RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN RETURN NEW; END;
+      $$;
+    `);
     collisionClient.release();
     await assert.rejects(() => runSource(collisionPool, sourcePaths.at(-1)!));
     const rollbackClient = await collisionPool.connect();
     try {
       const rollback = await catalogEvidence(rollbackClient);
-      assert.ok(
-        rollback.relations.some(
-          (row) => row.table_name === "content_articles" && row.schema_name === "auth",
-        ),
+      assert.deepEqual(
+        rollback.relations
+          .filter(({ schema_name }) => schema_name === "auth")
+          .map(({ table_name }) => table_name)
+          .sort(),
+        [...inventory].sort(),
       );
-      assert.ok(
-        rollback.relations.some(
-          (row) => row.table_name === "content_articles" && row.schema_name === "public",
-        ),
+      assert.deepEqual(
+        rollback.relations
+          .filter(({ schema_name }) => schema_name === "public")
+          .map(({ table_name }) => table_name)
+          .sort(),
+        ["content_articles"],
+      );
+      assert.deepEqual(
+        rollback.functions
+          .map(({ function_name, schema_name }) => ({ function_name, schema_name }))
+          .sort((left, right) =>
+            `${left.function_name}.${left.schema_name}`.localeCompare(
+              `${right.function_name}.${right.schema_name}`,
+            ),
+          ),
+        [
+          { function_name: "prevent_content_publication_audit_mutation", schema_name: "auth" },
+          { function_name: "prevent_content_publication_audit_mutation", schema_name: "public" },
+          {
+            function_name: "prevent_recruitment_interview_lifecycle_mutation",
+            schema_name: "auth",
+          },
+          {
+            function_name: "prevent_recruitment_interview_question_snapshot_mutation",
+            schema_name: "auth",
+          },
+        ],
       );
       assert.equal(
-        rollback.relations.filter(
-          (row) => row.table_name === "organization_global_administrator_grants",
+        rollback.functions.filter(
+          ({ function_name, schema_name }) =>
+            function_name === "prevent_content_publication_audit_mutation" &&
+            schema_name === "public",
         ).length,
         1,
-      );
-      assert.equal(
-        rollback.relations.find(
-          (row) => row.table_name === "organization_global_administrator_grants",
-        )?.schema_name,
-        "auth",
       );
     } finally {
       rollbackClient.release();
