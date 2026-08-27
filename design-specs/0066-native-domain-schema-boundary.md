@@ -5,9 +5,10 @@
 | Field | Value |
 |---|---|
 | Goal | Put every native domain table in PostgreSQL schema `public` while Better Auth remains the owner of schema `auth` |
-| Status | Contract frozen; implementation and database evidence are pending |
+| Status | Contract frozen; implementation and database evidence passed at integrated HEAD `478709596af6b145a0a44b0b59a8255a255cc344` |
 | Base | `aceb9abf9ca45842d7be1432680ce7b65bb08bb1` |
 | Depends on | 0054 native Identity via Better Auth; 0050 native Recruitment scheduling; 0063 native interview conduct |
+| Integrated evidence HEAD | `478709596af6b145a0a44b0b59a8255a255cc344` (ancestor of the current final HEAD) |
 | Operator boundary | Disposable PostgreSQL only. No production database, data import, deployment, credential change, provider, or external notification effect |
 
 ## Problem
