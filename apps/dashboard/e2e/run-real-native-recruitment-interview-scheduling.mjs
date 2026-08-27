@@ -1076,6 +1076,16 @@ async function main() {
         path === "/api/admin/recruitment/interviews/scheduling-board" ||
         path === "/api/admin/recruitment/interviews/schedule",
     );
+    const leadingBoardReadCount = schedulingRequests.length - 3;
+    if (leadingBoardReadCount !== 1 && leadingBoardReadCount !== 2) {
+      throw new Error("Native scheduling transport had an unexpected request count");
+    }
+    const boardRead = {
+      method: "GET",
+      path: "/api/admin/recruitment/interviews/scheduling-board",
+      sessionCookieAuth: true,
+      authorizationHeaderPresent: false,
+    };
     assertEqual(
       schedulingRequests.map(({ method, path, sessionCookieAuth, authorizationHeaderPresent }) => ({
         method,
@@ -1084,30 +1094,15 @@ async function main() {
         authorizationHeaderPresent,
       })),
       [
-        {
-          method: "GET",
-          path: "/api/admin/recruitment/interviews/scheduling-board",
-          sessionCookieAuth: true,
-          authorizationHeaderPresent: false,
-        },
+        ...Array.from({ length: leadingBoardReadCount }, () => boardRead),
         {
           method: "POST",
           path: "/api/admin/recruitment/interviews/schedule",
           sessionCookieAuth: true,
           authorizationHeaderPresent: false,
         },
-        {
-          method: "GET",
-          path: "/api/admin/recruitment/interviews/scheduling-board",
-          sessionCookieAuth: true,
-          authorizationHeaderPresent: false,
-        },
-        {
-          method: "GET",
-          path: "/api/admin/recruitment/interviews/scheduling-board",
-          sessionCookieAuth: true,
-          authorizationHeaderPresent: false,
-        },
+        boardRead,
+        boardRead,
       ],
       "Native scheduling transport order",
     );
@@ -1157,7 +1152,7 @@ async function main() {
       browser,
       nativeTransport: {
         firstContext: schedulingRequests
-          .slice(0, 3)
+          .slice(0, leadingBoardReadCount + 2)
           .map(({ method, path, status, sessionCookieAuth, authorizationHeaderPresent }) => ({
             method,
             path,
@@ -1166,7 +1161,7 @@ async function main() {
             authorizationHeaderPresent,
           })),
         independentContext: schedulingRequests
-          .slice(3)
+          .slice(leadingBoardReadCount + 2)
           .map(({ method, path, status, sessionCookieAuth, authorizationHeaderPresent }) => ({
             method,
             path,
