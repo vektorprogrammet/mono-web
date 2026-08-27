@@ -4,8 +4,8 @@
 
 | Field | Value |
 |---|---|
-| Status | Contract remains frozen; Amendments 0050.1, 0050.2, 0050.3, and 0050.4 authorize evidence-harness, disposable-fixture, presentation, and bounded runner corrections only; implementation is present at integrated branch `f07b86d7babc041ee5f947b41381de094586e9d6`; runtime and acceptance evidence remain pending |
-| Revision | Amendments 0050.1, 0050.2, 0050.3, and 0050.4 record observed native Identity, fixture, presentation, harness, and cold-start prerequisites; runtime evidence remains pending |
+| Status | Contract remains frozen; Amendments 0050.1, 0050.2, 0050.3, and 0050.4 authorize evidence-harness, disposable-fixture, presentation, and bounded runner corrections only; implementation plus runtime and acceptance evidence passed at integrated HEAD `a4affcaa6a7b66e23de38801f05ff0ca822bee83` |
+| Revision | Amendments 0050.1, 0050.2, 0050.3, 0050.4, and 0050.5 record observed native Identity, fixture, presentation, harness, cold-start, runtime, and acceptance evidence at integrated HEAD `a4affcaa6a7b66e23de38801f05ff0ca822bee83` |
 | Base | `dd2425f8ea21c2f61cdff9bb518a1e726d8dac64` (`dd2425f`) |
 | Goal | Replace the Symfony scheduling seam with one native Recruitment transition and one full-Foldkit staff journey |
 | Actors | Active department leader or assigned active interviewer |
@@ -79,6 +79,26 @@ After the permitted leading board read or reads, require exactly one schedule `P
 This correction applies only to the evidence runner. It must preserve product behavior, all prior scheduling semantics, and the existing operator boundary. It authorizes no product change, route change, authentication change, legacy request, production data, remote provider, credential, deployment, or external notification effect.
 
 Runtime and acceptance evidence remain pending.
+
+## Amendment 0050.5 — runtime acceptance closeout
+
+Implementation, runtime, and acceptance evidence passed at integrated HEAD `a4affcaa6a7b66e23de38801f05ff0ca822bee83`.
+
+The exact real-browser scheduling journey was run successfully twice with:
+
+```text
+env -u PGHOST -u PGPORT -u PGDATABASE -u PGUSER -u PGOPTIONS \
+  bun run --cwd apps/dashboard e2e:real-scheduling
+```
+
+Each run used disposable local PostgreSQL and real Chromium. The harness seeded two native Better Auth personas and authenticated them through the native login form. The accepted request sequence was exactly four requests: `GET` scheduling board, `POST` schedule, fresh `GET` scheduling board, and an independent-context `GET` scheduling board. Every request returned `200`. The browser carried session cookies; it sent no `Authorization` header and made no Symfony or capability request.
+
+The runner is also bounded to accept exactly one additional leading scheduling-board `GET` when cold dependency optimization duplicates the initial read, for an exact five-request run. This closeout records the accepted four-request runs above, not an observed five-request run.
+
+The recording notification gateway observed the approved request and recorded the transition from `Pending` to `Delivered` without contacting an email or SMS provider. The disposable database, processes, and browser resources were cleaned up after each run.
+
+Focused scheduling tests passed `10/10`. Dashboard typecheck, lint, Oxfmt, and Node checks passed. These checks and the runtime journey preserve the frozen contract semantics and operator boundary: no production data, remote provider, credential, deployment, or external notification effect.
+
 
 ## Problem
 
