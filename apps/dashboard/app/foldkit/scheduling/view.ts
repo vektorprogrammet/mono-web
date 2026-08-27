@@ -503,6 +503,7 @@ const scoreFieldError = (
 const questionView = (
   question: RecruitmentInterviewQuestionSnapshot,
   model: ReadyModel,
+  isTerminal: boolean,
   h: HtmlBuilder<Message>,
 ): Html => {
   const current = model.answers.find((answer) => answer.questionId === question.questionId);
@@ -521,7 +522,7 @@ const questionView = (
         );
   const inputAttrs = [
     h.Name(`question-${question.questionId}`),
-    h.Disabled(model.isConducting),
+    h.Disabled(model.isConducting || isTerminal),
     ...(describedBy === undefined ? [] : [h.AriaDescribedBy(describedBy)]),
   ];
   const controls =
@@ -596,7 +597,7 @@ const questionView = (
   );
 };
 
-const scoreView = (model: ReadyModel, h: HtmlBuilder<Message>): Html =>
+const scoreView = (model: ReadyModel, isTerminal: boolean, h: HtmlBuilder<Message>): Html =>
   h.fieldset(
     [h.Class("fs-score"), h.AriaLabelledBy("fs-score-legend")],
     [
@@ -617,7 +618,7 @@ const scoreView = (model: ReadyModel, h: HtmlBuilder<Message>): Html =>
               [
                 h.Id(`score-${axis}`),
                 h.Value(field.value),
-                h.Disabled(model.isConducting),
+                h.Disabled(model.isConducting || isTerminal),
                 h.OnChange((value) => ChangedScore({ axis, value })),
               ],
               [
@@ -696,9 +697,9 @@ const conductSuccessView = (
       ),
       h.div(
         [h.Class("fs-conduct__questions")],
-        detail.questions.map((question) => questionView(question, model, h)),
+        detail.questions.map((question) => questionView(question, model, terminal !== null, h)),
       ),
-      detail.score === null && terminal === null ? scoreView(model, h) : h.empty,
+      terminal === null || detail.score !== null ? scoreView(model, terminal !== null, h) : h.empty,
       model.conductValidationFeedback === null
         ? h.empty
         : h.p(
@@ -833,7 +834,7 @@ const readyView = (model: ReadyModel, h: HtmlBuilder<Message>): Html =>
         [h.Class("fs-page-header")],
         [
           h.p([h.Class("fs-eyebrow")], ["Opptak · Intervjuer"]),
-          h.h1([h.Id("fs-page-title")], ["Gjennomfør intervjuer"]),
+          h.h1([h.Id("fs-page-title")], ["Planlegg intervjuer"]),
           h.p([], ["Åpne et planlagt intervju for å registrere svar og score."]),
         ],
       ),
