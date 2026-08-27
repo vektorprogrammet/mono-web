@@ -4,7 +4,8 @@
 
 | Field | Value |
 |---|---|
-| Status | Contract remains frozen; implementation is present at integrated branch `f07b86d7babc041ee5f947b41381de094586e9d6`; runtime and acceptance evidence are pending |
+| Status | Contract remains frozen; Amendment 0050.1 authorizes an evidence-harness correction only; implementation is present at integrated branch `f07b86d7babc041ee5f947b41381de094586e9d6`; runtime and acceptance evidence remain pending |
+| Revision | Amendment 0050.1 records observed native Identity evidence-harness drift; runtime evidence remains pending |
 | Base | `dd2425f8ea21c2f61cdff9bb518a1e726d8dac64` (`dd2425f`) |
 | Goal | Replace the Symfony scheduling seam with one native Recruitment transition and one full-Foldkit staff journey |
 | Actors | Active department leader or assigned active interviewer |
@@ -12,6 +13,24 @@
 | Behavioral evidence | Design spec 0029 and the legacy Symfony scheduling implementation |
 | Architecture | Design specs 0040, 0045.2, and 0049 |
 | Operator boundary | No production data, remote provider, credential, deployment, or external notification effect |
+
+## Amendment 0050.1 — native Identity evidence-harness correction
+
+The integrated dashboard now uses native Better Auth session cookies through Identity. The old scheduling runner supplies a `jwt_token` cookie and legacy token maps instead. The backend now requires `BETTER_AUTH_SECRET`.
+
+This drift concerns the evidence harness only. It does not change the frozen scheduling journey, actor or authority semantics, transaction or notification semantics, falsifiers, non-goals, or operator boundary.
+
+This amendment authorizes one evidence-harness correction:
+
+- Seed the two synthetic scheduling personas through the existing disposable `identity:seed` entrypoint.
+- Pass a process-scoped Better Auth secret and `BETTER_AUTH_URL` to the disposable backend and dashboard processes.
+- Authenticate each persona through the rendered native login form in real Chromium.
+- Forward the resulting Better Auth session cookie on the browser journey.
+- Record that the journey injects no bearer token.
+
+The correction must not change product behavior, access policies, legacy routes, or production effects. It must not add a compatibility route, retain token-map authentication for this journey, or contact an external provider.
+
+Runtime and acceptance evidence remain pending until the corrected harness produces the evidence required below.
 
 ## Problem
 
