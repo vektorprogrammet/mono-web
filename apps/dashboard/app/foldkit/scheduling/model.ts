@@ -2,7 +2,11 @@ import { RecruitmentInterviewId } from "@vektorprogrammet/sdk/effect";
 import { Dialog } from "@foldkit/ui";
 import { Schema as S } from "effect";
 import { AsyncData, FieldValidation } from "foldkit";
-import { RecruitmentSchedulingBoardSchema } from "../recruitment/bridge";
+import {
+  RecruitmentBridgeFailure,
+  RecruitmentInterviewConductObservationSchema,
+  RecruitmentSchedulingBoardSchema,
+} from "../recruitment/bridge";
 
 const LoadedSchedulingInput = S.Struct({
   _tag: S.Literal("Loaded"),
@@ -19,16 +23,43 @@ export type SchedulingInput = S.Schema.Type<typeof SchedulingInput>;
 export const SchedulingInputJson = S.fromJsonString(SchedulingInput);
 
 export const SchedulingBoardData = AsyncData.Schema(RecruitmentSchedulingBoardSchema, S.String);
+export const ConductData = AsyncData.Schema(
+  RecruitmentInterviewConductObservationSchema,
+  RecruitmentBridgeFailure,
+);
 export const SchedulingRequestId = S.Int.check(S.isGreaterThanOrEqualTo(0));
+export const ConductRequestId = S.Int.check(S.isGreaterThanOrEqualTo(0));
 
 const CommandSequence = S.Int.check(S.isGreaterThanOrEqualTo(0));
 const StringField = FieldValidation.Field(S.String);
+const ConductAnswer = S.Struct({
+  questionId: S.String,
+  answer: S.Union([S.String, S.Array(S.String)]),
+});
+const AnswerError = S.Struct({ questionId: S.String, message: S.String });
+const ScoreDraft = S.Struct({
+  explanatoryPower: StringField,
+  roleModel: StringField,
+  suitability: StringField,
+});
+const ConductAction = S.Literals(["Finalize", "Cancel"]);
 
 const ReadyModel = S.Struct({
   _tag: S.Literal("Ready"),
   board: SchedulingBoardData.schema,
   boardRequestId: SchedulingRequestId,
   selectedInterviewId: S.NullOr(RecruitmentInterviewId),
+  conduct: ConductData.schema,
+  conductRequestId: ConductRequestId,
+  conductGeneration: ConductRequestId,
+  conductDialog: Dialog.Model,
+  pendingConductAction: S.NullOr(ConductAction),
+  answers: S.Array(ConductAnswer),
+  answerErrors: S.Array(AnswerError),
+  score: ScoreDraft,
+  conductValidationFeedback: S.NullOr(S.String),
+  conductFeedback: S.NullOr(RecruitmentBridgeFailure),
+  isConducting: S.Boolean,
   scheduleDialog: Dialog.Model,
   scheduledAt: StringField,
   room: StringField,
@@ -58,6 +89,21 @@ export const makeInitialModel = (input: SchedulingInput, commandIdSeed: string):
       : SchedulingBoardData.Failure({ error: input.message }),
   boardRequestId: 0,
   selectedInterviewId: null,
+  conduct: ConductData.Idle(),
+  conductRequestId: 0,
+  conductGeneration: 0,
+  conductDialog: Dialog.init({ id: "recruitment-conduct-dialog" }),
+  pendingConductAction: null,
+  answers: [],
+  answerErrors: [],
+  score: {
+    explanatoryPower: FieldValidation.NotValidated({ value: "" }),
+    roleModel: FieldValidation.NotValidated({ value: "" }),
+    suitability: FieldValidation.NotValidated({ value: "" }),
+  },
+  conductValidationFeedback: null,
+  conductFeedback: null,
+  isConducting: false,
   scheduleDialog: Dialog.init({ id: "recruitment-scheduling-dialog" }),
   scheduledAt: FieldValidation.NotValidated({ value: "" }),
   room: FieldValidation.NotValidated({ value: "" }),

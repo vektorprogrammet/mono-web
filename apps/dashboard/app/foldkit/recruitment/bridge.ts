@@ -3,10 +3,18 @@ import {
   RecruitmentAssignmentBoardQuerySchema,
   RecruitmentAssignmentCommandSchema,
   RecruitmentAssignmentResultSchema,
+  RecruitmentInterviewId,
   RecruitmentScheduleCommandSchema,
   RecruitmentScheduleResultSchema,
   RecruitmentSchedulingBoardSchema,
 } from "@vektorprogrammet/sdk/effect";
+import {
+  CancelInterviewCommandSchema,
+  CancelInterviewResultSchema,
+  FinalizeInterviewCommandSchema,
+  FinalizeInterviewResultSchema,
+  RecruitmentInterviewConductObservationSchema,
+} from "@vektorprogrammet/sdk";
 import { Match, Schema as S } from "effect";
 
 export const RecruitmentBoardStatus = RecruitmentAssignmentBoardQuerySchema.fields.status;
@@ -30,12 +38,37 @@ const ScheduleInterviewOperation = S.Struct({
   operation: S.Literal("scheduleInterview"),
   command: RecruitmentScheduleCommandSchema,
 });
+const ReadInterviewConductOperation = S.Struct({
+  operation: S.Literal("readInterviewConduct"),
+  interviewId: RecruitmentInterviewId,
+});
+
+const FinalizeInterviewOperation = S.Struct({
+  operation: S.Literal("finalizeInterview"),
+  command: FinalizeInterviewCommandSchema,
+});
+
+const CancelInterviewOperation = S.Struct({
+  operation: S.Literal("cancelInterview"),
+  command: CancelInterviewCommandSchema,
+});
+
+export {
+  CancelInterviewCommandSchema,
+  CancelInterviewResultSchema,
+  FinalizeInterviewCommandSchema,
+  FinalizeInterviewResultSchema,
+  RecruitmentInterviewConductObservationSchema,
+};
 
 export const RecruitmentBridgeOperation = S.Union([
   ReadAssignmentBoardOperation,
   AssignApplicantOperation,
   ReadSchedulingBoardOperation,
   ScheduleInterviewOperation,
+  ReadInterviewConductOperation,
+  FinalizeInterviewOperation,
+  CancelInterviewOperation,
 ]);
 export type RecruitmentBridgeOperation = S.Schema.Type<typeof RecruitmentBridgeOperation>;
 export const RecruitmentBridgeOperationJson = S.fromJsonString(RecruitmentBridgeOperation);
@@ -165,15 +198,13 @@ export const schedulingBoardFailureMessage = (failure: RecruitmentBridgeFailure)
 
 export const schedulingFailureMessage = (failure: RecruitmentBridgeFailure): string =>
   Match.value(failure._tag).pipe(
-    Match.whenOr("Unauthorized", "Forbidden", () => "Du har ikke tilgang til å planlegge intervjuet."),
-    Match.when(
-      "NotFound",
-      () => "Intervjuet eller kontaktopplysningene finnes ikke lenger.",
+    Match.whenOr(
+      "Unauthorized",
+      "Forbidden",
+      () => "Du har ikke tilgang til å planlegge intervjuet.",
     ),
-    Match.when(
-      "Validation",
-      () => "Planen er ugyldig. Kontroller feltene og prøv igjen.",
-    ),
+    Match.when("NotFound", () => "Intervjuet eller kontaktopplysningene finnes ikke lenger."),
+    Match.when("Validation", () => "Planen er ugyldig. Kontroller feltene og prøv igjen."),
     Match.when(
       "Conflict",
       () => "Intervjuet er allerede planlagt eller har blitt endret. Hent oversikten på nytt.",

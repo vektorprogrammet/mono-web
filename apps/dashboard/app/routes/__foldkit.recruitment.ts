@@ -66,6 +66,18 @@ export async function action({ request }: Route.ActionArgs) {
         return data(await recruitment.scheduleInterview(operation.command), {
           headers: responseHeaders,
         });
+      case "readInterviewConduct":
+        return data(await recruitment.readInterviewConduct(operation.interviewId), {
+          headers: responseHeaders,
+        });
+      case "finalizeInterview":
+        return data(await recruitment.finalizeInterview(operation.command), {
+          headers: responseHeaders,
+        });
+      case "cancelInterview":
+        return data(await recruitment.cancelInterview(operation.command), {
+          headers: responseHeaders,
+        });
     }
   } catch (error) {
     const failure = toRecruitmentBridgeFailure(error);

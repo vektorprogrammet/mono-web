@@ -1,22 +1,34 @@
 import type {
+  RecruitmentInterviewConductObservation,
+  RecruitmentInterviewQuestionSnapshot,
   RecruitmentSchedulingBoard,
   RecruitmentSchedulingInterview,
-} from "@vektorprogrammet/sdk/effect";
+} from "@vektorprogrammet/sdk";
 import { Button, Dialog, Input } from "@foldkit/ui";
 import { AsyncData, FieldValidation } from "foldkit";
 import type { Html, HtmlBuilder } from "foldkit/html";
 import {
-  ClosedSchedule,
+  ChangedAnswer,
+  ChangedScore,
+  ClosedConduct,
+  ClosedConductConfirmation,
+  ConfirmedCancel,
+  ConfirmedFinalize,
+  GotConductDialogMessage,
   GotScheduleDialogMessage,
-  OpenedSchedule,
+  OpenedConduct,
   RequestedBoardRefresh,
+  SubmittedCancel,
+  SubmittedFinalize,
+  type Message,
+  ClosedSchedule,
+  OpenedSchedule,
   SubmittedSchedule,
   UpdatedCampus,
   UpdatedMapLink,
   UpdatedMessage,
   UpdatedRoom,
   UpdatedScheduledAt,
-  type Message,
 } from "./message";
 import type { Model, ReadyModel } from "./model";
 
@@ -186,25 +198,31 @@ const interviewCard = (
           ),
         ],
       ),
-      h.dl(
-        [h.Class("fs-contact-grid")],
-        [
-          h.div([], [h.dt([], ["Søkerens e-post"]), h.dd([], [interview.applicant.email])]),
-          h.div([], [h.dt([], ["Søkerens telefon"]), h.dd([], [interview.applicant.phone])]),
-          h.div([], [h.dt([], ["Intervjuerens e-post"]), h.dd([], [interview.interviewer.email])]),
-          h.div([], [h.dt([], ["Intervjuerens telefon"]), h.dd([], [interview.interviewer.phone])]),
-        ],
-      ),
       scheduleDetails(interview, h),
       isScheduled
-        ? h.empty
+        ? interview.responseState === "Accepted"
+          ? h.div(
+              [h.Class("fs-card-actions")],
+              [
+                actionButton(
+                  model.selectedInterviewId === interview.interviewId
+                    ? "Oppdater intervju"
+                    : "Åpne intervju",
+                  OpenedConduct({ interviewId: interview.interviewId }),
+                  model.isScheduling || model.isConducting,
+                  "fs-button fs-button--primary fs-button--compact",
+                  h,
+                ),
+              ],
+            )
+          : h.empty
         : h.div(
             [h.Class("fs-card-actions")],
             [
               actionButton(
                 "Planlegg intervju",
                 OpenedSchedule({ interviewId: interview.interviewId }),
-                model.isScheduling,
+                model.isScheduling || model.isConducting,
                 "fs-button fs-button--primary fs-button--compact",
                 h,
               ),
@@ -348,30 +366,6 @@ const scheduleDialogView = (model: ReadyModel, h: HtmlBuilder<Message>): Html =>
                         ),
                       ],
                     ),
-                    h.dl(
-                      [h.Class("fs-dialog__authority")],
-                      [
-                        h.div(
-                          [],
-                          [
-                            h.dt([], ["Søker"]),
-                            h.dd([], [`${applicantName} · ${interview.applicant.email}`]),
-                          ],
-                        ),
-                        h.div(
-                          [],
-                          [
-                            h.dt([], ["Tildelt intervjuer"]),
-                            h.dd(
-                              [],
-                              [
-                                `${interview.interviewer.displayName} · ${interview.interviewer.email}`,
-                              ],
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
                     model.scheduleError === null
                       ? h.empty
                       : h.p(
@@ -461,12 +455,6 @@ const scheduleDialogView = (model: ReadyModel, h: HtmlBuilder<Message>): Html =>
                           },
                           h,
                         ),
-                        h.p(
-                          [h.Class("fs-notification-note")],
-                          [
-                            "Søkerens og intervjuerens kontaktopplysninger kommer fra systemet og kan ikke endres her.",
-                          ],
-                        ),
                         h.div(
                           [h.Class("fs-dialog__actions")],
                           [
@@ -500,6 +488,343 @@ const scheduleDialogView = (model: ReadyModel, h: HtmlBuilder<Message>): Html =>
   });
 };
 
+const scoreFieldError = (
+  id: string,
+  field: ReadyModel["score"]["explanatoryPower"],
+  h: HtmlBuilder<Message>,
+): Html =>
+  field._tag === "Invalid"
+    ? h.p(
+        [h.Id(`${id}-error`), h.Class("fs-field-error"), h.Role("alert")],
+        [field.errors.join(" ")],
+      )
+    : h.empty;
+
+const questionView = (
+  question: RecruitmentInterviewQuestionSnapshot,
+  model: ReadyModel,
+  h: HtmlBuilder<Message>,
+): Html => {
+  const current = model.answers.find((answer) => answer.questionId === question.questionId);
+  const error = model.answerErrors.find(
+    (candidate) => candidate.questionId === question.questionId,
+  );
+  const describedBy = error === undefined ? undefined : `${question.questionId}-error`;
+  const answerValue = typeof current?.answer === "string" ? current.answer : "";
+  const selectedValues = Array.isArray(current?.answer) ? current.answer : [];
+  const fieldError =
+    error === undefined
+      ? h.empty
+      : h.p(
+          [h.Id(`${question.questionId}-error`), h.Class("fs-field-error"), h.Role("alert")],
+          [error.message],
+        );
+  const inputAttrs = [
+    h.Name(`question-${question.questionId}`),
+    h.Disabled(model.isConducting),
+    ...(describedBy === undefined ? [] : [h.AriaDescribedBy(describedBy)]),
+  ];
+  const controls =
+    question.kind === "text"
+      ? [
+          h.textarea(
+            [
+              ...inputAttrs,
+              h.Id(`question-${question.questionId}`),
+              h.Value(answerValue),
+              h.OnInput((value) =>
+                ChangedAnswer({ questionId: question.questionId, answer: value }),
+              ),
+            ],
+            [],
+          ),
+        ]
+      : question.kind === "check"
+        ? question.alternatives.map((alternative, index) =>
+            h.label(
+              [h.Class("fs-option")],
+              [
+                h.input([
+                  ...inputAttrs,
+                  h.Id(`question-${question.questionId}-${index}`),
+                  h.Type("checkbox"),
+                  h.Value(alternative),
+                  h.Checked(selectedValues.includes(alternative)),
+                  h.OnChange((checked) =>
+                    ChangedAnswer({
+                      questionId: question.questionId,
+                      answer:
+                        checked === "on"
+                          ? [...selectedValues, alternative]
+                          : selectedValues.filter((value) => value !== alternative),
+                    }),
+                  ),
+                ]),
+                alternative,
+              ],
+            ),
+          )
+        : question.alternatives.map((alternative, index) =>
+            h.label(
+              [h.Class("fs-option")],
+              [
+                h.input([
+                  ...inputAttrs,
+                  h.Id(`question-${question.questionId}-${index}`),
+                  h.Type(question.kind === "radio" ? "radio" : "radio"),
+                  h.Value(alternative),
+                  h.Checked(answerValue === alternative),
+                  h.OnChange(() =>
+                    ChangedAnswer({ questionId: question.questionId, answer: alternative }),
+                  ),
+                ]),
+                alternative,
+              ],
+            ),
+          );
+  return h.fieldset(
+    [h.Class("fs-question"), h.AriaLabelledBy(`question-${question.questionId}-legend`)],
+    [
+      h.legend(
+        [h.Id(`question-${question.questionId}-legend`), h.Class("fs-question__prompt")],
+        [`${question.ordinal + 1}. ${question.prompt}`],
+      ),
+      question.helpText === null ? h.empty : h.p([h.Class("fs-field-hint")], [question.helpText]),
+      ...controls,
+      fieldError,
+    ],
+  );
+};
+
+const scoreView = (model: ReadyModel, h: HtmlBuilder<Message>): Html =>
+  h.fieldset(
+    [h.Class("fs-score"), h.AriaLabelledBy("fs-score-legend")],
+    [
+      h.legend([h.Id("fs-score-legend")], ["Score"]),
+      ...(
+        [
+          ["explanatoryPower", "Forklaringskraft"],
+          ["roleModel", "Rollemodell"],
+          ["suitability", "Egnethet"],
+        ] as const
+      ).map(([axis, label]) => {
+        const field = model.score[axis];
+        return h.div(
+          [h.Class("fs-score__field")],
+          [
+            h.label([h.For(`score-${axis}`)], [label]),
+            h.select(
+              [
+                h.Id(`score-${axis}`),
+                h.Value(field.value),
+                h.Disabled(model.isConducting),
+                h.OnChange((value) => ChangedScore({ axis, value })),
+              ],
+              [
+                h.option([h.Value("")], ["Velg"]),
+                ...Array.from({ length: 11 }, (_, value) =>
+                  h.option([h.Value(String(value))], [String(value)]),
+                ),
+              ],
+            ),
+            scoreFieldError(`score-${axis}`, field, h),
+          ],
+        );
+      }),
+    ],
+  );
+
+const conductDetailView = (model: ReadyModel, h: HtmlBuilder<Message>): Html =>
+  AsyncData.match(model.conduct, {
+    onIdle: () => h.empty,
+    onLoading: () => h.div([h.Class("fs-loading"), h.Role("status")], ["Henter intervjuet …"]),
+    onRefreshing: (detail) => conductSuccessView(model, detail, h),
+    onFailure: (failure) =>
+      h.section(
+        [h.Class("fs-error"), h.Role("alert")],
+        [h.h2([], ["Intervjuet kunne ikke hentes"]), h.p([], [conductFailureMessage(failure)])],
+      ),
+    onStale: ({ error }) =>
+      h.section(
+        [h.Class("fs-error"), h.Role("alert")],
+        [h.h2([], ["Intervjuet kunne ikke oppdateres"]), h.p([], [conductFailureMessage(error)])],
+      ),
+    onSuccess: (detail) => conductSuccessView(model, detail, h),
+  });
+
+const conductSuccessView = (
+  model: ReadyModel,
+  detail: RecruitmentInterviewConductObservation,
+  h: HtmlBuilder<Message>,
+): Html => {
+  const applicantName = `${detail.applicant.firstName} ${detail.applicant.lastName}`.trim();
+  const terminal =
+    detail.completionState === "Completed"
+      ? "Completed"
+      : detail.cancellationState === "Cancelled"
+        ? "Cancelled"
+        : null;
+  return h.section(
+    [h.Class("fs-conduct"), h.AriaLabelledBy("fs-conduct-title")],
+    [
+      h.div(
+        [h.Class("fs-conduct__heading")],
+        [
+          h.div(
+            [],
+            [
+              h.p([h.Class("fs-eyebrow")], ["Intervju"]),
+              h.h2([h.Id("fs-conduct-title")], [`Intervju med ${applicantName}`]),
+            ],
+          ),
+          h.span(
+            [h.Class("fs-status fs-status--scheduled")],
+            [terminal ?? "Klar til gjennomføring"],
+          ),
+        ],
+      ),
+      h.dl(
+        [h.Class("fs-details")],
+        [
+          h.div(
+            [],
+            [h.dt([], ["Tidspunkt"]), h.dd([], [formatInstant(detail.schedule.scheduledAt)])],
+          ),
+          h.div([], [h.dt([], ["Rom"]), h.dd([], [detail.schedule.room])]),
+          h.div([], [h.dt([], ["Campus"]), h.dd([], [detail.schedule.campus ?? "Ikke oppgitt"])]),
+        ],
+      ),
+      h.div(
+        [h.Class("fs-conduct__questions")],
+        detail.questions.map((question) => questionView(question, model, h)),
+      ),
+      detail.score === null && terminal === null ? scoreView(model, h) : h.empty,
+      model.conductValidationFeedback === null
+        ? h.empty
+        : h.p(
+            [h.Class("fs-error fs-error--inline"), h.Role("alert")],
+            [model.conductValidationFeedback],
+          ),
+      model.isConducting
+        ? h.p([h.Class("fs-loading"), h.Role("status")], ["Lagrer intervjuet …"])
+        : terminal === null
+          ? h.div(
+              [h.Class("fs-card-actions")],
+              [
+                actionButton(
+                  "Avslutt intervju",
+                  ClosedConduct(),
+                  false,
+                  "fs-button fs-button--secondary",
+                  h,
+                ),
+                actionButton(
+                  "Fullfør intervju",
+                  SubmittedFinalize(),
+                  false,
+                  "fs-button fs-button--primary",
+                  h,
+                ),
+                actionButton(
+                  "Avlys intervju",
+                  SubmittedCancel(),
+                  false,
+                  "fs-button fs-button--secondary",
+                  h,
+                ),
+              ],
+            )
+          : h.p(
+              [h.Class("fs-feedback fs-feedback--success"), h.Role("status")],
+              [terminal === "Completed" ? "Intervjuet er fullført." : "Intervjuet er avlyst."],
+            ),
+      conductDialogView(model, h),
+    ],
+  );
+};
+
+const conductFailureMessage = (failure: {
+  readonly _tag: string;
+  readonly message: string;
+}): string => {
+  switch (failure._tag) {
+    case "Unauthorized":
+    case "Forbidden":
+      return "Du har ikke tilgang til intervjuet.";
+    case "NotFound":
+      return "Intervjuet finnes ikke lenger.";
+    case "Conflict":
+      return "Intervjuet er endret. Velg intervjuet på nytt.";
+    case "Validation":
+      return "Intervjuet inneholdt ugyldige data.";
+    default:
+      return "Intervjuet er midlertidig utilgjengelig. Prøv igjen senere.";
+  }
+};
+
+const conductDialogView = (model: ReadyModel, h: HtmlBuilder<Message>): Html =>
+  h.submodel({
+    slotId: model.conductDialog.id,
+    model: model.conductDialog,
+    view: Dialog.view,
+    viewInputs: {
+      toView: ({ dialog, backdrop, panel, title, description, isVisible }) =>
+        h.dialog(
+          [...dialog, h.Class("fs-dialog")],
+          isVisible && model.pendingConductAction !== null
+            ? [
+                h.div([...backdrop, h.Class("fs-dialog__backdrop")]),
+                h.div(
+                  [...panel, h.Class("fs-dialog__panel")],
+                  [
+                    h.h2(
+                      [...title],
+                      [
+                        model.pendingConductAction === "Finalize"
+                          ? "Fullfør intervjuet?"
+                          : "Avlys intervjuet?",
+                      ],
+                    ),
+                    h.p(
+                      [...description],
+                      [
+                        model.pendingConductAction === "Finalize"
+                          ? "Svarene og scorene lagres som endelig resultat."
+                          : "Intervjuet markeres som avlyst. Dette kan ikke angres.",
+                      ],
+                    ),
+                    h.div(
+                      [h.Class("fs-dialog__actions")],
+                      [
+                        actionButton(
+                          "Tilbake",
+                          ClosedConductConfirmation(),
+                          false,
+                          "fs-button fs-button--secondary",
+                          h,
+                        ),
+                        actionButton(
+                          model.pendingConductAction === "Finalize"
+                            ? "Fullfør intervju"
+                            : "Avlys intervju",
+                          model.pendingConductAction === "Finalize"
+                            ? ConfirmedFinalize()
+                            : ConfirmedCancel(),
+                          false,
+                          "fs-button fs-button--primary",
+                          h,
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ]
+            : [],
+        ),
+    },
+    toParentMessage: (message) => GotConductDialogMessage({ message }),
+  });
+
 const readyView = (model: ReadyModel, h: HtmlBuilder<Message>): Html =>
   h.section(
     [h.Class("foldkit-scheduling"), h.AriaLabelledBy("fs-page-title")],
@@ -508,20 +833,18 @@ const readyView = (model: ReadyModel, h: HtmlBuilder<Message>): Html =>
         [h.Class("fs-page-header")],
         [
           h.p([h.Class("fs-eyebrow")], ["Opptak · Intervjuer"]),
-          h.h1([h.Id("fs-page-title")], ["Planlegg intervjuer"]),
-          h.p(
-            [],
-            ["Planlegg tildelte intervjuer. Invitasjonen sendes fra lagrede kontaktopplysninger."],
-          ),
+          h.h1([h.Id("fs-page-title")], ["Gjennomfør intervjuer"]),
+          h.p([], ["Åpne et planlagt intervju for å registrere svar og score."]),
         ],
       ),
-      model.feedback === null
+      model.conductFeedback === null
         ? h.empty
         : h.div(
-            [h.Class("fs-feedback fs-feedback--success"), h.Role("status"), h.AriaLive("polite")],
-            [model.feedback],
+            [h.Class("fs-feedback fs-feedback--error"), h.Role("alert")],
+            [conductFailureMessage(model.conductFeedback)],
           ),
       boardView(model, h),
+      model.selectedInterviewId === null ? h.empty : conductDetailView(model, h),
       scheduleDialogView(model, h),
     ],
   );
