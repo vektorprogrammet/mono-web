@@ -358,7 +358,9 @@ describe("recruitment conduct SDK boundary", () => {
     vi.stubGlobal("fetch", fetchMock);
     const client = createClient("http://api.test", { cookie: "better-auth.session_token=session" });
 
-    await expect(client.admin.recruitment.readInterviewConduct("interview-1")).resolves.toEqual(conduct);
+    await expect(client.admin.recruitment.readInterviewConduct("interview-1")).resolves.toEqual(
+      conduct,
+    );
     await expect(
       client.admin.recruitment.finalizeInterview({
         commandId: "command-1",
@@ -384,8 +386,8 @@ describe("recruitment conduct SDK boundary", () => {
     expect(fetchMock.mock.calls[2]?.[0]).toBe(
       "http://api.test/api/admin/recruitment/interviews/interview-1/cancel",
     );
-    await expect(client.admin.recruitment.readInterviewConduct("interview-1")).rejects.toBeInstanceOf(
-      RecruitmentDecodeSdkError,
-    );
+    await expect(
+      client.admin.recruitment.readInterviewConduct("interview-1"),
+    ).rejects.toBeInstanceOf(RecruitmentDecodeSdkError);
   });
 });
