@@ -1,19 +1,14 @@
 import { Schema as S } from "effect";
 import { Runtime } from "foldkit";
-import type { RecruitmentSchedulingClient } from "../recruitment/browser-client";
+import type { RecruitmentClient } from "../recruitment/browser-client";
 import { makeSchedulingCommands } from "./command";
-import {
-  Model,
-  SchedulingInputJson,
-  makeInitialModel,
-  makeInvalidInputModel,
-} from "./model";
+import { Model, SchedulingInputJson, makeInitialModel, makeInvalidInputModel } from "./model";
 import "./styles.css";
 import { makeUpdate } from "./update";
 import { view } from "./view";
 
 export interface SchedulingRuntimeInput {
-  readonly client: RecruitmentSchedulingClient;
+  readonly client: RecruitmentClient;
   readonly serializedInput: string | null;
   readonly commandIdSeed: string;
 }

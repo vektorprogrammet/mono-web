@@ -81,7 +81,10 @@ const emptyScore = () => ({
   suitability: emptyField(),
 });
 
-const clearConduct = (model: ReadyModel): ReadyModel => ({
+const clearConduct = (
+  model: ReadyModel,
+  conductFeedback: ReadyModel["conductFeedback"] = null,
+): ReadyModel => ({
   ...model,
   selectedInterviewId: null,
   conduct: ConductData.Idle(),
@@ -92,10 +95,9 @@ const clearConduct = (model: ReadyModel): ReadyModel => ({
   answerErrors: [],
   score: emptyScore(),
   conductValidationFeedback: null,
-  conductFeedback: null,
+  conductFeedback,
   isConducting: false,
 });
-
 const answerFor = (model: ReadyModel, questionId: string) =>
   model.answers.find((answer) => answer.questionId === questionId);
 
@@ -805,7 +807,7 @@ export const makeUpdate =
             return [model, []];
           }
           return failure._tag === "Conflict"
-            ? [clearConduct({ ...model, conductFeedback: failure }), []]
+            ? [clearConduct(model, failure), []]
             : [{ ...model, isConducting: false, conductFeedback: failure }, []];
         },
         FailedCancel: ({ requestId, generation, interviewId, failure }) => {
@@ -818,7 +820,7 @@ export const makeUpdate =
             return [model, []];
           }
           return failure._tag === "Conflict"
-            ? [clearConduct({ ...model, conductFeedback: failure }), []]
+            ? [clearConduct(model, failure), []]
             : [{ ...model, isConducting: false, conductFeedback: failure }, []];
         },
         ClosedConductConfirmation: () => {

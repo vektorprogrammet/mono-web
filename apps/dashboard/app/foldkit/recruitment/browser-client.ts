@@ -64,18 +64,12 @@ export interface RecruitmentAssignmentClient {
   }>;
 }
 
-export interface RecruitmentSchedulingClient {
-  readonly admin: Readonly<{
-    recruitment: Readonly<RecruitmentSchedulingOperations>;
-  }>;
-}
-
 export interface RecruitmentClient {
   readonly admin: Readonly<{
     recruitment: Readonly<
       RecruitmentAssignmentOperations &
         RecruitmentSchedulingOperations &
-        Partial<RecruitmentConductOperations>
+        RecruitmentConductOperations
     >;
   }>;
 }

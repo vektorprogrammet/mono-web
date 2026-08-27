@@ -6,7 +6,7 @@ import {
 import { Effect, Schema as S } from "effect";
 import { AsyncData, Command } from "foldkit";
 import { describe, expect, it } from "vitest";
-import type { RecruitmentSchedulingClient } from "../recruitment/browser-client";
+import type { RecruitmentClient } from "../recruitment/browser-client";
 import { makeSchedulingCommands } from "./command";
 import {
   FailedLoadSchedulingBoard,
@@ -92,11 +92,16 @@ const freshBoard = decodeBoard({
   ],
 });
 
-const inertClient: RecruitmentSchedulingClient = {
+const inertClient: RecruitmentClient = {
   admin: {
     recruitment: {
       readSchedulingBoard: () => Effect.die("not executed by transition tests"),
       scheduleInterview: () => Effect.die("not executed by transition tests"),
+      readAssignmentBoard: () => Effect.die("not executed by transition tests"),
+      assignApplicant: () => Effect.die("not executed by transition tests"),
+      readInterviewConduct: () => Effect.die("not executed by transition tests"),
+      finalizeInterview: () => Effect.die("not executed by transition tests"),
+      cancelInterview: () => Effect.die("not executed by transition tests"),
     },
   },
 };
@@ -251,7 +256,7 @@ describe("Foldkit scheduling transitions", () => {
       ...freshSchedule,
       room: "POST observation room",
     };
-    const client: RecruitmentSchedulingClient = {
+    const client: RecruitmentClient = {
       admin: {
         recruitment: {
           scheduleInterview: (command) =>
@@ -276,6 +281,11 @@ describe("Foldkit scheduling transitions", () => {
               readCalls += 1;
               return freshBoard;
             }),
+          readAssignmentBoard: () => Effect.die("not executed by transition tests"),
+          assignApplicant: () => Effect.die("not executed by transition tests"),
+          readInterviewConduct: () => Effect.die("not executed by transition tests"),
+          finalizeInterview: () => Effect.die("not executed by transition tests"),
+          cancelInterview: () => Effect.die("not executed by transition tests"),
         },
       },
     };

@@ -18,10 +18,7 @@ import {
   schedulingFailureMessage,
   toRecruitmentBridgeFailure,
 } from "../recruitment/bridge";
-import type {
-  RecruitmentConductOperations,
-  RecruitmentSchedulingClient,
-} from "../recruitment/browser-client";
+import type { RecruitmentClient } from "../recruitment/browser-client";
 import {
   FailedConduct,
   FailedFinalize,
@@ -62,8 +59,7 @@ export interface SchedulingCommands {
   }) => Command.Command<Message>;
 }
 
-export const makeSchedulingCommands = (client: RecruitmentSchedulingClient): SchedulingCommands => {
-  const conductClient = client.admin.recruitment as unknown as RecruitmentConductOperations;
+export const makeSchedulingCommands = (client: RecruitmentClient): SchedulingCommands => {
   const LoadSchedulingBoard = Command.define("LoadSchedulingBoard", {
     args: { requestId: SchedulingRequestId },
     messages: [SucceededLoadSchedulingBoard, FailedLoadSchedulingBoard],
@@ -110,7 +106,7 @@ export const makeSchedulingCommands = (client: RecruitmentSchedulingClient): Sch
     },
     messages: [SucceededConduct, FailedConduct],
     execute: ({ requestId, generation, interviewId }) =>
-      conductClient.readInterviewConduct(interviewId).pipe(
+      client.admin.recruitment.readInterviewConduct(interviewId).pipe(
         Effect.map((detail) => SucceededConduct({ requestId, generation, interviewId, detail })),
         Effect.catch((error) =>
           Effect.succeed(
@@ -134,7 +130,7 @@ export const makeSchedulingCommands = (client: RecruitmentSchedulingClient): Sch
     },
     messages: [SucceededFinalize, FailedFinalize],
     execute: ({ requestId, generation, interviewId, command }) =>
-      conductClient.finalizeInterview(command).pipe(
+      client.admin.recruitment.finalizeInterview(command).pipe(
         Effect.map((result) => SucceededFinalize({ requestId, generation, interviewId, result })),
         Effect.catch((error) =>
           Effect.succeed(
@@ -158,7 +154,7 @@ export const makeSchedulingCommands = (client: RecruitmentSchedulingClient): Sch
     },
     messages: [SucceededCancel, FailedCancel],
     execute: ({ requestId, generation, interviewId, command }) =>
-      conductClient.cancelInterview(command).pipe(
+      client.admin.recruitment.cancelInterview(command).pipe(
         Effect.map((result) => SucceededCancel({ requestId, generation, interviewId, result })),
         Effect.catch((error) =>
           Effect.succeed(
