@@ -107,7 +107,7 @@ const openConduct = async (page: Page, applicant: string) => {
 };
 
 test.describe("Native recruitment interview conduct (spec 0063)", () => {
-  test("logs in natively, finalizes after fresh reads, and rejects a stale concurrent submit", async ({
+  test("logs in natively, finalizes after fresh reads, rejects a stale concurrent submit, and cancels a second interview", async ({
     browser,
   }) => {
     test.skip(!enabled, "run through the disposable native conduct runner");
@@ -126,6 +126,7 @@ test.describe("Native recruitment interview conduct (spec 0063)", () => {
     });
     observe(firstContext, pageErrors, operations, browserRequests);
     const page = await firstContext.newPage();
+    let staleContext: BrowserContext | undefined;
     try {
       await signIn(page);
       await expect(page.context().cookies()).resolves.toEqual(
@@ -148,6 +149,18 @@ test.describe("Native recruitment interview conduct (spec 0063)", () => {
       ).toBeVisible();
       expect(operations.length).toBe(beforeIncomplete);
       await fillAnswersAndScores(page);
+
+      // Keep an independent revision-1 detail open while the first context finalizes.
+      staleContext = await browser.newContext({
+        baseURL: dashboardOrigin,
+        viewport: { width: 1440, height: 900 },
+      });
+      observe(staleContext, pageErrors, operations, browserRequests);
+      const stalePage = await staleContext.newPage();
+      await signIn(stalePage);
+      await stalePage.goto("/dashboard/intervjuer");
+      await openConduct(stalePage, applicantA);
+      await fillAnswersAndScores(stalePage);
 
       const freshConduct = responseFor(page, "readInterviewConduct");
       const freshBoard = responseFor(page, "readSchedulingBoard");
@@ -188,40 +201,10 @@ test.describe("Native recruitment interview conduct (spec 0063)", () => {
         "Jeg liker å bygge gode løsninger sammen med andre.",
       );
 
-      // Keep a stale local revision while an independent native session finalizes the same interview.
-      await openConduct(page, applicantB);
-      await fillAnswersAndScores(page);
-
-      const concurrentContext = await browser.newContext({
-        baseURL: dashboardOrigin,
-        viewport: { width: 1440, height: 900 },
-      });
-      observe(concurrentContext, pageErrors, operations, browserRequests);
-      const concurrentPage = await concurrentContext.newPage();
-      try {
-        await signIn(concurrentPage);
-        await concurrentPage.goto("/dashboard/intervjuer");
-        await openConduct(concurrentPage, applicantB);
-        await fillAnswersAndScores(concurrentPage);
-        const concurrentPost = responseFor(concurrentPage, "finalizeInterview");
-        const concurrentFreshConduct = responseFor(concurrentPage, "readInterviewConduct");
-        const concurrentFreshBoard = responseFor(concurrentPage, "readSchedulingBoard");
-        await concurrentPage.getByRole("button", { name: "Fullfør intervju" }).click();
-        await concurrentPage
-          .getByRole("dialog")
-          .getByRole("button", { name: "Fullfør intervju", exact: true })
-          .click();
-        expect((await concurrentPost).status()).toBe(200);
-        expect((await concurrentFreshConduct).status()).toBe(200);
-        expect((await concurrentFreshBoard).status()).toBe(200);
-        await expect(concurrentPage.getByText("Completed", { exact: true })).toBeVisible();
-      } finally {
-        await concurrentContext.close();
-      }
-
-      const stalePost = responseFor(page, "finalizeInterview");
-      await page.getByRole("button", { name: "Fullfør intervju" }).click();
-      await page
+      // The independent revision-1 submit loses to the committed finalization.
+      const stalePost = responseFor(stalePage, "finalizeInterview");
+      await stalePage.getByRole("button", { name: "Fullfør intervju" }).click();
+      await stalePage
         .getByRole("dialog")
         .getByRole("button", { name: "Fullfør intervju", exact: true })
         .click();
@@ -232,22 +215,23 @@ test.describe("Native recruitment interview conduct (spec 0063)", () => {
       });
       expect(staleResponse.status()).toBe(409);
       await expect(
-        page
+        stalePage
           .getByRole("alert")
           .filter({ hasText: "Intervjuet er endret. Velg intervjuet på nytt." }),
       ).toBeVisible();
-      await expect(page.locator("#fs-conduct")).toHaveCount(0);
+      await expect(stalePage.locator("#fs-conduct")).toHaveCount(0);
 
       const pageAxe = await new AxeBuilder({ page })
         .include('section[aria-labelledby="fs-page-title"]')
         .analyze();
       accessibilityViolations += pageAxe.violations.length;
     } finally {
+      await staleContext?.close();
       await firstContext.close();
       firstContextClosed = true;
     }
 
-    // A new context signs in through /login and verifies the terminal state independently.
+    // A new context signs in through /login and independently cancels the second interview.
     const independentContext = await browser.newContext({
       baseURL: dashboardOrigin,
       viewport: { width: 1440, height: 900 },
@@ -257,17 +241,44 @@ test.describe("Native recruitment interview conduct (spec 0063)", () => {
     try {
       await signIn(independentPage);
       await independentPage.goto("/dashboard/intervjuer");
-      await openConduct(independentPage, applicantA);
-      await expect(independentPage.getByText("Completed", { exact: true })).toBeVisible();
-      await expect(independentPage.locator(`#question-${questionIds.text}`)).toHaveValue(
-        "Jeg liker å bygge gode løsninger sammen med andre.",
-      );
+      await openConduct(independentPage, applicantB);
+
+      const cancelPost = responseFor(independentPage, "cancelInterview");
+      const freshConduct = responseFor(independentPage, "readInterviewConduct");
+      const freshBoard = responseFor(independentPage, "readSchedulingBoard");
+      await independentPage.getByRole("button", { name: "Avlys intervju", exact: true }).click();
+      const cancelDialog = independentPage.getByRole("dialog");
+      await expect(cancelDialog).toBeVisible();
+      const cancelConfirm = cancelDialog.getByRole("button", {
+        name: "Avlys intervju",
+        exact: true,
+      });
+      await expect(cancelConfirm).toBeFocused();
+      await cancelConfirm.press("Enter");
+      const [cancelResponse, cancelledConductResponse, cancelledBoardResponse] = await Promise.all([
+        cancelPost,
+        freshConduct,
+        freshBoard,
+      ]);
+      expect(cancelResponse.status()).toBe(200);
+      expect(cancelledConductResponse.status()).toBe(200);
+      expect(cancelledBoardResponse.status()).toBe(200);
+      await expect(independentPage.getByText("Intervjuet er avlyst.")).toBeVisible();
+      await expect(independentPage.getByText("Cancelled", { exact: true })).toBeVisible();
+
+      // A real reload starts from the native session and reads the persisted cancellation again.
+      await independentPage.reload();
+      await expect(
+        independentPage.getByRole("heading", { level: 1, name: "Planlegg intervjuer" }),
+      ).toBeVisible();
+      await openConduct(independentPage, applicantB);
+      await expect(independentPage.getByText("Cancelled", { exact: true })).toBeVisible();
       await expect(independentPage.locator("body")).not.toContainText("responseCapability");
       await expect(independentPage.locator("body")).not.toContainText("responseCode");
       await expect(independentPage.locator("body")).not.toContainText(
-        "sofie.conduct@example.invalid",
+        "olav.conduct@example.invalid",
       );
-      await expect(independentPage.locator("body")).not.toContainText("90000063");
+      await expect(independentPage.locator("body")).not.toContainText("90000064");
       const independentAxe = await new AxeBuilder({ page: independentPage })
         .include('section[aria-labelledby="fs-page-title"]')
         .analyze();
