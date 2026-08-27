@@ -404,3 +404,22 @@ constitute the PostgreSQL, browser journey, request-ledger, accessibility,
 revocation, rate-limit, cleanup, or sanitized-receipt evidence required by this
 spec. All such semantic and evidentiary requirements remain unchanged and must
 still be observed independently.
+
+## Amendment 0065.2 - first Chromium accessibility observation
+
+The first real Chromium run observed one serious `color-contrast` violation on
+the existing login password-visibility button. The button uses `#99a1af` on
+white. The measured contrast ratio is `2.6`, below the required `4.5` ratio.
+
+This amendment authorizes only the smallest source-level color or style
+correction for that existing button that makes the frozen login accessibility
+requirement pass. The correction must preserve the button behavior, DOM
+structure, accessible labels, authentication semantics, and every other
+requirement in this spec and its parent contract. It must not redesign the
+login page or change any other source, runner, configuration, workflow, CI,
+route, dependency, test, or evidence contract.
+
+After this correction, evidence implementation must begin from the resulting
+amended current commit. The evidence implementation must not begin from
+`cdf3343a6e67ab37304931b26d93037ca0133977` or an earlier commit. This amendment
+does not itself authorize evidence implementation or any other source change.
