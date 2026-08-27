@@ -17,6 +17,7 @@ import {
 } from "@vektorprogrammet/domain/recruitment";
 import { Config, Deferred, Effect, Fiber, Layer, Redacted } from "effect";
 import { DatabaseLive } from "./layers.js";
+import { databaseMigrationDefinitions, databaseSchemaRevision } from "./migrations.js";
 
 const cohort = {
   id: "recruitment-invitation-response-postgres-proof-0051-v1",
@@ -36,6 +37,10 @@ const cohort = {
   raceInvitationId: "inv-response-pg-proof-invitation-race",
   deliveryInvitationId: "inv-response-pg-proof-invitation-delivery",
 } as const;
+
+const headMigration = databaseMigrationDefinitions.at(-1);
+assert(headMigration);
+const headMigrationId = Number(headMigration.id.split("_", 1)[0]);
 
 const raceCapability = "R".repeat(43);
 const deliveryCapability = "D".repeat(43);
@@ -383,7 +388,7 @@ const proveMessageConfinement = (sql: DatabaseShape) =>
     const [migration] = yield* sql<{ readonly count: string }>`
       SELECT count(*)::text AS count
       FROM vektorprogrammet_schema_migrations
-      WHERE migration_id = 13
+      WHERE migration_id = ${headMigrationId}
     `;
     const before = yield* sql<{
       readonly responseState: string;
@@ -573,11 +578,11 @@ const proof = (databaseUrl: Redacted.Redacted<string>) =>
     const setupLayer = makeProofLayer(databaseUrl, "recruitment-invitation-response-proof-setup");
     yield* Effect.gen(function* () {
       const sql = yield* Database;
-      assert.equal(sql.schemaRevision, "13_native-organization-administration");
+      assert.equal(sql.schemaRevision, databaseSchemaRevision);
       yield* resetCohort(sql);
       yield* sql`
         DELETE FROM vektorprogrammet_schema_migrations
-        WHERE migration_id = 13
+        WHERE migration_id = ${headMigrationId}
       `;
       yield* sql.migrate;
       yield* seedCohort(sql);
@@ -815,7 +820,7 @@ const proof = (databaseUrl: Redacted.Redacted<string>) =>
     const evidence = {
       specId: "0051" as const,
       database: "PostgreSQL" as const,
-      schemaRevision: "13_native-organization-administration" as const,
+      schemaRevision: databaseSchemaRevision,
       cohort: cohort.id,
       passed: true as const,
       concurrency: {
