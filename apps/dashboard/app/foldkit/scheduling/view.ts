@@ -857,6 +857,12 @@ const readyView = (model: ReadyModel, h: HtmlBuilder<Message>): Html =>
             [h.Class("fs-feedback fs-feedback--error"), h.Role("alert")],
             [conductFailureMessage(model.conductFeedback)],
           ),
+      model.feedback === null
+        ? h.empty
+        : h.p(
+            [h.Class("fs-feedback fs-feedback--success"), h.Role("status"), h.AriaLive("polite")],
+            [model.feedback],
+          ),
       boardView(model, h),
       model.selectedInterviewId === null ? h.empty : conductDetailView(model, h),
       scheduleDialogView(model, h),

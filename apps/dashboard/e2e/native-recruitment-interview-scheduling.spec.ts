@@ -1,7 +1,7 @@
 import AxeBuilder from "@axe-core/playwright";
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
-import { expect, test, type BrowserContext, type Page, type Request } from "@playwright/test";
+import { expect, test, type Page, type Request } from "@playwright/test";
 
 const DASHBOARD_ORIGIN = process.env.DASHBOARD_ORIGIN ?? "http://127.0.0.1:5174";
 const REAL_NATIVE_SCHEDULING_E2E = process.env.REAL_NATIVE_SCHEDULING_E2E === "1";
@@ -21,16 +21,34 @@ const requiredEnvironment = (name: string): string => {
   return value;
 };
 
-const authenticate = async (context: BrowserContext, tokenEnvironment: string): Promise<void> => {
-  await context.addCookies([
-    {
-      name: "jwt_token",
-      value: requiredEnvironment(tokenEnvironment),
-      url: DASHBOARD_ORIGIN,
-      httpOnly: true,
-      sameSite: "Lax",
-    },
-  ]);
+const authenticate = async (
+  page: Page,
+  emailEnvironment: string,
+  passwordEnvironment: string,
+): Promise<ReadonlyArray<string>> => {
+  await page.goto("/login");
+  await page.getByLabel("E-post").fill(requiredEnvironment(emailEnvironment));
+  await page.getByLabel("Passord").fill(requiredEnvironment(passwordEnvironment));
+  await page.getByRole("button", { name: "Logg inn" }).click();
+  try {
+    await page.waitForURL(/\/dashboard\/?$/, { timeout: 5_000 });
+  } catch (error) {
+    throw new Error(
+      `native login did not redirect: ${page.url()} ${await page.locator("body").innerText()}`,
+      { cause: error },
+    );
+  }
+  const sessionCookieNames = (await page.context().cookies(DASHBOARD_ORIGIN))
+    .filter(
+      ({ name }) =>
+        name === "better-auth.session_token" || name === "__Secure-better-auth.session_token",
+    )
+    .map(({ name }) => name)
+    .sort();
+  if (sessionCookieNames.length === 0) {
+    throw new Error("native login did not issue a Better Auth session cookie");
+  }
+  return sessionCookieNames;
 };
 
 const bridgeOperation = (request: Request): string | undefined => {
@@ -64,11 +82,15 @@ test.describe("Native recruitment interview scheduling", () => {
     const evidencePath = requiredEnvironment("SCHEDULING_E2E_BROWSER_EVIDENCE_PATH");
     const bridgeOperations: string[] = [];
     const legacyBrowserRequests: string[] = [];
+    const bearerRequests: string[] = [];
     const pageErrors: string[] = [];
     const observeRequests = (page: Page): void => {
       page.on("request", (request) => {
         const pathname = new URL(request.url()).pathname;
         const operation = bridgeOperation(request);
+        if (request.headers().authorization?.startsWith("Bearer ")) {
+          bearerRequests.push(pathname);
+        }
         if (operation !== undefined) bridgeOperations.push(operation);
         if (
           pathname === "/interview" ||
@@ -86,10 +108,15 @@ test.describe("Native recruitment interview scheduling", () => {
       viewport: { width: 1440, height: 900 },
     });
     let firstContextClosed = false;
+    let leaderSessionCookieNames: ReadonlyArray<string> = [];
     try {
-      await authenticate(firstContext, "SCHEDULING_E2E_LEADER_TOKEN");
       const page = await firstContext.newPage();
       observeRequests(page);
+      leaderSessionCookieNames = await authenticate(
+        page,
+        "SCHEDULING_E2E_LEADER_EMAIL",
+        "SCHEDULING_E2E_LEADER_PASSWORD",
+      );
       await page.goto("/dashboard/intervjuer");
 
       await expect(page).toHaveURL(`${DASHBOARD_ORIGIN}/dashboard/intervjuer`);
@@ -155,10 +182,15 @@ test.describe("Native recruitment interview scheduling", () => {
       baseURL: DASHBOARD_ORIGIN,
       viewport: { width: 1440, height: 900 },
     });
+    let interviewerSessionCookieNames: ReadonlyArray<string> = [];
     try {
-      await authenticate(verificationContext, "SCHEDULING_E2E_INTERVIEWER_TOKEN");
       const page = await verificationContext.newPage();
       observeRequests(page);
+      interviewerSessionCookieNames = await authenticate(
+        page,
+        "SCHEDULING_E2E_INTERVIEWER_EMAIL",
+        "SCHEDULING_E2E_INTERVIEWER_PASSWORD",
+      );
       await page.goto("/dashboard/intervjuer");
 
       const persistedCard = applicantCard(page, applicantName);
@@ -174,6 +206,7 @@ test.describe("Native recruitment interview scheduling", () => {
       expect(legacyBrowserRequests).toEqual([]);
       expect(await page.locator("body").innerText()).not.toContain("responseCapability");
       expect(pageErrors).toEqual([]);
+      expect(bearerRequests).toEqual([]);
     } finally {
       await verificationContext.close();
     }
@@ -187,6 +220,11 @@ test.describe("Native recruitment interview scheduling", () => {
         nativeActors: ["DepartmentLeader", "Member"],
         bridgeOperations,
         legacyBrowserRequests,
+        sessionCookieNames: {
+          leader: leaderSessionCookieNames,
+          interviewer: interviewerSessionCookieNames,
+        },
+        bearerTokenInjected: bearerRequests.length > 0,
         expectedSchedule: SCHEDULE,
         accessibilityViolations: 0,
         pageErrors,

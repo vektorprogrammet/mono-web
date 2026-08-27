@@ -14,6 +14,7 @@ import {
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
 const dashboardRoot = fileURLToPath(new URL("../", import.meta.url));
 const sdkRoot = fileURLToPath(new URL("../../../packages/sdk/", import.meta.url));
+const databaseRoot = fileURLToPath(new URL("../../../packages/database/", import.meta.url));
 const composeFile = join(repositoryRoot, "docker-compose.yml");
 const dashboardPort = 5184;
 const backendPort = 8796;
@@ -39,6 +40,10 @@ const interviewSchemaId = "interview-schema-native-scheduling-0050";
 const interviewId = "interview-native-scheduling-0050";
 const applicantName = "Sofie Søker";
 const interviewerName = "Irene Intervjuer";
+const leaderEmail = "lina.lagleder@example.invalid";
+const interviewerEmail = "irene.intervjuer@example.invalid";
+const personaPassword = "native-scheduling-0050-secret-0123456789";
+const betterAuthSecret = randomBytes(32).toString("base64url");
 const schedule = {
   scheduledAt: "2031-09-20T13:30:00.000Z",
   room: "K-101",
@@ -109,15 +114,21 @@ VALUES ('${recruitmentTeamId}', '${departmentId}', 'Rekruttering', TRUE, 0);
 INSERT INTO organization_memberships (
   membership_id, person_id, team_id, deleted_team_name, start_at, end_at,
   position_id, is_team_leader, is_suspended, revision
-) VALUES (
+) VALUES
+(
+  'membership-native-scheduling-leader-0050', '${actorPersonId}',
+  '${recruitmentTeamId}', NULL, '2020-01-01T00:00:00.000Z', NULL,
+  'teamleader', TRUE, FALSE, 0
+),
+(
   'membership-native-scheduling-interviewer-0050', '${interviewerPersonId}',
-  '${recruitmentTeamId}', NULL, '2031-01-01T00:00:00.000Z', NULL,
+  '${recruitmentTeamId}', NULL, '2020-01-01T00:00:00.000Z', NULL,
   'interviewer', FALSE, FALSE, 0
 );
 INSERT INTO recruitment_interview_schemas (
   interview_schema_id, name, question_count, active, revision
 ) VALUES ('${interviewSchemaId}', 'Førstegangsintervju', 8, TRUE, 0);
-INSERT INTO recruitment_interview_schema_questions (
+INSERT INTO public.recruitment_interview_schema_questions (
   interview_schema_id, question_id, ordinal, prompt, help_text, kind, alternatives
 ) VALUES
   ('${interviewSchemaId}', '${interviewSchemaId}-q0', 0, 'Question 0', NULL, 'text', '[]'::jsonb),
@@ -456,8 +467,18 @@ const parseJsonBody = (bytes) => {
     return undefined;
   }
 };
+const sessionCookieNames = new Set([
+  "better-auth.session_token",
+  "__Secure-better-auth.session_token",
+]);
+const hasSessionCookie = (cookieHeader) =>
+  typeof cookieHeader === "string" &&
+  cookieHeader.split(";").some((pair) => {
+    const separator = pair.indexOf("=");
+    return separator > 0 && sessionCookieNames.has(pair.slice(0, separator).trim());
+  });
 
-async function startRecordingProxy(targetOrigin, actorsByToken) {
+async function startRecordingProxy(targetOrigin) {
   const records = [];
   const server = createServer(async (request, response) => {
     const method = request.method ?? "GET";
@@ -469,7 +490,8 @@ async function startRecordingProxy(targetOrigin, actorsByToken) {
     const record = {
       method,
       path,
-      bearerActor: actorsByToken.get(request.headers.authorization ?? "") ?? null,
+      sessionCookieAuth: hasSessionCookie(request.headers.cookie),
+      authorizationHeaderPresent: request.headers.authorization !== undefined,
       requestHasResponseCapability: hasObjectKey(requestJson, "responseCapability"),
       responseHasResponseCapability: false,
       status: 0,
@@ -505,9 +527,15 @@ async function startRecordingProxy(targetOrigin, actorsByToken) {
       );
       response.statusCode = upstream.status;
       for (const [name, value] of upstream.headers.entries()) {
-        if (["content-encoding", "content-length", "transfer-encoding"].includes(name)) continue;
+        if (
+          ["content-encoding", "content-length", "set-cookie", "transfer-encoding"].includes(name)
+        ) {
+          continue;
+        }
         response.setHeader(name, value);
       }
+      const setCookie = upstream.headers.getSetCookie();
+      if (setCookie.length > 0) response.setHeader("set-cookie", setCookie);
       response.setHeader("content-length", String(responseBytes.byteLength));
       response.end(responseBytes);
     } catch {
@@ -818,33 +846,22 @@ async function main() {
     mkdir(committedRoot, { recursive: true }),
   ]);
 
-  const leaderToken = randomBytes(32).toString("base64url");
-  const interviewerToken = randomBytes(32).toString("base64url");
-  const admissionTokens = JSON.stringify({
-    [leaderToken]: {
-      _tag: "DepartmentLeader",
+  const identitySeedPersons = [
+    {
       personId: actorPersonId,
-      departmentId,
-      active: true,
+      firstName: "Lina",
+      lastName: "Lagleder",
+      email: leaderEmail,
+      password: personaPassword,
     },
-    [interviewerToken]: {
-      _tag: "Member",
+    {
       personId: interviewerPersonId,
-      departmentId,
-      active: true,
+      firstName: "Irene",
+      lastName: "Intervjuer",
+      email: interviewerEmail,
+      password: personaPassword,
     },
-  });
-  const receiptPrincipal = (personId) => ({
-    personId,
-    departmentId,
-    active: true,
-    paymentAccountCiphertext: randomBytes(32).toString("base64url"),
-    approvalScope: { _tag: "None" },
-  });
-  const receiptTokens = JSON.stringify({
-    [leaderToken]: receiptPrincipal(actorPersonId),
-    [interviewerToken]: receiptPrincipal(interviewerPersonId),
-  });
+  ];
   const baseEnvironment = { ...process.env };
   delete baseEnvironment.API_MODE;
   delete baseEnvironment.VITE_API_MODE;
@@ -854,10 +871,9 @@ async function main() {
     BACKEND_HOST: "127.0.0.1",
     BACKEND_PORT: String(backendPort),
     BACKEND_PG_URL: postgresUrl,
+    BETTER_AUTH_SECRET: betterAuthSecret,
+    BETTER_AUTH_URL: dashboardOrigin,
     PUBLIC_APPLICATION_EFFECT_MODE: "disabled",
-    ADMISSION_AUTH_TOKENS: admissionTokens,
-    ADMISSION_FIXED_NOW: fixedClock,
-    RECEIPT_AUTH_TOKENS: receiptTokens,
     RECEIPT_STAGING_ROOT: stagingRoot,
     RECEIPT_COMMITTED_ROOT: committedRoot,
     RECEIPT_MAX_FILE_BYTES: "10485760",
@@ -967,22 +983,30 @@ async function main() {
         });
     await waitForHttp(`${backendOrigin}/health`, apiProcess, "Unified native backend");
     await runPsql(seedSql, baseEnvironment, "Native scheduling fixture seed");
-    proxy = await startRecordingProxy(
-      backendOrigin,
-      new Map([
-        [`Bearer ${leaderToken}`, "DepartmentLeader"],
-        [`Bearer ${interviewerToken}`, "Member"],
-      ]),
-    );
+    await runCommand("bun", ["run", "identity:seed"], {
+      cwd: databaseRoot,
+      env: {
+        ...apiEnvironment,
+        IDENTITY_SEED_PG_URL: postgresUrl,
+        IDENTITY_SEED_PERSONS: JSON.stringify(identitySeedPersons),
+      },
+      label: "Disposable scheduling Identity seed",
+    });
+    proxy = await startRecordingProxy(backendOrigin);
 
     const journeyEnvironment = {
       ...baseEnvironment,
       API_URL: proxy.origin,
       VITE_API_URL: proxy.origin,
       DASHBOARD_ORIGIN: dashboardOrigin,
+      BETTER_AUTH_SECRET: betterAuthSecret,
+      BETTER_AUTH_URL: dashboardOrigin,
       REAL_NATIVE_SCHEDULING_E2E: "1",
-      SCHEDULING_E2E_LEADER_TOKEN: leaderToken,
-      SCHEDULING_E2E_INTERVIEWER_TOKEN: interviewerToken,
+      REAL_NATIVE_CONDUCT_E2E: "1",
+      SCHEDULING_E2E_LEADER_EMAIL: leaderEmail,
+      SCHEDULING_E2E_LEADER_PASSWORD: personaPassword,
+      SCHEDULING_E2E_INTERVIEWER_EMAIL: interviewerEmail,
+      SCHEDULING_E2E_INTERVIEWER_PASSWORD: personaPassword,
       SCHEDULING_E2E_APPLICANT_NAME: applicantName,
       SCHEDULING_E2E_INTERVIEWER_NAME: interviewerName,
       SCHEDULING_E2E_BROWSER_EVIDENCE_PATH: browserEvidencePath,
@@ -1033,7 +1057,12 @@ async function main() {
       browser.independentContextPersisted !== true ||
       browser.accessibilityViolations !== 0 ||
       browser.rawCapabilityObserved !== false ||
+      browser.bearerTokenInjected !== false ||
       JSON.stringify(browser.nativeActors) !== JSON.stringify(["DepartmentLeader", "Member"]) ||
+      JSON.stringify(browser.sessionCookieNames?.leader) !==
+        JSON.stringify(["better-auth.session_token"]) ||
+      JSON.stringify(browser.sessionCookieNames?.interviewer) !==
+        JSON.stringify(["better-auth.session_token"]) ||
       JSON.stringify(browser.bridgeOperations) !==
         JSON.stringify(["scheduleInterview", "readSchedulingBoard"]) ||
       !Array.isArray(browser.legacyBrowserRequests) ||
@@ -1048,27 +1077,36 @@ async function main() {
         path === "/api/admin/recruitment/interviews/schedule",
     );
     assertEqual(
-      schedulingRequests.map(({ method, path, bearerActor }) => ({ method, path, bearerActor })),
+      schedulingRequests.map(({ method, path, sessionCookieAuth, authorizationHeaderPresent }) => ({
+        method,
+        path,
+        sessionCookieAuth,
+        authorizationHeaderPresent,
+      })),
       [
         {
           method: "GET",
           path: "/api/admin/recruitment/interviews/scheduling-board",
-          bearerActor: "DepartmentLeader",
+          sessionCookieAuth: true,
+          authorizationHeaderPresent: false,
         },
         {
           method: "POST",
           path: "/api/admin/recruitment/interviews/schedule",
-          bearerActor: "DepartmentLeader",
+          sessionCookieAuth: true,
+          authorizationHeaderPresent: false,
         },
         {
           method: "GET",
           path: "/api/admin/recruitment/interviews/scheduling-board",
-          bearerActor: "DepartmentLeader",
+          sessionCookieAuth: true,
+          authorizationHeaderPresent: false,
         },
         {
           method: "GET",
           path: "/api/admin/recruitment/interviews/scheduling-board",
-          bearerActor: "Member",
+          sessionCookieAuth: true,
+          authorizationHeaderPresent: false,
         },
       ],
       "Native scheduling transport order",
@@ -1076,7 +1114,8 @@ async function main() {
     if (
       schedulingRequests.some(
         (request) =>
-          request.bearerActor === null ||
+          !request.sessionCookieAuth ||
+          request.authorizationHeaderPresent ||
           request.status !== 200 ||
           request.requestHasResponseCapability ||
           request.responseHasResponseCapability,
@@ -1119,19 +1158,21 @@ async function main() {
       nativeTransport: {
         firstContext: schedulingRequests
           .slice(0, 3)
-          .map(({ method, path, status, bearerActor }) => ({
+          .map(({ method, path, status, sessionCookieAuth, authorizationHeaderPresent }) => ({
             method,
             path,
             status,
-            bearerActor,
+            sessionCookieAuth,
+            authorizationHeaderPresent,
           })),
         independentContext: schedulingRequests
           .slice(3)
-          .map(({ method, path, status, bearerActor }) => ({
+          .map(({ method, path, status, sessionCookieAuth, authorizationHeaderPresent }) => ({
             method,
             path,
             status,
-            bearerActor,
+            sessionCookieAuth,
+            authorizationHeaderPresent,
           })),
         legacyRequests: [],
         rawCapabilityObserved: false,
