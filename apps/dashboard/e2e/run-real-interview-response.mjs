@@ -176,6 +176,14 @@ const journeyEntries = [
       "interview-recruiter-mono-route",
     ],
   },
+  {
+    journeyRefId: "intent://journey:recruitment:interview-scheduling:v1",
+    stepIds: [
+      "applicant-loads-response",
+      "applicant-accepts-interview",
+      "fresh-read-accepted-interview",
+    ],
+  },
 ];
 
 const seedSql = `
