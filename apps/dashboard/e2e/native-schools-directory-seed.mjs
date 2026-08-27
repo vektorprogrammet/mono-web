@@ -100,7 +100,7 @@ assert.equal(
 
 const pool = new Pool({
   connectionString: postgresUrl,
-  options: "-c search_path=public",
+  options: "-c search_path=auth,public",
   max: 1,
   application_name: "native-schools-directory-seed-0061",
 });
