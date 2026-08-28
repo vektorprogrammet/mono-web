@@ -14,6 +14,7 @@ import {
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
 const dashboardRoot = fileURLToPath(new URL("../", import.meta.url));
 const sdkRoot = fileURLToPath(new URL("../../../packages/sdk/", import.meta.url));
+const databaseRoot = fileURLToPath(new URL("../../../packages/database/", import.meta.url));
 const composeFile = join(repositoryRoot, "docker-compose.yml");
 const dashboardPort = 5185;
 const backendPort = 8797;
@@ -27,6 +28,63 @@ const shutdownTimeoutMs = 5_000;
 const nixPostgresPackage = "nixpkgs#postgresql_17";
 const adminPersonId = "person-organization-administrator-0052";
 const memberPersonId = "person-organization-member-0052";
+const fixtureDepartmentId = "department-organization-member-0052";
+const fixtureTeamId = "team-organization-member-0052";
+const adminEmail = "administrator.organization.0052@example.invalid";
+const memberEmail = "member.organization.0052@example.invalid";
+const personaPassword = "native-organization-0052-password-0123456789";
+const betterAuthSecret = randomBytes(32).toString("base64url");
+const identitySeedPersons = [
+  {
+    personId: adminPersonId,
+    firstName: "Ada",
+    lastName: "Administrator",
+    email: adminEmail,
+    password: personaPassword,
+  },
+  {
+    personId: memberPersonId,
+    firstName: "Mona",
+    lastName: "Medlem",
+    email: memberEmail,
+    password: personaPassword,
+  },
+];
+const authorityFixturesByPersonId = new Map([
+  [adminPersonId, "active-global-administrator-grant"],
+  [memberPersonId, "active-unsuspended-ordinary-member-membership"],
+]);
+const seedSql = `
+BEGIN;
+INSERT INTO organization_departments (
+  department_id, name, short_name, email, city, active, revision
+) VALUES (
+  '${fixtureDepartmentId}', 'Vektorprogrammet Medlemsavdeling', 'Medlemsavdeling',
+  'medlemsavdeling@example.invalid', 'Trondheim', TRUE, 0
+);
+INSERT INTO person_contact_profiles (person_id, email, phone, revision)
+VALUES
+  ('${adminPersonId}', '${adminEmail}', '+47 900 00 052', 0),
+  ('${memberPersonId}', '${memberEmail}', '+47 900 00 053', 0);
+INSERT INTO organization_teams (team_id, department_id, name, active, revision)
+VALUES (
+  '${fixtureTeamId}', '${fixtureDepartmentId}', 'Ordinært medlemsteam', TRUE, 0
+);
+INSERT INTO organization_memberships (
+  membership_id, person_id, team_id, deleted_team_name, start_at, end_at,
+  position_id, is_team_leader, is_suspended, revision
+) VALUES (
+  'membership-organization-member-0052', '${memberPersonId}', '${fixtureTeamId}', NULL,
+  '2020-01-01T00:00:00.000Z', NULL, 'member', FALSE, FALSE, 0
+);
+INSERT INTO organization_global_administrator_grants (
+  grant_id, person_id, start_at, end_at, revision
+) VALUES (
+  'global-administrator-organization-0052', '${adminPersonId}',
+  '2020-01-01T00:00:00.000Z', NULL, 0
+);
+COMMIT;
+`;
 const journeyRefId = "intent://journey:parity:org_admin:v1";
 const journeyStepIds = [
   "org-admin-api-operation",
@@ -212,16 +270,7 @@ async function waitForPostgres(environment) {
               "-d",
               "receipt_proof",
             ]
-          : [
-              "-h",
-              "127.0.0.1",
-              "-p",
-              String(postgresPort),
-              "-U",
-              "receipt",
-              "-d",
-              "receipt_proof",
-            ];
+          : ["-h", "127.0.0.1", "-p", String(postgresPort), "-U", "receipt", "-d", "receipt_proof"];
       const options = {
         cwd: repositoryRoot,
         env: environment,
@@ -365,20 +414,42 @@ const parseJsonBody = (bytes) => {
     return undefined;
   }
 };
+const sessionCookieNames = new Set([
+  "better-auth.session_token",
+  "__Secure-better-auth.session_token",
+]);
+const sessionCookieKey = (cookieHeader) => {
+  if (typeof cookieHeader !== "string") return undefined;
+  const sessionPairs = cookieHeader
+    .split(";")
+    .map((pair) => pair.trim())
+    .filter((pair) => {
+      const separator = pair.indexOf("=");
+      return separator > 0 && sessionCookieNames.has(pair.slice(0, separator).trim());
+    })
+    .sort();
+  return sessionPairs.length === 0 ? undefined : sessionPairs.join("; ");
+};
 
-async function startRecordingProxy(targetOrigin, actorsByToken) {
+async function startRecordingProxy(targetOrigin) {
   const records = [];
+  const sessionPersonsByCookie = new Map();
   const server = createServer(async (request, response) => {
     const method = request.method ?? "GET";
     const url = new URL(request.url ?? "/", targetOrigin);
     const chunks = [];
     for await (const chunk of request) chunks.push(Buffer.from(chunk));
     const requestBytes = Buffer.concat(chunks);
+    const cookieKey = sessionCookieKey(request.headers.cookie);
     const record = {
       method,
       path: url.pathname,
       query: url.search,
-      bearerActor: actorsByToken.get(request.headers.authorization ?? "") ?? null,
+      sessionCookieAuth: cookieKey !== undefined,
+      authorizationHeaderPresent: request.headers.authorization !== undefined,
+      sessionPersonId:
+        cookieKey === undefined ? null : (sessionPersonsByCookie.get(cookieKey) ?? null),
+      canonicalAuthorityFixture: null,
       request: parseJsonBody(requestBytes),
       status: 0,
     };
@@ -405,12 +476,35 @@ async function startRecordingProxy(targetOrigin, actorsByToken) {
         redirect: "manual",
       });
       const responseBytes = Buffer.from(await upstream.arrayBuffer());
+      const responseJson = parseJsonBody(responseBytes);
       record.status = upstream.status;
+      if (
+        cookieKey !== undefined &&
+        upstream.status === 200 &&
+        url.pathname === "/api/me/session" &&
+        responseJson !== null &&
+        typeof responseJson === "object" &&
+        "personId" in responseJson &&
+        typeof responseJson.personId === "string"
+      ) {
+        sessionPersonsByCookie.set(cookieKey, responseJson.personId);
+        record.sessionPersonId = responseJson.personId;
+      }
+      if (record.sessionPersonId !== null) {
+        record.canonicalAuthorityFixture =
+          authorityFixturesByPersonId.get(record.sessionPersonId) ?? null;
+      }
       response.statusCode = upstream.status;
       for (const [name, value] of upstream.headers.entries()) {
-        if (["content-encoding", "content-length", "transfer-encoding"].includes(name)) continue;
+        if (
+          ["content-encoding", "content-length", "set-cookie", "transfer-encoding"].includes(name)
+        ) {
+          continue;
+        }
         response.setHeader(name, value);
       }
+      const setCookie = upstream.headers.getSetCookie();
+      if (setCookie.length > 0) response.setHeader("set-cookie", setCookie);
       response.setHeader("content-length", String(responseBytes.byteLength));
       response.end(responseBytes);
     } catch {
@@ -476,6 +570,29 @@ async function readDatabaseEvidence(environment) {
         'unknownDepartmentTeams', (SELECT count(*) FROM organization_teams WHERE name = 'Team Nordlys' AND department_id = 'department-does-not-exist-0052'),
         'changedReplayDepartments', (SELECT count(*) FROM organization_departments WHERE name = 'Et annet navn')
       ),
+      'authorityFixtures', json_build_object(
+        'identityUsers', (SELECT count(*) FROM auth."user" WHERE id IN ('${adminPersonId}', '${memberPersonId}')),
+        'credentialAccounts', (SELECT count(*) FROM auth.account WHERE "userId" IN ('${adminPersonId}', '${memberPersonId}') AND "providerId" = 'credential'),
+        'contactProfiles', (SELECT count(*) FROM person_contact_profiles WHERE person_id IN ('${adminPersonId}', '${memberPersonId}')),
+        'fixtureDepartments', (SELECT count(*) FROM organization_departments WHERE department_id = '${fixtureDepartmentId}' AND active),
+        'fixtureTeams', (SELECT count(*) FROM organization_teams WHERE team_id = '${fixtureTeamId}' AND department_id = '${fixtureDepartmentId}' AND active),
+        'adminActiveGlobalGrants', (SELECT count(*) FROM organization_global_administrator_grants WHERE person_id = '${adminPersonId}' AND start_at <= now() AND (end_at IS NULL OR now() < end_at)),
+        'memberActiveGlobalGrants', (SELECT count(*) FROM organization_global_administrator_grants WHERE person_id = '${memberPersonId}' AND start_at <= now() AND (end_at IS NULL OR now() < end_at)),
+        'memberActiveOrdinaryMemberships', (
+          SELECT count(*)
+          FROM organization_memberships membership
+          JOIN organization_teams team ON team.team_id = membership.team_id
+          JOIN organization_departments department ON department.department_id = team.department_id
+          WHERE membership.person_id = '${memberPersonId}'
+            AND membership.team_id = '${fixtureTeamId}'
+            AND membership.start_at <= now()
+            AND (membership.end_at IS NULL OR now() < membership.end_at)
+            AND NOT membership.is_team_leader
+            AND NOT membership.is_suspended
+            AND team.active
+            AND department.active
+        )
+      ),
       'receipts', (SELECT coalesce(json_agg(to_jsonb(receipt) ORDER BY command_id), '[]'::json) FROM organization_command_receipts receipt WHERE command_id IN (${acceptedIds})),
       'audits', (SELECT coalesce(json_agg(to_jsonb(audit) ORDER BY command_id), '[]'::json) FROM organization_creation_audit audit WHERE command_id IN (${acceptedIds})),
       'provenanceLinks', (
@@ -511,7 +628,8 @@ async function readDatabaseEvidence(environment) {
     "Native Organization PostgreSQL evidence query",
   );
   const source = result.stdout.trim();
-  if (source.length === 0) throw new Error("Organization PostgreSQL evidence query returned no JSON");
+  if (source.length === 0)
+    throw new Error("Organization PostgreSQL evidence query returned no JSON");
   try {
     return JSON.parse(source);
   } catch {
@@ -521,7 +639,9 @@ async function readDatabaseEvidence(environment) {
 
 const assertEqual = (actual, expected, label) => {
   if (JSON.stringify(actual) !== JSON.stringify(expected)) {
-    throw new Error(`${label} was ${JSON.stringify(actual)} instead of ${JSON.stringify(expected)}`);
+    throw new Error(
+      `${label} was ${JSON.stringify(actual)} instead of ${JSON.stringify(expected)}`,
+    );
   }
 };
 
@@ -537,11 +657,35 @@ function assertDatabaseEvidence(evidence) {
     },
     "Native Organization entity counts",
   );
+  assertEqual(
+    evidence.authorityFixtures,
+    {
+      identityUsers: 2,
+      credentialAccounts: 2,
+      contactProfiles: 2,
+      fixtureDepartments: 1,
+      fixtureTeams: 1,
+      adminActiveGlobalGrants: 1,
+      memberActiveGlobalGrants: 0,
+      memberActiveOrdinaryMemberships: 1,
+    },
+    "Native Organization persona and authority fixtures",
+  );
   assertEqual(evidence.receipts.length, 3, "Native Organization receipt count");
   assertEqual(evidence.audits.length, 3, "Native Organization audit count");
   assertEqual(evidence.provenanceLinks, 3, "Native Organization provenance linkage count");
   assertEqual(evidence.deniedReceipts, 0, "Rejected Organization receipt count");
   assertEqual(evidence.deniedAudits, 0, "Rejected Organization audit count");
+  assertEqual(
+    [...new Set(evidence.receipts.map(({ actor_person_id: personId }) => personId))],
+    [adminPersonId],
+    "Native Organization receipt actors",
+  );
+  assertEqual(
+    [...new Set(evidence.audits.map(({ actor_person_id: personId }) => personId))],
+    [adminPersonId],
+    "Native Organization audit actors",
+  );
   const requiredReceiptFields = [
     "command_id",
     "command_sha256",
@@ -629,51 +773,21 @@ async function main() {
     mkdir(committedRoot, { recursive: true }),
   ]);
 
-  const adminToken = randomBytes(32).toString("base64url");
-  const memberToken = randomBytes(32).toString("base64url");
-  const organizationActors = JSON.stringify({
-    [adminToken]: { _tag: "OrganizationAdministrator", personId: adminPersonId },
-    [memberToken]: { _tag: "OrganizationMember", personId: memberPersonId },
-  });
-  const admissionTokens = JSON.stringify({
-    [adminToken]: {
-      _tag: "Member",
-      personId: adminPersonId,
-      departmentId: "organization-runner-department-0052",
-      active: true,
-    },
-    [memberToken]: {
-      _tag: "Member",
-      personId: memberPersonId,
-      departmentId: "organization-runner-department-0052",
-      active: true,
-    },
-  });
-  const receiptPrincipal = (personId) => ({
-    personId,
-    departmentId: "organization-runner-department-0052",
-    active: true,
-    paymentAccountCiphertext: randomBytes(32).toString("base64url"),
-    approvalScope: { _tag: "None" },
-  });
-  const receiptTokens = JSON.stringify({
-    [adminToken]: receiptPrincipal(adminPersonId),
-    [memberToken]: receiptPrincipal(memberPersonId),
-  });
   const baseEnvironment = { ...process.env };
   delete baseEnvironment.API_MODE;
   delete baseEnvironment.VITE_API_MODE;
   delete baseEnvironment.ALCHEMY_CLOUDFLARE_VITE_INJECTED;
+  delete baseEnvironment.ORGANIZATION_AUTH_TOKENS;
+  delete baseEnvironment.ADMISSION_AUTH_TOKENS;
+  delete baseEnvironment.RECEIPT_AUTH_TOKENS;
   const apiEnvironment = {
     ...baseEnvironment,
     BACKEND_HOST: "127.0.0.1",
     BACKEND_PORT: String(backendPort),
     BACKEND_PG_URL: postgresUrl,
-    ORGANIZATION_AUTH_TOKENS: organizationActors,
+    BETTER_AUTH_SECRET: betterAuthSecret,
+    BETTER_AUTH_URL: dashboardOrigin,
     PUBLIC_APPLICATION_EFFECT_MODE: "disabled",
-    ADMISSION_AUTH_TOKENS: admissionTokens,
-    ADMISSION_FIXED_NOW: "2032-02-20T10:00:00.000Z",
-    RECEIPT_AUTH_TOKENS: receiptTokens,
     RECEIPT_STAGING_ROOT: stagingRoot,
     RECEIPT_COMMITTED_ROOT: committedRoot,
     RECEIPT_MAX_FILE_BYTES: "10485760",
@@ -782,25 +896,35 @@ async function main() {
           env: apiEnvironment,
         });
     await waitForHttp(`${backendOrigin}/health`, apiProcess, "Unified native backend");
-    proxy = await startRecordingProxy(
-      backendOrigin,
-      new Map([
-        [`Bearer ${adminToken}`, "OrganizationAdministrator"],
-        [`Bearer ${memberToken}`, "OrganizationMember"],
-      ]),
-    );
+    await runCommand("bun", ["run", "identity:seed"], {
+      cwd: databaseRoot,
+      env: {
+        ...apiEnvironment,
+        IDENTITY_SEED_PG_URL: postgresUrl,
+        IDENTITY_SEED_PERSONS: JSON.stringify(identitySeedPersons),
+      },
+      label: "Disposable Organization Identity seed",
+    });
+    await runPsql(seedSql, baseEnvironment, "Native Organization authority fixture seed");
+    proxy = await startRecordingProxy(backendOrigin);
 
     const journeyEnvironment = {
       ...baseEnvironment,
-      API_MODE: "fixture",
-      VITE_API_MODE: "fixture",
       API_URL: proxy.origin,
       VITE_API_URL: proxy.origin,
       DASHBOARD_ORIGIN: dashboardOrigin,
+      BETTER_AUTH_SECRET: betterAuthSecret,
+      BETTER_AUTH_URL: dashboardOrigin,
       REAL_NATIVE_ORGANIZATION_E2E: "1",
-      ORGANIZATION_E2E_ADMIN_TOKEN: adminToken,
-      ORGANIZATION_E2E_MEMBER_TOKEN: memberToken,
+      REAL_NATIVE_CONDUCT_E2E: "1",
+      ORGANIZATION_E2E_ADMIN_EMAIL: adminEmail,
+      ORGANIZATION_E2E_ADMIN_PASSWORD: personaPassword,
+      ORGANIZATION_E2E_ADMIN_PERSON_ID: adminPersonId,
+      ORGANIZATION_E2E_MEMBER_EMAIL: memberEmail,
+      ORGANIZATION_E2E_MEMBER_PASSWORD: personaPassword,
+      ORGANIZATION_E2E_MEMBER_PERSON_ID: memberPersonId,
       ORGANIZATION_E2E_BROWSER_EVIDENCE_PATH: browserEvidencePath,
+      BACKEND_PG_URL: postgresUrl,
     };
     await runCommand("bun", ["run", "build"], {
       cwd: sdkRoot,
@@ -843,13 +967,53 @@ async function main() {
 
     const browser = await readJsonFile(browserEvidencePath, "Native Organization browser evidence");
     assertEqual(browser.journeyRefId, journeyRefId, "Organization journey reference");
-    assertEqual([...browser.acceptedStepIds].sort(), [...journeyStepIds].sort(), "Organization steps");
+    assertEqual(
+      [...browser.acceptedStepIds].sort(),
+      [...journeyStepIds].sort(),
+      "Organization steps",
+    );
     assertEqual(browser.browser.legacyBrowserRequests, [], "Symfony Organization browser requests");
     assertEqual(browser.browser.pageErrors, [], "Organization browser page errors");
     assertEqual(
       browser.browser.accessibilityViolations,
       { team: 0, fieldOfStudy: 0 },
       "Organization accessibility violations",
+    );
+    assertEqual(
+      browser.sessions,
+      {
+        administrator: {
+          nativeLogin: true,
+          sessionCookieNames: ["better-auth.session_token"],
+          apiSessionPath: "/api/me/session",
+          personId: adminPersonId,
+        },
+        member: {
+          nativeLogin: true,
+          sessionCookieNames: ["better-auth.session_token"],
+          apiSessionPath: "/api/me/session",
+          personId: memberPersonId,
+        },
+      },
+      "Native Organization rendered-login sessions",
+    );
+    const resolvedSessionPersonIds = [
+      ...new Set(
+        proxy.records
+          .filter(
+            ({ path, status, sessionCookieAuth, authorizationHeaderPresent }) =>
+              path === "/api/me/session" &&
+              status === 200 &&
+              sessionCookieAuth &&
+              !authorizationHeaderPresent,
+          )
+          .map(({ sessionPersonId }) => sessionPersonId),
+      ),
+    ].sort();
+    assertEqual(
+      resolvedSessionPersonIds,
+      [adminPersonId, memberPersonId].sort(),
+      "Native Organization session PersonIds",
     );
     const database = await readDatabaseEvidence(baseEnvironment);
     assertDatabaseEvidence(database);
@@ -866,33 +1030,118 @@ async function main() {
     );
     const statusFacts = organizationRequests
       .filter(({ method }) => method === "POST")
-      .map(({ path, status, bearerActor, request }) => ({
-        path,
-        status,
-        bearerActor,
-        commandId: request?.commandId,
-      }));
+      .map(
+        ({
+          path,
+          status,
+          sessionCookieAuth,
+          authorizationHeaderPresent,
+          sessionPersonId,
+          canonicalAuthorityFixture,
+          request,
+        }) => ({
+          path,
+          status,
+          sessionCookieAuth,
+          authorizationHeaderPresent,
+          sessionPersonId,
+          canonicalAuthorityFixture,
+          commandId: request?.commandId,
+        }),
+      );
     const expectedStatusFacts = [
-      ["/api/admin/departments", 201, "OrganizationAdministrator", commandIds.department],
-      ["/api/admin/teams", 201, "OrganizationAdministrator", commandIds.team],
-      ["/api/admin/field-of-studies", 201, "OrganizationAdministrator", commandIds.fieldOfStudy],
-      ["/api/admin/teams", 422, "OrganizationAdministrator", commandIds.unknownDepartment],
-      ["/api/admin/departments", 403, "OrganizationMember", commandIds.memberDenied],
-      ["/api/admin/departments", 200, "OrganizationAdministrator", commandIds.department],
-      ["/api/admin/departments", 409, "OrganizationAdministrator", commandIds.department],
+      [
+        "/api/admin/departments",
+        201,
+        true,
+        false,
+        adminPersonId,
+        "active-global-administrator-grant",
+        commandIds.department,
+      ],
+      [
+        "/api/admin/teams",
+        201,
+        true,
+        false,
+        adminPersonId,
+        "active-global-administrator-grant",
+        commandIds.team,
+      ],
+      [
+        "/api/admin/field-of-studies",
+        201,
+        true,
+        false,
+        adminPersonId,
+        "active-global-administrator-grant",
+        commandIds.fieldOfStudy,
+      ],
+      [
+        "/api/admin/teams",
+        422,
+        true,
+        false,
+        adminPersonId,
+        "active-global-administrator-grant",
+        commandIds.unknownDepartment,
+      ],
+      [
+        "/api/admin/departments",
+        403,
+        true,
+        false,
+        memberPersonId,
+        "active-unsuspended-ordinary-member-membership",
+        commandIds.memberDenied,
+      ],
+      [
+        "/api/admin/departments",
+        200,
+        true,
+        false,
+        adminPersonId,
+        "active-global-administrator-grant",
+        commandIds.department,
+      ],
+      [
+        "/api/admin/departments",
+        409,
+        true,
+        false,
+        adminPersonId,
+        "active-global-administrator-grant",
+        commandIds.department,
+      ],
     ];
     assertEqual(
-      statusFacts.map(({ path, status, bearerActor, commandId }) => [
-        path,
-        status,
-        bearerActor,
-        commandId,
-      ]),
+      statusFacts.map(
+        ({
+          path,
+          status,
+          sessionCookieAuth,
+          authorizationHeaderPresent,
+          sessionPersonId,
+          canonicalAuthorityFixture,
+          commandId,
+        }) => [
+          path,
+          status,
+          sessionCookieAuth,
+          authorizationHeaderPresent,
+          sessionPersonId,
+          canonicalAuthorityFixture,
+          commandId,
+        ],
+      ),
       expectedStatusFacts,
       "Native Organization transport facts",
     );
     if (organizationRequests.some(({ query }) => query !== "")) {
       throw new Error("Native Organization transport unexpectedly used query parameters");
+    }
+    if (organizationRequests.some(({ authorizationHeaderPresent }) => authorizationHeaderPresent)) {
+      throw new Error("Native Organization transport unexpectedly used Authorization");
     }
     if (receiptRequested()) await emitReceipt(playwright.stdout);
 
@@ -910,12 +1159,25 @@ async function main() {
       journeyRefId,
       acceptedStepIds: journeyStepIds,
       browser,
-      nativeTransport: organizationRequests.map(({ method, path, status, bearerActor }) => ({
-        method,
-        path,
-        status,
-        bearerActor,
-      })),
+      nativeTransport: organizationRequests.map(
+        ({
+          method,
+          path,
+          status,
+          sessionCookieAuth,
+          authorizationHeaderPresent,
+          sessionPersonId,
+          canonicalAuthorityFixture,
+        }) => ({
+          method,
+          path,
+          status,
+          sessionCookieAuth,
+          authorizationHeaderPresent,
+          sessionPersonId,
+          canonicalAuthorityFixture,
+        }),
+      ),
       postgres: database,
       symfonyOrganizationRequests: [],
     };
