@@ -4,8 +4,8 @@
 
 | Field | Value |
 |---|---|
-| Status | Contract remains frozen. Amendment 0049.1 authorizes one bounded evidence-harness correction only. Amendment implementation, runtime evidence, and acceptance evidence are pending. |
-| Revision | Amendment 0049.1 records the native Identity and receipt evidence contract. Implementation and evidence remain pending. |
+| Status | Contract remains frozen. Amendments 0049.1 and 0049.2 authorize bounded evidence-harness and evidence-runner corrections only. Amendment implementation, runtime evidence, and acceptance evidence are pending. |
+| Revision | Amendments 0049.1 and 0049.2 record the native Identity, receipt, and cold-start evidence contracts. Implementation and evidence remain pending. |
 | Base | `d867bf7b7eea44412e267127006f8c7c7dbadab2` (`d867bf7`) |
 | Goal | Replace the Symfony applicant-assignment seam with one native Recruitment authority and one full-Foldkit team-leader journey |
 | Actor | Active department team leader |
@@ -72,6 +72,33 @@ The harness must not use JWT cookies, token maps, fixture authentication adapter
 The correction must not change product authentication policy, access policy, product routes, frozen authority semantics, or transaction semantics.
 
 It authorizes no production data, external provider, production credential, deployment, or remote effect. Local PostgreSQL persistence is not PostgreSQL concurrency evidence.
+
+Implementation, runtime evidence, and acceptance evidence remain pending.
+
+## Amendment 0049.2 — assignment runner cold-start evidence observation
+
+Cold-start dependency optimization in React Router and Vite can repeat the initial `GET assignment-board?status=all` request once.
+
+This amendment authorizes one bounded evidence-runner correction. After backend and authenticated-session readiness, the runner must begin the request ledger before the first recruitment interaction.
+
+The request ledger can contain one optional immediate duplicate of the initial request. The only accepted sequence is:
+
+1. `GET /api/admin/recruitment/assignment-board?status=all`.
+2. Optionally, one duplicate of `GET /api/admin/recruitment/assignment-board?status=all`.
+3. `GET /api/admin/recruitment/assignment-board?status=new`.
+4. `POST /api/admin/recruitment/interviews/assign`.
+5. A fresh `GET /api/admin/recruitment/assignment-board?status=new`.
+6. `GET /api/admin/recruitment/assignment-board?status=all`.
+
+Each request must return `200`. The runner must reject any missing, other duplicate, additional, reordered, or failed request.
+
+The browser evidence and request ledger must state whether the optional duplicate occurred.
+
+This correction applies only to the evidence runner. It must preserve product behavior, all frozen authority semantics, and the existing operator boundary.
+
+It authorizes no product, route, authentication, access-policy, transaction, receipt, or journey-sequence change. It authorizes no legacy request or compatibility route.
+
+It authorizes no production data, remote PostgreSQL, provider, credential, deployment, external notification, or other remote effect.
 
 Implementation, runtime evidence, and acceptance evidence remain pending.
 
