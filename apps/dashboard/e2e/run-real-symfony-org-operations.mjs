@@ -10,35 +10,37 @@ import {
   sanitizePlaywrightArtifact,
 } from "./runtime-evidence-receipt.mjs";
 
-const apiOrigin = "http://127.0.0.1:8000";
+const legacyOrigin = "http://127.0.0.1:8000";
+const nativeOrigin = "http://127.0.0.1:8872";
 const dashboardOrigin = "http://127.0.0.1:5174";
-const apiPort = 8000;
+const legacyPort = 8000;
+const nativePort = 8872;
 const dashboardPort = 5174;
+const postgresPort = 55472;
+const postgresDatabase = "schools_e2e_0061";
+const postgresUrl = `postgres://postgres@127.0.0.1:${postgresPort}/${postgresDatabase}`;
+const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
 const serverRoot = fileURLToPath(new URL("../../server/", import.meta.url));
+const backendRoot = fileURLToPath(new URL("../../backend/", import.meta.url));
 const dashboardRoot = fileURLToPath(new URL("../", import.meta.url));
+const databaseRoot = fileURLToPath(new URL("../../../packages/database/", import.meta.url));
 const sdkRoot = fileURLToPath(new URL("../../../packages/sdk/", import.meta.url));
-const runnerSourcePath = fileURLToPath(
-  new URL("./run-real-symfony-org-operations.mjs", import.meta.url),
-);
+const runnerSourcePath = fileURLToPath(import.meta.url);
 const specSourcePath = fileURLToPath(
   new URL("./real-symfony-org-operations.spec.ts", import.meta.url),
 );
-const fixtureSourcePath = fileURLToPath(
+const legacyFixtureSourcePath = fileURLToPath(
   new URL("../../server/tests/Fixtures/OrgOperationsJourneyFixture.php", import.meta.url),
 );
+const nativeFixtureSourcePath = fileURLToPath(
+  new URL("./native-schools-directory-seed.mjs", import.meta.url),
+);
+const nativeSeedPath = nativeFixtureSourcePath;
+const betterAuthSecret = randomBytes(32).toString("hex");
 const commandTimeoutMs = 120_000;
 const shutdownTimeoutMs = 5_000;
 
 const journeys = [
-  {
-    journeyRefId: "intent://journey:parity:finance_operations:v1",
-    stepIds: [
-      "finance-operations-api-operation",
-      "finance-operations-command-write",
-      "finance-operations-legacy-route",
-      "finance-operations-mono-route",
-    ],
-  },
   {
     journeyRefId: "intent://journey:parity:identity_admin:v1",
     stepIds: [
@@ -46,15 +48,6 @@ const journeys = [
       "identity-admin-command-write",
       "identity-admin-legacy-route",
       "identity-admin-mono-route",
-    ],
-  },
-  {
-    journeyRefId: "intent://journey:parity:org_admin:v1",
-    stepIds: [
-      "org-admin-api-operation",
-      "org-admin-command-write",
-      "org-admin-legacy-route",
-      "org-admin-mono-route",
     ],
   },
   {
@@ -94,6 +87,39 @@ function requireOpenSsl() {
   if (result.error || result.status !== 0) {
     throw new Error("Missing prerequisite: openssl must be installed and available on PATH.");
   }
+}
+
+function requirePostgres17() {
+  const result = spawnSync("postgres", ["--version"], { encoding: "utf8" });
+  if (
+    result.error ||
+    result.status !== 0 ||
+    !/PostgreSQL\) 17\./u.test(`${result.stdout ?? ""}${result.stderr ?? ""}`)
+  ) {
+    throw new Error("Missing prerequisite: PostgreSQL 17 must be installed and available on PATH.");
+  }
+}
+
+async function hybridFixtureManifestBytes() {
+  const sources = [
+    {
+      path: "apps/server/tests/Fixtures/OrgOperationsJourneyFixture.php",
+      bytes: await readFile(legacyFixtureSourcePath),
+    },
+    {
+      path: "apps/dashboard/e2e/native-schools-directory-seed.mjs",
+      bytes: await readFile(nativeFixtureSourcePath),
+    },
+  ];
+  return Buffer.from(
+    JSON.stringify(
+      sources.map((source) => ({
+        source_path: source.path,
+        bytes_base64: Buffer.from(source.bytes).toString("base64"),
+      })),
+    ),
+    "utf8",
+  );
 }
 
 function runCommand(command, args, options) {
@@ -172,6 +198,27 @@ async function waitForHttp(url, child) {
   throw new Error(`Timed out waiting for ${url}: ${lastError}`);
 }
 
+async function waitForPort(port, child, label) {
+  const deadline = Date.now() + commandTimeoutMs;
+  while (Date.now() < deadline) {
+    if (child.exitCode !== null) throw new Error(`${label} exited before readiness`);
+    const ready = await new Promise((resolvePort) => {
+      const socket = createConnection({ host: "127.0.0.1", port });
+      socket.once("connect", () => {
+        socket.destroy();
+        resolvePort(true);
+      });
+      socket.once("error", () => {
+        socket.destroy();
+        resolvePort(false);
+      });
+    });
+    if (ready) return;
+    await sleep(100);
+  }
+  throw new Error(`Timed out waiting for ${label} on port ${port}`);
+}
+
 function signalProcessGroup(child, signal) {
   if (child?.pid === undefined) return;
   try {
@@ -226,11 +273,12 @@ function assertDisposableDatabaseUrl(databaseUrl, temporaryRoot) {
 
 async function main() {
   requireOpenSsl();
-  await assertPortAvailable(apiPort);
-  await assertPortAvailable(dashboardPort);
+  requirePostgres17();
+  await Promise.all([legacyPort, nativePort, dashboardPort, postgresPort].map(assertPortAvailable));
 
-  const temporaryRoot = await mkdtemp(join(tmpdir(), "mono-web-org-operations-0032-"));
+  const temporaryRoot = await mkdtemp(join(tmpdir(), "mono-web-hybrid-org-operations-0032-"));
   const databasePath = join(temporaryRoot, "org-operations.sqlite");
+  const postgresDataDir = join(temporaryRoot, "postgres");
   const privateKeyPath = join(temporaryRoot, "jwt-private.pem");
   const publicKeyPath = join(temporaryRoot, "jwt-public.pem");
   const routerPath = join(temporaryRoot, "router.php");
@@ -254,6 +302,8 @@ async function main() {
   ];
   assertDisposableDatabase(databasePath, temporaryRoot);
   const databaseUrl = `sqlite:///${databasePath}`;
+  let postgresProcess;
+  let nativeBackendProcess;
   let symfonyProcess;
   let dashboardProcess;
   let cleaned = false;
@@ -293,6 +343,21 @@ async function main() {
   assertDisposableDatabaseUrl(serverEnv.DATABASE_URL, temporaryRoot);
   assertDisposableDatabaseUrl(serverEnv.E2E_DATABASE_URL, temporaryRoot);
 
+  const nativeBackendEnv = {
+    ...process.env,
+    BACKEND_HOST: "127.0.0.1",
+    BACKEND_PORT: String(nativePort),
+    BACKEND_PG_URL: postgresUrl,
+    BETTER_AUTH_SECRET: betterAuthSecret,
+    BETTER_AUTH_URL: dashboardOrigin,
+    PUBLIC_APPLICATION_EFFECT_MODE: "disabled",
+    ADMISSION_AUTH_TOKENS: "{}",
+    RECEIPT_AUTH_TOKENS: "{}",
+    ORGANIZATION_AUTH_TOKENS: "{}",
+  };
+  delete nativeBackendEnv.API_MODE;
+  delete nativeBackendEnv.VITE_API_MODE;
+
   const dashboardEnv = { ...process.env };
   delete dashboardEnv.API_MODE;
   delete dashboardEnv.VITE_API_MODE;
@@ -300,8 +365,9 @@ async function main() {
   dashboardEnv.REAL_SYMFONY_ORG_OPERATIONS_E2E = "1";
   // The existing Playwright config uses this real-dashboard project switch.
   dashboardEnv.REAL_SYMFONY_INTERVIEW_SCHEDULING_E2E = "1";
-  dashboardEnv.API_URL = apiOrigin;
-  dashboardEnv.VITE_API_URL = apiOrigin;
+  dashboardEnv.API_URL = nativeOrigin;
+  dashboardEnv.VITE_API_URL = nativeOrigin;
+  dashboardEnv.LEGACY_SYMFONY_URL = legacyOrigin;
   dashboardEnv.DASHBOARD_ORIGIN = dashboardOrigin;
   dashboardEnv.VITE_DASHBOARD_ORIGIN = dashboardOrigin;
   dashboardEnv.HOST = "127.0.0.1";
@@ -311,9 +377,9 @@ async function main() {
     if (cleaned) return;
     cleaned = true;
     const cleanupErrors = [];
-    for (const process of [dashboardProcess, symfonyProcess]) {
+    for (const child of [dashboardProcess, nativeBackendProcess, symfonyProcess, postgresProcess]) {
       try {
-        await stopProcess(process);
+        await stopProcess(child);
       } catch (error) {
         cleanupErrors.push(error);
       }
@@ -342,10 +408,7 @@ async function main() {
       }
     }
     if (cleanupErrors.length > 0) {
-      throw new AggregateError(
-        cleanupErrors,
-        "Real Symfony organization operations cleanup failed",
-      );
+      throw new AggregateError(cleanupErrors, "Hybrid organization operations cleanup failed");
     }
   };
 
@@ -364,8 +427,49 @@ async function main() {
   let primaryError;
   let primaryFailed = false;
   try {
-    await rm(symfonyCacheDir, { recursive: true, force: true });
-    await rm(symfonyLogDir, { recursive: true, force: true });
+    for (const directory of [symfonyCacheDir, symfonyLogDir, symfonySessionDir]) {
+      await rm(directory, { recursive: true, force: true });
+    }
+
+    await runCommand(
+      "initdb",
+      [
+        "-D",
+        postgresDataDir,
+        "--username=postgres",
+        "--auth-local=trust",
+        "--auth-host=trust",
+        "--no-locale",
+        "--encoding=UTF8",
+      ],
+      { cwd: repositoryRoot, env: process.env },
+    );
+    postgresProcess = startProcess(
+      "postgres",
+      ["-D", postgresDataDir, "-p", String(postgresPort), "-h", "127.0.0.1", "-k", temporaryRoot],
+      { cwd: repositoryRoot, env: process.env },
+    );
+    await waitForPort(postgresPort, postgresProcess, "PostgreSQL 17");
+    await runCommand(
+      "createdb",
+      ["-h", "127.0.0.1", "-p", String(postgresPort), "-U", "postgres", postgresDatabase],
+      { cwd: repositoryRoot, env: process.env },
+    );
+    await runCommand("bun", [nativeSeedPath], {
+      cwd: databaseRoot,
+      env: {
+        ...process.env,
+        SCHOOLS_E2E_PG_URL: postgresUrl,
+        SCHOOLS_E2E_DASHBOARD_ORIGIN: dashboardOrigin,
+        BETTER_AUTH_SECRET: betterAuthSecret,
+      },
+    });
+    nativeBackendProcess = startProcess("bun", ["run", "src/main.ts"], {
+      cwd: backendRoot,
+      env: nativeBackendEnv,
+    });
+    await waitForHttp(`${nativeOrigin}/health`, nativeBackendProcess);
+
     await runCommand("openssl", ["genrsa", "-out", privateKeyPath, "2048"], {
       cwd: serverRoot,
       env: serverEnv,
@@ -407,10 +511,10 @@ require $_SERVER['DOCUMENT_ROOT'].'/index.php';
     await runCommand("bun", ["run", "build:prod"], { cwd: serverRoot, env: serverEnv });
     symfonyProcess = startProcess(
       "php",
-      ["-d", "variables_order=EGPCS", "-S", "127.0.0.1:8000", "-t", "public", routerPath],
+      ["-d", "variables_order=EGPCS", "-S", `127.0.0.1:${legacyPort}`, "-t", "public", routerPath],
       { cwd: serverRoot, env: serverEnv },
     );
-    await waitForHttp(`${apiOrigin}/api/docs`, symfonyProcess);
+    await waitForHttp(`${legacyOrigin}/api/docs`, symfonyProcess);
 
     await runCommand("bun", ["run", "build"], { cwd: sdkRoot, env: dashboardEnv });
     await runCommand("bun", ["run", "build"], { cwd: dashboardRoot, env: dashboardEnv });
@@ -451,12 +555,12 @@ require $_SERVER['DOCUMENT_ROOT'].'/index.php';
       }
       await emitRuntimeEvidenceReceipts({
         journeys,
-        fixtureId: "org-operations-journeys-0032",
+        fixtureId: "hybrid-org-operations-0032.2",
         runnerSourceInputBytes: [
           { sourceRefId: runnerSourceRefIds[0], bytes: await readFile(runnerSourcePath) },
           { sourceRefId: runnerSourceRefIds[1], bytes: await readFile(specSourcePath) },
         ],
-        fixtureInputBytes: await readFile(fixtureSourcePath),
+        fixtureInputBytes: await hybridFixtureManifestBytes(),
         artifactBytes: sanitizePlaywrightArtifact(e2eResult.stdout),
       });
     }

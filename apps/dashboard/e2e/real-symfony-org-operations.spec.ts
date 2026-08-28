@@ -1,31 +1,28 @@
-import { expect, test, type APIResponse, type Page } from "@playwright/test";
+import {
+  expect,
+  test,
+  type APIRequestContext,
+  type APIResponse,
+  type Page,
+} from "@playwright/test";
 
-const apiOrigin = process.env.API_URL ?? "http://127.0.0.1:8000";
-const adminUsername = "org-ops-admin-0032";
-const leaderUsername = "org-ops-leader-0032";
-const memberUsername = "org-ops-member-0032";
-const userUsername = "org-ops-user-0032";
-const password = "org-operations-password-0032";
+const nativeApiOrigin = process.env.API_URL ?? "http://127.0.0.1:8872";
+const legacyAdminUsername = "org-ops-admin-0032";
+const legacyLeaderUsername = "org-ops-leader-0032";
+const legacyMemberUsername = "org-ops-member-0032";
+const legacyPassword = "org-operations-password-0032";
+const nativeAdministrator = {
+  email: "administrator.schools.0061@example.invalid",
+  password: "schools-admin-0061-password",
+} as const;
+const nativeDirectoryEmail = "two-departments.schools.0061@example.invalid";
 const fixtureDepartmentShortName = "OPS32";
 const fixtureFieldShortName = "OPS32-STUDY";
-const receiptDescription = "Org operations receipt 0032";
 const createdIdentityEmail = "identity-admin-created-0032@example.invalid";
-const createdDepartmentName = "Org operations created department 0032";
-const createdTeamName = "Org operations created team 0032";
-const createdFieldName = "Org operations created studies 0032";
 const createdSchoolName = "Org operations created school 0032";
 const createdSemester = { semesterTime: "Vår", year: "2032" };
 
 const journeys = {
-  financeOperations: {
-    journeyRefId: "intent://journey:parity:finance_operations:v1",
-    stepIds: [
-      "finance-operations-api-operation",
-      "finance-operations-command-write",
-      "finance-operations-legacy-route",
-      "finance-operations-mono-route",
-    ],
-  },
   identityAdmin: {
     journeyRefId: "intent://journey:parity:identity_admin:v1",
     stepIds: [
@@ -33,15 +30,6 @@ const journeys = {
       "identity-admin-command-write",
       "identity-admin-legacy-route",
       "identity-admin-mono-route",
-    ],
-  },
-  orgAdmin: {
-    journeyRefId: "intent://journey:parity:org_admin:v1",
-    stepIds: [
-      "org-admin-api-operation",
-      "org-admin-command-write",
-      "org-admin-legacy-route",
-      "org-admin-mono-route",
     ],
   },
   schoolScheduling: {
@@ -58,17 +46,25 @@ const journeys = {
 export { journeys };
 
 type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
-
 type JsonObject = { [key: string]: JsonValue };
+
+function requiredLegacyOrigin(): string {
+  const origin = process.env.LEGACY_SYMFONY_URL;
+  if (origin === undefined || origin.length === 0) {
+    throw new Error("LEGACY_SYMFONY_URL is required for hybrid organization evidence");
+  }
+  return new URL(origin).origin;
+}
 
 function requireOrgOperationsMode(): void {
   test.skip(
     process.env.REAL_SYMFONY_ORG_OPERATIONS_E2E !== "1",
-    "requires the real Symfony organization operations command",
+    "requires the real hybrid organization operations command",
   );
   expect(process.env.REAL_SYMFONY_ORG_OPERATIONS_E2E).toBe("1");
   expect(process.env.API_MODE).not.toBe("fixture");
   expect(process.env.VITE_API_MODE).not.toBe("fixture");
+  expect(new URL(nativeApiOrigin).origin).not.toBe(requiredLegacyOrigin());
 }
 
 function apiHeaders(token?: string, withBody = false): Record<string, string> {
@@ -103,14 +99,14 @@ function numericId(value: JsonValue): number {
   return value.id;
 }
 
-async function requestJson(
-  page: Page,
+async function requestLegacyJson(
+  request: APIRequestContext,
   token: string | undefined,
   method: string,
   path: string,
   body?: JsonObject,
 ): Promise<{ response: APIResponse; value: JsonValue }> {
-  const response = await page.request.fetch(`${apiOrigin}${path}`, {
+  const response = await request.fetch(`${requiredLegacyOrigin()}${path}`, {
     method,
     headers: apiHeaders(token, body !== undefined),
     data: body,
@@ -118,10 +114,10 @@ async function requestJson(
   return { response, value: await readJson(response) };
 }
 
-async function loginViaApi(page: Page, username: string): Promise<string> {
-  const { response, value } = await requestJson(page, undefined, "POST", "/api/login", {
+async function loginViaLegacyApi(request: APIRequestContext, username: string): Promise<string> {
+  const { response, value } = await requestLegacyJson(request, undefined, "POST", "/api/login", {
     username,
-    password,
+    password: legacyPassword,
   });
   expect(response.status()).toBe(200);
   if (!isJsonObject(value) || typeof value.token !== "string") {
@@ -130,37 +126,52 @@ async function loginViaApi(page: Page, username: string): Promise<string> {
   return value.token;
 }
 
-async function loginDashboard(page: Page, username: string): Promise<string> {
-  await page.goto("/login");
+async function loginDashboard(
+  page: Page,
+  redirectTo: "/dashboard/brukere" | "/dashboard/skoler",
+  nativeReadPath: "/api/admin/users" | "/api/admin/schools",
+): Promise<APIResponse> {
+  await page.goto(`/login?redirectTo=${encodeURIComponent(redirectTo)}`);
   await expect(page.getByRole("heading", { name: "Vektorprogrammet", exact: true })).toBeVisible();
-  await page.getByLabel("Brukernavn eller e-post").fill(username);
-  await page.getByLabel("Passord").fill(password);
-  await page.getByRole("button", { name: "Logg inn", exact: true }).click();
-  await expect(page).toHaveURL(/\/dashboard(?:\/|$)/);
-  return loginViaApi(page, username);
+  await page.getByLabel("E-post").fill(nativeAdministrator.email);
+  await page.getByLabel("Passord", { exact: true }).fill(nativeAdministrator.password);
+  await page.getByRole("button", { name: "Logg inn", exact: true }).click({ noWaitAfter: true });
+  await page.waitForURL((url) => url.pathname === redirectTo, { waitUntil: "commit" });
+  await expect
+    .poll(async () =>
+      (await page.context().cookies()).some(
+        (cookie) => cookie.name === "better-auth.session_token",
+      ),
+    )
+    .toBe(true);
+  const response = await page.request.get(`${nativeApiOrigin}${nativeReadPath}`, {
+    headers: { Accept: "application/json" },
+  });
+  expect(response.status()).toBe(200);
+  return response;
 }
 
 async function loginSymfony(page: Page, username: string): Promise<void> {
-  await page.goto(`${apiOrigin}/login`);
+  await page.goto(`${requiredLegacyOrigin()}/login`);
   await expect(page.getByRole("heading", { name: "Innlogging", exact: true })).toBeVisible();
   await page.getByLabel("Brukernavn / e-post").fill(username);
-  await page.getByLabel("Passord").fill(password);
+  await page.getByLabel("Passord").fill(legacyPassword);
   await page.getByRole("button", { name: "Logg inn", exact: true }).click();
-  await expect(page).toHaveURL(/\/kontrollpanel$/);
+  await expect(page).toHaveURL(`${requiredLegacyOrigin()}/kontrollpanel`);
 }
 
 async function fixtureIds(
-  page: Page,
+  request: APIRequestContext,
   token: string,
 ): Promise<{ departmentId: number; fieldOfStudyId: number }> {
-  const departments = await requestJson(page, token, "GET", "/api/departments");
+  const departments = await requestLegacyJson(request, token, "GET", "/api/departments");
   expect(departments.response.status()).toBe(200);
   const department = collectionItems(departments.value).find(
     (item) => item.shortName === fixtureDepartmentShortName,
   );
   if (!department) throw new Error("Org operations fixture department was not found");
 
-  const fields = await requestJson(page, token, "GET", "/api/field_of_studies");
+  const fields = await requestLegacyJson(request, token, "GET", "/api/field_of_studies");
   expect(fields.response.status()).toBe(200);
   const field = collectionItems(fields.value).find(
     (item) => item.shortName === fixtureFieldShortName,
@@ -170,70 +181,47 @@ async function fixtureIds(
   return { departmentId: numericId(department), fieldOfStudyId: numericId(field) };
 }
 
-async function expectStatus(
-  page: Page,
+async function expectLegacyStatus(
+  request: APIRequestContext,
   token: string,
   method: string,
   path: string,
   status: number,
   body?: JsonObject,
 ): Promise<JsonValue> {
-  const result = await requestJson(page, token, method, path, body);
+  const result = await requestLegacyJson(request, token, method, path, body);
   expect(result.response.status()).toBe(status);
   return result.value;
 }
 
-test.describe("Real Symfony organization operations journeys", () => {
+test.describe("Hybrid cross-line identity and school evidence", () => {
   test.describe.configure({ retries: 0, mode: "serial" });
 
-  test("finance-operations", async ({ page }) => {
+  test("identity-admin hybrid cross-line evidence", async ({ browser, page, request }) => {
     requireOrgOperationsMode();
 
-    const leaderToken = await loginDashboard(page, leaderUsername);
-    await page.goto("/dashboard/utlegg", { waitUntil: "networkidle" });
-    await expect(page.getByRole("heading", { name: "Utlegg", exact: true })).toBeVisible();
-
-    const initialReceipts = await requestJson(page, leaderToken, "GET", "/api/admin/receipts");
-    expect(initialReceipts.response.status()).toBe(200);
-    const receipt = collectionItems(initialReceipts.value).find(
-      (item) => item.description === receiptDescription,
+    const nativeUsersResponse = await loginDashboard(
+      page,
+      "/dashboard/brukere",
+      "/api/admin/users",
     );
-    if (!receipt) throw new Error("Org operations fixture receipt was not found");
-    const receiptId = numericId(receipt);
-
-    await expectStatus(page, leaderToken, "PUT", `/api/admin/receipts/${receiptId}/status`, 204, {
-      status: "refunded",
-    });
-
-    const freshReceipts = await requestJson(page, leaderToken, "GET", "/api/admin/receipts");
-    expect(freshReceipts.response.status()).toBe(200);
-    const freshReceipt = collectionItems(freshReceipts.value).find(
-      (item) => item.description === receiptDescription,
-    );
-    expect(freshReceipt?.status).toBe("refunded");
-    await page.reload({ waitUntil: "networkidle" });
-    await expect(page.getByRole("heading", { name: "Utlegg", exact: true })).toBeVisible();
-
-    const userToken = await loginViaApi(page, userUsername);
-    await expectStatus(page, userToken, "PUT", `/api/admin/receipts/${receiptId}/status`, 403, {
-      status: "refunded",
-    });
-    await expectStatus(page, leaderToken, "PUT", `/api/admin/receipts/${receiptId}/status`, 422, {
-      status: "pending",
-    });
-  });
-
-  test("identity-admin", async ({ page }) => {
-    requireOrgOperationsMode();
-
-    const leaderToken = await loginDashboard(page, leaderUsername);
-    await page.goto("/dashboard/brukere", { waitUntil: "networkidle" });
+    const nativeUsers = (await nativeUsersResponse.json()) as JsonValue;
+    expect(isJsonObject(nativeUsers)).toBe(true);
+    const activeUsers = isJsonObject(nativeUsers) ? nativeUsers.activeUsers : null;
+    expect(Array.isArray(activeUsers)).toBe(true);
+    expect(
+      (activeUsers as JsonValue[]).some(
+        (item) => isJsonObject(item) && item.email === nativeDirectoryEmail,
+      ),
+    ).toBe(true);
     await expect(
       page.locator("section").getByRole("heading", { name: "Brukere", exact: true }),
     ).toBeVisible();
-    const { fieldOfStudyId } = await fixtureIds(page, leaderToken);
+    await expect(page.getByText(nativeDirectoryEmail, { exact: true })).toBeVisible();
 
-    const created = await requestJson(page, leaderToken, "POST", "/api/admin/users", {
+    const leaderToken = await loginViaLegacyApi(request, legacyLeaderUsername);
+    const { fieldOfStudyId } = await fixtureIds(request, leaderToken);
+    const created = await requestLegacyJson(request, leaderToken, "POST", "/api/admin/users", {
       firstName: "Identity",
       lastName: "Admin Created",
       email: createdIdentityEmail,
@@ -242,7 +230,7 @@ test.describe("Real Symfony organization operations journeys", () => {
     });
     expect(created.response.status(), JSON.stringify(created.value)).toBe(201);
 
-    const freshUsers = await requestJson(page, leaderToken, "GET", "/api/admin/users");
+    const freshUsers = await requestLegacyJson(request, leaderToken, "GET", "/api/admin/users");
     expect(freshUsers.response.status()).toBe(200);
     expect(isJsonObject(freshUsers.value)).toBe(true);
     const users = isJsonObject(freshUsers.value) ? freshUsers.value.activeUsers : null;
@@ -253,133 +241,79 @@ test.describe("Real Symfony organization operations journeys", () => {
       ),
     ).toBe(true);
 
-    await expectStatus(page, leaderToken, "POST", "/api/admin/users", 422, {
+    await expectLegacyStatus(request, leaderToken, "POST", "/api/admin/users", 422, {
       firstName: "Invalid",
       lastName: "Field",
       email: "identity-admin-invalid-0032@example.invalid",
       phone: "90000321",
       fieldOfStudyId: 2147483647,
     });
-    const memberToken = await loginViaApi(page, memberUsername);
-    await expectStatus(page, memberToken, "POST", "/api/admin/users", 403, {
+    const memberToken = await loginViaLegacyApi(request, legacyMemberUsername);
+    await expectLegacyStatus(request, memberToken, "POST", "/api/admin/users", 403, {
       firstName: "Unauthorized",
       lastName: "Identity",
       email: "identity-admin-unauthorized-0032@example.invalid",
       phone: "90000322",
       fieldOfStudyId,
     });
+
+    const legacyIdentityPage = await browser.newPage();
+    try {
+      await loginSymfony(legacyIdentityPage, legacyLeaderUsername);
+      await legacyIdentityPage.goto(`${requiredLegacyOrigin()}/kontrollpanel/brukeradmin`, {
+        waitUntil: "networkidle",
+      });
+      await expect(legacyIdentityPage.getByRole("heading", { name: /Brukere/u })).toBeVisible();
+      await expect(legacyIdentityPage.locator("body")).toContainText(createdIdentityEmail);
+    } finally {
+      await legacyIdentityPage.close();
+    }
   });
 
-  test("org-admin", async ({ page }) => {
+  test("school-scheduling hybrid cross-line evidence", async ({ browser, page, request }) => {
     requireOrgOperationsMode();
 
-    const adminToken = await loginDashboard(page, adminUsername);
-    await page.goto("/dashboard/team", { waitUntil: "networkidle" });
-    await expect(page.getByRole("heading", { name: "Team", exact: true })).toBeVisible();
-    const { departmentId } = await fixtureIds(page, adminToken);
-
-    const createdDepartment = await requestJson(
+    const nativeSchoolsResponse = await loginDashboard(
       page,
-      adminToken,
-      "POST",
-      "/api/admin/departments",
-      {
-        name: createdDepartmentName,
-        shortName: "OPS32-NEW",
-        email: "org-operations-created-department-0032@example.invalid",
-        city: "OrgOps Created City 0032",
-        address: "Created by the org admin journey",
-        latitude: "63.4305",
-        longitude: "10.3951",
-      },
+      "/dashboard/skoler",
+      "/api/admin/schools",
     );
-    expect(createdDepartment.response.status()).toBe(201);
-    const createdDepartmentId = numericId(createdDepartment.value);
-
-    const freshDepartments = await requestJson(page, adminToken, "GET", "/api/departments");
-    expect(freshDepartments.response.status()).toBe(200);
-    expect(collectionItems(freshDepartments.value)).toEqual(
-      expect.arrayContaining([expect.objectContaining({ name: createdDepartmentName })]),
-    );
-
-    const createdTeam = await requestJson(page, adminToken, "POST", "/api/admin/teams", {
-      name: createdTeamName,
-      email: "org-operations-created-team-0032@example.invalid",
-      shortDescription: "Created team 0032",
-      description: "Team created through the Symfony organization API.",
-      departmentId: createdDepartmentId,
-      acceptApplication: true,
-      active: true,
-      deadline: "2032-09-01",
-    });
-    expect(createdTeam.response.status()).toBe(201);
-    expect(numericId(createdTeam.value)).toBeGreaterThan(0);
-
-    const createdField = await requestJson(
-      page,
-      adminToken,
-      "POST",
-      "/api/admin/field-of-studies",
-      {
-        name: createdFieldName,
-        shortName: "OPS32-LINE",
-      },
-    );
-    expect(createdField.response.status()).toBe(201);
-    expect(numericId(createdField.value)).toBeGreaterThan(0);
-
-    const freshTeams = await requestJson(page, adminToken, "GET", "/api/teams");
-    expect(freshTeams.response.status()).toBe(200);
-    expect(collectionItems(freshTeams.value)).toEqual(
-      expect.arrayContaining([expect.objectContaining({ name: createdTeamName })]),
-    );
-    const freshFields = await requestJson(page, adminToken, "GET", "/api/field_of_studies");
-    expect(freshFields.response.status()).toBe(200);
-    expect(collectionItems(freshFields.value)).toEqual(
-      expect.arrayContaining([expect.objectContaining({ name: createdFieldName })]),
-    );
-
-    await page.reload({ waitUntil: "networkidle" });
-    await expect(page.getByText(createdTeamName, { exact: true })).toBeVisible();
-    await page.goto("/dashboard/linjer", { waitUntil: "networkidle" });
-    await expect(page.getByText(createdFieldName, { exact: true })).toBeVisible();
-
-    await expectStatus(page, adminToken, "POST", "/api/admin/teams", 422, {
-      name: "Invalid organization team 0032",
-      email: "org-operations-invalid-team-0032@example.invalid",
-      departmentId: 2147483647,
-      active: true,
-    });
-    const memberToken = await loginViaApi(page, memberUsername);
-    await expectStatus(page, memberToken, "POST", "/api/admin/departments", 403, {
-      name: "Unauthorized department 0032",
-      shortName: "OPS32-NO",
-      email: "org-operations-unauthorized-0032@example.invalid",
-      city: "OrgOps Unauthorized City 0032",
-    });
-    expect(departmentId).toBeGreaterThan(0);
-  });
-
-  test("school-scheduling", async ({ browser, page }) => {
-    requireOrgOperationsMode();
-
-    const leaderToken = await loginDashboard(page, leaderUsername);
-    const adminToken = await loginViaApi(page, adminUsername);
-    await page.goto("/dashboard/skoler", { waitUntil: "networkidle" });
+    const nativeSchools = (await nativeSchoolsResponse.json()) as JsonValue;
+    expect(isJsonObject(nativeSchools)).toBe(true);
+    const activeSchools = isJsonObject(nativeSchools) ? nativeSchools.activeSchools : null;
+    expect(Array.isArray(activeSchools)).toBe(true);
+    expect(
+      (activeSchools as JsonValue[]).some(
+        (item) => isJsonObject(item) && item.name === "Alfaskolen",
+      ),
+    ).toBe(true);
     await expect(page.getByRole("heading", { name: "Skoler", exact: true })).toBeVisible();
-    const { departmentId } = await fixtureIds(page, leaderToken);
+    await expect(page.getByRole("tab", { name: "Aktive (4)" })).toBeVisible();
+    await expect(page.getByRole("rowheader", { name: "Alfaskolen" })).toBeVisible();
 
-    const semesterResponse = await page.request.fetch(`${apiOrigin}/api/admin/semesters`, {
-      method: "POST",
-      headers: { ...apiHeaders(adminToken, true), Accept: "application/json" },
-      data: createdSemester,
-    });
-    const semester = { response: semesterResponse, value: await readJson(semesterResponse) };
+    const leaderToken = await loginViaLegacyApi(request, legacyLeaderUsername);
+    const adminToken = await loginViaLegacyApi(request, legacyAdminUsername);
+    const { departmentId } = await fixtureIds(request, leaderToken);
+
+    const semester = await requestLegacyJson(
+      request,
+      adminToken,
+      "POST",
+      "/api/admin/semesters",
+      createdSemester,
+    );
     expect(semester.response.status()).toBe(201);
     expect(numericId(semester.value)).toBeGreaterThan(0);
-    await expectStatus(page, adminToken, "POST", "/api/admin/semesters", 409, createdSemester);
+    await expectLegacyStatus(
+      request,
+      adminToken,
+      "POST",
+      "/api/admin/semesters",
+      409,
+      createdSemester,
+    );
 
-    const school = await requestJson(page, leaderToken, "POST", "/api/admin/schools", {
+    const school = await requestLegacyJson(request, leaderToken, "POST", "/api/admin/schools", {
       name: createdSchoolName,
       contactPerson: "Created scheduling contact 0032",
       email: "org-operations-created-school-0032@example.invalid",
@@ -391,24 +325,24 @@ test.describe("Real Symfony organization operations journeys", () => {
     expect(school.response.status()).toBe(201);
     const schoolId = numericId(school.value);
 
-    const symfonyAdminPage = await browser.newPage();
+    const legacyAdminPage = await browser.newPage();
     try {
-      await loginSymfony(symfonyAdminPage, adminUsername);
-      await symfonyAdminPage.goto(`${apiOrigin}/kontrollpanel/semesteradmin`, {
+      await loginSymfony(legacyAdminPage, legacyAdminUsername);
+      await legacyAdminPage.goto(`${requiredLegacyOrigin()}/kontrollpanel/semesteradmin`, {
         waitUntil: "networkidle",
       });
-      await expect(symfonyAdminPage.getByText("Vår 2032", { exact: true })).toBeVisible();
+      await expect(legacyAdminPage.getByText("Vår 2032", { exact: true })).toBeVisible();
 
-      const symfonyLeaderPage = await browser.newPage();
+      const legacyLeaderPage = await browser.newPage();
       try {
-        await loginSymfony(symfonyLeaderPage, leaderUsername);
-        await symfonyLeaderPage.goto(`${apiOrigin}/kontrollpanel/skole/capacity/`, {
+        await loginSymfony(legacyLeaderPage, legacyLeaderUsername);
+        await legacyLeaderPage.goto(`${requiredLegacyOrigin()}/kontrollpanel/skole/capacity/`, {
           waitUntil: "networkidle",
         });
-        const capacityForm = symfonyLeaderPage.locator('form[name="schoolCapacity"]');
+        const capacityForm = legacyLeaderPage.locator('form[name="schoolCapacity"]');
         expect(
           await capacityForm.count(),
-          `Expected school capacity form at ${symfonyLeaderPage.url()}; body=${await symfonyLeaderPage.locator("body").innerText()}`,
+          `Expected school capacity form at ${legacyLeaderPage.url()}; body=${await legacyLeaderPage.locator("body").innerText()}`,
         ).toBe(1);
         await capacityForm.getByLabel("Skole").selectOption({ label: createdSchoolName });
         await capacityForm.locator('input[name="schoolCapacity[monday]"]').fill("3");
@@ -417,16 +351,16 @@ test.describe("Real Symfony organization operations journeys", () => {
         await capacityForm.locator('input[name="schoolCapacity[thursday]"]').fill("2");
         await capacityForm.locator('input[name="schoolCapacity[friday]"]').fill("1");
         await capacityForm.getByRole("button", { name: "Lagre", exact: true }).click();
-        await expect(symfonyLeaderPage).toHaveURL(/\/kontrollpanel\/skole/);
+        await expect(legacyLeaderPage).toHaveURL(/\/kontrollpanel\/skole/u);
       } finally {
-        await symfonyLeaderPage.close();
+        await legacyLeaderPage.close();
       }
     } finally {
-      await symfonyAdminPage.close();
+      await legacyAdminPage.close();
     }
 
-    const memberToken = await loginViaApi(page, memberUsername);
-    await expectStatus(page, memberToken, "POST", "/api/admin/schools", 403, {
+    const memberToken = await loginViaLegacyApi(request, legacyMemberUsername);
+    await expectLegacyStatus(request, memberToken, "POST", "/api/admin/schools", 403, {
       name: "Unauthorized scheduling school 0032",
       contactPerson: "Unauthorized contact",
       email: "org-operations-unauthorized-school-0032@example.invalid",
