@@ -48,7 +48,7 @@ const bridgeOperation = (request: Request): string | undefined => {
     : undefined;
 };
 
-test.describe("Native recruitment assignment journey (spec 0049.1)", () => {
+test.describe("Native recruitment assignment journey (spec 0049.2)", () => {
   test("leader signs in and assigns an applicant from the mandatory fresh read", async ({
     page,
   }) => {

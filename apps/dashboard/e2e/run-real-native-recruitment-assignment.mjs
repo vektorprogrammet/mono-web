@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { spawn } from "node:child_process";
-import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
@@ -717,12 +717,24 @@ const main = async () => {
     const recruitmentRequests = proxy.records.filter(({ path }) =>
       path.startsWith("/api/admin/recruitment/"),
     );
-    const expectedTransport = [
-      ["GET", "/api/admin/recruitment/assignment-board?status=all"],
+    const requiredTransportTail = [
       ["GET", "/api/admin/recruitment/assignment-board?status=new"],
       ["POST", "/api/admin/recruitment/interviews/assign"],
       ["GET", "/api/admin/recruitment/assignment-board?status=new"],
       ["GET", "/api/admin/recruitment/assignment-board?status=all"],
+    ];
+    const leadingInitialAllFilterReadCount =
+      recruitmentRequests.length - requiredTransportTail.length;
+    if (leadingInitialAllFilterReadCount !== 1 && leadingInitialAllFilterReadCount !== 2) {
+      throw new Error("native recruitment transport had an unexpected request count");
+    }
+    const duplicateInitialAllFilterReadObserved = leadingInitialAllFilterReadCount === 2;
+    const expectedTransport = [
+      ...Array.from({ length: leadingInitialAllFilterReadCount }, () => [
+        "GET",
+        "/api/admin/recruitment/assignment-board?status=all",
+      ]),
+      ...requiredTransportTail,
     ].map(([method, pathAndQuery]) => ({
       method,
       pathAndQuery,
@@ -752,6 +764,11 @@ const main = async () => {
       expectedTransport,
       "exact native recruitment transport",
     );
+    const browserEvidence = {
+      ...browser,
+      duplicateInitialAllFilterReadObserved,
+    };
+    await writeFile(browserEvidencePath, `${JSON.stringify(browserEvidence)}\n`, "utf8");
 
     const legacyPaths = proxy.records.filter(({ path }) =>
       [
@@ -797,16 +814,20 @@ const main = async () => {
         tokenMapConfigured: false,
         rawAuthenticationLeak: false,
       },
-      browser,
-      nativeTransport: recruitmentRequests.map(
-        ({ method, pathAndQuery, status, sessionCookieAuth, authorizationHeaderPresent }) => ({
-          method,
-          pathAndQuery,
-          status,
-          sessionCookieAuth,
-          authorizationHeaderPresent,
-        }),
-      ),
+      browser: browserEvidence,
+      nativeTransport: {
+        initialAllFilterReadCount: leadingInitialAllFilterReadCount,
+        duplicateInitialAllFilterReadObserved,
+        requests: recruitmentRequests.map(
+          ({ method, pathAndQuery, status, sessionCookieAuth, authorizationHeaderPresent }) => ({
+            method,
+            pathAndQuery,
+            status,
+            sessionCookieAuth,
+            authorizationHeaderPresent,
+          }),
+        ),
+      },
       postgres: { migrations, persisted },
       receiptSupport: {
         journeys: journeyEntries,
