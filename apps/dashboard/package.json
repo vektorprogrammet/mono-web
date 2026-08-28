@@ -12,7 +12,7 @@
     "format": "oxfmt --write",
     "test": "vitest run",
     "test:e2e": "node ./node_modules/@playwright/test/cli.js test",
-    "e2e:real-content-publication": "node e2e/run-real-native-content-publication.mjs",
+    "e2e:real-content-publication": "bun e2e/run-real-native-content-publication.mjs",
     "e2e:test": "node ./node_modules/@playwright/test/cli.js test",
     "e2e:test:ui": "node ./node_modules/@playwright/test/cli.js test --ui",
     "e2e:test:chrome": "node ./node_modules/@playwright/test/cli.js test --project=chromium",
