@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
-import { createServer } from "node:http";
+import { createServer, request as httpRequest } from "node:http";
 import { createConnection, createServer as createNetServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -110,16 +110,19 @@ const waitForPort = (port, label) =>
     label,
   );
 
-const waitForHttp = (url, label) =>
+const waitForHttp = (url, label, options) =>
   withTimeout(
     (async () => {
       while (true) {
-        try {
-          const response = await fetch(url);
-          if (response.status < 500) return;
-        } catch {
-          // The bounded outer timeout owns failure.
-        }
+        const ready = await new Promise((resolve) => {
+          const request = httpRequest(url, options, (response) => {
+            response.resume();
+            resolve(response.statusCode === 200);
+          });
+          request.once("error", () => resolve(false));
+          request.end();
+        });
+        if (ready) return;
         await delay(150);
       }
     })(),
@@ -381,6 +384,10 @@ try {
     offSpecAliasChecks.push({ method, pathname, status: response.status });
   }
 
+  recordingUpstream = await startRecordingUpstream(ledger);
+  const upstreamHealth = await fetch(`${upstreamOrigin}/health`);
+  assert.equal(upstreamHealth.status, 200, "recording upstream must reach the native backend");
+
   // The public news surface reads the same authoritative PostgreSQL through
   // the native backend; the homepage worker runs against the recording proxy.
   run("bun", ["run", "worker:build"], {
@@ -397,11 +404,9 @@ try {
       label: "Homepage worker",
     },
   );
-  await waitForHttp(`${homepageListenOrigin}/nyheter`, "Homepage startup");
-
-  recordingUpstream = await startRecordingUpstream(ledger);
-  const upstreamHealth = await fetch(`${upstreamOrigin}/health`);
-  assert.equal(upstreamHealth.status, 200, "recording upstream must reach the native backend");
+  await waitForHttp(`${homepageListenOrigin}/`, "Homepage startup", {
+    headers: { host: new URL(homepageOrigin).host },
+  });
 
   const dashboardEnvironment = {
     ...process.env,
