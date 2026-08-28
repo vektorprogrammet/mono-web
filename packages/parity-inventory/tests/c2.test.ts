@@ -623,7 +623,7 @@ test("package runtime roots ignore type exports and non-runtime script arguments
       ),
     );
     expect(domain?.reason_codes).not.toContain("DEAD_UNIMPORTED_SOURCE");
-    expect(client?.reason_codes).not.toContain("DEAD_UNIMPORTED_SOURCE");
+    expect(client).toBeUndefined();
   } finally {
     rmSync(legacyRoot, { recursive: true, force: true });
     rmSync(monoRoot, { recursive: true, force: true });
@@ -3005,7 +3005,7 @@ test("schedule expressions use literal cron grammar and redact payload-shaped va
     rmSync(monoRoot, { recursive: true, force: true });
   }
 });
-test("generic local request and send calls do not create integrations", async () => {
+test("generic local requests, sends, and declarations do not create integrations", async () => {
   const legacyRoot = mkdtempSync("/tmp/parity-c2-dynamic-legacy-");
   const monoRoot = mkdtempSync("/tmp/parity-c2-dynamic-mono-");
   try {
@@ -3048,22 +3048,13 @@ test("generic local request and send calls do not create integrations", async ()
         ),
       ),
     ).toEqual([]);
-    const googleRows = c2.integrations.rows.filter((row) =>
-      row.source_ref_ids.some(
-        (ref) => context.sourcePathById.get(ref)?.path === "packages/google-client.ts",
+    expect(
+      c2.integrations.rows.filter((row) =>
+        row.source_ref_ids.some(
+          (ref) => context.sourcePathById.get(ref)?.path === "packages/google-client.ts",
+        ),
       ),
-    );
-    expect(googleRows).toHaveLength(1);
-    expect(googleRows[0]).toMatchObject({
-      status: "dead_unimported",
-      reason_codes: ["DEAD_UNIMPORTED_SOURCE"],
-      details: {
-        provider_ref: "google",
-        protocol: "https",
-        endpoint_ref: null,
-        call_site_ref: "GoogleClient::fetch",
-      },
-    });
+    ).toEqual([]);
     const previewRows = c2.integrations.rows.filter((row) =>
       row.source_ref_ids.some(
         (ref) => context.sourcePathById.get(ref)?.path === "packages/preview.ts",
@@ -3149,7 +3140,7 @@ test("command rows require positive declarations or write effects", async () => 
     rmSync(monoRoot, { recursive: true, force: true });
   }
 });
-test("provider-specific and literal HTTP integration anchors remain visible", async () => {
+test("provider-specific calls and literal HTTP integration anchors remain visible", async () => {
   const legacyRoot = mkdtempSync("/tmp/parity-c2-real-integrations-legacy-");
   const monoRoot = mkdtempSync("/tmp/parity-c2-real-integrations-mono-");
   try {
@@ -3190,15 +3181,11 @@ test("provider-specific and literal HTTP integration anchors remain visible", as
         row.source_ref_ids.map((ref) => context.sourcePathById.get(ref)?.path ?? ""),
       ),
     );
-    expect([...sourcePaths]).toEqual(
-      expect.arrayContaining([
-        "apps/server/src/App/Infrastructure/Service/MailerAdapter.php",
-        "apps/server/src/App/Infrastructure/Service/SmsGateway.php",
-        "apps/server/src/App/Infrastructure/Service/GatewayAPIAdapter.php",
-        "apps/server/src/App/Infrastructure/Service/GitHubClient.php",
+    expect([...sourcePaths].sort()).toEqual(
+      [
         "apps/server/src/App/Infrastructure/Service/HttpClientAdapter.php",
         "apps/server/src/App/Support/Controller/GitHubController.php",
-      ]),
+      ].sort(),
     );
     expect(
       integrations.rows

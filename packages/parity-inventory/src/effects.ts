@@ -1,3 +1,4 @@
+import ts from "typescript";
 import { parseDocument } from "yaml";
 import {
   canonicalJson,
@@ -191,6 +192,56 @@ const braceRangeEndFor = (source: string, open: number): number | null => {
     }
   }
   return null;
+};
+
+interface LanguageClassDeclaration {
+  readonly name: string;
+  readonly start: number;
+  readonly end: number;
+}
+
+const typescriptSourceFileFor = (path: string, source: string): ts.SourceFile | null => {
+  const scriptKind = /\.tsx$/i.test(path)
+    ? ts.ScriptKind.TSX
+    : /\.jsx$/i.test(path)
+      ? ts.ScriptKind.JSX
+      : /\.(?:c|m)?ts$/i.test(path)
+        ? ts.ScriptKind.TS
+        : /\.(?:c|m)?js$/i.test(path)
+          ? ts.ScriptKind.JS
+          : null;
+  return scriptKind === null
+    ? null
+    : ts.createSourceFile(path, source, ts.ScriptTarget.Latest, true, scriptKind);
+};
+
+const languageClassDeclarationsFor = (
+  path: string,
+  source: string,
+): readonly LanguageClassDeclaration[] => {
+  const sourceFile = typescriptSourceFileFor(path, source);
+  if (sourceFile !== null) {
+    const declarations: LanguageClassDeclaration[] = [];
+    const visit = (node: ts.Node): void => {
+      if ((ts.isClassDeclaration(node) || ts.isClassExpression(node)) && node.name !== undefined)
+        declarations.push({
+          name: node.name.text,
+          start: node.getStart(sourceFile),
+          end: node.end,
+        });
+      ts.forEachChild(node, visit);
+    };
+    visit(sourceFile);
+    return declarations;
+  }
+
+  const structure = withoutLiterals(withoutComments(source));
+  return classMatches(structure).flatMap((entry) => {
+    const open = structure.indexOf("{", entry.offset);
+    if (open < 0) return [];
+    const close = braceRangeEndFor(structure, open);
+    return close === null ? [] : [{ name: entry.name, start: entry.offset, end: close + 1 }];
+  });
 };
 
 const interfaceDeclarationRangesFor = (structure: string): readonly SourceRange[] => {
@@ -1230,6 +1281,8 @@ interface LanguageClass {
   readonly path: string;
   readonly name: string;
   readonly fqn: string;
+  readonly start: number;
+  readonly end: number;
   readonly methods: ReadonlySet<string>;
   readonly properties: ReadonlyMap<string, string>;
 }
@@ -1744,15 +1797,13 @@ const languageClassesFor = (unit: {
   readonly path: string;
   readonly text: string;
 }): readonly LanguageClass[] => {
-  const classes = classMatches(unit.text);
+  const classes = languageClassDeclarationsFor(unit.path, unit.text);
   const namespace = namespaceOf(unit.text);
   const result: LanguageClass[] = [];
   for (const entry of classes) {
-    const end =
-      classes.find((candidate) => candidate.offset > entry.offset)?.offset ?? unit.text.length;
-    const body = withoutComments(unit.text).slice(entry.offset, end);
+    const body = withoutComments(unit.text).slice(entry.start, entry.end);
     const methods = new Set(
-      functionMatches(unit.text, entry.offset, end).map((method) => method.name),
+      functionMatches(unit.text, entry.start, entry.end).map((method) => method.name),
     );
     const properties = new Map<string, string>();
     const propertyPattern =
@@ -1772,7 +1823,7 @@ const languageClassesFor = (unit: {
     }
     const docblockPropertyPattern =
       /\/\*\*([\s\S]*?)\*\/\s*(?:(?:public|private|protected|var|readonly|static|final)\s+)*\$([A-Za-z_][A-Za-z0-9_]*)\b/g;
-    const classSource = unit.text.slice(entry.offset, end);
+    const classSource = unit.text.slice(entry.start, entry.end);
     for (const match of classSource.matchAll(docblockPropertyPattern)) {
       const docblock = match[1] ?? "";
       const name = match[2];
@@ -1796,6 +1847,8 @@ const languageClassesFor = (unit: {
       path: unit.path,
       name,
       fqn: sourceClassName(namespace, name),
+      start: entry.start,
+      end: entry.end,
       methods,
       properties,
     });
@@ -4109,17 +4162,6 @@ const localTransportReceiverFor = (unit: SourceUnit, call: EffectCall): boolean 
     `(?:[(,]|\\b(?:const|let|var)\\s+)\\s*\\$?${identifier}\\s*:\\s*Transport\\b`,
   ).test(withoutComments(unit.text).slice(0, call.offset));
 };
-const localTransportMethodDeclarationFor = (
-  unit: SourceUnit,
-  declarationName: string | null,
-  call: EffectCall | undefined,
-): boolean =>
-  declarationName !== null &&
-  /^packages\/sdk\/src\/domains\//i.test(unit.path) &&
-  localTransportImportFor(unit.text) &&
-  (call === undefined || call.receiver === null);
-
-const previewWorkerPath = /^infra\/(?:preview\.worker|alchemy\/preview\/worker)\.ts$/i;
 
 const scheduleCollection = (
   context: ManifestContext,
@@ -4297,6 +4339,107 @@ const credentialSlotFor = (raw: string | null, reasons: string[]): string | null
   return normalizeSafe(value, "credential_slot_ref", reasons);
 };
 
+interface TypeScriptIntegrationBoundary {
+  readonly start: number;
+  readonly end: number;
+  readonly serviceBindingName: string | null;
+  readonly backendOriginSymbol: string | null;
+  readonly backendOriginEndpoint: string | null;
+}
+
+const typescriptIntegrationBoundariesFor = (
+  path: string,
+  source: string,
+): readonly TypeScriptIntegrationBoundary[] => {
+  const sourceFile = typescriptSourceFileFor(path, source);
+  if (sourceFile === null) return [];
+
+  const literalByIdentifier = new Map<string, string>();
+  const helperBodyByIdentifier = new Map<string, ts.Node>();
+  const collectDeclarations = (node: ts.Node): void => {
+    if (
+      ts.isVariableDeclaration(node) &&
+      ts.isIdentifier(node.name) &&
+      node.initializer !== undefined
+    ) {
+      if (
+        ts.isStringLiteral(node.initializer) ||
+        ts.isNoSubstitutionTemplateLiteral(node.initializer)
+      )
+        literalByIdentifier.set(node.name.text, node.initializer.text);
+      else if (ts.isArrowFunction(node.initializer) || ts.isFunctionExpression(node.initializer))
+        helperBodyByIdentifier.set(node.name.text, node.initializer.body);
+    } else if (ts.isFunctionDeclaration(node) && node.name !== undefined && node.body !== undefined)
+      helperBodyByIdentifier.set(node.name.text, node.body);
+    ts.forEachChild(node, collectDeclarations);
+  };
+  collectDeclarations(sourceFile);
+
+  const originByHelper = new Map<string, { readonly symbol: string; readonly endpoint: string }>();
+  for (const [helper, body] of helperBodyByIdentifier) {
+    let origin: { readonly symbol: string; readonly endpoint: string } | null = null;
+    const findOrigin = (node: ts.Node): void => {
+      if (origin !== null) return;
+      if (ts.isIdentifier(node)) {
+        const endpoint = literalByIdentifier.get(node.text);
+        if (endpoint !== undefined && /(?:^|_)ORIGIN$/i.test(node.text))
+          origin = { symbol: node.text, endpoint };
+      }
+      ts.forEachChild(node, findOrigin);
+    };
+    findOrigin(body);
+    if (origin !== null) originByHelper.set(helper, origin);
+  }
+
+  const backendOriginFor = (
+    nodes: readonly ts.Node[],
+  ): { readonly symbol: string; readonly endpoint: string } | null => {
+    let origin: { readonly symbol: string; readonly endpoint: string } | null = null;
+    const visit = (node: ts.Node): void => {
+      if (origin !== null) return;
+      if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)) {
+        const candidate = originByHelper.get(node.expression.text);
+        if (candidate !== undefined) {
+          origin = candidate;
+          return;
+        }
+      }
+      ts.forEachChild(node, visit);
+    };
+    for (const node of nodes) visit(node);
+    return origin;
+  };
+
+  const boundaries: TypeScriptIntegrationBoundary[] = [];
+  const collectCalls = (node: ts.Node): void => {
+    if (ts.isCallExpression(node)) {
+      const expression = node.expression;
+      const globalFetch = ts.isIdentifier(expression) && expression.text === "fetch";
+      const serviceBinding =
+        ts.isPropertyAccessExpression(expression) &&
+        expression.name.text === "fetch" &&
+        ts.isPropertyAccessExpression(expression.expression) &&
+        ts.isIdentifier(expression.expression.expression) &&
+        expression.expression.expression.text === "env"
+          ? expression.expression.name.text
+          : null;
+      if (globalFetch || serviceBinding !== null) {
+        const backendOrigin = globalFetch ? backendOriginFor(node.arguments) : null;
+        boundaries.push({
+          start: expression.getStart(sourceFile),
+          end: node.end,
+          serviceBindingName: serviceBinding,
+          backendOriginSymbol: backendOrigin?.symbol ?? null,
+          backendOriginEndpoint: backendOrigin?.endpoint ?? null,
+        });
+      }
+    }
+    ts.forEachChild(node, collectCalls);
+  };
+  collectCalls(sourceFile);
+  return boundaries;
+};
+
 const productionIntegrationSource = (path: string): boolean =>
   !/(?:^|\/)(?:test|tests|e2e|fixtures)(?:\/|$)|\.(?:test|spec)\.[^/]+$/i.test(path);
 const integrationCallPattern =
@@ -4311,22 +4454,11 @@ const integrationCallsFor = (
   const structure = withoutLiterals(stripped);
   if (transportParserArtifactFor(structure)) return [];
   const interfaceRanges = interfaceDeclarationRangesFor(structure);
-  const classes = classMatches(structure);
+  const classes = authority.classesByPath.get(unit.path) ?? [];
+  const typeScriptBoundaries = typescriptIntegrationBoundariesFor(unit.path, unit.text);
   const effectCalls = effectCallExpressionsFor(unit.text);
-  const ownerClassForOffset = (offset: number): LanguageClass | undefined => {
-    const index = classes.findIndex(
-      (entry, classIndex) =>
-        offset >= entry.offset && offset < (classes[classIndex + 1]?.offset ?? structure.length),
-    );
-    const name = index < 0 ? null : (classes[index]?.name ?? null);
-    return name === null
-      ? undefined
-      : authority.classesByPath.get(unit.path)?.find((item) => item.name === name);
-  };
-  const defaultOwnerName = classes[0]?.name ?? null;
-  const defaultOwnerReasons: string[] = [];
-  const defaultOwnerRef =
-    defaultOwnerName === null ? null : classOwner(structure, defaultOwnerName, defaultOwnerReasons);
+  const ownerClassForOffset = (offset: number): LanguageClass | undefined =>
+    classes.find((entry) => offset >= entry.start && offset < entry.end);
   const importerFor = (
     ownerRef: string | null,
   ): { readonly imported: boolean; readonly importerPath: string | null } => {
@@ -4349,6 +4481,7 @@ const integrationCallsFor = (
         ))
         ? callableName
         : null;
+    if (declarationName !== null) continue;
     const effectCall = effectCalls.find(
       (call) =>
         match.index !== undefined &&
@@ -4366,27 +4499,20 @@ const integrationCallsFor = (
     const ownerClass = ownerClassForOffset(callOffset);
     const ownerRef = ownerClass?.fqn ?? null;
     const { imported, importerPath } = importerFor(ownerRef);
-    const ownerIndex = classes.findIndex(
-      (entry, classIndex) =>
-        callOffset >= entry.offset &&
-        callOffset < (classes[classIndex + 1]?.offset ?? structure.length),
-    );
     const functionContext = functionContextFor(unit.text, callOffset);
     const contextStart =
       functionContext?.bodyStart === undefined
-        ? ownerIndex < 0
-          ? 0
-          : (classes[ownerIndex]?.offset ?? 0)
+        ? (ownerClass?.start ?? 0)
         : functionContext.bodyStart + 1;
-    const contextEnd =
-      functionContext?.bodyEnd ??
-      (ownerIndex < 0 ? stripped.length : (classes[ownerIndex + 1]?.offset ?? stripped.length));
+    const contextEnd = functionContext?.bodyEnd ?? ownerClass?.end ?? stripped.length;
     const contextText = stripped.slice(contextStart, contextEnd);
     const contextStructure = structure.slice(contextStart, contextEnd);
     const reasons: string[] = [];
     const resolvedCall =
       effectCall === undefined ? null : resolveEffectCall(authority, unit, effectCall, ownerClass);
-    if (localTransportMethodDeclarationFor(unit, declarationName, effectCall)) continue;
+    const typeScriptBoundary = typeScriptBoundaries.find(
+      (boundary) => callOffset === boundary.start,
+    );
     if (effectCall !== undefined && localTransportReceiverFor(unit, effectCall)) continue;
     if (
       ownerClass !== undefined &&
@@ -4411,18 +4537,12 @@ const integrationCallsFor = (
               candidate.offset <= callOffset + (effectCall?.chain.length ?? callableName.length),
           );
     const endpointMatch = /https?:\/\/[^\s"'`),}]+/i.exec(literalCall?.rawArgs.join(",") ?? "");
-    const endpointRef =
-      endpointMatch?.[0] === undefined ? null : safeEndpoint(endpointMatch[0], reasons);
+    const endpointRaw = endpointMatch?.[0] ?? typeScriptBoundary?.backendOriginEndpoint ?? null;
+    const endpointRef = endpointRaw === null ? null : safeEndpoint(endpointRaw, reasons);
     const callSiteContext = functionContextFor(unit.text, callOffset, true);
-    const callSiteName = declarationName ?? callSiteContext?.name ?? callableName;
+    const callSiteName = callSiteContext?.name ?? callableName;
     const dynamicMailerDispatch = ownerShortName(ownerRef) === "Mailer" && callSiteName === "send";
     const callPrefix = structure.slice(Math.max(0, callOffset - 240), callOffset);
-    const previewHandlerDeclaration =
-      unit.authority === "mono" &&
-      previewWorkerPath.test(unit.path) &&
-      declarationName === "fetch" &&
-      (effectCall === undefined || effectCall.receiver === null);
-    if (previewHandlerDeclaration) continue;
     const previewContainerBoundary =
       unit.authority === "mono" &&
       /^infra\/alchemy\/preview\/worker\.ts$/i.test(unit.path) &&
@@ -4431,6 +4551,13 @@ const integrationCallsFor = (
       /\bgetContainer\s*\([^)]*\)\s*\.\s*$/i.test(callPrefix) &&
       /\bfrom\s*["']@cloudflare\/containers["']/i.test(unit.text);
     const previewContainerProvider = previewContainerBoundary ? "cloudflare-containers" : null;
+    const serviceBindingProvider =
+      typeScriptBoundary?.serviceBindingName === null ||
+      typeScriptBoundary?.serviceBindingName === undefined
+        ? null
+        : `cloudflare-service-binding:${typeScriptBoundary.serviceBindingName}`;
+    const backendOriginProvider = typeScriptBoundary?.backendOriginSymbol ?? null;
+    const syntaxProvider = serviceBindingProvider ?? backendOriginProvider;
     const detectedProtocol =
       protocolFor(
         endpointRef,
@@ -4440,7 +4567,11 @@ const integrationCallsFor = (
     const transportEvidence =
       adapterEvidence || /^(?:fetch|curl_exec|curl_init)$/i.test(callableName ?? "");
     const positiveAnchor =
-      endpointMatch !== null || namedProviderRef !== null || transportEvidence || protocol !== null;
+      endpointRef !== null ||
+      namedProviderRef !== null ||
+      syntaxProvider !== null ||
+      transportEvidence ||
+      protocol !== null;
     if (!positiveAnchor) continue;
     if (protocol === null) reasons.push("UNKNOWN_INTEGRATION");
     const credentialMatch =
@@ -4449,29 +4580,42 @@ const integrationCallsFor = (
       );
     const credentialSlotRef =
       credentialMatch?.[1] === undefined ? null : credentialSlotFor(credentialMatch[1], reasons);
-    const effectClasses: EffectClass[] = previewContainerBoundary
-      ? ["outbound"]
-      : resolvedCall === null
-        ? ["unknown"]
-        : ["outbound"];
+    const effectClasses: EffectClass[] =
+      previewContainerBoundary || syntaxProvider !== null
+        ? ["outbound"]
+        : resolvedCall === null
+          ? ["unknown"]
+          : ["outbound"];
     const direction: ExternalIntegrationDetails["direction"] =
       /\b(?:webhook|handleRequest|onRequest|incoming|inbound)\b/i.test(contextStructure)
         ? "inbound"
         : "outbound";
-    const callSiteRef =
+    const callSiteBase =
       callSiteName === null
         ? null
         : ownerRef === null
           ? `${unit.path}#${callSiteName}`
           : `${ownerRef}::${callSiteName}`;
+    const callSiteQualifier =
+      typeScriptBoundary?.serviceBindingName !== null &&
+      typeScriptBoundary?.serviceBindingName !== undefined
+        ? `env.${typeScriptBoundary.serviceBindingName}.fetch`
+        : (typeScriptBoundary?.backendOriginSymbol ?? null);
+    const callSiteRef =
+      callSiteBase === null || callSiteQualifier === null
+        ? callSiteBase
+        : `${callSiteBase}->${callSiteQualifier}`;
     const safeSymbol = normalizeSafe(callSiteRef, "symbol", reasons);
     if (safeSymbol === null) reasons.push("INTEGRATION_CALLSITE_UNRESOLVED");
     const resolvedProviderRef =
       transportEvidence && resolvedCall !== null
         ? normalizeSafe(resolvedCall.symbol, "field", reasons)
         : null;
-    const detectedProviderRef = previewContainerProvider ?? namedProviderRef ?? resolvedProviderRef;
-    const providerRef = dynamicMailerDispatch ? "mailer" : detectedProviderRef;
+    const detectedProviderRef =
+      syntaxProvider ?? previewContainerProvider ?? namedProviderRef ?? resolvedProviderRef;
+    const providerRef = dynamicMailerDispatch
+      ? "mailer"
+      : normalizeSafe(detectedProviderRef, "field", reasons);
     if (providerRef === null) reasons.push("UNKNOWN_INTEGRATION");
     if (
       dynamicMailerDispatch &&
@@ -4533,43 +4677,6 @@ const integrationCallsFor = (
       if (identities.has(identity)) return false;
       identities.add(identity);
       return true;
-    });
-  }
-  const declarationProvider = providerFromText(defaultOwnerRef ?? "");
-  const declarationMatch =
-    /\b(fetch|request|publish|send|post|put|delete)\s*\([^)]*\)\s*(?::[^{}]+)?\s*\{/.exec(
-      structure,
-    );
-  if (declarationProvider !== null && declarationMatch?.[1] !== undefined) {
-    const { imported, importerPath } = importerFor(defaultOwnerRef);
-    const reasons: string[] = [
-      ...(defaultOwnerRef === null ? ["UNKNOWN_INTEGRATION"] : []),
-      ...defaultOwnerReasons,
-    ];
-    const symbolRef = normalizeSafe(
-      defaultOwnerRef === null
-        ? `${unit.path}#${declarationMatch[1]}`
-        : `${defaultOwnerRef}::${declarationMatch[1]}`,
-      "symbol",
-      reasons,
-    );
-    if (symbolRef === null) reasons.push("INTEGRATION_CALLSITE_UNRESOLVED");
-    calls.push({
-      authority: unit.authority,
-      path: unit.path,
-      sourceRefId: unit.sourceRefId,
-      ownerRef: defaultOwnerRef,
-      symbolRef,
-      providerRef: normalizeSafe(declarationProvider, "field", reasons),
-      direction: "outbound",
-      protocol: protocolFor(null, structure),
-      endpointRef: null,
-      credentialSlotRef: null,
-      effectClasses: ["unknown"],
-      reasonCodes: sortUnique(reasons),
-      imported,
-      importerPath,
-      line: lineAt(unit.text, declarationMatch.index),
     });
   }
   return calls;
