@@ -8,11 +8,12 @@
 |---|---|
 | Goal | Goal-1 runtime evidence for every accepted user-visible journey |
 | Contract | `functional-parity-runtime-evidence/v1` |
-| Lifecycle state | `Frozen` at amendment `0032.1`. No product, provider, production, or operator authority is granted |
+| Lifecycle state | `Frozen` through amendment `0032.2`. Implementation/evidence pending. No product, provider, production, or operator authority is granted |
 | Dependencies | 0024 zero-gap inventory, 0027 accepted journey authority, 0030 runtime evidence receipts |
-| Current worktree | `/tmp/mono-web-parity-integration-0023` |
-| Amendment | `0032.1` freezes the `e2e:real-background-operations` evidence contract before runner edits |
-| Amendment base | `412fb078cb9458866cb8d9a2b59c349bb92692a6` |
+| Current worktree | `/tmp/mono-web-0032-2` |
+| Amendment | `0032.2` authorizes bounded hybrid evidence for `identity_admin` and `school_scheduling` |
+| Amendment base | `ee4b39066d2724de8c2b2cf59863d6fe5886ed8d` |
+| Revision status | Implementation/evidence pending |
 
 ## Amendment 0032.1 - deterministic background-operation evidence
 
@@ -43,6 +44,93 @@ Legacy observations remain local evidence only. They do not supersede native aut
 This amendment authorizes evidence-harness edits only. It authorizes no provider call, production effect, deployment, credential change, or production-data access.
 
 The existing operator boundary remains unchanged. An operator must separately authorize every external effect.
+
+## Amendment 0032.2 - hybrid identity and school evidence
+
+This amendment authorizes one bounded evidence topology for the current revision. Its revision status is implementation/evidence pending.
+
+The original contract and all product semantics remain unchanged. Amendment `0032.1` also remains unchanged.
+
+### Authority and origin boundaries
+
+The current native origin must contain the current dashboard, backend, PostgreSQL database, and Better Auth service.
+
+This native origin owns current mono authentication and the read observations for identity and school data.
+
+Native read evidence must use `GET /api/admin/users`, `GET /api/admin/schools`, `/dashboard/brukere`, and `/dashboard/skoler`.
+
+A separate disposable Symfony origin must own the legacy writes and legacy UI observations.
+
+Legacy evidence must address `/api/login` and all legacy command endpoints on that explicit origin.
+
+Legacy UI evidence must address `/login`, `/kontrollpanel/brukeradmin`, `/kontrollpanel/semesteradmin`, and `/kontrollpanel/skole/capacity/` on that origin.
+
+The Symfony origin must use its own JWT and session. The runner must not translate a Better Auth cookie into legacy authentication.
+
+The runner must address the Symfony origin explicitly. Native dashboard and backend requests must not use that origin.
+
+The evidence harness must not add a proxy, route fallback, authentication fallback, or authentication translation.
+
+The evidence harness must not add a product compatibility branch. It must not change the authority of any product route.
+
+Thus, this topology is dual-authority and dual-origin evidence. It is hybrid cross-line evidence, not native replacement evidence.
+
+This amendment authorizes evidence-harness edits only. It grants no product, provider, production, deployment, credential, or operator authority.
+
+### Authorized journey evidence
+
+The runner must emit evidence for exactly these two journey references:
+
+- `intent://journey:parity:identity_admin:v1`
+- `intent://journey:parity:school_scheduling:v1`
+
+The `identity_admin` receipt must contain exactly these four step identifiers:
+
+- `identity-admin-api-operation`
+- `identity-admin-command-write`
+- `identity-admin-legacy-route`
+- `identity-admin-mono-route`
+
+The `school_scheduling` receipt must contain exactly these four step identifiers:
+
+- `school-scheduling-api-operation`
+- `school-scheduling-command-write`
+- `school-scheduling-legacy-route`
+- `school-scheduling-mono-route`
+
+The run must not emit a receipt for another journey. One receipt must not contain a step from the other journey.
+
+### Evidence claim limit
+
+The receipts can claim current native authentication and current native read routes.
+
+The receipts can also claim the observed legacy writes and legacy UI pages on the explicit Symfony origin.
+
+The receipts must not claim native identity creation. They must not claim native semester creation, school creation, or capacity scheduling.
+
+The receipts must identify these observations as hybrid evidence. They must not describe them as native replacement evidence.
+
+### Fixture binding and cleanup
+
+The runner must use one hybrid fixture identifier. Its fixture digest must bind these exact committed sources in this order:
+
+1. `apps/server/tests/Fixtures/OrgOperationsJourneyFixture.php`
+2. `apps/dashboard/e2e/native-schools-directory-seed.mjs`
+
+The digest input must contain each source path and its bytes in a deterministic ordered manifest. A single-source digest does not satisfy this contract.
+
+Each receipt must bind the hybrid fixture identifier and the combined fixture digest.
+
+The source manifest must bind these exact runner sources:
+
+- `apps/dashboard/e2e/run-real-symfony-org-operations.mjs`
+- `apps/dashboard/e2e/real-symfony-org-operations.spec.ts`
+
+Cleanup must stop the dashboard, native backend, Symfony server, and PostgreSQL server after success or failure.
+
+Cleanup must delete all temporary PostgreSQL and SQLite data. It must also delete generated secrets, sessions, caches, logs, uploads, and reports.
+
+No implementation or receipt satisfies this amendment until the bounded topology passes and produces deterministic evidence.
 
 ## User journey
 
