@@ -149,6 +149,9 @@ vektor-recruitment-board {
 .fr-board {
   overflow: hidden;
 }
+.fr-board a {
+  color: var(--fd-color-text);
+}
 
 .fr-board__heading {
   display: flex;
@@ -160,7 +163,7 @@ vektor-recruitment-board {
 }
 
 .fr-board__department {
-  color: var(--fd-color-muted);
+  color: var(--fd-color-text);
   font-size: var(--fd-font-size-sm);
   overflow-wrap: anywhere;
   text-align: end;
@@ -186,7 +189,7 @@ vektor-recruitment-board {
 }
 
 .fr-table thead th {
-  color: var(--fd-color-muted);
+  color: var(--fd-color-text);
   background: var(--fd-color-breadcrumb);
   font-size: var(--fd-font-size-sm);
   letter-spacing: 0.025em;
@@ -209,12 +212,12 @@ vektor-recruitment-board {
 }
 
 .fr-status--assigned {
-  color: var(--fd-color-link-hover);
+  color: var(--fd-color-text);
   border: 0.0625rem solid var(--fd-color-link);
 }
 
 .fr-assigned-note {
-  color: var(--fd-color-muted);
+  color: var(--fd-color-text);
 }
 
 .fr-loading {

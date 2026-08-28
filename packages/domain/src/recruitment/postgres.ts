@@ -677,7 +677,7 @@ const writeQuestionSnapshots = (
           ${snapshot.prompt},
           ${snapshot.helpText},
           ${snapshot.kind},
-          ${sql.json(snapshot.alternatives)}
+          ${canonicalJson(snapshot.alternatives)}::jsonb
         )
       `.pipe(
         Effect.asVoid,

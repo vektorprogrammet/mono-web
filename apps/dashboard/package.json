@@ -24,7 +24,7 @@
     "e2e:real-approval": "bun e2e/run-real-receipt-approval.mjs",
     "e2e:real-owner": "bun e2e/run-real-receipt-owner.mjs",
     "e2e:real-admission-periods": "bun e2e/run-real-admission-period-management.mjs",
-    "e2e:real-recruitment": "bun e2e/run-real-symfony-recruitment.mjs",
+    "e2e:real-recruitment": "bun e2e/run-real-native-recruitment-assignment.mjs",
     "e2e:real-core-journeys": "bun e2e/run-real-symfony-core-journeys.mjs",
     "e2e:real-org-operations": "bun e2e/run-real-symfony-org-operations.mjs",
     "e2e:real-background-operations": "bun e2e/run-real-symfony-background-operations.mjs",
