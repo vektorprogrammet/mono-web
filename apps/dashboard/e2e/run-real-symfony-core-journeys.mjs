@@ -49,15 +49,6 @@ const journeys = [
     ],
   },
   {
-    journeyRefId: "intent://journey:parity:content_public:v1",
-    stepIds: [
-      "content-public-api-operation",
-      "content-public-command-write",
-      "content-public-legacy-route",
-      "content-public-mono-route",
-    ],
-  },
-  {
     journeyRefId: "intent://journey:parity:files_media:v1",
     stepIds: ["files-media-command-write", "files-media-legacy-route", "files-media-mono-route"],
   },

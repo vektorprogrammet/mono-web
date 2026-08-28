@@ -403,15 +403,6 @@ require $_SERVER['DOCUMENT_ROOT'].'/index.php';
       ]);
       const journeys = [
         {
-          journeyRefId: "intent://journey:parity:content_publication:v1",
-          stepIds: [
-            "content-publication-api-operation",
-            "content-publication-command-write",
-            "content-publication-legacy-route",
-            "content-publication-mono-route",
-          ],
-        },
-        {
           journeyRefId: "intent://journey:parity:survey_admin:v1",
           stepIds: [
             "survey-admin-api-operation",
