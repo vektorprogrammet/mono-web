@@ -8,11 +8,11 @@
 |---|---|
 | Goal | Goal-1 runtime evidence for every accepted user-visible journey |
 | Contract | `functional-parity-runtime-evidence/v1` |
-| Lifecycle state | `Frozen` through amendment `0032.2`. Implementation/evidence pending. No product, provider, production, or operator authority is granted |
+| Lifecycle state | `Frozen` through amendment `0032.3`. Implementation/evidence pending. No product, provider, production, or operator authority is granted |
 | Dependencies | 0024 zero-gap inventory, 0027 accepted journey authority, 0030 runtime evidence receipts |
-| Current worktree | `/tmp/mono-web-0032-2` |
-| Amendment | `0032.2` authorizes bounded hybrid evidence for `identity_admin` and `school_scheduling` |
-| Amendment base | `ee4b39066d2724de8c2b2cf59863d6fe5886ed8d` |
+| Current worktree | `/tmp/mono-web-final-integration` |
+| Amendment | `0032.3` authorizes only the content-operations PHP server concurrency correction |
+| Amendment base | `ddbd796145f43347f315a8e92259895f2c17dde1` |
 | Revision status | Implementation/evidence pending |
 
 ## Amendment 0032.1 - deterministic background-operation evidence
@@ -131,6 +131,37 @@ Cleanup must stop the dashboard, native backend, Symfony server, and PostgreSQL 
 Cleanup must delete all temporary PostgreSQL and SQLite data. It must also delete generated secrets, sessions, caches, logs, uploads, and reports.
 
 No implementation or receipt satisfies this amendment until the bounded topology passes and produces deterministic evidence.
+
+## Amendment 0032.3 - content-operations server concurrency correction
+
+This amendment authorizes one correction in `apps/dashboard/e2e/run-real-content-ops.mjs`. Its implementation and evidence are pending.
+
+The runner must set `PHP_CLI_SERVER_WORKERS=8` in the environment of the PHP built-in server.
+
+This environment value is the only authorized implementation change. The runner must not change a timeout or a `waitUntil` value.
+
+The runner must not change product code, product behavior, journey semantics, evidence observations, or the receipt contract.
+
+### Required runtime evidence
+
+The server log must show multiple PHP worker process identifiers before the browser tests start.
+
+The first browser request sequence must serve page assets and font files immediately. It must not depend on Playwright cancellation or a navigation timeout.
+
+All four existing browser tests must pass unchanged in one run:
+
+- `e2e/real-content-publication.spec.ts`
+- `e2e/real-survey-admin.spec.ts`
+- `e2e/real-platform-ops.spec.ts`
+- `e2e/real-framework-runtime-plumbing.spec.ts`
+
+The exact receipt set must remain unchanged. This requirement includes the journey identifiers, step identifiers, fixture binding, source manifest, and observations.
+
+The existing cleanup contract remains unchanged. Cleanup must stop the parent server and all worker processes after success or failure.
+
+Cleanup must also remove all disposable data, generated secrets, sessions, caches, logs, uploads, browser results, and reports.
+
+No implementation or receipt satisfies this amendment until one run produces all required evidence and completes deterministic cleanup.
 
 ## User journey
 
