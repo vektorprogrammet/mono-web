@@ -301,6 +301,48 @@ describe("receipt HTTP authority resolution (spec 0055)", () => {
     expect(state.approvalScopes).toEqual([{ _tag: "Department", departmentId: departmentTwo }]);
   });
 
+  it("returns 404 only to Global approval authority for an absent Receipt", async () => {
+    const department = harness({
+      authority: authority(
+        [departmentOne],
+        [],
+        [grant({ _tag: "Department", departmentId: departmentOne })],
+      ),
+    });
+    const departmentResponse = await request(
+      department.http,
+      "/api/admin/receipts/receipt-absent/refund",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ commandId: "command-department-absent", expectedRevision: 0 }),
+      },
+    );
+    expect({ status: departmentResponse.status, body: await departmentResponse.json() }).toEqual({
+      status: 403,
+      body: { error: { tag: "ReceiptScopeDenied" } },
+    });
+
+    const global = harness({
+      authority: authority([departmentOne], [], [grant({ _tag: "Global" })]),
+    });
+    const globalResponse = await request(global.http, "/api/admin/receipts/receipt-absent/refund", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ commandId: "command-global-absent", expectedRevision: 0 }),
+    });
+    expect({ status: globalResponse.status, body: await globalResponse.json() }).toEqual({
+      status: 404,
+      body: { error: { tag: "ReceiptNotFound" } },
+    });
+    expect(department.commands).toEqual([]);
+    expect(global.commands).toEqual([]);
+    expect(department.approvalScopes).toEqual([
+      { _tag: "Department", departmentId: departmentOne },
+    ]);
+    expect(global.approvalScopes).toEqual([{ _tag: "Global" }]);
+  });
+
   it("denies inactive Organization authority and absent approval scope", async () => {
     const inactive = harness({ authority: authority([], []) });
     const inactiveResponse = await request(inactive.http, "/api/admin/receipts");

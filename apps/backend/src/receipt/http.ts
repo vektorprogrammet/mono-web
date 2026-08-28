@@ -14,6 +14,7 @@ import {
   ReceiptDecodeError,
   ReceiptFileService,
   ReceiptPersistenceError,
+  ReceiptNotFound,
   ReceiptScopeDenied,
   type ReceiptAuthority,
   type ReceiptStatus,
@@ -873,10 +874,13 @@ const approvalCommand = async (
     options.run,
   ).then((rows) => rows.find((row) => row.receiptId === route.receiptId));
   if (projected === undefined) {
-    throw new ReceiptScopeDenied({
-      receiptId: route.receiptId,
-      departmentId: grant.scope._tag === "Department" ? grant.scope.departmentId : "",
-    });
+    if (grant.scope._tag === "Department") {
+      throw new ReceiptScopeDenied({
+        receiptId: route.receiptId,
+        departmentId: grant.scope.departmentId,
+      });
+    }
+    throw new ReceiptNotFound({ receiptId: route.receiptId });
   }
   const receiptDepartmentId = projected.departmentId as DepartmentId;
   const actor: ReceiptActor = await options.run(

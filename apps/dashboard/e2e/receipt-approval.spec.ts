@@ -95,14 +95,35 @@ type ReceiptStatus = z.infer<typeof receiptStatusSchema>;
 type ResolutionIntent = "refund" | "reject";
 type FileIdentity = z.infer<typeof fileIdentitySchema>[number];
 
+type PersonaEnvironment = {
+  readonly fixtureLabel: string;
+  readonly email: string;
+  readonly password: string;
+  readonly personId: string;
+};
+
 type ApprovalEnvironment = {
-  ownerAToken: string;
-  ownerBToken: string;
-  departmentAToken: string;
-  departmentBToken: string;
-  globalToken: string;
-  inactiveToken: string;
-  noneScopeToken: string;
+  readonly ownerA: PersonaEnvironment;
+  readonly ownerB: PersonaEnvironment;
+  readonly departmentA: PersonaEnvironment;
+  readonly departmentB: PersonaEnvironment;
+  readonly global: PersonaEnvironment;
+  readonly inactive: PersonaEnvironment;
+  readonly noneScope: PersonaEnvironment;
+};
+
+type AuthenticatedPersona = {
+  readonly cookie: string;
+  readonly browserCookie: {
+    readonly name: string;
+    readonly value: string;
+    readonly url: string;
+    readonly httpOnly: boolean;
+    readonly sameSite: "Lax";
+  };
+  readonly fixtureLabel: string;
+  readonly sessionCookieNames: ReadonlyArray<string>;
+  readonly sessionPersonId: string;
 };
 
 type SubmittedReceipt = {
@@ -110,13 +131,29 @@ type SubmittedReceipt = {
   submissionCommandId: string;
 };
 
-function requiredToken(name: string, fallbackName?: string): string {
-  const value = process.env[name] ?? (fallbackName ? process.env[fallbackName] : undefined);
+const JOURNEY_REF_ID = "intent://journey:parity:finance_operations:v1";
+const ACCEPTED_STEP_IDS = [
+  "finance-operations-api-operation",
+  "finance-operations-command-write",
+  "finance-operations-legacy-route",
+  "finance-operations-mono-route",
+] as const;
+
+function requiredEnvironment(name: string): string {
+  const value = process.env[name];
   if (value === undefined || value.length === 0) {
-    const fallback = fallbackName ? ` (or ${fallbackName})` : "";
-    throw new Error(`${name}${fallback} is required for the real Receipt approval journey`);
+    throw new Error(`${name} is required for the real Receipt approval journey`);
   }
   return value;
+}
+
+function personaEnvironment(prefix: string, fixtureLabel: string): PersonaEnvironment {
+  return {
+    fixtureLabel,
+    email: requiredEnvironment(`${prefix}_EMAIL`),
+    password: requiredEnvironment(`${prefix}_PASSWORD`),
+    personId: requiredEnvironment(`${prefix}_PERSON_ID`),
+  };
 }
 
 function approvalEnvironment(): ApprovalEnvironment {
@@ -127,18 +164,39 @@ function approvalEnvironment(): ApprovalEnvironment {
   }
 
   return {
-    ownerAToken: requiredToken("RECEIPT_APPROVAL_E2E_OWNER_A_TOKEN", "RECEIPT_E2E_TOKEN"),
-    ownerBToken: requiredToken("RECEIPT_APPROVAL_E2E_OWNER_B_TOKEN", "RECEIPT_E2E_FOREIGN_TOKEN"),
-    departmentAToken: requiredToken("RECEIPT_APPROVAL_E2E_DEPARTMENT_A_TOKEN"),
-    departmentBToken: requiredToken("RECEIPT_APPROVAL_E2E_DEPARTMENT_B_TOKEN"),
-    globalToken: requiredToken("RECEIPT_APPROVAL_E2E_GLOBAL_TOKEN"),
-    inactiveToken: requiredToken("RECEIPT_APPROVAL_E2E_INACTIVE_TOKEN"),
-    noneScopeToken: requiredToken("RECEIPT_APPROVAL_E2E_NONE_SCOPE_TOKEN"),
+    ownerA: personaEnvironment(
+      "RECEIPT_APPROVAL_E2E_OWNER_A",
+      "owner-a-department-a-payment-authority",
+    ),
+    ownerB: personaEnvironment(
+      "RECEIPT_APPROVAL_E2E_OWNER_B",
+      "owner-b-department-b-payment-authority",
+    ),
+    departmentA: personaEnvironment(
+      "RECEIPT_APPROVAL_E2E_DEPARTMENT_A",
+      "approver-a-active-department-a-grant",
+    ),
+    departmentB: personaEnvironment(
+      "RECEIPT_APPROVAL_E2E_DEPARTMENT_B",
+      "approver-b-active-department-b-grant",
+    ),
+    global: personaEnvironment(
+      "RECEIPT_APPROVAL_E2E_GLOBAL",
+      "approver-global-active-global-receipt-grant",
+    ),
+    inactive: personaEnvironment(
+      "RECEIPT_APPROVAL_E2E_INACTIVE",
+      "approver-inactive-ended-department-a-membership",
+    ),
+    noneScope: personaEnvironment(
+      "RECEIPT_APPROVAL_E2E_NONE_SCOPE",
+      "approver-none-active-without-receipt-grant",
+    ),
   };
 }
 
-function authorization(token: string): { Authorization: string } {
-  return { Authorization: `Bearer ${token}` };
+function sessionHeaders(cookie: string): { Cookie: string } {
+  return { Cookie: cookie };
 }
 
 async function responseErrorTag(response: APIResponse): Promise<string> {
@@ -230,7 +288,7 @@ async function readFileIdentities(): Promise<ReadonlyArray<FileIdentity>> {
 
 async function observeDurablePostgresFailure(
   request: APIRequestContext,
-  token: string,
+  cookie: string,
 ): Promise<{ readonly status: number; readonly tag: string }> {
   await readPostgresJson<boolean>(
     "ALTER TABLE economy_receipts RENAME TO economy_receipts_failure_probe; SELECT 'true'::json::text;",
@@ -238,7 +296,7 @@ async function observeDurablePostgresFailure(
   let failure: { readonly status: number; readonly tag: string } | undefined;
   try {
     const response = await request.get(`${BACKEND_ORIGIN}/api/admin/receipts`, {
-      headers: authorization(token),
+      headers: sessionHeaders(cookie),
       timeout: 5_000,
     });
     failure = { status: response.status(), tag: await responseErrorTag(response) };
@@ -257,13 +315,13 @@ async function observeDurablePostgresFailure(
 
 async function submitReceipt(
   request: APIRequestContext,
-  token: string,
+  cookie: string,
   description: string,
   amountOre: number,
 ): Promise<SubmittedReceipt> {
   const submissionCommandId = randomUUID();
   const response = await request.post(`${BACKEND_ORIGIN}/api/receipts/submit`, {
-    headers: authorization(token),
+    headers: sessionHeaders(cookie),
     multipart: {
       commandId: submissionCommandId,
       description,
@@ -286,7 +344,7 @@ async function submitReceipt(
   });
 
   const ownedResponse = await request.get(`${BACKEND_ORIGIN}/api/receipts`, {
-    headers: authorization(token),
+    headers: sessionHeaders(cookie),
   });
   expect(ownedResponse.status()).toBe(200);
   const owned = receiptPageSchema.parse(await ownedResponse.json());
@@ -302,27 +360,77 @@ async function submitReceipt(
 
 async function listForApproval(
   request: APIRequestContext,
-  token: string,
+  cookie: string,
   status?: ReceiptStatus,
 ): Promise<z.infer<typeof receiptPageSchema>> {
   const query = status === undefined ? "" : `?status=${encodeURIComponent(status)}`;
   const response = await request.get(`${BACKEND_ORIGIN}/api/admin/receipts${query}`, {
-    headers: authorization(token),
+    headers: sessionHeaders(cookie),
   });
   expect(response.status()).toBe(200);
   return receiptPageSchema.parse(await response.json());
 }
 
-async function authenticate(page: Page, token: string): Promise<void> {
-  await page.context().addCookies([
-    {
-      name: "jwt_token",
-      value: token,
+async function authenticate(
+  page: Page,
+  request: APIRequestContext,
+  persona: PersonaEnvironment,
+): Promise<AuthenticatedPersona> {
+  await page.context().clearCookies();
+  await page.goto("/login");
+  await page.getByLabel("E-post").fill(persona.email);
+  await page.getByLabel("Passord", { exact: true }).fill(persona.password);
+  await page.getByRole("button", { name: "Logg inn" }).click({ noWaitAfter: true });
+  try {
+    await page.waitForURL((url) => url.pathname === "/dashboard", {
+      timeout: 15_000,
+      waitUntil: "commit",
+    });
+  } catch (cause) {
+    throw new Error(
+      `native login for ${persona.personId} did not reach /dashboard; current URL ${page.url()}`,
+      { cause },
+    );
+  }
+
+  const sessionCookies = (await page.context().cookies(DASHBOARD_ORIGIN))
+    .filter(
+      ({ name }) =>
+        name === "better-auth.session_token" || name === "__Secure-better-auth.session_token",
+    )
+    .sort(({ name: left }, { name: right }) => left.localeCompare(right));
+  expect(sessionCookies).toHaveLength(1);
+  const sessionCookie = sessionCookies[0];
+  if (sessionCookie === undefined) throw new Error("Better Auth session cookie is missing");
+  const cookie = `${sessionCookie.name}=${sessionCookie.value}`;
+  const sessionResponse = await request.get(`${BACKEND_ORIGIN}/api/me/session`, {
+    headers: sessionHeaders(cookie),
+  });
+  expect(sessionResponse.status()).toBe(200);
+  const session = z
+    .object({ personId: z.string() })
+    .passthrough()
+    .parse(await sessionResponse.json());
+  expect(session.personId).toBe(persona.personId);
+
+  return {
+    cookie,
+    browserCookie: {
+      name: sessionCookie.name,
+      value: sessionCookie.value,
       url: DASHBOARD_ORIGIN,
       httpOnly: true,
       sameSite: "Lax",
     },
-  ]);
+    fixtureLabel: persona.fixtureLabel,
+    sessionCookieNames: [sessionCookie.name],
+    sessionPersonId: session.personId,
+  };
+}
+
+async function usePersona(page: Page, persona: AuthenticatedPersona): Promise<void> {
+  await page.context().clearCookies();
+  await page.context().addCookies([persona.browserCookie]);
 }
 
 async function expectUnauthenticatedBrowser(browser: Browser): Promise<void> {
@@ -335,22 +443,22 @@ async function expectUnauthenticatedBrowser(browser: Browser): Promise<void> {
     await missingContext.close();
   }
 
-  const expiredContext = await browser.newContext({ baseURL: DASHBOARD_ORIGIN });
+  const invalidContext = await browser.newContext({ baseURL: DASHBOARD_ORIGIN });
   try {
-    await expiredContext.addCookies([
+    await invalidContext.addCookies([
       {
-        name: "jwt_token",
-        value: "invalid-local-receipt-approval-token",
+        name: "better-auth.session_token",
+        value: "invalid-local-receipt-approval-session",
         url: DASHBOARD_ORIGIN,
         httpOnly: true,
         sameSite: "Lax",
       },
     ]);
-    const expiredPage = await expiredContext.newPage();
-    await expiredPage.goto("/dashboard/utlegg");
-    await expect(expiredPage).toHaveURL(/\/login\?expired=true$/);
+    const invalidPage = await invalidContext.newPage();
+    await invalidPage.goto("/dashboard/utlegg");
+    await expect(invalidPage).toHaveURL(/\/login\?expired=true$/);
   } finally {
-    await expiredContext.close();
+    await invalidContext.close();
   }
 }
 
@@ -401,6 +509,21 @@ test.describe("Native scoped Receipt approval journey", () => {
     request,
   }) => {
     const environment = approvalEnvironment();
+    const browserRequestLedger: Array<{
+      method: string;
+      origin: string;
+      pathname: string;
+      query: string;
+    }> = [];
+    page.on("request", (browserRequest) => {
+      const url = new URL(browserRequest.url());
+      browserRequestLedger.push({
+        method: browserRequest.method(),
+        origin: url.origin,
+        pathname: url.pathname,
+        query: url.search,
+      });
+    });
     const unauthenticatedResponse = await request.get(`${BACKEND_ORIGIN}/api/admin/receipts`);
     expect(unauthenticatedResponse.status()).toBe(401);
     const unauthenticatedTag = await responseErrorTag(unauthenticatedResponse);
@@ -408,27 +531,37 @@ test.describe("Native scoped Receipt approval journey", () => {
     await expectUnauthenticatedBrowser(browser);
 
     const expiredApiResponse = await request.get(`${BACKEND_ORIGIN}/api/admin/receipts`, {
-      headers: authorization("invalid-local-receipt-approval-token"),
+      headers: sessionHeaders("better-auth.session_token=invalid-local-receipt-approval-session"),
     });
     expect(expiredApiResponse.status()).toBe(401);
     const expiredApiTag = await responseErrorTag(expiredApiResponse);
     expect(expiredApiTag).toBe("UnauthenticatedActor");
 
+    const sessions = {
+      ownerA: await authenticate(page, request, environment.ownerA),
+      ownerB: await authenticate(page, request, environment.ownerB),
+      departmentA: await authenticate(page, request, environment.departmentA),
+      departmentB: await authenticate(page, request, environment.departmentB),
+      global: await authenticate(page, request, environment.global),
+      inactive: await authenticate(page, request, environment.inactive),
+      noneScope: await authenticate(page, request, environment.noneScope),
+    };
+
     const inactiveResponse = await request.get(`${BACKEND_ORIGIN}/api/admin/receipts`, {
-      headers: authorization(environment.inactiveToken),
+      headers: sessionHeaders(sessions.inactive.cookie),
     });
     expect(inactiveResponse.status()).toBe(403);
     const inactiveTag = await responseErrorTag(inactiveResponse);
     expect(inactiveTag).toBe("InactiveActor");
 
     const noneScopeResponse = await request.get(`${BACKEND_ORIGIN}/api/admin/receipts`, {
-      headers: authorization(environment.noneScopeToken),
+      headers: sessionHeaders(sessions.noneScope.cookie),
     });
     expect(noneScopeResponse.status()).toBe(403);
     const noneScopeTag = await responseErrorTag(noneScopeResponse);
     expect(noneScopeTag).toBe("ReceiptScopeDenied");
 
-    await authenticate(page, environment.noneScopeToken);
+    await usePersona(page, sessions.noneScope);
     await page.goto("/dashboard/utlegg");
     await expect(page.getByRole("heading", { name: "Utlegg", exact: true })).toBeVisible();
     await expect(page.getByTestId("receipt-approval-list")).toBeVisible();
@@ -436,31 +569,32 @@ test.describe("Native scoped Receipt approval journey", () => {
     await expect(noneScopeAlert).toHaveAttribute("data-error-tag", "ReceiptScopeDenied");
     await expect(page).toHaveURL(/\/dashboard\/utlegg$/);
     expect(
-      (await page.context().cookies(DASHBOARD_ORIGIN)).find((cookie) => cookie.name === "jwt_token")
-        ?.value,
-    ).toBe(environment.noneScopeToken);
+      (await page.context().cookies(DASHBOARD_ORIGIN))
+        .filter(({ name }) => name.endsWith("better-auth.session_token"))
+        .map(({ name }) => name),
+    ).toEqual(sessions.noneScope.sessionCookieNames);
 
     const refundReceipt = await submitReceipt(
       request,
-      environment.ownerAToken,
+      sessions.ownerA.cookie,
       "Department A receipt to refund",
       12_550,
     );
     const rejectReceipt = await submitReceipt(
       request,
-      environment.ownerBToken,
+      sessions.ownerB.cookie,
       "Department B receipt to reject",
       2_075,
     );
     const staleReceipt = await submitReceipt(
       request,
-      environment.ownerAToken,
+      sessions.ownerA.cookie,
       "Department A stale browser receipt",
       3_300,
     );
     const concurrentReceipt = await submitReceipt(
       request,
-      environment.ownerAToken,
+      sessions.ownerA.cookie,
       "Department A concurrent receipt",
       4_400,
     );
@@ -470,7 +604,7 @@ test.describe("Native scoped Receipt approval journey", () => {
     const inactiveCommandResponse = await request.post(
       `${BACKEND_ORIGIN}/api/admin/receipts/${encodeURIComponent(refundReceipt.projection.receiptId)}/refund`,
       {
-        headers: authorization(environment.inactiveToken),
+        headers: sessionHeaders(sessions.inactive.cookie),
         data: {
           commandId: randomUUID(),
           expectedRevision: 0,
@@ -485,7 +619,7 @@ test.describe("Native scoped Receipt approval journey", () => {
       `${BACKEND_ORIGIN}/api/admin/receipts/${encodeURIComponent(refundReceipt.projection.receiptId)}/refund`,
       {
         headers: {
-          ...authorization(environment.departmentAToken),
+          ...sessionHeaders(sessions.departmentA.cookie),
           "content-type": "application/json",
         },
         data: '{"commandId":',
@@ -498,11 +632,11 @@ test.describe("Native scoped Receipt approval journey", () => {
     const excessJsonResponse = await request.post(
       `${BACKEND_ORIGIN}/api/admin/receipts/${encodeURIComponent(refundReceipt.projection.receiptId)}/refund`,
       {
-        headers: authorization(environment.departmentAToken),
+        headers: sessionHeaders(sessions.departmentA.cookie),
         data: {
           commandId: randomUUID(),
           expectedRevision: 0,
-          departmentId: refundReceipt.projection.departmentId,
+          unexpected: true,
         },
       },
     );
@@ -513,7 +647,7 @@ test.describe("Native scoped Receipt approval journey", () => {
     const queryRejectedResponse = await request.post(
       `${BACKEND_ORIGIN}/api/admin/receipts/${encodeURIComponent(refundReceipt.projection.receiptId)}/refund?unexpected=1`,
       {
-        headers: authorization(environment.departmentAToken),
+        headers: sessionHeaders(sessions.departmentA.cookie),
         data: {
           commandId: randomUUID(),
           expectedRevision: 0,
@@ -527,7 +661,7 @@ test.describe("Native scoped Receipt approval journey", () => {
     const invalidFilterResponse = await request.get(
       `${BACKEND_ORIGIN}/api/admin/receipts?status=Pending&unexpected=1`,
       {
-        headers: authorization(environment.departmentAToken),
+        headers: sessionHeaders(sessions.departmentA.cookie),
       },
     );
     expect(invalidFilterResponse.status()).toBe(422);
@@ -540,7 +674,7 @@ test.describe("Native scoped Receipt approval journey", () => {
     expect(staleReceipt.projection.departmentId).toBe(departmentAId);
     expect(concurrentReceipt.projection.departmentId).toBe(departmentAId);
 
-    const departmentAProjection = await listForApproval(request, environment.departmentAToken);
+    const departmentAProjection = await listForApproval(request, sessions.departmentA.cookie);
     const departmentAReceiptIds = departmentAProjection.items.map((item) => item.receiptId);
     expect(departmentAReceiptIds).toEqual(
       expect.arrayContaining([
@@ -554,7 +688,7 @@ test.describe("Native scoped Receipt approval journey", () => {
       true,
     );
 
-    const departmentBProjection = await listForApproval(request, environment.departmentBToken);
+    const departmentBProjection = await listForApproval(request, sessions.departmentB.cookie);
     const departmentBReceiptIds = departmentBProjection.items.map((item) => item.receiptId);
     expect(departmentBReceiptIds).toContain(rejectReceipt.projection.receiptId);
     expect(departmentBReceiptIds).not.toContain(refundReceipt.projection.receiptId);
@@ -562,7 +696,7 @@ test.describe("Native scoped Receipt approval journey", () => {
       true,
     );
 
-    const globalProjection = await listForApproval(request, environment.globalToken);
+    const globalProjection = await listForApproval(request, sessions.global.cookie);
     const globalReceiptIds = globalProjection.items.map((item) => item.receiptId);
     expect(globalReceiptIds).toEqual(
       expect.arrayContaining([
@@ -573,7 +707,7 @@ test.describe("Native scoped Receipt approval journey", () => {
       ]),
     );
 
-    await authenticate(page, environment.departmentAToken);
+    await usePersona(page, sessions.departmentA);
     await page.goto("/dashboard/utlegg");
     await expect(page.getByRole("heading", { name: "Utlegg", exact: true })).toBeVisible();
     await expect(page.getByTestId("receipt-approval-list")).toBeVisible();
@@ -597,7 +731,7 @@ test.describe("Native scoped Receipt approval journey", () => {
     await expect(refundRow.locator('[data-revision="0"]')).toHaveText("Versjon 0");
     await expect(receiptRowFor(page, rejectReceipt.projection.receiptId)).toHaveCount(0);
 
-    await authenticate(page, environment.globalToken);
+    await usePersona(page, sessions.global);
     await page.goto("/dashboard/utlegg");
     await expect(receiptRowFor(page, refundReceipt.projection.receiptId)).toHaveCount(1);
     await expect(receiptRowFor(page, rejectReceipt.projection.receiptId)).toHaveCount(1);
@@ -605,7 +739,7 @@ test.describe("Native scoped Receipt approval journey", () => {
     const foreignScopeResponse = await request.post(
       `${BACKEND_ORIGIN}/api/admin/receipts/${encodeURIComponent(rejectReceipt.projection.receiptId)}/refund`,
       {
-        headers: authorization(environment.departmentAToken),
+        headers: sessionHeaders(sessions.departmentA.cookie),
         data: {
           commandId: randomUUID(),
           expectedRevision: 0,
@@ -620,7 +754,7 @@ test.describe("Native scoped Receipt approval journey", () => {
     const absentScopeResponse = await request.post(
       `${BACKEND_ORIGIN}/api/admin/receipts/${encodeURIComponent(absentReceiptId)}/refund`,
       {
-        headers: authorization(environment.departmentAToken),
+        headers: sessionHeaders(sessions.departmentA.cookie),
         data: {
           commandId: randomUUID(),
           expectedRevision: 0,
@@ -634,7 +768,7 @@ test.describe("Native scoped Receipt approval journey", () => {
     const globalAbsentResponse = await request.post(
       `${BACKEND_ORIGIN}/api/admin/receipts/${encodeURIComponent(absentReceiptId)}/refund`,
       {
-        headers: authorization(environment.globalToken),
+        headers: sessionHeaders(sessions.global.cookie),
         data: {
           commandId: randomUUID(),
           expectedRevision: 0,
@@ -646,7 +780,7 @@ test.describe("Native scoped Receipt approval journey", () => {
     expect(globalAbsentTag).toBe("ReceiptNotFound");
 
     const browserForeignRow = receiptRowFor(page, rejectReceipt.projection.receiptId);
-    await authenticate(page, environment.departmentAToken);
+    await usePersona(page, sessions.departmentA);
     await browserForeignRow.getByRole("button", { name: "Refunder", exact: true }).click();
     const browserScopeForm = page.locator('form[data-receipt-resolution="refund"]');
     await expect(browserScopeForm).toBeVisible();
@@ -665,16 +799,17 @@ test.describe("Native scoped Receipt approval journey", () => {
     await expect(browserScopeAlert).toHaveAttribute("data-command-id", browserScopeCommandId);
     await expect(page).toHaveURL(/\/dashboard\/utlegg(?:\?index)?$/);
     expect(
-      (await page.context().cookies(DASHBOARD_ORIGIN)).find((cookie) => cookie.name === "jwt_token")
-        ?.value,
-    ).toBe(environment.departmentAToken);
+      (await page.context().cookies(DASHBOARD_ORIGIN))
+        .filter(({ name }) => name.endsWith("better-auth.session_token"))
+        .map(({ name }) => name),
+    ).toEqual(sessions.departmentA.sessionCookieNames);
 
-    await authenticate(page, environment.globalToken);
+    await usePersona(page, sessions.global);
     await page.goto("/dashboard/utlegg");
     await expect(receiptRowFor(page, refundReceipt.projection.receiptId)).toHaveCount(1);
     await expect(receiptRowFor(page, rejectReceipt.projection.receiptId)).toHaveCount(1);
     const rejectReceiptAfterDenied = (
-      await listForApproval(request, environment.globalToken)
+      await listForApproval(request, sessions.global.cookie)
     ).items.find((item) => item.receiptId === rejectReceipt.projection.receiptId);
     expect(rejectReceiptAfterDenied).toMatchObject({ status: "Pending", revision: 0 });
 
@@ -697,7 +832,7 @@ test.describe("Native scoped Receipt approval journey", () => {
     const refundReplayResponse = await request.post(
       `${BACKEND_ORIGIN}/api/admin/receipts/${encodeURIComponent(refundReceipt.projection.receiptId)}/refund`,
       {
-        headers: authorization(environment.globalToken),
+        headers: sessionHeaders(sessions.global.cookie),
         data: {
           commandId: refundCommandId,
           expectedRevision: 0,
@@ -713,11 +848,12 @@ test.describe("Native scoped Receipt approval journey", () => {
       revision: 1,
       replayed: true,
     });
+    await listForApproval(request, sessions.global.cookie);
 
     const conflictingReplayResponse = await request.post(
       `${BACKEND_ORIGIN}/api/admin/receipts/${encodeURIComponent(refundReceipt.projection.receiptId)}/refund`,
       {
-        headers: authorization(environment.globalToken),
+        headers: sessionHeaders(sessions.global.cookie),
         data: {
           commandId: refundCommandId,
           expectedRevision: 1,
@@ -731,7 +867,7 @@ test.describe("Native scoped Receipt approval journey", () => {
     const staleTerminalResponse = await request.post(
       `${BACKEND_ORIGIN}/api/admin/receipts/${encodeURIComponent(refundReceipt.projection.receiptId)}/reject`,
       {
-        headers: authorization(environment.globalToken),
+        headers: sessionHeaders(sessions.global.cookie),
         data: {
           commandId: randomUUID(),
           expectedRevision: 0,
@@ -745,7 +881,7 @@ test.describe("Native scoped Receipt approval journey", () => {
     const terminalRefundResponse = await request.post(
       `${BACKEND_ORIGIN}/api/admin/receipts/${encodeURIComponent(refundReceipt.projection.receiptId)}/reject`,
       {
-        headers: authorization(environment.globalToken),
+        headers: sessionHeaders(sessions.global.cookie),
         data: {
           commandId: randomUUID(),
           expectedRevision: 1,
@@ -769,7 +905,7 @@ test.describe("Native scoped Receipt approval journey", () => {
     const rejectReplayResponse = await request.post(
       `${BACKEND_ORIGIN}/api/admin/receipts/${encodeURIComponent(rejectReceipt.projection.receiptId)}/reject`,
       {
-        headers: authorization(environment.globalToken),
+        headers: sessionHeaders(sessions.global.cookie),
         data: {
           commandId: rejectCommandId,
           expectedRevision: 0,
@@ -785,11 +921,12 @@ test.describe("Native scoped Receipt approval journey", () => {
       revision: 1,
       replayed: true,
     });
+    await listForApproval(request, sessions.global.cookie);
 
     const terminalRejectResponse = await request.post(
       `${BACKEND_ORIGIN}/api/admin/receipts/${encodeURIComponent(rejectReceipt.projection.receiptId)}/refund`,
       {
-        headers: authorization(environment.globalToken),
+        headers: sessionHeaders(sessions.global.cookie),
         data: {
           commandId: randomUUID(),
           expectedRevision: 1,
@@ -811,7 +948,7 @@ test.describe("Native scoped Receipt approval journey", () => {
     const externalResolutionResponse = await request.post(
       `${BACKEND_ORIGIN}/api/admin/receipts/${encodeURIComponent(staleReceipt.projection.receiptId)}/reject`,
       {
-        headers: authorization(environment.globalToken),
+        headers: sessionHeaders(sessions.global.cookie),
         data: {
           commandId: externalResolutionCommandId,
           expectedRevision: 0,
@@ -825,6 +962,7 @@ test.describe("Native scoped Receipt approval journey", () => {
       revision: 1,
       replayed: false,
     });
+    await listForApproval(request, sessions.global.cookie);
 
     await staleForm.getByRole("button", { name: "Bekreft refusjon", exact: true }).click();
     const staleAlert = page.locator(
@@ -845,7 +983,7 @@ test.describe("Native scoped Receipt approval journey", () => {
       request.post(
         `${BACKEND_ORIGIN}/api/admin/receipts/${encodeURIComponent(concurrentReceipt.projection.receiptId)}/refund`,
         {
-          headers: authorization(environment.globalToken),
+          headers: sessionHeaders(sessions.global.cookie),
           data: {
             commandId: concurrentRefundCommandId,
             expectedRevision: 0,
@@ -855,7 +993,7 @@ test.describe("Native scoped Receipt approval journey", () => {
       request.post(
         `${BACKEND_ORIGIN}/api/admin/receipts/${encodeURIComponent(concurrentReceipt.projection.receiptId)}/reject`,
         {
-          headers: authorization(environment.globalToken),
+          headers: sessionHeaders(sessions.global.cookie),
           data: {
             commandId: concurrentRejectCommandId,
             expectedRevision: 0,
@@ -900,11 +1038,12 @@ test.describe("Native scoped Receipt approval journey", () => {
     });
     const concurrentLoserTag = await responseErrorTag(concurrentLoser.response);
     expect(["StaleReceiptRevision", "InvalidReceiptTransition"]).toContain(concurrentLoserTag);
+    await listForApproval(request, sessions.global.cookie);
 
     const concurrentReplayResponse = await request.post(
       `${BACKEND_ORIGIN}/api/admin/receipts/${encodeURIComponent(concurrentReceipt.projection.receiptId)}/${concurrentWinner.intent}`,
       {
-        headers: authorization(environment.globalToken),
+        headers: sessionHeaders(sessions.global.cookie),
         data: {
           commandId: concurrentWinner.commandId,
           expectedRevision: 0,
@@ -920,6 +1059,7 @@ test.describe("Native scoped Receipt approval journey", () => {
       revision: 1,
       replayed: true,
     });
+    await listForApproval(request, sessions.global.cookie);
 
     await page.reload();
     rejectRow = receiptRowFor(page, rejectReceipt.projection.receiptId);
@@ -932,7 +1072,7 @@ test.describe("Native scoped Receipt approval journey", () => {
     await expectNoResolutionControls(concurrentRow);
     await expect(page.getByRole("button", { name: /Gjenåpne/i })).toHaveCount(0);
 
-    const finalGlobalProjection = await listForApproval(request, environment.globalToken);
+    const finalGlobalProjection = await listForApproval(request, sessions.global.cookie);
     const finalById = new Map(finalGlobalProjection.items.map((item) => [item.receiptId, item]));
     expect(finalById.get(refundReceipt.projection.receiptId)).toMatchObject({
       status: "Refunded",
@@ -953,9 +1093,9 @@ test.describe("Native scoped Receipt approval journey", () => {
 
     const durablePostgresFailure = await observeDurablePostgresFailure(
       request,
-      environment.globalToken,
+      sessions.global.cookie,
     );
-    const recoveredGlobalProjection = await listForApproval(request, environment.globalToken);
+    const recoveredGlobalProjection = await listForApproval(request, sessions.global.cookie);
     expect(recoveredGlobalProjection.items).toEqual(finalGlobalProjection.items);
     const fileIdentitiesAfter = await readFileIdentities();
     expect(fileIdentitiesAfter).toEqual(fileIdentitiesBefore);
@@ -963,7 +1103,35 @@ test.describe("Native scoped Receipt approval journey", () => {
     if (RECEIPT_APPROVAL_EVIDENCE_FILE === undefined) {
       throw new Error("RECEIPT_APPROVAL_EVIDENCE_FILE is required for the real approval runner");
     }
+
+    const allowedBrowserOrigins = new Set([DASHBOARD_ORIGIN, BACKEND_ORIGIN]);
+    const forbiddenBrowserRequests = browserRequestLedger.filter(
+      ({ method, origin, pathname }) =>
+        !allowedBrowserOrigins.has(origin) ||
+        pathname === "/api/login" ||
+        pathname.startsWith("/api/fixtures") ||
+        /\/api\/admin\/receipts\/[^/]+\/status$/u.test(pathname) ||
+        (["PUT", "PATCH", "DELETE"].includes(method) && pathname.includes("/receipts")),
+    );
+    expect(forbiddenBrowserRequests).toEqual([]);
+
+    const sessionEvidence = Object.fromEntries(
+      Object.entries(sessions).map(([persona, session]) => [
+        persona,
+        {
+          fixtureLabel: session.fixtureLabel,
+          nativeLogin: true,
+          sessionCookieNames: session.sessionCookieNames,
+          apiSessionPath: "/api/me/session",
+          personId: session.sessionPersonId,
+        },
+      ]),
+    );
     const journeyEvidence = {
+      journeyRefId: JOURNEY_REF_ID,
+      acceptedStepIds: ACCEPTED_STEP_IDS,
+      sessions: sessionEvidence,
+      environmentTokenAuthority: false,
       fileIdentitiesBefore,
       fileIdentitiesAfter,
       durablePostgresFailure,
@@ -980,101 +1148,131 @@ test.describe("Native scoped Receipt approval journey", () => {
           staleReceipt.submissionCommandId,
           concurrentReceipt.submissionCommandId,
         ],
+        submissionActors: [
+          {
+            commandId: refundReceipt.submissionCommandId,
+            personId: sessions.ownerA.sessionPersonId,
+          },
+          {
+            commandId: rejectReceipt.submissionCommandId,
+            personId: sessions.ownerB.sessionPersonId,
+          },
+          {
+            commandId: staleReceipt.submissionCommandId,
+            personId: sessions.ownerA.sessionPersonId,
+          },
+          {
+            commandId: concurrentReceipt.submissionCommandId,
+            personId: sessions.ownerA.sessionPersonId,
+          },
+        ],
         refund: refundCommandId,
         reject: rejectCommandId,
         stale: externalResolutionCommandId,
         concurrentWinner: concurrentWinner.commandId,
+        resolutionActorPersonId: sessions.global.sessionPersonId,
+      },
+      statusMatrix: {
+        approvalList: {
+          missingSession: unauthenticatedResponse.status(),
+          invalidSession: expiredApiResponse.status(),
+          inactiveActor: inactiveResponse.status(),
+          noScopeActor: noneScopeResponse.status(),
+          departmentA: 200,
+          departmentB: 200,
+          global: 200,
+          forcedPostgresFailure: durablePostgresFailure.status,
+          recoveredAfterPostgresFailure: 200,
+        },
+        command: {
+          inactiveActor: inactiveCommandResponse.status(),
+          malformedJson: malformedJsonResponse.status(),
+          excessJson: excessJsonResponse.status(),
+          queryParameters: queryRejectedResponse.status(),
+          foreignDepartment: foreignScopeResponse.status(),
+          absentDepartmentScope: absentScopeResponse.status(),
+          absentGlobalScope: globalAbsentResponse.status(),
+          acceptedRefund: 200,
+          acceptedReject: 200,
+          identicalRefundReplay: refundReplayResponse.status(),
+          identicalRejectReplay: rejectReplayResponse.status(),
+          changedReplay: conflictingReplayResponse.status(),
+          staleRevision: staleTerminalResponse.status(),
+          terminalRefund: terminalRefundResponse.status(),
+          terminalReject: terminalRejectResponse.status(),
+          concurrent: [concurrentRefundResponse.status(), concurrentRejectResponse.status()].sort(),
+        },
+      },
+      visibility: {
+        departmentA: departmentAReceiptIds,
+        departmentB: departmentBReceiptIds,
+        global: globalReceiptIds,
+      },
+      accepted: {
+        refund: {
+          receiptId: refundReceipt.projection.receiptId,
+          commandId: refundCommandId,
+          status: refundReplay.status,
+          revision: refundReplay.revision,
+          replayed: refundReplay.replayed,
+        },
+        reject: {
+          receiptId: rejectReceipt.projection.receiptId,
+          commandId: rejectCommandId,
+          status: rejectReplay.status,
+          revision: rejectReplay.revision,
+          replayed: rejectReplay.replayed,
+        },
+        concurrent: {
+          receiptId: concurrentReceipt.projection.receiptId,
+          winner: concurrentWinner.intent,
+          commandId: concurrentWinner.commandId,
+          status: concurrentObservation.status,
+          revision: concurrentObservation.revision,
+          replayed: concurrentReplay.replayed,
+        },
+      },
+      rejected: {
+        unauthenticated: unauthenticatedTag,
+        invalidSession: expiredApiTag,
+        inactive: inactiveTag,
+        inactiveCommand: inactiveCommandTag,
+        noneScope: noneScopeTag,
+        foreignScope: foreignScopeTag,
+        absentScope: absentScopeTag,
+        globalAbsent: globalAbsentTag,
+        browserScope: "ReceiptScopeDenied",
+        malformedJson: malformedJsonTag,
+        excessJson: excessJsonTag,
+        queryRejected: queryRejectedTag,
+        invalidFilter: invalidFilterTag,
+        conflictingReplay: conflictingReplayTag,
+        staleTerminal: staleTerminalTag,
+        terminalRefund: terminalRefundTag,
+        terminalReject: terminalRejectTag,
+        browserStale: "StaleReceiptRevision",
+        concurrentLoser: concurrentLoserTag,
+      },
+      rendered: {
+        loginPersonIds: Object.values(sessions).map(({ sessionPersonId }) => sessionPersonId),
+        forbiddenBrowserRequests,
+        nativeReceiptRequests: browserRequestLedger.filter(
+          ({ pathname }) =>
+            pathname.startsWith("/api/receipts") || pathname.startsWith("/api/admin/receipts"),
+        ),
+        terminalControls: 0,
+        reopenControls: 0,
+        statusRevisionPairs: Array.from(finalById.values()).map((item) => ({
+          receiptId: item.receiptId,
+          status: item.status,
+          revision: item.revision,
+        })),
       },
     };
-    await writeFile(RECEIPT_APPROVAL_EVIDENCE_FILE, JSON.stringify(journeyEvidence), "utf8");
-
+    const evidenceBytes = Buffer.from(JSON.stringify(journeyEvidence));
+    await writeFile(RECEIPT_APPROVAL_EVIDENCE_FILE, evidenceBytes);
     await test.info().attach("receipt-approval-evidence.json", {
-      body: Buffer.from(
-        JSON.stringify({
-          topology: {
-            dashboard: "loopback-react-router",
-            api: "native-effect-receipt",
-            persistence: "disposable-postgresql",
-            files: "disposable-private-filesystem",
-          },
-          environment: {
-            gate: ["REAL_RECEIPT_APPROVAL_E2E", "REAL_RECEIPT_OWNER_E2E"],
-            tokens: [
-              "RECEIPT_APPROVAL_E2E_OWNER_A_TOKEN",
-              "RECEIPT_APPROVAL_E2E_OWNER_B_TOKEN",
-              "RECEIPT_APPROVAL_E2E_DEPARTMENT_A_TOKEN",
-              "RECEIPT_APPROVAL_E2E_DEPARTMENT_B_TOKEN",
-              "RECEIPT_APPROVAL_E2E_GLOBAL_TOKEN",
-              "RECEIPT_APPROVAL_E2E_INACTIVE_TOKEN",
-              "RECEIPT_APPROVAL_E2E_NONE_SCOPE_TOKEN",
-            ],
-          },
-          visibility: {
-            departmentA: departmentAReceiptIds,
-            departmentB: departmentBReceiptIds,
-            global: globalReceiptIds,
-          },
-          accepted: {
-            refund: {
-              receiptId: refundReceipt.projection.receiptId,
-              commandId: refundCommandId,
-              status: refundReplay.status,
-              revision: refundReplay.revision,
-              replayed: refundReplay.replayed,
-            },
-            reject: {
-              receiptId: rejectReceipt.projection.receiptId,
-              commandId: rejectCommandId,
-              status: rejectReplay.status,
-              revision: rejectReplay.revision,
-              replayed: rejectReplay.replayed,
-            },
-            concurrent: {
-              receiptId: concurrentReceipt.projection.receiptId,
-              winner: concurrentWinner.intent,
-              commandId: concurrentWinner.commandId,
-              status: concurrentObservation.status,
-              revision: concurrentObservation.revision,
-              replayed: concurrentReplay.replayed,
-            },
-          },
-          rejected: {
-            unauthenticated: unauthenticatedTag,
-            expiredApi: expiredApiTag,
-            inactive: inactiveTag,
-            inactiveCommand: inactiveCommandTag,
-            noneScope: noneScopeTag,
-            foreignScope: foreignScopeTag,
-            absentScope: absentScopeTag,
-            globalAbsent: globalAbsentTag,
-            browserScope: "ReceiptScopeDenied",
-            malformedJson: malformedJsonTag,
-            excessJson: excessJsonTag,
-            queryRejected: queryRejectedTag,
-            invalidFilter: invalidFilterTag,
-            conflictingReplay: conflictingReplayTag,
-            staleTerminal: staleTerminalTag,
-            terminalRefund: terminalRefundTag,
-            terminalReject: terminalRejectTag,
-            browserStale: "StaleReceiptRevision",
-            concurrentLoser: concurrentLoserTag,
-          },
-          durable: {
-            postgresFailure: durablePostgresFailure,
-            fileIdentitiesBefore,
-            fileIdentitiesAfter,
-          },
-          rendered: {
-            terminalControls: 0,
-            reopenControls: 0,
-            statusRevisionPairs: Array.from(finalById.values()).map((item) => ({
-              receiptId: item.receiptId,
-              status: item.status,
-              revision: item.revision,
-            })),
-          },
-        }),
-      ),
+      body: evidenceBytes,
       contentType: "application/json",
     });
   });
