@@ -225,6 +225,7 @@ async function main() {
     ...process.env,
     APP_ENV: "e2e",
     APP_DEBUG: "0",
+    PHP_CLI_SERVER_WORKERS: "8",
     APP_SECRET: randomBytes(32).toString("hex"),
     DATABASE_URL: databaseUrl,
     E2E_DATABASE_URL: databaseUrl,
