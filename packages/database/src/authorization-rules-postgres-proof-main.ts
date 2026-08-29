@@ -14,12 +14,20 @@ import {
   removeAuthzRule,
   type DisposableAuthzBackfillPlan,
 } from "@vektorprogrammet/domain/authz";
+import {
+  AdmissionPeriodCommandId,
+  AdmissionPeriodId,
+  decideAdmissionPeriod,
+} from "@vektorprogrammet/domain/admission-period";
+import { AdmissionsLive } from "@vektorprogrammet/domain/admissions";
 import { Database, type DatabaseShape } from "@vektorprogrammet/domain/database";
 import { canonicalJson, canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/evidence";
 import {
   DepartmentId,
   OrganizationGlobalAdministratorGrantId,
+  OrganizationLive,
   PersonId,
+  SemesterId,
   authorizeOrganizationActor,
   createOrganizationGlobalAdministratorGrant,
   endOrganizationGlobalAdministratorGrant,
@@ -44,7 +52,9 @@ import {
   resolveReceiptAuthorityForRead,
   type ReceiptFile,
 } from "@vektorprogrammet/domain/receipt";
-import { Config, Deferred, Effect, Fiber, Redacted } from "effect";
+import { ProfileLive } from "@vektorprogrammet/domain/profile";
+import { Recruitment, RecruitmentLive } from "@vektorprogrammet/domain/recruitment";
+import { Config, Deferred, Effect, Fiber, Layer, Redacted } from "effect";
 import { makeSpec0055OrganizationAuthorityFixtures } from "../../domain/src/organization/authority-fixtures.test-support.js";
 import { resolveOrganizationPersonAuthorityForRead } from "../../domain/src/organization/authority-postgres.js";
 import { executeReceiptCommand } from "../../domain/src/receipt/postgres.js";
@@ -101,6 +111,15 @@ const ids = {
   },
   tag: "authz-0056-proof-tag-approvers",
   assignment: "authz-0056-proof-assignment-approver",
+  domainBoundaries: {
+    admissionDecisionPeriod: "authz-0056-proof-admission-decision-period",
+    recruitmentSemester: "authz-0056-proof-recruitment-semester",
+    recruitmentAdmissionPeriod: "authz-0056-proof-recruitment-period",
+    recruitmentFieldOfStudy: "authz-0056-proof-recruitment-field",
+    recruitmentApplicant: "authz-0056-proof-recruitment-applicant",
+    recruitmentApplication: "authz-0056-proof-recruitment-application",
+    recruitmentInterviewSchema: "authz-0056-proof-recruitment-schema",
+  },
   retryAssignment: "authz-0056-proof-assignment-approver-retry",
   rules: {
     submit: "authz-0056-proof-rule-submit",
@@ -122,6 +141,8 @@ const ids = {
   },
   commands: {
     directSubmit: "authz-0056-proof-command-direct-submit",
+    admissionMatrixCreate: "authz-0056-proof-command-admission-matrix-create",
+    recruitmentAdmissionPeriodSeed: "authz-0056-proof-command-recruitment-admission-period-seed",
     endedDirectSubmit: "authz-0056-proof-command-ended-direct-submit",
     matrixReceiptRejected: "authz-0056-proof-command-matrix-receipt-rejected",
     crossDepartmentSubmit: "authz-0056-proof-command-cross-department-submit",
@@ -213,6 +234,22 @@ const makeProofLayer = (url: Redacted.Redacted<string>, applicationName: string)
     applicationName,
     maxConnections: 1,
   });
+
+const makeZeroRuleProofLayer = (url: Redacted.Redacted<string>, applicationName: string) => {
+  const databaseLayer = makeProofLayer(url, applicationName);
+  const admissionsLayer = AdmissionsLive.pipe(Layer.provide(databaseLayer));
+  const organizationLayer = OrganizationLive.pipe(Layer.provide(databaseLayer));
+  const profileLayer = ProfileLive.pipe(
+    Layer.provide(Layer.merge(databaseLayer, organizationLayer)),
+  );
+  const supportLayer = Layer.mergeAll(
+    databaseLayer,
+    admissionsLayer,
+    organizationLayer,
+    profileLayer,
+  );
+  return Layer.merge(supportLayer, RecruitmentLive.pipe(Layer.provide(supportLayer)));
+};
 
 const assertDisposablePostgres = (url: Redacted.Redacted<string>): void => {
   const parsed = new URL(Redacted.value(url));
@@ -317,6 +354,79 @@ const seedDatabase = (sql: DatabaseShape) =>
           ('authz-0056-proof-membership-expiry-command-first', ${ids.persons.expiryCommandFirst}, ${ids.teams.alpha}, ${activeStart}, NULL, NULL, FALSE),
           ('authz-0056-proof-membership-expiry-writer-first', ${ids.persons.expiryWriterFirst}, ${ids.teams.alpha}, ${activeStart}, NULL, NULL, FALSE),
           ('authz-0056-proof-membership-phantom-economy', ${ids.persons.phantomEconomy}, ${ids.teams.alpha}, ${activeStart}, NULL, NULL, FALSE)
+      `;
+      yield* sql`
+        INSERT INTO public.admission_period_departments (department_id, name)
+        VALUES (${ids.departments.alpha}, 'Authorization proof Alpha')
+      `;
+      yield* sql`
+        INSERT INTO public.admission_period_semesters (semester_id, start_at, end_at)
+        VALUES (
+          ${ids.domainBoundaries.recruitmentSemester},
+          '2037-01-01T00:00:00.000Z',
+          '2038-01-01T00:00:00.000Z'
+        )
+      `;
+      yield* sql`
+        INSERT INTO public.admission_periods (
+          admission_period_id, department_id, semester_id,
+          start_at, end_at, last_command_id
+        ) VALUES (
+          ${ids.domainBoundaries.recruitmentAdmissionPeriod},
+          ${ids.departments.alpha},
+          ${ids.domainBoundaries.recruitmentSemester},
+          '2037-06-01T00:00:00.000Z',
+          '2037-07-01T00:00:00.000Z',
+          ${ids.commands.recruitmentAdmissionPeriodSeed}
+        )
+      `;
+      yield* sql`
+        INSERT INTO public.admission_period_fields_of_study (
+          field_of_study_id, department_id, name
+        ) VALUES (
+          ${ids.domainBoundaries.recruitmentFieldOfStudy},
+          ${ids.departments.alpha},
+          'Authorization proof studies'
+        )
+      `;
+      yield* sql`
+        INSERT INTO public.admission_applicants (
+          applicant_id, normalized_email, email, first_name, last_name,
+          phone, gender, field_of_study_id, year_of_study
+        ) VALUES (
+          ${ids.domainBoundaries.recruitmentApplicant},
+          'authz-0056-proof-recruitment-candidate@example.invalid',
+          'authz-0056-proof-recruitment-candidate@example.invalid',
+          'Rita',
+          'Candidate',
+          '90000056',
+          0,
+          ${ids.domainBoundaries.recruitmentFieldOfStudy},
+          1
+        )
+      `;
+      yield* sql`
+        INSERT INTO public.admission_applications (
+          application_id, applicant_id, admission_period_id,
+          department_id, field_of_study_id, year_of_study, submitted_at
+        ) VALUES (
+          ${ids.domainBoundaries.recruitmentApplication},
+          ${ids.domainBoundaries.recruitmentApplicant},
+          ${ids.domainBoundaries.recruitmentAdmissionPeriod},
+          ${ids.departments.alpha},
+          ${ids.domainBoundaries.recruitmentFieldOfStudy},
+          1,
+          '2037-06-10T12:00:00.000Z'
+        )
+      `;
+      yield* sql`
+        INSERT INTO public.recruitment_interview_schemas (
+          interview_schema_id, name, question_count
+        ) VALUES (
+          ${ids.domainBoundaries.recruitmentInterviewSchema},
+          'Authorization proof interview',
+          0
+        )
       `;
       yield* sql`
         INSERT INTO public.organization_global_administrator_grants (
@@ -1564,20 +1674,26 @@ const proveZeroRuleEquivalence = (databaseUrl: Redacted.Redacted<string>) =>
     assert(fixtureRuleRows);
     assert.equal(fixtureRuleRows.count, 0);
 
-    const observeDecision = <A>(
+    const requireAllowed = <A>(
       decision:
         | { readonly _tag: "Allow"; readonly value: A }
+        | { readonly _tag: "Deny"; readonly reason: string },
+    ): A => {
+      if (decision._tag !== "Allow") {
+        assert.fail(`expected Allow, received Deny(${decision.reason})`);
+      }
+      return decision.value;
+    };
+
+    const observeMapperDenial = (
+      decision:
+        | { readonly _tag: "Allow"; readonly value: unknown }
         | { readonly _tag: "Deny"; readonly reason: string },
       scope: unknown,
       activeState: unknown,
     ) => {
-      if (decision._tag === "Allow") {
-        return {
-          actor: decision.value,
-          scope,
-          activeState,
-          result: { _tag: "Accepted" as const },
-        };
+      if (decision._tag !== "Deny") {
+        assert.fail("expected mapper denial");
       }
       return {
         actor: null,
@@ -1587,42 +1703,166 @@ const proveZeroRuleEquivalence = (databaseUrl: Redacted.Redacted<string>) =>
       };
     };
 
-    const admissionAcceptedDirect = observeDecision(
+    const admissionAcceptedDirectActor = requireAllowed(
       mapOrganizationAuthorityToAdmissionPeriodActor(leaderFixture, alpha),
-      { _tag: "Department" as const, departmentId: alpha },
-      { globalAdministrator: "Absent" as const, membershipActive: true },
     );
-    const admissionAcceptedRulesEmpty = observeDecision(
+    const admissionAcceptedRulesEmptyActor = requireAllowed(
       mapOrganizationAuthorityToAdmissionPeriodActor(leaderProjection, alpha),
-      { _tag: "Department" as const, departmentId: alpha },
-      { globalAdministrator: "Absent" as const, membershipActive: true },
     );
-    const admissionRejectedDirect = observeDecision(
+    const admissionSemesterId = SemesterId.make(ids.domainBoundaries.recruitmentSemester);
+    const admissionCommandId = AdmissionPeriodCommandId.make(ids.commands.admissionMatrixCreate);
+    const admissionPeriodId = AdmissionPeriodId.make(ids.domainBoundaries.admissionDecisionPeriod);
+    const admissionSemester = {
+      semesterId: admissionSemesterId,
+      startAt: "2037-01-01T00:00:00.000Z",
+      endAt: "2038-01-01T00:00:00.000Z",
+    } as const;
+    const admissionCommand = {
+      _tag: "CreateAdmissionPeriod",
+      commandId: admissionCommandId,
+      semesterId: admissionSemesterId,
+      departmentId: alpha,
+      startAt: "2037-06-01T00:00:00.000Z",
+      endAt: "2037-07-01T00:00:00.000Z",
+    } as const;
+    const admissionAcceptedDirectDecision = yield* decideAdmissionPeriod(
+      undefined,
+      admissionCommand,
+      {
+        actor: admissionAcceptedDirectActor,
+        semester: admissionSemester,
+        now: exactEnd,
+        admissionPeriodId,
+      },
+    );
+    const admissionAcceptedRulesEmptyDecision = yield* decideAdmissionPeriod(
+      undefined,
+      admissionCommand,
+      {
+        actor: admissionAcceptedRulesEmptyActor,
+        semester: admissionSemester,
+        now: exactEnd,
+        admissionPeriodId,
+      },
+    );
+    const expectedAdmissionObservation = {
+      _tag: "Created" as const,
+      commandId: admissionCommandId,
+      period: {
+        id: admissionPeriodId,
+        departmentId: alpha,
+        semesterId: admissionSemesterId,
+        startAt: admissionCommand.startAt,
+        endAt: admissionCommand.endAt,
+        revision: 0,
+        lastCommandId: admissionCommandId,
+      },
+    };
+    assert.deepEqual(admissionAcceptedDirectDecision.observation, expectedAdmissionObservation);
+    assert.deepEqual(admissionAcceptedRulesEmptyDecision.observation, expectedAdmissionObservation);
+    const admissionAcceptedDirect = {
+      actor: admissionAcceptedDirectActor,
+      scope: { _tag: "Department" as const, departmentId: alpha },
+      activeState: { globalAdministrator: "Absent" as const, membershipActive: true },
+      result: {
+        _tag: "Success" as const,
+        observation: admissionAcceptedDirectDecision.observation,
+      },
+    };
+    const admissionAcceptedRulesEmpty = {
+      actor: admissionAcceptedRulesEmptyActor,
+      scope: { _tag: "Department" as const, departmentId: alpha },
+      activeState: { globalAdministrator: "Absent" as const, membershipActive: true },
+      result: {
+        _tag: "Success" as const,
+        observation: admissionAcceptedRulesEmptyDecision.observation,
+      },
+    };
+    const admissionRejectedDirect = observeMapperDenial(
       mapOrganizationAuthorityToAdmissionPeriodActor(inactiveLeaderFixture, alpha),
       { _tag: "Department" as const, departmentId: alpha },
       { globalAdministrator: "Absent" as const, membershipActive: false },
     );
-    const admissionRejectedRulesEmpty = observeDecision(
+    const admissionRejectedRulesEmpty = observeMapperDenial(
       mapOrganizationAuthorityToAdmissionPeriodActor(inactiveLeaderProjection, alpha),
       { _tag: "Department" as const, departmentId: alpha },
       { globalAdministrator: "Absent" as const, membershipActive: false },
     );
-    const recruitmentAcceptedDirect = observeDecision(
+
+    const recruitmentAcceptedDirectActor = requireAllowed(
       mapOrganizationAuthorityToRecruitmentActor(leaderFixture, alpha),
-      { _tag: "Department" as const, departmentId: alpha },
-      { globalAdministrator: "Absent" as const, membershipActive: true },
     );
-    const recruitmentAcceptedRulesEmpty = observeDecision(
+    const recruitmentAcceptedRulesEmptyActor = requireAllowed(
       mapOrganizationAuthorityToRecruitmentActor(leaderProjection, alpha),
-      { _tag: "Department" as const, departmentId: alpha },
-      { globalAdministrator: "Absent" as const, membershipActive: true },
     );
-    const recruitmentRejectedDirect = observeDecision(
+    const recruitment = yield* Recruitment;
+    const recruitmentAcceptedDirectBoard = yield* recruitment.readAssignmentBoard(
+      { status: "new" },
+      { actor: recruitmentAcceptedDirectActor, now: exactEnd },
+    );
+    const recruitmentAcceptedRulesEmptyBoard = yield* recruitment.readAssignmentBoard(
+      { status: "new" },
+      { actor: recruitmentAcceptedRulesEmptyActor, now: exactEnd },
+    );
+    assert.deepEqual(recruitmentAcceptedRulesEmptyBoard, recruitmentAcceptedDirectBoard);
+    assert.equal(
+      recruitmentAcceptedDirectBoard.admissionPeriodId,
+      ids.domainBoundaries.recruitmentAdmissionPeriod,
+    );
+    assert.equal(recruitmentAcceptedDirectBoard.departmentId, ids.departments.alpha);
+    assert.deepEqual(recruitmentAcceptedDirectBoard.candidates, [
+      {
+        applicationId: ids.domainBoundaries.recruitmentApplication,
+        applicantId: ids.domainBoundaries.recruitmentApplicant,
+        firstName: "Rita",
+        lastName: "Candidate",
+        email: "authz-0056-proof-recruitment-candidate@example.invalid",
+        submittedAt: "2037-06-10T12:00:00.000Z",
+        applicationState: "Received",
+        interviewState: "Unassigned",
+        interviewer: null,
+        interviewSchema: null,
+        scheduledAt: null,
+      },
+    ]);
+    assert.deepEqual(recruitmentAcceptedDirectBoard.interviewSchemas, [
+      {
+        interviewSchemaId: ids.domainBoundaries.recruitmentInterviewSchema,
+        name: "Authorization proof interview",
+        questionCount: 0,
+        active: true,
+        revision: 0,
+      },
+    ]);
+    assert.ok(
+      recruitmentAcceptedDirectBoard.interviewers.some(
+        (interviewer) => interviewer.personId === leaderFixture.personId,
+      ),
+    );
+    const recruitmentAcceptedDirect = {
+      actor: recruitmentAcceptedDirectActor,
+      scope: { _tag: "Department" as const, departmentId: alpha },
+      activeState: { globalAdministrator: "Absent" as const, membershipActive: true },
+      result: {
+        _tag: "Success" as const,
+        assignmentBoard: recruitmentAcceptedDirectBoard,
+      },
+    };
+    const recruitmentAcceptedRulesEmpty = {
+      actor: recruitmentAcceptedRulesEmptyActor,
+      scope: { _tag: "Department" as const, departmentId: alpha },
+      activeState: { globalAdministrator: "Absent" as const, membershipActive: true },
+      result: {
+        _tag: "Success" as const,
+        assignmentBoard: recruitmentAcceptedRulesEmptyBoard,
+      },
+    };
+    const recruitmentRejectedDirect = observeMapperDenial(
       mapOrganizationAuthorityToRecruitmentActor(inactiveLeaderFixture, alpha),
       { _tag: "Department" as const, departmentId: alpha },
       { globalAdministrator: "Absent" as const, membershipActive: false },
     );
-    const recruitmentRejectedRulesEmpty = observeDecision(
+    const recruitmentRejectedRulesEmpty = observeMapperDenial(
       mapOrganizationAuthorityToRecruitmentActor(inactiveLeaderProjection, alpha),
       { _tag: "Department" as const, departmentId: alpha },
       { globalAdministrator: "Absent" as const, membershipActive: false },
@@ -1679,26 +1919,40 @@ const proveZeroRuleEquivalence = (databaseUrl: Redacted.Redacted<string>) =>
       result: { _tag: resultFailureTag(organizationRejectedRulesEmptyResult) },
     };
 
-    const profileAcceptedDirect = observeDecision(
-      mapOrganizationAuthorityToProfileRole(leaderFixture),
-      { _tag: "Self" as const, personId: leaderFixture.personId },
-      { globalAdministrator: "Absent" as const, membershipActive: true },
-    );
-    const profileAcceptedRulesEmpty = observeDecision(
-      mapOrganizationAuthorityToProfileRole(leaderProjection),
-      { _tag: "Self" as const, personId: leaderProjection.personId },
-      { globalAdministrator: "Absent" as const, membershipActive: true },
-    );
-    const profileRejectedDirect = observeDecision(
-      mapOrganizationAuthorityToProfileRole(inactiveLeaderFixture),
-      { _tag: "Self" as const, personId: inactiveLeaderFixture.personId },
-      { globalAdministrator: "Absent" as const, membershipActive: false },
-    );
-    const profileRejectedRulesEmpty = observeDecision(
-      mapOrganizationAuthorityToProfileRole(inactiveLeaderProjection),
-      { _tag: "Self" as const, personId: inactiveLeaderProjection.personId },
-      { globalAdministrator: "Absent" as const, membershipActive: false },
-    );
+    const profileAcceptedDirectResult = mapOrganizationAuthorityToProfileRole(leaderFixture);
+    const profileAcceptedRulesEmptyResult = mapOrganizationAuthorityToProfileRole(leaderProjection);
+    const profileRejectedDirectResult =
+      mapOrganizationAuthorityToProfileRole(inactiveLeaderFixture);
+    const profileRejectedRulesEmptyResult =
+      mapOrganizationAuthorityToProfileRole(inactiveLeaderProjection);
+    assert.equal(profileAcceptedDirectResult._tag, "Allow");
+    assert.equal(profileAcceptedRulesEmptyResult._tag, "Allow");
+    assert.equal(profileRejectedDirectResult._tag, "Deny");
+    assert.equal(profileRejectedRulesEmptyResult._tag, "Deny");
+    const profileAcceptedDirect = {
+      actor: profileAcceptedDirectResult.value,
+      scope: { _tag: "Self" as const, personId: leaderFixture.personId },
+      activeState: { globalAdministrator: "Absent" as const, membershipActive: true },
+      result: profileAcceptedDirectResult,
+    };
+    const profileAcceptedRulesEmpty = {
+      actor: profileAcceptedRulesEmptyResult.value,
+      scope: { _tag: "Self" as const, personId: leaderProjection.personId },
+      activeState: { globalAdministrator: "Absent" as const, membershipActive: true },
+      result: profileAcceptedRulesEmptyResult,
+    };
+    const profileRejectedDirect = {
+      actor: null,
+      scope: { _tag: "Self" as const, personId: inactiveLeaderFixture.personId },
+      activeState: { globalAdministrator: "Absent" as const, membershipActive: false },
+      result: profileRejectedDirectResult,
+    };
+    const profileRejectedRulesEmpty = {
+      actor: null,
+      scope: { _tag: "Self" as const, personId: inactiveLeaderProjection.personId },
+      activeState: { globalAdministrator: "Absent" as const, membershipActive: false },
+      result: profileRejectedRulesEmptyResult,
+    };
 
     const composition = yield* submissionCompositionFacts(
       ids.persons.direct,
@@ -1928,7 +2182,9 @@ const proveZeroRuleEquivalence = (databaseUrl: Redacted.Redacted<string>) =>
       },
       matrix,
     };
-  }).pipe(Effect.provide(makeProofLayer(databaseUrl, `${proofApplicationPrefix}-zero-rule`)));
+  }).pipe(
+    Effect.provide(makeZeroRuleProofLayer(databaseUrl, `${proofApplicationPrefix}-zero-rule`)),
+  );
 
 const proveHalfOpenAndScopeDenials = (databaseUrl: Redacted.Redacted<string>) =>
   Effect.gen(function* () {
