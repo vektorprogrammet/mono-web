@@ -2648,35 +2648,44 @@ describe("DatabaseTest", () => {
 
   it("runs the Economy authority contract against PGlite", async () => {
     await runtime.runPromise(
-      Database.use((database) =>
-        database.unsafe(`
+      Effect.gen(function* () {
+        const database = yield* Database;
+        yield* database.unsafe(`
           INSERT INTO person_profiles (person_id, first_name, last_name)
           VALUES ('pglite-owner', 'PGlite', 'Owner')
-          ON CONFLICT (person_id) DO NOTHING;
+          ON CONFLICT (person_id) DO NOTHING
+        `);
+        yield* database.unsafe(`
           INSERT INTO organization_departments (
             department_id, name, short_name, email, city
           ) VALUES (
             'pglite-department', 'PGlite Department', 'PGL',
             'pglite@example.invalid', 'Bergen'
-          ) ON CONFLICT (department_id) DO NOTHING;
+          ) ON CONFLICT (department_id) DO NOTHING
+        `);
+        yield* database.unsafe(`
           INSERT INTO organization_teams (team_id, department_id, name)
           VALUES ('pglite-team', 'pglite-department', 'PGlite Team')
-          ON CONFLICT (team_id) DO NOTHING;
+          ON CONFLICT (team_id) DO NOTHING
+        `);
+        yield* database.unsafe(`
           INSERT INTO organization_memberships (
             membership_id, person_id, team_id, start_at
           ) VALUES (
             'pglite-membership', 'pglite-owner', 'pglite-team',
             '2026-08-01T00:00:00.000Z'
-          ) ON CONFLICT (membership_id) DO NOTHING;
+          ) ON CONFLICT (membership_id) DO NOTHING
+        `);
+        yield* database.unsafe(`
           INSERT INTO economy_payment_authorities (
             payment_authority_id, person_id, department_id,
             payment_account_ciphertext, start_at
           ) VALUES (
             'pglite-payment', 'pglite-owner', 'pglite-department',
             'ciphertext:v1:pglite-account', '2026-08-01T00:00:00.000Z'
-          ) ON CONFLICT (payment_authority_id) DO NOTHING;
-        `),
-      ),
+          ) ON CONFLICT (payment_authority_id) DO NOTHING
+        `);
+      }),
     );
     const command = {
       _tag: "SubmitReceipt" as const,

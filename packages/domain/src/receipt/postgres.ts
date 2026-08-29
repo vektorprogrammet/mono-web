@@ -517,18 +517,16 @@ export const executeReceiptCommand = (
             );
             const canonicalDepartment =
               command.departmentId ??
-              (
-                yield* mapReceiptSubmissionPrincipal(directAuthority).pipe(
-                  Effect.mapError((cause: ReceiptAuthorityMappingError) =>
-                    cause._tag === "AmbiguousReceiptPaymentAuthority"
-                      ? new AmbiguousPaymentSelection({
-                          personId: cause.personId,
-                          departmentIds: cause.departmentIds,
-                        })
-                      : cause,
-                  ),
-                )
-              ).actor.departmentId;
+              (yield* mapReceiptSubmissionPrincipal(directAuthority).pipe(
+                Effect.mapError((cause: ReceiptAuthorityMappingError) =>
+                  cause._tag === "AmbiguousReceiptPaymentAuthority"
+                    ? new AmbiguousPaymentSelection({
+                        personId: cause.personId,
+                        departmentIds: cause.departmentIds,
+                      })
+                    : cause,
+                ),
+              )).actor.departmentId;
             const requestScope = {
               domain: "Receipt" as const,
               departmentId: canonicalDepartment,
@@ -653,10 +651,7 @@ export const executeReceiptCommand = (
               [],
               composition.evidence.approvalGrants ?? [],
             );
-            const actor = yield* mapReceiptApprovalActor(
-              composedAuthority,
-              current.departmentId,
-            );
+            const actor = yield* mapReceiptApprovalActor(composedAuthority, current.departmentId);
             authorizedCommand = { ...command, actor };
           } else {
             const current = previous as Receipt;

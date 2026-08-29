@@ -471,9 +471,7 @@ const insertImportedOrganization = (
     const affectedPersonIds = [
       ...new Set(result.memberships.map((membership) => membership.personId)),
     ].sort();
-    yield* Effect.forEach(affectedPersonIds, (personId) =>
-      lockPersonAuthorization(sql, personId),
-    );
+    yield* Effect.forEach(affectedPersonIds, (personId) => lockPersonAuthorization(sql, personId));
     const quarantined: OrganizationQuarantine[] = [...result.quarantined];
     const ledger: OrganizationImportLedgerEntry[] = [...result.ledger];
     const destinationCollisions = new Set<string>();

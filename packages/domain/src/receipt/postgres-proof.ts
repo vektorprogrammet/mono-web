@@ -6,12 +6,7 @@ import { canonicalJsonBytes, sha256Hex } from "../tutor/evidence.js";
 import { importLegacyReceipts, type ReceiptImportProvenance } from "./import.js";
 import { executeReceiptCommand, storeReceiptImportResult } from "./postgres.js";
 import { listApproverReceipts, listAssistantReceipts, receiptStatusTotals } from "./projections.js";
-import {
-  ReceiptId,
-  ReceiptVisualId,
-  type LegacyReceiptRow,
-  type ReceiptFile,
-} from "./schema.js";
+import { ReceiptId, ReceiptVisualId, type LegacyReceiptRow, type ReceiptFile } from "./schema.js";
 
 interface CountRow {
   readonly count: string;
@@ -276,11 +271,7 @@ export const runReceiptPostgresProof: Effect.Effect<ReceiptProofEvidence, unknow
       BEFORE INSERT ON economy_receipt_audit
       FOR EACH ROW EXECUTE FUNCTION reject_receipt_proof_audit();
   `);
-    const rollbackContext = context(
-      "proof-receipt-3",
-      "PROOF-0003",
-      "2026-08-20T14:00:00.000Z",
-    );
+    const rollbackContext = context("proof-receipt-3", "PROOF-0003", "2026-08-20T14:00:00.000Z");
     const failedTransaction = yield* Effect.exit(
       executeReceiptCommand(
         submit("proof-command-rollback", "Rollback after durable writes", rollbackFile),

@@ -212,7 +212,6 @@ const multipartRequest = (http: ReceiptApiHttp, pathname: string): Promise<Respo
   });
 };
 
-
 describe("receipt HTTP authority resolution (spec 0055)", () => {
   it("uses only the session person for the owner list", async () => {
     const state = harness();

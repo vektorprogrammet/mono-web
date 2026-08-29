@@ -153,147 +153,146 @@ const decideCommand = (
   Effect.gen(function* () {
     yield* activeActor(command.actor);
 
-    return yield* AuthorizedReceiptCommandSchema.match<Effect.Effect<ReceiptDecision, ReceiptFailure>>(
-      command,
-      {
-        SubmitReceipt: (input) =>
-          Effect.gen(function* () {
-            if (existing !== undefined) {
-              return yield* new ReceiptAlreadyExists({ receiptId: context.receiptId });
-            }
-            if (input.actor.departmentId !== input.departmentId) {
-              return yield* new ReceiptScopeDenied({
-                receiptId: context.receiptId,
-                departmentId: input.departmentId,
-              });
-            }
-            const receipt: Receipt = {
-              receiptId: ReceiptId.make(context.receiptId),
-              visualId: ReceiptVisualId.make(context.visualId),
-              ownerPersonId: input.actor.personId,
+    return yield* AuthorizedReceiptCommandSchema.match<
+      Effect.Effect<ReceiptDecision, ReceiptFailure>
+    >(command, {
+      SubmitReceipt: (input) =>
+        Effect.gen(function* () {
+          if (existing !== undefined) {
+            return yield* new ReceiptAlreadyExists({ receiptId: context.receiptId });
+          }
+          if (input.actor.departmentId !== input.departmentId) {
+            return yield* new ReceiptScopeDenied({
+              receiptId: context.receiptId,
               departmentId: input.departmentId,
-              amountOre: input.amountOre,
-              currency: "NOK",
-              description: input.description,
-              receiptDate: input.receiptDate,
-              submittedAt: context.now,
-              status: "Pending",
-              refundDate: null,
-              paymentAccountCiphertext: input.paymentAccountCiphertext,
-              file: input.file,
-              revision: 0,
-            };
-            return {
-              receipt,
-              observation: observation(input.commandId, receipt),
-              outbox: [
-                effect(input.commandId, receipt.receiptId, "PromoteReceiptFile", receipt.file),
-                effect(input.commandId, receipt.receiptId, "NotifyEconomyReceiptSubmitted"),
-                effect(input.commandId, receipt.receiptId, "WriteReceiptAudit"),
-              ],
-              auditAction: "ReceiptSubmitted",
-            };
-          }),
-        RevisePendingReceipt: (input) =>
-          Effect.gen(function* () {
-            const current = yield* requireReceipt(existing, input.receiptId);
-            yield* owner(current, input.actor);
-            yield* currentRevision(current, input.expectedRevision);
-            yield* pending(current, input._tag);
-            const nextFile = isKeepCurrentFile(input.file) ? current.file : input.file;
-            const receipt: Receipt = {
-              ...current,
-              amountOre: input.amountOre,
-              description: input.description,
-              receiptDate: input.receiptDate,
-              file: nextFile,
-              revision: current.revision + 1,
-            };
-            const outbox: ReceiptOutboxRequest[] = [
+            });
+          }
+          const receipt: Receipt = {
+            receiptId: ReceiptId.make(context.receiptId),
+            visualId: ReceiptVisualId.make(context.visualId),
+            ownerPersonId: input.actor.personId,
+            departmentId: input.departmentId,
+            amountOre: input.amountOre,
+            currency: "NOK",
+            description: input.description,
+            receiptDate: input.receiptDate,
+            submittedAt: context.now,
+            status: "Pending",
+            refundDate: null,
+            paymentAccountCiphertext: input.paymentAccountCiphertext,
+            file: input.file,
+            revision: 0,
+          };
+          return {
+            receipt,
+            observation: observation(input.commandId, receipt),
+            outbox: [
+              effect(input.commandId, receipt.receiptId, "PromoteReceiptFile", receipt.file),
+              effect(input.commandId, receipt.receiptId, "NotifyEconomyReceiptSubmitted"),
               effect(input.commandId, receipt.receiptId, "WriteReceiptAudit"),
-            ];
-            if (!sameReceiptFile(current.file, nextFile)) {
-              outbox.unshift(
-                effect(input.commandId, receipt.receiptId, "PromoteReceiptFile", nextFile),
-              );
-              outbox.push(
-                effect(input.commandId, receipt.receiptId, "DeleteReceiptFile", current.file),
-              );
-            }
-            return {
-              receipt,
-              observation: observation(input.commandId, receipt),
-              outbox,
-              auditAction: "PendingReceiptRevised",
-            };
-          }),
-        WithdrawPendingReceipt: (input) =>
-          Effect.gen(function* () {
-            const current = yield* requireReceipt(existing, input.receiptId);
-            yield* owner(current, input.actor);
-            yield* currentRevision(current, input.expectedRevision);
-            yield* pending(current, input._tag);
-            const receipt: Receipt = {
-              ...current,
-              status: "Withdrawn",
-              revision: current.revision + 1,
-            };
-            return {
-              receipt,
-              observation: observation(input.commandId, receipt),
-              outbox: [
-                effect(input.commandId, receipt.receiptId, "DeleteReceiptFile", receipt.file),
-                effect(input.commandId, receipt.receiptId, "WriteReceiptAudit"),
-              ],
-              auditAction: "PendingReceiptWithdrawn",
-            };
-          }),
-        RefundReceipt: (input) =>
-          Effect.gen(function* () {
-            const current = yield* requireReceipt(existing, input.receiptId);
-            yield* approver(current, input.actor);
-            yield* currentRevision(current, input.expectedRevision);
-            yield* pending(current, input._tag);
-            const receipt: Receipt = {
-              ...current,
-              status: "Refunded",
-              refundDate: context.now,
-              revision: current.revision + 1,
-            };
-            return {
-              receipt,
-              observation: observation(input.commandId, receipt),
-              outbox: [
-                effect(input.commandId, receipt.receiptId, "NotifyReceiptRefunded"),
-                effect(input.commandId, receipt.receiptId, "WriteReceiptAudit"),
-              ],
-              auditAction: "ReceiptRefunded",
-            };
-          }),
-        RejectReceipt: (input) =>
-          Effect.gen(function* () {
-            const current = yield* requireReceipt(existing, input.receiptId);
-            yield* approver(current, input.actor);
-            yield* currentRevision(current, input.expectedRevision);
-            yield* pending(current, input._tag);
-            const receipt: Receipt = {
-              ...current,
-              status: "Rejected",
-              refundDate: null,
-              revision: current.revision + 1,
-            };
-            return {
-              receipt,
-              observation: observation(input.commandId, receipt),
-              outbox: [
-                effect(input.commandId, receipt.receiptId, "NotifyReceiptRejected"),
-                effect(input.commandId, receipt.receiptId, "WriteReceiptAudit"),
-              ],
-              auditAction: "ReceiptRejected",
-            };
-          }),
-      },
-    );
+            ],
+            auditAction: "ReceiptSubmitted",
+          };
+        }),
+      RevisePendingReceipt: (input) =>
+        Effect.gen(function* () {
+          const current = yield* requireReceipt(existing, input.receiptId);
+          yield* owner(current, input.actor);
+          yield* currentRevision(current, input.expectedRevision);
+          yield* pending(current, input._tag);
+          const nextFile = isKeepCurrentFile(input.file) ? current.file : input.file;
+          const receipt: Receipt = {
+            ...current,
+            amountOre: input.amountOre,
+            description: input.description,
+            receiptDate: input.receiptDate,
+            file: nextFile,
+            revision: current.revision + 1,
+          };
+          const outbox: ReceiptOutboxRequest[] = [
+            effect(input.commandId, receipt.receiptId, "WriteReceiptAudit"),
+          ];
+          if (!sameReceiptFile(current.file, nextFile)) {
+            outbox.unshift(
+              effect(input.commandId, receipt.receiptId, "PromoteReceiptFile", nextFile),
+            );
+            outbox.push(
+              effect(input.commandId, receipt.receiptId, "DeleteReceiptFile", current.file),
+            );
+          }
+          return {
+            receipt,
+            observation: observation(input.commandId, receipt),
+            outbox,
+            auditAction: "PendingReceiptRevised",
+          };
+        }),
+      WithdrawPendingReceipt: (input) =>
+        Effect.gen(function* () {
+          const current = yield* requireReceipt(existing, input.receiptId);
+          yield* owner(current, input.actor);
+          yield* currentRevision(current, input.expectedRevision);
+          yield* pending(current, input._tag);
+          const receipt: Receipt = {
+            ...current,
+            status: "Withdrawn",
+            revision: current.revision + 1,
+          };
+          return {
+            receipt,
+            observation: observation(input.commandId, receipt),
+            outbox: [
+              effect(input.commandId, receipt.receiptId, "DeleteReceiptFile", receipt.file),
+              effect(input.commandId, receipt.receiptId, "WriteReceiptAudit"),
+            ],
+            auditAction: "PendingReceiptWithdrawn",
+          };
+        }),
+      RefundReceipt: (input) =>
+        Effect.gen(function* () {
+          const current = yield* requireReceipt(existing, input.receiptId);
+          yield* approver(current, input.actor);
+          yield* currentRevision(current, input.expectedRevision);
+          yield* pending(current, input._tag);
+          const receipt: Receipt = {
+            ...current,
+            status: "Refunded",
+            refundDate: context.now,
+            revision: current.revision + 1,
+          };
+          return {
+            receipt,
+            observation: observation(input.commandId, receipt),
+            outbox: [
+              effect(input.commandId, receipt.receiptId, "NotifyReceiptRefunded"),
+              effect(input.commandId, receipt.receiptId, "WriteReceiptAudit"),
+            ],
+            auditAction: "ReceiptRefunded",
+          };
+        }),
+      RejectReceipt: (input) =>
+        Effect.gen(function* () {
+          const current = yield* requireReceipt(existing, input.receiptId);
+          yield* approver(current, input.actor);
+          yield* currentRevision(current, input.expectedRevision);
+          yield* pending(current, input._tag);
+          const receipt: Receipt = {
+            ...current,
+            status: "Rejected",
+            refundDate: null,
+            revision: current.revision + 1,
+          };
+          return {
+            receipt,
+            observation: observation(input.commandId, receipt),
+            outbox: [
+              effect(input.commandId, receipt.receiptId, "NotifyReceiptRejected"),
+              effect(input.commandId, receipt.receiptId, "WriteReceiptAudit"),
+            ],
+            auditAction: "ReceiptRejected",
+          };
+        }),
+    });
   });
 
 const decodeReceiptCommand = (

@@ -367,7 +367,6 @@ const activePaymentDepartment = (authority: ReceiptAuthority): DepartmentId | un
   return active?.departmentId;
 };
 
-
 /** Strongest approval scope: active grants win, Global wins within the same
  *  activity state, and known inactive grants remain inactive actors. */
 const strongestApprovalGrant = (
