@@ -1123,8 +1123,16 @@ const proveHalfOpenAndScopeDenials = (databaseUrl: Redacted.Redacted<string>) =>
       outboxCommandRows: 0,
     });
     assert.equal(directBefore.mapped._tag, "Success");
-    assert.equal(directExact.mapped._tag, "Failure");
-    assert.equal(resultFailureTag(endedDirectCommand), "ReceiptAuthorityDenied");
+    assert.deepEqual(directExact.mapped, {
+      _tag: "Success",
+      actor: {
+        personId: ids.persons.endedDirect,
+        departmentId: ids.departments.alpha,
+        active: false,
+        approvalScope: { _tag: "None" },
+      },
+    });
+    assert.equal(resultFailureTag(endedDirectCommand), "InactiveActor");
     assert.deepEqual(endedDirectDurable, {
       commandReceiptRows: 0,
       auditRows: 0,
@@ -1598,7 +1606,7 @@ const proveCommandFirstRuleRemoval = (databaseUrl: Redacted.Redacted<string>) =>
       assert.equal(replayAndFresh.replayOutboxCount, 0);
       assert.equal(replayAndFresh.storedObservationFieldsEqual, true);
       assert.deepEqual(replayAndFresh.beforeReplay, replayAndFresh.afterReplay);
-      assert.equal(replayAndFresh.freshCommandFailureTag, "ReceiptAuthorityDenied");
+      assert.equal(replayAndFresh.freshCommandFailureTag, "InactiveActor");
       assert.deepEqual(replayAndFresh.freshDurable, {
         commandReceiptRows: 0,
         auditRows: 0,
