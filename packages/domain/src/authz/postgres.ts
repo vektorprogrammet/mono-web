@@ -267,9 +267,10 @@ export type ApplicableAuthorizationRules = {
 };
 
 /**
- * Transaction-local projection for protected commands. `ForShare` must execute
- * inside the caller's state-transition transaction so both the advisory lock and
- * deterministically ordered row locks live through commit or rollback.
+ * Caller-transaction projection for protected commands. Passing `ForShare`
+ * is command-safe only when `sql` belongs to the caller's state-transition
+ * transaction, so its advisory and ordered row locks live through commit or
+ * rollback.
  */
 export const readApplicableAuthorizationRules = (
   sql: DatabaseShape,
@@ -421,12 +422,16 @@ export const readApplicableAuthorizationRules = (
     };
   });
 
+/**
+ * Lock-free ambient snapshot for query paths. This loader always uses `None`;
+ * command paths must call `readApplicableAuthorizationRules` with their own
+ * transaction-bound SQL and the explicit `ForShare` mode.
+ */
 export const loadApplicableAuthorizationRules = (
   personId: PersonId,
   capabilityId: AuthzCapabilityId,
   authorizationInstant: string,
   requestScope: AuthzRequestScope,
-  lockMode: AuthzLockMode,
 ): Effect.Effect<
   ApplicableAuthorizationRules,
   AuthzValidationError | AuthzPersistenceError,
@@ -440,7 +445,7 @@ export const loadApplicableAuthorizationRules = (
       capabilityId,
       authorizationInstant,
       requestScope,
-      lockMode,
+      "None",
     );
   });
 

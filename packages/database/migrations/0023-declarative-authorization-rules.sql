@@ -65,19 +65,25 @@ CREATE TABLE IF NOT EXISTS public.authz_rules (
   CONSTRAINT authz_rules_params_declared CHECK (
     CASE
       WHEN capability_id = 'approveReceipt' AND effect_kind = 'delegate' THEN
-        params = '{"slot":"EconomyDepartmentApprovalGrant"}'::jsonb
-        OR params = '{"slot":"EconomyGlobalReceiptApprovalGrant"}'::jsonb
+        COALESCE(
+          params = '{"slot":"EconomyDepartmentApprovalGrant"}'::jsonb
+          OR params = '{"slot":"EconomyGlobalReceiptApprovalGrant"}'::jsonb,
+          FALSE
+        )
       WHEN capability_id = 'submitReceipt' AND effect_kind = 'delegate' THEN
-        CASE
-          WHEN jsonb_typeof(params) = 'object' THEN
-            jsonb_object_length(params) = 2
-            AND params ->> 'slot' = 'EconomyPaymentAuthority'
-            AND jsonb_typeof(params -> 'paymentAccountCiphertext') = 'string'
-            AND btrim(params ->> 'paymentAccountCiphertext') <> ''
-            AND btrim(params ->> 'paymentAccountCiphertext') =
-              params ->> 'paymentAccountCiphertext'
-          ELSE FALSE
-        END
+        COALESCE(
+          jsonb_typeof(params) = 'object'
+          AND params ? 'slot'
+          AND params ? 'paymentAccountCiphertext'
+          AND (params - 'slot' - 'paymentAccountCiphertext') = '{}'::jsonb
+          AND jsonb_typeof(params -> 'slot') = 'string'
+          AND params ->> 'slot' = 'EconomyPaymentAuthority'
+          AND jsonb_typeof(params -> 'paymentAccountCiphertext') = 'string'
+          AND btrim(params ->> 'paymentAccountCiphertext') <> ''
+          AND btrim(params ->> 'paymentAccountCiphertext') =
+            params ->> 'paymentAccountCiphertext',
+          FALSE
+        )
       ELSE FALSE
     END
   ),

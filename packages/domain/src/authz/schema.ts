@@ -264,39 +264,3 @@ export const decodeAuthzTagAssignment = (
     onExcessProperty: "error",
   }).pipe(Effect.mapError((cause) => validationError("AuthzTagAssignment", cause)));
 
-export const isDeclaredAuthzRuleParams = (
-  capabilityId: AuthzCapabilityId,
-  effectKind: AuthzRuleEffectKind,
-  params: unknown,
-): boolean => {
-  if (
-    effectKind !== "delegate" ||
-    typeof params !== "object" ||
-    params === null ||
-    Array.isArray(params)
-  ) {
-    return false;
-  }
-  const entries = Object.entries(params);
-  const slot = entries.find(([key]) => key === "slot")?.[1];
-  if (capabilityId === "approveReceipt") {
-    return (
-      entries.length === 1 &&
-      (slot === "EconomyDepartmentApprovalGrant" ||
-        slot === "EconomyGlobalReceiptApprovalGrant")
-    );
-  }
-  if (capabilityId === "submitReceipt") {
-    const paymentAccountCiphertext = entries.find(
-      ([key]) => key === "paymentAccountCiphertext",
-    )?.[1];
-    return (
-      entries.length === 2 &&
-      slot === "EconomyPaymentAuthority" &&
-      typeof paymentAccountCiphertext === "string" &&
-      paymentAccountCiphertext.length > 0 &&
-      paymentAccountCiphertext.trim() === paymentAccountCiphertext
-    );
-  }
-  return false;
-};

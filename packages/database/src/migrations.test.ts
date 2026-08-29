@@ -151,3 +151,110 @@ describe("native domain schema boundary", () => {
     ]);
   });
 });
+
+describe("declarative authorization rule migration in PGlite", () => {
+  it("uses supported JSONB operators and rejects incomplete or inexact Submit params", async () => {
+    const evidence = await runtime.runPromise(
+      Effect.gen(function* () {
+        const database = yield* Database;
+        yield* database`
+          INSERT INTO public.person_profiles (person_id, first_name, last_name)
+          VALUES ('authz-params-person', 'Authz', 'Params')
+          ON CONFLICT (person_id) DO NOTHING
+        `;
+        const insertSubmitRule = (ruleId: string, params: unknown) =>
+          database`
+            INSERT INTO public.authz_rules (
+              rule_id,
+              capability_id,
+              effect_kind,
+              subject_kind,
+              subject_person_id,
+              subject_tag_id,
+              scope,
+              department_id,
+              params,
+              start_at,
+              end_at,
+              revision
+            ) VALUES (
+              ${ruleId},
+              'submitReceipt',
+              'delegate',
+              'Person',
+              'authz-params-person',
+              NULL,
+              'Global',
+              NULL,
+              ${database.json(params)},
+              '2030-01-01T00:00:00.000Z',
+              NULL,
+              0
+            )
+          `.pipe(Effect.asVoid);
+
+        const valid = yield* Effect.exit(
+          insertSubmitRule("authz-params-valid", {
+            slot: "EconomyPaymentAuthority",
+            paymentAccountCiphertext: "ciphertext",
+          }),
+        );
+        const invalidParams: ReadonlyArray<readonly [string, unknown]> = [
+          ["missingKey", { slot: "EconomyPaymentAuthority" }],
+          [
+            "arbitraryKey",
+            { slot: "EconomyPaymentAuthority", arbitrary: "ciphertext" },
+          ],
+          [
+            "extraKey",
+            {
+              slot: "EconomyPaymentAuthority",
+              paymentAccountCiphertext: "ciphertext",
+              arbitrary: true,
+            },
+          ],
+          [
+            "nonStringSlot",
+            { slot: null, paymentAccountCiphertext: "ciphertext" },
+          ],
+          [
+            "nonStringCiphertext",
+            { slot: "EconomyPaymentAuthority", paymentAccountCiphertext: 42 },
+          ],
+          [
+            "emptyCiphertext",
+            { slot: "EconomyPaymentAuthority", paymentAccountCiphertext: "" },
+          ],
+          [
+            "paddedCiphertext",
+            {
+              slot: "EconomyPaymentAuthority",
+              paymentAccountCiphertext: " ciphertext ",
+            },
+          ],
+        ];
+        const rejected: Record<string, boolean> = {};
+        for (const [name, params] of invalidParams) {
+          const outcome = yield* Effect.exit(
+            insertSubmitRule(`authz-params-${name}`, params),
+          );
+          rejected[name] = outcome._tag === "Failure";
+        }
+        return { validAccepted: valid._tag === "Success", rejected };
+      }),
+    );
+
+    expect(evidence).toEqual({
+      validAccepted: true,
+      rejected: {
+        missingKey: true,
+        arbitraryKey: true,
+        extraKey: true,
+        nonStringSlot: true,
+        nonStringCiphertext: true,
+        emptyCiphertext: true,
+        paddedCiphertext: true,
+      },
+    });
+  }, 15_000);
+});

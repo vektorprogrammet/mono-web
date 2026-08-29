@@ -1,4 +1,4 @@
-import type { DepartmentId, PersonId } from "../organization/schema.js";
+import type { PersonId } from "../organization/schema.js";
 import {
   ReceiptApprovalGrantId,
   ReceiptPaymentAuthorityId,
@@ -44,9 +44,10 @@ export const authzRuleSubjectApplies = (
   tagAssignments: ReadonlyArray<AuthzTagAssignment>,
 ): boolean => {
   if (rule.subject._tag === "Person") return rule.subject.personId === personId;
+  const tagId = rule.subject.tagId;
   return tagAssignments.some(
     (assignment) =>
-      assignment.tagId === rule.subject.tagId &&
+      assignment.tagId === tagId &&
       isAuthzTagAssignmentActive(assignment, personId, authorizationInstant),
   );
 };
@@ -215,10 +216,7 @@ export type RuleReceptiveEvidence = {
   readonly paymentAuthorities?: ReadonlyArray<ReceiptPaymentAuthority>;
 };
 
-export type CapabilityCompilationRequestFacts = {
-  readonly personId: PersonId;
-  readonly authorizationInstant: string;
-  readonly departmentId?: DepartmentId;
+export type CapabilityCompilationRequestFacts = AuthzApplicabilityFacts & {
   readonly parameterFills?: ReadonlyArray<CapabilityParameterFill>;
   readonly requirements?: ReadonlyArray<CapabilityRequirement>;
 };
@@ -234,15 +232,18 @@ export type ComposedCapabilityEvidence = {
 const ruleFactId = (ruleId: AuthzRuleId): string => `authz-rule:${ruleId}`;
 
 /**
- * Extends direct evidence only through frozen receptive slots. With no contributing
+ * Re-filters every supplied rule against the full request facts, then extends
+ * direct evidence only through frozen receptive slots. With no contributing
  * rule, `evidence` and the allowed Decision value are the original object.
  */
 export const composeCapabilityEvidence = (
   capabilityId: AuthzCapabilityId,
   directEvidence: RuleReceptiveEvidence,
-  applicableRules: ReadonlyArray<AuthzRule>,
+  rules: ReadonlyArray<AuthzRule>,
   requestFacts: CapabilityCompilationRequestFacts,
 ): ComposedCapabilityEvidence => {
+  const applicableRules = applicableAuthzRules(rules, capabilityId, requestFacts);
+  const departmentId = requestFacts.requestScope.departmentId;
   const approvalContributions: Array<{
     readonly ruleId: AuthzRuleId;
     readonly fact: ReceiptApprovalGrant;
@@ -273,7 +274,7 @@ export const composeCapabilityEvidence = (
             revision: rule.revision,
           },
         });
-      } else if (requestFacts.departmentId === undefined) {
+      } else if (departmentId === undefined) {
         generatedRequirements.push({
           requirementId: "ReceiptDepartmentResolved",
           satisfied: false,
@@ -285,7 +286,7 @@ export const composeCapabilityEvidence = (
           fact: {
             approvalGrantId: ReceiptApprovalGrantId.make(ruleFactId(rule.ruleId)),
             personId: requestFacts.personId,
-            scope: { _tag: "Department", departmentId: requestFacts.departmentId },
+            scope: { _tag: "Department", departmentId },
             startAt: rule.startAt,
             endAt: rule.endAt,
             revision: rule.revision,
@@ -293,7 +294,7 @@ export const composeCapabilityEvidence = (
         });
       }
     } else if (rule.capabilityId === "submitReceipt") {
-      if (requestFacts.departmentId === undefined) {
+      if (departmentId === undefined) {
         generatedRequirements.push({
           requirementId: "ReceiptDepartmentResolved",
           satisfied: false,
@@ -305,7 +306,7 @@ export const composeCapabilityEvidence = (
           fact: {
             paymentAuthorityId: ReceiptPaymentAuthorityId.make(ruleFactId(rule.ruleId)),
             personId: requestFacts.personId,
-            departmentId: requestFacts.departmentId,
+            departmentId,
             paymentAccountCiphertext: rule.params.paymentAccountCiphertext,
             startAt: rule.startAt,
             endAt: rule.endAt,
