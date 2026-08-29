@@ -1,12 +1,33 @@
+CREATE OR REPLACE FUNCTION public.authz_is_ecmascript_trimmed_nonempty(value text)
+RETURNS boolean
+LANGUAGE sql
+IMMUTABLE
+PARALLEL SAFE
+STRICT
+AS $function$
+  SELECT
+    value <> ''
+    AND btrim(
+      value,
+      chr(9) || chr(10) || chr(11) || chr(12) || chr(13) || chr(32)
+        || chr(160) || chr(5760)
+        || chr(8192) || chr(8193) || chr(8194) || chr(8195)
+        || chr(8196) || chr(8197) || chr(8198) || chr(8199)
+        || chr(8200) || chr(8201) || chr(8202)
+        || chr(8232) || chr(8233) || chr(8239) || chr(8287)
+        || chr(12288) || chr(65279)
+    ) = value
+$function$;
+
 CREATE TABLE IF NOT EXISTS public.authz_tags (
   tag_id text PRIMARY KEY,
   name text NOT NULL UNIQUE,
   revision integer NOT NULL DEFAULT 0,
   CONSTRAINT authz_tags_id_nonempty CHECK (
-    btrim(tag_id) <> '' AND btrim(tag_id) = tag_id
+    public.authz_is_ecmascript_trimmed_nonempty(tag_id)
   ),
   CONSTRAINT authz_tags_name_nonempty CHECK (
-    btrim(name) <> '' AND btrim(name) = name
+    public.authz_is_ecmascript_trimmed_nonempty(name)
   ),
   CONSTRAINT authz_tags_revision_nonnegative CHECK (revision >= 0)
 );
@@ -21,7 +42,10 @@ CREATE TABLE IF NOT EXISTS public.authz_tag_assignments (
   end_at timestamptz NULL,
   revision integer NOT NULL DEFAULT 0,
   CONSTRAINT authz_tag_assignments_id_nonempty CHECK (
-    btrim(assignment_id) <> '' AND btrim(assignment_id) = assignment_id
+    public.authz_is_ecmascript_trimmed_nonempty(assignment_id)
+  ),
+  CONSTRAINT authz_tag_assignments_tag_id_nonempty CHECK (
+    public.authz_is_ecmascript_trimmed_nonempty(tag_id)
   ),
   CONSTRAINT authz_tag_assignments_interval_ordered CHECK (
     end_at IS NULL OR end_at > start_at
@@ -46,7 +70,10 @@ CREATE TABLE IF NOT EXISTS public.authz_rules (
   end_at timestamptz NULL,
   revision integer NOT NULL DEFAULT 0,
   CONSTRAINT authz_rules_id_nonempty CHECK (
-    btrim(rule_id) <> '' AND btrim(rule_id) = rule_id
+    public.authz_is_ecmascript_trimmed_nonempty(rule_id)
+  ),
+  CONSTRAINT authz_rules_subject_tag_id_nonempty CHECK (
+    public.authz_is_ecmascript_trimmed_nonempty(subject_tag_id)
   ),
   CONSTRAINT authz_rules_capability_declared CHECK (
     capability_id IN ('approveReceipt', 'submitReceipt', 'reviewApplicants')
@@ -79,17 +106,9 @@ CREATE TABLE IF NOT EXISTS public.authz_rules (
           AND jsonb_typeof(params -> 'slot') = 'string'
           AND params ->> 'slot' = 'EconomyPaymentAuthority'
           AND jsonb_typeof(params -> 'paymentAccountCiphertext') = 'string'
-          AND params ->> 'paymentAccountCiphertext' <> ''
-          AND btrim(
-            params ->> 'paymentAccountCiphertext',
-            chr(9) || chr(10) || chr(11) || chr(12) || chr(13) || chr(32)
-              || chr(160) || chr(5760)
-              || chr(8192) || chr(8193) || chr(8194) || chr(8195)
-              || chr(8196) || chr(8197) || chr(8198) || chr(8199)
-              || chr(8200) || chr(8201) || chr(8202)
-              || chr(8232) || chr(8233) || chr(8239) || chr(8287)
-              || chr(12288) || chr(65279)
-          ) = params ->> 'paymentAccountCiphertext',
+          AND public.authz_is_ecmascript_trimmed_nonempty(
+            params ->> 'paymentAccountCiphertext'
+          ),
           FALSE
         )
       ELSE FALSE

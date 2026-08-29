@@ -40,6 +40,34 @@ const checkedSourceUrls = [
 
 const runtime = makeControlledTestRuntime(DatabaseTest());
 
+const ecmaScriptTrimBoundaryCharacters = [
+  "\u0009",
+  "\u000a",
+  "\u000b",
+  "\u000c",
+  "\u000d",
+  "\u0020",
+  "\u00a0",
+  "\u1680",
+  "\u2000",
+  "\u2001",
+  "\u2002",
+  "\u2003",
+  "\u2004",
+  "\u2005",
+  "\u2006",
+  "\u2007",
+  "\u2008",
+  "\u2009",
+  "\u200a",
+  "\u2028",
+  "\u2029",
+  "\u202f",
+  "\u205f",
+  "\u3000",
+  "\ufeff",
+] as const;
+
 afterAll(async () => {
   await runtime.dispose();
 });
@@ -205,28 +233,7 @@ describe("declarative authorization rule migration in PGlite", () => {
             paymentAccountCiphertext: "ciphertext\u00a0account",
           }),
         );
-        const remainingEcmaScriptTrimWhitespace = [
-          "\u000b",
-          "\u000c",
-          "\u1680",
-          "\u2000",
-          "\u2001",
-          "\u2002",
-          "\u2003",
-          "\u2004",
-          "\u2005",
-          "\u2006",
-          "\u2007",
-          "\u2008",
-          "\u2009",
-          "\u200a",
-          "\u2028",
-          "\u2029",
-          "\u202f",
-          "\u205f",
-          "\u3000",
-          "\ufeff",
-        ] as const;
+        const remainingEcmaScriptTrimWhitespace = ecmaScriptTrimBoundaryCharacters.slice(2);
         const invalidParams: ReadonlyArray<readonly [string, unknown]> = [
           ["missingKey", { slot: "EconomyPaymentAuthority" }],
           ["arbitraryKey", { slot: "EconomyPaymentAuthority", arbitrary: "ciphertext" }],
@@ -323,4 +330,220 @@ describe("declarative authorization rule migration in PGlite", () => {
       },
     });
   }, 15_000);
+
+  it("rejects every ECMAScript-trimmed authorization identifier at the SQL boundary", async () => {
+    const evidence = await runtime.runPromise(
+      Effect.gen(function* () {
+        const database = yield* Database;
+        const personId = "authz-identifiers-person";
+        const validTagId = "authz-identifiers-valid-tag";
+        yield* database`
+          INSERT INTO public.person_profiles (person_id, first_name, last_name)
+          VALUES (${personId}, 'Authz', 'Identifiers')
+          ON CONFLICT (person_id) DO NOTHING
+        `;
+        yield* database`
+          INSERT INTO public.authz_tags (tag_id, name)
+          VALUES (${validTagId}, 'Authz Identifiers Valid Tag')
+          ON CONFLICT (tag_id) DO NOTHING
+        `;
+
+        const boundaryCases = [
+          { name: "empty", makeValue: (_base: string) => "" },
+          ...ecmaScriptTrimBoundaryCharacters.flatMap((whitespace, index) => [
+            {
+              name: `leading-${index}`,
+              makeValue: (base: string) => `${whitespace}${base}`,
+            },
+            {
+              name: `trailing-${index}`,
+              makeValue: (base: string) => `${base}${whitespace}`,
+            },
+          ]),
+        ];
+        const unexpectedlyAccepted: Array<string> = [];
+        let attemptedCases = 0;
+
+        for (const [index, boundaryCase] of boundaryCases.entries()) {
+          const base = `authz-identifiers-${index}`;
+          const invalid = boundaryCase.makeValue(base);
+          const attempts = [
+            [
+              "tagId",
+              database`
+                INSERT INTO public.authz_tags (tag_id, name)
+                VALUES (${invalid}, ${`${base}-tag-name`})
+              `.pipe(Effect.asVoid),
+            ],
+            [
+              "tagName",
+              database`
+                INSERT INTO public.authz_tags (tag_id, name)
+                VALUES (${`${base}-tag-id`}, ${invalid})
+              `.pipe(Effect.asVoid),
+            ],
+            [
+              "assignmentId",
+              database`
+                INSERT INTO public.authz_tag_assignments (
+                  assignment_id, tag_id, person_id, start_at
+                ) VALUES (
+                  ${invalid}, ${validTagId}, ${personId}, '2030-01-01T00:00:00.000Z'
+                )
+              `.pipe(Effect.asVoid),
+            ],
+            [
+              "assignmentTagId",
+              database`
+                INSERT INTO public.authz_tag_assignments (
+                  assignment_id, tag_id, person_id, start_at
+                ) VALUES (
+                  ${`${base}-assignment-tag-id`},
+                  ${invalid},
+                  ${personId},
+                  '2030-01-01T00:00:00.000Z'
+                )
+              `.pipe(Effect.asVoid),
+            ],
+            [
+              "ruleId",
+              database`
+                INSERT INTO public.authz_rules (
+                  rule_id, capability_id, effect_kind, subject_kind,
+                  subject_person_id, subject_tag_id, scope, department_id,
+                  params, start_at
+                ) VALUES (
+                  ${invalid}, 'approveReceipt', 'delegate', 'Person',
+                  ${personId}, NULL, 'Global', NULL,
+                  '{"slot":"EconomyGlobalReceiptApprovalGrant"}'::jsonb,
+                  '2030-01-01T00:00:00.000Z'
+                )
+              `.pipe(Effect.asVoid),
+            ],
+            [
+              "ruleSubjectTagId",
+              database`
+                INSERT INTO public.authz_rules (
+                  rule_id, capability_id, effect_kind, subject_kind,
+                  subject_person_id, subject_tag_id, scope, department_id,
+                  params, start_at
+                ) VALUES (
+                  ${`${base}-rule-subject-tag-id`},
+                  'approveReceipt',
+                  'delegate',
+                  'Tag',
+                  NULL,
+                  ${invalid},
+                  'Global',
+                  NULL,
+                  '{"slot":"EconomyGlobalReceiptApprovalGrant"}'::jsonb,
+                  '2030-01-01T00:00:00.000Z'
+                )
+              `.pipe(Effect.asVoid),
+            ],
+            [
+              "capabilityId",
+              database`
+                INSERT INTO public.authz_rules (
+                  rule_id, capability_id, effect_kind, subject_kind,
+                  subject_person_id, subject_tag_id, scope, department_id,
+                  params, start_at
+                ) VALUES (
+                  ${`${base}-capability-rule`},
+                  ${boundaryCase.makeValue("approveReceipt")},
+                  'delegate',
+                  'Person',
+                  ${personId},
+                  NULL,
+                  'Global',
+                  NULL,
+                  '{"slot":"EconomyGlobalReceiptApprovalGrant"}'::jsonb,
+                  '2030-01-01T00:00:00.000Z'
+                )
+              `.pipe(Effect.asVoid),
+            ],
+            [
+              "subjectKind",
+              database`
+                INSERT INTO public.authz_rules (
+                  rule_id, capability_id, effect_kind, subject_kind,
+                  subject_person_id, subject_tag_id, scope, department_id,
+                  params, start_at
+                ) VALUES (
+                  ${`${base}-subject-kind-rule`},
+                  'approveReceipt',
+                  'delegate',
+                  ${boundaryCase.makeValue("Person")},
+                  ${personId},
+                  NULL,
+                  'Global',
+                  NULL,
+                  '{"slot":"EconomyGlobalReceiptApprovalGrant"}'::jsonb,
+                  '2030-01-01T00:00:00.000Z'
+                )
+              `.pipe(Effect.asVoid),
+            ],
+          ] as const;
+
+          for (const [category, attempt] of attempts) {
+            attemptedCases += 1;
+            const outcome = yield* Effect.exit(attempt);
+            if (outcome._tag === "Success") {
+              unexpectedlyAccepted.push(`${category}:${boundaryCase.name}`);
+            }
+          }
+        }
+
+        const internalTagId = "authz\tidentifiers-tag";
+        const internalWhitespace = yield* Effect.exit(
+          Effect.gen(function* () {
+            yield* database`
+              INSERT INTO public.authz_tags (tag_id, name)
+              VALUES (${internalTagId}, ${"Authz\u00a0Identifiers Tag"})
+            `;
+            yield* database`
+              INSERT INTO public.authz_tag_assignments (
+                assignment_id, tag_id, person_id, start_at
+              ) VALUES (
+                ${"authz\nidentifiers-assignment"},
+                ${internalTagId},
+                ${personId},
+                '2030-01-01T00:00:00.000Z'
+              )
+            `;
+            yield* database`
+              INSERT INTO public.authz_rules (
+                rule_id, capability_id, effect_kind, subject_kind,
+                subject_person_id, subject_tag_id, scope, department_id,
+                params, start_at
+              ) VALUES (
+                ${"authz\u2000identifiers-rule"},
+                'approveReceipt',
+                'delegate',
+                'Tag',
+                NULL,
+                ${internalTagId},
+                'Global',
+                NULL,
+                '{"slot":"EconomyGlobalReceiptApprovalGrant"}'::jsonb,
+                '2030-01-01T00:00:00.000Z'
+              )
+            `;
+          }),
+        );
+
+        return {
+          attemptedCases,
+          internalWhitespaceAccepted: internalWhitespace._tag === "Success",
+          unexpectedlyAccepted,
+        };
+      }),
+    );
+
+    expect(evidence).toEqual({
+      attemptedCases: (1 + ecmaScriptTrimBoundaryCharacters.length * 2) * 8,
+      internalWhitespaceAccepted: true,
+      unexpectedlyAccepted: [],
+    });
+  }, 30_000);
 });
