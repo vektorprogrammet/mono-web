@@ -504,10 +504,24 @@ const main = async () => {
     assert.equal(nativeSignIn[0].status, 200);
     const wrongStatuses = nativeSignIn.slice(-10).map((entry) => entry.status);
     assert.deepEqual(wrongStatuses, [401, 401, 401, 429, 429, 429, 429, 429, 429, 429]);
+    const firstRejectedSessionIndex = boundary.records.findIndex(
+      (entry) => entry.path === "/api/me/session" && entry.status === 401,
+    );
+    assert.notEqual(firstRejectedSessionIndex, -1);
     const nativeSignOut = boundary.records.filter((entry) => entry.path === "/api/auth/sign-out");
+    const explicitSignOut = boundary.records.filter(
+      (entry, index) => entry.path === "/api/auth/sign-out" && index < firstRejectedSessionIndex,
+    );
+    const revokedReplaySignOut = boundary.records.filter(
+      (entry, index) => entry.path === "/api/auth/sign-out" && index > firstRejectedSessionIndex,
+    );
     assert.deepEqual(
-      nativeSignOut.map(({ status }) => status),
+      explicitSignOut.map(({ status }) => status),
       [200],
+    );
+    assert.deepEqual(
+      revokedReplaySignOut.map(({ status }) => status),
+      [200, 200],
     );
     const sessionRequests = boundary.records.filter((entry) => entry.path === "/api/me/session");
     assert.ok(sessionRequests.some((entry) => entry.status === 200));
@@ -593,10 +607,13 @@ const main = async () => {
       },
       reload: browserEvidence.observations.reload,
       logout: {
-        nativeStatuses: nativeSignOut.map(({ status }) => status),
+        nativeStatuses: explicitSignOut.map(({ status }) => status),
         browser: browserEvidence.observations.logout,
       },
-      revokedCookieReplay: browserEvidence.observations.oldCookieReplay,
+      revokedCookieReplay: {
+        ...browserEvidence.observations.oldCookieReplay,
+        cleanupSignOutStatuses: revokedReplaySignOut.map(({ status }) => status),
+      },
       rateLimit: {
         nativeStatuses: wrongStatuses,
         browser: browserEvidence.observations.wrongPassword,
@@ -671,6 +688,8 @@ const main = async () => {
         signInStatuses: nativeSignIn.map(({ status }) => status),
         wrongPasswordStatuses: wrongStatuses,
         signOutStatuses: nativeSignOut.map(({ status }) => status),
+        explicitSignOutStatuses: explicitSignOut.map(({ status }) => status),
+        revokedReplayCleanupSignOutStatuses: revokedReplaySignOut.map(({ status }) => status),
         sessionStatuses: sessionRequests.map(({ status }) => status),
       },
       postgres: {
