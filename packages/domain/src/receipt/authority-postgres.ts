@@ -1,5 +1,5 @@
 import { Effect, Schema } from "effect";
-import { Database } from "../database/service.js";
+import { Database, type DatabaseShape } from "../database/service.js";
 import type {
   OrganizationAuthorityInstant,
   OrganizationPersonAuthority,
@@ -118,11 +118,20 @@ const approvalGrantRecord = (
   });
 };
 
-export const resolveReceiptAuthority = (
+export type ReceiptAuthorityRowLockMode = "None" | "ForShare";
+
+/**
+ * Caller-transaction Economy projection. Receipt commands pass their
+ * state-transition SQL client and keep every selected authority row locked
+ * until that transaction commits or rolls back.
+ */
+export const resolveReceiptAuthorityWithSql = (
+  sql: DatabaseShape,
   personId: PersonId,
   authorizationInstant: OrganizationAuthorityInstant,
   organizationProjection: OrganizationPersonAuthority,
-): Effect.Effect<ReceiptAuthority, ReceiptAuthorityResolutionError, Database> =>
+  lockMode: ReceiptAuthorityRowLockMode,
+): Effect.Effect<ReceiptAuthority, ReceiptAuthorityResolutionError> =>
   Effect.gen(function* () {
     const evaluatedAt = yield* Schema.decodeUnknownEffect(ReceiptAuthorityInstantSchema)(
       authorizationInstant,
@@ -139,7 +148,7 @@ export const resolveReceiptAuthority = (
       });
     }
 
-    const sql = yield* Database;
+    const authorityLock = lockMode === "ForShare" ? sql`FOR SHARE` : sql``;
     const selected = yield* sql<ReceiptAuthorityDatabaseRow>`
       WITH locked_payment_authorities AS MATERIALIZED (
         SELECT
@@ -152,7 +161,8 @@ export const resolveReceiptAuthority = (
           revision
         FROM public.economy_payment_authorities
         WHERE person_id = ${personId}
-        FOR SHARE
+        ORDER BY department_id ASC, start_at ASC, payment_authority_id ASC
+        ${authorityLock}
       ),
       locked_approval_grants AS MATERIALIZED (
         SELECT
@@ -165,7 +175,8 @@ export const resolveReceiptAuthority = (
           revision
         FROM public.economy_receipt_approval_grants
         WHERE person_id = ${personId}
-        FOR SHARE
+        ORDER BY scope ASC, department_id ASC NULLS FIRST, start_at ASC, approval_grant_id ASC
+        ${authorityLock}
       ),
       authority_rows AS (
         SELECT
@@ -244,4 +255,20 @@ export const resolveReceiptAuthority = (
       }
     }
     return projectReceiptAuthority(organizationProjection, paymentAuthorities, approvalGrants);
+  });
+
+export const resolveReceiptAuthority = (
+  personId: PersonId,
+  authorizationInstant: OrganizationAuthorityInstant,
+  organizationProjection: OrganizationPersonAuthority,
+): Effect.Effect<ReceiptAuthority, ReceiptAuthorityResolutionError, Database> =>
+  Effect.gen(function* () {
+    const sql = yield* Database;
+    return yield* resolveReceiptAuthorityWithSql(
+      sql,
+      personId,
+      authorizationInstant,
+      organizationProjection,
+      "ForShare",
+    );
   });

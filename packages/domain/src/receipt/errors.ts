@@ -116,5 +116,6 @@ export type ReceiptFailure =
   | StaleReceiptRevision
   | InvalidReceiptTransition
   | DuplicateReceiptCommandConflict
+  | ReceiptAuthorityDenied
   | AmbiguousPaymentSelection
   | ReceiptPersistenceError;

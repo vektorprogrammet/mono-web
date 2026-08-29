@@ -37,6 +37,18 @@ export type ReceiptId = typeof ReceiptId.Type;
 export const ReceiptVisualId = NonEmpty.pipe(Schema.brand("ReceiptVisualId"));
 export type ReceiptVisualId = typeof ReceiptVisualId.Type;
 
+export const ReceiptCommandPrincipalSchema = Schema.Struct({
+  personId: PersonId,
+  authorizationInstant: IsoInstant,
+});
+export type ReceiptCommandPrincipal = typeof ReceiptCommandPrincipalSchema.Type;
+
+export const ReceiptSubmissionAllocationSchema = Schema.Struct({
+  receiptId: ReceiptId,
+  visualId: ReceiptVisualId,
+});
+export type ReceiptSubmissionAllocation = typeof ReceiptSubmissionAllocationSchema.Type;
+
 export const ReceiptDecisionContextSchema = Schema.Struct({
   receiptId: ReceiptId,
   visualId: ReceiptVisualId,
@@ -108,18 +120,15 @@ const ReceiptFileSelectionSchema = Schema.Union([
 
 export type ReceiptFileSelection = typeof ReceiptFileSelectionSchema.Type;
 
-export const ReceiptCommandSchema = Schema.TaggedUnion({
+export const ReceiptCommandRequestSchema = Schema.TaggedUnion({
   SubmitReceipt: {
     commandId: NonEmpty,
-    actor: ReceiptActorSchema,
-    departmentId: DepartmentId,
-    paymentAccountCiphertext: NonEmpty,
+    departmentId: Schema.optional(DepartmentId),
     ...ReceiptPayloadFields,
     file: ReceiptFileSchema,
   },
   RevisePendingReceipt: {
     commandId: NonEmpty,
-    actor: ReceiptActorSchema,
     receiptId: ReceiptId,
     expectedRevision: Revision,
     ...ReceiptPayloadFields,
@@ -127,24 +136,21 @@ export const ReceiptCommandSchema = Schema.TaggedUnion({
   },
   WithdrawPendingReceipt: {
     commandId: NonEmpty,
-    actor: ReceiptActorSchema,
     receiptId: ReceiptId,
     expectedRevision: Revision,
   },
   RefundReceipt: {
     commandId: NonEmpty,
-    actor: ReceiptActorSchema,
     receiptId: ReceiptId,
     expectedRevision: Revision,
   },
   RejectReceipt: {
     commandId: NonEmpty,
-    actor: ReceiptActorSchema,
     receiptId: ReceiptId,
     expectedRevision: Revision,
   },
 });
-export type ReceiptCommand = typeof ReceiptCommandSchema.Type;
+export type ReceiptCommandRequest = typeof ReceiptCommandRequestSchema.Type;
 
 export class Receipt extends Model.Class<Receipt>("Receipt")({
   receiptId: Model.Field({

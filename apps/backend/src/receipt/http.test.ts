@@ -7,17 +7,17 @@ import {
 } from "@vektorprogrammet/domain/organization";
 import {
   Economy,
-  type EconomyShape,
-  ReceiptApprovalGrantId,
   ReceiptFileService,
   ReceiptObservationSchema,
   ReceiptPaymentAuthorityId,
+  ReceiptScopeDenied,
   UnauthenticatedActor,
   projectReceiptAuthority,
-  type ReceiptActor,
-  type ReceiptApprovalGrant,
+  type EconomyShape,
   type ReceiptAuthority,
+  type ReceiptCommandPrincipal,
   type ReceiptPaymentAuthority,
+  type ReceiptSubmissionAllocation,
   type ReceiptTransactionResult,
 } from "@vektorprogrammet/domain/receipt";
 import { Effect, Layer, Schema } from "effect";
@@ -55,21 +55,10 @@ const payment = (id: string, departmentId: DepartmentId): ReceiptPaymentAuthorit
   revision: 0,
 });
 
-const grant = (scope: ReceiptApprovalGrant["scope"]): ReceiptApprovalGrant => ({
-  approvalGrantId: ReceiptApprovalGrantId.make(`grant-${scope._tag}`),
-  personId,
-  scope,
-  startAt: "2026-08-01T00:00:00.000Z",
-  endAt: null,
-  revision: 0,
-});
-
 const authority = (
   departments: ReadonlyArray<DepartmentId> = [departmentOne],
   payments: ReadonlyArray<ReceiptPaymentAuthority> = [payment("payment-one", departmentOne)],
-  grants: ReadonlyArray<ReceiptApprovalGrant> = [],
-): ReceiptAuthority =>
-  projectReceiptAuthority(organizationProjection(departments), payments, grants);
+): ReceiptAuthority => projectReceiptAuthority(organizationProjection(departments), payments, []);
 
 const config: ReceiptApiConfig = {
   stagingRoot: "/tmp/receipt-http-test-staging",
@@ -116,20 +105,28 @@ interface HarnessOptions {
   readonly unauthenticated?: boolean;
   readonly ownedRows?: ReadonlyArray<unknown>;
   readonly approvalRows?: ReadonlyArray<unknown>;
+  readonly commandFailure?: ReceiptScopeDenied;
 }
 
 const harness = (options: HarnessOptions = {}) => {
   const commands: Array<unknown> = [];
+  const principals: Array<ReceiptCommandPrincipal> = [];
+  const allocations: Array<ReceiptSubmissionAllocation | undefined> = [];
   const approvalScopes: Array<unknown> = [];
   let authorityCalls = 0;
+  let commandPrincipalCalls = 0;
   let personCalls = 0;
-  const executeReceipt: EconomyShape["executeReceipt"] = (command) => {
+  const executeReceipt: EconomyShape["executeReceipt"] = (command, principal, allocation) => {
     commands.push(command);
-    return Effect.succeed({
-      observation: receiptObservation,
-      replayed: false,
-      outboxCount: 0,
-    } satisfies ReceiptTransactionResult);
+    principals.push(principal);
+    allocations.push(allocation);
+    return options.commandFailure === undefined
+      ? Effect.succeed({
+          observation: receiptObservation,
+          replayed: false,
+          outboxCount: 0,
+        } satisfies ReceiptTransactionResult)
+      : Effect.fail(options.commandFailure);
   };
   const economy: EconomyShape = {
     resolveReceiptAuthority: () => Effect.die("unexpected authority service call"),
@@ -164,6 +161,13 @@ const harness = (options: HarnessOptions = {}) => {
         }
         return resolvedAuthority;
       },
+      resolveCommandPrincipal: async () => {
+        commandPrincipalCalls += 1;
+        if (options.unauthenticated === true) {
+          throw new UnauthenticatedActor({ message: "no session" });
+        }
+        return { personId, authorizationInstant: evaluatedAt };
+      },
       resolvePersonId: async () => {
         personCalls += 1;
         if (options.unauthenticated === true) {
@@ -175,7 +179,14 @@ const harness = (options: HarnessOptions = {}) => {
     run,
     fileStore,
   });
-  return { http, commands, approvalScopes, counts: () => ({ authorityCalls, personCalls }) };
+  return {
+    http,
+    commands,
+    principals,
+    allocations,
+    approvalScopes,
+    counts: () => ({ authorityCalls, commandPrincipalCalls, personCalls }),
+  };
 };
 
 const request = (http: ReceiptApiHttp, pathname: string, init?: RequestInit): Promise<Response> =>
@@ -201,18 +212,6 @@ const multipartRequest = (http: ReceiptApiHttp, pathname: string): Promise<Respo
   });
 };
 
-const approvalRow = (departmentId: DepartmentId) => ({
-  receiptId: "receipt-one",
-  visualId: "visual-one",
-  ownerPersonId: "another-person",
-  departmentId,
-  amountOre: "1200",
-  currency: "NOK",
-  description: "bus ticket",
-  receiptDate: "2026-08-01",
-  status: "Pending",
-  revision: 0,
-});
 
 describe("receipt HTTP authority resolution (spec 0055)", () => {
   it("uses only the session person for the owner list", async () => {
@@ -222,7 +221,11 @@ describe("receipt HTTP authority resolution (spec 0055)", () => {
       status: 200,
       body: { items: [], totalItems: 0 },
     });
-    expect(state.counts()).toEqual({ authorityCalls: 0, personCalls: 1 });
+    expect(state.counts()).toEqual({
+      authorityCalls: 0,
+      commandPrincipalCalls: 0,
+      personCalls: 1,
+    });
   });
 
   it("normalizes a missing session to typed 401", async () => {
@@ -234,113 +237,84 @@ describe("receipt HTTP authority resolution (spec 0055)", () => {
     });
   });
 
-  it("maps one active payment authority and keeps ciphertext out of ReceiptActor", async () => {
+  it("hands an actorless submit request and server principal to Economy", async () => {
     const state = harness();
     const response = await multipartRequest(state.http, "/api/receipts/submit");
     expect(response.status).toBe(201);
-    const command = state.commands[0] as {
-      readonly actor: ReceiptActor;
-      readonly paymentAccountCiphertext: string;
-    };
-    expect(command.actor).toEqual({
-      personId,
-      departmentId: departmentOne,
-      active: true,
-      approvalScope: { _tag: "None" },
+    expect(state.commands[0]).toMatchObject({
+      _tag: "SubmitReceipt",
+      commandId: "command-one",
+      description: "bus ticket",
+      amountOre: 1200,
     });
-    expect(command.paymentAccountCiphertext).toBe("ciphertext:department-one");
-    expect("paymentAccountCiphertext" in command.actor).toBe(false);
+    expect(state.commands[0]).not.toHaveProperty("actor");
+    expect(state.commands[0]).not.toHaveProperty("paymentAccountCiphertext");
+    expect(state.commands[0]).not.toHaveProperty("departmentId");
+    expect(state.principals).toEqual([{ personId, authorizationInstant: evaluatedAt }]);
+    expect(state.allocations).toEqual([{ receiptId: "receipt-one", visualId: "visual-one" }]);
+    expect(state.counts()).toEqual({
+      authorityCalls: 0,
+      commandPrincipalCalls: 1,
+      personCalls: 0,
+    });
   });
 
-  it("requires a department selection for several active payments", async () => {
-    const resolved = authority(
-      [departmentOne, departmentTwo],
-      [payment("payment-one", departmentOne), payment("payment-two", departmentTwo)],
-    );
-    const ambiguous = harness({ authority: resolved });
-    const denied = await multipartRequest(ambiguous.http, "/api/receipts/submit");
-    expect({ status: denied.status, body: await denied.json() }).toEqual({
-      status: 403,
-      body: { error: { tag: "AmbiguousPaymentSelection" } },
-    });
+  it("preserves only an explicitly selected submit department", async () => {
+    const omitted = harness();
+    expect((await multipartRequest(omitted.http, "/api/receipts/submit")).status).toBe(201);
+    expect(omitted.commands[0]).not.toHaveProperty("departmentId");
 
-    const selected = harness({ authority: resolved });
+    const selected = harness();
     const accepted = await multipartRequest(
       selected.http,
       "/api/receipts/submit?departmentId=department-two",
     );
     expect(accepted.status).toBe(201);
-    const command = selected.commands[0] as {
-      readonly actor: ReceiptActor;
-      readonly paymentAccountCiphertext: string;
-    };
-    expect(command.actor.departmentId).toBe(departmentTwo);
-    expect(command.paymentAccountCiphertext).toBe("ciphertext:department-two");
+    expect(selected.commands[0]).toMatchObject({ departmentId: departmentTwo });
+    expect(selected.commands[0]).not.toHaveProperty("actor");
+    expect(selected.commands[0]).not.toHaveProperty("paymentAccountCiphertext");
   });
 
-  it("uses the receipt projection department for approval actors", async () => {
-    const resolved = authority(
-      [departmentTwo],
-      [],
-      [grant({ _tag: "Department", departmentId: departmentTwo })],
-    );
-    const state = harness({ authority: resolved, approvalRows: [approvalRow(departmentTwo)] });
+  it("does not use approval projections for protected approval commands", async () => {
+    const state = harness();
     const response = await request(state.http, "/api/admin/receipts/receipt-one/reject", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ commandId: "command-one", expectedRevision: 0 }),
     });
     expect(response.status).toBe(200);
-    const command = state.commands[0] as { readonly actor: ReceiptActor };
-    expect(command.actor).toEqual({
-      personId,
-      departmentId: departmentTwo,
-      active: true,
-      approvalScope: { _tag: "Department", departmentId: departmentTwo },
+    expect(state.commands[0]).toEqual({
+      _tag: "RejectReceipt",
+      commandId: "command-one",
+      receiptId: "receipt-one",
+      expectedRevision: 0,
     });
-    expect(state.approvalScopes).toEqual([{ _tag: "Department", departmentId: departmentTwo }]);
+    expect(state.approvalScopes).toEqual([]);
+    expect(state.counts()).toEqual({
+      authorityCalls: 0,
+      commandPrincipalCalls: 1,
+      personCalls: 0,
+    });
   });
 
-  it("returns 404 only to Global approval authority for an absent Receipt", async () => {
-    const department = harness({
-      authority: authority(
-        [departmentOne],
-        [],
-        [grant({ _tag: "Department", departmentId: departmentOne })],
-      ),
+  it("maps a transaction-local approval scope denial to stable 403", async () => {
+    const state = harness({
+      commandFailure: new ReceiptScopeDenied({
+        receiptId: "receipt-absent",
+        departmentId: "",
+      }),
     });
-    const departmentResponse = await request(
-      department.http,
-      "/api/admin/receipts/receipt-absent/refund",
-      {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ commandId: "command-department-absent", expectedRevision: 0 }),
-      },
-    );
-    expect({ status: departmentResponse.status, body: await departmentResponse.json() }).toEqual({
+    const response = await request(state.http, "/api/admin/receipts/receipt-absent/refund", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ commandId: "command-absent", expectedRevision: 0 }),
+    });
+    expect({ status: response.status, body: await response.json() }).toEqual({
       status: 403,
       body: { error: { tag: "ReceiptScopeDenied" } },
     });
-
-    const global = harness({
-      authority: authority([departmentOne], [], [grant({ _tag: "Global" })]),
-    });
-    const globalResponse = await request(global.http, "/api/admin/receipts/receipt-absent/refund", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ commandId: "command-global-absent", expectedRevision: 0 }),
-    });
-    expect({ status: globalResponse.status, body: await globalResponse.json() }).toEqual({
-      status: 404,
-      body: { error: { tag: "ReceiptNotFound" } },
-    });
-    expect(department.commands).toEqual([]);
-    expect(global.commands).toEqual([]);
-    expect(department.approvalScopes).toEqual([
-      { _tag: "Department", departmentId: departmentOne },
-    ]);
-    expect(global.approvalScopes).toEqual([{ _tag: "Global" }]);
+    expect(state.commands).toHaveLength(1);
+    expect(state.approvalScopes).toEqual([]);
   });
 
   it("denies inactive Organization authority and absent approval scope", async () => {

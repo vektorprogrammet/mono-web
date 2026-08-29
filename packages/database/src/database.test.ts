@@ -52,7 +52,12 @@ import {
   makeRecordingNotificationGateway,
   NotificationGateway,
 } from "@vektorprogrammet/domain/notification";
-import { Economy, importLegacyReceipt } from "@vektorprogrammet/domain/receipt";
+import {
+  Economy,
+  ReceiptId,
+  ReceiptVisualId,
+  importLegacyReceipt,
+} from "@vektorprogrammet/domain/receipt";
 import { EconomyLive } from "@vektorprogrammet/domain/receipt/postgres";
 import { storeReceiptImportResult } from "../../domain/src/receipt/postgres.js";
 import { Deferred, Effect, Fiber, Layer } from "effect";
@@ -2642,54 +2647,81 @@ describe("DatabaseTest", () => {
   });
 
   it("runs the Economy authority contract against PGlite", async () => {
+    await runtime.runPromise(
+      Database.use((database) =>
+        database.unsafe(`
+          INSERT INTO person_profiles (person_id, first_name, last_name)
+          VALUES ('pglite-owner', 'PGlite', 'Owner')
+          ON CONFLICT (person_id) DO NOTHING;
+          INSERT INTO organization_departments (
+            department_id, name, short_name, email, city
+          ) VALUES (
+            'pglite-department', 'PGlite Department', 'PGL',
+            'pglite@example.invalid', 'Bergen'
+          ) ON CONFLICT (department_id) DO NOTHING;
+          INSERT INTO organization_teams (team_id, department_id, name)
+          VALUES ('pglite-team', 'pglite-department', 'PGlite Team')
+          ON CONFLICT (team_id) DO NOTHING;
+          INSERT INTO organization_memberships (
+            membership_id, person_id, team_id, start_at
+          ) VALUES (
+            'pglite-membership', 'pglite-owner', 'pglite-team',
+            '2026-08-01T00:00:00.000Z'
+          ) ON CONFLICT (membership_id) DO NOTHING;
+          INSERT INTO economy_payment_authorities (
+            payment_authority_id, person_id, department_id,
+            payment_account_ciphertext, start_at
+          ) VALUES (
+            'pglite-payment', 'pglite-owner', 'pglite-department',
+            'ciphertext:v1:pglite-account', '2026-08-01T00:00:00.000Z'
+          ) ON CONFLICT (payment_authority_id) DO NOTHING;
+        `),
+      ),
+    );
     const command = {
       _tag: "SubmitReceipt" as const,
       commandId: "pglite-command-submit",
-      actor: {
-        personId: "pglite-owner",
-        departmentId: "pglite-department",
-        active: true,
-        approvalScope: { _tag: "None" as const },
-      },
-      departmentId: "pglite-department",
-      paymentAccountCiphertext: "ciphertext:v1:pglite-account",
+      departmentId: DepartmentId.make("pglite-department"),
       description: "PGlite authority contract",
       amountOre: 12_345,
       receiptDate: "2026-08-23",
       file: {
         fileRef: "pglite-file",
         objectKey: "temporary/pglite-file",
-        contentType: "application/pdf",
+        contentType: "application/pdf" as const,
         byteLength: 256,
         sha256: "c".repeat(64),
       },
     };
-    const context = {
-      receiptId: "pglite-receipt",
-      visualId: "PGLITE-0001",
-      now: "2026-08-23T12:00:00.000Z",
+    const principal = {
+      personId: PersonId.make("pglite-owner"),
+      authorizationInstant: "2026-08-23T12:00:00.000Z",
+    };
+    const allocation = {
+      receiptId: ReceiptId.make("pglite-receipt"),
+      visualId: ReceiptVisualId.make("PGLITE-0001"),
     };
     await expect(
       runtime.runPromise(
         Economy.use(({ executeReceipt }) =>
-          executeReceipt(command, { ...context, now: "2026-08-23 12:00:00" }),
+          executeReceipt(
+            command,
+            { ...principal, authorizationInstant: "2026-08-23 12:00:00" as never },
+            allocation,
+          ),
         ),
       ),
     ).rejects.toMatchObject({ _tag: "ReceiptDecodeError" });
 
-    const execute = Economy.use(({ executeReceipt }) => executeReceipt(command, context));
+    const execute = Economy.use(({ executeReceipt }) =>
+      executeReceipt(command, principal, allocation),
+    );
 
     const first = await runtime.runPromise(execute);
-    const replayWithIgnoredContext = await runtime.runPromise(
-      Economy.use(({ executeReceipt }) =>
-        executeReceipt(command, {
-          receiptId: "",
-          visualId: "",
-          now: "not-an-instant",
-        }),
-      ),
+    const replayWithIgnoredAllocation = await runtime.runPromise(
+      Economy.use(({ executeReceipt }) => executeReceipt(command, principal)),
     );
-    expect(replayWithIgnoredContext).toMatchObject({
+    expect(replayWithIgnoredAllocation).toMatchObject({
       replayed: true,
       observation: { ...first.observation, replayed: true },
     });

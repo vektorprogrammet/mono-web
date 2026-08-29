@@ -1,4 +1,5 @@
 import { Effect, Schema } from "effect";
+import { DepartmentId } from "../organization/schema.js";
 import {
   InactiveActor,
   InvalidReceiptTransition,
@@ -12,16 +13,42 @@ import {
 } from "./errors.js";
 import { makeReceiptOutboxRequest, sameReceiptFile, type ReceiptOutboxRequest } from "./effects.js";
 import {
-  ReceiptCommandSchema,
+  ReceiptActorSchema,
+  ReceiptCommandRequestSchema,
   ReceiptDecisionContextSchema,
   ReceiptId,
   ReceiptVisualId,
   type Receipt,
   type ReceiptActor,
-  type ReceiptCommand,
   type ReceiptFileSelection,
   type ReceiptObservation,
 } from "./schema.js";
+
+const AuthorizedReceiptCommandSchema = Schema.TaggedUnion({
+  SubmitReceipt: {
+    ...ReceiptCommandRequestSchema.cases.SubmitReceipt.fields,
+    actor: ReceiptActorSchema,
+    departmentId: DepartmentId,
+    paymentAccountCiphertext: Schema.String.pipe(Schema.check(Schema.isMinLength(1))),
+  },
+  RevisePendingReceipt: {
+    ...ReceiptCommandRequestSchema.cases.RevisePendingReceipt.fields,
+    actor: ReceiptActorSchema,
+  },
+  WithdrawPendingReceipt: {
+    ...ReceiptCommandRequestSchema.cases.WithdrawPendingReceipt.fields,
+    actor: ReceiptActorSchema,
+  },
+  RefundReceipt: {
+    ...ReceiptCommandRequestSchema.cases.RefundReceipt.fields,
+    actor: ReceiptActorSchema,
+  },
+  RejectReceipt: {
+    ...ReceiptCommandRequestSchema.cases.RejectReceipt.fields,
+    actor: ReceiptActorSchema,
+  },
+});
+type AuthorizedReceiptCommand = typeof AuthorizedReceiptCommandSchema.Type;
 
 export interface ReceiptDecisionContext {
   readonly receiptId: string;
@@ -120,13 +147,13 @@ const isKeepCurrentFile = (file: ReceiptFileSelection): file is KeepCurrentFileS
 
 const decideCommand = (
   existing: Receipt | undefined,
-  command: ReceiptCommand,
+  command: AuthorizedReceiptCommand,
   context: ReceiptDecisionContext,
 ): Effect.Effect<ReceiptDecision, ReceiptFailure> =>
   Effect.gen(function* () {
     yield* activeActor(command.actor);
 
-    return yield* ReceiptCommandSchema.match<Effect.Effect<ReceiptDecision, ReceiptFailure>>(
+    return yield* AuthorizedReceiptCommandSchema.match<Effect.Effect<ReceiptDecision, ReceiptFailure>>(
       command,
       {
         SubmitReceipt: (input) =>
@@ -269,10 +296,10 @@ const decideCommand = (
     );
   });
 
-export const decodeReceiptCommand = (
+const decodeReceiptCommand = (
   input: unknown,
-): Effect.Effect<ReceiptCommand, ReceiptDecodeError> =>
-  Schema.decodeUnknownEffect(ReceiptCommandSchema)(input, {
+): Effect.Effect<AuthorizedReceiptCommand, ReceiptDecodeError> =>
+  Schema.decodeUnknownEffect(AuthorizedReceiptCommandSchema)(input, {
     onExcessProperty: "error",
   }).pipe(Effect.mapError((cause) => new ReceiptDecodeError({ message: String(cause) })));
 

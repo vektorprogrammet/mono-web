@@ -340,6 +340,44 @@ export const mapReceiptGlobalApprovalActor = (
   });
 };
 
+/**
+ * Existing receipt approval derives its only department scope from the locked
+ * receipt. Active global authority wins, then active authority for that
+ * department; known inactive authority remains an inactive actor.
+ */
+export const mapReceiptApprovalActor = (
+  authority: ReceiptAuthority,
+  receiptDepartmentId: DepartmentId,
+): Effect.Effect<ReceiptActor, ReceiptAuthorityDenied> => {
+  let global: ResolvedReceiptApprovalGrant | undefined;
+  let department: ResolvedReceiptApprovalGrant | undefined;
+  for (const grant of authority.approvalGrants) {
+    if (grant.scope._tag === "Global") {
+      global = preferTemporalCandidate(global, grant, authority.evaluatedAt);
+    } else if (grant.scope.departmentId === receiptDepartmentId) {
+      department = preferTemporalCandidate(department, grant, authority.evaluatedAt);
+    }
+  }
+  const selected =
+    global?.active === true
+      ? global
+      : department?.active === true
+        ? department
+        : (global ?? department);
+  if (selected === undefined) {
+    return Effect.fail(deny(authority, "DepartmentApproval", receiptDepartmentId));
+  }
+  return Effect.succeed({
+    personId: authority.personId,
+    departmentId: receiptDepartmentId,
+    active: selected.active,
+    approvalScope:
+      selected.scope._tag === "Global"
+        ? { _tag: "Global" }
+        : { _tag: "Department", departmentId: receiptDepartmentId },
+  });
+};
+
 /** Owner lists use this person-keyed result and never select one department. */
 export const mapReceiptOwnerPrincipal = (
   authority: ReceiptAuthority,

@@ -1,5 +1,5 @@
 import { Effect, Schema } from "effect";
-import { Database } from "../database/service.js";
+import { Database, type DatabaseShape } from "../database/service.js";
 import {
   OrganizationAuthorityInstantSchema,
   OrganizationGlobalAdministratorStatusSchema,
@@ -61,27 +61,57 @@ const membershipFromRow = (
   });
 };
 
-const resolveOrganizationPersonAuthorityWithLockMode = (
+export type OrganizationAuthorityRowLockMode = "None" | "ForShare";
+
+const PERSON_AUTHORIZATION_LOCK_NAMESPACE = "vektorprogrammet:person-authorization:v1";
+
+/** Serializes one person's protected command with person-keyed authority writers. */
+export const lockPersonAuthorization = (
+  sql: DatabaseShape,
+  personId: PersonId,
+): Effect.Effect<void, OrganizationPersistenceError> =>
+  sql`
+    SELECT pg_catalog.pg_advisory_xact_lock(
+      pg_catalog.hashtextextended(${`${PERSON_AUTHORIZATION_LOCK_NAMESPACE}:${personId}`}, 0)
+    )
+  `.pipe(
+    Effect.asVoid,
+    Effect.catchTag("SqlError", (cause) =>
+      Effect.fail(
+        new OrganizationPersistenceError({
+          operation: "lock person authorization",
+          message: String(cause),
+        }),
+      ),
+    ),
+  );
+
+/**
+ * Caller-transaction Organization projection. `ForShare` is command-safe only
+ * when the supplied SQL client is the state-transition transaction client.
+ */
+export const resolveOrganizationPersonAuthorityWithSql = (
+  sql: DatabaseShape,
   personId: PersonId,
   authorizationInstant: OrganizationAuthorityInstant,
-  lockRows: boolean,
+  lockMode: OrganizationAuthorityRowLockMode,
 ): Effect.Effect<
   OrganizationPersonAuthority,
-  OrganizationDecodeError | OrganizationPersistenceError,
-  Database
+  OrganizationDecodeError | OrganizationPersistenceError
 > =>
   Effect.gen(function* () {
     const evaluatedAt = yield* Schema.decodeUnknownEffect(OrganizationAuthorityInstantSchema)(
       authorizationInstant,
     ).pipe(Effect.mapError((cause) => decodeError("decode Organization authority instant", cause)));
-    const sql = yield* Database;
-    const globalAdministratorLock = lockRows ? sql`FOR SHARE` : sql``;
-    const membershipLock = lockRows ? sql`FOR SHARE OF membership, team, department` : sql``;
+    const globalAdministratorLock = lockMode === "ForShare" ? sql`FOR SHARE` : sql``;
+    const membershipLock =
+      lockMode === "ForShare" ? sql`FOR SHARE OF membership, team, department` : sql``;
     const selected = yield* sql<OrganizationAuthorityProjectionRow>`
       WITH locked_global_administrator_grants AS MATERIALIZED (
         SELECT grant_id, start_at, end_at
         FROM public.organization_global_administrator_grants
         WHERE person_id = ${personId}
+        ORDER BY grant_id ASC
         ${globalAdministratorLock}
       ),
       global_administrator AS (
@@ -120,6 +150,7 @@ const resolveOrganizationPersonAuthorityWithLockMode = (
         INNER JOIN organization_departments AS department
           ON department.department_id = team.department_id
         WHERE membership.person_id = ${personId}
+        ORDER BY department.department_id ASC, team.team_id ASC, membership.membership_id ASC
         ${membershipLock}
       )
       SELECT
@@ -176,14 +207,32 @@ const resolveOrganizationPersonAuthorityWithLockMode = (
     };
   });
 
-/** Command-safe projection: relevant authority rows are share-locked. */
+/** Existing service projection; receipt commands use the caller-SQL form. */
 export const resolveOrganizationPersonAuthority = (
   personId: PersonId,
   authorizationInstant: OrganizationAuthorityInstant,
-) => resolveOrganizationPersonAuthorityWithLockMode(personId, authorizationInstant, true);
+) =>
+  Effect.gen(function* () {
+    const sql = yield* Database;
+    return yield* resolveOrganizationPersonAuthorityWithSql(
+      sql,
+      personId,
+      authorizationInstant,
+      "ForShare",
+    );
+  });
 
 /** Read projection for a caller-owned repeatable-read, read-only snapshot. */
 export const resolveOrganizationPersonAuthorityForRead = (
   personId: PersonId,
   authorizationInstant: OrganizationAuthorityInstant,
-) => resolveOrganizationPersonAuthorityWithLockMode(personId, authorizationInstant, false);
+) =>
+  Effect.gen(function* () {
+    const sql = yield* Database;
+    return yield* resolveOrganizationPersonAuthorityWithSql(
+      sql,
+      personId,
+      authorizationInstant,
+      "None",
+    );
+  });

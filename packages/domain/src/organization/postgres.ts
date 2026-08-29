@@ -1,4 +1,5 @@
 import { Database, type DatabaseShape } from "../database/service.js";
+import { lockPersonAuthorization } from "./authority-postgres.js";
 import * as Statement from "effect/unstable/sql/Statement";
 import { Effect, Schema } from "effect";
 import {
@@ -467,6 +468,12 @@ const insertImportedOrganization = (
   result: OrganizationImportResult,
 ): Effect.Effect<OrganizationImportResult, OrganizationPersistenceError> =>
   Effect.gen(function* () {
+    const affectedPersonIds = [
+      ...new Set(result.memberships.map((membership) => membership.personId)),
+    ].sort();
+    yield* Effect.forEach(affectedPersonIds, (personId) =>
+      lockPersonAuthorization(sql, personId),
+    );
     const quarantined: OrganizationQuarantine[] = [...result.quarantined];
     const ledger: OrganizationImportLedgerEntry[] = [...result.ledger];
     const destinationCollisions = new Set<string>();

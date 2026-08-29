@@ -21,8 +21,10 @@ export const EconomyLive = Layer.effect(
     const database = yield* Database;
 
     return Economy.of({
-      executeReceipt: (input, context) =>
-        executeReceiptCommand(input, context).pipe(Effect.provideService(Database, database)),
+      executeReceipt: (input, principal, allocation) =>
+        executeReceiptCommand(input, principal, allocation).pipe(
+          Effect.provideService(Database, database),
+        ),
       resolveReceiptAuthority: (personId, authorizationInstant, organizationProjection) =>
         resolveReceiptAuthorityPostgres(
           personId,

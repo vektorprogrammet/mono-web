@@ -21,8 +21,11 @@ import type {
   ReceiptLifecycleEvidenceProjection,
   ReceiptStatusTotal,
 } from "./projections.js";
-import type { ReceiptStatus } from "./schema.js";
-import type { ReceiptDecisionContext } from "./update.js";
+import type {
+  ReceiptCommandPrincipal,
+  ReceiptStatus,
+  ReceiptSubmissionAllocation,
+} from "./schema.js";
 
 export interface ReceiptTransactionResult {
   readonly observation: import("./schema.js").ReceiptObservation;
@@ -33,7 +36,8 @@ export interface ReceiptTransactionResult {
 export interface EconomyShape {
   readonly executeReceipt: (
     input: unknown,
-    context: ReceiptDecisionContext,
+    principal: ReceiptCommandPrincipal,
+    allocation?: ReceiptSubmissionAllocation,
   ) => Effect.Effect<ReceiptTransactionResult, ReceiptFailure>;
   readonly resolveReceiptAuthority: (
     personId: PersonId,

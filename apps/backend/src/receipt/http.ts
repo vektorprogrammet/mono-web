@@ -3,29 +3,25 @@ import { randomUUID } from "node:crypto";
 import { Database } from "@vektorprogrammet/domain/database";
 import { Effect } from "effect";
 import {
-  AmbiguousPaymentSelection,
-  mapReceiptDepartmentApprovalActor,
-  mapReceiptGlobalApprovalActor,
-  mapReceiptOwnerActor,
-  mapReceiptSubmissionPrincipal,
-  InactiveActor,
   Economy,
+  InactiveActor,
+  ReceiptAuxiliaryEffectConflict,
   ReceiptAuxiliaryEffects,
   ReceiptDecodeError,
   ReceiptFileService,
   ReceiptPersistenceError,
-  ReceiptNotFound,
+  ReceiptId,
+  ReceiptVisualId,
   ReceiptScopeDenied,
-  type ReceiptAuthority,
-  type ReceiptStatus,
-  type ReceiptTransactionResult,
   UnauthenticatedActor,
   isIsoDate,
+  type ReceiptAuthority,
+  type ReceiptCommandPrincipal,
   type ReceiptObservation,
   type ReceiptOutboxDeliveryResult,
-  ReceiptAuxiliaryEffectConflict,
+  type ReceiptStatus,
+  type ReceiptSubmissionAllocation,
 } from "@vektorprogrammet/domain/receipt";
-import type { ReceiptActor, ReceiptSubmissionPrincipal } from "@vektorprogrammet/domain/receipt";
 import { DepartmentId } from "@vektorprogrammet/domain/organization";
 import type { ReceiptApiConfig } from "./config.js";
 import {
@@ -73,11 +69,15 @@ interface WithdrawFields {
 }
 
 export interface ReceiptAuthorityResolvers {
-  /** Cookie -> ReceiptAuthority via Economy facts + Organization projection. */
+  /** Cookie -> ReceiptAuthority for unchanged read/list projections. */
   readonly resolveAuthority: (
     cookieHeader: string | undefined,
     requested?: { readonly departmentId?: DepartmentId },
   ) => Promise<ReceiptAuthority>;
+  /** Cookie -> canonical person and one instant; never role or authority facts. */
+  readonly resolveCommandPrincipal: (
+    cookieHeader: string | undefined,
+  ) => Promise<ReceiptCommandPrincipal>;
   /** Cookie -> owner person id (session-only; no role facts). */
   readonly resolvePersonId: (cookieHeader: string | undefined) => Promise<string>;
 }
@@ -347,34 +347,26 @@ const personIdFor = async (request: Request, options: ReceiptApiHttpOptions): Pr
   }
 };
 
+const commandPrincipalFor = async (
+  request: Request,
+  options: ReceiptApiHttpOptions,
+): Promise<ReceiptCommandPrincipal> => {
+  try {
+    return await options.authority.resolveCommandPrincipal(
+      request.headers.get("cookie") ?? undefined,
+    );
+  } catch (cause) {
+    if (cause !== null && typeof cause === "object" && "_tag" in cause) throw cause;
+    throw new UnauthenticatedActor({ message: "authentication required" });
+  }
+};
+
 /** The department of the person's single active payment authority, if any. */
 const activePaymentDepartment = (authority: ReceiptAuthority): DepartmentId | undefined => {
   const active = authority.paymentAuthorities.find((payment) => payment.active);
   return active?.departmentId;
 };
 
-/**
- * Spec 0055 submission principal: one explicit department selection, or the
- * person's single active payment authority. Several active authorities
- * without a selection are a typed AmbiguousPaymentSelection denial; Economy
- * never picks a primary department.
- */
-const submissionPrincipal = (
-  authority: ReceiptAuthority,
-  departmentId: DepartmentId | undefined,
-  run: ReceiptApiHttpOptions["run"],
-): Promise<ReceiptSubmissionPrincipal> => {
-  if (departmentId === undefined) {
-    const active = authority.paymentAuthorities.filter((payment) => payment.active);
-    if (active.length > 1) {
-      throw new AmbiguousPaymentSelection({
-        personId: authority.personId,
-        departmentIds: active.map((payment) => payment.departmentId),
-      });
-    }
-  }
-  return run(mapReceiptSubmissionPrincipal(authority, departmentId));
-};
 
 /** Strongest approval scope: active grants win, Global wins within the same
  *  activity state, and known inactive grants remain inactive actors. */
@@ -533,18 +525,15 @@ const runDatabase = <A>(
   effect: Effect.Effect<A, unknown, Database | Economy>,
   run: ReceiptApiHttpOptions["run"],
 ): Promise<A> => run(effect);
-interface ReceiptCommandContext {
-  readonly receiptId: string;
-  readonly visualId: string;
-  readonly now: string;
-}
-
 const executeEconomyReceipt = (
   command: unknown,
-  context: ReceiptCommandContext,
+  principal: ReceiptCommandPrincipal,
   options: ReceiptApiHttpOptions,
+  allocation?: ReceiptSubmissionAllocation,
 ) => {
-  const transaction = Economy.use(({ executeReceipt }) => executeReceipt(command, context));
+  const transaction = Economy.use(({ executeReceipt }) =>
+    executeReceipt(command, principal, allocation),
+  );
   return runDatabase(transaction, options.run);
 };
 
@@ -647,13 +636,7 @@ const submit = async (
   }
   const departmentId = selected === undefined ? undefined : DepartmentId.make(selected);
   const fields = await decodeMultipart(request, options.config.maxFileBytes);
-  // Submission scope per spec 0055: an explicit departmentId query selects the
-  // payment authority; a single active authority selects itself; several
-  // active authorities without a selection are a typed Ambiguous denial.
-  const authority = requireActiveOrganizationAuthority(
-    await authorityFor(request, options, departmentId === undefined ? undefined : { departmentId }),
-  );
-  const principal = await submissionPrincipal(authority, departmentId, options.run);
+  const principal = await commandPrincipalFor(request, options);
   let staged: StagedReceiptFile | undefined;
   let committed = false;
   try {
@@ -667,21 +650,17 @@ const submit = async (
     const command = {
       _tag: "SubmitReceipt" as const,
       commandId: fields.commandId,
-      actor: principal.actor,
-      departmentId: principal.actor.departmentId,
-      paymentAccountCiphertext: principal.paymentAccountCiphertext,
+      ...(departmentId === undefined ? {} : { departmentId }),
       description: fields.description,
       amountOre: fields.amountOre,
       receiptDate: fields.receiptDate,
       file: staged.file,
     };
-    const context = {
-      receiptId: options.config.nextReceiptId(),
-      visualId: options.config.nextVisualId(),
-      now: options.config.now(),
+    const allocation = {
+      receiptId: ReceiptId.make(options.config.nextReceiptId()),
+      visualId: ReceiptVisualId.make(options.config.nextVisualId()),
     };
-    const transaction = Economy.use(({ executeReceipt }) => executeReceipt(command, context));
-    const result = await runDatabase(transaction, options.run);
+    const result = await executeEconomyReceipt(command, principal, options, allocation);
     if (result.replayed && staged.created) await fileStore.cleanupStage(staged.file);
     committed = true;
     await drainOutbox(options, fileStore, result.observation.receiptId);
@@ -699,21 +678,8 @@ const revise = async (
   options: ReceiptApiHttpOptions,
   fileStore: ReceiptFileStore,
 ): Promise<Response> => {
-  const authority = requireActiveOrganizationAuthority(await authorityFor(request, options));
   const fields = await decodeReviseMultipart(request, options.config.maxFileBytes);
-  // The existing receipt keeps its immutable department; the caller cannot
-  // replace it. The owner actor is mapped for that department.
-  const current = await runDatabase(
-    Economy.use(({ listOwnedReceipts }) => listOwnedReceipts(authority.personId)),
-    options.run,
-  );
-  const owned = current.find((row) => row.receiptId === receiptId);
-  const actor: ReceiptActor = await options.run(
-    mapReceiptOwnerActor(
-      authority,
-      (owned?.departmentId as DepartmentId | undefined) ?? DepartmentId.make(receiptId),
-    ),
-  );
+  const principal = await commandPrincipalFor(request, options);
   let staged: StagedReceiptFile | undefined;
   let committed = false;
   try {
@@ -733,7 +699,6 @@ const revise = async (
     const command = {
       _tag: "RevisePendingReceipt" as const,
       commandId: fields.commandId,
-      actor,
       receiptId,
       expectedRevision: fields.expectedRevision,
       description: fields.description,
@@ -741,11 +706,7 @@ const revise = async (
       receiptDate: fields.receiptDate,
       file: staged?.file ?? { _tag: "KeepCurrentFile" as const },
     };
-    const result = await executeEconomyReceipt(
-      command,
-      { receiptId, visualId: receiptId, now: options.config.now() },
-      options,
-    );
+    const result = await executeEconomyReceipt(command, principal, options);
     if (result.replayed && staged?.created === true) {
       await fileStore.cleanupStage(staged.file).catch(() => undefined);
     }
@@ -765,32 +726,15 @@ const withdraw = async (
   options: ReceiptApiHttpOptions,
   fileStore: ReceiptFileStore,
 ): Promise<Response> => {
-  const authority = requireActiveOrganizationAuthority(await authorityFor(request, options));
-  // The existing receipt keeps its immutable department; the caller cannot
-  // replace it. The owner actor is mapped for that department.
-  const owned = await runDatabase(
-    Economy.use(({ listOwnedReceipts }) => listOwnedReceipts(authority.personId)),
-    options.run,
-  ).then((rows) => rows.find((row) => row.receiptId === receiptId));
-  const actor: ReceiptActor = await options.run(
-    mapReceiptOwnerActor(
-      authority,
-      (owned?.departmentId as DepartmentId | undefined) ?? DepartmentId.make(receiptId),
-    ),
-  );
+  const principal = await commandPrincipalFor(request, options);
   const fields = await decodeCommandJson(request, "withdraw");
   const command = {
     _tag: "WithdrawPendingReceipt" as const,
     commandId: fields.commandId,
-    actor,
     receiptId,
     expectedRevision: fields.expectedRevision,
   };
-  const result = await executeEconomyReceipt(
-    command,
-    { receiptId, visualId: receiptId, now: options.config.now() },
-    options,
-  );
+  const result = await executeEconomyReceipt(command, principal, options);
   await drainOutbox(options, fileStore, result.observation.receiptId);
   return jsonResponse(result.observation satisfies ReceiptObservation);
 };
@@ -858,37 +802,7 @@ const approvalCommand = async (
   options: ReceiptApiHttpOptions,
   fileStore: ReceiptFileStore,
 ): Promise<Response> => {
-  const authority = requireActiveOrganizationAuthority(await authorityFor(request, options));
-  const grant = strongestApprovalGrant(authority);
-  if (grant === undefined) {
-    throw new ReceiptScopeDenied({
-      receiptId: route.receiptId,
-      departmentId: activePaymentDepartment(authority) ?? ("" as DepartmentId),
-    });
-  }
-  if (!grant.active) throw new InactiveActor({ personId: authority.personId });
-  // The target row comes from the authorized projection. Its immutable
-  // department selects the mapper scope and cannot be supplied by the caller.
-  const projected = await runDatabase(
-    Economy.use(({ listReceiptsForApproval }) => listReceiptsForApproval(grant.scope)),
-    options.run,
-  ).then((rows) => rows.find((row) => row.receiptId === route.receiptId));
-  if (projected === undefined) {
-    if (grant.scope._tag === "Department") {
-      throw new ReceiptScopeDenied({
-        receiptId: route.receiptId,
-        departmentId: grant.scope.departmentId,
-      });
-    }
-    throw new ReceiptNotFound({ receiptId: route.receiptId });
-  }
-  const receiptDepartmentId = projected.departmentId as DepartmentId;
-  const actor: ReceiptActor = await options.run(
-    grant.scope._tag === "Global"
-      ? mapReceiptGlobalApprovalActor(authority, receiptDepartmentId)
-      : mapReceiptDepartmentApprovalActor(authority, receiptDepartmentId),
-  );
-  const scope: ApprovalListScope = actor.approvalScope as ApprovalListScope;
+  const principal = await commandPrincipalFor(request, options);
   const fields = await decodeCommandJson(request, "approval");
   if (new URL(request.url).search.length !== 0) {
     throw new ReceiptDecodeError({ message: "unexpected receipt command query" });
@@ -896,32 +810,10 @@ const approvalCommand = async (
   const command = {
     _tag: route.action === "refund" ? ("RefundReceipt" as const) : ("RejectReceipt" as const),
     commandId: fields.commandId,
-    actor,
     receiptId: route.receiptId,
     expectedRevision: fields.expectedRevision,
   };
-  let result: ReceiptTransactionResult;
-  try {
-    result = await executeEconomyReceipt(
-      command,
-      { receiptId: route.receiptId, visualId: route.receiptId, now: options.config.now() },
-      options,
-    );
-  } catch (cause) {
-    if (
-      scope._tag === "Department" &&
-      cause !== null &&
-      typeof cause === "object" &&
-      "_tag" in cause &&
-      cause._tag === "ReceiptNotFound"
-    ) {
-      throw new ReceiptScopeDenied({
-        receiptId: route.receiptId,
-        departmentId: scope.departmentId,
-      });
-    }
-    throw cause;
-  }
+  const result = await executeEconomyReceipt(command, principal, options);
   await drainOutbox(options, fileStore, result.observation.receiptId);
   return jsonResponse(result.observation satisfies ReceiptObservation);
 };

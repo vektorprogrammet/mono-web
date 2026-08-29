@@ -6,7 +6,12 @@ import { canonicalJsonBytes, sha256Hex } from "../tutor/evidence.js";
 import { importLegacyReceipts, type ReceiptImportProvenance } from "./import.js";
 import { executeReceiptCommand, storeReceiptImportResult } from "./postgres.js";
 import { listApproverReceipts, listAssistantReceipts, receiptStatusTotals } from "./projections.js";
-import type { LegacyReceiptRow, ReceiptActor, ReceiptFile } from "./schema.js";
+import {
+  ReceiptId,
+  ReceiptVisualId,
+  type LegacyReceiptRow,
+  type ReceiptFile,
+} from "./schema.js";
 
 interface CountRow {
   readonly count: string;
@@ -76,32 +81,36 @@ const rollbackFile: ReceiptFile = {
   sha256: "b".repeat(64),
 };
 
-const owner: ReceiptActor = {
-  personId: PersonId.make("proof-person"),
-  departmentId: DepartmentId.make("proof-department"),
-  active: true,
-  approvalScope: { _tag: "None" },
-};
+const ownerPersonId = PersonId.make("proof-person");
+const approverPersonId = PersonId.make("proof-approver");
+const wrongScopeApproverPersonId = PersonId.make("proof-wrong-scope-approver");
 
-const approver: ReceiptActor = {
-  personId: PersonId.make("proof-approver"),
-  departmentId: DepartmentId.make("proof-department"),
-  active: true,
-  approvalScope: { _tag: "Department", departmentId: DepartmentId.make("proof-department") },
-};
+interface ProofCommandContext {
+  readonly receiptId: string;
+  readonly visualId: string;
+  readonly now: string;
+}
 
-const context = (receiptId: string, visualId: string, now: string) => ({
+const context = (receiptId: string, visualId: string, now: string): ProofCommandContext => ({
   receiptId,
   visualId,
   now,
 });
 
+const principal = (personId: PersonId, authorizationInstant: string) => ({
+  personId,
+  authorizationInstant,
+});
+
+const allocation = (value: ProofCommandContext) => ({
+  receiptId: ReceiptId.make(value.receiptId),
+  visualId: ReceiptVisualId.make(value.visualId),
+});
+
 const submit = (commandId: string, description: string, receiptFile = file) => ({
   _tag: "SubmitReceipt" as const,
   commandId,
-  actor: owner,
   departmentId: DepartmentId.make("proof-department"),
-  paymentAccountCiphertext: "ciphertext:v1:proof-account",
   description,
   amountOre: 12_345,
   receiptDate: "2026-08-19",
@@ -121,71 +130,120 @@ export const runReceiptPostgresProof: Effect.Effect<ReceiptProofEvidence, unknow
       economy_receipt_command_receipts, economy_receipts,
       economy_receipt_import_ledger CASCADE
   `);
+    yield* sql.unsafe(`
+      DELETE FROM economy_receipt_approval_grants
+      WHERE approval_grant_id IN ('proof-approval', 'proof-wrong-approval');
+      DELETE FROM economy_payment_authorities
+      WHERE payment_authority_id = 'proof-payment';
+      DELETE FROM organization_memberships
+      WHERE membership_id IN ('proof-owner-membership', 'proof-approver-membership',
+        'proof-wrong-approver-membership');
+      DELETE FROM organization_teams
+      WHERE team_id IN ('proof-team', 'proof-other-team');
+      DELETE FROM organization_departments
+      WHERE department_id IN ('proof-department', 'other-department');
+      DELETE FROM person_profiles
+      WHERE person_id IN ('proof-person', 'proof-approver', 'proof-wrong-scope-approver');
+
+      INSERT INTO person_profiles (person_id, first_name, last_name) VALUES
+        ('proof-person', 'Receipt', 'Owner'),
+        ('proof-approver', 'Receipt', 'Approver'),
+        ('proof-wrong-scope-approver', 'Other', 'Approver');
+      INSERT INTO organization_departments (
+        department_id, name, short_name, email, city
+      ) VALUES
+        ('proof-department', 'Proof Department', 'PROOF',
+          'proof@example.invalid', 'Bergen'),
+        ('other-department', 'Other Department', 'OTHER',
+          'other@example.invalid', 'Bergen');
+      INSERT INTO organization_teams (team_id, department_id, name) VALUES
+        ('proof-team', 'proof-department', 'Proof Team'),
+        ('proof-other-team', 'other-department', 'Other Team');
+      INSERT INTO organization_memberships (
+        membership_id, person_id, team_id, start_at
+      ) VALUES
+        ('proof-owner-membership', 'proof-person', 'proof-team',
+          '2026-01-01T00:00:00.000Z'),
+        ('proof-approver-membership', 'proof-approver', 'proof-team',
+          '2026-01-01T00:00:00.000Z'),
+        ('proof-wrong-approver-membership', 'proof-wrong-scope-approver',
+          'proof-other-team', '2026-01-01T00:00:00.000Z');
+      INSERT INTO economy_payment_authorities (
+        payment_authority_id, person_id, department_id,
+        payment_account_ciphertext, start_at
+      ) VALUES (
+        'proof-payment', 'proof-person', 'proof-department',
+        'ciphertext:v1:proof-account', '2026-01-01T00:00:00.000Z'
+      );
+      INSERT INTO economy_receipt_approval_grants (
+        approval_grant_id, person_id, scope, department_id, start_at
+      ) VALUES
+        ('proof-approval', 'proof-approver', 'Department', 'proof-department',
+          '2026-01-01T00:00:00.000Z'),
+        ('proof-wrong-approval', 'proof-wrong-scope-approver', 'Department',
+          'other-department', '2026-01-01T00:00:00.000Z');
+    `);
 
     const firstContext = context("proof-receipt-1", "PROOF-0001", "2026-08-20T12:00:00.000Z");
     const submitted = yield* executeReceiptCommand(
       submit("proof-command-submit-1", "Travel"),
-      firstContext,
+      principal(ownerPersonId, firstContext.now),
+      allocation(firstContext),
     );
     const replay = yield* executeReceiptCommand(
       submit("proof-command-submit-1", "Travel"),
-      firstContext,
+      principal(ownerPersonId, firstContext.now),
+      allocation(firstContext),
     );
     const conflictingReplay = yield* Effect.exit(
-      executeReceiptCommand(submit("proof-command-submit-1", "Changed travel"), firstContext),
+      executeReceiptCommand(
+        submit("proof-command-submit-1", "Changed travel"),
+        principal(ownerPersonId, firstContext.now),
+        allocation(firstContext),
+      ),
     );
     const wrongScope = yield* Effect.exit(
       executeReceiptCommand(
         {
           _tag: "RefundReceipt",
           commandId: "proof-command-wrong-scope",
-          actor: {
-            ...approver,
-            departmentId: DepartmentId.make("other-department"),
-            approvalScope: {
-              _tag: "Department",
-              departmentId: DepartmentId.make("other-department"),
-            },
-          },
           receiptId: "proof-receipt-1",
           expectedRevision: 0,
         },
-        { ...firstContext, now: "2026-08-20T12:01:00.000Z" },
+        principal(wrongScopeApproverPersonId, "2026-08-20T12:01:00.000Z"),
       ),
     );
     const refunded = yield* executeReceiptCommand(
       {
         _tag: "RefundReceipt",
         commandId: "proof-command-refund",
-        actor: approver,
         receiptId: "proof-receipt-1",
         expectedRevision: 0,
       },
-      { ...firstContext, now: "2026-08-20T12:02:00.000Z" },
+      principal(approverPersonId, "2026-08-20T12:02:00.000Z"),
     );
     const terminalTransition = yield* Effect.exit(
       executeReceiptCommand(
         {
           _tag: "RejectReceipt",
           commandId: "proof-command-terminal",
-          actor: approver,
           receiptId: "proof-receipt-1",
           expectedRevision: 1,
         },
-        { ...firstContext, now: "2026-08-20T12:03:00.000Z" },
+        principal(approverPersonId, "2026-08-20T12:03:00.000Z"),
       ),
     );
 
     const secondContext = context("proof-receipt-2", "PROOF-0002", "2026-08-20T13:00:00.000Z");
     yield* executeReceiptCommand(
       submit("proof-command-submit-2", "Supplies", secondFile),
-      secondContext,
+      principal(ownerPersonId, secondContext.now),
+      allocation(secondContext),
     );
     const revised = yield* executeReceiptCommand(
       {
         _tag: "RevisePendingReceipt",
         commandId: "proof-command-revise",
-        actor: owner,
         receiptId: "proof-receipt-2",
         expectedRevision: 0,
         description: "Supplies and postage",
@@ -193,17 +251,16 @@ export const runReceiptPostgresProof: Effect.Effect<ReceiptProofEvidence, unknow
         receiptDate: "2026-08-19",
         file: secondFile,
       },
-      { ...secondContext, now: "2026-08-20T13:01:00.000Z" },
+      principal(ownerPersonId, "2026-08-20T13:01:00.000Z"),
     );
     const withdrawn = yield* executeReceiptCommand(
       {
         _tag: "WithdrawPendingReceipt",
         commandId: "proof-command-withdraw",
-        actor: owner,
         receiptId: "proof-receipt-2",
         expectedRevision: 1,
       },
-      { ...secondContext, now: "2026-08-20T13:02:00.000Z" },
+      principal(ownerPersonId, "2026-08-20T13:02:00.000Z"),
     );
 
     yield* sql.unsafe(`
@@ -219,10 +276,16 @@ export const runReceiptPostgresProof: Effect.Effect<ReceiptProofEvidence, unknow
       BEFORE INSERT ON economy_receipt_audit
       FOR EACH ROW EXECUTE FUNCTION reject_receipt_proof_audit();
   `);
+    const rollbackContext = context(
+      "proof-receipt-3",
+      "PROOF-0003",
+      "2026-08-20T14:00:00.000Z",
+    );
     const failedTransaction = yield* Effect.exit(
       executeReceiptCommand(
         submit("proof-command-rollback", "Rollback after durable writes", rollbackFile),
-        context("proof-receipt-3", "PROOF-0003", "2026-08-20T14:00:00.000Z"),
+        principal(ownerPersonId, rollbackContext.now),
+        allocation(rollbackContext),
       ),
     );
     yield* sql.unsafe(`
@@ -277,13 +340,19 @@ export const runReceiptPostgresProof: Effect.Effect<ReceiptProofEvidence, unknow
     yield* storeReceiptImportResult(imported!);
     yield* storeReceiptImportResult(quarantined!);
 
+    const invalidContext = context(
+      "proof-invalid-amount",
+      "PROOF-INVALID",
+      "2026-08-20T15:00:00.000Z",
+    );
     const invalidAmount = yield* Effect.exit(
       executeReceiptCommand(
         { ...submit("proof-command-invalid-amount", "Invalid amount"), amountOre: 0 },
-        context("proof-invalid-amount", "PROOF-INVALID", "2026-08-20T15:00:00.000Z"),
+        principal(ownerPersonId, invalidContext.now),
+        allocation(invalidContext),
       ),
     );
-    const assistantProjection = yield* listAssistantReceipts(owner.personId);
+    const assistantProjection = yield* listAssistantReceipts(ownerPersonId);
     const approverProjection = yield* listApproverReceipts({
       _tag: "Department",
       departmentId: DepartmentId.make("proof-department"),

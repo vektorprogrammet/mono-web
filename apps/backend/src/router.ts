@@ -157,9 +157,8 @@ export const makeBackendHttp = (
     run,
   });
   /**
-   * Cookie -> PersonId -> ReceiptAuthority (spec 0055): the Organization
-   * projection captures ONE authorizationInstant; Economy composes its
-   * payment/approval facts with that same-instant projection.
+   * Receipt read/list projections retain the spec-0055 Organization + Economy
+   * projection. Protected commands use the separate session-only principal.
    */
   const resolveReceiptAuthorityFor: ReceiptAuthorityResolvers["resolveAuthority"] = async (
     cookieHeader,
@@ -179,6 +178,8 @@ export const makeBackendHttp = (
     config: config.receipt,
     authority: {
       resolveAuthority: resolveReceiptAuthorityFor,
+      resolveCommandPrincipal: async (cookieHeader) =>
+        resolveAuthenticatedPersonAtInstant(cookieHeader, { run }),
       resolvePersonId: async (cookieHeader) => resolveAuthenticatedPerson(cookieHeader, { run }),
     },
     run,

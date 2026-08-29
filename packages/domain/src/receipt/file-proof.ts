@@ -11,7 +11,7 @@ import {
   type ReceiptOutboxDeliveryResult,
 } from "./outbox.js";
 import { executeReceiptCommand } from "./postgres.js";
-import type { ReceiptActor, ReceiptFile } from "./schema.js";
+import { ReceiptId, ReceiptVisualId, type ReceiptFile } from "./schema.js";
 
 interface OutboxStateRow {
   readonly status: string;
@@ -112,32 +112,39 @@ const conflictFile: ReceiptFile = {
   sha256: "a".repeat(64),
 };
 
-const owner: ReceiptActor = {
-  personId: PersonId.make("file-proof-owner"),
-  departmentId: DepartmentId.make("file-proof-department"),
-  active: true,
-  approvalScope: { _tag: "None" },
-};
+const ownerPersonId = PersonId.make("file-proof-owner");
+const approverPersonId = PersonId.make("file-proof-approver");
 
-const approver: ReceiptActor = {
-  personId: PersonId.make("file-proof-approver"),
-  departmentId: DepartmentId.make("file-proof-department"),
-  active: true,
-  approvalScope: { _tag: "Department", departmentId: DepartmentId.make("file-proof-department") },
-};
+interface ReceiptFileProofCommandContext {
+  readonly receiptId: string;
+  readonly visualId: string;
+  readonly now: string;
+}
 
-const context = (receiptId: string, visualId: string, now: string) => ({
+const context = (
+  receiptId: string,
+  visualId: string,
+  now: string,
+): ReceiptFileProofCommandContext => ({
   receiptId,
   visualId,
   now,
 });
 
+const principal = (personId: PersonId, authorizationInstant: string) => ({
+  personId,
+  authorizationInstant,
+});
+
+const allocation = (value: ReceiptFileProofCommandContext) => ({
+  receiptId: ReceiptId.make(value.receiptId),
+  visualId: ReceiptVisualId.make(value.visualId),
+});
+
 const submitCommand = (commandId: string, description: string, file: ReceiptFile) => ({
   _tag: "SubmitReceipt" as const,
   commandId,
-  actor: owner,
-  departmentId: owner.departmentId,
-  paymentAccountCiphertext: "ciphertext:v1:file-proof-account",
+  departmentId: DepartmentId.make("file-proof-department"),
   description,
   amountOre: 12_345,
   receiptDate: "2026-08-20",
@@ -150,11 +157,14 @@ const submit = (
   visualId: string,
   file: ReceiptFile,
   now: string,
-) =>
-  executeReceiptCommand(
+) => {
+  const commandContext = context(receiptId, visualId, now);
+  return executeReceiptCommand(
     submitCommand(commandId, "Receipt file proof", file),
-    context(receiptId, visualId, now),
+    principal(ownerPersonId, now),
+    allocation(commandContext),
   );
+};
 
 const hasFailureTag = (
   result:
@@ -202,6 +212,52 @@ export const runReceiptFileProof = (
       TRUNCATE economy_receipt_outbox, economy_receipt_audit,
         economy_receipt_command_receipts, economy_receipts,
         economy_receipt_import_ledger CASCADE
+    `);
+    yield* sql.unsafe(`
+      DELETE FROM economy_receipt_approval_grants
+      WHERE approval_grant_id = 'file-proof-approval';
+      DELETE FROM economy_payment_authorities
+      WHERE payment_authority_id = 'file-proof-payment';
+      DELETE FROM organization_memberships
+      WHERE membership_id IN ('file-proof-owner-membership', 'file-proof-approver-membership');
+      DELETE FROM organization_teams
+      WHERE team_id = 'file-proof-team';
+      DELETE FROM organization_departments
+      WHERE department_id = 'file-proof-department';
+      DELETE FROM person_profiles
+      WHERE person_id IN ('file-proof-owner', 'file-proof-approver');
+
+      INSERT INTO person_profiles (person_id, first_name, last_name) VALUES
+        ('file-proof-owner', 'File', 'Owner'),
+        ('file-proof-approver', 'File', 'Approver');
+      INSERT INTO organization_departments (
+        department_id, name, short_name, email, city
+      ) VALUES (
+        'file-proof-department', 'File Proof Department', 'FILE',
+        'file-proof@example.invalid', 'Bergen'
+      );
+      INSERT INTO organization_teams (team_id, department_id, name)
+      VALUES ('file-proof-team', 'file-proof-department', 'File Proof Team');
+      INSERT INTO organization_memberships (
+        membership_id, person_id, team_id, start_at
+      ) VALUES
+        ('file-proof-owner-membership', 'file-proof-owner', 'file-proof-team',
+          '2026-01-01T00:00:00.000Z'),
+        ('file-proof-approver-membership', 'file-proof-approver', 'file-proof-team',
+          '2026-01-01T00:00:00.000Z');
+      INSERT INTO economy_payment_authorities (
+        payment_authority_id, person_id, department_id,
+        payment_account_ciphertext, start_at
+      ) VALUES (
+        'file-proof-payment', 'file-proof-owner', 'file-proof-department',
+        'ciphertext:v1:file-proof-account', '2026-01-01T00:00:00.000Z'
+      );
+      INSERT INTO economy_receipt_approval_grants (
+        approval_grant_id, person_id, scope, department_id, start_at
+      ) VALUES (
+        'file-proof-approval', 'file-proof-approver', 'Department',
+        'file-proof-department', '2026-01-01T00:00:00.000Z'
+      );
     `);
     const schemaDefinition = () =>
       sql<SchemaDefinitionRow>`
@@ -277,7 +333,6 @@ export const runReceiptFileProof = (
       {
         _tag: "RevisePendingReceipt",
         commandId: "file-proof-revise",
-        actor: owner,
         receiptId: "file-proof-receipt",
         expectedRevision: 0,
         description: "Receipt file proof replacement",
@@ -285,7 +340,7 @@ export const runReceiptFileProof = (
         receiptDate: "2026-08-20",
         file: replacement,
       },
-      context("file-proof-receipt", "FILE-PROOF-1", "2026-08-20T16:02:00.000Z"),
+      principal(ownerPersonId, "2026-08-20T16:02:00.000Z"),
     );
 
     const staleClaim = yield* claimNextReceiptOutbox(
@@ -331,11 +386,10 @@ export const runReceiptFileProof = (
       {
         _tag: "WithdrawPendingReceipt",
         commandId: "file-proof-withdraw",
-        actor: owner,
         receiptId: "file-proof-receipt",
         expectedRevision: 1,
       },
-      context("file-proof-receipt", "FILE-PROOF-1", "2026-08-20T16:08:00.000Z"),
+      principal(ownerPersonId, "2026-08-20T16:08:00.000Z"),
     );
     const withdrawDelivery = yield* drain(2, "claim-withdraw", "2026-08-20T16:09:00.000Z");
 
@@ -379,11 +433,10 @@ export const runReceiptFileProof = (
             {
               _tag: "RefundReceipt",
               commandId: "file-proof-race-refund",
-              actor: approver,
               receiptId: "file-proof-race-receipt",
               expectedRevision: 0,
             },
-            raceContext,
+            principal(approverPersonId, raceContext.now),
           ),
         ),
         Effect.exit(
@@ -391,11 +444,10 @@ export const runReceiptFileProof = (
             {
               _tag: "RejectReceipt",
               commandId: "file-proof-race-reject",
-              actor: approver,
               receiptId: "file-proof-race-receipt",
               expectedRevision: 0,
             },
-            raceContext,
+            principal(approverPersonId, raceContext.now),
           ),
         ),
       ],
@@ -430,8 +482,20 @@ export const runReceiptFileProof = (
     );
     const identicalCommandResults = yield* Effect.all(
       [
-        Effect.exit(executeReceiptCommand(identicalCommand, identicalContext)),
-        Effect.exit(executeReceiptCommand(identicalCommand, identicalContext)),
+        Effect.exit(
+          executeReceiptCommand(
+            identicalCommand,
+            principal(ownerPersonId, identicalContext.now),
+            allocation(identicalContext),
+          ),
+        ),
+        Effect.exit(
+          executeReceiptCommand(
+            identicalCommand,
+            principal(ownerPersonId, identicalContext.now),
+            allocation(identicalContext),
+          ),
+        ),
       ],
       { concurrency: "unbounded" },
     );
@@ -455,7 +519,8 @@ export const runReceiptFileProof = (
               "Concurrent conflicting submission A",
               conflictFile,
             ),
-            conflictingContext,
+            principal(ownerPersonId, conflictingContext.now),
+            allocation(conflictingContext),
           ),
         ),
         Effect.exit(
@@ -465,7 +530,8 @@ export const runReceiptFileProof = (
               "Concurrent conflicting submission B",
               conflictFile,
             ),
-            conflictingContext,
+            principal(ownerPersonId, conflictingContext.now),
+            allocation(conflictingContext),
           ),
         ),
       ],
