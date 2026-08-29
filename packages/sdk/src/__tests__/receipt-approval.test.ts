@@ -1,7 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  AmbiguousParameterFillError,
   createClient,
+  FailedComposedRequirementError,
   ReceiptRejectionError,
+  ReceiptDecodeSdkError,
   ReceiptScopeDeniedError,
   UnauthorizedError,
 } from "../promise.js";
@@ -123,6 +126,68 @@ describe("canonical Receipt approval capability", () => {
     expect(error).not.toHaveProperty("operation");
     expect(error).not.toHaveProperty("departmentId");
     expect(error).not.toHaveProperty("departmentIds");
+  });
+  it.each([
+    [
+      "AmbiguousParameterFill",
+      "Authorization parameter fill is ambiguous",
+      AmbiguousParameterFillError,
+    ],
+    [
+      "FailedComposedRequirement",
+      "Composed authorization requirement failed",
+      FailedComposedRequirementError,
+    ],
+  ] as const)(
+    "strictly maps canonical composed denial %s on the Promise surface",
+    async (tag, message, ErrorClass) => {
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response(403, { error: { tag, message } })));
+      const error = await createClient("http://api.test", {
+        cookie: "better-auth.session_token=approver-session",
+      })
+        .receipts.listForApproval()
+        .catch((caught: unknown) => caught);
+
+      expect(error).toBeInstanceOf(ErrorClass);
+      expect(error).toMatchObject({
+        type: "receipt_rejection",
+        _tag: tag,
+        receiptTag: tag,
+        status: 403,
+        message,
+      });
+    },
+  );
+
+  it("rejects malformed composed denials on the Promise surface", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        response(403, {
+          error: {
+            tag: "AmbiguousParameterFill",
+            message: "backend-controlled replacement",
+          },
+        }),
+      )
+      .mockResolvedValueOnce(
+        response(403, {
+          error: {
+            tag: "FailedComposedRequirement",
+            message: "Composed authorization requirement failed",
+            personId: "person-sensitive",
+          },
+        }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    const client = createClient("http://api.test", {
+      cookie: "better-auth.session_token=approver-session",
+    });
+
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const error = await client.receipts.listForApproval().catch((caught: unknown) => caught);
+      expect(error).toBeInstanceOf(ReceiptDecodeSdkError);
+    }
   });
 
   it("keeps an unknown tagged 403 response as UnauthorizedError", async () => {

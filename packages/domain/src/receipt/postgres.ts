@@ -35,6 +35,7 @@ import {
   ReceiptDecodeError,
   ReceiptNotFound,
   ReceiptPersistenceError,
+  receiptCompositionFailure,
   ReceiptScopeDenied,
   StaleReceiptRevision,
   type ReceiptApprovalListFailure,
@@ -515,6 +516,12 @@ export const listReceiptsForApproval = (
             Array.from(assignmentById.values()),
           );
           if (decision._tag === "Deny") {
+            const compositionFailure = receiptCompositionFailure(
+              decision.reason,
+              personId,
+              "approveReceipt",
+            );
+            if (compositionFailure !== undefined) return yield* compositionFailure;
             if (decision.reason === "AuthorityInactive") {
               return yield* new InactiveActor({ personId });
             }
@@ -706,6 +713,12 @@ export const executeReceiptCommand = (
               },
             );
             if (composition.decision._tag === "Deny") {
+              const compositionFailure = receiptCompositionFailure(
+                composition.decision.reason,
+                principal.personId,
+                "submitReceipt",
+              );
+              if (compositionFailure !== undefined) return yield* compositionFailure;
               return yield* new ReceiptAuthorityDenied({
                 personId: principal.personId,
                 operation: "Submission",
@@ -789,6 +802,14 @@ export const executeReceiptCommand = (
                 tagAssignments: applicable.tagAssignments,
               },
             );
+            if (composition.decision._tag === "Deny") {
+              const compositionFailure = receiptCompositionFailure(
+                composition.decision.reason,
+                principal.personId,
+                "approveReceipt",
+              );
+              if (compositionFailure !== undefined) return yield* compositionFailure;
+            }
             const composedAuthority = projectReceiptAuthority(
               organization,
               [],

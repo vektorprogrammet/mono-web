@@ -8,7 +8,9 @@ import { DepartmentId, MembershipId, PersonId, TeamId } from "./schema.js";
 
 const NonEmpty = Schema.String.pipe(
   Schema.check(
-    Schema.makeFilter((value) => value.trim().length > 0, { message: "a non-empty string" }),
+    Schema.makeFilter((value) => value.length > 0 && value.trim() === value, {
+      message: "a trimmed non-empty string",
+    }),
   ),
 );
 const Revision = Schema.Int.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(0)));
@@ -41,6 +43,37 @@ export const OrganizationGlobalAdministratorGrantSchema =
   );
 export type OrganizationGlobalAdministratorGrant =
   typeof OrganizationGlobalAdministratorGrantSchema.Type;
+
+export const CreateOrganizationGlobalAdministratorGrantInputSchema = Schema.Struct({
+  grantId: OrganizationGlobalAdministratorGrantId,
+  personId: PersonId,
+  startAt: OrganizationAuthorityInstantSchema,
+  endAt: Schema.NullOr(OrganizationAuthorityInstantSchema),
+}).pipe(
+  Schema.check(
+    Schema.makeFilter(
+      (grant) => grant.endAt === null || compareRfc3339Instants(grant.endAt, grant.startAt) > 0,
+      { message: "a half-open global-administrator grant interval" },
+    ),
+  ),
+);
+export type CreateOrganizationGlobalAdministratorGrantInput =
+  typeof CreateOrganizationGlobalAdministratorGrantInputSchema.Type;
+
+export const EndOrganizationGlobalAdministratorGrantInputSchema = Schema.Struct({
+  grantId: OrganizationGlobalAdministratorGrantId,
+  endAt: OrganizationAuthorityInstantSchema,
+  expectedRevision: Revision,
+});
+export type EndOrganizationGlobalAdministratorGrantInput =
+  typeof EndOrganizationGlobalAdministratorGrantInputSchema.Type;
+
+export const RemoveOrganizationGlobalAdministratorGrantInputSchema = Schema.Struct({
+  grantId: OrganizationGlobalAdministratorGrantId,
+  expectedRevision: Revision,
+});
+export type RemoveOrganizationGlobalAdministratorGrantInput =
+  typeof RemoveOrganizationGlobalAdministratorGrantInputSchema.Type;
 
 export const OrganizationGlobalAdministratorStatusSchema = Schema.Literals([
   "Active",

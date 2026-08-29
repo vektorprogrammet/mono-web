@@ -1,4 +1,5 @@
 import { Schema } from "effect";
+import type { DecisionReason } from "../authz/decision.js";
 import { DepartmentId, PersonId } from "../organization/schema.js";
 import { Rfc3339InstantSchema } from "../time.js";
 
@@ -54,6 +55,50 @@ export class ReceiptPersistenceError extends Schema.TaggedError<ReceiptPersisten
   "ReceiptPersistenceError",
   { operation: Schema.String, message: Schema.String },
 ) {}
+
+const ReceiptComposedCapabilitySchema = Schema.Literals(["submitReceipt", "approveReceipt"]);
+export type ReceiptComposedCapability = typeof ReceiptComposedCapabilitySchema.Type;
+const ReceiptAuthorityRecordKindSchema = Schema.Literals(["PaymentAuthority", "ApprovalGrant"]);
+
+export class ReceiptAuthorityRecordNotFound extends Schema.TaggedError<ReceiptAuthorityRecordNotFound>()(
+  "ReceiptAuthorityRecordNotFound",
+  { entity: ReceiptAuthorityRecordKindSchema, id: Schema.String },
+) {}
+
+export class ReceiptAuthorityWriteConflict extends Schema.TaggedError<ReceiptAuthorityWriteConflict>()(
+  "ReceiptAuthorityWriteConflict",
+  {
+    entity: ReceiptAuthorityRecordKindSchema,
+    id: Schema.String,
+    expectedRevision: Schema.Int,
+  },
+) {}
+
+export class AmbiguousParameterFill extends Schema.TaggedError<AmbiguousParameterFill>()(
+  "AmbiguousParameterFill",
+  { personId: PersonId, capabilityId: ReceiptComposedCapabilitySchema },
+) {}
+
+export class FailedComposedRequirement extends Schema.TaggedError<FailedComposedRequirement>()(
+  "FailedComposedRequirement",
+  { personId: PersonId, capabilityId: ReceiptComposedCapabilitySchema },
+) {}
+
+/**
+ * Stable boundary from the pure composer's bounded denial reasons to Economy
+ * failures. Tests may call this helper with typed stub Decisions; doing so
+ * does not declare parameter or requirement effects in the persisted registry.
+ */
+export const receiptCompositionFailure = (
+  reason: DecisionReason,
+  personId: PersonId,
+  capabilityId: ReceiptComposedCapability,
+): AmbiguousParameterFill | FailedComposedRequirement | undefined =>
+  reason === "Ambiguous"
+    ? new AmbiguousParameterFill({ personId, capabilityId })
+    : reason === "RequirementFailed"
+      ? new FailedComposedRequirement({ personId, capabilityId })
+      : undefined;
 export const ReceiptAuthorityOperationSchema = Schema.Literals([
   "Submission",
   "DepartmentApproval",
@@ -109,6 +154,8 @@ export type ReceiptApprovalListFailure =
   | ReceiptDecodeError
   | InactiveActor
   | ReceiptScopeDenied
+  | AmbiguousParameterFill
+  | FailedComposedRequirement
   | ReceiptPersistenceError;
 
 export type ReceiptFailure =
@@ -124,4 +171,6 @@ export type ReceiptFailure =
   | DuplicateReceiptCommandConflict
   | ReceiptAuthorityDenied
   | AmbiguousPaymentSelection
+  | AmbiguousParameterFill
+  | FailedComposedRequirement
   | ReceiptPersistenceError;

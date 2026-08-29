@@ -364,6 +364,49 @@ describe("Effect v4 Receipt compatibility", () => {
     expect(error).not.toHaveProperty("departmentIds");
   });
 
+  it.each([
+    ["AmbiguousParameterFill", "Authorization parameter fill is ambiguous"],
+    ["FailedComposedRequirement", "Composed authorization requirement failed"],
+  ] as const)(
+    "strictly preserves composed denial %s on the Effect surface",
+    async (tag, message) => {
+      fetchMock.mockResolvedValue(makeResponse(403, { error: { tag, message } }));
+
+      const error = await testRuntime.runPromise(
+        Effect.flip(createEffectClient(FIXTURE_URL).receipts.listForApproval()),
+      );
+      expect(error).toMatchObject({ _tag: tag, status: 403, message });
+    },
+  );
+
+  it("rejects malformed composed denials on the Effect surface", async () => {
+    fetchMock
+      .mockResolvedValueOnce(
+        makeResponse(403, {
+          error: {
+            tag: "AmbiguousParameterFill",
+            message: "backend-controlled replacement",
+          },
+        }),
+      )
+      .mockResolvedValueOnce(
+        makeResponse(403, {
+          error: {
+            tag: "FailedComposedRequirement",
+            message: "Composed authorization requirement failed",
+            requirementId: "sensitive",
+          },
+        }),
+      );
+
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const error = await testRuntime.runPromise(
+        Effect.flip(createEffectClient(FIXTURE_URL).receipts.listForApproval()),
+      );
+      expect(error).toMatchObject({ _tag: "ReceiptDecodeError" });
+    }
+  });
+
   it("keeps an unknown tagged Receipt 403 as Unauthorized on the Effect surface", async () => {
     fetchMock.mockResolvedValue(
       makeResponse(403, {

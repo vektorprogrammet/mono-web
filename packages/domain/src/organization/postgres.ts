@@ -424,6 +424,32 @@ type MembershipRevisionPersistenceError =
   | MembershipInvalidInterval
   | MembershipStaleRevision;
 
+/**
+ * Resolves the canonical person before taking any membership row lock, then
+ * serializes that person's authority changes before locking the row. The
+ * second read rejects a delete/reinsert or out-of-band person reassignment.
+ */
+export const lockOrganizationMembershipForRevision = (
+  sql: DatabaseShape,
+  membershipId: MembershipId,
+): Effect.Effect<
+  Membership,
+  | MembershipNotFound
+  | OrganizationDecodeError
+  | OrganizationPersistenceError
+  | MembershipRevisionConflict
+> =>
+  Effect.gen(function* () {
+    const observed = yield* findMembership(sql, membershipId, false);
+    if (observed === undefined) return yield* new MembershipNotFound({ membershipId });
+    yield* lockPersonAuthorization(sql, observed.personId);
+    const locked = yield* findMembership(sql, membershipId, true);
+    if (locked === undefined || locked.personId !== observed.personId) {
+      return yield* new MembershipRevisionConflict({ membershipId });
+    }
+    return locked;
+  });
+
 const executeMembershipRevision = (
   command: MembershipRevisionCommand,
 ): Effect.Effect<Membership, MembershipRevisionPersistenceError, Database> =>
@@ -432,10 +458,10 @@ const executeMembershipRevision = (
     return yield* database
       .withTransaction(
         Effect.gen(function* () {
-          const current = yield* findMembership(database, command.membershipId, true);
-          if (current === undefined)
-            return yield* new MembershipNotFound({ membershipId: command.membershipId });
-          yield* lockPersonAuthorization(database, current.personId);
+          const current = yield* lockOrganizationMembershipForRevision(
+            database,
+            command.membershipId,
+          );
           const next = yield* applyMembershipRevision(current, command);
           return yield* updateMembership(database, current, next);
         }),

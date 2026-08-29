@@ -22,6 +22,8 @@ import {
   ReceiptScopeDenied,
   ReceiptAuthorityDenied,
   AmbiguousPaymentSelection,
+  AmbiguousParameterFill,
+  FailedComposedRequirement,
   ReceiptDecodeError,
   ReceiptAlreadyExists,
   DuplicateReceiptCommandConflict,
@@ -137,6 +139,20 @@ const resolveCookie = (cookie: CookieOption): Effect.Effect<string, Network> =>
           }),
       });
 
+const AmbiguousParameterFillBodySchema = Schema.Struct({
+  error: Schema.Struct({
+    tag: Schema.Literal("AmbiguousParameterFill"),
+    message: Schema.Literal("Authorization parameter fill is ambiguous"),
+  }),
+});
+
+const FailedComposedRequirementBodySchema = Schema.Struct({
+  error: Schema.Struct({
+    tag: Schema.Literal("FailedComposedRequirement"),
+    message: Schema.Literal("Composed authorization requirement failed"),
+  }),
+});
+
 const receiptFailureFromBody = (status: number, body: unknown): InternalSdkError | undefined => {
   if (typeof body !== "object" || body === null) return undefined;
   const root = body as Record<string, unknown>;
@@ -163,6 +179,28 @@ const receiptFailureFromBody = (status: number, body: unknown): InternalSdkError
       return status === 403 ? new ReceiptAuthorityDenied({ status: 403, message }) : undefined;
     case "AmbiguousPaymentSelection":
       return status === 403 ? new AmbiguousPaymentSelection({ status: 403, message }) : undefined;
+    case "AmbiguousParameterFill": {
+      if (status !== 403) return undefined;
+      try {
+        const decoded = Schema.decodeUnknownSync(AmbiguousParameterFillBodySchema)(body, {
+          onExcessProperty: "error",
+        });
+        return new AmbiguousParameterFill({ status: 403, message: decoded.error.message });
+      } catch {
+        return new ReceiptDecodeError();
+      }
+    }
+    case "FailedComposedRequirement": {
+      if (status !== 403) return undefined;
+      try {
+        const decoded = Schema.decodeUnknownSync(FailedComposedRequirementBodySchema)(body, {
+          onExcessProperty: "error",
+        });
+        return new FailedComposedRequirement({ status: 403, message: decoded.error.message });
+      } catch {
+        return new ReceiptDecodeError();
+      }
+    }
     case "ReceiptDecodeError":
       return new ReceiptDecodeError();
     case "ReceiptAlreadyExists":

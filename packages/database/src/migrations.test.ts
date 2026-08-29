@@ -199,6 +199,34 @@ describe("declarative authorization rule migration in PGlite", () => {
             paymentAccountCiphertext: "ciphertext",
           }),
         );
+        const internalWhitespace = yield* Effect.exit(
+          insertSubmitRule("authz-params-internal-whitespace", {
+            slot: "EconomyPaymentAuthority",
+            paymentAccountCiphertext: "ciphertext\u00a0account",
+          }),
+        );
+        const remainingEcmaScriptTrimWhitespace = [
+          "\u000b",
+          "\u000c",
+          "\u1680",
+          "\u2000",
+          "\u2001",
+          "\u2002",
+          "\u2003",
+          "\u2004",
+          "\u2005",
+          "\u2006",
+          "\u2007",
+          "\u2008",
+          "\u2009",
+          "\u200a",
+          "\u2028",
+          "\u2029",
+          "\u202f",
+          "\u205f",
+          "\u3000",
+          "\ufeff",
+        ] as const;
         const invalidParams: ReadonlyArray<readonly [string, unknown]> = [
           ["missingKey", { slot: "EconomyPaymentAuthority" }],
           ["arbitraryKey", { slot: "EconomyPaymentAuthority", arbitrary: "ciphertext" }],
@@ -223,18 +251,63 @@ describe("declarative authorization rule migration in PGlite", () => {
               paymentAccountCiphertext: " ciphertext ",
             },
           ],
+          [
+            "tabPaddedCiphertext",
+            {
+              slot: "EconomyPaymentAuthority",
+              paymentAccountCiphertext: "ciphertext\t",
+            },
+          ],
+          [
+            "newlinePaddedCiphertext",
+            {
+              slot: "EconomyPaymentAuthority",
+              paymentAccountCiphertext: "\nciphertext",
+            },
+          ],
+          [
+            "carriageReturnPaddedCiphertext",
+            {
+              slot: "EconomyPaymentAuthority",
+              paymentAccountCiphertext: "ciphertext\r",
+            },
+          ],
+          [
+            "nbspPaddedCiphertext",
+            {
+              slot: "EconomyPaymentAuthority",
+              paymentAccountCiphertext: "\u00a0ciphertext",
+            },
+          ],
         ];
         const rejected: Record<string, boolean> = {};
         for (const [name, params] of invalidParams) {
           const outcome = yield* Effect.exit(insertSubmitRule(`authz-params-${name}`, params));
           rejected[name] = outcome._tag === "Failure";
         }
-        return { validAccepted: valid._tag === "Success", rejected };
+        let remainingEcmaScriptBoundariesRejected = true;
+        for (const [index, whitespace] of remainingEcmaScriptTrimWhitespace.entries()) {
+          const outcome = yield* Effect.exit(
+            insertSubmitRule(`authz-params-ecma-boundary-${index}`, {
+              slot: "EconomyPaymentAuthority",
+              paymentAccountCiphertext: `${whitespace}ciphertext`,
+            }),
+          );
+          remainingEcmaScriptBoundariesRejected &&= outcome._tag === "Failure";
+        }
+        return {
+          validAccepted: valid._tag === "Success",
+          internalWhitespaceAccepted: internalWhitespace._tag === "Success",
+          rejected,
+          remainingEcmaScriptBoundariesRejected,
+        };
       }),
     );
 
     expect(evidence).toEqual({
       validAccepted: true,
+      internalWhitespaceAccepted: true,
+      remainingEcmaScriptBoundariesRejected: true,
       rejected: {
         missingKey: true,
         arbitraryKey: true,
@@ -243,6 +316,10 @@ describe("declarative authorization rule migration in PGlite", () => {
         nonStringCiphertext: true,
         emptyCiphertext: true,
         paddedCiphertext: true,
+        tabPaddedCiphertext: true,
+        newlinePaddedCiphertext: true,
+        carriageReturnPaddedCiphertext: true,
+        nbspPaddedCiphertext: true,
       },
     });
   }, 15_000);

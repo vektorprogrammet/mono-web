@@ -65,6 +65,8 @@ export type ReceiptRejectionTag =
   | "ReceiptScopeDenied"
   | "ReceiptAuthorityDenied"
   | "AmbiguousPaymentSelection"
+  | "AmbiguousParameterFill"
+  | "FailedComposedRequirement"
   | "ReceiptDecodeError"
   | "ReceiptAlreadyExists"
   | "DuplicateReceiptCommandConflict"
@@ -251,6 +253,20 @@ export class AmbiguousPaymentSelectionError extends ReceiptRejectionError {
   constructor(message = "AmbiguousPaymentSelection") {
     super("AmbiguousPaymentSelection", message, 403);
     this.name = "AmbiguousPaymentSelectionError";
+  }
+}
+
+export class AmbiguousParameterFillError extends ReceiptRejectionError {
+  constructor() {
+    super("AmbiguousParameterFill", "Authorization parameter fill is ambiguous", 403);
+    this.name = "AmbiguousParameterFillError";
+  }
+}
+
+export class FailedComposedRequirementError extends ReceiptRejectionError {
+  constructor() {
+    super("FailedComposedRequirement", "Composed authorization requirement failed", 403);
+    this.name = "FailedComposedRequirementError";
   }
 }
 
@@ -1019,6 +1035,22 @@ export class AmbiguousPaymentSelection extends Schema.TaggedError<AmbiguousPayme
   },
 ) {}
 
+export class AmbiguousParameterFill extends Schema.TaggedError<AmbiguousParameterFill>()(
+  "AmbiguousParameterFill",
+  {
+    status: Schema.Literal(403),
+    message: Schema.Literal("Authorization parameter fill is ambiguous"),
+  },
+) {}
+
+export class FailedComposedRequirement extends Schema.TaggedError<FailedComposedRequirement>()(
+  "FailedComposedRequirement",
+  {
+    status: Schema.Literal(403),
+    message: Schema.Literal("Composed authorization requirement failed"),
+  },
+) {}
+
 export class ReceiptDecodeError extends Schema.TaggedError<ReceiptDecodeError>()(
   "ReceiptDecodeError",
   {},
@@ -1287,6 +1319,8 @@ export type ReceiptFailure =
   | ReceiptScopeDenied
   | ReceiptAuthorityDenied
   | AmbiguousPaymentSelection
+  | AmbiguousParameterFill
+  | FailedComposedRequirement
   | ReceiptDecodeError
   | ReceiptAlreadyExists
   | DuplicateReceiptCommandConflict
@@ -1508,6 +1542,10 @@ export function toSdkError(error: InternalSdkError): SdkError {
       return new ReceiptAuthorityDeniedError(error.message);
     case "AmbiguousPaymentSelection":
       return new AmbiguousPaymentSelectionError(error.message);
+    case "AmbiguousParameterFill":
+      return new AmbiguousParameterFillError();
+    case "FailedComposedRequirement":
+      return new FailedComposedRequirementError();
     case "ReceiptDecodeError":
       return new ReceiptDecodeSdkError();
     case "ReceiptAlreadyExists":

@@ -87,8 +87,13 @@ export interface ReceiptApiHttpOptions {
 }
 
 interface ErrorBody {
-  readonly error: { readonly tag: string };
+  readonly error: { readonly tag: string; readonly message?: string };
 }
+
+const COMPOSED_DENIAL_MESSAGES = {
+  AmbiguousParameterFill: "Authorization parameter fill is ambiguous",
+  FailedComposedRequirement: "Composed authorization requirement failed",
+} as const;
 
 export interface ReceiptApiHttp {
   readonly fetch: (request: Request) => Promise<Response>;
@@ -115,7 +120,9 @@ const errorResponse = (cause: unknown, fallback = "ReceiptPersistenceError"): Re
           tag === "ReceiptOwnerDenied" ||
           tag === "ReceiptScopeDenied" ||
           tag === "ReceiptAuthorityDenied" ||
-          tag === "AmbiguousPaymentSelection"
+          tag === "AmbiguousPaymentSelection" ||
+          tag === "AmbiguousParameterFill" ||
+          tag === "FailedComposedRequirement"
         ? 403
         : tag === "ReceiptNotFound"
           ? 404
@@ -127,7 +134,13 @@ const errorResponse = (cause: unknown, fallback = "ReceiptPersistenceError"): Re
                 tag === "InvalidReceiptTransition"
               ? 409
               : 503;
-  const body: ErrorBody = { error: { tag } };
+  const message =
+    tag === "AmbiguousParameterFill" || tag === "FailedComposedRequirement"
+      ? COMPOSED_DENIAL_MESSAGES[tag]
+      : undefined;
+  const body: ErrorBody = {
+    error: message === undefined ? { tag } : { tag, message },
+  };
   return jsonResponse(body, status);
 };
 

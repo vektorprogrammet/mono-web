@@ -2765,6 +2765,132 @@ describe("DatabaseTest", () => {
     expect(replay.replayed).toBe(true);
   });
 
+  it("does not let a rule-only submit choose an omitted canonical department", async () => {
+    const rulePersonId = PersonId.make("rule-scope-submit-person");
+    const ruleDepartmentId = DepartmentId.make("rule-scope-submit-department");
+    const principal = {
+      personId: rulePersonId,
+      authorizationInstant: "2032-06-01T12:00:00.000Z",
+    };
+    await runtime.runPromise(
+      Database.use((database) =>
+        Effect.gen(function* () {
+          yield* database`
+            INSERT INTO public.person_profiles (person_id, first_name, last_name)
+            VALUES (${rulePersonId}, 'Rule', 'Scope')
+            ON CONFLICT (person_id) DO NOTHING
+          `;
+          yield* database`
+            INSERT INTO public.organization_departments (
+              department_id, name, short_name, email, city
+            ) VALUES (
+              ${ruleDepartmentId}, 'Rule Scope Department', 'RSD',
+              'rule-scope@example.invalid', 'Oslo'
+            ) ON CONFLICT (department_id) DO NOTHING
+          `;
+          yield* database`
+            INSERT INTO public.organization_teams (team_id, department_id, name)
+            VALUES ('rule-scope-submit-team', ${ruleDepartmentId}, 'Rule Scope Team')
+            ON CONFLICT (team_id) DO NOTHING
+          `;
+          yield* database`
+            INSERT INTO public.organization_memberships (
+              membership_id, person_id, team_id, start_at
+            ) VALUES (
+              'rule-scope-submit-membership',
+              ${rulePersonId},
+              'rule-scope-submit-team',
+              '2032-01-01T00:00:00.000Z'
+            ) ON CONFLICT (membership_id) DO NOTHING
+          `;
+          yield* database`
+            INSERT INTO public.authz_rules (
+              rule_id,
+              capability_id,
+              effect_kind,
+              subject_kind,
+              subject_person_id,
+              subject_tag_id,
+              scope,
+              department_id,
+              params,
+              start_at,
+              end_at,
+              revision
+            ) VALUES (
+              'rule-scope-submit-payment',
+              'submitReceipt',
+              'delegate',
+              'Person',
+              ${rulePersonId},
+              NULL,
+              'Receipt',
+              NULL,
+              ${database.json({
+                slot: "EconomyPaymentAuthority",
+                paymentAccountCiphertext: "ciphertext:rule-scope-submit",
+              })},
+              '2032-01-01T00:00:00.000Z',
+              NULL,
+              0
+            )
+            ON CONFLICT (rule_id) DO NOTHING
+          `;
+        }),
+      ),
+    );
+
+    const submission = {
+      _tag: "SubmitReceipt" as const,
+      description: "Rule scope must remain explicit",
+      amountOre: 5_000,
+      receiptDate: "2032-06-01",
+      file: {
+        fileRef: "rule-scope-submit-file",
+        objectKey: "temporary/rule-scope-submit-file",
+        contentType: "application/pdf" as const,
+        byteLength: 128,
+        sha256: "e".repeat(64),
+      },
+    };
+    const omitted = await runtime.runPromise(
+      Effect.flip(
+        Economy.use(({ executeReceipt }) =>
+          executeReceipt({ ...submission, commandId: "rule-scope-submit-omitted" }, principal, {
+            receiptId: ReceiptId.make("rule-scope-submit-omitted-receipt"),
+            visualId: ReceiptVisualId.make("RULE-SCOPE-OMITTED"),
+          }),
+        ),
+      ),
+    );
+    expect(omitted).toMatchObject({
+      _tag: "ReceiptAuthorityDenied",
+      operation: "Submission",
+      departmentId: null,
+    });
+
+    const explicit = await runtime.runPromise(
+      Economy.use(({ executeReceipt }) =>
+        executeReceipt(
+          {
+            ...submission,
+            commandId: "rule-scope-submit-explicit",
+            departmentId: ruleDepartmentId,
+          },
+          principal,
+          {
+            receiptId: ReceiptId.make("rule-scope-submit-explicit-receipt"),
+            visualId: ReceiptVisualId.make("RULE-SCOPE-EXPLICIT"),
+          },
+        ),
+      ),
+    );
+    expect(explicit.observation).toMatchObject({
+      receiptId: "rule-scope-submit-explicit-receipt",
+      status: "Pending",
+    });
+  });
+
   it("keeps missing Receipt targets opaque except to active global approvers", async () => {
     const failures = await runtime.runPromise(
       Effect.gen(function* () {

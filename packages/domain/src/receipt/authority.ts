@@ -11,7 +11,9 @@ import { ReceiptActorSchema, type ReceiptActor } from "./schema.js";
 
 const NonEmpty = Schema.String.pipe(
   Schema.check(
-    Schema.makeFilter((value) => value.trim().length > 0, { message: "a non-empty string" }),
+    Schema.makeFilter((value) => value.length > 0 && value.trim() === value, {
+      message: "a trimmed non-empty string",
+    }),
   ),
 );
 const Revision = Schema.Int.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(0)));
@@ -65,6 +67,53 @@ export const ReceiptApprovalGrantSchema = Schema.Struct(ReceiptApprovalGrantFiel
   Schema.check(orderedAuthorityInterval),
 );
 export type ReceiptApprovalGrant = typeof ReceiptApprovalGrantSchema.Type;
+
+export const CreateReceiptPaymentAuthorityInputSchema = Schema.Struct({
+  paymentAuthorityId: ReceiptPaymentAuthorityId,
+  personId: PersonId,
+  departmentId: DepartmentId,
+  paymentAccountCiphertext: NonEmpty,
+  startAt: ReceiptAuthorityInstantSchema,
+  endAt: Schema.NullOr(ReceiptAuthorityInstantSchema),
+}).pipe(Schema.check(orderedAuthorityInterval));
+export type CreateReceiptPaymentAuthorityInput =
+  typeof CreateReceiptPaymentAuthorityInputSchema.Type;
+
+export const EndReceiptPaymentAuthorityInputSchema = Schema.Struct({
+  paymentAuthorityId: ReceiptPaymentAuthorityId,
+  endAt: ReceiptAuthorityInstantSchema,
+  expectedRevision: Revision,
+});
+export type EndReceiptPaymentAuthorityInput = typeof EndReceiptPaymentAuthorityInputSchema.Type;
+
+export const RemoveReceiptPaymentAuthorityInputSchema = Schema.Struct({
+  paymentAuthorityId: ReceiptPaymentAuthorityId,
+  expectedRevision: Revision,
+});
+export type RemoveReceiptPaymentAuthorityInput =
+  typeof RemoveReceiptPaymentAuthorityInputSchema.Type;
+
+export const CreateReceiptApprovalGrantInputSchema = Schema.Struct({
+  approvalGrantId: ReceiptApprovalGrantId,
+  personId: PersonId,
+  scope: ReceiptApprovalGrantScopeSchema,
+  startAt: ReceiptAuthorityInstantSchema,
+  endAt: Schema.NullOr(ReceiptAuthorityInstantSchema),
+}).pipe(Schema.check(orderedAuthorityInterval));
+export type CreateReceiptApprovalGrantInput = typeof CreateReceiptApprovalGrantInputSchema.Type;
+
+export const EndReceiptApprovalGrantInputSchema = Schema.Struct({
+  approvalGrantId: ReceiptApprovalGrantId,
+  endAt: ReceiptAuthorityInstantSchema,
+  expectedRevision: Revision,
+});
+export type EndReceiptApprovalGrantInput = typeof EndReceiptApprovalGrantInputSchema.Type;
+
+export const RemoveReceiptApprovalGrantInputSchema = Schema.Struct({
+  approvalGrantId: ReceiptApprovalGrantId,
+  expectedRevision: Revision,
+});
+export type RemoveReceiptApprovalGrantInput = typeof RemoveReceiptApprovalGrantInputSchema.Type;
 
 export const ResolvedReceiptPaymentAuthoritySchema = Schema.Struct({
   ...ReceiptPaymentAuthorityFields,

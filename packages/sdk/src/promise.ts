@@ -48,6 +48,8 @@ export {
   NotInScopeError,
   ReceiptOwnerDeniedError,
   ReceiptScopeDeniedError,
+  AmbiguousParameterFillError,
+  FailedComposedRequirementError,
   ReceiptDecodeSdkError,
   ReceiptAlreadyExistsError,
   DuplicateReceiptCommandConflictError,

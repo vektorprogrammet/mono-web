@@ -14,6 +14,7 @@ import {
   ReceiptApprovalGrantId,
   type ReceiptApprovalGrant,
 } from "./authority.js";
+import { receiptCompositionFailure } from "./errors.js";
 
 const authorizationInstant = "2037-06-15T12:00:00.000Z";
 const activeStart = "2037-01-01T00:00:00.000Z";
@@ -248,5 +249,21 @@ describe("rule-aware Receipt approval visibility", () => {
       _tag: "Allow",
       value: { _tag: "Departments", departmentIds: [departmentA] },
     });
+  });
+
+  it("maps bounded composer denials to stable Receipt failures without persisted effects", () => {
+    expect(receiptCompositionFailure("Ambiguous", personId, "submitReceipt")).toMatchObject({
+      _tag: "AmbiguousParameterFill",
+      personId,
+      capabilityId: "submitReceipt",
+    });
+    expect(
+      receiptCompositionFailure("RequirementFailed", personId, "approveReceipt"),
+    ).toMatchObject({
+      _tag: "FailedComposedRequirement",
+      personId,
+      capabilityId: "approveReceipt",
+    });
+    expect(receiptCompositionFailure("NotInScope", personId, "submitReceipt")).toBeUndefined();
   });
 });

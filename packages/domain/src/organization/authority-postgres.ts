@@ -1,13 +1,23 @@
 import { Effect, Schema } from "effect";
 import { Database, type DatabaseShape } from "../database/service.js";
 import {
+  CreateOrganizationGlobalAdministratorGrantInputSchema,
+  EndOrganizationGlobalAdministratorGrantInputSchema,
   OrganizationAuthorityInstantSchema,
+  OrganizationGlobalAdministratorGrantSchema,
   OrganizationGlobalAdministratorStatusSchema,
+  RemoveOrganizationGlobalAdministratorGrantInputSchema,
   type OrganizationAuthorityInstant,
   type OrganizationAuthorityMembership,
+  type OrganizationGlobalAdministratorGrant,
   type OrganizationPersonAuthority,
 } from "./authority.js";
-import { OrganizationDecodeError, OrganizationPersistenceError } from "./errors.js";
+import {
+  OrganizationAuthorityRecordNotFound,
+  OrganizationAuthorityWriteConflict,
+  OrganizationDecodeError,
+  OrganizationPersistenceError,
+} from "./errors.js";
 import { DepartmentId, MembershipId, PersonId, TeamId } from "./schema.js";
 
 const OrganizationAuthorityProjectionRowSchema = Schema.Struct({
@@ -85,6 +95,259 @@ export const lockPersonAuthorization = (
       ),
     ),
   );
+
+const OrganizationAuthorityPersonRowSchema = Schema.Struct({ personId: PersonId });
+type OrganizationAuthorityPersonRow = typeof OrganizationAuthorityPersonRowSchema.Type;
+
+export type OrganizationAuthorityWriteFailure =
+  | OrganizationDecodeError
+  | OrganizationPersistenceError
+  | OrganizationAuthorityRecordNotFound
+  | OrganizationAuthorityWriteConflict;
+
+/**
+ * Locks one existing grant in the global person-before-authority-row order.
+ * The unlocked person lookup is repeated under the advisory and row locks so
+ * a delete/reinsert cannot move the authority to another person.
+ */
+export const lockOrganizationGlobalAdministratorGrantForWrite = (
+  sql: DatabaseShape,
+  grantId: OrganizationGlobalAdministratorGrant["grantId"],
+  expectedRevision: number,
+): Effect.Effect<OrganizationGlobalAdministratorGrant, OrganizationAuthorityWriteFailure> =>
+  Effect.gen(function* () {
+    const observedRows = yield* sql<OrganizationAuthorityPersonRow>`
+      SELECT person_id AS "personId"
+      FROM public.organization_global_administrator_grants
+      WHERE grant_id = ${grantId}
+    `;
+    const observed = yield* Schema.decodeUnknownEffect(
+      Schema.Array(OrganizationAuthorityPersonRowSchema),
+    )(observedRows, { onExcessProperty: "error" }).pipe(
+      Effect.mapError((cause) =>
+        decodeError("decode Organization global-administrator grant person", cause),
+      ),
+    );
+    const observedPerson = observed[0]?.personId;
+    if (observedPerson === undefined) {
+      return yield* new OrganizationAuthorityRecordNotFound({ grantId });
+    }
+
+    yield* lockPersonAuthorization(sql, observedPerson);
+    const lockedRows = yield* sql<OrganizationGlobalAdministratorGrant>`
+      SELECT
+        grant_id AS "grantId",
+        person_id AS "personId",
+        to_char(start_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "startAt",
+        CASE
+          WHEN end_at IS NULL THEN NULL
+          ELSE to_char(end_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+        END AS "endAt",
+        revision
+      FROM public.organization_global_administrator_grants
+      WHERE grant_id = ${grantId}
+      FOR UPDATE
+    `;
+    const locked = yield* Schema.decodeUnknownEffect(
+      Schema.Array(OrganizationGlobalAdministratorGrantSchema),
+    )(lockedRows, { onExcessProperty: "error" }).pipe(
+      Effect.mapError((cause) =>
+        decodeError("decode locked Organization global-administrator grant", cause),
+      ),
+    );
+    const grant = locked[0];
+    if (
+      grant === undefined ||
+      grant.personId !== observedPerson ||
+      grant.revision !== expectedRevision
+    ) {
+      return yield* new OrganizationAuthorityWriteConflict({ grantId, expectedRevision });
+    }
+    return grant;
+  }).pipe(
+    Effect.catchTag("SqlError", (cause) =>
+      Effect.fail(
+        new OrganizationPersistenceError({
+          operation: "lock Organization global-administrator grant",
+          message: String(cause),
+        }),
+      ),
+    ),
+  );
+
+export const createOrganizationGlobalAdministratorGrant = (
+  input: unknown,
+): Effect.Effect<
+  OrganizationGlobalAdministratorGrant,
+  OrganizationDecodeError | OrganizationPersistenceError,
+  Database
+> =>
+  Effect.gen(function* () {
+    const grant = yield* Schema.decodeUnknownEffect(
+      CreateOrganizationGlobalAdministratorGrantInputSchema,
+    )(input, { onExcessProperty: "error" }).pipe(
+      Effect.mapError((cause) =>
+        decodeError("decode Organization global-administrator grant creation", cause),
+      ),
+    );
+    const sql = yield* Database;
+    return yield* sql
+      .withTransaction(
+        Effect.gen(function* () {
+          yield* lockPersonAuthorization(sql, grant.personId);
+          yield* sql`
+            INSERT INTO public.organization_global_administrator_grants (
+              grant_id,
+              person_id,
+              start_at,
+              end_at,
+              revision
+            ) VALUES (
+              ${grant.grantId},
+              ${grant.personId},
+              ${grant.startAt},
+              ${grant.endAt},
+              0
+            )
+          `;
+          return yield* Schema.decodeUnknownEffect(OrganizationGlobalAdministratorGrantSchema)(
+            { ...grant, revision: 0 },
+            { onExcessProperty: "error" },
+          ).pipe(
+            Effect.mapError((cause) =>
+              decodeError("decode created Organization global-administrator grant", cause),
+            ),
+          );
+        }),
+      )
+      .pipe(
+        Effect.catchTag("SqlError", (cause) =>
+          Effect.fail(
+            new OrganizationPersistenceError({
+              operation: "create Organization global-administrator grant",
+              message: String(cause),
+            }),
+          ),
+        ),
+      );
+  });
+
+export const endOrganizationGlobalAdministratorGrant = (
+  input: unknown,
+): Effect.Effect<
+  OrganizationGlobalAdministratorGrant,
+  OrganizationAuthorityWriteFailure,
+  Database
+> =>
+  Effect.gen(function* () {
+    const command = yield* Schema.decodeUnknownEffect(
+      EndOrganizationGlobalAdministratorGrantInputSchema,
+    )(input, { onExcessProperty: "error" }).pipe(
+      Effect.mapError((cause) =>
+        decodeError("decode Organization global-administrator grant ending", cause),
+      ),
+    );
+    const sql = yield* Database;
+    return yield* sql
+      .withTransaction(
+        Effect.gen(function* () {
+          const current = yield* lockOrganizationGlobalAdministratorGrantForWrite(
+            sql,
+            command.grantId,
+            command.expectedRevision,
+          );
+          const ended = yield* Schema.decodeUnknownEffect(
+            OrganizationGlobalAdministratorGrantSchema,
+          )(
+            {
+              ...current,
+              endAt: command.endAt,
+              revision: current.revision + 1,
+            },
+            { onExcessProperty: "error" },
+          ).pipe(
+            Effect.mapError((cause) =>
+              decodeError("decode ended Organization global-administrator grant", cause),
+            ),
+          );
+          const updated = yield* sql<{ readonly grantId: string }>`
+            UPDATE public.organization_global_administrator_grants
+            SET end_at = ${ended.endAt}, revision = revision + 1
+            WHERE grant_id = ${command.grantId}
+              AND revision = ${command.expectedRevision}
+            RETURNING grant_id AS "grantId"
+          `;
+          if (updated.length !== 1) {
+            return yield* new OrganizationAuthorityWriteConflict({
+              grantId: command.grantId,
+              expectedRevision: command.expectedRevision,
+            });
+          }
+          return ended;
+        }),
+      )
+      .pipe(
+        Effect.catchTag("SqlError", (cause) =>
+          Effect.fail(
+            new OrganizationPersistenceError({
+              operation: "end Organization global-administrator grant",
+              message: String(cause),
+            }),
+          ),
+        ),
+      );
+  });
+
+export const removeOrganizationGlobalAdministratorGrant = (
+  input: unknown,
+): Effect.Effect<
+  OrganizationGlobalAdministratorGrant,
+  OrganizationAuthorityWriteFailure,
+  Database
+> =>
+  Effect.gen(function* () {
+    const command = yield* Schema.decodeUnknownEffect(
+      RemoveOrganizationGlobalAdministratorGrantInputSchema,
+    )(input, { onExcessProperty: "error" }).pipe(
+      Effect.mapError((cause) =>
+        decodeError("decode Organization global-administrator grant removal", cause),
+      ),
+    );
+    const sql = yield* Database;
+    return yield* sql
+      .withTransaction(
+        Effect.gen(function* () {
+          const current = yield* lockOrganizationGlobalAdministratorGrantForWrite(
+            sql,
+            command.grantId,
+            command.expectedRevision,
+          );
+          const removed = yield* sql<{ readonly grantId: string }>`
+            DELETE FROM public.organization_global_administrator_grants
+            WHERE grant_id = ${command.grantId}
+              AND revision = ${command.expectedRevision}
+            RETURNING grant_id AS "grantId"
+          `;
+          if (removed.length !== 1) {
+            return yield* new OrganizationAuthorityWriteConflict({
+              grantId: command.grantId,
+              expectedRevision: command.expectedRevision,
+            });
+          }
+          return current;
+        }),
+      )
+      .pipe(
+        Effect.catchTag("SqlError", (cause) =>
+          Effect.fail(
+            new OrganizationPersistenceError({
+              operation: "remove Organization global-administrator grant",
+              message: String(cause),
+            }),
+          ),
+        ),
+      );
+  });
 
 /**
  * Caller-transaction Organization projection. `ForShare` is command-safe only

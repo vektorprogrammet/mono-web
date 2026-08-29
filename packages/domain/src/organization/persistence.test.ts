@@ -128,7 +128,10 @@ it.effect("serializes every membership revision through the canonical person pro
       ): Effect.Effect<ReadonlyArray<unknown>> => {
         const statement = strings.join("?");
         if (statement.includes("FROM organization_memberships")) {
-          events.push({ kind: "MembershipRowLock", value: command.membershipId });
+          events.push({
+            kind: statement.includes("FOR UPDATE") ? "MembershipRowLock" : "MembershipPersonRead",
+            value: command.membershipId,
+          });
           return Effect.succeed([current]);
         }
         if (statement.includes("pg_advisory_xact_lock")) {
@@ -164,13 +167,64 @@ it.effect("serializes every membership revision through the canonical person pro
       }
 
       expect(events).toEqual([
-        { kind: "MembershipRowLock", value: command.membershipId },
+        { kind: "MembershipPersonRead", value: command.membershipId },
         {
           kind: "PersonAuthorizationLock",
           value: `vektorprogrammet:person-authorization:v1:${canonicalPersonId}`,
         },
+        { kind: "MembershipRowLock", value: command.membershipId },
         { kind: "MembershipUpdate", value: command.membershipId },
       ]);
     }
   }),
 );
+
+it.effect("rejects a membership whose canonical person changes before the row lock", () => {
+  const membershipId = MembershipId.make("membership-person-race");
+  const observed = {
+    membershipId,
+    personId: PersonId.make("membership-person-before"),
+    teamId: "membership-team",
+    deletedTeamName: null,
+    startAt: "2036-01-01T00:00:00.000Z",
+    endAt: null,
+    positionId: null,
+    isTeamLeader: false,
+    isSuspended: false,
+    revision: 0,
+  };
+  let membershipReads = 0;
+  let updateAttempted = false;
+  const sql = ((strings: TemplateStringsArray): Effect.Effect<ReadonlyArray<unknown>> => {
+    const statement = strings.join("?");
+    if (statement.includes("FROM organization_memberships")) {
+      membershipReads += 1;
+      return Effect.succeed([
+        membershipReads === 1
+          ? observed
+          : { ...observed, personId: PersonId.make("membership-person-after") },
+      ]);
+    }
+    if (statement.includes("pg_advisory_xact_lock")) return Effect.succeed([]);
+    if (statement.includes("UPDATE organization_memberships")) {
+      updateAttempted = true;
+      return Effect.succeed([]);
+    }
+    return Effect.die(`Unexpected organization persistence statement: ${statement}`);
+  }) as unknown as DatabaseShape;
+  const database = Object.assign(sql, {
+    withTransaction: <A, E, R>(program: Effect.Effect<A, E, R>) => program,
+  });
+
+  return Effect.gen(function* () {
+    const failure = yield* Effect.flip(
+      suspendOrganizationMembership({
+        _tag: "SuspendMembership",
+        membershipId,
+        expectedRevision: 0,
+      }).pipe(Effect.provideService(Database, database)),
+    );
+    expect(failure).toMatchObject({ _tag: "MembershipRevisionConflict", membershipId });
+    expect(updateAttempted).toBe(false);
+  });
+});

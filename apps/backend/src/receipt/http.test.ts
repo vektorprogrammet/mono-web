@@ -1,9 +1,11 @@
 import { Database, type DatabaseShape } from "@vektorprogrammet/domain/database";
 import { DepartmentId, PersonId } from "@vektorprogrammet/domain/organization";
 import {
+  AmbiguousParameterFill,
   Economy,
   InactiveActor,
   ReceiptFileService,
+  FailedComposedRequirement,
   ReceiptObservationSchema,
   ReceiptNotFound,
   ReceiptScopeDenied,
@@ -70,8 +72,16 @@ interface HarnessOptions {
   readonly unauthenticated?: boolean;
   readonly ownedRows?: ReadonlyArray<unknown>;
   readonly approvalRows?: ReadonlyArray<unknown>;
-  readonly approvalFailure?: InactiveActor | ReceiptScopeDenied;
-  readonly commandFailure?: ReceiptScopeDenied | ReceiptNotFound;
+  readonly approvalFailure?:
+    | InactiveActor
+    | ReceiptScopeDenied
+    | AmbiguousParameterFill
+    | FailedComposedRequirement;
+  readonly commandFailure?:
+    | ReceiptScopeDenied
+    | ReceiptNotFound
+    | AmbiguousParameterFill
+    | FailedComposedRequirement;
 }
 
 const harness = (options: HarnessOptions = {}) => {
@@ -337,6 +347,45 @@ describe("receipt HTTP identity and authority resolution (spec 0055/0056)", () =
       authorizationPrincipalCalls: 1,
       personCalls: 0,
     });
+  });
+
+  it("preserves composed denial tags and messages for command and list boundaries", async () => {
+    const denials = [
+      {
+        failure: new AmbiguousParameterFill({ personId, capabilityId: "submitReceipt" }),
+        tag: "AmbiguousParameterFill",
+        message: "Authorization parameter fill is ambiguous",
+      },
+      {
+        failure: new FailedComposedRequirement({ personId, capabilityId: "approveReceipt" }),
+        tag: "FailedComposedRequirement",
+        message: "Composed authorization requirement failed",
+      },
+    ] as const;
+
+    for (const denial of denials) {
+      const command = harness({ commandFailure: denial.failure });
+      const commandResponse = await request(
+        command.http,
+        "/api/admin/receipts/receipt-one/reject",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ commandId: "command-one", expectedRevision: 0 }),
+        },
+      );
+      expect({ status: commandResponse.status, body: await commandResponse.json() }).toEqual({
+        status: 403,
+        body: { error: { tag: denial.tag, message: denial.message } },
+      });
+
+      const list = harness({ approvalFailure: denial.failure });
+      const listResponse = await request(list.http, "/api/admin/receipts");
+      expect({ status: listResponse.status, body: await listResponse.json() }).toEqual({
+        status: 403,
+        body: { error: { tag: denial.tag, message: denial.message } },
+      });
+    }
   });
 
   it("preserves stable approval-list session and domain denial responses", async () => {

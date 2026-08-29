@@ -320,6 +320,32 @@ describe("authorization composition helpers", () => {
       failed: [{ requirementId: "First", satisfied: false, sourceId: "rule-z" }],
     });
   });
+
+  it("preserves Ambiguous and RequirementFailed on the composed Decision", () => {
+    const ambiguous = composeCapabilityEvidence("submitReceipt", {}, [], {
+      ...applicabilityFacts(),
+      parameterFills: [
+        { slot: "paymentSelection", value: department, sourceId: "typed-stub-a" },
+        { slot: "paymentSelection", value: otherDepartment, sourceId: "typed-stub-b" },
+      ],
+    });
+    expect(ambiguous.decision).toEqual({ _tag: "Deny", reason: "Ambiguous" });
+
+    const failedRequirement = composeCapabilityEvidence("approveReceipt", {}, [], {
+      ...applicabilityFacts(),
+      requirements: [
+        {
+          requirementId: "OperatorConfirmation",
+          satisfied: false,
+          sourceId: "typed-stub-requirement",
+        },
+      ],
+    });
+    expect(failedRequirement.decision).toEqual({
+      _tag: "Deny",
+      reason: "RequirementFailed",
+    });
+  });
 });
 
 describe("authorization rule decoding", () => {

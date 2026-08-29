@@ -1,6 +1,6 @@
 import type { OrganizationPersonAuthority } from "../organization/authority.js";
 import type { DepartmentId } from "../organization/schema.js";
-import { allow, deny, type Decision } from "../authz/decision.js";
+import { allow, deny, type Decision, type DecisionReason } from "../authz/decision.js";
 import { composeCapabilityEvidence } from "../authz/rules.js";
 import type { AuthzRule, AuthzTagAssignment } from "../authz/schema.js";
 import {
@@ -52,6 +52,8 @@ export const resolveReceiptApprovalVisibility = (
       tagAssignments,
     },
   );
+  let composedDenialReason: DecisionReason | undefined =
+    globalComposition.decision._tag === "Deny" ? globalComposition.decision.reason : undefined;
   let inactiveGrantSeen = directAuthority.approvalGrants.length > 0;
   if (globalComposition.decision._tag === "Allow") {
     const globalAuthority = projectReceiptAuthority(
@@ -91,7 +93,10 @@ export const resolveReceiptApprovalVisibility = (
       requestScope: { domain: "Receipt", departmentId },
       tagAssignments,
     });
-    if (composition.decision._tag === "Deny") continue;
+    if (composition.decision._tag === "Deny") {
+      composedDenialReason ??= composition.decision.reason;
+      continue;
+    }
     const authority = projectReceiptAuthority(
       organization,
       [],
@@ -110,5 +115,7 @@ export const resolveReceiptApprovalVisibility = (
         _tag: "Departments",
         departmentIds: visibleDepartmentIds,
       })
-    : deny(inactiveGrantSeen ? "AuthorityInactive" : "NotInScope");
+    : composedDenialReason === undefined
+      ? deny(inactiveGrantSeen ? "AuthorityInactive" : "NotInScope")
+      : deny(composedDenialReason);
 };

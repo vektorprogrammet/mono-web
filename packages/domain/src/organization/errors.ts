@@ -14,6 +14,16 @@ export class OrganizationPersistenceError extends Schema.TaggedError<Organizatio
   { operation: NonEmpty, message: NonEmpty },
 ) {}
 
+export class OrganizationAuthorityRecordNotFound extends Schema.TaggedError<OrganizationAuthorityRecordNotFound>()(
+  "OrganizationAuthorityRecordNotFound",
+  { grantId: NonEmpty },
+) {}
+
+export class OrganizationAuthorityWriteConflict extends Schema.TaggedError<OrganizationAuthorityWriteConflict>()(
+  "OrganizationAuthorityWriteConflict",
+  { grantId: NonEmpty, expectedRevision: Schema.Int },
+) {}
+
 export class OrganizationRoleDenied extends Schema.TaggedError<OrganizationRoleDenied>()(
   "OrganizationRoleDenied",
   {
@@ -78,6 +88,8 @@ export class OrganizationImportError extends Schema.TaggedError<OrganizationImpo
 export type OrganizationFailure =
   | OrganizationDecodeError
   | OrganizationPersistenceError
+  | OrganizationAuthorityRecordNotFound
+  | OrganizationAuthorityWriteConflict
   | DepartmentNotFound
   | OrganizationRoleDenied
   | OrganizationInvalidReference
