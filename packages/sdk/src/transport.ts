@@ -20,6 +20,8 @@ import {
   NotInScope,
   ReceiptOwnerDenied,
   ReceiptScopeDenied,
+  ReceiptAuthorityDenied,
+  AmbiguousPaymentSelection,
   ReceiptDecodeError,
   ReceiptAlreadyExists,
   DuplicateReceiptCommandConflict,
@@ -135,7 +137,10 @@ const resolveCookie = (cookie: CookieOption): Effect.Effect<string, Network> =>
           }),
       });
 
-const receiptFailureFromBody = (body: unknown): InternalSdkError | undefined => {
+const receiptFailureFromBody = (
+  status: number,
+  body: unknown,
+): InternalSdkError | undefined => {
   if (typeof body !== "object" || body === null) return undefined;
   const root = body as Record<string, unknown>;
   const error =
@@ -144,6 +149,7 @@ const receiptFailureFromBody = (body: unknown): InternalSdkError | undefined => 
       : root;
   const tag = error.tag ?? error._tag;
   if (typeof tag !== "string") return undefined;
+  const message = typeof error.message === "string" ? error.message : tag;
 
   switch (tag) {
     case "UnauthenticatedActor":
@@ -156,6 +162,14 @@ const receiptFailureFromBody = (body: unknown): InternalSdkError | undefined => 
       return new ReceiptOwnerDenied();
     case "ReceiptScopeDenied":
       return new ReceiptScopeDenied();
+    case "ReceiptAuthorityDenied":
+      return status === 403
+        ? new ReceiptAuthorityDenied({ status: 403, message })
+        : undefined;
+    case "AmbiguousPaymentSelection":
+      return status === 403
+        ? new AmbiguousPaymentSelection({ status: 403, message })
+        : undefined;
     case "ReceiptDecodeError":
       return new ReceiptDecodeError();
     case "ReceiptAlreadyExists":
@@ -510,8 +524,8 @@ const contentFailureFromBody = (body: unknown, strict: boolean): InternalSdkErro
 /**
  * Maps HTTP status codes to InternalSdkError.
  *
- * Native errors carry only a typed tag in the response body. The transport
- * preserves that tag and intentionally ignores any untrusted text.
+ * Native errors carry a stable typed tag in the response body. Receipt authority
+ * denials also preserve the bounded status and message while ignoring authority facts.
  */
 const mapStatusToError = (
   status: number,
@@ -531,7 +545,7 @@ const mapStatusToError = (
               ? publicApplicationFailureFromBody(body)
               : options?.errorFamily === "recruitment"
                 ? recruitmentFailureFromBody(body, options.strict === true)
-                : receiptFailureFromBody(body);
+                : receiptFailureFromBody(status, body);
   if (typedError !== undefined) return typedError;
   if (status === 401 || status === 403) return new Unauthorized({ message: `HTTP ${status}` });
   if (status === 404) return new NotFound({ message: "Not found" });

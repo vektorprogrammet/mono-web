@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createClient, ReceiptScopeDeniedError, UnauthorizedError } from "../promise.js";
+import {
+  createClient,
+  ReceiptRejectionError,
+  ReceiptScopeDeniedError,
+  UnauthorizedError,
+} from "../promise.js";
 
 const observation = {
   commandId: "command-refund",
@@ -80,8 +85,55 @@ describe("canonical Receipt approval capability", () => {
     });
   });
 
-  it("keeps untagged 403 responses as UnauthorizedError", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(response(403, {}));
+  it.each([
+    ["ReceiptAuthorityDenied", "Receipt command is not permitted"],
+    ["AmbiguousPaymentSelection", "Payment authority selection is ambiguous"],
+  ] as const)("maps canonical 403 %s without exposing authority facts", async (tag, message) => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      response(403, {
+        error: {
+          tag,
+          message,
+          personId: "person-sensitive",
+          operation: "GlobalApproval",
+          departmentId: "department-sensitive",
+          departmentIds: ["department-sensitive"],
+        },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const client = createClient("http://api.test", {
+      cookie: "better-auth.session_token=approver-session",
+    });
+
+    const error = await client.receipts
+      .listForApproval({ status: "Pending" })
+      .catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(ReceiptRejectionError);
+    expect(error).not.toBeInstanceOf(UnauthorizedError);
+    expect(error).toMatchObject({
+      type: "receipt_rejection",
+      _tag: tag,
+      receiptTag: tag,
+      status: 403,
+      message,
+    });
+    expect(error).not.toHaveProperty("personId");
+    expect(error).not.toHaveProperty("operation");
+    expect(error).not.toHaveProperty("departmentId");
+    expect(error).not.toHaveProperty("departmentIds");
+  });
+
+  it("keeps an unknown tagged 403 response as UnauthorizedError", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      response(403, {
+        error: {
+          tag: "UnknownReceiptAuthorityDenial",
+          message: "Untrusted backend detail",
+        },
+      }),
+    );
     vi.stubGlobal("fetch", fetchMock);
     const client = createClient("http://api.test", {
       cookie: "better-auth.session_token=approver-session",
@@ -92,7 +144,8 @@ describe("canonical Receipt approval capability", () => {
       .catch((caught: unknown) => caught);
 
     expect(error).toBeInstanceOf(UnauthorizedError);
-    expect(error).not.toBeInstanceOf(ReceiptScopeDeniedError);
+    expect(error).not.toBeInstanceOf(ReceiptRejectionError);
+    expect(error).toMatchObject({ type: "unauthorized", message: "HTTP 403" });
   });
 
   it("rejects authority fields in approval filters before making a request", async () => {

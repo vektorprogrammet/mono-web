@@ -337,6 +337,49 @@ describe("Effect v4 Receipt compatibility", () => {
     expect(effectNetworkError).toMatchObject({ _tag: "Network" });
   });
 
+  it.each([
+    ["ReceiptAuthorityDenied", "Receipt command is not permitted"],
+    ["AmbiguousPaymentSelection", "Payment authority selection is ambiguous"],
+  ] as const)("preserves canonical 403 %s on the Effect surface", async (tag, message) => {
+    fetchMock.mockResolvedValue(
+      makeResponse(403, {
+        error: {
+          tag,
+          message,
+          personId: "person-sensitive",
+          operation: "GlobalApproval",
+          departmentId: "department-sensitive",
+          departmentIds: ["department-sensitive"],
+        },
+      }),
+    );
+
+    const error = await testRuntime.runPromise(
+      Effect.flip(createEffectClient(FIXTURE_URL).receipts.listForApproval()),
+    );
+    expect(error).toMatchObject({ _tag: tag, status: 403, message });
+    expect(error).not.toHaveProperty("personId");
+    expect(error).not.toHaveProperty("operation");
+    expect(error).not.toHaveProperty("departmentId");
+    expect(error).not.toHaveProperty("departmentIds");
+  });
+
+  it("keeps an unknown tagged Receipt 403 as Unauthorized on the Effect surface", async () => {
+    fetchMock.mockResolvedValue(
+      makeResponse(403, {
+        error: {
+          tag: "UnknownReceiptAuthorityDenial",
+          message: "Untrusted backend detail",
+        },
+      }),
+    );
+
+    const error = await testRuntime.runPromise(
+      Effect.flip(createEffectClient(FIXTURE_URL).receipts.listForApproval()),
+    );
+    expect(error).toMatchObject({ _tag: "Unauthorized", message: "HTTP 403" });
+  });
+
   it("resolves an async Cookie header for each request", async () => {
     fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
       requests.push({ url: requestUrl(input), init: init ?? {} });

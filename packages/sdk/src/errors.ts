@@ -63,6 +63,8 @@ export type ReceiptRejectionTag =
   | "NotInScope"
   | "ReceiptOwnerDenied"
   | "ReceiptScopeDenied"
+  | "ReceiptAuthorityDenied"
+  | "AmbiguousPaymentSelection"
   | "ReceiptDecodeError"
   | "ReceiptAlreadyExists"
   | "DuplicateReceiptCommandConflict"
@@ -192,12 +194,14 @@ export class ConfigurationError extends SdkError {
 export class ReceiptRejectionError extends SdkError {
   readonly _tag: ReceiptRejectionTag;
   readonly receiptTag: ReceiptRejectionTag;
+  readonly status?: number;
 
-  constructor(tag: ReceiptRejectionTag) {
-    super("receipt_rejection", tag);
+  constructor(tag: ReceiptRejectionTag, message = tag, status?: number) {
+    super("receipt_rejection", message);
     this.name = "ReceiptRejectionError";
     this._tag = tag;
     this.receiptTag = tag;
+    if (status !== undefined) this.status = status;
   }
 }
 
@@ -233,6 +237,20 @@ export class ReceiptScopeDeniedError extends ReceiptRejectionError {
   constructor() {
     super("ReceiptScopeDenied");
     this.name = "ReceiptScopeDeniedError";
+  }
+}
+
+export class ReceiptAuthorityDeniedError extends ReceiptRejectionError {
+  constructor(message = "ReceiptAuthorityDenied") {
+    super("ReceiptAuthorityDenied", message, 403);
+    this.name = "ReceiptAuthorityDeniedError";
+  }
+}
+
+export class AmbiguousPaymentSelectionError extends ReceiptRejectionError {
+  constructor(message = "AmbiguousPaymentSelection") {
+    super("AmbiguousPaymentSelection", message, 403);
+    this.name = "AmbiguousPaymentSelectionError";
   }
 }
 
@@ -985,6 +1003,22 @@ export class ReceiptScopeDenied extends Schema.TaggedError<ReceiptScopeDenied>()
   "ReceiptScopeDenied",
   {},
 ) {}
+export class ReceiptAuthorityDenied extends Schema.TaggedError<ReceiptAuthorityDenied>()(
+  "ReceiptAuthorityDenied",
+  {
+    status: Schema.Literal(403),
+    message: Schema.String,
+  },
+) {}
+
+export class AmbiguousPaymentSelection extends Schema.TaggedError<AmbiguousPaymentSelection>()(
+  "AmbiguousPaymentSelection",
+  {
+    status: Schema.Literal(403),
+    message: Schema.String,
+  },
+) {}
+
 
 export class ReceiptDecodeError extends Schema.TaggedError<ReceiptDecodeError>()(
   "ReceiptDecodeError",
@@ -1252,6 +1286,8 @@ export type ReceiptFailure =
   | NotInScope
   | ReceiptOwnerDenied
   | ReceiptScopeDenied
+  | ReceiptAuthorityDenied
+  | AmbiguousPaymentSelection
   | ReceiptDecodeError
   | ReceiptAlreadyExists
   | DuplicateReceiptCommandConflict
@@ -1469,6 +1505,10 @@ export function toSdkError(error: InternalSdkError): SdkError {
       return new ReceiptOwnerDeniedError();
     case "ReceiptScopeDenied":
       return new ReceiptScopeDeniedError();
+    case "ReceiptAuthorityDenied":
+      return new ReceiptAuthorityDeniedError(error.message);
+    case "AmbiguousPaymentSelection":
+      return new AmbiguousPaymentSelectionError(error.message);
     case "ReceiptDecodeError":
       return new ReceiptDecodeSdkError();
     case "ReceiptAlreadyExists":
