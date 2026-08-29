@@ -137,10 +137,7 @@ const resolveCookie = (cookie: CookieOption): Effect.Effect<string, Network> =>
           }),
       });
 
-const receiptFailureFromBody = (
-  status: number,
-  body: unknown,
-): InternalSdkError | undefined => {
+const receiptFailureFromBody = (status: number, body: unknown): InternalSdkError | undefined => {
   if (typeof body !== "object" || body === null) return undefined;
   const root = body as Record<string, unknown>;
   const error =
@@ -163,13 +160,9 @@ const receiptFailureFromBody = (
     case "ReceiptScopeDenied":
       return new ReceiptScopeDenied();
     case "ReceiptAuthorityDenied":
-      return status === 403
-        ? new ReceiptAuthorityDenied({ status: 403, message })
-        : undefined;
+      return status === 403 ? new ReceiptAuthorityDenied({ status: 403, message }) : undefined;
     case "AmbiguousPaymentSelection":
-      return status === 403
-        ? new AmbiguousPaymentSelection({ status: 403, message })
-        : undefined;
+      return status === 403 ? new AmbiguousPaymentSelection({ status: 403, message }) : undefined;
     case "ReceiptDecodeError":
       return new ReceiptDecodeError();
     case "ReceiptAlreadyExists":
@@ -230,7 +223,10 @@ const receiptFailureFromBody = (
       return new PublicApplicationPersistenceError();
   }
 };
-const publicApplicationFailureFromBody = (body: unknown): InternalSdkError | undefined => {
+const publicApplicationFailureFromBody = (
+  status: number,
+  body: unknown,
+): InternalSdkError | undefined => {
   if (typeof body !== "object" || body === null) return undefined;
   const root = body as Record<string, unknown>;
   const error =
@@ -266,7 +262,7 @@ const publicApplicationFailureFromBody = (body: unknown): InternalSdkError | und
     case "PublicApplicationPersistenceError":
       return new PublicApplicationPersistenceError();
     default:
-      return receiptFailureFromBody(body);
+      return receiptFailureFromBody(status, body);
   }
 };
 
@@ -542,7 +538,7 @@ const mapStatusToError = (
           : options?.errorFamily === "organization"
             ? organizationFailureFromBody(body, options.strict === true)
             : options?.errorFamily === "public_application"
-              ? publicApplicationFailureFromBody(body)
+              ? publicApplicationFailureFromBody(status, body)
               : options?.errorFamily === "recruitment"
                 ? recruitmentFailureFromBody(body, options.strict === true)
                 : receiptFailureFromBody(status, body);

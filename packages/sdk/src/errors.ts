@@ -196,7 +196,7 @@ export class ReceiptRejectionError extends SdkError {
   readonly receiptTag: ReceiptRejectionTag;
   readonly status?: number;
 
-  constructor(tag: ReceiptRejectionTag, message = tag, status?: number) {
+  constructor(tag: ReceiptRejectionTag, message: string = tag, status?: number) {
     super("receipt_rejection", message);
     this.name = "ReceiptRejectionError";
     this._tag = tag;
@@ -1018,7 +1018,6 @@ export class AmbiguousPaymentSelection extends Schema.TaggedError<AmbiguousPayme
     message: Schema.String,
   },
 ) {}
-
 
 export class ReceiptDecodeError extends Schema.TaggedError<ReceiptDecodeError>()(
   "ReceiptDecodeError",
