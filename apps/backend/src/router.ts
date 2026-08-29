@@ -28,7 +28,7 @@ import {
 import type { BackendConfig } from "./config.js";
 import { makeOrganizationApiHttp } from "./organization/http.js";
 import { makeProfileApiHttp } from "./profile/http.js";
-import { makeReceiptApiHttp, type ReceiptAuthorityResolvers } from "./receipt/http.js";
+import { makeReceiptApiHttp, type ReceiptIdentityResolvers } from "./receipt/http.js";
 import { makeRecruitmentApiHttp } from "./recruitment/http.js";
 import { makeContentManagementApiHttp, makePublicNewsApiHttp } from "./content/http.js";
 import { makeSchoolsApiHttp } from "./schools/http.js";
@@ -157,31 +157,17 @@ export const makeBackendHttp = (
     run,
   });
   /**
-   * Receipt read/list projections retain the spec-0055 Organization + Economy
-   * projection. Protected commands use the separate session-only principal.
+   * Receipt commands and the approval query receive only canonical session
+   * identity plus one instant. Economy owns every authority projection.
    */
-  const resolveReceiptAuthorityFor: ReceiptAuthorityResolvers["resolveAuthority"] = async (
-    cookieHeader,
-  ) => {
-    const authorityProjection = await resolvePersonAuthority(cookieHeader, { run });
-    return await run(
-      Economy.use(({ resolveReceiptAuthority }) =>
-        resolveReceiptAuthority(
-          authorityProjection.personId,
-          authorityProjection.evaluatedAt,
-          authorityProjection,
-        ),
-      ),
-    );
+  const receiptIdentity: ReceiptIdentityResolvers = {
+    resolveAuthorizationPrincipal: async (cookieHeader) =>
+      resolveAuthenticatedPersonAtInstant(cookieHeader, { run }),
+    resolvePersonId: async (cookieHeader) => resolveAuthenticatedPerson(cookieHeader, { run }),
   };
   const receipt = makeReceiptApiHttp({
     config: config.receipt,
-    authority: {
-      resolveAuthority: resolveReceiptAuthorityFor,
-      resolveCommandPrincipal: async (cookieHeader) =>
-        resolveAuthenticatedPersonAtInstant(cookieHeader, { run }),
-      resolvePersonId: async (cookieHeader) => resolveAuthenticatedPerson(cookieHeader, { run }),
-    },
+    identity: receiptIdentity,
     run,
   });
   const recruitment = makeRecruitmentApiHttp({

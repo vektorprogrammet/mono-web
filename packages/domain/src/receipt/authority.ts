@@ -356,14 +356,13 @@ export const mapReceiptGlobalApprovalActor = (
   );
 
 /**
- * Existing receipt approval derives its only department scope from the locked
- * receipt. Active global authority wins, then active authority for that
- * department; known inactive authority remains an inactive actor.
+ * Selects the same grant used by a protected approval command for one
+ * canonical receipt department.
  */
-export const mapReceiptApprovalActor = (
+export const selectReceiptApprovalGrant = (
   authority: ReceiptAuthority,
   receiptDepartmentId: DepartmentId,
-): Effect.Effect<ReceiptActor, ReceiptAuthorityDenied> => {
+): ResolvedReceiptApprovalGrant | undefined => {
   let global: ResolvedReceiptApprovalGrant | undefined;
   let department: ResolvedReceiptApprovalGrant | undefined;
   for (const grant of authority.approvalGrants) {
@@ -373,12 +372,23 @@ export const mapReceiptApprovalActor = (
       department = preferTemporalCandidate(department, grant, authority.evaluatedAt);
     }
   }
-  const selected =
-    global?.active === true
-      ? global
-      : department?.active === true
-        ? department
-        : (global ?? department);
+  return global?.active === true
+    ? global
+    : department?.active === true
+      ? department
+      : (global ?? department);
+};
+
+/**
+ * Existing receipt approval derives its only department scope from the locked
+ * receipt. Active global authority wins, then active authority for that
+ * department; known inactive authority remains an inactive actor.
+ */
+export const mapReceiptApprovalActor = (
+  authority: ReceiptAuthority,
+  receiptDepartmentId: DepartmentId,
+): Effect.Effect<ReceiptActor, ReceiptAuthorityDenied> => {
+  const selected = selectReceiptApprovalGrant(authority, receiptDepartmentId);
   if (selected === undefined) {
     return Effect.fail(deny(authority, "DepartmentApproval", receiptDepartmentId));
   }

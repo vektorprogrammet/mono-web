@@ -1,2 +1,2 @@
 export { EconomyLive } from "./postgres-layer.js";
-export { resolveReceiptAuthority } from "./authority-postgres.js";
+export { resolveReceiptAuthorityForRead } from "./authority-postgres.js";

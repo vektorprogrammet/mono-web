@@ -1,6 +1,7 @@
 export * from "./errors.js";
 export * from "./authority.js";
-export { resolveReceiptAuthority } from "./authority-postgres.js";
+export { resolveReceiptAuthorityForRead } from "./authority-postgres.js";
+export * from "./approval-list.js";
 export * from "./effects.js";
 export * from "./file-errors.js";
 export * from "./file-service.js";

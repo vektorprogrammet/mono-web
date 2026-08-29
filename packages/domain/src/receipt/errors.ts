@@ -105,6 +105,12 @@ export type ReceiptAuthorityResolutionError =
   | ReceiptPersistenceError
   | ReceiptAuthorityProjectionMismatch;
 
+export type ReceiptApprovalListFailure =
+  | ReceiptDecodeError
+  | InactiveActor
+  | ReceiptScopeDenied
+  | ReceiptPersistenceError;
+
 export type ReceiptFailure =
   | ReceiptDecodeError
   | UnauthenticatedActor

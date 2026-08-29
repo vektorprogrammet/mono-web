@@ -1,7 +1,8 @@
 import { Database } from "../database/service.js";
 import { Effect } from "effect";
+import type { ReceiptApprovalVisibility } from "./approval-list.js";
 import { ReceiptNotFound, ReceiptPersistenceError } from "./errors.js";
-import type { Receipt } from "./schema.js";
+import type { Receipt, ReceiptStatus } from "./schema.js";
 
 export interface ReceiptListItem extends Pick<
   Receipt,
@@ -25,8 +26,8 @@ export interface ReceiptStatusTotal {
 }
 
 export type ReceiptApprovalScope =
-  | { readonly _tag: "Department"; readonly departmentId: string }
-  | { readonly _tag: "Global" };
+  | ReceiptApprovalVisibility
+  | { readonly _tag: "Department"; readonly departmentId: string };
 
 const projectionError = (operation: string, cause: unknown) =>
   new ReceiptPersistenceError({ operation, message: String(cause) });
@@ -53,29 +54,30 @@ export const listAssistantReceipts = (
 
 export const listApproverReceipts = (
   scope: ReceiptApprovalScope,
+  status?: ReceiptStatus,
 ): Effect.Effect<ReadonlyArray<ReceiptListItem>, ReceiptPersistenceError, Database> =>
   Effect.gen(function* () {
     const sql = yield* Database;
-    const rows =
-      scope._tag === "Global"
-        ? sql<ReceiptListItem>`
-          SELECT receipt_id AS "receiptId", visual_id AS "visualId",
-            owner_person_id AS "ownerPersonId", department_id AS "departmentId",
-            description, amount_ore::text AS "amountOre", currency,
-            status, receipt_date::text AS "receiptDate", revision
-          FROM economy_receipts
-          ORDER BY submitted_at DESC, receipt_id ASC
-        `
-        : sql<ReceiptListItem>`
-          SELECT receipt_id AS "receiptId", visual_id AS "visualId",
-            owner_person_id AS "ownerPersonId", department_id AS "departmentId",
-            description, amount_ore::text AS "amountOre", currency,
-            status, receipt_date::text AS "receiptDate", revision
-          FROM economy_receipts
-          WHERE department_id = ${scope.departmentId}
-          ORDER BY submitted_at DESC, receipt_id ASC
-        `;
-    return yield* rows.pipe(
+    const departmentIds =
+      scope._tag === "Department"
+        ? [scope.departmentId]
+        : scope._tag === "Departments"
+          ? scope.departmentIds
+          : undefined;
+    if (departmentIds?.length === 0) return [];
+    const visibilityPredicate =
+      departmentIds === undefined ? sql`TRUE` : sql.in("department_id", departmentIds);
+    const statusPredicate = status === undefined ? sql`TRUE` : sql`status = ${status}`;
+    return yield* sql<ReceiptListItem>`
+      SELECT receipt_id AS "receiptId", visual_id AS "visualId",
+        owner_person_id AS "ownerPersonId", department_id AS "departmentId",
+        description, amount_ore::text AS "amountOre", currency,
+        status, receipt_date::text AS "receiptDate", revision
+      FROM economy_receipts
+      WHERE ${visibilityPredicate}
+        AND ${statusPredicate}
+      ORDER BY submitted_at DESC, receipt_id ASC
+    `.pipe(
       Effect.catchTag("SqlError", (cause) =>
         Effect.fail(projectionError("list approver receipts", cause)),
       ),

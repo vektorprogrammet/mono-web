@@ -1,14 +1,15 @@
 import { Database } from "../database/service.js";
 import { Effect, Layer } from "effect";
-import { resolveReceiptAuthority as resolveReceiptAuthorityPostgres } from "./authority-postgres.js";
 import {
   deliverNextReceiptOutbox,
   listStaleReceiptOutboxClaimIds,
   recoverStaleReceiptOutbox,
 } from "./outbox.js";
-import { executeReceiptCommand } from "./postgres.js";
 import {
-  listApproverReceipts,
+  executeReceiptCommand,
+  listReceiptsForApproval as listReceiptsForApprovalPostgres,
+} from "./postgres.js";
+import {
   listOwnedReceiptProjection,
   readReceiptLifecycleEvidence,
   receiptStatusTotals,
@@ -25,18 +26,14 @@ export const EconomyLive = Layer.effect(
         executeReceiptCommand(input, principal, allocation).pipe(
           Effect.provideService(Database, database),
         ),
-      resolveReceiptAuthority: (personId, authorizationInstant, organizationProjection) =>
-        resolveReceiptAuthorityPostgres(
-          personId,
-          authorizationInstant,
-          organizationProjection,
-        ).pipe(Effect.provideService(Database, database)),
       listOwnedReceipts: (ownerPersonId, status) =>
         listOwnedReceiptProjection(ownerPersonId, status).pipe(
           Effect.provideService(Database, database),
         ),
-      listReceiptsForApproval: (scope) =>
-        listApproverReceipts(scope).pipe(Effect.provideService(Database, database)),
+      listReceiptsForApproval: (personId, authorizationInstant, status) =>
+        listReceiptsForApprovalPostgres(personId, authorizationInstant, status).pipe(
+          Effect.provideService(Database, database),
+        ),
       readReceiptLifecycleEvidence: (receiptId, ownerPersonId) =>
         readReceiptLifecycleEvidence(receiptId, ownerPersonId).pipe(
           Effect.provideService(Database, database),

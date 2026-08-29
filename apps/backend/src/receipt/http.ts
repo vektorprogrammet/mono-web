@@ -4,7 +4,6 @@ import { Database } from "@vektorprogrammet/domain/database";
 import { Effect } from "effect";
 import {
   Economy,
-  InactiveActor,
   ReceiptAuxiliaryEffectConflict,
   ReceiptAuxiliaryEffects,
   ReceiptDecodeError,
@@ -12,10 +11,8 @@ import {
   ReceiptPersistenceError,
   ReceiptId,
   ReceiptVisualId,
-  ReceiptScopeDenied,
   UnauthenticatedActor,
   isIsoDate,
-  type ReceiptAuthority,
   type ReceiptCommandPrincipal,
   type ReceiptObservation,
   type ReceiptOutboxDeliveryResult,
@@ -68,14 +65,9 @@ interface WithdrawFields {
   readonly expectedRevision: number;
 }
 
-export interface ReceiptAuthorityResolvers {
-  /** Cookie -> ReceiptAuthority for unchanged read/list projections. */
-  readonly resolveAuthority: (
-    cookieHeader: string | undefined,
-    requested?: { readonly departmentId?: DepartmentId },
-  ) => Promise<ReceiptAuthority>;
+export interface ReceiptIdentityResolvers {
   /** Cookie -> canonical person and one instant; never role or authority facts. */
-  readonly resolveCommandPrincipal: (
+  readonly resolveAuthorizationPrincipal: (
     cookieHeader: string | undefined,
   ) => Promise<ReceiptCommandPrincipal>;
   /** Cookie -> owner person id (session-only; no role facts). */
@@ -84,7 +76,7 @@ export interface ReceiptAuthorityResolvers {
 
 export interface ReceiptApiHttpOptions {
   readonly config: ReceiptApiConfig;
-  readonly authority: ReceiptAuthorityResolvers;
+  readonly identity: ReceiptIdentityResolvers;
   readonly run: <A, E>(effect: Effect.Effect<A, E, Database | Economy>) => Promise<A>;
   readonly fileStore?: ReceiptFileStore;
   /**
@@ -317,100 +309,27 @@ const decodeReviseMultipart = async (
   };
 };
 
-/** The approval-list scope shape accepted by Economy.listReceiptsForApproval. */
-type ApprovalListScope =
-  | { readonly _tag: "Department"; readonly departmentId: DepartmentId }
-  | { readonly _tag: "Global" };
-
-const authorityFor = async (
-  request: Request,
-  options: ReceiptApiHttpOptions,
-  requested?: { readonly departmentId?: DepartmentId },
-): Promise<ReceiptAuthority> => {
-  try {
-    return await options.authority.resolveAuthority(
-      request.headers.get("cookie") ?? undefined,
-      requested,
-    );
-  } catch (cause) {
-    if (cause !== null && typeof cause === "object" && "_tag" in cause) throw cause;
-    throw new UnauthenticatedActor({ message: "authentication required" });
-  }
-};
-
 const personIdFor = async (request: Request, options: ReceiptApiHttpOptions): Promise<string> => {
   try {
-    return await options.authority.resolvePersonId(request.headers.get("cookie") ?? undefined);
+    return await options.identity.resolvePersonId(request.headers.get("cookie") ?? undefined);
   } catch (cause) {
     if (cause !== null && typeof cause === "object" && "_tag" in cause) throw cause;
     throw new UnauthenticatedActor({ message: "authentication required" });
   }
 };
 
-const commandPrincipalFor = async (
+const authorizationPrincipalFor = async (
   request: Request,
   options: ReceiptApiHttpOptions,
 ): Promise<ReceiptCommandPrincipal> => {
   try {
-    return await options.authority.resolveCommandPrincipal(
+    return await options.identity.resolveAuthorizationPrincipal(
       request.headers.get("cookie") ?? undefined,
     );
   } catch (cause) {
     if (cause !== null && typeof cause === "object" && "_tag" in cause) throw cause;
     throw new UnauthenticatedActor({ message: "authentication required" });
   }
-};
-
-/** The department of the person's single active payment authority, if any. */
-const activePaymentDepartment = (authority: ReceiptAuthority): DepartmentId | undefined => {
-  const active = authority.paymentAuthorities.find((payment) => payment.active);
-  return active?.departmentId;
-};
-
-/** Strongest approval scope: active grants win, Global wins within the same
- *  activity state, and known inactive grants remain inactive actors. */
-const strongestApprovalGrant = (
-  authority: ReceiptAuthority,
-): { readonly scope: ApprovalListScope; readonly active: boolean } | undefined => {
-  const activeGlobal = authority.approvalGrants.find(
-    (grant) => grant.active && grant.scope._tag === "Global",
-  );
-  if (activeGlobal !== undefined) return { scope: { _tag: "Global" }, active: true };
-  const activeDepartment = authority.approvalGrants.find(
-    (grant) => grant.active && grant.scope._tag === "Department",
-  );
-  if (activeDepartment?.scope._tag === "Department") {
-    return {
-      scope: {
-        _tag: "Department",
-        departmentId: activeDepartment.scope.departmentId,
-      },
-      active: true,
-    };
-  }
-  const inactiveGlobal = authority.approvalGrants.find(
-    (grant) => !grant.active && grant.scope._tag === "Global",
-  );
-  if (inactiveGlobal !== undefined) return { scope: { _tag: "Global" }, active: false };
-  const inactiveDepartment = authority.approvalGrants.find(
-    (grant) => !grant.active && grant.scope._tag === "Department",
-  );
-  return inactiveDepartment?.scope._tag === "Department"
-    ? {
-        scope: {
-          _tag: "Department",
-          departmentId: inactiveDepartment.scope.departmentId,
-        },
-        active: false,
-      }
-    : undefined;
-};
-
-const requireActiveOrganizationAuthority = (authority: ReceiptAuthority): ReceiptAuthority => {
-  if (authority.organizationAuthority !== "Active") {
-    throw new InactiveActor({ personId: authority.personId });
-  }
-  return authority;
 };
 const decodeCommandJson = async (
   request: Request,
@@ -635,7 +554,7 @@ const submit = async (
   }
   const departmentId = selected === undefined ? undefined : DepartmentId.make(selected);
   const fields = await decodeMultipart(request, options.config.maxFileBytes);
-  const principal = await commandPrincipalFor(request, options);
+  const principal = await authorizationPrincipalFor(request, options);
   let staged: StagedReceiptFile | undefined;
   let committed = false;
   try {
@@ -678,7 +597,7 @@ const revise = async (
   fileStore: ReceiptFileStore,
 ): Promise<Response> => {
   const fields = await decodeReviseMultipart(request, options.config.maxFileBytes);
-  const principal = await commandPrincipalFor(request, options);
+  const principal = await authorizationPrincipalFor(request, options);
   let staged: StagedReceiptFile | undefined;
   let committed = false;
   try {
@@ -725,7 +644,7 @@ const withdraw = async (
   options: ReceiptApiHttpOptions,
   fileStore: ReceiptFileStore,
 ): Promise<Response> => {
-  const principal = await commandPrincipalFor(request, options);
+  const principal = await authorizationPrincipalFor(request, options);
   const fields = await decodeCommandJson(request, "withdraw");
   const command = {
     _tag: "WithdrawPendingReceipt" as const,
@@ -755,23 +674,15 @@ const approvalList = async (
   request: Request,
   options: ReceiptApiHttpOptions,
 ): Promise<Response> => {
-  const authority = requireActiveOrganizationAuthority(await authorityFor(request, options));
-  const grant = strongestApprovalGrant(authority);
-  if (grant === undefined) {
-    throw new ReceiptScopeDenied({
-      receiptId: "approval-projection",
-      departmentId: activePaymentDepartment(authority) ?? ("" as DepartmentId),
-    });
-  }
-  if (!grant.active) throw new InactiveActor({ personId: authority.personId });
-  const scope: ApprovalListScope = grant.scope;
+  const principal = await authorizationPrincipalFor(request, options);
   const status = decodeApprovalStatusFilter(request);
   const rows = await runDatabase(
-    Economy.use(({ listReceiptsForApproval }) => listReceiptsForApproval(scope)),
+    Economy.use(({ listReceiptsForApproval }) =>
+      listReceiptsForApproval(principal.personId, principal.authorizationInstant, status),
+    ),
     options.run,
   );
-  const visibleRows = status === undefined ? rows : rows.filter((row) => row.status === status);
-  const items = visibleRows.map((row) => {
+  const items = rows.map((row) => {
     const amountOre = Number(row.amountOre);
     if (!Number.isSafeInteger(amountOre) || amountOre <= 0) {
       throw new ReceiptPersistenceError({
@@ -801,7 +712,7 @@ const approvalCommand = async (
   options: ReceiptApiHttpOptions,
   fileStore: ReceiptFileStore,
 ): Promise<Response> => {
-  const principal = await commandPrincipalFor(request, options);
+  const principal = await authorizationPrincipalFor(request, options);
   const fields = await decodeCommandJson(request, "approval");
   if (new URL(request.url).search.length !== 0) {
     throw new ReceiptDecodeError({ message: "unexpected receipt command query" });

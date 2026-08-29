@@ -1,23 +1,16 @@
 import { Database, type DatabaseShape } from "@vektorprogrammet/domain/database";
-import {
-  DepartmentId,
-  MembershipId,
-  PersonId,
-  TeamId,
-} from "@vektorprogrammet/domain/organization";
+import { DepartmentId, PersonId } from "@vektorprogrammet/domain/organization";
 import {
   Economy,
+  InactiveActor,
   ReceiptFileService,
   ReceiptObservationSchema,
-  ReceiptPaymentAuthorityId,
   ReceiptNotFound,
   ReceiptScopeDenied,
   UnauthenticatedActor,
-  projectReceiptAuthority,
   type EconomyShape,
-  type ReceiptAuthority,
   type ReceiptCommandPrincipal,
-  type ReceiptPaymentAuthority,
+  type ReceiptStatus,
   type ReceiptSubmissionAllocation,
   type ReceiptTransactionResult,
 } from "@vektorprogrammet/domain/receipt";
@@ -32,34 +25,6 @@ const personId = PersonId.make("person-receipt-http");
 const departmentOne = DepartmentId.make("department-one");
 const departmentTwo = DepartmentId.make("department-two");
 const evaluatedAt = "2026-08-24T12:00:00.000Z";
-
-const organizationProjection = (departments: ReadonlyArray<DepartmentId>) => ({
-  personId,
-  evaluatedAt,
-  globalAdministrator: "Absent" as const,
-  memberships: departments.map((departmentId, index) => ({
-    membershipId: MembershipId.make(`membership-${index}`),
-    teamId: TeamId.make(`team-${index}`),
-    departmentId,
-    active: true,
-    teamLeader: false,
-  })),
-});
-
-const payment = (id: string, departmentId: DepartmentId): ReceiptPaymentAuthority => ({
-  paymentAuthorityId: ReceiptPaymentAuthorityId.make(id),
-  personId,
-  departmentId,
-  paymentAccountCiphertext: `ciphertext:${departmentId}`,
-  startAt: "2026-08-01T00:00:00.000Z",
-  endAt: null,
-  revision: 0,
-});
-
-const authority = (
-  departments: ReadonlyArray<DepartmentId> = [departmentOne],
-  payments: ReadonlyArray<ReceiptPaymentAuthority> = [payment("payment-one", departmentOne)],
-): ReceiptAuthority => projectReceiptAuthority(organizationProjection(departments), payments, []);
 
 const config: ReceiptApiConfig = {
   stagingRoot: "/tmp/receipt-http-test-staging",
@@ -102,10 +67,10 @@ const fileStore: ReceiptFileStore = {
 };
 
 interface HarnessOptions {
-  readonly authority?: ReceiptAuthority;
   readonly unauthenticated?: boolean;
   readonly ownedRows?: ReadonlyArray<unknown>;
   readonly approvalRows?: ReadonlyArray<unknown>;
+  readonly approvalFailure?: InactiveActor | ReceiptScopeDenied;
   readonly commandFailure?: ReceiptScopeDenied | ReceiptNotFound;
 }
 
@@ -113,9 +78,12 @@ const harness = (options: HarnessOptions = {}) => {
   const commands: Array<unknown> = [];
   const principals: Array<ReceiptCommandPrincipal> = [];
   const allocations: Array<ReceiptSubmissionAllocation | undefined> = [];
-  const approvalScopes: Array<unknown> = [];
-  let authorityCalls = 0;
-  let commandPrincipalCalls = 0;
+  const approvalQueries: Array<{
+    readonly personId: typeof personId;
+    readonly authorizationInstant: string;
+    readonly status: ReceiptStatus | undefined;
+  }> = [];
+  let authorizationPrincipalCalls = 0;
   let personCalls = 0;
   const executeReceipt: EconomyShape["executeReceipt"] = (command, principal, allocation) => {
     commands.push(command);
@@ -130,12 +98,13 @@ const harness = (options: HarnessOptions = {}) => {
       : Effect.fail(options.commandFailure);
   };
   const economy: EconomyShape = {
-    resolveReceiptAuthority: () => Effect.die("unexpected authority service call"),
     executeReceipt,
     listOwnedReceipts: () => Effect.succeed((options.ownedRows as never) ?? []),
-    listReceiptsForApproval: (scope) => {
-      approvalScopes.push(scope);
-      return Effect.succeed((options.approvalRows as never) ?? []);
+    listReceiptsForApproval: (queryPersonId, authorizationInstant, status) => {
+      approvalQueries.push({ personId: queryPersonId, authorizationInstant, status });
+      return options.approvalFailure === undefined
+        ? Effect.succeed((options.approvalRows as never) ?? [])
+        : Effect.fail(options.approvalFailure);
     },
     readReceiptLifecycleEvidence: () => Effect.die("unexpected evidence read"),
     receiptStatusTotals: Effect.succeed([]),
@@ -151,19 +120,11 @@ const harness = (options: HarnessOptions = {}) => {
         Effect.provideService(Economy, economy),
       ) as Effect.Effect<A, E>,
     )) as ReceiptApiHttpOptions["run"];
-  const resolvedAuthority = options.authority ?? authority();
   const http = makeReceiptApiHttp({
     config,
-    authority: {
-      resolveAuthority: async () => {
-        authorityCalls += 1;
-        if (options.unauthenticated === true) {
-          throw new UnauthenticatedActor({ message: "no session" });
-        }
-        return resolvedAuthority;
-      },
-      resolveCommandPrincipal: async () => {
-        commandPrincipalCalls += 1;
+    identity: {
+      resolveAuthorizationPrincipal: async () => {
+        authorizationPrincipalCalls += 1;
         if (options.unauthenticated === true) {
           throw new UnauthenticatedActor({ message: "no session" });
         }
@@ -185,8 +146,8 @@ const harness = (options: HarnessOptions = {}) => {
     commands,
     principals,
     allocations,
-    approvalScopes,
-    counts: () => ({ authorityCalls, commandPrincipalCalls, personCalls }),
+    approvalQueries,
+    counts: () => ({ authorizationPrincipalCalls, personCalls }),
   };
 };
 
@@ -213,7 +174,7 @@ const multipartRequest = (http: ReceiptApiHttp, pathname: string): Promise<Respo
   });
 };
 
-describe("receipt HTTP authority resolution (spec 0055)", () => {
+describe("receipt HTTP identity and authority resolution (spec 0055/0056)", () => {
   it("uses only the session person for the owner list", async () => {
     const state = harness();
     const response = await request(state.http, "/api/receipts");
@@ -222,8 +183,7 @@ describe("receipt HTTP authority resolution (spec 0055)", () => {
       body: { items: [], totalItems: 0 },
     });
     expect(state.counts()).toEqual({
-      authorityCalls: 0,
-      commandPrincipalCalls: 0,
+      authorizationPrincipalCalls: 0,
       personCalls: 1,
     });
   });
@@ -253,8 +213,7 @@ describe("receipt HTTP authority resolution (spec 0055)", () => {
     expect(state.principals).toEqual([{ personId, authorizationInstant: evaluatedAt }]);
     expect(state.allocations).toEqual([{ receiptId: "receipt-one", visualId: "visual-one" }]);
     expect(state.counts()).toEqual({
-      authorityCalls: 0,
-      commandPrincipalCalls: 1,
+      authorizationPrincipalCalls: 1,
       personCalls: 0,
     });
   });
@@ -289,10 +248,9 @@ describe("receipt HTTP authority resolution (spec 0055)", () => {
       receiptId: "receipt-one",
       expectedRevision: 0,
     });
-    expect(state.approvalScopes).toEqual([]);
+    expect(state.approvalQueries).toEqual([]);
     expect(state.counts()).toEqual({
-      authorityCalls: 0,
-      commandPrincipalCalls: 1,
+      authorizationPrincipalCalls: 1,
       personCalls: 0,
     });
   });
@@ -314,7 +272,7 @@ describe("receipt HTTP authority resolution (spec 0055)", () => {
       body: { error: { tag: "ReceiptScopeDenied" } },
     });
     expect(state.commands).toHaveLength(1);
-    expect(state.approvalScopes).toEqual([]);
+    expect(state.approvalQueries).toEqual([]);
   });
 
   it("maps a transaction-local globally visible missing target to stable 404", async () => {
@@ -331,18 +289,86 @@ describe("receipt HTTP authority resolution (spec 0055)", () => {
       body: { error: { tag: "ReceiptNotFound" } },
     });
     expect(state.commands).toHaveLength(1);
-    expect(state.approvalScopes).toEqual([]);
+    expect(state.approvalQueries).toEqual([]);
   });
 
-  it("denies inactive Organization authority and absent approval scope", async () => {
-    const inactive = harness({ authority: authority([], []) });
+  it("passes only canonical identity, one instant, and the filter to the approval query", async () => {
+    const state = harness({
+      approvalRows: [
+        {
+          receiptId: "receipt-list",
+          visualId: "LIST-1",
+          ownerPersonId: "owner-list",
+          departmentId: departmentOne,
+          amountOre: "1250",
+          currency: "NOK",
+          description: "list row",
+          receiptDate: "2026-08-24",
+          status: "Pending",
+          revision: 2,
+        },
+      ],
+    });
+    const response = await request(state.http, "/api/admin/receipts?status=Pending");
+    expect({ status: response.status, body: await response.json() }).toEqual({
+      status: 200,
+      body: {
+        items: [
+          {
+            receiptId: "receipt-list",
+            visualId: "LIST-1",
+            ownerPersonId: "owner-list",
+            departmentId: departmentOne,
+            amountOre: 1250,
+            currency: "NOK",
+            description: "list row",
+            receiptDate: "2026-08-24",
+            status: "Pending",
+            revision: 2,
+          },
+        ],
+        totalItems: 1,
+      },
+    });
+    expect(state.approvalQueries).toEqual([
+      { personId, authorizationInstant: evaluatedAt, status: "Pending" },
+    ]);
+    expect(state.counts()).toEqual({
+      authorizationPrincipalCalls: 1,
+      personCalls: 0,
+    });
+  });
+
+  it("preserves stable approval-list session and domain denial responses", async () => {
+    const unauthenticated = harness({ unauthenticated: true });
+    const unauthenticatedResponse = await request(
+      unauthenticated.http,
+      "/api/admin/receipts",
+    );
+    expect({
+      status: unauthenticatedResponse.status,
+      body: await unauthenticatedResponse.json(),
+    }).toEqual({
+      status: 401,
+      body: { error: { tag: "UnauthenticatedActor" } },
+    });
+    expect(unauthenticated.approvalQueries).toEqual([]);
+
+    const inactive = harness({
+      approvalFailure: new InactiveActor({ personId }),
+    });
     const inactiveResponse = await request(inactive.http, "/api/admin/receipts");
     expect({ status: inactiveResponse.status, body: await inactiveResponse.json() }).toEqual({
       status: 403,
       body: { error: { tag: "InactiveActor" } },
     });
 
-    const unscoped = harness({ authority: authority([departmentOne], []) });
+    const unscoped = harness({
+      approvalFailure: new ReceiptScopeDenied({
+        receiptId: "approval-projection",
+        departmentId: "",
+      }),
+    });
     const scopeResponse = await request(unscoped.http, "/api/admin/receipts");
     expect({ status: scopeResponse.status, body: await scopeResponse.json() }).toEqual({
       status: 403,

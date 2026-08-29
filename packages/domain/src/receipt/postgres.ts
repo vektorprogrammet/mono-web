@@ -1,10 +1,21 @@
-import { readApplicableAuthorizationRules } from "../authz/postgres.js";
+import {
+  loadApplicableAuthorizationRules,
+  readApplicableAuthorizationRules,
+} from "../authz/postgres.js";
 import { composeCapabilityEvidence } from "../authz/rules.js";
+import type {
+  AuthzRequestScope,
+  AuthzRule,
+  AuthzTagAssignment,
+} from "../authz/schema.js";
 import { Database, type DatabaseShape } from "../database/service.js";
 import {
   lockPersonAuthorization,
+  resolveOrganizationPersonAuthorityForRead,
   resolveOrganizationPersonAuthorityWithSql,
 } from "../organization/authority-postgres.js";
+import type { OrganizationAuthorityInstant } from "../organization/authority.js";
+import { DepartmentId, type PersonId } from "../organization/schema.js";
 import { Effect, Schema } from "effect";
 import { canonicalJson, canonicalJsonBytes, sha256Hex } from "../tutor/evidence.js";
 import {
@@ -14,10 +25,15 @@ import {
   mapReceiptSubmissionPrincipal,
   projectReceiptAuthority,
 } from "./authority.js";
-import { resolveReceiptAuthorityWithSql } from "./authority-postgres.js";
+import { resolveReceiptApprovalVisibility } from "./approval-list.js";
+import {
+  resolveReceiptAuthorityForRead,
+  resolveReceiptAuthorityWithSql,
+} from "./authority-postgres.js";
 import {
   AmbiguousPaymentSelection,
   DuplicateReceiptCommandConflict,
+  InactiveActor,
   ReceiptAlreadyExists,
   ReceiptAuthorityDenied,
   ReceiptDecodeError,
@@ -25,11 +41,13 @@ import {
   ReceiptPersistenceError,
   ReceiptScopeDenied,
   StaleReceiptRevision,
+  type ReceiptApprovalListFailure,
   type ReceiptAuthorityMappingError,
   type ReceiptAuthorityResolutionError,
   type ReceiptFailure,
 } from "./errors.js";
 import type { ReceiptImportResult, ReceiptQuarantineReason } from "./import.js";
+import { listApproverReceipts, type ReceiptListItem } from "./projections.js";
 import {
   Receipt,
   ReceiptCommandPrincipalSchema,
@@ -37,6 +55,7 @@ import {
   ReceiptObservationSchema,
   ReceiptSubmissionAllocationSchema,
   type ReceiptCommandPrincipal,
+  type ReceiptStatus,
   type ReceiptSubmissionAllocation,
 } from "./schema.js";
 import type { ReceiptTransactionResult } from "./service.js";
@@ -59,6 +78,40 @@ interface ReceiptImportLedgerRow {
 
 const persistenceError = (operation: string, cause: unknown) =>
   new ReceiptPersistenceError({ operation, message: String(cause) });
+
+const ReceiptApprovalDepartmentRowSchema = Schema.Struct({
+  departmentId: DepartmentId,
+});
+
+const listCanonicalReceiptApprovalDepartments = (
+  sql: DatabaseShape,
+): Effect.Effect<ReadonlyArray<DepartmentId>, ReceiptDecodeError | ReceiptPersistenceError> =>
+  Effect.gen(function* () {
+    const selected = yield* sql`
+      SELECT candidate.department_id AS "departmentId"
+      FROM (
+        SELECT department_id FROM public.organization_departments
+        UNION
+        SELECT department_id FROM public.economy_receipts
+      ) AS candidate
+      ORDER BY candidate.department_id ASC
+    `.pipe(
+      Effect.catchTag("SqlError", (cause) =>
+        Effect.fail(persistenceError("list canonical Receipt approval departments", cause)),
+      ),
+    );
+    const rows = yield* Schema.decodeUnknownEffect(
+      Schema.Array(ReceiptApprovalDepartmentRowSchema),
+    )(selected, { onExcessProperty: "error" }).pipe(
+      Effect.mapError(
+        (cause) =>
+          new ReceiptDecodeError({
+            message: `decode canonical Receipt approval departments: ${String(cause)}`,
+          }),
+      ),
+    );
+    return rows.map((row) => row.departmentId);
+  });
 
 const receiptFromRow = (
   row: typeof Receipt.Encoded,
@@ -377,6 +430,109 @@ export const storeReceiptImportResult = (
       .pipe(
         Effect.catchTag("SqlError", (cause) =>
           Effect.fail(persistenceError("receipt import transaction", cause)),
+        ),
+      );
+  });
+
+/**
+ * Rule-aware approval projection. Session identity and the instant are explicit
+ * query inputs; every authority source is read without locks in one snapshot.
+ */
+export const listReceiptsForApproval = (
+  personId: PersonId,
+  authorizationInstant: OrganizationAuthorityInstant,
+  status?: ReceiptStatus,
+): Effect.Effect<ReadonlyArray<ReceiptListItem>, ReceiptApprovalListFailure, Database> =>
+  Effect.gen(function* () {
+    const sql = yield* Database;
+
+    return yield* sql
+      .withTransaction(
+        Effect.gen(function* () {
+          yield* sql`
+            SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY
+          `.pipe(Effect.asVoid);
+          const organization = yield* resolveOrganizationPersonAuthorityForRead(
+            personId,
+            authorizationInstant,
+          ).pipe(
+            Effect.mapError((cause) =>
+              cause._tag === "OrganizationPersistenceError"
+                ? persistenceError(
+                    "resolve Receipt approval list Organization authority",
+                    cause.message,
+                  )
+                : new ReceiptDecodeError({
+                    message: `${cause.operation}: ${cause.message}`,
+                  }),
+            ),
+          );
+          const directAuthority = yield* resolveReceiptAuthorityForRead(
+            personId,
+            authorizationInstant,
+            organization,
+          ).pipe(
+            Effect.mapError((cause) =>
+              cause._tag === "ReceiptPersistenceError"
+                ? cause
+                : cause._tag === "ReceiptDecodeError"
+                  ? cause
+                  : new ReceiptDecodeError({
+                      message: `Receipt authority projection mismatch for ${cause.personId}`,
+                    }),
+            ),
+          );
+          const departmentIds = yield* listCanonicalReceiptApprovalDepartments(sql);
+          const requestScopes: Array<AuthzRequestScope> = [
+            { domain: "Receipt" },
+            ...departmentIds.map((departmentId) => ({ domain: "Receipt" as const, departmentId })),
+          ];
+          const applicable = yield* Effect.forEach(requestScopes, (requestScope) =>
+            loadApplicableAuthorizationRules(
+              personId,
+              "approveReceipt",
+              authorizationInstant,
+              requestScope,
+            ).pipe(
+              Effect.mapError((cause) =>
+                cause._tag === "AuthzPersistenceError"
+                  ? persistenceError(cause.operation, cause.message)
+                  : new ReceiptDecodeError({
+                      message: `${cause.entity}: ${cause.message}`,
+                    }),
+              ),
+            ),
+          );
+          const ruleById = new Map<string, AuthzRule>();
+          const assignmentById = new Map<string, AuthzTagAssignment>();
+          for (const result of applicable) {
+            for (const rule of result.rules) ruleById.set(rule.ruleId, rule);
+            for (const assignment of result.tagAssignments) {
+              assignmentById.set(assignment.assignmentId, assignment);
+            }
+          }
+          const decision = resolveReceiptApprovalVisibility(
+            organization,
+            directAuthority,
+            departmentIds,
+            Array.from(ruleById.values()),
+            Array.from(assignmentById.values()),
+          );
+          if (decision._tag === "Deny") {
+            if (decision.reason === "AuthorityInactive") {
+              return yield* new InactiveActor({ personId });
+            }
+            return yield* new ReceiptScopeDenied({
+              receiptId: "approval-projection",
+              departmentId: "",
+            });
+          }
+          return yield* listApproverReceipts(decision.value, status);
+        }),
+      )
+      .pipe(
+        Effect.catchTag("SqlError", (cause) =>
+          Effect.fail(persistenceError("list Receipt approval snapshot", cause)),
         ),
       );
   });

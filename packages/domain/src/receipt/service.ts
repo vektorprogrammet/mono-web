@@ -1,13 +1,9 @@
 import { Context, Effect } from "effect";
-import type {
-  OrganizationAuthorityInstant,
-  OrganizationPersonAuthority,
-} from "../organization/authority.js";
+import type { OrganizationAuthorityInstant } from "../organization/authority.js";
 import type { PersonId } from "../organization/schema.js";
-import type { ReceiptAuthority } from "./authority.js";
 import type { ReceiptAuxiliaryEffects } from "./auxiliary-service.js";
 import type {
-  ReceiptAuthorityResolutionError,
+  ReceiptApprovalListFailure,
   ReceiptFailure,
   ReceiptNotFound,
   ReceiptPersistenceError,
@@ -16,19 +12,19 @@ import type { ReceiptFileService } from "./file-service.js";
 import type { ReceiptOutboxDeliveryResult } from "./outbox.js";
 import type {
   OwnedReceiptProjectionItem,
-  ReceiptApprovalScope,
   ReceiptListItem,
   ReceiptLifecycleEvidenceProjection,
   ReceiptStatusTotal,
 } from "./projections.js";
 import type {
   ReceiptCommandPrincipal,
+  ReceiptObservation,
   ReceiptStatus,
   ReceiptSubmissionAllocation,
 } from "./schema.js";
 
 export interface ReceiptTransactionResult {
-  readonly observation: import("./schema.js").ReceiptObservation;
+  readonly observation: ReceiptObservation;
   readonly replayed: boolean;
   readonly outboxCount: number;
 }
@@ -39,18 +35,15 @@ export interface EconomyShape {
     principal: ReceiptCommandPrincipal,
     allocation?: ReceiptSubmissionAllocation,
   ) => Effect.Effect<ReceiptTransactionResult, ReceiptFailure>;
-  readonly resolveReceiptAuthority: (
-    personId: PersonId,
-    authorizationInstant: OrganizationAuthorityInstant,
-    organizationProjection: OrganizationPersonAuthority,
-  ) => Effect.Effect<ReceiptAuthority, ReceiptAuthorityResolutionError>;
   readonly listOwnedReceipts: (
     ownerPersonId: string,
     status?: ReceiptStatus,
   ) => Effect.Effect<ReadonlyArray<OwnedReceiptProjectionItem>, ReceiptPersistenceError>;
   readonly listReceiptsForApproval: (
-    scope: ReceiptApprovalScope,
-  ) => Effect.Effect<ReadonlyArray<ReceiptListItem>, ReceiptPersistenceError>;
+    personId: PersonId,
+    authorizationInstant: OrganizationAuthorityInstant,
+    status?: ReceiptStatus,
+  ) => Effect.Effect<ReadonlyArray<ReceiptListItem>, ReceiptApprovalListFailure>;
   readonly readReceiptLifecycleEvidence: (
     receiptId: string,
     ownerPersonId: string,
