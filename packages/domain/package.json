@@ -13,7 +13,7 @@
     "./report": "./src/report.ts",
     "./fixtures": "./src/fixtures.ts",
     "./capabilities": "./src/capabilities.ts",
-    "./authz": "./src/authz/decision.ts",
+    "./authz": "./src/authz/index.ts",
     "./receipt": "./src/receipt/index.ts",
     "./receipt/postgres": "./src/receipt/postgres-index.ts",
     "./application": "./src/application/index.ts",

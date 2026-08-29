@@ -9,6 +9,9 @@ const inventory = [
   "organization_global_administrator_grants",
   "economy_payment_authorities",
   "economy_receipt_approval_grants",
+  "authz_tags",
+  "authz_tag_assignments",
+  "authz_rules",
   "organization_team_interest_registrations",
   "schools_directory_schools",
   "schools_directory_departments",
@@ -32,6 +35,7 @@ const checkedSourceUrls = [
   new URL("../../domain/src/schools/migrations/0001-schools-directory.sql", import.meta.url),
   new URL("../../domain/src/content/migrations/0001-content-publication.sql", import.meta.url),
   new URL("../migrations/0021-native-recruitment-interview-conduct.sql", import.meta.url),
+  new URL("../migrations/0023-declarative-authorization-rules.sql", import.meta.url),
 ];
 
 const runtime = makeControlledTestRuntime(DatabaseTest());
@@ -44,7 +48,7 @@ describe("native domain schema boundary", () => {
   it("matches the checked inventory against all post-identity CREATE TABLE sources", async () => {
     const sourceTables = (await Promise.all(checkedSourceUrls.map((url) => readFile(url, "utf8"))))
       .flatMap((source) =>
-        [...source.matchAll(/CREATE TABLE IF NOT EXISTS\s+([a-z0-9_]+)/gi)].map(
+        [...source.matchAll(/CREATE TABLE IF NOT EXISTS\s+(?:public\.)?([a-z0-9_]+)/gi)].map(
           (match) => match[1]!,
         ),
       )

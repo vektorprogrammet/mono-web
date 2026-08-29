@@ -1,4 +1,9 @@
-export type DecisionReason = "Unauthenticated" | "NotInScope" | "AuthorityInactive" | "Ambiguous";
+export type DecisionReason =
+  | "Unauthenticated"
+  | "NotInScope"
+  | "AuthorityInactive"
+  | "Ambiguous"
+  | "RequirementFailed";
 
 export type Decision<A> =
   | { readonly _tag: "Allow"; readonly value: A }

@@ -44,6 +44,10 @@ const nativeFunctions = [
   "prevent_recruitment_interview_question_snapshot_mutation",
   "prevent_recruitment_interview_lifecycle_mutation",
 ] as const;
+const schemaBoundaryMigrationIndex = databaseMigrationDefinitions.findIndex(
+  ({ id }) => id === "22_native-domain-schema-boundary",
+);
+assert.notEqual(schemaBoundaryMigrationIndex, -1);
 
 const databaseUrl = (name: string): string => {
   const value = process.env[name];
@@ -84,7 +88,7 @@ const runRegisteredMigrations = async (url: string) => {
 };
 
 const runHistoricalSources = async (pool: Pool) => {
-  for (const { url } of databaseMigrationDefinitions.slice(0, -1)) {
+  for (const { url } of databaseMigrationDefinitions.slice(0, schemaBoundaryMigrationIndex)) {
     const source = await readFile(url, "utf8");
     const client = await pool.connect();
     try {
@@ -109,7 +113,9 @@ const runHistoricalSources = async (pool: Pool) => {
         name text NOT NULL
       )
     `);
-    for (const [index, { name }] of databaseMigrationDefinitions.slice(0, -1).entries()) {
+    for (const [index, { name }] of databaseMigrationDefinitions
+      .slice(0, schemaBoundaryMigrationIndex)
+      .entries()) {
       await client.query(
         "INSERT INTO public.vektorprogrammet_schema_migrations (migration_id, name) VALUES ($1, $2)",
         [index + 1, name],

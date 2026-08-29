@@ -337,6 +337,9 @@ describe("DatabaseTest", () => {
               'economy_receipts',
               'economy_payment_authorities',
               'economy_receipt_approval_grants',
+              'authz_rules',
+              'authz_tag_assignments',
+              'authz_tags',
               'admission_periods',
               'admission_applications',
               'organization_departments',
@@ -375,7 +378,7 @@ describe("DatabaseTest", () => {
       }),
     );
     expect(evidence).toEqual({
-      revision: "22_native-domain-schema-boundary",
+      revision: "23_declarative-authorization-rules",
       migrations: [
         { migration_id: 1, name: "receipt-authority" },
         { migration_id: 2, name: "admission-period-authority" },
@@ -399,10 +402,14 @@ describe("DatabaseTest", () => {
         { migration_id: 20, name: "content-publication" },
         { migration_id: 21, name: "native-recruitment-interview-conduct" },
         { migration_id: 22, name: "native-domain-schema-boundary" },
+        { migration_id: 23, name: "declarative-authorization-rules" },
       ],
       tables: [
         "admission_applications",
         "admission_periods",
+        "authz_rules",
+        "authz_tag_assignments",
+        "authz_tags",
         "economy_payment_authorities",
         "economy_receipt_approval_grants",
         "economy_receipts",
@@ -4084,7 +4091,7 @@ describe("DatabaseTest", () => {
       }),
     );
 
-    expect(evidence.schemaRevision).toBe("22_native-domain-schema-boundary");
+    expect(evidence.schemaRevision).toBe("23_declarative-authorization-rules");
     expect(evidence.denied._tag).toBe("OrganizationRoleDenied");
     expect(evidence.deniedRows).toBe(0);
     expect(evidence.departmentCreated.committed).toBe(true);

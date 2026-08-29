@@ -98,6 +98,10 @@ const nativeDomainSchemaBoundaryMigrationUrl = new URL(
   "../migrations/0022-native-domain-schema-boundary.sql",
   import.meta.url,
 );
+const declarativeAuthorizationRulesMigrationUrl = new URL(
+  "../migrations/0023-declarative-authorization-rules.sql",
+  import.meta.url,
+);
 export type ExecuteMigration = (
   source: string,
 ) => Effect.Effect<void, unknown, SqlClient.SqlClient>;
@@ -210,6 +214,11 @@ export const databaseMigrationDefinitions = [
     name: "native-domain-schema-boundary",
     url: nativeDomainSchemaBoundaryMigrationUrl,
   },
+  {
+    id: "23_declarative-authorization-rules",
+    name: "declarative-authorization-rules",
+    url: declarativeAuthorizationRulesMigrationUrl,
+  },
 ] as const;
 
 export const databaseMigrationLoader = (execute: ExecuteMigration) =>
@@ -218,7 +227,7 @@ export const databaseMigrationLoader = (execute: ExecuteMigration) =>
       databaseMigrationDefinitions.map(({ id, name, url }) => [id, migration(name, url, execute)]),
     ),
   );
-export const databaseSchemaRevision = "22_native-domain-schema-boundary";
+export const databaseSchemaRevision = "23_declarative-authorization-rules";
 export const runDatabaseMigrations = (execute: ExecuteMigration) =>
   Migrator.make({})({
     loader: databaseMigrationLoader(execute),
