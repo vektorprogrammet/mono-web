@@ -27,8 +27,7 @@ export const isAuthzIntervalActive = (
   authorizationInstant: string,
 ): boolean =>
   compareRfc3339Instants(interval.startAt, authorizationInstant) <= 0 &&
-  (interval.endAt === null ||
-    compareRfc3339Instants(authorizationInstant, interval.endAt) < 0);
+  (interval.endAt === null || compareRfc3339Instants(authorizationInstant, interval.endAt) < 0);
 
 export const isAuthzTagAssignmentActive = (
   assignment: AuthzTagAssignment,
@@ -68,12 +67,7 @@ export const isAuthzRuleApplicable = (
 ): boolean =>
   rule.capabilityId === capabilityId &&
   isAuthzIntervalActive(rule, facts.authorizationInstant) &&
-  authzRuleSubjectApplies(
-    rule,
-    facts.personId,
-    facts.authorizationInstant,
-    facts.tagAssignments,
-  ) &&
+  authzRuleSubjectApplies(rule, facts.personId, facts.authorizationInstant, facts.tagAssignments) &&
   authzRuleScopeApplies(rule, facts.requestScope);
 
 const compareText = (left: string, right: string): -1 | 0 | 1 =>

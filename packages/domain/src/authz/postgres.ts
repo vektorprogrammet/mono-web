@@ -279,10 +279,7 @@ export const readApplicableAuthorizationRules = (
   authorizationInstantInput: string,
   requestScopeInput: AuthzRequestScope,
   lockModeInput: AuthzLockMode,
-): Effect.Effect<
-  ApplicableAuthorizationRules,
-  AuthzValidationError | AuthzPersistenceError
-> =>
+): Effect.Effect<ApplicableAuthorizationRules, AuthzValidationError | AuthzPersistenceError> =>
   Effect.gen(function* () {
     const personId = yield* Schema.decodeUnknownEffect(PersonId)(personIdInput, {
       onExcessProperty: "error",
@@ -400,11 +397,10 @@ export const readApplicableAuthorizationRules = (
         Effect.fail(persistenceError("read applicable authorization rules", cause)),
       ),
     );
-    const ruleRows = yield* Schema.decodeUnknownEffect(
-      Schema.Array(AuthzRuleDatabaseRowSchema),
-    )(selectedRules, { onExcessProperty: "error" }).pipe(
-      Effect.mapError((cause) => validationError("AuthzRule", cause)),
-    );
+    const ruleRows = yield* Schema.decodeUnknownEffect(Schema.Array(AuthzRuleDatabaseRowSchema))(
+      selectedRules,
+      { onExcessProperty: "error" },
+    ).pipe(Effect.mapError((cause) => validationError("AuthzRule", cause)));
     const decodedRules: Array<AuthzRule> = [];
     for (const row of ruleRows) decodedRules.push(yield* decodeRuleDatabaseRow(row));
     const rules = applicableAuthzRules(decodedRules, capabilityId, {
@@ -461,8 +457,7 @@ export const createAuthzRule = (
           yield* acquireAuthorizationLock(sql, "Exclusive");
           const subjectPersonId = rule.subject._tag === "Person" ? rule.subject.personId : null;
           const subjectTagId = rule.subject._tag === "Tag" ? rule.subject.tagId : null;
-          const departmentId =
-            rule.scope._tag === "Department" ? rule.scope.departmentId : null;
+          const departmentId = rule.scope._tag === "Department" ? rule.scope.departmentId : null;
           yield* sql`
             INSERT INTO public.authz_rules (
               rule_id,
@@ -761,9 +756,7 @@ export const removeAuthzTagAssignment = (
   Effect.gen(function* () {
     const command = yield* Schema.decodeUnknownEffect(RemoveAuthzTagAssignmentInputSchema)(input, {
       onExcessProperty: "error",
-    }).pipe(
-      Effect.mapError((cause) => validationError("RemoveAuthzTagAssignmentInput", cause)),
-    );
+    }).pipe(Effect.mapError((cause) => validationError("RemoveAuthzTagAssignmentInput", cause)));
     const sql = yield* Database;
     return yield* sql
       .withTransaction(

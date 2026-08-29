@@ -201,10 +201,7 @@ describe("declarative authorization rule migration in PGlite", () => {
         );
         const invalidParams: ReadonlyArray<readonly [string, unknown]> = [
           ["missingKey", { slot: "EconomyPaymentAuthority" }],
-          [
-            "arbitraryKey",
-            { slot: "EconomyPaymentAuthority", arbitrary: "ciphertext" },
-          ],
+          ["arbitraryKey", { slot: "EconomyPaymentAuthority", arbitrary: "ciphertext" }],
           [
             "extraKey",
             {
@@ -213,18 +210,12 @@ describe("declarative authorization rule migration in PGlite", () => {
               arbitrary: true,
             },
           ],
-          [
-            "nonStringSlot",
-            { slot: null, paymentAccountCiphertext: "ciphertext" },
-          ],
+          ["nonStringSlot", { slot: null, paymentAccountCiphertext: "ciphertext" }],
           [
             "nonStringCiphertext",
             { slot: "EconomyPaymentAuthority", paymentAccountCiphertext: 42 },
           ],
-          [
-            "emptyCiphertext",
-            { slot: "EconomyPaymentAuthority", paymentAccountCiphertext: "" },
-          ],
+          ["emptyCiphertext", { slot: "EconomyPaymentAuthority", paymentAccountCiphertext: "" }],
           [
             "paddedCiphertext",
             {
@@ -235,9 +226,7 @@ describe("declarative authorization rule migration in PGlite", () => {
         ];
         const rejected: Record<string, boolean> = {};
         for (const [name, params] of invalidParams) {
-          const outcome = yield* Effect.exit(
-            insertSubmitRule(`authz-params-${name}`, params),
-          );
+          const outcome = yield* Effect.exit(insertSubmitRule(`authz-params-${name}`, params));
           rejected[name] = outcome._tag === "Failure";
         }
         return { validAccepted: valid._tag === "Success", rejected };

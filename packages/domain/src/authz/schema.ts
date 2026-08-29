@@ -10,9 +10,7 @@ const TrimmedNonEmpty = Schema.String.pipe(
   ),
 );
 
-export const AuthzRevisionSchema = Schema.Int.pipe(
-  Schema.check(Schema.isGreaterThanOrEqualTo(0)),
-);
+export const AuthzRevisionSchema = Schema.Int.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(0)));
 export type AuthzRevision = typeof AuthzRevisionSchema.Type;
 
 export const AuthzRuleId = TrimmedNonEmpty.pipe(Schema.brand("AuthzRuleId"));
@@ -21,9 +19,7 @@ export type AuthzRuleId = typeof AuthzRuleId.Type;
 export const AuthzTagId = TrimmedNonEmpty.pipe(Schema.brand("AuthzTagId"));
 export type AuthzTagId = typeof AuthzTagId.Type;
 
-export const AuthzTagAssignmentId = TrimmedNonEmpty.pipe(
-  Schema.brand("AuthzTagAssignmentId"),
-);
+export const AuthzTagAssignmentId = TrimmedNonEmpty.pipe(Schema.brand("AuthzTagAssignmentId"));
 export type AuthzTagAssignmentId = typeof AuthzTagAssignmentId.Type;
 
 export const AuthzTagNameSchema = TrimmedNonEmpty;
@@ -36,11 +32,7 @@ export const AuthzCapabilityIdSchema = Schema.Literals([
 ]);
 export type AuthzCapabilityId = typeof AuthzCapabilityIdSchema.Type;
 
-export const AuthzRuleEffectKindSchema = Schema.Literals([
-  "delegate",
-  "parameter",
-  "requirement",
-]);
+export const AuthzRuleEffectKindSchema = Schema.Literals(["delegate", "parameter", "requirement"]);
 export type AuthzRuleEffectKind = typeof AuthzRuleEffectKindSchema.Type;
 
 export const AuthzEvidenceSlotSchema = Schema.Literals([
@@ -60,10 +52,7 @@ export type AuthzCapabilityDeclaration = {
 /** Frozen rule-receptive surface. Operator data cannot add a slot. */
 export const CAPABILITY_IDS = {
   approveReceipt: {
-    receptiveEvidenceSlots: [
-      "EconomyDepartmentApprovalGrant",
-      "EconomyGlobalReceiptApprovalGrant",
-    ],
+    receptiveEvidenceSlots: ["EconomyDepartmentApprovalGrant", "EconomyGlobalReceiptApprovalGrant"],
     parameterSlots: [],
     requirementSlots: [],
     acceptedEffects: ["delegate"],
@@ -243,16 +232,12 @@ export class AuthzValidationError extends Data.TaggedError("AuthzValidationError
 const validationError = (entity: AuthzValidationEntity, cause: unknown) =>
   new AuthzValidationError({ entity, message: String(cause) });
 
-export const decodeAuthzRule = (
-  input: unknown,
-): Effect.Effect<AuthzRule, AuthzValidationError> =>
+export const decodeAuthzRule = (input: unknown): Effect.Effect<AuthzRule, AuthzValidationError> =>
   Schema.decodeUnknownEffect(AuthzRuleSchema)(input, { onExcessProperty: "error" }).pipe(
     Effect.mapError((cause) => validationError("AuthzRule", cause)),
   );
 
-export const decodeAuthzTag = (
-  input: unknown,
-): Effect.Effect<AuthzTag, AuthzValidationError> =>
+export const decodeAuthzTag = (input: unknown): Effect.Effect<AuthzTag, AuthzValidationError> =>
   Schema.decodeUnknownEffect(AuthzTagSchema)(input, { onExcessProperty: "error" }).pipe(
     Effect.mapError((cause) => validationError("AuthzTag", cause)),
   );

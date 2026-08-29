@@ -30,9 +30,7 @@ const approvalRule = (options: {
   readonly ruleId: string;
   readonly subject?: AuthzRule["subject"];
   readonly scope?: AuthzRule["scope"];
-  readonly slot?:
-    | "EconomyDepartmentApprovalGrant"
-    | "EconomyGlobalReceiptApprovalGrant";
+  readonly slot?: "EconomyDepartmentApprovalGrant" | "EconomyGlobalReceiptApprovalGrant";
   readonly startAt?: string;
   readonly endAt?: string | null;
 }): AuthzRule => {
