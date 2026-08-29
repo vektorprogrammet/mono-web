@@ -5,11 +5,66 @@
 | Field | Value |
 |---|---|
 | Goal | Let operators grant surfaced capabilities through persistent rules that inject typed evidence facts into the pure capability algebra |
-| Status | Contract remains frozen; implementation not started |
+| Status | Contract remains frozen. Implementation and local runtime and acceptance evidence passed for integrated implementation HEAD `6c2878791ee5356c40a080c419c6d0155de6707e`. |
+| Revision | Amendment 0056.1 records the integrated implementation and local evidence. It does not change the product contract. |
 | Base | `dd3aaf67cfaf822abf82d8617bf504f7ca1a0788` |
 | Depends on | 0055 person-keyed authorization authorities, 0040 logical capability topology, 0045 Effect Model/Service authority |
 | Required by | 0054 native Identity authority via Better Auth |
 | Operator boundary | No production import, production data change, credential change, deployment, or external effect |
+
+## Amendment 0056.1 - integrated implementation and local evidence
+
+This documentation-only amendment records implementation and local evidence for integrated implementation HEAD `6c2878791ee5356c40a080c419c6d0155de6707e`. The product contract remains frozen.
+
+It changes no requirement, decision, falsifier, definition of done, dependency, or operator boundary.
+
+### Observed implementation
+
+- Migration `23_declarative-authorization-rules` creates `public.authz_tags`, `public.authz_tag_assignments`, and `public.authz_rules`. These tables contain no verdict column.
+- The rule model and disposable backfill use strict decoders. They reject undeclared capabilities, scopes, effects, subjects, parameters, and references.
+- The backfill uses stable identifiers and row order. Repeated or reversed input produces byte-identical state.
+- Receipt commands and the approval list evaluate rules within their transaction. They use one authorization instant and return stable typed denials.
+- Rule evaluation adds typed evidence only. It never stores a rule verdict.
+
+### Local PostgreSQL evidence
+
+The real PostgreSQL 17.11 artifact is `/tmp/mono-web-authz-0056-pg-closeout-authorization-evidence.json`. Its canonical SHA-256 digest is `34404a3cc4c4b004737ff519a7ec4b801224b64a0ff6c5a970f5a18b59f9b94c`.
+
+The artifact records implementation base `f83d18ae408ad2c1e954d344620802a7ad1bda42`. Local proof revision `bd55ddc0048c3171c3618baf95fddeea432504ab` has the same tree as the integrated HEAD.
+
+The run passed all 23 canonical migrations and a full 23-migration replay. Its 10-row domain matrix passed every expected decision.
+
+The matrix covered Admission, Recruitment, Organization, Receipt, and Profile.
+
+Expiry passed in both transaction orders. The proof blocked phantom writers and passed interval boundaries, deterministic backfill, replay, and cleanup.
+
+Cleanup left no participant connection or proof-owned database object.
+
+### Local Chromium Identity evidence
+
+The real Chromium artifact is `/tmp/mono-web-authz-0056-identity-evidence.json`. Its SHA-256 digest is `86764ed4819319ce78bebb161d4ac801c2c00463d1de4cb225f546585bac5f20`.
+
+The artifact records final revision `d95aaf9592a2cf87d44760ba4facff6b9e2d7bdc`. The corrected harness file at `e1f6b00db02a4ac9613568cb1e35029d7e7348d6` matches the integrated HEAD.
+
+The run used real Chromium 151 and PostgreSQL 17.11. One test passed with one worker and no retry.
+
+The public authorization tables contained one tag, one assignment, and two rules. These rows remained unchanged after the run.
+
+The `auth` schema contained no authorization table. The six browser checkpoints recorded no rule or session-secret leak.
+
+Identity state remained unchanged before and after the browser run.
+
+Three axe scans found zero violations. Cleanup removed the disposable files and processes, closed four ports, and left no live session.
+
+### Authority and evidence limits
+
+The `/tmp` paths are local run artifacts. They are not committed receipts.
+
+No production import, production data change, deployment, credential change, provider delivery, external effect, or remote publication occurred.
+
+This amendment claims no hosted CI or production evidence. It claims no provider-delivery proof or receipt-authority publication.
+
+No runtime-evidence authority receipt or functional-parity projection is claimed unless an authorized process actually generates it later.
 
 ## Dependency amendment for spec 0054
 
