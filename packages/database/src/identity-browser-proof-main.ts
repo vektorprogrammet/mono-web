@@ -7,6 +7,85 @@ import { DatabaseLive } from "./layers.js";
 const personId = "journey-0065-admin";
 const identityMigrationId = 15;
 const authTables = ["account", "session", "user", "verification"] as const;
+const authzTables = ["authz_rules", "authz_tag_assignments", "authz_tags"] as const;
+const orthogonalPersonId = "identity-0056-orthogonal-person";
+const activeRuleId = "identity-0056-active-other-person-rule";
+const expiredRuleId = "identity-0056-expired-journey-person-rule";
+
+const readBaseline = (name: string): unknown => {
+  const raw = process.env[name];
+  assert.ok(raw !== undefined && raw.length > 0, `${name} is required`);
+  const decoded: unknown = JSON.parse(raw);
+  return decoded;
+};
+
+const normalizeRows = (
+  rows: ReadonlyArray<Record<string, unknown>>,
+): ReadonlyArray<Record<string, unknown>> =>
+  rows.map((row) =>
+    Object.fromEntries(
+      Object.entries(row).map(([key, value]) => [
+        key,
+        value instanceof Date ? value.toISOString() : value,
+      ]),
+    ),
+  );
+
+const readAuthSchemaState = async (observer: Pool) => {
+  const users = await observer.query<Record<string, unknown>>(
+    `SELECT id, name, email, "emailVerified", image, "createdAt", "updatedAt"
+     FROM auth."user" ORDER BY id`,
+  );
+  const accounts = await observer.query<Record<string, unknown>>(
+    `SELECT id, "accountId", "providerId", "userId", issuer, "createdAt", "updatedAt",
+       ("password" IS NOT NULL) AS "passwordPresent",
+       ("accessToken" IS NOT NULL OR "refreshToken" IS NOT NULL OR "idToken" IS NOT NULL)
+         AS "providerSecretPresent"
+     FROM auth.account ORDER BY id`,
+  );
+  const sessions = await observer.query<{ readonly total: number; readonly live: number }>(
+    `SELECT count(*)::integer AS total,
+       count(*) FILTER (WHERE "expiresAt" > now())::integer AS live
+     FROM auth.session`,
+  );
+  const verification = await observer.query<{ readonly total: number }>(
+    `SELECT count(*)::integer AS total FROM auth.verification`,
+  );
+  return {
+    users: normalizeRows(users.rows),
+    accounts: normalizeRows(accounts.rows),
+    sessions: {
+      total: Number(sessions.rows[0]?.total),
+      live: Number(sessions.rows[0]?.live),
+    },
+    verification: { total: Number(verification.rows[0]?.total) },
+  };
+};
+
+const readPublicAuthzState = async (observer: Pool) => {
+  const tags = await observer.query<Record<string, unknown>>(
+    `SELECT tag_id AS "tagId", name, revision
+     FROM public.authz_tags ORDER BY tag_id`,
+  );
+  const assignments = await observer.query<Record<string, unknown>>(
+    `SELECT assignment_id AS "assignmentId", tag_id AS "tagId", person_id AS "personId",
+       start_at AS "startAt", end_at AS "endAt", revision
+     FROM public.authz_tag_assignments ORDER BY assignment_id`,
+  );
+  const rules = await observer.query<Record<string, unknown>>(
+    `SELECT rule_id AS "ruleId", capability_id AS "capabilityId",
+       effect_kind AS "effectKind", subject_kind AS "subjectKind",
+       subject_person_id AS "subjectPersonId", subject_tag_id AS "subjectTagId",
+       scope, department_id AS "departmentId", params,
+       start_at AS "startAt", end_at AS "endAt", revision
+     FROM public.authz_rules ORDER BY rule_id`,
+  );
+  return {
+    tags: normalizeRows(tags.rows),
+    assignments: normalizeRows(assignments.rows),
+    rules: normalizeRows(rules.rows),
+  };
+};
 
 const loopbackDatabase = (value: string): void => {
   const url = new URL(value);
@@ -40,6 +119,8 @@ const runMigrations = (url: string) =>
 const run = async () => {
   const url = process.env.IDENTITY_EVIDENCE_PG_URL ?? process.env.DATABASE_URL;
   assert.ok(url !== undefined, "IDENTITY_EVIDENCE_PG_URL is required");
+  const authSchemaBaseline = readBaseline("IDENTITY_EVIDENCE_AUTH_SCHEMA_BASELINE");
+  const publicAuthzBaseline = readBaseline("IDENTITY_EVIDENCE_PUBLIC_AUTHZ_BASELINE");
   loopbackDatabase(url);
   // oxlint-disable-next-line effect/no-premature-execution -- runtime proof composes the migration observer
   const schemaRevision = await Effect.runPromise(runMigrations(url));
@@ -47,7 +128,7 @@ const run = async () => {
     connectionString: url,
     options: "-c search_path=public",
     max: 1,
-    application_name: "identity-browser-0065-proof-observer",
+    application_name: "identity-browser-0056-proof-observer",
   });
   try {
     const migration = await observer.query(
@@ -57,6 +138,14 @@ const run = async () => {
       [identityMigrationId],
     );
     assert.deepEqual(migration.rows, [{ migrationId: 15, name: "native-identity-better-auth" }]);
+    const authzMigration = await observer.query(
+      `SELECT migration_id AS "migrationId", name
+       FROM public.vektorprogrammet_schema_migrations
+       WHERE migration_id = 23`,
+    );
+    assert.deepEqual(authzMigration.rows, [
+      { migrationId: 23, name: "declarative-authorization-rules" },
+    ]);
     const tables = await observer.query<{ readonly tableName: string }>(
       `SELECT table_name AS "tableName" FROM information_schema.tables
        WHERE table_schema = 'auth' AND table_name = ANY($1::text[]) ORDER BY table_name`,
@@ -66,12 +155,27 @@ const run = async () => {
       tables.rows.map((row) => row.tableName),
       [...authTables],
     );
-    const publicTables = await observer.query(
+    const publicTables = await observer.query<{ readonly tableName: string }>(
       `SELECT table_name AS "tableName" FROM information_schema.tables
-       WHERE table_schema = 'public' AND table_name = ANY($1::text[])`,
+       WHERE table_schema = 'public' AND table_name = ANY($1::text[]) ORDER BY table_name`,
       [[...authTables]],
     );
     assert.deepEqual(publicTables.rows, []);
+    const publicAuthzTables = await observer.query<{ readonly tableName: string }>(
+      `SELECT table_name AS "tableName" FROM information_schema.tables
+       WHERE table_schema = 'public' AND table_name = ANY($1::text[]) ORDER BY table_name`,
+      [[...authzTables]],
+    );
+    assert.deepEqual(
+      publicAuthzTables.rows.map((row) => row.tableName),
+      [...authzTables],
+    );
+    const authAuthzTables = await observer.query<{ readonly tableName: string }>(
+      `SELECT table_name AS "tableName" FROM information_schema.tables
+       WHERE table_schema = 'auth' AND table_name = ANY($1::text[]) ORDER BY table_name`,
+      [[...authzTables]],
+    );
+    assert.deepEqual(authAuthzTables.rows, []);
     const identityForeignKey = await observer.query(
       `SELECT 1 FROM pg_constraint c
        JOIN pg_class source ON source.oid = c.conrelid
@@ -108,14 +212,94 @@ const run = async () => {
       sessionsTotal: 0,
       sessionsLive: 0,
     });
+    const authSchemaState = await readAuthSchemaState(observer);
+    assert.deepEqual(authSchemaState, authSchemaBaseline);
+    const publicAuthz = await readPublicAuthzState(observer);
+    assert.deepEqual(publicAuthz, publicAuthzBaseline);
+    const activityResult = await observer.query<{
+      readonly observedAt: Date;
+      readonly activeAssignments: string;
+      readonly activeRules: string;
+      readonly expiredRules: string;
+      readonly activeOtherPersonRules: string;
+      readonly expiredJourneyPersonRules: string;
+    }>(
+      `SELECT now() AS "observedAt",
+         (SELECT count(*) FROM public.authz_tag_assignments
+           WHERE start_at <= now() AND (end_at IS NULL OR now() < end_at))
+           AS "activeAssignments",
+         (SELECT count(*) FROM public.authz_rules
+           WHERE start_at <= now() AND (end_at IS NULL OR now() < end_at))
+           AS "activeRules",
+         (SELECT count(*) FROM public.authz_rules
+           WHERE end_at IS NOT NULL AND end_at <= now())
+           AS "expiredRules",
+         (SELECT count(*) FROM public.authz_rules AS rule
+           JOIN public.authz_tag_assignments AS assignment
+             ON rule.subject_kind = 'Tag' AND assignment.tag_id = rule.subject_tag_id
+           WHERE rule.rule_id = $2 AND rule.capability_id = 'approveReceipt'
+             AND assignment.person_id = $3
+             AND rule.start_at <= now() AND (rule.end_at IS NULL OR now() < rule.end_at)
+             AND assignment.start_at <= now()
+             AND (assignment.end_at IS NULL OR now() < assignment.end_at))
+           AS "activeOtherPersonRules",
+         (SELECT count(*) FROM public.authz_rules
+           WHERE rule_id = $4 AND capability_id = 'submitReceipt'
+             AND subject_kind = 'Person' AND subject_person_id = $1
+             AND end_at IS NOT NULL AND end_at <= now())
+           AS "expiredJourneyPersonRules"`,
+      [personId, activeRuleId, orthogonalPersonId, expiredRuleId],
+    );
+    const activityRow = activityResult.rows[0];
+    assert.ok(activityRow !== undefined);
+    const authzActivity = {
+      observedAt: activityRow.observedAt.toISOString(),
+      activeAssignments: Number(activityRow.activeAssignments),
+      activeRules: Number(activityRow.activeRules),
+      expiredRules: Number(activityRow.expiredRules),
+      activeOtherPersonRules: Number(activityRow.activeOtherPersonRules),
+      expiredJourneyPersonRules: Number(activityRow.expiredJourneyPersonRules),
+      activeDifferentCapabilityPerson: {
+        ruleId: activeRuleId,
+        capabilityId: "approveReceipt",
+        personId: orthogonalPersonId,
+        subjectPath: "TagAssignment",
+      },
+      expiredJourneyPerson: {
+        ruleId: expiredRuleId,
+        capabilityId: "submitReceipt",
+        personId,
+      },
+    };
+    assert.deepEqual(
+      {
+        activeAssignments: authzActivity.activeAssignments,
+        activeRules: authzActivity.activeRules,
+        expiredRules: authzActivity.expiredRules,
+        activeOtherPersonRules: authzActivity.activeOtherPersonRules,
+        expiredJourneyPersonRules: authzActivity.expiredJourneyPersonRules,
+      },
+      {
+        activeAssignments: 1,
+        activeRules: 1,
+        expiredRules: 1,
+        activeOtherPersonRules: 1,
+        expiredJourneyPersonRules: 1,
+      },
+    );
     process.stdout.write(
       `${JSON.stringify({
         specId: "0065",
+        extensionSpecId: "0056",
         database: "PostgreSQL",
-        migration: { revision: 15, name: "native-identity-better-auth" },
+        migrations: [
+          { revision: 15, name: "native-identity-better-auth" },
+          { revision: 23, name: "declarative-authorization-rules" },
+        ],
         schemaRevision,
         authTables: [...authTables],
-        publicAuthTables: 0,
+        publicAuthTables: [],
+        authzTables: { public: [...authzTables], auth: [] },
         personIdForeignKey: true,
         seedRows: {
           profiles: counts.profiles,
@@ -124,6 +308,9 @@ const run = async () => {
           users: counts.users,
           credentialAccounts: counts.accounts,
         },
+        authSchemaState,
+        publicAuthz,
+        authzActivity,
         sessions: { total: counts.sessionsTotal, live: counts.sessionsLive },
         observer: "distinct-loopback-postgresql-connection",
         passed: true,

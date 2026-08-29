@@ -5,6 +5,7 @@ import { expect, test, type BrowserContext, type Page } from "@playwright/test";
 
 const realRun = process.env.REAL_NATIVE_IDENTITY_E2E === "1";
 const evidencePath = process.env.IDENTITY_EVIDENCE_BROWSER_PATH;
+const dashboardOrigin = process.env.DASHBOARD_ORIGIN ?? "";
 const email = process.env.IDENTITY_EVIDENCE_EMAIL ?? "";
 const password = process.env.IDENTITY_EVIDENCE_PASSWORD ?? "";
 const wrongPassword = process.env.IDENTITY_EVIDENCE_WRONG_PASSWORD ?? "";
@@ -12,17 +13,36 @@ const outputPath = evidencePath ?? "/dev/null";
 const sessionCookieName = "better-auth.session_token";
 if (
   realRun &&
-  (evidencePath === undefined || email === "" || password === "" || wrongPassword === "")
+  (evidencePath === undefined ||
+    dashboardOrigin === "" ||
+    email === "" ||
+    password === "" ||
+    wrongPassword === "")
 ) {
-  throw new Error("identity evidence requires process-bound credentials and output path");
+  throw new Error("identity evidence requires process-bound credentials, origin, and output path");
 }
 
 type LedgerEntry = {
   readonly direction: "browser-to-dashboard";
+  readonly destination: "loopback-dashboard" | "unexpected-origin";
   readonly method: string;
   readonly path: string;
+  readonly authorityDataMatches: ReadonlyArray<string>;
+  readonly legacyOrProvider: boolean;
   status: number;
   durationMs: number;
+};
+
+type BrowserAuthorityCheck = {
+  readonly checkpoint: string;
+  readonly htmlMatches: ReadonlyArray<string>;
+  readonly domMatches: ReadonlyArray<string>;
+  readonly localStorageEntries: number;
+  readonly localStorageMatches: ReadonlyArray<string>;
+  readonly sessionStorageEntries: number;
+  readonly sessionStorageMatches: ReadonlyArray<string>;
+  readonly cookieNameMatches: ReadonlyArray<string>;
+  readonly cookieValueMatches: ReadonlyArray<string>;
 };
 
 const blockingViolations = async (page: Page) => {
@@ -50,11 +70,15 @@ const attachBrowserLedger = (context: BrowserContext, ledger: LedgerEntry[]) => 
     }
   };
   context.on("request", (request) => {
+    const url = new URL(request.url());
     started.set(request, Date.now());
     ledger.push({
       direction: "browser-to-dashboard",
+      destination: url.origin === dashboardOrigin ? "loopback-dashboard" : "unexpected-origin",
       method: request.method(),
-      path: new URL(request.url()).pathname,
+      path: url.pathname,
+      authorityDataMatches: findAuthorityData(`${url.pathname}${url.search}`),
+      legacyOrProvider: isLegacyOrProviderPath(url.pathname),
       status: 0,
       durationMs: 0,
     });
@@ -68,8 +92,81 @@ const delay = (milliseconds: number) => {
   setTimeout(resolve, milliseconds);
   return promise;
 };
+const authorityDataPatterns = [
+  {
+    label: "seeded-authorization-row",
+    pattern: /identity-0056-(?:orthogonal|active|expired)/iu,
+  },
+  {
+    label: "seeded-authorization-value",
+    pattern:
+      /Identity orthogonality 0056|approveReceipt|submitReceipt|EconomyGlobalReceiptApprovalGrant|EconomyPaymentAuthority|synthetic-only-no-secret/iu,
+  },
+  {
+    label: "authorization-table",
+    pattern: /authz_(?:tags|tag_assignments|rules)/iu,
+  },
+  {
+    label: "authorization-field",
+    pattern:
+      /(?:ruleId|rule_id|tagId|tag_id|assignmentId|assignment_id|capabilityId|capability_id|subjectTagId|subject_tag_id)/u,
+  },
+] as const;
 
-test.describe("Native Identity browser evidence (spec 0065)", () => {
+const findAuthorityData = (value: string): ReadonlyArray<string> =>
+  authorityDataPatterns
+    .filter(({ pattern }) => pattern.test(value))
+    .map(({ label }) => label);
+
+const isLegacyOrProviderPath = (path: string): boolean =>
+  /symfony|mock\/api|fixtures|\/api\/login|login_check|sso\/login|glemt-passord|reset|verification|jwt|token/iu.test(
+    path,
+  ) ||
+  (path.startsWith("/api/auth/sign-in/") && path !== "/api/auth/sign-in/email") ||
+  /\/api\/auth\/(?:callback|oauth|sso|social|link-social|unlink-account)(?:\/|$)/iu.test(path);
+
+const observeBrowserAuthorityIsolation = async (
+  context: BrowserContext,
+  page: Page,
+  checkpoint: string,
+): Promise<BrowserAuthorityCheck> => {
+  const artifact = await page.evaluate(() => ({
+    bodyText: document.body?.innerText ?? "",
+    html: document.documentElement.outerHTML,
+    localStorage: Object.entries(window.localStorage),
+    sessionStorage: Object.entries(window.sessionStorage),
+  }));
+  const domMatches = findAuthorityData(artifact.bodyText);
+  const htmlMatches = findAuthorityData(artifact.html);
+  const localStorageMatches = findAuthorityData(JSON.stringify(artifact.localStorage));
+  const sessionStorageMatches = findAuthorityData(JSON.stringify(artifact.sessionStorage));
+  const cookies = await context.cookies();
+  const cookieNameMatches = findAuthorityData(
+    JSON.stringify(cookies.map(({ name }) => name)),
+  );
+  const cookieValueMatches = findAuthorityData(
+    JSON.stringify(cookies.map(({ value }) => value)),
+  );
+  expect(domMatches).toEqual([]);
+  expect(htmlMatches).toEqual([]);
+  expect(localStorageMatches).toEqual([]);
+  expect(sessionStorageMatches).toEqual([]);
+  expect(cookieNameMatches).toEqual([]);
+  expect(cookieValueMatches).toEqual([]);
+  return {
+    htmlMatches,
+    checkpoint,
+    domMatches,
+    localStorageEntries: artifact.localStorage.length,
+    localStorageMatches,
+    sessionStorageEntries: artifact.sessionStorage.length,
+    sessionStorageMatches,
+    cookieNameMatches,
+    cookieValueMatches,
+  };
+};
+
+test.describe("Native Identity browser evidence (spec 0065 with spec 0056 rules)", () => {
   test.skip(!realRun, "run through the bounded native Identity PostgreSQL runner");
 
   test("proves login, strict session, revocation, rate limit, and login accessibility", async ({
@@ -81,6 +178,7 @@ test.describe("Native Identity browser evidence (spec 0065)", () => {
     const accessibility: Record<string, number> = {};
     const observations: Record<string, unknown> = {};
     const pageErrors: string[] = [];
+    const browserAuthorityChecks: BrowserAuthorityCheck[] = [];
     attachBrowserLedger(context, ledger);
     const page = await context.newPage();
     page.on("pageerror", (error) => pageErrors.push(error.message));
@@ -92,11 +190,17 @@ test.describe("Native Identity browser evidence (spec 0065)", () => {
       await expect(page.getByRole("heading", { level: 1, name: "Vektorprogrammet" })).toBeVisible();
       await expect(page.getByLabel("E-post")).toHaveAttribute("id", "email");
       await expect(page.getByLabel("Passord", { exact: true })).toHaveAttribute("id", "password");
+      browserAuthorityChecks.push(
+        await observeBrowserAuthorityIsolation(context, page, "initial-login"),
+      );
       await page.getByLabel("E-post").fill(email);
       await page.getByLabel("Passord", { exact: true }).fill(password);
       await page.getByRole("button", { name: "Logg inn" }).click();
       await page.waitForURL((url) => url.pathname === "/dashboard", { waitUntil: "commit" });
       await expect(page.getByText("Journey Identity")).toBeVisible();
+      browserAuthorityChecks.push(
+        await observeBrowserAuthorityIsolation(context, page, "authenticated-dashboard"),
+      );
       const sessionCookie = (await context.cookies()).find(
         (cookie) => cookie.name === sessionCookieName,
       );
@@ -118,6 +222,9 @@ test.describe("Native Identity browser evidence (spec 0065)", () => {
       await page.reload();
       await expect(page).toHaveURL(/\/dashboard\/?$/u);
       await expect(page.getByText("Journey Identity")).toBeVisible();
+      browserAuthorityChecks.push(
+        await observeBrowserAuthorityIsolation(context, page, "authenticated-reload"),
+      );
       observations.reload = {
         authenticatedShell: true,
         strictSessionProjection: "recorded-by-boundary",
@@ -134,16 +241,29 @@ test.describe("Native Identity browser evidence (spec 0065)", () => {
       expect((await context.cookies()).some((cookie) => cookie.name === sessionCookieName)).toBe(
         false,
       );
+      await expect(
+        page.getByRole("heading", { level: 1, name: "Vektorprogrammet" }),
+      ).toBeVisible();
       observations.logout = { status: 200, redirect: "/login", browserCookieRemoved: true };
+      browserAuthorityChecks.push(
+        await observeBrowserAuthorityIsolation(context, page, "logout-login"),
+      );
       await context.addCookies([oldCookie]);
       await page.goto("/dashboard");
       await page.waitForURL((url) => url.pathname === "/login", { waitUntil: "commit" });
+      await expect(
+        page.getByRole("heading", { level: 1, name: "Vektorprogrammet" }),
+      ).toBeVisible();
       await expect(page.getByText("Journey Identity")).toHaveCount(0);
       observations.oldCookieReplay = {
         retainedInMemoryOnly: true,
         sessionProjectionStatus: "recorded-by-boundary-401",
         authenticatedShell: false,
+        cookieValueRecorded: false,
       };
+      browserAuthorityChecks.push(
+        await observeBrowserAuthorityIsolation(context, page, "revoked-cookie-replay"),
+      );
       await context.clearCookies();
       await page.goto("/login");
       await delay(10_500);
@@ -159,6 +279,9 @@ test.describe("Native Identity browser evidence (spec 0065)", () => {
           ).toBeVisible();
       }
       const wrongWindowMs = Date.now() - wrongStarted;
+      browserAuthorityChecks.push(
+        await observeBrowserAuthorityIsolation(context, page, "rate-limited-login"),
+      );
       const invalidViolations = await blockingViolations(page);
       accessibility.invalid = invalidViolations.length;
       accessibility.rateLimit = invalidViolations.length;
@@ -167,7 +290,8 @@ test.describe("Native Identity browser evidence (spec 0065)", () => {
         attempts: 10,
         nativeStatuses: "recorded-by-boundary",
         windowMs: wrongWindowMs,
-        exactRateLimitMessage: true,
+        invalidCredentialsMessage: "Feil e-post eller passord",
+        rateLimitMessage: "For mange innloggingsforsøk. Prøv igjen om 15 minutter.",
       };
       await page.getByLabel("E-post").focus();
       const focusIds: string[] = [];
@@ -187,21 +311,32 @@ test.describe("Native Identity browser evidence (spec 0065)", () => {
         visibilityControlName: true,
         focusIds,
       };
-      const forbidden = ledger.filter((entry) =>
-        /symfony|mock\/api|fixtures|\/api\/login|login_check|sso\/login|glemt-passord|reset|verification|jwt|token/u.test(
-          entry.path,
-        ),
+      const forbidden = ledger.filter((entry) => entry.legacyOrProvider);
+      const unexpectedDestinations = ledger.filter(
+        (entry) => entry.destination === "unexpected-origin",
       );
+      const authorityRequests = ledger.filter((entry) => entry.authorityDataMatches.length > 0);
       expect(forbidden).toEqual([]);
+      expect(unexpectedDestinations).toEqual([]);
+      expect(authorityRequests).toEqual([]);
       expect(pageErrors).toEqual([]);
       const evidence = {
         specId: "0065",
+        extensionSpecId: "0056",
         passed: true,
         browser: "Chromium",
         browserVersion: browser.version(),
         observations,
         accessibilityViolations: accessibility,
-        requestLedger: { browserToDashboard: ledger, forbidden },
+        authorityIsolation: {
+          browserArtifacts: browserAuthorityChecks,
+          requestsWithAuthorityData: authorityRequests,
+        },
+        requestLedger: {
+          browserToDashboard: ledger,
+          forbidden,
+          unexpectedDestinations,
+        },
         pageErrors,
       };
       await writeFile(outputPath, `${JSON.stringify(evidence, null, 2)}\n`, "utf8");

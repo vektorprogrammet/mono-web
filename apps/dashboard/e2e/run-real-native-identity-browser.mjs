@@ -27,6 +27,83 @@ const secret =
 const timeoutMs = 300_000;
 const sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 const detail = (error) => (error instanceof Error ? error.message : String(error));
+const authorityDataPatterns = [
+  {
+    label: "seeded-authorization-row",
+    pattern: /identity-0056-(?:orthogonal|active|expired)/iu,
+  },
+  {
+    label: "seeded-authorization-value",
+    pattern:
+      /Identity orthogonality 0056|approveReceipt|submitReceipt|EconomyGlobalReceiptApprovalGrant|EconomyPaymentAuthority|synthetic-only-no-secret/iu,
+  },
+  {
+    label: "authorization-table",
+    pattern: /authz_(?:tags|tag_assignments|rules)/iu,
+  },
+  {
+    label: "authorization-field",
+    pattern:
+      /(?:ruleId|rule_id|tagId|tag_id|assignmentId|assignment_id|capabilityId|capability_id|subjectTagId|subject_tag_id)/u,
+  },
+];
+const findAuthorityData = (value) =>
+  authorityDataPatterns
+    .filter(({ pattern }) => pattern.test(value))
+    .map(({ label }) => label);
+const isLegacyOrProviderPath = (path) =>
+  /symfony|mock\/api|fixtures|\/api\/login|login_check|sso\/login|glemt-passord|reset|verification|jwt|token/iu.test(
+    path,
+  ) ||
+  (path.startsWith("/api/auth/sign-in/") && path !== "/api/auth/sign-in/email") ||
+  /\/api\/auth\/(?:callback|oauth|sso|social|link-social|unlink-account)(?:\/|$)/iu.test(path);
+const rememberCookieValue = (values, value) => {
+  if (value.length < 8) return;
+  values.add(value);
+  try {
+    values.add(decodeURIComponent(value));
+  } catch {}
+};
+const rememberCookieHeader = (values, header) => {
+  if (typeof header !== "string") return;
+  for (const pair of header.split(";")) {
+    const separator = pair.indexOf("=");
+    if (separator >= 0) rememberCookieValue(values, pair.slice(separator + 1).trim());
+  }
+};
+const rememberSetCookie = (values, header) => {
+  const pair = header.split(";", 1)[0] ?? "";
+  const separator = pair.indexOf("=");
+  if (separator >= 0) rememberCookieValue(values, pair.slice(separator + 1).trim());
+};
+const sanitizationFacts = (candidate, capturedCookieValues) => {
+  const serialized = JSON.stringify(candidate);
+  const processSecretMatches = [
+    ["database-url", postgresUrl],
+    ["identity-password", password],
+    ["wrong-password", wrongPassword],
+    ["better-auth-secret", secret],
+  ]
+    .filter(([, value]) => value.length > 0 && serialized.includes(value))
+    .map(([label]) => label);
+  const databaseUrlMatches = /postgres(?:ql)?:\/\//iu.test(serialized) ? ["database-url"] : [];
+  const cookieAssignmentMatches = /better-auth\.session_token(?:=|%3D)/iu.test(serialized)
+    ? ["session-cookie-assignment"]
+    : [];
+  const capturedCookieValueMatches = [...capturedCookieValues]
+    .filter((value) => value.length > 0 && serialized.includes(value))
+    .map((_, index) => `captured-cookie-${index + 1}`);
+  assert.deepEqual(processSecretMatches, []);
+  assert.deepEqual(databaseUrlMatches, []);
+  assert.deepEqual(cookieAssignmentMatches, []);
+  assert.deepEqual(capturedCookieValueMatches, []);
+  return {
+    processSecretMatches,
+    databaseUrlMatches,
+    cookieAssignmentMatches,
+    capturedCookieValueMatches,
+  };
+};
 
 const assertPortClosed = (port) =>
   new Promise((resolve, reject) => {
@@ -107,19 +184,29 @@ const waitForHttp = async (url, child, label) => {
 
 const startRecordingBoundary = async (targetOrigin) => {
   const records = [];
+  const sensitiveCookieValues = new Set();
   const server = createServer(async (request, response) => {
     const started = Date.now();
     const method = request.method ?? "GET";
     const target = new URL(request.url ?? "/", targetOrigin);
     const chunks = [];
     for await (const chunk of request) chunks.push(Buffer.from(chunk));
+    const requestBytes = Buffer.concat(chunks);
+    rememberCookieHeader(sensitiveCookieValues, request.headers.cookie);
     const record = {
       direction: "dashboard-to-native-backend",
       destination: "loopback-recording-boundary-to-native-backend",
       method,
       path: target.pathname,
+      authorityDataMatches: {
+        path: findAuthorityData(`${target.pathname}${target.search}`),
+        request: findAuthorityData(requestBytes.toString("utf8")),
+        response: [],
+      },
+      legacyOrProvider: isLegacyOrProviderPath(target.pathname),
       status: 0,
       durationMs: 0,
+      responseByteLength: 0,
     };
     records.push(record);
     try {
@@ -135,40 +222,54 @@ const startRecordingBoundary = async (targetOrigin) => {
       const upstream = await fetch(target, {
         method,
         headers,
-        body: method === "GET" || method === "HEAD" ? undefined : Buffer.concat(chunks),
+        body: method === "GET" || method === "HEAD" ? undefined : requestBytes,
         redirect: "manual",
       });
       const bytes = Buffer.from(await upstream.arrayBuffer());
+      const bodyText = bytes.toString("utf8");
       record.status = upstream.status;
       record.durationMs = Date.now() - started;
+      record.responseByteLength = bytes.byteLength;
+      record.authorityDataMatches.response = findAuthorityData(bodyText);
       response.statusCode = upstream.status;
       if (target.pathname === "/api/me/session") {
         if (upstream.status === 200) {
-          const projection = JSON.parse(bytes.toString("utf8"));
+          const projection = JSON.parse(bodyText);
           assert.deepEqual(Object.keys(projection).sort(), ["expiresAt", "personId"]);
           assert.equal(projection.personId, "journey-0065-admin");
           assert.ok(
             typeof projection.expiresAt === "string" &&
               Date.parse(projection.expiresAt) > Date.now(),
           );
+          assert.equal(bodyText, JSON.stringify(projection));
           record.sessionProjection = {
+            keys: Object.keys(projection),
             personId: projection.personId,
             expiresAt: projection.expiresAt,
+            bodyByteLength: bytes.byteLength,
+            exactJsonBytes: true,
           };
         } else if (upstream.status === 401) {
-          assert.deepEqual(JSON.parse(bytes.toString("utf8")), {
-            error: { tag: "UnauthenticatedActor" },
-          });
-          record.typedUnauthenticated = true;
+          const expectedBody = { error: { tag: "UnauthenticatedActor" } };
+          assert.deepEqual(JSON.parse(bodyText), expectedBody);
+          assert.equal(bodyText, JSON.stringify(expectedBody));
+          record.unauthenticatedProjection = {
+            keys: ["error.tag"],
+            tag: "UnauthenticatedActor",
+            bodyByteLength: bytes.byteLength,
+            exactJsonBytes: true,
+          };
         }
       }
       const retryAfter = upstream.headers.get("x-retry-after");
       if (retryAfter !== null && /^\d+$/u.test(retryAfter))
         record.retryAfterSeconds = Number(retryAfter);
+      const setCookies = upstream.headers.getSetCookie();
+      for (const setCookie of setCookies) rememberSetCookie(sensitiveCookieValues, setCookie);
       for (const [name, value] of upstream.headers.entries()) {
         if (["content-encoding", "content-length", "transfer-encoding"].includes(name)) continue;
         if (name === "set-cookie") {
-          response.setHeader(name, upstream.headers.getSetCookie());
+          response.setHeader(name, setCookies);
           continue;
         }
         response.setHeader(name, value);
@@ -194,6 +295,7 @@ const startRecordingBoundary = async (targetOrigin) => {
   return {
     origin: `http://127.0.0.1:${address.port}`,
     records,
+    sensitiveCookieValues,
     close: () => new Promise((resolve) => server.close(() => resolve())),
   };
 };
@@ -297,7 +399,17 @@ const main = async () => {
     });
     const seedEvidence = JSON.parse(seed.stdout.trim());
     assert.equal(seedEvidence.personId, "journey-0065-admin");
-    assert.equal(seedEvidence.migration.revision, 15);
+    assert.deepEqual(seedEvidence.migrations, [
+      { revision: 15, name: "native-identity-better-auth" },
+      { revision: 23, name: "declarative-authorization-rules" },
+    ]);
+    assert.deepEqual(
+      seedEvidence.authSchema.beforePublicAuthz,
+      seedEvidence.authSchema.afterPublicAuthz,
+    );
+    assert.equal(seedEvidence.publicAuthz.tags.length, 1);
+    assert.equal(seedEvidence.publicAuthz.assignments.length, 1);
+    assert.equal(seedEvidence.publicAuthz.rules.length, 2);
     backend = start(
       "bun",
       ["run", "--cwd", "apps/backend", "start"],
@@ -366,33 +478,139 @@ const main = async () => {
     );
     const browserEvidence = JSON.parse(await readFile(browserEvidencePath, "utf8"));
     assert.equal(browserEvidence.passed, true);
+    assert.equal(browserEvidence.extensionSpecId, "0056");
+    assert.deepEqual(browserEvidence.accessibilityViolations, {
+      initial: 0,
+      invalid: 0,
+      rateLimit: 0,
+    });
+    assert.deepEqual(findAuthorityData(JSON.stringify(browserEvidence)), []);
+    assert.equal(browserEvidence.authorityIsolation.browserArtifacts.length, 6);
+    assert.ok(
+      browserEvidence.authorityIsolation.browserArtifacts.every(
+        (artifact) =>
+          artifact.domMatches.length === 0 &&
+          artifact.htmlMatches.length === 0 &&
+          artifact.localStorageMatches.length === 0 &&
+          artifact.sessionStorageMatches.length === 0 &&
+          artifact.cookieNameMatches.length === 0 &&
+          artifact.cookieValueMatches.length === 0,
+      ),
+    );
+    assert.deepEqual(browserEvidence.requestLedger.forbidden, []);
+    assert.deepEqual(browserEvidence.requestLedger.unexpectedDestinations, []);
     const nativeSignIn = boundary.records.filter(
       (entry) => entry.path === "/api/auth/sign-in/email",
     );
     assert.equal(nativeSignIn.length, 11);
+    assert.equal(nativeSignIn[0].status, 200);
     const wrongStatuses = nativeSignIn.slice(-10).map((entry) => entry.status);
     assert.deepEqual(wrongStatuses, [401, 401, 401, 429, 429, 429, 429, 429, 429, 429]);
-    assert.ok(nativeSignIn.some((entry) => entry.status === 200));
+    const nativeSignOut = boundary.records.filter((entry) => entry.path === "/api/auth/sign-out");
+    assert.deepEqual(
+      nativeSignOut.map(({ status }) => status),
+      [200],
+    );
     const sessionRequests = boundary.records.filter((entry) => entry.path === "/api/me/session");
     assert.ok(sessionRequests.some((entry) => entry.status === 200));
     assert.ok(sessionRequests.some((entry) => entry.status === 401));
-    const forbidden = boundary.records.filter((entry) =>
-      /symfony|mock\/api|fixtures|\/api\/login|login_check|sso\/login|glemt-passord|reset|verification|jwt|token/u.test(
-        entry.path,
+    const successfulSessionProjections = sessionRequests
+      .filter((entry) => entry.status === 200)
+      .map((entry) => entry.sessionProjection);
+    const unauthenticatedSessionProjections = sessionRequests
+      .filter((entry) => entry.status === 401)
+      .map((entry) => entry.unauthenticatedProjection);
+    assert.ok(
+      successfulSessionProjections.every(
+        (projection) =>
+          projection !== undefined &&
+          projection.exactJsonBytes === true &&
+          projection.personId === "journey-0065-admin" &&
+          projection.keys.join(",") === "personId,expiresAt",
       ),
     );
+    assert.ok(
+      unauthenticatedSessionProjections.every(
+        (projection) =>
+          projection !== undefined &&
+          projection.exactJsonBytes === true &&
+          projection.tag === "UnauthenticatedActor",
+      ),
+    );
+    const forbidden = boundary.records.filter((entry) => entry.legacyOrProvider);
+    const apiAuthorityRequests = boundary.records.filter((entry) =>
+      Object.values(entry.authorityDataMatches).some((matches) => matches.length > 0),
+    );
     assert.deepEqual(forbidden, []);
+    assert.deepEqual(apiAuthorityRequests, []);
     const proofOutput = await run(
       "bun",
       ["run", "--cwd", "packages/database", "proof:identity-browser"],
       {
         cwd: repositoryRoot,
-        env: { ...baseEnvironment, IDENTITY_EVIDENCE_PG_URL: postgresUrl },
+        env: {
+          ...baseEnvironment,
+          IDENTITY_EVIDENCE_PG_URL: postgresUrl,
+          IDENTITY_EVIDENCE_AUTH_SCHEMA_BASELINE: JSON.stringify(
+            seedEvidence.authSchema.afterPublicAuthz,
+          ),
+          IDENTITY_EVIDENCE_PUBLIC_AUTHZ_BASELINE: JSON.stringify(seedEvidence.publicAuthz),
+        },
         capture: true,
-        label: "Identity 0065 PostgreSQL proof",
+        label: "Identity 0056 PostgreSQL orthogonality proof",
       },
     );
     const postgresEvidence = JSON.parse(proofOutput.stdout.trim());
+    assert.equal(postgresEvidence.extensionSpecId, "0056");
+    assert.deepEqual(
+      postgresEvidence.authSchemaState,
+      seedEvidence.authSchema.afterPublicAuthz,
+    );
+    assert.deepEqual(postgresEvidence.publicAuthz, seedEvidence.publicAuthz);
+    assert.deepEqual(
+      {
+        activeAssignments: postgresEvidence.authzActivity.activeAssignments,
+        activeRules: postgresEvidence.authzActivity.activeRules,
+        expiredRules: postgresEvidence.authzActivity.expiredRules,
+        activeOtherPersonRules: postgresEvidence.authzActivity.activeOtherPersonRules,
+        expiredJourneyPersonRules: postgresEvidence.authzActivity.expiredJourneyPersonRules,
+      },
+      {
+        activeAssignments: 1,
+        activeRules: 1,
+        expiredRules: 1,
+        activeOtherPersonRules: 1,
+        expiredJourneyPersonRules: 1,
+      },
+    );
+    const identityBehavior = {
+      login: {
+        nativeStatus: nativeSignIn[0].status,
+        redirect: browserEvidence.observations.login.redirect,
+        cookieName: browserEvidence.observations.login.cookieName,
+        cookieValueRecorded: browserEvidence.observations.login.cookieValueRecorded,
+        cookieAttributes: browserEvidence.observations.login.cookieAttributes,
+      },
+      sessionProjection: {
+        statuses: sessionRequests.map(({ status }) => status),
+        successful: successfulSessionProjections,
+        unauthenticated: unauthenticatedSessionProjections,
+      },
+      reload: browserEvidence.observations.reload,
+      logout: {
+        nativeStatuses: nativeSignOut.map(({ status }) => status),
+        browser: browserEvidence.observations.logout,
+      },
+      revokedCookieReplay: browserEvidence.observations.oldCookieReplay,
+      rateLimit: {
+        nativeStatuses: wrongStatuses,
+        browser: browserEvidence.observations.wrongPassword,
+      },
+      accessibility: {
+        violations: browserEvidence.accessibilityViolations,
+        semantics: browserEvidence.observations.accessibility,
+      },
+    };
     const versions = await Promise.all([
       run("node", ["--version"], {
         cwd: repositoryRoot,
@@ -423,7 +641,9 @@ const main = async () => {
     evidence = {
       specId: "0065",
       parentSpecId: "0054",
+      extensionSpecId: "0056",
       baseCommit: "2bcc38a605c9c85dcc1be722dff361138c801827",
+      extensionSourceCommit: "4cc5cea669fa30d4fd8782f411eb9dcf86ba1380",
       finalRevision: (
         await run("git", ["rev-parse", "HEAD"], {
           cwd: repositoryRoot,
@@ -451,12 +671,41 @@ const main = async () => {
         engine: "Chromium",
         topology: { baseURL: dashboardOrigin, webServer: "undefined" },
       },
+      identityBehavior,
       native: {
         signInStatuses: nativeSignIn.map(({ status }) => status),
         wrongPasswordStatuses: wrongStatuses,
+        signOutStatuses: nativeSignOut.map(({ status }) => status),
         sessionStatuses: sessionRequests.map(({ status }) => status),
       },
-      postgres: postgresEvidence,
+      postgres: {
+        ...postgresEvidence,
+        comparisons: {
+          authSchema: {
+            beforePublicAuthzSeed: seedEvidence.authSchema.beforePublicAuthz,
+            beforeBrowser: seedEvidence.authSchema.afterPublicAuthz,
+            afterBrowser: postgresEvidence.authSchemaState,
+          },
+          publicAuthz: {
+            beforeBrowser: seedEvidence.publicAuthz,
+            afterBrowser: postgresEvidence.publicAuthz,
+          },
+        },
+      },
+      recorder: {
+        legacyOrProviderRequests: forbidden,
+        browserLegacyOrProviderRequests: browserEvidence.requestLedger.forbidden,
+        unexpectedBrowserDestinations:
+          browserEvidence.requestLedger.unexpectedDestinations,
+        apiRequestsWithAuthorityData: apiAuthorityRequests,
+        browserRequestsWithAuthorityData:
+          browserEvidence.authorityIsolation.requestsWithAuthorityData,
+        rawRequestHeaders: 0,
+        rawResponseHeaders: 0,
+        rawRequestBodies: 0,
+        rawResponseBodies: 0,
+        queryStrings: 0,
+      },
       requestLedger: ledger,
       cleanup: { pending: true },
       passed: true,
@@ -511,6 +760,10 @@ const main = async () => {
     portsClosed: cleanupPorts,
     ownedProcessesExited: true,
   };
+  evidence.sanitization = sanitizationFacts(
+    evidence,
+    boundary?.sensitiveCookieValues ?? new Set(),
+  );
   process.stdout.write(`${JSON.stringify(evidence, null, 2)}\n`);
 };
 
