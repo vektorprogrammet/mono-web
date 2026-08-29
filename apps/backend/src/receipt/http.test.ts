@@ -321,15 +321,11 @@ describe("receipt HTTP authority resolution (spec 0055)", () => {
     const state = harness({
       commandFailure: new ReceiptNotFound({ receiptId: "receipt-absent-global" }),
     });
-    const response = await request(
-      state.http,
-      "/api/admin/receipts/receipt-absent-global/reject",
-      {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ commandId: "command-absent-global", expectedRevision: 0 }),
-      },
-    );
+    const response = await request(state.http, "/api/admin/receipts/receipt-absent-global/reject", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ commandId: "command-absent-global", expectedRevision: 0 }),
+    });
     expect({ status: response.status, body: await response.json() }).toEqual({
       status: 404,
       body: { error: { tag: "ReceiptNotFound" } },

@@ -9,12 +9,7 @@ import {
   reviseOrganizationMembership,
   suspendOrganizationMembership,
 } from "./postgres.js";
-import {
-  DepartmentId,
-  MembershipId,
-  MembershipInvariantSchema,
-  PersonId,
-} from "./schema.js";
+import { DepartmentId, MembershipId, MembershipInvariantSchema, PersonId } from "./schema.js";
 import type { MembershipRevisionCommand } from "./transitions.js";
 
 it.effect("decodes aliased PostgreSQL membership selections through the Model", () => {
@@ -116,8 +111,7 @@ it.effect("serializes every membership revision through the canonical person pro
       const next = {
         ...current,
         endAt: command._tag === "ReviseMembership" ? command.endAt : current.endAt,
-        positionId:
-          command._tag === "ReviseMembership" ? command.positionId : current.positionId,
+        positionId: command._tag === "ReviseMembership" ? command.positionId : current.positionId,
         isTeamLeader:
           command._tag === "ReviseMembership" ? command.isTeamLeader : current.isTeamLeader,
         isSuspended:
