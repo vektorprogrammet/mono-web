@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import AxeBuilder from "@axe-core/playwright";
 import { writeFile } from "node:fs/promises";
 import { expect, test, type BrowserContext, type Page } from "@playwright/test";
+import { readBrowserStorage } from "../browser/interview-response-state.js";
 
 const realRun = process.env.REAL_NATIVE_IDENTITY_E2E === "1";
 const evidencePath = process.env.IDENTITY_EVIDENCE_BROWSER_PATH;
@@ -114,9 +115,7 @@ const authorityDataPatterns = [
 ] as const;
 
 const findAuthorityData = (value: string): ReadonlyArray<string> =>
-  authorityDataPatterns
-    .filter(({ pattern }) => pattern.test(value))
-    .map(({ label }) => label);
+  authorityDataPatterns.filter(({ pattern }) => pattern.test(value)).map(({ label }) => label);
 
 const isLegacyOrProviderPath = (path: string): boolean =>
   /symfony|mock\/api|fixtures|\/api\/login|login_check|sso\/login|glemt-passord|reset|verification|jwt|token/iu.test(
@@ -130,23 +129,24 @@ const observeBrowserAuthorityIsolation = async (
   page: Page,
   checkpoint: string,
 ): Promise<BrowserAuthorityCheck> => {
-  const artifact = await page.evaluate(() => ({
-    bodyText: document.body?.innerText ?? "",
-    html: document.documentElement.outerHTML,
-    localStorage: Object.entries(window.localStorage),
-    sessionStorage: Object.entries(window.sessionStorage),
-  }));
+  const [bodyText, html, browserStorage] = await Promise.all([
+    page.locator("body").innerText(),
+    page.content(),
+    page.evaluate(readBrowserStorage),
+  ]);
+  const artifact = {
+    bodyText,
+    html,
+    localStorage: browserStorage.local,
+    sessionStorage: browserStorage.session,
+  };
   const domMatches = findAuthorityData(artifact.bodyText);
   const htmlMatches = findAuthorityData(artifact.html);
   const localStorageMatches = findAuthorityData(JSON.stringify(artifact.localStorage));
   const sessionStorageMatches = findAuthorityData(JSON.stringify(artifact.sessionStorage));
   const cookies = await context.cookies();
-  const cookieNameMatches = findAuthorityData(
-    JSON.stringify(cookies.map(({ name }) => name)),
-  );
-  const cookieValueMatches = findAuthorityData(
-    JSON.stringify(cookies.map(({ value }) => value)),
-  );
+  const cookieNameMatches = findAuthorityData(JSON.stringify(cookies.map(({ name }) => name)));
+  const cookieValueMatches = findAuthorityData(JSON.stringify(cookies.map(({ value }) => value)));
   expect(domMatches).toEqual([]);
   expect(htmlMatches).toEqual([]);
   expect(localStorageMatches).toEqual([]);
@@ -241,9 +241,7 @@ test.describe("Native Identity browser evidence (spec 0065 with spec 0056 rules)
       expect((await context.cookies()).some((cookie) => cookie.name === sessionCookieName)).toBe(
         false,
       );
-      await expect(
-        page.getByRole("heading", { level: 1, name: "Vektorprogrammet" }),
-      ).toBeVisible();
+      await expect(page.getByRole("heading", { level: 1, name: "Vektorprogrammet" })).toBeVisible();
       observations.logout = { status: 200, redirect: "/login", browserCookieRemoved: true };
       browserAuthorityChecks.push(
         await observeBrowserAuthorityIsolation(context, page, "logout-login"),
@@ -251,9 +249,7 @@ test.describe("Native Identity browser evidence (spec 0065 with spec 0056 rules)
       await context.addCookies([oldCookie]);
       await page.goto("/dashboard");
       await page.waitForURL((url) => url.pathname === "/login", { waitUntil: "commit" });
-      await expect(
-        page.getByRole("heading", { level: 1, name: "Vektorprogrammet" }),
-      ).toBeVisible();
+      await expect(page.getByRole("heading", { level: 1, name: "Vektorprogrammet" })).toBeVisible();
       await expect(page.getByText("Journey Identity")).toHaveCount(0);
       observations.oldCookieReplay = {
         retainedInMemoryOnly: true,

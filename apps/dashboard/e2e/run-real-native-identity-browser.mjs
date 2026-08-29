@@ -48,9 +48,7 @@ const authorityDataPatterns = [
   },
 ];
 const findAuthorityData = (value) =>
-  authorityDataPatterns
-    .filter(({ pattern }) => pattern.test(value))
-    .map(({ label }) => label);
+  authorityDataPatterns.filter(({ pattern }) => pattern.test(value)).map(({ label }) => label);
 const isLegacyOrProviderPath = (path) =>
   /symfony|mock\/api|fixtures|\/api\/login|login_check|sso\/login|glemt-passord|reset|verification|jwt|token/iu.test(
     path,
@@ -562,10 +560,7 @@ const main = async () => {
     );
     const postgresEvidence = JSON.parse(proofOutput.stdout.trim());
     assert.equal(postgresEvidence.extensionSpecId, "0056");
-    assert.deepEqual(
-      postgresEvidence.authSchemaState,
-      seedEvidence.authSchema.afterPublicAuthz,
-    );
+    assert.deepEqual(postgresEvidence.authSchemaState, seedEvidence.authSchema.afterPublicAuthz);
     assert.deepEqual(postgresEvidence.publicAuthz, seedEvidence.publicAuthz);
     assert.deepEqual(
       {
@@ -695,8 +690,7 @@ const main = async () => {
       recorder: {
         legacyOrProviderRequests: forbidden,
         browserLegacyOrProviderRequests: browserEvidence.requestLedger.forbidden,
-        unexpectedBrowserDestinations:
-          browserEvidence.requestLedger.unexpectedDestinations,
+        unexpectedBrowserDestinations: browserEvidence.requestLedger.unexpectedDestinations,
         apiRequestsWithAuthorityData: apiAuthorityRequests,
         browserRequestsWithAuthorityData:
           browserEvidence.authorityIsolation.requestsWithAuthorityData,
@@ -760,10 +754,7 @@ const main = async () => {
     portsClosed: cleanupPorts,
     ownedProcessesExited: true,
   };
-  evidence.sanitization = sanitizationFacts(
-    evidence,
-    boundary?.sensitiveCookieValues ?? new Set(),
-  );
+  evidence.sanitization = sanitizationFacts(evidence, boundary?.sensitiveCookieValues ?? new Set());
   process.stdout.write(`${JSON.stringify(evidence, null, 2)}\n`);
 };
 

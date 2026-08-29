@@ -207,12 +207,7 @@ try {
       (assignment_id, tag_id, person_id, start_at, end_at, revision)
      VALUES ($1, $2, $3, $4::timestamptz, NULL, 0)
      ON CONFLICT (assignment_id) DO NOTHING`,
-    [
-      authzFixture.assignmentId,
-      authzFixture.tagId,
-      orthogonalPerson.personId,
-      activeStartAt,
-    ],
+    [authzFixture.assignmentId, authzFixture.tagId, orthogonalPerson.personId, activeStartAt],
   );
   await observer.query(
     `INSERT INTO public.authz_rules (
