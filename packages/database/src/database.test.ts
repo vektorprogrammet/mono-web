@@ -2765,6 +2765,164 @@ describe("DatabaseTest", () => {
     expect(replay.replayed).toBe(true);
   });
 
+  it("keeps missing Receipt targets opaque except to active global approvers", async () => {
+    const failures = await runtime.runPromise(
+      Effect.gen(function* () {
+        const database = yield* Database;
+        const economy = yield* Economy;
+        const departmentId = DepartmentId.make("missing-receipt-department");
+        const globalDirect = PersonId.make("missing-receipt-global-direct");
+        const globalRule = PersonId.make("missing-receipt-global-rule");
+        const receiptRule = PersonId.make("missing-receipt-receipt-rule");
+        const departmentDirect = PersonId.make("missing-receipt-department-direct");
+        const departmentRule = PersonId.make("missing-receipt-department-rule");
+        const authorizationInstant = "2036-06-15T12:00:00.000Z";
+
+        yield* database`
+          INSERT INTO person_profiles (person_id, first_name, last_name)
+          VALUES
+            (${globalDirect}, 'Global', 'Direct'),
+            (${globalRule}, 'Global', 'Rule'),
+            (${receiptRule}, 'Receipt', 'Rule'),
+            (${departmentDirect}, 'Department', 'Direct'),
+            (${departmentRule}, 'Department', 'Rule')
+        `;
+        yield* database`
+          INSERT INTO organization_departments (
+            department_id, name, short_name, email, city
+          ) VALUES (
+            ${departmentId}, 'Missing Receipt Department', 'MRD',
+            'missing-receipt@example.invalid', 'Bergen'
+          )
+        `;
+        yield* database`
+          INSERT INTO organization_teams (team_id, department_id, name)
+          VALUES ('missing-receipt-team', ${departmentId}, 'Missing Receipt Team')
+        `;
+        yield* database`
+          INSERT INTO organization_memberships (
+            membership_id, person_id, team_id, start_at
+          ) VALUES
+            ('missing-receipt-membership-global-direct', ${globalDirect},
+              'missing-receipt-team', '2036-01-01T00:00:00.000Z'),
+            ('missing-receipt-membership-global-rule', ${globalRule},
+              'missing-receipt-team', '2036-01-01T00:00:00.000Z'),
+            ('missing-receipt-membership-receipt-rule', ${receiptRule},
+              'missing-receipt-team', '2036-01-01T00:00:00.000Z'),
+            ('missing-receipt-membership-department-direct', ${departmentDirect},
+              'missing-receipt-team', '2036-01-01T00:00:00.000Z'),
+            ('missing-receipt-membership-department-rule', ${departmentRule},
+              'missing-receipt-team', '2036-01-01T00:00:00.000Z')
+        `;
+        yield* database`
+          INSERT INTO economy_receipt_approval_grants (
+            approval_grant_id, person_id, scope, department_id, start_at
+          ) VALUES
+            ('missing-receipt-global-direct-grant', ${globalDirect}, 'Global', NULL,
+              '2036-01-01T00:00:00.000Z'),
+            ('missing-receipt-department-direct-grant', ${departmentDirect}, 'Department',
+              ${departmentId}, '2036-01-01T00:00:00.000Z')
+        `;
+        yield* database`
+          INSERT INTO public.authz_rules (
+            rule_id, capability_id, effect_kind, subject_kind, subject_person_id,
+            subject_tag_id, scope, department_id, params, start_at
+          ) VALUES
+            (
+              'missing-receipt-global-rule', 'approveReceipt', 'delegate', 'Person',
+              ${globalRule}, NULL, 'Global', NULL,
+              ${database.json({ slot: "EconomyGlobalReceiptApprovalGrant" })},
+              '2036-01-01T00:00:00.000Z'
+            ),
+            (
+              'missing-receipt-receipt-rule', 'approveReceipt', 'delegate', 'Person',
+              ${receiptRule}, NULL, 'Receipt', NULL,
+              ${database.json({ slot: "EconomyGlobalReceiptApprovalGrant" })},
+              '2036-01-01T00:00:00.000Z'
+            ),
+            (
+              'missing-receipt-department-rule', 'approveReceipt', 'delegate', 'Person',
+              ${departmentRule}, NULL, 'Department', ${departmentId},
+              ${database.json({ slot: "EconomyDepartmentApprovalGrant" })},
+              '2036-01-01T00:00:00.000Z'
+            )
+        `;
+
+        const directGlobalFailure = yield* Effect.flip(
+          economy.executeReceipt(
+            {
+              _tag: "RefundReceipt",
+              commandId: "missing-receipt-command-global-direct",
+              receiptId: "missing-receipt-global-direct-target",
+              expectedRevision: 0,
+            },
+            { personId: globalDirect, authorizationInstant },
+          ),
+        );
+        const globalRuleFailure = yield* Effect.flip(
+          economy.executeReceipt(
+            {
+              _tag: "RejectReceipt",
+              commandId: "missing-receipt-command-global-rule",
+              receiptId: "missing-receipt-global-rule-target",
+              expectedRevision: 0,
+            },
+            { personId: globalRule, authorizationInstant },
+          ),
+        );
+        const receiptRuleFailure = yield* Effect.flip(
+          economy.executeReceipt(
+            {
+              _tag: "RefundReceipt",
+              commandId: "missing-receipt-command-receipt-rule",
+              receiptId: "missing-receipt-receipt-rule-target",
+              expectedRevision: 0,
+            },
+            { personId: receiptRule, authorizationInstant },
+          ),
+        );
+        const directDepartmentFailure = yield* Effect.flip(
+          economy.executeReceipt(
+            {
+              _tag: "RejectReceipt",
+              commandId: "missing-receipt-command-department-direct",
+              receiptId: "missing-receipt-department-direct-target",
+              expectedRevision: 0,
+            },
+            { personId: departmentDirect, authorizationInstant },
+          ),
+        );
+        const departmentRuleFailure = yield* Effect.flip(
+          economy.executeReceipt(
+            {
+              _tag: "RefundReceipt",
+              commandId: "missing-receipt-command-department-rule",
+              receiptId: "missing-receipt-department-rule-target",
+              expectedRevision: 0,
+            },
+            { personId: departmentRule, authorizationInstant },
+          ),
+        );
+
+        return {
+          directGlobal: directGlobalFailure._tag,
+          globalRule: globalRuleFailure._tag,
+          receiptRule: receiptRuleFailure._tag,
+          directDepartment: directDepartmentFailure._tag,
+          departmentRule: departmentRuleFailure._tag,
+        };
+      }),
+    );
+
+    expect(failures).toEqual({
+      directGlobal: "ReceiptNotFound",
+      globalRule: "ReceiptNotFound",
+      receiptRule: "ReceiptNotFound",
+      directDepartment: "ReceiptScopeDenied",
+      departmentRule: "ReceiptScopeDenied",
+    });
+  });
+
   it("returns failed applicant effects to the durable retry queue", async () => {
     const interpreter = makeRecordingPublicApplicationEffectInterpreter();
     const evidence = await runtime.runPromise(

@@ -10,6 +10,7 @@ import {
   ReceiptFileService,
   ReceiptObservationSchema,
   ReceiptPaymentAuthorityId,
+  ReceiptNotFound,
   ReceiptScopeDenied,
   UnauthenticatedActor,
   projectReceiptAuthority,
@@ -105,7 +106,7 @@ interface HarnessOptions {
   readonly unauthenticated?: boolean;
   readonly ownedRows?: ReadonlyArray<unknown>;
   readonly approvalRows?: ReadonlyArray<unknown>;
-  readonly commandFailure?: ReceiptScopeDenied;
+  readonly commandFailure?: ReceiptScopeDenied | ReceiptNotFound;
 }
 
 const harness = (options: HarnessOptions = {}) => {
@@ -311,6 +312,27 @@ describe("receipt HTTP authority resolution (spec 0055)", () => {
     expect({ status: response.status, body: await response.json() }).toEqual({
       status: 403,
       body: { error: { tag: "ReceiptScopeDenied" } },
+    });
+    expect(state.commands).toHaveLength(1);
+    expect(state.approvalScopes).toEqual([]);
+  });
+
+  it("maps a transaction-local globally visible missing target to stable 404", async () => {
+    const state = harness({
+      commandFailure: new ReceiptNotFound({ receiptId: "receipt-absent-global" }),
+    });
+    const response = await request(
+      state.http,
+      "/api/admin/receipts/receipt-absent-global/reject",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ commandId: "command-absent-global", expectedRevision: 0 }),
+      },
+    );
+    expect({ status: response.status, body: await response.json() }).toEqual({
+      status: 404,
+      body: { error: { tag: "ReceiptNotFound" } },
     });
     expect(state.commands).toHaveLength(1);
     expect(state.approvalScopes).toEqual([]);

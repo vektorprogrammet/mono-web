@@ -320,25 +320,40 @@ export const mapReceiptDepartmentApprovalActor = (
   });
 };
 
-export const mapReceiptGlobalApprovalActor = (
+export interface ReceiptGlobalApprovalPrincipal {
+  readonly personId: PersonId;
+  readonly active: boolean;
+}
+
+export const mapReceiptGlobalApprovalPrincipal = (
   authority: ReceiptAuthority,
-  receiptDepartmentId: DepartmentId,
-): Effect.Effect<ReceiptActor, ReceiptAuthorityDenied> => {
+): Effect.Effect<ReceiptGlobalApprovalPrincipal, ReceiptAuthorityDenied> => {
   let selected: ResolvedReceiptApprovalGrant | undefined;
   for (const grant of authority.approvalGrants) {
     if (grant.scope._tag !== "Global") continue;
     selected = preferTemporalCandidate(selected, grant, authority.evaluatedAt);
   }
   if (selected === undefined) {
-    return Effect.fail(deny(authority, "GlobalApproval", receiptDepartmentId));
+    return Effect.fail(deny(authority, "GlobalApproval", null));
   }
   return Effect.succeed({
     personId: authority.personId,
-    departmentId: receiptDepartmentId,
     active: selected.active,
-    approvalScope: { _tag: "Global" },
   });
 };
+
+export const mapReceiptGlobalApprovalActor = (
+  authority: ReceiptAuthority,
+  receiptDepartmentId: DepartmentId,
+): Effect.Effect<ReceiptActor, ReceiptAuthorityDenied> =>
+  mapReceiptGlobalApprovalPrincipal(authority).pipe(
+    Effect.map((principal) => ({
+      personId: principal.personId,
+      departmentId: receiptDepartmentId,
+      active: principal.active,
+      approvalScope: { _tag: "Global" },
+    })),
+  );
 
 /**
  * Existing receipt approval derives its only department scope from the locked

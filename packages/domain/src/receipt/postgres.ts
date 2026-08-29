@@ -9,6 +9,7 @@ import { Effect, Schema } from "effect";
 import { canonicalJson, canonicalJsonBytes, sha256Hex } from "../tutor/evidence.js";
 import {
   mapReceiptApprovalActor,
+  mapReceiptGlobalApprovalPrincipal,
   mapReceiptOwnerActor,
   mapReceiptSubmissionPrincipal,
   projectReceiptAuthority,
@@ -467,12 +468,6 @@ export const executeReceiptCommand = (
           }
           if (
             previous === undefined &&
-            (command._tag === "RefundReceipt" || command._tag === "RejectReceipt")
-          ) {
-            return yield* new ReceiptScopeDenied({ receiptId, departmentId: "" });
-          }
-          if (
-            previous === undefined &&
             (command._tag === "RevisePendingReceipt" || command._tag === "WithdrawPendingReceipt")
           ) {
             return yield* new ReceiptNotFound({ receiptId });
@@ -590,7 +585,7 @@ export const executeReceiptCommand = (
               paymentAccountCiphertext: submission.paymentAccountCiphertext,
             };
           } else if (command._tag === "RefundReceipt" || command._tag === "RejectReceipt") {
-            const current = previous as Receipt;
+            const current = previous;
             const directAuthority = yield* resolveReceiptAuthorityWithSql(
               sql,
               principal.personId,
@@ -608,10 +603,13 @@ export const executeReceiptCommand = (
                       }),
               ),
             );
-            const requestScope = {
-              domain: "Receipt" as const,
-              departmentId: current.departmentId,
-            };
+            const requestScope =
+              current === undefined
+                ? { domain: "Receipt" as const }
+                : {
+                    domain: "Receipt" as const,
+                    departmentId: current.departmentId,
+                  };
             const applicable = yield* readApplicableAuthorizationRules(
               sql,
               principal.personId,
@@ -639,6 +637,24 @@ export const executeReceiptCommand = (
                 tagAssignments: applicable.tagAssignments,
               },
             );
+            const composedAuthority = projectReceiptAuthority(
+              organization,
+              [],
+              composition.evidence.approvalGrants ?? [],
+            );
+            if (current === undefined) {
+              const activeGlobalApproval =
+                composition.decision._tag === "Allow"
+                  ? yield* mapReceiptGlobalApprovalPrincipal(composedAuthority).pipe(
+                      Effect.map((approval) => approval.active),
+                      Effect.catchTag("ReceiptAuthorityDenied", () => Effect.succeed(false)),
+                    )
+                  : false;
+              if (activeGlobalApproval) {
+                return yield* new ReceiptNotFound({ receiptId });
+              }
+              return yield* new ReceiptScopeDenied({ receiptId, departmentId: "" });
+            }
             if (composition.decision._tag === "Deny") {
               return yield* new ReceiptAuthorityDenied({
                 personId: principal.personId,
@@ -646,11 +662,6 @@ export const executeReceiptCommand = (
                 departmentId: current.departmentId,
               });
             }
-            const composedAuthority = projectReceiptAuthority(
-              organization,
-              [],
-              composition.evidence.approvalGrants ?? [],
-            );
             const actor = yield* mapReceiptApprovalActor(composedAuthority, current.departmentId);
             authorizedCommand = { ...command, actor };
           } else {

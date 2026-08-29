@@ -435,6 +435,7 @@ const executeMembershipRevision = (
           const current = yield* findMembership(database, command.membershipId, true);
           if (current === undefined)
             return yield* new MembershipNotFound({ membershipId: command.membershipId });
+          yield* lockPersonAuthorization(database, current.personId);
           const next = yield* applyMembershipRevision(current, command);
           return yield* updateMembership(database, current, next);
         }),
