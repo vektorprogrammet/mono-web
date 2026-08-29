@@ -151,7 +151,8 @@ const assertDisposablePostgres = (url: Redacted.Redacted<string>): void => {
 };
 
 const resetDatabaseObjects = (sql: DatabaseShape) =>
-  sql.unsafe(`
+  sql
+    .unsafe(`
     DO $$
     DECLARE extension_name text;
     BEGIN
@@ -176,7 +177,8 @@ const resetDatabaseObjects = (sql: DatabaseShape) =>
     END $$;
     DROP SCHEMA IF EXISTS public CASCADE;
     CREATE SCHEMA public;
-  `).pipe(Effect.asVoid);
+  `)
+    .pipe(Effect.asVoid);
 
 const seedDatabase = (sql: DatabaseShape) =>
   sql.withTransaction(
@@ -518,9 +520,7 @@ const classifySql = (text: string, values: ReadonlyArray<unknown>): SqlPhase | u
   }
   if (
     text.includes("pg_advisory_xact_lock") &&
-    values.some(
-      (value) => typeof value === "string" && value.startsWith("receipt-command:"),
-    )
+    values.some((value) => typeof value === "string" && value.startsWith("receipt-command:"))
   ) {
     return "command-receipt-lock";
   }
@@ -528,8 +528,7 @@ const classifySql = (text: string, values: ReadonlyArray<unknown>): SqlPhase | u
     text.includes("pg_advisory_xact_lock") &&
     values.some(
       (value) =>
-        typeof value === "string" &&
-        value.startsWith("vektorprogrammet:person-authorization:v1:"),
+        typeof value === "string" && value.startsWith("vektorprogrammet:person-authorization:v1:"),
     )
   ) {
     return "person-authorization-lock";
@@ -651,9 +650,7 @@ interface BlockingRow {
 }
 
 const parseBlockingPids = (value: string | null): ReadonlyArray<number> =>
-  value === null || value === ""
-    ? []
-    : value.split(",").map((entry) => Number.parseInt(entry, 10));
+  value === null || value === "" ? [] : value.split(",").map((entry) => Number.parseInt(entry, 10));
 
 const awaitBlockedBy = (
   sql: DatabaseShape,
@@ -817,7 +814,11 @@ const submissionCompositionFacts = (
       subject,
       authorizationInstant,
     );
-    const direct = yield* resolveReceiptAuthorityForRead(subject, authorizationInstant, organization);
+    const direct = yield* resolveReceiptAuthorityForRead(
+      subject,
+      authorizationInstant,
+      organization,
+    );
     const requestScope = { domain: "Receipt" as const, departmentId: departmentScope };
     const applicable = yield* loadApplicableAuthorizationRules(
       subject,
@@ -877,7 +878,11 @@ const approvalCompositionFacts = (
       subject,
       authorizationInstant,
     );
-    const direct = yield* resolveReceiptAuthorityForRead(subject, authorizationInstant, organization);
+    const direct = yield* resolveReceiptAuthorityForRead(
+      subject,
+      authorizationInstant,
+      organization,
+    );
     const requestScope = { domain: "Receipt" as const, departmentId: departmentScope };
     const applicable = yield* loadApplicableAuthorizationRules(
       subject,
@@ -901,7 +906,9 @@ const approvalCompositionFacts = (
       [],
       composition.evidence.approvalGrants ?? [],
     );
-    const mapped = yield* Effect.result(mapReceiptApprovalActor(composedAuthority, departmentScope));
+    const mapped = yield* Effect.result(
+      mapReceiptApprovalActor(composedAuthority, departmentScope),
+    );
     return {
       applicableRuleIds: applicable.rules.map((rule) => rule.ruleId),
       assignmentIds: applicable.tagAssignments.map((assignment) => assignment.assignmentId),
@@ -1092,11 +1099,7 @@ const proveHalfOpenAndScopeDenials = (databaseUrl: Redacted.Redacted<string>) =>
     );
     const crossDepartmentCommand = yield* Effect.result(
       executeReceiptCommand(
-        submitCommand(
-          ids.commands.crossDepartmentSubmit,
-          ids.departments.beta,
-          "cross-department",
-        ),
+        submitCommand(ids.commands.crossDepartmentSubmit, ids.departments.beta, "cross-department"),
         principal(ids.persons.crossDepartment, exactEnd),
         allocation(generatedReceiptIds.crossDepartment, generatedVisualIds.crossDepartment),
       ),
@@ -1105,9 +1108,13 @@ const proveHalfOpenAndScopeDenials = (databaseUrl: Redacted.Redacted<string>) =>
       sql,
       ids.commands.crossDepartmentSubmit,
     );
+    const endedRuleBeforeIds = endedRuleBefore.rules.map((rule) => rule.ruleId);
+    const endedRuleExactIds = endedRuleExact.rules.map((rule) => rule.ruleId);
+    const crossRuleMatchingScopeIds = crossRuleMatchingScope.rules.map((rule) => rule.ruleId);
+    const crossRuleOtherScopeIds = crossRuleOtherScope.rules.map((rule) => rule.ruleId);
 
-    assert.deepEqual(endedRuleBefore.rules.map((rule) => rule.ruleId), [ids.rules.endedApprove]);
-    assert.deepEqual(endedRuleExact.rules, []);
+    assert.deepEqual(endedRuleBeforeIds, [ids.rules.endedApprove]);
+    assert.deepEqual(endedRuleExactIds, []);
     assert.equal(resultFailureTag(endedRuleCommand), "ReceiptAuthorityDenied");
     assert.deepEqual(endedRuleDurable, {
       commandReceiptRows: 0,
@@ -1124,10 +1131,8 @@ const proveHalfOpenAndScopeDenials = (databaseUrl: Redacted.Redacted<string>) =>
       outboxRows: 0,
       outboxCommandRows: 0,
     });
-    assert.deepEqual(crossRuleMatchingScope.rules.map((rule) => rule.ruleId), [
-      ids.rules.crossDepartment,
-    ]);
-    assert.deepEqual(crossRuleOtherScope.rules, []);
+    assert.deepEqual(crossRuleMatchingScopeIds, [ids.rules.crossDepartment]);
+    assert.deepEqual(crossRuleOtherScopeIds, []);
     assert.equal(resultFailureTag(crossDepartmentCommand), "ReceiptAuthorityDenied");
     assert.deepEqual(crossDepartmentDurable, {
       commandReceiptRows: 0,
@@ -1141,9 +1146,9 @@ const proveHalfOpenAndScopeDenials = (databaseUrl: Redacted.Redacted<string>) =>
         startAt: activeStart,
         endAt: exactEnd,
         beforeInstant: justBeforeExactEnd,
-        beforeApplicableRuleIds: endedRuleBefore.rules.map((rule) => rule.ruleId),
+        beforeApplicableRuleIds: endedRuleBeforeIds,
         exactInstant: exactEnd,
-        exactApplicableRuleIds: endedRuleExact.rules.map((rule) => rule.ruleId),
+        exactApplicableRuleIds: endedRuleExactIds,
         commandFailureTag: resultFailureTag(endedRuleCommand),
         durable: endedRuleDurable,
       },
@@ -1161,8 +1166,8 @@ const proveHalfOpenAndScopeDenials = (databaseUrl: Redacted.Redacted<string>) =>
       crossDepartment: {
         ruleDepartmentId: ids.departments.alpha,
         requestedDepartmentId: ids.departments.beta,
-        matchingScopeRuleIds: crossRuleMatchingScope.rules.map((rule) => rule.ruleId),
-        requestedScopeRuleIds: crossRuleOtherScope.rules.map((rule) => rule.ruleId),
+        matchingScopeRuleIds: crossRuleMatchingScopeIds,
+        requestedScopeRuleIds: crossRuleOtherScopeIds,
         commandFailureTag: resultFailureTag(crossDepartmentCommand),
         durable: crossDepartmentDurable,
       },
@@ -1581,8 +1586,7 @@ const proveCommandFirstRuleRemoval = (databaseUrl: Redacted.Redacted<string>) =>
             canonicalJson({
               ...submitCommand(ids.commands.ruleSubmit, ids.departments.alpha, "rule-submit"),
               commandId: "[COMMAND]",
-            }) ===
-            canonicalJson({ ...freshCommand, commandId: "[COMMAND]" }),
+            }) === canonicalJson({ ...freshCommand, commandId: "[COMMAND]" }),
           remainingRuleRows: ruleCount.count,
         };
       }).pipe(
@@ -1655,9 +1659,7 @@ const proveTagDetachmentWriterFirst = (databaseUrl: Redacted.Redacted<string>) =
         const durable = yield* readDurableCommandFacts(sql, ids.commands.tagAccepted);
         return { value, durable };
       }).pipe(
-        Effect.provide(
-          makeProofLayer(databaseUrl, `${proofApplicationPrefix}-tag-accepted`),
-        ),
+        Effect.provide(makeProofLayer(databaseUrl, `${proofApplicationPrefix}-tag-accepted`)),
       );
       assert.deepEqual(accepted.durable, {
         commandReceiptRows: 1,
@@ -2044,9 +2046,7 @@ const runProof = (databaseUrl: Redacted.Redacted<string>) =>
 
 export const program = Effect.gen(function* () {
   const databaseUrl = yield* Config.redacted("DATABASE_URL").pipe(
-    Config.withDefault(
-      Redacted.make("postgres://receipt:receipt@127.0.0.1:55432/receipt_proof"),
-    ),
+    Config.withDefault(Redacted.make("postgres://receipt:receipt@127.0.0.1:55432/receipt_proof")),
   );
   assertDisposablePostgres(databaseUrl);
   let cleaned = false;
@@ -2057,6 +2057,11 @@ export const program = Effect.gen(function* () {
           Effect.tap(() => Effect.sync(() => void (cleaned = true))),
           Effect.asVoid,
         ),
+  ).pipe(
+    Effect.catchTags({
+      MigrationError: Effect.die,
+      SqlError: Effect.die,
+    }),
   );
   const evidence = yield* Effect.scoped(runProof(databaseUrl)).pipe(
     Effect.flatMap((proof) =>
