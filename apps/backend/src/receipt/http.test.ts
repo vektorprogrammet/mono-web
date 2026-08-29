@@ -341,10 +341,7 @@ describe("receipt HTTP identity and authority resolution (spec 0055/0056)", () =
 
   it("preserves stable approval-list session and domain denial responses", async () => {
     const unauthenticated = harness({ unauthenticated: true });
-    const unauthenticatedResponse = await request(
-      unauthenticated.http,
-      "/api/admin/receipts",
-    );
+    const unauthenticatedResponse = await request(unauthenticated.http, "/api/admin/receipts");
     expect({
       status: unauthenticatedResponse.status,
       body: await unauthenticatedResponse.json(),

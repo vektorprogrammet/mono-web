@@ -257,7 +257,6 @@ export const resolveReceiptAuthorityWithSql = (
     return projectReceiptAuthority(organizationProjection, paymentAuthorities, approvalGrants);
   });
 
-
 /** Read projection for a caller-owned repeatable-read, read-only snapshot. */
 export const resolveReceiptAuthorityForRead = (
   personId: PersonId,

@@ -3,11 +3,7 @@ import {
   readApplicableAuthorizationRules,
 } from "../authz/postgres.js";
 import { composeCapabilityEvidence } from "../authz/rules.js";
-import type {
-  AuthzRequestScope,
-  AuthzRule,
-  AuthzTagAssignment,
-} from "../authz/schema.js";
+import type { AuthzRequestScope, AuthzRule, AuthzTagAssignment } from "../authz/schema.js";
 import { Database, type DatabaseShape } from "../database/service.js";
 import {
   lockPersonAuthorization,
