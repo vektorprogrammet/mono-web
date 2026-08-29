@@ -263,4 +263,3 @@ export const decodeAuthzTagAssignment = (
   Schema.decodeUnknownEffect(AuthzTagAssignmentSchema)(input, {
     onExcessProperty: "error",
   }).pipe(Effect.mapError((cause) => validationError("AuthzTagAssignment", cause)));
-
