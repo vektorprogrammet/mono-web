@@ -7,29 +7,55 @@ import {
   composeCapabilityEvidence,
   createAuthzRule,
   createAuthzTagAssignment,
+  endAuthzRule,
   endAuthzTagAssignment,
   loadApplicableAuthorizationRules,
+  persistDisposableAuthzBackfill,
   removeAuthzRule,
+  type DisposableAuthzBackfillPlan,
 } from "@vektorprogrammet/domain/authz";
 import { Database, type DatabaseShape } from "@vektorprogrammet/domain/database";
 import { canonicalJson, canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/evidence";
-import { DepartmentId, PersonId } from "@vektorprogrammet/domain/organization";
 import {
+  DepartmentId,
+  OrganizationGlobalAdministratorGrantId,
+  PersonId,
+  authorizeOrganizationActor,
+  createOrganizationGlobalAdministratorGrant,
+  endOrganizationGlobalAdministratorGrant,
+  mapOrganizationAuthorityToAdmissionPeriodActor,
+  mapOrganizationAuthorityToOrganizationActor,
+  mapOrganizationAuthorityToProfileRole,
+  mapOrganizationAuthorityToRecruitmentActor,
+  removeOrganizationGlobalAdministratorGrant,
+} from "@vektorprogrammet/domain/organization";
+import {
+  ReceiptApprovalGrantId,
   ReceiptId,
+  ReceiptPaymentAuthorityId,
   ReceiptVisualId,
+  createReceiptApprovalGrant,
+  createReceiptPaymentAuthority,
   mapReceiptApprovalActor,
   mapReceiptSubmissionPrincipal,
   projectReceiptAuthority,
+  removeReceiptApprovalGrant,
+  removeReceiptPaymentAuthority,
   resolveReceiptAuthorityForRead,
   type ReceiptFile,
 } from "@vektorprogrammet/domain/receipt";
 import { Config, Deferred, Effect, Fiber, Redacted } from "effect";
+import { makeSpec0055OrganizationAuthorityFixtures } from "../../domain/src/organization/authority-fixtures.test-support.js";
 import { resolveOrganizationPersonAuthorityForRead } from "../../domain/src/organization/authority-postgres.js";
 import { executeReceiptCommand } from "../../domain/src/receipt/postgres.js";
 import { DatabaseLive } from "./layers.js";
 import { databaseMigrationDefinitions, databaseSchemaRevision } from "./migrations.js";
+import {
+  reversedDisposableAuthzBackfillInput,
+  validDisposableAuthzBackfillInput,
+} from "./test-support/disposable-authz-backfill-fixtures.js";
 
-const implementationBaseRevision = "4cc5cea669fa30d4fd8782f411eb9dcf86ba1380";
+const implementationBaseRevision = "f83d18ae408ad2c1e954d344620802a7ad1bda42";
 const proofApplicationPrefix = "authorization-rules-proof-0056";
 const activeStart = "2037-01-01T00:00:00.000Z";
 const inactiveEnd = "2037-06-01T00:00:00.000Z";
@@ -53,12 +79,25 @@ const ids = {
     crossDepartment: "authz-0056-proof-person-cross-department",
     endedRule: "authz-0056-proof-person-ended-rule",
     endedDirect: "authz-0056-proof-person-ended-direct",
+    matrixAdministrator: "authz-0056-proof-person-matrix-administrator",
+    matrixLeader: "authz-0056-proof-person-matrix-leader",
+    matrixInactiveLeader: "authz-0056-proof-person-matrix-inactive-leader",
+    matrixMember: "authz-0056-proof-person-matrix-member",
+    matrixAbsent: "authz-0056-proof-person-matrix-absent",
+    expiryCommandFirst: "authz-0056-proof-person-expiry-command-first",
+    expiryWriterFirst: "authz-0056-proof-person-expiry-writer-first",
+    phantomEconomy: "authz-0056-proof-person-phantom-economy",
+    phantomOrganization: "authz-0056-proof-person-phantom-organization",
   },
   directAuthorities: {
     inactiveRuleSubmit: "authz-0056-proof-payment-inactive-rule-submit",
     inactiveRuleApprove: "authz-0056-proof-approval-inactive-rule-approve",
     directPayment: "authz-0056-proof-payment-direct",
     endedDirectPayment: "authz-0056-proof-payment-ended-direct",
+    matrixAdministratorGrant: "authz-0056-proof-administrator-matrix",
+    phantomEconomyPayment: "authz-0056-proof-payment-phantom-economy",
+    phantomOrganizationAdministrator: "authz-0056-proof-admin-phantom-organization",
+    phantomOrganizationApproval: "authz-0056-proof-approval-phantom-organization",
   },
   tag: "authz-0056-proof-tag-approvers",
   assignment: "authz-0056-proof-assignment-approver",
@@ -69,16 +108,22 @@ const ids = {
     tagApprove: "authz-0056-proof-rule-tag-approve",
     endedApprove: "authz-0056-proof-rule-ended-approve",
     crossDepartment: "authz-0056-proof-rule-cross-department",
+    expiryCommandFirst: "authz-0056-proof-rule-expiry-command-first",
+    expiryWriterFirst: "authz-0056-proof-rule-expiry-writer-first",
   },
   receipts: {
     approveLock: "authz-0056-proof-receipt-approve-lock",
     tagAccepted: "authz-0056-proof-receipt-tag-accepted",
     tagWriterFirst: "authz-0056-proof-receipt-tag-writer-first",
     endedRule: "authz-0056-proof-receipt-ended-rule",
+    phantomOrganizationInsert: "authz-0056-proof-receipt-phantom-organization-insert",
+    phantomOrganizationRemove: "authz-0056-proof-receipt-phantom-organization-remove",
+    phantomOrganizationFresh: "authz-0056-proof-receipt-phantom-organization-fresh",
   },
   commands: {
     directSubmit: "authz-0056-proof-command-direct-submit",
     endedDirectSubmit: "authz-0056-proof-command-ended-direct-submit",
+    matrixReceiptRejected: "authz-0056-proof-command-matrix-receipt-rejected",
     crossDepartmentSubmit: "authz-0056-proof-command-cross-department-submit",
     endedRuleApprove: "authz-0056-proof-command-ended-rule-approve",
     approveLock: "authz-0056-proof-command-approve-lock",
@@ -86,6 +131,16 @@ const ids = {
     ruleSubmitFresh: "authz-0056-proof-command-rule-submit-fresh",
     tagAccepted: "authz-0056-proof-command-tag-accepted",
     tagWriterFirst: "authz-0056-proof-command-tag-writer-first",
+    expiryCommandFirst: "authz-0056-proof-command-expiry-command-first",
+    expiryCommandFirstFresh: "authz-0056-proof-command-expiry-command-first-fresh",
+    expiryWriterFirst: "authz-0056-proof-command-expiry-writer-first",
+    phantomEconomyInsert: "authz-0056-proof-command-phantom-economy-insert",
+    phantomEconomyEnd: "authz-0056-proof-command-phantom-economy-end",
+    phantomEconomyExactEnd: "authz-0056-proof-command-phantom-economy-exact-end",
+    phantomEconomyRemoved: "authz-0056-proof-command-phantom-economy-removed",
+    phantomOrganizationInsert: "authz-0056-proof-command-phantom-organization-insert",
+    phantomOrganizationRemove: "authz-0056-proof-command-phantom-organization-remove",
+    phantomOrganizationFresh: "authz-0056-proof-command-phantom-organization-fresh",
   },
 } as const;
 
@@ -95,6 +150,14 @@ const generatedReceiptIds = {
   crossDepartment: "authz-0056-proof-receipt-cross-department-submit",
   ruleSubmit: "authz-0056-proof-receipt-rule-submit",
   ruleSubmitFresh: "authz-0056-proof-receipt-rule-submit-fresh",
+  matrixReceiptRejected: "authz-0056-proof-receipt-matrix-rejected",
+  expiryCommandFirst: "authz-0056-proof-receipt-expiry-command-first",
+  expiryCommandFirstFresh: "authz-0056-proof-receipt-expiry-command-first-fresh",
+  expiryWriterFirst: "authz-0056-proof-receipt-expiry-writer-first",
+  phantomEconomyInsert: "authz-0056-proof-receipt-phantom-economy-insert",
+  phantomEconomyEnd: "authz-0056-proof-receipt-phantom-economy-end",
+  phantomEconomyExactEnd: "authz-0056-proof-receipt-phantom-economy-exact-end",
+  phantomEconomyRemoved: "authz-0056-proof-receipt-phantom-economy-removed",
 } as const;
 
 const generatedVisualIds = {
@@ -103,6 +166,14 @@ const generatedVisualIds = {
   crossDepartment: "AUTHZ-0056-CROSS",
   ruleSubmit: "AUTHZ-0056-RULE-SUBMIT",
   ruleSubmitFresh: "AUTHZ-0056-RULE-SUBMIT-FRESH",
+  matrixReceiptRejected: "AUTHZ-0056-MATRIX-REJECTED",
+  expiryCommandFirst: "AUTHZ-0056-EXPIRY-COMMAND-FIRST",
+  expiryCommandFirstFresh: "AUTHZ-0056-EXPIRY-COMMAND-FIRST-FRESH",
+  expiryWriterFirst: "AUTHZ-0056-EXPIRY-WRITER-FIRST",
+  phantomEconomyInsert: "AUTHZ-0056-PHANTOM-ECONOMY-INSERT",
+  phantomEconomyEnd: "AUTHZ-0056-PHANTOM-ECONOMY-END",
+  phantomEconomyExactEnd: "AUTHZ-0056-PHANTOM-ECONOMY-EXACT-END",
+  phantomEconomyRemoved: "AUTHZ-0056-PHANTOM-ECONOMY-REMOVED",
 } as const;
 
 const personId = (value: string) => PersonId.make(value);
@@ -192,7 +263,18 @@ const seedDatabase = (sql: DatabaseShape) =>
           (${ids.persons.direct}, 'Direct', 'Authority'),
           (${ids.persons.crossDepartment}, 'Cross', 'Department'),
           (${ids.persons.endedRule}, 'Ended', 'Rule'),
-          (${ids.persons.endedDirect}, 'Ended', 'Direct')
+          (${ids.persons.endedDirect}, 'Ended', 'Direct'),
+          (${ids.persons.matrixAdministrator}, 'Matrix', 'Administrator'),
+          (${ids.persons.matrixLeader}, 'Matrix', 'Leader'),
+          (${ids.persons.matrixInactiveLeader}, 'Matrix', 'Inactive Leader'),
+          (${ids.persons.matrixMember}, 'Matrix', 'Member'),
+          (${ids.persons.matrixAbsent}, 'Matrix', 'Absent'),
+          (${ids.persons.expiryCommandFirst}, 'Expiry', 'Command First'),
+          (${ids.persons.expiryWriterFirst}, 'Expiry', 'Writer First'),
+          (${ids.persons.phantomEconomy}, 'Phantom', 'Economy'),
+          (${ids.persons.phantomOrganization}, 'Phantom', 'Organization'),
+          ('authz-backfill-person-a', 'Backfill', 'Author A'),
+          ('authz-backfill-person-b', 'Backfill', 'Author B')
       `;
       yield* sql`
         INSERT INTO public.organization_departments (
@@ -205,6 +287,10 @@ const seedDatabase = (sql: DatabaseShape) =>
           (
             ${ids.departments.beta}, 'Authorization proof Beta', 'A56B',
             'authz-0056-beta@example.invalid', 'Trondheim'
+          ),
+          (
+            'authz-backfill-department', 'Authorization backfill fixture', 'A56F',
+            'authz-0056-backfill@example.invalid', 'Oslo'
           )
       `;
       yield* sql`
@@ -215,16 +301,33 @@ const seedDatabase = (sql: DatabaseShape) =>
       `;
       yield* sql`
         INSERT INTO public.organization_memberships (
-          membership_id, person_id, team_id, start_at
+          membership_id, person_id, team_id, start_at, end_at, position_id, is_team_leader
         ) VALUES
-          ('authz-0056-proof-membership-rule-submit', ${ids.persons.ruleSubmit}, ${ids.teams.alpha}, ${activeStart}),
-          ('authz-0056-proof-membership-rule-approve', ${ids.persons.ruleApprove}, ${ids.teams.alpha}, ${activeStart}),
-          ('authz-0056-proof-membership-tag-approve', ${ids.persons.tagApprove}, ${ids.teams.alpha}, ${activeStart}),
-          ('authz-0056-proof-membership-direct', ${ids.persons.direct}, ${ids.teams.alpha}, ${activeStart}),
-          ('authz-0056-proof-membership-cross-alpha', ${ids.persons.crossDepartment}, ${ids.teams.alpha}, ${activeStart}),
-          ('authz-0056-proof-membership-cross-beta', ${ids.persons.crossDepartment}, ${ids.teams.beta}, ${activeStart}),
-          ('authz-0056-proof-membership-ended-rule', ${ids.persons.endedRule}, ${ids.teams.alpha}, ${activeStart}),
-          ('authz-0056-proof-membership-ended-direct', ${ids.persons.endedDirect}, ${ids.teams.alpha}, ${activeStart})
+          ('authz-0056-proof-membership-rule-submit', ${ids.persons.ruleSubmit}, ${ids.teams.alpha}, ${activeStart}, NULL, NULL, FALSE),
+          ('authz-0056-proof-membership-rule-approve', ${ids.persons.ruleApprove}, ${ids.teams.alpha}, ${activeStart}, NULL, NULL, FALSE),
+          ('authz-0056-proof-membership-tag-approve', ${ids.persons.tagApprove}, ${ids.teams.alpha}, ${activeStart}, NULL, NULL, FALSE),
+          ('authz-0056-proof-membership-direct', ${ids.persons.direct}, ${ids.teams.alpha}, ${activeStart}, NULL, NULL, FALSE),
+          ('authz-0056-proof-membership-cross-alpha', ${ids.persons.crossDepartment}, ${ids.teams.alpha}, ${activeStart}, NULL, NULL, FALSE),
+          ('authz-0056-proof-membership-cross-beta', ${ids.persons.crossDepartment}, ${ids.teams.beta}, ${activeStart}, NULL, NULL, FALSE),
+          ('authz-0056-proof-membership-ended-rule', ${ids.persons.endedRule}, ${ids.teams.alpha}, ${activeStart}, NULL, NULL, FALSE),
+          ('authz-0056-proof-membership-ended-direct', ${ids.persons.endedDirect}, ${ids.teams.alpha}, ${activeStart}, NULL, NULL, FALSE),
+          ('authz-0056-proof-membership-matrix-leader', ${ids.persons.matrixLeader}, ${ids.teams.alpha}, ${activeStart}, NULL, 'leader', TRUE),
+          ('authz-0056-proof-membership-matrix-inactive-leader', ${ids.persons.matrixInactiveLeader}, ${ids.teams.alpha}, ${activeStart}, ${exactEnd}, 'leader', TRUE),
+          ('authz-0056-proof-membership-matrix-member', ${ids.persons.matrixMember}, ${ids.teams.alpha}, ${activeStart}, NULL, 'member', FALSE),
+          ('authz-0056-proof-membership-expiry-command-first', ${ids.persons.expiryCommandFirst}, ${ids.teams.alpha}, ${activeStart}, NULL, NULL, FALSE),
+          ('authz-0056-proof-membership-expiry-writer-first', ${ids.persons.expiryWriterFirst}, ${ids.teams.alpha}, ${activeStart}, NULL, NULL, FALSE),
+          ('authz-0056-proof-membership-phantom-economy', ${ids.persons.phantomEconomy}, ${ids.teams.alpha}, ${activeStart}, NULL, NULL, FALSE)
+      `;
+      yield* sql`
+        INSERT INTO public.organization_global_administrator_grants (
+          grant_id, person_id, start_at, end_at, revision
+        ) VALUES (
+          ${ids.directAuthorities.matrixAdministratorGrant},
+          ${ids.persons.matrixAdministrator},
+          ${activeStart},
+          NULL,
+          0
+        )
       `;
       yield* sql`
         INSERT INTO public.economy_payment_authorities (
@@ -306,6 +409,24 @@ const seedDatabase = (sql: DatabaseShape) =>
               paymentAccountCiphertext: "ciphertext:proof:cross-department",
             })},
             ${activeStart}, NULL, 0
+          ),
+          (
+            ${ids.rules.expiryCommandFirst}, 'submitReceipt', 'delegate', 'Person',
+            ${ids.persons.expiryCommandFirst}, NULL, 'Department', ${ids.departments.alpha},
+            ${sql.json({
+              slot: "EconomyPaymentAuthority",
+              paymentAccountCiphertext: "ciphertext:proof:expiry-command-first",
+            })},
+            ${activeStart}, NULL, 0
+          ),
+          (
+            ${ids.rules.expiryWriterFirst}, 'submitReceipt', 'delegate', 'Person',
+            ${ids.persons.expiryWriterFirst}, NULL, 'Department', ${ids.departments.alpha},
+            ${sql.json({
+              slot: "EconomyPaymentAuthority",
+              paymentAccountCiphertext: "ciphertext:proof:expiry-writer-first",
+            })},
+            ${activeStart}, NULL, 0
           )
       `;
       yield* sql`
@@ -347,6 +468,33 @@ const seedDatabase = (sql: DatabaseShape) =>
             'authz-0056-proof-seed-file-ended-rule',
             'stored/authz-0056-proof-seed-file-ended-rule', 'application/pdf', 128,
             ${"e".repeat(64)}, 0
+          ),
+          (
+            ${ids.receipts.phantomOrganizationInsert}, 'AUTHZ-0056-PHANTOM-ORG-INSERT',
+            ${ids.persons.phantomOrganization}, ${ids.departments.alpha},
+            1400, 'NOK', 'Organization phantom insert proof', '2037-06-14',
+            ${activeStart}, 'Pending', NULL, 'ciphertext:proof:seed',
+            'authz-0056-proof-seed-file-phantom-org-insert',
+            'stored/authz-0056-proof-seed-file-phantom-org-insert', 'application/pdf', 128,
+            ${"f".repeat(64)}, 0
+          ),
+          (
+            ${ids.receipts.phantomOrganizationRemove}, 'AUTHZ-0056-PHANTOM-ORG-REMOVE',
+            ${ids.persons.phantomOrganization}, ${ids.departments.alpha},
+            1500, 'NOK', 'Organization phantom removal proof', '2037-06-14',
+            ${activeStart}, 'Pending', NULL, 'ciphertext:proof:seed',
+            'authz-0056-proof-seed-file-phantom-org-remove',
+            'stored/authz-0056-proof-seed-file-phantom-org-remove', 'application/pdf', 128,
+            ${"1".repeat(64)}, 0
+          ),
+          (
+            ${ids.receipts.phantomOrganizationFresh}, 'AUTHZ-0056-PHANTOM-ORG-FRESH',
+            ${ids.persons.phantomOrganization}, ${ids.departments.alpha},
+            1600, 'NOK', 'Organization phantom fresh denial proof', '2037-06-14',
+            ${activeStart}, 'Pending', NULL, 'ciphertext:proof:seed',
+            'authz-0056-proof-seed-file-phantom-org-fresh',
+            'stored/authz-0056-proof-seed-file-phantom-org-fresh', 'application/pdf', 128,
+            ${"2".repeat(64)}, 0
           )
       `;
     }),
@@ -373,6 +521,10 @@ const readSeedRecords = (sql: DatabaseShape) =>
       SELECT 'Department', department_id
       FROM public.organization_departments
       WHERE department_id LIKE 'authz-0056-proof-%'
+      UNION ALL
+      SELECT 'DirectOrganizationAuthority', grant_id
+      FROM public.organization_global_administrator_grants
+      WHERE grant_id LIKE 'authz-0056-proof-%'
       UNION ALL
       SELECT 'DirectPaymentAuthority', payment_authority_id
       FROM public.economy_payment_authorities
@@ -477,6 +629,35 @@ const readDurableCommandFacts = (
     return row;
   });
 
+interface AuthzRowCounts {
+  readonly tags: number;
+  readonly assignments: number;
+  readonly rules: number;
+}
+
+const readAuthzRowCounts = (sql: DatabaseShape): Effect.Effect<AuthzRowCounts, unknown> =>
+  Effect.gen(function* () {
+    const [counts] = yield* sql<AuthzRowCounts>`
+      SELECT
+        (SELECT count(*)::integer FROM public.authz_tags) AS tags,
+        (SELECT count(*)::integer FROM public.authz_tag_assignments) AS assignments,
+        (SELECT count(*)::integer FROM public.authz_rules) AS rules
+    `;
+    assert(counts);
+    return counts;
+  });
+
+const backfillPlanEvidence = (plan: DisposableAuthzBackfillPlan) => {
+  const bytes = canonicalJsonBytes(plan);
+  return {
+    byteLength: bytes.byteLength,
+    sha256: sha256Hex(bytes),
+    tagIds: plan.tags.map((tag) => tag.tagId),
+    assignmentIds: plan.assignments.map((assignment) => assignment.assignmentId),
+    ruleIds: plan.rulesBySubject.flatMap((group) => group.rules.map((rule) => rule.ruleId)),
+  };
+};
+
 const failureTag = (failure: unknown): string =>
   typeof failure === "object" &&
   failure !== null &&
@@ -499,6 +680,15 @@ type SqlPhase =
   | "authz-tag-assignment-projection"
   | "authz-rule-projection"
   | "direct-authority-update"
+  | "direct-payment-insert"
+  | "direct-payment-end"
+  | "direct-payment-remove"
+  | "direct-approval-insert"
+  | "direct-approval-remove"
+  | "organization-administrator-insert"
+  | "organization-administrator-end"
+  | "organization-administrator-remove"
+  | "end-rule"
   | "remove-rule"
   | "end-tag-assignment"
   | "durable-audit-insert";
@@ -549,9 +739,32 @@ const classifySql = (text: string, values: ReadonlyArray<unknown>): SqlPhase | u
     return "authz-tag-assignment-projection";
   }
   if (text.includes("FROM public.authz_rules AS rule")) return "authz-rule-projection";
+  if (text.includes("INSERT INTO public.economy_payment_authorities")) {
+    return "direct-payment-insert";
+  }
+  if (text.includes("UPDATE public.economy_payment_authorities")) return "direct-payment-end";
+  if (text.includes("DELETE FROM public.economy_payment_authorities")) {
+    return "direct-payment-remove";
+  }
+  if (text.includes("INSERT INTO public.economy_receipt_approval_grants")) {
+    return "direct-approval-insert";
+  }
+  if (text.includes("DELETE FROM public.economy_receipt_approval_grants")) {
+    return "direct-approval-remove";
+  }
+  if (text.includes("INSERT INTO public.organization_global_administrator_grants")) {
+    return "organization-administrator-insert";
+  }
+  if (text.includes("UPDATE public.organization_global_administrator_grants")) {
+    return "organization-administrator-end";
+  }
+  if (text.includes("DELETE FROM public.organization_global_administrator_grants")) {
+    return "organization-administrator-remove";
+  }
   if (text.includes("UPDATE public.economy_receipt_approval_grants")) {
     return "direct-authority-update";
   }
+  if (text.includes("UPDATE public.authz_rules")) return "end-rule";
   if (text.includes("DELETE FROM public.authz_rules")) return "remove-rule";
   if (text.includes("UPDATE public.authz_tag_assignments")) return "end-tag-assignment";
   if (text.includes("INSERT INTO economy_receipt_audit")) return "durable-audit-insert";
@@ -725,6 +938,7 @@ const observeBlockingAndLocks = (input: {
           'organization_memberships',
           'organization_teams',
           'organization_departments',
+          'organization_global_administrator_grants',
           'economy_payment_authorities',
           'economy_receipt_approval_grants',
           'authz_tag_assignments',
@@ -982,9 +1196,510 @@ const proveStrictWriters = (databaseUrl: Redacted.Redacted<string>) =>
     };
   }).pipe(Effect.provide(makeProofLayer(databaseUrl, `${proofApplicationPrefix}-strict-writer`)));
 
+const proveDisposableAuthzBackfill = (databaseUrl: Redacted.Redacted<string>) =>
+  Effect.gen(function* () {
+    const sql = yield* Database;
+    const before = yield* readAuthzRowCounts(sql);
+    const forwardPlan = yield* persistDisposableAuthzBackfill(validDisposableAuthzBackfillInput());
+    const afterForward = yield* readAuthzRowCounts(sql);
+    const reversedPlan = yield* persistDisposableAuthzBackfill(
+      reversedDisposableAuthzBackfillInput(),
+    );
+    const afterReversedReplay = yield* readAuthzRowCounts(sql);
+    const replayPlan = yield* persistDisposableAuthzBackfill(validDisposableAuthzBackfillInput());
+    const afterReplay = yield* readAuthzRowCounts(sql);
+    const forwardEvidence = backfillPlanEvidence(forwardPlan);
+    const reversedEvidence = backfillPlanEvidence(reversedPlan);
+    const replayEvidence = backfillPlanEvidence(replayPlan);
+
+    assert.deepEqual(canonicalJsonBytes(reversedPlan), canonicalJsonBytes(forwardPlan));
+    assert.deepEqual(canonicalJsonBytes(replayPlan), canonicalJsonBytes(forwardPlan));
+    assert.deepEqual(reversedEvidence, forwardEvidence);
+    assert.deepEqual(replayEvidence, forwardEvidence);
+    assert.deepEqual(afterForward, {
+      tags: before.tags + 2,
+      assignments: before.assignments + 2,
+      rules: before.rules + 3,
+    });
+    assert.deepEqual(afterReversedReplay, afterForward);
+    assert.deepEqual(afterReplay, afterForward);
+
+    const missingPerson = yield* Effect.flip(
+      persistDisposableAuthzBackfill({
+        disposable: true,
+        tags: [{ name: "PG proof missing person sentinel" }],
+        assignments: [],
+        rulesBySubject: [
+          {
+            subject: {
+              _tag: "Person",
+              personId: "authz-0056-proof-backfill-absent-person",
+            },
+            rules: [
+              {
+                capabilityId: "approveReceipt",
+                effectKind: "delegate",
+                scope: { _tag: "Receipt" },
+                params: { slot: "EconomyGlobalReceiptApprovalGrant" },
+                startAt: activeStart,
+                endAt: null,
+              },
+            ],
+          },
+        ],
+      }),
+    );
+    assert.deepEqual(
+      {
+        failureTag: missingPerson._tag,
+        referenceKind:
+          missingPerson._tag === "DisposableAuthzBackfillMissingReference"
+            ? missingPerson.referenceKind
+            : null,
+        referenceId:
+          missingPerson._tag === "DisposableAuthzBackfillMissingReference"
+            ? missingPerson.referenceId
+            : null,
+      },
+      {
+        failureTag: "DisposableAuthzBackfillMissingReference",
+        referenceKind: "Person",
+        referenceId: "authz-0056-proof-backfill-absent-person",
+      },
+    );
+    const afterMissingPerson = yield* readAuthzRowCounts(sql);
+    assert.deepEqual(afterMissingPerson, afterForward);
+
+    const missingTag = yield* Effect.flip(
+      persistDisposableAuthzBackfill({
+        disposable: true,
+        tags: [],
+        assignments: [],
+        rulesBySubject: [
+          {
+            subject: { _tag: "Tag", tagName: "PG proof absent authored tag" },
+            rules: [
+              {
+                capabilityId: "approveReceipt",
+                effectKind: "delegate",
+                scope: { _tag: "Receipt" },
+                params: { slot: "EconomyGlobalReceiptApprovalGrant" },
+                startAt: activeStart,
+                endAt: null,
+              },
+            ],
+          },
+        ],
+      }),
+    );
+    assert.deepEqual(
+      {
+        failureTag: missingTag._tag,
+        referenceKind:
+          missingTag._tag === "DisposableAuthzBackfillMissingReference"
+            ? missingTag.referenceKind
+            : null,
+        referenceId:
+          missingTag._tag === "DisposableAuthzBackfillMissingReference"
+            ? missingTag.referenceId
+            : null,
+      },
+      {
+        failureTag: "DisposableAuthzBackfillMissingReference",
+        referenceKind: "Tag",
+        referenceId: "PG proof absent authored tag",
+      },
+    );
+    const afterMissingTag = yield* readAuthzRowCounts(sql);
+    assert.deepEqual(afterMissingTag, afterForward);
+
+    const missingDepartment = yield* Effect.flip(
+      persistDisposableAuthzBackfill({
+        disposable: true,
+        tags: [{ name: "PG proof missing department sentinel" }],
+        assignments: [
+          {
+            tagName: "PG proof missing department sentinel",
+            personId: "authz-backfill-person-a",
+            startAt: activeStart,
+            endAt: null,
+          },
+        ],
+        rulesBySubject: [
+          {
+            subject: { _tag: "Person", personId: "authz-backfill-person-a" },
+            rules: [
+              {
+                capabilityId: "approveReceipt",
+                effectKind: "delegate",
+                scope: {
+                  _tag: "Department",
+                  departmentId: "authz-0056-proof-backfill-absent-department",
+                },
+                params: { slot: "EconomyDepartmentApprovalGrant" },
+                startAt: activeStart,
+                endAt: null,
+              },
+            ],
+          },
+        ],
+      }),
+    );
+    assert.deepEqual(
+      {
+        failureTag: missingDepartment._tag,
+        referenceKind:
+          missingDepartment._tag === "DisposableAuthzBackfillMissingReference"
+            ? missingDepartment.referenceKind
+            : null,
+        referenceId:
+          missingDepartment._tag === "DisposableAuthzBackfillMissingReference"
+            ? missingDepartment.referenceId
+            : null,
+      },
+      {
+        failureTag: "DisposableAuthzBackfillMissingReference",
+        referenceKind: "Department",
+        referenceId: "authz-0056-proof-backfill-absent-department",
+      },
+    );
+    const afterMissingDepartment = yield* readAuthzRowCounts(sql);
+    assert.deepEqual(afterMissingDepartment, afterForward);
+
+    const invalidCapability = yield* Effect.flip(
+      persistDisposableAuthzBackfill({
+        disposable: true,
+        tags: [{ name: "PG proof invalid capability sentinel" }],
+        assignments: [],
+        rulesBySubject: [
+          {
+            subject: { _tag: "Person", personId: "authz-backfill-person-a" },
+            rules: [
+              {
+                capabilityId: "unknownCapability",
+                effectKind: "delegate",
+                scope: { _tag: "Receipt" },
+                params: { slot: "EconomyGlobalReceiptApprovalGrant" },
+                startAt: activeStart,
+                endAt: null,
+              },
+            ],
+          },
+        ],
+      }),
+    );
+    assert.equal(invalidCapability._tag, "DisposableAuthzBackfillDecodeError");
+    const afterInvalidCapability = yield* readAuthzRowCounts(sql);
+    assert.deepEqual(afterInvalidCapability, afterForward);
+
+    const invalidParams = yield* Effect.flip(
+      persistDisposableAuthzBackfill({
+        disposable: true,
+        tags: [{ name: "PG proof invalid params sentinel" }],
+        assignments: [],
+        rulesBySubject: [
+          {
+            subject: { _tag: "Person", personId: "authz-backfill-person-a" },
+            rules: [
+              {
+                capabilityId: "submitReceipt",
+                effectKind: "delegate",
+                scope: { _tag: "Receipt" },
+                params: { slot: "EconomyPaymentAuthority", ignored: true },
+                startAt: activeStart,
+                endAt: null,
+              },
+            ],
+          },
+        ],
+      }),
+    );
+    assert.equal(invalidParams._tag, "DisposableAuthzBackfillDecodeError");
+    const afterInvalidParams = yield* readAuthzRowCounts(sql);
+    assert.deepEqual(afterInvalidParams, afterForward);
+
+    return {
+      permutationAndReplay: {
+        forward: forwardEvidence,
+        reversed: reversedEvidence,
+        replay: replayEvidence,
+        byteIdentical:
+          forwardEvidence.sha256 === reversedEvidence.sha256 &&
+          forwardEvidence.sha256 === replayEvidence.sha256,
+        counts: {
+          before,
+          afterForward,
+          afterReversedReplay,
+          afterReplay,
+        },
+      },
+      rejections: [
+        {
+          fixtureId: "absent-person",
+          failureTag: missingPerson._tag,
+          referenceKind: "Person",
+          referenceId: "authz-0056-proof-backfill-absent-person",
+          before: afterForward,
+          after: afterMissingPerson,
+          partialRowsWritten: false,
+        },
+        {
+          fixtureId: "absent-tag",
+          failureTag: missingTag._tag,
+          referenceKind: "Tag",
+          referenceId: "PG proof absent authored tag",
+          before: afterForward,
+          after: afterMissingTag,
+          partialRowsWritten: false,
+        },
+        {
+          fixtureId: "absent-department",
+          failureTag: missingDepartment._tag,
+          referenceKind: "Department",
+          referenceId: "authz-0056-proof-backfill-absent-department",
+          before: afterForward,
+          after: afterMissingDepartment,
+          partialRowsWritten: false,
+        },
+        {
+          fixtureId: "invalid-capability",
+          failureTag: invalidCapability._tag,
+          before: afterForward,
+          after: afterInvalidCapability,
+          partialRowsWritten: false,
+        },
+        {
+          fixtureId: "invalid-params",
+          failureTag: invalidParams._tag,
+          before: afterForward,
+          after: afterInvalidParams,
+          partialRowsWritten: false,
+        },
+      ],
+    };
+  }).pipe(Effect.provide(makeProofLayer(databaseUrl, `${proofApplicationPrefix}-backfill`)));
+
 const proveZeroRuleEquivalence = (databaseUrl: Redacted.Redacted<string>) =>
   Effect.gen(function* () {
     const sql = yield* Database;
+    const alpha = departmentId(ids.departments.alpha);
+    const {
+      administrator: administratorFixture,
+      leader: leaderFixture,
+      inactiveLeader: inactiveLeaderFixture,
+      member: memberFixture,
+      absent: absentFixture,
+    } = makeSpec0055OrganizationAuthorityFixtures({
+      evaluatedAt: exactEnd,
+      departmentId: ids.departments.alpha,
+      teamId: ids.teams.alpha,
+      persons: {
+        administrator: ids.persons.matrixAdministrator,
+        leader: ids.persons.matrixLeader,
+        inactiveLeader: ids.persons.matrixInactiveLeader,
+        member: ids.persons.matrixMember,
+        absent: ids.persons.matrixAbsent,
+      },
+      memberships: {
+        leader: "authz-0056-proof-membership-matrix-leader",
+        inactiveLeader: "authz-0056-proof-membership-matrix-inactive-leader",
+        member: "authz-0056-proof-membership-matrix-member",
+      },
+    });
+
+    const leaderProjection = yield* resolveOrganizationPersonAuthorityForRead(
+      leaderFixture.personId,
+      exactEnd,
+    );
+    const inactiveLeaderProjection = yield* resolveOrganizationPersonAuthorityForRead(
+      inactiveLeaderFixture.personId,
+      exactEnd,
+    );
+    const administratorProjection = yield* resolveOrganizationPersonAuthorityForRead(
+      administratorFixture.personId,
+      exactEnd,
+    );
+    const memberProjection = yield* resolveOrganizationPersonAuthorityForRead(
+      memberFixture.personId,
+      exactEnd,
+    );
+    const absentProjection = yield* resolveOrganizationPersonAuthorityForRead(
+      absentFixture.personId,
+      exactEnd,
+    );
+    assert.deepEqual(leaderProjection, leaderFixture);
+    assert.deepEqual(inactiveLeaderProjection, inactiveLeaderFixture);
+    assert.deepEqual(administratorProjection, administratorFixture);
+    assert.deepEqual(memberProjection, memberFixture);
+    assert.deepEqual(absentProjection, absentFixture);
+
+    const [fixtureRuleRows] = yield* sql<{ readonly count: number }>`
+      SELECT count(*)::integer AS count
+      FROM public.authz_rules AS rule
+      WHERE rule.subject_person_id IN (
+          ${ids.persons.matrixAdministrator},
+          ${ids.persons.matrixLeader},
+          ${ids.persons.matrixInactiveLeader},
+          ${ids.persons.matrixMember},
+          ${ids.persons.matrixAbsent},
+          ${ids.persons.direct},
+          ${ids.persons.endedDirect}
+        )
+        OR rule.subject_tag_id IN (
+          SELECT assignment.tag_id
+          FROM public.authz_tag_assignments AS assignment
+          WHERE assignment.person_id IN (
+            ${ids.persons.matrixAdministrator},
+            ${ids.persons.matrixLeader},
+            ${ids.persons.matrixInactiveLeader},
+            ${ids.persons.matrixMember},
+            ${ids.persons.matrixAbsent},
+            ${ids.persons.direct},
+            ${ids.persons.endedDirect}
+          )
+            AND assignment.start_at <= ${exactEnd}
+            AND (assignment.end_at IS NULL OR ${exactEnd} < assignment.end_at)
+        )
+    `;
+    assert(fixtureRuleRows);
+    assert.equal(fixtureRuleRows.count, 0);
+
+    const observeDecision = <A>(
+      decision:
+        | { readonly _tag: "Allow"; readonly value: A }
+        | { readonly _tag: "Deny"; readonly reason: string },
+      scope: unknown,
+      activeState: unknown,
+    ) => {
+      if (decision._tag === "Allow") {
+        return {
+          actor: decision.value,
+          scope,
+          activeState,
+          result: { _tag: "Accepted" as const },
+        };
+      }
+      return {
+        actor: null,
+        scope,
+        activeState,
+        result: { _tag: "Rejected" as const, reason: decision.reason },
+      };
+    };
+
+    const admissionAcceptedDirect = observeDecision(
+      mapOrganizationAuthorityToAdmissionPeriodActor(leaderFixture, alpha),
+      { _tag: "Department" as const, departmentId: alpha },
+      { globalAdministrator: "Absent" as const, membershipActive: true },
+    );
+    const admissionAcceptedRulesEmpty = observeDecision(
+      mapOrganizationAuthorityToAdmissionPeriodActor(leaderProjection, alpha),
+      { _tag: "Department" as const, departmentId: alpha },
+      { globalAdministrator: "Absent" as const, membershipActive: true },
+    );
+    const admissionRejectedDirect = observeDecision(
+      mapOrganizationAuthorityToAdmissionPeriodActor(inactiveLeaderFixture, alpha),
+      { _tag: "Department" as const, departmentId: alpha },
+      { globalAdministrator: "Absent" as const, membershipActive: false },
+    );
+    const admissionRejectedRulesEmpty = observeDecision(
+      mapOrganizationAuthorityToAdmissionPeriodActor(inactiveLeaderProjection, alpha),
+      { _tag: "Department" as const, departmentId: alpha },
+      { globalAdministrator: "Absent" as const, membershipActive: false },
+    );
+    const recruitmentAcceptedDirect = observeDecision(
+      mapOrganizationAuthorityToRecruitmentActor(leaderFixture, alpha),
+      { _tag: "Department" as const, departmentId: alpha },
+      { globalAdministrator: "Absent" as const, membershipActive: true },
+    );
+    const recruitmentAcceptedRulesEmpty = observeDecision(
+      mapOrganizationAuthorityToRecruitmentActor(leaderProjection, alpha),
+      { _tag: "Department" as const, departmentId: alpha },
+      { globalAdministrator: "Absent" as const, membershipActive: true },
+    );
+    const recruitmentRejectedDirect = observeDecision(
+      mapOrganizationAuthorityToRecruitmentActor(inactiveLeaderFixture, alpha),
+      { _tag: "Department" as const, departmentId: alpha },
+      { globalAdministrator: "Absent" as const, membershipActive: false },
+    );
+    const recruitmentRejectedRulesEmpty = observeDecision(
+      mapOrganizationAuthorityToRecruitmentActor(inactiveLeaderProjection, alpha),
+      { _tag: "Department" as const, departmentId: alpha },
+      { globalAdministrator: "Absent" as const, membershipActive: false },
+    );
+
+    const organizationAcceptedDirectActor =
+      mapOrganizationAuthorityToOrganizationActor(administratorFixture);
+    const organizationAcceptedRulesEmptyActor =
+      mapOrganizationAuthorityToOrganizationActor(administratorProjection);
+    const organizationAcceptedDirectResult = yield* Effect.result(
+      authorizeOrganizationActor(organizationAcceptedDirectActor),
+    );
+    const organizationAcceptedRulesEmptyResult = yield* Effect.result(
+      authorizeOrganizationActor(organizationAcceptedRulesEmptyActor),
+    );
+    const organizationAcceptedDirect = {
+      actor: organizationAcceptedDirectActor,
+      scope: { _tag: "Global" as const },
+      activeState: { globalAdministrator: "Active" as const },
+      result: { _tag: resultFailureTag(organizationAcceptedDirectResult) },
+    };
+    const organizationAcceptedRulesEmpty = {
+      actor: organizationAcceptedRulesEmptyActor,
+      scope: { _tag: "Global" as const },
+      activeState: { globalAdministrator: "Active" as const },
+      result: { _tag: resultFailureTag(organizationAcceptedRulesEmptyResult) },
+    };
+    const organizationRejectedDirectActor =
+      mapOrganizationAuthorityToOrganizationActor(memberFixture);
+    const organizationRejectedRulesEmptyActor =
+      mapOrganizationAuthorityToOrganizationActor(memberProjection);
+    const organizationRejectedDirectResult = yield* Effect.result(
+      authorizeOrganizationActor(organizationRejectedDirectActor),
+    );
+    const organizationRejectedRulesEmptyResult = yield* Effect.result(
+      authorizeOrganizationActor(organizationRejectedRulesEmptyActor),
+    );
+    const organizationRejectedDirect = {
+      actor: organizationRejectedDirectActor,
+      scope: { _tag: "Global" as const },
+      activeState: {
+        globalAdministrator: "Absent" as const,
+        membershipActive: true,
+      },
+      result: { _tag: resultFailureTag(organizationRejectedDirectResult) },
+    };
+    const organizationRejectedRulesEmpty = {
+      actor: organizationRejectedRulesEmptyActor,
+      scope: { _tag: "Global" as const },
+      activeState: {
+        globalAdministrator: "Absent" as const,
+        membershipActive: true,
+      },
+      result: { _tag: resultFailureTag(organizationRejectedRulesEmptyResult) },
+    };
+
+    const profileAcceptedDirect = observeDecision(
+      mapOrganizationAuthorityToProfileRole(leaderFixture),
+      { _tag: "Self" as const, personId: leaderFixture.personId },
+      { globalAdministrator: "Absent" as const, membershipActive: true },
+    );
+    const profileAcceptedRulesEmpty = observeDecision(
+      mapOrganizationAuthorityToProfileRole(leaderProjection),
+      { _tag: "Self" as const, personId: leaderProjection.personId },
+      { globalAdministrator: "Absent" as const, membershipActive: true },
+    );
+    const profileRejectedDirect = observeDecision(
+      mapOrganizationAuthorityToProfileRole(inactiveLeaderFixture),
+      { _tag: "Self" as const, personId: inactiveLeaderFixture.personId },
+      { globalAdministrator: "Absent" as const, membershipActive: false },
+    );
+    const profileRejectedRulesEmpty = observeDecision(
+      mapOrganizationAuthorityToProfileRole(inactiveLeaderProjection),
+      { _tag: "Self" as const, personId: inactiveLeaderProjection.personId },
+      { globalAdministrator: "Absent" as const, membershipActive: false },
+    );
+
     const composition = yield* submissionCompositionFacts(
       ids.persons.direct,
       justBeforeExactEnd,
@@ -1028,6 +1743,173 @@ const proveZeroRuleEquivalence = (databaseUrl: Redacted.Redacted<string>) =>
       outboxRows: 3,
       outboxCommandRows: 1,
     });
+    const receiptAcceptedDirect = {
+      actor: spec0055Oracle.actor,
+      scope: spec0055Oracle.scope,
+      activeState: true,
+      result: { _tag: "Accepted" as const },
+    };
+    const receiptAcceptedRulesEmpty = {
+      actor: actual.actor,
+      scope: actual.scope,
+      activeState: actual.actor?.active ?? null,
+      result: { _tag: "Accepted" as const },
+    };
+
+    const rejectedComposition = yield* submissionCompositionFacts(
+      ids.persons.endedDirect,
+      exactEnd,
+      ids.departments.alpha,
+    );
+    assert.deepEqual(rejectedComposition.applicableRuleIds, []);
+    assert.deepEqual(rejectedComposition.contributingRuleIds, []);
+    assert.equal(rejectedComposition.mapped._tag, "Success");
+    const rejectedResult = yield* Effect.result(
+      executeReceiptCommand(
+        submitCommand(
+          ids.commands.matrixReceiptRejected,
+          ids.departments.alpha,
+          "matrix-receipt-rejected",
+        ),
+        principal(ids.persons.endedDirect, exactEnd),
+        allocation(
+          generatedReceiptIds.matrixReceiptRejected,
+          generatedVisualIds.matrixReceiptRejected,
+        ),
+      ),
+    );
+    const rejectedDurable = yield* readDurableCommandFacts(sql, ids.commands.matrixReceiptRejected);
+    assert.equal(resultFailureTag(rejectedResult), "InactiveActor");
+    assert.deepEqual(rejectedDurable, {
+      commandReceiptRows: 0,
+      auditRows: 0,
+      outboxRows: 0,
+      outboxCommandRows: 0,
+    });
+    const receiptRejectedActor =
+      rejectedComposition.mapped._tag === "Success" ? rejectedComposition.mapped.actor : null;
+    const receiptRejectedDirect = {
+      actor: {
+        personId: ids.persons.endedDirect,
+        departmentId: ids.departments.alpha,
+        active: false,
+        approvalScope: { _tag: "None" as const },
+      },
+      scope: { domain: "Receipt" as const, departmentId: ids.departments.alpha },
+      activeState: false,
+      result: { _tag: "InactiveActor" as const },
+    };
+    const receiptRejectedRulesEmpty = {
+      actor: receiptRejectedActor,
+      scope: { domain: "Receipt" as const, departmentId: ids.departments.alpha },
+      activeState: receiptRejectedActor?.active ?? null,
+      result: { _tag: resultFailureTag(rejectedResult) },
+    };
+
+    const matrix = [
+      {
+        fixtureId: "organization-authority-active-leader-admission",
+        fixtureSource: "packages/domain/src/organization/authority.test.ts",
+        domain: "Admission",
+        expected: "Accepted",
+        directOracle: admissionAcceptedDirect,
+        rulesEmpty: admissionAcceptedRulesEmpty,
+      },
+      {
+        fixtureId: "organization-authority-inactive-leader-admission",
+        fixtureSource: "packages/domain/src/organization/authority.test.ts",
+        domain: "Admission",
+        expected: "Rejected",
+        directOracle: admissionRejectedDirect,
+        rulesEmpty: admissionRejectedRulesEmpty,
+      },
+      {
+        fixtureId: "organization-authority-active-leader-recruitment",
+        fixtureSource: "packages/domain/src/organization/authority.test.ts",
+        domain: "Recruitment",
+        expected: "Accepted",
+        directOracle: recruitmentAcceptedDirect,
+        rulesEmpty: recruitmentAcceptedRulesEmpty,
+      },
+      {
+        fixtureId: "organization-authority-inactive-leader-recruitment",
+        fixtureSource: "packages/domain/src/organization/authority.test.ts",
+        domain: "Recruitment",
+        expected: "Rejected",
+        directOracle: recruitmentRejectedDirect,
+        rulesEmpty: recruitmentRejectedRulesEmpty,
+      },
+      {
+        fixtureId: "organization-authority-active-administrator",
+        fixtureSource: "packages/domain/src/organization/authority.test.ts",
+        domain: "Organization",
+        expected: "Accepted",
+        directOracle: organizationAcceptedDirect,
+        rulesEmpty: organizationAcceptedRulesEmpty,
+      },
+      {
+        fixtureId: "organization-authority-member-role-denied",
+        fixtureSource: "packages/domain/src/organization/authority.test.ts",
+        domain: "Organization",
+        expected: "Rejected",
+        directOracle: organizationRejectedDirect,
+        rulesEmpty: organizationRejectedRulesEmpty,
+      },
+      {
+        fixtureId: "receipt-authority-active-payment",
+        fixtureSource: "packages/domain/src/receipt/authority.test.ts",
+        domain: "Receipt",
+        expected: "Accepted",
+        directOracle: receiptAcceptedDirect,
+        rulesEmpty: receiptAcceptedRulesEmpty,
+      },
+      {
+        fixtureId: "receipt-authority-exact-end-inactive",
+        fixtureSource: "packages/domain/src/receipt/authority.test.ts",
+        domain: "Receipt",
+        expected: "Rejected",
+        directOracle: receiptRejectedDirect,
+        rulesEmpty: receiptRejectedRulesEmpty,
+      },
+      {
+        fixtureId: "organization-authority-active-leader-profile",
+        fixtureSource: "packages/domain/src/organization/authority.test.ts",
+        domain: "Profile",
+        expected: "Accepted",
+        directOracle: profileAcceptedDirect,
+        rulesEmpty: profileAcceptedRulesEmpty,
+      },
+      {
+        fixtureId: "organization-authority-inactive-history-profile",
+        fixtureSource: "packages/domain/src/organization/authority.test.ts",
+        domain: "Profile",
+        expected: "Rejected",
+        directOracle: profileRejectedDirect,
+        rulesEmpty: profileRejectedRulesEmpty,
+      },
+    ].map((entry) => ({
+      ...entry,
+      actorScopeActiveResultEqual:
+        canonicalJson(entry.directOracle) === canonicalJson(entry.rulesEmpty),
+    }));
+    assert.equal(matrix.length, 10);
+    assert.deepEqual(
+      matrix.map((entry) => [entry.domain, entry.expected]),
+      [
+        ["Admission", "Accepted"],
+        ["Admission", "Rejected"],
+        ["Recruitment", "Accepted"],
+        ["Recruitment", "Rejected"],
+        ["Organization", "Accepted"],
+        ["Organization", "Rejected"],
+        ["Receipt", "Accepted"],
+        ["Receipt", "Rejected"],
+        ["Profile", "Accepted"],
+        ["Profile", "Rejected"],
+      ],
+    );
+    assert.ok(matrix.every((entry) => entry.actorScopeActiveResultEqual));
+
     return {
       applicableRuleIds: composition.applicableRuleIds,
       directPaymentAuthorities: composition.directPaymentAuthorities,
@@ -1035,6 +1917,16 @@ const proveZeroRuleEquivalence = (databaseUrl: Redacted.Redacted<string>) =>
       spec0055Oracle,
       actorScopeObservationEqual: canonicalJson(actual) === canonicalJson(spec0055Oracle),
       durable,
+      rejectedReceiptDurable: rejectedDurable,
+      fixtureSubjectRuleRows: fixtureRuleRows.count,
+      authoritativeProjectionFixtures: {
+        leader: leaderProjection,
+        inactiveLeader: inactiveLeaderProjection,
+        administrator: administratorProjection,
+        member: memberProjection,
+        absent: absentProjection,
+      },
+      matrix,
     };
   }).pipe(Effect.provide(makeProofLayer(databaseUrl, `${proofApplicationPrefix}-zero-rule`)));
 
@@ -1181,6 +2073,712 @@ const proveHalfOpenAndScopeDenials = (databaseUrl: Redacted.Redacted<string>) =>
       },
     };
   }).pipe(Effect.provide(makeProofLayer(databaseUrl, `${proofApplicationPrefix}-boundaries`)));
+
+const proveDirectAuthorityPhantomProtocol = (databaseUrl: Redacted.Redacted<string>) =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const economyInsertFirst = yield* Effect.gen(function* () {
+        const writerPaused = yield* Deferred.make<void>();
+        const resumeWriter = yield* Deferred.make<void>();
+        const commandAttempted = yield* Deferred.make<void>();
+        const writerStarted = yield* Deferred.make<ConnectionStamp>();
+        const commandStarted = yield* Deferred.make<ConnectionStamp>();
+        const writerTrace = makeSqlTrace();
+        const commandTrace = makeSqlTrace();
+        const before = yield* submissionCompositionFacts(
+          ids.persons.phantomEconomy,
+          exactEnd,
+          ids.departments.alpha,
+        ).pipe(
+          Effect.provide(
+            makeProofLayer(databaseUrl, `${proofApplicationPrefix}-phantom-economy-before`),
+          ),
+        );
+        assert.deepEqual(before.applicableRuleIds, []);
+        assert.equal(before.directPaymentAuthorities.length, 0);
+        assert.deepEqual(before.mapped, {
+          _tag: "Failure",
+          failureTag: "ReceiptAuthorityDenied",
+        });
+
+        const writerFiber = yield* Effect.forkScoped(
+          Effect.gen(function* () {
+            const sql = yield* Database;
+            const started = yield* connectionStamp(sql);
+            yield* Deferred.succeed(writerStarted, started);
+            const observed = observeSql(sql, writerTrace, {
+              pauseAfter: {
+                phase: "direct-payment-insert",
+                ready: writerPaused,
+                resume: resumeWriter,
+              },
+            });
+            const created = yield* createReceiptPaymentAuthority({
+              paymentAuthorityId: ReceiptPaymentAuthorityId.make(
+                ids.directAuthorities.phantomEconomyPayment,
+              ),
+              personId: personId(ids.persons.phantomEconomy),
+              departmentId: departmentId(ids.departments.alpha),
+              paymentAccountCiphertext: "ciphertext:proof:phantom-economy",
+              startAt: activeStart,
+              endAt: null,
+            }).pipe(Effect.provideService(Database, observed));
+            const completed = yield* connectionStamp(sql);
+            return { started, completed, created };
+          }).pipe(
+            Effect.provide(
+              makeProofLayer(databaseUrl, `${proofApplicationPrefix}-phantom-economy-writer`),
+            ),
+          ),
+        );
+        yield* Deferred.await(writerPaused);
+
+        const commandFiber = yield* Effect.forkScoped(
+          Effect.gen(function* () {
+            const sql = yield* Database;
+            const started = yield* connectionStamp(sql);
+            yield* Deferred.succeed(commandStarted, started);
+            const observed = observeSql(sql, commandTrace, {
+              signalBefore: {
+                phase: "person-authorization-lock",
+                deferred: commandAttempted,
+              },
+            });
+            const value = yield* executeReceiptCommand(
+              submitCommand(
+                ids.commands.phantomEconomyInsert,
+                ids.departments.alpha,
+                "phantom-economy-insert",
+              ),
+              principal(ids.persons.phantomEconomy, exactEnd),
+              allocation(
+                generatedReceiptIds.phantomEconomyInsert,
+                generatedVisualIds.phantomEconomyInsert,
+              ),
+            ).pipe(Effect.provideService(Database, observed));
+            const completed = yield* connectionStamp(sql);
+            return { started, completed, value };
+          }).pipe(
+            Effect.provide(
+              makeProofLayer(databaseUrl, `${proofApplicationPrefix}-phantom-economy-command`),
+            ),
+          ),
+        );
+        yield* Deferred.await(commandAttempted);
+        const writerStamp = yield* Deferred.await(writerStarted);
+        const commandStamp = yield* Deferred.await(commandStarted);
+        assert.notEqual(writerStamp.pid, commandStamp.pid);
+        const writerAtBlock = {
+          attempted: [...writerTrace.attempted],
+          completed: [...writerTrace.completed],
+        };
+        const commandAtBlock = {
+          attempted: [...commandTrace.attempted],
+          completed: [...commandTrace.completed],
+        };
+        const locks = yield* observeBlockingAndLocks({
+          databaseUrl,
+          blockedPid: commandStamp.pid,
+          blockerPid: writerStamp.pid,
+          personId: ids.persons.phantomEconomy,
+          commandId: ids.commands.phantomEconomyInsert,
+          applicationName: `${proofApplicationPrefix}-phantom-economy-observer`,
+        });
+        assert.equal(locks.blocked.waitEventType, "Lock");
+        assert.ok(locks.blocked.blockingPids.includes(writerStamp.pid));
+        assert.ok(
+          hasAdvisoryLock(
+            locks.advisoryLocks,
+            writerStamp.pid,
+            "person-authorization",
+            "ExclusiveLock",
+            true,
+          ),
+        );
+        assert.ok(
+          hasAdvisoryLock(
+            locks.advisoryLocks,
+            commandStamp.pid,
+            "person-authorization",
+            "ExclusiveLock",
+            false,
+          ),
+        );
+        assert.ok(
+          hasRelationLock(
+            locks.relationLocks,
+            writerStamp.pid,
+            "public.economy_payment_authorities",
+            "RowExclusiveLock",
+          ),
+        );
+        assert.equal(commandAtBlock.attempted.at(-1), "person-authorization-lock");
+        yield* Deferred.succeed(resumeWriter, undefined);
+        const writer = yield* Fiber.join(writerFiber);
+        const command = yield* Fiber.join(commandFiber);
+        assert.equal(writer.created.revision, 0);
+        assertSubsequence(writerTrace.completed, [
+          "person-authorization-lock",
+          "direct-payment-insert",
+        ]);
+        assertSubsequence(commandTrace.completed, [
+          "person-authorization-lock",
+          "organization-authority-projection",
+          "direct-receipt-authority-projection",
+          "authz-shared-lock",
+          "authz-tag-assignment-projection",
+          "authz-rule-projection",
+          "durable-audit-insert",
+        ]);
+
+        const afterInsert = yield* submissionCompositionFacts(
+          ids.persons.phantomEconomy,
+          exactEnd,
+          ids.departments.alpha,
+        ).pipe(
+          Effect.provide(
+            makeProofLayer(databaseUrl, `${proofApplicationPrefix}-phantom-economy-after`),
+          ),
+        );
+        assert.deepEqual(afterInsert.applicableRuleIds, []);
+        assert.deepEqual(afterInsert.composedPaymentAuthorityIds, [
+          ids.directAuthorities.phantomEconomyPayment,
+        ]);
+        assert.equal(afterInsert.mapped._tag, "Success");
+        const cleanup = yield* Effect.gen(function* () {
+          const sql = yield* Database;
+          const durable = yield* readDurableCommandFacts(sql, ids.commands.phantomEconomyInsert);
+          const removed = yield* removeReceiptPaymentAuthority({
+            paymentAuthorityId: ReceiptPaymentAuthorityId.make(
+              ids.directAuthorities.phantomEconomyPayment,
+            ),
+            expectedRevision: 0,
+          });
+          const [remaining] = yield* sql<{ readonly count: number }>`
+            SELECT count(*)::integer AS count
+            FROM public.economy_payment_authorities
+            WHERE payment_authority_id = ${ids.directAuthorities.phantomEconomyPayment}
+          `;
+          assert(remaining);
+          return {
+            durable,
+            removed: {
+              paymentAuthorityId: removed.paymentAuthorityId,
+              revision: removed.revision,
+            },
+            remainingRows: remaining.count,
+          };
+        }).pipe(
+          Effect.provide(
+            makeProofLayer(databaseUrl, `${proofApplicationPrefix}-phantom-economy-cleanup`),
+          ),
+        );
+        assert.deepEqual(cleanup.durable, {
+          commandReceiptRows: 1,
+          auditRows: 1,
+          outboxRows: 3,
+          outboxCommandRows: 1,
+        });
+        assert.equal(cleanup.remainingRows, 0);
+
+        return {
+          order: "WriterInsertFirst" as const,
+          before,
+          participants: {
+            writer: writer.started,
+            writerCompleted: writer.completed,
+            command: command.started,
+            commandCompleted: command.completed,
+            independentBackendPids: writer.started.pid !== command.started.pid,
+          },
+          blocked: locks.blocked,
+          relationLocks: locks.relationLocks,
+          advisoryLocks: locks.advisoryLocks,
+          sqlOrderAtBlock: { writer: writerAtBlock, command: commandAtBlock },
+          sqlOrderAfterCommit: { writer: writerTrace, command: commandTrace },
+          createdAuthority: {
+            paymentAuthorityId: writer.created.paymentAuthorityId,
+            personId: writer.created.personId,
+            departmentId: writer.created.departmentId,
+            startAt: writer.created.startAt,
+            endAt: writer.created.endAt,
+            revision: writer.created.revision,
+          },
+          visibleComposition: afterInsert,
+          commandObservation: command.value.observation,
+          cleanup,
+        };
+      });
+
+      const organizationLifecycle = yield* Effect.gen(function* () {
+        const approvalGrant = yield* createReceiptApprovalGrant({
+          approvalGrantId: ReceiptApprovalGrantId.make(
+            ids.directAuthorities.phantomOrganizationApproval,
+          ),
+          personId: personId(ids.persons.phantomOrganization),
+          scope: { _tag: "Global" },
+          startAt: activeStart,
+          endAt: null,
+        }).pipe(
+          Effect.provide(
+            makeProofLayer(databaseUrl, `${proofApplicationPrefix}-phantom-org-approval-setup`),
+          ),
+        );
+        const before = yield* approvalCompositionFacts(
+          ids.persons.phantomOrganization,
+          exactEnd,
+          ids.departments.alpha,
+        ).pipe(
+          Effect.provide(
+            makeProofLayer(databaseUrl, `${proofApplicationPrefix}-phantom-org-before`),
+          ),
+        );
+        assert.deepEqual(before.applicableRuleIds, []);
+        assert.equal(before.directApprovalGrants[0]?.active, false);
+        assert.equal(before.mapped._tag, "Success");
+        if (before.mapped._tag === "Success") assert.equal(before.mapped.actor.active, false);
+
+        const writerPaused = yield* Deferred.make<void>();
+        const resumeWriter = yield* Deferred.make<void>();
+        const commandAttempted = yield* Deferred.make<void>();
+        const writerStarted = yield* Deferred.make<ConnectionStamp>();
+        const commandStarted = yield* Deferred.make<ConnectionStamp>();
+        const insertWriterTrace = makeSqlTrace();
+        const insertCommandTrace = makeSqlTrace();
+        const insertWriterFiber = yield* Effect.forkScoped(
+          Effect.gen(function* () {
+            const sql = yield* Database;
+            const started = yield* connectionStamp(sql);
+            yield* Deferred.succeed(writerStarted, started);
+            const observed = observeSql(sql, insertWriterTrace, {
+              pauseAfter: {
+                phase: "organization-administrator-insert",
+                ready: writerPaused,
+                resume: resumeWriter,
+              },
+            });
+            const created = yield* createOrganizationGlobalAdministratorGrant({
+              grantId: OrganizationGlobalAdministratorGrantId.make(
+                ids.directAuthorities.phantomOrganizationAdministrator,
+              ),
+              personId: personId(ids.persons.phantomOrganization),
+              startAt: activeStart,
+              endAt: null,
+            }).pipe(Effect.provideService(Database, observed));
+            const completed = yield* connectionStamp(sql);
+            return { started, completed, created };
+          }).pipe(
+            Effect.provide(
+              makeProofLayer(databaseUrl, `${proofApplicationPrefix}-phantom-org-insert-writer`),
+            ),
+          ),
+        );
+        yield* Deferred.await(writerPaused);
+
+        const insertCommandFiber = yield* Effect.forkScoped(
+          Effect.gen(function* () {
+            const sql = yield* Database;
+            const started = yield* connectionStamp(sql);
+            yield* Deferred.succeed(commandStarted, started);
+            const observed = observeSql(sql, insertCommandTrace, {
+              signalBefore: {
+                phase: "person-authorization-lock",
+                deferred: commandAttempted,
+              },
+            });
+            const value = yield* executeReceiptCommand(
+              {
+                _tag: "RejectReceipt",
+                commandId: ids.commands.phantomOrganizationInsert,
+                receiptId: ReceiptId.make(ids.receipts.phantomOrganizationInsert),
+                expectedRevision: 0,
+              },
+              principal(ids.persons.phantomOrganization, exactEnd),
+            ).pipe(Effect.provideService(Database, observed));
+            const completed = yield* connectionStamp(sql);
+            return { started, completed, value };
+          }).pipe(
+            Effect.provide(
+              makeProofLayer(databaseUrl, `${proofApplicationPrefix}-phantom-org-insert-command`),
+            ),
+          ),
+        );
+        yield* Deferred.await(commandAttempted);
+        const insertWriterStamp = yield* Deferred.await(writerStarted);
+        const insertCommandStamp = yield* Deferred.await(commandStarted);
+        assert.notEqual(insertWriterStamp.pid, insertCommandStamp.pid);
+        const insertWriterAtBlock = {
+          attempted: [...insertWriterTrace.attempted],
+          completed: [...insertWriterTrace.completed],
+        };
+        const insertCommandAtBlock = {
+          attempted: [...insertCommandTrace.attempted],
+          completed: [...insertCommandTrace.completed],
+        };
+        const insertLocks = yield* observeBlockingAndLocks({
+          databaseUrl,
+          blockedPid: insertCommandStamp.pid,
+          blockerPid: insertWriterStamp.pid,
+          personId: ids.persons.phantomOrganization,
+          commandId: ids.commands.phantomOrganizationInsert,
+          applicationName: `${proofApplicationPrefix}-phantom-org-insert-observer`,
+        });
+        assert.equal(insertLocks.blocked.waitEventType, "Lock");
+        assert.ok(insertLocks.blocked.blockingPids.includes(insertWriterStamp.pid));
+        assert.ok(
+          hasAdvisoryLock(
+            insertLocks.advisoryLocks,
+            insertWriterStamp.pid,
+            "person-authorization",
+            "ExclusiveLock",
+            true,
+          ),
+        );
+        assert.ok(
+          hasAdvisoryLock(
+            insertLocks.advisoryLocks,
+            insertCommandStamp.pid,
+            "person-authorization",
+            "ExclusiveLock",
+            false,
+          ),
+        );
+        assert.ok(
+          hasRelationLock(
+            insertLocks.relationLocks,
+            insertWriterStamp.pid,
+            "public.organization_global_administrator_grants",
+            "RowExclusiveLock",
+          ),
+        );
+        yield* Deferred.succeed(resumeWriter, undefined);
+        const insertWriter = yield* Fiber.join(insertWriterFiber);
+        const insertCommand = yield* Fiber.join(insertCommandFiber);
+        assertSubsequence(insertWriterTrace.completed, [
+          "person-authorization-lock",
+          "organization-administrator-insert",
+        ]);
+        assertSubsequence(insertCommandTrace.completed, [
+          "person-authorization-lock",
+          "organization-authority-projection",
+          "direct-receipt-authority-projection",
+          "authz-shared-lock",
+          "authz-tag-assignment-projection",
+          "authz-rule-projection",
+          "durable-audit-insert",
+        ]);
+        const afterInsert = yield* approvalCompositionFacts(
+          ids.persons.phantomOrganization,
+          exactEnd,
+          ids.departments.alpha,
+        ).pipe(
+          Effect.provide(
+            makeProofLayer(databaseUrl, `${proofApplicationPrefix}-phantom-org-after-insert`),
+          ),
+        );
+        assert.equal(afterInsert.directApprovalGrants[0]?.active, true);
+        assert.equal(afterInsert.mapped._tag, "Success");
+        if (afterInsert.mapped._tag === "Success")
+          assert.equal(afterInsert.mapped.actor.active, true);
+
+        const commandReady = yield* Deferred.make<void>();
+        const resumeCommand = yield* Deferred.make<void>();
+        const endWriterAttempted = yield* Deferred.make<void>();
+        const endCommandStarted = yield* Deferred.make<ConnectionStamp>();
+        const endWriterStarted = yield* Deferred.make<ConnectionStamp>();
+        const endCommandTrace = makeSqlTrace();
+        const endWriterTrace = makeSqlTrace();
+        const endCommandFiber = yield* Effect.forkScoped(
+          Effect.gen(function* () {
+            const sql = yield* Database;
+            const started = yield* connectionStamp(sql);
+            yield* Deferred.succeed(endCommandStarted, started);
+            const observed = observeSql(sql, endCommandTrace, {
+              pauseAfter: {
+                phase: "durable-audit-insert",
+                ready: commandReady,
+                resume: resumeCommand,
+              },
+            });
+            const value = yield* executeReceiptCommand(
+              {
+                _tag: "RejectReceipt",
+                commandId: ids.commands.phantomOrganizationRemove,
+                receiptId: ReceiptId.make(ids.receipts.phantomOrganizationRemove),
+                expectedRevision: 0,
+              },
+              principal(ids.persons.phantomOrganization, exactEnd),
+            ).pipe(Effect.provideService(Database, observed));
+            const completed = yield* connectionStamp(sql);
+            return { started, completed, value };
+          }).pipe(
+            Effect.provide(
+              makeProofLayer(databaseUrl, `${proofApplicationPrefix}-phantom-org-end-command`),
+            ),
+          ),
+        );
+        yield* Deferred.await(commandReady);
+
+        const endWriterFiber = yield* Effect.forkScoped(
+          Effect.gen(function* () {
+            const sql = yield* Database;
+            const started = yield* connectionStamp(sql);
+            yield* Deferred.succeed(endWriterStarted, started);
+            const observed = observeSql(sql, endWriterTrace, {
+              signalBefore: {
+                phase: "person-authorization-lock",
+                deferred: endWriterAttempted,
+              },
+            });
+            const ended = yield* endOrganizationGlobalAdministratorGrant({
+              grantId: OrganizationGlobalAdministratorGrantId.make(
+                ids.directAuthorities.phantomOrganizationAdministrator,
+              ),
+              endAt: exactEnd,
+              expectedRevision: 0,
+            }).pipe(Effect.provideService(Database, observed));
+            const completed = yield* connectionStamp(sql);
+            return { started, completed, ended };
+          }).pipe(
+            Effect.provide(
+              makeProofLayer(databaseUrl, `${proofApplicationPrefix}-phantom-org-end-writer`),
+            ),
+          ),
+        );
+        yield* Deferred.await(endWriterAttempted);
+        const endCommandStamp = yield* Deferred.await(endCommandStarted);
+        const endWriterStamp = yield* Deferred.await(endWriterStarted);
+        assert.notEqual(endCommandStamp.pid, endWriterStamp.pid);
+        const endCommandAtBlock = {
+          attempted: [...endCommandTrace.attempted],
+          completed: [...endCommandTrace.completed],
+        };
+        const endWriterAtBlock = {
+          attempted: [...endWriterTrace.attempted],
+          completed: [...endWriterTrace.completed],
+        };
+        const endLocks = yield* observeBlockingAndLocks({
+          databaseUrl,
+          blockedPid: endWriterStamp.pid,
+          blockerPid: endCommandStamp.pid,
+          personId: ids.persons.phantomOrganization,
+          commandId: ids.commands.phantomOrganizationRemove,
+          applicationName: `${proofApplicationPrefix}-phantom-org-end-observer`,
+        });
+        assert.equal(endLocks.blocked.waitEventType, "Lock");
+        assert.ok(endLocks.blocked.blockingPids.includes(endCommandStamp.pid));
+        assert.ok(
+          hasAdvisoryLock(
+            endLocks.advisoryLocks,
+            endCommandStamp.pid,
+            "person-authorization",
+            "ExclusiveLock",
+            true,
+          ),
+        );
+        assert.ok(
+          hasAdvisoryLock(
+            endLocks.advisoryLocks,
+            endWriterStamp.pid,
+            "person-authorization",
+            "ExclusiveLock",
+            false,
+          ),
+        );
+        assert.equal(endWriterAtBlock.attempted.at(-1), "person-authorization-lock");
+        yield* Deferred.succeed(resumeCommand, undefined);
+        const endCommand = yield* Fiber.join(endCommandFiber);
+        const endWriter = yield* Fiber.join(endWriterFiber);
+        assert.equal(endWriter.ended.endAt, exactEnd);
+        assert.equal(endWriter.ended.revision, 1);
+        assertSubsequence(endWriterTrace.completed, [
+          "person-authorization-lock",
+          "organization-administrator-end",
+        ]);
+
+        const afterEnd = yield* Effect.gen(function* () {
+          const sql = yield* Database;
+          const beforeExact = yield* resolveOrganizationPersonAuthorityForRead(
+            personId(ids.persons.phantomOrganization),
+            justBeforeExactEnd,
+          );
+          const atExact = yield* resolveOrganizationPersonAuthorityForRead(
+            personId(ids.persons.phantomOrganization),
+            exactEnd,
+          );
+          const insertDurable = yield* readDurableCommandFacts(
+            sql,
+            ids.commands.phantomOrganizationInsert,
+          );
+          const endDurable = yield* readDurableCommandFacts(
+            sql,
+            ids.commands.phantomOrganizationRemove,
+          );
+          const fresh = yield* Effect.result(
+            executeReceiptCommand(
+              {
+                _tag: "RejectReceipt",
+                commandId: ids.commands.phantomOrganizationFresh,
+                receiptId: ReceiptId.make(ids.receipts.phantomOrganizationFresh),
+                expectedRevision: 0,
+              },
+              principal(ids.persons.phantomOrganization, exactEnd),
+            ),
+          );
+          const freshDurable = yield* readDurableCommandFacts(
+            sql,
+            ids.commands.phantomOrganizationFresh,
+          );
+          const removedAdministrator = yield* removeOrganizationGlobalAdministratorGrant({
+            grantId: OrganizationGlobalAdministratorGrantId.make(
+              ids.directAuthorities.phantomOrganizationAdministrator,
+            ),
+            expectedRevision: 1,
+          });
+          const removedApproval = yield* removeReceiptApprovalGrant({
+            approvalGrantId: ReceiptApprovalGrantId.make(
+              ids.directAuthorities.phantomOrganizationApproval,
+            ),
+            expectedRevision: 0,
+          });
+          const [remaining] = yield* sql<{
+            readonly administrators: number;
+            readonly approvals: number;
+          }>`
+            SELECT
+              (
+                SELECT count(*)::integer
+                FROM public.organization_global_administrator_grants
+                WHERE grant_id = ${ids.directAuthorities.phantomOrganizationAdministrator}
+              ) AS administrators,
+              (
+                SELECT count(*)::integer
+                FROM public.economy_receipt_approval_grants
+                WHERE approval_grant_id = ${ids.directAuthorities.phantomOrganizationApproval}
+              ) AS approvals
+          `;
+          assert(remaining);
+          return {
+            beforeExactGlobalAdministrator: beforeExact.globalAdministrator,
+            exactGlobalAdministrator: atExact.globalAdministrator,
+            insertDurable,
+            endDurable,
+            freshFailureTag: resultFailureTag(fresh),
+            freshDurable,
+            removedAdministrator: {
+              grantId: removedAdministrator.grantId,
+              endAt: removedAdministrator.endAt,
+              revision: removedAdministrator.revision,
+            },
+            removedApproval: {
+              approvalGrantId: removedApproval.approvalGrantId,
+              revision: removedApproval.revision,
+            },
+            remaining,
+          };
+        }).pipe(
+          Effect.provide(
+            makeProofLayer(databaseUrl, `${proofApplicationPrefix}-phantom-org-after-end`),
+          ),
+        );
+        assert.equal(afterEnd.beforeExactGlobalAdministrator, "Active");
+        assert.equal(afterEnd.exactGlobalAdministrator, "Inactive");
+        assert.deepEqual(afterEnd.insertDurable, {
+          commandReceiptRows: 1,
+          auditRows: 1,
+          outboxRows: 2,
+          outboxCommandRows: 1,
+        });
+        assert.deepEqual(afterEnd.endDurable, {
+          commandReceiptRows: 1,
+          auditRows: 1,
+          outboxRows: 2,
+          outboxCommandRows: 1,
+        });
+        assert.equal(afterEnd.freshFailureTag, "InactiveActor");
+        assert.deepEqual(afterEnd.freshDurable, {
+          commandReceiptRows: 0,
+          auditRows: 0,
+          outboxRows: 0,
+          outboxCommandRows: 0,
+        });
+        assert.deepEqual(afterEnd.remaining, { administrators: 0, approvals: 0 });
+
+        return {
+          setupApprovalGrant: {
+            approvalGrantId: approvalGrant.approvalGrantId,
+            personId: approvalGrant.personId,
+            scope: approvalGrant.scope,
+            startAt: approvalGrant.startAt,
+            endAt: approvalGrant.endAt,
+            revision: approvalGrant.revision,
+          },
+          before,
+          insertFirst: {
+            order: "WriterInsertFirst" as const,
+            participants: {
+              writer: insertWriter.started,
+              writerCompleted: insertWriter.completed,
+              command: insertCommand.started,
+              commandCompleted: insertCommand.completed,
+              independentBackendPids: insertWriter.started.pid !== insertCommand.started.pid,
+            },
+            blocked: insertLocks.blocked,
+            relationLocks: insertLocks.relationLocks,
+            advisoryLocks: insertLocks.advisoryLocks,
+            sqlOrderAtBlock: {
+              writer: insertWriterAtBlock,
+              command: insertCommandAtBlock,
+            },
+            sqlOrderAfterCommit: {
+              writer: insertWriterTrace,
+              command: insertCommandTrace,
+            },
+            createdAdministrator: {
+              grantId: insertWriter.created.grantId,
+              personId: insertWriter.created.personId,
+              startAt: insertWriter.created.startAt,
+              endAt: insertWriter.created.endAt,
+              revision: insertWriter.created.revision,
+            },
+            visibleComposition: afterInsert,
+            commandObservation: insertCommand.value.observation,
+          },
+          commandFirstEnd: {
+            order: "CommandFirst" as const,
+            instant: exactEnd,
+            participants: {
+              command: endCommand.started,
+              commandCompleted: endCommand.completed,
+              writer: endWriter.started,
+              writerCompleted: endWriter.completed,
+              independentBackendPids: endCommand.started.pid !== endWriter.started.pid,
+            },
+            blocked: endLocks.blocked,
+            relationLocks: endLocks.relationLocks,
+            advisoryLocks: endLocks.advisoryLocks,
+            sqlOrderAtBlock: {
+              command: endCommandAtBlock,
+              writer: endWriterAtBlock,
+            },
+            sqlOrderAfterCommit: {
+              command: endCommandTrace,
+              writer: endWriterTrace,
+            },
+            commandObservation: endCommand.value.observation,
+            endedAdministrator: {
+              grantId: endWriter.ended.grantId,
+              endAt: endWriter.ended.endAt,
+              revision: endWriter.ended.revision,
+            },
+          },
+          afterEndAndRemoval: afterEnd,
+        };
+      });
+
+      return { economyInsertFirst, organizationLifecycle };
+    }),
+  );
 
 const proveDirectAuthorityRowLock = (databaseUrl: Redacted.Redacted<string>) =>
   Effect.scoped(
@@ -1637,6 +3235,429 @@ const proveCommandFirstRuleRemoval = (databaseUrl: Redacted.Redacted<string>) =>
     }),
   );
 
+const proveRuleExpiryRaces = (databaseUrl: Redacted.Redacted<string>) =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const commandFirst = yield* Effect.gen(function* () {
+        const commandReady = yield* Deferred.make<void>();
+        const resumeCommand = yield* Deferred.make<void>();
+        const writerAttempted = yield* Deferred.make<void>();
+        const commandStarted = yield* Deferred.make<ConnectionStamp>();
+        const writerStarted = yield* Deferred.make<ConnectionStamp>();
+        const commandTrace = makeSqlTrace();
+        const writerTrace = makeSqlTrace();
+        const before = yield* submissionCompositionFacts(
+          ids.persons.expiryCommandFirst,
+          exactEnd,
+          ids.departments.alpha,
+        ).pipe(
+          Effect.provide(makeProofLayer(databaseUrl, `${proofApplicationPrefix}-expiry-cf-before`)),
+        );
+        assert.deepEqual(before.applicableRuleIds, [ids.rules.expiryCommandFirst]);
+        assert.deepEqual(before.contributingRuleIds, [ids.rules.expiryCommandFirst]);
+        assert.equal(before.directPaymentAuthorities.length, 0);
+        assert.equal(before.mapped._tag, "Success");
+
+        const commandFiber = yield* Effect.forkScoped(
+          Effect.gen(function* () {
+            const sql = yield* Database;
+            const started = yield* connectionStamp(sql);
+            yield* Deferred.succeed(commandStarted, started);
+            const observed = observeSql(sql, commandTrace, {
+              pauseAfter: {
+                phase: "durable-audit-insert",
+                ready: commandReady,
+                resume: resumeCommand,
+              },
+            });
+            const value = yield* executeReceiptCommand(
+              submitCommand(
+                ids.commands.expiryCommandFirst,
+                ids.departments.alpha,
+                "expiry-command-first",
+              ),
+              principal(ids.persons.expiryCommandFirst, exactEnd),
+              allocation(
+                generatedReceiptIds.expiryCommandFirst,
+                generatedVisualIds.expiryCommandFirst,
+              ),
+            ).pipe(Effect.provideService(Database, observed));
+            const completed = yield* connectionStamp(sql);
+            return { started, completed, value };
+          }).pipe(
+            Effect.provide(
+              makeProofLayer(databaseUrl, `${proofApplicationPrefix}-expiry-cf-command`),
+            ),
+          ),
+        );
+        yield* Deferred.await(commandReady);
+
+        const writerFiber = yield* Effect.forkScoped(
+          Effect.gen(function* () {
+            const sql = yield* Database;
+            const started = yield* connectionStamp(sql);
+            yield* Deferred.succeed(writerStarted, started);
+            const observed = observeSql(sql, writerTrace, {
+              signalBefore: { phase: "authz-exclusive-lock", deferred: writerAttempted },
+            });
+            const ended = yield* endAuthzRule({
+              ruleId: AuthzRuleId.make(ids.rules.expiryCommandFirst),
+              endAt: exactEnd,
+              expectedRevision: 0,
+            }).pipe(Effect.provideService(Database, observed));
+            const completed = yield* connectionStamp(sql);
+            return { started, completed, ended };
+          }).pipe(
+            Effect.provide(
+              makeProofLayer(databaseUrl, `${proofApplicationPrefix}-expiry-cf-writer`),
+            ),
+          ),
+        );
+        yield* Deferred.await(writerAttempted);
+        const commandStamp = yield* Deferred.await(commandStarted);
+        const writerStamp = yield* Deferred.await(writerStarted);
+        assert.notEqual(commandStamp.pid, writerStamp.pid);
+        const commandAtBlock = {
+          attempted: [...commandTrace.attempted],
+          completed: [...commandTrace.completed],
+        };
+        const writerAtBlock = {
+          attempted: [...writerTrace.attempted],
+          completed: [...writerTrace.completed],
+        };
+        const locks = yield* observeBlockingAndLocks({
+          databaseUrl,
+          blockedPid: writerStamp.pid,
+          blockerPid: commandStamp.pid,
+          personId: ids.persons.expiryCommandFirst,
+          commandId: ids.commands.expiryCommandFirst,
+          applicationName: `${proofApplicationPrefix}-expiry-cf-observer`,
+        });
+        assert.equal(locks.blocked.waitEventType, "Lock");
+        assert.ok(locks.blocked.blockingPids.includes(commandStamp.pid));
+        assert.ok(
+          hasAdvisoryLock(
+            locks.advisoryLocks,
+            commandStamp.pid,
+            "authorization-rules",
+            "ShareLock",
+            true,
+          ),
+        );
+        assert.ok(
+          hasAdvisoryLock(
+            locks.advisoryLocks,
+            writerStamp.pid,
+            "authorization-rules",
+            "ExclusiveLock",
+            false,
+          ),
+        );
+        yield* Deferred.succeed(resumeCommand, undefined);
+        const command = yield* Fiber.join(commandFiber);
+        const writer = yield* Fiber.join(writerFiber);
+        assert.equal(writer.ended.endAt, exactEnd);
+        assert.equal(writer.ended.revision, 1);
+        assertSubsequence(commandTrace.completed, [
+          "person-authorization-lock",
+          "organization-authority-projection",
+          "direct-receipt-authority-projection",
+          "authz-shared-lock",
+          "authz-tag-assignment-projection",
+          "authz-rule-projection",
+          "durable-audit-insert",
+        ]);
+        assertSubsequence(writerTrace.completed, ["authz-exclusive-lock", "end-rule"]);
+
+        const after = yield* Effect.gen(function* () {
+          const sql = yield* Database;
+          const beforeExact = yield* loadApplicableAuthorizationRules(
+            personId(ids.persons.expiryCommandFirst),
+            "submitReceipt",
+            justBeforeExactEnd,
+            { domain: "Receipt", departmentId: departmentId(ids.departments.alpha) },
+          );
+          const atExact = yield* loadApplicableAuthorizationRules(
+            personId(ids.persons.expiryCommandFirst),
+            "submitReceipt",
+            exactEnd,
+            { domain: "Receipt", departmentId: departmentId(ids.departments.alpha) },
+          );
+          const acceptedDurable = yield* readDurableCommandFacts(
+            sql,
+            ids.commands.expiryCommandFirst,
+          );
+          const fresh = yield* Effect.result(
+            executeReceiptCommand(
+              submitCommand(
+                ids.commands.expiryCommandFirstFresh,
+                ids.departments.alpha,
+                "expiry-command-first-fresh",
+              ),
+              principal(ids.persons.expiryCommandFirst, exactEnd),
+              allocation(
+                generatedReceiptIds.expiryCommandFirstFresh,
+                generatedVisualIds.expiryCommandFirstFresh,
+              ),
+            ),
+          );
+          const freshDurable = yield* readDurableCommandFacts(
+            sql,
+            ids.commands.expiryCommandFirstFresh,
+          );
+          return {
+            beforeExactRuleIds: beforeExact.rules.map((rule) => rule.ruleId),
+            exactRuleIds: atExact.rules.map((rule) => rule.ruleId),
+            acceptedDurable,
+            freshFailureTag: resultFailureTag(fresh),
+            freshDurable,
+          };
+        }).pipe(
+          Effect.provide(makeProofLayer(databaseUrl, `${proofApplicationPrefix}-expiry-cf-after`)),
+        );
+        assert.deepEqual(after.beforeExactRuleIds, [ids.rules.expiryCommandFirst]);
+        assert.deepEqual(after.exactRuleIds, []);
+        assert.deepEqual(after.acceptedDurable, {
+          commandReceiptRows: 1,
+          auditRows: 1,
+          outboxRows: 3,
+          outboxCommandRows: 1,
+        });
+        assert.equal(after.freshFailureTag, "ReceiptAuthorityDenied");
+        assert.deepEqual(after.freshDurable, {
+          commandReceiptRows: 0,
+          auditRows: 0,
+          outboxRows: 0,
+          outboxCommandRows: 0,
+        });
+
+        return {
+          order: "CommandFirst" as const,
+          instant: exactEnd,
+          compositionBefore: before,
+          participants: {
+            command: command.started,
+            commandCompleted: command.completed,
+            writer: writer.started,
+            writerCompleted: writer.completed,
+            independentBackendPids: command.started.pid !== writer.started.pid,
+          },
+          blocked: locks.blocked,
+          relationLocks: locks.relationLocks,
+          advisoryLocks: locks.advisoryLocks,
+          sqlOrderAtBlock: { command: commandAtBlock, writer: writerAtBlock },
+          sqlOrderAfterCommit: { command: commandTrace, writer: writerTrace },
+          commandObservation: command.value.observation,
+          endedRule: {
+            ruleId: writer.ended.ruleId,
+            endAt: writer.ended.endAt,
+            revision: writer.ended.revision,
+          },
+          ...after,
+        };
+      });
+
+      const writerFirst = yield* Effect.gen(function* () {
+        const writerPaused = yield* Deferred.make<void>();
+        const resumeWriter = yield* Deferred.make<void>();
+        const commandAttempted = yield* Deferred.make<void>();
+        const writerStarted = yield* Deferred.make<ConnectionStamp>();
+        const commandStarted = yield* Deferred.make<ConnectionStamp>();
+        const writerTrace = makeSqlTrace();
+        const commandTrace = makeSqlTrace();
+        const before = yield* submissionCompositionFacts(
+          ids.persons.expiryWriterFirst,
+          justBeforeExactEnd,
+          ids.departments.alpha,
+        ).pipe(
+          Effect.provide(makeProofLayer(databaseUrl, `${proofApplicationPrefix}-expiry-wf-before`)),
+        );
+        assert.deepEqual(before.applicableRuleIds, [ids.rules.expiryWriterFirst]);
+        assert.deepEqual(before.contributingRuleIds, [ids.rules.expiryWriterFirst]);
+        assert.equal(before.directPaymentAuthorities.length, 0);
+        assert.equal(before.mapped._tag, "Success");
+
+        const writerFiber = yield* Effect.forkScoped(
+          Effect.gen(function* () {
+            const sql = yield* Database;
+            const started = yield* connectionStamp(sql);
+            yield* Deferred.succeed(writerStarted, started);
+            const observed = observeSql(sql, writerTrace, {
+              pauseAfter: {
+                phase: "end-rule",
+                ready: writerPaused,
+                resume: resumeWriter,
+              },
+            });
+            const ended = yield* endAuthzRule({
+              ruleId: AuthzRuleId.make(ids.rules.expiryWriterFirst),
+              endAt: exactEnd,
+              expectedRevision: 0,
+            }).pipe(Effect.provideService(Database, observed));
+            const completed = yield* connectionStamp(sql);
+            return { started, completed, ended };
+          }).pipe(
+            Effect.provide(
+              makeProofLayer(databaseUrl, `${proofApplicationPrefix}-expiry-wf-writer`),
+            ),
+          ),
+        );
+        yield* Deferred.await(writerPaused);
+
+        const commandFiber = yield* Effect.forkScoped(
+          Effect.gen(function* () {
+            const sql = yield* Database;
+            const started = yield* connectionStamp(sql);
+            yield* Deferred.succeed(commandStarted, started);
+            const observed = observeSql(sql, commandTrace, {
+              signalBefore: { phase: "authz-shared-lock", deferred: commandAttempted },
+            });
+            const result = yield* Effect.result(
+              executeReceiptCommand(
+                submitCommand(
+                  ids.commands.expiryWriterFirst,
+                  ids.departments.alpha,
+                  "expiry-writer-first",
+                ),
+                principal(ids.persons.expiryWriterFirst, exactEnd),
+                allocation(
+                  generatedReceiptIds.expiryWriterFirst,
+                  generatedVisualIds.expiryWriterFirst,
+                ),
+              ).pipe(Effect.provideService(Database, observed)),
+            );
+            const completed = yield* connectionStamp(sql);
+            return { started, completed, result };
+          }).pipe(
+            Effect.provide(
+              makeProofLayer(databaseUrl, `${proofApplicationPrefix}-expiry-wf-command`),
+            ),
+          ),
+        );
+        yield* Deferred.await(commandAttempted);
+        const writerStamp = yield* Deferred.await(writerStarted);
+        const commandStamp = yield* Deferred.await(commandStarted);
+        assert.notEqual(writerStamp.pid, commandStamp.pid);
+        const writerAtBlock = {
+          attempted: [...writerTrace.attempted],
+          completed: [...writerTrace.completed],
+        };
+        const commandAtBlock = {
+          attempted: [...commandTrace.attempted],
+          completed: [...commandTrace.completed],
+        };
+        const locks = yield* observeBlockingAndLocks({
+          databaseUrl,
+          blockedPid: commandStamp.pid,
+          blockerPid: writerStamp.pid,
+          personId: ids.persons.expiryWriterFirst,
+          commandId: ids.commands.expiryWriterFirst,
+          applicationName: `${proofApplicationPrefix}-expiry-wf-observer`,
+        });
+        assert.equal(locks.blocked.waitEventType, "Lock");
+        assert.ok(locks.blocked.blockingPids.includes(writerStamp.pid));
+        assert.ok(
+          hasAdvisoryLock(
+            locks.advisoryLocks,
+            writerStamp.pid,
+            "authorization-rules",
+            "ExclusiveLock",
+            true,
+          ),
+        );
+        assert.ok(
+          hasAdvisoryLock(
+            locks.advisoryLocks,
+            commandStamp.pid,
+            "authorization-rules",
+            "ShareLock",
+            false,
+          ),
+        );
+        assertSubsequence(commandAtBlock.completed, [
+          "person-authorization-lock",
+          "organization-authority-projection",
+          "direct-receipt-authority-projection",
+        ]);
+        assert.equal(commandAtBlock.attempted.at(-1), "authz-shared-lock");
+        yield* Deferred.succeed(resumeWriter, undefined);
+        const writer = yield* Fiber.join(writerFiber);
+        const command = yield* Fiber.join(commandFiber);
+        assert.equal(writer.ended.endAt, exactEnd);
+        assert.equal(writer.ended.revision, 1);
+        assert.equal(resultFailureTag(command.result), "ReceiptAuthorityDenied");
+        assertSubsequence(writerTrace.completed, ["authz-exclusive-lock", "end-rule"]);
+        assertSubsequence(commandTrace.completed, [
+          "person-authorization-lock",
+          "organization-authority-projection",
+          "direct-receipt-authority-projection",
+          "authz-shared-lock",
+          "authz-tag-assignment-projection",
+          "authz-rule-projection",
+        ]);
+
+        const after = yield* Effect.gen(function* () {
+          const sql = yield* Database;
+          const beforeExact = yield* loadApplicableAuthorizationRules(
+            personId(ids.persons.expiryWriterFirst),
+            "submitReceipt",
+            justBeforeExactEnd,
+            { domain: "Receipt", departmentId: departmentId(ids.departments.alpha) },
+          );
+          const atExact = yield* loadApplicableAuthorizationRules(
+            personId(ids.persons.expiryWriterFirst),
+            "submitReceipt",
+            exactEnd,
+            { domain: "Receipt", departmentId: departmentId(ids.departments.alpha) },
+          );
+          const durable = yield* readDurableCommandFacts(sql, ids.commands.expiryWriterFirst);
+          return {
+            beforeExactRuleIds: beforeExact.rules.map((rule) => rule.ruleId),
+            exactRuleIds: atExact.rules.map((rule) => rule.ruleId),
+            durable,
+          };
+        }).pipe(
+          Effect.provide(makeProofLayer(databaseUrl, `${proofApplicationPrefix}-expiry-wf-after`)),
+        );
+        assert.deepEqual(after.beforeExactRuleIds, [ids.rules.expiryWriterFirst]);
+        assert.deepEqual(after.exactRuleIds, []);
+        assert.deepEqual(after.durable, {
+          commandReceiptRows: 0,
+          auditRows: 0,
+          outboxRows: 0,
+          outboxCommandRows: 0,
+        });
+
+        return {
+          order: "WriterFirst" as const,
+          instant: exactEnd,
+          compositionBefore: before,
+          participants: {
+            writer: writer.started,
+            writerCompleted: writer.completed,
+            command: command.started,
+            commandCompleted: command.completed,
+            independentBackendPids: writer.started.pid !== command.started.pid,
+          },
+          blocked: locks.blocked,
+          relationLocks: locks.relationLocks,
+          advisoryLocks: locks.advisoryLocks,
+          sqlOrderAtBlock: { writer: writerAtBlock, command: commandAtBlock },
+          sqlOrderAfterCommit: { writer: writerTrace, command: commandTrace },
+          endedRule: {
+            ruleId: writer.ended.ruleId,
+            endAt: writer.ended.endAt,
+            revision: writer.ended.revision,
+          },
+          commandFailureTag: resultFailureTag(command.result),
+          ...after,
+        };
+      });
+
+      return { commandFirst, writerFirst };
+    }),
+  );
+
 const proveTagDetachmentWriterFirst = (databaseUrl: Redacted.Redacted<string>) =>
   Effect.scoped(
     Effect.gen(function* () {
@@ -2019,9 +4040,12 @@ const runProof = (databaseUrl: Redacted.Redacted<string>) =>
   Effect.gen(function* () {
     const migration = yield* replayCanonicalMigrationsAndSeed(databaseUrl);
     const strictWriters = yield* proveStrictWriters(databaseUrl);
+    const backfill = yield* proveDisposableAuthzBackfill(databaseUrl);
     const zeroRuleEquivalence = yield* proveZeroRuleEquivalence(databaseUrl);
     const boundaries = yield* proveHalfOpenAndScopeDenials(databaseUrl);
+    const directAuthorityPhantomProtocol = yield* proveDirectAuthorityPhantomProtocol(databaseUrl);
     const directAuthorityLock = yield* proveDirectAuthorityRowLock(databaseUrl);
+    const ruleExpiry = yield* proveRuleExpiryRaces(databaseUrl);
     const commandFirstRuleRemoval = yield* proveCommandFirstRuleRemoval(databaseUrl);
     const writerFirstTagDetachment = yield* proveTagDetachmentWriterFirst(databaseUrl);
     return {
@@ -2037,6 +4061,7 @@ const runProof = (databaseUrl: Redacted.Redacted<string>) =>
       },
       seedRecords: migration.seedRecords,
       strictWriters,
+      backfill,
       zeroRuleEquivalence,
       boundaries,
       ruleOnly: {
@@ -2045,7 +4070,9 @@ const runProof = (databaseUrl: Redacted.Redacted<string>) =>
         tagApprove: writerFirstTagDetachment.beforeDetachment.composition,
       },
       concurrency: {
+        directAuthorityPhantomProtocol,
         directAuthorityRowLock: directAuthorityLock,
+        ruleExpiry,
         commandFirstRuleRemoval,
         writerFirstTagDetachment,
       },

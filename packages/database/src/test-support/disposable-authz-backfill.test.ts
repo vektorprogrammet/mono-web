@@ -8,83 +8,17 @@ import { Effect } from "effect";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { makeControlledTestRuntime } from "../../test/runtime.js";
 import { DatabaseTest } from "../layers.js";
+import {
+  disposableAuthzBackfillStartAt as startAt,
+  reversedDisposableAuthzBackfillInput as reversedInput,
+  validDisposableAuthzBackfillInput as validInput,
+} from "./disposable-authz-backfill-fixtures.js";
 
-const startAt = "2032-01-01T00:00:00.000Z";
 const runtime = makeControlledTestRuntime(DatabaseTest());
 
 interface CountRow {
   readonly count: string;
 }
-
-const validInput = () => ({
-  disposable: true,
-  tags: [{ name: "Disposable approvers" }, { name: "Disposable payers" }],
-  assignments: [
-    {
-      tagName: "Disposable approvers",
-      personId: "authz-backfill-person-b",
-      startAt,
-      endAt: null,
-    },
-    {
-      tagName: "Disposable payers",
-      personId: "authz-backfill-person-a",
-      startAt,
-      endAt: null,
-    },
-  ],
-  rulesBySubject: [
-    {
-      subject: { _tag: "Tag", tagName: "Disposable payers" },
-      rules: [
-        {
-          capabilityId: "submitReceipt",
-          effectKind: "delegate",
-          scope: { _tag: "Receipt" },
-          params: {
-            slot: "EconomyPaymentAuthority",
-            paymentAccountCiphertext: "ciphertext-disposable-payer",
-          },
-          startAt,
-          endAt: null,
-        },
-      ],
-    },
-    {
-      subject: { _tag: "Person", personId: "authz-backfill-person-a" },
-      rules: [
-        {
-          capabilityId: "approveReceipt",
-          effectKind: "delegate",
-          scope: { _tag: "Department", departmentId: "authz-backfill-department" },
-          params: { slot: "EconomyDepartmentApprovalGrant" },
-          startAt,
-          endAt: null,
-        },
-        {
-          capabilityId: "approveReceipt",
-          effectKind: "delegate",
-          scope: { _tag: "Receipt" },
-          params: { slot: "EconomyGlobalReceiptApprovalGrant" },
-          startAt,
-          endAt: null,
-        },
-      ],
-    },
-  ],
-});
-
-const reversedInput = () => {
-  const input = validInput();
-  return {
-    ...input,
-    tags: [...input.tags].reverse(),
-    assignments: [...input.assignments].reverse(),
-    rulesBySubject: [...input.rulesBySubject]
-      .reverse()
-      .map((group) => ({ ...group, rules: [...group.rules].reverse() })),
-  };
-};
 
 const clearAuthzRows = Effect.gen(function* () {
   const sql = yield* Database;

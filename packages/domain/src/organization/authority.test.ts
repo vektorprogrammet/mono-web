@@ -8,6 +8,7 @@ import {
   type OrganizationGlobalAdministratorStatus,
   type OrganizationPersonAuthority,
 } from "./authority.js";
+import { makeSpec0055OrganizationAuthorityFixtures } from "./authority-fixtures.test-support.js";
 import { DepartmentId, MembershipId, PersonId, TeamId } from "./schema.js";
 
 const evaluatedAt = "2026-08-24T12:00:00.000Z";
@@ -195,5 +196,43 @@ it("uses leader before member for active Profile authority across departments", 
   expect(mapOrganizationAuthorityToOrganizationActor(projection)).toEqual({
     _tag: "OrganizationMember",
     personId,
+  });
+});
+
+it("shares the frozen spec0055 accepted and rejected fixtures with PostgreSQL proof", () => {
+  const fixtures = makeSpec0055OrganizationAuthorityFixtures({
+    evaluatedAt,
+    departmentId: departmentA,
+    teamId: "team-shared-fixture",
+    persons: {
+      administrator: "authority-shared-administrator",
+      leader: "authority-shared-leader",
+      inactiveLeader: "authority-shared-inactive-leader",
+      member: "authority-shared-member",
+      absent: "authority-shared-absent",
+    },
+    memberships: {
+      leader: "membership-shared-leader",
+      inactiveLeader: "membership-shared-inactive-leader",
+      member: "membership-shared-member",
+    },
+  });
+
+  expect(mapOrganizationAuthorityToAdmissionPeriodActor(fixtures.leader, departmentA)._tag).toBe(
+    "Allow",
+  );
+  expect(mapOrganizationAuthorityToRecruitmentActor(fixtures.inactiveLeader, departmentA)).toEqual({
+    _tag: "Deny",
+    reason: "AuthorityInactive",
+  });
+  expect(mapOrganizationAuthorityToOrganizationActor(fixtures.administrator)._tag).toBe(
+    "OrganizationAdministrator",
+  );
+  expect(mapOrganizationAuthorityToOrganizationActor(fixtures.member)._tag).toBe(
+    "OrganizationMember",
+  );
+  expect(mapOrganizationAuthorityToProfileRole(fixtures.absent)).toEqual({
+    _tag: "Deny",
+    reason: "NotInScope",
   });
 });
