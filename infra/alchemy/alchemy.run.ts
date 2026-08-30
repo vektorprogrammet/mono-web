@@ -5,30 +5,42 @@ import { PREVIEW_IDENTITY } from "./preview/identity.ts";
 import { PreviewWorker } from "./preview/worker-resource.ts";
 import { apexStack } from "./preview/apex.ts";
 import { APEX_IDENTITY } from "./preview/identity.ts";
+import * as Layer from "effect/Layer";
 
 export { PREVIEW_IDENTITY, PreviewWorker, apexStack };
 
 const stageGuard = (stage: string): void => {
   if (stage !== PREVIEW_IDENTITY.stage && stage !== APEX_IDENTITY.stage) {
-    throw new Error(`Only ${PREVIEW_IDENTITY.stage} or ${APEX_IDENTITY.stage} is allowed by this delivery stack`);
+    throw new Error(
+      `Only ${PREVIEW_IDENTITY.stage} or ${APEX_IDENTITY.stage} is allowed by this delivery stack`,
+    );
   }
-  if (stage === PREVIEW_IDENTITY.stage && PREVIEW_IDENTITY.hostname.includes("vektorprogrammet.no")) {
+  if (
+    stage === PREVIEW_IDENTITY.stage &&
+    PREVIEW_IDENTITY.hostname.includes("vektorprogrammet.no")
+  ) {
     throw new Error("Forbidden production host in preview identity");
   }
 };
 
-
+const deploymentState = Layer.unwrap(
+  Alchemy.Stage.pipe(
+    Effect.map((stage) =>
+      stage === APEX_IDENTITY.stage ? Alchemy.localState() : Cloudflare.state(),
+    ),
+  ),
+);
 export default Alchemy.Stack(
   "vektor",
   {
     providers: Cloudflare.providers(),
-    state: Cloudflare.state(),
+    state: deploymentState,
   },
   Effect.gen(function* () {
     const stage = yield* Alchemy.Stage;
     stageGuard(stage);
-    const domain = stage === APEX_IDENTITY.stage ? APEX_IDENTITY.hostname : PREVIEW_IDENTITY.hostname;
-
+    const domain =
+      stage === APEX_IDENTITY.stage ? APEX_IDENTITY.hostname : PREVIEW_IDENTITY.hostname;
 
     if (stage === APEX_IDENTITY.stage) {
       return yield* apexStack;

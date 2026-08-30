@@ -73,13 +73,14 @@ describe("homepage stage and host contract", () => {
     ) as Array<{ type: string; id: string; name: string }>;
 
     expect(declaration).toContain('Alchemy.Stack(\n  "vektor"');
-    expect(declaration).toContain("state: Cloudflare.state()");
+    expect(declaration).toContain("Alchemy.localState()");
+    expect(declaration).toContain("Cloudflare.state()");
     expect(declaration).toContain('Cloudflare.Website.Vite("Homepage"');
     expect(declaration).toContain('Cloudflare.Website.Vite("Dashboard"');
     expect(declaration).toContain("yield* PreviewWorker(homepage, dashboard)");
     expect(declaration).toContain("container: PREVIEW_IDENTITY.containerInstance");
     expect(declaration).not.toContain("PreviewSpine");
-    expect(declaration).not.toContain("localState");
+    expect(declaration).toContain("stage === APEX_IDENTITY.stage");
 
     expect(resources).toEqual([
       { type: "worker", id: "vektor-p20-worker", name: "vektor-p20-worker" },

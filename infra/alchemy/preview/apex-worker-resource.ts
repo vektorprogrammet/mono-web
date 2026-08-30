@@ -16,9 +16,6 @@ export const ApexWorker = (homepage: Cloudflare.Worker, dashboard: Cloudflare.Wo
     },
     domain: {
       name: APEX_IDENTITY.hostname,
-      // The /api leg is exposed on a dedicated hostname so the browser-facing
-      // origin stays on the zone apex while API traffic proxies to the
-      // backend origin through the tunnel.
       aliases: [APEX_IDENTITY.apiHostname],
     },
     env: {

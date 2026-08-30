@@ -14,12 +14,8 @@ export const PREVIEW_IDENTITY = {
 } as const;
 
 /**
- * Apex preview identity (feat/apex-preview).
- *
- * Parallel to the p20 contract: separate stage token, resource prefix, and
- * state key so plan/deploy/destroy for this stage can never select p20
- * resources. Hosted on the zone apex vektor.phibkro.org, which the homepage
- * host allow-list already resolves to the dev-main stage.
+ * The apex preview uses a separate stage, resource prefix, and local state.
+ * The supporting backend origin terminates at a dedicated preview tunnel.
  */
 export const APEX_IDENTITY = {
   repository: "apex/vektor-apex",
@@ -28,17 +24,14 @@ export const APEX_IDENTITY = {
   target: "apex-preview",
   hostname: "vektor.phibkro.org",
   apiHostname: "api.vektor.phibkro.org",
+  backendHostname: "origin-api.vektor.phibkro.org",
+  backendOrigin: "https://origin-api.vektor.phibkro.org",
   resourcePrefix: "vektor-apex",
-  remoteStateKey: "vektor/dev-main",
+  localStateDirectory: ".alchemy",
   forbiddenHost: "vektorprogrammet.no",
 } as const;
 
-export const APEX_RESOURCE_KINDS = [
-  "worker",
-  "homepage",
-  "dashboard",
-  "route",
-] as const;
+export const APEX_RESOURCE_KINDS = ["worker", "homepage", "dashboard", "route"] as const;
 
 export type ApexResourceKind = (typeof APEX_RESOURCE_KINDS)[number];
 

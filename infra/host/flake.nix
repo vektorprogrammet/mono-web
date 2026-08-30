@@ -16,6 +16,7 @@
           bun
           nodejs_24
           openssl
+          cloudflared
         ];
 
         # The apex preview cluster binds this loopback-only port. 5432 is the

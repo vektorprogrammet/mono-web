@@ -36,6 +36,11 @@ export const apexStack = Effect.gen(function* () {
   const homepage = yield* Cloudflare.Website.Vite(`${APEX_IDENTITY.resourcePrefix}-homepage`, {
     rootDir: "../../apps/homepage",
     main: "workers/app.ts",
+    env: { API_URL: APEX_IDENTITY.backendOrigin },
+    compatibility: {
+      flags: ["nodejs_compat", "nodejs_compat_populate_process_env"],
+      date: "2025-04-01",
+    },
     workersDev: false,
     assets: { runWorkerFirst: true },
   });
@@ -50,7 +55,7 @@ export const apexStack = Effect.gen(function* () {
     // bypasses all workers.
     env: {
       PREVIEW_HOST: APEX_IDENTITY.hostname,
-      API_URL: "https://origin-api.vektor.phibkro.org",
+      API_URL: APEX_IDENTITY.backendOrigin,
     },
     // nodejs_compat_populate_process_env mirrors worker env bindings into
     // process.env so `process.env.API_URL` resolves at runtime.
@@ -70,11 +75,12 @@ export const apexStack = Effect.gen(function* () {
     target: APEX_IDENTITY.target,
     hostname: APEX_IDENTITY.hostname,
     apiHostname: APEX_IDENTITY.apiHostname,
+    backendHostname: APEX_IDENTITY.backendHostname,
     url: worker.url.as<string>(),
     homepage: homepage.url.as<string>(),
     dashboard: dashboard.url.as<string>(),
-    backendOrigin: "https://api.vektor.phibkro.org",
-    stateKey: APEX_IDENTITY.remoteStateKey,
+    backendOrigin: APEX_IDENTITY.backendOrigin,
+    stateDirectory: APEX_IDENTITY.localStateDirectory,
     forbiddenHost: APEX_IDENTITY.forbiddenHost,
   };
 });

@@ -26,4 +26,6 @@ export BETTER_AUTH_TRUSTED_ORIGINS="https://vektor.phibkro.org,http://127.0.0.1:
 export RECEIPT_AUTH_TOKENS='{}'
 export ORGANIZATION_AUTH_TOKENS='{}'
 
+cd "$REPO_ROOT/apps/backend"
+
 exec bun run src/main.ts

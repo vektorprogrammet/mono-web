@@ -1,9 +1,7 @@
 /**
  * Apex edge worker (stage dev-main, hostname vektor.phibkro.org).
  *
- * Routing contract:
- *   /api/*  -> native backend origin (api.vektor.phibkro.org, cloudflared
- *              tunnel to the authority host running next to Postgres)
+ *   /api/*  -> native backend origin (origin-api.vektor.phibkro.org)
  *   /dashboard* and auth pages -> Dashboard Website.Vite worker
  *   else    -> Homepage Website.Vite worker
  *
@@ -23,10 +21,10 @@ export interface ApexWorkerEnv {
 }
 
 /**
- * Worker→own-custom-domain subrequests are restricted on Cloudflare, so the
- * proxy targets a dedicated tunnel hostname that bypasses every worker.
+ * Worker subrequests use the dedicated tunnel hostname. The apex Worker does
+ * not own that hostname.
  */
-export const BACKEND_ORIGIN = "https://origin-api.vektor.phibkro.org";
+export const BACKEND_ORIGIN = APEX_IDENTITY.backendOrigin;
 
 const ALLOWED_HOSTS: Record<string, true> = {
   [APEX_IDENTITY.hostname]: true,
@@ -43,7 +41,10 @@ const proxyResponse = (backendResponse: Response): Response => {
   headers.set("cache-control", headers.get("cache-control") ?? "no-store");
   const location = headers.get("location");
   if (location !== null && location.startsWith(BACKEND_ORIGIN)) {
-    headers.set("location", `${APEX_IDENTITY.hostname}${location.slice(BACKEND_ORIGIN.length)}`);
+    headers.set(
+      "location",
+      `https://${APEX_IDENTITY.hostname}${location.slice(BACKEND_ORIGIN.length)}`,
+    );
   }
   return new Response(backendResponse.body, {
     status: backendResponse.status,
@@ -52,8 +53,7 @@ const proxyResponse = (backendResponse: Response): Response => {
   });
 };
 
-const backendUrl = (url: URL): URL =>
-  new URL(`${url.pathname}${url.search}`, BACKEND_ORIGIN);
+const backendUrl = (url: URL): URL => new URL(`${url.pathname}${url.search}`, BACKEND_ORIGIN);
 
 export default {
   async fetch(request: Request, env: ApexWorkerEnv): Promise<Response> {
@@ -71,10 +71,12 @@ export default {
     // backend's /health so it never depends on API route matching.
     if (url.pathname === "/api/health" && request.method === "GET") {
       return proxyResponse(
-        await fetch(new Request(backendUrl(new URL("/health", url.origin)), {
-          method: "GET",
-          headers: request.headers,
-        })),
+        await fetch(
+          new Request(backendUrl(new URL("/health", url.origin)), {
+            method: "GET",
+            headers: request.headers,
+          }),
+        ),
       );
     }
 
@@ -88,17 +90,18 @@ export default {
     if (surface === "homepage") return env.Homepage.fetch(request);
     if (surface === "dashboard") return env.Dashboard.fetch(request);
 
-    // server surface (/api/* and /health): proxy to the backend origin,
-    // reached through the cloudflared tunnel on both allowed hostnames.
+    // server surface (/api/* and /health): proxy through the dedicated
+    // origin-api tunnel. The browser stays on the apex origin.
     return proxyResponse(
-      await fetch(new Request(backendUrl(url), {
-        method: request.method,
-        headers: request.headers,
-        body: request.body,
-        redirect: "manual",
-        duplex: "half",
-      } as RequestInit)),
+      await fetch(
+        new Request(backendUrl(url), {
+          method: request.method,
+          headers: request.headers,
+          body: request.body,
+          redirect: "manual",
+          duplex: "half",
+        } as RequestInit),
+      ),
     );
   },
 };
-
