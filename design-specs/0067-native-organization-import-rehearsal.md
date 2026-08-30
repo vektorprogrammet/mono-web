@@ -6,8 +6,8 @@
 
 | Field | Value |
 |---|---|
-| Spec revision | `0067.0` |
-| Status | Contract frozen before implementation. This revision contains no implementation or runtime evidence. |
+| Spec revision | `0067.1`. Amendment 0067.1 records implementation and local acceptance evidence. It does not change the frozen product contract. |
+| Status | Contract remains frozen. Implementation and local acceptance evidence passed at integrated HEAD `fd8f2c190484ca3c050f4e3145e709a69e5f24b3`. |
 | Date | `2026-08-30` |
 | Base HEAD | `5f9f4c7a6a7c3cb54104d21756311d53d6cc1d48` |
 | Goal | Rehearse one production-shaped Organization import without production authority. |
@@ -699,3 +699,81 @@ This contract also excludes Profile, Content, Schools, and Recruitment data from
 It excludes password migration, account migration, password-reset policy, production rollback, remote deployment, and production cutover.
 
 It makes no claim about Receipt import, provider delivery, outbox delivery, legacy parity, hosted CI, or production readiness.
+
+
+## Amendment 0067.1 - implementation and local acceptance closeout
+
+This documentation-only amendment records implementation and local acceptance evidence. The product contract remains frozen.
+
+Implementation and local acceptance evidence passed at integrated HEAD `fd8f2c190484ca3c050f4e3145e709a69e5f24b3`.
+
+### Accepted command
+
+The accepted command ran from `packages/database`:
+
+```text
+PATH='/home/nori/.nix-profile/bin:/etc/profiles/per-user/nori/bin:/run/current-system/sw/bin' \
+ORGANIZATION_IMPORT_REHEARSAL_ADMIN_PG_URL='postgresql:///postgres?host=/run/postgresql' \
+ORGANIZATION_IMPORT_REHEARSAL_EVIDENCE_PATH='/tmp/mono-web-final-integration-spec0067-fd8f2c19.json' \
+PLAYWRIGHT_BROWSERS_PATH='/home/nori/.cache/ms-playwright' \
+PLAYWRIGHT_NODE_EXECUTABLE='/etc/profiles/per-user/nori/bin/node' \
+PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH='/etc/profiles/per-user/nori/bin/chromium-browser' \
+/run/current-system/sw/bin/time \
+  -f 'REHEARSAL_ELAPSED_SECONDS=%e REHEARSAL_EXIT=%x' \
+  bun run rehearsal:organization-import
+```
+
+The command used disposable local PostgreSQL 17.11 and real Chromium. It exited with code `0` after `12.23s`.
+
+The runner used a production React Router build and the React Router production server. It did not use the Vite dependency optimizer.
+
+The command returned this result:
+
+```text
+{"evidencePath":"/tmp/mono-web-final-integration-spec0067-fd8f2c19.json","evidenceSha256":"36a0c65528a77a69c501df00bfa578e5342010941fd6ea3850d3ce737e93d3b0"}
+REHEARSAL_ELAPSED_SECONDS=12.23 REHEARSAL_EXIT=0
+```
+
+An independent digest calculation returned `36a0c65528a77a69c501df00bfa578e5342010941fd6ea3850d3ce737e93d3b0`. It matched the digest in the artifact.
+
+### Accepted observations
+
+All 17 definition-of-done checks passed. The review found 0 falsifiers, and all failed-check lists were empty.
+
+The committed counts were exactly `1/1/1/5/8`:
+
+| Native state | Count |
+|---|---:|
+| Department | `1` |
+| Team | `1` |
+| Membership | `1` |
+| Quarantine row | `5` |
+| Import ledger row | `8` |
+
+The forced ledger failure returned SQLSTATE `P0001`. All canonical and provenance bytes after rollback were equal to the baseline bytes.
+
+The retry committed the expected state. Replay returned the same result and did not change the committed state.
+
+The Chromium journey observed these five native path authorities:
+
+| Path | Status | Access | Request source | Session cookie |
+|---|---:|---|---|---|
+| `/api/admin/users` | `200` | `BoundedSession` | `DashboardSsr` | Present |
+| `/api/departments` | `200` | `Public` | `BrowserCrossOrigin` | Absent |
+| `/api/me` | `200` | `BoundedSession` | `DashboardSsr` | Present |
+| `/api/me/session` | `200` | `BoundedSession` | `DashboardSsr` | Present |
+| `/api/teams` | `200` | `Public` | `BrowserCrossOrigin` | Absent |
+
+All forbidden-effect counters were zero. This result includes production, remote, deployment, provider, credential, Identity-write, rule-write, Receipt-write, and outbox counters.
+
+### Cleanup and authority limit
+
+The runner removed the disposable database and left zero residual connections. It stopped all child processes and released all three ports.
+
+The runner restored all generated output paths. It left no residual generated path.
+
+The runner cleared the session cookie, process secret, and database URL. It removed the unsanitized browser artifact and the temporary runner root.
+
+The accepted artifact is sanitized and remains at `/tmp/mono-web-final-integration-spec0067-fd8f2c19.json`. The local artifact is not a committed authority receipt.
+
+This evidence is not production proof or deployment authority. No production action, production import, deployment, provider, credential, or remote action occurred.
