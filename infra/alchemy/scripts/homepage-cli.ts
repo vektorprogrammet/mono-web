@@ -174,6 +174,20 @@ function runAlchemy(parsed: ParsedCloudCommand, options: HomepageCliOptions): nu
     ...(options.env ?? process.env),
     ALCHEMY_TELEMETRY_DISABLED: "1",
   };
+  const spawn = options.spawn ?? nodeSpawnSync;
+  if (parsed.command === "deploy") {
+    const sdkDirectory = resolve(standaloneDirectory, "../..", "packages/sdk");
+    const sdkBuild = spawn(process.execPath, ["run", "--cwd", sdkDirectory, "build"], {
+      cwd: standaloneDirectory,
+      env: childEnvironment,
+      stdio: "inherit",
+    });
+    if (sdkBuild.error !== undefined) {
+      throw new Error(`failed to build the local SDK: ${sdkBuild.error.message}`);
+    }
+    if (sdkBuild.status !== 0) return sdkBuild.status ?? 1;
+  }
+
   const args = [
     parsed.command,
     "alchemy.run.ts",
@@ -185,7 +199,7 @@ function runAlchemy(parsed: ParsedCloudCommand, options: HomepageCliOptions): nu
   if (parsed.confirmation === "yes") args.push("--yes");
   if (parsed.confirmation === "dry-run") args.push("--dry-run");
 
-  const result = (options.spawn ?? nodeSpawnSync)(alchemyBinary, args, {
+  const result = spawn(alchemyBinary, args, {
     cwd: standaloneDirectory,
     env: childEnvironment,
     stdio: "inherit",

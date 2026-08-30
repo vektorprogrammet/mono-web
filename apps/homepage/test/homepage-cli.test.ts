@@ -1,3 +1,4 @@
+import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   executeHomepageCli,
@@ -23,30 +24,26 @@ function captureSpawn() {
 }
 
 describe("homepage provider wrapper", () => {
-  it.each([
-    "default",
-    "DEFAULT",
-    "DeFaUlT",
-  ])("rejects profile %s before spawning for every cloud command", (profile) => {
-    const { spawn, calls } = captureSpawn();
-    for (const [command, confirmation] of [
-      ["plan", []],
-      ["deploy", ["--yes"]],
-      ["destroy", ["--dry-run"]],
-    ] as const) {
-      expect(() =>
-        executeHomepageCli(
-          [command, "--stage", "p001", "--profile", profile, ...confirmation],
-          {
+  it.each(["default", "DEFAULT", "DeFaUlT"])(
+    "rejects profile %s before spawning for every cloud command",
+    (profile) => {
+      const { spawn, calls } = captureSpawn();
+      for (const [command, confirmation] of [
+        ["plan", []],
+        ["deploy", ["--yes"]],
+        ["destroy", ["--dry-run"]],
+      ] as const) {
+        expect(() =>
+          executeHomepageCli([command, "--stage", "p001", "--profile", profile, ...confirmation], {
             env: validEnvironment,
             spawn,
             standaloneDirectory,
-          },
-        ),
-      ).toThrow("reserved default profile");
-    }
-    expect(calls).toEqual([]);
-  });
+          }),
+        ).toThrow("reserved default profile");
+      }
+      expect(calls).toEqual([]);
+    },
+  );
 
   it("rejects the p000 guard before ambient-selector checks and spawn", () => {
     const { spawn, calls } = captureSpawn();
@@ -67,27 +64,11 @@ describe("homepage provider wrapper", () => {
     },
     {
       argv: ["deploy", "--stage", "dev-main", "--profile", "alice", "--yes"],
-      expected: [
-        "deploy",
-        "alchemy.run.ts",
-        "--stage",
-        "dev-main",
-        "--profile",
-        "alice",
-        "--yes",
-      ],
+      expected: ["deploy", "alchemy.run.ts", "--stage", "dev-main", "--profile", "alice", "--yes"],
     },
     {
       argv: ["destroy", "--stage", "p999", "--profile", "alice", "--dry-run"],
-      expected: [
-        "destroy",
-        "alchemy.run.ts",
-        "--stage",
-        "p999",
-        "--profile",
-        "alice",
-        "--dry-run",
-      ],
+      expected: ["destroy", "alchemy.run.ts", "--stage", "p999", "--profile", "alice", "--dry-run"],
     },
   ])("passes only explicit argv and telemetry-disabled env to Alchemy", ({ argv, expected }) => {
     const { spawn, calls } = captureSpawn();
@@ -98,8 +79,16 @@ describe("homepage provider wrapper", () => {
         standaloneDirectory,
       }),
     ).toBe(0);
-    expect(calls).toHaveLength(1);
-    expect(calls[0]).toMatchObject({
+    expect(calls).toHaveLength(argv[0] === "deploy" ? 2 : 1);
+    if (argv[0] === "deploy") {
+      expect(calls[0]).toMatchObject({
+        file: process.execPath,
+        args: ["run", "--cwd", resolve(standaloneDirectory, "../..", "packages/sdk"), "build"],
+        cwd: standaloneDirectory,
+      });
+    }
+    const alchemyCall = calls.at(-1);
+    expect(alchemyCall).toMatchObject({
       args: expected,
       cwd: standaloneDirectory,
       env: {
@@ -107,7 +96,7 @@ describe("homepage provider wrapper", () => {
         ALCHEMY_TELEMETRY_DISABLED: "1",
       },
     });
-    expect(calls[0]?.file).toBe(`${standaloneDirectory}/node_modules/.bin/alchemy`);
+    expect(alchemyCall?.file).toBe(`${standaloneDirectory}/node_modules/.bin/alchemy`);
   });
 
   it("forwards Cloudflare credentials without treating them as target selectors", () => {
@@ -118,29 +107,42 @@ describe("homepage provider wrapper", () => {
     };
 
     expect(
-      executeHomepageCli(
-        ["deploy", "--stage", "p020", "--profile", "preview", "--yes"],
-        {
-          env: { ...validEnvironment, ...credentials },
-          spawn,
-          standaloneDirectory,
-        },
-      ),
+      executeHomepageCli(["deploy", "--stage", "p020", "--profile", "preview", "--yes"], {
+        env: { ...validEnvironment, ...credentials },
+        spawn,
+        standaloneDirectory,
+      }),
     ).toBe(0);
-    expect(calls[0]?.env).toMatchObject(credentials);
+    expect(calls.at(-1)?.env).toMatchObject(credentials);
+  });
+
+  it("does not deploy when the SDK build fails", () => {
+    const calls: string[][] = [];
+    const spawn: SpawnSync = (_file, args) => {
+      calls.push(args);
+      return { status: 2 };
+    };
+
+    expect(
+      executeHomepageCli(["deploy", "--stage", "dev-main", "--profile", "preview", "--yes"], {
+        env: validEnvironment,
+        spawn,
+        standaloneDirectory,
+      }),
+    ).toBe(2);
+    expect(calls).toEqual([
+      ["run", "--cwd", resolve(standaloneDirectory, "../..", "packages/sdk"), "build"],
+    ]);
   });
 
   it("still rejects ambient deployment target selectors", () => {
     const { spawn, calls } = captureSpawn();
     expect(() =>
-      executeHomepageCli(
-        ["plan", "--stage", "p020", "--profile", "preview"],
-        {
-          env: { ...validEnvironment, ALCHEMY_PROFILE: "ambient" },
-          spawn,
-          standaloneDirectory,
-        },
-      ),
+      executeHomepageCli(["plan", "--stage", "p020", "--profile", "preview"], {
+        env: { ...validEnvironment, ALCHEMY_PROFILE: "ambient" },
+        spawn,
+        standaloneDirectory,
+      }),
     ).toThrow("ambient selector 'ALCHEMY_PROFILE'");
     expect(calls).toEqual([]);
   });
