@@ -27,8 +27,13 @@ const defaultProfileImage = (): Plugin => ({
   },
 });
 
+export const dashboardAssetBase = (environment: NodeJS.ProcessEnv): string =>
+  environment.REAL_NATIVE_CONDUCT_E2E === "1" || environment.ORGANIZATION_IMPORT_REHEARSAL === "1"
+    ? "/"
+    : "/dashboard/";
+
 export default defineConfig({
-  base: process.env.REAL_NATIVE_CONDUCT_E2E === "1" ? "/" : "/dashboard/",
+  base: dashboardAssetBase(process.env),
   plugins: [reactRouter(), foldkit(), tailwindcss(), defaultProfileImage()],
   resolve: {
     alias: {

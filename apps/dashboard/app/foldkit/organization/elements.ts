@@ -50,3 +50,5 @@ export const registerOrganizationCatalogElement = (): void => {
     },
   );
 };
+
+registerOrganizationCatalogElement();

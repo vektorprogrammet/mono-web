@@ -127,6 +127,17 @@ const sdkRoot = join(repositoryRoot, "packages/sdk");
 const dashboardPort = 5_187;
 const dashboardOrigin = `http://127.0.0.1:${dashboardPort}`;
 
+export const ORGANIZATION_IMPORT_PLAYWRIGHT_ARGUMENTS = [
+  "./node_modules/@playwright/test/cli.js",
+  "test",
+  "e2e/organization-import-rehearsal.spec.ts",
+  "--config=playwright.organization-import-rehearsal.config.ts",
+  "--project=chromium",
+  "--workers=1",
+  "--retries=0",
+  "--reporter=line",
+] as const;
+
 export const EXPECTED_MIGRATION_23_AUTH_TABLES = [
   "auth.account",
   "auth.session",
@@ -1924,15 +1935,7 @@ const runRehearsal = async (
       const browserProxyStart = proxy.records.length;
       await runCommand(
         process.env.PLAYWRIGHT_NODE_EXECUTABLE ?? "node",
-        [
-          "./node_modules/@playwright/test/cli.js",
-          "test",
-          "e2e/organization-import-rehearsal.spec.ts",
-          "--project=chromium",
-          "--workers=1",
-          "--retries=0",
-          "--reporter=line",
-        ],
+        ORGANIZATION_IMPORT_PLAYWRIGHT_ARGUMENTS,
         {
           cwd: dashboardRoot,
           env: browserEnvironment,

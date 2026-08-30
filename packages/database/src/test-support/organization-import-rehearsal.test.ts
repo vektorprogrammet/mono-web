@@ -6,8 +6,10 @@ import { canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/evidence
 import type { DatabaseShape } from "@vektorprogrammet/domain/database";
 import { Effect, Layer } from "effect";
 import { afterAll, describe, expect, it } from "vitest";
+import organizationImportPlaywrightConfig from "../../../../apps/dashboard/playwright.organization-import-rehearsal.config.js";
 import {
   EXPECTED_MIGRATION_23_AUTH_TABLES,
+  ORGANIZATION_IMPORT_PLAYWRIGHT_ARGUMENTS,
   EXPECTED_MIGRATION_23_PUBLIC_TABLES,
   boundedCookieCapabilityFailure,
   classifyExistingPageSessionCapability,
@@ -91,6 +93,38 @@ describe("spec 0067 generated-output ownership", () => {
   });
 });
 describe("spec 0067 runtime capability contracts", () => {
+  it("pins Playwright to the runner-owned dashboard without a generic web server", () => {
+    expect(ORGANIZATION_IMPORT_PLAYWRIGHT_ARGUMENTS).toEqual([
+      "./node_modules/@playwright/test/cli.js",
+      "test",
+      "e2e/organization-import-rehearsal.spec.ts",
+      "--config=playwright.organization-import-rehearsal.config.ts",
+      "--project=chromium",
+      "--workers=1",
+      "--retries=0",
+      "--reporter=line",
+    ]);
+    expect(organizationImportPlaywrightConfig).not.toHaveProperty("webServer");
+    expect(organizationImportPlaywrightConfig).toMatchObject({
+      testDir: "./e2e",
+      fullyParallel: false,
+      retries: 0,
+      workers: 1,
+      use: {
+        baseURL: "http://127.0.0.1:5187",
+      },
+      projects: [
+        {
+          name: "chromium",
+          use: {
+            defaultBrowserType: "chromium",
+            viewport: { width: 1440, height: 900 },
+          },
+        },
+      ],
+    });
+  });
+
   it("pins the complete migration-23 catalog and only classifies bounded-cookie preflight", () => {
     expect(EXPECTED_MIGRATION_23_AUTH_TABLES).toEqual([
       "auth.account",
