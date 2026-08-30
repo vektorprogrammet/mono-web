@@ -52,6 +52,7 @@ import { makeBackendRuntime } from "../../../apps/backend/runtime.js";
 import { DatabaseLive } from "../src/layers.js";
 import { databaseMigrationDefinitions, databaseSchemaRevision } from "../src/migrations.js";
 import {
+  NATIVE_BROWSER_JOURNEY_REQUIREMENTS,
   SPEC_0067,
   SPEC_0067_PREREQUISITES,
   decodeFrozenOrganizationSnapshot,
@@ -194,13 +195,6 @@ export const EXPECTED_MIGRATION_23_PUBLIC_TABLES = [
   "public.schools_directory_departments",
   "public.schools_directory_schools",
   "public.vektorprogrammet_schema_migrations",
-] as const;
-
-export const NATIVE_BROWSER_JOURNEY_REQUIREMENTS = [
-  { path: "/api/admin/users", access: "BoundedSession", requestSource: "DashboardSsr" },
-  { path: "/api/departments", access: "Public", requestSource: "BrowserCrossOrigin" },
-  { path: "/api/me/session", access: "BoundedSession", requestSource: "DashboardSsr" },
-  { path: "/api/teams", access: "Public", requestSource: "BrowserCrossOrigin" },
 ] as const;
 
 const NATIVE_BROWSER_JOURNEY_PATHS = NATIVE_BROWSER_JOURNEY_REQUIREMENTS.map(({ path }) => path);

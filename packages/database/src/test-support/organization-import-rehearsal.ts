@@ -31,6 +31,14 @@ export const SPEC_0067 = {
   evidencePath: "/tmp/mono-web-0067-organization-import-evidence.json",
 } as const;
 
+export const NATIVE_BROWSER_JOURNEY_REQUIREMENTS = [
+  { path: "/api/admin/users", access: "BoundedSession", requestSource: "DashboardSsr" },
+  { path: "/api/departments", access: "Public", requestSource: "BrowserCrossOrigin" },
+  { path: "/api/me", access: "BoundedSession", requestSource: "DashboardSsr" },
+  { path: "/api/me/session", access: "BoundedSession", requestSource: "DashboardSsr" },
+  { path: "/api/teams", access: "Public", requestSource: "BrowserCrossOrigin" },
+] as const;
+
 export const SPEC_0067_PREREQUISITES = {
   persons: [
     {
@@ -694,6 +702,26 @@ const NativeBrowserPathObservationSchema = Schema.Struct({
     Schema.Literal("DashboardSsr"),
   ]),
 });
+const NativeBrowserPathObservationsSchema = Schema.Array(NativeBrowserPathObservationSchema).pipe(
+  Schema.check(
+    Schema.makeFilter(
+      (observations) =>
+        observations.length === NATIVE_BROWSER_JOURNEY_REQUIREMENTS.length &&
+        NATIVE_BROWSER_JOURNEY_REQUIREMENTS.every((requirement, index) => {
+          const observation = observations[index];
+          return (
+            observation !== undefined &&
+            observation.path === requirement.path &&
+            observation.status === 200 &&
+            observation.sessionCookieAuth === (requirement.access === "BoundedSession") &&
+            observation.access === requirement.access &&
+            observation.requestSource === requirement.requestSource
+          );
+        }),
+      { message: "the exact ordered native browser path authority observations" },
+    ),
+  ),
+);
 const BrowserRequestSchema = Schema.Struct({
   method: Schema.String,
   origin: Schema.Literal("api-proxy-loopback"),
@@ -980,7 +1008,7 @@ const OrganizationImportRehearsalArtifactSchema = Schema.Struct({
       pageSessionPreflight: Schema.Array(ExistingPageSessionCapabilityObservationSchema),
       preflightBackendProxyRequests: Schema.Array(ProxyRequestSchema),
       evidence: BrowserEvidenceSchema,
-      nativePathObservations: Schema.Array(NativeBrowserPathObservationSchema),
+      nativePathObservations: NativeBrowserPathObservationsSchema,
       backendProxyRequests: Schema.Array(ProxyRequestSchema),
     }),
     Schema.Struct({

@@ -9,7 +9,6 @@ import { afterAll, describe, expect, it } from "vitest";
 import {
   EXPECTED_MIGRATION_23_AUTH_TABLES,
   EXPECTED_MIGRATION_23_PUBLIC_TABLES,
-  NATIVE_BROWSER_JOURNEY_REQUIREMENTS,
   boundedCookieCapabilityFailure,
   classifyExistingPageSessionCapability,
   isNativeBrowserJourneyRequestAllowed,
@@ -20,6 +19,7 @@ import {
 } from "../../runtime/organization-import-rehearsal-main.js";
 import { makeControlledTestRuntime } from "../../test/runtime.js";
 import {
+  NATIVE_BROWSER_JOURNEY_REQUIREMENTS,
   SPEC_0067,
   decodeFrozenOrganizationSnapshot,
   decodeOrganizationImportRehearsalArtifact,
@@ -105,9 +105,11 @@ describe("spec 0067 runtime capability contracts", () => {
     expect(NATIVE_BROWSER_JOURNEY_REQUIREMENTS).toEqual([
       { path: "/api/admin/users", access: "BoundedSession", requestSource: "DashboardSsr" },
       { path: "/api/departments", access: "Public", requestSource: "BrowserCrossOrigin" },
+      { path: "/api/me", access: "BoundedSession", requestSource: "DashboardSsr" },
       { path: "/api/me/session", access: "BoundedSession", requestSource: "DashboardSsr" },
       { path: "/api/teams", access: "Public", requestSource: "BrowserCrossOrigin" },
     ]);
+    expect(NATIVE_BROWSER_JOURNEY_REQUIREMENTS).toHaveLength(5);
     expect(
       isExpectedNativeBrowserJourneyObservation({
         method: "GET",
@@ -138,6 +140,15 @@ describe("spec 0067 runtime capability contracts", () => {
     expect(
       isExpectedNativeBrowserJourneyObservation({
         method: "GET",
+        path: "/api/me",
+        status: 200,
+        sessionCookieAuth: true,
+        requestSource: "DashboardSsr",
+      }),
+    ).toBe(true);
+    expect(
+      isExpectedNativeBrowserJourneyObservation({
+        method: "GET",
         path: "/api/admin/users",
         status: 200,
         sessionCookieAuth: false,
@@ -162,7 +173,19 @@ describe("spec 0067 runtime capability contracts", () => {
         requestSource: "BrowserCrossOrigin",
       }),
     ).toBe(false);
+    expect(
+      isExpectedNativeBrowserJourneyObservation({
+        method: "GET",
+        path: "/api/me",
+        status: 200,
+        sessionCookieAuth: false,
+        requestSource: "BrowserCrossOrigin",
+      }),
+    ).toBe(false);
     expect(isNativeBrowserJourneyRequestAllowed("GET", "/api/teams")).toBe(true);
+    expect(isNativeBrowserJourneyRequestAllowed("GET", "/api/me")).toBe(true);
+    expect(isNativeBrowserJourneyRequestAllowed("POST", "/api/me")).toBe(false);
+    expect(isNativeBrowserJourneyRequestAllowed("GET", "/api/me/profile")).toBe(false);
     expect(isNativeBrowserJourneyRequestAllowed("POST", "/api/teams")).toBe(false);
     expect(isNativeBrowserJourneyRequestAllowed("GET", "/api/unexpected")).toBe(false);
     expect(
@@ -628,6 +651,49 @@ describe("spec 0067 artifact boundary", () => {
     await expect(
       testRuntime.runPromise(verifyOrganizationImportRehearsalArtifact(observedBrowserArtifact)),
     ).resolves.toEqual(observedBrowserArtifact);
+
+    const incompleteBrowserCore = {
+      ...observedBrowserCore,
+      browser: {
+        ...observedBrowserCore.browser,
+        nativePathObservations: nativePathObservations.filter(({ path }) => path !== "/api/me"),
+      },
+    } as const;
+    const incompleteBrowserArtifact = {
+      ...incompleteBrowserCore,
+      evidenceSha256: sha256Hex(canonicalJsonBytes(incompleteBrowserCore)),
+    };
+    await expect(
+      testRuntime.runPromise(
+        Effect.flip(verifyOrganizationImportRehearsalArtifact(incompleteBrowserArtifact)),
+      ),
+    ).resolves.toBeDefined();
+
+    const misclassifiedBrowserCore = {
+      ...observedBrowserCore,
+      browser: {
+        ...observedBrowserCore.browser,
+        nativePathObservations: nativePathObservations.map((observation) =>
+          observation.path === "/api/me"
+            ? {
+                ...observation,
+                access: "Public" as const,
+                sessionCookieAuth: false,
+                requestSource: "BrowserCrossOrigin" as const,
+              }
+            : observation,
+        ),
+      },
+    } as const;
+    const misclassifiedBrowserArtifact = {
+      ...misclassifiedBrowserCore,
+      evidenceSha256: sha256Hex(canonicalJsonBytes(misclassifiedBrowserCore)),
+    };
+    await expect(
+      testRuntime.runPromise(
+        Effect.flip(verifyOrganizationImportRehearsalArtifact(misclassifiedBrowserArtifact)),
+      ),
+    ).resolves.toBeDefined();
   });
 
   it("persists a sanitized failed artifact even when database cleanup fails", async () => {
