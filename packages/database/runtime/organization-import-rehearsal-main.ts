@@ -56,6 +56,8 @@ import {
   SPEC_0067,
   SPEC_0067_PREREQUISITES,
   decodeFrozenOrganizationSnapshot,
+  decodeOrganizationImportBrowserFailedEvidence,
+  decodeOrganizationImportBrowserObservedEvidence,
   verifyOrganizationImportRehearsalArtifact,
   expectedOrganizationImportOutcomeMatrix,
   frozenOrganizationSnapshotCore,
@@ -64,6 +66,7 @@ import {
   observeOrganizationImportSql,
   organizationImportOutcomeMatrix,
   organizationImportProvenanceEvidence,
+  type OrganizationImportBrowserFailedEvidence,
 } from "../src/test-support/organization-import-rehearsal.js";
 import {
   compareStableByteSets,
@@ -302,6 +305,13 @@ export const captureGeneratedOutputs = async (
     });
   }
   return snapshots;
+};
+export const clearCapturedGeneratedOutputs = async (
+  snapshots: ReadonlyArray<GeneratedOutputSnapshot>,
+): Promise<void> => {
+  for (const snapshot of snapshots) {
+    await rm(snapshot.path, { recursive: true, force: true });
+  }
 };
 
 export const restoreGeneratedOutput = async (snapshot: GeneratedOutputSnapshot) => {
@@ -976,6 +986,55 @@ const sanitizeFailure = (cause: unknown, sensitiveValues: ReadonlyArray<string>)
   message = message.replace(/postgres(?:ql)?:\/\/[^@\s/]+@/giu, "postgresql://<redacted>@");
   return message.slice(0, 2_000);
 };
+const readSanitizedFailedBrowserEvidence = async (
+  path: string,
+  sensitiveValues: ReadonlyArray<string>,
+): Promise<OrganizationImportBrowserFailedEvidence | undefined> => {
+  try {
+    if (!(await pathExists(path))) return undefined;
+    const serialized = await readFile(path, "utf8");
+    const input: unknown = JSON.parse(serialized);
+    const evidence = await Effect.runPromise(decodeOrganizationImportBrowserFailedEvidence(input));
+    return {
+      status: "Failed",
+      failure: sanitizeFailure(evidence.failure, sensitiveValues),
+      pageErrors: evidence.pageErrors.map((message) => sanitizeFailure(message, sensitiveValues)),
+      consoleMessages: evidence.consoleMessages.map((message) => ({
+        type: sanitizeFailure(message.type, sensitiveValues),
+        text: sanitizeFailure(message.text, sensitiveValues),
+      })),
+      rejectedDestinations: evidence.rejectedDestinations.map((destination) =>
+        sanitizeFailure(destination, sensitiveValues),
+      ),
+      unexpectedApiRequests: evidence.unexpectedApiRequests.map((request) => ({
+        method: sanitizeFailure(request.method, sensitiveValues),
+        path: sanitizeFailure(request.path, sensitiveValues),
+      })),
+      requests: evidence.requests.map((request) => ({
+        method: sanitizeFailure(request.method, sensitiveValues),
+        origin: request.origin,
+        path: sanitizeFailure(request.path, sensitiveValues),
+        resourceType: sanitizeFailure(request.resourceType, sensitiveValues),
+      })),
+      failedResponses: evidence.failedResponses.map((response) => ({
+        origin: response.origin,
+        path: sanitizeFailure(response.path, sensitiveValues),
+        status: response.status,
+      })),
+      finalPageState: {
+        path: sanitizeFailure(evidence.finalPageState.path, sensitiveValues),
+        customElementDefined: evidence.finalPageState.customElementDefined,
+        host: evidence.finalPageState.host,
+        container: evidence.finalPageState.container,
+        headings: evidence.finalPageState.headings.map((heading) =>
+          sanitizeFailure(heading, sensitiveValues),
+        ),
+      },
+    };
+  } catch {
+    return undefined;
+  }
+};
 
 const makeIdentityTestLayer = (
   sessionCookie: string,
@@ -1142,7 +1201,13 @@ const runRehearsal = async (
   const databaseNameSha256 = sha256Text(databaseName);
   let sessionCookie: string | undefined = randomBytes(48).toString("base64url");
   let backendSecret: string | undefined = randomBytes(48).toString("base64url");
-  const sensitiveValues: string[] = [administratorUrl, sessionCookie, backendSecret];
+  const sensitiveValues: string[] = [
+    administratorUrl,
+    sessionCookie,
+    backendSecret,
+    ...SPEC_0067_PREREQUISITES.persons.map(({ email }) => email),
+    ...SPEC_0067_PREREQUISITES.persons.map(({ phone }) => phone),
+  ];
   const guard = new LocalNetworkGuard();
   const observerState = makeOrganizationImportSqlObserverState();
   const identityCounters = { credentialAttempts: 0, authMutationAttempts: 0 };
@@ -1240,6 +1305,7 @@ const runRehearsal = async (
       }
     }
     generatedOutputSnapshots = await captureGeneratedOutputs(generatedPaths, generatedBackupRoot);
+    await clearCapturedGeneratedOutputs(generatedOutputSnapshots);
     const runtimeHead = await readGitValue(
       ["rev-parse", "HEAD"],
       childToolEnvironment,
@@ -1944,9 +2010,10 @@ const runRehearsal = async (
           processEffects,
         },
       );
-      browserEvidence = JSON.parse(
-        await readFile(browserEvidencePath, "utf8"),
-      ) as typeof browserEvidence;
+      const browserEvidenceInput: unknown = JSON.parse(await readFile(browserEvidencePath, "utf8"));
+      browserEvidence = await Effect.runPromise(
+        decodeOrganizationImportBrowserObservedEvidence(browserEvidenceInput),
+      );
       assert.equal(browserEvidence.status, "Observed");
       assert.deepEqual(browserEvidence.pageErrors, []);
       assert.equal(browserEvidence.legacyOrganizationRequests, 0);
@@ -2040,6 +2107,16 @@ const runRehearsal = async (
   } catch (cause) {
     runFailure = cause;
     failureStage = stage;
+    const failedBrowserEvidence = await readSanitizedFailedBrowserEvidence(
+      browserEvidencePath,
+      sensitiveValues,
+    );
+    if (failedBrowserEvidence !== undefined) {
+      artifactCore.browser = {
+        status: "Failed",
+        evidence: failedBrowserEvidence,
+      };
+    }
     artifactCore.observations = {
       status: "Failed",
       failedStage: stage,

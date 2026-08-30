@@ -749,7 +749,7 @@ const BrowserPageSchema = Schema.Union([
     contactSha256: StringArraySchema,
   }),
 ]);
-const BrowserEvidenceSchema = Schema.Struct({
+export const OrganizationImportBrowserObservedEvidenceSchema = Schema.Struct({
   authorizationInstant: Schema.String,
   pages: Schema.Array(BrowserPageSchema),
   pageErrors: StringArraySchema,
@@ -759,6 +759,101 @@ const BrowserEvidenceSchema = Schema.Struct({
   requests: Schema.Array(BrowserRequestSchema),
   status: Schema.Literal("Observed"),
 });
+
+const BrowserDiagnosticTextSchema = Schema.String.pipe(Schema.check(Schema.isMaxLength(2_000)));
+const BrowserDiagnosticStringArraySchema = Schema.Array(BrowserDiagnosticTextSchema).pipe(
+  Schema.check(
+    Schema.makeFilter((values) => values.length <= 128, {
+      message: "at most 128 bounded browser diagnostic strings",
+    }),
+  ),
+);
+const BrowserDiagnosticOriginSchema = Schema.Union([
+  Schema.Literal("dashboard-loopback"),
+  Schema.Literal("api-proxy-loopback"),
+]);
+const BrowserConsoleMessageSchema = Schema.Struct({
+  type: BrowserDiagnosticTextSchema,
+  text: BrowserDiagnosticTextSchema,
+});
+const BrowserConsoleMessagesSchema = Schema.Array(BrowserConsoleMessageSchema).pipe(
+  Schema.check(
+    Schema.makeFilter((messages) => messages.length <= 128, {
+      message: "at most 128 bounded browser console messages",
+    }),
+  ),
+);
+const BrowserDiagnosticRequestSchema = Schema.Struct({
+  method: BrowserDiagnosticTextSchema,
+  origin: BrowserDiagnosticOriginSchema,
+  path: BrowserDiagnosticTextSchema,
+  resourceType: BrowserDiagnosticTextSchema,
+});
+const BrowserDiagnosticRequestsSchema = Schema.Array(BrowserDiagnosticRequestSchema).pipe(
+  Schema.check(
+    Schema.makeFilter((requests) => requests.length <= 128, {
+      message: "at most 128 bounded browser request observations",
+    }),
+  ),
+);
+const BrowserFailedResponseSchema = Schema.Struct({
+  origin: BrowserDiagnosticOriginSchema,
+  path: BrowserDiagnosticTextSchema,
+  status: Schema.Number,
+});
+const BrowserFailedResponsesSchema = Schema.Array(BrowserFailedResponseSchema).pipe(
+  Schema.check(
+    Schema.makeFilter((responses) => responses.length <= 128, {
+      message: "at most 128 bounded browser failed-response observations",
+    }),
+  ),
+);
+const BrowserUnexpectedApiRequestsSchema = Schema.Array(
+  Schema.Struct({
+    method: BrowserDiagnosticTextSchema,
+    path: BrowserDiagnosticTextSchema,
+  }),
+).pipe(
+  Schema.check(
+    Schema.makeFilter((requests) => requests.length <= 128, {
+      message: "at most 128 bounded unexpected API request observations",
+    }),
+  ),
+);
+const BrowserDiagnosticElementStateSchema = Schema.Struct({
+  connected: Schema.Boolean,
+  childCount: Schema.Number,
+});
+const BrowserFinalPageStateSchema = Schema.Struct({
+  path: BrowserDiagnosticTextSchema,
+  customElementDefined: Schema.Boolean,
+  host: BrowserDiagnosticElementStateSchema,
+  container: BrowserDiagnosticElementStateSchema,
+  headings: BrowserDiagnosticStringArraySchema,
+});
+export const OrganizationImportBrowserFailedEvidenceSchema = Schema.Struct({
+  status: Schema.Literal("Failed"),
+  failure: BrowserDiagnosticTextSchema,
+  pageErrors: BrowserDiagnosticStringArraySchema,
+  consoleMessages: BrowserConsoleMessagesSchema,
+  rejectedDestinations: BrowserDiagnosticStringArraySchema,
+  unexpectedApiRequests: BrowserUnexpectedApiRequestsSchema,
+  requests: BrowserDiagnosticRequestsSchema,
+  failedResponses: BrowserFailedResponsesSchema,
+  finalPageState: BrowserFinalPageStateSchema,
+});
+export type OrganizationImportBrowserFailedEvidence =
+  typeof OrganizationImportBrowserFailedEvidenceSchema.Type;
+
+export const decodeOrganizationImportBrowserObservedEvidence = (input: unknown) =>
+  Schema.decodeUnknownEffect(OrganizationImportBrowserObservedEvidenceSchema)(input, {
+    onExcessProperty: "error",
+  });
+
+export const decodeOrganizationImportBrowserFailedEvidence = (input: unknown) =>
+  Schema.decodeUnknownEffect(OrganizationImportBrowserFailedEvidenceSchema)(input, {
+    onExcessProperty: "error",
+  });
 const DirectoryUserSchema = Schema.Struct({
   personId: Schema.String,
   firstName: Schema.String,
@@ -1007,9 +1102,13 @@ const OrganizationImportRehearsalArtifactSchema = Schema.Struct({
       practicality: Schema.String,
       pageSessionPreflight: Schema.Array(ExistingPageSessionCapabilityObservationSchema),
       preflightBackendProxyRequests: Schema.Array(ProxyRequestSchema),
-      evidence: BrowserEvidenceSchema,
+      evidence: OrganizationImportBrowserObservedEvidenceSchema,
       nativePathObservations: NativeBrowserPathObservationsSchema,
       backendProxyRequests: Schema.Array(ProxyRequestSchema),
+    }),
+    Schema.Struct({
+      status: Schema.Literal("Failed"),
+      evidence: OrganizationImportBrowserFailedEvidenceSchema,
     }),
     Schema.Struct({
       status: Schema.Literal("BrowserNotPractical"),

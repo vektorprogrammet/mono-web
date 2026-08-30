@@ -63,15 +63,17 @@ describe("Organization catalog custom element", () => {
     });
   });
 
-  it("registers before hydration and owns one Team runtime while connected", async () => {
-    // The dynamic import intentionally exercises registration during module evaluation after browser globals exist.
+  it("waits for the hydration owner, then owns one Team runtime while connected", async () => {
+    // The dynamic import intentionally proves module evaluation does not claim DOM ownership before hydration.
     const {
       ORGANIZATION_CATALOG_ELEMENT,
       ORGANIZATION_CATALOG_KIND_ATTRIBUTE,
       registerOrganizationCatalogElement,
     } = await import("./elements");
 
-    expect(define).toHaveBeenCalledTimes(1);
+    expect(define).not.toHaveBeenCalled();
+    expect(mocks.embed).not.toHaveBeenCalled();
+    registerOrganizationCatalogElement();
     registerOrganizationCatalogElement();
     expect(define).toHaveBeenCalledTimes(1);
 
@@ -85,6 +87,10 @@ describe("Organization catalog custom element", () => {
     element.connectedCallback();
     expect(mocks.createClient).toHaveBeenCalledTimes(1);
     expect(mocks.embed).toHaveBeenCalledTimes(1);
+    expect(element.children).toHaveLength(1);
+    expect(element.children[0]).toEqual(
+      expect.objectContaining({ id: "foldkit-organization-catalog" }),
+    );
     expect(mocks.embed).toHaveBeenCalledWith(
       expect.objectContaining({ id: "foldkit-organization-catalog" }),
       { catalogKind: "Team", client: mocks.client },

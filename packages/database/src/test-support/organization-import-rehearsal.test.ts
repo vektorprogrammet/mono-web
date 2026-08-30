@@ -16,6 +16,7 @@ import {
   isNativeBrowserJourneyRequestAllowed,
   isExpectedNativeBrowserJourneyObservation,
   captureGeneratedOutputs,
+  clearCapturedGeneratedOutputs,
   restoreGeneratedOutput,
   writeSanitizedOrganizationImportRehearsalArtifact,
 } from "../../runtime/organization-import-rehearsal-main.js";
@@ -25,6 +26,7 @@ import {
   SPEC_0067,
   decodeFrozenOrganizationSnapshot,
   decodeOrganizationImportRehearsalArtifact,
+  decodeOrganizationImportBrowserFailedEvidence,
   expectedOrganizationImportOutcomeMatrix,
   frozenOrganizationSnapshotCore,
   frozenOrganizationSnapshotInput,
@@ -48,7 +50,7 @@ const expectDeepFrozen = (value: unknown): void => {
 };
 
 describe("spec 0067 generated-output ownership", () => {
-  it("restores pre-existing bytes and removes runner-created output", async () => {
+  it("clears captured output before generation, then restores pre-existing bytes", async () => {
     const root = await mkdtemp(join(tmpdir(), "spec-0067-generated-output-"));
     const preexisting = join(root, "preexisting");
     const runnerCreated = join(root, "runner-created");
@@ -57,6 +59,10 @@ describe("spec 0067 generated-output ownership", () => {
       await mkdir(preexisting);
       await writeFile(join(preexisting, "value.txt"), "before", "utf8");
       const snapshots = await captureGeneratedOutputs([preexisting, runnerCreated], backup);
+      await clearCapturedGeneratedOutputs(snapshots);
+      await expect(readFile(join(preexisting, "value.txt"), "utf8")).rejects.toBeDefined();
+      await expect(readFile(join(runnerCreated, "generated.txt"), "utf8")).rejects.toBeDefined();
+      await mkdir(preexisting);
       await writeFile(join(preexisting, "value.txt"), "after", "utf8");
       await mkdir(runnerCreated);
       await writeFile(join(runnerCreated, "generated.txt"), "generated", "utf8");
@@ -547,6 +553,41 @@ describe("spec 0067 artifact boundary", () => {
     ...artifactCore,
     evidenceSha256: sha256Hex(canonicalJsonBytes(artifactCore)),
   } as const;
+  const failedBrowserEvidence = {
+    status: "Failed",
+    failure: "Expected the imported team heading to be visible",
+    pageErrors: ["Dashboard client entry did not evaluate"],
+    consoleMessages: [
+      {
+        type: "error",
+        text: "Failed to load resource: the server responded with a status of 504",
+      },
+    ],
+    rejectedDestinations: [],
+    unexpectedApiRequests: [],
+    requests: [
+      {
+        method: "GET",
+        origin: "dashboard-loopback",
+        path: "/node_modules/.vite/deps/effect.js",
+        resourceType: "script",
+      },
+    ],
+    failedResponses: [
+      {
+        origin: "dashboard-loopback",
+        path: "/node_modules/.vite/deps/effect.js",
+        status: 504,
+      },
+    ],
+    finalPageState: {
+      path: "/dashboard/team",
+      customElementDefined: false,
+      host: { connected: true, childCount: 0 },
+      container: { connected: false, childCount: 0 },
+      headings: [],
+    },
+  } as const;
 
   it("accepts only the canonical top-level artifact fields", async () => {
     await expect(
@@ -576,6 +617,76 @@ describe("spec 0067 artifact boundary", () => {
           decodeOrganizationImportRehearsalArtifact({
             ...artifact,
             cleanup: incompleteCleanup,
+          }),
+        ),
+      ),
+    ).resolves.toBeDefined();
+  });
+  it("strictly decodes and digests bounded failed browser evidence", async () => {
+    await expect(
+      testRuntime.runPromise(decodeOrganizationImportBrowserFailedEvidence(failedBrowserEvidence)),
+    ).resolves.toEqual(failedBrowserEvidence);
+    const failedBrowserCore = {
+      ...artifactCore,
+      browser: {
+        status: "Failed",
+        evidence: failedBrowserEvidence,
+      },
+    } as const;
+    const failedBrowserArtifact = {
+      ...failedBrowserCore,
+      evidenceSha256: sha256Hex(canonicalJsonBytes(failedBrowserCore)),
+    };
+    await expect(
+      testRuntime.runPromise(verifyOrganizationImportRehearsalArtifact(failedBrowserArtifact)),
+    ).resolves.toEqual(failedBrowserArtifact);
+  });
+
+  it("rejects undeclared request, cookie, and raw-contact diagnostic fields", async () => {
+    await expect(
+      testRuntime.runPromise(
+        Effect.flip(
+          decodeOrganizationImportBrowserFailedEvidence({
+            ...failedBrowserEvidence,
+            sessionCookie: "forbidden",
+          }),
+        ),
+      ),
+    ).resolves.toBeDefined();
+    await expect(
+      testRuntime.runPromise(
+        Effect.flip(
+          decodeOrganizationImportBrowserFailedEvidence({
+            ...failedBrowserEvidence,
+            requests: [
+              {
+                method: "GET",
+                origin: "dashboard-loopback",
+                path: "/node_modules/.vite/deps/effect.js",
+                resourceType: "script",
+                requestHeaders: { cookie: "forbidden" },
+              },
+            ],
+          }),
+        ),
+      ),
+    ).resolves.toBeDefined();
+    const rawContactCore = {
+      ...artifactCore,
+      browser: {
+        status: "Failed",
+        evidence: {
+          ...failedBrowserEvidence,
+          rawContactBody: { email: "forbidden" },
+        },
+      },
+    } as const;
+    await expect(
+      testRuntime.runPromise(
+        Effect.flip(
+          verifyOrganizationImportRehearsalArtifact({
+            ...rawContactCore,
+            evidenceSha256: sha256Hex(canonicalJsonBytes(rawContactCore)),
           }),
         ),
       ),
@@ -762,6 +873,36 @@ describe("spec 0067 artifact boundary", () => {
         },
         evidenceSha256,
       });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("refuses known raw contacts inside schema-valid failure diagnostics", async () => {
+    const root = await mkdtemp(join(tmpdir(), "spec-0067-contact-leak-"));
+    const rawContacts = ["imported-member.0067@example.invalid", "+4700006731"] as const;
+    try {
+      for (const [index, rawContact] of rawContacts.entries()) {
+        const evidencePath = join(root, `failed-${index}.json`);
+        const leakedContactCore = {
+          ...artifactCore,
+          browser: {
+            status: "Failed",
+            evidence: {
+              ...failedBrowserEvidence,
+              failure: `Expected ${rawContact} to be visible`,
+            },
+          },
+        } as const;
+        await expect(
+          writeSanitizedOrganizationImportRehearsalArtifact({
+            artifactCore: leakedContactCore,
+            evidencePath,
+            sensitiveValues: rawContacts,
+          }),
+        ).rejects.toThrow("sanitized evidence contained a secret value");
+        await expect(readFile(evidencePath, "utf8")).rejects.toBeDefined();
+      }
     } finally {
       await rm(root, { recursive: true, force: true });
     }
