@@ -103,6 +103,7 @@ interface ProxyRequestObservation {
   readonly path: string;
   readonly status: number;
   readonly sessionCookieAuth: boolean;
+  readonly requestSource: "BrowserCrossOrigin" | "DashboardSsr" | "UnexpectedOrigin";
 }
 
 interface RehearsalProxy {
@@ -195,16 +196,35 @@ export const EXPECTED_MIGRATION_23_PUBLIC_TABLES = [
   "public.vektorprogrammet_schema_migrations",
 ] as const;
 
-const NATIVE_BROWSER_JOURNEY_PATHS = [
-  "/api/admin/users",
-  "/api/departments",
-  "/api/me/session",
-  "/api/teams",
+export const NATIVE_BROWSER_JOURNEY_REQUIREMENTS = [
+  { path: "/api/admin/users", access: "BoundedSession", requestSource: "DashboardSsr" },
+  { path: "/api/departments", access: "Public", requestSource: "BrowserCrossOrigin" },
+  { path: "/api/me/session", access: "BoundedSession", requestSource: "DashboardSsr" },
+  { path: "/api/teams", access: "Public", requestSource: "BrowserCrossOrigin" },
 ] as const;
+
+const NATIVE_BROWSER_JOURNEY_PATHS = NATIVE_BROWSER_JOURNEY_REQUIREMENTS.map(({ path }) => path);
 
 export const isNativeBrowserJourneyRequestAllowed = (method: string, path: string): boolean =>
   (method === "GET" || method === "OPTIONS") &&
-  NATIVE_BROWSER_JOURNEY_PATHS.some((allowedPath) => allowedPath === path);
+  NATIVE_BROWSER_JOURNEY_REQUIREMENTS.some((requirement) => requirement.path === path);
+
+export const isExpectedNativeBrowserJourneyObservation = (input: {
+  readonly method: string;
+  readonly path: string;
+  readonly status: number;
+  readonly sessionCookieAuth: boolean;
+  readonly requestSource: "BrowserCrossOrigin" | "DashboardSsr" | "UnexpectedOrigin";
+}): boolean => {
+  const requirement = NATIVE_BROWSER_JOURNEY_REQUIREMENTS.find(({ path }) => path === input.path);
+  return (
+    input.method === "GET" &&
+    input.status === 200 &&
+    requirement !== undefined &&
+    input.sessionCookieAuth === (requirement.access === "BoundedSession") &&
+    input.requestSource === requirement.requestSource
+  );
+};
 
 const pathExists = async (path: string): Promise<boolean> => {
   try {
@@ -790,19 +810,25 @@ const startRecordingProxy = async (
     const sessionCookieAuth = cookie
       .split(";")
       .some((pair) => pair.trim().startsWith(`${cookieName}=`));
+    const requestSource =
+      request.headers.origin === undefined
+        ? ("DashboardSsr" as const)
+        : request.headers.origin === dashboardAllowedOrigin
+          ? ("BrowserCrossOrigin" as const)
+          : ("UnexpectedOrigin" as const);
     const allowedPath = NATIVE_BROWSER_JOURNEY_PATHS.some(
       (allowedJourneyPath) => allowedJourneyPath === path,
     );
     if (!isNativeBrowserJourneyRequestAllowed(method, path)) {
       const status = allowedPath ? 405 : 404;
-      records.push({ method, path, status, sessionCookieAuth });
+      records.push({ method, path, status, sessionCookieAuth, requestSource });
       response.statusCode = status;
       response.setHeader("content-type", "application/json");
       response.end('{"error":"unexpected rehearsal API request"}');
       return;
     }
     if (method === "OPTIONS") {
-      records.push({ method, path, status: 204, sessionCookieAuth });
+      records.push({ method, path, status: 204, sessionCookieAuth, requestSource });
       response.statusCode = 204;
       response.setHeader("access-control-allow-origin", dashboardAllowedOrigin);
       response.setHeader("access-control-allow-credentials", "true");
@@ -834,7 +860,7 @@ const startRecordingProxy = async (
         redirect: "manual",
       });
       const responseBytes = Buffer.from(await upstream.arrayBuffer());
-      records.push({ method, path, status: upstream.status, sessionCookieAuth });
+      records.push({ method, path, status: upstream.status, sessionCookieAuth, requestSource });
       response.statusCode = upstream.status;
       for (const [name, value] of upstream.headers.entries()) {
         if (["content-encoding", "content-length", "transfer-encoding"].includes(name)) continue;
@@ -847,7 +873,7 @@ const startRecordingProxy = async (
       response.setHeader("content-length", String(responseBytes.byteLength));
       response.end(responseBytes);
     } catch {
-      records.push({ method, path, status: 502, sessionCookieAuth });
+      records.push({ method, path, status: 502, sessionCookieAuth, requestSource });
       response.statusCode = 502;
       response.end('{"error":"local rehearsal proxy failure"}');
     }
@@ -1929,21 +1955,31 @@ const runRehearsal = async (
       assert.equal(browserEvidence.legacyOrganizationRequests, 0);
       assert.deepEqual(browserEvidence.unexpectedApiRequests, []);
       const browserProxyRequests = proxy.records.slice(browserProxyStart);
-      for (const requiredPath of NATIVE_BROWSER_JOURNEY_PATHS) {
-        assert.ok(
-          browserProxyRequests.some(
-            ({ method, path, status, sessionCookieAuth }) =>
-              method === "GET" && path === requiredPath && status === 200 && sessionCookieAuth,
-          ),
-          `Chromium journey did not observe an authenticated 200 ${requiredPath}`,
+      const nativePathObservations = NATIVE_BROWSER_JOURNEY_REQUIREMENTS.map((requirement) => {
+        const observation = browserProxyRequests.find(
+          (candidate) =>
+            candidate.path === requirement.path &&
+            isExpectedNativeBrowserJourneyObservation(candidate),
         );
-      }
+        assert.ok(
+          observation,
+          `Chromium journey did not observe the required ${requirement.access} 200 GET ${requirement.path}`,
+        );
+        return {
+          path: observation.path,
+          status: observation.status,
+          sessionCookieAuth: observation.sessionCookieAuth,
+          access: requirement.access,
+          requestSource: observation.requestSource,
+        };
+      });
       artifactCore.browser = {
         status: "Observed",
         practicality: "Existing pages accepted the bounded session without credential changes",
         pageSessionPreflight,
         preflightBackendProxyRequests: pageSessionProxyRequests,
         evidence: sanitizeProjection(browserEvidence),
+        nativePathObservations,
         backendProxyRequests: browserProxyRequests,
       };
     }

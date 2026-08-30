@@ -673,6 +673,27 @@ const BackendRequestSchema = Schema.Struct({
   status: Schema.Number,
   sessionCookieAuth: Schema.Boolean,
 });
+const ProxyRequestSchema = Schema.Struct({
+  method: Schema.String,
+  path: Schema.String,
+  status: Schema.Number,
+  sessionCookieAuth: Schema.Boolean,
+  requestSource: Schema.Union([
+    Schema.Literal("BrowserCrossOrigin"),
+    Schema.Literal("DashboardSsr"),
+    Schema.Literal("UnexpectedOrigin"),
+  ]),
+});
+const NativeBrowserPathObservationSchema = Schema.Struct({
+  path: Schema.String,
+  status: Schema.Number,
+  sessionCookieAuth: Schema.Boolean,
+  access: Schema.Union([Schema.Literal("Public"), Schema.Literal("BoundedSession")]),
+  requestSource: Schema.Union([
+    Schema.Literal("BrowserCrossOrigin"),
+    Schema.Literal("DashboardSsr"),
+  ]),
+});
 const BrowserRequestSchema = Schema.Struct({
   method: Schema.String,
   origin: Schema.Literal("api-proxy-loopback"),
@@ -957,16 +978,17 @@ const OrganizationImportRehearsalArtifactSchema = Schema.Struct({
       status: Schema.Literal("Observed"),
       practicality: Schema.String,
       pageSessionPreflight: Schema.Array(ExistingPageSessionCapabilityObservationSchema),
-      preflightBackendProxyRequests: Schema.Array(BackendRequestSchema),
+      preflightBackendProxyRequests: Schema.Array(ProxyRequestSchema),
       evidence: BrowserEvidenceSchema,
-      backendProxyRequests: Schema.Array(BackendRequestSchema),
+      nativePathObservations: Schema.Array(NativeBrowserPathObservationSchema),
+      backendProxyRequests: Schema.Array(ProxyRequestSchema),
     }),
     Schema.Struct({
       status: Schema.Literal("BrowserNotPractical"),
       capability: Schema.Literal("ExistingPageBoundedSession"),
       reason: Schema.String,
       pageSessionPreflight: Schema.Array(ExistingPageSessionCapabilityObservationSchema),
-      backendProxyRequests: Schema.Array(BackendRequestSchema),
+      backendProxyRequests: Schema.Array(ProxyRequestSchema),
     }),
   ]),
   forbiddenEffects: Schema.Union([

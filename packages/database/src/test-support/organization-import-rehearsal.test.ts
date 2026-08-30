@@ -9,9 +9,11 @@ import { afterAll, describe, expect, it } from "vitest";
 import {
   EXPECTED_MIGRATION_23_AUTH_TABLES,
   EXPECTED_MIGRATION_23_PUBLIC_TABLES,
+  NATIVE_BROWSER_JOURNEY_REQUIREMENTS,
   boundedCookieCapabilityFailure,
   classifyExistingPageSessionCapability,
   isNativeBrowserJourneyRequestAllowed,
+  isExpectedNativeBrowserJourneyObservation,
   captureGeneratedOutputs,
   restoreGeneratedOutput,
   writeSanitizedOrganizationImportRehearsalArtifact,
@@ -100,6 +102,66 @@ describe("spec 0067 runtime capability contracts", () => {
     expect([...EXPECTED_MIGRATION_23_PUBLIC_TABLES].sort()).toEqual([
       ...EXPECTED_MIGRATION_23_PUBLIC_TABLES,
     ]);
+    expect(NATIVE_BROWSER_JOURNEY_REQUIREMENTS).toEqual([
+      { path: "/api/admin/users", access: "BoundedSession", requestSource: "DashboardSsr" },
+      { path: "/api/departments", access: "Public", requestSource: "BrowserCrossOrigin" },
+      { path: "/api/me/session", access: "BoundedSession", requestSource: "DashboardSsr" },
+      { path: "/api/teams", access: "Public", requestSource: "BrowserCrossOrigin" },
+    ]);
+    expect(
+      isExpectedNativeBrowserJourneyObservation({
+        method: "GET",
+        path: "/api/departments",
+        status: 200,
+        sessionCookieAuth: false,
+        requestSource: "BrowserCrossOrigin",
+      }),
+    ).toBe(true);
+    expect(
+      isExpectedNativeBrowserJourneyObservation({
+        method: "GET",
+        path: "/api/teams",
+        status: 200,
+        sessionCookieAuth: true,
+        requestSource: "BrowserCrossOrigin",
+      }),
+    ).toBe(false);
+    expect(
+      isExpectedNativeBrowserJourneyObservation({
+        method: "GET",
+        path: "/api/me/session",
+        status: 200,
+        sessionCookieAuth: true,
+        requestSource: "DashboardSsr",
+      }),
+    ).toBe(true);
+    expect(
+      isExpectedNativeBrowserJourneyObservation({
+        method: "GET",
+        path: "/api/admin/users",
+        status: 200,
+        sessionCookieAuth: false,
+        requestSource: "DashboardSsr",
+      }),
+    ).toBe(false);
+    expect(
+      isExpectedNativeBrowserJourneyObservation({
+        method: "GET",
+        path: "/api/departments",
+        status: 200,
+        sessionCookieAuth: false,
+        requestSource: "DashboardSsr",
+      }),
+    ).toBe(false);
+    expect(
+      isExpectedNativeBrowserJourneyObservation({
+        method: "GET",
+        path: "/api/admin/users",
+        status: 200,
+        sessionCookieAuth: true,
+        requestSource: "BrowserCrossOrigin",
+      }),
+    ).toBe(false);
     expect(isNativeBrowserJourneyRequestAllowed("GET", "/api/teams")).toBe(true);
     expect(isNativeBrowserJourneyRequestAllowed("POST", "/api/teams")).toBe(false);
     expect(isNativeBrowserJourneyRequestAllowed("GET", "/api/unexpected")).toBe(false);
@@ -496,6 +558,7 @@ describe("spec 0067 artifact boundary", () => {
             path: "/api/me/session",
             status: 200,
             sessionCookieAuth: true,
+            requestSource: "DashboardSsr",
           },
         ],
       },
@@ -509,6 +572,62 @@ describe("spec 0067 artifact boundary", () => {
         verifyOrganizationImportRehearsalArtifact(browserNotPracticalArtifact),
       ),
     ).resolves.toEqual(browserNotPracticalArtifact);
+  });
+
+  it("accepts exact public and bounded-session native path observations", async () => {
+    const nativePathObservations = NATIVE_BROWSER_JOURNEY_REQUIREMENTS.map((requirement) => ({
+      ...requirement,
+      status: 200,
+      sessionCookieAuth: requirement.access === "BoundedSession",
+    }));
+    const backendProxyRequests = nativePathObservations.map(
+      ({ path, status, sessionCookieAuth, requestSource }) => ({
+        method: "GET",
+        path,
+        status,
+        sessionCookieAuth,
+        requestSource,
+      }),
+    );
+    const observedBrowserCore = {
+      ...artifactCore,
+      browser: {
+        status: "Observed",
+        practicality: "Existing pages accepted the bounded session without credential changes",
+        pageSessionPreflight: [
+          { path: "/dashboard/team", status: 200, location: null },
+          { path: "/dashboard/brukere", status: 200, location: null },
+        ],
+        preflightBackendProxyRequests: [
+          {
+            method: "GET",
+            path: "/api/me/session",
+            status: 200,
+            sessionCookieAuth: true,
+            requestSource: "DashboardSsr",
+          },
+        ],
+        evidence: {
+          authorizationInstant: SPEC_0067.authorizationInstant,
+          pages: [],
+          pageErrors: [],
+          legacyOrganizationRequests: 0,
+          rejectedDestinations: [],
+          unexpectedApiRequests: [],
+          requests: [],
+          status: "Observed",
+        },
+        nativePathObservations,
+        backendProxyRequests,
+      },
+    } as const;
+    const observedBrowserArtifact = {
+      ...observedBrowserCore,
+      evidenceSha256: sha256Hex(canonicalJsonBytes(observedBrowserCore)),
+    };
+    await expect(
+      testRuntime.runPromise(verifyOrganizationImportRehearsalArtifact(observedBrowserArtifact)),
+    ).resolves.toEqual(observedBrowserArtifact);
   });
 
   it("persists a sanitized failed artifact even when database cleanup fails", async () => {
