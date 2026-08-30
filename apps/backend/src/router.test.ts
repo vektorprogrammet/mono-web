@@ -151,7 +151,7 @@ const schools = Schools.of({
 });
 
 const makeRun =
-  (identity: IdentityShape): BackendRun =>
+  (identity: IdentityShape, organizationService: OrganizationShape = organization): BackendRun =>
   <A, E>(
     effect: Effect.Effect<
       A,
@@ -172,7 +172,7 @@ const makeRun =
       effect.pipe(
         Effect.provideService(Database, database),
         Effect.provideService(Profile, profile),
-        Effect.provideService(Organization, organization),
+        Effect.provideService(Organization, organizationService),
         Effect.provideService(Schools, schools),
         Effect.provideService(Identity, identity),
       ) as Effect.Effect<A, E>,
@@ -322,6 +322,33 @@ describe("unified backend router", () => {
     const anonymous = await request("/api/me/session");
     expect(anonymous.status).toBe(401);
     expect(await anonymous.json()).toEqual({ error: { tag: "UnauthenticatedActor" } });
+  });
+
+  it("forwards an evidence-only clock to protected authority resolution", async () => {
+    const authorizationInstants: string[] = [];
+    const pinnedInstant = "2037-01-15T12:00:00.000Z";
+    const observedOrganization: OrganizationShape = {
+      ...organization,
+      resolvePersonAuthority: (personId, authorizationInstant) => {
+        authorizationInstants.push(authorizationInstant);
+        return organization.resolvePersonAuthority(personId, authorizationInstant);
+      },
+    };
+    const pinnedBackend = makeBackendHttp(
+      config,
+      makeRun(successfulIdentity, observedOrganization),
+      { handle: async () => new Response(null, { status: 404 }) },
+      { now: () => pinnedInstant },
+    );
+
+    const response = await pinnedBackend.fetch(
+      new Request("http://backend.test/api/me", {
+        headers: { cookie: `${token}=value` },
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(authorizationInstants).toEqual([pinnedInstant]);
   });
 
   it.each([

@@ -36,6 +36,12 @@ export default defineConfig({
       "@/hooks": "/app/hooks",
       "@/lib": "/app/lib",
       "@/ui": "/app/components/ui",
+      ...(process.env.ORGANIZATION_IMPORT_REHEARSAL_SDK_EFFECT_PATH === undefined
+        ? {}
+        : {
+            "@vektorprogrammet/sdk/effect":
+              process.env.ORGANIZATION_IMPORT_REHEARSAL_SDK_EFFECT_PATH,
+          }),
     },
   },
 });

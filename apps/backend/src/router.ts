@@ -118,10 +118,16 @@ export interface BackendAuthHandler {
   readonly handle: (request: Request) => Promise<Response>;
 }
 
+export interface BackendHttpOptions {
+  /** Evidence compositions can pin one authorization instant without patching the global clock. */
+  readonly now?: () => string;
+}
+
 export const makeBackendHttp = (
   config: BackendConfig,
   run: BackendRun,
   authHandler: BackendAuthHandler,
+  options: BackendHttpOptions = {},
 ): BackendHttp => {
   /**
    * Cookie -> Organization projection -> department-scoped admission actor.
@@ -136,7 +142,7 @@ export const makeBackendHttp = (
     const cookie = request.headers.get("cookie") ?? undefined;
     if (departmentScope === undefined) {
       // No canonical scope: only an active global administrator is authorized.
-      const authority = await resolvePersonAuthority(cookie, { run });
+      const authority = await resolvePersonAuthority(cookie, { run, now: options.now });
       if (authority.globalAdministrator !== "Active") {
         throw authority.globalAdministrator === "Inactive"
           ? new InactiveActor({ personId: authority.personId })
@@ -148,7 +154,7 @@ export const makeBackendHttp = (
         active: true,
       };
     }
-    const authority = await resolvePersonAuthority(cookie, { run });
+    const authority = await resolvePersonAuthority(cookie, { run, now: options.now });
     return admissionActorForDepartment(authority, DepartmentId.make(departmentScope));
   };
   const admission = makeAdmissionApiHttp({
@@ -162,8 +168,9 @@ export const makeBackendHttp = (
    */
   const receiptIdentity: ReceiptIdentityResolvers = {
     resolveAuthorizationPrincipal: async (cookieHeader) =>
-      resolveAuthenticatedPersonAtInstant(cookieHeader, { run }),
-    resolvePersonId: async (cookieHeader) => resolveAuthenticatedPerson(cookieHeader, { run }),
+      resolveAuthenticatedPersonAtInstant(cookieHeader, { run, now: options.now }),
+    resolvePersonId: async (cookieHeader) =>
+      resolveAuthenticatedPerson(cookieHeader, { run, now: options.now }),
   };
   const receipt = makeReceiptApiHttp({
     config: config.receipt,
@@ -175,7 +182,7 @@ export const makeBackendHttp = (
     resolveConductContext: async (request) => {
       const authority = await resolvePersonAuthorityAfterSession(
         request.headers.get("cookie") ?? undefined,
-        { run },
+        { run, now: options.now },
       );
       return {
         actor: {
@@ -191,6 +198,7 @@ export const makeBackendHttp = (
     resolveActor: async (request) => {
       const authority = await resolvePersonAuthority(request.headers.get("cookie") ?? undefined, {
         run,
+        now: options.now,
       });
       return recruitmentBoardActorFrom(authority);
     },
@@ -200,23 +208,32 @@ export const makeBackendHttp = (
     config: config.organization,
     resolveActor: async (request) => {
       const cookie = request.headers.get("cookie") ?? undefined;
-      const authority = await resolvePersonAuthority(cookie, { run });
+      const authority = await resolvePersonAuthority(cookie, { run, now: options.now });
       return organizationActorFrom(authority);
     },
     // Specs 0059/0060 leader-scoped reads: one captured authorizationInstant
     // per request covers session resolution, scope computation, and the read.
     resolveAuthority: (request) =>
-      resolvePersonAuthority(request.headers.get("cookie") ?? undefined, { run }),
+      resolvePersonAuthority(request.headers.get("cookie") ?? undefined, {
+        run,
+        now: options.now,
+      }),
     run,
   });
   const adminUsers = makeAdminUsersApiHttp({
     resolveAuthority: (request) =>
-      resolvePersonAuthority(request.headers.get("cookie") ?? undefined, { run }),
+      resolvePersonAuthority(request.headers.get("cookie") ?? undefined, {
+        run,
+        now: options.now,
+      }),
     run,
   });
   const schools = makeSchoolsApiHttp({
     resolveActor: (request) =>
-      resolveAuthenticatedPersonAtInstant(request.headers.get("cookie") ?? undefined, { run }),
+      resolveAuthenticatedPersonAtInstant(request.headers.get("cookie") ?? undefined, {
+        run,
+        now: options.now,
+      }),
     run,
   });
   /**
@@ -227,7 +244,10 @@ export const makeBackendHttp = (
    */
   const content = makeContentManagementApiHttp(
     (request: Request) =>
-      resolveAuthenticatedPersonAtInstant(request.headers.get("cookie") ?? undefined, { run }),
+      resolveAuthenticatedPersonAtInstant(request.headers.get("cookie") ?? undefined, {
+        run,
+        now: options.now,
+      }),
     run,
   );
   const publicNews = makePublicNewsApiHttp(run);
@@ -236,7 +256,7 @@ export const makeBackendHttp = (
     config,
     resolveActor: async (request) => {
       const cookie = request.headers.get("cookie") ?? undefined;
-      const authority = await resolvePersonAuthority(cookie, { run });
+      const authority = await resolvePersonAuthority(cookie, { run, now: options.now });
       // Decision-based translation: Deny(NotInScope/AuthorityInactive) becomes
       // the typed profile denial instead of an ambiguous default role.
       const decision = profileRoleFrom(authority);
@@ -256,7 +276,7 @@ export const makeBackendHttp = (
   /** Strict session read: raw Cookie header in, actor projection or typed failure out. */
   const meSession = async (request: Request): Promise<Response> => {
     const cookie = request.headers.get("cookie") ?? undefined;
-    const actor = await resolveAuthenticatedSession(cookie, { run });
+    const actor = await resolveAuthenticatedSession(cookie, { run, now: options.now });
     return jsonResponse({
       personId: actor.personId,
       expiresAt: DateTime.toDateUtc(actor.expiresAt).toISOString(),

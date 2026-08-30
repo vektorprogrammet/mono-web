@@ -20,6 +20,7 @@
     "proof:profile-postgres": "bun run runtime/profile-postgres-proof-main.ts",
     "identity:seed": "bun run runtime/identity-seed-main.ts",
     "proof:identity-browser": "bun run runtime/identity-browser-proof-main.ts",
+    "rehearsal:organization-import": "bun run runtime/organization-import-rehearsal-main.ts",
     "check-types": "tsc --noEmit",
     "build": "tsc --noEmit",
     "lint": "oxlint"
