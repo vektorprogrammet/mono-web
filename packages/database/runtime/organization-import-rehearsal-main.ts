@@ -397,8 +397,9 @@ class LocalNetworkGuard {
 
   addHttp(origin: string, label: string): void {
     const url = new URL(origin);
-    assert.equal(url.protocol, "http:");
-    assert.equal(normalizedLoopbackHost(url.hostname), "127.0.0.1");
+    if (url.protocol !== "http:" || normalizedLoopbackHost(url.hostname) !== "127.0.0.1") {
+      throw new Error("the rehearsal HTTP authority must be loopback");
+    }
     this.#allowedOrigins.add(url.origin);
     this.allowedDestinations.add(label);
   }

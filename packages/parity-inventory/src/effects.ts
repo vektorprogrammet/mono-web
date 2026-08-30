@@ -4440,83 +4440,502 @@ const typescriptIntegrationBoundariesFor = (
   return boundaries;
 };
 
+/**
+ * Excludes one dispatch only when the manifest bytes themselves prove a closed loopback boundary.
+ * Any failed AST, symbol, or executable-order proof leaves the fetch in the inventory.
+ */
 const typescriptLoopbackDispatchOffsetsFor = (path: string, source: string): readonly number[] => {
-  const sourceFile = typescriptSourceFileFor(path, source);
-  if (sourceFile === null) return [];
-  const structure = withoutComments(source.replaceAll("#allowedOrigins", "$allowedOrigins"));
+  const parsedSourceFile = typescriptSourceFileFor(path, source);
+  if (parsedSourceFile === null) return [];
+  let containsGuard = false;
+  const findGuard = (node: ts.Node): void => {
+    if (
+      (ts.isClassDeclaration(node) || ts.isClassExpression(node)) &&
+      node.name?.text === "LocalNetworkGuard"
+    )
+      containsGuard = true;
+    if (!containsGuard) ts.forEachChild(node, findGuard);
+  };
+  findGuard(parsedSourceFile);
+  if (!containsGuard) return [];
+
+  const virtualPath = `/__parity__/${path.replaceAll("\\", "/")}`;
+  const compilerOptions: ts.CompilerOptions = {
+    target: ts.ScriptTarget.ESNext,
+    module: ts.ModuleKind.ESNext,
+    moduleDetection: ts.ModuleDetectionKind.Force,
+    lib: ["lib.esnext.d.ts", "lib.dom.d.ts"],
+    noResolve: true,
+    skipLibCheck: true,
+    types: [],
+  };
+  const compilerHost = ts.createCompilerHost(compilerOptions, true);
+  const getSourceFile = compilerHost.getSourceFile.bind(compilerHost);
+  compilerHost.getSourceFile = (fileName, languageVersion, onError, shouldCreateNewSourceFile) =>
+    fileName === virtualPath
+      ? ts.createSourceFile(
+          virtualPath,
+          source,
+          ts.ScriptTarget.Latest,
+          true,
+          path.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+        )
+      : getSourceFile(fileName, languageVersion, onError, shouldCreateNewSourceFile);
+  const program = ts.createProgram({
+    rootNames: [virtualPath],
+    options: compilerOptions,
+    host: compilerHost,
+  });
+  const sourceFile = program.getSourceFile(virtualPath);
+  if (sourceFile === undefined) return [];
+  const checker = program.getTypeChecker();
+  const resolvesToDeclaration = (node: ts.Node, declaration: ts.Declaration): boolean =>
+    checker.getSymbolAtLocation(node)?.valueDeclaration === declaration;
+  const resolvesToDefaultLibraryValue = (node: ts.Node): boolean => {
+    const declarations = checker.getSymbolAtLocation(node)?.declarations;
+    return (
+      declarations !== undefined &&
+      declarations.length > 0 &&
+      declarations.every((declaration) =>
+        program.isSourceFileDefaultLibrary(declaration.getSourceFile()),
+      )
+    );
+  };
+
+  const declarationsByName = new Map<string, ts.Node[]>();
+  const addDeclaration = (name: string, declaration: ts.Node): void => {
+    const declarations = declarationsByName.get(name) ?? [];
+    declarations.push(declaration);
+    declarationsByName.set(name, declarations);
+  };
+  const addBindingName = (name: ts.BindingName, declaration: ts.Node): void => {
+    if (ts.isIdentifier(name)) {
+      addDeclaration(name.text, declaration);
+      return;
+    }
+    for (const element of name.elements)
+      if (ts.isBindingElement(element)) addBindingName(element.name, declaration);
+  };
+  const collectDeclarations = (node: ts.Node): void => {
+    if (ts.isVariableDeclaration(node) || ts.isParameter(node)) {
+      addBindingName(node.name, node);
+    } else if (
+      ts.isFunctionDeclaration(node) ||
+      ts.isFunctionExpression(node) ||
+      ts.isClassDeclaration(node) ||
+      ts.isClassExpression(node) ||
+      ts.isEnumDeclaration(node) ||
+      ts.isModuleDeclaration(node)
+    ) {
+      if (node.name !== undefined && ts.isIdentifier(node.name))
+        addDeclaration(node.name.text, node);
+    } else if (
+      ts.isImportSpecifier(node) ||
+      ts.isNamespaceImport(node) ||
+      ts.isImportEqualsDeclaration(node)
+    ) {
+      addDeclaration(node.name.text, node);
+    } else if (ts.isImportClause(node) && node.name !== undefined) {
+      addDeclaration(node.name.text, node);
+    } else if (ts.isCatchClause(node) && node.variableDeclaration !== undefined) {
+      addBindingName(node.variableDeclaration.name, node.variableDeclaration);
+    }
+    ts.forEachChild(node, collectDeclarations);
+  };
+  collectDeclarations(sourceFile);
   if (
-    !/\bconst\s+normalizedLoopbackHost\s*=\s*\(\s*host\s*:\s*string\s*\)\s*:\s*string\s*=>\s*host\s*===\s*["']localhost["']\s*\|\|\s*host\s*===\s*["']::1["']\s*\?\s*["']127\.0\.0\.1["']\s*:\s*host\s*;/.test(
-      structure,
+    ["fetch", "Request", "URL", "Set"].some(
+      (name) => (declarationsByName.get(name)?.length ?? 0) > 0,
     )
   )
     return [];
 
-  const dispatchOffsets: number[] = [];
-  const visit = (node: ts.Node): void => {
+  const identifierIs = (node: ts.Node | undefined, name: string): boolean =>
+    node !== undefined && ts.isIdentifier(node) && node.text === name;
+  const stringIs = (node: ts.Node | undefined, value: string): boolean =>
+    node !== undefined &&
+    (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) &&
+    node.text === value;
+  const propertyIs = (
+    node: ts.Node | undefined,
+    receiverName: string,
+    propertyName: string,
+  ): boolean =>
+    node !== undefined &&
+    ts.isPropertyAccessExpression(node) &&
+    identifierIs(node.expression, receiverName) &&
+    node.name.text === propertyName;
+  const referencesNamedResolveTo = (
+    root: ts.Node,
+    name: string,
+    declaration: ts.Declaration,
+  ): boolean => {
+    let resolved = true;
+    const visit = (node: ts.Node): void => {
+      if (!resolved) return;
+      if (ts.isIdentifier(node) && node.text === name) {
+        const propertyName =
+          (ts.isPropertyAccessExpression(node.parent) && node.parent.name === node) ||
+          (ts.isPropertyAssignment(node.parent) && node.parent.name === node) ||
+          (ts.isMethodDeclaration(node.parent) && node.parent.name === node) ||
+          (ts.isPropertyDeclaration(node.parent) && node.parent.name === node);
+        if (!propertyName && !resolvesToDeclaration(node, declaration)) {
+          resolved = false;
+          return;
+        }
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(root);
+    return resolved;
+  };
+  const strictComparisonValue = (
+    expression: ts.Expression,
+    identifierName: string,
+  ): string | null => {
+    if (
+      !ts.isBinaryExpression(expression) ||
+      expression.operatorToken.kind !== ts.SyntaxKind.EqualsEqualsEqualsToken
+    )
+      return null;
+    if (identifierIs(expression.left, identifierName) && ts.isStringLiteral(expression.right))
+      return expression.right.text;
+    return identifierIs(expression.right, identifierName) && ts.isStringLiteral(expression.left)
+      ? expression.left.text
+      : null;
+  };
+  const normalizerDeclarations = declarationsByName.get("normalizedLoopbackHost") ?? [];
+  const normalizer = normalizerDeclarations[0];
+  if (
+    normalizerDeclarations.length !== 1 ||
+    normalizer === undefined ||
+    !ts.isVariableDeclaration(normalizer) ||
+    !ts.isVariableDeclarationList(normalizer.parent) ||
+    (normalizer.parent.flags & ts.NodeFlags.Const) === 0 ||
+    !ts.isVariableStatement(normalizer.parent.parent) ||
+    normalizer.parent.parent.parent !== sourceFile ||
+    normalizer.initializer === undefined ||
+    !ts.isArrowFunction(normalizer.initializer) ||
+    normalizer.initializer.parameters.length !== 1 ||
+    !identifierIs(normalizer.initializer.parameters[0]?.name, "host") ||
+    !ts.isConditionalExpression(normalizer.initializer.body)
+  )
+    return [];
+  const normalizerParameter = "host";
+  const normalizerCondition = normalizer.initializer.body.condition;
+  if (
+    !ts.isBinaryExpression(normalizerCondition) ||
+    normalizerCondition.operatorToken.kind !== ts.SyntaxKind.BarBarToken ||
+    new Set([
+      strictComparisonValue(normalizerCondition.left, normalizerParameter),
+      strictComparisonValue(normalizerCondition.right, normalizerParameter),
+    ]).size !== 2 ||
+    strictComparisonValue(normalizerCondition.left, normalizerParameter) === null ||
+    strictComparisonValue(normalizerCondition.right, normalizerParameter) === null ||
+    ![
+      strictComparisonValue(normalizerCondition.left, normalizerParameter),
+      strictComparisonValue(normalizerCondition.right, normalizerParameter),
+    ].includes("localhost") ||
+    ![
+      strictComparisonValue(normalizerCondition.left, normalizerParameter),
+      strictComparisonValue(normalizerCondition.right, normalizerParameter),
+    ].includes("::1") ||
+    !stringIs(normalizer.initializer.body.whenTrue, "127.0.0.1") ||
+    !identifierIs(normalizer.initializer.body.whenFalse, normalizerParameter) ||
+    !referencesNamedResolveTo(
+      normalizer.initializer.body,
+      normalizerParameter,
+      normalizer.initializer.parameters[0]!,
+    )
+  )
+    return [];
+
+  const isPrivateAllowedOrigins = (node: ts.Node | undefined): boolean =>
+    node !== undefined &&
+    ts.isPropertyAccessExpression(node) &&
+    node.expression.kind === ts.SyntaxKind.ThisKeyword &&
+    ts.isPrivateIdentifier(node.name) &&
+    node.name.getText(sourceFile) === "#allowedOrigins";
+  const privateSetCall = (
+    expression: ts.Expression,
+    methodName: "add" | "has",
+    urlName: string,
+  ): ts.CallExpression | null => {
+    if (
+      !ts.isCallExpression(expression) ||
+      !ts.isPropertyAccessExpression(expression.expression) ||
+      expression.expression.name.text !== methodName ||
+      !isPrivateAllowedOrigins(expression.expression.expression) ||
+      expression.arguments.length !== 1 ||
+      !propertyIs(expression.arguments[0], urlName, "origin")
+    )
+      return null;
+    return expression;
+  };
+  const orMatches = (
+    expression: ts.Expression,
+    left: (operand: ts.Expression) => boolean,
+    right: (operand: ts.Expression) => boolean,
+  ): boolean =>
+    ts.isBinaryExpression(expression) &&
+    expression.operatorToken.kind === ts.SyntaxKind.BarBarToken &&
+    ((left(expression.left) && right(expression.right)) ||
+      (right(expression.left) && left(expression.right)));
+  const nonHttpCondition = (expression: ts.Expression, urlName: string): boolean =>
+    ts.isBinaryExpression(expression) &&
+    expression.operatorToken.kind === ts.SyntaxKind.ExclamationEqualsEqualsToken &&
+    propertyIs(expression.left, urlName, "protocol") &&
+    stringIs(expression.right, "http:");
+  const nonLoopbackCondition = (expression: ts.Expression, urlName: string): boolean =>
+    ts.isBinaryExpression(expression) &&
+    expression.operatorToken.kind === ts.SyntaxKind.ExclamationEqualsEqualsToken &&
+    ts.isCallExpression(expression.left) &&
+    identifierIs(expression.left.expression, "normalizedLoopbackHost") &&
+    resolvesToDeclaration(expression.left.expression, normalizer) &&
+    expression.left.arguments.length === 1 &&
+    propertyIs(expression.left.arguments[0], urlName, "hostname") &&
+    stringIs(expression.right, "127.0.0.1");
+  const absentOriginCondition = (expression: ts.Expression, urlName: string): boolean =>
+    ts.isPrefixUnaryExpression(expression) &&
+    expression.operator === ts.SyntaxKind.ExclamationToken &&
+    privateSetCall(expression.operand, "has", urlName) !== null;
+  const constNewExpression = (
+    statement: ts.Statement | undefined,
+    variableName: string,
+    constructorName: string,
+  ): ts.NewExpression | null => {
+    if (
+      statement === undefined ||
+      !ts.isVariableStatement(statement) ||
+      (statement.declarationList.flags & ts.NodeFlags.Const) === 0 ||
+      statement.declarationList.declarations.length !== 1
+    )
+      return null;
+    const declaration = statement.declarationList.declarations[0];
+    if (
+      declaration === undefined ||
+      !identifierIs(declaration.name, variableName) ||
+      declaration.initializer === undefined ||
+      !ts.isNewExpression(declaration.initializer) ||
+      !identifierIs(declaration.initializer.expression, constructorName)
+    )
+      return null;
+    return declaration.initializer;
+  };
+  const containsBypass = (node: ts.Node): boolean => {
+    let bypass = false;
+    const visit = (candidate: ts.Node): void => {
+      if (bypass) return;
+      if (
+        candidate !== node &&
+        (ts.isFunctionDeclaration(candidate) ||
+          ts.isFunctionExpression(candidate) ||
+          ts.isArrowFunction(candidate) ||
+          ts.isClassDeclaration(candidate) ||
+          ts.isClassExpression(candidate))
+      )
+        return;
+      if (
+        ts.isReturnStatement(candidate) ||
+        ts.isBreakStatement(candidate) ||
+        ts.isContinueStatement(candidate) ||
+        ts.isYieldExpression(candidate)
+      ) {
+        bypass = true;
+        return;
+      }
+      ts.forEachChild(candidate, visit);
+    };
+    visit(node);
+    return bypass;
+  };
+
+  const guards: (ts.ClassDeclaration | ts.ClassExpression)[] = [];
+  const collectGuards = (node: ts.Node): void => {
     if (
       (ts.isClassDeclaration(node) || ts.isClassExpression(node)) &&
       node.name?.text === "LocalNetworkGuard"
-    ) {
-      const classSource = structure.slice(node.getStart(sourceFile), node.end);
-      const guardedFetch = node.members.find(
-        (member) =>
-          ts.isPropertyDeclaration(member) &&
-          ts.isIdentifier(member.name) &&
-          member.name.text === "fetchLoopback" &&
-          member.initializer !== undefined &&
-          (ts.isArrowFunction(member.initializer) || ts.isFunctionExpression(member.initializer)) &&
-          ts.isBlock(member.initializer.body),
-      );
-      const guardedFetchBody =
-        guardedFetch !== undefined &&
-        ts.isPropertyDeclaration(guardedFetch) &&
-        guardedFetch.initializer !== undefined &&
-        (ts.isArrowFunction(guardedFetch.initializer) ||
-          ts.isFunctionExpression(guardedFetch.initializer)) &&
-        ts.isBlock(guardedFetch.initializer.body)
-          ? guardedFetch.initializer.body
-          : null;
-      if (
-        guardedFetchBody !== null &&
-        /\breadonly\s+\$allowedOrigins\s*=\s*new\s+Set(?:\s*<[^>]+>)?\s*\(\s*\)\s*;/.test(
-          classSource,
-        ) &&
-        /\baddHttp\s*\(\s*origin\s*:\s*string(?:\s*,[^)]*)?\)\s*:\s*void\s*\{[\s\S]*?\bconst\s+url\s*=\s*new\s+URL\s*\(\s*origin\s*\)\s*;[\s\S]*?\bassert\s*\.\s*equal\s*\(\s*url\s*\.\s*protocol\s*,\s*["']http:["']\s*\)\s*;[\s\S]*?\bassert\s*\.\s*equal\s*\(\s*normalizedLoopbackHost\s*\(\s*url\s*\.\s*hostname\s*\)\s*,\s*["']127\.0\.0\.1["']\s*\)\s*;[\s\S]*?\bthis\s*\.\s*\$allowedOrigins\s*\.\s*add\s*\(\s*url\s*\.\s*origin\s*\)\s*;/.test(
-          classSource,
-        )
-      ) {
-        const bodySource = structure.slice(
-          guardedFetchBody.getStart(sourceFile),
-          guardedFetchBody.end,
-        );
-        if (
-          /\bconst\s+request\s*=\s*new\s+Request\s*\(\s*input\s*,\s*init\s*\)\s*;[\s\S]*?\bconst\s+url\s*=\s*new\s+URL\s*\(\s*request\s*\.\s*url\s*\)\s*;[\s\S]*?\bif\s*\(\s*url\s*\.\s*protocol\s*!==\s*["']http:["']\s*\|\|\s*!\s*this\s*\.\s*\$allowedOrigins\s*\.\s*has\s*\(\s*url\s*\.\s*origin\s*\)\s*\)\s*\{[\s\S]*?\bthrow\s+new\s+Error\s*\([\s\S]*?\)\s*;[\s\S]*?\}[\s\S]*?\breturn\s+fetch\s*\(\s*request\s*\)\s*;/.test(
-            bodySource,
-          )
-        ) {
-          const dispatches: ts.CallExpression[] = [];
-          const collectDispatches = (candidate: ts.Node): void => {
-            if (
-              ts.isCallExpression(candidate) &&
-              ts.isIdentifier(candidate.expression) &&
-              candidate.expression.text === "fetch" &&
-              candidate.arguments[0] !== undefined &&
-              ts.isIdentifier(candidate.arguments[0]) &&
-              candidate.arguments[0].text === "request"
-            )
-              dispatches.push(candidate);
-            ts.forEachChild(candidate, collectDispatches);
-          };
-          collectDispatches(guardedFetchBody);
-          if (dispatches.length === 1)
-            dispatchOffsets.push(dispatches[0]!.expression.getStart(sourceFile));
-        }
-      }
-    }
-    ts.forEachChild(node, visit);
+    )
+      guards.push(node);
+    ts.forEachChild(node, collectGuards);
   };
-  visit(sourceFile);
-  return dispatchOffsets;
+  collectGuards(sourceFile);
+  if (guards.length !== 1) return [];
+  const guard = guards[0]!;
+  const allowedOriginFields = guard.members.filter(
+    (member): member is ts.PropertyDeclaration =>
+      ts.isPropertyDeclaration(member) &&
+      ts.isPrivateIdentifier(member.name) &&
+      member.name.getText(sourceFile) === "#allowedOrigins",
+  );
+  const allowedOrigins = allowedOriginFields[0];
+  if (
+    allowedOriginFields.length !== 1 ||
+    allowedOrigins === undefined ||
+    allowedOrigins.modifiers?.some(
+      (modifier) => modifier.kind === ts.SyntaxKind.ReadonlyKeyword,
+    ) !== true ||
+    allowedOrigins.initializer === undefined ||
+    !ts.isNewExpression(allowedOrigins.initializer) ||
+    !identifierIs(allowedOrigins.initializer.expression, "Set") ||
+    !resolvesToDefaultLibraryValue(allowedOrigins.initializer.expression) ||
+    (allowedOrigins.initializer.arguments?.length ?? 0) !== 0
+  )
+    return [];
+
+  const addHttpMethods = guard.members.filter(
+    (member): member is ts.MethodDeclaration =>
+      ts.isMethodDeclaration(member) &&
+      ts.isIdentifier(member.name) &&
+      member.name.text === "addHttp" &&
+      member.body !== undefined,
+  );
+  const fetchLoopbackFields = guard.members.filter(
+    (member): member is ts.PropertyDeclaration =>
+      ts.isPropertyDeclaration(member) &&
+      ts.isIdentifier(member.name) &&
+      member.name.text === "fetchLoopback" &&
+      member.initializer !== undefined &&
+      (ts.isArrowFunction(member.initializer) || ts.isFunctionExpression(member.initializer)) &&
+      ts.isBlock(member.initializer.body),
+  );
+  if (addHttpMethods.length !== 1 || fetchLoopbackFields.length !== 1) return [];
+  const addHttp = addHttpMethods[0]!;
+  const fetchLoopback = fetchLoopbackFields[0]!;
+  if (
+    addHttp.parameters.length < 1 ||
+    !identifierIs(addHttp.parameters[0]?.name, "origin") ||
+    fetchLoopback.initializer === undefined ||
+    (!ts.isArrowFunction(fetchLoopback.initializer) &&
+      !ts.isFunctionExpression(fetchLoopback.initializer)) ||
+    !ts.isBlock(fetchLoopback.initializer.body) ||
+    fetchLoopback.initializer.parameters.length !== 2 ||
+    !identifierIs(fetchLoopback.initializer.parameters[0]?.name, "input") ||
+    !identifierIs(fetchLoopback.initializer.parameters[1]?.name, "init")
+  )
+    return [];
+
+  const addStatements = addHttp.body!.statements;
+  const admittedUrl = constNewExpression(addStatements[0], "url", "URL");
+  const addGuard = addStatements[1];
+  const addOrigin = addStatements[2];
+  if (
+    admittedUrl === null ||
+    !resolvesToDefaultLibraryValue(admittedUrl.expression) ||
+    admittedUrl.arguments?.length !== 1 ||
+    admittedUrl.arguments[0] === undefined ||
+    !identifierIs(admittedUrl.arguments[0], "origin") ||
+    !resolvesToDeclaration(admittedUrl.arguments[0], addHttp.parameters[0]!) ||
+    addGuard === undefined ||
+    !ts.isIfStatement(addGuard) ||
+    addGuard.elseStatement !== undefined ||
+    !orMatches(
+      addGuard.expression,
+      (operand) => nonHttpCondition(operand, "url"),
+      (operand) => nonLoopbackCondition(operand, "url"),
+    ) ||
+    !ts.isBlock(addGuard.thenStatement) ||
+    addGuard.thenStatement.statements.length !== 1 ||
+    addGuard.thenStatement.statements[0] === undefined ||
+    !ts.isThrowStatement(addGuard.thenStatement.statements[0]) ||
+    addOrigin === undefined ||
+    !ts.isExpressionStatement(addOrigin) ||
+    privateSetCall(addOrigin.expression, "add", "url") === null
+  )
+    return [];
+  if (
+    !ts.isVariableDeclaration(admittedUrl.parent) ||
+    !referencesNamedResolveTo(addHttp.body!, "url", admittedUrl.parent) ||
+    !referencesNamedResolveTo(addHttp.body!, "origin", addHttp.parameters[0]!) ||
+    !referencesNamedResolveTo(addHttp.body!, "normalizedLoopbackHost", normalizer)
+  )
+    return [];
+
+  const fetchStatements = fetchLoopback.initializer.body.statements;
+  if (fetchStatements.length !== 4) return [];
+  const request = constNewExpression(fetchStatements[0], "request", "Request");
+  const requestedUrl = constNewExpression(fetchStatements[1], "url", "URL");
+  const fetchGuard = fetchStatements[2];
+  const dispatchStatement = fetchStatements[3];
+  if (
+    request === null ||
+    !resolvesToDefaultLibraryValue(request.expression) ||
+    request.arguments?.length !== 2 ||
+    request.arguments[0] === undefined ||
+    !identifierIs(request.arguments[0], "input") ||
+    !resolvesToDeclaration(request.arguments[0], fetchLoopback.initializer.parameters[0]!) ||
+    request.arguments[1] === undefined ||
+    !identifierIs(request.arguments[1], "init") ||
+    !resolvesToDeclaration(request.arguments[1], fetchLoopback.initializer.parameters[1]!) ||
+    requestedUrl === null ||
+    !resolvesToDefaultLibraryValue(requestedUrl.expression) ||
+    requestedUrl.arguments?.length !== 1 ||
+    !propertyIs(requestedUrl.arguments[0], "request", "url") ||
+    fetchGuard === undefined ||
+    !ts.isIfStatement(fetchGuard) ||
+    fetchGuard.elseStatement !== undefined ||
+    !orMatches(
+      fetchGuard.expression,
+      (operand) => nonHttpCondition(operand, "url"),
+      (operand) => absentOriginCondition(operand, "url"),
+    ) ||
+    !ts.isBlock(fetchGuard.thenStatement) ||
+    fetchGuard.thenStatement.statements.length === 0 ||
+    fetchGuard.thenStatement.statements.at(-1) === undefined ||
+    !ts.isThrowStatement(fetchGuard.thenStatement.statements.at(-1)!) ||
+    containsBypass(fetchGuard.thenStatement) ||
+    dispatchStatement === undefined ||
+    !ts.isReturnStatement(dispatchStatement) ||
+    dispatchStatement.expression === undefined ||
+    !ts.isCallExpression(dispatchStatement.expression) ||
+    !identifierIs(dispatchStatement.expression.expression, "fetch") ||
+    dispatchStatement.expression.arguments.length !== 1 ||
+    !identifierIs(dispatchStatement.expression.arguments[0], "request")
+  )
+    return [];
+  if (
+    !ts.isVariableDeclaration(request.parent) ||
+    !ts.isVariableDeclaration(requestedUrl.parent) ||
+    !referencesNamedResolveTo(fetchLoopback.initializer.body, "request", request.parent) ||
+    !referencesNamedResolveTo(fetchLoopback.initializer.body, "url", requestedUrl.parent) ||
+    !referencesNamedResolveTo(
+      fetchLoopback.initializer.body,
+      "input",
+      fetchLoopback.initializer.parameters[0]!,
+    ) ||
+    !referencesNamedResolveTo(
+      fetchLoopback.initializer.body,
+      "init",
+      fetchLoopback.initializer.parameters[1]!,
+    )
+  )
+    return [];
+
+  const privateAccesses: ts.PropertyAccessExpression[] = [];
+  const globalFetchCalls: ts.CallExpression[] = [];
+  const collectGuardEffects = (node: ts.Node): void => {
+    if (node !== guard && (ts.isClassDeclaration(node) || ts.isClassExpression(node))) return;
+    if (ts.isPropertyAccessExpression(node) && isPrivateAllowedOrigins(node))
+      privateAccesses.push(node);
+    if (
+      ts.isCallExpression(node) &&
+      ts.isIdentifier(node.expression) &&
+      node.expression.text === "fetch"
+    )
+      globalFetchCalls.push(node);
+    ts.forEachChild(node, collectGuardEffects);
+  };
+  collectGuardEffects(guard);
+  const dispatch = dispatchStatement.expression;
+  if (
+    privateAccesses.length !== 2 ||
+    privateAccesses.some((access) => !resolvesToDeclaration(access.name, allowedOrigins)) ||
+    globalFetchCalls.length !== 1 ||
+    globalFetchCalls[0]?.getStart(sourceFile) !== dispatch.getStart(sourceFile) ||
+    !resolvesToDefaultLibraryValue(dispatch.expression)
+  )
+    return [];
+  return [dispatch.expression.getStart(sourceFile)];
 };
 
 const productionIntegrationSource = (path: string): boolean =>

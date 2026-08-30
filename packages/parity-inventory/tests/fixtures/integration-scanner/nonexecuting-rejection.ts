@@ -19,15 +19,14 @@ class LocalNetworkGuard {
     const request = new Request(input, init);
     const url = new URL(request.url);
     if (url.protocol !== "http:" || !this.#allowedOrigins.has(url.origin)) {
-      throw new Error("network guard rejected a non-loopback destination");
+      Promise.reject(new Error("network guard rejected a non-loopback destination"));
     }
     return fetch(request);
   };
 }
 
-export async function runLoopbackRehearsal(origin: string): Promise<void> {
+export async function run(origin: string): Promise<Response> {
   const guard = new LocalNetworkGuard();
   guard.addHttp(origin);
-  await guard.fetchLoopback(`${origin}/ready`);
-  await guard.fetchLoopback(`${origin}/rehearse`);
+  return guard.fetchLoopback(`${origin}/remote`);
 }

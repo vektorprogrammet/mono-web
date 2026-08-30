@@ -149,49 +149,89 @@ test("preview workers resolve lexical owners and outbound integration contracts"
   }
 });
 
-test("loopback-only guards are excluded without hiding an unguarded remote fetch", async () => {
-  const legacyRoot = mkdtempSync("/tmp/parity-integration-loopback-legacy-");
-  const monoRoot = mkdtempSync("/tmp/parity-integration-loopback-mono-");
-  const fixturePaths = [
-    ["loopback-guard.ts", "packages/runtime/loopback-guard.ts"],
-    ["unguarded-network.ts", "packages/runtime/unguarded-network.ts"],
-  ] as const;
-
-  try {
-    for (const [fixturePath, targetPath] of fixturePaths) {
-      const target = join(monoRoot, targetPath);
-      mkdirSync(dirname(target), { recursive: true });
-      writeFileSync(target, readFileSync(join(FIXTURE_ROOT, fixturePath), "utf8"), "utf8");
+test("loopback-only guards require structural proof and preserve every near miss", async () => {
+  const collectFixtures = async (
+    fixturePaths: readonly (readonly [fixturePath: string, targetPath: string])[],
+  ) => {
+    const legacyRoot = mkdtempSync("/tmp/parity-integration-loopback-legacy-");
+    const monoRoot = mkdtempSync("/tmp/parity-integration-loopback-mono-");
+    try {
+      for (const [fixturePath, targetPath] of fixturePaths) {
+        const target = join(monoRoot, targetPath);
+        mkdirSync(dirname(target), { recursive: true });
+        writeFileSync(target, readFileSync(join(FIXTURE_ROOT, fixturePath), "utf8"), "utf8");
+      }
+      const [legacy, mono] = await Promise.all([
+        Effect.runPromise(
+          scanRootEffect(legacyRoot, "legacy").pipe(Effect.provide(NodeRuntimeLayer)),
+        ),
+        Effect.runPromise(scanRootEffect(monoRoot, "mono").pipe(Effect.provide(NodeRuntimeLayer))),
+      ]);
+      const context = createManifestContextFromSnapshots(legacy, mono);
+      return {
+        context,
+        result: collectC2(context, sha256("loopback-integration-boundary-regression")),
+      };
+    } finally {
+      rmSync(legacyRoot, { recursive: true, force: true });
+      rmSync(monoRoot, { recursive: true, force: true });
     }
-    const [legacy, mono] = await Promise.all([
-      Effect.runPromise(
-        scanRootEffect(legacyRoot, "legacy").pipe(Effect.provide(NodeRuntimeLayer)),
-      ),
-      Effect.runPromise(scanRootEffect(monoRoot, "mono").pipe(Effect.provide(NodeRuntimeLayer))),
-    ]);
-    const context = createManifestContextFromSnapshots(legacy, mono);
-    const result = collectC2(context, sha256("loopback-integration-boundary-regression"));
-    const rowsFor = (path: string) =>
-      result.integrations.rows.filter((row) =>
-        row.source_ref_ids.some((ref) => context.sourcePathById.get(ref)?.path === path),
-      );
+  };
 
-    expect(rowsFor("packages/runtime/loopback-guard.ts")).toEqual([]);
-    expect(rowsFor("packages/runtime/unguarded-network.ts")).toEqual(
+  const guardedPath = "packages/runtime/loopback-guard.ts";
+  const remotePath = "packages/runtime/unguarded-network.ts";
+  const baseline = await collectFixtures([
+    ["loopback-guard.ts", guardedPath],
+    ["unguarded-network.ts", remotePath],
+  ]);
+  const baselineRowsFor = (path: string) =>
+    baseline.result.integrations.rows.filter((row) =>
+      row.source_ref_ids.some((ref) => baseline.context.sourcePathById.get(ref)?.path === path),
+    );
+  expect(baselineRowsFor(guardedPath)).toEqual([]);
+  expect(baselineRowsFor(remotePath)).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        status: "unresolved",
+        reason_codes: expect.arrayContaining(["UNKNOWN_INTEGRATION"]),
+        details: expect.objectContaining({
+          endpoint_ref: "https://api.example.test/remote",
+          protocol: "https",
+        }),
+      }),
+    ]),
+  );
+
+  const nearMissFixtures = [
+    "shadowed-fetch.ts",
+    "imported-fetch.ts",
+    "property-fetch.ts",
+    "public-allowlist.ts",
+    "string-guard.ts",
+    "comment-guard.ts",
+    "dead-guard.ts",
+    "nested-guard.ts",
+    "nonexecuting-rejection.ts",
+    "unguarded-admission.ts",
+  ] as const;
+  for (const fixturePath of nearMissFixtures) {
+    const targetPath = `packages/runtime/${fixturePath}`;
+    const nearMiss = await collectFixtures([[fixturePath, targetPath]]);
+    const rows = nearMiss.result.integrations.rows.filter((row) =>
+      row.source_ref_ids.some(
+        (ref) => nearMiss.context.sourcePathById.get(ref)?.path === targetPath,
+      ),
+    );
+    expect(rows).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           status: "unresolved",
           reason_codes: expect.arrayContaining(["UNKNOWN_INTEGRATION"]),
           details: expect.objectContaining({
-            call_site_ref: "LocalNetworkGuard::fetch",
-            provider_ref: null,
             protocol: "http",
           }),
         }),
       ]),
     );
-  } finally {
-    rmSync(legacyRoot, { recursive: true, force: true });
-    rmSync(monoRoot, { recursive: true, force: true });
   }
 });

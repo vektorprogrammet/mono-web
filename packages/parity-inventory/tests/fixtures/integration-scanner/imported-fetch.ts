@@ -1,3 +1,5 @@
+import { fetch } from "undici";
+
 const normalizedLoopbackHost = (host: string): string =>
   host === "localhost" || host === "::1" ? "127.0.0.1" : host;
 
@@ -25,9 +27,8 @@ class LocalNetworkGuard {
   };
 }
 
-export async function runLoopbackRehearsal(origin: string): Promise<void> {
+export async function run(origin: string): Promise<Response> {
   const guard = new LocalNetworkGuard();
   guard.addHttp(origin);
-  await guard.fetchLoopback(`${origin}/ready`);
-  await guard.fetchLoopback(`${origin}/rehearse`);
+  return guard.fetchLoopback(`${origin}/remote`);
 }
