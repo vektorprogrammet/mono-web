@@ -55,7 +55,7 @@ import {
   SPEC_0067,
   SPEC_0067_PREREQUISITES,
   decodeFrozenOrganizationSnapshot,
-  decodeOrganizationImportRehearsalArtifact,
+  verifyOrganizationImportRehearsalArtifact,
   expectedOrganizationImportOutcomeMatrix,
   frozenOrganizationSnapshotCore,
   frozenOrganizationSnapshotInput,
@@ -124,6 +124,87 @@ const dashboardRoot = join(repositoryRoot, "apps/dashboard");
 const sdkRoot = join(repositoryRoot, "packages/sdk");
 const dashboardPort = 5_187;
 const dashboardOrigin = `http://127.0.0.1:${dashboardPort}`;
+
+export const EXPECTED_MIGRATION_23_AUTH_TABLES = [
+  "auth.account",
+  "auth.session",
+  "auth.user",
+  "auth.verification",
+] as const;
+
+export const EXPECTED_MIGRATION_23_PUBLIC_TABLES = [
+  "public.admission_applicants",
+  "public.admission_application_audit",
+  "public.admission_application_command_receipts",
+  "public.admission_application_outbox",
+  "public.admission_applications",
+  "public.admission_period_audit",
+  "public.admission_period_command_receipts",
+  "public.admission_period_departments",
+  "public.admission_period_fields_of_study",
+  "public.admission_period_outbox",
+  "public.admission_period_semesters",
+  "public.admission_periods",
+  "public.authz_rules",
+  "public.authz_tag_assignments",
+  "public.authz_tags",
+  "public.content_article_departments",
+  "public.content_article_versions",
+  "public.content_articles",
+  "public.content_publication_audit",
+  "public.content_publication_command_receipts",
+  "public.economy_payment_authorities",
+  "public.economy_receipt_approval_grants",
+  "public.economy_receipt_audit",
+  "public.economy_receipt_command_receipts",
+  "public.economy_receipt_import_ledger",
+  "public.economy_receipt_outbox",
+  "public.economy_receipts",
+  "public.organization_command_receipts",
+  "public.organization_creation_audit",
+  "public.organization_departments",
+  "public.organization_field_of_studies",
+  "public.organization_global_administrator_grants",
+  "public.organization_import_ledger",
+  "public.organization_membership_quarantine",
+  "public.organization_memberships",
+  "public.organization_team_interest_registrations",
+  "public.organization_teams",
+  "public.person_contact_profiles",
+  "public.person_profiles",
+  "public.profile_self_edit_commands",
+  "public.recruitment_assignment_audit",
+  "public.recruitment_assignment_command_receipts",
+  "public.recruitment_interview_cancellations",
+  "public.recruitment_interview_conducts",
+  "public.recruitment_interview_lifecycle_audit",
+  "public.recruitment_interview_lifecycle_command_receipts",
+  "public.recruitment_interview_question_snapshots",
+  "public.recruitment_interview_schedules",
+  "public.recruitment_interview_schema_questions",
+  "public.recruitment_interview_schemas",
+  "public.recruitment_interviews",
+  "public.recruitment_invitation_outbox",
+  "public.recruitment_invitation_response_audit",
+  "public.recruitment_invitation_response_outbox",
+  "public.recruitment_invitations",
+  "public.recruitment_schedule_audit",
+  "public.recruitment_schedule_command_receipts",
+  "public.schools_directory_departments",
+  "public.schools_directory_schools",
+  "public.vektorprogrammet_schema_migrations",
+] as const;
+
+const NATIVE_BROWSER_JOURNEY_PATHS = [
+  "/api/admin/users",
+  "/api/departments",
+  "/api/me/session",
+  "/api/teams",
+] as const;
+
+export const isNativeBrowserJourneyRequestAllowed = (method: string, path: string): boolean =>
+  (method === "GET" || method === "OPTIONS") &&
+  NATIVE_BROWSER_JOURNEY_PATHS.some((allowedPath) => allowedPath === path);
 
 const pathExists = async (path: string): Promise<boolean> => {
   try {
@@ -540,6 +621,38 @@ const delay = (milliseconds: number): Promise<void> => {
   return promise;
 };
 
+export const boundedCookieCapabilityFailure = (input: {
+  readonly cookieName: string;
+  readonly cookieValue: string;
+  readonly dashboardOrigin: string;
+  readonly apiOrigin: string;
+  readonly authorizationInstant: string;
+  readonly expiresAt: string;
+}): string | undefined => {
+  const dashboardUrl = new URL(input.dashboardOrigin);
+  const apiUrl = new URL(input.apiOrigin);
+  if (
+    normalizedLoopbackHost(dashboardUrl.hostname) !== "127.0.0.1" ||
+    normalizedLoopbackHost(apiUrl.hostname) !== "127.0.0.1" ||
+    dashboardUrl.hostname !== apiUrl.hostname
+  ) {
+    return "bounded cookie requires one shared loopback host for dashboard and API";
+  }
+  if (!/^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/u.test(input.cookieName)) {
+    return "bounded cookie name is not representable by Chromium";
+  }
+  if (input.cookieValue.length === 0) return "bounded cookie value is empty";
+  const authorizationTime = Date.parse(input.authorizationInstant);
+  const expiryTime = Date.parse(input.expiresAt);
+  if (!Number.isFinite(authorizationTime) || !Number.isFinite(expiryTime)) {
+    return "bounded cookie interval is not a valid instant";
+  }
+  if (authorizationTime >= expiryTime) {
+    return "bounded cookie expires before the fixed authorization instant";
+  }
+  return undefined;
+};
+
 const waitForHttp = async (
   url: string,
   guard: LocalNetworkGuard,
@@ -584,6 +697,17 @@ const startRecordingProxy = async (
     const sessionCookieAuth = cookie
       .split(";")
       .some((pair) => pair.trim().startsWith(`${cookieName}=`));
+    const allowedPath = NATIVE_BROWSER_JOURNEY_PATHS.some(
+      (allowedJourneyPath) => allowedJourneyPath === path,
+    );
+    if (!isNativeBrowserJourneyRequestAllowed(method, path)) {
+      const status = allowedPath ? 405 : 404;
+      records.push({ method, path, status, sessionCookieAuth });
+      response.statusCode = status;
+      response.setHeader("content-type", "application/json");
+      response.end('{"error":"unexpected rehearsal API request"}');
+      return;
+    }
     if (method === "OPTIONS") {
       records.push({ method, path, status: 204, sessionCookieAuth });
       response.statusCode = 204;
@@ -857,6 +981,35 @@ const serviceImport = async (
     Organization.use(({ importLegacyOrganization }) => importLegacyOrganization(snapshot)),
   );
 
+export const writeSanitizedOrganizationImportRehearsalArtifact = async (input: {
+  readonly artifactCore: Record<string, unknown>;
+  readonly evidencePath: string;
+  readonly sensitiveValues: ReadonlyArray<string>;
+}): Promise<{ readonly evidenceSha256: string }> => {
+  const evidenceSha256 = sha256Hex(canonicalJsonBytes(input.artifactCore));
+  const artifact = { ...input.artifactCore, evidenceSha256 };
+  let artifactValidated = false;
+  await Effect.runPromise(verifyOrganizationImportRehearsalArtifact(artifact));
+  artifactValidated = true;
+  const serialized = `${canonicalJson(artifact)}\n`;
+  for (const sensitive of input.sensitiveValues) {
+    assert.equal(
+      serialized.includes(sensitive),
+      false,
+      "sanitized evidence contained a secret value",
+    );
+  }
+  assert.equal(/postgres(?:ql)?:\/\/[^@\s/]+@/iu.test(serialized), false);
+  assert.equal(
+    artifactValidated,
+    true,
+    "evidence persistence requires strict artifact and digest validation",
+  );
+  await mkdir(dirname(input.evidencePath), { recursive: true });
+  await writeFile(input.evidencePath, serialized, { encoding: "utf8", flag: "wx" });
+  return { evidenceSha256 };
+};
+
 const runRehearsal = async (
   administratorUrl: string,
   evidencePath: string,
@@ -944,7 +1097,7 @@ const runRehearsal = async (
   let proxy: RehearsalProxy | undefined;
   let dashboardProcess: ChildProcess | undefined;
   let databaseDisposalCompleted = false;
-  let artifactValidatedAfterDisposal = false;
+  let cleanupFinalizationCompleted = false;
   let runFailure: unknown;
   let failureStage: string | undefined;
   let stage = "repository and local-output preflight";
@@ -1042,30 +1195,14 @@ const runRehearsal = async (
       ({ schemaName, tableName }) => `${schemaName}.${tableName}`,
     );
     const authInventory = qualifiedInventory.filter((name) => name.startsWith("auth."));
-    assert.deepEqual(authInventory, [
-      "auth.account",
-      "auth.session",
-      "auth.user",
-      "auth.verification",
+    const publicInventory = qualifiedInventory.filter((name) => name.startsWith("public."));
+    assert.deepEqual(authInventory, [...EXPECTED_MIGRATION_23_AUTH_TABLES]);
+    assert.deepEqual(publicInventory, [...EXPECTED_MIGRATION_23_PUBLIC_TABLES]);
+    assert.deepEqual(qualifiedInventory, [
+      ...EXPECTED_MIGRATION_23_AUTH_TABLES,
+      ...EXPECTED_MIGRATION_23_PUBLIC_TABLES,
     ]);
-    const requiredPublicTables = [
-      "public.authz_rules",
-      "public.authz_tag_assignments",
-      "public.authz_tags",
-      "public.organization_departments",
-      "public.organization_global_administrator_grants",
-      "public.organization_import_ledger",
-      "public.organization_membership_quarantine",
-      "public.organization_memberships",
-      "public.organization_teams",
-      "public.person_contact_profiles",
-      "public.person_profiles",
-    ];
-    const observedRequiredPublicTables = requiredPublicTables.filter((name) =>
-      qualifiedInventory.includes(name),
-    );
-    assert.deepEqual(observedRequiredPublicTables, requiredPublicTables);
-    const misplacedAuthTables = qualifiedInventory.filter((name) =>
+    const misplacedAuthTables = publicInventory.filter((name) =>
       /^public\.(?:account|session|user|verification)$/u.test(name),
     );
     assert.deepEqual(misplacedAuthTables, []);
@@ -1086,8 +1223,8 @@ const runRehearsal = async (
       qualifiedTables: qualifiedInventory,
       authCatalogTables: authInventory,
       misplacedNativeTables,
-      requiredPublicTables,
-      observedRequiredPublicTables,
+      expectedPublicTables: [...EXPECTED_MIGRATION_23_PUBLIC_TABLES],
+      observedPublicTables: publicInventory,
       misplacedAuthTables,
     };
 
@@ -1599,6 +1736,22 @@ const runRehearsal = async (
     };
 
     stage = "practical Chromium path";
+    const boundedCookieFailure = boundedCookieCapabilityFailure({
+      cookieName: SPEC_0067.sessionCookieName,
+      cookieValue: sessionCookie ?? "",
+      dashboardOrigin,
+      apiOrigin: proxy.origin,
+      authorizationInstant: SPEC_0067.authorizationInstant,
+      expiresAt: SPEC_0067.sessionExpiresAt,
+    });
+    if (boundedCookieFailure !== undefined) {
+      artifactCore.browser = {
+        status: "BrowserNotPractical",
+        capability: "BoundedCookieInjection",
+        reason: boundedCookieFailure,
+      };
+      throw new Error(`bounded-cookie capability preflight failed: ${boundedCookieFailure}`);
+    }
     await assertPortAvailable(dashboardPort);
     const browserEnvironment: NodeJS.ProcessEnv = {
       ...processEnvironment,
@@ -1609,6 +1762,7 @@ const runRehearsal = async (
       ORGANIZATION_IMPORT_REHEARSAL_BROWSER_EVIDENCE_PATH: browserEvidencePath,
       ORGANIZATION_IMPORT_REHEARSAL_AUTHORIZATION_INSTANT: SPEC_0067.authorizationInstant,
       ORGANIZATION_IMPORT_REHEARSAL_SDK_EFFECT_PATH: join(sdkRoot, "dist/effect-client.js"),
+      ORGANIZATION_IMPORT_REHEARSAL_NATIVE_API_PATHS: JSON.stringify(NATIVE_BROWSER_JOURNEY_PATHS),
     };
     const browserProxyStart = proxy.records.length;
     dashboardProcess = await startDashboard(
@@ -1617,57 +1771,41 @@ const runRehearsal = async (
       processEffects,
     );
     await waitForHttp(`${dashboardOrigin}/login`, guard, dashboardProcess);
-    try {
-      await runCommand(
-        process.env.PLAYWRIGHT_NODE_EXECUTABLE ?? "node",
-        [
-          "./node_modules/@playwright/test/cli.js",
-          "test",
-          "e2e/organization-import-rehearsal.spec.ts",
-          "--project=chromium",
-          "--workers=1",
-          "--retries=0",
-          "--reporter=line",
-        ],
-        {
-          cwd: dashboardRoot,
-          env: browserEnvironment,
-          label: "spec 0067 Chromium journey",
-          observations: processObservations,
-          processEffects,
-        },
-      );
-    } catch (cause) {
-      const reason = sanitizeFailure(cause, sensitiveValues);
-      if (
-        /browserType\.launch|executable .*doesn['’]t exist|chromium executable|failed to spawn/iu.test(
-          reason,
-        )
-      ) {
-        artifactCore.browser = {
-          status: "BrowserNotPractical",
-          reason,
-          processObservation: processObservations.at(-1) ?? null,
-        };
-      }
-      throw cause;
-    }
+    await runCommand(
+      process.env.PLAYWRIGHT_NODE_EXECUTABLE ?? "node",
+      [
+        "./node_modules/@playwright/test/cli.js",
+        "test",
+        "e2e/organization-import-rehearsal.spec.ts",
+        "--project=chromium",
+        "--workers=1",
+        "--retries=0",
+        "--reporter=line",
+      ],
+      {
+        cwd: dashboardRoot,
+        env: browserEnvironment,
+        label: "spec 0067 Chromium journey",
+        observations: processObservations,
+        processEffects,
+      },
+    );
     const browserEvidence = JSON.parse(await readFile(browserEvidencePath, "utf8")) as {
       readonly status: string;
       readonly pageErrors: ReadonlyArray<string>;
       readonly legacyOrganizationRequests: number;
       readonly rejectedDestinations: ReadonlyArray<string>;
+      readonly unexpectedApiRequests: ReadonlyArray<{
+        readonly method: string;
+        readonly path: string;
+      }>;
     };
     assert.equal(browserEvidence.status, "Observed");
     assert.deepEqual(browserEvidence.pageErrors, []);
     assert.equal(browserEvidence.legacyOrganizationRequests, 0);
+    assert.deepEqual(browserEvidence.unexpectedApiRequests, []);
     const browserProxyRequests = proxy.records.slice(browserProxyStart);
-    for (const requiredPath of [
-      "/api/me/session",
-      "/api/departments",
-      "/api/teams",
-      "/api/admin/users",
-    ]) {
+    for (const requiredPath of NATIVE_BROWSER_JOURNEY_PATHS) {
       assert.ok(
         browserProxyRequests.some(
           ({ method, path, status, sessionCookieAuth }) =>
@@ -1687,6 +1825,9 @@ const runRehearsal = async (
       ...guard.rejectedDestinations,
       ...browserEvidence.rejectedDestinations,
     ];
+    const unexpectedProxyRequests = proxy.records.filter(
+      ({ method, path }) => !isNativeBrowserJourneyRequestAllowed(method, path),
+    );
     const forbiddenEffects = {
       ruleWriteAttempts: observerState.ruleDmlAttempts,
       authWriteAttempts: observerState.authDmlAttempts,
@@ -1699,6 +1840,8 @@ const runRehearsal = async (
       legacyOrganizationRequests:
         browserEvidence.legacyOrganizationRequests +
         proxy.records.filter(({ path }) => /legacy|php|graphql/iu.test(path)).length,
+      unexpectedApiRequestAttempts:
+        unexpectedProxyRequests.length + browserEvidence.unexpectedApiRequests.length,
       productionResourceAttempts:
         guard.productionResourceAttempts + browserEvidence.rejectedDestinations.length,
       deploymentAttempts: processEffects.deploymentAttempts,
@@ -1843,16 +1986,18 @@ const runRehearsal = async (
       runnerTempRootRemoved: !(await pathExists(runnerTempRoot)),
       lifecycle: {
         databaseDisposalCompleted,
-        artifactValidationRequiresDatabaseDisposal: true,
+        cleanupFinalizationCompleted: true,
+        artifactValidationRequiresCleanupFinalization: true,
         evidenceWriteRequiresArtifactValidation: true,
       },
       errors: cleanupErrors,
     };
+    cleanupFinalizationCompleted = true;
   }
   assert.equal(
-    databaseDisposalCompleted,
+    cleanupFinalizationCompleted,
     true,
-    "artifact finalization requires completed disposable-database cleanup",
+    "artifact finalization requires a completed cleanup finalizer, including failed cleanup evidence",
   );
 
   const finalFailure =
@@ -1875,26 +2020,11 @@ const runRehearsal = async (
             },
           ],
   };
-  const evidenceSha256 = sha256Hex(canonicalJsonBytes(artifactCore));
-  const artifact = { ...artifactCore, evidenceSha256 };
-  await Effect.runPromise(decodeOrganizationImportRehearsalArtifact(artifact));
-  artifactValidatedAfterDisposal = true;
-  const serialized = `${canonicalJson(artifact)}\n`;
-  for (const sensitive of sensitiveValues) {
-    assert.equal(
-      serialized.includes(sensitive),
-      false,
-      "sanitized evidence contained a secret value",
-    );
-  }
-  assert.equal(/postgres(?:ql)?:\/\/[^@\s/]+@/iu.test(serialized), false);
-  assert.equal(
-    artifactValidatedAfterDisposal,
-    true,
-    "evidence persistence requires post-disposal artifact validation",
-  );
-  await mkdir(dirname(evidencePath), { recursive: true });
-  await writeFile(evidencePath, serialized, { encoding: "utf8", flag: "wx" });
+  const { evidenceSha256 } = await writeSanitizedOrganizationImportRehearsalArtifact({
+    artifactCore,
+    evidencePath,
+    sensitiveValues,
+  });
   if (finalFailure !== undefined) throw finalFailure;
   return { evidencePath, evidenceSha256 };
 };

@@ -24,6 +24,16 @@ if (process.env.ORGANIZATION_IMPORT_REHEARSAL === "1") {
   const sessionToken = required("ORGANIZATION_IMPORT_REHEARSAL_SESSION_TOKEN");
   const evidencePath = required("ORGANIZATION_IMPORT_REHEARSAL_BROWSER_EVIDENCE_PATH");
   const authorizationInstant = required("ORGANIZATION_IMPORT_REHEARSAL_AUTHORIZATION_INSTANT");
+  const nativeApiPathInput: unknown = JSON.parse(
+    required("ORGANIZATION_IMPORT_REHEARSAL_NATIVE_API_PATHS"),
+  );
+  if (
+    !Array.isArray(nativeApiPathInput) ||
+    nativeApiPathInput.some((path) => typeof path !== "string")
+  ) {
+    throw new Error("ORGANIZATION_IMPORT_REHEARSAL_NATIVE_API_PATHS must be a string array");
+  }
+  const nativeApiPaths = new Set<string>(nativeApiPathInput);
   test("renders the fresh native Organization projections without external requests", async ({
     browser,
   }) => {
@@ -35,6 +45,10 @@ if (process.env.ORGANIZATION_IMPORT_REHEARSAL === "1") {
       readonly resourceType: string;
     }> = [];
     const rejectedDestinations: string[] = [];
+    const unexpectedApiRequests: Array<{
+      readonly method: string;
+      readonly path: string;
+    }> = [];
     const pageErrors: string[] = [];
     const context = await browser.newContext();
     await context.route("**/*", async (route) => {
@@ -49,13 +63,22 @@ if (process.env.ORGANIZATION_IMPORT_REHEARSAL === "1") {
         await route.abort("blockedbyclient");
         return;
       }
-      if (url.origin === apiOrigin && url.pathname.startsWith("/api/")) {
-        requests.push({
+      if (url.origin === apiOrigin) {
+        const observation = {
           method: request.method(),
-          origin: "api-proxy-loopback",
+          origin: "api-proxy-loopback" as const,
           path: url.pathname,
           resourceType: request.resourceType(),
-        });
+        };
+        requests.push(observation);
+        if (!nativeApiPaths.has(url.pathname) || request.method() !== "GET") {
+          unexpectedApiRequests.push({
+            method: request.method(),
+            path: url.pathname,
+          });
+          await route.abort("blockedbyclient");
+          return;
+        }
       }
       await route.continue();
     });
@@ -95,6 +118,7 @@ if (process.env.ORGANIZATION_IMPORT_REHEARSAL === "1") {
       expect(pageErrors).toEqual([]);
       expect(legacyOrganizationRequests).toBe(0);
       expect(rejectedDestinations).toEqual([]);
+      expect(unexpectedApiRequests).toEqual([]);
       await writeFile(
         evidencePath,
         `${JSON.stringify({
@@ -116,6 +140,7 @@ if (process.env.ORGANIZATION_IMPORT_REHEARSAL === "1") {
           pageErrors,
           legacyOrganizationRequests,
           rejectedDestinations,
+          unexpectedApiRequests,
           requests,
           status: "Observed",
         })}\n`,

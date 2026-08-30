@@ -393,6 +393,13 @@ export const makeOrganizationImportSqlObserverState = (): OrganizationImportSqlO
   personAuthorizationLockAttempts: 0,
 });
 
+const normalizeSqlIdentifiers = (text: string): string =>
+  text
+    .replace(/"((?:""|[^"])*)"/gu, (_match, identifier: string) =>
+      identifier.replaceAll('""', '"').toLowerCase(),
+    )
+    .replace(/\s*\.\s*/gu, ".");
+
 const dmlStatement = (text: string): boolean => {
   const withoutLeadingComments = text.replace(
     /^(?:(?:\s+)|(?:--[^\n]*(?:\n|$))|(?:\/\*[\s\S]*?\*\/))*/u,
@@ -455,31 +462,28 @@ const observeStatement = <A>(
   state: OrganizationImportSqlObserverState,
   values: ReadonlyArray<unknown> = [],
 ): Effect.Effect<ReadonlyArray<A>, unknown> => {
-  const phase = classifyImportWrite(text);
-  const dml = dmlStatement(text);
+  const normalizedText = normalizeSqlIdentifiers(text);
+  const phase = classifyImportWrite(normalizedText);
+  const dml = dmlStatement(normalizedText);
   const personAuthorizationLock =
     text.includes("vektorprogrammet:person-authorization:v1:") ||
     values.some(
       (value) =>
         typeof value === "string" && value.startsWith("vektorprogrammet:person-authorization:v1:"),
     );
-  const outboxAccess = /\b[A-Za-z0-9_]*_outbox\b/iu.test(text);
+  const outboxAccess = /\b[A-Za-z0-9_]*_outbox\b/iu.test(normalizedText);
   const outboxClaim =
-    outboxAccess && /\b(?:claim_id|claimed_at|FOR\s+UPDATE|SKIP\s+LOCKED)\b/iu.test(text);
+    outboxAccess &&
+    /\b(?:claim_id|claimed_at|FOR\s+UPDATE|SKIP\s+LOCKED)\b/iu.test(normalizedText);
   if (!dml && phase === undefined && !personAuthorizationLock && !outboxClaim) return statement;
   const before = Effect.sync(() => {
-    if (dml && /\b(?:public\.)?authz_(?:tags|tag_assignments|rules)\b/iu.test(text)) {
+    if (dml && /\b(?:public\.)?authz_(?:tags|tag_assignments|rules)\b/iu.test(normalizedText)) {
       state.ruleDmlAttempts += 1;
     }
-    if (
-      dml &&
-      /\bauth\s*\.\s*(?:"(?:user|session|account|verification)"|(?:user|session|account|verification)\b)/iu.test(
-        text,
-      )
-    ) {
+    if (dml && /\bauth\.(?:user|session|account|verification)\b/iu.test(normalizedText)) {
       state.authDmlAttempts += 1;
     }
-    if (dml && /\b(?:public\.)?economy_(?:receipts|receipt_|payment_)/iu.test(text)) {
+    if (dml && /\b(?:public\.)?economy_(?:receipts|receipt_|payment_)/iu.test(normalizedText)) {
       state.receiptDmlAttempts += 1;
     }
     if (dml && outboxAccess) state.outboxDmlAttempts += 1;
@@ -538,11 +542,113 @@ export const observeOrganizationImportSql = (
       return typeof value === "function" ? value.bind(target) : value;
     },
   }) as DatabaseShape;
-const JsonValueSchema = Schema.Unknown;
 const NotObservedSectionSchema = Schema.Struct({
   status: Schema.Literal("NotObservedDueToFailure"),
 });
 const StringArraySchema = Schema.Array(Schema.String);
+const ImportCountsSchema = Schema.Struct({
+  departments: Schema.Number,
+  teams: Schema.Number,
+  memberships: Schema.Number,
+  quarantine: Schema.Number,
+  ledger: Schema.Number,
+});
+const StableTableProjectionSchema = Schema.Struct({
+  qualifiedName: Schema.String,
+  rowCount: Schema.Number,
+  byteLength: Schema.Number,
+  sha256: Schema.String,
+});
+const StableByteSetSchema = Schema.Struct({
+  byteLength: Schema.Number,
+  sha256: Schema.String,
+  tables: Schema.Array(StableTableProjectionSchema),
+});
+const StableByteSetsSchema = Schema.Struct({
+  canonical: StableByteSetSchema,
+  provenance: StableByteSetSchema,
+  prerequisite: StableByteSetSchema,
+  rule: StableByteSetSchema,
+  auth: StableByteSetSchema,
+  receipt: StableByteSetSchema,
+  outbox: StableByteSetSchema,
+});
+const StableStateEvidenceSchema = Schema.Struct({
+  counts: ImportCountsSchema,
+  byteSets: StableByteSetsSchema,
+});
+const StableComparisonItemSchema = Schema.Struct({
+  byteLengthEqual: Schema.Boolean,
+  sha256Equal: Schema.Boolean,
+  directBytesEqual: Schema.Boolean,
+});
+const StableComparisonSchema = Schema.Struct({
+  canonical: StableComparisonItemSchema,
+  provenance: StableComparisonItemSchema,
+  prerequisite: StableComparisonItemSchema,
+  rule: StableComparisonItemSchema,
+  auth: StableComparisonItemSchema,
+  receipt: StableComparisonItemSchema,
+  outbox: StableComparisonItemSchema,
+});
+const OutcomeReasonSchema = Schema.Union([
+  Schema.Null,
+  Schema.Literal("MISSING_DEPARTMENT_FIELD"),
+  Schema.Literal("DEPARTMENT_UNRESOLVED"),
+  Schema.Literal("DUPLICATE_MEMBERSHIP"),
+  Schema.Literal("TEAM_UNRESOLVED"),
+]);
+const OutcomeMatrixEntrySchema = Schema.Struct({
+  order: Schema.Number,
+  kind: Schema.Union([
+    Schema.Literal("department"),
+    Schema.Literal("team"),
+    Schema.Literal("membership"),
+  ]),
+  sourcePrimaryKey: Schema.String,
+  sourceOccurrence: Schema.Number,
+  result: Schema.Union([Schema.Literal("Accepted"), Schema.Literal("Quarantined")]),
+  reason: OutcomeReasonSchema,
+  destinationIdentity: Schema.NullOr(Schema.String),
+  targetSemanticIdentity: Schema.String,
+});
+const SourceMetadataSchema = Schema.Union([
+  Schema.Null,
+  Schema.Struct({
+    startSemesterId: Schema.NullOr(Schema.Number),
+    endSemesterId: Schema.NullOr(Schema.Number),
+  }),
+]);
+const ProvenanceEntrySchema = Schema.Struct({
+  sourceRepository: Schema.String,
+  sourceRevision: Schema.String,
+  snapshotId: Schema.String,
+  sourceKind: Schema.Union([
+    Schema.Literal("department"),
+    Schema.Literal("team"),
+    Schema.Literal("membership"),
+  ]),
+  sourcePrimaryKey: Schema.String,
+  sourceOccurrence: Schema.Number,
+  transformationRevision: Schema.String,
+  targetSemanticIdentity: Schema.String,
+  destinationIdentity: Schema.NullOr(Schema.String),
+  result: Schema.Union([Schema.Literal("Accepted"), Schema.Literal("Quarantined")]),
+  reason: OutcomeReasonSchema,
+  sourceRawSha256: Schema.String,
+  sourceMetadata: SourceMetadataSchema,
+});
+const ImportResultEvidenceSchema = Schema.Struct({
+  byteLength: Schema.Number,
+  sha256: Schema.String,
+  counts: ImportCountsSchema,
+  outcomeMatrix: Schema.Array(OutcomeMatrixEntrySchema),
+  provenance: Schema.Array(ProvenanceEntrySchema),
+});
+const TriggerCatalogSchema = Schema.Struct({
+  triggerCount: Schema.Number,
+  functionCount: Schema.Number,
+});
 const ProcessObservationSchema = Schema.Struct({
   label: Schema.String,
   outcome: Schema.Union([
@@ -562,12 +668,109 @@ const GeneratedOutputRestorationSchema = Schema.Struct({
   afterSha256: Schema.NullOr(Schema.String),
   restored: Schema.Boolean,
 });
-const ImportResultEvidenceSchema = Schema.Struct({
-  byteLength: Schema.Number,
-  sha256: Schema.String,
-  counts: JsonValueSchema,
-  outcomeMatrix: JsonValueSchema,
-  provenance: JsonValueSchema,
+const BackendRequestSchema = Schema.Struct({
+  method: Schema.String,
+  path: Schema.String,
+  status: Schema.Number,
+  sessionCookieAuth: Schema.Boolean,
+});
+const BrowserRequestSchema = Schema.Struct({
+  method: Schema.String,
+  origin: Schema.Literal("api-proxy-loopback"),
+  path: Schema.String,
+  resourceType: Schema.String,
+});
+const UnexpectedApiRequestSchema = Schema.Struct({
+  method: Schema.String,
+  path: Schema.String,
+});
+const BrowserPageSchema = Schema.Union([
+  Schema.Struct({
+    path: Schema.String,
+    observed: StringArraySchema,
+  }),
+  Schema.Struct({
+    path: Schema.String,
+    observed: StringArraySchema,
+    contactSha256: StringArraySchema,
+  }),
+]);
+const BrowserEvidenceSchema = Schema.Struct({
+  authorizationInstant: Schema.String,
+  pages: Schema.Array(BrowserPageSchema),
+  pageErrors: StringArraySchema,
+  legacyOrganizationRequests: Schema.Number,
+  rejectedDestinations: StringArraySchema,
+  unexpectedApiRequests: Schema.Array(UnexpectedApiRequestSchema),
+  requests: Schema.Array(BrowserRequestSchema),
+  status: Schema.Literal("Observed"),
+});
+const DirectoryUserSchema = Schema.Struct({
+  personId: Schema.String,
+  firstName: Schema.String,
+  lastName: Schema.String,
+  emailSha256: Schema.String,
+  phoneSha256: Schema.String,
+  studyProgramme: Schema.NullOr(Schema.String),
+  departments: StringArraySchema,
+  isActive: Schema.Boolean,
+});
+const StrictNativeProjectionSchema = Schema.Struct({
+  departments: Schema.Array(
+    Schema.Struct({
+      departmentId: Schema.String,
+      name: Schema.String,
+      shortName: Schema.String,
+      city: Schema.String,
+      emailSha256: Schema.String,
+      address: Schema.NullOr(Schema.String),
+      latitude: Schema.NullOr(Schema.Number),
+      longitude: Schema.NullOr(Schema.Number),
+      logoPath: Schema.NullOr(Schema.String),
+      slackChannel: Schema.NullOr(Schema.String),
+      active: Schema.Boolean,
+      revision: Schema.Number,
+    }),
+  ),
+  teams: Schema.Array(
+    Schema.Struct({
+      teamId: Schema.String,
+      departmentId: Schema.String,
+      name: Schema.String,
+      description: Schema.String,
+      shortDescription: Schema.String,
+      emailSha256: Schema.String,
+      deadline: Schema.NullOr(Schema.String),
+      acceptApplication: Schema.Boolean,
+      active: Schema.Boolean,
+      revision: Schema.Number,
+    }),
+  ),
+  session: Schema.Struct({
+    personId: Schema.String,
+    expiresAt: Schema.String,
+  }),
+  missingSession: Schema.Struct({
+    error: Schema.Struct({ tag: Schema.String }),
+  }),
+  administratorDirectory: Schema.Struct({
+    activeUsers: Schema.Array(DirectoryUserSchema),
+    inactiveUsers: Schema.Array(DirectoryUserSchema),
+  }),
+});
+const PersonAuthorityProjectionSchema = Schema.Struct({
+  personId: Schema.String,
+  evaluatedAt: Schema.String,
+  globalAdministrator: Schema.String,
+  memberships: Schema.Array(
+    Schema.Struct({
+      membershipId: Schema.String,
+      teamId: Schema.String,
+      departmentId: Schema.String,
+      active: Schema.Boolean,
+      teamLeader: Schema.Boolean,
+    }),
+  ),
 });
 const OrganizationImportRehearsalArtifactSchema = Schema.Struct({
   contract: Schema.Struct({
@@ -596,7 +799,10 @@ const OrganizationImportRehearsalArtifactSchema = Schema.Struct({
       databaseNameSha256: Schema.String,
       migrationCount: Schema.Number,
       databaseSchemaRevision: Schema.String,
-      migration23: JsonValueSchema,
+      migration23: Schema.Struct({
+        migrationId: Schema.Number,
+        name: Schema.String,
+      }),
     }),
   ]),
   inventory: Schema.Union([
@@ -606,8 +812,8 @@ const OrganizationImportRehearsalArtifactSchema = Schema.Struct({
       qualifiedTables: StringArraySchema,
       authCatalogTables: StringArraySchema,
       misplacedNativeTables: StringArraySchema,
-      requiredPublicTables: StringArraySchema,
-      observedRequiredPublicTables: StringArraySchema,
+      expectedPublicTables: StringArraySchema,
+      observedPublicTables: StringArraySchema,
       misplacedAuthTables: StringArraySchema,
     }),
   ]),
@@ -615,9 +821,24 @@ const OrganizationImportRehearsalArtifactSchema = Schema.Struct({
     NotObservedSectionSchema,
     Schema.Struct({
       status: Schema.Literal("Observed"),
-      persons: JsonValueSchema,
-      administratorGrant: JsonValueSchema,
-      baseline: JsonValueSchema,
+      persons: Schema.Array(
+        Schema.Struct({
+          personId: Schema.String,
+          firstName: Schema.String,
+          lastName: Schema.String,
+          emailSha256: Schema.String,
+          phoneSha256: Schema.String,
+          revision: Schema.Number,
+        }),
+      ),
+      administratorGrant: Schema.Struct({
+        grantId: Schema.String,
+        personId: Schema.String,
+        startAt: Schema.String,
+        endAt: Schema.NullOr(Schema.String),
+        revision: Schema.Number,
+      }),
+      baseline: StableStateEvidenceSchema,
       authDataRowCount: Schema.Number,
     }),
   ]),
@@ -629,24 +850,50 @@ const OrganizationImportRehearsalArtifactSchema = Schema.Struct({
       snapshotObjectFrozen: Schema.Boolean,
       byteLength: Schema.Number,
       sha256: Schema.String,
-      counts: JsonValueSchema,
-      outcomeMatrix: JsonValueSchema,
-      provenance: JsonValueSchema,
+      counts: ImportCountsSchema,
+      outcomeMatrix: Schema.Array(OutcomeMatrixEntrySchema),
+      provenance: Schema.Array(ProvenanceEntrySchema),
     }),
   ]),
   rollback: Schema.Union([
     NotObservedSectionSchema,
     Schema.Struct({
       status: Schema.Literal("Observed"),
-      serviceFailure: JsonValueSchema,
+      serviceFailure: Schema.Struct({
+        tag: Schema.Literal("OrganizationPersistenceError"),
+        operation: Schema.String,
+      }),
       sqlState: Schema.String,
       triggerMessage: Schema.String,
-      writeAttemptTrace: JsonValueSchema,
-      delegatedSqlErrors: JsonValueSchema,
-      triggerCatalog: JsonValueSchema,
-      before: JsonValueSchema,
-      after: JsonValueSchema,
-      equality: JsonValueSchema,
+      writeAttemptTrace: Schema.Array(
+        Schema.Union([
+          Schema.Struct({
+            phase: Schema.Union([
+              Schema.Literal("DepartmentInsert"),
+              Schema.Literal("TeamInsert"),
+              Schema.Literal("MembershipInsert"),
+              Schema.Literal("QuarantineInsert"),
+              Schema.Literal("LedgerInsert"),
+            ]),
+          }),
+          Schema.Struct({
+            phase: Schema.Literal("LedgerSqlError"),
+            sqlState: Schema.NullOr(Schema.String),
+            message: Schema.String,
+          }),
+        ]),
+      ),
+      delegatedSqlErrors: Schema.Array(
+        Schema.Struct({
+          sqlState: Schema.NullOr(Schema.String),
+          message: Schema.String,
+          statementTemplate: Schema.String,
+        }),
+      ),
+      triggerCatalog: TriggerCatalogSchema,
+      before: StableStateEvidenceSchema,
+      after: StableStateEvidenceSchema,
+      equality: StableComparisonSchema,
     }),
   ]),
   commitAndReplay: Schema.Union([
@@ -659,19 +906,32 @@ const OrganizationImportRehearsalArtifactSchema = Schema.Struct({
       committedResult: ImportResultEvidenceSchema,
       replayResult: ImportResultEvidenceSchema,
       resultDirectBytesEqual: Schema.Boolean,
-      committed: JsonValueSchema,
-      replayed: JsonValueSchema,
-      equality: JsonValueSchema,
-      residualFailureObjects: JsonValueSchema,
-      persistedMemberships: JsonValueSchema,
+      committed: StableStateEvidenceSchema,
+      replayed: StableStateEvidenceSchema,
+      equality: StableComparisonSchema,
+      residualFailureObjects: TriggerCatalogSchema,
+      persistedMemberships: Schema.Array(
+        Schema.Struct({
+          membershipId: Schema.String,
+          personId: Schema.String,
+          teamId: Schema.String,
+          deletedTeamName: Schema.NullOr(Schema.String),
+          startAt: Schema.String,
+          endAt: Schema.NullOr(Schema.String),
+          positionId: Schema.String,
+          isTeamLeader: Schema.Boolean,
+          isSuspended: Schema.Boolean,
+          revision: Schema.Number,
+        }),
+      ),
     }),
   ]),
   http: Schema.Union([
     NotObservedSectionSchema,
     Schema.Struct({
       status: Schema.Literal("Observed"),
-      backendRequests: JsonValueSchema,
-      strictNative: JsonValueSchema,
+      backendRequests: Schema.Array(BackendRequestSchema),
+      strictNative: StrictNativeProjectionSchema,
       sdkDecoded: Schema.Boolean,
       fixtureMode: Schema.Boolean,
     }),
@@ -680,9 +940,9 @@ const OrganizationImportRehearsalArtifactSchema = Schema.Struct({
     NotObservedSectionSchema,
     Schema.Struct({
       status: Schema.Literal("Observed"),
-      projection: JsonValueSchema,
+      projection: PersonAuthorityProjectionSchema,
       fixedEvaluatedAt: Schema.String,
-      authzRuleRows: JsonValueSchema,
+      authzRuleRows: Schema.Array(StableTableProjectionSchema),
       personSpecificRuleLockAttempts: Schema.Number,
     }),
   ]),
@@ -691,13 +951,13 @@ const OrganizationImportRehearsalArtifactSchema = Schema.Struct({
     Schema.Struct({
       status: Schema.Literal("Observed"),
       practicality: Schema.String,
-      evidence: JsonValueSchema,
-      backendProxyRequests: JsonValueSchema,
+      evidence: BrowserEvidenceSchema,
+      backendProxyRequests: Schema.Array(BackendRequestSchema),
     }),
     Schema.Struct({
       status: Schema.Literal("BrowserNotPractical"),
+      capability: Schema.Literal("BoundedCookieInjection"),
       reason: Schema.String,
-      processObservation: JsonValueSchema,
     }),
   ]),
   forbiddenEffects: Schema.Union([
@@ -713,6 +973,7 @@ const OrganizationImportRehearsalArtifactSchema = Schema.Struct({
       identityMutationAttempts: Schema.Number,
       providerRequests: Schema.Number,
       legacyOrganizationRequests: Schema.Number,
+      unexpectedApiRequestAttempts: Schema.Number,
       productionResourceAttempts: Schema.Number,
       deploymentAttempts: Schema.Number,
       remoteEffectAttempts: Schema.Number,
@@ -732,7 +993,10 @@ const OrganizationImportRehearsalArtifactSchema = Schema.Struct({
       databaseAbsent: Schema.Boolean,
       residualConnections: Schema.Number,
     }),
-    failureObjectsRemovedBeforeCommit: JsonValueSchema,
+    failureObjectsRemovedBeforeCommit: Schema.Union([
+      Schema.Literal("NotObservedDueToFailure"),
+      TriggerCatalogSchema,
+    ]),
     cookieCleared: Schema.Boolean,
     processSecretCleared: Schema.Boolean,
     databaseUrlCleared: Schema.Boolean,
@@ -742,7 +1006,8 @@ const OrganizationImportRehearsalArtifactSchema = Schema.Struct({
     runnerTempRootRemoved: Schema.Boolean,
     lifecycle: Schema.Struct({
       databaseDisposalCompleted: Schema.Boolean,
-      artifactValidationRequiresDatabaseDisposal: Schema.Boolean,
+      cleanupFinalizationCompleted: Schema.Boolean,
+      artifactValidationRequiresCleanupFinalization: Schema.Boolean,
       evidenceWriteRequiresArtifactValidation: Schema.Boolean,
     }),
     errors: StringArraySchema,
@@ -784,3 +1049,26 @@ export const decodeOrganizationImportRehearsalArtifact = (input: unknown) =>
   Schema.decodeUnknownEffect(OrganizationImportRehearsalArtifactSchema)(input, {
     onExcessProperty: "error",
   });
+
+export class OrganizationImportRehearsalEvidenceDigestMismatch extends Data.TaggedError(
+  "OrganizationImportRehearsalEvidenceDigestMismatch",
+)<{
+  readonly storedSha256: string;
+  readonly computedSha256: string;
+}> {}
+
+export const verifyOrganizationImportRehearsalArtifact = (input: unknown) =>
+  decodeOrganizationImportRehearsalArtifact(input).pipe(
+    Effect.flatMap((artifact) => {
+      const { evidenceSha256, ...artifactCore } = artifact;
+      const computedSha256 = sha256Hex(canonicalJsonBytes(artifactCore));
+      return computedSha256 === evidenceSha256
+        ? Effect.succeed(artifact)
+        : Effect.fail(
+            new OrganizationImportRehearsalEvidenceDigestMismatch({
+              storedSha256: evidenceSha256,
+              computedSha256,
+            }),
+          );
+    }),
+  );

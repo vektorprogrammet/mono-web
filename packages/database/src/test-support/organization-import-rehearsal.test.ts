@@ -7,8 +7,13 @@ import type { DatabaseShape } from "@vektorprogrammet/domain/database";
 import { Effect, Layer } from "effect";
 import { afterAll, describe, expect, it } from "vitest";
 import {
+  EXPECTED_MIGRATION_23_AUTH_TABLES,
+  EXPECTED_MIGRATION_23_PUBLIC_TABLES,
+  boundedCookieCapabilityFailure,
+  isNativeBrowserJourneyRequestAllowed,
   captureGeneratedOutputs,
   restoreGeneratedOutput,
+  writeSanitizedOrganizationImportRehearsalArtifact,
 } from "../../runtime/organization-import-rehearsal-main.js";
 import { makeControlledTestRuntime } from "../../test/runtime.js";
 import {
@@ -22,6 +27,7 @@ import {
   observeOrganizationImportSql,
   organizationImportOutcomeMatrix,
   organizationImportProvenanceEvidence,
+  verifyOrganizationImportRehearsalArtifact,
 } from "./organization-import-rehearsal.js";
 
 const testRuntime = makeControlledTestRuntime(Layer.empty);
@@ -79,6 +85,43 @@ describe("spec 0067 generated-output ownership", () => {
     } finally {
       await rm(root, { recursive: true, force: true });
     }
+  });
+});
+describe("spec 0067 runtime capability contracts", () => {
+  it("pins the complete migration-23 catalog and only classifies bounded-cookie preflight", () => {
+    expect(EXPECTED_MIGRATION_23_AUTH_TABLES).toEqual([
+      "auth.account",
+      "auth.session",
+      "auth.user",
+      "auth.verification",
+    ]);
+    expect(EXPECTED_MIGRATION_23_PUBLIC_TABLES).toHaveLength(60);
+    expect([...EXPECTED_MIGRATION_23_PUBLIC_TABLES].sort()).toEqual([
+      ...EXPECTED_MIGRATION_23_PUBLIC_TABLES,
+    ]);
+    expect(isNativeBrowserJourneyRequestAllowed("GET", "/api/teams")).toBe(true);
+    expect(isNativeBrowserJourneyRequestAllowed("POST", "/api/teams")).toBe(false);
+    expect(isNativeBrowserJourneyRequestAllowed("GET", "/api/unexpected")).toBe(false);
+    expect(
+      boundedCookieCapabilityFailure({
+        cookieName: SPEC_0067.sessionCookieName,
+        cookieValue: "bounded-cookie",
+        dashboardOrigin: "http://127.0.0.1:5187",
+        apiOrigin: "http://127.0.0.1:3001",
+        authorizationInstant: SPEC_0067.authorizationInstant,
+        expiresAt: SPEC_0067.sessionExpiresAt,
+      }),
+    ).toBeUndefined();
+    expect(
+      boundedCookieCapabilityFailure({
+        cookieName: SPEC_0067.sessionCookieName,
+        cookieValue: "",
+        dashboardOrigin: "http://127.0.0.1:5187",
+        apiOrigin: "http://127.0.0.1:3001",
+        authorizationInstant: SPEC_0067.authorizationInstant,
+        expiresAt: SPEC_0067.sessionExpiresAt,
+      }),
+    ).toBe("bounded cookie value is empty");
   });
 });
 
@@ -228,23 +271,23 @@ describe("spec 0067 SQL observation seam", () => {
     const observed = observeOrganizationImportSql(base, state);
 
     const result = await testRuntime.runPromise(
-      observed`/* leading audit comment */ INSERT INTO public.authz_rules (rule_id) VALUES ('rule')`,
+      observed`/* leading audit comment */ INSERT INTO "public"."authz_rules" (rule_id) VALUES ('rule')`,
     );
     await testRuntime.runPromise(
-      observed`WITH selected AS (SELECT 1) UPDATE auth."session" SET "updatedAt" = now()`,
+      observed`WITH selected AS (SELECT 1) UPDATE "auth"."session" SET "updatedAt" = now()`,
     );
     await testRuntime.runPromise(observed`-- comment
-      DELETE FROM public.economy_receipts`);
+      DELETE FROM "public"."economy_receipts"`);
     await testRuntime.runPromise(
-      observed`/* comment */ INSERT INTO admission_period_outbox (effect_id) VALUES ('e')`,
+      observed`/* comment */ INSERT INTO "public"."admission_period_outbox" (effect_id) VALUES ('e')`,
     );
-    await testRuntime.runPromise(observed`WITH claimable AS (SELECT effect_id FROM admission_period_outbox)
-      UPDATE admission_period_outbox SET claimed_at = now()`);
+    await testRuntime.runPromise(observed`WITH claimable AS (SELECT effect_id FROM "public"."admission_period_outbox")
+      UPDATE "public"."admission_period_outbox" SET claimed_at = now()`);
     await testRuntime.runPromise(
       observed`SELECT pg_advisory_xact_lock(${`vektorprogrammet:person-authorization:v1:person-1`})`,
     );
     await testRuntime.runPromise(
-      observed`SELECT effect_id FROM admission_period_outbox FOR UPDATE SKIP LOCKED`,
+      observed`SELECT effect_id FROM "public"."admission_period_outbox" FOR UPDATE SKIP LOCKED`,
     );
 
     expect(result).toBe(rows);
@@ -260,7 +303,7 @@ describe("spec 0067 SQL observation seam", () => {
 });
 describe("spec 0067 artifact boundary", () => {
   const unavailable = { status: "NotObservedDueToFailure" } as const;
-  const artifact = {
+  const artifactCore = {
     contract: {
       revision: "0067.0",
       frozenCodeBaseHead: "f".repeat(40),
@@ -304,7 +347,8 @@ describe("spec 0067 artifact boundary", () => {
       runnerTempRootRemoved: true,
       lifecycle: {
         databaseDisposalCompleted: true,
-        artifactValidationRequiresDatabaseDisposal: true,
+        cleanupFinalizationCompleted: true,
+        artifactValidationRequiresCleanupFinalization: true,
         evidenceWriteRequiresArtifactValidation: true,
       },
       errors: [],
@@ -321,7 +365,10 @@ describe("spec 0067 artifact boundary", () => {
       status: "Failed",
       failedChecks: [{ stage: "preflight", message: "injected failure" }],
     },
-    evidenceSha256: "0".repeat(64),
+  } as const;
+  const artifact = {
+    ...artifactCore,
+    evidenceSha256: sha256Hex(canonicalJsonBytes(artifactCore)),
   } as const;
 
   it("accepts only the canonical top-level artifact fields", async () => {
@@ -356,5 +403,60 @@ describe("spec 0067 artifact boundary", () => {
         ),
       ),
     ).resolves.toBeDefined();
+  });
+
+  it("verifies the stored digest and rejects a mismatch", async () => {
+    await expect(
+      testRuntime.runPromise(verifyOrganizationImportRehearsalArtifact(artifact)),
+    ).resolves.toEqual(artifact);
+    await expect(
+      testRuntime.runPromise(
+        Effect.flip(
+          verifyOrganizationImportRehearsalArtifact({
+            ...artifact,
+            evidenceSha256: "0".repeat(64),
+          }),
+        ),
+      ),
+    ).resolves.toMatchObject({
+      _tag: "OrganizationImportRehearsalEvidenceDigestMismatch",
+    });
+  });
+
+  it("persists a sanitized failed artifact even when database cleanup fails", async () => {
+    const root = await mkdtemp(join(tmpdir(), "spec-0067-failed-evidence-"));
+    const evidencePath = join(root, "failed.json");
+    const failedCleanupCore = {
+      ...artifactCore,
+      cleanup: {
+        ...artifactCore.cleanup,
+        status: "Failed",
+        databaseDisposal: { databaseAbsent: false, residualConnections: -1 },
+        lifecycle: {
+          ...artifactCore.cleanup.lifecycle,
+          databaseDisposalCompleted: false,
+        },
+        errors: ["injected database cleanup failure"],
+      },
+    } as const;
+    try {
+      const { evidenceSha256 } = await writeSanitizedOrganizationImportRehearsalArtifact({
+        artifactCore: failedCleanupCore,
+        evidencePath,
+        sensitiveValues: ["not-present-secret"],
+      });
+      const persisted: unknown = JSON.parse(await readFile(evidencePath, "utf8"));
+      await expect(
+        testRuntime.runPromise(verifyOrganizationImportRehearsalArtifact(persisted)),
+      ).resolves.toMatchObject({
+        cleanup: {
+          status: "Failed",
+          databaseDisposal: { databaseAbsent: false, residualConnections: -1 },
+        },
+        evidenceSha256,
+      });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 });
