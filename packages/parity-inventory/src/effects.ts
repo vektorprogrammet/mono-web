@@ -4440,6 +4440,85 @@ const typescriptIntegrationBoundariesFor = (
   return boundaries;
 };
 
+const typescriptLoopbackDispatchOffsetsFor = (path: string, source: string): readonly number[] => {
+  const sourceFile = typescriptSourceFileFor(path, source);
+  if (sourceFile === null) return [];
+  const structure = withoutComments(source.replaceAll("#allowedOrigins", "$allowedOrigins"));
+  if (
+    !/\bconst\s+normalizedLoopbackHost\s*=\s*\(\s*host\s*:\s*string\s*\)\s*:\s*string\s*=>\s*host\s*===\s*["']localhost["']\s*\|\|\s*host\s*===\s*["']::1["']\s*\?\s*["']127\.0\.0\.1["']\s*:\s*host\s*;/.test(
+      structure,
+    )
+  )
+    return [];
+
+  const dispatchOffsets: number[] = [];
+  const visit = (node: ts.Node): void => {
+    if (
+      (ts.isClassDeclaration(node) || ts.isClassExpression(node)) &&
+      node.name?.text === "LocalNetworkGuard"
+    ) {
+      const classSource = structure.slice(node.getStart(sourceFile), node.end);
+      const guardedFetch = node.members.find(
+        (member) =>
+          ts.isPropertyDeclaration(member) &&
+          ts.isIdentifier(member.name) &&
+          member.name.text === "fetchLoopback" &&
+          member.initializer !== undefined &&
+          (ts.isArrowFunction(member.initializer) || ts.isFunctionExpression(member.initializer)) &&
+          ts.isBlock(member.initializer.body),
+      );
+      const guardedFetchBody =
+        guardedFetch !== undefined &&
+        ts.isPropertyDeclaration(guardedFetch) &&
+        guardedFetch.initializer !== undefined &&
+        (ts.isArrowFunction(guardedFetch.initializer) ||
+          ts.isFunctionExpression(guardedFetch.initializer)) &&
+        ts.isBlock(guardedFetch.initializer.body)
+          ? guardedFetch.initializer.body
+          : null;
+      if (
+        guardedFetchBody !== null &&
+        /\breadonly\s+\$allowedOrigins\s*=\s*new\s+Set(?:\s*<[^>]+>)?\s*\(\s*\)\s*;/.test(
+          classSource,
+        ) &&
+        /\baddHttp\s*\(\s*origin\s*:\s*string(?:\s*,[^)]*)?\)\s*:\s*void\s*\{[\s\S]*?\bconst\s+url\s*=\s*new\s+URL\s*\(\s*origin\s*\)\s*;[\s\S]*?\bassert\s*\.\s*equal\s*\(\s*url\s*\.\s*protocol\s*,\s*["']http:["']\s*\)\s*;[\s\S]*?\bassert\s*\.\s*equal\s*\(\s*normalizedLoopbackHost\s*\(\s*url\s*\.\s*hostname\s*\)\s*,\s*["']127\.0\.0\.1["']\s*\)\s*;[\s\S]*?\bthis\s*\.\s*\$allowedOrigins\s*\.\s*add\s*\(\s*url\s*\.\s*origin\s*\)\s*;/.test(
+          classSource,
+        )
+      ) {
+        const bodySource = structure.slice(
+          guardedFetchBody.getStart(sourceFile),
+          guardedFetchBody.end,
+        );
+        if (
+          /\bconst\s+request\s*=\s*new\s+Request\s*\(\s*input\s*,\s*init\s*\)\s*;[\s\S]*?\bconst\s+url\s*=\s*new\s+URL\s*\(\s*request\s*\.\s*url\s*\)\s*;[\s\S]*?\bif\s*\(\s*url\s*\.\s*protocol\s*!==\s*["']http:["']\s*\|\|\s*!\s*this\s*\.\s*\$allowedOrigins\s*\.\s*has\s*\(\s*url\s*\.\s*origin\s*\)\s*\)\s*\{[\s\S]*?\bthrow\s+new\s+Error\s*\([\s\S]*?\)\s*;[\s\S]*?\}[\s\S]*?\breturn\s+fetch\s*\(\s*request\s*\)\s*;/.test(
+            bodySource,
+          )
+        ) {
+          const dispatches: ts.CallExpression[] = [];
+          const collectDispatches = (candidate: ts.Node): void => {
+            if (
+              ts.isCallExpression(candidate) &&
+              ts.isIdentifier(candidate.expression) &&
+              candidate.expression.text === "fetch" &&
+              candidate.arguments[0] !== undefined &&
+              ts.isIdentifier(candidate.arguments[0]) &&
+              candidate.arguments[0].text === "request"
+            )
+              dispatches.push(candidate);
+            ts.forEachChild(candidate, collectDispatches);
+          };
+          collectDispatches(guardedFetchBody);
+          if (dispatches.length === 1)
+            dispatchOffsets.push(dispatches[0]!.expression.getStart(sourceFile));
+        }
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return dispatchOffsets;
+};
+
 const productionIntegrationSource = (path: string): boolean =>
   !/(?:^|\/)(?:test|tests|e2e|fixtures)(?:\/|$)|\.(?:test|spec)\.[^/]+$/i.test(path);
 const integrationCallPattern =
@@ -4456,6 +4535,9 @@ const integrationCallsFor = (
   const interfaceRanges = interfaceDeclarationRangesFor(structure);
   const classes = authority.classesByPath.get(unit.path) ?? [];
   const typeScriptBoundaries = typescriptIntegrationBoundariesFor(unit.path, unit.text);
+  const loopbackDispatchOffsets = new Set(
+    typescriptLoopbackDispatchOffsetsFor(unit.path, unit.text),
+  );
   const effectCalls = effectCallExpressionsFor(unit.text);
   const ownerClassForOffset = (offset: number): LanguageClass | undefined =>
     classes.find((entry) => offset >= entry.start && offset < entry.end);
@@ -4510,6 +4592,7 @@ const integrationCallsFor = (
     const reasons: string[] = [];
     const resolvedCall =
       effectCall === undefined ? null : resolveEffectCall(authority, unit, effectCall, ownerClass);
+    if (loopbackDispatchOffsets.has(callOffset)) continue;
     const typeScriptBoundary = typeScriptBoundaries.find(
       (boundary) => callOffset === boundary.start,
     );

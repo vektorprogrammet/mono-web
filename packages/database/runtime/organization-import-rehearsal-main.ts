@@ -414,7 +414,7 @@ class LocalNetworkGuard {
     this.allowedDestinations.add("local-postgresql/disposable-database");
   }
 
-  readonly fetch = async (
+  readonly fetchLoopback = async (
     input: Parameters<typeof fetch>[0],
     init?: RequestInit,
   ): Promise<Response> => {
@@ -783,7 +783,7 @@ const observeExistingPageSessionCapability = async (
 ): Promise<ReadonlyArray<ExistingPageSessionCapabilityObservation>> => {
   const observations: ExistingPageSessionCapabilityObservation[] = [];
   for (const path of ["/dashboard/team", "/dashboard/brukere"] as const) {
-    const response = await guard.fetch(`${dashboardOrigin}${path}`, {
+    const response = await guard.fetchLoopback(`${dashboardOrigin}${path}`, {
       headers: {
         accept: "text/html",
         cookie: `${cookieName}=${cookieValue}`,
@@ -814,7 +814,7 @@ const waitForHttp = async (
       throw new Error("dashboard exited before its loopback HTTP endpoint was ready");
     }
     try {
-      const response = await guard.fetch(url, { redirect: "manual" });
+      const response = await guard.fetchLoopback(url, { redirect: "manual" });
       if (response.status < 500) return;
     } catch {
       // Bounded readiness retries are local observations, not product retries.
@@ -887,7 +887,7 @@ const startRecordingProxy = async (
       }
     }
     try {
-      const upstream = await guard.fetch(new URL(request.url ?? "/", targetOrigin), {
+      const upstream = await guard.fetchLoopback(new URL(request.url ?? "/", targetOrigin), {
         method,
         headers,
         body: method === "GET" || method === "HEAD" ? undefined : requestBytes,
@@ -1711,7 +1711,7 @@ const runRehearsal = async (
       path: string,
       authenticated: boolean,
     ): Promise<{ readonly status: number; readonly body: unknown }> => {
-      const response = await guard.fetch(`${backendOrigin}${path}`, {
+      const response = await guard.fetchLoopback(`${backendOrigin}${path}`, {
         headers: authenticated ? { cookie: cookieHeader } : undefined,
       });
       const decoded = await decodeJsonResponse(response);
@@ -1766,7 +1766,7 @@ const runRehearsal = async (
     )) as {
       readonly createEffectClient: (
         baseUrl: string,
-        options: { readonly cookie: string; readonly fetch: typeof guard.fetch },
+        options: { readonly cookie: string; readonly fetch: typeof guard.fetchLoopback },
       ) => {
         readonly public: {
           readonly organization: {
@@ -1789,7 +1789,7 @@ const runRehearsal = async (
     };
     const client = sdk.createEffectClient(proxy.origin, {
       cookie: cookieHeader,
-      fetch: guard.fetch,
+      fetch: guard.fetchLoopback,
     });
     const departmentsSdk = await Effect.runPromise(client.public.organization.listDepartments());
     const teamsSdk = await Effect.runPromise(client.public.organization.listTeams());

@@ -148,3 +148,50 @@ test("preview workers resolve lexical owners and outbound integration contracts"
     rmSync(monoRoot, { recursive: true, force: true });
   }
 });
+
+test("loopback-only guards are excluded without hiding an unguarded remote fetch", async () => {
+  const legacyRoot = mkdtempSync("/tmp/parity-integration-loopback-legacy-");
+  const monoRoot = mkdtempSync("/tmp/parity-integration-loopback-mono-");
+  const fixturePaths = [
+    ["loopback-guard.ts", "packages/runtime/loopback-guard.ts"],
+    ["unguarded-network.ts", "packages/runtime/unguarded-network.ts"],
+  ] as const;
+
+  try {
+    for (const [fixturePath, targetPath] of fixturePaths) {
+      const target = join(monoRoot, targetPath);
+      mkdirSync(dirname(target), { recursive: true });
+      writeFileSync(target, readFileSync(join(FIXTURE_ROOT, fixturePath), "utf8"), "utf8");
+    }
+    const [legacy, mono] = await Promise.all([
+      Effect.runPromise(
+        scanRootEffect(legacyRoot, "legacy").pipe(Effect.provide(NodeRuntimeLayer)),
+      ),
+      Effect.runPromise(scanRootEffect(monoRoot, "mono").pipe(Effect.provide(NodeRuntimeLayer))),
+    ]);
+    const context = createManifestContextFromSnapshots(legacy, mono);
+    const result = collectC2(context, sha256("loopback-integration-boundary-regression"));
+    const rowsFor = (path: string) =>
+      result.integrations.rows.filter((row) =>
+        row.source_ref_ids.some((ref) => context.sourcePathById.get(ref)?.path === path),
+      );
+
+    expect(rowsFor("packages/runtime/loopback-guard.ts")).toEqual([]);
+    expect(rowsFor("packages/runtime/unguarded-network.ts")).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          status: "unresolved",
+          reason_codes: expect.arrayContaining(["UNKNOWN_INTEGRATION"]),
+          details: expect.objectContaining({
+            call_site_ref: "LocalNetworkGuard::fetch",
+            provider_ref: null,
+            protocol: "http",
+          }),
+        }),
+      ]),
+    );
+  } finally {
+    rmSync(legacyRoot, { recursive: true, force: true });
+    rmSync(monoRoot, { recursive: true, force: true });
+  }
+});
