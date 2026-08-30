@@ -7,6 +7,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  databaseMigrationDefinitions,
+  databaseSchemaRevision,
+} from "../../../packages/database/src/migrations.ts";
+import {
   emitRuntimeEvidenceReceipts,
   sanitizePlaywrightArtifact,
 } from "./runtime-evidence-receipt.mjs";
@@ -14,6 +18,98 @@ import {
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
 const dashboardRoot = fileURLToPath(new URL("../", import.meta.url));
 const sdkRoot = fileURLToPath(new URL("../../../packages/sdk/", import.meta.url));
+const recruitmentAssignmentMigration = {
+  id: 10,
+  name: "native-recruitment-applicant-assignment",
+};
+
+const parseMigrationDefinition = (definition, index) => {
+  if (
+    definition === null ||
+    typeof definition !== "object" ||
+    typeof definition.id !== "string" ||
+    typeof definition.name !== "string"
+  ) {
+    throw new Error(`canonical migration registry entry ${index} is malformed`);
+  }
+  const match = /^([1-9]\d*)_(.+)$/.exec(definition.id);
+  if (match === null) {
+    throw new Error(
+      `canonical migration registry entry ${index} has malformed id ${JSON.stringify(definition.id)}`,
+    );
+  }
+  const numericId = Number(match[1]);
+  if (!Number.isSafeInteger(numericId)) {
+    throw new Error(
+      `canonical migration registry entry ${index} has unsafe numeric id ${JSON.stringify(definition.id)}`,
+    );
+  }
+  if (match[2] !== definition.name) {
+    throw new Error(
+      `canonical migration registry entry ${index} id/name disagree: ${JSON.stringify({
+        id: definition.id,
+        name: definition.name,
+      })}`,
+    );
+  }
+  return { id: numericId, name: definition.name, revision: definition.id };
+};
+
+const deriveCanonicalMigrationExpectation = (definitions, schemaRevision) => {
+  if (!Array.isArray(definitions) || definitions.length === 0) {
+    throw new Error("canonical migration registry must not be empty");
+  }
+
+  let minimumId = Number.POSITIVE_INFINITY;
+  let maximumId = Number.NEGATIVE_INFINITY;
+  let previousId;
+  let contiguous = true;
+  let head;
+  const seenIds = new Set();
+  for (const [index, definition] of definitions.entries()) {
+    const parsed = parseMigrationDefinition(definition, index);
+    if (seenIds.has(parsed.id)) {
+      throw new Error(`canonical migration registry duplicates numeric id ${parsed.id}`);
+    }
+    seenIds.add(parsed.id);
+    minimumId = Math.min(minimumId, parsed.id);
+    maximumId = Math.max(maximumId, parsed.id);
+    contiguous &&= previousId === undefined || parsed.id === previousId + 1;
+    previousId = parsed.id;
+    head = parsed;
+  }
+
+  if (head.id !== maximumId) {
+    throw new Error(
+      `canonical migration registry head ${head.revision} does not have maximum numeric id ${maximumId}`,
+    );
+  }
+  if (schemaRevision !== head.revision) {
+    throw new Error(
+      `canonical migration registry/revision disagreement: ${JSON.stringify({
+        registryHead: head.revision,
+        databaseSchemaRevision: schemaRevision,
+      })}`,
+    );
+  }
+
+  return {
+    count: definitions.length,
+    minimumId,
+    maximumId,
+    contiguous,
+    head: { id: head.id, name: head.name },
+  };
+};
+
+const canonicalMigrationExpectation = deriveCanonicalMigrationExpectation(
+  databaseMigrationDefinitions,
+  databaseSchemaRevision,
+);
+const expectedMigrationEvidence = {
+  ...canonicalMigrationExpectation,
+  recruitmentAssignment: recruitmentAssignmentMigration,
+};
 const postgresPort = 55446;
 const backendPort = 8800;
 const dashboardPort = 5194;
@@ -360,11 +456,14 @@ const readMigrationEvidence = async (environment) =>
         'minimumId', (SELECT min(migration_id)::int FROM vektorprogrammet_schema_migrations),
         'maximumId', (SELECT max(migration_id)::int FROM vektorprogrammet_schema_migrations),
         'contiguous', NOT EXISTS (
-          SELECT 1 FROM generate_series(1, (SELECT max(migration_id) FROM vektorprogrammet_schema_migrations)) AS expected(id)
+          SELECT 1 FROM generate_series(
+            (SELECT min(migration_id) FROM vektorprogrammet_schema_migrations),
+            (SELECT max(migration_id) FROM vektorprogrammet_schema_migrations)
+          ) AS expected(id)
           LEFT JOIN vektorprogrammet_schema_migrations actual ON actual.migration_id = expected.id
           WHERE actual.migration_id IS NULL
         ),
-        'recruitmentAssignment', (SELECT json_build_object('id', migration_id, 'name', name) FROM vektorprogrammet_schema_migrations WHERE migration_id = 10),
+        'recruitmentAssignment', (SELECT json_build_object('id', migration_id, 'name', name) FROM vektorprogrammet_schema_migrations WHERE migration_id = ${recruitmentAssignmentMigration.id}),
         'head', (SELECT json_build_object('id', migration_id, 'name', name) FROM vektorprogrammet_schema_migrations ORDER BY migration_id DESC LIMIT 1)
       )`,
       environment,
@@ -410,16 +509,21 @@ const readPersistenceEvidence = async (environment) =>
 
 const assertMigrationEvidence = (evidence) => {
   if (
-    evidence.count !== 22 ||
-    evidence.minimumId !== 1 ||
-    evidence.maximumId !== 22 ||
-    evidence.contiguous !== true ||
-    evidence.recruitmentAssignment?.id !== 10 ||
-    evidence.recruitmentAssignment?.name !== "native-recruitment-applicant-assignment" ||
-    evidence.head?.id !== 22 ||
-    evidence.head?.name !== "native-domain-schema-boundary"
+    evidence.count !== expectedMigrationEvidence.count ||
+    evidence.minimumId !== expectedMigrationEvidence.minimumId ||
+    evidence.maximumId !== expectedMigrationEvidence.maximumId ||
+    evidence.contiguous !== expectedMigrationEvidence.contiguous ||
+    evidence.recruitmentAssignment?.id !== expectedMigrationEvidence.recruitmentAssignment.id ||
+    evidence.recruitmentAssignment?.name !== expectedMigrationEvidence.recruitmentAssignment.name ||
+    evidence.head?.id !== expectedMigrationEvidence.head.id ||
+    evidence.head?.name !== expectedMigrationEvidence.head.name
   ) {
-    throw new Error(`canonical migration evidence failed: ${JSON.stringify(evidence)}`);
+    throw new Error(
+      `canonical migration evidence failed: ${JSON.stringify({
+        expected: expectedMigrationEvidence,
+        actual: evidence,
+      })}`,
+    );
   }
 };
 
@@ -797,7 +901,7 @@ const main = async () => {
     evidence = {
       topology: {
         database: "disposable-loopback-postgresql",
-        migrations: "canonical-1-through-22",
+        migrations: `canonical-${canonicalMigrationExpectation.minimumId}-through-${canonicalMigrationExpectation.maximumId}`,
         backend: "unified-native-effect-backend",
         dashboard: "loopback-react-router-dashboard",
         browser: "real-chromium",
