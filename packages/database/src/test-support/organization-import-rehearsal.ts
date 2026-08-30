@@ -473,8 +473,7 @@ const observeStatement = <A>(
     );
   const outboxAccess = /\b[A-Za-z0-9_]*_outbox\b/iu.test(normalizedText);
   const outboxClaim =
-    outboxAccess &&
-    /\b(?:claim_id|claimed_at|FOR\s+UPDATE|SKIP\s+LOCKED)\b/iu.test(normalizedText);
+    outboxAccess && /\b(?:claim_id|claimed_at|FOR\s+UPDATE|SKIP\s+LOCKED)\b/iu.test(normalizedText);
   if (!dml && phase === undefined && !personAuthorizationLock && !outboxClaim) return statement;
   const before = Effect.sync(() => {
     if (dml && /\b(?:public\.)?authz_(?:tags|tag_assignments|rules)\b/iu.test(normalizedText)) {
@@ -684,6 +683,12 @@ const UnexpectedApiRequestSchema = Schema.Struct({
   method: Schema.String,
   path: Schema.String,
 });
+const ExistingPageSessionCapabilityObservationSchema = Schema.Struct({
+  path: Schema.String,
+  status: Schema.Number,
+  location: Schema.NullOr(Schema.String),
+});
+
 const BrowserPageSchema = Schema.Union([
   Schema.Struct({
     path: Schema.String,
@@ -951,13 +956,17 @@ const OrganizationImportRehearsalArtifactSchema = Schema.Struct({
     Schema.Struct({
       status: Schema.Literal("Observed"),
       practicality: Schema.String,
+      pageSessionPreflight: Schema.Array(ExistingPageSessionCapabilityObservationSchema),
+      preflightBackendProxyRequests: Schema.Array(BackendRequestSchema),
       evidence: BrowserEvidenceSchema,
       backendProxyRequests: Schema.Array(BackendRequestSchema),
     }),
     Schema.Struct({
       status: Schema.Literal("BrowserNotPractical"),
-      capability: Schema.Literal("BoundedCookieInjection"),
+      capability: Schema.Literal("ExistingPageBoundedSession"),
       reason: Schema.String,
+      pageSessionPreflight: Schema.Array(ExistingPageSessionCapabilityObservationSchema),
+      backendProxyRequests: Schema.Array(BackendRequestSchema),
     }),
   ]),
   forbiddenEffects: Schema.Union([

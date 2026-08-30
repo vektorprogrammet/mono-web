@@ -10,6 +10,7 @@ import {
   EXPECTED_MIGRATION_23_AUTH_TABLES,
   EXPECTED_MIGRATION_23_PUBLIC_TABLES,
   boundedCookieCapabilityFailure,
+  classifyExistingPageSessionCapability,
   isNativeBrowserJourneyRequestAllowed,
   captureGeneratedOutputs,
   restoreGeneratedOutput,
@@ -122,6 +123,63 @@ describe("spec 0067 runtime capability contracts", () => {
         expiresAt: SPEC_0067.sessionExpiresAt,
       }),
     ).toBe("bounded cookie value is empty");
+  });
+
+  it("classifies only observed existing-page session incompatibility as not practical", () => {
+    expect(
+      classifyExistingPageSessionCapability([
+        { path: "/dashboard/team", status: 200, location: null },
+        { path: "/dashboard/brukere", status: 200, location: null },
+      ]),
+    ).toEqual({ _tag: "Practical" });
+    expect(
+      classifyExistingPageSessionCapability([
+        { path: "/dashboard/team", status: 302, location: "/login?expired=true" },
+      ]),
+    ).toEqual({
+      _tag: "BrowserNotPractical",
+      capability: "ExistingPageBoundedSession",
+      reason:
+        "existing page/session gate cannot consume the bounded cookie: /dashboard/team " +
+        "redirected to /login?expired=true; proceeding would require credentials, an auth write, " +
+        "a product change, or a legacy service",
+    });
+    expect(
+      classifyExistingPageSessionCapability([
+        { path: "/dashboard/brukere", status: 401, location: null },
+      ]),
+    ).toEqual({
+      _tag: "BrowserNotPractical",
+      capability: "ExistingPageBoundedSession",
+      reason:
+        "existing page/session gate rejected the bounded cookie: /dashboard/brukere returned 401; " +
+        "proceeding would require credentials, an auth write, a product change, or a legacy service",
+    });
+    expect(
+      classifyExistingPageSessionCapability([
+        { path: "/dashboard/team", status: 500, location: null },
+      ]),
+    ).toEqual({
+      _tag: "EnvironmentFailure",
+      reason: "existing page/session capability preflight received unexpected 500 /dashboard/team",
+    });
+    expect(
+      classifyExistingPageSessionCapability([
+        { path: "/dashboard/team", status: 302, location: "/maintenance" },
+      ]),
+    ).toEqual({
+      _tag: "EnvironmentFailure",
+      reason:
+        "existing page/session capability preflight received unexpected 302 /dashboard/team -> /maintenance",
+    });
+    expect(
+      classifyExistingPageSessionCapability([
+        { path: "/dashboard/team", status: 204, location: null },
+      ]),
+    ).toEqual({
+      _tag: "EnvironmentFailure",
+      reason: "existing page/session capability preflight received unexpected 204 /dashboard/team",
+    });
   });
 });
 
@@ -421,6 +479,36 @@ describe("spec 0067 artifact boundary", () => {
     ).resolves.toMatchObject({
       _tag: "OrganizationImportRehearsalEvidenceDigestMismatch",
     });
+  });
+
+  it("accepts exact bounded existing-page session practicality evidence", async () => {
+    const browserNotPracticalCore = {
+      ...artifactCore,
+      browser: {
+        status: "BrowserNotPractical",
+        capability: "ExistingPageBoundedSession",
+        reason:
+          "existing page/session gate cannot consume the bounded cookie: /dashboard/team redirected to /login; proceeding would require credentials, an auth write, a product change, or a legacy service",
+        pageSessionPreflight: [{ path: "/dashboard/team", status: 302, location: "/login" }],
+        backendProxyRequests: [
+          {
+            method: "GET",
+            path: "/api/me/session",
+            status: 200,
+            sessionCookieAuth: true,
+          },
+        ],
+      },
+    } as const;
+    const browserNotPracticalArtifact = {
+      ...browserNotPracticalCore,
+      evidenceSha256: sha256Hex(canonicalJsonBytes(browserNotPracticalCore)),
+    };
+    await expect(
+      testRuntime.runPromise(
+        verifyOrganizationImportRehearsalArtifact(browserNotPracticalArtifact),
+      ),
+    ).resolves.toEqual(browserNotPracticalArtifact);
   });
 
   it("persists a sanitized failed artifact even when database cleanup fails", async () => {

@@ -653,6 +653,99 @@ export const boundedCookieCapabilityFailure = (input: {
   return undefined;
 };
 
+export interface ExistingPageSessionCapabilityObservation {
+  readonly path: string;
+  readonly status: number;
+  readonly location: string | null;
+}
+
+export type ExistingPageSessionCapability =
+  | { readonly _tag: "Practical" }
+  | {
+      readonly _tag: "BrowserNotPractical";
+      readonly capability: "ExistingPageBoundedSession";
+      readonly reason: string;
+    }
+  | { readonly _tag: "EnvironmentFailure"; readonly reason: string };
+
+const loginRedirectPath = (location: string | null): string | undefined => {
+  if (location === null) return undefined;
+  try {
+    const redirect = new URL(location, "http://127.0.0.1");
+    return redirect.pathname === "/login" ? `${redirect.pathname}${redirect.search}` : undefined;
+  } catch {
+    return undefined;
+  }
+};
+
+export const classifyExistingPageSessionCapability = (
+  observations: ReadonlyArray<ExistingPageSessionCapabilityObservation>,
+): ExistingPageSessionCapability => {
+  if (observations.length === 0) {
+    return {
+      _tag: "EnvironmentFailure",
+      reason: "existing page/session capability preflight produced no observations",
+    };
+  }
+  for (const observation of observations) {
+    const loginRedirect = loginRedirectPath(observation.location);
+    if (observation.status >= 300 && observation.status < 400 && loginRedirect !== undefined) {
+      return {
+        _tag: "BrowserNotPractical",
+        capability: "ExistingPageBoundedSession",
+        reason:
+          `existing page/session gate cannot consume the bounded cookie: ${observation.path} ` +
+          `redirected to ${loginRedirect}; proceeding would require credentials, an auth write, ` +
+          "a product change, or a legacy service",
+      };
+    }
+    if (observation.status === 401 || observation.status === 403) {
+      return {
+        _tag: "BrowserNotPractical",
+        capability: "ExistingPageBoundedSession",
+        reason:
+          `existing page/session gate rejected the bounded cookie: ${observation.path} returned ` +
+          `${observation.status}; proceeding would require credentials, an auth write, ` +
+          "a product change, or a legacy service",
+      };
+    }
+    if (observation.status !== 200) {
+      return {
+        _tag: "EnvironmentFailure",
+        reason:
+          `existing page/session capability preflight received unexpected ${observation.status} ` +
+          `${observation.path}${observation.location === null ? "" : ` -> ${observation.location}`}`,
+      };
+    }
+  }
+  return { _tag: "Practical" };
+};
+
+const observeExistingPageSessionCapability = async (
+  dashboardOrigin: string,
+  cookieName: string,
+  cookieValue: string,
+  guard: LocalNetworkGuard,
+): Promise<ReadonlyArray<ExistingPageSessionCapabilityObservation>> => {
+  const observations: ExistingPageSessionCapabilityObservation[] = [];
+  for (const path of ["/dashboard/team", "/dashboard/brukere"] as const) {
+    const response = await guard.fetch(`${dashboardOrigin}${path}`, {
+      headers: {
+        accept: "text/html",
+        cookie: `${cookieName}=${cookieValue}`,
+      },
+      redirect: "manual",
+    });
+    observations.push({
+      path,
+      status: response.status,
+      location: response.headers.get("location"),
+    });
+    await response.body?.cancel();
+  }
+  return observations;
+};
+
 const waitForHttp = async (
   url: string,
   guard: LocalNetworkGuard,
@@ -1735,8 +1828,8 @@ const runRehearsal = async (
       persistedMemberships,
     };
 
-    stage = "practical Chromium path";
-    const boundedCookieFailure = boundedCookieCapabilityFailure({
+    stage = "dashboard environment preflight";
+    const boundedCookieConfigurationFailure = boundedCookieCapabilityFailure({
       cookieName: SPEC_0067.sessionCookieName,
       cookieValue: sessionCookie ?? "",
       dashboardOrigin,
@@ -1744,13 +1837,10 @@ const runRehearsal = async (
       authorizationInstant: SPEC_0067.authorizationInstant,
       expiresAt: SPEC_0067.sessionExpiresAt,
     });
-    if (boundedCookieFailure !== undefined) {
-      artifactCore.browser = {
-        status: "BrowserNotPractical",
-        capability: "BoundedCookieInjection",
-        reason: boundedCookieFailure,
-      };
-      throw new Error(`bounded-cookie capability preflight failed: ${boundedCookieFailure}`);
+    if (boundedCookieConfigurationFailure !== undefined) {
+      throw new Error(
+        `bounded-cookie configuration preflight failed: ${boundedCookieConfigurationFailure}`,
+      );
     }
     await assertPortAvailable(dashboardPort);
     const browserEnvironment: NodeJS.ProcessEnv = {
@@ -1764,33 +1854,28 @@ const runRehearsal = async (
       ORGANIZATION_IMPORT_REHEARSAL_SDK_EFFECT_PATH: join(sdkRoot, "dist/effect-client.js"),
       ORGANIZATION_IMPORT_REHEARSAL_NATIVE_API_PATHS: JSON.stringify(NATIVE_BROWSER_JOURNEY_PATHS),
     };
-    const browserProxyStart = proxy.records.length;
     dashboardProcess = await startDashboard(
       browserEnvironment,
       processObservations,
       processEffects,
     );
     await waitForHttp(`${dashboardOrigin}/login`, guard, dashboardProcess);
-    await runCommand(
-      process.env.PLAYWRIGHT_NODE_EXECUTABLE ?? "node",
-      [
-        "./node_modules/@playwright/test/cli.js",
-        "test",
-        "e2e/organization-import-rehearsal.spec.ts",
-        "--project=chromium",
-        "--workers=1",
-        "--retries=0",
-        "--reporter=line",
-      ],
-      {
-        cwd: dashboardRoot,
-        env: browserEnvironment,
-        label: "spec 0067 Chromium journey",
-        observations: processObservations,
-        processEffects,
-      },
+
+    stage = "bounded existing page/session capability preflight";
+    const pageSessionProxyStart = proxy.records.length;
+    const pageSessionPreflight = await observeExistingPageSessionCapability(
+      dashboardOrigin,
+      SPEC_0067.sessionCookieName,
+      sessionCookie ?? "",
+      guard,
     );
-    const browserEvidence = JSON.parse(await readFile(browserEvidencePath, "utf8")) as {
+    const pageSessionProxyRequests = proxy.records.slice(pageSessionProxyStart);
+    const pageSessionCapability = classifyExistingPageSessionCapability(pageSessionPreflight);
+    if (pageSessionCapability._tag === "EnvironmentFailure") {
+      throw new Error(pageSessionCapability.reason);
+    }
+
+    let browserEvidence: {
       readonly status: string;
       readonly pageErrors: ReadonlyArray<string>;
       readonly legacyOrganizationRequests: number;
@@ -1799,27 +1884,69 @@ const runRehearsal = async (
         readonly method: string;
         readonly path: string;
       }>;
+    } = {
+      status: "NotRun",
+      pageErrors: [],
+      legacyOrganizationRequests: 0,
+      rejectedDestinations: [],
+      unexpectedApiRequests: [],
     };
-    assert.equal(browserEvidence.status, "Observed");
-    assert.deepEqual(browserEvidence.pageErrors, []);
-    assert.equal(browserEvidence.legacyOrganizationRequests, 0);
-    assert.deepEqual(browserEvidence.unexpectedApiRequests, []);
-    const browserProxyRequests = proxy.records.slice(browserProxyStart);
-    for (const requiredPath of NATIVE_BROWSER_JOURNEY_PATHS) {
-      assert.ok(
-        browserProxyRequests.some(
-          ({ method, path, status, sessionCookieAuth }) =>
-            method === "GET" && path === requiredPath && status === 200 && sessionCookieAuth,
-        ),
-        `Chromium journey did not observe an authenticated 200 ${requiredPath}`,
+    if (pageSessionCapability._tag === "BrowserNotPractical") {
+      artifactCore.browser = {
+        status: "BrowserNotPractical",
+        capability: pageSessionCapability.capability,
+        reason: pageSessionCapability.reason,
+        pageSessionPreflight,
+        backendProxyRequests: pageSessionProxyRequests,
+      };
+    } else {
+      stage = "practical Chromium path";
+      const browserProxyStart = proxy.records.length;
+      await runCommand(
+        process.env.PLAYWRIGHT_NODE_EXECUTABLE ?? "node",
+        [
+          "./node_modules/@playwright/test/cli.js",
+          "test",
+          "e2e/organization-import-rehearsal.spec.ts",
+          "--project=chromium",
+          "--workers=1",
+          "--retries=0",
+          "--reporter=line",
+        ],
+        {
+          cwd: dashboardRoot,
+          env: browserEnvironment,
+          label: "spec 0067 Chromium journey",
+          observations: processObservations,
+          processEffects,
+        },
       );
+      browserEvidence = JSON.parse(
+        await readFile(browserEvidencePath, "utf8"),
+      ) as typeof browserEvidence;
+      assert.equal(browserEvidence.status, "Observed");
+      assert.deepEqual(browserEvidence.pageErrors, []);
+      assert.equal(browserEvidence.legacyOrganizationRequests, 0);
+      assert.deepEqual(browserEvidence.unexpectedApiRequests, []);
+      const browserProxyRequests = proxy.records.slice(browserProxyStart);
+      for (const requiredPath of NATIVE_BROWSER_JOURNEY_PATHS) {
+        assert.ok(
+          browserProxyRequests.some(
+            ({ method, path, status, sessionCookieAuth }) =>
+              method === "GET" && path === requiredPath && status === 200 && sessionCookieAuth,
+          ),
+          `Chromium journey did not observe an authenticated 200 ${requiredPath}`,
+        );
+      }
+      artifactCore.browser = {
+        status: "Observed",
+        practicality: "Existing pages accepted the bounded session without credential changes",
+        pageSessionPreflight,
+        preflightBackendProxyRequests: pageSessionProxyRequests,
+        evidence: sanitizeProjection(browserEvidence),
+        backendProxyRequests: browserProxyRequests,
+      };
     }
-    artifactCore.browser = {
-      status: "Observed",
-      practicality: "Existing bounded cookie accepted without credential or product change",
-      evidence: sanitizeProjection(browserEvidence),
-      backendProxyRequests: browserProxyRequests,
-    };
 
     const rejectedDestinations = [
       ...guard.rejectedDestinations,
