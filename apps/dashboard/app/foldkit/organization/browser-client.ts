@@ -6,6 +6,7 @@ import type {
 } from "@vektorprogrammet/sdk/effect";
 import { apiUrl, createEffectClient } from "@vektorprogrammet/sdk/effect";
 import type { Effect } from "effect";
+import { resolveBrowserApiUrl } from "../../lib/browser-api";
 
 export interface OrganizationCatalogOperations {
   readonly listDepartments: () => Effect.Effect<readonly DepartmentJson[], InternalSdkError>;
@@ -20,7 +21,7 @@ export interface OrganizationCatalogClient {
 }
 
 export const createBrowserOrganizationCatalogClient = (): OrganizationCatalogClient => {
-  const client = createEffectClient(apiUrl);
+  const client = createEffectClient(resolveBrowserApiUrl(apiUrl, globalThis.location.origin));
   return {
     public: {
       organization: client.public.organization,

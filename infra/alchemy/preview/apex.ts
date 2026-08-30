@@ -48,14 +48,13 @@ export const apexStack = Effect.gen(function* () {
   const dashboard = yield* Cloudflare.Website.Vite(`${APEX_IDENTITY.resourcePrefix}-dashboard`, {
     rootDir: "../../apps/dashboard",
     main: "workers/app.ts",
-    // API_URL is read by the dashboard's server code (process.env under
-    // nodejs_compat) to call the native backend. It must NOT target a
-    // hostname served by our own worker: worker → own custom domain
-    // subrequests fail. origin-api routes through the same tunnel but
-    // bypasses all workers.
+    // API_URL is server-only and reaches the tunnel origin directly.
+    // VITE_API_URL is inlined into browser bundles and must stay same-origin.
     env: {
       PREVIEW_HOST: APEX_IDENTITY.hostname,
+      PREVIEW_STAGE: APEX_IDENTITY.stage,
       API_URL: APEX_IDENTITY.backendOrigin,
+      VITE_API_URL: `https://${APEX_IDENTITY.hostname}`,
     },
     // nodejs_compat_populate_process_env mirrors worker env bindings into
     // process.env so `process.env.API_URL` resolves at runtime.
@@ -74,7 +73,7 @@ export const apexStack = Effect.gen(function* () {
     stage,
     target: APEX_IDENTITY.target,
     hostname: APEX_IDENTITY.hostname,
-    apiHostname: APEX_IDENTITY.apiHostname,
+    previewStage: APEX_IDENTITY.stage,
     backendHostname: APEX_IDENTITY.backendHostname,
     url: worker.url.as<string>(),
     homepage: homepage.url.as<string>(),

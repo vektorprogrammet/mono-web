@@ -5,9 +5,24 @@
  * Differences from the p20 classifier:
  *   - react-router single-fetch requests carry a `.data` suffix on the
  *     document path (e.g. `/login.data`); classify them by source route.
- *   - `/schools` is the dashboard's authenticated Foldkit bridge route.
+ *   - dashboard route families remain on the dashboard worker for both
+ *     document and normalized `.data` requests.
  */
 export type ApexSurface = "homepage" | "dashboard" | "server";
+
+const DASHBOARD_ROUTE_ROOTS: Record<string, true> = {
+  "/content": true,
+  "/dashboard": true,
+  "/glemt-passord": true,
+  "/interview": true,
+  "/interview-response": true,
+  "/login": true,
+  "/logout": true,
+  "/profile": true,
+  "/recruitment": true,
+  "/schools": true,
+  "/tilbakestill-passord": true,
+};
 
 export function apexSurface(pathname: string): ApexSurface {
   if (pathname === "/health" || pathname === "/api" || pathname.startsWith("/api/")) {
@@ -17,18 +32,10 @@ export function apexSurface(pathname: string): ApexSurface {
   const routePath = routePathWithQuery.endsWith(".data")
     ? routePathWithQuery.slice(0, -".data".length)
     : routePathWithQuery;
-  if (
-    routePath === "/schools" ||
-    routePath === "/content" ||
-    routePath === "/dashboard" ||
-    routePath.startsWith("/dashboard/") ||
-    routePath === "/login" ||
-    routePath === "/logout" ||
-    routePath === "/glemt-passord" ||
-    routePath === "/tilbakestill-passord" ||
-    routePath.startsWith("/tilbakestill-passord/")
-  ) {
-    return "dashboard";
+  for (const root in DASHBOARD_ROUTE_ROOTS) {
+    if (routePath === root || routePath.startsWith(`${root}/`)) {
+      return "dashboard";
+    }
   }
   return "homepage";
 }

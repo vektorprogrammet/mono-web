@@ -2,7 +2,7 @@
  * Apex edge worker (stage dev-main, hostname vektor.phibkro.org).
  *
  *   /api/*  -> native backend origin (origin-api.vektor.phibkro.org)
- *   /dashboard* and auth pages -> Dashboard Website.Vite worker
+ *   Dashboard route families and auth pages -> Dashboard Website.Vite worker
  *   else    -> Homepage Website.Vite worker
  *
  * Additive to p20: shares zero resources with the p20 stack; every physical
@@ -10,6 +10,7 @@
  */
 import { APEX_IDENTITY } from "./identity.ts";
 import { apexSurface } from "./surface-apex.ts";
+import { validateDashboardPreviewStage } from "../../../apps/dashboard/workers/preview-stage.ts";
 
 interface ApexService {
   fetch(request: Request): Promise<Response>;
@@ -18,6 +19,8 @@ interface ApexService {
 export interface ApexWorkerEnv {
   readonly Homepage: ApexService;
   readonly Dashboard: ApexService;
+  readonly PREVIEW_STAGE: string;
+  readonly PREVIEW_HOST: string;
 }
 
 /**
@@ -28,7 +31,6 @@ export const BACKEND_ORIGIN = APEX_IDENTITY.backendOrigin;
 
 const ALLOWED_HOSTS: Record<string, true> = {
   [APEX_IDENTITY.hostname]: true,
-  [APEX_IDENTITY.apiHostname]: true,
 };
 
 /**
@@ -53,12 +55,31 @@ const proxyResponse = (backendResponse: Response): Response => {
   });
 };
 
+const withPreviewStage = (response: Response, stage: string): Response => {
+  const headers = new Headers(response.headers);
+  headers.set("x-mono-web-stage", stage);
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+};
+
 const backendUrl = (url: URL): URL => new URL(`${url.pathname}${url.search}`, BACKEND_ORIGIN);
 
 export default {
   async fetch(request: Request, env: ApexWorkerEnv): Promise<Response> {
     const url = new URL(request.url);
     const host = request.headers.get("host")?.toLowerCase() ?? "";
+    let stage: string;
+    try {
+      stage = validateDashboardPreviewStage(env.PREVIEW_STAGE, env.PREVIEW_HOST);
+    } catch {
+      return new Response("Invalid preview stage configuration", {
+        status: 503,
+        headers: { "cache-control": "no-store" },
+      });
+    }
 
     if (!(host in ALLOWED_HOSTS) || host.includes(APEX_IDENTITY.forbiddenHost)) {
       return new Response("Forbidden apex destination", {
@@ -70,38 +91,48 @@ export default {
     // GET /api/health is a first-class probe: map it directly to the
     // backend's /health so it never depends on API route matching.
     if (url.pathname === "/api/health" && request.method === "GET") {
-      return proxyResponse(
-        await fetch(
-          new Request(backendUrl(new URL("/health", url.origin)), {
-            method: "GET",
-            headers: request.headers,
-          }),
+      return withPreviewStage(
+        proxyResponse(
+          await fetch(
+            new Request(backendUrl(new URL("/health", url.origin)), {
+              method: "GET",
+              headers: request.headers,
+            }),
+          ),
         ),
+        stage,
       );
     }
 
     // Shared brand assets exist identically in both apps' public roots;
     // serve them from the homepage so unprefixed requests resolve.
     if (url.pathname === "/vektor-logo-circle.svg") {
-      return env.Homepage.fetch(request);
+      return withPreviewStage(await env.Homepage.fetch(request), stage);
     }
 
     const surface = apexSurface(url.pathname);
-    if (surface === "homepage") return env.Homepage.fetch(request);
-    if (surface === "dashboard") return env.Dashboard.fetch(request);
+    if (surface === "homepage") {
+      return withPreviewStage(await env.Homepage.fetch(request), stage);
+    }
+    if (surface === "dashboard") {
+      return withPreviewStage(await env.Dashboard.fetch(request), stage);
+    }
 
     // server surface (/api/* and /health): proxy through the dedicated
     // origin-api tunnel. The browser stays on the apex origin.
-    return proxyResponse(
-      await fetch(
-        new Request(backendUrl(url), {
-          method: request.method,
-          headers: request.headers,
-          body: request.body,
-          redirect: "manual",
-          duplex: "half",
-        } as RequestInit),
+    return withPreviewStage(
+      proxyResponse(
+        await fetch(
+          new Request(backendUrl(url), {
+            method: request.method,
+            headers: request.headers,
+            body: request.body,
+            redirect: "manual",
+            duplex: "half",
+          } as RequestInit),
+        ),
       ),
+      stage,
     );
   },
 };

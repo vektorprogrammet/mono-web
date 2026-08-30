@@ -14,12 +14,12 @@ export const ApexWorker = (homepage: Cloudflare.Worker, dashboard: Cloudflare.Wo
       flags: ["nodejs_compat", "enable_ctx_exports"],
       date: "2026-08-20",
     },
-    domain: {
-      name: APEX_IDENTITY.hostname,
-      aliases: [APEX_IDENTITY.apiHostname],
-    },
+    workersDev: false,
+    domain: APEX_IDENTITY.hostname,
     env: {
       Homepage: homepage,
       Dashboard: dashboard,
+      PREVIEW_STAGE: APEX_IDENTITY.stage,
+      PREVIEW_HOST: APEX_IDENTITY.hostname,
     },
   });

@@ -23,21 +23,12 @@ export const APEX_IDENTITY = {
   stage: "dev-main",
   target: "apex-preview",
   hostname: "vektor.phibkro.org",
-  apiHostname: "api.vektor.phibkro.org",
   backendHostname: "origin-api.vektor.phibkro.org",
   backendOrigin: "https://origin-api.vektor.phibkro.org",
   resourcePrefix: "vektor-apex",
   localStateDirectory: ".alchemy",
   forbiddenHost: "vektorprogrammet.no",
 } as const;
-
-export const APEX_RESOURCE_KINDS = ["worker", "homepage", "dashboard", "route"] as const;
-
-export type ApexResourceKind = (typeof APEX_RESOURCE_KINDS)[number];
-
-export function apexResourceName(kind: ApexResourceKind): string {
-  return `${APEX_IDENTITY.resourcePrefix}-${kind}`;
-}
 
 export const PREVIEW_TAGS = {
   app: PREVIEW_IDENTITY.app,

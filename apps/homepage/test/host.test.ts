@@ -68,6 +68,14 @@ describe("homepage stage and host contract", () => {
       new URL("../../../infra/alchemy/alchemy.run.ts", import.meta.url),
       "utf8",
     );
+    const apexDeclaration = readFileSync(
+      new URL("../../../infra/alchemy/preview/apex.ts", import.meta.url),
+      "utf8",
+    );
+    const apexWorkerResource = readFileSync(
+      new URL("../../../infra/alchemy/preview/apex-worker-resource.ts", import.meta.url),
+      "utf8",
+    );
     const resources = JSON.parse(
       readFileSync(new URL("../../../infra/preview/resources.json", import.meta.url), "utf8"),
     ) as Array<{ type: string; id: string; name: string }>;
@@ -81,6 +89,11 @@ describe("homepage stage and host contract", () => {
     expect(declaration).toContain("container: PREVIEW_IDENTITY.containerInstance");
     expect(declaration).not.toContain("PreviewSpine");
     expect(declaration).toContain("stage === APEX_IDENTITY.stage");
+    expect(declaration).toContain("stateBackendForStage(stage)");
+    expect(apexDeclaration.match(/workersDev: false/g)).toHaveLength(2);
+    expect(apexWorkerResource).toContain("workersDev: false");
+    expect(apexWorkerResource).toContain("domain: APEX_IDENTITY.hostname");
+    expect(apexWorkerResource).not.toContain("aliases:");
 
     expect(resources).toEqual([
       { type: "worker", id: "vektor-p20-worker", name: "vektor-p20-worker" },

@@ -1,13 +1,30 @@
-import { resolve } from "node:path";
-import { describe, expect, it } from "vitest";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { join, resolve } from "node:path";
+import { tmpdir } from "node:os";
+import { afterAll, describe, expect, it } from "vitest";
 import {
+  assertApexLocalState,
   executeHomepageCli,
   parseHomepageCommand,
   type SpawnSync,
 } from "../../../infra/alchemy/scripts/homepage-cli";
 
 const validEnvironment = { PATH: "/usr/bin", HOME: "/tmp" };
-const standaloneDirectory = "/tmp/mono-web-alchemy";
+const standaloneDirectory = mkdtempSync(join(tmpdir(), "mono-web-alchemy-"));
+const stateDirectory = resolve(standaloneDirectory, ".alchemy/state/vektor/dev-main");
+mkdirSync(stateDirectory, { recursive: true });
+for (const logicalId of ["vektor-apex-dashboard", "vektor-apex-homepage", "vektor-apex-worker"]) {
+  writeFileSync(
+    resolve(stateDirectory, `${logicalId}.json`),
+    JSON.stringify({
+      fqn: logicalId,
+      logicalId,
+      resourceType: "Cloudflare.Worker",
+      attr: { workerName: `vektor-${logicalId}-dev-main-fixture` },
+    }),
+  );
+}
+afterAll(() => rmSync(standaloneDirectory, { recursive: true, force: true }));
 
 function captureSpawn() {
   const calls: Array<{
@@ -22,6 +39,12 @@ function captureSpawn() {
   };
   return { calls, spawn };
 }
+
+it("fails closed when the dev-main local state set is absent", () => {
+  expect(() => assertApexLocalState(resolve(standaloneDirectory, "missing"))).toThrow(
+    "missing or invalid apex local state record",
+  );
+});
 
 describe("homepage provider wrapper", () => {
   it.each(["default", "DEFAULT", "DeFaUlT"])(

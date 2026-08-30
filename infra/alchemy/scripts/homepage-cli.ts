@@ -1,6 +1,8 @@
+import { readFileSync } from "node:fs";
 import { spawnSync as nodeSpawnSync } from "node:child_process";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { APEX_LOCAL_STATE_LOGICAL_IDS } from "../preview/state-contract.ts";
 
 export type CloudCommand = "plan" | "deploy" | "destroy";
 
@@ -164,11 +166,41 @@ export function rejectAmbientSelectors(env: NodeJS.ProcessEnv): void {
   }
 }
 
+export function assertApexLocalState(standaloneDirectory: string): void {
+  const stateDirectory = resolve(standaloneDirectory, ".alchemy/state/vektor/dev-main");
+  for (const logicalId of APEX_LOCAL_STATE_LOGICAL_IDS) {
+    const stateFile = resolve(stateDirectory, `${logicalId}.json`);
+    let record: {
+      readonly fqn?: unknown;
+      readonly logicalId?: unknown;
+      readonly resourceType?: unknown;
+      readonly attr?: { readonly workerName?: unknown };
+    };
+    try {
+      record = JSON.parse(readFileSync(stateFile, "utf8")) as typeof record;
+    } catch {
+      throw new Error(`missing or invalid apex local state record: ${logicalId}`);
+    }
+    if (
+      record.fqn !== logicalId ||
+      record.logicalId !== logicalId ||
+      record.resourceType !== "Cloudflare.Worker" ||
+      typeof record.attr?.workerName !== "string" ||
+      !record.attr.workerName.startsWith("vektor-vektor-apex-")
+    ) {
+      throw new Error(`apex local state identity mismatch: ${logicalId}`);
+    }
+  }
+}
+
 function runAlchemy(parsed: ParsedCloudCommand, options: HomepageCliOptions): number {
   // Keep this import-free and shell-free: the only executable is the local
   // standalone install, and the declaration is always the checked-in entrypoint.
   const standaloneDirectory =
     options.standaloneDirectory ?? resolve(dirname(fileURLToPath(import.meta.url)), "..");
+  if (parsed.stage === "dev-main") {
+    assertApexLocalState(standaloneDirectory);
+  }
   const alchemyBinary = resolve(standaloneDirectory, "node_modules/.bin/alchemy");
   const childEnvironment = {
     ...(options.env ?? process.env),

@@ -1,10 +1,10 @@
 import * as Alchemy from "alchemy";
 import * as Cloudflare from "alchemy/Cloudflare";
 import * as Effect from "effect/Effect";
-import { PREVIEW_IDENTITY } from "./preview/identity.ts";
+import { APEX_IDENTITY, PREVIEW_IDENTITY } from "./preview/identity.ts";
 import { PreviewWorker } from "./preview/worker-resource.ts";
 import { apexStack } from "./preview/apex.ts";
-import { APEX_IDENTITY } from "./preview/identity.ts";
+import { stateBackendForStage } from "./preview/state-contract.ts";
 import * as Layer from "effect/Layer";
 
 export { PREVIEW_IDENTITY, PreviewWorker, apexStack };
@@ -26,7 +26,7 @@ const stageGuard = (stage: string): void => {
 const deploymentState = Layer.unwrap(
   Alchemy.Stage.pipe(
     Effect.map((stage) =>
-      stage === APEX_IDENTITY.stage ? Alchemy.localState() : Cloudflare.state(),
+      stateBackendForStage(stage) === "local" ? Alchemy.localState() : Cloudflare.state(),
     ),
   ),
 );
@@ -56,7 +56,10 @@ export default Alchemy.Stack(
     const dashboard = yield* Cloudflare.Website.Vite("Dashboard", {
       rootDir: "../../apps/dashboard",
       main: "workers/app.ts",
-      env: { PREVIEW_HOST: PREVIEW_IDENTITY.hostname },
+      env: {
+        PREVIEW_HOST: PREVIEW_IDENTITY.hostname,
+        PREVIEW_STAGE: PREVIEW_IDENTITY.stage,
+      },
       workersDev: false,
       assets: { runWorkerFirst: true },
     });

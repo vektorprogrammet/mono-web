@@ -9,8 +9,7 @@
 #   2. start postgres on 127.0.0.1:$VEKTOR_PREVIEW_PG_PORT (default 5434)
 #   3. create database vektor_preview
 #   4. apply all schema migrations through the repo's own runner
-#   5. seed demo persons incl. one global-admin account; the admin password is
-#      printed ONCE to stderr on first creation only.
+#   5. seed demo persons and rotate their credentials from an operator-only file
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -34,6 +33,33 @@ if [[ ! -s "$SECRET_FILE" ]]; then
   log "generated new BETTER_AUTH_SECRET at $SECRET_FILE"
 fi
 chmod 600 "$SECRET_FILE" 2>/dev/null || true
+
+# --- synthetic preview credentials ------------------------------------------
+CREDENTIAL_FILE="$CONFIG_DIR/preview-credentials.json"
+if [[ ! -s "$CREDENTIAL_FILE" ]]; then
+  umask 077
+  bun -e '
+    import { randomBytes } from "node:crypto";
+    const password = () => randomBytes(36).toString("base64url");
+    console.log(JSON.stringify([
+      {
+        personId: "apex-preview-administrator",
+        email: "admin.apex@example.invalid",
+        password: password(),
+        role: "admin",
+      },
+      {
+        personId: "apex-preview-member",
+        email: "member.apex@example.invalid",
+        password: password(),
+        role: "member",
+      },
+    ], null, 2));
+  ' >"$CREDENTIAL_FILE"
+  chmod 600 "$CREDENTIAL_FILE"
+  log "generated synthetic preview credentials at $CREDENTIAL_FILE"
+fi
+chmod 600 "$CREDENTIAL_FILE"
 
 # --- postgres ---------------------------------------------------------------
 if [[ ! -f "$PGDATA/PG_VERSION" ]]; then
@@ -68,15 +94,19 @@ DATABASE_URL="postgresql://postgres@127.0.0.1:$PG_PORT/$DB_NAME"
 export DATABASE_URL BETTER_AUTH_SECRET="$(cat "$SECRET_FILE")"
 BETTER_AUTH_URL="https://vektor.phibkro.org"
 
-DEMO_ADMIN_EMAIL="admin.apex@example.invalid"
-DEMO_ADMIN_PASSWORD="apex-preview-admin-pass-2026"
-# Persons seeded through the repo's identity:seed runner. The administrator
-# gets a global-admin grant below so it can manage schools and other surfaces.
+# Persons are seeded through the repo's identity runner. Password values are
+# read from the protected credential file and are never embedded in source.
 IDENTITY_SEED_PERSONS="$(
-  printf '%s' '[
-    {"personId":"apex-preview-administrator","firstName":"Astrid","lastName":"Apex","email":"admin.apex@example.invalid","password":"apex-preview-admin-pass-2026"},
-    {"personId":"apex-preview-member","firstName":"Mons","lastName":"Medlem","email":"member.apex@example.invalid","password":"apex-preview-member-pass-2026"}
-  ]'
+  PREVIEW_CREDENTIAL_FILE="$CREDENTIAL_FILE" bun -e '
+    const credentials = await Bun.file(process.env.PREVIEW_CREDENTIAL_FILE).json();
+    console.log(JSON.stringify(credentials.map((credential) => ({
+      personId: credential.personId,
+      firstName: credential.role === "admin" ? "Astrid" : "Mons",
+      lastName: credential.role === "admin" ? "Apex" : "Medlem",
+      email: credential.email,
+      password: credential.password,
+    }))));
+  '
 )"
 
 
@@ -102,12 +132,19 @@ SQL
   printf '%s\n' "$SEED_OUT" >"$STATE_DIR/identity-seed.json"
   printf '%s\n' "$DATABASE_URL" >"$STATE_DIR/db-url.txt"
   : >"$STATE_DIR/.seeded"
-  log ""
-  log "============================================================"
-  log " DEMO ADMIN ACCOUNT (printed once, not stored anywhere)"
-  log "   email:    $DEMO_ADMIN_EMAIL"
-  log "   password: $DEMO_ADMIN_PASSWORD"
-  log "============================================================"
 else
   log "database already seeded; skipping (delete $STATE_DIR/.seeded to force)"
+fi
+
+CREDENTIAL_DIGEST="$(sha256sum "$CREDENTIAL_FILE")"
+CREDENTIAL_DIGEST="${CREDENTIAL_DIGEST%% *}"
+CREDENTIAL_MARKER="$CONFIG_DIR/preview-credentials.sha256"
+if [[ ! -f "$CREDENTIAL_MARKER" ]] || [[ "$(cat "$CREDENTIAL_MARKER")" != "$CREDENTIAL_DIGEST" ]]; then
+  log "rotating synthetic preview credentials and invalidating prior sessions"
+  PREVIEW_CREDENTIAL_FILE="$CREDENTIAL_FILE" \
+    BACKEND_PG_URL="$DATABASE_URL" \
+    BETTER_AUTH_URL="$BETTER_AUTH_URL" \
+    bun run "$REPO_ROOT/infra/host/rotate-preview-credentials.ts"
+  printf '%s\n' "$CREDENTIAL_DIGEST" >"$CREDENTIAL_MARKER"
+  chmod 600 "$CREDENTIAL_MARKER"
 fi
