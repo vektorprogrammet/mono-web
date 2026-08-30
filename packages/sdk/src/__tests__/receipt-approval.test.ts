@@ -88,6 +88,33 @@ describe("canonical Receipt approval capability", () => {
     });
   });
 
+  it("preserves an existing foreign-scope denial on the refund command", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(response(403, { error: { tag: "ReceiptScopeDenied" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = createClient("http://api.test", {
+      cookie: "better-auth.session_token=approver-session",
+    });
+
+    const error = await client.receipts
+      .refund("receipt-foreign", 0, "command-foreign")
+      .catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(ReceiptScopeDeniedError);
+    expect(error).toMatchObject({
+      type: "receipt_rejection",
+      _tag: "ReceiptScopeDenied",
+      receiptTag: "ReceiptScopeDenied",
+    });
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("http://api.test/api/admin/receipts/receipt-foreign/refund");
+    expect(JSON.parse(String(init.body))).toEqual({
+      commandId: "command-foreign",
+      expectedRevision: 0,
+    });
+  });
+
   it.each([
     ["ReceiptAuthorityDenied", "Receipt command is not permitted"],
     ["AmbiguousPaymentSelection", "Payment authority selection is ambiguous"],
@@ -145,7 +172,7 @@ describe("canonical Receipt approval capability", () => {
       const error = await createClient("http://api.test", {
         cookie: "better-auth.session_token=approver-session",
       })
-        .receipts.listForApproval()
+        .receipts.reject("receipt-composed", 0, `command-${tag}`)
         .catch((caught: unknown) => caught);
 
       expect(error).toBeInstanceOf(ErrorClass);

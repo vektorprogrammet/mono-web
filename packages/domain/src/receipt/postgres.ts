@@ -15,7 +15,7 @@ import { DepartmentId, type PersonId } from "../organization/schema.js";
 import { Effect, Schema } from "effect";
 import { canonicalJson, canonicalJsonBytes, sha256Hex } from "../tutor/evidence.js";
 import {
-  mapReceiptApprovalActor,
+  mapExistingReceiptApprovalActor,
   mapReceiptGlobalApprovalPrincipal,
   mapReceiptOwnerActor,
   mapReceiptSubmissionPrincipal,
@@ -828,14 +828,11 @@ export const executeReceiptCommand = (
               }
               return yield* new ReceiptScopeDenied({ receiptId, departmentId: "" });
             }
-            if (composition.decision._tag === "Deny") {
-              return yield* new ReceiptAuthorityDenied({
-                personId: principal.personId,
-                operation: "DepartmentApproval",
-                departmentId: current.departmentId,
-              });
-            }
-            const actor = yield* mapReceiptApprovalActor(composedAuthority, current.departmentId);
+            const actor = yield* mapExistingReceiptApprovalActor(
+              composedAuthority,
+              current.receiptId,
+              current.departmentId,
+            );
             authorizedCommand = { ...command, actor };
           } else {
             const current = previous as Receipt;

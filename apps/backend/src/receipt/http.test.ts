@@ -265,17 +265,17 @@ describe("receipt HTTP identity and authority resolution (spec 0055/0056)", () =
     });
   });
 
-  it("maps a transaction-local approval scope denial to stable 403", async () => {
+  it("maps an existing foreign-scope approval denial to stable 403", async () => {
     const state = harness({
       commandFailure: new ReceiptScopeDenied({
-        receiptId: "receipt-absent",
-        departmentId: "",
+        receiptId: "receipt-foreign",
+        departmentId: departmentTwo,
       }),
     });
-    const response = await request(state.http, "/api/admin/receipts/receipt-absent/refund", {
+    const response = await request(state.http, "/api/admin/receipts/receipt-foreign/refund", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ commandId: "command-absent", expectedRevision: 0 }),
+      body: JSON.stringify({ commandId: "command-foreign", expectedRevision: 0 }),
     });
     expect({ status: response.status, body: await response.json() }).toEqual({
       status: 403,

@@ -5,6 +5,7 @@ import { compareRfc3339Instants, Rfc3339InstantSchema } from "../time.js";
 import {
   AmbiguousReceiptPaymentAuthority,
   ReceiptAuthorityDenied,
+  ReceiptScopeDenied,
   type ReceiptAuthorityMappingError,
 } from "./errors.js";
 import { ReceiptActorSchema, type ReceiptActor } from "./schema.js";
@@ -451,6 +452,26 @@ export const mapReceiptApprovalActor = (
         : { _tag: "Department", departmentId: receiptDepartmentId },
   });
 };
+
+/**
+ * An existing Receipt owns the department that selects approval authority.
+ * Absence of an applicable grant is therefore a scope denial, not an
+ * authority-projection denial.
+ */
+export const mapExistingReceiptApprovalActor = (
+  authority: ReceiptAuthority,
+  receiptId: string,
+  receiptDepartmentId: DepartmentId,
+): Effect.Effect<ReceiptActor, ReceiptScopeDenied> =>
+  mapReceiptApprovalActor(authority, receiptDepartmentId).pipe(
+    Effect.mapError(
+      () =>
+        new ReceiptScopeDenied({
+          receiptId,
+          departmentId: receiptDepartmentId,
+        }),
+    ),
+  );
 
 /** Owner lists use this person-keyed result and never select one department. */
 export const mapReceiptOwnerPrincipal = (

@@ -1,4 +1,6 @@
 import { describe, expect, it } from "@effect/vitest";
+import { Effect } from "effect";
+import { composeCapabilityEvidence } from "../authz/rules.js";
 import {
   AuthzRuleId,
   AuthzTagAssignmentId,
@@ -10,6 +12,7 @@ import type { OrganizationPersonAuthority } from "../organization/authority.js";
 import { DepartmentId, MembershipId, PersonId, TeamId } from "../organization/schema.js";
 import { resolveReceiptApprovalVisibility } from "./approval-list.js";
 import {
+  mapExistingReceiptApprovalActor,
   projectReceiptAuthority,
   ReceiptApprovalGrantId,
   type ReceiptApprovalGrant,
@@ -93,6 +96,31 @@ const resolve = (
     [departmentB, departmentA, departmentA],
     rules,
     tagAssignments,
+  );
+};
+
+const composeExistingApprovalAuthority = (
+  grants: ReadonlyArray<ReceiptApprovalGrant>,
+  rules: ReadonlyArray<AuthzRule>,
+  receiptDepartmentId: DepartmentId,
+) => {
+  const organizationAuthority = organization();
+  const directAuthority = projectReceiptAuthority(organizationAuthority, [], grants);
+  const composition = composeCapabilityEvidence(
+    "approveReceipt",
+    { approvalGrants: directAuthority.approvalGrants },
+    rules,
+    {
+      personId,
+      authorizationInstant,
+      requestScope: { domain: "Receipt", departmentId: receiptDepartmentId },
+      tagAssignments: [],
+    },
+  );
+  return projectReceiptAuthority(
+    organizationAuthority,
+    [],
+    composition.evidence.approvalGrants ?? [],
   );
 };
 
@@ -250,6 +278,70 @@ describe("rule-aware Receipt approval visibility", () => {
       value: { _tag: "Departments", departmentIds: [departmentA] },
     });
   });
+
+  it.effect("maps a zero-rule foreign existing Receipt to scope denial", () =>
+    Effect.gen(function* () {
+      const receiptId = "approval-existing-foreign";
+      const foreignAuthority = composeExistingApprovalAuthority(
+        [
+          directGrant("direct-department-a", {
+            _tag: "Department",
+            departmentId: departmentA,
+          }),
+        ],
+        [],
+        departmentB,
+      );
+
+      const denied = yield* Effect.flip(
+        mapExistingReceiptApprovalActor(foreignAuthority, receiptId, departmentB),
+      );
+      expect(denied).toMatchObject({
+        _tag: "ReceiptScopeDenied",
+        receiptId,
+        departmentId: departmentB,
+      });
+    }),
+  );
+
+  it.effect("maps rule-only composed department and global approval grants", () =>
+    Effect.gen(function* () {
+      const cases = [
+        {
+          receiptId: "approval-rule-department",
+          approvalRule: rule({
+            id: "rule-existing-department",
+            scope: { _tag: "Department", departmentId: departmentB },
+            slot: "EconomyDepartmentApprovalGrant",
+          }),
+          approvalScope: { _tag: "Department", departmentId: departmentB },
+        },
+        {
+          receiptId: "approval-rule-global",
+          approvalRule: rule({
+            id: "rule-existing-global",
+            scope: { _tag: "Receipt" },
+            slot: "EconomyGlobalReceiptApprovalGrant",
+          }),
+          approvalScope: { _tag: "Global" },
+        },
+      ] as const;
+
+      for (const approvalCase of cases) {
+        const authority = composeExistingApprovalAuthority(
+          [],
+          [approvalCase.approvalRule],
+          departmentB,
+        );
+        expect(
+          yield* mapExistingReceiptApprovalActor(authority, approvalCase.receiptId, departmentB),
+        ).toMatchObject({
+          active: true,
+          approvalScope: approvalCase.approvalScope,
+        });
+      }
+    }),
+  );
 
   it("maps bounded composer denials to stable Receipt failures without persisted effects", () => {
     expect(receiptCompositionFailure("Ambiguous", personId, "submitReceipt")).toMatchObject({
