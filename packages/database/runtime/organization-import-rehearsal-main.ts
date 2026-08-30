@@ -141,6 +141,26 @@ export const ORGANIZATION_IMPORT_PLAYWRIGHT_ARGUMENTS = [
   "--reporter=line",
 ] as const;
 
+export const ORGANIZATION_IMPORT_DASHBOARD_BUILD_ARGUMENTS = ["run", "build"] as const;
+
+export const ORGANIZATION_IMPORT_DASHBOARD_SERVE_ARGUMENTS = [
+  "node_modules/@react-router/serve/bin.cjs",
+  "build/server/index.js",
+] as const;
+
+export const ORGANIZATION_IMPORT_GENERATED_OUTPUT_PATHS = [
+  "packages/sdk/dist",
+  "packages/sdk/tsconfig.tsbuildinfo",
+  "apps/dashboard/.react-router",
+  "apps/dashboard/build",
+] as const;
+
+export const ORGANIZATION_IMPORT_DASHBOARD_RUNTIME = {
+  build: "ReactRouterProductionBuild",
+  server: "ReactRouterServe",
+  viteDependencyOptimizer: "NotUsed",
+} as const;
+
 export const EXPECTED_MIGRATION_23_AUTH_TABLES = [
   "auth.account",
   "auth.session",
@@ -566,18 +586,17 @@ const startDashboard = (
   processEffects: ProcessEffectObserver,
 ): Promise<ChildProcess> => {
   const command = process.env.PLAYWRIGHT_NODE_EXECUTABLE ?? "node";
-  const args = [
-    "node_modules/@react-router/dev/dist/cli/index.js",
-    "dev",
-    "--host",
-    "127.0.0.1",
-    "--port",
-    String(dashboardPort),
-  ];
-  rejectDeploymentIntent(command, args, processEffects, "dashboard");
+  const args = ORGANIZATION_IMPORT_DASHBOARD_SERVE_ARGUMENTS;
+  const label = "dashboard production server";
+  rejectDeploymentIntent(command, args, processEffects, label);
   const child = spawn(command, args, {
     cwd: dashboardRoot,
-    env,
+    env: {
+      ...env,
+      HOST: "127.0.0.1",
+      NODE_ENV: "production",
+      PORT: String(dashboardPort),
+    },
     detached: true,
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -585,7 +604,7 @@ const startDashboard = (
   child.once("spawn", () => started.resolve(child));
   child.once("error", (cause) => {
     observations.push({
-      label: "dashboard",
+      label,
       outcome: "SpawnFailed",
       exitCode: null,
       signal: null,
@@ -1029,6 +1048,9 @@ const readSanitizedFailedBrowserEvidence = async (
         headings: evidence.finalPageState.headings.map((heading) =>
           sanitizeFailure(heading, sensitiveValues),
         ),
+        alerts: evidence.finalPageState.alerts.map((alert) =>
+          sanitizeFailure(alert, sensitiveValues),
+        ),
       },
     };
   } catch {
@@ -1222,12 +1244,9 @@ const runRehearsal = async (
   const browserEvidencePath = join(runnerTempRoot, "browser-evidence.json");
   const generatedBackupRoot = join(runnerTempRoot, "generated-output-backups");
   const childToolEnvironment = makeChildToolEnvironment(runnerTempRoot);
-  const generatedPaths = [
-    join(sdkRoot, "dist"),
-    join(sdkRoot, "tsconfig.tsbuildinfo"),
-    join(dashboardRoot, ".react-router"),
-    join(dashboardRoot, "node_modules/.vite"),
-  ];
+  const generatedPaths = ORGANIZATION_IMPORT_GENERATED_OUTPUT_PATHS.map((relativePath) =>
+    join(repositoryRoot, relativePath),
+  );
   let generatedOutputSnapshots: GeneratedOutputSnapshot[] = [];
   const generatedOutputRestoration: Array<{
     readonly path: string;
@@ -1947,10 +1966,23 @@ const runRehearsal = async (
       ORGANIZATION_IMPORT_REHEARSAL_API_ORIGIN: proxy.origin,
       ORGANIZATION_IMPORT_REHEARSAL_SESSION_TOKEN: sessionCookie,
       ORGANIZATION_IMPORT_REHEARSAL_BROWSER_EVIDENCE_PATH: browserEvidencePath,
+      ORGANIZATION_IMPORT_REHEARSAL_PLAYWRIGHT_OUTPUT_DIR: join(
+        runnerTempRoot,
+        "playwright-results",
+      ),
       ORGANIZATION_IMPORT_REHEARSAL_AUTHORIZATION_INSTANT: SPEC_0067.authorizationInstant,
       ORGANIZATION_IMPORT_REHEARSAL_SDK_EFFECT_PATH: join(sdkRoot, "dist/effect-client.js"),
       ORGANIZATION_IMPORT_REHEARSAL_NATIVE_API_PATHS: JSON.stringify(NATIVE_BROWSER_JOURNEY_PATHS),
     };
+    stage = "dashboard production build";
+    await runCommand("bun", ORGANIZATION_IMPORT_DASHBOARD_BUILD_ARGUMENTS, {
+      cwd: dashboardRoot,
+      env: browserEnvironment,
+      label: "spec 0067 dashboard production build",
+      observations: processObservations,
+      processEffects,
+    });
+    stage = "dashboard production server readiness";
     dashboardProcess = await startDashboard(
       browserEnvironment,
       processObservations,
@@ -1981,12 +2013,18 @@ const runRehearsal = async (
         readonly method: string;
         readonly path: string;
       }>;
+      readonly failedResponses: ReadonlyArray<unknown>;
+      readonly viteDependencyRequests: number;
+      readonly dependencyOptimizerFailures: number;
     } = {
       status: "NotRun",
       pageErrors: [],
       legacyOrganizationRequests: 0,
       rejectedDestinations: [],
       unexpectedApiRequests: [],
+      failedResponses: [],
+      viteDependencyRequests: 0,
+      dependencyOptimizerFailures: 0,
     };
     if (pageSessionCapability._tag === "BrowserNotPractical") {
       artifactCore.browser = {
@@ -1995,6 +2033,7 @@ const runRehearsal = async (
         reason: pageSessionCapability.reason,
         pageSessionPreflight,
         backendProxyRequests: pageSessionProxyRequests,
+        dashboardRuntime: ORGANIZATION_IMPORT_DASHBOARD_RUNTIME,
       };
     } else {
       stage = "practical Chromium path";
@@ -2018,6 +2057,9 @@ const runRehearsal = async (
       assert.deepEqual(browserEvidence.pageErrors, []);
       assert.equal(browserEvidence.legacyOrganizationRequests, 0);
       assert.deepEqual(browserEvidence.unexpectedApiRequests, []);
+      assert.deepEqual(browserEvidence.failedResponses, []);
+      assert.equal(browserEvidence.viteDependencyRequests, 0);
+      assert.equal(browserEvidence.dependencyOptimizerFailures, 0);
       const browserProxyRequests = proxy.records.slice(browserProxyStart);
       const nativePathObservations = NATIVE_BROWSER_JOURNEY_REQUIREMENTS.map((requirement) => {
         const observation = browserProxyRequests.find(
@@ -2041,6 +2083,7 @@ const runRehearsal = async (
         status: "Observed",
         practicality: "Existing pages accepted the bounded session without credential changes",
         pageSessionPreflight,
+        dashboardRuntime: ORGANIZATION_IMPORT_DASHBOARD_RUNTIME,
         preflightBackendProxyRequests: pageSessionProxyRequests,
         evidence: sanitizeProjection(browserEvidence),
         nativePathObservations,
@@ -2077,13 +2120,13 @@ const runRehearsal = async (
       allowedDestinations: [...guard.allowedDestinations].sort(),
       rejectedDestinations,
     };
+    artifactCore.forbiddenEffects = { status: "Observed", ...forbiddenEffects };
     assert.ok(
       Object.entries(forbiddenEffects)
         .filter(([, value]) => typeof value === "number")
         .every(([, value]) => value === 0),
     );
     assert.deepEqual(rejectedDestinations, []);
-    artifactCore.forbiddenEffects = { status: "Observed", ...forbiddenEffects };
     artifactCore.observations = {
       status: "Observed",
       transitionSequence: [
@@ -2115,6 +2158,7 @@ const runRehearsal = async (
       artifactCore.browser = {
         status: "Failed",
         evidence: failedBrowserEvidence,
+        dashboardRuntime: ORGANIZATION_IMPORT_DASHBOARD_RUNTIME,
       };
     }
     artifactCore.observations = {
@@ -2125,9 +2169,11 @@ const runRehearsal = async (
   } finally {
     stage = "resource cleanup";
     try {
-      processObservations.push(await stopProcessTree(dashboardProcess, "dashboard"));
+      processObservations.push(
+        await stopProcessTree(dashboardProcess, "dashboard production server"),
+      );
     } catch (cause) {
-      cleanupErrors.push(`dashboard: ${sanitizeFailure(cause, sensitiveValues)}`);
+      cleanupErrors.push(`dashboard production server: ${sanitizeFailure(cause, sensitiveValues)}`);
     }
     if (backendServer !== undefined) {
       try {

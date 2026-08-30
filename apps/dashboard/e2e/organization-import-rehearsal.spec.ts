@@ -35,6 +35,7 @@ interface DiagnosticFinalPageState {
   readonly host: DiagnosticElementState;
   readonly container: DiagnosticElementState;
   readonly headings: ReadonlyArray<string>;
+  readonly alerts: ReadonlyArray<string>;
 }
 
 const redactDiagnosticText = (value: string, sensitiveValues: ReadonlyArray<string>): string => {
@@ -71,6 +72,7 @@ const readFinalPageState = async (
     host: { connected: false, childCount: 0 },
     container: { connected: false, childCount: 0 },
     headings: [],
+    alerts: [],
   } satisfies DiagnosticFinalPageState;
   if (page === undefined) return fallback;
   try {
@@ -83,6 +85,7 @@ const readFinalPageState = async (
       containerCount,
       containerChildCount,
       headings,
+      alerts,
     ] = await Promise.all([
       page.evaluate(() => customElements.get("vektor-organization-catalog") !== undefined),
       host.count(),
@@ -95,6 +98,14 @@ const readFinalPageState = async (
             .slice(0, maximumEntries)
             .map((heading) => heading.textContent?.trim() ?? "")
             .filter((heading) => heading.length > 0),
+        maximumDiagnosticEntries,
+      ),
+      page.locator('[role="alert"]').evaluateAll(
+        (nodes, maximumEntries) =>
+          nodes
+            .slice(0, maximumEntries)
+            .map((alert) => alert.textContent?.trim() ?? "")
+            .filter((alert) => alert.length > 0),
         maximumDiagnosticEntries,
       ),
     ]);
@@ -110,6 +121,7 @@ const readFinalPageState = async (
         childCount: Math.min(containerChildCount, 10_000),
       },
       headings: headings.map((heading) => redactDiagnosticText(heading, sensitiveValues)),
+      alerts: alerts.map((alert) => redactDiagnosticText(alert, sensitiveValues)),
     };
   } catch {
     return fallback;
@@ -181,6 +193,7 @@ if (process.env.ORGANIZATION_IMPORT_REHEARSAL === "1") {
     let testFailure: unknown;
     let evidenceWriteFailed = false;
     let evidenceWriteFailure: unknown;
+    const dependencyOptimizerFailure = Promise.withResolvers<never>();
     try {
       ownedBrowser = await playwright[browserName].launch(testInfo.project.use.launchOptions);
       context = await ownedBrowser.newContext();
@@ -207,6 +220,16 @@ if (process.env.ORGANIZATION_IMPORT_REHEARSAL === "1") {
           path: redactDiagnosticText(url.pathname, diagnosticSensitiveValues),
           resourceType: redactDiagnosticText(request.resourceType(), diagnosticSensitiveValues),
         });
+        if (
+          diagnosticOrigin === "dashboard-loopback" &&
+          url.pathname.startsWith("/node_modules/.vite/")
+        ) {
+          dependencyOptimizerFailure.reject(
+            new Error("production dashboard requested a Vite dependency optimizer asset"),
+          );
+          await route.abort("blockedbyclient");
+          return;
+        }
         if (url.origin === apiOrigin) {
           const observation = {
             method: request.method(),
@@ -244,12 +267,18 @@ if (process.env.ORGANIZATION_IMPORT_REHEARSAL === "1") {
           redactDiagnosticText(error.message, diagnosticSensitiveValues),
         ),
       );
-      page.on("console", (message) =>
+      page.on("console", (message) => {
+        const text = redactDiagnosticText(message.text(), diagnosticSensitiveValues);
         appendDiagnostic(consoleMessages, {
           type: redactDiagnosticText(message.type(), diagnosticSensitiveValues),
-          text: redactDiagnosticText(message.text(), diagnosticSensitiveValues),
-        }),
-      );
+          text,
+        });
+        if (/Outdated Optimize Dep/iu.test(text)) {
+          dependencyOptimizerFailure.reject(
+            new Error("production dashboard observed a residual Vite dependency optimizer failure"),
+          );
+        }
+      });
       page.on("response", (response) => {
         const url = new URL(response.url());
         if (allowedOrigins[url.origin] !== true || response.status() < 400) return;
@@ -258,31 +287,65 @@ if (process.env.ORGANIZATION_IMPORT_REHEARSAL === "1") {
           path: redactDiagnosticText(url.pathname, diagnosticSensitiveValues),
           status: response.status(),
         });
+        if (url.origin === dashboardOrigin && response.status() === 504) {
+          dependencyOptimizerFailure.reject(
+            new Error("production dashboard returned a residual HTTP 504 response"),
+          );
+        }
       });
 
-      await page.goto(`${dashboardOrigin}/dashboard/team`, { waitUntil: "domcontentloaded" });
-      const importedTeam = page.locator('[data-organization-id="6711"]');
-      await expect(page.getByRole("heading", { name: "Registrerte team" })).toBeVisible();
-      await expect(page.getByText("1 oppføring", { exact: true })).toBeVisible();
-      await expect(importedTeam).toContainText(expectedTeamName);
-      await expect(importedTeam).toContainText(expectedDepartmentName);
-      await expect(importedTeam).toContainText("Aktiv");
+      await Promise.race([
+        (async () => {
+          await page.goto(`${dashboardOrigin}/dashboard/team`, {
+            waitUntil: "domcontentloaded",
+          });
+          const importedTeam = page.locator('[data-organization-id="6711"]');
+          await expect(page.getByRole("heading", { name: "Registrerte team" })).toBeVisible();
+          await expect(page.getByText("1 oppføring", { exact: true })).toBeVisible();
+          await expect(importedTeam).toContainText(expectedTeamName);
+          await expect(importedTeam).toContainText(expectedDepartmentName);
+          await expect(importedTeam).toContainText("Aktiv");
 
-      await page.goto(`${dashboardOrigin}/dashboard/brukere`, { waitUntil: "domcontentloaded" });
-      await expect(page.getByRole("heading", { name: "Brukere" }).first()).toBeVisible();
-      await expect(page.getByText(expectedMemberName, { exact: false })).toBeVisible();
-      await expect(page.getByText(expectedDepartmentName, { exact: true })).toBeVisible();
-      await expect(page.getByText(expectedMemberEmail, { exact: true })).toBeVisible();
-      await page.getByRole("tab", { name: "Inaktive Brukere" }).click();
-      await expect(page.getByText(expectedAdminName, { exact: false })).toBeVisible();
-      await expect(page.getByText(expectedAdminEmail, { exact: true })).toBeVisible();
-      const legacyOrganizationRequests = requests.filter(({ path }) =>
-        /legacy|php|graphql/iu.test(path),
-      ).length;
-      expect(pageErrors).toEqual([]);
-      expect(legacyOrganizationRequests).toBe(0);
-      expect(rejectedDestinations).toEqual([]);
-      expect(unexpectedApiRequests).toEqual([]);
+          await page.goto(`${dashboardOrigin}/dashboard/brukere`, {
+            waitUntil: "domcontentloaded",
+          });
+          await expect(page.getByRole("heading", { name: "Brukere" }).first()).toBeVisible();
+          const importedMemberRow = page
+            .getByRole("row")
+            .filter({ hasText: "Imported" })
+            .filter({ hasText: "Member" });
+          await expect(importedMemberRow).toHaveCount(1);
+          await expect(importedMemberRow).toContainText(expectedDepartmentName);
+          await expect(importedMemberRow).toContainText(expectedMemberEmail);
+          await page.getByRole("tab", { name: "Inaktive Brukere" }).click();
+          const administratorRow = page
+            .getByRole("row")
+            .filter({ hasText: "Spec" })
+            .filter({ hasText: "Administrator" });
+          await expect(administratorRow).toHaveCount(1);
+          await expect(administratorRow).toContainText(expectedAdminEmail);
+          const legacyOrganizationRequests = requests.filter(({ path }) =>
+            /legacy|php|graphql/iu.test(path),
+          ).length;
+          const viteDependencyRequests = diagnosticRequests.filter(
+            ({ origin, path }) =>
+              origin === "dashboard-loopback" && path.startsWith("/node_modules/.vite/"),
+          ).length;
+          const dependencyOptimizerFailures =
+            failedResponses.filter(
+              ({ origin, status }) => origin === "dashboard-loopback" && status === 504,
+            ).length +
+            consoleMessages.filter(({ text }) => /Outdated Optimize Dep/iu.test(text)).length;
+          expect(pageErrors).toEqual([]);
+          expect(legacyOrganizationRequests).toBe(0);
+          expect(rejectedDestinations).toEqual([]);
+          expect(unexpectedApiRequests).toEqual([]);
+          expect(failedResponses).toEqual([]);
+          expect(viteDependencyRequests).toBe(0);
+          expect(dependencyOptimizerFailures).toBe(0);
+        })(),
+        dependencyOptimizerFailure.promise,
+      ]);
     } catch (cause) {
       failed = true;
       testFailure = cause;
@@ -311,6 +374,15 @@ if (process.env.ORGANIZATION_IMPORT_REHEARSAL === "1") {
       const legacyOrganizationRequests = requests.filter(({ path }) =>
         /legacy|php|graphql/iu.test(path),
       ).length;
+      const viteDependencyRequests = diagnosticRequests.filter(
+        ({ origin, path }) =>
+          origin === "dashboard-loopback" && path.startsWith("/node_modules/.vite/"),
+      ).length;
+      const dependencyOptimizerFailures =
+        failedResponses.filter(
+          ({ origin, status }) => origin === "dashboard-loopback" && status === 504,
+        ).length +
+        consoleMessages.filter(({ text }) => /Outdated Optimize Dep/iu.test(text)).length;
       const evidence = failed
         ? {
             status: "Failed",
@@ -347,6 +419,9 @@ if (process.env.ORGANIZATION_IMPORT_REHEARSAL === "1") {
             rejectedDestinations,
             unexpectedApiRequests,
             requests,
+            failedResponses,
+            viteDependencyRequests,
+            dependencyOptimizerFailures,
             status: "Observed",
           };
       try {

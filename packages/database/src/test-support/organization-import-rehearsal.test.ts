@@ -6,9 +6,15 @@ import { canonicalJsonBytes, sha256Hex } from "@vektorprogrammet/domain/evidence
 import type { DatabaseShape } from "@vektorprogrammet/domain/database";
 import { Effect, Layer } from "effect";
 import { afterAll, describe, expect, it } from "vitest";
-import organizationImportPlaywrightConfig from "../../../../apps/dashboard/playwright.organization-import-rehearsal.config.js";
+import organizationImportPlaywrightConfig, {
+  organizationImportPlaywrightOutputDir,
+} from "../../../../apps/dashboard/playwright.organization-import-rehearsal.config.js";
 import {
   EXPECTED_MIGRATION_23_AUTH_TABLES,
+  ORGANIZATION_IMPORT_DASHBOARD_BUILD_ARGUMENTS,
+  ORGANIZATION_IMPORT_DASHBOARD_RUNTIME,
+  ORGANIZATION_IMPORT_DASHBOARD_SERVE_ARGUMENTS,
+  ORGANIZATION_IMPORT_GENERATED_OUTPUT_PATHS,
   ORGANIZATION_IMPORT_PLAYWRIGHT_ARGUMENTS,
   EXPECTED_MIGRATION_23_PUBLIC_TABLES,
   boundedCookieCapabilityFailure,
@@ -99,7 +105,7 @@ describe("spec 0067 generated-output ownership", () => {
   });
 });
 describe("spec 0067 runtime capability contracts", () => {
-  it("pins Playwright to the runner-owned dashboard without a generic web server", () => {
+  it("pins Playwright to the production dashboard and runner-owned output", () => {
     expect(ORGANIZATION_IMPORT_PLAYWRIGHT_ARGUMENTS).toEqual([
       "./node_modules/@playwright/test/cli.js",
       "test",
@@ -110,6 +116,36 @@ describe("spec 0067 runtime capability contracts", () => {
       "--retries=0",
       "--reporter=line",
     ]);
+    expect(ORGANIZATION_IMPORT_DASHBOARD_BUILD_ARGUMENTS).toEqual(["run", "build"]);
+    expect(ORGANIZATION_IMPORT_DASHBOARD_SERVE_ARGUMENTS).toEqual([
+      "node_modules/@react-router/serve/bin.cjs",
+      "build/server/index.js",
+    ]);
+    expect(ORGANIZATION_IMPORT_GENERATED_OUTPUT_PATHS).toEqual([
+      "packages/sdk/dist",
+      "packages/sdk/tsconfig.tsbuildinfo",
+      "apps/dashboard/.react-router",
+      "apps/dashboard/build",
+    ]);
+    expect(
+      ORGANIZATION_IMPORT_GENERATED_OUTPUT_PATHS.every((path) => !path.includes(".vite")),
+    ).toBe(true);
+    expect(ORGANIZATION_IMPORT_DASHBOARD_RUNTIME).toEqual({
+      build: "ReactRouterProductionBuild",
+      server: "ReactRouterServe",
+      viteDependencyOptimizer: "NotUsed",
+    });
+    const runnerOwnedOutputDir = join(
+      tmpdir(),
+      "vektorprogrammet-spec-0067-runner",
+      "playwright-results",
+    );
+    expect(
+      organizationImportPlaywrightOutputDir({
+        ORGANIZATION_IMPORT_REHEARSAL_PLAYWRIGHT_OUTPUT_DIR: runnerOwnedOutputDir,
+      }),
+    ).toBe(runnerOwnedOutputDir);
+    expect(runnerOwnedOutputDir).not.toContain("apps/dashboard");
     expect(organizationImportPlaywrightConfig).not.toHaveProperty("webServer");
     expect(organizationImportPlaywrightConfig).toMatchObject({
       testDir: "./e2e",
@@ -472,6 +508,9 @@ describe("spec 0067 SQL observation seam", () => {
     await testRuntime.runPromise(
       observed`SELECT effect_id FROM "public"."admission_period_outbox" FOR UPDATE SKIP LOCKED`,
     );
+    await testRuntime.runPromise(
+      observed`SELECT effect_id, claim_id, claimed_at FROM "public"."admission_period_outbox" ORDER BY effect_id`,
+    );
 
     expect(result).toBe(rows);
     expect(state).toMatchObject({
@@ -553,6 +592,11 @@ describe("spec 0067 artifact boundary", () => {
     ...artifactCore,
     evidenceSha256: sha256Hex(canonicalJsonBytes(artifactCore)),
   } as const;
+  const dashboardRuntime = {
+    build: "ReactRouterProductionBuild",
+    server: "ReactRouterServe",
+    viteDependencyOptimizer: "NotUsed",
+  } as const;
   const failedBrowserEvidence = {
     status: "Failed",
     failure: "Expected the imported team heading to be visible",
@@ -586,6 +630,7 @@ describe("spec 0067 artifact boundary", () => {
       host: { connected: true, childCount: 0 },
       container: { connected: false, childCount: 0 },
       headings: [],
+      alerts: ["No catalog rows"],
     },
   } as const;
 
@@ -626,10 +671,25 @@ describe("spec 0067 artifact boundary", () => {
     await expect(
       testRuntime.runPromise(decodeOrganizationImportBrowserFailedEvidence(failedBrowserEvidence)),
     ).resolves.toEqual(failedBrowserEvidence);
+    await expect(
+      testRuntime.runPromise(
+        Effect.flip(
+          decodeOrganizationImportBrowserFailedEvidence({
+            ...failedBrowserEvidence,
+            failedResponses: Array.from({ length: 129 }, (_, index) => ({
+              origin: "dashboard-loopback",
+              path: `/assets/failed-${index}.js`,
+              status: 500,
+            })),
+          }),
+        ),
+      ),
+    ).resolves.toBeDefined();
     const failedBrowserCore = {
       ...artifactCore,
       browser: {
         status: "Failed",
+        dashboardRuntime,
         evidence: failedBrowserEvidence,
       },
     } as const;
@@ -675,6 +735,7 @@ describe("spec 0067 artifact boundary", () => {
       ...artifactCore,
       browser: {
         status: "Failed",
+        dashboardRuntime,
         evidence: {
           ...failedBrowserEvidence,
           rawContactBody: { email: "forbidden" },
@@ -716,6 +777,7 @@ describe("spec 0067 artifact boundary", () => {
       ...artifactCore,
       browser: {
         status: "BrowserNotPractical",
+        dashboardRuntime,
         capability: "ExistingPageBoundedSession",
         reason:
           "existing page/session gate cannot consume the bounded cookie: /dashboard/team redirected to /login; proceeding would require credentials, an auth write, a product change, or a legacy service",
@@ -742,7 +804,7 @@ describe("spec 0067 artifact boundary", () => {
     ).resolves.toEqual(browserNotPracticalArtifact);
   });
 
-  it("accepts exact public and bounded-session native path observations", async () => {
+  it("enforces exact production evidence and native authority paths", async () => {
     const nativePathObservations = NATIVE_BROWSER_JOURNEY_REQUIREMENTS.map((requirement) => ({
       ...requirement,
       status: 200,
@@ -761,6 +823,7 @@ describe("spec 0067 artifact boundary", () => {
       ...artifactCore,
       browser: {
         status: "Observed",
+        dashboardRuntime,
         practicality: "Existing pages accepted the bounded session without credential changes",
         pageSessionPreflight: [
           { path: "/dashboard/team", status: 200, location: null },
@@ -783,6 +846,9 @@ describe("spec 0067 artifact boundary", () => {
           rejectedDestinations: [],
           unexpectedApiRequests: [],
           requests: [],
+          failedResponses: [],
+          viteDependencyRequests: 0,
+          dependencyOptimizerFailures: 0,
           status: "Observed",
         },
         nativePathObservations,
@@ -796,6 +862,69 @@ describe("spec 0067 artifact boundary", () => {
     await expect(
       testRuntime.runPromise(verifyOrganizationImportRehearsalArtifact(observedBrowserArtifact)),
     ).resolves.toEqual(observedBrowserArtifact);
+    const expectRejectedBrowserArtifact = async (browser: unknown): Promise<void> => {
+      const rejectedCore = { ...artifactCore, browser };
+      await expect(
+        testRuntime.runPromise(
+          Effect.flip(
+            verifyOrganizationImportRehearsalArtifact({
+              ...rejectedCore,
+              evidenceSha256: sha256Hex(canonicalJsonBytes(rejectedCore)),
+            }),
+          ),
+        ),
+      ).resolves.toBeDefined();
+    };
+
+    await expectRejectedBrowserArtifact({
+      ...observedBrowserCore.browser,
+      dashboardRuntime: {
+        build: "ViteDevelopmentServer",
+        server: "ViteDevelopmentServer",
+        viteDependencyOptimizer: "Used",
+      },
+    });
+    await expectRejectedBrowserArtifact({
+      ...observedBrowserCore.browser,
+      evidence: {
+        ...observedBrowserCore.browser.evidence,
+        viteDependencyRequests: 1,
+      },
+    });
+    await expectRejectedBrowserArtifact({
+      ...observedBrowserCore.browser,
+      evidence: {
+        ...observedBrowserCore.browser.evidence,
+        dependencyOptimizerFailures: 1,
+      },
+    });
+    await expectRejectedBrowserArtifact({
+      ...observedBrowserCore.browser,
+      evidence: {
+        ...observedBrowserCore.browser.evidence,
+        dependencyOptimizerCacheEvidence: [],
+      },
+    });
+    await expectRejectedBrowserArtifact({
+      ...observedBrowserCore.browser,
+      evidence: {
+        ...observedBrowserCore.browser.evidence,
+        viteCachePath: "apps/dashboard/node_modules/.vite",
+      },
+    });
+    await expectRejectedBrowserArtifact({
+      ...observedBrowserCore.browser,
+      evidence: {
+        ...observedBrowserCore.browser.evidence,
+        failedResponses: [
+          {
+            origin: "dashboard-loopback",
+            path: "/assets/failed.js",
+            status: 500,
+          },
+        ],
+      },
+    });
 
     const incompleteBrowserCore = {
       ...observedBrowserCore,
@@ -888,6 +1017,7 @@ describe("spec 0067 artifact boundary", () => {
           ...artifactCore,
           browser: {
             status: "Failed",
+            dashboardRuntime,
             evidence: {
               ...failedBrowserEvidence,
               failure: `Expected ${rawContact} to be visible`,

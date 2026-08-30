@@ -481,7 +481,9 @@ const observeStatement = <A>(
     );
   const outboxAccess = /\b[A-Za-z0-9_]*_outbox\b/iu.test(normalizedText);
   const outboxClaim =
-    outboxAccess && /\b(?:claim_id|claimed_at|FOR\s+UPDATE|SKIP\s+LOCKED)\b/iu.test(normalizedText);
+    outboxAccess &&
+    (/\b(?:FOR\s+UPDATE|SKIP\s+LOCKED)\b/iu.test(normalizedText) ||
+      (dml && /\b(?:claim_id|claimed_at)\b/iu.test(normalizedText)));
   if (!dml && phase === undefined && !personAuthorizationLock && !outboxClaim) return statement;
   const before = Effect.sync(() => {
     if (dml && /\b(?:public\.)?authz_(?:tags|tag_assignments|rules)\b/iu.test(normalizedText)) {
@@ -749,15 +751,10 @@ const BrowserPageSchema = Schema.Union([
     contactSha256: StringArraySchema,
   }),
 ]);
-export const OrganizationImportBrowserObservedEvidenceSchema = Schema.Struct({
-  authorizationInstant: Schema.String,
-  pages: Schema.Array(BrowserPageSchema),
-  pageErrors: StringArraySchema,
-  legacyOrganizationRequests: Schema.Number,
-  rejectedDestinations: StringArraySchema,
-  unexpectedApiRequests: Schema.Array(UnexpectedApiRequestSchema),
-  requests: Schema.Array(BrowserRequestSchema),
-  status: Schema.Literal("Observed"),
+const OrganizationImportDashboardRuntimeSchema = Schema.Struct({
+  build: Schema.Literal("ReactRouterProductionBuild"),
+  server: Schema.Literal("ReactRouterServe"),
+  viteDependencyOptimizer: Schema.Literal("NotUsed"),
 });
 
 const BrowserDiagnosticTextSchema = Schema.String.pipe(Schema.check(Schema.isMaxLength(2_000)));
@@ -808,6 +805,28 @@ const BrowserFailedResponsesSchema = Schema.Array(BrowserFailedResponseSchema).p
     }),
   ),
 );
+const EmptyBrowserFailedResponsesSchema = BrowserFailedResponsesSchema.pipe(
+  Schema.check(
+    Schema.makeFilter((responses) => responses.length === 0, {
+      message: "observed browser evidence must contain no failed responses",
+    }),
+  ),
+);
+
+export const OrganizationImportBrowserObservedEvidenceSchema = Schema.Struct({
+  authorizationInstant: Schema.String,
+  pages: Schema.Array(BrowserPageSchema),
+  pageErrors: StringArraySchema,
+  legacyOrganizationRequests: Schema.Number,
+  rejectedDestinations: StringArraySchema,
+  unexpectedApiRequests: Schema.Array(UnexpectedApiRequestSchema),
+  requests: Schema.Array(BrowserRequestSchema),
+  failedResponses: EmptyBrowserFailedResponsesSchema,
+  viteDependencyRequests: Schema.Literal(0),
+  dependencyOptimizerFailures: Schema.Literal(0),
+  status: Schema.Literal("Observed"),
+});
+
 const BrowserUnexpectedApiRequestsSchema = Schema.Array(
   Schema.Struct({
     method: BrowserDiagnosticTextSchema,
@@ -830,6 +849,7 @@ const BrowserFinalPageStateSchema = Schema.Struct({
   host: BrowserDiagnosticElementStateSchema,
   container: BrowserDiagnosticElementStateSchema,
   headings: BrowserDiagnosticStringArraySchema,
+  alerts: BrowserDiagnosticStringArraySchema,
 });
 export const OrganizationImportBrowserFailedEvidenceSchema = Schema.Struct({
   status: Schema.Literal("Failed"),
@@ -1099,6 +1119,7 @@ const OrganizationImportRehearsalArtifactSchema = Schema.Struct({
     NotObservedSectionSchema,
     Schema.Struct({
       status: Schema.Literal("Observed"),
+      dashboardRuntime: OrganizationImportDashboardRuntimeSchema,
       practicality: Schema.String,
       pageSessionPreflight: Schema.Array(ExistingPageSessionCapabilityObservationSchema),
       preflightBackendProxyRequests: Schema.Array(ProxyRequestSchema),
@@ -1108,10 +1129,12 @@ const OrganizationImportRehearsalArtifactSchema = Schema.Struct({
     }),
     Schema.Struct({
       status: Schema.Literal("Failed"),
+      dashboardRuntime: OrganizationImportDashboardRuntimeSchema,
       evidence: OrganizationImportBrowserFailedEvidenceSchema,
     }),
     Schema.Struct({
       status: Schema.Literal("BrowserNotPractical"),
+      dashboardRuntime: OrganizationImportDashboardRuntimeSchema,
       capability: Schema.Literal("ExistingPageBoundedSession"),
       reason: Schema.String,
       pageSessionPreflight: Schema.Array(ExistingPageSessionCapabilityObservationSchema),

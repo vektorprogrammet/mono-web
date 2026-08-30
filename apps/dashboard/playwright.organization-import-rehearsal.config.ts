@@ -7,9 +7,13 @@ const chromiumExecutablePath =
   (existsSync(systemChromium) ? systemChromium : undefined);
 const dashboardOrigin = "http://127.0.0.1:5187";
 
+export const organizationImportPlaywrightOutputDir = (
+  environment: Readonly<Record<string, string | undefined>>,
+): string => environment.ORGANIZATION_IMPORT_REHEARSAL_PLAYWRIGHT_OUTPUT_DIR ?? "./e2e/results";
+
 export default defineConfig({
   testDir: "./e2e",
-  outputDir: "./e2e/results",
+  outputDir: organizationImportPlaywrightOutputDir(process.env),
   fullyParallel: false,
   retries: 0,
   workers: 1,
