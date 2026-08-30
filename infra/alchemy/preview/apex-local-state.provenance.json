@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "recordType": "vektor.apex-local-state-provenance/v1",
+  "recordedAt": "2026-08-31T01:50:15+02:00",
+  "deploymentSourceCommit": "b744340fe346474069c5f416d21050edb275f76f",
+  "stack": "vektor",
+  "stage": "dev-main",
+  "stateContract": "vektor-dev-main-local-v1",
+  "localStateDirectory": ".alchemy/state/vektor/dev-main",
+  "operatorBackup": {
+    "directory": "/home/nori/.local/state/vektor-preview/alchemy-state/vektor/dev-main",
+    "mode": "0600",
+    "restoreRule": "Copy all four files into infra/alchemy/.alchemy/state/vektor/dev-main, then run the repository wrapper. The wrapper verifies the three resource identities before Alchemy starts.",
+    "rawFileSha256": {
+      "__stack_output__.json": "01fb71ea983e44c3eddd7c41cf8de8435608d7b935c9689c4744bda643d8893b",
+      "vektor-apex-dashboard.json": "cf87ad7ecabfb0c384334d4f007a313a8f5d6460277270706460d7be5178fabc",
+      "vektor-apex-homepage.json": "c3f64abb2e2a82bbfebe253667f90d1cd78c3b5a69a597f03a59053f0436652d",
+      "vektor-apex-worker.json": "b3f33bc18a437c8bc665d78d367d0ae4756548880500ce9c154d5f35ffdf3c2b"
+    }
+  },
+  "transfer": {
+    "source": "Cloudflare.state() for stack vektor and stage dev-main",
+    "readerProfile": "goal1-staging",
+    "method": "Alchemy state export; select the three vektor-apex-* records; write each state payload as one LocalState record",
+    "remoteMutation": "none",
+    "remoteStateRetained": true,
+    "retainedRemoteStateVerifiedAt": "2026-08-31T01:48:00+02:00"
+  },
+  "resources": [
+    {
+      "logicalId": "vektor-apex-dashboard",
+      "retainedRemoteStateSha256": "9a6a19e34408dd2d1fb8307bb83912da90b54e7743c42ed710c03604626d5f6e",
+      "deployedLocalStateSha256": "d3dbd16779b4d52f4eca8fd593bce99db5a718fe723a924dc6c66f4877a4d1f5"
+    },
+    {
+      "logicalId": "vektor-apex-homepage",
+      "retainedRemoteStateSha256": "05265dac91e849b675933370e1a4fa9cf242570c80c5f0a0caa7906a1daf9672",
+      "deployedLocalStateSha256": "b7d6ff05bca5067f3e44fa2189fc24c61f837bee8e4b9b9353469c6340d420e4"
+    },
+    {
+      "logicalId": "vektor-apex-worker",
+      "retainedRemoteStateSha256": "f5ca9b3fe0399446ea77e3ffef54d030b459a69810a9e33ae7bdb305841929ba",
+      "deployedLocalStateSha256": "5f1c5bc8bc2a142136463bfc3c50ffdc17bb41af4d60135727e59b673159e94e"
+    }
+  ],
+  "dualControllerRisk": {
+    "present": true,
+    "reason": "The retained Cloudflare state records are stale after the local-state deployment.",
+    "control": "The repository stack maps dev-main only to LocalState, and the deployment wrapper requires the exact local record set before it can start Alchemy.",
+    "operatorRule": "Do not run a dev-main mutation through Cloudflare.state() or from the retained remote records."
+  },
+  "containsSecrets": false
+}

@@ -2,7 +2,7 @@
 # Idempotent bootstrap for the vektor.phibkro.org apex preview authority.
 #
 # Run inside the infra/host dev-shell:
-#   nix develop /srv/share/projects/vektorprogrammet/infra/host -c bash bootstrap.sh
+#   nix develop ./infra/host -c bash ./infra/host/bootstrap.sh
 #
 # What it does (safe to re-run):
 #   1. initdb into $VEKTOR_PREVIEW_PGDATA if missing

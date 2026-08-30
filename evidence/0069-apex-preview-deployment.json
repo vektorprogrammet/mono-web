@@ -1,0 +1,153 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "recordType": "vektor.apex-preview-deployment-evidence/v1",
+  "recordedAt": "2026-08-31T01:52:17+02:00",
+  "source": {
+    "repository": "/srv/share/projects/vektorprogrammet/mono-web",
+    "authoritativeBase": "d150c9308ddf9dc0b54de0fb1b74bd505ba91d0f",
+    "deploymentCommit": "b744340fe346474069c5f416d21050edb275f76f",
+    "branch": "fix/apex-preview-local-state-origin"
+  },
+  "cloudflare": {
+    "stage": "dev-main",
+    "profile": "goal1-staging",
+    "publicUrl": "https://vektor.phibkro.org",
+    "backendOrigin": "https://origin-api.vektor.phibkro.org",
+    "preDeploymentPlan": "3 to update",
+    "postDeploymentPlan": "3 to noop",
+    "providerEffects": [
+      "updated the homepage Worker bundle and assets",
+      "updated the dashboard Worker bundle, assets, PREVIEW_STAGE, and VITE_API_URL",
+      "updated the apex edge Worker, PREVIEW_HOST, and PREVIEW_STAGE",
+      "disabled the apex edge Worker workers.dev subdomain",
+      "reconciled the apex edge Worker to one custom domain and removed its api.vektor.phibkro.org alias"
+    ],
+    "dnsOrTunnelCommandsInAmendment": [],
+    "workers": [
+      {
+        "logicalId": "vektor-apex-homepage",
+        "workerName": "vektor-vektor-apex-homepage-dev-main-a3oxhezgfl7aidkd",
+        "workersDev": false,
+        "customDomains": []
+      },
+      {
+        "logicalId": "vektor-apex-dashboard",
+        "workerName": "vektor-vektor-apex-dashboard-dev-main-2cyph5oa7l6qrnuf",
+        "workersDev": false,
+        "customDomains": []
+      },
+      {
+        "logicalId": "vektor-apex-worker",
+        "workerName": "vektor-vektor-apex-worker-dev-main-wkcmep3j6dfcpha7",
+        "workersDev": false,
+        "customDomains": ["vektor.phibkro.org"]
+      }
+    ],
+    "unchangedApiTunnelObservation": {
+      "url": "https://api.vektor.phibkro.org/",
+      "status": 404,
+      "xMonoWebStage": null,
+      "bodyTag": "RouteNotFound"
+    }
+  },
+  "http": [
+    { "path": "/", "status": 200, "stage": "dev-main" },
+    { "path": "/nyheter", "status": 200, "stage": "dev-main" },
+    { "path": "/login", "status": 200, "stage": "dev-main" },
+    { "path": "/dashboard", "status": 302, "location": "/login", "stage": "dev-main" },
+    { "path": "/api/health", "status": 200, "stage": "dev-main" },
+    { "path": "/dashboard/profile", "status": 200, "stage": "dev-main" },
+    { "path": "/dashboard/skoler", "status": 200, "stage": "dev-main" },
+    { "path": "/dashboard/opptaksperioder", "status": 200, "stage": "dev-main" },
+    { "path": "/dashboard/intervjufordeling", "status": 200, "stage": "dev-main" }
+  ],
+  "browser": {
+    "engine": "Chromium",
+    "viewport": { "width": 1440, "height": 900 },
+    "authenticated": true,
+    "sessionApiStatus": 200,
+    "healthApiStatus": 200,
+    "resourceOrigins": ["https://vektor.phibkro.org"],
+    "consoleErrorCountOnCleanJourney": 0,
+    "pageErrorCountOnCleanJourney": 0,
+    "nonAbortedRequestFailureCountOnCleanJourney": 0,
+    "abortedPrefetchRequestCount": 9,
+    "sessionCookies": [
+      {
+        "name": "__Secure-better-auth.session_token",
+        "domain": "vektor.phibkro.org",
+        "path": "/",
+        "secure": true,
+        "httpOnly": true,
+        "sameSite": "Lax"
+      },
+      {
+        "name": "__Secure-better-auth.session_data",
+        "domain": "vektor.phibkro.org",
+        "path": "/",
+        "secure": true,
+        "httpOnly": true,
+        "sameSite": "Lax"
+      }
+    ],
+    "bundleScan": {
+      "javascriptAssetCount": 34,
+      "containsConfiguredApexOrigin": true,
+      "containsBackendOrigin": false,
+      "containsApiAlias": false,
+      "containsLoopbackAddress": false,
+      "reactRouterFallbackLiteral": "http://localhost",
+      "reactRouterFallbackWasRuntimeDestination": false
+    }
+  },
+  "isolation": {
+    "database": "vektor_preview on 127.0.0.1:5434",
+    "backend": "127.0.0.1:8790",
+    "dataClass": "synthetic preview only",
+    "publicApplicationEffectMode": "disabled",
+    "providerTokenMaps": "empty",
+    "credentialFile": "/home/nori/.config/vektor-preview/preview-credentials.json",
+    "credentialFileMode": "0600",
+    "credentialValuesRecorded": false,
+    "rotatedCredentialAccountCount": 2,
+    "oldSessionCountImmediatelyAfterRotation": 0,
+    "retiredSourcePasswordStatus": 401,
+    "retiredSourcePasswordIssuedSessionCookie": false
+  },
+  "state": {
+    "backend": "local",
+    "provenance": "infra/alchemy/preview/apex-local-state.provenance.json",
+    "operatorBackup": "/home/nori/.local/state/vektor-preview/alchemy-state/vektor/dev-main",
+    "operatorBackupMode": "0600",
+    "remoteStateDeleted": false,
+    "retainedRemoteApexRecordCount": 3,
+    "dualControllerRiskRecorded": true
+  },
+  "screenshots": [
+    {
+      "path": "/tmp/vektor-preview-evidence-20260831-amendment/homepage.webp",
+      "sha256": "b73aa90ef055adb14563559f7abf265062ad28033f3b14695057357b0365fa30"
+    },
+    {
+      "path": "/tmp/vektor-preview-evidence-20260831-amendment/dashboard-authenticated.webp",
+      "sha256": "63eb0e9ff4eee0ab921f62178a5428ddcd6d009e6c9a67fc1c09dc2cfbc8ce79"
+    },
+    {
+      "path": "/tmp/vektor-preview-evidence-20260831-amendment/profile.webp",
+      "sha256": "86f7f34c26d2397e80d0f8d6fe1ee08ec6b66f3fb7a6da50e9f5b4e0ebd03a44"
+    },
+    {
+      "path": "/tmp/vektor-preview-evidence-20260831-amendment/organization-schools.webp",
+      "sha256": "a751b8b3c3a2fa2e7741d3a671795f6efc343f7deb3faeaffcdb6f0f39ebabff"
+    },
+    {
+      "path": "/tmp/vektor-preview-evidence-20260831-amendment/recruitment-periods.webp",
+      "sha256": "816e987850959e6713980783f6ba28650c063c0642abf75a8ba65c47eeca4e6b"
+    },
+    {
+      "path": "/tmp/vektor-preview-evidence-20260831-amendment/interview-assignment.webp",
+      "sha256": "a5d27ca9dbf35deb2a72e5f813812d0f6680305973abbc189acc7f8ac26883ed"
+    }
+  ],
+  "containsSecrets": false
+}

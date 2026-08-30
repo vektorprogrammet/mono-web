@@ -2,15 +2,16 @@
 
 ## Metadata
 
-| Field | Value |
-|---|---|
-| Stable ID | `0069` |
-| Status | Accepted operator capsule on 2026-08-31 |
-| Source base | `d150c9308ddf9dc0b54de0fb1b74bd505ba91d0f` |
-| Stage | `dev-main` |
-| Public host | `vektor.phibkro.org` |
-| Backend host | `origin-api.vektor.phibkro.org` |
-| Production host | `vektorprogrammet.no` is forbidden |
+| Field           | Value                                                                     |
+| --------------- | ------------------------------------------------------------------------- |
+| Stable ID       | `0069`                                                                    |
+| Status          | Accepted operator capsule, amended after independent review on 2026-08-31 |
+| Source base     | `d150c9308ddf9dc0b54de0fb1b74bd505ba91d0f`                                |
+| Deployed source | `b744340fe346474069c5f416d21050edb275f76f`                                |
+| Stage           | `dev-main`                                                                |
+| Public host     | `vektor.phibkro.org`                                                      |
+| Backend host    | `origin-api.vektor.phibkro.org`                                           |
+| Production host | `vektorprogrammet.no` is forbidden                                        |
 
 The operator authorized this capsule in the deployment request. This capsule changes only the apex preview contract.
 
@@ -26,17 +27,21 @@ The apex preview has these Cloudflare Workers:
 - `vektor-apex-dashboard`
 - `vektor-apex-worker`
 
-The edge Worker owns `vektor.phibkro.org`. It preserves the existing `api.vektor.phibkro.org` alias without a DNS change.
+The edge Worker owns one custom domain: `vektor.phibkro.org`. It has no custom-domain alias. All three apex Workers disable `workers.dev`.
 
 The edge Worker sends `/api`, `/api/*`, and `/health` requests to `origin-api.vektor.phibkro.org`.
 
 The browser uses only `https://vektor.phibkro.org`. Browser assets, API requests, redirects, and cookies stay on this origin.
 
-The homepage Worker and dashboard Worker use the supporting backend origin from one identity constant. They do not use a localhost URL.
+Server code uses the supporting backend origin from one identity constant. The dashboard browser uses an explicit same-origin `VITE_API_URL`. The homepage reads `API_URL` only at request runtime.
 
-The Alchemy stage uses `Alchemy.localState()`. The local state stays in the ignored `infra/alchemy/.alchemy/` directory.
+The stack maps `dev-main` only to `Alchemy.localState()`. It maps `p20` to `Cloudflare.state()`. It rejects all other stages before it selects state.
 
-The existing Cloudflare remote-state resources can remain. This capsule does not delete or change the shared state store.
+The local state stays in the ignored `infra/alchemy/.alchemy/` directory. The wrapper requires the exact three apex records before it can run Alchemy for `dev-main`.
+
+A `0600` operator backup preserves the deployed local state outside the temporary worktree. A future checkout must restore all four files and pass the wrapper identity check before a `dev-main` plan.
+
+The old Cloudflare remote-state records remain. They are stale after a local-state deployment. Operators must not use them to mutate `dev-main`. The provenance record documents this dual-controller risk.
 
 ## Existing-resource recovery
 
@@ -44,11 +49,13 @@ The operator must run the repository wrapper without `--adopt`. Alchemy can reco
 
 If Alchemy reports an unowned resource, stop the deployment. Do not use forced adoption.
 
-The plan can update only the three apex Workers. It can preserve the two existing Worker domains.
+The plan can update only the three apex Workers. The edge Worker can preserve only the apex custom domain.
 
 ## Backend isolation
 
-The backend uses the existing dedicated preview tunnel. Only `origin-api.vektor.phibkro.org` receives a tunnel DNS route.
+The backend uses the existing dedicated preview tunnel. This capsule creates, updates, or deletes no tunnel DNS route.
+
+The tunnel accepts `origin-api.vektor.phibkro.org` for server-only traffic. A pre-existing `api.vektor.phibkro.org` tunnel route is outside the edge deployment contract and stays unchanged.
 
 The tunnel service target is `http://127.0.0.1:8790`. The shared MCP tunnel stays unchanged.
 
@@ -66,13 +73,15 @@ The preview process supervisor owns PostgreSQL, the backend, and the dedicated t
 2. Run the bounded source checks.
 3. Start the isolated PostgreSQL service.
 4. Start the loopback backend service.
-5. Make sure that local health and synthetic login succeed.
-6. Start the dedicated tunnel with its restricted ingress file.
-7. Make sure that `origin-api.vektor.phibkro.org/health` returns `200`.
-8. Run the repository Alchemy plan for stage `dev-main`.
-9. Stop if the plan contains an unowned resource or an extra domain.
-10. Deploy through the repository Alchemy wrapper.
-11. Run the HTTPS browser journey on the apex host.
+5. Generate or read the synthetic identities from the operator-only `0600` credential file.
+6. Rotate both credential hashes and invalidate their old sessions.
+7. Make sure that local health and synthetic login succeed.
+8. Start the dedicated tunnel with its restricted ingress file.
+9. Make sure that `origin-api.vektor.phibkro.org/health` returns `200`.
+10. Run the repository Alchemy plan for stage `dev-main`.
+11. Stop if the plan contains an unowned resource or an extra domain.
+12. Deploy through the repository Alchemy wrapper.
+13. Run the HTTPS browser journey on the apex host.
 
 ## Acceptance
 
@@ -88,6 +97,8 @@ An anonymous `GET /dashboard` must redirect to `/login` on the apex host.
 A synthetic administrator can sign in. The browser receives a secure session cookie for the apex host.
 
 The authenticated dashboard must load from the apex host. The browser must not request localhost or another public host.
+
+Authenticated profile, organization, recruitment-period, and interview-assignment pages must load from the dashboard Worker. The bridge families `/profile`, `/recruitment`, `/interview`, and `/interview-response/*` must never fall through to the homepage Worker.
 
 The homepage must not return `503`. Chromium must report no deployment-caused console error or page error.
 
@@ -108,5 +119,7 @@ This capsule forbids these effects:
 ## Evidence
 
 The evidence must record the source commit, local-state path, Worker names, hostnames, status codes, and screenshots.
+
+`infra/alchemy/preview/apex-local-state.provenance.json` records the transfer source, the retained remote-state digests, the deployed local-state digests, and the dual-controller control.
 
 The evidence must not contain credential values, session values, or database rows.
