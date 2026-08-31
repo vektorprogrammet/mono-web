@@ -22,14 +22,8 @@ import {
   RecruitmentSchedulingBoardSchema,
 } from "@vektorprogrammet/domain/recruitment";
 import { AdmissionPeriodId } from "@vektorprogrammet/domain/admission-period";
-import {
-  DepartmentId,
-  PersonId,
-} from "@vektorprogrammet/domain/organization";
-import {
-  ApplicantIdSchema,
-  PublicApplicationIdSchema,
-} from "@vektorprogrammet/domain/application";
+import { DepartmentId, PersonId } from "@vektorprogrammet/domain/organization";
+import { ApplicantIdSchema, PublicApplicationIdSchema } from "@vektorprogrammet/domain/application";
 import {
   InterviewSchemaId,
   RecruitmentAssignmentCommandId,
@@ -165,9 +159,7 @@ const AssignmentBoardExample: any = {
       scheduledAt: null,
     },
   ],
-  interviewers: [
-    { personId: PersonId.make("1001"), displayName: "Kari Leder" },
-  ],
+  interviewers: [{ personId: PersonId.make("1001"), displayName: "Kari Leder" }],
   interviewSchemas: [
     {
       interviewSchemaId: InterviewSchemaId.make("interview-schema-1"),
@@ -250,9 +242,7 @@ const ConductObservationExample: any = {
       alternatives: [],
     },
   ],
-  answers: [
-    { questionId: "q-1", answer: "I am drawn to the study programme's breadth." },
-  ],
+  answers: [{ questionId: "q-1", answer: "I am drawn to the study programme's breadth." }],
   score: { explanatoryPower: 7, roleModel: 8, suitability: 6 },
   completionState: "Completed",
   cancellationState: "NotCancelled",
@@ -290,18 +280,19 @@ export const InvitationRejectInput = RecruitmentInvitationRejectInputSchema.anno
   examples: [{ message: "Cannot attend that day." }, {}],
 });
 
+export const InvitationRequestNewTimeInput =
+  RecruitmentInvitationRequestNewTimeInputSchema.annotate({
+    identifier: "InvitationRequestNewTimeInput",
+    description: "Short message proposing another time.",
+    examples: [{ message: "Could we do Thursday instead?" }],
+  });
 
-export const InvitationRequestNewTimeInput = RecruitmentInvitationRequestNewTimeInputSchema.annotate({
-  identifier: "InvitationRequestNewTimeInput",
-  description: "Short message proposing another time.",
-  examples: [{ message: "Could we do Thursday instead?" }],
-});
-
-export const InvitationResponseObservation = RecruitmentInvitationResponseObservationSchema.annotate({
-  identifier: "InvitationResponseObservation",
-  description: "Interview invitation state visible to the invitee.",
-  examples: [InvitationResponseObservationExample],
-});
+export const InvitationResponseObservation =
+  RecruitmentInvitationResponseObservationSchema.annotate({
+    identifier: "InvitationResponseObservation",
+    description: "Interview invitation state visible to the invitee.",
+    examples: [InvitationResponseObservationExample],
+  });
 
 export const AssignmentCommand = RecruitmentAssignmentCommandSchema.annotate({
   identifier: "AssignmentCommand",

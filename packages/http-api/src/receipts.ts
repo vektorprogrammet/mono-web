@@ -31,7 +31,8 @@ export const SubmitReceiptMultipart = Schema.Struct({
   .pipe(HttpApiSchema.asMultipart())
   .annotate({
     identifier: "SubmitReceiptMultipart",
-    description: "Receipt fields plus one JPEG, PNG, or PDF file. Multipart form-data: commandId, description, amountOre, receiptDate as text fields plus one file.",
+    description:
+      "Receipt fields plus one JPEG, PNG, or PDF file. Multipart form-data: commandId, description, amountOre, receiptDate as text fields plus one file.",
   });
 
 /**
@@ -51,7 +52,8 @@ export const ReviseReceiptMultipart = Schema.Struct({
   .pipe(HttpApiSchema.asMultipart())
   .annotate({
     identifier: "ReviseReceiptMultipart",
-    description: "Receipt revision fields and an optional replacement file. Multipart form-data: commandId, expectedRevision, description, amountOre, receiptDate as text fields plus an optional replacement file.",
+    description:
+      "Receipt revision fields and an optional replacement file. Multipart form-data: commandId, expectedRevision, description, amountOre, receiptDate as text fields plus an optional replacement file.",
   });
 
 /**

@@ -3,7 +3,11 @@
  *
  * @since 0.1.0
  */
-import { OwnProfile, UpdateOwnProfileCommand, ProfileCommandId } from "@vektorprogrammet/domain/profile";
+import {
+  OwnProfile,
+  UpdateOwnProfileCommand,
+  ProfileCommandId,
+} from "@vektorprogrammet/domain/profile";
 import { PersonId } from "@vektorprogrammet/domain/organization";
 import { Schema } from "effect";
 import { HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/unstable/httpapi";

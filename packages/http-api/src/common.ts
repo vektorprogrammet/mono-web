@@ -64,12 +64,11 @@ export const receiptErrorBody = <const Tags extends readonly [string, ...Array<s
  */
 export const RouteNotFoundResponse = Schema.Struct({
   error: Schema.Struct({ tag: Schema.Literals(["RouteNotFound"]) }),
-})
-  .annotate({
-    identifier: "RouteNotFoundResponse",
-    description: "No native route matched.",
-    examples: [{ error: { tag: "RouteNotFound" } }],
-  });
+}).annotate({
+  identifier: "RouteNotFoundResponse",
+  description: "No native route matched.",
+  examples: [{ error: { tag: "RouteNotFound" } }],
+});
 
 /**
  * Cookie security declaration for endpoints resolved through Better Auth sessions.
