@@ -10,20 +10,85 @@ import {
 } from "../../../infra/alchemy/scripts/homepage-cli";
 
 const validEnvironment = { PATH: "/usr/bin", HOME: "/tmp" };
-const standaloneDirectory = mkdtempSync(join(tmpdir(), "mono-web-alchemy-"));
-const stateDirectory = resolve(standaloneDirectory, ".alchemy/state/vektor/dev-main");
-mkdirSync(stateDirectory, { recursive: true });
-for (const logicalId of ["vektor-apex-dashboard", "vektor-apex-homepage", "vektor-apex-worker"]) {
+const logicalIds = ["vektor-apex-dashboard", "vektor-apex-homepage", "vektor-apex-worker"] as const;
+
+function writeApexStateFixture(
+  standaloneRoot: string,
+  options: { readonly crossWireDashboard?: boolean } = {},
+): string {
+  const directory = resolve(standaloneRoot, ".alchemy/state/vektor/dev-main");
+  mkdirSync(directory, { recursive: true });
+  const workerNames = {
+    "vektor-apex-dashboard": "vektor-vektor-apex-dashboard-dev-main-2222222222222222",
+    "vektor-apex-homepage": "vektor-vektor-apex-homepage-dev-main-1111111111111111",
+    "vektor-apex-worker": "vektor-vektor-apex-worker-dev-main-3333333333333333",
+  };
   writeFileSync(
-    resolve(stateDirectory, `${logicalId}.json`),
+    resolve(directory, "__stack_output__.json"),
     JSON.stringify({
-      fqn: logicalId,
-      logicalId,
-      resourceType: "Cloudflare.Worker",
-      attr: { workerName: `vektor-${logicalId}-dev-main-fixture` },
+      app: "vektor",
+      stage: "dev-main",
+      target: "apex-preview",
+      hostname: "vektor.phibkro.org",
+      previewStage: "dev-main",
+      backendHostname: "origin-api.vektor.phibkro.org",
+      url: "https://vektor.phibkro.org",
+      backendOrigin: "https://origin-api.vektor.phibkro.org",
+      stateDirectory: ".alchemy",
+      forbiddenHost: "vektorprogrammet.no",
     }),
   );
+  for (const [index, logicalId] of logicalIds.entries()) {
+    const workerName =
+      logicalId === "vektor-apex-dashboard" && options.crossWireDashboard === true
+        ? workerNames["vektor-apex-homepage"]
+        : workerNames[logicalId];
+    writeFileSync(
+      resolve(directory, `${logicalId}.json`),
+      JSON.stringify({
+        fqn: logicalId,
+        logicalId,
+        instanceId: String(index + 1).repeat(32),
+        resourceType: "Cloudflare.Worker",
+        props: {
+          isExternal: true,
+          ...(logicalId === "vektor-apex-worker"
+            ? {
+                env: {
+                  Homepage: {
+                    workerId: workerNames["vektor-apex-homepage"],
+                    workerName: workerNames["vektor-apex-homepage"],
+                  },
+                  Dashboard: {
+                    workerId: workerNames["vektor-apex-dashboard"],
+                    workerName: workerNames["vektor-apex-dashboard"],
+                  },
+                },
+              }
+            : {}),
+        },
+        attr: {
+          workerId: workerName,
+          workerName,
+          accountId: "a".repeat(32),
+          tags: ["alchemy:stack:vektor", "alchemy:stage:dev-main", `alchemy:id:${logicalId}`],
+          ...(logicalId === "vektor-apex-worker"
+            ? {
+                url: "https://vektor.phibkro.org",
+                domain: { name: "vektor.phibkro.org", aliases: [] },
+              }
+            : {}),
+        },
+        removalPolicy: "destroy",
+        providerMode: "live",
+      }),
+    );
+  }
+  return directory;
 }
+
+const standaloneDirectory = mkdtempSync(join(tmpdir(), "mono-web-alchemy-"));
+writeApexStateFixture(standaloneDirectory);
 afterAll(() => rmSync(standaloneDirectory, { recursive: true, force: true }));
 
 function captureSpawn() {
@@ -40,10 +105,42 @@ function captureSpawn() {
   return { calls, spawn };
 }
 
-it("fails closed when the dev-main local state set is absent", () => {
+it("fails closed when the dev-main local state directory is absent", () => {
   expect(() => assertApexLocalState(resolve(standaloneDirectory, "missing"))).toThrow(
-    "missing or invalid apex local state record",
+    "missing apex local state directory",
   );
+});
+
+it("rejects an extra local state JSON record", () => {
+  const root = mkdtempSync(join(tmpdir(), "mono-web-alchemy-extra-"));
+  try {
+    const directory = writeApexStateFixture(root);
+    writeFileSync(resolve(directory, "unowned-worker.json"), "{}");
+    expect(() => assertApexLocalState(root)).toThrow("file set mismatch");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("rejects a missing local stack output", () => {
+  const root = mkdtempSync(join(tmpdir(), "mono-web-alchemy-output-"));
+  try {
+    const directory = writeApexStateFixture(root);
+    rmSync(resolve(directory, "__stack_output__.json"));
+    expect(() => assertApexLocalState(root)).toThrow("file set mismatch");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("rejects a cross-wired logical ID and physical Worker", () => {
+  const root = mkdtempSync(join(tmpdir(), "mono-web-alchemy-cross-wire-"));
+  try {
+    writeApexStateFixture(root, { crossWireDashboard: true });
+    expect(() => assertApexLocalState(root)).toThrow("identity mismatch: vektor-apex-dashboard");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 describe("homepage provider wrapper", () => {

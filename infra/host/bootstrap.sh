@@ -60,6 +60,7 @@ if [[ ! -s "$CREDENTIAL_FILE" ]]; then
   log "generated synthetic preview credentials at $CREDENTIAL_FILE"
 fi
 chmod 600 "$CREDENTIAL_FILE"
+bun run "$REPO_ROOT/infra/host/preview-credentials.ts" validate "$CREDENTIAL_FILE"
 
 # --- postgres ---------------------------------------------------------------
 if [[ ! -f "$PGDATA/PG_VERSION" ]]; then
@@ -97,20 +98,13 @@ BETTER_AUTH_URL="https://vektor.phibkro.org"
 # Persons are seeded through the repo's identity runner. Password values are
 # read from the protected credential file and are never embedded in source.
 IDENTITY_SEED_PERSONS="$(
-  PREVIEW_CREDENTIAL_FILE="$CREDENTIAL_FILE" bun -e '
-    const credentials = await Bun.file(process.env.PREVIEW_CREDENTIAL_FILE).json();
-    console.log(JSON.stringify(credentials.map((credential) => ({
-      personId: credential.personId,
-      firstName: credential.role === "admin" ? "Astrid" : "Mons",
-      lastName: credential.role === "admin" ? "Apex" : "Medlem",
-      email: credential.email,
-      password: credential.password,
-    }))));
-  '
+  bun run "$REPO_ROOT/infra/host/preview-credentials.ts" seed-json "$CREDENTIAL_FILE"
 )"
 
 
+INITIAL_SEED=0
 if [[ ! -f "$STATE_DIR/.seeded" ]]; then
+  INITIAL_SEED=1
   log "applying migrations and seeding demo data (first run)"
   SEED_OUT="$(cd "$REPO_ROOT/packages/database" && \
     IDENTITY_SEED_PG_URL="$DATABASE_URL" \
@@ -131,7 +125,6 @@ if [[ ! -f "$STATE_DIR/.seeded" ]]; then
 SQL
   printf '%s\n' "$SEED_OUT" >"$STATE_DIR/identity-seed.json"
   printf '%s\n' "$DATABASE_URL" >"$STATE_DIR/db-url.txt"
-  : >"$STATE_DIR/.seeded"
 else
   log "database already seeded; skipping (delete $STATE_DIR/.seeded to force)"
 fi
@@ -139,7 +132,7 @@ fi
 CREDENTIAL_DIGEST="$(sha256sum "$CREDENTIAL_FILE")"
 CREDENTIAL_DIGEST="${CREDENTIAL_DIGEST%% *}"
 CREDENTIAL_MARKER="$CONFIG_DIR/preview-credentials.sha256"
-if [[ ! -f "$CREDENTIAL_MARKER" ]] || [[ "$(cat "$CREDENTIAL_MARKER")" != "$CREDENTIAL_DIGEST" ]]; then
+if [[ "$INITIAL_SEED" == 1 ]] || [[ ! -f "$CREDENTIAL_MARKER" ]] || [[ "$(cat "$CREDENTIAL_MARKER")" != "$CREDENTIAL_DIGEST" ]]; then
   log "rotating synthetic preview credentials and invalidating prior sessions"
   PREVIEW_CREDENTIAL_FILE="$CREDENTIAL_FILE" \
     BACKEND_PG_URL="$DATABASE_URL" \
@@ -147,4 +140,8 @@ if [[ ! -f "$CREDENTIAL_MARKER" ]] || [[ "$(cat "$CREDENTIAL_MARKER")" != "$CRED
     bun run "$REPO_ROOT/infra/host/rotate-preview-credentials.ts"
   printf '%s\n' "$CREDENTIAL_DIGEST" >"$CREDENTIAL_MARKER"
   chmod 600 "$CREDENTIAL_MARKER"
+fi
+
+if [[ "$INITIAL_SEED" == 1 ]]; then
+  : >"$STATE_DIR/.seeded"
 fi

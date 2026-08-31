@@ -1,35 +1,5 @@
-import { readFileSync, statSync } from "node:fs";
 import { makeAuthEngine, makeAuthPool } from "../../packages/database/src/auth-engine.ts";
-
-interface PreviewCredential {
-  readonly email: string;
-  readonly password: string;
-  readonly personId: string;
-  readonly role: "admin" | "member";
-}
-
-function requireCredential(value: unknown, index: number): PreviewCredential {
-  if (typeof value !== "object" || value === null) {
-    throw new Error(`credential ${index} must be an object`);
-  }
-  const record = value as Record<string, unknown>;
-  if (
-    typeof record.email !== "string" ||
-    !record.email.endsWith("@example.invalid") ||
-    typeof record.password !== "string" ||
-    record.password.length < 16 ||
-    typeof record.personId !== "string" ||
-    (record.role !== "admin" && record.role !== "member")
-  ) {
-    throw new Error(`credential ${index} is invalid`);
-  }
-  return {
-    email: record.email,
-    password: record.password,
-    personId: record.personId,
-    role: record.role,
-  };
-}
+import { readPreviewCredentials } from "./preview-credentials.ts";
 
 const credentialFile = process.env.PREVIEW_CREDENTIAL_FILE;
 const postgresUrl = process.env.BACKEND_PG_URL;
@@ -38,18 +8,7 @@ const baseURL = process.env.BETTER_AUTH_URL;
 if (!credentialFile || !postgresUrl || !secret || !baseURL) {
   throw new Error("preview credential rotation environment is incomplete");
 }
-if ((statSync(credentialFile).mode & 0o077) !== 0) {
-  throw new Error("preview credential file must not be group- or world-readable");
-}
-
-const parsed = JSON.parse(readFileSync(credentialFile, "utf8")) as unknown;
-if (!Array.isArray(parsed) || parsed.length !== 2) {
-  throw new Error("preview credential file must contain exactly two identities");
-}
-const credentials = parsed.map(requireCredential);
-if (new Set(credentials.map(({ role }) => role)).size !== 2) {
-  throw new Error("preview credential file must contain one admin and one member");
-}
+const credentials = readPreviewCredentials(credentialFile);
 
 const pool = makeAuthPool({ postgresUrl, secret, baseURL });
 const engine = makeAuthEngine({ postgresUrl, secret, baseURL }, pool);

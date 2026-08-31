@@ -84,4 +84,47 @@ describe("apex edge worker", () => {
     );
     expect(response.headers.get("x-mono-web-stage")).toBe("dev-main");
   });
+
+  it.each([
+    ["/dashboard?from=backend#ready", "https://vektor.phibkro.org/dashboard?from=backend#ready"],
+    ["profile?from=backend", "https://vektor.phibkro.org/profile?from=backend"],
+  ])("rewrites accepted relative redirect %s", async (location, expected) => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(null, { status: 302, headers: { location } })),
+    );
+
+    const response = await worker.fetch(apexRequest("/api/redirect"), apexEnv());
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get("location")).toBe(expected);
+  });
+
+  it.each([
+    `${BACKEND_ORIGIN}@evil.example.invalid/path`,
+    `${BACKEND_ORIGIN}.evil.example.invalid/path`,
+    "//evil.example.invalid/path",
+    "https://preview-user@origin-api.vektor.phibkro.org/path",
+  ])("fails closed for hostile backend redirect %s", async (location) => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(null, {
+            status: 302,
+            headers: {
+              location,
+              "set-cookie": "session=must-not-escape; Path=/; Secure; HttpOnly",
+            },
+          }),
+      ),
+    );
+
+    const response = await worker.fetch(apexRequest("/api/redirect"), apexEnv());
+
+    expect(response.status).toBe(502);
+    expect(response.headers.get("location")).toBeNull();
+    expect(response.headers.get("set-cookie")).toBeNull();
+    expect(response.headers.get("x-mono-web-stage")).toBe("dev-main");
+  });
 });

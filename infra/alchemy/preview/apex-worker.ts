@@ -28,24 +28,45 @@ export interface ApexWorkerEnv {
  * not own that hostname.
  */
 export const BACKEND_ORIGIN = APEX_IDENTITY.backendOrigin;
+const APEX_ORIGIN = `https://${APEX_IDENTITY.hostname}`;
 
 const ALLOWED_HOSTS: Record<string, true> = {
   [APEX_IDENTITY.hostname]: true,
 };
 
 /**
- * The backend answers with a Location header relative to its own
- * BETTER_AUTH_URL; rewrite absolute redirects back onto the apex origin.
+ * Rewrite only redirects that resolve to the exact backend origin. Relative
+ * redirects are accepted, but authority-relative and hostile absolute URLs
+ * fail closed before any Location or Set-Cookie header reaches the browser.
  */
 const proxyResponse = (backendResponse: Response): Response => {
   const headers = new Headers(backendResponse.headers);
   headers.set("x-robots-tag", "noindex");
   headers.set("cache-control", headers.get("cache-control") ?? "no-store");
   const location = headers.get("location");
-  if (location !== null && location.startsWith(BACKEND_ORIGIN)) {
+  if (location !== null) {
+    let redirect: URL;
+    try {
+      redirect = new URL(location, `${BACKEND_ORIGIN}/`);
+    } catch {
+      return new Response("Blocked invalid backend redirect", {
+        status: 502,
+        headers: { "cache-control": "no-store", "x-robots-tag": "noindex" },
+      });
+    }
+    if (
+      redirect.origin !== BACKEND_ORIGIN ||
+      redirect.username.length > 0 ||
+      redirect.password.length > 0
+    ) {
+      return new Response("Blocked untrusted backend redirect", {
+        status: 502,
+        headers: { "cache-control": "no-store", "x-robots-tag": "noindex" },
+      });
+    }
     headers.set(
       "location",
-      `https://${APEX_IDENTITY.hostname}${location.slice(BACKEND_ORIGIN.length)}`,
+      new URL(`${redirect.pathname}${redirect.search}${redirect.hash}`, APEX_ORIGIN).href,
     );
   }
   return new Response(backendResponse.body, {

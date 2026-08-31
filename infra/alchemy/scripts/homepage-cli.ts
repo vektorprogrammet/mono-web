@@ -1,8 +1,9 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { spawnSync as nodeSpawnSync } from "node:child_process";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { APEX_LOCAL_STATE_LOGICAL_IDS } from "../preview/state-contract.ts";
+import { APEX_IDENTITY } from "../preview/identity.ts";
 
 export type CloudCommand = "plan" | "deploy" | "destroy";
 
@@ -166,30 +167,136 @@ export function rejectAmbientSelectors(env: NodeJS.ProcessEnv): void {
   }
 }
 
+interface ApexLocalStateRecord {
+  readonly fqn?: unknown;
+  readonly logicalId?: unknown;
+  readonly instanceId?: unknown;
+  readonly resourceType?: unknown;
+  readonly props?: {
+    readonly env?: Record<string, unknown>;
+    readonly isExternal?: unknown;
+  };
+  readonly attr?: {
+    readonly accountId?: unknown;
+    readonly domain?: { readonly aliases?: unknown; readonly name?: unknown };
+    readonly tags?: unknown;
+    readonly url?: unknown;
+    readonly workerId?: unknown;
+    readonly workerName?: unknown;
+  };
+  readonly providerMode?: unknown;
+  readonly removalPolicy?: unknown;
+}
+
 export function assertApexLocalState(standaloneDirectory: string): void {
   const stateDirectory = resolve(standaloneDirectory, ".alchemy/state/vektor/dev-main");
+  const expectedFiles = [
+    "__stack_output__.json",
+    ...APEX_LOCAL_STATE_LOGICAL_IDS.map((logicalId) => `${logicalId}.json`),
+  ].sort();
+  let actualFiles: string[];
+  try {
+    actualFiles = readdirSync(stateDirectory)
+      .filter((name) => name.endsWith(".json"))
+      .sort();
+  } catch {
+    throw new Error("missing apex local state directory");
+  }
+  if (JSON.stringify(actualFiles) !== JSON.stringify(expectedFiles)) {
+    throw new Error("apex local state file set mismatch");
+  }
+
+  const expectedOutput: Record<string, string> = {
+    app: APEX_IDENTITY.app,
+    backendHostname: APEX_IDENTITY.backendHostname,
+    backendOrigin: APEX_IDENTITY.backendOrigin,
+    forbiddenHost: APEX_IDENTITY.forbiddenHost,
+    hostname: APEX_IDENTITY.hostname,
+    previewStage: APEX_IDENTITY.stage,
+    stage: APEX_IDENTITY.stage,
+    stateDirectory: APEX_IDENTITY.localStateDirectory,
+    target: APEX_IDENTITY.target,
+    url: `https://${APEX_IDENTITY.hostname}`,
+  };
+  let stackOutput: Record<string, unknown>;
+  try {
+    stackOutput = JSON.parse(
+      readFileSync(resolve(stateDirectory, "__stack_output__.json"), "utf8"),
+    ) as Record<string, unknown>;
+  } catch {
+    throw new Error("invalid apex local stack output");
+  }
+  if (
+    JSON.stringify(Object.keys(stackOutput).sort()) !==
+      JSON.stringify(Object.keys(expectedOutput).sort()) ||
+    Object.entries(expectedOutput).some(([name, value]) => stackOutput[name] !== value)
+  ) {
+    throw new Error("apex local stack output identity mismatch");
+  }
+
+  const records = new Map<string, ApexLocalStateRecord>();
+  let accountId: string | undefined;
   for (const logicalId of APEX_LOCAL_STATE_LOGICAL_IDS) {
-    const stateFile = resolve(stateDirectory, `${logicalId}.json`);
-    let record: {
-      readonly fqn?: unknown;
-      readonly logicalId?: unknown;
-      readonly resourceType?: unknown;
-      readonly attr?: { readonly workerName?: unknown };
-    };
+    let record: ApexLocalStateRecord;
     try {
-      record = JSON.parse(readFileSync(stateFile, "utf8")) as typeof record;
+      record = JSON.parse(
+        readFileSync(resolve(stateDirectory, `${logicalId}.json`), "utf8"),
+      ) as typeof record;
     } catch {
-      throw new Error(`missing or invalid apex local state record: ${logicalId}`);
+      throw new Error(`invalid apex local state record: ${logicalId}`);
     }
+    const workerName = record.attr?.workerName;
+    const expectedTags = [
+      "alchemy:stack:vektor",
+      `alchemy:stage:${APEX_IDENTITY.stage}`,
+      `alchemy:id:${logicalId}`,
+    ];
     if (
       record.fqn !== logicalId ||
       record.logicalId !== logicalId ||
+      typeof record.instanceId !== "string" ||
+      !/^[a-f0-9]{32}$/u.test(record.instanceId) ||
       record.resourceType !== "Cloudflare.Worker" ||
-      typeof record.attr?.workerName !== "string" ||
-      !record.attr.workerName.startsWith("vektor-vektor-apex-")
+      record.props?.isExternal !== true ||
+      record.providerMode !== "live" ||
+      record.removalPolicy !== "destroy" ||
+      typeof workerName !== "string" ||
+      record.attr?.workerId !== workerName ||
+      !new RegExp(`^vektor-${logicalId}-${APEX_IDENTITY.stage}-[a-z0-9]{16}$`, "u").test(
+        workerName,
+      ) ||
+      JSON.stringify(record.attr?.tags) !== JSON.stringify(expectedTags) ||
+      typeof record.attr?.accountId !== "string" ||
+      !/^[a-f0-9]{32}$/u.test(record.attr.accountId)
     ) {
       throw new Error(`apex local state identity mismatch: ${logicalId}`);
     }
+    if (accountId !== undefined && record.attr.accountId !== accountId) {
+      throw new Error("apex local state account ownership mismatch");
+    }
+    accountId = record.attr.accountId;
+    records.set(logicalId, record);
+  }
+
+  const edge = records.get("vektor-apex-worker");
+  const homepageName = records.get("vektor-apex-homepage")?.attr?.workerName;
+  const dashboardName = records.get("vektor-apex-dashboard")?.attr?.workerName;
+  const homepageBinding = edge?.props?.env?.Homepage as
+    | { readonly workerId?: unknown; readonly workerName?: unknown }
+    | undefined;
+  const dashboardBinding = edge?.props?.env?.Dashboard as
+    | { readonly workerId?: unknown; readonly workerName?: unknown }
+    | undefined;
+  if (
+    homepageBinding?.workerId !== homepageName ||
+    homepageBinding?.workerName !== homepageName ||
+    dashboardBinding?.workerId !== dashboardName ||
+    dashboardBinding?.workerName !== dashboardName ||
+    edge?.attr?.url !== `https://${APEX_IDENTITY.hostname}` ||
+    edge?.attr?.domain?.name !== APEX_IDENTITY.hostname ||
+    JSON.stringify(edge?.attr?.domain?.aliases) !== "[]"
+  ) {
+    throw new Error("apex local state binding identity mismatch");
   }
 }
 
