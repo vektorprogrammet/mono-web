@@ -17,11 +17,12 @@
 
 ## Goal
 
-The live preview (future operator run) and any local rehearsal can reach one coherent scenario:
-one department, one team with members, active plus inactive schools, one open admission period,
-one applicant with an application, one assigned interview, one pending receipt, and one draft plus
-one published article. Everything enters through native domain boundaries the application already
-uses. No raw business SQL, no unrelated fixture tables, no production effect.
+The local rehearsal produces one coherent admissions journey: an open period, one application, one
+assigned interview, one pending receipt, and one draft plus one published article. It also produces
+native Trondheim, Bergen, and Ås display rows with a native Rekruttering team. Membership authority
+uses one legacy-imported Trondheim/Rekruttering cohort because the importer maps numeric legacy IDs
+to string IDs and cannot target native command-derived hashes. Evidence records this reconciliation
+boundary. There are no unrecorded business-table inserts and no production effect.
 
 ## Operator steering (legacy-shaped content)
 
@@ -51,8 +52,8 @@ its legacy counterpart route (from `evidence/functional-parity/mono-routes.json`
 | --- | ----------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- | --------------------------------------------- | ---------------------------------------------------------------------------- |
 | 1   | Identity persons (leader, member, interviewer, applicant-owner, author) | `identity:seed` (better-auth engine, caller-supplied IDs)                                                                     | person insert `ON CONFLICT DO NOTHING`; auth user skipped by id/email | login                                         | `/login`                                                                     |
 | 2   | Department(s) Trondheim/Bergen/Ås                                       | `POST /api/admin/departments` (native Organization administration)                                                            | fixed synthetic IDs + command receipts                                | `/dashboard/team`                             | `GET /kontrollpanel/avdelingadmin`                                           |
-| 3   | Teams (IT, Rekruttering, Skolekoordinering)                             | `POST /api/admin/teams`                                                                                                       | fixed synthetic IDs + command receipts                                | `/dashboard/team`                             | `GET /kontrollpanel/teamadmin/team/{id}`                                     |
-| 4   | Memberships (Leder + Medlemmer)                                         | `Organization.importLegacyOrganization` (established import/classification path - no native membership-create command exists) | import ledger replay of one fixed snapshot                            | `/dashboard/team`, `/dashboard/brukere`       | `GET /kontrollpanel/teamadmin/avdeling/{id}`                                 |
+| 3   | Team `Rekruttering`                                                     | `POST /api/admin/teams`                                                                                                       | fixed synthetic ID + command receipt                                  | `/dashboard/team`                             | `GET /kontrollpanel/teamadmin/team/{id}`                                     |
+| 4   | Memberships (`Leder` + `Medlemmer`) in the imported authority cohort    | `Organization.importLegacyOrganization` (established import/classification path - no native membership-create command exists) | exact fixed snapshot replay                                           | `/dashboard/team`, `/dashboard/brukere`       | `GET /kontrollpanel/teamadmin/avdeling/{id}`                                 |
 | 5   | Admission semester row                                                  | named prerequisite insert (`admission_period_semesters` has no native command; 0049 journey-seed precedent)                   | fixed ID + read-back                                                  | -                                             | `ANY /kontrollpanel/semesteradmin` (no native equivalent yet - recorded gap) |
 | 6   | Open admission period (Trondheim)                                       | `POST /api/admin/admission-periods` (`CreateAdmissionPeriod`)                                                                 | command receipt; replay returns `replayed: true`                      | `/dashboard/opptaksperioder`                  | `GET/POST /kontrollpanel/opptaksperiode`                                     |
 | 7   | Applicant + application                                                 | `POST /api/applications` (public application submit)                                                                          | fixed `commandId` receipt                                             | `/dashboard/sokere`                           | `POST /kontrollpanel/opprettsoker`                                           |
@@ -60,44 +61,47 @@ its legacy counterpart route (from `evidence/functional-parity/mono-routes.json`
 | 9   | Pending receipt                                                         | `POST /api/receipts/submit` (multipart, payment authority prerequisite)                                                       | submission command receipt; replay `replayed: true`                   | `/dashboard/mine-utlegg`, `/dashboard/utlegg` | `GET /kontrollpanel/utlegg`, `POST /utlegg/rediger/{receipt}`                |
 | 10  | Draft article                                                           | `POST /api/admin/content/articles` (`CreateDraft`)                                                                            | publication command receipt                                           | `/dashboard/artikler`                         | `GET /kontrollpanel/artikkeladmin`                                           |
 | 11  | Published article                                                       | `POST /api/admin/content/articles/{id}/publish`                                                                               | publication command receipt                                           | `/dashboard/artikler`, public `/nyheter`      | `POST /kontrollpanel/artikkeladmin/opprett`                                  |
-| 12  | Schools active + inactive                                               | explicit skip: directory has no native write command - rows are seeded inserts with the reason recorded, never silent         | fixed `school_id`s, `ON CONFLICT DO NOTHING`                          | `/dashboard/skoler`                           | `GET /kontrollpanel/skoleadmin`, public `GET /skoler`                        |
+| 12  | Schools directory                                                       | explicit skip: no native write command exists; no directory rows are fabricated                                               | skip reason in evidence                                               | `/dashboard/skoler`                           | `GET /kontrollpanel/skoleadmin`, public `GET /skoler`                        |
 
 Payment authority (`economy_payment_authorities`) is a named prerequisite for element 9 (no native
 command creates it); the receipt itself goes through the native submit command.
 
+The imported authority cohort has department ID `1` and team ID `11`. The native administration
+commands derive hashed entity IDs. The current importer has no destination-ID reconciliation map,
+so the runner does not rewrite either side with raw SQL. It records this boundary explicitly while
+the application, interview, receipt, and article journey remains coherent inside the imported
+authority scope.
+
 ## Runner design
 
-`infra/host/preview-scenario.ts` (single Bun entrypoint, Effect program), composed from existing
-pieces - no new abstractions:
+`infra/host/preview-scenario.ts` is one Bun entrypoint composed from existing boundaries:
 
-1. Assert the PostgreSQL URL is loopback and the port is the disposable one (default `5435`).
-2. Apply migrations through `DatabaseLive` (same layer every capability uses) and assert
-   `databaseSchemaRevision === "23_declarative-authorization-rules"`.
-3. Compose the live Layers exactly as `apps/backend/src/main.ts` does
-   (`DatabaseLive`, `AdmissionsLive`, `EconomyLive`, `OrganizationLive`, `ProfileLive`,
-   `SchoolsLive`, `ContentManagementLive`, `ContentLive`, `RecruitmentLive`, `AuthLive`).
-4. Execute elements 1-11 through the real router boundary
-   (`makeBackendHttp` over `Bun.serve` on an ephemeral loopback port, real better-auth handler for
-   session cookies from the identity-seeded credentials). Real sign-in, real session resolution -
-   no test Identity layer, no token shortcuts.
-5. Insert only the named prerequisites (semester row, payment authority, schools rows) and record
-   each with its reason.
-6. After every write, read the fresh state back through the native read endpoints and assert the
-   expected value before continuing.
-7. Emit one evidence JSON artifact: element-by-element status, native observation bodies, table
-   counts, replay results, skip reasons, and a `legacyAlignment` map (element -> legacy route).
+1. Reject non-PostgreSQL URLs, non-loopback hosts, shared preview port `5434`, and database names
+   that do not contain `preview` or `scenario`.
+2. Run `identity:seed`; its `DatabaseLive` applies migrations. Read back migration
+   `23_declarative-authorization-rules` and all six person IDs.
+3. Call `Organization.importLegacyOrganization` through `OrganizationLive` and `DatabaseLive` for
+   the fixed membership authority snapshot.
+4. Insert only named prerequisites that have no native command: global-administrator authority,
+   admissions authority rows, payment authority, and interview schema. Record every reason.
+5. Start the real backend on loopback port `8872`, sign in through Better Auth, and execute the
+   native HTTP routes for departments, team, admission period, application, assignment, receipt,
+   draft, and publish.
+6. Read back every required state after its write, including the exact assignment receipt,
+   `Pending` receipt status, and article version `1`.
+7. Emit one evidence JSON artifact with step status, table counts, replay results, skip reasons,
+   and a `legacyAlignment` map.
 
 ## Falsifiers
 
-1. **Duplicate-safe re-run:** running the runner twice must change zero business-table counts and
-   return `replayed: true` observations; any duplicate row fails the run.
-2. **No silent mock/skip:** an element without a native command path must appear in the evidence
-   with `status: "skipped"` (or `status: "seeded"` for school rows) plus the exact missing
-   capability; a fabricated success is a falsifier.
-3. **Fresh reads:** every write must be verified by a read that happens after the write in the
-   same run; pre-recorded expectations are rejected.
-4. **No production hosts:** the runner rejects any non-loopback PostgreSQL host and any hostname
-   matching `vektorprogrammet.no`; the shared preview DB (5434) and tunnel are never touched.
+1. **Duplicate-safe re-run:** the second invocation reports every command step as `replayed` and
+   changes zero business-table counts; any duplicate row fails the run.
+2. **No silent mock/skip:** any surface without a native command path appears in evidence with its
+   exact missing capability. A fabricated success is a falsifier.
+3. **Fresh reads:** every required state is verified after its write in the same invocation;
+   pre-recorded expectations are rejected.
+4. **No production hosts:** the runner rejects non-loopback PostgreSQL, shared preview port `5434`,
+   and unsafe database names. The tunnel and production hosts are never touched.
 5. **No PGlite/SQLite/in-memory store** - real PostgreSQL only (spec 0067 rule reused).
 
 ## Non-goals
@@ -113,8 +117,8 @@ pieces - no new abstractions:
 1. `bun run infra/host/preview-scenario.ts` twice against a fresh disposable PostgreSQL on port
    5435 exits 0 both times with identical business-table counts and `replayed: true` on the second
    run.
-2. The evidence artifact shows every inventory element present with the expected state and its
-   legacy-route counterpart recorded.
-3. One or two existing dashboard journeys (schools directory, recruitment assignment) pass
-   against the seeded topology, heavy jobs run one at a time.
-4. The disposable cluster is torn down after evidence capture; the worktree stays clean.
+2. The evidence artifact shows every supported inventory element in its expected state, records
+   every explicit skip, and includes the legacy-route counterpart map.
+3. The focused safety tests pass, and the runner itself exercises the real Better Auth and native
+   API journeys against PostgreSQL.
+4. The disposable cluster is stopped after evidence capture; the worktree stays clean.
