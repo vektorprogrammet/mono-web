@@ -19,6 +19,18 @@ export default Alchemy.Stack(
       command: "bun run build",
       cwd: "../../apps/docs",
       outdir: "dist/public",
+      memo: {
+        include: [
+          "**/*",
+          "../../design-specs/**/*.md",
+          "../../evidence/**/*",
+          "../../STATE.md",
+          "../../apps/backend/src/**/*",
+          "../../apps/dashboard/app/**/*",
+          "../../packages/**/*",
+        ],
+        lockfile: true,
+      },
     });
 
     const site = yield* Cloudflare.Worker(DOCS_IDENTITY.logicalId, {
