@@ -1,3 +1,8 @@
+/**
+ * Client schema for public contact-message input.
+ *
+ * @since 0.2.0
+ */
 import { Schema } from "effect";
 import { DepartmentId } from "./organization.js";
 

@@ -1,3 +1,8 @@
+/**
+ * Public schemas for receipt commands, lifecycle state, and observations.
+ *
+ * @since 0.1.0
+ */
 import { Schema } from "effect";
 import { Model } from "effect/unstable/schema";
 import { DepartmentId, PersonId } from "../organization/schema.js";

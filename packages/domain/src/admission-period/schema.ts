@@ -1,3 +1,8 @@
+/**
+ * Public identities, models, commands, and observations for admission periods.
+ *
+ * @since 0.1.0
+ */
 import { Schema } from "effect";
 import { Model } from "effect/unstable/schema";
 import { DepartmentId, PersonId, SemesterId } from "../organization/schema.js";

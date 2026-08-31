@@ -1,3 +1,8 @@
+/**
+ * Client schemas for admission-period management and public listings.
+ *
+ * @since 0.2.0
+ */
 import { Schema } from "effect";
 
 const NonEmpty = Schema.NonEmptyString;

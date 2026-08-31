@@ -1,3 +1,8 @@
+/**
+ * Public schemas for recruitment assignment, scheduling, conduct, and invitation responses.
+ *
+ * @since 0.1.0
+ */
 import { Schema, SchemaGetter } from "effect";
 import { Model } from "effect/unstable/schema";
 import {

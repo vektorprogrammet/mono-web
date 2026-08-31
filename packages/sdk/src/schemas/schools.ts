@@ -1,3 +1,8 @@
+/**
+ * Client schemas for school directory filters and results.
+ *
+ * @since 0.2.0
+ */
 import { Schema } from "effect";
 import { DepartmentId } from "./organization.js";
 

@@ -1,8 +1,8 @@
 /**
  * Effect-native entrypoint for the SDK.
- * Consumers who use Effect directly import from "@vektorprogrammet/sdk/effect".
+ * Consumers who use Effect directly import from `@vektorprogrammet/sdk/effect`.
  *
- * Methods return Effect<A, InternalSdkError> directly — no Promise wrapping.
+ * Methods return `Effect<A, InternalSdkError>` directly, without Promise wrapping.
  */
 
 import { apiUrl } from "./config.js";
@@ -346,6 +346,12 @@ export type {
 
 // --- Client options ---
 
+/**
+ * Transport options for the Effect SDK client.
+ *
+ * @category Client
+ * @since 0.2.0
+ */
 export type ClientOptions = {
   cookie?: CookieOption;
   fetch?: FetchCapability;
@@ -353,6 +359,14 @@ export type ClientOptions = {
 
 // --- Effect client factory ---
 
+/**
+ * Creates an Effect-native SDK client for one API base URL.
+ *
+ * Methods retain typed Effect success and failure channels.
+ *
+ * @category Client
+ * @since 0.2.0
+ */
 export function createEffectClient(baseUrl: string | undefined, options?: ClientOptions) {
   const transport = createTransport(baseUrl, options?.cookie, options?.fetch);
 
@@ -389,14 +403,23 @@ export function createEffectClient(baseUrl: string | undefined, options?: Client
     },
   };
 }
+
 /**
  * Creates an Effect SDK client from SDK-owned runtime configuration.
  *
- * A cookie option carries the exact server-side Cookie header; actor and grant
- * authority remain server-owned.
+ * A cookie option carries the exact server-side Cookie header. Actor and grant authority remain server-owned.
+ *
+ * @category Client
+ * @since 0.2.0
  */
 export function createConfiguredEffectClient(options?: ClientOptions) {
   return createEffectClient(apiUrl, options);
 }
 
+/**
+ * Public Effect SDK surface returned by `createEffectClient`.
+ *
+ * @category Client
+ * @since 0.2.0
+ */
 export type EffectSdk = ReturnType<typeof createEffectClient>;

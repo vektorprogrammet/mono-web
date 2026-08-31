@@ -1,3 +1,8 @@
+/**
+ * Composition of all Vektor-owned native HTTP groups.
+ *
+ * @since 0.1.0
+ */
 import { HttpApi, OpenApi } from "effect/unstable/httpapi";
 import { AdmissionsApi } from "./admissions.js";
 import { ContentApi } from "./content.js";

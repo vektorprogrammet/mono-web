@@ -1,3 +1,8 @@
+/**
+ * Portable Economy service contract for receipt lifecycle operations.
+ *
+ * @since 0.1.0
+ */
 import { Context, Effect } from "effect";
 import type { OrganizationAuthorityInstant } from "../organization/authority.js";
 import type { PersonId } from "../organization/schema.js";

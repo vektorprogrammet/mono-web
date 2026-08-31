@@ -1,3 +1,8 @@
+/**
+ * Public HTTP contracts for administrative directory reads.
+ *
+ * @since 0.1.0
+ */
 import { DepartmentId } from "@vektorprogrammet/domain/organization";
 import { SchoolDirectorySchema } from "@vektorprogrammet/domain/schools";
 import { Schema } from "effect";

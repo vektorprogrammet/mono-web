@@ -1,3 +1,8 @@
+/**
+ * Shared collection and public-site schemas for SDK consumers.
+ *
+ * @since 0.2.0
+ */
 import { Schema } from "effect";
 
 // --- Page (generic collection response, post-Hydra-unwrap) ---

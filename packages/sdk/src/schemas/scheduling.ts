@@ -1,3 +1,8 @@
+/**
+ * Client projections for scheduling assistants and substitutes.
+ *
+ * @since 0.2.0
+ */
 import { Schema } from "effect";
 
 export class SchedulingAssistant extends Schema.Class<SchedulingAssistant>("SchedulingAssistant")({

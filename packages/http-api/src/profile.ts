@@ -1,3 +1,8 @@
+/**
+ * Public HTTP contracts for the current user's profile.
+ *
+ * @since 0.1.0
+ */
 import { OwnProfile, UpdateOwnProfileCommand } from "@vektorprogrammet/domain/profile";
 import { Schema } from "effect";
 import { HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/unstable/httpapi";

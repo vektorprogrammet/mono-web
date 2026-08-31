@@ -1,3 +1,8 @@
+/**
+ * Dataset decoding and authority projections for migration analysis.
+ *
+ * @since 0.1.0
+ */
 import { Effect, Result, Schema } from "effect";
 import { DomainFileSystem, joinPath, readTextFile } from "./runtime-services.js";
 import {

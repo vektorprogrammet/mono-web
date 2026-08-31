@@ -388,6 +388,12 @@ export type {
 
 // --- Client options ---
 
+/**
+ * Transport options for the Promise SDK client.
+ *
+ * @category Client
+ * @since 0.2.0
+ */
 export type ClientOptions = {
   cookie?: CookieOption;
   fetch?: FetchCapability;
@@ -425,6 +431,14 @@ function promisifyDomain<T extends object>(
 }
 
 // --- Client factory ---
+/**
+ * Creates the default Promise SDK client.
+ *
+ * The optional fetch capability supports server runtimes and deterministic tests.
+ *
+ * @category Client
+ * @since 0.2.0
+ */
 export function createClient(baseUrl: string | undefined, options?: ClientOptions) {
   const transport = createTransport(baseUrl, options?.cookie);
 
@@ -465,6 +479,12 @@ export function createClient(baseUrl: string | undefined, options?: ClientOption
   };
 }
 
+/**
+ * Public Promise SDK surface returned by `createClient`.
+ *
+ * @category Client
+ * @since 0.2.0
+ */
 export type Sdk = ReturnType<typeof createClient>;
 
 export type { AdminUsersPage, AdminUsersResult, DirectoryEntry } from "./domains/admin/users.js";

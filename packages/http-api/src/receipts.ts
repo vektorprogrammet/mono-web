@@ -1,3 +1,8 @@
+/**
+ * Public and internal HTTP contracts for receipt lifecycle operations.
+ *
+ * @since 0.1.0
+ */
 import {
   ReceiptId,
   ReceiptObservationSchema,

@@ -1,3 +1,8 @@
+/**
+ * Abstract file-system and process requirements for portable domain programs.
+ *
+ * @since 0.1.0
+ */
 import { Context, Effect } from "effect";
 
 export interface DomainFileSystemShape {

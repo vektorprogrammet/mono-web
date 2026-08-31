@@ -1,3 +1,8 @@
+/**
+ * Client schemas for organization identities, commands, and projections.
+ *
+ * @since 0.2.0
+ */
 import { Schema } from "effect";
 import { Rfc3339InstantSchema } from "./admission-period.js";
 

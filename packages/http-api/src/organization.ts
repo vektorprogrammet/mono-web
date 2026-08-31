@@ -1,3 +1,8 @@
+/**
+ * Public HTTP contracts for organization queries and commands.
+ *
+ * @since 0.1.0
+ */
 import {
   CreateDepartmentCommandSchema,
   CreateDepartmentResultSchema,

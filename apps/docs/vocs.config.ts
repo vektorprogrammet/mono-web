@@ -1,4 +1,4 @@
-import { defineConfig } from "vocs/config";
+import { defineConfig, OpenApi } from "vocs/config";
 
 const repository = "https://github.com/vektorprogrammet/mono-web";
 
@@ -21,8 +21,18 @@ export default defineConfig({
       prefix: true,
     },
   },
+  openapi: [
+    OpenApi.from({
+      spec: "../../packages/http-api/openapi.json",
+      path: "/reference/native-api",
+      sidebar: {
+        top: [{ text: "Routes & API overview", link: "/reference/routes-and-api" }],
+        bottom: [{ text: "Code reference", link: "/reference/code" }],
+      },
+    }),
+  ],
   editLink: {
-    link: `${repository}/edit/feat/0075-migration-docs/apps/docs/:path`,
+    link: `${repository}/edit/main/apps/docs/:path`,
     text: "Suggest a source change",
   },
   socials: [
@@ -67,6 +77,8 @@ export default defineConfig({
       text: "Reference",
       items: [
         { text: "Routes & API", link: "/reference/routes-and-api" },
+        { text: "Native API reference", link: "/reference/native-api" },
+        { text: "Code reference", link: "/reference/code" },
         { text: "Migration state", link: "/reference/migration-state" },
         { text: "Runtime graph", link: "/reference/runtime-graph" },
         { text: "Effect runtime rules", link: "/reference/effect-runtime-rules" },

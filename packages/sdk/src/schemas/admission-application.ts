@@ -1,3 +1,8 @@
+/**
+ * Client schemas for public application submission and confirmation.
+ *
+ * @since 0.2.0
+ */
 import { Schema } from "effect";
 import { Rfc3339Instant } from "./admission-period.js";
 

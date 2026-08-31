@@ -1,3 +1,8 @@
+/**
+ * Client schemas for recruitment assignment, scheduling, and interviews.
+ *
+ * @since 0.2.0
+ */
 import { Schema, SchemaGetter } from "effect";
 import { Rfc3339InstantSchema } from "./admission-period.js";
 

@@ -1,3 +1,8 @@
+/**
+ * Public organization identities, models, and transport-safe projections.
+ *
+ * @since 0.1.0
+ */
 import { Schema } from "effect";
 import { Model } from "effect/unstable/schema";
 import { compareRfc3339Instants, isRfc3339Instant, Rfc3339InstantSchema } from "../time.js";

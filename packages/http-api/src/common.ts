@@ -1,3 +1,8 @@
+/**
+ * Shared security, middleware, annotation, and error contracts for the native API.
+ *
+ * @since 0.1.0
+ */
 import { Schema } from "effect";
 import {
   HttpApiMiddleware,

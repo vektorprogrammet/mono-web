@@ -1,3 +1,8 @@
+/**
+ * Portable service contract for organization reads, authority, and administration.
+ *
+ * @since 0.1.0
+ */
 import { Context, Effect } from "effect";
 import type {
   CreateDepartmentCommand,

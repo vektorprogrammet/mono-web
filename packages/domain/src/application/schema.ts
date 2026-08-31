@@ -1,3 +1,8 @@
+/**
+ * Public schemas for application submission, confirmation, and management.
+ *
+ * @since 0.1.0
+ */
 import { Schema } from "effect";
 import { Model } from "effect/unstable/schema";
 import {

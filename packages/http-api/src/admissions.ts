@@ -1,3 +1,8 @@
+/**
+ * Public HTTP contracts for admission periods and applications.
+ *
+ * @since 0.1.0
+ */
 import {
   AdmissionPeriodCommandId,
   AdmissionPeriodId,

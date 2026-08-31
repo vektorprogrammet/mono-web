@@ -6,39 +6,41 @@ showAskAi: false
 
 # Routes & API
 
-[`makeBackendHttp`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/apps/backend/src/router.ts) is the native HTTP dispatch authority.
+[`NativeApi`](https://github.com/vektorprogrammet/mono-web/blob/c315db3b5809caffb16e149bd33f0a07b60948f6/packages/http-api/src/api.ts) is the native HTTP contract authority. [`makeBackendHttp`](https://github.com/vektorprogrammet/mono-web/blob/c315db3b5809caffb16e149bd33f0a07b60948f6/apps/backend/src/router.ts) keeps Better Auth as the only external path family.
 
 ## Current API availability
 
-The route families below are available in the native backend at the inspected revision. Legacy API Platform resources remain separate. This site does not mount an API reference until a running Effect HttpApi contract can generate it.
+The native backend serves the route families below. Open the [generated native API reference](/reference/native-api) for all 47 public operations, schemas, and responses.
+
+The public document excludes Better Auth and the internal receipt evidence route. The operation total does not claim legacy capability parity.
 
 ## Native route families
 
-| Route family                                                                                                                                                                                   | Adapter                        | Capability owner                                |
-| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------ | ----------------------------------------------- |
-| `/api/auth/*`                                                                                                                                                                                  | Better Auth request handler    | Shared `AuthEngine` and `Identity` Layer        |
-| `/api/me/session`                                                                                                                                                                              | Router session projection      | `Identity`                                      |
-| `/api/me`                                                                                                                                                                                      | `makeProfileApiHttp`           | `Profile`                                       |
-| `/api/receipts*`, `/api/admin/receipts*`                                                                                                                                                       | `makeReceiptApiHttp`           | `Economy`                                       |
-| `/api/applications*`, `/api/admission-periods/open`, `/api/admin/admission-periods*`                                                                                                           | `makeAdmissionApiHttp`         | `Admissions` and application domain programs    |
-| `/api/admin/recruitment*`, `/api/recruitment/invitation-response*`                                                                                                                             | `makeRecruitmentApiHttp`       | `Recruitment`                                   |
-| `/api/departments`, `/api/teams`, `/api/field_of_studies`, `/api/admin/departments`, `/api/admin/teams`, `/api/admin/field-of-studies`, `/api/admin/team-interest`, `/api/admin/mailing-lists` | `makeOrganizationApiHttp`      | `Organization`                                  |
-| `GET /api/admin/schools`                                                                                                                                                                       | `makeSchoolsApiHttp`           | `Schools`                                       |
-| `/api/admin/content*`                                                                                                                                                                          | `makeContentManagementApiHttp` | `ContentManagement`                             |
-| `/api/news*`                                                                                                                                                                                   | `makePublicNewsApiHttp`        | `Content`                                       |
-| `GET /api/admin/users`                                                                                                                                                                         | `makeAdminUsersApiHttp`        | Identity, profile, and organization projections |
-| `GET /health`                                                                                                                                                                                  | Router health adapter          | `Database`                                      |
+| Route family                                                                                                                                                                                   | HttpApi implementation      | Capability owner                                |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------- | ----------------------------------------------- |
+| `/api/auth/*`                                                                                                                                                                                  | Better Auth request handler | Shared `AuthEngine` and `Identity` Layer        |
+| `/api/me/session`                                                                                                                                                                              | `SystemApiHandlers`         | `Identity`                                      |
+| `/api/me`                                                                                                                                                                                      | `ProfileApiHandlers`        | `Profile`                                       |
+| `/api/receipts*`, `/api/admin/receipts*`                                                                                                                                                       | `ReceiptApiHandlers`        | `Economy`                                       |
+| `/api/applications*`, `/api/admission-periods/open`, `/api/admin/admission-periods*`                                                                                                           | `AdmissionsApiHandlers`     | `Admissions` and application domain programs    |
+| `/api/admin/recruitment*`, `/api/recruitment/invitation-response*`                                                                                                                             | `RecruitmentApiHandlers`    | `Recruitment`                                   |
+| `/api/departments`, `/api/teams`, `/api/field_of_studies`, `/api/admin/departments`, `/api/admin/teams`, `/api/admin/field-of-studies`, `/api/admin/team-interest`, `/api/admin/mailing-lists` | `OrganizationApiHandlers`   | `Organization`                                  |
+| `GET /api/admin/schools`                                                                                                                                                                       | `AdminUsersApiHandlers`     | `Schools`                                       |
+| `/api/admin/content*`                                                                                                                                                                          | `ContentApiHandlers`        | `ContentManagement`                             |
+| `/api/news*`                                                                                                                                                                                   | `ContentApiHandlers`        | `Content`                                       |
+| `GET /api/admin/users`                                                                                                                                                                         | `AdminUsersApiHandlers`     | Identity, profile, and organization projections |
+| `GET /health`                                                                                                                                                                                  | `SystemApiHandlers`         | `Database`                                      |
 
-The exact path predicates are at the top of [`apps/backend/src/router.ts`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/apps/backend/src/router.ts).
+The contract groups are in [`packages/http-api/src`](https://github.com/vektorprogrammet/mono-web/tree/c315db3b5809caffb16e149bd33f0a07b60948f6/packages/http-api/src). The handler composition is in [`apps/backend/src/router.ts`](https://github.com/vektorprogrammet/mono-web/blob/c315db3b5809caffb16e149bd33f0a07b60948f6/apps/backend/src/router.ts).
 
 ## Boundary rules
 
-1. The router selects one adapter for each path family.
-2. The adapter decodes transport input.
-3. The adapter resolves one actor and one authorization instant when the capability needs them.
-4. The adapter calls a Service program.
-5. The adapter maps typed outcomes to HTTP.
-6. The adapter does not select a live persistence implementation.
+1. `NativeApi` selects one typed endpoint contract.
+2. The matching `HttpApiBuilder` handler decodes transport input.
+3. The handler resolves one actor and one authorization instant when the capability needs them.
+4. The handler calls a Service program.
+5. The handler maps typed outcomes to HTTP.
+6. The handler does not select a live persistence implementation.
 
 Unknown native paths return `404` with `RouteNotFound`.
 

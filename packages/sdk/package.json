@@ -1,6 +1,7 @@
 {
   "name": "@vektorprogrammet/sdk",
   "version": "0.2.0",
+  "homepage": "https://github.com/vektorprogrammet/mono-web",
   "files": [
     "dist"
   ],

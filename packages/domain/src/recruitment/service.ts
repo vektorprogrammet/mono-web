@@ -1,3 +1,8 @@
+/**
+ * Portable Recruitment service contract for reads and lifecycle commands.
+ *
+ * @since 0.1.0
+ */
 import { Context, Effect } from "effect";
 import type { AdmissionPeriodFailure } from "../admission-period/errors.js";
 import type {

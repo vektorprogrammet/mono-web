@@ -1,3 +1,8 @@
+/**
+ * Public HTTP contracts for recruitment assignment, scheduling, and interviews.
+ *
+ * @since 0.1.0
+ */
 import {
   CancelInterviewCommandSchema,
   CancelInterviewResultSchema,

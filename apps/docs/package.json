@@ -4,14 +4,15 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "generate": "bun scripts/generate-reference.ts && oxfmt --write public/migration-state.json public/migration-state.schema.json src/pages/reference/migration-state.mdx src/pages/reference/design-spec-evidence-index.mdx",
+    "generate": "bun run --cwd ../../packages/http-api generate:check && bun scripts/generate-docs.ts",
+    "generate:check": "bun run --cwd ../../packages/http-api generate:check && bun scripts/generate-docs.ts --check",
     "dev": "bun run generate && vocs dev",
-    "build": "bun run generate && vocs build",
+    "build": "bun run generate:check && vocs build",
     "preview": "vocs preview",
     "check-types": "tsc --noEmit",
     "lint": "oxlint .",
-    "format": "oxfmt --write .",
-    "format:check": "oxfmt --check ."
+    "format": "bun run generate && oxfmt --write .",
+    "format:check": "bun run generate:check && oxfmt --check ."
   },
   "dependencies": {
     "mermaid": "11.17.2",
@@ -22,13 +23,16 @@
     "zod": "4.3.5"
   },
   "devDependencies": {
+    "@effect/docgen": "4.0.0-rc.109",
     "@types/node": "^22",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@vitejs/plugin-react": "6.0.2",
     "oxfmt": "0.61.0",
     "oxlint": "1.77.0",
+    "tsx": "4.21.0",
     "typescript": "7.0.2",
+    "typescript-docgen": "npm:typescript@6.0.2",
     "vite": "8.2.2"
   }
 }

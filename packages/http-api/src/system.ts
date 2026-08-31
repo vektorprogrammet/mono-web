@@ -1,3 +1,8 @@
+/**
+ * Public HTTP contracts for health and authenticated session reads.
+ *
+ * @since 0.1.0
+ */
 import { Schema } from "effect";
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema, OpenApi } from "effect/unstable/httpapi";
 import { errorBody, operationAnnotations, SessionSecurity } from "./common.js";

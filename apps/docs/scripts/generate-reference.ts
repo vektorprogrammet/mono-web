@@ -51,14 +51,17 @@ type MigrationState = z.infer<typeof MigrationStateSchema>;
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const docsRoot = resolve(scriptDirectory, "..");
 const repositoryRoot = resolve(docsRoot, "../..");
+const generatedRoot = process.env.DOCS_GENERATED_ROOT
+  ? resolve(process.env.DOCS_GENERATED_ROOT)
+  : docsRoot;
 const statePath = join(docsRoot, "data/migration-state.json");
 const publicSchema = {
   $schema: "https://json-schema.org/draft/2020-12/schema",
   $id: "https://vector-docs.phibkro.org/migration-state.schema.json",
   ...z.toJSONSchema(MigrationStateSchema),
 };
-const pagesDirectory = join(docsRoot, "src/pages/reference");
-const publicDirectory = join(docsRoot, "public");
+const pagesDirectory = join(generatedRoot, "src/pages/reference");
+const publicDirectory = join(generatedRoot, "public");
 const repositoryUrl = "https://github.com/vektorprogrammet/mono-web";
 
 const repositoryPath = (reference: string): string => reference.split("#", 1)[0] ?? reference;
@@ -219,7 +222,7 @@ const main = async (): Promise<void> => {
     join(pagesDirectory, "design-spec-evidence-index.mdx"),
     join(publicDirectory, "migration-state.json"),
     join(publicDirectory, "migration-state.schema.json"),
-  ].map((path) => relative(repositoryRoot, path).split(sep).join("/"));
+  ].map((path) => relative(generatedRoot, path).split(sep).join("/"));
   process.stdout.write(`generated ${outputs.join(", ")}\n`);
 };
 

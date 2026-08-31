@@ -1,3 +1,8 @@
+/**
+ * Public HTTP contracts for staff content and published news.
+ *
+ * @since 0.1.0
+ */
 import {
   ArticleDraft,
   ArticleId,

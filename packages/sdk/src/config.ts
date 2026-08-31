@@ -1,3 +1,8 @@
+/**
+ * SDK runtime configuration decoded through Effect Config.
+ *
+ * @since 0.2.0
+ */
 import { Config, Effect, Option } from "effect";
 
 const optionalString = (name: string) => Config.option(Config.string(name));

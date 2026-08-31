@@ -2,6 +2,7 @@
   "name": "@vektorprogrammet/http-api",
   "version": "0.1.0",
   "private": true,
+  "homepage": "https://github.com/vektorprogrammet/mono-web",
   "type": "module",
   "exports": {
     ".": "./src/index.ts"
