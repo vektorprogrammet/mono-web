@@ -11,6 +11,7 @@
     "./effects": "./src/effects.ts",
     "./node-runtime": "./node-runtime.ts",
     "./intent-author": "./src/intent-author.ts",
+    "./journey-evidence": "./src/journey-evidence.ts",
     "./runtime-evidence": "./src/runtime-evidence.ts",
     "./routes": "./src/routes.ts",
     "./services": "./src/services.ts",
@@ -19,6 +20,7 @@
   "scripts": {
     "check-types": "tsc --noEmit",
     "capability:verify": "bun capability-verify-cli.ts",
+    "journey:evidence": "bun journey-evidence-cli.ts",
     "legacy:openapi": "bun legacy-openapi-cli.ts",
     "intent:author": "bun intent-author-cli.ts",
     "lint": "oxlint",
