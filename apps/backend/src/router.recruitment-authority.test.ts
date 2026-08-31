@@ -25,7 +25,8 @@ import type { Schools } from "@vektorprogrammet/domain/schools";
 import { DateTime, Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import { makeBackendConfig } from "./config.js";
-import { makeBackendHttp, type BackendRun } from "./router.js";
+import type { BackendRun } from "./router.js";
+import { makeBackendTestHttp as makeBackendHttp } from "./test/native-http.js";
 import { runTestPromise } from "../test/runtime.js";
 
 const leaderToken = "leader-session-token";

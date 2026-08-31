@@ -5,7 +5,11 @@ import {
   type OrganizationPersonAuthority,
 } from "@vektorprogrammet/domain/organization";
 import { Profile } from "@vektorprogrammet/domain/profile";
+import { NativeApi } from "@vektorprogrammet/http-api";
 import { Effect, Schema } from "effect";
+import { HttpApiBuilder } from "effect/unstable/httpapi";
+import { toHttpApiResponse } from "../http-api/transport.js";
+import { listSchools, schoolsErrorResponse, type SchoolsApiHttpOptions } from "../schools/http.js";
 import type { BackendRun } from "../router.js";
 
 /**
@@ -20,10 +24,6 @@ export interface AdminUsersApiHttpOptions {
   /** Cookie -> PersonId + one authorizationInstant -> caller projection. */
   readonly resolveAuthority: (request: Request) => Promise<OrganizationPersonAuthority>;
   readonly run: BackendRun;
-}
-
-export interface AdminUsersApiHttp {
-  readonly fetch: (request: Request) => Promise<Response>;
 }
 
 interface ErrorBody {
@@ -91,65 +91,87 @@ const errorResponse = (cause: unknown): Response => {
   return jsonResponse({ error: { tag } satisfies ErrorBody["error"] }, statusForErrorTag(tag));
 };
 
-export const makeAdminUsersApiHttp = (input: AdminUsersApiHttpOptions): AdminUsersApiHttp => ({
-  fetch: async (request) => {
-    try {
-      if (new URL(request.url).search !== "") {
-        return jsonResponse({ error: { tag: "DirectoryCursorMalformed" } }, 422);
-      }
-      // One captured authorizationInstant drives the gate and every row
-      // derivation; Profile and Organization read one database snapshot.
-      const authority = await input.resolveAuthority(request);
-      const decision = resolveDirectoryGateScope(authority);
-      if (decision._tag === "Deny") {
-        throw decision.reason === "AuthorityInactive"
-          ? taggedError("InactiveActor")
-          : taggedError("NotInScope");
-      }
-      const scope = decision.value;
-      const response = await input.run(
-        Effect.gen(function* () {
-          const organization = yield* Organization;
-          const profile = yield* Profile;
-          const activeUsers: Array<typeof DirectoryEntrySchema.Type> = [];
-          const inactiveUsers: Array<typeof DirectoryEntrySchema.Type> = [];
-          let cursor: string | undefined;
-          while (true) {
-            const page = yield* profile.readDirectoryPage({ limit: DIRECTORY_PAGE_LIMIT, cursor });
-            if (page.entries.length > 0) {
-              const facts = yield* organization.deriveDirectoryFacts(
-                page.entries.map((entry) => entry.personId),
-                authority.evaluatedAt,
-              );
-              for (const entry of page.entries) {
-                const fact = facts.get(entry.personId);
-                if (fact === undefined || !directoryRowInScope(scope, fact.departments)) continue;
-                const row = {
-                  personId: entry.personId,
-                  firstName: entry.firstName,
-                  lastName: entry.lastName,
-                  email: entry.email,
-                  phone: entry.phone,
-                  studyProgramme: null,
-                  departments: [...fact.departmentNames],
-                  isActive: fact.isActive,
-                };
-                if (fact.isActive) activeUsers.push(row);
-                else inactiveUsers.push(row);
-              }
-            }
-            if (page.nextCursor === undefined) break;
-            cursor = page.nextCursor;
+const listAdminUsers = async (
+  request: Request,
+  input: AdminUsersApiHttpOptions,
+): Promise<Response> => {
+  if (new URL(request.url).search !== "") {
+    return jsonResponse({ error: { tag: "DirectoryCursorMalformed" } }, 422);
+  }
+  // One captured authorizationInstant drives the gate and every row
+  // derivation; Profile and Organization read one database snapshot.
+  const authority = await input.resolveAuthority(request);
+  const decision = resolveDirectoryGateScope(authority);
+  if (decision._tag === "Deny") {
+    throw decision.reason === "AuthorityInactive"
+      ? taggedError("InactiveActor")
+      : taggedError("NotInScope");
+  }
+  const scope = decision.value;
+  const response = await input.run(
+    Effect.gen(function* () {
+      const organization = yield* Organization;
+      const profile = yield* Profile;
+      const activeUsers: Array<typeof DirectoryEntrySchema.Type> = [];
+      const inactiveUsers: Array<typeof DirectoryEntrySchema.Type> = [];
+      let cursor: string | undefined;
+      while (true) {
+        const page = yield* profile.readDirectoryPage({ limit: DIRECTORY_PAGE_LIMIT, cursor });
+        if (page.entries.length > 0) {
+          const facts = yield* organization.deriveDirectoryFacts(
+            page.entries.map((entry) => entry.personId),
+            authority.evaluatedAt,
+          );
+          for (const entry of page.entries) {
+            const fact = facts.get(entry.personId);
+            if (fact === undefined || !directoryRowInScope(scope, fact.departments)) continue;
+            const row = {
+              personId: entry.personId,
+              firstName: entry.firstName,
+              lastName: entry.lastName,
+              email: entry.email,
+              phone: entry.phone,
+              studyProgramme: null,
+              departments: [...fact.departmentNames],
+              isActive: fact.isActive,
+            };
+            if (fact.isActive) activeUsers.push(row);
+            else inactiveUsers.push(row);
           }
-          return yield* Schema.decodeUnknownEffect(DirectoryResponseSchema)(
-            { activeUsers, inactiveUsers, nextCursor: cursor ?? null },
-            { onExcessProperty: "error" },
-          ).pipe(Effect.mapError(() => taggedError("ProfileDecodeError")));
-        }),
-      );
-      return jsonResponse(response);
-    } catch (cause) {
-      return errorResponse(cause);
-    }
-  },
-});
+        }
+        if (page.nextCursor === undefined) break;
+        cursor = page.nextCursor;
+      }
+      return yield* Schema.decodeUnknownEffect(DirectoryResponseSchema)(
+        { activeUsers, inactiveUsers, nextCursor: cursor ?? null },
+        { onExcessProperty: "error" },
+      ).pipe(Effect.mapError(() => taggedError("ProfileDecodeError")));
+    }),
+  );
+  return jsonResponse(response);
+};
+
+/** Native HttpApi implementation for the administrative user directory. */
+export const AdminUsersApiHandlers = (
+  input: AdminUsersApiHttpOptions,
+  schools: SchoolsApiHttpOptions,
+) =>
+  HttpApiBuilder.group(NativeApi, "directory", (handlers) =>
+    Effect.succeed(
+      handlers
+        .handleRaw("listAdminUsers", ({ request }) =>
+          toHttpApiResponse(
+            request,
+            (webRequest) => listAdminUsers(webRequest, input),
+            errorResponse,
+          ),
+        )
+        .handleRaw("listSchools", ({ request }) =>
+          toHttpApiResponse(
+            request,
+            (webRequest) => listSchools(webRequest, schools),
+            schoolsErrorResponse,
+          ),
+        ),
+    ),
+  );

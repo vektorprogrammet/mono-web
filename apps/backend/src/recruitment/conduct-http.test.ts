@@ -9,7 +9,7 @@ import { DepartmentId, PersonId } from "@vektorprogrammet/domain/organization";
 import { Effect, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import type { RecruitmentApiConfig } from "./config.js";
-import { makeRecruitmentApiHttp } from "./http.js";
+import { makeRecruitmentTestHttp as makeRecruitmentApiHttp } from "../test/native-http.js";
 import { runTestPromise } from "../../test/runtime.js";
 
 const actor = {

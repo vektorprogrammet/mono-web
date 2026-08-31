@@ -1,21 +1,21 @@
 import { randomUUID } from "node:crypto";
+import * as BunHttpPlatform from "@effect/platform-bun/BunHttpPlatform";
+import * as BunServices from "@effect/platform-bun/BunServices";
 import { AuthEngine, AuthLive, DatabaseLive } from "@vektorprogrammet/database";
 import { runPublicApplicationOutboxWorker } from "@vektorprogrammet/domain/application";
-import { Admissions, AdmissionsLive } from "@vektorprogrammet/domain/admissions";
-import { Identity } from "@vektorprogrammet/domain/identity";
-import { databaseHealth, type Database } from "@vektorprogrammet/domain/database";
-import { Organization, OrganizationLive } from "@vektorprogrammet/domain/organization";
-import { Profile, ProfileLive } from "@vektorprogrammet/domain/profile";
-import { Recruitment, RecruitmentLive } from "@vektorprogrammet/domain/recruitment";
-import { Content, ContentLive } from "@vektorprogrammet/domain/content";
-import { ContentManagement, ContentManagementLive } from "@vektorprogrammet/domain/content";
-import { Schools, SchoolsLive } from "@vektorprogrammet/domain/schools";
-import { Economy } from "@vektorprogrammet/domain/receipt";
+import { AdmissionsLive } from "@vektorprogrammet/domain/admissions";
+import { databaseHealth } from "@vektorprogrammet/domain/database";
+import { OrganizationLive } from "@vektorprogrammet/domain/organization";
+import { ProfileLive } from "@vektorprogrammet/domain/profile";
+import { RecruitmentLive } from "@vektorprogrammet/domain/recruitment";
+import { ContentLive, ContentManagementLive } from "@vektorprogrammet/domain/content";
+import { SchoolsLive } from "@vektorprogrammet/domain/schools";
 import { EconomyLive } from "@vektorprogrammet/domain/receipt/postgres";
 import { Effect, Exit, Fiber, Layer, Redacted } from "effect";
+import { Etag, HttpEffect, HttpRouter } from "effect/unstable/http";
 import { makeHttpPublicApplicationEffectInterpreter } from "./application/effects.js";
 import { makeBackendConfig } from "./config.js";
-import { makeBackendHttp } from "./router.js";
+import { makeBackendHttp, makeNativeApiRouterLayer, type BackendRun } from "./router.js";
 import { makeBackendRuntime } from "../runtime.js";
 
 declare const Bun: {
@@ -57,24 +57,26 @@ const capabilityLayers = Layer.mergeAll(
   contentLayer,
 );
 const authLayers = AuthLive(config.auth).pipe(Layer.provide(databaseLayer));
-const runtime = makeBackendRuntime(Layer.mergeAll(databaseLayer, capabilityLayers, authLayers));
-const run = <A, E>(
-  effect: Effect.Effect<
-    A,
-    E,
-    | Database
-    | Admissions
-    | Economy
-    | Organization
-    | Profile
-    | Recruitment
-    | Schools
-    | Identity
-    | ContentManagement
-    | Content
-  >,
-): Promise<A> => runtime.runPromise(effect);
-const api = makeBackendHttp(config, run, {
+const httpPlatformLayer = Layer.mergeAll(BunServices.layer, BunHttpPlatform.layer, Etag.layer);
+const httpRouterLayer = HttpRouter.layer;
+const run: BackendRun = (effect) => runtime.runPromise(effect);
+const nativeApiLayer = makeNativeApiRouterLayer(config, run).pipe(
+  Layer.provide(httpPlatformLayer),
+  Layer.provide(httpRouterLayer),
+);
+const runtime = makeBackendRuntime(
+  Layer.mergeAll(
+    databaseLayer,
+    capabilityLayers,
+    authLayers,
+    httpPlatformLayer,
+    httpRouterLayer,
+    nativeApiLayer,
+  ),
+);
+const router = await runtime.runPromise(HttpRouter.HttpRouter);
+const nativeHandler = HttpEffect.toWebHandler(router.asHttpEffect());
+const api = makeBackendHttp(nativeHandler, {
   handle: (request) =>
     runtime.runPromise(
       Effect.gen(function* () {

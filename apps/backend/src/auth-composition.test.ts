@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 const mainSource = await readFile(new URL("./main.ts", import.meta.url), "utf8");
 const authoritySource = await readFile(new URL("./authority.ts", import.meta.url), "utf8");
+const routerSource = await readFile(new URL("./router.ts", import.meta.url), "utf8");
 const authLiveSource = await readFile(
   new URL("../../../packages/database/src/auth-live.ts", import.meta.url),
   "utf8",
@@ -14,11 +15,11 @@ const databaseIndexSource = await readFile(
 
 describe("backend identity composition", () => {
   it("uses AuthLive as the sole identity authority and lifecycle owner", () => {
-    expect(mainSource).toContain('from "@vektorprogrammet/domain/identity"');
+    expect(routerSource).toContain('from "@vektorprogrammet/domain/identity"');
     expect(mainSource).toContain(
       "const authLayers = AuthLive(config.auth).pipe(Layer.provide(databaseLayer));",
     );
-    expect(mainSource).toContain("| Identity");
+    expect(routerSource).toContain("| Identity");
     expect(mainSource.match(/\bAuthLive\(config\.auth\)/g)).toHaveLength(1);
     expect(mainSource).not.toContain("AuthEngineLive");
     expect(mainSource).not.toMatch(/Layer\.merge\(AuthLive\(config\.auth\)/);

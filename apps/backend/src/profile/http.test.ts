@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { makeProfileApiHttp } from "./http.js";
+import { makeProfileTestHttp as makeProfileApiHttp } from "../test/native-http.js";
 
 const tagged = (tag: string): Error & { readonly _tag: string } =>
   Object.assign(new Error(tag), { _tag: tag });

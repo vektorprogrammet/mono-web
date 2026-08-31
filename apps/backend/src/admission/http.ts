@@ -1,7 +1,6 @@
 import { type Database } from "@vektorprogrammet/domain/database";
 import { Effect, Schema } from "effect";
 import {
-  AdmissionPeriodDecodeError,
   InactiveActor,
   UnauthenticatedActor,
   AdmissionPeriodCommandId,
@@ -12,10 +11,10 @@ import {
 } from "@vektorprogrammet/domain/admission-period";
 import { DepartmentId, SemesterId } from "@vektorprogrammet/domain/organization";
 import { Admissions } from "@vektorprogrammet/domain/admissions";
-import {
-  PublicApplicationDecodeError,
-  PublicApplicationSubmitInputSchema,
-} from "@vektorprogrammet/domain/application";
+import { PublicApplicationSubmitInputSchema } from "@vektorprogrammet/domain/application";
+import { NativeApi } from "@vektorprogrammet/http-api";
+import { HttpApiBuilder } from "effect/unstable/httpapi";
+import { toHttpApiResponse } from "../http-api/transport.js";
 import type { AdmissionApiConfig } from "./config.js";
 
 export interface AdmissionApiHttpOptions {
@@ -30,10 +29,6 @@ export interface AdmissionApiHttpOptions {
     departmentScope?: string,
   ) => Promise<AdmissionPeriodActor>;
   readonly run: <A, E>(effect: Effect.Effect<A, E, Database | Admissions>) => Promise<A>;
-}
-
-export interface AdmissionApiHttp {
-  readonly fetch: (request: Request) => Promise<Response>;
 }
 
 interface ErrorBody {
@@ -358,56 +353,51 @@ const publicConfirmation = async (
   return jsonResponse(confirmation);
 };
 
-const decodeAdmissionPeriodPathId = (value: string): string => {
-  try {
-    return decodeURIComponent(value);
-  } catch {
-    throw new AdmissionPeriodDecodeError({ message: "invalid admission period path identity" });
-  }
-};
-
-const decodeApplicationPathId = (value: string): string => {
-  try {
-    return decodeURIComponent(value);
-  } catch {
-    throw new PublicApplicationDecodeError({ message: "invalid application path identity" });
-  }
-};
-
-export const makeAdmissionApiHttp = (input: AdmissionApiHttpOptions): AdmissionApiHttp => ({
-  fetch: async (request) => {
-    const url = new URL(request.url);
-    try {
-      if (request.method === "GET" && url.pathname === "/api/admin/admission-periods") {
-        return await listManagement(request, input);
-      }
-      if (request.method === "POST" && url.pathname === "/api/admin/admission-periods") {
-        return await create(request, input);
-      }
-      const reviseMatch = /^\/api\/admin\/admission-periods\/([^/]+)\/revise$/.exec(url.pathname);
-      if (request.method === "POST" && reviseMatch?.[1] !== undefined) {
-        return await revise(request, decodeAdmissionPeriodPathId(reviseMatch[1]), input);
-      }
-      if (request.method === "GET" && url.pathname === "/api/admission-periods/open") {
-        return await listOpen(request, input);
-      }
-      if (request.method === "GET" && url.pathname === "/api/applications/catalog") {
-        return await listPublicCatalog(request, input);
-      }
-      if (request.method === "POST" && url.pathname === "/api/applications") {
-        return await submitApplication(request, input);
-      }
-      const confirmationMatch = /^\/api\/applications\/([^/]+)\/confirmation$/.exec(url.pathname);
-      if (request.method === "GET" && confirmationMatch?.[1] !== undefined) {
-        return await publicConfirmation(
-          request,
-          decodeApplicationPathId(confirmationMatch[1]),
-          input,
-        );
-      }
-      return jsonResponse({ error: { tag: "RouteNotFound" } }, 404);
-    } catch (cause) {
-      return errorResponse(cause);
-    }
-  },
-});
+/** Native HttpApi implementations for admission and public application endpoints. */
+export const AdmissionsApiHandlers = (input: AdmissionApiHttpOptions) =>
+  HttpApiBuilder.group(NativeApi, "admissions", (handlers) =>
+    Effect.succeed(
+      handlers
+        .handleRaw("listAdmissionPeriods", ({ request }) =>
+          toHttpApiResponse(
+            request,
+            (webRequest) => listManagement(webRequest, input),
+            errorResponse,
+          ),
+        )
+        .handleRaw("createAdmissionPeriod", ({ request }) =>
+          toHttpApiResponse(request, (webRequest) => create(webRequest, input), errorResponse),
+        )
+        .handleRaw("reviseAdmissionPeriod", ({ request, params }) =>
+          toHttpApiResponse(
+            request,
+            (webRequest) => revise(webRequest, params.admissionPeriodId, input),
+            errorResponse,
+          ),
+        )
+        .handleRaw("listOpenAdmissionPeriods", ({ request }) =>
+          toHttpApiResponse(request, (webRequest) => listOpen(webRequest, input), errorResponse),
+        )
+        .handleRaw("readApplicationCatalog", ({ request }) =>
+          toHttpApiResponse(
+            request,
+            (webRequest) => listPublicCatalog(webRequest, input),
+            errorResponse,
+          ),
+        )
+        .handleRaw("submitApplication", ({ request }) =>
+          toHttpApiResponse(
+            request,
+            (webRequest) => submitApplication(webRequest, input),
+            errorResponse,
+          ),
+        )
+        .handleRaw("readApplicationConfirmation", ({ request, params }) =>
+          toHttpApiResponse(
+            request,
+            (webRequest) => publicConfirmation(webRequest, params.applicationId, input),
+            errorResponse,
+          ),
+        ),
+    ),
+  );

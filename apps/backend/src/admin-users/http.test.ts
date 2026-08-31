@@ -33,7 +33,8 @@ import type { Recruitment } from "@vektorprogrammet/domain/recruitment";
 import { DateTime, Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import { makeBackendConfig } from "../config.js";
-import { makeBackendHttp, type BackendRun } from "../router.js";
+import type { BackendRun } from "../router.js";
+import { makeBackendTestHttp as makeBackendHttp } from "../test/native-http.js";
 import { runTestPromise } from "../../test/runtime.js";
 
 const token = "directory-token";

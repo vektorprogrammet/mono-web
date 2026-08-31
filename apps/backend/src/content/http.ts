@@ -12,16 +12,15 @@ import {
   type ContentWorkspaceQuery,
 } from "@vektorprogrammet/domain/content";
 import type { OrganizationAuthorityInstant, PersonId } from "@vektorprogrammet/domain/organization";
-import { Schema } from "effect";
+import { NativeApi } from "@vektorprogrammet/http-api";
+import { Effect, Schema } from "effect";
+import { HttpApiBuilder } from "effect/unstable/httpapi";
+import { toHttpApiResponse } from "../http-api/transport.js";
 import type { BackendRun } from "../router.js";
 
 export interface ContentRequestActor {
   readonly personId: PersonId;
   readonly authorizationInstant: OrganizationAuthorityInstant;
-}
-
-export interface ContentApiHttp {
-  readonly fetch: (request: Request) => Promise<Response>;
 }
 
 class ContentHttpDecodeError extends Error {
@@ -143,26 +142,6 @@ const decodeUnpublishBody = async (
 ): Promise<typeof UnpublishArticleInputSchema.Type> =>
   strictDecode(UnpublishArticleInputSchema, await decodeJsonBody(request));
 
-const articleIdFromPath = (pathname: string, pattern: RegExp): ArticleId => {
-  const match = pattern.exec(pathname);
-  if (match === null || match[1] === undefined) {
-    throw new ContentHttpDecodeError("article path parameter missing");
-  }
-  const parsed = Number(match[1]);
-  if (!Number.isSafeInteger(parsed) || parsed <= 0) {
-    throw new ContentHttpDecodeError("article path parameter must be a positive integer");
-  }
-  return ArticleId.make(parsed);
-};
-
-const slugFromPath = (pathname: string): string => {
-  const match = /^\/api\/news\/([^/]+)$/.exec(pathname);
-  if (match === null || match[1] === undefined) {
-    throw new ContentHttpDecodeError("slug path parameter missing");
-  }
-  return decodeURIComponent(match[1]);
-};
-
 const versionFromQuery = (request: Request): number | undefined => {
   const parameters = [...new URL(request.url).searchParams];
   if (parameters.some(([key]) => key !== "version")) {
@@ -185,137 +164,190 @@ const decodeReviseBody = async (
   return strictDecode(ReviseArticleDraftInputSchema, body);
 };
 
-/**
- * Native ContentManagement adapter (spec 0062 §HTTP boundaries). It owns
- * transport only: strict decoding, one actor resolution per request, journey
- * invocation through `run` exactly like the schools adapter. No SQL, no Layer
- * construction.
- */
-export const makeContentManagementApiHttp = (
+const readWorkspace = async (
+  request: Request,
   resolveActor: (request: Request) => Promise<ContentRequestActor>,
   run: BackendRun,
-): ContentApiHttp => ({
-  fetch: async (request) => {
-    const pathname = new URL(request.url).pathname;
-    try {
-      if (request.method === "GET" && pathname === "/api/admin/content/workspace") {
-        const query = departmentFromQuery(request);
-        const actor = await resolveActor(request);
-        const workspace = await run(
-          runContentWorkspace(actor.personId, actor.authorizationInstant, query),
-        );
-        return jsonResponse(workspace);
-      }
-      if (request.method === "POST" && pathname === "/api/admin/content/articles") {
-        const command = await decodeCreateBody(request);
-        const actor = await resolveActor(request);
-        const observation = await run(
-          runPublicationTransition(actor.personId, actor.authorizationInstant, {
-            _tag: "CreateDraft",
-            command,
-          }),
-        );
-        return jsonResponse(observation, 201, noStore);
-      }
-      const detailMatch = /^\/api\/admin\/content\/articles\/(\d+)$/.exec(pathname);
-      if (request.method === "GET" && detailMatch !== null) {
-        if ([...new URL(request.url).searchParams].length > 0) {
-          throw new ContentHttpDecodeError("unexpected content detail query parameter");
-        }
-        const articleId = articleIdFromPath(pathname, /^\/api\/admin\/content\/articles\/(\d+)$/);
-        const actor = await resolveActor(request);
-        const detail = await run(
-          runContentArticleDetail(actor.personId, actor.authorizationInstant, articleId),
-        );
-        return jsonResponse(detail, 200, noStore);
-      }
-      const reviseMatch = /^\/api\/admin\/content\/articles\/(\d+)$/.exec(pathname);
-      if (request.method === "PUT" && reviseMatch !== null) {
-        const articleId = articleIdFromPath(pathname, /^\/api\/admin\/content\/articles\/(\d+)$/);
-        const command = await decodeReviseBody(request);
-        if (command.articleId !== articleId) {
-          throw new ContentHttpDecodeError("article body and path identifiers must match");
-        }
-        const actor = await resolveActor(request);
-        const observation = await run(
-          runPublicationTransition(actor.personId, actor.authorizationInstant, {
-            _tag: "ReviseDraft",
-            command,
-          }),
-        );
-        return jsonResponse(observation, 200, noStore);
-      }
-      const publishMatch = /^\/api\/admin\/content\/articles\/(\d+)\/publish$/.exec(pathname);
-      if (request.method === "POST" && publishMatch !== null) {
-        const articleId = articleIdFromPath(
-          pathname,
-          /^\/api\/admin\/content\/articles\/(\d+)\/publish$/,
-        );
-        const command = await decodePublishBody(request);
-        if (command.articleId !== articleId) {
-          throw new ContentHttpDecodeError("article body and path identifiers must match");
-        }
-        const actor = await resolveActor(request);
-        const observation = await run(
-          runPublicationTransition(actor.personId, actor.authorizationInstant, {
-            _tag: "Publish",
-            command,
-          }),
-        );
-        return jsonResponse(observation, 200, noStore);
-      }
-      const unpublishMatch = /^\/api\/admin\/content\/articles\/(\d+)\/unpublish$/.exec(pathname);
-      if (request.method === "POST" && unpublishMatch !== null) {
-        const articleId = articleIdFromPath(
-          pathname,
-          /^\/api\/admin\/content\/articles\/(\d+)\/unpublish$/,
-        );
-        const command = await decodeUnpublishBody(request);
-        if (command.articleId !== articleId) {
-          throw new ContentHttpDecodeError("article body and path identifiers must match");
-        }
-        const actor = await resolveActor(request);
-        const observation = await run(
-          runPublicationTransition(actor.personId, actor.authorizationInstant, {
-            _tag: "Unpublish",
-            command,
-          }),
-        );
-        return jsonResponse(observation, 200, noStore);
-      }
-      return jsonResponse({ error: { tag: "RouteNotFound" } }, 404);
-    } catch (cause) {
-      return errorResponse(cause);
-    }
-  },
-});
+): Promise<Response> => {
+  const query = departmentFromQuery(request);
+  const actor = await resolveActor(request);
+  const workspace = await run(
+    runContentWorkspace(actor.personId, actor.authorizationInstant, query),
+  );
+  return jsonResponse(workspace);
+};
 
-/** Public news adapter: unauthenticated reads with no-store semantics. */
-export const makePublicNewsApiHttp = (run: BackendRun): ContentApiHttp => ({
-  fetch: async (request) => {
-    const url = new URL(request.url);
-    try {
-      if (request.method === "GET" && url.pathname === "/api/news") {
-        const query = departmentFromQuery(request);
-        const listing = await run(
-          readPublicNews({ _tag: "Listing", departmentId: query.departmentId }),
-        );
-        return jsonResponse(listing, 200, noStore);
-      }
-      const detailMatch = /^\/api\/news\/([^/]+)$/.exec(url.pathname);
-      if (request.method === "GET" && detailMatch !== null) {
-        const slug = slugFromPath(url.pathname);
-        try {
-          const versionNumber = versionFromQuery(request);
-          const article = await run(readPublicNews({ _tag: "Article", slug, versionNumber }));
-          return jsonResponse(article, 200, noStore);
-        } catch (cause) {
-          return errorResponse(cause, noStore);
-        }
-      }
-      return jsonResponse({ error: { tag: "RouteNotFound" } }, 404, noStore);
-    } catch (cause) {
-      return errorResponse(cause, noStore);
-    }
-  },
-});
+const createArticle = async (
+  request: Request,
+  resolveActor: (request: Request) => Promise<ContentRequestActor>,
+  run: BackendRun,
+): Promise<Response> => {
+  const command = await decodeCreateBody(request);
+  const actor = await resolveActor(request);
+  const observation = await run(
+    runPublicationTransition(actor.personId, actor.authorizationInstant, {
+      _tag: "CreateDraft",
+      command,
+    }),
+  );
+  return jsonResponse(observation, 201, noStore);
+};
+
+const readArticle = async (
+  request: Request,
+  articleId: typeof ArticleId.Type,
+  resolveActor: (request: Request) => Promise<ContentRequestActor>,
+  run: BackendRun,
+): Promise<Response> => {
+  if ([...new URL(request.url).searchParams].length > 0) {
+    throw new ContentHttpDecodeError("unexpected content detail query parameter");
+  }
+  const actor = await resolveActor(request);
+  const detail = await run(
+    runContentArticleDetail(actor.personId, actor.authorizationInstant, articleId),
+  );
+  return jsonResponse(detail, 200, noStore);
+};
+
+const reviseArticle = async (
+  request: Request,
+  articleId: typeof ArticleId.Type,
+  resolveActor: (request: Request) => Promise<ContentRequestActor>,
+  run: BackendRun,
+): Promise<Response> => {
+  const command = await decodeReviseBody(request);
+  if (command.articleId !== articleId) {
+    throw new ContentHttpDecodeError("article body and path identifiers must match");
+  }
+  const actor = await resolveActor(request);
+  const observation = await run(
+    runPublicationTransition(actor.personId, actor.authorizationInstant, {
+      _tag: "ReviseDraft",
+      command,
+    }),
+  );
+  return jsonResponse(observation, 200, noStore);
+};
+
+const publishArticle = async (
+  request: Request,
+  articleId: typeof ArticleId.Type,
+  resolveActor: (request: Request) => Promise<ContentRequestActor>,
+  run: BackendRun,
+): Promise<Response> => {
+  const command = await decodePublishBody(request);
+  if (command.articleId !== articleId) {
+    throw new ContentHttpDecodeError("article body and path identifiers must match");
+  }
+  const actor = await resolveActor(request);
+  const observation = await run(
+    runPublicationTransition(actor.personId, actor.authorizationInstant, {
+      _tag: "Publish",
+      command,
+    }),
+  );
+  return jsonResponse(observation, 200, noStore);
+};
+
+const unpublishArticle = async (
+  request: Request,
+  articleId: typeof ArticleId.Type,
+  resolveActor: (request: Request) => Promise<ContentRequestActor>,
+  run: BackendRun,
+): Promise<Response> => {
+  const command = await decodeUnpublishBody(request);
+  if (command.articleId !== articleId) {
+    throw new ContentHttpDecodeError("article body and path identifiers must match");
+  }
+  const actor = await resolveActor(request);
+  const observation = await run(
+    runPublicationTransition(actor.personId, actor.authorizationInstant, {
+      _tag: "Unpublish",
+      command,
+    }),
+  );
+  return jsonResponse(observation, 200, noStore);
+};
+
+const listNews = async (request: Request, run: BackendRun): Promise<Response> => {
+  const query = departmentFromQuery(request);
+  const listing = await run(readPublicNews({ _tag: "Listing", departmentId: query.departmentId }));
+  return jsonResponse(listing, 200, noStore);
+};
+
+const readNewsArticle = async (
+  request: Request,
+  slug: string,
+  run: BackendRun,
+): Promise<Response> => {
+  const versionNumber = versionFromQuery(request);
+  const article = await run(readPublicNews({ _tag: "Article", slug, versionNumber }));
+  return jsonResponse(article, 200, noStore);
+};
+
+/** Native HttpApi implementations for staff content and public news endpoints. */
+export const ContentApiHandlers = (
+  resolveActor: (request: Request) => Promise<ContentRequestActor>,
+  run: BackendRun,
+) =>
+  HttpApiBuilder.group(NativeApi, "content", (handlers) =>
+    Effect.succeed(
+      handlers
+        .handleRaw("readContentWorkspace", ({ request }) =>
+          toHttpApiResponse(
+            request,
+            (webRequest) => readWorkspace(webRequest, resolveActor, run),
+            errorResponse,
+          ),
+        )
+        .handleRaw("createArticle", ({ request }) =>
+          toHttpApiResponse(
+            request,
+            (webRequest) => createArticle(webRequest, resolveActor, run),
+            (cause) => errorResponse(cause, noStore),
+          ),
+        )
+        .handleRaw("readArticle", ({ request, params }) =>
+          toHttpApiResponse(
+            request,
+            (webRequest) => readArticle(webRequest, params.articleId, resolveActor, run),
+            (cause) => errorResponse(cause, noStore),
+          ),
+        )
+        .handleRaw("reviseArticle", ({ request, params }) =>
+          toHttpApiResponse(
+            request,
+            (webRequest) => reviseArticle(webRequest, params.articleId, resolveActor, run),
+            (cause) => errorResponse(cause, noStore),
+          ),
+        )
+        .handleRaw("publishArticle", ({ request, params }) =>
+          toHttpApiResponse(
+            request,
+            (webRequest) => publishArticle(webRequest, params.articleId, resolveActor, run),
+            (cause) => errorResponse(cause, noStore),
+          ),
+        )
+        .handleRaw("unpublishArticle", ({ request, params }) =>
+          toHttpApiResponse(
+            request,
+            (webRequest) => unpublishArticle(webRequest, params.articleId, resolveActor, run),
+            (cause) => errorResponse(cause, noStore),
+          ),
+        )
+        .handleRaw("listNews", ({ request }) =>
+          toHttpApiResponse(
+            request,
+            (webRequest) => listNews(webRequest, run),
+            (cause) => errorResponse(cause, noStore),
+          ),
+        )
+        .handleRaw("readNewsArticle", ({ request, params }) =>
+          toHttpApiResponse(
+            request,
+            (webRequest) => readNewsArticle(webRequest, params.slug, run),
+            (cause) => errorResponse(cause, noStore),
+          ),
+        ),
+    ),
+  );

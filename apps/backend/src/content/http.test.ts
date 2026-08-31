@@ -16,7 +16,10 @@ import { Database } from "@vektorprogrammet/domain/database";
 import { Organization } from "@vektorprogrammet/domain/organization";
 import { Profile } from "@vektorprogrammet/domain/profile";
 import type { ContentRequestActor } from "./http.js";
-import { makeContentManagementApiHttp, makePublicNewsApiHttp } from "./http.js";
+import {
+  makeContentManagementTestHttp as makeContentManagementApiHttp,
+  makePublicNewsTestHttp as makePublicNewsApiHttp,
+} from "../test/native-http.js";
 import { Effect } from "effect";
 
 const actor: ContentRequestActor = {

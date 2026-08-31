@@ -20,9 +20,11 @@ import { Effect, Layer, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import type { ReceiptApiConfig } from "./config.js";
 import type { ReceiptFileStore } from "./filesystem.js";
-import { makeReceiptApiHttp, type ReceiptApiHttp, type ReceiptApiHttpOptions } from "./http.js";
+import type { ReceiptApiHttpOptions } from "./http.js";
+import { makeReceiptTestHttp as makeReceiptApiHttp } from "../test/native-http.js";
 import { runTestPromise } from "../../test/runtime.js";
 
+type ReceiptApiHttp = { readonly fetch: (request: Request) => Promise<Response> };
 const personId = PersonId.make("person-receipt-http");
 const departmentOne = DepartmentId.make("department-one");
 const departmentTwo = DepartmentId.make("department-two");

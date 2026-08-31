@@ -20,10 +20,6 @@ export interface SchoolsApiHttpOptions {
   readonly run: BackendRun;
 }
 
-export interface SchoolsApiHttp {
-  readonly fetch: (request: Request) => Promise<Response>;
-}
-
 class SchoolsHttpQueryDecodeError extends Error {
   readonly _tag = "SchoolsDecodeError";
   readonly status = 422;
@@ -38,7 +34,7 @@ const jsonResponse = (body: unknown, status = 200): Response =>
     },
   });
 
-const errorResponse = (cause: unknown): Response => {
+export const schoolsErrorResponse = (cause: unknown): Response => {
   if (cause instanceof SchoolsHttpQueryDecodeError) {
     return jsonResponse({ error: { tag: cause._tag } }, cause.status);
   }
@@ -82,35 +78,27 @@ const decodeQuery = (request: Request, run: BackendRun): Promise<SchoolDirectory
 };
 
 /** Native Schools directory adapter. It owns transport only, never SQL or authority policy. */
-export const makeSchoolsApiHttp = (options: SchoolsApiHttpOptions): SchoolsApiHttp => ({
-  fetch: async (request) => {
-    const url = new URL(request.url);
-    if (request.method !== "GET" || url.pathname !== "/api/admin/schools") {
-      return jsonResponse({ error: { tag: "RouteNotFound" } }, 404);
-    }
-
-    try {
-      const query = await decodeQuery(request, options.run);
-      const actor = await options.resolveActor(request);
-      const directory = await options.run(
-        readSchoolsDirectory(actor.personId, actor.authorizationInstant, query),
-      );
-      const response = await options.run(
-        Schema.decodeUnknownEffect(SchoolDirectorySchema)(directory, {
-          onExcessProperty: "error",
-        }).pipe(
-          Effect.mapError(
-            (cause) =>
-              new SchoolsDecodeError({
-                operation: "decode Schools HTTP response",
-                message: String(cause),
-              }),
-          ),
-        ),
-      );
-      return jsonResponse(response);
-    } catch (cause) {
-      return errorResponse(cause);
-    }
-  },
-});
+export const listSchools = async (
+  request: Request,
+  options: SchoolsApiHttpOptions,
+): Promise<Response> => {
+  const query = await decodeQuery(request, options.run);
+  const actor = await options.resolveActor(request);
+  const directory = await options.run(
+    readSchoolsDirectory(actor.personId, actor.authorizationInstant, query),
+  );
+  const response = await options.run(
+    Schema.decodeUnknownEffect(SchoolDirectorySchema)(directory, {
+      onExcessProperty: "error",
+    }).pipe(
+      Effect.mapError(
+        (cause) =>
+          new SchoolsDecodeError({
+            operation: "decode Schools HTTP response",
+            message: String(cause),
+          }),
+      ),
+    ),
+  );
+  return jsonResponse(response);
+};

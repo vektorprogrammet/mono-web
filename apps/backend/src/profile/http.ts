@@ -1,5 +1,8 @@
 import { OwnProfile, Profile, UpdateOwnProfileCommand } from "@vektorprogrammet/domain/profile";
+import { NativeApi } from "@vektorprogrammet/http-api";
 import { Effect, Match, Schema } from "effect";
+import { HttpApiBuilder } from "effect/unstable/httpapi";
+import { toHttpApiResponse } from "../http-api/transport.js";
 import type { BackendConfig } from "../config.js";
 import type { BackendRun } from "../router.js";
 
@@ -11,10 +14,6 @@ export interface ProfileApiHttpOptions {
    */
   readonly resolveActor: (request: Request) => Promise<ProfileActor>;
   readonly run: BackendRun;
-}
-
-export interface ProfileApiHttp {
-  readonly fetch: (request: Request) => Promise<Response>;
 }
 
 const UserRole = Schema.Literals(["ROLE_ADMIN", "ROLE_TEAM_LEADER", "ROLE_TEAM_MEMBER"]);
@@ -183,19 +182,24 @@ const updateOwnProfile = async (
   return strictProfileResponse(profile, actor.role, input);
 };
 
-export const makeProfileApiHttp = (input: ProfileApiHttpOptions): ProfileApiHttp => ({
-  fetch: async (request) => {
-    const pathname = new URL(request.url).pathname;
-    try {
-      if (request.method === "GET" && pathname === "/api/me") {
-        return await readOwnProfile(request, input);
-      }
-      if (request.method === "PUT" && pathname === "/api/me") {
-        return await updateOwnProfile(request, input);
-      }
-      return jsonResponse({ error: { tag: "RouteNotFound" } }, 404);
-    } catch (cause) {
-      return errorResponse(cause);
-    }
-  },
-});
+/** Native HttpApi implementations for self-service profile endpoints. */
+export const ProfileApiHandlers = (input: ProfileApiHttpOptions) =>
+  HttpApiBuilder.group(NativeApi, "profile", (handlers) =>
+    Effect.succeed(
+      handlers
+        .handleRaw("readOwnProfile", ({ request }) =>
+          toHttpApiResponse(
+            request,
+            (webRequest) => readOwnProfile(webRequest, input),
+            errorResponse,
+          ),
+        )
+        .handleRaw("updateOwnProfile", ({ request }) =>
+          toHttpApiResponse(
+            request,
+            (webRequest) => updateOwnProfile(webRequest, input),
+            errorResponse,
+          ),
+        ),
+    ),
+  );

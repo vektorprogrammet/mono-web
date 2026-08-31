@@ -20,6 +20,9 @@ import {
   type ReceiptSubmissionAllocation,
 } from "@vektorprogrammet/domain/receipt";
 import { DepartmentId } from "@vektorprogrammet/domain/organization";
+import { NativeApi } from "@vektorprogrammet/http-api";
+import { HttpApiBuilder } from "effect/unstable/httpapi";
+import { toHttpApiResponse } from "../http-api/transport.js";
 import type { ReceiptApiConfig } from "./config.js";
 import {
   makeReceiptFileStore,
@@ -94,10 +97,6 @@ const COMPOSED_DENIAL_MESSAGES = {
   AmbiguousParameterFill: "Authorization parameter fill is ambiguous",
   FailedComposedRequirement: "Composed authorization requirement failed",
 } as const;
-
-export interface ReceiptApiHttp {
-  readonly fetch: (request: Request) => Promise<Response>;
-}
 
 const jsonResponse = (body: unknown, status = 200): Response =>
   new Response(JSON.stringify(body), {
@@ -384,58 +383,9 @@ const decodeCommandJson = async (
   return { commandId, expectedRevision };
 };
 
-type ReceiptCommandRoute =
-  | { readonly action: "revise"; readonly receiptId: string }
-  | { readonly action: "withdraw"; readonly receiptId: string };
-
-const receiptCommandRoute = (pathname: string): ReceiptCommandRoute | undefined => {
-  const match = /^\/api\/receipts\/([^/]+)\/(revise|withdraw)$/.exec(pathname);
-  if (match === null || match[1] === undefined || match[2] === undefined) return undefined;
-  let receiptId: string;
-  try {
-    receiptId = decodeURIComponent(match[1]);
-  } catch {
-    throw new ReceiptDecodeError({ message: "invalid receipt id" });
-  }
-  if (receiptId.length === 0 || receiptId.includes("/")) {
-    throw new ReceiptDecodeError({ message: "invalid receipt id" });
-  }
-  return match[2] === "revise"
-    ? { action: "revise", receiptId }
-    : { action: "withdraw", receiptId };
-};
 type ReceiptApprovalRoute = {
   readonly action: "refund" | "reject";
   readonly receiptId: string;
-};
-
-const receiptApprovalRoute = (pathname: string): ReceiptApprovalRoute | undefined => {
-  const match = /^\/api\/admin\/receipts\/([^/]+)\/(refund|reject)$/.exec(pathname);
-  if (match === null || match[1] === undefined || match[2] === undefined) return undefined;
-  let receiptId: string;
-  try {
-    receiptId = decodeURIComponent(match[1]);
-  } catch {
-    throw new ReceiptDecodeError({ message: "invalid receipt id" });
-  }
-  if (receiptId.length === 0 || receiptId.includes("/")) {
-    throw new ReceiptDecodeError({ message: "invalid receipt id" });
-  }
-  return match[2] === "refund" ? { action: "refund", receiptId } : { action: "reject", receiptId };
-};
-const receiptEvidenceRoute = (pathname: string): string | undefined => {
-  const match = /^\/api\/e2e\/receipts\/([^/]+)\/evidence$/.exec(pathname);
-  if (match === null || match[1] === undefined) return undefined;
-  try {
-    const receiptId = decodeURIComponent(match[1]);
-    if (receiptId.length === 0 || receiptId.includes("/")) {
-      throw new ReceiptDecodeError({ message: "invalid receipt id" });
-    }
-    return receiptId;
-  } catch (cause) {
-    if (cause instanceof ReceiptDecodeError) throw cause;
-    throw new ReceiptDecodeError({ message: "invalid receipt id" });
-  }
 };
 
 const receiptLifecycleEvidence = async (
@@ -779,7 +729,8 @@ const list = async (request: Request, options: ReceiptApiHttpOptions): Promise<R
   return jsonResponse({ items, totalItems: items.length });
 };
 
-export const makeReceiptApiHttp = (input: ReceiptApiHttpOptions): ReceiptApiHttp => {
+/** Native HttpApi implementations for receipt lifecycle endpoints. */
+export const ReceiptApiHandlers = (input: ReceiptApiHttpOptions) => {
   const fileStore =
     input.fileStore ??
     makeReceiptFileStore({
@@ -789,42 +740,83 @@ export const makeReceiptApiHttp = (input: ReceiptApiHttpOptions): ReceiptApiHttp
         ? input.config.e2eFailNextPromotionEffectId
         : undefined,
     });
-  return {
-    fetch: async (request) => {
-      const url = new URL(request.url);
-      try {
-        if (input.config.e2eTestMode === true && request.method === "GET") {
-          const evidenceReceiptId = receiptEvidenceRoute(url.pathname);
-          if (evidenceReceiptId !== undefined) {
-            return await receiptLifecycleEvidence(request, evidenceReceiptId, input);
-          }
-        }
-        if (request.method === "POST" && url.pathname === "/api/receipts/submit") {
-          return await submit(request, input, fileStore);
-        }
-        if (request.method === "POST") {
-          const commandRoute = receiptCommandRoute(url.pathname);
-          if (commandRoute?.action === "revise") {
-            return await revise(request, commandRoute.receiptId, input, fileStore);
-          }
-          if (commandRoute?.action === "withdraw") {
-            return await withdraw(request, commandRoute.receiptId, input, fileStore);
-          }
-          const approvalRoute = receiptApprovalRoute(url.pathname);
-          if (approvalRoute !== undefined) {
-            return await approvalCommand(request, approvalRoute, input, fileStore);
-          }
-        }
-        if (request.method === "GET" && url.pathname === "/api/admin/receipts") {
-          return await approvalList(request, input);
-        }
-        if (request.method === "GET" && url.pathname === "/api/receipts") {
-          return await list(request, input);
-        }
-        return jsonResponse({ error: { tag: "RouteNotFound" } }, 404);
-      } catch (cause) {
-        return errorResponse(cause);
-      }
-    },
-  };
+  return HttpApiBuilder.group(NativeApi, "receipts", (handlers) =>
+    Effect.succeed(
+      handlers
+        .handleRaw("submitReceipt", ({ request }) =>
+          toHttpApiResponse(
+            request,
+            (webRequest) => submit(webRequest, input, fileStore),
+            errorResponse,
+          ),
+        )
+        .handleRaw("reviseReceipt", ({ request, params }) =>
+          toHttpApiResponse(
+            request,
+            (webRequest) => revise(webRequest, params.receiptId, input, fileStore),
+            errorResponse,
+          ),
+        )
+        .handleRaw("withdrawReceipt", ({ request, params }) =>
+          toHttpApiResponse(
+            request,
+            (webRequest) => withdraw(webRequest, params.receiptId, input, fileStore),
+            errorResponse,
+          ),
+        )
+        .handleRaw("listReceipts", ({ request }) =>
+          toHttpApiResponse(request, (webRequest) => list(webRequest, input), errorResponse),
+        )
+        .handleRaw("listReceiptsForApproval", ({ request }) =>
+          toHttpApiResponse(
+            request,
+            (webRequest) => approvalList(webRequest, input),
+            errorResponse,
+          ),
+        )
+        .handleRaw("refundReceipt", ({ request, params }) =>
+          toHttpApiResponse(
+            request,
+            (webRequest) =>
+              approvalCommand(
+                webRequest,
+                { action: "refund", receiptId: params.receiptId },
+                input,
+                fileStore,
+              ),
+            errorResponse,
+          ),
+        )
+        .handleRaw("rejectReceipt", ({ request, params }) =>
+          toHttpApiResponse(
+            request,
+            (webRequest) =>
+              approvalCommand(
+                webRequest,
+                { action: "reject", receiptId: params.receiptId },
+                input,
+                fileStore,
+              ),
+            errorResponse,
+          ),
+        ),
+    ),
+  );
 };
+
+/** Native HttpApi implementation for the internal receipt evidence endpoint. */
+export const InternalReceiptApiHandlers = (input: ReceiptApiHttpOptions) =>
+  HttpApiBuilder.group(NativeApi, "internal", (handlers) =>
+    Effect.succeed(
+      handlers.handleRaw("readReceiptEvidence", ({ request, params }) =>
+        toHttpApiResponse(
+          request,
+          (webRequest) =>
+            input.config.e2eTestMode === true
+              ? receiptLifecycleEvidence(webRequest, params.receiptId, input)
+              : Promise.resolve(jsonResponse({ error: { tag: "RouteNotFound" } }, 404)),
+          errorResponse,
+        ),
+      ),
+    ),
+  );

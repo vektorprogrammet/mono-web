@@ -22,7 +22,10 @@ import {
 } from "@vektorprogrammet/domain/recruitment";
 import { Organization } from "@vektorprogrammet/domain/organization";
 import { Economy } from "@vektorprogrammet/domain/receipt";
+import { NativeApi } from "@vektorprogrammet/http-api";
 import { Effect, Match, Schema } from "effect";
+import { HttpApiBuilder } from "effect/unstable/httpapi";
+import { toHttpApiResponse } from "../http-api/transport.js";
 import { type RecruitmentApiConfig } from "./config.js";
 export interface RecruitmentConductContextResolution {
   readonly actor: RecruitmentActor;
@@ -44,10 +47,6 @@ export interface RecruitmentApiHttpOptions {
       Database | Admissions | Economy | Organization | Profile | Recruitment
     >,
   ) => Promise<A>;
-}
-
-export interface RecruitmentApiHttp {
-  readonly fetch: (request: Request) => Promise<Response>;
 }
 
 interface ErrorBody {
@@ -294,28 +293,6 @@ const decodeHttpResponse = async <A>(
   }
 };
 
-const decodeInterviewPath = (request: Request, operation: "conduct" | "finalize" | "cancel") => {
-  const pathname = new URL(request.url).pathname;
-  const prefix = "/api/admin/recruitment/interviews/";
-  const suffix = `/${operation}`;
-  if (!pathname.startsWith(prefix) || !pathname.endsWith(suffix)) {
-    throw taggedError("RecruitmentDecodeError");
-  }
-  const encodedId = pathname.slice(prefix.length, -suffix.length);
-  if (encodedId.length === 0 || encodedId.includes("/")) {
-    throw taggedError("RecruitmentDecodeError");
-  }
-  try {
-    const interviewId = decodeURIComponent(encodedId);
-    if (interviewId.includes("/")) throw new Error("encoded path separator");
-    return Schema.decodeUnknownSync(RecruitmentInterviewId)(interviewId, {
-      onExcessProperty: "error",
-    });
-  } catch {
-    throw taggedError("RecruitmentDecodeError");
-  }
-};
-
 const conductContextFor = async (
   request: Request,
   input: RecruitmentApiHttpOptions,
@@ -417,10 +394,10 @@ const scheduleInterview = async (
 
 const readInterviewConduct = async (
   request: Request,
+  interviewId: typeof RecruitmentInterviewId.Type,
   input: RecruitmentApiHttpOptions,
 ): Promise<Response> => {
   assertNoQuery(request);
-  const interviewId = decodeInterviewPath(request, "conduct");
   const context = await conductContextFor(request, input);
   const observation = await input.run(
     Recruitment.use(({ readInterviewConduct: read }) =>
@@ -438,10 +415,10 @@ const readInterviewConduct = async (
 
 const finalizeInterview = async (
   request: Request,
+  interviewId: typeof RecruitmentInterviewId.Type,
   input: RecruitmentApiHttpOptions,
 ): Promise<Response> => {
   assertNoQuery(request);
-  const interviewId = decodeInterviewPath(request, "finalize");
   const command = await decodeJson(
     request,
     FinalizeInterviewCommandSchema,
@@ -463,10 +440,10 @@ const finalizeInterview = async (
 
 const cancelInterview = async (
   request: Request,
+  interviewId: typeof RecruitmentInterviewId.Type,
   input: RecruitmentApiHttpOptions,
 ): Promise<Response> => {
   assertNoQuery(request);
-  const interviewId = decodeInterviewPath(request, "cancel");
   const command = await decodeJson(
     request,
     CancelInterviewCommandSchema,
@@ -550,73 +527,87 @@ const requestNewInvitationTime = async (
   return emptyResponse();
 };
 
-export const makeRecruitmentApiHttp = (input: RecruitmentApiHttpOptions): RecruitmentApiHttp => ({
-  fetch: async (request) => {
-    const url = new URL(request.url);
-    try {
-      if (
-        request.method === "GET" &&
-        /^\/api\/admin\/recruitment\/interviews\/.*\/conduct(?:\/.*)?$/u.test(url.pathname)
-      ) {
-        return await readInterviewConduct(request, input);
-      }
-      if (
-        request.method === "POST" &&
-        /^\/api\/admin\/recruitment\/interviews\/.*\/finalize(?:\/.*)?$/u.test(url.pathname)
-      ) {
-        return await finalizeInterview(request, input);
-      }
-      if (
-        request.method === "POST" &&
-        /^\/api\/admin\/recruitment\/interviews\/.*\/cancel(?:\/.*)?$/u.test(url.pathname)
-      ) {
-        return await cancelInterview(request, input);
-      }
-      if (request.method === "GET" && url.pathname === "/api/recruitment/invitation-response") {
-        return await readInvitationResponse(request, input);
-      }
-      if (
-        request.method === "POST" &&
-        url.pathname === "/api/recruitment/invitation-response/confirm"
-      ) {
-        return await confirmInvitation(request, input);
-      }
-      if (
-        request.method === "POST" &&
-        url.pathname === "/api/recruitment/invitation-response/reject"
-      ) {
-        return await rejectInvitation(request, input);
-      }
-      if (
-        request.method === "POST" &&
-        url.pathname === "/api/recruitment/invitation-response/request-new-time"
-      ) {
-        return await requestNewInvitationTime(request, input);
-      }
-      if (request.method === "GET" && url.pathname === "/api/admin/recruitment/assignment-board") {
-        return await readAssignmentBoard(request, input);
-      }
-      if (
-        request.method === "GET" &&
-        url.pathname === "/api/admin/recruitment/interviews/scheduling-board"
-      ) {
-        return await readSchedulingBoard(request, input);
-      }
-      if (
-        request.method === "POST" &&
-        url.pathname === "/api/admin/recruitment/interviews/assign"
-      ) {
-        return await assignApplicant(request, input);
-      }
-      if (
-        request.method === "POST" &&
-        url.pathname === "/api/admin/recruitment/interviews/schedule"
-      ) {
-        return await scheduleInterview(request, input);
-      }
-      return jsonResponse({ error: { tag: "RouteNotFound" } }, 404);
-    } catch (cause) {
-      return errorResponse(cause);
-    }
-  },
-});
+/** Native HttpApi implementations for recruitment endpoints. */
+export const RecruitmentApiHandlers = (input: RecruitmentApiHttpOptions) =>
+  HttpApiBuilder.group(NativeApi, "recruitment", (handlers) =>
+    Effect.succeed(
+      handlers
+        .handleRaw("readInvitationResponse", ({ request }) =>
+          toHttpApiResponse(
+            request,
+            (webRequest) => readInvitationResponse(webRequest, input),
+            errorResponse,
+          ),
+        )
+        .handleRaw("confirmInvitation", ({ request }) =>
+          toHttpApiResponse(
+            request,
+            (webRequest) => confirmInvitation(webRequest, input),
+            errorResponse,
+          ),
+        )
+        .handleRaw("rejectInvitation", ({ request }) =>
+          toHttpApiResponse(
+            request,
+            (webRequest) => rejectInvitation(webRequest, input),
+            errorResponse,
+          ),
+        )
+        .handleRaw("requestNewInvitationTime", ({ request }) =>
+          toHttpApiResponse(
+            request,
+            (webRequest) => requestNewInvitationTime(webRequest, input),
+            errorResponse,
+          ),
+        )
+        .handleRaw("readAssignmentBoard", ({ request }) =>
+          toHttpApiResponse(
+            request,
+            (webRequest) => readAssignmentBoard(webRequest, input),
+            errorResponse,
+          ),
+        )
+        .handleRaw("readSchedulingBoard", ({ request }) =>
+          toHttpApiResponse(
+            request,
+            (webRequest) => readSchedulingBoard(webRequest, input),
+            errorResponse,
+          ),
+        )
+        .handleRaw("assignApplicant", ({ request }) =>
+          toHttpApiResponse(
+            request,
+            (webRequest) => assignApplicant(webRequest, input),
+            errorResponse,
+          ),
+        )
+        .handleRaw("scheduleInterview", ({ request }) =>
+          toHttpApiResponse(
+            request,
+            (webRequest) => scheduleInterview(webRequest, input),
+            errorResponse,
+          ),
+        )
+        .handleRaw("readInterviewConduct", ({ request, params }) =>
+          toHttpApiResponse(
+            request,
+            (webRequest) => readInterviewConduct(webRequest, params.interviewId, input),
+            errorResponse,
+          ),
+        )
+        .handleRaw("finalizeInterview", ({ request, params }) =>
+          toHttpApiResponse(
+            request,
+            (webRequest) => finalizeInterview(webRequest, params.interviewId, input),
+            errorResponse,
+          ),
+        )
+        .handleRaw("cancelInterview", ({ request, params }) =>
+          toHttpApiResponse(
+            request,
+            (webRequest) => cancelInterview(webRequest, params.interviewId, input),
+            errorResponse,
+          ),
+        ),
+    ),
+  );

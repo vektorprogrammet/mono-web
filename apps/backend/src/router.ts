@@ -1,19 +1,20 @@
 import { Admissions } from "@vektorprogrammet/domain/admissions";
-import { DepartmentId } from "@vektorprogrammet/domain/organization";
+import type { AdmissionPeriodActor } from "@vektorprogrammet/domain/admission-period";
 import { InactiveActor, UnauthenticatedActor } from "@vektorprogrammet/domain/admission-period";
+import { Content, ContentManagement } from "@vektorprogrammet/domain/content";
+import { type Database } from "@vektorprogrammet/domain/database";
 import { Identity } from "@vektorprogrammet/domain/identity";
-import { databaseHealth, type Database } from "@vektorprogrammet/domain/database";
-import type { Organization } from "@vektorprogrammet/domain/organization";
+import { DepartmentId, type Organization } from "@vektorprogrammet/domain/organization";
 import { Profile } from "@vektorprogrammet/domain/profile";
 import { Recruitment } from "@vektorprogrammet/domain/recruitment";
 import { Economy } from "@vektorprogrammet/domain/receipt";
-import { ContentManagement } from "@vektorprogrammet/domain/content";
-import { Content } from "@vektorprogrammet/domain/content";
 import type { Schools } from "@vektorprogrammet/domain/schools";
-import { DateTime, Effect } from "effect";
-import type { AdmissionPeriodActor } from "@vektorprogrammet/domain/admission-period";
-import { makeAdminUsersApiHttp } from "./admin-users/http.js";
-import { makeAdmissionApiHttp } from "./admission/http.js";
+import { NativeApi, OrganizationApi, RecruitmentApi } from "@vektorprogrammet/http-api";
+import { Effect, Layer } from "effect";
+import { HttpRouter, HttpServerResponse } from "effect/unstable/http";
+import { HttpApiBuilder } from "effect/unstable/httpapi";
+import { AdminUsersApiHandlers } from "./admin-users/http.js";
+import { AdmissionsApiHandlers } from "./admission/http.js";
 import {
   admissionActorForDepartment,
   organizationActorFrom,
@@ -21,17 +22,21 @@ import {
   recruitmentBoardActorFrom,
   resolveAuthenticatedPerson,
   resolveAuthenticatedPersonAtInstant,
-  resolveAuthenticatedSession,
   resolvePersonAuthority,
   resolvePersonAuthorityAfterSession,
 } from "./authority.js";
 import type { BackendConfig } from "./config.js";
-import { makeOrganizationApiHttp } from "./organization/http.js";
-import { makeProfileApiHttp } from "./profile/http.js";
-import { makeReceiptApiHttp, type ReceiptIdentityResolvers } from "./receipt/http.js";
-import { makeRecruitmentApiHttp } from "./recruitment/http.js";
-import { makeContentManagementApiHttp, makePublicNewsApiHttp } from "./content/http.js";
-import { makeSchoolsApiHttp } from "./schools/http.js";
+import { ContentApiHandlers } from "./content/http.js";
+import { SystemApiHandlers } from "./http-api/system.js";
+import { NativeHttpApiMiddlewareLive } from "./http-api/transport.js";
+import { OrganizationApiHandlers } from "./organization/http.js";
+import { ProfileApiHandlers } from "./profile/http.js";
+import {
+  InternalReceiptApiHandlers,
+  ReceiptApiHandlers,
+  type ReceiptIdentityResolvers,
+} from "./receipt/http.js";
+import { RecruitmentApiHandlers } from "./recruitment/http.js";
 
 export type BackendRun = <A, E>(
   effect: Effect.Effect<
@@ -71,48 +76,9 @@ const profileAuthorityError = (
   return error;
 };
 
-const isAdmissionRoute = (pathname: string): boolean =>
-  pathname === "/api/admission-periods/open" ||
-  pathname.startsWith("/api/admin/admission-periods") ||
-  pathname === "/api/applications" ||
-  pathname.startsWith("/api/applications/");
-const isContentStaffRoute = (pathname: string): boolean =>
-  pathname === "/api/admin/content/workspace" ||
-  pathname === "/api/admin/content/articles" ||
-  pathname.startsWith("/api/admin/content/articles/");
-const isPublicNewsPath = (pathname: string): boolean =>
-  pathname === "/api/news" || pathname.startsWith("/api/news/");
-const isReceiptRoute = (pathname: string): boolean =>
-  pathname === "/api/receipts" ||
-  pathname.startsWith("/api/receipts/") ||
-  pathname === "/api/admin/receipts" ||
-  pathname.startsWith("/api/admin/receipts/") ||
-  pathname.startsWith("/api/e2e/receipts/");
-
-const isOrganizationRoute = (pathname: string): boolean =>
-  pathname === "/api/departments" ||
-  pathname === "/api/teams" ||
-  pathname === "/api/field_of_studies" ||
-  pathname === "/api/admin/departments" ||
-  pathname === "/api/admin/teams" ||
-  pathname === "/api/admin/field-of-studies" ||
-  pathname === "/api/admin/team-interest" ||
-  pathname === "/api/admin/mailing-lists";
-const isRecruitmentRoute = (pathname: string): boolean =>
-  pathname === "/api/admin/recruitment/assignment-board" ||
-  pathname === "/api/admin/recruitment/interviews/assign" ||
-  pathname === "/api/admin/recruitment/interviews/scheduling-board" ||
-  pathname === "/api/recruitment/invitation-response" ||
-  pathname === "/api/recruitment/invitation-response/confirm" ||
-  pathname === "/api/recruitment/invitation-response/reject" ||
-  pathname === "/api/recruitment/invitation-response/request-new-time" ||
-  pathname.startsWith("/api/admin/recruitment/interviews/") ||
-  pathname === "/api/admin/recruitment/interviews/schedule";
-
 /**
- * The better-auth Request -> Response handler mounted at /api/auth/*.
- * Supplied by the composition root from the ONE Layer-scoped engine so the
- * HTTP surface and the Identity Service share a single session authority.
+ * The Better Auth Request -> Response handler mounted only at `/api/auth/*`.
+ * It shares the process-owned identity engine with the native API.
  */
 export interface BackendAuthHandler {
   readonly handle: (request: Request) => Promise<Response>;
@@ -123,25 +89,21 @@ export interface BackendHttpOptions {
   readonly now?: () => string;
 }
 
-export const makeBackendHttp = (
+/**
+ * Builds every native handler group from the process-owned capability graph.
+ * This function constructs Layers once at the composition root, never per route.
+ */
+export const makeNativeApiRouterLayer = (
   config: BackendConfig,
   run: BackendRun,
-  authHandler: BackendAuthHandler,
   options: BackendHttpOptions = {},
-): BackendHttp => {
-  /**
-   * Cookie -> Organization projection -> department-scoped admission actor.
-   * The department scope comes from canonical request state (payload or the
-   * period's immutable department). One authorizationInstant covers session
-   * resolution, projection, and mapping.
-   */
+) => {
   const resolveAdmissionActor = async (
     request: Request,
     departmentScope?: string,
   ): Promise<AdmissionPeriodActor> => {
     const cookie = request.headers.get("cookie") ?? undefined;
     if (departmentScope === undefined) {
-      // No canonical scope: only an active global administrator is authorized.
       const authority = await resolvePersonAuthority(cookie, { run, now: options.now });
       if (authority.globalAdministrator !== "Active") {
         throw authority.globalAdministrator === "Inactive"
@@ -157,176 +119,183 @@ export const makeBackendHttp = (
     const authority = await resolvePersonAuthority(cookie, { run, now: options.now });
     return admissionActorForDepartment(authority, DepartmentId.make(departmentScope));
   };
-  const admission = makeAdmissionApiHttp({
-    config: config.admission,
-    resolveActor: resolveAdmissionActor,
-    run,
-  });
-  /**
-   * Receipt commands and the approval query receive only canonical session
-   * identity plus one instant. Economy owns every authority projection.
-   */
+
   const receiptIdentity: ReceiptIdentityResolvers = {
     resolveAuthorizationPrincipal: async (cookieHeader) =>
       resolveAuthenticatedPersonAtInstant(cookieHeader, { run, now: options.now }),
     resolvePersonId: async (cookieHeader) =>
       resolveAuthenticatedPerson(cookieHeader, { run, now: options.now }),
   };
-  const receipt = makeReceiptApiHttp({
+  const receiptOptions = {
     config: config.receipt,
     identity: receiptIdentity,
     run,
-  });
-  const recruitment = makeRecruitmentApiHttp({
-    config: config.recruitment,
-    resolveConductContext: async (request) => {
-      const authority = await resolvePersonAuthorityAfterSession(
-        request.headers.get("cookie") ?? undefined,
-        { run, now: options.now },
-      );
-      return {
-        actor: {
-          _tag: "Member",
-          personId: authority.personId,
-          departmentId: DepartmentId.make(authority.memberships[0]?.departmentId ?? "conduct"),
-          active: true,
-        },
-        authorizationInstant: authority.evaluatedAt,
-      };
-    },
-    // Existing scheduling/assignment routes retain their 0055 actor mapping.
-    resolveActor: async (request) => {
-      const authority = await resolvePersonAuthority(request.headers.get("cookie") ?? undefined, {
-        run,
-        now: options.now,
-      });
-      return recruitmentBoardActorFrom(authority);
-    },
-    run,
-  });
-  const organization = makeOrganizationApiHttp({
-    config: config.organization,
-    resolveActor: async (request) => {
-      const cookie = request.headers.get("cookie") ?? undefined;
-      const authority = await resolvePersonAuthority(cookie, { run, now: options.now });
-      return organizationActorFrom(authority);
-    },
-    // Specs 0059/0060 leader-scoped reads: one captured authorizationInstant
-    // per request covers session resolution, scope computation, and the read.
-    resolveAuthority: (request) =>
-      resolvePersonAuthority(request.headers.get("cookie") ?? undefined, {
-        run,
-        now: options.now,
-      }),
-    run,
-  });
-  const adminUsers = makeAdminUsersApiHttp({
-    resolveAuthority: (request) =>
-      resolvePersonAuthority(request.headers.get("cookie") ?? undefined, {
-        run,
-        now: options.now,
-      }),
-    run,
-  });
-  const schools = makeSchoolsApiHttp({
-    resolveActor: (request) =>
-      resolveAuthenticatedPersonAtInstant(request.headers.get("cookie") ?? undefined, {
-        run,
-        now: options.now,
-      }),
-    run,
-  });
-  /**
-   * Spec 0062: staff content routes resolve one PersonId + instant via the
-   * session, then transport through the process-owned ContentManagement
-   * service. Public news transports through Content. The ManagedRuntime owns
-   * both live Layers; the adapters select no persistence implementation.
-   */
-  const content = makeContentManagementApiHttp(
-    (request: Request) =>
-      resolveAuthenticatedPersonAtInstant(request.headers.get("cookie") ?? undefined, {
-        run,
-        now: options.now,
-      }),
-    run,
-  );
-  const publicNews = makePublicNewsApiHttp(run);
-
-  const profile = makeProfileApiHttp({
-    config,
-    resolveActor: async (request) => {
-      const cookie = request.headers.get("cookie") ?? undefined;
-      const authority = await resolvePersonAuthority(cookie, { run, now: options.now });
-      // Decision-based translation: Deny(NotInScope/AuthorityInactive) becomes
-      // the typed profile denial instead of an ambiguous default role.
-      const decision = profileRoleFrom(authority);
-      if (decision._tag === "Deny") {
-        if (decision.reason === "Unauthenticated") {
-          throw new UnauthenticatedActor({ message: "profile authority is unauthenticated" });
-        }
-        throw profileAuthorityError(
-          decision.reason === "AuthorityInactive" ? "AuthorityInactive" : "NotInScope",
-        );
-      }
-      return { personId: authority.personId, role: decision.value };
-    },
-    run,
-  });
-
-  /** Strict session read: raw Cookie header in, actor projection or typed failure out. */
-  const meSession = async (request: Request): Promise<Response> => {
-    const cookie = request.headers.get("cookie") ?? undefined;
-    const actor = await resolveAuthenticatedSession(cookie, { run, now: options.now });
-    return jsonResponse({
-      personId: actor.personId,
-      expiresAt: DateTime.toDateUtc(actor.expiresAt).toISOString(),
-    });
   };
 
-  return {
-    fetch: async (request) => {
-      const pathname = new URL(request.url).pathname;
-      if (pathname === "/api/auth/" || pathname.startsWith("/api/auth/")) {
-        return authHandler.handle(request);
-      }
-      if (isOrganizationRoute(pathname)) return organization.fetch(request);
-      if (request.method === "GET" && pathname === "/api/admin/users") {
-        return adminUsers.fetch(request);
-      }
-      if (request.method === "GET" && pathname === "/api/admin/schools") {
-        return schools.fetch(request);
-      }
-      if (request.method === "OPTIONS") return new Response(null, { status: 204 });
-      if (request.method === "GET" && pathname === "/health") {
-        try {
-          await run(databaseHealth);
-          return jsonResponse({ status: "ok" });
-        } catch {
-          return jsonResponse({ status: "unavailable" }, 503);
-        }
-      }
-      if (request.method === "GET" && pathname === "/api/me/session") {
-        try {
-          return await meSession(request);
-        } catch (cause) {
-          const unauthenticated = cause instanceof UnauthenticatedActor;
-          return jsonResponse(
-            {
-              error: {
-                tag: unauthenticated ? "UnauthenticatedActor" : "IdentityEngineError",
-              },
-            },
-            unauthenticated ? 401 : 503,
+  const handlers = Layer.mergeAll(
+    SystemApiHandlers(run, options),
+    AdmissionsApiHandlers({
+      config: config.admission,
+      resolveActor: resolveAdmissionActor,
+      run,
+    }),
+    ReceiptApiHandlers(receiptOptions),
+    InternalReceiptApiHandlers(receiptOptions),
+    RecruitmentApiHandlers({
+      config: config.recruitment,
+      resolveConductContext: async (request) => {
+        const authority = await resolvePersonAuthorityAfterSession(
+          request.headers.get("cookie") ?? undefined,
+          { run, now: options.now },
+        );
+        return {
+          actor: {
+            _tag: "Member",
+            personId: authority.personId,
+            departmentId: DepartmentId.make(authority.memberships[0]?.departmentId ?? "conduct"),
+            active: true,
+          },
+          authorizationInstant: authority.evaluatedAt,
+        };
+      },
+      resolveActor: async (request) => {
+        const authority = await resolvePersonAuthority(request.headers.get("cookie") ?? undefined, {
+          run,
+          now: options.now,
+        });
+        return recruitmentBoardActorFrom(authority);
+      },
+      run,
+    }),
+    OrganizationApiHandlers({
+      config: config.organization,
+      resolveActor: async (request) => {
+        const authority = await resolvePersonAuthority(request.headers.get("cookie") ?? undefined, {
+          run,
+          now: options.now,
+        });
+        return organizationActorFrom(authority);
+      },
+      resolveAuthority: (request) =>
+        resolvePersonAuthority(request.headers.get("cookie") ?? undefined, {
+          run,
+          now: options.now,
+        }),
+      run,
+    }),
+    AdminUsersApiHandlers(
+      {
+        resolveAuthority: (request) =>
+          resolvePersonAuthority(request.headers.get("cookie") ?? undefined, {
+            run,
+            now: options.now,
+          }),
+        run,
+      },
+      {
+        resolveActor: (request) =>
+          resolveAuthenticatedPersonAtInstant(request.headers.get("cookie") ?? undefined, {
+            run,
+            now: options.now,
+          }),
+        run,
+      },
+    ),
+    ContentApiHandlers(
+      (request) =>
+        resolveAuthenticatedPersonAtInstant(request.headers.get("cookie") ?? undefined, {
+          run,
+          now: options.now,
+        }),
+      run,
+    ),
+    ProfileApiHandlers({
+      config,
+      resolveActor: async (request) => {
+        const authority = await resolvePersonAuthority(request.headers.get("cookie") ?? undefined, {
+          run,
+          now: options.now,
+        });
+        const decision = profileRoleFrom(authority);
+        if (decision._tag === "Deny") {
+          if (decision.reason === "Unauthenticated") {
+            throw new UnauthenticatedActor({ message: "profile authority is unauthenticated" });
+          }
+          throw profileAuthorityError(
+            decision.reason === "AuthorityInactive" ? "AuthorityInactive" : "NotInScope",
           );
         }
-      }
-      if (pathname === "/api/me") return profile.fetch(request);
-      if (isRecruitmentRoute(pathname)) return recruitment.fetch(request);
-      if (isAdmissionRoute(pathname)) return admission.fetch(request);
-      if (isReceiptRoute(pathname)) return receipt.fetch(request);
-      if (isContentStaffRoute(pathname)) return content.fetch(request);
-      if (isPublicNewsPath(pathname)) return publicNews.fetch(request);
-      return jsonResponse({ error: { tag: "RouteNotFound" } }, 404);
-    },
-  };
+        return { personId: authority.personId, role: decision.value };
+      },
+      run,
+    }),
+  ).pipe(Layer.provide(NativeHttpApiMiddlewareLive));
+
+  const nativeRoutes = HttpApiBuilder.layer(NativeApi).pipe(
+    Layer.provide(handlers),
+    Layer.provide(NativeHttpApiMiddlewareLive),
+  );
+  const notFound = HttpRouter.use((router) =>
+    router.add(
+      "*",
+      "*",
+      Effect.sync(() =>
+        HttpServerResponse.fromWeb(jsonResponse({ error: { tag: "RouteNotFound" } }, 404)),
+      ),
+    ),
+  );
+  return Layer.merge(nativeRoutes, notFound);
 };
+
+const organizationPaths = new Set<string>(
+  Object.values(OrganizationApi.endpoints).map((endpoint) => endpoint.path),
+);
+
+const malformedRecruitmentPath = (method: string, pathname: string): boolean =>
+  [
+    RecruitmentApi.endpoints.readInterviewConduct,
+    RecruitmentApi.endpoints.finalizeInterview,
+    RecruitmentApi.endpoints.cancelInterview,
+  ].some(
+    (endpoint) =>
+      method === endpoint.method && pathname === endpoint.path.replace(":interviewId", ""),
+  );
+
+const organizationPreflight = (): Response =>
+  new Response(null, {
+    status: 204,
+    headers: {
+      "access-control-allow-origin": "*",
+      "access-control-allow-methods": "GET, POST, OPTIONS",
+      "access-control-allow-headers": "authorization, content-type",
+      "access-control-max-age": "600",
+      "cache-control": "no-store",
+    },
+  });
+
+/**
+ * Explicit external boundary around the native HttpApi handler.
+ * Better Auth remains the only path family outside `NativeApi`.
+ */
+export const makeBackendHttp = (
+  nativeHandler: (request: Request) => Promise<Response>,
+  authHandler: BackendAuthHandler,
+): BackendHttp => ({
+  fetch: (request) => {
+    const pathname = new URL(request.url).pathname;
+    if (pathname === "/api/auth/" || pathname.startsWith("/api/auth/")) {
+      return authHandler.handle(request);
+    }
+    if (request.method === "OPTIONS") {
+      return Promise.resolve(
+        organizationPaths.has(pathname)
+          ? organizationPreflight()
+          : new Response(null, { status: 204 }),
+      );
+    }
+    if (malformedRecruitmentPath(request.method, pathname)) {
+      return Promise.resolve(jsonResponse({ error: { tag: "RecruitmentDecodeError" } }, 422));
+    }
+    return nativeHandler(request);
+  },
+});

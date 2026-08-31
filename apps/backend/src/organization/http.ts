@@ -15,7 +15,10 @@ import {
   type SemesterId,
   type TeamInterestFilter,
 } from "@vektorprogrammet/domain/organization";
+import { NativeApi } from "@vektorprogrammet/http-api";
 import { Effect, Match, Schema } from "effect";
+import { HttpApiBuilder } from "effect/unstable/httpapi";
+import { toHttpApiResponse } from "../http-api/transport.js";
 import type { BackendRun } from "../router.js";
 import type { OrganizationApiConfig } from "./config.js";
 
@@ -29,10 +32,6 @@ export interface OrganizationApiHttpOptions {
    */
   readonly resolveAuthority: (request: Request) => Promise<OrganizationPersonAuthority>;
   readonly run: BackendRun;
-}
-
-export interface OrganizationApiHttp {
-  readonly fetch: (request: Request) => Promise<Response>;
 }
 
 interface ErrorBody {
@@ -78,18 +77,6 @@ const jsonResponse = (body: unknown, status = 200): Response =>
       "content-type": "application/json; charset=utf-8",
       "cache-control": "no-store",
       "access-control-allow-origin": "*",
-    },
-  });
-
-const preflightResponse = (): Response =>
-  new Response(null, {
-    status: 204,
-    headers: {
-      "access-control-allow-origin": "*",
-      "access-control-allow-methods": "GET, POST, OPTIONS",
-      "access-control-allow-headers": "authorization, content-type",
-      "access-control-max-age": "600",
-      "cache-control": "no-store",
     },
   });
 
@@ -418,41 +405,58 @@ const listMailingLists = async (
   return jsonResponse(lists);
 };
 
-export const makeOrganizationApiHttp = (
-  input: OrganizationApiHttpOptions,
-): OrganizationApiHttp => ({
-  fetch: async (request) => {
-    const pathname = new URL(request.url).pathname;
-    if (request.method === "OPTIONS") return preflightResponse();
-    try {
-      if (request.method === "GET" && pathname === "/api/departments") {
-        return await listDepartments(request, input);
-      }
-      if (request.method === "GET" && pathname === "/api/teams") {
-        return await listTeams(request, input);
-      }
-      if (request.method === "GET" && pathname === "/api/field_of_studies") {
-        return await listFieldOfStudies(request, input);
-      }
-      if (request.method === "GET" && pathname === "/api/admin/team-interest") {
-        return await listTeamInterest(request, input);
-      }
-      if (request.method === "GET" && pathname === "/api/admin/mailing-lists") {
-        return await listMailingLists(request, input);
-      }
-      if (request.method === "POST" && pathname === "/api/admin/departments") {
-        return await createDepartment(request, input);
-      }
-      if (request.method === "POST" && pathname === "/api/admin/teams") {
-        return await createTeam(request, input);
-      }
-      if (request.method === "POST" && pathname === "/api/admin/field-of-studies") {
-        return await createFieldOfStudy(request, input);
-      }
-      const body: ErrorBody = { error: { tag: "RouteNotFound" } };
-      return jsonResponse(body, 404);
-    } catch (cause) {
-      return errorResponse(cause);
-    }
-  },
-});
+/** Native HttpApi implementations for organization endpoints. */
+export const OrganizationApiHandlers = (input: OrganizationApiHttpOptions) =>
+  HttpApiBuilder.group(NativeApi, "organization", (handlers) =>
+    Effect.succeed(
+      handlers
+        .handleRaw("listDepartments", ({ request }) =>
+          toHttpApiResponse(
+            request,
+            (webRequest) => listDepartments(webRequest, input),
+            errorResponse,
+          ),
+        )
+        .handleRaw("listTeams", ({ request }) =>
+          toHttpApiResponse(request, (webRequest) => listTeams(webRequest, input), errorResponse),
+        )
+        .handleRaw("listFieldOfStudies", ({ request }) =>
+          toHttpApiResponse(
+            request,
+            (webRequest) => listFieldOfStudies(webRequest, input),
+            errorResponse,
+          ),
+        )
+        .handleRaw("listTeamInterest", ({ request }) =>
+          toHttpApiResponse(
+            request,
+            (webRequest) => listTeamInterest(webRequest, input),
+            errorResponse,
+          ),
+        )
+        .handleRaw("listMailingLists", ({ request }) =>
+          toHttpApiResponse(
+            request,
+            (webRequest) => listMailingLists(webRequest, input),
+            errorResponse,
+          ),
+        )
+        .handleRaw("createDepartment", ({ request }) =>
+          toHttpApiResponse(
+            request,
+            (webRequest) => createDepartment(webRequest, input),
+            errorResponse,
+          ),
+        )
+        .handleRaw("createTeam", ({ request }) =>
+          toHttpApiResponse(request, (webRequest) => createTeam(webRequest, input), errorResponse),
+        )
+        .handleRaw("createFieldOfStudy", ({ request }) =>
+          toHttpApiResponse(
+            request,
+            (webRequest) => createFieldOfStudy(webRequest, input),
+            errorResponse,
+          ),
+        ),
+    ),
+  );

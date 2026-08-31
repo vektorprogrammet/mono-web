@@ -27,7 +27,7 @@ import {
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import type { BackendRun } from "../router.js";
-import { makeSchoolsApiHttp } from "./http.js";
+import { makeSchoolsTestHttp as makeSchoolsApiHttp } from "../test/native-http.js";
 import { runTestPromise } from "../../test/runtime.js";
 
 const personId = PersonId.make("schools-http-person");
