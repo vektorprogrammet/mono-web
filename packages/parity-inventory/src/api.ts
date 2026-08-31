@@ -1376,6 +1376,7 @@ foreach ($classes as $class) {
         }
     }
 }
+if (($argv[3] ?? null) === 'capability') {
 $routes = $container->get('router')->getRouteCollection();
 foreach ($routes->all() as $routeName => $route) {
     $path = $route->getPath();
@@ -1426,6 +1427,7 @@ foreach ($out as &$record) {
     }
 }
 unset($record);
+}
 usort($out, static fn(array $left, array $right): int => strcmp(
     implode("\0", [$left['method'] ?? '', $left['uri_template'] ?? '', $left['operation_id'] ?? '', $left['resource_class_ref'] ?? '']),
     implode("\0", [$right['method'] ?? '', $right['uri_template'] ?? '', $right['operation_id'] ?? '', $right['resource_class_ref'] ?? ''])

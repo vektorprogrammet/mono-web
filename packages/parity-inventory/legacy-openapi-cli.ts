@@ -54,7 +54,7 @@ const parseArgs = (rawArgs: readonly string[]): Options => {
 
 const runMetadataCollector = async (options: Options): Promise<unknown> => {
   const child = Bun.spawn(
-    [options.php, "-r", API_METADATA_SCRIPT, "--", "[]", options.serverRoot],
+    [options.php, "-r", API_METADATA_SCRIPT, "--", "[]", options.serverRoot, "capability"],
     {
       cwd: options.serverRoot,
       stdout: "pipe",
