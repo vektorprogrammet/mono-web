@@ -14,7 +14,7 @@ const logicalIds = ["vektor-apex-dashboard", "vektor-apex-homepage", "vektor-ape
 
 function writeApexStateFixture(
   standaloneRoot: string,
-  options: { readonly crossWireDashboard?: boolean } = {},
+  options: { readonly crossWireDashboard?: boolean; readonly omitApiRoute?: boolean } = {},
 ): string {
   const directory = resolve(standaloneRoot, ".alchemy/state/vektor/dev-main");
   mkdirSync(directory, { recursive: true });
@@ -30,6 +30,7 @@ function writeApexStateFixture(
       stage: "dev-main",
       target: "apex-preview",
       hostname: "vektor.phibkro.org",
+      apiHostname: "api.vektor.phibkro.org",
       previewStage: "dev-main",
       backendHostname: "origin-api.vektor.phibkro.org",
       url: "https://vektor.phibkro.org",
@@ -76,6 +77,16 @@ function writeApexStateFixture(
             ? {
                 url: "https://vektor.phibkro.org",
                 domain: { name: "vektor.phibkro.org", aliases: [] },
+                routes:
+                  options.omitApiRoute === true
+                    ? []
+                    : [
+                        {
+                          id: "c".repeat(32),
+                          pattern: "api.vektor.phibkro.org/*",
+                          zoneId: "b".repeat(32),
+                        },
+                      ],
               }
             : {}),
         },
@@ -138,6 +149,16 @@ it("rejects a cross-wired logical ID and physical Worker", () => {
   try {
     writeApexStateFixture(root, { crossWireDashboard: true });
     expect(() => assertApexLocalState(root)).toThrow("identity mismatch: vektor-apex-dashboard");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("rejects local state without the recovered API route", () => {
+  const root = mkdtempSync(join(tmpdir(), "mono-web-alchemy-api-route-"));
+  try {
+    writeApexStateFixture(root, { omitApiRoute: true });
+    expect(() => assertApexLocalState(root)).toThrow("binding identity mismatch");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

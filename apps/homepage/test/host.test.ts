@@ -93,7 +93,7 @@ describe("homepage stage and host contract", () => {
     expect(apexDeclaration.match(/workersDev: false/g)).toHaveLength(2);
     expect(apexWorkerResource).toContain("workersDev: false");
     expect(apexWorkerResource).toContain("domain: APEX_IDENTITY.hostname");
-    expect(apexWorkerResource).not.toContain("aliases:");
+    expect(apexWorkerResource).toContain("routes: [{ pattern: `${APEX_IDENTITY.apiHostname}/*` }]");
 
     expect(resources).toEqual([
       { type: "worker", id: "vektor-p20-worker", name: "vektor-p20-worker" },

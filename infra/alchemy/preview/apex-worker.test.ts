@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import worker, { BACKEND_ORIGIN, type ApexWorkerEnv } from "./apex-worker.ts";
+import { APEX_IDENTITY } from "./identity.ts";
 
 const service = (name: string) => ({
   fetch: vi.fn(async () => new Response(name, { headers: { "x-service": name } })),
@@ -18,6 +19,12 @@ const apexRequest = (path: string, init?: RequestInit) =>
   new Request(`https://vektor.phibkro.org${path}`, {
     ...init,
     headers: { host: "vektor.phibkro.org", ...init?.headers },
+  });
+
+const apiRequest = (path: string, init?: RequestInit) =>
+  new Request(`https://${APEX_IDENTITY.apiHostname}${path}`, {
+    ...init,
+    headers: { host: APEX_IDENTITY.apiHostname, ...init?.headers },
   });
 
 afterEach(() => vi.unstubAllGlobals());
@@ -46,6 +53,38 @@ describe("apex edge worker", () => {
     expect(env.Dashboard.fetch).not.toHaveBeenCalled();
     expect(env.Homepage.fetch).not.toHaveBeenCalled();
   });
+
+  it("accepts the restored API alias for server routing", async () => {
+    let forwarded: Request | undefined;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (request: Request) => {
+        forwarded = request;
+        return Response.json({ status: "ok" });
+      }),
+    );
+
+    const response = await worker.fetch(apiRequest("/api/health"), apexEnv());
+
+    expect(forwarded?.url).toBe(`${BACKEND_ORIGIN}/health`);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("x-mono-web-stage")).toBe("dev-main");
+  });
+
+  it.each([APEX_IDENTITY.backendHostname, "p20.vektor.phibkro.org", APEX_IDENTITY.forbiddenHost])(
+    "rejects unapproved edge host %s before dispatch",
+    async (host) => {
+      const env = apexEnv();
+      const response = await worker.fetch(
+        new Request("https://vektor.phibkro.org/api/health", { headers: { host } }),
+        env,
+      );
+
+      expect(response.status).toBe(421);
+      expect(env.Dashboard.fetch).not.toHaveBeenCalled();
+      expect(env.Homepage.fetch).not.toHaveBeenCalled();
+    },
+  );
 
   it("preserves request body and cookies while rewriting only preview-origin redirects", async () => {
     let forwarded: Request | undefined;
@@ -104,6 +143,7 @@ describe("apex edge worker", () => {
     `${BACKEND_ORIGIN}@evil.example.invalid/path`,
     `${BACKEND_ORIGIN}.evil.example.invalid/path`,
     "//evil.example.invalid/path",
+    `//${new URL(BACKEND_ORIGIN).host}/path`,
     "https://preview-user@origin-api.vektor.phibkro.org/path",
   ])("fails closed for hostile backend redirect %s", async (location) => {
     vi.stubGlobal(

@@ -17,11 +17,15 @@ export const assertApexIdentity = (): void => {
   }
   if (
     APEX_IDENTITY.hostname !== "vektor.phibkro.org" ||
+    APEX_IDENTITY.apiHostname !== "api.vektor.phibkro.org" ||
     !APEX_IDENTITY.resourcePrefix.startsWith("vektor-apex")
   ) {
     throw new Error("Apex identity drift");
   }
-  if (APEX_IDENTITY.hostname.includes(APEX_IDENTITY.forbiddenHost)) {
+  if (
+    APEX_IDENTITY.hostname.includes(APEX_IDENTITY.forbiddenHost) ||
+    APEX_IDENTITY.apiHostname.includes(APEX_IDENTITY.forbiddenHost)
+  ) {
     throw new Error("Forbidden production host in apex identity");
   }
 };
@@ -73,6 +77,7 @@ export const apexStack = Effect.gen(function* () {
     stage,
     target: APEX_IDENTITY.target,
     hostname: APEX_IDENTITY.hostname,
+    apiHostname: APEX_IDENTITY.apiHostname,
     previewStage: APEX_IDENTITY.stage,
     backendHostname: APEX_IDENTITY.backendHostname,
     url: worker.url.as<string>(),

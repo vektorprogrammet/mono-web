@@ -34,6 +34,7 @@ describe("apexSurface", () => {
   );
   it("keeps browser and backend authority on the preview hosts", () => {
     expect(APEX_IDENTITY.hostname).toBe("vektor.phibkro.org");
+    expect(APEX_IDENTITY.apiHostname).toBe("api.vektor.phibkro.org");
     expect(APEX_IDENTITY.backendHostname).toBe("origin-api.vektor.phibkro.org");
     expect(BACKEND_ORIGIN).toBe(APEX_IDENTITY.backendOrigin);
     expect(APEX_IDENTITY.localStateDirectory).toBe(".alchemy");

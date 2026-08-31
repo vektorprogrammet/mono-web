@@ -16,6 +16,7 @@ export const ApexWorker = (homepage: Cloudflare.Worker, dashboard: Cloudflare.Wo
     },
     workersDev: false,
     domain: APEX_IDENTITY.hostname,
+    routes: [{ pattern: `${APEX_IDENTITY.apiHostname}/*` }],
     env: {
       Homepage: homepage,
       Dashboard: dashboard,

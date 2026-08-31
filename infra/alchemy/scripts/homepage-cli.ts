@@ -179,6 +179,7 @@ interface ApexLocalStateRecord {
   readonly attr?: {
     readonly accountId?: unknown;
     readonly domain?: { readonly aliases?: unknown; readonly name?: unknown };
+    readonly routes?: unknown;
     readonly tags?: unknown;
     readonly url?: unknown;
     readonly workerId?: unknown;
@@ -208,6 +209,7 @@ export function assertApexLocalState(standaloneDirectory: string): void {
 
   const expectedOutput: Record<string, string> = {
     app: APEX_IDENTITY.app,
+    apiHostname: APEX_IDENTITY.apiHostname,
     backendHostname: APEX_IDENTITY.backendHostname,
     backendOrigin: APEX_IDENTITY.backendOrigin,
     forbiddenHost: APEX_IDENTITY.forbiddenHost,
@@ -287,6 +289,20 @@ export function assertApexLocalState(standaloneDirectory: string): void {
   const dashboardBinding = edge?.props?.env?.Dashboard as
     | { readonly workerId?: unknown; readonly workerName?: unknown }
     | undefined;
+  const aliases = edge?.attr?.domain?.aliases;
+  const routes = edge?.attr?.routes;
+  const apiRoute = Array.isArray(routes) && routes.length === 1 ? routes[0] : undefined;
+  const hasRestoredApiRoute =
+    apiRoute !== null &&
+    typeof apiRoute === "object" &&
+    "id" in apiRoute &&
+    typeof apiRoute.id === "string" &&
+    /^[a-f0-9]{32}$/u.test(apiRoute.id) &&
+    "pattern" in apiRoute &&
+    apiRoute.pattern === `${APEX_IDENTITY.apiHostname}/*` &&
+    "zoneId" in apiRoute &&
+    typeof apiRoute.zoneId === "string" &&
+    /^[a-f0-9]{32}$/u.test(apiRoute.zoneId);
   if (
     homepageBinding?.workerId !== homepageName ||
     homepageBinding?.workerName !== homepageName ||
@@ -294,7 +310,8 @@ export function assertApexLocalState(standaloneDirectory: string): void {
     dashboardBinding?.workerName !== dashboardName ||
     edge?.attr?.url !== `https://${APEX_IDENTITY.hostname}` ||
     edge?.attr?.domain?.name !== APEX_IDENTITY.hostname ||
-    JSON.stringify(edge?.attr?.domain?.aliases) !== "[]"
+    JSON.stringify(aliases) !== "[]" ||
+    !hasRestoredApiRoute
   ) {
     throw new Error("apex local state binding identity mismatch");
   }

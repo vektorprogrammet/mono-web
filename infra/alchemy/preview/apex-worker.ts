@@ -32,6 +32,7 @@ const APEX_ORIGIN = `https://${APEX_IDENTITY.hostname}`;
 
 const ALLOWED_HOSTS: Record<string, true> = {
   [APEX_IDENTITY.hostname]: true,
+  [APEX_IDENTITY.apiHostname]: true,
 };
 
 /**
@@ -55,6 +56,7 @@ const proxyResponse = (backendResponse: Response): Response => {
       });
     }
     if (
+      location.startsWith("//") ||
       redirect.origin !== BACKEND_ORIGIN ||
       redirect.username.length > 0 ||
       redirect.password.length > 0

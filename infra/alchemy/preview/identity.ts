@@ -23,6 +23,7 @@ export const APEX_IDENTITY = {
   stage: "dev-main",
   target: "apex-preview",
   hostname: "vektor.phibkro.org",
+  apiHostname: "api.vektor.phibkro.org",
   backendHostname: "origin-api.vektor.phibkro.org",
   backendOrigin: "https://origin-api.vektor.phibkro.org",
   resourcePrefix: "vektor-apex",
