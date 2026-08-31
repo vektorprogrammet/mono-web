@@ -3428,7 +3428,7 @@
         ],
         "x-vektorprogrammet-provenance": {
           "contract": "@vektorprogrammet/http-api/NativeApi",
-          "operationId": "HttpApiEndpoint.identifier",
+          "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
           "schemas": "Effect.Schema",
           "security": "HttpApiMiddleware.security",
           "statuses": "HttpApiSchema.status",
@@ -3575,7 +3575,7 @@
         ],
         "x-vektorprogrammet-provenance": {
           "contract": "@vektorprogrammet/http-api/NativeApi",
-          "operationId": "HttpApiEndpoint.identifier",
+          "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
           "schemas": "Effect.Schema",
           "security": "HttpApiMiddleware.security",
           "statuses": "HttpApiSchema.status",
@@ -3715,7 +3715,7 @@
         ],
         "x-vektorprogrammet-provenance": {
           "contract": "@vektorprogrammet/http-api/NativeApi",
-          "operationId": "HttpApiEndpoint.identifier",
+          "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
           "schemas": "Effect.Schema",
           "security": "HttpApiMiddleware.security",
           "statuses": "HttpApiSchema.status",
@@ -3937,7 +3937,7 @@
         ],
         "x-vektorprogrammet-provenance": {
           "contract": "@vektorprogrammet/http-api/NativeApi",
-          "operationId": "HttpApiEndpoint.identifier",
+          "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
           "schemas": "Effect.Schema",
           "security": "HttpApiMiddleware.security",
           "statuses": "HttpApiSchema.status",
@@ -4142,7 +4142,7 @@
         ],
         "x-vektorprogrammet-provenance": {
           "contract": "@vektorprogrammet/http-api/NativeApi",
-          "operationId": "HttpApiEndpoint.identifier",
+          "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
           "schemas": "Effect.Schema",
           "security": "HttpApiMiddleware.security",
           "statuses": "HttpApiSchema.status",
@@ -4394,7 +4394,7 @@
         ],
         "x-vektorprogrammet-provenance": {
           "contract": "@vektorprogrammet/http-api/NativeApi",
-          "operationId": "HttpApiEndpoint.identifier",
+          "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
           "schemas": "Effect.Schema",
           "security": "HttpApiMiddleware.security",
           "statuses": "HttpApiSchema.status",
@@ -4584,7 +4584,7 @@
         ],
         "x-vektorprogrammet-provenance": {
           "contract": "@vektorprogrammet/http-api/NativeApi",
-          "operationId": "HttpApiEndpoint.identifier",
+          "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
           "schemas": "Effect.Schema",
           "security": "HttpApiMiddleware.security",
           "statuses": "HttpApiSchema.status",
@@ -4761,7 +4761,7 @@
         ],
         "x-vektorprogrammet-provenance": {
           "contract": "@vektorprogrammet/http-api/NativeApi",
-          "operationId": "HttpApiEndpoint.identifier",
+          "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
           "schemas": "Effect.Schema",
           "security": "HttpApiMiddleware.security",
           "statuses": "HttpApiSchema.status",
@@ -4947,7 +4947,7 @@
         ],
         "x-vektorprogrammet-provenance": {
           "contract": "@vektorprogrammet/http-api/NativeApi",
-          "operationId": "HttpApiEndpoint.identifier",
+          "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
           "schemas": "Effect.Schema",
           "security": "HttpApiMiddleware.security",
           "statuses": "HttpApiSchema.status",
@@ -5181,7 +5181,7 @@
         ],
         "x-vektorprogrammet-provenance": {
           "contract": "@vektorprogrammet/http-api/NativeApi",
-          "operationId": "HttpApiEndpoint.identifier",
+          "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
           "schemas": "Effect.Schema",
           "security": "HttpApiMiddleware.security",
           "statuses": "HttpApiSchema.status",
@@ -5360,7 +5360,7 @@
         ],
         "x-vektorprogrammet-provenance": {
           "contract": "@vektorprogrammet/http-api/NativeApi",
-          "operationId": "HttpApiEndpoint.identifier",
+          "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
           "schemas": "Effect.Schema",
           "security": "HttpApiMiddleware.security",
           "statuses": "HttpApiSchema.status",
@@ -5508,7 +5508,7 @@
         ],
         "x-vektorprogrammet-provenance": {
           "contract": "@vektorprogrammet/http-api/NativeApi",
-          "operationId": "HttpApiEndpoint.identifier",
+          "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
           "schemas": "Effect.Schema",
           "security": "HttpApiMiddleware.security",
           "statuses": "HttpApiSchema.status",
@@ -5620,7 +5620,7 @@
         ],
         "x-vektorprogrammet-provenance": {
           "contract": "@vektorprogrammet/http-api/NativeApi",
-          "operationId": "HttpApiEndpoint.identifier",
+          "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
           "schemas": "Effect.Schema",
           "security": "HttpApiMiddleware.security",
           "statuses": "HttpApiSchema.status",
@@ -5740,7 +5740,7 @@
         ],
         "x-vektorprogrammet-provenance": {
           "contract": "@vektorprogrammet/http-api/NativeApi",
-          "operationId": "HttpApiEndpoint.identifier",
+          "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
           "schemas": "Effect.Schema",
           "security": "HttpApiMiddleware.security",
           "statuses": "HttpApiSchema.status",
@@ -5860,7 +5860,7 @@
         ],
         "x-vektorprogrammet-provenance": {
           "contract": "@vektorprogrammet/http-api/NativeApi",
-          "operationId": "HttpApiEndpoint.identifier",
+          "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
           "schemas": "Effect.Schema",
           "security": "HttpApiMiddleware.security",
           "statuses": "HttpApiSchema.status",
@@ -6100,7 +6100,7 @@
         ],
         "x-vektorprogrammet-provenance": {
           "contract": "@vektorprogrammet/http-api/NativeApi",
-          "operationId": "HttpApiEndpoint.identifier",
+          "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
           "schemas": "Effect.Schema",
           "security": "HttpApiMiddleware.security",
           "statuses": "HttpApiSchema.status",
@@ -6274,7 +6274,7 @@
         ],
         "x-vektorprogrammet-provenance": {
           "contract": "@vektorprogrammet/http-api/NativeApi",
-          "operationId": "HttpApiEndpoint.identifier",
+          "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
           "schemas": "Effect.Schema",
           "security": "HttpApiMiddleware.security",
           "statuses": "HttpApiSchema.status",
@@ -6525,7 +6525,7 @@
         ],
         "x-vektorprogrammet-provenance": {
           "contract": "@vektorprogrammet/http-api/NativeApi",
-          "operationId": "HttpApiEndpoint.identifier",
+          "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
           "schemas": "Effect.Schema",
           "security": "HttpApiMiddleware.security",
           "statuses": "HttpApiSchema.status",
@@ -6885,7 +6885,7 @@
         ],
         "x-vektorprogrammet-provenance": {
           "contract": "@vektorprogrammet/http-api/NativeApi",
-          "operationId": "HttpApiEndpoint.identifier",
+          "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
           "schemas": "Effect.Schema",
           "security": "HttpApiMiddleware.security",
           "statuses": "HttpApiSchema.status",
@@ -7104,7 +7104,7 @@
         ],
         "x-vektorprogrammet-provenance": {
           "contract": "@vektorprogrammet/http-api/NativeApi",
-          "operationId": "HttpApiEndpoint.identifier",
+          "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
           "schemas": "Effect.Schema",
           "security": "HttpApiMiddleware.security",
           "statuses": "HttpApiSchema.status",
@@ -7348,7 +7348,7 @@
         ],
         "x-vektorprogrammet-provenance": {
           "contract": "@vektorprogrammet/http-api/NativeApi",
-          "operationId": "HttpApiEndpoint.identifier",
+          "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
           "schemas": "Effect.Schema",
           "security": "HttpApiMiddleware.security",
           "statuses": "HttpApiSchema.status",
@@ -7578,7 +7578,7 @@
         ],
         "x-vektorprogrammet-provenance": {
           "contract": "@vektorprogrammet/http-api/NativeApi",
-          "operationId": "HttpApiEndpoint.identifier",
+          "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
           "schemas": "Effect.Schema",
           "security": "HttpApiMiddleware.security",
           "statuses": "HttpApiSchema.status",
@@ -7682,7 +7682,7 @@
         ],
         "x-vektorprogrammet-provenance": {
           "contract": "@vektorprogrammet/http-api/NativeApi",
-          "operationId": "HttpApiEndpoint.identifier",
+          "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
           "schemas": "Effect.Schema",
           "security": "HttpApiMiddleware.security",
           "statuses": "HttpApiSchema.status",
@@ -7795,7 +7795,7 @@
         ],
         "x-vektorprogrammet-provenance": {
           "contract": "@vektorprogrammet/http-api/NativeApi",
-          "operationId": "HttpApiEndpoint.identifier",
+          "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
           "schemas": "Effect.Schema",
           "security": "HttpApiMiddleware.security",
           "statuses": "HttpApiSchema.status",
@@ -8032,7 +8032,7 @@
         ],
         "x-vektorprogrammet-provenance": {
           "contract": "@vektorprogrammet/http-api/NativeApi",
-          "operationId": "HttpApiEndpoint.identifier",
+          "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
           "schemas": "Effect.Schema",
           "security": "HttpApiMiddleware.security",
           "statuses": "HttpApiSchema.status",
@@ -8108,7 +8108,7 @@
         ],
         "x-vektorprogrammet-provenance": {
           "contract": "@vektorprogrammet/http-api/NativeApi",
-          "operationId": "HttpApiEndpoint.identifier",
+          "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
           "schemas": "Effect.Schema",
           "security": "HttpApiMiddleware.security",
           "statuses": "HttpApiSchema.status",
@@ -8200,7 +8200,7 @@
         ],
         "x-vektorprogrammet-provenance": {
           "contract": "@vektorprogrammet/http-api/NativeApi",
-          "operationId": "HttpApiEndpoint.identifier",
+          "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
           "schemas": "Effect.Schema",
           "security": "HttpApiMiddleware.security",
           "statuses": "HttpApiSchema.status",
@@ -8370,7 +8370,7 @@
         ],
         "x-vektorprogrammet-provenance": {
           "contract": "@vektorprogrammet/http-api/NativeApi",
-          "operationId": "HttpApiEndpoint.identifier",
+          "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
           "schemas": "Effect.Schema",
           "security": "HttpApiMiddleware.security",
           "statuses": "HttpApiSchema.status",
@@ -8516,7 +8516,7 @@
         ],
         "x-vektorprogrammet-provenance": {
           "contract": "@vektorprogrammet/http-api/NativeApi",
-          "operationId": "HttpApiEndpoint.identifier",
+          "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
           "schemas": "Effect.Schema",
           "security": "HttpApiMiddleware.security",
           "statuses": "HttpApiSchema.status",
@@ -8642,7 +8642,7 @@
         ],
         "x-vektorprogrammet-provenance": {
           "contract": "@vektorprogrammet/http-api/NativeApi",
-          "operationId": "HttpApiEndpoint.identifier",
+          "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
           "schemas": "Effect.Schema",
           "security": "HttpApiMiddleware.security",
           "statuses": "HttpApiSchema.status",
@@ -8697,7 +8697,7 @@
         ],
         "x-vektorprogrammet-provenance": {
           "contract": "@vektorprogrammet/http-api/NativeApi",
-          "operationId": "HttpApiEndpoint.identifier",
+          "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
           "schemas": "Effect.Schema",
           "security": "HttpApiMiddleware.security",
           "statuses": "HttpApiSchema.status",
@@ -8752,7 +8752,7 @@
         ],
         "x-vektorprogrammet-provenance": {
           "contract": "@vektorprogrammet/http-api/NativeApi",
-          "operationId": "HttpApiEndpoint.identifier",
+          "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
           "schemas": "Effect.Schema",
           "security": "HttpApiMiddleware.security",
           "statuses": "HttpApiSchema.status",
@@ -8848,7 +8848,7 @@
         ],
         "x-vektorprogrammet-provenance": {
           "contract": "@vektorprogrammet/http-api/NativeApi",
-          "operationId": "HttpApiEndpoint.identifier",
+          "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
           "schemas": "Effect.Schema",
           "security": "HttpApiMiddleware.security",
           "statuses": "HttpApiSchema.status",
@@ -9016,7 +9016,7 @@
         ],
         "x-vektorprogrammet-provenance": {
           "contract": "@vektorprogrammet/http-api/NativeApi",
-          "operationId": "HttpApiEndpoint.identifier",
+          "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
           "schemas": "Effect.Schema",
           "security": "HttpApiMiddleware.security",
           "statuses": "HttpApiSchema.status",
@@ -9072,7 +9072,7 @@
         ],
         "x-vektorprogrammet-provenance": {
           "contract": "@vektorprogrammet/http-api/NativeApi",
-          "operationId": "HttpApiEndpoint.identifier",
+          "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
           "schemas": "Effect.Schema",
           "security": "HttpApiMiddleware.security",
           "statuses": "HttpApiSchema.status",
@@ -9226,7 +9226,7 @@
         ],
         "x-vektorprogrammet-provenance": {
           "contract": "@vektorprogrammet/http-api/NativeApi",
-          "operationId": "HttpApiEndpoint.identifier",
+          "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
           "schemas": "Effect.Schema",
           "security": "HttpApiMiddleware.security",
           "statuses": "HttpApiSchema.status",
@@ -9431,7 +9431,7 @@
         ],
         "x-vektorprogrammet-provenance": {
           "contract": "@vektorprogrammet/http-api/NativeApi",
-          "operationId": "HttpApiEndpoint.identifier",
+          "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
           "schemas": "Effect.Schema",
           "security": "HttpApiMiddleware.security",
           "statuses": "HttpApiSchema.status",
@@ -9553,7 +9553,7 @@
         ],
         "x-vektorprogrammet-provenance": {
           "contract": "@vektorprogrammet/http-api/NativeApi",
-          "operationId": "HttpApiEndpoint.identifier",
+          "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
           "schemas": "Effect.Schema",
           "security": "HttpApiMiddleware.security",
           "statuses": "HttpApiSchema.status",
@@ -9735,7 +9735,7 @@
         ],
         "x-vektorprogrammet-provenance": {
           "contract": "@vektorprogrammet/http-api/NativeApi",
-          "operationId": "HttpApiEndpoint.identifier",
+          "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
           "schemas": "Effect.Schema",
           "security": "HttpApiMiddleware.security",
           "statuses": "HttpApiSchema.status",
@@ -9863,7 +9863,7 @@
         ],
         "x-vektorprogrammet-provenance": {
           "contract": "@vektorprogrammet/http-api/NativeApi",
-          "operationId": "HttpApiEndpoint.identifier",
+          "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
           "schemas": "Effect.Schema",
           "security": "HttpApiMiddleware.security",
           "statuses": "HttpApiSchema.status",
@@ -9983,7 +9983,7 @@
         ],
         "x-vektorprogrammet-provenance": {
           "contract": "@vektorprogrammet/http-api/NativeApi",
-          "operationId": "HttpApiEndpoint.identifier",
+          "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
           "schemas": "Effect.Schema",
           "security": "HttpApiMiddleware.security",
           "statuses": "HttpApiSchema.status",
@@ -10211,7 +10211,7 @@
         ],
         "x-vektorprogrammet-provenance": {
           "contract": "@vektorprogrammet/http-api/NativeApi",
-          "operationId": "HttpApiEndpoint.identifier",
+          "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
           "schemas": "Effect.Schema",
           "security": "HttpApiMiddleware.security",
           "statuses": "HttpApiSchema.status",
@@ -10317,7 +10317,7 @@
         ],
         "x-vektorprogrammet-provenance": {
           "contract": "@vektorprogrammet/http-api/NativeApi",
-          "operationId": "HttpApiEndpoint.identifier",
+          "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
           "schemas": "Effect.Schema",
           "security": "HttpApiMiddleware.security",
           "statuses": "HttpApiSchema.status",
@@ -10429,7 +10429,7 @@
         ],
         "x-vektorprogrammet-provenance": {
           "contract": "@vektorprogrammet/http-api/NativeApi",
-          "operationId": "HttpApiEndpoint.identifier",
+          "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
           "schemas": "Effect.Schema",
           "security": "HttpApiMiddleware.security",
           "statuses": "HttpApiSchema.status",
@@ -10544,7 +10544,7 @@
         ],
         "x-vektorprogrammet-provenance": {
           "contract": "@vektorprogrammet/http-api/NativeApi",
-          "operationId": "HttpApiEndpoint.identifier",
+          "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
           "schemas": "Effect.Schema",
           "security": "HttpApiMiddleware.security",
           "statuses": "HttpApiSchema.status",
@@ -10599,7 +10599,7 @@
         ],
         "x-vektorprogrammet-provenance": {
           "contract": "@vektorprogrammet/http-api/NativeApi",
-          "operationId": "HttpApiEndpoint.identifier",
+          "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
           "schemas": "Effect.Schema",
           "security": "HttpApiMiddleware.security",
           "statuses": "HttpApiSchema.status",
@@ -10641,7 +10641,7 @@
         ],
         "x-vektorprogrammet-provenance": {
           "contract": "@vektorprogrammet/http-api/NativeApi",
-          "operationId": "HttpApiEndpoint.identifier",
+          "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
           "schemas": "Effect.Schema",
           "security": "HttpApiMiddleware.security",
           "statuses": "HttpApiSchema.status",

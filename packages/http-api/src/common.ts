@@ -158,7 +158,7 @@ export class RequestSchemaErrorMiddleware extends HttpApiMiddleware.Service<Requ
  */
 export const NativeOperationProvenance = {
   contract: "@vektorprogrammet/http-api/NativeApi",
-  operationId: "HttpApiEndpoint.identifier",
+  operationId: "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
   tags: "HttpApiGroup.identifier",
   security: "HttpApiMiddleware.security",
   statuses: "HttpApiSchema.status",
