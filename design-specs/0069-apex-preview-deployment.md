@@ -7,7 +7,7 @@
 | Stable ID       | `0069`                                                                    |
 | Status          | Accepted operator capsule, amended after independent review on 2026-08-31 |
 | Source base     | `d150c9308ddf9dc0b54de0fb1b74bd505ba91d0f`                                |
-| Deployed source | `b744340fe346474069c5f416d21050edb275f76f`                                |
+| Deployed source | `d1f9e5657ed1227e8cb217ca872b39e4bdd36d7c`                                |
 | Stage           | `dev-main`                                                                |
 | Public host     | `vektor.phibkro.org`                                                      |
 | Backend host    | `origin-api.vektor.phibkro.org`                                           |
@@ -74,14 +74,15 @@ The preview process supervisor owns PostgreSQL, the backend, and the dedicated t
 3. Start the isolated PostgreSQL service.
 4. Start the loopback backend service.
 5. Generate or read the synthetic identities from the operator-only `0600` credential file.
-6. Rotate both credential hashes and invalidate their old sessions.
-7. Make sure that local health and synthetic login succeed.
-8. Start the dedicated tunnel with its restricted ingress file.
-9. Make sure that `origin-api.vektor.phibkro.org/health` returns `200`.
-10. Run the repository Alchemy plan for stage `dev-main`.
-11. Stop if the plan contains an unowned resource or an extra domain.
-12. Deploy through the repository Alchemy wrapper.
-13. Run the HTTPS browser journey on the apex host.
+6. Validate the exact two `personId`/email/role mappings and unique values before any seed or rotation mutation.
+7. Rotate both credential hashes and invalidate their old sessions.
+8. Make sure that local health and both synthetic logins succeed.
+9. Start the dedicated tunnel with its restricted ingress file.
+10. Make sure that `origin-api.vektor.phibkro.org/health` returns `200`.
+11. Run the repository Alchemy plan for stage `dev-main`.
+12. Stop if the plan contains an unowned resource or an extra domain.
+13. Deploy through the repository Alchemy wrapper.
+14. Run the HTTPS browser journey on the apex host.
 
 ## Acceptance
 
@@ -102,6 +103,8 @@ Authenticated profile, organization, recruitment-period, and interview-assignmen
 
 The homepage must not return `503`. Chromium must report no deployment-caused console error or page error.
 
+The edge must fail closed for cross-origin, credentialed-URL, and protocol-relative redirects from the backend. Rejected redirects must not forward cookies to the browser.
+
 ## Forbidden effects
 
 This capsule forbids these effects:
@@ -118,8 +121,10 @@ This capsule forbids these effects:
 
 ## Evidence
 
-The evidence must record the source commit, local-state path, Worker names, hostnames, status codes, and screenshots.
+The evidence must record the source commit, local-state path, Worker names, hostnames, status codes, and repository-relative screenshots.
 
-`infra/alchemy/preview/apex-local-state.provenance.json` records the transfer source, the retained remote-state digests, the deployed local-state digests, and the dual-controller control.
+`infra/alchemy/preview/apex-local-state.provenance.json` records the transfer source, the retained remote-state digests, the deployed local-state digests, and the dual-controller control. Machine-specific backup paths and Cloudflare profile labels are not committed.
 
-The evidence must not contain credential values, session values, or database rows.
+The evidence must show that both retired source passwords return `401` without a session cookie. It must not contain credential values, session values, absolute operator paths, or database rows.
+
+The authoritative base history still contains the retired fixed source credentials. This deployment does not rewrite integration history. Both live password hashes are rotated, prior sessions are invalidated, and both retired passwords are rejected.

@@ -1,28 +1,26 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "recordType": "vektor.apex-preview-deployment-evidence/v1",
-  "recordedAt": "2026-08-31T01:52:17+02:00",
+  "recordedAt": "2026-08-31T02:21:19+02:00",
   "source": {
-    "repository": "/srv/share/projects/vektorprogrammet/mono-web",
     "authoritativeBase": "d150c9308ddf9dc0b54de0fb1b74bd505ba91d0f",
-    "deploymentCommit": "b744340fe346474069c5f416d21050edb275f76f",
+    "deploymentCommit": "d1f9e5657ed1227e8cb217ca872b39e4bdd36d7c",
     "branch": "fix/apex-preview-local-state-origin"
   },
   "cloudflare": {
     "stage": "dev-main",
-    "profile": "goal1-staging",
     "publicUrl": "https://vektor.phibkro.org",
     "backendOrigin": "https://origin-api.vektor.phibkro.org",
-    "preDeploymentPlan": "3 to update",
+    "preDeploymentPlan": "2 to update, 1 to noop",
     "postDeploymentPlan": "3 to noop",
     "providerEffects": [
       "updated the homepage Worker bundle and assets",
-      "updated the dashboard Worker bundle, assets, PREVIEW_STAGE, and VITE_API_URL",
-      "updated the apex edge Worker, PREVIEW_HOST, and PREVIEW_STAGE",
+      "updated the dashboard Worker bundle and assets in the initial deployment; it was noop in the final deployment",
+      "updated the apex edge Worker bundle and same-origin service bindings",
       "disabled the apex edge Worker workers.dev subdomain",
       "reconciled the apex edge Worker to one custom domain and removed its api.vektor.phibkro.org alias"
     ],
-    "dnsOrTunnelCommandsInAmendment": [],
+    "dnsOrTunnelCommands": [],
     "workers": [
       {
         "logicalId": "vektor-apex-homepage",
@@ -50,17 +48,22 @@
       "bodyTag": "RouteNotFound"
     }
   },
-  "http": [
-    { "path": "/", "status": 200, "stage": "dev-main" },
-    { "path": "/nyheter", "status": 200, "stage": "dev-main" },
-    { "path": "/login", "status": 200, "stage": "dev-main" },
-    { "path": "/dashboard", "status": 302, "location": "/login", "stage": "dev-main" },
-    { "path": "/api/health", "status": 200, "stage": "dev-main" },
-    { "path": "/dashboard/profile", "status": 200, "stage": "dev-main" },
-    { "path": "/dashboard/skoler", "status": 200, "stage": "dev-main" },
-    { "path": "/dashboard/opptaksperioder", "status": 200, "stage": "dev-main" },
-    { "path": "/dashboard/intervjufordeling", "status": 200, "stage": "dev-main" }
-  ],
+  "http": {
+    "anonymous": [
+      { "path": "/", "status": 200, "stage": "dev-main" },
+      { "path": "/nyheter", "status": 200, "stage": "dev-main" },
+      { "path": "/login", "status": 200, "stage": "dev-main" },
+      { "path": "/dashboard", "status": 302, "location": "/login", "stage": "dev-main" },
+      { "path": "/api/health", "status": 200, "stage": "dev-main" }
+    ],
+    "authenticatedBrowser": [
+      { "path": "/dashboard", "status": 200, "stage": "dev-main" },
+      { "path": "/dashboard/profile", "status": 200, "stage": "dev-main" },
+      { "path": "/dashboard/skoler", "status": 200, "stage": "dev-main" },
+      { "path": "/dashboard/opptaksperioder", "status": 200, "stage": "dev-main" },
+      { "path": "/dashboard/intervjufordeling", "status": 200, "stage": "dev-main" }
+    ]
+  },
   "browser": {
     "engine": "Chromium",
     "viewport": { "width": 1440, "height": 900 },
@@ -68,10 +71,10 @@
     "sessionApiStatus": 200,
     "healthApiStatus": 200,
     "resourceOrigins": ["https://vektor.phibkro.org"],
-    "consoleErrorCountOnCleanJourney": 0,
-    "pageErrorCountOnCleanJourney": 0,
-    "nonAbortedRequestFailureCountOnCleanJourney": 0,
-    "abortedPrefetchRequestCount": 9,
+    "consoleErrorCount": 0,
+    "pageErrorCount": 0,
+    "nonAbortedRequestFailureCount": 0,
+    "abortedPrefetchRequestCount": 11,
     "sessionCookies": [
       {
         "name": "__Secure-better-auth.session_token",
@@ -95,29 +98,38 @@
       "containsConfiguredApexOrigin": true,
       "containsBackendOrigin": false,
       "containsApiAlias": false,
-      "containsLoopbackAddress": false,
-      "reactRouterFallbackLiteral": "http://localhost",
-      "reactRouterFallbackWasRuntimeDestination": false
+      "containsLoopbackAddress": false
     }
   },
+  "redirectSecurity": {
+    "policy": "rewrite only relative redirects or absolute redirects whose origin is the dedicated backend origin",
+    "hostileRedirectContractTestsPassed": 9,
+    "crossOriginRedirectsFailClosed": true,
+    "setCookieFromRejectedRedirectsReachesBrowser": false
+  },
   "isolation": {
-    "database": "vektor_preview on 127.0.0.1:5434",
-    "backend": "127.0.0.1:8790",
+    "database": "isolated loopback PostgreSQL cluster named vektor_preview",
+    "backend": "isolated loopback preview service",
     "dataClass": "synthetic preview only",
     "publicApplicationEffectMode": "disabled",
     "providerTokenMaps": "empty",
-    "credentialFile": "/home/nori/.config/vektor-preview/preview-credentials.json",
+    "credentialStorage": "operator-protected file outside the repository",
     "credentialFileMode": "0600",
     "credentialValuesRecorded": false,
+    "historicalFixedCredentialsRemainInReachableBaseHistory": true,
+    "historicalFixedCredentialsRewritten": false,
+    "liveCredentialMitigation": "both live hashes rotated, prior sessions invalidated, and both retired passwords rejected",
     "rotatedCredentialAccountCount": 2,
     "oldSessionCountImmediatelyAfterRotation": 0,
-    "retiredSourcePasswordStatus": 401,
-    "retiredSourcePasswordIssuedSessionCookie": false
+    "retiredCredentialOutcomes": [
+      { "role": "admin", "status": 401, "issuedSessionCookie": false },
+      { "role": "member", "status": 401, "issuedSessionCookie": false }
+    ]
   },
   "state": {
     "backend": "local",
     "provenance": "infra/alchemy/preview/apex-local-state.provenance.json",
-    "operatorBackup": "/home/nori/.local/state/vektor-preview/alchemy-state/vektor/dev-main",
+    "operatorBackup": "operator-managed state directory outside the repository",
     "operatorBackupMode": "0600",
     "remoteStateDeleted": false,
     "retainedRemoteApexRecordCount": 3,
@@ -125,27 +137,27 @@
   },
   "screenshots": [
     {
-      "path": "/tmp/vektor-preview-evidence-20260831-amendment/homepage.webp",
-      "sha256": "b73aa90ef055adb14563559f7abf265062ad28033f3b14695057357b0365fa30"
+      "path": "evidence/0069-apex-preview/homepage.webp",
+      "sha256": "bd73a35135e1babb843133ed51453449dd065148171cb9eb2290582bf9df668c"
     },
     {
-      "path": "/tmp/vektor-preview-evidence-20260831-amendment/dashboard-authenticated.webp",
+      "path": "evidence/0069-apex-preview/dashboard-authenticated.webp",
       "sha256": "63eb0e9ff4eee0ab921f62178a5428ddcd6d009e6c9a67fc1c09dc2cfbc8ce79"
     },
     {
-      "path": "/tmp/vektor-preview-evidence-20260831-amendment/profile.webp",
+      "path": "evidence/0069-apex-preview/profile.webp",
       "sha256": "86f7f34c26d2397e80d0f8d6fe1ee08ec6b66f3fb7a6da50e9f5b4e0ebd03a44"
     },
     {
-      "path": "/tmp/vektor-preview-evidence-20260831-amendment/organization-schools.webp",
+      "path": "evidence/0069-apex-preview/organization-schools.webp",
       "sha256": "a751b8b3c3a2fa2e7741d3a671795f6efc343f7deb3faeaffcdb6f0f39ebabff"
     },
     {
-      "path": "/tmp/vektor-preview-evidence-20260831-amendment/recruitment-periods.webp",
+      "path": "evidence/0069-apex-preview/recruitment-periods.webp",
       "sha256": "816e987850959e6713980783f6ba28650c063c0642abf75a8ba65c47eeca4e6b"
     },
     {
-      "path": "/tmp/vektor-preview-evidence-20260831-amendment/interview-assignment.webp",
+      "path": "evidence/0069-apex-preview/interview-assignment.webp",
       "sha256": "a5d27ca9dbf35deb2a72e5f813812d0f6680305973abbc189acc7f8ac26883ed"
     }
   ],
