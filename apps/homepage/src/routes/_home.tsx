@@ -4,7 +4,7 @@ import { FolderOpen, Mail, MapPin } from "lucide-react";
 import { motion } from "motion/react";
 import { useLayoutEffect, useRef, useState } from "react";
 import { Link, NavLink, Outlet, type To, useLocation, useLoaderData } from "react-router";
-import { Button, buttonVariants } from "~/components/ui/button";
+import { Button } from "~/components/ui/button";
 import {
   Drawer,
   DrawerClose,
@@ -153,8 +153,7 @@ function LoginButtons() {
   return (
     <div className="flex space-x-4 overflow-clip rounded-full">
       <Link
-        className={buttonVariants({ variant: "green" })}
-        to={"/kontrollpanel"}
+        to={"/login?redirectTo=%2Fdashboard"}
         prefetch="intent"
       >
         {"Logg inn"}
