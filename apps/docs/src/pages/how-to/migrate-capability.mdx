@@ -1,0 +1,90 @@
+---
+title: Migrate a capability
+description: Add one native capability without creating a second write authority.
+---
+
+# Migrate a capability
+
+Use this procedure for one bounded capability. Do not use it to declare a production cutover.
+
+## Before you start
+
+1. Read the capability row in the [migration state](/reference/migration-state).
+2. Read the legacy contract in [`docs/migration/contracts`](https://github.com/vektorprogrammet/mono-web/tree/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/docs/migration/contracts).
+3. Read the accepted intent and runtime evidence for the journey.
+4. Freeze a design spec before implementation.
+
+If the accepted intent register is unavailable, stop the parity gate. Do not replace it with source guesses.
+
+## 1. Record the authority line
+
+Name these items in the design spec:
+
+- the current write authority
+- the intended native Service
+- the concrete Layer
+- the composition root
+- the legacy read boundary
+- the rejection cases
+- the evidence scope
+
+Use [Correctness and authority](/explanation/correctness-and-authority) for the authority model.
+
+## 2. Add the domain boundary
+
+Define external records with Effect Schema. Decode route, network, configuration, and persisted input before domain use.
+
+Define one Service when the capability owns policy or authority. Keep dependency-free calculations as direct functions.
+
+Use [`packages/domain/src/receipt/service.ts`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/packages/domain/src/receipt/service.ts) as one service example.
+
+## 3. Implement one Layer
+
+Keep PostgreSQL and provider imports in the Layer implementation. Preserve typed failures until the HTTP adapter maps them.
+
+Use [`packages/domain/src/profile/postgres-layer.ts`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/packages/domain/src/profile/postgres-layer.ts) as a small Layer example.
+
+## 4. Compose the runtime once
+
+Add the Layer to [`apps/backend/src/main.ts`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/apps/backend/src/main.ts).
+
+Do not create a second `ManagedRuntime` inside an adapter. Do not select a live Layer inside reusable domain code.
+
+## 5. Add the HTTP route family
+
+Add a narrow adapter under `apps/backend/src/<capability>/http.ts`. Mount it through [`makeBackendHttp`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/apps/backend/src/router.ts).
+
+Decode input, resolve the actor, call the Service, and map typed outcomes. Keep business transitions out of the router.
+
+## 6. Add the browser projection
+
+If the page has a finite lifecycle, add a Foldkit program under [`apps/dashboard/app/foldkit`](https://github.com/vektorprogrammet/mono-web/tree/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/apps/dashboard/app/foldkit).
+
+Give the program one `Model`, one `Message` union, and one pure `update` function. Let the route bridge mount the program.
+
+## 7. Run focused checks
+
+Run the checks for each changed package:
+
+```bash
+bun --cwd packages/domain run check-types
+bun --cwd packages/domain run test
+bun --cwd apps/backend run check-types
+bun --cwd apps/backend run test
+bun --cwd apps/dashboard run check-types
+bun --cwd apps/dashboard run test
+```
+
+Run only the commands for changed packages. Then run the parity procedure in [Run parity gates](/how-to/run-parity-gates).
+
+## 8. Update the canonical state
+
+Edit `apps/docs/data/migration-state.json`. Add exact source, design-spec, and evidence paths.
+
+Then generate the reference:
+
+```bash
+bun --cwd apps/docs run generate
+```
+
+The generator fails when a referenced path is missing.

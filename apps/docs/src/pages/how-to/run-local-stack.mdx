@@ -1,0 +1,74 @@
+---
+title: Run the local stack
+description: Start the checked-in legacy, native, preview, or documentation path.
+---
+
+# Run the local stack
+
+Choose one path. The paths have different data and authority boundaries.
+
+## Install dependencies
+
+From the repository root, run:
+
+```bash
+bun install --frozen-lockfile
+```
+
+## Legacy Symfony and MySQL
+
+The root Compose file defines `server` and `mysql` services.
+
+```bash
+docker compose up server mysql
+```
+
+Open `http://localhost:8000` after the health dependency becomes ready.
+
+This stack uses the development values in [`docker-compose.yml`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/docker-compose.yml). Do not use its data as migration evidence.
+
+Stop the foreground command with `Ctrl-C`.
+
+## Native receipt journey
+
+The receipt journey runner starts its disposable PostgreSQL, backend, and browser dependencies.
+
+```bash
+bun --cwd apps/dashboard run e2e:real-owner
+```
+
+For the scoped approval path, run:
+
+```bash
+bun --cwd apps/dashboard run e2e:real-approval
+```
+
+The commands come from [`apps/dashboard/package.json`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/apps/dashboard/package.json). Read each runner before you change its service ports or fixture boundary.
+
+## Local edge Worker
+
+The root preview script starts the checked-in edge Worker with local Wrangler controls.
+
+```bash
+bun run preview:dev
+```
+
+This command does not deploy. It rejects Cloudflare API traffic through the configured local boundary.
+
+## Documentation site
+
+Start Vocs with generated references:
+
+```bash
+bun --cwd apps/docs run dev
+```
+
+Open `http://localhost:5173`.
+
+If another app uses this port, use the URL that Vocs prints. Do not add an undocumented port flag.
+
+## Production boundary
+
+None of these commands imports production data. None of them changes production authority.
+
+Use the synthetic fixture that belongs to the selected journey. Stop if a command requests an unknown database, profile, or provider target.

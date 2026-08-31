@@ -1,0 +1,58 @@
+---
+title: First orientation
+description: Learn the migration map before you change a capability.
+---
+
+# First orientation
+
+This tutorial gives you one map of the legacy and native systems. You will finish with a source-linked capability row.
+
+## 1. Find the two authority lines
+
+Open these repository areas:
+
+- [`apps/server`](https://github.com/vektorprogrammet/mono-web/tree/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/apps/server) contains the Symfony application and legacy MySQL model.
+- [`apps/backend`](https://github.com/vektorprogrammet/mono-web/tree/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/apps/backend) contains the native HTTP boundary and composition root.
+- [`packages/domain`](https://github.com/vektorprogrammet/mono-web/tree/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/packages/domain) contains native capability Services and domain programs.
+- [`packages/database`](https://github.com/vektorprogrammet/mono-web/tree/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/packages/database) contains shared PostgreSQL Layers, migrations, and proof runners.
+
+The legacy line remains production authority at this revision. Native source existence does not change that fact.
+
+## 2. Follow the native runtime
+
+Open [`apps/backend/src/main.ts`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/apps/backend/src/main.ts).
+
+Find these items:
+
+1. The configuration boundary decodes process configuration.
+2. Database and capability Layers provide Service requirements.
+3. One `ManagedRuntime` owns the live Layer graph.
+4. The router receives one run function and one authentication handler.
+
+Then open [`apps/backend/src/router.ts`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/apps/backend/src/router.ts). The route predicates send each API family to one native adapter.
+
+## 3. Find browser state ownership
+
+Open [`apps/dashboard/app/foldkit`](https://github.com/vektorprogrammet/mono-web/tree/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/apps/dashboard/app/foldkit).
+
+A Foldkit program owns one `Model`. It accepts a `Message`. Its pure `update` function returns the next model and effect requests.
+
+The route bridge mounts the program. The bridge must not become a second owner for the same state.
+
+## 4. Separate claims from evidence
+
+Open the [migration state](/reference/migration-state). Choose one row and read its three reference groups:
+
+- **Sources** show the implementation location.
+- **Design specs** show accepted intent and scope.
+- **Evidence** shows an observation over a named revision and case set.
+
+If a group has no artifact, the page states that absence. Do not replace the missing evidence with an assumption.
+
+## 5. Check the preview boundary
+
+The checked-in preview record names stage `dev-main`. It also records synthetic data and `noindex` behavior.
+
+Read [`evidence/0069-apex-preview-deployment.json`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/evidence/0069-apex-preview-deployment.json).
+
+You now have the system map. Continue with [Trace a receipt](/tutorials/receipt-journey) to follow one complete capability path.

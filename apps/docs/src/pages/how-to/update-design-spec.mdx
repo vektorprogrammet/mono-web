@@ -1,0 +1,69 @@
+---
+title: Update a frozen design spec
+description: Preserve accepted history and add a narrow amendment.
+---
+
+# Update a frozen design spec
+
+Do not rewrite accepted history. Add a numbered amendment when current source changes a frozen contract.
+
+## 1. Read the frozen artifact
+
+Record these fields:
+
+- stable ID
+- source base
+- status
+- authority boundary
+- accepted journey
+- evidence requirements
+
+Use the [generated design-spec index](/reference/design-spec-evidence-index) to find explicit status metadata.
+
+## 2. Check current source
+
+Open every source and evidence path that supports the changed claim.
+
+If the source contradicts the frozen artifact, label the relation as `drifted`. Do not call the old claim current.
+
+If a newer artifact replaces the old artifact, label the old artifact as `stale`. Preserve its history.
+
+## 3. Add an amendment
+
+Create a file with the next decimal ID. For example:
+
+```text
+design-specs/0075.1-migration-docs-deployment-namespace-amendment.md
+```
+
+The amendment must name these items:
+
+- the original spec
+- the exact changed requirement
+- the new source base
+- the unchanged requirements
+- the new acceptance evidence
+
+## 4. Freeze the amendment before implementation
+
+Review the amendment as a product contract. Then commit only that path.
+
+```bash
+git add -- design-specs/0075.1-migration-docs-deployment-namespace-amendment.md
+git commit -m "docs(spec): isolate migration docs deployment state" --only -- design-specs/0075.1-migration-docs-deployment-namespace-amendment.md
+```
+
+Use a commit message and path that match your amendment. Do not copy the example when the subject differs.
+
+## 5. Update projections after implementation
+
+Update `apps/docs/data/migration-state.json` only when a capability status changes.
+
+Then run:
+
+```bash
+bun --cwd apps/docs run generate
+bun --cwd apps/docs run build
+```
+
+The generated index reads explicit status metadata. It leaves an artifact `unclassified` when automation cannot decide.

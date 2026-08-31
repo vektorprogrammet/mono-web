@@ -1,0 +1,206 @@
+{
+  "$schema": "https://vektor-docs.phibkro.org/migration-state.schema.json",
+  "recordType": "vektor.migration-state/v1",
+  "sourceRevision": "0bc4aa3ac5506b6371d25972c9608eee8e35c17d",
+  "inspectedOn": "2026-08-31",
+  "stateDocument": {
+    "path": "STATE.md",
+    "present": false,
+    "status": "unsupported",
+    "note": "The frozen source revision has no checked-in STATE.md. This index uses exact source and evidence references instead."
+  },
+  "rows": [
+    {
+      "id": "identity-session",
+      "capability": "Identity and browser session",
+      "journey": "Sign in and resolve one authenticated session",
+      "productionAuthority": "Legacy Symfony/MySQL remains the production authority at this revision.",
+      "statuses": ["native-implemented", "native-observed"],
+      "scope": "The preview evidence records sign-in, session lookup, and authenticated page loads. It does not record a production cutover.",
+      "sourceRefs": [
+        "packages/domain/src/identity/service.ts#Identity",
+        "packages/database/src/auth-live.ts#AuthLive",
+        "apps/backend/src/main.ts#runtime"
+      ],
+      "designSpecRefs": [
+        "design-specs/0054-native-identity-better-auth.md",
+        "design-specs/0065-native-identity-browser-evidence.md"
+      ],
+      "evidenceRefs": ["evidence/0069-apex-preview-deployment.json"]
+    },
+    {
+      "id": "authorization",
+      "capability": "Person-keyed authorization",
+      "journey": "Resolve an actor and make one scoped authorization decision",
+      "productionAuthority": "Legacy role and membership rules remain production authority at this revision.",
+      "statuses": ["native-implemented"],
+      "scope": "Native rules, PostgreSQL persistence, and focused proofs exist. The checked-in evidence does not prove production enforcement.",
+      "sourceRefs": [
+        "packages/domain/src/authz/rules.ts#authorizationRules",
+        "apps/backend/src/authority.ts#authorize",
+        "packages/database/src/authority-writers.test.ts"
+      ],
+      "designSpecRefs": [
+        "design-specs/0055-person-keyed-authorization-authorities.md",
+        "design-specs/0056-declarative-authorization-rules.md"
+      ],
+      "evidenceRefs": ["evidence/security-h3/0015/decision-packet.json"]
+    },
+    {
+      "id": "receipts",
+      "capability": "Receipt submission and approval",
+      "journey": "Submit, revise, withdraw, list, and approve a receipt",
+      "productionAuthority": "Legacy Symfony/MySQL remains the production authority at this revision.",
+      "statuses": ["native-implemented", "cutover-accepted"],
+      "scope": "Native HTTP, domain, PostgreSQL, file, and dashboard paths exist. Accepted specs and tests do not prove production cutover.",
+      "sourceRefs": [
+        "apps/backend/src/receipt/http.ts#makeReceiptApiHttp",
+        "packages/domain/src/receipt/service.ts#Economy",
+        "packages/domain/src/receipt/postgres.ts",
+        "apps/dashboard/app/lib/receipt-view.ts"
+      ],
+      "designSpecRefs": [
+        "design-specs/0033-receipt-authority-capsule.md",
+        "design-specs/0034-receipt-private-file-lifecycle.md",
+        "design-specs/0035-receipt-owner-submit.md",
+        "design-specs/0036-receipt-owner-revise-withdraw.md",
+        "design-specs/0037-receipt-scoped-approval.md"
+      ],
+      "evidenceRefs": ["evidence/functional-parity/user-journey-coverage.json"]
+    },
+    {
+      "id": "admissions-applications",
+      "capability": "Admission periods and applications",
+      "journey": "Open an admission period and submit an application",
+      "productionAuthority": "Legacy Symfony/MySQL remains the production authority at this revision.",
+      "statuses": ["native-implemented", "native-observed"],
+      "scope": "The preview evidence records an authenticated admission-period page load. It does not record every command or a production cutover.",
+      "sourceRefs": [
+        "apps/backend/src/admission/http.ts#makeAdmissionApiHttp",
+        "packages/domain/src/admission-period/update.ts",
+        "packages/domain/src/application/effects.ts"
+      ],
+      "designSpecRefs": [
+        "design-specs/0038-admission-period-management.md",
+        "design-specs/0039-public-applicant-admission.md",
+        "design-specs/0041-public-applicant-effect-lifecycle.md"
+      ],
+      "evidenceRefs": ["evidence/0069-apex-preview-deployment.json"]
+    },
+    {
+      "id": "recruitment",
+      "capability": "Recruitment assignment, scheduling, response, and conduct",
+      "journey": "Assign an applicant, schedule an interview, receive a response, and conduct the interview",
+      "productionAuthority": "Legacy Symfony/MySQL remains the production authority at this revision.",
+      "statuses": ["native-implemented", "native-observed"],
+      "scope": "Native domain and route families exist. The preview evidence records one assignment page load, not the full command lifecycle.",
+      "sourceRefs": [
+        "apps/backend/src/recruitment/http.ts#makeRecruitmentApiHttp",
+        "packages/domain/src/recruitment/service.ts#Recruitment",
+        "packages/domain/src/recruitment/scheduling-postgres.ts",
+        "packages/domain/src/recruitment/conduct.ts"
+      ],
+      "designSpecRefs": [
+        "design-specs/0049-native-recruitment-applicant-assignment.md",
+        "design-specs/0050-native-recruitment-interview-scheduling.md",
+        "design-specs/0051-native-recruitment-invitation-response.md",
+        "design-specs/0063-native-interview-conduct.md"
+      ],
+      "evidenceRefs": ["evidence/0069-apex-preview-deployment.json"]
+    },
+    {
+      "id": "organization",
+      "capability": "Organization administration, team interest, and mailing lists",
+      "journey": "Maintain organization facts and derive team or mailing-list membership",
+      "productionAuthority": "Legacy Symfony/MySQL remains the production authority at this revision.",
+      "statuses": ["native-implemented"],
+      "scope": "Native source and an immutable import rehearsal exist. The checked-in runtime evidence does not prove a production data import or cutover.",
+      "sourceRefs": [
+        "apps/backend/src/organization/http.ts#makeOrganizationApiHttp",
+        "packages/domain/src/organization/service.ts#Organization",
+        "packages/domain/src/organization/postgres.ts#listOrganizationTeamInterestRegistrations",
+        "packages/domain/src/organization/mailing-lists.ts",
+        "packages/database/src/test-support/organization-import-rehearsal.ts"
+      ],
+      "designSpecRefs": [
+        "design-specs/0052-native-organization-administration.md",
+        "design-specs/0059-team-interest.md",
+        "design-specs/0060-mailing-lists.md",
+        "design-specs/0067-native-organization-import-rehearsal.md"
+      ],
+      "evidenceRefs": []
+    },
+    {
+      "id": "schools",
+      "capability": "Schools directory",
+      "journey": "Read and maintain department-scoped school records",
+      "productionAuthority": "Legacy Symfony/MySQL remains the production authority at this revision.",
+      "statuses": ["native-implemented", "native-observed"],
+      "scope": "The preview evidence records an authenticated schools page load. It does not record all write commands or production authority.",
+      "sourceRefs": [
+        "apps/backend/src/schools/http.ts#makeSchoolsApiHttp",
+        "packages/domain/src/schools/directory.ts",
+        "packages/domain/src/schools/postgres.ts"
+      ],
+      "designSpecRefs": ["design-specs/0061-native-schools-directory.md"],
+      "evidenceRefs": ["evidence/0069-apex-preview-deployment.json"]
+    },
+    {
+      "id": "content",
+      "capability": "Public content publication",
+      "journey": "Draft, publish, list, and read one news article",
+      "productionAuthority": "Legacy Symfony/MySQL remains the production authority at this revision.",
+      "statuses": ["native-implemented"],
+      "scope": "Native content Services, PostgreSQL projections, HTTP routes, and dashboard source exist. No checked-in artifact proves production cutover.",
+      "sourceRefs": [
+        "apps/backend/src/content/http.ts#makeContentManagementApiHttp",
+        "packages/domain/src/content/service.ts#ContentManagement",
+        "packages/domain/src/content/postgres.ts",
+        "apps/dashboard/app/foldkit/content/main.ts"
+      ],
+      "designSpecRefs": ["design-specs/0062-native-content-publication.md"],
+      "evidenceRefs": []
+    },
+    {
+      "id": "profile",
+      "capability": "Profile read and self-edit",
+      "journey": "Read and update the signed-in person profile",
+      "productionAuthority": "Legacy Symfony/MySQL remains the production authority at this revision.",
+      "statuses": ["native-implemented", "native-observed"],
+      "scope": "The preview evidence records an authenticated profile page load. It does not record every self-edit invariant or production authority.",
+      "sourceRefs": [
+        "apps/backend/src/profile/http.ts#makeProfileApiHttp",
+        "packages/domain/src/profile/service.ts#Profile",
+        "packages/domain/src/profile/postgres.ts",
+        "apps/dashboard/app/foldkit/profile/main.ts"
+      ],
+      "designSpecRefs": [
+        "design-specs/0044-profile-read-authority.md",
+        "design-specs/0053-native-profile-self-edit.md",
+        "design-specs/0064-native-profile-self-edit-evidence.md"
+      ],
+      "evidenceRefs": ["evidence/0069-apex-preview-deployment.json"]
+    },
+    {
+      "id": "parity-inventory",
+      "capability": "Functional parity inventory",
+      "journey": "Compare accepted intent, legacy source, native source, and runtime evidence",
+      "productionAuthority": "The parity inventory is evidence tooling. It is not an application write authority.",
+      "statuses": ["parity-observed"],
+      "scope": "Checked-in artifacts record static inventories. A fresh full gate also needs three external authority inputs that are not stored in this repository.",
+      "sourceRefs": [
+        "packages/parity-inventory/verify-cli.ts",
+        "packages/parity-inventory/verify-config.ts#parityExternalInputs",
+        "packages/parity-inventory/src/main.ts"
+      ],
+      "designSpecRefs": [
+        "design-specs/0023-functional-parity-integration-baseline.md",
+        "design-specs/0024-zero-gap-functional-parity-inventory.md"
+      ],
+      "evidenceRefs": [
+        "evidence/functional-parity/source-manifest.json",
+        "evidence/functional-parity/user-journey-coverage.json"
+      ]
+    }
+  ]
+}

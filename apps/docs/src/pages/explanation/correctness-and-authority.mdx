@@ -1,0 +1,46 @@
+---
+title: Correctness and authority
+description: How schemas, domain programs, one write authority, and retained legacy reads constrain migration errors.
+---
+
+# Correctness and authority
+
+Correctness by construction means that system structure rejects invalid transitions early. It is not a claim that types prove the complete application.
+
+## Decode before use
+
+External values enter through HTTP, configuration, storage, files, and evidence artifacts. Effect Schema gives each boundary an explicit encoded and decoded representation.
+
+The native domain schema policy is frozen in [`design-specs/0066-native-domain-schema-boundary.md`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/design-specs/0066-native-domain-schema-boundary.md). Its amendment corrects the PostgreSQL schema inventory in [`design-specs/0066.1-native-domain-schema-boundary-amendment.md`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/design-specs/0066.1-native-domain-schema-boundary-amendment.md).
+
+## Give each write one authority
+
+Two active writers create ambiguous ordering, validation, audit, and recovery rules. A capability cutover must name one current writer and one accepted transition.
+
+A route is not an authority. A dashboard is not an authority. A database table is not an authority by itself.
+
+The authority is the component that can accept the command and make the state change valid.
+
+## Preserve durable command facts
+
+Native PostgreSQL programs use command receipts, audit facts, explicit revisions, and outbox rows where the capability requires them.
+
+These facts support replay checks and effect delivery. They do not make an external effect transactional without an accepted outbox contract.
+
+The authorization writer checks are in [`packages/database/src/authority-writers.test.ts`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/packages/database/src/authority-writers.test.ts).
+
+## Retain legacy MySQL as read-only history
+
+Historical retention and active authority are different relations. A retained MySQL database can support historical reads after a cutover.
+
+Native code must not send writes to this retained database. A cutover must also prevent legacy writers for the migrated capability.
+
+The current repository records an immutable Organization snapshot rehearsal in [`design-specs/0067-native-organization-import-rehearsal.md`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/design-specs/0067-native-organization-import-rehearsal.md).
+
+That rehearsal uses disposable PostgreSQL and synthetic input. It does not prove a live production MySQL retention adapter or production import.
+
+## Use evidence for the remaining uncertainty
+
+Types and structure constrain programs. Database constraints protect stored invariants. Tests observe cases. Runtime evidence observes a deployed path.
+
+A cutover needs all applicable gates. Read [Evidence limits](/explanation/evidence-limits) before you interpret a pass result.

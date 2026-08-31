@@ -1,0 +1,64 @@
+---
+title: Preview and production boundaries
+description: Why a reachable development deployment is not a production cutover.
+---
+
+# Preview and production boundaries
+
+A preview answers a narrow question: can this revision run the selected journey in the named development environment?
+
+Production authority answers a different question: which system can make valid changes to real production state?
+
+## Current preview
+
+The checked-in deployment evidence records these facts:
+
+- stage `dev-main`
+- public host `vektor.phibkro.org`
+- synthetic identities
+- development PostgreSQL
+- provider delivery disabled
+- `noindex` responses
+- selected anonymous and authenticated page observations
+
+Source: [`evidence/0069-apex-preview-deployment.json`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/evidence/0069-apex-preview-deployment.json)
+
+## Production remains separate
+
+The preview does not use production data. It does not change a production credential. It does not make the native backend the production write authority.
+
+The deployment capsule forbids production effects in [`design-specs/0069-apex-preview-deployment.md`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/design-specs/0069-apex-preview-deployment.md).
+
+## Route reachability is not authority
+
+An edge Worker can route a browser request to a native backend. This proves reachability for that request.
+
+The route does not prove these facts:
+
+- all accepted intent is present
+- all production data is compatible
+- background effects have safe delivery
+- rollback can restore production authority
+- operators accepted the cutover
+
+## Documentation host posture
+
+`vektor-docs.phibkro.org` is a separate static Worker. It contains public migration documentation and machine-readable state.
+
+The site uses `noindex` because it describes development migration state. It has no application data, database, secret, or service binding.
+
+## Production cutover evidence
+
+A production cutover artifact must name these items:
+
+- the capability
+- the old and new authorities
+- the source revision
+- the data transition
+- the write stop for the old authority
+- the recovery path
+- the accepted parity scope
+- the runtime observations
+- the operator assertion
+
+Until that artifact exists, use `legacy-authority` for production and a narrower native status for source or preview observations.

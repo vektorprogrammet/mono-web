@@ -1,0 +1,76 @@
+---
+title: Trace a receipt
+description: Follow one real capability from the legacy seam to native authority and evidence.
+---
+
+# Trace a receipt
+
+This tutorial follows receipt submission and approval. It shows where each representation changes and where each authority lives.
+
+## 1. Start at the legacy seam
+
+Read the legacy contract in [`docs/migration/contracts/receipt.md`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/docs/migration/contracts/receipt.md).
+
+Then inspect the API Platform resources:
+
+- [`ReceiptWriteResource`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/apps/server/src/App/Operations/Api/Resource/ReceiptWriteResource.php) exposes owner write routes.
+- [`AdminReceiptStatusInput`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/apps/server/src/App/Operations/Api/Resource/AdminReceiptStatusInput.php) exposes the legacy approval status route.
+
+These routes write through Doctrine to MySQL. They remain the production authority at this revision.
+
+## 2. Cross the native HTTP boundary
+
+Open [`makeReceiptApiHttp`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/apps/backend/src/receipt/http.ts).
+
+The adapter performs these tasks:
+
+1. It matches the native receipt route family.
+2. It resolves the signed-in actor.
+3. It decodes route, body, and file input.
+4. It calls the receipt domain Service.
+5. It maps typed outcomes to HTTP responses.
+
+The adapter does not select a PostgreSQL implementation. The composition root selects that Layer.
+
+## 3. Find the write authority
+
+Open [`packages/domain/src/receipt/service.ts`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/packages/domain/src/receipt/service.ts).
+
+The `Economy` Service defines the capability contract. The PostgreSQL implementation lives in [`packages/domain/src/receipt/postgres.ts`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/packages/domain/src/receipt/postgres.ts).
+
+The native write path records command receipts and audit facts. It also uses explicit payment and approval authorities.
+
+Read the frozen authority capsule in [`design-specs/0033-receipt-authority-capsule.md`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/design-specs/0033-receipt-authority-capsule.md).
+
+## 4. Follow private file ownership
+
+Receipt metadata and receipt bytes have different owners.
+
+The HTTP adapter uses [`ReceiptFileService`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/apps/backend/src/receipt/filesystem.ts) for file operations. The domain write remains the metadata authority.
+
+The private file lifecycle contract is in [`design-specs/0034-receipt-private-file-lifecycle.md`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/design-specs/0034-receipt-private-file-lifecycle.md).
+
+## 5. Find the browser projection
+
+Open [`apps/dashboard/app/lib/receipt-view.ts`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/apps/dashboard/app/lib/receipt-view.ts).
+
+The browser view projects decoded receipt data. It does not own receipt status or authorization.
+
+The real journey runners are package scripts:
+
+```bash
+bun --cwd apps/dashboard run e2e:real-owner
+bun --cwd apps/dashboard run e2e:real-approval
+```
+
+These commands come from [`apps/dashboard/package.json`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/apps/dashboard/package.json). They use disposable local services and synthetic fixtures.
+
+## 6. Read the evidence correctly
+
+The checked-in functional-parity artifact links receipt journey intent to observed inventories:
+
+[`evidence/functional-parity/user-journey-coverage.json`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/evidence/functional-parity/user-journey-coverage.json)
+
+This artifact does not prove production cutover. It records the scope and revision of its parity observation.
+
+You can now identify the legacy seam, native adapter, Service, Layer, browser projection, and evidence for one capability.

@@ -1,0 +1,54 @@
+---
+title: Parity and evidence limits
+description: What each evidence class supports and what it cannot prove.
+---
+
+# Parity and evidence limits
+
+Migration evidence is useful only when its scope stays attached to the claim.
+
+## Evidence classes
+
+| Evidence class      | Supports                                         | Does not support by itself            |
+| ------------------- | ------------------------------------------------ | ------------------------------------- |
+| Source reference    | Code or declaration exists at one revision       | Executed behavior                     |
+| Static analysis     | Checked structural properties                    | Runtime environment behavior          |
+| Test observation    | Named cases passed in one test environment       | All inputs or production behavior     |
+| Runtime observation | One journey ran with named fixtures and services | Untested journeys or future revisions |
+| Human assertion     | A named decision was accepted                    | Machine-checked behavior              |
+| Assumption          | A stated prerequisite for reasoning              | A warranted fact                      |
+| Unsupported         | No evidence is recorded                          | Any stronger claim                    |
+
+## Parity needs accepted intent
+
+Route counts and matching names do not define parity. The accepted intent register defines the journey behavior that the comparison must preserve.
+
+The parity CLI requires the legacy checkout, accepted intent register, and runtime evidence register. [`verify-config.ts`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/packages/parity-inventory/verify-config.ts) names these external authorities.
+
+## Static inventories have a revision boundary
+
+The checked-in parity artifacts include source manifests, routes, write paths, integrations, workflows, and journey coverage.
+
+Browse [`evidence/functional-parity`](https://github.com/vektorprogrammet/mono-web/tree/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/evidence/functional-parity).
+
+These files record the revision identifiers inside each artifact. A later source change can make the artifact stale.
+
+## Runtime evidence has a fixture boundary
+
+The apex preview record uses synthetic identities and a development PostgreSQL database. It records selected page loads, session checks, and browser errors.
+
+Read [`evidence/0069-apex-preview-deployment.json`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/evidence/0069-apex-preview-deployment.json).
+
+This record does not use production data. It does not prove a production cutover.
+
+## Negative evidence matters
+
+A missing `STATE.md`, missing external register, rejected command, or absent runtime artifact is part of migration state.
+
+The generated [migration state](/reference/migration-state) records unsupported claims instead of filling these gaps with an estimate.
+
+## Use the narrowest warranted statement
+
+Write “the preview loaded five named pages” when that is the observation.
+
+Do not write “the dashboard has parity” unless the accepted intent and evidence support that complete scope.

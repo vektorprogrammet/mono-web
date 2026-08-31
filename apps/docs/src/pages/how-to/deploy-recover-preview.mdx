@@ -1,0 +1,100 @@
+---
+title: Deploy or recover preview safely
+description: Operate the migration docs deployment without changing application preview resources.
+---
+
+# Deploy or recover preview safely
+
+This procedure applies only to `vektor-docs.phibkro.org`.
+
+:::danger
+Do not use the apex `plan` or `deploy` scripts. They own `vektor.phibkro.org`, API aliases, and preview Workers.
+:::
+
+## Fixed selection
+
+| Item               | Value                                                    |
+| ------------------ | -------------------------------------------------------- |
+| Alchemy entrypoint | `infra/alchemy/docs.run.ts`                              |
+| Stack              | `vektor-docs`                                            |
+| Stage              | `docs-dev-main`                                          |
+| Profile label      | `goal1-staging`                                          |
+| Worker             | `vektor-migration-docs`                                  |
+| Hostname           | `vektor-docs.phibkro.org`                                |
+| Local state        | `infra/alchemy/.alchemy/state/vektor-docs/docs-dev-main` |
+
+The wrapper rejects another stage or profile label. It also disables Alchemy telemetry.
+
+## 1. Build and check the docs
+
+```bash
+bun --cwd apps/docs run build
+bun --cwd apps/docs run check-types
+bun --cwd infra/alchemy run test:docs
+```
+
+## 2. Inspect local state metadata
+
+```bash
+bun --cwd infra/alchemy run docs:state -- --stage docs-dev-main --profile goal1-staging
+```
+
+For a first deployment, the dedicated stack or stage can be absent. The command must not report the `vektor` stack as owned by this entrypoint.
+
+## 3. Run the provider plan
+
+```bash
+bun --cwd infra/alchemy run docs:plan -- --stage docs-dev-main --profile goal1-staging
+```
+
+The wrapper rebuilds the site before Alchemy reads static assets.
+
+Accept only these planned effects:
+
+- create or update `vektor-migration-docs`
+- upload its static assets
+- attach `vektor-docs.phibkro.org`
+
+If the plan reports an unowned resource, stop. If it names an apex Worker, API alias, another hostname, or another state record, stop.
+
+## 4. Deploy the accepted plan
+
+```bash
+bun --cwd infra/alchemy run docs:deploy -- --stage docs-dev-main --profile goal1-staging --yes
+```
+
+The operator authorization applies only to the accepted docs plan.
+
+## 5. Require convergence
+
+Run the plan again:
+
+```bash
+bun --cwd infra/alchemy run docs:plan -- --stage docs-dev-main --profile goal1-staging
+```
+
+The docs resource must report no change.
+
+## 6. Check the live site
+
+Check these URLs:
+
+- `https://vektor-docs.phibkro.org/`
+- `https://vektor-docs.phibkro.org/tutorials/orientation`
+- `https://vektor-docs.phibkro.org/how-to/migrate-capability`
+- `https://vektor-docs.phibkro.org/reference/migration-state`
+- `https://vektor-docs.phibkro.org/explanation/evidence-limits`
+- `https://vektor-docs.phibkro.org/migration-state.json`
+- `https://vektor-docs.phibkro.org/llms.txt`
+
+Also check navigation, keyword search, TLS, assets, response metadata, browser console errors, and page errors.
+
+## Recovery
+
+Use the same source revision, `docs.run.ts`, stage, profile label, and local state namespace.
+
+First run `docs:state`. Then run `docs:plan`.
+
+If local state is missing, stop before provider mutation. If Alchemy reports an unowned Worker or hostname, stop before provider mutation.
+
+Do not adopt the resource. Do not use an apex state record. Do not repair the route through the Cloudflare dashboard.

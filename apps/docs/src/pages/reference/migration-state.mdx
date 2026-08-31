@@ -1,0 +1,281 @@
+---
+title: Migration state
+description: Source-linked capability and journey state at the frozen revision.
+---
+
+# Migration state
+
+This page comes from the canonical JSON artifact at `/migration-state.json`. The build fails when a referenced source or evidence path is missing.
+
+**Inspected revision:** `0bc4aa3ac5506b6371d25972c9608eee8e35c17d`  
+**Inspection date:** 2026-08-31
+
+:::warning
+The frozen source revision has no checked-in STATE.md. This index uses exact source and evidence references instead.
+:::
+
+The statuses separate source, runtime, parity, and cutover claims. Read [Evidence limits](/explanation/evidence-limits) before you use a row as a gate.
+
+## Identity and browser session
+
+**Journey:** Sign in and resolve one authenticated session
+
+**Current production authority:** Legacy Symfony/MySQL remains the production authority at this revision.
+
+**Warranted statuses:** `native-implemented`, `native-observed`
+
+The preview evidence records sign-in, session lookup, and authenticated page loads. It does not record a production cutover.
+
+### Sources
+
+- [`packages/domain/src/identity/service.ts` — `Identity`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/packages/domain/src/identity/service.ts)
+- [`packages/database/src/auth-live.ts` — `AuthLive`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/packages/database/src/auth-live.ts)
+- [`apps/backend/src/main.ts` — `runtime`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/apps/backend/src/main.ts)
+
+### Design specs
+
+- [`design-specs/0054-native-identity-better-auth.md`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/design-specs/0054-native-identity-better-auth.md)
+- [`design-specs/0065-native-identity-browser-evidence.md`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/design-specs/0065-native-identity-browser-evidence.md)
+
+### Evidence
+
+- [`evidence/0069-apex-preview-deployment.json`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/evidence/0069-apex-preview-deployment.json)
+
+## Person-keyed authorization
+
+**Journey:** Resolve an actor and make one scoped authorization decision
+
+**Current production authority:** Legacy role and membership rules remain production authority at this revision.
+
+**Warranted statuses:** `native-implemented`
+
+Native rules, PostgreSQL persistence, and focused proofs exist. The checked-in evidence does not prove production enforcement.
+
+### Sources
+
+- [`packages/domain/src/authz/rules.ts` — `authorizationRules`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/packages/domain/src/authz/rules.ts)
+- [`apps/backend/src/authority.ts` — `authorize`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/apps/backend/src/authority.ts)
+- [`packages/database/src/authority-writers.test.ts`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/packages/database/src/authority-writers.test.ts)
+
+### Design specs
+
+- [`design-specs/0055-person-keyed-authorization-authorities.md`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/design-specs/0055-person-keyed-authorization-authorities.md)
+- [`design-specs/0056-declarative-authorization-rules.md`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/design-specs/0056-declarative-authorization-rules.md)
+
+### Evidence
+
+- [`evidence/security-h3/0015/decision-packet.json`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/evidence/security-h3/0015/decision-packet.json)
+
+## Receipt submission and approval
+
+**Journey:** Submit, revise, withdraw, list, and approve a receipt
+
+**Current production authority:** Legacy Symfony/MySQL remains the production authority at this revision.
+
+**Warranted statuses:** `native-implemented`, `cutover-accepted`
+
+Native HTTP, domain, PostgreSQL, file, and dashboard paths exist. Accepted specs and tests do not prove production cutover.
+
+### Sources
+
+- [`apps/backend/src/receipt/http.ts` — `makeReceiptApiHttp`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/apps/backend/src/receipt/http.ts)
+- [`packages/domain/src/receipt/service.ts` — `Economy`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/packages/domain/src/receipt/service.ts)
+- [`packages/domain/src/receipt/postgres.ts`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/packages/domain/src/receipt/postgres.ts)
+- [`apps/dashboard/app/lib/receipt-view.ts`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/apps/dashboard/app/lib/receipt-view.ts)
+
+### Design specs
+
+- [`design-specs/0033-receipt-authority-capsule.md`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/design-specs/0033-receipt-authority-capsule.md)
+- [`design-specs/0034-receipt-private-file-lifecycle.md`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/design-specs/0034-receipt-private-file-lifecycle.md)
+- [`design-specs/0035-receipt-owner-submit.md`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/design-specs/0035-receipt-owner-submit.md)
+- [`design-specs/0036-receipt-owner-revise-withdraw.md`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/design-specs/0036-receipt-owner-revise-withdraw.md)
+- [`design-specs/0037-receipt-scoped-approval.md`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/design-specs/0037-receipt-scoped-approval.md)
+
+### Evidence
+
+- [`evidence/functional-parity/user-journey-coverage.json`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/evidence/functional-parity/user-journey-coverage.json)
+
+## Admission periods and applications
+
+**Journey:** Open an admission period and submit an application
+
+**Current production authority:** Legacy Symfony/MySQL remains the production authority at this revision.
+
+**Warranted statuses:** `native-implemented`, `native-observed`
+
+The preview evidence records an authenticated admission-period page load. It does not record every command or a production cutover.
+
+### Sources
+
+- [`apps/backend/src/admission/http.ts` — `makeAdmissionApiHttp`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/apps/backend/src/admission/http.ts)
+- [`packages/domain/src/admission-period/update.ts`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/packages/domain/src/admission-period/update.ts)
+- [`packages/domain/src/application/effects.ts`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/packages/domain/src/application/effects.ts)
+
+### Design specs
+
+- [`design-specs/0038-admission-period-management.md`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/design-specs/0038-admission-period-management.md)
+- [`design-specs/0039-public-applicant-admission.md`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/design-specs/0039-public-applicant-admission.md)
+- [`design-specs/0041-public-applicant-effect-lifecycle.md`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/design-specs/0041-public-applicant-effect-lifecycle.md)
+
+### Evidence
+
+- [`evidence/0069-apex-preview-deployment.json`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/evidence/0069-apex-preview-deployment.json)
+
+## Recruitment assignment, scheduling, response, and conduct
+
+**Journey:** Assign an applicant, schedule an interview, receive a response, and conduct the interview
+
+**Current production authority:** Legacy Symfony/MySQL remains the production authority at this revision.
+
+**Warranted statuses:** `native-implemented`, `native-observed`
+
+Native domain and route families exist. The preview evidence records one assignment page load, not the full command lifecycle.
+
+### Sources
+
+- [`apps/backend/src/recruitment/http.ts` — `makeRecruitmentApiHttp`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/apps/backend/src/recruitment/http.ts)
+- [`packages/domain/src/recruitment/service.ts` — `Recruitment`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/packages/domain/src/recruitment/service.ts)
+- [`packages/domain/src/recruitment/scheduling-postgres.ts`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/packages/domain/src/recruitment/scheduling-postgres.ts)
+- [`packages/domain/src/recruitment/conduct.ts`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/packages/domain/src/recruitment/conduct.ts)
+
+### Design specs
+
+- [`design-specs/0049-native-recruitment-applicant-assignment.md`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/design-specs/0049-native-recruitment-applicant-assignment.md)
+- [`design-specs/0050-native-recruitment-interview-scheduling.md`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/design-specs/0050-native-recruitment-interview-scheduling.md)
+- [`design-specs/0051-native-recruitment-invitation-response.md`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/design-specs/0051-native-recruitment-invitation-response.md)
+- [`design-specs/0063-native-interview-conduct.md`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/design-specs/0063-native-interview-conduct.md)
+
+### Evidence
+
+- [`evidence/0069-apex-preview-deployment.json`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/evidence/0069-apex-preview-deployment.json)
+
+## Organization administration, team interest, and mailing lists
+
+**Journey:** Maintain organization facts and derive team or mailing-list membership
+
+**Current production authority:** Legacy Symfony/MySQL remains the production authority at this revision.
+
+**Warranted statuses:** `native-implemented`
+
+Native source and an immutable import rehearsal exist. The checked-in runtime evidence does not prove a production data import or cutover.
+
+### Sources
+
+- [`apps/backend/src/organization/http.ts` — `makeOrganizationApiHttp`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/apps/backend/src/organization/http.ts)
+- [`packages/domain/src/organization/service.ts` — `Organization`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/packages/domain/src/organization/service.ts)
+- [`packages/domain/src/organization/postgres.ts` — `listOrganizationTeamInterestRegistrations`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/packages/domain/src/organization/postgres.ts)
+- [`packages/domain/src/organization/mailing-lists.ts`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/packages/domain/src/organization/mailing-lists.ts)
+- [`packages/database/src/test-support/organization-import-rehearsal.ts`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/packages/database/src/test-support/organization-import-rehearsal.ts)
+
+### Design specs
+
+- [`design-specs/0052-native-organization-administration.md`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/design-specs/0052-native-organization-administration.md)
+- [`design-specs/0059-team-interest.md`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/design-specs/0059-team-interest.md)
+- [`design-specs/0060-mailing-lists.md`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/design-specs/0060-mailing-lists.md)
+- [`design-specs/0067-native-organization-import-rehearsal.md`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/design-specs/0067-native-organization-import-rehearsal.md)
+
+### Evidence
+
+No checked-in evidence artifact supports a stronger runtime claim.
+
+## Schools directory
+
+**Journey:** Read and maintain department-scoped school records
+
+**Current production authority:** Legacy Symfony/MySQL remains the production authority at this revision.
+
+**Warranted statuses:** `native-implemented`, `native-observed`
+
+The preview evidence records an authenticated schools page load. It does not record all write commands or production authority.
+
+### Sources
+
+- [`apps/backend/src/schools/http.ts` — `makeSchoolsApiHttp`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/apps/backend/src/schools/http.ts)
+- [`packages/domain/src/schools/directory.ts`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/packages/domain/src/schools/directory.ts)
+- [`packages/domain/src/schools/postgres.ts`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/packages/domain/src/schools/postgres.ts)
+
+### Design specs
+
+- [`design-specs/0061-native-schools-directory.md`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/design-specs/0061-native-schools-directory.md)
+
+### Evidence
+
+- [`evidence/0069-apex-preview-deployment.json`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/evidence/0069-apex-preview-deployment.json)
+
+## Public content publication
+
+**Journey:** Draft, publish, list, and read one news article
+
+**Current production authority:** Legacy Symfony/MySQL remains the production authority at this revision.
+
+**Warranted statuses:** `native-implemented`
+
+Native content Services, PostgreSQL projections, HTTP routes, and dashboard source exist. No checked-in artifact proves production cutover.
+
+### Sources
+
+- [`apps/backend/src/content/http.ts` — `makeContentManagementApiHttp`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/apps/backend/src/content/http.ts)
+- [`packages/domain/src/content/service.ts` — `ContentManagement`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/packages/domain/src/content/service.ts)
+- [`packages/domain/src/content/postgres.ts`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/packages/domain/src/content/postgres.ts)
+- [`apps/dashboard/app/foldkit/content/main.ts`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/apps/dashboard/app/foldkit/content/main.ts)
+
+### Design specs
+
+- [`design-specs/0062-native-content-publication.md`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/design-specs/0062-native-content-publication.md)
+
+### Evidence
+
+No checked-in evidence artifact supports a stronger runtime claim.
+
+## Profile read and self-edit
+
+**Journey:** Read and update the signed-in person profile
+
+**Current production authority:** Legacy Symfony/MySQL remains the production authority at this revision.
+
+**Warranted statuses:** `native-implemented`, `native-observed`
+
+The preview evidence records an authenticated profile page load. It does not record every self-edit invariant or production authority.
+
+### Sources
+
+- [`apps/backend/src/profile/http.ts` — `makeProfileApiHttp`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/apps/backend/src/profile/http.ts)
+- [`packages/domain/src/profile/service.ts` — `Profile`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/packages/domain/src/profile/service.ts)
+- [`packages/domain/src/profile/postgres.ts`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/packages/domain/src/profile/postgres.ts)
+- [`apps/dashboard/app/foldkit/profile/main.ts`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/apps/dashboard/app/foldkit/profile/main.ts)
+
+### Design specs
+
+- [`design-specs/0044-profile-read-authority.md`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/design-specs/0044-profile-read-authority.md)
+- [`design-specs/0053-native-profile-self-edit.md`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/design-specs/0053-native-profile-self-edit.md)
+- [`design-specs/0064-native-profile-self-edit-evidence.md`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/design-specs/0064-native-profile-self-edit-evidence.md)
+
+### Evidence
+
+- [`evidence/0069-apex-preview-deployment.json`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/evidence/0069-apex-preview-deployment.json)
+
+## Functional parity inventory
+
+**Journey:** Compare accepted intent, legacy source, native source, and runtime evidence
+
+**Current production authority:** The parity inventory is evidence tooling. It is not an application write authority.
+
+**Warranted statuses:** `parity-observed`
+
+Checked-in artifacts record static inventories. A fresh full gate also needs three external authority inputs that are not stored in this repository.
+
+### Sources
+
+- [`packages/parity-inventory/verify-cli.ts`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/packages/parity-inventory/verify-cli.ts)
+- [`packages/parity-inventory/verify-config.ts` — `parityExternalInputs`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/packages/parity-inventory/verify-config.ts)
+- [`packages/parity-inventory/src/main.ts`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/packages/parity-inventory/src/main.ts)
+
+### Design specs
+
+- [`design-specs/0023-functional-parity-integration-baseline.md`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/design-specs/0023-functional-parity-integration-baseline.md)
+- [`design-specs/0024-zero-gap-functional-parity-inventory.md`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/design-specs/0024-zero-gap-functional-parity-inventory.md)
+
+### Evidence
+
+- [`evidence/functional-parity/source-manifest.json`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/evidence/functional-parity/source-manifest.json)
+- [`evidence/functional-parity/user-journey-coverage.json`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/evidence/functional-parity/user-journey-coverage.json)

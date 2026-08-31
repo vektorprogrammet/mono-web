@@ -1,0 +1,58 @@
+---
+title: Services, Layers, and ManagedRuntime rules
+description: Required ownership rules for native Effect capabilities.
+---
+
+# Services, Layers, and `ManagedRuntime` rules
+
+Use these rules for native backend changes.
+
+## Service rules
+
+1. Define a Service for a capability, dependency, policy, or authority.
+2. Keep a total dependency-free calculation as a direct function.
+3. Keep expected failures in the typed error channel.
+4. Decode external, persisted, network, and configuration input with Effect Schema.
+5. Keep Service requirements visible until the composition root.
+
+Examples:
+
+- [`Identity`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/packages/domain/src/identity/service.ts)
+- [`Profile`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/packages/domain/src/profile/service.ts)
+- [`Organization`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/packages/domain/src/organization/service.ts)
+- [`Recruitment`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/packages/domain/src/recruitment/service.ts)
+
+## Layer rules
+
+1. Put concrete PostgreSQL, filesystem, browser, or provider imports in Layer implementations.
+2. Use scoped acquisition and release for owned resources.
+3. Provide a Layer once at the intended composition root.
+4. Do not select a live implementation inside reusable domain code.
+5. Do not hide ambient configuration in a Service method.
+
+The shared database Layer owns one native pool. Better Auth and domain Services use this pool through the same composition.
+
+Source: [`packages/database/src/layers.ts`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/packages/database/src/layers.ts)
+
+## `ManagedRuntime` rules
+
+1. Create the runtime at the process composition root.
+2. Give the runtime a complete Layer graph.
+3. Use the runtime to execute adapter programs.
+4. Dispose the runtime when the process owner stops.
+5. Do not create one runtime for each request or route.
+
+The runtime constructor is [`makeBackendRuntime`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/apps/backend/runtime.ts). The live graph is in [`apps/backend/src/main.ts`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/apps/backend/src/main.ts).
+
+## Adapter rules
+
+An HTTP adapter can perform these actions:
+
+- decode transport input
+- resolve the actor
+- call a Service program
+- map typed outcomes to HTTP
+
+An HTTP adapter must not choose persistence, duplicate authorization policy, or create an independent runtime.
+
+See [`makeBackendHttp`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/apps/backend/src/router.ts) and the [route reference](/reference/routes-and-api).

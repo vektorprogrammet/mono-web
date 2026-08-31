@@ -1,0 +1,43 @@
+---
+title: Why native migration
+description: Reasons for moving capability authority from the legacy monolith to explicit native programs.
+---
+
+# Why native migration
+
+The migration separates domain capability, transport, persistence, and browser state. The legacy monolith often combines these concerns inside controllers, entities, repositories, subscribers, and templates.
+
+## Make contracts explicit
+
+API Platform resources created a callable seam before the native system. The SDK and native adapters can depend on HTTP contracts instead of Twig controller behavior.
+
+The original migration sequence is recorded in [`CLAUDE.md`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/CLAUDE.md). Current source has advanced beyond that short timeline, but the dependency direction remains useful.
+
+## Make invalid transitions harder to express
+
+Effect Schema decodes external representations. Domain Services expose capability operations. Tagged failures keep expected rejection in the program type.
+
+This structure makes a transition visible before it reaches persistence. It does not remove the need for database constraints or runtime evidence.
+
+## Make authority inspectable
+
+A native capability names its Service, Layer, composition root, actor projection, write store, and evidence.
+
+The receipt path is one example:
+
+- [`Economy` Service](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/packages/domain/src/receipt/service.ts)
+- [PostgreSQL implementation](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/packages/domain/src/receipt/postgres.ts)
+- [HTTP adapter](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/apps/backend/src/receipt/http.ts)
+- [Frozen authority capsule](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/design-specs/0033-receipt-authority-capsule.md)
+
+## Make evidence reproducible
+
+The parity package produces machine-readable inventories with provenance. Runtime runners record bounded journey observations.
+
+The source is in [`packages/parity-inventory`](https://github.com/vektorprogrammet/mono-web/tree/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/packages/parity-inventory). Checked-in outputs are in [`evidence/functional-parity`](https://github.com/vektorprogrammet/mono-web/tree/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/evidence/functional-parity).
+
+## Keep the current claim honest
+
+The native system implements many capabilities. The development preview observes selected journeys with synthetic data.
+
+The repository does not prove final parity or a production cutover at the inspected revision. The legacy system remains production authority until an accepted artifact records a different authority line.

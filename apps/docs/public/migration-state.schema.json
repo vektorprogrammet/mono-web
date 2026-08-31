@@ -1,0 +1,129 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vektor-docs.phibkro.org/migration-state.schema.json",
+  "type": "object",
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "const": "https://vektor-docs.phibkro.org/migration-state.schema.json"
+    },
+    "recordType": {
+      "type": "string",
+      "const": "vektor.migration-state/v1"
+    },
+    "sourceRevision": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{40}$"
+    },
+    "inspectedOn": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+    },
+    "stateDocument": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string",
+          "const": "STATE.md"
+        },
+        "present": {
+          "type": "boolean",
+          "const": false
+        },
+        "status": {
+          "type": "string",
+          "const": "unsupported"
+        },
+        "note": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": ["path", "present", "status", "note"],
+      "additionalProperties": false
+    },
+    "rows": {
+      "minItems": 1,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+          },
+          "capability": {
+            "type": "string",
+            "minLength": 1
+          },
+          "journey": {
+            "type": "string",
+            "minLength": 1
+          },
+          "productionAuthority": {
+            "type": "string",
+            "minLength": 1
+          },
+          "statuses": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "legacy-authority",
+                "native-implemented",
+                "native-observed",
+                "parity-observed",
+                "cutover-accepted",
+                "production-cutover",
+                "drifted",
+                "stale",
+                "unsupported"
+              ]
+            }
+          },
+          "scope": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sourceRefs": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "designSpecRefs": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "evidenceRefs": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "required": [
+          "id",
+          "capability",
+          "journey",
+          "productionAuthority",
+          "statuses",
+          "scope",
+          "sourceRefs",
+          "designSpecRefs",
+          "evidenceRefs"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": ["$schema", "recordType", "sourceRevision", "inspectedOn", "stateDocument", "rows"],
+  "additionalProperties": false
+}

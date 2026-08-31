@@ -1,0 +1,96 @@
+---
+title: Glossary
+description: Stable terms for migration authority, evidence, Effect, and Foldkit.
+---
+
+# Glossary
+
+## Accepted intent
+
+A human-approved statement of the behavior that a journey must preserve. Accepted intent is an authority input, not a test result.
+
+Source: [`packages/parity-inventory/schemas/accepted-intent.json`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/packages/parity-inventory/schemas/accepted-intent.json)
+
+## Authority
+
+The component that can make a state change valid. One write must have one authority.
+
+## Capability
+
+A domain operation with owned policy, state, or effects. Examples include receipt approval, interview scheduling, and content publication.
+
+## Composition root
+
+The narrow module that selects live Layers, creates the runtime, and starts the process.
+
+Source: [`apps/backend/src/main.ts`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/apps/backend/src/main.ts)
+
+## Cutover
+
+An accepted authority change from one system to another. Preview routing and source existence are not cutovers.
+
+## Design spec
+
+A frozen product and implementation contract. An amendment changes a frozen contract without rewriting its history.
+
+## Drift
+
+A difference between an artifact claim and current source, evidence, or runtime state.
+
+## Effect Service
+
+A typed capability contract that exposes requirements, success, and expected failure.
+
+## Evidence
+
+A scoped artifact that supports a claim. Evidence records its source revision, method, and limits.
+
+## Foldkit `Model`
+
+The single state value owned by one Foldkit program.
+
+## Foldkit `Message`
+
+A typed input to a Foldkit update transition. A message describes what happened, not an imperative mutation.
+
+## Layer
+
+An implementation that provides one or more Effect Services and owns concrete dependencies or resources.
+
+## Legacy retention
+
+A bounded policy that preserves legacy MySQL for historical reads. Native code must not treat this boundary as a second write path.
+
+## `ManagedRuntime`
+
+The process-owned Effect runtime that executes programs with a complete Layer graph.
+
+Source: [`apps/backend/runtime.ts`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/apps/backend/runtime.ts)
+
+## Native
+
+The TypeScript, Effect, PostgreSQL, and new browser capability path in this repository.
+
+## Parity
+
+A relation between accepted intent and observed legacy or native behavior. Parity always has a stated scope.
+
+## Preview
+
+A development deployment with synthetic data and limited runtime evidence. The current preview is not production.
+
+## Projection
+
+A derived view of canonical state. A dashboard, report, route list, or state matrix is a projection.
+
+## Production authority
+
+The system that currently owns valid production changes. At the inspected revision, the docs do not record a native production cutover.
+
+## Runtime evidence
+
+An observation from an executed journey. Runtime evidence does not prove untested cases.
+
+## Stale artifact
+
+An artifact that a newer accepted artifact supersedes.

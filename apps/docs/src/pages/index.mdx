@@ -1,0 +1,46 @@
+---
+title: Migration status
+description: Current, source-linked status for the Vektorprogrammet native migration.
+---
+
+# Vektorprogrammet migration
+
+Use this site to understand migration state, operate one capability cutover, and find exact source or evidence.
+
+:::warning
+The public application at `vektor.phibkro.org` is a development preview. Its database contains synthetic data. It is not production.
+:::
+
+## Current posture
+
+- The legacy Symfony application and MySQL remain the production authority at the inspected revision.
+- Native TypeScript capabilities run through Effect Services, Layers, PostgreSQL, and a separate backend.
+- The development preview records selected native page and session observations.
+- The repository does not prove final functional parity or a production cutover.
+- The inspected revision has no checked-in `STATE.md`.
+
+Read the [generated migration state](/reference/migration-state) for capability details. The [preview evidence](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/evidence/0069-apex-preview-deployment.json) records the synthetic-data and `dev-main` boundaries.
+
+## Choose your task
+
+### Learn the system
+
+Start with the [first orientation](/tutorials/orientation). Then [trace one receipt](/tutorials/receipt-journey) from the legacy seam to native evidence.
+
+### Change the system
+
+Use [Migrate a capability](/how-to/migrate-capability) for the cutover workflow. Use [Run parity gates](/how-to/run-parity-gates) before you change an authority line.
+
+### Look up a fact
+
+Open the [runtime graph](/reference/runtime-graph), [Effect runtime rules](/reference/effect-runtime-rules), or [route boundaries](/reference/routes-and-api).
+
+### Understand a decision
+
+Read [Why migrate](/explanation/native-migration) and [Correctness and authority](/explanation/correctness-and-authority).
+
+## Evidence rule
+
+A source file proves that code exists. A test records behavior for its cases. A preview record reports one runtime observation.
+
+None of these items proves production cutover unless a specific artifact records that authority change.

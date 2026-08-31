@@ -3,6 +3,11 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "docs:state": "bun scripts/docs-cli.ts state",
+    "docs:plan": "bun scripts/docs-cli.ts plan",
+    "docs:deploy": "bun scripts/docs-cli.ts deploy",
+    "check-types:docs": "tsc --ignoreConfig --noEmit --allowImportingTsExtensions --target ESNext --module ESNext --moduleResolution bundler --skipLibCheck --strict --types node docs.run.ts docs/identity.ts scripts/docs-cli.ts",
+    "test:docs": "bun test scripts/docs-cli.test.ts",
     "guard": "bun scripts/homepage-cli.ts guard",
     "plan": "bun scripts/homepage-cli.ts plan",
     "deploy": "bun scripts/homepage-cli.ts deploy",
@@ -14,6 +19,10 @@
     "@effect/platform-node": "4.0.0-beta.103",
     "alchemy": "2.0.0-beta.70",
     "effect": "4.0.0-beta.103"
+  },
+  "devDependencies": {
+    "@types/node": "^22",
+    "typescript": "7.0.2"
   },
   "overrides": {
     "@effect/platform-bun": "4.0.0-beta.103",

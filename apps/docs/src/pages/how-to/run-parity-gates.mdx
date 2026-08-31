@@ -1,0 +1,83 @@
+---
+title: Run parity and evidence gates
+description: Run the checked-in static and runtime gates without overstating their scope.
+---
+
+# Run parity and evidence gates
+
+Run static inventory and runtime evidence as separate gates. Keep their claims separate.
+
+## 1. Check the required authorities
+
+The root parity command requires these sibling inputs:
+
+- `../vektorprogrammet`
+- `../functional-parity-intent-authority/accepted-intent.json`
+- `../functional-parity-runtime-evidence/runtime-evidence.json`
+
+[`packages/parity-inventory/verify-config.ts`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/packages/parity-inventory/verify-config.ts) defines the paths.
+
+If one input is missing, the command exits with code `12`. Do not copy an old register into its place.
+
+## 2. Run the parity inventory
+
+From the repository root, run:
+
+```bash
+bun run parity:verify
+```
+
+This command accepts no override arguments. It compares the pinned repository inputs in diff mode.
+
+## 3. Run the parity package tests
+
+```bash
+bun --cwd packages/parity-inventory run test
+bun --cwd packages/parity-inventory run check-types
+```
+
+These tests protect the collector, schema, runner, and falsifier contracts. They do not replace a fresh external-authority run.
+
+## 4. Run the capability journey
+
+Choose the package script that matches your capability. Examples include:
+
+```bash
+bun --cwd apps/dashboard run e2e:real-owner
+bun --cwd apps/dashboard run e2e:real-scheduling
+bun --cwd apps/dashboard run e2e:real-organization
+bun --cwd apps/dashboard run e2e:real-schools
+bun --cwd apps/dashboard run e2e:real-identity
+```
+
+[`apps/dashboard/package.json`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/apps/dashboard/package.json) is the command authority.
+
+## 5. Merge runtime evidence when the journey requires it
+
+Run the checked-in merge command:
+
+```bash
+bun --cwd apps/dashboard run e2e:merge-runtime-evidence
+```
+
+Read the runner before the command. Make sure that its input artifacts match the same source revision.
+
+## 6. Run the authorization proof when authorization changed
+
+```bash
+bun run proof:authorization-rules
+```
+
+This proof uses its PostgreSQL runner. It does not prove browser behavior or production enforcement.
+
+## 7. Read the result by evidence class
+
+Use these claim limits:
+
+- A source scan reports discovered source at one revision.
+- A parity diff reports the accepted intent and inventory rows that it compared.
+- A test reports its cases and environment.
+- A browser journey reports its fixture, route, and runtime.
+- A human acceptance records an approved decision.
+
+Do not convert any single result into “full parity.” Read [Evidence limits](/explanation/evidence-limits) for the model.
