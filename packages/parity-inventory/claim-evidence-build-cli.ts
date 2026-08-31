@@ -17,7 +17,7 @@ import {
   type ClaimEvidenceCatalogs,
   type ClaimEvidenceReceiptRef,
   type ClaimIntentEvidencePlan,
-  type ClaimObservationMethod,
+  type ClaimObservationPlanEntry,
 } from "./src/claim-evidence.js";
 import { canonicalJson, sha256, stableId } from "./src/canonical.js";
 import {
@@ -127,72 +127,90 @@ const requirePlan = (
   return plan;
 };
 
-const operationObserved = (
-  artifact: JourneyObservationArtifact,
-  method: string,
-  pathTemplate: string,
-): boolean =>
-  artifact.observations.some(
-    (observation) => observation.method === method && observation.path_template === pathTemplate,
-  );
+const includesSemantic = (values: readonly string[], semanticId: string | null): boolean =>
+  semanticId !== null && values.includes(semanticId);
 
 const methodObserved = (
-  method: ClaimObservationMethod,
+  observation: ClaimObservationPlanEntry,
   plan: ClaimIntentEvidencePlan,
   artifact: JourneyObservationArtifact,
   run: JourneyRunRecord,
-  observationNodeId: string | null,
 ): boolean => {
-  switch (method) {
+  const operation = plan.backends.native_effect.operation_nodes.find(
+    (entry) => entry.node_id === observation.node_id,
+  );
+  const matching =
+    operation === undefined
+      ? []
+      : artifact.observations.filter(
+          (entry) =>
+            entry.method === operation.method && entry.path_template === operation.path_template,
+        );
+  switch (observation.observation_method) {
     case "bounded_exit_status":
       return run.result === "passed";
-    case "exact_http_operation": {
-      const operation = plan.backends.native_effect.operation_nodes.find(
-        (entry) => entry.node_id === observationNodeId,
-      );
-      return (
-        operation !== undefined &&
-        operationObserved(artifact, operation.method, operation.path_template)
-      );
-    }
+    case "exact_http_operation":
+      if (operation === undefined) return false;
+      if (operation.witness_id === plan.backends.native_effect.witness_ids.accepted) {
+        return matching.some((entry) => entry.status >= 200 && entry.status < 300);
+      }
+      if (operation.witness_id === plan.backends.native_effect.witness_ids.authorization) {
+        return matching.some(
+          (entry) => entry.status === 401 || entry.status === 403 || entry.status === 404,
+        );
+      }
+      return operation.operation_semantic.includes("readback")
+        ? matching.some((entry) => entry.status >= 200 && entry.status < 300)
+        : matching.some((entry) => entry.status >= 400);
     case "authorization_boundary_request":
-      return artifact.observations.some(
-        (observation) =>
-          observation.observation_method === "authorization_rejection_without_session" &&
-          (observation.status === 401 || observation.status === 403),
+      return (
+        includesSemantic(
+          artifact.verified_semantics.precondition_ids,
+          observation.precondition_id,
+        ) &&
+        matching.some(
+          (entry) => entry.status === 401 || entry.status === 403 || entry.status === 404,
+        )
       );
     case "user_visible_boundary_read":
-      return artifact.observations.some(
-        (observation) =>
-          (observation.observation_method === "real_http_operation" ||
-            observation.observation_method === "fresh_http_read_after_write") &&
-          observation.status >= 200 &&
-          observation.status < 300,
+      return (
+        includesSemantic(artifact.verified_semantics.assertion_ids, observation.assertion_id) &&
+        artifact.observations.some((entry) => entry.status >= 200 && entry.status < 300)
       );
     case "invalid_transition_with_state_readback":
-      return artifact.observations.some(
-        (observation) =>
-          observation.observation_method === "invalid_transition_rejection" &&
-          observation.status >= 400,
+      return (
+        includesSemantic(artifact.verified_semantics.rejection_ids, observation.rejection_id) &&
+        matching.some((entry) => entry.status >= 400) &&
+        artifact.observations.some(
+          (entry) =>
+            entry.observation_method === "fresh_http_read_after_write" &&
+            entry.status >= 200 &&
+            entry.status < 300,
+        )
       );
     case "fresh_database_readback":
       return (
+        includesSemantic(artifact.verified_semantics.effect_ids, observation.effect_id) &&
         artifact.database_observation.method === "fresh_psql_read_back" &&
         Object.values(artifact.database_observation.row_counts).every((count) => count > 0)
       );
     case "ordered_durable_outbox_readback":
       return (
+        includesSemantic(artifact.verified_semantics.effect_ids, observation.effect_id) &&
         artifact.database_observation.method === "fresh_psql_read_back" &&
         (artifact.database_observation.row_counts.outbox ??
           artifact.database_observation.row_counts.invitation_outbox ??
           0) > 0
       );
     case "second_fresh_http_read":
-      return artifact.observations.some(
-        (observation) =>
-          observation.observation_method === "fresh_http_read_after_write" &&
-          observation.status >= 200 &&
-          observation.status < 300,
+      return (
+        includesSemantic(artifact.verified_semantics.freshness_ids, observation.freshness_id) &&
+        matching.some(
+          (entry) =>
+            entry.observation_method === "fresh_http_read_after_write" &&
+            entry.status >= 200 &&
+            entry.status < 300,
+        )
       );
     case "provider_delivery_observation":
       return false;
@@ -203,23 +221,15 @@ const observedIds = (
   plan: ClaimIntentEvidencePlan,
   artifact: JourneyObservationArtifact,
   run: JourneyRunRecord,
-): readonly string[] => {
-  for (const operation of plan.backends.native_effect.operation_nodes) {
-    if (!operationObserved(artifact, operation.method, operation.path_template)) {
-      throw new Error(
-        `CLAIM_EVIDENCE_OPERATION_NOT_OBSERVED:${plan.intent_ref_id}:${operation.method}:${operation.path_template}`,
-      );
-    }
-  }
-  return plan.backends.native_effect.observations.map((observation) => {
-    if (!methodObserved(observation.observation_method, plan, artifact, run, observation.node_id)) {
+): readonly string[] =>
+  plan.backends.native_effect.observations.map((observation) => {
+    if (!methodObserved(observation, plan, artifact, run)) {
       throw new Error(
         `CLAIM_EVIDENCE_METHOD_NOT_OBSERVED:${plan.intent_ref_id}:${observation.observation_method}:${observation.observation_id}`,
       );
     }
     return observation.observation_id;
   });
-};
 
 const main = async (): Promise<void> => {
   const options = parseArguments(process.argv.slice(2));

@@ -87,6 +87,14 @@ const ObservedOperationSchema = Schema.Struct({
   response_digest: Schema.String,
   status: Schema.Int,
 });
+const VerifiedSemanticsSchema = Schema.Struct({
+  assertion_ids: Schema.Array(Schema.String),
+  effect_ids: Schema.Array(Schema.String),
+  freshness_ids: Schema.Array(Schema.String),
+  precondition_ids: Schema.Array(Schema.String),
+  rejection_ids: Schema.Array(Schema.String),
+});
+export type VerifiedSemantics = typeof VerifiedSemanticsSchema.Type;
 export type ObservedOperation = typeof ObservedOperationSchema.Type;
 export const JourneyObservationArtifactSchema = Schema.Struct({
   artifact_schema_version: Schema.Literal("claim-specific-journey-observation/v1"),
@@ -105,6 +113,7 @@ export const JourneyObservationArtifactSchema = Schema.Struct({
   intent_ref_id: Schema.String,
   observations: Schema.Array(ObservedOperationSchema),
   result: Schema.Literal("passed"),
+  verified_semantics: VerifiedSemanticsSchema,
 });
 export type JourneyObservationArtifact = typeof JourneyObservationArtifactSchema.Type;
 
@@ -148,10 +157,23 @@ const asRecord = (value: unknown, label: string): Record<string, unknown> => {
   }
   return value as Record<string, unknown>;
 };
+const asArray = (value: unknown, label: string): readonly unknown[] => {
+  if (!Array.isArray(value)) throw new Error(`${label} was not an array`);
+  return value;
+};
 
 const requireString = (value: unknown, label: string): string => {
   if (typeof value !== "string" || value.length === 0) throw new Error(`${label} was absent`);
   return value;
+};
+const requirePositiveRows = (
+  database: { readonly rowCounts: Readonly<Record<string, number>> },
+  names: readonly string[],
+  label: string,
+): void => {
+  for (const name of names) {
+    if ((database.rowCounts[name] ?? 0) < 1) throw new Error(`${label} missing durable ${name}`);
+  }
 };
 
 const requireStatus = (
@@ -352,6 +374,7 @@ const writeArtifact = (
   intentRefId: string,
   observations: readonly ObservedOperation[],
   database: { readonly digest: string; readonly rowCounts: Record<string, number> },
+  verifiedSemantics: VerifiedSemantics,
   runnerDigest: string,
 ): JourneyRunRecord => {
   const artifact: JourneyObservationArtifact = {
@@ -371,6 +394,7 @@ const writeArtifact = (
     intent_ref_id: intentRefId,
     observations,
     result: "passed",
+    verified_semantics: verifiedSemantics,
   };
   Schema.decodeUnknownSync(JourneyObservationArtifactSchema, { onExcessProperty: "error" })(
     artifact,
@@ -405,7 +429,12 @@ const applicantJourney = async (
   const unauthorized = await observedRequest(
     http,
     observations,
-    { method: "GET", url: `${origin}/api/admin/admission-periods` },
+    {
+      body: { kind: "json", value: {} },
+      headers: { "content-type": "application/json" },
+      method: "POST",
+      url: `${origin}/api/admin/admission-periods`,
+    },
     "/api/admin/admission-periods",
     "authorization_rejection_without_session",
   );
@@ -445,10 +474,9 @@ const applicantJourney = async (
     [200, 201],
     "application submission",
   );
-  const applicationId = requireString(
-    asRecord(submitted.body, "submitted application").applicationId,
-    "application id",
-  );
+  const submittedBody = asRecord(submitted.body, "submitted application");
+  if (submittedBody._tag !== "Submitted") throw new Error("application did not submit");
+  const applicationId = requireString(submittedBody.applicationId, "application id");
   const duplicate = await observedRequest(
     http,
     observations,
@@ -480,12 +508,21 @@ const applicantJourney = async (
     "fresh_http_read_after_write",
   );
   requireStatus(confirmation, [200], "application confirmation");
+  const confirmationBody = asRecord(confirmation.body, "application confirmation");
+  if (
+    confirmationBody._tag !== "ApplicationConfirmed" ||
+    confirmationBody.applicationId !== applicationId ||
+    Object.keys(confirmationBody).sort().join(",") !== "_tag,applicationId"
+  ) {
+    throw new Error("application confirmation was not privacy-safe");
+  }
   const database = freshDatabaseObservation(
     commands,
     config.repositoryRoot,
     postgresUrl,
     `SELECT json_build_object('row_counts', json_build_object('applications', (SELECT count(*) FROM admission_applications WHERE application_id = '${applicationId}'), 'audit', (SELECT count(*) FROM admission_application_audit WHERE application_id = '${applicationId}'), 'outbox', (SELECT count(*) FROM admission_application_outbox WHERE application_id = '${applicationId}')), 'state', (SELECT json_build_object('application_id', application_id, 'revision', revision) FROM admission_applications WHERE application_id = '${applicationId}'), 'outbox', (SELECT coalesce(json_agg(json_build_object('ordinal', ordinal, 'status', status) ORDER BY ordinal), '[]'::json) FROM admission_application_outbox WHERE application_id = '${applicationId}'));`,
   );
+  requirePositiveRows(database, ["applications", "audit", "outbox"], "applicant admission");
   return writeArtifact(
     fileSystem,
     config.artifactDirectory,
@@ -493,6 +530,19 @@ const applicantJourney = async (
     "intent://journey:parity:applicant_admission:v1",
     observations,
     database,
+    {
+      assertion_ids: [
+        "assertion-applicant-admission-privacy-safe-confirmation",
+        "assertion-applicant-admission-submitted",
+      ],
+      effect_ids: [
+        "effect-applicant-admission-activation-requested",
+        "effect-applicant-admission-outbox-persisted",
+      ],
+      freshness_ids: ["freshness-applicant-admission-confirmation"],
+      precondition_ids: ["precondition-applicant-admission-period-management"],
+      rejection_ids: ["rejection-applicant-admission-duplicate"],
+    },
     runnerDigest,
   );
 };
@@ -515,6 +565,18 @@ const recruitmentJourney = async (
     "authorization_rejection_without_session",
   );
   requireStatus(unauthorized, [401, 403], "recruitment authorization rejection");
+  const invalidCapability = await observedRequest(
+    http,
+    observations,
+    {
+      headers: { "x-recruitment-invitation-capability": "x".repeat(43) },
+      method: "GET",
+      url: `${origin}/api/recruitment/invitation-response`,
+    },
+    "/api/recruitment/invitation-response",
+    "authorization_rejection_without_capability",
+  );
+  requireStatus(invalidCapability, [404], "recruitment capability rejection");
   const leaderCookie = await signIn(
     http,
     origin,
@@ -564,6 +626,9 @@ const recruitmentJourney = async (
   const scheduleBody = asRecord(schedule.body, "schedule response");
   const scheduleObservation = asRecord(scheduleBody.observation, "schedule observation");
   const interviewId = requireString(scheduleObservation.interviewId, "scheduled interview id");
+  if (scheduleObservation.responseState !== "Pending") {
+    throw new Error("scheduled interview did not create a pending invitation");
+  }
   const capabilityRaw = psql(
     commands,
     config.repositoryRoot,
@@ -622,11 +687,20 @@ const recruitmentJourney = async (
     "fresh_http_read_after_write",
   );
   requireStatus(fresh, [200], "fresh invitation response");
+  const freshBody = asRecord(fresh.body, "fresh invitation response");
+  if (freshBody.responseState !== "Rejected") {
+    throw new Error("fresh invitation response was not rejected");
+  }
   const database = freshDatabaseObservation(
     commands,
     config.repositoryRoot,
     postgresUrl,
     `SELECT json_build_object('row_counts', json_build_object('schedules', (SELECT count(*) FROM recruitment_interview_schedules WHERE interview_id = '${interviewId}'), 'invitations', (SELECT count(*) FROM recruitment_invitations WHERE interview_id = '${interviewId}'), 'invitation_outbox', (SELECT count(*) FROM recruitment_invitation_outbox WHERE interview_id = '${interviewId}'), 'response_outbox', (SELECT count(*) FROM recruitment_invitation_response_outbox WHERE interview_id = '${interviewId}')), 'invitation', (SELECT json_build_object('response_state', response_state, 'schedule_revision', schedule_revision) FROM recruitment_invitations WHERE interview_id = '${interviewId}'), 'outbox', (SELECT coalesce(json_agg(json_build_object('effect_type', effect_type, 'status', status) ORDER BY ordinal), '[]'::json) FROM recruitment_invitation_response_outbox WHERE interview_id = '${interviewId}'));`,
+  );
+  requirePositiveRows(
+    database,
+    ["schedules", "invitations", "invitation_outbox", "response_outbox"],
+    "interview invitation",
   );
   return writeArtifact(
     fileSystem,
@@ -635,6 +709,25 @@ const recruitmentJourney = async (
     "intent://composition:recruitment:interview-scheduling-invitation-response:v1",
     observations,
     database,
+    {
+      assertion_ids: [
+        "assertion-interview-invitation-rejected",
+        "assertion-interview-invitation-scheduled",
+      ],
+      effect_ids: [
+        "effect-interview-invitation-notification-requested",
+        "effect-interview-invitation-outbox-persisted",
+      ],
+      freshness_ids: [
+        "freshness-interview-invitation-response",
+        "freshness-interview-invitation-scheduling-board",
+      ],
+      precondition_ids: [
+        "precondition-interview-invitation-interviewer-scope",
+        "precondition-interview-invitation-response-capability",
+      ],
+      rejection_ids: ["rejection-interview-invitation-already-responded"],
+    },
     runnerDigest,
   );
 };
@@ -657,6 +750,14 @@ const receiptJourney = async (
     "authorization_rejection_without_session",
   );
   requireStatus(unauthorized, [401, 403], "receipt authorization rejection");
+  const unauthorizedOwner = await observedRequest(
+    http,
+    observations,
+    { method: "GET", url: `${origin}/api/receipts` },
+    "/api/receipts",
+    "authorization_rejection_without_session",
+  );
+  requireStatus(unauthorizedOwner, [401, 403], "receipt owner-session rejection");
   const ownerCookie = await signIn(
     http,
     origin,
@@ -699,10 +800,9 @@ const receiptJourney = async (
     [200, 201],
     "receipt submission",
   );
-  const receiptId = requireString(
-    asRecord(submit.body, "receipt submission").receiptId,
-    "receipt id",
-  );
+  const submitBody = asRecord(submit.body, "receipt submission");
+  const receiptId = requireString(submitBody.receiptId, "receipt id");
+  if (submitBody.status !== "Pending") throw new Error("submitted receipt was not pending");
   const ownerRead = await observedRequest(
     http,
     observations,
@@ -711,6 +811,17 @@ const receiptJourney = async (
     "real_http_operation",
   );
   requireStatus(ownerRead, [200], "owner receipt read");
+  const ownerItems = asArray(
+    asRecord(ownerRead.body, "owner receipt list").items,
+    "owner items",
+  ).map((item) => asRecord(item, "owner receipt"));
+  if (
+    ownerItems.length < 1 ||
+    ownerItems.some((item) => item.ownerPersonId !== "owner-a") ||
+    !ownerItems.some((item) => item.receiptId === receiptId && item.status === "Pending")
+  ) {
+    throw new Error("owner receipt list was not owner-scoped and pending");
+  }
   const approvalRead = await observedRequest(
     http,
     observations,
@@ -719,6 +830,17 @@ const receiptJourney = async (
     "real_http_operation",
   );
   requireStatus(approvalRead, [200], "approval list read");
+  const approvalItems = asArray(
+    asRecord(approvalRead.body, "approval receipt list").items,
+    "approval items",
+  ).map((item) => asRecord(item, "approval receipt"));
+  if (
+    approvalItems.length < 1 ||
+    approvalItems.some((item) => item.departmentId !== "department-a") ||
+    !approvalItems.some((item) => item.receiptId === receiptId)
+  ) {
+    throw new Error("approval receipt list was not department-scoped");
+  }
   const reject = await observedRequest(
     http,
     observations,
@@ -735,6 +857,9 @@ const receiptJourney = async (
     "real_http_operation",
   );
   requireStatus(reject, [200], "receipt rejection");
+  if (asRecord(reject.body, "receipt rejection").status !== "Rejected") {
+    throw new Error("receipt did not transition to rejected");
+  }
   const invalid = await observedRequest(
     http,
     observations,
@@ -759,12 +884,22 @@ const receiptJourney = async (
     "fresh_http_read_after_write",
   );
   requireStatus(fresh, [200], "fresh owner receipt read");
+  const freshItems = asArray(asRecord(fresh.body, "fresh receipt list").items, "fresh items").map(
+    (item) => asRecord(item, "fresh receipt"),
+  );
+  if (
+    freshItems.some((item) => item.ownerPersonId !== "owner-a") ||
+    !freshItems.some((item) => item.receiptId === receiptId && item.status === "Rejected")
+  ) {
+    throw new Error("fresh owner receipt list did not show the rejected receipt");
+  }
   const database = freshDatabaseObservation(
     commands,
     config.repositoryRoot,
     postgresUrl,
     `SELECT json_build_object('row_counts', json_build_object('receipts', (SELECT count(*) FROM economy_receipts WHERE receipt_id = '${receiptId}'), 'commands', (SELECT count(*) FROM economy_receipt_command_receipts WHERE receipt_id = '${receiptId}'), 'audit', (SELECT count(*) FROM economy_receipt_audit WHERE receipt_id = '${receiptId}'), 'outbox', (SELECT count(*) FROM economy_receipt_outbox WHERE receipt_id = '${receiptId}')), 'receipt', (SELECT json_build_object('status', status, 'revision', revision, 'owner_person_id', owner_person_id) FROM economy_receipts WHERE receipt_id = '${receiptId}'), 'outbox', (SELECT coalesce(json_agg(json_build_object('effect_type', effect_type, 'ordinal', ordinal, 'status', status) ORDER BY command_id, ordinal), '[]'::json) FROM economy_receipt_outbox WHERE receipt_id = '${receiptId}'));`,
   );
+  requirePositiveRows(database, ["receipts", "commands", "audit", "outbox"], "owner approval");
   return writeArtifact(
     fileSystem,
     config.artifactDirectory,
@@ -772,6 +907,27 @@ const receiptJourney = async (
     "intent://composition:receipts:owner-scoped-approval:v1",
     observations,
     database,
+    {
+      assertion_ids: [
+        "assertion-owner-approval-owner-scoped-list",
+        "assertion-owner-approval-queue-scoped",
+        "assertion-owner-approval-rejected",
+        "assertion-owner-approval-submitted-pending",
+      ],
+      effect_ids: [
+        "effect-owner-approval-decision-audit-persisted",
+        "effect-owner-approval-submission-audit-persisted",
+      ],
+      freshness_ids: [
+        "freshness-owner-approval-approval-list",
+        "freshness-owner-approval-owner-list",
+      ],
+      precondition_ids: [
+        "precondition-owner-approval-approver-scope",
+        "precondition-owner-approval-owner-session",
+      ],
+      rejection_ids: ["rejection-owner-approval-not-pending"],
+    },
     runnerDigest,
   );
 };

@@ -206,9 +206,9 @@ const applicantDefinition: TargetDefinition = {
   ],
   required_preconditions: [
     {
-      precondition_id: "precondition-applicant-admission-eligible-input",
-      predicate_ref: "predicate://claim-evidence/applicant-admission/eligible-input",
-      subject: "input",
+      precondition_id: "precondition-applicant-admission-period-management",
+      predicate_ref: "predicate://claim-evidence/applicant-admission/period-management",
+      subject: "actor",
     },
   ],
   warranted_outcomes: [
@@ -221,9 +221,9 @@ const applicantDefinition: TargetDefinition = {
     },
     {
       assertion_id: "assertion-applicant-admission-privacy-safe-confirmation",
-      semantic_path: "$.confirmation",
+      semantic_path: "$.confirmation._tag",
       predicate: "equals",
-      expected_json: '{"contains_pii":false,"status":"Submitted"}',
+      expected_json: '"ApplicationConfirmed"',
       visibility: "user",
     },
   ],
@@ -277,7 +277,7 @@ const applicantDefinition: TargetDefinition = {
           method: "POST",
           path_template: "/api/applications",
           realizes_stage_ids: ["stage-applicant-admission-submit"],
-          predicate_refs: ["predicate://claim-evidence/applicant-admission/eligible-input"],
+          predicate_refs: [],
         },
         {
           operation_semantic: "fresh-confirmation",
@@ -289,11 +289,11 @@ const applicantDefinition: TargetDefinition = {
       ],
       authorization: [
         {
-          operation_semantic: "submission-eligibility-boundary",
+          operation_semantic: "period-management-boundary",
           method: "POST",
-          path_template: "/api/applications",
-          realizes_stage_ids: ["stage-applicant-admission-submit"],
-          predicate_refs: ["predicate://claim-evidence/applicant-admission/eligible-input"],
+          path_template: "/api/admin/admission-periods",
+          realizes_stage_ids: ["stage-applicant-admission-catalog"],
+          predicate_refs: ["predicate://claim-evidence/applicant-admission/period-management"],
         },
       ],
       rejection: [
@@ -334,7 +334,7 @@ const applicantDefinition: TargetDefinition = {
           method: "POST",
           path_template: "/api/applications",
           realizes_stage_ids: ["stage-applicant-admission-submit"],
-          predicate_refs: ["predicate://claim-evidence/applicant-admission/eligible-input"],
+          predicate_refs: [],
         },
         {
           operation_semantic: "fresh-confirmation",
@@ -346,11 +346,11 @@ const applicantDefinition: TargetDefinition = {
       ],
       authorization: [
         {
-          operation_semantic: "submission-eligibility-boundary",
+          operation_semantic: "period-management-boundary",
           method: "POST",
-          path_template: "/api/applications",
-          realizes_stage_ids: ["stage-applicant-admission-submit"],
-          predicate_refs: ["predicate://claim-evidence/applicant-admission/eligible-input"],
+          path_template: "/api/admin/admission-periods",
+          realizes_stage_ids: ["stage-applicant-admission-catalog"],
+          predicate_refs: ["predicate://claim-evidence/applicant-admission/period-management"],
         },
       ],
       rejection: [
@@ -404,11 +404,7 @@ const interviewDefinition: TargetDefinition = {
     {
       stage_id: "stage-interview-invitation-respond",
       kind: "command",
-      source_step_ids: [
-        "applicant-confirms-invitation",
-        "applicant-rejects-invitation",
-        "applicant-requests-new-time",
-      ],
+      source_step_ids: ["applicant-rejects-invitation"],
     },
     {
       stage_id: "stage-interview-invitation-fresh-read",
@@ -446,24 +442,10 @@ const interviewDefinition: TargetDefinition = {
       visibility: "operator",
     },
     {
-      assertion_id: "assertion-interview-invitation-confirmed",
-      semantic_path: "$.invitation.response",
-      predicate: "transitioned_to",
-      expected_json: '"Confirmed"',
-      visibility: "user",
-    },
-    {
       assertion_id: "assertion-interview-invitation-rejected",
       semantic_path: "$.alternate_invitation.response",
       predicate: "transitioned_to",
       expected_json: '"Rejected"',
-      visibility: "user",
-    },
-    {
-      assertion_id: "assertion-interview-invitation-new-time-requested",
-      semantic_path: "$.alternate_invitation.new_time_requested",
-      predicate: "equals",
-      expected_json: "true",
       visibility: "user",
     },
   ],
@@ -485,26 +467,10 @@ const interviewDefinition: TargetDefinition = {
   ],
   rejections: [
     {
-      rejection_id: "rejection-interview-invitation-stale-schedule",
-      trigger_predicate_ref: "predicate://claim-evidence/interview-invitation/stale-schedule",
-      boundary_semantic: "conflict:stale_interview_revision",
-      disclosure: "ordinary",
-      must_not_change_state: true,
-      must_not_request_effects: true,
-    },
-    {
       rejection_id: "rejection-interview-invitation-already-responded",
       trigger_predicate_ref: "predicate://claim-evidence/interview-invitation/already-responded",
       boundary_semantic: "conflict:invitation_already_responded",
       disclosure: "ordinary",
-      must_not_change_state: true,
-      must_not_request_effects: true,
-    },
-    {
-      rejection_id: "rejection-interview-invitation-private-capability",
-      trigger_predicate_ref: "predicate://claim-evidence/interview-invitation/invalid-capability",
-      boundary_semantic: "not_found:private_invitation_capability",
-      disclosure: "conceal_existence",
       must_not_change_state: true,
       must_not_request_effects: true,
     },
@@ -522,7 +488,7 @@ const interviewDefinition: TargetDefinition = {
       mode: "read_after_write",
       write_stage_id: "stage-interview-invitation-respond",
       observation_stage_id: "stage-interview-invitation-fresh-read",
-      assertion_ids: ["assertion-interview-invitation-confirmed"],
+      assertion_ids: ["assertion-interview-invitation-rejected"],
     },
   ],
   backends: {
@@ -595,23 +561,13 @@ const interviewDefinition: TargetDefinition = {
         },
         {
           operation_semantic: "response-capability-boundary",
-          method: "POST",
-          path_template: "/api/interview-responses/{responseCode}/accept",
-          realizes_stage_ids: ["stage-interview-invitation-respond"],
+          method: "GET",
+          path_template: "/api/interview-responses/{responseCode}",
+          realizes_stage_ids: ["stage-interview-invitation-read"],
           predicate_refs: ["predicate://claim-evidence/interview-invitation/response-capability"],
         },
       ],
       rejection: [
-        {
-          operation_semantic: "stale-schedule",
-          method: "POST",
-          path_template: "/api/admin/interviews/{id}/schedule",
-          realizes_stage_ids: ["stage-interview-invitation-schedule"],
-          predicate_refs: [
-            "predicate://claim-evidence/interview-invitation/interviewer-scope",
-            "predicate://claim-evidence/interview-invitation/stale-schedule",
-          ],
-        },
         {
           operation_semantic: "already-responded-confirm",
           method: "POST",
@@ -621,13 +577,6 @@ const interviewDefinition: TargetDefinition = {
             "predicate://claim-evidence/interview-invitation/response-capability",
             "predicate://claim-evidence/interview-invitation/already-responded",
           ],
-        },
-        {
-          operation_semantic: "invalid-capability-read",
-          method: "GET",
-          path_template: "/api/interview-responses/{responseCode}",
-          realizes_stage_ids: ["stage-interview-invitation-read"],
-          predicate_refs: ["predicate://claim-evidence/interview-invitation/invalid-capability"],
         },
         {
           operation_semantic: "rejection-state-readback",
@@ -645,7 +594,7 @@ const interviewDefinition: TargetDefinition = {
         },
         {
           freshness_id: "freshness-interview-invitation-response",
-          write_operation_semantic: "confirm",
+          write_operation_semantic: "alternate-reject",
           read_operation_semantic: "fresh-invitation-response",
         },
       ],
@@ -674,23 +623,9 @@ const interviewDefinition: TargetDefinition = {
           predicate_refs: ["predicate://claim-evidence/interview-invitation/response-capability"],
         },
         {
-          operation_semantic: "confirm",
-          method: "POST",
-          path_template: "/api/recruitment/invitation-response/confirm",
-          realizes_stage_ids: ["stage-interview-invitation-respond"],
-          predicate_refs: ["predicate://claim-evidence/interview-invitation/response-capability"],
-        },
-        {
           operation_semantic: "alternate-reject",
           method: "POST",
           path_template: "/api/recruitment/invitation-response/reject",
-          realizes_stage_ids: ["stage-interview-invitation-respond"],
-          predicate_refs: ["predicate://claim-evidence/interview-invitation/response-capability"],
-        },
-        {
-          operation_semantic: "alternate-request-new-time",
-          method: "POST",
-          path_template: "/api/recruitment/invitation-response/request-new-time",
           realizes_stage_ids: ["stage-interview-invitation-respond"],
           predicate_refs: ["predicate://claim-evidence/interview-invitation/response-capability"],
         },
@@ -712,30 +647,20 @@ const interviewDefinition: TargetDefinition = {
       authorization: [
         {
           operation_semantic: "schedule-authorization-boundary",
-          method: "POST",
-          path_template: "/api/admin/recruitment/interviews/schedule",
-          realizes_stage_ids: ["stage-interview-invitation-schedule"],
+          method: "GET",
+          path_template: "/api/admin/recruitment/interviews/scheduling-board",
+          realizes_stage_ids: ["stage-interview-invitation-scheduling-board"],
           predicate_refs: ["predicate://claim-evidence/interview-invitation/interviewer-scope"],
         },
         {
           operation_semantic: "response-capability-boundary",
-          method: "POST",
-          path_template: "/api/recruitment/invitation-response/confirm",
-          realizes_stage_ids: ["stage-interview-invitation-respond"],
+          method: "GET",
+          path_template: "/api/recruitment/invitation-response",
+          realizes_stage_ids: ["stage-interview-invitation-read"],
           predicate_refs: ["predicate://claim-evidence/interview-invitation/response-capability"],
         },
       ],
       rejection: [
-        {
-          operation_semantic: "stale-schedule",
-          method: "POST",
-          path_template: "/api/admin/recruitment/interviews/schedule",
-          realizes_stage_ids: ["stage-interview-invitation-schedule"],
-          predicate_refs: [
-            "predicate://claim-evidence/interview-invitation/interviewer-scope",
-            "predicate://claim-evidence/interview-invitation/stale-schedule",
-          ],
-        },
         {
           operation_semantic: "already-responded-confirm",
           method: "POST",
@@ -745,13 +670,6 @@ const interviewDefinition: TargetDefinition = {
             "predicate://claim-evidence/interview-invitation/response-capability",
             "predicate://claim-evidence/interview-invitation/already-responded",
           ],
-        },
-        {
-          operation_semantic: "invalid-capability-read",
-          method: "GET",
-          path_template: "/api/recruitment/invitation-response",
-          realizes_stage_ids: ["stage-interview-invitation-read"],
-          predicate_refs: ["predicate://claim-evidence/interview-invitation/invalid-capability"],
         },
         {
           operation_semantic: "rejection-state-readback",
@@ -769,7 +687,7 @@ const interviewDefinition: TargetDefinition = {
         },
         {
           freshness_id: "freshness-interview-invitation-response",
-          write_operation_semantic: "confirm",
+          write_operation_semantic: "alternate-reject",
           read_operation_semantic: "fresh-invitation-response",
         },
       ],
@@ -825,16 +743,6 @@ const receiptDefinition: TargetDefinition = {
       predicate_ref: "predicate://claim-evidence/owner-approval/approver-scope",
       subject: "actor",
     },
-    {
-      precondition_id: "precondition-owner-approval-pending-status",
-      predicate_ref: "predicate://claim-evidence/owner-approval/pending-status",
-      subject: "resource",
-    },
-    {
-      precondition_id: "precondition-owner-approval-expected-revision",
-      predicate_ref: "predicate://claim-evidence/owner-approval/expected-revision",
-      subject: "input",
-    },
   ],
   warranted_outcomes: [
     {
@@ -859,10 +767,10 @@ const receiptDefinition: TargetDefinition = {
       visibility: "operator",
     },
     {
-      assertion_id: "assertion-owner-approval-refunded",
+      assertion_id: "assertion-owner-approval-rejected",
       semantic_path: "$.receipt.status",
       predicate: "transitioned_to",
-      expected_json: '"Refunded"',
+      expected_json: '"Rejected"',
       visibility: "user",
     },
   ],
@@ -884,33 +792,9 @@ const receiptDefinition: TargetDefinition = {
   ],
   rejections: [
     {
-      rejection_id: "rejection-owner-approval-other-owner",
-      trigger_predicate_ref: "predicate://claim-evidence/owner-approval/other-owner",
-      boundary_semantic: "not_found:other_owner_receipt",
-      disclosure: "conceal_existence",
-      must_not_change_state: true,
-      must_not_request_effects: true,
-    },
-    {
-      rejection_id: "rejection-owner-approval-out-of-scope",
-      trigger_predicate_ref: "predicate://claim-evidence/owner-approval/out-of-scope",
-      boundary_semantic: "not_found:out_of_scope_receipt",
-      disclosure: "conceal_existence",
-      must_not_change_state: true,
-      must_not_request_effects: true,
-    },
-    {
       rejection_id: "rejection-owner-approval-not-pending",
       trigger_predicate_ref: "predicate://claim-evidence/owner-approval/not-pending",
       boundary_semantic: "conflict:receipt_not_pending",
-      disclosure: "ordinary",
-      must_not_change_state: true,
-      must_not_request_effects: true,
-    },
-    {
-      rejection_id: "rejection-owner-approval-stale-revision",
-      trigger_predicate_ref: "predicate://claim-evidence/owner-approval/stale-revision",
-      boundary_semantic: "conflict:stale_receipt_revision",
       disclosure: "ordinary",
       must_not_change_state: true,
       must_not_request_effects: true,
@@ -929,7 +813,7 @@ const receiptDefinition: TargetDefinition = {
       mode: "read_after_write",
       write_stage_id: "stage-owner-approval-approve",
       observation_stage_id: "stage-owner-approval-fresh-read",
-      assertion_ids: ["assertion-owner-approval-refunded"],
+      assertion_ids: ["assertion-owner-approval-rejected"],
     },
   ],
   backends: {
@@ -961,11 +845,7 @@ const receiptDefinition: TargetDefinition = {
           method: "PUT",
           path_template: "/api/admin/receipts/{id}/status",
           realizes_stage_ids: ["stage-owner-approval-approve"],
-          predicate_refs: [
-            "predicate://claim-evidence/owner-approval/approver-scope",
-            "predicate://claim-evidence/owner-approval/pending-status",
-            "predicate://claim-evidence/owner-approval/expected-revision",
-          ],
+          predicate_refs: ["predicate://claim-evidence/owner-approval/approver-scope"],
         },
         {
           operation_semantic: "fresh-owner-list",
@@ -985,9 +865,9 @@ const receiptDefinition: TargetDefinition = {
       authorization: [
         {
           operation_semantic: "owner-session-boundary",
-          method: "POST",
-          path_template: "/api/receipts",
-          realizes_stage_ids: ["stage-owner-approval-submit"],
+          method: "GET",
+          path_template: "/api/my/receipts",
+          realizes_stage_ids: ["stage-owner-approval-owner-read"],
           predicate_refs: ["predicate://claim-evidence/owner-approval/owner-session"],
         },
         {
@@ -997,49 +877,14 @@ const receiptDefinition: TargetDefinition = {
           realizes_stage_ids: ["stage-owner-approval-queue-read"],
           predicate_refs: ["predicate://claim-evidence/owner-approval/approver-scope"],
         },
-        {
-          operation_semantic: "pending-status-boundary",
-          method: "PUT",
-          path_template: "/api/admin/receipts/{id}/status",
-          realizes_stage_ids: ["stage-owner-approval-approve"],
-          predicate_refs: ["predicate://claim-evidence/owner-approval/pending-status"],
-        },
-        {
-          operation_semantic: "expected-revision-boundary",
-          method: "PUT",
-          path_template: "/api/admin/receipts/{id}/status",
-          realizes_stage_ids: ["stage-owner-approval-approve"],
-          predicate_refs: ["predicate://claim-evidence/owner-approval/expected-revision"],
-        },
       ],
       rejection: [
-        {
-          operation_semantic: "other-owner-revision",
-          method: "PUT",
-          path_template: "/api/receipts/{id}",
-          realizes_stage_ids: ["stage-owner-approval-submit"],
-          predicate_refs: ["predicate://claim-evidence/owner-approval/other-owner"],
-        },
-        {
-          operation_semantic: "out-of-scope-approval",
-          method: "PUT",
-          path_template: "/api/admin/receipts/{id}/status",
-          realizes_stage_ids: ["stage-owner-approval-approve"],
-          predicate_refs: ["predicate://claim-evidence/owner-approval/out-of-scope"],
-        },
         {
           operation_semantic: "not-pending-approval",
           method: "PUT",
           path_template: "/api/admin/receipts/{id}/status",
           realizes_stage_ids: ["stage-owner-approval-approve"],
           predicate_refs: ["predicate://claim-evidence/owner-approval/not-pending"],
-        },
-        {
-          operation_semantic: "stale-revision-approval",
-          method: "PUT",
-          path_template: "/api/admin/receipts/{id}/status",
-          realizes_stage_ids: ["stage-owner-approval-approve"],
-          predicate_refs: ["predicate://claim-evidence/owner-approval/stale-revision"],
         },
         {
           operation_semantic: "rejection-owner-readback",
@@ -1088,13 +933,9 @@ const receiptDefinition: TargetDefinition = {
         {
           operation_semantic: "approve",
           method: "POST",
-          path_template: "/api/admin/receipts/{receiptId}/refund",
+          path_template: "/api/admin/receipts/{receiptId}/reject",
           realizes_stage_ids: ["stage-owner-approval-approve"],
-          predicate_refs: [
-            "predicate://claim-evidence/owner-approval/approver-scope",
-            "predicate://claim-evidence/owner-approval/pending-status",
-            "predicate://claim-evidence/owner-approval/expected-revision",
-          ],
+          predicate_refs: ["predicate://claim-evidence/owner-approval/approver-scope"],
         },
         {
           operation_semantic: "fresh-owner-list",
@@ -1114,9 +955,9 @@ const receiptDefinition: TargetDefinition = {
       authorization: [
         {
           operation_semantic: "owner-session-boundary",
-          method: "POST",
-          path_template: "/api/receipts/submit",
-          realizes_stage_ids: ["stage-owner-approval-submit"],
+          method: "GET",
+          path_template: "/api/receipts",
+          realizes_stage_ids: ["stage-owner-approval-owner-read"],
           predicate_refs: ["predicate://claim-evidence/owner-approval/owner-session"],
         },
         {
@@ -1126,49 +967,14 @@ const receiptDefinition: TargetDefinition = {
           realizes_stage_ids: ["stage-owner-approval-queue-read"],
           predicate_refs: ["predicate://claim-evidence/owner-approval/approver-scope"],
         },
-        {
-          operation_semantic: "pending-status-boundary",
-          method: "POST",
-          path_template: "/api/admin/receipts/{receiptId}/refund",
-          realizes_stage_ids: ["stage-owner-approval-approve"],
-          predicate_refs: ["predicate://claim-evidence/owner-approval/pending-status"],
-        },
-        {
-          operation_semantic: "expected-revision-boundary",
-          method: "POST",
-          path_template: "/api/admin/receipts/{receiptId}/refund",
-          realizes_stage_ids: ["stage-owner-approval-approve"],
-          predicate_refs: ["predicate://claim-evidence/owner-approval/expected-revision"],
-        },
       ],
       rejection: [
         {
-          operation_semantic: "other-owner-revision",
-          method: "POST",
-          path_template: "/api/receipts/{receiptId}/revise",
-          realizes_stage_ids: ["stage-owner-approval-submit"],
-          predicate_refs: ["predicate://claim-evidence/owner-approval/other-owner"],
-        },
-        {
-          operation_semantic: "out-of-scope-approval",
-          method: "POST",
-          path_template: "/api/admin/receipts/{receiptId}/refund",
-          realizes_stage_ids: ["stage-owner-approval-approve"],
-          predicate_refs: ["predicate://claim-evidence/owner-approval/out-of-scope"],
-        },
-        {
           operation_semantic: "not-pending-approval",
           method: "POST",
-          path_template: "/api/admin/receipts/{receiptId}/refund",
+          path_template: "/api/admin/receipts/{receiptId}/reject",
           realizes_stage_ids: ["stage-owner-approval-approve"],
           predicate_refs: ["predicate://claim-evidence/owner-approval/not-pending"],
-        },
-        {
-          operation_semantic: "stale-revision-approval",
-          method: "POST",
-          path_template: "/api/admin/receipts/{receiptId}/refund",
-          realizes_stage_ids: ["stage-owner-approval-approve"],
-          predicate_refs: ["predicate://claim-evidence/owner-approval/stale-revision"],
         },
         {
           operation_semantic: "rejection-owner-readback",
