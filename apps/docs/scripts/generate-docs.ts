@@ -1,12 +1,13 @@
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { access, mkdtemp, readFile, readdir, rm } from "node:fs/promises";
+import { access, copyFile, mkdir, mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const docsRoot = resolve(scriptDirectory, "..");
+const formatterConfig = resolve(docsRoot, "../..", ".oxfmtrc.json");
 const checkMode = process.argv.includes("--check");
 const generatedFiles = [
   "public/migration-state.json",
@@ -101,7 +102,7 @@ const generate = async (root: string): Promise<void> => {
   ];
   let digest = await generatedDigest(root);
   for (let pass = 1; pass <= 8; pass += 1) {
-    await run("oxfmt", ["--write", ...formatPaths], environment);
+    await run("oxfmt", ["--write", `--config=${formatterConfig}`, ...formatPaths], environment);
     const formattedDigest = await generatedDigest(root);
     if (formattedDigest === digest) return;
     digest = formattedDigest;
@@ -109,7 +110,12 @@ const generate = async (root: string): Promise<void> => {
   throw new Error("Generated Markdown formatting did not reach a fixed point after 8 passes.");
 };
 
-const makeSureGeneratedFilesMatch = async (candidateRoot: string): Promise<void> => {
+type GeneratedComparison = {
+  readonly differences: ReadonlyArray<string>;
+  readonly expected: ReadonlyArray<string>;
+};
+
+const compareGeneratedFiles = async (candidateRoot: string): Promise<GeneratedComparison> => {
   const expected = await ownedFiles(candidateRoot);
   const actual = await ownedFiles(docsRoot);
   const expectedNames = new Set(expected);
@@ -132,25 +138,46 @@ const makeSureGeneratedFilesMatch = async (candidateRoot: string): Promise<void>
     if (!expectedNames.has(path)) differences.push(`extra ${path}`);
   }
 
+  return { differences, expected };
+};
+
+const makeSureGeneratedFilesMatch = async (candidateRoot: string): Promise<void> => {
+  const { differences, expected } = await compareGeneratedFiles(candidateRoot);
   if (differences.length > 0) {
     throw new Error(
       `Generated docs are stale:\n${differences.map((difference) => `- ${difference}`).join("\n")}\nRun bun run docs:generate.`,
     );
   }
-
   process.stdout.write(`generated docs are current (${expected.length} files)\n`);
 };
 
-const main = async (): Promise<void> => {
-  if (!checkMode) {
-    await generate(docsRoot);
+const replaceGeneratedFiles = async (candidateRoot: string): Promise<void> => {
+  const { differences, expected } = await compareGeneratedFiles(candidateRoot);
+  if (differences.length === 0) {
+    process.stdout.write(`generated docs are current (${expected.length} files)\n`);
     return;
   }
 
-  const candidateRoot = await mkdtemp(join(tmpdir(), "vektor-docs-check-"));
+  for (const directory of generatedDirectories) {
+    await rm(join(docsRoot, directory), { force: true, recursive: true });
+  }
+  for (const path of expected) {
+    const destination = join(docsRoot, path);
+    await mkdir(dirname(destination), { recursive: true });
+    await copyFile(join(candidateRoot, path), destination);
+  }
+  process.stdout.write(`updated generated docs (${expected.length} files)\n`);
+};
+
+const main = async (): Promise<void> => {
+  const candidateRoot = await mkdtemp(join(tmpdir(), "vektor-docs-generate-"));
   try {
     await generate(candidateRoot);
-    await makeSureGeneratedFilesMatch(candidateRoot);
+    if (checkMode) {
+      await makeSureGeneratedFilesMatch(candidateRoot);
+    } else {
+      await replaceGeneratedFiles(candidateRoot);
+    }
   } finally {
     await rm(candidateRoot, { force: true, recursive: true });
   }
