@@ -1,11 +1,11 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://vektor-docs.phibkro.org/migration-state.schema.json",
+  "$id": "https://vector-docs.phibkro.org/migration-state.schema.json",
   "type": "object",
   "properties": {
     "$schema": {
       "type": "string",
-      "const": "https://vektor-docs.phibkro.org/migration-state.schema.json"
+      "const": "https://vector-docs.phibkro.org/migration-state.schema.json"
     },
     "recordType": {
       "type": "string",

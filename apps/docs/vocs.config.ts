@@ -5,7 +5,7 @@ const repository = "https://github.com/vektorprogrammet/mono-web";
 export default defineConfig({
   title: "Vektorprogrammet migration",
   description: "Source-linked guidance for the Vektorprogrammet legacy-to-native migration.",
-  baseUrl: "https://vektor-docs.phibkro.org",
+  baseUrl: "https://vector-docs.phibkro.org",
   renderStrategy: "full-static",
   checkDeadlinks: true,
   head: {

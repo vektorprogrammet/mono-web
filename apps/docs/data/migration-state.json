@@ -1,5 +1,5 @@
 {
-  "$schema": "https://vektor-docs.phibkro.org/migration-state.schema.json",
+  "$schema": "https://vector-docs.phibkro.org/migration-state.schema.json",
   "recordType": "vektor.migration-state/v1",
   "sourceRevision": "0bc4aa3ac5506b6371d25972c9608eee8e35c17d",
   "inspectedOn": "2026-08-31",

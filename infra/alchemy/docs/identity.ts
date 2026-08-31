@@ -1,12 +1,17 @@
 export const DOCS_IDENTITY = {
-  stack: "vektor-docs",
+  stack: "vector-docs",
   stage: "docs-dev-main",
   profile: "goal1-staging",
-  logicalId: "MigrationDocs",
-  workerName: "vektor-migration-docs",
-  hostname: "vektor-docs.phibkro.org",
-  stateNamespace: ".alchemy/state/vektor-docs/docs-dev-main",
-  forbiddenHostnames: ["vektor.phibkro.org", "api.vektor.phibkro.org", "vektorprogrammet.no"],
+  logicalId: "VectorMigrationDocs",
+  workerName: "vector-migration-docs",
+  hostname: "vector-docs.phibkro.org",
+  stateNamespace: ".alchemy/state/vector-docs/docs-dev-main",
+  forbiddenHostnames: [
+    "vektor-docs.phibkro.org",
+    "vektor.phibkro.org",
+    "api.vektor.phibkro.org",
+    "vektorprogrammet.no",
+  ],
 } as const;
 
 export const assertDocsDeploymentIdentity = (input: {

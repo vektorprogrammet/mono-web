@@ -5,7 +5,7 @@ description: Operate the migration docs deployment without changing application 
 
 # Deploy or recover preview safely
 
-This procedure applies only to `vektor-docs.phibkro.org`.
+This procedure applies only to `vector-docs.phibkro.org`.
 
 :::danger
 Do not use the apex `plan` or `deploy` scripts. They own `vektor.phibkro.org`, API aliases, and preview Workers.
@@ -16,12 +16,12 @@ Do not use the apex `plan` or `deploy` scripts. They own `vektor.phibkro.org`, A
 | Item               | Value                                                    |
 | ------------------ | -------------------------------------------------------- |
 | Alchemy entrypoint | `infra/alchemy/docs.run.ts`                              |
-| Stack              | `vektor-docs`                                            |
+| Stack              | `vector-docs`                                            |
 | Stage              | `docs-dev-main`                                          |
 | Profile label      | `goal1-staging`                                          |
-| Worker             | `vektor-migration-docs`                                  |
-| Hostname           | `vektor-docs.phibkro.org`                                |
-| Local state        | `infra/alchemy/.alchemy/state/vektor-docs/docs-dev-main` |
+| Worker             | `vector-migration-docs`                                  |
+| Hostname           | `vector-docs.phibkro.org`                                |
+| Local state        | `infra/alchemy/.alchemy/state/vector-docs/docs-dev-main` |
 
 The wrapper rejects another stage or profile label. It also disables Alchemy telemetry.
 
@@ -51,9 +51,9 @@ The wrapper rebuilds the site before Alchemy reads static assets.
 
 Accept only these planned effects:
 
-- create or update `vektor-migration-docs`
+- create or update `vector-migration-docs`
 - upload its static assets
-- attach `vektor-docs.phibkro.org`
+- attach `vector-docs.phibkro.org`
 
 If the plan reports an unowned resource, stop. If it names an apex Worker, API alias, another hostname, or another state record, stop.
 
@@ -79,13 +79,13 @@ The docs resource must report no change.
 
 Check these URLs:
 
-- `https://vektor-docs.phibkro.org/`
-- `https://vektor-docs.phibkro.org/tutorials/orientation`
-- `https://vektor-docs.phibkro.org/how-to/migrate-capability`
-- `https://vektor-docs.phibkro.org/reference/migration-state`
-- `https://vektor-docs.phibkro.org/explanation/evidence-limits`
-- `https://vektor-docs.phibkro.org/migration-state.json`
-- `https://vektor-docs.phibkro.org/llms.txt`
+- `https://vector-docs.phibkro.org/`
+- `https://vector-docs.phibkro.org/tutorials/orientation`
+- `https://vector-docs.phibkro.org/how-to/migrate-capability`
+- `https://vector-docs.phibkro.org/reference/migration-state`
+- `https://vector-docs.phibkro.org/explanation/evidence-limits`
+- `https://vector-docs.phibkro.org/migration-state.json`
+- `https://vector-docs.phibkro.org/llms.txt`
 
 Also check navigation, keyword search, TLS, assets, response metadata, browser console errors, and page errors.
 

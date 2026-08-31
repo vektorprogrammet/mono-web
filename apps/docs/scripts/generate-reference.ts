@@ -28,7 +28,7 @@ const StateRowSchema = z.strictObject({
 });
 
 const MigrationStateSchema = z.strictObject({
-  $schema: z.literal("https://vektor-docs.phibkro.org/migration-state.schema.json"),
+  $schema: z.literal("https://vector-docs.phibkro.org/migration-state.schema.json"),
   recordType: z.literal("vektor.migration-state/v1"),
   sourceRevision: z.string().regex(/^[a-f0-9]{40}$/u),
   inspectedOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/u),
@@ -54,7 +54,7 @@ const repositoryRoot = resolve(docsRoot, "../..");
 const statePath = join(docsRoot, "data/migration-state.json");
 const publicSchema = {
   $schema: "https://json-schema.org/draft/2020-12/schema",
-  $id: "https://vektor-docs.phibkro.org/migration-state.schema.json",
+  $id: "https://vector-docs.phibkro.org/migration-state.schema.json",
   ...z.toJSONSchema(MigrationStateSchema),
 };
 const pagesDirectory = join(docsRoot, "src/pages/reference");
