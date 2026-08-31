@@ -1,4 +1,5 @@
 import { UnauthenticatedActorError, UnauthorizedError } from "@vektorprogrammet/sdk";
+import { Schema as S } from "effect";
 import { redirect } from "react-router";
 import { createAuthenticatedClient, serverApiEndpoint } from "./api.server";
 
@@ -17,6 +18,15 @@ export type SignInResult =
   | { readonly _tag: "InvalidCredentials" }
   | { readonly _tag: "RateLimited" }
   | { readonly _tag: "Unavailable" };
+
+const BetterAuthSessionIdentity = S.Struct({
+  user: S.Struct({
+    name: S.String,
+    email: S.String,
+  }),
+});
+
+export type SessionIdentity = (typeof BetterAuthSessionIdentity.Type)["user"];
 
 function backendRequestHeaders(request: Request, includeCookie: boolean): Headers {
   const headers = new Headers({
@@ -68,6 +78,32 @@ export function forwardSetCookieHeaders(source: Headers): Headers {
   const target = new Headers();
   for (const value of source.getSetCookie()) target.append("Set-Cookie", value);
   return target;
+}
+
+export async function loadSessionIdentity(request: Request): Promise<SessionIdentity> {
+  let response: Response;
+  try {
+    response = await fetch(serverApiEndpoint("/api/auth/get-session"), {
+      headers: backendRequestHeaders(request, true),
+      signal: request.signal,
+    });
+  } catch {
+    throw new Response(null, { status: 502 });
+  }
+  if (response.status === 401) throw await expiredSessionRedirect(request);
+  if (!response.ok) throw new Response(null, { status: 502 });
+
+  let body: unknown;
+  try {
+    body = await response.json();
+  } catch {
+    throw new Response(null, { status: 502 });
+  }
+  try {
+    return S.decodeUnknownSync(BetterAuthSessionIdentity)(body).user;
+  } catch {
+    throw new Response(null, { status: 502 });
+  }
 }
 
 export async function signInWithEmail(

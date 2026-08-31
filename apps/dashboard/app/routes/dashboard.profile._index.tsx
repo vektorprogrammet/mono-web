@@ -9,26 +9,75 @@ import {
 } from "@/components/ui/table";
 import { ChevronRight } from "lucide-react";
 import { NavLink, href, useLoaderData } from "react-router";
-import { isFixtureMode } from "@vektorprogrammet/sdk";
+import {
+  ConfigurationError,
+  isFixtureMode,
+  NetworkError,
+  UnauthorizedError,
+} from "@vektorprogrammet/sdk";
 import { getProfileData } from "../mock/api/data-profile";
-import { requireAuth } from "../lib/auth.server";
 import { createAuthenticatedClient } from "../lib/api.server";
+import { expiredSessionRedirect, loadSessionIdentity, requireAuth } from "../lib/auth.server";
 import { loadProfile } from "../lib/profile-view";
 import type { Route } from "./+types/dashboard.profile._index";
 
 export async function loader({ request }: Route.LoaderArgs) {
-  if (isFixtureMode) return { profile: getProfileData(), fixture: true as const };
+  if (isFixtureMode) {
+    return {
+      profile: getProfileData(),
+      identity: null,
+      fixture: true as const,
+    };
+  }
 
   const cookie = await requireAuth(request);
   const client = createAuthenticatedClient(cookie);
-  const profile = await loadProfile(() => client.me.profile());
-
-  return { profile, fixture: false as const };
+  try {
+    return {
+      profile: await loadProfile(() => client.me.profile()),
+      identity: null,
+      fixture: false as const,
+    };
+  } catch (error) {
+    if (error instanceof UnauthorizedError) throw await expiredSessionRedirect(request);
+    if (error instanceof NetworkError) throw new Response(null, { status: 502 });
+    if (error instanceof ConfigurationError) throw new Response(null, { status: 503 });
+    const profileTag =
+      error !== null && typeof error === "object" && "_tag" in error ? error._tag : undefined;
+    if (profileTag === "AuthorityInactive" || profileTag === "NotInScope") {
+      return {
+        profile: null,
+        identity: await loadSessionIdentity(request),
+        fixture: false as const,
+      };
+    }
+    throw new Response(null, { status: 503 });
+  }
 }
 
 // biome-ignore lint/style/noDefaultExport: Route Modules require default export https://reactrouter.com/start/framework/route-module
 export default function Profile() {
-  const { profile, fixture } = useLoaderData<typeof loader>();
+  const { profile, identity, fixture } = useLoaderData<typeof loader>();
+  if (profile === null) {
+    if (identity === null) throw new Error("Missing session identity for unavailable profile");
+    return (
+      <main className="mx-10 mt-10">
+        <h1 className="mb-2 font-semibold text-2xl lg:mb-4 lg:text-4xl">{identity.name}</h1>
+        <p>
+          <a className="text-blue-600 hover:underline" href={`mailto:${identity.email}`}>
+            {identity.email}
+          </a>
+        </p>
+        <section className="mt-8 max-w-2xl rounded-lg border bg-gray-50 p-6">
+          <h2 className="font-semibold text-xl">Profilopplysningene kunne ikke hentes</h2>
+          <p className="mt-2 text-muted-foreground">
+            Du er fortsatt innlogget, men organisasjonstilknytningen gir ikke tilgang til den
+            fullstendige profilen.
+          </p>
+        </section>
+      </main>
+    );
+  }
   return (
     <>
       <div className="mx-10 mt-10 flex flex-col">

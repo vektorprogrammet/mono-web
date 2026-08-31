@@ -10,15 +10,47 @@ const dashboardOrigin = process.env.DASHBOARD_ORIGIN ?? "";
 const email = process.env.IDENTITY_EVIDENCE_EMAIL ?? "";
 const password = process.env.IDENTITY_EVIDENCE_PASSWORD ?? "";
 const wrongPassword = process.env.IDENTITY_EVIDENCE_WRONG_PASSWORD ?? "";
+const memberEmail = process.env.IDENTITY_EVIDENCE_MEMBER_EMAIL ?? "";
+const memberPassword = process.env.IDENTITY_EVIDENCE_MEMBER_PASSWORD ?? "";
+const adminScreenshotPath = process.env.IDENTITY_EVIDENCE_ADMIN_SCREENSHOT_PATH ?? "/dev/null";
+const memberScreenshotPath = process.env.IDENTITY_EVIDENCE_MEMBER_SCREENSHOT_PATH ?? "/dev/null";
 const outputPath = evidencePath ?? "/dev/null";
 const sessionCookieName = "better-auth.session_token";
+const navigationPaths = [
+  "/dashboard/profile",
+  "/dashboard/mine-utlegg",
+  "/dashboard/sokere",
+  "/dashboard/tidligere-assistenter",
+  "/dashboard/intervjufordeling",
+  "/dashboard/intervjuer",
+  "/dashboard/statistikk",
+  "/dashboard/assistenter",
+  "/dashboard/vikarer",
+  "/dashboard/skoler",
+  "/dashboard/brukere",
+  "/dashboard/epostliste",
+  "/dashboard/team",
+  "/dashboard/teaminteresse",
+  "/dashboard/utlegg",
+  "/dashboard/sponsorer",
+  "/dashboard/attester",
+  "/dashboard/intervjusjema",
+  "/dashboard/avdelinger",
+  "/dashboard/linjer",
+  "/dashboard/opptaksperioder",
+] as const;
+const memberNavigationPaths = navigationPaths.slice(0, 2);
 if (
   realRun &&
   (evidencePath === undefined ||
     dashboardOrigin === "" ||
     email === "" ||
     password === "" ||
-    wrongPassword === "")
+    wrongPassword === "" ||
+    memberEmail === "" ||
+    memberPassword === "" ||
+    adminScreenshotPath === "/dev/null" ||
+    memberScreenshotPath === "/dev/null")
 ) {
   throw new Error("identity evidence requires process-bound credentials, origin, and output path");
 }
@@ -165,6 +197,24 @@ const observeBrowserAuthorityIsolation = async (
     cookieValueMatches,
   };
 };
+const observeNavigationStatuses = async (
+  context: BrowserContext,
+  paths: ReadonlyArray<string>,
+  acceptedStatuses: ReadonlyArray<number>,
+): Promise<ReadonlyArray<{ readonly path: string; readonly status: number }>> => {
+  const statuses = [];
+  for (const path of paths) {
+    const response = await context.request.get(`${dashboardOrigin}${path}`, {
+      maxRedirects: 0,
+    });
+    statuses.push({ path, status: response.status() });
+  }
+  const failures = statuses.filter(({ status }) => !acceptedStatuses.includes(status));
+  expect(failures, "navigation routes must preserve the persona-specific route contract").toEqual(
+    [],
+  );
+  return statuses;
+};
 
 test.describe("Native Identity browser evidence (spec 0065 with spec 0056 rules)", () => {
   test.skip(!realRun, "run through the bounded native Identity PostgreSQL runner");
@@ -229,6 +279,92 @@ test.describe("Native Identity browser evidence (spec 0065 with spec 0056 rules)
         authenticatedShell: true,
         strictSessionProjection: "recorded-by-boundary",
       };
+      await page.screenshot({ path: adminScreenshotPath, fullPage: true });
+      observations.adminNavigation = await observeNavigationStatuses(
+        context,
+        navigationPaths,
+        [200, 403],
+      );
+
+      const memberContext = await browser.newContext();
+      attachBrowserLedger(memberContext, ledger);
+      const memberPage = await memberContext.newPage();
+      memberPage.on("pageerror", (error) => pageErrors.push(error.message));
+      try {
+        await memberPage.goto("/login");
+        await memberPage.getByLabel("E-post").fill(memberEmail);
+        await memberPage.getByLabel("Passord", { exact: true }).fill(memberPassword);
+        await memberPage.getByRole("button", { name: "Logg inn" }).click();
+        await memberPage.waitForURL((url) => url.pathname === "/dashboard", {
+          waitUntil: "commit",
+        });
+        await memberPage.waitForLoadState("networkidle");
+        await memberPage.screenshot({ path: memberScreenshotPath, fullPage: true });
+        const memberBody = await memberPage.locator("body").innerText();
+        expect(memberBody, `member dashboard at ${memberPage.url()}`).toContain("Mina Member");
+        await expect(
+          memberPage.getByRole("heading", { name: "Oversikten kunne ikke hentes" }),
+        ).toBeVisible();
+        await expect(memberPage.getByText("Opptak", { exact: true })).toHaveCount(0);
+        await expect(memberPage.getByText("Assistenter", { exact: true })).toHaveCount(0);
+        await expect(memberPage.getByText("Brukere", { exact: true })).toHaveCount(0);
+        observations.memberNavigation = await observeNavigationStatuses(
+          memberContext,
+          memberNavigationPaths,
+          [200],
+        );
+        const memberProfilePage = await memberContext.newPage();
+        memberProfilePage.on("pageerror", (error) => pageErrors.push(error.message));
+        try {
+          const profileResponse = await memberProfilePage.goto("/dashboard/profile");
+          expect(profileResponse?.status()).toBe(200);
+          await expect(
+            memberProfilePage.getByRole("heading", {
+              name: "Profilopplysningene kunne ikke hentes",
+            }),
+          ).toBeVisible();
+          await expect(
+            memberProfilePage.getByRole("heading", { name: "Mina Member" }),
+          ).toBeVisible();
+        } finally {
+          await memberProfilePage.close();
+        }
+
+        const identityButton = memberPage.getByRole("button", {
+          name: new RegExp(memberEmail),
+        });
+        await expect(identityButton).toBeVisible();
+        await identityButton.click();
+        await expect(memberPage.getByRole("menuitem", { name: "Profil" })).toBeVisible();
+        await expect(memberPage.getByRole("menuitem", { name: "Mine Utlegg" })).toBeVisible();
+        await expect(memberPage.getByRole("menuitem", { name: "Logg ut" })).toBeVisible();
+
+        const memberViolations = await blockingViolations(memberPage);
+        accessibility.memberShell = memberViolations.length;
+        expect(memberViolations).toEqual([]);
+        await memberPage.screenshot({ path: memberScreenshotPath, fullPage: true });
+        browserAuthorityChecks.push(
+          await observeBrowserAuthorityIsolation(
+            memberContext,
+            memberPage,
+            "authenticated-no-scope-member",
+          ),
+        );
+        observations.memberShell = {
+          profileStatus: "recorded-by-boundary-403",
+          sessionIdentity: "Mina Member",
+          identityMenu: ["Profil", "Mine Utlegg", "Logg ut"],
+          organizationNavigation: "hidden",
+          landing: "Unavailable",
+        };
+        await memberPage.getByRole("menuitem", { name: "Logg ut" }).click();
+        await memberPage.waitForURL((url) => url.pathname === "/login", {
+          waitUntil: "commit",
+        });
+      } finally {
+        await memberContext.close();
+      }
+
       const oldCookie = {
         name: sessionCookie.name,
         value: sessionCookie.value,
@@ -322,6 +458,11 @@ test.describe("Native Identity browser evidence (spec 0065 with spec 0056 rules)
         passed: true,
         browser: "Chromium",
         browserVersion: browser.version(),
+        screenshots: {
+          admin: adminScreenshotPath,
+          member: memberScreenshotPath,
+          syntheticPersonasOnly: true,
+        },
         observations,
         accessibilityViolations: accessibility,
         authorityIsolation: {

@@ -24,6 +24,14 @@ const wrongPassword =
   process.env.IDENTITY_EVIDENCE_WRONG_PASSWORD ?? "identity-evidence-wrong-0065";
 const secret =
   process.env.IDENTITY_EVIDENCE_AUTH_SECRET ?? "identity-evidence-secret-0065-0123456789";
+const memberEmail =
+  process.env.IDENTITY_EVIDENCE_MEMBER_EMAIL ?? "member.dashboard-0073@example.invalid";
+const adminScreenshotPath =
+  process.env.IDENTITY_EVIDENCE_ADMIN_SCREENSHOT_PATH ??
+  join(tmpdir(), "vektor-dashboard-0073-admin.png");
+const memberScreenshotPath =
+  process.env.IDENTITY_EVIDENCE_MEMBER_SCREENSHOT_PATH ??
+  join(tmpdir(), "vektor-dashboard-0073-member.png");
 const timeoutMs = 300_000;
 const sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 const detail = (error) => (error instanceof Error ? error.message : String(error));
@@ -234,7 +242,10 @@ const startRecordingBoundary = async (targetOrigin) => {
         if (upstream.status === 200) {
           const projection = JSON.parse(bodyText);
           assert.deepEqual(Object.keys(projection).sort(), ["expiresAt", "personId"]);
-          assert.equal(projection.personId, "journey-0065-admin");
+          assert.ok(
+            ["journey-0065-admin", "journey-0073-member"].includes(projection.personId),
+            `unexpected session person ${projection.personId}`,
+          );
           assert.ok(
             typeof projection.expiresAt === "string" &&
               Date.parse(projection.expiresAt) > Date.now(),
@@ -397,6 +408,12 @@ const main = async () => {
     });
     const seedEvidence = JSON.parse(seed.stdout.trim());
     assert.equal(seedEvidence.personId, "journey-0065-admin");
+    assert.deepEqual(seedEvidence.member, {
+      personId: "journey-0073-member",
+      emailClass: "synthetic.invalid",
+      displayName: "Mina Member",
+      organizationAuthorities: 0,
+    });
     assert.deepEqual(seedEvidence.migrations, [
       { revision: 15, name: "native-identity-better-auth" },
       { revision: 23, name: "declarative-authorization-rules" },
@@ -450,6 +467,10 @@ const main = async () => {
       IDENTITY_EVIDENCE_PASSWORD: password,
       IDENTITY_EVIDENCE_WRONG_PASSWORD: wrongPassword,
       IDENTITY_EVIDENCE_BROWSER_PATH: browserEvidencePath,
+      IDENTITY_EVIDENCE_MEMBER_EMAIL: memberEmail,
+      IDENTITY_EVIDENCE_MEMBER_PASSWORD: password,
+      IDENTITY_EVIDENCE_ADMIN_SCREENSHOT_PATH: adminScreenshotPath,
+      IDENTITY_EVIDENCE_MEMBER_SCREENSHOT_PATH: memberScreenshotPath,
     };
     dashboard = start(
       "node",
@@ -479,11 +500,12 @@ const main = async () => {
     assert.equal(browserEvidence.extensionSpecId, "0056");
     assert.deepEqual(browserEvidence.accessibilityViolations, {
       initial: 0,
+      memberShell: 0,
       invalid: 0,
       rateLimit: 0,
     });
     assert.deepEqual(findAuthorityData(JSON.stringify(browserEvidence)), []);
-    assert.equal(browserEvidence.authorityIsolation.browserArtifacts.length, 6);
+    assert.equal(browserEvidence.authorityIsolation.browserArtifacts.length, 7);
     assert.ok(
       browserEvidence.authorityIsolation.browserArtifacts.every(
         (artifact) =>
@@ -495,12 +517,40 @@ const main = async () => {
           artifact.cookieValueMatches.length === 0,
       ),
     );
+    assert.deepEqual(browserEvidence.screenshots, {
+      admin: adminScreenshotPath,
+      member: memberScreenshotPath,
+      syntheticPersonasOnly: true,
+    });
+    for (const screenshotPath of [adminScreenshotPath, memberScreenshotPath]) {
+      const screenshot = await readFile(screenshotPath);
+      assert.deepEqual(
+        [...screenshot.subarray(0, 8)],
+        [137, 80, 78, 71, 13, 10, 26, 10],
+        `${screenshotPath} must be a PNG`,
+      );
+    }
     assert.deepEqual(browserEvidence.requestLedger.forbidden, []);
     assert.deepEqual(browserEvidence.requestLedger.unexpectedDestinations, []);
+    assert.ok(
+      boundary.records.some((entry) => entry.path === "/api/me" && entry.status === 403),
+      "no-scope member profile denial must reach the native backend",
+    );
+    assert.ok(
+      boundary.records.some(
+        (entry) => entry.path === "/api/auth/get-session" && entry.status === 200,
+      ),
+      "member shell must recover identity from Better Auth session",
+    );
     const nativeSignIn = boundary.records.filter(
       (entry) => entry.path === "/api/auth/sign-in/email",
     );
-    assert.equal(nativeSignIn.length, 11);
+    assert.equal(nativeSignIn.length, 12);
+    assert.equal(
+      nativeSignIn.filter(({ status }) => status === 200).length,
+      2,
+      "admin and member sign-ins must both succeed",
+    );
     assert.equal(nativeSignIn[0].status, 200);
     const wrongStatuses = nativeSignIn.slice(-10).map((entry) => entry.status);
     assert.deepEqual(wrongStatuses, [401, 401, 401, 429, 429, 429, 429, 429, 429, 429]);
@@ -517,7 +567,7 @@ const main = async () => {
     );
     assert.deepEqual(
       explicitSignOut.map(({ status }) => status),
-      [200],
+      [200, 200],
     );
     assert.deepEqual(
       revokedReplaySignOut.map(({ status }) => status),
@@ -537,9 +587,14 @@ const main = async () => {
         (projection) =>
           projection !== undefined &&
           projection.exactJsonBytes === true &&
-          projection.personId === "journey-0065-admin" &&
+          ["journey-0065-admin", "journey-0073-member"].includes(projection.personId) &&
           projection.keys.join(",") === "personId,expiresAt",
       ),
+      "successful session projections must be exact and belong to a seeded persona",
+    );
+    assert.deepEqual(
+      [...new Set(successfulSessionProjections.map((projection) => projection?.personId))].sort(),
+      ["journey-0065-admin", "journey-0073-member"],
     );
     assert.ok(
       unauthenticatedSessionProjections.every(

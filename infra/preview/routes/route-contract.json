@@ -9,7 +9,7 @@
     "resourcePrefix": "vektor-p20",
     "container": "vektor-p20-container"
   },
-  "sourceManifestDigest": "sha256:d8f15a0f1d5c9d57612209801b04cf5e6038b07cb1985d921edb89135597d626",
+  "sourceManifestDigest": "sha256:b171240fce8826b39eb69ed1a4d202520b07da7026ceadea549d5b694f515070",
   "sourceManifests": {
     "homepage": {
       "files": [
@@ -170,8 +170,8 @@
         },
         {
           "path": "apps/homepage/src/routes/_home.tsx",
-          "bytes": 9559,
-          "sha256": "sha256:1ce0160eb0c4da046f77f802a1f887b1801c014e7a3f9babbf32724270bfe43c"
+          "bytes": 9502,
+          "sha256": "sha256:e9262e62f7f0fcd3a7f2c7907eb4e7745bdc82f1a7072ed200206768fa4e13ea"
         },
         {
           "path": "apps/homepage/src/routes/nyhet.$slug.tsx",
@@ -184,14 +184,14 @@
           "sha256": "sha256:8a8c183650a01399a057fc88fe503039fe04fe85a79a39db918969f8a87471a2"
         }
       ],
-      "digest": "sha256:fc0f31779709b01e97647edae03d70374a3b9f0fe3eb0f800aeb20fd26db27f2"
+      "digest": "sha256:f55c7feb2c45ce1ada0cdcd743be63643a2796a2a47c92da72da29b24e09e850"
     },
     "dashboard": {
       "files": [
         {
           "path": "apps/dashboard/app/lib/auth.server.ts",
-          "bytes": 5117,
-          "sha256": "sha256:ae28fe250bb82cc77fc930e02b365d503d4ca98d94658d7202f97e6d882f44dc"
+          "bytes": 6172,
+          "sha256": "sha256:6483d8ae578d9a30c40be520391bbb3b1fefad0bcc72bb63135a2b8ac26bcefb"
         },
         {
           "path": "apps/dashboard/app/routes.ts",
@@ -209,19 +209,9 @@
           "sha256": "sha256:3dd40af2a27b711bc7ec7048c584e6490f3ed5d36c001dc18019730bb23d18f0"
         },
         {
-          "path": "apps/dashboard/app/routes/dashboard_.intervjuer._index.tsx",
-          "bytes": 2540,
-          "sha256": "sha256:c5a3cfbfd2883c79527112447cbc72480f94bdaf2328ae9460987663f730ebf4"
-        },
-        {
-          "path": "apps/dashboard/app/routes/dashboard_.sokere._index.tsx",
-          "bytes": 2912,
-          "sha256": "sha256:6690462a73cfb66500b96b2bf2e0ff56c326432d651cecac65f1383ef0de3ed2"
-        },
-        {
           "path": "apps/dashboard/app/routes/dashboard._index.tsx",
-          "bytes": 2353,
-          "sha256": "sha256:277cfdfca583282d6cb7bee2518156c18afba683c9389b088794a2666d9ef6c3"
+          "bytes": 3249,
+          "sha256": "sha256:502018f56d3a7bb857642b7e8e82af32085399c220b1601e474db295229a8129"
         },
         {
           "path": "apps/dashboard/app/routes/dashboard.artikler._index.tsx",
@@ -230,8 +220,8 @@
         },
         {
           "path": "apps/dashboard/app/routes/dashboard.assistenter._index.tsx",
-          "bytes": 2702,
-          "sha256": "sha256:13146d76834f9a646a2eaf4ceed2cb5cbc4dd2a9ee43eee61e3416806fc83b59"
+          "bytes": 3244,
+          "sha256": "sha256:d71898968abc506ead8c600f5615c25a3cb3634463bd87f46582210c97cfaaa1"
         },
         {
           "path": "apps/dashboard/app/routes/dashboard.attester._index.tsx",
@@ -252,6 +242,11 @@
           "path": "apps/dashboard/app/routes/dashboard.epostliste._index.tsx",
           "bytes": 1478,
           "sha256": "sha256:decff565e3b172b806efa9f974df82b5dd03966f7e1f5b9eca480fb2c0a51744"
+        },
+        {
+          "path": "apps/dashboard/app/routes/dashboard.intervjuer._index.tsx",
+          "bytes": 2578,
+          "sha256": "sha256:523757190c05b42fc6c0377f4a590aded1c00ac78fa480f219c5c4947756d338"
         },
         {
           "path": "apps/dashboard/app/routes/dashboard.intervjufordeling._index.tsx",
@@ -280,8 +275,8 @@
         },
         {
           "path": "apps/dashboard/app/routes/dashboard.profile._index.tsx",
-          "bytes": 8344,
-          "sha256": "sha256:ee00a56ecce426751ff9387eaae77f7f244f8427a3a125aa266dd50f82a52f83"
+          "bytes": 10039,
+          "sha256": "sha256:4e2d28c18e09ba702c9cfe43aa956fa8a51bf49ff44783c6acb541d6c4d2a00a"
         },
         {
           "path": "apps/dashboard/app/routes/dashboard.profile.rediger._index.tsx",
@@ -294,9 +289,14 @@
           "sha256": "sha256:8a5c8c63ffd1f981e44ee2c17ad04fdba25e06cff019201c936e94f12191e8e6"
         },
         {
+          "path": "apps/dashboard/app/routes/dashboard.sokere._index.tsx",
+          "bytes": 2911,
+          "sha256": "sha256:88f89d5fc95565e36350818f079521aa87e55979859d7833102638ecd941e9a5"
+        },
+        {
           "path": "apps/dashboard/app/routes/dashboard.sponsorer._index.tsx",
-          "bytes": 1684,
-          "sha256": "sha256:9eb548dc64ced2568060ee9d659c7cd222a30b26b5ae8dca96ff8b9d3ac0840f"
+          "bytes": 2211,
+          "sha256": "sha256:d509ecd2f5b4225f7a95de113799c6efcb3c231a64e96e94e01cd00e8c259741"
         },
         {
           "path": "apps/dashboard/app/routes/dashboard.statistikk._index.tsx",
@@ -320,8 +320,8 @@
         },
         {
           "path": "apps/dashboard/app/routes/dashboard.tsx",
-          "bytes": 15574,
-          "sha256": "sha256:360191ac722180e92505c8c05a1cf4fd7ea6fb6a23a83647cfe25fc9cf92e675"
+          "bytes": 15726,
+          "sha256": "sha256:12af89bdb6d4f28af272f3237722432577796370848111990b45e3c1c09a01bb"
         },
         {
           "path": "apps/dashboard/app/routes/dashboard.utlegg._index.tsx",
@@ -330,8 +330,8 @@
         },
         {
           "path": "apps/dashboard/app/routes/dashboard.vikarer._index.tsx",
-          "bytes": 2837,
-          "sha256": "sha256:5bb4647dcfae1910d30695deabd53f48f4280e4307b6a5d2301958147602f7b8"
+          "bytes": 3417,
+          "sha256": "sha256:26b467ff9952539f2f76665a12c342ffe7beedb72f1e5e3a73cc0bb9aaf42087"
         },
         {
           "path": "apps/dashboard/app/routes/glemt-passord.tsx",
@@ -350,8 +350,8 @@
         },
         {
           "path": "apps/dashboard/app/routes/login.tsx",
-          "bytes": 4442,
-          "sha256": "sha256:d087ee15bf8dfbce0d58f6bef7468141c322ff8c3c3d9861c75b735eed8f5e42"
+          "bytes": 4289,
+          "sha256": "sha256:876f9dfb8e0a216a379cc372ac3a6b5e434b9c676d0e4b4e8deb0570d98d1cda"
         },
         {
           "path": "apps/dashboard/app/routes/logout.tsx",
@@ -364,7 +364,7 @@
           "sha256": "sha256:c924d7f0ce5ca60be8637f310d83ba8ee2c181591ada7d66bd63807922c1a935"
         }
       ],
-      "digest": "sha256:fa803f3394d1aecb886a15c3b00a01086d47c35bb046a82eefb4959ffa0b0d60"
+      "digest": "sha256:c9144885c858d2f3f2576931b1020badde86ca6b37aa8372e7c6e5e26c78fe7e"
     }
   },
   "routes": [
@@ -969,6 +969,22 @@
       }
     },
     {
+      "id": "dashboard-dashboard-intervjuer",
+      "app": "dashboard",
+      "path": "/dashboard/intervjuer",
+      "sourcePath": "apps/dashboard/app/routes/dashboard.intervjuer._index.tsx",
+      "kind": "redirect",
+      "expected": {
+        "status": 302,
+        "basicState": "authorization-denied",
+        "redirectTo": "/login"
+      },
+      "visual": {
+        "desktop": true,
+        "mobile": true
+      }
+    },
+    {
       "id": "dashboard-dashboard-intervjufordeling",
       "app": "dashboard",
       "path": "/dashboard/intervjufordeling",
@@ -1085,6 +1101,22 @@
       "app": "dashboard",
       "path": "/dashboard/skoler",
       "sourcePath": "apps/dashboard/app/routes/dashboard.skoler._index.tsx",
+      "kind": "redirect",
+      "expected": {
+        "status": 302,
+        "basicState": "authorization-denied",
+        "redirectTo": "/login"
+      },
+      "visual": {
+        "desktop": true,
+        "mobile": true
+      }
+    },
+    {
+      "id": "dashboard-dashboard-sokere",
+      "app": "dashboard",
+      "path": "/dashboard/sokere",
+      "sourcePath": "apps/dashboard/app/routes/dashboard.sokere._index.tsx",
       "kind": "redirect",
       "expected": {
         "status": 302,
@@ -1289,5 +1321,5 @@
     "authorization-denied",
     "not-found"
   ],
-  "contractDigest": "sha256:d27b3edcb426bee916b003852ace88631d2d8714e652042b8e80e2bf958afa52"
+  "contractDigest": "sha256:82a0c6677036cd8f0bbc56cc925f4447140e064271187bc2bd78d93a34ef9128"
 }

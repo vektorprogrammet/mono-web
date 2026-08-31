@@ -22,6 +22,7 @@ vi.mock("./api.server", () => ({
 }));
 
 import {
+  loadSessionIdentity,
   hasAuthenticatedSession,
   requireAuth,
   safeRedirect,
@@ -61,6 +62,47 @@ describe("native dashboard authentication", () => {
     await expect(requireAuth(request)).resolves.toBe(rawCookie);
     expect(api.createAuthenticatedClient).toHaveBeenCalledWith(rawCookie);
     expect(api.session).toHaveBeenCalledOnce();
+  });
+
+  it("reads the Better Auth session identity with the exact incoming Cookie", async () => {
+    const rawCookie = "theme=dark; better-auth.session_token=session-value";
+    const fetchMock = vi.fn().mockResolvedValue(
+      Response.json({
+        session: { id: "session-1" },
+        user: {
+          id: "person-1",
+          name: "Ada Lovelace",
+          email: "ada@example.invalid",
+          emailVerified: true,
+        },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      loadSessionIdentity(
+        new Request("https://dashboard.example/dashboard", {
+          headers: { Cookie: rawCookie },
+        }),
+      ),
+    ).resolves.toEqual({ name: "Ada Lovelace", email: "ada@example.invalid" });
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("http://api.test/api/auth/get-session");
+    expect(new Headers(init.headers).get("Cookie")).toBe(rawCookie);
+  });
+
+  it("fails closed when Better Auth returns a malformed session identity", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ user: { id: "person-1" } })));
+
+    const failure = await loadSessionIdentity(
+      new Request("http://dashboard.test/dashboard", {
+        headers: { Cookie: "better-auth.session_token=session-value" },
+      }),
+    ).catch((error: unknown) => error);
+
+    expect(failure).toBeInstanceOf(Response);
+    expect(failure).toMatchObject({ status: 502 });
   });
 
   it("does not treat unrelated browser cookies as authentication evidence", async () => {

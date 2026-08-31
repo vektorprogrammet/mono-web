@@ -82,7 +82,7 @@ function UserMenu({
   return (
     <SidebarMenu>
       <SidebarMenuItem>
-        <DropdownMenu>
+        <DropdownMenu modal={false}>
           <DropdownMenuTrigger asChild>
             <SidebarMenuButton
               size="lg"
@@ -106,18 +106,18 @@ function UserMenu({
             sideOffset={4}
           >
             <DropdownMenuGroup>
-              <Link to={href("/dashboard/profile")} prefetch="intent">
-                <DropdownMenuItem>
+              <DropdownMenuItem asChild>
+                <Link to={href("/dashboard/profile")} prefetch="intent">
                   <User />
                   Profil
-                </DropdownMenuItem>
-              </Link>
-              <Link to={href("/dashboard/mine-utlegg")} prefetch="intent">
-                <DropdownMenuItem>
+                </Link>
+              </DropdownMenuItem>
+              <DropdownMenuItem asChild>
+                <Link to={href("/dashboard/mine-utlegg")} prefetch="intent">
                   <Receipt />
                   Mine Utlegg
-                </DropdownMenuItem>
-              </Link>
+                </Link>
+              </DropdownMenuItem>
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
             <Form method="post" action="/logout">
@@ -458,8 +458,8 @@ export function ErrorBoundary() {
 }
 
 export function DashboardShellLayout() {
-  const { user, isAdmin } = useLoaderData<typeof loader>();
-  const shell = dashboardShellVisibility(user);
+  const { user, isAdmin, hasOrganizationContext } = useLoaderData<typeof loader>();
+  const shell = dashboardShellVisibility(user, hasOrganizationContext);
   return (
     <SidebarProvider>
       <aside>
@@ -480,9 +480,9 @@ export function DashboardShellLayout() {
                     </SidebarMenuButton>
                   </SidebarMenuItem>
                 </SidebarMenu>
-                <NavLinks links={mainLinks} />
+                {shell.showOrganizationContext ? <NavLinks links={mainLinks} /> : null}
               </SidebarGroup>
-              {isAdmin && (
+              {shell.showOrganizationContext && isAdmin && (
                 <SidebarGroup>
                   <SidebarGroupLabel>Admin</SidebarGroupLabel>
                   <NavLinks links={adminLinks} />

@@ -9,9 +9,15 @@ import type { Route } from "./+types/dashboard.assistenter._index";
 export async function loader({ request }: Route.LoaderArgs) {
   const cookie = await requireAuth(request);
   const client = createAuthenticatedClient(cookie);
-  const result = await client.admin.scheduling.assistants();
-
-  return { assistants: result.items };
+  try {
+    const result = await client.admin.scheduling.assistants();
+    return { assistants: result.items, available: true as const };
+  } catch {
+    return {
+      assistants: [] as SchedulingAssistant[],
+      available: false as const,
+    };
+  }
 }
 
 function formatNullable(value: string | number | boolean | null): string {
@@ -68,8 +74,17 @@ const columns: Array<ColumnDef<SchedulingAssistant>> = [
 
 // biome-ignore lint/style/noDefaultExport: Route Modules require default export
 export default function Assistenter() {
-  const { assistants } = useLoaderData<typeof loader>();
-
+  const { assistants, available } = useLoaderData<typeof loader>();
+  if (!available) {
+    return (
+      <section className="mx-auto mt-10 max-w-2xl rounded-lg border bg-gray-50 p-6">
+        <h1 className="font-semibold text-xl">Assistentoversikten kunne ikke hentes</h1>
+        <p className="mt-2 text-muted-foreground">
+          Den native tjenesten har ikke gjort assistentdata tilgjengelig ennå.
+        </p>
+      </section>
+    );
+  }
   return (
     <section className="flex w-full min-w-0 flex-col items-center">
       <h1 className="mb-10 font-semibold text-2xl">Assistenter</h1>

@@ -6,10 +6,14 @@ export interface DashboardShellUser {
 export interface DashboardShellData {
   readonly user: DashboardShellUser | null;
   readonly isAdmin: boolean;
+  readonly hasOrganizationContext: boolean;
 }
 
-export const dashboardShellVisibility = (user: DashboardShellUser | null) => ({
+export const dashboardShellVisibility = (
+  user: DashboardShellUser | null,
+  hasOrganizationContext: boolean,
+) => ({
   showIdentityMenu: user !== null,
-  showOrganizationContext: user !== null,
+  showOrganizationContext: hasOrganizationContext,
   mountChildRoutes: true,
 });

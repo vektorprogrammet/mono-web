@@ -23,34 +23,40 @@ type SubstituteRow = Pick<
 export async function loader({ request }: Route.LoaderArgs) {
   const cookie = await requireAuth(request);
   const client = createAuthenticatedClient(cookie);
-  const result = await client.admin.scheduling.substitutes();
-  const substitutes = result.items.map(
-    ({
-      id,
-      name,
-      email,
-      yearOfStudy,
-      language,
-      monday,
-      tuesday,
-      wednesday,
-      thursday,
-      friday,
-    }) => ({
-      id,
-      name,
-      email,
-      yearOfStudy,
-      language,
-      monday,
-      tuesday,
-      wednesday,
-      thursday,
-      friday,
-    }),
-  );
-
-  return { substitutes };
+  try {
+    const result = await client.admin.scheduling.substitutes();
+    const substitutes = result.items.map(
+      ({
+        id,
+        name,
+        email,
+        yearOfStudy,
+        language,
+        monday,
+        tuesday,
+        wednesday,
+        thursday,
+        friday,
+      }) => ({
+        id,
+        name,
+        email,
+        yearOfStudy,
+        language,
+        monday,
+        tuesday,
+        wednesday,
+        thursday,
+        friday,
+      }),
+    );
+    return { substitutes, available: true as const };
+  } catch {
+    return {
+      substitutes: [] as SubstituteRow[],
+      available: false as const,
+    };
+  }
 }
 
 function formatNullable(value: string | number | boolean | null): string {
@@ -100,7 +106,17 @@ const columns: Array<ColumnDef<SubstituteRow>> = [
 
 // biome-ignore lint/style/noDefaultExport: Route Modules require default export
 export default function Vikarer() {
-  const { substitutes } = useLoaderData<typeof loader>();
+  const { substitutes, available } = useLoaderData<typeof loader>();
+  if (!available) {
+    return (
+      <section className="mx-auto mt-10 max-w-2xl rounded-lg border bg-gray-50 p-6">
+        <h1 className="font-semibold text-xl">Vikaroversikten kunne ikke hentes</h1>
+        <p className="mt-2 text-muted-foreground">
+          Den native tjenesten har ikke gjort vikardata tilgjengelig ennå.
+        </p>
+      </section>
+    );
+  }
 
   return (
     <section className="flex w-full min-w-0 flex-col items-center">

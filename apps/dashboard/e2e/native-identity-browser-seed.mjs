@@ -27,6 +27,12 @@ export const identityEvidencePersona = {
   lastName: "Identity",
   email: "admin.identity-0065@example.invalid",
 };
+export const dashboardIntegrityMember = {
+  personId: "journey-0073-member",
+  firstName: "Mina",
+  lastName: "Member",
+  email: "member.dashboard-0073@example.invalid",
+};
 const grantId = "grant-journey-0065-admin";
 const phone = "+47 900 00 065";
 const orthogonalPerson = {
@@ -162,7 +168,10 @@ const seed = spawnSync("bun", ["run", "identity:seed"], {
   env: {
     ...process.env,
     IDENTITY_SEED_PG_URL: postgresUrl,
-    IDENTITY_SEED_PERSONS: JSON.stringify([{ ...identityEvidencePersona, password }]),
+    IDENTITY_SEED_PERSONS: JSON.stringify([
+      { ...identityEvidencePersona, password },
+      { ...dashboardIntegrityMember, password },
+    ]),
   },
   encoding: "utf8",
 });
@@ -182,6 +191,12 @@ try {
      VALUES ($1, $2, $3, 0)
      ON CONFLICT (person_id) DO NOTHING`,
     [identityEvidencePersona.personId, identityEvidencePersona.email, phone],
+  );
+  await observer.query(
+    `INSERT INTO public.person_contact_profiles (person_id, email, phone, revision)
+     VALUES ($1, $2, '+47 900 00 073', 0)
+     ON CONFLICT (person_id) DO NOTHING`,
+    [dashboardIntegrityMember.personId, dashboardIntegrityMember.email],
   );
   await observer.query(
     `INSERT INTO public.organization_global_administrator_grants
@@ -244,27 +259,34 @@ try {
 
   const result = await observer.query(
     `SELECT
-       (SELECT count(*) FROM public.person_profiles WHERE person_id = $1) AS profiles,
-       (SELECT count(*) FROM public.person_profiles WHERE person_id = $2) AS authz_subjects,
-       (SELECT count(*) FROM public.person_contact_profiles WHERE person_id = $1) AS contacts,
+       (SELECT count(*) FROM public.person_profiles WHERE person_id IN ($1, $2)) AS profiles,
+       (SELECT count(*) FROM public.person_profiles WHERE person_id = $3) AS authz_subjects,
+       (SELECT count(*) FROM public.person_contact_profiles WHERE person_id IN ($1, $2)) AS contacts,
        (SELECT count(*) FROM public.organization_global_administrator_grants
           WHERE person_id = $1 AND start_at <= now() AND (end_at IS NULL OR now() < end_at)) AS grants,
-       (SELECT count(*) FROM auth."user" WHERE id = $1) AS users,
-       (SELECT count(*) FROM auth.account WHERE "userId" = $1 AND "providerId" = 'credential') AS accounts,
+       (SELECT count(*) FROM public.organization_memberships WHERE person_id = $2) AS member_authorities,
+       (SELECT count(*) FROM auth."user" WHERE id IN ($1, $2)) AS users,
+       (SELECT count(*) FROM auth.account
+          WHERE "userId" IN ($1, $2) AND "providerId" = 'credential') AS accounts,
        (SELECT count(*) FROM public.vektorprogrammet_schema_migrations
           WHERE migration_id = 15 AND name = 'native-identity-better-auth') AS identity_migration,
        (SELECT count(*) FROM public.vektorprogrammet_schema_migrations
           WHERE migration_id = 23 AND name = 'declarative-authorization-rules') AS authz_migration,
        (SELECT count(*) FROM public.vektorprogrammet_schema_migrations) AS applied_migrations`,
-    [identityEvidencePersona.personId, orthogonalPerson.personId],
+    [
+      identityEvidencePersona.personId,
+      dashboardIntegrityMember.personId,
+      orthogonalPerson.personId,
+    ],
   );
   const row = result.rows[0];
-  assert.equal(Number(row.profiles), 1);
+  assert.equal(Number(row.profiles), 2);
   assert.equal(Number(row.authz_subjects), 1);
-  assert.equal(Number(row.contacts), 1);
+  assert.equal(Number(row.contacts), 2);
   assert.equal(Number(row.grants), 1);
-  assert.equal(Number(row.users), 1);
-  assert.equal(Number(row.accounts), 1);
+  assert.equal(Number(row.member_authorities), 0);
+  assert.equal(Number(row.users), 2);
+  assert.equal(Number(row.accounts), 2);
   assert.equal(Number(row.identity_migration), 1);
   assert.equal(Number(row.authz_migration), 1);
   assert.ok(Number(row.applied_migrations) >= 23);
@@ -274,16 +296,22 @@ try {
       personId: identityEvidencePersona.personId,
       emailClass: "synthetic.invalid",
       displayName: "Journey Identity",
+      member: {
+        personId: dashboardIntegrityMember.personId,
+        emailClass: "synthetic.invalid",
+        displayName: `${dashboardIntegrityMember.firstName} ${dashboardIntegrityMember.lastName}`,
+        organizationAuthorities: 0,
+      },
       migrations: [
         { revision: 15, name: "native-identity-better-auth" },
         { revision: 23, name: "declarative-authorization-rules" },
       ],
       rows: {
-        profiles: 1,
-        contacts: 1,
+        profiles: 2,
+        contacts: 2,
         globalAdministratorGrants: 1,
-        users: 1,
-        credentialAccounts: 1,
+        users: 2,
+        credentialAccounts: 2,
       },
       authSchema: {
         beforePublicAuthz: authSchemaBeforePublicAuthz,

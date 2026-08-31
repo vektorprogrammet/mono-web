@@ -9,6 +9,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   requireAuth: vi.fn(),
   expiredSessionRedirect: vi.fn(),
+  loadSessionIdentity: vi.fn(),
   createAuthenticatedClient: vi.fn(),
   profile: vi.fn(),
 }));
@@ -16,6 +17,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("../../lib/auth.server", () => ({
   requireAuth: mocks.requireAuth,
   expiredSessionRedirect: mocks.expiredSessionRedirect,
+  loadSessionIdentity: mocks.loadSessionIdentity,
 }));
 vi.mock("../../lib/api.server", () => ({
   createAuthenticatedClient: mocks.createAuthenticatedClient,
@@ -39,17 +41,42 @@ describe("parent dashboard authority gate", () => {
       new Response(null, { status: 302, headers: { location: "/login?expired=true" } }),
     );
     mocks.createAuthenticatedClient.mockReturnValue({ me: { profile: mocks.profile } });
+    mocks.loadSessionIdentity.mockResolvedValue({
+      name: "Member Session",
+      email: "member@example.invalid",
+    });
   });
 
   it.each(["AuthorityInactive", "NotInScope"] as const)(
-    "keeps an authenticated %s actor in an honest no-profile shell",
+    "keeps an authenticated %s actor in a shell with session identity",
     async (tag) => {
       mocks.profile.mockRejectedValueOnce(new ProfileRejectionError(tag));
 
-      await expect(load()).resolves.toEqual({ user: null, isAdmin: false });
+      await expect(load()).resolves.toEqual({
+        user: { name: "Member Session", email: "member@example.invalid" },
+        isAdmin: false,
+        hasOrganizationContext: false,
+      });
+      expect(mocks.loadSessionIdentity).toHaveBeenCalledOnce();
       expect(mocks.expiredSessionRedirect).not.toHaveBeenCalled();
     },
   );
+
+  it("returns a canonical profile identity for an active team member", async () => {
+    mocks.profile.mockResolvedValueOnce({
+      firstName: "Ada",
+      lastName: "Lovelace",
+      email: "ada@example.invalid",
+      role: "ROLE_TEAM_MEMBER",
+    });
+
+    await expect(load()).resolves.toEqual({
+      user: { name: "Ada Lovelace", email: "ada@example.invalid" },
+      isAdmin: false,
+      hasOrganizationContext: true,
+    });
+    expect(mocks.loadSessionIdentity).not.toHaveBeenCalled();
+  });
 
   it("redirects only an unauthorized profile request as expired", async () => {
     mocks.profile.mockRejectedValueOnce(new UnauthorizedError());
@@ -75,7 +102,7 @@ describe("parent dashboard authority gate", () => {
 
 describe("parent dashboard no-profile shell", () => {
   it("hides identity-only content and retains child route mounting", () => {
-    expect(dashboardShellVisibility(null)).toEqual({
+    expect(dashboardShellVisibility(null, false)).toEqual({
       showIdentityMenu: false,
       showOrganizationContext: false,
       mountChildRoutes: true,
@@ -84,10 +111,20 @@ describe("parent dashboard no-profile shell", () => {
 
   it("shows identity content for a canonical profile", () => {
     expect(
-      dashboardShellVisibility({ name: "Ada Lovelace", email: "ada@example.invalid" }),
+      dashboardShellVisibility({ name: "Ada Lovelace", email: "ada@example.invalid" }, true),
     ).toEqual({
       showIdentityMenu: true,
       showOrganizationContext: true,
+      mountChildRoutes: true,
+    });
+  });
+
+  it("keeps session identity visible without exposing organization navigation", () => {
+    expect(
+      dashboardShellVisibility({ name: "Member Session", email: "member@example.invalid" }, false),
+    ).toEqual({
+      showIdentityMenu: true,
+      showOrganizationContext: false,
       mountChildRoutes: true,
     });
   });

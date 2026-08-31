@@ -4,14 +4,13 @@ import { data, useLoaderData } from "react-router";
 import { DASHBOARD_ELEMENT, DASHBOARD_INPUT_ATTRIBUTE } from "../foldkit/dashboard/elements";
 import { DashboardInput, DashboardInputJson, isDashboardRole } from "../foldkit/dashboard/model";
 import {
-  boardFailureMessage,
-  RecruitmentBoardStatus,
+  schedulingBoardFailureMessage,
   toRecruitmentBridgeFailure,
 } from "../foldkit/recruitment/bridge";
-import type { RecruitmentInput } from "../foldkit/recruitment/model";
+import type { SchedulingInput } from "../foldkit/scheduling/model";
 import { createAuthenticatedClient } from "../lib/api.server";
 import { expiredSessionRedirect, requireAuth } from "../lib/auth.server";
-import type { Route } from "./+types/dashboard_.sokere._index";
+import type { Route } from "./+types/dashboard.intervjuer._index";
 
 const responseHeaders = {
   "Cache-Control": "no-store",
@@ -33,25 +32,22 @@ export async function loader({ request }: Route.LoaderArgs) {
     throw new Response(null, { status: 403, headers: responseHeaders });
   }
 
-  const rawStatus = new URL(request.url).searchParams.get("status") ?? "all";
-  let status: typeof RecruitmentBoardStatus.Type;
+  let scheduling: SchedulingInput;
   try {
-    status = S.decodeUnknownSync(RecruitmentBoardStatus)(rawStatus);
-  } catch {
-    throw new Response("Ugyldig søkerfilter.", { status: 400, headers: responseHeaders });
-  }
-
-  let recruitment: RecruitmentInput;
-  try {
-    const board = await client.admin.recruitment.readAssignmentBoard({ status });
-    recruitment = { _tag: "Loaded", status, board };
+    scheduling = {
+      _tag: "Loaded",
+      board: await client.admin.recruitment.readSchedulingBoard(),
+    };
   } catch (error) {
     const failure = toRecruitmentBridgeFailure(error);
     if (failure._tag === "Unauthorized") throw await expiredSessionRedirect(request);
     if (failure._tag === "Forbidden") {
       throw new Response(null, { status: 403, headers: responseHeaders });
     }
-    recruitment = { _tag: "Failed", status, message: boardFailureMessage(failure) };
+    scheduling = {
+      _tag: "Failed",
+      message: schedulingBoardFailureMessage(failure),
+    };
   }
 
   const dashboardInput = S.decodeUnknownSync(DashboardInput)(
@@ -63,8 +59,8 @@ export async function loader({ request }: Route.LoaderArgs) {
       role: profile.role,
       activePath: new URL(request.url).pathname,
       summary: { _tag: "Unavailable" },
-      recruitment,
-      scheduling: null,
+      recruitment: null,
+      scheduling,
     },
     { onExcessProperty: "error" },
   );
@@ -77,7 +73,7 @@ export async function loader({ request }: Route.LoaderArgs) {
 
 export const headers = () => responseHeaders;
 
-export default function RecruitmentRoute() {
+export default function SchedulingRoute() {
   const { serializedInput } = useLoaderData<typeof loader>();
   return createElement(DASHBOARD_ELEMENT, {
     [DASHBOARD_INPUT_ATTRIBUTE]: serializedInput,
