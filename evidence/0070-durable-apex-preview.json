@@ -1,0 +1,39 @@
+{
+  "recordType": "vektor.durable-preview-journey-evidence/v1",
+  "recordedAt": "2026-08-31T11:10:00+02:00",
+  "sourceCommit": "0bc4aa3ac5506b6371d25972c9608eee8e35c17d",
+  "worktree": "mono-web-durable-preview (relative name; absolute path withheld per spec)",
+  "publicHost": "https://vektor.phibkro.org",
+  "baseline": { "migrations": 23, "auth.user": 2, "auth.session": 6, "person_profiles": 2 },
+  "adoption": {
+    "stoppedAdHoc": ["tunnel pid 1142304 (TERM)", "backend pid 1142024 (TERM)", "postgres pg_ctl stop -m fast"],
+    "pgdataUnchanged": true,
+    "migrationsAfterAdoption": 23
+  },
+  "restartTests": [
+    { "test": "systemctl --user restart vektor-preview-postgres.service", "result": "pass", "backendAutoRecovered": true, "tunnelSurvived": true, "migrations": 23, "apex": 200 },
+    { "test": "kill -9 backend MainPID (SIGKILL crash)", "result": "pass", "autoRecoverySeconds": 6, "migrations": 23, "apex": 200 },
+    { "test": "systemctl --user restart vektor-preview-tunnel.service", "result": "pass", "apex": 200, "alias": 200 },
+    { "test": "systemctl --user restart all three units simultaneously", "result": "pass_with_self_heal", "note": "backend first start raced pg readiness; Restart=on-failure recovered in <1s (NRestarts=1)", "migrations": 23, "dataCountsUnchanged": true, "apex": 200 },
+    { "test": "preview-services.sh down && up (cold cycle)", "result": "pass", "migrations": 23, "dataCountsUnchanged": true, "apex": 200, "alias": 200 }
+  ],
+  "journey": {
+    "signedInAs": "Astrid Apex (ROLE_ADMIN) — credential values withheld",
+    "sessionCookie": "__Secure-better-auth.session_token (secure, httpOnly)",
+    "dashboardAfterRestarts": "95 active assistants, 12 pending applications, 5 upcoming interviews (persisted counts)",
+    "consoleErrors": [],
+    "pageErrors": [],
+    "offOriginRequests": [],
+    "sameOriginOnly": true
+  },
+  "knownIssues": [
+    { "issue": "GET /kontakt returns 404", "owner": "truthful-dashboard workstream", "action": "recorded only; not fixed in this worktree (one-writer-per-defect)" }
+  ],
+  "evidenceScreenshots": [
+    "dashboard-after-restarts.webp",
+    "profile-after-restarts.webp",
+    "dashboard-after-full-restart.webp",
+    "dashboard-after-cold-restart.webp"
+  ],
+  "secretsRecorded": false
+}

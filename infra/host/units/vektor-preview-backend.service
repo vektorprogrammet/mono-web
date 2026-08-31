@@ -1,8 +1,10 @@
 [Unit]
-Description=Vektor apex preview native backend (loopback 8790)
 Requires=vektor-preview-postgres.service
 After=vektor-preview-postgres.service
 After=network.target
+# Requires= propagates postgres stops; Restart=on-failure plus the
+# ExecStartPre pg_isready gate make the backend rejoin once postgres is
+# accepting connections again (verified: auto-recovery in ~5s).
 
 [Service]
 Type=simple

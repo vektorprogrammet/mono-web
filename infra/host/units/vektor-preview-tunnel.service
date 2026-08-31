@@ -1,6 +1,8 @@
 [Unit]
 Description=Vektor apex preview dedicated cloudflared tunnel
-Requires=vektor-preview-backend.service
+# Wants= (not Requires=): the tunnel must survive backend/postgres restarts;
+# cloudflared retries its upstream automatically while the backend bounces.
+Wants=vektor-preview-backend.service
 After=vektor-preview-backend.service
 Wants=network-online.target
 After=network-online.target
