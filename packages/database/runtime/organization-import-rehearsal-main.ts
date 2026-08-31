@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import * as BunHttpPlatform from "@effect/platform-bun/BunHttpPlatform";
+import * as BunServices from "@effect/platform-bun/BunServices";
 import { randomBytes } from "node:crypto";
 import { spawn, type ChildProcess } from "node:child_process";
 import {
@@ -46,8 +48,13 @@ import { ProfileLive } from "@vektorprogrammet/domain/profile";
 import { RecruitmentLive } from "@vektorprogrammet/domain/recruitment";
 import { SchoolsLive } from "@vektorprogrammet/domain/schools";
 import { Config, DateTime, Effect, Layer, Redacted, Result } from "effect";
-import { makeBackendConfig } from "../../../apps/backend/src/config.js";
-import { makeBackendHttp, type BackendRun } from "../../../apps/backend/src/router.js";
+import { Etag, HttpEffect, HttpRouter } from "effect/unstable/http";
+import { makeBackendConfig, type BackendConfig } from "../../../apps/backend/src/config.js";
+import {
+  makeBackendHttp,
+  makeNativeApiRouterLayer,
+  type BackendRun,
+} from "../../../apps/backend/src/router.js";
 import { makeBackendRuntime } from "../../../apps/backend/runtime.js";
 import { DatabaseLive } from "../src/layers.js";
 import { databaseMigrationDefinitions, databaseSchemaRevision } from "../src/migrations.js";
@@ -1103,6 +1110,7 @@ const makeRehearsalRuntime = (
   databaseUrl: string,
   observerState: ReturnType<typeof makeOrganizationImportSqlObserverState>,
   identityLayer: Layer.Layer<Identity>,
+  config: BackendConfig,
 ) => {
   const databaseLayer = DatabaseLive({
     url: Redacted.make(databaseUrl),
@@ -1129,7 +1137,13 @@ const makeRehearsalRuntime = (
       Layer.mergeAll(observedDatabaseLayer, admissionsLayer, organizationLayer, profileLayer),
     ),
   );
-  return makeBackendRuntime(
+  const platformLayer = Layer.mergeAll(BunServices.layer, BunHttpPlatform.layer, Etag.layer);
+  const routerLayer = HttpRouter.layer;
+  const run: BackendRun = (effect) => runtime.runPromise(effect);
+  const nativeApiLayer = makeNativeApiRouterLayer(config, run, {
+    now: () => SPEC_0067.authorizationInstant,
+  }).pipe(Layer.provide(platformLayer), Layer.provide(routerLayer));
+  const runtime = makeBackendRuntime(
     Layer.mergeAll(
       observedDatabaseLayer,
       admissionsLayer,
@@ -1141,8 +1155,12 @@ const makeRehearsalRuntime = (
       contentLayer,
       recruitmentLayer,
       identityLayer,
+      platformLayer,
+      routerLayer,
+      nativeApiLayer,
     ),
   );
+  return runtime;
 };
 
 const seedPrerequisites = (sql: DatabaseShape): Effect.Effect<void, unknown> =>
@@ -1368,11 +1386,24 @@ const runRehearsal = async (
     guard.addPostgres(databaseUrl);
     databaseCreated = true;
 
+    const configEnvironment: NodeJS.ProcessEnv = {
+      BACKEND_HOST: "127.0.0.1",
+      BACKEND_PORT: "3000",
+      BACKEND_PG_URL: databaseUrl,
+      BETTER_AUTH_SECRET: backendSecret,
+      BETTER_AUTH_URL: dashboardOrigin,
+      PUBLIC_APPLICATION_EFFECT_MODE: "disabled",
+      ADMISSION_AUTH_TOKENS: "{}",
+      ORGANIZATION_AUTH_TOKENS: "{}",
+      RECEIPT_AUTH_TOKENS: "{}",
+    };
+    const config = makeBackendConfig(configEnvironment);
     stage = "migration and runtime composition";
     runtime = makeRehearsalRuntime(
       databaseUrl,
       observerState,
       makeIdentityTestLayer(sessionCookie, identityCounters),
+      config,
     );
     await runtime.runPromise(databaseHealth);
     const sql = await runtime.runPromise(Database);
@@ -1671,30 +1702,13 @@ const runRehearsal = async (
     );
 
     stage = "backend and strict native projections";
-    const configEnvironment: NodeJS.ProcessEnv = {
-      BACKEND_HOST: "127.0.0.1",
-      BACKEND_PORT: "3000",
-      BACKEND_PG_URL: databaseUrl,
-      BETTER_AUTH_SECRET: backendSecret,
-      BETTER_AUTH_URL: dashboardOrigin,
-      PUBLIC_APPLICATION_EFFECT_MODE: "disabled",
-      ADMISSION_AUTH_TOKENS: "{}",
-      ORGANIZATION_AUTH_TOKENS: "{}",
-      RECEIPT_AUTH_TOKENS: "{}",
-    };
-    const config = makeBackendConfig(configEnvironment);
-    const run = runtime.runPromise.bind(runtime) as BackendRun;
-    const api = makeBackendHttp(
-      config,
-      run,
-      {
-        handle: () => {
-          identityCounters.authMutationAttempts += 1;
-          return Promise.resolve(new Response(null, { status: 404 }));
-        },
+    const router = await runtime.runPromise(HttpRouter.HttpRouter);
+    const api = makeBackendHttp(HttpEffect.toWebHandler(router.asHttpEffect()), {
+      handle: () => {
+        identityCounters.authMutationAttempts += 1;
+        return Promise.resolve(new Response(null, { status: 404 }));
       },
-      { now: () => SPEC_0067.authorizationInstant },
-    );
+    });
     backendServer = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: api.fetch });
     backendPort = backendServer.port;
     const backendOrigin = `http://127.0.0.1:${backendPort}`;
