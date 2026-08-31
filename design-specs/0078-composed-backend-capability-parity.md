@@ -251,6 +251,7 @@ A claim has one kind:
 
 - `journey_executed`;
 - `operation_observed`;
+- `authorization_observed`;
 - `boundary_observation`;
 - `rejection_observed`;
 - `persistence_observed`;
@@ -259,9 +260,9 @@ A claim has one kind:
 - `transaction_rollback_observed`;
 - `fresh_read_observed`.
 
-Each claim names exact witness, node, assertion, effect, rejection, or freshness identifiers. A claim cannot use an identifier outside its implementation witness.
+Each non-journey claim names its exact witness and the applicable node, precondition, assertion, effect, rejection, or freshness identifier. A claim cannot use an identifier outside its implementation witness.
 
-The validator rejects a receipt with stale source, implementation, OpenAPI, or operation digests. It rejects one claim that uses the wrong backend.
+The validator rejects a receipt with stale backend source, implementation, OpenAPI, or operation digests. It rejects one claim that uses an identifier outside the selected backend witness.
 
 ## Graph validation
 
@@ -273,12 +274,12 @@ The graph validator applies these rules:
 4. Every data edge has valid source and target selectors.
 5. Every authority edge references one required precondition.
 6. Every order edge connects existing nodes.
-7. The order projection is acyclic.
+7. The complete data, authority, and order graph is acyclic.
 8. Every accepted witness has a bounded terminal observation.
 9. Every declared satisfaction ID exists in the intent.
 10. Unsupported declarations remain unsupported.
 
-A data or authority feedback relation cannot enter the schedulable order projection. The contract contains no implicit retry or unbounded traversal.
+A data, authority, or order feedback relation is invalid. The contract contains no implicit retry or unbounded traversal.
 
 ## Comparator
 
