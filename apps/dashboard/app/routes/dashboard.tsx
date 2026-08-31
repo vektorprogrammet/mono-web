@@ -458,8 +458,8 @@ export function ErrorBoundary() {
 }
 
 export function DashboardShellLayout() {
-  const { user, isAdmin } = useLoaderData<typeof loader>();
-  const shell = dashboardShellVisibility(user);
+  const { user, isAdmin, hasOrganizationContext } = useLoaderData<typeof loader>();
+  const shell = dashboardShellVisibility(user, hasOrganizationContext);
   // Preview-only rendering bridge (design spec 0074). The server loader stays
   // authoritative; this state changes only which navigation groups React
   // draws. The guarded dynamic import and its chunk disappear in production.
@@ -500,7 +500,7 @@ export function DashboardShellLayout() {
                 </SidebarMenu>
                 {shell.showOrganizationContext ? <NavLinks links={mainLinks} /> : null}
               </SidebarGroup>
-              {effectiveIsAdmin && (
+              {shell.showOrganizationContext && effectiveIsAdmin && (
                 <SidebarGroup>
                   <SidebarGroupLabel>Admin</SidebarGroupLabel>
                   <NavLinks links={adminLinks} />
