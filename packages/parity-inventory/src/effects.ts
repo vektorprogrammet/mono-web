@@ -4941,7 +4941,7 @@ const typescriptLoopbackDispatchOffsetsFor = (path: string, source: string): rea
 const productionIntegrationSource = (path: string): boolean =>
   !/(?:^|\/)(?:test|tests|e2e|fixtures)(?:\/|$)|\.(?:test|spec)\.[^/]+$/i.test(path);
 const integrationCallPattern =
-  /\b(?:fetch|curl_exec|curl_init|request|publish|send|post|put|delete|HttpClient|GuzzleHttp|Mailer|Slack|Google|Twilio|Smtp|Sms|GatewayAPI|Webhook)\b\s*(?:\(|->|\.)/g;
+  /\b(?:fetch|curl_exec|curl_init|request|publish|send(?:Message|Payload)?|post|put|delete|HttpClient|GuzzleHttp|Mailer|Slack|Google|Twilio|Smtp|Sms|GatewayAPI|Webhook)\b\s*(?:\(|->|\.)/g;
 const integrationCallsFor = (
   unit: SourceUnit,
   authority: AuthorityGraph,

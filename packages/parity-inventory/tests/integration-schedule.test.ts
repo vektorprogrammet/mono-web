@@ -650,7 +650,7 @@ export default {
         effect_classes: ["outbound"],
       },
     });
-    expect(containerRow?.details.call_site_ref).toBe("PreviewContainer::fetch");
+    expect(containerRow?.details.call_site_ref).toBe("infra/alchemy/preview/worker.ts#fetch");
   } finally {
     rmSync(legacyRoot, { recursive: true, force: true });
     rmSync(monoRoot, { recursive: true, force: true });
