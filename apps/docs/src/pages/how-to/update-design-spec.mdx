@@ -62,8 +62,8 @@ Update `apps/docs/data/migration-state.json` only when a capability status chang
 Then run:
 
 ```bash
-bun --cwd apps/docs run generate
-bun --cwd apps/docs run build
+bun run --cwd apps/docs generate
+bun run --cwd apps/docs build
 ```
 
 The generated index reads explicit status metadata. It leaves an artifact `unclassified` when automation cannot decide.

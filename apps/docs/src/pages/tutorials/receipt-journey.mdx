@@ -59,8 +59,8 @@ The browser view projects decoded receipt data. It does not own receipt status o
 The real journey runners are package scripts:
 
 ```bash
-bun --cwd apps/dashboard run e2e:real-owner
-bun --cwd apps/dashboard run e2e:real-approval
+bun run --cwd apps/dashboard e2e:real-owner
+bun run --cwd apps/dashboard e2e:real-approval
 ```
 
 These commands come from [`apps/dashboard/package.json`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/apps/dashboard/package.json). They use disposable local services and synthetic fixtures.

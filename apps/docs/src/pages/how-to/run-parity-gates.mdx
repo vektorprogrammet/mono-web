@@ -32,8 +32,8 @@ This command accepts no override arguments. It compares the pinned repository in
 ## 3. Run the parity package tests
 
 ```bash
-bun --cwd packages/parity-inventory run test
-bun --cwd packages/parity-inventory run check-types
+bun run --cwd packages/parity-inventory test
+bun run --cwd packages/parity-inventory check-types
 ```
 
 These tests protect the collector, schema, runner, and falsifier contracts. They do not replace a fresh external-authority run.
@@ -43,11 +43,11 @@ These tests protect the collector, schema, runner, and falsifier contracts. They
 Choose the package script that matches your capability. Examples include:
 
 ```bash
-bun --cwd apps/dashboard run e2e:real-owner
-bun --cwd apps/dashboard run e2e:real-scheduling
-bun --cwd apps/dashboard run e2e:real-organization
-bun --cwd apps/dashboard run e2e:real-schools
-bun --cwd apps/dashboard run e2e:real-identity
+bun run --cwd apps/dashboard e2e:real-owner
+bun run --cwd apps/dashboard e2e:real-scheduling
+bun run --cwd apps/dashboard e2e:real-organization
+bun run --cwd apps/dashboard e2e:real-schools
+bun run --cwd apps/dashboard e2e:real-identity
 ```
 
 [`apps/dashboard/package.json`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/apps/dashboard/package.json) is the command authority.
@@ -57,7 +57,7 @@ bun --cwd apps/dashboard run e2e:real-identity
 Run the checked-in merge command:
 
 ```bash
-bun --cwd apps/dashboard run e2e:merge-runtime-evidence
+bun run --cwd apps/dashboard e2e:merge-runtime-evidence
 ```
 
 Read the runner before the command. Make sure that its input artifacts match the same source revision.

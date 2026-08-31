@@ -28,16 +28,16 @@ The wrapper rejects another stage or profile label. It also disables Alchemy tel
 ## 1. Check the docs source
 
 ```bash
-bun --cwd apps/docs run check-types
-bun --cwd apps/docs run lint
-bun --cwd apps/docs run format:check
-bun --cwd infra/alchemy run test:docs
+bun run --cwd apps/docs check-types
+bun run --cwd apps/docs lint
+bun run --cwd apps/docs format:check
+bun run --cwd infra/alchemy test:docs
 ```
 
 ## 2. Inspect local state metadata
 
 ```bash
-bun --cwd infra/alchemy run docs:state -- --stage docs-dev-main --profile goal1-staging
+bun run --cwd infra/alchemy docs:state -- --stage docs-dev-main --profile goal1-staging
 ```
 
 For a first deployment, the dedicated stack or stage can be absent. The command must not report the `vektor` stack as owned by this entrypoint.
@@ -45,7 +45,7 @@ For a first deployment, the dedicated stack or stage can be absent. The command 
 ## 3. Run the provider plan
 
 ```bash
-bun --cwd infra/alchemy run docs:plan -- --stage docs-dev-main --profile goal1-staging
+bun run --cwd infra/alchemy docs:plan -- --stage docs-dev-main --profile goal1-staging
 ```
 
 Alchemy `Command.Build` owns the Vocs build and its output hash. The wrapper does not run a separate build.
@@ -62,7 +62,7 @@ If the plan reports an unowned resource, stop. Stop if it names an apex Worker, 
 ## 4. Deploy the accepted plan
 
 ```bash
-bun --cwd infra/alchemy run docs:deploy -- --stage docs-dev-main --profile goal1-staging --yes
+bun run --cwd infra/alchemy docs:deploy -- --stage docs-dev-main --profile goal1-staging --yes
 ```
 
 The operator authorization applies only to the accepted docs plan.
@@ -72,7 +72,7 @@ The operator authorization applies only to the accepted docs plan.
 Run the plan again:
 
 ```bash
-bun --cwd infra/alchemy run docs:plan -- --stage docs-dev-main --profile goal1-staging
+bun run --cwd infra/alchemy docs:plan -- --stage docs-dev-main --profile goal1-staging
 ```
 
 The `DocsBuild` and `MigrationDocs` resources must report no change.

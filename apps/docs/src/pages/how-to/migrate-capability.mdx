@@ -67,12 +67,12 @@ Give the program one `Model`, one `Message` union, and one pure `update` functio
 Run the checks for each changed package:
 
 ```bash
-bun --cwd packages/domain run check-types
-bun --cwd packages/domain run test
-bun --cwd apps/backend run check-types
-bun --cwd apps/backend run test
-bun --cwd apps/dashboard run check-types
-bun --cwd apps/dashboard run test
+bun run --cwd packages/domain check-types
+bun run --cwd packages/domain test
+bun run --cwd apps/backend check-types
+bun run --cwd apps/backend test
+bun run --cwd apps/dashboard check-types
+bun run --cwd apps/dashboard test
 ```
 
 Run only the commands for changed packages. Then run the parity procedure in [Run parity gates](/how-to/run-parity-gates).
@@ -84,7 +84,7 @@ Edit `apps/docs/data/migration-state.json`. Add exact source, design-spec, and e
 Then generate the reference:
 
 ```bash
-bun --cwd apps/docs run generate
+bun run --cwd apps/docs generate
 ```
 
 The generator fails when a referenced path is missing.

@@ -34,13 +34,13 @@ Stop the foreground command with `Ctrl-C`.
 The receipt journey runner starts its disposable PostgreSQL, backend, and browser dependencies.
 
 ```bash
-bun --cwd apps/dashboard run e2e:real-owner
+bun run --cwd apps/dashboard e2e:real-owner
 ```
 
 For the scoped approval path, run:
 
 ```bash
-bun --cwd apps/dashboard run e2e:real-approval
+bun run --cwd apps/dashboard e2e:real-approval
 ```
 
 The commands come from [`apps/dashboard/package.json`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/apps/dashboard/package.json). Read each runner before you change its service ports or fixture boundary.
@@ -60,7 +60,7 @@ This command does not deploy. It rejects Cloudflare API traffic through the conf
 Start Vocs with generated references:
 
 ```bash
-bun --cwd apps/docs run dev
+bun run --cwd apps/docs dev
 ```
 
 Open `http://localhost:5173`.
