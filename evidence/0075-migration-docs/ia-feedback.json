@@ -1,0 +1,110 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "recordType": "vektor.migration-docs-local-ia-evidence/v1",
+  "recordedAt": "2026-08-31T14:18:31Z",
+  "sourceRevision": "7ebf071783cddf486a7a406c913e2e6402fba365",
+  "amendmentRevision": "9d8b55c25d1e9e28e9bc7601097dedc1b58bbfb7",
+  "scope": {
+    "designSpec": "design-specs/0075.5-migration-docs-human-ia-amendment.md",
+    "providerPlanRun": false,
+    "providerMutationRun": false,
+    "pushOrPullRequest": false,
+    "reasonDeploymentPending": "The application rollout owns the current provider window."
+  },
+  "implementation": {
+    "routesTopNav": {
+      "text": "Routes & API",
+      "path": "/reference/routes-and-api"
+    },
+    "referenceSidebarPosition": "first item",
+    "homeDirectLink": true,
+    "homeScopeStatement": [
+      "route families",
+      "capability ownership",
+      "native and legacy boundaries",
+      "current API availability"
+    ],
+    "vocs": {
+      "version": "2.8.5",
+      "mcpEnabled": false,
+      "showAskAiFalsePageCount": 19,
+      "askAiControlPresent": false,
+      "copyForAiControlPresent": false,
+      "keywordSearchEnabled": true
+    },
+    "migrationStateProjectionRetained": true,
+    "generatedOrPlaceholderApiReferenceMounted": false
+  },
+  "checks": [
+    {
+      "command": "bun run --cwd apps/docs generate",
+      "result": "passed"
+    },
+    {
+      "command": "bun run --cwd apps/docs check-types",
+      "result": "passed"
+    },
+    {
+      "command": "bun run --cwd apps/docs lint",
+      "result": "passed"
+    },
+    {
+      "command": "bun run --cwd apps/docs format",
+      "result": "passed"
+    },
+    {
+      "command": "bun run --cwd apps/docs format:check",
+      "result": "passed"
+    },
+    {
+      "command": "bun run --cwd apps/docs build",
+      "result": "passed",
+      "deadlinks": "passed through Vocs build with checkDeadlinks enabled",
+      "generatedFiles": 45
+    }
+  ],
+  "browser": {
+    "viewportCssPixels": "1440x900",
+    "source": "local built preview at 127.0.0.1:4173",
+    "hostname": "vector-docs.phibkro.org",
+    "requestRouting": "The browser rebased requests for the configured public hostname to the local built preview. This kept Vocs baseUrl behavior intact without a deployment.",
+    "preliminaryObservation": "An initial unrebased local link click followed the configured baseUrl to the currently deployed site. The accepted local flow used hostname request rebasing and made no provider mutation.",
+    "home": {
+      "heading": "Vektorprogrammet migration",
+      "routesTopNavVisible": true,
+      "routesHomeLinkVisible": true,
+      "scopeStatementPresent": true
+    },
+    "routesClick": {
+      "destination": "https://vector-docs.phibkro.org/reference/routes-and-api",
+      "heading": "Routes & API",
+      "availabilitySectionPresent": true,
+      "nativeRouteFamiliesPresent": true,
+      "legacyBoundaryPresent": true
+    },
+    "search": {
+      "query": "receipt authority",
+      "result": "Trace a receipt",
+      "destination": "https://vector-docs.phibkro.org/tutorials/receipt-journey",
+      "destinationHeading": "Trace a receipt"
+    },
+    "consoleErrors": 0,
+    "pageErrors": 0,
+    "requestFailures": 0
+  },
+  "screenshots": [
+    {
+      "path": "evidence/0075-migration-docs/ia-feedback-home.webp",
+      "sha256": "eda87ed82d6469c1031c9ddf52bc3afb8500c71f44d44310ac95900aa602ee77"
+    },
+    {
+      "path": "evidence/0075-migration-docs/ia-feedback-routes.webp",
+      "sha256": "11e7cadef16ab9278ecf71f6505efecfcb3b722bbda1428a87b45181031765d3"
+    }
+  ],
+  "pending": {
+    "planCommand": "bun run --cwd infra/alchemy docs:plan -- --stage docs-dev-main --profile goal1-staging",
+    "deploymentCommand": "bun run --cwd infra/alchemy docs:deploy -- --stage docs-dev-main --profile goal1-staging --yes",
+    "convergenceCommand": "bun run --cwd infra/alchemy docs:plan -- --stage docs-dev-main --profile goal1-staging"
+  }
+}
