@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "recordType": "vektor.migration-docs-deployment-evidence/v1",
+  "recordedAt": "2026-08-31T12:25:29Z",
+  "sourceRevision": "177c8c6051f9d9b55600a3f9f3d3110b8f75b65b",
+  "inspectedMigrationRevision": "0bc4aa3ac5506b6371d25972c9608eee8e35c17d",
+  "deployment": {
+    "stack": "vektor-docs",
+    "stage": "docs-dev-main",
+    "logicalId": "MigrationDocs",
+    "resourceType": "Cloudflare.Worker",
+    "workerName": "vektor-migration-docs",
+    "hostname": "vektor-docs.phibkro.org",
+    "url": "https://vektor-docs.phibkro.org",
+    "workersDev": false,
+    "routeCount": 0,
+    "staticAssetDirectory": "apps/docs/dist/public",
+    "finalPlan": "1 to update",
+    "finalResult": "Done: 2 succeeded",
+    "customDomainReconciled": true,
+    "forbiddenApplicationHostsChanged": false,
+    "existingPreviewResourcesChanged": false
+  },
+  "artifacts": {
+    "migrationState": {
+      "path": "apps/docs/public/migration-state.json",
+      "sha256": "0fee1a92fed737b4912126212be91f9eeb86be418908d941c3466ae500f2b378"
+    },
+    "migrationStateSchema": {
+      "path": "apps/docs/public/migration-state.schema.json",
+      "sha256": "5ad7fcde94e092e1dc7ebc442c1eb53aa98961e6e82ae21c4558909614927413"
+    },
+    "homeScreenshot": {
+      "path": "evidence/0075-migration-docs/home.webp",
+      "sha256": "e42fec2dc44c4268b85a9aff323c757e1a469ba3c4ca79e8c7a326a352218342",
+      "viewport": "1440x900"
+    }
+  },
+  "verification": {
+    "commands": [
+      "bun --cwd apps/docs run build",
+      "bun --cwd apps/docs run check-types",
+      "bun --cwd apps/docs run lint",
+      "bun --cwd apps/docs run format:check",
+      "bun --cwd infra/alchemy run check-types:docs",
+      "bun --cwd infra/alchemy run test:docs"
+    ],
+    "liveHttp": [
+      { "path": "/", "status": 200 },
+      { "path": "/tutorials/receipt-journey", "status": 200 },
+      { "path": "/how-to/migrate-capability", "status": 200 },
+      { "path": "/reference/migration-state", "status": 200 },
+      { "path": "/explanation/evidence-limits", "status": 200 },
+      { "path": "/migration-state.json", "status": 200 },
+      { "path": "/migration-state.schema.json", "status": 200 },
+      { "path": "/llms.txt", "status": 200 },
+      { "path": "/robots.txt", "status": 200 }
+    ],
+    "headers": {
+      "xRobotsTag": "noindex, nofollow",
+      "cacheControl": "public, max-age=0, must-revalidate, no-transform"
+    },
+    "browser": {
+      "homeTitle": "Migration status – Vektorprogrammet migration",
+      "homeHeading": "Vektorprogrammet migration",
+      "searchQuery": "receipt authority",
+      "searchFirstResult": "/tutorials/receipt-journey#trace-a-receipt",
+      "searchDestinationHeading": "Trace a receipt",
+      "runtimeExceptions": 0,
+      "consoleErrors": 0,
+      "requestFailures": 0
+    }
+  },
+  "compatibility": {
+    "vocs": "2.8.5",
+    "waku": "1.0.0-beta.3",
+    "vite": "8.2.2",
+    "note": "Vocs 2.8.5 uses the Waku beta router event contract. Waku 1.0.0-rc.0 removed that contract and caused a client hydration exception, so the supported beta is pinned exactly."
+  }
+}
