@@ -3,7 +3,11 @@
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, relative, resolve } from "node:path";
 import { canonicalJson, sha256 } from "./src/canonical.js";
-import { generateCapabilityArtifacts, type AuthorityPin } from "./src/capability-parity.js";
+import {
+  generateCapabilityArtifacts,
+  migrateAcceptedIntentV1,
+  type AuthorityPin,
+} from "./src/capability-parity.js";
 import { inspectJsonMembers, isJsonObject } from "./src/json-safety.js";
 
 type Mode = "check" | "write";
@@ -86,11 +90,18 @@ const pinAuthority = async (path: string, parsed: unknown): Promise<AuthorityPin
   const relativePath = relative(repositoryRoot, path).replaceAll("\\", "/");
   if (relativePath.startsWith("../") || relativePath === "")
     throw new Error("AUTHORITY_PATH_INVALID");
-  if ((await gitOutput(repositoryRoot, ["status", "--porcelain"])) !== "")
+  const isInRepoAuthority = relativePath.startsWith("evidence/capability-parity/");
+  const statusArguments = isInRepoAuthority
+    ? ["status", "--porcelain", "--", relativePath]
+    : ["status", "--porcelain"];
+  if ((await gitOutput(repositoryRoot, statusArguments)) !== "")
     throw new Error("AUTHORITY_REPOSITORY_DIRTY");
-  const [revision, blobOid, liveBlobOid] = await Promise.all([
-    gitOutput(repositoryRoot, ["rev-parse", "HEAD"]),
-    gitOutput(repositoryRoot, ["rev-parse", `HEAD:${relativePath}`]),
+  const revision = isInRepoAuthority
+    ? await gitOutput(repositoryRoot, ["log", "-1", "--format=%H", "--", relativePath])
+    : await gitOutput(repositoryRoot, ["rev-parse", "HEAD"]);
+  if (!/^[0-9a-f]{40}$/u.test(revision)) throw new Error("AUTHORITY_REVISION_INVALID");
+  const [blobOid, liveBlobOid] = await Promise.all([
+    gitOutput(repositoryRoot, ["rev-parse", `${revision}:${relativePath}`]),
     gitOutput(repositoryRoot, ["hash-object", relativePath]),
   ]);
   if (blobOid !== liveBlobOid) throw new Error("AUTHORITY_BLOB_DRIFT");
@@ -98,7 +109,9 @@ const pinAuthority = async (path: string, parsed: unknown): Promise<AuthorityPin
     throw new Error("AUTHORITY_SCHEMA_VERSION_MISSING");
   const bytes = await readFile(path, "utf8");
   return {
-    repository_ref: `external:${basename(repositoryRoot)}`,
+    repository_ref: isInRepoAuthority
+      ? "in-repo:evidence/capability-parity"
+      : `external:${basename(repositoryRoot)}`,
     authority_path: relativePath,
     revision,
     blob_oid: blobOid,
@@ -138,21 +151,49 @@ const main = async (): Promise<void> => {
     readJson(options.intentRegister, true),
     readJson(options.evidenceRegister, true),
   ]);
-  const [intentPin, evidencePin, sourceRevisionRef] = await Promise.all([
-    pinAuthority(options.intentRegister, intentAuthority.value),
-    pinAuthority(options.evidenceRegister, evidenceAuthority.value),
-    gitOutput(process.cwd(), ["log", "-1", "--format=%H", "--", ...GENERATOR_PATHS]),
+  const reviewedIntentPath = resolve(options.output, "accepted-intent-v2.json");
+  const reviewedEvidencePath = resolve(options.output, "capability-runtime-evidence-v2.json");
+  const [reviewedIntentBytes, reviewedEvidenceBytes] = await Promise.all([
+    readFile(reviewedIntentPath, "utf8").catch(() => null),
+    readFile(reviewedEvidencePath, "utf8").catch(() => null),
   ]);
+  if ((reviewedIntentBytes === null) !== (reviewedEvidenceBytes === null))
+    throw new Error("CAPABILITY_PARITY_V2_REGISTER_PAIR_INCOMPLETE");
+  const useReviewedV2 =
+    reviewedIntentBytes !== null &&
+    reviewedEvidenceBytes !== null &&
+    isJsonObject(intentAuthority.value) &&
+    intentAuthority.value.schema_version === "functional-parity-accepted-intent/v1";
+  const [selectedIntent, selectedEvidence] = useReviewedV2
+    ? await Promise.all([readJson(reviewedIntentPath, true), readJson(reviewedEvidencePath, true)])
+    : [intentAuthority, evidenceAuthority];
+  const [externalIntentPin, selectedIntentPin, selectedEvidencePin, sourceRevisionRef] =
+    await Promise.all([
+      pinAuthority(options.intentRegister, intentAuthority.value),
+      pinAuthority(
+        useReviewedV2 ? reviewedIntentPath : options.intentRegister,
+        selectedIntent.value,
+      ),
+      pinAuthority(
+        useReviewedV2 ? reviewedEvidencePath : options.evidenceRegister,
+        selectedEvidence.value,
+      ),
+      gitOutput(process.cwd(), ["log", "-1", "--format=%H", "--", ...GENERATOR_PATHS]),
+    ]);
   const generated = generateCapabilityArtifacts({
     legacyOpenApiBytes: legacyOpenapi.bytes,
     nativeOpenApiBytes: nativeOpenapi.bytes,
-    intentAuthority: intentAuthority.value,
-    intentPin,
-    evidenceAuthority: evidenceAuthority.value,
-    evidencePin,
+    intentAuthority: selectedIntent.value,
+    intentPin: selectedIntentPin,
+    evidenceAuthority: selectedEvidence.value,
+    evidencePin: selectedEvidencePin,
     sourceRevisionRef,
   });
-  const migrationBytes = canonicalJson(generated.migratedIntent);
+  const migrationBytes =
+    isJsonObject(intentAuthority.value) &&
+    intentAuthority.value.schema_version === "functional-parity-accepted-intent/v1"
+      ? canonicalJson(migrateAcceptedIntentV1(intentAuthority.value, externalIntentPin))
+      : canonicalJson(generated.migratedIntent);
 
   if (options.mode === "write") {
     await Promise.all(

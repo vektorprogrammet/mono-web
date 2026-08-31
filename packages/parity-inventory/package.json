@@ -20,6 +20,7 @@
   "scripts": {
     "check-types": "tsc --noEmit",
     "capability:verify": "bun capability-verify-cli.ts",
+    "claim:evidence:build": "bun claim-evidence-build-cli.ts",
     "journey:evidence": "bun journey-evidence-cli.ts",
     "legacy:openapi": "bun legacy-openapi-cli.ts",
     "intent:author": "bun intent-author-cli.ts",
