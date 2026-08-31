@@ -347,7 +347,7 @@ const applicantDefinition: TargetDefinition = {
       authorization: [
         {
           operation_semantic: "period-management-boundary",
-          method: "POST",
+          method: "GET",
           path_template: "/api/admin/admission-periods",
           realizes_stage_ids: ["stage-applicant-admission-catalog"],
           predicate_refs: ["predicate://claim-evidence/applicant-admission/period-management"],

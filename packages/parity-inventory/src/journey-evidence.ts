@@ -429,12 +429,7 @@ const applicantJourney = async (
   const unauthorized = await observedRequest(
     http,
     observations,
-    {
-      body: { kind: "json", value: {} },
-      headers: { "content-type": "application/json" },
-      method: "POST",
-      url: `${origin}/api/admin/admission-periods`,
-    },
+    { method: "GET", url: `${origin}/api/admin/admission-periods` },
     "/api/admin/admission-periods",
     "authorization_rejection_without_session",
   );
