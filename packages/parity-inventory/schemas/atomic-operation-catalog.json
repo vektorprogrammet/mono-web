@@ -1,0 +1,230 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:vektorprogrammet:backend-atomic-operation-catalog:v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "$schema",
+    "schema_version",
+    "backend",
+    "openapi_sha256",
+    "generator_ref",
+    "source_revision_ref",
+    "operations",
+    "diagnostics"
+  ],
+  "properties": {
+    "$schema": { "const": "https://json-schema.org/draft/2020-12/schema" },
+    "schema_version": { "const": "backend-atomic-operation-catalog/v1" },
+    "backend": { "$ref": "#/$defs/backend" },
+    "openapi_sha256": { "$ref": "#/$defs/sha256" },
+    "generator_ref": { "type": "string", "minLength": 1 },
+    "source_revision_ref": { "type": "string", "minLength": 1 },
+    "operations": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/operation" }
+    },
+    "diagnostics": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/diagnostic" }
+    }
+  },
+  "$defs": {
+    "backend": { "type": "string", "enum": ["legacy_symfony", "native_effect"] },
+    "sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "securityRequirement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scheme_ref", "scopes"],
+      "properties": {
+        "scheme_ref": { "type": "string", "minLength": 1 },
+        "scopes": { "type": "array", "uniqueItems": true, "items": { "type": "string" } }
+      }
+    },
+    "securityAlternative": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["all_of"],
+      "properties": {
+        "all_of": { "type": "array", "items": { "$ref": "#/$defs/securityRequirement" } }
+      }
+    },
+    "security": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["effective_from", "mode", "alternatives"],
+      "properties": {
+        "effective_from": { "type": "string", "enum": ["operation", "root"] },
+        "mode": { "type": "string", "enum": ["required", "optional", "none", "unknown"] },
+        "alternatives": { "type": "array", "items": { "$ref": "#/$defs/securityAlternative" } }
+      }
+    },
+    "input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["location", "name", "required", "media_type", "schema_sha256", "source_pointer"],
+      "properties": {
+        "location": { "type": "string", "enum": ["path", "query", "header", "cookie", "body"] },
+        "name": { "type": ["string", "null"] },
+        "required": { "type": "boolean" },
+        "media_type": { "type": ["string", "null"] },
+        "schema_sha256": { "oneOf": [{ "$ref": "#/$defs/sha256" }, { "type": "null" }] },
+        "source_pointer": { "type": "string", "minLength": 1 }
+      }
+    },
+    "response": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "role",
+        "media_type",
+        "schema_sha256",
+        "header_schema_sha256",
+        "source_pointer"
+      ],
+      "properties": {
+        "status": { "type": "string", "minLength": 1 },
+        "role": { "type": "string", "enum": ["success", "error", "unknown"] },
+        "media_type": { "type": ["string", "null"] },
+        "schema_sha256": { "oneOf": [{ "$ref": "#/$defs/sha256" }, { "type": "null" }] },
+        "header_schema_sha256": { "oneOf": [{ "$ref": "#/$defs/sha256" }, { "type": "null" }] },
+        "source_pointer": { "type": "string", "minLength": 1 }
+      }
+    },
+    "effectRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["effect_ref_id", "kind", "claim_kind", "source_ref_ids"],
+      "properties": {
+        "effect_ref_id": { "type": "string", "minLength": 1 },
+        "kind": { "type": "string", "minLength": 1 },
+        "claim_kind": { "const": "source_declaration" },
+        "source_ref_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "effects": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["completeness", "requests"],
+      "properties": {
+        "completeness": { "type": "string", "enum": ["declared_subset", "complete", "unknown"] },
+        "requests": { "type": "array", "items": { "$ref": "#/$defs/effectRequest" } }
+      }
+    },
+    "sourceMetadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "resource_class_ref",
+        "operation_name",
+        "security_expression",
+        "security_post_denormalize",
+        "status",
+        "input_ref",
+        "output_ref",
+        "provider_ref",
+        "processor_ref",
+        "read",
+        "deserialize",
+        "validate",
+        "output",
+        "validation_groups",
+        "source_ref_ids"
+      ],
+      "properties": {
+        "resource_class_ref": { "type": ["string", "null"] },
+        "operation_name": { "type": ["string", "null"] },
+        "security_expression": { "type": ["string", "null"] },
+        "security_post_denormalize": { "type": ["string", "null"] },
+        "status": { "type": ["integer", "null"] },
+        "input_ref": { "type": ["string", "null"] },
+        "output_ref": { "type": ["string", "null"] },
+        "provider_ref": { "type": ["string", "null"] },
+        "processor_ref": { "type": ["string", "null"] },
+        "read": { "type": ["boolean", "null"] },
+        "deserialize": { "type": ["boolean", "null"] },
+        "validate": { "type": ["boolean", "null"] },
+        "output": { "type": ["boolean", "null"] },
+        "validation_groups": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string" }
+        },
+        "source_ref_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "openapi_document_sha256",
+        "canonical_operation_sha256",
+        "json_pointer",
+        "source_ref_ids",
+        "generator_ref"
+      ],
+      "properties": {
+        "openapi_document_sha256": { "$ref": "#/$defs/sha256" },
+        "canonical_operation_sha256": { "$ref": "#/$defs/sha256" },
+        "json_pointer": { "type": "string", "minLength": 1 },
+        "source_ref_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "generator_ref": { "type": "string", "minLength": 1 }
+      }
+    },
+    "operation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "operation_ref_id",
+        "operation_id",
+        "method",
+        "path_template",
+        "security",
+        "inputs",
+        "responses",
+        "effects",
+        "source_metadata",
+        "provenance"
+      ],
+      "properties": {
+        "operation_ref_id": {
+          "type": "string",
+          "pattern": "^operation://(legacy_symfony|native_effect)/[^/].+$"
+        },
+        "operation_id": { "type": "string", "minLength": 1 },
+        "method": { "type": "string", "pattern": "^[A-Z]+$" },
+        "path_template": { "type": "string", "pattern": "^/" },
+        "security": { "$ref": "#/$defs/security" },
+        "inputs": { "type": "array", "items": { "$ref": "#/$defs/input" } },
+        "responses": { "type": "array", "items": { "$ref": "#/$defs/response" } },
+        "effects": { "$ref": "#/$defs/effects" },
+        "source_metadata": { "$ref": "#/$defs/sourceMetadata" },
+        "provenance": { "$ref": "#/$defs/provenance" }
+      }
+    },
+    "diagnostic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "operation_ref_id", "detail"],
+      "properties": {
+        "code": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]+$" },
+        "operation_ref_id": { "type": ["string", "null"] },
+        "detail": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}

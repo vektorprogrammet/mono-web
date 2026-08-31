@@ -17,3 +17,4 @@ export * from "./coverage.js";
 export * from "./accepted-intent-schema.js";
 export * from "./runtime-evidence.js";
 export * from "./intent-author.js";
+export * from "./capability-parity.js";

@@ -1,0 +1,436 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:vektorprogrammet:functional-parity-accepted-intent:v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "$schema",
+    "schema_version",
+    "source_authority",
+    "source_v1_intents",
+    "predicates",
+    "projections",
+    "intents",
+    "migration_diagnostics"
+  ],
+  "properties": {
+    "$schema": { "const": "https://json-schema.org/draft/2020-12/schema" },
+    "schema_version": { "const": "functional-parity-accepted-intent/v2" },
+    "source_authority": { "$ref": "#/$defs/authority" },
+    "source_v1_intents": { "type": "array", "items": { "$ref": "#/$defs/v1IntentSelection" } },
+    "predicates": { "type": "array", "items": { "$ref": "#/$defs/predicateDefinition" } },
+    "projections": { "type": "array", "items": { "$ref": "#/$defs/projectionDefinition" } },
+    "intents": { "type": "array", "items": { "$ref": "#/$defs/intent" } },
+    "migration_diagnostics": { "type": "array", "items": { "$ref": "#/$defs/migrationDiagnostic" } }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "backend": { "type": "string", "enum": ["legacy_symfony", "native_effect"] },
+    "claim": { "type": "string", "enum": ["supported", "unsupported", "unknown"] },
+    "stringSet": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "authority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repository_ref",
+        "authority_path",
+        "revision",
+        "blob_oid",
+        "digest",
+        "source_schema_version"
+      ],
+      "properties": {
+        "repository_ref": { "type": "string", "minLength": 1 },
+        "authority_path": { "type": "string", "minLength": 1 },
+        "revision": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "blob_oid": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "digest": { "$ref": "#/$defs/sha256" },
+        "source_schema_version": { "type": "string", "minLength": 1 }
+      }
+    },
+    "predicateDefinition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["predicate_ref", "implies", "source_ref_ids"],
+      "properties": {
+        "predicate_ref": { "type": "string", "minLength": 1 },
+        "implies": { "$ref": "#/$defs/stringSet" },
+        "source_ref_ids": { "$ref": "#/$defs/stringSet" }
+      }
+    },
+    "projectionDefinition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["projection_ref", "input_selector", "output_selector", "source_ref_ids"],
+      "properties": {
+        "projection_ref": { "type": "string", "minLength": 1 },
+        "input_selector": { "type": "string", "minLength": 1 },
+        "output_selector": { "type": "string", "minLength": 1 },
+        "source_ref_ids": { "$ref": "#/$defs/stringSet" }
+      }
+    },
+    "stage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["stage_id", "kind", "source_step_ids"],
+      "properties": {
+        "stage_id": { "type": "string", "minLength": 1 },
+        "kind": { "type": "string", "enum": ["command", "query", "observation"] },
+        "source_step_ids": { "$ref": "#/$defs/stringSet" }
+      }
+    },
+    "precondition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["precondition_id", "predicate_ref", "subject"],
+      "properties": {
+        "precondition_id": { "type": "string", "minLength": 1 },
+        "predicate_ref": { "type": "string", "minLength": 1 },
+        "subject": { "type": "string", "enum": ["actor", "resource", "input", "clock"] }
+      }
+    },
+    "outcome": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["assertion_id", "semantic_path", "predicate", "expected_json", "visibility"],
+      "properties": {
+        "assertion_id": { "type": "string", "minLength": 1 },
+        "semantic_path": { "type": "string", "minLength": 1 },
+        "predicate": {
+          "type": "string",
+          "enum": ["equals", "exists", "absent", "set_equals", "transitioned_to"]
+        },
+        "expected_json": { "type": "string", "minLength": 1 },
+        "visibility": { "type": "string", "enum": ["user", "operator", "internal_evidence"] }
+      }
+    },
+    "cardinality": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["min", "max"],
+      "properties": {
+        "min": { "type": "integer", "minimum": 0 },
+        "max": { "type": ["integer", "null"], "minimum": 0 }
+      }
+    },
+    "sideEffect": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["effect_id", "kind", "cardinality", "order_after_stage_id", "required_claim"],
+      "properties": {
+        "effect_id": { "type": "string", "minLength": 1 },
+        "kind": { "type": "string", "minLength": 1 },
+        "cardinality": { "$ref": "#/$defs/cardinality" },
+        "order_after_stage_id": { "type": "string", "minLength": 1 },
+        "required_claim": {
+          "type": "string",
+          "enum": ["requested", "persisted_outbox", "delivered"]
+        }
+      }
+    },
+    "rejection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "rejection_id",
+        "trigger_predicate_ref",
+        "boundary_semantic",
+        "disclosure",
+        "must_not_change_state",
+        "must_not_request_effects"
+      ],
+      "properties": {
+        "rejection_id": { "type": "string", "minLength": 1 },
+        "trigger_predicate_ref": { "type": "string", "minLength": 1 },
+        "boundary_semantic": { "type": "string", "minLength": 1 },
+        "disclosure": { "type": "string", "enum": ["ordinary", "conceal_existence"] },
+        "must_not_change_state": { "type": "boolean" },
+        "must_not_request_effects": { "type": "boolean" }
+      }
+    },
+    "freshness": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "freshness_id",
+        "mode",
+        "write_stage_id",
+        "observation_stage_id",
+        "assertion_ids"
+      ],
+      "properties": {
+        "freshness_id": { "type": "string", "minLength": 1 },
+        "mode": {
+          "type": "string",
+          "enum": ["read_after_write", "independent_read", "command_response"]
+        },
+        "write_stage_id": { "type": "string", "minLength": 1 },
+        "observation_stage_id": { "type": "string", "minLength": 1 },
+        "assertion_ids": { "$ref": "#/$defs/stringSet" }
+      }
+    },
+    "operationNode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "node_id",
+        "kind",
+        "operation_ref_id",
+        "expected_operation_sha256",
+        "realizes_stage_ids",
+        "predicate_refs"
+      ],
+      "properties": {
+        "node_id": { "type": "string", "minLength": 1 },
+        "kind": { "const": "operation" },
+        "operation_ref_id": {
+          "type": "string",
+          "pattern": "^operation://(legacy_symfony|native_effect)/"
+        },
+        "expected_operation_sha256": { "$ref": "#/$defs/sha256" },
+        "realizes_stage_ids": { "$ref": "#/$defs/stringSet" },
+        "predicate_refs": { "$ref": "#/$defs/stringSet" }
+      }
+    },
+    "observationNode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["node_id", "kind", "observation_kind", "assertion_ids"],
+      "properties": {
+        "node_id": { "type": "string", "minLength": 1 },
+        "kind": { "const": "local_observation" },
+        "observation_kind": {
+          "type": "string",
+          "enum": ["browser", "persistence", "outbox", "effect"]
+        },
+        "assertion_ids": { "$ref": "#/$defs/stringSet" }
+      }
+    },
+    "dataEdge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "edge_id",
+        "kind",
+        "from",
+        "to",
+        "from_selector",
+        "to_selector",
+        "transform_ref"
+      ],
+      "properties": {
+        "edge_id": { "type": "string", "minLength": 1 },
+        "kind": { "const": "data" },
+        "from": { "type": "string", "minLength": 1 },
+        "to": { "type": "string", "minLength": 1 },
+        "from_selector": { "type": "string", "minLength": 1 },
+        "to_selector": { "type": "string", "minLength": 1 },
+        "transform_ref": { "type": "string", "minLength": 1 }
+      }
+    },
+    "authorityEdge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["edge_id", "kind", "from", "to", "precondition_id"],
+      "properties": {
+        "edge_id": { "type": "string", "minLength": 1 },
+        "kind": { "const": "authority" },
+        "from": { "type": "string", "minLength": 1 },
+        "to": { "type": "string", "minLength": 1 },
+        "precondition_id": { "type": "string", "minLength": 1 }
+      }
+    },
+    "orderEdge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["edge_id", "kind", "from", "to", "relation"],
+      "properties": {
+        "edge_id": { "type": "string", "minLength": 1 },
+        "kind": { "const": "order" },
+        "from": { "type": "string", "minLength": 1 },
+        "to": { "type": "string", "minLength": 1 },
+        "relation": { "type": "string", "enum": ["must_precede", "read_after_write"] }
+      }
+    },
+    "satisfies": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "precondition_ids",
+        "assertion_ids",
+        "effect_ids",
+        "rejection_ids",
+        "freshness_ids"
+      ],
+      "properties": {
+        "precondition_ids": { "$ref": "#/$defs/stringSet" },
+        "assertion_ids": { "$ref": "#/$defs/stringSet" },
+        "effect_ids": { "$ref": "#/$defs/stringSet" },
+        "rejection_ids": { "$ref": "#/$defs/stringSet" },
+        "freshness_ids": { "$ref": "#/$defs/stringSet" }
+      }
+    },
+    "witness": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "witness_id",
+        "purpose",
+        "nodes",
+        "edges",
+        "satisfies",
+        "evidence_receipt_ref_ids"
+      ],
+      "properties": {
+        "witness_id": { "type": "string", "minLength": 1 },
+        "purpose": { "type": "string", "enum": ["accepted", "rejection", "freshness"] },
+        "nodes": {
+          "type": "array",
+          "items": {
+            "oneOf": [{ "$ref": "#/$defs/operationNode" }, { "$ref": "#/$defs/observationNode" }]
+          }
+        },
+        "edges": {
+          "type": "array",
+          "items": {
+            "oneOf": [
+              { "$ref": "#/$defs/dataEdge" },
+              { "$ref": "#/$defs/authorityEdge" },
+              { "$ref": "#/$defs/orderEdge" }
+            ]
+          }
+        },
+        "satisfies": { "$ref": "#/$defs/satisfies" },
+        "evidence_receipt_ref_ids": { "$ref": "#/$defs/stringSet" }
+      }
+    },
+    "implementation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["backend", "claim", "reason_code", "witnesses"],
+      "properties": {
+        "backend": { "$ref": "#/$defs/backend" },
+        "claim": { "$ref": "#/$defs/claim" },
+        "reason_code": { "type": ["string", "null"] },
+        "witnesses": { "type": "array", "items": { "$ref": "#/$defs/witness" } }
+      }
+    },
+    "v1IntentSelection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "intent_ref_id",
+        "intent_revision",
+        "source_ref_ids",
+        "purpose",
+        "disposition",
+        "row_ids",
+        "canonical_signatures",
+        "inventory_kinds",
+        "journey_ref_ids",
+        "selected_revision_ref_ids"
+      ],
+      "properties": {
+        "intent_ref_id": { "type": "string", "pattern": "^intent://" },
+        "intent_revision": { "type": "string", "minLength": 1 },
+        "source_ref_ids": { "$ref": "#/$defs/stringSet" },
+        "purpose": { "type": "string", "minLength": 1 },
+        "disposition": { "type": ["string", "null"] },
+        "row_ids": { "$ref": "#/$defs/stringSet" },
+        "canonical_signatures": { "$ref": "#/$defs/stringSet" },
+        "inventory_kinds": { "$ref": "#/$defs/stringSet" },
+        "journey_ref_ids": { "$ref": "#/$defs/stringSet" },
+        "selected_revision_ref_ids": { "$ref": "#/$defs/stringSet" }
+      }
+    },
+    "v1Step": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "step_id",
+        "surface",
+        "row_ids",
+        "canonical_signatures",
+        "expected_contract_ref",
+        "runtime_evidence_ref_ids"
+      ],
+      "properties": {
+        "step_id": { "type": "string", "minLength": 1 },
+        "surface": { "type": "string", "minLength": 1 },
+        "row_ids": { "$ref": "#/$defs/stringSet" },
+        "canonical_signatures": { "$ref": "#/$defs/stringSet" },
+        "expected_contract_ref": { "type": ["string", "null"] },
+        "runtime_evidence_ref_ids": { "$ref": "#/$defs/stringSet" }
+      }
+    },
+    "v1Selection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["journey_key", "coverage_scope", "selected_revision_ref_ids", "steps"],
+      "properties": {
+        "journey_key": { "type": "string", "minLength": 1 },
+        "coverage_scope": { "type": "string", "minLength": 1 },
+        "selected_revision_ref_ids": { "$ref": "#/$defs/stringSet" },
+        "steps": { "type": "array", "items": { "$ref": "#/$defs/v1Step" } }
+      }
+    },
+    "intent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "intent_ref_id",
+        "intent_revision",
+        "intent_digest",
+        "source_ref_ids",
+        "source_v1_selection",
+        "semantic_stages",
+        "required_preconditions",
+        "warranted_outcomes",
+        "side_effects",
+        "rejections",
+        "freshness",
+        "implementations"
+      ],
+      "properties": {
+        "intent_ref_id": { "type": "string", "pattern": "^intent://" },
+        "intent_revision": { "type": "string", "minLength": 1 },
+        "intent_digest": { "$ref": "#/$defs/sha256" },
+        "source_ref_ids": { "$ref": "#/$defs/stringSet" },
+        "source_v1_selection": { "oneOf": [{ "$ref": "#/$defs/v1Selection" }, { "type": "null" }] },
+        "semantic_stages": { "type": "array", "items": { "$ref": "#/$defs/stage" } },
+        "required_preconditions": { "type": "array", "items": { "$ref": "#/$defs/precondition" } },
+        "warranted_outcomes": { "type": "array", "items": { "$ref": "#/$defs/outcome" } },
+        "side_effects": { "type": "array", "items": { "$ref": "#/$defs/sideEffect" } },
+        "rejections": { "type": "array", "items": { "$ref": "#/$defs/rejection" } },
+        "freshness": { "type": "array", "items": { "$ref": "#/$defs/freshness" } },
+        "implementations": { "type": "array", "items": { "$ref": "#/$defs/implementation" } }
+      }
+    },
+    "migrationDiagnostic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "intent_ref_id", "step_id", "detail"],
+      "properties": {
+        "code": {
+          "type": "string",
+          "enum": [
+            "MISSING_PRECONDITION_ASSERTION",
+            "MISSING_OUTCOME_ASSERTION",
+            "MISSING_REJECTION_ASSERTION",
+            "MISSING_EFFECT_ASSERTION",
+            "MISSING_FRESHNESS_ASSERTION",
+            "MISSING_WITNESS_BINDING",
+            "MISSING_CLAIM_SPECIFIC_EVIDENCE"
+          ]
+        },
+        "intent_ref_id": { "type": "string", "pattern": "^intent://" },
+        "step_id": { "type": ["string", "null"] },
+        "detail": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}

@@ -1,0 +1,201 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:vektorprogrammet:functional-parity-capability-runtime-evidence:v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["$schema", "schema_version", "source_authority", "receipts"],
+  "properties": {
+    "$schema": { "const": "https://json-schema.org/draft/2020-12/schema" },
+    "schema_version": { "const": "functional-parity-capability-runtime-evidence/v2" },
+    "source_authority": { "$ref": "#/$defs/authority" },
+    "receipts": { "type": "array", "items": { "$ref": "#/$defs/receipt" } }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "stringSet": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "authority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repository_ref",
+        "authority_path",
+        "revision",
+        "blob_oid",
+        "digest",
+        "source_schema_version"
+      ],
+      "properties": {
+        "repository_ref": { "type": "string", "minLength": 1 },
+        "authority_path": { "type": "string", "minLength": 1 },
+        "revision": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "blob_oid": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "digest": { "$ref": "#/$defs/sha256" },
+        "source_schema_version": { "type": "string", "minLength": 1 }
+      }
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifact_digest", "artifact_pointer"],
+      "properties": {
+        "artifact_digest": { "$ref": "#/$defs/sha256" },
+        "artifact_pointer": { "type": "string", "minLength": 1 }
+      }
+    },
+    "claim": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "claim_id",
+        "kind",
+        "witness_id",
+        "node_id",
+        "precondition_id",
+        "assertion_id",
+        "effect_id",
+        "rejection_id",
+        "freshness_id",
+        "artifact"
+      ],
+      "properties": {
+        "claim_id": { "type": "string", "minLength": 1 },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "journey_executed",
+            "operation_observed",
+            "authorization_observed",
+            "boundary_observation",
+            "rejection_observed",
+            "persistence_observed",
+            "effect_requested",
+            "effect_delivered",
+            "transaction_rollback_observed",
+            "fresh_read_observed"
+          ]
+        },
+        "witness_id": { "type": ["string", "null"] },
+        "node_id": { "type": ["string", "null"] },
+        "precondition_id": { "type": ["string", "null"] },
+        "assertion_id": { "type": ["string", "null"] },
+        "effect_id": { "type": ["string", "null"] },
+        "rejection_id": { "type": ["string", "null"] },
+        "freshness_id": { "type": ["string", "null"] },
+        "artifact": { "$ref": "#/$defs/artifact" }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "kind": { "not": { "const": "journey_executed" } } },
+            "required": ["kind"]
+          },
+          "then": { "properties": { "witness_id": { "type": "string", "minLength": 1 } } }
+        },
+        {
+          "if": {
+            "properties": { "kind": { "const": "operation_observed" } },
+            "required": ["kind"]
+          },
+          "then": { "properties": { "node_id": { "type": "string", "minLength": 1 } } }
+        },
+        {
+          "if": {
+            "properties": { "kind": { "const": "authorization_observed" } },
+            "required": ["kind"]
+          },
+          "then": { "properties": { "precondition_id": { "type": "string", "minLength": 1 } } }
+        },
+        {
+          "if": {
+            "properties": { "kind": { "const": "boundary_observation" } },
+            "required": ["kind"]
+          },
+          "then": { "properties": { "assertion_id": { "type": "string", "minLength": 1 } } }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": { "enum": ["rejection_observed", "transaction_rollback_observed"] }
+            },
+            "required": ["kind"]
+          },
+          "then": { "properties": { "rejection_id": { "type": "string", "minLength": 1 } } }
+        },
+        {
+          "if": {
+            "properties": { "kind": { "enum": ["effect_requested", "effect_delivered"] } },
+            "required": ["kind"]
+          },
+          "then": { "properties": { "effect_id": { "type": "string", "minLength": 1 } } }
+        },
+        {
+          "if": {
+            "properties": { "kind": { "const": "persistence_observed" } },
+            "required": ["kind"]
+          },
+          "then": {
+            "anyOf": [
+              { "properties": { "assertion_id": { "type": "string", "minLength": 1 } } },
+              { "properties": { "effect_id": { "type": "string", "minLength": 1 } } }
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": { "kind": { "const": "fresh_read_observed" } },
+            "required": ["kind"]
+          },
+          "then": { "properties": { "freshness_id": { "type": "string", "minLength": 1 } } }
+        }
+      ]
+    },
+    "receipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "receipt_ref_id",
+        "backend",
+        "intent_ref_id",
+        "intent_revision",
+        "implementation_digest",
+        "backend_revision_ref",
+        "openapi_sha256",
+        "operation_sha256",
+        "runner_digest",
+        "fixture_digest",
+        "result",
+        "exit_code",
+        "claims"
+      ],
+      "properties": {
+        "receipt_ref_id": { "type": "string", "pattern": "^receipt-[0-9a-f]{64}$" },
+        "backend": { "type": "string", "enum": ["legacy_symfony", "native_effect"] },
+        "intent_ref_id": { "type": "string", "pattern": "^intent://" },
+        "intent_revision": { "type": "string", "minLength": 1 },
+        "implementation_digest": { "$ref": "#/$defs/sha256" },
+        "backend_revision_ref": { "type": "string", "minLength": 1 },
+        "openapi_sha256": { "$ref": "#/$defs/sha256" },
+        "operation_sha256": { "$ref": "#/$defs/stringSet" },
+        "runner_digest": { "$ref": "#/$defs/sha256" },
+        "fixture_digest": { "$ref": "#/$defs/sha256" },
+        "result": { "type": "string", "enum": ["passed", "failed"] },
+        "exit_code": { "type": "integer" },
+        "claims": { "type": "array", "items": { "$ref": "#/$defs/claim" } }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "result": { "const": "passed" } } },
+          "then": { "properties": { "exit_code": { "const": 0 } } }
+        },
+        {
+          "if": { "properties": { "result": { "const": "failed" } } },
+          "then": { "properties": { "exit_code": { "not": { "const": 0 } } } }
+        }
+      ]
+    }
+  }
+}

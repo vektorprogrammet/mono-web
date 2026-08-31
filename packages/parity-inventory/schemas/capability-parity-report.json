@@ -1,0 +1,150 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:vektorprogrammet:functional-parity-capability-report:v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "$schema",
+    "schema_version",
+    "canonicalization",
+    "provenance",
+    "rows",
+    "diagnostics"
+  ],
+  "properties": {
+    "$schema": { "const": "https://json-schema.org/draft/2020-12/schema" },
+    "schema_version": { "const": "functional-parity-capability-report/v1" },
+    "canonicalization": {
+      "const": "recursive-key-sort/contract-array-sort/compact-utf8/no-newline"
+    },
+    "provenance": { "$ref": "#/$defs/provenance" },
+    "rows": { "type": "array", "items": { "$ref": "#/$defs/row" } },
+    "diagnostics": { "type": "array", "items": { "$ref": "#/$defs/diagnostic" } }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "stringSet": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "authorityPin": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["revision", "blob_oid", "digest", "schema_version"],
+      "properties": {
+        "revision": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "blob_oid": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "digest": { "$ref": "#/$defs/sha256" },
+        "schema_version": { "type": "string", "minLength": 1 }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "legacy_openapi_sha256",
+        "native_openapi_sha256",
+        "legacy_catalog_sha256",
+        "native_catalog_sha256",
+        "intent_authority",
+        "evidence_authority"
+      ],
+      "properties": {
+        "legacy_openapi_sha256": { "$ref": "#/$defs/sha256" },
+        "native_openapi_sha256": { "$ref": "#/$defs/sha256" },
+        "legacy_catalog_sha256": { "$ref": "#/$defs/sha256" },
+        "native_catalog_sha256": { "$ref": "#/$defs/sha256" },
+        "intent_authority": { "$ref": "#/$defs/authorityPin" },
+        "evidence_authority": { "$ref": "#/$defs/authorityPin" }
+      }
+    },
+    "diagnostic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "backend", "intent_ref_id", "claim_kind", "detail"],
+      "properties": {
+        "code": {
+          "type": "string",
+          "enum": [
+            "MISSING_WITNESS",
+            "UNKNOWN_OPERATION",
+            "OPERATION_DRIFT",
+            "SECURITY_METADATA_CONFLICT",
+            "AUTHORIZATION_UNWARRANTED",
+            "CLAIM_SCOPE_INVALID",
+            "WEAKER_PRECONDITION",
+            "MISSING_OUTCOME",
+            "MISSING_REJECTION",
+            "WEAKER_REJECTION",
+            "EFFECT_DECLARATION_MISSING",
+            "EFFECT_CLAIM_UNWARRANTED",
+            "EFFECT_MISMATCH",
+            "READ_AFTER_WRITE_MISSING",
+            "FRESHNESS_UNWARRANTED",
+            "RECEIPT_STALE",
+            "MISSING_SEMANTIC_ASSERTION",
+            "MISSING_CLAIM_SPECIFIC_EVIDENCE",
+            "UNSUPPORTED",
+            "UNKNOWN"
+          ]
+        },
+        "backend": {
+          "type": ["string", "null"],
+          "enum": ["legacy_symfony", "native_effect", null]
+        },
+        "intent_ref_id": { "type": ["string", "null"] },
+        "claim_kind": { "type": ["string", "null"] },
+        "detail": { "type": "string", "minLength": 1 }
+      }
+    },
+    "backendResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "claim",
+        "witness_digest",
+        "evidence_status",
+        "missing_claim_kinds",
+        "diagnostics"
+      ],
+      "properties": {
+        "claim": { "type": "string", "enum": ["supported", "unsupported", "unknown"] },
+        "witness_digest": { "oneOf": [{ "$ref": "#/$defs/sha256" }, { "type": "null" }] },
+        "evidence_status": {
+          "type": "string",
+          "enum": ["current", "missing", "stale", "unsupported"]
+        },
+        "missing_claim_kinds": { "$ref": "#/$defs/stringSet" },
+        "diagnostics": { "type": "array", "items": { "$ref": "#/$defs/diagnostic" } }
+      }
+    },
+    "row": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "comparison_ref_id",
+        "intent_ref_ids",
+        "intent_revision",
+        "legacy",
+        "native",
+        "equivalence",
+        "diagnostics"
+      ],
+      "properties": {
+        "comparison_ref_id": { "type": "string", "minLength": 1 },
+        "intent_ref_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^intent://" }
+        },
+        "intent_revision": { "type": "string", "minLength": 1 },
+        "legacy": { "$ref": "#/$defs/backendResult" },
+        "native": { "$ref": "#/$defs/backendResult" },
+        "equivalence": { "type": "string", "enum": ["equivalent", "not_equivalent", "unknown"] },
+        "diagnostics": { "type": "array", "items": { "$ref": "#/$defs/diagnostic" } }
+      }
+    }
+  }
+}

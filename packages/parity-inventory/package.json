@@ -7,6 +7,7 @@
     ".": "./src/index.ts",
     "./api": "./src/api.ts",
     "./canonical": "./src/canonical.ts",
+    "./capability-parity": "./src/capability-parity.ts",
     "./effects": "./src/effects.ts",
     "./node-runtime": "./node-runtime.ts",
     "./intent-author": "./src/intent-author.ts",
@@ -17,6 +18,8 @@
   },
   "scripts": {
     "check-types": "tsc --noEmit",
+    "capability:verify": "bun capability-verify-cli.ts",
+    "legacy:openapi": "bun legacy-openapi-cli.ts",
     "intent:author": "bun intent-author-cli.ts",
     "lint": "oxlint",
     "test": "bun test tests"

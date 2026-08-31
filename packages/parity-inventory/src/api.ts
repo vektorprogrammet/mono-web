@@ -1298,7 +1298,7 @@ $normalized = $serializer->normalize($factory(), 'json', ['spec_version' => '3']
 if (!is_array($normalized)) throw new \UnexpectedValueException('OpenAPI normalization did not return an array');
 echo json_encode($normalized, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);`;
 
-export const API_METADATA_SCRIPT = String.raw`$root = '/workspace/apps/server';
+export const API_METADATA_SCRIPT = String.raw`$root = $argv[2] ?? '/workspace/apps/server';
 require $root . '/vendor/autoload.php';
 (new \Symfony\Component\Dotenv\Dotenv())->usePutenv()->load($root . '/.env.test');
 $kernel = new \Kernel('test', false);
@@ -1306,37 +1306,130 @@ $kernel->boot();
 $container = $kernel->getContainer()->get('test.service_container');
 $factory = $container->get('api_platform.metadata.resource.metadata_collection_factory');
 $classes = json_decode($argv[1] ?? '[]', true, 512, JSON_THROW_ON_ERROR);
+if ($classes === []) {
+    $nameFactory = $container->get('api_platform.metadata.resource.name_collection_factory');
+    $classes = iterator_to_array($nameFactory->create());
+}
 $out = [];
 $schemaClass = static function ($value): ?string {
     if (is_string($value)) return $value;
     if (is_array($value) && isset($value['class']) && is_string($value['class'])) return $value['class'];
     return null;
 };
+$serviceClass = static function ($value): ?string {
+    if (is_string($value)) return $value;
+    if (is_object($value)) return $value::class;
+    return null;
+};
+$optional = static function ($value, string $method) {
+    return method_exists($value, $method) ? $value->{$method}() : null;
+};
+$sourceRefs = static function (string $class) use ($root): array {
+    try {
+        $reflection = new \ReflectionClass($class);
+        $file = $reflection->getFileName();
+        if (!is_string($file)) return [];
+        $prefix = rtrim($root, '/') . '/';
+        $relative = str_starts_with($file, $prefix) ? substr($file, strlen($prefix)) : basename($file);
+        return ['apps/server/' . $relative . '#L' . $reflection->getStartLine() . '-L' . $reflection->getEndLine()];
+    } catch (\Throwable $error) {
+        return [];
+    }
+};
+$validationGroups = static function ($operation) use ($optional): array {
+    $context = $optional($operation, 'getValidationContext');
+    if (!is_array($context) || !isset($context['groups']) || !is_array($context['groups'])) return [];
+    $groups = array_values(array_unique(array_filter($context['groups'], 'is_string')));
+    sort($groups, SORT_STRING);
+    return $groups;
+};
 foreach ($classes as $class) {
     if (!is_string($class) || $class === '') continue;
-    try { $collections = $factory->create($class); } catch (\Throwable $e) { continue; }
+    try { $collections = $factory->create($class); } catch (\Throwable $error) { continue; }
     foreach ($collections as $resource) {
         $operations = $resource->getOperations();
         foreach ($operations as $name => $operation) {
-            $provider = $operation->getProvider();
-            $processor = $operation->getProcessor();
             $output = $operation->getOutput();
             $input = $operation->getInput();
             $operationName = method_exists($operation, 'getName') ? $operation->getName() : $name;
+            $status = $optional($operation, 'getStatus');
             $out[] = [
                 'resource_class_ref' => $resource->getClass(),
-                'resource_key' => $resource->getShortName(),
                 'operation_name' => (new \ReflectionClass($operation))->getShortName(),
                 'method' => $operation->getMethod(),
                 'uri_template' => $operation->getUriTemplate(),
                 'operation_id' => is_string($operationName) ? $operationName : null,
-                'provider_ref' => is_string($provider) ? $provider : (is_object($provider) ? $provider::class : null),
-                'processor_ref' => is_string($processor) ? $processor : (is_object($processor) ? $processor::class : null),
-                'schema_ref' => $schemaClass($output) ?? $schemaClass($input),
+                'security_expression' => $optional($operation, 'getSecurity'),
+                'security_post_denormalize' => $optional($operation, 'getSecurityPostDenormalize'),
+                'status' => is_int($status) ? $status : null,
+                'input_ref' => $schemaClass($input),
+                'output_ref' => $schemaClass($output),
+                'provider_ref' => $serviceClass($operation->getProvider()),
+                'processor_ref' => $serviceClass($operation->getProcessor()),
+                'read' => $optional($operation, 'canRead'),
+                'deserialize' => $optional($operation, 'canDeserialize'),
+                'validate' => $optional($operation, 'canValidate'),
+                'output' => $output !== false,
+                'validation_groups' => $validationGroups($operation),
+                'source_ref_ids' => $sourceRefs($resource->getClass()),
             ];
         }
     }
 }
+$routes = $container->get('router')->getRouteCollection();
+foreach ($routes->all() as $routeName => $route) {
+    $path = $route->getPath();
+    $defaults = $route->getDefaults();
+    if (!str_starts_with($path, '/api') || array_key_exists('_api_resource_class', $defaults)) continue;
+    foreach ($route->getMethods() as $method) {
+        $out[] = [
+            'resource_class_ref' => null,
+            'operation_name' => $routeName,
+            'method' => $method,
+            'uri_template' => $path,
+            'operation_id' => $routeName,
+            'security_expression' => null,
+            'security_post_denormalize' => null,
+            'status' => null,
+            'input_ref' => null,
+            'output_ref' => null,
+            'provider_ref' => null,
+            'processor_ref' => null,
+            'read' => null,
+            'deserialize' => null,
+            'validate' => null,
+            'output' => null,
+            'validation_groups' => [],
+            'source_ref_ids' => ['apps/server/config/routes.yaml'],
+        ];
+    }
+}
+$securityConfig = \Symfony\Component\Yaml\Yaml::parseFile($root . '/config/packages/security.yaml');
+$accessControl = $securityConfig['security']['access_control'] ?? [];
+foreach ($out as &$record) {
+    $path = $record['uri_template'] ?? null;
+    if (!is_string($path)) continue;
+    $path = preg_replace('/\{\._format\}$/', '', $path);
+    if (!str_starts_with($path, '/api')) $path = '/api' . (str_starts_with($path, '/') ? '' : '/') . $path;
+    foreach ($accessControl as $rule) {
+        $pattern = is_array($rule) ? ($rule['path'] ?? null) : null;
+        if (!is_string($pattern) || preg_match('~' . str_replace('~', '\~', $pattern) . '~', $path) !== 1) continue;
+        $roles = $rule['roles'] ?? [];
+        if ($record['security_expression'] === null) {
+            $public = $roles === 'PUBLIC_ACCESS' || (is_array($roles) && in_array('PUBLIC_ACCESS', $roles, true));
+            $record['security_expression'] = $public ? 'PUBLIC_ACCESS' : 'access_control:' . json_encode($roles, JSON_THROW_ON_ERROR);
+        }
+        $record['source_ref_ids'][] = 'apps/server/config/packages/security.yaml';
+        $record['source_ref_ids'] = array_values(array_unique($record['source_ref_ids']));
+        sort($record['source_ref_ids'], SORT_STRING);
+        break;
+    }
+}
+unset($record);
+usort($out, static fn(array $left, array $right): int => strcmp(
+    implode("\0", [$left['method'] ?? '', $left['uri_template'] ?? '', $left['operation_id'] ?? '', $left['resource_class_ref'] ?? '']),
+    implode("\0", [$right['method'] ?? '', $right['uri_template'] ?? '', $right['operation_id'] ?? '', $right['resource_class_ref'] ?? ''])
+));
 echo json_encode($out, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);`;
 
 export interface CollectorRun {
