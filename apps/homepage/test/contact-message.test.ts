@@ -98,6 +98,22 @@ describe("homepage contact-message boundary", () => {
     await expect(loadContactPage("aas")).rejects.toMatchObject({ status: 503 });
   });
 
+  it("returns 503 (not 404) when the organization projection is empty", async () => {
+    vi.stubEnv("API_URL", "http://api.test");
+    // Fresh Response per call: a Response body can only be read once.
+    vi.stubGlobal("fetch", vi.fn().mockImplementation(async () => departmentsResponse([])));
+
+    await expect(loadContactPage()).rejects.toMatchObject({ status: 503 });
+    await expect(loadContactPage("aas")).rejects.toMatchObject({ status: 503 });
+  });
+
+  it("keeps 404 for a genuinely unknown department when others exist", async () => {
+    vi.stubEnv("API_URL", "http://api.test");
+    vi.stubGlobal("fetch", vi.fn().mockImplementation(async () => departmentsResponse()));
+
+    await expect(loadContactPage("nonexistent")).rejects.toMatchObject({ status: 404 });
+  });
+
   it("keeps invalid private input out of the action response", async () => {
     vi.stubEnv("API_URL", "http://api.test");
     const fetchMock = vi.fn().mockResolvedValue(departmentsResponse());
