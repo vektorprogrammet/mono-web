@@ -26,8 +26,18 @@ async function activeDepartments(): Promise<readonly DepartmentJson[]> {
   return departments;
 }
 
-export async function loadContactPage(departmentSlug?: string): Promise<ContactPageData> {
+export async function loadContactPage(
+  departmentSlug?: string,
+): Promise<ContactPageData> {
   const departments = await activeDepartments();
+  if (departments.length === 0) {
+    // The organization projection is empty or unreachable. An empty contact
+    // page or a 404 would misrepresent "no departments exist"; fail honestly
+    // as temporarily unavailable instead.
+    throw new Response("Kontaktavdelingene er midlertidig utilgjengelige.", {
+      status: 503,
+    });
+  }
   const selectedDepartment = departmentSlug
     ? departments.find((department) => contactDepartmentSlug(department) === departmentSlug)
     : departments[0];
