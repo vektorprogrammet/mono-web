@@ -23,10 +23,7 @@ export default Alchemy.Stack(
         notFoundHandling: "404-page",
       },
       workersDev: false,
-      domain: {
-        name: DOCS_IDENTITY.hostname,
-        aliases: [DOCS_IDENTITY.legacyHostname],
-      },
+      domain: DOCS_IDENTITY.hostname,
       observability: { enabled: false },
     });
 

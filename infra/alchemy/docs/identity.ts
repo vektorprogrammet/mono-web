@@ -5,7 +5,6 @@ export const DOCS_IDENTITY = {
   logicalId: "MigrationDocs",
   workerName: "vektor-migration-docs",
   hostname: "vector-docs.phibkro.org",
-  legacyHostname: "vektor-docs.phibkro.org",
   stateNamespace: ".alchemy/state/vektor-docs/docs-dev-main",
   forbiddenHostnames: [
     "vektor-docs.phibkro.org",
