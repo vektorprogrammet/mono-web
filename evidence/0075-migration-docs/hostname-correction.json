@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "recordType": "vektor.migration-docs-deployment-evidence/v2",
-  "recordedAt": "2026-08-31T13:29:15Z",
-  "sourceRevision": "29df994ec1b3eba0abcaa3c60d0e2e82b0c205b3",
+  "recordedAt": "2026-08-31T13:39:29Z",
+  "sourceRevision": "2e7f2e2b6834be1f6cf00ab5c81163cd6ad4aade",
   "inspectedMigrationRevision": "0bc4aa3ac5506b6371d25972c9608eee8e35c17d",
   "initialWrongDeployment": {
     "sourceRevision": "177c8c6051f9d9b55600a3f9f3d3110b8f75b65b",
@@ -47,6 +47,26 @@
       "result": "Done: 4 succeeded",
       "postDeployPlan": "2 to noop: DocsBuild, MigrationDocs",
       "providerResourcesCreated": 0
+    },
+    "memoInputCorrection": {
+      "designSpec": "design-specs/0075.4-migration-docs-build-inputs-amendment.md",
+      "inputs": [
+        "apps/docs",
+        "design-specs",
+        "evidence",
+        "STATE.md",
+        "apps/backend/src",
+        "apps/dashboard/app",
+        "packages",
+        "nearest lockfile"
+      ],
+      "plan": "2 to update: DocsBuild, MigrationDocs",
+      "result": "Done: 4 succeeded",
+      "postDeployPlan": "2 to noop: DocsBuild, MigrationDocs",
+      "externalEvidenceProbePlan": "2 to update: DocsBuild, MigrationDocs",
+      "postProbePlan": "2 to noop: DocsBuild, MigrationDocs",
+      "providerResourcesCreated": 0,
+      "providerResourcesDeleted": 0
     }
   },
   "finalDeployment": {
