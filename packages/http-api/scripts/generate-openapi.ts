@@ -1,5 +1,6 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
+import { Context } from "effect";
 import { OpenApi } from "effect/unstable/httpapi";
 import { NativeApi } from "../src/api.js";
 
@@ -70,8 +71,30 @@ assert(
 );
 const operationIds = operations.map((operation) => operation.operationId);
 assert(
-  operationIds.every((identifier) => typeof identifier === "string"),
+  operationIds.every(
+    (identifier): identifier is string => typeof identifier === "string",
+  ),
   "every operation needs an id",
+);
+const expectedPublicOperationIds = new Set(
+  Object.values(NativeApi.groups)
+    .filter((group) => Context.get(group.annotations, OpenApi.Exclude) !== true)
+    .flatMap((group) =>
+      Object.values(group.endpoints).map((endpoint) => `${group.identifier}.${endpoint.identifier}`),
+    ),
+);
+assert(
+  expectedPublicOperationIds.size === 47 &&
+    operationIds.length === expectedPublicOperationIds.size &&
+    operationIds.every((identifier) => expectedPublicOperationIds.has(identifier)),
+  "every public operation id must be its stable fully-qualified group.endpoint identifier",
+);
+const internalOperationIds = Object.values(NativeApi.groups.internal.endpoints).map(
+  (endpoint) => `internal.${endpoint.identifier}`,
+);
+assert(
+  internalOperationIds.every((identifier) => !operationIds.includes(identifier)),
+  "internal operation ids must remain excluded from public OpenAPI",
 );
 assert(new Set(operationIds).size === operationIds.length, "operation ids must be unique");
 

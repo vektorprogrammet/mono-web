@@ -44,6 +44,35 @@ describe("NativeApi reflection", () => {
     expect(operations.some(({ path }) => path.startsWith("/api/auth"))).toBe(false);
   });
 
+  it("derives stable fully-qualified group.endpoint operation ids", () => {
+    const spec = OpenApi.fromApi(NativeApi);
+    const actual = documentedOperations().map(({ operation }) => operation.operationId).sort();
+    const expected = endpointInventory()
+      .filter(({ group }) => group !== "internal")
+      .map(({ group, identifier }) => `${group}.${identifier}`)
+      .sort();
+    const internal = endpointInventory()
+      .filter(({ group }) => group === "internal")
+      .map(({ group, identifier }) => `${group}.${identifier}`);
+
+    expect(actual).toEqual(expected);
+    expect(actual).toEqual(
+      expect.arrayContaining([
+        "system.health",
+        "organization.listDepartments",
+        "profile.readOwnProfile",
+        "organization.createDepartment",
+        "admissions.createAdmissionPeriod",
+        "recruitment.readSchedulingBoard",
+        "receipts.submitReceipt",
+        "content.listNews",
+      ]),
+    );
+    expect(internal).toEqual(["internal.readReceiptEvidence"]);
+    expect(actual).not.toContain(internal[0]);
+    expect(spec.paths["/api/departments"]?.get?.operationId).toBe("organization.listDepartments");
+  });
+
   it("derives unique operation ids and representative request, response, and error schemas", () => {
     const spec = OpenApi.fromApi(NativeApi);
     const operations = documentedOperations();
