@@ -98,7 +98,7 @@ This reference contains **47 public native operations** from the canonical OpenA
 Better Auth routes and the internal receipt evidence route are not part of this document.
 This operation total is documentation scope, not a legacy parity claim.
 
-Read [Routes & API](/reference/routes-and-api) first for route families, capability owners, and transport boundaries.
+Start with [Authentication & authorization](/reference/native-api/authentication) and the [Getting started](/reference/native-api/getting-started) walkthrough, or read [Routes & API](/reference/routes-and-api) for route families, capability owners, and transport boundaries.
 
 ## Provenance
 

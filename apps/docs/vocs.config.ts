@@ -26,6 +26,16 @@ export default defineConfig({
       spec: "../../packages/http-api/openapi.json",
       path: "/reference/native-api",
       sidebar: {
+        intro: [
+          {
+            text: "Authentication & authorization",
+            link: "/reference/native-api/authentication",
+          },
+          {
+            text: "Getting started",
+            link: "/reference/native-api/getting-started",
+          },
+        ],
         top: [{ text: "Routes & API overview", link: "/reference/routes-and-api" }],
         bottom: [{ text: "Code reference", link: "/reference/code" }],
       },
@@ -42,8 +52,8 @@ export default defineConfig({
     },
   ],
   topNav: [
+    { text: "API Reference", link: "/reference/native-api" },
     { text: "Tutorials", link: "/tutorials/orientation" },
-    { text: "Routes & API", link: "/reference/routes-and-api" },
     { text: "How-to", link: "/how-to/migrate-capability" },
     { text: "Reference", link: "/reference/migration-state" },
     { text: "Explanation", link: "/explanation/native-migration" },
@@ -74,10 +84,20 @@ export default defineConfig({
       ],
     },
     {
-      text: "Reference",
+      text: "API Reference",
       items: [
         { text: "Routes & API", link: "/reference/routes-and-api" },
-        { text: "Native API reference", link: "/reference/native-api" },
+        { text: "Native API overview", link: "/reference/native-api" },
+        {
+          text: "Authentication & authorization",
+          link: "/reference/native-api/authentication",
+        },
+        { text: "Getting started", link: "/reference/native-api/getting-started" },
+      ],
+    },
+    {
+      text: "Reference",
+      items: [
         { text: "Code reference", link: "/reference/code" },
         { text: "Migration state", link: "/reference/migration-state" },
         { text: "Runtime graph", link: "/reference/runtime-graph" },

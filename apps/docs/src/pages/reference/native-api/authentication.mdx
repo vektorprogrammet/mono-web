@@ -1,0 +1,118 @@
+---
+title: Authentication & authorization
+description: How the native API authenticates callers and authorizes every operation.
+showAskAi: false
+---
+
+# Authentication & authorization
+
+The native API authenticates with a session cookie and authorizes every
+operation against organization roles. This page cites the source files that
+implement each rule.
+
+## Sign in
+
+The API itself has no sign-in route. The dashboard signs in through Better
+Auth, and the native API trusts the session it issues.
+
+- Endpoint: `POST /api/auth/sign-in/email` with `{ email, password }`
+  (`apps/dashboard/app/lib/auth.server.ts`, `packages/database/src/auth-live.test.ts`).
+- Engine: `packages/database/src/auth-engine.ts` — passwords need at least
+  12 characters; sessions expire after 7 days and refresh their age daily;
+  cookie cache holds 5 minutes.
+- Session rows live in the `auth` Postgres schema (`search_path=auth`), and
+  `auth.user.id` is a `PersonId`.
+
+## The session cookie
+
+Handlers read the session from the `better-auth.session_token` cookie
+(HttpOnly; `__Secure-` prefix on HTTPS). Sources:
+`packages/database/src/identity-postgres-proof-main.ts`,
+`apps/dashboard/app/lib/auth.server.ts` (`SESSION_COOKIE_NAMES`),
+and the `BetterAuthSessionCookie` declaration in
+`packages/http-api/src/common.ts` (apiKey-in-cookie security scheme).
+
+## How handlers enforce it
+
+Endpoints that require a session declare the `SessionSecurity` middleware in
+the contract (`packages/http-api/src/common.ts`). The backend resolves the
+full `Cookie` header through the Identity engine:
+
+1. `Cookie` → `Identity.resolveSession` → `PersonId` plus one authorization
+   instant (`apps/backend/src/authority.ts`).
+2. `Organization.resolvePersonAuthority` loads the person's roles.
+3. `IdentitySessionNotFound` or `IdentitySessionExpired` maps to
+   `UnauthenticatedActor`, which the transport returns as HTTP 401
+   (`apps/backend/src/authority.ts`).
+
+Check a session without calling a business endpoint:
+
+```
+GET /api/me/session
+```
+
+- 200 → `{ "personId": "…", "expiresAt": "…" }`
+- 401 → `{ "error": { "tag": "UnauthenticatedActor" } }`
+- 503 → `{ "error": { "tag": "IdentityEngineError" } }`
+  (`apps/backend/src/http-api/system.ts`)
+
+## How authorization decisions work
+
+The authority object is `OrganizationPersonAuthority`
+(`packages/domain/src/organization/authority.ts`):
+
+- `globalAdministrator`: `Active` | `Inactive` | `Absent`
+- `memberships[]`: `{ membershipId, teamId, departmentId, active, teamLeader }`
+
+Each capability group maps this object to its own actor roles
+(`apps/backend/src/authority.ts`):
+
+| Group        | Allowed actors                                       |
+| ------------ | ---------------------------------------------------- |
+| Admissions   | Global admin, department leader, member              |
+| Recruitment  | Global admin, department leader, member              |
+| Organization | Admin or member of the scope                         |
+| Profile      | `ROLE_ADMIN`, `ROLE_TEAM_LEADER`, `ROLE_TEAM_MEMBER` |
+
+Denials return 403 with tags such as `AuthorityInactive` or `NotInScope`.
+A 403 body looks like:
+
+```json
+{ "error": { "tag": "AuthorityInactive" } }
+```
+
+Recruitment boards fail closed: an interviewer attached to zero or more than
+one department is rejected with `UnauthenticatedActor` (401)
+(`apps/backend/src/router.ts`).
+
+## Error tags worth knowing
+
+The backend composes clear denial messages
+(`apps/backend/src/receipt/http.ts`, `COMPOSED_DENIAL_MESSAGES`):
+
+- `AmbiguousParameterFill` → "Authorization parameter fill is ambiguous"
+- `FailedComposedRequirement` → "Composed authorization requirement failed"
+
+## Invitation capability (recruitment)
+
+Public invitation endpoints replace cookies with a capability header:
+
+```
+X-Recruitment-Invitation-Capability: <43-char base64url token>
+```
+
+- Token shape: 43 base64url characters
+  (`packages/domain/src/recruitment/schema.ts`).
+- Issued server-side as `randomBytes(32).toString("base64url")`
+  (`apps/backend/src/recruitment/config.ts`).
+- Missing, malformed, or unknown tokens return
+  404 `RecruitmentInvitationNotFound`
+  (`apps/backend/src/recruitment/http.ts`).
+- Four endpoints accept it: read, confirm, reject, request-new-time.
+
+## What is NOT in this API
+
+- No HTTP 400: request-schema failures return 422 with the group's
+  `*DecodeError` tag (`apps/backend/src/http-api/transport.ts`).
+- No API keys or bearer tokens: the cookie (or invitation capability) is the
+  only credential.

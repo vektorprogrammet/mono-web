@@ -25,9 +25,13 @@ Since v0.1.0
 - [Groups](#groups)
   - [OrganizationApi (class)](#organizationapi-class)
 - [Schemas](#schemas)
+  - [CreateDepartmentCommandExample](#createdepartmentcommandexample)
+  - [DepartmentExample](#departmentexample)
+  - [FieldOfStudyExample](#fieldofstudyexample)
   - [MailingListQuery](#mailinglistquery)
   - [MailingListResponse](#mailinglistresponse)
   - [OrganizationScopeQuery](#organizationscopequery)
+  - [TeamExample](#teamexample)
   - [TeamInterestResponse](#teaminterestresponse)
 - [utils](#utils)
   - [CreateDepartmentEndpoint](#createdepartmentendpoint)
@@ -53,11 +57,87 @@ Organization directory and administration API.
 declare class OrganizationApi
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/organization.ts#L225)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/organization.ts#L344)
 
 Since v0.1.0
 
 ## Schemas
+
+### CreateDepartmentCommandExample
+
+Representative create-department command payload.
+
+**Signature**
+
+```ts
+declare const CreateDepartmentCommandExample: {
+  readonly _tag: "CreateDepartment";
+  readonly commandId: string & Brand<"OrganizationCommandId">;
+  readonly departmentId: string & Brand<"DepartmentId">;
+  readonly name: "Elektroteknologi";
+  readonly shortName: "ELEK";
+  readonly email: "elektroteknologi@example.org";
+  readonly address: "Sem Sælands vei 11";
+  readonly city: "Trondheim";
+  readonly latitude: null;
+  readonly longitude: null;
+  readonly slackChannel: null;
+  readonly logoPath: null;
+  readonly active: true;
+};
+```
+
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/organization.ts#L200)
+
+Since v0.1.0
+
+### DepartmentExample
+
+Representative department JSON projection.
+
+**Signature**
+
+```ts
+declare const DepartmentExample: {
+  readonly departmentId: string & Brand<"DepartmentId">;
+  readonly name: "Datateknologi";
+  readonly shortName: "DAT";
+  readonly email: "datateknologi@example.org";
+  readonly address: "Sem Sælands vei 1";
+  readonly city: "Trondheim";
+  readonly latitude: null;
+  readonly longitude: null;
+  readonly slackChannel: null;
+  readonly logoPath: null;
+  readonly active: true;
+  readonly revision: 0;
+};
+```
+
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/organization.ts#L144)
+
+Since v0.1.0
+
+### FieldOfStudyExample
+
+Representative field-of-study JSON projection.
+
+**Signature**
+
+```ts
+declare const FieldOfStudyExample: {
+  readonly fieldOfStudyId: string & Brand<"FieldOfStudyId">;
+  readonly departmentId: string & Brand<"DepartmentId">;
+  readonly name: "Datateknologi";
+  readonly shortName: "DAT";
+  readonly active: true;
+  readonly revision: 0;
+};
+```
+
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/organization.ts#L185)
+
+Since v0.1.0
 
 ### MailingListQuery
 
@@ -80,7 +160,7 @@ declare const MailingListQuery: {
 };
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/organization.ts#L39)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/organization.ts#L43)
 
 Since v0.1.0
 
@@ -96,7 +176,7 @@ declare const MailingListResponse: Schema.$Array<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/organization.ts#L68)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/organization.ts#L81)
 
 Since v0.1.0
 
@@ -114,7 +194,33 @@ declare const OrganizationScopeQuery: {
 };
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/organization.ts#L28)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/organization.ts#L32)
+
+Since v0.1.0
+
+### TeamExample
+
+Representative team JSON projection.
+
+**Signature**
+
+```ts
+declare const TeamExample: {
+  readonly teamId: string & Brand<"TeamId">;
+  readonly departmentId: string & Brand<"DepartmentId">;
+  readonly name: "Rekruttering";
+  readonly shortName: "REK";
+  readonly shortDescription: "Interviews applicants";
+  readonly description: "Interviews applicants and runs the admission process.";
+  readonly email: "rekruttering@example.org";
+  readonly deadline: "2026-09-15T23:59:59.999Z";
+  readonly acceptApplication: true;
+  readonly active: true;
+  readonly revision: 0;
+};
+```
+
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/organization.ts#L165)
 
 Since v0.1.0
 
@@ -137,7 +243,7 @@ declare const TeamInterestResponse: Schema.Struct<{
 }>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/organization.ts#L55)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/organization.ts#L59)
 
 Since v0.1.0
 
@@ -254,7 +360,7 @@ declare const CreateDepartmentEndpoint: HttpApiEndpoint.HttpApiEndpoint<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/organization.ts#L173)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/organization.ts#L288)
 
 Since v0.1.0 @category Endpoints
 
@@ -353,7 +459,7 @@ declare const CreateFieldOfStudyEndpoint: HttpApiEndpoint.HttpApiEndpoint<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/organization.ts#L202)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/organization.ts#L321)
 
 Since v0.1.0 @category Endpoints
 
@@ -465,7 +571,7 @@ declare const CreateTeamEndpoint: HttpApiEndpoint.HttpApiEndpoint<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/organization.ts#L191)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/organization.ts#L310)
 
 Since v0.1.0 @category Endpoints
 
@@ -519,7 +625,7 @@ declare const ListDepartmentsEndpoint: HttpApiEndpoint.HttpApiEndpoint<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/organization.ts#L122)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/organization.ts#L217)
 
 Since v0.1.0 @category Endpoints
 
@@ -567,9 +673,7 @@ declare const ListFieldOfStudiesEndpoint: HttpApiEndpoint.HttpApiEndpoint<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/organization.ts#L136)
-
-Since v0.1.0 @category Endpoints
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/organization.ts#L242)
 
 ### ListMailingListsEndpoint
 
@@ -640,7 +744,7 @@ declare const ListMailingListsEndpoint: HttpApiEndpoint.HttpApiEndpoint<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/organization.ts#L159)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/organization.ts#L274)
 
 Since v0.1.0 @category Endpoints
 
@@ -712,7 +816,7 @@ declare const ListTeamInterestEndpoint: HttpApiEndpoint.HttpApiEndpoint<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/organization.ts#L145)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/organization.ts#L260)
 
 Since v0.1.0 @category Endpoints
 
@@ -764,6 +868,6 @@ declare const ListTeamsEndpoint: HttpApiEndpoint.HttpApiEndpoint<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/organization.ts#L130)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/organization.ts#L231)
 
 Since v0.1.0 @category Endpoints

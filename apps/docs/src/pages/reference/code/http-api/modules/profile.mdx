@@ -28,6 +28,7 @@ Since v0.1.0
 - [Groups](#groups)
   - [ProfileApi (class)](#profileapi-class)
 - [Schemas](#schemas)
+  - [UpdateOwnProfileCommandExample](#updateownprofilecommandexample)
   - [UserProfileResponse](#userprofileresponse)
   - [UserRoleSchema](#userroleschema)
 
@@ -98,7 +99,7 @@ declare const ReadOwnProfileEndpoint: HttpApiEndpoint.HttpApiEndpoint<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/profile.ts#L78)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/profile.ts#L108)
 
 Since v0.1.0
 
@@ -176,7 +177,7 @@ declare const UpdateOwnProfileEndpoint: HttpApiEndpoint.HttpApiEndpoint<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/profile.ts#L96)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/profile.ts#L126)
 
 Since v0.1.0
 
@@ -192,11 +193,34 @@ Current-person profile endpoints.
 declare class ProfileApi
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/profile.ts#L115)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/profile.ts#L149)
 
 Since v0.1.0
 
 ## Schemas
+
+### UpdateOwnProfileCommandExample
+
+Representative self-profile update payload for generated examples.
+
+**Signature**
+
+```ts
+declare const UpdateOwnProfileCommandExample: {
+  readonly _tag: "UpdateOwnProfile";
+  readonly commandId: string & Brand<"ProfileCommandId">;
+  readonly expectedNameRevision: 0;
+  readonly expectedContactRevision: 1;
+  readonly firstName: "Ming";
+  readonly lastName: "Medlem";
+  readonly email: "ming.medlem@example.org";
+  readonly phone: "+47 900 00 000";
+};
+```
+
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/profile.ts#L62)
+
+Since v0.1.0
 
 ### UserProfileResponse
 
@@ -217,7 +241,7 @@ declare const UserProfileResponse: Schema.Struct<{
 }>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/profile.ts#L29)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/profile.ts#L30)
 
 Since v0.1.0
 
@@ -233,6 +257,6 @@ declare const UserRoleSchema: Schema.Literals<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/profile.ts#L17)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/profile.ts#L18)
 
 Since v0.1.0

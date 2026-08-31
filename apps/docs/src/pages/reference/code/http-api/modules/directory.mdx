@@ -16,8 +16,6 @@ showAskAi: false
 
 Public HTTP contracts for administrative directory reads.
 
-Since v0.1.0
-
 ---
 
 ### Exports Grouped by Category
@@ -30,6 +28,7 @@ Since v0.1.0
 - [utils](#utils)
   - [ListAdminUsersEndpoint](#listadminusersendpoint)
   - [ListSchoolsEndpoint](#listschoolsendpoint)
+  - [SchoolDirectoryExample](#schooldirectoryexample)
 
 ---
 
@@ -45,7 +44,7 @@ Scoped administrative directory endpoints.
 declare class DirectoryApi
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/directory.ts#L109)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/directory.ts#L158)
 
 Since v0.1.0
 
@@ -70,7 +69,7 @@ declare const AdminUserDirectoryEntry: Schema.Struct<{
 }>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/directory.ts#L18)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/directory.ts#L17)
 
 Since v0.1.0
 
@@ -110,7 +109,7 @@ declare const AdminUserDirectoryResponse: Schema.Struct<{
 }>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/directory.ts#L38)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/directory.ts#L49)
 
 Since v0.1.0
 
@@ -180,7 +179,7 @@ declare const ListAdminUsersEndpoint: HttpApiEndpoint.HttpApiEndpoint<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/directory.ts#L64)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/directory.ts#L93)
 
 Since v0.1.0 @category Endpoints
 
@@ -263,6 +262,32 @@ declare const ListSchoolsEndpoint: HttpApiEndpoint.HttpApiEndpoint<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/directory.ts#L93)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/directory.ts#L138)
 
 Since v0.1.0 @category Endpoints
+
+### SchoolDirectoryExample
+
+**Signature**
+
+```ts
+declare const SchoolDirectoryExample: {
+  readonly activeSchools: readonly [
+    {
+      readonly schoolId: number & Brand<"SchoolId">;
+      readonly name: "Trondheim katedral videregående skole";
+      readonly contactPerson: "Heidi Holm";
+      readonly email: "post@tks.example.org";
+      readonly phone: "+47 900 00 001";
+      readonly language: "Norwegian";
+      readonly departments: readonly [
+        { readonly departmentId: string & Brand<"DepartmentId">; readonly name: "Trondheim" },
+      ];
+      readonly isActive: true;
+    },
+  ];
+  readonly inactiveSchools: readonly [];
+};
+```
+
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/directory.ts#L121)

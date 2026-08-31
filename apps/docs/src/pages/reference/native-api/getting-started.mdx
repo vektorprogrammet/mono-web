@@ -1,0 +1,101 @@
+---
+title: Getting started
+description: Make your first native API call with curl in five minutes.
+showAskAi: false
+---
+
+# Getting started
+
+This walkthrough makes your first native API call with `curl`. It uses the
+local stack; see [Run the local stack](/how-to/run-local-stack) for setup.
+
+## 1. Check the API is up
+
+```sh
+curl -s http://localhost:8080/api/health
+```
+
+Expect `{"status":"ok"}`. If this fails, the backend is not running.
+
+## 2. Sign in and keep the session cookie
+
+```sh
+curl -s -c cookies.txt -X POST http://localhost:8080/api/auth/sign-in/email \
+  -H "Content-Type: application/json" \
+  -d '{"email":"you@example.org","password":"your-password"}'
+```
+
+The response sets `better-auth.session_token`. `-c cookies.txt` saves it.
+The native API reads that cookie on every protected call.
+
+Verify the session:
+
+```sh
+curl -s -b cookies.txt http://localhost:8080/api/me/session
+```
+
+- 200 → `{"personId":"…","expiresAt":"…"}`
+- 401 → `{"error":{"tag":"UnauthenticatedActor"}}` — sign in again.
+
+## 3. Read a public listing (no session needed)
+
+```sh
+curl -s http://localhost:8080/api/departments
+```
+
+```json
+[
+  {
+    "departmentId": "1",
+    "name": "Datateknologi",
+    "shortName": "DAT",
+    "active": true,
+    "revision": 0
+  }
+]
+```
+
+## 4. Call a protected endpoint
+
+```sh
+curl -s -b cookies.txt http://localhost:8080/api/admin/admission-periods
+```
+
+Expect 200 with `{"items":[…],"totalItems":N}` — or 403 with
+`{"error":{"tag":"AdmissionRoleDenied"}}` if your account is not a leader.
+See [Authentication & authorization](/reference/native-api/authentication)
+for the role model.
+
+## 5. Send a command (idempotent)
+
+Commands carry a `commandId`. Repeating a call with the same `commandId`
+replays the original result instead of creating a duplicate:
+
+```sh
+curl -s -b cookies.txt -X POST http://localhost:8080/api/admin/content/articles \
+  -H "Content-Type: application/json" \
+  -d '{
+    "commandId": "my-first-article-001",
+    "title": "Hello native API",
+    "bodyHtml": "<p>First draft.</p>",
+    "departmentIds": ["1"]
+  }'
+```
+
+## Error responses
+
+Every error uses the same envelope:
+
+```json
+{ "error": { "tag": "SomeErrorTag" } }
+```
+
+Status codes: 401 unauthenticated, 403 forbidden, 404 not found, 409
+conflict, 413 body too large, 422 request-schema failure, 429 rate limited,
+503 engine unavailable. There is no HTTP 400 in this API.
+
+## Next steps
+
+- Browse every operation in this reference (sidebar, grouped by resource).
+- [Authentication & authorization](/reference/native-api/authentication)
+  explains the role model behind 401/403 responses.

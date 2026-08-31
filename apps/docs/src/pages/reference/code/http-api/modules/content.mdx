@@ -28,14 +28,24 @@ Since v0.1.0
   - [ContentDepartmentQuery](#contentdepartmentquery)
   - [NewsVersionQuery](#newsversionquery)
 - [utils](#utils)
+  - [ArticleDetailExample](#articledetailexample)
   - [CreateArticleEndpoint](#createarticleendpoint)
+  - [CreateArticleInputExample](#createarticleinputexample)
   - [ListNewsEndpoint](#listnewsendpoint)
+  - [NewsArticleExample](#newsarticleexample)
+  - [NewsListingExample](#newslistingexample)
   - [PublishArticleEndpoint](#publisharticleendpoint)
+  - [PublishArticleInputExample](#publisharticleinputexample)
+  - [PublishObservationExample](#publishobservationexample)
   - [ReadArticleEndpoint](#readarticleendpoint)
   - [ReadContentWorkspaceEndpoint](#readcontentworkspaceendpoint)
   - [ReadNewsArticleEndpoint](#readnewsarticleendpoint)
   - [ReviseArticleEndpoint](#revisearticleendpoint)
+  - [ReviseArticleInputExample](#revisearticleinputexample)
   - [UnpublishArticleEndpoint](#unpublisharticleendpoint)
+  - [UnpublishArticleInputExample](#unpublisharticleinputexample)
+  - [UnpublishObservationExample](#unpublishobservationexample)
+  - [WorkspaceEntryExample](#workspaceentryexample)
 
 ---
 
@@ -51,7 +61,7 @@ Staff content management and public news API.
 declare class ContentApi
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/content.ts#L197)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/content.ts#L298)
 
 Since v0.1.0
 
@@ -69,7 +79,7 @@ declare const ContentDepartmentQuery: {
 };
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/content.ts#L31)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/content.ts#L34)
 
 Since v0.1.0
 
@@ -83,11 +93,36 @@ Optional positive published-version selector.
 declare const NewsVersionQuery: { version: Schema.optional<Schema.Int> };
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/content.ts#L41)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/content.ts#L44)
 
 Since v0.1.0
 
 ## utils
+
+### ArticleDetailExample
+
+**Signature**
+
+```ts
+declare const ArticleDetailExample: {
+  readonly articleId: number & Brand<string>;
+  readonly title: "Penerimaan Anggota Baru 2026";
+  readonly slug: string & Brand<"ArticleSlug">;
+  readonly status: "Draft";
+  readonly bodyHtml: "<p>Informasi penerimaan anggota baru tahun 2026.</p>";
+  readonly sticky: false;
+  readonly createdAt: "2026-08-20T09:00:00.000Z";
+  readonly updatedAt: "2026-08-24T09:00:00.000Z";
+  readonly currentVersionNumber: null;
+  readonly revision: 0;
+  readonly departmentIds: readonly [string & Brand<"DepartmentId">];
+  readonly canRevise: true;
+  readonly canPublish: true;
+  readonly authorDisplayName: "Kari Penerbit";
+};
+```
+
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/content.ts#L86)
 
 ### CreateArticleEndpoint
 
@@ -161,9 +196,25 @@ declare const CreateArticleEndpoint: HttpApiEndpoint.HttpApiEndpoint<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/content.ts#L85)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/content.ts#L186)
 
 Since v0.1.0 @category Endpoints
+
+### CreateArticleInputExample
+
+**Signature**
+
+```ts
+declare const CreateArticleInputExample: {
+  readonly commandId: string & Brand<"ContentCommandId">;
+  readonly title: "Penerimaan Anggota Baru 2026";
+  readonly bodyHtml: "<p>Informasi penerimaan anggota baru tahun 2026.</p>";
+  readonly departmentIds: readonly [string & Brand<"DepartmentId">];
+  readonly sticky: false;
+};
+```
+
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/content.ts#L103)
 
 ### ListNewsEndpoint
 
@@ -234,9 +285,51 @@ declare const ListNewsEndpoint: HttpApiEndpoint.HttpApiEndpoint<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/content.ts#L170)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/content.ts#L271)
 
 Since v0.1.0 @category Endpoints
+
+### NewsArticleExample
+
+**Signature**
+
+```ts
+declare const NewsArticleExample: {
+  readonly slug: string & Brand<"ArticleSlug">;
+  readonly title: "Penerimaan Anggota Baru 2026";
+  readonly sticky: true;
+  readonly publishedAt: "2026-08-25T08:00:00.000Z";
+  readonly authorDisplayName: "Kari Penerbit";
+  readonly departmentIds: readonly [string & Brand<"DepartmentId">];
+  readonly hasImage: false;
+  readonly bodyHtml: "<p>Informasi penerimaan anggota baru tahun 2026.</p>";
+  readonly previousVersions: readonly [];
+};
+```
+
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/content.ts#L158)
+
+### NewsListingExample
+
+**Signature**
+
+```ts
+declare const NewsListingExample: {
+  readonly articles: readonly [
+    {
+      readonly slug: string & Brand<"ArticleSlug">;
+      readonly title: "Penerimaan Anggota Baru 2026";
+      readonly sticky: true;
+      readonly publishedAt: "2026-08-25T08:00:00.000Z";
+      readonly authorDisplayName: "Kari Penerbit";
+      readonly departmentIds: readonly [string & Brand<"DepartmentId">];
+      readonly hasImage: false;
+    },
+  ];
+};
+```
+
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/content.ts#L144)
 
 ### PublishArticleEndpoint
 
@@ -303,9 +396,38 @@ declare const PublishArticleEndpoint: HttpApiEndpoint.HttpApiEndpoint<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/content.ts#L135)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/content.ts#L236)
 
 Since v0.1.0 @category Endpoints
+
+### PublishArticleInputExample
+
+**Signature**
+
+```ts
+declare const PublishArticleInputExample: {
+  readonly commandId: string & Brand<"ContentCommandId">;
+  readonly articleId: number & Brand<string>;
+};
+```
+
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/content.ts#L120)
+
+### PublishObservationExample
+
+**Signature**
+
+```ts
+declare const PublishObservationExample: {
+  readonly _tag: "Published";
+  readonly commandId: string & Brand<"ContentCommandId">;
+  readonly articleId: number & Brand<string>;
+  readonly versionNumber: number & Brand<string>;
+  readonly publishedAt: "2026-08-25T08:00:00.000Z";
+};
+```
+
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/content.ts#L130)
 
 ### ReadArticleEndpoint
 
@@ -376,7 +498,7 @@ declare const ReadArticleEndpoint: HttpApiEndpoint.HttpApiEndpoint<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/content.ts#L105)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/content.ts#L206)
 
 Since v0.1.0 @category Endpoints
 
@@ -451,7 +573,7 @@ declare const ReadContentWorkspaceEndpoint: HttpApiEndpoint.HttpApiEndpoint<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/content.ts#L71)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/content.ts#L172)
 
 Since v0.1.0 @category Endpoints
 
@@ -526,7 +648,7 @@ declare const ReadNewsArticleEndpoint: HttpApiEndpoint.HttpApiEndpoint<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/content.ts#L179)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/content.ts#L280)
 
 Since v0.1.0 @category Endpoints
 
@@ -604,9 +726,26 @@ declare const ReviseArticleEndpoint: HttpApiEndpoint.HttpApiEndpoint<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/content.ts#L116)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/content.ts#L217)
 
 Since v0.1.0 @category Endpoints
+
+### ReviseArticleInputExample
+
+**Signature**
+
+```ts
+declare const ReviseArticleInputExample: {
+  readonly commandId: string & Brand<"ContentCommandId">;
+  readonly articleId: number & Brand<string>;
+  readonly expectedRevision: 0;
+  readonly title: "Penerimaan Anggota Baru 2026";
+  readonly bodyHtml: "<p>Informasi penerimaan anggota baru tahun 2026.</p>";
+  readonly departmentIds: readonly [string & Brand<"DepartmentId">];
+};
+```
+
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/content.ts#L111)
 
 ### UnpublishArticleEndpoint
 
@@ -671,6 +810,54 @@ declare const UnpublishArticleEndpoint: HttpApiEndpoint.HttpApiEndpoint<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/content.ts#L151)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/content.ts#L252)
 
 Since v0.1.0 @category Endpoints
+
+### UnpublishArticleInputExample
+
+**Signature**
+
+```ts
+declare const UnpublishArticleInputExample: {
+  readonly commandId: string & Brand<"ContentCommandId">;
+  readonly articleId: number & Brand<string>;
+};
+```
+
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/content.ts#L125)
+
+### UnpublishObservationExample
+
+**Signature**
+
+```ts
+declare const UnpublishObservationExample: {
+  readonly _tag: "Unpublished";
+  readonly commandId: string & Brand<"ContentCommandId">;
+  readonly articleId: number & Brand<string>;
+};
+```
+
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/content.ts#L138)
+
+### WorkspaceEntryExample
+
+**Signature**
+
+```ts
+declare const WorkspaceEntryExample: {
+  readonly articleId: number & Brand<string>;
+  readonly title: "Penerimaan Anggota Baru 2026";
+  readonly slug: string & Brand<"ArticleSlug">;
+  readonly status: "Draft";
+  readonly sticky: false;
+  readonly updatedAt: "2026-08-24T09:00:00.000Z";
+  readonly departmentIds: readonly [string & Brand<"DepartmentId">];
+  readonly canRevise: true;
+  readonly canPublish: true;
+  readonly authorDisplayName: "Kari Penerbit";
+};
+```
+
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/content.ts#L73)
