@@ -25,11 +25,12 @@ Do not use the apex `plan` or `deploy` scripts. They own `vektor.phibkro.org`, A
 
 The wrapper rejects another stage or profile label. It also disables Alchemy telemetry.
 
-## 1. Build and check the docs
+## 1. Check the docs source
 
 ```bash
-bun --cwd apps/docs run build
 bun --cwd apps/docs run check-types
+bun --cwd apps/docs run lint
+bun --cwd apps/docs run format:check
 bun --cwd infra/alchemy run test:docs
 ```
 
@@ -47,15 +48,16 @@ For a first deployment, the dedicated stack or stage can be absent. The command 
 bun --cwd infra/alchemy run docs:plan -- --stage docs-dev-main --profile goal1-staging
 ```
 
-The wrapper rebuilds the site before Alchemy reads static assets.
+Alchemy `Command.Build` owns the Vocs build and its output hash. The wrapper does not run a separate build.
 
 Accept only these planned effects:
 
+- create or update the local `DocsBuild` state record
 - create or update `vektor-migration-docs`
 - upload its static assets
 - attach `vector-docs.phibkro.org`
 
-If the plan reports an unowned resource, stop. If it names an apex Worker, API alias, another hostname, or another state record, stop.
+If the plan reports an unowned resource, stop. Stop if it names an apex Worker, API alias, another hostname, or another state record.
 
 ## 4. Deploy the accepted plan
 
@@ -73,7 +75,7 @@ Run the plan again:
 bun --cwd infra/alchemy run docs:plan -- --stage docs-dev-main --profile goal1-staging
 ```
 
-The docs resource must report no change.
+The `DocsBuild` and `MigrationDocs` resources must report no change.
 
 ## 6. Check the live site
 

@@ -53,7 +53,7 @@ describe("docs deployment selection", () => {
 });
 
 describe("docs deployment process boundary", () => {
-  test("builds before the plan and invokes only the docs entrypoint", () => {
+  test("delegates the plan and build ownership to the docs entrypoint", () => {
     const calls: Array<{
       readonly file: string;
       readonly args: string[];
@@ -71,15 +71,12 @@ describe("docs deployment process boundary", () => {
         standaloneDirectory: "/repo/infra/alchemy",
       }),
     ).toBe(0);
-    expect(calls).toHaveLength(2);
+    expect(calls).toHaveLength(1);
     expect(calls[0]).toMatchObject({
-      args: ["run", "--cwd", "/repo/apps/docs", "build"],
-    });
-    expect(calls[1]).toMatchObject({
       file: "/repo/infra/alchemy/node_modules/.bin/alchemy",
       args: ["plan", "docs.run.ts", "--stage", "docs-dev-main", "--profile", "goal1-staging"],
     });
-    expect(calls.every((call) => call.env.ALCHEMY_TELEMETRY_DISABLED === "1")).toBe(true);
+    expect(calls[0]?.env.ALCHEMY_TELEMETRY_DISABLED).toBe("1");
   });
 
   test("reads only the dedicated local state metadata", () => {

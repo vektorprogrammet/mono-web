@@ -90,8 +90,7 @@ export const parseDocsCommand = (argv: readonly string[]): ParsedDocsCommand => 
     usageError(`unknown argument '${token}'`);
   }
 
-  const selectedStage =
-    stage ?? usageError("docs commands require an explicit --stage value");
+  const selectedStage = stage ?? usageError("docs commands require an explicit --stage value");
   const selectedProfile =
     profile ?? usageError("docs commands require an explicit --profile value");
   try {
@@ -167,16 +166,6 @@ const runAlchemy = (parsed: ParsedDocsCommand, options: DocsCliOptions): number 
       spawn,
     );
   }
-
-  const docsDirectory = resolve(standaloneDirectory, "../..", "apps/docs");
-  const build = run(
-    process.execPath,
-    ["run", "--cwd", docsDirectory, "build"],
-    standaloneDirectory,
-    environment,
-    spawn,
-  );
-  if (build !== 0) return build;
 
   const args = [
     parsed.command,

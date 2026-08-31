@@ -1,5 +1,6 @@
 import * as Alchemy from "alchemy";
 import * as Cloudflare from "alchemy/Cloudflare";
+import * as Command from "alchemy/Command";
 import * as Effect from "effect/Effect";
 import { DOCS_IDENTITY } from "./docs/identity.ts";
 
@@ -14,11 +15,17 @@ export default Alchemy.Stack(
     if (stage !== DOCS_IDENTITY.stage && stage !== "placeholder") {
       throw new Error(`docs stack accepts only stage ${DOCS_IDENTITY.stage}`);
     }
+    const build = yield* Command.Build("DocsBuild", {
+      command: "bun run build",
+      cwd: "../../apps/docs",
+      outdir: "dist/public",
+    });
 
     const site = yield* Cloudflare.Worker(DOCS_IDENTITY.logicalId, {
       name: DOCS_IDENTITY.workerName,
       assets: {
-        directory: "../../apps/docs/dist/public",
+        directory: build.outdir,
+        hash: build.hash.output.as<string>(),
         htmlHandling: "auto-trailing-slash",
         notFoundHandling: "404-page",
       },
