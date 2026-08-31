@@ -1,73 +1,39 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "recordType": "vektor.migration-docs-deployment-evidence/v2",
-  "recordedAt": "2026-08-31T13:00:29Z",
-  "sourceRevision": "7d3b92a65324406d49ae2db5e89f0611fe5842ca",
+  "recordType": "vektor.migration-docs-deployment-evidence/v1",
+  "recordedAt": "2026-08-31T12:25:29Z",
+  "sourceRevision": "177c8c6051f9d9b55600a3f9f3d3110b8f75b65b",
   "inspectedMigrationRevision": "0bc4aa3ac5506b6371d25972c9608eee8e35c17d",
-  "initialWrongDeployment": {
-    "sourceRevision": "177c8c6051f9d9b55600a3f9f3d3110b8f75b65b",
-    "workerName": "vektor-migration-docs",
-    "hostname": "vektor-docs.phibkro.org",
-    "recordedAt": "2026-08-31T12:25:29Z"
-  },
-  "correction": {
-    "resourceIdentityPreserved": true,
-    "stack": "vektor-docs",
-    "stage": "docs-dev-main",
-    "logicalId": "MigrationDocs",
-    "workerName": "vektor-migration-docs",
-    "phase1AttachCorrectDomain": {
-      "plan": "1 to update: MigrationDocs",
-      "desiredDomains": ["vector-docs.phibkro.org", "vektor-docs.phibkro.org"],
-      "result": "Done: 2 succeeded",
-      "effect": "Attached the correct canonical domain and retained the wrong domain as an alias"
-    },
-    "correctHostnameGate": {
-      "tls": "verified",
-      "homeStatus": 200,
-      "publicDns": "A records present",
-      "publicResolvers": ["1.1.1.1", "8.8.8.8", "9.9.9.9"],
-      "browserChecksPassed": true
-    },
-    "phase2RemoveWrongDomain": {
-      "plan": "1 to update: MigrationDocs",
-      "desiredDomains": ["vector-docs.phibkro.org"],
-      "result": "Done: 2 succeeded",
-      "effect": "Removed only the wrong docs custom-domain binding"
-    }
-  },
-  "finalDeployment": {
+  "deployment": {
     "stack": "vektor-docs",
     "stage": "docs-dev-main",
     "logicalId": "MigrationDocs",
     "resourceType": "Cloudflare.Worker",
     "workerName": "vektor-migration-docs",
-    "hostname": "vector-docs.phibkro.org",
-    "url": "https://vector-docs.phibkro.org",
-    "customDomainAliases": [],
-    "wrongHostnamePublicDns": "NXDOMAIN",
+    "hostname": "vektor-docs.phibkro.org",
+    "url": "https://vektor-docs.phibkro.org",
     "workersDev": false,
     "routeCount": 0,
-    "bindingCount": 0,
     "staticAssetDirectory": "apps/docs/dist/public",
+    "finalPlan": "1 to update",
+    "finalResult": "Done: 2 succeeded",
+    "customDomainReconciled": true,
     "forbiddenApplicationHostsChanged": false,
-    "existingPreviewResourcesChanged": false,
-    "secondWorkerCreated": false,
-    "secondStateNamespaceCreated": false
+    "existingPreviewResourcesChanged": false
   },
   "artifacts": {
     "migrationState": {
       "path": "apps/docs/public/migration-state.json",
-      "sha256": "92932ebeaffcf53ee80cf144f0d49c929a7c52c34cf7cfa3d8e90493d6aa6996"
+      "sha256": "0fee1a92fed737b4912126212be91f9eeb86be418908d941c3466ae500f2b378"
     },
     "migrationStateSchema": {
       "path": "apps/docs/public/migration-state.schema.json",
-      "sha256": "730de53738ddad16a7bedb2bbf940d0a9b04132556da4aae3896e4d333f4af36"
+      "sha256": "5ad7fcde94e092e1dc7ebc442c1eb53aa98961e6e82ae21c4558909614927413"
     },
     "homeScreenshot": {
       "path": "evidence/0075-migration-docs/home.webp",
-      "sha256": "f5dec12dde50422ee84954b532b745139cfc9694b720cff8184d7dc0042fb8bc",
-      "viewport": "1365x768 CSS pixels at device scale 1.25"
+      "sha256": "e42fec2dc44c4268b85a9aff323c757e1a469ba3c4ca79e8c7a326a352218342",
+      "viewport": "1440x900"
     }
   },
   "verification": {
@@ -81,15 +47,10 @@
     ],
     "liveHttp": [
       { "path": "/", "status": 200 },
-      { "path": "/tutorials/orientation/", "status": 200 },
-      { "path": "/tutorials/receipt-journey/", "status": 200 },
-      { "path": "/how-to/migrate-capability/", "status": 200 },
-      { "path": "/how-to/run-local-stack/", "status": 200 },
-      { "path": "/how-to/run-parity-gates/", "status": 200 },
-      { "path": "/reference/migration-state/", "status": 200 },
-      { "path": "/reference/runtime-graph/", "status": 200 },
-      { "path": "/explanation/native-migration/", "status": 200 },
-      { "path": "/explanation/evidence-limits/", "status": 200 },
+      { "path": "/tutorials/receipt-journey", "status": 200 },
+      { "path": "/how-to/migrate-capability", "status": 200 },
+      { "path": "/reference/migration-state", "status": 200 },
+      { "path": "/explanation/evidence-limits", "status": 200 },
       { "path": "/migration-state.json", "status": 200 },
       { "path": "/migration-state.schema.json", "status": 200 },
       { "path": "/llms.txt", "status": 200 },
@@ -102,15 +63,12 @@
     "browser": {
       "homeTitle": "Migration status – Vektorprogrammet migration",
       "homeHeading": "Vektorprogrammet migration",
-      "previewWarningPresent": true,
-      "loadedAssetCount": 18,
       "searchQuery": "receipt authority",
       "searchFirstResult": "/tutorials/receipt-journey#trace-a-receipt",
       "searchDestinationHeading": "Trace a receipt",
       "runtimeExceptions": 0,
       "consoleErrors": 0,
-      "requestFailures": 0,
-      "resolverNote": "The workstation resolver retained a stale negative cache. Chromium used an address returned by public DNS. TLS and hostname verification remained enabled."
+      "requestFailures": 0
     }
   },
   "compatibility": {

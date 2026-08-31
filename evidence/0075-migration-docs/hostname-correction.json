@@ -1,0 +1,137 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "recordType": "vektor.migration-docs-deployment-evidence/v2",
+  "recordedAt": "2026-08-31T13:22:33Z",
+  "sourceRevision": "29df994ec1b3eba0abcaa3c60d0e2e82b0c205b3",
+  "inspectedMigrationRevision": "0bc4aa3ac5506b6371d25972c9608eee8e35c17d",
+  "initialWrongDeployment": {
+    "sourceRevision": "177c8c6051f9d9b55600a3f9f3d3110b8f75b65b",
+    "workerName": "vektor-migration-docs",
+    "hostname": "vektor-docs.phibkro.org",
+    "recordedAt": "2026-08-31T12:25:29Z"
+  },
+  "correction": {
+    "resourceIdentityPreserved": true,
+    "stack": "vektor-docs",
+    "stage": "docs-dev-main",
+    "logicalId": "MigrationDocs",
+    "workerName": "vektor-migration-docs",
+    "phase1AttachCorrectDomain": {
+      "plan": "1 to update: MigrationDocs",
+      "desiredDomains": ["vector-docs.phibkro.org", "vektor-docs.phibkro.org"],
+      "result": "Done: 2 succeeded",
+      "effect": "Attached the correct canonical domain and retained the wrong domain as an alias"
+    },
+    "correctHostnameGate": {
+      "tls": "verified",
+      "homeStatus": 200,
+      "publicDns": "A records present",
+      "publicResolvers": ["1.1.1.1", "8.8.8.8", "9.9.9.9"],
+      "browserChecksPassed": true
+    },
+    "phase2RemoveWrongDomain": {
+      "plan": "1 to update: MigrationDocs",
+      "desiredDomains": ["vector-docs.phibkro.org"],
+      "result": "Done: 2 succeeded",
+      "effect": "Removed only the wrong docs custom-domain binding"
+    },
+    "preConvergenceObservation": {
+      "plan": "1 to update: MigrationDocs",
+      "cause": "Consecutive Vocs builds produced different output hashes for unchanged source"
+    },
+    "buildConvergenceMigration": {
+      "designSpec": "design-specs/0075.3-migration-docs-build-convergence-amendment.md",
+      "plan": "1 to create, 1 to update",
+      "localStateChange": "DocsBuild create",
+      "providerChange": "MigrationDocs update",
+      "result": "Done: 4 succeeded",
+      "postDeployPlan": "2 to noop: DocsBuild, MigrationDocs",
+      "providerResourcesCreated": 0
+    }
+  },
+  "finalDeployment": {
+    "stack": "vektor-docs",
+    "stage": "docs-dev-main",
+    "logicalId": "MigrationDocs",
+    "resourceType": "Cloudflare.Worker",
+    "workerName": "vektor-migration-docs",
+    "hostname": "vector-docs.phibkro.org",
+    "url": "https://vector-docs.phibkro.org",
+    "customDomainAliases": [],
+    "wrongHostnamePublicDns": "NXDOMAIN",
+    "workersDev": false,
+    "routeCount": 0,
+    "bindingCount": 0,
+    "staticAssetDirectory": "apps/docs/dist/public",
+    "buildStateLogicalId": "DocsBuild",
+    "buildStateNamespace": "vektor-docs/docs-dev-main",
+    "forbiddenApplicationHostsChanged": false,
+    "existingPreviewResourcesChanged": false,
+    "secondWorkerCreated": false,
+    "secondStateNamespaceCreated": false
+  },
+  "artifacts": {
+    "migrationState": {
+      "path": "apps/docs/public/migration-state.json",
+      "sha256": "92932ebeaffcf53ee80cf144f0d49c929a7c52c34cf7cfa3d8e90493d6aa6996"
+    },
+    "migrationStateSchema": {
+      "path": "apps/docs/public/migration-state.schema.json",
+      "sha256": "730de53738ddad16a7bedb2bbf940d0a9b04132556da4aae3896e4d333f4af36"
+    },
+    "homeScreenshot": {
+      "path": "evidence/0075-migration-docs/hostname-correction-home.webp",
+      "sha256": "f5dec12dde50422ee84954b532b745139cfc9694b720cff8184d7dc0042fb8bc",
+      "viewport": "1365x768 CSS pixels at device scale 1.25"
+    }
+  },
+  "verification": {
+    "commands": [
+      "bun --cwd apps/docs run build",
+      "bun --cwd apps/docs run check-types",
+      "bun --cwd apps/docs run lint",
+      "bun --cwd apps/docs run format:check",
+      "bun --cwd infra/alchemy run check-types:docs",
+      "bun --cwd infra/alchemy run test:docs"
+    ],
+    "liveHttp": [
+      { "path": "/", "status": 200 },
+      { "path": "/tutorials/orientation/", "status": 200 },
+      { "path": "/tutorials/receipt-journey/", "status": 200 },
+      { "path": "/how-to/migrate-capability/", "status": 200 },
+      { "path": "/how-to/run-local-stack/", "status": 200 },
+      { "path": "/how-to/run-parity-gates/", "status": 200 },
+      { "path": "/reference/migration-state/", "status": 200 },
+      { "path": "/reference/runtime-graph/", "status": 200 },
+      { "path": "/explanation/native-migration/", "status": 200 },
+      { "path": "/explanation/evidence-limits/", "status": 200 },
+      { "path": "/migration-state.json", "status": 200 },
+      { "path": "/migration-state.schema.json", "status": 200 },
+      { "path": "/llms.txt", "status": 200 },
+      { "path": "/robots.txt", "status": 200 }
+    ],
+    "headers": {
+      "xRobotsTag": "noindex, nofollow",
+      "cacheControl": "public, max-age=0, must-revalidate, no-transform"
+    },
+    "browser": {
+      "homeTitle": "Migration status – Vektorprogrammet migration",
+      "homeHeading": "Vektorprogrammet migration",
+      "previewWarningPresent": true,
+      "loadedAssetCount": 18,
+      "searchQuery": "receipt authority",
+      "searchFirstResult": "/tutorials/receipt-journey#trace-a-receipt",
+      "searchDestinationHeading": "Trace a receipt",
+      "runtimeExceptions": 0,
+      "consoleErrors": 0,
+      "requestFailures": 0,
+      "resolverNote": "The workstation resolver retained a stale negative cache. Chromium used an address returned by public DNS. TLS and hostname verification remained enabled."
+    }
+  },
+  "compatibility": {
+    "vocs": "2.8.5",
+    "waku": "1.0.0-beta.3",
+    "vite": "8.2.2",
+    "note": "Vocs 2.8.5 uses the Waku beta router event contract. Waku 1.0.0-rc.0 removed that contract and caused a client hydration exception, so the supported beta is pinned exactly."
+  }
+}
