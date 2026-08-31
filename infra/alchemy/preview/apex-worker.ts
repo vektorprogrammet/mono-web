@@ -133,6 +133,20 @@ export default {
       return withPreviewStage(await env.Homepage.fetch(request), stage);
     }
 
+    // Legacy Symfony bookmark: /kontrollpanel -> dashboard login. Exact path
+    // only (document or .data), query preserved; evaluated after the host and
+    // stage guards so 421/503 semantics are unchanged.
+    if (url.pathname === "/kontrollpanel" || url.pathname === "/kontrollpanel.data") {
+      const target = url.search || "?redirectTo=%2Fdashboard";
+      return withPreviewStage(
+        new Response(null, {
+          status: 302,
+          headers: { location: `/login${target}`, "cache-control": "no-store" },
+        }),
+        stage,
+      );
+    }
+
     const surface = apexSurface(url.pathname);
     if (surface === "homepage") {
       return withPreviewStage(await env.Homepage.fetch(request), stage);

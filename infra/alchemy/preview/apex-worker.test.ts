@@ -167,4 +167,26 @@ describe("apex edge worker", () => {
     expect(response.headers.get("set-cookie")).toBeNull();
     expect(response.headers.get("x-mono-web-stage")).toBe("dev-main");
   });
+  it.each([
+    ["/kontrollpanel", "/login?redirectTo=%2Fdashboard"],
+    ["/kontrollpanel.data", "/login?redirectTo=%2Fdashboard"],
+    ["/kontrollpanel?from=legacy", "/login?from=legacy"],
+  ])("redirects legacy kontrollpanel request %s to %s", async (path, expectedLocation) => {
+    const env = apexEnv();
+    const response = await worker.fetch(apexRequest(path), env);
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get("location")).toBe(expectedLocation);
+    expect(response.headers.get("x-mono-web-stage")).toBe("dev-main");
+    expect(env.Dashboard.fetch).not.toHaveBeenCalled();
+    expect(env.Homepage.fetch).not.toHaveBeenCalled();
+  });
+
+  it("keeps deeper kontrollpanel paths out of the legacy redirect", async () => {
+    const env = apexEnv();
+    const response = await worker.fetch(apexRequest("/kontrollpanel/skoler"), env);
+
+    expect(await response.text()).toBe("homepage");
+    expect(env.Homepage.fetch).toHaveBeenCalledOnce();
+  });
 });
