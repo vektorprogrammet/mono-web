@@ -136,9 +136,7 @@ describe("person-keyed authority writers in PGlite", () => {
       withTransaction: <A, E, R>(program: Effect.Effect<A, E, R>) => program,
     });
 
-    await unitRuntime.runPromise(
-      lockOrganizationGlobalAdministratorGrantForWrite(sql, grantId, 0),
-    );
+    await unitRuntime.runPromise(lockOrganizationGlobalAdministratorGrantForWrite(sql, grantId, 0));
     await unitRuntime.runPromise(lockReceiptPaymentAuthorityForWrite(sql, paymentAuthorityId, 0));
     await unitRuntime.runPromise(lockReceiptApprovalGrantForWrite(sql, approvalGrantId, 0));
     expect(events).toEqual([

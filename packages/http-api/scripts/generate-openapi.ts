@@ -71,16 +71,16 @@ assert(
 );
 const operationIds = operations.map((operation) => operation.operationId);
 assert(
-  operationIds.every(
-    (identifier): identifier is string => typeof identifier === "string",
-  ),
+  operationIds.every((identifier): identifier is string => typeof identifier === "string"),
   "every operation needs an id",
 );
 const expectedPublicOperationIds = new Set(
   Object.values(NativeApi.groups)
     .filter((group) => Context.get(group.annotations, OpenApi.Exclude) !== true)
     .flatMap((group) =>
-      Object.values(group.endpoints).map((endpoint) => `${group.identifier}.${endpoint.identifier}`),
+      Object.values(group.endpoints).map(
+        (endpoint) => `${group.identifier}.${endpoint.identifier}`,
+      ),
     ),
 );
 assert(
