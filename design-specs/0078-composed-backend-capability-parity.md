@@ -320,11 +320,13 @@ Current v1 receipts have no claim-specific persistence, effect, rejection, priva
 
 ### Interview scheduling and invitation acceptance
 
-The source intent is `intent://journey:recruitment:interview-scheduling:v1`. The witness can use different authority and operation graphs on each backend.
+This row composes `intent://journey:recruitment:interview-scheduling:v1` and `intent://journey:recruitment:invitation-response:v1`. The witness can use different authority and operation graphs on each backend.
 
-The witness must cover scheduling, invitation response, rejection privacy, side effects, and fresh reads. Current v1 receipts do not warrant these claim kinds.
+The external v1 register does not contain a reviewed composed capability intent. The report keeps both component refs and emits `MISSING_SEMANTIC_ASSERTION`.
 
-The generated verdict is `unknown`.
+The witness must cover scheduling, invitation acceptance, alternate invitation responses, rejection privacy, side effects, and fresh reads. Current v1 receipts do not warrant these claim kinds.
+
+The generated verdict is `unknown` until the external v2 authority defines the composition and v2 receipts warrant its claims.
 
 ### Receipt owner and scoped approval
 
