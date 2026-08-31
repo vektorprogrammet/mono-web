@@ -686,6 +686,18 @@ const recruitmentJourney = async (
   if (freshBody.responseState !== "Rejected") {
     throw new Error("fresh invitation response was not rejected");
   }
+  const freshBoard = await observedRequest(
+    http,
+    observations,
+    {
+      headers: { cookie: leaderCookie },
+      method: "GET",
+      url: `${origin}/api/admin/recruitment/interviews/scheduling-board`,
+    },
+    "/api/admin/recruitment/interviews/scheduling-board",
+    "fresh_http_read_after_write",
+  );
+  requireStatus(freshBoard, [200], "fresh scheduling board");
   const database = freshDatabaseObservation(
     commands,
     config.repositoryRoot,
@@ -887,6 +899,24 @@ const receiptJourney = async (
     !freshItems.some((item) => item.receiptId === receiptId && item.status === "Rejected")
   ) {
     throw new Error("fresh owner receipt list did not show the rejected receipt");
+  }
+  const freshApproval = await observedRequest(
+    http,
+    observations,
+    { headers: { cookie: approverCookie }, method: "GET", url: `${origin}/api/admin/receipts` },
+    "/api/admin/receipts",
+    "fresh_http_read_after_write",
+  );
+  requireStatus(freshApproval, [200], "fresh approval receipt read");
+  const freshApprovalItems = asArray(
+    asRecord(freshApproval.body, "fresh approval list").items,
+    "fresh approval items",
+  ).map((item) => asRecord(item, "fresh approval receipt"));
+  if (
+    freshApprovalItems.some((item) => item.departmentId !== "department-a") ||
+    !freshApprovalItems.some((item) => item.receiptId === receiptId && item.status === "Rejected")
+  ) {
+    throw new Error("fresh approval list did not show the scoped rejected receipt");
   }
   const database = freshDatabaseObservation(
     commands,
