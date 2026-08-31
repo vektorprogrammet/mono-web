@@ -19,7 +19,7 @@ import {
   User,
   Users,
 } from "lucide-react";
-import { Fragment, type ReactNode, useState } from "react";
+import { Fragment, type ReactNode, useEffect, useState } from "react";
 import {
   Form,
   Link,
@@ -458,8 +458,26 @@ export function ErrorBoundary() {
 }
 
 export function DashboardShellLayout() {
-  const { user, isAdmin, hasOrganizationContext } = useLoaderData<typeof loader>();
-  const shell = dashboardShellVisibility(user, hasOrganizationContext);
+  const { user, isAdmin } = useLoaderData<typeof loader>();
+  const shell = dashboardShellVisibility(user);
+  // Preview-only rendering bridge (design spec 0074). The server loader stays
+  // authoritative; this state changes only which navigation groups React
+  // draws. The guarded dynamic import and its chunk disappear in production.
+  const [previewIsAdmin, setPreviewIsAdmin] = useState<boolean | undefined>();
+  useEffect(() => {
+    if (import.meta.env.VITE_PREVIEW_DEVTOOLS !== "true") return;
+    let active = true;
+    void import("../lib/preview-role-override").then((module) => {
+      const role = module.readRoleOverride();
+      if (active) {
+        setPreviewIsAdmin(role === null ? undefined : module.roleToRenderFlags(role).isAdmin);
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+  const effectiveIsAdmin = previewIsAdmin ?? isAdmin;
   return (
     <SidebarProvider>
       <aside>
@@ -482,7 +500,7 @@ export function DashboardShellLayout() {
                 </SidebarMenu>
                 {shell.showOrganizationContext ? <NavLinks links={mainLinks} /> : null}
               </SidebarGroup>
-              {shell.showOrganizationContext && isAdmin && (
+              {effectiveIsAdmin && (
                 <SidebarGroup>
                   <SidebarGroupLabel>Admin</SidebarGroupLabel>
                   <NavLinks links={adminLinks} />

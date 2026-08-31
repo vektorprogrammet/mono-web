@@ -10,7 +10,8 @@
     "check-types": "react-router typegen && tsc",
     "lint": "oxlint",
     "format": "oxfmt --write",
-    "test": "vitest run",
+    "test": "vitest run && bun run test:preview-bundle-gate",
+    "test:preview-bundle-gate": "bun scripts/assert-preview-devtools-bundles.mjs",
     "test:e2e": "node ./node_modules/@playwright/test/cli.js test",
     "e2e:real-content-publication": "bun e2e/run-real-native-content-publication.mjs",
     "e2e:test": "node ./node_modules/@playwright/test/cli.js test",
@@ -92,6 +93,7 @@
     "@types/node": "^22.13.14",
     "@types/react": "^19.2.10",
     "@types/react-dom": "^19.2.3",
+    "happy-dom": "^20.12.0",
     "typescript": "^5.8.2",
     "vite": "^8.0.7",
     "vitest": "catalog:effect-v4"

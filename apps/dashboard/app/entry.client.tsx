@@ -10,12 +10,22 @@ import { registerContentWorkspaceElement } from "./foldkit/content/elements";
 
 function HydrationSafeRouter() {
   useEffect(() => {
-    registerDashboardElement();
     registerInterviewElement();
     registerOrganizationCatalogElement();
     registerSchoolsDirectoryElement();
     registerContentWorkspaceElement();
     registerProfileEditorElement();
+
+    // Preview devtools (design spec 0074): production registers the ordinary
+    // dashboard element. Only a build-time true constant can fetch the preview
+    // composition root, so Rollup omits that entire chunk graph in production.
+    if (import.meta.env.VITE_PREVIEW_DEVTOOLS === "true") {
+      void import("./lib/preview-devtools-bootstrap").then((module) =>
+        module.startPreviewDevtools(),
+      );
+    } else {
+      registerDashboardElement();
+    }
   }, []);
 
   return <HydratedRouter />;

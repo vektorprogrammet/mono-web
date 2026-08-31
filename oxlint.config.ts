@@ -65,6 +65,12 @@ const effectConfig = {
       platform: "node",
       strictness: "recommended",
     }),
+    group({
+      files: ["apps/dashboard/app/lib/preview-*.test.ts"],
+      role: "test",
+      platform: "browser",
+      strictness: "recommended",
+    }),
   ],
 } satisfies ExpandInput;
 

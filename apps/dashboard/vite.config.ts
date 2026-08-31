@@ -32,8 +32,21 @@ export const dashboardAssetBase = (environment: NodeJS.ProcessEnv): string =>
     ? "/"
     : "/dashboard/";
 
-export default defineConfig({
+export const previewDevtoolsBuildEnabled = (
+  command: "build" | "serve",
+  environment: NodeJS.ProcessEnv,
+): boolean => command === "serve" || environment.VITE_PREVIEW_DEVTOOLS === "true";
+
+export default defineConfig(({ command }) => ({
   base: dashboardAssetBase(process.env),
+  // Local serve enables the capability automatically. A build requires the
+  // explicit preview flag; production leaves it unset/false, so Rollup removes
+  // the complete dynamic-import graph before emitting client or server assets.
+  define: {
+    "import.meta.env.VITE_PREVIEW_DEVTOOLS": JSON.stringify(
+      previewDevtoolsBuildEnabled(command, process.env) ? "true" : "false",
+    ),
+  },
   plugins: [reactRouter(), foldkit(), tailwindcss(), defaultProfileImage()],
   resolve: {
     alias: {
@@ -49,4 +62,4 @@ export default defineConfig({
           }),
     },
   },
-});
+}));

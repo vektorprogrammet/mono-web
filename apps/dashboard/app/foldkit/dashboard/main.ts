@@ -19,9 +19,12 @@ const initialModelFrom = (serializedInput: string | null): Model => {
   }
 };
 
+export type DevToolsEmbedConfig = false | { show: "Always"; mode: "Inspect" };
+
 export const embedDashboard = (
   container: HTMLElement,
   serializedInput: string | null,
+  devTools: DevToolsEmbedConfig = false,
 ): (() => void) => {
   const program = Runtime.makeElement({
     Model,
@@ -29,7 +32,7 @@ export const embedDashboard = (
     init: () => [initialModelFrom(serializedInput), []],
     update,
     view,
-    devTools: false,
+    devTools,
     slow: false,
     crash: {
       view: (_context, h) =>
