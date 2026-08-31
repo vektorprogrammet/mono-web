@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "recordType": "vektor.migration-docs-deployment-evidence/v2",
-  "recordedAt": "2026-08-31T13:39:29Z",
-  "sourceRevision": "2e7f2e2b6834be1f6cf00ab5c81163cd6ad4aade",
+  "recordedAt": "2026-08-31T13:52:21Z",
+  "sourceRevision": "22f63be8631b6314f40765829164340f31a0a667",
   "inspectedMigrationRevision": "0bc4aa3ac5506b6371d25972c9608eee8e35c17d",
   "initialWrongDeployment": {
     "sourceRevision": "177c8c6051f9d9b55600a3f9f3d3110b8f75b65b",
@@ -67,6 +67,25 @@
       "postProbePlan": "2 to noop: DocsBuild, MigrationDocs",
       "providerResourcesCreated": 0,
       "providerResourcesDeleted": 0
+    },
+    "commandSyntaxCorrection": {
+      "incorrectForm": "bun --cwd <directory> run <script>",
+      "correctForm": "bun run --cwd <directory> <script>",
+      "activeDocsFilesUpdated": [
+        "apps/docs/src/pages/how-to/deploy-recover-preview.mdx",
+        "apps/docs/src/pages/how-to/migrate-capability.mdx",
+        "apps/docs/src/pages/how-to/run-local-stack.mdx",
+        "apps/docs/src/pages/how-to/run-parity-gates.mdx",
+        "apps/docs/src/pages/how-to/update-design-spec.mdx",
+        "apps/docs/src/pages/tutorials/receipt-journey.mdx"
+      ],
+      "historicalDeploymentEvidencePreserved": "evidence/0075-migration-docs/deployment.json",
+      "validation": "Docs type, lint, format, and build checks passed. Alchemy docs type and focused test checks passed.",
+      "plan": "2 to update: DocsBuild, MigrationDocs",
+      "result": "Done: 4 succeeded",
+      "postDeployPlan": "2 to noop: DocsBuild, MigrationDocs",
+      "providerResourcesCreated": 0,
+      "providerResourcesDeleted": 0
     }
   },
   "finalDeployment": {
@@ -107,12 +126,12 @@
   },
   "verification": {
     "commands": [
-      "bun --cwd apps/docs run build",
-      "bun --cwd apps/docs run check-types",
-      "bun --cwd apps/docs run lint",
-      "bun --cwd apps/docs run format:check",
-      "bun --cwd infra/alchemy run check-types:docs",
-      "bun --cwd infra/alchemy run test:docs"
+      "bun run --cwd apps/docs build",
+      "bun run --cwd apps/docs check-types",
+      "bun run --cwd apps/docs lint",
+      "bun run --cwd apps/docs format:check",
+      "bun run --cwd infra/alchemy check-types:docs",
+      "bun run --cwd infra/alchemy test:docs"
     ],
     "liveHttp": [
       { "path": "/", "status": 200 },
