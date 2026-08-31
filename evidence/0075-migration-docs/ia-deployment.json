@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "recordType": "vektor.migration-docs-ia-deployment-evidence/v1",
+  "recordedAt": "2026-08-31T14:52:17Z",
+  "sourceRevision": "d9796b2700fc0a09c72e19821584e5cb060aec7e",
+  "deployment": {
+    "stack": "vektor-docs",
+    "stage": "docs-dev-main",
+    "stateNamespace": ".alchemy/state/vektor-docs/docs-dev-main",
+    "logicalResources": ["DocsBuild", "MigrationDocs"],
+    "workerName": "vektor-migration-docs",
+    "hostname": "vector-docs.phibkro.org",
+    "url": "https://vector-docs.phibkro.org",
+    "initialPlan": {
+      "summary": "2 to update",
+      "updates": ["DocsBuild", "MigrationDocs"],
+      "creates": 0,
+      "deletes": 0
+    },
+    "result": "Done: 4 succeeded",
+    "postDeployPlan": {
+      "summary": "2 to noop",
+      "noops": ["DocsBuild", "MigrationDocs"]
+    },
+    "newDomains": 0,
+    "newRoutes": 0,
+    "newWorkers": 0,
+    "otherResourcesChanged": 0,
+    "applicationPreviewResourcesChanged": false
+  },
+  "live": {
+    "correctHostname": {
+      "publicDnsARecordsPresent": true,
+      "tlsVerified": true,
+      "homeStatus": 200,
+      "routesStatusAfterRedirect": 200,
+      "routesEffectiveUrl": "https://vector-docs.phibkro.org/reference/routes-and-api/",
+      "mcpPath": "/api/mcp",
+      "mcpStatus": 404
+    },
+    "wrongHostname": {
+      "hostname": "vektor-docs.phibkro.org",
+      "publicDnsStatus": "NXDOMAIN"
+    },
+    "browser": {
+      "viewportCssPixels": "1440x900",
+      "homeHeading": "Vektorprogrammet migration",
+      "routesTopNavVisible": true,
+      "routesHomeLinkVisible": true,
+      "routesScopeStatementPresent": true,
+      "clickDestination": "https://vector-docs.phibkro.org/reference/routes-and-api",
+      "clickStatus": 200,
+      "clickHeading": "Routes & API",
+      "availabilitySectionPresent": true,
+      "searchQuery": "receipt authority",
+      "searchResult": "Trace a receipt",
+      "searchDestination": "https://vector-docs.phibkro.org/tutorials/receipt-journey",
+      "searchDestinationHeading": "Trace a receipt",
+      "askAiPresent": false,
+      "copyForAiPresent": false,
+      "consoleErrors": 0,
+      "pageErrors": 0,
+      "requestFailures": 0
+    }
+  },
+  "checks": {
+    "docsBuild": {
+      "command": "bun run --cwd apps/docs build",
+      "result": "passed",
+      "generatedFiles": 45,
+      "deadlinksEnabled": true
+    },
+    "planCommand": "bun run --cwd infra/alchemy docs:plan -- --stage docs-dev-main --profile <authorized-profile>",
+    "deployCommand": "bun run --cwd infra/alchemy docs:deploy -- --stage docs-dev-main --profile <authorized-profile> --yes"
+  },
+  "screenshots": [
+    {
+      "path": "evidence/0075-migration-docs/ia-deployment-home.webp",
+      "sha256": "16c716e55a4adfb006809b5137fa50be56ea7c4b03fc360e4f19c2926e110afb"
+    },
+    {
+      "path": "evidence/0075-migration-docs/ia-deployment-routes.webp",
+      "sha256": "dba6a67665500937b089baab52c1c9f64b1b959ed7eb140f3bf96bd3a5665912"
+    }
+  ],
+  "evidencePublicationProtocol": {
+    "reason": "This evidence bundle is a docs build memo input and must be published by the same existing resources.",
+    "acceptedPlan": "2 to update: DocsBuild, MigrationDocs",
+    "acceptedDeployResult": "Done: 4 succeeded",
+    "requiredFinalPlan": "2 to noop: DocsBuild, MigrationDocs",
+    "forbiddenEffects": [
+      "resource create",
+      "resource delete",
+      "new domain",
+      "new route",
+      "new Worker",
+      "application preview resource change"
+    ]
+  },
+  "externalEffectsNotPerformed": {
+    "push": false,
+    "pullRequest": false
+  }
+}
