@@ -62,6 +62,7 @@ import { EconomyLive } from "@vektorprogrammet/domain/receipt/postgres";
 import { storeReceiptImportResult } from "../../domain/src/receipt/postgres.js";
 import { Deferred, Effect, Fiber, Layer } from "effect";
 import { DatabaseTest } from "./layers.js";
+import { databaseMigrationDefinitions } from "./migrations.js";
 import { makeControlledTestRuntime } from "../test/runtime.js";
 
 const databaseLayer = DatabaseTest();
@@ -2487,7 +2488,7 @@ describe("DatabaseTest", () => {
     );
 
     expect(second).toBe(first);
-    expect(rows).toEqual([{ migration_count: "22" }]);
+    expect(rows).toEqual([{ migration_count: String(databaseMigrationDefinitions.length) }]);
   });
 
   it("executes Admissions and Organization authority adapters against PGlite", async () => {

@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, it } from "vitest";
-import { Effect } from "effect";
+import { Effect, Layer } from "effect";
 import { Database, type DatabaseShape } from "@vektorprogrammet/domain/database";
 import {
   OrganizationGlobalAdministratorGrantId,
@@ -27,6 +27,7 @@ import { makeControlledTestRuntime } from "../test/runtime.js";
 import { DatabaseTest } from "./layers.js";
 
 const runtime = makeControlledTestRuntime(DatabaseTest());
+const unitRuntime = makeControlledTestRuntime(Layer.empty);
 const personId = PersonId.make("authority-writer-person");
 const departmentId = DepartmentId.make("authority-writer-department");
 const grantId = OrganizationGlobalAdministratorGrantId.make("authority-writer-global-admin");
@@ -53,6 +54,7 @@ const seedReferences = Effect.gen(function* () {
 });
 
 afterAll(async () => {
+  await unitRuntime.dispose();
   await runtime.dispose();
 });
 
@@ -134,9 +136,11 @@ describe("person-keyed authority writers in PGlite", () => {
       withTransaction: <A, E, R>(program: Effect.Effect<A, E, R>) => program,
     });
 
-    await runtime.runPromise(lockOrganizationGlobalAdministratorGrantForWrite(sql, grantId, 0));
-    await runtime.runPromise(lockReceiptPaymentAuthorityForWrite(sql, paymentAuthorityId, 0));
-    await runtime.runPromise(lockReceiptApprovalGrantForWrite(sql, approvalGrantId, 0));
+    await unitRuntime.runPromise(
+      lockOrganizationGlobalAdministratorGrantForWrite(sql, grantId, 0),
+    );
+    await unitRuntime.runPromise(lockReceiptPaymentAuthorityForWrite(sql, paymentAuthorityId, 0));
+    await unitRuntime.runPromise(lockReceiptApprovalGrantForWrite(sql, approvalGrantId, 0));
     expect(events).toEqual([
       "GlobalAdminPersonRead",
       `PersonLock:vektorprogrammet:person-authorization:v1:${personId}`,
@@ -150,7 +154,7 @@ describe("person-keyed authority writers in PGlite", () => {
     ]);
 
     events.length = 0;
-    await runtime.runPromise(
+    await unitRuntime.runPromise(
       Effect.gen(function* () {
         yield* createOrganizationGlobalAdministratorGrant({
           grantId,
