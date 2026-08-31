@@ -1,5 +1,5 @@
 {
-  "name": "@vektorprogrammet/backend",
+  "name": "@vektorprogrammet/http-api",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -7,23 +7,19 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "start": "bun run src/main.ts",
-    "dev": "bun run --watch src/main.ts",
+    "generate": "bun run scripts/generate-openapi.ts",
+    "generate:check": "bun run scripts/generate-openapi.ts --check",
     "check-types": "tsc --noEmit",
-    "build": "tsc --noEmit",
+    "build": "bun run generate:check && tsc --noEmit",
     "lint": "oxlint",
     "test": "vitest run"
   },
   "dependencies": {
-    "@effect/platform-bun": "catalog:effect-v4",
-    "@vektorprogrammet/database": "workspace:*",
     "@vektorprogrammet/domain": "workspace:*",
-    "@vektorprogrammet/http-api": "workspace:*",
     "effect": "catalog:effect-v4"
   },
   "devDependencies": {
     "@types/node": "^22",
-    "oxlint": "^1.41.0",
     "typescript": "^5",
     "vitest": "catalog:effect-v4"
   }

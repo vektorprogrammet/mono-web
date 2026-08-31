@@ -21,8 +21,8 @@
     "build:homepage": "turbo -F @monoweb/homepage worker:build",
     "worker:homepage": "turbo -F @monoweb/homepage worker:dev",
     "check": "bun run format:check && bun run lint && bun run check-types",
-    "format": "oxfmt --write .omp .havn.json .oxfmtrc.json oxlint.config.ts package.json tsconfig.json apps/backend/src packages/database/src packages/domain/src",
-    "format:check": "oxfmt --check .omp .havn.json .oxfmtrc.json oxlint.config.ts package.json tsconfig.json apps/backend/src packages/database/src packages/domain/src",
+    "format": "oxfmt --write .omp .havn.json .oxfmtrc.json oxlint.config.ts package.json tsconfig.json apps/backend/src packages/database/src packages/domain/src packages/http-api/src packages/http-api/scripts",
+    "format:check": "oxfmt --check .omp .havn.json .oxfmtrc.json oxlint.config.ts package.json tsconfig.json apps/backend/src packages/database/src packages/domain/src packages/http-api/src packages/http-api/scripts",
     "changeset": "changeset",
     "version": "changeset version",
     "release": "changeset publish",
@@ -47,6 +47,7 @@
     "effect-v4": {
       "@effect/vitest": "4.0.0-rc.109",
       "@effect/platform-browser": "4.0.0-rc.109",
+      "@effect/platform-bun": "4.0.0-rc.109",
       "@effect/sql-d1": "4.0.0-rc.109",
       "@effect/sql-pg": "4.0.0-rc.109",
       "@effect/sql-pglite": "4.0.0-rc.109",

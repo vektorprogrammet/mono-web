@@ -26,6 +26,7 @@
     "lint": "oxlint"
   },
   "dependencies": {
+    "@effect/platform-bun": "catalog:effect-v4",
     "@effect/sql-pg": "catalog:effect-v4",
     "@types/pg": "^8.23.1",
     "@vektorprogrammet/domain": "workspace:*",
