@@ -1,6 +1,7 @@
 ---
 title: Migration status
 description: Current, source-linked status for the Vektorprogrammet native migration.
+showAskAi: false
 ---
 
 # Vektorprogrammet migration
@@ -11,6 +12,12 @@ Use this site to understand migration state, operate one capability cutover, and
 The public application at `vektor.phibkro.org` is a development preview. Its database contains synthetic data. It is not production.
 :::
 
+## Routes & API
+
+:::info
+Open [Routes & API](/reference/routes-and-api) for route families, capability ownership, native and legacy boundaries, and current API availability.
+:::
+
 ## Current posture
 
 - The legacy Symfony application and MySQL remain the production authority at the inspected revision.
@@ -19,7 +26,7 @@ The public application at `vektor.phibkro.org` is a development preview. Its dat
 - The repository does not prove final functional parity or a production cutover.
 - The inspected revision has no checked-in `STATE.md`.
 
-Read the [generated migration state](/reference/migration-state) for capability details. The [preview evidence](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/evidence/0069-apex-preview-deployment.json) records the synthetic-data and `dev-main` boundaries.
+Read the [migration state](/reference/migration-state) for capability details. The [preview evidence](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/evidence/0069-apex-preview-deployment.json) records the synthetic-data and `dev-main` boundaries.
 
 ## Choose your task
 
@@ -33,7 +40,7 @@ Use [Migrate a capability](/how-to/migrate-capability) for the cutover workflow.
 
 ### Look up a fact
 
-Open the [runtime graph](/reference/runtime-graph), [Effect runtime rules](/reference/effect-runtime-rules), or [route boundaries](/reference/routes-and-api).
+Open [Routes & API](/reference/routes-and-api), the [runtime graph](/reference/runtime-graph), or [Effect runtime rules](/reference/effect-runtime-rules).
 
 ### Understand a decision
 

@@ -64,11 +64,11 @@ The reference section contains these facts:
 - a migration state matrix by capability and journey
 - a runtime and capability graph
 - Services, Layers, and `ManagedRuntime` rules
-- route and API boundaries
+- route families, capability ownership, native and legacy boundaries, and current API availability
 - a generated design-spec and evidence index
 - a glossary
 
-One canonical machine-readable state file owns the matrix facts. A build script derives the human page and public JSON artifact from this file.
+The canonical state source owns the matrix facts. A build script derives the human page and its supporting public JSON projection from this source.
 
 The design-spec and evidence index is generated from repository paths. Maintainers must not update a second manual list.
 
@@ -164,9 +164,11 @@ The frozen dependency target is the current registry set observed on 2026-08-31:
 
 The package remains a Bun workspace. Vocs uses `renderStrategy: "full-static"`, `baseUrl: "https://vector-docs.phibkro.org"`, and dead-link failures.
 
-Built-in keyword search remains enabled. Vocs must emit per-page Markdown output and `llms.txt` or `llms-full.txt` agent-readable artifacts.
+Built-in keyword search remains enabled. Every human page disables Ask AI and copy-for-AI controls. The full-static build explicitly disables MCP, feedback, dynamic image, and AI retrieval endpoints.
 
-The full-static build must not enable server-only MCP, feedback, dynamic image, or AI retrieval endpoints.
+Vocs can continue to generate its internal text outputs because version 2.8.5 has no supported disable switch. The site must not advertise those outputs as product features.
+
+Do not mount a handwritten or placeholder OpenAPI reference. A generated API reference can follow only after a running Effect HttpApi contract exists.
 
 The site uses a static Open Graph image or no Open Graph image. It does not reference the disabled dynamic endpoint.
 
@@ -217,7 +219,7 @@ The following checks must pass:
 3. Type checks pass for the docs package and deployment declaration.
 4. The focused deployment contract tests pass.
 5. Lint and format checks pass for changed code.
-6. The built site contains HTML, assets, `migration-state.json`, and agent-readable text output.
+6. The built site contains HTML, assets, and the source-backed `migration-state.json` projection used by human pages.
 
 ### Documentation checks
 
@@ -243,7 +245,7 @@ The built site must include these representative pages:
 - `/explanation/evidence-limits`
 - `/explanation/preview-production-boundary`
 
-Navigation and keyword search must expose all four Diataxis categories.
+Navigation must expose `Routes & API` without search. Keyword search must expose all four Diataxis categories.
 
 ### Live checks
 
@@ -253,7 +255,6 @@ The live HTTPS checks must record these observations:
 - `200` for the home page and one page from each Diataxis category
 - `200` for a hashed asset
 - `200` for `/migration-state.json`
-- `200` for an agent-readable output file
 - a `robots` or page metadata rule that records the preview posture
 - working navigation and keyword search
 - no browser console error or page error on the checked pages

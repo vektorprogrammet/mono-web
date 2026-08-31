@@ -8,6 +8,7 @@ export default defineConfig({
   baseUrl: "https://vector-docs.phibkro.org",
   renderStrategy: "full-static",
   checkDeadlinks: true,
+  mcp: { enabled: false },
   head: {
     meta: {
       robots: "noindex, nofollow",
@@ -32,6 +33,7 @@ export default defineConfig({
   ],
   topNav: [
     { text: "Tutorials", link: "/tutorials/orientation" },
+    { text: "Routes & API", link: "/reference/routes-and-api" },
     { text: "How-to", link: "/how-to/migrate-capability" },
     { text: "Reference", link: "/reference/migration-state" },
     { text: "Explanation", link: "/explanation/native-migration" },
@@ -64,10 +66,10 @@ export default defineConfig({
     {
       text: "Reference",
       items: [
+        { text: "Routes & API", link: "/reference/routes-and-api" },
         { text: "Migration state", link: "/reference/migration-state" },
         { text: "Runtime graph", link: "/reference/runtime-graph" },
         { text: "Effect runtime rules", link: "/reference/effect-runtime-rules" },
-        { text: "Routes and API", link: "/reference/routes-and-api" },
         {
           text: "Specs and evidence",
           link: "/reference/design-spec-evidence-index",
