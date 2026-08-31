@@ -2,14 +2,14 @@
 
 ## Metadata
 
-| Field | Value |
-| --- | --- |
-| Stable ID | `0075` |
-| Status | Frozen for implementation on 2026-08-31 |
-| Source base | `0bc4aa3ac5506b6371d25972c9608eee8e35c17d` |
-| Product | Vektorprogrammet migration documentation |
-| Public host | `vektor-docs.phibkro.org` |
-| Deployment stage | `docs-main` |
+| Field             | Value                                           |
+| ----------------- | ----------------------------------------------- |
+| Stable ID         | `0075`                                          |
+| Status            | Frozen for implementation on 2026-08-31         |
+| Source base       | `0bc4aa3ac5506b6371d25972c9608eee8e35c17d`      |
+| Product           | Vektorprogrammet migration documentation        |
+| Public host       | `vector-docs.phibkro.org`                       |
+| Deployment stage  | `docs-main`                                     |
 | Deployment system | Alchemy v2 and Cloudflare Workers static assets |
 
 The operator authorized this documentation deployment and the new Cloudflare hostname. This authority applies only to the resources in this spec.
@@ -91,17 +91,17 @@ Explanation pages describe decisions. They do not hide procedures inside descrip
 
 The matrix uses explicit evidence classes. It must not use one word such as “done” for different claims.
 
-| Status | Meaning |
-| --- | --- |
-| `legacy-authority` | The legacy Symfony/MySQL path remains the production authority. |
+| Status               | Meaning                                                                                    |
+| -------------------- | ------------------------------------------------------------------------------------------ |
+| `legacy-authority`   | The legacy Symfony/MySQL path remains the production authority.                            |
 | `native-implemented` | Native source implements the capability. This status does not claim a runtime observation. |
-| `native-observed` | A named evidence artifact records a native runtime observation. |
-| `parity-observed` | A named parity artifact records the checked scope. It does not prove all behavior. |
-| `cutover-accepted` | A frozen design spec accepts the capability cutover contract. |
-| `production-cutover` | Repository evidence proves the production authority change. |
-| `drifted` | Current source or evidence does not match the artifact claim. |
-| `stale` | A newer accepted artifact supersedes the item. |
-| `unsupported` | The repository contains no evidence for the claim. |
+| `native-observed`    | A named evidence artifact records a native runtime observation.                            |
+| `parity-observed`    | A named parity artifact records the checked scope. It does not prove all behavior.         |
+| `cutover-accepted`   | A frozen design spec accepts the capability cutover contract.                              |
+| `production-cutover` | Repository evidence proves the production authority change.                                |
+| `drifted`            | Current source or evidence does not match the artifact claim.                              |
+| `stale`              | A newer accepted artifact supersedes the item.                                             |
+| `unsupported`        | The repository contains no evidence for the claim.                                         |
 
 A row can have more than one status. Every status needs a source, design-spec, or evidence reference.
 
@@ -162,7 +162,7 @@ The frozen dependency target is the current registry set observed on 2026-08-31:
 - `waku@1.0.0-rc.0`
 - `vite@8.2.2`
 
-The package remains a Bun workspace. Vocs uses `renderStrategy: "full-static"`, `baseUrl: "https://vektor-docs.phibkro.org"`, and dead-link failures.
+The package remains a Bun workspace. Vocs uses `renderStrategy: "full-static"`, `baseUrl: "https://vector-docs.phibkro.org"`, and dead-link failures.
 
 Built-in keyword search remains enabled. Vocs must emit per-page Markdown output and `llms.txt` or `llms-full.txt` agent-readable artifacts.
 
@@ -180,7 +180,7 @@ Use `Alchemy.localState()` under the dedicated stack and stage. This state path 
 
 Deploy one assets-only Cloudflare Worker named `vektor-migration-docs`. The Worker serves the built `apps/docs/dist` directory.
 
-The Worker has one custom domain: `vektor-docs.phibkro.org`. It disables `workers.dev` and version preview URLs.
+The Worker has one custom domain: `vector-docs.phibkro.org`. It disables `workers.dev` and version preview URLs.
 
 The declaration contains no script, secret, environment binding, database, queue, Durable Object, service binding, route for another hostname, or production data.
 

@@ -103,7 +103,7 @@ describe("docs deployment process boundary", () => {
         "stages",
         "docs.run.ts",
         "--stack",
-        "vector-docs",
+        "vektor-docs",
         "--profile",
         "goal1-staging",
         "--local",

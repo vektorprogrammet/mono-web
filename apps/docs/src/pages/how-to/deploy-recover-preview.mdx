@@ -16,12 +16,12 @@ Do not use the apex `plan` or `deploy` scripts. They own `vektor.phibkro.org`, A
 | Item               | Value                                                    |
 | ------------------ | -------------------------------------------------------- |
 | Alchemy entrypoint | `infra/alchemy/docs.run.ts`                              |
-| Stack              | `vector-docs`                                            |
+| Stack              | `vektor-docs`                                            |
 | Stage              | `docs-dev-main`                                          |
 | Profile label      | `goal1-staging`                                          |
-| Worker             | `vector-migration-docs`                                  |
+| Worker             | `vektor-migration-docs`                                  |
 | Hostname           | `vector-docs.phibkro.org`                                |
-| Local state        | `infra/alchemy/.alchemy/state/vector-docs/docs-dev-main` |
+| Local state        | `infra/alchemy/.alchemy/state/vektor-docs/docs-dev-main` |
 
 The wrapper rejects another stage or profile label. It also disables Alchemy telemetry.
 
@@ -51,7 +51,7 @@ The wrapper rebuilds the site before Alchemy reads static assets.
 
 Accept only these planned effects:
 
-- create or update `vector-migration-docs`
+- create or update `vektor-migration-docs`
 - upload its static assets
 - attach `vector-docs.phibkro.org`
 
