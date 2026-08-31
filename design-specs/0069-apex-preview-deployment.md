@@ -7,7 +7,7 @@
 | Stable ID       | `0069`                                                                    |
 | Status          | Accepted operator capsule, amended after independent review on 2026-08-31 |
 | Source base     | `d150c9308ddf9dc0b54de0fb1b74bd505ba91d0f`                                |
-| Deployed source | `d1f9e5657ed1227e8cb217ca872b39e4bdd36d7c`                                |
+| Deployed source | `dcabd8c54088e26ed9d8d3aaf8463ba9a54482dd`                                |
 | Stage           | `dev-main`                                                                |
 | Public host     | `vektor.phibkro.org`                                                      |
 | Backend host    | `origin-api.vektor.phibkro.org`                                           |
@@ -27,9 +27,9 @@ The apex preview has these Cloudflare Workers:
 - `vektor-apex-dashboard`
 - `vektor-apex-worker`
 
-The edge Worker owns one custom domain: `vektor.phibkro.org`. It has no custom-domain alias. All three apex Workers disable `workers.dev`.
+The edge Worker owns the `vektor.phibkro.org` custom domain and preserves the existing `api.vektor.phibkro.org` alias with a Worker route over its existing DNS record. The final net host state matches pre-deployment: apex plus API alias. All three apex Workers disable `workers.dev`.
 
-The edge Worker sends `/api`, `/api/*`, and `/health` requests to `origin-api.vektor.phibkro.org`.
+The edge Worker sends `/api`, `/api/*`, and `/health` requests on both allowed hosts to `origin-api.vektor.phibkro.org`. The API alias rejects homepage traffic with `421`.
 
 The browser uses only `https://vektor.phibkro.org`. Browser assets, API requests, redirects, and cookies stay on this origin.
 
@@ -37,7 +37,7 @@ Server code uses the supporting backend origin from one identity constant. The d
 
 The stack maps `dev-main` only to `Alchemy.localState()`. It maps `p20` to `Cloudflare.state()`. It rejects all other stages before it selects state.
 
-The local state stays in the ignored `infra/alchemy/.alchemy/` directory. The wrapper requires the exact three apex records before it can run Alchemy for `dev-main`.
+The local state stays in the ignored `infra/alchemy/.alchemy/` directory. The wrapper requires the exact three apex records, apex domain, and API alias route before it can run Alchemy for `dev-main`.
 
 A `0600` operator backup preserves the deployed local state outside the temporary worktree. A future checkout must restore all four files and pass the wrapper identity check before a `dev-main` plan.
 
@@ -49,13 +49,13 @@ The operator must run the repository wrapper without `--adopt`. Alchemy can reco
 
 If Alchemy reports an unowned resource, stop the deployment. Do not use forced adoption.
 
-The plan can update only the three apex Workers. The edge Worker can preserve only the apex custom domain.
+The plan can update only the three apex Workers. The edge Worker must preserve the apex custom domain and the exact `api.vektor.phibkro.org/*` alias route.
 
 ## Backend isolation
 
 The backend uses the existing dedicated preview tunnel. This capsule creates, updates, or deletes no tunnel DNS route.
 
-The tunnel accepts `origin-api.vektor.phibkro.org` for server-only traffic. A pre-existing `api.vektor.phibkro.org` tunnel route is outside the edge deployment contract and stays unchanged.
+The tunnel accepts `origin-api.vektor.phibkro.org` for server-only traffic. The existing DNS and tunnel configuration for `api.vektor.phibkro.org` stays unchanged; the edge Worker route restores its pre-deployment alias behavior without a DNS mutation.
 
 The tunnel service target is `http://127.0.0.1:8790`. The shared MCP tunnel stays unchanged.
 
@@ -83,6 +83,8 @@ The preview process supervisor owns PostgreSQL, the backend, and the dedicated t
 12. Stop if the plan contains an unowned resource or an extra domain.
 13. Deploy through the repository Alchemy wrapper.
 14. Run the HTTPS browser journey on the apex host.
+15. Verify that the API alias returns `200` for `/api/health`, `/health`, and `/api/auth/get-session`, and `421` for homepage traffic.
+16. Require the post-deployment Alchemy plan to report three noops.
 
 ## Acceptance
 
@@ -105,6 +107,8 @@ The homepage must not return `503`. Chromium must report no deployment-caused co
 
 The edge must fail closed for cross-origin, credentialed-URL, and protocol-relative redirects from the backend. Rejected redirects must not forward cookies to the browser.
 
+`api.vektor.phibkro.org` must route API and health traffic through the apex Worker and must not serve the public homepage. Its responses must report the `dev-main` stage and `noindex` on server routes.
+
 ## Forbidden effects
 
 This capsule forbids these effects:
@@ -114,14 +118,14 @@ This capsule forbids these effects:
 - provider delivery or notifications
 - a shared database change
 - a shared tunnel change
-- a route or DNS change for another hostname
+- a route or DNS change for another hostname, except the operator-authorized recovery of the pre-existing `api.vektor.phibkro.org` Worker association
 - remote-state deletion
 - forced resource adoption
 - a deployment to `p20` or a production stage
 
 ## Evidence
 
-The evidence must record the source commit, local-state path, Worker names, hostnames, status codes, and repository-relative screenshots.
+The evidence must record the source commit, local-state path, Worker names, hostnames, status codes, post-deployment noop plan, and repository-relative screenshots whose bitmaps match the recorded `1440 × 900` capture viewport.
 
 `infra/alchemy/preview/apex-local-state.provenance.json` records the transfer source, the retained remote-state digests, the deployed local-state digests, and the dual-controller control. Machine-specific backup paths and Cloudflare profile labels are not committed.
 

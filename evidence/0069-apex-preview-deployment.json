@@ -1,52 +1,91 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "recordType": "vektor.apex-preview-deployment-evidence/v1",
-  "recordedAt": "2026-08-31T02:21:19+02:00",
+  "recordedAt": "2026-08-31T02:45:06+02:00",
   "source": {
     "authoritativeBase": "d150c9308ddf9dc0b54de0fb1b74bd505ba91d0f",
-    "deploymentCommit": "d1f9e5657ed1227e8cb217ca872b39e4bdd36d7c",
+    "deploymentCommit": "dcabd8c54088e26ed9d8d3aaf8463ba9a54482dd",
     "branch": "fix/apex-preview-local-state-origin"
   },
   "cloudflare": {
     "stage": "dev-main",
     "publicUrl": "https://vektor.phibkro.org",
+    "apiAlias": "https://api.vektor.phibkro.org",
     "backendOrigin": "https://origin-api.vektor.phibkro.org",
     "preDeploymentPlan": "2 to update, 1 to noop",
     "postDeploymentPlan": "3 to noop",
     "providerEffects": [
       "updated the homepage Worker bundle and assets",
-      "updated the dashboard Worker bundle and assets in the initial deployment; it was noop in the final deployment",
-      "updated the apex edge Worker bundle and same-origin service bindings",
-      "disabled the apex edge Worker workers.dev subdomain",
-      "reconciled the apex edge Worker to one custom domain and removed its api.vektor.phibkro.org alias"
+      "updated the apex edge Worker bundle and same-origin bindings",
+      "preserved the existing api.vektor.phibkro.org alias by restoring its Worker route to the apex Worker over the existing proxied DNS",
+      "preserved the vektor.phibkro.org apex custom domain",
+      "performed no DNS or tunnel command and did not mutate remote state"
     ],
     "dnsOrTunnelCommands": [],
+    "domainRecovery": {
+      "requiredNetHostnames": ["vektor.phibkro.org", "api.vektor.phibkro.org"],
+      "finalNetHostnames": ["vektor.phibkro.org", "api.vektor.phibkro.org"],
+      "netStateMatchesPreDeployment": true,
+      "apexRepresentation": "Worker custom domain",
+      "apiAliasRepresentation": "Worker route over the preserved existing DNS record",
+      "customDomainReattachOutcome": "Cloudflare refused custom-domain reattachment while the existing externally managed DNS record remained; the record was not deleted or changed",
+      "dnsAnswersChanged": false,
+      "tunnelConfigurationChanged": false
+    },
     "workers": [
       {
         "logicalId": "vektor-apex-homepage",
         "workerName": "vektor-vektor-apex-homepage-dev-main-a3oxhezgfl7aidkd",
         "workersDev": false,
-        "customDomains": []
+        "customDomains": [],
+        "routes": []
       },
       {
         "logicalId": "vektor-apex-dashboard",
         "workerName": "vektor-vektor-apex-dashboard-dev-main-2cyph5oa7l6qrnuf",
         "workersDev": false,
-        "customDomains": []
+        "customDomains": [],
+        "routes": []
       },
       {
         "logicalId": "vektor-apex-worker",
         "workerName": "vektor-vektor-apex-worker-dev-main-wkcmep3j6dfcpha7",
         "workersDev": false,
-        "customDomains": ["vektor.phibkro.org"]
+        "customDomains": ["vektor.phibkro.org"],
+        "routes": ["api.vektor.phibkro.org/*"],
+        "effectiveHostnames": ["vektor.phibkro.org", "api.vektor.phibkro.org"]
       }
     ],
-    "unchangedApiTunnelObservation": {
-      "url": "https://api.vektor.phibkro.org/",
-      "status": 404,
-      "xMonoWebStage": null,
-      "bodyTag": "RouteNotFound"
-    }
+    "apiAliasObservation": [
+      {
+        "path": "/api/health",
+        "status": 200,
+        "stage": "dev-main",
+        "robots": "noindex",
+        "contentType": "application/json; charset=utf-8"
+      },
+      {
+        "path": "/health",
+        "status": 200,
+        "stage": "dev-main",
+        "robots": "noindex",
+        "contentType": "application/json; charset=utf-8"
+      },
+      {
+        "path": "/api/auth/get-session",
+        "status": 200,
+        "stage": "dev-main",
+        "robots": "noindex",
+        "contentType": "application/json"
+      },
+      {
+        "path": "/",
+        "status": 421,
+        "stage": "dev-main",
+        "contentType": "text/plain; charset=utf-8",
+        "contract": "API alias does not serve the public homepage"
+      }
+    ]
   },
   "http": {
     "anonymous": [
@@ -66,7 +105,8 @@
   },
   "browser": {
     "engine": "Chromium",
-    "viewport": { "width": 1440, "height": 900 },
+    "captureViewport": { "width": 1440, "height": 900, "devicePixelRatio": 1 },
+    "screenshotBitmap": { "width": 1440, "height": 900 },
     "authenticated": true,
     "sessionApiStatus": 200,
     "healthApiStatus": 200,
@@ -74,7 +114,7 @@
     "consoleErrorCount": 0,
     "pageErrorCount": 0,
     "nonAbortedRequestFailureCount": 0,
-    "abortedPrefetchRequestCount": 11,
+    "abortedPrefetchRequestCount": 6,
     "sessionCookies": [
       {
         "name": "__Secure-better-auth.session_token",
@@ -102,9 +142,11 @@
     }
   },
   "redirectSecurity": {
-    "policy": "rewrite only relative redirects or absolute redirects whose origin is the dedicated backend origin",
-    "hostileRedirectContractTestsPassed": 9,
+    "policy": "rewrite only relative redirects or absolute redirects whose origin is the dedicated backend origin; reject every authority-relative redirect",
+    "edgeWorkerContractTestsPassed": 14,
+    "hostileRedirectCasesPassed": 5,
     "crossOriginRedirectsFailClosed": true,
+    "authorityRelativeRedirectsFailClosed": true,
     "setCookieFromRejectedRedirectsReachesBrowser": false
   },
   "isolation": {
@@ -132,33 +174,34 @@
     "operatorBackup": "operator-managed state directory outside the repository",
     "operatorBackupMode": "0600",
     "remoteStateDeleted": false,
+    "remoteStateReadOrMutationDuringAliasRecovery": false,
     "retainedRemoteApexRecordCount": 3,
     "dualControllerRiskRecorded": true
   },
   "screenshots": [
     {
       "path": "evidence/0069-apex-preview/homepage.webp",
-      "sha256": "bd73a35135e1babb843133ed51453449dd065148171cb9eb2290582bf9df668c"
+      "sha256": "8c848cd0435bb0358deff486fed0fd3d94d63583f2279fef0ec4d75a4319df2f"
     },
     {
       "path": "evidence/0069-apex-preview/dashboard-authenticated.webp",
-      "sha256": "63eb0e9ff4eee0ab921f62178a5428ddcd6d009e6c9a67fc1c09dc2cfbc8ce79"
+      "sha256": "3ee27e240dc402ef5b6bedd34978a7759e981fbade0c8abe9d55c55a7118c0af"
     },
     {
       "path": "evidence/0069-apex-preview/profile.webp",
-      "sha256": "86f7f34c26d2397e80d0f8d6fe1ee08ec6b66f3fb7a6da50e9f5b4e0ebd03a44"
+      "sha256": "b6e59daa9357e408f04fe0ed995dee216be116fdb32bba45de117c5aebff0e8b"
     },
     {
       "path": "evidence/0069-apex-preview/organization-schools.webp",
-      "sha256": "a751b8b3c3a2fa2e7741d3a671795f6efc343f7deb3faeaffcdb6f0f39ebabff"
+      "sha256": "d5c67ef9a3b8a1b8b580045b9adaf83cf3d0602e4dff028ecac8cc9b70274ee7"
     },
     {
       "path": "evidence/0069-apex-preview/recruitment-periods.webp",
-      "sha256": "816e987850959e6713980783f6ba28650c063c0642abf75a8ba65c47eeca4e6b"
+      "sha256": "8c11c15f0ec85368a48e87681f6158b1bd4b50992623c135a2cfe928aad294de"
     },
     {
       "path": "evidence/0069-apex-preview/interview-assignment.webp",
-      "sha256": "a5d27ca9dbf35deb2a72e5f813812d0f6680305973abbc189acc7f8ac26883ed"
+      "sha256": "f56e40da12d9894ce12922be236776cec7faa33184bbc1b9328a0619cd10b309"
     }
   ],
   "containsSecrets": false
