@@ -37,6 +37,15 @@ export const CreateAdmissionPeriodPayload = Schema.Struct({
 }).annotate({
   identifier: "CreateAdmissionPeriodPayload",
   description: "Creates an admission window.",
+  examples: [
+    {
+      commandId: AdmissionPeriodCommandId.make("adm-period-create-0080"),
+      semesterId: SemesterId.make("2026-hosten"),
+      startAt: "2026-08-01T00:00:00.000Z",
+      endAt: "2026-09-15T23:59:59.999Z",
+      departmentId: DepartmentId.make("1"),
+    },
+  ],
 });
 
 /**
@@ -53,6 +62,14 @@ export const ReviseAdmissionPeriodPayload = Schema.Struct({
 }).annotate({
   identifier: "ReviseAdmissionPeriodPayload",
   description: "Revises an admission window.",
+  examples: [
+    {
+      commandId: AdmissionPeriodCommandId.make("adm-period-revise-0080"),
+      expectedRevision: 0,
+      startAt: "2026-08-01T00:00:00.000Z",
+      endAt: "2026-09-20T23:59:59.999Z",
+    },
+  ],
 });
 
 /**
@@ -67,6 +84,23 @@ export const AdmissionPeriodListResponse = Schema.Struct({
 }).annotate({
   identifier: "AdmissionPeriodListResponse",
   description: "Admission periods and the matching total count.",
+  examples: [
+    {
+      items: [
+        {
+          id: AdmissionPeriodId.make("period-1"),
+          departmentId: DepartmentId.make("1"),
+          semesterId: SemesterId.make("2026-hosten"),
+          startAt: "2026-08-01T00:00:00.000Z",
+          endAt: "2026-09-15T23:59:59.999Z",
+          revision: 0,
+          lastCommandId: AdmissionPeriodCommandId.make("adm-period-create-0080"),
+          eligible: true,
+        },
+      ],
+      totalItems: 1,
+    },
+  ],
 });
 
 const AdmissionForbiddenResponse = errorBody(

@@ -3,7 +3,8 @@
  *
  * @since 0.1.0
  */
-import { OwnProfile, UpdateOwnProfileCommand } from "@vektorprogrammet/domain/profile";
+import { OwnProfile, UpdateOwnProfileCommand, ProfileCommandId } from "@vektorprogrammet/domain/profile";
+import { PersonId } from "@vektorprogrammet/domain/organization";
 import { Schema } from "effect";
 import { HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/unstable/httpapi";
 import { errorBody, operationAnnotations, SessionSecurity } from "./common.js";
@@ -38,7 +39,36 @@ export const UserProfileResponse = Schema.Struct({
 }).annotate({
   identifier: "UserProfileResponse",
   description: "The current person's editable profile and authorization role projection.",
+  examples: [
+    {
+      personId: PersonId.make("7202"),
+      firstName: "Ming",
+      lastName: "Medlem",
+      email: "ming.medlem@example.org",
+      phone: "+47 900 00 000",
+      role: "ROLE_TEAM_MEMBER",
+      nameRevision: 0,
+      contactRevision: 1,
+    },
+  ],
 });
+
+/**
+ * Representative self-profile update payload for generated examples.
+ *
+ * @since 0.1.0
+ * @category Schemas
+ */
+export const UpdateOwnProfileCommandExample = {
+  _tag: "UpdateOwnProfile",
+  commandId: ProfileCommandId.make("profile-command-0080"),
+  expectedNameRevision: 0,
+  expectedContactRevision: 1,
+  firstName: "Ming",
+  lastName: "Medlem",
+  email: "ming.medlem@example.org",
+  phone: "+47 900 00 000",
+} as const;
 
 const ProfileForbiddenResponse = errorBody(
   "ProfileForbiddenResponse",
@@ -94,7 +124,11 @@ export const ReadOwnProfileEndpoint = HttpApiEndpoint.get("readOwnProfile", "/ap
  * @category Endpoints
  */
 export const UpdateOwnProfileEndpoint = HttpApiEndpoint.put("updateOwnProfile", "/api/me", {
-  payload: UpdateOwnProfileCommand,
+  payload: UpdateOwnProfileCommand.annotate({
+    identifier: "UpdateOwnProfileCommand",
+    description: "Optimistic self-profile update command.",
+    examples: [UpdateOwnProfileCommandExample],
+  }),
   success: UserProfileResponse,
   error: ProfileErrors,
 })
@@ -118,5 +152,6 @@ export class ProfileApi extends HttpApiGroup.make("profile")
     OpenApi.annotations({
       title: "Profile",
       description: "Authenticated self-service profile API.",
+      override: { "x-displayName": "Profile" },
     }),
   ) {}

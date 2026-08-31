@@ -235,6 +235,19 @@ export const SchoolDirectoryEntrySchema = Schema.Struct({
   language: SchoolLanguageSchema,
   departments: SchoolDirectoryDepartmentsSchema,
   isActive: Schema.Boolean,
+}).annotate({
+  examples: [
+    {
+      schoolId: SchoolId.make(1),
+      name: "Trondheim katedral videregående skole",
+      contactPerson: "Heidi Holm",
+      email: "post@tks.example.org",
+      phone: "+47 900 00 001",
+      language: "Norwegian",
+      departments: [{ departmentId: DepartmentId.make("1"), name: "Trondheim" }],
+      isActive: true,
+    },
+  ],
 });
 export type SchoolDirectoryEntry = typeof SchoolDirectoryEntrySchema.Type;
 

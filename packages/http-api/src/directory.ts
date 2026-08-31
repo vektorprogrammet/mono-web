@@ -1,10 +1,9 @@
 /**
  * Public HTTP contracts for administrative directory reads.
  *
- * @since 0.1.0
  */
 import { DepartmentId } from "@vektorprogrammet/domain/organization";
-import { SchoolDirectorySchema } from "@vektorprogrammet/domain/schools";
+import { SchoolDirectorySchema, SchoolId } from "@vektorprogrammet/domain/schools";
 import { Schema } from "effect";
 import { HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/unstable/httpapi";
 import { errorBody, operationAnnotations, SessionSecurity } from "./common.js";
@@ -27,6 +26,18 @@ export const AdminUserDirectoryEntry = Schema.Struct({
 }).annotate({
   identifier: "AdminUserDirectoryEntry",
   description: "Person profile enriched with Organization-owned department facts.",
+  examples: [
+    {
+      personId: "7202",
+      firstName: "Ming",
+      lastName: "Medlem",
+      email: "ming.medlem@example.org",
+      phone: "+47 900 00 000",
+      studyProgramme: null,
+      departments: ["1"],
+      isActive: true,
+    },
+  ],
 });
 
 /**
@@ -42,6 +53,24 @@ export const AdminUserDirectoryResponse = Schema.Struct({
 }).annotate({
   identifier: "AdminUserDirectoryResponse",
   description: "Active and inactive users visible in the caller's authority scope.",
+  examples: [
+    {
+      activeUsers: [
+        {
+          personId: "7202",
+          firstName: "Ming",
+          lastName: "Medlem",
+          email: "ming.medlem@example.org",
+          phone: "+47 900 00 000",
+          studyProgramme: null,
+          departments: ["1"],
+          isActive: true,
+        },
+      ],
+      inactiveUsers: [],
+      nextCursor: null,
+    },
+  ],
 });
 
 const DirectoryForbiddenResponse = errorBody(
@@ -89,10 +118,30 @@ const SchoolsUnavailableResponse = errorBody(
   503,
 );
 
+export const SchoolDirectoryExample = {
+  activeSchools: [
+    {
+      schoolId: SchoolId.make(1),
+      name: "Trondheim katedral videregående skole",
+      contactPerson: "Heidi Holm",
+      email: "post@tks.example.org",
+      phone: "+47 900 00 001",
+      language: "Norwegian",
+      departments: [{ departmentId: DepartmentId.make("1"), name: "Trondheim" }],
+      isActive: true,
+    },
+  ],
+  inactiveSchools: [],
+} as const;
+
 /** @since 0.1.0 @category Endpoints */
 export const ListSchoolsEndpoint = HttpApiEndpoint.get("listSchools", "/api/admin/schools", {
   query: { department: Schema.optional(DepartmentId) },
-  success: SchoolDirectorySchema,
+  success: SchoolDirectorySchema.annotate({
+    identifier: "SchoolDirectory",
+    description: "Active and inactive school directory entries.",
+    examples: [SchoolDirectoryExample],
+  }),
   error: [SchoolsForbiddenResponse, SchoolsDecodeResponse, SchoolsUnavailableResponse],
 })
   .middleware(SessionSecurity)
@@ -112,5 +161,6 @@ export class DirectoryApi extends HttpApiGroup.make("directory")
     OpenApi.annotations({
       title: "Directories",
       description: "Scoped administrative person and school directories.",
+      override: { "x-displayName": "Directories" },
     }),
   ) {}

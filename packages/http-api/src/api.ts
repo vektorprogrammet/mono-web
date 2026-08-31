@@ -48,6 +48,14 @@ export class NativeApi extends HttpApi.make("native-api")
           security: "HttpApiMiddleware.security",
           exclusions: ["Better Auth /api/auth/*", "internal evidence group"],
         },
+        "x-tagGroups": [
+          { name: "Platform", tags: ["System", "Profile"] },
+          { name: "Directories", tags: ["Organization", "Directories"] },
+          { name: "Admissions", tags: ["Admissions"] },
+          { name: "Recruitment", tags: ["Recruitment"] },
+          { name: "Economy", tags: ["Receipts"] },
+          { name: "Content", tags: ["Content and news"] },
+        ],
       },
     }),
   ) {}

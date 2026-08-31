@@ -40,6 +40,7 @@ function assert(condition: unknown, message: string): asserts condition {
 const spec = OpenApi.fromApi(NativeApi);
 type WithProvenance = {
   readonly "x-vektorprogrammet-provenance"?: unknown;
+  readonly "x-tagGroups"?: unknown;
 };
 const documentedSpec = spec as OpenApi.OpenAPISpec & WithProvenance;
 assert(spec.openapi === "3.1.0", "document must use OpenAPI 3.1.0");
@@ -129,6 +130,45 @@ assert(
   "invitation capability security scheme",
 );
 
+// --- 0080 invariants: native API reference is the primary product ---
+
+// Sidebar is resource-grouped: every tag belongs to exactly one x-tagGroups section.
+const tagGroups = documentedSpec["x-tagGroups"];
+type TagGroup = { readonly name?: unknown; readonly tags?: unknown };
+assert(Array.isArray(tagGroups) && tagGroups.length === 6, "expected 6 x-tagGroups sections");
+const groupedTags = new Set<string>();
+for (const group of tagGroups as ReadonlyArray<TagGroup>) {
+  assert(typeof group.name === "string" && group.name.length > 0, "tag group needs a name");
+  assert(Array.isArray(group.tags) && group.tags.length > 0, "tag group needs tags");
+  for (const tag of group.tags as ReadonlyArray<unknown>) {
+    assert(typeof tag === "string", "grouped tag must be a string");
+    assert(!groupedTags.has(tag), `tag "${tag}" is grouped more than once`);
+    groupedTags.add(tag);
+  }
+}
+const documentTags = (spec.tags ?? []).map((tag) => tag.name);
+assert(documentTags.length > 0, "document must declare tags");
+assert(
+  documentTags.every((tag) => groupedTags.has(tag)) && documentTags.length === groupedTags.size,
+  "every document tag must belong to exactly one x-tagGroups section",
+);
+
+// Every error response envelope carries a truthful example (TMDB-style docs).
+const schemas = spec.components?.schemas ?? {};
+for (const [name, schema] of Object.entries(schemas)) {
+  const response = schema as { readonly examples?: unknown; readonly properties?: unknown };
+  const isErrorEnvelope =
+    name.endsWith("Response") &&
+    typeof response.properties === "object" &&
+    response.properties !== null &&
+    "error" in response.properties &&
+    !name.startsWith("internal.");
+  if (!isErrorEnvelope) continue;
+  assert(
+    Array.isArray(response.examples) && response.examples.length > 0,
+    `error envelope "${name}" must carry a truthful example`,
+  );
+}
 const bytes = `${JSON.stringify(stable(spec), null, 2)}\n`;
 const outputPath = fileURLToPath(new URL("../openapi.json", import.meta.url));
 const mode = process.argv.slice(2);

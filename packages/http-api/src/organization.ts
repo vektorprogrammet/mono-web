@@ -10,8 +10,12 @@ import {
   CreateFieldOfStudyResultSchema,
   CreateTeamCommandSchema,
   CreateTeamResultSchema,
+  DepartmentId,
   DepartmentJsonSchema,
   FieldOfStudyJsonSchema,
+  FieldOfStudyId,
+  OrganizationCommandId,
+  TeamId,
   TeamJsonSchema,
 } from "@vektorprogrammet/domain/organization";
 import { Schema } from "effect";
@@ -57,7 +61,16 @@ export const TeamInterestResponse = Schema.Struct({
     Schema.Struct({ id: Schema.Int, userName: Schema.String, teamName: Schema.String }),
   ),
   "hydra:totalItems": Schema.Int,
-}).annotate({ identifier: "TeamInterestResponse", description: "Scoped team-interest rows." });
+}).annotate({
+  identifier: "TeamInterestResponse",
+  description: "Scoped team-interest rows.",
+  examples: [
+    {
+      "hydra:member": [{ id: 1, userName: "ming.medlem", teamName: "Rekruttering" }],
+      "hydra:totalItems": 1,
+    },
+  ],
+});
 
 /**
  * Projected mailing list.
@@ -67,7 +80,11 @@ export const TeamInterestResponse = Schema.Struct({
  */
 export const MailingListResponse = Schema.Array(
   Schema.Struct({ name: Schema.String, emails: Schema.Array(Schema.String) }),
-).annotate({ identifier: "MailingListResponse", description: "Scoped mailing-list projections." });
+).annotate({
+  identifier: "MailingListResponse",
+  description: "Scoped mailing-list projections.",
+  examples: [[{ name: "leder-trondheim", emails: ["lina.leder@example.org"] }]],
+});
 
 const OrganizationForbiddenResponse = errorBody(
   "OrganizationForbiddenResponse",
@@ -118,9 +135,93 @@ const CreateFieldOfStudySuccess = [
   CreateFieldOfStudyResultSchema.pipe(HttpApiSchema.status(201)),
 ] as const;
 
+/**
+ * Representative department JSON projection.
+ *
+ * @since 0.1.0
+ * @category Schemas
+ */
+export const DepartmentExample = {
+  departmentId: DepartmentId.make("1"),
+  name: "Datateknologi",
+  shortName: "DAT",
+  email: "datateknologi@example.org",
+  address: "Sem Sælands vei 1",
+  city: "Trondheim",
+  latitude: null,
+  longitude: null,
+  slackChannel: null,
+  logoPath: null,
+  active: true,
+  revision: 0,
+} as const;
+
+/**
+ * Representative team JSON projection.
+ *
+ * @since 0.1.0
+ * @category Schemas
+ */
+export const TeamExample = {
+  teamId: TeamId.make("rekruttering"),
+  departmentId: DepartmentId.make("1"),
+  name: "Rekruttering",
+  shortName: "REK",
+  shortDescription: "Interviews applicants",
+  description: "Interviews applicants and runs the admission process.",
+  email: "rekruttering@example.org",
+  deadline: "2026-09-15T23:59:59.999Z",
+  acceptApplication: true,
+  active: true,
+  revision: 0,
+} as const;
+
+/**
+ * Representative field-of-study JSON projection.
+ *
+ * @since 0.1.0
+ * @category Schemas
+ */
+export const FieldOfStudyExample = {
+  fieldOfStudyId: FieldOfStudyId.make("datateknologi"),
+  departmentId: DepartmentId.make("1"),
+  name: "Datateknologi",
+  shortName: "DAT",
+  active: true,
+  revision: 0,
+} as const;
+
+/**
+ * Representative create-department command payload.
+ *
+ * @since 0.1.0
+ * @category Schemas
+ */
+export const CreateDepartmentCommandExample = {
+  _tag: "CreateDepartment",
+  commandId: OrganizationCommandId.make("org-command-0080"),
+  departmentId: DepartmentId.make("2"),
+  name: "Elektroteknologi",
+  shortName: "ELEK",
+  email: "elektroteknologi@example.org",
+  address: "Sem Sælands vei 11",
+  city: "Trondheim",
+  latitude: null,
+  longitude: null,
+  slackChannel: null,
+  logoPath: null,
+  active: true,
+} as const;
+
 /** @since 0.1.0 @category Endpoints */
 export const ListDepartmentsEndpoint = HttpApiEndpoint.get("listDepartments", "/api/departments", {
-  success: Schema.Array(DepartmentJsonSchema),
+  success: Schema.Array(
+    DepartmentJsonSchema.annotate({
+      identifier: "DepartmentJson",
+      description: "One native department directory row.",
+      examples: [DepartmentExample],
+    }),
+  ),
   error: PublicOrganizationErrors,
 }).annotateMerge(
   operationAnnotations("List departments", "Returns the public native department directory."),
@@ -128,15 +229,29 @@ export const ListDepartmentsEndpoint = HttpApiEndpoint.get("listDepartments", "/
 
 /** @since 0.1.0 @category Endpoints */
 export const ListTeamsEndpoint = HttpApiEndpoint.get("listTeams", "/api/teams", {
-  success: Schema.Array(TeamJsonSchema),
+  success: Schema.Array(
+    TeamJsonSchema.annotate({
+      identifier: "TeamJson",
+      description: "One native team directory row.",
+      examples: [TeamExample],
+    }),
+  ),
   error: PublicOrganizationErrors,
 }).annotateMerge(operationAnnotations("List teams", "Returns the public native team directory."));
 
-/** @since 0.1.0 @category Endpoints */
 export const ListFieldOfStudiesEndpoint = HttpApiEndpoint.get(
   "listFieldOfStudies",
   "/api/field_of_studies",
-  { success: Schema.Array(FieldOfStudyJsonSchema), error: PublicOrganizationErrors },
+  {
+    success: Schema.Array(
+      FieldOfStudyJsonSchema.annotate({
+        identifier: "FieldOfStudyJson",
+        description: "One native field-of-study directory row.",
+        examples: [FieldOfStudyExample],
+      }),
+    ),
+    error: PublicOrganizationErrors,
+  },
 ).annotateMerge(
   operationAnnotations("List fields of study", "Returns the public native study directory."),
 );
@@ -174,7 +289,11 @@ export const CreateDepartmentEndpoint = HttpApiEndpoint.post(
   "createDepartment",
   "/api/admin/departments",
   {
-    payload: CreateDepartmentCommandSchema,
+    payload: CreateDepartmentCommandSchema.annotate({
+      identifier: "CreateDepartmentCommand",
+      description: "Idempotent create-department command.",
+      examples: [CreateDepartmentCommandExample],
+    }),
     success: CreateDepartmentSuccess,
     error: AdminOrganizationErrors,
   },
@@ -237,5 +356,6 @@ export class OrganizationApi extends HttpApiGroup.make("organization")
     OpenApi.annotations({
       title: "Organization",
       description: "Public organization directories and scoped administration.",
+      override: { "x-displayName": "Organization" },
     }),
   ) {}

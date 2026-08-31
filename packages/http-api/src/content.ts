@@ -16,6 +16,9 @@ import {
   ReviseArticleDraftInputSchema,
   UnpublishArticleInputSchema,
   UnpublishObservationSchema,
+  ArticleSlug,
+  ArticleVersionNumber,
+  ContentCommandId,
 } from "@vektorprogrammet/domain/content";
 import { DepartmentId } from "@vektorprogrammet/domain/organization";
 import { Schema } from "effect";
@@ -67,6 +70,104 @@ const ContentErrors = [
   ContentUnavailableResponse,
 ] as const;
 
+export const WorkspaceEntryExample = {
+  articleId: ArticleId.make(1),
+  title: "Penerimaan Anggota Baru 2026",
+  slug: ArticleSlug.make("penerimaan-anggota-2026"),
+  status: "Draft",
+  sticky: false,
+  updatedAt: "2026-08-24T09:00:00.000Z",
+  departmentIds: [DepartmentId.make("1")],
+  canRevise: true,
+  canPublish: true,
+  authorDisplayName: "Kari Penerbit",
+} as const;
+
+export const ArticleDetailExample = {
+  articleId: ArticleId.make(1),
+  title: "Penerimaan Anggota Baru 2026",
+  slug: ArticleSlug.make("penerimaan-anggota-2026"),
+  status: "Draft",
+  bodyHtml: "<p>Informasi penerimaan anggota baru tahun 2026.</p>",
+  sticky: false,
+  createdAt: "2026-08-20T09:00:00.000Z",
+  updatedAt: "2026-08-24T09:00:00.000Z",
+  currentVersionNumber: null,
+  revision: 0,
+  departmentIds: [DepartmentId.make("1")],
+  canRevise: true,
+  canPublish: true,
+  authorDisplayName: "Kari Penerbit",
+} as const;
+
+export const CreateArticleInputExample = {
+  commandId: ContentCommandId.make("content-command-0080"),
+  title: "Penerimaan Anggota Baru 2026",
+  bodyHtml: "<p>Informasi penerimaan anggota baru tahun 2026.</p>",
+  departmentIds: [DepartmentId.make("1")],
+  sticky: false,
+} as const;
+
+export const ReviseArticleInputExample = {
+  commandId: ContentCommandId.make("content-revise-0080"),
+  articleId: ArticleId.make(1),
+  expectedRevision: 0,
+  title: "Penerimaan Anggota Baru 2026",
+  bodyHtml: "<p>Informasi penerimaan anggota baru tahun 2026.</p>",
+  departmentIds: [DepartmentId.make("1")],
+} as const;
+
+export const PublishArticleInputExample = {
+  commandId: ContentCommandId.make("publish-command-0080"),
+  articleId: ArticleId.make(1),
+} as const;
+
+export const UnpublishArticleInputExample = {
+  commandId: ContentCommandId.make("unpublish-command-0080"),
+  articleId: ArticleId.make(1),
+} as const;
+
+export const PublishObservationExample = {
+  _tag: "Published",
+  commandId: ContentCommandId.make("publish-command-0080"),
+  articleId: ArticleId.make(1),
+  versionNumber: ArticleVersionNumber.make(1),
+  publishedAt: "2026-08-25T08:00:00.000Z",
+} as const;
+
+export const UnpublishObservationExample = {
+  _tag: "Unpublished",
+  commandId: ContentCommandId.make("unpublish-command-0080"),
+  articleId: ArticleId.make(1),
+} as const;
+
+export const NewsListingExample = {
+  articles: [
+    {
+      slug: ArticleSlug.make("penerimaan-anggota-2026"),
+      title: "Penerimaan Anggota Baru 2026",
+      sticky: true,
+      publishedAt: "2026-08-25T08:00:00.000Z",
+      authorDisplayName: "Kari Penerbit",
+      departmentIds: [DepartmentId.make("1")],
+      hasImage: false,
+    },
+  ],
+} as const;
+
+export const NewsArticleExample = {
+  slug: ArticleSlug.make("penerimaan-anggota-2026"),
+  title: "Penerimaan Anggota Baru 2026",
+  sticky: true,
+  publishedAt: "2026-08-25T08:00:00.000Z",
+  authorDisplayName: "Kari Penerbit",
+  departmentIds: [DepartmentId.make("1")],
+  hasImage: false,
+  bodyHtml: "<p>Informasi penerimaan anggota baru tahun 2026.</p>",
+  previousVersions: [],
+} as const;
+
+
 /** @since 0.1.0 @category Endpoints */
 export const ReadContentWorkspaceEndpoint = HttpApiEndpoint.get(
   "readContentWorkspace",
@@ -86,7 +187,7 @@ export const CreateArticleEndpoint = HttpApiEndpoint.post(
   "createArticle",
   "/api/admin/content/articles",
   {
-    payload: CreateArticleDraftInputSchema,
+    payload: CreateArticleDraftInputSchema.annotate({ identifier: "CreateArticleDraftInput", description: "Idempotent create-draft command.", examples: [CreateArticleInputExample] }),
     success: ArticleDraft.json.pipe(HttpApiSchema.status(201)),
     error: ContentErrors,
   },
@@ -118,7 +219,7 @@ export const ReviseArticleEndpoint = HttpApiEndpoint.put(
   "/api/admin/content/articles/:articleId",
   {
     params: ArticleParams,
-    payload: ReviseArticleDraftInputSchema,
+    payload: ReviseArticleDraftInputSchema.annotate({ identifier: "ReviseArticleDraftInput", description: "Idempotent revise command with optimistic revision.", examples: [ReviseArticleInputExample] }),
     success: ArticleDraft.json,
     error: ContentErrors,
   },
@@ -137,8 +238,8 @@ export const PublishArticleEndpoint = HttpApiEndpoint.post(
   "/api/admin/content/articles/:articleId/publish",
   {
     params: ArticleParams,
-    payload: PublishArticleInputSchema,
-    success: PublishObservationSchema,
+    payload: PublishArticleInputSchema.annotate({ identifier: "PublishArticleInput", description: "Idempotent publish command.", examples: [PublishArticleInputExample] }),
+    success: PublishObservationSchema.annotate({ identifier: "PublishObservation", description: "Published version observation.", examples: [PublishObservationExample] }),
     error: ContentErrors,
   },
 )
@@ -153,8 +254,8 @@ export const UnpublishArticleEndpoint = HttpApiEndpoint.post(
   "/api/admin/content/articles/:articleId/unpublish",
   {
     params: ArticleParams,
-    payload: UnpublishArticleInputSchema,
-    success: UnpublishObservationSchema,
+    payload: UnpublishArticleInputSchema.annotate({ identifier: "UnpublishArticleInput", description: "Idempotent unpublish command.", examples: [UnpublishArticleInputExample] }),
+    success: UnpublishObservationSchema.annotate({ identifier: "UnpublishObservation", description: "Unpublish observation.", examples: [UnpublishObservationExample] }),
     error: ContentErrors,
   },
 )
@@ -169,7 +270,7 @@ export const UnpublishArticleEndpoint = HttpApiEndpoint.post(
 /** @since 0.1.0 @category Endpoints */
 export const ListNewsEndpoint = HttpApiEndpoint.get("listNews", "/api/news", {
   query: ContentDepartmentQuery,
-  success: PublishedNewsListingSchema,
+  success: PublishedNewsListingSchema.annotate({ identifier: "PublishedNewsListing", description: "Current public news listing.", examples: [NewsListingExample] }),
   error: ContentErrors,
 }).annotateMerge(
   operationAnnotations("List published news", "Returns the current public native news listing."),
@@ -179,7 +280,7 @@ export const ListNewsEndpoint = HttpApiEndpoint.get("listNews", "/api/news", {
 export const ReadNewsArticleEndpoint = HttpApiEndpoint.get("readNewsArticle", "/api/news/:slug", {
   params: { slug: Schema.String.pipe(Schema.check(Schema.isMinLength(1))) },
   query: NewsVersionQuery,
-  success: PublishedNewsArticleSchema,
+  success: PublishedNewsArticleSchema.annotate({ identifier: "PublishedNewsArticle", description: "One published news article.", examples: [NewsArticleExample] }),
   error: ContentErrors,
 }).annotateMerge(
   operationAnnotations(

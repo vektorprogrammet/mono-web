@@ -31,7 +31,7 @@ export const SubmitReceiptMultipart = Schema.Struct({
   .pipe(HttpApiSchema.asMultipart())
   .annotate({
     identifier: "SubmitReceiptMultipart",
-    description: "Receipt fields plus one JPEG, PNG, or PDF file.",
+    description: "Receipt fields plus one JPEG, PNG, or PDF file. Multipart form-data: commandId, description, amountOre, receiptDate as text fields plus one file.",
   });
 
 /**
@@ -51,7 +51,7 @@ export const ReviseReceiptMultipart = Schema.Struct({
   .pipe(HttpApiSchema.asMultipart())
   .annotate({
     identifier: "ReviseReceiptMultipart",
-    description: "Receipt revision fields and an optional replacement file.",
+    description: "Receipt revision fields and an optional replacement file. Multipart form-data: commandId, expectedRevision, description, amountOre, receiptDate as text fields plus an optional replacement file.",
   });
 
 /**
@@ -75,6 +75,19 @@ export const ReceiptRevisionCommand = Schema.Struct({
  * @since 0.1.0
  * @category Schemas
  */
+export const ReceiptListItemExample = {
+  receiptId: "receipt-list",
+  visualId: "LIST-1",
+  ownerPersonId: "owner-list",
+  departmentId: "1",
+  amountOre: 1250,
+  currency: "NOK",
+  description: "list row",
+  receiptDate: "2026-08-24",
+  status: "Pending",
+  revision: 2,
+} as const;
+
 export const ReceiptListItem = Schema.Struct({
   receiptId: Schema.String,
   visualId: Schema.String,
@@ -89,6 +102,20 @@ export const ReceiptListItem = Schema.Struct({
 }).annotate({
   identifier: "ReceiptListItem",
   description: "Owner or approver receipt projection.",
+  examples: [
+    {
+      receiptId: "receipt-list",
+      visualId: "LIST-1",
+      ownerPersonId: "owner-list",
+      departmentId: "1",
+      amountOre: 1250,
+      currency: "NOK",
+      description: "list row",
+      receiptDate: "2026-08-24",
+      status: "Pending",
+      revision: 2,
+    },
+  ],
 });
 
 /**
@@ -103,6 +130,12 @@ export const ReceiptListResponse = Schema.Struct({
 }).annotate({
   identifier: "ReceiptListResponse",
   description: "Receipts and matching total count.",
+  examples: [
+    {
+      items: [ReceiptListItemExample],
+      totalItems: 1,
+    },
+  ],
 });
 
 /**

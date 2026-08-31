@@ -398,6 +398,10 @@ export type RecruitmentInvitationResponseMessage =
 
 const RecruitmentInvitationRejectInputEncodedSchema = Schema.Struct({
   message: Schema.optional(Schema.String),
+}).annotate({
+  identifier: "InvitationRejectInputEncoded",
+  description: "Optional short rejection message.",
+  examples: [{ message: "Cannot attend that day." }, {}],
 });
 const RecruitmentInvitationRejectInputNormalizedSchema = Schema.Struct({
   message: Schema.optional(RecruitmentInvitationResponseMessageSchema),

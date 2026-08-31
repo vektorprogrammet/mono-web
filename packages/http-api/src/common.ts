@@ -26,7 +26,11 @@ export const errorBody = <const Tags extends readonly [string, ...Array<string>]
     error: Schema.Struct({ tag: Schema.Literals(tags) }),
   })
     .pipe(HttpApiSchema.status(status))
-    .annotate({ identifier, description: `Native HTTP ${status} error response.` });
+    .annotate({
+      identifier,
+      description: `Native HTTP ${status} error response.`,
+      examples: [{ error: { tag: tags[0] } }],
+    });
 
 /**
  * Creates the receipt error envelope that can include a stable denial message.
@@ -46,7 +50,11 @@ export const receiptErrorBody = <const Tags extends readonly [string, ...Array<s
     }),
   })
     .pipe(HttpApiSchema.status(status))
-    .annotate({ identifier, description: `Receipt HTTP ${status} error response.` });
+    .annotate({
+      identifier,
+      description: `Receipt HTTP ${status} error response.`,
+      examples: [{ error: { tag: tags[0] } }],
+    });
 
 /**
  * Response returned when no native route matches a request.
@@ -57,8 +65,11 @@ export const receiptErrorBody = <const Tags extends readonly [string, ...Array<s
 export const RouteNotFoundResponse = Schema.Struct({
   error: Schema.Struct({ tag: Schema.Literals(["RouteNotFound"]) }),
 })
-  .pipe(HttpApiSchema.status(404))
-  .annotate({ identifier: "RouteNotFoundResponse", description: "No native route matched." });
+  .annotate({
+    identifier: "RouteNotFoundResponse",
+    description: "No native route matched.",
+    examples: [{ error: { tag: "RouteNotFound" } }],
+  });
 
 /**
  * Cookie security declaration for endpoints resolved through Better Auth sessions.
