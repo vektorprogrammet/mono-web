@@ -86,9 +86,6 @@ const databaseRequire = createRequire(
 const { Effect, Layer, Redacted } = databaseRequire("effect");
 const { Pool } = databaseRequire("pg");
 
-const postgresUrl =
-  process.env.PREVIEW_SCENARIO_PG_URL ?? "postgres://postgres@127.0.0.1:5435/preview_scenario";
-
 export const assertDisposablePostgresUrl = (value: string): void => {
   const parsed = new URL(value);
   assert.ok(
@@ -107,8 +104,6 @@ export const assertDisposablePostgresUrl = (value: string): void => {
   );
   assert.ok(!parsed.hostname.endsWith("vektorprogrammet.no"), "production hosts are forbidden");
 };
-
-assertDisposablePostgresUrl(postgresUrl);
 
 // --- Legacy-aligned scenario values (steering: legacy shapes, synthetic data) ---
 const persons = {
@@ -178,6 +173,30 @@ const periodStartAt = "2026-08-01T00:00:00.000Z";
 const periodEndAt = "2036-12-31T23:59:59.999Z";
 const membershipStartAt = "2026-01-01T00:00:00.000Z";
 const receiptDate = "2026-08-20";
+
+export const previewScenarioManifest = {
+  schemaRevision: "23_declarative-authorization-rules",
+  persons,
+  departmentId,
+  semesterId,
+  fieldOfStudyId,
+  interviewSchemaId,
+  snapshotId,
+  commandIds: {
+    admissionPeriod: admissionPeriodCommandId,
+    application: applicationCommandId,
+    assignment: assignmentCommandId,
+    receipt: receiptCommandId,
+    draft: draftCommandId,
+    publish: publishCommandId,
+    recruitmentTeam: recruitmentTeamCommandId,
+    departments: [
+      "preview-0072-dept-ntnu-cmd",
+      "preview-0072-dept-uib-cmd",
+      "preview-0072-dept-nmbu-cmd",
+    ],
+  },
+} as const;
 const receiptBytes = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
   "base64",
@@ -256,14 +275,23 @@ ON CONFLICT (interview_schema_id, question_id) DO NOTHING;
 COMMIT;
 `;
 
-// --- Evidence collection helpers ---
-const evidence = {
-  schemaRevision: null as string | null,
-  steps: [] as Array<Record<string, unknown>>,
-  skips: [] as Array<Record<string, unknown>>,
-  tableCountsBefore: {} as Record<string, number>,
-  tableCountsAfter: {} as Record<string, number>,
-  replayCheck: null as Record<string, unknown> | null,
+export interface PreviewScenarioEvidence {
+  schemaRevision: string | null;
+  readonly steps: Array<Record<string, unknown>>;
+  readonly skips: Array<Record<string, unknown>>;
+  tableCountsBefore: Record<string, number>;
+  tableCountsAfter: Record<string, number>;
+  replayCheck: Record<string, unknown> | null;
+  readonly legacyAlignment: Record<string, string>;
+}
+
+const makeEvidence = (): PreviewScenarioEvidence => ({
+  schemaRevision: null,
+  steps: [],
+  skips: [],
+  tableCountsBefore: {},
+  tableCountsAfter: {},
+  replayCheck: null,
   legacyAlignment: {
     admissionPeriod: "/kontrollpanel/opptaksperiode",
     interviewAssignment: "/kontrollpanel/intervju/fordel/{id}",
@@ -273,8 +301,8 @@ const evidence = {
     teams: "/kontrollpanel/teamadmin/team/{id}",
     publicSchools: "/skoler",
     publicNews: "/nyheter",
-  } as Record<string, string>,
-};
+  },
+});
 
 const countTables = async (pool: InstanceType<typeof Pool>) => {
   const tables = [
@@ -295,7 +323,71 @@ const countTables = async (pool: InstanceType<typeof Pool>) => {
   return counts;
 };
 
+export interface PreviewScenarioPrerequisiteStatus {
+  readonly globalAdministrator: boolean;
+  readonly admissionDepartment: boolean;
+  readonly admissionSemester: boolean;
+  readonly fieldOfStudy: boolean;
+  readonly paymentAuthority: boolean;
+  readonly interviewSchema: boolean;
+}
+
+export const readPreviewScenarioPrerequisites = async (
+  pool: InstanceType<typeof Pool>,
+): Promise<PreviewScenarioPrerequisiteStatus> => {
+  const result = await pool.query(
+    `SELECT
+       EXISTS (
+         SELECT 1 FROM organization_global_administrator_grants
+         WHERE grant_id = 'preview-0072-global-administrator'
+           AND person_id = $1
+       ) AS "globalAdministrator",
+       EXISTS (
+         SELECT 1 FROM admission_period_departments WHERE department_id = $2
+       ) AS "admissionDepartment",
+       EXISTS (
+         SELECT 1 FROM admission_period_semesters WHERE semester_id = $3
+       ) AS "admissionSemester",
+       EXISTS (
+         SELECT 1 FROM admission_period_fields_of_study
+         WHERE field_of_study_id = $4 AND department_id = $2
+       ) AS "fieldOfStudy",
+       EXISTS (
+         SELECT 1 FROM economy_payment_authorities
+         WHERE payment_authority_id = 'preview-0072-payment-authority'
+           AND person_id = $5
+           AND department_id = $2
+       ) AS "paymentAuthority",
+       (
+         SELECT COUNT(*) = 8
+         FROM recruitment_interview_schema_questions
+         WHERE interview_schema_id = $6
+       ) AS "interviewSchema"`,
+    [
+      persons.admin.personId,
+      departmentId,
+      semesterId,
+      fieldOfStudyId,
+      persons.receiptOwner.personId,
+      interviewSchemaId,
+    ],
+  );
+  return result.rows[0] as PreviewScenarioPrerequisiteStatus;
+};
+
+export const assertScenarioPrerequisites = async (
+  pool: InstanceType<typeof Pool>,
+): Promise<PreviewScenarioPrerequisiteStatus> => {
+  const status = await readPreviewScenarioPrerequisites(pool);
+  assert.ok(
+    Object.values(status).every((present) => present),
+    `preview scenario prerequisites are incomplete: ${JSON.stringify(status)}`,
+  );
+  return status;
+};
+
 const recordStep = (
+  evidence: PreviewScenarioEvidence,
   step: string,
   status: "ok" | "replayed" | "skip",
   detail: Record<string, unknown>,
@@ -303,115 +395,156 @@ const recordStep = (
   evidence.steps.push({ step, status, ...detail });
 };
 
-async function main() {
+interface PreviewScenarioCohortResult {
+  readonly schemaRevision: string;
+  readonly membershipCount: number;
+}
+
+const ensurePreviewScenarioCohort = async (
+  pool: InstanceType<typeof Pool>,
+  postgresUrl: string,
+  evidence?: PreviewScenarioEvidence,
+): Promise<PreviewScenarioCohortResult> => {
+  const seed = spawnSync("bun", ["run", "identity:seed"], {
+    cwd: join(repositoryRoot, "packages", "database"),
+    env: {
+      ...process.env,
+      IDENTITY_SEED_PG_URL: postgresUrl,
+      IDENTITY_SEED_PERSONS: JSON.stringify(Object.values(persons)),
+    },
+    encoding: "utf8",
+  });
+  assert.equal(seed.status, 0, `identity:seed failed:\n${seed.stderr}`);
+  const revisionRow = await pool.query(
+    `SELECT migration_id::text || '_' || name AS revision
+     FROM public.vektorprogrammet_schema_migrations
+     ORDER BY migration_id DESC
+     LIMIT 1`,
+  );
+  const schemaRevision = revisionRow.rows[0]?.revision as string | undefined;
+  assert.equal(
+    schemaRevision,
+    previewScenarioManifest.schemaRevision,
+    "unexpected database schema revision",
+  );
+  const seedRows = await pool.query(
+    `SELECT person_id FROM person_profiles WHERE person_id = ANY($1::text[])`,
+    [Object.values(persons).map(({ personId }) => personId)],
+  );
+  assert.equal(seedRows.rowCount, Object.keys(persons).length, "identity seed read-back failed");
+  if (evidence !== undefined) {
+    evidence.schemaRevision = schemaRevision;
+    recordStep(evidence, "identity-seed", "ok", { persons: Object.keys(persons).length });
+  }
+
+  const membershipSnapshot = {
+    sourceRepository: "preview-scenario-0072",
+    sourceRevision: "1",
+    snapshotId,
+    transformationRevision: "1",
+    departments: [
+      {
+        id: 1,
+        name: "Trondheim",
+        shortName: "Trondheim",
+        email: "trondheim@example.invalid",
+        city: "Trondheim",
+        active: true,
+      },
+    ],
+    teams: [
+      {
+        id: 11,
+        departmentId: 1,
+        name: "Rekruttering",
+        email: "rekruttering@example.invalid",
+        active: true,
+      },
+    ],
+    memberships: Object.values(persons)
+      .filter((person) => person.personId !== persons.admin.personId)
+      .map((person, index) => ({
+        id: 7301 + index,
+        userId: Number(person.personId),
+        teamId: 11,
+        deletedTeamName: null,
+        startAt: membershipStartAt,
+        endAt: null,
+        positionId: index + 1,
+        isTeamLeader: person.personId === persons.leader.personId,
+        isLeader: person.personId === persons.leader.personId,
+        isSuspended: false,
+        isActive: true,
+      })),
+  };
+  const databaseLayer = DatabaseLive({
+    url: Redacted.make(postgresUrl),
+    applicationName: "preview-scenario-0072-import",
+    maxConnections: 1,
+  });
+  const organizationLayer = OrganizationLive.pipe(Layer.provide(databaseLayer));
+  const importResult = await Effect.runPromise(
+    Organization.use(({ importLegacyOrganization }) =>
+      importLegacyOrganization(membershipSnapshot),
+    ).pipe(Effect.provide(organizationLayer)),
+  );
+  assert.equal(importResult.quarantined.length, 0, "membership import quarantined rows");
+  assert.equal(importResult.memberships.length, 5, "membership import did not accept all members");
+  const membershipRows = await pool.query(
+    `SELECT person_id FROM organization_memberships
+     WHERE membership_id LIKE '73%'
+     ORDER BY person_id`,
+  );
+  assert.equal(membershipRows.rowCount, 5, "membership import read-back failed");
+  if (evidence !== undefined) {
+    recordStep(evidence, "memberships-import", "ok", {
+      memberships: importResult.memberships.length,
+      boundary: "Organization.importLegacyOrganization",
+    });
+  }
+  return { schemaRevision, membershipCount: importResult.memberships.length };
+};
+
+export const prepareDisposableScenarioTarget = async (postgresUrl: string): Promise<void> => {
+  assertDisposablePostgresUrl(postgresUrl);
+  const pool = new Pool({ connectionString: postgresUrl, max: 2 });
+  try {
+    await ensurePreviewScenarioCohort(pool, postgresUrl);
+    await pool.query(prerequisitesSql);
+    await assertScenarioPrerequisites(pool);
+  } finally {
+    await pool.end().catch(() => undefined);
+  }
+};
+
+export interface PreviewScenarioApplicationOptions {
+  readonly postgresUrl: string;
+  readonly backendPort?: number;
+  readonly evidencePath?: string;
+  readonly emitEvidence?: boolean;
+}
+
+export interface PreviewScenarioApplicationResult {
+  readonly evidence: PreviewScenarioEvidence;
+  readonly evidencePath: string | null;
+}
+
+export const runPreviewScenarioApplication = async (
+  options: PreviewScenarioApplicationOptions,
+): Promise<PreviewScenarioApplicationResult> => {
+  const { postgresUrl } = options;
+  const evidence = makeEvidence();
   const pool = new Pool({ connectionString: postgresUrl, max: 4 });
-  const backendPort = 8872;
+  const backendPort = options.backendPort ?? 8872;
   const backendOrigin = `http://127.0.0.1:${backendPort}`;
   const tempRoot = await mkdtemp(join(tmpdir(), "preview-scenario-0072-"));
   let backend: ChildProcess | undefined;
 
   try {
-    // 0) identity:seed applies DatabaseLive migrations before seeding.
-    const seed = spawnSync("bun", ["run", "identity:seed"], {
-      cwd: join(repositoryRoot, "packages", "database"),
-      env: {
-        ...process.env,
-        IDENTITY_SEED_PG_URL: postgresUrl,
-        IDENTITY_SEED_PERSONS: JSON.stringify(Object.values(persons)),
-      },
-      encoding: "utf8",
-    });
-    assert.equal(seed.status, 0, `identity:seed failed:\n${seed.stderr}`);
-    const revisionRow = await pool.query(
-      `SELECT migration_id::text || '_' || name AS revision
-       FROM public.vektorprogrammet_schema_migrations
-       ORDER BY migration_id DESC
-       LIMIT 1`,
-    );
-    evidence.schemaRevision = revisionRow.rows[0]?.revision ?? null;
-    assert.equal(
-      evidence.schemaRevision,
-      "23_declarative-authorization-rules",
-      "unexpected database schema revision",
-    );
-    const seedRows = await pool.query(
-      `SELECT person_id FROM person_profiles WHERE person_id = ANY($1::text[])`,
-      [Object.values(persons).map(({ personId }) => personId)],
-    );
-    assert.equal(seedRows.rowCount, Object.keys(persons).length, "identity seed read-back failed");
-    recordStep("identity-seed", "ok", { persons: Object.keys(persons).length });
-    // 7) Memberships via the established import path (no native create command)
-    const membershipSnapshot = {
-      sourceRepository: "preview-scenario-0072",
-      sourceRevision: "1",
-      snapshotId,
-      transformationRevision: "1",
-      departments: [
-        {
-          id: 1,
-          name: "Trondheim",
-          shortName: "Trondheim",
-          email: "trondheim@example.invalid",
-          city: "Trondheim",
-          active: true,
-        },
-      ],
-      teams: [
-        {
-          id: 11,
-          departmentId: 1,
-          name: "Rekruttering",
-          email: "rekruttering@example.invalid",
-          active: true,
-        },
-      ],
-      memberships: Object.values(persons)
-        .filter((person) => person.personId !== persons.admin.personId)
-        .map((person, index) => ({
-          id: 7301 + index,
-          userId: Number(person.personId),
-          teamId: 11,
-          deletedTeamName: null,
-          startAt: membershipStartAt,
-          endAt: null,
-          positionId: index + 1,
-          isTeamLeader: person.personId === persons.leader.personId,
-          isLeader: person.personId === persons.leader.personId,
-          isSuspended: false,
-          isActive: true,
-        })),
-    };
-    const databaseLayer = DatabaseLive({
-      url: Redacted.make(postgresUrl),
-      applicationName: "preview-scenario-0072-import",
-      maxConnections: 1,
-    });
-    const organizationLayer = OrganizationLive.pipe(Layer.provide(databaseLayer));
-    const importResult = await Effect.runPromise(
-      Organization.use(({ importLegacyOrganization }) =>
-        importLegacyOrganization(membershipSnapshot),
-      ).pipe(Effect.provide(organizationLayer)),
-    );
-    assert.equal(importResult.quarantined.length, 0, "membership import quarantined rows");
-    assert.equal(
-      importResult.memberships.length,
-      5,
-      "membership import did not accept all members",
-    );
-    const membershipRows = await pool.query(
-      `SELECT person_id FROM organization_memberships
-       WHERE membership_id LIKE '73%'
-       ORDER BY person_id`,
-    );
-    assert.equal(membershipRows.rowCount, 5, "membership import read-back failed");
-    recordStep("memberships-import", "ok", {
-      memberships: importResult.memberships.length,
-      boundary: "Organization.importLegacyOrganization",
-    });
+    await ensurePreviewScenarioCohort(pool, postgresUrl, evidence);
 
-    // 2) Named prerequisites (recorded, never silent)
-    await pool.query(prerequisitesSql);
-    recordStep("prerequisites", "ok", {
+    await assertScenarioPrerequisites(pool);
+    recordStep(evidence, "prerequisites", "replayed", {
       items: [
         "organization_global_administrator_grants (no native grant command)",
         "admission_period_semesters (no native command; 0049 precedent)",
@@ -486,7 +619,7 @@ async function main() {
       adminCookie !== null && adminCookie.includes("session_token"),
       "admin sign-in returned no session cookie",
     );
-    recordStep("sign-in-admin", "ok", {});
+    recordStep(evidence, "sign-in-admin", "ok", {});
 
     // 5) Native departments (legacy-aligned: NTNU/UiB/NMBU)
     const departments = [
@@ -527,6 +660,7 @@ async function main() {
     );
     assert.ok(departmentCount.rows[0].count >= 3, "native departments read-back failed");
     recordStep(
+      evidence,
       "native-departments",
       replayedDepartments === departments.length ? "replayed" : "ok",
       {
@@ -556,7 +690,7 @@ async function main() {
       teamResponse.status === 201 || teamResponse.status === 200,
       `create team failed: ${teamResponse.status}`,
     );
-    recordStep("native-team", teamResponse.status === 200 ? "replayed" : "ok", {
+    recordStep(evidence, "native-team", teamResponse.status === 200 ? "replayed" : "ok", {
       name: "Rekruttering",
     });
 
@@ -576,7 +710,7 @@ async function main() {
       periodResponse.status === 201 || periodResponse.status === 200,
       `create admission period failed: ${periodResponse.status}`,
     );
-    recordStep("admission-period", periodResponse.status === 200 ? "replayed" : "ok", {
+    recordStep(evidence, "admission-period", periodResponse.status === 200 ? "replayed" : "ok", {
       open: true,
     });
 
@@ -605,10 +739,15 @@ async function main() {
       applicationId?: string;
     };
     assert.ok(applicationObservation.applicationId, "application response omitted applicationId");
-    recordStep("public-application", applicationResponse.status === 200 ? "replayed" : "ok", {
-      applicant: applicantEmail,
-      applicationId: applicationObservation.applicationId,
-    });
+    recordStep(
+      evidence,
+      "public-application",
+      applicationResponse.status === 200 ? "replayed" : "ok",
+      {
+        applicant: applicantEmail,
+        applicationId: applicationObservation.applicationId,
+      },
+    );
 
     // 10) Interview assignment (leader scope), or an exact receipt read-back on replay.
     const assignmentReceipt = await pool.query(
@@ -619,7 +758,9 @@ async function main() {
     );
     const existingInterviewId = assignmentReceipt.rows[0]?.interviewId as string | undefined;
     if (existingInterviewId !== undefined) {
-      recordStep("interview-assignment", "replayed", { interviewId: existingInterviewId });
+      recordStep(evidence, "interview-assignment", "replayed", {
+        interviewId: existingInterviewId,
+      });
     } else {
       const leaderCookie = await signIn(
         backendOrigin,
@@ -676,7 +817,7 @@ async function main() {
         assignmentResult.observation?.interview?.interviewId,
         `assignment response omitted interviewId: ${assignBody}`,
       );
-      recordStep("interview-assignment", assignmentResult.replayed ? "replayed" : "ok", {
+      recordStep(evidence, "interview-assignment", assignmentResult.replayed ? "replayed" : "ok", {
         interviewId: assignmentResult.observation.interview.interviewId,
       });
     }
@@ -712,7 +853,7 @@ async function main() {
       [receiptCommandId],
     );
     assert.equal(pendingReceipt.rows[0]?.status, "Pending", "receipt is not pending");
-    recordStep("receipt-submit", receiptResponse.status === 200 ? "replayed" : "ok", {
+    recordStep(evidence, "receipt-submit", receiptResponse.status === 200 ? "replayed" : "ok", {
       receiptId: pendingReceipt.rows[0]?.receiptId,
       receiptStatus: "Pending",
       description: "Kaffetraktere og grenuttak til stand",
@@ -781,6 +922,7 @@ async function main() {
       "article does not have a published version",
     );
     recordStep(
+      evidence,
       "content-publication",
       existingDraftReceipt.rowCount === 1 && existingPublishReceipt.rowCount === 1
         ? "replayed"
@@ -799,17 +941,20 @@ async function main() {
       after: evidence.tableCountsAfter,
     };
 
-    // 14) Evidence file
-    const evidencePath = join(tempRoot, "preview-scenario-evidence.json");
-    await writeFile(
-      evidencePath,
-      JSON.stringify(
-        { ...evidence, postgresUrl: postgresUrl.replace(/\/\/[^@]*@/, "//***@") },
-        null,
-        2,
-      ),
-    );
-    process.stdout.write(`evidence written to ${evidencePath}\n`);
+    let evidencePath: string | null = null;
+    if (options.emitEvidence !== false) {
+      evidencePath = options.evidencePath ?? join(tempRoot, "preview-scenario-evidence.json");
+      await writeFile(
+        evidencePath,
+        JSON.stringify(
+          { ...evidence, postgresUrl: postgresUrl.replace(/\/\/[^@]*@/, "//***@") },
+          null,
+          2,
+        ),
+      );
+      process.stdout.write(`evidence written to ${evidencePath}\n`);
+    }
+    return { evidence, evidencePath };
   } finally {
     if (backend?.exitCode === null) {
       const { promise, resolve } = Promise.withResolvers<void>();
@@ -821,7 +966,15 @@ async function main() {
     backend?.stderr?.destroy();
     await pool.end().catch(() => undefined);
   }
-}
+};
+
+const main = async (): Promise<void> => {
+  const postgresUrl =
+    process.env.PREVIEW_SCENARIO_PG_URL ?? "postgres://postgres@127.0.0.1:5435/preview_scenario";
+  assertDisposablePostgresUrl(postgresUrl);
+  await prepareDisposableScenarioTarget(postgresUrl);
+  await runPreviewScenarioApplication({ postgresUrl });
+};
 
 if (import.meta.main) {
   main().catch((cause: unknown) => {
