@@ -1,0 +1,18 @@
+[Unit]
+Description=Vektor apex preview PostgreSQL 17 (loopback __PG_PORT__, durable PGDATA)
+
+[Service]
+Type=simple
+# Supervises the existing cluster only; never initializes or deletes PGDATA.
+Environment=PGDATA=__STATE_DIR__/pgdata
+Environment=PATH=/run/current-system/sw/bin:/bin
+ExecStart=/run/current-system/sw/bin/postgres -D __STATE_DIR__/pgdata -p __PG_PORT__ -h 127.0.0.1 -k __STATE_DIR__/pgsocket -c listen_addresses=127.0.0.1
+ExecReload=/run/current-system/sw/bin/pg_ctl -D __STATE_DIR__/pgdata reload
+Restart=on-failure
+RestartSec=5s
+TimeoutStartSec=90
+TimeoutStopSec=60
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=default.target

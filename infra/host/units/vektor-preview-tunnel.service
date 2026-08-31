@@ -1,0 +1,20 @@
+[Unit]
+Description=Vektor apex preview dedicated cloudflared tunnel
+Requires=vektor-preview-backend.service
+After=vektor-preview-backend.service
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+# Read-only use of the existing restricted ingress file; never modified here.
+# The binary symlink is a Nix GC root created by preview-services.sh install.
+ExecStart=__STATE_DIR__/bin/cloudflared tunnel --no-autoupdate --config __STATE_DIR__/cloudflared/apex-tunnel.yml run
+Restart=on-failure
+RestartSec=5s
+TimeoutStartSec=60
+TimeoutStopSec=30
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=default.target

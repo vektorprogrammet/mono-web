@@ -1,0 +1,30 @@
+[Unit]
+Description=Vektor apex preview native backend (loopback 8790)
+Requires=vektor-preview-postgres.service
+After=vektor-preview-postgres.service
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=__STATE_DIR__/runtime/apps/backend
+EnvironmentFile=%h/.config/vektor-preview/backend.env
+Environment=BACKEND_HOST=127.0.0.1
+Environment=BACKEND_PORT=8790
+Environment=BACKEND_PG_URL=postgresql://postgres@127.0.0.1:__PG_PORT__/vektor_preview
+Environment=BETTER_AUTH_URL=https://vektor.phibkro.org
+Environment=BETTER_AUTH_TRUSTED_ORIGINS=https://vektor.phibkro.org,http://127.0.0.1:5174,http://localhost:5174
+Environment=PUBLIC_APPLICATION_EFFECT_MODE=disabled
+Environment=ADMISSION_AUTH_TOKENS={}
+Environment=RECEIPT_AUTH_TOKENS={}
+Environment=ORGANIZATION_AUTH_TOKENS={}
+# Readiness gate: the backend starts only once the preview cluster accepts
+# connections on the dedicated loopback port.
+ExecStartPre=/run/current-system/sw/bin/pg_isready -h 127.0.0.1 -p __PG_PORT__ -t 30
+ExecStart=__STATE_DIR__/bin/bun run src/main.ts
+Restart=on-failure
+RestartSec=5s
+TimeoutStartSec=120
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=default.target
