@@ -3,13 +3,13 @@ import type { AdmissionPeriodActor } from "@vektorprogrammet/domain/admission-pe
 import { InactiveActor, UnauthenticatedActor } from "@vektorprogrammet/domain/admission-period";
 import { Content, ContentManagement } from "@vektorprogrammet/domain/content";
 import { type Database } from "@vektorprogrammet/domain/database";
-import { Identity } from "@vektorprogrammet/domain/identity";
+import { Identity, type IdentityRequestContext } from "@vektorprogrammet/domain/identity";
 import { DepartmentId, type Organization } from "@vektorprogrammet/domain/organization";
 import { Profile } from "@vektorprogrammet/domain/profile";
 import { Recruitment } from "@vektorprogrammet/domain/recruitment";
 import { Economy } from "@vektorprogrammet/domain/receipt";
 import type { Schools } from "@vektorprogrammet/domain/schools";
-import { NativeApi, OrganizationApi, RecruitmentApi } from "@vektorprogrammet/http-api";
+import { NativeApi, RecruitmentApi } from "@vektorprogrammet/http-api";
 import { Effect, Layer } from "effect";
 import { HttpRouter, HttpServerResponse } from "effect/unstable/http";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
@@ -37,6 +37,15 @@ import {
   type ReceiptIdentityResolvers,
 } from "./receipt/http.js";
 import { RecruitmentApiHandlers } from "./recruitment/http.js";
+import {
+  allowsNativePreflightHeaders,
+  decideTrustedOrigin,
+  prepareIdentityBoundaryRequest,
+  trustedOriginRejectedResponse,
+  trustedPreflightResponse,
+  withTrustedOriginCors,
+  type NativeSessionBoundaryPolicy,
+} from "./session-security.js";
 
 export type BackendRun = <A, E>(
   effect: Effect.Effect<
@@ -81,7 +90,8 @@ const profileAuthorityError = (
  * It shares the process-owned identity engine with the native API.
  */
 export interface BackendAuthHandler {
-  readonly handle: (request: Request) => Promise<Response>;
+  readonly handle: (request: Request, context: IdentityRequestContext) => Promise<Response>;
+  readonly recordTrustedOriginRejection: (context: IdentityRequestContext) => Promise<void>;
 }
 
 export interface BackendHttpOptions {
@@ -247,10 +257,6 @@ export const makeNativeApiRouterLayer = (
   return Layer.merge(nativeRoutes, notFound);
 };
 
-const organizationPaths = new Set<string>(
-  Object.values(OrganizationApi.endpoints).map((endpoint) => endpoint.path),
-);
-
 const malformedRecruitmentPath = (method: string, pathname: string): boolean =>
   [
     RecruitmentApi.endpoints.readInterviewConduct,
@@ -261,18 +267,6 @@ const malformedRecruitmentPath = (method: string, pathname: string): boolean =>
       method === endpoint.method && pathname === endpoint.path.replace(":interviewId", ""),
   );
 
-const organizationPreflight = (): Response =>
-  new Response(null, {
-    status: 204,
-    headers: {
-      "access-control-allow-origin": "*",
-      "access-control-allow-methods": "GET, POST, OPTIONS",
-      "access-control-allow-headers": "authorization, content-type",
-      "access-control-max-age": "600",
-      "cache-control": "no-store",
-    },
-  });
-
 /**
  * Explicit external boundary around the native HttpApi handler.
  * Better Auth remains the only path family outside `NativeApi`.
@@ -280,22 +274,33 @@ const organizationPreflight = (): Response =>
 export const makeBackendHttp = (
   nativeHandler: (request: Request) => Promise<Response>,
   authHandler: BackendAuthHandler,
+  sessionBoundary: NativeSessionBoundaryPolicy,
 ): BackendHttp => ({
-  fetch: (request) => {
-    const pathname = new URL(request.url).pathname;
+  fetch: async (request) => {
+    const prepared = prepareIdentityBoundaryRequest(request);
+    const decision = decideTrustedOrigin(sessionBoundary, prepared.request);
+    const preflightHeadersAllowed =
+      prepared.request.method !== "OPTIONS" || allowsNativePreflightHeaders(prepared.request);
+    if (
+      decision._tag === "Rejected" ||
+      (prepared.request.method === "OPTIONS" &&
+        (decision.origin === null || !preflightHeadersAllowed))
+    ) {
+      await authHandler.recordTrustedOriginRejection(prepared.context).catch(() => undefined);
+      return trustedOriginRejectedResponse();
+    }
+    if (prepared.request.method === "OPTIONS") {
+      return trustedPreflightResponse(decision.origin!);
+    }
+    const pathname = new URL(prepared.request.url).pathname;
+    let response: Response;
     if (pathname === "/api/auth/" || pathname.startsWith("/api/auth/")) {
-      return authHandler.handle(request);
+      response = await authHandler.handle(prepared.request, prepared.context);
+    } else if (malformedRecruitmentPath(prepared.request.method, pathname)) {
+      response = jsonResponse({ error: { tag: "RecruitmentDecodeError" } }, 422);
+    } else {
+      response = await nativeHandler(prepared.request);
     }
-    if (request.method === "OPTIONS") {
-      return Promise.resolve(
-        organizationPaths.has(pathname)
-          ? organizationPreflight()
-          : new Response(null, { status: 204 }),
-      );
-    }
-    if (malformedRecruitmentPath(request.method, pathname)) {
-      return Promise.resolve(jsonResponse({ error: { tag: "RecruitmentDecodeError" } }, 422));
-    }
-    return nativeHandler(request);
+    return withTrustedOriginCors(response, decision.origin);
   },
 });

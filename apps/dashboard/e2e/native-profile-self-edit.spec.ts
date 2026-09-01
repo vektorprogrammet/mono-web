@@ -5,6 +5,7 @@ import { expect, test, type Browser, type BrowserContext, type Page } from "@pla
 const realRun = process.env.REAL_NATIVE_PROFILE_E2E === "1";
 const evidencePath = process.env.PROFILE_E2E_BROWSER_EVIDENCE_PATH;
 const apiOrigin = process.env.PROFILE_E2E_API_ORIGIN ?? "http://127.0.0.1:5195";
+const dashboardOrigin = process.env.PROFILE_E2E_DASHBOARD_ORIGIN ?? "http://127.0.0.1:4173";
 const person = {
   email: "profile-before-0064@example.invalid",
   password: "profile-e2e-0064-disposable-password",
@@ -130,7 +131,7 @@ test.describe("Native Profile self-edit (spec 0064)", () => {
     try {
       const unauthenticatedGet = await request.get(`${apiOrigin}/api/me`);
       const unauthenticatedPut = await request.put(`${apiOrigin}/api/me`, {
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", Origin: dashboardOrigin },
         data: {},
       });
       expect(unauthenticatedGet.status()).toBe(401);
@@ -217,7 +218,7 @@ test.describe("Native Profile self-edit (spec 0064)", () => {
       observations.browserCommit = { values: after, freshRead: true, statusSemantics: true };
 
       const malformed = await context.request.put(`${apiOrigin}/api/me`, {
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", Origin: dashboardOrigin },
         data: {
           _tag: "UpdateOwnProfile",
           commandId: "profile-malformed-0064",
@@ -245,6 +246,7 @@ test.describe("Native Profile self-edit (spec 0064)", () => {
         phone: "+47 9000 0003",
       };
       const controlled = await context.request.put(`${apiOrigin}/api/me`, {
+        headers: { Origin: dashboardOrigin },
         data: controlledCommand,
       });
       expect(controlled.status()).toBe(200);
@@ -284,9 +286,13 @@ test.describe("Native Profile self-edit (spec 0064)", () => {
         email: "profile-http-winner-0064@example.invalid",
         phone: "+47 9000 0004",
       };
-      const httpWinner = await context.request.put(`${apiOrigin}/api/me`, { data: httpConflict });
+      const httpWinner = await context.request.put(`${apiOrigin}/api/me`, {
+        headers: { Origin: dashboardOrigin },
+        data: httpConflict,
+      });
       expect(httpWinner.status()).toBe(200);
       const httpConflictChanged = await context.request.put(`${apiOrigin}/api/me`, {
+        headers: { Origin: dashboardOrigin },
         data: { ...httpConflict, firstName: "Ada HTTP Different" },
       });
       expect(httpConflictChanged.status()).toBe(409);

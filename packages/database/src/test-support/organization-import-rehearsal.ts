@@ -35,7 +35,7 @@ export const NATIVE_BROWSER_JOURNEY_REQUIREMENTS = [
   { path: "/api/admin/users", access: "BoundedSession", requestSource: "DashboardSsr" },
   { path: "/api/departments", access: "Public", requestSource: "BrowserCrossOrigin" },
   { path: "/api/me", access: "BoundedSession", requestSource: "DashboardSsr" },
-  { path: "/api/me/session", access: "BoundedSession", requestSource: "DashboardSsr" },
+  { path: "/api/session", access: "BoundedSession", requestSource: "DashboardSsr" },
   { path: "/api/teams", access: "Public", requestSource: "BrowserCrossOrigin" },
 ] as const;
 

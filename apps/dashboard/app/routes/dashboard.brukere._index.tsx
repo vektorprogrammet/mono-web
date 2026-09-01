@@ -42,7 +42,7 @@ export async function loader({ request }: Route.LoaderArgs) {
   if (isFixtureMode) return { users: null };
 
   const cookie = await requireAuth(request);
-  const client = createAuthenticatedClient(cookie);
+  const client = createAuthenticatedClient(cookie, request);
 
   try {
     const users = await client.admin.users.list();

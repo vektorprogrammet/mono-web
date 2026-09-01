@@ -20,11 +20,23 @@ showAskAi: false
 
 - [utils](#utils)
   - [IdentityActor (class)](#identityactor-class)
+  - [IdentityRequestContext (class)](#identityrequestcontext-class)
+  - [IdentitySecurityEvent (class)](#identitysecurityevent-class)
+  - [IdentitySecurityEventDetails (class)](#identitysecurityeventdetails-class)
+  - [IdentitySecurityEventKind](#identitysecurityeventkind)
+  - [IdentitySecurityEventKind (type alias)](#identitysecurityeventkind-type-alias)
+  - [IdentitySecurityOutcomeCode](#identitysecurityoutcomecode)
+  - [IdentitySecurityOutcomeCode (type alias)](#identitysecurityoutcomecode-type-alias)
+  - [IdentitySession (class)](#identitysession-class)
+  - [IdentitySessionId](#identitysessionid)
+  - [IdentitySessionId (type alias)](#identitysessionid-type-alias)
+  - [IdentitySessionMutationSuccess (interface)](#identitysessionmutationsuccess-interface)
   - [IdentitySignInInput (interface)](#identitysignininput-interface)
   - [IdentitySignInSuccess (interface)](#identitysigninsuccess-interface)
   - [SessionToken](#sessiontoken)
   - [SessionToken (type alias)](#sessiontoken-type-alias)
   - [decodeIdentityActor](#decodeidentityactor)
+  - [decodeIdentitySession](#decodeidentitysession)
 
 ---
 
@@ -41,7 +53,155 @@ canonical person holds this session, and until when.
 declare class IdentityActor
 ```
 
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/identity/schema.ts#L65)
+
+### IdentityRequestContext (class)
+
+Sanitized request evidence passed into the identity persistence boundary.
+It contains no raw headers, cookies, request bodies, or credentials.
+
+**Signature**
+
+```ts
+declare class IdentityRequestContext
+```
+
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/identity/schema.ts#L53)
+
+### IdentitySecurityEvent (class)
+
+Input to the owned append-only identity security audit adapter.
+
+**Signature**
+
+```ts
+declare class IdentitySecurityEvent
+```
+
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/identity/schema.ts#L131)
+
+### IdentitySecurityEventDetails (class)
+
+Closed, bounded, non-secret detail shape persisted with every security event.
+
+**Signature**
+
+```ts
+declare class IdentitySecurityEventDetails
+```
+
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/identity/schema.ts#L121)
+
+### IdentitySecurityEventKind
+
+**Signature**
+
+```ts
+declare const IdentitySecurityEventKind: Schema.Literals<
+  readonly [
+    "sign-in-success",
+    "sign-in-failure",
+    "sign-out",
+    "session-revoked-one",
+    "session-revoked-others",
+    "session-revoked-all",
+    "sign-up-rejected",
+    "trusted-origin-csrf-rejected",
+    "account-provisioned-administratively",
+    "session-provisioned-administratively",
+  ]
+>;
+```
+
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/identity/schema.ts#L88)
+
+### IdentitySecurityEventKind (type alias)
+
+**Signature**
+
+```ts
+type IdentitySecurityEventKind = typeof IdentitySecurityEventKind.Type;
+```
+
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/identity/schema.ts#L100)
+
+### IdentitySecurityOutcomeCode
+
+**Signature**
+
+```ts
+declare const IdentitySecurityOutcomeCode: Schema.Literals<
+  readonly [
+    "credential-accepted",
+    "credential-rejected",
+    "current-session-ended",
+    "owned-session-revoked",
+    "other-sessions-revoked",
+    "all-sessions-revoked",
+    "public-sign-up-disabled",
+    "origin-not-trusted",
+    "account-provisioned",
+    "session-provisioned",
+  ]
+>;
+```
+
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/identity/schema.ts#L102)
+
+### IdentitySecurityOutcomeCode (type alias)
+
+**Signature**
+
+```ts
+type IdentitySecurityOutcomeCode = typeof IdentitySecurityOutcomeCode.Type;
+```
+
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/identity/schema.ts#L114)
+
+### IdentitySession (class)
+
+Credential-free metadata exposed by the native session resources.
+
+**Signature**
+
+```ts
+declare class IdentitySession
+```
+
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/identity/schema.ts#L75)
+
+### IdentitySessionId
+
+**Signature**
+
+```ts
+declare const IdentitySessionId: Schema.String;
+```
+
 [Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/identity/schema.ts#L24)
+
+### IdentitySessionId (type alias)
+
+**Signature**
+
+```ts
+type IdentitySessionId = typeof IdentitySessionId.Type;
+```
+
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/identity/schema.ts#L25)
+
+### IdentitySessionMutationSuccess (interface)
+
+**Signature**
+
+```ts
+export interface IdentitySessionMutationSuccess {
+  /** Credential-clearing cookie headers emitted by Better Auth, when applicable. */
+  readonly setCookies: ReadonlyArray<string>;
+}
+```
+
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/identity/schema.ts#L155)
 
 ### IdentitySignInInput (interface)
 
@@ -54,7 +214,7 @@ export interface IdentitySignInInput {
 }
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/identity/schema.ts#L33)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/identity/schema.ts#L144)
 
 ### IdentitySignInSuccess (interface)
 
@@ -68,7 +228,7 @@ export interface IdentitySignInSuccess {
 }
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/identity/schema.ts#L38)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/identity/schema.ts#L149)
 
 ### SessionToken
 
@@ -78,7 +238,7 @@ export interface IdentitySignInSuccess {
 declare const SessionToken: Schema.String;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/identity/schema.ts#L10)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/identity/schema.ts#L14)
 
 ### SessionToken (type alias)
 
@@ -88,7 +248,7 @@ declare const SessionToken: Schema.String;
 type SessionToken = typeof SessionToken.Type;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/identity/schema.ts#L18)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/identity/schema.ts#L22)
 
 ### decodeIdentityActor
 
@@ -103,4 +263,17 @@ declare const decodeIdentityActor: (
 ) => Effect<IdentityActor, Schema.SchemaError, never>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/identity/schema.ts#L31)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/identity/schema.ts#L72)
+
+### decodeIdentitySession
+
+**Signature**
+
+```ts
+declare const decodeIdentitySession: (
+  input: unknown,
+  options?: ParseOptions,
+) => Effect<IdentitySession, Schema.SchemaError, never>;
+```
+
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/identity/schema.ts#L86)

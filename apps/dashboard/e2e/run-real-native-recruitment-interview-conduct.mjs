@@ -289,7 +289,8 @@ const main = async () => {
       BACKEND_PORT: String(backendPort),
       BACKEND_PG_URL: postgresOrigin,
       BETTER_AUTH_SECRET: "native-conduct-0063-disposable-secret-0123456789",
-      BETTER_AUTH_URL: dashboardOrigin,
+      NATIVE_IDENTITY_DEPLOYMENT: "local",
+      NATIVE_IDENTITY_TRUSTED_ORIGINS: JSON.stringify([dashboardOrigin]),
       PUBLIC_APPLICATION_EFFECT_MODE: "disabled",
     };
     backend = start(

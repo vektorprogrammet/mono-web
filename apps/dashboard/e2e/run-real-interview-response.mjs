@@ -1559,7 +1559,7 @@ function assertNativeTransport(records) {
   ];
   const allowedPaths = new Set([
     "/api/auth/sign-in/email",
-    "/api/me/session",
+    "/api/session",
     "/api/me/dashboard",
     readPath,
     profilePath,
@@ -1774,7 +1774,8 @@ async function main() {
     BACKEND_PORT: String(backendPort),
     BACKEND_PG_URL: postgresUrl,
     BETTER_AUTH_SECRET: betterAuthSecret,
-    BETTER_AUTH_URL: dashboardOrigin,
+    NATIVE_IDENTITY_DEPLOYMENT: "local",
+    NATIVE_IDENTITY_TRUSTED_ORIGINS: JSON.stringify([dashboardOrigin]),
     PUBLIC_APPLICATION_EFFECT_MODE: "disabled",
     ADMISSION_FIXED_NOW: fixedClock,
     RECEIPT_STAGING_ROOT: stagingRoot,
@@ -1910,7 +1911,8 @@ async function main() {
       VITE_API_URL: proxy.origin,
       DASHBOARD_ORIGIN: dashboardOrigin,
       BETTER_AUTH_SECRET: betterAuthSecret,
-      BETTER_AUTH_URL: dashboardOrigin,
+      NATIVE_IDENTITY_DEPLOYMENT: "local",
+      NATIVE_IDENTITY_TRUSTED_ORIGINS: JSON.stringify([dashboardOrigin]),
       REAL_NATIVE_INVITATION_RESPONSE_E2E: "1",
       REAL_NATIVE_CONDUCT_E2E: "1",
       NODE_ENV: "development",

@@ -25,10 +25,21 @@ const makeRun =
     return runTestPromise(runnable);
   };
 
+const unreachableSessionManagement = {
+  readCurrentSession: () => Promise.reject(new Error("unexpected session read")),
+  listSessions: () => Promise.reject(new Error("unexpected session list")),
+  revokeCurrentSession: () => Promise.reject(new Error("unexpected session mutation")),
+  revokeSession: () => Promise.reject(new Error("unexpected session mutation")),
+  revokeOtherSessions: () => Promise.reject(new Error("unexpected session mutation")),
+  revokeAllSessions: () => Promise.reject(new Error("unexpected session mutation")),
+  recordSecurityEvent: () => Promise.reject(new Error("unexpected identity audit")),
+  signOut: async () => ({ setCookies: [] }),
+} as const;
+
 const rejectingIdentity = (failure: unknown): IdentityShape => ({
   signIn: () => Promise.reject(new Error("unexpected sign-in")),
   resolveSession: () => Promise.reject(failure),
-  signOut: () => Promise.resolve(),
+  ...unreachableSessionManagement,
 });
 
 it("captures the Schools authorization instant exactly once after session decoding", async () => {
@@ -43,7 +54,7 @@ it("captures the Schools authorization instant exactly once after session decodi
         expiresAt: DateTime.makeUnsafe(new Date("2032-05-02T00:00:00.000Z")),
       });
     },
-    signOut: () => Promise.resolve(),
+    ...unreachableSessionManagement,
   } satisfies IdentityShape);
   const run = makeRun(identity);
   let clockCalls = 0;
@@ -66,8 +77,8 @@ it("captures the Schools authorization instant exactly once after session decodi
 });
 
 it.each([
-  ["missing", new IdentitySessionNotFound({ sessionToken: "missing-session" })],
-  ["expired", new IdentitySessionExpired({ sessionToken: "expired-session" })],
+  ["missing", new IdentitySessionNotFound()],
+  ["expired", new IdentitySessionExpired()],
 ] as const)("maps a %s session to unauthenticated authority", async (_name, failure) => {
   await expect(
     resolveAuthenticatedPerson("better-auth.session_token=invalid", {

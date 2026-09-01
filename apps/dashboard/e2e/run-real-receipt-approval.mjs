@@ -446,7 +446,7 @@ async function startRecordingProxy(targetOrigin) {
       if (
         cookieKey !== undefined &&
         upstream.status === 200 &&
-        url.pathname === "/api/me/session" &&
+        url.pathname === "/api/me" &&
         responseJson !== null &&
         typeof responseJson === "object" &&
         "personId" in responseJson &&
@@ -925,7 +925,8 @@ function assertJourneyEvidence(journeyEvidence, seedEvidence) {
       fixtureLabel,
       nativeLogin: true,
       sessionCookieNames: ["better-auth.session_token"],
-      apiSessionPath: "/api/me/session",
+      apiSessionPath: "/api/session",
+      personBindingPath: "/api/me",
       personId,
     }))
     .sort(({ personId: left }, { personId: right }) => left.localeCompare(right));
@@ -1152,7 +1153,8 @@ export default {
   const sharedEnvironment = {
     ...baseEnvironment,
     BETTER_AUTH_SECRET: betterAuthSecret,
-    BETTER_AUTH_URL: dashboardOrigin,
+    NATIVE_IDENTITY_DEPLOYMENT: "local",
+    NATIVE_IDENTITY_TRUSTED_ORIGINS: JSON.stringify([dashboardOrigin]),
   };
   const apiEnvironment = {
     ...sharedEnvironment,

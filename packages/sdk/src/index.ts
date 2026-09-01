@@ -89,7 +89,7 @@ export {
 export { ContactMessageInput, ContactMessageInputSchema } from "./schemas/contact-message.js";
 export {
   ProfileCommandId,
-  SessionActor,
+  SessionProjection,
   UpdateOwnProfileCommand,
   UserProfile,
   UserRole,

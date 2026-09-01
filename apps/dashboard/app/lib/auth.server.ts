@@ -52,7 +52,7 @@ async function inspectSession(request: Request): Promise<SessionInspection> {
   if (cookie === null || !hasSessionCookie(cookie)) return { _tag: "Missing" };
 
   try {
-    await createAuthenticatedClient(cookie).me.session();
+    await createAuthenticatedClient(cookie, request).me.session();
     return { _tag: "Authenticated", cookie };
   } catch (error) {
     // The transport raises tagged Schema errors (Unauthorized /
@@ -139,16 +139,26 @@ export async function signInWithEmail(
     : { _tag: "Unavailable" };
 }
 
+function expiredSessionCookieHeaders(request: Request): Headers {
+  const headers = new Headers();
+  const cookie = request.headers.get("Cookie") ?? "";
+  for (const name of SESSION_COOKIE_NAMES) {
+    if (!cookie.split(";").some((pair) => pair.trimStart().startsWith(`${name}=`))) continue;
+    const secure = name.startsWith("__Secure-") ? "; Secure" : "";
+    headers.append("Set-Cookie", `${name}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${secure}`);
+  }
+  return headers;
+}
+
 export async function signOut(request: Request): Promise<Headers> {
-  const response = await fetch(serverApiEndpoint("/api/auth/sign-out"), {
-    method: "POST",
+  const response = await fetch(serverApiEndpoint("/api/session"), {
+    method: "DELETE",
     headers: backendRequestHeaders(request, true),
     signal: request.signal,
     redirect: "manual",
   });
-  if (!response.ok) {
-    throw new Response("Sign out failed", { status: 502 });
-  }
+  if (response.status === 401) return expiredSessionCookieHeaders(request);
+  if (!response.ok) throw new Response("Sign out failed", { status: 502 });
   return forwardSetCookieHeaders(response.headers);
 }
 

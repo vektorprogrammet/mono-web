@@ -37,6 +37,11 @@ import { type SchoolsApiHttpOptions } from "../schools/http.js";
 import type { BackendConfig } from "../config.js";
 
 const platform = Layer.mergeAll(BunServices.layer, BunHttpPlatform.layer, Etag.layer);
+const testSessionBoundary = {
+  deployment: "local",
+  trustedOrigins: ["http://127.0.0.1:5174"],
+  secureCookies: false,
+} as const;
 const notFound = HttpRouter.use((router) =>
   router.add(
     "*",
@@ -88,9 +93,14 @@ const testFetch = <Id extends string, Groups extends HttpApiGroup.Constraint>(
   }).handler;
   // HttpRouter's conditional context type cannot reduce across this generic group helper.
   const nativeHandler = webHandler as unknown as (request: Request) => Promise<Response>;
-  return makeBackendHttp(nativeHandler, {
-    handle: () => Promise.resolve(new Response(null, { status: 404 })),
-  }).fetch;
+  return makeBackendHttp(
+    nativeHandler,
+    {
+      handle: () => Promise.resolve(new Response(null, { status: 404 })),
+      recordTrustedOriginRejection: () => Promise.resolve(),
+    },
+    testSessionBoundary,
+  ).fetch;
 };
 
 export const makeOrganizationTestHttp = (options: OrganizationApiHttpOptions) => ({
@@ -162,6 +172,6 @@ export const makeBackendTestHttp = (
   const native = HttpRouter.toWebHandler(
     makeNativeApiRouterLayer(config, run, options).pipe(Layer.provide(platform)),
     { disableLogger: true },
-  ).handler;
-  return makeBackendHttp(native, authHandler);
+  ).handler as unknown as (request: Request) => Promise<Response>;
+  return makeBackendHttp(native, authHandler, config.sessionBoundary);
 };

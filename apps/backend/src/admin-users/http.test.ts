@@ -37,14 +37,13 @@ import type { BackendRun } from "../router.js";
 import { makeBackendTestHttp as makeBackendHttp } from "../test/native-http.js";
 import { runTestPromise } from "../../test/runtime.js";
 
-const token = "directory-token";
+const token = "better-auth.session_token";
 const environment = {
   BACKEND_PG_URL: "postgres://test.invalid/vektorprogrammet",
   BETTER_AUTH_SECRET: "router-test-secret-with-at-least-32-characters!",
+  NATIVE_IDENTITY_DEPLOYMENT: "local",
+  NATIVE_IDENTITY_TRUSTED_ORIGINS: JSON.stringify(["http://127.0.0.1:5174"]),
   PUBLIC_APPLICATION_EFFECT_MODE: "disabled",
-  ADMISSION_AUTH_TOKENS: JSON.stringify({}),
-  RECEIPT_AUTH_TOKENS: JSON.stringify({}),
-  ORGANIZATION_AUTH_TOKENS: JSON.stringify({}),
 } as const;
 const config = makeBackendConfig(environment);
 
@@ -314,15 +313,23 @@ const successfulRun: BackendRun = <A, E>(
               expiresAt: DateTime.makeUnsafe(new Date("2031-09-16T00:00:00.000Z")),
             });
           }
-          throw new IdentitySessionNotFound({ sessionToken: "" });
+          throw new IdentitySessionNotFound();
         },
-        signOut: async () => undefined,
+        readCurrentSession: () => Promise.reject(new Error("unexpected session read")),
+        listSessions: () => Promise.reject(new Error("unexpected session list")),
+        revokeCurrentSession: () => Promise.reject(new Error("unexpected session mutation")),
+        revokeSession: () => Promise.reject(new Error("unexpected session mutation")),
+        revokeOtherSessions: () => Promise.reject(new Error("unexpected session mutation")),
+        revokeAllSessions: () => Promise.reject(new Error("unexpected session mutation")),
+        recordSecurityEvent: () => Promise.reject(new Error("unexpected identity audit")),
+        signOut: async () => ({ setCookies: [] }),
       } satisfies IdentityShape),
     ) as Effect.Effect<A, E>,
   );
 
 const backend = makeBackendHttp(config, successfulRun, {
   handle: async () => new Response(null, { status: 404 }),
+  recordTrustedOriginRejection: async () => undefined,
 });
 
 const request = (): Promise<Response> =>

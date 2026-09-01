@@ -1,12 +1,11 @@
 import { randomBytes, randomUUID } from "node:crypto";
-import type { AdmissionApiConfig, AdmissionApiPrincipal } from "../admission/config.js";
+import type { AdmissionApiConfig } from "../admission/config.js";
 import {
   RecruitmentInterviewId,
   RecruitmentInvitationId,
 } from "@vektorprogrammet/domain/recruitment";
 
 export interface RecruitmentApiConfig {
-  readonly tokens: ReadonlyMap<string, AdmissionApiPrincipal>;
   readonly maxBodyBytes: number;
   readonly now: () => string;
   readonly nextInterviewId: () => typeof RecruitmentInterviewId.Type;
@@ -21,7 +20,6 @@ export const makeRecruitmentResponseCapability = (): string =>
   randomBytes(32).toString("base64url");
 
 export const makeRecruitmentApiConfig = (admission: AdmissionApiConfig) => ({
-  tokens: admission.tokens,
   maxBodyBytes: admission.maxBodyBytes,
   now: admission.now,
   nextInterviewId: () => RecruitmentInterviewId.make(`recruitment_interview_${randomUUID()}`),

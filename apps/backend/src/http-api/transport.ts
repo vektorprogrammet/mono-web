@@ -3,9 +3,10 @@ import {
   RequestSchemaErrorMiddleware,
   SessionSecurity,
 } from "@vektorprogrammet/http-api";
-import { Effect, Layer } from "effect";
+import { Effect, Layer, Redacted } from "effect";
 import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 import { HttpApiMiddleware } from "effect/unstable/httpapi";
+import { hasBetterAuthSessionCredential } from "../session-security.js";
 
 /**
  * Runs one existing Web transport operation and returns an Effect HTTP response.
@@ -52,16 +53,16 @@ const schemaErrorWebResponse = (group: string, endpoint: string): Response => {
   if (group !== "content" || endpoint !== "readContentWorkspace") {
     headers["cache-control"] = "no-store";
   }
-  if (group === "organization") {
-    headers["access-control-allow-origin"] = "*";
-  }
   return new Response(JSON.stringify({ error: { tag } }), { status: 422, headers });
 };
 
 const SessionSecurityLive = Layer.succeed(
   SessionSecurity,
   SessionSecurity.of({
-    sessionCookie: (httpEffect) => httpEffect,
+    cookieHeader: (httpEffect, { credential }) =>
+      hasBetterAuthSessionCredential(Redacted.value(credential))
+        ? httpEffect
+        : Effect.fail({ error: { tag: "UnauthenticatedActor" as const } }),
   }),
 );
 

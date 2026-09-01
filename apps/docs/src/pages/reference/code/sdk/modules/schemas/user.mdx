@@ -23,8 +23,8 @@ User schemas — shared between auth and admin domains.
 - [utils](#utils)
   - [ProfileCommandId](#profilecommandid)
   - [ProfileCommandId (type alias)](#profilecommandid-type-alias)
-  - [SessionActor](#sessionactor)
-  - [SessionActor (type alias)](#sessionactor-type-alias)
+  - [SessionProjection](#sessionprojection)
+  - [SessionProjection (type alias)](#sessionprojection-type-alias)
   - [UpdateOwnProfileCommand](#updateownprofilecommand)
   - [UpdateOwnProfileCommand (type alias)](#updateownprofilecommand-type-alias)
   - [User (class)](#user-class)
@@ -45,7 +45,7 @@ User schemas — shared between auth and admin domains.
 declare const ProfileCommandId: Schema.brand<Schema.String, "ProfileCommandId">;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/sdk/src/schemas/user.ts#L66)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/sdk/src/schemas/user.ts#L70)
 
 ### ProfileCommandId (type alias)
 
@@ -55,30 +55,35 @@ declare const ProfileCommandId: Schema.brand<Schema.String, "ProfileCommandId">;
 type ProfileCommandId = typeof ProfileCommandId.Type;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/sdk/src/schemas/user.ts#L67)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/sdk/src/schemas/user.ts#L71)
 
-### SessionActor
+### SessionProjection
 
 **Signature**
 
 ```ts
-declare const SessionActor: Schema.Struct<{
-  readonly personId: Schema.brand<Schema.String, "ProfilePersonId">;
-  readonly expiresAt: Schema.optional<Schema.String>;
+declare const SessionProjection: Schema.Struct<{
+  readonly sessionId: Schema.String;
+  readonly createdAt: Schema.String;
+  readonly updatedAt: Schema.String;
+  readonly expiresAt: Schema.String;
+  readonly ipAddress: Schema.NullOr<Schema.String>;
+  readonly userAgent: Schema.NullOr<Schema.String>;
+  readonly current: Schema.Boolean;
 }>;
 ```
 
 [Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/sdk/src/schemas/user.ts#L51)
 
-### SessionActor (type alias)
+### SessionProjection (type alias)
 
 **Signature**
 
 ```ts
-type SessionActor = typeof SessionActor.Type;
+type SessionProjection = typeof SessionProjection.Type;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/sdk/src/schemas/user.ts#L56)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/sdk/src/schemas/user.ts#L60)
 
 ### UpdateOwnProfileCommand
 
@@ -97,7 +102,7 @@ declare const UpdateOwnProfileCommand: Schema.Struct<{
 }>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/sdk/src/schemas/user.ts#L72)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/sdk/src/schemas/user.ts#L76)
 
 ### UpdateOwnProfileCommand (type alias)
 
@@ -107,7 +112,7 @@ declare const UpdateOwnProfileCommand: Schema.Struct<{
 type UpdateOwnProfileCommand = typeof UpdateOwnProfileCommand.Type;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/sdk/src/schemas/user.ts#L82)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/sdk/src/schemas/user.ts#L86)
 
 ### User (class)
 
@@ -117,7 +122,7 @@ type UpdateOwnProfileCommand = typeof UpdateOwnProfileCommand.Type;
 declare class User
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/sdk/src/schemas/user.ts#L58)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/sdk/src/schemas/user.ts#L62)
 
 ### UserProfile
 
@@ -136,7 +141,7 @@ declare const UserProfile: Schema.Struct<{
 }>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/sdk/src/schemas/user.ts#L84)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/sdk/src/schemas/user.ts#L88)
 
 ### UserProfile (type alias)
 
@@ -146,7 +151,7 @@ declare const UserProfile: Schema.Struct<{
 type UserProfile = typeof UserProfile.Type;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/sdk/src/schemas/user.ts#L94)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/sdk/src/schemas/user.ts#L98)
 
 ### UserRole
 
@@ -158,7 +163,7 @@ declare const UserRole: Schema.Literals<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/sdk/src/schemas/user.ts#L69)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/sdk/src/schemas/user.ts#L73)
 
 ### UserRole (type alias)
 
@@ -168,4 +173,4 @@ declare const UserRole: Schema.Literals<
 type UserRole = typeof UserRole.Type;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/sdk/src/schemas/user.ts#L70)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/sdk/src/schemas/user.ts#L74)

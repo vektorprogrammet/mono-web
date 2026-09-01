@@ -195,8 +195,8 @@ function approvalEnvironment(): ApprovalEnvironment {
   };
 }
 
-function sessionHeaders(cookie: string): { Cookie: string } {
-  return { Cookie: cookie };
+function sessionHeaders(cookie: string): { Cookie: string; Origin: string } {
+  return { Cookie: cookie, Origin: DASHBOARD_ORIGIN };
 }
 
 async function responseErrorTag(response: APIResponse): Promise<string> {
@@ -403,15 +403,25 @@ async function authenticate(
   const sessionCookie = sessionCookies[0];
   if (sessionCookie === undefined) throw new Error("Better Auth session cookie is missing");
   const cookie = `${sessionCookie.name}=${sessionCookie.value}`;
-  const sessionResponse = await request.get(`${BACKEND_ORIGIN}/api/me/session`, {
+  const sessionResponse = await request.get(`${BACKEND_ORIGIN}/api/session`, {
     headers: sessionHeaders(cookie),
   });
   expect(sessionResponse.status()).toBe(200);
-  const session = z
+  expect(
+    z
+      .object({ sessionId: z.string(), current: z.literal(true) })
+      .passthrough()
+      .parse(await sessionResponse.json()),
+  ).toBeDefined();
+  const profileResponse = await request.get(`${BACKEND_ORIGIN}/api/me`, {
+    headers: sessionHeaders(cookie),
+  });
+  expect(profileResponse.status()).toBe(200);
+  const profile = z
     .object({ personId: z.string() })
     .passthrough()
-    .parse(await sessionResponse.json());
-  expect(session.personId).toBe(persona.personId);
+    .parse(await profileResponse.json());
+  expect(profile.personId).toBe(persona.personId);
 
   return {
     cookie,
@@ -424,7 +434,7 @@ async function authenticate(
     },
     fixtureLabel: persona.fixtureLabel,
     sessionCookieNames: [sessionCookie.name],
-    sessionPersonId: session.personId,
+    sessionPersonId: profile.personId,
   };
 }
 
@@ -1122,7 +1132,8 @@ test.describe("Native scoped Receipt approval journey", () => {
           fixtureLabel: session.fixtureLabel,
           nativeLogin: true,
           sessionCookieNames: session.sessionCookieNames,
-          apiSessionPath: "/api/me/session",
+          apiSessionPath: "/api/session",
+          personBindingPath: "/api/me",
           personId: session.sessionPersonId,
         },
       ]),

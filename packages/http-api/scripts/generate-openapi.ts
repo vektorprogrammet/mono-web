@@ -37,7 +37,16 @@ function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(`OpenAPI invariant failed: ${message}`);
 }
 
-const spec = OpenApi.fromApi(NativeApi);
+const rawSpec = OpenApi.fromApi(NativeApi);
+const spec: OpenApi.OpenAPISpec = {
+  ...rawSpec,
+  paths: Object.fromEntries(
+    Object.entries(rawSpec.paths).map(([path, item]) => [
+      path.replace(/:\{(\w+)\}/gu, ":$1"),
+      item,
+    ]),
+  ),
+};
 type WithProvenance = {
   readonly "x-vektorprogrammet-provenance"?: unknown;
   readonly "x-tagGroups"?: unknown;
@@ -58,7 +67,7 @@ for (const [path, item] of Object.entries(spec.paths)) {
     if (item[method] !== undefined) operations.push(item[method]);
   }
 }
-assert(operations.length === 47, `expected 47 public operations, found ${operations.length}`);
+assert(operations.length === 52, `expected 52 public operations, found ${operations.length}`);
 assert(
   documentedSpec["x-vektorprogrammet-provenance"] !== undefined,
   "document provenance must be present",
@@ -85,7 +94,7 @@ const expectedPublicOperationIds = new Set(
     ),
 );
 assert(
-  expectedPublicOperationIds.size === 47 &&
+  expectedPublicOperationIds.size === 52 &&
     operationIds.length === expectedPublicOperationIds.size &&
     operationIds.every((identifier) => expectedPublicOperationIds.has(identifier)),
   "every public operation id must be its stable fully-qualified group.endpoint identifier",
@@ -101,11 +110,22 @@ assert(new Set(operationIds).size === operationIds.length, "operation ids must b
 
 const paths = spec.paths;
 assert(paths["/api/departments"]?.get?.responses?.["200"] !== undefined, "public response schema");
-assert(
-  paths["/api/me/session"]?.get?.security?.[0]?.sessionCookie !== undefined,
-  "session security",
-);
-assert(paths["/api/me/session"]?.get?.responses?.["401"] !== undefined, "session 401 schema");
+for (const [path, method] of [
+  ["/api/session", "get"],
+  ["/api/session", "delete"],
+  ["/api/sessions", "get"],
+  ["/api/sessions/{sessionId}", "delete"],
+  ["/api/sessions:revoke-others", "post"],
+  ["/api/sessions:revoke-all", "post"],
+] as const) {
+  const operation = paths[path]?.[method];
+  assert(
+    operation?.security?.[0]?.cookieHeader !== undefined,
+    `${method} ${path} session security`,
+  );
+  assert(operation?.responses?.["401"] !== undefined, `${method} ${path} session 401 schema`);
+}
+assert(paths["/api/me/session"] === undefined, "obsolete session route must be absent");
 assert(paths["/api/admin/departments"]?.post?.responses?.["201"] !== undefined, "admin create 201");
 assert(
   paths["/api/receipts/submit"]?.post?.requestBody?.content?.["multipart/form-data"] !== undefined,
@@ -121,8 +141,13 @@ assert(
   "recruitment conflict error",
 );
 assert(paths["/api/news/{slug}"]?.get?.responses?.["200"] !== undefined, "public news schema");
-const sessionScheme = spec.components?.securitySchemes?.sessionCookie;
-assert(sessionScheme?.type === "apiKey" && sessionScheme.in === "cookie", "cookie security scheme");
+const sessionScheme = spec.components?.securitySchemes?.cookieHeader;
+assert(
+  sessionScheme?.type === "apiKey" &&
+    sessionScheme.in === "header" &&
+    sessionScheme.name === "Cookie",
+  "authoritatively resolved Cookie header security scheme",
+);
 const invitationScheme = spec.components?.securitySchemes?.invitationCapability;
 assert(
   invitationScheme?.type === "apiKey" &&

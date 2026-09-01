@@ -15,7 +15,10 @@ const memberPassword = process.env.IDENTITY_EVIDENCE_MEMBER_PASSWORD ?? "";
 const adminScreenshotPath = process.env.IDENTITY_EVIDENCE_ADMIN_SCREENSHOT_PATH ?? "/dev/null";
 const memberScreenshotPath = process.env.IDENTITY_EVIDENCE_MEMBER_SCREENSHOT_PATH ?? "/dev/null";
 const outputPath = evidencePath ?? "/dev/null";
+const hardeningEvidencePath = process.env.IDENTITY_HARDENING_BROWSER_PATH ?? "/dev/null";
+const apiOrigin = process.env.API_URL ?? "";
 const sessionCookieName = "better-auth.session_token";
+const betterAuthSignInWindowResetMs = 10_500;
 const navigationPaths = [
   "/dashboard/profile",
   "/dashboard/mine-utlegg",
@@ -49,8 +52,9 @@ if (
     wrongPassword === "" ||
     memberEmail === "" ||
     memberPassword === "" ||
-    adminScreenshotPath === "/dev/null" ||
-    memberScreenshotPath === "/dev/null")
+    memberScreenshotPath === "/dev/null" ||
+    hardeningEvidencePath === "/dev/null" ||
+    apiOrigin === "")
 ) {
   throw new Error("identity evidence requires process-bound credentials, origin, and output path");
 }
@@ -215,9 +219,263 @@ const observeNavigationStatuses = async (
   );
   return statuses;
 };
+const originHeaders = (origin = dashboardOrigin): Record<string, string> => ({ Origin: origin });
+
+const signInContext = async (
+  context: BrowserContext,
+  signInEmail: string,
+  signInPassword: string,
+): Promise<void> => {
+  const response = await context.request.post(`${apiOrigin}/api/auth/sign-in/email`, {
+    headers: originHeaders(),
+    data: { email: signInEmail, password: signInPassword },
+  });
+  expect(response.status()).toBe(200);
+};
+
+const readSessions = async (
+  context: BrowserContext,
+): Promise<ReadonlyArray<Record<string, unknown>>> => {
+  const response = await context.request.get(`${apiOrigin}/api/sessions`, {
+    headers: originHeaders(),
+  });
+  expect(response.status()).toBe(200);
+  const body = (await response.json()) as ReadonlyArray<Record<string, unknown>>;
+  const expectedFields = [
+    "createdAt",
+    "current",
+    "expiresAt",
+    "ipAddress",
+    "sessionId",
+    "updatedAt",
+    "userAgent",
+  ];
+  expect(body.length).toBeGreaterThan(0);
+  for (const session of body) {
+    expect(Object.keys(session).sort()).toEqual(expectedFields);
+    expect(typeof session.sessionId).toBe("string");
+    expect(typeof session.createdAt).toBe("string");
+    expect(typeof session.updatedAt).toBe("string");
+    expect(typeof session.expiresAt).toBe("string");
+    expect(typeof session.current).toBe("boolean");
+  }
+  expect(body.filter((session) => session.current === true)).toHaveLength(1);
+  return body;
+};
+
+const nativeMutation = (
+  context: BrowserContext,
+  method: "DELETE" | "POST",
+  path: string,
+  origin = dashboardOrigin,
+) =>
+  context.request.fetch(`${apiOrigin}${path}`, {
+    method,
+    headers: originHeaders(origin),
+  });
+
+const replayWithCookie = (
+  method: "DELETE" | "GET" | "POST",
+  path: string,
+  cookie: { readonly name: string; readonly value: string },
+) =>
+  fetch(`${apiOrigin}${path}`, {
+    method,
+    headers: {
+      Cookie: `${cookie.name}=${cookie.value}`,
+      Origin: dashboardOrigin,
+    },
+  });
 
 test.describe("Native Identity browser evidence (spec 0065 with spec 0056 rules)", () => {
   test.skip(!realRun, "run through the bounded native Identity PostgreSQL runner");
+  test("proves the frozen 0054.1 owner-only lifecycle and immediate persisted revocation", async ({
+    browser,
+  }) => {
+    test.setTimeout(120_000);
+    const primary = await browser.newContext();
+    const secondary = await browser.newContext();
+    const third = await browser.newContext();
+    const member = await browser.newContext();
+    const signup = await browser.newContext();
+    try {
+      await signInContext(primary, email, password);
+      await signInContext(secondary, email, password);
+
+      const initial = await readSessions(primary);
+      expect(initial).toHaveLength(2);
+      const currentSessionId = initial.find((session) => session.current === true)?.sessionId;
+      if (typeof currentSessionId !== "string") {
+        throw new Error("current session projection omitted its opaque identifier");
+      }
+
+      const rejectedOrigin = await nativeMutation(
+        primary,
+        "POST",
+        "/api/sessions:revoke-others",
+        "https://untrusted.example.invalid",
+      );
+      expect(rejectedOrigin.status()).toBe(403);
+      expect(await readSessions(primary)).toHaveLength(2);
+
+      expect((await nativeMutation(primary, "POST", "/api/sessions:revoke-others")).status()).toBe(
+        204,
+      );
+      expect((await nativeMutation(primary, "POST", "/api/sessions:revoke-others")).status()).toBe(
+        204,
+      );
+      const secondaryAfterRevocation = await secondary.request.get(`${apiOrigin}/api/session`, {
+        headers: originHeaders(),
+      });
+      expect(secondaryAfterRevocation.status()).toBe(401);
+
+      await signInContext(third, email, password);
+      const afterThirdSignIn = await readSessions(primary);
+      expect(afterThirdSignIn).toHaveLength(2);
+      const thirdSessionId = afterThirdSignIn.find(
+        (session) => session.current === false,
+      )?.sessionId;
+      if (typeof thirdSessionId !== "string") {
+        throw new Error("other owned session projection omitted its opaque identifier");
+      }
+      expect(
+        (
+          await nativeMutation(
+            primary,
+            "DELETE",
+            `/api/sessions/${encodeURIComponent(thirdSessionId)}`,
+          )
+        ).status(),
+      ).toBe(204);
+      const repeatedDeleted = await nativeMutation(
+        primary,
+        "DELETE",
+        `/api/sessions/${encodeURIComponent(thirdSessionId)}`,
+      );
+      const missing = await nativeMutation(
+        primary,
+        "DELETE",
+        "/api/sessions/missing-session-0054-1",
+      );
+      expect(repeatedDeleted.status()).toBe(404);
+      expect(missing.status()).toBe(404);
+      expect(await repeatedDeleted.json()).toEqual(await missing.json());
+      expect(
+        (
+          await third.request.get(`${apiOrigin}/api/session`, {
+            headers: originHeaders(),
+          })
+        ).status(),
+      ).toBe(401);
+
+      await delay(betterAuthSignInWindowResetMs);
+      await signInContext(member, memberEmail, memberPassword);
+      const memberSessions = await readSessions(member);
+      expect(memberSessions).toHaveLength(1);
+      const memberSessionId = memberSessions[0]?.sessionId;
+      if (typeof memberSessionId !== "string") {
+        throw new Error("member session projection omitted its opaque identifier");
+      }
+      const memberCrossPerson = await nativeMutation(
+        member,
+        "DELETE",
+        `/api/sessions/${encodeURIComponent(currentSessionId)}`,
+      );
+      const administratorCrossPerson = await nativeMutation(
+        primary,
+        "DELETE",
+        `/api/sessions/${encodeURIComponent(memberSessionId)}`,
+      );
+      expect(memberCrossPerson.status()).toBe(404);
+      expect(administratorCrossPerson.status()).toBe(404);
+      expect(await memberCrossPerson.json()).toEqual(await administratorCrossPerson.json());
+
+      const signupResponse = await signup.request.post(`${apiOrigin}/api/auth/sign-up/email`, {
+        headers: originHeaders(),
+        data: {
+          name: "Rejected Signup",
+          email: "rejected-signup-0054-1@example.invalid",
+          password,
+        },
+      });
+      expect(signupResponse.status()).toBe(400);
+      expect(await readSessions(primary)).toHaveLength(1);
+
+      const [primaryCookie] = (await primary.cookies()).filter((cookie) =>
+        cookie.name.endsWith("better-auth.session_token"),
+      );
+      assert.ok(primaryCookie);
+      expect((await nativeMutation(primary, "POST", "/api/sessions:revoke-all")).status()).toBe(
+        204,
+      );
+      expect((await replayWithCookie("GET", "/api/session", primaryCookie)).status).toBe(401);
+      expect(
+        (await replayWithCookie("POST", "/api/sessions:revoke-all", primaryCookie)).status,
+      ).toBe(401);
+
+      await signInContext(primary, email, password);
+      const [replacementCookie] = (await primary.cookies()).filter((cookie) =>
+        cookie.name.endsWith("better-auth.session_token"),
+      );
+      assert.ok(replacementCookie);
+      expect((await nativeMutation(primary, "DELETE", "/api/session")).status()).toBe(204);
+      const immediateReplay = await Promise.all(
+        Array.from({ length: 4 }, () => replayWithCookie("GET", "/api/session", replacementCookie)),
+      );
+      expect(immediateReplay.map((response) => response.status)).toEqual([401, 401, 401, 401]);
+      expect((await replayWithCookie("DELETE", "/api/session", replacementCookie)).status).toBe(
+        401,
+      );
+
+      expect((await nativeMutation(member, "DELETE", "/api/session")).status()).toBe(204);
+      await writeFile(
+        hardeningEvidencePath,
+        `${JSON.stringify(
+          {
+            specId: "0054.1",
+            passed: true,
+            sessionProjection: {
+              fields: Object.keys(initial[0] ?? {}).sort(),
+              initialOwnedCount: initial.length,
+              oneCurrent: initial.filter((session) => session.current === true).length,
+              credentialFieldsObserved: [],
+            },
+            originRejection: { status: 403, mutationObserved: false },
+            revocation: {
+              revokeOthers: [204, 204],
+              otherContextNextRequest: 401,
+              revokeOne: 204,
+              repeatedAndMissing: [404, 404],
+              revokeAll: 204,
+              revokeAllReplay: 401,
+              current: 204,
+              immediateReplay: immediateReplay.map((response) => response.status),
+              currentReplay: 401,
+            },
+            ownership: {
+              memberAgainstAdministrator: 404,
+              administratorAgainstMember: 404,
+              responseEqual: true,
+            },
+            signup: { status: 400, sessionCreated: false },
+            cookieValueRecorded: false,
+            syntheticPersonasOnly: true,
+          },
+          null,
+          2,
+        )}\n`,
+        "utf8",
+      );
+    } finally {
+      await Promise.all([
+        primary.close(),
+        secondary.close(),
+        third.close(),
+        member.close(),
+        signup.close(),
+      ]);
+    }
+  });
 
   test("proves login, strict session, revocation, rate limit, and login accessibility", async ({
     browser,
@@ -233,6 +491,7 @@ test.describe("Native Identity browser evidence (spec 0065 with spec 0056 rules)
     const page = await context.newPage();
     page.on("pageerror", (error) => pageErrors.push(error.message));
     try {
+      await delay(betterAuthSignInWindowResetMs);
       await page.goto("/login");
       const initialViolations = await blockingViolations(page);
       accessibility.initial = initialViolations.length;
@@ -378,7 +637,7 @@ test.describe("Native Identity browser evidence (spec 0065 with spec 0056 rules)
         false,
       );
       await expect(page.getByRole("heading", { level: 1, name: "Vektorprogrammet" })).toBeVisible();
-      observations.logout = { status: 200, redirect: "/login", browserCookieRemoved: true };
+      observations.logout = { nativeStatus: 204, redirect: "/login", browserCookieRemoved: true };
       browserAuthorityChecks.push(
         await observeBrowserAuthorityIsolation(context, page, "logout-login"),
       );
@@ -398,7 +657,7 @@ test.describe("Native Identity browser evidence (spec 0065 with spec 0056 rules)
       );
       await context.clearCookies();
       await page.goto("/login");
-      await delay(10_500);
+      await delay(betterAuthSignInWindowResetMs);
       const wrongStarted = Date.now();
       for (let attempt = 1; attempt <= 10; attempt += 1) {
         await page.getByLabel("E-post").fill(email);

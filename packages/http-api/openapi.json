@@ -1966,12 +1966,7 @@
       },
       "HealthOkResponse": {
         "additionalProperties": false,
-        "description": "The native database boundary is available.",
-        "examples": [
-          {
-            "status": "ok"
-          }
-        ],
+        "description": "Database is available.",
         "properties": {
           "status": {
             "anyOf": [
@@ -1991,12 +1986,7 @@
       },
       "HealthUnavailableResponse": {
         "additionalProperties": false,
-        "description": "The native database boundary is unavailable.",
-        "examples": [
-          {
-            "status": "unavailable"
-          }
-        ],
+        "description": "Database is unavailable.",
         "properties": {
           "status": {
             "anyOf": [
@@ -2257,6 +2247,12 @@
             "scheduledAt": "2026-09-10T14:00:00.000Z"
           }
         ]
+      },
+      "Literal_": {
+        "enum": [
+          "no-store"
+        ],
+        "type": "string"
       },
       "MailingListResponse": {
         "description": "Scoped mailing-list projections.",
@@ -3562,6 +3558,42 @@
                   {
                     "enum": [
                       "OrganizationPersistenceError"
+                    ],
+                    "type": "string"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "tag"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "type": "object"
+      },
+      "OwnedSessionNotFoundResponse": {
+        "additionalProperties": false,
+        "description": "Native HTTP 404 error response.",
+        "examples": [
+          {
+            "error": {
+              "tag": "SessionNotFound"
+            }
+          }
+        ],
+        "properties": {
+          "error": {
+            "additionalProperties": false,
+            "properties": {
+              "tag": {
+                "anyOf": [
+                  {
+                    "enum": [
+                      "SessionNotFound"
                     ],
                     "type": "string"
                   }
@@ -5534,26 +5566,61 @@
         ],
         "type": "object"
       },
+      "SessionListResponse": {
+        "description": "Sessions owned by the authenticated person.",
+        "items": {
+          "$ref": "#/components/schemas/SessionResponse"
+        },
+        "type": "array"
+      },
       "SessionResponse": {
         "additionalProperties": false,
-        "description": "Resolved person identity and UTC session expiry.",
-        "examples": [
-          {
-            "expiresAt": "2026-09-01T12:00:00.000Z",
-            "personId": "person_example"
-          }
-        ],
+        "description": "Safe first-party session metadata without credential material.",
         "properties": {
+          "createdAt": {
+            "type": "string"
+          },
+          "current": {
+            "type": "boolean"
+          },
           "expiresAt": {
             "type": "string"
           },
-          "personId": {
+          "ipAddress": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "sessionId": {
             "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          },
+          "userAgent": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
-          "personId",
-          "expiresAt"
+          "sessionId",
+          "createdAt",
+          "updatedAt",
+          "expiresAt",
+          "ipAddress",
+          "userAgent",
+          "current"
         ],
         "type": "object"
       },
@@ -6183,16 +6250,16 @@
       }
     },
     "securitySchemes": {
+      "cookieHeader": {
+        "description": "Cookie header resolved authoritatively by Identity.",
+        "in": "header",
+        "name": "Cookie",
+        "type": "apiKey"
+      },
       "invitationCapability": {
         "description": "Opaque invitation response capability.",
         "in": "header",
         "name": "X-Recruitment-Invitation-Capability",
-        "type": "apiKey"
-      },
-      "sessionCookie": {
-        "description": "Better Auth session cookie.",
-        "in": "cookie",
-        "name": "better-auth.session_token",
         "type": "apiKey"
       }
     }
@@ -6228,7 +6295,15 @@
                 }
               }
             },
-            "description": "Native HTTP 401 error response."
+            "description": "Native HTTP 401 error response.",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_"
+                }
+              }
+            }
           },
           "403": {
             "content": {
@@ -6303,7 +6378,7 @@
         },
         "security": [
           {
-            "sessionCookie": []
+            "cookieHeader": []
           }
         ],
         "summary": "List admission periods",
@@ -6375,7 +6450,15 @@
                 }
               }
             },
-            "description": "Native HTTP 401 error response."
+            "description": "Native HTTP 401 error response.",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_"
+                }
+              }
+            }
           },
           "403": {
             "content": {
@@ -6450,7 +6533,7 @@
         },
         "security": [
           {
-            "sessionCookie": []
+            "cookieHeader": []
           }
         ],
         "summary": "Create admission period",
@@ -6515,7 +6598,15 @@
                 }
               }
             },
-            "description": "Native HTTP 401 error response."
+            "description": "Native HTTP 401 error response.",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_"
+                }
+              }
+            }
           },
           "403": {
             "content": {
@@ -6590,7 +6681,7 @@
         },
         "security": [
           {
-            "sessionCookie": []
+            "cookieHeader": []
           }
         ],
         "summary": "Revise admission period",
@@ -6708,7 +6799,15 @@
                 }
               }
             },
-            "description": "Native HTTP 401 error response."
+            "description": "Native HTTP 401 error response.",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_"
+                }
+              }
+            }
           },
           "403": {
             "content": {
@@ -6763,7 +6862,7 @@
         },
         "security": [
           {
-            "sessionCookie": []
+            "cookieHeader": []
           }
         ],
         "summary": "Create article draft",
@@ -6913,7 +7012,15 @@
                 }
               }
             },
-            "description": "Native HTTP 401 error response."
+            "description": "Native HTTP 401 error response.",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_"
+                }
+              }
+            }
           },
           "403": {
             "content": {
@@ -6968,7 +7075,7 @@
         },
         "security": [
           {
-            "sessionCookie": []
+            "cookieHeader": []
           }
         ],
         "summary": "Read article detail",
@@ -7098,7 +7205,15 @@
                 }
               }
             },
-            "description": "Native HTTP 401 error response."
+            "description": "Native HTTP 401 error response.",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_"
+                }
+              }
+            }
           },
           "403": {
             "content": {
@@ -7153,7 +7268,7 @@
         },
         "security": [
           {
-            "sessionCookie": []
+            "cookieHeader": []
           }
         ],
         "summary": "Revise article draft",
@@ -7218,7 +7333,15 @@
                 }
               }
             },
-            "description": "Native HTTP 401 error response."
+            "description": "Native HTTP 401 error response.",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_"
+                }
+              }
+            }
           },
           "403": {
             "content": {
@@ -7273,7 +7396,7 @@
         },
         "security": [
           {
-            "sessionCookie": []
+            "cookieHeader": []
           }
         ],
         "summary": "Publish article",
@@ -7338,7 +7461,15 @@
                 }
               }
             },
-            "description": "Native HTTP 401 error response."
+            "description": "Native HTTP 401 error response.",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_"
+                }
+              }
+            }
           },
           "403": {
             "content": {
@@ -7393,7 +7524,7 @@
         },
         "security": [
           {
-            "sessionCookie": []
+            "cookieHeader": []
           }
         ],
         "summary": "Unpublish article",
@@ -7524,7 +7655,15 @@
                 }
               }
             },
-            "description": "Native HTTP 401 error response."
+            "description": "Native HTTP 401 error response.",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_"
+                }
+              }
+            }
           },
           "403": {
             "content": {
@@ -7579,7 +7718,7 @@
         },
         "security": [
           {
-            "sessionCookie": []
+            "cookieHeader": []
           }
         ],
         "summary": "Read content workspace",
@@ -7654,7 +7793,15 @@
                 }
               }
             },
-            "description": "Native HTTP 401 error response."
+            "description": "Native HTTP 401 error response.",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_"
+                }
+              }
+            }
           },
           "403": {
             "content": {
@@ -7709,7 +7856,7 @@
         },
         "security": [
           {
-            "sessionCookie": []
+            "cookieHeader": []
           }
         ],
         "summary": "Create department",
@@ -7833,7 +7980,15 @@
                 }
               }
             },
-            "description": "Native HTTP 401 error response."
+            "description": "Native HTTP 401 error response.",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_"
+                }
+              }
+            }
           },
           "403": {
             "content": {
@@ -7888,7 +8043,7 @@
         },
         "security": [
           {
-            "sessionCookie": []
+            "cookieHeader": []
           }
         ],
         "summary": "Create field of study",
@@ -7981,7 +8136,15 @@
                 }
               }
             },
-            "description": "Native HTTP 401 error response."
+            "description": "Native HTTP 401 error response.",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_"
+                }
+              }
+            }
           },
           "403": {
             "content": {
@@ -8036,7 +8199,7 @@
         },
         "security": [
           {
-            "sessionCookie": []
+            "cookieHeader": []
           }
         ],
         "summary": "Project mailing lists",
@@ -8093,7 +8256,15 @@
                 }
               }
             },
-            "description": "Native HTTP 401 error response."
+            "description": "Native HTTP 401 error response.",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_"
+                }
+              }
+            }
           },
           "403": {
             "content": {
@@ -8148,7 +8319,7 @@
         },
         "security": [
           {
-            "sessionCookie": []
+            "cookieHeader": []
           }
         ],
         "summary": "List receipts for approval",
@@ -8213,7 +8384,15 @@
                 }
               }
             },
-            "description": "Native HTTP 401 error response."
+            "description": "Native HTTP 401 error response.",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_"
+                }
+              }
+            }
           },
           "403": {
             "content": {
@@ -8268,7 +8447,7 @@
         },
         "security": [
           {
-            "sessionCookie": []
+            "cookieHeader": []
           }
         ],
         "summary": "Refund receipt",
@@ -8333,7 +8512,15 @@
                 }
               }
             },
-            "description": "Native HTTP 401 error response."
+            "description": "Native HTTP 401 error response.",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_"
+                }
+              }
+            }
           },
           "403": {
             "content": {
@@ -8388,7 +8575,7 @@
         },
         "security": [
           {
-            "sessionCookie": []
+            "cookieHeader": []
           }
         ],
         "summary": "Reject receipt",
@@ -8442,7 +8629,15 @@
                 }
               }
             },
-            "description": "Native HTTP 401 error response."
+            "description": "Native HTTP 401 error response.",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_"
+                }
+              }
+            }
           },
           "403": {
             "content": {
@@ -8507,7 +8702,7 @@
         },
         "security": [
           {
-            "sessionCookie": []
+            "cookieHeader": []
           }
         ],
         "summary": "Read assignment board",
@@ -8558,7 +8753,15 @@
                 }
               }
             },
-            "description": "Native HTTP 401 error response."
+            "description": "Native HTTP 401 error response.",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_"
+                }
+              }
+            }
           },
           "403": {
             "content": {
@@ -8623,7 +8826,7 @@
         },
         "security": [
           {
-            "sessionCookie": []
+            "cookieHeader": []
           }
         ],
         "summary": "Assign applicant",
@@ -8674,7 +8877,15 @@
                 }
               }
             },
-            "description": "Native HTTP 401 error response."
+            "description": "Native HTTP 401 error response.",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_"
+                }
+              }
+            }
           },
           "403": {
             "content": {
@@ -8739,7 +8950,7 @@
         },
         "security": [
           {
-            "sessionCookie": []
+            "cookieHeader": []
           }
         ],
         "summary": "Schedule interview",
@@ -8780,7 +8991,15 @@
                 }
               }
             },
-            "description": "Native HTTP 401 error response."
+            "description": "Native HTTP 401 error response.",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_"
+                }
+              }
+            }
           },
           "403": {
             "content": {
@@ -8845,7 +9064,7 @@
         },
         "security": [
           {
-            "sessionCookie": []
+            "cookieHeader": []
           }
         ],
         "summary": "Read scheduling board",
@@ -8905,7 +9124,15 @@
                 }
               }
             },
-            "description": "Native HTTP 401 error response."
+            "description": "Native HTTP 401 error response.",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_"
+                }
+              }
+            }
           },
           "403": {
             "content": {
@@ -8970,7 +9197,7 @@
         },
         "security": [
           {
-            "sessionCookie": []
+            "cookieHeader": []
           }
         ],
         "summary": "Cancel interview",
@@ -9020,7 +9247,15 @@
                 }
               }
             },
-            "description": "Native HTTP 401 error response."
+            "description": "Native HTTP 401 error response.",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_"
+                }
+              }
+            }
           },
           "403": {
             "content": {
@@ -9085,7 +9320,7 @@
         },
         "security": [
           {
-            "sessionCookie": []
+            "cookieHeader": []
           }
         ],
         "summary": "Read interview conduct",
@@ -9145,7 +9380,15 @@
                 }
               }
             },
-            "description": "Native HTTP 401 error response."
+            "description": "Native HTTP 401 error response.",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_"
+                }
+              }
+            }
           },
           "403": {
             "content": {
@@ -9210,7 +9453,7 @@
         },
         "security": [
           {
-            "sessionCookie": []
+            "cookieHeader": []
           }
         ],
         "summary": "Finalize interview",
@@ -9260,7 +9503,15 @@
                 }
               }
             },
-            "description": "Native HTTP 401 error response."
+            "description": "Native HTTP 401 error response.",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_"
+                }
+              }
+            }
           },
           "403": {
             "content": {
@@ -9295,7 +9546,7 @@
         },
         "security": [
           {
-            "sessionCookie": []
+            "cookieHeader": []
           }
         ],
         "summary": "List schools",
@@ -9353,7 +9604,15 @@
                 }
               }
             },
-            "description": "Native HTTP 401 error response."
+            "description": "Native HTTP 401 error response.",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_"
+                }
+              }
+            }
           },
           "403": {
             "content": {
@@ -9408,7 +9667,7 @@
         },
         "security": [
           {
-            "sessionCookie": []
+            "cookieHeader": []
           }
         ],
         "summary": "List team interest",
@@ -9583,7 +9842,15 @@
                 }
               }
             },
-            "description": "Native HTTP 401 error response."
+            "description": "Native HTTP 401 error response.",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_"
+                }
+              }
+            }
           },
           "403": {
             "content": {
@@ -9638,7 +9905,7 @@
         },
         "security": [
           {
-            "sessionCookie": []
+            "cookieHeader": []
           }
         ],
         "summary": "Create team",
@@ -9679,7 +9946,15 @@
                 }
               }
             },
-            "description": "Native HTTP 401 error response."
+            "description": "Native HTTP 401 error response.",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_"
+                }
+              }
+            }
           },
           "403": {
             "content": {
@@ -9714,7 +9989,7 @@
         },
         "security": [
           {
-            "sessionCookie": []
+            "cookieHeader": []
           }
         ],
         "summary": "List admin users",
@@ -10399,7 +10674,15 @@
                 }
               }
             },
-            "description": "Native HTTP 401 error response."
+            "description": "Native HTTP 401 error response.",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_"
+                }
+              }
+            }
           },
           "403": {
             "content": {
@@ -10454,7 +10737,7 @@
         },
         "security": [
           {
-            "sessionCookie": []
+            "cookieHeader": []
           }
         ],
         "summary": "Read own profile",
@@ -10503,7 +10786,15 @@
                 }
               }
             },
-            "description": "Native HTTP 401 error response."
+            "description": "Native HTTP 401 error response.",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_"
+                }
+              }
+            }
           },
           "403": {
             "content": {
@@ -10558,68 +10849,12 @@
         },
         "security": [
           {
-            "sessionCookie": []
+            "cookieHeader": []
           }
         ],
         "summary": "Update own profile",
         "tags": [
           "Profile"
-        ],
-        "x-vektorprogrammet-provenance": {
-          "contract": "@vektorprogrammet/http-api/NativeApi",
-          "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
-          "schemas": "Effect.Schema",
-          "security": "HttpApiMiddleware.security",
-          "statuses": "HttpApiSchema.status",
-          "tags": "HttpApiGroup.identifier"
-        }
-      }
-    },
-    "/api/me/session": {
-      "get": {
-        "description": "Resolves the Better Auth cookie to a native person.",
-        "operationId": "system.readSession",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SessionResponse"
-                }
-              }
-            },
-            "description": "Resolved person identity and UTC session expiry."
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SessionUnauthorizedResponse"
-                }
-              }
-            },
-            "description": "Native HTTP 401 error response."
-          },
-          "503": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/IdentityEngineUnavailableResponse"
-                }
-              }
-            },
-            "description": "Native HTTP 503 error response."
-          }
-        },
-        "security": [
-          {
-            "sessionCookie": []
-          }
-        ],
-        "summary": "Read current session",
-        "tags": [
-          "System"
         ],
         "x-vektorprogrammet-provenance": {
           "contract": "@vektorprogrammet/http-api/NativeApi",
@@ -10888,7 +11123,15 @@
                 }
               }
             },
-            "description": "Native HTTP 401 error response."
+            "description": "Native HTTP 401 error response.",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_"
+                }
+              }
+            }
           },
           "403": {
             "content": {
@@ -10943,7 +11186,7 @@
         },
         "security": [
           {
-            "sessionCookie": []
+            "cookieHeader": []
           }
         ],
         "summary": "List owned receipts",
@@ -11070,7 +11313,15 @@
                 }
               }
             },
-            "description": "Native HTTP 401 error response."
+            "description": "Native HTTP 401 error response.",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_"
+                }
+              }
+            }
           },
           "403": {
             "content": {
@@ -11125,7 +11376,7 @@
         },
         "security": [
           {
-            "sessionCookie": []
+            "cookieHeader": []
           }
         ],
         "summary": "Submit receipt",
@@ -11198,7 +11449,15 @@
                 }
               }
             },
-            "description": "Native HTTP 401 error response."
+            "description": "Native HTTP 401 error response.",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_"
+                }
+              }
+            }
           },
           "403": {
             "content": {
@@ -11253,7 +11512,7 @@
         },
         "security": [
           {
-            "sessionCookie": []
+            "cookieHeader": []
           }
         ],
         "summary": "Revise receipt",
@@ -11318,7 +11577,15 @@
                 }
               }
             },
-            "description": "Native HTTP 401 error response."
+            "description": "Native HTTP 401 error response.",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_"
+                }
+              }
+            }
           },
           "403": {
             "content": {
@@ -11373,7 +11640,7 @@
         },
         "security": [
           {
-            "sessionCookie": []
+            "cookieHeader": []
           }
         ],
         "summary": "Withdraw receipt",
@@ -11811,6 +12078,379 @@
         }
       }
     },
+    "/api/session": {
+      "delete": {
+        "description": "Revokes the authoritative current session.",
+        "operationId": "system.deleteSession",
+        "parameters": [],
+        "responses": {
+          "204": {
+            "description": "<No Content>"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionUnauthorizedResponse"
+                }
+              }
+            },
+            "description": "Native HTTP 401 error response.",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IdentityEngineUnavailableResponse"
+                }
+              }
+            },
+            "description": "Native HTTP 503 error response."
+          }
+        },
+        "security": [
+          {
+            "cookieHeader": []
+          }
+        ],
+        "summary": "End current session",
+        "tags": [
+          "System"
+        ],
+        "x-vektorprogrammet-provenance": {
+          "contract": "@vektorprogrammet/http-api/NativeApi",
+          "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
+          "schemas": "Effect.Schema",
+          "security": "HttpApiMiddleware.security",
+          "statuses": "HttpApiSchema.status",
+          "tags": "HttpApiGroup.identifier"
+        }
+      },
+      "get": {
+        "description": "Reads safe metadata for the authoritative current Better Auth session.",
+        "operationId": "system.readSession",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionResponse"
+                }
+              }
+            },
+            "description": "Safe first-party session metadata without credential material."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionUnauthorizedResponse"
+                }
+              }
+            },
+            "description": "Native HTTP 401 error response.",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IdentityEngineUnavailableResponse"
+                }
+              }
+            },
+            "description": "Native HTTP 503 error response."
+          }
+        },
+        "security": [
+          {
+            "cookieHeader": []
+          }
+        ],
+        "summary": "Read current session",
+        "tags": [
+          "System"
+        ],
+        "x-vektorprogrammet-provenance": {
+          "contract": "@vektorprogrammet/http-api/NativeApi",
+          "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
+          "schemas": "Effect.Schema",
+          "security": "HttpApiMiddleware.security",
+          "statuses": "HttpApiSchema.status",
+          "tags": "HttpApiGroup.identifier"
+        }
+      }
+    },
+    "/api/sessions": {
+      "get": {
+        "description": "Lists only safe metadata for sessions owned by the authenticated person.",
+        "operationId": "system.listSessions",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionListResponse"
+                }
+              }
+            },
+            "description": "Sessions owned by the authenticated person."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionUnauthorizedResponse"
+                }
+              }
+            },
+            "description": "Native HTTP 401 error response.",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IdentityEngineUnavailableResponse"
+                }
+              }
+            },
+            "description": "Native HTTP 503 error response."
+          }
+        },
+        "security": [
+          {
+            "cookieHeader": []
+          }
+        ],
+        "summary": "List current person's sessions",
+        "tags": [
+          "System"
+        ],
+        "x-vektorprogrammet-provenance": {
+          "contract": "@vektorprogrammet/http-api/NativeApi",
+          "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
+          "schemas": "Effect.Schema",
+          "security": "HttpApiMiddleware.security",
+          "statuses": "HttpApiSchema.status",
+          "tags": "HttpApiGroup.identifier"
+        }
+      }
+    },
+    "/api/sessions/{sessionId}": {
+      "delete": {
+        "description": "Revokes one owned session; missing and non-owned identifiers are concealed.",
+        "operationId": "system.deleteOwnedSession",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "sessionId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "<No Content>"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionUnauthorizedResponse"
+                }
+              }
+            },
+            "description": "Native HTTP 401 error response.",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OwnedSessionNotFoundResponse"
+                }
+              }
+            },
+            "description": "Native HTTP 404 error response."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IdentityEngineUnavailableResponse"
+                }
+              }
+            },
+            "description": "Native HTTP 503 error response."
+          }
+        },
+        "security": [
+          {
+            "cookieHeader": []
+          }
+        ],
+        "summary": "Revoke one session",
+        "tags": [
+          "System"
+        ],
+        "x-vektorprogrammet-provenance": {
+          "contract": "@vektorprogrammet/http-api/NativeApi",
+          "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
+          "schemas": "Effect.Schema",
+          "security": "HttpApiMiddleware.security",
+          "statuses": "HttpApiSchema.status",
+          "tags": "HttpApiGroup.identifier"
+        }
+      }
+    },
+    "/api/sessions:revoke-all": {
+      "post": {
+        "description": "Revokes every owned session, including the authoritative current session.",
+        "operationId": "system.revokeAllSessions",
+        "parameters": [],
+        "responses": {
+          "204": {
+            "description": "<No Content>"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionUnauthorizedResponse"
+                }
+              }
+            },
+            "description": "Native HTTP 401 error response.",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IdentityEngineUnavailableResponse"
+                }
+              }
+            },
+            "description": "Native HTTP 503 error response."
+          }
+        },
+        "security": [
+          {
+            "cookieHeader": []
+          }
+        ],
+        "summary": "Revoke all sessions",
+        "tags": [
+          "System"
+        ],
+        "x-vektorprogrammet-provenance": {
+          "contract": "@vektorprogrammet/http-api/NativeApi",
+          "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
+          "schemas": "Effect.Schema",
+          "security": "HttpApiMiddleware.security",
+          "statuses": "HttpApiSchema.status",
+          "tags": "HttpApiGroup.identifier"
+        }
+      }
+    },
+    "/api/sessions:revoke-others": {
+      "post": {
+        "description": "Revokes every owned session except the authoritative current session.",
+        "operationId": "system.revokeOtherSessions",
+        "parameters": [],
+        "responses": {
+          "204": {
+            "description": "<No Content>"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionUnauthorizedResponse"
+                }
+              }
+            },
+            "description": "Native HTTP 401 error response.",
+            "headers": {
+              "cache-control": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/Literal_"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IdentityEngineUnavailableResponse"
+                }
+              }
+            },
+            "description": "Native HTTP 503 error response."
+          }
+        },
+        "security": [
+          {
+            "cookieHeader": []
+          }
+        ],
+        "summary": "Revoke other sessions",
+        "tags": [
+          "System"
+        ],
+        "x-vektorprogrammet-provenance": {
+          "contract": "@vektorprogrammet/http-api/NativeApi",
+          "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
+          "schemas": "Effect.Schema",
+          "security": "HttpApiMiddleware.security",
+          "statuses": "HttpApiSchema.status",
+          "tags": "HttpApiGroup.identifier"
+        }
+      }
+    },
     "/api/teams": {
       "get": {
         "description": "Returns the public native team directory.",
@@ -11880,7 +12520,7 @@
                 }
               }
             },
-            "description": "The native database boundary is available."
+            "description": "Database is available."
           },
           "503": {
             "content": {
@@ -11890,7 +12530,7 @@
                 }
               }
             },
-            "description": "The native database boundary is unavailable."
+            "description": "Database is unavailable."
           }
         },
         "security": [],
@@ -11913,7 +12553,7 @@
   "servers": [],
   "tags": [
     {
-      "description": "Native health and session observations.",
+      "description": "Native health and first-party session resources.",
       "name": "System"
     },
     {

@@ -14,7 +14,7 @@ showAskAi: false
 
 ## Overview
 
-Public HTTP contracts for health and authenticated session reads.
+Public HTTP contracts for health and first-party session resources.
 
 Since v0.1.0
 
@@ -22,24 +22,88 @@ Since v0.1.0
 
 ### Exports Grouped by Category
 
-- [Endpoints](#endpoints)
+- [utils](#utils)
+  - [DeleteOwnedSessionEndpoint](#deleteownedsessionendpoint)
+  - [DeleteSessionEndpoint](#deletesessionendpoint)
   - [HealthEndpoint](#healthendpoint)
-  - [ReadSessionEndpoint](#readsessionendpoint)
-- [Groups](#groups)
-  - [SystemApi (class)](#systemapi-class)
-- [Schemas](#schemas)
   - [HealthOkResponse](#healthokresponse)
   - [HealthUnavailableResponse](#healthunavailableresponse)
   - [IdentityEngineUnavailableResponse](#identityengineunavailableresponse)
+  - [ListSessionsEndpoint](#listsessionsendpoint)
+  - [OwnedSessionNotFoundResponse](#ownedsessionnotfoundresponse)
+  - [ReadSessionEndpoint](#readsessionendpoint)
+  - [RevokeAllSessionsEndpoint](#revokeallsessionsendpoint)
+  - [RevokeOtherSessionsEndpoint](#revokeothersessionsendpoint)
+  - [SessionListResponse](#sessionlistresponse)
   - [SessionResponse](#sessionresponse)
+  - [SystemApi (class)](#systemapi-class)
 
 ---
 
-## Endpoints
+## utils
+
+### DeleteOwnedSessionEndpoint
+
+**Signature**
+
+```ts
+declare const DeleteOwnedSessionEndpoint: HttpApiEndpoint.HttpApiEndpoint<
+  "deleteOwnedSession",
+  "DELETE",
+  "/api/sessions/:sessionId",
+  Schema.toCodecStringTree<Schema.Struct<{ sessionId: Schema.String }>>,
+  never,
+  never,
+  never,
+  Schema.toCodecJson<HttpApiSchema.NoContent>,
+  Schema.toCodecJson<
+    | Schema.Struct<{
+        readonly error: Schema.Struct<{
+          readonly tag: Schema.Literals<readonly ["IdentityEngineError"]>;
+        }>;
+      }>
+    | Schema.Struct<{
+        readonly error: Schema.Struct<{
+          readonly tag: Schema.Literals<readonly ["SessionNotFound"]>;
+        }>;
+      }>
+  >,
+  SessionSecurity,
+  never
+>;
+```
+
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/system.ts#L99)
+
+### DeleteSessionEndpoint
+
+**Signature**
+
+```ts
+declare const DeleteSessionEndpoint: HttpApiEndpoint.HttpApiEndpoint<
+  "deleteSession",
+  "DELETE",
+  "/api/session",
+  never,
+  never,
+  never,
+  never,
+  Schema.toCodecJson<HttpApiSchema.NoContent>,
+  Schema.toCodecJson<
+    Schema.Struct<{
+      readonly error: Schema.Struct<{
+        readonly tag: Schema.Literals<readonly ["IdentityEngineError"]>;
+      }>;
+    }>
+  >,
+  SessionSecurity,
+  never
+>;
+```
+
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/system.ts#L79)
 
 ### HealthEndpoint
-
-Database health endpoint.
 
 **Signature**
 
@@ -59,27 +123,71 @@ declare const HealthEndpoint: HttpApiEndpoint.HttpApiEndpoint<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/system.ts#L44)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/system.ts#L21)
 
-Since v0.1.0
-
-### ReadSessionEndpoint
-
-Strict current-session endpoint.
+### HealthOkResponse
 
 **Signature**
 
 ```ts
-declare const ReadSessionEndpoint: HttpApiEndpoint.HttpApiEndpoint<
-  "readSession",
+declare const HealthOkResponse: Schema.Struct<{
+  readonly status: Schema.Literals<readonly ["ok"]>;
+}>;
+```
+
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/system.ts#L10)
+
+### HealthUnavailableResponse
+
+**Signature**
+
+```ts
+declare const HealthUnavailableResponse: Schema.Struct<{
+  readonly status: Schema.Literals<readonly ["unavailable"]>;
+}>;
+```
+
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/system.ts#L14)
+
+### IdentityEngineUnavailableResponse
+
+**Signature**
+
+```ts
+declare const IdentityEngineUnavailableResponse: Schema.Struct<{
+  readonly error: Schema.Struct<{
+    readonly tag: Schema.Literals<readonly ["IdentityEngineError"]>;
+  }>;
+}>;
+```
+
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/system.ts#L55)
+
+### ListSessionsEndpoint
+
+**Signature**
+
+```ts
+declare const ListSessionsEndpoint: HttpApiEndpoint.HttpApiEndpoint<
+  "listSessions",
   "GET",
-  "/api/me/session",
+  "/api/sessions",
   never,
   never,
   never,
   never,
   Schema.toCodecJson<
-    Schema.Struct<{ readonly personId: Schema.String; readonly expiresAt: Schema.String }>
+    Schema.$Array<
+      Schema.Struct<{
+        readonly sessionId: Schema.String;
+        readonly createdAt: Schema.String;
+        readonly updatedAt: Schema.String;
+        readonly expiresAt: Schema.String;
+        readonly ipAddress: Schema.NullOr<Schema.String>;
+        readonly userAgent: Schema.NullOr<Schema.String>;
+        readonly current: Schema.Boolean;
+      }>
+    >
   >,
   Schema.toCodecJson<
     Schema.Struct<{
@@ -93,15 +201,155 @@ declare const ReadSessionEndpoint: HttpApiEndpoint.HttpApiEndpoint<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/system.ts#L84)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/system.ts#L87)
 
-Since v0.1.0
+### OwnedSessionNotFoundResponse
 
-## Groups
+**Signature**
+
+```ts
+declare const OwnedSessionNotFoundResponse: Schema.Struct<{
+  readonly error: Schema.Struct<{ readonly tag: Schema.Literals<readonly ["SessionNotFound"]> }>;
+}>;
+```
+
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/system.ts#L61)
+
+### ReadSessionEndpoint
+
+**Signature**
+
+```ts
+declare const ReadSessionEndpoint: HttpApiEndpoint.HttpApiEndpoint<
+  "readSession",
+  "GET",
+  "/api/session",
+  never,
+  never,
+  never,
+  never,
+  Schema.toCodecJson<
+    Schema.Struct<{
+      readonly sessionId: Schema.String;
+      readonly createdAt: Schema.String;
+      readonly updatedAt: Schema.String;
+      readonly expiresAt: Schema.String;
+      readonly ipAddress: Schema.NullOr<Schema.String>;
+      readonly userAgent: Schema.NullOr<Schema.String>;
+      readonly current: Schema.Boolean;
+    }>
+  >,
+  Schema.toCodecJson<
+    Schema.Struct<{
+      readonly error: Schema.Struct<{
+        readonly tag: Schema.Literals<readonly ["IdentityEngineError"]>;
+      }>;
+    }>
+  >,
+  SessionSecurity,
+  never
+>;
+```
+
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/system.ts#L67)
+
+### RevokeAllSessionsEndpoint
+
+**Signature**
+
+```ts
+declare const RevokeAllSessionsEndpoint: HttpApiEndpoint.HttpApiEndpoint<
+  "revokeAllSessions",
+  "POST",
+  "/api/sessions::revoke-all",
+  never,
+  never,
+  never,
+  never,
+  Schema.toCodecJson<HttpApiSchema.NoContent>,
+  Schema.toCodecJson<
+    Schema.Struct<{
+      readonly error: Schema.Struct<{
+        readonly tag: Schema.Literals<readonly ["IdentityEngineError"]>;
+      }>;
+    }>
+  >,
+  SessionSecurity,
+  never
+>;
+```
+
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/system.ts#L128)
+
+### RevokeOtherSessionsEndpoint
+
+**Signature**
+
+```ts
+declare const RevokeOtherSessionsEndpoint: HttpApiEndpoint.HttpApiEndpoint<
+  "revokeOtherSessions",
+  "POST",
+  "/api/sessions::revoke-others",
+  never,
+  never,
+  never,
+  never,
+  Schema.toCodecJson<HttpApiSchema.NoContent>,
+  Schema.toCodecJson<
+    Schema.Struct<{
+      readonly error: Schema.Struct<{
+        readonly tag: Schema.Literals<readonly ["IdentityEngineError"]>;
+      }>;
+    }>
+  >,
+  SessionSecurity,
+  never
+>;
+```
+
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/system.ts#L115)
+
+### SessionListResponse
+
+**Signature**
+
+```ts
+declare const SessionListResponse: Schema.$Array<
+  Schema.Struct<{
+    readonly sessionId: Schema.String;
+    readonly createdAt: Schema.String;
+    readonly updatedAt: Schema.String;
+    readonly expiresAt: Schema.String;
+    readonly ipAddress: Schema.NullOr<Schema.String>;
+    readonly userAgent: Schema.NullOr<Schema.String>;
+    readonly current: Schema.Boolean;
+  }>
+>;
+```
+
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/system.ts#L50)
+
+### SessionResponse
+
+Credential-free owner-only session metadata.
+
+**Signature**
+
+```ts
+declare const SessionResponse: Schema.Struct<{
+  readonly sessionId: Schema.String;
+  readonly createdAt: Schema.String;
+  readonly updatedAt: Schema.String;
+  readonly expiresAt: Schema.String;
+  readonly ipAddress: Schema.NullOr<Schema.String>;
+  readonly userAgent: Schema.NullOr<Schema.String>;
+  readonly current: Schema.Boolean;
+}>;
+```
+
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/system.ts#L37)
 
 ### SystemApi (class)
-
-Operational and session endpoints.
 
 **Signature**
 
@@ -109,75 +357,4 @@ Operational and session endpoints.
 declare class SystemApi
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/system.ts#L102)
-
-Since v0.1.0
-
-## Schemas
-
-### HealthOkResponse
-
-Healthy database observation.
-
-**Signature**
-
-```ts
-declare const HealthOkResponse: Schema.Struct<{
-  readonly status: Schema.Literals<readonly ["ok"]>;
-}>;
-```
-
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/system.ts#L16)
-
-Since v0.1.0
-
-### HealthUnavailableResponse
-
-Unavailable database observation.
-
-**Signature**
-
-```ts
-declare const HealthUnavailableResponse: Schema.Struct<{
-  readonly status: Schema.Literals<readonly ["unavailable"]>;
-}>;
-```
-
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/system.ts#L30)
-
-Since v0.1.0
-
-### IdentityEngineUnavailableResponse
-
-Identity provider failure response.
-
-**Signature**
-
-```ts
-declare const IdentityEngineUnavailableResponse: Schema.Struct<{
-  readonly error: Schema.Struct<{
-    readonly tag: Schema.Literals<readonly ["IdentityEngineError"]>;
-  }>;
-}>;
-```
-
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/system.ts#L72)
-
-Since v0.1.0
-
-### SessionResponse
-
-Authenticated session projection returned to browser applications.
-
-**Signature**
-
-```ts
-declare const SessionResponse: Schema.Struct<{
-  readonly personId: Schema.String;
-  readonly expiresAt: Schema.String;
-}>;
-```
-
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/system.ts#L57)
-
-Since v0.1.0
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/system.ts#L141)

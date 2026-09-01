@@ -31,6 +31,10 @@ import { makeSchoolsTestHttp as makeSchoolsApiHttp } from "../test/native-http.j
 import { runTestPromise } from "../../test/runtime.js";
 
 const personId = PersonId.make("schools-http-person");
+const sessionRequest = (url: string): Request =>
+  new Request(url, {
+    headers: { cookie: "better-auth.session_token=schools-test-session" },
+  });
 const departmentA = DepartmentId.make("schools-http-a");
 const departmentB = DepartmentId.make("schools-http-b");
 const instant = OrganizationAuthorityInstantSchema.make("2032-04-01T12:00:00.000Z");
@@ -133,7 +137,7 @@ describe("Schools native HTTP adapter", () => {
     });
 
     const response = await api.fetch(
-      new Request(`http://backend.test/api/admin/schools?department=${departmentA}`),
+      sessionRequest(`http://backend.test/api/admin/schools?department=${departmentA}`),
     );
 
     expect({ status: response.status, body: await responseBody(response) }).toEqual({
@@ -162,7 +166,7 @@ describe("Schools native HTTP adapter", () => {
 
     for (const query of ["unknown=1", "department=a&department=b", "department="]) {
       const response = await api.fetch(
-        new Request(`http://backend.test/api/admin/schools?${query}`),
+        sessionRequest(`http://backend.test/api/admin/schools?${query}`),
       );
       expect({ status: response.status, body: await responseBody(response) }).toEqual({
         status: 422,
@@ -262,7 +266,7 @@ describe("Schools native HTTP adapter", () => {
       });
       const query = testCase.query === undefined ? "" : `?${testCase.query}`;
       const response = await api.fetch(
-        new Request(`http://backend.test/api/admin/schools${query}`),
+        sessionRequest(`http://backend.test/api/admin/schools${query}`),
       );
       expect(
         { status: response.status, body: await responseBody(response) },

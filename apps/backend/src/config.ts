@@ -2,6 +2,10 @@ import { makeAdmissionApiConfig, type AdmissionApiConfig } from "./admission/con
 import { makeOrganizationApiConfig, type OrganizationApiConfig } from "./organization/config.js";
 import { makeReceiptApiConfig, type ReceiptApiConfig } from "./receipt/config.js";
 import { makeRecruitmentApiConfig, type RecruitmentApiConfig } from "./recruitment/config.js";
+import {
+  makeNativeSessionBoundaryPolicy,
+  type NativeSessionBoundaryPolicy,
+} from "./session-security.js";
 
 export interface PublicApplicationEffectConfig {
   readonly endpoint: URL;
@@ -14,8 +18,10 @@ export interface PublicApplicationEffectConfig {
 export interface BackendAuthConfig {
   readonly postgresUrl: string;
   readonly secret: string;
-  /** Dashboard origin; better-auth issues cookies for this base URL. */
+  /** Canonical application origin used by Better Auth. */
   readonly baseURL: string;
+  readonly trustedOrigins: ReadonlyArray<string>;
+  readonly secureCookies: boolean;
 }
 
 export interface BackendConfig {
@@ -24,6 +30,7 @@ export interface BackendConfig {
   readonly postgresUrl: string;
   /** Native identity engine inputs (spec 0054). */
   readonly auth: BackendAuthConfig;
+  readonly sessionBoundary: NativeSessionBoundaryPolicy;
   readonly admission: AdmissionApiConfig;
   readonly receipt: ReceiptApiConfig;
   readonly recruitment: RecruitmentApiConfig;
@@ -123,31 +130,12 @@ const publicApplicationEffectConfig = (
   };
 };
 
-const assertSharedActorFacts = (admission: AdmissionApiConfig, receipt: ReceiptApiConfig): void => {
-  for (const [token, admissionPrincipal] of admission.tokens) {
-    const receiptPrincipal = receipt.tokens.get(token);
-    if (receiptPrincipal === undefined) continue;
-    const admissionDepartmentId =
-      "departmentId" in admissionPrincipal.actor
-        ? admissionPrincipal.actor.departmentId
-        : undefined;
-    if (
-      admissionPrincipal.actor.personId !== receiptPrincipal.actor.personId ||
-      admissionPrincipal.actor.active !== receiptPrincipal.actor.active ||
-      (admissionDepartmentId !== undefined &&
-        admissionDepartmentId !== receiptPrincipal.actor.departmentId)
-    ) {
-      throw new Error(`conflicting actor facts for shared token ${token}`);
-    }
-  }
-};
-
 export const makeBackendConfig = (
   env: Readonly<Record<string, string | undefined>> = process.env,
 ): BackendConfig => {
   const admission = makeAdmissionApiConfig(env);
   const receipt = makeReceiptApiConfig(env);
-  assertSharedActorFacts(admission, receipt);
+  const sessionBoundary = makeNativeSessionBoundaryPolicy(env);
   const effects = publicApplicationEffectConfig(env);
   const postgresUrl = nonEmpty(env.BACKEND_PG_URL, "BACKEND_PG_URL");
   const secret = nonEmpty(env.BETTER_AUTH_SECRET, "BETTER_AUTH_SECRET");
@@ -158,10 +146,13 @@ export const makeBackendConfig = (
     host: loopbackHost(env.BACKEND_HOST),
     port: parsePort(env.BACKEND_PORT),
     postgresUrl,
+    sessionBoundary,
     auth: {
       postgresUrl,
       secret,
-      baseURL: nonEmpty(env.BETTER_AUTH_URL ?? "http://127.0.0.1:5174", "BETTER_AUTH_URL"),
+      baseURL: sessionBoundary.trustedOrigins[0]!,
+      trustedOrigins: sessionBoundary.trustedOrigins,
+      secureCookies: sessionBoundary.secureCookies,
     },
     admission,
     receipt,

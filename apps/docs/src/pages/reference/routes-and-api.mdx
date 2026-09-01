@@ -10,7 +10,7 @@ showAskAi: false
 
 ## Current API availability
 
-The native backend serves the route families below. Open the [generated native API reference](/reference/native-api) for all 47 public operations, schemas, and responses, or start with [Authentication & authorization](/reference/native-api/authentication) and [Getting started](/reference/native-api/getting-started).
+The native backend serves the route families below. Open the [generated native API reference](/reference/native-api) for all 52 public operations, schemas, and responses, or start with [Authentication & authorization](/reference/native-api/authentication) and [Getting started](/reference/native-api/getting-started).
 
 The public document excludes Better Auth and the internal receipt evidence route. The operation total does not claim legacy capability parity.
 
@@ -19,7 +19,7 @@ The public document excludes Better Auth and the internal receipt evidence route
 | Route family                                                                                                                                                                                   | HttpApi implementation      | Capability owner                                |
 | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------- | ----------------------------------------------- |
 | `/api/auth/*`                                                                                                                                                                                  | Better Auth request handler | Shared `AuthEngine` and `Identity` Layer        |
-| `/api/me/session`                                                                                                                                                                              | `SystemApiHandlers`         | `Identity`                                      |
+| `/api/session`, `/api/sessions*`                                                                                                                                                               | `SystemApiHandlers`         | `Identity`                                      |
 | `/api/me`                                                                                                                                                                                      | `ProfileApiHandlers`        | `Profile`                                       |
 | `/api/receipts*`, `/api/admin/receipts*`                                                                                                                                                       | `ReceiptApiHandlers`        | `Economy`                                       |
 | `/api/applications*`, `/api/admission-periods/open`, `/api/admin/admission-periods*`                                                                                                           | `AdmissionsApiHandlers`     | `Admissions` and application domain programs    |

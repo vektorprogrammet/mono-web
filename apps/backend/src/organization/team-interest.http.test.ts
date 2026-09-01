@@ -198,7 +198,10 @@ const http = makeOrganizationApiHttp({
 const get = (pathname: string, cookie?: string): Promise<Response> =>
   http.fetch(
     new Request(`http://backend.test${pathname}`, {
-      headers: cookie === undefined ? {} : { cookie },
+      headers:
+        cookie === undefined
+          ? {}
+          : { cookie: `better-auth.session_token=${cookie.replace(/^session=/, "")}` },
     }),
   );
 

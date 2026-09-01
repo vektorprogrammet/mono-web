@@ -149,7 +149,7 @@ export {
 } from "./schemas/interview.js";
 export {
   ProfileCommandId,
-  SessionActor,
+  SessionProjection,
   UpdateOwnProfileCommand,
   UserProfile,
   UserRole,
@@ -355,8 +355,8 @@ export type {
 export type ClientOptions = {
   cookie?: CookieOption;
   fetch?: FetchCapability;
+  origin?: string;
 };
-
 // --- Effect client factory ---
 
 /**
@@ -368,8 +368,7 @@ export type ClientOptions = {
  * @since 0.2.0
  */
 export function createEffectClient(baseUrl: string | undefined, options?: ClientOptions) {
-  const transport = createTransport(baseUrl, options?.cookie, options?.fetch);
-
+  const transport = createTransport(baseUrl, options?.cookie, options?.fetch, options?.origin);
   const adminMisc = createAdminMiscDomain(transport);
   const publicMisc = createPublicMiscDomain(transport);
   const publicContactMessages = createPublicContactMessageDomain(transport);

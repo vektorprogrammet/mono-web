@@ -60,7 +60,7 @@ describe("native dashboard authentication", () => {
     });
 
     await expect(requireAuth(request)).resolves.toBe(rawCookie);
-    expect(api.createAuthenticatedClient).toHaveBeenCalledWith(rawCookie);
+    expect(api.createAuthenticatedClient).toHaveBeenCalledWith(rawCookie, request);
     expect(api.session).toHaveBeenCalledOnce();
   });
 
@@ -236,8 +236,9 @@ describe("native dashboard authentication", () => {
     const headers = await signOut(request);
     expect(headers.getSetCookie()).toEqual(cookies);
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(url).toBe("http://api.test/api/auth/sign-out");
+    expect(url).toBe("http://api.test/api/session");
     expect((init.headers as Headers).get("Cookie")).toBe(rawCookie);
+    expect(init.method).toBe("DELETE");
     expect(init.redirect).toBe("manual");
     expect(new Headers(init.headers).get("Origin")).toBe("https://dashboard.example");
   });

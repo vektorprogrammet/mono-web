@@ -182,7 +182,7 @@ describe("spec 0067 runtime capability contracts", () => {
       { path: "/api/admin/users", access: "BoundedSession", requestSource: "DashboardSsr" },
       { path: "/api/departments", access: "Public", requestSource: "BrowserCrossOrigin" },
       { path: "/api/me", access: "BoundedSession", requestSource: "DashboardSsr" },
-      { path: "/api/me/session", access: "BoundedSession", requestSource: "DashboardSsr" },
+      { path: "/api/session", access: "BoundedSession", requestSource: "DashboardSsr" },
       { path: "/api/teams", access: "Public", requestSource: "BrowserCrossOrigin" },
     ]);
     expect(NATIVE_BROWSER_JOURNEY_REQUIREMENTS).toHaveLength(5);
@@ -207,7 +207,7 @@ describe("spec 0067 runtime capability contracts", () => {
     expect(
       isExpectedNativeBrowserJourneyObservation({
         method: "GET",
-        path: "/api/me/session",
+        path: "/api/session",
         status: 200,
         sessionCookieAuth: true,
         requestSource: "DashboardSsr",
@@ -785,7 +785,7 @@ describe("spec 0067 artifact boundary", () => {
         backendProxyRequests: [
           {
             method: "GET",
-            path: "/api/me/session",
+            path: "/api/session",
             status: 200,
             sessionCookieAuth: true,
             requestSource: "DashboardSsr",
@@ -832,7 +832,7 @@ describe("spec 0067 artifact boundary", () => {
         preflightBackendProxyRequests: [
           {
             method: "GET",
-            path: "/api/me/session",
+            path: "/api/session",
             status: 200,
             sessionCookieAuth: true,
             requestSource: "DashboardSsr",

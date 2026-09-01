@@ -665,12 +665,16 @@ export function createTransport(
   baseUrl: string | undefined,
   cookie?: CookieOption,
   fetchOverride?: FetchCapability,
+  origin?: string,
 ): Transport {
   const buildHeaders = (
     extra?: Readonly<Record<string, string>>,
     includeCookie = true,
   ): Effect.Effect<Record<string, string>, Network> => {
-    const headers: Record<string, string> = { ...extra };
+    const headers: Record<string, string> = {
+      ...extra,
+      ...(origin === undefined ? {} : { Origin: origin }),
+    };
     if (!cookie || !includeCookie) return Effect.succeed(headers);
     return pipe(
       resolveCookie(cookie),

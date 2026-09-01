@@ -102,6 +102,10 @@ const declarativeAuthorizationRulesMigrationUrl = new URL(
   "../migrations/0023-declarative-authorization-rules.sql",
   import.meta.url,
 );
+const identitySecurityAuditMigrationUrl = new URL(
+  "../migrations/0024-identity-security-audit.sql",
+  import.meta.url,
+);
 export type ExecuteMigration = (
   source: string,
 ) => Effect.Effect<void, unknown, SqlClient.SqlClient>;
@@ -219,6 +223,11 @@ export const databaseMigrationDefinitions = [
     name: "declarative-authorization-rules",
     url: declarativeAuthorizationRulesMigrationUrl,
   },
+  {
+    id: "24_identity-security-audit",
+    name: "identity-security-audit",
+    url: identitySecurityAuditMigrationUrl,
+  },
 ] as const;
 
 export const databaseMigrationLoader = (execute: ExecuteMigration) =>
@@ -227,7 +236,7 @@ export const databaseMigrationLoader = (execute: ExecuteMigration) =>
       databaseMigrationDefinitions.map(({ id, name, url }) => [id, migration(name, url, execute)]),
     ),
   );
-export const databaseSchemaRevision = "23_declarative-authorization-rules";
+export const databaseSchemaRevision = "24_identity-security-audit";
 export const runDatabaseMigrations = (execute: ExecuteMigration) =>
   Migrator.make({})({
     loader: databaseMigrationLoader(execute),

@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import { Database } from "@vektorprogrammet/domain/database";
 import { createLocalAccountIssuer } from "better-auth";
-import { Effect, Redacted } from "effect";
+import { Effect, Redacted, Schema } from "effect";
 import { Pool } from "pg";
 import { makeAuthEngine, type AuthEngineConfig } from "./auth-engine.js";
 import { DatabaseLive } from "./layers.js";
@@ -124,6 +125,18 @@ const seedPerson = async (
     userId: person.personId,
     password: await context.password.hash(person.password),
   });
+  await observer.query(
+    `INSERT INTO auth.identity_security_audit (
+       event_id, event_kind, subject_person_id, session_id, actor_principal,
+       request_correlation, source_ip, user_agent, details
+     ) VALUES ($1, 'account-provisioned-administratively', $2, NULL,
+       'administrative:identity-seed', NULL, NULL, NULL, $3::jsonb)`,
+    [
+      randomUUID(),
+      person.personId,
+      JSON.stringify({ outcomeCode: "account-provisioned", affectedSessionCount: 0 }),
+    ],
+  );
   return { personId: person.personId, action: "created" };
 };
 
@@ -133,10 +146,21 @@ export const program = Effect.gen(function* () {
   assertLoopbackDatabaseUrl(postgresUrl);
   const schemaRevision = yield* applyMigrations(postgresUrl);
 
+  const trustedOrigins = Schema.decodeUnknownSync(
+    Schema.fromJsonString(Schema.Array(Schema.String)),
+  )(process.env.NATIVE_IDENTITY_TRUSTED_ORIGINS);
+  assert.ok(trustedOrigins.length > 0, "NATIVE_IDENTITY_TRUSTED_ORIGINS is required");
+  const deployment = process.env.NATIVE_IDENTITY_DEPLOYMENT;
+  assert.ok(
+    deployment === "local" || deployment === "preview" || deployment === "production",
+    "NATIVE_IDENTITY_DEPLOYMENT is required",
+  );
   const config: AuthEngineConfig = {
     postgresUrl,
     secret: process.env.BETTER_AUTH_SECRET ?? "identity-seed-disposable-secret-0123456789abcdef",
-    baseURL: process.env.BETTER_AUTH_URL ?? "http://127.0.0.1:5174",
+    baseURL: trustedOrigins[0]!,
+    trustedOrigins,
+    secureCookies: deployment !== "local",
   };
   const outcomes = yield* Effect.acquireUseRelease(
     Effect.sync(

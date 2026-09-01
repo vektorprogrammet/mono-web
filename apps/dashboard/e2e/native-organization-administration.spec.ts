@@ -77,13 +77,17 @@ const authenticate = async (
     );
   }
   const cookie = sessionCookies.map(({ name, value }) => `${name}=${value}`).join("; ");
-  const sessionResponse = await request.get(`${API_ORIGIN}/api/me/session`, {
+  const sessionResponse = await request.get(`${API_ORIGIN}/api/session`, {
     headers: { Cookie: cookie },
   });
   expect(sessionResponse.status()).toBe(200);
-  const session = await responseBody(sessionResponse);
+  expect(await responseBody(sessionResponse)).toMatchObject({ current: true });
+  const profileResponse = await request.get(`${API_ORIGIN}/api/me`, {
+    headers: { Cookie: cookie },
+  });
+  expect(profileResponse.status()).toBe(200);
   const expectedPersonId = requiredEnvironment(personIdEnvironment);
-  expect(session).toMatchObject({ personId: expectedPersonId });
+  expect(await responseBody(profileResponse)).toMatchObject({ personId: expectedPersonId });
 
   return {
     cookie,
@@ -214,6 +218,7 @@ test.describe("Native Organization administration", () => {
       const unknownReferenceResponse = await request.post(`${API_ORIGIN}/api/admin/teams`, {
         headers: {
           Cookie: adminSession.cookie,
+          Origin: DASHBOARD_ORIGIN,
           "Content-Type": "application/json",
         },
         data: {
@@ -231,6 +236,7 @@ test.describe("Native Organization administration", () => {
       const memberDeniedResponse = await request.post(`${API_ORIGIN}/api/admin/departments`, {
         headers: {
           Cookie: memberSession.cookie,
+          Origin: DASHBOARD_ORIGIN,
           "Content-Type": "application/json",
         },
         data: { ...departmentCommand, commandId: "organization-member-denied-0052" },
@@ -242,6 +248,7 @@ test.describe("Native Organization administration", () => {
       const exactReplayResponse = await request.post(`${API_ORIGIN}/api/admin/departments`, {
         headers: {
           Cookie: adminSession.cookie,
+          Origin: DASHBOARD_ORIGIN,
           "Content-Type": "application/json",
         },
         data: departmentCommand,
@@ -260,6 +267,7 @@ test.describe("Native Organization administration", () => {
       const changedReplayResponse = await request.post(`${API_ORIGIN}/api/admin/departments`, {
         headers: {
           Cookie: adminSession.cookie,
+          Origin: DASHBOARD_ORIGIN,
           "Content-Type": "application/json",
         },
         data: { ...departmentCommand, name: "Et annet navn" },
@@ -347,13 +355,15 @@ test.describe("Native Organization administration", () => {
             administrator: {
               nativeLogin: true,
               sessionCookieNames: adminSession.sessionCookieNames,
-              apiSessionPath: "/api/me/session",
+              apiSessionPath: "/api/session",
+              personBindingPath: "/api/me",
               personId: adminSession.sessionPersonId,
             },
             member: {
               nativeLogin: true,
               sessionCookieNames: memberSession.sessionCookieNames,
-              apiSessionPath: "/api/me/session",
+              apiSessionPath: "/api/session",
+              personBindingPath: "/api/me",
               personId: memberSession.sessionPersonId,
             },
           },

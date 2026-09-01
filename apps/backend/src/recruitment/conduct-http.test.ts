@@ -19,12 +19,19 @@ const actor = {
   active: true,
 };
 const config: RecruitmentApiConfig = {
-  tokens: new Map(),
   maxBodyBytes: 4096,
   now: () => "2031-09-15T12:00:00.000Z",
   nextInterviewId: () => "interview-1" as never,
   nextInvitationId: () => "invitation-1" as never,
   nextResponseCapability: () => "A".repeat(43),
+};
+const sessionRequest = (path: string, init?: RequestInit): Request => {
+  const headers = new Headers(init?.headers);
+  headers.set("cookie", "better-auth.session_token=conduct-test-session");
+  if (init?.method !== undefined && init.method !== "GET") {
+    headers.set("origin", "http://127.0.0.1:5174");
+  }
+  return new Request(`http://backend.test${path}`, { ...init, headers });
 };
 const observation = Schema.decodeUnknownSync(RecruitmentInterviewConductObservationSchema)({
   interviewId: "interview-1",
@@ -115,8 +122,7 @@ const makeBackend = (failure?: string) => {
 describe("strict recruitment conduct HTTP boundary", () => {
   it("rejects malformed path, query, body, and path/body identity before Recruitment", async () => {
     const { backend, calls } = makeBackend();
-    const request = (path: string, init?: RequestInit) =>
-      backend.fetch(new Request(`http://backend.test${path}`, init));
+    const request = (path: string, init?: RequestInit) => backend.fetch(sessionRequest(path, init));
     const json = { "content-type": "application/json" };
     const responses = await Promise.all([
       request("/api/admin/recruitment/interviews//conduct"),
@@ -153,12 +159,12 @@ describe("strict recruitment conduct HTTP boundary", () => {
   it("serves exact conduct observations and command results without leaking persistence details", async () => {
     const { backend, calls } = makeBackend();
     const read = await backend.fetch(
-      new Request("http://backend.test/api/admin/recruitment/interviews/interview-1/conduct"),
+      sessionRequest("/api/admin/recruitment/interviews/interview-1/conduct"),
     );
     expect(read.status).toBe(200);
     expect(await read.json()).toEqual(observation);
     const finalize = await backend.fetch(
-      new Request("http://backend.test/api/admin/recruitment/interviews/interview-1/finalize", {
+      sessionRequest("/api/admin/recruitment/interviews/interview-1/finalize", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
@@ -173,7 +179,7 @@ describe("strict recruitment conduct HTTP boundary", () => {
     expect(finalize.status).toBe(200);
     expect(await finalize.json()).toEqual(finalizeResult);
     const cancel = await backend.fetch(
-      new Request("http://backend.test/api/admin/recruitment/interviews/interview-1/cancel", {
+      sessionRequest("/api/admin/recruitment/interviews/interview-1/cancel", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
@@ -198,7 +204,7 @@ describe("strict recruitment conduct HTTP boundary", () => {
   ] as const)("maps %s to HTTP %i with a safe body", async (tag, status) => {
     const { backend } = makeBackend(tag);
     const response = await backend.fetch(
-      new Request("http://backend.test/api/admin/recruitment/interviews/interview-1/conduct"),
+      sessionRequest("/api/admin/recruitment/interviews/interview-1/conduct"),
     );
     expect(response.status).toBe(status);
     expect(await response.json()).toEqual({ error: { tag } });

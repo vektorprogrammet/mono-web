@@ -12,7 +12,7 @@ const dashboardRoot = fileURLToPath(new URL("../", import.meta.url));
 const postgresPort = 55465;
 const backendPort = 8865;
 const dashboardPort = 5265;
-const postgresDatabase = "identity_evidence_0065";
+const postgresDatabase = "identity_evidence_proof_0065";
 const postgresUrl = `postgres://postgres@127.0.0.1:${postgresPort}/${postgresDatabase}`;
 const backendOrigin = `http://127.0.0.1:${backendPort}`;
 const dashboardOrigin = `http://127.0.0.1:${dashboardPort}`;
@@ -35,6 +35,13 @@ const memberScreenshotPath =
 const timeoutMs = 300_000;
 const sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 const detail = (error) => (error instanceof Error ? error.message : String(error));
+const sanitizedCommandFailure = (value) =>
+  value
+    .replaceAll(postgresUrl, "[redacted-loopback-database]")
+    .replaceAll(password, "[redacted-password]")
+    .replaceAll(wrongPassword, "[redacted-wrong-password]")
+    .replaceAll(secret, "[redacted-auth-secret]")
+    .slice(-8_000);
 const authorityDataPatterns = [
   {
     label: "seeded-authorization-row",
@@ -153,8 +160,18 @@ const run = (command, args, options) => {
       stdout: Buffer.concat(stdout).toString(),
       stderr: Buffer.concat(stderr).toString(),
     };
-    if (code === 0) resolve(options.capture ? output : undefined);
-    else reject(new Error(`${options.label} exited with ${signal ?? `code ${code}`}`));
+    if (code === 0) {
+      resolve(options.capture ? output : undefined);
+    } else {
+      const captured = options.capture
+        ? sanitizedCommandFailure(`${output.stdout}\n${output.stderr}`.trim())
+        : "";
+      reject(
+        new Error(
+          `${options.label} exited with ${signal ?? `code ${code}`}${captured.length === 0 ? "" : `\n${captured}`}`,
+        ),
+      );
+    }
   });
   return promise;
 };
@@ -238,23 +255,35 @@ const startRecordingBoundary = async (targetOrigin) => {
       record.responseByteLength = bytes.byteLength;
       record.authorityDataMatches.response = findAuthorityData(bodyText);
       response.statusCode = upstream.status;
-      if (target.pathname === "/api/me/session") {
+      if (target.pathname === "/api/session") {
         if (upstream.status === 200) {
           const projection = JSON.parse(bodyText);
-          assert.deepEqual(Object.keys(projection).sort(), ["expiresAt", "personId"]);
-          assert.ok(
-            ["journey-0065-admin", "journey-0073-member"].includes(projection.personId),
-            `unexpected session person ${projection.personId}`,
-          );
-          assert.ok(
-            typeof projection.expiresAt === "string" &&
-              Date.parse(projection.expiresAt) > Date.now(),
-          );
+          assert.deepEqual(Object.keys(projection).sort(), [
+            "createdAt",
+            "current",
+            "expiresAt",
+            "ipAddress",
+            "sessionId",
+            "updatedAt",
+            "userAgent",
+          ]);
+          assert.ok(typeof projection.sessionId === "string" && projection.sessionId.length > 0);
+          assert.equal(projection.current, true);
+          for (const field of ["createdAt", "updatedAt", "expiresAt"]) {
+            assert.ok(
+              typeof projection[field] === "string" &&
+                Number.isFinite(Date.parse(projection[field])),
+            );
+          }
+          assert.ok(Date.parse(projection.expiresAt) > Date.now());
+          assert.ok(projection.ipAddress === null || typeof projection.ipAddress === "string");
+          assert.ok(projection.userAgent === null || typeof projection.userAgent === "string");
           assert.equal(bodyText, JSON.stringify(projection));
           record.sessionProjection = {
             keys: Object.keys(projection),
-            personId: projection.personId,
+            sessionId: projection.sessionId,
             expiresAt: projection.expiresAt,
+            current: projection.current,
             bodyByteLength: bytes.byteLength,
             exactJsonBytes: true,
           };
@@ -318,6 +347,7 @@ const main = async () => {
   const temporaryRoot = await mkdtemp(join(tmpdir(), "mono-web-native-identity-0065-"));
   const postgresRoot = join(temporaryRoot, "postgres");
   const browserEvidencePath = join(temporaryRoot, "browser-evidence.json");
+  const hardeningEvidencePath = join(temporaryRoot, "session-hardening-browser-evidence.json");
   let postgres;
   let backend;
   let dashboard;
@@ -402,6 +432,9 @@ const main = async () => {
         ...baseEnvironment,
         IDENTITY_EVIDENCE_PG_URL: postgresUrl,
         IDENTITY_EVIDENCE_PASSWORD: password,
+        BETTER_AUTH_SECRET: secret,
+        NATIVE_IDENTITY_DEPLOYMENT: "local",
+        NATIVE_IDENTITY_TRUSTED_ORIGINS: JSON.stringify([dashboardOrigin]),
       },
       capture: true,
       label: "Identity 0065 seed",
@@ -417,6 +450,7 @@ const main = async () => {
     assert.deepEqual(seedEvidence.migrations, [
       { revision: 15, name: "native-identity-better-auth" },
       { revision: 23, name: "declarative-authorization-rules" },
+      { revision: 24, name: "identity-security-audit" },
     ]);
     assert.deepEqual(
       seedEvidence.authSchema.beforePublicAuthz,
@@ -435,7 +469,8 @@ const main = async () => {
         BACKEND_PORT: String(backendPort),
         BACKEND_PG_URL: postgresUrl,
         BETTER_AUTH_SECRET: secret,
-        BETTER_AUTH_URL: dashboardOrigin,
+        NATIVE_IDENTITY_DEPLOYMENT: "local",
+        NATIVE_IDENTITY_TRUSTED_ORIGINS: JSON.stringify([dashboardOrigin]),
         PUBLIC_APPLICATION_EFFECT_MODE: "disabled",
       },
       repositoryRoot,
@@ -471,6 +506,7 @@ const main = async () => {
       IDENTITY_EVIDENCE_MEMBER_PASSWORD: password,
       IDENTITY_EVIDENCE_ADMIN_SCREENSHOT_PATH: adminScreenshotPath,
       IDENTITY_EVIDENCE_MEMBER_SCREENSHOT_PATH: memberScreenshotPath,
+      IDENTITY_HARDENING_BROWSER_PATH: hardeningEvidencePath,
     };
     dashboard = start(
       "node",
@@ -496,6 +532,30 @@ const main = async () => {
       },
     );
     const browserEvidence = JSON.parse(await readFile(browserEvidencePath, "utf8"));
+    const hardeningEvidence = JSON.parse(await readFile(hardeningEvidencePath, "utf8"));
+    assert.equal(hardeningEvidence.specId, "0054.1");
+    assert.equal(hardeningEvidence.passed, true);
+    assert.deepEqual(hardeningEvidence.sessionProjection.fields, [
+      "createdAt",
+      "current",
+      "expiresAt",
+      "ipAddress",
+      "sessionId",
+      "updatedAt",
+      "userAgent",
+    ]);
+    assert.deepEqual(hardeningEvidence.sessionProjection.credentialFieldsObserved, []);
+    assert.equal(hardeningEvidence.sessionProjection.oneCurrent, 1);
+    assert.deepEqual(hardeningEvidence.revocation.revokeOthers, [204, 204]);
+    assert.deepEqual(hardeningEvidence.revocation.repeatedAndMissing, [404, 404]);
+    assert.deepEqual(hardeningEvidence.revocation.immediateReplay, [401, 401, 401, 401]);
+    assert.deepEqual(hardeningEvidence.ownership, {
+      memberAgainstAdministrator: 404,
+      administratorAgainstMember: 404,
+      responseEqual: true,
+    });
+    assert.deepEqual(hardeningEvidence.signup, { status: 400, sessionCreated: false });
+    assert.equal(hardeningEvidence.cookieValueRecorded, false);
     assert.equal(browserEvidence.passed, true);
     assert.equal(browserEvidence.extensionSpecId, "0056");
     assert.deepEqual(browserEvidence.accessibilityViolations, {
@@ -545,35 +605,31 @@ const main = async () => {
     const nativeSignIn = boundary.records.filter(
       (entry) => entry.path === "/api/auth/sign-in/email",
     );
-    assert.equal(nativeSignIn.length, 12);
+    assert.equal(nativeSignIn.length, 17);
     assert.equal(
       nativeSignIn.filter(({ status }) => status === 200).length,
-      2,
-      "admin and member sign-ins must both succeed",
+      7,
+      "hardening and dashboard personas must sign in through Better Auth",
     );
     assert.equal(nativeSignIn[0].status, 200);
     const wrongStatuses = nativeSignIn.slice(-10).map((entry) => entry.status);
     assert.deepEqual(wrongStatuses, [401, 401, 401, 429, 429, 429, 429, 429, 429, 429]);
-    const firstRejectedSessionIndex = boundary.records.findIndex(
-      (entry) => entry.path === "/api/me/session" && entry.status === 401,
+    const nativeSignOut = boundary.records.filter(
+      (entry) => entry.path === "/api/session" && entry.method === "DELETE",
     );
-    assert.notEqual(firstRejectedSessionIndex, -1);
-    const nativeSignOut = boundary.records.filter((entry) => entry.path === "/api/auth/sign-out");
-    const explicitSignOut = boundary.records.filter(
-      (entry, index) => entry.path === "/api/auth/sign-out" && index < firstRejectedSessionIndex,
+    const explicitSignOut = nativeSignOut.filter(({ status }) => status === 204);
+    const revokedReplaySignOut = nativeSignOut.filter(({ status }) => status === 401);
+    assert.ok(
+      explicitSignOut.length >= 4,
+      "hardening and dashboard journeys must persist every first sign-out",
     );
-    const revokedReplaySignOut = boundary.records.filter(
-      (entry, index) => entry.path === "/api/auth/sign-out" && index > firstRejectedSessionIndex,
+    assert.ok(
+      revokedReplaySignOut.length >= 3,
+      "revoked-cookie sign-out retries must fail before another mutation",
     );
-    assert.deepEqual(
-      explicitSignOut.map(({ status }) => status),
-      [200, 200],
+    const sessionRequests = boundary.records.filter(
+      (entry) => entry.path === "/api/session" && entry.method === "GET",
     );
-    assert.deepEqual(
-      revokedReplaySignOut.map(({ status }) => status),
-      [200, 200],
-    );
-    const sessionRequests = boundary.records.filter((entry) => entry.path === "/api/me/session");
     assert.ok(sessionRequests.some((entry) => entry.status === 200));
     assert.ok(sessionRequests.some((entry) => entry.status === 401));
     const successfulSessionProjections = sessionRequests
@@ -587,14 +643,13 @@ const main = async () => {
         (projection) =>
           projection !== undefined &&
           projection.exactJsonBytes === true &&
-          ["journey-0065-admin", "journey-0073-member"].includes(projection.personId) &&
-          projection.keys.join(",") === "personId,expiresAt",
+          projection.current === true &&
+          typeof projection.sessionId === "string" &&
+          projection.sessionId.length > 0 &&
+          [...projection.keys].sort().join(",") ===
+            "createdAt,current,expiresAt,ipAddress,sessionId,updatedAt,userAgent",
       ),
-      "successful session projections must be exact and belong to a seeded persona",
-    );
-    assert.deepEqual(
-      [...new Set(successfulSessionProjections.map((projection) => projection?.personId))].sort(),
-      ["journey-0065-admin", "journey-0073-member"],
+      "successful session projections must be exact credential-free metadata",
     );
     assert.ok(
       unauthenticatedSessionProjections.every(
@@ -631,6 +686,24 @@ const main = async () => {
     assert.equal(postgresEvidence.extensionSpecId, "0056");
     assert.deepEqual(postgresEvidence.authSchemaState, seedEvidence.authSchema.afterPublicAuthz);
     assert.deepEqual(postgresEvidence.publicAuthz, seedEvidence.publicAuthz);
+    assert.deepEqual(postgresEvidence.identitySecurityAudit.counts, {
+      "account-provisioned-administratively": 2,
+      "session-revoked-all": 1,
+      "session-revoked-one": 1,
+      "session-revoked-others": 1,
+      "sign-in-failure": 10,
+      "sign-in-success": 7,
+      "sign-out": 4,
+      "sign-up-rejected": 1,
+      "trusted-origin-csrf-rejected": 1,
+    });
+    assert.equal(postgresEvidence.identitySecurityAudit.rowsBoundedAndLinked, true);
+    assert.equal(postgresEvidence.identitySecurityAudit.appendOnlyUpdateRejected, true);
+    assert.equal(postgresEvidence.identitySecurityAudit.appendOnlyDeleteRejected, true);
+    assert.equal(
+      postgresEvidence.identitySecurityAudit.ordering.atomicCredentialAuditClaimed,
+      false,
+    );
     assert.deepEqual(
       {
         activeAssignments: postgresEvidence.authzActivity.activeAssignments,
@@ -647,6 +720,15 @@ const main = async () => {
         expiredJourneyPersonRules: 1,
       },
     );
+    await run("bunx", ["vitest", "run", "src/auth-live.test.ts"], {
+      cwd: join(repositoryRoot, "packages/database"),
+      env: {
+        ...baseEnvironment,
+        AUTH_TEST_PG_URL: postgresUrl,
+      },
+      capture: true,
+      label: "Identity adapter audit rollback proof",
+    });
     const identityBehavior = {
       login: {
         nativeStatus: nativeSignIn[0].status,
@@ -709,6 +791,7 @@ const main = async () => {
       specId: "0065",
       parentSpecId: "0054",
       extensionSpecId: "0056",
+      amendmentSpecId: "0054.1",
       baseCommit: "2bcc38a605c9c85dcc1be722dff361138c801827",
       extensionSourceCommit: "4cc5cea669fa30d4fd8782f411eb9dcf86ba1380",
       finalRevision: (
@@ -739,6 +822,7 @@ const main = async () => {
         topology: { baseURL: dashboardOrigin, webServer: "undefined" },
       },
       identityBehavior,
+      sessionHardening: hardeningEvidence,
       native: {
         signInStatuses: nativeSignIn.map(({ status }) => status),
         wrongPasswordStatuses: wrongStatuses,
@@ -749,6 +833,10 @@ const main = async () => {
       },
       postgres: {
         ...postgresEvidence,
+        adapterAuditRollbackProof: {
+          test: "AuthLive focused PostgreSQL transaction failure",
+          passed: true,
+        },
         comparisons: {
           authSchema: {
             beforePublicAuthzSeed: seedEvidence.authSchema.beforePublicAuthz,

@@ -20,7 +20,7 @@ const responseHeaders = {
 
 export async function loader({ request }: Route.LoaderArgs) {
   const cookie = await requireAuth(request);
-  const client = createAuthenticatedClient(cookie);
+  const client = createAuthenticatedClient(cookie, request);
 
   let profile;
   try {

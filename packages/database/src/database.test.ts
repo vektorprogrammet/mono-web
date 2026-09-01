@@ -384,7 +384,7 @@ describe("DatabaseTest", () => {
       }),
     );
     expect(evidence).toEqual({
-      revision: "23_declarative-authorization-rules",
+      revision: "24_identity-security-audit",
       migrations: [
         { migration_id: 1, name: "receipt-authority" },
         { migration_id: 2, name: "admission-period-authority" },
@@ -409,6 +409,7 @@ describe("DatabaseTest", () => {
         { migration_id: 21, name: "native-recruitment-interview-conduct" },
         { migration_id: 22, name: "native-domain-schema-boundary" },
         { migration_id: 23, name: "declarative-authorization-rules" },
+        { migration_id: 24, name: "identity-security-audit" },
       ],
       tables: [
         "admission_applications",
@@ -4417,7 +4418,7 @@ describe("DatabaseTest", () => {
       }),
     );
 
-    expect(evidence.schemaRevision).toBe("23_declarative-authorization-rules");
+    expect(evidence.schemaRevision).toBe("24_identity-security-audit");
     expect(evidence.denied._tag).toBe("OrganizationRoleDenied");
     expect(evidence.deniedRows).toBe(0);
     expect(evidence.departmentCreated.committed).toBe(true);

@@ -172,7 +172,7 @@ function parseReceiptFile(form: FormData, required: boolean): ParseResult<File |
 
 export async function loader({ request }: Route.LoaderArgs) {
   const cookie = await requireAuth(request);
-  const client = createAuthenticatedClient(cookie);
+  const client = createAuthenticatedClient(cookie, request);
 
   try {
     const result = await client.receipts.listOwned();
@@ -193,7 +193,7 @@ export async function loader({ request }: Route.LoaderArgs) {
 
 export async function action({ request }: Route.ActionArgs) {
   const cookie = await requireAuth(request);
-  const client = createAuthenticatedClient(cookie);
+  const client = createAuthenticatedClient(cookie, request);
   const form = await request.formData();
   const commandId = readFormText(form, "commandId")?.trim() || crypto.randomUUID();
   const intent = readFormText(form, "_intent");

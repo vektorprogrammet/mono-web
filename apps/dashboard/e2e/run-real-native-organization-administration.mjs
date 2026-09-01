@@ -481,7 +481,7 @@ async function startRecordingProxy(targetOrigin) {
       if (
         cookieKey !== undefined &&
         upstream.status === 200 &&
-        url.pathname === "/api/me/session" &&
+        url.pathname === "/api/me" &&
         responseJson !== null &&
         typeof responseJson === "object" &&
         "personId" in responseJson &&
@@ -786,7 +786,8 @@ async function main() {
     BACKEND_PORT: String(backendPort),
     BACKEND_PG_URL: postgresUrl,
     BETTER_AUTH_SECRET: betterAuthSecret,
-    BETTER_AUTH_URL: dashboardOrigin,
+    NATIVE_IDENTITY_DEPLOYMENT: "local",
+    NATIVE_IDENTITY_TRUSTED_ORIGINS: JSON.stringify([dashboardOrigin]),
     PUBLIC_APPLICATION_EFFECT_MODE: "disabled",
     RECEIPT_STAGING_ROOT: stagingRoot,
     RECEIPT_COMMITTED_ROOT: committedRoot,
@@ -914,7 +915,8 @@ async function main() {
       VITE_API_URL: proxy.origin,
       DASHBOARD_ORIGIN: dashboardOrigin,
       BETTER_AUTH_SECRET: betterAuthSecret,
-      BETTER_AUTH_URL: dashboardOrigin,
+      NATIVE_IDENTITY_DEPLOYMENT: "local",
+      NATIVE_IDENTITY_TRUSTED_ORIGINS: JSON.stringify([dashboardOrigin]),
       REAL_NATIVE_ORGANIZATION_E2E: "1",
       REAL_NATIVE_CONDUCT_E2E: "1",
       ORGANIZATION_E2E_ADMIN_EMAIL: adminEmail,
@@ -985,13 +987,15 @@ async function main() {
         administrator: {
           nativeLogin: true,
           sessionCookieNames: ["better-auth.session_token"],
-          apiSessionPath: "/api/me/session",
+          apiSessionPath: "/api/session",
+          personBindingPath: "/api/me",
           personId: adminPersonId,
         },
         member: {
           nativeLogin: true,
           sessionCookieNames: ["better-auth.session_token"],
-          apiSessionPath: "/api/me/session",
+          apiSessionPath: "/api/session",
+          personBindingPath: "/api/me",
           personId: memberPersonId,
         },
       },
@@ -1002,7 +1006,7 @@ async function main() {
         proxy.records
           .filter(
             ({ path, status, sessionCookieAuth, authorizationHeaderPresent }) =>
-              path === "/api/me/session" &&
+              path === "/api/session" &&
               status === 200 &&
               sessionCookieAuth &&
               !authorizationHeaderPresent,

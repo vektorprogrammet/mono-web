@@ -85,7 +85,7 @@ export async function loader({ request }: Route.LoaderArgs) {
   }
 
   try {
-    const client = createAuthenticatedClient(cookie);
+    const client = createAuthenticatedClient(cookie, request);
     const directory = await client.admin.schools.list(
       department === undefined ? undefined : { department },
     );

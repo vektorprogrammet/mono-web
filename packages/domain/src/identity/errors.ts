@@ -7,14 +7,18 @@ export class IdentityInvalidCredentials extends Schema.TaggedError<IdentityInval
 
 export class IdentitySessionNotFound extends Schema.TaggedError<IdentitySessionNotFound>()(
   "IdentitySessionNotFound",
-  { sessionToken: Schema.String },
+  {},
 ) {}
 
 export class IdentitySessionExpired extends Schema.TaggedError<IdentitySessionExpired>()(
   "IdentitySessionExpired",
-  { sessionToken: Schema.String },
+  {},
 ) {}
 
+export class IdentityOwnedSessionNotFound extends Schema.TaggedError<IdentityOwnedSessionNotFound>()(
+  "IdentityOwnedSessionNotFound",
+  { sessionId: Schema.String },
+) {}
 export class IdentityRateLimited extends Schema.TaggedError<IdentityRateLimited>()(
   "IdentityRateLimited",
   {},
@@ -32,5 +36,6 @@ export type IdentityFailure =
   | IdentityInvalidCredentials
   | IdentitySessionNotFound
   | IdentitySessionExpired
+  | IdentityOwnedSessionNotFound
   | IdentityRateLimited
   | IdentityEngineError;

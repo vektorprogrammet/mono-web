@@ -16,20 +16,10 @@ import { makeOrganizationApiConfig } from "./config.js";
 import { makeOrganizationTestHttp as makeOrganizationApiHttp } from "../test/native-http.js";
 import { runTestPromise } from "../../test/runtime.js";
 
-const ADMIN_TOKEN = "organization-admin-token";
-const MEMBER_TOKEN = "organization-member-token";
+const ADMIN_SESSION = "organization-admin-session";
+const MEMBER_SESSION = "organization-member-session";
 
 const config = makeOrganizationApiConfig({
-  ORGANIZATION_AUTH_TOKENS: JSON.stringify({
-    [ADMIN_TOKEN]: {
-      _tag: "OrganizationAdministrator",
-      personId: "person-admin",
-    },
-    [MEMBER_TOKEN]: {
-      _tag: "OrganizationMember",
-      personId: "person-member",
-    },
-  }),
   ORGANIZATION_MAX_BODY_BYTES: "1024",
 });
 
@@ -193,11 +183,11 @@ const run = (<A, E, R>(effect: Effect.Effect<A, E, R>): Promise<A> =>
 const http = makeOrganizationApiHttp({
   config,
   resolveActor: async (request) => {
-    const authHeader = request.headers.get("authorization");
-    if (authHeader === null || !authHeader.startsWith("Bearer ")) {
+    const cookieHeader = request.headers.get("cookie");
+    if (cookieHeader === null) {
       throw Object.assign(new Error("UnauthenticatedActor"), { _tag: "UnauthenticatedActor" });
     }
-    if (authHeader === `Bearer ${ADMIN_TOKEN}`) {
+    if (cookieHeader.includes(`better-auth.session_token=${ADMIN_SESSION}`)) {
       return { _tag: "OrganizationAdministrator", personId: PersonId.make("person-admin") };
     }
     return { _tag: "OrganizationMember", personId: PersonId.make("person-member") };
@@ -214,15 +204,16 @@ const request = (pathname: string, init?: RequestInit): Promise<Response> =>
   http.fetch(new Request(`http://backend.test${pathname}`, init));
 const post = (
   pathname: string,
-  token: string,
+  session: string,
   body: unknown,
   contentType = "application/json",
 ): Promise<Response> =>
   request(pathname, {
     method: "POST",
     headers: {
-      authorization: `Bearer ${token}`,
+      cookie: `better-auth.session_token=${session}`,
       "content-type": contentType,
+      origin: "http://127.0.0.1:5174",
     },
     body: JSON.stringify(body),
   });
@@ -254,14 +245,14 @@ describe("Organization HTTP boundary", () => {
   });
 
   it("returns 201 for a committed command and 200 with the original observation for replay", async () => {
-    const created = await post("/api/admin/departments", ADMIN_TOKEN, createDepartmentCommand);
-    const createdTeam = await post("/api/admin/teams", ADMIN_TOKEN, createTeamCommand);
+    const created = await post("/api/admin/departments", ADMIN_SESSION, createDepartmentCommand);
+    const createdTeam = await post("/api/admin/teams", ADMIN_SESSION, createTeamCommand);
     const createdField = await post(
       "/api/admin/field-of-studies",
-      ADMIN_TOKEN,
+      ADMIN_SESSION,
       createFieldOfStudyCommand,
     );
-    const replayed = await post("/api/admin/departments", ADMIN_TOKEN, {
+    const replayed = await post("/api/admin/departments", ADMIN_SESSION, {
       ...createDepartmentCommand,
       commandId: "command-replay",
     });
@@ -285,16 +276,16 @@ describe("Organization HTTP boundary", () => {
   });
 
   it("maps member denial, invalid references, command conflict, and persistence failure", async () => {
-    const denied = await post("/api/admin/departments", MEMBER_TOKEN, createDepartmentCommand);
-    const invalidReference = await post("/api/admin/teams", ADMIN_TOKEN, {
+    const denied = await post("/api/admin/departments", MEMBER_SESSION, createDepartmentCommand);
+    const invalidReference = await post("/api/admin/teams", ADMIN_SESSION, {
       ...createTeamCommand,
       departmentId: "department-unknown",
     });
-    const conflict = await post("/api/admin/departments", ADMIN_TOKEN, {
+    const conflict = await post("/api/admin/departments", ADMIN_SESSION, {
       ...createDepartmentCommand,
       commandId: "command-conflict",
     });
-    const unavailable = await post("/api/admin/departments", ADMIN_TOKEN, {
+    const unavailable = await post("/api/admin/departments", ADMIN_SESSION, {
       ...createDepartmentCommand,
       commandId: "command-persistence",
     });
@@ -322,22 +313,23 @@ describe("Organization HTTP boundary", () => {
     const malformed = await request("/api/admin/departments", {
       method: "POST",
       headers: {
-        authorization: `Bearer ${ADMIN_TOKEN}`,
+        cookie: `better-auth.session_token=${ADMIN_SESSION}`,
         "content-type": "application/json",
+        origin: "http://127.0.0.1:5174",
       },
       body: "{",
     });
     const wrongContentType = await post(
       "/api/admin/departments",
-      ADMIN_TOKEN,
+      ADMIN_SESSION,
       createDepartmentCommand,
       "text/plain",
     );
-    const excess = await post("/api/admin/departments", ADMIN_TOKEN, {
+    const excess = await post("/api/admin/departments", ADMIN_SESSION, {
       ...createDepartmentCommand,
       actorRole: "OrganizationAdministrator",
     });
-    const oversized = await post("/api/admin/departments", ADMIN_TOKEN, {
+    const oversized = await post("/api/admin/departments", ADMIN_SESSION, {
       ...createDepartmentCommand,
       name: "x".repeat(2_000),
     });
@@ -349,13 +341,13 @@ describe("Organization HTTP boundary", () => {
     expect(createCalls).toBe(before);
   });
 
-  it("rejects public query strings before reading Organization and supports browser preflight", async () => {
+  it("rejects public query strings before reading Organization and uses exact credentialed preflight origins", async () => {
     const before = publicListCalls;
     const queried = await request("/api/departments?active=true");
     const preflight = await request("/api/departments", {
       method: "OPTIONS",
       headers: {
-        origin: "http://127.0.0.1:5173",
+        origin: "http://127.0.0.1:5174",
         "access-control-request-method": "GET",
       },
     });
@@ -366,26 +358,15 @@ describe("Organization HTTP boundary", () => {
     });
     expect(publicListCalls).toBe(before);
     expect(preflight.status).toBe(204);
-    expect(preflight.headers.get("access-control-allow-origin")).toBe("*");
+    expect(preflight.headers.get("access-control-allow-origin")).toBe("http://127.0.0.1:5174");
+    expect(preflight.headers.get("access-control-allow-credentials")).toBe("true");
   });
 
-  it("fails closed for an unauthenticated request and rejects identity-derived actor fields", async () => {
+  it("fails closed for an unauthenticated request", async () => {
     const anonymous = await request("/api/admin/departments", { method: "POST" });
     expect(await responseBody(anonymous)).toEqual({
       status: 401,
       body: { error: { tag: "UnauthenticatedActor" } },
     });
-
-    expect(() =>
-      makeOrganizationApiConfig({
-        ORGANIZATION_AUTH_TOKENS: JSON.stringify({
-          token: {
-            _tag: "OrganizationAdministrator",
-            personId: "person-admin",
-            identityRole: "persisted-admin",
-          },
-        }),
-      }),
-    ).toThrow("must map bounded tokens to Organization actors");
   });
 });

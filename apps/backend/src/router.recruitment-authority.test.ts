@@ -35,6 +35,8 @@ const memberToken = "member-session-token";
 const environment = {
   BACKEND_PG_URL: "postgres://test.invalid/vektorprogrammet",
   BETTER_AUTH_SECRET: "router-test-secret-with-at-least-32-characters!",
+  NATIVE_IDENTITY_DEPLOYMENT: "local",
+  NATIVE_IDENTITY_TRUSTED_ORIGINS: JSON.stringify(["http://127.0.0.1:5174"]),
   PUBLIC_APPLICATION_EFFECT_MODE: "disabled",
 } as const;
 
@@ -135,35 +137,49 @@ const run: BackendRun = <A, E>(
       Effect.provideService(Identity, {
         signIn: () => Promise.reject(new Error("unexpected sign-in")),
         resolveSession: async (cookieHeader: string | undefined) => {
-          const matched = Object.keys(membershipsByToken).find((token) =>
-            cookieHeader?.includes(`${token}=`),
-          );
-          if (matched !== undefined) {
+          const tokenValue = cookieHeader
+            ?.split(";")
+            .map((part) => part.trim())
+            .find((part) => part.startsWith("better-auth.session_token="))
+            ?.slice("better-auth.session_token=".length);
+          if (tokenValue !== undefined && tokenValue in membershipsByToken) {
             return new IdentityActor({
-              personId: PersonId.make(personIdForToken(matched)),
+              personId: PersonId.make(personIdForToken(tokenValue)),
               sessionId: "session-1",
               expiresAt: DateTime.makeUnsafe(new Date("2031-09-16T12:00:00.000Z")),
             });
           }
-          throw new IdentitySessionNotFound({ sessionToken: "" });
+          throw new IdentitySessionNotFound();
         },
-        signOut: async () => undefined,
+        readCurrentSession: () => Promise.reject(new Error("unexpected session read")),
+        listSessions: () => Promise.reject(new Error("unexpected session list")),
+        revokeCurrentSession: () => Promise.reject(new Error("unexpected session mutation")),
+        revokeSession: () => Promise.reject(new Error("unexpected session mutation")),
+        revokeOtherSessions: () => Promise.reject(new Error("unexpected session mutation")),
+        revokeAllSessions: () => Promise.reject(new Error("unexpected session mutation")),
+        recordSecurityEvent: () => Promise.reject(new Error("unexpected identity audit")),
+        signOut: async () => ({ setCookies: [] }),
       } satisfies IdentityShape),
     ) as Effect.Effect<A, E>,
   );
 
 const backend = makeBackendHttp(config, run, {
   handle: async () => new Response(null, { status: 404 }),
+  recordTrustedOriginRejection: async () => undefined,
 });
 
-const request = (pathname: string, cookie: string): Promise<Response> =>
-  backend.fetch(new Request(`http://backend.test${pathname}`, { headers: { cookie } }));
+const request = (pathname: string, sessionValue: string): Promise<Response> =>
+  backend.fetch(
+    new Request(`http://backend.test${pathname}`, {
+      headers: { cookie: `better-auth.session_token=${sessionValue}` },
+    }),
+  );
 
 describe("recruitment actors from authorized departments (spec 0055)", () => {
   it("resolves a DepartmentLeader actor for an active team-leader membership", async () => {
     const response = await request(
       "/api/admin/recruitment/assignment-board?status=new",
-      `${leaderToken}=value`,
+      leaderToken,
     );
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({
@@ -186,8 +202,8 @@ describe("recruitment actors from authorized departments (spec 0055)", () => {
 
   it("still denies a plain active member", async () => {
     const response = await request(
-      "/api/admin/recruitment/assignment-board?status=all",
-      `${memberToken}=value`,
+      "/api/admin/recruitment/assignment-board?status=new",
+      memberToken,
     );
     expect(response.status).toBe(403);
     expect(await response.json()).toEqual({

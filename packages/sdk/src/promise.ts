@@ -305,7 +305,7 @@ export type {
 } from "./schemas/recruitment.js";
 export {
   ProfileCommandId,
-  SessionActor,
+  SessionProjection,
   UpdateOwnProfileCommand,
   UserProfile,
   UserRole,
@@ -397,8 +397,8 @@ export type {
 export type ClientOptions = {
   cookie?: CookieOption;
   fetch?: FetchCapability;
+  origin?: string;
 };
-
 // --- Promisify helpers ---
 
 /**
@@ -440,8 +440,7 @@ function promisifyDomain<T extends object>(
  * @since 0.2.0
  */
 export function createClient(baseUrl: string | undefined, options?: ClientOptions) {
-  const transport = createTransport(baseUrl, options?.cookie);
-
+  const transport = createTransport(baseUrl, options?.cookie, options?.fetch, options?.origin);
   const adminMisc = createAdminMiscDomain(transport);
   const publicMisc = createPublicMiscDomain(transport);
   const publicContactMessages = createPublicContactMessageDomain(transport);

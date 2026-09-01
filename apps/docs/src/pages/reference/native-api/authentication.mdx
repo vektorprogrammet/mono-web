@@ -17,44 +17,51 @@ Auth, and the native API trusts the session it issues.
 
 - Endpoint: `POST /api/auth/sign-in/email` with `{ email, password }`
   (`apps/dashboard/app/lib/auth.server.ts`, `packages/database/src/auth-live.test.ts`).
-- Engine: `packages/database/src/auth-engine.ts` — passwords need at least
-  12 characters; sessions expire after 7 days and refresh their age daily;
-  cookie cache holds 5 minutes.
+- Engine: `packages/database/src/auth-engine.ts` — public sign-up is disabled,
+  passwords need at least 12 characters, sessions expire after 7 days, and
+  their age updates daily. Authoritative requests do not use a session cookie
+  cache.
 - Session rows live in the `auth` Postgres schema (`search_path=auth`), and
   `auth.user.id` is a `PersonId`.
 
 ## The session cookie
 
-Handlers read the session from the `better-auth.session_token` cookie
-(HttpOnly; `__Secure-` prefix on HTTPS). Sources:
-`packages/database/src/identity-postgres-proof-main.ts`,
-`apps/dashboard/app/lib/auth.server.ts` (`SESSION_COOKIE_NAMES`),
-and the `BetterAuthSessionCookie` declaration in
-`packages/http-api/src/common.ts` (apiKey-in-cookie security scheme).
+Handlers recognize the `better-auth.session_token` cookie for explicit
+loopback development and the `__Secure-better-auth.session_token` cookie
+outside local development. Both are HttpOnly, SameSite=Lax, and Path=/.
+The secure form also has the Secure attribute. Sources:
+`packages/database/src/auth-engine.ts`,
+`apps/dashboard/app/lib/auth.server.ts` (`SESSION_COOKIE_NAMES`), and the
+`RequestCookieHeader` declaration in `packages/http-api/src/common.ts`.
 
 ## How handlers enforce it
 
 Endpoints that require a session declare the `SessionSecurity` middleware in
-the contract (`packages/http-api/src/common.ts`). The backend resolves the
-full `Cookie` header through the Identity engine:
+the contract (`packages/http-api/src/common.ts`). The transport first requires
+one recognized Better Auth cookie name. The handler then resolves the full
+`Cookie` header from persisted state through `Identity` on every request:
 
 1. `Cookie` → `Identity.resolveSession` → `PersonId` plus one authorization
    instant (`apps/backend/src/authority.ts`).
 2. `Organization.resolvePersonAuthority` loads the person's roles.
-3. `IdentitySessionNotFound` or `IdentitySessionExpired` maps to
-   `UnauthenticatedActor`, which the transport returns as HTTP 401
-   (`apps/backend/src/authority.ts`).
+3. A missing, expired, or revoked session maps to `UnauthenticatedActor`, which
+   the transport returns as HTTP 401.
 
-Check a session without calling a business endpoint:
+Read credential-free metadata for the current session:
 
 ```
-GET /api/me/session
+GET /api/session
 ```
 
-- 200 → `{ "personId": "…", "expiresAt": "…" }`
+- 200 → `{ "sessionId", "createdAt", "updatedAt", "expiresAt", "ipAddress", "userAgent", "current" }`
 - 401 → `{ "error": { "tag": "UnauthenticatedActor" } }`
 - 503 → `{ "error": { "tag": "IdentityEngineError" } }`
-  (`apps/backend/src/http-api/system.ts`)
+
+The session representation contains no `PersonId` or credential. Use
+`GET /api/me` when a caller needs its own profile identity. Session lifecycle
+operations are `DELETE /api/session`, `GET /api/sessions`,
+`DELETE /api/sessions/{sessionId}`, `POST /api/sessions:revoke-others`, and
+`POST /api/sessions:revoke-all`.
 
 ## How authorization decisions work
 

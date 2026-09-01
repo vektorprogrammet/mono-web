@@ -76,15 +76,25 @@ const runtime = makeBackendRuntime(
 );
 const router = await runtime.runPromise(HttpRouter.HttpRouter);
 const nativeHandler = HttpEffect.toWebHandler(router.asHttpEffect());
-const api = makeBackendHttp(nativeHandler, {
-  handle: (request) =>
-    runtime.runPromise(
-      Effect.gen(function* () {
-        const engine = yield* AuthEngine;
-        return yield* Effect.promise(() => engine.handler(request));
-      }),
-    ),
-});
+const api = makeBackendHttp(
+  nativeHandler,
+  {
+    handle: (request, context) =>
+      runtime.runPromise(
+        Effect.gen(function* () {
+          const engine = yield* AuthEngine;
+          return yield* Effect.promise(() => engine.handler(request, context));
+        }),
+      ),
+    recordTrustedOriginRejection: (context) =>
+      runtime.runPromise(
+        AuthEngine.use((engine) =>
+          Effect.promise(() => engine.recordTrustedOriginRejection(context)),
+        ),
+      ),
+  },
+  config.sessionBoundary,
+);
 
 try {
   await run(databaseHealth);

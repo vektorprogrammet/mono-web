@@ -47,7 +47,7 @@ export async function action({ request }: Route.ActionArgs) {
       });
     }
     const operation = decodedRequest.operation;
-    const recruitment = createAuthenticatedClient(cookie).admin.recruitment;
+    const recruitment = createAuthenticatedClient(cookie, request).admin.recruitment;
 
     switch (operation.operation) {
       case "readAssignmentBoard":

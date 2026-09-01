@@ -1089,10 +1089,23 @@ const makeIdentityTestLayer = (
       const accepted = (cookieHeader ?? "")
         .split(";")
         .some((pair) => pair.trim() === `${SPEC_0067.sessionCookieName}=${sessionCookie}`);
-      return accepted
-        ? Promise.resolve(actor)
-        : Promise.reject(new IdentitySessionNotFound({ sessionToken: "not-recorded" }));
+      return accepted ? Promise.resolve(actor) : Promise.reject(new IdentitySessionNotFound());
     },
+    readCurrentSession: () => Promise.reject(new Error("unexpected session read")),
+    listSessions: () => Promise.reject(new Error("unexpected session list")),
+    revokeCurrentSession: () => {
+      counters.authMutationAttempts += 1;
+      return Promise.reject(
+        new IdentityEngineError({
+          operation: "revokeCurrentSession",
+          message: "auth mutation is outside the spec 0067 rehearsal",
+        }),
+      );
+    },
+    revokeSession: () => Promise.reject(new Error("unexpected session mutation")),
+    revokeOtherSessions: () => Promise.reject(new Error("unexpected session mutation")),
+    revokeAllSessions: () => Promise.reject(new Error("unexpected session mutation")),
+    recordSecurityEvent: () => Promise.reject(new Error("unexpected identity audit")),
     signOut: () => {
       counters.authMutationAttempts += 1;
       return Promise.reject(
@@ -1391,11 +1404,9 @@ const runRehearsal = async (
       BACKEND_PORT: "3000",
       BACKEND_PG_URL: databaseUrl,
       BETTER_AUTH_SECRET: backendSecret,
-      BETTER_AUTH_URL: dashboardOrigin,
+      NATIVE_IDENTITY_DEPLOYMENT: "local",
+      NATIVE_IDENTITY_TRUSTED_ORIGINS: JSON.stringify([dashboardOrigin]),
       PUBLIC_APPLICATION_EFFECT_MODE: "disabled",
-      ADMISSION_AUTH_TOKENS: "{}",
-      ORGANIZATION_AUTH_TOKENS: "{}",
-      RECEIPT_AUTH_TOKENS: "{}",
     };
     const config = makeBackendConfig(configEnvironment);
     stage = "migration and runtime composition";
@@ -1703,12 +1714,17 @@ const runRehearsal = async (
 
     stage = "backend and strict native projections";
     const router = await runtime.runPromise(HttpRouter.HttpRouter);
-    const api = makeBackendHttp(HttpEffect.toWebHandler(router.asHttpEffect()), {
-      handle: () => {
-        identityCounters.authMutationAttempts += 1;
-        return Promise.resolve(new Response(null, { status: 404 }));
+    const api = makeBackendHttp(
+      HttpEffect.toWebHandler(router.asHttpEffect()),
+      {
+        handle: () => {
+          identityCounters.authMutationAttempts += 1;
+          return Promise.resolve(new Response(null, { status: 404 }));
+        },
+        recordTrustedOriginRejection: () => Promise.resolve(),
       },
-    });
+      config.sessionBoundary,
+    );
     backendServer = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: api.fetch });
     backendPort = backendServer.port;
     const backendOrigin = `http://127.0.0.1:${backendPort}`;
@@ -1740,22 +1756,48 @@ const runRehearsal = async (
     };
     const departmentsHttp = await fetchObservation("/api/departments", false);
     const teamsHttp = await fetchObservation("/api/teams", false);
-    const sessionHttp = await fetchObservation("/api/me/session", true);
-    const missingSessionHttp = await fetchObservation("/api/me/session", false);
+    const sessionHttp = await fetchObservation("/api/session", true);
+    const missingSessionHttp = await fetchObservation("/api/session", false);
+    const profileHttp = await fetchObservation("/api/me", true);
     const adminUsersHttp = await fetchObservation("/api/admin/users", true);
     assert.equal(departmentsHttp.status, 200, "GET /api/departments did not return 200");
     assert.equal(teamsHttp.status, 200, "GET /api/teams did not return 200");
-    assert.equal(sessionHttp.status, 200, "authenticated GET /api/me/session did not return 200");
+    assert.equal(sessionHttp.status, 200, "authenticated GET /api/session did not return 200");
     assert.equal(
       missingSessionHttp.status,
       401,
-      "unauthenticated GET /api/me/session did not return 401",
+      "unauthenticated GET /api/session did not return 401",
     );
+    assert.equal(profileHttp.status, 200, "authenticated GET /api/me did not return 200");
     assert.equal(adminUsersHttp.status, 200, "GET /api/admin/users did not return 200");
-    assert.deepEqual(sessionHttp.body, {
-      personId: SPEC_0067.administratorPersonId,
-      expiresAt: SPEC_0067.sessionExpiresAt,
-    });
+    assert.ok(
+      sessionHttp.body !== null &&
+        typeof sessionHttp.body === "object" &&
+        !Array.isArray(sessionHttp.body),
+      "GET /api/session must return an object",
+    );
+    const sessionProjection = sessionHttp.body as Record<string, unknown>;
+    assert.deepEqual(Object.keys(sessionProjection).sort(), [
+      "createdAt",
+      "current",
+      "expiresAt",
+      "ipAddress",
+      "sessionId",
+      "updatedAt",
+      "userAgent",
+    ]);
+    assert.equal(sessionProjection.current, true);
+    assert.equal(sessionProjection.expiresAt, SPEC_0067.sessionExpiresAt);
+    assert.ok(
+      typeof sessionProjection.sessionId === "string" && sessionProjection.sessionId !== "",
+    );
+    assert.ok(
+      profileHttp.body !== null &&
+        typeof profileHttp.body === "object" &&
+        "personId" in profileHttp.body &&
+        profileHttp.body.personId === SPEC_0067.administratorPersonId,
+      "GET /api/me must bind the session to the administrator PersonId",
+    );
     assert.deepEqual(missingSessionHttp.body, { error: { tag: "UnauthenticatedActor" } });
 
     const processEnvironment: NodeJS.ProcessEnv = {
@@ -1764,7 +1806,8 @@ const runRehearsal = async (
       VITE_API_URL: proxy.origin,
       DASHBOARD_ORIGIN: dashboardOrigin,
       BETTER_AUTH_SECRET: backendSecret,
-      BETTER_AUTH_URL: dashboardOrigin,
+      NATIVE_IDENTITY_DEPLOYMENT: "local",
+      NATIVE_IDENTITY_TRUSTED_ORIGINS: JSON.stringify([dashboardOrigin]),
     };
     delete processEnvironment.API_MODE;
     delete processEnvironment.VITE_API_MODE;

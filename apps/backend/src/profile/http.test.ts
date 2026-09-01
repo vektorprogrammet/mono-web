@@ -11,7 +11,11 @@ const request = async (cause: unknown): Promise<Response> =>
       throw cause;
     },
     run: vi.fn() as never,
-  }).fetch(new Request("http://backend.test/api/me", { headers: { cookie: "session=value" } }));
+  }).fetch(
+    new Request("http://backend.test/api/me", {
+      headers: { cookie: "better-auth.session_token=profile-test-session" },
+    }),
+  );
 
 describe("Profile HTTP authority failures", () => {
   it.each(["AuthorityInactive", "NotInScope"] as const)(

@@ -17,10 +17,9 @@ const responseHeaders = {
   "Referrer-Policy": "no-referrer",
 } as const;
 
-
 export async function loader({ request }: Route.LoaderArgs) {
   const cookie = await requireAuth(request);
-  const client = createAuthenticatedClient(cookie);
+  const client = createAuthenticatedClient(cookie, request);
 
   let observation: S.Schema.Type<typeof UserProfile>;
   try {
@@ -40,7 +39,6 @@ export async function loader({ request }: Route.LoaderArgs) {
     { headers: responseHeaders },
   );
 }
-
 
 export default function RedigerProfil() {
   const { serializedInput } = useLoaderData<typeof loader>();

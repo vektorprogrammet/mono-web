@@ -52,19 +52,28 @@ describe("createClient", () => {
     expect(typeof client.public.sponsors).toBe("function");
   });
 
-  it("strictly reads the current session actor with the exact Cookie header", async () => {
+  it("strictly reads safe current-session metadata with the exact Cookie header", async () => {
     const rawCookie =
       "theme=dark; better-auth.session_token=session-value; invitation_capability=opaque";
+    const session = {
+      sessionId: "session-1",
+      createdAt: "2026-08-25T14:00:00.000Z",
+      updatedAt: "2026-08-25T14:30:00.000Z",
+      expiresAt: "2026-09-01T14:00:00.000Z",
+      ipAddress: "127.0.0.1",
+      userAgent: "sdk-test",
+      current: true,
+    };
     vi.mocked(fetch).mockResolvedValueOnce({
       ok: true,
       status: 200,
-      json: () => Promise.resolve({ personId: "person-1" }),
+      json: () => Promise.resolve(session),
     } as Response);
     const client = createClient("http://api.test", { cookie: rawCookie });
 
-    await expect(client.me.session()).resolves.toEqual({ personId: "person-1" });
+    await expect(client.me.session()).resolves.toEqual(session);
     expect(fetch).toHaveBeenCalledWith(
-      "http://api.test/api/me/session",
+      "http://api.test/api/session",
       expect.objectContaining({
         method: "GET",
         headers: expect.objectContaining({ Cookie: rawCookie }),
@@ -72,11 +81,21 @@ describe("createClient", () => {
     );
   });
 
-  it("rejects a malformed session actor projection", async () => {
+  it("rejects a session projection containing identity or credential fields", async () => {
     vi.mocked(fetch).mockResolvedValueOnce({
       ok: true,
       status: 200,
-      json: () => Promise.resolve({ personId: "person-1", role: "admin" }),
+      json: () =>
+        Promise.resolve({
+          sessionId: "session-1",
+          createdAt: "2026-08-25T14:00:00.000Z",
+          updatedAt: "2026-08-25T14:30:00.000Z",
+          expiresAt: "2026-09-01T14:00:00.000Z",
+          ipAddress: null,
+          userAgent: null,
+          current: true,
+          personId: "person-1",
+        }),
     } as Response);
     const client = createClient("http://api.test", {
       cookie: "better-auth.session_token=session-value",

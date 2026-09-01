@@ -88,7 +88,8 @@ const identitySeed = spawnSync("bun", ["run", "identity:seed"], {
     ...process.env,
     IDENTITY_SEED_PG_URL: postgresUrl,
     IDENTITY_SEED_PERSONS: JSON.stringify(persons),
-    BETTER_AUTH_URL: dashboardOrigin,
+    NATIVE_IDENTITY_DEPLOYMENT: "local",
+    NATIVE_IDENTITY_TRUSTED_ORIGINS: JSON.stringify([dashboardOrigin]),
   },
   encoding: "utf8",
 });

@@ -1,139 +1,541 @@
-import { Context, Effect, Layer } from "effect";
+import { randomUUID } from "node:crypto";
+import { Context, Effect, Layer, Schema } from "effect";
+import type { Pool, PoolClient, QueryResultRow } from "pg";
 import {
+  decodeIdentityActor,
+  decodeIdentitySession,
   Identity,
   IdentityEngineError,
   IdentityInvalidCredentials,
+  IdentityOwnedSessionNotFound,
   IdentityRateLimited,
+  IdentitySecurityEvent,
+  IdentitySecurityEventDetails,
   IdentitySessionNotFound,
-  decodeIdentityActor,
+  type IdentityActor,
+  type IdentityRequestContext,
+  type IdentitySession,
   type IdentityShape,
 } from "@vektorprogrammet/domain/identity";
 import { DatabasePgPool } from "./layers.js";
 import { makeAuthEngine, type AuthEngineConfig } from "./auth-engine.js";
 
-/**
- * AuthLive (spec 0054): the concrete `Identity` Service interpretation.
- *
- * Depends on the vektorprogrammet PostgreSQL (same authoritative database as
- * every other capability) through better-auth's pg adapter. The better-auth
- * engine is confined here - portable programs see only the typed `Identity`
- * interface from @vektorprogrammet/domain/identity plus the standard Request ->
- * Response auth handler mounted at /api/auth/*.
- *
- * The Database layer constructs one pg Pool for all PostgreSQL capabilities.
- * AuthLive constructs one Better Auth engine over that pool; both Identity and
- * AuthEngine share it, and Database layer disposal closes the pool.
- */
-
-/** The one better-auth instance behind this module's services. */
+/** The one Better Auth instance behind this module's services. */
 export type AuthEngineInstance = ReturnType<typeof makeAuthEngine>;
 
 export interface AuthEngineService {
-  /** The single better-auth instance behind this Layer's Identity Service. */
   readonly engine: AuthEngineInstance;
-  /**
-   * Standard Request/Response handler for `/api/auth/*` (spec 0054 §4).
-   * Expects requests whose path is already rooted at the auth surface.
-   */
-  readonly handler: (request: Request) => Promise<Response>;
+  /** Standard Better Auth handler with bounded identity security auditing. */
+  readonly handler: (request: Request, context: IdentityRequestContext) => Promise<Response>;
+  /** Records a transport rejection that intentionally did not reach Better Auth. */
+  readonly recordTrustedOriginRejection: (context: IdentityRequestContext) => Promise<void>;
 }
 
 export class AuthEngine extends Context.Service<AuthEngine, AuthEngineService>()(
   "@vektorprogrammet/database/AuthEngine",
 ) {}
 
-const cookieHeaders = (cookieHeader: string | undefined): Headers => {
+interface SessionRow extends QueryResultRow {
+  readonly sessionId: string;
+  readonly createdAt: Date;
+  readonly updatedAt: Date;
+  readonly expiresAt: Date;
+  readonly ipAddress: string | null;
+  readonly userAgent: string | null;
+}
+
+interface DeletedSessionRow extends QueryResultRow {
+  readonly sessionId: string;
+}
+
+interface Queryable {
+  readonly query: <R extends QueryResultRow = QueryResultRow>(
+    text: string,
+    values?: ReadonlyArray<unknown>,
+  ) => Promise<{ readonly rows: Array<R>; readonly rowCount: number | null }>;
+}
+
+const cookieHeaders = (cookieHeader: string | undefined, origin?: string): Headers => {
   const headers = new Headers();
-  if (cookieHeader !== undefined && cookieHeader.length > 0) {
-    headers.set("cookie", cookieHeader);
-  }
+  if (cookieHeader !== undefined && cookieHeader.length > 0) headers.set("cookie", cookieHeader);
+  if (origin !== undefined) headers.set("origin", origin);
   return headers;
 };
 
-const identityShape = (engine: AuthEngineInstance): IdentityShape => ({
-  signIn: async ({ email, password }) => {
-    const result = await engine.api.signInEmail({
-      body: { email, password },
-      asResponse: true,
-    });
-    if (!result.ok) {
-      if (result.status === 401) throw new IdentityInvalidCredentials();
-      if (result.status === 429) throw new IdentityRateLimited();
-      throw new IdentityEngineError({
-        operation: "signIn",
-        message: `authentication provider returned status ${result.status}`,
-      });
-    }
-    const [setCookie] = result.headers.getSetCookie();
-    if (setCookie === undefined) {
-      throw new IdentityEngineError({
-        operation: "signIn",
-        message: "sign-in response carried no session cookie",
-      });
-    }
-    // getSession reads request cookie headers only - rebuild them from the
-    // issued Set-Cookie instead of reusing the response header set.
-    const session = await engine.api.getSession({
-      headers: cookieHeaders(setCookie.split(";")[0]),
-    });
-    if (session?.user == null) {
-      throw new IdentityEngineError({
-        operation: "signIn",
-        message: "session missing directly after sign-in",
-      });
-    }
-    const actor = await decodeIdentityActor({
-      personId: session.user.id,
-      sessionId: session.session.id,
-      expiresAt: session.session.expiresAt,
-    }).pipe(Effect.runPromise);
-    return { setCookie, actor };
-  },
-  resolveSession: async (cookieHeader) => {
-    const session = await engine.api.getSession({ headers: cookieHeaders(cookieHeader) });
-    if (session?.user == null) {
-      // Typed so the backend maps stale/invalid cookies to UnauthenticatedActor
-      // (401) instead of an untagged IdentityEngineError (503). The
-      // sessionToken field is deliberately empty: never echo session tokens.
-      throw new IdentitySessionNotFound({ sessionToken: "" });
-    }
-    return await decodeIdentityActor({
-      personId: session.user.id,
-      sessionId: session.session.id,
-      expiresAt: session.session.expiresAt,
-    }).pipe(Effect.runPromise);
-  },
-  signOut: async (cookieHeader) => {
-    await engine.api.signOut({ headers: cookieHeaders(cookieHeader) });
-  },
-});
+const actorPrincipal = (actor: IdentityActor): string => `person:${actor.personId}`;
 
-/** The shared DatabasePgPool owns the pool lifetime; AuthLive only owns the engine. */
-const makeAuthEngineService = (
-  config: AuthEngineConfig,
-): Effect.Effect<AuthEngineService, never, DatabasePgPool> =>
-  Effect.gen(function* () {
-    const pool = yield* DatabasePgPool;
-    const engine = makeAuthEngine(config, pool);
-    return {
-      engine,
-      handler: (request: Request) => engine.handler(request),
-    } satisfies AuthEngineService;
+const sanitizedSourceIp = (value: string | null): string | null =>
+  value !== null && value.length <= 64 && /^[A-Fa-f0-9.:]+$/u.test(value) ? value : null;
+
+const sanitizedUserAgent = (value: string | null): string | null => {
+  if (value === null) return null;
+  const sanitized = value.replace(/\p{Cc}/gu, "").slice(0, 256);
+  return sanitized.length === 0 ? null : sanitized;
+};
+
+const sessionProjection = async (
+  row: SessionRow,
+  currentSessionId: string,
+): Promise<IdentitySession> =>
+  decodeIdentitySession({
+    sessionId: row.sessionId,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+    expiresAt: row.expiresAt,
+    ipAddress: sanitizedSourceIp(row.ipAddress),
+    userAgent: sanitizedUserAgent(row.userAgent),
+    current: row.sessionId === currentSessionId,
+  }).pipe(Effect.runPromise);
+
+const auditEvent = (input: {
+  readonly eventKind: IdentitySecurityEvent["eventKind"];
+  readonly actor: IdentityActor | null;
+  readonly subjectPersonId: IdentitySecurityEvent["subjectPersonId"];
+  readonly sessionId: IdentitySecurityEvent["sessionId"];
+  readonly context: IdentityRequestContext | null;
+  readonly details: IdentitySecurityEventDetails;
+}): IdentitySecurityEvent =>
+  new IdentitySecurityEvent({
+    eventKind: input.eventKind,
+    subjectPersonId: input.subjectPersonId,
+    sessionId: input.sessionId,
+    actorPrincipal: input.actor === null ? null : actorPrincipal(input.actor),
+    requestCorrelation: input.context?.requestCorrelation ?? null,
+    sourceIp: input.context?.sourceIp ?? null,
+    userAgent: input.context?.userAgent ?? null,
+    details: input.details,
   });
 
+const appendAudit = async (
+  database: Queryable,
+  unsafeEvent: IdentitySecurityEvent,
+): Promise<void> => {
+  const event = Schema.decodeUnknownSync(IdentitySecurityEvent)(unsafeEvent, {
+    onExcessProperty: "error",
+  });
+  await database.query(
+    `INSERT INTO auth.identity_security_audit (
+       event_id,
+       event_kind,
+       subject_person_id,
+       session_id,
+       actor_principal,
+       request_correlation,
+       source_ip,
+       user_agent,
+       details
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb)`,
+    [
+      randomUUID(),
+      event.eventKind,
+      event.subjectPersonId,
+      event.sessionId,
+      event.actorPrincipal,
+      event.requestCorrelation,
+      event.sourceIp,
+      event.userAgent,
+      JSON.stringify(event.details),
+    ],
+  );
+};
+
+const inTransaction = async <A>(
+  pool: Pool,
+  use: (client: PoolClient) => Promise<A>,
+): Promise<A> => {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const result = await use(client);
+    await client.query("COMMIT");
+    return result;
+  } catch (cause) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    throw cause;
+  } finally {
+    client.release();
+  }
+};
+
+const engineFailure = (operation: string, cause: unknown): IdentityEngineError =>
+  cause instanceof IdentityEngineError
+    ? cause
+    : new IdentityEngineError({
+        operation,
+        message: cause instanceof Error ? cause.message : "identity persistence failure",
+      });
+
+const identityShape = (
+  engine: AuthEngineInstance,
+  pool: Pool,
+  config: AuthEngineConfig,
+): IdentityShape => {
+  const resolveSession = async (cookieHeader: string | undefined): Promise<IdentityActor> => {
+    let session: Awaited<ReturnType<typeof engine.api.getSession>>;
+    try {
+      session = await engine.api.getSession({ headers: cookieHeaders(cookieHeader) });
+    } catch (cause) {
+      throw engineFailure("resolveSession", cause);
+    }
+    if (session?.user == null) throw new IdentitySessionNotFound();
+    try {
+      return await decodeIdentityActor({
+        personId: session.user.id,
+        sessionId: session.session.id,
+        expiresAt: session.session.expiresAt,
+      }).pipe(Effect.runPromise);
+    } catch (cause) {
+      throw engineFailure("decodeSession", cause);
+    }
+  };
+
+  const clearSessionCookies = async (
+    cookieHeader: string | undefined,
+  ): Promise<ReadonlyArray<string>> => {
+    try {
+      const response = await engine.api.signOut({
+        headers: cookieHeaders(cookieHeader, config.baseURL),
+        asResponse: true,
+      });
+      return response.headers.getSetCookie();
+    } catch (cause) {
+      throw engineFailure("clearSessionCookie", cause);
+    }
+  };
+
+  const recordSecurityEvent = async (event: IdentitySecurityEvent): Promise<void> => {
+    try {
+      await appendAudit(pool, event);
+    } catch (cause) {
+      throw engineFailure("recordSecurityEvent", cause);
+    }
+  };
+
+  return {
+    signIn: async ({ email, password }) => {
+      const result = await engine.api.signInEmail({
+        body: { email, password },
+        asResponse: true,
+      });
+      if (!result.ok) {
+        if (result.status === 401) throw new IdentityInvalidCredentials();
+        if (result.status === 429) throw new IdentityRateLimited();
+        throw new IdentityEngineError({
+          operation: "signIn",
+          message: `authentication provider returned status ${result.status}`,
+        });
+      }
+      const [setCookie] = result.headers.getSetCookie();
+      if (setCookie === undefined) {
+        throw new IdentityEngineError({
+          operation: "signIn",
+          message: "sign-in response carried no session cookie",
+        });
+      }
+      const actor = await resolveSession(setCookie.split(";")[0]);
+      return { setCookie, actor };
+    },
+    resolveSession,
+    readCurrentSession: async (cookieHeader) => {
+      const actor = await resolveSession(cookieHeader);
+      try {
+        const result = await pool.query<SessionRow>(
+          `SELECT
+             "id" AS "sessionId",
+             "createdAt" AS "createdAt",
+             "updatedAt" AS "updatedAt",
+             "expiresAt" AS "expiresAt",
+             "ipAddress" AS "ipAddress",
+             "userAgent" AS "userAgent"
+           FROM auth."session"
+           WHERE "id" = $1 AND "userId" = $2 AND "expiresAt" > CURRENT_TIMESTAMP`,
+          [actor.sessionId, actor.personId],
+        );
+        const row = result.rows[0];
+        if (row === undefined) throw new IdentitySessionNotFound();
+        return await sessionProjection(row, actor.sessionId);
+      } catch (cause) {
+        if (cause instanceof IdentitySessionNotFound) throw cause;
+        throw engineFailure("readCurrentSession", cause);
+      }
+    },
+    listSessions: async (cookieHeader) => {
+      const actor = await resolveSession(cookieHeader);
+      try {
+        const result = await pool.query<SessionRow>(
+          `SELECT
+             "id" AS "sessionId",
+             "createdAt" AS "createdAt",
+             "updatedAt" AS "updatedAt",
+             "expiresAt" AS "expiresAt",
+             "ipAddress" AS "ipAddress",
+             "userAgent" AS "userAgent"
+           FROM auth."session"
+           WHERE "userId" = $1 AND "expiresAt" > CURRENT_TIMESTAMP
+           ORDER BY "createdAt" DESC, "id"`,
+          [actor.personId],
+        );
+        return await Promise.all(result.rows.map((row) => sessionProjection(row, actor.sessionId)));
+      } catch (cause) {
+        throw engineFailure("listSessions", cause);
+      }
+    },
+    revokeCurrentSession: async (cookieHeader, request) => {
+      const actor = await resolveSession(cookieHeader);
+      try {
+        await inTransaction(pool, async (client) => {
+          const deleted = await client.query<DeletedSessionRow>(
+            `DELETE FROM auth."session"
+             WHERE "id" = $1 AND "userId" = $2
+             RETURNING "id" AS "sessionId"`,
+            [actor.sessionId, actor.personId],
+          );
+          if (deleted.rowCount !== 1) throw new IdentitySessionNotFound();
+          await appendAudit(
+            client,
+            auditEvent({
+              eventKind: "sign-out",
+              actor,
+              subjectPersonId: actor.personId,
+              sessionId: actor.sessionId,
+              context: request,
+              details: new IdentitySecurityEventDetails({
+                outcomeCode: "current-session-ended",
+                affectedSessionCount: 1,
+              }),
+            }),
+          );
+        });
+        return { setCookies: await clearSessionCookies(cookieHeader) };
+      } catch (cause) {
+        if (cause instanceof IdentitySessionNotFound) throw cause;
+        throw engineFailure("revokeCurrentSession", cause);
+      }
+    },
+    revokeSession: async (cookieHeader, sessionId, request) => {
+      const actor = await resolveSession(cookieHeader);
+      try {
+        await inTransaction(pool, async (client) => {
+          const deleted = await client.query<DeletedSessionRow>(
+            `DELETE FROM auth."session"
+             WHERE "id" = $1 AND "userId" = $2
+             RETURNING "id" AS "sessionId"`,
+            [sessionId, actor.personId],
+          );
+          if (deleted.rowCount !== 1) throw new IdentityOwnedSessionNotFound({ sessionId });
+          await appendAudit(
+            client,
+            auditEvent({
+              eventKind: "session-revoked-one",
+              actor,
+              subjectPersonId: actor.personId,
+              sessionId,
+              context: request,
+              details: new IdentitySecurityEventDetails({
+                outcomeCode: "owned-session-revoked",
+                affectedSessionCount: 1,
+              }),
+            }),
+          );
+        });
+        return {
+          setCookies: sessionId === actor.sessionId ? await clearSessionCookies(cookieHeader) : [],
+        };
+      } catch (cause) {
+        if (cause instanceof IdentityOwnedSessionNotFound) throw cause;
+        throw engineFailure("revokeSession", cause);
+      }
+    },
+    revokeOtherSessions: async (cookieHeader, request) => {
+      const actor = await resolveSession(cookieHeader);
+      try {
+        await inTransaction(pool, async (client) => {
+          const deleted = await client.query<DeletedSessionRow>(
+            `DELETE FROM auth."session"
+             WHERE "userId" = $1 AND "id" <> $2
+             RETURNING "id" AS "sessionId"`,
+            [actor.personId, actor.sessionId],
+          );
+          if ((deleted.rowCount ?? 0) === 0) return;
+          await appendAudit(
+            client,
+            auditEvent({
+              eventKind: "session-revoked-others",
+              actor,
+              subjectPersonId: actor.personId,
+              sessionId: actor.sessionId,
+              context: request,
+              details: new IdentitySecurityEventDetails({
+                outcomeCode: "other-sessions-revoked",
+                affectedSessionCount: deleted.rowCount ?? deleted.rows.length,
+              }),
+            }),
+          );
+        });
+        return { setCookies: [] };
+      } catch (cause) {
+        throw engineFailure("revokeOtherSessions", cause);
+      }
+    },
+    revokeAllSessions: async (cookieHeader, request) => {
+      const actor = await resolveSession(cookieHeader);
+      try {
+        await inTransaction(pool, async (client) => {
+          const deleted = await client.query<DeletedSessionRow>(
+            `DELETE FROM auth."session"
+             WHERE "userId" = $1
+             RETURNING "id" AS "sessionId"`,
+            [actor.personId],
+          );
+          if ((deleted.rowCount ?? 0) === 0) throw new IdentitySessionNotFound();
+          await appendAudit(
+            client,
+            auditEvent({
+              eventKind: "session-revoked-all",
+              actor,
+              subjectPersonId: actor.personId,
+              sessionId: actor.sessionId,
+              context: request,
+              details: new IdentitySecurityEventDetails({
+                outcomeCode: "all-sessions-revoked",
+                affectedSessionCount: deleted.rowCount ?? deleted.rows.length,
+              }),
+            }),
+          );
+        });
+        return { setCookies: await clearSessionCookies(cookieHeader) };
+      } catch (cause) {
+        if (cause instanceof IdentitySessionNotFound) throw cause;
+        throw engineFailure("revokeAllSessions", cause);
+      }
+    },
+    recordSecurityEvent,
+    signOut: async (cookieHeader) => ({ setCookies: await clearSessionCookies(cookieHeader) }),
+  };
+};
+
+/** @internal Exposed only for focused ordering tests around the Better Auth boundary. */
+export const auditedAuthHandler =
+  (
+    engine: Pick<AuthEngineInstance, "handler">,
+    identity: Pick<IdentityShape, "resolveSession" | "recordSecurityEvent">,
+  ): AuthEngineService["handler"] =>
+  async (request, context) => {
+    const pathname = new URL(request.url).pathname;
+    const signOutActor =
+      request.method === "POST" && pathname === "/api/auth/sign-out"
+        ? await identity
+            .resolveSession(request.headers.get("cookie") ?? undefined)
+            .catch(() => null)
+        : null;
+    const response = await engine.handler(request);
+    try {
+      if (request.method === "POST" && pathname === "/api/auth/sign-in/email") {
+        if (response.ok) {
+          const [setCookie] = response.headers.getSetCookie();
+          if (setCookie === undefined) throw new Error("successful sign-in returned no cookie");
+          const actor = await identity.resolveSession(setCookie.split(";")[0]);
+          await identity.recordSecurityEvent(
+            auditEvent({
+              eventKind: "sign-in-success",
+              actor,
+              subjectPersonId: actor.personId,
+              sessionId: actor.sessionId,
+              context,
+              details: new IdentitySecurityEventDetails({
+                outcomeCode: "credential-accepted",
+                affectedSessionCount: 1,
+              }),
+            }),
+          );
+        } else {
+          await identity.recordSecurityEvent(
+            auditEvent({
+              eventKind: "sign-in-failure",
+              actor: null,
+              subjectPersonId: null,
+              sessionId: null,
+              context,
+              details: new IdentitySecurityEventDetails({
+                outcomeCode: "credential-rejected",
+                affectedSessionCount: 0,
+              }),
+            }),
+          );
+        }
+      } else if (request.method === "POST" && pathname === "/api/auth/sign-up/email") {
+        await identity.recordSecurityEvent(
+          auditEvent({
+            eventKind: "sign-up-rejected",
+            actor: null,
+            subjectPersonId: null,
+            sessionId: null,
+            context,
+            details: new IdentitySecurityEventDetails({
+              outcomeCode: "public-sign-up-disabled",
+              affectedSessionCount: 0,
+            }),
+          }),
+        );
+      } else if (response.ok && signOutActor !== null) {
+        await identity.recordSecurityEvent(
+          auditEvent({
+            eventKind: "sign-out",
+            actor: signOutActor,
+            subjectPersonId: signOutActor.personId,
+            sessionId: signOutActor.sessionId,
+            context,
+            details: new IdentitySecurityEventDetails({
+              outcomeCode: "current-session-ended",
+              affectedSessionCount: 1,
+            }),
+          }),
+        );
+      }
+      return response;
+    } catch {
+      return new Response(JSON.stringify({ error: { tag: "IdentityEngineError" } }), {
+        status: 503,
+        headers: {
+          "cache-control": "no-store",
+          "content-type": "application/json; charset=utf-8",
+        },
+      });
+    }
+  };
+
 /**
- * ONE scoped construction exposing both the engine service (for the
- * /api/auth/* handler) and the Identity interpretation. The Database layer
- * supplies the shared pool, so this layer creates no competing pool.
+ * One scoped construction exposes both the Better Auth engine handler and the
+ * typed Identity interpretation over the process-owned PostgreSQL pool.
  */
 export const AuthLive = (
   config: AuthEngineConfig,
 ): Layer.Layer<Identity | AuthEngine, never, DatabasePgPool> =>
   Layer.effectContext(
-    Effect.map(makeAuthEngineService(config), (service) =>
-      Context.merge(
-        Context.make(AuthEngine, service),
-        Context.make(Identity, identityShape(service.engine)),
-      ),
-    ),
+    Effect.gen(function* () {
+      const pool = yield* DatabasePgPool;
+      const engine = makeAuthEngine(config, pool);
+      const identity = Identity.of(identityShape(engine, pool, config));
+      const authEngine = AuthEngine.of({
+        engine,
+        handler: auditedAuthHandler(engine, identity),
+        recordTrustedOriginRejection: (context) =>
+          identity.recordSecurityEvent(
+            auditEvent({
+              eventKind: "trusted-origin-csrf-rejected",
+              actor: null,
+              subjectPersonId: null,
+              sessionId: null,
+              context,
+              details: new IdentitySecurityEventDetails({
+                outcomeCode: "origin-not-trusted",
+                affectedSessionCount: 0,
+              }),
+            }),
+          ),
+      });
+      return Context.make(AuthEngine, authEngine).pipe(
+        Context.merge(Context.make(Identity, identity)),
+      );
+    }),
   );

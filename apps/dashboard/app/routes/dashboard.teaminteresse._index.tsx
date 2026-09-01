@@ -10,7 +10,7 @@ type TeamInterestRow = Pick<TeamInterest, "id" | "userName" | "teamName">;
 
 export async function loader({ request }: Route.LoaderArgs) {
   const cookie = await requireAuth(request);
-  const client = createAuthenticatedClient(cookie);
+  const client = createAuthenticatedClient(cookie, request);
   const result = await client.admin.teams.interest();
   const teamInterest = result.items.map(({ id, userName, teamName }) => ({
     id,

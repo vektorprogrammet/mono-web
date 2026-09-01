@@ -1,5 +1,5 @@
 /**
- * Public HTTP contracts for health and authenticated session reads.
+ * Public HTTP contracts for health and first-party session resources.
  *
  * @since 0.1.0
  */
@@ -7,40 +7,17 @@ import { Schema } from "effect";
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema, OpenApi } from "effect/unstable/httpapi";
 import { errorBody, operationAnnotations, SessionSecurity } from "./common.js";
 
-/**
- * Healthy database observation.
- *
- * @since 0.1.0
- * @category Schemas
- */
 export const HealthOkResponse = Schema.Struct({ status: Schema.Literals(["ok"]) })
   .pipe(HttpApiSchema.status(200))
-  .annotate({
-    identifier: "HealthOkResponse",
-    description: "The native database boundary is available.",
-    examples: [{ status: "ok" as const }],
-  });
+  .annotate({ identifier: "HealthOkResponse", description: "Database is available." });
 
-/**
- * Unavailable database observation.
- *
- * @since 0.1.0
- * @category Schemas
- */
 export const HealthUnavailableResponse = Schema.Struct({ status: Schema.Literals(["unavailable"]) })
   .pipe(HttpApiSchema.status(503))
   .annotate({
     identifier: "HealthUnavailableResponse",
-    description: "The native database boundary is unavailable.",
-    examples: [{ status: "unavailable" as const }],
+    description: "Database is unavailable.",
   });
 
-/**
- * Database health endpoint.
- *
- * @since 0.1.0
- * @category Endpoints
- */
 export const HealthEndpoint = HttpApiEndpoint.get("health", "/health", {
   success: HealthOkResponse,
   error: HealthUnavailableResponse,
@@ -48,40 +25,46 @@ export const HealthEndpoint = HttpApiEndpoint.get("health", "/health", {
   operationAnnotations("Read native health", "Checks the native PostgreSQL boundary."),
 );
 
-/**
- * Authenticated session projection returned to browser applications.
- *
- * @since 0.1.0
- * @category Schemas
- */
+const SessionId = Schema.String.pipe(
+  Schema.check(
+    Schema.makeFilter((value) => value.length > 0 && value.length <= 128, {
+      message: "a bounded opaque session identifier",
+    }),
+  ),
+);
+
+/** Credential-free owner-only session metadata. */
 export const SessionResponse = Schema.Struct({
-  personId: Schema.String,
+  sessionId: SessionId,
+  createdAt: Schema.String,
+  updatedAt: Schema.String,
   expiresAt: Schema.String,
+  ipAddress: Schema.NullOr(Schema.String),
+  userAgent: Schema.NullOr(Schema.String),
+  current: Schema.Boolean,
 }).annotate({
   identifier: "SessionResponse",
-  description: "Resolved person identity and UTC session expiry.",
-  examples: [{ personId: "person_example", expiresAt: "2026-09-01T12:00:00.000Z" }],
+  description: "Safe first-party session metadata without credential material.",
 });
 
-/**
- * Identity provider failure response.
- *
- * @since 0.1.0
- * @category Schemas
- */
+export const SessionListResponse = Schema.Array(SessionResponse).annotate({
+  identifier: "SessionListResponse",
+  description: "Sessions owned by the authenticated person.",
+});
+
 export const IdentityEngineUnavailableResponse = errorBody(
   "IdentityEngineUnavailableResponse",
   ["IdentityEngineError"],
   503,
 );
 
-/**
- * Strict current-session endpoint.
- *
- * @since 0.1.0
- * @category Endpoints
- */
-export const ReadSessionEndpoint = HttpApiEndpoint.get("readSession", "/api/me/session", {
+export const OwnedSessionNotFoundResponse = errorBody(
+  "OwnedSessionNotFoundResponse",
+  ["SessionNotFound"],
+  404,
+);
+
+export const ReadSessionEndpoint = HttpApiEndpoint.get("readSession", "/api/session", {
   success: SessionResponse,
   error: IdentityEngineUnavailableResponse,
 })
@@ -89,21 +72,85 @@ export const ReadSessionEndpoint = HttpApiEndpoint.get("readSession", "/api/me/s
   .annotateMerge(
     operationAnnotations(
       "Read current session",
-      "Resolves the Better Auth cookie to a native person.",
+      "Reads safe metadata for the authoritative current Better Auth session.",
     ),
   );
 
-/**
- * Operational and session endpoints.
- *
- * @since 0.1.0
- * @category Groups
- */
+export const DeleteSessionEndpoint = HttpApiEndpoint.delete("deleteSession", "/api/session", {
+  error: IdentityEngineUnavailableResponse,
+})
+  .middleware(SessionSecurity)
+  .annotateMerge(
+    operationAnnotations("End current session", "Revokes the authoritative current session."),
+  );
+
+export const ListSessionsEndpoint = HttpApiEndpoint.get("listSessions", "/api/sessions", {
+  success: SessionListResponse,
+  error: IdentityEngineUnavailableResponse,
+})
+  .middleware(SessionSecurity)
+  .annotateMerge(
+    operationAnnotations(
+      "List current person's sessions",
+      "Lists only safe metadata for sessions owned by the authenticated person.",
+    ),
+  );
+
+export const DeleteOwnedSessionEndpoint = HttpApiEndpoint.delete(
+  "deleteOwnedSession",
+  "/api/sessions/:sessionId",
+  {
+    params: { sessionId: SessionId },
+    error: [OwnedSessionNotFoundResponse, IdentityEngineUnavailableResponse],
+  },
+)
+  .middleware(SessionSecurity)
+  .annotateMerge(
+    operationAnnotations(
+      "Revoke one session",
+      "Revokes one owned session; missing and non-owned identifiers are concealed.",
+    ),
+  );
+
+export const RevokeOtherSessionsEndpoint = HttpApiEndpoint.post(
+  "revokeOtherSessions",
+  "/api/sessions::revoke-others",
+  { error: IdentityEngineUnavailableResponse },
+)
+  .middleware(SessionSecurity)
+  .annotateMerge(
+    operationAnnotations(
+      "Revoke other sessions",
+      "Revokes every owned session except the authoritative current session.",
+    ),
+  );
+
+export const RevokeAllSessionsEndpoint = HttpApiEndpoint.post(
+  "revokeAllSessions",
+  "/api/sessions::revoke-all",
+  { error: IdentityEngineUnavailableResponse },
+)
+  .middleware(SessionSecurity)
+  .annotateMerge(
+    operationAnnotations(
+      "Revoke all sessions",
+      "Revokes every owned session, including the authoritative current session.",
+    ),
+  );
+
 export class SystemApi extends HttpApiGroup.make("system")
-  .add(HealthEndpoint, ReadSessionEndpoint)
+  .add(
+    HealthEndpoint,
+    ReadSessionEndpoint,
+    DeleteSessionEndpoint,
+    ListSessionsEndpoint,
+    DeleteOwnedSessionEndpoint,
+    RevokeOtherSessionsEndpoint,
+    RevokeAllSessionsEndpoint,
+  )
   .annotateMerge(
     OpenApi.annotations({
       title: "System",
-      description: "Native health and session observations.",
+      description: "Native health and first-party session resources.",
     }),
   ) {}

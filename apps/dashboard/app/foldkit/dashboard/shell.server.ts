@@ -5,7 +5,7 @@ import type { DashboardShellData } from "./shell";
 
 export async function loadDashboardShell(request: Request): Promise<DashboardShellData> {
   const cookie = await requireAuth(request);
-  const client = createAuthenticatedClient(cookie);
+  const client = createAuthenticatedClient(cookie, request);
 
   try {
     const profile = await client.me.profile();

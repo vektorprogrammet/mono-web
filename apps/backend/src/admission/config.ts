@@ -1,7 +1,6 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import {
   isRfc3339Instant,
-  type AdmissionPeriodActor,
   type AdmissionPeriodId,
 } from "@vektorprogrammet/domain/admission-period";
 import {
@@ -10,19 +9,13 @@ import {
   type ApplicantId,
   type PublicApplicationId,
 } from "@vektorprogrammet/domain/application";
-import { DepartmentId, PersonId } from "@vektorprogrammet/domain/organization";
 import { AdmissionPeriodId as AdmissionPeriodIdSchema } from "@vektorprogrammet/domain/admission-period";
-
-export interface AdmissionApiPrincipal {
-  readonly actor: AdmissionPeriodActor;
-}
 
 export interface AdmissionApiRateLimit {
   readonly consume: (key: string, now: string) => boolean;
 }
 
 export interface AdmissionApiConfig {
-  readonly tokens: ReadonlyMap<string, AdmissionApiPrincipal>;
   readonly maxBodyBytes: number;
   readonly rateLimit: AdmissionApiRateLimit;
   readonly now: () => string;
@@ -31,71 +24,6 @@ export interface AdmissionApiConfig {
   readonly nextApplicationId: () => PublicApplicationId;
   readonly nextActivationToken: () => string;
 }
-
-const nonEmpty = (value: unknown, field: string): string => {
-  if (typeof value !== "string" || value.length === 0) throw new Error(`invalid ${field}`);
-  return value;
-};
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null && !Array.isArray(value);
-
-const parseActive = (value: unknown): boolean => {
-  if (typeof value !== "boolean") throw new Error("invalid token active flag");
-  return value;
-};
-
-const parseActor = (value: unknown): AdmissionPeriodActor => {
-  if (!isRecord(value) || typeof value._tag !== "string") {
-    throw new Error("invalid token actor");
-  }
-  if (value._tag === "DepartmentLeader") {
-    return {
-      _tag: "DepartmentLeader",
-      personId: PersonId.make(nonEmpty(value.personId, "token person")),
-      departmentId: DepartmentId.make(nonEmpty(value.departmentId, "token department")),
-      active: parseActive(value.active),
-    };
-  }
-  if (value._tag === "GlobalAdmin") {
-    return {
-      _tag: "GlobalAdmin",
-      personId: PersonId.make(nonEmpty(value.personId, "token person")),
-      active: parseActive(value.active),
-    };
-  }
-  if (value._tag === "Member") {
-    return {
-      _tag: "Member",
-      personId: PersonId.make(nonEmpty(value.personId, "token person")),
-      departmentId: DepartmentId.make(nonEmpty(value.departmentId, "token department")),
-      active: parseActive(value.active),
-    };
-  }
-  throw new Error("invalid token actor");
-};
-
-const parsePrincipal = (value: unknown): AdmissionApiPrincipal => {
-  if (!isRecord(value)) throw new Error("invalid token mapping");
-  return { actor: parseActor(value.actor ?? value) };
-};
-
-const parseTokens = (raw: string | undefined): ReadonlyMap<string, AdmissionApiPrincipal> => {
-  if (raw === undefined || raw.length === 0) return new Map();
-  let decoded: unknown;
-  try {
-    decoded = JSON.parse(raw) as unknown;
-  } catch {
-    throw new Error("ADMISSION_AUTH_TOKENS must be JSON");
-  }
-  if (!isRecord(decoded)) throw new Error("ADMISSION_AUTH_TOKENS must be an object");
-  const result = new Map<string, AdmissionApiPrincipal>();
-  for (const [token, value] of Object.entries(decoded)) {
-    if (token.length === 0) throw new Error("ADMISSION_AUTH_TOKENS contains an empty token");
-    result.set(token, parsePrincipal(value));
-  }
-  return result;
-};
 
 const parsePositiveInteger = (raw: string | undefined, fallback: number, field: string): number => {
   const value = raw ?? String(fallback);
@@ -159,7 +87,6 @@ export const makeAdmissionApiConfig = (
     "ADMISSION_RATE_LIMIT_WINDOW_MS",
   );
   return {
-    tokens: parseTokens(env.ADMISSION_AUTH_TOKENS),
     maxBodyBytes,
     rateLimit: makeAdmissionApiRateLimit(rateLimitMax, rateLimitWindow),
     now: () => configuredNow ?? new Date().toISOString(),

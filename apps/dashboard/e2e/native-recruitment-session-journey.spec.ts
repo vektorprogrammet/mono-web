@@ -130,10 +130,12 @@ test.describe("Native recruitment assignment journey (spec 0049.2)", () => {
     expect(sessionCookies).toHaveLength(1);
     expect(sessionCookies[0]?.name).toBe("better-auth.session_token");
     expect(sessionCookies[0]?.value ?? "").not.toBe("");
-    const sessionResponse = await page.context().request.get(`${apiOrigin}/api/me/session`);
+    const sessionResponse = await page.context().request.get(`${apiOrigin}/api/session`);
     expect(sessionResponse.status()).toBe(200);
-    const session: unknown = await sessionResponse.json();
-    expect(session).toMatchObject({ personId: expectedLeaderPersonId });
+    expect(await sessionResponse.json()).toMatchObject({ current: true });
+    const profileResponse = await page.context().request.get(`${apiOrigin}/api/me`);
+    expect(profileResponse.status()).toBe(200);
+    expect(await profileResponse.json()).toMatchObject({ personId: expectedLeaderPersonId });
 
     await page.goto("/dashboard/sokere");
     await expect(page).toHaveURL(/\/dashboard\/sokere$/);

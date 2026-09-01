@@ -24,7 +24,13 @@ const proofCohort = {
 
 const proofBaseUrl = "http://127.0.0.1:8788";
 const sessionCookieName = "better-auth.session_token";
-const authTables = ["account", "session", "user", "verification"] as const;
+const authTables = [
+  "account",
+  "identity_security_audit",
+  "session",
+  "user",
+  "verification",
+] as const;
 
 const assertDisposableDatabaseUrl = (postgresUrl: string) => {
   const parsed = new URL(postgresUrl);
@@ -455,6 +461,8 @@ const runIdentityPostgresProof = (postgresUrl: string) =>
               postgresUrl,
               secret: "identity-postgres-proof-0054-secret-at-least-thirty-two-characters",
               baseURL: proofBaseUrl,
+              trustedOrigins: [proofBaseUrl],
+              secureCookies: false,
             };
             const authPool = makeAuthPool(authConfig);
             resources.authPools.push(authPool);

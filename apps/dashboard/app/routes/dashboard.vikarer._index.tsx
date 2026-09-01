@@ -22,7 +22,7 @@ type SubstituteRow = Pick<
 
 export async function loader({ request }: Route.LoaderArgs) {
   const cookie = await requireAuth(request);
-  const client = createAuthenticatedClient(cookie);
+  const client = createAuthenticatedClient(cookie, request);
   try {
     const result = await client.admin.scheduling.substitutes();
     const substitutes = result.items.map(

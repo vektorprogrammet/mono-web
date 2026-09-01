@@ -14,7 +14,7 @@ const openApiPath = join(repositoryRoot, "packages/http-api/openapi.json");
 const httpApiPackagePath = join(repositoryRoot, "packages/http-api/package.json");
 const outputPath = join(generatedRoot, "src/pages/reference/native-api/index.mdx");
 const repositoryUrl = "https://github.com/vektorprogrammet/mono-web";
-const publicOperationCount = 47;
+const publicOperationCount = 52;
 const httpMethods: Readonly<Record<string, true>> = {
   delete: true,
   get: true,
@@ -86,7 +86,7 @@ const makeSureOperationsArePublic = (operations: ReadonlyArray<Operation>): void
 
 const page = (packageName: string, packageVersion: string): string => `---
 title: Native API reference
-description: Generated reference for the 47 public operations in the native Vektorprogrammet HTTP API.
+description: Generated reference for the ${publicOperationCount} public operations in the native Vektorprogrammet HTTP API.
 showAskAi: false
 ---
 
@@ -94,7 +94,7 @@ import { OpenApi } from "vocs";
 
 # Native API reference
 
-This reference contains **47 public native operations** from the canonical OpenAPI document.
+This reference contains **${publicOperationCount} public native operations** from the canonical OpenAPI document.
 Better Auth routes and the internal receipt evidence route are not part of this document.
 This operation total is documentation scope, not a legacy parity claim.
 

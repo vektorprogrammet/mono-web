@@ -16,7 +16,7 @@ import type { Route } from "./+types/dashboard.opptaksperioder._index";
 
 export async function loader({ request }: Route.LoaderArgs) {
   const cookie = await requireAuth(request);
-  const client = createAuthenticatedClient(cookie);
+  const client = createAuthenticatedClient(cookie, request);
 
   try {
     const result = await client.admissionPeriods.listForManagement();
@@ -37,7 +37,7 @@ export async function loader({ request }: Route.LoaderArgs) {
 
 export async function action({ request }: Route.ActionArgs) {
   const cookie = await requireAuth(request);
-  const client = createAuthenticatedClient(cookie);
+  const client = createAuthenticatedClient(cookie, request);
   const form = await request.formData();
   const parsed = parseAdmissionPeriodForm(form, crypto.randomUUID());
 
@@ -126,10 +126,7 @@ export default function Opptaksperioder() {
   ).sort();
 
   return (
-    <section
-      className="flex w-full min-w-0 flex-col"
-      aria-labelledby="admission-period-page-title"
-    >
+    <section className="flex w-full min-w-0 flex-col" aria-labelledby="admission-period-page-title">
       <div className="mx-auto flex w-full max-w-7xl flex-col gap-8 px-4 sm:px-6 lg:px-8">
         <header className="max-w-3xl">
           <h1 id="admission-period-page-title" className="font-semibold text-2xl">

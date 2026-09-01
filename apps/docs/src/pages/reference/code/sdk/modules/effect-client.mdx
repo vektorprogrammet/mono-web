@@ -295,7 +295,7 @@ Methods return `Effect<A, InternalSdkError>` directly, without Promise wrapping.
   - [SchoolsRejectionTag](#schoolsrejectiontag)
   - [SchoolsSdkError](#schoolssdkerror)
   - [SchoolsUnauthenticatedActor](#schoolsunauthenticatedactor)
-  - [SessionActor](#sessionactor)
+  - [SessionProjection](#sessionprojection)
   - [Sponsor](#sponsor)
   - [Substitute](#substitute)
   - [TeamCreatedObservation](#teamcreatedobservation)
@@ -332,6 +332,7 @@ Transport options for the Effect SDK client.
 type ClientOptions = {
   cookie?: CookieOption;
   fetch?: FetchCapability;
+  origin?: string;
 };
 ```
 
@@ -349,7 +350,7 @@ Public Effect SDK surface returned by `createEffectClient`.
 type EffectSdk = ReturnType<typeof createEffectClient>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/sdk/src/effect-client.ts#L425)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/sdk/src/effect-client.ts#L424)
 
 Since v0.2.0
 
@@ -392,7 +393,7 @@ declare const createConfiguredEffectClient: (options?: ClientOptions) => {
 };
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/sdk/src/effect-client.ts#L415)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/sdk/src/effect-client.ts#L414)
 
 Since v0.2.0
 
@@ -5782,14 +5783,19 @@ declare const SchoolsUnauthenticatedActor: typeof SchoolsUnauthenticatedActor;
 
 [Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/sdk/src/effect-client.ts#L67)
 
-### SessionActor
+### SessionProjection
 
 **Signature**
 
 ```ts
-declare const SessionActor: Struct<{
-  readonly personId: brand<String, "ProfilePersonId">;
-  readonly expiresAt: optional<String>;
+declare const SessionProjection: Struct<{
+  readonly sessionId: String;
+  readonly createdAt: String;
+  readonly updatedAt: String;
+  readonly expiresAt: String;
+  readonly ipAddress: NullOr<String>;
+  readonly userAgent: NullOr<String>;
+  readonly current: Boolean;
 }>;
 ```
 

@@ -19,22 +19,29 @@ Expect `{"status":"ok"}`. If this fails, the backend is not running.
 
 ## 2. Sign in and keep the session cookie
 
+Set `DASHBOARD_ORIGIN` to the exact dashboard origin in the backend's trusted
+origin configuration. The sign-in mutation requires that origin.
+
 ```sh
 curl -s -c cookies.txt -X POST http://localhost:8080/api/auth/sign-in/email \
+  -H "Origin: $DASHBOARD_ORIGIN" \
   -H "Content-Type: application/json" \
   -d '{"email":"you@example.org","password":"your-password"}'
 ```
 
-The response sets `better-auth.session_token`. `-c cookies.txt` saves it.
-The native API reads that cookie on every protected call.
+The response sets `better-auth.session_token` in explicit loopback local
+development or its `__Secure-` form outside local development. `-c cookies.txt`
+saves it. The native API reads current persisted session state on every
+protected call.
 
 Verify the session:
 
 ```sh
-curl -s -b cookies.txt http://localhost:8080/api/me/session
+curl -s -b cookies.txt http://localhost:8080/api/session
 ```
 
-- 200 → `{"personId":"…","expiresAt":"…"}`
+- 200 → credential-free session metadata with `sessionId`, timestamps, optional
+  source metadata, and `current`
 - 401 → `{"error":{"tag":"UnauthenticatedActor"}}` — sign in again.
 
 ## 3. Read a public listing (no session needed)

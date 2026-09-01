@@ -1,9 +1,4 @@
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { isFixtureMode } from "@vektorprogrammet/sdk";
 import { useLoaderData } from "react-router";
 import { requireAuth } from "../lib/auth.server";
@@ -30,7 +25,7 @@ export async function loader({ request }: Route.LoaderArgs) {
   if (isFixtureMode) return { statistics: mockStatistics };
 
   const cookie = await requireAuth(request);
-  const client = createAuthenticatedClient(cookie);
+  const client = createAuthenticatedClient(cookie, request);
 
   try {
     const statistics = await client.admin.admissionStats();

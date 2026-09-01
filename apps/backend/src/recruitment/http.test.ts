@@ -13,21 +13,14 @@ import type { RecruitmentApiHttpOptions } from "./http.js";
 import { makeRecruitmentTestHttp as makeRecruitmentApiHttp } from "../test/native-http.js";
 import { runTestPromise } from "../../test/runtime.js";
 
-const token = "recruitment-token";
+const actor = {
+  _tag: "DepartmentLeader" as const,
+  personId: PersonId.make("leader-1"),
+  departmentId: DepartmentId.make("department-1"),
+  active: true,
+};
+const token = "recruitment-http-test-session";
 const config: RecruitmentApiConfig = {
-  tokens: new Map([
-    [
-      token,
-      {
-        actor: {
-          _tag: "DepartmentLeader",
-          personId: PersonId.make("leader-1"),
-          departmentId: DepartmentId.make("department-1"),
-          active: true,
-        },
-      },
-    ],
-  ]),
   maxBodyBytes: 4096,
   now: () => "2031-09-15T12:00:00.000Z",
   nextInterviewId: () => RecruitmentInterviewId.make("interview-1"),
@@ -51,12 +44,18 @@ const invitationObservation = Schema.decodeUnknownSync(
 
 const backend = makeRecruitmentApiHttp({
   config,
-  resolveActor: async () => config.tokens.get(token)!.actor,
+  resolveActor: async () => actor,
   run: async <A>(): Promise<A> => undefined as A,
 });
 
-const request = (path: string, init?: RequestInit): Promise<Response> =>
-  backend.fetch(new Request(`http://backend.test${path}`, init));
+const request = (path: string, init?: RequestInit): Promise<Response> => {
+  const headers = new Headers(init?.headers);
+  headers.set("cookie", `better-auth.session_token=${token}`);
+  if (init?.method !== undefined && init.method !== "GET") {
+    headers.set("origin", "http://127.0.0.1:5174");
+  }
+  return backend.fetch(new Request(`http://backend.test${path}`, { ...init, headers }));
+};
 
 const makePublicBackend = () => {
   const calls: Array<{
@@ -112,7 +111,7 @@ const makePublicBackend = () => {
     calls,
     backend: makeRecruitmentApiHttp({
       config,
-      resolveActor: async () => config.tokens.get(token)!.actor,
+      resolveActor: async () => actor,
       run,
     }),
   };
@@ -466,7 +465,7 @@ describe("native recruitment HTTP boundary", () => {
   it("strictly decodes the public read response before returning it", async () => {
     const invalidBackend = makeRecruitmentApiHttp({
       config,
-      resolveActor: async () => config.tokens.get(token)!.actor,
+      resolveActor: async () => actor,
       run: async <A>(): Promise<A> =>
         ({
           ...invitationObservation,
@@ -567,14 +566,14 @@ describe("native recruitment HTTP boundary", () => {
     async (sourceTag, expectedTag, expectedStatus) => {
       const failedBackend = makeRecruitmentApiHttp({
         config,
-        resolveActor: async () => config.tokens.get(token)!.actor,
+        resolveActor: async () => actor,
         run: async <A>(): Promise<A> => {
           throw Object.assign(new Error(sourceTag), { _tag: sourceTag });
         },
       });
       const response = await failedBackend.fetch(
         new Request("http://backend.test/api/admin/recruitment/assignment-board?status=new", {
-          headers: { authorization: `Bearer ${token}` },
+          headers: { cookie: `better-auth.session_token=${token}` },
         }),
       );
 

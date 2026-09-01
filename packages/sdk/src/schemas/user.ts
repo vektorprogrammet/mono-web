@@ -48,12 +48,16 @@ const Phone = Schema.String.pipe(
   ),
 );
 
-export const SessionActor = Schema.Struct({
-  personId: ProfilePersonId,
-  /** Backend session contract: ISO instant of the underlying auth session. */
-  expiresAt: Schema.optional(Schema.String),
+export const SessionProjection = Schema.Struct({
+  sessionId: NonEmpty,
+  createdAt: Schema.String,
+  updatedAt: Schema.String,
+  expiresAt: Schema.String,
+  ipAddress: Schema.NullOr(Schema.String),
+  userAgent: Schema.NullOr(Schema.String),
+  current: Schema.Boolean,
 });
-export type SessionActor = typeof SessionActor.Type;
+export type SessionProjection = typeof SessionProjection.Type;
 
 export class User extends Schema.Class<User>("User")({
   id: Schema.Number,

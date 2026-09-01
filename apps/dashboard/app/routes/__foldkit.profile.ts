@@ -1,10 +1,7 @@
 import { UpdateOwnProfileCommand, UserProfile } from "@vektorprogrammet/sdk/effect";
 import { Schema as S } from "effect";
 import { data } from "react-router";
-import {
-  toProfileBridgeFailure,
-  type ProfileBridgeFailure,
-} from "../foldkit/profile/bridge";
+import { toProfileBridgeFailure, type ProfileBridgeFailure } from "../foldkit/profile/bridge";
 import { createAuthenticatedClient } from "../lib/api.server";
 import { requireAuth } from "../lib/auth.server";
 import type { Route } from "./+types/__foldkit.profile";
@@ -69,7 +66,7 @@ export async function action({ request }: Route.ActionArgs) {
     );
   }
 
-  const client = createAuthenticatedClient(cookie);
+  const client = createAuthenticatedClient(cookie, request);
   try {
     await client.me.updateProfile(command);
     const fresh = await client.me.profile();

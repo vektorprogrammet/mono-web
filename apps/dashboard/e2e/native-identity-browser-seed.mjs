@@ -272,6 +272,8 @@ try {
           WHERE migration_id = 15 AND name = 'native-identity-better-auth') AS identity_migration,
        (SELECT count(*) FROM public.vektorprogrammet_schema_migrations
           WHERE migration_id = 23 AND name = 'declarative-authorization-rules') AS authz_migration,
+       (SELECT count(*) FROM public.vektorprogrammet_schema_migrations
+          WHERE migration_id = 24 AND name = 'identity-security-audit') AS audit_migration,
        (SELECT count(*) FROM public.vektorprogrammet_schema_migrations) AS applied_migrations`,
     [
       identityEvidencePersona.personId,
@@ -289,7 +291,8 @@ try {
   assert.equal(Number(row.accounts), 2);
   assert.equal(Number(row.identity_migration), 1);
   assert.equal(Number(row.authz_migration), 1);
-  assert.ok(Number(row.applied_migrations) >= 23);
+  assert.equal(Number(row.audit_migration), 1);
+  assert.ok(Number(row.applied_migrations) >= 24);
 
   process.stdout.write(
     `${JSON.stringify({
@@ -305,6 +308,7 @@ try {
       migrations: [
         { revision: 15, name: "native-identity-better-auth" },
         { revision: 23, name: "declarative-authorization-rules" },
+        { revision: 24, name: "identity-security-audit" },
       ],
       rows: {
         profiles: 2,

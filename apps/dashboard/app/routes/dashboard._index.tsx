@@ -1,9 +1,4 @@
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Schema as S } from "effect";
 import { useLoaderData } from "react-router";
 import { requireAuth } from "../lib/auth.server";
@@ -38,11 +33,9 @@ const summaryCards: Array<{
   { key: "upcomingInterviews", label: "Kommende intervjuer" },
 ];
 
-export async function loader({
-  request,
-}: Route.LoaderArgs): Promise<{ summary: LandingSummary }> {
+export async function loader({ request }: Route.LoaderArgs): Promise<{ summary: LandingSummary }> {
   const cookie = await requireAuth(request);
-  const client = createAuthenticatedClient(cookie);
+  const client = createAuthenticatedClient(cookie, request);
 
   try {
     const dashboard = await client.me.dashboard();

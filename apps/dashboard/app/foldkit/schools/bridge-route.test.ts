@@ -96,6 +96,7 @@ describe("authenticated Schools Foldkit bridge", () => {
     expect(response.data).toEqual(directory);
     expect(mocks.createAuthenticatedClient).toHaveBeenCalledWith(
       "better-auth.session_token=session-value",
+      expect.any(Request),
     );
     expect(mocks.list).toHaveBeenCalledTimes(1);
     expect(mocks.list).toHaveBeenCalledWith({ department: departmentId });

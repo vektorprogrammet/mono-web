@@ -4,7 +4,9 @@ import {
   Identity,
   IdentityEngineError,
   IdentityActor,
+  IdentitySession,
   IdentitySessionExpired,
+  IdentityOwnedSessionNotFound,
   IdentitySessionNotFound,
   type IdentityShape,
 } from "@vektorprogrammet/domain/identity";
@@ -31,35 +33,14 @@ import type { BackendRun } from "./router.js";
 import { makeBackendTestHttp as makeBackendHttp } from "./test/native-http.js";
 import { runTestPromise } from "../test/runtime.js";
 
-const token = "shared-token";
+const token = "better-auth.session_token";
 const environment = {
   BACKEND_PG_URL: "postgres://test.invalid/vektorprogrammet",
   BETTER_AUTH_SECRET: "router-test-secret-with-at-least-32-characters!",
+  NATIVE_IDENTITY_DEPLOYMENT: "local",
+  NATIVE_IDENTITY_TRUSTED_ORIGINS: JSON.stringify(["http://127.0.0.1:5174"]),
   PUBLIC_APPLICATION_EFFECT_MODE: "disabled",
-  ADMISSION_AUTH_TOKENS: JSON.stringify({
-    [token]: {
-      _tag: "Member",
-      personId: "member-1",
-      departmentId: "department-1",
-      active: true,
-    },
-  }),
   ADMISSION_FIXED_NOW: "2031-09-15T12:00:00.000Z",
-  RECEIPT_AUTH_TOKENS: JSON.stringify({
-    [token]: {
-      personId: "member-1",
-      departmentId: "department-1",
-      active: true,
-      paymentAccountCiphertext: "ciphertext",
-      approvalScope: { _tag: "None" },
-    },
-  }),
-  ORGANIZATION_AUTH_TOKENS: JSON.stringify({
-    [token]: {
-      _tag: "OrganizationMember",
-      personId: "member-1",
-    },
-  }),
 } as const;
 const config = makeBackendConfig(environment);
 
@@ -179,6 +160,15 @@ const makeRun =
       ) as Effect.Effect<A, E>,
     );
 
+const currentSession = new IdentitySession({
+  sessionId: "session-1",
+  createdAt: DateTime.makeUnsafe(new Date("2031-09-15T12:00:00.000Z")),
+  updatedAt: DateTime.makeUnsafe(new Date("2031-09-15T12:00:00.000Z")),
+  expiresAt: DateTime.makeUnsafe(new Date("2031-09-16T12:00:00.000Z")),
+  ipAddress: "127.0.0.1",
+  userAgent: "router-test",
+  current: true,
+});
 const successfulIdentity = Identity.of({
   signIn: () => Promise.reject(new Error("unexpected sign-in")),
   resolveSession: async (cookieHeader: string | undefined) => {
@@ -186,18 +176,28 @@ const successfulIdentity = Identity.of({
       return new IdentityActor({
         personId: PersonId.make("member-1"),
         sessionId: "session-1",
-        expiresAt: DateTime.makeUnsafe(new Date("2031-09-16T12:00:00.000Z")),
+        expiresAt: currentSession.expiresAt,
       });
     }
-    throw new IdentitySessionNotFound({ sessionToken: "" });
+    throw new IdentitySessionNotFound();
   },
-  signOut: async () => undefined,
+  readCurrentSession: async () => currentSession,
+  listSessions: async () => [currentSession],
+  revokeCurrentSession: async () => ({ setCookies: [] }),
+  revokeSession: async () => ({ setCookies: [] }),
+  revokeOtherSessions: async () => ({ setCookies: [] }),
+  revokeAllSessions: async () => ({ setCookies: [] }),
+  recordSecurityEvent: async () => undefined,
+  signOut: async () => ({ setCookies: [] }),
 } satisfies IdentityShape);
 
-const successfulRun = makeRun(successfulIdentity);
-const backend = makeBackendHttp(config, successfulRun, {
+const unavailableAuthHandler = {
   handle: async () => new Response(null, { status: 404 }),
-});
+  recordTrustedOriginRejection: async () => undefined,
+};
+
+const successfulRun = makeRun(successfulIdentity);
+const backend = makeBackendHttp(config, successfulRun, unavailableAuthHandler);
 
 const request = (pathname: string, init?: RequestInit): Promise<Response> =>
   backend.fetch(new Request(`http://backend.test${pathname}`, init));
@@ -310,19 +310,290 @@ describe("unified backend router", () => {
     }
   });
 
-  it("serves GET /api/me/session from the session cookie and fails closed without one", async () => {
-    const ok = await request("/api/me/session", { headers: { cookie: `${token}=value; other=1` } });
-    expect({ status: ok.status, body: await ok.json() }).toEqual({
+  it("exposes exactly the six safe native session resources and removes the old path", async () => {
+    const cookieHeaders = { cookie: `${token}=value; other=1` };
+    const mutationHeaders = {
+      ...cookieHeaders,
+      origin: "http://127.0.0.1:5174",
+    };
+    const current = await request("/api/session", { headers: cookieHeaders });
+    expect({ status: current.status, body: await current.json() }).toEqual({
       status: 200,
       body: {
-        personId: "member-1",
+        sessionId: "session-1",
+        createdAt: "2031-09-15T12:00:00.000Z",
+        updatedAt: "2031-09-15T12:00:00.000Z",
         expiresAt: "2031-09-16T12:00:00.000Z",
+        ipAddress: "127.0.0.1",
+        userAgent: "router-test",
+        current: true,
+      },
+    });
+    const listed = await request("/api/sessions", { headers: cookieHeaders });
+    expect({ status: listed.status, body: await listed.json() }).toEqual({
+      status: 200,
+      body: [
+        {
+          sessionId: "session-1",
+          createdAt: "2031-09-15T12:00:00.000Z",
+          updatedAt: "2031-09-15T12:00:00.000Z",
+          expiresAt: "2031-09-16T12:00:00.000Z",
+          ipAddress: "127.0.0.1",
+          userAgent: "router-test",
+          current: true,
+        },
+      ],
+    });
+    for (const [path, method] of [
+      ["/api/session", "DELETE"],
+      ["/api/sessions/session-1", "DELETE"],
+      ["/api/sessions:revoke-others", "POST"],
+      ["/api/sessions:revoke-all", "POST"],
+    ] as const) {
+      const response = await request(path, { method, headers: mutationHeaders });
+      expect(response.status).toBe(204);
+      expect(await response.text()).toBe("");
+      expect(response.headers.getSetCookie()).toHaveLength(0);
+    }
+    expect((await request("/api/session")).status).toBe(401);
+    expect((await request("/api/me/session", { headers: cookieHeaders })).status).toBe(404);
+  });
+
+  it("requires a recognized Better Auth session cookie before authoritative handlers run", async () => {
+    let currentReads = 0;
+    const guardedBackend = makeBackendHttp(
+      config,
+      makeRun({
+        ...successfulIdentity,
+        readCurrentSession: async () => {
+          currentReads += 1;
+          return currentSession;
+        },
+      }),
+      unavailableAuthHandler,
+    );
+    for (const cookie of [undefined, "", "theme=dark", "vp.session_token=opaque"]) {
+      const response = await guardedBackend.fetch(
+        new Request("http://backend.test/api/session", {
+          headers: cookie === undefined ? undefined : { cookie },
+        }),
+      );
+      expect(response.status).toBe(401);
+    }
+    expect(currentReads).toBe(0);
+
+    for (const cookie of [
+      "better-auth.session_token=opaque",
+      "__Secure-better-auth.session_token=opaque",
+    ]) {
+      const response = await guardedBackend.fetch(
+        new Request("http://backend.test/api/session", { headers: { cookie } }),
+      );
+      expect(response.status).toBe(200);
+    }
+    expect(currentReads).toBe(2);
+  });
+
+  it("conceals missing, non-owned, and already-revoked session ids identically", async () => {
+    const owned = new Set(["owned-session"]);
+    let revokeCalls = 0;
+    const ownerBackend = makeBackendHttp(
+      config,
+      makeRun({
+        ...successfulIdentity,
+        revokeSession: async (_cookie, sessionId) => {
+          revokeCalls += 1;
+          if (!owned.delete(sessionId)) {
+            throw new IdentityOwnedSessionNotFound({ sessionId });
+          }
+          return { setCookies: [] };
+        },
+      }),
+      unavailableAuthHandler,
+    );
+    const headers = {
+      cookie: `${token}=value`,
+      origin: "http://127.0.0.1:5174",
+    };
+    expect(
+      (
+        await ownerBackend.fetch(
+          new Request("http://backend.test/api/sessions/owned-session", {
+            method: "DELETE",
+            headers,
+          }),
+        )
+      ).status,
+    ).toBe(204);
+    for (const sessionId of ["owned-session", "missing-session", "another-person-session"]) {
+      const response = await ownerBackend.fetch(
+        new Request(`http://backend.test/api/sessions/${sessionId}`, {
+          method: "DELETE",
+          headers,
+        }),
+      );
+      expect({ status: response.status, body: await response.json() }).toEqual({
+        status: 404,
+        body: { error: { tag: "SessionNotFound" } },
+      });
+    }
+    expect(revokeCalls).toBe(4);
+  });
+
+  it("centralizes trusted-origin, CSRF rejection, audit, and credentialed CORS", async () => {
+    const handled: string[] = [];
+    const rejectedCorrelations: string[] = [];
+    const originBackend = makeBackendHttp(config, successfulRun, {
+      handle: async (request) => {
+        handled.push(new URL(request.url).pathname);
+        return new Response(null, { status: 204 });
+      },
+      recordTrustedOriginRejection: async (context) => {
+        rejectedCorrelations.push(context.requestCorrelation);
+      },
+    });
+    const trustedOrigin = "http://127.0.0.1:5174";
+    const trusted = await originBackend.fetch(
+      new Request("http://backend.test/api/auth/sign-in/email", {
+        method: "POST",
+        headers: { origin: trustedOrigin },
+      }),
+    );
+    expect(trusted.status).toBe(204);
+    expect(trusted.headers.get("access-control-allow-origin")).toBe(trustedOrigin);
+    expect(trusted.headers.get("access-control-allow-credentials")).toBe("true");
+    expect(trusted.headers.get("access-control-allow-origin")).not.toBe("*");
+
+    for (const headers of [
+      new Headers({ origin: "https://untrusted.example.invalid" }),
+      new Headers(),
+    ]) {
+      const rejected = await originBackend.fetch(
+        new Request("http://backend.test/api/auth/sign-in/email", {
+          method: "POST",
+          headers,
+        }),
+      );
+      expect({ status: rejected.status, body: await rejected.json() }).toEqual({
+        status: 403,
+        body: { error: { tag: "TrustedOriginRejected" } },
+      });
+      expect(rejected.headers.get("access-control-allow-origin")).toBeNull();
+    }
+
+    const protectedCrossOrigin = await originBackend.fetch(
+      new Request("http://backend.test/api/session", {
+        headers: {
+          cookie: `${token}=value`,
+          origin: "https://untrusted.example.invalid",
+        },
+      }),
+    );
+    expect(protectedCrossOrigin.status).toBe(403);
+
+    const preflight = await originBackend.fetch(
+      new Request("http://backend.test/api/session", {
+        method: "OPTIONS",
+        headers: { origin: trustedOrigin },
+      }),
+    );
+    expect(preflight.status).toBe(204);
+    expect(preflight.headers.get("access-control-allow-origin")).toBe(trustedOrigin);
+    expect(preflight.headers.get("access-control-allow-credentials")).toBe("true");
+    expect(handled).toEqual(["/api/auth/sign-in/email"]);
+    expect(rejectedCorrelations).toHaveLength(3);
+    expect(new Set(rejectedCorrelations).size).toBe(3);
+  });
+
+  it("allows only the centralized native browser request headers before dispatch", async () => {
+    const dispatched: string[] = [];
+    const rejectedCorrelations: string[] = [];
+    const origin = "http://127.0.0.1:5174";
+    const backend = makeBackendHttp(config, successfulRun, {
+      handle: async (request) => {
+        dispatched.push(new URL(request.url).pathname);
+        return new Response(null, { status: 204 });
+      },
+      recordTrustedOriginRejection: async (context) => {
+        rejectedCorrelations.push(context.requestCorrelation);
       },
     });
 
-    const anonymous = await request("/api/me/session");
-    expect(anonymous.status).toBe(401);
-    expect(await anonymous.json()).toEqual({ error: { tag: "UnauthenticatedActor" } });
+    const allowed = await backend.fetch(
+      new Request("http://backend.test/api/auth/sign-in/email", {
+        method: "OPTIONS",
+        headers: {
+          origin,
+          "access-control-request-method": "PATCH",
+          "access-control-request-headers":
+            "CONTENT-type, idempotency-KEY, IF-match, If-None-Match, x-Recruitment-Invitation-Capability",
+        },
+      }),
+    );
+    expect(allowed.status).toBe(204);
+    expect(allowed.headers.get("access-control-allow-headers")).toBe(
+      "Content-Type, Idempotency-Key, If-Match, If-None-Match, X-Recruitment-Invitation-Capability",
+    );
+    expect(allowed.headers.get("access-control-allow-methods")).toBe(
+      "GET, POST, PUT, PATCH, DELETE, OPTIONS",
+    );
+    expect(allowed.headers.get("vary")).toBe("Origin, Access-Control-Request-Headers");
+
+    const unknown = await backend.fetch(
+      new Request("http://backend.test/api/auth/sign-in/email", {
+        method: "OPTIONS",
+        headers: {
+          origin,
+          "access-control-request-method": "POST",
+          "access-control-request-headers": "Content-Type, X-Unknown-Native-Header",
+        },
+      }),
+    );
+    expect({ status: unknown.status, body: await unknown.json() }).toEqual({
+      status: 403,
+      body: { error: { tag: "TrustedOriginRejected" } },
+    });
+    expect(dispatched).toEqual([]);
+    expect(rejectedCorrelations).toHaveLength(1);
+  });
+
+  it("composes local, preview, and production cookie policy without invented origins", () => {
+    expect(config.sessionBoundary).toEqual({
+      deployment: "local",
+      trustedOrigins: ["http://127.0.0.1:5174"],
+      secureCookies: false,
+    });
+    expect(
+      makeBackendConfig({
+        ...environment,
+        NATIVE_IDENTITY_DEPLOYMENT: "preview",
+        NATIVE_IDENTITY_TRUSTED_ORIGINS: JSON.stringify(["https://preview.example.invalid"]),
+      }).sessionBoundary,
+    ).toEqual({
+      deployment: "preview",
+      trustedOrigins: ["https://preview.example.invalid"],
+      secureCookies: true,
+    });
+    expect(() =>
+      makeBackendConfig({
+        ...environment,
+        NATIVE_IDENTITY_DEPLOYMENT: "production",
+        NATIVE_IDENTITY_TRUSTED_ORIGINS: undefined,
+      }),
+    ).toThrow();
+    expect(() =>
+      makeBackendConfig({
+        ...environment,
+        NATIVE_IDENTITY_DEPLOYMENT: "preview",
+        NATIVE_IDENTITY_TRUSTED_ORIGINS: JSON.stringify(["http://127.0.0.1:5174"]),
+      }),
+    ).toThrow("preview native identity origins must use HTTPS");
+    expect(() =>
+      makeBackendConfig({
+        ...environment,
+        BETTER_AUTH_URL: "http://127.0.0.1:5174",
+      }),
+    ).toThrow("unsupported");
   });
 
   it("forwards an evidence-only clock to protected authority resolution", async () => {
@@ -338,7 +609,7 @@ describe("unified backend router", () => {
     const pinnedBackend = makeBackendHttp(
       config,
       makeRun(successfulIdentity, observedOrganization),
-      { handle: async () => new Response(null, { status: 404 }) },
+      unavailableAuthHandler,
       { now: () => pinnedInstant },
     );
 
@@ -353,12 +624,7 @@ describe("unified backend router", () => {
   });
 
   it.each([
-    [
-      "expired session",
-      new IdentitySessionExpired({ sessionToken: "expired-session" }),
-      401,
-      "UnauthenticatedActor",
-    ],
+    ["expired session", new IdentitySessionExpired(), 401, "UnauthenticatedActor"],
     [
       "typed provider failure",
       new IdentityEngineError({
@@ -376,13 +642,13 @@ describe("unified backend router", () => {
         config,
         makeRun({
           ...successfulIdentity,
-          resolveSession: () => Promise.reject(failure),
+          readCurrentSession: () => Promise.reject(failure),
         }),
-        { handle: async () => new Response(null, { status: 404 }) },
+        unavailableAuthHandler,
       );
 
       const response = await failingBackend.fetch(
-        new Request("http://backend.test/api/me/session", {
+        new Request("http://backend.test/api/session", {
           headers: { cookie: "better-auth.session_token=session-value" },
         }),
       );
@@ -395,47 +661,19 @@ describe("unified backend router", () => {
   );
 
   it("mounts the auth engine handler over the /api/auth/* surface", async () => {
-    const calls: Array<string> = [];
     const probingBackend = makeBackendHttp(config, successfulRun, {
       handle: async (request) => new Response(`auth-saw:${new URL(request.url).pathname}`),
+      recordTrustedOriginRejection: async () => undefined,
     });
-    void calls;
     for (const path of ["/api/auth/get-session", "/api/auth/sign-in/email", "/api/auth/"]) {
       const response = await probingBackend.fetch(
-        new Request(`http://backend.test${path}`, { method: "POST" }),
+        new Request(`http://backend.test${path}`, {
+          method: "POST",
+          headers: { origin: "http://127.0.0.1:5174" },
+        }),
       );
       expect(await response.text()).toBe(`auth-saw:${path}`);
     }
-  });
-
-  it("rejects conflicting identity facts at the process boundary", () => {
-    expect(() =>
-      makeBackendConfig({
-        ...environment,
-        RECEIPT_AUTH_TOKENS: JSON.stringify({
-          [token]: {
-            personId: "member-1",
-            departmentId: "different-department",
-            active: true,
-            paymentAccountCiphertext: "ciphertext",
-            approvalScope: { _tag: "None" },
-          },
-        }),
-      }),
-    ).toThrow("conflicting actor facts for shared token");
-  });
-
-  it("boots with the legacy auth token env maps absent", () => {
-    const {
-      ADMISSION_AUTH_TOKENS: _admissionTokens,
-      RECEIPT_AUTH_TOKENS: _receiptTokens,
-      ORGANIZATION_AUTH_TOKENS: _organizationTokens,
-      ...legacyFreeEnvironment
-    } = environment;
-    const legacyFreeConfig = makeBackendConfig(legacyFreeEnvironment);
-    expect(legacyFreeConfig.admission.tokens.size).toBe(0);
-    expect(legacyFreeConfig.receipt.tokens.size).toBe(0);
-    expect(legacyFreeConfig.organization.actorsByToken.size).toBe(0);
   });
 
   it("requires TLS for non-loopback application effect providers", () => {

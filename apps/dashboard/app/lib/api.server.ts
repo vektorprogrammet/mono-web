@@ -2,11 +2,10 @@ import { createClient, type ClientOptions } from "@vektorprogrammet/sdk";
 
 export type CookieOption = NonNullable<ClientOptions["cookie"]>;
 
-const serverApiUrl =
-  typeof process !== "undefined" ? process.env?.API_URL : undefined;
+const serverApiUrl = typeof process !== "undefined" ? process.env?.API_URL : undefined;
 
-export function createAuthenticatedClient(cookie: CookieOption) {
-  return createClient(serverApiUrl, { cookie });
+export function createAuthenticatedClient(cookie: CookieOption, request: Request) {
+  return createClient(serverApiUrl, { cookie, origin: new URL(request.url).origin });
 }
 
 export function createServerClient() {

@@ -71,18 +71,18 @@ export const RouteNotFoundResponse = Schema.Struct({
 });
 
 /**
- * Cookie security declaration for endpoints resolved through Better Auth sessions.
- * Better Auth itself remains an external handler and is not part of NativeApi.
+ * Request Cookie header marker for endpoints that perform authoritative session resolution.
+ * Both Better Auth's local and secure-prefixed cookie names travel through this one header.
  *
  * @since 0.1.0
  * @category Security
  */
-export const BetterAuthSessionCookie = HttpApiSecurity.apiKey({
-  key: "better-auth.session_token",
-  in: "cookie",
+export const RequestCookieHeader = HttpApiSecurity.apiKey({
+  key: "Cookie",
+  in: "header",
 }).pipe(
   HttpApiSecurity.annotateMerge(
-    OpenApi.annotations({ description: "Better Auth session cookie." }),
+    OpenApi.annotations({ description: "Cookie header resolved authoritatively by Identity." }),
   ),
 );
 
@@ -92,10 +92,23 @@ export const BetterAuthSessionCookie = HttpApiSecurity.apiKey({
  * @since 0.1.0
  * @category Schemas
  */
-export const SessionUnauthorizedResponse = errorBody(
+const SessionUnauthorizedBody = errorBody(
   "SessionUnauthorizedResponse",
   ["UnauthenticatedActor"],
   401,
+);
+
+export const SessionUnauthorizedResponse = SessionUnauthorizedBody.pipe(
+  HttpApiSchema.encodeToWithHeaders(
+    {
+      body: SessionUnauthorizedBody,
+      headers: { "cache-control": Schema.Literal("no-store") },
+    },
+    {
+      decode: ({ body }) => body,
+      encode: (body) => ({ body, headers: { "cache-control": "no-store" as const } }),
+    },
+  ),
 );
 
 /**
@@ -108,7 +121,9 @@ export const SessionUnauthorizedResponse = errorBody(
 export class SessionSecurity extends HttpApiMiddleware.Service<SessionSecurity>()(
   "@vektorprogrammet/http-api/SessionSecurity",
   {
-    security: { sessionCookie: BetterAuthSessionCookie },
+    security: {
+      cookieHeader: RequestCookieHeader,
+    },
     error: SessionUnauthorizedResponse,
   },
 ) {}

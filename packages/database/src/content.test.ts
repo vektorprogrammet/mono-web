@@ -48,7 +48,7 @@ describe("Content publication migration in PGlite (spec 0062)", () => {
       }),
     );
 
-    expect(evidence.revision).toBe("23_declarative-authorization-rules");
+    expect(evidence.revision).toBe("24_identity-security-audit");
     expect(evidence.migrationRows).toEqual([{ migrationId: 20, name: "content-publication" }]);
     expect(evidence.tableNames).toEqual([
       "content_article_departments",

@@ -25,12 +25,12 @@ const documentedOperations = () => {
 };
 
 describe("NativeApi reflection", () => {
-  it("contains 48 unique method/path authorities without a handwritten route list", () => {
+  it("contains 53 unique method/path authorities without a handwritten route list", () => {
     const inventory = endpointInventory();
     const authorities = inventory.map(({ method, path }) => `${method} ${path}`);
 
-    expect(inventory).toHaveLength(48);
-    expect(new Set(authorities).size).toBe(48);
+    expect(inventory).toHaveLength(53);
+    expect(new Set(authorities).size).toBe(53);
     expect(inventory.filter(({ group }) => group === "internal")).toHaveLength(1);
   });
 
@@ -39,14 +39,16 @@ describe("NativeApi reflection", () => {
     const operations = documentedOperations();
 
     expect(Context.get(internal.annotations, OpenApi.Exclude)).toBe(true);
-    expect(operations).toHaveLength(47);
+    expect(operations).toHaveLength(52);
     expect(operations.some(({ path }) => path.startsWith("/api/e2e"))).toBe(false);
     expect(operations.some(({ path }) => path.startsWith("/api/auth"))).toBe(false);
   });
 
   it("derives stable fully-qualified group.endpoint operation ids", () => {
     const spec = OpenApi.fromApi(NativeApi);
-    const actual = documentedOperations().map(({ operation }) => operation.operationId).sort();
+    const actual = documentedOperations()
+      .map(({ operation }) => operation.operationId)
+      .sort();
     const expected = endpointInventory()
       .filter(({ group }) => group !== "internal")
       .map(({ group, identifier }) => `${group}.${identifier}`)
@@ -96,9 +98,9 @@ describe("NativeApi reflection", () => {
     expect(provenanceSpec["x-vektorprogrammet-provenance"]).toBeDefined();
     expect(operationProvenance.every((provenance) => provenance !== undefined)).toBe(true);
     expect(operations.every(({ operation }) => operation.tags.length > 0)).toBe(true);
-    expect(spec.paths["/api/me/session"]?.get?.security[0]?.sessionCookie).toEqual([]);
+    expect(spec.paths["/api/session"]?.get?.security[0]?.cookieHeader).toEqual([]);
     expect(spec.paths["/api/departments"]?.get?.responses["200"]).toBeDefined();
-    expect(spec.paths["/api/me/session"]?.get?.responses["401"]).toBeDefined();
+    expect(spec.paths["/api/session"]?.get?.responses["401"]).toBeDefined();
     expect(spec.paths["/api/admin/departments"]?.post?.responses["201"]).toBeDefined();
     expect(
       spec.paths["/api/receipts/submit"]?.post?.requestBody?.content["multipart/form-data"],

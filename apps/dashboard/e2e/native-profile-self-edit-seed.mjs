@@ -43,7 +43,8 @@ const identity = spawnSync("bun", ["run", "identity:seed"], {
     ...process.env,
     IDENTITY_SEED_PG_URL: postgresUrl,
     IDENTITY_SEED_PERSONS: JSON.stringify([profilePerson]),
-    BETTER_AUTH_URL: dashboardOrigin,
+    NATIVE_IDENTITY_DEPLOYMENT: "local",
+    NATIVE_IDENTITY_TRUSTED_ORIGINS: JSON.stringify([dashboardOrigin]),
     BETTER_AUTH_SECRET:
       process.env.BETTER_AUTH_SECRET ?? "profile-e2e-0064-disposable-secret-0123456789",
   },

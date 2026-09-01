@@ -30,14 +30,15 @@ Since v0.1.0
 - [Schemas](#schemas)
   - [InvitationNotFoundResponse](#invitationnotfoundresponse)
   - [RouteNotFoundResponse](#routenotfoundresponse)
-  - [SessionUnauthorizedResponse](#sessionunauthorizedresponse)
   - [errorBody](#errorbody)
   - [receiptErrorBody](#receipterrorbody)
 - [Security](#security)
-  - [BetterAuthSessionCookie](#betterauthsessioncookie)
   - [InvitationCapabilitySecurity (class)](#invitationcapabilitysecurity-class)
   - [RecruitmentInvitationCapability](#recruitmentinvitationcapability)
+  - [RequestCookieHeader](#requestcookieheader)
   - [SessionSecurity (class)](#sessionsecurity-class)
+- [utils](#utils)
+  - [SessionUnauthorizedResponse](#sessionunauthorizedresponse)
 
 ---
 
@@ -60,7 +61,7 @@ declare const NativeOperationProvenance: {
 };
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/common.ts#L174)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/common.ts#L189)
 
 Since v0.1.0
 
@@ -74,7 +75,7 @@ Adds stable OpenAPI operation metadata.
 declare const operationAnnotations: (summary: string, description: string) => Context<never>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/common.ts#L189)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/common.ts#L204)
 
 Since v0.1.0
 
@@ -91,7 +92,7 @@ each group's frozen error envelope.
 declare class RequestSchemaErrorMiddleware
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/common.ts#L164)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/common.ts#L179)
 
 Since v0.1.0
 
@@ -111,7 +112,7 @@ declare const InvitationNotFoundResponse: Schema.Struct<{
 }>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/common.ts#L137)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/common.ts#L152)
 
 Since v0.1.0
 
@@ -128,24 +129,6 @@ declare const RouteNotFoundResponse: Schema.Struct<{
 ```
 
 [Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/common.ts#L65)
-
-Since v0.1.0
-
-### SessionUnauthorizedResponse
-
-Standard missing or invalid session response.
-
-**Signature**
-
-```ts
-declare const SessionUnauthorizedResponse: Schema.Struct<{
-  readonly error: Schema.Struct<{
-    readonly tag: Schema.Literals<readonly ["UnauthenticatedActor"]>;
-  }>;
-}>;
-```
-
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/common.ts#L95)
 
 Since v0.1.0
 
@@ -192,21 +175,6 @@ Since v0.1.0
 
 ## Security
 
-### BetterAuthSessionCookie
-
-Cookie security declaration for endpoints resolved through Better Auth sessions.
-Better Auth itself remains an external handler and is not part of NativeApi.
-
-**Signature**
-
-```ts
-declare const BetterAuthSessionCookie: HttpApiSecurity.ApiKey;
-```
-
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/common.ts#L80)
-
-Since v0.1.0
-
 ### InvitationCapabilitySecurity (class)
 
 Contract security marker for invitation-capability operations.
@@ -217,7 +185,7 @@ Contract security marker for invitation-capability operations.
 declare class InvitationCapabilitySecurity
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/common.ts#L149)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/common.ts#L164)
 
 Since v0.1.0
 
@@ -231,7 +199,22 @@ Header security declaration for public recruitment invitation responses.
 declare const RecruitmentInvitationCapability: HttpApiSecurity.ApiKey;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/common.ts#L122)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/common.ts#L137)
+
+Since v0.1.0
+
+### RequestCookieHeader
+
+Request Cookie header marker for endpoints that perform authoritative session resolution.
+Both Better Auth's local and secure-prefixed cookie names travel through this one header.
+
+**Signature**
+
+```ts
+declare const RequestCookieHeader: HttpApiSecurity.ApiKey;
+```
+
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/common.ts#L80)
 
 Since v0.1.0
 
@@ -246,6 +229,30 @@ The backend implementation resolves the full Cookie header through Identity.
 declare class SessionSecurity
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/common.ts#L108)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/common.ts#L121)
 
 Since v0.1.0
+
+## utils
+
+### SessionUnauthorizedResponse
+
+**Signature**
+
+```ts
+declare const SessionUnauthorizedResponse: HttpApiSchema.encodeToWithHeaders<
+  Schema.Struct<{
+    readonly error: Schema.Struct<{
+      readonly tag: Schema.Literals<readonly ["UnauthenticatedActor"]>;
+    }>;
+  }>,
+  Schema.Struct<{
+    readonly error: Schema.Struct<{
+      readonly tag: Schema.Literals<readonly ["UnauthenticatedActor"]>;
+    }>;
+  }>,
+  { "cache-control": Schema.Literal<"no-store"> }
+>;
+```
+
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/common.ts#L101)

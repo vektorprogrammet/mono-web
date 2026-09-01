@@ -10,9 +10,15 @@ const databaseRequire = createRequire(
 const { Pool } = databaseRequire("pg");
 
 const postgresUrl = process.env.RECEIPT_APPROVAL_PG_URL;
-const dashboardOrigin = process.env.BETTER_AUTH_URL;
+const trustedOrigins = JSON.parse(process.env.NATIVE_IDENTITY_TRUSTED_ORIGINS ?? "null");
+assert.ok(
+  Array.isArray(trustedOrigins) &&
+    trustedOrigins.length === 1 &&
+    typeof trustedOrigins[0] === "string",
+  "NATIVE_IDENTITY_TRUSTED_ORIGINS must contain one dashboard origin",
+);
+const dashboardOrigin = trustedOrigins[0];
 assert.ok(postgresUrl !== undefined, "RECEIPT_APPROVAL_PG_URL is required");
-assert.ok(dashboardOrigin !== undefined, "BETTER_AUTH_URL is required");
 assert.ok(process.env.BETTER_AUTH_SECRET !== undefined, "BETTER_AUTH_SECRET is required");
 
 const parsedPostgresUrl = new URL(postgresUrl);
@@ -112,7 +118,8 @@ const identitySeed = spawnSync("bun", ["run", "identity:seed"], {
     ...process.env,
     IDENTITY_SEED_PG_URL: postgresUrl,
     IDENTITY_SEED_PERSONS: JSON.stringify(identityPersons),
-    BETTER_AUTH_URL: dashboardOrigin,
+    NATIVE_IDENTITY_DEPLOYMENT: "local",
+    NATIVE_IDENTITY_TRUSTED_ORIGINS: JSON.stringify([dashboardOrigin]),
   },
   encoding: "utf8",
 });

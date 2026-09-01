@@ -16,6 +16,8 @@ export interface AuthEngineConfig {
   readonly postgresUrl: string;
   readonly secret: string;
   readonly baseURL: string;
+  readonly trustedOrigins: ReadonlyArray<string>;
+  readonly secureCookies: boolean;
 }
 
 export const makeAuthPool = (config: AuthEngineConfig) =>
@@ -26,33 +28,40 @@ export const makeAuthPool = (config: AuthEngineConfig) =>
     application_name: "vektorprogrammet-auth",
   });
 
+export const makeAuthEngineOptions = (config: AuthEngineConfig, database: Pool) => ({
+  secret: config.secret,
+  baseURL: config.baseURL,
+  database,
+  trustedOrigins: [...config.trustedOrigins],
+  emailAndPassword: {
+    enabled: true,
+    disableSignUp: true,
+    minPasswordLength: 12,
+  },
+  session: {
+    expiresIn: 60 * 60 * 24 * 7,
+    updateAge: 60 * 60 * 24,
+  },
+  advanced: {
+    useSecureCookies: config.secureCookies,
+    defaultCookieAttributes: {
+      httpOnly: true,
+      sameSite: "lax" as const,
+      path: "/",
+      secure: config.secureCookies,
+    },
+    database: {
+      // Session rows join user rows server-side; keep default for now.
+      joins: false,
+    },
+  },
+  user: {
+    // auth.user.id IS PersonId - set explicitly at seed/creation time.
+    modelName: "user",
+  },
+});
+
 export const makeAuthEngine = (config: AuthEngineConfig, database: Pool = makeAuthPool(config)) =>
-  betterAuth({
-    secret: config.secret,
-    baseURL: config.baseURL,
-    database,
-    emailAndPassword: {
-      enabled: true,
-      minPasswordLength: 12,
-    },
-    session: {
-      expiresIn: 60 * 60 * 24 * 7,
-      updateAge: 60 * 60 * 24,
-      cookieCache: {
-        enabled: true,
-        maxAge: 5 * 60,
-      },
-    },
-    advanced: {
-      database: {
-        // Session rows join user rows server-side; keep default for now.
-        joins: false,
-      },
-    },
-    user: {
-      // auth.user.id IS PersonId - set explicitly at seed/creation time.
-      modelName: "user",
-    },
-  });
+  betterAuth(makeAuthEngineOptions(config, database));
 
 export type AuthEngine = ReturnType<typeof makeAuthEngine>;

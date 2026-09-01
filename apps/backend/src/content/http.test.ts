@@ -72,7 +72,11 @@ const jsonRequest = (url: string, method: string, body?: unknown): Request =>
   new Request(`http://backend.test${url}`, {
     method,
     body: body === undefined ? undefined : JSON.stringify(body),
-    headers: body === undefined ? {} : { "content-type": "application/json" },
+    headers: {
+      cookie: "better-auth.session_token=content-test-session",
+      ...(method === "GET" ? {} : { origin: "http://127.0.0.1:5174" }),
+      ...(body === undefined ? {} : { "content-type": "application/json" }),
+    },
   });
 
 describe("content http boundaries", () => {

@@ -6,7 +6,13 @@ import { DatabaseLive } from "./layers.js";
 
 const personId = "journey-0065-admin";
 const identityMigrationId = 15;
-const authTables = ["account", "session", "user", "verification"] as const;
+const authTables = [
+  "account",
+  "identity_security_audit",
+  "session",
+  "user",
+  "verification",
+] as const;
 const authzTables = ["authz_rules", "authz_tag_assignments", "authz_tags"] as const;
 const orthogonalPersonId = "identity-0056-orthogonal-person";
 const activeRuleId = "identity-0056-active-other-person-rule";
@@ -146,6 +152,12 @@ const run = async () => {
     assert.deepEqual(authzMigration.rows, [
       { migrationId: 23, name: "declarative-authorization-rules" },
     ]);
+    const auditMigration = await observer.query(
+      `SELECT migration_id AS "migrationId", name
+       FROM public.vektorprogrammet_schema_migrations
+       WHERE migration_id = 24`,
+    );
+    assert.deepEqual(auditMigration.rows, [{ migrationId: 24, name: "identity-security-audit" }]);
     const tables = await observer.query<{ readonly tableName: string }>(
       `SELECT table_name AS "tableName" FROM information_schema.tables
        WHERE table_schema = 'auth' AND table_name = ANY($1::text[]) ORDER BY table_name`,
@@ -216,6 +228,85 @@ const run = async () => {
     assert.deepEqual(authSchemaState, authSchemaBaseline);
     const publicAuthz = await readPublicAuthzState(observer);
     assert.deepEqual(publicAuthz, publicAuthzBaseline);
+    const auditRows = await observer.query<{
+      readonly eventKind: string;
+      readonly eventCount: string;
+      readonly requestBindingValid: boolean;
+      readonly detailsClosed: boolean;
+      readonly subjectsLinked: boolean;
+    }>(
+      `SELECT
+         event_kind AS "eventKind",
+         count(*)::text AS "eventCount",
+         bool_and(
+           CASE
+             WHEN event_kind IN (
+               'account-provisioned-administratively',
+               'session-provisioned-administratively'
+             ) THEN request_correlation IS NULL
+             ELSE request_correlation IS NOT NULL
+           END
+         ) AS "requestBindingValid",
+         bool_and(
+           details ? 'outcomeCode'
+           AND details ? 'affectedSessionCount'
+           AND details - 'outcomeCode' - 'affectedSessionCount' = '{}'::jsonb
+         ) AS "detailsClosed",
+         bool_and(
+           subject_person_id IS NULL
+           OR EXISTS (
+             SELECT 1 FROM public.person_profiles
+             WHERE person_id = subject_person_id
+           )
+         ) AS "subjectsLinked"
+       FROM auth.identity_security_audit
+       GROUP BY event_kind
+       ORDER BY event_kind`,
+    );
+    const auditCounts = Object.fromEntries(
+      auditRows.rows.map((event) => [event.eventKind, Number(event.eventCount)]),
+    );
+    assert.deepEqual(auditCounts, {
+      "account-provisioned-administratively": 2,
+      "session-revoked-all": 1,
+      "session-revoked-one": 1,
+      "session-revoked-others": 1,
+      "sign-in-failure": 10,
+      "sign-in-success": 7,
+      "sign-out": 4,
+      "sign-up-rejected": 1,
+      "trusted-origin-csrf-rejected": 1,
+    });
+    assert.ok(
+      auditRows.rows.every(
+        ({ requestBindingValid, detailsClosed, subjectsLinked }) =>
+          requestBindingValid && detailsClosed && subjectsLinked,
+      ),
+    );
+    const firstAuditEvent = await observer.query<{ readonly eventId: string }>(
+      `SELECT event_id AS "eventId"
+       FROM auth.identity_security_audit
+       ORDER BY occurred_at, event_id
+       LIMIT 1`,
+    );
+    const eventId = firstAuditEvent.rows[0]?.eventId;
+    assert.ok(eventId !== undefined);
+    const updateRejected = await observer
+      .query(`UPDATE auth.identity_security_audit SET details = details WHERE event_id = $1`, [
+        eventId,
+      ])
+      .then(
+        () => false,
+        () => true,
+      );
+    const deleteRejected = await observer
+      .query(`DELETE FROM auth.identity_security_audit WHERE event_id = $1`, [eventId])
+      .then(
+        () => false,
+        () => true,
+      );
+    assert.equal(updateRejected, true);
+    assert.equal(deleteRejected, true);
     const activityResult = await observer.query<{
       readonly observedAt: Date;
       readonly activeAssignments: string;
@@ -295,6 +386,7 @@ const run = async () => {
         migrations: [
           { revision: 15, name: "native-identity-better-auth" },
           { revision: 23, name: "declarative-authorization-rules" },
+          { revision: 24, name: "identity-security-audit" },
         ],
         schemaRevision,
         authTables: [...authTables],
@@ -312,6 +404,19 @@ const run = async () => {
         publicAuthz,
         authzActivity,
         sessions: { total: counts.sessionsTotal, live: counts.sessionsLive },
+        identitySecurityAudit: {
+          counts: auditCounts,
+          rowsBoundedAndLinked: true,
+          appendOnlyUpdateRejected: updateRejected,
+          appendOnlyDeleteRejected: deleteRejected,
+          observer: "distinct-loopback-postgresql-connection",
+          ordering: {
+            nativeSessionMutations: "state change and audit append share one adapter transaction",
+            betterAuthCredentialOperations:
+              "Better Auth commits first; the bounded audit append follows in a separate transaction",
+            atomicCredentialAuditClaimed: false,
+          },
+        },
         observer: "distinct-loopback-postgresql-connection",
         passed: true,
       })}\n`,

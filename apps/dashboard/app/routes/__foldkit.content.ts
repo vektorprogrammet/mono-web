@@ -125,7 +125,7 @@ export async function loader({ request }: Route.LoaderArgs) {
   }
 
   try {
-    const client = createAuthenticatedClient(cookie);
+    const client = createAuthenticatedClient(cookie, request);
     const [workspace, departments] = await Promise.all([
       client.admin.content.workspace(),
       client.public.organization.listDepartments(),
@@ -174,7 +174,7 @@ export async function action({ request }: Route.ActionArgs) {
   }
 
   try {
-    const client = createAuthenticatedClient(cookie);
+    const client = createAuthenticatedClient(cookie, request);
     switch (command.operation) {
       case "readArticle":
         return data(await client.admin.content.read(command.articleId), {

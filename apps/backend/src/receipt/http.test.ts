@@ -34,7 +34,6 @@ const config: ReceiptApiConfig = {
   stagingRoot: "/tmp/receipt-http-test-staging",
   committedRoot: "/tmp/receipt-http-test-committed",
   maxFileBytes: 1024,
-  tokens: new Map(),
   now: () => evaluatedAt,
   nextReceiptId: () => "receipt-one",
   nextVisualId: () => "visual-one",
@@ -163,8 +162,14 @@ const harness = (options: HarnessOptions = {}) => {
   };
 };
 
-const request = (http: ReceiptApiHttp, pathname: string, init?: RequestInit): Promise<Response> =>
-  http.fetch(new Request(`http://backend.test${pathname}`, init));
+const request = (http: ReceiptApiHttp, pathname: string, init?: RequestInit): Promise<Response> => {
+  const headers = new Headers(init?.headers);
+  headers.set("cookie", "better-auth.session_token=receipt-test-session");
+  if (init?.method !== undefined && init.method !== "GET") {
+    headers.set("origin", "http://127.0.0.1:5174");
+  }
+  return http.fetch(new Request(`http://backend.test${pathname}`, { ...init, headers }));
+};
 
 const multipartRequest = (http: ReceiptApiHttp, pathname: string): Promise<Response> => {
   const boundary = "receipt-http-test-boundary";

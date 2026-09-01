@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, it } from "vitest";
 import { Schema } from "effect";
-import { SessionActor, UserProfile } from "../schemas/user.js";
+import { SessionProjection, UserProfile } from "../schemas/user.js";
 import { makeTestRuntime } from "../../test/runtime.js";
 
 const testRuntime = makeTestRuntime();
@@ -24,22 +24,30 @@ describe("UserProfile", () => {
   });
 });
 
-describe("SessionActor", () => {
+describe("SessionProjection", () => {
   const strictDecode = (payload: unknown) =>
-    Schema.decodeUnknownSync(SessionActor)(payload, { onExcessProperty: "error" });
+    Schema.decodeUnknownSync(SessionProjection)(payload, { onExcessProperty: "error" });
+  const expected = {
+    sessionId: "session-1",
+    createdAt: "2026-08-25T14:00:00.000Z",
+    updatedAt: "2026-08-25T14:30:00.000Z",
+    expiresAt: "2026-09-01T14:00:00.000Z",
+    ipAddress: null,
+    userAgent: "sdk-test",
+    current: true,
+  } as const;
 
-  it("accepts the backend /api/me/session payload with expiresAt", () => {
-    expect(strictDecode({ personId: "x", expiresAt: "2026-08-25T14:54:13.221Z" })).toEqual({
-      personId: "x",
-      expiresAt: "2026-08-25T14:54:13.221Z",
-    });
+  it("accepts the exact credential-free native session projection", () => {
+    expect(strictDecode(expected)).toEqual(expected);
   });
 
-  it("accepts the backend session payload when expiresAt is absent", () => {
-    expect(strictDecode({ personId: "x" })).toEqual({ personId: "x" });
+  it("requires every safe session metadata field", () => {
+    const { expiresAt: _, ...missingExpiry } = expected;
+    expect(() => strictDecode(missingExpiry)).toThrow();
   });
 
-  it("still rejects unknown session properties under strict decoding", () => {
-    expect(() => strictDecode({ personId: "x", actor: true })).toThrow();
+  it("rejects identity and credential properties under strict decoding", () => {
+    expect(() => strictDecode({ ...expected, personId: "person-1" })).toThrow();
+    expect(() => strictDecode({ ...expected, token: "credential" })).toThrow();
   });
 });

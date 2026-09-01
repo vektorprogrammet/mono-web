@@ -41,10 +41,7 @@ function readFormText(form: FormData, name: string): string | null {
 
 function isReceiptStatus(value: string | null): value is ReceiptStatus {
   return (
-    value === "Pending" ||
-    value === "Refunded" ||
-    value === "Rejected" ||
-    value === "Withdrawn"
+    value === "Pending" || value === "Refunded" || value === "Rejected" || value === "Withdrawn"
   );
 }
 
@@ -55,9 +52,7 @@ function parseApprovalCommand(
   const receiptId = readFormText(form, "receiptId")?.trim() ?? "";
   const revisionText = readFormText(form, "expectedRevision")?.trim() ?? "";
   const commandId = readFormText(form, "commandId")?.trim() ?? "";
-  const decodedRevision = /^(0|[1-9]\d*)$/.test(revisionText)
-    ? Number(revisionText)
-    : Number.NaN;
+  const decodedRevision = /^(0|[1-9]\d*)$/.test(revisionText) ? Number(revisionText) : Number.NaN;
   const expectedRevision = Number.isSafeInteger(decodedRevision) ? decodedRevision : 0;
 
   if (receiptId.length === 0) {
@@ -112,7 +107,7 @@ function parseApprovalCommand(
 
 export async function loader({ request }: Route.LoaderArgs) {
   const cookie = await requireAuth(request);
-  const client = createAuthenticatedClient(cookie);
+  const client = createAuthenticatedClient(cookie, request);
   const requestedStatus = new URL(request.url).searchParams.get("status");
 
   if (requestedStatus !== null && !isReceiptStatus(requestedStatus)) {
@@ -150,7 +145,7 @@ export async function loader({ request }: Route.LoaderArgs) {
 
 export async function action({ request }: Route.ActionArgs) {
   const cookie = await requireAuth(request);
-  const client = createAuthenticatedClient(cookie);
+  const client = createAuthenticatedClient(cookie, request);
   const form = await request.formData();
   const intentValue = readFormText(form, "_intent");
 

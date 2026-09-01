@@ -136,7 +136,9 @@ describe("native domain schema boundary", () => {
           INNER JOIN pg_catalog.pg_namespace AS namespace
             ON namespace.oid = relation.relnamespace
           WHERE namespace.nspname = 'auth'
-            AND relation.relname IN ('user', 'session', 'account', 'verification')
+            AND relation.relname IN (
+              'user', 'session', 'account', 'verification', 'identity_security_audit'
+            )
             AND relation.relkind IN ('r', 'p', 'f')
           ORDER BY relation.relname
         `;
@@ -150,6 +152,7 @@ describe("native domain schema boundary", () => {
             ON namespace.oid = procedure.pronamespace
           WHERE procedure.proname IN (
             'prevent_content_publication_audit_mutation',
+            'prevent_identity_security_audit_mutation',
             'prevent_recruitment_interview_question_snapshot_mutation',
             'prevent_recruitment_interview_lifecycle_mutation'
           )
@@ -164,10 +167,13 @@ describe("native domain schema boundary", () => {
       [...inventory].sort().map((tableName) => ({ tableName, schemaName: "public" })),
     );
     expect(evidence.authTables).toEqual(
-      ["account", "session", "user", "verification"].map((tableName) => ({ tableName })),
+      ["account", "identity_security_audit", "session", "user", "verification"].map(
+        (tableName) => ({ tableName }),
+      ),
     );
     expect(evidence.triggerFunctions).toEqual([
       { functionName: "prevent_content_publication_audit_mutation", schemaName: "public" },
+      { functionName: "prevent_identity_security_audit_mutation", schemaName: "auth" },
       {
         functionName: "prevent_recruitment_interview_lifecycle_mutation",
         schemaName: "public",
@@ -178,6 +184,131 @@ describe("native domain schema boundary", () => {
       },
     ]);
   });
+});
+
+describe("identity security audit migration in PGlite", () => {
+  it("enforces the closed bounded append-only event contract", async () => {
+    const evidence = await runtime.runPromise(
+      Effect.gen(function* () {
+        const database = yield* Database;
+        yield* database`
+          INSERT INTO public.person_profiles (person_id, first_name, last_name)
+          VALUES ('identity-audit-person', 'Identity', 'Audit')
+          ON CONFLICT (person_id) DO NOTHING
+        `;
+        yield* database`
+          INSERT INTO auth.identity_security_audit (
+            event_id,
+            event_kind,
+            subject_person_id,
+            session_id,
+            actor_principal,
+            request_correlation,
+            source_ip,
+            user_agent,
+            details
+          ) VALUES (
+            'identity-audit-valid',
+            'session-revoked-one',
+            'identity-audit-person',
+            'opaque-session-id',
+            'person:identity-audit-person',
+            'identity-audit-request',
+            '127.0.0.1',
+            'migration-test',
+            ${database.json({ outcomeCode: "owned-session-revoked", affectedSessionCount: 1 })}
+          )
+        `;
+        const update = yield* Effect.exit(
+          database`
+            UPDATE auth.identity_security_audit
+            SET actor_principal = 'person:changed'
+            WHERE event_id = 'identity-audit-valid'
+          `.pipe(Effect.asVoid),
+        );
+        const deletion = yield* Effect.exit(
+          database`
+            DELETE FROM auth.identity_security_audit
+            WHERE event_id = 'identity-audit-valid'
+          `.pipe(Effect.asVoid),
+        );
+        const invalidKind = yield* Effect.exit(
+          database`
+            INSERT INTO auth.identity_security_audit (
+              event_id, event_kind, subject_person_id, actor_principal,
+              request_correlation, details
+            ) VALUES (
+              'identity-audit-open-kind',
+              'arbitrary-event',
+              'identity-audit-person',
+              'person:identity-audit-person',
+              'identity-audit-open-kind-request',
+              ${database.json({ outcomeCode: "owned-session-revoked", affectedSessionCount: 1 })}
+            )
+          `.pipe(Effect.asVoid),
+        );
+        const unboundedDetails = yield* Effect.exit(
+          database`
+            INSERT INTO auth.identity_security_audit (
+              event_id, event_kind, request_correlation, details
+            ) VALUES (
+              'identity-audit-secret-detail',
+              'sign-in-failure',
+              'identity-audit-secret-request',
+              ${database.json({
+                outcomeCode: "credential-rejected",
+                affectedSessionCount: 0,
+                password: "must-not-persist",
+              })}
+            )
+          `.pipe(Effect.asVoid),
+        );
+        const missingCorrelation = yield* Effect.exit(
+          database`
+            INSERT INTO auth.identity_security_audit (
+              event_id, event_kind, subject_person_id, actor_principal, details
+            ) VALUES (
+              'identity-audit-missing-correlation',
+              'session-revoked-one',
+              'identity-audit-person',
+              'person:identity-audit-person',
+              ${database.json({ outcomeCode: "owned-session-revoked", affectedSessionCount: 1 })}
+            )
+          `.pipe(Effect.asVoid),
+        );
+        const rows = yield* database<{
+          readonly eventId: string;
+          readonly details: unknown;
+        }>`
+          SELECT event_id AS "eventId", details
+          FROM auth.identity_security_audit
+          WHERE event_id = 'identity-audit-valid'
+        `;
+        return {
+          updateRejected: update._tag === "Failure",
+          deleteRejected: deletion._tag === "Failure",
+          invalidKindRejected: invalidKind._tag === "Failure",
+          unboundedDetailsRejected: unboundedDetails._tag === "Failure",
+          missingCorrelationRejected: missingCorrelation._tag === "Failure",
+          rows,
+        };
+      }),
+    );
+
+    expect(evidence).toEqual({
+      updateRejected: true,
+      deleteRejected: true,
+      invalidKindRejected: true,
+      unboundedDetailsRejected: true,
+      missingCorrelationRejected: true,
+      rows: [
+        {
+          eventId: "identity-audit-valid",
+          details: { outcomeCode: "owned-session-revoked", affectedSessionCount: 1 },
+        },
+      ],
+    });
+  }, 15_000);
 });
 
 describe("declarative authorization rule migration in PGlite", () => {
