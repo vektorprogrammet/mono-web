@@ -161,6 +161,22 @@ interface BackendBindingDefinition {
     readonly write_operation_semantic: string;
     readonly read_operation_semantic: string;
   }[];
+  /**
+   * Semantic identifiers the backend demonstrably does NOT satisfy. Empty by
+   * default (full satisfaction). Listed identifiers are subtracted from the
+   * implementation witness `satisfies` sets so the capability comparator
+   * records a structural mismatch instead of an unsupported blanket claim.
+   * Only the legacy backend declares unsatisfied identifiers today.
+   */
+  readonly unsatisfied?: BackendUnsatisfiedDeclarations;
+}
+
+export interface BackendUnsatisfiedDeclarations {
+  readonly assertion_ids?: readonly string[];
+  readonly effect_ids?: readonly string[];
+  readonly freshness_ids?: readonly string[];
+  readonly precondition_ids?: readonly string[];
+  readonly rejection_ids?: readonly string[];
 }
 
 interface TargetDefinition {
@@ -1319,6 +1335,31 @@ const witnessesFor = (
   const rejectionOperations = backendPlanValue.operation_nodes.filter(
     (entry) => entry.witness_id === ids.rejection,
   );
+  const unsatisfied = definition.backends[backendPlanValue.backend].unsatisfied ?? {};
+  const subtract = (values: readonly string[], excluded?: readonly string[]): string[] =>
+    excluded === undefined
+      ? [...values]
+      : values.filter((value) => !excluded.includes(value));
+  const satisfiesPreconditions = subtract(
+    definition.required_preconditions.map((entry) => entry.precondition_id),
+    unsatisfied.precondition_ids,
+  );
+  const satisfiesAssertions = subtract(
+    definition.warranted_outcomes.map((entry) => entry.assertion_id),
+    unsatisfied.assertion_ids,
+  );
+  const satisfiesEffects = subtract(
+    definition.side_effects.map((entry) => entry.effect_id),
+    unsatisfied.effect_ids,
+  );
+  const satisfiesRejections = subtract(
+    definition.rejections.map((entry) => entry.rejection_id),
+    unsatisfied.rejection_ids,
+  );
+  const satisfiesFreshness = subtract(
+    definition.freshness.map((entry) => entry.freshness_id),
+    unsatisfied.freshness_ids,
+  );
   const acceptedNodes: readonly WitnessNode[] = [
     ...operationWitnessNodes(acceptedOperations),
     {
@@ -1392,10 +1433,10 @@ const witnessesFor = (
       edges: acceptedEdges,
       satisfies: {
         precondition_ids: [],
-        assertion_ids: definition.warranted_outcomes.map((entry) => entry.assertion_id),
-        effect_ids: definition.side_effects.map((entry) => entry.effect_id),
+        assertion_ids: satisfiesAssertions,
+        effect_ids: satisfiesEffects,
         rejection_ids: [],
-        freshness_ids: definition.freshness.map((entry) => entry.freshness_id),
+        freshness_ids: satisfiesFreshness,
       },
       evidence_receipt_ref_ids: receiptRefIds,
     },
@@ -1405,7 +1446,7 @@ const witnessesFor = (
       nodes: [...operationWitnessNodes(authorizationOperations), authorizationTerminal],
       edges: authorizationEdges,
       satisfies: {
-        precondition_ids: definition.required_preconditions.map((entry) => entry.precondition_id),
+        precondition_ids: satisfiesPreconditions,
         assertion_ids: [],
         effect_ids: [],
         rejection_ids: [],
@@ -1425,7 +1466,7 @@ const witnessesFor = (
         precondition_ids: [],
         assertion_ids: [],
         effect_ids: [],
-        rejection_ids: definition.rejections.map((entry) => entry.rejection_id),
+        rejection_ids: satisfiesRejections,
         freshness_ids: [],
       },
       evidence_receipt_ref_ids: receiptRefIds,

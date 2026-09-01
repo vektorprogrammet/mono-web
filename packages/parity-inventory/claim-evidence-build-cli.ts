@@ -3,8 +3,11 @@ import { readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, relative, resolve } from "node:path";
 import {
   migrateAcceptedIntentV1,
+  type AcceptedIntentV2,
   type AtomicOperationCatalog,
   type AuthorityPin,
+  type Backend,
+  type CapabilityEvidenceReceipt,
   validateAcceptedIntentV2,
   validateAtomicOperationCatalog,
   validateCapabilityEvidenceV2,
@@ -23,15 +26,21 @@ import { canonicalJson, sha256, stableId } from "./src/canonical.js";
 import {
   JourneyObservationArtifactSchema,
   type JourneyObservationArtifact,
-  type JourneyRunRecord,
   type NativeJourneyRunManifest,
 } from "./src/journey-evidence.js";
+import {
+  LegacyJourneyObservationArtifactSchema,
+  type LegacyJourneyObservationArtifact,
+  type LegacyJourneyRunManifest,
+  type LegacyJourneyRunRecord,
+} from "./src/legacy-journey-evidence.js";
 import { inspectJsonMembers, isJsonObject } from "./src/json-safety.js";
 import { Schema } from "effect";
 
 interface Options {
   readonly evidenceRoot: string;
   readonly intentAuthority: string;
+  readonly legacyManifest: string | null;
   readonly runtimeAuthority: string;
 }
 
@@ -47,9 +56,16 @@ const parseArguments = (arguments_: readonly string[]): Options => {
   }
   const evidenceRoot = values.get("--evidence-root");
   const intentAuthority = values.get("--intent-authority");
+  const legacyManifest = values.get("--legacy-manifest") ?? null;
   const runtimeAuthority = values.get("--runtime-authority");
+  const recognized = [
+    "--evidence-root",
+    "--intent-authority",
+    "--legacy-manifest",
+    "--runtime-authority",
+  ];
   if (
-    values.size !== 3 ||
+    [...values.keys()].some((name) => !recognized.includes(name)) ||
     evidenceRoot === undefined ||
     intentAuthority === undefined ||
     runtimeAuthority === undefined
@@ -59,6 +75,7 @@ const parseArguments = (arguments_: readonly string[]): Options => {
   return {
     evidenceRoot: resolve(evidenceRoot),
     intentAuthority: resolve(intentAuthority),
+    legacyManifest: legacyManifest === null ? null : resolve(legacyManifest),
     runtimeAuthority: resolve(runtimeAuthority),
   };
 };
@@ -126,23 +143,30 @@ const requirePlan = (
   if (plan === undefined) throw new Error(`CLAIM_EVIDENCE_PLAN_MISSING:${intentRefId}`);
   return plan;
 };
+type BuildTimeJourneyArtifact =
+  | { readonly backend: "legacy_symfony"; readonly value: LegacyJourneyObservationArtifact }
+  | { readonly backend: "native_effect"; readonly value: JourneyObservationArtifact };
 
-const includesSemantic = (values: readonly string[], semanticId: string | null): boolean =>
-  semanticId !== null && values.includes(semanticId);
+const backendPlanFor = (plan: ClaimIntentEvidencePlan, backend: Backend) =>
+  backend === "legacy_symfony" ? plan.backends.legacy_symfony : plan.backends.native_effect;
 
 const methodObserved = (
   observation: ClaimObservationPlanEntry,
   plan: ClaimIntentEvidencePlan,
-  artifact: JourneyObservationArtifact,
-  run: JourneyRunRecord,
+  backend: Backend,
+  artifact: BuildTimeJourneyArtifact,
+  run: { readonly result: string },
 ): boolean => {
-  const operation = plan.backends.native_effect.operation_nodes.find(
+  const backendPlan = backendPlanFor(plan, backend);
+  if (artifact.backend !== backend) return false;
+  const observations = artifact.value.observations;
+  const operation = backendPlan.operation_nodes.find(
     (entry) => entry.node_id === observation.node_id,
   );
   const matching =
     operation === undefined
       ? []
-      : artifact.observations.filter(
+      : observations.filter(
           (entry) =>
             entry.method === operation.method && entry.path_template === operation.path_template,
         );
@@ -151,10 +175,10 @@ const methodObserved = (
       return run.result === "passed";
     case "exact_http_operation":
       if (operation === undefined) return false;
-      if (operation.witness_id === plan.backends.native_effect.witness_ids.accepted) {
+      if (operation.witness_id === backendPlan.witness_ids.accepted) {
         return matching.some((entry) => entry.status >= 200 && entry.status < 300);
       }
-      if (operation.witness_id === plan.backends.native_effect.witness_ids.authorization) {
+      if (operation.witness_id === backendPlan.witness_ids.authorization) {
         return matching.some(
           (entry) => entry.status === 401 || entry.status === 403 || entry.status === 404,
         );
@@ -165,7 +189,7 @@ const methodObserved = (
     case "authorization_boundary_request":
       return (
         includesSemantic(
-          artifact.verified_semantics.precondition_ids,
+          artifact.value.verified_semantics.precondition_ids,
           observation.precondition_id,
         ) &&
         matching.some(
@@ -174,14 +198,19 @@ const methodObserved = (
       );
     case "user_visible_boundary_read":
       return (
-        includesSemantic(artifact.verified_semantics.assertion_ids, observation.assertion_id) &&
-        artifact.observations.some((entry) => entry.status >= 200 && entry.status < 300)
+        includesSemantic(
+          artifact.value.verified_semantics.assertion_ids,
+          observation.assertion_id,
+        ) && observations.some((entry) => entry.status >= 200 && entry.status < 300)
       );
     case "invalid_transition_with_state_readback":
       return (
-        includesSemantic(artifact.verified_semantics.rejection_ids, observation.rejection_id) &&
+        includesSemantic(
+          artifact.value.verified_semantics.rejection_ids,
+          observation.rejection_id,
+        ) &&
         matching.some((entry) => entry.status >= 400) &&
-        artifact.observations.some(
+        observations.some(
           (entry) =>
             entry.observation_method === "fresh_http_read_after_write" &&
             entry.status >= 200 &&
@@ -190,21 +219,22 @@ const methodObserved = (
       );
     case "fresh_database_readback":
       return (
-        includesSemantic(artifact.verified_semantics.effect_ids, observation.effect_id) &&
-        artifact.database_observation.method === "fresh_psql_read_back" &&
-        Object.values(artifact.database_observation.row_counts).every((count) => count > 0)
+        includesSemantic(artifact.value.verified_semantics.effect_ids, observation.effect_id) &&
+        artifact.value.database_observation.method === databaseMethodFor(backend) &&
+        Object.values(artifact.value.database_observation.row_counts).every((count) => count > 0)
       );
     case "ordered_durable_outbox_readback":
       return (
-        includesSemantic(artifact.verified_semantics.effect_ids, observation.effect_id) &&
-        artifact.database_observation.method === "fresh_psql_read_back" &&
-        (artifact.database_observation.row_counts.outbox ??
-          artifact.database_observation.row_counts.invitation_outbox ??
-          0) > 0
+        includesSemantic(artifact.value.verified_semantics.effect_ids, observation.effect_id) &&
+        artifact.value.database_observation.method === databaseMethodFor(backend) &&
+        outboxRowCount(artifact.value.database_observation.row_counts) > 0
       );
     case "second_fresh_http_read":
       return (
-        includesSemantic(artifact.verified_semantics.freshness_ids, observation.freshness_id) &&
+        includesSemantic(
+          artifact.value.verified_semantics.freshness_ids,
+          observation.freshness_id,
+        ) &&
         matching.some(
           (entry) =>
             entry.observation_method === "fresh_http_read_after_write" &&
@@ -216,20 +246,131 @@ const methodObserved = (
       return false;
   }
 };
-
 const observedIds = (
   plan: ClaimIntentEvidencePlan,
-  artifact: JourneyObservationArtifact,
-  run: JourneyRunRecord,
+  backend: Backend,
+  artifact: BuildTimeJourneyArtifact,
+  run: { readonly result: string },
 ): readonly string[] =>
-  plan.backends.native_effect.observations.map((observation) => {
-    if (!methodObserved(observation, plan, artifact, run)) {
+  backendPlanFor(plan, backend).observations.flatMap((observation) => {
+    if (!methodObserved(observation, plan, backend, artifact, run)) {
       throw new Error(
         `CLAIM_EVIDENCE_METHOD_NOT_OBSERVED:${plan.intent_ref_id}:${observation.observation_method}:${observation.observation_id}`,
       );
     }
-    return observation.observation_id;
+    return [observation.observation_id];
   });
+
+const databaseMethodFor = (backend: Backend): string =>
+  backend === "legacy_symfony" ? "fresh_sqlite_read_back" : "fresh_psql_read_back";
+
+const outboxRowCount = (rowCounts: Readonly<Record<string, number>>): number =>
+  rowCounts.outbox ?? rowCounts.invitation_outbox ?? rowCounts.subscribers ?? 0;
+
+const readArtifactFile = async (
+  evidenceRoot: string,
+  run: { readonly artifact_pointer: string; readonly intent_ref_id: string },
+): Promise<string> => {
+  const artifactPath = resolve(evidenceRoot, run.artifact_pointer);
+  if (!artifactPath.startsWith(`${evidenceRoot}/`)) {
+    throw new Error("CLAIM_EVIDENCE_ARTIFACT_PATH_INVALID");
+  }
+  const artifactBytes = await readFile(artifactPath, "utf8");
+  if (sha256(artifactBytes) !== run.artifact_digest) {
+    throw new Error(`CLAIM_EVIDENCE_ARTIFACT_DRIFT:${run.intent_ref_id}`);
+  }
+  return artifactBytes;
+};
+
+const buildNativeReceipt = async (
+  acceptedIntent: AcceptedIntentV2,
+  catalogs: ClaimEvidenceCatalogs,
+  plans: readonly ClaimIntentEvidencePlan[],
+  receiptRefs: readonly ClaimEvidenceReceiptRef[],
+  options: Options,
+  runnerDigest: string,
+  run: JourneyRunRecord,
+): Promise<CapabilityEvidenceReceipt> => {
+  if (run.runner_digest !== runnerDigest) {
+    throw new Error(`CLAIM_EVIDENCE_RUNNER_DRIFT:${run.intent_ref_id}`);
+  }
+  const plan = requirePlan(plans, run.intent_ref_id);
+  const artifactBytes = await readArtifactFile(options.evidenceRoot, run);
+  const artifact = Schema.decodeUnknownSync(JourneyObservationArtifactSchema, {
+    onExcessProperty: "error",
+  })(parseJson(artifactBytes, "journey artifact"));
+  if (artifact.intent_ref_id !== run.intent_ref_id) {
+    throw new Error(`CLAIM_EVIDENCE_ARTIFACT_INTENT_MISMATCH:${run.intent_ref_id}`);
+  }
+  const receiptRef = receiptRefs.find(
+    (entry) => entry.intent_ref_id === plan.intent_ref_id && entry.backend === "native_effect",
+  );
+  if (receiptRef === undefined) throw new Error("CLAIM_EVIDENCE_RECEIPT_REF_MISSING");
+  return buildCapabilityEvidenceReceipt({
+    accepted_intent: acceptedIntent,
+    artifact_digest: run.artifact_digest,
+    artifact_pointer: run.artifact_pointer,
+    backend: "native_effect",
+    catalogs,
+    exit_code: 0,
+    fixture_digest: run.fixture_digest,
+    intent_ref_id: plan.intent_ref_id,
+    observed_observation_ids: observedIds(
+      plan,
+      "native_effect",
+      { backend: "native_effect", value: artifact },
+      run,
+    ),
+    receipt_ref_id: receiptRef.receipt_ref_id,
+    result: "passed",
+    runner_digest: run.runner_digest,
+  });
+};
+
+const buildLegacyReceipt = async (
+  acceptedIntent: AcceptedIntentV2,
+  catalogs: ClaimEvidenceCatalogs,
+  plans: readonly ClaimIntentEvidencePlan[],
+  receiptRefs: readonly ClaimEvidenceReceiptRef[],
+  options: Options,
+  runnerDigest: string,
+  run: LegacyJourneyRunRecord,
+): Promise<CapabilityEvidenceReceipt> => {
+  if (run.runner_digest !== runnerDigest) {
+    throw new Error(`CLAIM_EVIDENCE_RUNNER_DRIFT:${run.intent_ref_id}`);
+  }
+  const plan = requirePlan(plans, run.intent_ref_id);
+  const artifactBytes = await readArtifactFile(options.evidenceRoot, run);
+  const artifact = Schema.decodeUnknownSync(LegacyJourneyObservationArtifactSchema, {
+    onExcessProperty: "error",
+  })(parseJson(artifactBytes, "legacy journey artifact"));
+  if (artifact.intent_ref_id !== run.intent_ref_id) {
+    throw new Error(`CLAIM_EVIDENCE_ARTIFACT_INTENT_MISMATCH:${run.intent_ref_id}`);
+  }
+  const receiptRef = receiptRefs.find(
+    (entry) => entry.intent_ref_id === plan.intent_ref_id && entry.backend === "legacy_symfony",
+  );
+  if (receiptRef === undefined) throw new Error("CLAIM_EVIDENCE_RECEIPT_REF_MISSING");
+  return buildCapabilityEvidenceReceipt({
+    accepted_intent: acceptedIntent,
+    artifact_digest: run.artifact_digest,
+    artifact_pointer: run.artifact_pointer,
+    backend: "legacy_symfony",
+    catalogs,
+    exit_code: 0,
+    fixture_digest: run.fixture_digest,
+    intent_ref_id: plan.intent_ref_id,
+    observed_observation_ids: observedIds(
+      plan,
+      "legacy_symfony",
+      { backend: "legacy_symfony", value: artifact },
+      run,
+    ),
+    receipt_ref_id: receiptRef.receipt_ref_id,
+    result: "passed",
+    runner_digest: run.runner_digest,
+  });
+};
 
 const main = async (): Promise<void> => {
   const options = parseArguments(process.argv.slice(2));
@@ -243,6 +384,15 @@ const main = async (): Promise<void> => {
       readFile(resolve(options.evidenceRoot, "native-run-manifest.json"), "utf8"),
       readFile(resolve(import.meta.dir, "src/journey-evidence.ts")),
     ]);
+  if (options.legacyManifest !== null) {
+    // Kept for argument compatibility; the manifest itself lives in the evidence root.
+  }
+  const legacyManifestBytes =
+    options.legacyManifest === null ? null : await readFile(options.legacyManifest, "utf8");
+  const legacyRunnerBytes =
+    options.legacyManifest === null
+      ? null
+      : await readFile(resolve(import.meta.dir, "src/legacy-journey-evidence.ts"));
   const catalogs: ClaimEvidenceCatalogs = {
     legacy: decodeCatalog(parseJson(legacyBytes, "atomic legacy"), "atomic legacy"),
     native: decodeCatalog(parseJson(nativeBytes, "atomic native"), "atomic native"),
@@ -253,64 +403,60 @@ const main = async (): Promise<void> => {
   if (manifest.schema_version !== "claim-specific-journey-run/v1") {
     throw new Error("CLAIM_EVIDENCE_RUN_MANIFEST_SCHEMA_INVALID");
   }
+  const legacyManifest =
+    legacyManifestBytes === null || legacyRunnerBytes === null
+      ? null
+      : (parseJson(legacyManifestBytes, "legacy run manifest") as LegacyJourneyRunManifest);
+  if (
+    legacyManifest !== null &&
+    legacyManifest.schema_version !== "claim-specific-legacy-journey-run/v1"
+  ) {
+    throw new Error("CLAIM_EVIDENCE_LEGACY_RUN_MANIFEST_SCHEMA_INVALID");
+  }
   const [intentSourcePin, runtimeSourcePin] = await Promise.all([
     pinExternalAuthority(options.intentAuthority, intentV1),
     pinExternalAuthority(options.runtimeAuthority, runtimeV1),
   ]);
   const migrated = migrateAcceptedIntentV1(intentV1, intentSourcePin);
   const plans = claimEvidencePlan(catalogs);
-  const receiptRefs: readonly ClaimEvidenceReceiptRef[] = plans.map((plan) => ({
-    backend: "native_effect",
-    intent_ref_id: plan.intent_ref_id,
-    receipt_ref_id: stableId("receipt", {
-      backend: "native_effect",
+  const receiptRefs: readonly ClaimEvidenceReceiptRef[] = plans.flatMap((plan) =>
+    (["legacy_symfony", "native_effect"] as const).map((backend) => ({
+      backend,
       intent_ref_id: plan.intent_ref_id,
-      intent_revision: plan.intent_revision,
-    }),
-  }));
+      receipt_ref_id: stableId("receipt", {
+        backend,
+        intent_ref_id: plan.intent_ref_id,
+        intent_revision: plan.intent_revision,
+      }),
+    })),
+  );
   const acceptedIntent = buildClaimSpecificAcceptedIntentV2(migrated, catalogs, receiptRefs);
   if (!validateAcceptedIntentV2(acceptedIntent)) {
     throw new Error("CLAIM_EVIDENCE_ACCEPTED_INTENT_SCHEMA_INVALID");
   }
   const runnerDigest = sha256(runnerBytes);
-  const receipts = await Promise.all(
-    manifest.native.map(async (run) => {
-      if (run.runner_digest !== runnerDigest) {
-        throw new Error(`CLAIM_EVIDENCE_RUNNER_DRIFT:${run.intent_ref_id}`);
-      }
-      const plan = requirePlan(plans, run.intent_ref_id);
-      const artifactPath = resolve(options.evidenceRoot, run.artifact_pointer);
-      if (!artifactPath.startsWith(`${options.evidenceRoot}/`)) {
-        throw new Error("CLAIM_EVIDENCE_ARTIFACT_PATH_INVALID");
-      }
-      const artifactBytes = await readFile(artifactPath, "utf8");
-      if (sha256(artifactBytes) !== run.artifact_digest) {
-        throw new Error(`CLAIM_EVIDENCE_ARTIFACT_DRIFT:${run.intent_ref_id}`);
-      }
-      const artifact = Schema.decodeUnknownSync(JourneyObservationArtifactSchema, {
-        onExcessProperty: "error",
-      })(parseJson(artifactBytes, "journey artifact"));
-      if (artifact.intent_ref_id !== run.intent_ref_id) {
-        throw new Error(`CLAIM_EVIDENCE_ARTIFACT_INTENT_MISMATCH:${run.intent_ref_id}`);
-      }
-      const receiptRef = receiptRefs.find((entry) => entry.intent_ref_id === plan.intent_ref_id);
-      if (receiptRef === undefined) throw new Error("CLAIM_EVIDENCE_RECEIPT_REF_MISSING");
-      return buildCapabilityEvidenceReceipt({
-        accepted_intent: acceptedIntent,
-        artifact_digest: run.artifact_digest,
-        artifact_pointer: run.artifact_pointer,
-        backend: "native_effect",
-        catalogs,
-        exit_code: 0,
-        fixture_digest: run.fixture_digest,
-        intent_ref_id: plan.intent_ref_id,
-        observed_observation_ids: observedIds(plan, artifact, run),
-        receipt_ref_id: receiptRef.receipt_ref_id,
-        result: "passed",
-        runner_digest: run.runner_digest,
-      });
-    }),
+  const nativeReceipts = await Promise.all(
+    manifest.native.map((run) =>
+      buildNativeReceipt(acceptedIntent, catalogs, plans, receiptRefs, options, runnerDigest, run),
+    ),
   );
+  const legacyReceipts =
+    legacyManifest === null
+      ? []
+      : await Promise.all(
+          legacyManifest.legacy.map((run) =>
+            buildLegacyReceipt(
+              acceptedIntent,
+              catalogs,
+              plans,
+              receiptRefs,
+              options,
+              sha256(legacyRunnerBytes!),
+              run,
+            ),
+          ),
+        );
+  const receipts = [...nativeReceipts, ...legacyReceipts];
   const runtimeEvidence = buildCapabilityRuntimeEvidenceV2(runtimeSourcePin, receipts);
   if (!validateCapabilityEvidenceV2(runtimeEvidence)) {
     throw new Error("CLAIM_EVIDENCE_RUNTIME_REGISTER_SCHEMA_INVALID");
@@ -323,9 +469,10 @@ const main = async (): Promise<void> => {
     writeFile(acceptedPath, acceptedBytes, "utf8"),
     writeFile(evidencePath, evidenceBytes, "utf8"),
   ]);
+  const legacyRunnerDigest = legacyRunnerBytes === null ? null : sha256(legacyRunnerBytes);
   const generationReceipt = {
     artifact_digests: Object.fromEntries(
-      manifest.native
+      [...manifest.native, ...(legacyManifest?.legacy ?? [])]
         .map((run) => [run.artifact_pointer, run.artifact_digest] as const)
         .sort(([left], [right]) => left.localeCompare(right)),
     ),
@@ -339,6 +486,7 @@ const main = async (): Promise<void> => {
     },
     generator: {
       fixture_digest: manifest.native[0]?.fixture_digest ?? null,
+      legacy_runner_digest: legacyRunnerDigest,
       runner_digest: runnerDigest,
       source_revision_ref: await git(repositoryRoot, [
         "log",
@@ -347,9 +495,12 @@ const main = async (): Promise<void> => {
         "--",
         "packages/parity-inventory/src/claim-evidence.ts",
         "packages/parity-inventory/src/journey-evidence.ts",
+        "packages/parity-inventory/src/legacy-journey-evidence.ts",
       ]),
     },
     legacy_gate: manifest.legacy_gate,
+    legacy_run_manifest:
+      options.legacyManifest === null ? null : (legacyManifest?.schema_version ?? null),
     receipt_ref_ids: receipts.map((receipt) => receipt.receipt_ref_id).sort(),
     schema_version: "claim-specific-evidence-generation-receipt/v1",
   };
