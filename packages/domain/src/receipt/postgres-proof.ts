@@ -344,10 +344,7 @@ export const runReceiptPostgresProof: Effect.Effect<ReceiptProofEvidence, unknow
       ),
     );
     const assistantProjection = yield* listAssistantReceipts(ownerPersonId);
-    const approverProjection = yield* listApproverReceipts({
-      _tag: "Department",
-      departmentId: DepartmentId.make("proof-department"),
-    });
+    const approverProjection = yield* listApproverReceipts();
     const totals = yield* receiptStatusTotals;
 
     const [receipts, commandReceipts, outbox, audit, importLedger, rolledBack] = yield* Effect.all([

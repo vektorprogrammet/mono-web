@@ -1,101 +1,121 @@
-import { RECEIPT_DOMAIN_ID } from "../authz/access.js";
-import type { OrganizationPersonAuthority } from "../organization/authority.js";
-import type { DepartmentId } from "../organization/schema.js";
+import {
+  AuthorityVersion,
+  RECEIPT_DOMAIN_ID,
+  RECEIPT_RESOURCE_KIND,
+  ResourceId,
+  type CanonicalResourceContext,
+  type ReceiptAccessFacts,
+} from "../authz/access.js";
 import { allow, deny, type Decision, type DecisionReason } from "../authz/decision.js";
 import { composeCapabilityEvidence } from "../authz/rules.js";
 import type { AuthzRule, AuthzTagAssignment } from "../authz/schema.js";
+import type { OrganizationPersonAuthority } from "../organization/authority.js";
+import type { DepartmentId } from "../organization/schema.js";
 import {
   projectReceiptAuthority,
   selectReceiptApprovalGrant,
   type ReceiptAuthority,
 } from "./authority.js";
+import type { ReceiptListItem } from "./projections.js";
 
-export type ReceiptApprovalVisibility =
-  | { readonly _tag: "Global" }
-  | {
-      readonly _tag: "Departments";
-      readonly departmentIds: ReadonlyArray<DepartmentId>;
-    };
+export type ReceiptApprovalCandidate = Pick<
+  ReceiptListItem,
+  "receiptId" | "ownerPersonId" | "departmentId" | "status" | "revision"
+>;
+export type ReceiptApprovalSelection = {
+  readonly receiptIds: ReadonlyArray<string>;
+};
 
 const compareText = (left: string, right: string): -1 | 0 | 1 =>
   left < right ? -1 : left > right ? 1 : 0;
 
-/**
- * Resolves the approval projection from direct facts and rule facts at the same
- * instant. Every department-scoped rule is recomposed against that canonical
- * department, so a delegated global slot cannot escape its rule scope.
- */
-export const resolveReceiptApprovalVisibility = (
+const isCanonicalApproverRelationship = (
+  organization: OrganizationPersonAuthority,
+  departmentId: DepartmentId,
+): boolean =>
+  organization.globalAdministrator === "Active" ||
+  organization.memberships.some(
+    (membership) => membership.active && membership.departmentId === departmentId,
+  );
+
+const receiptAuthorityVersion = (
+  receipt: ReceiptApprovalCandidate,
   organization: OrganizationPersonAuthority,
   directAuthority: ReceiptAuthority,
-  canonicalDepartmentIds: ReadonlyArray<DepartmentId>,
+  rules: ReadonlyArray<AuthzRule>,
+): AuthorityVersion =>
+  AuthorityVersion.make(
+    [
+      `receipt:${receipt.receiptId}:${receipt.revision}`,
+      `organization:${organization.globalAdministrator}`,
+      ...organization.memberships
+        .map(
+          (membership) =>
+            `membership:${membership.membershipId}:${membership.active ? "active" : "inactive"}`,
+        )
+        .sort(compareText),
+      ...directAuthority.approvalGrants
+        .map((grant) => `grant:${grant.approvalGrantId}:${grant.revision}:${grant.active}`)
+        .sort(compareText),
+      ...rules.map((rule) => `rule:${rule.ruleId}:${rule.revision}`).sort(compareText),
+    ].join("|"),
+  );
+
+export const makeReceiptApprovalContext = (
+  receipt: ReceiptApprovalCandidate,
+  organization: OrganizationPersonAuthority,
+  directAuthority: ReceiptAuthority,
+  rules: ReadonlyArray<AuthzRule>,
+): CanonicalResourceContext<ReceiptAccessFacts> => ({
+  domainId: RECEIPT_DOMAIN_ID,
+  departmentId: receipt.departmentId,
+  resource: {
+    kind: RECEIPT_RESOURCE_KIND,
+    id: ResourceId.make(receipt.receiptId),
+  },
+  facts: {
+    ownerPersonId: receipt.ownerPersonId,
+    state: receipt.status,
+    approverPersonIds: isCanonicalApproverRelationship(organization, receipt.departmentId)
+      ? [directAuthority.personId]
+      : [],
+    internalEvidenceEnabled: false,
+  },
+  authorityVersion: receiptAuthorityVersion(receipt, organization, directAuthority, rules),
+});
+
+/**
+ * Evaluates every collection row against its canonical receipt context. The
+ * result never widens one accepted row into department-wide visibility.
+ */
+export const selectAuthorizedReceiptApprovals = (
+  organization: OrganizationPersonAuthority,
+  directAuthority: ReceiptAuthority,
+  candidates: ReadonlyArray<ReceiptApprovalCandidate>,
   rules: ReadonlyArray<AuthzRule>,
   tagAssignments: ReadonlyArray<AuthzTagAssignment>,
-): Decision<ReceiptApprovalVisibility> => {
+): Decision<ReceiptApprovalSelection> => {
   if (directAuthority.organizationAuthority !== "Active") {
     return deny("AuthorityInactive");
   }
 
   const directEvidence = { approvalGrants: directAuthority.approvalGrants };
-  const globalSlotRules = rules.filter(
-    (rule) =>
-      rule.capabilityId === "approveReceipt" &&
-      rule.params.slot === "EconomyGlobalReceiptApprovalGrant",
-  );
-  const globalComposition = composeCapabilityEvidence(
-    "approveReceipt",
-    directEvidence,
-    globalSlotRules,
-    {
-      personId: directAuthority.personId,
-      authorizationInstant: directAuthority.evaluatedAt,
-      requestScope: { domainId: RECEIPT_DOMAIN_ID },
-      tagAssignments,
-    },
-  );
-  let composedDenialReason: DecisionReason | undefined =
-    globalComposition.decision._tag === "Deny" ? globalComposition.decision.reason : undefined;
+
+  if (candidates.length === 0) return allow({ receiptIds: [] });
+  const receiptIds: string[] = [];
+  let denialReason: DecisionReason | undefined;
   let inactiveGrantSeen = directAuthority.approvalGrants.length > 0;
-  if (globalComposition.decision._tag === "Allow") {
-    const globalAuthority = projectReceiptAuthority(
-      organization,
-      [],
-      globalComposition.decision.value.approvalGrants ?? [],
-    );
-    let globalGrantSeen = false;
-    for (const grant of globalAuthority.approvalGrants) {
-      if (grant.scope._tag !== "Global") continue;
-      globalGrantSeen = true;
-      if (grant.active) return allow<ReceiptApprovalVisibility>({ _tag: "Global" });
-    }
-    inactiveGrantSeen ||= globalGrantSeen;
-  }
 
-  const candidateDepartments = new Map<string, DepartmentId>();
-  for (const departmentId of canonicalDepartmentIds) {
-    candidateDepartments.set(departmentId, departmentId);
-  }
-  for (const grant of directAuthority.approvalGrants) {
-    if (grant.scope._tag === "Department") {
-      candidateDepartments.set(grant.scope.departmentId, grant.scope.departmentId);
-    }
-  }
-  for (const rule of rules) {
-    if (rule.scope._tag === "Department") {
-      candidateDepartments.set(rule.scope.departmentId, rule.scope.departmentId);
-    }
-  }
-
-  const visibleDepartmentIds: Array<DepartmentId> = [];
-  for (const departmentId of Array.from(candidateDepartments.values()).sort(compareText)) {
+  for (const receipt of candidates) {
+    const context = makeReceiptApprovalContext(receipt, organization, directAuthority, rules);
     const composition = composeCapabilityEvidence("approveReceipt", directEvidence, rules, {
       personId: directAuthority.personId,
       authorizationInstant: directAuthority.evaluatedAt,
-      requestScope: { domainId: RECEIPT_DOMAIN_ID, departmentId },
+      context,
       tagAssignments,
     });
     if (composition.decision._tag === "Deny") {
-      composedDenialReason ??= composition.decision.reason;
+      denialReason ??= composition.decision.reason;
       continue;
     }
     const authority = projectReceiptAuthority(
@@ -103,20 +123,15 @@ export const resolveReceiptApprovalVisibility = (
       [],
       composition.decision.value.approvalGrants ?? [],
     );
-    const selected = selectReceiptApprovalGrant(authority, departmentId);
+    const selected = selectReceiptApprovalGrant(authority, receipt.departmentId);
     if (selected?.active === true) {
-      visibleDepartmentIds.push(departmentId);
+      receiptIds.push(receipt.receiptId);
     } else {
       inactiveGrantSeen ||= selected !== undefined;
     }
   }
 
-  return visibleDepartmentIds.length > 0
-    ? allow<ReceiptApprovalVisibility>({
-        _tag: "Departments",
-        departmentIds: visibleDepartmentIds,
-      })
-    : composedDenialReason === undefined
-      ? deny(inactiveGrantSeen ? "AuthorityInactive" : "NotInScope")
-      : deny(composedDenialReason);
+  if (receiptIds.length > 0) return allow({ receiptIds });
+  if (denialReason !== undefined) return deny(denialReason);
+  return deny(inactiveGrantSeen ? "AuthorityInactive" : "NotInScope");
 };

@@ -10,6 +10,7 @@
     "test": "vitest run",
     "proof:receipt": "bun run runtime/receipt-postgres-proof-main.ts",
     "proof:authorization-rules": "bun run runtime/authorization-rules-postgres-proof-main.ts",
+    "trace:rule-reconciliation": "bun run runtime/rule-reconciliation-postgres-tracer-main.ts",
     "proof:scheduling-postgres": "bun run runtime/scheduling-postgres-proof-main.ts",
     "proof:invitation-response-postgres": "bun run runtime/invitation-response-postgres-proof-main.ts",
     "proof:organization-postgres": "bun run runtime/organization-postgres-proof-main.ts",

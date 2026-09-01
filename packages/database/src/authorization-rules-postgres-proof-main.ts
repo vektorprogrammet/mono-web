@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import {
+  AuthorityVersion,
   AUTHZ_LOCK_PROTOCOL,
   AuthzRuleId,
   AuthzTagAssignmentId,
@@ -12,6 +14,8 @@ import {
   loadApplicableAuthorizationRules,
   persistDisposableAuthzBackfill,
   RECEIPT_DOMAIN_ID,
+  RECEIPT_RESOURCE_KIND,
+  ResourceId,
   removeAuthzRule,
   type DisposableAuthzBackfillPlan,
 } from "@vektorprogrammet/domain/authz";
@@ -61,6 +65,7 @@ import { resolveOrganizationPersonAuthorityForRead } from "../../domain/src/orga
 import { executeReceiptCommand } from "../../domain/src/receipt/postgres.js";
 import { DatabaseLive } from "./layers.js";
 import { databaseMigrationDefinitions, databaseSchemaRevision } from "./migrations.js";
+import { proveRuleReconciliationMigration } from "./rule-reconciliation-migration-postgres-proof.js";
 import {
   reversedDisposableAuthzBackfillInput,
   validDisposableAuthzBackfillInput,
@@ -200,6 +205,22 @@ const generatedVisualIds = {
 
 const personId = (value: string) => PersonId.make(value);
 const departmentId = (value: string) => DepartmentId.make(value);
+
+const proofReceiptContext = (department: DepartmentId) => ({
+  domainId: RECEIPT_DOMAIN_ID,
+  departmentId: department,
+  resource: {
+    kind: RECEIPT_RESOURCE_KIND,
+    id: ResourceId.make("authz-0056-proof-context-receipt"),
+  },
+  facts: {
+    ownerPersonId: personId(ids.persons.direct),
+    state: "Pending",
+    approverPersonIds: [personId(ids.persons.ruleApprove)],
+    internalEvidenceEnabled: false,
+  },
+  authorityVersion: AuthorityVersion.make("authz-0056-proof-context-v1"),
+});
 
 const file = (suffix: string): ReceiptFile => ({
   fileRef: `authz-0056-proof-file-${suffix}`,
@@ -1144,12 +1165,12 @@ const submissionCompositionFacts = (
       authorizationInstant,
       organization,
     );
-    const requestScope = { domainId: RECEIPT_DOMAIN_ID, departmentId: departmentScope };
+    const context = proofReceiptContext(departmentScope);
     const applicable = yield* loadApplicableAuthorizationRules(
       subject,
       "submitReceipt",
       authorizationInstant,
-      requestScope,
+      context,
     );
     const composition = composeCapabilityEvidence(
       "submitReceipt",
@@ -1158,7 +1179,7 @@ const submissionCompositionFacts = (
       {
         personId: subject,
         authorizationInstant,
-        requestScope,
+        context,
         tagAssignments: applicable.tagAssignments,
       },
     );
@@ -1208,12 +1229,12 @@ const approvalCompositionFacts = (
       authorizationInstant,
       organization,
     );
-    const requestScope = { domainId: RECEIPT_DOMAIN_ID, departmentId: departmentScope };
+    const context = proofReceiptContext(departmentScope);
     const applicable = yield* loadApplicableAuthorizationRules(
       subject,
       "approveReceipt",
       authorizationInstant,
-      requestScope,
+      context,
     );
     const composition = composeCapabilityEvidence(
       "approveReceipt",
@@ -1222,7 +1243,7 @@ const approvalCompositionFacts = (
       {
         personId: subject,
         authorizationInstant,
-        requestScope,
+        context,
         tagAssignments: applicable.tagAssignments,
       },
     );
@@ -2194,13 +2215,13 @@ const proveHalfOpenAndScopeDenials = (databaseUrl: Redacted.Redacted<string>) =>
       personId(ids.persons.endedRule),
       "approveReceipt",
       justBeforeExactEnd,
-      { domainId: RECEIPT_DOMAIN_ID, departmentId: departmentId(ids.departments.alpha) },
+      proofReceiptContext(departmentId(ids.departments.alpha)),
     );
     const endedRuleExact = yield* loadApplicableAuthorizationRules(
       personId(ids.persons.endedRule),
       "approveReceipt",
       exactEnd,
-      { domainId: RECEIPT_DOMAIN_ID, departmentId: departmentId(ids.departments.alpha) },
+      proofReceiptContext(departmentId(ids.departments.alpha)),
     );
     const endedRuleCommand = yield* Effect.result(
       executeReceiptCommand(
@@ -2238,13 +2259,13 @@ const proveHalfOpenAndScopeDenials = (databaseUrl: Redacted.Redacted<string>) =>
       personId(ids.persons.crossDepartment),
       "submitReceipt",
       exactEnd,
-      { domainId: RECEIPT_DOMAIN_ID, departmentId: departmentId(ids.departments.alpha) },
+      proofReceiptContext(departmentId(ids.departments.alpha)),
     );
     const crossRuleOtherScope = yield* loadApplicableAuthorizationRules(
       personId(ids.persons.crossDepartment),
       "submitReceipt",
       exactEnd,
-      { domainId: RECEIPT_DOMAIN_ID, departmentId: departmentId(ids.departments.beta) },
+      proofReceiptContext(departmentId(ids.departments.beta)),
     );
     const crossDepartmentCommand = yield* Effect.result(
       executeReceiptCommand(
@@ -3632,13 +3653,13 @@ const proveRuleExpiryRaces = (databaseUrl: Redacted.Redacted<string>) =>
             personId(ids.persons.expiryCommandFirst),
             "submitReceipt",
             justBeforeExactEnd,
-            { domainId: RECEIPT_DOMAIN_ID, departmentId: departmentId(ids.departments.alpha) },
+            proofReceiptContext(departmentId(ids.departments.alpha)),
           );
           const atExact = yield* loadApplicableAuthorizationRules(
             personId(ids.persons.expiryCommandFirst),
             "submitReceipt",
             exactEnd,
-            { domainId: RECEIPT_DOMAIN_ID, departmentId: departmentId(ids.departments.alpha) },
+            proofReceiptContext(departmentId(ids.departments.alpha)),
           );
           const acceptedDurable = yield* readDurableCommandFacts(
             sql,
@@ -3859,13 +3880,13 @@ const proveRuleExpiryRaces = (databaseUrl: Redacted.Redacted<string>) =>
             personId(ids.persons.expiryWriterFirst),
             "submitReceipt",
             justBeforeExactEnd,
-            { domainId: RECEIPT_DOMAIN_ID, departmentId: departmentId(ids.departments.alpha) },
+            proofReceiptContext(departmentId(ids.departments.alpha)),
           );
           const atExact = yield* loadApplicableAuthorizationRules(
             personId(ids.persons.expiryWriterFirst),
             "submitReceipt",
             exactEnd,
-            { domainId: RECEIPT_DOMAIN_ID, departmentId: departmentId(ids.departments.alpha) },
+            proofReceiptContext(departmentId(ids.departments.alpha)),
           );
           const durable = yield* readDurableCommandFacts(sql, ids.commands.expiryWriterFirst);
           return {
@@ -4108,13 +4129,13 @@ const proveTagDetachmentWriterFirst = (databaseUrl: Redacted.Redacted<string>) =
           personId(ids.persons.tagApprove),
           "approveReceipt",
           justBeforeExactEnd,
-          { domainId: RECEIPT_DOMAIN_ID, departmentId: departmentId(ids.departments.alpha) },
+          proofReceiptContext(departmentId(ids.departments.alpha)),
         );
         const exactInstant = yield* loadApplicableAuthorizationRules(
           personId(ids.persons.tagApprove),
           "approveReceipt",
           exactEnd,
-          { domainId: RECEIPT_DOMAIN_ID, departmentId: departmentId(ids.departments.alpha) },
+          proofReceiptContext(departmentId(ids.departments.alpha)),
         );
         const durable = yield* readDurableCommandFacts(sql, ids.commands.tagWriterFirst);
         const [receipt] = yield* sql<{ readonly status: string; readonly revision: number }>`
@@ -4165,7 +4186,7 @@ const proveTagDetachmentWriterFirst = (databaseUrl: Redacted.Redacted<string>) =
           personId(ids.persons.tagApprove),
           "approveReceipt",
           exactEnd,
-          { domainId: RECEIPT_DOMAIN_ID, departmentId: departmentId(ids.departments.alpha) },
+          proofReceiptContext(departmentId(ids.departments.alpha)),
         );
         const value = yield* executeReceiptCommand(
           {
@@ -4295,6 +4316,7 @@ const cleanupDatabase = (databaseUrl: Redacted.Redacted<string>) =>
 
 const runProof = (databaseUrl: Redacted.Redacted<string>) =>
   Effect.gen(function* () {
+    const migrationPreflight = yield* proveRuleReconciliationMigration(databaseUrl);
     const migration = yield* replayCanonicalMigrationsAndSeed(databaseUrl);
     const strictWriters = yield* proveStrictWriters(databaseUrl);
     const backfill = yield* proveDisposableAuthzBackfill(databaseUrl);
@@ -4316,6 +4338,7 @@ const runProof = (databaseUrl: Redacted.Redacted<string>) =>
         canonicalMigrationRows: migration.migrationRows,
         idempotentReplayRows: migration.idempotentReplayRows,
       },
+      migrationPreflight,
       seedRecords: migration.seedRecords,
       strictWriters,
       backfill,

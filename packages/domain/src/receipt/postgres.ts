@@ -1,10 +1,12 @@
-import { RECEIPT_DOMAIN_ID } from "../authz/access.js";
 import {
-  loadApplicableAuthorizationRules,
-  readApplicableAuthorizationRules,
-} from "../authz/postgres.js";
+  AuthorityVersion,
+  RECEIPT_DOMAIN_ID,
+  type CanonicalResourceContext,
+  type ReceiptAccessFacts,
+} from "../authz/access.js";
+import { readApplicableAuthorizationRules } from "../authz/postgres.js";
 import { composeCapabilityEvidence } from "../authz/rules.js";
-import type { AuthzRequestScope, AuthzRule, AuthzTagAssignment } from "../authz/schema.js";
+import type { AuthzRule, AuthzTagAssignment } from "../authz/schema.js";
 import { Database, type DatabaseShape } from "../database/service.js";
 import {
   lockPersonAuthorization,
@@ -12,17 +14,16 @@ import {
   resolveOrganizationPersonAuthorityWithSql,
 } from "../organization/authority-postgres.js";
 import type { OrganizationAuthorityInstant } from "../organization/authority.js";
-import { DepartmentId, type PersonId } from "../organization/schema.js";
+import type { PersonId } from "../organization/schema.js";
 import { Effect, Schema } from "effect";
 import { canonicalJson, canonicalJsonBytes, sha256Hex } from "../tutor/evidence.js";
 import {
   mapExistingReceiptApprovalActor,
-  mapReceiptGlobalApprovalPrincipal,
   mapReceiptOwnerActor,
   mapReceiptSubmissionPrincipal,
   projectReceiptAuthority,
 } from "./authority.js";
-import { resolveReceiptApprovalVisibility } from "./approval-list.js";
+import { makeReceiptApprovalContext, selectAuthorizedReceiptApprovals } from "./approval-list.js";
 import {
   resolveReceiptAuthorityForRead,
   resolveReceiptAuthorityWithSql,
@@ -76,40 +77,6 @@ interface ReceiptImportLedgerRow {
 
 const persistenceError = (operation: string, cause: unknown) =>
   new ReceiptPersistenceError({ operation, message: String(cause) });
-
-const ReceiptApprovalDepartmentRowSchema = Schema.Struct({
-  departmentId: DepartmentId,
-});
-
-const listCanonicalReceiptApprovalDepartments = (
-  sql: DatabaseShape,
-): Effect.Effect<ReadonlyArray<DepartmentId>, ReceiptDecodeError | ReceiptPersistenceError> =>
-  Effect.gen(function* () {
-    const selected = yield* sql`
-      SELECT candidate.department_id AS "departmentId"
-      FROM (
-        SELECT department_id FROM public.organization_departments
-        UNION
-        SELECT department_id FROM public.economy_receipts
-      ) AS candidate
-      ORDER BY candidate.department_id ASC
-    `.pipe(
-      Effect.catchTag("SqlError", (cause) =>
-        Effect.fail(persistenceError("list canonical Receipt approval departments", cause)),
-      ),
-    );
-    const rows = yield* Schema.decodeUnknownEffect(
-      Schema.Array(ReceiptApprovalDepartmentRowSchema),
-    )(selected, { onExcessProperty: "error" }).pipe(
-      Effect.mapError(
-        (cause) =>
-          new ReceiptDecodeError({
-            message: `decode canonical Receipt approval departments: ${String(cause)}`,
-          }),
-      ),
-    );
-    return rows.map((row) => row.departmentId);
-  });
 
 const receiptFromRow = (
   row: typeof Receipt.Encoded,
@@ -480,20 +447,15 @@ export const listReceiptsForApproval = (
                     }),
             ),
           );
-          const departmentIds = yield* listCanonicalReceiptApprovalDepartments(sql);
-          const requestScopes: Array<AuthzRequestScope> = [
-            { domainId: RECEIPT_DOMAIN_ID },
-            ...departmentIds.map((departmentId) => ({
-              domainId: RECEIPT_DOMAIN_ID,
-              departmentId,
-            })),
-          ];
-          const applicable = yield* Effect.forEach(requestScopes, (requestScope) =>
-            loadApplicableAuthorizationRules(
+          const candidates = yield* listApproverReceipts(status);
+          const applicable = yield* Effect.forEach(candidates, (candidate) =>
+            readApplicableAuthorizationRules(
+              sql,
               personId,
               "approveReceipt",
               authorizationInstant,
-              requestScope,
+              makeReceiptApprovalContext(candidate, organization, directAuthority, []),
+              "None",
             ).pipe(
               Effect.mapError((cause) =>
                 cause._tag === "AuthzPersistenceError"
@@ -512,10 +474,10 @@ export const listReceiptsForApproval = (
               assignmentById.set(assignment.assignmentId, assignment);
             }
           }
-          const decision = resolveReceiptApprovalVisibility(
+          const decision = selectAuthorizedReceiptApprovals(
             organization,
             directAuthority,
-            departmentIds,
+            candidates,
             Array.from(ruleById.values()),
             Array.from(assignmentById.values()),
           );
@@ -534,7 +496,8 @@ export const listReceiptsForApproval = (
               departmentId: "",
             });
           }
-          return yield* listApproverReceipts(decision.value, status);
+          const selectedReceiptIds = new Set(decision.value.receiptIds);
+          return candidates.filter((candidate) => selectedReceiptIds.has(candidate.receiptId));
         }),
       )
       .pipe(
@@ -685,13 +648,26 @@ export const executeReceiptCommand = (
                     : cause,
                 ),
               )).actor.departmentId;
-            const requestScope = { domainId: RECEIPT_DOMAIN_ID, departmentId: canonicalDepartment };
+            const context: CanonicalResourceContext<ReceiptAccessFacts> = {
+              domainId: RECEIPT_DOMAIN_ID,
+              departmentId: canonicalDepartment,
+              resource: null,
+              facts: {
+                ownerPersonId: principal.personId,
+                state: "Pending",
+                approverPersonIds: [],
+                internalEvidenceEnabled: false,
+              },
+              authorityVersion: AuthorityVersion.make(
+                `receipt-creation:${canonicalDepartment}:${principal.authorizationInstant}`,
+              ),
+            };
             const applicable = yield* readApplicableAuthorizationRules(
               sql,
               principal.personId,
               "submitReceipt",
               principal.authorizationInstant,
-              requestScope,
+              context,
               "ForShare",
             ).pipe(
               Effect.mapError((cause) =>
@@ -709,7 +685,7 @@ export const executeReceiptCommand = (
               {
                 personId: principal.personId,
                 authorizationInstant: principal.authorizationInstant,
-                requestScope,
+                context,
                 tagAssignments: applicable.tagAssignments,
               },
             );
@@ -752,6 +728,9 @@ export const executeReceiptCommand = (
             };
           } else if (command._tag === "RefundReceipt" || command._tag === "RejectReceipt") {
             const current = previous;
+            if (current === undefined) {
+              return yield* new ReceiptNotFound({ receiptId });
+            }
             const directAuthority = yield* resolveReceiptAuthorityWithSql(
               sql,
               principal.personId,
@@ -769,16 +748,18 @@ export const executeReceiptCommand = (
                       }),
               ),
             );
-            const requestScope =
-              current === undefined
-                ? { domainId: RECEIPT_DOMAIN_ID }
-                : { domainId: RECEIPT_DOMAIN_ID, departmentId: current.departmentId };
+            const unresolvedContext = makeReceiptApprovalContext(
+              current,
+              organization,
+              directAuthority,
+              [],
+            );
             const applicable = yield* readApplicableAuthorizationRules(
               sql,
               principal.personId,
               "approveReceipt",
               principal.authorizationInstant,
-              requestScope,
+              unresolvedContext,
               "ForShare",
             ).pipe(
               Effect.mapError((cause) =>
@@ -789,6 +770,12 @@ export const executeReceiptCommand = (
                     }),
               ),
             );
+            const context = makeReceiptApprovalContext(
+              current,
+              organization,
+              directAuthority,
+              applicable.rules,
+            );
             const composition = composeCapabilityEvidence(
               "approveReceipt",
               { approvalGrants: directAuthority.approvalGrants },
@@ -796,7 +783,7 @@ export const executeReceiptCommand = (
               {
                 personId: principal.personId,
                 authorizationInstant: principal.authorizationInstant,
-                requestScope,
+                context,
                 tagAssignments: applicable.tagAssignments,
               },
             );
@@ -813,19 +800,6 @@ export const executeReceiptCommand = (
               [],
               composition.evidence.approvalGrants ?? [],
             );
-            if (current === undefined) {
-              const activeGlobalApproval =
-                composition.decision._tag === "Allow"
-                  ? yield* mapReceiptGlobalApprovalPrincipal(composedAuthority).pipe(
-                      Effect.map((approval) => approval.active),
-                      Effect.catchTag("ReceiptAuthorityDenied", () => Effect.succeed(false)),
-                    )
-                  : false;
-              if (activeGlobalApproval) {
-                return yield* new ReceiptNotFound({ receiptId });
-              }
-              return yield* new ReceiptScopeDenied({ receiptId, departmentId: "" });
-            }
             const actor = yield* mapExistingReceiptApprovalActor(
               composedAuthority,
               current.receiptId,

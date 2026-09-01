@@ -110,6 +110,10 @@ const principalCredentialAccessAlgebraMigrationUrl = new URL(
   "../migrations/0025-principal-credential-access-algebra.sql",
   import.meta.url,
 );
+const declarativeRuleReconciliationMigrationUrl = new URL(
+  "../migrations/0026-declarative-rule-reconciliation.sql",
+  import.meta.url,
+);
 export type ExecuteMigration = (
   source: string,
 ) => Effect.Effect<void, unknown, SqlClient.SqlClient>;
@@ -237,6 +241,11 @@ export const databaseMigrationDefinitions = [
     name: "principal-credential-access-algebra",
     url: principalCredentialAccessAlgebraMigrationUrl,
   },
+  {
+    id: "26_declarative-rule-reconciliation",
+    name: "declarative-rule-reconciliation",
+    url: declarativeRuleReconciliationMigrationUrl,
+  },
 ] as const;
 
 export const databaseMigrationLoader = (execute: ExecuteMigration) =>
@@ -245,7 +254,7 @@ export const databaseMigrationLoader = (execute: ExecuteMigration) =>
       databaseMigrationDefinitions.map(({ id, name, url }) => [id, migration(name, url, execute)]),
     ),
   );
-export const databaseSchemaRevision = "25_principal-credential-access-algebra";
+export const databaseSchemaRevision = "26_declarative-rule-reconciliation";
 export const runDatabaseMigrations = (execute: ExecuteMigration) =>
   Migrator.make({})({
     loader: databaseMigrationLoader(execute),

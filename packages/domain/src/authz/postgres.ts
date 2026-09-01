@@ -2,12 +2,11 @@ import { Data, Effect, Schema } from "effect";
 import { Database, type DatabaseShape } from "../database/service.js";
 import { DepartmentId, PersonId } from "../organization/schema.js";
 import { Rfc3339InstantSchema } from "../time.js";
-import { DomainId } from "./access.js";
+import { DomainId, type CanonicalResourceContext } from "./access.js";
 import { applicableAuthzRules } from "./rules.js";
 import {
   AuthzCapabilityIdSchema,
   AuthzLockModeSchema,
-  AuthzRequestScopeSchema,
   AuthzRevisionSchema,
   AuthzRuleEffectKindSchema,
   AuthzRuleId,
@@ -26,7 +25,6 @@ import {
   decodeAuthzTagAssignment,
   type AuthzCapabilityId,
   type AuthzLockMode,
-  type AuthzRequestScope,
   type AuthzRule,
   type AuthzRuleId as AuthzRuleIdType,
   type AuthzTag,
@@ -284,7 +282,7 @@ export const readApplicableAuthorizationRules = (
   personIdInput: PersonId,
   capabilityIdInput: AuthzCapabilityId,
   authorizationInstantInput: string,
-  requestScopeInput: AuthzRequestScope,
+  context: CanonicalResourceContext,
   lockModeInput: AuthzLockMode,
 ): Effect.Effect<ApplicableAuthorizationRules, AuthzValidationError | AuthzPersistenceError> =>
   Effect.gen(function* () {
@@ -299,10 +297,6 @@ export const readApplicableAuthorizationRules = (
       authorizationInstantInput,
       { onExcessProperty: "error" },
     ).pipe(Effect.mapError((cause) => validationError("AuthorizationInstant", cause)));
-    const requestScope = yield* Schema.decodeUnknownEffect(AuthzRequestScopeSchema)(
-      requestScopeInput,
-      { onExcessProperty: "error" },
-    ).pipe(Effect.mapError((cause) => validationError("AuthzRequestScope", cause)));
     const lockMode = yield* Schema.decodeUnknownEffect(AuthzLockModeSchema)(lockModeInput, {
       onExcessProperty: "error",
     }).pipe(Effect.mapError((cause) => validationError("AuthzLockMode", cause)));
@@ -344,7 +338,7 @@ export const readApplicableAuthorizationRules = (
     );
 
     const ruleLock = lockMode === "ForShare" ? sql`FOR SHARE OF rule` : sql``;
-    const requestedDepartmentId = requestScope.departmentId ?? null;
+    const requestedDepartmentId = context.departmentId;
     const selectedRules = yield* sql<AuthzRuleDatabaseRow>`
       SELECT
         rule.rule_id AS "ruleId",
@@ -377,7 +371,7 @@ export const readApplicableAuthorizationRules = (
           rule.scope = 'Global'
           OR (
             rule.scope = 'Domain'
-            AND rule.domain_id = ${requestScope.domainId}
+            AND rule.domain_id = ${context.domainId}
           )
           OR (
             rule.scope = 'Department'
@@ -414,10 +408,10 @@ export const readApplicableAuthorizationRules = (
     ).pipe(Effect.mapError((cause) => validationError("AuthzRule", cause)));
     const decodedRules: Array<AuthzRule> = [];
     for (const row of ruleRows) decodedRules.push(yield* decodeRuleDatabaseRow(row));
-    const rules = applicableAuthzRules(decodedRules, capabilityId, {
+    const rules = applicableAuthzRules(decodedRules, {
       personId,
       authorizationInstant,
-      requestScope,
+      context,
       tagAssignments,
     });
     const referencedTagIds = new Set(
@@ -438,7 +432,7 @@ export const loadApplicableAuthorizationRules = (
   personId: PersonId,
   capabilityId: AuthzCapabilityId,
   authorizationInstant: string,
-  requestScope: AuthzRequestScope,
+  context: CanonicalResourceContext,
 ): Effect.Effect<
   ApplicableAuthorizationRules,
   AuthzValidationError | AuthzPersistenceError,
@@ -451,7 +445,7 @@ export const loadApplicableAuthorizationRules = (
       personId,
       capabilityId,
       authorizationInstant,
-      requestScope,
+      context,
       "None",
     );
   });

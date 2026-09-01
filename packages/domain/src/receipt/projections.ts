@@ -1,6 +1,5 @@
 import { Database } from "../database/service.js";
 import { Effect } from "effect";
-import type { ReceiptApprovalVisibility } from "./approval-list.js";
 import { ReceiptNotFound, ReceiptPersistenceError } from "./errors.js";
 import type { Receipt, ReceiptStatus } from "./schema.js";
 
@@ -24,10 +23,6 @@ export interface ReceiptStatusTotal {
   readonly receiptCount: string;
   readonly amountOre: string;
 }
-
-export type ReceiptApprovalScope =
-  | ReceiptApprovalVisibility
-  | { readonly _tag: "Department"; readonly departmentId: string };
 
 const projectionError = (operation: string, cause: unknown) =>
   new ReceiptPersistenceError({ operation, message: String(cause) });
@@ -53,20 +48,10 @@ export const listAssistantReceipts = (
   });
 
 export const listApproverReceipts = (
-  scope: ReceiptApprovalScope,
   status?: ReceiptStatus,
 ): Effect.Effect<ReadonlyArray<ReceiptListItem>, ReceiptPersistenceError, Database> =>
   Effect.gen(function* () {
     const sql = yield* Database;
-    const departmentIds =
-      scope._tag === "Department"
-        ? [scope.departmentId]
-        : scope._tag === "Departments"
-          ? scope.departmentIds
-          : undefined;
-    if (departmentIds?.length === 0) return [];
-    const visibilityPredicate =
-      departmentIds === undefined ? sql`TRUE` : sql.in("department_id", departmentIds);
     const statusPredicate = status === undefined ? sql`TRUE` : sql`status = ${status}`;
     return yield* sql<ReceiptListItem>`
       SELECT receipt_id AS "receiptId", visual_id AS "visualId",
@@ -74,8 +59,7 @@ export const listApproverReceipts = (
         description, amount_ore::text AS "amountOre", currency,
         status, receipt_date::text AS "receiptDate", revision
       FROM economy_receipts
-      WHERE ${visibilityPredicate}
-        AND ${statusPredicate}
+      WHERE ${statusPredicate}
       ORDER BY submitted_at DESC, receipt_id ASC
     `.pipe(
       Effect.catchTag("SqlError", (cause) =>

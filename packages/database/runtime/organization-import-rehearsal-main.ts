@@ -1446,7 +1446,7 @@ const runRehearsal = async (
       migrationRows.map((row) => `${row.migrationId}_${row.name}`),
       databaseMigrationDefinitions.map((migration) => migration.id),
     );
-    assert.equal(migrationRows.length, 23);
+    assert.equal(migrationRows.length, databaseMigrationDefinitions.length);
     assert.equal(sql.schemaRevision, databaseSchemaRevision);
 
     const inventory = await runtime.runPromise(

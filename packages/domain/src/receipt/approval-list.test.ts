@@ -11,13 +11,18 @@ import {
 } from "../authz/schema.js";
 import type { OrganizationPersonAuthority } from "../organization/authority.js";
 import { DepartmentId, MembershipId, PersonId, TeamId } from "../organization/schema.js";
-import { resolveReceiptApprovalVisibility } from "./approval-list.js";
+import {
+  makeReceiptApprovalContext,
+  selectAuthorizedReceiptApprovals,
+  type ReceiptApprovalCandidate,
+} from "./approval-list.js";
 import {
   mapExistingReceiptApprovalActor,
   projectReceiptAuthority,
   ReceiptApprovalGrantId,
   type ReceiptApprovalGrant,
 } from "./authority.js";
+import { ReceiptId } from "./schema.js";
 import { receiptCompositionFailure } from "./errors.js";
 
 const authorizationInstant = "2037-06-15T12:00:00.000Z";
@@ -61,20 +66,21 @@ const rule = (options: {
   readonly slot: "EconomyDepartmentApprovalGrant" | "EconomyGlobalReceiptApprovalGrant";
   readonly subject?: AuthzRule["subject"];
   readonly endAt?: string | null;
-}): AuthzRule => ({
-  ruleId: AuthzRuleId.make(options.id),
-  capabilityId: "approveReceipt",
-  effectKind: "delegate",
-  subject: options.subject ?? { _tag: "Person", personId },
-  scope: options.scope,
-  params:
-    options.slot === "EconomyDepartmentApprovalGrant"
-      ? { slot: "EconomyDepartmentApprovalGrant" }
-      : { slot: "EconomyGlobalReceiptApprovalGrant" },
-  startAt: activeStart,
-  endAt: options.endAt ?? null,
-  revision: 0,
-});
+}): AuthzRule =>
+  ({
+    ruleId: AuthzRuleId.make(options.id),
+    capabilityId: "approveReceipt",
+    effectKind: "delegate",
+    subject: options.subject ?? { _tag: "Person", personId },
+    scope: options.scope,
+    params:
+      options.slot === "EconomyDepartmentApprovalGrant"
+        ? { slot: "EconomyDepartmentApprovalGrant" }
+        : { slot: "EconomyGlobalReceiptApprovalGrant" },
+    startAt: activeStart,
+    endAt: options.endAt ?? null,
+    revision: 0,
+  }) as AuthzRule;
 
 const assignment = (endAt: string | null): AuthzTagAssignment => ({
   assignmentId: AuthzTagAssignmentId.make("approval-list-assignment"),
@@ -85,16 +91,45 @@ const assignment = (endAt: string | null): AuthzTagAssignment => ({
   revision: 0,
 });
 
-const resolve = (
+const requirement = (
+  id: string,
+  requirementId: "receipts.pending" | "receipts.approver-relationship",
+): AuthzRule =>
+  ({
+    ruleId: AuthzRuleId.make(id),
+    capabilityId: "approveReceipt",
+    effectKind: "requirement",
+    subject: { _tag: "Person", personId },
+    scope: { _tag: "Global" },
+    params: { requirementId, parameters: {} },
+    startAt: activeStart,
+    endAt: null,
+    revision: 0,
+  }) as AuthzRule;
+
+const candidate = (
+  receiptId: string,
+  departmentId: DepartmentId,
+  status: ReceiptApprovalCandidate["status"] = "Pending",
+): ReceiptApprovalCandidate => ({
+  receiptId: ReceiptId.make(receiptId),
+  ownerPersonId: PersonId.make("approval-list-owner"),
+  departmentId,
+  status,
+  revision: 0,
+});
+
+const select = (
+  candidates: ReadonlyArray<ReceiptApprovalCandidate>,
   grants: ReadonlyArray<ReceiptApprovalGrant>,
   rules: ReadonlyArray<AuthzRule>,
   tagAssignments: ReadonlyArray<AuthzTagAssignment> = [],
 ) => {
   const organizationAuthority = organization();
-  return resolveReceiptApprovalVisibility(
+  return selectAuthorizedReceiptApprovals(
     organizationAuthority,
     projectReceiptAuthority(organizationAuthority, [], grants),
-    [departmentB, departmentA, departmentA],
+    candidates,
     rules,
     tagAssignments,
   );
@@ -105,6 +140,7 @@ const composeExistingApprovalAuthority = (
   rules: ReadonlyArray<AuthzRule>,
   receiptDepartmentId: DepartmentId,
 ) => {
+  const receipt = candidate("approval-list-existing", receiptDepartmentId);
   const organizationAuthority = organization();
   const directAuthority = projectReceiptAuthority(organizationAuthority, [], grants);
   const composition = composeCapabilityEvidence(
@@ -114,7 +150,7 @@ const composeExistingApprovalAuthority = (
     {
       personId,
       authorizationInstant,
-      requestScope: { domainId: RECEIPT_DOMAIN_ID, departmentId: receiptDepartmentId },
+      context: makeReceiptApprovalContext(receipt, organizationAuthority, directAuthority, rules),
       tagAssignments: [],
     },
   );
@@ -126,13 +162,15 @@ const composeExistingApprovalAuthority = (
 };
 
 describe("rule-aware Receipt approval visibility", () => {
-  it("preserves direct global, department, inactive, and absent behavior with zero rules", () => {
-    expect(resolve([directGrant("direct-global", { _tag: "Global" })], [])).toEqual({
+  it("preserves direct global, department, inactive, and absent behavior", () => {
+    const candidates = [candidate("receipt-a", departmentA), candidate("receipt-b", departmentB)];
+    expect(select(candidates, [directGrant("direct-global", { _tag: "Global" })], [])).toEqual({
       _tag: "Allow",
-      value: { _tag: "Global" },
+      value: { receiptIds: ["receipt-a", "receipt-b"] },
     });
     expect(
-      resolve(
+      select(
+        candidates,
         [
           directGrant("direct-department", {
             _tag: "Department",
@@ -143,10 +181,11 @@ describe("rule-aware Receipt approval visibility", () => {
       ),
     ).toEqual({
       _tag: "Allow",
-      value: { _tag: "Departments", departmentIds: [departmentA] },
+      value: { receiptIds: ["receipt-a"] },
     });
     expect(
-      resolve(
+      select(
+        candidates,
         [
           directGrant(
             "direct-inactive",
@@ -157,34 +196,37 @@ describe("rule-aware Receipt approval visibility", () => {
         [],
       ),
     ).toEqual({ _tag: "Deny", reason: "AuthorityInactive" });
-    expect(resolve([], [])).toEqual({ _tag: "Deny", reason: "NotInScope" });
+    expect(select(candidates, [], [])).toEqual({ _tag: "Deny", reason: "NotInScope" });
     const inactiveOrganization = organization([]);
     expect(
-      resolveReceiptApprovalVisibility(
+      selectAuthorizedReceiptApprovals(
         inactiveOrganization,
         projectReceiptAuthority(inactiveOrganization, [], []),
-        [departmentA],
+        candidates,
         [],
         [],
       ),
     ).toEqual({ _tag: "Deny", reason: "AuthorityInactive" });
   });
 
-  it("grants a rule-only department list without exposing another department", () => {
-    const departmentRule = rule({
-      id: "rule-department",
-      scope: { _tag: "Department", departmentId: departmentA },
-      slot: "EconomyDepartmentApprovalGrant",
-    });
-    expect(resolve([], [departmentRule])).toEqual({
-      _tag: "Allow",
-      value: { _tag: "Departments", departmentIds: [departmentA] },
-    });
-  });
-
-  it("treats a broad rule-sourced global grant as global visibility", () => {
+  it("evaluates department and global delegates against each receipt context", () => {
+    const candidates = [candidate("receipt-a", departmentA), candidate("receipt-b", departmentB)];
     expect(
-      resolve(
+      select(
+        candidates,
+        [],
+        [
+          rule({
+            id: "rule-department",
+            scope: { _tag: "Department", departmentId: departmentA },
+            slot: "EconomyDepartmentApprovalGrant",
+          }),
+        ],
+      ),
+    ).toEqual({ _tag: "Allow", value: { receiptIds: ["receipt-a"] } });
+    expect(
+      select(
+        candidates,
         [],
         [
           rule({
@@ -194,24 +236,16 @@ describe("rule-aware Receipt approval visibility", () => {
           }),
         ],
       ),
-    ).toEqual({ _tag: "Allow", value: { _tag: "Global" } });
-    expect(
-      resolve(
-        [],
-        [
-          rule({
-            id: "rule-receipt",
-            scope: { _tag: "Domain", domainId: RECEIPT_DOMAIN_ID },
-            slot: "EconomyGlobalReceiptApprovalGrant",
-          }),
-        ],
-      ),
-    ).toEqual({ _tag: "Allow", value: { _tag: "Global" } });
+    ).toEqual({
+      _tag: "Allow",
+      value: { receiptIds: ["receipt-a", "receipt-b"] },
+    });
   });
 
   it("confines a Department rule that delegates the global slot", () => {
     expect(
-      resolve(
+      select(
+        [candidate("receipt-a", departmentA), candidate("receipt-b", departmentB)],
         [],
         [
           rule({
@@ -221,48 +255,18 @@ describe("rule-aware Receipt approval visibility", () => {
           }),
         ],
       ),
-    ).toEqual({
-      _tag: "Allow",
-      value: { _tag: "Departments", departmentIds: [departmentA] },
-    });
+    ).toEqual({ _tag: "Allow", value: { receiptIds: ["receipt-a"] } });
   });
 
-  it("unions and deduplicates direct and rule departments deterministically", () => {
-    expect(
-      resolve(
-        [
-          directGrant("direct-a", {
-            _tag: "Department",
-            departmentId: departmentA,
-          }),
-        ],
-        [
-          rule({
-            id: "rule-b-one",
-            scope: { _tag: "Department", departmentId: departmentB },
-            slot: "EconomyDepartmentApprovalGrant",
-          }),
-          rule({
-            id: "rule-b-two",
-            scope: { _tag: "Department", departmentId: departmentB },
-            slot: "EconomyDepartmentApprovalGrant",
-          }),
-        ],
-      ),
-    ).toEqual({
-      _tag: "Allow",
-      value: { _tag: "Departments", departmentIds: [departmentA, departmentB] },
-    });
-  });
-
-  it("requires an active interval and an active tag assignment", () => {
+  it("requires active rule and tag intervals at the authorization instant", () => {
+    const receipt = candidate("receipt-a", departmentA);
     const expired = rule({
       id: "rule-expired",
       scope: { _tag: "Department", departmentId: departmentA },
       slot: "EconomyDepartmentApprovalGrant",
       endAt: authorizationInstant,
     });
-    expect(resolve([], [expired])).toEqual({ _tag: "Deny", reason: "NotInScope" });
+    expect(select([receipt], [], [expired])).toEqual({ _tag: "Deny", reason: "NotInScope" });
 
     const tagged = rule({
       id: "rule-tagged",
@@ -270,13 +274,62 @@ describe("rule-aware Receipt approval visibility", () => {
       scope: { _tag: "Department", departmentId: departmentA },
       slot: "EconomyDepartmentApprovalGrant",
     });
-    expect(resolve([], [tagged], [assignment(authorizationInstant)])).toEqual({
+    expect(select([receipt], [], [tagged], [assignment(authorizationInstant)])).toEqual({
       _tag: "Deny",
       reason: "NotInScope",
     });
-    expect(resolve([], [tagged], [assignment(null)])).toEqual({
+    expect(select([receipt], [], [tagged], [assignment(null)])).toEqual({
       _tag: "Allow",
-      value: { _tag: "Departments", departmentIds: [departmentA] },
+      value: { receiptIds: ["receipt-a"] },
+    });
+  });
+
+  it("filters nonpending and foreign receipts through typed requirements", () => {
+    const rules = [
+      rule({
+        id: "delegate",
+        scope: { _tag: "Global" },
+        slot: "EconomyGlobalReceiptApprovalGrant",
+      }),
+      requirement("require-pending", "receipts.pending"),
+      requirement("require-approver", "receipts.approver-relationship"),
+    ];
+    expect(
+      select(
+        [
+          candidate("pending-related", departmentA),
+          candidate("rejected-related", departmentA, "Rejected"),
+          candidate("pending-foreign", DepartmentId.make("approval-list-foreign-department")),
+        ],
+        [],
+        rules,
+      ),
+    ).toEqual({
+      _tag: "Allow",
+      value: { receiptIds: ["pending-related"] },
+    });
+  });
+
+  it("deduplicates rules and returns an empty allowed projection for no contexts", () => {
+    const duplicate = requirement("require-pending", "receipts.pending");
+    expect(
+      select(
+        [candidate("pending", departmentA)],
+        [],
+        [
+          rule({
+            id: "delegate",
+            scope: { _tag: "Global" },
+            slot: "EconomyGlobalReceiptApprovalGrant",
+          }),
+          duplicate,
+          duplicate,
+        ],
+      ),
+    ).toEqual({ _tag: "Allow", value: { receiptIds: ["pending"] } });
+    expect(select([], [], [])).toEqual({
+      _tag: "Allow",
+      value: { receiptIds: [] },
     });
   });
 

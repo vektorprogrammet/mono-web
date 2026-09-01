@@ -1,9 +1,12 @@
 import { readFile } from "node:fs/promises";
 import { afterAll, describe, expect, it } from "vitest";
+import { PGlite } from "@electric-sql/pglite";
+import { btree_gist } from "@electric-sql/pglite/contrib/btree_gist";
 import { Effect } from "effect";
 import { Database } from "@vektorprogrammet/domain/database";
 import { DatabaseTest } from "./layers.js";
 import { makeControlledTestRuntime } from "../test/runtime.js";
+import { databaseMigrationDefinitions } from "./migrations.js";
 
 const inventory = [
   "organization_global_administrator_grants",
@@ -678,7 +681,7 @@ describe("declarative authorization rule migration in PGlite", () => {
     });
   }, 30_000);
 
-  it("accepts the closed Domain scope and rejects Receipt and Tenant after migration 25", async () => {
+  it("accepts only Global, Domain(receipts), and Department rule scopes", async () => {
     const evidence = await runtime.runPromise(
       Effect.gen(function* () {
         const database = yield* Database;
@@ -699,34 +702,376 @@ describe("declarative authorization rule migration in PGlite", () => {
               '2030-01-01T00:00:00.000Z'
             )
           `.pipe(Effect.asVoid);
+        const global = yield* Effect.exit(insert("authz-global-valid", "Global", null));
         const domain = yield* Effect.exit(insert("authz-domain-valid", "Domain", "receipts"));
-        const receipt = yield* Effect.exit(insert("authz-domain-legacy-receipt", "Receipt", null));
-        const tenant = yield* Effect.exit(insert("authz-domain-tenant", "Tenant", "receipts"));
+        const receipt = yield* Effect.exit(insert("authz-receipt-invalid", "Receipt", null));
+        const tenant = yield* Effect.exit(insert("authz-tenant-invalid", "Tenant", null));
         const missingDomain = yield* Effect.exit(insert("authz-domain-missing-id", "Domain", null));
+        const wrongDomain = yield* Effect.exit(
+          insert("authz-domain-wrong-id", "Domain", "organization"),
+        );
         const rows = yield* database<{
           readonly domainId: string | null;
           readonly scope: string;
         }>`
           SELECT domain_id AS "domainId", scope
           FROM public.authz_rules
-          WHERE rule_id = 'authz-domain-valid'
+          WHERE rule_id IN ('authz-domain-valid', 'authz-global-valid')
+          ORDER BY rule_id
         `;
         return {
+          globalAccepted: global._tag === "Success",
           domainAccepted: domain._tag === "Success",
           receiptRejected: receipt._tag === "Failure",
           tenantRejected: tenant._tag === "Failure",
           missingDomainRejected: missingDomain._tag === "Failure",
+          wrongDomainRejected: wrongDomain._tag === "Failure",
           rows,
         };
       }),
     );
 
     expect(evidence).toEqual({
+      globalAccepted: true,
       domainAccepted: true,
       receiptRejected: true,
       tenantRejected: true,
       missingDomainRejected: true,
-      rows: [{ domainId: "receipts", scope: "Domain" }],
+      wrongDomainRejected: true,
+      rows: [
+        { domainId: "receipts", scope: "Domain" },
+        { domainId: null, scope: "Global" },
+      ],
+    });
+  }, 15_000);
+});
+
+describe("declarative rule reconciliation migration", () => {
+  const prepareMigration25State = async (database: PGlite) => {
+    for (const migration of databaseMigrationDefinitions.slice(0, -1)) {
+      await database.exec(await readFile(migration.url, "utf8"));
+    }
+    await database.exec(`
+      INSERT INTO public.person_profiles (person_id, first_name, last_name)
+      VALUES ('migration-preflight-person', 'Migration', 'Preflight');
+      INSERT INTO public.organization_departments (
+        department_id, name, short_name, email, city
+      ) VALUES (
+        'migration-preflight-department', 'Migration preflight',
+        'MP', 'migration-preflight@example.invalid', 'Oslo'
+      );
+      INSERT INTO public.authz_tags (tag_id, name, revision)
+      VALUES ('migration-preflight-tag', 'Migration preflight', 0);
+    `);
+    await database.exec(`
+      ALTER TABLE public.authz_rules
+        DROP CONSTRAINT authz_rules_subject_person_id_fkey,
+        DROP CONSTRAINT authz_rules_subject_tag_id_fkey,
+        DROP CONSTRAINT authz_rules_department_id_fkey,
+        DROP CONSTRAINT authz_rules_subject_declared,
+        DROP CONSTRAINT authz_rules_scope_declared,
+        DROP CONSTRAINT authz_rules_params_declared,
+        DROP CONSTRAINT authz_rules_interval_ordered,
+        DROP CONSTRAINT authz_rules_revision_nonnegative;
+      ALTER TABLE public.authz_rules
+        ADD CONSTRAINT authz_rules_params_declared CHECK (true);
+    `);
+  };
+
+  const insertValidPreflightRows = (database: PGlite) =>
+    database.exec(`
+      INSERT INTO public.authz_rules (
+        rule_id, capability_id, effect_kind, subject_kind,
+        subject_person_id, subject_tag_id, scope, domain_id, department_id,
+        params, start_at, end_at, revision
+      ) VALUES
+        (
+          'migration-preflight-valid-global', 'approveReceipt', 'delegate', 'Person',
+          'migration-preflight-person', NULL, 'Global', NULL, NULL,
+          '{"slot":"EconomyGlobalReceiptApprovalGrant"}'::jsonb,
+          '2030-01-01T00:00:00.000Z', NULL, 0
+        ),
+        (
+          'migration-preflight-valid-domain', 'approveReceipt', 'requirement', 'Tag',
+          NULL, 'migration-preflight-tag', 'Domain', 'receipts', NULL,
+          '{"requirementId":"receipts.pending","parameters":{}}'::jsonb,
+          '2030-01-01T00:00:00.000Z', NULL, 0
+        ),
+        (
+          'migration-preflight-valid-department', 'approveReceipt', 'requirement', 'Person',
+          'migration-preflight-person', NULL, 'Department', NULL,
+          'migration-preflight-department',
+          '{"requirementId":"receipts.approver-relationship","parameters":{}}'::jsonb,
+          '2030-01-01T00:00:00.000Z', NULL, 0
+        ),
+        (
+          'migration-preflight-valid-payment', 'submitReceipt', 'delegate', 'Person',
+          'migration-preflight-person', NULL, 'Domain', 'receipts', NULL,
+          '{"slot":"EconomyPaymentAuthority","paymentAccountCiphertext":"preflight-secret-ciphertext"}'::jsonb,
+          '2030-01-01T00:00:00.000Z', NULL, 0
+        );
+    `);
+
+  it("orders immutable migration 25 before reconciliation migration 26", () => {
+    expect(databaseMigrationDefinitions.slice(-2).map(({ id }) => id)).toEqual([
+      "25_principal-credential-access-algebra",
+      "26_declarative-rule-reconciliation",
+    ]);
+  });
+
+  it("reports every unsupported row once and aborts before mutation", async () => {
+    const database = new PGlite({ extensions: { btree_gist } });
+    try {
+      await prepareMigration25State(database);
+      const columnsAfter25 = await database.query<{
+        readonly columnName: string;
+      }>(`
+        SELECT column_name AS "columnName"
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'authz_rules'
+          AND column_name IN ('domain_id', 'resource_id')
+        ORDER BY column_name
+      `);
+      expect(columnsAfter25.rows).toEqual([{ columnName: "domain_id" }]);
+      await insertValidPreflightRows(database);
+      await database.exec(`
+        INSERT INTO public.authz_rules (
+          rule_id, capability_id, effect_kind, subject_kind,
+          subject_person_id, subject_tag_id, scope, domain_id, department_id,
+          params, start_at, end_at, revision
+        ) VALUES
+          (
+            'migration-preflight-subject-columns', 'approveReceipt', 'delegate', 'Person',
+            'migration-preflight-person', 'migration-preflight-tag', 'Global', NULL, NULL,
+            '{"slot":"EconomyGlobalReceiptApprovalGrant"}'::jsonb,
+            '2030-01-01T00:00:00.000Z', NULL, 0
+          ),
+          (
+            'migration-preflight-subject-reference', 'approveReceipt', 'delegate', 'Person',
+            'migration-preflight-missing-person', NULL, 'Global', NULL, NULL,
+            '{"slot":"EconomyGlobalReceiptApprovalGrant"}'::jsonb,
+            '2030-01-01T00:00:00.000Z', NULL, 0
+          ),
+          (
+            'migration-preflight-scope-columns', 'approveReceipt', 'delegate', 'Person',
+            'migration-preflight-person', NULL, 'Global', 'receipts', NULL,
+            '{"slot":"EconomyGlobalReceiptApprovalGrant"}'::jsonb,
+            '2030-01-01T00:00:00.000Z', NULL, 0
+          ),
+          (
+            'migration-preflight-scope-reference', 'approveReceipt', 'delegate', 'Person',
+            'migration-preflight-person', NULL, 'Department', NULL,
+            'migration-preflight-missing-department',
+            '{"slot":"EconomyDepartmentApprovalGrant"}'::jsonb,
+            '2030-01-01T00:00:00.000Z', NULL, 0
+          ),
+          (
+            'migration-preflight-interval', 'approveReceipt', 'delegate', 'Person',
+            'migration-preflight-person', NULL, 'Global', NULL, NULL,
+            '{"slot":"EconomyGlobalReceiptApprovalGrant"}'::jsonb,
+            '2030-01-01T00:00:00.000Z', '2030-01-01T00:00:00.000Z', 0
+          ),
+          (
+            'migration-preflight-revision', 'approveReceipt', 'delegate', 'Person',
+            'migration-preflight-person', NULL, 'Global', NULL, NULL,
+            '{"slot":"EconomyGlobalReceiptApprovalGrant"}'::jsonb,
+            '2030-01-01T00:00:00.000Z', NULL, -1
+          ),
+          (
+            'migration-preflight-variant', 'approveReceipt', 'parameter', 'Person',
+            'migration-preflight-person', NULL, 'Global', NULL, NULL,
+            '{"slot":"unsupported","private":"do-not-report"}'::jsonb,
+            '2030-01-01T00:00:00.000Z', NULL, 0
+          );
+      `);
+
+      let failureMessage = "";
+      try {
+        await database.exec(await readFile(databaseMigrationDefinitions.at(-1)!.url, "utf8"));
+      } catch (cause) {
+        failureMessage = cause instanceof Error ? cause.message : String(cause);
+      }
+      const reportMatch = /authz_rules preflight failed: (\[.*\])/u.exec(failureMessage);
+      expect(reportMatch).not.toBeNull();
+      expect(JSON.parse(reportMatch![1]!)).toEqual([
+        {
+          reasonCode: "INTERVAL_INVALID",
+          ruleId: "migration-preflight-interval",
+        },
+        {
+          reasonCode: "REVISION_INVALID",
+          ruleId: "migration-preflight-revision",
+        },
+        {
+          reasonCode: "SCOPE_COLUMNS_INVALID",
+          ruleId: "migration-preflight-scope-columns",
+        },
+        {
+          reasonCode: "SCOPE_REFERENCE_MISSING",
+          ruleId: "migration-preflight-scope-reference",
+        },
+        {
+          reasonCode: "SUBJECT_COLUMNS_INVALID",
+          ruleId: "migration-preflight-subject-columns",
+        },
+        {
+          reasonCode: "SUBJECT_REFERENCE_MISSING",
+          ruleId: "migration-preflight-subject-reference",
+        },
+        {
+          reasonCode: "VARIANT_INVALID",
+          ruleId: "migration-preflight-variant",
+        },
+      ]);
+      expect(failureMessage).not.toContain("preflight-secret-ciphertext");
+      expect(failureMessage).not.toContain("do-not-report");
+      expect(failureMessage).not.toContain("migration-preflight-valid-");
+      const requirementConstraint = await database.query<{
+        readonly definition: string;
+      }>(`
+        SELECT pg_get_constraintdef(oid) AS definition
+        FROM pg_constraint
+        WHERE conrelid = 'public.authz_rules'::regclass
+          AND conname = 'authz_rules_params_declared'
+      `);
+      expect(requirementConstraint.rows).toEqual([{ definition: "CHECK (true)" }]);
+    } finally {
+      await database.close();
+    }
+  }, 15_000);
+
+  it("accepts complete valid rows from migration 25 state", async () => {
+    const database = new PGlite({ extensions: { btree_gist } });
+    try {
+      await prepareMigration25State(database);
+      await insertValidPreflightRows(database);
+      await database.exec(await readFile(databaseMigrationDefinitions.at(-1)!.url, "utf8"));
+      const rows = await database.query<{ readonly ruleId: string }>(`
+        SELECT rule_id AS "ruleId"
+        FROM public.authz_rules
+        ORDER BY rule_id
+      `);
+      expect(rows.rows).toEqual([
+        { ruleId: "migration-preflight-valid-department" },
+        { ruleId: "migration-preflight-valid-domain" },
+        { ruleId: "migration-preflight-valid-global" },
+        { ruleId: "migration-preflight-valid-payment" },
+      ]);
+      const constraint = await database.query<{ readonly definition: string }>(`
+        SELECT pg_get_constraintdef(oid) AS definition
+        FROM pg_constraint
+        WHERE conrelid = 'public.authz_rules'::regclass
+          AND conname = 'authz_rules_params_declared'
+      `);
+      expect(constraint.rows[0]?.definition).toContain("receipts.pending");
+    } finally {
+      await database.close();
+    }
+  }, 15_000);
+
+  it("accepts only exact requirements on allowed rule scopes", async () => {
+    const evidence = await runtime.runPromise(
+      Effect.gen(function* () {
+        const database = yield* Database;
+        yield* database`
+          INSERT INTO public.person_profiles (person_id, first_name, last_name)
+          VALUES ('migration-requirement-person', 'Requirement', 'Rule')
+        `;
+        const insert = (ruleId: string, scope: string, domainId: string | null, params: unknown) =>
+          database`
+            INSERT INTO public.authz_rules (
+              rule_id, capability_id, effect_kind, subject_kind,
+              subject_person_id, subject_tag_id, scope, domain_id, department_id,
+              params, start_at, end_at, revision
+            ) VALUES (
+              ${ruleId}, 'approveReceipt', 'requirement', 'Person',
+              'migration-requirement-person', NULL, ${scope}, ${domainId}, NULL,
+              ${database.json(params)},
+              '2030-01-01T00:00:00.000Z', NULL, 0
+            )
+          `.pipe(Effect.asVoid);
+        yield* insert("migration-require-pending", "Domain", "receipts", {
+          requirementId: "receipts.pending",
+          parameters: {},
+        });
+        yield* insert("migration-require-approver", "Global", null, {
+          requirementId: "receipts.approver-relationship",
+          parameters: {},
+        });
+        const unsupported = yield* Effect.exit(
+          insert("migration-require-unsupported", "Domain", "receipts", {
+            requirementId: "receipts.owner",
+            parameters: {},
+          }),
+        );
+        const nonempty = yield* Effect.exit(
+          insert("migration-require-nonempty", "Domain", "receipts", {
+            requirementId: "receipts.pending",
+            parameters: { unexpected: true },
+          }),
+        );
+        const excess = yield* Effect.exit(
+          insert("migration-require-excess", "Domain", "receipts", {
+            requirementId: "receipts.pending",
+            parameters: {},
+            unexpected: true,
+          }),
+        );
+        const receiptScope = yield* Effect.exit(
+          insert("migration-require-receipt-scope", "Receipt", null, {
+            requirementId: "receipts.pending",
+            parameters: {},
+          }),
+        );
+        const rows = yield* database<{
+          readonly domainId: string | null;
+          readonly ruleId: string;
+          readonly scope: string;
+        }>`
+          SELECT
+            rule_id AS "ruleId",
+            scope,
+            domain_id AS "domainId"
+          FROM public.authz_rules
+          WHERE subject_person_id = 'migration-requirement-person'
+          ORDER BY rule_id
+        `;
+        yield* database`
+          DELETE FROM public.authz_rules
+          WHERE subject_person_id = 'migration-requirement-person'
+        `;
+        yield* database`
+          DELETE FROM public.person_profiles
+          WHERE person_id = 'migration-requirement-person'
+        `;
+        return {
+          excess: excess._tag,
+          nonempty: nonempty._tag,
+          receiptScope: receiptScope._tag,
+          rows,
+          unsupported: unsupported._tag,
+        };
+      }),
+    );
+
+    expect(evidence).toEqual({
+      excess: "Failure",
+      nonempty: "Failure",
+      receiptScope: "Failure",
+      rows: [
+        {
+          domainId: null,
+          ruleId: "migration-require-approver",
+          scope: "Global",
+        },
+        {
+          domainId: "receipts",
+          ruleId: "migration-require-pending",
+          scope: "Domain",
+        },
+      ],
+      unsupported: "Failure",
     });
   }, 15_000);
 });

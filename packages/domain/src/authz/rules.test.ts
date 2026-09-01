@@ -1,7 +1,16 @@
 import { describe, expect, it } from "@effect/vitest";
 import { Effect } from "effect";
 import { DepartmentId, PersonId } from "../organization/schema.js";
-import { RECEIPT_DOMAIN_ID } from "./access.js";
+import {
+  AuthorityVersion,
+  RECEIPT_APPROVER_REQUIREMENT,
+  RECEIPT_DOMAIN_ID,
+  RECEIPT_PENDING_REQUIREMENT,
+  RECEIPT_RESOURCE_KIND,
+  ResourceId,
+  type CanonicalResourceContext,
+  type ReceiptAccessFacts,
+} from "./access.js";
 import {
   AuthzRuleId,
   AuthzTagAssignmentId,
@@ -18,7 +27,6 @@ import {
   applicableAuthzRules,
   composeCapabilityEvidence,
   evaluateCapabilityRequirements,
-  resolveCapabilityParameterFills,
   type AuthzApplicabilityFacts,
   type RuleReceptiveEvidence,
 } from "./rules.js";
@@ -53,7 +61,7 @@ const approvalRule = (options: {
     startAt: options.startAt ?? activeStart,
     endAt: options.endAt ?? null,
     revision: 0,
-  };
+  } as AuthzRule;
 };
 
 const paymentRule = (options: {
@@ -76,6 +84,22 @@ const paymentRule = (options: {
   revision: 0,
 });
 
+const requirementRule = (
+  ruleId: string,
+  requirementId: "receipts.pending" | "receipts.approver-relationship",
+): AuthzRule =>
+  ({
+    ruleId: AuthzRuleId.make(ruleId),
+    capabilityId: "approveReceipt",
+    effectKind: "requirement",
+    subject: { _tag: "Person", personId: person },
+    scope: { _tag: "Global" },
+    params: { requirementId, parameters: {} },
+    startAt: activeStart,
+    endAt: null,
+    revision: 0,
+  }) as AuthzRule;
+
 const tagAssignment = (options: {
   readonly assignmentId: string;
   readonly tagId?: typeof tagId;
@@ -91,12 +115,28 @@ const tagAssignment = (options: {
   revision: 0,
 });
 
+const receiptContext = (
+  overrides: Partial<CanonicalResourceContext<ReceiptAccessFacts>> = {},
+): CanonicalResourceContext<ReceiptAccessFacts> => ({
+  domainId: RECEIPT_DOMAIN_ID,
+  departmentId: department,
+  resource: { kind: RECEIPT_RESOURCE_KIND, id: ResourceId.make("authz-receipt") },
+  facts: {
+    ownerPersonId: otherPerson,
+    state: "Pending",
+    approverPersonIds: [person],
+    internalEvidenceEnabled: false,
+  },
+  authorityVersion: AuthorityVersion.make("authz-context:1"),
+  ...overrides,
+});
+
 const applicabilityFacts = (
-  overrides: Partial<AuthzApplicabilityFacts> = {},
-): AuthzApplicabilityFacts => ({
+  overrides: Partial<AuthzApplicabilityFacts<ReceiptAccessFacts>> = {},
+): AuthzApplicabilityFacts<ReceiptAccessFacts> => ({
   personId: person,
   authorizationInstant,
-  requestScope: { domainId: RECEIPT_DOMAIN_ID, departmentId: department },
+  context: receiptContext(),
   tagAssignments: [],
   ...overrides,
 });
@@ -301,7 +341,7 @@ const capabilityTruthTable = [
     subjectMatch: { kind: "Person", matches: true, assignment: "none" },
     scopeMatch: { kind: "Domain", matches: true, requestDepartment: "present" },
     declaredSlotMatch: { slot: "EconomyPaymentAuthority", matches: false },
-    expectedApplicableRules: [],
+    expectedApplicableRules: ["truth-approve-capability-mismatch"],
     expectedContributingRules: [],
     expectedEvidenceIdentity: "same",
     expectedDecision: { _tag: "Allow" },
@@ -381,13 +421,13 @@ const capabilityTruthTable = [
     subjectMatch: { kind: "Person", matches: true, assignment: "none" },
     scopeMatch: { kind: "Global", matches: true, requestDepartment: "present" },
     declaredSlotMatch: { slot: "EconomyGlobalReceiptApprovalGrant", matches: false },
-    expectedApplicableRules: [],
+    expectedApplicableRules: ["truth-submit-capability-mismatch"],
     expectedContributingRules: [],
     expectedEvidenceIdentity: "same",
     expectedDecision: { _tag: "Allow" },
   },
   {
-    name: "submit: missing receipt Department denies an applicable Domain delegate",
+    name: "submit: missing receipt Department does not synthesize a payment fact",
     capabilityId: "submitReceipt",
     ruleId: "truth-submit-missing-department",
     ruleCapabilityId: "submitReceipt",
@@ -400,7 +440,7 @@ const capabilityTruthTable = [
     expectedApplicableRules: ["truth-submit-missing-department"],
     expectedContributingRules: [],
     expectedEvidenceIdentity: "same",
-    expectedDecision: { _tag: "Deny", reason: "RequirementFailed" },
+    expectedDecision: { _tag: "Allow" },
   },
   {
     name: "review: undeclared delegate slot remains inert",
@@ -460,10 +500,9 @@ const makeTruthTableRule = (row: CapabilityTruthTableRow): AuthzRule => {
 
 const makeTruthTableFacts = (row: CapabilityTruthTableRow): AuthzApplicabilityFacts =>
   applicabilityFacts({
-    requestScope:
-      row.scopeMatch.requestDepartment === "present"
-        ? { domainId: RECEIPT_DOMAIN_ID, departmentId: department }
-        : { domainId: RECEIPT_DOMAIN_ID },
+    context: receiptContext({
+      departmentId: row.scopeMatch.requestDepartment === "present" ? department : null,
+    }),
     tagAssignments:
       row.subjectMatch.kind === "Tag" && row.subjectMatch.assignment !== "none"
         ? [
@@ -678,9 +717,9 @@ describe("per-capability delegate truth table", () => {
     expect(
       declaration.receptiveEvidenceSlots.some((slot) => slot === row.declaredSlotMatch.slot),
     ).toBe(row.declaredSlotMatch.matches);
-    expect(
-      applicableAuthzRules([rule], row.capabilityId, facts).map(({ ruleId }) => ruleId),
-    ).toEqual(row.expectedApplicableRules);
+    expect(applicableAuthzRules([rule], facts).map(({ ruleId }) => ruleId)).toEqual(
+      row.expectedApplicableRules,
+    );
 
     const composed = composeCapabilityEvidence(row.capabilityId, row.directFacts, [rule], facts);
     expect(composed.contributingRuleIds).toEqual(row.expectedContributingRules);
@@ -698,96 +737,128 @@ describe("per-capability delegate truth table", () => {
 });
 
 describe("authorization composition helpers", () => {
-  it("collapses duplicate parameter fills and reports different values as ambiguous", () => {
-    const duplicate = resolveCapabilityParameterFills([
-      {
-        slot: "selection",
-        value: { account: "one", ordinal: 1 },
-        sourceId: "rule-b",
-      },
-      {
-        slot: "selection",
-        value: { ordinal: 1, account: "one" },
-        sourceId: "rule-a",
-      },
-      {
-        slot: "selection",
-        value: { ordinal: 1, account: "one" },
-        sourceId: "rule-a",
-      },
-    ]);
-    expect(duplicate).toEqual([
-      {
-        _tag: "Resolved",
-        slot: "selection",
-        value: { account: "one", ordinal: 1 },
-        sourceIds: ["rule-a", "rule-b"],
-      },
-    ]);
+  it("evaluates frozen requirements in registry order and aggregates duplicate sources", () => {
+    const result = evaluateCapabilityRequirements(
+      "approveReceipt",
+      [
+        {
+          requirement: {
+            id: RECEIPT_APPROVER_REQUIREMENT,
+            parameters: {},
+          },
+          sourceRuleId: AuthzRuleId.make("require-approver"),
+        },
+        {
+          requirement: { id: RECEIPT_PENDING_REQUIREMENT, parameters: {} },
+          sourceRuleId: AuthzRuleId.make("require-pending-b"),
+        },
+        {
+          requirement: { id: RECEIPT_PENDING_REQUIREMENT, parameters: {} },
+          sourceRuleId: AuthzRuleId.make("require-pending-a"),
+        },
+      ],
+      { _tag: "Person", personId: person },
+      receiptContext(),
+    );
 
-    const ambiguous = resolveCapabilityParameterFills([
-      { slot: "selection", value: "one", sourceId: "rule-b" },
-      { slot: "selection", value: "two", sourceId: "rule-a" },
-    ]);
-    expect(ambiguous).toEqual([
-      {
-        _tag: "Ambiguous",
-        slot: "selection",
-        candidates: [
-          { value: "one", sourceIds: ["rule-b"] },
-          { value: "two", sourceIds: ["rule-a"] },
-        ],
-      },
-    ]);
-  });
-
-  it("fails composed requirements when any ordered requirement is unsatisfied", () => {
-    expect(evaluateCapabilityRequirements([])).toEqual({
+    expect(result).toEqual({
       _tag: "Satisfied",
-      requirements: [],
-    });
-
-    expect(
-      evaluateCapabilityRequirements([
-        { requirementId: "Second", satisfied: true, sourceId: "rule-b" },
-        { requirementId: "First", satisfied: false, sourceId: "rule-z" },
-        { requirementId: "First", satisfied: true, sourceId: "rule-a" },
-      ]),
-    ).toEqual({
-      _tag: "Failed",
-      requirements: [
-        { requirementId: "First", satisfied: true, sourceId: "rule-a" },
-        { requirementId: "First", satisfied: false, sourceId: "rule-z" },
-        { requirementId: "Second", satisfied: true, sourceId: "rule-b" },
-      ],
-      failed: [{ requirementId: "First", satisfied: false, sourceId: "rule-z" }],
-    });
-  });
-
-  it("preserves Ambiguous and RequirementFailed on the composed Decision", () => {
-    const ambiguous = composeCapabilityEvidence("submitReceipt", {}, [], {
-      ...applicabilityFacts(),
-      parameterFills: [
-        { slot: "paymentSelection", value: department, sourceId: "typed-stub-a" },
-        { slot: "paymentSelection", value: otherDepartment, sourceId: "typed-stub-b" },
-      ],
-    });
-    expect(ambiguous.decision).toEqual({ _tag: "Deny", reason: "Ambiguous" });
-
-    const failedRequirement = composeCapabilityEvidence("approveReceipt", {}, [], {
-      ...applicabilityFacts(),
       requirements: [
         {
-          requirementId: "OperatorConfirmation",
-          satisfied: false,
-          sourceId: "typed-stub-requirement",
+          requirement: { id: "receipts.pending", parameters: {} },
+          result: { _tag: "Satisfied", id: "receipts.pending" },
+          sourceRuleIds: ["require-pending-a", "require-pending-b"],
+        },
+        {
+          requirement: {
+            id: "receipts.approver-relationship",
+            parameters: {},
+          },
+          result: {
+            _tag: "Satisfied",
+            id: "receipts.approver-relationship",
+          },
+          sourceRuleIds: ["require-approver"],
         },
       ],
     });
-    expect(failedRequirement.decision).toEqual({
+  });
+
+  it("denies a nonpending receipt through the registered requirement", () => {
+    const context = receiptContext({
+      facts: {
+        ...receiptContext().facts,
+        state: "Rejected",
+      },
+    });
+    const composed = composeCapabilityEvidence(
+      "approveReceipt",
+      {},
+      [
+        approvalRule({ ruleId: "delegate" }),
+        requirementRule("require-pending", "receipts.pending"),
+      ],
+      applicabilityFacts({ context }),
+    );
+
+    expect(composed.decision).toEqual({
       _tag: "Deny",
       reason: "RequirementFailed",
     });
+    expect(composed.requirements).toEqual({
+      _tag: "Failed",
+      requirements: [
+        {
+          requirement: { id: "receipts.pending", parameters: {} },
+          result: {
+            _tag: "Failed",
+            id: "receipts.pending",
+            reason: "NotPending",
+          },
+          sourceRuleIds: ["require-pending"],
+        },
+      ],
+      failed: {
+        requirement: { id: "receipts.pending", parameters: {} },
+        result: {
+          _tag: "Failed",
+          id: "receipts.pending",
+          reason: "NotPending",
+        },
+        sourceRuleIds: ["require-pending"],
+      },
+    });
+  });
+
+  it("denies a foreign receipt through the approver relationship requirement", () => {
+    const context = receiptContext({
+      facts: {
+        ...receiptContext().facts,
+        approverPersonIds: [],
+      },
+    });
+    const composed = composeCapabilityEvidence(
+      "approveReceipt",
+      {},
+      [
+        approvalRule({ ruleId: "delegate" }),
+        requirementRule("require-approver", "receipts.approver-relationship"),
+      ],
+      applicabilityFacts({ context }),
+    );
+
+    expect(composed.decision).toEqual({
+      _tag: "Deny",
+      reason: "RequirementFailed",
+    });
+    expect(composed.requirements._tag).toBe("Failed");
+    if (composed.requirements._tag === "Failed") {
+      expect(composed.requirements.failed.result).toEqual({
+        _tag: "Failed",
+        id: "receipts.approver-relationship",
+        reason: "NotApprover",
+      });
+    }
   });
 });
 
@@ -826,4 +897,62 @@ describe("authorization rule decoding", () => {
       }
     });
   });
+
+  it.effect("accepts only the two exact typed requirement variants", () =>
+    Effect.gen(function* () {
+      const common = {
+        ruleId: "decoded-requirement",
+        capabilityId: "approveReceipt",
+        effectKind: "requirement",
+        subject: { _tag: "Person", personId: "authz-person" },
+        scope: { _tag: "Domain", domainId: "receipts" },
+        startAt: activeStart,
+        endAt: null,
+        revision: 0,
+      } as const;
+      const pending = yield* decodeAuthzRule({
+        ...common,
+        params: { requirementId: "receipts.pending", parameters: {} },
+      });
+      const approver = yield* decodeAuthzRule({
+        ...common,
+        ruleId: "decoded-approver",
+        params: {
+          requirementId: "receipts.approver-relationship",
+          parameters: {},
+        },
+      });
+      expect(pending.effectKind).toBe("requirement");
+      expect(approver.effectKind).toBe("requirement");
+
+      for (const input of [
+        {
+          ...common,
+          scope: { _tag: "Receipt", receiptId: "authz-receipt" },
+          params: { requirementId: "receipts.pending", parameters: {} },
+        },
+        {
+          ...common,
+          params: { requirementId: "receipts.owner", parameters: {} },
+        },
+        {
+          ...common,
+          params: {
+            requirementId: "receipts.pending",
+            parameters: { unexpected: true },
+          },
+        },
+        {
+          ...common,
+          params: {
+            requirementId: "receipts.pending",
+            parameters: {},
+            unexpected: true,
+          },
+        },
+      ]) {
+        expect((yield* Effect.exit(decodeAuthzRule(input)))._tag).toBe("Failure");
+      }
+    }),
+  );
 });

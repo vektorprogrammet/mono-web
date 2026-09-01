@@ -25,7 +25,6 @@ export type AuthzTagAssignmentId = typeof AuthzTagAssignmentId.Type;
 
 export const AuthzTagNameSchema = TrimmedNonEmpty;
 export type AuthzTagName = typeof AuthzTagNameSchema.Type;
-
 export const AuthzCapabilityIdSchema = Schema.Literals([
   "approveReceipt",
   "submitReceipt",
@@ -33,7 +32,7 @@ export const AuthzCapabilityIdSchema = Schema.Literals([
 ]);
 export type AuthzCapabilityId = typeof AuthzCapabilityIdSchema.Type;
 
-export const AuthzRuleEffectKindSchema = Schema.Literals(["delegate", "parameter", "requirement"]);
+export const AuthzRuleEffectKindSchema = Schema.Literals(["delegate", "requirement"]);
 export type AuthzRuleEffectKind = typeof AuthzRuleEffectKindSchema.Type;
 
 export const AuthzEvidenceSlotSchema = Schema.Literals([
@@ -42,57 +41,6 @@ export const AuthzEvidenceSlotSchema = Schema.Literals([
   "EconomyPaymentAuthority",
 ]);
 export type AuthzEvidenceSlot = typeof AuthzEvidenceSlotSchema.Type;
-
-export type AuthzCapabilityDeclaration = {
-  readonly receptiveEvidenceSlots: ReadonlyArray<AuthzEvidenceSlot>;
-  readonly parameterSlots: ReadonlyArray<string>;
-  readonly requirementSlots: ReadonlyArray<string>;
-  readonly acceptedEffects: ReadonlyArray<AuthzRuleEffectKind>;
-};
-
-/** Frozen rule-receptive surface. Operator data cannot add a slot. */
-export const CAPABILITY_IDS = {
-  approveReceipt: {
-    receptiveEvidenceSlots: ["EconomyDepartmentApprovalGrant", "EconomyGlobalReceiptApprovalGrant"],
-    parameterSlots: [],
-    requirementSlots: [],
-    acceptedEffects: ["delegate"],
-  },
-  submitReceipt: {
-    receptiveEvidenceSlots: ["EconomyPaymentAuthority"],
-    parameterSlots: [],
-    requirementSlots: [],
-    acceptedEffects: ["delegate"],
-  },
-  reviewApplicants: {
-    receptiveEvidenceSlots: [],
-    parameterSlots: [],
-    requirementSlots: [],
-    acceptedEffects: [],
-  },
-} as const satisfies Record<AuthzCapabilityId, AuthzCapabilityDeclaration>;
-
-export const AuthzRuleSubjectSchema = Schema.TaggedUnion({
-  Person: { personId: PersonId },
-  Tag: { tagId: AuthzTagId },
-});
-export type AuthzRuleSubject = typeof AuthzRuleSubjectSchema.Type;
-
-export const AuthzRuleScopeSchema = Schema.TaggedUnion({
-  Global: {},
-  Domain: { domainId: DomainId },
-  Department: { departmentId: DepartmentId },
-});
-export type AuthzRuleScope = typeof AuthzRuleScopeSchema.Type;
-
-export const AuthzRequestScopeSchema = Schema.Struct({
-  domainId: DomainId,
-  departmentId: Schema.optional(DepartmentId),
-});
-export type AuthzRequestScope = typeof AuthzRequestScopeSchema.Type;
-
-export const AuthzLockModeSchema = Schema.Literals(["None", "ForShare"]);
-export type AuthzLockMode = typeof AuthzLockModeSchema.Type;
 
 export const EconomyDepartmentApprovalDelegateParamsSchema = Schema.Struct({
   slot: Schema.Literals(["EconomyDepartmentApprovalGrant"]),
@@ -113,13 +61,65 @@ export const EconomyPaymentAuthorityDelegateParamsSchema = Schema.Struct({
 export type EconomyPaymentAuthorityDelegateParams =
   typeof EconomyPaymentAuthorityDelegateParamsSchema.Type;
 
-export const AuthzDelegateParamsSchema = Schema.Union([
-  EconomyDepartmentApprovalDelegateParamsSchema,
-  EconomyGlobalReceiptApprovalDelegateParamsSchema,
-  EconomyPaymentAuthorityDelegateParamsSchema,
-]);
-export type AuthzDelegateParams = typeof AuthzDelegateParamsSchema.Type;
+const EmptyRequirementParametersSchema = Schema.Record(Schema.String, Schema.Never);
 
+export const ReceiptPendingRequirementParamsSchema = Schema.Struct({
+  requirementId: Schema.Literals(["receipts.pending"]),
+  parameters: EmptyRequirementParametersSchema,
+});
+export type ReceiptPendingRequirementParams = typeof ReceiptPendingRequirementParamsSchema.Type;
+
+export const ReceiptApproverRelationshipRequirementParamsSchema = Schema.Struct({
+  requirementId: Schema.Literals(["receipts.approver-relationship"]),
+  parameters: EmptyRequirementParametersSchema,
+});
+export type ReceiptApproverRelationshipRequirementParams =
+  typeof ReceiptApproverRelationshipRequirementParamsSchema.Type;
+
+export const AuthzRuleSubjectSchema = Schema.TaggedUnion({
+  Person: { personId: PersonId },
+  Tag: { tagId: AuthzTagId },
+});
+export type AuthzRuleSubject = typeof AuthzRuleSubjectSchema.Type;
+
+export const AuthzRuleScopeSchema = Schema.TaggedUnion({
+  Global: {},
+  Domain: { domainId: DomainId },
+  Department: { departmentId: DepartmentId },
+});
+export type AuthzRuleScope = typeof AuthzRuleScopeSchema.Type;
+
+export type AuthzCapabilityDeclaration = {
+  readonly receptiveEvidenceSlots: ReadonlyArray<AuthzEvidenceSlot>;
+  readonly parameterSlots: ReadonlyArray<string>;
+  readonly requirementSlots: ReadonlyArray<string>;
+  readonly acceptedEffects: ReadonlyArray<AuthzRuleEffectKind>;
+};
+
+/** Frozen rule-receptive surface. Operator data cannot add a slot. */
+export const CAPABILITY_IDS = {
+  approveReceipt: {
+    receptiveEvidenceSlots: ["EconomyDepartmentApprovalGrant", "EconomyGlobalReceiptApprovalGrant"],
+    parameterSlots: [],
+    requirementSlots: ["receipts.pending", "receipts.approver-relationship"],
+    acceptedEffects: ["delegate", "requirement"],
+  },
+  submitReceipt: {
+    receptiveEvidenceSlots: ["EconomyPaymentAuthority"],
+    parameterSlots: [],
+    requirementSlots: [],
+    acceptedEffects: ["delegate"],
+  },
+  reviewApplicants: {
+    receptiveEvidenceSlots: [],
+    parameterSlots: [],
+    requirementSlots: [],
+    acceptedEffects: [],
+  },
+} as const satisfies Record<AuthzCapabilityId, AuthzCapabilityDeclaration>;
+
+export const AuthzLockModeSchema = Schema.Literals(["None", "ForShare"]);
+export type AuthzLockMode = typeof AuthzLockModeSchema.Type;
 const AuthzRuleCommonFields = {
   ruleId: AuthzRuleId,
   subject: AuthzRuleSubjectSchema,
@@ -129,33 +129,55 @@ const AuthzRuleCommonFields = {
   revision: AuthzRevisionSchema,
 } as const;
 
-const ApproveReceiptRuleSchema = Schema.Struct({
+const ApproveReceiptDepartmentDelegateRuleSchema = Schema.Struct({
   ...AuthzRuleCommonFields,
   capabilityId: Schema.Literals(["approveReceipt"]),
   effectKind: Schema.Literals(["delegate"]),
-  params: Schema.Union([
-    EconomyDepartmentApprovalDelegateParamsSchema,
-    EconomyGlobalReceiptApprovalDelegateParamsSchema,
-  ]),
+  params: EconomyDepartmentApprovalDelegateParamsSchema,
 });
 
-const SubmitReceiptRuleSchema = Schema.Struct({
+const ApproveReceiptGlobalDelegateRuleSchema = Schema.Struct({
+  ...AuthzRuleCommonFields,
+  capabilityId: Schema.Literals(["approveReceipt"]),
+  effectKind: Schema.Literals(["delegate"]),
+  params: EconomyGlobalReceiptApprovalDelegateParamsSchema,
+});
+
+const ApproveReceiptPendingRequirementRuleSchema = Schema.Struct({
+  ...AuthzRuleCommonFields,
+  capabilityId: Schema.Literals(["approveReceipt"]),
+  effectKind: Schema.Literals(["requirement"]),
+  params: ReceiptPendingRequirementParamsSchema,
+});
+
+const ApproveReceiptApproverRelationshipRequirementRuleSchema = Schema.Struct({
+  ...AuthzRuleCommonFields,
+  capabilityId: Schema.Literals(["approveReceipt"]),
+  effectKind: Schema.Literals(["requirement"]),
+  params: ReceiptApproverRelationshipRequirementParamsSchema,
+});
+
+const SubmitReceiptPaymentDelegateRuleSchema = Schema.Struct({
   ...AuthzRuleCommonFields,
   capabilityId: Schema.Literals(["submitReceipt"]),
   effectKind: Schema.Literals(["delegate"]),
   params: EconomyPaymentAuthorityDelegateParamsSchema,
 });
 
-const orderedInterval = Schema.makeFilter(
-  (value: { readonly startAt: string; readonly endAt: string | null }) =>
-    value.endAt === null || compareRfc3339Instants(value.endAt, value.startAt) > 0,
-  { message: "a half-open authorization interval" },
-);
-
 export const AuthzRuleSchema = Schema.Union([
-  ApproveReceiptRuleSchema,
-  SubmitReceiptRuleSchema,
-]).pipe(Schema.check(orderedInterval));
+  ApproveReceiptDepartmentDelegateRuleSchema,
+  ApproveReceiptGlobalDelegateRuleSchema,
+  ApproveReceiptPendingRequirementRuleSchema,
+  ApproveReceiptApproverRelationshipRequirementRuleSchema,
+  SubmitReceiptPaymentDelegateRuleSchema,
+]).pipe(
+  Schema.check(
+    Schema.makeFilter(
+      (rule) => rule.endAt === null || compareRfc3339Instants(rule.startAt, rule.endAt) < 0,
+      { message: "an authorization rule interval must be half-open and ordered" },
+    ),
+  ),
+);
 export type AuthzRule = typeof AuthzRuleSchema.Type;
 
 export const AuthzTagSchema = Schema.Struct({
@@ -164,6 +186,12 @@ export const AuthzTagSchema = Schema.Struct({
   revision: AuthzRevisionSchema,
 });
 export type AuthzTag = typeof AuthzTagSchema.Type;
+
+const orderedInterval = Schema.makeFilter(
+  (value: { readonly startAt: string; readonly endAt: string | null }) =>
+    value.endAt === null || compareRfc3339Instants(value.endAt, value.startAt) > 0,
+  { message: "a half-open authorization interval" },
+);
 
 export const AuthzTagAssignmentSchema = Schema.Struct({
   assignmentId: AuthzTagAssignmentId,
