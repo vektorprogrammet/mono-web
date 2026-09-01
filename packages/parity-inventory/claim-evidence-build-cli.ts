@@ -17,6 +17,7 @@ import {
   buildCapabilityRuntimeEvidenceV2,
   buildClaimSpecificAcceptedIntentV2,
   claimEvidencePlan,
+  type ClaimBackendEvidencePlan,
   type ClaimEvidenceCatalogs,
   type ClaimEvidenceReceiptRef,
   type ClaimIntentEvidencePlan,
@@ -150,6 +151,11 @@ type BuildTimeJourneyArtifact =
 const backendPlanFor = (plan: ClaimIntentEvidencePlan, backend: Backend) =>
   backend === "legacy_symfony" ? plan.backends.legacy_symfony : plan.backends.native_effect;
 
+const includesSemantic = (values: readonly string[], semanticId: string | null): boolean => {
+  if (semanticId === null) return true;
+  return values.includes(semanticId);
+};
+
 const methodObserved = (
   observation: ClaimObservationPlanEntry,
   plan: ClaimIntentEvidencePlan,
@@ -227,7 +233,12 @@ const methodObserved = (
       return (
         includesSemantic(artifact.value.verified_semantics.effect_ids, observation.effect_id) &&
         artifact.value.database_observation.method === databaseMethodFor(backend) &&
-        outboxRowCount(artifact.value.database_observation.row_counts) > 0
+        (backend === "legacy_symfony"
+          ? legacyRequestedEffectObserved(
+              observation.effect_id,
+              artifact.value.database_observation.row_counts,
+            )
+          : outboxRowCount(artifact.value.database_observation.row_counts) > 0)
       );
     case "second_fresh_http_read":
       return (
@@ -246,6 +257,21 @@ const methodObserved = (
       return false;
   }
 };
+const isUnsatisfiedObservation = (
+  observation: ClaimObservationPlanEntry,
+  unsatisfied: ClaimBackendEvidencePlan["unsatisfied"],
+): boolean =>
+  (observation.assertion_id !== null &&
+    (unsatisfied.assertion_ids?.includes(observation.assertion_id) ?? false)) ||
+  (observation.effect_id !== null &&
+    (unsatisfied.effect_ids?.includes(observation.effect_id) ?? false)) ||
+  (observation.freshness_id !== null &&
+    (unsatisfied.freshness_ids?.includes(observation.freshness_id) ?? false)) ||
+  (observation.precondition_id !== null &&
+    (unsatisfied.precondition_ids?.includes(observation.precondition_id) ?? false)) ||
+  (observation.rejection_id !== null &&
+    (unsatisfied.rejection_ids?.includes(observation.rejection_id) ?? false));
+
 const observedIds = (
   plan: ClaimIntentEvidencePlan,
   backend: Backend,
@@ -253,6 +279,9 @@ const observedIds = (
   run: { readonly result: string },
 ): readonly string[] =>
   backendPlanFor(plan, backend).observations.flatMap((observation) => {
+    if (isUnsatisfiedObservation(observation, backendPlanFor(plan, backend).unsatisfied)) {
+      return [];
+    }
     if (!methodObserved(observation, plan, backend, artifact, run)) {
       throw new Error(
         `CLAIM_EVIDENCE_METHOD_NOT_OBSERVED:${plan.intent_ref_id}:${observation.observation_method}:${observation.observation_id}`,
@@ -267,6 +296,19 @@ const databaseMethodFor = (backend: Backend): string =>
 const outboxRowCount = (rowCounts: Readonly<Record<string, number>>): number =>
   rowCounts.outbox ?? rowCounts.invitation_outbox ?? rowCounts.subscribers ?? 0;
 
+const legacyRequestedEffectObserved = (
+  effectId: string | null,
+  rowCounts: Readonly<Record<string, number>>,
+): boolean => {
+  switch (effectId) {
+    case "effect-applicant-admission-activation-requested":
+      return (rowCounts.admission_subscribers ?? 0) > 0;
+    case "effect-interview-invitation-notification-requested":
+      return (rowCounts.interviews ?? 0) > 0 && (rowCounts.response_codes ?? 0) > 0;
+    default:
+      return false;
+  }
+};
 const readArtifactFile = async (
   evidenceRoot: string,
   run: { readonly artifact_pointer: string; readonly intent_ref_id: string },

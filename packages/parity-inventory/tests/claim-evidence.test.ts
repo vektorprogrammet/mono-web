@@ -19,6 +19,7 @@ import {
   buildCapabilityRuntimeEvidenceV2,
   buildClaimSpecificAcceptedIntentV2,
   claimEvidencePlan,
+  type ClaimBackendEvidencePlan,
   type ClaimEvidenceCatalogs,
   type ClaimEvidenceReceiptRef,
   type ClaimObservationMethod,
@@ -191,6 +192,27 @@ const migratedFixture = (): AcceptedIntentV2 => {
 };
 
 const backendValues = ["legacy_symfony", "native_effect"] as const;
+
+const satisfiedObservations = (
+  backendPlan: ClaimBackendEvidencePlan,
+): ClaimBackendEvidencePlan["observations"] => {
+  const excluded = new Set([
+    ...(backendPlan.unsatisfied.assertion_ids ?? []),
+    ...(backendPlan.unsatisfied.effect_ids ?? []),
+    ...(backendPlan.unsatisfied.freshness_ids ?? []),
+    ...(backendPlan.unsatisfied.precondition_ids ?? []),
+    ...(backendPlan.unsatisfied.rejection_ids ?? []),
+  ]);
+  return backendPlan.observations.filter((observation) =>
+    [
+      observation.assertion_id,
+      observation.effect_id,
+      observation.freshness_id,
+      observation.precondition_id,
+      observation.rejection_id,
+    ].every((semanticId) => semanticId === null || !excluded.has(semanticId)),
+  );
+};
 
 const fixedReceiptRefs = (): readonly ClaimEvidenceReceiptRef[] =>
   claimEvidencePlan(catalogs).flatMap((plan) =>
@@ -397,7 +419,9 @@ test("receipt builder maps only artifact observation ids into scope-valid v2 cla
         receipt_ref_id: receiptRefFor(receiptRefs, plan.intent_ref_id, backend),
         artifact_pointer: `artifacts/${plan.slug}-${backend}.json`,
         artifact_digest: sha256(`artifact:${plan.slug}:${backend}`),
-        observed_observation_ids: backendPlan.observations.map((entry) => entry.observation_id),
+        observed_observation_ids: satisfiedObservations(backendPlan).map(
+          (entry) => entry.observation_id,
+        ),
         runner_digest: sha256(`runner:${backend}`),
         fixture_digest: sha256(`fixture:${plan.slug}:${backend}`),
         result: "passed",
@@ -423,7 +447,7 @@ test("receipt builder maps only artifact observation ids into scope-valid v2 cla
     )!;
     expect(receipt.implementation_digest).toBe(sha256(canonicalJson(implementation)));
     const plan = plans.find((entry) => entry.intent_ref_id === receipt.intent_ref_id)!;
-    const plannedObservations = plan.backends[receipt.backend].observations;
+    const plannedObservations = satisfiedObservations(plan.backends[receipt.backend]);
     expect(receipt.claims).toHaveLength(plannedObservations.length);
     for (const claim of receipt.claims) {
       expect(
@@ -446,13 +470,29 @@ test("receipt builder maps only artifact observation ids into scope-valid v2 cla
     }
   }
 
+  const expectedStructuralCodes: Readonly<Record<ReviewedTargetIntentRef, readonly string[]>> = {
+    "intent://journey:parity:applicant_admission:v1": [
+      "EFFECT_DECLARATION_MISSING",
+      "MISSING_OUTCOME",
+      "MISSING_REJECTION",
+    ],
+    "intent://composition:recruitment:interview-scheduling-invitation-response:v1": [
+      "EFFECT_DECLARATION_MISSING",
+      "MISSING_OUTCOME",
+    ],
+    "intent://composition:receipts:owner-scoped-approval:v1": ["EFFECT_DECLARATION_MISSING"],
+  };
   for (const intentRefId of reviewedIntentRefs) {
     const intent = register.intents.find((entry) => entry.intent_ref_id === intentRefId)!;
     const row = compareCapabilityIntent(register, intent, legacyCatalog, nativeCatalog, evidence);
-    expect(row.equivalence).toBe("equivalent");
-    expect(row.legacy.evidence_status).toBe("current");
+    expect(row.equivalence).toBe("not_equivalent");
+    expect(row.legacy.evidence_status).toBe("missing");
     expect(row.native.evidence_status).toBe("current");
-    expect(row.diagnostics).toEqual([]);
+    const diagnosticCodes = new Set(row.diagnostics.map((diagnostic) => diagnostic.code));
+    expect(diagnosticCodes.has("CLAIM_SCOPE_INVALID")).toBe(false);
+    for (const code of expectedStructuralCodes[intentRefId]) {
+      expect(diagnosticCodes.has(code)).toBe(true);
+    }
   }
 
   const applicantPlan = plans.find(

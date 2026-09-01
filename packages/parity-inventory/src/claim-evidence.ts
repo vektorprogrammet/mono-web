@@ -108,6 +108,7 @@ export interface ClaimBackendEvidencePlan {
   };
   readonly operation_nodes: readonly ClaimOperationPlanEntry[];
   readonly observations: readonly ClaimObservationPlanEntry[];
+  readonly unsatisfied: BackendUnsatisfiedDeclarations;
 }
 
 export interface ClaimIntentEvidencePlan {
@@ -335,6 +336,11 @@ const applicantDefinition: TargetDefinition = {
           read_operation_semantic: "fresh-confirmation",
         },
       ],
+      unsatisfied: {
+        assertion_ids: ["assertion-applicant-admission-privacy-safe-confirmation"],
+        effect_ids: ["effect-applicant-admission-outbox-persisted"],
+        rejection_ids: ["rejection-applicant-admission-duplicate"],
+      },
     },
     native_effect: {
       accepted: [
@@ -614,6 +620,13 @@ const interviewDefinition: TargetDefinition = {
           read_operation_semantic: "fresh-invitation-response",
         },
       ],
+      unsatisfied: {
+        assertion_ids: [
+          "assertion-interview-invitation-rejected",
+          "assertion-interview-invitation-scheduled",
+        ],
+        effect_ids: ["effect-interview-invitation-outbox-persisted"],
+      },
     },
     native_effect: {
       accepted: [
@@ -922,6 +935,12 @@ const receiptDefinition: TargetDefinition = {
           read_operation_semantic: "fresh-approval-list",
         },
       ],
+      unsatisfied: {
+        effect_ids: [
+          "effect-owner-approval-decision-audit-persisted",
+          "effect-owner-approval-submission-audit-persisted",
+        ],
+      },
     },
     native_effect: {
       accepted: [
@@ -1265,6 +1284,7 @@ const backendPlan = (
     local_observation_node_ids: localIds,
     operation_nodes: operationNodes,
     observations,
+    unsatisfied: bindings.unsatisfied ?? {},
   };
 };
 
@@ -1337,9 +1357,7 @@ const witnessesFor = (
   );
   const unsatisfied = definition.backends[backendPlanValue.backend].unsatisfied ?? {};
   const subtract = (values: readonly string[], excluded?: readonly string[]): string[] =>
-    excluded === undefined
-      ? [...values]
-      : values.filter((value) => !excluded.includes(value));
+    excluded === undefined ? [...values] : values.filter((value) => !excluded.includes(value));
   const satisfiesPreconditions = subtract(
     definition.required_preconditions.map((entry) => entry.precondition_id),
     unsatisfied.precondition_ids,
