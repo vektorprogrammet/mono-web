@@ -2,7 +2,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { Context } from "effect";
 import { OpenApi } from "effect/unstable/httpapi";
-import { NativeApi } from "../src/api.js";
+import { ExternalNativeApi, InternalNativeApi } from "../src/api.js";
 
 const methods = ["get", "put", "post", "delete", "options", "head", "patch", "trace"] as const;
 
@@ -37,7 +37,7 @@ function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(`OpenAPI invariant failed: ${message}`);
 }
 
-const rawSpec = OpenApi.fromApi(NativeApi);
+const rawSpec = OpenApi.fromApi(ExternalNativeApi);
 const spec: OpenApi.OpenAPISpec = {
   ...rawSpec,
   paths: Object.fromEntries(
@@ -85,7 +85,7 @@ assert(
   "every operation needs an id",
 );
 const expectedPublicOperationIds = new Set(
-  Object.values(NativeApi.groups)
+  Object.values(ExternalNativeApi.groups)
     .filter((group) => Context.get(group.annotations, OpenApi.Exclude) !== true)
     .flatMap((group) =>
       Object.values(group.endpoints).map(
@@ -99,7 +99,7 @@ assert(
     operationIds.every((identifier) => expectedPublicOperationIds.has(identifier)),
   "every public operation id must be its stable fully-qualified group.endpoint identifier",
 );
-const internalOperationIds = Object.values(NativeApi.groups.internal.endpoints).map(
+const internalOperationIds = Object.values(InternalNativeApi.groups.internal.endpoints).map(
   (endpoint) => `internal.${endpoint.identifier}`,
 );
 assert(
@@ -110,6 +110,19 @@ assert(new Set(operationIds).size === operationIds.length, "operation ids must b
 
 const paths = spec.paths;
 assert(paths["/api/departments"]?.get?.responses?.["200"] !== undefined, "public response schema");
+const healthOperation = paths["/health"]?.get as
+  | (Record<string, unknown> & { readonly security?: ReadonlyArray<unknown> })
+  | undefined;
+const healthAccess = healthOperation?.["x-vektor-access"];
+assert(healthAccess !== undefined, "health AccessSpec projection");
+assert(
+  Array.isArray(healthOperation?.security) && healthOperation.security.length === 0,
+  "credential-free health security projection",
+);
+assert(
+  !/credentialValue|rawHeader|secret|tokenValue/iu.test(JSON.stringify(healthAccess)),
+  "access projection must contain no credential material",
+);
 for (const [path, method] of [
   ["/api/session", "get"],
   ["/api/session", "delete"],

@@ -14,6 +14,9 @@ describe("preview devtools panel", () => {
     window.history.replaceState({}, "", "/dashboard");
     window.localStorage.clear();
     document.body.replaceChildren();
+    const shell = document.createElement("aside");
+    shell.dataset.dashboardShell = "";
+    document.body.appendChild(shell);
   });
 
   afterEach(() => {
@@ -46,8 +49,8 @@ describe("preview devtools panel", () => {
     expect(panel?.textContent).toContain("ADMIN");
   });
 
-  it("does not mount outside dashboard routes", async () => {
-    window.history.replaceState({}, "", "/login");
+  it("does not mount without the dashboard shell", async () => {
+    document.querySelector("[data-dashboard-shell]")?.remove();
     const { mountPreviewDevtoolsPanel } = await import("./preview-devtools-panel");
 
     mountPreviewDevtoolsPanel();

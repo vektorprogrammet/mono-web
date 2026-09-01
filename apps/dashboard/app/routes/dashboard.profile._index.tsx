@@ -116,7 +116,7 @@ export default function Profile() {
                 asChild
                 className="flex flex-row justify-between rounded-t-lg bg-gray-50 px-4 py-2 text-left font-medium text-black hover:bg-gray-100"
               >
-                <NavLink to={href("/dashboard/profile/rediger")} prefetch="intent">
+                <NavLink to={href("/profile/rediger")} prefetch="intent">
                   Rediger profil
                   <ChevronRight />
                 </NavLink>

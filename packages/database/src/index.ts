@@ -3,6 +3,8 @@ export * from "./migrations.js";
 export {
   AuthEngine,
   AuthLive,
+  IdentitySnapshot,
   type AuthEngineInstance,
   type AuthEngineService,
+  type IdentitySnapshotService,
 } from "./auth-live.js";

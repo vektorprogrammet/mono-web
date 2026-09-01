@@ -1,5 +1,5 @@
 import { OwnProfile, Profile, UpdateOwnProfileCommand } from "@vektorprogrammet/domain/profile";
-import { NativeApi } from "@vektorprogrammet/http-api";
+import { ExternalNativeApi } from "@vektorprogrammet/http-api";
 import { Effect, Match, Schema } from "effect";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
 import { toHttpApiResponse } from "../http-api/transport.js";
@@ -184,7 +184,7 @@ const updateOwnProfile = async (
 
 /** Native HttpApi implementations for self-service profile endpoints. */
 export const ProfileApiHandlers = (input: ProfileApiHttpOptions) =>
-  HttpApiBuilder.group(NativeApi, "profile", (handlers) =>
+  HttpApiBuilder.group(ExternalNativeApi, "profile", (handlers) =>
     Effect.succeed(
       handlers
         .handleRaw("readOwnProfile", ({ request }) =>

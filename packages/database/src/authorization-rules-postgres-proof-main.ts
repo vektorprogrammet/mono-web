@@ -11,6 +11,7 @@ import {
   endAuthzTagAssignment,
   loadApplicableAuthorizationRules,
   persistDisposableAuthzBackfill,
+  RECEIPT_DOMAIN_ID,
   removeAuthzRule,
   type DisposableAuthzBackfillPlan,
 } from "@vektorprogrammet/domain/authz";
@@ -1143,7 +1144,7 @@ const submissionCompositionFacts = (
       authorizationInstant,
       organization,
     );
-    const requestScope = { domain: "Receipt" as const, departmentId: departmentScope };
+    const requestScope = { domainId: RECEIPT_DOMAIN_ID, departmentId: departmentScope };
     const applicable = yield* loadApplicableAuthorizationRules(
       subject,
       "submitReceipt",
@@ -1207,7 +1208,7 @@ const approvalCompositionFacts = (
       authorizationInstant,
       organization,
     );
-    const requestScope = { domain: "Receipt" as const, departmentId: departmentScope };
+    const requestScope = { domainId: RECEIPT_DOMAIN_ID, departmentId: departmentScope };
     const applicable = yield* loadApplicableAuthorizationRules(
       subject,
       "approveReceipt",
@@ -1349,7 +1350,7 @@ const proveDisposableAuthzBackfill = (databaseUrl: Redacted.Redacted<string>) =>
               {
                 capabilityId: "approveReceipt",
                 effectKind: "delegate",
-                scope: { _tag: "Receipt" },
+                scope: { _tag: "Domain", domainId: RECEIPT_DOMAIN_ID },
                 params: { slot: "EconomyGlobalReceiptApprovalGrant" },
                 startAt: activeStart,
                 endAt: null,
@@ -1392,7 +1393,7 @@ const proveDisposableAuthzBackfill = (databaseUrl: Redacted.Redacted<string>) =>
               {
                 capabilityId: "approveReceipt",
                 effectKind: "delegate",
-                scope: { _tag: "Receipt" },
+                scope: { _tag: "Domain", domainId: RECEIPT_DOMAIN_ID },
                 params: { slot: "EconomyGlobalReceiptApprovalGrant" },
                 startAt: activeStart,
                 endAt: null,
@@ -1488,7 +1489,7 @@ const proveDisposableAuthzBackfill = (databaseUrl: Redacted.Redacted<string>) =>
               {
                 capabilityId: "unknownCapability",
                 effectKind: "delegate",
-                scope: { _tag: "Receipt" },
+                scope: { _tag: "Domain", domainId: RECEIPT_DOMAIN_ID },
                 params: { slot: "EconomyGlobalReceiptApprovalGrant" },
                 startAt: activeStart,
                 endAt: null,
@@ -1514,7 +1515,7 @@ const proveDisposableAuthzBackfill = (databaseUrl: Redacted.Redacted<string>) =>
               {
                 capabilityId: "submitReceipt",
                 effectKind: "delegate",
-                scope: { _tag: "Receipt" },
+                scope: { _tag: "Domain", domainId: RECEIPT_DOMAIN_ID },
                 params: { slot: "EconomyPaymentAuthority", ignored: true },
                 startAt: activeStart,
                 endAt: null,
@@ -1970,7 +1971,7 @@ const proveZeroRuleEquivalence = (databaseUrl: Redacted.Redacted<string>) =>
     const durable = yield* readDurableCommandFacts(sql, ids.commands.directSubmit);
     const actual = {
       actor: composition.mapped._tag === "Success" ? composition.mapped.actor : null,
-      scope: { domain: "Receipt" as const, departmentId: ids.departments.alpha },
+      scope: { domainId: RECEIPT_DOMAIN_ID, departmentId: ids.departments.alpha },
       observation: result.observation,
     };
     const spec0055Oracle = {
@@ -1980,7 +1981,7 @@ const proveZeroRuleEquivalence = (databaseUrl: Redacted.Redacted<string>) =>
         active: true,
         approvalScope: { _tag: "None" as const },
       },
-      scope: { domain: "Receipt" as const, departmentId: ids.departments.alpha },
+      scope: { domainId: RECEIPT_DOMAIN_ID, departmentId: ids.departments.alpha },
       observation: {
         commandId: ids.commands.directSubmit,
         receiptId: generatedReceiptIds.direct,
@@ -2049,13 +2050,13 @@ const proveZeroRuleEquivalence = (databaseUrl: Redacted.Redacted<string>) =>
         active: false,
         approvalScope: { _tag: "None" as const },
       },
-      scope: { domain: "Receipt" as const, departmentId: ids.departments.alpha },
+      scope: { domainId: RECEIPT_DOMAIN_ID, departmentId: ids.departments.alpha },
       activeState: false,
       result: { _tag: "InactiveActor" as const },
     };
     const receiptRejectedRulesEmpty = {
       actor: receiptRejectedActor,
-      scope: { domain: "Receipt" as const, departmentId: ids.departments.alpha },
+      scope: { domainId: RECEIPT_DOMAIN_ID, departmentId: ids.departments.alpha },
       activeState: receiptRejectedActor?.active ?? null,
       result: { _tag: resultFailureTag(rejectedResult) },
     };
@@ -2112,7 +2113,7 @@ const proveZeroRuleEquivalence = (databaseUrl: Redacted.Redacted<string>) =>
       {
         fixtureId: "receipt-authority-active-payment",
         fixtureSource: "packages/domain/src/receipt/authority.test.ts",
-        domain: "Receipt",
+        domain: "receipts",
         expected: "Accepted",
         directOracle: receiptAcceptedDirect,
         rulesEmpty: receiptAcceptedRulesEmpty,
@@ -2120,7 +2121,7 @@ const proveZeroRuleEquivalence = (databaseUrl: Redacted.Redacted<string>) =>
       {
         fixtureId: "receipt-authority-exact-end-inactive",
         fixtureSource: "packages/domain/src/receipt/authority.test.ts",
-        domain: "Receipt",
+        domain: "receipts",
         expected: "Rejected",
         directOracle: receiptRejectedDirect,
         rulesEmpty: receiptRejectedRulesEmpty,
@@ -2193,13 +2194,13 @@ const proveHalfOpenAndScopeDenials = (databaseUrl: Redacted.Redacted<string>) =>
       personId(ids.persons.endedRule),
       "approveReceipt",
       justBeforeExactEnd,
-      { domain: "Receipt", departmentId: departmentId(ids.departments.alpha) },
+      { domainId: RECEIPT_DOMAIN_ID, departmentId: departmentId(ids.departments.alpha) },
     );
     const endedRuleExact = yield* loadApplicableAuthorizationRules(
       personId(ids.persons.endedRule),
       "approveReceipt",
       exactEnd,
-      { domain: "Receipt", departmentId: departmentId(ids.departments.alpha) },
+      { domainId: RECEIPT_DOMAIN_ID, departmentId: departmentId(ids.departments.alpha) },
     );
     const endedRuleCommand = yield* Effect.result(
       executeReceiptCommand(
@@ -2237,13 +2238,13 @@ const proveHalfOpenAndScopeDenials = (databaseUrl: Redacted.Redacted<string>) =>
       personId(ids.persons.crossDepartment),
       "submitReceipt",
       exactEnd,
-      { domain: "Receipt", departmentId: departmentId(ids.departments.alpha) },
+      { domainId: RECEIPT_DOMAIN_ID, departmentId: departmentId(ids.departments.alpha) },
     );
     const crossRuleOtherScope = yield* loadApplicableAuthorizationRules(
       personId(ids.persons.crossDepartment),
       "submitReceipt",
       exactEnd,
-      { domain: "Receipt", departmentId: departmentId(ids.departments.beta) },
+      { domainId: RECEIPT_DOMAIN_ID, departmentId: departmentId(ids.departments.beta) },
     );
     const crossDepartmentCommand = yield* Effect.result(
       executeReceiptCommand(
@@ -3631,13 +3632,13 @@ const proveRuleExpiryRaces = (databaseUrl: Redacted.Redacted<string>) =>
             personId(ids.persons.expiryCommandFirst),
             "submitReceipt",
             justBeforeExactEnd,
-            { domain: "Receipt", departmentId: departmentId(ids.departments.alpha) },
+            { domainId: RECEIPT_DOMAIN_ID, departmentId: departmentId(ids.departments.alpha) },
           );
           const atExact = yield* loadApplicableAuthorizationRules(
             personId(ids.persons.expiryCommandFirst),
             "submitReceipt",
             exactEnd,
-            { domain: "Receipt", departmentId: departmentId(ids.departments.alpha) },
+            { domainId: RECEIPT_DOMAIN_ID, departmentId: departmentId(ids.departments.alpha) },
           );
           const acceptedDurable = yield* readDurableCommandFacts(
             sql,
@@ -3858,13 +3859,13 @@ const proveRuleExpiryRaces = (databaseUrl: Redacted.Redacted<string>) =>
             personId(ids.persons.expiryWriterFirst),
             "submitReceipt",
             justBeforeExactEnd,
-            { domain: "Receipt", departmentId: departmentId(ids.departments.alpha) },
+            { domainId: RECEIPT_DOMAIN_ID, departmentId: departmentId(ids.departments.alpha) },
           );
           const atExact = yield* loadApplicableAuthorizationRules(
             personId(ids.persons.expiryWriterFirst),
             "submitReceipt",
             exactEnd,
-            { domain: "Receipt", departmentId: departmentId(ids.departments.alpha) },
+            { domainId: RECEIPT_DOMAIN_ID, departmentId: departmentId(ids.departments.alpha) },
           );
           const durable = yield* readDurableCommandFacts(sql, ids.commands.expiryWriterFirst);
           return {
@@ -4107,13 +4108,13 @@ const proveTagDetachmentWriterFirst = (databaseUrl: Redacted.Redacted<string>) =
           personId(ids.persons.tagApprove),
           "approveReceipt",
           justBeforeExactEnd,
-          { domain: "Receipt", departmentId: departmentId(ids.departments.alpha) },
+          { domainId: RECEIPT_DOMAIN_ID, departmentId: departmentId(ids.departments.alpha) },
         );
         const exactInstant = yield* loadApplicableAuthorizationRules(
           personId(ids.persons.tagApprove),
           "approveReceipt",
           exactEnd,
-          { domain: "Receipt", departmentId: departmentId(ids.departments.alpha) },
+          { domainId: RECEIPT_DOMAIN_ID, departmentId: departmentId(ids.departments.alpha) },
         );
         const durable = yield* readDurableCommandFacts(sql, ids.commands.tagWriterFirst);
         const [receipt] = yield* sql<{ readonly status: string; readonly revision: number }>`
@@ -4164,7 +4165,7 @@ const proveTagDetachmentWriterFirst = (databaseUrl: Redacted.Redacted<string>) =
           personId(ids.persons.tagApprove),
           "approveReceipt",
           exactEnd,
-          { domain: "Receipt", departmentId: departmentId(ids.departments.alpha) },
+          { domainId: RECEIPT_DOMAIN_ID, departmentId: departmentId(ids.departments.alpha) },
         );
         const value = yield* executeReceiptCommand(
           {

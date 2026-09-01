@@ -677,4 +677,56 @@ describe("declarative authorization rule migration in PGlite", () => {
       unexpectedlyAccepted: [],
     });
   }, 30_000);
+
+  it("accepts the closed Domain scope and rejects Receipt and Tenant after migration 25", async () => {
+    const evidence = await runtime.runPromise(
+      Effect.gen(function* () {
+        const database = yield* Database;
+        yield* database`
+          INSERT INTO public.person_profiles (person_id, first_name, last_name)
+          VALUES ('authz-domain-person', 'Authz', 'Domain')
+          ON CONFLICT (person_id) DO NOTHING
+        `;
+        const insert = (ruleId: string, scope: string, domainId: string | null) =>
+          database`
+            INSERT INTO public.authz_rules (
+              rule_id, capability_id, effect_kind, subject_kind, subject_person_id,
+              subject_tag_id, scope, domain_id, department_id, params, start_at
+            ) VALUES (
+              ${ruleId}, 'approveReceipt', 'delegate', 'Person', 'authz-domain-person',
+              NULL, ${scope}, ${domainId}, NULL,
+              '{"slot":"EconomyGlobalReceiptApprovalGrant"}'::jsonb,
+              '2030-01-01T00:00:00.000Z'
+            )
+          `.pipe(Effect.asVoid);
+        const domain = yield* Effect.exit(insert("authz-domain-valid", "Domain", "receipts"));
+        const receipt = yield* Effect.exit(insert("authz-domain-legacy-receipt", "Receipt", null));
+        const tenant = yield* Effect.exit(insert("authz-domain-tenant", "Tenant", "receipts"));
+        const missingDomain = yield* Effect.exit(insert("authz-domain-missing-id", "Domain", null));
+        const rows = yield* database<{
+          readonly domainId: string | null;
+          readonly scope: string;
+        }>`
+          SELECT domain_id AS "domainId", scope
+          FROM public.authz_rules
+          WHERE rule_id = 'authz-domain-valid'
+        `;
+        return {
+          domainAccepted: domain._tag === "Success",
+          receiptRejected: receipt._tag === "Failure",
+          tenantRejected: tenant._tag === "Failure",
+          missingDomainRejected: missingDomain._tag === "Failure",
+          rows,
+        };
+      }),
+    );
+
+    expect(evidence).toEqual({
+      domainAccepted: true,
+      receiptRejected: true,
+      tenantRejected: true,
+      missingDomainRejected: true,
+      rows: [{ domainId: "receipts", scope: "Domain" }],
+    });
+  }, 15_000);
 });

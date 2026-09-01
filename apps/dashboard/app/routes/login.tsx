@@ -6,7 +6,7 @@ import { hasAuthenticatedSession, safeRedirect, signInWithEmail } from "../lib/a
 import type { Route } from "./+types/login";
 
 export async function loader({ request }: Route.LoaderArgs) {
-  if (await hasAuthenticatedSession(request)) throw redirect("/dashboard");
+  if (await hasAuthenticatedSession(request)) throw redirect("/");
   return null;
 }
 
@@ -63,7 +63,7 @@ export default function Login() {
             </p>
           )}
           {actionData?.error && (
-            <p className="rounded bg-red-50 p-2 text-center text-red-700 text-sm">
+            <p role="alert" className="rounded bg-red-50 p-2 text-center text-red-700 text-sm">
               {actionData.error}
             </p>
           )}

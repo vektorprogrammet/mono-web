@@ -23,7 +23,7 @@ Since v0.1.0
 ### Exports Grouped by Category
 
 - [Groups](#groups)
-  - [InternalApi (class)](#internalapi-class)
+  - [InternalReceiptsApi (class)](#internalreceiptsapi-class)
   - [ReceiptsApi (class)](#receiptsapi-class)
 - [Schemas](#schemas)
   - [ReceiptLifecycleEvidenceResponse](#receiptlifecycleevidenceresponse)
@@ -47,14 +47,14 @@ Since v0.1.0
 
 ## Groups
 
-### InternalApi (class)
+### InternalReceiptsApi (class)
 
-Internal evidence routes remain executable but are excluded from public OpenAPI.
+Internal evidence routes exist only in `InternalNativeApi`.
 
 **Signature**
 
 ```ts
-declare class InternalApi
+declare class InternalReceiptsApi
 ```
 
 [Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/receipts.ts#L389)
@@ -71,7 +71,7 @@ Owner and approver receipt API.
 declare class ReceiptsApi
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/receipts.ts#L351)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/receipts.ts#L353)
 
 Since v0.1.0
 
@@ -116,7 +116,7 @@ declare const ReceiptLifecycleEvidenceResponse: Schema.Struct<{
 }>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/receipts.ts#L149)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/receipts.ts#L151)
 
 Since v0.1.0
 
@@ -141,7 +141,7 @@ declare const ReceiptListItemExample: {
 };
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/receipts.ts#L80)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/receipts.ts#L82)
 
 Since v0.1.0
 
@@ -171,7 +171,7 @@ declare const ReceiptListResponse: Schema.Struct<{
 }>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/receipts.ts#L129)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/receipts.ts#L131)
 
 Since v0.1.0
 
@@ -188,7 +188,7 @@ declare const ReceiptRevisionCommand: Schema.Struct<{
 }>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/receipts.ts#L65)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/receipts.ts#L67)
 
 Since v0.1.0
 
@@ -212,7 +212,7 @@ declare const ReviseReceiptMultipart: Schema.brand<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/receipts.ts#L44)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/receipts.ts#L46)
 
 Since v0.1.0
 
@@ -235,7 +235,7 @@ declare const SubmitReceiptMultipart: Schema.brand<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/receipts.ts#L24)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/receipts.ts#L26)
 
 Since v0.1.0
 
@@ -342,7 +342,7 @@ declare const ListReceiptsEndpoint: HttpApiEndpoint.HttpApiEndpoint<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/receipts.ts#L293)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/receipts.ts#L295)
 
 Since v0.1.0 @category Endpoints
 
@@ -440,7 +440,7 @@ declare const ListReceiptsForApprovalEndpoint: HttpApiEndpoint.HttpApiEndpoint<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/receipts.ts#L304)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/receipts.ts#L306)
 
 Since v0.1.0 @category Endpoints
 
@@ -543,7 +543,7 @@ declare const ReadReceiptEvidenceEndpoint: HttpApiEndpoint.HttpApiEndpoint<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/receipts.ts#L369)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/receipts.ts#L371)
 
 Since v0.1.0 @category Endpoints
 
@@ -566,7 +566,7 @@ declare const ReceiptListItem: Schema.Struct<{
 }>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/receipts.ts#L93)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/receipts.ts#L95)
 
 ### RefundReceiptEndpoint
 
@@ -647,7 +647,7 @@ declare const RefundReceiptEndpoint: HttpApiEndpoint.HttpApiEndpoint<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/receipts.ts#L318)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/receipts.ts#L320)
 
 Since v0.1.0 @category Endpoints
 
@@ -730,7 +730,7 @@ declare const RejectReceiptEndpoint: HttpApiEndpoint.HttpApiEndpoint<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/receipts.ts#L332)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/receipts.ts#L334)
 
 Since v0.1.0 @category Endpoints
 
@@ -823,7 +823,7 @@ declare const ReviseReceiptEndpoint: HttpApiEndpoint.HttpApiEndpoint<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/receipts.ts#L257)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/receipts.ts#L259)
 
 Since v0.1.0 @category Endpoints
 
@@ -915,7 +915,7 @@ declare const SubmitReceiptEndpoint: HttpApiEndpoint.HttpApiEndpoint<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/receipts.ts#L241)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/receipts.ts#L243)
 
 Since v0.1.0 @category Endpoints
 
@@ -998,6 +998,6 @@ declare const WithdrawReceiptEndpoint: HttpApiEndpoint.HttpApiEndpoint<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/receipts.ts#L274)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/receipts.ts#L276)
 
 Since v0.1.0 @category Endpoints

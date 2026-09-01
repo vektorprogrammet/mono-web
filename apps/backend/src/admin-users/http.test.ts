@@ -1,3 +1,4 @@
+import type { IdentitySnapshot } from "@vektorprogrammet/database";
 import type { Admissions } from "@vektorprogrammet/domain/admissions";
 import {
   Identity,
@@ -294,6 +295,7 @@ const successfulRun: BackendRun = <A, E>(
     | Recruitment
     | Schools
     | Identity
+    | IdentitySnapshot
     | ContentManagement
     | Content
   >,

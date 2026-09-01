@@ -72,7 +72,7 @@ export const toggleFoldkitDevTools = (): boolean => {
 export const mountPreviewDevtoolsPanel = (): void => {
   if (
     !panelAllowed() ||
-    !window.location.pathname.startsWith("/dashboard") ||
+    document.querySelector("[data-dashboard-shell]") === null ||
     document.getElementById(PANEL_ELEMENT_ID) !== null
   ) {
     return;

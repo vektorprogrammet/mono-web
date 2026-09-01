@@ -27,11 +27,12 @@ describe("backend identity composition", () => {
     expect(databaseIndexSource).not.toContain("AuthEngineLive");
   });
 
-  it("constructs one engine service for the combined Identity/AuthEngine layer", () => {
+  it("constructs one engine for the Identity, snapshot, and AuthEngine services", () => {
     const authLiveBody = authLiveSource.slice(authLiveSource.indexOf("export const AuthLive"));
     expect(authLiveBody.match(/makeAuthEngine\(config, pool\)/g)).toHaveLength(1);
     expect(authLiveBody).toContain("Context.make(Identity");
     expect(authLiveBody).toContain("Context.make(AuthEngine");
+    expect(authLiveBody).toContain("Context.make(IdentitySnapshot");
   });
 
   it("keeps production authority code on Identity, never the engine or legacy Auth service", () => {

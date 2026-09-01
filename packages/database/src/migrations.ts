@@ -106,6 +106,10 @@ const identitySecurityAuditMigrationUrl = new URL(
   "../migrations/0024-identity-security-audit.sql",
   import.meta.url,
 );
+const principalCredentialAccessAlgebraMigrationUrl = new URL(
+  "../migrations/0025-principal-credential-access-algebra.sql",
+  import.meta.url,
+);
 export type ExecuteMigration = (
   source: string,
 ) => Effect.Effect<void, unknown, SqlClient.SqlClient>;
@@ -228,6 +232,11 @@ export const databaseMigrationDefinitions = [
     name: "identity-security-audit",
     url: identitySecurityAuditMigrationUrl,
   },
+  {
+    id: "25_principal-credential-access-algebra",
+    name: "principal-credential-access-algebra",
+    url: principalCredentialAccessAlgebraMigrationUrl,
+  },
 ] as const;
 
 export const databaseMigrationLoader = (execute: ExecuteMigration) =>
@@ -236,7 +245,7 @@ export const databaseMigrationLoader = (execute: ExecuteMigration) =>
       databaseMigrationDefinitions.map(({ id, name, url }) => [id, migration(name, url, execute)]),
     ),
   );
-export const databaseSchemaRevision = "24_identity-security-audit";
+export const databaseSchemaRevision = "25_principal-credential-access-algebra";
 export const runDatabaseMigrations = (execute: ExecuteMigration) =>
   Migrator.make({})({
     loader: databaseMigrationLoader(execute),

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "@effect/vitest";
 import { Effect } from "effect";
 import { canonicalJsonBytes } from "../tutor/evidence.js";
+import { RECEIPT_DOMAIN_ID } from "./access.js";
 import { authorDisposableAuthzBackfill } from "./disposable-backfill.js";
 
 const startAt = "2032-01-01T00:00:00.000Z";
@@ -29,7 +30,7 @@ const validAuthoring = () => ({
         {
           capabilityId: "submitReceipt",
           effectKind: "delegate",
-          scope: { _tag: "Receipt" },
+          scope: { _tag: "Domain", domainId: RECEIPT_DOMAIN_ID },
           params: {
             paymentAccountCiphertext: "ciphertext-disposable-payment",
             slot: "EconomyPaymentAuthority",
@@ -53,7 +54,7 @@ const validAuthoring = () => ({
         {
           capabilityId: "approveReceipt",
           effectKind: "delegate",
-          scope: { _tag: "Receipt" },
+          scope: { _tag: "Domain", domainId: RECEIPT_DOMAIN_ID },
           params: { slot: "EconomyGlobalReceiptApprovalGrant" },
           startAt,
           endAt: null,

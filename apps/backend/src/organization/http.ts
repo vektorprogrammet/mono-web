@@ -15,7 +15,7 @@ import {
   type SemesterId,
   type TeamInterestFilter,
 } from "@vektorprogrammet/domain/organization";
-import { NativeApi } from "@vektorprogrammet/http-api";
+import { ExternalNativeApi } from "@vektorprogrammet/http-api";
 import { Effect, Match, Schema } from "effect";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
 import { toHttpApiResponse } from "../http-api/transport.js";
@@ -406,7 +406,7 @@ const listMailingLists = async (
 
 /** Native HttpApi implementations for organization endpoints. */
 export const OrganizationApiHandlers = (input: OrganizationApiHttpOptions) =>
-  HttpApiBuilder.group(NativeApi, "organization", (handlers) =>
+  HttpApiBuilder.group(ExternalNativeApi, "organization", (handlers) =>
     Effect.succeed(
       handlers
         .handleRaw("listDepartments", ({ request }) =>

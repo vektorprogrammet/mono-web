@@ -1,10 +1,26 @@
+import { PUBLIC_SYSTEM_ACCESS } from "@vektorprogrammet/domain/authz";
 import { Context } from "effect";
 import { OpenApi } from "effect/unstable/httpapi";
 import { describe, expect, it } from "vitest";
-import { NativeApi } from "../src/api.js";
+import { ExternalNativeApi, InternalNativeApi } from "../src/api.js";
+import {
+  annotateAccessSpec,
+  assertAccessProjectionRegistryParity,
+  reflectAccessSpec,
+} from "../src/access.js";
+import { HealthEndpoint } from "../src/system.js";
 
 const endpointInventory = () =>
-  Object.values(NativeApi.groups).flatMap((group) =>
+  Object.values(ExternalNativeApi.groups).flatMap((group) =>
+    Object.values(group.endpoints).map((endpoint) => ({
+      group: group.identifier,
+      identifier: endpoint.identifier,
+      method: endpoint.method,
+      path: endpoint.path,
+    })),
+  );
+const internalEndpointInventory = () =>
+  Object.values(InternalNativeApi.groups).flatMap((group) =>
     Object.values(group.endpoints).map((endpoint) => ({
       group: group.identifier,
       identifier: endpoint.identifier,
@@ -14,7 +30,7 @@ const endpointInventory = () =>
   );
 
 const documentedOperations = () => {
-  const spec = OpenApi.fromApi(NativeApi);
+  const spec = OpenApi.fromApi(ExternalNativeApi);
   const methods = ["get", "put", "post", "delete", "options", "head", "patch", "trace"] as const;
   return Object.entries(spec.paths).flatMap(([path, item]) =>
     methods.flatMap((method) => {
@@ -24,38 +40,74 @@ const documentedOperations = () => {
   );
 };
 
-describe("NativeApi reflection", () => {
-  it("contains 53 unique method/path authorities without a handwritten route list", () => {
-    const inventory = endpointInventory();
-    const authorities = inventory.map(({ method, path }) => `${method} ${path}`);
+describe("native API reflection", () => {
+  it("keeps 52 external authorities and one internal authority on separate roots", () => {
+    const external = endpointInventory();
+    const internal = internalEndpointInventory();
+    const externalAuthorities = external.map(({ method, path }) => `${method} ${path}`);
 
-    expect(inventory).toHaveLength(53);
-    expect(new Set(authorities).size).toBe(53);
-    expect(inventory.filter(({ group }) => group === "internal")).toHaveLength(1);
+    expect(external).toHaveLength(52);
+    expect(new Set(externalAuthorities).size).toBe(52);
+    expect(external.map(({ group }) => group)).not.toContain("internal");
+    expect(internal).toEqual([
+      {
+        group: "internal",
+        identifier: "readReceiptEvidence",
+        method: "GET",
+        path: "/api/e2e/receipts/:receiptId/evidence",
+      },
+    ]);
   });
 
-  it("excludes only the internal evidence group from the public projection", () => {
-    const internal = NativeApi.groups.internal;
+  it("generates public OpenAPI from only the external root", () => {
     const operations = documentedOperations();
 
-    expect(Context.get(internal.annotations, OpenApi.Exclude)).toBe(true);
+    expect(Context.get(InternalNativeApi.groups.internal.annotations, OpenApi.Exclude)).toBe(true);
     expect(operations).toHaveLength(52);
     expect(operations.some(({ path }) => path.startsWith("/api/e2e"))).toBe(false);
     expect(operations.some(({ path }) => path.startsWith("/api/auth"))).toBe(false);
   });
 
+  it("projects one declared AccessSpec without credential leakage or a second registry", () => {
+    const spec = OpenApi.fromApi(ExternalNativeApi);
+    const health = spec.paths["/health"]?.get as Record<string, unknown> | undefined;
+    const reflected = reflectAccessSpec(HealthEndpoint);
+
+    expect(health?.["x-vektor-access"]).toEqual({
+      exposure: "External",
+      acceptedCredentials: ["None"],
+      principalKinds: ["Anonymous"],
+      capabilities: { none: true },
+      requirements: [],
+      canonicalScopeResolver: "system.public",
+      concealment: { mode: "Reveal", stages: [] },
+      decisionTime: "SnapshotRead",
+    });
+    expect(health?.security).toEqual([]);
+    expect(reflected._tag).toBe("Some");
+    if (reflected._tag === "Some") {
+      expect(reflected.value).toEqual(PUBLIC_SYSTEM_ACCESS);
+    }
+    expect(() => annotateAccessSpec(HealthEndpoint, PUBLIC_SYSTEM_ACCESS)).toThrow(
+      /multiple AccessSpec annotations/u,
+    );
+  });
+
+  it("keeps access projection registries aligned with the domain roots", () => {
+    expect(() => assertAccessProjectionRegistryParity()).not.toThrow();
+  });
+
   it("derives stable fully-qualified group.endpoint operation ids", () => {
-    const spec = OpenApi.fromApi(NativeApi);
+    const spec = OpenApi.fromApi(ExternalNativeApi);
     const actual = documentedOperations()
       .map(({ operation }) => operation.operationId)
       .sort();
     const expected = endpointInventory()
-      .filter(({ group }) => group !== "internal")
       .map(({ group, identifier }) => `${group}.${identifier}`)
       .sort();
-    const internal = endpointInventory()
-      .filter(({ group }) => group === "internal")
-      .map(({ group, identifier }) => `${group}.${identifier}`);
+    const internal = internalEndpointInventory().map(
+      ({ group, identifier }) => `${group}.${identifier}`,
+    );
 
     expect(actual).toEqual(expected);
     expect(actual).toEqual(
@@ -76,7 +128,7 @@ describe("NativeApi reflection", () => {
   });
 
   it("derives unique operation ids and representative request, response, and error schemas", () => {
-    const spec = OpenApi.fromApi(NativeApi);
+    const spec = OpenApi.fromApi(ExternalNativeApi);
     const operations = documentedOperations();
     const operationIds = operations.map(({ operation }) => operation.operationId);
     const provenanceSpec = spec as typeof spec & {

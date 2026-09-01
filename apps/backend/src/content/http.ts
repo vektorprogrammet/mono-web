@@ -12,7 +12,7 @@ import {
   type ContentWorkspaceQuery,
 } from "@vektorprogrammet/domain/content";
 import type { OrganizationAuthorityInstant, PersonId } from "@vektorprogrammet/domain/organization";
-import { NativeApi } from "@vektorprogrammet/http-api";
+import { ExternalNativeApi } from "@vektorprogrammet/http-api";
 import { Effect, Schema } from "effect";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
 import { toHttpApiResponse } from "../http-api/transport.js";
@@ -290,7 +290,7 @@ export const ContentApiHandlers = (
   resolveActor: (request: Request) => Promise<ContentRequestActor>,
   run: BackendRun,
 ) =>
-  HttpApiBuilder.group(NativeApi, "content", (handlers) =>
+  HttpApiBuilder.group(ExternalNativeApi, "content", (handlers) =>
     Effect.succeed(
       handlers
         .handleRaw("readContentWorkspace", ({ request }) =>

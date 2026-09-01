@@ -1,3 +1,5 @@
+import { RECEIPT_DOMAIN_ID } from "@vektorprogrammet/domain/authz";
+
 export const disposableAuthzBackfillStartAt = "2032-01-01T00:00:00.000Z";
 
 export const validDisposableAuthzBackfillInput = () => ({
@@ -24,7 +26,7 @@ export const validDisposableAuthzBackfillInput = () => ({
         {
           capabilityId: "submitReceipt" as const,
           effectKind: "delegate" as const,
-          scope: { _tag: "Receipt" as const },
+          scope: { _tag: "Domain" as const, domainId: RECEIPT_DOMAIN_ID },
           params: {
             slot: "EconomyPaymentAuthority" as const,
             paymentAccountCiphertext: "ciphertext-disposable-payer",
@@ -51,7 +53,7 @@ export const validDisposableAuthzBackfillInput = () => ({
         {
           capabilityId: "approveReceipt" as const,
           effectKind: "delegate" as const,
-          scope: { _tag: "Receipt" as const },
+          scope: { _tag: "Domain" as const, domainId: RECEIPT_DOMAIN_ID },
           params: { slot: "EconomyGlobalReceiptApprovalGrant" as const },
           startAt: disposableAuthzBackfillStartAt,
           endAt: null,

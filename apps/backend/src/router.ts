@@ -1,3 +1,4 @@
+import { IdentitySnapshot } from "@vektorprogrammet/database";
 import { Admissions } from "@vektorprogrammet/domain/admissions";
 import type { AdmissionPeriodActor } from "@vektorprogrammet/domain/admission-period";
 import { InactiveActor, UnauthenticatedActor } from "@vektorprogrammet/domain/admission-period";
@@ -9,7 +10,7 @@ import { Profile } from "@vektorprogrammet/domain/profile";
 import { Recruitment } from "@vektorprogrammet/domain/recruitment";
 import { Economy } from "@vektorprogrammet/domain/receipt";
 import type { Schools } from "@vektorprogrammet/domain/schools";
-import { NativeApi, RecruitmentApi } from "@vektorprogrammet/http-api";
+import { ExternalNativeApi, InternalNativeApi, RecruitmentApi } from "@vektorprogrammet/http-api";
 import { Effect, Layer } from "effect";
 import { HttpRouter, HttpServerResponse } from "effect/unstable/http";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
@@ -59,6 +60,7 @@ export type BackendRun = <A, E>(
     | Recruitment
     | Schools
     | Identity
+    | IdentitySnapshot
     | ContentManagement
     | Content
   >,
@@ -100,10 +102,10 @@ export interface BackendHttpOptions {
 }
 
 /**
- * Builds every native handler group from the process-owned capability graph.
- * This function constructs Layers once at the composition root, never per route.
+ * Builds every external native handler group from the process-owned capability
+ * graph. This function constructs Layers once at the composition root.
  */
-export const makeNativeApiRouterLayer = (
+export const makeExternalNativeApiRouterLayer = (
   config: BackendConfig,
   run: BackendRun,
   options: BackendHttpOptions = {},
@@ -140,6 +142,7 @@ export const makeNativeApiRouterLayer = (
     config: config.receipt,
     identity: receiptIdentity,
     run,
+    now: options.now,
   };
 
   const handlers = Layer.mergeAll(
@@ -150,7 +153,6 @@ export const makeNativeApiRouterLayer = (
       run,
     }),
     ReceiptApiHandlers(receiptOptions),
-    InternalReceiptApiHandlers(receiptOptions),
     RecruitmentApiHandlers({
       config: config.recruitment,
       resolveConductContext: async (request) => {
@@ -241,7 +243,7 @@ export const makeNativeApiRouterLayer = (
     }),
   ).pipe(Layer.provide(NativeHttpApiMiddlewareLive));
 
-  const nativeRoutes = HttpApiBuilder.layer(NativeApi).pipe(
+  const nativeRoutes = HttpApiBuilder.layer(ExternalNativeApi).pipe(
     Layer.provide(handlers),
     Layer.provide(NativeHttpApiMiddlewareLive),
   );
@@ -257,6 +259,42 @@ export const makeNativeApiRouterLayer = (
   return Layer.merge(nativeRoutes, notFound);
 };
 
+/** Builds the isolated internal API root for an explicitly selected ingress. */
+export const makeInternalNativeApiRouterLayer = (
+  config: BackendConfig,
+  run: BackendRun,
+  options: BackendHttpOptions = {},
+) => {
+  const receiptOptions = {
+    config: config.receipt,
+    identity: {
+      resolveAuthorizationPrincipal: async (cookieHeader: string | undefined) =>
+        resolveAuthenticatedPersonAtInstant(cookieHeader, { run, now: options.now }),
+      resolvePersonId: async (cookieHeader: string | undefined) =>
+        resolveAuthenticatedPerson(cookieHeader, { run, now: options.now }),
+    } satisfies ReceiptIdentityResolvers,
+    run,
+    now: options.now,
+  };
+  const handlers = InternalReceiptApiHandlers(receiptOptions).pipe(
+    Layer.provide(NativeHttpApiMiddlewareLive),
+  );
+  const internalRoutes = HttpApiBuilder.layer(InternalNativeApi).pipe(
+    Layer.provide(handlers),
+    Layer.provide(NativeHttpApiMiddlewareLive),
+  );
+  const notFound = HttpRouter.use((router) =>
+    router.add(
+      "*",
+      "*",
+      Effect.sync(() =>
+        HttpServerResponse.fromWeb(jsonResponse({ error: { tag: "RouteNotFound" } }, 404)),
+      ),
+    ),
+  );
+  return Layer.merge(internalRoutes, notFound);
+};
+
 const malformedRecruitmentPath = (method: string, pathname: string): boolean =>
   [
     RecruitmentApi.endpoints.readInterviewConduct,
@@ -269,7 +307,7 @@ const malformedRecruitmentPath = (method: string, pathname: string): boolean =>
 
 /**
  * Explicit external boundary around the native HttpApi handler.
- * Better Auth remains the only path family outside `NativeApi`.
+ * Better Auth remains the only external path family outside `ExternalNativeApi`.
  */
 export const makeBackendHttp = (
   nativeHandler: (request: Request) => Promise<Response>,

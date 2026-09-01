@@ -1,4 +1,5 @@
 import type { Config } from "@react-router/dev/config";
+import { dashboardMount, type DashboardBaseEnvironment } from "./dashboard-base.ts";
 
 /**
  * `allowedActionOrigins` feeds React Router's server-side CSRF origin check
@@ -7,10 +8,14 @@ import type { Config } from "@react-router/dev/config";
  * a local port, so the apex origin must be explicitly trusted. The origin is
  * taken from PREVIEW_HOST so other deployments keep the default (empty) list.
  */
-const previewHost = process.env.PREVIEW_HOST;
+export const makeReactRouterConfig = (environment: DashboardBaseEnvironment): Config => {
+  const previewHost = environment.PREVIEW_HOST;
+  return {
+    appDirectory: "app",
+    basename: dashboardMount(environment),
+    ssr: true,
+    ...(previewHost ? { allowedActionOrigins: [`https://${previewHost}`] } : {}),
+  };
+};
 
-export default {
-  appDirectory: "app",
-  ssr: true,
-  ...(previewHost ? { allowedActionOrigins: [`https://${previewHost}`] } : {}),
-} satisfies Config;
+export default makeReactRouterConfig(process.env);

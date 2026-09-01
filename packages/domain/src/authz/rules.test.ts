@@ -1,6 +1,7 @@
 import { describe, expect, it } from "@effect/vitest";
 import { Effect } from "effect";
 import { DepartmentId, PersonId } from "../organization/schema.js";
+import { RECEIPT_DOMAIN_ID } from "./access.js";
 import {
   AuthzRuleId,
   AuthzTagAssignmentId,
@@ -65,7 +66,7 @@ const paymentRule = (options: {
   capabilityId: "submitReceipt",
   effectKind: "delegate",
   subject: options.subject ?? { _tag: "Person", personId: person },
-  scope: options.scope ?? { _tag: "Receipt" },
+  scope: options.scope ?? { _tag: "Domain", domainId: RECEIPT_DOMAIN_ID },
   params: {
     slot: "EconomyPaymentAuthority",
     paymentAccountCiphertext: options.paymentAccountCiphertext,
@@ -95,7 +96,7 @@ const applicabilityFacts = (
 ): AuthzApplicabilityFacts => ({
   personId: person,
   authorizationInstant,
-  requestScope: { domain: "Receipt", departmentId: department },
+  requestScope: { domainId: RECEIPT_DOMAIN_ID, departmentId: department },
   tagAssignments: [],
   ...overrides,
 });
@@ -121,7 +122,7 @@ type CapabilityTruthTableRow = {
     readonly assignment: "none" | "active" | "detached";
   };
   readonly scopeMatch: {
-    readonly kind: "Department" | "Receipt" | "Global";
+    readonly kind: "Department" | "Domain" | "Global";
     readonly matches: boolean;
     readonly requestDepartment: "present" | "missing";
   };
@@ -202,7 +203,7 @@ const capabilityTruthTable = [
     activity: activity.end,
     effectKind: { value: "delegate", declared: true },
     subjectMatch: { kind: "Person", matches: true, assignment: "none" },
-    scopeMatch: { kind: "Receipt", matches: true, requestDepartment: "present" },
+    scopeMatch: { kind: "Domain", matches: true, requestDepartment: "present" },
     declaredSlotMatch: { slot: "EconomyGlobalReceiptApprovalGrant", matches: true },
     expectedApplicableRules: [],
     expectedContributingRules: [],
@@ -266,7 +267,7 @@ const capabilityTruthTable = [
     activity: activity.start,
     effectKind: { value: "delegate", declared: true },
     subjectMatch: { kind: "Tag", matches: false, assignment: "detached" },
-    scopeMatch: { kind: "Receipt", matches: true, requestDepartment: "present" },
+    scopeMatch: { kind: "Domain", matches: true, requestDepartment: "present" },
     declaredSlotMatch: { slot: "EconomyGlobalReceiptApprovalGrant", matches: true },
     expectedApplicableRules: [],
     expectedContributingRules: [],
@@ -298,7 +299,7 @@ const capabilityTruthTable = [
     activity: activity.start,
     effectKind: { value: "delegate", declared: true },
     subjectMatch: { kind: "Person", matches: true, assignment: "none" },
-    scopeMatch: { kind: "Receipt", matches: true, requestDepartment: "present" },
+    scopeMatch: { kind: "Domain", matches: true, requestDepartment: "present" },
     declaredSlotMatch: { slot: "EconomyPaymentAuthority", matches: false },
     expectedApplicableRules: [],
     expectedContributingRules: [],
@@ -306,7 +307,7 @@ const capabilityTruthTable = [
     expectedDecision: { _tag: "Allow" },
   },
   {
-    name: "submit: Receipt delegate contributes",
+    name: "submit: Domain delegate contributes",
     capabilityId: "submitReceipt",
     ruleId: "truth-submit-receipt",
     ruleCapabilityId: "submitReceipt",
@@ -314,7 +315,7 @@ const capabilityTruthTable = [
     activity: activity.start,
     effectKind: { value: "delegate", declared: true },
     subjectMatch: { kind: "Person", matches: true, assignment: "none" },
-    scopeMatch: { kind: "Receipt", matches: true, requestDepartment: "present" },
+    scopeMatch: { kind: "Domain", matches: true, requestDepartment: "present" },
     declaredSlotMatch: { slot: "EconomyPaymentAuthority", matches: true },
     expectedApplicableRules: ["truth-submit-receipt"],
     expectedContributingRules: ["truth-submit-receipt"],
@@ -386,7 +387,7 @@ const capabilityTruthTable = [
     expectedDecision: { _tag: "Allow" },
   },
   {
-    name: "submit: missing receipt Department denies an applicable delegate",
+    name: "submit: missing receipt Department denies an applicable Domain delegate",
     capabilityId: "submitReceipt",
     ruleId: "truth-submit-missing-department",
     ruleCapabilityId: "submitReceipt",
@@ -394,7 +395,7 @@ const capabilityTruthTable = [
     activity: activity.start,
     effectKind: { value: "delegate", declared: true },
     subjectMatch: { kind: "Person", matches: true, assignment: "none" },
-    scopeMatch: { kind: "Receipt", matches: true, requestDepartment: "missing" },
+    scopeMatch: { kind: "Domain", matches: true, requestDepartment: "missing" },
     declaredSlotMatch: { slot: "EconomyPaymentAuthority", matches: true },
     expectedApplicableRules: ["truth-submit-missing-department"],
     expectedContributingRules: [],
@@ -433,7 +434,9 @@ const makeTruthTableRule = (row: CapabilityTruthTableRow): AuthzRule => {
           _tag: "Department" as const,
           departmentId: row.scopeMatch.matches ? department : otherDepartment,
         }
-      : { _tag: row.scopeMatch.kind };
+      : row.scopeMatch.kind === "Domain"
+        ? { _tag: "Domain" as const, domainId: RECEIPT_DOMAIN_ID }
+        : { _tag: "Global" as const };
   const params =
     row.declaredSlotMatch.slot === "EconomyPaymentAuthority"
       ? {
@@ -459,8 +462,8 @@ const makeTruthTableFacts = (row: CapabilityTruthTableRow): AuthzApplicabilityFa
   applicabilityFacts({
     requestScope:
       row.scopeMatch.requestDepartment === "present"
-        ? { domain: "Receipt", departmentId: department }
-        : { domain: "Receipt" },
+        ? { domainId: RECEIPT_DOMAIN_ID, departmentId: department }
+        : { domainId: RECEIPT_DOMAIN_ID },
     tagAssignments:
       row.subjectMatch.kind === "Tag" && row.subjectMatch.assignment !== "none"
         ? [
@@ -643,8 +646,8 @@ describe("per-capability delegate truth table", () => {
     ]);
     expect([...new Set(capabilityTruthTable.map((row) => row.scopeMatch.kind))].sort()).toEqual([
       "Department",
+      "Domain",
       "Global",
-      "Receipt",
     ]);
     expect(
       [

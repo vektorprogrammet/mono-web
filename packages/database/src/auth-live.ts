@@ -1,6 +1,9 @@
-import { randomUUID } from "node:crypto";
+import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
+import { getSessionCookie } from "better-auth/cookies";
 import { Context, Effect, Layer, Schema } from "effect";
 import type { Pool, PoolClient, QueryResultRow } from "pg";
+import type { AuthorizationInstant } from "@vektorprogrammet/domain/authz";
+import { Database } from "@vektorprogrammet/domain/database";
 import {
   decodeIdentityActor,
   decodeIdentitySession,
@@ -35,6 +38,21 @@ export class AuthEngine extends Context.Service<AuthEngine, AuthEngineService>()
   "@vektorprogrammet/database/AuthEngine",
 ) {}
 
+export interface IdentitySnapshotService {
+  /**
+   * Verifies one Better Auth cookie against persisted session state through
+   * the ambient Database transaction. The credential does not leave this seam.
+   */
+  readonly resolveSession: (
+    cookieHeader: string | undefined,
+    authorizationInstant: AuthorizationInstant,
+  ) => Effect.Effect<IdentityActor, IdentitySessionNotFound | IdentityEngineError, Database>;
+}
+
+export class IdentitySnapshot extends Context.Service<IdentitySnapshot, IdentitySnapshotService>()(
+  "@vektorprogrammet/database/IdentitySnapshot",
+) {}
+
 interface SessionRow extends QueryResultRow {
   readonly sessionId: string;
   readonly createdAt: Date;
@@ -42,6 +60,12 @@ interface SessionRow extends QueryResultRow {
   readonly expiresAt: Date;
   readonly ipAddress: string | null;
   readonly userAgent: string | null;
+}
+
+interface SnapshotSessionRow {
+  readonly sessionId: string;
+  readonly personId: string;
+  readonly expiresAt: Date;
 }
 
 interface DeletedSessionRow extends QueryResultRow {
@@ -165,6 +189,51 @@ const engineFailure = (operation: string, cause: unknown): IdentityEngineError =
         message: cause instanceof Error ? cause.message : "identity persistence failure",
       });
 
+const verifiedBetterAuthSessionToken = (
+  cookieHeader: string | undefined,
+  config: AuthEngineConfig,
+): string | null => {
+  const signedCookie = getSessionCookie(cookieHeaders(cookieHeader), {
+    cookieName: "session_token",
+    cookiePrefix: "better-auth",
+  });
+  if (signedCookie === null) return null;
+  const separator = signedCookie.lastIndexOf(".");
+  if (separator <= 0 || separator === signedCookie.length - 1) return null;
+  const token = signedCookie.slice(0, separator);
+  const suppliedSignature = Buffer.from(signedCookie.slice(separator + 1), "base64");
+  const expectedSignature = createHmac("sha256", config.secret).update(token).digest();
+  return suppliedSignature.length === expectedSignature.length &&
+    timingSafeEqual(suppliedSignature, expectedSignature)
+    ? token
+    : null;
+};
+
+/** @internal Constructor used by AuthLive and focused boundary tests. */
+export const makeIdentitySnapshotService = (config: AuthEngineConfig): IdentitySnapshotService => ({
+  resolveSession: (cookieHeader, authorizationInstant) =>
+    Effect.gen(function* () {
+      const token = verifiedBetterAuthSessionToken(cookieHeader, config);
+      if (token === null) return yield* new IdentitySessionNotFound();
+      const sql = yield* Database;
+      const rows = yield* sql<SnapshotSessionRow>`
+        SELECT "id" AS "sessionId", "userId" AS "personId", "expiresAt" AS "expiresAt"
+        FROM auth."session"
+        WHERE "token" = ${token}
+          AND "expiresAt" > ${authorizationInstant}::timestamptz
+        LIMIT 1
+      `;
+      const row = rows[0];
+      if (row === undefined) return yield* new IdentitySessionNotFound();
+      return yield* decodeIdentityActor(row).pipe(
+        Effect.mapError((cause) => engineFailure("decodeSnapshotSession", cause)),
+      );
+    }).pipe(
+      Effect.catchTag("SqlError", (cause) =>
+        Effect.fail(engineFailure("resolveSnapshotSession", cause)),
+      ),
+    ),
+});
 const identityShape = (
   engine: AuthEngineInstance,
   pool: Pool,
@@ -505,17 +574,18 @@ export const auditedAuthHandler =
   };
 
 /**
- * One scoped construction exposes both the Better Auth engine handler and the
- * typed Identity interpretation over the process-owned PostgreSQL pool.
+ * One scoped construction exposes the Better Auth engine, its typed Identity
+ * interpretation, and transaction-bound authoritative session reads.
  */
 export const AuthLive = (
   config: AuthEngineConfig,
-): Layer.Layer<Identity | AuthEngine, never, DatabasePgPool> =>
+): Layer.Layer<Identity | IdentitySnapshot | AuthEngine, never, DatabasePgPool> =>
   Layer.effectContext(
     Effect.gen(function* () {
       const pool = yield* DatabasePgPool;
       const engine = makeAuthEngine(config, pool);
       const identity = Identity.of(identityShape(engine, pool, config));
+      const identitySnapshot = IdentitySnapshot.of(makeIdentitySnapshotService(config));
       const authEngine = AuthEngine.of({
         engine,
         handler: auditedAuthHandler(engine, identity),
@@ -536,6 +606,7 @@ export const AuthLive = (
       });
       return Context.make(AuthEngine, authEngine).pipe(
         Context.merge(Context.make(Identity, identity)),
+        Context.merge(Context.make(IdentitySnapshot, identitySnapshot)),
       );
     }),
   );

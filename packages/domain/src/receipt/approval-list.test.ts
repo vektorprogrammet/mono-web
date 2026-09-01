@@ -1,5 +1,6 @@
 import { describe, expect, it } from "@effect/vitest";
 import { Effect } from "effect";
+import { RECEIPT_DOMAIN_ID } from "../authz/access.js";
 import { composeCapabilityEvidence } from "../authz/rules.js";
 import {
   AuthzRuleId,
@@ -113,7 +114,7 @@ const composeExistingApprovalAuthority = (
     {
       personId,
       authorizationInstant,
-      requestScope: { domain: "Receipt", departmentId: receiptDepartmentId },
+      requestScope: { domainId: RECEIPT_DOMAIN_ID, departmentId: receiptDepartmentId },
       tagAssignments: [],
     },
   );
@@ -200,7 +201,7 @@ describe("rule-aware Receipt approval visibility", () => {
         [
           rule({
             id: "rule-receipt",
-            scope: { _tag: "Receipt" },
+            scope: { _tag: "Domain", domainId: RECEIPT_DOMAIN_ID },
             slot: "EconomyGlobalReceiptApprovalGrant",
           }),
         ],
@@ -320,7 +321,7 @@ describe("rule-aware Receipt approval visibility", () => {
           receiptId: "approval-rule-global",
           approvalRule: rule({
             id: "rule-existing-global",
-            scope: { _tag: "Receipt" },
+            scope: { _tag: "Domain", domainId: RECEIPT_DOMAIN_ID },
             slot: "EconomyGlobalReceiptApprovalGrant",
           }),
           approvalScope: { _tag: "Global" },

@@ -10,7 +10,7 @@ import {
   type IdentityShape,
   type IdentitySessionMutationSuccess,
 } from "@vektorprogrammet/domain/identity";
-import { NativeApi } from "@vektorprogrammet/http-api";
+import { ExternalNativeApi } from "@vektorprogrammet/http-api";
 import { DateTime, Effect } from "effect";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
 import type { BackendRun } from "../router.js";
@@ -80,7 +80,7 @@ const identityPromise = <A>(
 
 /** Native HttpApi implementations for health and the six frozen session resources. */
 export const SystemApiHandlers = (run: BackendRun, _options: { readonly now?: () => string }) =>
-  HttpApiBuilder.group(NativeApi, "system", (handlers) =>
+  HttpApiBuilder.group(ExternalNativeApi, "system", (handlers) =>
     Effect.succeed(
       handlers
         .handleRaw("health", ({ request }) =>

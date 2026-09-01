@@ -5,6 +5,7 @@
  */
 export * from "./admissions.js";
 export * from "./api.js";
+export * from "./access.js";
 export * from "./common.js";
 export * from "./content.js";
 export * from "./directory.js";

@@ -3,7 +3,7 @@ import * as BunServices from "@effect/platform-bun/BunServices";
 import {
   ContentApi,
   DirectoryApi,
-  InternalApi,
+  InternalReceiptsApi,
   OrganizationApi,
   ProfileApi,
   ReceiptsApi,
@@ -28,7 +28,8 @@ import {
 import { RecruitmentApiHandlers, type RecruitmentApiHttpOptions } from "../recruitment/http.js";
 import {
   makeBackendHttp,
-  makeNativeApiRouterLayer,
+  makeExternalNativeApiRouterLayer,
+  makeInternalNativeApiRouterLayer,
   type BackendAuthHandler,
   type BackendHttpOptions,
   type BackendRun,
@@ -56,26 +57,29 @@ const notFound = HttpRouter.use((router) =>
     ),
   ),
 );
-const organizationContract = HttpApi.make("native-api")
+const organizationContract = HttpApi.make("external-native-api")
   .add(OrganizationApi)
   .middleware(RequestSchemaErrorMiddleware);
-const profileContract = HttpApi.make("native-api")
+const profileContract = HttpApi.make("external-native-api")
   .add(ProfileApi)
   .middleware(RequestSchemaErrorMiddleware);
-const directoryContract = HttpApi.make("native-api")
+const directoryContract = HttpApi.make("external-native-api")
   .add(DirectoryApi)
   .middleware(RequestSchemaErrorMiddleware);
-const recruitmentContract = HttpApi.make("native-api")
+const recruitmentContract = HttpApi.make("external-native-api")
   .add(RecruitmentApi)
   .middleware(RequestSchemaErrorMiddleware);
-const receiptContract = HttpApi.make("native-api")
-  .add(ReceiptsApi, InternalApi)
+const receiptContract = HttpApi.make("external-native-api")
+  .add(ReceiptsApi)
   .middleware(RequestSchemaErrorMiddleware);
-const contentContract = HttpApi.make("native-api")
+const internalReceiptContract = HttpApi.make("internal-native-api")
+  .add(InternalReceiptsApi)
+  .middleware(RequestSchemaErrorMiddleware);
+const contentContract = HttpApi.make("external-native-api")
   .add(ContentApi)
   .middleware(RequestSchemaErrorMiddleware);
 
-const testFetch = <Id extends string, Groups extends HttpApiGroup.Constraint>(
+const testRouterFetch = <Id extends string, Groups extends HttpApiGroup.Constraint>(
   contract: HttpApi.HttpApi<Id, Groups>,
   handlers: Layer.Layer<
     HttpApiGroup.ToService<Id, Groups>,
@@ -92,16 +96,25 @@ const testFetch = <Id extends string, Groups extends HttpApiGroup.Constraint>(
     disableLogger: true,
   }).handler;
   // HttpRouter's conditional context type cannot reduce across this generic group helper.
-  const nativeHandler = webHandler as unknown as (request: Request) => Promise<Response>;
-  return makeBackendHttp(
-    nativeHandler,
+  return webHandler as unknown as (request: Request) => Promise<Response>;
+};
+
+const testFetch = <Id extends string, Groups extends HttpApiGroup.Constraint>(
+  contract: HttpApi.HttpApi<Id, Groups>,
+  handlers: Layer.Layer<
+    HttpApiGroup.ToService<Id, Groups>,
+    never,
+    SessionSecurity | InvitationCapabilitySecurity | RequestSchemaErrorMiddleware
+  >,
+): ((request: Request) => Promise<Response>) =>
+  makeBackendHttp(
+    testRouterFetch(contract, handlers),
     {
       handle: () => Promise.resolve(new Response(null, { status: 404 })),
       recordTrustedOriginRejection: () => Promise.resolve(),
     },
     testSessionBoundary,
   ).fetch;
-};
 
 export const makeOrganizationTestHttp = (options: OrganizationApiHttpOptions) => ({
   fetch: testFetch(organizationContract, OrganizationApiHandlers(options)),
@@ -116,10 +129,11 @@ export const makeRecruitmentTestHttp = (options: RecruitmentApiHttpOptions) => (
 });
 
 export const makeReceiptTestHttp = (options: ReceiptApiHttpOptions) => ({
-  fetch: testFetch(
-    receiptContract,
-    Layer.merge(ReceiptApiHandlers(options), InternalReceiptApiHandlers(options)),
-  ),
+  fetch: testFetch(receiptContract, ReceiptApiHandlers(options)),
+});
+
+export const makeInternalReceiptTestHttp = (options: ReceiptApiHttpOptions) => ({
+  fetch: testRouterFetch(internalReceiptContract, InternalReceiptApiHandlers(options)),
 });
 
 export const makeContentManagementTestHttp = (
@@ -170,8 +184,20 @@ export const makeBackendTestHttp = (
   options: BackendHttpOptions = {},
 ) => {
   const native = HttpRouter.toWebHandler(
-    makeNativeApiRouterLayer(config, run, options).pipe(Layer.provide(platform)),
+    makeExternalNativeApiRouterLayer(config, run, options).pipe(Layer.provide(platform)),
     { disableLogger: true },
   ).handler as unknown as (request: Request) => Promise<Response>;
   return makeBackendHttp(native, authHandler, config.sessionBoundary);
+};
+
+export const makeBackendInternalTestHttp = (
+  config: BackendConfig,
+  run: BackendRun,
+  options: BackendHttpOptions = {},
+) => {
+  const internal = HttpRouter.toWebHandler(
+    makeInternalNativeApiRouterLayer(config, run, options).pipe(Layer.provide(platform)),
+    { disableLogger: true },
+  ).handler as unknown as (request: Request) => Promise<Response>;
+  return { fetch: internal };
 };

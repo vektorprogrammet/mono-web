@@ -1,3 +1,4 @@
+import { IdentitySnapshot } from "@vektorprogrammet/database";
 import { Content, ContentManagement } from "@vektorprogrammet/domain/content";
 import type { Admissions } from "@vektorprogrammet/domain/admissions";
 import {
@@ -146,6 +147,7 @@ const makeRun =
       | Recruitment
       | Schools
       | Identity
+      | IdentitySnapshot
       | ContentManagement
       | Content
     >,
@@ -157,6 +159,22 @@ const makeRun =
         Effect.provideService(Organization, organizationService),
         Effect.provideService(Schools, schools),
         Effect.provideService(Identity, identity),
+        Effect.provideService(
+          IdentitySnapshot,
+          IdentitySnapshot.of({
+            resolveSession: (cookieHeader) =>
+              Effect.tryPromise({
+                try: () => identity.resolveSession(cookieHeader),
+                catch: (cause) =>
+                  cause instanceof IdentitySessionNotFound || cause instanceof IdentityEngineError
+                    ? cause
+                    : new IdentityEngineError({
+                        operation: "resolveSnapshotSession",
+                        message: "test identity failure",
+                      }),
+              }),
+          }),
+        ),
       ) as Effect.Effect<A, E>,
     );
 
@@ -214,6 +232,7 @@ describe("unified backend router", () => {
       recruitment,
       publicRecruitment,
       missing,
+      internalEvidence,
     ] = await Promise.all([
       request("/health"),
       request("/api/me", { headers: { cookie: `${token}=value` } }),
@@ -224,6 +243,9 @@ describe("unified backend router", () => {
       request("/api/admin/recruitment/assignment-board?status=new"),
       request("/api/recruitment/invitation-response"),
       request("/api/not-a-capability"),
+      request("/api/e2e/receipts/receipt-one/evidence", {
+        headers: { cookie: `${token}=value` },
+      }),
     ]);
 
     expect({ status: health.status, body: await health.json() }).toEqual({
@@ -274,6 +296,10 @@ describe("unified backend router", () => {
       body: { error: { tag: "RecruitmentInvitationNotFound" } },
     });
     expect({ status: missing.status, body: await missing.json() }).toEqual({
+      status: 404,
+      body: { error: { tag: "RouteNotFound" } },
+    });
+    expect({ status: internalEvidence.status, body: await internalEvidence.json() }).toEqual({
       status: 404,
       body: { error: { tag: "RouteNotFound" } },
     });

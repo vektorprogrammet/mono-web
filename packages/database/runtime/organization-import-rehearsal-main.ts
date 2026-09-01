@@ -52,11 +52,12 @@ import { Etag, HttpEffect, HttpRouter } from "effect/unstable/http";
 import { makeBackendConfig, type BackendConfig } from "../../../apps/backend/src/config.js";
 import {
   makeBackendHttp,
-  makeNativeApiRouterLayer,
+  makeExternalNativeApiRouterLayer,
   type BackendRun,
 } from "../../../apps/backend/src/router.js";
 import { makeBackendRuntime } from "../../../apps/backend/runtime.js";
 import { DatabaseLive } from "../src/layers.js";
+import { IdentitySnapshot } from "../src/auth-live.js";
 import { databaseMigrationDefinitions, databaseSchemaRevision } from "../src/migrations.js";
 import {
   NATIVE_BROWSER_JOURNEY_REQUIREMENTS,
@@ -1069,7 +1070,7 @@ const readSanitizedFailedBrowserEvidence = async (
 const makeIdentityTestLayer = (
   sessionCookie: string,
   counters: { credentialAttempts: number; authMutationAttempts: number },
-): Layer.Layer<Identity> => {
+): Layer.Layer<Identity | IdentitySnapshot> => {
   const actor = new IdentityActor({
     personId: PersonId.make(SPEC_0067.administratorPersonId),
     sessionId: `session-${sha256Text(sessionCookie).slice(0, 16)}`,
@@ -1116,13 +1117,26 @@ const makeIdentityTestLayer = (
       );
     },
   };
-  return Layer.succeed(Identity, identity);
+  const snapshot = IdentitySnapshot.of({
+    resolveSession: (cookieHeader) =>
+      Effect.tryPromise({
+        try: () => identity.resolveSession(cookieHeader),
+        catch: (cause) =>
+          cause instanceof IdentitySessionNotFound || cause instanceof IdentityEngineError
+            ? cause
+            : new IdentityEngineError({
+                operation: "resolveSnapshotSession",
+                message: "rehearsal identity failure",
+              }),
+      }),
+  });
+  return Layer.merge(Layer.succeed(Identity, identity), Layer.succeed(IdentitySnapshot, snapshot));
 };
 
 const makeRehearsalRuntime = (
   databaseUrl: string,
   observerState: ReturnType<typeof makeOrganizationImportSqlObserverState>,
-  identityLayer: Layer.Layer<Identity>,
+  identityLayer: Layer.Layer<Identity | IdentitySnapshot>,
   config: BackendConfig,
 ) => {
   const databaseLayer = DatabaseLive({
@@ -1153,7 +1167,7 @@ const makeRehearsalRuntime = (
   const platformLayer = Layer.mergeAll(BunServices.layer, BunHttpPlatform.layer, Etag.layer);
   const routerLayer = HttpRouter.layer;
   const run: BackendRun = (effect) => runtime.runPromise(effect);
-  const nativeApiLayer = makeNativeApiRouterLayer(config, run, {
+  const nativeApiLayer = makeExternalNativeApiRouterLayer(config, run, {
     now: () => SPEC_0067.authorizationInstant,
   }).pipe(Layer.provide(platformLayer), Layer.provide(routerLayer));
   const runtime = makeBackendRuntime(

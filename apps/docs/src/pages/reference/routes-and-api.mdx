@@ -6,36 +6,37 @@ showAskAi: false
 
 # Routes & API
 
-[`NativeApi`](https://github.com/vektorprogrammet/mono-web/blob/c315db3b5809caffb16e149bd33f0a07b60948f6/packages/http-api/src/api.ts) is the native HTTP contract authority. [`makeBackendHttp`](https://github.com/vektorprogrammet/mono-web/blob/c315db3b5809caffb16e149bd33f0a07b60948f6/apps/backend/src/router.ts) keeps Better Auth as the only external path family.
+[`ExternalNativeApi`](https://github.com/vektorprogrammet/mono-web/blob/c315db3b5809caffb16e149bd33f0a07b60948f6/packages/http-api/src/api.ts) is the public native HTTP contract. [`InternalNativeApi`](https://github.com/vektorprogrammet/mono-web/blob/c315db3b5809caffb16e149bd33f0a07b60948f6/packages/http-api/src/api.ts) is a separate internal contract.
 
 ## Current API availability
 
 The native backend serves the route families below. Open the [generated native API reference](/reference/native-api) for all 52 public operations, schemas, and responses, or start with [Authentication & authorization](/reference/native-api/authentication) and [Getting started](/reference/native-api/getting-started).
 
-The public document excludes Better Auth and the internal receipt evidence route. The operation total does not claim legacy capability parity.
+The public document excludes Better Auth and all internal operations. The operation total does not claim legacy capability parity.
 
 ## Native route families
 
-| Route family                                                                                                                                                                                   | HttpApi implementation      | Capability owner                                |
-| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------- | ----------------------------------------------- |
-| `/api/auth/*`                                                                                                                                                                                  | Better Auth request handler | Shared `AuthEngine` and `Identity` Layer        |
-| `/api/session`, `/api/sessions*`                                                                                                                                                               | `SystemApiHandlers`         | `Identity`                                      |
-| `/api/me`                                                                                                                                                                                      | `ProfileApiHandlers`        | `Profile`                                       |
-| `/api/receipts*`, `/api/admin/receipts*`                                                                                                                                                       | `ReceiptApiHandlers`        | `Economy`                                       |
-| `/api/applications*`, `/api/admission-periods/open`, `/api/admin/admission-periods*`                                                                                                           | `AdmissionsApiHandlers`     | `Admissions` and application domain programs    |
-| `/api/admin/recruitment*`, `/api/recruitment/invitation-response*`                                                                                                                             | `RecruitmentApiHandlers`    | `Recruitment`                                   |
-| `/api/departments`, `/api/teams`, `/api/field_of_studies`, `/api/admin/departments`, `/api/admin/teams`, `/api/admin/field-of-studies`, `/api/admin/team-interest`, `/api/admin/mailing-lists` | `OrganizationApiHandlers`   | `Organization`                                  |
-| `GET /api/admin/schools`                                                                                                                                                                       | `AdminUsersApiHandlers`     | `Schools`                                       |
-| `/api/admin/content*`                                                                                                                                                                          | `ContentApiHandlers`        | `ContentManagement`                             |
-| `/api/news*`                                                                                                                                                                                   | `ContentApiHandlers`        | `Content`                                       |
-| `GET /api/admin/users`                                                                                                                                                                         | `AdminUsersApiHandlers`     | Identity, profile, and organization projections |
-| `GET /health`                                                                                                                                                                                  | `SystemApiHandlers`         | `Database`                                      |
+| Route family                                                                                                                                                                                   | HttpApi implementation       | Capability owner                                |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------- | ----------------------------------------------- |
+| `/api/auth/*`                                                                                                                                                                                  | Better Auth request handler  | Shared `AuthEngine` and `Identity` Layer        |
+| `/api/session`, `/api/sessions*`                                                                                                                                                               | `SystemApiHandlers`          | `Identity`                                      |
+| `/api/me`                                                                                                                                                                                      | `ProfileApiHandlers`         | `Profile`                                       |
+| `/api/receipts*`, `/api/admin/receipts*`                                                                                                                                                       | `ReceiptApiHandlers`         | `Economy`                                       |
+| `/api/applications*`, `/api/admission-periods/open`, `/api/admin/admission-periods*`                                                                                                           | `AdmissionsApiHandlers`      | `Admissions` and application domain programs    |
+| `/api/admin/recruitment*`, `/api/recruitment/invitation-response*`                                                                                                                             | `RecruitmentApiHandlers`     | `Recruitment`                                   |
+| `/api/departments`, `/api/teams`, `/api/field_of_studies`, `/api/admin/departments`, `/api/admin/teams`, `/api/admin/field-of-studies`, `/api/admin/team-interest`, `/api/admin/mailing-lists` | `OrganizationApiHandlers`    | `Organization`                                  |
+| `GET /api/admin/schools`                                                                                                                                                                       | `AdminUsersApiHandlers`      | `Schools`                                       |
+| `/api/admin/content*`                                                                                                                                                                          | `ContentApiHandlers`         | `ContentManagement`                             |
+| `/api/news*`                                                                                                                                                                                   | `ContentApiHandlers`         | `Content`                                       |
+| `GET /api/admin/users`                                                                                                                                                                         | `AdminUsersApiHandlers`      | Identity, profile, and organization projections |
+| `GET /health`                                                                                                                                                                                  | `SystemApiHandlers`          | `Database`                                      |
+| `GET /api/e2e/receipts/:receiptId/evidence` (internal ingress only)                                                                                                                            | `InternalReceiptApiHandlers` | `Economy` and the typed access evaluator        |
 
 The contract groups are in [`packages/http-api/src`](https://github.com/vektorprogrammet/mono-web/tree/c315db3b5809caffb16e149bd33f0a07b60948f6/packages/http-api/src). The handler composition is in [`apps/backend/src/router.ts`](https://github.com/vektorprogrammet/mono-web/blob/c315db3b5809caffb16e149bd33f0a07b60948f6/apps/backend/src/router.ts).
 
 ## Boundary rules
 
-1. `NativeApi` selects one typed endpoint contract.
+1. `ExternalNativeApi` selects one public endpoint contract.
 2. The matching `HttpApiBuilder` handler decodes transport input.
 3. The handler resolves one actor and one authorization instant when the capability needs them.
 4. The handler calls a Service program.
@@ -43,6 +44,8 @@ The contract groups are in [`packages/http-api/src`](https://github.com/vektorpr
 6. The handler does not select a live persistence implementation.
 
 Unknown native paths return `404` with `RouteNotFound`.
+
+`BACKEND_INGRESS=internal` constructs only `InternalNativeApi`. It does not mount public operations or Better Auth routes.
 
 ## Browser route boundary
 

@@ -6386,7 +6386,7 @@
           "Admissions"
         ],
         "x-vektorprogrammet-provenance": {
-          "contract": "@vektorprogrammet/http-api/NativeApi",
+          "contract": "@vektorprogrammet/http-api/ExternalNativeApi",
           "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
           "schemas": "Effect.Schema",
           "security": "HttpApiMiddleware.security",
@@ -6541,7 +6541,7 @@
           "Admissions"
         ],
         "x-vektorprogrammet-provenance": {
-          "contract": "@vektorprogrammet/http-api/NativeApi",
+          "contract": "@vektorprogrammet/http-api/ExternalNativeApi",
           "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
           "schemas": "Effect.Schema",
           "security": "HttpApiMiddleware.security",
@@ -6689,7 +6689,7 @@
           "Admissions"
         ],
         "x-vektorprogrammet-provenance": {
-          "contract": "@vektorprogrammet/http-api/NativeApi",
+          "contract": "@vektorprogrammet/http-api/ExternalNativeApi",
           "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
           "schemas": "Effect.Schema",
           "security": "HttpApiMiddleware.security",
@@ -6870,7 +6870,7 @@
           "Content and news"
         ],
         "x-vektorprogrammet-provenance": {
-          "contract": "@vektorprogrammet/http-api/NativeApi",
+          "contract": "@vektorprogrammet/http-api/ExternalNativeApi",
           "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
           "schemas": "Effect.Schema",
           "security": "HttpApiMiddleware.security",
@@ -7083,7 +7083,7 @@
           "Content and news"
         ],
         "x-vektorprogrammet-provenance": {
-          "contract": "@vektorprogrammet/http-api/NativeApi",
+          "contract": "@vektorprogrammet/http-api/ExternalNativeApi",
           "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
           "schemas": "Effect.Schema",
           "security": "HttpApiMiddleware.security",
@@ -7276,7 +7276,7 @@
           "Content and news"
         ],
         "x-vektorprogrammet-provenance": {
-          "contract": "@vektorprogrammet/http-api/NativeApi",
+          "contract": "@vektorprogrammet/http-api/ExternalNativeApi",
           "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
           "schemas": "Effect.Schema",
           "security": "HttpApiMiddleware.security",
@@ -7404,7 +7404,7 @@
           "Content and news"
         ],
         "x-vektorprogrammet-provenance": {
-          "contract": "@vektorprogrammet/http-api/NativeApi",
+          "contract": "@vektorprogrammet/http-api/ExternalNativeApi",
           "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
           "schemas": "Effect.Schema",
           "security": "HttpApiMiddleware.security",
@@ -7532,7 +7532,7 @@
           "Content and news"
         ],
         "x-vektorprogrammet-provenance": {
-          "contract": "@vektorprogrammet/http-api/NativeApi",
+          "contract": "@vektorprogrammet/http-api/ExternalNativeApi",
           "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
           "schemas": "Effect.Schema",
           "security": "HttpApiMiddleware.security",
@@ -7726,7 +7726,7 @@
           "Content and news"
         ],
         "x-vektorprogrammet-provenance": {
-          "contract": "@vektorprogrammet/http-api/NativeApi",
+          "contract": "@vektorprogrammet/http-api/ExternalNativeApi",
           "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
           "schemas": "Effect.Schema",
           "security": "HttpApiMiddleware.security",
@@ -7864,7 +7864,7 @@
           "Organization"
         ],
         "x-vektorprogrammet-provenance": {
-          "contract": "@vektorprogrammet/http-api/NativeApi",
+          "contract": "@vektorprogrammet/http-api/ExternalNativeApi",
           "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
           "schemas": "Effect.Schema",
           "security": "HttpApiMiddleware.security",
@@ -8051,7 +8051,7 @@
           "Organization"
         ],
         "x-vektorprogrammet-provenance": {
-          "contract": "@vektorprogrammet/http-api/NativeApi",
+          "contract": "@vektorprogrammet/http-api/ExternalNativeApi",
           "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
           "schemas": "Effect.Schema",
           "security": "HttpApiMiddleware.security",
@@ -8207,7 +8207,7 @@
           "Organization"
         ],
         "x-vektorprogrammet-provenance": {
-          "contract": "@vektorprogrammet/http-api/NativeApi",
+          "contract": "@vektorprogrammet/http-api/ExternalNativeApi",
           "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
           "schemas": "Effect.Schema",
           "security": "HttpApiMiddleware.security",
@@ -8327,7 +8327,7 @@
           "Receipts"
         ],
         "x-vektorprogrammet-provenance": {
-          "contract": "@vektorprogrammet/http-api/NativeApi",
+          "contract": "@vektorprogrammet/http-api/ExternalNativeApi",
           "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
           "schemas": "Effect.Schema",
           "security": "HttpApiMiddleware.security",
@@ -8455,7 +8455,7 @@
           "Receipts"
         ],
         "x-vektorprogrammet-provenance": {
-          "contract": "@vektorprogrammet/http-api/NativeApi",
+          "contract": "@vektorprogrammet/http-api/ExternalNativeApi",
           "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
           "schemas": "Effect.Schema",
           "security": "HttpApiMiddleware.security",
@@ -8583,7 +8583,7 @@
           "Receipts"
         ],
         "x-vektorprogrammet-provenance": {
-          "contract": "@vektorprogrammet/http-api/NativeApi",
+          "contract": "@vektorprogrammet/http-api/ExternalNativeApi",
           "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
           "schemas": "Effect.Schema",
           "security": "HttpApiMiddleware.security",
@@ -8710,7 +8710,7 @@
           "Recruitment"
         ],
         "x-vektorprogrammet-provenance": {
-          "contract": "@vektorprogrammet/http-api/NativeApi",
+          "contract": "@vektorprogrammet/http-api/ExternalNativeApi",
           "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
           "schemas": "Effect.Schema",
           "security": "HttpApiMiddleware.security",
@@ -8834,7 +8834,7 @@
           "Recruitment"
         ],
         "x-vektorprogrammet-provenance": {
-          "contract": "@vektorprogrammet/http-api/NativeApi",
+          "contract": "@vektorprogrammet/http-api/ExternalNativeApi",
           "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
           "schemas": "Effect.Schema",
           "security": "HttpApiMiddleware.security",
@@ -8958,7 +8958,7 @@
           "Recruitment"
         ],
         "x-vektorprogrammet-provenance": {
-          "contract": "@vektorprogrammet/http-api/NativeApi",
+          "contract": "@vektorprogrammet/http-api/ExternalNativeApi",
           "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
           "schemas": "Effect.Schema",
           "security": "HttpApiMiddleware.security",
@@ -9072,7 +9072,7 @@
           "Recruitment"
         ],
         "x-vektorprogrammet-provenance": {
-          "contract": "@vektorprogrammet/http-api/NativeApi",
+          "contract": "@vektorprogrammet/http-api/ExternalNativeApi",
           "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
           "schemas": "Effect.Schema",
           "security": "HttpApiMiddleware.security",
@@ -9205,7 +9205,7 @@
           "Recruitment"
         ],
         "x-vektorprogrammet-provenance": {
-          "contract": "@vektorprogrammet/http-api/NativeApi",
+          "contract": "@vektorprogrammet/http-api/ExternalNativeApi",
           "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
           "schemas": "Effect.Schema",
           "security": "HttpApiMiddleware.security",
@@ -9328,7 +9328,7 @@
           "Recruitment"
         ],
         "x-vektorprogrammet-provenance": {
-          "contract": "@vektorprogrammet/http-api/NativeApi",
+          "contract": "@vektorprogrammet/http-api/ExternalNativeApi",
           "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
           "schemas": "Effect.Schema",
           "security": "HttpApiMiddleware.security",
@@ -9461,7 +9461,7 @@
           "Recruitment"
         ],
         "x-vektorprogrammet-provenance": {
-          "contract": "@vektorprogrammet/http-api/NativeApi",
+          "contract": "@vektorprogrammet/http-api/ExternalNativeApi",
           "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
           "schemas": "Effect.Schema",
           "security": "HttpApiMiddleware.security",
@@ -9554,7 +9554,7 @@
           "Directories"
         ],
         "x-vektorprogrammet-provenance": {
-          "contract": "@vektorprogrammet/http-api/NativeApi",
+          "contract": "@vektorprogrammet/http-api/ExternalNativeApi",
           "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
           "schemas": "Effect.Schema",
           "security": "HttpApiMiddleware.security",
@@ -9675,7 +9675,7 @@
           "Organization"
         ],
         "x-vektorprogrammet-provenance": {
-          "contract": "@vektorprogrammet/http-api/NativeApi",
+          "contract": "@vektorprogrammet/http-api/ExternalNativeApi",
           "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
           "schemas": "Effect.Schema",
           "security": "HttpApiMiddleware.security",
@@ -9913,7 +9913,7 @@
           "Organization"
         ],
         "x-vektorprogrammet-provenance": {
-          "contract": "@vektorprogrammet/http-api/NativeApi",
+          "contract": "@vektorprogrammet/http-api/ExternalNativeApi",
           "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
           "schemas": "Effect.Schema",
           "security": "HttpApiMiddleware.security",
@@ -9997,7 +9997,7 @@
           "Directories"
         ],
         "x-vektorprogrammet-provenance": {
-          "contract": "@vektorprogrammet/http-api/NativeApi",
+          "contract": "@vektorprogrammet/http-api/ExternalNativeApi",
           "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
           "schemas": "Effect.Schema",
           "security": "HttpApiMiddleware.security",
@@ -10089,7 +10089,7 @@
           "Admissions"
         ],
         "x-vektorprogrammet-provenance": {
-          "contract": "@vektorprogrammet/http-api/NativeApi",
+          "contract": "@vektorprogrammet/http-api/ExternalNativeApi",
           "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
           "schemas": "Effect.Schema",
           "security": "HttpApiMiddleware.security",
@@ -10259,7 +10259,7 @@
           "Admissions"
         ],
         "x-vektorprogrammet-provenance": {
-          "contract": "@vektorprogrammet/http-api/NativeApi",
+          "contract": "@vektorprogrammet/http-api/ExternalNativeApi",
           "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
           "schemas": "Effect.Schema",
           "security": "HttpApiMiddleware.security",
@@ -10405,7 +10405,7 @@
           "Admissions"
         ],
         "x-vektorprogrammet-provenance": {
-          "contract": "@vektorprogrammet/http-api/NativeApi",
+          "contract": "@vektorprogrammet/http-api/ExternalNativeApi",
           "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
           "schemas": "Effect.Schema",
           "security": "HttpApiMiddleware.security",
@@ -10531,7 +10531,7 @@
           "Admissions"
         ],
         "x-vektorprogrammet-provenance": {
-          "contract": "@vektorprogrammet/http-api/NativeApi",
+          "contract": "@vektorprogrammet/http-api/ExternalNativeApi",
           "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
           "schemas": "Effect.Schema",
           "security": "HttpApiMiddleware.security",
@@ -10586,7 +10586,7 @@
           "Organization"
         ],
         "x-vektorprogrammet-provenance": {
-          "contract": "@vektorprogrammet/http-api/NativeApi",
+          "contract": "@vektorprogrammet/http-api/ExternalNativeApi",
           "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
           "schemas": "Effect.Schema",
           "security": "HttpApiMiddleware.security",
@@ -10641,7 +10641,7 @@
           "Organization"
         ],
         "x-vektorprogrammet-provenance": {
-          "contract": "@vektorprogrammet/http-api/NativeApi",
+          "contract": "@vektorprogrammet/http-api/ExternalNativeApi",
           "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
           "schemas": "Effect.Schema",
           "security": "HttpApiMiddleware.security",
@@ -10745,7 +10745,7 @@
           "Profile"
         ],
         "x-vektorprogrammet-provenance": {
-          "contract": "@vektorprogrammet/http-api/NativeApi",
+          "contract": "@vektorprogrammet/http-api/ExternalNativeApi",
           "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
           "schemas": "Effect.Schema",
           "security": "HttpApiMiddleware.security",
@@ -10857,7 +10857,7 @@
           "Profile"
         ],
         "x-vektorprogrammet-provenance": {
-          "contract": "@vektorprogrammet/http-api/NativeApi",
+          "contract": "@vektorprogrammet/http-api/ExternalNativeApi",
           "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
           "schemas": "Effect.Schema",
           "security": "HttpApiMiddleware.security",
@@ -10948,7 +10948,7 @@
           "Content and news"
         ],
         "x-vektorprogrammet-provenance": {
-          "contract": "@vektorprogrammet/http-api/NativeApi",
+          "contract": "@vektorprogrammet/http-api/ExternalNativeApi",
           "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
           "schemas": "Effect.Schema",
           "security": "HttpApiMiddleware.security",
@@ -11064,7 +11064,7 @@
           "Content and news"
         ],
         "x-vektorprogrammet-provenance": {
-          "contract": "@vektorprogrammet/http-api/NativeApi",
+          "contract": "@vektorprogrammet/http-api/ExternalNativeApi",
           "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
           "schemas": "Effect.Schema",
           "security": "HttpApiMiddleware.security",
@@ -11194,7 +11194,7 @@
           "Receipts"
         ],
         "x-vektorprogrammet-provenance": {
-          "contract": "@vektorprogrammet/http-api/NativeApi",
+          "contract": "@vektorprogrammet/http-api/ExternalNativeApi",
           "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
           "schemas": "Effect.Schema",
           "security": "HttpApiMiddleware.security",
@@ -11384,7 +11384,7 @@
           "Receipts"
         ],
         "x-vektorprogrammet-provenance": {
-          "contract": "@vektorprogrammet/http-api/NativeApi",
+          "contract": "@vektorprogrammet/http-api/ExternalNativeApi",
           "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
           "schemas": "Effect.Schema",
           "security": "HttpApiMiddleware.security",
@@ -11520,7 +11520,7 @@
           "Receipts"
         ],
         "x-vektorprogrammet-provenance": {
-          "contract": "@vektorprogrammet/http-api/NativeApi",
+          "contract": "@vektorprogrammet/http-api/ExternalNativeApi",
           "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
           "schemas": "Effect.Schema",
           "security": "HttpApiMiddleware.security",
@@ -11648,7 +11648,7 @@
           "Receipts"
         ],
         "x-vektorprogrammet-provenance": {
-          "contract": "@vektorprogrammet/http-api/NativeApi",
+          "contract": "@vektorprogrammet/http-api/ExternalNativeApi",
           "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
           "schemas": "Effect.Schema",
           "security": "HttpApiMiddleware.security",
@@ -11751,7 +11751,7 @@
           "Recruitment"
         ],
         "x-vektorprogrammet-provenance": {
-          "contract": "@vektorprogrammet/http-api/NativeApi",
+          "contract": "@vektorprogrammet/http-api/ExternalNativeApi",
           "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
           "schemas": "Effect.Schema",
           "security": "HttpApiMiddleware.security",
@@ -11857,7 +11857,7 @@
           "Recruitment"
         ],
         "x-vektorprogrammet-provenance": {
-          "contract": "@vektorprogrammet/http-api/NativeApi",
+          "contract": "@vektorprogrammet/http-api/ExternalNativeApi",
           "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
           "schemas": "Effect.Schema",
           "security": "HttpApiMiddleware.security",
@@ -11963,7 +11963,7 @@
           "Recruitment"
         ],
         "x-vektorprogrammet-provenance": {
-          "contract": "@vektorprogrammet/http-api/NativeApi",
+          "contract": "@vektorprogrammet/http-api/ExternalNativeApi",
           "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
           "schemas": "Effect.Schema",
           "security": "HttpApiMiddleware.security",
@@ -12069,7 +12069,7 @@
           "Recruitment"
         ],
         "x-vektorprogrammet-provenance": {
-          "contract": "@vektorprogrammet/http-api/NativeApi",
+          "contract": "@vektorprogrammet/http-api/ExternalNativeApi",
           "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
           "schemas": "Effect.Schema",
           "security": "HttpApiMiddleware.security",
@@ -12126,7 +12126,7 @@
           "System"
         ],
         "x-vektorprogrammet-provenance": {
-          "contract": "@vektorprogrammet/http-api/NativeApi",
+          "contract": "@vektorprogrammet/http-api/ExternalNativeApi",
           "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
           "schemas": "Effect.Schema",
           "security": "HttpApiMiddleware.security",
@@ -12188,7 +12188,7 @@
           "System"
         ],
         "x-vektorprogrammet-provenance": {
-          "contract": "@vektorprogrammet/http-api/NativeApi",
+          "contract": "@vektorprogrammet/http-api/ExternalNativeApi",
           "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
           "schemas": "Effect.Schema",
           "security": "HttpApiMiddleware.security",
@@ -12252,7 +12252,7 @@
           "System"
         ],
         "x-vektorprogrammet-provenance": {
-          "contract": "@vektorprogrammet/http-api/NativeApi",
+          "contract": "@vektorprogrammet/http-api/ExternalNativeApi",
           "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
           "schemas": "Effect.Schema",
           "security": "HttpApiMiddleware.security",
@@ -12328,7 +12328,7 @@
           "System"
         ],
         "x-vektorprogrammet-provenance": {
-          "contract": "@vektorprogrammet/http-api/NativeApi",
+          "contract": "@vektorprogrammet/http-api/ExternalNativeApi",
           "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
           "schemas": "Effect.Schema",
           "security": "HttpApiMiddleware.security",
@@ -12385,7 +12385,7 @@
           "System"
         ],
         "x-vektorprogrammet-provenance": {
-          "contract": "@vektorprogrammet/http-api/NativeApi",
+          "contract": "@vektorprogrammet/http-api/ExternalNativeApi",
           "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
           "schemas": "Effect.Schema",
           "security": "HttpApiMiddleware.security",
@@ -12442,7 +12442,7 @@
           "System"
         ],
         "x-vektorprogrammet-provenance": {
-          "contract": "@vektorprogrammet/http-api/NativeApi",
+          "contract": "@vektorprogrammet/http-api/ExternalNativeApi",
           "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
           "schemas": "Effect.Schema",
           "security": "HttpApiMiddleware.security",
@@ -12497,7 +12497,7 @@
           "Organization"
         ],
         "x-vektorprogrammet-provenance": {
-          "contract": "@vektorprogrammet/http-api/NativeApi",
+          "contract": "@vektorprogrammet/http-api/ExternalNativeApi",
           "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
           "schemas": "Effect.Schema",
           "security": "HttpApiMiddleware.security",
@@ -12538,8 +12538,27 @@
         "tags": [
           "System"
         ],
+        "x-vektor-access": {
+          "acceptedCredentials": [
+            "None"
+          ],
+          "canonicalScopeResolver": "system.public",
+          "capabilities": {
+            "none": true
+          },
+          "concealment": {
+            "mode": "Reveal",
+            "stages": []
+          },
+          "decisionTime": "SnapshotRead",
+          "exposure": "External",
+          "principalKinds": [
+            "Anonymous"
+          ],
+          "requirements": []
+        },
         "x-vektorprogrammet-provenance": {
-          "contract": "@vektorprogrammet/http-api/NativeApi",
+          "contract": "@vektorprogrammet/http-api/ExternalNativeApi",
           "operationId": "HttpApiGroup.identifier.HttpApiEndpoint.identifier",
           "schemas": "Effect.Schema",
           "security": "HttpApiMiddleware.security",
@@ -12629,10 +12648,10 @@
     }
   ],
   "x-vektorprogrammet-provenance": {
-    "contract": "@vektorprogrammet/http-api/NativeApi",
+    "contract": "@vektorprogrammet/http-api/ExternalNativeApi",
     "exclusions": [
       "Better Auth /api/auth/*",
-      "internal evidence group"
+      "all internal operations"
     ],
     "generator": "effect/unstable/httpapi/OpenApi.fromApi",
     "schemas": "Effect.Schema",

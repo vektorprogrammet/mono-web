@@ -4,6 +4,7 @@ import { reactRouter } from "@react-router/dev/vite";
 import { foldkit } from "@foldkit/vite-plugin";
 import tailwindcss from "@tailwindcss/vite";
 import { defineConfig, type Plugin } from "vite";
+import { dashboardMount } from "./dashboard-base.ts";
 
 const defaultProfileImagePath = fileURLToPath(
   new URL("../server/assets/images/defaultProfile.png", import.meta.url),
@@ -27,18 +28,13 @@ const defaultProfileImage = (): Plugin => ({
   },
 });
 
-export const dashboardAssetBase = (environment: NodeJS.ProcessEnv): string =>
-  environment.REAL_NATIVE_CONDUCT_E2E === "1" || environment.ORGANIZATION_IMPORT_REHEARSAL === "1"
-    ? "/"
-    : "/dashboard/";
-
 export const previewDevtoolsBuildEnabled = (
   command: "build" | "serve",
   environment: NodeJS.ProcessEnv,
 ): boolean => command === "serve" || environment.VITE_PREVIEW_DEVTOOLS === "true";
 
 export default defineConfig(({ command }) => ({
-  base: dashboardAssetBase(process.env),
+  base: dashboardMount(process.env),
   // Local serve enables the capability automatically. A build requires the
   // explicit preview flag; production leaves it unset/false, so Rollup removes
   // the complete dynamic-import graph before emitting client or server assets.

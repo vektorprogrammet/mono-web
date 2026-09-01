@@ -244,9 +244,9 @@ describe("native dashboard authentication", () => {
   });
 
   it("allows only same-origin relative post-login redirects", () => {
-    expect(safeRedirect("/dashboard/profile?tab=contact")).toBe("/dashboard/profile?tab=contact");
-    expect(safeRedirect("https://attacker.example")).toBe("/dashboard");
-    expect(safeRedirect("//attacker.example")).toBe("/dashboard");
-    expect(safeRedirect("/\\attacker.example")).toBe("/dashboard");
+    expect(safeRedirect("/profile?tab=contact")).toBe("/profile?tab=contact");
+    expect(safeRedirect("https://attacker.example")).toBe("/");
+    expect(safeRedirect("//attacker.example")).toBe("/");
+    expect(safeRedirect("/\\attacker.example")).toBe("/");
   });
 });

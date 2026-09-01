@@ -1,3 +1,4 @@
+import type { IdentitySnapshot } from "@vektorprogrammet/database";
 import { Content, ContentManagement } from "@vektorprogrammet/domain/content";
 import type { Admissions } from "@vektorprogrammet/domain/admissions";
 import { UnauthenticatedActor } from "@vektorprogrammet/domain/admission-period";
@@ -94,6 +95,7 @@ const makeRun = (
       | Recruitment
       | Schools
       | Identity
+      | IdentitySnapshot
       | ContentManagement
       | Content
     >,

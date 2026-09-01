@@ -22,7 +22,7 @@ import {
 } from "@vektorprogrammet/domain/recruitment";
 import { Organization } from "@vektorprogrammet/domain/organization";
 import { Economy } from "@vektorprogrammet/domain/receipt";
-import { NativeApi } from "@vektorprogrammet/http-api";
+import { ExternalNativeApi } from "@vektorprogrammet/http-api";
 import { Effect, Match, Schema } from "effect";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
 import { toHttpApiResponse } from "../http-api/transport.js";
@@ -529,7 +529,7 @@ const requestNewInvitationTime = async (
 
 /** Native HttpApi implementations for recruitment endpoints. */
 export const RecruitmentApiHandlers = (input: RecruitmentApiHttpOptions) =>
-  HttpApiBuilder.group(NativeApi, "recruitment", (handlers) =>
+  HttpApiBuilder.group(ExternalNativeApi, "recruitment", (handlers) =>
     Effect.succeed(
       handlers
         .handleRaw("readInvitationResponse", ({ request }) =>

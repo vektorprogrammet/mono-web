@@ -5,18 +5,38 @@ import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { dashboardMount } from "../dashboard-base.ts";
 
 const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
 const dashboardRoot = fileURLToPath(new URL("../", import.meta.url));
 const sdkRoot = fileURLToPath(new URL("../../../packages/sdk/", import.meta.url));
+const databaseRoot = fileURLToPath(new URL("../../../packages/database/", import.meta.url));
 const composeFile = join(repositoryRoot, "docker-compose.yml");
-const dashboardOrigin = "http://127.0.0.1:5174";
-const backendOrigin = "http://127.0.0.1:8790";
-const postgresUrl = "postgres://receipt:receipt@127.0.0.1:55432/receipt_proof?connect_timeout=1";
+function configuredLoopbackPort(name, fallback) {
+  const value = process.env[name] ?? String(fallback);
+  if (!/^\d+$/.test(value)) throw new Error(`${name} must be an integer`);
+  const port = Number(value);
+  if (!Number.isSafeInteger(port) || port < 1 || port > 65_535) {
+    throw new Error(`${name} must be between 1 and 65535`);
+  }
+  return port;
+}
+
+const dashboardPort = configuredLoopbackPort("RECEIPT_E2E_DASHBOARD_PORT", 5174);
+const backendPort = configuredLoopbackPort("RECEIPT_E2E_BACKEND_PORT", 8790);
+const internalBackendPort = configuredLoopbackPort("RECEIPT_E2E_INTERNAL_BACKEND_PORT", 8791);
+const postgresPort = 55432;
+const disposablePorts = [dashboardPort, backendPort, internalBackendPort, postgresPort];
+if (new Set(disposablePorts).size !== disposablePorts.length) {
+  throw new Error("Real Receipt owner loopback ports must be distinct");
+}
+const dashboardOrigin = `http://127.0.0.1:${dashboardPort}`;
+const backendOrigin = `http://127.0.0.1:${backendPort}`;
+const internalBackendOrigin = `http://127.0.0.1:${internalBackendPort}`;
+const postgresUrl = `postgres://receipt:receipt@127.0.0.1:${postgresPort}/receipt_proof?connect_timeout=1`;
 const composeProject = `mono-web-receipt-0036-${process.pid}`;
 const commandTimeoutMs = 300_000;
 const shutdownTimeoutMs = 5_000;
-const postgresPort = 55432;
 const nixPostgresPackage = "nixpkgs#postgresql_17";
 const dockerAvailable =
   spawnSync("docker", ["compose", "version"], { stdio: "ignore" }).status === 0;
@@ -280,6 +300,108 @@ async function pathExists(path) {
   }
 }
 
+function postgresSqlArgs(sql, tuplesOnly) {
+  const formatArguments = tuplesOnly ? ["-At"] : [];
+  return postgresTopology === "docker"
+    ? [
+        "compose",
+        "-f",
+        composeFile,
+        "-p",
+        composeProject,
+        "exec",
+        "-T",
+        "receipt-postgres",
+        "psql",
+        "-U",
+        "receipt",
+        "-d",
+        "receipt_proof",
+        ...formatArguments,
+        "-v",
+        "ON_ERROR_STOP=1",
+        "-c",
+        sql,
+      ]
+    : [
+        "-h",
+        "127.0.0.1",
+        "-p",
+        String(postgresPort),
+        "-U",
+        "receipt",
+        "-d",
+        "receipt_proof",
+        ...formatArguments,
+        "-v",
+        "ON_ERROR_STOP=1",
+        "-c",
+        sql,
+      ];
+}
+
+async function runPostgresSql(sql, environment, label, captureOutput = false) {
+  const args = postgresSqlArgs(sql, captureOutput);
+  const options = {
+    cwd: repositoryRoot,
+    env: environment,
+    label,
+    captureOutput,
+  };
+  return postgresTopology === "docker"
+    ? runCommand("docker", args, options)
+    : runNixPostgres("psql", args, options);
+}
+
+async function seedOwnerAuthorities(environment) {
+  await runPostgresSql(
+    `
+      BEGIN;
+      INSERT INTO organization_departments (
+        department_id, name, short_name, email, city, active, revision
+      ) VALUES (
+        'department-1', 'Receiptavdeling', 'R1',
+        'receipt.0036@example.invalid', 'Trondheim', TRUE, 0
+      );
+      INSERT INTO organization_teams (
+        team_id, department_id, name, active, revision
+      ) VALUES (
+        'receipt-owner-team-0036', 'department-1', 'Receiptteam', TRUE, 0
+      );
+      INSERT INTO person_contact_profiles (person_id, email, phone, revision) VALUES
+        ('assistant-1', 'owner.receipt.0036@example.invalid', '+47 900 36 001', 0),
+        ('assistant-2', 'foreign-owner.receipt.0036@example.invalid', '+47 900 36 002', 0);
+      INSERT INTO organization_memberships (
+        membership_id, person_id, team_id, deleted_team_name, start_at, end_at,
+        position_id, is_team_leader, is_suspended, revision
+      ) VALUES
+        (
+          'receipt-owner-membership-0036', 'assistant-1', 'receipt-owner-team-0036',
+          NULL, '2020-01-01T00:00:00Z', NULL, 'member', FALSE, FALSE, 0
+        ),
+        (
+          'receipt-foreign-membership-0036', 'assistant-2', 'receipt-owner-team-0036',
+          NULL, '2020-01-01T00:00:00Z', NULL, 'member', FALSE, FALSE, 0
+        );
+      INSERT INTO economy_payment_authorities (
+        payment_authority_id, person_id, department_id, payment_account_ciphertext,
+        start_at, end_at, revision
+      ) VALUES
+        (
+          'receipt-owner-payment-0036', 'assistant-1', 'department-1',
+          'ciphertext-owner-0036', '2020-01-01T00:00:00Z', NULL, 0
+        ),
+        (
+          'receipt-foreign-payment-0036', 'assistant-2', 'department-1',
+          'ciphertext-foreign-owner-0036', '2020-01-01T00:00:00Z', NULL, 0
+        );
+      COMMIT;
+    `,
+    environment,
+    "Native Receipt owner authority seed",
+  );
+}
+
 async function readPostgresEvidence(environment) {
   const sql = `
     SELECT json_build_object(
@@ -341,53 +463,7 @@ async function readPostgresEvidence(environment) {
       ), '[]'::json)
     )::text;
   `;
-  const args =
-    postgresTopology === "docker"
-      ? [
-          "compose",
-          "-f",
-          composeFile,
-          "-p",
-          composeProject,
-          "exec",
-          "-T",
-          "receipt-postgres",
-          "psql",
-          "-U",
-          "receipt",
-          "-d",
-          "receipt_proof",
-          "-At",
-          "-v",
-          "ON_ERROR_STOP=1",
-          "-c",
-          sql,
-        ]
-      : [
-          "-h",
-          "127.0.0.1",
-          "-p",
-          String(postgresPort),
-          "-U",
-          "receipt",
-          "-d",
-          "receipt_proof",
-          "-At",
-          "-v",
-          "ON_ERROR_STOP=1",
-          "-c",
-          sql,
-        ];
-  const options = {
-    cwd: repositoryRoot,
-    env: environment,
-    label: "Receipt persistence evidence query",
-    captureOutput: true,
-  };
-  const result =
-    postgresTopology === "docker"
-      ? await runCommand("docker", args, options)
-      : await runNixPostgres("psql", args, options);
+  const result = await runPostgresSql(sql, environment, "Receipt persistence evidence query", true);
   return JSON.parse(result.stdout.trim());
 }
 
@@ -434,11 +510,7 @@ function assertDurableEvidence(postgres, privateFile, lifecycle) {
 }
 
 async function main() {
-  await Promise.all([
-    assertPortAvailable(5174),
-    assertPortAvailable(8790),
-    assertPortAvailable(55432),
-  ]);
+  await Promise.all(disposablePorts.map(assertPortAvailable));
 
   const temporaryRoot = await mkdtemp(join(tmpdir(), "mono-web-receipt-owner-0036-"));
   const stagingRoot = join(temporaryRoot, "staging");
@@ -450,68 +522,80 @@ async function main() {
     mkdir(committedRoot, { recursive: true }),
   ]);
 
-  const token = randomBytes(32).toString("base64url");
-  const foreignToken = randomBytes(32).toString("base64url");
-  const actorTokens = JSON.stringify({
-    [token]: {
-      personId: "assistant-1",
-      departmentId: "department-1",
-      active: true,
-      paymentAccountCiphertext: randomBytes(32).toString("base64url"),
-      approvalScope: { _tag: "None" },
-    },
-    [foreignToken]: {
-      personId: "assistant-2",
-      departmentId: "department-1",
-      active: true,
-      paymentAccountCiphertext: randomBytes(32).toString("base64url"),
-      approvalScope: { _tag: "None" },
-    },
-  });
-  const admissionTokens = JSON.stringify({
-    [token]: {
-      _tag: "Member",
-      personId: "assistant-1",
-      departmentId: "department-1",
-      active: true,
-    },
-    [foreignToken]: {
-      _tag: "Member",
-      personId: "assistant-2",
-      departmentId: "department-1",
-      active: true,
-    },
-  });
+  const betterAuthSecret = randomBytes(32).toString("base64url");
+  const personaPassword = "receipt-owner-0036-password";
+  const ownerPersona = {
+    personId: "assistant-1",
+    firstName: "Receipt",
+    lastName: "Owner",
+    email: "owner.receipt.0036@example.invalid",
+    password: personaPassword,
+  };
+  const foreignPersona = {
+    personId: "assistant-2",
+    firstName: "Foreign",
+    lastName: "Owner",
+    email: "foreign-owner.receipt.0036@example.invalid",
+    password: personaPassword,
+  };
   const baseEnvironment = { ...process.env };
   delete baseEnvironment.API_MODE;
   delete baseEnvironment.VITE_API_MODE;
+  for (const name of [
+    "ADMISSION_AUTH_TOKENS",
+    "RECEIPT_AUTH_TOKENS",
+    "RECEIPT_E2E_TOKEN",
+    "RECEIPT_E2E_FOREIGN_TOKEN",
+  ]) {
+    delete baseEnvironment[name];
+  }
+  const sharedEnvironment = {
+    ...baseEnvironment,
+    BETTER_AUTH_SECRET: betterAuthSecret,
+    NATIVE_IDENTITY_DEPLOYMENT: "local",
+    NATIVE_IDENTITY_TRUSTED_ORIGINS: JSON.stringify([dashboardOrigin]),
+  };
 
   const apiEnvironment = {
-    ...baseEnvironment,
+    ...sharedEnvironment,
     BACKEND_HOST: "127.0.0.1",
-    BACKEND_PORT: "8790",
+    BACKEND_PORT: String(backendPort),
     BACKEND_PG_URL: postgresUrl,
     PUBLIC_APPLICATION_EFFECT_MODE: "disabled",
-    ADMISSION_AUTH_TOKENS: admissionTokens,
     RECEIPT_STAGING_ROOT: stagingRoot,
     RECEIPT_COMMITTED_ROOT: committedRoot,
     RECEIPT_MAX_FILE_BYTES: "10485760",
-    RECEIPT_AUTH_TOKENS: actorTokens,
     RECEIPT_E2E_TEST_MODE: "1",
     RECEIPT_E2E_FAIL_PROMOTION_EFFECT_ID: "receipt-owner-e2e-replacement:PromoteReceiptFile",
   };
+  const internalApiEnvironment = {
+    ...apiEnvironment,
+    BACKEND_INGRESS: "internal",
+    BACKEND_PORT: String(internalBackendPort),
+  };
   const dashboardEnvironment = {
-    ...baseEnvironment,
+    ...sharedEnvironment,
     API_URL: backendOrigin,
     VITE_API_URL: backendOrigin,
+    HOST: "127.0.0.1",
+    PORT: String(dashboardPort),
   };
+  const dashboardLoginUrl = new URL(
+    `${dashboardMount(dashboardEnvironment)}login`,
+    dashboardOrigin,
+  ).toString();
   const playwrightEnvironment = {
     ...dashboardEnvironment,
     REAL_RECEIPT_OWNER_E2E: "1",
     BACKEND_ORIGIN: backendOrigin,
+    INTERNAL_BACKEND_ORIGIN: internalBackendOrigin,
     DASHBOARD_ORIGIN: dashboardOrigin,
-    RECEIPT_E2E_TOKEN: token,
-    RECEIPT_E2E_FOREIGN_TOKEN: foreignToken,
+    RECEIPT_E2E_OWNER_EMAIL: ownerPersona.email,
+    RECEIPT_E2E_OWNER_PASSWORD: ownerPersona.password,
+    RECEIPT_E2E_OWNER_PERSON_ID: ownerPersona.personId,
+    RECEIPT_E2E_FOREIGN_EMAIL: foreignPersona.email,
+    RECEIPT_E2E_FOREIGN_PASSWORD: foreignPersona.password,
+    RECEIPT_E2E_FOREIGN_PERSON_ID: foreignPersona.personId,
     RECEIPT_E2E_STAGING_ROOT: stagingRoot,
     RECEIPT_E2E_COMMITTED_ROOT: committedRoot,
     RECEIPT_POSTGRES_TOPOLOGY: postgresTopology,
@@ -523,6 +607,7 @@ async function main() {
 
   let postgresStarted = false;
   let apiProcess;
+  let internalApiProcess;
   let dashboardProcess;
   let evidence;
   let cleaned = false;
@@ -532,7 +617,7 @@ async function main() {
     cleaned = true;
     const cleanupErrors = [];
 
-    for (const processToStop of [dashboardProcess, apiProcess]) {
+    for (const processToStop of [dashboardProcess, internalApiProcess, apiProcess]) {
       try {
         await stopProcess(processToStop);
       } catch (error) {
@@ -607,6 +692,16 @@ async function main() {
     } else {
       await startLocalPostgres(postgresDataRoot, baseEnvironment);
     }
+    await runCommand("bun", ["run", "identity:seed"], {
+      cwd: databaseRoot,
+      env: {
+        ...sharedEnvironment,
+        IDENTITY_SEED_PG_URL: postgresUrl,
+        IDENTITY_SEED_PERSONS: JSON.stringify([ownerPersona, foreignPersona]),
+      },
+      label: "Native Receipt owner identity seed",
+    });
+    await seedOwnerAuthorities(sharedEnvironment);
 
     const configuredBackendCommand = process.env.BACKEND_COMMAND;
     apiProcess = configuredBackendCommand
@@ -618,32 +713,36 @@ async function main() {
           cwd: repositoryRoot,
           env: apiEnvironment,
         });
+    internalApiProcess = configuredBackendCommand
+      ? startProcess("/bin/sh", ["-c", configuredBackendCommand], {
+          cwd: repositoryRoot,
+          env: internalApiEnvironment,
+        })
+      : startProcess("bun", ["run", "--cwd", "apps/backend", "start"], {
+          cwd: repositoryRoot,
+          env: internalApiEnvironment,
+        });
     await waitForHttp(`${backendOrigin}/health`, apiProcess, "Unified native backend");
+    await waitForHttp(
+      `${internalBackendOrigin}/api/e2e/receipts/readiness/evidence`,
+      internalApiProcess,
+      "Internal native backend",
+    );
     await runCommand("bun", ["run", "build"], {
       cwd: sdkRoot,
       env: dashboardEnvironment,
     });
+    await runCommand("bun", ["run", "build"], {
+      cwd: dashboardRoot,
+      env: dashboardEnvironment,
+      label: "Native Receipt owner dashboard build",
+    });
 
-    dashboardProcess = startProcess(
-      "nix",
-      [
-        "shell",
-        "nixpkgs#nodejs_24",
-        "--command",
-        "node",
-        "node_modules/@react-router/dev/dist/cli/index.js",
-        "dev",
-        "--host",
-        "127.0.0.1",
-        "--port",
-        "5174",
-      ],
-      {
-        cwd: dashboardRoot,
-        env: dashboardEnvironment,
-      },
-    );
-    await waitForHttp(`${dashboardOrigin}/login`, dashboardProcess, "Dashboard");
+    dashboardProcess = startProcess("bun", ["run", "start"], {
+      cwd: dashboardRoot,
+      env: dashboardEnvironment,
+    });
+    await waitForHttp(dashboardLoginUrl, dashboardProcess, "Dashboard");
 
     await runCommand(
       "nix",
@@ -713,11 +812,7 @@ async function main() {
   if (await pathExists(temporaryRoot)) {
     throw new Error("Real Receipt owner cleanup left the private temporary root behind");
   }
-  await Promise.all([
-    assertPortAvailable(5174),
-    assertPortAvailable(8790),
-    assertPortAvailable(55432),
-  ]);
+  await Promise.all(disposablePorts.map(assertPortAvailable));
 
   process.stdout.write(
     `${JSON.stringify({

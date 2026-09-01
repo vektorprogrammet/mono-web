@@ -4,15 +4,23 @@ import { getCookies } from "better-auth/cookies";
 import { DateTime, Effect, Layer, Redacted } from "effect";
 import { Pool } from "pg";
 import { afterAll, describe, expect, it } from "vitest";
-import { Database } from "@vektorprogrammet/domain/database";
+import { AuthorizationInstant } from "@vektorprogrammet/domain/authz";
+import { Database, type DatabaseShape } from "@vektorprogrammet/domain/database";
 import {
   Identity,
   IdentityActor,
   IdentityOwnedSessionNotFound,
+  IdentitySessionNotFound,
   IdentityRequestContext,
 } from "@vektorprogrammet/domain/identity";
 import { PersonId } from "@vektorprogrammet/domain/organization";
-import { auditedAuthHandler, AuthLive, AuthEngine } from "./auth-live.js";
+import {
+  auditedAuthHandler,
+  AuthLive,
+  AuthEngine,
+  IdentitySnapshot,
+  makeIdentitySnapshotService,
+} from "./auth-live.js";
 import { makeAuthEngineOptions } from "./auth-engine.js";
 import { DatabaseLive } from "./layers.js";
 import { makeControlledTestRuntime } from "../test/runtime.js";
@@ -165,6 +173,62 @@ describe("Better Auth session hardening configuration", () => {
       code: "EMAIL_PASSWORD_SIGN_UP_DISABLED",
     });
   });
+
+  it("verifies the Better Auth cookie before the ambient snapshot reads its session row", async () => {
+    const issuingEngine = betterAuth({
+      ...localOptions,
+      database: memoryAdapter({ user: [], session: [], account: [], verification: [] }),
+      emailAndPassword: {
+        ...localOptions.emailAndPassword,
+        disableSignUp: false,
+      },
+    });
+    const issued = await issuingEngine.api.signUpEmail({
+      body: {
+        name: "Snapshot",
+        email: "snapshot@example.invalid",
+        password: "SnapshotCookie!0055",
+      },
+      asResponse: true,
+    });
+    const cookie = issued.headers.getSetCookie()[0]?.split(";")[0];
+    const body = (await issued.json()) as { readonly user: { readonly id: string } };
+    expect(cookie).toBeDefined();
+
+    let sessionReads = 0;
+    const database = Object.assign(
+      (() => {
+        sessionReads += 1;
+        return Effect.succeed([
+          {
+            sessionId: "snapshot-session",
+            personId: body.user.id,
+            expiresAt: new Date("2031-09-16T12:00:00.000Z"),
+          },
+        ]);
+      }) as unknown as DatabaseShape,
+      {
+        health: Effect.void,
+        withTransaction: <A, E, R>(effect: Effect.Effect<A, E, R>) => effect,
+      },
+    );
+    const snapshotIdentity = makeIdentitySnapshotService(config);
+    const resolve = (cookieHeader: string | undefined) =>
+      snapshotIdentity
+        .resolveSession(cookieHeader, AuthorizationInstant.make("2026-09-01T12:00:00.000Z"))
+        .pipe(Effect.provideService(Database, database));
+
+    const actor = await Effect.runPromise(resolve(cookie));
+    expect(actor.personId).toBe(body.user.id);
+    expect(sessionReads).toBe(1);
+
+    const rejected = await Effect.runPromise(Effect.exit(resolve("better-auth.session_token=raw")));
+    expect(rejected._tag).toBe("Failure");
+    if (rejected._tag === "Failure") {
+      expect(rejected.cause.toString()).toContain(IdentitySessionNotFound.name);
+    }
+    expect(sessionReads).toBe(1);
+  });
 });
 
 describe("audited Better Auth response ordering", () => {
@@ -247,12 +311,27 @@ dsl("AuthLive (spec 0054)", () => {
       Effect.gen(function* () {
         const engine = yield* AuthEngine;
         const identity = yield* Identity;
+        const snapshotIdentity = yield* IdentitySnapshot;
 
         const signedIn = yield* Effect.tryPromise(() =>
           identity.signIn({ email: cohort.email, password: cohort.password }),
         );
         const cookie = signedIn.setCookie.split(";")[0] ?? signedIn.setCookie;
         expect(signedIn.actor.personId).toBe(cohort.personId);
+        const snapshotActor = yield* Database.use((database) =>
+          database.withTransaction(
+            Effect.gen(function* () {
+              yield* database`
+                SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY
+              `.pipe(Effect.asVoid);
+              return yield* snapshotIdentity.resolveSession(
+                cookie,
+                AuthorizationInstant.make(new Date().toISOString()),
+              );
+            }),
+          ),
+        );
+        expect(snapshotActor.personId).toBe(cohort.personId);
         expect(signedIn.setCookie).toMatch(/HttpOnly/i);
         const handlerResponse = yield* Effect.promise(() =>
           engine.handler(

@@ -1,4 +1,10 @@
+import { IdentitySnapshot } from "@vektorprogrammet/database";
 import { Database, type DatabaseShape } from "@vektorprogrammet/domain/database";
+import {
+  IdentityActor,
+  IdentityEngineError,
+  IdentitySessionNotFound,
+} from "@vektorprogrammet/domain/identity";
 import { DepartmentId, PersonId } from "@vektorprogrammet/domain/organization";
 import {
   AmbiguousParameterFill,
@@ -16,12 +22,15 @@ import {
   type ReceiptSubmissionAllocation,
   type ReceiptTransactionResult,
 } from "@vektorprogrammet/domain/receipt";
-import { Effect, Layer, Schema } from "effect";
+import { DateTime, Effect, Layer, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import type { ReceiptApiConfig } from "./config.js";
 import type { ReceiptFileStore } from "./filesystem.js";
 import type { ReceiptApiHttpOptions } from "./http.js";
-import { makeReceiptTestHttp as makeReceiptApiHttp } from "../test/native-http.js";
+import {
+  makeInternalReceiptTestHttp,
+  makeReceiptTestHttp as makeReceiptApiHttp,
+} from "../test/native-http.js";
 import { runTestPromise } from "../../test/runtime.js";
 
 type ReceiptApiHttp = { readonly fetch: (request: Request) => Promise<Response> };
@@ -39,7 +48,7 @@ const config: ReceiptApiConfig = {
   nextVisualId: () => "visual-one",
 };
 
-const receiptObservation = Schema.decodeUnknownSync(ReceiptObservationSchema)({
+const receiptObservation = Schema.decodeSync(ReceiptObservationSchema)({
   commandId: "command-one",
   receiptId: "receipt-one",
   visualId: "visual-one",
@@ -83,6 +92,18 @@ interface HarnessOptions {
     | ReceiptNotFound
     | AmbiguousParameterFill
     | FailedComposedRequirement;
+  readonly evidenceAccessRows?: ReadonlyArray<unknown>;
+  readonly evidenceResult?: unknown;
+  readonly revokeSessionAfterSnapshotRead?: boolean;
+  readonly identitySnapshotFailure?: IdentityEngineError;
+  readonly replayRepeatedCommand?: boolean;
+}
+
+interface ReceiptAccessRow {
+  readonly ownerPersonId: string;
+  readonly departmentId: string;
+  readonly status: string;
+  readonly revision: number;
 }
 
 const harness = (options: HarnessOptions = {}) => {
@@ -94,16 +115,28 @@ const harness = (options: HarnessOptions = {}) => {
     readonly authorizationInstant: string;
     readonly status: ReceiptStatus | undefined;
   }> = [];
+  const evidenceReads: Array<{ readonly receiptId: string; readonly personId: string }> = [];
+  let evidenceContextReads = 0;
+  const evidenceContextSnapshotDepths: Array<number> = [];
+  const evidenceProjectionSnapshotDepths: Array<number> = [];
+  const identitySnapshotDepths: Array<number> = [];
+  const identitySnapshotVersions: Array<number> = [];
+  const receiptContextVersions: Array<number> = [];
+  let committedVersion = 1;
+  let snapshotVersion: number | null = null;
+  let snapshotDepth = 0;
+  let snapshotCount = 0;
   let authorizationPrincipalCalls = 0;
   let personCalls = 0;
   const executeReceipt: EconomyShape["executeReceipt"] = (command, principal, allocation) => {
+    const replayed = options.replayRepeatedCommand === true && commands.length > 0;
     commands.push(command);
     principals.push(principal);
     allocations.push(allocation);
     return options.commandFailure === undefined
       ? Effect.succeed({
-          observation: receiptObservation,
-          replayed: false,
+          observation: { ...receiptObservation, replayed },
+          replayed,
           outboxCount: 0,
         } satisfies ReceiptTransactionResult)
       : Effect.fail(options.commandFailure);
@@ -117,22 +150,84 @@ const harness = (options: HarnessOptions = {}) => {
         ? Effect.succeed((options.approvalRows as never) ?? [])
         : Effect.fail(options.approvalFailure);
     },
-    readReceiptLifecycleEvidence: () => Effect.die("unexpected evidence read"),
+    readReceiptLifecycleEvidence: (receiptId, ownerPersonId) =>
+      Effect.sync(() => {
+        evidenceReads.push({ receiptId, personId: ownerPersonId });
+        evidenceProjectionSnapshotDepths.push(snapshotDepth);
+        return options.evidenceResult as never;
+      }),
     receiptStatusTotals: Effect.succeed([]),
     listStaleOutboxClaims: () => Effect.succeed([]),
     recoverStaleOutboxClaim: () => Effect.succeed(0),
     deliverNextOutboxEffect: () => Effect.succeed({ _tag: "Idle" }),
   };
-  const database = { health: Effect.void } as unknown as DatabaseShape;
-  const run = (<A, E>(effect: Effect.Effect<A, E, Database | Economy>): Promise<A> =>
+  const database = Object.assign(
+    ((strings: TemplateStringsArray) => {
+      if (strings.join(" ").includes("SET TRANSACTION ISOLATION LEVEL")) return Effect.void;
+      return Effect.sync(() => {
+        evidenceContextReads += 1;
+        evidenceContextSnapshotDepths.push(snapshotDepth);
+        const observedVersion = snapshotVersion ?? committedVersion;
+        receiptContextVersions.push(observedVersion);
+        const rows = (options.evidenceAccessRows as ReadonlyArray<ReceiptAccessRow>) ?? [];
+        return options.revokeSessionAfterSnapshotRead === true && observedVersion === 2
+          ? rows.map((row) => ({ ...row, ownerPersonId: "owner-after-revocation" }))
+          : rows;
+      });
+    }) as unknown as DatabaseShape,
+    {
+      health: Effect.void,
+      withTransaction: <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+        Effect.suspend(() => {
+          snapshotDepth += 1;
+          snapshotCount += 1;
+          snapshotVersion = committedVersion;
+          return effect.pipe(
+            Effect.ensuring(
+              Effect.sync(() => {
+                snapshotVersion = null;
+                snapshotDepth -= 1;
+              }),
+            ),
+          );
+        }),
+    },
+  );
+  const identitySnapshot = IdentitySnapshot.of({
+    resolveSession: () =>
+      Effect.suspend<IdentityActor, IdentityEngineError | IdentitySessionNotFound, never>(() => {
+        personCalls += 1;
+        identitySnapshotDepths.push(snapshotDepth);
+        const observedVersion = snapshotVersion ?? committedVersion;
+        identitySnapshotVersions.push(observedVersion);
+        if (options.identitySnapshotFailure !== undefined) {
+          return Effect.fail(options.identitySnapshotFailure);
+        }
+        if (options.unauthenticated === true || observedVersion === 2) {
+          return Effect.fail(new IdentitySessionNotFound());
+        }
+        if (options.revokeSessionAfterSnapshotRead === true) committedVersion = 2;
+        return Effect.succeed(
+          new IdentityActor({
+            personId,
+            sessionId: "receipt-http-session",
+            expiresAt: DateTime.makeUnsafe(new Date("2031-09-16T12:00:00.000Z")),
+          }),
+        );
+      }),
+  });
+  const run = (<A, E>(
+    effect: Effect.Effect<A, E, Database | Economy | IdentitySnapshot>,
+  ): Promise<A> =>
     runTestPromise(
       effect.pipe(
         Effect.provideService(Database, database),
         Effect.provideService(Economy, economy),
+        Effect.provideService(IdentitySnapshot, identitySnapshot),
       ) as Effect.Effect<A, E>,
     )) as ReceiptApiHttpOptions["run"];
-  const http = makeReceiptApiHttp({
-    config,
+  const httpOptions = {
+    config: { ...config, e2eTestMode: true },
     identity: {
       resolveAuthorizationPrincipal: async () => {
         authorizationPrincipalCalls += 1;
@@ -150,28 +245,54 @@ const harness = (options: HarnessOptions = {}) => {
       },
     },
     run,
+    now: () => evaluatedAt,
     fileStore,
-  });
+  } satisfies ReceiptApiHttpOptions;
+  const http = makeReceiptApiHttp(httpOptions);
+  const internalHttp = makeInternalReceiptTestHttp(httpOptions);
   return {
+    internalHttp,
     http,
     commands,
     principals,
     allocations,
     approvalQueries,
+    evidenceReads,
+    evidenceCounts: () => ({
+      evidenceContextReads,
+      evidenceContextSnapshotDepths,
+      evidenceProjectionSnapshotDepths,
+      snapshotCount,
+    }),
+    snapshotObservations: () => ({
+      identitySnapshotDepths,
+      identitySnapshotVersions,
+      receiptContextVersions,
+      committedVersion,
+    }),
     counts: () => ({ authorizationPrincipalCalls, personCalls }),
   };
 };
 
-const request = (http: ReceiptApiHttp, pathname: string, init?: RequestInit): Promise<Response> => {
+const request = (
+  http: ReceiptApiHttp,
+  pathname: string,
+  init?: RequestInit,
+  includeTrustedOrigin = true,
+): Promise<Response> => {
   const headers = new Headers(init?.headers);
   headers.set("cookie", "better-auth.session_token=receipt-test-session");
-  if (init?.method !== undefined && init.method !== "GET") {
+  if (includeTrustedOrigin && init?.method !== undefined && init.method !== "GET") {
     headers.set("origin", "http://127.0.0.1:5174");
   }
   return http.fetch(new Request(`http://backend.test${pathname}`, { ...init, headers }));
 };
 
-const multipartRequest = (http: ReceiptApiHttp, pathname: string): Promise<Response> => {
+const multipartRequest = (
+  http: ReceiptApiHttp,
+  pathname: string,
+  includeTrustedOrigin = true,
+): Promise<Response> => {
   const boundary = "receipt-http-test-boundary";
   const body = [
     `--${boundary}\r\nContent-Disposition: form-data; name="commandId"\r\n\r\ncommand-one\r\n`,
@@ -181,14 +302,19 @@ const multipartRequest = (http: ReceiptApiHttp, pathname: string): Promise<Respo
     `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="receipt.png"\r\nContent-Type: image/png\r\n\r\ntest\r\n`,
     `--${boundary}--\r\n`,
   ].join("");
-  return request(http, pathname, {
-    method: "POST",
-    headers: {
-      "content-type": `multipart/form-data; boundary=${boundary}`,
-      "content-length": String(Buffer.byteLength(body)),
+  return request(
+    http,
+    pathname,
+    {
+      method: "POST",
+      headers: {
+        "content-type": `multipart/form-data; boundary=${boundary}`,
+        "content-length": String(Buffer.byteLength(body)),
+      },
+      body,
     },
-    body,
-  });
+    includeTrustedOrigin,
+  );
 };
 
 describe("receipt HTTP identity and authority resolution (spec 0055/0056)", () => {
@@ -233,6 +359,38 @@ describe("receipt HTTP identity and authority resolution (spec 0055/0056)", () =
       authorizationPrincipalCalls: 1,
       personCalls: 0,
     });
+  });
+
+  it("rejects a cookie replay without browser origin before principal resolution", async () => {
+    const state = harness({ replayRepeatedCommand: true });
+
+    const rejected = await multipartRequest(state.http, "/api/receipts/submit", false);
+    expect({ status: rejected.status, body: await rejected.json() }).toEqual({
+      status: 403,
+      body: { error: { tag: "TrustedOriginRejected" } },
+    });
+    expect(state.counts()).toEqual({
+      authorizationPrincipalCalls: 0,
+      personCalls: 0,
+    });
+
+    const submitted = await multipartRequest(state.http, "/api/receipts/submit");
+    expect({ status: submitted.status, body: await submitted.json() }).toEqual({
+      status: 201,
+      body: { ...receiptObservation, replayed: false },
+    });
+
+    const replayed = await multipartRequest(state.http, "/api/receipts/submit");
+    expect({ status: replayed.status, body: await replayed.json() }).toEqual({
+      status: 200,
+      body: { ...receiptObservation, replayed: true },
+    });
+    expect(state.commands).toHaveLength(2);
+    expect(state.commands[1]).toEqual(state.commands[0]);
+    expect(state.principals).toEqual([
+      { personId, authorizationInstant: evaluatedAt },
+      { personId, authorizationInstant: evaluatedAt },
+    ]);
   });
 
   it("preserves only an explicitly selected submit department", async () => {
@@ -426,6 +584,137 @@ describe("receipt HTTP identity and authority resolution (spec 0055/0056)", () =
     expect({ status: scopeResponse.status, body: await scopeResponse.json() }).toEqual({
       status: 403,
       body: { error: { tag: "ReceiptScopeDenied" } },
+    });
+  });
+
+  it("uses one read snapshot for internal evidence context, decision, and projection", async () => {
+    const path = "/api/e2e/receipts/receipt-one/evidence";
+    const owner = harness({
+      evidenceAccessRows: [
+        {
+          ownerPersonId: personId,
+          departmentId: departmentOne,
+          status: "Pending",
+          revision: 2,
+        },
+      ],
+      evidenceResult: { proof: "bounded-evidence" },
+    });
+    const ownerResponse = await request(owner.internalHttp, path);
+    expect({ status: ownerResponse.status, body: await ownerResponse.json() }).toEqual({
+      status: 200,
+      body: { proof: "bounded-evidence" },
+    });
+    expect(owner.evidenceReads).toEqual([{ receiptId: "receipt-one", personId }]);
+    expect(owner.evidenceCounts()).toEqual({
+      evidenceContextReads: 1,
+      evidenceContextSnapshotDepths: [1],
+      evidenceProjectionSnapshotDepths: [1],
+      snapshotCount: 1,
+    });
+
+    const wrongOwner = harness({
+      evidenceAccessRows: [
+        {
+          ownerPersonId: "another-person",
+          departmentId: departmentOne,
+          status: "Pending",
+          revision: 2,
+        },
+      ],
+      evidenceResult: { proof: "must-not-read" },
+    });
+    const wrongOwnerResponse = await request(wrongOwner.internalHttp, path);
+    expect({ status: wrongOwnerResponse.status, body: await wrongOwnerResponse.json() }).toEqual({
+      status: 403,
+      body: { error: { tag: "ReceiptAuthorityDenied" } },
+    });
+    expect(wrongOwner.evidenceReads).toEqual([]);
+
+    const unauthenticated = harness({
+      unauthenticated: true,
+      evidenceAccessRows: [
+        {
+          ownerPersonId: personId,
+          departmentId: departmentOne,
+          status: "Pending",
+          revision: 2,
+        },
+      ],
+    });
+    const unauthenticatedResponse = await request(unauthenticated.internalHttp, path);
+    expect({
+      status: unauthenticatedResponse.status,
+      body: await unauthenticatedResponse.json(),
+    }).toEqual({
+      status: 401,
+      body: { error: { tag: "UnauthenticatedActor" } },
+    });
+    expect(unauthenticated.evidenceCounts()).toEqual({
+      evidenceContextReads: 0,
+      evidenceContextSnapshotDepths: [],
+      evidenceProjectionSnapshotDepths: [],
+      snapshotCount: 1,
+    });
+    expect(unauthenticated.evidenceReads).toEqual([]);
+    expect(unauthenticated.snapshotObservations()).toEqual({
+      identitySnapshotDepths: [1],
+      identitySnapshotVersions: [1],
+      receiptContextVersions: [],
+      committedVersion: 1,
+    });
+
+    const unavailable = harness({
+      identitySnapshotFailure: new IdentityEngineError({
+        operation: "resolveSnapshotSession",
+        message: "database unavailable",
+      }),
+    });
+    const unavailableResponse = await request(unavailable.internalHttp, path);
+    expect({
+      status: unavailableResponse.status,
+      body: await unavailableResponse.json(),
+    }).toEqual({
+      status: 503,
+      body: { error: { tag: "IdentityEngineError" } },
+    });
+    expect(unavailable.evidenceCounts()).toEqual({
+      evidenceContextReads: 0,
+      evidenceContextSnapshotDepths: [],
+      evidenceProjectionSnapshotDepths: [],
+      snapshotCount: 1,
+    });
+  });
+
+  it("cannot combine a pre-revocation session with a later receipt snapshot", async () => {
+    const raced = harness({
+      revokeSessionAfterSnapshotRead: true,
+      evidenceAccessRows: [
+        {
+          ownerPersonId: personId,
+          departmentId: departmentOne,
+          status: "Pending",
+          revision: 2,
+        },
+      ],
+      evidenceResult: { proof: "same-snapshot" },
+    });
+    const response = await request(raced.internalHttp, "/api/e2e/receipts/receipt-one/evidence");
+    expect({ status: response.status, body: await response.json() }).toEqual({
+      status: 200,
+      body: { proof: "same-snapshot" },
+    });
+    expect(raced.snapshotObservations()).toEqual({
+      identitySnapshotDepths: [1],
+      identitySnapshotVersions: [1],
+      receiptContextVersions: [1],
+      committedVersion: 2,
+    });
+    expect(raced.evidenceCounts()).toEqual({
+      evidenceContextReads: 1,
+      evidenceContextSnapshotDepths: [1],
+      evidenceProjectionSnapshotDepths: [1],
+      snapshotCount: 1,
     });
   });
 });

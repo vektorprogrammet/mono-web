@@ -5,7 +5,7 @@ import {
   type OrganizationPersonAuthority,
 } from "@vektorprogrammet/domain/organization";
 import { Profile } from "@vektorprogrammet/domain/profile";
-import { NativeApi } from "@vektorprogrammet/http-api";
+import { ExternalNativeApi } from "@vektorprogrammet/http-api";
 import { Effect, Schema } from "effect";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
 import { toHttpApiResponse } from "../http-api/transport.js";
@@ -156,7 +156,7 @@ export const AdminUsersApiHandlers = (
   input: AdminUsersApiHttpOptions,
   schools: SchoolsApiHttpOptions,
 ) =>
-  HttpApiBuilder.group(NativeApi, "directory", (handlers) =>
+  HttpApiBuilder.group(ExternalNativeApi, "directory", (handlers) =>
     Effect.succeed(
       handlers
         .handleRaw("listAdminUsers", ({ request }) =>

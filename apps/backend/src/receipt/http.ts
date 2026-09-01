@@ -1,6 +1,24 @@
 import { randomUUID } from "node:crypto";
 
+import {
+  AuthorityRef,
+  AuthorityVersion,
+  AuthorizationInstant,
+  CredentialEvidenceRef,
+  GrantId,
+  INTERNAL_RECEIPT_EVIDENCE_ACCESS,
+  READ_INTERNAL_RECEIPT_EVIDENCE_CAPABILITY,
+  RECEIPT_DOMAIN_ID,
+  RECEIPT_RESOURCE_KIND,
+  ResourceId,
+  accessHttpStatus,
+  evaluateAccess,
+  makeGrant,
+  type AccessEvaluation,
+  type ReceiptAccessFacts,
+} from "@vektorprogrammet/domain/authz";
 import { Database } from "@vektorprogrammet/domain/database";
+import { IdentitySnapshot } from "@vektorprogrammet/database";
 import { Effect } from "effect";
 import {
   Economy,
@@ -9,6 +27,7 @@ import {
   ReceiptDecodeError,
   ReceiptFileService,
   ReceiptPersistenceError,
+  ReceiptNotFound,
   ReceiptId,
   ReceiptVisualId,
   UnauthenticatedActor,
@@ -19,8 +38,8 @@ import {
   type ReceiptStatus,
   type ReceiptSubmissionAllocation,
 } from "@vektorprogrammet/domain/receipt";
-import { DepartmentId } from "@vektorprogrammet/domain/organization";
-import { NativeApi } from "@vektorprogrammet/http-api";
+import { DepartmentId, PersonId } from "@vektorprogrammet/domain/organization";
+import { ExternalNativeApi, InternalNativeApi } from "@vektorprogrammet/http-api";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
 import { toHttpApiResponse } from "../http-api/transport.js";
 import type { ReceiptApiConfig } from "./config.js";
@@ -80,7 +99,10 @@ export interface ReceiptIdentityResolvers {
 export interface ReceiptApiHttpOptions {
   readonly config: ReceiptApiConfig;
   readonly identity: ReceiptIdentityResolvers;
-  readonly run: <A, E>(effect: Effect.Effect<A, E, Database | Economy>) => Promise<A>;
+  readonly run: <A, E>(
+    effect: Effect.Effect<A, E, Database | Economy | IdentitySnapshot>,
+  ) => Promise<A>;
+  readonly now?: () => string;
   readonly fileStore?: ReceiptFileStore;
   /**
    * Stable worker claim identity used to recover its stale in-flight effects.
@@ -388,22 +410,124 @@ type ReceiptApprovalRoute = {
   readonly receiptId: string;
 };
 
+interface ReceiptAccessRow {
+  readonly ownerPersonId: string;
+  readonly departmentId: string;
+  readonly status: string;
+  readonly revision: number;
+}
+
 const receiptLifecycleEvidence = async (
   request: Request,
   receiptId: string,
   options: ReceiptApiHttpOptions,
 ): Promise<Response> => {
-  const personId = await personIdFor(request, options);
-  const evidence = await runDatabase(
-    Economy.use(({ readReceiptLifecycleEvidence }) =>
-      readReceiptLifecycleEvidence(receiptId, personId),
-    ),
+  const authorizationInstant = AuthorizationInstant.make(
+    options.now?.() ?? new Date().toISOString(),
+  );
+  return runDatabase(
+    Effect.gen(function* () {
+      const sql = yield* Database;
+      return yield* sql.withTransaction(
+        Effect.gen(function* () {
+          yield* sql`
+            SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY
+          `.pipe(Effect.asVoid);
+          const credential = yield* IdentitySnapshot.use(({ resolveSession }) =>
+            resolveSession(request.headers.get("cookie") ?? undefined, authorizationInstant),
+          ).pipe(
+            Effect.match({
+              onFailure: (error) => ({ _tag: "Failure" as const, error }),
+              onSuccess: (actor) => ({ _tag: "Success" as const, actor }),
+            }),
+          );
+          if (credential._tag === "Failure") {
+            if (credential.error._tag !== "IdentitySessionNotFound") {
+              return jsonResponse({ error: { tag: "IdentityEngineError" } }, 503);
+            }
+            const evaluation: AccessEvaluation = {
+              _tag: "CredentialRejected",
+              reason: "Invalid",
+            };
+            return jsonResponse(
+              { error: { tag: "UnauthenticatedActor" } },
+              accessHttpStatus(evaluation, INTERNAL_RECEIPT_EVIDENCE_ACCESS.concealment),
+            );
+          }
+          const personId = credential.actor.personId;
+          const rows = yield* sql<ReceiptAccessRow>`
+            SELECT owner_person_id AS "ownerPersonId", department_id AS "departmentId",
+              status, revision
+            FROM public.economy_receipts
+            WHERE receipt_id = ${receiptId}
+          `;
+          const row = rows[0];
+          if (row === undefined) return yield* new ReceiptNotFound({ receiptId });
+          const principal = { _tag: "Person" as const, personId };
+          const context = {
+            domainId: RECEIPT_DOMAIN_ID,
+            departmentId: DepartmentId.make(row.departmentId),
+            resource: {
+              kind: RECEIPT_RESOURCE_KIND,
+              id: ResourceId.make(receiptId),
+            },
+            facts: {
+              ownerPersonId: PersonId.make(row.ownerPersonId),
+              state: row.status,
+              approverPersonIds: [],
+              internalEvidenceEnabled: options.config.e2eTestMode === true,
+            } satisfies ReceiptAccessFacts,
+            authorityVersion: AuthorityVersion.make(`receipt:${row.revision}`),
+          };
+          const grant = makeGrant({
+            grantId: GrantId.make(`internal-evidence:${receiptId}:${personId}`),
+            subject: principal,
+            capability: { type: READ_INTERNAL_RECEIPT_EVIDENCE_CAPABILITY },
+            scope: {
+              _tag: "And",
+              left: { _tag: "Domain", domainId: RECEIPT_DOMAIN_ID },
+              right: {
+                _tag: "And",
+                left: { _tag: "Department", departmentId: context.departmentId },
+                right: { _tag: "Resource", resource: context.resource },
+              },
+            },
+            startAt: AuthorizationInstant.make("1970-01-01T00:00:00.000Z"),
+            endAt: null,
+            requirements: [],
+            source: AuthorityRef.make("backend.receipt.internal-evidence"),
+            revision: row.revision,
+          });
+          const evaluation = evaluateAccess({
+            spec: INTERNAL_RECEIPT_EVIDENCE_ACCESS,
+            credential: {
+              _tag: "Accepted",
+              mechanism: { _tag: "BetterAuthCookie" },
+              principal,
+              evidenceRef: CredentialEvidenceRef.make("better-auth:resolved-session"),
+            },
+            resolution: { selection: "ExactlyOne", contexts: [context] },
+            grants: [grant],
+            authorizationInstant,
+          });
+          if (evaluation._tag !== "Allow") {
+            return jsonResponse(
+              { error: { tag: "ReceiptAuthorityDenied" } },
+              accessHttpStatus(evaluation, INTERNAL_RECEIPT_EVIDENCE_ACCESS.concealment),
+            );
+          }
+          const evidence = yield* Economy.use(({ readReceiptLifecycleEvidence }) =>
+            readReceiptLifecycleEvidence(receiptId, personId),
+          );
+          return jsonResponse(evidence);
+        }),
+      );
+    }),
     options.run,
   );
-  return jsonResponse(evidence);
 };
 const runDatabase = <A>(
-  effect: Effect.Effect<A, unknown, Database | Economy>,
+  effect: Effect.Effect<A, unknown, Database | Economy | IdentitySnapshot>,
   run: ReceiptApiHttpOptions["run"],
 ): Promise<A> => run(effect);
 const executeEconomyReceipt = (
@@ -740,7 +864,7 @@ export const ReceiptApiHandlers = (input: ReceiptApiHttpOptions) => {
         ? input.config.e2eFailNextPromotionEffectId
         : undefined,
     });
-  return HttpApiBuilder.group(NativeApi, "receipts", (handlers) =>
+  return HttpApiBuilder.group(ExternalNativeApi, "receipts", (handlers) =>
     Effect.succeed(
       handlers
         .handleRaw("submitReceipt", ({ request }) =>
@@ -806,15 +930,12 @@ export const ReceiptApiHandlers = (input: ReceiptApiHttpOptions) => {
 
 /** Native HttpApi implementation for the internal receipt evidence endpoint. */
 export const InternalReceiptApiHandlers = (input: ReceiptApiHttpOptions) =>
-  HttpApiBuilder.group(NativeApi, "internal", (handlers) =>
+  HttpApiBuilder.group(InternalNativeApi, "internal", (handlers) =>
     Effect.succeed(
       handlers.handleRaw("readReceiptEvidence", ({ request, params }) =>
         toHttpApiResponse(
           request,
-          (webRequest) =>
-            input.config.e2eTestMode === true
-              ? receiptLifecycleEvidence(webRequest, params.receiptId, input)
-              : Promise.resolve(jsonResponse({ error: { tag: "RouteNotFound" } }, 404)),
+          (webRequest) => receiptLifecycleEvidence(webRequest, params.receiptId, input),
           errorResponse,
         ),
       ),

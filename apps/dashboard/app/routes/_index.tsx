@@ -4,7 +4,7 @@ import type { Route } from "./+types/_index";
 
 export async function loader({ request }: Route.LoaderArgs) {
   await requireAuth(request);
-  throw redirect("/dashboard");
+  throw redirect("/");
 }
 
 // biome-ignore lint/style/noDefaultExport: Route Modules require default export https://reactrouter.com/start/framework/route-module

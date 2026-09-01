@@ -92,7 +92,7 @@ type AuthzCapabilityDeclaration = {
 };
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L45)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L46)
 
 ### AuthzCapabilityId (type alias)
 
@@ -102,7 +102,7 @@ type AuthzCapabilityDeclaration = {
 type AuthzCapabilityId = typeof AuthzCapabilityIdSchema.Type;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L33)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L34)
 
 ### AuthzCapabilityIdSchema
 
@@ -114,7 +114,7 @@ declare const AuthzCapabilityIdSchema: Schema.Literals<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L28)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L29)
 
 ### AuthzDelegateParams (type alias)
 
@@ -124,7 +124,7 @@ declare const AuthzCapabilityIdSchema: Schema.Literals<
 type AuthzDelegateParams = typeof AuthzDelegateParamsSchema.Type;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L120)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L121)
 
 ### AuthzDelegateParamsSchema
 
@@ -145,7 +145,7 @@ declare const AuthzDelegateParamsSchema: Schema.Union<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L115)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L116)
 
 ### AuthzEvidenceSlot (type alias)
 
@@ -155,7 +155,7 @@ declare const AuthzDelegateParamsSchema: Schema.Union<
 type AuthzEvidenceSlot = typeof AuthzEvidenceSlotSchema.Type;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L43)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L44)
 
 ### AuthzEvidenceSlotSchema
 
@@ -171,7 +171,7 @@ declare const AuthzEvidenceSlotSchema: Schema.Literals<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L38)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L39)
 
 ### AuthzLockMode (type alias)
 
@@ -181,7 +181,7 @@ declare const AuthzEvidenceSlotSchema: Schema.Literals<
 type AuthzLockMode = typeof AuthzLockModeSchema.Type;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L94)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L95)
 
 ### AuthzLockModeSchema
 
@@ -191,7 +191,7 @@ type AuthzLockMode = typeof AuthzLockModeSchema.Type;
 declare const AuthzLockModeSchema: Schema.Literals<readonly ["None", "ForShare"]>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L93)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L94)
 
 ### AuthzRequestScope (type alias)
 
@@ -201,7 +201,7 @@ declare const AuthzLockModeSchema: Schema.Literals<readonly ["None", "ForShare"]
 type AuthzRequestScope = typeof AuthzRequestScopeSchema.Type;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L91)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L92)
 
 ### AuthzRequestScopeSchema
 
@@ -209,12 +209,27 @@ type AuthzRequestScope = typeof AuthzRequestScopeSchema.Type;
 
 ```ts
 declare const AuthzRequestScopeSchema: Schema.Struct<{
-  readonly domain: Schema.Literals<readonly ["Receipt"]>;
+  readonly domainId: Schema.brand<
+    Schema.Literals<
+      readonly [
+        "admissions",
+        "content",
+        "identity",
+        "organization",
+        "profile",
+        "receipts",
+        "recruitment",
+        "schools",
+        "system",
+      ]
+    >,
+    "DomainId"
+  >;
   readonly departmentId: Schema.optional<Schema.brand<Schema.String, "DepartmentId">>;
 }>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L87)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L88)
 
 ### AuthzRevision (type alias)
 
@@ -224,7 +239,7 @@ declare const AuthzRequestScopeSchema: Schema.Struct<{
 type AuthzRevision = typeof AuthzRevisionSchema.Type;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L14)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L15)
 
 ### AuthzRevisionSchema
 
@@ -234,7 +249,7 @@ type AuthzRevision = typeof AuthzRevisionSchema.Type;
 declare const AuthzRevisionSchema: Schema.Int;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L13)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L14)
 
 ### AuthzRule (type alias)
 
@@ -244,7 +259,7 @@ declare const AuthzRevisionSchema: Schema.Int;
 type AuthzRule = typeof AuthzRuleSchema.Type;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L158)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L159)
 
 ### AuthzRuleEffectKind (type alias)
 
@@ -254,7 +269,7 @@ type AuthzRule = typeof AuthzRuleSchema.Type;
 type AuthzRuleEffectKind = typeof AuthzRuleEffectKindSchema.Type;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L36)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L37)
 
 ### AuthzRuleEffectKindSchema
 
@@ -266,7 +281,7 @@ declare const AuthzRuleEffectKindSchema: Schema.Literals<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L35)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L36)
 
 ### AuthzRuleId
 
@@ -276,7 +291,7 @@ declare const AuthzRuleEffectKindSchema: Schema.Literals<
 declare const AuthzRuleId: Schema.brand<Schema.String, "AuthzRuleId">;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L16)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L17)
 
 ### AuthzRuleId (type alias)
 
@@ -286,7 +301,7 @@ declare const AuthzRuleId: Schema.brand<Schema.String, "AuthzRuleId">;
 type AuthzRuleId = typeof AuthzRuleId.Type;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L17)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L18)
 
 ### AuthzRuleSchema
 
@@ -325,7 +340,27 @@ declare const AuthzRuleSchema: Schema.Union<
           { readonly departmentId: Schema.brand<Schema.String, "DepartmentId"> }
         >;
         readonly Global: Schema.TaggedStruct<"Global", {}>;
-        readonly Receipt: Schema.TaggedStruct<"Receipt", {}>;
+        readonly Domain: Schema.TaggedStruct<
+          "Domain",
+          {
+            readonly domainId: Schema.brand<
+              Schema.Literals<
+                readonly [
+                  "admissions",
+                  "content",
+                  "identity",
+                  "organization",
+                  "profile",
+                  "receipts",
+                  "recruitment",
+                  "schools",
+                  "system",
+                ]
+              >,
+              "DomainId"
+            >;
+          }
+        >;
       }>;
       readonly startAt: Schema.String;
       readonly endAt: Schema.NullOr<Schema.String>;
@@ -355,7 +390,27 @@ declare const AuthzRuleSchema: Schema.Union<
           { readonly departmentId: Schema.brand<Schema.String, "DepartmentId"> }
         >;
         readonly Global: Schema.TaggedStruct<"Global", {}>;
-        readonly Receipt: Schema.TaggedStruct<"Receipt", {}>;
+        readonly Domain: Schema.TaggedStruct<
+          "Domain",
+          {
+            readonly domainId: Schema.brand<
+              Schema.Literals<
+                readonly [
+                  "admissions",
+                  "content",
+                  "identity",
+                  "organization",
+                  "profile",
+                  "receipts",
+                  "recruitment",
+                  "schools",
+                  "system",
+                ]
+              >,
+              "DomainId"
+            >;
+          }
+        >;
       }>;
       readonly startAt: Schema.String;
       readonly endAt: Schema.NullOr<Schema.String>;
@@ -365,7 +420,7 @@ declare const AuthzRuleSchema: Schema.Union<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L154)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L155)
 
 ### AuthzRuleScope (type alias)
 
@@ -375,7 +430,7 @@ declare const AuthzRuleSchema: Schema.Union<
 type AuthzRuleScope = typeof AuthzRuleScopeSchema.Type;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L85)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L86)
 
 ### AuthzRuleScopeSchema
 
@@ -388,11 +443,31 @@ declare const AuthzRuleScopeSchema: Schema.TaggedUnion<{
     { readonly departmentId: Schema.brand<Schema.String, "DepartmentId"> }
   >;
   readonly Global: Schema.TaggedStruct<"Global", {}>;
-  readonly Receipt: Schema.TaggedStruct<"Receipt", {}>;
+  readonly Domain: Schema.TaggedStruct<
+    "Domain",
+    {
+      readonly domainId: Schema.brand<
+        Schema.Literals<
+          readonly [
+            "admissions",
+            "content",
+            "identity",
+            "organization",
+            "profile",
+            "receipts",
+            "recruitment",
+            "schools",
+            "system",
+          ]
+        >,
+        "DomainId"
+      >;
+    }
+  >;
 }>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L80)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L81)
 
 ### AuthzRuleSubject (type alias)
 
@@ -402,7 +477,7 @@ declare const AuthzRuleScopeSchema: Schema.TaggedUnion<{
 type AuthzRuleSubject = typeof AuthzRuleSubjectSchema.Type;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L78)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L79)
 
 ### AuthzRuleSubjectSchema
 
@@ -421,7 +496,7 @@ declare const AuthzRuleSubjectSchema: Schema.TaggedUnion<{
 }>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L74)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L75)
 
 ### AuthzTag (type alias)
 
@@ -431,7 +506,7 @@ declare const AuthzRuleSubjectSchema: Schema.TaggedUnion<{
 type AuthzTag = typeof AuthzTagSchema.Type;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L165)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L166)
 
 ### AuthzTagAssignment (type alias)
 
@@ -441,7 +516,7 @@ type AuthzTag = typeof AuthzTagSchema.Type;
 type AuthzTagAssignment = typeof AuthzTagAssignmentSchema.Type;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L175)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L176)
 
 ### AuthzTagAssignmentId
 
@@ -451,7 +526,7 @@ type AuthzTagAssignment = typeof AuthzTagAssignmentSchema.Type;
 declare const AuthzTagAssignmentId: Schema.brand<Schema.String, "AuthzTagAssignmentId">;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L22)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L23)
 
 ### AuthzTagAssignmentId (type alias)
 
@@ -461,7 +536,7 @@ declare const AuthzTagAssignmentId: Schema.brand<Schema.String, "AuthzTagAssignm
 type AuthzTagAssignmentId = typeof AuthzTagAssignmentId.Type;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L23)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L24)
 
 ### AuthzTagAssignmentSchema
 
@@ -478,7 +553,7 @@ declare const AuthzTagAssignmentSchema: Schema.Struct<{
 }>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L167)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L168)
 
 ### AuthzTagId
 
@@ -488,7 +563,7 @@ declare const AuthzTagAssignmentSchema: Schema.Struct<{
 declare const AuthzTagId: Schema.brand<Schema.String, "AuthzTagId">;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L19)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L20)
 
 ### AuthzTagId (type alias)
 
@@ -498,7 +573,7 @@ declare const AuthzTagId: Schema.brand<Schema.String, "AuthzTagId">;
 type AuthzTagId = typeof AuthzTagId.Type;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L20)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L21)
 
 ### AuthzTagName (type alias)
 
@@ -508,7 +583,7 @@ type AuthzTagId = typeof AuthzTagId.Type;
 type AuthzTagName = typeof AuthzTagNameSchema.Type;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L26)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L27)
 
 ### AuthzTagNameSchema
 
@@ -518,7 +593,7 @@ type AuthzTagName = typeof AuthzTagNameSchema.Type;
 declare const AuthzTagNameSchema: Schema.String;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L25)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L26)
 
 ### AuthzTagSchema
 
@@ -532,7 +607,7 @@ declare const AuthzTagSchema: Schema.Struct<{
 }>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L160)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L161)
 
 ### AuthzValidationEntity (type alias)
 
@@ -558,7 +633,7 @@ type AuthzValidationEntity =
   | "AuthorizationInstant";
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L209)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L210)
 
 ### AuthzValidationError (class)
 
@@ -568,7 +643,7 @@ type AuthzValidationEntity =
 declare class AuthzValidationError
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L227)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L228)
 
 ### CAPABILITY_IDS
 
@@ -602,7 +677,7 @@ declare const CAPABILITY_IDS: {
 };
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L53)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L54)
 
 ### EconomyDepartmentApprovalDelegateParams (type alias)
 
@@ -613,7 +688,7 @@ type EconomyDepartmentApprovalDelegateParams =
   typeof EconomyDepartmentApprovalDelegateParamsSchema.Type;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L99)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L100)
 
 ### EconomyDepartmentApprovalDelegateParamsSchema
 
@@ -625,7 +700,7 @@ declare const EconomyDepartmentApprovalDelegateParamsSchema: Schema.Struct<{
 }>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L96)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L97)
 
 ### EconomyGlobalReceiptApprovalDelegateParams (type alias)
 
@@ -636,7 +711,7 @@ type EconomyGlobalReceiptApprovalDelegateParams =
   typeof EconomyGlobalReceiptApprovalDelegateParamsSchema.Type;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L105)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L106)
 
 ### EconomyGlobalReceiptApprovalDelegateParamsSchema
 
@@ -648,7 +723,7 @@ declare const EconomyGlobalReceiptApprovalDelegateParamsSchema: Schema.Struct<{
 }>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L102)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L103)
 
 ### EconomyPaymentAuthorityDelegateParams (type alias)
 
@@ -659,7 +734,7 @@ type EconomyPaymentAuthorityDelegateParams =
   typeof EconomyPaymentAuthorityDelegateParamsSchema.Type;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L112)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L113)
 
 ### EconomyPaymentAuthorityDelegateParamsSchema
 
@@ -672,7 +747,7 @@ declare const EconomyPaymentAuthorityDelegateParamsSchema: Schema.Struct<{
 }>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L108)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L109)
 
 ### EndAuthzRuleInput (type alias)
 
@@ -682,7 +757,7 @@ declare const EconomyPaymentAuthorityDelegateParamsSchema: Schema.Struct<{
 type EndAuthzRuleInput = typeof EndAuthzRuleInputSchema.Type;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L182)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L183)
 
 ### EndAuthzRuleInputSchema
 
@@ -696,7 +771,7 @@ declare const EndAuthzRuleInputSchema: Schema.Struct<{
 }>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L177)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L178)
 
 ### EndAuthzTagAssignmentInput (type alias)
 
@@ -706,7 +781,7 @@ declare const EndAuthzRuleInputSchema: Schema.Struct<{
 type EndAuthzTagAssignmentInput = typeof EndAuthzTagAssignmentInputSchema.Type;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L195)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L196)
 
 ### EndAuthzTagAssignmentInputSchema
 
@@ -720,7 +795,7 @@ declare const EndAuthzTagAssignmentInputSchema: Schema.Struct<{
 }>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L190)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L191)
 
 ### RemoveAuthzRuleInput (type alias)
 
@@ -730,7 +805,7 @@ declare const EndAuthzTagAssignmentInputSchema: Schema.Struct<{
 type RemoveAuthzRuleInput = typeof RemoveAuthzRuleInputSchema.Type;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L188)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L189)
 
 ### RemoveAuthzRuleInputSchema
 
@@ -743,7 +818,7 @@ declare const RemoveAuthzRuleInputSchema: Schema.Struct<{
 }>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L184)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L185)
 
 ### RemoveAuthzTagAssignmentInput (type alias)
 
@@ -753,7 +828,7 @@ declare const RemoveAuthzRuleInputSchema: Schema.Struct<{
 type RemoveAuthzTagAssignmentInput = typeof RemoveAuthzTagAssignmentInputSchema.Type;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L201)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L202)
 
 ### RemoveAuthzTagAssignmentInputSchema
 
@@ -766,7 +841,7 @@ declare const RemoveAuthzTagAssignmentInputSchema: Schema.Struct<{
 }>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L197)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L198)
 
 ### RemoveAuthzTagInput (type alias)
 
@@ -776,7 +851,7 @@ declare const RemoveAuthzTagAssignmentInputSchema: Schema.Struct<{
 type RemoveAuthzTagInput = typeof RemoveAuthzTagInputSchema.Type;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L207)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L208)
 
 ### RemoveAuthzTagInputSchema
 
@@ -789,7 +864,7 @@ declare const RemoveAuthzTagInputSchema: Schema.Struct<{
 }>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L203)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L204)
 
 ### decodeAuthzRule
 
@@ -799,7 +874,7 @@ declare const RemoveAuthzTagInputSchema: Schema.Struct<{
 declare const decodeAuthzRule: (input: unknown) => Effect.Effect<AuthzRule, AuthzValidationError>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L235)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L236)
 
 ### decodeAuthzTag
 
@@ -809,7 +884,7 @@ declare const decodeAuthzRule: (input: unknown) => Effect.Effect<AuthzRule, Auth
 declare const decodeAuthzTag: (input: unknown) => Effect.Effect<AuthzTag, AuthzValidationError>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L240)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L241)
 
 ### decodeAuthzTagAssignment
 
@@ -821,4 +896,4 @@ declare const decodeAuthzTagAssignment: (
 ) => Effect.Effect<AuthzTagAssignment, AuthzValidationError>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L245)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/authz/schema.ts#L246)

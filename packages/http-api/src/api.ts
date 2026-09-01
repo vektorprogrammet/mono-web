@@ -9,20 +9,20 @@ import { ContentApi } from "./content.js";
 import { DirectoryApi } from "./directory.js";
 import { OrganizationApi } from "./organization.js";
 import { ProfileApi } from "./profile.js";
-import { ReceiptsApi, InternalApi } from "./receipts.js";
+import { InternalReceiptsApi, ReceiptsApi } from "./receipts.js";
 import { RecruitmentApi } from "./recruitment.js";
 import { RequestSchemaErrorMiddleware } from "./common.js";
 import { SystemApi } from "./system.js";
 /**
- * Complete Vektor-owned native HTTP contract.
+ * Complete externally reachable Vektor-owned native HTTP contract.
  *
- * Better Auth `/api/auth/*` remains external. The internal group is executable
- * but excluded from the generated public OpenAPI projection.
+ * Better Auth `/api/auth/*` remains an independent external credential-engine
+ * surface. Internal operations are not members of this root.
  *
  * @since 0.1.0
  * @category APIs
  */
-export class NativeApi extends HttpApi.make("native-api")
+export class ExternalNativeApi extends HttpApi.make("external-native-api")
   .add(SystemApi)
   .add(ProfileApi)
   .add(OrganizationApi)
@@ -31,7 +31,6 @@ export class NativeApi extends HttpApi.make("native-api")
   .add(RecruitmentApi)
   .add(ReceiptsApi)
   .add(ContentApi)
-  .add(InternalApi)
   .middleware(RequestSchemaErrorMiddleware)
   .annotateMerge(
     OpenApi.annotations({
@@ -41,12 +40,12 @@ export class NativeApi extends HttpApi.make("native-api")
       servers: [],
       override: {
         "x-vektorprogrammet-provenance": {
-          contract: "@vektorprogrammet/http-api/NativeApi",
+          contract: "@vektorprogrammet/http-api/ExternalNativeApi",
           generator: "effect/unstable/httpapi/OpenApi.fromApi",
           schemas: "Effect.Schema",
           statuses: "HttpApiSchema.status",
           security: "HttpApiMiddleware.security",
-          exclusions: ["Better Auth /api/auth/*", "internal evidence group"],
+          exclusions: ["Better Auth /api/auth/*", "all internal operations"],
         },
         "x-tagGroups": [
           { name: "Platform", tags: ["System", "Profile"] },
@@ -59,3 +58,14 @@ export class NativeApi extends HttpApi.make("native-api")
       },
     }),
   ) {}
+
+/**
+ * Internal native operations. A caller must mount this root on an explicit
+ * internal ingress. It is never part of public OpenAPI generation.
+ *
+ * @since 0.1.0
+ * @category APIs
+ */
+export class InternalNativeApi extends HttpApi.make("internal-native-api")
+  .add(InternalReceiptsApi)
+  .middleware(RequestSchemaErrorMiddleware) {}

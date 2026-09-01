@@ -3,6 +3,7 @@
  *
  * @since 0.1.0
  */
+import { INTERNAL_RECEIPT_EVIDENCE_ACCESS } from "@vektorprogrammet/domain/authz";
 import {
   ReceiptId,
   ReceiptObservationSchema,
@@ -11,6 +12,7 @@ import {
 import { Schema } from "effect";
 import { Multipart } from "effect/unstable/http";
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema, OpenApi } from "effect/unstable/httpapi";
+import { annotateAccessSpec } from "./access.js";
 import { operationAnnotations, receiptErrorBody, SessionSecurity } from "./common.js";
 
 const MultipartText = Schema.String;
@@ -366,27 +368,25 @@ export class ReceiptsApi extends HttpApiGroup.make("receipts")
   ) {}
 
 /** @since 0.1.0 @category Endpoints */
-export const ReadReceiptEvidenceEndpoint = HttpApiEndpoint.get(
-  "readReceiptEvidence",
-  "/api/e2e/receipts/:receiptId/evidence",
-  {
+export const ReadReceiptEvidenceEndpoint = annotateAccessSpec(
+  HttpApiEndpoint.get("readReceiptEvidence", "/api/e2e/receipts/:receiptId/evidence", {
     params: ReceiptParams,
     success: ReceiptLifecycleEvidenceResponse,
     error: ReceiptErrors,
-  },
-)
-  .middleware(SessionSecurity)
-  .annotateMerge(
-    operationAnnotations("Read receipt evidence", "Reads E2E-only receipt lifecycle evidence."),
-  );
+  })
+    .middleware(SessionSecurity)
+    .annotateMerge(
+      operationAnnotations("Read receipt evidence", "Reads E2E-only receipt lifecycle evidence."),
+    ),
+  INTERNAL_RECEIPT_EVIDENCE_ACCESS,
+);
 
 /**
- * Internal evidence routes remain executable but are excluded from public OpenAPI.
- *
+ * Internal evidence routes exist only in `InternalNativeApi`.
  * @since 0.1.0
  * @category Groups
  */
-export class InternalApi extends HttpApiGroup.make("internal")
+export class InternalReceiptsApi extends HttpApiGroup.make("internal")
   .add(ReadReceiptEvidenceEndpoint)
   .annotateMerge(
     OpenApi.annotations({

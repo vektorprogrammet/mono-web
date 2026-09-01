@@ -1,11 +1,29 @@
 import { existsSync } from "node:fs";
 import { defineConfig, devices } from "@playwright/test";
+import { dashboardBaseUrl } from "./dashboard-base.ts";
 
 const systemChromium = "/etc/profiles/per-user/nori/bin/chromium-browser";
 const chromiumExecutablePath =
   process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH ??
   (existsSync(systemChromium) ? systemChromium : undefined);
 const w0Viewport = { width: 1440, height: 900 };
+export const resolveReceiptOwnerDashboardTopology = (
+  environment: Readonly<Record<string, string | undefined>>,
+):
+  | {
+      readonly baseURL: string;
+      readonly webServer: undefined;
+    }
+  | undefined => {
+  if (environment.REAL_RECEIPT_OWNER_E2E !== "1") return undefined;
+  const dashboardOrigin = environment.DASHBOARD_ORIGIN;
+  if (dashboardOrigin === undefined || dashboardOrigin.length === 0) {
+    throw new Error("DASHBOARD_ORIGIN is required for REAL_RECEIPT_OWNER_E2E");
+  }
+  const baseURL = dashboardBaseUrl(dashboardOrigin, environment);
+  return { baseURL, webServer: undefined };
+};
+
 const genericDashboardOrigin = "http://127.0.0.1:5174";
 const realNativeIdentityMode = process.env.REAL_NATIVE_IDENTITY_E2E === "1";
 const configuredDashboardOrigin = process.env.DASHBOARD_ORIGIN;
@@ -25,7 +43,8 @@ const realSymfonyContentOpsMode = process.env.REAL_SYMFONY_CONTENT_OPS_E2E === "
 const realSymfonyOrgOperationsMode = process.env.REAL_SYMFONY_ORG_OPERATIONS_E2E === "1";
 const realSymfonyBackgroundOperationsMode =
   process.env.REAL_SYMFONY_BACKGROUND_OPERATIONS_E2E === "1";
-const realReceiptOwnerMode = process.env.REAL_RECEIPT_OWNER_E2E === "1";
+const receiptOwnerDashboardTopology = resolveReceiptOwnerDashboardTopology(process.env);
+const realReceiptOwnerMode = receiptOwnerDashboardTopology !== undefined;
 const realAdmissionPeriodMode = process.env.REAL_ADMISSION_PERIOD_E2E === "1";
 const realNativeSchedulingMode = process.env.REAL_NATIVE_SCHEDULING_E2E === "1";
 const realNativeInvitationResponseMode = process.env.REAL_NATIVE_INVITATION_RESPONSE_E2E === "1";
@@ -41,6 +60,7 @@ const realSymfonyMode =
   realSymfonyBackgroundOperationsMode;
 const externalTopologyMode =
   realSymfonyMode ||
+  realReceiptOwnerMode ||
   realNativeIdentityMode ||
   realAdmissionPeriodMode ||
   realNativeSchedulingMode ||
@@ -81,8 +101,8 @@ export default defineConfig({
   reporter: "html",
   use: {
     baseURL:
-      realReceiptOwnerMode ||
-      realAdmissionPeriodMode ||
+      receiptOwnerDashboardTopology?.baseURL ??
+      (realAdmissionPeriodMode ||
       realNativeIdentityMode ||
       realNativeInvitationResponseMode ||
       realNativeOrganizationMode ||
@@ -93,7 +113,7 @@ export default defineConfig({
           ? realSymfonyCoreOrigin
           : realSymfonyMode
             ? externalDashboardOrigin
-            : genericDashboardOrigin,
+            : genericDashboardOrigin),
     trace: "off",
   },
   projects: realAdmissionPeriodMode
@@ -164,5 +184,10 @@ export default defineConfig({
                 use: { ...devices["Desktop Safari"], viewport: w0Viewport },
               },
             ],
-  webServer: externalTopologyMode ? undefined : dashboardServer,
+  webServer:
+    receiptOwnerDashboardTopology !== undefined
+      ? receiptOwnerDashboardTopology.webServer
+      : externalTopologyMode
+        ? undefined
+        : dashboardServer,
 });

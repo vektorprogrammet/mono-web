@@ -1,14 +1,31 @@
 import { describe, expect, it } from "vitest";
-import { dashboardAssetBase, previewDevtoolsBuildEnabled } from "../vite.config";
+import { dashboardMount } from "../dashboard-base";
+import { previewDevtoolsBuildEnabled } from "../vite.config";
 
-describe("dashboardAssetBase", () => {
-  it("serves client assets from the runner-owned origin during an Organization import rehearsal", () => {
-    expect(dashboardAssetBase({ ORGANIZATION_IMPORT_REHEARSAL: "1" })).toBe("/");
+describe("dashboard mount authority", () => {
+  it("mounts runner-owned rehearsal applications at the origin root", () => {
+    expect(dashboardMount({ ORGANIZATION_IMPORT_REHEARSAL: "1" })).toBe("/");
   });
 
-  it("preserves the existing production and conduct journey bases", () => {
-    expect(dashboardAssetBase({})).toBe("/dashboard/");
-    expect(dashboardAssetBase({ REAL_NATIVE_CONDUCT_E2E: "1" })).toBe("/");
+  it("keeps the canonical trailing slash for router and Vite URL joins", () => {
+    const mount = dashboardMount({});
+
+    expect(mount).toBe("/dashboard/");
+    expect(`${mount}@react-router/critical.css`).toBe("/dashboard/@react-router/critical.css");
+    expect(`${mount}@react-router/critical.css`).not.toBe("/dashboard@react-router/critical.css");
+    expect(dashboardMount({ REAL_NATIVE_CONDUCT_E2E: "1" })).toBe("/");
+  });
+
+  it("derives the exact owner login document and data URLs", () => {
+    const origin = "http://127.0.0.1:15174";
+    const loginDocumentPath = `${dashboardMount({})}login`;
+
+    expect(new URL(loginDocumentPath, origin).toString()).toBe(
+      "http://127.0.0.1:15174/dashboard/login",
+    );
+    expect(new URL(`${loginDocumentPath}.data`, origin).toString()).toBe(
+      "http://127.0.0.1:15174/dashboard/login.data",
+    );
   });
 });
 

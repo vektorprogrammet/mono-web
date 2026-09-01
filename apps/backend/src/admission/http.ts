@@ -12,7 +12,7 @@ import {
 import { DepartmentId, SemesterId } from "@vektorprogrammet/domain/organization";
 import { Admissions } from "@vektorprogrammet/domain/admissions";
 import { PublicApplicationSubmitInputSchema } from "@vektorprogrammet/domain/application";
-import { NativeApi } from "@vektorprogrammet/http-api";
+import { ExternalNativeApi } from "@vektorprogrammet/http-api";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
 import { toHttpApiResponse } from "../http-api/transport.js";
 import type { AdmissionApiConfig } from "./config.js";
@@ -355,7 +355,7 @@ const publicConfirmation = async (
 
 /** Native HttpApi implementations for admission and public application endpoints. */
 export const AdmissionsApiHandlers = (input: AdmissionApiHttpOptions) =>
-  HttpApiBuilder.group(NativeApi, "admissions", (handlers) =>
+  HttpApiBuilder.group(ExternalNativeApi, "admissions", (handlers) =>
     Effect.succeed(
       handlers
         .handleRaw("listAdmissionPeriods", ({ request }) =>

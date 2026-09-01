@@ -178,10 +178,7 @@ export async function requireAuth(request: Request): Promise<string> {
   throw await expiredSessionRedirect(request);
 }
 
-export function safeRedirect(
-  destination: FormDataEntryValue | null,
-  fallback = "/dashboard",
-): string {
+export function safeRedirect(destination: FormDataEntryValue | null, fallback = "/"): string {
   if (
     typeof destination !== "string" ||
     !destination.startsWith("/") ||

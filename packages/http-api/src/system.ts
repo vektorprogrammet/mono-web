@@ -3,8 +3,10 @@
  *
  * @since 0.1.0
  */
+import { PUBLIC_SYSTEM_ACCESS } from "@vektorprogrammet/domain/authz";
 import { Schema } from "effect";
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema, OpenApi } from "effect/unstable/httpapi";
+import { annotateAccessSpec } from "./access.js";
 import { errorBody, operationAnnotations, SessionSecurity } from "./common.js";
 
 export const HealthOkResponse = Schema.Struct({ status: Schema.Literals(["ok"]) })
@@ -21,9 +23,11 @@ export const HealthUnavailableResponse = Schema.Struct({ status: Schema.Literals
 export const HealthEndpoint = HttpApiEndpoint.get("health", "/health", {
   success: HealthOkResponse,
   error: HealthUnavailableResponse,
-}).annotateMerge(
-  operationAnnotations("Read native health", "Checks the native PostgreSQL boundary."),
-);
+})
+  .pipe((endpoint) => annotateAccessSpec(endpoint, PUBLIC_SYSTEM_ACCESS))
+  .annotateMerge(
+    operationAnnotations("Read native health", "Checks the native PostgreSQL boundary."),
+  );
 
 const SessionId = Schema.String.pipe(
   Schema.check(

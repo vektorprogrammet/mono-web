@@ -1,3 +1,4 @@
+import { RECEIPT_DOMAIN_ID } from "../authz/access.js";
 import {
   loadApplicableAuthorizationRules,
   readApplicableAuthorizationRules,
@@ -481,8 +482,11 @@ export const listReceiptsForApproval = (
           );
           const departmentIds = yield* listCanonicalReceiptApprovalDepartments(sql);
           const requestScopes: Array<AuthzRequestScope> = [
-            { domain: "Receipt" },
-            ...departmentIds.map((departmentId) => ({ domain: "Receipt" as const, departmentId })),
+            { domainId: RECEIPT_DOMAIN_ID },
+            ...departmentIds.map((departmentId) => ({
+              domainId: RECEIPT_DOMAIN_ID,
+              departmentId,
+            })),
           ];
           const applicable = yield* Effect.forEach(requestScopes, (requestScope) =>
             loadApplicableAuthorizationRules(
@@ -681,10 +685,7 @@ export const executeReceiptCommand = (
                     : cause,
                 ),
               )).actor.departmentId;
-            const requestScope = {
-              domain: "Receipt" as const,
-              departmentId: canonicalDepartment,
-            };
+            const requestScope = { domainId: RECEIPT_DOMAIN_ID, departmentId: canonicalDepartment };
             const applicable = yield* readApplicableAuthorizationRules(
               sql,
               principal.personId,
@@ -770,11 +771,8 @@ export const executeReceiptCommand = (
             );
             const requestScope =
               current === undefined
-                ? { domain: "Receipt" as const }
-                : {
-                    domain: "Receipt" as const,
-                    departmentId: current.departmentId,
-                  };
+                ? { domainId: RECEIPT_DOMAIN_ID }
+                : { domainId: RECEIPT_DOMAIN_ID, departmentId: current.departmentId };
             const applicable = yield* readApplicableAuthorizationRules(
               sql,
               principal.personId,

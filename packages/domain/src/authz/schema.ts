@@ -1,4 +1,5 @@
 import { Data, Effect, Schema } from "effect";
+import { DomainId } from "./access.js";
 import { DepartmentId, PersonId } from "../organization/schema.js";
 import { compareRfc3339Instants, Rfc3339InstantSchema } from "../time.js";
 
@@ -79,13 +80,13 @@ export type AuthzRuleSubject = typeof AuthzRuleSubjectSchema.Type;
 
 export const AuthzRuleScopeSchema = Schema.TaggedUnion({
   Global: {},
+  Domain: { domainId: DomainId },
   Department: { departmentId: DepartmentId },
-  Receipt: {},
 });
 export type AuthzRuleScope = typeof AuthzRuleScopeSchema.Type;
 
 export const AuthzRequestScopeSchema = Schema.Struct({
-  domain: Schema.Literals(["Receipt"]),
+  domainId: DomainId,
   departmentId: Schema.optional(DepartmentId),
 });
 export type AuthzRequestScope = typeof AuthzRequestScopeSchema.Type;

@@ -2,6 +2,7 @@ import { Data, Effect, Schema } from "effect";
 import { Database, type DatabaseShape } from "../database/service.js";
 import { DepartmentId, PersonId } from "../organization/schema.js";
 import { Rfc3339InstantSchema } from "../time.js";
+import { DomainId } from "./access.js";
 import { applicableAuthzRules } from "./rules.js";
 import {
   AuthzCapabilityIdSchema,
@@ -105,7 +106,8 @@ const AuthzRuleDatabaseRowSchema = Schema.Struct({
   subjectKind: Schema.Literals(["Person", "Tag"]),
   subjectPersonId: Schema.NullOr(PersonId),
   subjectTagId: Schema.NullOr(AuthzTagId),
-  scope: Schema.Literals(["Global", "Department", "Receipt"]),
+  scope: Schema.Literals(["Global", "Domain", "Department"]),
+  domainId: Schema.NullOr(DomainId),
   departmentId: Schema.NullOr(DepartmentId),
   params: Schema.Unknown,
   startAt: Rfc3339InstantSchema,
@@ -127,9 +129,13 @@ const decodeRuleDatabaseRow = (
     return undefined;
   })();
   const scope = (() => {
-    if (row.scope === "Global" && row.departmentId === null) return { _tag: "Global" as const };
-    if (row.scope === "Receipt" && row.departmentId === null) return { _tag: "Receipt" as const };
-    if (row.scope === "Department" && row.departmentId !== null) {
+    if (row.scope === "Global" && row.domainId === null && row.departmentId === null) {
+      return { _tag: "Global" as const };
+    }
+    if (row.scope === "Domain" && row.domainId !== null && row.departmentId === null) {
+      return { _tag: "Domain" as const, domainId: row.domainId };
+    }
+    if (row.scope === "Department" && row.domainId === null && row.departmentId !== null) {
       return { _tag: "Department" as const, departmentId: row.departmentId };
     }
     return undefined;
@@ -166,6 +172,7 @@ const selectAuthzRule = (
         subject_person_id AS "subjectPersonId",
         subject_tag_id AS "subjectTagId",
         scope,
+        domain_id AS "domainId",
         department_id AS "departmentId",
         params,
         to_char(
@@ -347,6 +354,7 @@ export const readApplicableAuthorizationRules = (
         rule.subject_person_id AS "subjectPersonId",
         rule.subject_tag_id AS "subjectTagId",
         rule.scope,
+        rule.domain_id AS "domainId",
         rule.department_id AS "departmentId",
         rule.params,
         to_char(
@@ -367,7 +375,10 @@ export const readApplicableAuthorizationRules = (
         AND (rule.end_at IS NULL OR ${authorizationInstant}::timestamptz < rule.end_at)
         AND (
           rule.scope = 'Global'
-          OR rule.scope = 'Receipt'
+          OR (
+            rule.scope = 'Domain'
+            AND rule.domain_id = ${requestScope.domainId}
+          )
           OR (
             rule.scope = 'Department'
             AND rule.department_id = ${requestedDepartmentId}
@@ -457,6 +468,7 @@ export const createAuthzRule = (
           yield* acquireAuthorizationLock(sql, "Exclusive");
           const subjectPersonId = rule.subject._tag === "Person" ? rule.subject.personId : null;
           const subjectTagId = rule.subject._tag === "Tag" ? rule.subject.tagId : null;
+          const domainId = rule.scope._tag === "Domain" ? rule.scope.domainId : null;
           const departmentId = rule.scope._tag === "Department" ? rule.scope.departmentId : null;
           yield* sql`
             INSERT INTO public.authz_rules (
@@ -467,6 +479,7 @@ export const createAuthzRule = (
               subject_person_id,
               subject_tag_id,
               scope,
+              domain_id,
               department_id,
               params,
               start_at,
@@ -480,6 +493,7 @@ export const createAuthzRule = (
               ${subjectPersonId},
               ${subjectTagId},
               ${rule.scope._tag},
+              ${domainId},
               ${departmentId},
               ${sql.json(rule.params)},
               ${rule.startAt},

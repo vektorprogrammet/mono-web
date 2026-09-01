@@ -107,13 +107,13 @@ function UserMenu({
           >
             <DropdownMenuGroup>
               <DropdownMenuItem asChild>
-                <Link to={href("/dashboard/profile")} prefetch="intent">
+                <Link to={href("/profile")} prefetch="intent">
                   <User />
                   Profil
                 </Link>
               </DropdownMenuItem>
               <DropdownMenuItem asChild>
-                <Link to={href("/dashboard/mine-utlegg")} prefetch="intent">
+                <Link to={href("/mine-utlegg")} prefetch="intent">
                   <Receipt />
                   Mine Utlegg
                 </Link>
@@ -137,65 +137,65 @@ function UserMenu({
 const mainLinks = [
   {
     title: "Opptak",
-    url: href("/dashboard/sokere"),
+    url: href("/sokere"),
     icon: <TrendingUp size={16} />,
     isActive: false,
     links: [
       {
         title: "Nye Søkere",
-        url: href("/dashboard/sokere"),
+        url: href("/sokere"),
       },
       {
         title: "Tidligere Assistenter",
-        url: href("/dashboard/tidligere-assistenter"),
+        url: href("/tidligere-assistenter"),
       },
       {
         title: "Intervjufordeling",
-        url: href("/dashboard/intervjufordeling"),
+        url: href("/intervjufordeling"),
       },
       {
         title: "Intervjuer",
-        url: href("/dashboard/intervjuer"),
+        url: href("/intervjuer"),
       },
       {
         title: "Statistikk",
-        url: href("/dashboard/statistikk"),
+        url: href("/statistikk"),
       },
     ],
   },
   {
     title: "Assistenter",
-    url: href("/dashboard/assistenter"),
+    url: href("/assistenter"),
     icon: <BookUser size={16} />,
     isActive: false,
     links: [
       {
         title: "Assistenter",
-        url: href("/dashboard/assistenter"),
+        url: href("/assistenter"),
       },
       {
         title: "Vikarer",
-        url: href("/dashboard/vikarer"),
+        url: href("/vikarer"),
       },
       {
         title: "Skoler",
-        url: href("/dashboard/skoler"),
+        url: href("/skoler"),
       },
     ],
   },
   {
     title: "Brukere",
-    url: href("/dashboard/brukere"),
+    url: href("/brukere"),
     icon: <Users size={16} />,
     isActive: false,
     links: [
       {
         title: "Alle Brukere",
-        url: href("/dashboard/brukere"),
+        url: href("/brukere"),
       },
       {
         title: "Epostliste",
-        url: href("/dashboard/epostliste"),
+        url: href("/epostliste"),
       },
     ],
   },
@@ -203,61 +203,61 @@ const mainLinks = [
 const adminLinks = [
   {
     title: "Team",
-    url: href("/dashboard/team"),
+    url: href("/team"),
     icon: <NotebookPen size={16} />,
     isActive: false,
     links: [
       {
         title: "Team",
-        url: href("/dashboard/team"),
+        url: href("/team"),
       },
       {
         title: "Teaminteresse",
-        url: href("/dashboard/teaminteresse"),
+        url: href("/teaminteresse"),
       },
     ],
   },
   {
     title: "Økonomi",
-    url: href("/dashboard/utlegg"),
+    url: href("/utlegg"),
     icon: <PiggyBank size={16} />,
     isActive: false,
     links: [
       {
         title: "Utlegg",
-        url: href("/dashboard/utlegg"),
+        url: href("/utlegg"),
       },
       {
         title: "Sponsorer",
-        url: href("/dashboard/sponsorer"),
+        url: href("/sponsorer"),
       },
     ],
   },
   {
     title: "Annet",
-    url: href("/dashboard/attester"),
+    url: href("/attester"),
     icon: <CircleEllipsis size={16} />,
     isActive: false,
     links: [
       {
         title: "Attester",
-        url: href("/dashboard/attester"),
+        url: href("/attester"),
       },
       {
         title: "Intervjusjema",
-        url: href("/dashboard/intervjusjema"),
+        url: href("/intervjusjema"),
       },
       {
         title: "Avdelinger",
-        url: href("/dashboard/avdelinger"),
+        url: href("/avdelinger"),
       },
       {
         title: "Linjer",
-        url: href("/dashboard/linjer"),
+        url: href("/linjer"),
       },
       {
         title: "Opptaksperioder",
-        url: href("/dashboard/opptaksperioder"),
+        url: href("/opptaksperioder"),
       },
     ],
   },
@@ -480,7 +480,7 @@ export function DashboardShellLayout() {
   const effectiveIsAdmin = previewIsAdmin ?? isAdmin;
   return (
     <SidebarProvider>
-      <aside>
+      <aside data-dashboard-shell>
         <Sidebar variant="inset" collapsible="icon">
           <SidebarHeader>
             {shell.showIdentityMenu && user !== null ? <UserMenu user={user} /> : null}
@@ -491,7 +491,7 @@ export function DashboardShellLayout() {
                 <SidebarMenu>
                   <SidebarMenuItem key={"Kontrollpanel"}>
                     <SidebarMenuButton asChild tooltip={"Kontrollpanel"}>
-                      <Link to={href("/dashboard")} prefetch="intent">
+                      <Link to={href("/")} prefetch="intent">
                         <LayoutDashboard />
                         <span>Kontrollpanel</span>
                       </Link>

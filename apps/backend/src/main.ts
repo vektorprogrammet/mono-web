@@ -15,7 +15,12 @@ import { Effect, Exit, Fiber, Layer, Redacted } from "effect";
 import { Etag, HttpEffect, HttpRouter } from "effect/unstable/http";
 import { makeHttpPublicApplicationEffectInterpreter } from "./application/effects.js";
 import { makeBackendConfig } from "./config.js";
-import { makeBackendHttp, makeNativeApiRouterLayer, type BackendRun } from "./router.js";
+import {
+  makeBackendHttp,
+  makeExternalNativeApiRouterLayer,
+  makeInternalNativeApiRouterLayer,
+  type BackendRun,
+} from "./router.js";
 import { makeBackendRuntime } from "../runtime.js";
 
 declare const Bun: {
@@ -27,6 +32,11 @@ declare const Bun: {
     readonly stop: (closeActiveConnections?: boolean) => Promise<void> | void;
   };
 };
+
+const ingress = process.env.BACKEND_INGRESS ?? "external";
+if (ingress !== "external" && ingress !== "internal") {
+  throw new TypeError("BACKEND_INGRESS must be external or internal");
+}
 
 const config = makeBackendConfig();
 const databaseLayer = DatabaseLive({
@@ -60,10 +70,11 @@ const authLayers = AuthLive(config.auth).pipe(Layer.provide(databaseLayer));
 const httpPlatformLayer = Layer.mergeAll(BunServices.layer, BunHttpPlatform.layer, Etag.layer);
 const httpRouterLayer = HttpRouter.layer;
 const run: BackendRun = (effect) => runtime.runPromise(effect);
-const nativeApiLayer = makeNativeApiRouterLayer(config, run).pipe(
-  Layer.provide(httpPlatformLayer),
-  Layer.provide(httpRouterLayer),
-);
+const nativeApiLayer = (
+  ingress === "external"
+    ? makeExternalNativeApiRouterLayer(config, run)
+    : makeInternalNativeApiRouterLayer(config, run)
+).pipe(Layer.provide(httpPlatformLayer), Layer.provide(httpRouterLayer));
 const runtime = makeBackendRuntime(
   Layer.mergeAll(
     databaseLayer,
@@ -76,25 +87,28 @@ const runtime = makeBackendRuntime(
 );
 const router = await runtime.runPromise(HttpRouter.HttpRouter);
 const nativeHandler = HttpEffect.toWebHandler(router.asHttpEffect());
-const api = makeBackendHttp(
-  nativeHandler,
-  {
-    handle: (request, context) =>
-      runtime.runPromise(
-        Effect.gen(function* () {
-          const engine = yield* AuthEngine;
-          return yield* Effect.promise(() => engine.handler(request, context));
-        }),
-      ),
-    recordTrustedOriginRejection: (context) =>
-      runtime.runPromise(
-        AuthEngine.use((engine) =>
-          Effect.promise(() => engine.recordTrustedOriginRejection(context)),
-        ),
-      ),
-  },
-  config.sessionBoundary,
-);
+const api =
+  ingress === "external"
+    ? makeBackendHttp(
+        nativeHandler,
+        {
+          handle: (request, context) =>
+            runtime.runPromise(
+              Effect.gen(function* () {
+                const engine = yield* AuthEngine;
+                return yield* Effect.promise(() => engine.handler(request, context));
+              }),
+            ),
+          recordTrustedOriginRejection: (context) =>
+            runtime.runPromise(
+              AuthEngine.use((engine) =>
+                Effect.promise(() => engine.recordTrustedOriginRejection(context)),
+              ),
+            ),
+        },
+        config.sessionBoundary,
+      )
+    : { fetch: (request: Request) => nativeHandler(request) };
 
 try {
   await run(databaseHealth);
@@ -111,7 +125,7 @@ try {
 if (process.exitCode !== 1) {
   const server = Bun.serve({ hostname: config.host, port: config.port, fetch: api.fetch });
   const workerFiber =
-    config.publicApplicationEffects === undefined
+    ingress === "internal" || config.publicApplicationEffects === undefined
       ? undefined
       : runtime.runFork(
           runPublicApplicationOutboxWorker(
@@ -124,10 +138,10 @@ if (process.exitCode !== 1) {
             },
           ),
         );
-  if (workerFiber === undefined) {
+  if (ingress === "external" && workerFiber === undefined) {
     process.stderr.write("public application effect worker is not configured\n");
   }
-  process.stdout.write(`backend listening on ${config.host}:${config.port}\n`);
+  process.stdout.write(`${ingress} backend listening on ${config.host}:${config.port}\n`);
   let shutdownPromise: Promise<void> | undefined;
   const shutdown = () => {
     shutdownPromise ??= (async () => {

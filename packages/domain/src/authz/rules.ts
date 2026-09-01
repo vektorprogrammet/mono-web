@@ -56,7 +56,7 @@ export const authzRuleScopeApplies = (
   requestScope: AuthzRequestScope,
 ): boolean => {
   if (rule.scope._tag === "Global") return true;
-  if (rule.scope._tag === "Receipt") return requestScope.domain === "Receipt";
+  if (rule.scope._tag === "Domain") return requestScope.domainId === rule.scope.domainId;
   return requestScope.departmentId === rule.scope.departmentId;
 };
 

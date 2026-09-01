@@ -23,25 +23,41 @@ Since v0.1.0
 ### Exports Grouped by Category
 
 - [APIs](#apis)
-  - [NativeApi (class)](#nativeapi-class)
+  - [ExternalNativeApi (class)](#externalnativeapi-class)
+  - [InternalNativeApi (class)](#internalnativeapi-class)
 
 ---
 
 ## APIs
 
-### NativeApi (class)
+### ExternalNativeApi (class)
 
-Complete Vektor-owned native HTTP contract.
+Complete externally reachable Vektor-owned native HTTP contract.
 
-Better Auth `/api/auth/*` remains external. The internal group is executable
-but excluded from the generated public OpenAPI projection.
+Better Auth `/api/auth/*` remains an independent external credential-engine
+surface. Internal operations are not members of this root.
 
 **Signature**
 
 ```ts
-declare class NativeApi
+declare class ExternalNativeApi
 ```
 
 [Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/api.ts#L25)
+
+Since v0.1.0
+
+### InternalNativeApi (class)
+
+Internal native operations. A caller must mount this root on an explicit
+internal ingress. It is never part of public OpenAPI generation.
+
+**Signature**
+
+```ts
+declare class InternalNativeApi
+```
+
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/api.ts#L69)
 
 Since v0.1.0

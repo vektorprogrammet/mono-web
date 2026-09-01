@@ -1,3 +1,4 @@
+import { RECEIPT_DOMAIN_ID } from "../authz/access.js";
 import type { OrganizationPersonAuthority } from "../organization/authority.js";
 import type { DepartmentId } from "../organization/schema.js";
 import { allow, deny, type Decision, type DecisionReason } from "../authz/decision.js";
@@ -48,7 +49,7 @@ export const resolveReceiptApprovalVisibility = (
     {
       personId: directAuthority.personId,
       authorizationInstant: directAuthority.evaluatedAt,
-      requestScope: { domain: "Receipt" },
+      requestScope: { domainId: RECEIPT_DOMAIN_ID },
       tagAssignments,
     },
   );
@@ -90,7 +91,7 @@ export const resolveReceiptApprovalVisibility = (
     const composition = composeCapabilityEvidence("approveReceipt", directEvidence, rules, {
       personId: directAuthority.personId,
       authorizationInstant: directAuthority.evaluatedAt,
-      requestScope: { domain: "Receipt", departmentId },
+      requestScope: { domainId: RECEIPT_DOMAIN_ID, departmentId },
       tagAssignments,
     });
     if (composition.decision._tag === "Deny") {

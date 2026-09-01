@@ -1,5 +1,6 @@
 import {
   authorDisposableAuthzBackfill,
+  RECEIPT_DOMAIN_ID,
   persistDisposableAuthzBackfill,
 } from "@vektorprogrammet/domain/authz";
 import { Database } from "@vektorprogrammet/domain/database";
@@ -138,7 +139,7 @@ describe("disposable authorization backfill in PGlite", () => {
                 {
                   capabilityId: "approveReceipt",
                   effectKind: "delegate",
-                  scope: { _tag: "Receipt" },
+                  scope: { _tag: "Domain", domainId: RECEIPT_DOMAIN_ID },
                   params: { slot: "EconomyGlobalReceiptApprovalGrant" },
                   startAt,
                   endAt: null,
@@ -172,7 +173,7 @@ describe("disposable authorization backfill in PGlite", () => {
                 {
                   capabilityId: "approveReceipt",
                   effectKind: "delegate",
-                  scope: { _tag: "Receipt" },
+                  scope: { _tag: "Domain", domainId: RECEIPT_DOMAIN_ID },
                   params: { slot: "EconomyGlobalReceiptApprovalGrant" },
                   startAt,
                   endAt: null,

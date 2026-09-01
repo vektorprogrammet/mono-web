@@ -40,9 +40,7 @@ export default function TilbakestillPassord() {
       <div className="w-full max-w-sm space-y-6 rounded-lg bg-white p-8 shadow-md">
         <div className="text-center">
           <h1 className="font-bold text-2xl">Nytt passord</h1>
-          <p className="mt-1 text-gray-500 text-sm">
-            Skriv inn ditt nye passord
-          </p>
+          <p className="mt-1 text-gray-500 text-sm">Skriv inn ditt nye passord</p>
         </div>
 
         <Form method="post" className="space-y-4">
@@ -82,10 +80,7 @@ export default function TilbakestillPassord() {
             Tilbakestill passord
           </Button>
 
-          <Link
-            to="/login"
-            className="block text-center text-sm text-gray-500 hover:text-gray-700"
-          >
+          <Link to="/login" className="block text-center text-sm text-gray-500 hover:text-gray-700">
             Tilbake til innlogging
           </Link>
         </Form>
