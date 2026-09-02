@@ -5,10 +5,10 @@ const legacyPasswordRecovery = vi.hoisted(() => ({
   setLegacySymfonyPassword: vi.fn(),
 }));
 
-vi.mock("../server/legacy-symfony-password-recovery.server", () => legacyPasswordRecovery);
+vi.mock("../app/server/legacy-symfony-password-recovery.server", () => legacyPasswordRecovery);
 
-import { action as requestPasswordReset } from "./glemt-passord";
-import { action as setPassword } from "./tilbakestill-passord.$code";
+import { action as requestPasswordReset } from "../app/routes/glemt-passord";
+import { action as setPassword } from "../app/routes/tilbakestill-passord.$code";
 
 const formRequest = (path: string, fields: Readonly<Record<string, string>>): Request =>
   new Request(`http://dashboard.test${path}`, {
