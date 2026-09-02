@@ -24,11 +24,14 @@ export async function loader({ request }: Route.LoaderArgs): Promise<{ summary: 
   const client = createAuthenticatedClient(cookie, request);
 
   try {
-    const profile = await client.profile.readOwnProfile({ headers: {} });
+    const result = await client.profile.readOwnProfile({ headers: {} });
+    if (result.body === undefined) {
+      throw new Error("Profile read returned 304 without cache validators");
+    }
     return {
       summary: S.decodeUnknownSync(LandingSummary)({
         _tag: "Available",
-        name: `${profile.body.firstName} ${profile.body.lastName}`,
+        name: `${result.body.firstName} ${result.body.lastName}`,
       }),
     };
   } catch {

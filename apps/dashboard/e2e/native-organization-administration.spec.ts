@@ -31,6 +31,7 @@ const responseBody = async (response: { json(): Promise<unknown> }): Promise<unk
     return null;
   }
 };
+
 type AuthenticatedPersona = {
   readonly cookie: string;
   readonly sessionCookieNames: ReadonlyArray<string>;
@@ -187,7 +188,13 @@ test.describe("Native Organization administration", () => {
         headers: { "idempotency-key": departmentKey },
         payload: departmentPayload,
       });
-      const departmentsAfterCreate = await publicClient.organization.listDepartments();
+      const departmentsAfterCreateResult = await publicClient.organization.listDepartments({
+        headers: {},
+      });
+      if (departmentsAfterCreateResult.body === undefined) {
+        throw new Error("listDepartments returned 304 without cache validators");
+      }
+      const departmentsAfterCreate = departmentsAfterCreateResult.body;
       const createdDepartment = departmentsAfterCreate.find(
         (department) => department.name === departmentPayload.name,
       );
@@ -263,7 +270,7 @@ test.describe("Native Organization administration", () => {
       });
       expect(exactReplayResponse.status()).toBe(201);
       const exactReplayBody = await responseBody(exactReplayResponse);
-      expect(exactReplayBody).toEqual(departmentResult);
+      expect(exactReplayBody).toEqual(departmentResult.body);
 
       const changedReplayResponse = await request.post(`${API_ORIGIN}/api/departments`, {
         headers: {
@@ -282,11 +289,23 @@ test.describe("Native Organization administration", () => {
         type: "urn:vektorprogrammet:problem:v0.2:idempotency.digest-conflict",
       });
 
-      const [freshDepartments, freshTeams, freshFields] = await Promise.all([
-        publicClient.organization.listDepartments(),
-        publicClient.organization.listTeams(),
-        publicClient.organization.listFieldOfStudies(),
+      const [freshDepartmentsResult, freshTeamsResult, freshFieldsResult] = await Promise.all([
+        publicClient.organization.listDepartments({ headers: {} }),
+        publicClient.organization.listTeams({ headers: {} }),
+        publicClient.organization.listFieldOfStudies({ headers: {} }),
       ]);
+      if (freshDepartmentsResult.body === undefined) {
+        throw new Error("listDepartments returned 304 without cache validators");
+      }
+      if (freshTeamsResult.body === undefined) {
+        throw new Error("listTeams returned 304 without cache validators");
+      }
+      if (freshFieldsResult.body === undefined) {
+        throw new Error("listFieldOfStudies returned 304 without cache validators");
+      }
+      const freshDepartments = freshDepartmentsResult.body;
+      const freshTeams = freshTeamsResult.body;
+      const freshFields = freshFieldsResult.body;
       expect(freshDepartments).toContainEqual(
         expect.objectContaining({
           departmentId: createdDepartment.departmentId,
