@@ -198,23 +198,25 @@ describe("native HTTP semantics", () => {
     expect(next).not.toBe(first);
   });
 
-  it("changes a profile ETag when persisted revisions or projected role change", () => {
+  it("uses all persisted Profile revisions and no projected role text", () => {
     const source = {
       personId: "person-1",
       nameRevision: 7,
       contactRevision: 11,
-      role: "ROLE_TEAM_MEMBER",
+      representationRevision: 3,
     };
-    const member = deriveProfileStrongETag(source);
-    const leaderAfterAuthorityBoundary = deriveProfileStrongETag({
-      ...source,
-      role: "ROLE_TEAM_LEADER",
-    });
+    const original = deriveProfileStrongETag(source);
+    const changedRoleProjection = { ...source, role: "ROLE_TEAM_LEADER" };
+    const samePersistedSourcesAfterRoleProjection = deriveProfileStrongETag(changedRoleProjection);
     const changedName = deriveProfileStrongETag({ ...source, nameRevision: 8 });
     const changedContact = deriveProfileStrongETag({ ...source, contactRevision: 12 });
+    const changedRoleRepresentation = deriveProfileStrongETag({
+      ...source,
+      representationRevision: 4,
+    });
 
-    expect(deriveProfileStrongETag(source)).toBe(member);
-    expect(new Set([member, leaderAfterAuthorityBoundary, changedName, changedContact]).size).toBe(
+    expect(samePersistedSourcesAfterRoleProjection).toBe(original);
+    expect(new Set([original, changedName, changedContact, changedRoleRepresentation]).size).toBe(
       4,
     );
   });

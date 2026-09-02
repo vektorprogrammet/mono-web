@@ -1,4 +1,9 @@
-import { OwnProfile, Profile, UpdateOwnProfileCommand } from "@vektorprogrammet/domain/profile";
+import {
+  OwnProfile,
+  Profile,
+  UpdateOwnProfileCommand,
+  readOwnProfileHttpSourcePostgres,
+} from "@vektorprogrammet/domain/profile";
 import {
   ExternalNativeApi,
   ProfileMergePatch,
@@ -186,6 +191,7 @@ const strictProfileResponse = async (
   request: Request,
   profile: OwnProfile,
   role: UserRole,
+  representationRevision: number,
   input: ProfileApiHttpOptions,
 ): Promise<Response> => {
   const decoded = await input.run(
@@ -207,7 +213,7 @@ const strictProfileResponse = async (
     personId: profile.personId,
     nameRevision: profile.nameRevision,
     contactRevision: profile.contactRevision,
-    role,
+    representationRevision,
   });
   const decision = evaluateReadPreconditions({
     currentETag: etag,
@@ -260,10 +266,14 @@ const readOwnProfile = async (
     now,
     run: input.run,
   });
-  const profile = await input.run(
-    Profile.use(({ readOwnProfile }) => readOwnProfile(actor.personId)),
+  const source = await input.run(readOwnProfileHttpSourcePostgres(actor.personId));
+  return strictProfileResponse(
+    request,
+    source.profile,
+    actor.role,
+    source.representationRevision,
+    input,
   );
-  return strictProfileResponse(request, profile, actor.role, input);
 };
 
 const updateOwnProfile = async (
@@ -325,12 +335,13 @@ const updateOwnProfile = async (
       executeNativeHttpCommandPostgres(
         identity,
         Effect.gen(function* () {
-          const current = yield* profileService.readOwnProfile(actor.personId);
+          const currentSource = yield* readOwnProfileHttpSourcePostgres(actor.personId);
+          const current = currentSource.profile;
           const currentETag = deriveProfileStrongETag({
             personId: current.personId,
             nameRevision: current.nameRevision,
             contactRevision: current.contactRevision,
-            role: actor.role,
+            representationRevision: currentSource.representationRevision,
           });
           const precondition = evaluateMutationPrecondition(currentETag, ifMatch);
           if (precondition._tag === "Failed") {
@@ -338,7 +349,7 @@ const updateOwnProfile = async (
               new HttpSemanticFailure(precondition.code, precondition.status),
             );
           }
-          const updated = yield* profileService.updateOwnProfile({
+          yield* profileService.updateOwnProfile({
             actorPersonId: actor.personId,
             command: {
               _tag: "UpdateOwnProfile",
@@ -351,6 +362,8 @@ const updateOwnProfile = async (
               phone: patch.phone ?? current.phone,
             },
           });
+          const updatedSource = yield* readOwnProfileHttpSourcePostgres(actor.personId);
+          const updated = updatedSource.profile;
           const body = {
             personId: updated.personId,
             firstName: updated.firstName,
@@ -365,7 +378,7 @@ const updateOwnProfile = async (
             personId: updated.personId,
             nameRevision: updated.nameRevision,
             contactRevision: updated.contactRevision,
-            role: actor.role,
+            representationRevision: updatedSource.representationRevision,
           });
           return {
             status: 200,

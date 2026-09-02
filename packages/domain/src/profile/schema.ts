@@ -77,6 +77,11 @@ export const OwnProfile = Schema.Struct({
   contactRevision: Revision,
 });
 export type OwnProfile = typeof OwnProfile.Type;
+export const OwnProfileHttpSource = Schema.Struct({
+  profile: OwnProfile,
+  representationRevision: Revision,
+});
+export type OwnProfileHttpSource = typeof OwnProfileHttpSource.Type;
 
 /** The canonical person-name record. Names are owned by Profile, not Recruitment. */
 export class PersonProfile extends Model.Class<PersonProfile>("Profile.PersonProfile")({

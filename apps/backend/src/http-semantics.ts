@@ -475,13 +475,10 @@ export interface ProfileETagSource {
   readonly personId: string;
   readonly nameRevision: number;
   readonly contactRevision: number;
-  readonly role: string;
+  readonly representationRevision: number;
 }
 
-/**
- * Derives the self-profile tag from persisted revisions and the projected role
- * semantic. The role is an authority projection source, not response JSON.
- */
+/** Derives the self-profile tag from its three persisted representation revisions. */
 export const deriveProfileStrongETag = (source: ProfileETagSource): StrongETag =>
   deriveStrongETag({
     representationKind: "ProfileResource",
@@ -489,7 +486,7 @@ export const deriveProfileStrongETag = (source: ProfileETagSource): StrongETag =
     version: {
       nameRevision: source.nameRevision,
       contactRevision: source.contactRevision,
-      role: source.role,
+      representationRevision: source.representationRevision,
     },
   });
 

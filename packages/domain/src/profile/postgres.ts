@@ -16,6 +16,7 @@ import {
 } from "./errors.js";
 import {
   OwnProfile,
+  OwnProfileHttpSource,
   PersonContactProfile,
   type PersonContactProfileSelect,
   PersonProfile,
@@ -151,6 +152,7 @@ interface OwnProfileJoinedRow {
   readonly firstName: string;
   readonly lastName: string;
   readonly nameRevision: number;
+  readonly representationRevision: number;
   readonly contactPersonId: string | null;
   readonly email: string | null;
   readonly phone: string | null;
@@ -214,21 +216,24 @@ const decodeUpdateOwnProfileCommand = (
     ),
   );
 
-const readOwnProfileWith = (
+const readOwnProfileHttpSourceWith = (
   sql: DatabaseShape,
   personId: PersonId,
-): Effect.Effect<OwnProfile, ProfileFailure> =>
+): Effect.Effect<OwnProfileHttpSource, ProfileFailure> =>
   sql<OwnProfileJoinedRow>`
     SELECT
       profile.person_id AS "personId",
       profile.first_name AS "firstName",
       profile.last_name AS "lastName",
       profile.revision AS "nameRevision",
+      http_version.representation_revision AS "representationRevision",
       contact.person_id AS "contactPersonId",
       contact.email,
       contact.phone,
       contact.revision AS "contactRevision"
     FROM person_profiles AS profile
+    INNER JOIN profile_http_versions AS http_version
+      ON http_version.person_id = profile.person_id
     LEFT JOIN person_contact_profiles AS contact
       ON contact.person_id = profile.person_id
     WHERE profile.person_id = ${personId}
@@ -240,7 +245,7 @@ const readOwnProfileWith = (
         if (row.contactPersonId === null) {
           return yield* new ProfileContactNotFound({ personId });
         }
-        return yield* decodeOwnProfileValue({
+        const profile = yield* decodeOwnProfileValue({
           personId: row.personId,
           firstName: row.firstName,
           lastName: row.lastName,
@@ -249,12 +254,29 @@ const readOwnProfileWith = (
           nameRevision: row.nameRevision,
           contactRevision: row.contactRevision,
         });
+        return yield* OwnProfileHttpSource.makeEffect({
+          profile,
+          representationRevision: row.representationRevision,
+        }).pipe(
+          Effect.mapError(
+            (cause) =>
+              new ProfileDecodeError({
+                message: cause instanceof Error ? cause.message : "invalid own Profile HTTP source",
+              }),
+          ),
+        );
       }),
     ),
     Effect.catchTag("SqlError", (cause) =>
-      Effect.fail(persistenceError("read own Profile", cause)),
+      Effect.fail(persistenceError("read own Profile HTTP source", cause)),
     ),
   );
+
+const readOwnProfileWith = (
+  sql: DatabaseShape,
+  personId: PersonId,
+): Effect.Effect<OwnProfile, ProfileFailure> =>
+  readOwnProfileHttpSourceWith(sql, personId).pipe(Effect.map((source) => source.profile));
 
 /** Reads names and contacts from one SQL snapshot. */
 export const readOwnProfile = (
@@ -264,6 +286,16 @@ export const readOwnProfile = (
     const decodedPersonId = yield* decodePersonId(personId);
     const sql = yield* Database;
     return yield* readOwnProfileWith(sql, decodedPersonId);
+  });
+
+/** Reads an own-Profile representation and its authoritative HTTP revision from one SQL snapshot. */
+export const readOwnProfileHttpSourcePostgres = (
+  personId: PersonId,
+): Effect.Effect<OwnProfileHttpSource, ProfileFailure, Database> =>
+  Effect.gen(function* () {
+    const decodedPersonId = yield* decodePersonId(personId);
+    const sql = yield* Database;
+    return yield* readOwnProfileHttpSourceWith(sql, decodedPersonId);
   });
 
 const lockProfileCommand = (sql: DatabaseShape, commandId: ProfileCommandId) =>

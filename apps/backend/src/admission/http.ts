@@ -28,6 +28,7 @@ import {
 import { HttpApiBuilder } from "effect/unstable/httpapi";
 import { toHttpApiResponse } from "../http-api/transport.js";
 import {
+  type ETagVersionSource,
   HttpSemanticFailure,
   PRIVATE_NO_STORE,
   deriveHttpIdentity,
@@ -277,13 +278,13 @@ const conditionalJsonResponse = (input: {
   readonly request: Request;
   readonly body: unknown;
   readonly representationKind: string;
-  readonly versions: ReadonlyArray<readonly [string, number]>;
+  readonly version: ETagVersionSource;
   readonly cacheControl: string;
 }): Response => {
   const etag = deriveStrongETag({
     representationKind: input.representationKind,
     resourceIdentity: "collection",
-    version: input.versions,
+    version: input.version,
   });
   const decision = evaluateReadPreconditions({
     currentETag: etag,
@@ -388,7 +389,7 @@ const listManagement = async (
     request,
     body,
     representationKind: "AdmissionPeriodManagementListResponse",
-    versions: rows.map((row) => [row.id, row.revision] as const),
+    version: rows.map((row) => [row.id, row.revision] as const),
     cacheControl: PRIVATE_NO_STORE,
   });
 };
@@ -637,7 +638,7 @@ const listOpen = async (request: Request, input: AdmissionApiHttpOptions): Promi
     request,
     body,
     representationKind: "OpenAdmissionPeriodListResponse",
-    versions: rows.map((row) => [row.id, row.revision] as const),
+    version: rows.map((row) => [row.id, row.revision] as const),
     cacheControl: dynamicAdmissionCache(
       now,
       rows.flatMap((row) => [row.startAt, row.endAt]),
@@ -671,24 +672,21 @@ const listPublicCatalog = async (
     now,
     input.run as never,
   );
-  const catalog = await runDatabase(
+  const source = await runDatabase(
     Admissions.use(({ listPublicApplicationCatalog }) => listPublicApplicationCatalog({ now })),
     input.run,
   );
-  const versions = catalog.departments.flatMap((department) => [
-    [`department:${department.departmentId}`, 0] as const,
-    ...department.fieldsOfStudy.map(
-      (field) => [`field-of-study:${field.fieldOfStudyId}`, 0] as const,
-    ),
-  ]);
   return conditionalJsonResponse({
     request,
-    body: catalog,
+    body: source.catalog,
     representationKind: "PublicApplicationCatalog",
-    versions,
+    version: {
+      intervalIdentity: source.validatorSource.intervalIdentity,
+      itemRevisions: source.validatorSource.itemRevisions,
+    },
     cacheControl: dynamicAdmissionCache(
       now,
-      catalog.departments.map((department) => department.closesAt),
+      source.catalog.departments.map((department) => department.closesAt),
     ),
   });
 };

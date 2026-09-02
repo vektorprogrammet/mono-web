@@ -51,6 +51,7 @@ import {
   PublicApplicationSubmitObservationSchema,
   type PublicApplicationCatalog,
   type PublicApplicationCatalogContext,
+  type PublicApplicationCatalogHttpSource,
   type PublicApplicationConfirmation,
   type PublicApplicationSubmitContext,
   type PublicApplicationSubmitInput,
@@ -76,11 +77,21 @@ interface CommandReceiptRow {
 }
 
 interface CatalogRow {
+  readonly admission_period_id: string;
+  readonly admission_period_revision: number;
+  readonly semester_id: string;
+  readonly semester_revision: number;
   readonly department_id: string;
+  readonly department_revision: number;
   readonly department_name: string;
   readonly closes_at: string;
   readonly field_of_study_id: string | null;
+  readonly field_of_study_revision: number | null;
   readonly field_of_study_name: string | null;
+}
+interface CatalogIntervalRow {
+  readonly lowerBound: string | null;
+  readonly upperBound: string | null;
 }
 
 const persistenceError = (operation: string): PublicApplicationPersistenceError =>
@@ -556,13 +567,15 @@ export const submitPublicApplication = (
 
 export const listPublicApplicationCatalog = (
   context: PublicApplicationCatalogContext,
-): Effect.Effect<PublicApplicationCatalog, PublicApplicationError, Database> =>
+): Effect.Effect<PublicApplicationCatalogHttpSource, PublicApplicationError, Database> =>
   Effect.gen(function* () {
     const now = yield* decodePublicApplicationNow(context.now);
     const sql = yield* Database;
     const rows = yield* sql<CatalogRow>`
     WITH eligible AS (
-      SELECT p.department_id, p.end_at,
+      SELECT p.admission_period_id, p.revision AS admission_period_revision,
+        s.semester_id, s.revision AS semester_revision,
+        p.department_id, p.end_at,
         ROW_NUMBER() OVER (
           PARTITION BY p.department_id
           ORDER BY p.start_at DESC, p.admission_period_id ASC
@@ -573,10 +586,16 @@ export const listPublicApplicationCatalog = (
       WHERE s.start_at <= ${now}::timestamptz AND ${now}::timestamptz < s.end_at
         AND p.start_at <= ${now}::timestamptz AND ${now}::timestamptz < p.end_at
     )
-    SELECT d.department_id,
+    SELECT e.admission_period_id,
+      e.admission_period_revision,
+      e.semester_id,
+      e.semester_revision,
+      d.department_id,
+      d.revision AS department_revision,
       COALESCE(NULLIF(d.name, ''), d.department_id) AS department_name,
       to_char(e.end_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS closes_at,
       f.field_of_study_id,
+      f.revision AS field_of_study_revision,
       f.name AS field_of_study_name
     FROM eligible e
     INNER JOIN admission_period_departments d ON d.department_id = e.department_id
@@ -589,6 +608,37 @@ export const listPublicApplicationCatalog = (
         Effect.fail(persistenceError("read public application catalog")),
       ),
     );
+    const intervalRows = yield* sql<CatalogIntervalRow>`
+      WITH boundaries AS (
+        SELECT start_at AS boundary_at FROM admission_periods
+        UNION
+        SELECT end_at AS boundary_at FROM admission_periods
+        UNION
+        SELECT start_at AS boundary_at FROM admission_period_semesters
+        UNION
+        SELECT end_at AS boundary_at FROM admission_period_semesters
+      )
+      SELECT
+        to_char(
+          (MAX(boundary_at) FILTER (WHERE boundary_at <= ${now}::timestamptz))
+            AT TIME ZONE 'UTC',
+          'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'
+        ) AS "lowerBound",
+        to_char(
+          (MIN(boundary_at) FILTER (WHERE ${now}::timestamptz < boundary_at))
+            AT TIME ZONE 'UTC',
+          'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'
+        ) AS "upperBound"
+      FROM boundaries
+    `.pipe(
+      Effect.catchTag("SqlError", () =>
+        Effect.fail(persistenceError("read public application catalog interval")),
+      ),
+    );
+    const interval = intervalRows[0];
+    if (interval === undefined) {
+      return yield* persistenceError("read public application catalog interval");
+    }
     const departments = new Map<
       string,
       {
@@ -598,7 +648,11 @@ export const listPublicApplicationCatalog = (
         fieldsOfStudy: Array<{ fieldOfStudyId: string; name: string }>;
       }
     >();
+    const versions = new Map<string, number>();
     for (const row of rows) {
+      versions.set(`admission-period:${row.admission_period_id}`, row.admission_period_revision);
+      versions.set(`admission-semester:${row.semester_id}`, row.semester_revision);
+      versions.set(`admission-department:${row.department_id}`, row.department_revision);
       const existing = departments.get(row.department_id);
       const department = existing ?? {
         departmentId: row.department_id,
@@ -606,15 +660,32 @@ export const listPublicApplicationCatalog = (
         closesAt: row.closes_at,
         fieldsOfStudy: [],
       };
-      if (row.field_of_study_id !== null && row.field_of_study_name !== null) {
+      if (
+        row.field_of_study_id !== null &&
+        row.field_of_study_name !== null &&
+        row.field_of_study_revision !== null
+      ) {
         department.fieldsOfStudy.push({
           fieldOfStudyId: row.field_of_study_id,
           name: row.field_of_study_name,
         });
+        versions.set(
+          `admission-field-of-study:${row.field_of_study_id}`,
+          row.field_of_study_revision,
+        );
       }
       departments.set(row.department_id, department);
     }
-    return yield* decodeCatalog({ departments: [...departments.values()] });
+    const catalog = yield* decodeCatalog({ departments: [...departments.values()] });
+    return {
+      catalog,
+      validatorSource: {
+        intervalIdentity: `${interval.lowerBound ?? "-infinity"}/${interval.upperBound ?? "infinity"}`,
+        itemRevisions: [...versions].sort(([left], [right]) =>
+          left < right ? -1 : left > right ? 1 : 0,
+        ),
+      },
+    };
   });
 
 export const findPublicApplicationConfirmation = (

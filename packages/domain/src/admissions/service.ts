@@ -12,8 +12,8 @@ import type {
 } from "../application/errors.js";
 import type {
   ApplicantContactProjection,
-  PublicApplicationCatalog,
   PublicApplicationCatalogContext,
+  PublicApplicationCatalogHttpSource,
   PublicApplicationConfirmation,
   PublicApplicationSubmitContext,
   PublicApplicationId,
@@ -37,7 +37,7 @@ export interface AdmissionsShape {
   ) => Effect.Effect<PublicApplicationSubmitResult, PublicApplicationError>;
   readonly listPublicApplicationCatalog: (
     context: PublicApplicationCatalogContext,
-  ) => Effect.Effect<PublicApplicationCatalog, PublicApplicationError>;
+  ) => Effect.Effect<PublicApplicationCatalogHttpSource, PublicApplicationError>;
   readonly findPublicApplicationConfirmation: (
     applicationId: string,
   ) => Effect.Effect<PublicApplicationConfirmation, PublicApplicationError>;

@@ -4,7 +4,7 @@ import { Database, type DatabaseShape } from "../database/service.js";
 import { Organization } from "../organization/service.js";
 import { PersonId } from "../organization/schema.js";
 import { ProfileContactNotFound } from "./errors.js";
-import { readDirectoryPage } from "./postgres.js";
+import { readDirectoryPage, readOwnProfileHttpSourcePostgres } from "./postgres.js";
 
 interface DirectoryRow {
   readonly personId: string;
@@ -47,4 +47,45 @@ it.effect("fails the whole directory page when a scanned person has no contact r
     expect(failure._tag).toBe("ProfileContactNotFound");
     expect((failure as ProfileContactNotFound).personId).toBe(missing);
   }),
+);
+
+it.effect(
+  "reads the persisted Profile HTTP representation revision with the profile snapshot",
+  () =>
+    Effect.gen(function* () {
+      const personId = PersonId.make("person-profile-http-source");
+      let statement = "";
+      const sql = ((strings: TemplateStringsArray) => {
+        statement = strings.join("?");
+        return Effect.succeed([
+          {
+            personId,
+            firstName: "Ada",
+            lastName: "Lovelace",
+            nameRevision: 4,
+            representationRevision: 9,
+            contactPersonId: personId,
+            email: "ada@example.invalid",
+            phone: "+4712345678",
+            contactRevision: 6,
+          },
+        ]);
+      }) as unknown as DatabaseShape;
+
+      const source = yield* readOwnProfileHttpSourcePostgres(personId).pipe(
+        Effect.provideService(Database, sql),
+      );
+      expect(statement).toContain("profile_http_versions");
+
+      expect(source.representationRevision).toBe(9);
+      expect(source.profile).toEqual({
+        personId,
+        firstName: "Ada",
+        lastName: "Lovelace",
+        email: "ada@example.invalid",
+        phone: "+4712345678",
+        nameRevision: 4,
+        contactRevision: 6,
+      });
+    }),
 );

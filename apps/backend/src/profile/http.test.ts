@@ -1,3 +1,4 @@
+import { Database, type DatabaseShape } from "@vektorprogrammet/domain/database";
 import { PersonId } from "@vektorprogrammet/domain/organization";
 import { Profile } from "@vektorprogrammet/domain/profile";
 import { Effect } from "effect";
@@ -52,11 +53,26 @@ describe("Profile HTTP ETag", () => {
   const profileService = {
     readOwnProfile: () => Effect.succeed(profile),
   } as never;
-  const run = ((effect: Effect.Effect<unknown, unknown, Profile>) =>
-    Effect.runPromise(effect.pipe(Effect.provideService(Profile, profileService)))) as never;
-
-  const readAs = (role: "ROLE_TEAM_MEMBER" | "ROLE_TEAM_LEADER") =>
-    makeProfileApiHttp({
+  const readAs = (
+    role: "ROLE_TEAM_MEMBER" | "ROLE_TEAM_LEADER",
+    representationRevision: number,
+  ) => {
+    const database = ((_strings: TemplateStringsArray) =>
+      Effect.succeed([
+        {
+          ...profile,
+          contactPersonId: profile.personId,
+          representationRevision,
+        },
+      ])) as unknown as DatabaseShape;
+    const run = ((effect: Effect.Effect<unknown, unknown, Database | Profile>) =>
+      Effect.runPromise(
+        effect.pipe(
+          Effect.provideService(Database, database),
+          Effect.provideService(Profile, profileService),
+        ),
+      )) as never;
+    return makeProfileApiHttp({
       config: {} as never,
       resolveActor: async () => ({ personId: profile.personId, role }),
       run,
@@ -65,14 +81,20 @@ describe("Profile HTTP ETag", () => {
         headers: { cookie: "better-auth.session_token=profile-test-session" },
       }),
     );
+  };
 
-  it("uses the current projected role as an ETag source", async () => {
-    const member = await readAs("ROLE_TEAM_MEMBER");
-    const leader = await readAs("ROLE_TEAM_LEADER");
+  it("changes only after the persisted role representation revision changes", async () => {
+    const member = await readAs("ROLE_TEAM_MEMBER", 3);
+    const changedProjectionWithoutRevision = await readAs("ROLE_TEAM_LEADER", 3);
+    const leaderAfterCommittedAuthorityChange = await readAs("ROLE_TEAM_LEADER", 4);
 
     expect(member.status).toBe(200);
-    expect(leader.status).toBe(200);
+    expect(changedProjectionWithoutRevision.status).toBe(200);
+    expect(leaderAfterCommittedAuthorityChange.status).toBe(200);
     expect(member.headers.get("etag")).toMatch(/^"vkr2\.[A-Za-z0-9_-]{43}"$/u);
-    expect(leader.headers.get("etag")).not.toBe(member.headers.get("etag"));
+    expect(changedProjectionWithoutRevision.headers.get("etag")).toBe(member.headers.get("etag"));
+    expect(leaderAfterCommittedAuthorityChange.headers.get("etag")).not.toBe(
+      member.headers.get("etag"),
+    );
   });
 });

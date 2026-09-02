@@ -305,6 +305,13 @@ export const PublicApplicationCatalogSchema = Schema.Struct({
   departments: Schema.Array(PublicApplicationCatalogDepartmentSchema),
 });
 export type PublicApplicationCatalog = typeof PublicApplicationCatalogSchema.Type;
+export interface PublicApplicationCatalogHttpSource {
+  readonly catalog: PublicApplicationCatalog;
+  readonly validatorSource: {
+    readonly intervalIdentity: string;
+    readonly itemRevisions: ReadonlyArray<readonly [identity: string, revision: number]>;
+  };
+}
 
 export interface PublicApplicationCatalogContext {
   readonly now: string;
