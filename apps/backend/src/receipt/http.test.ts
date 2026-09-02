@@ -18,6 +18,7 @@ import {
   type Receipt,
   type ReceiptCommandPrincipal,
   type ReceiptMutationAuthorization,
+  type ReceiptFailure,
   type ReceiptStatus,
   type ReceiptSubmissionAllocation,
 } from "@vektorprogrammet/domain/receipt";
@@ -38,7 +39,7 @@ type ProjectionRow = {
   readonly receiptId: string;
   readonly visualId: string;
   readonly ownerPersonId: string;
-  readonly departmentId: string;
+  readonly departmentId: DepartmentId;
   readonly amountOre: string;
   readonly currency: "NOK";
   readonly description: string;
@@ -166,7 +167,7 @@ const harness = (options: HarnessOptions = {}) => {
       return pendingReceipt({
         receiptId: String(allocations.at(-1)?.receiptId ?? receiptId),
         visualId: String(allocations.at(-1)?.visualId ?? visualId),
-        departmentId: String(command.departmentId ?? departmentOne),
+        departmentId: DepartmentId.make(String(command.departmentId ?? departmentOne)),
         amountOre: String(command.amountOre),
         description: String(command.description),
         receiptDate: String(command.receiptDate),
@@ -192,7 +193,6 @@ const harness = (options: HarnessOptions = {}) => {
         sha256: "aa".repeat(32),
       },
     }) as Receipt;
-
 
   const executeReceipt: EconomyShape["executeReceipt"] = (input, principal, allocation) =>
     Effect.gen(function* () {
@@ -245,11 +245,8 @@ const harness = (options: HarnessOptions = {}) => {
       } as never;
     });
 
-  const authorizeReceiptMutation: EconomyShape["authorizeReceiptMutation"] = (
-    target,
-    principal,
-  ) =>
-    Effect.suspend(() => {
+  const authorizeReceiptMutation: EconomyShape["authorizeReceiptMutation"] = (target, principal) =>
+    Effect.suspend<ReceiptMutationAuthorization, ReceiptFailure, never>(() => {
       authorizationChecks.push(target._tag);
       if (target._tag === "SubmitReceipt") {
         return Effect.succeed({
