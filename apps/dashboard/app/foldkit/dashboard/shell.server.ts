@@ -1,4 +1,3 @@
-import { ConfigurationError, NetworkError, UnauthorizedError } from "@vektorprogrammet/sdk";
 import { createAuthenticatedClient } from "../../lib/api.server";
 import { expiredSessionRedirect, loadSessionIdentity, requireAuth } from "../../lib/auth.server";
 import type { DashboardShellData } from "./shell";
@@ -8,7 +7,8 @@ export async function loadDashboardShell(request: Request): Promise<DashboardShe
   const client = createAuthenticatedClient(cookie, request);
 
   try {
-    const profile = await client.me.profile();
+    const { body: profile } = await client.profile.readOwnProfile({ headers: {} });
+    if (profile === undefined) throw new Error("Profile response did not include a body");
     return {
       user: {
         name: `${profile.firstName} ${profile.lastName}`,
@@ -18,18 +18,18 @@ export async function loadDashboardShell(request: Request): Promise<DashboardShe
       hasOrganizationContext: true,
     };
   } catch (error) {
-    const profileTag =
-      error !== null && typeof error === "object" && "_tag" in error ? error._tag : undefined;
-    if (profileTag === "AuthorityInactive" || profileTag === "NotInScope") {
+    const code =
+      error !== null && typeof error === "object" && "code" in error ? error.code : undefined;
+    if (code === "authority.denied") {
       return {
         user: await loadSessionIdentity(request),
         isAdmin: false,
         hasOrganizationContext: false,
       };
     }
-    if (error instanceof UnauthorizedError) throw await expiredSessionRedirect(request);
-    if (error instanceof NetworkError) throw new Response(null, { status: 502 });
-    if (error instanceof ConfigurationError) throw new Response(null, { status: 503 });
+    if (code === "credential.missing" || code === "credential.invalid") {
+      throw await expiredSessionRedirect(request);
+    }
     throw new Response(null, { status: 503 });
   }
 }

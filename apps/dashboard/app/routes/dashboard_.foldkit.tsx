@@ -1,9 +1,4 @@
-import {
-  ConfigurationError,
-  NetworkError,
-  ProfileRejectionError,
-  UnauthorizedError,
-} from "@vektorprogrammet/sdk";
+import { UserProfileResponse } from "@vektorprogrammet/http-api";
 import { Schema as S } from "effect";
 import { createElement } from "react";
 import { data, useLoaderData } from "react-router";
@@ -27,42 +22,28 @@ export async function loader({ request }: Route.LoaderArgs) {
   const cookie = await requireAuth(request);
   const client = createAuthenticatedClient(cookie, request);
 
-  let profile: Awaited<ReturnType<typeof client.me.profile>> | null = null;
+  let profile: typeof UserProfileResponse.Type | null = null;
   try {
-    profile = await client.me.profile();
+    const result = await client.profile.readOwnProfile({ headers: {} });
+    if (result.body === undefined) throw new Error("Profile response did not include a body");
+    profile = result.body;
   } catch (error) {
-    if (
-      !(
-        error instanceof ProfileRejectionError &&
-        (error.profileTag === "AuthorityInactive" || error.profileTag === "NotInScope")
-      )
-    ) {
-      if (error instanceof UnauthorizedError) throw await expiredSessionRedirect(request);
-      if (error instanceof NetworkError) throw new Response(null, { status: 502 });
-      if (error instanceof ConfigurationError) throw new Response(null, { status: 503 });
-      throw new Response(null, { status: 503 });
+    const code =
+      typeof error === "object" && error !== null && "code" in error ? error.code : undefined;
+    if (code === "credential.missing" || code === "credential.invalid") {
+      throw await expiredSessionRedirect(request);
     }
+    if (code === "authority.denied") {
+      throw new Response(null, { status: 403, headers: responseHeaders });
+    }
+    throw new Response(null, { status: 503, headers: responseHeaders });
   }
 
   if (profile !== null && !isDashboardRole(profile.role)) {
     throw new Response(null, { status: 403, headers: responseHeaders });
   }
 
-  let summary: LandingSummary = { _tag: "Unavailable" };
-  if (profile !== null) {
-    try {
-      const dashboard = await client.me.dashboard();
-      summary = {
-        _tag: "Available",
-        department: dashboard.department,
-        activeAssistants: dashboard.activeAssistants,
-        pendingApplications: dashboard.pendingApplications,
-        upcomingInterviews: dashboard.upcomingInterviews,
-      };
-    } catch {
-      summary = { _tag: "Unavailable" };
-    }
-  }
+  const summary: LandingSummary = { _tag: "Unavailable" };
 
   const dashboardInput = S.decodeUnknownSync(DashboardInput)(
     {

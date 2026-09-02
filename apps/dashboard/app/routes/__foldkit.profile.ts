@@ -1,7 +1,8 @@
-import { UpdateOwnProfileCommand, UserProfile } from "@vektorprogrammet/sdk/effect";
+import { IdempotencyKey } from "@vektorprogrammet/http-api";
 import { Schema as S } from "effect";
 import { data } from "react-router";
 import { toProfileBridgeFailure, type ProfileBridgeFailure } from "../foldkit/profile/bridge";
+import { ProfileCommand, ProfileInput } from "../foldkit/profile/model";
 import { createAuthenticatedClient } from "../lib/api.server";
 import { requireAuth } from "../lib/auth.server";
 import type { Route } from "./+types/__foldkit.profile";
@@ -51,9 +52,9 @@ export async function action({ request }: Route.ActionArgs) {
     return new Response(null, { status: 405, headers: responseHeaders });
   }
 
-  let command: S.Schema.Type<typeof UpdateOwnProfileCommand>;
+  let command: typeof ProfileCommand.Type;
   try {
-    command = S.decodeUnknownSync(UpdateOwnProfileCommand)(await request.json(), {
+    command = S.decodeUnknownSync(ProfileCommand)(await request.json(), {
       onExcessProperty: "error",
     });
   } catch {
@@ -66,13 +67,23 @@ export async function action({ request }: Route.ActionArgs) {
     );
   }
 
+  const { commandId, etag, ...payload } = command;
   const client = createAuthenticatedClient(cookie, request);
   try {
-    await client.me.updateProfile(command);
-    const fresh = await client.me.profile();
-    return data(S.decodeUnknownSync(UserProfile)(fresh, { onExcessProperty: "error" }), {
-      headers: responseHeaders,
+    const result = await client.profile.updateOwnProfile({
+      headers: {
+        "idempotency-key": IdempotencyKey.make(commandId),
+        "if-match": etag,
+      },
+      payload,
     });
+    return data(
+      S.decodeUnknownSync(ProfileInput)(
+        { profile: result.body, etag: result.headers.ETag },
+        { onExcessProperty: "error" },
+      ),
+      { headers: responseHeaders },
+    );
   } catch (error) {
     const failure = toProfileBridgeFailure(error);
     return data(failure, { status: statusFor(failure._tag), headers: responseHeaders });

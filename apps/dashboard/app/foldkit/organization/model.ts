@@ -1,8 +1,6 @@
-import {
-  DepartmentListSchema,
-  FieldOfStudyListSchema,
-  TeamListSchema,
-} from "@vektorprogrammet/sdk/effect";
+import { DepartmentListSchema,
+FieldOfStudyListSchema,
+TeamListSchema, } from "@vektorprogrammet/domain"
 import { Schema as S } from "effect";
 import { AsyncData } from "foldkit";
 

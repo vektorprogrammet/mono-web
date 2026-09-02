@@ -1,4 +1,4 @@
-import { UserProfile } from "@vektorprogrammet/sdk/effect";
+import { StrongETag, UserProfileResponse } from "@vektorprogrammet/http-api";
 import { Schema as S } from "effect";
 import { m } from "foldkit/message";
 import { ProfileBridgeFailure, ProfileRequestId } from "./bridge";
@@ -12,8 +12,8 @@ export const SubmittedProfile = m("SubmittedProfile");
 
 export const SucceededProfileSave = m("SucceededProfileSave", {
   requestId: ProfileRequestId,
-  commandId: S.String,
-  profile: UserProfile,
+  profile: UserProfileResponse,
+  etag: StrongETag,
 });
 
 export const FailedProfileSave = m("FailedProfileSave", {

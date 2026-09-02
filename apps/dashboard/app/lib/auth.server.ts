@@ -1,4 +1,4 @@
-import { UnauthenticatedActorError, UnauthorizedError } from "@vektorprogrammet/sdk";
+import { IdempotencyKey } from "@vektorprogrammet/http-api";
 import { Schema as S } from "effect";
 import { redirect } from "react-router";
 import { createAuthenticatedClient, serverApiEndpoint } from "./api.server";
@@ -57,22 +57,12 @@ async function inspectSession(request: Request): Promise<SessionInspection> {
   if (cookie === null || !hasSessionCookie(cookie)) return { _tag: "Missing" };
 
   try {
-    await createAuthenticatedClient(cookie, request).me.session();
+    await createAuthenticatedClient(cookie, request).system.readSession();
     return { _tag: "Authenticated", cookie };
   } catch (error) {
-    // The transport raises tagged Schema errors (Unauthorized /
-    // UnauthenticatedActor) for 401/403 responses; the legacy SdkError
-    // subclasses are kept for compatibility with older call sites.
-    const tag =
-      error !== null && typeof error === "object" && "_tag" in error
-        ? String(error._tag)
-        : undefined;
-    if (
-      error instanceof UnauthorizedError ||
-      error instanceof UnauthenticatedActorError ||
-      tag === "Unauthorized" ||
-      tag === "UnauthenticatedActor"
-    ) {
+    const code =
+      error !== null && typeof error === "object" && "code" in error ? error.code : undefined;
+    if (code === "credential.missing" || code === "credential.invalid") {
       return { _tag: "Invalid" };
     }
     throw error;
@@ -178,15 +168,22 @@ function expiredSessionCookieHeaders(request: Request): Headers {
 }
 
 export async function signOut(request: Request): Promise<Headers> {
-  const response = await fetch(serverApiEndpoint("/api/session"), {
-    method: "DELETE",
-    headers: backendRequestHeaders(request, true),
-    signal: request.signal,
-    redirect: "manual",
-  });
-  if (response.status === 401) return expiredSessionCookieHeaders(request);
-  if (!response.ok) throw new Response("Sign out failed", { status: 502 });
-  return forwardSetCookieHeaders(response.headers);
+  const cookie = request.headers.get("Cookie");
+  if (cookie === null || !hasSessionCookie(cookie)) return expiredSessionCookieHeaders(request);
+  try {
+    await createAuthenticatedClient(cookie, request).system.deleteSession({
+      headers: {
+        "idempotency-key": IdempotencyKey.make(crypto.randomUUID()),
+      },
+    });
+  } catch (error) {
+    const code =
+      error !== null && typeof error === "object" && "code" in error ? error.code : undefined;
+    if (code !== "credential.missing" && code !== "credential.invalid") {
+      throw new Response("Sign out failed", { status: 502 });
+    }
+  }
+  return expiredSessionCookieHeaders(request);
 }
 
 export async function expiredSessionRedirect(request: Request): Promise<Response> {

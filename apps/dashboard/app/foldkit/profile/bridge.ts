@@ -22,8 +22,8 @@ export type ProfileBridgeFailure = S.Schema.Type<typeof ProfileBridgeFailure>;
 // promise boundary (lowercase, e.g. "conflict"). Match both.
 const errorTag = (error: unknown): string => {
   if (typeof error !== "object" || error === null) return "";
+  if ("code" in error && typeof error.code === "string") return error.code;
   if ("_tag" in error && typeof error._tag === "string") return error._tag;
-  if ("type" in error && typeof error.type === "string") return error.type;
   if ("tag" in error && typeof error.tag === "string") return error.tag;
   return "";
 };
@@ -31,48 +31,40 @@ const errorTag = (error: unknown): string => {
 export const toProfileBridgeFailure = (error: unknown): ProfileBridgeFailure => {
   const tag = errorTag(error);
 
-  if (tag === "unauthorized" || tag.includes("Unauthenticated") || tag === "Unauthorized") {
+  if (tag === "credential.missing" || tag === "credential.invalid") {
     return { _tag: "Unauthorized", message: "Sesjonen har utløpt. Logg inn på nytt." };
   }
-  if (tag === "forbidden" || tag.includes("Forbidden") || tag.includes("Inactive")) {
+  if (tag === "authority.denied" || tag === "scope.not-found") {
     return { _tag: "Forbidden", message: "Du mangler tillatelse til å endre profilen." };
   }
-  if (tag === "not_found" || tag.includes("NotFound") || tag.includes("ProfileContact")) {
+  if (tag === "resource.not-found") {
     return { _tag: "NotFound", message: "Fant ikke profildataene." };
   }
-  if (
-    tag === "conflict" ||
-    tag === "Conflict" ||
-    tag.includes("Stale") ||
-    tag.includes("Revision") ||
-    tag.includes("CommandConflict") ||
-    tag.includes("Duplicate") ||
-    tag.includes("Replay")
-  ) {
+  if (tag.startsWith("precondition.") || tag.startsWith("idempotency.") || tag === "conflict") {
     return {
       _tag: "Conflict",
       message: "Profilen er endret av en annen. Last siden på nytt for å se de nyeste verdiene.",
     };
   }
-  if (tag.includes("CommandConflict") || tag.includes("Duplicate") || tag.includes("Replay")) {
+  if (tag === "idempotency.response-expired") {
     return {
       _tag: "Conflict",
-      message: "Lagringen ble ikke registrert fordi samme kommando allerede er utført.",
+      message: "Lagringen kunne ikke spilles av. Prøv på nytt.",
     };
   }
-  if (tag === "validation" || tag.includes("Validation") || tag.includes("Decode")) {
+  if (tag.startsWith("validation.") || tag === "request.malformed") {
     return {
       _tag: "Validation",
       message: "Serveren godtok ikke verdienne. Kontroller feltene og prøv igjen.",
     };
   }
-  if (tag === "rate_limited" || tag.includes("RateLimited")) {
+  if (tag === "rate-limit.exceeded") {
     return {
       _tag: "RateLimited",
       message: "For mange forespørsler. Vent litt og prøv på nytt.",
     };
   }
-  if (tag === "configuration" || tag.includes("Configuration")) {
+  if (tag === "dependency.unavailable" || tag === "internal.error") {
     return { _tag: "Configuration", message: "Tjenesten er feilkonfigurert." };
   }
   return { _tag: "Network", message: "Kunne ikke lagre profilen. Prøv på nytt." };

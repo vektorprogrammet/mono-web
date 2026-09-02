@@ -311,76 +311,25 @@ const breadcrumbsView = (model: ReadyModel, h: HtmlBuilder<Message>): Html =>
     ],
   );
 
-const summaryLink = (
-  model: ReadyModel,
-  label: string,
-  value: number,
-  href: string,
-  h: HtmlBuilder<Message>,
-): Html =>
-  h.div(
-    [h.Class("fd-summary-card")],
+
+const landingView = (_model: ReadyModel, h: HtmlBuilder<Message>): Html =>
+  h.section(
     [
-      h.dt([], [h.a([h.Href(href), h.OnClick(ActivatedNavigation({ path: href }))], [label])]),
-      h.dd([], [String(value)]),
+      h.Class("fd-landing fd-landing--error"),
+      h.AriaLabelledBy("fd-landing-title"),
+      h.Role("status"),
     ],
-  );
-
-const landingView = (model: ReadyModel, h: HtmlBuilder<Message>): Html => {
-  if (model.summary._tag === "Unavailable") {
-    return h.section(
-      [
-        h.Class("fd-landing fd-landing--error"),
-        h.AriaLabelledBy("fd-landing-title"),
-        h.Role("alert"),
-      ],
-      [
-        h.h1([h.Id("fd-landing-title"), h.Class("fd-visually-hidden")], ["Kontrollpanel"]),
-        h.div(
-          [h.Class("fd-error-card")],
-          [
-            h.h2([], ["Oversikten kunne ikke hentes"]),
-            h.p([], ["Last siden på nytt og prøv igjen."]),
-          ],
-        ),
-      ],
-    );
-  }
-
-  return h.section(
-    [h.Class("fd-landing"), h.AriaLabelledBy("fd-landing-title")],
     [
       h.h1([h.Id("fd-landing-title"), h.Class("fd-visually-hidden")], ["Kontrollpanel"]),
-      h.p([h.Class("fd-landing__context")], [model.summary.department]),
-      h.dl(
-        [h.Class("fd-summary-grid")],
+      h.div(
+        [h.Class("fd-error-card")],
         [
-          summaryLink(
-            model,
-            "Assistenter",
-            model.summary.activeAssistants,
-            "/dashboard/assistenter",
-            h,
-          ),
-          summaryLink(
-            model,
-            "Nye søkere",
-            model.summary.pendingApplications,
-            "/dashboard/sokere",
-            h,
-          ),
-          summaryLink(
-            model,
-            "Intervjuer",
-            model.summary.upcomingInterviews,
-            "/dashboard/intervjuer",
-            h,
-          ),
+          h.h2([], ["Oversiktsdata er ikke tilgjengelig"]),
+          h.p([], ["Assistent-, søknads- og intervjuoversikten er midlertidig utilgjengelig."]),
         ],
       ),
     ],
   );
-};
 
 const readyView = (model: ReadyModel, h: HtmlBuilder<Message>): Html => {
   const hasOpenNavigation =

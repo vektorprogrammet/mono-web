@@ -1,7 +1,7 @@
 import { Runtime } from "foldkit";
 import type { ProfileClient } from "./browser-client";
 import { makeProfileCommands } from "./command";
-import { Model, makeInitialModel, type UserProfileObservation } from "./model";
+import { Model, makeInitialModel, type ProfileInput } from "./model";
 import "./styles.css";
 import { makeUpdate } from "./update";
 import { view } from "./view";
@@ -9,13 +9,10 @@ import { view } from "./view";
 export interface ProfileRuntimeInput {
   readonly client: ProfileClient;
   readonly commandIdSeed: string;
-  readonly initialProfile: UserProfileObservation;
+  readonly initialProfile: ProfileInput;
 }
 
-export function embedProfileEditor(
-  container: HTMLElement,
-  input: ProfileRuntimeInput,
-): () => void {
+export function embedProfileEditor(container: HTMLElement, input: ProfileRuntimeInput): () => void {
   const commands = makeProfileCommands(input.client);
   const update = makeUpdate(commands);
   const initialModel = makeInitialModel(input.initialProfile, input.commandIdSeed);

@@ -1,10 +1,9 @@
-import { UpdateOwnProfileCommand } from "@vektorprogrammet/sdk/effect";
 import { Match as M, Schema as S } from "effect";
 import { FieldValidation } from "foldkit";
 import type { Command } from "foldkit";
 import type { ProfileCommands } from "./command";
 import type { Message } from "./message";
-import type { Model, UserProfileObservation } from "./model";
+import { ProfileCommand, type Model, type UserProfileObservation } from "./model";
 
 const nameRules = FieldValidation.makeRules({
   required: "Feltet må fylles ut.",
@@ -78,12 +77,10 @@ export const makeUpdate =
           const validated = validatedFields(model);
           if (!allFieldsValid(validated)) return [validated, []];
 
-          const command = S.decodeUnknownSync(UpdateOwnProfileCommand)(
+          const command = S.decodeUnknownSync(ProfileCommand)(
             {
-              _tag: "UpdateOwnProfile",
               commandId: `${validated.commandIdSeed}-${validated.commandSequence}`,
-              expectedNameRevision: validated.profile.nameRevision,
-              expectedContactRevision: validated.profile.contactRevision,
+              etag: validated.etag,
               firstName: validated.firstName.value.trim(),
               lastName: validated.lastName.value.trim(),
               email: validated.email.value.trim(),
@@ -97,15 +94,15 @@ export const makeUpdate =
             [SaveProfile({ requestId, command })],
           ];
         },
-        SucceededProfileSave: ({ requestId, profile }) =>
+        SucceededProfileSave: ({ requestId, profile, etag }) =>
           requestId !== model.requestId
             ? [model, []]
             : [
                 {
-                  ...makeInitialFrom(model, profile),
+                  ...makeInitialFrom(model, profile, etag),
                   isSaving: false,
                   commandSequence: model.commandSequence + 1,
-                  status: "Profilen er lagret. De viste verdiene kommer fra en fersk lesning.",
+                  status: "Profilen er lagret.",
                 },
                 [],
               ],
@@ -116,9 +113,14 @@ export const makeUpdate =
       }),
     );
 
-const makeInitialFrom = (model: Model, profile: UserProfileObservation): Model => ({
+const makeInitialFrom = (
+  model: Model,
+  profile: UserProfileObservation,
+  etag: Model["etag"],
+): Model => ({
   ...model,
   profile,
+  etag,
   firstName: FieldValidation.NotValidated({ value: profile.firstName }),
   lastName: FieldValidation.NotValidated({ value: profile.lastName }),
   email: FieldValidation.NotValidated({ value: profile.email }),

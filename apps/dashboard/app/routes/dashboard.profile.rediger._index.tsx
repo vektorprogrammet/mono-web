@@ -1,4 +1,3 @@
-import { UserProfile } from "@vektorprogrammet/sdk/effect";
 import { Schema as S } from "effect";
 import { createElement } from "react";
 import { data, useLoaderData } from "react-router";
@@ -21,23 +20,21 @@ export async function loader({ request }: Route.LoaderArgs) {
   const cookie = await requireAuth(request);
   const client = createAuthenticatedClient(cookie, request);
 
-  let observation: S.Schema.Type<typeof UserProfile>;
   try {
-    observation = await client.me.profile();
+    const result = await client.profile.readOwnProfile({ headers: {} });
+    if (result.body === undefined) throw new Error("Profile response did not include a body");
+    return data(
+      {
+        serializedInput: S.encodeSync(ProfileInputJson)({
+          profile: result.body,
+          etag: result.headers.ETag,
+        }),
+      },
+      { headers: responseHeaders },
+    );
   } catch {
     throw await expiredSessionRedirect(request);
   }
-
-  // Strict re-decode at the route boundary so the serialized element input can
-  // never drift from the schema the custom element decodes with.
-  const strict = S.decodeUnknownSync(UserProfile)(observation, {
-    onExcessProperty: "error",
-  });
-
-  return data(
-    { serializedInput: S.encodeSync(ProfileInputJson)(strict) },
-    { headers: responseHeaders },
-  );
 }
 
 export default function RedigerProfil() {

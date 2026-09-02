@@ -12,19 +12,9 @@ export const DashboardIdentity = S.Struct({
 });
 export type DashboardIdentity = S.Schema.Type<typeof DashboardIdentity>;
 
-const AvailableLandingSummary = S.Struct({
-  _tag: S.Literal("Available"),
-  department: S.String,
-  activeAssistants: S.Number,
-  pendingApplications: S.Number,
-  upcomingInterviews: S.Number,
-});
-
-const UnavailableLandingSummary = S.Struct({
+export const LandingSummary = S.Struct({
   _tag: S.Literal("Unavailable"),
 });
-
-export const LandingSummary = S.Union([AvailableLandingSummary, UnavailableLandingSummary]);
 export type LandingSummary = S.Schema.Type<typeof LandingSummary>;
 
 export const DashboardInput = S.Struct({

@@ -1,12 +1,27 @@
-import { UpdateOwnProfileCommand, UserProfile } from "@vektorprogrammet/sdk/effect";
+import { ProfileMergePatch, StrongETag, UserProfileResponse } from "@vektorprogrammet/http-api";
 import { Schema as S } from "effect";
 import { FieldValidation } from "foldkit";
 import { ProfileBridgeFailure, ProfileRequestId } from "./bridge";
 
 const StringField = FieldValidation.Field(S.String);
 
+export const ProfileInput = S.Struct({
+  profile: UserProfileResponse,
+  etag: StrongETag,
+});
+export type ProfileInput = S.Schema.Type<typeof ProfileInput>;
+export const ProfileInputJson = S.fromJsonString(ProfileInput);
+
+export const ProfileCommand = S.Struct({
+  commandId: S.NonEmptyString,
+  etag: StrongETag,
+  ...ProfileMergePatch.fields,
+});
+export type ProfileCommand = S.Schema.Type<typeof ProfileCommand>;
+
 export const Model = S.Struct({
-  profile: UserProfile,
+  profile: UserProfileResponse,
+  etag: StrongETag,
   firstName: StringField,
   lastName: StringField,
   email: StringField,
@@ -20,15 +35,13 @@ export const Model = S.Struct({
 });
 export type Model = S.Schema.Type<typeof Model>;
 
-export const makeInitialModel = (
-  profile: S.Schema.Type<typeof UserProfile>,
-  commandIdSeed: string,
-): Model => ({
-  profile,
-  firstName: FieldValidation.NotValidated({ value: profile.firstName }),
-  lastName: FieldValidation.NotValidated({ value: profile.lastName }),
-  email: FieldValidation.NotValidated({ value: profile.email }),
-  phone: FieldValidation.NotValidated({ value: profile.phone }),
+export const makeInitialModel = (input: ProfileInput, commandIdSeed: string): Model => ({
+  profile: input.profile,
+  etag: input.etag,
+  firstName: FieldValidation.NotValidated({ value: input.profile.firstName }),
+  lastName: FieldValidation.NotValidated({ value: input.profile.lastName }),
+  email: FieldValidation.NotValidated({ value: input.profile.email }),
+  phone: FieldValidation.NotValidated({ value: input.profile.phone }),
   isSaving: false,
   requestId: 0,
   commandIdSeed,
@@ -37,6 +50,4 @@ export const makeInitialModel = (
   status: null,
 });
 
-export type ProfileCommand = S.Schema.Type<typeof UpdateOwnProfileCommand>;
-export const ProfileInputJson = S.fromJsonString(UserProfile);
-export type UserProfileObservation = S.Schema.Type<typeof UserProfile>;
+export type UserProfileObservation = typeof UserProfileResponse.Type;
