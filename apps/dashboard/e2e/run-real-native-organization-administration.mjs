@@ -447,10 +447,23 @@ async function startRecordingProxy(targetOrigin) {
       query: url.search,
       sessionCookieAuth: cookieKey !== undefined,
       authorizationHeaderPresent: request.headers.authorization !== undefined,
+      idempotencyKey:
+        typeof request.headers["idempotency-key"] === "string"
+          ? request.headers["idempotency-key"]
+          : null,
+      ifMatch: typeof request.headers["if-match"] === "string" ? request.headers["if-match"] : null,
+      requestContentType:
+        typeof request.headers["content-type"] === "string"
+          ? request.headers["content-type"]
+          : null,
       sessionPersonId:
         cookieKey === undefined ? null : (sessionPersonsByCookie.get(cookieKey) ?? null),
       canonicalAuthorityFixture: null,
       request: parseJsonBody(requestBytes),
+      responseJson: null,
+      responseContentType: null,
+      responseEtag: null,
+      responseLocation: null,
       status: 0,
     };
     records.push(record);
@@ -478,10 +491,14 @@ async function startRecordingProxy(targetOrigin) {
       const responseBytes = Buffer.from(await upstream.arrayBuffer());
       const responseJson = parseJsonBody(responseBytes);
       record.status = upstream.status;
+      record.responseJson = responseJson ?? null;
+      record.responseContentType = upstream.headers.get("content-type");
+      record.responseEtag = upstream.headers.get("etag");
+      record.responseLocation = upstream.headers.get("location");
       if (
         cookieKey !== undefined &&
         upstream.status === 200 &&
-        url.pathname === "/api/me" &&
+        url.pathname === "/api/profile" &&
         responseJson !== null &&
         typeof responseJson === "object" &&
         "personId" in responseJson &&
@@ -641,6 +658,49 @@ const assertEqual = (actual, expected, label) => {
   if (JSON.stringify(actual) !== JSON.stringify(expected)) {
     throw new Error(
       `${label} was ${JSON.stringify(actual)} instead of ${JSON.stringify(expected)}`,
+    );
+  }
+};
+
+const hasExactKeys = (value, expectedKeys) =>
+  value !== null &&
+  typeof value === "object" &&
+  !Array.isArray(value) &&
+  JSON.stringify(Object.keys(value).sort()) === JSON.stringify([...expectedKeys].sort());
+
+const assertStrongEtag = (etag, label) => {
+  if (typeof etag !== "string" || !/^"vkr2\.[A-Za-z0-9_-]{43}"$/u.test(etag)) {
+    throw new Error(`${label} did not return a canonical strong ETag`);
+  }
+};
+
+const assertProblemResponse = (record, expected) => {
+  const expectedKeys = ["code", "detail", "status", "title", "type"];
+  const actualKeys =
+    record.responseJson !== null &&
+    typeof record.responseJson === "object" &&
+    !Array.isArray(record.responseJson)
+      ? Object.keys(record.responseJson).sort()
+      : [];
+  const allowedKeys = [
+    [...expectedKeys].sort(),
+    [...expectedKeys, "instance"].sort(),
+  ];
+  if (
+    record.status !== expected.status ||
+    !allowedKeys.some((keys) => JSON.stringify(keys) === JSON.stringify(actualKeys)) ||
+    record.responseJson?.status !== expected.status ||
+    record.responseJson?.code !== expected.code ||
+    record.responseJson?.type !== `urn:vektorprogrammet:problem:v0.2:${expected.code}` ||
+    record.responseJson?.title !== expected.title ||
+    ("instance" in (record.responseJson ?? {}) &&
+      record.responseJson.instance !== null &&
+      typeof record.responseJson.instance !== "string") ||
+    record.responseJson?.detail !== expected.detail ||
+    !record.responseContentType?.startsWith("application/problem+json")
+  ) {
+    throw new Error(
+      `${record.method} ${record.path} did not return the generated ${expected.code} Problem Details shape`,
     );
   }
 };
@@ -988,14 +1048,14 @@ async function main() {
           nativeLogin: true,
           sessionCookieNames: ["better-auth.session_token"],
           apiSessionPath: "/api/session",
-          personBindingPath: "/api/me",
+          personBindingPath: "/api/profile",
           personId: adminPersonId,
         },
         member: {
           nativeLogin: true,
           sessionCookieNames: ["better-auth.session_token"],
           apiSessionPath: "/api/session",
-          personBindingPath: "/api/me",
+          personBindingPath: "/api/profile",
           personId: memberPersonId,
         },
       },
@@ -1006,7 +1066,7 @@ async function main() {
         proxy.records
           .filter(
             ({ path, status, sessionCookieAuth, authorizationHeaderPresent }) =>
-              path === "/api/session" &&
+              path === "/api/profile" &&
               status === 200 &&
               sessionCookieAuth &&
               !authorizationHeaderPresent,
@@ -1022,16 +1082,156 @@ async function main() {
     const database = await readDatabaseEvidence(baseEnvironment);
     assertDatabaseEvidence(database);
 
-    const organizationRequests = proxy.records.filter(({ path }) =>
+    const organizationResponseKeys = new Map([
       [
-        "/api/admin/departments",
-        "/api/admin/teams",
-        "/api/admin/field-of-studies",
         "/api/departments",
+        [
+          "active",
+          "address",
+          "city",
+          "departmentId",
+          "email",
+          "latitude",
+          "logoPath",
+          "longitude",
+          "name",
+          "revision",
+          "shortName",
+          "slackChannel",
+        ],
+      ],
+      [
         "/api/teams",
-        "/api/field_of_studies",
-      ].includes(path),
+        [
+          "acceptApplication",
+          "active",
+          "deadline",
+          "departmentId",
+          "description",
+          "email",
+          "name",
+          "revision",
+          "shortDescription",
+          "teamId",
+        ],
+      ],
+      [
+        "/api/field-of-studies",
+        ["active", "departmentId", "fieldOfStudyId", "name", "revision", "shortName"],
+      ],
+    ]);
+    const organizationRequestKeys = new Map([
+      [
+        "/api/departments",
+        ["address", "city", "email", "latitude", "longitude", "name", "shortName"],
+      ],
+      [
+        "/api/teams",
+        [
+          "acceptApplication",
+          "active",
+          "deadline",
+          "departmentId",
+          "description",
+          "email",
+          "name",
+          "shortDescription",
+        ],
+      ],
+      ["/api/field-of-studies", ["departmentId", "name", "shortName"]],
+    ]);
+    const organizationRequests = proxy.records.filter(({ path }) =>
+      organizationResponseKeys.has(path),
     );
+    const profileRequests = proxy.records.filter(({ path }) => path === "/api/profile");
+    if (profileRequests.length < 2) {
+      throw new Error("Native Organization journey did not resolve both canonical profiles");
+    }
+    for (const record of profileRequests) {
+      if (
+        record.method !== "GET" ||
+        record.status !== 200 ||
+        !record.sessionCookieAuth ||
+        record.authorizationHeaderPresent ||
+        record.idempotencyKey !== null ||
+        record.ifMatch !== null ||
+        !record.responseContentType?.startsWith("application/json") ||
+        !hasExactKeys(record.responseJson, [
+          "contactRevision",
+          "email",
+          "firstName",
+          "lastName",
+          "nameRevision",
+          "personId",
+          "phone",
+          "role",
+        ])
+      ) {
+        throw new Error("Native Organization profile resolution did not use the generated v0.2 shape");
+      }
+      assertStrongEtag(record.responseEtag, "Native Organization profile resolution");
+    }
+    const retiredOrganizationRequests = proxy.records.filter(
+      ({ path }) =>
+        path === "/api/me" ||
+        path === "/api/field_of_studies" ||
+        path.startsWith("/api/admin/departments") ||
+        path.startsWith("/api/admin/teams") ||
+        path.startsWith("/api/admin/field-of-studies") ||
+        path.startsWith("/api/admin/field_of_studies"),
+    );
+    assertEqual(
+      retiredOrganizationRequests.map(({ method, path }) => `${method} ${path}`),
+      [],
+      "Retired Organization transport requests",
+    );
+    for (const record of organizationRequests) {
+      if (record.query !== "" || record.authorizationHeaderPresent) {
+        throw new Error("Native Organization transport did not use canonical routing");
+      }
+      const responseKeys = organizationResponseKeys.get(record.path);
+      if (responseKeys === undefined) {
+        throw new Error(`Missing response contract for ${record.path}`);
+      }
+      if (record.method === "GET") {
+        if (
+          record.status !== 200 ||
+          record.idempotencyKey !== null ||
+          record.ifMatch !== null ||
+          !record.responseContentType?.startsWith("application/json") ||
+          !Array.isArray(record.responseJson) ||
+          record.responseJson.some((item) => !hasExactKeys(item, responseKeys))
+        ) {
+          throw new Error(`GET ${record.path} did not use the generated v0.2 read contract`);
+        }
+        assertStrongEtag(record.responseEtag, `GET ${record.path}`);
+        continue;
+      }
+      const requestKeys = organizationRequestKeys.get(record.path);
+      if (
+        record.method !== "POST" ||
+        !record.sessionCookieAuth ||
+        requestKeys === undefined ||
+        !hasExactKeys(record.request, requestKeys) ||
+        record.requestContentType?.split(";", 1)[0] !== "application/json" ||
+        typeof record.idempotencyKey !== "string" ||
+        record.idempotencyKey.length === 0 ||
+        record.ifMatch !== null
+      ) {
+        throw new Error(`POST ${record.path} did not use the generated v0.2 mutation contract`);
+      }
+      if (record.status === 201) {
+        if (
+          !hasExactKeys(record.responseJson, responseKeys) ||
+          !record.responseContentType?.startsWith("application/json") ||
+          typeof record.responseLocation !== "string" ||
+          record.responseLocation.length === 0
+        ) {
+          throw new Error(`POST ${record.path} did not return the generated create response`);
+        }
+        assertStrongEtag(record.responseEtag, `POST ${record.path}`);
+      }
+    }
     const statusFacts = organizationRequests
       .filter(({ method }) => method === "POST")
       .map(
@@ -1042,7 +1242,7 @@ async function main() {
           authorizationHeaderPresent,
           sessionPersonId,
           canonicalAuthorityFixture,
-          request,
+          idempotencyKey,
         }) => ({
           path,
           status,
@@ -1050,12 +1250,12 @@ async function main() {
           authorizationHeaderPresent,
           sessionPersonId,
           canonicalAuthorityFixture,
-          commandId: request?.commandId,
+          idempotencyKey,
         }),
       );
     const expectedStatusFacts = [
       [
-        "/api/admin/departments",
+        "/api/departments",
         201,
         true,
         false,
@@ -1064,7 +1264,7 @@ async function main() {
         commandIds.department,
       ],
       [
-        "/api/admin/teams",
+        "/api/teams",
         201,
         true,
         false,
@@ -1073,7 +1273,7 @@ async function main() {
         commandIds.team,
       ],
       [
-        "/api/admin/field-of-studies",
+        "/api/field-of-studies",
         201,
         true,
         false,
@@ -1082,7 +1282,7 @@ async function main() {
         commandIds.fieldOfStudy,
       ],
       [
-        "/api/admin/teams",
+        "/api/teams",
         422,
         true,
         false,
@@ -1091,7 +1291,7 @@ async function main() {
         commandIds.unknownDepartment,
       ],
       [
-        "/api/admin/departments",
+        "/api/departments",
         403,
         true,
         false,
@@ -1100,8 +1300,8 @@ async function main() {
         commandIds.memberDenied,
       ],
       [
-        "/api/admin/departments",
-        200,
+        "/api/departments",
+        201,
         true,
         false,
         adminPersonId,
@@ -1109,7 +1309,7 @@ async function main() {
         commandIds.department,
       ],
       [
-        "/api/admin/departments",
+        "/api/departments",
         409,
         true,
         false,
@@ -1127,7 +1327,7 @@ async function main() {
           authorizationHeaderPresent,
           sessionPersonId,
           canonicalAuthorityFixture,
-          commandId,
+          idempotencyKey,
         }) => [
           path,
           status,
@@ -1135,18 +1335,62 @@ async function main() {
           authorizationHeaderPresent,
           sessionPersonId,
           canonicalAuthorityFixture,
-          commandId,
+          idempotencyKey,
         ],
       ),
       expectedStatusFacts,
       "Native Organization transport facts",
     );
-    if (organizationRequests.some(({ query }) => query !== "")) {
-      throw new Error("Native Organization transport unexpectedly used query parameters");
+    const unknownReference = organizationRequests.find(
+      ({ idempotencyKey }) => idempotencyKey === commandIds.unknownDepartment,
+    );
+    const memberDenied = organizationRequests.find(
+      ({ idempotencyKey }) => idempotencyKey === commandIds.memberDenied,
+    );
+    const changedReplay = organizationRequests.find(
+      ({ idempotencyKey, status }) =>
+        idempotencyKey === commandIds.department && status === 409,
+    );
+    if (unknownReference === undefined || memberDenied === undefined || changedReplay === undefined) {
+      throw new Error("Native Organization counterexample transport evidence was incomplete");
     }
-    if (organizationRequests.some(({ authorizationHeaderPresent }) => authorizationHeaderPresent)) {
-      throw new Error("Native Organization transport unexpectedly used Authorization");
+    assertProblemResponse(unknownReference, {
+      status: 422,
+      code: "organization.invalid-reference",
+      title: "Invalid organization reference",
+      detail: "An organization reference is invalid.",
+    });
+    assertProblemResponse(memberDenied, {
+      status: 403,
+      code: "authority.denied",
+      title: "Authority denied",
+      detail: "The authenticated principal is not permitted to perform this operation.",
+    });
+    assertProblemResponse(changedReplay, {
+      status: 409,
+      code: "idempotency.digest-conflict",
+      title: "Idempotency conflict",
+      detail: "This idempotency key identifies a different semantic request.",
+    });
+    const departmentReplays = organizationRequests.filter(
+      ({ path, status, idempotencyKey }) =>
+        path === "/api/departments" &&
+        status === 201 &&
+        idempotencyKey === commandIds.department,
+    );
+    if (departmentReplays.length !== 2) {
+      throw new Error("Native Organization exact replay did not preserve the create status");
     }
+    assertEqual(
+      departmentReplays[1].responseJson,
+      departmentReplays[0].responseJson,
+      "Native Organization exact replay response",
+    );
+    assertEqual(
+      departmentReplays[1].responseEtag,
+      departmentReplays[0].responseEtag,
+      "Native Organization exact replay ETag",
+    );
     if (receiptRequested()) await emitReceipt(playwright.stdout);
 
     evidence = {
@@ -1170,6 +1414,10 @@ async function main() {
           status,
           sessionCookieAuth,
           authorizationHeaderPresent,
+          idempotencyKey,
+          ifMatch,
+          responseEtag,
+          responseLocation,
           sessionPersonId,
           canonicalAuthorityFixture,
         }) => ({
@@ -1178,6 +1426,10 @@ async function main() {
           status,
           sessionCookieAuth,
           authorizationHeaderPresent,
+          idempotencyKey,
+          ifMatch,
+          responseEtag,
+          responseLocation,
           sessionPersonId,
           canonicalAuthorityFixture,
         }),

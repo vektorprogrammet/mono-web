@@ -190,6 +190,77 @@ const requestBody = async (request) => {
   return chunks.length === 0 ? undefined : Buffer.concat(chunks);
 };
 
+const parseJsonBody = (bytes) => {
+  if (bytes === undefined || bytes.byteLength === 0) return null;
+  try {
+    return JSON.parse(bytes.toString("utf8"));
+  } catch {
+    return null;
+  }
+};
+
+const hasExactKeys = (value, expectedKeys) =>
+  value !== null &&
+  typeof value === "object" &&
+  !Array.isArray(value) &&
+  JSON.stringify(Object.keys(value).sort()) === JSON.stringify([...expectedKeys].sort());
+
+const schoolsUnavailableProblem = {
+  type: "urn:vektorprogrammet:problem:v0.2:schools.unavailable",
+  title: "Schools unavailable",
+  status: 503,
+  code: "schools.unavailable",
+  detail: "The school directory is temporarily unavailable.",
+};
+
+const sendSchoolsUnavailable = (response) => {
+  response.writeHead(503, {
+    "content-type": "application/problem+json",
+    "cache-control": "no-store",
+    vary: "Origin",
+    "retry-after": "5",
+  });
+  response.end(JSON.stringify(schoolsUnavailableProblem));
+};
+
+const assertProblemResponse = (entry, expected) => {
+  const requiredKeys = ["code", "detail", "status", "title", "type"];
+  const actualKeys =
+    entry.responseJson !== null &&
+    typeof entry.responseJson === "object" &&
+    !Array.isArray(entry.responseJson)
+      ? Object.keys(entry.responseJson).sort()
+      : [];
+  const allowedKeys = [
+    [...requiredKeys].sort(),
+    [...requiredKeys, "instance"].sort(),
+  ];
+  assert.ok(
+    allowedKeys.some((keys) => JSON.stringify(keys) === JSON.stringify(actualKeys)),
+    `${entry.method} ${entry.pathname} must return a closed RFC 9457 problem`,
+  );
+  assert.deepEqual(
+    {
+      type: entry.responseJson.type,
+      title: entry.responseJson.title,
+      status: entry.responseJson.status,
+      code: entry.responseJson.code,
+      detail: entry.responseJson.detail,
+    },
+    expected,
+  );
+  if ("instance" in entry.responseJson) {
+    assert.ok(
+      entry.responseJson.instance === null || typeof entry.responseJson.instance === "string",
+      "Problem Details instance must be a string or null",
+    );
+  }
+  assert.ok(
+    entry.responseContentType?.startsWith("application/problem+json"),
+    `${entry.method} ${entry.pathname} must return application/problem+json`,
+  );
+};
+
 const copyResponseHeaders = (source, target) => {
   for (const [name, value] of source) {
     if (["connection", "content-length", "set-cookie", "transfer-encoding"].includes(name))
@@ -212,20 +283,29 @@ const startRecordingUpstream = async (ledger) => {
       search: new URL(request.url ?? "/", upstreamOrigin).search,
       forced: false,
       forwardedTo: backendOrigin,
+      sessionCookieAuth:
+        typeof request.headers.cookie === "string" &&
+        request.headers.cookie.includes("better-auth.session_token="),
+      authorizationHeaderPresent: request.headers.authorization !== undefined,
+      idempotencyKey:
+        typeof request.headers["idempotency-key"] === "string"
+          ? request.headers["idempotency-key"]
+          : null,
+      ifMatch: typeof request.headers["if-match"] === "string" ? request.headers["if-match"] : null,
+      responseContentType: null,
+      responseJson: null,
       status: 0,
       durationMilliseconds: 0,
     };
     ledger.push(entry);
     try {
-      if (!forcedSchoolsFailure && request.method === "GET" && pathname === "/api/admin/schools") {
+      if (!forcedSchoolsFailure && request.method === "GET" && pathname === "/api/schools") {
         forcedSchoolsFailure = true;
         entry.forced = true;
         entry.status = 503;
-        response.writeHead(503, {
-          "content-type": "application/json; charset=utf-8",
-          "cache-control": "no-store",
-        });
-        response.end(JSON.stringify({ error: { tag: "SchoolsPersistenceError" } }));
+        entry.responseContentType = "application/problem+json";
+        entry.responseJson = schoolsUnavailableProblem;
+        sendSchoolsUnavailable(response);
         return;
       }
 
@@ -246,14 +326,18 @@ const startRecordingUpstream = async (ledger) => {
         body,
         redirect: "manual",
       });
+      const responseBytes = Buffer.from(await upstream.arrayBuffer());
       entry.status = upstream.status;
+      entry.responseContentType = upstream.headers.get("content-type");
+      entry.responseJson = parseJsonBody(responseBytes);
       response.statusCode = upstream.status;
       copyResponseHeaders(upstream.headers, response);
-      response.end(Buffer.from(await upstream.arrayBuffer()));
+      response.end(responseBytes);
     } catch (cause) {
-      entry.status = 502;
-      response.writeHead(502, { "content-type": "application/json; charset=utf-8" });
-      response.end(JSON.stringify({ error: { tag: "SchoolsPersistenceError" } }));
+      entry.status = 503;
+      entry.responseContentType = "application/problem+json";
+      entry.responseJson = schoolsUnavailableProblem;
+      sendSchoolsUnavailable(response);
       process.stderr.write(`recording upstream failure: ${String(cause)}\n`);
     } finally {
       entry.durationMilliseconds = Date.now() - startedAt;
@@ -406,20 +490,95 @@ try {
   assert.equal(browserEvidence.passed, true);
   await emitReceipt(browser.stdout);
 
-  const schoolsRequests = ledger.filter((entry) => entry.pathname === "/api/admin/schools");
+  const schoolsRequests = ledger.filter((entry) => entry.pathname === "/api/schools");
   const forcedFailures = schoolsRequests.filter((entry) => entry.forced);
   const forwardedSuccesses = schoolsRequests.filter(
     (entry) => !entry.forced && entry.status === 200,
   );
+  const authorityDenials = schoolsRequests.filter(
+    (entry) => !entry.forced && entry.status === 403,
+  );
   assert.equal(forcedFailures.length, 1, "one upstream Schools failure must be forced");
   assert.ok(forwardedSuccesses.length >= 6, "retry and authority matrix must reach the backend");
-  assert.ok(
-    schoolsRequests.some((entry) => !entry.forced && entry.status === 403),
-    "typed authority denials must reach the backend",
-  );
+  assert.ok(authorityDenials.length >= 2, "typed authority denials must reach the backend");
+  for (const entry of schoolsRequests) {
+    assert.equal(entry.method, "GET", "the native Schools operation is read-only");
+    assert.equal(entry.sessionCookieAuth, true, "the native Schools operation requires a session");
+    assert.equal(
+      entry.authorizationHeaderPresent,
+      false,
+      "the native Schools operation must not use Authorization",
+    );
+    assert.equal(entry.idempotencyKey, null, "the native Schools read must not use Idempotency-Key");
+    assert.equal(entry.ifMatch, null, "the native Schools read must not use If-Match");
+    const queryKeys = [...new URLSearchParams(entry.search).keys()];
+    assert.ok(
+      queryKeys.length <= 1 && queryKeys.every((key) => key === "department"),
+      "the native Schools read used an unsupported query parameter",
+    );
+  }
+  const schoolKeys = [
+    "contactPerson",
+    "departments",
+    "email",
+    "isActive",
+    "language",
+    "name",
+    "phone",
+    "schoolId",
+  ];
+  for (const entry of forwardedSuccesses) {
+    assert.ok(
+      entry.responseContentType?.startsWith("application/json"),
+      "the native Schools directory must return application/json",
+    );
+    assert.ok(
+      hasExactKeys(entry.responseJson, ["activeSchools", "inactiveSchools"]),
+      "the native Schools directory response did not match the generated shape",
+    );
+    for (const [collectionName, expectedActive] of [
+      ["activeSchools", true],
+      ["inactiveSchools", false],
+    ]) {
+      const schools = entry.responseJson[collectionName];
+      assert.ok(Array.isArray(schools), `${collectionName} must be an array`);
+      for (const school of schools) {
+        assert.ok(hasExactKeys(school, schoolKeys), "a School directory entry had excess fields");
+        assert.ok(Number.isInteger(school.schoolId) && school.schoolId > 0);
+        assert.equal(school.isActive, expectedActive);
+        assert.ok(["Norwegian", "International"].includes(school.language));
+        assert.ok(
+          ["name", "contactPerson", "email", "phone"].every(
+            (key) => typeof school[key] === "string",
+          ),
+        );
+        assert.ok(Array.isArray(school.departments));
+        assert.ok(
+          school.departments.every(
+            (department) =>
+              hasExactKeys(department, ["departmentId", "name"]) &&
+              typeof department.departmentId === "string" &&
+              typeof department.name === "string",
+          ),
+          "a School department projection did not match the generated shape",
+        );
+      }
+    }
+  }
+  assertProblemResponse(forcedFailures[0], schoolsUnavailableProblem);
+  for (const entry of authorityDenials) {
+    assertProblemResponse(entry, {
+      type: "urn:vektorprogrammet:problem:v0.2:authority.denied",
+      title: "Authority denied",
+      status: 403,
+      code: "authority.denied",
+      detail: "The authenticated principal is not permitted to perform this operation.",
+    });
+  }
   assert.deepEqual(
     ledger.filter(
       (entry) =>
+        entry.pathname === "/api/admin/schools" ||
         entry.pathname.includes("/api/admin/scheduling/schools") ||
         entry.pathname.includes("/kontrollpanel/skoler") ||
         entry.pathname.includes("/mock/api"),
@@ -437,7 +596,7 @@ try {
     browser: browserEvidence,
     requestLedger: {
       bridgePath: "/schools",
-      backendPath: "/api/admin/schools",
+      backendPath: "/api/schools",
       schoolsRequests,
       forcedFailures: forcedFailures.length,
       forwardedSuccesses: forwardedSuccesses.length,
