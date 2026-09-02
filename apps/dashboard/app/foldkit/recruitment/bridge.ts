@@ -7,7 +7,6 @@ import {
   RecruitmentAssignmentBoardSchema,
   RecruitmentInterviewConductObservationSchema,
   RecruitmentInterviewId,
-  RecruitmentSchedulingBoardSchema,
 } from "@vektorprogrammet/domain/recruitment";
 import {
   CancelInterviewRequest,
@@ -20,6 +19,7 @@ import {
   IdempotencyIfMatchHeaders,
   NativeProblem,
   RecruitmentInterviewResource,
+  SchedulingBoard,
   ScheduleInterviewRequest,
   ScheduleInterviewResponse,
   StrongETag,
@@ -108,9 +108,9 @@ export {
   RecruitmentInterviewConductObservationSchema,
   RecruitmentInterviewId,
   RecruitmentInterviewResource,
-  RecruitmentSchedulingBoardSchema,
   ScheduleInterviewRequest,
   ScheduleInterviewResponse,
+  SchedulingBoard,
 };
 
 export const RecruitmentBridgeOperation = S.Union([

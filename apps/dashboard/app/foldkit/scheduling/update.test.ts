@@ -1,7 +1,7 @@
-import { RecruitmentSchedulingBoardSchema } from "@vektorprogrammet/domain/recruitment";
 import {
   IdempotencyKey,
   ScheduleInterviewResponse,
+  SchedulingBoard,
   StrongETag,
   type ScheduleInterviewRequest,
 } from "@vektorprogrammet/http-api";
@@ -29,13 +29,12 @@ import { makeUpdate } from "./update";
 import { responseLabel } from "./view";
 
 const decodeBoard = (value: unknown) =>
-  S.decodeUnknownSync(RecruitmentSchedulingBoardSchema)(value, {
+  S.decodeUnknownSync(SchedulingBoard)(value, {
     onExcessProperty: "error",
   });
 const decodeResult = S.decodeUnknownSync(ScheduleInterviewResponse);
 
 const etag = StrongETag.make(`"vkr2.${"A".repeat(43)}"`);
-const nextEtag = StrongETag.make(`"vkr2.${"B".repeat(43)}"`);
 const rawInterview = {
   interviewId: "recruitment-interview-50",
   applicationId: "recruitment-application-50",
@@ -281,17 +280,10 @@ describe("Foldkit scheduling transitions", () => {
             postCalls += 1;
             observedInput = input;
             return decodeResult({
-              observation: {
-                _tag: "InterviewScheduled",
-                commandId: input.headers["idempotency-key"],
-                interviewId: input.params.interviewId,
-                schedule: postObservationSchedule,
-                interviewRevision: 1,
-                responseState: "Pending",
-                notificationState: "Pending",
-              },
-              replayed: false,
-              etag: nextEtag,
+              interviewId: input.params.interviewId,
+              schedule: postObservationSchedule,
+              responseState: "Pending",
+              notificationState: "Pending",
             });
           }),
         readSchedulingBoard: () =>

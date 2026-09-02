@@ -1,7 +1,6 @@
 import type {
   RecruitmentAssignmentBoard,
   RecruitmentAssignmentBoardQuery,
-  RecruitmentSchedulingBoard,
 } from "@vektorprogrammet/domain/recruitment";
 import { Effect, Schema as S } from "effect";
 import {
@@ -16,7 +15,7 @@ import {
   RecruitmentBridgeOperationJson,
   RecruitmentInterviewConductResourceSchema,
   RecruitmentInterviewResource as RecruitmentInterviewResourceSchema,
-  RecruitmentSchedulingBoardSchema,
+  SchedulingBoard,
   ScheduleInterviewInputSchema,
   ScheduleInterviewResponse as ScheduleInterviewResponseSchema,
   toRecruitmentBridgeFailure,
@@ -44,7 +43,7 @@ interface RecruitmentOperations {
     input: CreateApplicationInterviewInput,
   ) => Effect.Effect<RecruitmentInterviewResource, RecruitmentBridgeFailure>;
   readonly readSchedulingBoard: () => Effect.Effect<
-    RecruitmentSchedulingBoard,
+    typeof SchedulingBoard.Type,
     RecruitmentBridgeFailure
   >;
   readonly scheduleInterview: (
@@ -112,7 +111,7 @@ export const createBrowserRecruitmentClient = (): RecruitmentClient => ({
       ),
     readSchedulingBoard: () =>
       bridgeRequest({ operation: "readSchedulingBoard" }, (value) =>
-        S.decodeUnknownSync(RecruitmentSchedulingBoardSchema)(value, {
+        S.decodeUnknownSync(SchedulingBoard)(value, {
           onExcessProperty: "error",
         }),
       ),

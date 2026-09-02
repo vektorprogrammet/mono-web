@@ -6,12 +6,12 @@ import { AsyncData, FieldValidation } from "foldkit";
 import {
   RecruitmentBridgeFailure,
   RecruitmentInterviewConductObservationSchema,
-  RecruitmentSchedulingBoardSchema,
+  SchedulingBoard,
 } from "../recruitment/bridge";
 
 const LoadedSchedulingInput = S.Struct({
   _tag: S.Literal("Loaded"),
-  board: RecruitmentSchedulingBoardSchema,
+  board: SchedulingBoard,
 });
 
 const FailedSchedulingInput = S.Struct({
@@ -23,7 +23,7 @@ export const SchedulingInput = S.Union([LoadedSchedulingInput, FailedSchedulingI
 export type SchedulingInput = S.Schema.Type<typeof SchedulingInput>;
 export const SchedulingInputJson = S.fromJsonString(SchedulingInput);
 
-export const SchedulingBoardData = AsyncData.Schema(RecruitmentSchedulingBoardSchema, S.String);
+export const SchedulingBoardData = AsyncData.Schema(SchedulingBoard, S.String);
 export const ConductData = AsyncData.Schema(
   RecruitmentInterviewConductObservationSchema,
   RecruitmentBridgeFailure,

@@ -1,12 +1,12 @@
 import type {
   RecruitmentInterviewConductObservation,
   RecruitmentInterviewQuestionSnapshot,
-  RecruitmentSchedulingBoard,
   RecruitmentSchedulingInterview,
 } from "@vektorprogrammet/domain/recruitment";
 import { Button, Dialog, Input } from "@foldkit/ui";
 import { AsyncData, FieldValidation } from "foldkit";
 import type { Html, HtmlBuilder } from "foldkit/html";
+import { SchedulingBoard } from "../recruitment/bridge";
 import {
   ChangedAnswer,
   ChangedScore,
@@ -234,7 +234,7 @@ const interviewCard = (
 
 const successfulBoard = (
   model: ReadyModel,
-  board: RecruitmentSchedulingBoard,
+  board: typeof SchedulingBoard.Type,
   h: HtmlBuilder<Message>,
 ): Html =>
   h.section(

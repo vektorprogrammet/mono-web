@@ -1,8 +1,5 @@
-import {
-  RecruitmentInterviewConductObservationSchema,
-  RecruitmentSchedulingBoardSchema,
-} from "@vektorprogrammet/domain/recruitment";
-import { IdempotencyKey, StrongETag } from "@vektorprogrammet/http-api";
+import { RecruitmentInterviewConductObservationSchema } from "@vektorprogrammet/domain/recruitment";
+import { IdempotencyKey, SchedulingBoard, StrongETag } from "@vektorprogrammet/http-api";
 import { Dialog } from "@foldkit/ui";
 import type { HtmlBuilder } from "foldkit/html";
 import { FieldValidation } from "foldkit";
@@ -148,7 +145,7 @@ const detailFor = (state: "Completed" | "Cancelled") =>
 
 const terminalModel = (state: "Completed" | "Cancelled"): Model => {
   const detail = detailFor(state);
-  const board = S.decodeUnknownSync(RecruitmentSchedulingBoardSchema)({
+  const board = S.decodeUnknownSync(SchedulingBoard)({
     departmentId: "department-conduct-view",
     interviews: [
       {

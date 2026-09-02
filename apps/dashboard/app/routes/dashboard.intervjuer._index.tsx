@@ -5,6 +5,7 @@ import { DASHBOARD_ELEMENT, DASHBOARD_INPUT_ATTRIBUTE } from "../foldkit/dashboa
 import { DashboardInput, DashboardInputJson, isDashboardRole } from "../foldkit/dashboard/model";
 import {
   schedulingBoardFailureMessage,
+  SchedulingBoard,
   toRecruitmentBridgeFailure,
 } from "../foldkit/recruitment/bridge";
 import type { SchedulingInput } from "../foldkit/scheduling/model";
@@ -39,7 +40,9 @@ export async function loader({ request }: Route.LoaderArgs) {
     const result = await client.recruitment.readSchedulingBoard();
     scheduling = {
       _tag: "Loaded",
-      board: result.body,
+      board: S.decodeUnknownSync(SchedulingBoard)(result.body, {
+        onExcessProperty: "error",
+      }),
     };
   } catch (error) {
     const failure = toRecruitmentBridgeFailure(error);

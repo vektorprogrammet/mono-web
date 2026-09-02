@@ -6,14 +6,14 @@ import { m } from "foldkit/message";
 import {
   RecruitmentBridgeFailure,
   RecruitmentInterviewConductObservationSchema,
-  RecruitmentSchedulingBoardSchema,
+  SchedulingBoard,
 } from "../recruitment/bridge";
 import { ConductRequestId, SchedulingRequestId } from "./model";
 
 export const RequestedBoardRefresh = m("RequestedBoardRefresh");
 export const SucceededLoadSchedulingBoard = m("SucceededLoadSchedulingBoard", {
   requestId: SchedulingRequestId,
-  board: RecruitmentSchedulingBoardSchema,
+  board: SchedulingBoard,
 });
 export const FailedLoadSchedulingBoard = m("FailedLoadSchedulingBoard", {
   requestId: SchedulingRequestId,
@@ -29,7 +29,7 @@ export const UpdatedMessage = m("UpdatedMessage", { value: S.String });
 export const SubmittedSchedule = m("SubmittedSchedule");
 export const SucceededSchedule = m("SucceededSchedule", {
   requestId: SchedulingRequestId,
-  board: RecruitmentSchedulingBoardSchema,
+  board: SchedulingBoard,
 });
 export const FailedSchedule = m("FailedSchedule", {
   requestId: SchedulingRequestId,
