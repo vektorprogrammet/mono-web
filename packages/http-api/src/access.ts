@@ -1,16 +1,124 @@
 import {
   CAPABILITY_TYPE_IDS,
   CREDENTIAL_MECHANISM_KINDS,
+  INVITATION_RESPONSE_CAPABILITY,
   OBJECT_CAPABILITY_TYPE_IDS,
   PRINCIPAL_KINDS,
   REQUIREMENT_IDS,
+  SCOPE_RESOLVER_IDS,
   type AccessSpec,
+  type AuthorizationMode,
   type CapabilityExpression,
   type CapabilityTypeId,
   type CredentialMechanism,
+  type RequirementId,
+  type ScopeResolverId,
   type TypedRequirement,
   makeAccessSpec,
 } from "@vektorprogrammet/domain/authz";
+
+type RequirementValue = (typeof REQUIREMENT_IDS)[number];
+type ScopeResolverValue = (typeof SCOPE_RESOLVER_IDS)[number];
+type CapabilityValue = (typeof CAPABILITY_TYPE_IDS)[number];
+const typedRequirements = (
+  requirements: ReadonlyArray<RequirementValue>,
+): ReadonlyArray<TypedRequirement> =>
+  requirements.map((id) => ({ id: id as RequirementId, parameters: {} }));
+
+/** Colocated AccessSpec constructor for an anonymous native operation. */
+export const anonymousNativeAccess = (
+  canonicalScopeResolver: ScopeResolverValue,
+  decisionTime: AuthorizationMode = "SnapshotRead",
+): AccessSpec =>
+  makeAccessSpec({
+    exposure: "External",
+    acceptedCredentials: [{ _tag: "None" }],
+    principalKinds: ["Anonymous"],
+    capabilities: { _tag: "None" },
+    requirements: [],
+    canonicalScopeResolver,
+    concealment: { _tag: "Reveal" },
+    decisionTime,
+  });
+
+/** Colocated AccessSpec constructor for a first-party cookie-only session operation. */
+export const browserSessionNativeAccess = (input: {
+  readonly canonicalScopeResolver: ScopeResolverValue;
+  readonly requirements?: ReadonlyArray<RequirementValue>;
+  readonly concealRequirement?: boolean;
+  readonly decisionTime: AuthorizationMode;
+}): AccessSpec =>
+  makeAccessSpec({
+    exposure: "External",
+    acceptedCredentials: [{ _tag: "BetterAuthCookie" }],
+    principalKinds: ["Person"],
+    capabilities: { _tag: "None" },
+    requirements: typedRequirements(input.requirements ?? []),
+    canonicalScopeResolver: input.canonicalScopeResolver,
+    concealment:
+      input.concealRequirement === true
+        ? { _tag: "NotFound", conceal: ["Requirement"] }
+        : { _tag: "Reveal" },
+    decisionTime: input.decisionTime,
+  });
+
+/** Colocated AccessSpec constructor for a person operation accepting cookie or OAuth bearer. */
+export const personNativeAccess = (input: {
+  readonly capability: CapabilityValue;
+  readonly canonicalScopeResolver: ScopeResolverValue;
+  readonly requirements?: ReadonlyArray<RequirementValue>;
+  readonly decisionTime: AuthorizationMode;
+}): AccessSpec =>
+  makeAccessSpec({
+    exposure: "External",
+    acceptedCredentials: [{ _tag: "BetterAuthCookie" }, { _tag: "OAuthUserBearer" }],
+    principalKinds: ["Person"],
+    capabilities: {
+      _tag: "One",
+      capability: { type: input.capability as CapabilityTypeId },
+    },
+    requirements: typedRequirements(input.requirements ?? []),
+    canonicalScopeResolver: input.canonicalScopeResolver as ScopeResolverId,
+    concealment: { _tag: "Reveal" },
+    decisionTime: input.decisionTime,
+  });
+
+/** Exact object-capability access contract for invitation response operations. */
+export const invitationNativeAccess = (
+  requirements: ReadonlyArray<"recruitment.invitation-pending">,
+  decisionTime: AuthorizationMode,
+): AccessSpec =>
+  makeAccessSpec({
+    exposure: "External",
+    acceptedCredentials: [
+      { _tag: "ObjectCapability", capabilityType: INVITATION_RESPONSE_CAPABILITY },
+    ],
+    principalKinds: ["CapabilityHolder"],
+    capabilities: { _tag: "One", capability: { type: INVITATION_RESPONSE_CAPABILITY } },
+    requirements: typedRequirements(requirements),
+    canonicalScopeResolver: "recruitment.invitation-response-by-capability",
+    concealment: {
+      _tag: "NotFound",
+      conceal: ["CredentialFailure", "PrincipalKind", "Capability", "Scope", "Requirement"],
+    },
+    decisionTime,
+  });
+
+/** Exact isolated internal receipt evidence access contract. */
+export const internalReceiptEvidenceAccess = (): AccessSpec =>
+  makeAccessSpec({
+    exposure: "Internal",
+    acceptedCredentials: [{ _tag: "BetterAuthCookie" }],
+    principalKinds: ["Person"],
+    capabilities: {
+      _tag: "One",
+      capability: { type: "receipts.read-internal-evidence" },
+    },
+    requirements: typedRequirements(["internal-evidence.enabled", "receipts.owner"]),
+    canonicalScopeResolver: "receipts.by-id",
+    concealment: { _tag: "Reveal" },
+    decisionTime: "SnapshotRead",
+  });
 import { Context, Option } from "effect";
 import { HttpApiEndpoint, OpenApi } from "effect/unstable/httpapi";
 

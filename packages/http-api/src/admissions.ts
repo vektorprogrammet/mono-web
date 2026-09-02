@@ -20,6 +20,7 @@ import {
 import { DepartmentId, SemesterId } from "@vektorprogrammet/domain/organization";
 import { Schema } from "effect";
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema, OpenApi } from "effect/unstable/httpapi";
+import { annotateAccessSpec, anonymousNativeAccess, personNativeAccess } from "./access.js";
 import { errorBody, operationAnnotations, SessionSecurity } from "./common.js";
 
 /**
@@ -181,26 +182,34 @@ const ApplicationObservation201 = PublicApplicationSubmitObservationSchema.pipe(
 /** @since 0.1.0 @category Endpoints */
 export const ListOpenAdmissionPeriodsEndpoint = HttpApiEndpoint.get(
   "listOpenAdmissionPeriods",
-  "/api/admission-periods/open",
+  "/api/open-admission-periods",
   { success: AdmissionPeriodListResponse, error: PublicAdmissionErrors },
-).annotateMerge(
-  operationAnnotations(
-    "List open admission periods",
-    "Returns currently open native admission periods.",
-  ),
-);
+)
+  .pipe((endpoint) =>
+    annotateAccessSpec(endpoint, anonymousNativeAccess("admissions.public-open-periods")),
+  )
+  .annotateMerge(
+    operationAnnotations(
+      "List open admission periods",
+      "Returns currently open native admission periods.",
+    ),
+  );
 
 /** @since 0.1.0 @category Endpoints */
 export const ReadApplicationCatalogEndpoint = HttpApiEndpoint.get(
-  "readApplicationCatalog",
-  "/api/applications/catalog",
+  "listApplicationOptions",
+  "/api/application-options",
   { success: PublicApplicationCatalogSchema, error: PublicAdmissionErrors },
-).annotateMerge(
-  operationAnnotations(
-    "Read application catalog",
-    "Returns departments and fields open to applicants.",
-  ),
-);
+)
+  .pipe((endpoint) =>
+    annotateAccessSpec(endpoint, anonymousNativeAccess("admissions.public-application-options")),
+  )
+  .annotateMerge(
+    operationAnnotations(
+      "List application options",
+      "Returns departments and fields open to applicants.",
+    ),
+  );
 
 /** @since 0.1.0 @category Endpoints */
 export const SubmitApplicationEndpoint = HttpApiEndpoint.post(
@@ -211,33 +220,54 @@ export const SubmitApplicationEndpoint = HttpApiEndpoint.post(
     success: [ApplicationObservation200, ApplicationObservation201],
     error: PublicAdmissionErrors,
   },
-).annotateMerge(
-  operationAnnotations("Submit application", "Submits or replays a public applicant command."),
-);
+)
+  .pipe((endpoint) =>
+    annotateAccessSpec(
+      endpoint,
+      anonymousNativeAccess("admissions.application-create", "Transaction"),
+    ),
+  )
+  .annotateMerge(
+    operationAnnotations("Submit application", "Submits or replays a public applicant command."),
+  );
 
 /** @since 0.1.0 @category Endpoints */
 export const ReadApplicationConfirmationEndpoint = HttpApiEndpoint.get(
   "readApplicationConfirmation",
-  "/api/applications/:applicationId/confirmation",
+  "/api/applications/:applicationId",
   {
     params: { applicationId: Schema.String.pipe(Schema.check(Schema.isMinLength(1))) },
     success: PublicApplicationConfirmationSchema,
     error: PublicAdmissionErrors,
   },
-).annotateMerge(
-  operationAnnotations(
-    "Read application confirmation",
-    "Returns the public confirmation projection.",
-  ),
-);
+)
+  .pipe((endpoint) =>
+    annotateAccessSpec(endpoint, anonymousNativeAccess("admissions.public-application-by-id")),
+  )
+  .annotateMerge(
+    operationAnnotations(
+      "Read application confirmation",
+      "Returns the public confirmation projection.",
+    ),
+  );
 
 /** @since 0.1.0 @category Endpoints */
 export const ListAdmissionPeriodsEndpoint = HttpApiEndpoint.get(
   "listAdmissionPeriods",
-  "/api/admin/admission-periods",
+  "/api/admission-periods",
   { success: AdmissionPeriodListResponse, error: AdminAdmissionErrors },
 )
   .middleware(SessionSecurity)
+  .pipe((endpoint) =>
+    annotateAccessSpec(
+      endpoint,
+      personNativeAccess({
+        capability: "admissions.read-periods",
+        canonicalScopeResolver: "admissions.management-periods",
+        decisionTime: "SnapshotRead",
+      }),
+    ),
+  )
   .annotateMerge(
     operationAnnotations(
       "List admission periods",
@@ -248,7 +278,7 @@ export const ListAdmissionPeriodsEndpoint = HttpApiEndpoint.get(
 /** @since 0.1.0 @category Endpoints */
 export const CreateAdmissionPeriodEndpoint = HttpApiEndpoint.post(
   "createAdmissionPeriod",
-  "/api/admin/admission-periods",
+  "/api/admission-periods",
   {
     payload: CreateAdmissionPeriodPayload,
     success: [AdmissionObservation200, AdmissionObservation201],
@@ -256,6 +286,16 @@ export const CreateAdmissionPeriodEndpoint = HttpApiEndpoint.post(
   },
 )
   .middleware(SessionSecurity)
+  .pipe((endpoint) =>
+    annotateAccessSpec(
+      endpoint,
+      personNativeAccess({
+        capability: "admissions.create-period",
+        canonicalScopeResolver: "admissions.period-create",
+        decisionTime: "Transaction",
+      }),
+    ),
+  )
   .annotateMerge(
     operationAnnotations(
       "Create admission period",
@@ -264,9 +304,9 @@ export const CreateAdmissionPeriodEndpoint = HttpApiEndpoint.post(
   );
 
 /** @since 0.1.0 @category Endpoints */
-export const ReviseAdmissionPeriodEndpoint = HttpApiEndpoint.post(
+export const ReviseAdmissionPeriodEndpoint = HttpApiEndpoint.patch(
   "reviseAdmissionPeriod",
-  "/api/admin/admission-periods/:admissionPeriodId/revise",
+  "/api/admission-periods/:admissionPeriodId",
   {
     params: { admissionPeriodId: AdmissionPeriodId },
     payload: ReviseAdmissionPeriodPayload,
@@ -275,6 +315,16 @@ export const ReviseAdmissionPeriodEndpoint = HttpApiEndpoint.post(
   },
 )
   .middleware(SessionSecurity)
+  .pipe((endpoint) =>
+    annotateAccessSpec(
+      endpoint,
+      personNativeAccess({
+        capability: "admissions.revise-period",
+        canonicalScopeResolver: "admissions.period-by-id",
+        decisionTime: "Transaction",
+      }),
+    ),
+  )
   .annotateMerge(
     operationAnnotations(
       "Revise admission period",

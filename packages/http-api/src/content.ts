@@ -23,6 +23,7 @@ import {
 import { DepartmentId } from "@vektorprogrammet/domain/organization";
 import { Schema } from "effect";
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema, OpenApi } from "effect/unstable/httpapi";
+import { annotateAccessSpec, anonymousNativeAccess, personNativeAccess } from "./access.js";
 import { errorBody, operationAnnotations, SessionSecurity } from "./common.js";
 
 /**
@@ -170,10 +171,20 @@ export const NewsArticleExample = {
 /** @since 0.1.0 @category Endpoints */
 export const ReadContentWorkspaceEndpoint = HttpApiEndpoint.get(
   "readContentWorkspace",
-  "/api/admin/content/workspace",
+  "/api/content/articles",
   { query: ContentDepartmentQuery, success: ContentWorkspaceSchema, error: ContentErrors },
 )
   .middleware(SessionSecurity)
+  .pipe((endpoint) =>
+    annotateAccessSpec(
+      endpoint,
+      personNativeAccess({
+        capability: "content.read-workspace",
+        canonicalScopeResolver: "content.articles",
+        decisionTime: "SnapshotRead",
+      }),
+    ),
+  )
   .annotateMerge(
     operationAnnotations(
       "Read content workspace",
@@ -184,7 +195,7 @@ export const ReadContentWorkspaceEndpoint = HttpApiEndpoint.get(
 /** @since 0.1.0 @category Endpoints */
 export const CreateArticleEndpoint = HttpApiEndpoint.post(
   "createArticle",
-  "/api/admin/content/articles",
+  "/api/content/articles",
   {
     payload: CreateArticleDraftInputSchema.annotate({
       identifier: "CreateArticleDraftInput",
@@ -196,6 +207,16 @@ export const CreateArticleEndpoint = HttpApiEndpoint.post(
   },
 )
   .middleware(SessionSecurity)
+  .pipe((endpoint) =>
+    annotateAccessSpec(
+      endpoint,
+      personNativeAccess({
+        capability: "content.create-article",
+        canonicalScopeResolver: "content.article-create",
+        decisionTime: "Transaction",
+      }),
+    ),
+  )
   .annotateMerge(
     operationAnnotations(
       "Create article draft",
@@ -208,18 +229,28 @@ const ArticleParams = { articleId: ArticleId };
 /** @since 0.1.0 @category Endpoints */
 export const ReadArticleEndpoint = HttpApiEndpoint.get(
   "readArticle",
-  "/api/admin/content/articles/:articleId",
+  "/api/content/articles/:articleId",
   { params: ArticleParams, success: ContentArticleDetailSchema, error: ContentErrors },
 )
   .middleware(SessionSecurity)
+  .pipe((endpoint) =>
+    annotateAccessSpec(
+      endpoint,
+      personNativeAccess({
+        capability: "content.read-article",
+        canonicalScopeResolver: "content.article-by-id",
+        decisionTime: "SnapshotRead",
+      }),
+    ),
+  )
   .annotateMerge(
     operationAnnotations("Read article detail", "Returns one staff article detail projection."),
   );
 
 /** @since 0.1.0 @category Endpoints */
-export const ReviseArticleEndpoint = HttpApiEndpoint.put(
+export const ReviseArticleEndpoint = HttpApiEndpoint.patch(
   "reviseArticle",
-  "/api/admin/content/articles/:articleId",
+  "/api/content/articles/:articleId",
   {
     params: ArticleParams,
     payload: ReviseArticleDraftInputSchema.annotate({
@@ -232,6 +263,17 @@ export const ReviseArticleEndpoint = HttpApiEndpoint.put(
   },
 )
   .middleware(SessionSecurity)
+  .pipe((endpoint) =>
+    annotateAccessSpec(
+      endpoint,
+      personNativeAccess({
+        capability: "content.revise-article",
+        canonicalScopeResolver: "content.article-by-id",
+        requirements: ["content.draft", "content.owner"],
+        decisionTime: "Transaction",
+      }),
+    ),
+  )
   .annotateMerge(
     operationAnnotations(
       "Revise article draft",
@@ -242,7 +284,7 @@ export const ReviseArticleEndpoint = HttpApiEndpoint.put(
 /** @since 0.1.0 @category Endpoints */
 export const PublishArticleEndpoint = HttpApiEndpoint.post(
   "publishArticle",
-  "/api/admin/content/articles/:articleId/publish",
+  "/api/content/articles/:articleId::publish",
   {
     params: ArticleParams,
     payload: PublishArticleInputSchema.annotate({
@@ -259,6 +301,17 @@ export const PublishArticleEndpoint = HttpApiEndpoint.post(
   },
 )
   .middleware(SessionSecurity)
+  .pipe((endpoint) =>
+    annotateAccessSpec(
+      endpoint,
+      personNativeAccess({
+        capability: "content.publish-article",
+        canonicalScopeResolver: "content.article-by-id",
+        requirements: ["content.publishable"],
+        decisionTime: "Transaction",
+      }),
+    ),
+  )
   .annotateMerge(
     operationAnnotations("Publish article", "Publishes a new immutable article version."),
   );
@@ -266,7 +319,7 @@ export const PublishArticleEndpoint = HttpApiEndpoint.post(
 /** @since 0.1.0 @category Endpoints */
 export const UnpublishArticleEndpoint = HttpApiEndpoint.post(
   "unpublishArticle",
-  "/api/admin/content/articles/:articleId/unpublish",
+  "/api/content/articles/:articleId::unpublish",
   {
     params: ArticleParams,
     payload: UnpublishArticleInputSchema.annotate({
@@ -283,6 +336,17 @@ export const UnpublishArticleEndpoint = HttpApiEndpoint.post(
   },
 )
   .middleware(SessionSecurity)
+  .pipe((endpoint) =>
+    annotateAccessSpec(
+      endpoint,
+      personNativeAccess({
+        capability: "content.publish-article",
+        canonicalScopeResolver: "content.article-by-id",
+        requirements: ["content.unpublishable"],
+        decisionTime: "Transaction",
+      }),
+    ),
+  )
   .annotateMerge(
     operationAnnotations(
       "Unpublish article",
@@ -299,9 +363,11 @@ export const ListNewsEndpoint = HttpApiEndpoint.get("listNews", "/api/news", {
     examples: [NewsListingExample],
   }),
   error: ContentErrors,
-}).annotateMerge(
-  operationAnnotations("List published news", "Returns the current public native news listing."),
-);
+})
+  .pipe((endpoint) => annotateAccessSpec(endpoint, anonymousNativeAccess("content.public-news")))
+  .annotateMerge(
+    operationAnnotations("List published news", "Returns the current public native news listing."),
+  );
 
 /** @since 0.1.0 @category Endpoints */
 export const ReadNewsArticleEndpoint = HttpApiEndpoint.get("readNewsArticle", "/api/news/:slug", {
@@ -313,12 +379,16 @@ export const ReadNewsArticleEndpoint = HttpApiEndpoint.get("readNewsArticle", "/
     examples: [NewsArticleExample],
   }),
   error: ContentErrors,
-}).annotateMerge(
-  operationAnnotations(
-    "Read published news article",
-    "Returns the current or selected published version.",
-  ),
-);
+})
+  .pipe((endpoint) =>
+    annotateAccessSpec(endpoint, anonymousNativeAccess("content.public-news-by-slug")),
+  )
+  .annotateMerge(
+    operationAnnotations(
+      "Read published news article",
+      "Returns the current or selected published version.",
+    ),
+  );
 
 /**
  * Staff content management and public news API.

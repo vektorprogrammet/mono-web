@@ -6,7 +6,9 @@ import { ExternalNativeApi, InternalNativeApi } from "../src/api.js";
 import {
   annotateAccessSpec,
   assertAccessProjectionRegistryParity,
+  projectVektorAccess,
   reflectAccessSpec,
+  type VektorAccessProjection,
 } from "../src/access.js";
 import { HealthEndpoint } from "../src/system.js";
 import {
@@ -47,7 +49,520 @@ const documentedOperations = () => {
   );
 };
 
+type ExpectedOperation = readonly [
+  method: string,
+  path: string,
+  operationId: string,
+  access: VektorAccessProjection,
+];
+const expectedAccess = (input: {
+  readonly credentials: ReadonlyArray<string>;
+  readonly principals: ReadonlyArray<string>;
+  readonly capability?: string;
+  readonly resolver: string;
+  readonly requirements?: ReadonlyArray<string>;
+  readonly concealment?: ReadonlyArray<string>;
+  readonly decisionTime: "SnapshotRead" | "Transaction";
+  readonly exposure?: "External" | "Internal";
+}): VektorAccessProjection => ({
+  exposure: input.exposure ?? "External",
+  acceptedCredentials: input.credentials,
+  principalKinds: input.principals,
+  capabilities: input.capability === undefined ? { none: true } : { one: input.capability },
+  requirements: (input.requirements ?? []).map((id) => ({ id })),
+  canonicalScopeResolver: input.resolver,
+  concealment:
+    input.concealment === undefined
+      ? { mode: "Reveal", stages: [] }
+      : { mode: "NotFound", stages: [...input.concealment].sort() },
+  decisionTime: input.decisionTime,
+});
+const anonymous = (
+  resolver: string,
+  decisionTime: "SnapshotRead" | "Transaction" = "SnapshotRead",
+) =>
+  expectedAccess({
+    credentials: ["None"],
+    principals: ["Anonymous"],
+    resolver,
+    decisionTime,
+  });
+const cookie = (
+  resolver: string,
+  requirements: ReadonlyArray<string>,
+  decisionTime: "SnapshotRead" | "Transaction",
+  concealment?: ReadonlyArray<string>,
+) =>
+  expectedAccess({
+    credentials: ["BetterAuthCookie"],
+    principals: ["Person"],
+    resolver,
+    requirements,
+    concealment,
+    decisionTime,
+  });
+const person = (
+  capability: string,
+  resolver: string,
+  requirements: ReadonlyArray<string>,
+  decisionTime: "SnapshotRead" | "Transaction",
+) =>
+  expectedAccess({
+    credentials: ["BetterAuthCookie", "OAuthUserBearer"],
+    principals: ["Person"],
+    capability,
+    resolver,
+    requirements,
+    decisionTime,
+  });
+const invitation = (
+  requirements: ReadonlyArray<string>,
+  decisionTime: "SnapshotRead" | "Transaction",
+) =>
+  expectedAccess({
+    credentials: ["ObjectCapability"],
+    principals: ["CapabilityHolder"],
+    capability: "recruitment.invitation-response",
+    resolver: "recruitment.invitation-response-by-capability",
+    requirements,
+    concealment: ["CredentialFailure", "PrincipalKind", "Capability", "Scope", "Requirement"],
+    decisionTime,
+  });
+const expectedOperations: ReadonlyArray<ExpectedOperation> = [
+  ["GET", "/health", "system.health", anonymous("system.health")],
+  [
+    "GET",
+    "/api/session",
+    "system.readSession",
+    cookie("identity.current-session", [], "SnapshotRead"),
+  ],
+  [
+    "DELETE",
+    "/api/session",
+    "system.deleteSession",
+    cookie("identity.current-session", [], "Transaction"),
+  ],
+  [
+    "GET",
+    "/api/sessions",
+    "system.listSessions",
+    cookie("identity.owned-sessions", ["sessions.owner"], "SnapshotRead"),
+  ],
+  [
+    "DELETE",
+    "/api/sessions/:sessionId",
+    "system.deleteOwnedSession",
+    cookie("identity.session-by-id", ["sessions.owner"], "Transaction", ["Requirement"]),
+  ],
+  [
+    "POST",
+    "/api/sessions:revoke-others",
+    "system.revokeOtherSessions",
+    cookie("identity.current-session", [], "Transaction"),
+  ],
+  [
+    "POST",
+    "/api/sessions:revoke-all",
+    "system.revokeAllSessions",
+    cookie("identity.current-session", [], "Transaction"),
+  ],
+  [
+    "GET",
+    "/api/profile",
+    "profile.readOwnProfile",
+    person("profile.read-self", "profile.current-person", ["profile.owner"], "SnapshotRead"),
+  ],
+  [
+    "PATCH",
+    "/api/profile",
+    "profile.updateOwnProfile",
+    person("profile.update-self", "profile.current-person", ["profile.owner"], "Transaction"),
+  ],
+  [
+    "GET",
+    "/api/departments",
+    "organization.listDepartments",
+    anonymous("organization.public-departments"),
+  ],
+  ["GET", "/api/teams", "organization.listTeams", anonymous("organization.public-teams")],
+  [
+    "GET",
+    "/api/field-of-studies",
+    "organization.listFieldOfStudies",
+    anonymous("organization.public-field-of-studies"),
+  ],
+  [
+    "GET",
+    "/api/team-interest-registrations",
+    "organization.listTeamInterest",
+    person(
+      "organization.read-team-interest",
+      "organization.team-interest-registrations",
+      [],
+      "SnapshotRead",
+    ),
+  ],
+  [
+    "GET",
+    "/api/mailing-lists",
+    "organization.listMailingLists",
+    person("organization.read-mailing-lists", "organization.mailing-lists", [], "SnapshotRead"),
+  ],
+  [
+    "POST",
+    "/api/departments",
+    "organization.createDepartment",
+    person("organization.create-department", "organization.department-create", [], "Transaction"),
+  ],
+  [
+    "POST",
+    "/api/teams",
+    "organization.createTeam",
+    person("organization.create-team", "organization.team-create", [], "Transaction"),
+  ],
+  [
+    "POST",
+    "/api/field-of-studies",
+    "organization.createFieldOfStudy",
+    person(
+      "organization.create-field-of-study",
+      "organization.field-of-study-create",
+      [],
+      "Transaction",
+    ),
+  ],
+  [
+    "GET",
+    "/api/people",
+    "directory.listPeople",
+    person("profile.read-directory", "profile.people-directory", [], "SnapshotRead"),
+  ],
+  [
+    "GET",
+    "/api/schools",
+    "directory.listSchools",
+    person("schools.read-directory", "schools.directory", [], "SnapshotRead"),
+  ],
+  [
+    "GET",
+    "/api/open-admission-periods",
+    "admissions.listOpenAdmissionPeriods",
+    anonymous("admissions.public-open-periods"),
+  ],
+  [
+    "GET",
+    "/api/application-options",
+    "admissions.listApplicationOptions",
+    anonymous("admissions.public-application-options"),
+  ],
+  [
+    "POST",
+    "/api/applications",
+    "admissions.submitApplication",
+    anonymous("admissions.application-create", "Transaction"),
+  ],
+  [
+    "GET",
+    "/api/applications/:applicationId",
+    "admissions.readApplicationConfirmation",
+    anonymous("admissions.public-application-by-id"),
+  ],
+  [
+    "GET",
+    "/api/admission-periods",
+    "admissions.listAdmissionPeriods",
+    person("admissions.read-periods", "admissions.management-periods", [], "SnapshotRead"),
+  ],
+  [
+    "POST",
+    "/api/admission-periods",
+    "admissions.createAdmissionPeriod",
+    person("admissions.create-period", "admissions.period-create", [], "Transaction"),
+  ],
+  [
+    "PATCH",
+    "/api/admission-periods/:admissionPeriodId",
+    "admissions.reviseAdmissionPeriod",
+    person("admissions.revise-period", "admissions.period-by-id", [], "Transaction"),
+  ],
+  [
+    "GET",
+    "/api/recruitment/invitation-response",
+    "recruitment.readInvitationResponse",
+    invitation([], "SnapshotRead"),
+  ],
+  [
+    "POST",
+    "/api/recruitment/invitation-response:confirm",
+    "recruitment.confirmInvitation",
+    invitation(["recruitment.invitation-pending"], "Transaction"),
+  ],
+  [
+    "POST",
+    "/api/recruitment/invitation-response:reject",
+    "recruitment.rejectInvitation",
+    invitation(["recruitment.invitation-pending"], "Transaction"),
+  ],
+  [
+    "POST",
+    "/api/recruitment/invitation-response:request-new-time",
+    "recruitment.requestNewInvitationTime",
+    invitation(["recruitment.invitation-pending"], "Transaction"),
+  ],
+  [
+    "GET",
+    "/api/recruitment/application-assignments",
+    "recruitment.readAssignmentBoard",
+    person(
+      "reviewApplicants",
+      "recruitment.application-assignments",
+      ["organization.single-department-leader"],
+      "SnapshotRead",
+    ),
+  ],
+  [
+    "GET",
+    "/api/recruitment/interviews",
+    "recruitment.readSchedulingBoard",
+    person(
+      "recruitment.read-interviews",
+      "recruitment.interviews",
+      ["organization.single-department-member"],
+      "SnapshotRead",
+    ),
+  ],
+  [
+    "POST",
+    "/api/recruitment/applications/:applicationId/interviews",
+    "recruitment.createApplicationInterview",
+    person(
+      "reviewApplicants",
+      "recruitment.application-by-id",
+      ["organization.single-department-leader", "recruitment.interviewer-eligible"],
+      "Transaction",
+    ),
+  ],
+  [
+    "POST",
+    "/api/recruitment/interviews/:interviewId:schedule",
+    "recruitment.scheduleInterview",
+    person(
+      "recruitment.schedule-interview",
+      "recruitment.interview-by-id",
+      ["recruitment.assigned-interviewer-or-leader"],
+      "Transaction",
+    ),
+  ],
+  [
+    "GET",
+    "/api/recruitment/interviews/:interviewId",
+    "recruitment.readInterviewConduct",
+    person(
+      "recruitment.conduct-interview",
+      "recruitment.interview-by-id",
+      ["recruitment.assigned-interviewer"],
+      "SnapshotRead",
+    ),
+  ],
+  [
+    "POST",
+    "/api/recruitment/interviews/:interviewId:finalize",
+    "recruitment.finalizeInterview",
+    person(
+      "recruitment.conduct-interview",
+      "recruitment.interview-by-id",
+      ["recruitment.assigned-interviewer"],
+      "Transaction",
+    ),
+  ],
+  [
+    "POST",
+    "/api/recruitment/interviews/:interviewId:cancel",
+    "recruitment.cancelInterview",
+    person(
+      "recruitment.conduct-interview",
+      "recruitment.interview-by-id",
+      ["recruitment.assigned-interviewer"],
+      "Transaction",
+    ),
+  ],
+  [
+    "POST",
+    "/api/receipts",
+    "receipts.submitReceipt",
+    person("submitReceipt", "receipts.create", [], "Transaction"),
+  ],
+  [
+    "PATCH",
+    "/api/receipts/:receiptId",
+    "receipts.reviseReceipt",
+    person(
+      "receipts.manage-owned",
+      "receipts.by-id",
+      ["receipts.owner", "receipts.pending"],
+      "Transaction",
+    ),
+  ],
+  [
+    "POST",
+    "/api/receipts/:receiptId:withdraw",
+    "receipts.withdrawReceipt",
+    person(
+      "receipts.manage-owned",
+      "receipts.by-id",
+      ["receipts.owner", "receipts.pending"],
+      "Transaction",
+    ),
+  ],
+  [
+    "GET",
+    "/api/receipts",
+    "receipts.listReceipts",
+    person("receipts.read-owned", "receipts.owned", ["receipts.owner"], "SnapshotRead"),
+  ],
+  [
+    "GET",
+    "/api/receipt-approval-queue",
+    "receipts.listReceiptsForApproval",
+    person(
+      "approveReceipt",
+      "receipts.approval-queue",
+      ["receipts.pending", "receipts.approver-relationship"],
+      "SnapshotRead",
+    ),
+  ],
+  [
+    "POST",
+    "/api/receipts/:receiptId:refund",
+    "receipts.refundReceipt",
+    person(
+      "approveReceipt",
+      "receipts.by-id",
+      ["receipts.pending", "receipts.approver-relationship"],
+      "Transaction",
+    ),
+  ],
+  [
+    "POST",
+    "/api/receipts/:receiptId:reject",
+    "receipts.rejectReceipt",
+    person(
+      "approveReceipt",
+      "receipts.by-id",
+      ["receipts.pending", "receipts.approver-relationship"],
+      "Transaction",
+    ),
+  ],
+  [
+    "GET",
+    "/api/content/articles",
+    "content.readContentWorkspace",
+    person("content.read-workspace", "content.articles", [], "SnapshotRead"),
+  ],
+  [
+    "POST",
+    "/api/content/articles",
+    "content.createArticle",
+    person("content.create-article", "content.article-create", [], "Transaction"),
+  ],
+  [
+    "GET",
+    "/api/content/articles/:articleId",
+    "content.readArticle",
+    person("content.read-article", "content.article-by-id", [], "SnapshotRead"),
+  ],
+  [
+    "PATCH",
+    "/api/content/articles/:articleId",
+    "content.reviseArticle",
+    person(
+      "content.revise-article",
+      "content.article-by-id",
+      ["content.draft", "content.owner"],
+      "Transaction",
+    ),
+  ],
+  [
+    "POST",
+    "/api/content/articles/:articleId:publish",
+    "content.publishArticle",
+    person(
+      "content.publish-article",
+      "content.article-by-id",
+      ["content.publishable"],
+      "Transaction",
+    ),
+  ],
+  [
+    "POST",
+    "/api/content/articles/:articleId:unpublish",
+    "content.unpublishArticle",
+    person(
+      "content.publish-article",
+      "content.article-by-id",
+      ["content.unpublishable"],
+      "Transaction",
+    ),
+  ],
+  ["GET", "/api/news", "content.listNews", anonymous("content.public-news")],
+  ["GET", "/api/news/:slug", "content.readNewsArticle", anonymous("content.public-news-by-slug")],
+  [
+    "GET",
+    "/api/receipt-lifecycle-evidence-records/:receiptId",
+    "internal.readReceiptEvidence",
+    expectedAccess({
+      exposure: "Internal",
+      credentials: ["BetterAuthCookie"],
+      principals: ["Person"],
+      capability: "receipts.read-internal-evidence",
+      resolver: "receipts.by-id",
+      requirements: ["internal-evidence.enabled", "receipts.owner"],
+      decisionTime: "SnapshotRead",
+    }),
+  ],
+];
+
+const reflectedOperations = () =>
+  [
+    ...Object.values(ExternalNativeApi.groups).flatMap((group) =>
+      Object.values(group.endpoints).map((endpoint) => ({ group, endpoint })),
+    ),
+    ...Object.values(InternalNativeApi.groups).flatMap((group) =>
+      Object.values(group.endpoints).map((endpoint) => ({ group, endpoint })),
+    ),
+  ].map(({ group, endpoint }): ExpectedOperation => {
+    const reflected = reflectAccessSpec(endpoint);
+    if (reflected._tag === "None") {
+      throw new TypeError(`${group.identifier}.${endpoint.identifier} has no AccessSpec`);
+    }
+    return [
+      endpoint.method,
+      endpoint.path.replaceAll("::", ":"),
+      `${group.identifier}.${endpoint.identifier}`,
+      projectVektorAccess(reflected.value),
+    ];
+  });
+
 describe("native API reflection", () => {
+  it("equals the frozen 53-row matrix without a gap or legacy authority", () => {
+    const actual = reflectedOperations();
+    const authorities = actual.map(([method, path]) => `${method} ${path}`);
+    const operationIds = actual.map(([, , operationId]) => operationId);
+
+    expect(actual).toEqual(expectedOperations);
+    expect(actual).toHaveLength(53);
+    expect(new Set(authorities).size).toBe(53);
+    expect(new Set(operationIds).size).toBe(53);
+    expect(authorities.some((authority) => /\/api\/admin(?:\/|$)/u.test(authority))).toBe(false);
+    expect(
+      authorities.some((authority) =>
+        /\/api\/(?:me|field_of_studies|receipts\/submit|e2e)(?:\/|$)/u.test(authority),
+      ),
+    ).toBe(false);
+    expect(
+      authorities.some((authority) => /::|\/(?:revise|publish|unpublish)$/u.test(authority)),
+    ).toBe(false);
+  });
   it("keeps 52 external authorities and one internal authority on separate roots", () => {
     const external = endpointInventory();
     const internal = internalEndpointInventory();
@@ -61,7 +576,7 @@ describe("native API reflection", () => {
         group: "internal",
         identifier: "readReceiptEvidence",
         method: "GET",
-        path: "/api/e2e/receipts/:receiptId/evidence",
+        path: "/api/receipt-lifecycle-evidence-records/:receiptId",
       },
     ]);
   });
@@ -86,7 +601,7 @@ describe("native API reflection", () => {
       principalKinds: ["Anonymous"],
       capabilities: { none: true },
       requirements: [],
-      canonicalScopeResolver: "system.public",
+      canonicalScopeResolver: "system.health",
       concealment: { mode: "Reveal", stages: [] },
       decisionTime: "SnapshotRead",
     });
@@ -160,15 +675,13 @@ describe("native API reflection", () => {
     expect(spec.paths["/api/session"]?.get?.security[0]?.cookieHeader).toEqual([]);
     expect(spec.paths["/api/departments"]?.get?.responses["200"]).toBeDefined();
     expect(spec.paths["/api/session"]?.get?.responses["401"]).toBeDefined();
-    expect(spec.paths["/api/admin/departments"]?.post?.responses["201"]).toBeDefined();
+    expect(spec.paths["/api/departments"]?.post?.responses["201"]).toBeDefined();
     expect(
-      spec.paths["/api/receipts/submit"]?.post?.requestBody?.content["multipart/form-data"],
+      spec.paths["/api/receipts"]?.post?.requestBody?.content["multipart/form-data"],
     ).toBeDefined();
-    expect(spec.paths["/api/receipts/submit"]?.post?.responses["422"]).toBeDefined();
+    expect(spec.paths["/api/receipts"]?.post?.responses["422"]).toBeDefined();
     expect(
-      spec.paths["/api/admin/recruitment/interviews/{interviewId}/finalize"]?.post?.responses[
-        "409"
-      ],
+      spec.paths["/api/recruitment/interviews/{interviewId}:finalize"]?.post?.responses["409"],
     ).toBeDefined();
     expect(spec.paths["/api/news/{slug}"]?.get?.responses["200"]).toBeDefined();
   });

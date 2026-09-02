@@ -255,6 +255,7 @@ const ConductObservationExample: any = {
 
 import { Schema } from "effect";
 import { HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/unstable/httpapi";
+import { annotateAccessSpec, invitationNativeAccess, personNativeAccess } from "./access.js";
 import {
   errorBody,
   InvitationCapabilitySecurity,
@@ -440,6 +441,7 @@ export const ReadInvitationResponseEndpoint = HttpApiEndpoint.get(
   { success: InvitationResponseObservation, error: RecruitmentErrors },
 )
   .middleware(InvitationCapabilitySecurity)
+  .pipe((endpoint) => annotateAccessSpec(endpoint, invitationNativeAccess([], "SnapshotRead")))
   .annotateMerge(
     operationAnnotations(
       "Read invitation response",
@@ -450,10 +452,16 @@ export const ReadInvitationResponseEndpoint = HttpApiEndpoint.get(
 /** @since 0.1.0 @category Endpoints */
 export const ConfirmInvitationEndpoint = HttpApiEndpoint.post(
   "confirmInvitation",
-  "/api/recruitment/invitation-response/confirm",
+  "/api/recruitment/invitation-response::confirm",
   { payload: ConfirmInvitationPayload, error: RecruitmentErrors },
 )
   .middleware(InvitationCapabilitySecurity)
+  .pipe((endpoint) =>
+    annotateAccessSpec(
+      endpoint,
+      invitationNativeAccess(["recruitment.invitation-pending"], "Transaction"),
+    ),
+  )
   .annotateMerge(
     operationAnnotations("Confirm invitation", "Accepts an interview invitation by capability."),
   );
@@ -461,10 +469,16 @@ export const ConfirmInvitationEndpoint = HttpApiEndpoint.post(
 /** @since 0.1.0 @category Endpoints */
 export const RejectInvitationEndpoint = HttpApiEndpoint.post(
   "rejectInvitation",
-  "/api/recruitment/invitation-response/reject",
+  "/api/recruitment/invitation-response::reject",
   { payload: InvitationRejectInput, error: RecruitmentErrors },
 )
   .middleware(InvitationCapabilitySecurity)
+  .pipe((endpoint) =>
+    annotateAccessSpec(
+      endpoint,
+      invitationNativeAccess(["recruitment.invitation-pending"], "Transaction"),
+    ),
+  )
   .annotateMerge(
     operationAnnotations("Reject invitation", "Rejects an interview invitation by capability."),
   );
@@ -472,10 +486,16 @@ export const RejectInvitationEndpoint = HttpApiEndpoint.post(
 /** @since 0.1.0 @category Endpoints */
 export const RequestNewInvitationTimeEndpoint = HttpApiEndpoint.post(
   "requestNewInvitationTime",
-  "/api/recruitment/invitation-response/request-new-time",
+  "/api/recruitment/invitation-response::request-new-time",
   { payload: InvitationRequestNewTimeInput, error: RecruitmentErrors },
 )
   .middleware(InvitationCapabilitySecurity)
+  .pipe((endpoint) =>
+    annotateAccessSpec(
+      endpoint,
+      invitationNativeAccess(["recruitment.invitation-pending"], "Transaction"),
+    ),
+  )
   .annotateMerge(
     operationAnnotations(
       "Request a new invitation time",
@@ -486,7 +506,7 @@ export const RequestNewInvitationTimeEndpoint = HttpApiEndpoint.post(
 /** @since 0.1.0 @category Endpoints */
 export const ReadAssignmentBoardEndpoint = HttpApiEndpoint.get(
   "readAssignmentBoard",
-  "/api/admin/recruitment/assignment-board",
+  "/api/recruitment/application-assignments",
   {
     query: RecruitmentAssignmentBoardQuerySchema.fields,
     success: AssignmentBoard,
@@ -494,6 +514,17 @@ export const ReadAssignmentBoardEndpoint = HttpApiEndpoint.get(
   },
 )
   .middleware(SessionSecurity)
+  .pipe((endpoint) =>
+    annotateAccessSpec(
+      endpoint,
+      personNativeAccess({
+        capability: "reviewApplicants",
+        canonicalScopeResolver: "recruitment.application-assignments",
+        requirements: ["organization.single-department-leader"],
+        decisionTime: "SnapshotRead",
+      }),
+    ),
+  )
   .annotateMerge(
     operationAnnotations(
       "Read assignment board",
@@ -504,10 +535,21 @@ export const ReadAssignmentBoardEndpoint = HttpApiEndpoint.get(
 /** @since 0.1.0 @category Endpoints */
 export const ReadSchedulingBoardEndpoint = HttpApiEndpoint.get(
   "readSchedulingBoard",
-  "/api/admin/recruitment/interviews/scheduling-board",
+  "/api/recruitment/interviews",
   { success: SchedulingBoard, error: RecruitmentErrors },
 )
   .middleware(SessionSecurity)
+  .pipe((endpoint) =>
+    annotateAccessSpec(
+      endpoint,
+      personNativeAccess({
+        capability: "recruitment.read-interviews",
+        canonicalScopeResolver: "recruitment.interviews",
+        requirements: ["organization.single-department-member"],
+        decisionTime: "SnapshotRead",
+      }),
+    ),
+  )
   .annotateMerge(
     operationAnnotations(
       "Read scheduling board",
@@ -517,15 +559,27 @@ export const ReadSchedulingBoardEndpoint = HttpApiEndpoint.get(
 
 /** @since 0.1.0 @category Endpoints */
 export const AssignApplicantEndpoint = HttpApiEndpoint.post(
-  "assignApplicant",
-  "/api/admin/recruitment/interviews/assign",
+  "createApplicationInterview",
+  "/api/recruitment/applications/:applicationId/interviews",
   {
+    params: { applicationId: PublicApplicationIdSchema },
     payload: AssignmentCommand,
     success: AssignmentResult,
     error: RecruitmentErrors,
   },
 )
   .middleware(SessionSecurity)
+  .pipe((endpoint) =>
+    annotateAccessSpec(
+      endpoint,
+      personNativeAccess({
+        capability: "reviewApplicants",
+        canonicalScopeResolver: "recruitment.application-by-id",
+        requirements: ["organization.single-department-leader", "recruitment.interviewer-eligible"],
+        decisionTime: "Transaction",
+      }),
+    ),
+  )
   .annotateMerge(
     operationAnnotations("Assign applicant", "Assigns an applicant to an eligible interviewer."),
   );
@@ -533,7 +587,7 @@ export const AssignApplicantEndpoint = HttpApiEndpoint.post(
 /** @since 0.1.0 @category Endpoints */
 export const ScheduleInterviewEndpoint = HttpApiEndpoint.post(
   "scheduleInterview",
-  "/api/admin/recruitment/interviews/schedule",
+  "/api/recruitment/interviews/:interviewId::schedule",
   {
     payload: ScheduleCommand,
     success: ScheduleResult,
@@ -541,6 +595,17 @@ export const ScheduleInterviewEndpoint = HttpApiEndpoint.post(
   },
 )
   .middleware(SessionSecurity)
+  .pipe((endpoint) =>
+    annotateAccessSpec(
+      endpoint,
+      personNativeAccess({
+        capability: "recruitment.schedule-interview",
+        canonicalScopeResolver: "recruitment.interview-by-id",
+        requirements: ["recruitment.assigned-interviewer-or-leader"],
+        decisionTime: "Transaction",
+      }),
+    ),
+  )
   .annotateMerge(
     operationAnnotations("Schedule interview", "Schedules an assigned interview and invitation."),
   );
@@ -548,7 +613,7 @@ export const ScheduleInterviewEndpoint = HttpApiEndpoint.post(
 /** @since 0.1.0 @category Endpoints */
 export const ReadInterviewConductEndpoint = HttpApiEndpoint.get(
   "readInterviewConduct",
-  "/api/admin/recruitment/interviews/:interviewId/conduct",
+  "/api/recruitment/interviews/:interviewId",
   {
     params: { interviewId: RecruitmentInterviewId },
     success: ConductObservation,
@@ -556,6 +621,17 @@ export const ReadInterviewConductEndpoint = HttpApiEndpoint.get(
   },
 )
   .middleware(SessionSecurity)
+  .pipe((endpoint) =>
+    annotateAccessSpec(
+      endpoint,
+      personNativeAccess({
+        capability: "recruitment.conduct-interview",
+        canonicalScopeResolver: "recruitment.interview-by-id",
+        requirements: ["recruitment.assigned-interviewer"],
+        decisionTime: "SnapshotRead",
+      }),
+    ),
+  )
   .annotateMerge(
     operationAnnotations(
       "Read interview conduct",
@@ -566,7 +642,7 @@ export const ReadInterviewConductEndpoint = HttpApiEndpoint.get(
 /** @since 0.1.0 @category Endpoints */
 export const FinalizeInterviewEndpoint = HttpApiEndpoint.post(
   "finalizeInterview",
-  "/api/admin/recruitment/interviews/:interviewId/finalize",
+  "/api/recruitment/interviews/:interviewId::finalize",
   {
     params: { interviewId: RecruitmentInterviewId },
     payload: FinalizeCommand,
@@ -575,6 +651,17 @@ export const FinalizeInterviewEndpoint = HttpApiEndpoint.post(
   },
 )
   .middleware(SessionSecurity)
+  .pipe((endpoint) =>
+    annotateAccessSpec(
+      endpoint,
+      personNativeAccess({
+        capability: "recruitment.conduct-interview",
+        canonicalScopeResolver: "recruitment.interview-by-id",
+        requirements: ["recruitment.assigned-interviewer"],
+        decisionTime: "Transaction",
+      }),
+    ),
+  )
   .annotateMerge(
     operationAnnotations("Finalize interview", "Records answers and scores for an interview."),
   );
@@ -582,7 +669,7 @@ export const FinalizeInterviewEndpoint = HttpApiEndpoint.post(
 /** @since 0.1.0 @category Endpoints */
 export const CancelInterviewEndpoint = HttpApiEndpoint.post(
   "cancelInterview",
-  "/api/admin/recruitment/interviews/:interviewId/cancel",
+  "/api/recruitment/interviews/:interviewId::cancel",
   {
     params: { interviewId: RecruitmentInterviewId },
     payload: CancelCommand,
@@ -591,6 +678,17 @@ export const CancelInterviewEndpoint = HttpApiEndpoint.post(
   },
 )
   .middleware(SessionSecurity)
+  .pipe((endpoint) =>
+    annotateAccessSpec(
+      endpoint,
+      personNativeAccess({
+        capability: "recruitment.conduct-interview",
+        canonicalScopeResolver: "recruitment.interview-by-id",
+        requirements: ["recruitment.assigned-interviewer"],
+        decisionTime: "Transaction",
+      }),
+    ),
+  )
   .annotateMerge(
     operationAnnotations("Cancel interview", "Cancels an interview before finalization."),
   );

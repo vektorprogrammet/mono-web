@@ -378,7 +378,7 @@ export const AdmissionsApiHandlers = (input: AdmissionApiHttpOptions) =>
         .handleRaw("listOpenAdmissionPeriods", ({ request }) =>
           toHttpApiResponse(request, (webRequest) => listOpen(webRequest, input), errorResponse),
         )
-        .handleRaw("readApplicationCatalog", ({ request }) =>
+        .handleRaw("listApplicationOptions", ({ request }) =>
           toHttpApiResponse(
             request,
             (webRequest) => listPublicCatalog(webRequest, input),

@@ -3,7 +3,10 @@
  *
  * @since 0.1.0
  */
-import { INTERNAL_RECEIPT_EVIDENCE_ACCESS } from "@vektorprogrammet/domain/authz";
+import {
+  INTERNAL_RECEIPT_EVIDENCE_ACCESS,
+  RECEIPT_APPROVAL_QUEUE_ACCESS,
+} from "@vektorprogrammet/domain/authz";
 import {
   ReceiptId,
   ReceiptObservationSchema,
@@ -12,7 +15,7 @@ import {
 import { Schema } from "effect";
 import { Multipart } from "effect/unstable/http";
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema, OpenApi } from "effect/unstable/httpapi";
-import { annotateAccessSpec } from "./access.js";
+import { annotateAccessSpec, personNativeAccess } from "./access.js";
 import { operationAnnotations, receiptErrorBody, SessionSecurity } from "./common.js";
 import { StrongETag } from "./http-semantics.js";
 
@@ -91,7 +94,7 @@ export const ReceiptListItemExample = {
   receiptDate: "2026-08-24",
   status: "Pending",
   revision: 2,
-  etag: '"vkr2.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"',
+  etag: StrongETag.make('"vkr2.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"'),
 } as const;
 
 export const ReceiptListItem = Schema.Struct({
@@ -121,7 +124,7 @@ export const ReceiptListItem = Schema.Struct({
       receiptDate: "2026-08-24",
       status: "Pending",
       revision: 2,
-      etag: '"vkr2.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"',
+      etag: StrongETag.make('"vkr2.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"'),
     },
   ],
 });
@@ -268,7 +271,7 @@ const MultipartHeaders = { "content-length": Schema.String };
 const ReceiptParams = { receiptId: ReceiptId };
 
 /** @since 0.1.0 @category Endpoints */
-export const SubmitReceiptEndpoint = HttpApiEndpoint.post("submitReceipt", "/api/receipts/submit", {
+export const SubmitReceiptEndpoint = HttpApiEndpoint.post("submitReceipt", "/api/receipts", {
   query: { departmentId: Schema.optional(Schema.String) },
   headers: MultipartHeaders,
   payload: SubmitReceiptMultipart,
@@ -276,6 +279,16 @@ export const SubmitReceiptEndpoint = HttpApiEndpoint.post("submitReceipt", "/api
   error: ReceiptErrors,
 })
   .middleware(SessionSecurity)
+  .pipe((endpoint) =>
+    annotateAccessSpec(
+      endpoint,
+      personNativeAccess({
+        capability: "submitReceipt",
+        canonicalScopeResolver: "receipts.create",
+        decisionTime: "Transaction",
+      }),
+    ),
+  )
   .annotateMerge(
     operationAnnotations(
       "Submit receipt",
@@ -284,9 +297,9 @@ export const SubmitReceiptEndpoint = HttpApiEndpoint.post("submitReceipt", "/api
   );
 
 /** @since 0.1.0 @category Endpoints */
-export const ReviseReceiptEndpoint = HttpApiEndpoint.post(
+export const ReviseReceiptEndpoint = HttpApiEndpoint.patch(
   "reviseReceipt",
-  "/api/receipts/:receiptId/revise",
+  "/api/receipts/:receiptId",
   {
     params: ReceiptParams,
     headers: MultipartHeaders,
@@ -296,6 +309,17 @@ export const ReviseReceiptEndpoint = HttpApiEndpoint.post(
   },
 )
   .middleware(SessionSecurity)
+  .pipe((endpoint) =>
+    annotateAccessSpec(
+      endpoint,
+      personNativeAccess({
+        capability: "receipts.manage-owned",
+        canonicalScopeResolver: "receipts.by-id",
+        requirements: ["receipts.owner", "receipts.pending"],
+        decisionTime: "Transaction",
+      }),
+    ),
+  )
   .annotateMerge(
     operationAnnotations("Revise receipt", "Revises a pending owned receipt and optional file."),
   );
@@ -303,7 +327,7 @@ export const ReviseReceiptEndpoint = HttpApiEndpoint.post(
 /** @since 0.1.0 @category Endpoints */
 export const WithdrawReceiptEndpoint = HttpApiEndpoint.post(
   "withdrawReceipt",
-  "/api/receipts/:receiptId/withdraw",
+  "/api/receipts/:receiptId::withdraw",
   {
     params: ReceiptParams,
     payload: ReceiptRevisionCommand,
@@ -312,6 +336,17 @@ export const WithdrawReceiptEndpoint = HttpApiEndpoint.post(
   },
 )
   .middleware(SessionSecurity)
+  .pipe((endpoint) =>
+    annotateAccessSpec(
+      endpoint,
+      personNativeAccess({
+        capability: "receipts.manage-owned",
+        canonicalScopeResolver: "receipts.by-id",
+        requirements: ["receipts.owner", "receipts.pending"],
+        decisionTime: "Transaction",
+      }),
+    ),
+  )
   .annotateMerge(
     operationAnnotations(
       "Withdraw receipt",
@@ -326,6 +361,17 @@ export const ListReceiptsEndpoint = HttpApiEndpoint.get("listReceipts", "/api/re
   error: ReceiptErrors,
 })
   .middleware(SessionSecurity)
+  .pipe((endpoint) =>
+    annotateAccessSpec(
+      endpoint,
+      personNativeAccess({
+        capability: "receipts.read-owned",
+        canonicalScopeResolver: "receipts.owned",
+        requirements: ["receipts.owner"],
+        decisionTime: "SnapshotRead",
+      }),
+    ),
+  )
   .annotateMerge(
     operationAnnotations("List owned receipts", "Lists receipts owned by the current person."),
   );
@@ -333,10 +379,11 @@ export const ListReceiptsEndpoint = HttpApiEndpoint.get("listReceipts", "/api/re
 /** @since 0.1.0 @category Endpoints */
 export const ListReceiptsForApprovalEndpoint = HttpApiEndpoint.get(
   "listReceiptsForApproval",
-  "/api/admin/receipts",
+  "/api/receipt-approval-queue",
   { query: ReceiptStatusQuery, success: ReceiptApprovalQueueResponse, error: ReceiptErrors },
 )
   .middleware(SessionSecurity)
+  .pipe((endpoint) => annotateAccessSpec(endpoint, RECEIPT_APPROVAL_QUEUE_ACCESS))
   .annotateMerge(
     operationAnnotations(
       "List receipts for approval",
@@ -347,7 +394,7 @@ export const ListReceiptsForApprovalEndpoint = HttpApiEndpoint.get(
 /** @since 0.1.0 @category Endpoints */
 export const RefundReceiptEndpoint = HttpApiEndpoint.post(
   "refundReceipt",
-  "/api/admin/receipts/:receiptId/refund",
+  "/api/receipts/:receiptId::refund",
   {
     params: ReceiptParams,
     payload: ReceiptRevisionCommand,
@@ -356,12 +403,23 @@ export const RefundReceiptEndpoint = HttpApiEndpoint.post(
   },
 )
   .middleware(SessionSecurity)
+  .pipe((endpoint) =>
+    annotateAccessSpec(
+      endpoint,
+      personNativeAccess({
+        capability: "approveReceipt",
+        canonicalScopeResolver: "receipts.by-id",
+        requirements: ["receipts.pending", "receipts.approver-relationship"],
+        decisionTime: "Transaction",
+      }),
+    ),
+  )
   .annotateMerge(operationAnnotations("Refund receipt", "Approves a pending receipt for refund."));
 
 /** @since 0.1.0 @category Endpoints */
 export const RejectReceiptEndpoint = HttpApiEndpoint.post(
   "rejectReceipt",
-  "/api/admin/receipts/:receiptId/reject",
+  "/api/receipts/:receiptId::reject",
   {
     params: ReceiptParams,
     payload: ReceiptRevisionCommand,
@@ -370,6 +428,17 @@ export const RejectReceiptEndpoint = HttpApiEndpoint.post(
   },
 )
   .middleware(SessionSecurity)
+  .pipe((endpoint) =>
+    annotateAccessSpec(
+      endpoint,
+      personNativeAccess({
+        capability: "approveReceipt",
+        canonicalScopeResolver: "receipts.by-id",
+        requirements: ["receipts.pending", "receipts.approver-relationship"],
+        decisionTime: "Transaction",
+      }),
+    ),
+  )
   .annotateMerge(operationAnnotations("Reject receipt", "Rejects a pending receipt."));
 
 /**
@@ -397,7 +466,7 @@ export class ReceiptsApi extends HttpApiGroup.make("receipts")
 
 /** @since 0.1.0 @category Endpoints */
 export const ReadReceiptEvidenceEndpoint = annotateAccessSpec(
-  HttpApiEndpoint.get("readReceiptEvidence", "/api/e2e/receipts/:receiptId/evidence", {
+  HttpApiEndpoint.get("readReceiptEvidence", "/api/receipt-lifecycle-evidence-records/:receiptId", {
     params: ReceiptParams,
     success: ReceiptLifecycleEvidenceResponse,
     error: ReceiptErrors,

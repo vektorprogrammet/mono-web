@@ -1,0 +1,29 @@
+diff --git a/dist/unstable/httpapi/OpenApi.js b/dist/unstable/httpapi/OpenApi.js
+index 6ee892b4d89fa14f429f79c2e6f57837300a8a80..a619e1e4f0e8d4ab050bf3f1baf548120caeea5f 100644
+--- a/dist/unstable/httpapi/OpenApi.js
++++ b/dist/unstable/httpapi/OpenApi.js
+@@ -295,7 +295,7 @@ function fromApiWith(api, cache, compileSchemas) {
+         security: [],
+         responses: {}
+       };
+-      const path = endpoint.path.replace(/:(\w+)\??/g, "{$1}");
++      const path = endpoint.path.replaceAll("::", "\uE000").replace(/:(\w+)\??/g, "{$1}").replaceAll("\uE000", ":");
+       const method = endpoint.method.toLowerCase();
+       function processResponseBodies(bodies, defaultDescription) {
+         for (const [status, {
+diff --git a/src/unstable/httpapi/OpenApi.ts b/src/unstable/httpapi/OpenApi.ts
+index c7ff5bff44f56a370b62ceb821be0cd5c2a77462..f3fe6297be41186023d1b5f5261e70fd8598b6e8 100644
+--- a/src/unstable/httpapi/OpenApi.ts
++++ b/src/unstable/httpapi/OpenApi.ts
+@@ -382,7 +382,10 @@ function fromApiWith<Id extends string, Groups extends HttpApiGroup.Constraint>(
+         responses: {}
+       }
+ 
+-      const path = endpoint.path.replace(/:(\w+)\??/g, "{$1}")
++      const path = endpoint.path
++        .replaceAll("::", "\uE000")
++        .replace(/:(\w+)\??/g, "{$1}")
++        .replaceAll("\uE000", ":")
+       const method = endpoint.method.toLowerCase() as OpenAPISpecMethodName
+ 
+       function processResponseBodies(bodies: ResponseBodies, defaultDescription: () => string) {

@@ -6,6 +6,7 @@ import { DepartmentId } from "@vektorprogrammet/domain/organization";
 import { SchoolDirectorySchema, SchoolId } from "@vektorprogrammet/domain/schools";
 import { Schema } from "effect";
 import { HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/unstable/httpapi";
+import { annotateAccessSpec, personNativeAccess } from "./access.js";
 import { errorBody, operationAnnotations, SessionSecurity } from "./common.js";
 
 /**
@@ -90,11 +91,21 @@ const DirectoryUnavailableResponse = errorBody(
 );
 
 /** @since 0.1.0 @category Endpoints */
-export const ListAdminUsersEndpoint = HttpApiEndpoint.get("listAdminUsers", "/api/admin/users", {
+export const ListAdminUsersEndpoint = HttpApiEndpoint.get("listPeople", "/api/people", {
   success: PeopleDirectoryResponse,
   error: [DirectoryForbiddenResponse, DirectoryDecodeResponse, DirectoryUnavailableResponse],
 })
   .middleware(SessionSecurity)
+  .pipe((endpoint) =>
+    annotateAccessSpec(
+      endpoint,
+      personNativeAccess({
+        capability: "profile.read-directory",
+        canonicalScopeResolver: "profile.people-directory",
+        decisionTime: "SnapshotRead",
+      }),
+    ),
+  )
   .annotateMerge(
     operationAnnotations(
       "List admin users",
@@ -135,7 +146,7 @@ export const SchoolDirectoryExample = {
 } as const;
 
 /** @since 0.1.0 @category Endpoints */
-export const ListSchoolsEndpoint = HttpApiEndpoint.get("listSchools", "/api/admin/schools", {
+export const ListSchoolsEndpoint = HttpApiEndpoint.get("listSchools", "/api/schools", {
   query: { department: Schema.optional(DepartmentId) },
   success: SchoolDirectorySchema.annotate({
     identifier: "SchoolDirectory",
@@ -145,6 +156,16 @@ export const ListSchoolsEndpoint = HttpApiEndpoint.get("listSchools", "/api/admi
   error: [SchoolsForbiddenResponse, SchoolsDecodeResponse, SchoolsUnavailableResponse],
 })
   .middleware(SessionSecurity)
+  .pipe((endpoint) =>
+    annotateAccessSpec(
+      endpoint,
+      personNativeAccess({
+        capability: "schools.read-directory",
+        canonicalScopeResolver: "schools.directory",
+        decisionTime: "SnapshotRead",
+      }),
+    ),
+  )
   .annotateMerge(
     operationAnnotations("List schools", "Returns the native school directory in authority scope."),
   );

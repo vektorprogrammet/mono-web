@@ -6,7 +6,7 @@
 import { PUBLIC_SYSTEM_ACCESS } from "@vektorprogrammet/domain/authz";
 import { Schema } from "effect";
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema, OpenApi } from "effect/unstable/httpapi";
-import { annotateAccessSpec } from "./access.js";
+import { annotateAccessSpec, browserSessionNativeAccess } from "./access.js";
 import { errorBody, operationAnnotations, SessionSecurity } from "./common.js";
 
 export const HealthOkResponse = Schema.Struct({ status: Schema.Literals(["ok"]) })
@@ -73,6 +73,15 @@ export const ReadSessionEndpoint = HttpApiEndpoint.get("readSession", "/api/sess
   error: IdentityEngineUnavailableResponse,
 })
   .middleware(SessionSecurity)
+  .pipe((endpoint) =>
+    annotateAccessSpec(
+      endpoint,
+      browserSessionNativeAccess({
+        canonicalScopeResolver: "identity.current-session",
+        decisionTime: "SnapshotRead",
+      }),
+    ),
+  )
   .annotateMerge(
     operationAnnotations(
       "Read current session",
@@ -84,6 +93,15 @@ export const DeleteSessionEndpoint = HttpApiEndpoint.delete("deleteSession", "/a
   error: IdentityEngineUnavailableResponse,
 })
   .middleware(SessionSecurity)
+  .pipe((endpoint) =>
+    annotateAccessSpec(
+      endpoint,
+      browserSessionNativeAccess({
+        canonicalScopeResolver: "identity.current-session",
+        decisionTime: "Transaction",
+      }),
+    ),
+  )
   .annotateMerge(
     operationAnnotations("End current session", "Revokes the authoritative current session."),
   );
@@ -93,6 +111,16 @@ export const ListSessionsEndpoint = HttpApiEndpoint.get("listSessions", "/api/se
   error: IdentityEngineUnavailableResponse,
 })
   .middleware(SessionSecurity)
+  .pipe((endpoint) =>
+    annotateAccessSpec(
+      endpoint,
+      browserSessionNativeAccess({
+        canonicalScopeResolver: "identity.owned-sessions",
+        requirements: ["sessions.owner"],
+        decisionTime: "SnapshotRead",
+      }),
+    ),
+  )
   .annotateMerge(
     operationAnnotations(
       "List current person's sessions",
@@ -109,6 +137,17 @@ export const DeleteOwnedSessionEndpoint = HttpApiEndpoint.delete(
   },
 )
   .middleware(SessionSecurity)
+  .pipe((endpoint) =>
+    annotateAccessSpec(
+      endpoint,
+      browserSessionNativeAccess({
+        canonicalScopeResolver: "identity.session-by-id",
+        requirements: ["sessions.owner"],
+        concealRequirement: true,
+        decisionTime: "Transaction",
+      }),
+    ),
+  )
   .annotateMerge(
     operationAnnotations(
       "Revoke one session",
@@ -122,6 +161,15 @@ export const RevokeOtherSessionsEndpoint = HttpApiEndpoint.post(
   { error: IdentityEngineUnavailableResponse },
 )
   .middleware(SessionSecurity)
+  .pipe((endpoint) =>
+    annotateAccessSpec(
+      endpoint,
+      browserSessionNativeAccess({
+        canonicalScopeResolver: "identity.current-session",
+        decisionTime: "Transaction",
+      }),
+    ),
+  )
   .annotateMerge(
     operationAnnotations(
       "Revoke other sessions",
@@ -135,6 +183,15 @@ export const RevokeAllSessionsEndpoint = HttpApiEndpoint.post(
   { error: IdentityEngineUnavailableResponse },
 )
   .middleware(SessionSecurity)
+  .pipe((endpoint) =>
+    annotateAccessSpec(
+      endpoint,
+      browserSessionNativeAccess({
+        canonicalScopeResolver: "identity.current-session",
+        decisionTime: "Transaction",
+      }),
+    ),
+  )
   .annotateMerge(
     operationAnnotations(
       "Revoke all sessions",

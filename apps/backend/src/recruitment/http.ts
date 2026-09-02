@@ -1,4 +1,5 @@
 import { type Database } from "@vektorprogrammet/domain/database";
+import { PublicApplicationIdSchema } from "@vektorprogrammet/domain/application";
 import { Admissions } from "@vektorprogrammet/domain/admissions";
 import { Profile } from "@vektorprogrammet/domain/profile";
 import {
@@ -349,6 +350,7 @@ const readSchedulingBoard = async (
 
 const assignApplicant = async (
   request: Request,
+  applicationId: typeof PublicApplicationIdSchema.Type,
   input: RecruitmentApiHttpOptions,
 ): Promise<Response> => {
   if (new URL(request.url).search !== "") throw taggedError("RecruitmentDecodeError");
@@ -358,6 +360,7 @@ const assignApplicant = async (
     RecruitmentAssignmentCommandSchema,
     input.config.maxBodyBytes,
   );
+  if (command.applicationId !== applicationId) throw taggedError("RecruitmentDecodeError");
   const result = await input.run(
     Recruitment.use(({ assignApplicant: assign }) =>
       assign(command, {
@@ -574,10 +577,10 @@ export const RecruitmentApiHandlers = (input: RecruitmentApiHttpOptions) =>
             errorResponse,
           ),
         )
-        .handleRaw("assignApplicant", ({ request }) =>
+        .handleRaw("createApplicationInterview", ({ request, params }) =>
           toHttpApiResponse(
             request,
-            (webRequest) => assignApplicant(webRequest, input),
+            (webRequest) => assignApplicant(webRequest, params.applicationId, input),
             errorResponse,
           ),
         )

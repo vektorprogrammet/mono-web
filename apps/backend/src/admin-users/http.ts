@@ -159,7 +159,7 @@ export const AdminUsersApiHandlers = (
   HttpApiBuilder.group(ExternalNativeApi, "directory", (handlers) =>
     Effect.succeed(
       handlers
-        .handleRaw("listAdminUsers", ({ request }) =>
+        .handleRaw("listPeople", ({ request }) =>
           toHttpApiResponse(
             request,
             (webRequest) => listAdminUsers(webRequest, input),

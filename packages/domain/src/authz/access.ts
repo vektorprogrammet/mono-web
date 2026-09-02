@@ -1,5 +1,10 @@
 import { Effect, Schema } from "effect";
 import { DepartmentId, PersonId } from "../organization/schema.js";
+import {
+  RecruitmentInterviewId,
+  RecruitmentInvitationId,
+  RecruitmentInvitationResponseStateSchema,
+} from "../recruitment/schema.js";
 import { compareRfc3339Instants, Rfc3339InstantSchema } from "../time.js";
 
 const TrimmedNonEmpty = Schema.String.pipe(
@@ -29,7 +34,29 @@ export const CAPABILITY_TYPE_IDS = [
   "approveReceipt",
   "submitReceipt",
   "reviewApplicants",
+  "profile.read-self",
+  "profile.update-self",
+  "organization.read-team-interest",
+  "organization.read-mailing-lists",
+  "organization.create-department",
+  "organization.create-team",
+  "organization.create-field-of-study",
+  "profile.read-directory",
+  "schools.read-directory",
+  "admissions.read-periods",
+  "admissions.create-period",
+  "admissions.revise-period",
   "recruitment.invitation-response",
+  "recruitment.read-interviews",
+  "recruitment.schedule-interview",
+  "recruitment.conduct-interview",
+  "receipts.manage-owned",
+  "receipts.read-owned",
+  "content.read-workspace",
+  "content.create-article",
+  "content.read-article",
+  "content.revise-article",
+  "content.publish-article",
   "receipts.read-internal-evidence",
 ] as const;
 const ruleTargetCapabilityTypeIds: ReadonlySet<(typeof CAPABILITY_TYPE_IDS)[number]> = new Set([
@@ -87,7 +114,23 @@ export type DomainId = typeof DomainId.Type;
 export const RECEIPT_DOMAIN_ID = DomainId.make("receipts");
 export const SYSTEM_DOMAIN_ID = DomainId.make("system");
 
-export const RESOURCE_KIND_VALUES = ["receipt", "recruitment-invitation"] as const;
+export const RESOURCE_KIND_VALUES = [
+  "identity-session",
+  "person-profile",
+  "organization-department",
+  "organization-team",
+  "organization-field-of-study",
+  "organization-team-interest-registration",
+  "organization-mailing-list",
+  "person",
+  "school",
+  "admission-period",
+  "application",
+  "recruitment-invitation-response",
+  "recruitment-interview",
+  "receipt",
+  "content-article",
+] as const;
 export const RESOURCE_KINDS = Object.fromEntries(
   RESOURCE_KIND_VALUES.map((kind) => [kind, true]),
 ) as {
@@ -98,15 +141,29 @@ export const ResourceKind = Schema.Literals(RESOURCE_KIND_VALUES).pipe(
 );
 export type ResourceKind = typeof ResourceKind.Type;
 export const RECEIPT_RESOURCE_KIND = ResourceKind.make("receipt");
-export const RECRUITMENT_INVITATION_RESOURCE_KIND = ResourceKind.make("recruitment-invitation");
+export const RECRUITMENT_INVITATION_RESOURCE_KIND = ResourceKind.make(
+  "recruitment-invitation-response",
+);
 export const ResourceId = TrimmedNonEmpty.pipe(Schema.brand("ResourceId"));
 export type ResourceId = typeof ResourceId.Type;
 
 export const REQUIREMENT_IDS = [
+  "sessions.owner",
+  "profile.owner",
+  "organization.single-department-leader",
+  "organization.single-department-member",
+  "recruitment.interviewer-eligible",
+  "recruitment.assigned-interviewer-or-leader",
+  "recruitment.assigned-interviewer",
+  "recruitment.invitation-pending",
   "internal-evidence.enabled",
   "receipts.owner",
   "receipts.pending",
   "receipts.approver-relationship",
+  "content.draft",
+  "content.owner",
+  "content.publishable",
+  "content.unpublishable",
 ] as const;
 export const RequirementId = Schema.Literals(REQUIREMENT_IDS).pipe(Schema.brand("RequirementId"));
 const requirementRegistryKey = (id: RequirementId): (typeof REQUIREMENT_IDS)[number] => id;
@@ -119,9 +176,42 @@ export const RECEIPT_PENDING_REQUIREMENT = RequirementId.make("receipts.pending"
 export const RECEIPT_APPROVER_REQUIREMENT = RequirementId.make("receipts.approver-relationship");
 
 export const SCOPE_RESOLVER_IDS = [
+  "system.health",
+  "identity.current-session",
+  "identity.owned-sessions",
+  "identity.session-by-id",
+  "profile.current-person",
+  "organization.public-departments",
+  "organization.public-teams",
+  "organization.public-field-of-studies",
+  "organization.team-interest-registrations",
+  "organization.mailing-lists",
+  "organization.department-create",
+  "organization.team-create",
+  "organization.field-of-study-create",
+  "profile.people-directory",
+  "schools.directory",
+  "admissions.public-open-periods",
+  "admissions.public-application-options",
+  "admissions.application-create",
+  "admissions.public-application-by-id",
+  "admissions.management-periods",
+  "admissions.period-create",
+  "admissions.period-by-id",
+  "recruitment.invitation-response-by-capability",
+  "recruitment.application-assignments",
+  "recruitment.interviews",
+  "recruitment.application-by-id",
+  "recruitment.interview-by-id",
+  "receipts.create",
   "receipts.by-id",
+  "receipts.owned",
   "receipts.approval-queue",
-  "system.public",
+  "content.articles",
+  "content.article-create",
+  "content.article-by-id",
+  "content.public-news",
+  "content.public-news-by-slug",
 ] as const;
 export const ScopeResolverId = Schema.Literals(SCOPE_RESOLVER_IDS).pipe(
   Schema.brand("ScopeResolverId"),
@@ -129,10 +219,9 @@ export const ScopeResolverId = Schema.Literals(SCOPE_RESOLVER_IDS).pipe(
 const scopeResolverRegistryKey = (id: ScopeResolverId): (typeof SCOPE_RESOLVER_IDS)[number] => id;
 export type ScopeResolverId = typeof ScopeResolverId.Type;
 export const RECEIPT_BY_ID_SCOPE_RESOLVER = ScopeResolverId.make("receipts.by-id");
-export const RECEIPT_APPROVAL_QUEUE_SCOPE_RESOLVER = ScopeResolverId.make(
-  "receipts.approval-queue",
-);
-export const SYSTEM_PUBLIC_SCOPE_RESOLVER = ScopeResolverId.make("system.public");
+export const RECEIPT_APPROVAL_QUEUE_SCOPE_RESOLVER =
+  ScopeResolverId.make("receipts.approval-queue");
+export const SYSTEM_PUBLIC_SCOPE_RESOLVER = ScopeResolverId.make("system.health");
 
 export const PrincipalSchema = Schema.TaggedUnion({
   Anonymous: {},
@@ -271,6 +360,16 @@ export const ReceiptAccessFactsSchema = Schema.Struct({
   internalEvidenceEnabled: Schema.Boolean,
 });
 export type ReceiptAccessFacts = typeof ReceiptAccessFactsSchema.Type;
+export const InvitationResponseAccessFactsSchema = Schema.Struct({
+  capabilityId: CapabilityId,
+  invitationId: RecruitmentInvitationId,
+  interviewId: RecruitmentInterviewId,
+  departmentId: DepartmentId,
+  responseState: RecruitmentInvitationResponseStateSchema,
+  responseRevision: RevisionSchema,
+  supersededAt: Schema.NullOr(Rfc3339InstantSchema),
+});
+export type InvitationResponseAccessFacts = typeof InvitationResponseAccessFactsSchema.Type;
 export interface CanonicalResourceContext<C = unknown> {
   readonly domainId: DomainId;
   readonly departmentId: DepartmentId | null;
@@ -300,20 +399,31 @@ const ReceiptRequirementContextSchema = Schema.Struct({
     ),
   ),
 );
-const PublicResourceContextSchema = Schema.Struct({
+const InvitationRequirementContextSchema = Schema.Struct({
+  domainId: DomainId,
+  departmentId: DepartmentId,
+  resource: ResourceRefSchema,
+  facts: InvitationResponseAccessFactsSchema,
+  authorityVersion: AuthorityVersion,
+}).pipe(
+  Schema.check(
+    Schema.makeFilter(
+      (context) =>
+        context.domainId === "recruitment" &&
+        context.resource.kind === RECRUITMENT_INVITATION_RESOURCE_KIND &&
+        String(context.resource.id) === String(context.facts.invitationId) &&
+        context.departmentId === context.facts.departmentId,
+      { message: "a canonical recruitment invitation response context" },
+    ),
+  ),
+);
+const GenericRequirementContextSchema = Schema.Struct({
   domainId: DomainId,
   departmentId: Schema.NullOr(DepartmentId),
   resource: Schema.NullOr(ResourceRefSchema),
   facts: Schema.Record(Schema.String, Schema.Unknown),
   authorityVersion: AuthorityVersion,
-}).pipe(
-  Schema.check(
-    Schema.makeFilter(
-      (context) => context.domainId === SYSTEM_DOMAIN_ID && context.resource === null,
-      { message: "a canonical public system context" },
-    ),
-  ),
-);
+});
 
 type RegisteredRequirementEvaluation =
   | { readonly _tag: "Satisfied" }
@@ -321,92 +431,232 @@ type RegisteredRequirementEvaluation =
 type RequirementEvaluator = (
   parameters: typeof EmptyRequirementParametersSchema.Type,
   principal: Principal,
-  context: typeof ReceiptRequirementContextSchema.Type,
+  context: CanonicalResourceContext<Record<string, unknown>>,
 ) => RegisteredRequirementEvaluation;
-const requirementEvaluators = [
-  (
-    _parameters: typeof EmptyRequirementParametersSchema.Type,
-    _principal: Principal,
-    context: typeof ReceiptRequirementContextSchema.Type,
-  ): RegisteredRequirementEvaluation =>
-    context.facts.internalEvidenceEnabled
-      ? { _tag: "Satisfied" }
-      : { _tag: "Failed", reason: "Disabled" },
-  (
-    _parameters: typeof EmptyRequirementParametersSchema.Type,
-    principal: Principal,
-    context: typeof ReceiptRequirementContextSchema.Type,
-  ): RegisteredRequirementEvaluation =>
-    principal._tag === "Person" && principal.personId === context.facts.ownerPersonId
-      ? { _tag: "Satisfied" }
-      : { _tag: "Failed", reason: "NotOwner" },
-  (
-    _parameters: typeof EmptyRequirementParametersSchema.Type,
-    _principal: Principal,
-    context: typeof ReceiptRequirementContextSchema.Type,
-  ): RegisteredRequirementEvaluation =>
-    context.facts.state === "Pending"
-      ? { _tag: "Satisfied" }
-      : { _tag: "Failed", reason: "NotPending" },
-  (
-    _parameters: typeof EmptyRequirementParametersSchema.Type,
-    principal: Principal,
-    context: typeof ReceiptRequirementContextSchema.Type,
-  ): RegisteredRequirementEvaluation =>
-    (principal._tag === "Person" &&
-      context.facts.approverPersonIds.includes(principal.personId)) ||
-    (principal._tag === "ServicePrincipal" &&
-      context.facts.approverServicePrincipalIds.includes(principal.servicePrincipalId))
-      ? { _tag: "Satisfied" }
-      : { _tag: "Failed", reason: "NotApprover" },
-] as const satisfies ReadonlyArray<RequirementEvaluator>;
-const requirementResolverIds = [
-  [RECEIPT_BY_ID_SCOPE_RESOLVER],
-  [RECEIPT_BY_ID_SCOPE_RESOLVER],
-  [RECEIPT_BY_ID_SCOPE_RESOLVER, RECEIPT_APPROVAL_QUEUE_SCOPE_RESOLVER],
-  [RECEIPT_BY_ID_SCOPE_RESOLVER, RECEIPT_APPROVAL_QUEUE_SCOPE_RESOLVER],
-] as const satisfies ReadonlyArray<ReadonlyArray<ScopeResolverId>>;
-export const REQUIREMENT_TYPES = Object.fromEntries(
-  REQUIREMENT_IDS.map((id, index) => [
-    id,
-    {
-      resolverIds: requirementResolverIds[index]!,
-      parameterSchema: EmptyRequirementParametersSchema,
-      contextSchema: ReceiptRequirementContextSchema,
-      evaluate: requirementEvaluators[index]!,
+type RequirementContextSchema =
+  | typeof ReceiptRequirementContextSchema
+  | typeof InvitationRequirementContextSchema
+  | typeof GenericRequirementContextSchema;
+interface RequirementRegistration {
+  readonly resolverIds: ReadonlyArray<ScopeResolverId>;
+  readonly parameterSchema: typeof EmptyRequirementParametersSchema;
+  readonly contextSchema: RequirementContextSchema;
+  readonly evaluate: RequirementEvaluator;
+}
+const satisfied: RegisteredRequirementEvaluation = { _tag: "Satisfied" };
+const failed = (reason: string): RegisteredRequirementEvaluation => ({ _tag: "Failed", reason });
+const genericFacts = (context: CanonicalResourceContext<unknown>): Record<string, unknown> =>
+  typeof context.facts === "object" && context.facts !== null
+    ? (context.facts as Record<string, unknown>)
+    : {};
+const personIdIn = (value: unknown, personId: string): boolean =>
+  Array.isArray(value) && value.some((candidate) => candidate === personId);
+const ownedByPerson: RequirementEvaluator = (_parameters, principal, context) =>
+  principal._tag === "Person" && genericFacts(context).ownerPersonId === principal.personId
+    ? satisfied
+    : failed("NotOwner");
+const personListedBy =
+  (key: string): RequirementEvaluator =>
+  (_parameters, principal, context) =>
+    principal._tag === "Person" && personIdIn(genericFacts(context)[key], principal.personId)
+      ? satisfied
+      : failed("NotInScope");
+const stateIs =
+  (state: string): RequirementEvaluator =>
+  (_parameters, _principal, context) =>
+    genericFacts(context).state === state ? satisfied : failed(`Not${state}`);
+const registration = (
+  resolverIds: ReadonlyArray<(typeof SCOPE_RESOLVER_IDS)[number]>,
+  contextSchema: RequirementContextSchema,
+  evaluate: RequirementEvaluator,
+): RequirementRegistration => ({
+  resolverIds: resolverIds.map((id) => ScopeResolverId.make(id)),
+  parameterSchema: EmptyRequirementParametersSchema,
+  contextSchema,
+  evaluate,
+});
+export const REQUIREMENT_TYPES = {
+  "sessions.owner": registration(
+    ["identity.owned-sessions", "identity.session-by-id"],
+    GenericRequirementContextSchema,
+    ownedByPerson,
+  ),
+  "profile.owner": registration(
+    ["profile.current-person"],
+    GenericRequirementContextSchema,
+    ownedByPerson,
+  ),
+  "organization.single-department-leader": registration(
+    ["recruitment.application-assignments", "recruitment.application-by-id"],
+    GenericRequirementContextSchema,
+    personListedBy("departmentLeaderPersonIds"),
+  ),
+  "organization.single-department-member": registration(
+    ["recruitment.interviews"],
+    GenericRequirementContextSchema,
+    personListedBy("departmentMemberPersonIds"),
+  ),
+  "recruitment.interviewer-eligible": registration(
+    ["recruitment.application-by-id"],
+    GenericRequirementContextSchema,
+    personListedBy("eligibleInterviewerPersonIds"),
+  ),
+  "recruitment.assigned-interviewer-or-leader": registration(
+    ["recruitment.interview-by-id"],
+    GenericRequirementContextSchema,
+    (_parameters, principal, context) =>
+      principal._tag === "Person" &&
+      (personIdIn(genericFacts(context).assignedInterviewerPersonIds, principal.personId) ||
+        personIdIn(genericFacts(context).departmentLeaderPersonIds, principal.personId))
+        ? satisfied
+        : failed("NotAssignedInterviewerOrLeader"),
+  ),
+  "recruitment.assigned-interviewer": registration(
+    ["recruitment.interview-by-id"],
+    GenericRequirementContextSchema,
+    personListedBy("assignedInterviewerPersonIds"),
+  ),
+  "recruitment.invitation-pending": registration(
+    ["recruitment.invitation-response-by-capability"],
+    InvitationRequirementContextSchema,
+    (_parameters, _principal, context) => {
+      const facts = context.facts as InvitationResponseAccessFacts;
+      return facts.responseState === "Pending" && facts.supersededAt === null
+        ? satisfied
+        : failed("NotPending");
     },
-  ]),
-) as unknown as {
-  readonly [Id in (typeof REQUIREMENT_IDS)[number]]: {
-    readonly resolverIds: ReadonlyArray<ScopeResolverId>;
-    readonly parameterSchema: typeof EmptyRequirementParametersSchema;
-    readonly contextSchema: typeof ReceiptRequirementContextSchema;
-    readonly evaluate: RequirementEvaluator;
-  };
-};
+  ),
+  "internal-evidence.enabled": registration(
+    ["receipts.by-id"],
+    ReceiptRequirementContextSchema,
+    (_parameters, _principal, context) =>
+      (context.facts as ReceiptAccessFacts).internalEvidenceEnabled
+        ? satisfied
+        : failed("Disabled"),
+  ),
+  "receipts.owner": registration(
+    ["receipts.by-id", "receipts.owned"],
+    ReceiptRequirementContextSchema,
+    ownedByPerson,
+  ),
+  "receipts.pending": registration(
+    ["receipts.by-id", "receipts.approval-queue"],
+    ReceiptRequirementContextSchema,
+    stateIs("Pending"),
+  ),
+  "receipts.approver-relationship": registration(
+    ["receipts.by-id", "receipts.approval-queue"],
+    ReceiptRequirementContextSchema,
+    (_parameters, principal, context) => {
+      const facts = context.facts as ReceiptAccessFacts;
+      return (principal._tag === "Person" &&
+        facts.approverPersonIds.includes(principal.personId)) ||
+        (principal._tag === "ServicePrincipal" &&
+          facts.approverServicePrincipalIds.includes(principal.servicePrincipalId))
+        ? satisfied
+        : failed("NotApprover");
+    },
+  ),
+  "content.draft": registration(
+    ["content.article-by-id"],
+    GenericRequirementContextSchema,
+    stateIs("Draft"),
+  ),
+  "content.owner": registration(
+    ["content.article-by-id"],
+    GenericRequirementContextSchema,
+    ownedByPerson,
+  ),
+  "content.publishable": registration(
+    ["content.article-by-id"],
+    GenericRequirementContextSchema,
+    (_parameters, _principal, context) =>
+      genericFacts(context).publishable === true ? satisfied : failed("NotPublishable"),
+  ),
+  "content.unpublishable": registration(
+    ["content.article-by-id"],
+    GenericRequirementContextSchema,
+    (_parameters, _principal, context) =>
+      genericFacts(context).unpublishable === true ? satisfied : failed("NotUnpublishable"),
+  ),
+} as const satisfies Record<(typeof REQUIREMENT_IDS)[number], RequirementRegistration>;
 
-const scopeResolverRegistrations = [
-  {
-    selection: "ExactlyOne",
-    requirements: REQUIREMENT_IDS,
-    contextSchema: ReceiptRequirementContextSchema,
-  },
-  {
-    selection: "AllMatching",
-    requirements: [RECEIPT_PENDING_REQUIREMENT, RECEIPT_APPROVER_REQUIREMENT],
-    contextSchema: ReceiptRequirementContextSchema,
-  },
-  {
-    selection: "ExactlyOne",
-    requirements: [],
-    contextSchema: PublicResourceContextSchema,
-  },
-] as const;
-export const SCOPE_RESOLVERS = Object.fromEntries(
-  SCOPE_RESOLVER_IDS.map((id, index) => [id, scopeResolverRegistrations[index]!]),
-) as {
-  readonly [Id in (typeof SCOPE_RESOLVER_IDS)[number]]: (typeof scopeResolverRegistrations)[number];
+interface ScopeResolverRegistration {
+  readonly selection: "ExactlyOne" | "AllMatching";
+  readonly requirements: ReadonlyArray<RequirementId>;
+  readonly contextSchema: RequirementContextSchema;
+}
+const collectionResolvers = new Set<string>([
+  "identity.owned-sessions",
+  "organization.public-departments",
+  "organization.public-teams",
+  "organization.public-field-of-studies",
+  "organization.team-interest-registrations",
+  "organization.mailing-lists",
+  "profile.people-directory",
+  "schools.directory",
+  "admissions.public-open-periods",
+  "admissions.public-application-options",
+  "admissions.management-periods",
+  "recruitment.application-assignments",
+  "recruitment.interviews",
+  "receipts.owned",
+  "receipts.approval-queue",
+  "content.articles",
+  "content.public-news",
+]);
+const resolverRequirements: Partial<
+  Record<(typeof SCOPE_RESOLVER_IDS)[number], ReadonlyArray<(typeof REQUIREMENT_IDS)[number]>>
+> = {
+  "identity.owned-sessions": ["sessions.owner"],
+  "identity.session-by-id": ["sessions.owner"],
+  "profile.current-person": ["profile.owner"],
+  "recruitment.invitation-response-by-capability": ["recruitment.invitation-pending"],
+  "recruitment.application-assignments": ["organization.single-department-leader"],
+  "recruitment.interviews": ["organization.single-department-member"],
+  "recruitment.application-by-id": [
+    "organization.single-department-leader",
+    "recruitment.interviewer-eligible",
+  ],
+  "recruitment.interview-by-id": [
+    "recruitment.assigned-interviewer-or-leader",
+    "recruitment.assigned-interviewer",
+  ],
+  "receipts.by-id": [
+    "internal-evidence.enabled",
+    "receipts.owner",
+    "receipts.pending",
+    "receipts.approver-relationship",
+  ],
+  "receipts.owned": ["receipts.owner"],
+  "receipts.approval-queue": ["receipts.pending", "receipts.approver-relationship"],
+  "content.article-by-id": [
+    "content.draft",
+    "content.owner",
+    "content.publishable",
+    "content.unpublishable",
+  ],
 };
+export const SCOPE_RESOLVERS = Object.fromEntries(
+  SCOPE_RESOLVER_IDS.map((id) => {
+    const contextSchema =
+      id === "receipts.by-id" || id === "receipts.owned" || id === "receipts.approval-queue"
+        ? ReceiptRequirementContextSchema
+        : id === "recruitment.invitation-response-by-capability"
+          ? InvitationRequirementContextSchema
+          : GenericRequirementContextSchema;
+    return [
+      id,
+      {
+        selection: collectionResolvers.has(id) ? "AllMatching" : "ExactlyOne",
+        requirements: (resolverRequirements[id] ?? []).map((requirementId) =>
+          RequirementId.make(requirementId),
+        ),
+        contextSchema,
+      } satisfies ScopeResolverRegistration,
+    ];
+  }),
+) as unknown as Record<(typeof SCOPE_RESOLVER_IDS)[number], ScopeResolverRegistration>;
 
 const registeredRequirementSchemas = REQUIREMENT_IDS.map((id) =>
   Schema.Struct({
@@ -555,17 +805,8 @@ const capabilityTypesIn = (expression: CapabilityExpression): ReadonlyArray<Capa
       return expression.capabilities.map((capability) => capability.type);
   }
 };
-export const scopeResolverDeclaration = (resolverId: ScopeResolverId) => {
-  switch (resolverId) {
-    case "receipts.by-id":
-      return SCOPE_RESOLVERS["receipts.by-id"];
-    case "receipts.approval-queue":
-      return SCOPE_RESOLVERS["receipts.approval-queue"];
-    case "system.public":
-      return SCOPE_RESOLVERS["system.public"];
-  }
-  throw new TypeError(`unknown scope resolver ${resolverId}`);
-};
+export const scopeResolverDeclaration = (resolverId: ScopeResolverId): ScopeResolverRegistration =>
+  SCOPE_RESOLVERS[scopeResolverRegistryKey(resolverId)];
 const stableRequirementKey = (requirement: TypedRequirement): string =>
   `${requirement.id}:${JSON.stringify(requirement.parameters)}`;
 
@@ -1006,12 +1247,8 @@ export const PUBLIC_SYSTEM_ACCESS = makeAccessSpec({
 
 export const RECEIPT_APPROVAL_QUEUE_ACCESS = makeAccessSpec({
   exposure: "External",
-  acceptedCredentials: [
-    { _tag: "BetterAuthCookie" },
-    { _tag: "OAuthUserBearer" },
-    { _tag: "OAuthServiceBearer" },
-  ],
-  principalKinds: ["Person", "ServicePrincipal"],
+  acceptedCredentials: [{ _tag: "BetterAuthCookie" }, { _tag: "OAuthUserBearer" }],
+  principalKinds: ["Person"],
   capabilities: {
     _tag: "One",
     capability: { type: APPROVE_RECEIPT_CAPABILITY },

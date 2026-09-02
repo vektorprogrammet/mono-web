@@ -20,6 +20,7 @@ import {
 } from "@vektorprogrammet/domain/organization";
 import { Schema } from "effect";
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema, OpenApi } from "effect/unstable/httpapi";
+import { annotateAccessSpec, anonymousNativeAccess, personNativeAccess } from "./access.js";
 import { errorBody, operationAnnotations, SessionSecurity } from "./common.js";
 
 /**
@@ -223,9 +224,13 @@ export const ListDepartmentsEndpoint = HttpApiEndpoint.get("listDepartments", "/
     }),
   ),
   error: PublicOrganizationErrors,
-}).annotateMerge(
-  operationAnnotations("List departments", "Returns the public native department directory."),
-);
+})
+  .pipe((endpoint) =>
+    annotateAccessSpec(endpoint, anonymousNativeAccess("organization.public-departments")),
+  )
+  .annotateMerge(
+    operationAnnotations("List departments", "Returns the public native department directory."),
+  );
 
 /** @since 0.1.0 @category Endpoints */
 export const ListTeamsEndpoint = HttpApiEndpoint.get("listTeams", "/api/teams", {
@@ -237,11 +242,15 @@ export const ListTeamsEndpoint = HttpApiEndpoint.get("listTeams", "/api/teams", 
     }),
   ),
   error: PublicOrganizationErrors,
-}).annotateMerge(operationAnnotations("List teams", "Returns the public native team directory."));
+})
+  .pipe((endpoint) =>
+    annotateAccessSpec(endpoint, anonymousNativeAccess("organization.public-teams")),
+  )
+  .annotateMerge(operationAnnotations("List teams", "Returns the public native team directory."));
 
 export const ListFieldOfStudiesEndpoint = HttpApiEndpoint.get(
   "listFieldOfStudies",
-  "/api/field_of_studies",
+  "/api/field-of-studies",
   {
     success: Schema.Array(
       FieldOfStudyJsonSchema.annotate({
@@ -252,17 +261,31 @@ export const ListFieldOfStudiesEndpoint = HttpApiEndpoint.get(
     ),
     error: PublicOrganizationErrors,
   },
-).annotateMerge(
-  operationAnnotations("List fields of study", "Returns the public native study directory."),
-);
+)
+  .pipe((endpoint) =>
+    annotateAccessSpec(endpoint, anonymousNativeAccess("organization.public-field-of-studies")),
+  )
+  .annotateMerge(
+    operationAnnotations("List fields of study", "Returns the public native study directory."),
+  );
 
 /** @since 0.1.0 @category Endpoints */
 export const ListTeamInterestEndpoint = HttpApiEndpoint.get(
   "listTeamInterest",
-  "/api/admin/team-interest",
+  "/api/team-interest-registrations",
   { query: OrganizationScopeQuery, success: TeamInterestResponse, error: AdminOrganizationErrors },
 )
   .middleware(SessionSecurity)
+  .pipe((endpoint) =>
+    annotateAccessSpec(
+      endpoint,
+      personNativeAccess({
+        capability: "organization.read-team-interest",
+        canonicalScopeResolver: "organization.team-interest-registrations",
+        decisionTime: "SnapshotRead",
+      }),
+    ),
+  )
   .annotateMerge(
     operationAnnotations(
       "List team interest",
@@ -273,10 +296,20 @@ export const ListTeamInterestEndpoint = HttpApiEndpoint.get(
 /** @since 0.1.0 @category Endpoints */
 export const ListMailingListsEndpoint = HttpApiEndpoint.get(
   "listMailingLists",
-  "/api/admin/mailing-lists",
+  "/api/mailing-lists",
   { query: MailingListQuery, success: MailingListResponse, error: AdminOrganizationErrors },
 )
   .middleware(SessionSecurity)
+  .pipe((endpoint) =>
+    annotateAccessSpec(
+      endpoint,
+      personNativeAccess({
+        capability: "organization.read-mailing-lists",
+        canonicalScopeResolver: "organization.mailing-lists",
+        decisionTime: "SnapshotRead",
+      }),
+    ),
+  )
   .annotateMerge(
     operationAnnotations(
       "Project mailing lists",
@@ -287,7 +320,7 @@ export const ListMailingListsEndpoint = HttpApiEndpoint.get(
 /** @since 0.1.0 @category Endpoints */
 export const CreateDepartmentEndpoint = HttpApiEndpoint.post(
   "createDepartment",
-  "/api/admin/departments",
+  "/api/departments",
   {
     payload: CreateDepartmentCommandSchema.annotate({
       identifier: "CreateDepartmentCommand",
@@ -299,6 +332,16 @@ export const CreateDepartmentEndpoint = HttpApiEndpoint.post(
   },
 )
   .middleware(SessionSecurity)
+  .pipe((endpoint) =>
+    annotateAccessSpec(
+      endpoint,
+      personNativeAccess({
+        capability: "organization.create-department",
+        canonicalScopeResolver: "organization.department-create",
+        decisionTime: "Transaction",
+      }),
+    ),
+  )
   .annotateMerge(
     operationAnnotations(
       "Create department",
@@ -307,12 +350,22 @@ export const CreateDepartmentEndpoint = HttpApiEndpoint.post(
   );
 
 /** @since 0.1.0 @category Endpoints */
-export const CreateTeamEndpoint = HttpApiEndpoint.post("createTeam", "/api/admin/teams", {
+export const CreateTeamEndpoint = HttpApiEndpoint.post("createTeam", "/api/teams", {
   payload: CreateTeamCommandSchema,
   success: CreateTeamSuccess,
   error: AdminOrganizationErrors,
 })
   .middleware(SessionSecurity)
+  .pipe((endpoint) =>
+    annotateAccessSpec(
+      endpoint,
+      personNativeAccess({
+        capability: "organization.create-team",
+        canonicalScopeResolver: "organization.team-create",
+        decisionTime: "Transaction",
+      }),
+    ),
+  )
   .annotateMerge(
     operationAnnotations("Create team", "Creates or replays an idempotent team command."),
   );
@@ -320,7 +373,7 @@ export const CreateTeamEndpoint = HttpApiEndpoint.post("createTeam", "/api/admin
 /** @since 0.1.0 @category Endpoints */
 export const CreateFieldOfStudyEndpoint = HttpApiEndpoint.post(
   "createFieldOfStudy",
-  "/api/admin/field-of-studies",
+  "/api/field-of-studies",
   {
     payload: CreateFieldOfStudyCommandSchema,
     success: CreateFieldOfStudySuccess,
@@ -328,6 +381,16 @@ export const CreateFieldOfStudyEndpoint = HttpApiEndpoint.post(
   },
 )
   .middleware(SessionSecurity)
+  .pipe((endpoint) =>
+    annotateAccessSpec(
+      endpoint,
+      personNativeAccess({
+        capability: "organization.create-field-of-study",
+        canonicalScopeResolver: "organization.field-of-study-create",
+        decisionTime: "Transaction",
+      }),
+    ),
+  )
   .annotateMerge(
     operationAnnotations(
       "Create field of study",

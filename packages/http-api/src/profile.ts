@@ -11,6 +11,7 @@ import {
 import { PersonId } from "@vektorprogrammet/domain/organization";
 import { Schema } from "effect";
 import { HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/unstable/httpapi";
+import { annotateAccessSpec, personNativeAccess } from "./access.js";
 import { errorBody, operationAnnotations, SessionSecurity } from "./common.js";
 
 /**
@@ -109,11 +110,22 @@ const ProfileErrors = [
  * @since 0.1.0
  * @category Endpoints
  */
-export const ReadOwnProfileEndpoint = HttpApiEndpoint.get("readOwnProfile", "/api/me", {
+export const ReadOwnProfileEndpoint = HttpApiEndpoint.get("readOwnProfile", "/api/profile", {
   success: UserProfileResponse,
   error: ProfileErrors,
 })
   .middleware(SessionSecurity)
+  .pipe((endpoint) =>
+    annotateAccessSpec(
+      endpoint,
+      personNativeAccess({
+        capability: "profile.read-self",
+        canonicalScopeResolver: "profile.current-person",
+        requirements: ["profile.owner"],
+        decisionTime: "SnapshotRead",
+      }),
+    ),
+  )
   .annotateMerge(
     operationAnnotations(
       "Read own profile",
@@ -127,7 +139,7 @@ export const ReadOwnProfileEndpoint = HttpApiEndpoint.get("readOwnProfile", "/ap
  * @since 0.1.0
  * @category Endpoints
  */
-export const UpdateOwnProfileEndpoint = HttpApiEndpoint.put("updateOwnProfile", "/api/me", {
+export const UpdateOwnProfileEndpoint = HttpApiEndpoint.patch("updateOwnProfile", "/api/profile", {
   payload: UpdateOwnProfileCommand.annotate({
     identifier: "UpdateOwnProfileCommand",
     description: "Optimistic self-profile update command.",
@@ -137,6 +149,17 @@ export const UpdateOwnProfileEndpoint = HttpApiEndpoint.put("updateOwnProfile", 
   error: ProfileErrors,
 })
   .middleware(SessionSecurity)
+  .pipe((endpoint) =>
+    annotateAccessSpec(
+      endpoint,
+      personNativeAccess({
+        capability: "profile.update-self",
+        canonicalScopeResolver: "profile.current-person",
+        requirements: ["profile.owner"],
+        decisionTime: "Transaction",
+      }),
+    ),
+  )
   .annotateMerge(
     operationAnnotations(
       "Update own profile",
