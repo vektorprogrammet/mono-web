@@ -167,8 +167,9 @@ describe("service-principal grant migration", () => {
       }),
     );
 
-    expect(databaseMigrationDefinitions.at(-1)?.id).toBe("28_service-principal-grants");
-    expect(databaseSchemaRevision).toBe("28_service_principal_grants");
+    expect(databaseMigrationDefinitions.at(-2)?.id).toBe("28_service-principal-grants");
+    expect(databaseMigrationDefinitions.at(-1)?.id).toBe("29_native-http-semantics");
+    expect(databaseSchemaRevision).toBe("29_native_http_semantics");
     expect(evidence).toEqual({
       whitespaceEventId: "Failure",
       whitespaceActor: "Failure",

@@ -13,10 +13,8 @@ import { DatabaseTest } from "./layers.js";
 import { makeControlledTestRuntime } from "../test/runtime.js";
 
 const databaseLayer = DatabaseTest();
-const organizationLayer = OrganizationLive.pipe(Layer.provide(databaseLayer));
-const schoolsLayer = SchoolsLive.pipe(Layer.provide(databaseLayer));
 const runtime = makeControlledTestRuntime(
-  Layer.mergeAll(databaseLayer, organizationLayer, schoolsLayer),
+  SchoolsLive.pipe(Layer.provideMerge(OrganizationLive.pipe(Layer.provideMerge(databaseLayer)))),
 );
 
 afterAll(async () => {
@@ -165,6 +163,10 @@ describe("Schools application migration in PGlite", () => {
         yield* database`
           INSERT INTO organization_teams (team_id, department_id, name)
           VALUES ('schools-journey-pglite-team', ${departmentId}, 'Journey Team')
+        `;
+        yield* database`
+          INSERT INTO person_profiles (person_id, first_name, last_name)
+          VALUES (${personId}, 'Schools', 'Journey')
         `;
         yield* database`
           INSERT INTO organization_memberships (

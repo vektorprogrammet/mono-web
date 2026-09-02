@@ -89,13 +89,13 @@ describe("native OAuth provider composition", () => {
 });
 
 describe("native OAuth migration", () => {
-  it("keeps native OAuth migration 27 before the service-grant schema head", async () => {
+  it("keeps native OAuth migration 27 before the service-grant and HTTP semantics migrations", async () => {
     const migration = databaseMigrationDefinitions.find(
       ({ id }) => id === "27_native-oauth-provider",
     )!;
     const sql = await readFile(migration.url, "utf8");
 
-    expect(databaseSchemaRevision).toBe("28_service_principal_grants");
+    expect(databaseSchemaRevision).toBe("29_native_http_semantics");
     expect(migration.id).toBe("27_native-oauth-provider");
     for (const relation of [
       'auth."oauthClient"',

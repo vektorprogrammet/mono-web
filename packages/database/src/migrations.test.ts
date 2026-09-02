@@ -75,6 +75,18 @@ afterAll(async () => {
   await runtime.dispose();
 });
 
+const applyMigrationsThrough = async (database: PGlite, lastMigrationId: string) => {
+  const lastMigrationIndex = databaseMigrationDefinitions.findIndex(
+    ({ id }) => id === lastMigrationId,
+  );
+  if (lastMigrationIndex < 0) {
+    throw new Error(`unknown database migration: ${lastMigrationId}`);
+  }
+  for (const migration of databaseMigrationDefinitions.slice(0, lastMigrationIndex + 1)) {
+    await database.exec(await readFile(migration.url, "utf8"));
+  }
+};
+
 describe("native domain schema boundary", () => {
   it("matches the checked inventory against all post-identity CREATE TABLE sources", async () => {
     const sourceTables = (await Promise.all(checkedSourceUrls.map((url) => readFile(url, "utf8"))))
@@ -681,68 +693,120 @@ describe("declarative authorization rule migration in PGlite", () => {
     });
   }, 30_000);
 
-  it("accepts only Global, Domain(receipts), and Department rule scopes", async () => {
-    const evidence = await runtime.runPromise(
-      Effect.gen(function* () {
-        const database = yield* Database;
-        yield* database`
-          INSERT INTO public.person_profiles (person_id, first_name, last_name)
-          VALUES ('authz-domain-person', 'Authz', 'Domain')
-          ON CONFLICT (person_id) DO NOTHING
-        `;
-        const insert = (ruleId: string, scope: string, domainId: string | null) =>
-          database`
+  it("migration 25 accepts only Global, Domain(receipts), and Department rule scopes", async () => {
+    const database = new PGlite({ extensions: { btree_gist } });
+    try {
+      await applyMigrationsThrough(database, "25_principal-credential-access-algebra");
+      await database.exec(`
+        INSERT INTO public.person_profiles (person_id, first_name, last_name)
+        VALUES ('authz-domain-person', 'Authz', 'Domain');
+        INSERT INTO public.organization_departments (
+          department_id, name, short_name, email, city
+        ) VALUES (
+          'authz-domain-department', 'Authz Domain Department', 'ADD',
+          'authz-domain@example.invalid', 'Oslo'
+        );
+      `);
+      const insert = (
+        ruleId: string,
+        scope: string,
+        domainId: string | null,
+        departmentId: string | null,
+      ) =>
+        database.query(
+          `
             INSERT INTO public.authz_rules (
               rule_id, capability_id, effect_kind, subject_kind, subject_person_id,
               subject_tag_id, scope, domain_id, department_id, params, start_at
             ) VALUES (
-              ${ruleId}, 'approveReceipt', 'delegate', 'Person', 'authz-domain-person',
-              NULL, ${scope}, ${domainId}, NULL,
+              $1, 'approveReceipt', 'delegate', 'Person', 'authz-domain-person',
+              NULL, $2, $3, $4,
               '{"slot":"EconomyGlobalReceiptApprovalGrant"}'::jsonb,
               '2030-01-01T00:00:00.000Z'
             )
-          `.pipe(Effect.asVoid);
-        const global = yield* Effect.exit(insert("authz-global-valid", "Global", null));
-        const domain = yield* Effect.exit(insert("authz-domain-valid", "Domain", "receipts"));
-        const receipt = yield* Effect.exit(insert("authz-receipt-invalid", "Receipt", null));
-        const tenant = yield* Effect.exit(insert("authz-tenant-invalid", "Tenant", null));
-        const missingDomain = yield* Effect.exit(insert("authz-domain-missing-id", "Domain", null));
-        const wrongDomain = yield* Effect.exit(
-          insert("authz-domain-wrong-id", "Domain", "organization"),
+          `,
+          [ruleId, scope, domainId, departmentId],
         );
-        const rows = yield* database<{
-          readonly domainId: string | null;
-          readonly scope: string;
-        }>`
-          SELECT domain_id AS "domainId", scope
-          FROM public.authz_rules
-          WHERE rule_id IN ('authz-domain-valid', 'authz-global-valid')
-          ORDER BY rule_id
-        `;
-        return {
-          globalAccepted: global._tag === "Success",
-          domainAccepted: domain._tag === "Success",
-          receiptRejected: receipt._tag === "Failure",
-          tenantRejected: tenant._tag === "Failure",
-          missingDomainRejected: missingDomain._tag === "Failure",
-          wrongDomainRejected: wrongDomain._tag === "Failure",
-          rows,
-        };
-      }),
-    );
+      const accepted = async (
+        ruleId: string,
+        scope: string,
+        domainId: string | null,
+        departmentId: string | null,
+      ) => {
+        try {
+          await insert(ruleId, scope, domainId, departmentId);
+          return true;
+        } catch {
+          return false;
+        }
+      };
 
-    expect(evidence).toEqual({
-      globalAccepted: true,
-      domainAccepted: true,
-      receiptRejected: true,
-      tenantRejected: true,
-      missingDomainRejected: true,
-      wrongDomainRejected: true,
-      rows: [
-        { domainId: "receipts", scope: "Domain" },
-        { domainId: null, scope: "Global" },
-      ],
-    });
+      const globalAccepted = await accepted("authz-global-valid", "Global", null, null);
+      const domainAccepted = await accepted("authz-domain-valid", "Domain", "receipts", null);
+      const departmentAccepted = await accepted(
+        "authz-department-valid",
+        "Department",
+        null,
+        "authz-domain-department",
+      );
+      const receiptRejected = !(await accepted("authz-receipt-invalid", "Receipt", null, null));
+      const tenantRejected = !(await accepted("authz-tenant-invalid", "Tenant", null, null));
+      const missingDomainRejected = !(await accepted(
+        "authz-domain-missing-id",
+        "Domain",
+        null,
+        null,
+      ));
+      const wrongDomainRejected = !(await accepted(
+        "authz-domain-wrong-id",
+        "Domain",
+        "organization",
+        null,
+      ));
+      const rows = await database.query<{
+        readonly departmentId: string | null;
+        readonly domainId: string | null;
+        readonly scope: string;
+      }>(`
+        SELECT
+          department_id AS "departmentId",
+          domain_id AS "domainId",
+          scope
+        FROM public.authz_rules
+        WHERE rule_id IN ('authz-department-valid', 'authz-domain-valid', 'authz-global-valid')
+        ORDER BY rule_id
+      `);
+
+      expect({
+        globalAccepted,
+        domainAccepted,
+        departmentAccepted,
+        receiptRejected,
+        tenantRejected,
+        missingDomainRejected,
+        wrongDomainRejected,
+        rows: rows.rows,
+      }).toEqual({
+        globalAccepted: true,
+        domainAccepted: true,
+        departmentAccepted: true,
+        receiptRejected: true,
+        tenantRejected: true,
+        missingDomainRejected: true,
+        wrongDomainRejected: true,
+        rows: [
+          {
+            departmentId: "authz-domain-department",
+            domainId: null,
+            scope: "Department",
+          },
+          { departmentId: null, domainId: "receipts", scope: "Domain" },
+          { departmentId: null, domainId: null, scope: "Global" },
+        ],
+      });
+    } finally {
+      await database.close();
+    }
   }, 15_000);
 });
 
@@ -752,9 +816,7 @@ describe("declarative rule reconciliation migration", () => {
   );
   const reconciliationMigration = databaseMigrationDefinitions[reconciliationMigrationIndex]!;
   const prepareMigration25State = async (database: PGlite) => {
-    for (const migration of databaseMigrationDefinitions.slice(0, reconciliationMigrationIndex)) {
-      await database.exec(await readFile(migration.url, "utf8"));
-    }
+    await applyMigrationsThrough(database, "25_principal-credential-access-algebra");
     await database.exec(`
       INSERT INTO public.person_profiles (person_id, first_name, last_name)
       VALUES ('migration-preflight-person', 'Migration', 'Preflight');
@@ -816,12 +878,13 @@ describe("declarative rule reconciliation migration", () => {
         );
     `);
 
-  it("orders immutable migration 25, reconciliation 26, OAuth 27, then service grants 28", () => {
-    expect(databaseMigrationDefinitions.slice(-4).map(({ id }) => id)).toEqual([
+  it("orders immutable migrations 25 through the HTTP semantics schema head 29", () => {
+    expect(databaseMigrationDefinitions.slice(-5).map(({ id }) => id)).toEqual([
       "25_principal-credential-access-algebra",
       "26_declarative-rule-reconciliation",
       "27_native-oauth-provider",
       "28_service-principal-grants",
+      "29_native-http-semantics",
     ]);
   });
 

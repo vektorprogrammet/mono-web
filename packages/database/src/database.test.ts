@@ -1,3 +1,6 @@
+import { readFile } from "node:fs/promises";
+import { PGlite } from "@electric-sql/pglite";
+import { btree_gist } from "@electric-sql/pglite/contrib/btree_gist";
 import { afterAll, describe, expect, it } from "vitest";
 import {
   deliverNextPublicApplicationOutbox,
@@ -66,35 +69,15 @@ import { databaseMigrationDefinitions } from "./migrations.js";
 import { makeControlledTestRuntime } from "../test/runtime.js";
 
 const databaseLayer = DatabaseTest();
-const runtime = makeControlledTestRuntime(
-  Layer.merge(databaseLayer, EconomyLive.pipe(Layer.provide(databaseLayer))),
+const runtime = makeControlledTestRuntime(EconomyLive.pipe(Layer.provideMerge(databaseLayer)));
+const recruitmentPglite = new PGlite({ extensions: { btree_gist } });
+const recruitmentDatabaseLayer = DatabaseTest({ liveClient: recruitmentPglite });
+const recruitmentBaseLayer = Layer.mergeAll(AdmissionsLive, OrganizationLive).pipe(
+  Layer.provideMerge(recruitmentDatabaseLayer),
 );
-const recruitmentDatabaseLayer = DatabaseTest();
-const recruitmentAdmissionsLayer = AdmissionsLive.pipe(Layer.provide(recruitmentDatabaseLayer));
-const recruitmentOrganizationLayer = OrganizationLive.pipe(Layer.provide(recruitmentDatabaseLayer));
-const recruitmentProfileLayer = ProfileLive.pipe(
-  Layer.provide(Layer.merge(recruitmentDatabaseLayer, recruitmentOrganizationLayer)),
-);
-const recruitmentCapabilityLayer = RecruitmentLive.pipe(
-  Layer.provide(
-    Layer.mergeAll(
-      recruitmentDatabaseLayer,
-      recruitmentAdmissionsLayer,
-      recruitmentOrganizationLayer,
-      recruitmentProfileLayer,
-    ),
-  ),
-);
+const recruitmentProfileLayer = ProfileLive.pipe(Layer.provideMerge(recruitmentBaseLayer));
 const recruitmentRuntime = makeControlledTestRuntime(
-  Layer.merge(
-    recruitmentDatabaseLayer,
-    Layer.mergeAll(
-      recruitmentAdmissionsLayer,
-      recruitmentOrganizationLayer,
-      recruitmentProfileLayer,
-      recruitmentCapabilityLayer,
-    ),
-  ),
+  RecruitmentLive.pipe(Layer.provideMerge(recruitmentProfileLayer)),
 );
 
 const seedSchedulingFixture = (fixtureId: string) =>
@@ -221,6 +204,12 @@ const seedSchedulingFixture = (fixtureId: string) =>
       VALUES (${`${fixtureId}-team`}, ${departmentId}, ${`Team ${fixtureId}`})
     `;
     yield* database`
+      INSERT INTO person_profiles (person_id, first_name, last_name)
+      VALUES
+        (${leaderPersonId}, 'Lise', 'Leader'),
+        (${interviewerPersonId}, 'Ivar', 'Interviewer')
+    `;
+    yield* database`
       INSERT INTO organization_memberships (
         membership_id,
         person_id,
@@ -246,12 +235,6 @@ const seedSchedulingFixture = (fixtureId: string) =>
           'assistant',
           FALSE
         )
-    `;
-    yield* database`
-      INSERT INTO person_profiles (person_id, first_name, last_name)
-      VALUES
-        (${leaderPersonId}, 'Lise', 'Leader'),
-        (${interviewerPersonId}, 'Ivar', 'Interviewer')
     `;
     yield* database`
       INSERT INTO person_contact_profiles (person_id, email, phone)
@@ -316,9 +299,63 @@ const seedSchedulingFixture = (fixtureId: string) =>
     };
   });
 
+const outboxReferenceFixture = Effect.gen(function* () {
+  const database = yield* Database;
+  yield* database.unsafe(
+    "INSERT INTO admission_period_departments (department_id, name) VALUES ('outbox-department', 'Outbox Department')",
+  );
+  yield* database.unsafe(`
+    INSERT INTO admission_period_semesters (semester_id, start_at, end_at)
+    VALUES (
+      'outbox-semester',
+      '2031-08-01T00:00:00.000Z',
+      '2031-12-31T00:00:00.000Z'
+    )
+  `);
+  yield* database.unsafe(`
+    INSERT INTO admission_period_fields_of_study (
+      field_of_study_id, department_id, name, active
+    ) VALUES (
+      'outbox-field',
+      'outbox-department',
+      'Outbox Field',
+      TRUE
+    )
+  `);
+  yield* database.unsafe(`
+    INSERT INTO admission_periods (
+      admission_period_id, department_id, semester_id, start_at, end_at,
+      revision, last_command_id
+    ) VALUES (
+      'outbox-period',
+      'outbox-department',
+      'outbox-semester',
+      '2031-09-01T00:00:00.000Z',
+      '2031-10-01T00:00:00.000Z',
+      0,
+      'outbox-period-seed'
+    )
+  `);
+});
+
+const runWithIsolatedDatabase = async <A, E>(
+  program: (pglite: PGlite) => Effect.Effect<A, E, Database>,
+): Promise<A> => {
+  const pglite = new PGlite({ extensions: { btree_gist } });
+  await pglite.waitReady;
+  const isolatedRuntime = makeControlledTestRuntime(DatabaseTest({ liveClient: pglite }));
+  try {
+    return await isolatedRuntime.runPromise(program(pglite));
+  } finally {
+    await isolatedRuntime.dispose();
+    await pglite.close();
+  }
+};
+
 afterAll(async () => {
   await runtime.dispose();
   await recruitmentRuntime.dispose();
+  await recruitmentPglite.close();
 });
 
 describe("DatabaseTest", () => {
@@ -384,7 +421,7 @@ describe("DatabaseTest", () => {
       }),
     );
     expect(evidence).toEqual({
-      revision: "24_identity-security-audit",
+      revision: "29_native_http_semantics",
       migrations: [
         { migration_id: 1, name: "receipt-authority" },
         { migration_id: 2, name: "admission-period-authority" },
@@ -410,6 +447,11 @@ describe("DatabaseTest", () => {
         { migration_id: 22, name: "native-domain-schema-boundary" },
         { migration_id: 23, name: "declarative-authorization-rules" },
         { migration_id: 24, name: "identity-security-audit" },
+        { migration_id: 25, name: "principal-credential-access-algebra" },
+        { migration_id: 26, name: "declarative-rule-reconciliation" },
+        { migration_id: 27, name: "native-oauth-provider" },
+        { migration_id: 28, name: "service-principal-grants" },
+        { migration_id: 29, name: "native-http-semantics" },
       ],
       tables: [
         "admission_applications",
@@ -557,6 +599,12 @@ describe("DatabaseTest", () => {
           VALUES ('recruitment-team', 'recruitment-department', 'Recruitment Team')
         `;
         yield* database`
+          INSERT INTO person_profiles (person_id, first_name, last_name)
+          VALUES
+            ('recruitment-leader', 'Lise', 'Leader'),
+            ('recruitment-interviewer', 'Ivar', 'Interviewer')
+        `;
+        yield* database`
           INSERT INTO organization_memberships (
             membership_id,
             person_id,
@@ -582,12 +630,6 @@ describe("DatabaseTest", () => {
               'assistant',
               FALSE
             )
-        `;
-        yield* database`
-          INSERT INTO person_profiles (person_id, first_name, last_name)
-          VALUES
-            ('recruitment-leader', 'Lise', 'Leader'),
-            ('recruitment-interviewer', 'Ivar', 'Interviewer')
         `;
         yield* database`
           INSERT INTO recruitment_interview_schemas (
@@ -1657,15 +1699,15 @@ describe("DatabaseTest", () => {
   });
 
   it("replays message confinement and rolls back every capability-shaped response surface", async () => {
+    const migration = databaseMigrationDefinitions.find(
+      ({ id }) => id === "15_native-identity-better-auth",
+    )!;
+    const migrationSource = await readFile(migration.url, "utf8");
     const evidence = await recruitmentRuntime.runPromise(
       Effect.gen(function* () {
         const database = yield* Database;
         const recruitment = yield* Recruitment;
-        yield* database`
-          DELETE FROM vektorprogrammet_schema_migrations
-          WHERE migration_id >= 15
-        `;
-        yield* database.migrate;
+        yield* Effect.promise(() => recruitmentPglite.exec(migrationSource));
         const [replayedMigration] = yield* database<{ readonly count: string }>`
           SELECT count(*)::text AS count
           FROM vektorprogrammet_schema_migrations
@@ -2814,6 +2856,7 @@ describe("DatabaseTest", () => {
               subject_person_id,
               subject_tag_id,
               scope,
+              domain_id,
               department_id,
               params,
               start_at,
@@ -2826,7 +2869,8 @@ describe("DatabaseTest", () => {
               'Person',
               ${rulePersonId},
               NULL,
-              'Receipt',
+              'Domain',
+              'receipts',
               NULL,
               ${database.json({
                 slot: "EconomyPaymentAuthority",
@@ -2893,7 +2937,7 @@ describe("DatabaseTest", () => {
     });
   });
 
-  it("keeps missing Receipt targets opaque except to active global approvers", async () => {
+  it("keeps missing Receipt targets opaque to active approvers", async () => {
     const failures = await runtime.runPromise(
       Effect.gen(function* () {
         const database = yield* Database;
@@ -2954,23 +2998,23 @@ describe("DatabaseTest", () => {
         yield* database`
           INSERT INTO public.authz_rules (
             rule_id, capability_id, effect_kind, subject_kind, subject_person_id,
-            subject_tag_id, scope, department_id, params, start_at
+            subject_tag_id, scope, domain_id, department_id, params, start_at
           ) VALUES
             (
               'missing-receipt-global-rule', 'approveReceipt', 'delegate', 'Person',
-              ${globalRule}, NULL, 'Global', NULL,
+              ${globalRule}, NULL, 'Global', NULL, NULL,
               ${database.json({ slot: "EconomyGlobalReceiptApprovalGrant" })},
               '2036-01-01T00:00:00.000Z'
             ),
             (
               'missing-receipt-receipt-rule', 'approveReceipt', 'delegate', 'Person',
-              ${receiptRule}, NULL, 'Receipt', NULL,
+              ${receiptRule}, NULL, 'Domain', 'receipts', NULL,
               ${database.json({ slot: "EconomyGlobalReceiptApprovalGrant" })},
               '2036-01-01T00:00:00.000Z'
             ),
             (
               'missing-receipt-department-rule', 'approveReceipt', 'delegate', 'Person',
-              ${departmentRule}, NULL, 'Department', ${departmentId},
+              ${departmentRule}, NULL, 'Department', NULL, ${departmentId},
               ${database.json({ slot: "EconomyDepartmentApprovalGrant" })},
               '2036-01-01T00:00:00.000Z'
             )
@@ -3046,8 +3090,8 @@ describe("DatabaseTest", () => {
       directGlobal: "ReceiptNotFound",
       globalRule: "ReceiptNotFound",
       receiptRule: "ReceiptNotFound",
-      directDepartment: "ReceiptScopeDenied",
-      departmentRule: "ReceiptScopeDenied",
+      directDepartment: "ReceiptNotFound",
+      departmentRule: "ReceiptNotFound",
     });
   });
 
@@ -3056,41 +3100,7 @@ describe("DatabaseTest", () => {
     const evidence = await runtime.runPromise(
       Effect.gen(function* () {
         const database = yield* Database;
-        yield* database.unsafe(
-          "INSERT INTO admission_period_departments (department_id, name) VALUES ('outbox-department', 'Outbox Department')",
-        );
-        yield* database.unsafe(`
-          INSERT INTO admission_period_semesters (semester_id, start_at, end_at)
-          VALUES (
-            'outbox-semester',
-            '2031-08-01T00:00:00.000Z',
-            '2031-12-31T00:00:00.000Z'
-          )
-        `);
-        yield* database.unsafe(`
-          INSERT INTO admission_period_fields_of_study (
-            field_of_study_id, department_id, name, active
-          ) VALUES (
-            'outbox-field',
-            'outbox-department',
-            'Outbox Field',
-            TRUE
-          )
-        `);
-        yield* database.unsafe(`
-          INSERT INTO admission_periods (
-            admission_period_id, department_id, semester_id, start_at, end_at,
-            revision, last_command_id
-          ) VALUES (
-            'outbox-period',
-            'outbox-department',
-            'outbox-semester',
-            '2031-09-01T00:00:00.000Z',
-            '2031-10-01T00:00:00.000Z',
-            0,
-            'outbox-period-seed'
-          )
-        `);
+        yield* outboxReferenceFixture;
         yield* executePublicApplicationCommand(
           {
             commandId: "outbox-application-submit",
@@ -3365,9 +3375,14 @@ describe("DatabaseTest", () => {
   });
 
   it("quarantines incompatible pre-0041 applicant effects during upgrade", async () => {
-    const evidence = await runtime.runPromise(
+    const migration = databaseMigrationDefinitions.find(
+      ({ id }) => id === "5_public-applicant-effect-lifecycle",
+    )!;
+    const migrationSource = await readFile(migration.url, "utf8");
+    const evidence = await runWithIsolatedDatabase((pglite) =>
       Effect.gen(function* () {
         const database = yield* Database;
+        yield* outboxReferenceFixture;
         yield* executePublicApplicationCommand(
           {
             commandId: "legacy-effect-application-submit",
@@ -3399,11 +3414,7 @@ describe("DatabaseTest", () => {
           SET payload_json = payload_json - 'departmentId'
           WHERE command_id = 'legacy-effect-application-submit' AND ordinal = 1
         `;
-        yield* database`
-          DELETE FROM vektorprogrammet_schema_migrations
-          WHERE migration_id >= 5
-        `;
-        yield* database.migrate;
+        yield* Effect.promise(() => pglite.exec(migrationSource));
         return yield* database<{
           readonly ordinal: number;
           readonly status: string;
@@ -3445,9 +3456,14 @@ describe("DatabaseTest", () => {
   });
 
   it("clears delivered legacy payloads in a later immutable migration", async () => {
-    const evidence = await runtime.runPromise(
+    const migration = databaseMigrationDefinitions.find(
+      ({ id }) => id === "6_public-applicant-delivered-payload-cleanup",
+    )!;
+    const migrationSource = await readFile(migration.url, "utf8");
+    const evidence = await runWithIsolatedDatabase((pglite) =>
       Effect.gen(function* () {
         const database = yield* Database;
+        yield* outboxReferenceFixture;
         yield* executePublicApplicationCommand(
           {
             commandId: "legacy-delivered-application-submit",
@@ -3496,11 +3512,7 @@ describe("DatabaseTest", () => {
           SET status = 'Delivered'
           WHERE command_id = 'legacy-delivered-application-submit'
         `;
-        yield* database`
-          DELETE FROM vektorprogrammet_schema_migrations
-          WHERE migration_id >= 6
-        `;
-        yield* database.migrate;
+        yield* Effect.promise(() => pglite.exec(migrationSource));
         const outbox = yield* database<{
           readonly ordinal: number;
           readonly status: string;
@@ -4418,7 +4430,7 @@ describe("DatabaseTest", () => {
       }),
     );
 
-    expect(evidence.schemaRevision).toBe("24_identity-security-audit");
+    expect(evidence.schemaRevision).toBe("29_native_http_semantics");
     expect(evidence.denied._tag).toBe("OrganizationRoleDenied");
     expect(evidence.deniedRows).toBe(0);
     expect(evidence.departmentCreated.committed).toBe(true);
