@@ -1092,3 +1092,226 @@ export const reviseDraftPostgres = (input: {
         ),
       );
   });
+
+const ContentArticleHttpSourceSchema = Schema.Struct({
+  articleId: ArticleId,
+  createdByPersonId: PersonId,
+  articleRevision: Schema.Int.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(0))),
+  authorProfileRevision: Schema.Int.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(0))),
+});
+
+export type ContentArticleHttpSource = typeof ContentArticleHttpSourceSchema.Type;
+
+/** Version and ownership facts used by the v0.2 staff article HTTP adapter. */
+export const readContentArticleHttpSourcePostgres = (
+  articleId: ArticleId,
+): Effect.Effect<
+  ContentArticleHttpSource,
+  ContentArticleNotFound | ContentDecodeError | ContentPersistenceError,
+  Database
+> =>
+  Database.use((database) =>
+    Effect.gen(function* () {
+      const rows = yield* database`
+        SELECT
+          article.article_id::integer AS "articleId",
+          article.created_by_person_id AS "createdByPersonId",
+          article.revision AS "articleRevision",
+          author.revision AS "authorProfileRevision"
+        FROM public.content_articles AS article
+        INNER JOIN public.person_profiles AS author
+          ON author.person_id = article.created_by_person_id
+        WHERE article.article_id = ${articleId}
+      `.pipe(
+        Effect.catchTag("SqlError", (cause) =>
+          Effect.fail(persistenceError("read content HTTP article source", cause)),
+        ),
+      );
+      const row = rows[0];
+      if (row === undefined) return yield* new ContentArticleNotFound({});
+      return yield* Schema.decodeUnknownEffect(ContentArticleHttpSourceSchema)(row, {
+        onExcessProperty: "error",
+      }).pipe(Effect.mapError((cause) => decodeError("decode content HTTP article source", cause)));
+    }),
+  );
+
+const ContentAuthorityHttpSourceSchema = Schema.Struct({
+  kind: Schema.Literals(["GlobalAdministrator", "Membership"]),
+  identity: Schema.String,
+  revisions: Schema.Array(Schema.Int.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(0)))),
+});
+
+export type ContentAuthorityHttpSource = typeof ContentAuthorityHttpSourceSchema.Type;
+
+/**
+ * Ordered revisions of every Organization row consulted by content authority.
+ * These records are representation sources, never public response fields.
+ */
+export const readContentAuthorityHttpSourcesPostgres = (
+  personId: PersonId,
+): Effect.Effect<
+  ReadonlyArray<ContentAuthorityHttpSource>,
+  ContentDecodeError | ContentPersistenceError,
+  Database
+> =>
+  Database.use((database) =>
+    Effect.gen(function* () {
+      const grants = yield* database`
+        SELECT
+          'GlobalAdministrator' AS kind,
+          grant_id AS identity,
+          ARRAY[revision]::integer[] AS revisions
+        FROM public.organization_global_administrator_grants
+        WHERE person_id = ${personId}
+        ORDER BY grant_id
+      `;
+      const memberships = yield* database`
+        SELECT
+          'Membership' AS kind,
+          membership.membership_id AS identity,
+          ARRAY[membership.revision, team.revision, department.revision]::integer[] AS revisions
+        FROM public.organization_memberships AS membership
+        INNER JOIN public.organization_teams AS team
+          ON team.team_id = membership.team_id
+        INNER JOIN public.organization_departments AS department
+          ON department.department_id = team.department_id
+        WHERE membership.person_id = ${personId}
+        ORDER BY membership.membership_id
+      `;
+      return yield* Schema.decodeUnknownEffect(Schema.Array(ContentAuthorityHttpSourceSchema))([
+        ...grants,
+        ...memberships,
+      ]).pipe(
+        Effect.mapError((cause) => decodeError("decode content HTTP authority sources", cause)),
+      );
+    }).pipe(
+      Effect.catchTag("SqlError", (cause) =>
+        Effect.fail(persistenceError("read content HTTP authority sources", cause)),
+      ),
+    ),
+  );
+
+const PublishedNewsCollectionHttpSourceSchema = Schema.Struct({
+  articleId: ArticleId,
+  currentVersionNumber: ArticleVersionNumber,
+  publishedAt: Rfc3339InstantSchema,
+  authorProfileRevision: Schema.Int.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(0))),
+});
+
+export type PublishedNewsCollectionHttpSource = typeof PublishedNewsCollectionHttpSourceSchema.Type;
+
+/** Ordered authoritative sources for one public news listing validator. */
+export const readPublishedNewsCollectionHttpSourcesPostgres = (
+  departmentId?: DepartmentId,
+): Effect.Effect<
+  ReadonlyArray<PublishedNewsCollectionHttpSource>,
+  ContentDecodeError | ContentPersistenceError,
+  Database
+> =>
+  Database.use((database) => {
+    const selectedDepartment = departmentId ?? null;
+    return database`
+      SELECT
+        article.article_id::integer AS "articleId",
+        article.current_version_number AS "currentVersionNumber",
+        to_char(
+          version.published_at AT TIME ZONE 'UTC',
+          'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'
+        ) AS "publishedAt",
+        author.revision AS "authorProfileRevision"
+      FROM public.content_articles AS article
+      INNER JOIN public.content_article_versions AS version
+        ON version.article_id = article.article_id
+       AND version.version_number = article.current_version_number
+      INNER JOIN public.person_profiles AS author
+        ON author.person_id = article.created_by_person_id
+      WHERE article.current_version_number IS NOT NULL
+        AND (
+          ${selectedDepartment}::text IS NULL
+          OR NOT EXISTS (
+            SELECT 1
+            FROM public.content_article_departments AS any_department
+            WHERE any_department.article_id = article.article_id
+          )
+          OR EXISTS (
+            SELECT 1
+            FROM public.content_article_departments AS selected_department
+            WHERE selected_department.article_id = article.article_id
+              AND selected_department.department_id = ${selectedDepartment}
+          )
+        )
+      ORDER BY article.article_id
+    `.pipe(
+      Effect.catchTag("SqlError", (cause) =>
+        Effect.fail(persistenceError("read public news HTTP collection sources", cause)),
+      ),
+      Effect.flatMap((rows) =>
+        Schema.decodeUnknownEffect(Schema.Array(PublishedNewsCollectionHttpSourceSchema))(rows, {
+          onExcessProperty: "error",
+        }).pipe(
+          Effect.mapError((cause) =>
+            decodeError("decode public news HTTP collection sources", cause),
+          ),
+        ),
+      ),
+    );
+  });
+
+const PublishedNewsArticleHttpSourceSchema = Schema.Struct({
+  articleId: ArticleId,
+  currentVersionNumber: ArticleVersionNumber,
+  selectedVersionNumber: ArticleVersionNumber,
+  publishedAt: Rfc3339InstantSchema,
+  authorProfileRevision: Schema.Int.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(0))),
+});
+
+export type PublishedNewsArticleHttpSource = typeof PublishedNewsArticleHttpSourceSchema.Type;
+
+/** Authoritative current-pointer and immutable-version source for news detail. */
+export const readPublishedNewsArticleHttpSourcePostgres = (
+  slug: string,
+  versionNumber?: number,
+): Effect.Effect<
+  PublishedNewsArticleHttpSource,
+  ContentArticleNotFound | ContentDecodeError | ContentPersistenceError,
+  Database
+> =>
+  Database.use((database) =>
+    Effect.gen(function* () {
+      const rows = yield* database`
+        SELECT
+          article.article_id::integer AS "articleId",
+          article.current_version_number AS "currentVersionNumber",
+          version.version_number AS "selectedVersionNumber",
+          to_char(
+            version.published_at AT TIME ZONE 'UTC',
+            'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'
+          ) AS "publishedAt",
+          author.revision AS "authorProfileRevision"
+        FROM public.content_articles AS article
+        INNER JOIN public.content_article_versions AS version
+          ON version.article_id = article.article_id
+        INNER JOIN public.person_profiles AS author
+          ON author.person_id = article.created_by_person_id
+        WHERE version.slug = ${slug}
+          AND article.current_version_number IS NOT NULL
+          AND (
+            ${versionNumber ?? null}::integer IS NULL
+            OR version.version_number = ${versionNumber ?? null}
+          )
+        ORDER BY version.version_number DESC
+        LIMIT 1
+      `.pipe(
+        Effect.catchTag("SqlError", (cause) =>
+          Effect.fail(persistenceError("read public news HTTP article source", cause)),
+        ),
+      );
+      const row = rows[0];
+      if (row === undefined) return yield* new ContentArticleNotFound({});
+      return yield* Schema.decodeUnknownEffect(PublishedNewsArticleHttpSourceSchema)(row, {
+        onExcessProperty: "error",
+      }).pipe(
+        Effect.mapError((cause) => decodeError("decode public news HTTP article source", cause)),
+      );
+    }),
+  );
