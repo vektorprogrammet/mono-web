@@ -1,11 +1,5 @@
-import {
-  ConfigurationError,
-  NetworkError,
-  DepartmentId,
-  SchoolDirectorySchema,
-  SchoolsRejectionError,
-  UnauthorizedError,
-} from "@vektorprogrammet/sdk";
+import { DepartmentId } from "@vektorprogrammet/domain/organization";
+import { SchoolDirectorySchema } from "@vektorprogrammet/domain/schools";
 import { Schema as S } from "effect";
 import { data } from "react-router";
 import { schoolsBridgeFailure, type SchoolsBridgeErrorTag } from "../foldkit/schools/bridge";
@@ -39,15 +33,27 @@ const statusFor = (tag: SchoolsBridgeErrorTag): number => {
 };
 
 const tagFrom = (error: unknown): SchoolsBridgeErrorTag => {
-  if (error instanceof SchoolsRejectionError) return error.schoolsTag;
   if (error instanceof Response && error.status >= 300 && error.status < 400) {
     return "UnauthenticatedActor";
   }
-  if (error instanceof UnauthorizedError) return "UnauthenticatedActor";
-  if (error instanceof ConfigurationError) return "Configuration";
-  if (error instanceof NetworkError) {
-    return error.cause === undefined ? "SchoolsPersistenceError" : "Network";
+  const code =
+    typeof error === "object" && error !== null && "code" in error && typeof error.code === "string"
+      ? error.code
+      : "";
+  if (code === "credential.missing" || code === "credential.invalid") {
+    return "UnauthenticatedActor";
   }
+  if (code === "authority.denied" || code === "scope.not-found") return "NotInScope";
+  if (code.includes("department") && code.includes("scope")) {
+    return "SchoolsDepartmentOutOfScope";
+  }
+  if (code.includes("department") || code === "resource.not-found") {
+    return "SchoolsDepartmentNotFound";
+  }
+  if (code.startsWith("validation.") || code === "request.malformed") {
+    return "SchoolsDecodeError";
+  }
+  if (code === "dependency.unavailable") return "Network";
   return "SchoolsPersistenceError";
 };
 
@@ -86,13 +92,12 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   try {
     const client = createAuthenticatedClient(cookie, request);
-    const directory = await client.admin.schools.list(
-      department === undefined ? undefined : { department },
-    );
-    return data(
-      S.decodeUnknownSync(SchoolDirectorySchema)(directory, { onExcessProperty: "error" }),
-      { headers: responseHeaders },
-    );
+    const result = await client.directory.listSchools({
+      query: department === undefined ? {} : { department },
+    });
+    return data(S.decodeUnknownSync(SchoolDirectorySchema)(result.body), {
+      headers: responseHeaders,
+    });
   } catch (error) {
     const tag = tagFrom(error);
     return data(schoolsBridgeFailure(tag), {

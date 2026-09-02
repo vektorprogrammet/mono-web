@@ -1,4 +1,5 @@
-import { DepartmentId, SchoolDirectorySchema } from "@vektorprogrammet/sdk/effect";
+import { DepartmentId } from "@vektorprogrammet/domain/organization";
+import { SchoolDirectorySchema } from "@vektorprogrammet/domain/schools";
 import { Tabs } from "@foldkit/ui";
 import { Schema as S } from "effect";
 import { m } from "foldkit/message";

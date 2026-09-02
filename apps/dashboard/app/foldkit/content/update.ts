@@ -1,4 +1,6 @@
-import type { ContentWorkspace } from "@vektorprogrammet/sdk/effect";
+import type { ArticleId, ContentWorkspace } from "@vektorprogrammet/domain/content";
+import type { DepartmentId } from "@vektorprogrammet/domain/organization";
+import type { StrongETag } from "@vektorprogrammet/http-api";
 import { Match as M } from "effect";
 import { Command } from "foldkit";
 import type { Message } from "./message";
@@ -8,35 +10,35 @@ export interface WorkspaceCommandFactories {
   readonly LoadWorkspace: (args: { readonly requestId: number }) => Command.Command<Message>;
   readonly LoadArticleDetail: (args: {
     readonly requestId: number;
-    readonly articleId: number;
+    readonly articleId: ArticleId;
   }) => Command.Command<Message>;
   readonly SubmitCreate: (args: {
     readonly requestId: number;
     readonly commandId: string;
     readonly title: string;
     readonly bodyHtml: string;
-    readonly departmentIds: ReadonlyArray<string>;
+    readonly departmentIds: ReadonlyArray<DepartmentId>;
     readonly sticky: boolean;
   }) => Command.Command<Message>;
   readonly SubmitRevise: (args: {
     readonly requestId: number;
     readonly commandId: string;
-    readonly articleId: number;
-    readonly expectedRevision: number;
+    readonly articleId: ArticleId;
+    readonly expectedEtag: StrongETag;
     readonly title: string;
     readonly bodyHtml: string;
-    readonly departmentIds: ReadonlyArray<string>;
+    readonly departmentIds: ReadonlyArray<DepartmentId>;
     readonly sticky: boolean;
   }) => Command.Command<Message>;
   readonly SubmitPublish: (args: {
     readonly requestId: number;
     readonly commandId: string;
-    readonly articleId: number;
+    readonly articleId: ArticleId;
   }) => Command.Command<Message>;
   readonly SubmitUnpublish: (args: {
     readonly requestId: number;
     readonly commandId: string;
-    readonly articleId: number;
+    readonly articleId: ArticleId;
   }) => Command.Command<Message>;
 }
 
@@ -70,7 +72,8 @@ export const makeUpdate =
             [],
           ];
         },
-        LoadedArticleDetail: ({ requestId, detail }) => {
+        LoadedArticleDetail: ({ requestId, observation }) => {
+          const { body: detail, etag } = observation;
           if (
             requestId !== model.requestId ||
             model.selectedArticleId !== detail.articleId ||
@@ -81,7 +84,7 @@ export const makeUpdate =
           return [
             {
               ...model,
-              selectedRevision: detail.revision,
+              selectedEtag: etag,
               editor: {
                 title: detail.title,
                 bodyHtml: detail.bodyHtml,
@@ -126,7 +129,7 @@ export const makeUpdate =
           );
           if (entry === undefined) return [model, []];
           if (!entry.canRevise) return [model, []];
-          if (model.selectedArticleId === articleId && model.selectedRevision !== null) {
+          if (model.selectedArticleId === articleId && model.selectedEtag !== null) {
             return [{ ...model, banner: null }, []];
           }
           const requestId = model.requestId + 1;
@@ -136,7 +139,7 @@ export const makeUpdate =
               ...model,
               requestId,
               selectedArticleId: articleId,
-              selectedRevision: null,
+              selectedEtag: null,
               editor: changedSelection ? makeEditorValues() : model.editor,
               dirty: changedSelection ? false : model.dirty,
               pendingCommand: "Detail",
@@ -189,7 +192,7 @@ export const makeUpdate =
           ];
         },
         SubmittedRevise: ({ commandId }) => {
-          if (!model.dirty || model.selectedRevision === null || model.pendingCommand !== null) {
+          if (!model.dirty || model.selectedEtag === null || model.pendingCommand !== null) {
             return [model, []];
           }
           const entry =
@@ -207,7 +210,7 @@ export const makeUpdate =
                 requestId,
                 commandId,
                 articleId: entry.articleId,
-                expectedRevision: model.selectedRevision,
+                expectedEtag: model.selectedEtag,
                 title: model.editor.title,
                 bodyHtml: model.editor.bodyHtml,
                 departmentIds: model.editor.departmentIds,
@@ -216,9 +219,10 @@ export const makeUpdate =
             ],
           ];
         },
-        SucceededSave: ({ requestId, draft }) => {
+        SucceededSave: ({ requestId, observation }) => {
           // A stale success leaves the Model unchanged.
           if (requestId !== model.requestId) return [model, []];
+          const { body: draft, etag } = observation;
           const workspace =
             model.workspace._tag === "Success"
               ? {
@@ -247,11 +251,11 @@ export const makeUpdate =
               ...model,
               workspace,
               selectedArticleId: draft.articleId,
-              selectedRevision: draft.revision,
+              selectedEtag: etag,
               editor: {
                 title: draft.title,
                 bodyHtml: draft.bodyHtml,
-                departmentIds: [...model.editor.departmentIds],
+                departmentIds: [...draft.departmentIds],
                 sticky: draft.sticky,
               },
               dirty: false,
@@ -264,7 +268,7 @@ export const makeUpdate =
         SucceededTransition: ({ requestId }) => {
           if (requestId !== model.requestId) return [model, []];
           return [
-            { ...model, selectedRevision: null, pendingCommand: null, banner: null },
+            { ...model, selectedEtag: null, pendingCommand: null, banner: null },
             [commands.LoadWorkspace({ requestId })],
           ];
         },
@@ -274,7 +278,7 @@ export const makeUpdate =
           return [
             {
               ...model,
-              selectedRevision: failure.tag === "CommandConflict" ? null : model.selectedRevision,
+              selectedEtag: failure.tag === "CommandConflict" ? null : model.selectedEtag,
               pendingCommand: null,
               banner: failure,
             },
@@ -332,7 +336,7 @@ export const makeUpdate =
             {
               ...model,
               selectedArticleId: null,
-              selectedRevision: null,
+              selectedEtag: null,
               editor: makeEditorValues(),
               dirty: false,
               banner: null,

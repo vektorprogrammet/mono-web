@@ -4,13 +4,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { ColumnDef } from "@tanstack/react-table";
 import { useLoaderData } from "react-router";
-import {
-  InactiveActorError,
-  isFixtureMode,
-  NotInScopeError,
-  UnauthorizedError,
-  type DirectoryEntry,
-} from "@vektorprogrammet/sdk";
+import { PeopleDirectoryEntry } from "@vektorprogrammet/http-api";
 import { expiredSessionRedirect, requireAuth } from "../lib/auth.server";
 import { createAuthenticatedClient } from "../lib/api.server";
 import type { Route } from "./+types/dashboard.brukere._index";
@@ -26,7 +20,7 @@ export interface BrukerRow {
   readonly departments: string[];
 }
 
-function toRow(entry: DirectoryEntry): BrukerRow {
+function toRow(entry: typeof PeopleDirectoryEntry.Type): BrukerRow {
   return {
     personId: entry.personId,
     firstName: entry.firstName,
@@ -39,24 +33,25 @@ function toRow(entry: DirectoryEntry): BrukerRow {
 }
 
 export async function loader({ request }: Route.LoaderArgs) {
-  if (isFixtureMode) return { users: null };
 
   const cookie = await requireAuth(request);
   const client = createAuthenticatedClient(cookie, request);
 
   try {
-    const users = await client.admin.users.list();
+    const result = await client.directory.listPeople({});
     return {
       users: {
-        activeUsers: users.activePeople.map(toRow),
-        inactiveUsers: users.inactivePeople.map(toRow),
+        activeUsers: result.body.activePeople.map(toRow),
+        inactiveUsers: result.body.inactivePeople.map(toRow),
       },
     };
   } catch (error) {
-    if (error instanceof UnauthorizedError) {
+    const code =
+      typeof error === "object" && error !== null && "code" in error ? error.code : undefined;
+    if (code === "credential.missing" || code === "credential.invalid") {
       throw await expiredSessionRedirect(request);
     }
-    if (error instanceof InactiveActorError || error instanceof NotInScopeError) {
+    if (code === "authority.denied" || code === "scope.not-found") {
       return { users: null, error: "denied" as const };
     }
     console.error("brukere directory load failed", error);

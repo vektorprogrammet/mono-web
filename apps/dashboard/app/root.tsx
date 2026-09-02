@@ -13,7 +13,6 @@ import {
 } from "react-router";
 import { vektorLogoCircleUrl } from "./assets/logo-url";
 import { ThemeProvider } from "./lib/theme";
-import { isFixtureMode } from "@vektorprogrammet/sdk";
 
 export const meta: MetaFunction = () => [
   {
@@ -47,14 +46,6 @@ export function Layout({ children }: { children: ReactNode }) {
         />
       </head>
       <body>
-        {isFixtureMode && (
-          <div
-            className="border-b border-amber-300 bg-amber-100 px-4 py-2 text-center font-medium text-amber-950 text-sm"
-            data-fixture-banner
-          >
-            Fixture preview: sanitized example data only
-          </div>
-        )}
         <ThemeProvider>{children}</ThemeProvider>
         <ScrollRestoration />
         <Scripts />

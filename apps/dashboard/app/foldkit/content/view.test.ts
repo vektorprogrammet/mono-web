@@ -1,4 +1,5 @@
-import { ArticleId, DepartmentId, type ContentWorkspace } from "@vektorprogrammet/sdk/effect";
+import { ArticleId, type ContentWorkspace } from "@vektorprogrammet/domain/content";
+import { DepartmentId } from "@vektorprogrammet/domain/organization";
 import type { HtmlBuilder } from "foldkit/html";
 import { describe, expect, it } from "vitest";
 import type { Message } from "./message";

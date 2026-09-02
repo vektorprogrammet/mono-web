@@ -1,6 +1,7 @@
-import { DepartmentId, type InternalSdkError } from "@vektorprogrammet/sdk/effect";
+import { DepartmentId } from "@vektorprogrammet/domain/organization";
 import { Effect, Schema as S } from "effect";
 import { Command } from "foldkit";
+import type { SchoolsBridgeFailure } from "./bridge";
 import type { SchoolsDirectoryClient } from "./browser-client";
 import { FailedDirectory, SucceededDirectory, type Message } from "./message";
 import type { Model, SchoolDirectoryFailure } from "./model";
@@ -13,8 +14,8 @@ export interface SchoolsDirectoryCommands {
   }) => Command.Command<Message>;
 }
 
-const failureFrom = (error: InternalSdkError): SchoolDirectoryFailure => {
-  switch (error._tag) {
+const failureFrom = (error: SchoolsBridgeFailure): SchoolDirectoryFailure => {
+  switch (error.error.tag) {
     case "UnauthenticatedActor":
       return { _tag: "Denied", message: "Økten din er utløpt. Logg inn på nytt." };
     case "AuthorityInactive":
@@ -41,7 +42,7 @@ export const makeSchoolsDirectoryCommands = (
     },
     messages: [SucceededDirectory, FailedDirectory],
     execute: ({ requestId, department }) =>
-      client.admin.schools.list(department === null ? {} : { department }).pipe(
+      client.directory.listSchools(department === null ? {} : { department }).pipe(
         Effect.map((directory) => SucceededDirectory({ requestId, department, directory })),
         Effect.catch((error) =>
           Effect.succeed(FailedDirectory({ requestId, department, failure: failureFrom(error) })),

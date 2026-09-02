@@ -1,5 +1,6 @@
-import type { ContentWorkspace } from "@vektorprogrammet/sdk/effect";
-import { ArticleId, ContentWorkspaceSchema, DepartmentId } from "@vektorprogrammet/sdk/effect";
+import { ArticleId, ContentWorkspaceSchema, type ContentWorkspace } from "@vektorprogrammet/domain/content";
+import { DepartmentId } from "@vektorprogrammet/domain/organization";
+import { StrongETag } from "@vektorprogrammet/http-api";
 import { Schema as S } from "effect";
 import { AsyncData } from "foldkit";
 
@@ -61,8 +62,8 @@ export const Model = S.Struct({
   requestId: ContentRequestId,
   retryCount: S.Int.check(S.isGreaterThanOrEqualTo(0)),
   selectedArticleId: S.NullOr(ArticleId),
-  /** Null when the selected row has no full ArticleDraftJson observation. */
-  selectedRevision: S.NullOr(S.Int.check(S.isGreaterThanOrEqualTo(0))),
+  /** Validator from the selected article representation. */
+  selectedEtag: S.NullOr(StrongETag),
   editor: EditorValues,
   dirty: S.Boolean,
   pendingCommand: S.NullOr(S.Literals(["Detail", "Create", "Revise", "Publish", "Unpublish"])),
@@ -77,7 +78,7 @@ export const makeInitialModel = (): Model => ({
   requestId: 1,
   retryCount: 0,
   selectedArticleId: null,
-  selectedRevision: null,
+  selectedEtag: null,
   editor: makeEditorValues(),
   dirty: false,
   pendingCommand: null,

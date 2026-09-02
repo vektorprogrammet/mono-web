@@ -1,4 +1,7 @@
-import type { SchoolDirectory, SchoolDirectoryDepartment } from "@vektorprogrammet/sdk/effect";
+import type {
+  SchoolDirectory,
+  SchoolDirectoryDepartment,
+} from "@vektorprogrammet/domain/schools";
 import { Tabs } from "@foldkit/ui";
 import { Match as M, Option } from "effect";
 import { Command } from "foldkit";

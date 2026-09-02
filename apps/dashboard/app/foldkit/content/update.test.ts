@@ -1,4 +1,6 @@
-import { ArticleId, DepartmentId, type ContentWorkspace } from "@vektorprogrammet/sdk/effect";
+import { ArticleId, type ContentWorkspace } from "@vektorprogrammet/domain/content";
+import { DepartmentId } from "@vektorprogrammet/domain/organization";
+import { StrongETag } from "@vektorprogrammet/http-api";
 import { describe, expect, it } from "vitest";
 import { ChangedDepartmentFilter, RetriedWorkspace } from "./message";
 import { makeInitialModel, type Model } from "./model";
@@ -7,6 +9,8 @@ import { makeUpdate, type WorkspaceCommandFactories } from "./update";
 const departmentA = DepartmentId.make("department-a");
 const article1 = ArticleId.make(1);
 const article2 = ArticleId.make(2);
+const etag3 = StrongETag.make('"vkr2.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"');
+const etag4 = StrongETag.make('"vkr2.BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"');
 const knownDepartments = [{ departmentId: departmentA, name: "Trondheim" }];
 const savedDraft = {
   articleId: article1,
@@ -62,8 +66,8 @@ const recordingCommands = (issued: Array<string>): WorkspaceCommandFactories => 
     issued.push(`create:${requestId}`);
     return { name: "SubmitContentCreate", args: { requestId }, effect: undefined as never };
   },
-  SubmitRevise: ({ requestId, expectedRevision }) => {
-    issued.push(`revise:${requestId}:${expectedRevision}`);
+  SubmitRevise: ({ requestId, expectedEtag }) => {
+    issued.push(`revise:${requestId}:${expectedEtag}`);
     return { name: "SubmitContentRevise", args: { requestId }, effect: undefined as never };
   },
   SubmitPublish: ({ requestId }) => {
@@ -148,7 +152,7 @@ describe("Foldkit content workspace transitions", () => {
     const before = issued.length;
     const selected = update(initial, { _tag: "SelectedArticle", articleId: article1 });
     expect(selected[0].selectedArticleId).toBe(article1);
-    expect(selected[0].selectedRevision).toBeNull();
+    expect(selected[0].selectedEtag).toBeNull();
     expect(selected[0].editor.bodyHtml).toBe("");
     expect(selected[0].pendingCommand).toBe("Detail");
     expect(issued.slice(before)).toEqual(["detail:2:1"]);
@@ -156,13 +160,16 @@ describe("Foldkit content workspace transitions", () => {
     const stale = update(selected[0], {
       _tag: "LoadedArticleDetail",
       requestId: 1,
-      detail: {
-        ...savedDraft,
-        status: "Draft",
-        departmentIds: [departmentA],
-        canRevise: true,
-        canPublish: false,
-        authorDisplayName: "Erik Editor",
+      observation: {
+        body: {
+          ...savedDraft,
+          status: "Draft",
+          departmentIds: [departmentA],
+          canRevise: true,
+          canPublish: false,
+          authorDisplayName: "Erik Editor",
+        },
+        etag: etag3,
       },
     });
     expect(stale).toEqual([selected[0], []]);
@@ -170,16 +177,19 @@ describe("Foldkit content workspace transitions", () => {
     const loaded = update(selected[0], {
       _tag: "LoadedArticleDetail",
       requestId: 2,
-      detail: {
-        ...savedDraft,
-        status: "Draft",
-        departmentIds: [departmentA],
-        canRevise: true,
-        canPublish: false,
-        authorDisplayName: "Erik Editor",
+      observation: {
+        body: {
+          ...savedDraft,
+          status: "Draft",
+          departmentIds: [departmentA],
+          canRevise: true,
+          canPublish: false,
+          authorDisplayName: "Erik Editor",
+        },
+        etag: etag3,
       },
     });
-    expect(loaded[0].selectedRevision).toBe(3);
+    expect(loaded[0].selectedEtag).toBe(etag3);
     expect(loaded[0].editor.bodyHtml).toBe("<p>Lagret brødtekst</p>");
     expect(loaded[0].pendingCommand).toBeNull();
     expect(loaded[0].dirty).toBe(false);
@@ -207,7 +217,7 @@ describe("Foldkit content workspace transitions", () => {
     const observed = update(modelWithWorkspace(), {
       _tag: "SucceededSave",
       requestId: 1,
-      draft: savedDraft as never,
+      observation: { body: savedDraft as never, etag: etag3 },
     });
     const edited = update(observed[0], {
       _tag: "EditedField",
@@ -220,7 +230,7 @@ describe("Foldkit content workspace transitions", () => {
     expect(submitted[0].requestId).toBe(2);
     expect(submitted[0].pendingCommand).toBe("Revise");
     expect(submitted[0].dirty).toBe(true);
-    expect(issued.slice(beforeSubmit)).toEqual(["revise:2:3"]);
+    expect(issued.slice(beforeSubmit)).toEqual([`revise:2:${etag3}`]);
   });
 
   it("publish and unpublish require publisher capability in the Model", () => {
@@ -250,14 +260,14 @@ describe("Foldkit content workspace transitions", () => {
     const stale = update(initial, {
       _tag: "SucceededSave",
       requestId: 42,
-      draft: savedDraft as never,
+      observation: { body: savedDraft as never, etag: etag3 },
     });
     expect(stale).toEqual([initial, []]);
 
     const fresh = update(initial, {
       _tag: "SucceededSave",
       requestId: 1,
-      draft: savedDraft as never,
+      observation: { body: savedDraft as never, etag: etag3 },
     });
     expect(fresh[0].workspace._tag).toBe("Success");
     expect(fresh[1]).toHaveLength(1);
@@ -279,7 +289,7 @@ describe("Foldkit content workspace transitions", () => {
     const observed = update(modelWithWorkspace(), {
       _tag: "SucceededSave",
       requestId: 1,
-      draft: savedDraft as never,
+      observation: { body: savedDraft as never, etag: etag3 },
     });
     const edited = update(observed[0], {
       _tag: "EditedField",
@@ -298,7 +308,7 @@ describe("Foldkit content workspace transitions", () => {
       },
     });
     expect(failed[0].selectedArticleId).toBe(article1);
-    expect(failed[0].selectedRevision).toBe(3);
+    expect(failed[0].selectedEtag).toBe(etag3);
     expect(failed[0].editor.bodyHtml).toBe("<p>Ulagret</p>");
     expect(failed[0].dirty).toBe(true);
     expect(failed[0].pendingCommand).toBeNull();
@@ -313,22 +323,25 @@ describe("Foldkit content workspace transitions", () => {
     const first = update(modelWithWorkspace(), {
       _tag: "SucceededSave",
       requestId: 1,
-      draft: savedDraft as never,
+      observation: { body: savedDraft as never, etag: etag3 },
     });
     const second = update(
       { ...first[0], requestId: 2, pendingCommand: "Revise", dirty: true },
       {
         _tag: "SucceededSave",
         requestId: 2,
-        draft: {
-          ...savedDraft,
-          bodyHtml: "<p>Andre lagring</p>",
-          revision: 4,
-        } as never,
+        observation: {
+          body: {
+            ...savedDraft,
+            bodyHtml: "<p>Andre lagring</p>",
+            revision: 4,
+          } as never,
+          etag: etag4,
+        },
       },
     );
     expect(second[0].selectedArticleId).toBe(article1);
-    expect(second[0].selectedRevision).toBe(4);
+    expect(second[0].selectedEtag).toBe(etag4);
     expect(second[0].editor.bodyHtml).toBe("<p>Andre lagring</p>");
     expect(second[0].dirty).toBe(false);
   });

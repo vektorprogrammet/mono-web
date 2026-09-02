@@ -1,4 +1,5 @@
-import type { InternalSdkError } from "@vektorprogrammet/sdk/effect";
+import { IdempotencyKey } from "@vektorprogrammet/http-api";
+import type { ContentBridgeFailure } from "./bridge";
 import { Effect } from "effect";
 import type { ContentWorkspaceClient } from "./browser-client";
 import {
@@ -12,8 +13,8 @@ import {
 import type { ContentFailure } from "./model";
 import type { WorkspaceCommandFactories } from "./update";
 
-const failureFrom = (error: InternalSdkError): ContentFailure => {
-  switch (error._tag) {
+const failureFrom = (error: ContentBridgeFailure): ContentFailure => {
+  switch (error.error.tag) {
     case "UnauthenticatedActor":
       return {
         _tag: "Denied",
@@ -113,7 +114,7 @@ export const makeContentWorkspaceCommands = (
   LoadWorkspace: ({ requestId }) => ({
     name: "LoadContentWorkspace",
     args: { requestId },
-    effect: client.admin.content.workspace().pipe(
+    effect: client.content.readContentWorkspace().pipe(
       Effect.map(({ workspace, knownDepartments }) =>
         LoadedWorkspace({ requestId, workspace, knownDepartments }),
       ),
@@ -125,8 +126,8 @@ export const makeContentWorkspaceCommands = (
   LoadArticleDetail: ({ requestId, articleId }) => ({
     name: "LoadContentArticleDetail",
     args: { requestId, articleId },
-    effect: client.admin.content.readArticle(articleId).pipe(
-      Effect.map((detail) => LoadedArticleDetail({ requestId, detail })),
+    effect: client.content.readArticle({ articleId }).pipe(
+      Effect.map((observation) => LoadedArticleDetail({ requestId, observation })),
       Effect.catch((error) =>
         Effect.succeed(FailedCommand({ requestId, failure: failureFrom(error) })),
       ),
@@ -135,10 +136,16 @@ export const makeContentWorkspaceCommands = (
   SubmitCreate: ({ requestId, commandId, title, bodyHtml, departmentIds, sticky }) => ({
     name: "SubmitContentCreate",
     args: { requestId },
-    effect: client.admin.content
-      .createDraft({ commandId, title, bodyHtml, departmentIds, sticky } as never)
+    effect: client.content
+      .createArticle({
+        commandId: IdempotencyKey.make(commandId),
+        title,
+        bodyHtml,
+        departmentIds,
+        sticky,
+      })
       .pipe(
-        Effect.map((draft) => SucceededSave({ requestId, draft })),
+        Effect.map((observation) => SucceededSave({ requestId, observation })),
         Effect.catch((error) =>
           Effect.succeed(FailedCommand({ requestId, failure: failureFrom(error) })),
         ),
@@ -148,7 +155,7 @@ export const makeContentWorkspaceCommands = (
     requestId,
     commandId,
     articleId,
-    expectedRevision,
+    expectedEtag,
     title,
     bodyHtml,
     departmentIds,
@@ -156,18 +163,18 @@ export const makeContentWorkspaceCommands = (
   }) => ({
     name: "SubmitContentRevise",
     args: { requestId },
-    effect: client.admin.content
-      .reviseDraft({
-        commandId,
+    effect: client.content
+      .reviseArticle({
+        commandId: IdempotencyKey.make(commandId),
         articleId,
-        expectedRevision,
+        etag: expectedEtag,
         title,
         bodyHtml,
         departmentIds,
         sticky,
-      } as never)
+      })
       .pipe(
-        Effect.map((draft) => SucceededSave({ requestId, draft })),
+        Effect.map((observation) => SucceededSave({ requestId, observation })),
         Effect.catch((error) =>
           Effect.succeed(FailedCommand({ requestId, failure: failureFrom(error) })),
         ),
@@ -176,8 +183,10 @@ export const makeContentWorkspaceCommands = (
   SubmitPublish: ({ requestId, commandId, articleId }) => ({
     name: "SubmitContentPublish",
     args: { requestId },
-    effect: client.admin.content.publish({ commandId, articleId } as never).pipe(
-      Effect.map(() => SucceededTransition({ requestId })),
+    effect: client.content
+      .publishArticle({ commandId: IdempotencyKey.make(commandId), articleId })
+      .pipe(
+        Effect.map(() => SucceededTransition({ requestId })),
       Effect.catch((error) =>
         Effect.succeed(FailedCommand({ requestId, failure: failureFrom(error) })),
       ),
@@ -186,8 +195,10 @@ export const makeContentWorkspaceCommands = (
   SubmitUnpublish: ({ requestId, commandId, articleId }) => ({
     name: "SubmitContentUnpublish",
     args: { requestId },
-    effect: client.admin.content.unpublish({ commandId, articleId } as never).pipe(
-      Effect.map(() => SucceededTransition({ requestId })),
+    effect: client.content
+      .unpublishArticle({ commandId: IdempotencyKey.make(commandId), articleId })
+      .pipe(
+        Effect.map(() => SucceededTransition({ requestId })),
       Effect.catch((error) =>
         Effect.succeed(FailedCommand({ requestId, failure: failureFrom(error) })),
       ),

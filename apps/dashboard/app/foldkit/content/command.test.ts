@@ -1,10 +1,9 @@
-import {
-  ContentAuthorityInactive,
-  ContentDepartmentNotFound,
-  ContentNotInScope,
-} from "@vektorprogrammet/sdk/effect";
+import { ArticleId } from "@vektorprogrammet/domain/content";
+import { DepartmentId } from "@vektorprogrammet/domain/organization";
+import { IdempotencyKey } from "@vektorprogrammet/http-api";
 import { Effect } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { contentBridgeFailure } from "./bridge";
 import { createBrowserContentWorkspaceClient, type ContentWorkspaceClient } from "./browser-client";
 import { failureFrom, makeContentWorkspaceCommands } from "./command";
 
@@ -13,18 +12,18 @@ afterEach(() => {
 });
 
 describe("Content workspace failure classification", () => {
-  it("renders internal Content denial tags as denials", () => {
-    expect(failureFrom(new ContentAuthorityInactive())).toEqual({
+  it("renders bridge denial tags as denials", () => {
+    expect(failureFrom(contentBridgeFailure("AuthorityInactive"))).toEqual({
       _tag: "Denied",
       tag: "AuthorityInactive",
       message: "Tilgangen din til artikkeladministrasjon er ikke aktiv.",
     });
-    expect(failureFrom(new ContentNotInScope())).toEqual({
+    expect(failureFrom(contentBridgeFailure("NotInScope"))).toEqual({
       _tag: "Denied",
       tag: "NotInScope",
       message: "Du har ikke tilgang til artikkeladministrasjon.",
     });
-    expect(failureFrom(new ContentDepartmentNotFound())).toEqual({
+    expect(failureFrom(contentBridgeFailure("DepartmentNotFound"))).toEqual({
       _tag: "Failed",
       tag: "DepartmentNotFound",
       message: "En valgt avdeling finnes ikke lenger.",
@@ -34,27 +33,25 @@ describe("Content workspace failure classification", () => {
   it("preserves a failed create tag and never reloads the workspace", async () => {
     let workspaceLoads = 0;
     const client: ContentWorkspaceClient = {
-      admin: {
-        content: {
-          workspace: () => {
-            workspaceLoads += 1;
-            return Effect.succeed({ workspace: { entries: [] }, knownDepartments: [] });
-          },
-          readArticle: () => Effect.die("unexpected detail"),
-          createDraft: () => Effect.fail(new ContentNotInScope()),
-          reviseDraft: () => Effect.die("unexpected revise"),
-          publish: () => Effect.die("unexpected publish"),
-          unpublish: () => Effect.die("unexpected unpublish"),
+      content: {
+        readContentWorkspace: () => {
+          workspaceLoads += 1;
+          return Effect.succeed({ workspace: { entries: [] }, knownDepartments: [] });
         },
+        readArticle: () => Effect.die("unexpected detail"),
+        createArticle: () => Effect.fail(contentBridgeFailure("NotInScope")),
+        reviseArticle: () => Effect.die("unexpected revise"),
+        publishArticle: () => Effect.die("unexpected publish"),
+        unpublishArticle: () => Effect.die("unexpected unpublish"),
       },
     };
     const message = await Effect.runPromise(
       makeContentWorkspaceCommands(client).SubmitCreate({
         requestId: 2,
-        commandId: "create-denied",
+        commandId: IdempotencyKey.make("create-denied-command"),
         title: "Tittel",
         bodyHtml: "<p>Brødtekst</p>",
-        departmentIds: ["department-a"],
+        departmentIds: [DepartmentId.make("department-a")],
         sticky: false,
       }).effect,
     );
@@ -71,7 +68,7 @@ describe("Content workspace failure classification", () => {
     expect(workspaceLoads).toBe(0);
   });
 
-  it("preserves DepartmentNotFound from the bridge into a typed FailedCommand message", async () => {
+  it("preserves DepartmentNotFound from the bridge", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(
@@ -81,15 +78,15 @@ describe("Content workspace failure classification", () => {
         }),
       ),
     );
-    const client = createBrowserContentWorkspaceClient();
     const failure = await Effect.runPromise(
-      client.admin.content
-        .createDraft({
-          commandId: "department-gone",
+      createBrowserContentWorkspaceClient()
+        .content.createArticle({
+          commandId: IdempotencyKey.make("department-gone-command"),
           title: "Tittel",
           bodyHtml: "<p>Brødtekst</p>",
-          departmentIds: ["department-gone"],
-        } as never)
+          departmentIds: [DepartmentId.make("department-gone")],
+          sticky: false,
+        })
         .pipe(
           Effect.map(() => undefined),
           Effect.catch((error) => Effect.succeed(failureFrom(error))),
@@ -102,7 +99,8 @@ describe("Content workspace failure classification", () => {
       message: "En valgt avdeling finnes ikke lenger.",
     });
   });
-  it("strictly decodes a working-copy detail through the confined bridge", async () => {
+
+  it("strictly decodes a working-copy observation through the bridge", async () => {
     const detail = {
       articleId: 7,
       title: "Tittel",
@@ -119,8 +117,12 @@ describe("Content workspace failure classification", () => {
       canPublish: false,
       authorDisplayName: "Forfatter",
     };
+    const observation = {
+      body: detail,
+      etag: '"vkr2.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"',
+    };
     const fetchMock = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify(detail), {
+      new Response(JSON.stringify(observation), {
         status: 200,
         headers: { "content-type": "application/json" },
       }),
@@ -128,9 +130,9 @@ describe("Content workspace failure classification", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const result = await Effect.runPromise(
-      createBrowserContentWorkspaceClient().admin.content.readArticle(7),
+      createBrowserContentWorkspaceClient().content.readArticle({ articleId: ArticleId.make(7) }),
     );
-    expect(result).toEqual(detail);
+    expect(result).toEqual(observation);
     expect(fetchMock).toHaveBeenCalledWith(
       "/content",
       expect.objectContaining({
@@ -140,7 +142,7 @@ describe("Content workspace failure classification", () => {
     );
   });
 
-  it("turns an unknown bridge tag into ContentDecodeError instead of trusting it", async () => {
+  it("turns an unknown bridge tag into ContentDecodeError", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(
@@ -150,9 +152,8 @@ describe("Content workspace failure classification", () => {
         }),
       ),
     );
-    const client = createBrowserContentWorkspaceClient();
     const failure = await Effect.runPromise(
-      client.admin.content.workspace().pipe(
+      createBrowserContentWorkspaceClient().content.readContentWorkspace().pipe(
         Effect.map(() => undefined),
         Effect.catch((error) => Effect.succeed(failureFrom(error))),
       ),

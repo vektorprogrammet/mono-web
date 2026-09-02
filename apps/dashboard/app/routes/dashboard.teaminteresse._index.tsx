@@ -1,18 +1,19 @@
 import { DataTable } from "@/components/data-table";
 import type { ColumnDef } from "@tanstack/react-table";
-import type { TeamInterest } from "@vektorprogrammet/sdk";
+import { TeamInterestResponse } from "@vektorprogrammet/http-api";
 import { useLoaderData } from "react-router";
 import { requireAuth } from "../lib/auth.server";
 import { createAuthenticatedClient } from "../lib/api.server";
 import type { Route } from "./+types/dashboard.teaminteresse._index";
 
+type TeamInterest = (typeof TeamInterestResponse.Type)["hydra:member"][number];
 type TeamInterestRow = Pick<TeamInterest, "id" | "userName" | "teamName">;
 
 export async function loader({ request }: Route.LoaderArgs) {
   const cookie = await requireAuth(request);
   const client = createAuthenticatedClient(cookie, request);
-  const result = await client.admin.teams.interest();
-  const teamInterest = result.items.map(({ id, userName, teamName }) => ({
+  const result = await client.organization.listTeamInterest({ query: {} });
+  const teamInterest = result.body["hydra:member"].map(({ id, userName, teamName }) => ({
     id,
     userName,
     teamName,

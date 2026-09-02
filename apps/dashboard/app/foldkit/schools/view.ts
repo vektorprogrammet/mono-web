@@ -1,5 +1,5 @@
-import type { SchoolDirectory, SchoolDirectoryEntry } from "@vektorprogrammet/sdk/effect";
-import { DepartmentId } from "@vektorprogrammet/sdk/effect";
+import { DepartmentId } from "@vektorprogrammet/domain/organization";
+import type { SchoolDirectory, SchoolDirectoryEntry } from "@vektorprogrammet/domain/schools";
 import { Input, Select } from "@foldkit/ui";
 import { AsyncData } from "foldkit";
 import type { Html, HtmlBuilder } from "foldkit/html";

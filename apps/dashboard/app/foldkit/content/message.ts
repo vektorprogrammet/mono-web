@@ -1,12 +1,8 @@
-import {
-  ArticleId,
-  ContentArticleDetailSchema,
-  ContentWorkspaceSchema,
-  CreateArticleDraftObservationSchema,
-  DepartmentId,
-} from "@vektorprogrammet/sdk/effect";
+import { ArticleId, ContentWorkspaceSchema } from "@vektorprogrammet/domain/content";
+import { DepartmentId } from "@vektorprogrammet/domain/organization";
 import { Schema as S } from "effect";
 import { m } from "foldkit/message";
+import { ContentArticleObservationSchema } from "./bridge";
 import { ContentFailure, ContentRequestId, KnownDepartmentSchema } from "./model";
 
 export const LoadedWorkspace = m("LoadedWorkspace", {
@@ -20,7 +16,7 @@ export const FailedWorkspace = m("FailedWorkspace", {
 });
 export const LoadedArticleDetail = m("LoadedArticleDetail", {
   requestId: ContentRequestId,
-  detail: ContentArticleDetailSchema,
+  observation: ContentArticleObservationSchema,
 });
 export const RetriedWorkspace = m("RetriedWorkspace");
 
@@ -39,7 +35,7 @@ export const SubmittedCreate = m("SubmittedCreate", { commandId: S.String });
 export const SubmittedRevise = m("SubmittedRevise", { commandId: S.String });
 export const SucceededSave = m("SucceededSave", {
   requestId: ContentRequestId,
-  draft: CreateArticleDraftObservationSchema,
+  observation: ContentArticleObservationSchema,
 });
 export const SucceededTransition = m("SucceededTransition", {
   requestId: ContentRequestId,

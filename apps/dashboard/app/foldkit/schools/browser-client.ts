@@ -1,59 +1,27 @@
-import {
-  Configuration,
-  Network,
-  SchoolDirectorySchema,
-  SchoolsAuthorityInactive,
-  SchoolsDecodeError,
-  SchoolsDepartmentNotFound,
-  SchoolsDepartmentOutOfScope,
-  SchoolsNotInScope,
-  SchoolsPersistenceError,
-  SchoolsUnauthenticatedActor,
-  type AdminSchoolsListInput,
-  type InternalSdkError,
-  type SchoolDirectory,
-} from "@vektorprogrammet/sdk/effect";
+import type { DepartmentId } from "@vektorprogrammet/domain/organization";
+import { SchoolDirectorySchema, type SchoolDirectory } from "@vektorprogrammet/domain/schools";
 import { Effect, Schema as S } from "effect";
-import { SchoolsBridgeFailureSchema } from "./bridge";
+import {
+  SchoolsBridgeFailureSchema,
+  schoolsBridgeFailure,
+  type SchoolsBridgeFailure,
+} from "./bridge";
+
+export interface SchoolsListInput {
+  readonly department?: DepartmentId;
+}
 
 export interface SchoolsDirectoryOperations {
-  readonly list: (
-    input?: AdminSchoolsListInput,
-  ) => Effect.Effect<SchoolDirectory, InternalSdkError>;
+  readonly listSchools: (
+    input?: SchoolsListInput,
+  ) => Effect.Effect<SchoolDirectory, SchoolsBridgeFailure>;
 }
 
 export interface SchoolsDirectoryClient {
-  readonly admin: {
-    readonly schools: SchoolsDirectoryOperations;
-  };
+  readonly directory: SchoolsDirectoryOperations;
 }
 
-const failureFromTag = (
-  tag: S.Schema.Type<typeof SchoolsBridgeFailureSchema>["error"]["tag"],
-): InternalSdkError => {
-  switch (tag) {
-    case "UnauthenticatedActor":
-      return new SchoolsUnauthenticatedActor();
-    case "AuthorityInactive":
-      return new SchoolsAuthorityInactive();
-    case "NotInScope":
-      return new SchoolsNotInScope();
-    case "SchoolsDepartmentNotFound":
-      return new SchoolsDepartmentNotFound();
-    case "SchoolsDepartmentOutOfScope":
-      return new SchoolsDepartmentOutOfScope();
-    case "SchoolsDecodeError":
-      return new SchoolsDecodeError();
-    case "SchoolsPersistenceError":
-      return new SchoolsPersistenceError();
-    case "Configuration":
-      return new Configuration({ message: "Schools bridge is not configured" });
-    case "Network":
-      return new Network({ message: "Schools bridge is unavailable" });
-  }
-};
-
-const readBridge = async (input: AdminSchoolsListInput, signal: AbortSignal): Promise<Response> => {
+const readBridge = async (input: SchoolsListInput, signal: AbortSignal): Promise<Response> => {
   const search = new URLSearchParams();
   if (input.department !== undefined) search.set("department", input.department);
   const query = search.size === 0 ? "" : `?${search.toString()}`;
@@ -65,34 +33,34 @@ const readBridge = async (input: AdminSchoolsListInput, signal: AbortSignal): Pr
   });
 };
 
-const listDirectory = (
-  input: AdminSchoolsListInput = {},
-): Effect.Effect<SchoolDirectory, InternalSdkError> =>
+const listSchools = (
+  input: SchoolsListInput = {},
+): Effect.Effect<SchoolDirectory, SchoolsBridgeFailure> =>
   Effect.tryPromise({
     try: (signal) => readBridge(input, signal),
-    catch: (cause) => new Network({ message: "Schools bridge request failed", cause }),
+    catch: () => schoolsBridgeFailure("Network"),
   }).pipe(
     Effect.flatMap((response) =>
       Effect.tryPromise({
         try: () => response.json() as Promise<unknown>,
-        catch: () => new SchoolsDecodeError(),
+        catch: () => schoolsBridgeFailure("SchoolsDecodeError"),
       }).pipe(Effect.map((payload) => ({ response, payload }))),
     ),
     Effect.flatMap(({ response, payload }) => {
       if (response.ok) {
         return S.decodeUnknownEffect(SchoolDirectorySchema)(payload, {
           onExcessProperty: "error",
-        }).pipe(Effect.mapError(() => new SchoolsDecodeError()));
+        }).pipe(Effect.mapError(() => schoolsBridgeFailure("SchoolsDecodeError")));
       }
       return S.decodeUnknownEffect(SchoolsBridgeFailureSchema)(payload, {
         onExcessProperty: "error",
       }).pipe(
-        Effect.mapError(() => new SchoolsDecodeError()),
-        Effect.flatMap((failure) => Effect.fail(failureFromTag(failure.error.tag))),
+        Effect.mapError(() => schoolsBridgeFailure("SchoolsDecodeError")),
+        Effect.flatMap(Effect.fail),
       );
     }),
   );
 
 export const createBrowserSchoolsDirectoryClient = (): SchoolsDirectoryClient => ({
-  admin: { schools: { list: listDirectory } },
+  directory: { listSchools },
 });
