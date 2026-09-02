@@ -7,7 +7,7 @@ import {
 import { Profile } from "@vektorprogrammet/domain/profile";
 import {
   ExternalNativeApi,
-  ListAdminUsersEndpoint,
+  ListPeopleEndpoint,
   reflectAccessSpec,
 } from "@vektorprogrammet/http-api";
 import { Effect, Option, Schema } from "effect";
@@ -19,14 +19,14 @@ import { listSchools, schoolsErrorResponse, type SchoolsApiHttpOptions } from ".
 import type { BackendRun } from "../router.js";
 
 /**
- * GET /api/admin/users — the native admin user directory (spec 0057).
+ * GET /api/people — the native people directory.
  *
  * The adapter only decodes transport data, resolves authority through the
  * shared spec 0055 helpers, and maps typed results. It imports no SQL and
  * implements no domain transition.
  */
 
-export interface AdminUsersApiHttpOptions {
+export interface DirectoryApiHttpOptions {
   /** Cookie -> PersonId + one authorizationInstant -> caller projection. */
   readonly resolveAuthority: (request: Request) => Promise<OrganizationPersonAuthority>;
   readonly run: BackendRun;
@@ -92,10 +92,7 @@ const errorResponse = (cause: unknown): Response => {
   }
 };
 
-const listAdminUsers = async (
-  request: Request,
-  input: AdminUsersApiHttpOptions,
-): Promise<Response> => {
+const listPeople = async (request: Request, input: DirectoryApiHttpOptions): Promise<Response> => {
   if (new URL(request.url).search !== "") {
     return jsonResponse({ error: { tag: "DirectoryCursorMalformed" } }, 422);
   }
@@ -134,7 +131,7 @@ const listAdminUsers = async (
   await authorizePersonNativeOperation({
     request,
     personId: authority.personId,
-    spec: Option.getOrThrow(reflectAccessSpec(ListAdminUsersEndpoint)),
+    spec: Option.getOrThrow(reflectAccessSpec(ListPeopleEndpoint)),
     resolution: { selection: "AllMatching", contexts },
     grantScopes,
     now: authority.evaluatedAt,
@@ -183,20 +180,16 @@ const listAdminUsers = async (
   return jsonResponse(response);
 };
 
-/** Native HttpApi implementation for the administrative user directory. */
-export const AdminUsersApiHandlers = (
-  input: AdminUsersApiHttpOptions,
+/** Native HttpApi implementation for the people and school directories. */
+export const DirectoryApiHandlers = (
+  input: DirectoryApiHttpOptions,
   schools: SchoolsApiHttpOptions,
 ) =>
   HttpApiBuilder.group(ExternalNativeApi, "directory", (handlers) =>
     Effect.succeed(
       handlers
         .handleRaw("listPeople", ({ request }) =>
-          toHttpApiResponse(
-            request,
-            (webRequest) => listAdminUsers(webRequest, input),
-            errorResponse,
-          ),
+          toHttpApiResponse(request, (webRequest) => listPeople(webRequest, input), errorResponse),
         )
         .handleRaw("listSchools", ({ request }) =>
           toHttpApiResponse(

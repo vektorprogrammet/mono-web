@@ -1,5 +1,5 @@
 /**
- * Public HTTP contracts for administrative directory reads.
+ * Public HTTP contracts for the people and school directories.
  *
  */
 import { DepartmentId } from "@vektorprogrammet/domain/organization";
@@ -44,7 +44,7 @@ export const PeopleDirectoryEntry = Schema.Struct({
 });
 
 /**
- * Complete scoped admin user directory response.
+ * Complete scoped people directory response.
  *
  * @since 0.1.0
  * @category Schemas
@@ -77,7 +77,7 @@ export const PeopleDirectoryResponse = Schema.Struct({
 });
 
 /** @since 0.1.0 @category Endpoints */
-export const ListAdminUsersEndpoint = HttpApiEndpoint.get("listPeople", "/api/people", {
+export const ListPeopleEndpoint = HttpApiEndpoint.get("listPeople", "/api/people", {
   success: privateReadResponse(PeopleDirectoryResponse),
   error: endpointProblemResponses(DirectoryListPeopleProblem),
 })
@@ -93,10 +93,7 @@ export const ListAdminUsersEndpoint = HttpApiEndpoint.get("listPeople", "/api/pe
     ),
   )
   .annotateMerge(
-    operationAnnotations(
-      "List admin users",
-      "Returns the person directory within the caller's scope.",
-    ),
+    operationAnnotations("List people", "Returns the people directory within the caller's scope."),
   );
 
 export const SchoolDirectoryExample = {
@@ -143,17 +140,17 @@ export const ListSchoolsEndpoint = HttpApiEndpoint.get("listSchools", "/api/scho
   );
 
 /**
- * Scoped administrative directory endpoints.
+ * Scoped people and school directory endpoints.
  *
  * @since 0.1.0
  * @category Groups
  */
 export class DirectoryApi extends HttpApiGroup.make("directory")
-  .add(ListAdminUsersEndpoint, ListSchoolsEndpoint)
+  .add(ListPeopleEndpoint, ListSchoolsEndpoint)
   .annotateMerge(
     OpenApi.annotations({
       title: "Directories",
-      description: "Scoped administrative person and school directories.",
+      description: "Scoped people and school directories.",
       override: { "x-displayName": "Directories" },
     }),
   ) {}

@@ -16,7 +16,7 @@ import { ExternalNativeApi, InternalNativeApi } from "@vektorprogrammet/http-api
 import { Effect, Layer } from "effect";
 import { HttpRouter, HttpServerResponse } from "effect/unstable/http";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
-import { AdminUsersApiHandlers } from "./admin-users/http.js";
+import { DirectoryApiHandlers } from "./directory/http.js";
 import { AdmissionsApiHandlers } from "./admission/http.js";
 import {
   admissionActorForDepartment,
@@ -210,7 +210,7 @@ export const makeExternalNativeApiRouterLayer = (
         }),
       run,
     }),
-    AdminUsersApiHandlers(
+    DirectoryApiHandlers(
       {
         resolveAuthority: (request) =>
           resolveRequestPersonAuthority(request, {

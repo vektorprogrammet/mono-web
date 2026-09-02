@@ -16,7 +16,7 @@ import {
 import { Effect, Layer } from "effect";
 import { Etag, HttpRouter, HttpServerResponse } from "effect/unstable/http";
 import { HttpApi, HttpApiBuilder, type HttpApiGroup } from "effect/unstable/httpapi";
-import { AdminUsersApiHandlers, type AdminUsersApiHttpOptions } from "../admin-users/http.js";
+import { DirectoryApiHandlers, type DirectoryApiHttpOptions } from "../directory/http.js";
 import { ContentApiHandlers, type ContentRequestActor } from "../content/http.js";
 import { NativeHttpApiMiddlewareLive } from "../http-api/transport.js";
 import { OrganizationApiHandlers, type OrganizationApiHttpOptions } from "../organization/http.js";
@@ -154,10 +154,10 @@ export const makePublicNewsTestHttp = (run: BackendRun) => ({
   ),
 });
 
-export const makeAdminUsersTestHttp = (options: AdminUsersApiHttpOptions) => ({
+export const makeDirectoryTestHttp = (options: DirectoryApiHttpOptions) => ({
   fetch: testFetch(
     directoryContract,
-    AdminUsersApiHandlers(options, {
+    DirectoryApiHandlers(options, {
       resolveActor: () => Promise.reject(new Error("school actor resolution is unavailable")),
       run: options.run,
     }),
@@ -167,10 +167,10 @@ export const makeAdminUsersTestHttp = (options: AdminUsersApiHttpOptions) => ({
 export const makeSchoolsTestHttp = (options: SchoolsApiHttpOptions) => ({
   fetch: testFetch(
     directoryContract,
-    AdminUsersApiHandlers(
+    DirectoryApiHandlers(
       {
         resolveAuthority: () =>
-          Promise.reject(new Error("admin directory authority is unavailable")),
+          Promise.reject(new Error("people directory authority is unavailable")),
         run: options.run,
       },
       options,
