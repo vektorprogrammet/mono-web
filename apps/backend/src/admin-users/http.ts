@@ -5,9 +5,15 @@ import {
   type OrganizationPersonAuthority,
 } from "@vektorprogrammet/domain/organization";
 import { Profile } from "@vektorprogrammet/domain/profile";
-import { ExternalNativeApi } from "@vektorprogrammet/http-api";
-import { Effect, Schema } from "effect";
+import {
+  ExternalNativeApi,
+  ListAdminUsersEndpoint,
+  reflectAccessSpec,
+} from "@vektorprogrammet/http-api";
+import { Effect, Option, Schema } from "effect";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
+import { HttpSemanticFailure, nativeProblemResponse } from "../http-semantics.js";
+import { authorizePersonNativeOperation, genericContext } from "../native-operation.js";
 import { toHttpApiResponse } from "../http-api/transport.js";
 import { listSchools, schoolsErrorResponse, type SchoolsApiHttpOptions } from "../schools/http.js";
 import type { BackendRun } from "../router.js";
@@ -24,10 +30,6 @@ export interface AdminUsersApiHttpOptions {
   /** Cookie -> PersonId + one authorizationInstant -> caller projection. */
   readonly resolveAuthority: (request: Request) => Promise<OrganizationPersonAuthority>;
   readonly run: BackendRun;
-}
-
-interface ErrorBody {
-  readonly error: { readonly tag: string };
 }
 
 type TaggedHttpError = Error & { readonly _tag: string };
@@ -67,28 +69,27 @@ const DirectoryResponseSchema = Schema.Struct({
 
 const DIRECTORY_PAGE_LIMIT = 200;
 
-const statusForErrorTag = (tag: string): number => {
-  switch (tag) {
-    case "UnauthenticatedActor":
-      return 401;
-    case "InactiveActor":
-    case "NotInScope":
-      // Typed scope/inactivity denials are 403 (frozen HTTP table);
-      // 401 is reserved for missing or invalid sessions only.
-      return 403;
-    case "DirectoryCursorMalformed":
-      return 422;
-    default:
-      return 503;
-  }
-};
-
 const errorResponse = (cause: unknown): Response => {
+  if (cause instanceof HttpSemanticFailure) {
+    return nativeProblemResponse(cause.code, cause.status);
+  }
   const tag =
     cause !== null && typeof cause === "object" && "_tag" in cause && typeof cause._tag === "string"
       ? cause._tag
       : "ProfilePersistenceError";
-  return jsonResponse({ error: { tag } satisfies ErrorBody["error"] }, statusForErrorTag(tag));
+  switch (tag) {
+    case "UnauthenticatedActor":
+      return nativeProblemResponse("credential.invalid", 401, {
+        "www-authenticate": 'VektorSession realm="native-api", Bearer realm="native-api"',
+      });
+    case "InactiveActor":
+    case "NotInScope":
+      return nativeProblemResponse("authority.denied", 403);
+    case "DirectoryCursorMalformed":
+      return nativeProblemResponse("directory.cursor-malformed", 422);
+    default:
+      return nativeProblemResponse("directory.unavailable", 503);
+  }
 };
 
 const listAdminUsers = async (
@@ -108,6 +109,37 @@ const listAdminUsers = async (
       : taggedError("NotInScope");
   }
   const scope = decision.value;
+  const contexts =
+    scope._tag === "AllDepartments"
+      ? [
+          genericContext({
+            domainId: "profile",
+            authorityVersion: `directory:${authority.evaluatedAt}`,
+          }),
+        ]
+      : scope.departmentIds.map((departmentId) =>
+          genericContext({
+            domainId: "profile",
+            departmentId,
+            authorityVersion: `directory:${authority.evaluatedAt}`,
+          }),
+        );
+  const grantScopes =
+    scope._tag === "AllDepartments"
+      ? [{ _tag: "Global" as const }]
+      : scope.departmentIds.map((departmentId) => ({
+          _tag: "Department" as const,
+          departmentId,
+        }));
+  await authorizePersonNativeOperation({
+    request,
+    personId: authority.personId,
+    spec: Option.getOrThrow(reflectAccessSpec(ListAdminUsersEndpoint)),
+    resolution: { selection: "AllMatching", contexts },
+    grantScopes,
+    now: authority.evaluatedAt,
+    run: input.run,
+  });
   const response = await input.run(
     Effect.gen(function* () {
       const organization = yield* Organization;

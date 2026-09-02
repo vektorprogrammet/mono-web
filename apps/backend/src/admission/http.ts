@@ -5,32 +5,47 @@ import {
   UnauthenticatedActor,
   AdmissionPeriodCommandId,
   AdmissionPeriodId,
-  Rfc3339InstantSchema,
-  RevisionSchema,
   type AdmissionPeriodActor,
 } from "@vektorprogrammet/domain/admission-period";
 import { Admissions } from "@vektorprogrammet/domain/admissions";
-import { PublicApplicationSubmitInputSchema } from "@vektorprogrammet/domain/application";
+import { PublicApplicationCommandIdSchema } from "@vektorprogrammet/domain/application";
+import { executeNativeHttpCommandPostgres } from "@vektorprogrammet/domain/http-semantics";
 import {
+  AdmissionPeriodManagementItem,
+  AdmissionPeriodMergePatch,
   CreateAdmissionPeriodEndpoint,
   CreateAdmissionPeriodRequest,
   ExternalNativeApi,
+  ListAdmissionPeriodsEndpoint,
+  ListOpenAdmissionPeriodsEndpoint,
+  ReadApplicationCatalogEndpoint,
+  ReadApplicationConfirmationEndpoint,
+  ReviseAdmissionPeriodEndpoint,
+  SubmitApplicationEndpoint,
+  SubmitApplicationRequest,
   reflectAccessSpec,
 } from "@vektorprogrammet/http-api";
-import { executeNativeHttpCommandPostgres } from "@vektorprogrammet/domain/http-semantics";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
 import { toHttpApiResponse } from "../http-api/transport.js";
 import {
   HttpSemanticFailure,
+  PRIVATE_NO_STORE,
   deriveHttpIdentity,
   deriveStrongETag,
   encodePathIdentity,
+  evaluateMutationPrecondition,
+  evaluateReadPreconditions,
   jsonBodyBytes,
   nativeProblemResponse,
+  notModifiedResponse,
   parseIdempotencyKey,
+  parseIfNoneMatch,
+  parseReadIfMatch,
+  parseRequiredIfMatch,
   semanticRequestDigest,
 } from "../http-semantics.js";
 import {
+  authorizeAnonymousNativeOperation,
   authorizePersonNativeOperation,
   genericContext,
   nativeCommandOutcomeResponse,
@@ -49,10 +64,6 @@ export interface AdmissionApiHttpOptions {
     departmentScope?: string,
   ) => Promise<AdmissionPeriodActor>;
   readonly run: <A, E>(effect: Effect.Effect<A, E, Database | Admissions>) => Promise<A>;
-}
-
-interface ErrorBody {
-  readonly error: { readonly tag: string };
 }
 
 type TaggedHttpError = Error & { readonly _tag: string };
@@ -84,7 +95,7 @@ const errorResponse = (cause: unknown): Response => {
   if (cause !== null && typeof cause === "object" && "_tag" in cause) {
     switch (cause._tag) {
       case "NativeHttpReceiptInFlightError":
-        return nativeProblemResponse("idempotency.in-flight", 409);
+        return nativeProblemResponse("idempotency.in-flight", 409, { "retry-after": "1" });
       case "NativeHttpReceiptDigestConflictError":
         return nativeProblemResponse("idempotency.digest-conflict", 409);
       case "NativeHttpReceiptExpiredError":
@@ -94,50 +105,49 @@ const errorResponse = (cause: unknown): Response => {
     }
   }
   const tag = errorTag(cause);
-  let status: number;
   switch (tag) {
     case "UnauthenticatedActor":
-      status = 401;
-      break;
+      return nativeProblemResponse("credential.invalid", 401, {
+        "www-authenticate": 'VektorSession realm="native-api", Bearer realm="native-api"',
+      });
     case "InactiveActor":
     case "AdmissionRoleDenied":
     case "AdmissionScopeDenied":
-      status = 403;
-      break;
-    case "DepartmentNotFound":
+      return nativeProblemResponse("authority.denied", 403);
     case "AdmissionPeriodNotFound":
+      return nativeProblemResponse("admission-period.not-found", 404);
     case "PublicApplicationNotFound":
-      status = 404;
-      break;
+      return nativeProblemResponse("application.not-found", 404);
     case "RequestBodyTooLarge":
-      status = 413;
-      break;
+      return nativeProblemResponse("request.too-large", 413);
     case "PublicApplicationRateLimitExceeded":
-      status = 429;
-      break;
+      return nativeProblemResponse("rate-limit.exceeded", 429, { "retry-after": "60" });
     case "PublicApplicationDecodeError":
+    case "AdmissionPeriodDecodeError":
+      return nativeProblemResponse("validation.failed", 422);
     case "FieldOfStudyNotFound":
     case "FieldOfStudyInactive":
     case "FieldOfStudyDepartmentMismatch":
-    case "AdmissionPeriodDecodeError":
+      return nativeProblemResponse("application.invalid-field-of-study", 422);
     case "InvalidAdmissionPeriodWindow":
     case "AdmissionWindowOutsideSemester":
-      status = 422;
-      break;
+      return nativeProblemResponse("admission-period.invalid-window", 422);
     case "NoEligibleAdmissionPeriod":
+      return nativeProblemResponse("application.no-eligible-period", 409);
     case "AmbiguousAdmissionPeriod":
+      return nativeProblemResponse("application.ambiguous-period", 409);
     case "DuplicatePublicApplication":
-    case "DuplicatePublicApplicationCommandConflict":
+      return nativeProblemResponse("application.duplicate", 409);
     case "AdmissionPeriodAlreadyExists":
+      return nativeProblemResponse("admission-period.already-exists", 409);
     case "StaleAdmissionPeriodRevision":
+      return nativeProblemResponse("precondition.failed", 412);
+    case "DuplicatePublicApplicationCommandConflict":
     case "DuplicateAdmissionPeriodCommandConflict":
-      status = 409;
-      break;
+      return nativeProblemResponse("idempotency.digest-conflict", 409);
     default:
-      status = 503;
+      return nativeProblemResponse("admissions.unavailable", 503);
   }
-  const body: ErrorBody = { error: { tag } };
-  return jsonResponse(body, status);
 };
 
 const runDatabase = <A, E>(
@@ -231,29 +241,100 @@ const decodeJson = async <S extends Schema.ConstraintDecoder<unknown, never>>(
   }
 };
 
-
-const revisePayloadSchema = Schema.Struct({
-  commandId: AdmissionPeriodCommandId,
-  expectedRevision: RevisionSchema,
-  startAt: Rfc3339InstantSchema,
-  endAt: Rfc3339InstantSchema,
-});
-
-const executeCommand = async (
-  command: unknown,
-  context: {
-    readonly actor: AdmissionPeriodActor;
-    readonly now: string;
-    readonly admissionPeriodId?: AdmissionPeriodId;
-  },
+const decodeAdmissionPeriodPatch = async (
+  request: Request,
   input: AdmissionApiHttpOptions,
-): Promise<{ readonly observation: unknown; readonly replayed: boolean }> => {
-  const result = await runDatabase(
-    Admissions.use(({ executeAdmissionPeriod }) => executeAdmissionPeriod(command, context)),
-    input.run,
-  );
-  return { observation: result.observation, replayed: result.replayed };
+): Promise<typeof AdmissionPeriodMergePatch.Type> => {
+  const contentType = request.headers.get("content-type") ?? "";
+  if (!/^application\/merge-patch\+json(?:\s*;|$)/iu.test(contentType)) {
+    throw new HttpSemanticFailure("media-type.unsupported", 415);
+  }
+  let body: unknown;
+  try {
+    body = JSON.parse(
+      await readBoundedBody(request, input.config.maxBodyBytes, "AdmissionPeriodDecodeError"),
+    ) as unknown;
+  } catch (cause) {
+    if (cause !== null && typeof cause === "object" && "_tag" in cause) throw cause;
+    throw new HttpSemanticFailure("request.malformed", 400);
+  }
+  const patch = await Schema.decodeUnknownPromise(AdmissionPeriodMergePatch)(body, {
+    onExcessProperty: "error",
+  }).catch(() => {
+    throw new HttpSemanticFailure("validation.failed", 422);
+  });
+  if (!Object.hasOwn(patch, "startAt") && !Object.hasOwn(patch, "endAt")) {
+    throw new HttpSemanticFailure("validation.no-change", 422);
+  }
+  if (patch.startAt === null || patch.endAt === null) {
+    throw new HttpSemanticFailure("validation.field-not-deletable", 422);
+  }
+  return patch;
 };
+
+const conditionalJsonResponse = (input: {
+  readonly request: Request;
+  readonly body: unknown;
+  readonly representationKind: string;
+  readonly versions: ReadonlyArray<readonly [string, number]>;
+  readonly cacheControl: string;
+}): Response => {
+  const etag = deriveStrongETag({
+    representationKind: input.representationKind,
+    resourceIdentity: "collection",
+    version: input.versions,
+  });
+  const decision = evaluateReadPreconditions({
+    currentETag: etag,
+    ifMatch: parseReadIfMatch(
+      input.request.headers.get("if-match") === null
+        ? []
+        : [input.request.headers.get("if-match")!],
+    ),
+    ifNoneMatch: parseIfNoneMatch(
+      input.request.headers.get("if-none-match") === null
+        ? []
+        : [input.request.headers.get("if-none-match")!],
+    ),
+  });
+  if (decision._tag === "Failed") {
+    return nativeProblemResponse(decision.code, decision.status);
+  }
+  if (decision._tag === "NotModified") {
+    return notModifiedResponse({
+      etag,
+      cacheControl: input.cacheControl,
+      vary: "Origin",
+    });
+  }
+  return new Response(JSON.stringify(input.body), {
+    status: 200,
+    headers: {
+      "content-type": "application/json; charset=utf-8",
+      "cache-control": input.cacheControl,
+      etag,
+      vary: "Origin",
+    },
+  });
+};
+
+const dynamicAdmissionCache = (now: string, boundaries: ReadonlyArray<string>): string => {
+  const nowMillis = Date.parse(now);
+  const next = boundaries
+    .map(Date.parse)
+    .filter((boundary) => Number.isFinite(boundary) && boundary >= nowMillis)
+    .sort((left, right) => left - right)[0];
+  const ttl =
+    next === undefined ? 30 : Math.max(0, Math.min(30, Math.floor((next - nowMillis) / 1_000)));
+  return `public, max-age=${ttl}, s-maxage=${ttl}, must-revalidate`;
+};
+
+const admissionGrantScopes = (actor: AdmissionPeriodActor) =>
+  actor._tag === "GlobalAdmin"
+    ? ([{ _tag: "Global" }] as const)
+    : actor._tag === "DepartmentLeader"
+      ? ([{ _tag: "Department", departmentId: actor.departmentId }] as const)
+      : [];
 
 const listManagement = async (
   request: Request,
@@ -261,13 +342,54 @@ const listManagement = async (
 ): Promise<Response> => {
   requireNoQuery(request);
   const actor = requireActive(await actorFor(request, input));
+  const now = input.config.now();
+  await authorizePersonNativeOperation({
+    spec: Option.getOrThrow(reflectAccessSpec(ListAdmissionPeriodsEndpoint)),
+    request,
+    personId: actor.personId,
+    resolution: {
+      selection: "AllMatching",
+      contexts: [
+        genericContext({
+          domainId: "admissions",
+          departmentId: actor._tag === "DepartmentLeader" ? actor.departmentId : null,
+          authorityVersion: `admissions:${actor._tag}`,
+        }),
+      ],
+    },
+    grantScopes: admissionGrantScopes(actor),
+    now,
+    run: input.run as never,
+  });
   const rows = await runDatabase(
     Admissions.use(({ listAdmissionPeriodsForManagement }) =>
-      listAdmissionPeriodsForManagement({ actor, now: input.config.now() }),
+      listAdmissionPeriodsForManagement({ actor, now }),
     ),
     input.run,
   );
-  return jsonResponse({ items: rows, totalItems: rows.length });
+  const items = rows.map((row) => ({
+    id: row.id,
+    departmentId: row.departmentId,
+    semesterId: row.semesterId,
+    startAt: row.startAt,
+    endAt: row.endAt,
+    revision: row.revision,
+    etag: deriveStrongETag({
+      representationKind: "AdmissionPeriodManagementItem",
+      resourceIdentity: row.id,
+      version: row.revision,
+    }),
+  }));
+  const body = await Schema.decodeUnknownPromise(
+    Schema.Struct({ items: Schema.Array(AdmissionPeriodManagementItem), totalItems: Schema.Int }),
+  )({ items, totalItems: items.length }, { onExcessProperty: "error" });
+  return conditionalJsonResponse({
+    request,
+    body,
+    representationKind: "AdmissionPeriodManagementListResponse",
+    versions: rows.map((row) => [row.id, row.revision] as const),
+    cacheControl: PRIVATE_NO_STORE,
+  });
 };
 
 const create = async (request: Request, input: AdmissionApiHttpOptions): Promise<Response> => {
@@ -351,7 +473,15 @@ const create = async (request: Request, input: AdmissionApiHttpOptions): Promise
               location: `/api/admission-periods/${encodePathIdentity(period.id)}`,
               etag,
             },
-            bodyBytes: jsonBodyBytes(period),
+            bodyBytes: jsonBodyBytes({
+              id: period.id,
+              departmentId: period.departmentId,
+              semesterId: period.semesterId,
+              startAt: period.startAt,
+              endAt: period.endAt,
+              revision: period.revision,
+              etag,
+            }),
           };
         }),
       ),
@@ -368,27 +498,153 @@ const revise = async (
   requireNoQuery(request);
   const actor = requireActive(await actorFor(request, input));
   const typedAdmissionPeriodId = AdmissionPeriodId.make(admissionPeriodId);
-  const payload = await decodeJson(
+  const now = input.config.now();
+  const periods = await runDatabase(
+    Admissions.use(({ listAdmissionPeriodsForManagement }) =>
+      listAdmissionPeriodsForManagement({ actor, now }),
+    ),
+    input.run,
+  );
+  const current = periods.find((period) => period.id === typedAdmissionPeriodId);
+  if (current === undefined) throw taggedError("AdmissionPeriodNotFound");
+  await authorizePersonNativeOperation({
+    spec: Option.getOrThrow(reflectAccessSpec(ReviseAdmissionPeriodEndpoint)),
     request,
-    revisePayloadSchema,
-    input.config.maxBodyBytes,
-    "AdmissionPeriodDecodeError",
+    personId: actor.personId,
+    resolution: {
+      selection: "ExactlyOne",
+      contexts: [
+        genericContext({
+          domainId: "admissions",
+          departmentId: current.departmentId,
+          resourceKind: "admission-period",
+          resourceId: current.id,
+          authorityVersion: `admissions:${actor._tag}`,
+        }),
+      ],
+    },
+    grantScopes: admissionGrantScopes(actor),
+    now,
+    run: input.run as never,
+  });
+  const ifMatch = parseRequiredIfMatch(
+    request.headers.get("if-match") === null ? [] : [request.headers.get("if-match")!],
   );
-  const result = await executeCommand(
-    { _tag: "ReviseAdmissionPeriod", admissionPeriodId: typedAdmissionPeriodId, ...payload },
-    { actor, now: input.config.now(), admissionPeriodId: typedAdmissionPeriodId },
-    input,
+  const currentETag = deriveStrongETag({
+    representationKind: "AdmissionPeriodManagementItem",
+    resourceIdentity: current.id,
+    version: current.revision,
+  });
+  const precondition = evaluateMutationPrecondition(currentETag, ifMatch);
+  if (precondition._tag === "Failed") {
+    throw new HttpSemanticFailure(precondition.code, precondition.status);
+  }
+  const patch = await decodeAdmissionPeriodPatch(request, input);
+  const idempotencyKey = parseIdempotencyKey(
+    request.headers.get("idempotency-key") === null
+      ? []
+      : [request.headers.get("idempotency-key")!],
   );
-  return jsonResponse(result.observation, result.replayed ? 200 : 200);
+  const normalizedTarget = `/api/admission-periods/${encodePathIdentity(current.id)}`;
+  const operationId = "admissions.reviseAdmissionPeriod";
+  const derived = deriveHttpIdentity({
+    credentialSubject: `Person:${actor.personId}`,
+    qualifiedOperationId: operationId,
+    normalizedTarget,
+    idempotencyKey,
+  });
+  const result = await input.run(
+    Admissions.use((admissions) =>
+      executeNativeHttpCommandPostgres(
+        {
+          identitySha256: derived.identitySha256,
+          requestSha256: semanticRequestDigest({
+            body: patch,
+            ifMatch: parseReadIfMatch([ifMatch]),
+          }),
+          operationId,
+        },
+        Effect.gen(function* () {
+          const revised = yield* admissions.executeAdmissionPeriod(
+            {
+              _tag: "ReviseAdmissionPeriod",
+              commandId: AdmissionPeriodCommandId.make(derived.commandId),
+              admissionPeriodId: typedAdmissionPeriodId,
+              expectedRevision: current.revision,
+              startAt: patch.startAt ?? current.startAt,
+              endAt: patch.endAt ?? current.endAt,
+            },
+            { actor, now, admissionPeriodId: typedAdmissionPeriodId },
+          );
+          const period = revised.period;
+          const etag = deriveStrongETag({
+            representationKind: "AdmissionPeriodManagementItem",
+            resourceIdentity: period.id,
+            version: period.revision,
+          });
+          const body = {
+            id: period.id,
+            departmentId: period.departmentId,
+            semesterId: period.semesterId,
+            startAt: period.startAt,
+            endAt: period.endAt,
+            revision: period.revision,
+            etag,
+          };
+          return {
+            status: 200,
+            mediaType: "application/json",
+            headers: { "content-type": "application/json", etag },
+            bodyBytes: jsonBodyBytes(body),
+          };
+        }),
+      ),
+    ),
+  );
+  return nativeCommandOutcomeResponse(result);
 };
 
 const listOpen = async (request: Request, input: AdmissionApiHttpOptions): Promise<Response> => {
   requireNoQuery(request);
+  const now = input.config.now();
+  await authorizeAnonymousNativeOperation(
+    Option.getOrThrow(reflectAccessSpec(ListOpenAdmissionPeriodsEndpoint)),
+    {
+      selection: "AllMatching",
+      contexts: [
+        genericContext({
+          domainId: "admissions",
+          authorityVersion: `admissions-open:${now}`,
+        }),
+      ],
+    },
+    now,
+    input.run as never,
+  );
   const rows = await runDatabase(
-    Admissions.use(({ listOpenAdmissionPeriods }) => listOpenAdmissionPeriods(input.config.now())),
+    Admissions.use(({ listOpenAdmissionPeriods }) => listOpenAdmissionPeriods(now)),
     input.run,
   );
-  return jsonResponse({ items: rows, totalItems: rows.length });
+  const body = {
+    items: rows.map((row) => ({
+      id: row.id,
+      departmentId: row.departmentId,
+      semesterId: row.semesterId,
+      startAt: row.startAt,
+      endAt: row.endAt,
+    })),
+    totalItems: rows.length,
+  };
+  return conditionalJsonResponse({
+    request,
+    body,
+    representationKind: "OpenAdmissionPeriodListResponse",
+    versions: rows.map((row) => [row.id, row.revision] as const),
+    cacheControl: dynamicAdmissionCache(
+      now,
+      rows.flatMap((row) => [row.startAt, row.endAt]),
+    ),
+  });
 };
 
 /**
@@ -402,13 +658,41 @@ const listPublicCatalog = async (
   input: AdmissionApiHttpOptions,
 ): Promise<Response> => {
   requireNoQuery(request, "PublicApplicationDecodeError");
+  const now = input.config.now();
+  await authorizeAnonymousNativeOperation(
+    Option.getOrThrow(reflectAccessSpec(ReadApplicationCatalogEndpoint)),
+    {
+      selection: "AllMatching",
+      contexts: [
+        genericContext({
+          domainId: "admissions",
+          authorityVersion: `admissions-catalog:${now}`,
+        }),
+      ],
+    },
+    now,
+    input.run as never,
+  );
   const catalog = await runDatabase(
-    Admissions.use(({ listPublicApplicationCatalog }) =>
-      listPublicApplicationCatalog({ now: input.config.now() }),
-    ),
+    Admissions.use(({ listPublicApplicationCatalog }) => listPublicApplicationCatalog({ now })),
     input.run,
   );
-  return jsonResponse(catalog);
+  const versions = catalog.departments.flatMap((department) => [
+    [`department:${department.departmentId}`, 0] as const,
+    ...department.fieldsOfStudy.map(
+      (field) => [`field-of-study:${field.fieldOfStudyId}`, 0] as const,
+    ),
+  ]);
+  return conditionalJsonResponse({
+    request,
+    body: catalog,
+    representationKind: "PublicApplicationCatalog",
+    versions,
+    cacheControl: dynamicAdmissionCache(
+      now,
+      catalog.departments.map((department) => department.closesAt),
+    ),
+  });
 };
 
 const submitApplication = async (
@@ -416,27 +700,86 @@ const submitApplication = async (
   input: AdmissionApiHttpOptions,
 ): Promise<Response> => {
   requireNoQuery(request, "PublicApplicationDecodeError");
-  if (!input.config.rateLimit.consume(publicRateLimitKey(request), input.config.now())) {
+  const now = input.config.now();
+  await authorizeAnonymousNativeOperation(
+    Option.getOrThrow(reflectAccessSpec(SubmitApplicationEndpoint)),
+    {
+      selection: "ExactlyOne",
+      contexts: [
+        genericContext({
+          domainId: "admissions",
+          authorityVersion: `admissions-application-create:${now}`,
+        }),
+      ],
+    },
+    now,
+    input.run as never,
+  );
+  if (!input.config.rateLimit.consume(publicRateLimitKey(request), now)) {
     throw taggedError("PublicApplicationRateLimitExceeded");
   }
   const payload = await decodeJson(
     request,
-    PublicApplicationSubmitInputSchema,
+    SubmitApplicationRequest,
     input.config.maxBodyBytes,
     "PublicApplicationDecodeError",
   );
-  const result = await runDatabase(
-    Admissions.use(({ executePublicApplication }) =>
-      executePublicApplication(payload, {
-        now: input.config.now(),
-        applicationId: input.config.nextApplicationId(),
-        applicantId: input.config.nextApplicantId(),
-        activationToken: input.config.nextActivationToken(),
-      }),
-    ),
-    input.run,
+  const idempotencyKey = parseIdempotencyKey(
+    request.headers.get("idempotency-key") === null
+      ? []
+      : [request.headers.get("idempotency-key")!],
   );
-  return jsonResponse(result.observation, result.replayed ? 200 : 201);
+  const operationId = "admissions.submitApplication";
+  const derived = deriveHttpIdentity({
+    credentialSubject: "Anonymous",
+    qualifiedOperationId: operationId,
+    normalizedTarget: "/api/applications",
+    idempotencyKey,
+  });
+  const result = await input.run(
+    Admissions.use((admissions) =>
+      executeNativeHttpCommandPostgres(
+        {
+          identitySha256: derived.identitySha256,
+          requestSha256: semanticRequestDigest({ body: payload }),
+          operationId,
+        },
+        Effect.gen(function* () {
+          const submitted = yield* admissions.executePublicApplication(
+            {
+              commandId: PublicApplicationCommandIdSchema.make(derived.commandId),
+              ...payload,
+            },
+            {
+              now,
+              applicationId: input.config.nextApplicationId(),
+              applicantId: input.config.nextApplicantId(),
+              activationToken: input.config.nextActivationToken(),
+            },
+          );
+          const confirmation = {
+            _tag: "ApplicationConfirmed" as const,
+            applicationId: submitted.observation.applicationId,
+          };
+          return {
+            status: 201,
+            mediaType: "application/json",
+            headers: {
+              "content-type": "application/json",
+              location: `/api/applications/${encodePathIdentity(confirmation.applicationId)}`,
+              etag: deriveStrongETag({
+                representationKind: "PublicApplicationConfirmation",
+                resourceIdentity: confirmation.applicationId,
+                version: 0,
+              }),
+            },
+            bodyBytes: jsonBodyBytes(confirmation),
+          };
+        }),
+      ),
+    ),
+  );
+  return nativeCommandOutcomeResponse(result);
 };
 
 const publicConfirmation = async (
@@ -445,6 +788,23 @@ const publicConfirmation = async (
   input: AdmissionApiHttpOptions,
 ): Promise<Response> => {
   requireNoQuery(request, "PublicApplicationDecodeError");
+  const now = input.config.now();
+  await authorizeAnonymousNativeOperation(
+    Option.getOrThrow(reflectAccessSpec(ReadApplicationConfirmationEndpoint)),
+    {
+      selection: "ExactlyOne",
+      contexts: [
+        genericContext({
+          domainId: "admissions",
+          resourceKind: "application",
+          resourceId: applicationId,
+          authorityVersion: `admissions-application:${applicationId}`,
+        }),
+      ],
+    },
+    now,
+    input.run as never,
+  );
   const confirmation = await runDatabase(
     Admissions.use(({ findPublicApplicationConfirmation }) =>
       findPublicApplicationConfirmation(applicationId),

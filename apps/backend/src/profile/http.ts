@@ -2,12 +2,13 @@ import { OwnProfile, Profile, UpdateOwnProfileCommand } from "@vektorprogrammet/
 import {
   ExternalNativeApi,
   ProfileMergePatch,
+  ReadOwnProfileEndpoint,
   UpdateOwnProfileEndpoint,
   reflectAccessSpec,
 } from "@vektorprogrammet/http-api";
 import { ResourceId, ResourceKind } from "@vektorprogrammet/domain/authz";
 import { executeNativeHttpCommandPostgres } from "@vektorprogrammet/domain/http-semantics";
-import { Effect, Match, Option, Schema } from "effect";
+import { Effect, Option, Schema } from "effect";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
 import { toHttpApiResponse } from "../http-api/transport.js";
 import {
@@ -15,7 +16,12 @@ import {
   deriveHttpIdentity,
   deriveProfileStrongETag,
   evaluateMutationPrecondition,
+  evaluateReadPreconditions,
   jsonBodyBytes,
+  notModifiedResponse,
+  parseIfNoneMatch,
+  parseReadIfMatch,
+  PRIVATE_NO_STORE,
   nativeProblemResponse,
   parseIdempotencyKey,
   parseRequiredIfMatch,
@@ -75,7 +81,6 @@ const ProfileHttpErrorTag = Schema.Literals([
   "ProfileCommandConflict",
   "ProfilePersistenceError",
 ]);
-const isProfileHttpErrorTag = Schema.is(ProfileHttpErrorTag);
 
 type TaggedHttpError = Error & { readonly _tag: ProfileHttpErrorTag };
 
@@ -99,43 +104,36 @@ const jsonResponse = (
     },
   });
 
-const errorTag = (cause: unknown): ProfileHttpErrorTag => {
-  const tag =
-    cause !== null && typeof cause === "object" && "_tag" in cause && typeof cause._tag === "string"
-      ? cause._tag
-      : "ProfilePersistenceError";
-  return isProfileHttpErrorTag(tag) ? tag : "ProfilePersistenceError";
-};
-
-const statusForErrorTag = (tag: ProfileHttpErrorTag): number =>
-  Match.value(tag).pipe(
-    Match.when("UnauthenticatedActor", () => 401),
-    Match.whenOr("AuthorityInactive", "NotInScope", () => 403),
-    Match.when("ProfileDecodeError", () => 422),
-    Match.whenOr("ProfileNotFound", "ProfileContactNotFound", () => 404),
-    Match.whenOr("ProfileStaleRevision", "ProfileCommandConflict", () => 409),
-    Match.when("ProfilePersistenceError", () => 503),
-    Match.exhaustive,
-  );
-
 const errorResponse = (cause: unknown): Response => {
   if (cause instanceof HttpSemanticFailure) {
     return nativeProblemResponse(cause.code, cause.status);
   }
-  if (cause !== null && typeof cause === "object" && "_tag" in cause) {
-    switch (cause._tag) {
-      case "NativeHttpReceiptInFlightError":
-        return nativeProblemResponse("idempotency.in-flight", 409);
-      case "NativeHttpReceiptDigestConflictError":
-        return nativeProblemResponse("idempotency.digest-conflict", 409);
-      case "NativeHttpReceiptExpiredError":
-        return nativeProblemResponse("idempotency.response-expired", 409);
-      case "NativeHttpReceiptPersistenceError":
-        return nativeProblemResponse("idempotency.unavailable", 503);
-    }
+  const tag =
+    cause !== null && typeof cause === "object" && "_tag" in cause ? String(cause._tag) : "";
+  switch (tag) {
+    case "UnauthenticatedActor":
+    case "IdentitySessionNotFound":
+    case "IdentitySessionExpired":
+      return nativeProblemResponse("credential.invalid", 401, {
+        "www-authenticate": 'VektorSession realm="native-api", Bearer realm="native-api"',
+      });
+    case "AuthorityInactive":
+    case "NotInScope":
+      return nativeProblemResponse("authority.denied", 403);
+    case "ProfileNotFound":
+    case "ProfileContactNotFound":
+      return nativeProblemResponse("profile.not-found", 404);
+    case "ProfileDecodeError":
+      return nativeProblemResponse("validation.failed", 422);
+    case "ProfileStaleRevision":
+      return nativeProblemResponse("precondition.failed", 412);
+    case "ProfileCommandConflict":
+      return nativeProblemResponse("idempotency.digest-conflict", 409);
+    case "NativeHttpReceiptPersistenceError":
+      return nativeProblemResponse("idempotency.unavailable", 503);
+    default:
+      return nativeProblemResponse("profile.unavailable", 503);
   }
-  const tag = errorTag(cause);
-  return jsonResponse({ error: { tag } }, statusForErrorTag(tag));
 };
 
 interface ProfileActor {
@@ -184,6 +182,7 @@ const decodePatch = async (
 };
 
 const strictProfileResponse = async (
+  request: Request,
   profile: OwnProfile,
   role: UserRole,
   input: ProfileApiHttpOptions,
@@ -203,14 +202,28 @@ const strictProfileResponse = async (
       { onExcessProperty: "error" },
     ).pipe(Effect.mapError(() => taggedError("ProfilePersistenceError"))),
   );
-  return jsonResponse(decoded, 200, {
-    etag: deriveProfileStrongETag({
-      personId: profile.personId,
-      nameRevision: profile.nameRevision,
-      contactRevision: profile.contactRevision,
-      role,
-    }),
+  const etag = deriveProfileStrongETag({
+    personId: profile.personId,
+    nameRevision: profile.nameRevision,
+    contactRevision: profile.contactRevision,
+    role,
   });
+  const decision = evaluateReadPreconditions({
+    currentETag: etag,
+    ifMatch: parseReadIfMatch(
+      request.headers.get("if-match") === null ? [] : [request.headers.get("if-match")!],
+    ),
+    ifNoneMatch: parseIfNoneMatch(
+      request.headers.get("if-none-match") === null ? [] : [request.headers.get("if-none-match")!],
+    ),
+  });
+  if (decision._tag === "Failed") {
+    return nativeProblemResponse(decision.code, decision.status);
+  }
+  if (decision._tag === "NotModified") {
+    return notModifiedResponse({ etag, cacheControl: PRIVATE_NO_STORE, vary: "Origin" });
+  }
+  return jsonResponse(decoded, 200, { etag });
 };
 
 const readOwnProfile = async (
@@ -218,10 +231,38 @@ const readOwnProfile = async (
   input: ProfileApiHttpOptions,
 ): Promise<Response> => {
   const actor = await actorFor(request, input);
+  const now = new Date().toISOString();
+  const personResource = {
+    _tag: "Resource" as const,
+    resource: {
+      kind: ResourceKind.make("person-profile"),
+      id: ResourceId.make(actor.personId),
+    },
+  };
+  await authorizePersonNativeOperation({
+    spec: Option.getOrThrow(reflectAccessSpec(ReadOwnProfileEndpoint)),
+    request,
+    personId: actor.personId,
+    resolution: {
+      selection: "ExactlyOne",
+      contexts: [
+        genericContext({
+          domainId: "profile",
+          resourceKind: "person-profile",
+          resourceId: actor.personId,
+          facts: { ownerPersonId: actor.personId },
+          authorityVersion: `profile:${actor.role}`,
+        }),
+      ],
+    },
+    grantScopes: [personResource],
+    now,
+    run: input.run,
+  });
   const profile = await input.run(
     Profile.use(({ readOwnProfile }) => readOwnProfile(actor.personId)),
   );
-  return strictProfileResponse(profile, actor.role, input);
+  return strictProfileResponse(request, profile, actor.role, input);
 };
 
 const updateOwnProfile = async (
@@ -248,6 +289,7 @@ const updateOwnProfile = async (
           domainId: "profile",
           resourceKind: "person-profile",
           resourceId: actor.personId,
+          facts: { ownerPersonId: actor.personId },
           authorityVersion: `profile:${actor.role}`,
         }),
       ],

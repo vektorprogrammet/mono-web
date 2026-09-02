@@ -6,7 +6,10 @@ import {
   type SchoolDirectoryQuery,
 } from "@vektorprogrammet/domain/schools";
 import type { OrganizationAuthorityInstant, PersonId } from "@vektorprogrammet/domain/organization";
-import { Effect, Schema } from "effect";
+import { ListSchoolsEndpoint, reflectAccessSpec } from "@vektorprogrammet/http-api";
+import { Effect, Option, Schema } from "effect";
+import { HttpSemanticFailure, nativeProblemResponse } from "../http-semantics.js";
+import { authorizePersonNativeOperation, genericContext } from "../native-operation.js";
 import type { BackendRun } from "../router.js";
 
 export interface SchoolsRequestActor {
@@ -35,28 +38,26 @@ const jsonResponse = (body: unknown, status = 200): Response =>
   });
 
 export const schoolsErrorResponse = (cause: unknown): Response => {
-  if (cause instanceof SchoolsHttpQueryDecodeError) {
-    return jsonResponse({ error: { tag: cause._tag } }, cause.status);
+  if (cause instanceof HttpSemanticFailure) {
+    return nativeProblemResponse(cause.code, cause.status);
   }
-
   const tag =
     typeof cause === "object" && cause !== null && "_tag" in cause
       ? String(cause._tag)
       : "SchoolsPersistenceError";
   switch (tag) {
     case "UnauthenticatedActor":
-      return jsonResponse({ error: { tag } }, 401);
+      return nativeProblemResponse("credential.invalid", 401, {
+        "www-authenticate": 'VektorSession realm="native-api", Bearer realm="native-api"',
+      });
     case "AuthorityInactive":
     case "NotInScope":
     case "SchoolsDepartmentOutOfScope":
-      return jsonResponse({ error: { tag } }, 403);
+      return nativeProblemResponse("authority.denied", 403);
     case "SchoolsDepartmentNotFound":
-      return jsonResponse({ error: { tag } }, 422);
-    case "SchoolsDecodeError":
-    case "SchoolsPersistenceError":
-      return jsonResponse({ error: { tag } }, 503);
+      return nativeProblemResponse("schools.invalid-department", 422);
     default:
-      return jsonResponse({ error: { tag: "SchoolsPersistenceError" } }, 503);
+      return nativeProblemResponse("schools.unavailable", 503);
   }
 };
 
@@ -84,6 +85,24 @@ export const listSchools = async (
 ): Promise<Response> => {
   const query = await decodeQuery(request, options.run);
   const actor = await options.resolveActor(request);
+  await authorizePersonNativeOperation({
+    spec: Option.getOrThrow(reflectAccessSpec(ListSchoolsEndpoint)),
+    request,
+    personId: actor.personId,
+    resolution: {
+      selection: "AllMatching",
+      contexts: [
+        genericContext({
+          domainId: "schools",
+          departmentId: query.departmentId ?? null,
+          authorityVersion: `schools:${actor.authorizationInstant}`,
+        }),
+      ],
+    },
+    grantScopes: [{ _tag: "Global" }],
+    now: actor.authorizationInstant,
+    run: options.run,
+  });
   const directory = await options.run(
     readSchoolsDirectory(actor.personId, actor.authorizationInstant, query),
   );

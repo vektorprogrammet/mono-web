@@ -1,19 +1,19 @@
 import {
   AuthorityRef,
-  AuthorityVersion,
-  DomainId,
   AuthorizationInstant,
+  AuthorityVersion,
   CredentialEvidenceRef,
+  DomainId,
   GrantId,
   ResourceId,
   ResourceKind,
-  accessHttpStatus,
-  evaluateAccessJourney,
-  makeGrant,
   type AccessSpec,
   type CanonicalScopeResolution,
   type Grant,
   type Scope,
+  accessHttpStatus,
+  evaluateAccessJourney,
+  makeGrant,
 } from "@vektorprogrammet/domain/authz";
 import type { NativeHttpCommandOutcome } from "@vektorprogrammet/domain/http-semantics";
 import type { PersonId } from "@vektorprogrammet/domain/organization";
@@ -38,11 +38,15 @@ const capabilities = (spec: AccessSpec) => {
 };
 
 const rejectedCode = (status: 401 | 403 | 404) =>
-  status === 401 ? "credential.invalid" : status === 404 ? "resource.not-found" : "authority.denied";
+  status === 401
+    ? "credential.invalid"
+    : status === 404
+      ? "resource.not-found"
+      : "authority.denied";
 
 export const authorizeAnonymousNativeOperation = async (
   spec: AccessSpec,
-  resolution: CanonicalScopeResolution<Record<string, never>>,
+  resolution: CanonicalScopeResolution<Record<string, unknown>>,
   now: string,
   run: BackendRun,
 ): Promise<void> => {
@@ -68,29 +72,30 @@ export const authorizePersonNativeOperation = async (input: {
   readonly spec: AccessSpec;
   readonly request: Request;
   readonly personId: PersonId;
-  readonly resolution: CanonicalScopeResolution<Record<string, never>>;
+  readonly resolution: CanonicalScopeResolution<Record<string, unknown>>;
   readonly grantScopes: ReadonlyArray<Scope>;
   readonly now: string;
   readonly run: BackendRun;
 }): Promise<void> => {
   const instant = AuthorizationInstant.make(input.now);
   const principal = { _tag: "Person" as const, personId: input.personId };
-  const grants: ReadonlyArray<Grant> = capabilities(input.spec).flatMap((capability, capabilityIndex) =>
-    input.grantScopes.map((scope, scopeIndex) =>
-      makeGrant({
-        grantId: GrantId.make(
-          `native-role:${input.personId}:${capability.type}:${capabilityIndex}:${scopeIndex}`,
-        ),
-        subject: principal,
-        capability,
-        scope,
-        startAt: instant,
-        endAt: null,
-        requirements: [],
-        source: AuthorityRef.make("native-role-projection"),
-        revision: 0,
-      }),
-    ),
+  const grants: ReadonlyArray<Grant> = capabilities(input.spec).flatMap(
+    (capability, capabilityIndex) =>
+      input.grantScopes.map((scope, scopeIndex) =>
+        makeGrant({
+          grantId: GrantId.make(
+            `native-role:${input.personId}:${capability.type}:${capabilityIndex}:${scopeIndex}`,
+          ),
+          subject: principal,
+          capability,
+          scope,
+          startAt: instant,
+          endAt: null,
+          requirements: [],
+          source: AuthorityRef.make("native-role-projection"),
+          revision: 0,
+        }),
+      ),
   );
   const bearer = input.request.headers.get("authorization")?.startsWith("Bearer ") === true;
   const evaluation = await input.run(
@@ -99,7 +104,9 @@ export const authorizePersonNativeOperation = async (input: {
       resolveCredential: () =>
         Effect.succeed({
           _tag: "Accepted" as const,
-          mechanism: { _tag: bearer ? ("OAuthUserBearer" as const) : ("BetterAuthCookie" as const) },
+          mechanism: {
+            _tag: bearer ? ("OAuthUserBearer" as const) : ("BetterAuthCookie" as const),
+          },
           principal,
           evidenceRef: CredentialEvidenceRef.make("native-person-credential"),
         }),
@@ -117,6 +124,7 @@ export const genericContext = (input: {
   readonly resourceKind?: Parameters<typeof ResourceKind.make>[0];
   readonly resourceId?: Parameters<typeof ResourceId.make>[0];
   readonly authorityVersion: string;
+  readonly facts?: Readonly<Record<string, unknown>>;
 }) => ({
   domainId: DomainId.make(input.domainId),
   departmentId: input.departmentId ?? null,
@@ -124,10 +132,9 @@ export const genericContext = (input: {
     input.resourceKind === undefined || input.resourceId === undefined
       ? null
       : { kind: ResourceKind.make(input.resourceKind), id: ResourceId.make(input.resourceId) },
-  facts: {},
+  facts: input.facts ?? {},
   authorityVersion: AuthorityVersion.make(input.authorityVersion),
 });
-
 
 export const nativeCommandOutcomeResponse = (outcome: NativeHttpCommandOutcome): Response => {
   switch (outcome._tag) {

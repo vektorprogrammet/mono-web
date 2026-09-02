@@ -1,12 +1,8 @@
 import {
-  OrganizationCommandId,
-  CreateFieldOfStudyCommandSchema,
-  CreateFieldOfStudyResultSchema,
-  CreateTeamCommandSchema,
-  CreateTeamResultSchema,
   DepartmentJsonSchema,
   FieldOfStudyJsonSchema,
   Organization,
+  OrganizationCommandId,
   TeamJsonSchema,
   type DepartmentId,
   type OrganizationActor,
@@ -14,14 +10,23 @@ import {
   type SemesterId,
   type TeamInterestFilter,
 } from "@vektorprogrammet/domain/organization";
+import { executeNativeHttpCommandPostgres } from "@vektorprogrammet/domain/http-semantics";
 import {
   CreateDepartmentEndpoint,
   CreateDepartmentRequest,
+  CreateFieldOfStudyEndpoint,
+  CreateFieldOfStudyRequest,
+  CreateTeamEndpoint,
+  CreateTeamRequest,
   ExternalNativeApi,
   ListDepartmentsEndpoint,
+  ListFieldOfStudiesEndpoint,
+  ListMailingListsEndpoint,
+  ListTeamInterestEndpoint,
+  ListTeamsEndpoint,
   reflectAccessSpec,
 } from "@vektorprogrammet/http-api";
-import { Effect, Match, Option, Schema } from "effect";
+import { Effect, Option, Schema } from "effect";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
 import { toHttpApiResponse } from "../http-api/transport.js";
 import {
@@ -45,7 +50,6 @@ import {
   genericContext,
   nativeCommandOutcomeResponse,
 } from "../native-operation.js";
-import { executeNativeHttpCommandPostgres } from "@vektorprogrammet/domain/http-semantics";
 import type { BackendRun } from "../router.js";
 import type { OrganizationApiConfig } from "./config.js";
 
@@ -61,10 +65,6 @@ export interface OrganizationApiHttpOptions {
   readonly run: BackendRun;
 }
 
-interface ErrorBody {
-  readonly error: { readonly tag: OrganizationHttpErrorTag | "RouteNotFound" };
-}
-
 type TaggedHttpError = Error & { readonly _tag: string };
 
 const OrganizationHttpErrorTagSchema = Schema.Literals([
@@ -77,7 +77,6 @@ const OrganizationHttpErrorTagSchema = Schema.Literals([
   "OrganizationPersistenceError",
 ]);
 type OrganizationHttpErrorTag = typeof OrganizationHttpErrorTagSchema.Type;
-const isOrganizationHttpErrorTag = Schema.is(OrganizationHttpErrorTagSchema);
 
 /** Frozen fixture envelope for spec 0059: strict, no extra row fields. */
 const TeamInterestEnvelopeSchema = Schema.Struct({
@@ -106,25 +105,6 @@ const jsonResponse = (body: unknown, status = 200): Response =>
     },
   });
 
-const errorTag = (cause: unknown): OrganizationHttpErrorTag => {
-  const tag =
-    cause !== null && typeof cause === "object" && "_tag" in cause && typeof cause._tag === "string"
-      ? cause._tag
-      : "OrganizationPersistenceError";
-  return isOrganizationHttpErrorTag(tag) ? tag : "OrganizationPersistenceError";
-};
-
-const statusForErrorTag = (tag: OrganizationHttpErrorTag): number =>
-  Match.value(tag).pipe(
-    Match.when("UnauthenticatedActor", () => 401),
-    Match.when("OrganizationRoleDenied", () => 403),
-    Match.whenOr("OrganizationInvalidReference", "OrganizationDecodeError", () => 422),
-    Match.when("OrganizationCommandConflict", () => 409),
-    Match.when("RequestBodyTooLarge", () => 413),
-    Match.when("OrganizationPersistenceError", () => 503),
-    Match.exhaustive,
-  );
-
 const errorResponse = (cause: unknown): Response => {
   if (cause instanceof HttpSemanticFailure) {
     return nativeProblemResponse(cause.code, cause.status);
@@ -132,20 +112,30 @@ const errorResponse = (cause: unknown): Response => {
   if (cause !== null && typeof cause === "object" && "_tag" in cause) {
     switch (cause._tag) {
       case "NativeHttpReceiptInFlightError":
-        return nativeProblemResponse("idempotency.in-flight", 409, {
-          "retry-after": "1",
-        });
+        return nativeProblemResponse("idempotency.in-flight", 409, { "retry-after": "1" });
       case "NativeHttpReceiptDigestConflictError":
         return nativeProblemResponse("idempotency.digest-conflict", 409);
       case "NativeHttpReceiptExpiredError":
         return nativeProblemResponse("idempotency.response-expired", 409);
       case "NativeHttpReceiptPersistenceError":
         return nativeProblemResponse("idempotency.unavailable", 503);
+      case "UnauthenticatedActor":
+        return nativeProblemResponse("credential.invalid", 401, {
+          "www-authenticate": 'VektorSession realm="native-api", Bearer realm="native-api"',
+        });
+      case "OrganizationRoleDenied":
+        return nativeProblemResponse("authority.denied", 403);
+      case "OrganizationInvalidReference":
+        return nativeProblemResponse("organization.invalid-reference", 422);
+      case "OrganizationCommandConflict":
+        return nativeProblemResponse("idempotency.digest-conflict", 409);
+      case "OrganizationDecodeError":
+        return nativeProblemResponse("validation.failed", 422);
+      case "RequestBodyTooLarge":
+        return nativeProblemResponse("request.too-large", 413);
     }
   }
-  const tag = errorTag(cause);
-  const body: ErrorBody = { error: { tag } };
-  return jsonResponse(body, statusForErrorTag(tag));
+  return nativeProblemResponse("organization.unavailable", 503);
 };
 
 const assertNoQuery = (request: Request): void => {
@@ -329,6 +319,20 @@ const listTeams = async (
   request: Request,
   input: OrganizationApiHttpOptions,
 ): Promise<Response> => {
+  await authorizeAnonymousNativeOperation(
+    Option.getOrThrow(reflectAccessSpec(ListTeamsEndpoint)),
+    {
+      selection: "AllMatching",
+      contexts: [
+        genericContext({
+          domainId: "organization",
+          authorityVersion: "organization-public-teams",
+        }),
+      ],
+    },
+    new Date().toISOString(),
+    input.run,
+  );
   assertNoQuery(request);
   const rows = await input.run(Organization.use(({ listTeams }) => listTeams()));
   const decoded = await input.run(
@@ -348,6 +352,20 @@ const listFieldOfStudies = async (
   request: Request,
   input: OrganizationApiHttpOptions,
 ): Promise<Response> => {
+  await authorizeAnonymousNativeOperation(
+    Option.getOrThrow(reflectAccessSpec(ListFieldOfStudiesEndpoint)),
+    {
+      selection: "AllMatching",
+      contexts: [
+        genericContext({
+          domainId: "organization",
+          authorityVersion: "organization-public-field-of-studies",
+        }),
+      ],
+    },
+    new Date().toISOString(),
+    input.run,
+  );
   assertNoQuery(request);
   const rows = await input.run(Organization.use(({ listFieldOfStudies }) => listFieldOfStudies));
   const decoded = await input.run(
@@ -450,9 +468,78 @@ const createTeam = async (
 ): Promise<Response> => {
   assertNoQuery(request);
   const actor = await actorFor(request, input);
-  const command = await decodeCommand(request, CreateTeamCommandSchema, input);
-  const result = await input.run(Organization.use(({ createTeam }) => createTeam(command, actor)));
-  return strictJsonResponse(result, CreateTeamResultSchema, input, result.committed ? 201 : 200);
+  const now = new Date().toISOString();
+  await authorizePersonNativeOperation({
+    spec: Option.getOrThrow(reflectAccessSpec(CreateTeamEndpoint)),
+    request,
+    personId: actor.personId,
+    resolution: {
+      selection: "ExactlyOne",
+      contexts: [
+        genericContext({
+          domainId: "organization",
+          authorityVersion: `organization:${actor._tag}`,
+        }),
+      ],
+    },
+    grantScopes: actor._tag === "OrganizationAdministrator" ? [{ _tag: "Global" }] : [],
+    now,
+    run: input.run,
+  });
+  const payload = await decodeCommand(request, CreateTeamRequest, input);
+  const idempotencyKey = parseIdempotencyKey(
+    request.headers.get("idempotency-key") === null
+      ? []
+      : [request.headers.get("idempotency-key")!],
+  );
+  const operationId = "organization.createTeam";
+  const derived = deriveHttpIdentity({
+    credentialSubject: `Person:${actor.personId}`,
+    qualifiedOperationId: operationId,
+    normalizedTarget: "/api/teams",
+    idempotencyKey,
+  });
+  const result = await input.run(
+    Organization.use((organization) =>
+      executeNativeHttpCommandPostgres(
+        {
+          identitySha256: derived.identitySha256,
+          requestSha256: semanticRequestDigest({ body: payload }),
+          operationId,
+        },
+        Effect.gen(function* () {
+          const created = yield* organization.createTeam(
+            {
+              _tag: "CreateTeam",
+              commandId: OrganizationCommandId.make(derived.commandId),
+              ...payload,
+            },
+            actor,
+          );
+          const team =
+            created.observation._tag === "Replayed"
+              ? created.observation.original.team
+              : created.observation.team;
+          const etag = deriveStrongETag({
+            representationKind: "TeamJson",
+            resourceIdentity: team.teamId,
+            version: team.revision,
+          });
+          return {
+            status: 201,
+            mediaType: "application/json",
+            headers: {
+              "content-type": "application/json",
+              location: `/api/teams/${encodePathIdentity(team.teamId)}`,
+              etag,
+            },
+            bodyBytes: jsonBodyBytes(team),
+          };
+        }),
+      ),
+    ),
+  );
+  return nativeCommandOutcomeResponse(result);
 };
 
 const createFieldOfStudy = async (
@@ -461,16 +548,78 @@ const createFieldOfStudy = async (
 ): Promise<Response> => {
   assertNoQuery(request);
   const actor = await actorFor(request, input);
-  const command = await decodeCommand(request, CreateFieldOfStudyCommandSchema, input);
+  const now = new Date().toISOString();
+  await authorizePersonNativeOperation({
+    spec: Option.getOrThrow(reflectAccessSpec(CreateFieldOfStudyEndpoint)),
+    request,
+    personId: actor.personId,
+    resolution: {
+      selection: "ExactlyOne",
+      contexts: [
+        genericContext({
+          domainId: "organization",
+          authorityVersion: `organization:${actor._tag}`,
+        }),
+      ],
+    },
+    grantScopes: actor._tag === "OrganizationAdministrator" ? [{ _tag: "Global" }] : [],
+    now,
+    run: input.run,
+  });
+  const payload = await decodeCommand(request, CreateFieldOfStudyRequest, input);
+  const idempotencyKey = parseIdempotencyKey(
+    request.headers.get("idempotency-key") === null
+      ? []
+      : [request.headers.get("idempotency-key")!],
+  );
+  const operationId = "organization.createFieldOfStudy";
+  const derived = deriveHttpIdentity({
+    credentialSubject: `Person:${actor.personId}`,
+    qualifiedOperationId: operationId,
+    normalizedTarget: "/api/field-of-studies",
+    idempotencyKey,
+  });
   const result = await input.run(
-    Organization.use(({ createFieldOfStudy }) => createFieldOfStudy(command, actor)),
+    Organization.use((organization) =>
+      executeNativeHttpCommandPostgres(
+        {
+          identitySha256: derived.identitySha256,
+          requestSha256: semanticRequestDigest({ body: payload }),
+          operationId,
+        },
+        Effect.gen(function* () {
+          const created = yield* organization.createFieldOfStudy(
+            {
+              _tag: "CreateFieldOfStudy",
+              commandId: OrganizationCommandId.make(derived.commandId),
+              ...payload,
+            },
+            actor,
+          );
+          const fieldOfStudy =
+            created.observation._tag === "Replayed"
+              ? created.observation.original.fieldOfStudy
+              : created.observation.fieldOfStudy;
+          const etag = deriveStrongETag({
+            representationKind: "FieldOfStudyJson",
+            resourceIdentity: fieldOfStudy.fieldOfStudyId,
+            version: fieldOfStudy.revision,
+          });
+          return {
+            status: 201,
+            mediaType: "application/json",
+            headers: {
+              "content-type": "application/json",
+              location: `/api/field-of-studies/${encodePathIdentity(fieldOfStudy.fieldOfStudyId)}`,
+              etag,
+            },
+            bodyBytes: jsonBodyBytes(fieldOfStudy),
+          };
+        }),
+      ),
+    ),
   );
-  return strictJsonResponse(
-    result,
-    CreateFieldOfStudyResultSchema,
-    input,
-    result.committed ? 201 : 200,
-  );
+  return nativeCommandOutcomeResponse(result);
 };
 
 const MailingListTypeSchema = Schema.Literals(["assistants", "team", "all"]);
@@ -536,6 +685,50 @@ const assertDepartmentsExist = async (
   }
 };
 
+const authorizeOrganizationCollection = async (input: {
+  readonly request: Request;
+  readonly options: OrganizationApiHttpOptions;
+  readonly authority: OrganizationPersonAuthority;
+  readonly endpoint: Parameters<typeof reflectAccessSpec>[0];
+  readonly capability: string;
+  readonly departmentIds: ReadonlyArray<DepartmentId>;
+}): Promise<void> => {
+  const global = input.authority.globalAdministrator === "Active";
+  const contexts =
+    global && input.departmentIds.length === 0
+      ? [
+          genericContext({
+            domainId: "organization",
+            facts: { departmentLeaderPersonIds: [input.authority.personId] },
+            authorityVersion: `organization:${input.authority.evaluatedAt}`,
+          }),
+        ]
+      : input.departmentIds.map((departmentId) =>
+          genericContext({
+            domainId: "organization",
+            departmentId,
+            facts: { departmentLeaderPersonIds: [input.authority.personId] },
+            authorityVersion: `organization:${input.authority.evaluatedAt}`,
+          }),
+        );
+  const scopes =
+    global && input.departmentIds.length === 0
+      ? [{ _tag: "Global" as const }]
+      : input.departmentIds.map((departmentId) => ({
+          _tag: "Department" as const,
+          departmentId,
+        }));
+  await authorizePersonNativeOperation({
+    spec: Option.getOrThrow(reflectAccessSpec(input.endpoint)),
+    request: input.request,
+    personId: input.authority.personId,
+    resolution: { selection: "AllMatching", contexts },
+    grantScopes: scopes,
+    now: input.authority.evaluatedAt,
+    run: input.options.run,
+  });
+};
+
 const listTeamInterest = async (
   request: Request,
   input: OrganizationApiHttpOptions,
@@ -551,6 +744,14 @@ const listTeamInterest = async (
     throw taggedError("OrganizationRoleDenied");
   }
   const authorized = narrowScopeOrThrow(leaderScope, requested);
+  await authorizeOrganizationCollection({
+    request,
+    options: input,
+    authority,
+    endpoint: ListTeamInterestEndpoint,
+    capability: "organization.read-team-interest",
+    departmentIds: authorized,
+  });
   // Unknown department reference denies with 422 before any data leaves the store.
   if (requested !== undefined) await assertDepartmentsExist(input, [requested]);
   const filter: TeamInterestFilter = {
@@ -589,6 +790,14 @@ const listMailingLists = async (
   }
   const authorized = narrowScopeOrThrow(leaderScope, requested);
   if (requested !== undefined) await assertDepartmentsExist(input, [requested]);
+  await authorizeOrganizationCollection({
+    request,
+    options: input,
+    authority,
+    endpoint: ListMailingListsEndpoint,
+    capability: "organization.read-mailing-lists",
+    departmentIds: authorized,
+  });
   const lists = await input.run(
     Organization.use(({ projectMailingLists }) =>
       projectMailingLists({

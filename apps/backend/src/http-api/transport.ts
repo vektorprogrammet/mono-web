@@ -1,13 +1,13 @@
 import {
   InvitationCapabilitySecurity,
+  PersonOrServiceSecurity,
   PersonSecurity,
   RequestSchemaErrorMiddleware,
   SessionSecurity,
 } from "@vektorprogrammet/http-api";
-import { Effect, Layer, Redacted } from "effect";
+import { Effect, Layer } from "effect";
 import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 import { HttpApiMiddleware } from "effect/unstable/httpapi";
-import { hasBetterAuthSessionCredential } from "../session-security.js";
 
 /**
  * Runs one existing Web transport operation and returns an Effect HTTP response.
@@ -60,21 +60,24 @@ const schemaErrorWebResponse = (group: string, endpoint: string): Response => {
 const SessionSecurityLive = Layer.succeed(
   SessionSecurity,
   SessionSecurity.of({
-    cookieHeader: (httpEffect, { credential }) =>
-      hasBetterAuthSessionCredential(Redacted.value(credential))
-        ? httpEffect
-        : Effect.fail({ error: { tag: "UnauthenticatedActor" as const } }),
+    cookieHeader: (httpEffect) => httpEffect,
   }),
 );
 
 const PersonSecurityLive = Layer.succeed(
   PersonSecurity,
   PersonSecurity.of({
-    cookieHeader: (httpEffect, { credential }) =>
-      hasBetterAuthSessionCredential(Redacted.value(credential))
-        ? httpEffect
-        : Effect.fail({ error: { tag: "UnauthenticatedActor" as const } }),
+    cookieHeader: (httpEffect) => httpEffect,
     oauthUserBearer: (httpEffect) => httpEffect,
+  }),
+);
+
+const PersonOrServiceSecurityLive = Layer.succeed(
+  PersonOrServiceSecurity,
+  PersonOrServiceSecurity.of({
+    cookieHeader: (httpEffect) => httpEffect,
+    oauthUserBearer: (httpEffect) => httpEffect,
+    oauthServiceBearer: (httpEffect) => httpEffect,
   }),
 );
 
@@ -97,6 +100,7 @@ const RequestSchemaErrorLive = HttpApiMiddleware.layerSchemaErrorTransform(
 export const NativeHttpApiMiddlewareLive = Layer.mergeAll(
   SessionSecurityLive,
   PersonSecurityLive,
+  PersonOrServiceSecurityLive,
   InvitationCapabilitySecurityLive,
   RequestSchemaErrorLive,
 );
