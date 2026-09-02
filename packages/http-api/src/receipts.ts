@@ -247,7 +247,7 @@ export const ReviseReceiptEndpoint = HttpApiEndpoint.patch(
 /** @since 0.1.0 @category Endpoints */
 export const WithdrawReceiptEndpoint = HttpApiEndpoint.post(
   "withdrawReceipt",
-  "/api/receipts/:receiptId::withdraw",
+  "/api/receipts/:receiptId([^:]+)::withdraw",
   {
     params: ReceiptParams,
     headers: IdempotencyIfMatchHeaders,
@@ -319,7 +319,7 @@ export const ListReceiptsForApprovalEndpoint = HttpApiEndpoint.get(
 /** @since 0.1.0 @category Endpoints */
 export const RefundReceiptEndpoint = HttpApiEndpoint.post(
   "refundReceipt",
-  "/api/receipts/:receiptId::refund",
+  "/api/receipts/:receiptId([^:]+)::refund",
   {
     params: ReceiptParams,
     headers: IdempotencyIfMatchHeaders,
@@ -345,7 +345,7 @@ export const RefundReceiptEndpoint = HttpApiEndpoint.post(
 /** @since 0.1.0 @category Endpoints */
 export const RejectReceiptEndpoint = HttpApiEndpoint.post(
   "rejectReceipt",
-  "/api/receipts/:receiptId::reject",
+  "/api/receipts/:receiptId([^:]+)::reject",
   {
     params: ReceiptParams,
     headers: IdempotencyIfMatchHeaders,

@@ -22,6 +22,7 @@ import type {
   ReceiptStatusTotal,
 } from "./projections.js";
 import type {
+  Receipt,
   ReceiptCommandPrincipal,
   ReceiptObservation,
   ReceiptStatus,
@@ -30,6 +31,7 @@ import type {
 
 export interface ReceiptTransactionResult {
   readonly observation: ReceiptObservation;
+  readonly receipt: Receipt;
   readonly replayed: boolean;
   readonly outboxCount: number;
 }

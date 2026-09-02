@@ -8,6 +8,7 @@ export * from "./file-service.js";
 export * from "./auxiliary-service.js";
 export * from "./import.js";
 export * from "./service.js";
+export * from "./projections.js";
 export type { ReceiptOutboxDeliveryResult } from "./outbox.js";
 export * from "./schema.js";
 export * from "./update.js";

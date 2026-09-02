@@ -556,8 +556,13 @@ export const executeReceiptCommand = (
             ).pipe(
               Effect.mapError((cause) => persistenceError("decode stored observation", cause)),
             );
+            const replayedReceipt = yield* findReceipt(sql, storedObservation.receiptId);
+            if (replayedReceipt === undefined) {
+              return yield* new ReceiptNotFound({ receiptId: storedObservation.receiptId });
+            }
             return {
               observation: { ...storedObservation, replayed: true },
+              receipt: replayedReceipt,
               replayed: true,
               outboxCount: 0,
             };
@@ -855,6 +860,7 @@ export const executeReceiptCommand = (
 
           return {
             observation: decision.observation,
+            receipt: decision.receipt,
             replayed: false,
             outboxCount: decision.outbox.length,
           };

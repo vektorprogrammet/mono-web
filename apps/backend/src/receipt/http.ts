@@ -22,6 +22,10 @@ import {
   type ReceiptAccessFacts,
 } from "@vektorprogrammet/domain/authz";
 import { Database } from "@vektorprogrammet/domain/database";
+import {
+  executeNativeHttpCommandPostgres,
+  type NativeHttpResponseCapsule,
+} from "@vektorprogrammet/domain/http-semantics";
 import { IdentitySnapshot } from "@vektorprogrammet/database";
 import { Effect } from "effect";
 import {
@@ -36,17 +40,29 @@ import {
   ReceiptVisualId,
   UnauthenticatedActor,
   isIsoDate,
+  type Receipt,
   type ReceiptCommandPrincipal,
-  type ReceiptObservation,
   type ReceiptOutboxDeliveryResult,
   type ReceiptStatus,
   type ReceiptSubmissionAllocation,
+  type OwnedReceiptProjectionItem,
 } from "@vektorprogrammet/domain/receipt";
 import { DepartmentId, PersonId } from "@vektorprogrammet/domain/organization";
 import { ExternalNativeApi, InternalNativeApi } from "@vektorprogrammet/http-api";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
 import { toHttpApiResponse } from "../http-api/transport.js";
-import { deriveStrongETag } from "../http-semantics.js";
+import {
+  HttpSemanticFailure,
+  deriveHttpIdentity,
+  deriveStrongETag,
+  nativeProblemResponse,
+  parseIdempotencyKey,
+  parseJsonWithoutDuplicateMembers,
+  parseRequiredIfMatch,
+  semanticRequestDigest,
+  type NativeIdempotencyIdentity,
+} from "../http-semantics.js";
+import { nativeCommandOutcomeResponse } from "../native-operation.js";
 import type { ReceiptApiConfig } from "./config.js";
 import {
   makeReceiptFileStore,
@@ -68,29 +84,8 @@ const isReceiptStatus = (value: string): value is ReceiptStatus => {
   }
 };
 
-interface SubmitFields {
-  readonly commandId: string;
-  readonly description: string;
-  readonly amountOre: number;
-  readonly receiptDate: string;
-  readonly file: File;
-  readonly contentType: SupportedContentType;
-}
 
-interface ReviseFields {
-  readonly commandId: string;
-  readonly expectedRevision: number;
-  readonly description: string;
-  readonly amountOre: number;
-  readonly receiptDate: string;
-  readonly file?: File;
-  readonly contentType?: SupportedContentType;
-}
 
-interface WithdrawFields {
-  readonly commandId: string;
-  readonly expectedRevision: number;
-}
 
 type AcceptedCredential = Extract<CredentialOutcome, { readonly _tag: "Accepted" }>;
 
@@ -138,7 +133,7 @@ const jsonResponse = (body: unknown, status = 200): Response =>
   new Response(JSON.stringify(body), {
     status,
     headers: {
-      "content-type": "application/json; charset=utf-8",
+      "content-type": "application/json",
       "cache-control": "no-store",
     },
   });
@@ -178,6 +173,43 @@ const errorResponse = (cause: unknown, fallback = "ReceiptPersistenceError"): Re
   };
   return jsonResponse(body, status);
 };
+const publicReceiptErrorResponse = (cause: unknown): Response => {
+  if (cause instanceof HttpSemanticFailure) {
+    return nativeProblemResponse(cause.code, cause.status);
+  }
+  const tag =
+    cause !== null && typeof cause === "object" && "_tag" in cause && typeof cause._tag === "string"
+      ? cause._tag
+      : "ReceiptPersistenceError";
+  switch (tag) {
+    case "UnauthenticatedActor":
+      return nativeProblemResponse("credential.missing", 401);
+    case "InactiveActor":
+    case "ReceiptOwnerDenied":
+    case "ReceiptScopeDenied":
+    case "ReceiptAuthorityDenied":
+    case "AmbiguousPaymentSelection":
+    case "AmbiguousParameterFill":
+    case "FailedComposedRequirement":
+      return nativeProblemResponse("authority.denied", 403);
+    case "ReceiptNotFound":
+      return nativeProblemResponse("receipt.not-found", 404);
+    case "StaleReceiptRevision":
+      return nativeProblemResponse("precondition.failed", 412);
+    case "ReceiptDecodeError":
+      return nativeProblemResponse("validation.failed", 422);
+    case "ReceiptFileNotStaged":
+      return nativeProblemResponse("receipt.file-not-staged", 422);
+    case "ReceiptAlreadyExists":
+      return nativeProblemResponse("receipt.already-exists", 409);
+    case "DuplicateReceiptCommandConflict":
+      return nativeProblemResponse("idempotency.digest-conflict", 409);
+    case "InvalidReceiptTransition":
+      return nativeProblemResponse("receipt.invalid-transition", 409);
+    default:
+      return nativeProblemResponse("receipts.unavailable", 503);
+  }
+};
 
 const isSupportedContentType = (value: string): value is SupportedContentType =>
   (SUPPORTED_CONTENT_TYPES as readonly string[]).includes(value);
@@ -189,16 +221,6 @@ const parseSafeAmountOre = (value: string): number => {
     throw new ReceiptDecodeError({ message: "invalid amountOre" });
   }
   return amountOre;
-};
-const parseSafeRevision = (value: string): number => {
-  if (!/^(0|[1-9]\d*)$/.test(value)) {
-    throw new ReceiptDecodeError({ message: "invalid expectedRevision" });
-  }
-  const revision = Number(value);
-  if (!Number.isSafeInteger(revision) || revision < 0) {
-    throw new ReceiptDecodeError({ message: "invalid expectedRevision" });
-  }
-  return revision;
 };
 
 const readSingleField = (
@@ -286,85 +308,8 @@ const decodeReceiptFile = (
   return { file, contentType: file.type };
 };
 
-const decodeMultipart = async (request: Request, maxFileBytes: number): Promise<SubmitFields> => {
-  const fields = await decodeMultipartFields(request, maxFileBytes);
-  const expected = {
-    commandId: true,
-    description: true,
-    amountOre: true,
-    receiptDate: true,
-    file: true,
-  } as const;
-  requireMultipartFields(fields, expected);
 
-  const commandId = readSingleField(fields, "commandId");
-  const description = readSingleField(fields, "description");
-  const amountOre = parseSafeAmountOre(readSingleField(fields, "amountOre"));
-  const receiptDate = readSingleField(fields, "receiptDate");
-  if (commandId.length === 0 || description.length < 1 || description.length > 5000) {
-    throw new ReceiptDecodeError({ message: "invalid receipt text" });
-  }
-  if (!isIsoDate(receiptDate)) throw new ReceiptDecodeError({ message: "invalid receipt date" });
 
-  const decodedFile = decodeReceiptFile(fields, maxFileBytes, true);
-  if (decodedFile.file === undefined || decodedFile.contentType === undefined) {
-    throw new ReceiptDecodeError({ message: "receipt file is required" });
-  }
-  return {
-    commandId,
-    description,
-    amountOre,
-    receiptDate,
-    file: decodedFile.file,
-    contentType: decodedFile.contentType,
-  };
-};
-
-const decodeReviseMultipart = async (
-  request: Request,
-  maxFileBytes: number,
-): Promise<ReviseFields> => {
-  const fields = await decodeMultipartFields(request, maxFileBytes);
-  const required = {
-    commandId: true,
-    expectedRevision: true,
-    description: true,
-    amountOre: true,
-    receiptDate: true,
-  } as const;
-  const optional = { file: true } as const;
-  requireMultipartFields(fields, required, optional);
-
-  const commandId = readSingleField(fields, "commandId");
-  const expectedRevision = parseSafeRevision(readSingleField(fields, "expectedRevision"));
-  const description = readSingleField(fields, "description");
-  const amountOre = parseSafeAmountOre(readSingleField(fields, "amountOre"));
-  const receiptDate = readSingleField(fields, "receiptDate");
-  if (commandId.length === 0 || description.length < 1 || description.length > 5000) {
-    throw new ReceiptDecodeError({ message: "invalid receipt text" });
-  }
-  if (!isIsoDate(receiptDate)) throw new ReceiptDecodeError({ message: "invalid receipt date" });
-
-  const decodedFile = decodeReceiptFile(fields, maxFileBytes, false);
-  return {
-    commandId,
-    expectedRevision,
-    description,
-    amountOre,
-    receiptDate,
-    file: decodedFile.file,
-    contentType: decodedFile.contentType,
-  };
-};
-
-const personIdFor = async (request: Request, options: ReceiptApiHttpOptions): Promise<string> => {
-  try {
-    return await options.identity.resolvePersonId(request);
-  } catch (cause) {
-    if (cause !== null && typeof cause === "object" && "_tag" in cause) throw cause;
-    throw new UnauthenticatedActor({ message: "authentication required" });
-  }
-};
 
 const authorizationPrincipalFor = async (
   request: Request,
@@ -376,45 +321,6 @@ const authorizationPrincipalFor = async (
     if (cause !== null && typeof cause === "object" && "_tag" in cause) throw cause;
     throw new UnauthenticatedActor({ message: "authentication required" });
   }
-};
-const decodeCommandJson = async (
-  request: Request,
-  operation: "withdraw" | "approval",
-): Promise<WithdrawFields> => {
-  const contentType = request.headers.get("content-type") ?? "";
-  if (!/^application\/json(?:\s*;|$)/i.test(contentType)) {
-    throw new ReceiptDecodeError({ message: "json body required" });
-  }
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch {
-    throw new ReceiptDecodeError({ message: "invalid json body" });
-  }
-  if (body === null || typeof body !== "object" || Array.isArray(body)) {
-    throw new ReceiptDecodeError({ message: `${operation} body must be an object` });
-  }
-  const record = body as Record<string, unknown>;
-  const keys = Object.keys(record);
-  if (
-    keys.length !== 2 ||
-    !Object.prototype.hasOwnProperty.call(record, "commandId") ||
-    !Object.prototype.hasOwnProperty.call(record, "expectedRevision")
-  ) {
-    throw new ReceiptDecodeError({ message: `invalid ${operation} fields` });
-  }
-  const commandId = record.commandId;
-  const expectedRevision = record.expectedRevision;
-  if (
-    typeof commandId !== "string" ||
-    commandId.length === 0 ||
-    typeof expectedRevision !== "number" ||
-    !Number.isSafeInteger(expectedRevision) ||
-    expectedRevision < 0
-  ) {
-    throw new ReceiptDecodeError({ message: `invalid ${operation} fields` });
-  }
-  return { commandId, expectedRevision };
 };
 
 type ReceiptApprovalRoute = {
@@ -543,17 +449,6 @@ const runDatabase = <A>(
   effect: Effect.Effect<A, unknown, Database | Economy | IdentitySnapshot>,
   run: ReceiptApiHttpOptions["run"],
 ): Promise<A> => run(effect);
-const executeEconomyReceipt = (
-  command: unknown,
-  principal: ReceiptCommandPrincipal,
-  options: ReceiptApiHttpOptions,
-  allocation?: ReceiptSubmissionAllocation,
-) => {
-  const transaction = Economy.use(({ executeReceipt }) =>
-    executeReceipt(command, principal, allocation),
-  );
-  return runDatabase(transaction, options.run);
-};
 
 const auxiliaryEffects = (() => {
   const applied = new Map<string, string>();
@@ -638,36 +533,368 @@ const drainOutbox = async (
   return "Limit";
 };
 
-const submit = async (
+interface V2SubmitFields {
+  readonly description: string;
+  readonly amountOre: number;
+  readonly receiptDate: string;
+  readonly file: File;
+  readonly contentType: SupportedContentType;
+}
+
+interface V2ReviseFields {
+  readonly description?: string;
+  readonly amountOre?: number;
+  readonly receiptDate?: string;
+  readonly file?: File;
+  readonly contentType?: SupportedContentType;
+}
+
+const headerValues = (request: Request, name: string): ReadonlyArray<string> => {
+  const value = request.headers.get(name);
+  return value === null ? [] : [value];
+};
+
+const receiptEtag = (receiptId: string, revision: number) =>
+  deriveStrongETag({
+    representationKind: "ReceiptResource",
+    resourceIdentity: receiptId,
+    version: revision,
+  });
+
+const receiptResource = (receipt: Receipt) => {
+  const amountOre = Number(receipt.amountOre);
+  if (!Number.isSafeInteger(amountOre) || amountOre <= 0) {
+    throw new ReceiptPersistenceError({
+      operation: "decode receipt resource",
+      message: "invalid amount",
+    });
+  }
+  return {
+    receiptId: receipt.receiptId,
+    visualId: receipt.visualId,
+    ownerPersonId: receipt.ownerPersonId,
+    departmentId: receipt.departmentId,
+    description: receipt.description,
+    amountOre,
+    currency: receipt.currency,
+    receiptDate: receipt.receiptDate,
+    status: receipt.status,
+    submittedAt: receipt.submittedAt,
+    revision: receipt.revision,
+    etag: receiptEtag(receipt.receiptId, receipt.revision),
+  };
+};
+
+const receiptMutationCapsule = (
+  receipt: Receipt,
+  status: 200 | 201,
+  location?: string,
+): NativeHttpResponseCapsule => {
+  const headers: Record<string, string> = {
+    etag: receiptEtag(receipt.receiptId, receipt.revision),
+  };
+  if (status === 201) {
+    if (location === undefined) throw new HttpSemanticFailure("internal.error", 500);
+    headers.location = location;
+  }
+  return {
+    status,
+    mediaType: "application/json",
+    bodyBytes: new TextEncoder().encode(JSON.stringify(receiptResource(receipt))),
+    headers,
+  };
+};
+
+const decodeV2SubmitMultipart = async (
+  request: Request,
+  maxFileBytes: number,
+): Promise<V2SubmitFields> => {
+  const fields = await decodeMultipartFields(request, maxFileBytes);
+  requireMultipartFields(fields, {
+    description: true,
+    amountOre: true,
+    receiptDate: true,
+    file: true,
+  });
+  const description = readSingleField(fields, "description");
+  const amountOre = parseSafeAmountOre(readSingleField(fields, "amountOre"));
+  const receiptDate = readSingleField(fields, "receiptDate");
+  if (description.length < 1 || description.length > 5000) {
+    throw new ReceiptDecodeError({ message: "invalid receipt description" });
+  }
+  if (!isIsoDate(receiptDate)) throw new ReceiptDecodeError({ message: "invalid receipt date" });
+  const decodedFile = decodeReceiptFile(fields, maxFileBytes, true);
+  if (decodedFile.file === undefined || decodedFile.contentType === undefined) {
+    throw new ReceiptDecodeError({ message: "receipt file is required" });
+  }
+  return {
+    description,
+    amountOre,
+    receiptDate,
+    file: decodedFile.file,
+    contentType: decodedFile.contentType,
+  };
+};
+
+const decodeV2ReviseMultipart = async (
+  request: Request,
+  maxFileBytes: number,
+): Promise<V2ReviseFields> => {
+  const fields = await decodeMultipartFields(request, maxFileBytes);
+  requireMultipartFields(
+    fields,
+    {},
+    {
+      description: true,
+      amountOre: true,
+      receiptDate: true,
+      file: true,
+    },
+  );
+  if (fields.size === 0) {
+    throw new ReceiptDecodeError({ message: "receipt revision must change at least one field" });
+  }
+  const description = fields.has("description")
+    ? readSingleField(fields, "description")
+    : undefined;
+  if (description !== undefined && (description.length < 1 || description.length > 5000)) {
+    throw new ReceiptDecodeError({ message: "invalid receipt description" });
+  }
+  const amountOre = fields.has("amountOre")
+    ? parseSafeAmountOre(readSingleField(fields, "amountOre"))
+    : undefined;
+  const receiptDate = fields.has("receiptDate")
+    ? readSingleField(fields, "receiptDate")
+    : undefined;
+  if (receiptDate !== undefined && !isIsoDate(receiptDate)) {
+    throw new ReceiptDecodeError({ message: "invalid receipt date" });
+  }
+  const decodedFile = decodeReceiptFile(fields, maxFileBytes, false);
+  return {
+    ...(description === undefined ? {} : { description }),
+    ...(amountOre === undefined ? {} : { amountOre }),
+    ...(receiptDate === undefined ? {} : { receiptDate }),
+    ...decodedFile,
+  };
+};
+
+const decodeExactEmptyJson = async (request: Request): Promise<Record<string, never>> => {
+  const mediaType = request.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
+  if (mediaType !== "application/json") {
+    throw new HttpSemanticFailure("request.malformed", 400);
+  }
+  const contentLength = request.headers.get("content-length");
+  if (contentLength !== null) {
+    if (!/^\d+$/.test(contentLength) || Number(contentLength) > 65_536) {
+      throw new HttpSemanticFailure("request.too-large", 413);
+    }
+  }
+  const text = await request.text();
+  if (new TextEncoder().encode(text).byteLength > 65_536) {
+    throw new HttpSemanticFailure("request.too-large", 413);
+  }
+  const body = parseJsonWithoutDuplicateMembers(new TextEncoder().encode(text));
+  if (
+    body === null ||
+    typeof body !== "object" ||
+    Array.isArray(body) ||
+    Object.keys(body).length !== 0
+  ) {
+    throw new ReceiptDecodeError({ message: "request body must be the exact empty object" });
+  }
+  return {};
+};
+
+const normalizedSubmitQuery = (request: Request): DepartmentId | undefined => {
+  const entries = [...new URL(request.url).searchParams.entries()];
+  if (
+    entries.some(([name]) => name !== "departmentId") ||
+    entries.filter(([name]) => name === "departmentId").length > 1
+  ) {
+    throw new HttpSemanticFailure("request.malformed", 400);
+  }
+  const value = entries[0]?.[1];
+  if (value === undefined) return undefined;
+  if (value.trim().length === 0) throw new ReceiptDecodeError({ message: "invalid departmentId" });
+  return DepartmentId.make(value);
+};
+
+const mutationIdentity = (
+  request: Request,
+  principal: ReceiptCommandPrincipal,
+  qualifiedOperationId: string,
+  normalizedTarget: string,
+) =>
+  deriveHttpIdentity({
+    credentialSubject: `Person:${principal.personId}`,
+    qualifiedOperationId,
+    normalizedTarget,
+    idempotencyKey: parseIdempotencyKey(headerValues(request, "idempotency-key")),
+  } satisfies NativeIdempotencyIdentity);
+
+const executeV2ReceiptMutation = (
+  options: ReceiptApiHttpOptions,
+  identity: {
+    readonly identitySha256: string;
+    readonly commandId: string;
+  },
+  operationId: string,
+  requestSha256: string,
+  command: unknown,
+  principal: ReceiptCommandPrincipal,
+  response: {
+    readonly status: 200 | 201;
+    readonly location?: string;
+    readonly ifMatch?: string;
+    readonly currentEtag?: string;
+  },
+  allocation?: ReceiptSubmissionAllocation,
+) =>
+  options.run(
+    Economy.use(({ executeReceipt }) =>
+      executeNativeHttpCommandPostgres(
+        {
+          identitySha256: identity.identitySha256,
+          requestSha256,
+          operationId,
+        },
+        Effect.gen(function* () {
+          if (
+            response.ifMatch !== undefined &&
+            response.currentEtag !== undefined &&
+            response.ifMatch !== response.currentEtag
+          ) {
+            return yield* Effect.fail(new HttpSemanticFailure("precondition.failed", 412));
+          }
+          const result = yield* executeReceipt(command, principal, allocation);
+          return receiptMutationCapsule(result.receipt, response.status, response.location);
+        }),
+      ),
+    ),
+  );
+
+const currentOwnedReceipt = async (
+  principal: ReceiptCommandPrincipal,
+  receiptId: string,
+  options: ReceiptApiHttpOptions,
+): Promise<OwnedReceiptProjectionItem> => {
+  const rows = await runDatabase(
+    Economy.use(({ listOwnedReceipts }) => listOwnedReceipts(principal.personId)),
+    options.run,
+  );
+  const current = rows.find((row) => row.receiptId === receiptId);
+  if (current === undefined) throw new ReceiptNotFound({ receiptId });
+  return current;
+};
+
+const currentApprovalReceipt = async (
+  principal: ReceiptCommandPrincipal,
+  receiptId: string,
+  options: ReceiptApiHttpOptions,
+) => {
+  const rows = await runDatabase(
+    Economy.use(({ listReceiptsForApproval }) =>
+      listReceiptsForApproval(
+        PersonId.make(principal.personId),
+        AuthorizationInstant.make(principal.authorizationInstant),
+      ),
+    ),
+    options.run,
+  );
+  const current = rows.find((row) => row.receiptId === receiptId);
+  if (current === undefined) {
+    throw new HttpSemanticFailure("authority.denied", 403);
+  }
+  return current;
+};
+const ownedReceiptResource = (receipt: OwnedReceiptProjectionItem) => {
+  const amountOre = Number(receipt.amountOre);
+  if (!Number.isSafeInteger(amountOre) || amountOre <= 0) {
+    throw new ReceiptPersistenceError({
+      operation: "decode owned receipt projection",
+      message: "invalid amount",
+    });
+  }
+  return {
+    receiptId: receipt.receiptId,
+    visualId: receipt.visualId,
+    ownerPersonId: receipt.ownerPersonId,
+    departmentId: receipt.departmentId,
+    description: receipt.description,
+    amountOre,
+    currency: receipt.currency,
+    receiptDate: receipt.receiptDate,
+    status: receipt.status,
+    submittedAt: receipt.submittedAt,
+    revision: receipt.revision,
+    etag: receiptEtag(receipt.receiptId, receipt.revision),
+  };
+};
+
+const listOwnedV2 = async (
+  request: Request,
+  options: ReceiptApiHttpOptions,
+): Promise<Response> => {
+  const entries = [...new URL(request.url).searchParams.entries()];
+  if (
+    entries.some(([name]) => name !== "status") ||
+    entries.filter(([name]) => name === "status").length > 1
+  ) {
+    throw new HttpSemanticFailure("request.malformed", 400);
+  }
+  const selectedStatus = entries[0]?.[1];
+  if (selectedStatus !== undefined && !isReceiptStatus(selectedStatus)) {
+    throw new ReceiptDecodeError({ message: "invalid receipt status" });
+  }
+  const principal = await authorizationPrincipalFor(request, options);
+  const rows = await runDatabase(
+    Economy.use(({ listOwnedReceipts }) =>
+      listOwnedReceipts(principal.personId, selectedStatus),
+    ),
+    options.run,
+  );
+  const items = rows.map(ownedReceiptResource);
+  return jsonResponse({ items, totalItems: items.length });
+};
+
+const submitV2 = async (
   request: Request,
   options: ReceiptApiHttpOptions,
   fileStore: ReceiptFileStore,
 ): Promise<Response> => {
-  const queryEntries = [...new URL(request.url).searchParams.entries()];
-  const selectedDepartments = queryEntries.filter(([name]) => name === "departmentId");
-  if (queryEntries.some(([name]) => name !== "departmentId") || selectedDepartments.length > 1) {
-    throw new ReceiptDecodeError({ message: "invalid receipt submission query" });
-  }
-  const selected = selectedDepartments[0]?.[1];
-  if (selected !== undefined && selected.trim().length === 0) {
-    throw new ReceiptDecodeError({ message: "invalid departmentId selection" });
-  }
-  const departmentId = selected === undefined ? undefined : DepartmentId.make(selected);
-  const fields = await decodeMultipart(request, options.config.maxFileBytes);
+  const departmentId = normalizedSubmitQuery(request);
+  const fields = await decodeV2SubmitMultipart(request, options.config.maxFileBytes);
   const principal = await authorizationPrincipalFor(request, options);
+  const identity = mutationIdentity(
+    request,
+    principal,
+    "receipts.submitReceipt",
+    "/api/receipts",
+  );
   let staged: StagedReceiptFile | undefined;
   let committed = false;
   try {
     staged = await fileStore.stageBytes(
       fields.file,
-      fields.commandId,
+      identity.commandId,
       fields.contentType,
       options.config.maxFileBytes,
     );
     await options.run(fileStore.service.stage(staged.file));
+    const semanticBody = {
+      ...(departmentId === undefined ? {} : { departmentId }),
+      description: fields.description,
+      amountOre: fields.amountOre,
+      receiptDate: fields.receiptDate,
+      file: {
+        contentType: staged.file.contentType,
+        byteLength: staged.file.byteLength,
+        sha256: staged.file.sha256,
+      },
+    };
     const command = {
       _tag: "SubmitReceipt" as const,
-      commandId: fields.commandId,
+      commandId: identity.commandId,
       ...(departmentId === undefined ? {} : { departmentId }),
       description: fields.description,
       amountOre: fields.amountOre,
@@ -678,59 +905,26 @@ const submit = async (
       receiptId: ReceiptId.make(options.config.nextReceiptId()),
       visualId: ReceiptVisualId.make(options.config.nextVisualId()),
     };
-    const result = await executeEconomyReceipt(command, principal, options, allocation);
-    if (result.replayed && staged.created) await fileStore.cleanupStage(staged.file);
-    committed = true;
-    await drainOutbox(options, fileStore, result.observation.receiptId);
-    const status = result.replayed ? 200 : 201;
-    return jsonResponse(result.observation satisfies ReceiptObservation, status);
-  } finally {
-    if (!committed && staged?.created === true)
-      await fileStore.cleanupStage(staged.file).catch(() => undefined);
-  }
-};
-
-const revise = async (
-  request: Request,
-  receiptId: string,
-  options: ReceiptApiHttpOptions,
-  fileStore: ReceiptFileStore,
-): Promise<Response> => {
-  const fields = await decodeReviseMultipart(request, options.config.maxFileBytes);
-  const principal = await authorizationPrincipalFor(request, options);
-  let staged: StagedReceiptFile | undefined;
-  let committed = false;
-  try {
-    if (fields.file !== undefined) {
-      const contentType = fields.contentType;
-      if (contentType === undefined) {
-        throw new ReceiptDecodeError({ message: "invalid receipt file" });
-      }
-      staged = await fileStore.stageBytes(
-        fields.file,
-        fields.commandId,
-        contentType,
-        options.config.maxFileBytes,
-      );
-      await options.run(fileStore.service.stage(staged.file));
-    }
-    const command = {
-      _tag: "RevisePendingReceipt" as const,
-      commandId: fields.commandId,
-      receiptId,
-      expectedRevision: fields.expectedRevision,
-      description: fields.description,
-      amountOre: fields.amountOre,
-      receiptDate: fields.receiptDate,
-      file: staged?.file ?? { _tag: "KeepCurrentFile" as const },
-    };
-    const result = await executeEconomyReceipt(command, principal, options);
-    if (result.replayed && staged?.created === true) {
+    const outcome = await executeV2ReceiptMutation(
+      options,
+      identity,
+      "receipts.submitReceipt",
+      semanticRequestDigest({ body: semanticBody }),
+      command,
+      principal,
+      {
+        status: 201,
+        location: `/api/receipts/${encodeURIComponent(allocation.receiptId)}`,
+      },
+      allocation,
+    );
+    if (outcome._tag === "Committed") {
+      committed = true;
+      await drainOutbox(options, fileStore, allocation.receiptId);
+    } else if (staged.created) {
       await fileStore.cleanupStage(staged.file).catch(() => undefined);
     }
-    committed = true;
-    await drainOutbox(options, fileStore, result.observation.receiptId);
-    return jsonResponse(result.observation satisfies ReceiptObservation);
+    return nativeCommandOutcomeResponse(outcome);
   } finally {
     if (!committed && staged?.created === true) {
       await fileStore.cleanupStage(staged.file).catch(() => undefined);
@@ -738,24 +932,175 @@ const revise = async (
   }
 };
 
-const withdraw = async (
+const reviseV2 = async (
   request: Request,
   receiptId: string,
   options: ReceiptApiHttpOptions,
   fileStore: ReceiptFileStore,
 ): Promise<Response> => {
+  const ifMatch = parseRequiredIfMatch(headerValues(request, "if-match"));
+  const fields = await decodeV2ReviseMultipart(request, options.config.maxFileBytes);
   const principal = await authorizationPrincipalFor(request, options);
-  const fields = await decodeCommandJson(request, "withdraw");
-  const command = {
-    _tag: "WithdrawPendingReceipt" as const,
-    commandId: fields.commandId,
-    receiptId,
-    expectedRevision: fields.expectedRevision,
-  };
-  const result = await executeEconomyReceipt(command, principal, options);
-  await drainOutbox(options, fileStore, result.observation.receiptId);
-  return jsonResponse(result.observation satisfies ReceiptObservation);
+  const current = await currentOwnedReceipt(principal, receiptId, options);
+  const identity = mutationIdentity(
+    request,
+    principal,
+    "receipts.reviseReceipt",
+    `/api/receipts/${encodeURIComponent(receiptId)}`,
+  );
+  let staged: StagedReceiptFile | undefined;
+  let committed = false;
+  try {
+    if (fields.file !== undefined) {
+      if (fields.contentType === undefined) {
+        throw new ReceiptDecodeError({ message: "invalid receipt file" });
+      }
+      staged = await fileStore.stageBytes(
+        fields.file,
+        identity.commandId,
+        fields.contentType,
+        options.config.maxFileBytes,
+      );
+      await options.run(fileStore.service.stage(staged.file));
+    }
+    const semanticBody = {
+      ...(fields.description === undefined ? {} : { description: fields.description }),
+      ...(fields.amountOre === undefined ? {} : { amountOre: fields.amountOre }),
+      ...(fields.receiptDate === undefined ? {} : { receiptDate: fields.receiptDate }),
+      ...(staged === undefined
+        ? {}
+        : {
+            file: {
+              contentType: staged.file.contentType,
+              byteLength: staged.file.byteLength,
+              sha256: staged.file.sha256,
+            },
+          }),
+    };
+    const command = {
+      _tag: "RevisePendingReceipt" as const,
+      commandId: identity.commandId,
+      receiptId,
+      expectedRevision: current.revision,
+      description: fields.description ?? current.description,
+      amountOre:
+        fields.amountOre ??
+        (() => {
+          const value = Number(current.amountOre);
+          if (!Number.isSafeInteger(value) || value <= 0) {
+            throw new ReceiptPersistenceError({
+              operation: "decode current receipt amount",
+              message: "invalid amount",
+            });
+          }
+          return value;
+        })(),
+      receiptDate: fields.receiptDate ?? current.receiptDate,
+      file: staged?.file ?? { _tag: "KeepCurrentFile" as const },
+    };
+    const outcome = await executeV2ReceiptMutation(
+      options,
+      identity,
+      "receipts.reviseReceipt",
+      semanticRequestDigest({ body: { patch: semanticBody, ifMatch } }),
+      command,
+      principal,
+      {
+        status: 200,
+        ifMatch,
+        currentEtag: receiptEtag(receiptId, current.revision),
+      },
+    );
+    if (outcome._tag === "Committed") {
+      committed = true;
+      await drainOutbox(options, fileStore, receiptId);
+    } else if (staged?.created === true) {
+      await fileStore.cleanupStage(staged.file).catch(() => undefined);
+    }
+    return nativeCommandOutcomeResponse(outcome);
+  } finally {
+    if (!committed && staged?.created === true) {
+      await fileStore.cleanupStage(staged.file).catch(() => undefined);
+    }
+  }
 };
+
+const withdrawV2 = async (
+  request: Request,
+  receiptId: string,
+  options: ReceiptApiHttpOptions,
+  fileStore: ReceiptFileStore,
+): Promise<Response> => {
+  const ifMatch = parseRequiredIfMatch(headerValues(request, "if-match"));
+  const body = await decodeExactEmptyJson(request);
+  const principal = await authorizationPrincipalFor(request, options);
+  const current = await currentOwnedReceipt(principal, receiptId, options);
+  const identity = mutationIdentity(
+    request,
+    principal,
+    "receipts.withdrawReceipt",
+    `/api/receipts/${encodeURIComponent(receiptId)}/withdraw`,
+  );
+  const outcome = await executeV2ReceiptMutation(
+    options,
+    identity,
+    "receipts.withdrawReceipt",
+    semanticRequestDigest({ body: { ...body, ifMatch } }),
+    {
+      _tag: "WithdrawPendingReceipt" as const,
+      commandId: identity.commandId,
+      receiptId,
+      expectedRevision: current.revision,
+    },
+    principal,
+    {
+      status: 200,
+      ifMatch,
+      currentEtag: receiptEtag(receiptId, current.revision),
+    },
+  );
+  if (outcome._tag === "Committed") await drainOutbox(options, fileStore, receiptId);
+  return nativeCommandOutcomeResponse(outcome);
+};
+
+const approvalCommandV2 = async (
+  request: Request,
+  route: ReceiptApprovalRoute,
+  options: ReceiptApiHttpOptions,
+  fileStore: ReceiptFileStore,
+): Promise<Response> => {
+  const ifMatch = parseRequiredIfMatch(headerValues(request, "if-match"));
+  const body = await decodeExactEmptyJson(request);
+  const principal = await authorizationPrincipalFor(request, options);
+  const current = await currentApprovalReceipt(principal, route.receiptId, options);
+  const operationId =
+    route.action === "refund" ? "receipts.refundReceipt" : "receipts.rejectReceipt";
+  const normalizedTarget = `/api/receipts/${encodeURIComponent(route.receiptId)}/${route.action}`;
+  const identity = mutationIdentity(request, principal, operationId, normalizedTarget);
+  const outcome = await executeV2ReceiptMutation(
+    options,
+    identity,
+    operationId,
+    semanticRequestDigest({ body: { ...body, ifMatch } }),
+    {
+      _tag: route.action === "refund" ? ("RefundReceipt" as const) : ("RejectReceipt" as const),
+      commandId: identity.commandId,
+      receiptId: route.receiptId,
+      expectedRevision: current.revision,
+    },
+    principal,
+    {
+      status: 200,
+      ifMatch,
+      currentEtag: receiptEtag(route.receiptId, current.revision),
+    },
+  );
+  if (outcome._tag === "Committed") await drainOutbox(options, fileStore, route.receiptId);
+  return nativeCommandOutcomeResponse(outcome);
+};
+
+
+
 const decodeApprovalStatusFilter = (request: Request): ReceiptStatus | undefined => {
   const entries = [...new URL(request.url).searchParams.entries()];
   const statusEntries = entries.filter(([name]) => name === "status");
@@ -884,70 +1229,7 @@ const approvalList = async (
   return jsonResponse({ items, totalItems: items.length });
 };
 
-const approvalCommand = async (
-  request: Request,
-  route: ReceiptApprovalRoute,
-  options: ReceiptApiHttpOptions,
-  fileStore: ReceiptFileStore,
-): Promise<Response> => {
-  const principal = await authorizationPrincipalFor(request, options);
-  const fields = await decodeCommandJson(request, "approval");
-  if (new URL(request.url).search.length !== 0) {
-    throw new ReceiptDecodeError({ message: "unexpected receipt command query" });
-  }
-  const command = {
-    _tag: route.action === "refund" ? ("RefundReceipt" as const) : ("RejectReceipt" as const),
-    commandId: fields.commandId,
-    receiptId: route.receiptId,
-    expectedRevision: fields.expectedRevision,
-  };
-  const result = await executeEconomyReceipt(command, principal, options);
-  await drainOutbox(options, fileStore, result.observation.receiptId);
-  return jsonResponse(result.observation satisfies ReceiptObservation);
-};
 
-const list = async (request: Request, options: ReceiptApiHttpOptions): Promise<Response> => {
-  const personId = await personIdFor(request, options);
-  const statusParameter = new URL(request.url).searchParams.get("status");
-  let status: ReceiptStatus | undefined;
-  if (statusParameter !== null) {
-    if (!isReceiptStatus(statusParameter)) {
-      throw new ReceiptDecodeError({ message: "invalid receipt status filter" });
-    }
-    status = statusParameter;
-  }
-  const rows = await runDatabase(
-    Economy.use(({ listOwnedReceipts }) => listOwnedReceipts(personId, status)),
-    options.run,
-  );
-  const items = rows.map((row) => {
-    const amountOre = Number(row.amountOre);
-    if (!Number.isSafeInteger(amountOre) || amountOre <= 0) {
-      throw new ReceiptPersistenceError({
-        operation: "decode owner projection",
-        message: "invalid amount",
-      });
-    }
-    return {
-      receiptId: row.receiptId,
-      visualId: row.visualId,
-      ownerPersonId: row.ownerPersonId,
-      departmentId: row.departmentId,
-      amountOre,
-      currency: row.currency,
-      description: row.description,
-      receiptDate: row.receiptDate,
-      status: row.status,
-      revision: row.revision,
-      etag: deriveStrongETag({
-        representationKind: "ReceiptListItem",
-        resourceIdentity: row.receiptId,
-        version: row.revision,
-      }),
-    };
-  });
-  return jsonResponse({ items, totalItems: items.length });
-};
 
 /** Native HttpApi implementations for receipt lifecycle endpoints. */
 export const ReceiptApiHandlers = (input: ReceiptApiHttpOptions) => {
@@ -966,58 +1248,62 @@ export const ReceiptApiHandlers = (input: ReceiptApiHttpOptions) => {
         .handleRaw("submitReceipt", ({ request }) =>
           toHttpApiResponse(
             request,
-            (webRequest) => submit(webRequest, input, fileStore),
-            errorResponse,
+            (webRequest) => submitV2(webRequest, input, fileStore),
+            publicReceiptErrorResponse,
           ),
         )
         .handleRaw("reviseReceipt", ({ request, params }) =>
           toHttpApiResponse(
             request,
-            (webRequest) => revise(webRequest, params.receiptId, input, fileStore),
-            errorResponse,
+            (webRequest) => reviseV2(webRequest, params.receiptId, input, fileStore),
+            publicReceiptErrorResponse,
           ),
         )
         .handleRaw("withdrawReceipt", ({ request, params }) =>
           toHttpApiResponse(
             request,
-            (webRequest) => withdraw(webRequest, params.receiptId, input, fileStore),
-            errorResponse,
+            (webRequest) => withdrawV2(webRequest, params.receiptId, input, fileStore),
+            publicReceiptErrorResponse,
           ),
         )
         .handleRaw("listReceipts", ({ request }) =>
-          toHttpApiResponse(request, (webRequest) => list(webRequest, input), errorResponse),
+          toHttpApiResponse(
+            request,
+            (webRequest) => listOwnedV2(webRequest, input),
+            publicReceiptErrorResponse,
+          ),
         )
         .handleRaw("listReceiptsForApproval", ({ request }) =>
           toHttpApiResponse(
             request,
             (webRequest) => approvalList(webRequest, input),
-            errorResponse,
+            publicReceiptErrorResponse,
           ),
         )
         .handleRaw("refundReceipt", ({ request, params }) =>
           toHttpApiResponse(
             request,
             (webRequest) =>
-              approvalCommand(
+              approvalCommandV2(
                 webRequest,
                 { action: "refund", receiptId: params.receiptId },
                 input,
                 fileStore,
               ),
-            errorResponse,
+            publicReceiptErrorResponse,
           ),
         )
         .handleRaw("rejectReceipt", ({ request, params }) =>
           toHttpApiResponse(
             request,
             (webRequest) =>
-              approvalCommand(
+              approvalCommandV2(
                 webRequest,
                 { action: "reject", receiptId: params.receiptId },
                 input,
                 fileStore,
               ),
-            errorResponse,
+            publicReceiptErrorResponse,
           ),
         ),
     ),

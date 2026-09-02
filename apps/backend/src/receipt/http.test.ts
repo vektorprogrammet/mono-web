@@ -136,6 +136,28 @@ const harness = (options: HarnessOptions = {}) => {
     return options.commandFailure === undefined
       ? Effect.succeed({
           observation: { ...receiptObservation, replayed },
+          receipt: {
+            receiptId: receiptObservation.receiptId,
+            visualId: receiptObservation.visualId,
+            ownerPersonId: principal.personId,
+            departmentId: departmentOne,
+            amountOre: 100,
+            currency: "NOK",
+            description: "Travel",
+            receiptDate: "2026-08-24",
+            submittedAt: evaluatedAt,
+            status: receiptObservation.status,
+            refundDate: null,
+            paymentAccountCiphertext: "encrypted",
+            file: {
+              fileRef: "staging/file-one",
+              objectKey: "committed/file-one",
+              contentType: "image/png",
+              byteLength: 4,
+              sha256: "aa".repeat(32),
+            },
+            revision: receiptObservation.revision,
+          } as never,
           replayed,
           outboxCount: 0,
         } satisfies ReceiptTransactionResult)
