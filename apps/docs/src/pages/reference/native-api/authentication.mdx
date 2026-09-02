@@ -1,125 +1,61 @@
 ---
 title: Authentication & authorization
-description: How the native API authenticates callers and authorizes every operation.
+description: How the v0.2 native API authenticates callers and evaluates authority.
 showAskAi: false
 ---
 
 # Authentication & authorization
 
-The native API authenticates with a session cookie and authorizes every
-operation against organization roles. This page cites the source files that
-implement each rule.
+The v0.2 native API authenticates each request, then evaluates current authority for the operation. The generated [native API reference](/reference/native-api) lists the credential requirements for each operation.
 
-## Sign in
+## First-party sessions
 
-The API itself has no sign-in route. The dashboard signs in through Better
-Auth, and the native API trusts the session it issues.
+The dashboard signs in through Better Auth. Better Auth owns `/api/auth/*`. These protocol routes are not native operations.
 
-- Endpoint: `POST /api/auth/sign-in/email` with `{ email, password }`
-  (`apps/dashboard/app/lib/auth.server.ts`, `packages/database/src/auth-live.test.ts`).
-- Engine: `packages/database/src/auth-engine.ts` — public sign-up is disabled,
-  passwords need at least 12 characters, sessions expire after 7 days, and
-  their age updates daily. Authoritative requests do not use a session cookie
-  cache.
-- Session rows live in the `auth` Postgres schema (`search_path=auth`), and
-  `auth.user.id` is a `PersonId`.
+The native API uses the Better Auth session cookie for browser requests. The local cookie name is `better-auth.session_token`.
 
-## The session cookie
+The secure cookie name is `__Secure-better-auth.session_token` outside explicit loopback development. Both forms are HttpOnly, SameSite=Lax, and Path=/.
 
-Handlers recognize the `better-auth.session_token` cookie for explicit
-loopback development and the `__Secure-better-auth.session_token` cookie
-outside local development. Both are HttpOnly, SameSite=Lax, and Path=/.
-The secure form also has the Secure attribute. Sources:
-`packages/database/src/auth-engine.ts`,
-`apps/dashboard/app/lib/auth.server.ts` (`SESSION_COOKIE_NAMES`), and the
-`RequestCookieHeader` declaration in `packages/http-api/src/common.ts`.
+The session API reads persisted session state for every protected request. It does not use a session cache. A missing, expired, or revoked session returns `401`.
 
-## How handlers enforce it
+The session contract includes these operations:
 
-Endpoints that require a session declare the `SessionSecurity` middleware in
-the contract (`packages/http-api/src/common.ts`). The transport first requires
-one recognized Better Auth cookie name. The handler then resolves the full
-`Cookie` header from persisted state through `Identity` on every request:
+- read and delete the current session
+- list and delete owned sessions
+- revoke other sessions
+- revoke all sessions
 
-1. `Cookie` → `Identity.resolveSession` → `PersonId` plus one authorization
-   instant (`apps/backend/src/authority.ts`).
-2. `Organization.resolvePersonAuthority` loads the person's roles.
-3. A missing, expired, or revoked session maps to `UnauthenticatedActor`, which
-   the transport returns as HTTP 401.
+Use the generated reference for the exact method, path, request, response, and Problem Details schema.
 
-Read credential-free metadata for the current session:
+## OAuth bearer tokens
 
-```
-GET /api/session
-```
+The frozen OAuth provider contract supports two access-token journeys:
 
-- 200 → `{ "sessionId", "createdAt", "updatedAt", "expiresAt", "ipAddress", "userAgent", "current" }`
-- 401 → `{ "error": { "tag": "UnauthenticatedActor" } }`
-- 503 → `{ "error": { "tag": "IdentityEngineError" } }`
+- delegated person authorization code with mandatory S256 PKCE
+- service-principal client credentials
 
-The session representation contains no `PersonId` or credential. Use
-`GET /api/me` when a caller needs its own profile identity. Session lifecycle
-operations are `DELETE /api/session`, `GET /api/sessions`,
-`DELETE /api/sessions/{sessionId}`, `POST /api/sessions:revoke-others`, and
-`POST /api/sessions:revoke-all`.
+Both journeys issue audience-bound bearer tokens. Only delegated users receive a refresh token. The native resource is `urn:vektorprogrammet:native-api`.
 
-## How authorization decisions work
+`OAuthUserBearer` resolves to a `Person`. `OAuthServiceBearer` resolves to a `ServicePrincipal`. A service principal is not a synthetic person, membership, role, or `auth.user`.
 
-The authority object is `OrganizationPersonAuthority`
-(`packages/domain/src/organization/authority.ts`):
+OAuth scope is not a domain capability, grant, role, membership, ownership fact, or requirement result. Each protected request recalculates authorization against current authority.
 
-- `globalAdministrator`: `Active` | `Inactive` | `Absent`
-- `memberships[]`: `{ membershipId, teamId, departmentId, active, teamLeader }`
+## Authorization decisions
 
-Each capability group maps this object to its own actor roles
-(`apps/backend/src/authority.ts`):
+Each native endpoint declares one `AccessSpec` beside its contract. The transport resolves the credential and principal. The handler then evaluates the capability, scope, requirements, concealment, and decision time.
 
-| Group        | Allowed actors                                       |
-| ------------ | ---------------------------------------------------- |
-| Admissions   | Global admin, department leader, member              |
-| Recruitment  | Global admin, department leader, member              |
-| Organization | Admin or member of the scope                         |
-| Profile      | `ROLE_ADMIN`, `ROLE_TEAM_LEADER`, `ROLE_TEAM_MEMBER` |
+A valid credential does not grant access by itself. A denied requirement returns `403` when the operation reveals the resource. A concealed resource can return `404`. An invalid or expired credential returns `401`.
 
-Denials return 403 with tags such as `AuthorityInactive` or `NotInScope`.
-A 403 body looks like:
+Invitation response operations use an object capability in `X-Recruitment-Invitation-Capability`. The capability identifies one invitation response. The server resolves the capability before it evaluates the pending requirement. Missing, malformed, unknown, or superseded capabilities fail closed.
 
-```json
-{ "error": { "tag": "AuthorityInactive" } }
-```
+## HTTP requirements
 
-Recruitment boards fail closed: an interviewer attached to zero or more than
-one department is rejected with `UnauthenticatedActor` (401)
-(`apps/backend/src/router.ts`).
+Every external `POST`, `PATCH`, and `DELETE` requires one `Idempotency-Key` header. The server derives a stable identity from the credential subject, operation ID, target, and key. It does not expose the internal command ID.
 
-## Error tags worth knowing
+Existing-resource mutations also require a validated strong `If-Match` entity tag. The request body does not contain `commandId` or `expectedRevision`.
 
-The backend composes clear denial messages
-(`apps/backend/src/receipt/http.ts`, `COMPOSED_DENIAL_MESSAGES`):
+Native errors use endpoint-specific RFC 9457 Problem Details. The generated reference lists each status and error schema. The historical v0.1 error-tag envelope is not a v0.2 response.
 
-- `AmbiguousParameterFill` → "Authorization parameter fill is ambiguous"
-- `FailedComposedRequirement` → "Composed authorization requirement failed"
+## Source ownership
 
-## Invitation capability (recruitment)
-
-Public invitation endpoints replace cookies with a capability header:
-
-```
-X-Recruitment-Invitation-Capability: <43-char base64url token>
-```
-
-- Token shape: 43 base64url characters
-  (`packages/domain/src/recruitment/schema.ts`).
-- Issued server-side as `randomBytes(32).toString("base64url")`
-  (`apps/backend/src/recruitment/config.ts`).
-- Missing, malformed, or unknown tokens return
-  404 `RecruitmentInvitationNotFound`
-  (`apps/backend/src/recruitment/http.ts`).
-- Four endpoints accept it: read, confirm, reject, request-new-time.
-
-## What is NOT in this API
-
-- No HTTP 400: request-schema failures return 422 with the group's
-  `*DecodeError` tag (`apps/backend/src/http-api/transport.ts`).
-- No API keys or bearer tokens: the cookie (or invitation capability) is the
-  only credential.
+The access declarations are in `packages/http-api/src`. The identity and authorization services resolve current state in the backend and domain layers. The generated reference remains the canonical operation source.

@@ -93,6 +93,7 @@ export default defineConfig({
           link: "/reference/native-api/authentication",
         },
         { text: "Getting started", link: "/reference/native-api/getting-started" },
+        { text: "API changelog", link: "/reference/api-changelog" },
       ],
     },
     {

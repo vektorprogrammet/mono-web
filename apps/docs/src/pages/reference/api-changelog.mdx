@@ -1,0 +1,89 @@
+---
+title: API changelog
+description: Historical v0.1 notes and the current v0.2 native API contract.
+showAskAi: false
+---
+
+# API changelog
+
+This page records the public API transition. The generated [native API reference](/reference/native-api) is the only source for operation paths, parameters, schemas, and responses.
+
+The repository has no release tags. The history range for this page is the first repository commit through the current API head. The v0.2 release version comes from the frozen release manifest, not from a Git tag.
+
+## v0.2.0: current native API
+
+The v0.2 contract is the current API. The frozen release projection defines version `0.2.0` and 52 public external operations. One internal operation stays outside the public OpenAPI document and public reference.
+
+The generated artifacts are:
+
+- [OpenAPI document](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/openapi.json)
+- [SDK operation inventory](https://github.com/vektorprogrammet/mono-web/blob/main/packages/sdk/native-api-operations.json)
+- [Release manifest](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/release-manifest.json)
+- [Generated code reference](/reference/code)
+
+### Breaking clean cutover
+
+The v0.2 SDK is generated from `ExternalNativeApi`. It exposes Promise and Effect clients, plus the generated `./operations` inventory. It does not expose v0.1 aliases, route tables, schema projections, or compatibility objects.
+
+First-party callers use the generated v0.2 operation and result types. They do not use `/api/admin`, `/api/me`, slash-action paths, `commandId`, or `expectedRevision` in native requests. Action routes use the literal-colon form, such as `/resource/{id}:action`.
+
+The public API and the internal API are separate contracts. The internal receipt-evidence operation is not a public operation. Better Auth `/api/auth/*` protocol routes are also outside the native operation inventory.
+
+### Resource routes and authorization
+
+The resource matrix defines 52 external operations for system sessions, profile, organization, directories, admissions, recruitment, receipts, content, and news. The generated reference groups these operations by resource and shows each exact route.
+
+Each protected operation evaluates its colocated `AccessSpec` with the current credential, principal, capability, scope, requirement, concealment rule, and decision time. A route name does not grant access. A concealed resource can return 404 when the caller lacks the required authority.
+
+The API accepts first-party Better Auth session cookies and delegated OAuth user bearers where the operation permits them. An invitation response uses its object capability. OAuth protocol endpoints remain a credential-engine boundary, not native resource operations.
+
+### HTTP semantics
+
+Every external `POST`, `PATCH`, and `DELETE` requires one `Idempotency-Key` header. The server derives the idempotency identity from the credential subject, operation ID, target, and key. It does not expose the internal command ID.
+
+Existing-resource mutations use a validated strong `If-Match` entity tag. Request schemas are strict. Public requests and responses contain no `commandId`, replay flag, or internal receipt data.
+
+A matching replay returns the first status and representation. A changed request returns an idempotency conflict. A stale or invalid precondition returns the endpoint-specific Problem Details response. The generated reference lists the exact status and error schema for each operation.
+
+Accepted mutations use one transaction for domain state, command receipt, audit, outbox requests, and the HTTP idempotency receipt. The server releases no success response before that transaction commits.
+
+### Sessions and OAuth
+
+The session API reads persisted Better Auth state for every protected request. It includes current-session read and delete operations, owned-session listing and deletion, and revoke-others and revoke-all actions.
+
+The OAuth provider supports delegated authorization code with S256 PKCE and service-principal client credentials. Both journeys issue audience-bound bearer tokens. Only delegated users receive refresh tokens.
+
+The native resource is `urn:vektorprogrammet:native-api`. Each protected request recalculates authorization. OAuth scope is not a domain capability, role, membership, ownership fact, or requirement result.
+
+### Source history
+
+The v0.2 contract and generated projection were frozen and implemented through these history points:
+
+- [0077.2 resource and access matrix](https://github.com/vektorprogrammet/mono-web/blob/main/design-specs/0077.2-native-resource-operation-access-matrix.md)
+- [0080.1 HTTP semantics](https://github.com/vektorprogrammet/mono-web/blob/main/design-specs/0080.1-native-http-semantics.md)
+- [0079.2 generated release projection](https://github.com/vektorprogrammet/mono-web/blob/main/design-specs/0079.2-generated-v0.2-release-projection.md)
+- [0082 native OAuth provider](https://github.com/vektorprogrammet/mono-web/blob/main/design-specs/0082-native-oauth-provider.md)
+- [API projection implementation](https://github.com/vektorprogrammet/mono-web/commit/68eda3ae8634440584a89fb60e7bc233e936a4f7)
+- [final v0.2 projection](https://github.com/vektorprogrammet/mono-web/commit/1190c80b)
+
+These links provide provenance. They do not replace the generated OpenAPI document as the operation reference.
+
+## v0.1: historical SDK and transport
+
+Version 0.1 is historical. It is not the current native API contract.
+
+The v0.1 SDK started from an OpenAPI-generated type surface and `openapi-fetch`. It also provided a React Query client and domain aliases.
+
+Published package history records versions `0.1.1` and `0.1.2`. The repository now contains the v0.2 package at version `0.2.0`.
+
+Historical v0.1 native callers sent `commandId` in mutation payloads and `expectedRevision` for revision checks. They used legacy route families such as `/api/admin` and `/api/me`. Their error body used an `{ "error": { "tag": "..." } }` envelope.
+
+The v0.2 cutover removes these request fields, routes, error-envelope assumptions, generated type remnants, and SDK aliases. Do not add a forwarding alias to make a v0.1 caller appear current.
+
+Use the [current getting-started guide](/reference/native-api/getting-started) and the [current authentication guide](/reference/native-api/authentication) for v0.2 requests. Use the generated reference for every operation detail.
+
+## Ownership
+
+The source contract in `packages/http-api/src` owns routes, schemas, access declarations, and operation text. The release generator owns OpenAPI, SDK operation inventory, server metadata, and the release manifest. The docs generator consumes those artifacts.
+
+This page is handwritten. It owns historical context and migration guidance only. It does not own an operation list, schema copy, release count, or generated response text.

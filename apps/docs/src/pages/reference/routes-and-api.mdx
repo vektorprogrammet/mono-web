@@ -1,66 +1,53 @@
 ---
 title: Routes & API
-description: Route families, capability owners, current availability, and native and legacy boundaries.
+description: Current native API boundaries and resource families.
 showAskAi: false
 ---
 
 # Routes & API
 
-[`ExternalNativeApi`](https://github.com/vektorprogrammet/mono-web/blob/c315db3b5809caffb16e149bd33f0a07b60948f6/packages/http-api/src/api.ts) is the public native HTTP contract. [`InternalNativeApi`](https://github.com/vektorprogrammet/mono-web/blob/c315db3b5809caffb16e149bd33f0a07b60948f6/packages/http-api/src/api.ts) is a separate internal contract.
+The generated [native API reference](/reference/native-api) is the canonical reference for all public operations, schemas, and responses.
 
-## Current API availability
+The v0.2 release projection contains 52 public external operations. One internal receipt-evidence operation stays outside the public OpenAPI document and public reference. The operation total does not claim native-to-legacy parity.
 
-The native backend serves the route families below. Open the [generated native API reference](/reference/native-api) for all 52 public operations, schemas, and responses, or start with [Authentication & authorization](/reference/native-api/authentication) and [Getting started](/reference/native-api/getting-started).
+## Contract boundaries
 
-The public document excludes Better Auth and all internal operations. The operation total does not claim legacy capability parity.
+`ExternalNativeApi` is the public native HTTP contract. `InternalNativeApi` is a separate internal contract. Better Auth `/api/auth/*` routes are credential-engine routes, not native operations.
 
-## Native route families
+The native contract groups operations by these resource areas:
 
-| Route family                                                                                                                                                                                   | HttpApi implementation       | Capability owner                                |
-| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------- | ----------------------------------------------- |
-| `/api/auth/*`                                                                                                                                                                                  | Better Auth request handler  | Shared `AuthEngine` and `Identity` Layer        |
-| `/api/session`, `/api/sessions*`                                                                                                                                                               | `SystemApiHandlers`          | `Identity`                                      |
-| `/api/me`                                                                                                                                                                                      | `ProfileApiHandlers`         | `Profile`                                       |
-| `/api/receipts*`, `/api/admin/receipts*`                                                                                                                                                       | `ReceiptApiHandlers`         | `Economy`                                       |
-| `/api/applications*`, `/api/admission-periods/open`, `/api/admin/admission-periods*`                                                                                                           | `AdmissionsApiHandlers`      | `Admissions` and application domain programs    |
-| `/api/admin/recruitment*`, `/api/recruitment/invitation-response*`                                                                                                                             | `RecruitmentApiHandlers`     | `Recruitment`                                   |
-| `/api/departments`, `/api/teams`, `/api/field_of_studies`, `/api/admin/departments`, `/api/admin/teams`, `/api/admin/field-of-studies`, `/api/admin/team-interest`, `/api/admin/mailing-lists` | `OrganizationApiHandlers`    | `Organization`                                  |
-| `GET /api/admin/schools`                                                                                                                                                                       | `AdminUsersApiHandlers`      | `Schools`                                       |
-| `/api/admin/content*`                                                                                                                                                                          | `ContentApiHandlers`         | `ContentManagement`                             |
-| `/api/news*`                                                                                                                                                                                   | `ContentApiHandlers`         | `Content`                                       |
-| `GET /api/admin/users`                                                                                                                                                                         | `AdminUsersApiHandlers`      | Identity, profile, and organization projections |
-| `GET /health`                                                                                                                                                                                  | `SystemApiHandlers`          | `Database`                                      |
-| `GET /api/e2e/receipts/:receiptId/evidence` (internal ingress only)                                                                                                                            | `InternalReceiptApiHandlers` | `Economy` and the typed access evaluator        |
+- system sessions and health
+- profile
+- organization and directories
+- admissions and applications
+- recruitment
+- receipts
+- content and news
 
-The contract groups are in [`packages/http-api/src`](https://github.com/vektorprogrammet/mono-web/tree/c315db3b5809caffb16e149bd33f0a07b60948f6/packages/http-api/src). The handler composition is in [`apps/backend/src/router.ts`](https://github.com/vektorprogrammet/mono-web/blob/c315db3b5809caffb16e149bd33f0a07b60948f6/apps/backend/src/router.ts).
+Open the generated reference to see the exact method, path, request, success, and Problem Details schemas for each operation. Do not copy that operation list into a handwritten page.
 
-## Boundary rules
+## Resource routes
 
-1. `ExternalNativeApi` selects one public endpoint contract.
-2. The matching `HttpApiBuilder` handler decodes transport input.
-3. The handler resolves one actor and one authorization instant when the capability needs them.
-4. The handler calls a Service program.
-5. The handler maps typed outcomes to HTTP.
-6. The handler does not select a live persistence implementation.
+Native collection resources use lower-kebab plural names. Action routes use the literal-colon form `/resource/{id}:action`. The v0.2 contract has no `/api/admin`, `/api/me`, slash-action, redirect, or compatibility route.
 
-Unknown native paths return `404` with `RouteNotFound`.
+The internal receipt-evidence route uses a separate ingress. Path knowledge does not make that operation public.
 
-`BACKEND_INGRESS=internal` constructs only `InternalNativeApi`. It does not mount public operations or Better Auth routes.
+`/api/open-admission-periods` is the anonymous admission-period projection. `/api/admission-periods` is the authenticated management representation. Credentials do not select between these representations.
 
-## Browser route boundary
+## Authorization boundary
 
-React Router owns URL matching and server loaders. A Foldkit route bridge mounts a finite browser program.
+Each operation declares one `AccessSpec` beside its endpoint. The transport resolves the credential and principal, then the handler evaluates capability, scope, requirements, concealment, and decision time against current authority.
 
-Source areas:
+The operation name does not grant access. A failed authority requirement can return 403. Concealment can return 404. The generated reference lists the exact security requirement and error schema.
 
-- [`apps/dashboard/app/routes.ts`](https://github.com/vektorprogrammet/mono-web/blob/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/apps/dashboard/app/routes.ts)
-- [`apps/dashboard/app/routes`](https://github.com/vektorprogrammet/mono-web/tree/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/apps/dashboard/app/routes)
-- [`apps/dashboard/app/foldkit`](https://github.com/vektorprogrammet/mono-web/tree/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/apps/dashboard/app/foldkit)
+## HTTP boundary
 
-The route bridge can pass decoded input and forward messages. It must not duplicate the Foldkit `Model` or backend write state.
+Every external `POST`, `PATCH`, and `DELETE` requires one `Idempotency-Key` header. Existing-resource mutations use a validated strong `If-Match` entity tag. Public requests do not contain `commandId` or `expectedRevision`.
 
-## Legacy API boundary
+The server returns endpoint-specific RFC 9457 Problem Details for errors. A matching idempotent replay returns the first response. The generated reference lists each status and response schema.
 
-Legacy API Platform resources remain under [`apps/server/src/App`](https://github.com/vektorprogrammet/mono-web/tree/0bc4aa3ac5506b6371d25972c9608eee8e35c17d/apps/server/src/App).
+## Legacy boundary
 
-Use the parity inventory to compare declared legacy and native routes. Do not treat similar path text as behavioral parity.
+Version 0.1 is historical. Its callers and SDK used legacy route families, payload command identifiers, and an error-tag envelope. The v0.2 cutover removes those aliases and request assumptions.
+
+Legacy API Platform resources remain under `apps/server/src/App`. The parity inventory compares legacy and native declarations. Similar path text does not prove behavioral parity.

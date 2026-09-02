@@ -1,26 +1,26 @@
 ---
 title: Getting started
-description: Make your first native API call with curl in five minutes.
+description: Make a first v0.2 native API call with curl.
 showAskAi: false
 ---
 
 # Getting started
 
-This walkthrough makes your first native API call with `curl`. It uses the
-local stack; see [Run the local stack](/how-to/run-local-stack) for setup.
+This guide uses the v0.2 native API. It uses the local stack. Read [Run the local stack](/how-to/run-local-stack) before you start.
 
-## 1. Check the API is up
+The generated [native API reference](/reference/native-api) owns the complete operation list, request schemas, response schemas, and status codes.
+
+## 1. Read the health endpoint
 
 ```sh
-curl -s http://localhost:8080/api/health
+curl -s http://localhost:8080/health
 ```
 
-Expect `{"status":"ok"}`. If this fails, the backend is not running.
+Expect a `200` response. The public OpenAPI document defines the response schema.
 
-## 2. Sign in and keep the session cookie
+## 2. Sign in and save the session cookie
 
-Set `DASHBOARD_ORIGIN` to the exact dashboard origin in the backend's trusted
-origin configuration. The sign-in mutation requires that origin.
+Set `DASHBOARD_ORIGIN` to the exact dashboard origin in the backend trusted-origin configuration. Better Auth owns this protocol route.
 
 ```sh
 curl -s -c cookies.txt -X POST http://localhost:8080/api/auth/sign-in/email \
@@ -29,80 +29,57 @@ curl -s -c cookies.txt -X POST http://localhost:8080/api/auth/sign-in/email \
   -d '{"email":"you@example.org","password":"your-password"}'
 ```
 
-The response sets `better-auth.session_token` in explicit loopback local
-development or its `__Secure-` form outside local development. `-c cookies.txt`
-saves it. The native API reads current persisted session state on every
-protected call.
+The response sets the Better Auth session cookie. The local cookie name is `better-auth.session_token`. The secure cookie name is `__Secure-better-auth.session_token` outside explicit loopback development.
 
-Verify the session:
+## 3. Read the current session
 
 ```sh
 curl -s -b cookies.txt http://localhost:8080/api/session
 ```
 
-- 200 → credential-free session metadata with `sessionId`, timestamps, optional
-  source metadata, and `current`
-- 401 → `{"error":{"tag":"UnauthenticatedActor"}}` — sign in again.
+A successful response contains session metadata. It does not contain a person identifier or credential. An absent, expired, or revoked session returns `401` with the generated Problem Details schema.
 
-## 3. Read a public listing (no session needed)
+## 4. Read a public resource
 
 ```sh
 curl -s http://localhost:8080/api/departments
 ```
 
-```json
-[
-  {
-    "departmentId": "1",
-    "name": "Datateknologi",
-    "shortName": "DAT",
-    "active": true,
-    "revision": 0
-  }
-]
-```
+This request does not need a session. Use the generated reference for the exact response schema.
 
-## 4. Call a protected endpoint
+## 5. Read a protected resource
 
 ```sh
-curl -s -b cookies.txt http://localhost:8080/api/admin/admission-periods
+curl -s -b cookies.txt http://localhost:8080/api/admission-periods
 ```
 
-Expect 200 with `{"items":[…],"totalItems":N}` — or 403 with
-`{"error":{"tag":"AdmissionRoleDenied"}}` if your account is not a leader.
-See [Authentication & authorization](/reference/native-api/authentication)
-for the role model.
+The operation can return `200` when the session has the required authority. It can return `401`, `403`, or a concealed `404` when the credential or authority is not valid.
 
-## 5. Send a command (idempotent)
+## 6. Send a mutation
 
-Commands carry a `commandId`. Repeating a call with the same `commandId`
-replays the original result instead of creating a duplicate:
+Every native `POST`, `PATCH`, and `DELETE` request needs one `Idempotency-Key` header. Generate a fresh cryptographically secure value for each command.
 
 ```sh
-curl -s -b cookies.txt -X POST http://localhost:8080/api/admin/content/articles \
+curl -s -b cookies.txt -X POST http://localhost:8080/api/content/articles \
   -H "Content-Type: application/json" \
-  -d '{
-    "commandId": "my-first-article-001",
-    "title": "Hello native API",
-    "bodyHtml": "<p>First draft.</p>",
-    "departmentIds": ["1"]
-  }'
+  -H "Idempotency-Key: MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY" \
+  -d '{"title":"Hello native API","bodyHtml":"<p>First draft.</p>","departmentIds":["1"]}'
 ```
+
+The request body does not contain `commandId`. A matching key and request replays the first response. A changed request returns an idempotency conflict.
+
+An existing-resource mutation also needs its strong `If-Match` entity tag. Do not send `expectedRevision` in the request body.
 
 ## Error responses
 
-Every error uses the same envelope:
+Native errors use RFC 9457 Problem Details. The generated reference lists the exact error schema for each operation.
 
-```json
-{ "error": { "tag": "SomeErrorTag" } }
-```
+Common statuses include `400` for malformed HTTP input, `401` for an invalid credential, `403` for a denied authority decision, `404` for a missing or concealed resource, `409` for a conflict, `413` for a body that is too large, `422` for a schema failure, and `429` for rate limiting.
 
-Status codes: 401 unauthenticated, 403 forbidden, 404 not found, 409
-conflict, 413 body too large, 422 request-schema failure, 429 rate limited,
-503 engine unavailable. There is no HTTP 400 in this API.
+The v0.1 `{ "error": { "tag": "..." } }` envelope is historical. Do not use it for v0.2 requests.
 
 ## Next steps
 
-- Browse every operation in this reference (sidebar, grouped by resource).
-- [Authentication & authorization](/reference/native-api/authentication)
-  explains the role model behind 401/403 responses.
+- Browse the [generated native API reference](/reference/native-api).
+- Read [Authentication & authorization](/reference/native-api/authentication).
+- Read the [API changelog](/reference/api-changelog) for the v0.1 to v0.2 cutover.
