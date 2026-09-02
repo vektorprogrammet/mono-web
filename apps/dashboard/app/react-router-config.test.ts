@@ -2,9 +2,13 @@ import type { RouteConfigEntry } from "@react-router/dev/routes";
 import { describe, expect, it } from "vitest";
 import { matchRoutes, type RouteObject } from "react-router";
 import { makeReactRouterConfig } from "../react-router.config";
-import { dashboardMount, mountDashboardRoutes } from "../dashboard-base";
+import {
+  type DashboardBaseEnvironment,
+  dashboardMount,
+  mountDashboardRoutes,
+} from "../dashboard-base";
 
-const mountedRoutes = mountDashboardRoutes([
+const dashboardRouteConfig = [
   { id: "login", path: "login", file: "routes/login.tsx" },
   {
     id: "dashboard",
@@ -18,7 +22,7 @@ const mountedRoutes = mountDashboardRoutes([
       },
     ],
   },
-] satisfies ReadonlyArray<RouteConfigEntry>);
+] satisfies ReadonlyArray<RouteConfigEntry>;
 
 const toRouteObject = (route: RouteConfigEntry): RouteObject =>
   route.index === true
@@ -29,35 +33,62 @@ const toRouteObject = (route: RouteConfigEntry): RouteObject =>
         children: route.children?.map(toRouteObject),
       };
 
-const routes = mountedRoutes.map(toRouteObject);
-
-const matchedIds = (pathname: string, basename: string): Array<string | undefined> =>
-  matchRoutes(routes, pathname, basename)?.map((match) => match.route.id) ?? [];
+const matchedIds = (
+  pathname: string,
+  environment: DashboardBaseEnvironment,
+): Array<string | undefined> => {
+  const mount = dashboardMount(environment);
+  const routes = mountDashboardRoutes(dashboardRouteConfig, mount).map(toRouteObject);
+  return matchRoutes(routes, pathname, mount)?.map((match) => match.route.id) ?? [];
+};
 
 describe("dashboard router topology", () => {
   it("mounts the login route below the canonical dashboard base", () => {
     const config = makeReactRouterConfig({});
 
-    expect(config.basename).toBe(dashboardMount({}));
     expect(config.basename).toBe("/dashboard/");
-    expect(matchedIds("/dashboard/login", config.basename ?? "/")).toEqual(["login"]);
+    expect(matchedIds("/dashboard/login", {})).toEqual(["login"]);
   });
 
   it("does not duplicate the dashboard segment for a nested dashboard route", () => {
-    const config = makeReactRouterConfig({});
+    expect(matchedIds("/dashboard/mine-utlegg", {})).toEqual(["dashboard", "owned-receipts"]);
+    expect(matchedIds("/dashboard/dashboard/mine-utlegg", {})).toEqual([]);
+  });
 
-    expect(matchedIds("/dashboard/mine-utlegg", config.basename ?? "/")).toEqual([
+  it("preserves dashboard route paths for an explicit apex root mount", () => {
+    const apexEnvironment = {
+      DASHBOARD_MOUNT: "/",
+      PREVIEW_HOST: "vektor.phibkro.org",
+    };
+    const config = makeReactRouterConfig(apexEnvironment);
+
+    expect(config.basename).toBe("/");
+    expect(matchedIds("/login", apexEnvironment)).toEqual(["login"]);
+    expect(matchedIds("/dashboard", apexEnvironment)).toEqual(["dashboard"]);
+    expect(matchedIds("/dashboard/mine-utlegg", apexEnvironment)).toEqual([
       "dashboard",
       "owned-receipts",
     ]);
-    expect(matchedIds("/dashboard/dashboard/mine-utlegg", config.basename ?? "/")).toEqual([]);
+  });
+
+  it("does not infer the root mount from a preview hostname", () => {
+    expect(makeReactRouterConfig({ PREVIEW_HOST: "vektor.phibkro.org" }).basename).toBe(
+      "/dashboard/",
+    );
   });
 
   it("keeps root-mounted runner modes aligned with the Vite asset base", () => {
-    const config = makeReactRouterConfig({ REAL_NATIVE_CONDUCT_E2E: "1" });
+    const environment = { REAL_NATIVE_CONDUCT_E2E: "1" };
 
-    expect(config.basename).toBe(dashboardMount({ REAL_NATIVE_CONDUCT_E2E: "1" }));
-    expect(matchedIds("/login", config.basename ?? "/")).toEqual(["login"]);
+    expect(makeReactRouterConfig(environment).basename).toBe("/");
+    expect(matchedIds("/login", environment)).toEqual(["login"]);
+    expect(matchedIds("/dashboard", environment)).toEqual(["dashboard"]);
+  });
+
+  it("rejects an unsupported explicit dashboard mount", () => {
+    expect(() => makeReactRouterConfig({ DASHBOARD_MOUNT: "/admin/" })).toThrow(
+      "DASHBOARD_MOUNT must be exactly / or /dashboard/",
+    );
   });
 
   it("allows only an explicit canonical dashboard origin for forwarded actions", () => {

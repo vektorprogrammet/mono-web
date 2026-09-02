@@ -48,6 +48,21 @@ describe("apex edge worker", () => {
     expect(dashboardResponse.headers.get("x-mono-web-stage")).toBe("dev-main");
   });
 
+  it.each(["/login", "/dashboard"])(
+    "forwards apex dashboard entry %s without rewriting its path",
+    async (path) => {
+      const env = apexEnv();
+
+      const response = await worker.fetch(apexRequest(path), env);
+
+      expect(await response.text()).toBe("dashboard");
+      expect(env.Dashboard.fetch).toHaveBeenCalledWith(
+        expect.objectContaining({ url: `https://vektor.phibkro.org${path}` }),
+      );
+      expect(env.Homepage.fetch).not.toHaveBeenCalled();
+    },
+  );
+
   it("fails closed before dispatch for a mismatched stage-host pair", async () => {
     const env = { ...apexEnv(), PREVIEW_STAGE: "p20" };
     const response = await worker.fetch(apexRequest("/dashboard"), env);

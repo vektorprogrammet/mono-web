@@ -19,6 +19,7 @@ export const assertApexIdentity = (): void => {
     APEX_IDENTITY.zoneName !== "phibkro.org" ||
     APEX_IDENTITY.hostname !== "vektor.phibkro.org" ||
     APEX_IDENTITY.apiHostname !== "api.vektor.phibkro.org" ||
+    APEX_IDENTITY.dashboardMount !== "/" ||
     !APEX_IDENTITY.resourcePrefix.startsWith("vektor-apex")
   ) {
     throw new Error("Apex identity drift");
@@ -58,6 +59,7 @@ export const apexStack = Effect.gen(function* () {
     env: {
       PREVIEW_HOST: APEX_IDENTITY.hostname,
       PREVIEW_STAGE: APEX_IDENTITY.stage,
+      DASHBOARD_MOUNT: APEX_IDENTITY.dashboardMount,
       API_URL: APEX_IDENTITY.backendOrigin,
       VITE_API_URL: `https://${APEX_IDENTITY.hostname}`,
     },

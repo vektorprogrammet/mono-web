@@ -28,6 +28,7 @@ export const APEX_IDENTITY = {
   apiHostname: "api.vektor.phibkro.org",
   backendHostname: "origin-api.vektor.phibkro.org",
   backendOrigin: "https://origin-api.vektor.phibkro.org",
+  dashboardMount: "/",
   resourcePrefix: "vektor-apex",
   localStateDirectory: ".alchemy",
   forbiddenHost: "vektorprogrammet.no",

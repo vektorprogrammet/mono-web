@@ -35,6 +35,7 @@ describe("apexSurface", () => {
   );
   it("keeps browser and backend authority on the preview hosts", () => {
     expect(APEX_IDENTITY.zoneName).toBe("phibkro.org");
+    expect(APEX_IDENTITY.dashboardMount).toBe("/");
     expect(PASSWORD_RESET_SENDER).toBe("noreply@phibkro.org");
     expect(APEX_IDENTITY.hostname).toBe("vektor.phibkro.org");
     expect(APEX_IDENTITY.apiHostname).toBe("api.vektor.phibkro.org");
