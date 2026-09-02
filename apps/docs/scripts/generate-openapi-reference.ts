@@ -17,7 +17,7 @@ const serverMetadataPath = join(
   "apps/backend/src/generated/native-api-metadata.json",
 );
 const httpApiPackagePath = join(repositoryRoot, "packages/http-api/package.json");
-const outputPath = join(generatedRoot, "src/pages/reference/native-api/index.mdx");
+const outputPath = join(generatedRoot, "src/pages/reference/native-api.mdx");
 const repositoryUrl = "https://github.com/vektorprogrammet/mono-web";
 const httpMethods: Readonly<Record<string, true>> = {
   delete: true,

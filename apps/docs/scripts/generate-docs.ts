@@ -14,8 +14,11 @@ const generatedFiles = [
   "public/migration-state.schema.json",
   "src/pages/reference/design-spec-evidence-index.mdx",
   "src/pages/reference/migration-state.mdx",
-  "src/pages/reference/native-api/index.mdx",
+  "src/pages/reference/native-api.mdx",
 ] as const;
+// Vocs maps `native-api.mdx` to the OpenApi.from landing's relative `/` override.
+// The index path competes with that route.
+const obsoleteGeneratedFiles = ["src/pages/reference/native-api/index.mdx"] as const;
 const generatedDirectories = ["src/pages/reference/code"] as const;
 const generatorScripts = [
   "scripts/generate-reference.ts",
@@ -49,6 +52,9 @@ const ownedFiles = async (root: string): Promise<ReadonlyArray<string>> => {
   for (const directory of generatedDirectories) {
     const entries = await readDirectoryFiles(join(root, directory));
     files.push(...entries.map((path) => `${directory}/${path}`));
+  }
+  for (const path of obsoleteGeneratedFiles) {
+    if (await pathExists(join(root, path))) files.push(path);
   }
   return files.sort();
 };
@@ -160,6 +166,9 @@ const replaceGeneratedFiles = async (candidateRoot: string): Promise<void> => {
 
   for (const directory of generatedDirectories) {
     await rm(join(docsRoot, directory), { force: true, recursive: true });
+  }
+  for (const path of obsoleteGeneratedFiles) {
+    await rm(join(docsRoot, path), { force: true });
   }
   for (const path of expected) {
     const destination = join(docsRoot, path);
