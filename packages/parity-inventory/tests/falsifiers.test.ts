@@ -1925,6 +1925,24 @@ describe("source safety boundary", () => {
       expect(staging).toContain("SMS_DISABLE=true");
     });
 
+    test("admits only the exact tracked OAuth and native HTTP migration bytes", () => {
+      for (const migrationPath of [
+        "packages/database/migrations/0027-native-oauth-provider.sql",
+        "packages/database/migrations/0029-native-http-semantics.sql",
+      ]) {
+        const migration = readFileSync(join(repoRoot, migrationPath));
+        const migrationText = new TextDecoder().decode(migration);
+        expect(unsafeSqlSourceTextReason(migrationText, migrationPath)).toBe("UNSAFE_SOURCE");
+        expect(sourceTextSafetyReason(migrationPath, migration)).toBeNull();
+        expect(
+          sourceTextSafetyReason(
+            migrationPath,
+            new TextEncoder().encode(`${migrationText}\n-- digest drift\n`),
+          ),
+        ).toBe("UNSAFE_SOURCE");
+      }
+    });
+
     test("accepts migration 0012 DDL comparisons without digest admission", () => {
       const migrationPath =
         "packages/database/migrations/0012-native-recruitment-invitation-response.sql";

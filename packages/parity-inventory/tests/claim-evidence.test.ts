@@ -33,12 +33,38 @@ const legacyCatalog = JSON.parse(
     "utf8",
   ),
 ) as AtomicOperationCatalog;
-const nativeCatalog = JSON.parse(
+const parsedNativeCatalog = JSON.parse(
   readFileSync(
     resolve(import.meta.dir, "../../../evidence/capability-parity/atomic-native.json"),
     "utf8",
   ),
 ) as AtomicOperationCatalog;
+const nativeApplicationListTemplate = parsedNativeCatalog.operations.find(
+  (operation) =>
+    operation.operation_ref_id === "operation://native_effect/recruitment.readAssignmentBoard",
+);
+if (nativeApplicationListTemplate === undefined)
+  throw new Error("native application-list fixture template is unavailable");
+const nativeCatalog: AtomicOperationCatalog = {
+  ...parsedNativeCatalog,
+  operations: [
+    ...parsedNativeCatalog.operations,
+    {
+      ...nativeApplicationListTemplate,
+      operation_ref_id: "operation://native_effect/admissions.listApplications",
+      operation_id: "admissions.listApplications",
+      method: "GET",
+      path_template: "/api/applications",
+      provenance: {
+        ...nativeApplicationListTemplate.provenance,
+        canonical_operation_sha256: sha256(
+          "fixture:admissions.listApplications:GET:/api/applications",
+        ),
+        json_pointer: "#/paths/~1api~1applications/get",
+      },
+    },
+  ],
+};
 const catalogs: ClaimEvidenceCatalogs = { legacy: legacyCatalog, native: nativeCatalog };
 
 const authorityPin: AuthorityPin = {
@@ -261,6 +287,16 @@ test("claim observation plan binds stable node and witness identifiers to commit
     "intent://composition:receipts:owner-scoped-approval:v1",
     "intent://journey:recruitment:applicant-assignment:v1",
   ]);
+  expect(
+    first
+      .find((entry) => entry.intent_ref_id === "intent://journey:parity:applicant_admission:v1")
+      ?.backends.native_effect.operation_nodes.find(
+        (operation) => operation.operation_semantic === "catalog-read",
+      ),
+  ).toMatchObject({
+    method: "GET",
+    path_template: "/api/applications",
+  });
 
   const expectedMethodByClaim: Partial<Record<string, ClaimObservationMethod>> = {
     journey_executed: "bounded_exit_status",

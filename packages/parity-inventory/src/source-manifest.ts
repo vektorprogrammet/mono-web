@@ -409,6 +409,7 @@ export const SOURCE_FAMILIES: readonly SourceFamily[] = [
       "apps/server/config/packages/*.yaml",
       "apps/server/config/routes*.yaml",
       "apps/server/config/routes/**/*.yaml",
+      "apps/homepage/src/lib/contact-message.server.ts",
     ],
     empty_allowed: false,
   },
@@ -449,6 +450,7 @@ export const SOURCE_FAMILIES: readonly SourceFamily[] = [
       "infra/**/*.tsx",
       "infra/**/*.js",
       "infra/**/*.mjs",
+      "apps/homepage/src/lib/contact-message.server.ts",
     ],
     empty_allowed: false,
   },
@@ -642,6 +644,14 @@ const approvedSqlSourceDigests = new Map<string, string>([
   [
     "packages/domain/src/application/migrations/0003-public-applicant-effect-lifecycle.sql",
     "sha256:3728699013aec802cfa255efe6ffdf80a3801e764b34713512d480a968ebd96f",
+  ],
+  [
+    "packages/database/migrations/0027-native-oauth-provider.sql",
+    "sha256:e2047339c68ae6c31a7d04deefadf48082af1ed2c7b95a06af0ad31b90362fde",
+  ],
+  [
+    "packages/database/migrations/0029-native-http-semantics.sql",
+    "sha256:3e98d690077966cb7b6787bfff9775bd76ac1e79ca16118a224cb5b2493006ce",
   ],
   [
     "packages/domain/src/application/migrations/0004-public-applicant-delivered-payload-cleanup.sql",

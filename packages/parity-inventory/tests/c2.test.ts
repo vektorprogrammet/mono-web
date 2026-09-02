@@ -2824,6 +2824,7 @@ test("C2 source family selectors remain literal and complete", () => {
     "apps/server/config/packages/*.yaml",
     "apps/server/config/routes*.yaml",
     "apps/server/config/routes/**/*.yaml",
+    "apps/homepage/src/lib/contact-message.server.ts",
   ]);
   expect(byId.get("mono_schedules")?.patterns).toEqual([
     ".github/workflows/**/*.yml",
@@ -2852,6 +2853,7 @@ test("C2 source family selectors remain literal and complete", () => {
     "infra/**/*.tsx",
     "infra/**/*.js",
     "infra/**/*.mjs",
+    "apps/homepage/src/lib/contact-message.server.ts",
   ]);
 });
 

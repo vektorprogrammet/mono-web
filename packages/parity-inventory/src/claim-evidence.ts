@@ -347,7 +347,7 @@ const applicantDefinition: TargetDefinition = {
         {
           operation_semantic: "catalog-read",
           method: "GET",
-          path_template: "/api/applications/catalog",
+          path_template: "/api/applications",
           realizes_stage_ids: ["stage-applicant-admission-catalog"],
           predicate_refs: [],
         },
@@ -361,7 +361,7 @@ const applicantDefinition: TargetDefinition = {
         {
           operation_semantic: "fresh-confirmation",
           method: "GET",
-          path_template: "/api/applications/{applicationId}/confirmation",
+          path_template: "/api/applications/{applicationId}",
           realizes_stage_ids: ["stage-applicant-admission-confirmation"],
           predicate_refs: [],
         },
@@ -370,7 +370,7 @@ const applicantDefinition: TargetDefinition = {
         {
           operation_semantic: "period-management-boundary",
           method: "GET",
-          path_template: "/api/admin/admission-periods",
+          path_template: "/api/admission-periods",
           realizes_stage_ids: ["stage-applicant-admission-catalog"],
           predicate_refs: ["predicate://claim-evidence/applicant-admission/period-management"],
         },
@@ -386,7 +386,7 @@ const applicantDefinition: TargetDefinition = {
         {
           operation_semantic: "duplicate-state-readback",
           method: "GET",
-          path_template: "/api/applications/{applicationId}/confirmation",
+          path_template: "/api/applications/{applicationId}",
           realizes_stage_ids: ["stage-applicant-admission-confirmation"],
           predicate_refs: [],
         },
@@ -633,14 +633,14 @@ const interviewDefinition: TargetDefinition = {
         {
           operation_semantic: "scheduling-board-read",
           method: "GET",
-          path_template: "/api/admin/recruitment/interviews/scheduling-board",
+          path_template: "/api/recruitment/interviews",
           realizes_stage_ids: ["stage-interview-invitation-scheduling-board"],
           predicate_refs: ["predicate://claim-evidence/interview-invitation/interviewer-scope"],
         },
         {
           operation_semantic: "schedule",
           method: "POST",
-          path_template: "/api/admin/recruitment/interviews/schedule",
+          path_template: "/api/recruitment/interviews/{interviewId}:schedule",
           realizes_stage_ids: ["stage-interview-invitation-schedule"],
           predicate_refs: ["predicate://claim-evidence/interview-invitation/interviewer-scope"],
         },
@@ -654,14 +654,14 @@ const interviewDefinition: TargetDefinition = {
         {
           operation_semantic: "alternate-reject",
           method: "POST",
-          path_template: "/api/recruitment/invitation-response/reject",
+          path_template: "/api/recruitment/invitation-response:reject",
           realizes_stage_ids: ["stage-interview-invitation-respond"],
           predicate_refs: ["predicate://claim-evidence/interview-invitation/response-capability"],
         },
         {
           operation_semantic: "fresh-scheduling-board",
           method: "GET",
-          path_template: "/api/admin/recruitment/interviews/scheduling-board",
+          path_template: "/api/recruitment/interviews",
           realizes_stage_ids: ["stage-interview-invitation-fresh-read"],
           predicate_refs: ["predicate://claim-evidence/interview-invitation/interviewer-scope"],
         },
@@ -677,7 +677,7 @@ const interviewDefinition: TargetDefinition = {
         {
           operation_semantic: "schedule-authorization-boundary",
           method: "GET",
-          path_template: "/api/admin/recruitment/interviews/scheduling-board",
+          path_template: "/api/recruitment/interviews",
           realizes_stage_ids: ["stage-interview-invitation-scheduling-board"],
           predicate_refs: ["predicate://claim-evidence/interview-invitation/interviewer-scope"],
         },
@@ -693,7 +693,7 @@ const interviewDefinition: TargetDefinition = {
         {
           operation_semantic: "already-responded-confirm",
           method: "POST",
-          path_template: "/api/recruitment/invitation-response/confirm",
+          path_template: "/api/recruitment/invitation-response:confirm",
           realizes_stage_ids: ["stage-interview-invitation-respond"],
           predicate_refs: [
             "predicate://claim-evidence/interview-invitation/response-capability",
@@ -703,7 +703,7 @@ const interviewDefinition: TargetDefinition = {
         {
           operation_semantic: "rejection-state-readback",
           method: "GET",
-          path_template: "/api/admin/recruitment/interviews/scheduling-board",
+          path_template: "/api/recruitment/interviews",
           realizes_stage_ids: ["stage-interview-invitation-fresh-read"],
           predicate_refs: ["predicate://claim-evidence/interview-invitation/interviewer-scope"],
         },
@@ -947,7 +947,7 @@ const receiptDefinition: TargetDefinition = {
         {
           operation_semantic: "submit",
           method: "POST",
-          path_template: "/api/receipts/submit",
+          path_template: "/api/receipts",
           realizes_stage_ids: ["stage-owner-approval-submit"],
           predicate_refs: ["predicate://claim-evidence/owner-approval/owner-session"],
         },
@@ -961,14 +961,14 @@ const receiptDefinition: TargetDefinition = {
         {
           operation_semantic: "approval-queue-read",
           method: "GET",
-          path_template: "/api/admin/receipts",
+          path_template: "/api/receipt-approval-queue",
           realizes_stage_ids: ["stage-owner-approval-queue-read"],
           predicate_refs: ["predicate://claim-evidence/owner-approval/approver-scope"],
         },
         {
           operation_semantic: "approve",
           method: "POST",
-          path_template: "/api/admin/receipts/{receiptId}/reject",
+          path_template: "/api/receipts/{receiptId}:reject",
           realizes_stage_ids: ["stage-owner-approval-approve"],
           predicate_refs: ["predicate://claim-evidence/owner-approval/approver-scope"],
         },
@@ -982,7 +982,7 @@ const receiptDefinition: TargetDefinition = {
         {
           operation_semantic: "fresh-approval-list",
           method: "GET",
-          path_template: "/api/admin/receipts",
+          path_template: "/api/receipt-approval-queue",
           realizes_stage_ids: ["stage-owner-approval-fresh-read"],
           predicate_refs: ["predicate://claim-evidence/owner-approval/approver-scope"],
         },
@@ -998,7 +998,7 @@ const receiptDefinition: TargetDefinition = {
         {
           operation_semantic: "approver-scope-boundary",
           method: "GET",
-          path_template: "/api/admin/receipts",
+          path_template: "/api/receipt-approval-queue",
           realizes_stage_ids: ["stage-owner-approval-queue-read"],
           predicate_refs: ["predicate://claim-evidence/owner-approval/approver-scope"],
         },
@@ -1007,7 +1007,7 @@ const receiptDefinition: TargetDefinition = {
         {
           operation_semantic: "not-pending-approval",
           method: "POST",
-          path_template: "/api/admin/receipts/{receiptId}/reject",
+          path_template: "/api/receipts/{receiptId}:reject",
           realizes_stage_ids: ["stage-owner-approval-approve"],
           predicate_refs: ["predicate://claim-evidence/owner-approval/not-pending"],
         },
