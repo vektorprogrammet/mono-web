@@ -19,8 +19,8 @@
     "./operations": "./native-api-operations.json"
   },
   "scripts": {
-    "build": "tsc -b",
-    "check-types": "tsc -b && tsc --noEmit -p tsconfig.test.json",
+    "build": "tsc -p tsconfig.json",
+    "check-types": "tsc -p tsconfig.json && tsc --noEmit -p tsconfig.test.json",
     "lint": "oxlint",
     "test": "vitest run",
     "release": "changeset publish"
