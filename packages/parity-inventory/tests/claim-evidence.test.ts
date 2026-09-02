@@ -33,38 +33,12 @@ const legacyCatalog = JSON.parse(
     "utf8",
   ),
 ) as AtomicOperationCatalog;
-const parsedNativeCatalog = JSON.parse(
+const nativeCatalog = JSON.parse(
   readFileSync(
     resolve(import.meta.dir, "../../../evidence/capability-parity/atomic-native.json"),
     "utf8",
   ),
 ) as AtomicOperationCatalog;
-const nativeApplicationListTemplate = parsedNativeCatalog.operations.find(
-  (operation) =>
-    operation.operation_ref_id === "operation://native_effect/recruitment.readAssignmentBoard",
-);
-if (nativeApplicationListTemplate === undefined)
-  throw new Error("native application-list fixture template is unavailable");
-const nativeCatalog: AtomicOperationCatalog = {
-  ...parsedNativeCatalog,
-  operations: [
-    ...parsedNativeCatalog.operations,
-    {
-      ...nativeApplicationListTemplate,
-      operation_ref_id: "operation://native_effect/admissions.listApplications",
-      operation_id: "admissions.listApplications",
-      method: "GET",
-      path_template: "/api/applications",
-      provenance: {
-        ...nativeApplicationListTemplate.provenance,
-        canonical_operation_sha256: sha256(
-          "fixture:admissions.listApplications:GET:/api/applications",
-        ),
-        json_pointer: "#/paths/~1api~1applications/get",
-      },
-    },
-  ],
-};
 const catalogs: ClaimEvidenceCatalogs = { legacy: legacyCatalog, native: nativeCatalog };
 
 const authorityPin: AuthorityPin = {
@@ -295,7 +269,7 @@ test("claim observation plan binds stable node and witness identifiers to commit
       ),
   ).toMatchObject({
     method: "GET",
-    path_template: "/api/applications",
+    path_template: "/api/application-options",
   });
 
   const expectedMethodByClaim: Partial<Record<string, ClaimObservationMethod>> = {

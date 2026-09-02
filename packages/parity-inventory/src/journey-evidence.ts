@@ -166,6 +166,9 @@ const requireString = (value: unknown, label: string): string => {
   if (typeof value !== "string" || value.length === 0) throw new Error(`${label} was absent`);
   return value;
 };
+const requireHeader = (response: JourneyHttpResponse, name: string, label: string): string =>
+  requireString(response.headers[name], label);
+
 const requirePositiveRows = (
   database: { readonly rowCounts: Readonly<Record<string, number>> },
   names: readonly string[],
@@ -429,21 +432,20 @@ const applicantJourney = async (
   const unauthorized = await observedRequest(
     http,
     observations,
-    { method: "GET", url: `${origin}/api/admin/admission-periods` },
-    "/api/admin/admission-periods",
+    { method: "GET", url: `${origin}/api/admission-periods` },
+    "/api/admission-periods",
     "authorization_rejection_without_session",
   );
   requireStatus(unauthorized, [401, 403], "applicant admission authorization rejection");
   const catalog = await observedRequest(
     http,
     observations,
-    { method: "GET", url: `${origin}/api/applications/catalog` },
-    "/api/applications/catalog",
+    { method: "GET", url: `${origin}/api/application-options` },
+    "/api/application-options",
     "real_http_operation",
   );
   requireStatus(catalog, [200], "application catalog");
   const input = {
-    commandId: "applicant-claim-submit-0078",
     departmentId: "department-applicant-claim-0078",
     email: "claim-applicant@example.invalid",
     fieldOfStudyId: "field-applicant-claim-0078",
@@ -459,14 +461,17 @@ const applicantJourney = async (
       observations,
       {
         body: { kind: "json", value: input },
-        headers: { "content-type": "application/json" },
+        headers: {
+          "content-type": "application/json",
+          "idempotency-key": "applicant-claim-submit-0078",
+        },
         method: "POST",
         url: `${origin}/api/applications`,
       },
       "/api/applications",
       "real_http_operation",
     ),
-    [200, 201],
+    [201],
     "application submission",
   );
   const submittedBody = asRecord(submitted.body, "submitted application");
@@ -480,11 +485,13 @@ const applicantJourney = async (
         kind: "json",
         value: {
           ...input,
-          commandId: "applicant-claim-duplicate-0078",
           email: "CLAIM-APPLICANT@EXAMPLE.INVALID",
         },
       },
-      headers: { "content-type": "application/json" },
+      headers: {
+        "content-type": "application/json",
+        "idempotency-key": "applicant-claim-duplicate-0078",
+      },
       method: "POST",
       url: `${origin}/api/applications`,
     },
@@ -497,9 +504,9 @@ const applicantJourney = async (
     observations,
     {
       method: "GET",
-      url: `${origin}/api/applications/${encodeURIComponent(applicationId)}/confirmation`,
+      url: `${origin}/api/applications/${encodeURIComponent(applicationId)}`,
     },
-    "/api/applications/{applicationId}/confirmation",
+    "/api/applications/{applicationId}",
     "fresh_http_read_after_write",
   );
   requireStatus(confirmation, [200], "application confirmation");
@@ -555,8 +562,8 @@ const recruitmentJourney = async (
   const unauthorized = await observedRequest(
     http,
     observations,
-    { method: "GET", url: `${origin}/api/admin/recruitment/interviews/scheduling-board` },
-    "/api/admin/recruitment/interviews/scheduling-board",
+    { method: "GET", url: `${origin}/api/recruitment/interviews` },
+    "/api/recruitment/interviews",
     "authorization_rejection_without_session",
   );
   requireStatus(unauthorized, [401, 403], "recruitment authorization rejection");
@@ -584,12 +591,23 @@ const recruitmentJourney = async (
     {
       headers: { cookie: leaderCookie },
       method: "GET",
-      url: `${origin}/api/admin/recruitment/interviews/scheduling-board`,
+      url: `${origin}/api/recruitment/interviews`,
     },
-    "/api/admin/recruitment/interviews/scheduling-board",
+    "/api/recruitment/interviews",
     "real_http_operation",
   );
   requireStatus(board, [200], "scheduling board");
+  const selectedInterviewId = "interview-native-claim-0078";
+  const selectedInterview = asArray(
+    asRecord(board.body, "scheduling board").interviews,
+    "scheduling board interviews",
+  )
+    .map((item) => asRecord(item, "scheduling board interview"))
+    .find((item) => item.interviewId === selectedInterviewId);
+  if (selectedInterview === undefined) {
+    throw new Error("scheduling board did not include the selected interview");
+  }
+  const scheduleEtag = requireString(selectedInterview.etag, "selected interview etag");
   const schedule = requireStatus(
     await observedRequest(
       http,
@@ -599,20 +617,22 @@ const recruitmentJourney = async (
           kind: "json",
           value: {
             campus: "Gløshaugen",
-            commandId: "schedule-native-claim-0078",
-            expectedRevision: 0,
-            interviewId: "interview-native-claim-0078",
             mapLink: "https://maps.example.invalid/native-claim-0078",
             message: "Vi ser frem til intervjuet.",
             room: "K-101",
             scheduledAt: "2031-09-20T13:30:00.000Z",
           },
         },
-        headers: { "content-type": "application/json", cookie: leaderCookie },
+        headers: {
+          "content-type": "application/json",
+          "idempotency-key": "schedule-native-claim-0078",
+          "if-match": scheduleEtag,
+          cookie: leaderCookie,
+        },
         method: "POST",
-        url: `${origin}/api/admin/recruitment/interviews/schedule`,
+        url: `${origin}/api/recruitment/interviews/${encodeURIComponent(selectedInterviewId)}:schedule`,
       },
-      "/api/admin/recruitment/interviews/schedule",
+      "/api/recruitment/interviews/{interviewId}:schedule",
       "real_http_operation",
     ),
     [200],
@@ -621,7 +641,7 @@ const recruitmentJourney = async (
   const scheduleBody = asRecord(schedule.body, "schedule response");
   const scheduleObservation = asRecord(scheduleBody.observation, "schedule observation");
   const interviewId = requireString(scheduleObservation.interviewId, "scheduled interview id");
-  if (scheduleObservation.responseState !== "Pending") {
+  if (interviewId !== selectedInterviewId || scheduleObservation.responseState !== "Pending") {
     throw new Error("scheduled interview did not create a pending invitation");
   }
   const capabilityRaw = psql(
@@ -643,30 +663,42 @@ const recruitmentJourney = async (
     "/api/recruitment/invitation-response",
     "real_http_operation",
   );
-  requireStatus(invitation, [200], "read invitation response");
+  const invitationResponse = requireStatus(invitation, [200], "read invitation response");
+  const invitationEtag = requireHeader(invitationResponse, "etag", "invitation response etag");
   const rejected = await observedRequest(
     http,
     observations,
     {
       body: { kind: "json", value: { message: "Kan ikke delta." } },
-      headers: { ...capabilityHeaders, "content-type": "application/json" },
+      headers: {
+        ...capabilityHeaders,
+        "content-type": "application/json",
+        "idempotency-key": "reject-invitation-native-claim-0078",
+        "if-match": invitationEtag,
+      },
       method: "POST",
-      url: `${origin}/api/recruitment/invitation-response/reject`,
+      url: `${origin}/api/recruitment/invitation-response:reject`,
     },
-    "/api/recruitment/invitation-response/reject",
+    "/api/recruitment/invitation-response:reject",
     "real_http_operation",
   );
-  requireStatus(rejected, [204], "reject invitation");
+  const rejectedResponse = requireStatus(rejected, [204], "reject invitation");
+  const rejectedEtag = requireHeader(rejectedResponse, "etag", "rejected invitation etag");
   const invalid = await observedRequest(
     http,
     observations,
     {
       body: { kind: "json", value: {} },
-      headers: { ...capabilityHeaders, "content-type": "application/json" },
+      headers: {
+        ...capabilityHeaders,
+        "content-type": "application/json",
+        "idempotency-key": "confirm-invitation-native-claim-0078",
+        "if-match": rejectedEtag,
+      },
       method: "POST",
-      url: `${origin}/api/recruitment/invitation-response/confirm`,
+      url: `${origin}/api/recruitment/invitation-response:confirm`,
     },
-    "/api/recruitment/invitation-response/confirm",
+    "/api/recruitment/invitation-response:confirm",
     "invalid_transition_rejection",
   );
   requireStatus(invalid, [409, 422], "double invitation response rejection");
@@ -692,9 +724,9 @@ const recruitmentJourney = async (
     {
       headers: { cookie: leaderCookie },
       method: "GET",
-      url: `${origin}/api/admin/recruitment/interviews/scheduling-board`,
+      url: `${origin}/api/recruitment/interviews`,
     },
-    "/api/admin/recruitment/interviews/scheduling-board",
+    "/api/recruitment/interviews",
     "fresh_http_read_after_write",
   );
   requireStatus(freshBoard, [200], "fresh scheduling board");
@@ -752,8 +784,8 @@ const receiptJourney = async (
   const unauthorized = await observedRequest(
     http,
     observations,
-    { method: "GET", url: `${origin}/api/admin/receipts` },
-    "/api/admin/receipts",
+    { method: "GET", url: `${origin}/api/receipt-approval-queue` },
+    "/api/receipt-approval-queue",
     "authorization_rejection_without_session",
   );
   requireStatus(unauthorized, [401, 403], "receipt authorization rejection");
@@ -786,7 +818,6 @@ const receiptJourney = async (
           kind: "multipart",
           fields: {
             amountOre: "12345",
-            commandId: "receipt-native-claim-submit-0078",
             description: "Claim-specific owner receipt",
             receiptDate: "2031-09-14",
           },
@@ -797,14 +828,17 @@ const receiptJourney = async (
             name: "claim-receipt.png",
           },
         },
-        headers: { cookie: ownerCookie },
+        headers: {
+          "idempotency-key": "receipt-native-claim-submit-0078",
+          cookie: ownerCookie,
+        },
         method: "POST",
-        url: `${origin}/api/receipts/submit`,
+        url: `${origin}/api/receipts`,
       },
-      "/api/receipts/submit",
+      "/api/receipts",
       "real_http_operation",
     ),
-    [200, 201],
+    [201],
     "receipt submission",
   );
   const submitBody = asRecord(submit.body, "receipt submission");
@@ -832,8 +866,12 @@ const receiptJourney = async (
   const approvalRead = await observedRequest(
     http,
     observations,
-    { headers: { cookie: approverCookie }, method: "GET", url: `${origin}/api/admin/receipts` },
-    "/api/admin/receipts",
+    {
+      headers: { cookie: approverCookie },
+      method: "GET",
+      url: `${origin}/api/receipt-approval-queue`,
+    },
+    "/api/receipt-approval-queue",
     "real_http_operation",
   );
   requireStatus(approvalRead, [200], "approval list read");
@@ -848,38 +886,48 @@ const receiptJourney = async (
   ) {
     throw new Error("approval receipt list was not department-scoped");
   }
+  const pendingApproval = approvalItems.find((item) => item.receiptId === receiptId);
+  if (pendingApproval === undefined) {
+    throw new Error("approval queue did not include the submitted receipt");
+  }
+  const approvalEtag = requireString(pendingApproval.etag, "approval receipt etag");
   const reject = await observedRequest(
     http,
     observations,
     {
-      body: {
-        kind: "json",
-        value: { commandId: "receipt-native-claim-reject-0078", expectedRevision: 0 },
+      body: { kind: "json", value: {} },
+      headers: {
+        "content-type": "application/json",
+        "idempotency-key": "receipt-native-claim-reject-0078",
+        "if-match": approvalEtag,
+        cookie: approverCookie,
       },
-      headers: { "content-type": "application/json", cookie: approverCookie },
       method: "POST",
-      url: `${origin}/api/admin/receipts/${encodeURIComponent(receiptId)}/reject`,
+      url: `${origin}/api/receipts/${encodeURIComponent(receiptId)}:reject`,
     },
-    "/api/admin/receipts/{receiptId}/reject",
+    "/api/receipts/{receiptId}:reject",
     "real_http_operation",
   );
   requireStatus(reject, [200], "receipt rejection");
   if (asRecord(reject.body, "receipt rejection").status !== "Rejected") {
     throw new Error("receipt did not transition to rejected");
   }
+  const rejectedReceiptEtag = requireHeader(reject, "etag", "rejected receipt etag");
   const invalid = await observedRequest(
     http,
     observations,
     {
-      body: {
-        kind: "json",
-        value: { commandId: "receipt-native-claim-double-reject-0078", expectedRevision: 1 },
+      body: { kind: "json", value: {} },
+      headers: {
+        "content-type": "application/json",
+        "idempotency-key": "receipt-native-claim-double-reject-0078",
+        "if-match": rejectedReceiptEtag,
+        cookie: approverCookie,
       },
-      headers: { "content-type": "application/json", cookie: approverCookie },
       method: "POST",
-      url: `${origin}/api/admin/receipts/${encodeURIComponent(receiptId)}/reject`,
+      url: `${origin}/api/receipts/${encodeURIComponent(receiptId)}:reject`,
     },
-    "/api/admin/receipts/{receiptId}/reject",
+    "/api/receipts/{receiptId}:reject",
     "invalid_transition_rejection",
   );
   requireStatus(invalid, [409], "terminal receipt transition rejection");
@@ -903,8 +951,12 @@ const receiptJourney = async (
   const freshApproval = await observedRequest(
     http,
     observations,
-    { headers: { cookie: approverCookie }, method: "GET", url: `${origin}/api/admin/receipts` },
-    "/api/admin/receipts",
+    {
+      headers: { cookie: approverCookie },
+      method: "GET",
+      url: `${origin}/api/receipt-approval-queue`,
+    },
+    "/api/receipt-approval-queue",
     "fresh_http_read_after_write",
   );
   requireStatus(freshApproval, [200], "fresh approval receipt read");
@@ -1174,7 +1226,6 @@ export const runClaimSpecificJourneyEvidence = (
             body: {
               kind: "json",
               value: {
-                commandId: "open-applicant-claim-period-0078",
                 departmentId: "department-applicant-claim-0078",
                 endAt: "2031-10-01T20:00:00.000Z",
                 semesterId: "semester-applicant-claim-0078",
@@ -1183,12 +1234,13 @@ export const runClaimSpecificJourneyEvidence = (
             },
             headers: {
               "content-type": "application/json",
+              "idempotency-key": "open-applicant-claim-period-0078",
               cookie: applicantLeaderCookie,
             },
             method: "POST",
-            url: `${origin}/api/admin/admission-periods`,
+            url: `${origin}/api/admission-periods`,
           });
-          requireStatus(period, [200, 201], "create applicant admission period");
+          requireStatus(period, [201], "create applicant admission period");
 
           const runnerDigest = sha256(fileSystem.readBytes(config.runnerSourcePath));
           const native = [

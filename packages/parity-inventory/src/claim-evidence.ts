@@ -347,7 +347,7 @@ const applicantDefinition: TargetDefinition = {
         {
           operation_semantic: "catalog-read",
           method: "GET",
-          path_template: "/api/applications",
+          path_template: "/api/application-options",
           realizes_stage_ids: ["stage-applicant-admission-catalog"],
           predicate_refs: [],
         },
