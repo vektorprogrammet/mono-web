@@ -215,8 +215,7 @@ const main = async (): Promise<void> => {
   if (
     manifest.artifacts.openapi.path !== "packages/http-api/openapi.json" ||
     manifest.artifacts.sdkOperations.path !== "packages/sdk/native-api-operations.json" ||
-    manifest.artifacts.serverMetadata.path !==
-      "apps/backend/src/generated/native-api-metadata.json"
+    manifest.artifacts.serverMetadata.path !== "apps/backend/src/generated/native-api-metadata.json"
   ) {
     throw new Error("The release manifest contains an unexpected artifact path.");
   }

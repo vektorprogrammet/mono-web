@@ -41,7 +41,6 @@ class FakeSqlError extends Data.TaggedError("SqlError")<{
 }> {}
 class CredentialRevoked extends Data.TaggedError("CredentialRevoked") {}
 
-
 const makeSql = () => {
   let committed: FakeDatabaseState = {
     receipts: new Map(),
@@ -181,7 +180,6 @@ const preparedCommand = <E>(
       return { identity: preparedIdentity, execute };
     }),
   );
-
 
 describe("native HTTP command receipt transaction", () => {
   it("commits the injected domain write and HTTP receipt once, then replays", async () => {

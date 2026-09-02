@@ -1,6 +1,7 @@
 {
   "ignorePatterns": [
     "apps/server/**",
+    "apps/backend/src/generated/**",
     "**/build/**",
     "**/dist/**",
     "**/node_modules/**",

@@ -69,7 +69,6 @@ export type ReceiptMutationAuthorization =
       readonly current: Receipt;
     };
 
-
 export interface EconomyShape {
   readonly executeReceipt: (
     input: unknown,

@@ -29,9 +29,7 @@ export const EconomyLive = Layer.effect(
           Effect.provideService(Database, database),
         ),
       authorizeReceiptMutation: (target, principal) =>
-        authorizeReceiptMutation(target, principal).pipe(
-          Effect.provideService(Database, database),
-        ),
+        authorizeReceiptMutation(target, principal).pipe(Effect.provideService(Database, database)),
       executeAuthorizedReceipt: (input, authorization, allocation) =>
         executeAuthorizedReceiptCommand(input, authorization, allocation).pipe(
           Effect.provideService(Database, database),

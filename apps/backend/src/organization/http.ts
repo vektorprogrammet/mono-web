@@ -28,10 +28,7 @@ import {
 } from "@vektorprogrammet/http-api";
 import { Effect, Option, Schema } from "effect";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
-import {
-  organizationActorFrom,
-  resolveRequestPersonAuthorityInTransaction,
-} from "../authority.js";
+import { organizationActorFrom, resolveRequestPersonAuthorityInTransaction } from "../authority.js";
 import { toHttpApiResponse } from "../http-api/transport.js";
 import {
   HttpSemanticFailure,
@@ -413,8 +410,7 @@ const createDepartment = async (
               }),
             ],
           },
-          grantScopes:
-            actor._tag === "OrganizationAdministrator" ? [{ _tag: "Global" }] : [],
+          grantScopes: actor._tag === "OrganizationAdministrator" ? [{ _tag: "Global" }] : [],
           now: resolved.authorizationInstant,
           run: txRun,
         });
@@ -498,8 +494,7 @@ const createTeam = async (
               }),
             ],
           },
-          grantScopes:
-            actor._tag === "OrganizationAdministrator" ? [{ _tag: "Global" }] : [],
+          grantScopes: actor._tag === "OrganizationAdministrator" ? [{ _tag: "Global" }] : [],
           now: resolved.authorizationInstant,
           run: txRun,
         });
@@ -583,8 +578,7 @@ const createFieldOfStudy = async (
               }),
             ],
           },
-          grantScopes:
-            actor._tag === "OrganizationAdministrator" ? [{ _tag: "Global" }] : [],
+          grantScopes: actor._tag === "OrganizationAdministrator" ? [{ _tag: "Global" }] : [],
           now: resolved.authorizationInstant,
           run: txRun,
         });

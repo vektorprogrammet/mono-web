@@ -28,7 +28,6 @@ export interface NativeHttpCommandPlan<E, R> {
   readonly execute: Effect.Effect<NativeHttpResponseCapsule, E, R | Database>;
 }
 
-
 interface NativeHttpReceiptRow {
   readonly requestSha256: string;
   readonly operationId: string;

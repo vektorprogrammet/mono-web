@@ -1,9 +1,5 @@
 import { Data, Effect, Schema } from "effect";
-import {
-  DomainId,
-  ResourceRefSchema,
-  ServicePrincipalId,
-} from "./access.js";
+import { DomainId, ResourceRefSchema, ServicePrincipalId } from "./access.js";
 import { DepartmentId, PersonId } from "../organization/schema.js";
 import { compareRfc3339Instants, Rfc3339InstantSchema } from "../time.js";
 

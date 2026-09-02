@@ -66,7 +66,6 @@ export const prepareNativeHttpCommand = <Run, E, R>(
     }),
   );
 
-
 export const authorizeAnonymousNativeOperation = async (
   spec: AccessSpec,
   resolution: CanonicalScopeResolution<Record<string, unknown>>,
@@ -110,18 +109,16 @@ export const authorizePersonNativeOperation = async (input: {
       : ({
           _tag: "Accepted" as const,
           mechanism: {
-            _tag: input.request.headers.get("authorization")?.startsWith("Bearer ") === true
-              ? ("OAuthUserBearer" as const)
-              : ("BetterAuthCookie" as const),
+            _tag:
+              input.request.headers.get("authorization")?.startsWith("Bearer ") === true
+                ? ("OAuthUserBearer" as const)
+                : ("BetterAuthCookie" as const),
           },
           principal: { _tag: "Person" as const, personId: input.personId },
           evidenceRef: CredentialEvidenceRef.make("native-person-credential"),
         } satisfies AcceptedCredential));
   if (credential === undefined) throw new HttpSemanticFailure("credential.invalid", 401);
-  if (
-    credential.principal._tag !== "Person" ||
-    credential.principal.personId !== input.personId
-  ) {
+  if (credential.principal._tag !== "Person" || credential.principal.personId !== input.personId) {
     throw new HttpSemanticFailure("credential.invalid", 401);
   }
   const instant = AuthorizationInstant.make(input.now);

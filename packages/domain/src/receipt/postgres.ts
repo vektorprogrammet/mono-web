@@ -523,9 +523,7 @@ const authorizeReceiptMutationWithSql = (
 ): Effect.Effect<ReceiptMutationAuthorization, ReceiptFailure> =>
   Effect.gen(function* () {
     const current =
-      target._tag === "SubmitReceipt"
-        ? undefined
-        : yield* findReceipt(sql, target.receiptId);
+      target._tag === "SubmitReceipt" ? undefined : yield* findReceipt(sql, target.receiptId);
     if (target._tag !== "SubmitReceipt" && current === undefined) {
       return yield* new ReceiptNotFound({ receiptId: target.receiptId });
     }
@@ -772,7 +770,6 @@ export const authorizeReceiptMutation = (
     return yield* authorizeReceiptMutationWithSql(sql, target, principal);
   });
 
-
 const decodeReceiptCommand = (input: unknown) =>
   Schema.decodeUnknownEffect(ReceiptCommandRequestSchema)(input, {
     onExcessProperty: "error",
@@ -941,9 +938,7 @@ const executeAuthorizedReceiptCommandWithSql = (
         ${decision.receipt.revision}, ${principal.authorizationInstant}
       )
     `.pipe(
-      Effect.catchTag("SqlError", (cause) =>
-        Effect.fail(persistenceError("insert audit", cause)),
-      ),
+      Effect.catchTag("SqlError", (cause) => Effect.fail(persistenceError("insert audit", cause))),
     );
 
     return {

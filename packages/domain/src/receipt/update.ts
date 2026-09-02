@@ -343,7 +343,6 @@ const decodeReceiptDecisionContext = (
     onExcessProperty: "error",
   }).pipe(Effect.mapError((cause) => new ReceiptDecodeError({ message: String(cause) })));
 
-
 export const decideReceipt = (
   existing: Receipt | undefined,
   input: unknown,

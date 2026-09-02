@@ -159,7 +159,6 @@ const requestCredentialInTransactionEffect = (
   );
 };
 
-
 const personAuthorityEffect = (
   cookieHeader: string | undefined,
   instant: OrganizationAuthorityInstant,
@@ -201,8 +200,6 @@ export interface TransactionPersonAuthorityResolutionOptions {
   ) => Promise<A>;
   readonly now?: () => string;
 }
-
-
 
 /** Resolves the authenticated session while preserving infrastructure failures. */
 export const resolveAuthenticatedSession = (
@@ -295,8 +292,6 @@ export const resolveRequestPersonAuthorityInTransaction = async (
   );
   return { ...authenticated, authority };
 };
-
-
 
 /**
  * Authenticates first, then captures exactly one instant for a caller-owned

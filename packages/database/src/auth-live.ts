@@ -307,7 +307,6 @@ const snapshotMutationAudit = (
     }),
   );
 
-
 /** @internal Constructor used by AuthLive and focused boundary tests. */
 export const makeIdentitySnapshotService = (config: AuthEngineConfig): IdentitySnapshotService => ({
   resolveSession: (cookieHeader, authorizationInstant) =>

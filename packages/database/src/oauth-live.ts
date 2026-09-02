@@ -379,7 +379,6 @@ const selectTokenStateInTransaction = (
     `.pipe(Effect.map((rows) => rows[0])),
   );
 
-
 const canonicalClientScopes = (
   kind: OAuthClientKind,
   values: ReadonlyArray<string> | null,

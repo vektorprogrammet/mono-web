@@ -447,10 +447,7 @@ const create = async (request: Request, input: AdmissionApiHttpOptions): Promise
           run: txRun,
           now: input.config.now,
         });
-        const actor = admissionActorForAuthority(
-          authorization.authority,
-          payload.departmentId,
-        );
+        const actor = admissionActorForAuthority(authorization.authority, payload.departmentId);
         const now = authorization.authorizationInstant;
         await authorizePersonNativeOperation({
           spec: Option.getOrThrow(reflectAccessSpec(CreateAdmissionPeriodEndpoint)),

@@ -66,10 +66,7 @@ import {
   type NativeIdempotencyIdentity,
 } from "../http-semantics.js";
 import { resolveRequestCredentialInTransaction } from "../authority.js";
-import {
-  nativeCommandOutcomeResponse,
-  prepareNativeHttpCommand,
-} from "../native-operation.js";
+import { nativeCommandOutcomeResponse, prepareNativeHttpCommand } from "../native-operation.js";
 import type { ReceiptApiConfig } from "./config.js";
 import {
   makeReceiptFileStore,
@@ -332,11 +329,10 @@ const authorizationPrincipalInTransaction = async (
   options: ReceiptApiHttpOptions,
   run: ReceiptApiHttpOptions["run"],
 ): Promise<ReceiptCommandPrincipal> => {
-  const authenticated = await resolveRequestCredentialInTransaction(
-    request,
-    "OAuthUserBearer",
-    { run, now: options.now },
-  );
+  const authenticated = await resolveRequestCredentialInTransaction(request, "OAuthUserBearer", {
+    run,
+    now: options.now,
+  });
   if (authenticated.credential.principal._tag !== "Person") {
     throw new UnauthenticatedActor({ message: "authentication required" });
   }
@@ -345,7 +341,6 @@ const authorizationPrincipalInTransaction = async (
     authorizationInstant: authenticated.authorizationInstant,
   };
 };
-
 
 type ReceiptApprovalRoute = {
   readonly action: "refund" | "reject";
@@ -775,11 +770,10 @@ interface PreparedV2ReceiptMutation {
   };
   readonly allocation?: ReceiptSubmissionAllocation;
 }
-type ReceiptMutationAuthorizationFor<
-  Target extends ReceiptMutationAuthorizationTarget,
-> = Target["_tag"] extends "SubmitReceipt"
-  ? Extract<ReceiptMutationAuthorization, { readonly _tag: "SubmitReceipt" }>
-  : Exclude<ReceiptMutationAuthorization, { readonly _tag: "SubmitReceipt" }>;
+type ReceiptMutationAuthorizationFor<Target extends ReceiptMutationAuthorizationTarget> =
+  Target["_tag"] extends "SubmitReceipt"
+    ? Extract<ReceiptMutationAuthorization, { readonly _tag: "SubmitReceipt" }>
+    : Exclude<ReceiptMutationAuthorization, { readonly _tag: "SubmitReceipt" }>;
 
 const authorizeReceiptMutationInTransaction = async <
   Target extends ReceiptMutationAuthorizationTarget,
@@ -789,9 +783,7 @@ const authorizeReceiptMutationInTransaction = async <
   run: ReceiptApiHttpOptions["run"],
 ): Promise<ReceiptMutationAuthorizationFor<Target>> => {
   const authorization = await runDatabase(
-    Economy.use(({ authorizeReceiptMutation }) =>
-      authorizeReceiptMutation(target, principal),
-    ),
+    Economy.use(({ authorizeReceiptMutation }) => authorizeReceiptMutation(target, principal)),
     run,
   );
   if (authorization._tag !== target._tag) {
@@ -802,7 +794,6 @@ const authorizeReceiptMutationInTransaction = async <
   }
   return authorization as ReceiptMutationAuthorizationFor<Target>;
 };
-
 
 const executeV2ReceiptMutation = (
   options: ReceiptApiHttpOptions,
@@ -1057,9 +1048,7 @@ const reviseV2 = async (
       return {
         identity,
         operationId: "receipts.reviseReceipt",
-        requestSha256: semanticRequestDigest(
-          semanticMutationRequest(semanticBody, ifMatch),
-        ),
+        requestSha256: semanticRequestDigest(semanticMutationRequest(semanticBody, ifMatch)),
         command,
         principal,
         authorization,

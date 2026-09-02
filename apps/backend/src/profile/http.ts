@@ -15,10 +15,7 @@ import { ResourceId, ResourceKind } from "@vektorprogrammet/domain/authz";
 import { executeNativeHttpCommandPostgres } from "@vektorprogrammet/domain/http-semantics";
 import { Effect, Option, Schema } from "effect";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
-import {
-  profileRoleFrom,
-  resolveRequestPersonAuthorityInTransaction,
-} from "../authority.js";
+import { profileRoleFrom, resolveRequestPersonAuthorityInTransaction } from "../authority.js";
 import { toHttpApiResponse } from "../http-api/transport.js";
 import {
   HttpSemanticFailure,

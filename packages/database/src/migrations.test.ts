@@ -750,8 +750,7 @@ describe("declarative rule reconciliation migration", () => {
   const reconciliationMigrationIndex = databaseMigrationDefinitions.findIndex(
     ({ id }) => id === "26_declarative-rule-reconciliation",
   );
-  const reconciliationMigration =
-    databaseMigrationDefinitions[reconciliationMigrationIndex]!;
+  const reconciliationMigration = databaseMigrationDefinitions[reconciliationMigrationIndex]!;
   const prepareMigration25State = async (database: PGlite) => {
     for (const migration of databaseMigrationDefinitions.slice(0, reconciliationMigrationIndex)) {
       await database.exec(await readFile(migration.url, "utf8"));

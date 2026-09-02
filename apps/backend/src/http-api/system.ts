@@ -370,7 +370,11 @@ export const SystemApiHandlers = (run: BackendRun, options: SystemOptions = {}) 
                 normalizedTarget: `/api/sessions/${encodePathIdentity(params.sessionId)}`,
                 resourceId: params.sessionId,
                 mutate: (identity, actor) =>
-                  identity.revokeSession(actor, params.sessionId, identityRequestContext(webRequest)),
+                  identity.revokeSession(
+                    actor,
+                    params.sessionId,
+                    identityRequestContext(webRequest),
+                  ),
               }),
             identityErrorResponse,
           ),

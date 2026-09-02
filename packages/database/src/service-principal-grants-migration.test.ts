@@ -96,11 +96,7 @@ describe("service-principal grant migration", () => {
           )
         `;
 
-        const appendAudit = (
-          eventId: string,
-          operatorActor: string,
-          requestCorrelation: string,
-        ) =>
+        const appendAudit = (eventId: string, operatorActor: string, requestCorrelation: string) =>
           database`
             INSERT INTO public.service_principal_grant_audit (
               event_id, occurred_at, event_kind, grant_id, service_principal_id,
@@ -141,11 +137,7 @@ describe("service-principal grant migration", () => {
           ),
         );
         const overlongCorrelation = yield* Effect.exit(
-          appendAudit(
-            "service-grant-migration-correlation-length",
-            "operator",
-            "c".repeat(161),
-          ),
+          appendAudit("service-grant-migration-correlation-length", "operator", "c".repeat(161)),
         );
         const indexes = yield* database<{ readonly indexName: string }>`
           SELECT indexname AS "indexName"
@@ -181,10 +173,7 @@ describe("service-principal grant migration", () => {
       whitespaceEventId: "Failure",
       whitespaceActor: "Failure",
       whitespaceCorrelation: "Failure",
-      indexes: [
-        "authz_rules_service_principal_lock_order",
-        "service_principal_grants_lock_order",
-      ],
+      indexes: ["authz_rules_service_principal_lock_order", "service_principal_grants_lock_order"],
       overlongEventId: "Failure",
       overlongActor: "Failure",
       overlongCorrelation: "Failure",

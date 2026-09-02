@@ -66,11 +66,7 @@ export const authzRuleSubjectApplies = (
         tagAssignments.some(
           (assignment) =>
             assignment.tagId === subject.tagId &&
-            isAuthzTagAssignmentActive(
-              assignment,
-              principal.personId,
-              authorizationInstant,
-            ),
+            isAuthzTagAssignmentActive(assignment, principal.personId, authorizationInstant),
         )
       );
   }
