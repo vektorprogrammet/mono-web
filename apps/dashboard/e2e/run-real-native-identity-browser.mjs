@@ -593,7 +593,7 @@ const main = async () => {
     assert.deepEqual(browserEvidence.requestLedger.forbidden, []);
     assert.deepEqual(browserEvidence.requestLedger.unexpectedDestinations, []);
     assert.ok(
-      boundary.records.some((entry) => entry.path === "/api/me" && entry.status === 403),
+      boundary.records.some((entry) => entry.path === "/api/profile" && entry.status === 403),
       "no-scope member profile denial must reach the native backend",
     );
     assert.ok(
