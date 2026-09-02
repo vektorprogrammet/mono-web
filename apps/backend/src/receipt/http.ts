@@ -591,6 +591,7 @@ const receiptMutationCapsule = (
   location?: string,
 ): NativeHttpResponseCapsule => {
   const headers: Record<string, string> = {
+    "content-type": "application/json",
     etag: receiptEtag(receipt.receiptId, receipt.revision),
   };
   if (status === 201) {
