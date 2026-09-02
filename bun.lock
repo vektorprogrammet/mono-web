@@ -285,7 +285,7 @@
     },
   },
   "patchedDependencies": {
-    "effect@4.0.0-rc.109": "patches/effect@4.0.0-rc.109.patch",
+    "effect@4.0.0-rc.109": "patches/effect-httpapi-action-paths.patch",
   },
   "catalogs": {
     "effect-v4": {
