@@ -351,14 +351,6 @@ const sanitizeRequestBody = (bytes, contentType, pathname) => {
       return { kind: "json", shape: typeof decoded };
     }
     const keys = Object.keys(decoded).sort();
-    if (
-      /\/api\/admin\/receipts\/[^/]+\/(?:refund|reject)$/u.test(pathname) &&
-      JSON.stringify(keys) === JSON.stringify(["commandId", "expectedRevision"]) &&
-      typeof decoded.commandId === "string" &&
-      Number.isInteger(decoded.expectedRevision)
-    ) {
-      return { commandId: decoded.commandId, expectedRevision: decoded.expectedRevision };
-    }
     return { kind: "json", keys };
   }
   return { kind: "opaque", byteLength: bytes.byteLength };
@@ -417,6 +409,12 @@ async function startRecordingProxy(targetOrigin) {
       sessionPersonId:
         cookieKey === undefined ? null : (sessionPersonsByCookie.get(cookieKey) ?? null),
       canonicalAuthorityFixture: null,
+      idempotencyKey:
+        typeof request.headers["idempotency-key"] === "string"
+          ? request.headers["idempotency-key"]
+          : null,
+      ifMatch:
+        typeof request.headers["if-match"] === "string" ? request.headers["if-match"] : null,
     };
     records.push(record);
     try {
@@ -446,7 +444,7 @@ async function startRecordingProxy(targetOrigin) {
       if (
         cookieKey !== undefined &&
         upstream.status === 200 &&
-        url.pathname === "/api/me" &&
+        url.pathname === "/api/profile" &&
         responseJson !== null &&
         typeof responseJson === "object" &&
         "personId" in responseJson &&
@@ -926,7 +924,7 @@ function assertJourneyEvidence(journeyEvidence, seedEvidence) {
       nativeLogin: true,
       sessionCookieNames: ["better-auth.session_token"],
       apiSessionPath: "/api/session",
-      personBindingPath: "/api/me",
+      personBindingPath: "/api/profile",
       personId,
     }))
     .sort(({ personId: left }, { personId: right }) => left.localeCompare(right));
@@ -950,21 +948,21 @@ function assertJourneyEvidence(journeyEvidence, seedEvidence) {
       },
       command: {
         inactiveActor: 403,
-        malformedJson: 422,
+        malformedJson: 400,
         excessJson: 422,
-        queryParameters: 422,
+        queryParameters: 400,
         foreignDepartment: 403,
-        absentDepartmentScope: 403,
+        absentDepartmentScope: 404,
         absentGlobalScope: 404,
         acceptedRefund: 200,
         acceptedReject: 200,
         identicalRefundReplay: 200,
         identicalRejectReplay: 200,
         changedReplay: 409,
-        staleRevision: 409,
+        staleRevision: 412,
         terminalRefund: 409,
         terminalReject: 409,
-        concurrent: [200, 409],
+        concurrent: [200, 412],
       },
     },
     "Frozen Receipt approval status matrix",
@@ -1001,7 +999,8 @@ function assertRequestLedger(records, journeyEvidence) {
 
   const receiptOperations = records.filter(
     ({ pathname }) =>
-      pathname.startsWith("/api/receipts") || pathname.startsWith("/api/admin/receipts"),
+      pathname.startsWith("/api/receipts") ||
+      pathname.startsWith("/api/receipt-approval-queue"),
   );
   for (const record of receiptOperations) {
     if (record.authorizationHeaderPresent) {
@@ -1024,12 +1023,16 @@ function assertRequestLedger(records, journeyEvidence) {
   }
 
   const submissions = receiptOperations.filter(
-    ({ method, pathname }) => method === "POST" && pathname === "/api/receipts/submit",
+    ({ method, pathname }) => method === "POST" && pathname === "/api/receipts",
   );
   if (
     submissions.length !== 4 ||
     submissions.some(
-      ({ status, body }) => ![200, 201].includes(status) || body?.kind !== "multipart/form-data",
+      ({ status, body, idempotencyKey, ifMatch }) =>
+        status !== 201 ||
+        body?.kind !== "multipart/form-data" ||
+        typeof idempotencyKey !== "string" ||
+        ifMatch !== null,
     )
   ) {
     throw new Error("Receipt submission sequence is not the exact four native multipart writes");
@@ -1041,7 +1044,7 @@ function assertRequestLedger(records, journeyEvidence) {
     throw new Error("Receipt owner read sequence is not exact");
   }
 
-  const semanticPath = /\/api\/admin\/receipts\/[^/]+\/(?:refund|reject)$/u;
+  const semanticPath = /\/api\/receipts\/[^/]+:(?:refund|reject)$/u;
   const commands = receiptOperations.filter(
     ({ method, pathname }) => method === "POST" && semanticPath.test(pathname),
   );
@@ -1049,21 +1052,22 @@ function assertRequestLedger(records, journeyEvidence) {
   assertEqual(
     commandStatuses,
     [
-      200, 200, 200, 200, 200, 200, 200, 403, 403, 403, 403, 404, 409, 409, 409, 409, 409, 409, 422,
-      422, 422,
+      200, 200, 200, 200, 200, 200, 200, 400, 400, 403, 403, 403, 404, 404, 409, 409, 409, 412, 412,
+      412, 422,
     ],
     "Exact scoped refund/reject operation sequence",
   );
   for (const command of commands) {
-    if (command.status === 422) continue;
+    if (typeof command.idempotencyKey !== "string" || typeof command.ifMatch !== "string") {
+      throw new Error("Semantic Receipt command omitted Idempotency-Key or If-Match");
+    }
+    if (command.body?.kind === "malformed-json") continue;
     if (
-      command.body === null ||
-      typeof command.body.commandId !== "string" ||
-      !Number.isInteger(command.body.expectedRevision) ||
-      JSON.stringify(Object.keys(command.body).sort()) !==
-        JSON.stringify(["commandId", "expectedRevision"])
+      command.body?.kind !== "json" ||
+      !Array.isArray(command.body.keys) ||
+      (command.status !== 422 && command.body.keys.length !== 0)
     ) {
-      throw new Error("Semantic Receipt command body was not exact");
+      throw new Error("Semantic Receipt command body was not the canonical empty JSON object");
     }
   }
   for (let index = 0; index < receiptOperations.length; index += 1) {
@@ -1079,13 +1083,13 @@ function assertRequestLedger(records, journeyEvidence) {
     if (
       freshRead?.method === "POST" &&
       semanticPath.test(freshRead.pathname) &&
-      freshRead.pathname.split("/").at(-2) === operation.pathname.split("/").at(-2)
+      freshRead.pathname.split(":")[0] === operation.pathname.split(":")[0]
     ) {
       freshRead = receiptOperations[index + 2];
     }
     if (
       freshRead?.method !== "GET" ||
-      freshRead.pathname !== "/api/admin/receipts" ||
+      freshRead.pathname !== "/api/receipt-approval-queue" ||
       freshRead.status !== 200
     ) {
       throw new Error("Accepted Receipt command was not followed by a fresh approval-list read");

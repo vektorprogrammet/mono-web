@@ -647,19 +647,23 @@ test.describe("Native Receipt owner journey", () => {
     await expect(receiptRow).toContainText(REPLACED_DESCRIPTION);
     await receiptRow.getByRole("button", { name: "Rediger", exact: true }).click();
     reviseForm = page.getByRole("form", { name: "Rediger utlegg" });
-    await expect(reviseForm.locator('input[name="expectedRevision"]')).toHaveValue("2");
-    const staleDraftCommandId = await reviseForm.locator('input[name="commandId"]').inputValue();
-    expect(staleDraftCommandId).not.toBe("");
+    await expect(reviseForm.locator('input[name="etag"]')).toHaveValue(revisionTwoEtag);
+    const staleDraftIdempotencyKey = await reviseForm
+      .locator('input[name="idempotencyKey"]')
+      .inputValue();
+    expect(staleDraftIdempotencyKey).not.toBe("");
     await reviseForm.getByLabel(/Beskrivelse/).fill("This stale draft must not replace projection");
 
-    const concurrentCommandId = randomUUID();
-    const concurrentRevisionResponse = await request.post(
-      `${BACKEND_ORIGIN}/api/receipts/${receiptId}/revise`,
+    const concurrentIdempotencyKey = randomUUID();
+    const concurrentRevisionResponse = await request.patch(
+      `${BACKEND_ORIGIN}/api/receipts/${encodeURIComponent(receiptId)}`,
       {
-        headers: authorization,
+        headers: {
+          ...authorization,
+          "Idempotency-Key": concurrentIdempotencyKey,
+          "If-Match": revisionTwoEtag,
+        },
         multipart: {
-          commandId: concurrentCommandId,
-          expectedRevision: "2",
           description: CONCURRENT_DESCRIPTION,
           amountOre: String(REVISED_AMOUNT_ORE),
           receiptDate: REVISED_RECEIPT_DATE,
@@ -667,29 +671,33 @@ test.describe("Native Receipt owner journey", () => {
       },
     );
     expect(concurrentRevisionResponse.status()).toBe(200);
-    const concurrentRevision = receiptObservationSchema.parse(
+    const concurrentRevision = receiptResourceSchema.parse(
       await concurrentRevisionResponse.json(),
     );
+    expect(concurrentRevisionResponse.headers()["etag"]).toBe(concurrentRevision.etag);
     expect(concurrentRevision).toMatchObject({
-      commandId: concurrentCommandId,
       receiptId,
       status: "Pending",
       revision: 3,
-      replayed: false,
     });
 
     await reviseForm.getByRole("button", { name: "Lagre endringer" }).click();
-    await expect(reviseError).not.toHaveAttribute("data-command-id", staleDraftCommandId);
-    await expect(reviseError).toHaveAttribute("data-error-tag", "StaleReceiptRevision");
-    await expect(reviseError).toHaveAttribute("data-expected-revision", "2");
+    await expect(reviseError).not.toHaveAttribute(
+      "data-idempotency-key",
+      staleDraftIdempotencyKey,
+    );
+    await expect(reviseError).toHaveAttribute("data-error-code", "precondition.failed");
+    await expect(reviseError).toHaveAttribute("data-if-match", revisionTwoEtag);
     reviseForm = page.getByRole("form", { name: "Rediger utlegg" });
     await expect(reviseForm).toBeVisible();
     await expect(reviseForm.getByLabel(/Beskrivelse/)).toHaveValue(CONCURRENT_DESCRIPTION);
     await expect(reviseForm.locator('input[name="amountNok"]')).toHaveValue("210,75");
-    await expect(reviseForm.locator('input[name="expectedRevision"]')).toHaveValue("3");
-    const refreshedCommandId = await reviseForm.locator('input[name="commandId"]').inputValue();
-    expect(refreshedCommandId).not.toBe("");
-    expect(refreshedCommandId).not.toBe(staleDraftCommandId);
+    await expect(reviseForm.locator('input[name="etag"]')).toHaveValue(concurrentRevision.etag);
+    const refreshedIdempotencyKey = await reviseForm
+      .locator('input[name="idempotencyKey"]')
+      .inputValue();
+    expect(refreshedIdempotencyKey).not.toBe("");
+    expect(refreshedIdempotencyKey).not.toBe(staleDraftIdempotencyKey);
     receiptRow = receiptRowFor(page, receiptId);
     await expect(receiptRow).toContainText(CONCURRENT_DESCRIPTION);
     await expect(receiptRow.locator('[data-revision="3"]')).toHaveText("Versjon 3");
@@ -700,37 +708,48 @@ test.describe("Native Receipt owner journey", () => {
       const foreignPage = await foreignContext.newPage();
       const foreignSession = await authenticate(foreignPage, request, receiptPersona("FOREIGN"));
       foreignOwnerResponse = await request.post(
-        `${BACKEND_ORIGIN}/api/receipts/${receiptId}/withdraw`,
+        `${BACKEND_ORIGIN}/api/receipts/${encodeURIComponent(receiptId)}:withdraw`,
         {
-          headers: sessionHeaders(foreignSession),
-          data: {
-            commandId: randomUUID(),
-            expectedRevision: 3,
+          headers: {
+            ...sessionHeaders(foreignSession),
+            "content-type": "application/json",
+            "Idempotency-Key": randomUUID(),
+            "If-Match": concurrentRevision.etag,
           },
+          data: {},
         },
       );
     } finally {
       await foreignContext.close();
     }
-    expect(foreignOwnerResponse.status()).toBe(403);
-    const foreignOwnerTag = await responseErrorTag(foreignOwnerResponse);
-    expect(foreignOwnerTag).toBe("ReceiptOwnerDenied");
+    const foreignOwnerTag = await expectProblemCode(
+      foreignOwnerResponse,
+      403,
+      "authority.denied",
+    );
 
     await receiptRow.getByRole("button", { name: "Trekk tilbake", exact: true }).click();
     const withdrawForm = page.getByRole("form", { name: "Trekk tilbake utlegg" });
     await expect(withdrawForm).toBeVisible();
-    await expect(withdrawForm.locator('input[name="expectedRevision"]')).toHaveValue("3");
+    await expect(withdrawForm.locator('input[name="etag"]')).toHaveValue(
+      concurrentRevision.etag,
+    );
+    const withdrawalIdempotencyKey = await withdrawForm
+      .locator('input[name="idempotencyKey"]')
+      .inputValue();
+    expect(withdrawalIdempotencyKey).not.toBe("");
     await withdrawForm.getByRole("button", { name: "Bekreft tilbaketrekking" }).click();
 
     const withdrawalNotice = page.locator('[role="status"][data-action-intent="withdraw"]');
     await expect(withdrawalNotice).toBeVisible();
     await expect(withdrawalNotice).toHaveAttribute("data-status", "Withdrawn");
     await expect(withdrawalNotice).toHaveAttribute("data-revision", "4");
-    await expect(withdrawalNotice).toHaveAttribute("data-command-id", /.+/);
-    const withdrawalCommandId = await withdrawalNotice.getAttribute("data-command-id");
-    if (withdrawalCommandId === null || withdrawalCommandId.length === 0) {
-      throw new Error("Withdrawal command ID is missing");
-    }
+    await expect(withdrawalNotice).toHaveAttribute(
+      "data-idempotency-key",
+      withdrawalIdempotencyKey,
+    );
+    const withdrawalEtag = await withdrawalNotice.getAttribute("data-etag");
+    if (withdrawalEtag === null) throw new Error("Withdrawal ETag is missing");
 
     receiptRow = receiptRowFor(page, receiptId);
     await expect(receiptRow.locator('[data-status="Withdrawn"]')).toBeVisible();
@@ -748,38 +767,44 @@ test.describe("Native Receipt owner journey", () => {
     await expect(receiptRow.getByRole("button")).toHaveCount(0);
 
     const withdrawalReplayResponse = await request.post(
-      `${BACKEND_ORIGIN}/api/receipts/${receiptId}/withdraw`,
+      `${BACKEND_ORIGIN}/api/receipts/${encodeURIComponent(receiptId)}:withdraw`,
       {
-        headers: authorization,
-        data: {
-          commandId: withdrawalCommandId,
-          expectedRevision: 3,
+        headers: {
+          ...authorization,
+          "content-type": "application/json",
+          "Idempotency-Key": withdrawalIdempotencyKey,
+          "If-Match": concurrentRevision.etag,
         },
+        data: {},
       },
     );
     expect(withdrawalReplayResponse.status()).toBe(200);
-    const withdrawalReplay = receiptObservationSchema.parse(await withdrawalReplayResponse.json());
+    const withdrawalReplay = receiptResourceSchema.parse(await withdrawalReplayResponse.json());
+    expect(withdrawalReplayResponse.headers()["etag"]).toBe(withdrawalReplay.etag);
     expect(withdrawalReplay).toMatchObject({
-      commandId: withdrawalCommandId,
       receiptId,
       status: "Withdrawn",
       revision: 4,
-      replayed: true,
     });
+    expect(withdrawalReplay.etag).toBe(withdrawalEtag);
 
     const terminalResponse = await request.post(
-      `${BACKEND_ORIGIN}/api/receipts/${receiptId}/withdraw`,
+      `${BACKEND_ORIGIN}/api/receipts/${encodeURIComponent(receiptId)}:withdraw`,
       {
-        headers: authorization,
-        data: {
-          commandId: randomUUID(),
-          expectedRevision: 4,
+        headers: {
+          ...authorization,
+          "content-type": "application/json",
+          "Idempotency-Key": randomUUID(),
+          "If-Match": withdrawalReplay.etag,
         },
+        data: {},
       },
     );
-    expect(terminalResponse.status()).toBe(409);
-    const terminalTag = await responseErrorTag(terminalResponse);
-    expect(terminalTag).toBe("InvalidReceiptTransition");
+    const terminalTag = await expectProblemCode(
+      terminalResponse,
+      409,
+      "receipt.invalid-transition",
+    );
 
     const finalOwnedResponse = await request.get(`${BACKEND_ORIGIN}/api/receipts`, {
       headers: authorization,
@@ -796,6 +821,7 @@ test.describe("Native Receipt owner journey", () => {
       receiptDate: REVISED_RECEIPT_DATE,
       status: "Withdrawn",
       revision: 4,
+      etag: withdrawalReplay.etag,
     });
 
     await test.info().attach("receipt-owner-evidence.json", {
@@ -809,25 +835,25 @@ test.describe("Native Receipt owner journey", () => {
           },
           unauthenticated: {
             status: unauthenticatedResponse.status(),
-            tag: unauthenticatedTag,
+            code: unauthenticatedTag,
           },
           rejected: [
-            { tag: "ReceiptDecodeError", field: "amountNok" },
-            { tag: "ReceiptDecodeError", field: "file" },
+            { code: "validation.failed", field: "amountNok" },
+            { code: "validation.failed", field: "file" },
             {
-              tag: "StaleReceiptRevision",
-              expectedRevision: 2,
-              refreshedRevision: concurrentRevision.revision,
-              attemptedCommandId: staleDraftCommandId,
-              retryCommandId: refreshedCommandId,
+              code: "precondition.failed",
+              ifMatch: revisionTwoEtag,
+              refreshedEtag: concurrentRevision.etag,
+              attemptedIdempotencyKey: staleDraftIdempotencyKey,
+              retryIdempotencyKey: refreshedIdempotencyKey,
             },
             {
-              tag: foreignOwnerTag,
+              code: foreignOwnerTag,
               status: foreignOwnerResponse.status(),
               revision: 3,
             },
             {
-              tag: terminalTag,
+              code: terminalTag,
               status: terminalResponse.status(),
               revision: withdrawalReplay.revision,
             },
@@ -836,50 +862,50 @@ test.describe("Native Receipt owner journey", () => {
             receiptId,
             visualId: submitReplay.visualId,
             submission: {
-              commandId: submissionCommandId,
+              commandId: submissionIdempotencyKey,
               revision: submitReplay.revision,
             },
             revisions: [
               {
-                commandId: stableRevisionCommandId,
+                commandId: stableRevisionIdempotencyKey,
                 revision: 1,
                 replacement: false,
               },
               {
-                commandId: replacementCommandId,
+                commandId: replacementIdempotencyKey,
                 revision: 2,
                 replacement: true,
               },
               {
-                commandId: concurrentCommandId,
+                commandId: concurrentIdempotencyKey,
                 revision: concurrentRevision.revision,
                 replacement: false,
               },
             ],
             withdrawal: {
-              commandId: withdrawalCommandId,
+              commandId: withdrawalIdempotencyKey,
               status: withdrawalReplay.status,
               revision: withdrawalReplay.revision,
             },
           },
           replay: {
             submission: {
-              commandId: submitReplay.commandId,
-              replayed: submitReplay.replayed,
+              idempotencyKey: submissionIdempotencyKey,
+              identicalResource: submitReplay.receiptId === receiptId,
             },
             stableRevision: {
-              commandId: stableRevisionReplay.commandId,
+              idempotencyKey: stableRevisionIdempotencyKey,
               revision: stableRevisionReplay.revision,
-              replayed: stableRevisionReplay.replayed,
+              etag: stableRevisionReplay.etag,
             },
             replacement: {
-              commandId: replacementRetry.commandId,
+              idempotencyKey: replacementIdempotencyKey,
               revision: replacementRetry.revision,
-              replayed: replacementRetry.replayed,
+              etag: replacementRetry.etag,
             },
             withdrawal: {
-              commandId: withdrawalReplay.commandId,
-              replayed: withdrawalReplay.replayed,
+              idempotencyKey: withdrawalIdempotencyKey,
+              identicalResource: withdrawalReplay.etag === withdrawalEtag,
             },
           },
           fileLifecycle: {
