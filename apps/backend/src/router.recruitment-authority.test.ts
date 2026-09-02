@@ -48,7 +48,26 @@ const environment = {
 
 const config = makeBackendConfig(environment);
 
-const database = { health: Effect.void } as unknown as DatabaseShape;
+const database = Object.assign(
+  ((strings: TemplateStringsArray) => {
+    const statement = strings.join(" ");
+    if (statement.includes("organization_memberships AS membership")) {
+      return Effect.succeed([
+        {
+          kind: "Membership",
+          identity: "membership-0",
+          revisions: [0, 0, 0],
+        },
+      ]);
+    }
+    return Effect.succeed([]);
+  }) as unknown as DatabaseShape,
+  {
+    health: Effect.void,
+    json: (value: unknown) => value,
+    withTransaction: <A, E, R>(effect: Effect.Effect<A, E, R>) => effect,
+  },
+);
 
 interface AuthorityMembershipRow {
   readonly departmentId: string;

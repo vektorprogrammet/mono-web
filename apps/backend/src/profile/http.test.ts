@@ -8,6 +8,22 @@ import { makeProfileTestHttp as makeProfileApiHttp } from "../test/native-http.j
 const tagged = (tag: string): Error & { readonly _tag: string } =>
   Object.assign(new Error(tag), { _tag: tag });
 
+const authorityDeniedProblem = {
+  type: "urn:vektorprogrammet:problem:v0.2:authority.denied",
+  title: "Authority denied",
+  status: 403,
+  detail: "The authenticated principal is not permitted to perform this operation.",
+  code: "authority.denied",
+} as const;
+
+const profileUnavailableProblem = {
+  type: "urn:vektorprogrammet:problem:v0.2:profile.unavailable",
+  title: "Profile unavailable",
+  status: 503,
+  detail: "The profile service is temporarily unavailable.",
+  code: "profile.unavailable",
+} as const;
+
 const request = async (cause: unknown): Promise<Response> =>
   makeProfileApiHttp({
     config: {} as never,
@@ -28,7 +44,8 @@ describe("Profile HTTP authority failures", () => {
       const response = await request(tagged(tag));
 
       expect(response.status).toBe(403);
-      expect(await response.json()).toEqual({ error: { tag } });
+      expect(response.headers.get("content-type")).toBe("application/problem+json");
+      expect(await response.json()).toEqual(authorityDeniedProblem);
     },
   );
 
@@ -36,7 +53,8 @@ describe("Profile HTTP authority failures", () => {
     const response = await request(new Error("provider unavailable"));
 
     expect(response.status).toBe(503);
-    expect(await response.json()).toEqual({ error: { tag: "ProfilePersistenceError" } });
+    expect(response.headers.get("content-type")).toBe("application/problem+json");
+    expect(await response.json()).toEqual(profileUnavailableProblem);
   });
 });
 

@@ -1,5 +1,6 @@
 import * as BunHttpPlatform from "@effect/platform-bun/BunHttpPlatform";
-import * as BunServices from "@effect/platform-bun/BunServices";
+import * as BunFileSystem from "@effect/platform-bun/BunFileSystem";
+import * as BunPath from "@effect/platform-bun/BunPath";
 import {
   ContentApi,
   DirectoryApi,
@@ -38,7 +39,12 @@ import {
 import { type SchoolsApiHttpOptions } from "../schools/http.js";
 import type { BackendConfig } from "../config.js";
 
-const platform = Layer.mergeAll(BunServices.layer, BunHttpPlatform.layer, Etag.layer);
+const platform = Layer.mergeAll(
+  BunFileSystem.layer,
+  BunHttpPlatform.layer,
+  BunPath.layer,
+  Etag.layer,
+);
 const testSessionBoundary = {
   deployment: "local",
   trustedOrigins: ["http://127.0.0.1:5174"],
@@ -93,11 +99,20 @@ const testRouterFetch = <Id extends string, Groups extends HttpApiGroup.Constrai
     Layer.provide(NativeHttpApiMiddlewareLive),
     Layer.provide(platform),
   );
-  const webHandler = HttpRouter.toWebHandler(Layer.merge(app, notFound), {
-    disableLogger: true,
-  }).handler;
-  // HttpRouter's conditional context type cannot reduce across this generic group helper.
-  return webHandler as unknown as (request: Request) => Promise<Response>;
+  const routerLayer = Layer.merge(app, notFound);
+  // Each test request owns and releases the handler layer that serves it.
+  return async (request) => {
+    const webHandler = HttpRouter.toWebHandler(routerLayer, {
+      disableLogger: true,
+    });
+    // HttpRouter's conditional context type cannot reduce across this generic group helper.
+    const handler = webHandler.handler as unknown as (request: Request) => Promise<Response>;
+    try {
+      return await handler(request);
+    } finally {
+      await webHandler.dispose();
+    }
+  };
 };
 
 const testFetch = <Id extends string, Groups extends HttpApiGroup.Constraint>(
@@ -184,10 +199,19 @@ export const makeBackendTestHttp = (
   authHandler: BackendAuthHandler,
   options: BackendHttpOptions = {},
 ) => {
-  const native = HttpRouter.toWebHandler(
-    makeExternalNativeApiRouterLayer(config, run, options).pipe(Layer.provide(platform)),
-    { disableLogger: true },
-  ).handler as unknown as (request: Request) => Promise<Response>;
+  const routerLayer = makeExternalNativeApiRouterLayer(config, run, options).pipe(
+    Layer.provide(platform),
+  );
+  const native = async (request: Request): Promise<Response> => {
+    const { dispose, handler } = HttpRouter.toWebHandler(routerLayer, {
+      disableLogger: true,
+    });
+    try {
+      return await handler(request);
+    } finally {
+      await dispose();
+    }
+  };
   return makeBackendHttp(native, authHandler, config.sessionBoundary);
 };
 
@@ -196,9 +220,19 @@ export const makeBackendInternalTestHttp = (
   run: BackendRun,
   options: BackendHttpOptions = {},
 ) => {
-  const internal = HttpRouter.toWebHandler(
-    makeInternalNativeApiRouterLayer(config, run, options).pipe(Layer.provide(platform)),
-    { disableLogger: true },
-  ).handler as unknown as (request: Request) => Promise<Response>;
-  return { fetch: internal };
+  const routerLayer = makeInternalNativeApiRouterLayer(config, run, options).pipe(
+    Layer.provide(platform),
+  );
+  return {
+    fetch: async (request: Request): Promise<Response> => {
+      const { dispose, handler } = HttpRouter.toWebHandler(routerLayer, {
+        disableLogger: true,
+      });
+      try {
+        return await handler(request);
+      } finally {
+        await dispose();
+      }
+    },
+  };
 };
