@@ -1,77 +1,76 @@
 import type {
-  CancelInterviewCommand,
-  CancelInterviewResult,
-  FinalizeInterviewCommand,
-  FinalizeInterviewResult,
   RecruitmentAssignmentBoard,
   RecruitmentAssignmentBoardQuery,
-  RecruitmentAssignmentCommand,
-  RecruitmentAssignmentResult,
-  RecruitmentInterviewConductObservation,
-  RecruitmentScheduleCommand,
-  RecruitmentScheduleResult,
   RecruitmentSchedulingBoard,
-} from "@vektorprogrammet/sdk";
+} from "@vektorprogrammet/domain/recruitment";
+import type {
+  CancelInterviewResponse,
+  FinalizeInterviewResponse,
+  RecruitmentInterviewResource,
+  ScheduleInterviewResponse,
+} from "@vektorprogrammet/http-api";
 import { Effect, Schema as S } from "effect";
 import {
+  CancelInterviewInputSchema,
+  CancelInterviewResponse as CancelInterviewResponseSchema,
+  CreateApplicationInterviewInputSchema,
+  FinalizeInterviewInputSchema,
+  FinalizeInterviewResponse as FinalizeInterviewResponseSchema,
+  ReadInterviewConductInputSchema,
   RecruitmentAssignmentBoardSchema,
-  RecruitmentAssignmentResultSchema,
   RecruitmentBridgeFailure,
   RecruitmentBridgeOperationJson,
-  CancelInterviewResultSchema,
-  FinalizeInterviewResultSchema,
-  RecruitmentInterviewConductObservationSchema,
-  RecruitmentScheduleResultSchema,
+  RecruitmentInterviewConductResourceSchema,
+  RecruitmentInterviewResource as RecruitmentInterviewResourceSchema,
   RecruitmentSchedulingBoardSchema,
+  ScheduleInterviewInputSchema,
+  ScheduleInterviewResponse as ScheduleInterviewResponseSchema,
   toRecruitmentBridgeFailure,
   type RecruitmentBridgeOperation,
+  type RecruitmentInterviewConductResource,
 } from "./bridge";
 
-interface RecruitmentAssignmentOperations {
-  readonly readAssignmentBoard: (
-    query: RecruitmentAssignmentBoardQuery,
-  ) => Effect.Effect<RecruitmentAssignmentBoard, RecruitmentBridgeFailure>;
-  readonly assignApplicant: (
-    command: RecruitmentAssignmentCommand,
-  ) => Effect.Effect<RecruitmentAssignmentResult, RecruitmentBridgeFailure>;
-}
+export type CreateApplicationInterviewInput = S.Schema.Type<
+  typeof CreateApplicationInterviewInputSchema
+>;
+export type ScheduleInterviewInput = S.Schema.Type<typeof ScheduleInterviewInputSchema>;
+export type ReadInterviewConductInput = S.Schema.Type<typeof ReadInterviewConductInputSchema>;
+export type FinalizeInterviewInput = S.Schema.Type<typeof FinalizeInterviewInputSchema>;
+export type CancelInterviewInput = S.Schema.Type<typeof CancelInterviewInputSchema>;
 
-interface RecruitmentSchedulingOperations {
+interface RecruitmentOperations {
+  readonly readAssignmentBoard: (
+    input: Readonly<{ query: RecruitmentAssignmentBoardQuery }>,
+  ) => Effect.Effect<RecruitmentAssignmentBoard, RecruitmentBridgeFailure>;
+  readonly createApplicationInterview: (
+    input: CreateApplicationInterviewInput,
+  ) => Effect.Effect<RecruitmentInterviewResource, RecruitmentBridgeFailure>;
   readonly readSchedulingBoard: () => Effect.Effect<
     RecruitmentSchedulingBoard,
     RecruitmentBridgeFailure
   >;
   readonly scheduleInterview: (
-    command: RecruitmentScheduleCommand,
-  ) => Effect.Effect<RecruitmentScheduleResult, RecruitmentBridgeFailure>;
-}
-
-export interface RecruitmentConductOperations {
+    input: ScheduleInterviewInput,
+  ) => Effect.Effect<ScheduleInterviewResponse, RecruitmentBridgeFailure>;
   readonly readInterviewConduct: (
-    interviewId: RecruitmentInterviewConductObservation["interviewId"],
-  ) => Effect.Effect<RecruitmentInterviewConductObservation, RecruitmentBridgeFailure>;
+    input: ReadInterviewConductInput,
+  ) => Effect.Effect<RecruitmentInterviewConductResource, RecruitmentBridgeFailure>;
   readonly finalizeInterview: (
-    command: FinalizeInterviewCommand,
-  ) => Effect.Effect<FinalizeInterviewResult, RecruitmentBridgeFailure>;
+    input: FinalizeInterviewInput,
+  ) => Effect.Effect<FinalizeInterviewResponse, RecruitmentBridgeFailure>;
   readonly cancelInterview: (
-    command: CancelInterviewCommand,
-  ) => Effect.Effect<CancelInterviewResult, RecruitmentBridgeFailure>;
+    input: CancelInterviewInput,
+  ) => Effect.Effect<CancelInterviewResponse, RecruitmentBridgeFailure>;
 }
 
 export interface RecruitmentAssignmentClient {
-  readonly admin: Readonly<{
-    recruitment: Readonly<RecruitmentAssignmentOperations>;
-  }>;
+  readonly recruitment: Readonly<
+    Pick<RecruitmentOperations, "readAssignmentBoard" | "createApplicationInterview">
+  >;
 }
 
 export interface RecruitmentClient {
-  readonly admin: Readonly<{
-    recruitment: Readonly<
-      RecruitmentAssignmentOperations &
-        RecruitmentSchedulingOperations &
-        RecruitmentConductOperations
-    >;
-  }>;
+  readonly recruitment: Readonly<RecruitmentOperations>;
 }
 
 const bridgeRequest = <A>(
@@ -98,50 +97,50 @@ const bridgeRequest = <A>(
   });
 
 export const createBrowserRecruitmentClient = (): RecruitmentClient => ({
-  admin: {
-    recruitment: {
-      readAssignmentBoard: (query) =>
-        bridgeRequest({ operation: "readAssignmentBoard", query }, (value) =>
-          S.decodeUnknownSync(RecruitmentAssignmentBoardSchema)(value, {
+  recruitment: {
+    readAssignmentBoard: ({ query }) =>
+      bridgeRequest({ operation: "readAssignmentBoard", query }, (value) =>
+        S.decodeUnknownSync(RecruitmentAssignmentBoardSchema)(value, {
+          onExcessProperty: "error",
+        }),
+      ),
+    createApplicationInterview: ({ params, headers, payload }) =>
+      bridgeRequest(
+        { operation: "createApplicationInterview", params, headers, payload },
+        (value) =>
+          S.decodeUnknownSync(RecruitmentInterviewResourceSchema)(value, {
             onExcessProperty: "error",
           }),
-        ),
-      assignApplicant: (command) =>
-        bridgeRequest({ operation: "assignApplicant", command }, (value) =>
-          S.decodeUnknownSync(RecruitmentAssignmentResultSchema)(value, {
-            onExcessProperty: "error",
-          }),
-        ),
-      readSchedulingBoard: () =>
-        bridgeRequest({ operation: "readSchedulingBoard" }, (value) =>
-          S.decodeUnknownSync(RecruitmentSchedulingBoardSchema)(value, {
-            onExcessProperty: "error",
-          }),
-        ),
-      scheduleInterview: (command) =>
-        bridgeRequest({ operation: "scheduleInterview", command }, (value) =>
-          S.decodeUnknownSync(RecruitmentScheduleResultSchema)(value, {
-            onExcessProperty: "error",
-          }),
-        ),
-      readInterviewConduct: (interviewId) =>
-        bridgeRequest({ operation: "readInterviewConduct", interviewId }, (value) =>
-          S.decodeUnknownSync(RecruitmentInterviewConductObservationSchema)(value, {
-            onExcessProperty: "error",
-          }),
-        ),
-      finalizeInterview: (command) =>
-        bridgeRequest({ operation: "finalizeInterview", command }, (value) =>
-          S.decodeUnknownSync(FinalizeInterviewResultSchema)(value, {
-            onExcessProperty: "error",
-          }),
-        ),
-      cancelInterview: (command) =>
-        bridgeRequest({ operation: "cancelInterview", command }, (value) =>
-          S.decodeUnknownSync(CancelInterviewResultSchema)(value, {
-            onExcessProperty: "error",
-          }),
-        ),
-    },
+      ),
+    readSchedulingBoard: () =>
+      bridgeRequest({ operation: "readSchedulingBoard" }, (value) =>
+        S.decodeUnknownSync(RecruitmentSchedulingBoardSchema)(value, {
+          onExcessProperty: "error",
+        }),
+      ),
+    scheduleInterview: ({ params, headers, payload }) =>
+      bridgeRequest({ operation: "scheduleInterview", params, headers, payload }, (value) =>
+        S.decodeUnknownSync(ScheduleInterviewResponseSchema)(value, {
+          onExcessProperty: "error",
+        }),
+      ),
+    readInterviewConduct: ({ params, headers }) =>
+      bridgeRequest({ operation: "readInterviewConduct", params, headers }, (value) =>
+        S.decodeUnknownSync(RecruitmentInterviewConductResourceSchema)(value, {
+          onExcessProperty: "error",
+        }),
+      ),
+    finalizeInterview: ({ params, headers, payload }) =>
+      bridgeRequest({ operation: "finalizeInterview", params, headers, payload }, (value) =>
+        S.decodeUnknownSync(FinalizeInterviewResponseSchema)(value, {
+          onExcessProperty: "error",
+        }),
+      ),
+    cancelInterview: ({ params, headers, payload }) =>
+      bridgeRequest({ operation: "cancelInterview", params, headers, payload }, (value) =>
+        S.decodeUnknownSync(CancelInterviewResponseSchema)(value, {
+          onExcessProperty: "error",
+        }),
+      ),
   },
 });

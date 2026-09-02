@@ -24,7 +24,9 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   let profile;
   try {
-    profile = await client.me.profile();
+    const result = await client.profile.readOwnProfile({ headers: {} });
+    if (result.body === undefined) throw new Error("Profile response did not include a body");
+    profile = result.body;
   } catch {
     throw await expiredSessionRedirect(request);
   }
@@ -43,8 +45,8 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   let recruitment: RecruitmentInput;
   try {
-    const board = await client.admin.recruitment.readAssignmentBoard({ status });
-    recruitment = { _tag: "Loaded", status, board };
+    const result = await client.recruitment.readAssignmentBoard({ query: { status } });
+    recruitment = { _tag: "Loaded", status, board: result.body };
   } catch (error) {
     const failure = toRecruitmentBridgeFailure(error);
     if (failure._tag === "Unauthorized") throw await expiredSessionRedirect(request);

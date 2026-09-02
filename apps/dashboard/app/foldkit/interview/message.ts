@@ -1,3 +1,4 @@
+import { StrongETag } from "@vektorprogrammet/http-api";
 import { Schema as S } from "effect";
 import { m } from "foldkit/message";
 import {
@@ -11,6 +12,7 @@ export const OpenedInvitationResponse = m("OpenedInvitationResponse");
 export const SucceededReadInvitationResponse = m("SucceededReadInvitationResponse", {
   requestId: InvitationResponseRequestIdSchema,
   observation: InvitationResponseObservationSchema,
+  etag: StrongETag,
 });
 export const FailedReadInvitationResponse = m("FailedReadInvitationResponse", {
   requestId: InvitationResponseRequestIdSchema,
@@ -24,6 +26,7 @@ export const SucceededInvitationResponse = m("SucceededInvitationResponse", {
   requestId: InvitationResponseRequestIdSchema,
   action: InvitationResponseActionSchema,
   observation: InvitationResponseObservationSchema,
+  etag: StrongETag,
 });
 export const FailedInvitationResponse = m("FailedInvitationResponse", {
   requestId: InvitationResponseRequestIdSchema,

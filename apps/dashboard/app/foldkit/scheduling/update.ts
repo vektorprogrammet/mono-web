@@ -331,7 +331,7 @@ export const makeUpdate =
           try {
             command = S.decodeUnknownSync(RecruitmentScheduleCommandSchema)(
               {
-                commandId: `${model.commandIdSeed}-${model.commandSequence}`,
+                commandId: `${model.idempotencyKeySeed}-${model.commandSequence}`,
                 interviewId: interview.interviewId,
                 expectedRevision: interview.revision,
                 scheduledAt: scheduledAt.value.trim(),
@@ -644,7 +644,7 @@ export const makeUpdate =
           try {
             command = S.decodeUnknownSync(FinalizeInterviewCommandSchema)(
               {
-                commandId: `${model.commandIdSeed}-${model.commandSequence}`,
+                commandId: `${model.idempotencyKeySeed}-${model.commandSequence}`,
                 interviewId: model.selectedInterviewId,
                 expectedRevision: current.value.revision,
                 answers: model.answers,
@@ -690,7 +690,7 @@ export const makeUpdate =
           try {
             command = S.decodeUnknownSync(CancelInterviewCommandSchema)(
               {
-                commandId: `${model.commandIdSeed}-${model.commandSequence}`,
+                commandId: `${model.idempotencyKeySeed}-${model.commandSequence}`,
                 interviewId: model.selectedInterviewId,
                 expectedRevision: current.value.revision,
               },

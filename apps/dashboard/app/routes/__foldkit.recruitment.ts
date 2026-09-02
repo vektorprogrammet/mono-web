@@ -47,37 +47,62 @@ export async function action({ request }: Route.ActionArgs) {
       });
     }
     const operation = decodedRequest.operation;
-    const recruitment = createAuthenticatedClient(cookie, request).admin.recruitment;
+    const recruitment = createAuthenticatedClient(cookie, request).recruitment;
 
     switch (operation.operation) {
-      case "readAssignmentBoard":
-        return data(await recruitment.readAssignmentBoard(operation.query), {
-          headers: responseHeaders,
+      case "readAssignmentBoard": {
+        const result = await recruitment.readAssignmentBoard({ query: operation.query });
+        return data(result.body, { headers: responseHeaders });
+      }
+      case "createApplicationInterview": {
+        const result = await recruitment.createApplicationInterview({
+          params: operation.params,
+          headers: operation.headers,
+          payload: operation.payload,
         });
-      case "assignApplicant":
-        return data(await recruitment.assignApplicant(operation.command), {
-          headers: responseHeaders,
+        return data(result.body, { headers: responseHeaders });
+      }
+      case "readSchedulingBoard": {
+        const result = await recruitment.readSchedulingBoard();
+        return data(result.body, { headers: responseHeaders });
+      }
+      case "scheduleInterview": {
+        const result = await recruitment.scheduleInterview({
+          params: operation.params,
+          headers: operation.headers,
+          payload: operation.payload,
         });
-      case "readSchedulingBoard":
-        return data(await recruitment.readSchedulingBoard(), {
-          headers: responseHeaders,
+        return data(result.body, { headers: responseHeaders });
+      }
+      case "readInterviewConduct": {
+        const result = await recruitment.readInterviewConduct({
+          params: operation.params,
+          headers: operation.headers,
         });
-      case "scheduleInterview":
-        return data(await recruitment.scheduleInterview(operation.command), {
-          headers: responseHeaders,
+        if (result.body === undefined) {
+          throw new Error("Interview conduct response did not include a body");
+        }
+        return data(
+          { detail: result.body, etag: result.headers.ETag },
+          { headers: responseHeaders },
+        );
+      }
+      case "finalizeInterview": {
+        const result = await recruitment.finalizeInterview({
+          params: operation.params,
+          headers: operation.headers,
+          payload: operation.payload,
         });
-      case "readInterviewConduct":
-        return data(await recruitment.readInterviewConduct(operation.interviewId), {
-          headers: responseHeaders,
+        return data(result.body, { headers: responseHeaders });
+      }
+      case "cancelInterview": {
+        const result = await recruitment.cancelInterview({
+          params: operation.params,
+          headers: operation.headers,
+          payload: operation.payload,
         });
-      case "finalizeInterview":
-        return data(await recruitment.finalizeInterview(operation.command), {
-          headers: responseHeaders,
-        });
-      case "cancelInterview":
-        return data(await recruitment.cancelInterview(operation.command), {
-          headers: responseHeaders,
-        });
+        return data(result.body, { headers: responseHeaders });
+      }
     }
   } catch (error) {
     const failure = toRecruitmentBridgeFailure(error);

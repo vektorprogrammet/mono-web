@@ -1,3 +1,4 @@
+import { IdempotencyKey } from "@vektorprogrammet/http-api";
 import { Schema as S } from "effect";
 import { Runtime } from "foldkit";
 import type { RecruitmentClient } from "./browser-client";
@@ -10,7 +11,7 @@ import { view } from "./view";
 export interface RecruitmentRuntimeInput {
   readonly client: RecruitmentClient;
   readonly serializedInput: string | null;
-  readonly commandIdSeed: string;
+  readonly idempotencyKeySeed: typeof IdempotencyKey.Type;
 }
 
 export const embedRecruitment = (
@@ -26,7 +27,7 @@ export const embedRecruitment = (
       const decoded = S.decodeUnknownSync(RecruitmentInputJson)(input.serializedInput, {
         onExcessProperty: "error",
       });
-      initialModel = makeInitialModel(decoded, input.commandIdSeed);
+      initialModel = makeInitialModel(decoded, input.idempotencyKeySeed);
     } catch {
       initialModel = makeInvalidInputModel();
     }

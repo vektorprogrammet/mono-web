@@ -1,13 +1,16 @@
-import { RecruitmentAssignmentCommandSchema } from "@vektorprogrammet/sdk/effect";
 import { Effect, Schema as S } from "effect";
 import { Command } from "foldkit";
 import {
   assignmentFailureMessage,
   boardFailureMessage,
+  CreateApplicationInterviewInputSchema,
   RecruitmentBoardStatus,
   toRecruitmentBridgeFailure,
 } from "./bridge";
-import type { RecruitmentAssignmentClient } from "./browser-client";
+import type {
+  CreateApplicationInterviewInput,
+  RecruitmentAssignmentClient,
+} from "./browser-client";
 import {
   FailedAssignment,
   FailedLoadBoard,
@@ -15,25 +18,26 @@ import {
   SucceededLoadBoard,
   type Message,
 } from "./message";
-type RecruitmentAssignmentCommand = S.Schema.Type<typeof RecruitmentAssignmentCommandSchema>;
 
 export interface RecruitmentCommands {
   readonly LoadAssignmentBoard: (args: {
     readonly status: RecruitmentBoardStatus;
     readonly requestId: number;
   }) => Command.Command<Message>;
-  readonly AssignApplicant: (args: {
-    readonly command: RecruitmentAssignmentCommand;
+  readonly CreateApplicationInterview: (args: {
+    readonly input: CreateApplicationInterviewInput;
     readonly status: RecruitmentBoardStatus;
   }) => Command.Command<Message>;
 }
 
-export const makeRecruitmentCommands = (client: RecruitmentAssignmentClient): RecruitmentCommands => {
+export const makeRecruitmentCommands = (
+  client: RecruitmentAssignmentClient,
+): RecruitmentCommands => {
   const LoadAssignmentBoard = Command.define("LoadAssignmentBoard", {
     args: { status: RecruitmentBoardStatus, requestId: S.Int },
     messages: [SucceededLoadBoard, FailedLoadBoard],
     execute: ({ status, requestId }) =>
-      client.admin.recruitment.readAssignmentBoard({ status }).pipe(
+      client.recruitment.readAssignmentBoard({ query: { status } }).pipe(
         Effect.map((board) => SucceededLoadBoard({ requestId, board })),
         Effect.catch((error) =>
           Effect.succeed(
@@ -46,15 +50,15 @@ export const makeRecruitmentCommands = (client: RecruitmentAssignmentClient): Re
       ),
   });
 
-  const AssignApplicant = Command.define("AssignApplicant", {
+  const CreateApplicationInterview = Command.define("CreateApplicationInterview", {
     args: {
-      command: RecruitmentAssignmentCommandSchema,
+      input: CreateApplicationInterviewInputSchema,
       status: RecruitmentBoardStatus,
     },
     messages: [SucceededAssignment, FailedAssignment],
-    execute: ({ command, status }) =>
-      client.admin.recruitment.assignApplicant(command).pipe(
-        Effect.flatMap(() => client.admin.recruitment.readAssignmentBoard({ status })),
+    execute: ({ input, status }) =>
+      client.recruitment.createApplicationInterview(input).pipe(
+        Effect.flatMap(() => client.recruitment.readAssignmentBoard({ query: { status } })),
         Effect.map((board) => SucceededAssignment({ board })),
         Effect.catch((error) =>
           Effect.succeed(
@@ -66,5 +70,5 @@ export const makeRecruitmentCommands = (client: RecruitmentAssignmentClient): Re
       ),
   });
 
-  return { LoadAssignmentBoard, AssignApplicant };
+  return { LoadAssignmentBoard, CreateApplicationInterview };
 };

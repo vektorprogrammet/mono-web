@@ -23,7 +23,9 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   let profile;
   try {
-    profile = await client.me.profile();
+    const result = await client.profile.readOwnProfile({ headers: {} });
+    if (result.body === undefined) throw new Error("Profile response did not include a body");
+    profile = result.body;
   } catch {
     throw await expiredSessionRedirect(request);
   }
@@ -34,9 +36,10 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   let scheduling: SchedulingInput;
   try {
+    const result = await client.recruitment.readSchedulingBoard();
     scheduling = {
       _tag: "Loaded",
-      board: await client.admin.recruitment.readSchedulingBoard(),
+      board: result.body,
     };
   } catch (error) {
     const failure = toRecruitmentBridgeFailure(error);

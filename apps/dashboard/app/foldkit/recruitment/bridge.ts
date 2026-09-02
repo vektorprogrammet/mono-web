@@ -1,20 +1,29 @@
+import { PublicApplicationIdSchema } from "@vektorprogrammet/domain/application";
 import {
-  RecruitmentAssignmentBoardSchema,
+  CancelInterviewObservationSchema,
+  FinalizeInterviewObservationSchema,
+  InterviewSchemaId,
   RecruitmentAssignmentBoardQuerySchema,
-  RecruitmentAssignmentCommandSchema,
-  RecruitmentAssignmentResultSchema,
-  RecruitmentInterviewId,
-  RecruitmentScheduleCommandSchema,
-  RecruitmentScheduleResultSchema,
-  RecruitmentSchedulingBoardSchema,
-} from "@vektorprogrammet/sdk/effect";
-import {
-  CancelInterviewCommandSchema,
-  CancelInterviewResultSchema,
-  FinalizeInterviewCommandSchema,
-  FinalizeInterviewResultSchema,
+  RecruitmentAssignmentBoardSchema,
   RecruitmentInterviewConductObservationSchema,
-} from "@vektorprogrammet/sdk";
+  RecruitmentInterviewId,
+  RecruitmentSchedulingBoardSchema,
+} from "@vektorprogrammet/domain/recruitment";
+import {
+  CancelInterviewRequest,
+  CancelInterviewResponse,
+  ConditionalReadHeaders,
+  CreateApplicationInterviewRequest,
+  FinalizeInterviewRequest,
+  FinalizeInterviewResponse,
+  IdempotencyHeaders,
+  IdempotencyIfMatchHeaders,
+  NativeProblem,
+  RecruitmentInterviewResource,
+  ScheduleInterviewRequest,
+  ScheduleInterviewResponse,
+  StrongETag,
+} from "@vektorprogrammet/http-api";
 import { Match, Schema as S } from "effect";
 
 export const RecruitmentBoardStatus = RecruitmentAssignmentBoardQuerySchema.fields.status;
@@ -25,45 +34,88 @@ const ReadAssignmentBoardOperation = S.Struct({
   query: RecruitmentAssignmentBoardQuerySchema,
 });
 
-const AssignApplicantOperation = S.Struct({
-  operation: S.Literal("assignApplicant"),
-  command: RecruitmentAssignmentCommandSchema,
+export const CreateApplicationInterviewInputSchema = S.Struct({
+  params: S.Struct({ applicationId: PublicApplicationIdSchema }),
+  headers: IdempotencyHeaders,
+  payload: CreateApplicationInterviewRequest,
+});
+const CreateApplicationInterviewOperation = S.Struct({
+  operation: S.Literal("createApplicationInterview"),
+  ...CreateApplicationInterviewInputSchema.fields,
 });
 
 const ReadSchedulingBoardOperation = S.Struct({
   operation: S.Literal("readSchedulingBoard"),
 });
 
+export const ScheduleInterviewInputSchema = S.Struct({
+  params: S.Struct({ interviewId: RecruitmentInterviewId }),
+  headers: IdempotencyIfMatchHeaders,
+  payload: ScheduleInterviewRequest,
+});
 const ScheduleInterviewOperation = S.Struct({
   operation: S.Literal("scheduleInterview"),
-  command: RecruitmentScheduleCommandSchema,
+  ...ScheduleInterviewInputSchema.fields,
+});
+
+export const ReadInterviewConductInputSchema = S.Struct({
+  params: S.Struct({ interviewId: RecruitmentInterviewId }),
+  headers: ConditionalReadHeaders,
 });
 const ReadInterviewConductOperation = S.Struct({
   operation: S.Literal("readInterviewConduct"),
-  interviewId: RecruitmentInterviewId,
+  ...ReadInterviewConductInputSchema.fields,
 });
 
+export const FinalizeInterviewInputSchema = S.Struct({
+  params: S.Struct({ interviewId: RecruitmentInterviewId }),
+  headers: IdempotencyIfMatchHeaders,
+  payload: FinalizeInterviewRequest,
+});
 const FinalizeInterviewOperation = S.Struct({
   operation: S.Literal("finalizeInterview"),
-  command: FinalizeInterviewCommandSchema,
+  ...FinalizeInterviewInputSchema.fields,
 });
 
+export const CancelInterviewInputSchema = S.Struct({
+  params: S.Struct({ interviewId: RecruitmentInterviewId }),
+  headers: IdempotencyIfMatchHeaders,
+  payload: CancelInterviewRequest,
+});
 const CancelInterviewOperation = S.Struct({
   operation: S.Literal("cancelInterview"),
-  command: CancelInterviewCommandSchema,
+  ...CancelInterviewInputSchema.fields,
 });
 
+export const RecruitmentInterviewConductResourceSchema = S.Struct({
+  detail: RecruitmentInterviewConductObservationSchema,
+  etag: StrongETag,
+});
+export type RecruitmentInterviewConductResource = S.Schema.Type<
+  typeof RecruitmentInterviewConductResourceSchema
+>;
+
 export {
-  CancelInterviewCommandSchema,
-  CancelInterviewResultSchema,
-  FinalizeInterviewCommandSchema,
-  FinalizeInterviewResultSchema,
+  CancelInterviewObservationSchema,
+  CancelInterviewRequest,
+  CancelInterviewResponse,
+  CreateApplicationInterviewRequest,
+  FinalizeInterviewObservationSchema,
+  FinalizeInterviewRequest,
+  FinalizeInterviewResponse,
+  InterviewSchemaId,
+  RecruitmentAssignmentBoardSchema,
   RecruitmentInterviewConductObservationSchema,
+  RecruitmentInterviewId,
+  RecruitmentInterviewResource,
+  RecruitmentSchedulingBoardSchema,
+  ScheduleInterviewRequest,
+  ScheduleInterviewResponse,
 };
 
 export const RecruitmentBridgeOperation = S.Union([
   ReadAssignmentBoardOperation,
-  AssignApplicantOperation,
+  CreateApplicationInterviewOperation,
   ReadSchedulingBoardOperation,
   ScheduleInterviewOperation,
   ReadInterviewConductOperation,
@@ -88,55 +140,46 @@ export const RecruitmentBridgeFailure = S.Struct({
 });
 export type RecruitmentBridgeFailure = S.Schema.Type<typeof RecruitmentBridgeFailure>;
 
-export {
-  RecruitmentAssignmentBoardSchema,
-  RecruitmentAssignmentResultSchema,
-  RecruitmentScheduleResultSchema,
-  RecruitmentSchedulingBoardSchema,
-};
-
-const errorTag = (error: unknown): string => {
-  if (typeof error !== "object" || error === null) return "";
-  if ("_tag" in error && typeof error._tag === "string") return error._tag;
-  if ("type" in error && typeof error.type === "string") return error.type;
-  return "";
+const nativeProblem = (error: unknown): typeof NativeProblem.Type | undefined => {
+  if (S.is(NativeProblem)(error)) return error;
+  if (typeof error !== "object" || error === null || !("body" in error)) return undefined;
+  return S.is(NativeProblem)(error.body) ? error.body : undefined;
 };
 
 export const toRecruitmentBridgeFailure = (error: unknown): RecruitmentBridgeFailure => {
-  const tag = errorTag(error).toLocaleLowerCase("en-US");
+  if (S.is(RecruitmentBridgeFailure)(error)) return error;
 
-  if (tag.includes("unauthenticated") || tag === "unauthorized") {
-    return { _tag: "Unauthorized", message: "Authentication is required" };
+  const problem = nativeProblem(error);
+  if (problem !== undefined) {
+    switch (problem.status) {
+      case 401:
+        return { _tag: "Unauthorized", message: "Authentication is required" };
+      case 403:
+        return { _tag: "Forbidden", message: "Recruitment access is denied" };
+      case 404:
+        return { _tag: "NotFound", message: "Recruitment record was not found" };
+      case 409:
+      case 412:
+      case 428:
+        return { _tag: "Conflict", message: "Recruitment state has changed" };
+      case 400:
+      case 413:
+      case 415:
+      case 422:
+        return { _tag: "Validation", message: "Recruitment input is invalid" };
+      case 429:
+        return { _tag: "RateLimited", message: "Recruitment requests are rate limited" };
+      case 500:
+      case 503:
+        return { _tag: "Network", message: "Recruitment request failed" };
+    }
   }
-  if (
-    tag.includes("forbidden") ||
-    tag.includes("denied") ||
-    tag.includes("inactiveactor") ||
-    tag.includes("role") ||
-    tag.includes("scope")
-  ) {
-    return { _tag: "Forbidden", message: "Recruitment access is denied" };
-  }
-  if (tag.includes("notfound") || tag.includes("not_found")) {
-    return { _tag: "NotFound", message: "Recruitment record was not found" };
-  }
-  if (
-    tag.includes("conflict") ||
-    tag.includes("alreadyassigned") ||
-    tag.includes("alreadyscheduled") ||
-    tag.includes("duplicate") ||
-    tag.includes("revision") ||
-    tag.includes("stale")
-  ) {
-    return { _tag: "Conflict", message: "Recruitment state has changed" };
-  }
-  if (tag.includes("validation") || tag.includes("decode") || tag.includes("parse")) {
-    return { _tag: "Validation", message: "Recruitment input is invalid" };
-  }
-  if (tag.includes("ratelimit") || tag.includes("rate_limited")) {
-    return { _tag: "RateLimited", message: "Recruitment requests are rate limited" };
-  }
-  if (tag.includes("configuration")) {
+
+  const tag =
+    typeof error === "object" && error !== null && "_tag" in error && typeof error._tag === "string"
+      ? error._tag
+      : "";
+  if (tag.toLowerCase().includes("configuration")) {
     return { _tag: "Configuration", message: "Recruitment is not configured" };
   }
   return { _tag: "Network", message: "Recruitment request failed" };

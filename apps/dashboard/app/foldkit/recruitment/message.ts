@@ -1,8 +1,6 @@
-import {
-  InterviewSchemaId,
-  RecruitmentApplicationId,
-  RecruitmentPersonId,
-} from "@vektorprogrammet/sdk/effect";
+import { PublicApplicationIdSchema } from "@vektorprogrammet/domain/application";
+import { InterviewSchemaId } from "@vektorprogrammet/domain/recruitment";
+import { PersonId } from "@vektorprogrammet/domain/schema";
 import { Dialog } from "@foldkit/ui";
 import { Schema as S } from "effect";
 import { m } from "foldkit/message";
@@ -19,11 +17,11 @@ export const FailedLoadBoard = m("FailedLoadBoard", {
   message: S.String,
 });
 export const OpenedAssignment = m("OpenedAssignment", {
-  applicationId: RecruitmentApplicationId,
+  applicationId: PublicApplicationIdSchema,
 });
 export const ClosedAssignment = m("ClosedAssignment");
 export const SelectedInterviewer = m("SelectedInterviewer", {
-  personId: RecruitmentPersonId,
+  personId: PersonId,
 });
 export const SelectedSchema = m("SelectedSchema", {
   interviewSchemaId: InterviewSchemaId,

@@ -1,28 +1,24 @@
-import {
-  RecruitmentInterviewId,
-  RecruitmentScheduleCommandSchema,
-} from "@vektorprogrammet/sdk/effect";
-import {
-  CancelInterviewCommandSchema,
-  FinalizeInterviewCommandSchema,
-} from "@vektorprogrammet/sdk";
-import type {
-  CancelInterviewCommand,
-  FinalizeInterviewCommand,
-  RecruitmentScheduleCommand,
-} from "@vektorprogrammet/sdk";
+import { RecruitmentInterviewId } from "@vektorprogrammet/domain/recruitment";
 import { Effect } from "effect";
 import { Command } from "foldkit";
+import type {
+  CancelInterviewInput,
+  FinalizeInterviewInput,
+  RecruitmentClient,
+  ScheduleInterviewInput,
+} from "../recruitment/browser-client";
 import {
+  CancelInterviewInputSchema,
+  FinalizeInterviewInputSchema,
+  ScheduleInterviewInputSchema,
   schedulingBoardFailureMessage,
   schedulingFailureMessage,
   toRecruitmentBridgeFailure,
 } from "../recruitment/bridge";
-import type { RecruitmentClient } from "../recruitment/browser-client";
 import {
+  FailedCancel,
   FailedConduct,
   FailedFinalize,
-  FailedCancel,
   FailedLoadSchedulingBoard,
   FailedSchedule,
   SucceededCancel,
@@ -38,24 +34,24 @@ export interface SchedulingCommands {
   readonly LoadSchedulingBoard: (args: { readonly requestId: number }) => Command.Command<Message>;
   readonly ScheduleInterview: (args: {
     readonly requestId: number;
-    readonly command: RecruitmentScheduleCommand;
+    readonly input: ScheduleInterviewInput;
   }) => Command.Command<Message>;
   readonly ReadInterviewConduct: (args: {
     readonly requestId: number;
     readonly generation: number;
-    readonly interviewId: RecruitmentInterviewId;
+    readonly interviewId: typeof RecruitmentInterviewId.Type;
   }) => Command.Command<Message>;
   readonly FinalizeInterview: (args: {
     readonly requestId: number;
     readonly generation: number;
-    readonly interviewId: RecruitmentInterviewId;
-    readonly command: FinalizeInterviewCommand;
+    readonly interviewId: typeof RecruitmentInterviewId.Type;
+    readonly input: FinalizeInterviewInput;
   }) => Command.Command<Message>;
   readonly CancelInterview: (args: {
     readonly requestId: number;
     readonly generation: number;
-    readonly interviewId: RecruitmentInterviewId;
-    readonly command: CancelInterviewCommand;
+    readonly interviewId: typeof RecruitmentInterviewId.Type;
+    readonly input: CancelInterviewInput;
   }) => Command.Command<Message>;
 }
 
@@ -64,7 +60,7 @@ export const makeSchedulingCommands = (client: RecruitmentClient): SchedulingCom
     args: { requestId: SchedulingRequestId },
     messages: [SucceededLoadSchedulingBoard, FailedLoadSchedulingBoard],
     execute: ({ requestId }) =>
-      client.admin.recruitment.readSchedulingBoard().pipe(
+      client.recruitment.readSchedulingBoard().pipe(
         Effect.map((board) => SucceededLoadSchedulingBoard({ requestId, board })),
         Effect.catch((error) =>
           Effect.succeed(
@@ -77,15 +73,15 @@ export const makeSchedulingCommands = (client: RecruitmentClient): SchedulingCom
       ),
   });
 
-  const ScheduleInterview = Command.define("ScheduleRecruitmentInterview", {
+  const ScheduleInterview = Command.define("ScheduleInterview", {
     args: {
       requestId: SchedulingRequestId,
-      command: RecruitmentScheduleCommandSchema,
+      input: ScheduleInterviewInputSchema,
     },
     messages: [SucceededSchedule, FailedSchedule],
-    execute: ({ requestId, command }) =>
-      client.admin.recruitment.scheduleInterview(command).pipe(
-        Effect.flatMap(() => client.admin.recruitment.readSchedulingBoard()),
+    execute: ({ requestId, input }) =>
+      client.recruitment.scheduleInterview(input).pipe(
+        Effect.flatMap(() => client.recruitment.readSchedulingBoard()),
         Effect.map((board) => SucceededSchedule({ requestId, board })),
         Effect.catch((error) =>
           Effect.succeed(
@@ -106,8 +102,10 @@ export const makeSchedulingCommands = (client: RecruitmentClient): SchedulingCom
     },
     messages: [SucceededConduct, FailedConduct],
     execute: ({ requestId, generation, interviewId }) =>
-      client.admin.recruitment.readInterviewConduct(interviewId).pipe(
-        Effect.map((detail) => SucceededConduct({ requestId, generation, interviewId, detail })),
+      client.recruitment.readInterviewConduct({ params: { interviewId }, headers: {} }).pipe(
+        Effect.map(({ detail, etag }) =>
+          SucceededConduct({ requestId, generation, interviewId, detail, etag }),
+        ),
         Effect.catch((error) =>
           Effect.succeed(
             FailedConduct({
@@ -126,12 +124,12 @@ export const makeSchedulingCommands = (client: RecruitmentClient): SchedulingCom
       requestId: ConductRequestId,
       generation: ConductRequestId,
       interviewId: RecruitmentInterviewId,
-      command: FinalizeInterviewCommandSchema,
+      input: FinalizeInterviewInputSchema,
     },
     messages: [SucceededFinalize, FailedFinalize],
-    execute: ({ requestId, generation, interviewId, command }) =>
-      client.admin.recruitment.finalizeInterview(command).pipe(
-        Effect.map((result) => SucceededFinalize({ requestId, generation, interviewId, result })),
+    execute: ({ requestId, generation, interviewId, input }) =>
+      client.recruitment.finalizeInterview(input).pipe(
+        Effect.map(() => SucceededFinalize({ requestId, generation, interviewId })),
         Effect.catch((error) =>
           Effect.succeed(
             FailedFinalize({
@@ -150,12 +148,12 @@ export const makeSchedulingCommands = (client: RecruitmentClient): SchedulingCom
       requestId: ConductRequestId,
       generation: ConductRequestId,
       interviewId: RecruitmentInterviewId,
-      command: CancelInterviewCommandSchema,
+      input: CancelInterviewInputSchema,
     },
     messages: [SucceededCancel, FailedCancel],
-    execute: ({ requestId, generation, interviewId, command }) =>
-      client.admin.recruitment.cancelInterview(command).pipe(
-        Effect.map((result) => SucceededCancel({ requestId, generation, interviewId, result })),
+    execute: ({ requestId, generation, interviewId, input }) =>
+      client.recruitment.cancelInterview(input).pipe(
+        Effect.map(() => SucceededCancel({ requestId, generation, interviewId })),
         Effect.catch((error) =>
           Effect.succeed(
             FailedCancel({

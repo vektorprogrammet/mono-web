@@ -1,22 +1,30 @@
+import type { StrongETag } from "@vektorprogrammet/http-api";
 import { Effect, Schema as S } from "effect";
 import {
   decodeInvitationInteractionId,
   InvitationBridgeFailureSchema,
+  InvitationResponseResourceSchema,
+  INVITATION_INTERACTION_HEADER,
   type InvitationBridgeFailure,
   type InvitationInteractionId,
-  type InvitationResponseObservation,
-  InvitationResponseObservationSchema,
-  INVITATION_INTERACTION_HEADER,
+  type InvitationResponseResource,
 } from "./bridge";
 
 export interface InvitationResponseClient {
-  readonly recruitmentInvitationResponses: Readonly<{
-    readonly read: () => Effect.Effect<InvitationResponseObservation, InvitationBridgeFailure>;
-    readonly confirm: () => Effect.Effect<void, InvitationBridgeFailure>;
-    readonly reject: (input: {
+  readonly recruitment: Readonly<{
+    readonly readInvitationResponse: () => Effect.Effect<
+      InvitationResponseResource,
+      InvitationBridgeFailure
+    >;
+    readonly confirmInvitation: (input: {
+      readonly etag: StrongETag;
+    }) => Effect.Effect<void, InvitationBridgeFailure>;
+    readonly rejectInvitation: (input: {
+      readonly etag: StrongETag;
       readonly message: string | null;
     }) => Effect.Effect<void, InvitationBridgeFailure>;
-    readonly requestNewTime: (input: {
+    readonly requestNewInvitationTime: (input: {
+      readonly etag: StrongETag;
       readonly message: string;
     }) => Effect.Effect<void, InvitationBridgeFailure>;
   }>;
@@ -70,31 +78,31 @@ const bridgeRequest = <A>(
 export const createBrowserInterviewClient = (interactionId: unknown): InvitationResponseClient => {
   const decodedInteractionId = decodeInvitationInteractionId(interactionId);
   return {
-    recruitmentInvitationResponses: {
-      read: () =>
+    recruitment: {
+      readInvitationResponse: () =>
         bridgeRequest(decodedInteractionId, { operation: "readInvitationResponse" }, 200, (value) =>
-          S.decodeUnknownSync(InvitationResponseObservationSchema)(value, {
+          S.decodeUnknownSync(InvitationResponseResourceSchema)(value, {
             onExcessProperty: "error",
           }),
         ),
-      confirm: () =>
+      confirmInvitation: ({ etag }) =>
         bridgeRequest(
           decodedInteractionId,
-          { operation: "confirmInvitation" },
+          { operation: "confirmInvitation", etag },
           204,
           () => undefined,
         ),
-      reject: ({ message }) =>
+      rejectInvitation: ({ etag, message }) =>
         bridgeRequest(
           decodedInteractionId,
-          { operation: "rejectInvitation", message },
+          { operation: "rejectInvitation", etag, message },
           204,
           () => undefined,
         ),
-      requestNewTime: ({ message }) =>
+      requestNewInvitationTime: ({ etag, message }) =>
         bridgeRequest(
           decodedInteractionId,
-          { operation: "requestNewInvitationTime", message },
+          { operation: "requestNewInvitationTime", etag, message },
           204,
           () => undefined,
         ),

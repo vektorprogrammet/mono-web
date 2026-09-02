@@ -1,9 +1,9 @@
 import { Button, Dialog, Select } from "@foldkit/ui";
 import {
   InterviewSchemaId,
-  RecruitmentPersonId,
   type RecruitmentAssignmentBoard,
-} from "@vektorprogrammet/sdk/effect";
+} from "@vektorprogrammet/domain/recruitment";
+import { PersonId } from "@vektorprogrammet/domain/schema";
 import { Schema as S } from "effect";
 import { AsyncData } from "foldkit";
 import type { Html, HtmlBuilder } from "foldkit/html";
@@ -25,7 +25,7 @@ const dateTime = new Intl.DateTimeFormat("nb-NO", {
 });
 
 type AssignmentBoard = RecruitmentAssignmentBoard;
-const decodeInterviewerPersonId = S.decodeUnknownSync(RecruitmentPersonId);
+const decodeInterviewerPersonId = S.decodeUnknownSync(PersonId);
 const decodeInterviewSchemaId = S.decodeUnknownSync(InterviewSchemaId);
 
 type Candidate = AssignmentBoard["candidates"][number];
@@ -56,7 +56,6 @@ const actionButton = (
     h,
   );
 
-
 const filterView = (model: ReadyModel, h: HtmlBuilder<Message>): Html =>
   h.fieldset(
     [h.Class("fr-filter"), h.Disabled(model.isAssigning)],
@@ -64,10 +63,12 @@ const filterView = (model: ReadyModel, h: HtmlBuilder<Message>): Html =>
       h.legend([h.Class("fr-filter__legend")], ["Vis søkere"]),
       h.div(
         [h.Class("fr-filter__options")],
-        ([
-          ["new", "Nye søkere"],
-          ["all", "Alle søkere"],
-        ] as const).map(([status, label]) =>
+        (
+          [
+            ["new", "Nye søkere"],
+            ["all", "Alle søkere"],
+          ] as const
+        ).map(([status, label]) =>
           actionButton(
             label,
             SelectedFilter({ status }),
@@ -81,11 +82,7 @@ const filterView = (model: ReadyModel, h: HtmlBuilder<Message>): Html =>
     ],
   );
 
-const candidateRow = (
-  model: ReadyModel,
-  candidate: Candidate,
-  h: HtmlBuilder<Message>,
-): Html =>
+const candidateRow = (model: ReadyModel, candidate: Candidate, h: HtmlBuilder<Message>): Html =>
   h.tr(
     [h.DataAttribute("application-id", candidate.applicationId)],
     [
@@ -181,7 +178,11 @@ const successfulBoard = (
             ],
           )
         : h.div(
-            [h.Class("fr-table-scroll"), h.Tabindex(0), h.AriaLabel("Søkeroversikt, bla sidelengs")],
+            [
+              h.Class("fr-table-scroll"),
+              h.Tabindex(0),
+              h.AriaLabel("Søkeroversikt, bla sidelengs"),
+            ],
             [
               h.table(
                 [h.Class("fr-table")],
@@ -192,13 +193,22 @@ const successfulBoard = (
                     [
                       h.tr(
                         [],
-                        ["Navn", "E-post", "Søknad", "Intervju", "Intervjuer", "Tidspunkt", "Handling"].map(
-                          (label) => h.th([h.Scope("col")], [label]),
-                        ),
+                        [
+                          "Navn",
+                          "E-post",
+                          "Søknad",
+                          "Intervju",
+                          "Intervjuer",
+                          "Tidspunkt",
+                          "Handling",
+                        ].map((label) => h.th([h.Scope("col")], [label])),
                       ),
                     ],
                   ),
-                  h.tbody([], board.candidates.map((candidate) => candidateRow(model, candidate, h))),
+                  h.tbody(
+                    [],
+                    board.candidates.map((candidate) => candidateRow(model, candidate, h)),
+                  ),
                 ],
               ),
             ],
@@ -240,9 +250,7 @@ const assignmentDialogView = (model: ReadyModel, h: HtmlBuilder<Message>): Html 
     board._tag === "Some" ? board.value.interviewSchemas : [];
   const candidate =
     board._tag === "Some" && model.selectedApplicationId !== null
-      ? board.value.candidates.find(
-          (item) => item.applicationId === model.selectedApplicationId,
-        )
+      ? board.value.candidates.find((item) => item.applicationId === model.selectedApplicationId)
       : undefined;
 
   return h.submodel({
@@ -275,16 +283,25 @@ const assignmentDialogView = (model: ReadyModel, h: HtmlBuilder<Message>): Html 
                     ),
                     model.assignmentError === null
                       ? h.empty
-                      : h.p([h.Class("fr-error fr-error--inline"), h.Role("alert")], [model.assignmentError]),
+                      : h.p(
+                          [h.Class("fr-error fr-error--inline"), h.Role("alert")],
+                          [model.assignmentError],
+                        ),
                     h.form(
-                      [h.Class("fr-dialog__form"), h.OnSubmit(SubmittedAssignment()), h.AriaBusy(model.isAssigning)],
+                      [
+                        h.Class("fr-dialog__form"),
+                        h.OnSubmit(SubmittedAssignment()),
+                        h.AriaBusy(model.isAssigning),
+                      ],
                       [
                         Select.view(
                           {
                             id: "fr-interviewer",
                             value: model.selectedInterviewerPersonId ?? "",
                             isDisabled: model.isAssigning,
-                            isInvalid: model.assignmentError !== null && model.selectedInterviewerPersonId === null,
+                            isInvalid:
+                              model.assignmentError !== null &&
+                              model.selectedInterviewerPersonId === null,
                             onChange: (personId) =>
                               SelectedInterviewer({
                                 personId: decodeInterviewerPersonId(personId),
@@ -297,7 +314,10 @@ const assignmentDialogView = (model: ReadyModel, h: HtmlBuilder<Message>): Html 
                                   h.select(
                                     [...select, h.Class("fr-select")],
                                     [
-                                      h.option([h.Value(""), h.Disabled(true)], ["Velg intervjuer"]),
+                                      h.option(
+                                        [h.Value(""), h.Disabled(true)],
+                                        ["Velg intervjuer"],
+                                      ),
                                       ...interviewers.map((option) =>
                                         h.option([h.Value(option.personId)], [option.displayName]),
                                       ),
@@ -313,7 +333,9 @@ const assignmentDialogView = (model: ReadyModel, h: HtmlBuilder<Message>): Html 
                             id: "fr-interview-schema",
                             value: model.selectedInterviewSchemaId ?? "",
                             isDisabled: model.isAssigning,
-                            isInvalid: model.assignmentError !== null && model.selectedInterviewSchemaId === null,
+                            isInvalid:
+                              model.assignmentError !== null &&
+                              model.selectedInterviewSchemaId === null,
                             onChange: (interviewSchemaId) =>
                               SelectedSchema({
                                 interviewSchemaId: decodeInterviewSchemaId(interviewSchemaId),
@@ -326,7 +348,10 @@ const assignmentDialogView = (model: ReadyModel, h: HtmlBuilder<Message>): Html 
                                   h.select(
                                     [...select, h.Class("fr-select")],
                                     [
-                                      h.option([h.Value(""), h.Disabled(true)], ["Velg intervjuskjema"]),
+                                      h.option(
+                                        [h.Value(""), h.Disabled(true)],
+                                        ["Velg intervjuskjema"],
+                                      ),
                                       ...interviewSchemas
                                         .filter((option) => option.active)
                                         .map((option) =>

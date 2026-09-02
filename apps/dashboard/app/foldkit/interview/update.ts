@@ -1,4 +1,4 @@
-import { RecruitmentInvitationResponseMessageSchema } from "@vektorprogrammet/sdk/effect";
+import { RecruitmentInvitationResponseMessageSchema } from "@vektorprogrammet/domain/recruitment";
 import { Match as M, Schema as S } from "effect";
 import { AsyncData, type Command, FieldValidation } from "foldkit";
 import type { InterviewCommands } from "./command";
@@ -71,13 +71,14 @@ export const makeUpdate =
             [ReadInvitationResponse({ requestId })],
           ];
         },
-        SucceededReadInvitationResponse: ({ requestId, observation }) =>
+        SucceededReadInvitationResponse: ({ requestId, observation, etag }) =>
           requestId !== model.requestId || model.selectedAction !== null
             ? [model, []]
             : [
                 {
                   ...model,
                   invitationResponse: InvitationResponseData.Success({ data: observation }),
+                  etag,
                   failure: null,
                   validationFeedback: null,
                 },
@@ -112,6 +113,7 @@ export const makeUpdate =
           if (
             model.selectedAction !== null ||
             observation._tag === "None" ||
+            model.etag === null ||
             observation.value.responseState !== "Pending"
           )
             return [model, []];
@@ -124,7 +126,7 @@ export const makeUpdate =
               failure: null,
               validationFeedback: null,
             },
-            [ConfirmInvitation({ requestId })],
+            [ConfirmInvitation({ requestId, etag: model.etag })],
           ];
         },
         RejectedInvitation: () => {
@@ -132,6 +134,7 @@ export const makeUpdate =
           if (
             model.selectedAction !== null ||
             observation._tag === "None" ||
+            model.etag === null ||
             observation.value.responseState !== "Pending"
           )
             return [model, []];
@@ -162,6 +165,7 @@ export const makeUpdate =
             [
               RejectInvitation({
                 requestId,
+                etag: model.etag,
                 message: responseMessage.value.trim() === "" ? null : responseMessage.value.trim(),
               }),
             ],
@@ -172,6 +176,7 @@ export const makeUpdate =
           if (
             model.selectedAction !== null ||
             observation._tag === "None" ||
+            model.etag === null ||
             observation.value.responseState !== "Pending"
           )
             return [model, []];
@@ -205,12 +210,13 @@ export const makeUpdate =
             [
               RequestNewInvitationTime({
                 requestId,
+                etag: model.etag,
                 message: responseMessage.value.trim(),
               }),
             ],
           ];
         },
-        SucceededInvitationResponse: ({ requestId, action, observation }) => {
+        SucceededInvitationResponse: ({ requestId, action, observation, etag }) => {
           if (requestId !== model.requestId || action !== model.selectedAction) {
             return [model, []];
           }
@@ -231,6 +237,7 @@ export const makeUpdate =
             {
               ...model,
               invitationResponse: InvitationResponseData.Success({ data: observation }),
+              etag,
               responseMessage: FieldValidation.NotValidated({ value: "" }),
               selectedAction: null,
               failure: null,

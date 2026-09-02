@@ -1,7 +1,8 @@
-import { RecruitmentAssignmentCommandSchema } from "@vektorprogrammet/sdk/effect";
+import { IdempotencyKey } from "@vektorprogrammet/http-api";
 import { Dialog } from "@foldkit/ui";
 import { Match as M, Option, Schema as S } from "effect";
 import { AsyncData, Command } from "foldkit";
+import { CreateApplicationInterviewInputSchema } from "./bridge";
 import type { RecruitmentCommands } from "./command";
 import { GotAssignmentDialogMessage, type Message } from "./message";
 import { AssignmentBoardData, type Model, type ReadyModel } from "./model";
@@ -21,7 +22,7 @@ const clearAssignment = (model: ReadyModel): ReadyModel => ({
 const boardFrom = (model: ReadyModel) => AsyncData.getData(model.board);
 
 export const makeUpdate =
-  ({ LoadAssignmentBoard, AssignApplicant }: RecruitmentCommands) =>
+  ({ LoadAssignmentBoard, CreateApplicationInterview }: RecruitmentCommands) =>
   (model: Model, message: Message): readonly [Model, ReadonlyArray<Command.Command<Message>>] => {
     if (model._tag === "InvalidInput") return [model, []];
 
@@ -159,20 +160,26 @@ export const makeUpdate =
               [],
             ];
           }
-          const command = S.decodeUnknownSync(RecruitmentAssignmentCommandSchema)(
+          const input = S.decodeUnknownSync(CreateApplicationInterviewInputSchema)(
             {
-              commandId: `${model.commandIdSeed}-${model.commandSequence}`,
-              applicationId: model.selectedApplicationId,
-              interviewerPersonId: model.selectedInterviewerPersonId,
-              interviewSchemaId: model.selectedInterviewSchemaId,
+              params: { applicationId: model.selectedApplicationId },
+              headers: {
+                "idempotency-key": IdempotencyKey.make(
+                  `${model.idempotencyKeySeed}-${model.commandSequence}`,
+                ),
+              },
+              payload: {
+                interviewerPersonId: model.selectedInterviewerPersonId,
+                interviewSchemaId: model.selectedInterviewSchemaId,
+              },
             },
             { onExcessProperty: "error" },
           );
           return [
             { ...model, isAssigning: true, assignmentError: null, feedback: null },
             [
-              AssignApplicant({
-                command,
+              CreateApplicationInterview({
+                input,
                 status: model.selectedFilter,
               }),
             ],

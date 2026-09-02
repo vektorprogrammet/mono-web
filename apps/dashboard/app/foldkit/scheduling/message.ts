@@ -1,10 +1,9 @@
-import { RecruitmentInterviewId } from "@vektorprogrammet/sdk/effect";
+import { RecruitmentInterviewId } from "@vektorprogrammet/domain/recruitment";
+import { StrongETag } from "@vektorprogrammet/http-api";
 import { Dialog } from "@foldkit/ui";
 import { Schema as S } from "effect";
 import { m } from "foldkit/message";
 import {
-  CancelInterviewResultSchema,
-  FinalizeInterviewResultSchema,
   RecruitmentBridgeFailure,
   RecruitmentInterviewConductObservationSchema,
   RecruitmentSchedulingBoardSchema,
@@ -47,6 +46,7 @@ export const SucceededConduct = m("SucceededConduct", {
   generation: ConductRequestId,
   interviewId: RecruitmentInterviewId,
   detail: RecruitmentInterviewConductObservationSchema,
+  etag: StrongETag,
 });
 export const FailedConduct = m("FailedConduct", {
   requestId: ConductRequestId,
@@ -71,7 +71,6 @@ export const SucceededFinalize = m("SucceededFinalize", {
   requestId: ConductRequestId,
   generation: ConductRequestId,
   interviewId: RecruitmentInterviewId,
-  result: FinalizeInterviewResultSchema,
 });
 export const FailedFinalize = m("FailedFinalize", {
   requestId: ConductRequestId,
@@ -83,7 +82,6 @@ export const SucceededCancel = m("SucceededCancel", {
   requestId: ConductRequestId,
   generation: ConductRequestId,
   interviewId: RecruitmentInterviewId,
-  result: CancelInterviewResultSchema,
 });
 export const FailedCancel = m("FailedCancel", {
   requestId: ConductRequestId,

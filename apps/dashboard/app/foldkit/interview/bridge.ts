@@ -1,7 +1,8 @@
 import {
   RecruitmentInvitationResponseMessageSchema,
   RecruitmentInvitationResponseObservationSchema,
-} from "@vektorprogrammet/sdk/effect";
+} from "@vektorprogrammet/domain/recruitment";
+import { StrongETag } from "@vektorprogrammet/http-api";
 import { Schema as S } from "effect";
 
 export const InvitationInteractionIdSchema = S.String.check(S.isPattern(/^[a-f0-9]{32}$/));
@@ -31,13 +32,15 @@ export type InvitationBridgeFailure = S.Schema.Type<typeof InvitationBridgeFailu
 
 export const InvitationBridgeOperationSchema = S.Union([
   S.Struct({ operation: S.Literal("readInvitationResponse") }),
-  S.Struct({ operation: S.Literal("confirmInvitation") }),
+  S.Struct({ operation: S.Literal("confirmInvitation"), etag: StrongETag }),
   S.Struct({
     operation: S.Literal("rejectInvitation"),
+    etag: StrongETag,
     message: S.NullOr(S.String),
   }),
   S.Struct({
     operation: S.Literal("requestNewInvitationTime"),
+    etag: StrongETag,
     message: RecruitmentInvitationResponseMessageSchema,
   }),
 ]);
@@ -47,6 +50,11 @@ export const InvitationResponseObservationSchema = RecruitmentInvitationResponse
 export type InvitationResponseObservation = S.Schema.Type<
   typeof InvitationResponseObservationSchema
 >;
+export const InvitationResponseResourceSchema = S.Struct({
+  observation: InvitationResponseObservationSchema,
+  etag: StrongETag,
+});
+export type InvitationResponseResource = S.Schema.Type<typeof InvitationResponseResourceSchema>;
 
 export const invitationFailureMessage = (failure: InvitationBridgeFailure): string => {
   switch (failure._tag) {

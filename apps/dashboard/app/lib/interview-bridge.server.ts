@@ -1,6 +1,9 @@
-import { RecruitmentInvitationCapabilitySchema, type Sdk } from "@vektorprogrammet/sdk";
+import { RecruitmentInvitationCapabilitySchema } from "@vektorprogrammet/domain/recruitment";
+import { IdempotencyKey, NativeProblem } from "@vektorprogrammet/http-api";
+import { createConfiguredPromiseClient } from "@vektorprogrammet/sdk";
 import { Schema as S } from "effect";
 import {
+  InvitationBridgeFailureSchema,
   decodeInvitationInteractionId,
   INVITATION_INTERACTION_HEADER,
   type InvitationBridgeFailure,
@@ -8,7 +11,6 @@ import {
   type InvitationInteractionId,
   InvitationBridgeOperationSchema,
 } from "../foldkit/interview/bridge";
-import { createServerClient } from "./api.server";
 
 export const InvitationCapabilityCookiePrefix = "recruitment_invitation_capability_";
 const MaximumBridgeBodyBytes = 4_096;
@@ -85,9 +87,24 @@ export const createInvitationCapabilityCookie = (
   const decodedCapability = decodeExchangeCapability(capability);
   return `${cookieName}=${encodeURIComponent(decodedCapability)}; Path=/interview; HttpOnly; SameSite=Strict${SecureCookieAttribute}`;
 };
+const createInvitationClient = (capability: typeof RecruitmentInvitationCapabilitySchema.Type) =>
+  createConfiguredPromiseClient({
+    headers: { "X-Recruitment-Invitation-Capability": capability },
+  }).recruitment;
 
-export const readInvitationCapability = async (capability: string): Promise<unknown> =>
-  createServerClient().recruitmentInvitationResponses.read(decodeExchangeCapability(capability));
+const makeIdempotencyKey = (): typeof IdempotencyKey.Type => {
+  const bytes = crypto.getRandomValues(new Uint8Array(32));
+  let key = "";
+  for (const byte of bytes) key += byte.toString(16).padStart(2, "0");
+  return IdempotencyKey.make(key);
+};
+
+export const readInvitationCapability = async (capability: string): Promise<unknown> => {
+  const client = createInvitationClient(decodeExchangeCapability(capability));
+  const result = await client.readInvitationResponse({ headers: {} });
+  if (result.body === undefined) throw new Error("Invitation response did not include a body");
+  return result.body;
+};
 
 export const decodeOperation = (value: unknown): InvitationBridgeOperation => {
   try {
@@ -144,26 +161,38 @@ export const runOperation = async (
   request: Request,
   operation: InvitationBridgeOperation,
 ): Promise<unknown> => {
-  const capability = invitationCapability(request);
-  const client: Sdk = createServerClient();
+  const client = createInvitationClient(invitationCapability(request));
   switch (operation.operation) {
-    case "readInvitationResponse":
-      return client.recruitmentInvitationResponses.read(capability);
+    case "readInvitationResponse": {
+      const result = await client.readInvitationResponse({ headers: {} });
+      if (result.body === undefined) throw new Error("Invitation response did not include a body");
+      return { observation: result.body, etag: result.headers.ETag };
+    }
     case "confirmInvitation":
-      await client.recruitmentInvitationResponses.confirm(capability);
+      await client.confirmInvitation({
+        headers: {
+          "idempotency-key": makeIdempotencyKey(),
+          "if-match": operation.etag,
+        },
+        payload: {},
+      });
       return undefined;
     case "rejectInvitation":
-      if (operation.message === null) {
-        await client.recruitmentInvitationResponses.reject(capability);
-      } else {
-        await client.recruitmentInvitationResponses.reject(capability, {
-          message: operation.message,
-        });
-      }
+      await client.rejectInvitation({
+        headers: {
+          "idempotency-key": makeIdempotencyKey(),
+          "if-match": operation.etag,
+        },
+        payload: operation.message === null ? {} : { message: operation.message },
+      });
       return undefined;
     case "requestNewInvitationTime":
-      await client.recruitmentInvitationResponses.requestNewTime(capability, {
-        message: operation.message,
+      await client.requestNewInvitationTime({
+        headers: {
+          "idempotency-key": makeIdempotencyKey(),
+          "if-match": operation.etag,
+        },
+        payload: { message: operation.message },
       });
       return undefined;
   }
@@ -175,37 +204,33 @@ const safeFailure = (
 ): InvitationBridgeFailure => ({ _tag: tag, message });
 
 export const bridgeFailureFrom = (error: unknown): InvitationBridgeFailure => {
-  const tag =
-    typeof error === "object" && error !== null
-      ? "recruitmentTag" in error && typeof error.recruitmentTag === "string"
-        ? error.recruitmentTag
-        : "_tag" in error && typeof error._tag === "string"
-          ? error._tag
-          : "type" in error && typeof error.type === "string"
-            ? error.type
-            : undefined
+  if (S.is(InvitationBridgeFailureSchema)(error)) return error;
+  const problem = S.is(NativeProblem)(error)
+    ? error
+    : typeof error === "object" &&
+        error !== null &&
+        "body" in error &&
+        S.is(NativeProblem)(error.body)
+      ? error.body
       : undefined;
-  switch (tag) {
-    case "InvitationNotFound":
-    case "RecruitmentInvitationNotFound":
-    case "not_found":
-      return safeFailure("InvitationNotFound", "Invitation unavailable");
-    case "RecruitmentInvitationAlreadyResponded":
-    case "InvitationAlreadyResponded":
-    case "conflict":
-      return safeFailure("InvitationAlreadyResponded", "Invitation already responded");
-    case "RecruitmentDecodeError":
-    case "InvitationDecodeError":
-    case "validation":
-      return safeFailure("InvitationDecodeError", "Invitation response input invalid");
-    case "RecruitmentPersistenceError":
-    case "InvitationUnavailable":
-    case "network":
-    case "configuration":
-      return safeFailure("InvitationUnavailable", "Invitation response unavailable");
-    default:
-      return safeFailure("InvitationUnavailable", "Invitation response unavailable");
+  if (problem === undefined) {
+    return safeFailure("InvitationUnavailable", "Invitation response unavailable");
   }
+  if (problem.status === 404) {
+    return safeFailure("InvitationNotFound", "Invitation unavailable");
+  }
+  if (problem.code === "invitation.already-responded" || problem.status === 409) {
+    return safeFailure("InvitationAlreadyResponded", "Invitation already responded");
+  }
+  if (
+    problem.status === 400 ||
+    problem.status === 413 ||
+    problem.status === 415 ||
+    problem.status === 422
+  ) {
+    return safeFailure("InvitationDecodeError", "Invitation response input invalid");
+  }
+  return safeFailure("InvitationUnavailable", "Invitation response unavailable");
 };
 
 export const statusForInvitationFailure = (failure: InvitationBridgeFailure): number => {

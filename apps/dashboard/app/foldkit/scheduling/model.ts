@@ -1,4 +1,5 @@
-import { RecruitmentInterviewId } from "@vektorprogrammet/sdk/effect";
+import { RecruitmentInterviewId } from "@vektorprogrammet/domain/recruitment";
+import { IdempotencyKey, StrongETag } from "@vektorprogrammet/http-api";
 import { Dialog } from "@foldkit/ui";
 import { Schema as S } from "effect";
 import { AsyncData, FieldValidation } from "foldkit";
@@ -50,6 +51,7 @@ const ReadyModel = S.Struct({
   boardRequestId: SchedulingRequestId,
   selectedInterviewId: S.NullOr(RecruitmentInterviewId),
   conduct: ConductData.schema,
+  conductEtag: S.NullOr(StrongETag),
   conductRequestId: ConductRequestId,
   conductGeneration: ConductRequestId,
   conductDialog: Dialog.Model,
@@ -69,7 +71,7 @@ const ReadyModel = S.Struct({
   isScheduling: S.Boolean,
   scheduleError: S.NullOr(S.String),
   feedback: S.NullOr(S.String),
-  commandIdSeed: S.NonEmptyString,
+  idempotencyKeySeed: IdempotencyKey,
   commandSequence: CommandSequence,
 });
 
@@ -81,7 +83,10 @@ export const Model = S.Union([ReadyModel, InvalidInputModel]);
 export type Model = S.Schema.Type<typeof Model>;
 export type ReadyModel = S.Schema.Type<typeof ReadyModel>;
 
-export const makeInitialModel = (input: SchedulingInput, commandIdSeed: string): Model => ({
+export const makeInitialModel = (
+  input: SchedulingInput,
+  idempotencyKeySeed: typeof IdempotencyKey.Type,
+): Model => ({
   _tag: "Ready",
   board:
     input._tag === "Loaded"
@@ -90,6 +95,7 @@ export const makeInitialModel = (input: SchedulingInput, commandIdSeed: string):
   boardRequestId: 0,
   selectedInterviewId: null,
   conduct: ConductData.Idle(),
+  conductEtag: null,
   conductRequestId: 0,
   conductGeneration: 0,
   conductDialog: Dialog.init({ id: "recruitment-conduct-dialog" }),
@@ -113,7 +119,7 @@ export const makeInitialModel = (input: SchedulingInput, commandIdSeed: string):
   isScheduling: false,
   scheduleError: null,
   feedback: null,
-  commandIdSeed,
+  idempotencyKeySeed,
   commandSequence: 0,
 });
 

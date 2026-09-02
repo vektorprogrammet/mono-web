@@ -1,8 +1,7 @@
-import {
-  InterviewSchemaId,
-  RecruitmentApplicationId,
-  RecruitmentPersonId,
-} from "@vektorprogrammet/sdk/effect";
+import { PublicApplicationIdSchema } from "@vektorprogrammet/domain/application";
+import { InterviewSchemaId } from "@vektorprogrammet/domain/recruitment";
+import { PersonId } from "@vektorprogrammet/domain/schema";
+import { IdempotencyKey } from "@vektorprogrammet/http-api";
 import { Dialog } from "@foldkit/ui";
 import { Schema as S } from "effect";
 import { AsyncData } from "foldkit";
@@ -34,14 +33,14 @@ const ReadyModel = S.Struct({
   board: AssignmentBoardData.schema,
   selectedFilter: RecruitmentBoardStatus,
   boardRequestId: RecruitmentBoardRequestId,
-  selectedApplicationId: S.NullOr(RecruitmentApplicationId),
-  selectedInterviewerPersonId: S.NullOr(RecruitmentPersonId),
+  selectedApplicationId: S.NullOr(PublicApplicationIdSchema),
+  selectedInterviewerPersonId: S.NullOr(PersonId),
   selectedInterviewSchemaId: S.NullOr(InterviewSchemaId),
   assignmentDialog: Dialog.Model,
   isAssigning: S.Boolean,
   assignmentError: S.NullOr(S.String),
   feedback: S.NullOr(S.String),
-  commandIdSeed: S.NonEmptyString,
+  idempotencyKeySeed: IdempotencyKey,
   commandSequence: CommandSequence,
 });
 
@@ -53,7 +52,10 @@ export const Model = S.Union([ReadyModel, InvalidInputModel]);
 export type Model = S.Schema.Type<typeof Model>;
 export type ReadyModel = S.Schema.Type<typeof ReadyModel>;
 
-export const makeInitialModel = (input: RecruitmentInput, commandIdSeed: string): Model => ({
+export const makeInitialModel = (
+  input: RecruitmentInput,
+  idempotencyKeySeed: typeof IdempotencyKey.Type,
+): Model => ({
   _tag: "Ready",
   board:
     input._tag === "Loaded"
@@ -68,7 +70,7 @@ export const makeInitialModel = (input: RecruitmentInput, commandIdSeed: string)
   isAssigning: false,
   assignmentError: null,
   feedback: null,
-  commandIdSeed,
+  idempotencyKeySeed,
   commandSequence: 0,
 });
 
