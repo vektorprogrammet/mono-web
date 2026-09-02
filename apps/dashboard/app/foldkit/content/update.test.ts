@@ -1,4 +1,4 @@
-import { ArticleId, type ContentWorkspace } from "@vektorprogrammet/domain/content";
+import { ArticleId, ArticleSlug, type ContentWorkspace } from "@vektorprogrammet/domain/content";
 import { DepartmentId } from "@vektorprogrammet/domain/organization";
 import { StrongETag } from "@vektorprogrammet/http-api";
 import { describe, expect, it } from "vitest";
@@ -15,13 +15,18 @@ const knownDepartments = [{ departmentId: departmentA, name: "Trondheim" }];
 const savedDraft = {
   articleId: article1,
   title: "Min kladd",
-  slug: "min-kladd",
+  slug: ArticleSlug.make("min-kladd"),
   bodyHtml: "<p>Lagret brødtekst</p>",
   sticky: false,
   createdAt: "2031-02-01T00:00:00.000Z",
   updatedAt: "2031-02-01T01:00:00.000Z",
   currentVersionNumber: null,
   revision: 3,
+  status: "Draft" as const,
+  departmentIds: [departmentA],
+  canRevise: true,
+  canPublish: false,
+  authorDisplayName: "Erik Editor",
 };
 
 const workspace: ContentWorkspace = {
@@ -29,7 +34,7 @@ const workspace: ContentWorkspace = {
     {
       articleId: article2,
       title: "Publisert artikkel",
-      slug: "publisert-artikkel",
+      slug: ArticleSlug.make("publisert-artikkel"),
       status: "Published",
       sticky: true,
       updatedAt: "2031-03-01T00:00:00.000Z",
@@ -41,7 +46,7 @@ const workspace: ContentWorkspace = {
     {
       articleId: article1,
       title: "Min kladd",
-      slug: "min-kladd",
+      slug: ArticleSlug.make("min-kladd"),
       status: "Draft",
       sticky: false,
       updatedAt: "2031-02-01T00:00:00.000Z",

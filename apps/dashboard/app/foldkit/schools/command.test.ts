@@ -1,12 +1,9 @@
-import {
-  DepartmentId,
-  SchoolId,
-  type InternalSdkError,
-  type SchoolDirectory,
-} from "@vektorprogrammet/sdk/effect";
-import { Effect, Schema as S } from "effect";
+import { DepartmentId } from "@vektorprogrammet/domain/organization";
+import { SchoolId, type SchoolDirectory } from "@vektorprogrammet/domain/schools";
+import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import type { SchoolsDirectoryClient } from "./browser-client";
+import { schoolsBridgeFailure } from "./bridge";
 import { makeSchoolsDirectoryCommands } from "./command";
 
 const department = DepartmentId.make("department-a");
@@ -26,27 +23,17 @@ const directory: SchoolDirectory = {
   inactiveSchools: [],
 };
 
-class TestDepartmentOutOfScope extends S.TaggedError<TestDepartmentOutOfScope>()(
-  "SchoolsDepartmentOutOfScope",
-  {},
-) {}
-class TestPersistenceError extends S.TaggedError<TestPersistenceError>()(
-  "SchoolsPersistenceError",
-  {},
-) {}
-const departmentFailure: InternalSdkError = new TestDepartmentOutOfScope();
-const persistenceFailure: InternalSdkError = new TestPersistenceError();
+const departmentFailure = schoolsBridgeFailure("SchoolsDepartmentOutOfScope");
+const persistenceFailure = schoolsBridgeFailure("SchoolsPersistenceError");
 
 describe("Foldkit Schools directory commands", () => {
   it("makes exactly one scoped native SDK request and returns the full directory", async () => {
     const inputs: Array<unknown> = [];
     const client: SchoolsDirectoryClient = {
-      admin: {
-        schools: {
-          list: (input) => {
-            inputs.push(input);
-            return Effect.succeed(directory);
-          },
+      directory: {
+        listSchools: (input) => {
+          inputs.push(input);
+          return Effect.succeed(directory);
         },
       },
     };
@@ -72,7 +59,9 @@ describe("Foldkit Schools directory commands", () => {
     const messages = await Promise.all(
       failures.map((failure, index) => {
         const client: SchoolsDirectoryClient = {
-          admin: { schools: { list: () => Effect.fail(failure) } },
+          directory: {
+            listSchools: () => Effect.fail(failure),
+          },
         };
         return Effect.runPromise(
           makeSchoolsDirectoryCommands(client).LoadDirectory({

@@ -14,32 +14,36 @@ vi.mock("../../lib/auth.server", () => ({
 
 vi.mock("../../lib/api.server", () => ({
   createAuthenticatedClient: () => ({
-    admin: {
-      content: {
-        workspace: async () => {
-          if (mocks.workspaceFailure !== undefined) throw mocks.workspaceFailure;
-          return { entries: [] };
-        },
-        read: async (articleId: unknown) => {
-          mocks.readCalls.push(articleId);
-          if (mocks.readFailure !== undefined) throw mocks.readFailure;
-          return { articleId };
-        },
-        createDraft: async (command: unknown) => {
-          mocks.createCalls.push(command);
-          if (mocks.createFailure !== undefined) throw mocks.createFailure;
-          return {};
-        },
+    content: {
+      readContentWorkspace: async () => {
+        if (mocks.workspaceFailure !== undefined) throw mocks.workspaceFailure;
+        return { body: { entries: [] } };
+      },
+      readArticle: async (input: { params: { articleId: unknown } }) => {
+        mocks.readCalls.push(input.params.articleId);
+        if (mocks.readFailure !== undefined) throw mocks.readFailure;
+        return {
+          body: { articleId: input.params.articleId },
+          headers: { ETag: '"vkr2.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"' },
+        };
+      },
+      createArticle: async (command: unknown) => {
+        mocks.createCalls.push(command);
+        if (mocks.createFailure !== undefined) throw mocks.createFailure;
+        return {
+          body: {},
+          headers: { ETag: '"vkr2.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"' },
+        };
       },
     },
-    public: {
-      organization: {
-        listDepartments: async () => [
+    organization: {
+      listDepartments: async () => ({
+        body: [
           { departmentId: "department-a", name: "Trondheim", active: true },
           { departmentId: "department-b", name: "Bergen", active: true },
           { departmentId: "department-old", name: "Tidligere", active: false },
         ],
-      },
+      }),
     },
   }),
 }));
@@ -56,7 +60,7 @@ const createDraft = (departmentId: string, operation: string = "createDraft") =>
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         operation,
-        commandId: "create-1",
+        commandId: "AAAAAAAAAAAAAAAAAAAAAA",
         title: "Tittel",
         bodyHtml: "<p>Brødtekst</p>",
         departmentIds: [departmentId],
@@ -82,17 +86,17 @@ describe("Content bridge denial decoding", () => {
     mocks.createCalls.length = 0;
   });
 
-  it("accepts a known structural contentTag across bundle realms", async () => {
-    mocks.workspaceFailure = { contentTag: "AuthorityInactive" };
+  it("maps an RFC 9457 authority denial across the bridge", async () => {
+    mocks.workspaceFailure = { code: "authority.denied" };
 
     const result = await loadWorkspace();
 
     expect(result.init?.status).toBe(403);
-    expect(result.data).toEqual({ error: { tag: "AuthorityInactive" } });
+    expect(result.data).toEqual({ error: { tag: "NotInScope" } });
   });
 
-  it("rejects arbitrary _tag and unknown contentTag spoof values", async () => {
-    for (const failure of [{ _tag: "AuthorityInactive" }, { contentTag: "MadeUpContentFailure" }]) {
+  it("rejects arbitrary tags and unknown RFC 9457 codes", async () => {
+    for (const failure of [{ _tag: "AuthorityInactive" }, { code: "made-up.failure" }]) {
       mocks.workspaceFailure = failure;
       const result = await loadWorkspace();
 
@@ -115,7 +119,7 @@ describe("Content bridge denial decoding", () => {
 
   it("does not let the option list widen server authority", async () => {
     await loadWorkspace();
-    mocks.createFailure = { contentTag: "NotInScope" };
+    mocks.createFailure = { code: "authority.denied" };
 
     const result = await createDraft("department-b");
 
@@ -125,7 +129,10 @@ describe("Content bridge denial decoding", () => {
   });
   it("dispatches only a strict private article-detail command", async () => {
     const result = await readArticle(7);
-    expect(result.data).toEqual({ articleId: 7 });
+    expect(result.data).toEqual({
+      body: { articleId: 7 },
+      etag: '"vkr2.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"',
+    });
     expect(mocks.readCalls).toEqual([7]);
 
     const polluted = await readArticle(7, { createdByPersonId: "person-secret" });

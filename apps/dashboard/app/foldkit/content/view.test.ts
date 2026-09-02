@@ -1,5 +1,6 @@
 import { ArticleId, type ContentWorkspace } from "@vektorprogrammet/domain/content";
 import { DepartmentId } from "@vektorprogrammet/domain/organization";
+import { StrongETag } from "@vektorprogrammet/http-api";
 import type { HtmlBuilder } from "foldkit/html";
 import { describe, expect, it } from "vitest";
 import type { Message } from "./message";
@@ -78,7 +79,7 @@ describe("Foldkit content workspace view", () => {
     const unavailable: Model = {
       ...readyModel(),
       selectedArticleId: articleId,
-      selectedRevision: null,
+      selectedEtag: null,
       dirty: true,
       editor: {
         title: "Tittel",
@@ -100,7 +101,10 @@ describe("Foldkit content workspace view", () => {
     ).toBe(false);
 
     const available = view(
-      { ...unavailable, selectedRevision: 4 },
+      {
+        ...unavailable,
+        selectedEtag: StrongETag.make('"vkr2.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"'),
+      },
       htmlBuilder,
     ) as unknown as RenderedNode;
     expect(

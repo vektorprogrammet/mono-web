@@ -1,4 +1,3 @@
-import { ConfigurationError, NetworkError, SchoolsRejectionError } from "@vektorprogrammet/sdk";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -40,9 +39,9 @@ describe("authenticated Schools Foldkit bridge", () => {
     vi.clearAllMocks();
     mocks.requireAuth.mockResolvedValue("better-auth.session_token=session-value");
     mocks.createAuthenticatedClient.mockReturnValue({
-      admin: { schools: { list: mocks.list } },
+      directory: { listSchools: mocks.list },
     });
-    mocks.list.mockResolvedValue(directory);
+    mocks.list.mockResolvedValue({ body: directory });
   });
 
   it("returns 401 for an invalid or expired dashboard session", async () => {
@@ -59,19 +58,8 @@ describe("authenticated Schools Foldkit bridge", () => {
   });
 
   it.each([
-    [
-      "network failure",
-      new NetworkError("connection refused", new TypeError("connection refused")),
-      502,
-      "Network",
-    ],
-    [
-      "configuration failure",
-      new ConfigurationError("API URL is not configured"),
-      503,
-      "Configuration",
-    ],
-    ["server provider failure", new NetworkError("HTTP 503"), 503, "SchoolsPersistenceError"],
+    ["network failure", { code: "dependency.unavailable" }, 502, "Network"],
+    ["provider failure", { code: "provider.unavailable" }, 503, "SchoolsPersistenceError"],
     ["unknown provider failure", new Error("provider unavailable"), 503, "SchoolsPersistenceError"],
   ] as const)(
     "maps a session %s without constructing a Schools client",
@@ -99,23 +87,23 @@ describe("authenticated Schools Foldkit bridge", () => {
       expect.any(Request),
     );
     expect(mocks.list).toHaveBeenCalledTimes(1);
-    expect(mocks.list).toHaveBeenCalledWith({ department: departmentId });
+    expect(mocks.list).toHaveBeenCalledWith({ query: { department: departmentId } });
   });
 
-  it("mirrors a typed backend Schools rejection and status", async () => {
-    mocks.list.mockRejectedValueOnce(new SchoolsRejectionError("AuthorityInactive"));
+  it("maps an RFC 9457 authority denial to the strict bridge vocabulary", async () => {
+    mocks.list.mockRejectedValueOnce({ code: "authority.denied" });
 
     const response = await load();
 
     expect(response.init?.status).toBe(403);
     expect(response.data).toEqual({
-      error: { tag: "AuthorityInactive" },
+      error: { tag: "NotInScope" },
     });
     expect(mocks.list).toHaveBeenCalledTimes(1);
   });
 
   it("preserves an upstream decode failure as unavailable", async () => {
-    mocks.list.mockRejectedValueOnce(new SchoolsRejectionError("SchoolsDecodeError"));
+    mocks.list.mockRejectedValueOnce({ code: "validation.response" });
 
     const response = await load();
 

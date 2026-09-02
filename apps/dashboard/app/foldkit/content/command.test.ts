@@ -48,7 +48,7 @@ describe("Content workspace failure classification", () => {
     const message = await Effect.runPromise(
       makeContentWorkspaceCommands(client).SubmitCreate({
         requestId: 2,
-        commandId: IdempotencyKey.make("create-denied-command"),
+        commandId: IdempotencyKey.make("AAAAAAAAAAAAAAAAAAAAAA"),
         title: "Tittel",
         bodyHtml: "<p>Brødtekst</p>",
         departmentIds: [DepartmentId.make("department-a")],
@@ -153,10 +153,12 @@ describe("Content workspace failure classification", () => {
       ),
     );
     const failure = await Effect.runPromise(
-      createBrowserContentWorkspaceClient().content.readContentWorkspace().pipe(
-        Effect.map(() => undefined),
-        Effect.catch((error) => Effect.succeed(failureFrom(error))),
-      ),
+      createBrowserContentWorkspaceClient()
+        .content.readContentWorkspace()
+        .pipe(
+          Effect.map(() => undefined),
+          Effect.catch((error) => Effect.succeed(failureFrom(error))),
+        ),
     );
 
     expect(failure).toEqual({

@@ -1,4 +1,5 @@
-import { DepartmentId, SchoolId, type SchoolDirectory } from "@vektorprogrammet/sdk/effect";
+import { DepartmentId } from "@vektorprogrammet/domain/organization";
+import { SchoolId, type SchoolDirectory } from "@vektorprogrammet/domain/schools";
 import { Tabs } from "@foldkit/ui";
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
@@ -38,12 +39,10 @@ const directory: SchoolDirectory = {
 
 const listInputs: Array<{ readonly department?: typeof DepartmentId.Type }> = [];
 const client: SchoolsDirectoryClient = {
-  admin: {
-    schools: {
-      list: (input = {}) => {
-        listInputs.push(input);
-        return Effect.succeed(directory);
-      },
+  directory: {
+    listSchools: (input) => {
+      listInputs.push(input ?? {});
+      return Effect.succeed(directory);
     },
   },
 };

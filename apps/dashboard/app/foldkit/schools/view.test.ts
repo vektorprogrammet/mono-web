@@ -1,4 +1,5 @@
-import { DepartmentId, SchoolId, type SchoolDirectory } from "@vektorprogrammet/sdk/effect";
+import { DepartmentId } from "@vektorprogrammet/domain/organization";
+import { SchoolId, type SchoolDirectory } from "@vektorprogrammet/domain/schools";
 import type { HtmlBuilder } from "foldkit/html";
 import { describe, expect, it } from "vitest";
 import type { Message } from "./message";

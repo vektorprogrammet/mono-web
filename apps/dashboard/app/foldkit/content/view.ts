@@ -1,5 +1,4 @@
 import { DepartmentId as DepartmentIdSchema } from "@vektorprogrammet/domain/organization";
-import { IdempotencyKey } from "@vektorprogrammet/http-api";
 import type { Html, HtmlBuilder } from "foldkit/html";
 import type { Message } from "./message";
 import { ChangedDepartmentFilter, ChangedDepartmentSelection, DeselectedArticle } from "./message";
@@ -80,9 +79,7 @@ const rows = (model: Model, h: HtmlBuilder<Message>): Html => {
                     h.Type("button"),
                     h.OnClick(
                       SubmittedPublish({
-                        commandId: IdempotencyKey.make(
-                          `publish-${entry.articleId}-${model.requestId + 1}`,
-                        ),
+                        commandId: `publish-${entry.articleId}-${model.requestId + 1}-content-command`,
                         articleId: entry.articleId,
                       }),
                     ),
@@ -96,9 +93,7 @@ const rows = (model: Model, h: HtmlBuilder<Message>): Html => {
                           h.Type("button"),
                           h.OnClick(
                             SubmittedUnpublish({
-                              commandId: IdempotencyKey.make(
-                                `unpublish-${entry.articleId}-${model.requestId + 1}`,
-                              ),
+                              commandId: `unpublish-${entry.articleId}-${model.requestId + 1}-content-command`,
                               articleId: entry.articleId,
                             }),
                           ),
@@ -186,9 +181,7 @@ export const view = (model: Model, h: HtmlBuilder<Message>): Html =>
                 [
                   h.Type("button"),
                   h.Id("content-editor-save"),
-                  h.OnClick(
-                    SubmittedCreate({ commandId: IdempotencyKey.make(`create-${Date.now()}`) }),
-                  ),
+                  h.OnClick(SubmittedCreate({ commandId: `create-${Date.now()}-content-command` })),
                 ],
                 ["Lagre kladd"],
               )
@@ -201,9 +194,7 @@ export const view = (model: Model, h: HtmlBuilder<Message>): Html =>
                 [
                   h.Type("button"),
                   h.Id("content-editor-revise"),
-                  h.OnClick(
-                    SubmittedRevise({ commandId: IdempotencyKey.make(`revise-${Date.now()}`) }),
-                  ),
+                  h.OnClick(SubmittedRevise({ commandId: `revise-${Date.now()}-content-command` })),
                 ],
                 ["Lagre endringer"],
               )

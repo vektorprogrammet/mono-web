@@ -1,4 +1,5 @@
-import { DepartmentId, SchoolDirectorySchema } from "@vektorprogrammet/sdk/effect";
+import { DepartmentId } from "@vektorprogrammet/domain/organization";
+import { SchoolDirectorySchema } from "@vektorprogrammet/domain/schools";
 import { Effect, Fiber, Schema as S } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createBrowserSchoolsDirectoryClient } from "./browser-client";
@@ -42,7 +43,7 @@ describe("Schools directory browser client", () => {
     fetchMock.mockResolvedValueOnce(jsonResponse(directory));
 
     const result = await Effect.runPromise(
-      createBrowserSchoolsDirectoryClient().admin.schools.list({
+      createBrowserSchoolsDirectoryClient().directory.listSchools({
         department: S.decodeUnknownSync(DepartmentId)("department-a"),
       }),
     );
@@ -88,7 +89,7 @@ describe("Schools directory browser client", () => {
     let renderedModel: Model = existingModel;
     const fiber = Effect.runFork(
       createBrowserSchoolsDirectoryClient()
-        .admin.schools.list()
+        .directory.listSchools({})
         .pipe(
           Effect.tap((nextDirectory) =>
             Effect.sync(() => {
@@ -114,19 +115,19 @@ describe("Schools directory browser client", () => {
     fetchMock.mockResolvedValueOnce(jsonResponse({ ...directory, legacyCapacity: {} }));
 
     const failure = await Effect.runPromise(
-      createBrowserSchoolsDirectoryClient().admin.schools.list().pipe(Effect.flip),
+      createBrowserSchoolsDirectoryClient().directory.listSchools({}).pipe(Effect.flip),
     );
 
-    expect(failure._tag).toBe("SchoolsDecodeError");
+    expect(failure.error.tag).toBe("SchoolsDecodeError");
   });
 
   it("preserves a typed Schools rejection returned by the authenticated bridge", async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse({ error: { tag: "AuthorityInactive" } }, 403));
 
     const failure = await Effect.runPromise(
-      createBrowserSchoolsDirectoryClient().admin.schools.list().pipe(Effect.flip),
+      createBrowserSchoolsDirectoryClient().directory.listSchools({}).pipe(Effect.flip),
     );
 
-    expect(failure._tag).toBe("AuthorityInactive");
+    expect(failure.error.tag).toBe("AuthorityInactive");
   });
 });
