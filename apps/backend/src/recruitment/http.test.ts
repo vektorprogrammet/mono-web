@@ -1,11 +1,20 @@
-import { deriveStrongETag, HttpSemanticFailure } from "../http-semantics.js";
+import { SchedulingBoard } from "@vektorprogrammet/http-api";
+import { RecruitmentSchedulingBoardSchema } from "@vektorprogrammet/domain/recruitment";
+import { Schema } from "effect";
+import {
+  deriveStrongETag,
+  evaluateMutationPrecondition,
+  HttpSemanticFailure,
+} from "../http-semantics.js";
 import { describe, expect, it } from "vitest";
 import {
   RECRUITMENT_NATIVE_OPERATION_IDS,
   RECRUITMENT_NATIVE_OPERATION_REGISTRATIONS,
   conditionalJsonResponse,
+  interviewETag,
   readRecruitmentRequestBody,
   recruitmentHttpErrorResponse,
+  schedulingBoardWithETags,
 } from "./http.js";
 
 describe("native recruitment HTTP boundary", () => {
@@ -199,6 +208,87 @@ describe("native recruitment HTTP boundary", () => {
       status: 412,
       type: "urn:vektorprogrammet:problem:v0.2:precondition.failed",
     });
+  });
+
+  it("exposes mutation-compatible strong ETags on scheduling items", () => {
+    const board = Schema.decodeUnknownSync(RecruitmentSchedulingBoardSchema)(
+      {
+        departmentId: "department-1",
+        interviews: [
+          {
+            interviewId: "interview-1",
+            applicationId: "application-1",
+            departmentId: "department-1",
+            interviewer: {
+              personId: "interviewer-1",
+              displayName: "Ivar Interviewer",
+              email: "ivar@example.org",
+              phone: "+47 900 00 001",
+            },
+            applicant: {
+              applicationId: "application-1",
+              applicantId: "applicant-1",
+              firstName: "Ada",
+              lastName: "Applicant",
+              email: "ada@example.org",
+              phone: "+47 900 00 002",
+            },
+            revision: 2,
+            schedule: null,
+            notificationState: null,
+            responseState: null,
+            responseMessage: null,
+          },
+        ],
+      },
+      { onExcessProperty: "error" },
+    );
+    const authority = [
+      {
+        kind: "Membership" as const,
+        identity: "membership-1",
+        revisions: [4, 5, 6],
+      },
+    ];
+
+    expect(() =>
+      Schema.decodeUnknownSync(SchedulingBoard)(board, { onExcessProperty: "error" }),
+    ).toThrow();
+
+    const tagged = schedulingBoardWithETags(board, authority);
+    const decoded = Schema.decodeUnknownSync(SchedulingBoard)(tagged, {
+      onExcessProperty: "error",
+    });
+    const boardTag = decoded.interviews[0]!.etag;
+    const mutationTag = interviewETag({
+      interviewId: board.interviews[0]!.interviewId,
+      departmentId: board.interviews[0]!.departmentId,
+      interviewerPersonId: board.interviews[0]!.interviewer.personId,
+      interviewRevision: board.interviews[0]!.revision,
+      authority,
+    });
+    const afterInterviewRevision = schedulingBoardWithETags(
+      {
+        ...board,
+        interviews: [{ ...board.interviews[0]!, revision: 3 }],
+      },
+      authority,
+    ).interviews[0]!.etag;
+    const afterAuthorityRevision = schedulingBoardWithETags(board, [
+      { ...authority[0]!, revisions: [4, 5, 7] },
+    ]).interviews[0]!.etag;
+
+    expect(boardTag).toMatch(/^"vkr2\.[A-Za-z0-9_-]{43}"$/u);
+    expect(boardTag).toBe(mutationTag);
+    expect(afterInterviewRevision).not.toBe(boardTag);
+    expect(afterAuthorityRevision).not.toBe(boardTag);
+    expect(evaluateMutationPrecondition(mutationTag, boardTag)).toEqual({ _tag: "Proceed" });
+    expect(evaluateMutationPrecondition(afterInterviewRevision, boardTag)).toEqual({
+      _tag: "Failed",
+      code: "precondition.failed",
+      status: 412,
+    });
+    expect("etag" in tagged).toBe(false);
   });
 
   it("maps recruitment failures to the frozen RFC 9457 problem vocabulary", async () => {

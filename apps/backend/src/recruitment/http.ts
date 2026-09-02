@@ -71,12 +71,15 @@ import {
   readInvitationResponsePostgres,
   readRecruitmentApplicationHttpAccessPostgres,
   readRecruitmentInterviewHttpSourcePostgres,
+  readRecruitmentPersonAuthorityHttpSourcesPostgres,
   readRecruitmentInvitationHttpSourcePostgres,
   readRecruitmentTargetActorPostgres,
   scheduleInterviewPostgres,
   type RecruitmentActor,
   type RecruitmentInterviewHttpSource,
+  type RecruitmentAuthorityHttpSource,
   type RecruitmentInvitationHttpSource,
+  type RecruitmentSchedulingBoard,
   type RecruitmentInvitationHttpTransition,
 } from "@vektorprogrammet/domain/recruitment";
 import { Effect, Option, Schema } from "effect";
@@ -603,7 +606,7 @@ export const invitationETag = (source: RecruitmentInvitationHttpSource): StrongE
     version: [source.scheduleRevision, source.responseRevision],
   });
 
-const interviewETag = (source: RecruitmentInterviewHttpSource): StrongETag =>
+export const interviewETag = (source: RecruitmentInterviewHttpSource): StrongETag =>
   deriveStrongETag({
     representationKind: "RecruitmentInterviewResource",
     resourceIdentity: `recruitment-interview:${source.interviewId}`,
@@ -612,6 +615,23 @@ const interviewETag = (source: RecruitmentInterviewHttpSource): StrongETag =>
       source.authority.map((item) => [item.kind, item.identity, item.revisions]),
     ],
   });
+
+export const schedulingBoardWithETags = (
+  board: RecruitmentSchedulingBoard,
+  authority: ReadonlyArray<RecruitmentAuthorityHttpSource>,
+) => ({
+  ...board,
+  interviews: board.interviews.map((interview) => ({
+    ...interview,
+    etag: interviewETag({
+      interviewId: interview.interviewId,
+      departmentId: interview.departmentId,
+      interviewerPersonId: interview.interviewer.personId,
+      interviewRevision: interview.revision,
+      authority,
+    }),
+  })),
+});
 
 export const conditionalJsonResponse = (
   request: Request,
@@ -901,7 +921,14 @@ const readSchedulingBoard = async (
   const observation = await input.run(
     Recruitment.use(({ readSchedulingBoard: read }) => read({ actor, now })),
   );
-  const output = await strictOutput(SchedulingBoard, observation, input.run);
+  const authority = await input.run(
+    readRecruitmentPersonAuthorityHttpSourcesPostgres(actor.personId),
+  );
+  const output = await strictOutput(
+    SchedulingBoard,
+    schedulingBoardWithETags(observation, authority),
+    input.run,
+  );
   return new Response(JSON.stringify(output), {
     status: 200,
     headers: { "cache-control": PRIVATE_NO_STORE, "content-type": "application/json" },

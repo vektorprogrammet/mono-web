@@ -1,6 +1,6 @@
 import type { Admissions } from "../admissions/service.js";
 import { PublicApplicationIdSchema } from "../application/schema.js";
-import { Database } from "../database/service.js";
+import { Database, type DatabaseShape } from "../database/service.js";
 import type { Profile } from "../profile/service.js";
 import { DepartmentId, PersonId } from "../organization/schema.js";
 import { canonicalJsonBytes, sha256Hex } from "../tutor/evidence.js";
@@ -283,6 +283,64 @@ export const readRecruitmentTargetActorPostgres = (input: {
     }),
   );
 
+const readRecruitmentPersonAuthorityHttpSources = (
+  database: DatabaseShape,
+  personId: PersonId,
+): Effect.Effect<
+  ReadonlyArray<RecruitmentAuthorityHttpSource>,
+  RecruitmentDecodeError | RecruitmentPersistenceError
+> =>
+  Effect.gen(function* () {
+    const rows = yield* database`
+      SELECT kind, identity, revisions
+      FROM (
+        SELECT
+          0 AS kind_order,
+          'GlobalAdministrator' AS kind,
+          grant_id AS identity,
+          ARRAY[revision]::integer[] AS revisions
+        FROM public.organization_global_administrator_grants
+        WHERE person_id = ${personId}
+
+        UNION ALL
+
+        SELECT
+          1 AS kind_order,
+          'Membership' AS kind,
+          membership.membership_id AS identity,
+          ARRAY[membership.revision, team.revision, department.revision]::integer[] AS revisions
+        FROM public.organization_memberships AS membership
+        INNER JOIN public.organization_teams AS team
+          ON team.team_id = membership.team_id
+        INNER JOIN public.organization_departments AS department
+          ON department.department_id = team.department_id
+        WHERE membership.person_id = ${personId}
+      ) AS authority
+      ORDER BY kind_order, identity
+    `.pipe(
+      Effect.catchTag("SqlError", (cause) =>
+        Effect.fail(persistenceError("read recruitment person authority HTTP sources", cause)),
+      ),
+    );
+    return yield* Schema.decodeUnknownEffect(Schema.Array(RecruitmentAuthorityHttpSourceSchema))(
+      rows,
+      { onExcessProperty: "error" },
+    ).pipe(
+      Effect.mapError((cause) =>
+        decodeError("decode recruitment person authority HTTP sources", cause),
+      ),
+    );
+  });
+
+/** Ordered authority sources shared by every interview ETag for one person. */
+export const readRecruitmentPersonAuthorityHttpSourcesPostgres = (
+  personId: PersonId,
+): Effect.Effect<
+  ReadonlyArray<RecruitmentAuthorityHttpSource>,
+  RecruitmentDecodeError | RecruitmentPersistenceError,
+  Database
+> => Database.use((database) => readRecruitmentPersonAuthorityHttpSources(database, personId));
+
 /** Interview identity, revision, relationship, and ordered authority sources for HTTP ETags. */
 export const readRecruitmentInterviewHttpSourcePostgres = (
   interviewId: RecruitmentInterviewId,
@@ -310,42 +368,17 @@ export const readRecruitmentInterviewHttpSourcePostgres = (
       const interview = interviewRows[0];
       if (interview === undefined) return yield* new RecruitmentInterviewNotFound({ interviewId });
 
-      const grants = yield* database`
-        SELECT
-          'GlobalAdministrator' AS kind,
-          grant_id AS identity,
-          ARRAY[revision]::integer[] AS revisions
-        FROM public.organization_global_administrator_grants
-        WHERE person_id = ${personId}
-        ORDER BY grant_id
-      `;
-      const memberships = yield* database`
-        SELECT
-          'Membership' AS kind,
-          membership.membership_id AS identity,
-          ARRAY[membership.revision, team.revision, department.revision]::integer[] AS revisions
-        FROM public.organization_memberships AS membership
-        INNER JOIN public.organization_teams AS team
-          ON team.team_id = membership.team_id
-        INNER JOIN public.organization_departments AS department
-          ON department.department_id = team.department_id
-        WHERE membership.person_id = ${personId}
-        ORDER BY membership.membership_id
-      `;
+      const authority = yield* readRecruitmentPersonAuthorityHttpSources(database, personId);
       return yield* Schema.decodeUnknownEffect(RecruitmentInterviewHttpSourceSchema)(
         {
           ...interview,
-          authority: [...grants, ...memberships],
+          authority,
         },
         { onExcessProperty: "error" },
       ).pipe(
         Effect.mapError((cause) => decodeError("decode recruitment interview HTTP source", cause)),
       );
-    }).pipe(
-      Effect.catchTag("SqlError", (cause) =>
-        Effect.fail(persistenceError("read recruitment interview authority sources", cause)),
-      ),
-    ),
+    }),
   );
 
 export type RecruitmentInvitationHttpTransition =

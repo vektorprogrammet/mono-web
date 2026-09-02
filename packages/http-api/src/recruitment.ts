@@ -15,6 +15,7 @@ import {
   RecruitmentInvitationRejectInputSchema,
   RecruitmentInvitationRequestNewTimeInputSchema,
   RecruitmentInvitationResponseObservationSchema,
+  RecruitmentSchedulingInterviewSchema,
   RecruitmentSchedulingBoardSchema,
 } from "@vektorprogrammet/domain/recruitment";
 const InvitationResponseObservationExample: any = {
@@ -77,6 +78,7 @@ const SchedulingBoardExample: any = {
         phone: "+47 900 00 000",
       },
       revision: 2,
+      etag: StrongETag.make('"vkr2.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"'),
       schedule: {
         interviewId: RecruitmentInterviewId.make("interview-1"),
         scheduledAt: "2026-09-10T14:00:00.000Z",
@@ -137,7 +139,7 @@ const ConductObservationExample: any = {
   canCancel: false,
 };
 
-import type * as Schema from "effect/Schema";
+import * as Schema from "effect/Schema";
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema, OpenApi } from "effect/unstable/httpapi";
 import { annotateAccessSpec, invitationNativeAccess, personNativeAccess } from "./access.js";
 import { InvitationCapabilitySecurity, operationAnnotations, PersonSecurity } from "./common.js";
@@ -164,6 +166,7 @@ import {
   noContentMutationResponse,
   privateConditionalResponses,
   privateReadResponse,
+  StrongETag,
 } from "./http-semantics.js";
 import {
   CancelInterviewRequest,
@@ -226,7 +229,20 @@ export const AssignmentBoard = RecruitmentAssignmentBoardSchema.annotate({
   examples: [AssignmentBoardExample],
 });
 
-export const SchedulingBoard = RecruitmentSchedulingBoardSchema.annotate({
+export const SchedulingInterview = RecruitmentSchedulingInterviewSchema.mapMembers((members) => [
+  members[0].mapFields((fields) => ({ ...fields, etag: StrongETag })),
+  members[1].mapFields((fields) => ({ ...fields, etag: StrongETag })),
+  members[2].mapFields((fields) => ({ ...fields, etag: StrongETag })),
+  members[3].mapFields((fields) => ({ ...fields, etag: StrongETag })),
+]).annotate({
+  identifier: "SchedulingInterview",
+  description: "One interview with the strong validator for its mutation.",
+});
+
+export const SchedulingBoard = Schema.Struct({
+  departmentId: RecruitmentSchedulingBoardSchema.fields.departmentId,
+  interviews: Schema.Array(SchedulingInterview),
+}).annotate({
   identifier: "SchedulingBoard",
   description: "Interviews visible to the current member.",
   examples: [SchedulingBoardExample],
