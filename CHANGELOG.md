@@ -110,6 +110,7 @@ Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
 * **http-api:** add canonical native contract ([abca757](https://github.com/vektorprogrammet/mono-web/commit/abca7570254d8f96cc2d53288720cf480f19d0c4))
 * **http-api:** truthful examples, grouped IA invariants for native API reference ([8b66e28](https://github.com/vektorprogrammet/mono-web/commit/8b66e28d8fe779a2a161986022d194b4976d2e00))
 * **identity:** add accountNumber to ProfileResource [D1] ([f21bb30](https://github.com/vektorprogrammet/mono-web/commit/f21bb30c0fe95d01a6b2f22904707475e255d429))
+* **identity:** add Cloudflare password reset mail delivery ([e3b8404](https://github.com/vektorprogrammet/mono-web/commit/e3b840456d403859c8872dd037b6ee3775ece402))
 * **identity:** cut dashboard over to Better Auth sessions ([049b9e6](https://github.com/vektorprogrammet/mono-web/commit/049b9e63d08f09bacc4ea27886979549bcaf918b))
 * implement native recruitment interview conduct ([35bba24](https://github.com/vektorprogrammet/mono-web/commit/35bba245bd496576c7afb88474228fcee40bf312))
 * implement recruitment invitation responses ([83bc582](https://github.com/vektorprogrammet/mono-web/commit/83bc582ef8b2646478aaefdce27a82e2b793eb91))
