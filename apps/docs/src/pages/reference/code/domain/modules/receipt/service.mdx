@@ -25,6 +25,8 @@ Since v0.1.0
 - [utils](#utils)
   - [Economy (class)](#economy-class)
   - [EconomyShape (interface)](#economyshape-interface)
+  - [ReceiptMutationAuthorization (type alias)](#receiptmutationauthorization-type-alias)
+  - [ReceiptMutationAuthorizationTarget (type alias)](#receiptmutationauthorizationtarget-type-alias)
   - [ReceiptTransactionResult (interface)](#receipttransactionresult-interface)
 
 ---
@@ -39,7 +41,7 @@ Since v0.1.0
 declare class Economy
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/receipt/service.ts#L79)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/receipt/service.ts#L129)
 
 ### EconomyShape (interface)
 
@@ -50,6 +52,20 @@ export interface EconomyShape {
   readonly executeReceipt: (
     input: unknown,
     principal: ReceiptCommandPrincipal,
+    allocation?: ReceiptSubmissionAllocation,
+  ) => Effect.Effect<ReceiptTransactionResult, ReceiptFailure>;
+  /**
+   * Resolves current authority for one mutation target on the caller's
+   * transaction connection. The returned witness is valid only in that
+   * transaction and does not apply a lifecycle transition.
+   */
+  readonly authorizeReceiptMutation: (
+    target: ReceiptMutationAuthorizationTarget,
+    principal: ReceiptCommandPrincipal,
+  ) => Effect.Effect<ReceiptMutationAuthorization, ReceiptFailure>;
+  readonly executeAuthorizedReceipt: (
+    input: unknown,
+    authorization: ReceiptMutationAuthorization,
     allocation?: ReceiptSubmissionAllocation,
   ) => Effect.Effect<ReceiptTransactionResult, ReceiptFailure>;
   readonly listOwnedReceipts: (
@@ -89,7 +105,50 @@ export interface EconomyShape {
 }
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/receipt/service.ts#L37)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/receipt/service.ts#L73)
+
+### ReceiptMutationAuthorization (type alias)
+
+**Signature**
+
+```ts
+type ReceiptMutationAuthorization =
+  | {
+      readonly _tag: "SubmitReceipt";
+      readonly principal: ReceiptCommandPrincipal;
+      readonly actor: ReceiptActor;
+      readonly departmentId: DepartmentId;
+      readonly paymentAccountCiphertext: string;
+    }
+  | {
+      readonly _tag:
+        "RevisePendingReceipt" | "WithdrawPendingReceipt" | "RefundReceipt" | "RejectReceipt";
+      readonly principal: ReceiptCommandPrincipal;
+      readonly actor: ReceiptActor;
+      readonly current: Receipt;
+    };
+```
+
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/receipt/service.ts#L53)
+
+### ReceiptMutationAuthorizationTarget (type alias)
+
+**Signature**
+
+```ts
+type ReceiptMutationAuthorizationTarget =
+  | {
+      readonly _tag: "SubmitReceipt";
+      readonly departmentId?: DepartmentId;
+    }
+  | {
+      readonly _tag:
+        "RevisePendingReceipt" | "WithdrawPendingReceipt" | "RefundReceipt" | "RejectReceipt";
+      readonly receiptId: string;
+    };
+```
+
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/receipt/service.ts#L39)
 
 ### ReceiptTransactionResult (interface)
 
@@ -98,9 +157,10 @@ export interface EconomyShape {
 ```ts
 export interface ReceiptTransactionResult {
   readonly observation: ReceiptObservation;
+  readonly receipt: Receipt;
   readonly replayed: boolean;
   readonly outboxCount: number;
 }
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/receipt/service.ts#L31)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/receipt/service.ts#L33)

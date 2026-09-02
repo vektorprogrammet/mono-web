@@ -19,44 +19,70 @@ showAskAi: false
 ### Exports Grouped by Category
 
 - [utils](#utils)
-  - [ReceiptApprovalVisibility (type alias)](#receiptapprovalvisibility-type-alias)
-  - [resolveReceiptApprovalVisibility](#resolvereceiptapprovalvisibility)
+  - [ReceiptApprovalCandidate (type alias)](#receiptapprovalcandidate-type-alias)
+  - [ReceiptApprovalSelection (type alias)](#receiptapprovalselection-type-alias)
+  - [makeReceiptApprovalContext](#makereceiptapprovalcontext)
+  - [selectAuthorizedReceiptApprovals](#selectauthorizedreceiptapprovals)
 
 ---
 
 ## utils
 
-### ReceiptApprovalVisibility (type alias)
+### ReceiptApprovalCandidate (type alias)
 
 **Signature**
 
 ```ts
-type ReceiptApprovalVisibility =
-  | { readonly _tag: "Global" }
-  | {
-      readonly _tag: "Departments";
-      readonly departmentIds: ReadonlyArray<DepartmentId>;
-    };
+type ReceiptApprovalCandidate = Pick<
+  ReceiptListItem,
+  "receiptId" | "ownerPersonId" | "departmentId" | "status" | "revision"
+>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/receipt/approval-list.ts#L13)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/receipt/approval-list.ts#L21)
 
-### resolveReceiptApprovalVisibility
-
-Resolves the approval projection from direct facts and rule facts at the same
-instant. Every department-scoped rule is recomposed against that canonical
-department, so a delegated global slot cannot escape its rule scope.
+### ReceiptApprovalSelection (type alias)
 
 **Signature**
 
 ```ts
-declare const resolveReceiptApprovalVisibility: (
+type ReceiptApprovalSelection = {
+  readonly receiptIds: ReadonlyArray<string>;
+};
+```
+
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/receipt/approval-list.ts#L25)
+
+### makeReceiptApprovalContext
+
+**Signature**
+
+```ts
+declare const makeReceiptApprovalContext: (
+  receipt: ReceiptApprovalCandidate,
   organization: OrganizationPersonAuthority,
   directAuthority: ReceiptAuthority,
-  canonicalDepartmentIds: ReadonlyArray<DepartmentId>,
   rules: ReadonlyArray<AuthzRule>,
-  tagAssignments: ReadonlyArray<AuthzTagAssignment>,
-) => Decision<ReceiptApprovalVisibility>;
+) => CanonicalResourceContext<ReceiptAccessFacts>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/receipt/approval-list.ts#L28)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/receipt/approval-list.ts#L64)
+
+### selectAuthorizedReceiptApprovals
+
+Evaluates every collection row against its canonical receipt context. The
+result never widens one accepted row into department-wide visibility.
+
+**Signature**
+
+```ts
+declare const selectAuthorizedReceiptApprovals: (
+  organization: OrganizationPersonAuthority,
+  directAuthority: ReceiptAuthority,
+  candidates: ReadonlyArray<ReceiptApprovalCandidate>,
+  rules: ReadonlyArray<AuthzRule>,
+  tagAssignments: ReadonlyArray<AuthzTagAssignment>,
+) => Decision<ReceiptApprovalSelection>;
+```
+
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/receipt/approval-list.ts#L92)

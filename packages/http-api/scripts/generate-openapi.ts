@@ -233,6 +233,7 @@ const releaseManifestBytes = encode({
     specifications: [
       "design-specs/0079-generated-api-and-code-reference.md",
       "design-specs/0079.1-docgen-toolchain-amendment.md",
+      "design-specs/0079.2-generated-v0.2-release-projection.md",
     ],
   },
   counts: {

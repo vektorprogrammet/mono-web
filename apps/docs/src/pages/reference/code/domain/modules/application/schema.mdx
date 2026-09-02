@@ -38,6 +38,7 @@ Since v0.1.0
   - [PublicApplicationCatalogContext (interface)](#publicapplicationcatalogcontext-interface)
   - [PublicApplicationCatalogDepartment (type alias)](#publicapplicationcatalogdepartment-type-alias)
   - [PublicApplicationCatalogDepartmentSchema](#publicapplicationcatalogdepartmentschema)
+  - [PublicApplicationCatalogHttpSource (interface)](#publicapplicationcataloghttpsource-interface)
   - [PublicApplicationCatalogSchema](#publicapplicationcatalogschema)
   - [PublicApplicationCommandId (type alias)](#publicapplicationcommandid-type-alias)
   - [PublicApplicationCommandIdSchema](#publicapplicationcommandidschema)
@@ -230,7 +231,7 @@ export interface PublicApplicationCatalogContext {
 }
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/application/schema.ts#L309)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/application/schema.ts#L316)
 
 ### PublicApplicationCatalogDepartment (type alias)
 
@@ -261,6 +262,22 @@ declare const PublicApplicationCatalogDepartmentSchema: Schema.Struct<{
 ```
 
 [Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/application/schema.ts#L295)
+
+### PublicApplicationCatalogHttpSource (interface)
+
+**Signature**
+
+```ts
+export interface PublicApplicationCatalogHttpSource {
+  readonly catalog: PublicApplicationCatalog;
+  readonly validatorSource: {
+    readonly intervalIdentity: string;
+    readonly itemRevisions: ReadonlyArray<readonly [identity: string, revision: number]>;
+  };
+}
+```
+
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/application/schema.ts#L308)
 
 ### PublicApplicationCatalogSchema
 
@@ -522,7 +539,7 @@ export interface PublicApplicationSubmitContext {
 }
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/application/schema.ts#L313)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/application/schema.ts#L320)
 
 ### PublicApplicationSubmitInput (type alias)
 
@@ -594,7 +611,7 @@ export interface PublicApplicationSubmitResult {
 }
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/application/schema.ts#L322)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/application/schema.ts#L329)
 
 ### PublicApplicationYearOfStudySchema
 
@@ -686,7 +703,7 @@ declare const decodePublicApplicationConfirmation: (input: unknown) => Effect<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/application/schema.ts#L328)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/application/schema.ts#L335)
 
 ### isPublicApplicationEmail
 

@@ -21,6 +21,8 @@ showAskAi: false
 - [utils](#utils)
   - [OwnProfile](#ownprofile)
   - [OwnProfile (type alias)](#ownprofile-type-alias)
+  - [OwnProfileHttpSource](#ownprofilehttpsource)
+  - [OwnProfileHttpSource (type alias)](#ownprofilehttpsource-type-alias)
   - [PersonContactEmail](#personcontactemail)
   - [PersonContactEmail (type alias)](#personcontactemail-type-alias)
   - [PersonContactPhone](#personcontactphone)
@@ -75,6 +77,37 @@ type OwnProfile = typeof OwnProfile.Type;
 
 [Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/profile/schema.ts#L79)
 
+### OwnProfileHttpSource
+
+**Signature**
+
+```ts
+declare const OwnProfileHttpSource: Schema.Struct<{
+  readonly profile: Schema.Struct<{
+    readonly personId: Schema.brand<Schema.String, "PersonId">;
+    readonly firstName: Schema.String;
+    readonly lastName: Schema.String;
+    readonly email: Schema.String;
+    readonly phone: Schema.String;
+    readonly nameRevision: Schema.Int;
+    readonly contactRevision: Schema.Int;
+  }>;
+  readonly representationRevision: Schema.Int;
+}>;
+```
+
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/profile/schema.ts#L80)
+
+### OwnProfileHttpSource (type alias)
+
+**Signature**
+
+```ts
+type OwnProfileHttpSource = typeof OwnProfileHttpSource.Type;
+```
+
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/profile/schema.ts#L84)
+
 ### PersonContactEmail
 
 **Signature**
@@ -125,7 +158,7 @@ Canonical staff contact data used by approved notification requests.
 declare class PersonContactProfile
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/profile/schema.ts#L114)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/profile/schema.ts#L119)
 
 ### PersonContactProfileInsert (type alias)
 
@@ -135,7 +168,7 @@ declare class PersonContactProfile
 type PersonContactProfileInsert = typeof PersonContactProfile.insert.Encoded;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/profile/schema.ts#L142)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/profile/schema.ts#L147)
 
 ### PersonContactProfileJson (type alias)
 
@@ -145,7 +178,7 @@ type PersonContactProfileInsert = typeof PersonContactProfile.insert.Encoded;
 type PersonContactProfileJson = typeof PersonContactProfile.json.Type;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/profile/schema.ts#L144)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/profile/schema.ts#L149)
 
 ### PersonContactProfileSelect (type alias)
 
@@ -155,7 +188,7 @@ type PersonContactProfileJson = typeof PersonContactProfile.json.Type;
 type PersonContactProfileSelect = typeof PersonContactProfile.Encoded;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/profile/schema.ts#L141)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/profile/schema.ts#L146)
 
 ### PersonContactProfileUpdate (type alias)
 
@@ -165,7 +198,7 @@ type PersonContactProfileSelect = typeof PersonContactProfile.Encoded;
 type PersonContactProfileUpdate = typeof PersonContactProfile.update.Encoded;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/profile/schema.ts#L143)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/profile/schema.ts#L148)
 
 ### PersonProfile (class)
 
@@ -177,7 +210,7 @@ The canonical person-name record. Names are owned by Profile, not Recruitment.
 declare class PersonProfile
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/profile/schema.ts#L82)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/profile/schema.ts#L87)
 
 ### PersonProfileInsert (type alias)
 
@@ -187,7 +220,7 @@ declare class PersonProfile
 type PersonProfileInsert = typeof PersonProfile.insert.Encoded;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/profile/schema.ts#L108)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/profile/schema.ts#L113)
 
 ### PersonProfileJson (type alias)
 
@@ -197,7 +230,7 @@ type PersonProfileInsert = typeof PersonProfile.insert.Encoded;
 type PersonProfileJson = typeof PersonProfile.json.Type;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/profile/schema.ts#L110)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/profile/schema.ts#L115)
 
 ### PersonProfileJsonCreate (type alias)
 
@@ -207,7 +240,7 @@ type PersonProfileJson = typeof PersonProfile.json.Type;
 type PersonProfileJsonCreate = typeof PersonProfile.jsonCreate.Type;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/profile/schema.ts#L111)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/profile/schema.ts#L116)
 
 ### PersonProfileJsonUpdate (type alias)
 
@@ -217,7 +250,7 @@ type PersonProfileJsonCreate = typeof PersonProfile.jsonCreate.Type;
 type PersonProfileJsonUpdate = typeof PersonProfile.jsonUpdate.Type;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/profile/schema.ts#L112)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/profile/schema.ts#L117)
 
 ### PersonProfileSelect (type alias)
 
@@ -227,7 +260,7 @@ type PersonProfileJsonUpdate = typeof PersonProfile.jsonUpdate.Type;
 type PersonProfileSelect = typeof PersonProfile.Encoded;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/profile/schema.ts#L107)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/profile/schema.ts#L112)
 
 ### PersonProfileUpdate (type alias)
 
@@ -237,7 +270,7 @@ type PersonProfileSelect = typeof PersonProfile.Encoded;
 type PersonProfileUpdate = typeof PersonProfile.update.Encoded;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/profile/schema.ts#L109)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/profile/schema.ts#L114)
 
 ### ProfileCommandId
 
@@ -300,4 +333,4 @@ declare const personProfileDisplayName: (
 ) => string;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/profile/schema.ts#L147)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/profile/schema.ts#L152)

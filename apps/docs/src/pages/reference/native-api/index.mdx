@@ -9,15 +9,17 @@ import { OpenApi } from "vocs";
 # Native API reference
 
 This reference contains **52 public native operations** from the canonical OpenAPI document.
-Better Auth routes and the internal receipt evidence route are not part of this document.
+Better Auth routes are not part of this document.
+The **1 internal operation** remains on its separate ingress and is not part of this public reference.
 This operation total is documentation scope, not a legacy parity claim.
 
 Start with [Authentication & authorization](/reference/native-api/authentication) and the [Getting started](/reference/native-api/getting-started) walkthrough, or read [Routes & API](/reference/routes-and-api) for route families, capability owners, and transport boundaries.
 
 ## Provenance
 
-- Source: [`packages/http-api/openapi.json`](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/openapi.json)
-- Package: `@vektorprogrammet/http-api@0.1.0`
+- OpenAPI source: [`packages/http-api/openapi.json`](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/openapi.json)
+- Release manifest: [`packages/http-api/release-manifest.json`](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/release-manifest.json)
+- Package: `@vektorprogrammet/http-api@0.2.0`
 - Freshness gate: `bun run --cwd packages/http-api generate:check`
 - Renderer: Vocs 2.8.5 native OpenAPI integration
 

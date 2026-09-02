@@ -22,6 +22,7 @@ showAskAi: false
   - [ReceiptDecision (interface)](#receiptdecision-interface)
   - [ReceiptDecisionContext (interface)](#receiptdecisioncontext-interface)
   - [ReceiptOutboxRequest](#receiptoutboxrequest)
+  - [authorizeReceiptMutationAccess](#authorizereceiptmutationaccess)
   - [decideReceipt](#decidereceipt)
 
 ---
@@ -117,6 +118,18 @@ declare const ReceiptOutboxRequest:
 
 [Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/receipt/update.ts#L59)
 
+### authorizeReceiptMutationAccess
+
+**Signature**
+
+```ts
+declare const authorizeReceiptMutationAccess: (
+  authorization: ReceiptAccessAuthorization,
+) => Effect.Effect<void, ReceiptFailure>;
+```
+
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/receipt/update.ts#L164)
+
 ### decideReceipt
 
 **Signature**
@@ -129,4 +142,4 @@ declare const decideReceipt: (
 ) => Effect.Effect<ReceiptDecision, ReceiptFailure>;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/receipt/update.ts#L312)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/domain/src/receipt/update.ts#L347)
