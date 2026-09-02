@@ -1670,6 +1670,25 @@ describe("C0 source traversal safety", () => {
     }
   });
 
+  test("ignores React Router generated route types without hiding tracked route authority", async () => {
+    const root = gitFixture();
+    const routePath = "apps/dashboard/app/routes/home.ts";
+    const generatedPath = "apps/dashboard/.react-router/types/app/routes/+types/home.ts";
+    try {
+      putFixture(root, ".gitignore", "apps/*/.react-router/\n");
+      putFixture(root, routePath, "export const route = '/home';\n");
+      execFileSync("git", ["-C", root, "add", "."]);
+      execFileSync("git", ["-C", root, "commit", "-qm", "fixture"]);
+      putFixture(root, generatedPath, "export type Route = typeof import('../../home');\n");
+      const snapshot = await Effect.runPromise(
+        scanRootEffect(root, "mono").pipe(Effect.provide(NodeRuntimeLayer)),
+      );
+      expect(snapshot.files.map((file) => file.path)).toEqual([".gitignore", routePath]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test("rejects ignored authority paths outside the residual register", async () => {
     const root = gitFixture();
     try {

@@ -23,6 +23,7 @@ const RATIONALE = {
   dependency_cache: "Nested JavaScript dependency bytes are not first-party declarations.",
   vendor_cache: "Nested third-party dependency bytes are not first-party declarations.",
   generated_output: "Distribution output is derived and is not a declaration authority.",
+  react_router_output: "React Router type output is derived and is not declaration authority.",
   build_output: "Build output is derived and is not a declaration authority.",
   turbo_cache: "Turbo cache bytes are generated build state.",
   tool_cache: "Tool cache bytes are generated build state.",
@@ -222,6 +223,14 @@ const MONO_RULES: readonly RuleSpec[] = [
     selection: "ordered_set_difference",
     rule_kind: "generated_output",
     rationale: RATIONALE.build_output,
+  },
+  {
+    root_ref: "mono",
+    precedence: 32,
+    pattern: "**/.react-router/**",
+    selection: "ordered_set_difference",
+    rule_kind: "generated_output",
+    rationale: RATIONALE.react_router_output,
   },
   {
     root_ref: "mono",
