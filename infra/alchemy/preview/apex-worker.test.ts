@@ -12,6 +12,9 @@ function apexEnv(): ApexWorkerEnv {
     Dashboard: service("dashboard"),
     PREVIEW_STAGE: "dev-main",
     PREVIEW_HOST: "vektor.phibkro.org",
+    PasswordResetEmail: {
+      send: vi.fn(async () => ({ messageId: "unused-in-routing-tests" })),
+    },
   };
 }
 
@@ -122,6 +125,34 @@ describe("apex edge worker", () => {
       "session=opaque; Path=/; Secure; HttpOnly; SameSite=Lax",
     );
     expect(response.headers.get("x-mono-web-stage")).toBe("dev-main");
+  });
+
+  it("keeps the email binding inactive while password recovery is backend-owned", async () => {
+    let forwarded: Request | undefined;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (request: Request) => {
+        forwarded = request;
+        return Response.json({ code: "RESET_PASSWORD_DISABLED" }, { status: 400 });
+      }),
+    );
+    const env = apexEnv();
+
+    const response = await worker.fetch(
+      apexRequest("/api/auth/request-password-reset", {
+        method: "POST",
+        body: JSON.stringify({
+          email: "person@example.com",
+          redirectTo: "https://vektor.phibkro.org/tilbakestill-passord",
+        }),
+        headers: { "content-type": "application/json" },
+      }),
+      env,
+    );
+
+    expect(forwarded?.url).toBe(`${BACKEND_ORIGIN}/api/auth/request-password-reset`);
+    expect(response.status).toBe(400);
+    expect(env.PasswordResetEmail.send).not.toHaveBeenCalled();
   });
 
   it.each([

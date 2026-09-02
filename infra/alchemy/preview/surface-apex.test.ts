@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { APEX_IDENTITY } from "./identity.ts";
 import { BACKEND_ORIGIN } from "./apex-worker.ts";
+import { PASSWORD_RESET_SENDER } from "./apex-worker-resource.ts";
 import { apexSurface } from "./surface-apex.ts";
 
 describe("apexSurface", () => {
@@ -33,6 +34,8 @@ describe("apexSurface", () => {
     },
   );
   it("keeps browser and backend authority on the preview hosts", () => {
+    expect(APEX_IDENTITY.zoneName).toBe("phibkro.org");
+    expect(PASSWORD_RESET_SENDER).toBe("noreply@phibkro.org");
     expect(APEX_IDENTITY.hostname).toBe("vektor.phibkro.org");
     expect(APEX_IDENTITY.apiHostname).toBe("api.vektor.phibkro.org");
     expect(APEX_IDENTITY.backendHostname).toBe("origin-api.vektor.phibkro.org");

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   APEX_LOCAL_STATE_CONTRACT,
   APEX_LOCAL_STATE_LOGICAL_IDS,
+  APEX_STATELESS_BINDING_NAMES,
   stateBackendForStage,
 } from "./state-contract.ts";
 
@@ -14,6 +15,11 @@ describe("deployment state contract", () => {
       "vektor-apex-homepage",
       "vektor-apex-worker",
     ]);
+  });
+
+  it("keeps the stateless SendEmail descriptor out of local state files", () => {
+    expect(APEX_STATELESS_BINDING_NAMES).toEqual(["PasswordResetEmail"]);
+    expect(APEX_LOCAL_STATE_LOGICAL_IDS).not.toContain("PasswordResetEmail");
   });
 
   it("preserves p20 on Cloudflare state", () => {

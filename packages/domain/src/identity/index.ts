@@ -1,6 +1,16 @@
 export { Identity } from "./service.js";
 export type { IdentityShape } from "./service.js";
 export {
+  PasswordResetMailDelivery,
+  PasswordResetMailDeliveryError,
+  PasswordResetMailDeliveryFailureCode,
+} from "./password-reset-mail-delivery.js";
+export type {
+  PasswordResetMailDeliveryAcknowledgement,
+  PasswordResetMailDeliveryRequest,
+  PasswordResetMailDeliveryShape,
+} from "./password-reset-mail-delivery.js";
+export {
   IdentityEngineError,
   IdentityInvalidCredentials,
   IdentityOwnedSessionNotFound,

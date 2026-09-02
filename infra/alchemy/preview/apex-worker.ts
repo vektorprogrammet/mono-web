@@ -8,6 +8,7 @@
  * Additive to p20: shares zero resources with the p20 stack; every physical
  * resource name is prefixed `vektor-apex-`.
  */
+import type { CloudflareSendEmailBinding } from "../../../apps/backend/src/password-recovery/cloudflare-email.ts";
 import { APEX_IDENTITY } from "./identity.ts";
 import { apexSurface } from "./surface-apex.ts";
 import { validateDashboardPreviewStage } from "../../../apps/dashboard/workers/preview-stage.ts";
@@ -19,6 +20,8 @@ interface ApexService {
 export interface ApexWorkerEnv {
   readonly Homepage: ApexService;
   readonly Dashboard: ApexService;
+  /** Bound authority capsule; inactive until the 0054.2 outbox/cohort cutover. */
+  readonly PasswordResetEmail: CloudflareSendEmailBinding;
   readonly PREVIEW_STAGE: string;
   readonly PREVIEW_HOST: string;
 }

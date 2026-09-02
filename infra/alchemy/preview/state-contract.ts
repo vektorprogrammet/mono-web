@@ -6,6 +6,8 @@ export const APEX_LOCAL_STATE_LOGICAL_IDS = [
   "vektor-apex-homepage",
   "vektor-apex-worker",
 ] as const;
+// Pinned Alchemy 2.0.0-beta.70 models SendEmail as a stateless binding descriptor.
+export const APEX_STATELESS_BINDING_NAMES = ["PasswordResetEmail"] as const;
 
 export type DeploymentStateBackend = "local" | "cloudflare";
 

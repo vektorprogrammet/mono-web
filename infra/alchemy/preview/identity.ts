@@ -22,6 +22,8 @@ export const APEX_IDENTITY = {
   app: "vektor",
   stage: "dev-main",
   target: "apex-preview",
+  // Zone selection is not evidence that Email Sending has been onboarded.
+  zoneName: "phibkro.org",
   hostname: "vektor.phibkro.org",
   apiHostname: "api.vektor.phibkro.org",
   backendHostname: "origin-api.vektor.phibkro.org",

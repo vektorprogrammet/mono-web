@@ -16,6 +16,7 @@ export const assertApexIdentity = (): void => {
     throw new Error("Apex preview must run on stage dev-main");
   }
   if (
+    APEX_IDENTITY.zoneName !== "phibkro.org" ||
     APEX_IDENTITY.hostname !== "vektor.phibkro.org" ||
     APEX_IDENTITY.apiHostname !== "api.vektor.phibkro.org" ||
     !APEX_IDENTITY.resourcePrefix.startsWith("vektor-apex")
