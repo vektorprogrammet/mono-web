@@ -1,5 +1,5 @@
 import { type Database } from "@vektorprogrammet/domain/database";
-import { Effect, Schema } from "effect";
+import { Effect, Option, Schema } from "effect";
 import {
   InactiveActor,
   UnauthenticatedActor,
@@ -9,12 +9,32 @@ import {
   RevisionSchema,
   type AdmissionPeriodActor,
 } from "@vektorprogrammet/domain/admission-period";
-import { DepartmentId, SemesterId } from "@vektorprogrammet/domain/organization";
 import { Admissions } from "@vektorprogrammet/domain/admissions";
 import { PublicApplicationSubmitInputSchema } from "@vektorprogrammet/domain/application";
-import { ExternalNativeApi } from "@vektorprogrammet/http-api";
+import {
+  CreateAdmissionPeriodEndpoint,
+  CreateAdmissionPeriodRequest,
+  ExternalNativeApi,
+  reflectAccessSpec,
+} from "@vektorprogrammet/http-api";
+import { executeNativeHttpCommandPostgres } from "@vektorprogrammet/domain/http-semantics";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
 import { toHttpApiResponse } from "../http-api/transport.js";
+import {
+  HttpSemanticFailure,
+  deriveHttpIdentity,
+  deriveStrongETag,
+  encodePathIdentity,
+  jsonBodyBytes,
+  nativeProblemResponse,
+  parseIdempotencyKey,
+  semanticRequestDigest,
+} from "../http-semantics.js";
+import {
+  authorizePersonNativeOperation,
+  genericContext,
+  nativeCommandOutcomeResponse,
+} from "../native-operation.js";
 import type { AdmissionApiConfig } from "./config.js";
 
 export interface AdmissionApiHttpOptions {
@@ -58,6 +78,21 @@ const errorTag = (cause: unknown): string =>
     : "AdmissionPeriodPersistenceError";
 
 const errorResponse = (cause: unknown): Response => {
+  if (cause instanceof HttpSemanticFailure) {
+    return nativeProblemResponse(cause.code, cause.status);
+  }
+  if (cause !== null && typeof cause === "object" && "_tag" in cause) {
+    switch (cause._tag) {
+      case "NativeHttpReceiptInFlightError":
+        return nativeProblemResponse("idempotency.in-flight", 409);
+      case "NativeHttpReceiptDigestConflictError":
+        return nativeProblemResponse("idempotency.digest-conflict", 409);
+      case "NativeHttpReceiptExpiredError":
+        return nativeProblemResponse("idempotency.response-expired", 409);
+      case "NativeHttpReceiptPersistenceError":
+        return nativeProblemResponse("idempotency.unavailable", 503);
+    }
+  }
   const tag = errorTag(cause);
   let status: number;
   switch (tag) {
@@ -196,13 +231,6 @@ const decodeJson = async <S extends Schema.ConstraintDecoder<unknown, never>>(
   }
 };
 
-const createPayloadSchema = Schema.Struct({
-  commandId: AdmissionPeriodCommandId,
-  semesterId: SemesterId,
-  startAt: Rfc3339InstantSchema,
-  endAt: Rfc3339InstantSchema,
-  departmentId: Schema.optional(DepartmentId),
-});
 
 const revisePayloadSchema = Schema.Struct({
   commandId: AdmissionPeriodCommandId,
@@ -246,17 +274,90 @@ const create = async (request: Request, input: AdmissionApiHttpOptions): Promise
   requireNoQuery(request);
   const payload = await decodeJson(
     request,
-    createPayloadSchema,
+    CreateAdmissionPeriodRequest,
     input.config.maxBodyBytes,
     "AdmissionPeriodDecodeError",
   );
-  const actor = requireActive(await input.resolveActor(request));
-  const result = await executeCommand(
-    { _tag: "CreateAdmissionPeriod", ...payload },
-    { actor, now: input.config.now(), admissionPeriodId: input.config.nextAdmissionPeriodId() },
-    input,
+  const actor = requireActive(await actorFor(request, input, payload.departmentId));
+  const now = input.config.now();
+  const admissionPeriodId = input.config.nextAdmissionPeriodId();
+  await authorizePersonNativeOperation({
+    spec: Option.getOrThrow(reflectAccessSpec(CreateAdmissionPeriodEndpoint)),
+    request,
+    personId: actor.personId,
+    resolution: {
+      selection: "ExactlyOne",
+      contexts: [
+        genericContext({
+          domainId: "admissions",
+          departmentId:
+            actor._tag === "DepartmentLeader" ? actor.departmentId : (payload.departmentId ?? null),
+          resourceKind: "admission-period",
+          resourceId: admissionPeriodId,
+          authorityVersion: `admissions:${actor._tag}`,
+        }),
+      ],
+    },
+    grantScopes:
+      actor._tag === "GlobalAdmin"
+        ? [{ _tag: "Global" }]
+        : actor._tag === "DepartmentLeader"
+          ? [{ _tag: "Department", departmentId: actor.departmentId }]
+          : [],
+    now,
+    run: input.run as never,
+  });
+  const idempotencyKey = parseIdempotencyKey(
+    request.headers.get("idempotency-key") === null
+      ? []
+      : [request.headers.get("idempotency-key")!],
   );
-  return jsonResponse(result.observation, result.replayed ? 200 : 201);
+  const operationId = "admissions.createAdmissionPeriod";
+  const derived = deriveHttpIdentity({
+    credentialSubject: `Person:${actor.personId}`,
+    qualifiedOperationId: operationId,
+    normalizedTarget: "/api/admission-periods",
+    idempotencyKey,
+  });
+  const identity = {
+    identitySha256: derived.identitySha256,
+    requestSha256: semanticRequestDigest({ body: payload }),
+    operationId,
+  };
+  const result = await input.run(
+    Admissions.use((admissions) =>
+      executeNativeHttpCommandPostgres(
+        identity,
+        Effect.gen(function* () {
+          const created = yield* admissions.executeAdmissionPeriod(
+            {
+              _tag: "CreateAdmissionPeriod",
+              commandId: AdmissionPeriodCommandId.make(derived.commandId),
+              ...payload,
+            },
+            { actor, now, admissionPeriodId },
+          );
+          const period = created.period;
+          const etag = deriveStrongETag({
+            representationKind: "AdmissionPeriodManagementItem",
+            resourceIdentity: period.id,
+            version: period.revision,
+          });
+          return {
+            status: 201,
+            mediaType: "application/json",
+            headers: {
+              "content-type": "application/json",
+              location: `/api/admission-periods/${encodePathIdentity(period.id)}`,
+              etag,
+            },
+            bodyBytes: jsonBodyBytes(period),
+          };
+        }),
+      ),
+    ),
+  );
+  return nativeCommandOutcomeResponse(result);
 };
 
 const revise = async (

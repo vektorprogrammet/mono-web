@@ -1,6 +1,5 @@
 import {
-  CreateDepartmentCommandSchema,
-  CreateDepartmentResultSchema,
+  OrganizationCommandId,
   CreateFieldOfStudyCommandSchema,
   CreateFieldOfStudyResultSchema,
   CreateTeamCommandSchema,
@@ -15,8 +14,14 @@ import {
   type SemesterId,
   type TeamInterestFilter,
 } from "@vektorprogrammet/domain/organization";
-import { ExternalNativeApi } from "@vektorprogrammet/http-api";
-import { Effect, Match, Schema } from "effect";
+import {
+  CreateDepartmentEndpoint,
+  CreateDepartmentRequest,
+  ExternalNativeApi,
+  ListDepartmentsEndpoint,
+  reflectAccessSpec,
+} from "@vektorprogrammet/http-api";
+import { Effect, Match, Option, Schema } from "effect";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
 import { toHttpApiResponse } from "../http-api/transport.js";
 import {
@@ -24,11 +29,23 @@ import {
   PUBLIC_CACHE_CONTROL,
   deriveStrongETag,
   evaluateReadPreconditions,
-  nativeProblemResponse,
+  encodePathIdentity,
+  jsonBodyBytes,
+  deriveHttpIdentity,
   notModifiedResponse,
   parseIfNoneMatch,
+  nativeProblemResponse,
   parseReadIfMatch,
+  parseIdempotencyKey,
+  semanticRequestDigest,
 } from "../http-semantics.js";
+import {
+  authorizeAnonymousNativeOperation,
+  authorizePersonNativeOperation,
+  genericContext,
+  nativeCommandOutcomeResponse,
+} from "../native-operation.js";
+import { executeNativeHttpCommandPostgres } from "@vektorprogrammet/domain/http-semantics";
 import type { BackendRun } from "../router.js";
 import type { OrganizationApiConfig } from "./config.js";
 
@@ -109,6 +126,23 @@ const statusForErrorTag = (tag: OrganizationHttpErrorTag): number =>
   );
 
 const errorResponse = (cause: unknown): Response => {
+  if (cause instanceof HttpSemanticFailure) {
+    return nativeProblemResponse(cause.code, cause.status);
+  }
+  if (cause !== null && typeof cause === "object" && "_tag" in cause) {
+    switch (cause._tag) {
+      case "NativeHttpReceiptInFlightError":
+        return nativeProblemResponse("idempotency.in-flight", 409, {
+          "retry-after": "1",
+        });
+      case "NativeHttpReceiptDigestConflictError":
+        return nativeProblemResponse("idempotency.digest-conflict", 409);
+      case "NativeHttpReceiptExpiredError":
+        return nativeProblemResponse("idempotency.response-expired", 409);
+      case "NativeHttpReceiptPersistenceError":
+        return nativeProblemResponse("idempotency.unavailable", 503);
+    }
+  }
   const tag = errorTag(cause);
   const body: ErrorBody = { error: { tag } };
   return jsonResponse(body, statusForErrorTag(tag));
@@ -262,6 +296,20 @@ const listDepartments = async (
   request: Request,
   input: OrganizationApiHttpOptions,
 ): Promise<Response> => {
+  await authorizeAnonymousNativeOperation(
+    Option.getOrThrow(reflectAccessSpec(ListDepartmentsEndpoint)),
+    {
+      selection: "AllMatching",
+      contexts: [
+        genericContext({
+          domainId: "organization",
+          authorityVersion: "organization-public-departments",
+        }),
+      ],
+    },
+    new Date().toISOString(),
+    input.run,
+  );
   assertNoQuery(request);
   const rows = await input.run(Organization.use(({ listDepartments }) => listDepartments));
   const decoded = await input.run(
@@ -321,16 +369,79 @@ const createDepartment = async (
 ): Promise<Response> => {
   assertNoQuery(request);
   const actor = await actorFor(request, input);
-  const command = await decodeCommand(request, CreateDepartmentCommandSchema, input);
+  const now = new Date().toISOString();
+  await authorizePersonNativeOperation({
+    spec: Option.getOrThrow(reflectAccessSpec(CreateDepartmentEndpoint)),
+    request,
+    personId: actor.personId,
+    resolution: {
+      selection: "ExactlyOne",
+      contexts: [
+        genericContext({
+          domainId: "organization",
+          authorityVersion: `organization:${actor._tag}`,
+        }),
+      ],
+    },
+    grantScopes: actor._tag === "OrganizationAdministrator" ? [{ _tag: "Global" }] : [],
+    now,
+    run: input.run,
+  });
+  const payload = await decodeCommand(request, CreateDepartmentRequest, input);
+  const idempotencyKey = parseIdempotencyKey(
+    request.headers.get("idempotency-key") === null
+      ? []
+      : [request.headers.get("idempotency-key")!],
+  );
+  const operationId = "organization.createDepartment";
+  const derived = deriveHttpIdentity({
+    credentialSubject: `Person:${actor.personId}`,
+    qualifiedOperationId: operationId,
+    normalizedTarget: "/api/departments",
+    idempotencyKey,
+  });
+  const identity = {
+    identitySha256: derived.identitySha256,
+    requestSha256: semanticRequestDigest({ body: payload }),
+    operationId,
+  };
   const result = await input.run(
-    Organization.use(({ createDepartment }) => createDepartment(command, actor)),
+    Organization.use((organization) =>
+      executeNativeHttpCommandPostgres(
+        identity,
+        Effect.gen(function* () {
+          const created = yield* organization.createDepartment(
+            {
+              _tag: "CreateDepartment",
+              commandId: OrganizationCommandId.make(derived.commandId),
+              ...payload,
+            },
+            actor,
+          );
+          const department =
+            created.observation._tag === "Replayed"
+              ? created.observation.original.department
+              : created.observation.department;
+          const etag = deriveStrongETag({
+            representationKind: "DepartmentJson",
+            resourceIdentity: department.departmentId,
+            version: department.revision,
+          });
+          return {
+            status: 201,
+            mediaType: "application/json",
+            headers: {
+              "content-type": "application/json",
+              location: `/api/departments/${encodePathIdentity(department.departmentId)}`,
+              etag,
+            },
+            bodyBytes: jsonBodyBytes(department),
+          };
+        }),
+      ),
+    ),
   );
-  return strictJsonResponse(
-    result,
-    CreateDepartmentResultSchema,
-    input,
-    result.committed ? 201 : 200,
-  );
+  return nativeCommandOutcomeResponse(result);
 };
 
 const createTeam = async (
