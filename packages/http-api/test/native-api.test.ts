@@ -1,6 +1,7 @@
 import { PUBLIC_SYSTEM_ACCESS } from "@vektorprogrammet/domain/authz";
+import { ReceiptId } from "@vektorprogrammet/domain/receipt";
 import { Context, Schema } from "effect";
-import { OpenApi } from "effect/unstable/httpapi";
+import { HttpApiClient, OpenApi } from "effect/unstable/httpapi";
 import { describe, expect, it } from "vitest";
 import { ExternalNativeApi, InternalNativeApi } from "../src/api.js";
 import {
@@ -601,9 +602,11 @@ const existingResourceMutationOperations = new Set<string>([
   ...entityMutationOperations,
   ...taggedNoContentMutationOperations,
 ]);
-
-const reflectedOperations = () =>
-  [
+const reflectedOperations = () => {
+  const externalPaths = new Map(
+    documentedOperations().map(({ path, operation }) => [operation.operationId, path] as const),
+  );
+  return [
     ...Object.values(ExternalNativeApi.groups).flatMap((group) =>
       Object.values(group.endpoints).map((endpoint) => ({ group, endpoint })),
     ),
@@ -611,17 +614,20 @@ const reflectedOperations = () =>
       Object.values(group.endpoints).map((endpoint) => ({ group, endpoint })),
     ),
   ].map(({ group, endpoint }): ExpectedOperation => {
+    const operationId = `${group.identifier}.${endpoint.identifier}`;
+    const publicPath = externalPaths.get(operationId);
     const reflected = reflectAccessSpec(endpoint);
     if (reflected._tag === "None") {
-      throw new TypeError(`${group.identifier}.${endpoint.identifier} has no AccessSpec`);
+      throw new TypeError(`${operationId} has no AccessSpec`);
     }
     return [
       endpoint.method,
-      endpoint.path.replaceAll("::", ":"),
-      `${group.identifier}.${endpoint.identifier}`,
+      publicPath?.replace(/\{(\w+)\}/g, ":$1") ?? endpoint.path,
+      operationId,
       projectVektorAccess(reflected.value),
     ];
   });
+};
 
 describe("native API reflection", () => {
   it("equals the frozen 53-row matrix without a gap or legacy authority", () => {
@@ -668,6 +674,24 @@ describe("native API reflection", () => {
     expect(operations).toHaveLength(52);
     expect(operations.some(({ path }) => path.startsWith("/api/e2e"))).toBe(false);
     expect(operations.some(({ path }) => path.startsWith("/api/auth"))).toBe(false);
+  });
+
+  it("compiles escaped action paths once for OpenAPI and client URLs", () => {
+    const spec = OpenApi.fromApi(ExternalNativeApi);
+    const urls = HttpApiClient.urlBuilder(ExternalNativeApi);
+
+    expect(spec.paths["/api/sessions:revoke-others"]?.post).toBeDefined();
+    expect(spec.paths["/api/receipts/{receiptId}:withdraw"]?.post).toBeDefined();
+    expect(spec.paths["/api/content/articles/{articleId}:publish"]?.post).toBeDefined();
+    expect(
+      Object.keys(spec.paths).some((path) => path.includes("([^:]+)") || path.includes("::")),
+    ).toBe(false);
+    expect(urls.system.revokeOtherSessions()).toBe("/api/sessions:revoke-others");
+    expect(
+      urls.receipts.withdrawReceipt({
+        params: { receiptId: ReceiptId.make("receipt/with-colon:segment") },
+      }),
+    ).toBe("/api/receipts/receipt%2Fwith-colon%3Asegment:withdraw");
   });
 
   it("projects one declared AccessSpec without credential leakage or a second registry", () => {

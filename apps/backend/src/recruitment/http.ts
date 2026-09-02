@@ -731,6 +731,7 @@ const invitationMutation = async (
   input: RecruitmentApiHttpOptions,
 ): Promise<Response> => {
   noQuery(request);
+  const ifMatch = parseRequiredIfMatch(headerValues(request, "if-match"));
   const capability = await invitationCapability(request, input.run);
   const now = input.config.now();
   const source = await input.run(readRecruitmentInvitationHttpSourcePostgres(capability));

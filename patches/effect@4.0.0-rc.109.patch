@@ -1,5 +1,43 @@
+diff --git a/dist/unstable/httpapi/HttpApiClient.js b/dist/unstable/httpapi/HttpApiClient.js
+--- a/dist/unstable/httpapi/HttpApiClient.js
++++ b/dist/unstable/httpapi/HttpApiClient.js
+@@ -109,7 +109,7 @@ export const makeWith = Effect.fnUntraced(function* (api, options) {
+       const encodeHeaders = UndefinedOr.map(endpoint.headers, Schema.encodeUnknownEffect);
+       const encodeQuery = UndefinedOr.map(endpoint.query, Schema.encodeUnknownEffect);
+       const middlewareKeys = Array.from(onEndpointOptions.middleware, tag => `${tag.key}/Client`);
+       const endpointFn = Effect.fnUntraced(function* (request) {
+-        let httpRequest = HttpClientRequest.make(endpoint.method)(endpoint.path);
++        let httpRequest = HttpClientRequest.make(endpoint.method)(encodeParams === undefined ? makeUrl({}) : endpoint.path);
+         if (request !== undefined) {
+           // params
+@@ -286,7 +286,7 @@ export const urlBuilder = (api, options) => {
+       const encodeQuery = endpoint.query === undefined ? undefined : Schema.encodeSync(endpoint.query);
+       const endpointBuilder = request => {
+         const params = request?.params;
+-        const path = params === undefined ? endpoint.path : makeUrl(encodeParams === undefined ? params : encodeParams(params));
++        const path = makeUrl(params === undefined ? {} : encodeParams === undefined ? params : encodeParams(params));
+         const queryInput = request?.query === undefined ? undefined : encodeQuery === undefined ? request.query : encodeQuery(request.query);
+         const query = queryInput === undefined ? "" : UrlParams.toString(UrlParams.fromInput(queryInput));
+         const url = query === "" ? path : `${path}?${query}`;
+@@ -298,14 +298,15 @@ export const urlBuilder = (api, options) => {
+ };
+ // ----------------------------------------------------------------------------
+-const paramsRegExp = /(\/?):(\w+)(\?)?/g;
++const paramsRegExp = /(\/?)(::|:(\w+)(?:\(\[\^:\]\+\))?(\?)?)/g;
+ const compilePath = path => {
+   if (!paramsRegExp.test(path)) {
+     return _ => path;
+   }
+   paramsRegExp.lastIndex = 0;
+   return params => {
+     paramsRegExp.lastIndex = 0;
+-    return path.replace(paramsRegExp, (_, slash, key, optional) => {
++    return path.replace(paramsRegExp, (_, slash, token, key, optional) => {
++      if (token === "::") return `${slash}:`;
+       const value = params[key];
+       if (value === undefined) {
+         if (optional !== undefined) {
 diff --git a/dist/unstable/httpapi/OpenApi.js b/dist/unstable/httpapi/OpenApi.js
-index 6ee892b4d89fa14f429f79c2e6f57837300a8a80..a619e1e4f0e8d4ab050bf3f1baf548120caeea5f 100644
 --- a/dist/unstable/httpapi/OpenApi.js
 +++ b/dist/unstable/httpapi/OpenApi.js
 @@ -295,7 +295,7 @@ function fromApiWith(api, cache, compileSchemas) {
@@ -7,23 +45,67 @@ index 6ee892b4d89fa14f429f79c2e6f57837300a8a80..a619e1e4f0e8d4ab050bf3f1baf54812
          responses: {}
        };
 -      const path = endpoint.path.replace(/:(\w+)\??/g, "{$1}");
-+      const path = endpoint.path.replaceAll("::", "\uE000").replace(/:(\w+)\??/g, "{$1}").replaceAll("\uE000", ":");
++      const path = endpoint.path.replace(/::|:(\w+)(?:\(\[\^:\]\+\))?\??/g, (token, key) => token === "::" ? ":" : `{${key}}`);
        const method = endpoint.method.toLowerCase();
        function processResponseBodies(bodies, defaultDescription) {
          for (const [status, {
+diff --git a/src/unstable/httpapi/HttpApiClient.ts b/src/unstable/httpapi/HttpApiClient.ts
+--- a/src/unstable/httpapi/HttpApiClient.ts
++++ b/src/unstable/httpapi/HttpApiClient.ts
+@@ -407,5 +407,7 @@ export const makeWith = Effect.fnUntraced(function*<ApiId extends string, Groups
+           } | undefined
+         ) {
+-          let httpRequest = HttpClientRequest.make(endpoint.method)(endpoint.path)
+-
++          let httpRequest = HttpClientRequest.make(endpoint.method)(
++            encodeParams === undefined ? makeUrl({}) : endpoint.path
++          )
++
+           if (request !== undefined) {
+@@ -681,9 +683,11 @@ export const urlBuilder = <Api extends HttpApi.Constraint>(api: Api, options?: {
+         readonly query?: unknown
+       }) => {
+         const params = request?.params
+-        const path = params === undefined
+-          ? endpoint.path
+-          : makeUrl((encodeParams === undefined ? params : encodeParams(params)) as Record<string, string | undefined>)
++        const path = makeUrl(
++          params === undefined
++            ? {}
++            : (encodeParams === undefined ? params : encodeParams(params)) as Record<string, string | undefined>
++        )
+         const queryInput = request?.query === undefined
+           ? undefined
+           : (encodeQuery === undefined ? request.query : encodeQuery(request.query)) as UrlParams.Input
+@@ -705,5 +709,5 @@ export const urlBuilder = <Api extends HttpApi.Constraint>(api: Api, options?: {
+ // ----------------------------------------------------------------------------
+-
+-const paramsRegExp = /(\/?):(\w+)(\?)?/g
+-
++
++const paramsRegExp = /(\/?)(::|:(\w+)(?:\(\[\^:\]\+\))?(\?)?)/g
++
+ const compilePath = (path: string) => {
+@@ -710,3 +714,3 @@ const compilePath = (path: string) => {
+   if (!paramsRegExp.test(path)) {
+-    return (_: any) => path
++    return (_: Record<string, string | undefined>) => path
+   }
+@@ -715,4 +719,5 @@ const compilePath = (path: string) => {
+     paramsRegExp.lastIndex = 0
+-    return path.replace(paramsRegExp, (_, slash: string, key: string, optional: string | undefined) => {
+-      const value = params[key]
++    return path.replace(paramsRegExp, (_, slash: string, token: string, key: string | undefined, optional: string | undefined) => {
++      if (token === "::") return `${slash}:`
++      const value = params[key!]
+       if (value === undefined) {
 diff --git a/src/unstable/httpapi/OpenApi.ts b/src/unstable/httpapi/OpenApi.ts
-index c7ff5bff44f56a370b62ceb821be0cd5c2a77462..f3fe6297be41186023d1b5f5261e70fd8598b6e8 100644
 --- a/src/unstable/httpapi/OpenApi.ts
 +++ b/src/unstable/httpapi/OpenApi.ts
-@@ -382,7 +382,10 @@ function fromApiWith<Id extends string, Groups extends HttpApiGroup.Constraint>(
-         responses: {}
-       }
- 
+@@ -385,2 +385,5 @@ function fromApiWith<Id extends string, Groups extends HttpApiGroup.Constraint>(
 -      const path = endpoint.path.replace(/:(\w+)\??/g, "{$1}")
-+      const path = endpoint.path
-+        .replaceAll("::", "\uE000")
-+        .replace(/:(\w+)\??/g, "{$1}")
-+        .replaceAll("\uE000", ":")
++      const path = endpoint.path.replace(
++        /::|:(\w+)(?:\(\[\^:\]\+\))?\??/g,
++        (token, key: string | undefined) => token === "::" ? ":" : `{${key}}`
++      )
        const method = endpoint.method.toLowerCase() as OpenAPISpecMethodName
- 
-       function processResponseBodies(bodies: ResponseBodies, defaultDescription: () => string) {

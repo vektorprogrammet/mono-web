@@ -1,6 +1,5 @@
 import {
   InvitationCapabilitySecurity,
-  PersonOrServiceSecurity,
   PersonSecurity,
   RequestSchemaErrorMiddleware,
   SessionSecurity,
@@ -72,15 +71,6 @@ const PersonSecurityLive = Layer.succeed(
   }),
 );
 
-const PersonOrServiceSecurityLive = Layer.succeed(
-  PersonOrServiceSecurity,
-  PersonOrServiceSecurity.of({
-    cookieHeader: (httpEffect) => httpEffect,
-    oauthUserBearer: (httpEffect) => httpEffect,
-    oauthServiceBearer: (httpEffect) => httpEffect,
-  }),
-);
-
 const InvitationCapabilitySecurityLive = Layer.succeed(
   InvitationCapabilitySecurity,
   InvitationCapabilitySecurity.of({
@@ -100,7 +90,6 @@ const RequestSchemaErrorLive = HttpApiMiddleware.layerSchemaErrorTransform(
 export const NativeHttpApiMiddlewareLive = Layer.mergeAll(
   SessionSecurityLive,
   PersonSecurityLive,
-  PersonOrServiceSecurityLive,
   InvitationCapabilitySecurityLive,
   RequestSchemaErrorLive,
 );

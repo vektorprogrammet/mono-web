@@ -12,7 +12,7 @@ import { Profile } from "@vektorprogrammet/domain/profile";
 import { Recruitment } from "@vektorprogrammet/domain/recruitment";
 import { Economy } from "@vektorprogrammet/domain/receipt";
 import type { Schools } from "@vektorprogrammet/domain/schools";
-import { ExternalNativeApi, InternalNativeApi, RecruitmentApi } from "@vektorprogrammet/http-api";
+import { ExternalNativeApi, InternalNativeApi } from "@vektorprogrammet/http-api";
 import { Effect, Layer } from "effect";
 import { HttpRouter, HttpServerResponse } from "effect/unstable/http";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
@@ -316,16 +316,6 @@ export const makeInternalNativeApiRouterLayer = (
   return Layer.merge(internalRoutes, notFound);
 };
 
-const malformedRecruitmentPath = (method: string, pathname: string): boolean =>
-  [
-    RecruitmentApi.endpoints.readInterviewConduct,
-    RecruitmentApi.endpoints.finalizeInterview,
-    RecruitmentApi.endpoints.cancelInterview,
-  ].some(
-    (endpoint) =>
-      method === endpoint.method && pathname === endpoint.path.replace(":interviewId", ""),
-  );
-
 const oauthAuthorizationServerMetadataPath = "/.well-known/oauth-authorization-server/api/auth";
 
 const externalOAuthRoutes = new Set([
@@ -489,14 +479,10 @@ export const makeBackendHttp = (
         acceptedOrigin,
       );
     }
-    let response: Response;
-    if (pathname === "/api/auth/" || pathname.startsWith("/api/auth/")) {
-      response = await authHandler.handle(prepared.request, prepared.context);
-    } else if (malformedRecruitmentPath(prepared.request.method, pathname)) {
-      response = jsonResponse({ error: { tag: "RecruitmentDecodeError" } }, 422);
-    } else {
-      response = await nativeHandler(prepared.request);
-    }
+    const response =
+      pathname === "/api/auth/" || pathname.startsWith("/api/auth/")
+        ? await authHandler.handle(prepared.request, prepared.context)
+        : await nativeHandler(prepared.request);
     return withTrustedOriginCors(response, acceptedOrigin);
   },
 });

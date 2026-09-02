@@ -11,12 +11,7 @@ import { ReceiptId, ReceiptStatusSchema } from "@vektorprogrammet/domain/receipt
 import { Schema } from "effect";
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema, OpenApi } from "effect/unstable/httpapi";
 import { annotateAccessSpec, personNativeAccess } from "./access.js";
-import {
-  operationAnnotations,
-  PersonOrServiceSecurity,
-  PersonSecurity,
-  SessionSecurity,
-} from "./common.js";
+import { operationAnnotations, PersonSecurity, SessionSecurity } from "./common.js";
 import {
   InternalReadReceiptEvidenceProblem,
   ReceiptsListReceiptsForApprovalProblem,
@@ -307,7 +302,7 @@ export const ListReceiptsForApprovalEndpoint = HttpApiEndpoint.get(
     error: endpointProblemResponses(ReceiptsListReceiptsForApprovalProblem),
   },
 )
-  .middleware(PersonOrServiceSecurity)
+  .middleware(PersonSecurity)
   .pipe((endpoint) => annotateAccessSpec(endpoint, RECEIPT_APPROVAL_QUEUE_ACCESS))
   .annotateMerge(
     operationAnnotations(

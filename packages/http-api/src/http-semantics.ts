@@ -167,11 +167,13 @@ export const entityMutationResponse = <S extends Schema.Top>(success: S) =>
   });
 
 /** Successful no-content mutation response, optionally with a new entity tag. */
-export const noContentMutationResponse = (options?: { readonly etag?: boolean }) =>
-  HttpApiSchema.WithHeaders(HttpApiSchema.NoContent, {
+export const noContentMutationResponse = (options?: { readonly etag?: boolean }) => {
+  const response = HttpApiSchema.WithHeaders(HttpApiSchema.NoContent, {
     ...externalHeaders(NoStore),
     ...(options?.etag === true ? { ETag: StrongETag } : {}),
   });
+  return response as unknown as Schema.Codec<typeof response.Type, typeof response.Encoded>;
+};
 
 const ValidationPointer = Schema.String.pipe(
   Schema.check(
@@ -758,11 +760,13 @@ export const problemUnion = (identifier: string, descriptors: ReadonlyArray<Prob
       ? validationProblemSchema(code)
       : nativeProblemCoreSchema(code);
   });
-  return Schema.Union(schemas as never).annotate({
+  const union = Schema.Union(schemas as never).annotate({
     identifier,
     title: identifier,
     description: `Closed RFC 9457 error union for ${identifier}.`,
   });
+  // The variants above are rebuilt only from this module's service-free codecs.
+  return union as unknown as Schema.Codec<unknown, unknown>;
 };
 
 /**
@@ -773,7 +777,7 @@ export const problemUnion = (identifier: string, descriptors: ReadonlyArray<Prob
 export const endpointProblemResponses = <S extends Schema.Top>(
   problem: S,
   options?: { readonly cors?: boolean },
-): ReadonlyArray<Schema.Top> => {
+): ReadonlyArray<Schema.Codec<unknown, unknown>> => {
   const ast = problem.ast;
   const members = ast._tag === "Union" ? ast.types : [ast];
   const grouped = new Map<number, Array<(typeof members)[number]>>();
@@ -796,7 +800,7 @@ export const endpointProblemResponses = <S extends Schema.Top>(
         property.type._tag === "Literal" &&
         property.type.literal === code,
     );
-  return [...grouped.entries()].map(([status, variants]) => {
+  const responses = [...grouped.entries()].map(([status, variants]) => {
     const headers = {
       "Cache-Control": NoStore,
       ...(options?.cors === false ? {} : { Vary: OriginVary }),
@@ -807,12 +811,20 @@ export const endpointProblemResponses = <S extends Schema.Top>(
       ...(status === 429 ? { "Retry-After": RetryAfterSeconds } : {}),
       ...(status === 503 ? { "Retry-After": Schema.Literal("5") } : {}),
     };
-    const body = Schema.Union(variants.map((variant) => Schema.make(variant)) as never).pipe(
+    const firstVariant = variants[0];
+    if (firstVariant === undefined) throw new Error(`${status} problem group is empty`);
+    const body = Schema.Union([
+      Schema.make(firstVariant),
+      ...variants.slice(1).map((variant) => Schema.make(variant)),
+    ]).pipe(
       HttpApiSchema.status(status),
       HttpApiSchema.asJson({ contentType: "application/problem+json" }),
     );
     return HttpApiSchema.WithHeaders(body, headers);
   });
+  // Every member is rebuilt from this module's closed, service-free Problem codecs.
+  // Schema.make cannot recover that requirement type from a reflected AST.
+  return responses as unknown as ReadonlyArray<Schema.Codec<unknown, unknown>>;
 };
 
 /** Builds one safe fixed public problem value. */

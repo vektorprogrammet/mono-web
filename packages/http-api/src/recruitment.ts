@@ -137,6 +137,7 @@ const ConductObservationExample: any = {
   canCancel: false,
 };
 
+import type * as Schema from "effect/Schema";
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema, OpenApi } from "effect/unstable/httpapi";
 import { annotateAccessSpec, invitationNativeAccess, personNativeAccess } from "./access.js";
 import { InvitationCapabilitySecurity, operationAnnotations, PersonSecurity } from "./common.js";
@@ -176,30 +177,41 @@ import {
   ScheduleInterviewResponse,
 } from "./v2-schemas.js";
 
+const serviceFreePayload = <S extends Schema.Top>(
+  schema: S,
+): Schema.Codec<S["Type"], S["Encoded"]> =>
+  // These request codecs use only synchronous, service-free transformations.
+  schema as unknown as Schema.Codec<S["Type"], S["Encoded"]>;
+
 /**
  * Exact empty JSON object required when accepting an invitation.
  *
  * @since 0.1.0
  * @category Schemas
  */
-export const ConfirmInvitationPayload = EmptyJsonRequest.annotate({
-  identifier: "ConfirmInvitationRequest",
-  description: "An exact empty JSON object.",
-  examples: [{}],
-});
+export const ConfirmInvitationPayload = serviceFreePayload(
+  EmptyJsonRequest.annotate({
+    identifier: "ConfirmInvitationRequest",
+    description: "An exact empty JSON object.",
+    examples: [{}],
+  }),
+);
 
-export const InvitationRejectInput = RecruitmentInvitationRejectInputSchema.annotate({
-  identifier: "InvitationRejectInput",
-  description: "Optional short rejection message.",
-  examples: [{ message: "Cannot attend that day." }, {}],
-});
+export const InvitationRejectInput = serviceFreePayload(
+  RecruitmentInvitationRejectInputSchema.annotate({
+    identifier: "InvitationRejectInput",
+    description: "Optional short rejection message.",
+    examples: [{ message: "Cannot attend that day." }, {}],
+  }),
+);
 
-export const InvitationRequestNewTimeInput =
+export const InvitationRequestNewTimeInput = serviceFreePayload(
   RecruitmentInvitationRequestNewTimeInputSchema.annotate({
     identifier: "InvitationRequestNewTimeInput",
     description: "Short message proposing another time.",
     examples: [{ message: "Could we do Thursday instead?" }],
-  });
+  }),
+);
 
 export const InvitationResponseObservation =
   RecruitmentInvitationResponseObservationSchema.annotate({
@@ -402,7 +414,7 @@ export const AssignApplicantEndpoint = HttpApiEndpoint.post(
 /** @since 0.1.0 @category Endpoints */
 export const ScheduleInterviewEndpoint = HttpApiEndpoint.post(
   "scheduleInterview",
-  "/api/recruitment/interviews/:interviewId::schedule",
+  "/api/recruitment/interviews/:interviewId([^:]+)::schedule",
   {
     params: { interviewId: RecruitmentInterviewId },
     headers: IdempotencyIfMatchHeaders,
@@ -460,7 +472,7 @@ export const ReadInterviewConductEndpoint = HttpApiEndpoint.get(
 /** @since 0.1.0 @category Endpoints */
 export const FinalizeInterviewEndpoint = HttpApiEndpoint.post(
   "finalizeInterview",
-  "/api/recruitment/interviews/:interviewId::finalize",
+  "/api/recruitment/interviews/:interviewId([^:]+)::finalize",
   {
     params: { interviewId: RecruitmentInterviewId },
     headers: IdempotencyIfMatchHeaders,
@@ -488,7 +500,7 @@ export const FinalizeInterviewEndpoint = HttpApiEndpoint.post(
 /** @since 0.1.0 @category Endpoints */
 export const CancelInterviewEndpoint = HttpApiEndpoint.post(
   "cancelInterview",
-  "/api/recruitment/interviews/:interviewId::cancel",
+  "/api/recruitment/interviews/:interviewId([^:]+)::cancel",
   {
     params: { interviewId: RecruitmentInterviewId },
     headers: IdempotencyIfMatchHeaders,
