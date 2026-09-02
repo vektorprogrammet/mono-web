@@ -240,16 +240,24 @@ const startRecordingUpstream = async (ledger) => {
       if (
         !forcedContentFailure &&
         request.method === "GET" &&
-        pathname === "/api/admin/content/workspace"
+        pathname === "/api/content/articles"
       ) {
         forcedContentFailure = true;
         entry.forced = true;
         entry.status = 503;
         response.writeHead(503, {
-          "content-type": "application/json; charset=utf-8",
+          "content-type": "application/problem+json; charset=utf-8",
           "cache-control": "no-store",
         });
-        response.end(JSON.stringify({ error: { tag: "ContentPersistenceError" } }));
+        response.end(
+          JSON.stringify({
+            type: "urn:vektorprogrammet:problem:v0.2:content.unavailable",
+            title: "Content unavailable",
+            status: 503,
+            code: "content.unavailable",
+            detail: "Content data is unavailable.",
+          }),
+        );
         return;
       }
 
@@ -381,7 +389,14 @@ try {
       body: JSON.stringify(body),
     });
     assert.equal(response.status, 404, `${method} ${pathname} must not be served`);
-    assert.deepEqual(await response.json(), { error: { tag: "RouteNotFound" } });
+    assert.match(response.headers.get("content-type") ?? "", /application\/problem\+json/u);
+    assert.deepEqual(await response.json(), {
+      type: "urn:vektorprogrammet:problem:v0.2:route.not-found",
+      title: "Route not found",
+      status: 404,
+      code: "route.not-found",
+      detail: "The requested route does not exist.",
+    });
     offSpecAliasChecks.push({ method, pathname, status: response.status });
   }
 
@@ -467,7 +482,7 @@ try {
   await emitReceipt(browser.stdout);
 
   const workspaceRequests = ledger.filter(
-    (entry) => entry.pathname === "/api/admin/content/workspace",
+    (entry) => entry.pathname === "/api/content/articles" && entry.method === "GET",
   );
   const forcedFailures = workspaceRequests.filter((entry) => entry.forced);
   const forwardedSuccesses = workspaceRequests.filter(
@@ -479,15 +494,17 @@ try {
     ledger.some((entry) => !entry.forced && entry.status === 403),
     "typed authority denials must reach the backend",
   );
-  const staffRequests = ledger.filter((entry) => entry.pathname.startsWith("/api/admin/content"));
+  const staffRequests = ledger.filter((entry) =>
+    entry.pathname.startsWith("/api/content/articles"),
+  );
   for (const entry of staffRequests) {
     const exact =
-      (entry.method === "GET" && entry.pathname === "/api/admin/content/workspace") ||
-      (entry.method === "POST" && entry.pathname === "/api/admin/content/articles") ||
-      (entry.method === "GET" && /^\/api\/admin\/content\/articles\/\d+$/u.test(entry.pathname)) ||
-      (entry.method === "PUT" && /^\/api\/admin\/content\/articles\/\d+$/u.test(entry.pathname)) ||
+      (entry.method === "GET" && entry.pathname === "/api/content/articles") ||
+      (entry.method === "POST" && entry.pathname === "/api/content/articles") ||
+      (entry.method === "GET" && /^\/api\/content\/articles\/\d+$/u.test(entry.pathname)) ||
+      (entry.method === "PATCH" && /^\/api\/content\/articles\/\d+$/u.test(entry.pathname)) ||
       (entry.method === "POST" &&
-        /^\/api\/admin\/content\/articles\/\d+\/(?:publish|unpublish)$/u.test(entry.pathname));
+        /^\/api\/content\/articles\/\d+:(?:publish|unpublish)$/u.test(entry.pathname));
     assert.equal(exact, true, `off-spec staff request observed: ${entry.method} ${entry.pathname}`);
   }
   assert.deepEqual(
@@ -496,7 +513,7 @@ try {
         entry.pathname.includes("/kontrollpanel") ||
         entry.pathname.includes("/api/articles") ||
         entry.pathname === "/api/admin/content" ||
-        /^\/api\/admin\/content\/drafts\/\d+/u.test(entry.pathname) ||
+        /^\/api\/admin\/content\/(?:workspace|drafts|articles)(?:\/|$)/u.test(entry.pathname) ||
         entry.pathname.includes("/mock/api") ||
         entry.pathname.startsWith("/fixtures"),
     ),

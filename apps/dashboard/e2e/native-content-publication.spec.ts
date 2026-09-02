@@ -35,6 +35,9 @@ type BrowserRequest = {
   readonly method: string;
   readonly pathname: string;
   readonly search: string;
+  readonly idempotencyKey?: string;
+  readonly ifMatch?: string;
+  readonly requestFields?: ReadonlyArray<string>;
 };
 type BrowserResponse = BrowserRequest & { readonly status: number };
 
@@ -47,7 +50,24 @@ const openContext = async (
   const context = await browser.newContext();
   context.on("request", (request) => {
     const url = new URL(request.url());
-    browserRequests.push({ method: request.method(), pathname: url.pathname, search: url.search });
+    const headers = request.headers();
+    let requestFields: ReadonlyArray<string> | undefined;
+    try {
+      const payload = request.postDataJSON() as Record<string, unknown> | undefined;
+      if (payload !== undefined) requestFields = Object.keys(payload).sort();
+    } catch {
+      // Multipart and bodyless requests do not contribute JSON field evidence.
+    }
+    browserRequests.push({
+      method: request.method(),
+      pathname: url.pathname,
+      search: url.search,
+      ...(headers["idempotency-key"] === undefined
+        ? {}
+        : { idempotencyKey: headers["idempotency-key"] }),
+      ...(headers["if-match"] === undefined ? {} : { ifMatch: headers["if-match"] }),
+      ...(requestFields === undefined ? {} : { requestFields }),
+    });
   });
   context.on("response", (response) => {
     const url = new URL(response.url());
@@ -177,35 +197,43 @@ test.describe("Native Content publication (spec 0062)", () => {
       await twoVersionRow.getByRole("button", { name: /To versjoner/ }).click();
       await expect(leader.page.getByLabel("Brødtekst")).toHaveValue("<p>Versjon én tekst</p>");
       const twoVersionArticleId = Number(await twoVersionRow.getAttribute("data-article-id"));
-      const concurrentRevision = await leader.page.evaluate(async (articleId) => {
-        const detailResponse = await fetch("/content", {
-          method: "POST",
-          credentials: "same-origin",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ operation: "readArticle", articleId }),
-        });
-        const detail = (await detailResponse.json()) as Record<string, unknown>;
-        const reviseResponse = await fetch("/content", {
-          method: "POST",
-          credentials: "same-origin",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            operation: "reviseDraft",
-            commandId: "leader-concurrent-revise",
-            articleId,
-            expectedRevision: detail.revision,
-            title: detail.title,
-            bodyHtml: "<p>Ekstern samtidig endring</p>",
-            departmentIds: detail.departmentIds,
-            sticky: detail.sticky,
-          }),
-        });
-        return {
-          detailStatus: detailResponse.status,
-          detail,
-          reviseStatus: reviseResponse.status,
-        };
-      }, twoVersionArticleId);
+      const concurrentRevision = await leader.page.evaluate(
+        async ({
+          articleId,
+          apiOrigin,
+        }: {
+          articleId: number;
+          apiOrigin: string;
+        }) => {
+          const detailResponse = await fetch(`${apiOrigin}/api/content/articles/${articleId}`, {
+            credentials: "include",
+          });
+          const detail = (await detailResponse.json()) as Record<string, unknown>;
+          const etag = detailResponse.headers.get("etag");
+          if (etag === null) throw new Error("content detail response omitted ETag");
+          const reviseResponse = await fetch(`${apiOrigin}/api/content/articles/${articleId}`, {
+            method: "PATCH",
+            credentials: "include",
+            headers: {
+              "content-type": "application/merge-patch+json",
+              "Idempotency-Key": "leader-concurrent-revise",
+              "If-Match": etag,
+            },
+            body: JSON.stringify({
+              title: detail.title,
+              bodyHtml: "<p>Ekstern samtidig endring</p>",
+              departmentIds: detail.departmentIds,
+              sticky: detail.sticky,
+            }),
+          });
+          return {
+            detailStatus: detailResponse.status,
+            detail,
+            reviseStatus: reviseResponse.status,
+          };
+        },
+        { articleId: twoVersionArticleId, apiOrigin: contentApiOrigin },
+      );
       expect(concurrentRevision.detailStatus).toBe(200);
       expect(concurrentRevision.detail.bodyHtml).toBe("<p>Versjon én tekst</p>");
       expect(concurrentRevision.detail.revision).toBe(0);
@@ -238,33 +266,52 @@ test.describe("Native Content publication (spec 0062)", () => {
       contexts.push(publishedAuthor.context);
       await signIn(publishedAuthor.page, persons.authorDepartmentA, "/dashboard/artikler");
       const publishedMemberRevision = await publishedAuthor.page.evaluate(
-        async ({ articleId, departmentId }: { articleId: number; departmentId: string }) => {
-          const response = await fetch("/content", {
-            method: "POST",
-            credentials: "same-origin",
-            headers: { "content-type": "application/json" },
+        async ({
+          articleId,
+          departmentId,
+          apiOrigin,
+        }: {
+          articleId: number;
+          departmentId: string;
+          apiOrigin: string;
+        }) => {
+          const detailResponse = await fetch(`${apiOrigin}/api/content/articles/${articleId}`, {
+            credentials: "include",
+          });
+          const etag = detailResponse.headers.get("etag");
+          if (etag === null) throw new Error("content detail response omitted ETag");
+          const response = await fetch(`${apiOrigin}/api/content/articles/${articleId}`, {
+            method: "PATCH",
+            credentials: "include",
+            headers: {
+              "content-type": "application/merge-patch+json",
+              "Idempotency-Key": "author-published-revise-denial",
+              "If-Match": etag,
+            },
             body: JSON.stringify({
-              operation: "reviseDraft",
-              commandId: "author-published-revise-denial",
-              articleId,
-              expectedRevision: 0,
               title: "To versjoner",
               bodyHtml: "<p>Uautorisert publisert endring</p>",
               departmentIds: [departmentId],
               sticky: false,
             }),
           });
-          return { status: response.status, body: (await response.json()) as unknown };
+          return { status: response.status, body: (await response.json()) as Record<string, unknown> };
         },
-        { articleId: twoVersionArticleId, departmentId: departmentAlpha },
+        {
+          articleId: twoVersionArticleId,
+          departmentId: departmentAlpha,
+          apiOrigin: contentApiOrigin,
+        },
       );
-      expect(publishedMemberRevision).toEqual({
+      expect(publishedMemberRevision.status).toBe(403);
+      expect(publishedMemberRevision.body).toMatchObject({
         status: 403,
-        body: { error: { tag: "DraftNotOwned" } },
+        code: "authority.denied",
+        type: "urn:vektorprogrammet:problem:v0.2:authority.denied",
       });
       observations.memberPublishedRevisionDenial = {
         status: 403,
-        tag: "DraftNotOwned",
+        code: "authority.denied",
       };
 
       // A separate anonymous context records the full public request ledger
@@ -336,22 +383,34 @@ test.describe("Native Content publication (spec 0062)", () => {
       await expect(publishButtons).toHaveCount(0);
       const authorDraftId = Number(await authorDraftRow.getAttribute("data-article-id"));
       expect(Number.isSafeInteger(authorDraftId)).toBe(true);
-      const directBridge = await author.page.evaluate(async (articleId) => {
-        const response = await fetch("/content", {
-          method: "POST",
-          credentials: "same-origin",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            operation: "publish",
-            commandId: "author-forced-publish",
-            articleId,
-          }),
-        });
-        return { status: response.status, body: (await response.json()) as unknown };
-      }, authorDraftId);
-      expect(directBridge.status).toBe(403);
-      expect(directBridge.body).toEqual({ error: { tag: "NotPublisher" } });
-      observations.authorDenial = { publishButtonAbsent: true, bridgeStatus: 403 };
+      const directNativePublish = await author.page.evaluate(
+        async ({ articleId, apiOrigin }: { articleId: number; apiOrigin: string }) => {
+          const detailResponse = await fetch(`${apiOrigin}/api/content/articles/${articleId}`, {
+            credentials: "include",
+          });
+          const etag = detailResponse.headers.get("etag");
+          if (etag === null) throw new Error("content detail response omitted ETag");
+          const response = await fetch(`${apiOrigin}/api/content/articles/${articleId}:publish`, {
+            method: "POST",
+            credentials: "include",
+            headers: {
+              "content-type": "application/json",
+              "Idempotency-Key": "author-forced-publish",
+              "If-Match": etag,
+            },
+            body: "{}",
+          });
+          return { status: response.status, body: (await response.json()) as Record<string, unknown> };
+        },
+        { articleId: authorDraftId, apiOrigin: contentApiOrigin },
+      );
+      expect(directNativePublish.status).toBe(403);
+      expect(directNativePublish.body).toMatchObject({
+        status: 403,
+        code: "authority.denied",
+        type: "urn:vektorprogrammet:problem:v0.2:authority.denied",
+      });
+      observations.authorDenial = { publishButtonAbsent: true, nativeStatus: 403 };
       const authorAccessibility = await new AxeBuilder({ page: author.page }).analyze();
       expect(authorAccessibility.violations).toEqual([]);
 
@@ -424,6 +483,12 @@ test.describe("Native Content publication (spec 0062)", () => {
       const bridgeRequests = browserRequests.filter((request) =>
         request.pathname.startsWith("/content"),
       );
+      const nativeContentRequests = browserRequests.filter((request) =>
+        request.pathname.startsWith("/api/content/articles"),
+      );
+      const nativeMutations = nativeContentRequests.filter((request) =>
+        ["PATCH", "POST"].includes(request.method),
+      );
       const publicRequests = browserRequests.filter(
         (request) =>
           request.pathname === "/" ||
@@ -434,6 +499,13 @@ test.describe("Native Content publication (spec 0062)", () => {
       expect(publicRequests.some((request) => request.pathname === "/nyheter")).toBe(true);
       expect(publicRequests.some((request) => request.pathname.startsWith("/nyhet/"))).toBe(true);
       expect(bridgeRequests.length).toBeGreaterThanOrEqual(3);
+      expect(nativeMutations.length).toBeGreaterThanOrEqual(3);
+      for (const mutation of nativeMutations) {
+        expect(mutation.idempotencyKey).toBeTruthy();
+        expect(mutation.ifMatch).toMatch(/^"vkr2\./u);
+        expect(mutation.requestFields).not.toContain("commandId");
+        expect(mutation.requestFields).not.toContain("expectedRevision");
+      }
       expect(
         browserRequests.filter((request) => request.pathname === "/api/admin/schools"),
       ).toEqual([]);
@@ -458,6 +530,7 @@ test.describe("Native Content publication (spec 0062)", () => {
           response.pathname.startsWith("/content"),
         ),
         publicRequests,
+        nativeContentRequests,
         observations,
         pageErrors,
         accessibilityViolations: accessibility.violations,

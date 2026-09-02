@@ -24,53 +24,39 @@ const OPEN_START = `${OPEN_START_INPUT}:00.000Z`;
 const OPEN_END = `${OPEN_END_INPUT}:00.000Z`;
 const CLOSED_END = `${CLOSED_END_INPUT}:00.000Z`;
 
-const periodSchema = Schema.Struct({
+const managementPeriodSchema = Schema.Struct({
   id: Schema.String,
   departmentId: Schema.String,
   semesterId: Schema.String,
   startAt: Schema.String,
   endAt: Schema.String,
   revision: Schema.Int,
-  lastCommandId: Schema.String,
+  etag: Schema.String,
 });
-const periodProjectionSchema = Schema.Struct({
-  ...periodSchema.fields,
-  eligible: Schema.Boolean,
-});
-const periodPageSchema = Schema.Struct({
-  items: Schema.Array(periodProjectionSchema),
+const managementPageSchema = Schema.Struct({
+  items: Schema.Array(managementPeriodSchema),
   totalItems: Schema.Int,
 });
-const createdObservationSchema = Schema.Struct({
-  _tag: Schema.Literal("Created"),
-  commandId: Schema.String,
-  period: periodSchema,
+const openPeriodSchema = Schema.Struct({
+  id: Schema.String,
+  departmentId: Schema.String,
+  semesterId: Schema.String,
+  startAt: Schema.String,
+  endAt: Schema.String,
 });
-const revisedObservationSchema = Schema.Struct({
-  _tag: Schema.Literal("Revised"),
-  commandId: Schema.String,
-  period: periodSchema,
+const openPeriodPageSchema = Schema.Struct({
+  items: Schema.Array(openPeriodSchema),
+  totalItems: Schema.Int,
 });
-const originalObservationSchema = Schema.Union([
-  createdObservationSchema,
-  revisedObservationSchema,
-]);
-const replayedObservationSchema = Schema.Struct({
-  _tag: Schema.Literal("Replayed"),
-  commandId: Schema.String,
-  original: originalObservationSchema,
-});
-const observationSchema = Schema.Union([
-  createdObservationSchema,
-  revisedObservationSchema,
-  replayedObservationSchema,
-]);
-const errorSchema = Schema.Struct({
-  error: Schema.Struct({ tag: Schema.String }),
+const problemSchema = Schema.Struct({
+  type: Schema.String,
+  title: Schema.String,
+  status: Schema.Int,
+  code: Schema.String,
+  detail: Schema.String,
 });
 const applicationSubmissionSchema = Schema.Struct({
-  _tag: Schema.Literal("Submitted"),
-  commandId: Schema.String,
+  _tag: Schema.Literal("ApplicationConfirmed"),
   applicationId: Schema.String,
 });
 
@@ -87,6 +73,16 @@ const requiredEnvironment = (name: string): string => {
 
 const authorization = (token: string): Record<string, string> => ({
   authorization: `Bearer ${token}`,
+});
+
+const mutationHeaders = (
+  token: string,
+  idempotencyKey: string,
+  ifMatch?: string,
+): Record<string, string> => ({
+  ...authorization(token),
+  "Idempotency-Key": idempotencyKey,
+  ...(ifMatch === undefined ? {} : { "If-Match": ifMatch }),
 });
 
 async function authenticate(page: Page): Promise<void> {
@@ -119,41 +115,40 @@ const waitForNavigationQuiescence = (page: Page): Promise<void> => {
   return promise;
 };
 
-async function errorTag(response: APIResponse): Promise<string> {
-  return decodeStrict(errorSchema, await response.json()).error.tag;
-}
-
-async function expectErrorTag(
+async function expectProblemCode(
   response: APIResponse,
-  expectedTag: string,
-): Promise<{ readonly status: number; readonly tag: string }> {
-  expect(response.ok()).toBe(false);
-  const tag = await errorTag(response);
-  expect(tag).toBe(expectedTag);
-  return { status: response.status(), tag };
+  expectedStatus: number,
+  expectedCode: string,
+): Promise<{ readonly status: number; readonly code: string }> {
+  expect(response.status()).toBe(expectedStatus);
+  expect(response.headers()["content-type"]).toContain("application/problem+json");
+  const problem = decodeStrict(problemSchema, await response.json());
+  expect(problem).toMatchObject({
+    status: expectedStatus,
+    code: expectedCode,
+    type: `urn:vektorprogrammet:problem:v0.2:${expectedCode}`,
+  });
+  return { status: problem.status, code: problem.code };
 }
 
 async function readManagementPage(
   request: APIRequestContext,
   token: string,
-): Promise<typeof periodPageSchema.Type> {
-  const response = await request.get(`${BACKEND_ORIGIN}/api/admin/admission-periods`, {
+): Promise<typeof managementPageSchema.Type> {
+  const response = await request.get(`${BACKEND_ORIGIN}/api/admission-periods`, {
     headers: authorization(token),
   });
   expect(response.ok()).toBe(true);
-  return decodeStrict(periodPageSchema, await response.json());
+  return decodeStrict(managementPageSchema, await response.json());
 }
 
-async function readOpenPage(request: APIRequestContext): Promise<typeof periodPageSchema.Type> {
-  const response = await request.get(`${BACKEND_ORIGIN}/api/admission-periods/open`);
+async function readOpenPage(
+  request: APIRequestContext,
+): Promise<typeof openPeriodPageSchema.Type> {
+  const response = await request.get(`${BACKEND_ORIGIN}/api/open-admission-periods`);
   expect(response.ok()).toBe(true);
-  return decodeStrict(periodPageSchema, await response.json());
+  return decodeStrict(openPeriodPageSchema, await response.json());
 }
-
-const periodFromObservation = (
-  observation: typeof observationSchema.Type,
-): typeof periodSchema.Type =>
-  observation._tag === "Replayed" ? observation.original.period : observation.period;
 
 test.describe("Native admission-period management", () => {
   test.skip(!REAL_ADMISSION_PERIOD_E2E, "run through the disposable PostgreSQL runner");
@@ -168,6 +163,33 @@ test.describe("Native admission-period management", () => {
     const globalAdminToken = requiredEnvironment("ADMISSION_E2E_GLOBAL_ADMIN_TOKEN");
     const inactiveToken = requiredEnvironment("ADMISSION_E2E_INACTIVE_TOKEN");
     const roleDeniedToken = requiredEnvironment("ADMISSION_E2E_ROLE_DENIED_TOKEN");
+    const browserMutations: Array<{
+      readonly method: string;
+      readonly path: string;
+      readonly idempotencyKey: string;
+      readonly ifMatch?: string;
+      readonly payload: Record<string, unknown>;
+    }> = [];
+    page.on("request", (browserRequest) => {
+      const url = new URL(browserRequest.url());
+      if (
+        url.origin !== BACKEND_ORIGIN ||
+        !["POST", "PATCH"].includes(browserRequest.method()) ||
+        !url.pathname.startsWith("/api/admission-periods")
+      ) {
+        return;
+      }
+      const headers = browserRequest.headers();
+      const idempotencyKey = headers["idempotency-key"];
+      if (idempotencyKey === undefined) return;
+      browserMutations.push({
+        method: browserRequest.method(),
+        path: url.pathname,
+        idempotencyKey,
+        ...(headers["if-match"] === undefined ? {} : { ifMatch: headers["if-match"] }),
+        payload: browserRequest.postDataJSON() as Record<string, unknown>,
+      });
+    });
     const evidencePath = requiredEnvironment("ADMISSION_E2E_LIFECYCLE_EVIDENCE_PATH");
 
     await authenticate(page);
@@ -187,10 +209,9 @@ test.describe("Native admission-period management", () => {
     await expect(createError).toBeVisible();
     await expect(page.getByLabel("Semester-ID", { exact: false })).toHaveValue(SEMESTER_ID);
     await expect(page.getByLabel("Starter (UTC)", { exact: false })).toHaveValue(OPEN_START_INPUT);
-    const createCommandId = await page
-      .locator('form[aria-labelledby="admission-period-create-title"] input[name="commandId"]')
-      .inputValue();
-    expect(createCommandId.length).toBeGreaterThan(0);
+    await expect(
+      page.locator('form[aria-labelledby="admission-period-create-title"] input[name="commandId"]'),
+    ).toHaveCount(0);
 
     await page.getByLabel("Slutter (UTC)", { exact: false }).fill(OPEN_END_INPUT);
     await page.getByRole("button", { name: "Opprett opptaksperiode" }).click();
@@ -216,7 +237,7 @@ test.describe("Native admission-period management", () => {
       departmentId: DEPARTMENT_ID,
       semesterId: SEMESTER_ID,
       revision: 0,
-      eligible: true,
+      etag: expect.stringMatching(/^"vkr2\./u),
     });
     const foreignPage = await readManagementPage(request, foreignLeaderToken);
     expect(foreignPage.items).toEqual([]);
@@ -225,87 +246,101 @@ test.describe("Native admission-period management", () => {
     const openBeforeClose = await readOpenPage(request);
     expect(openBeforeClose.items.map((period) => period.id)).toContain(admissionPeriodId);
 
-    const unauthenticated = await request.get(`${BACKEND_ORIGIN}/api/admin/admission-periods`);
-    const unauthenticatedError = await expectErrorTag(unauthenticated, "UnauthenticatedActor");
-    const inactive = await request.get(`${BACKEND_ORIGIN}/api/admin/admission-periods`, {
-      headers: authorization(inactiveToken),
-    });
-    const inactiveError = await expectErrorTag(inactive, "InactiveActor");
-    const roleDenied = await request.get(`${BACKEND_ORIGIN}/api/admin/admission-periods`, {
-      headers: authorization(roleDeniedToken),
-    });
-    const roleDeniedError = await expectErrorTag(roleDenied, "AdmissionRoleDenied");
-
-    const originalCreate = {
-      commandId: createCommandId,
+    const createMutation = browserMutations.find(
+      ({ method, path }) => method === "POST" && path === "/api/admission-periods",
+    );
+    expect(createMutation).toBeDefined();
+    if (createMutation === undefined) throw new Error("browser create request was not observed");
+    expect(createMutation.payload).toEqual({
       semesterId: SEMESTER_ID,
       startAt: OPEN_START,
       endAt: OPEN_END,
-    };
-    const replayResponse = await request.post(`${BACKEND_ORIGIN}/api/admin/admission-periods`, {
-      headers: authorization(leaderToken),
+    });
+    expect(createMutation.payload).not.toHaveProperty("commandId");
+
+    const unauthenticated = await request.get(`${BACKEND_ORIGIN}/api/admission-periods`);
+    const unauthenticatedError = await expectProblemCode(
+      unauthenticated,
+      401,
+      "credential.missing",
+    );
+    const inactive = await request.get(`${BACKEND_ORIGIN}/api/admission-periods`, {
+      headers: authorization(inactiveToken),
+    });
+    const inactiveError = await expectProblemCode(inactive, 403, "authority.denied");
+    const roleDenied = await request.get(`${BACKEND_ORIGIN}/api/admission-periods`, {
+      headers: authorization(roleDeniedToken),
+    });
+    const roleDeniedError = await expectProblemCode(roleDenied, 403, "authority.denied");
+
+    const originalCreate = createMutation.payload;
+    const replayResponse = await request.post(`${BACKEND_ORIGIN}/api/admission-periods`, {
+      headers: mutationHeaders(leaderToken, createMutation.idempotencyKey),
       data: originalCreate,
     });
-    expect(replayResponse.ok()).toBe(true);
-    const replay = decodeStrict(observationSchema, await replayResponse.json());
-    expect(replay._tag).toBe("Replayed");
-    expect(periodFromObservation(replay).id).toBe(admissionPeriodId);
+    expect(replayResponse.status()).toBe(201);
+    const replay = decodeStrict(managementPeriodSchema, await replayResponse.json());
+    expect(replay.id).toBe(admissionPeriodId);
 
     const replayConflictResponse = await request.post(
-      `${BACKEND_ORIGIN}/api/admin/admission-periods`,
+      `${BACKEND_ORIGIN}/api/admission-periods`,
       {
-        headers: authorization(leaderToken),
+        headers: mutationHeaders(leaderToken, createMutation.idempotencyKey),
         data: { ...originalCreate, endAt: "2031-09-30T20:00:00.000Z" },
       },
     );
-    const replayConflict = await expectErrorTag(
+    const replayConflict = await expectProblemCode(
       replayConflictResponse,
-      "DuplicateAdmissionPeriodCommandConflict",
+      409,
+      "idempotency.digest-conflict",
     );
 
-    const duplicateResponse = await request.post(`${BACKEND_ORIGIN}/api/admin/admission-periods`, {
-      headers: authorization(leaderToken),
-      data: { ...originalCreate, commandId: "admission-e2e-duplicate" },
+    const duplicateResponse = await request.post(`${BACKEND_ORIGIN}/api/admission-periods`, {
+      headers: mutationHeaders(leaderToken, "admission-e2e-duplicate"),
+      data: originalCreate,
     });
-    const duplicate = await expectErrorTag(duplicateResponse, "AdmissionPeriodAlreadyExists");
+    const duplicate = await expectProblemCode(
+      duplicateResponse,
+      409,
+      "admission-period.already-exists",
+    );
     const invalidWindowResponse = await request.post(
-      `${BACKEND_ORIGIN}/api/admin/admission-periods`,
+      `${BACKEND_ORIGIN}/api/admission-periods`,
       {
-        headers: authorization(leaderToken),
+        headers: mutationHeaders(leaderToken, "admission-e2e-invalid-window"),
         data: {
           ...originalCreate,
-          commandId: "admission-e2e-invalid-window",
           startAt: OPEN_END,
           endAt: OPEN_START,
         },
       },
     );
-    const invalidWindow = await expectErrorTag(
+    const invalidWindow = await expectProblemCode(
       invalidWindowResponse,
-      "InvalidAdmissionPeriodWindow",
+      422,
+      "admission-period.invalid-window",
     );
-    const crossScopeResponse = await request.post(`${BACKEND_ORIGIN}/api/admin/admission-periods`, {
-      headers: authorization(leaderToken),
+    const crossScopeResponse = await request.post(`${BACKEND_ORIGIN}/api/admission-periods`, {
+      headers: mutationHeaders(leaderToken, "admission-e2e-cross-scope"),
       data: {
         ...originalCreate,
-        commandId: "admission-e2e-cross-scope",
         departmentId: FOREIGN_DEPARTMENT_ID,
       },
     });
-    const crossScope = await expectErrorTag(crossScopeResponse, "AdmissionScopeDenied");
-    const malformedResponse = await request.post(`${BACKEND_ORIGIN}/api/admin/admission-periods`, {
+    const crossScope = await expectProblemCode(crossScopeResponse, 403, "authority.denied");
+    const malformedResponse = await request.post(`${BACKEND_ORIGIN}/api/admission-periods`, {
       headers: {
-        ...authorization(leaderToken),
+        ...mutationHeaders(leaderToken, "admission-e2e-malformed"),
         "content-type": "application/json",
       },
       data: JSON.stringify({ ...originalCreate, browserAuthority: true }),
     });
-    const malformed = await expectErrorTag(malformedResponse, "AdmissionPeriodDecodeError");
+    const malformed = await expectProblemCode(malformedResponse, 422, "validation.failed");
 
-    const applicationCommandId = "admission-e2e-application-before-close";
+    const applicationIdempotencyKey = "admission-e2e-application-before-close";
     const applicationResponse = await request.post(`${BACKEND_ORIGIN}/api/applications`, {
+      headers: { "Idempotency-Key": applicationIdempotencyKey },
       data: {
-        commandId: applicationCommandId,
         departmentId: DEPARTMENT_ID,
         firstName: "Admission Proof",
         lastName: "Applicant",
@@ -316,33 +351,38 @@ test.describe("Native admission-period management", () => {
         yearOfStudy: 3,
       },
     });
-    expect(applicationResponse.ok()).toBe(true);
+    expect(applicationResponse.status()).toBe(201);
     const applicationSubmission = decodeStrict(
       applicationSubmissionSchema,
       await applicationResponse.json(),
     );
-    expect(applicationSubmission.commandId).toBe(applicationCommandId);
     expect(applicationSubmission.applicationId).toBeTruthy();
 
-    const concurrentBodies = [
+    const initialEtag = leaderPage.items[0].etag;
+    const concurrentRequests = [
       {
-        commandId: "admission-e2e-concurrent-a",
-        expectedRevision: 0,
-        startAt: OPEN_START,
-        endAt: "2031-09-25T20:00:00.000Z",
+        idempotencyKey: "admission-e2e-concurrent-a",
+        payload: {
+          startAt: OPEN_START,
+          endAt: "2031-09-25T20:00:00.000Z",
+        },
       },
       {
-        commandId: "admission-e2e-concurrent-b",
-        expectedRevision: 0,
-        startAt: OPEN_START,
-        endAt: "2031-09-26T20:00:00.000Z",
+        idempotencyKey: "admission-e2e-concurrent-b",
+        payload: {
+          startAt: OPEN_START,
+          endAt: "2031-09-26T20:00:00.000Z",
+        },
       },
     ] as const;
     const concurrentResponses = await Promise.all(
-      concurrentBodies.map((data) =>
-        request.post(`${BACKEND_ORIGIN}/api/admin/admission-periods/${admissionPeriodId}/revise`, {
-          headers: authorization(leaderToken),
-          data,
+      concurrentRequests.map(({ idempotencyKey, payload }) =>
+        request.patch(`${BACKEND_ORIGIN}/api/admission-periods/${admissionPeriodId}`, {
+          headers: {
+            ...mutationHeaders(leaderToken, idempotencyKey, initialEtag),
+            "content-type": "application/merge-patch+json",
+          },
+          data: payload,
         }),
       ),
     );
@@ -352,11 +392,15 @@ test.describe("Native admission-period management", () => {
     expect(winnerIndexes).toHaveLength(1);
     const winnerIndex = winnerIndexes[0];
     const loserIndex = winnerIndex === 0 ? 1 : 0;
-    const winner = decodeStrict(observationSchema, await concurrentResponses[winnerIndex].json());
-    expect(periodFromObservation(winner).revision).toBe(1);
-    const concurrentLoser = await expectErrorTag(
+    const winner = decodeStrict(
+      managementPeriodSchema,
+      await concurrentResponses[winnerIndex].json(),
+    );
+    expect(winner.revision).toBe(1);
+    const concurrentLoser = await expectProblemCode(
       concurrentResponses[loserIndex],
-      "StaleAdmissionPeriodRevision",
+      412,
+      "precondition.failed",
     );
 
     await page.reload();
@@ -372,8 +416,8 @@ test.describe("Native admission-period management", () => {
     const outsideSemesterError = page.locator('[data-error-tag="AdmissionWindowOutsideSemester"]');
     await expect(outsideSemesterError).toBeVisible();
     await expect(revisionEnd).toHaveValue("2032-01-01T12:00");
-    const closeCommandId = await revisionPanel.locator('input[name="commandId"]').inputValue();
-    expect(closeCommandId.length).toBeGreaterThan(0);
+    await expect(revisionPanel.locator('input[name="commandId"]')).toHaveCount(0);
+    await expect(revisionPanel.locator('input[name="expectedRevision"]')).toHaveCount(0);
 
     await revisionEnd.fill(CLOSED_END_INPUT);
     await revisionPanel.getByRole("button", { name: "Lagre ny versjon" }).click();
@@ -384,25 +428,40 @@ test.describe("Native admission-period management", () => {
     await expect(closedRow).toHaveAttribute("data-eligible", "false");
     await expect(closedRow.locator('[data-eligibility="ineligible"]')).toBeVisible();
 
-    const staleResponse = await request.post(
-      `${BACKEND_ORIGIN}/api/admin/admission-periods/${admissionPeriodId}/revise`,
+    const closeMutation = browserMutations.findLast(
+      ({ method, path }) =>
+        method === "PATCH" && path === `/api/admission-periods/${admissionPeriodId}`,
+    );
+    expect(closeMutation).toBeDefined();
+    if (closeMutation === undefined) throw new Error("browser close request was not observed");
+    expect(closeMutation.payload).toEqual({ startAt: OPEN_START, endAt: CLOSED_END });
+    expect(closeMutation.payload).not.toHaveProperty("expectedRevision");
+    expect(closeMutation.ifMatch).toMatch(/^"vkr2\./u);
+
+    const staleResponse = await request.patch(
+      `${BACKEND_ORIGIN}/api/admission-periods/${admissionPeriodId}`,
       {
-        headers: authorization(leaderToken),
+        headers: {
+          ...mutationHeaders(
+            leaderToken,
+            "admission-e2e-stale-after-close",
+            initialEtag,
+          ),
+          "content-type": "application/merge-patch+json",
+        },
         data: {
-          commandId: "admission-e2e-stale-after-close",
-          expectedRevision: 0,
           startAt: OPEN_START,
           endAt: CLOSED_END,
         },
       },
     );
-    const stale = await expectErrorTag(staleResponse, "StaleAdmissionPeriodRevision");
+    const stale = await expectProblemCode(staleResponse, 412, "precondition.failed");
     const openAfterClose = await readOpenPage(request);
     expect(openAfterClose.items).toEqual([]);
 
     const rejectedApplicationResponse = await request.post(`${BACKEND_ORIGIN}/api/applications`, {
+      headers: { "Idempotency-Key": "admission-e2e-application-after-close" },
       data: {
-        commandId: "admission-e2e-application-after-close",
         departmentId: DEPARTMENT_ID,
         firstName: "Closed Period",
         lastName: "Applicant",
@@ -413,9 +472,10 @@ test.describe("Native admission-period management", () => {
         yearOfStudy: 2,
       },
     });
-    const rejectedApplication = await expectErrorTag(
+    const rejectedApplication = await expectProblemCode(
       rejectedApplicationResponse,
-      "NoEligibleAdmissionPeriod",
+      409,
+      "application.no-eligible-period",
     );
 
     const invalidBrowserContext = await browser.newContext({ baseURL: DASHBOARD_ORIGIN });
@@ -447,9 +507,9 @@ test.describe("Native admission-period management", () => {
         },
         period: {
           id: admissionPeriodId,
-          createCommandId,
-          concurrentWinnerCommandId: concurrentBodies[winnerIndex].commandId,
-          closeCommandId,
+          createIdempotencyKey: createMutation.idempotencyKey,
+          concurrentWinnerIdempotencyKey: concurrentRequests[winnerIndex].idempotencyKey,
+          closeIdempotencyKey: closeMutation.idempotencyKey,
           startAt: OPEN_START,
           openEndAt: OPEN_END,
           closedEndAt: CLOSED_END,
@@ -458,15 +518,15 @@ test.describe("Native admission-period management", () => {
         },
         application: {
           id: applicationSubmission.applicationId,
-          commandId: applicationCommandId,
+          idempotencyKey: applicationIdempotencyKey,
         },
         publicEligibility: {
           beforeClose: openBeforeClose.items.map((period) => period.id),
           afterClose: openAfterClose.items.map((period) => period.id),
         },
-        replay: { tag: replay._tag, periodId: periodFromObservation(replay).id },
+        replay: { periodId: replay.id },
         concurrent: {
-          winnerCommandId: concurrentBodies[winnerIndex].commandId,
+          winnerIdempotencyKey: concurrentRequests[winnerIndex].idempotencyKey,
           loser: concurrentLoser,
         },
         rejections: {

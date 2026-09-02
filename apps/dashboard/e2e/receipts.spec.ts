@@ -29,32 +29,21 @@ const CONCURRENT_DESCRIPTION = "Owner receipt concurrent revision";
 const REVISED_RECEIPT_DATE = "2026-08-20";
 const REVISED_AMOUNT_ORE = 21_075;
 const MAX_FILE_BYTES = 10_485_760;
-const REPLACEMENT_COMMAND_ID = "receipt-owner-e2e-replacement";
+const REPLACEMENT_IDEMPOTENCY_KEY = "receipt-owner-e2e-replacement";
 const RECEIPT_BYTES = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
   "base64",
 );
 
-const receiptErrorSchema = z
+const receiptProblemSchema = z
   .object({
-    error: z
-      .object({
-        tag: z.string(),
-      })
-      .strict(),
+    type: z.string(),
+    title: z.string(),
+    status: z.number().int(),
+    code: z.string(),
+    detail: z.string(),
   })
-  .strict();
-
-const receiptObservationSchema = z
-  .object({
-    commandId: z.string().min(1),
-    receiptId: z.string().min(1),
-    visualId: z.string().min(1),
-    status: z.enum(["Pending", "Refunded", "Rejected", "Withdrawn"]),
-    revision: z.number().int().nonnegative(),
-    replayed: z.boolean(),
-  })
-  .strict();
+  .passthrough();
 
 const receiptProjectionSchema = z
   .object({
@@ -68,8 +57,14 @@ const receiptProjectionSchema = z
     receiptDate: z.string(),
     status: z.enum(["Pending", "Refunded", "Rejected", "Withdrawn"]),
     revision: z.number().int().nonnegative(),
+    etag: z.string().regex(/^"vkr2\./u),
   })
   .strict();
+
+const receiptResourceSchema = receiptProjectionSchema.extend({
+  submittedAt: z.string(),
+  refundDate: z.string().nullable(),
+});
 
 const receiptPageSchema = z
   .object({
@@ -191,7 +186,7 @@ async function authenticate(
   const sessionCookie = sessionCookies[0];
   if (sessionCookie === undefined) throw new Error("Better Auth session cookie is missing");
   const cookie = `${sessionCookie.name}=${sessionCookie.value}`;
-  const profileResponse = await request.get(`${BACKEND_ORIGIN}/api/me`, {
+  const profileResponse = await request.get(`${BACKEND_ORIGIN}/api/profile`, {
     headers: sessionHeaders(cookie),
   });
   expect(profileResponse.status()).toBe(200);
@@ -279,8 +274,20 @@ async function captureLifecycleEvidence(
     },
   };
 }
-async function responseErrorTag(response: APIResponse): Promise<string> {
-  return receiptErrorSchema.parse(await response.json()).error.tag;
+async function expectProblemCode(
+  response: APIResponse,
+  expectedStatus: number,
+  expectedCode: string,
+): Promise<string> {
+  expect(response.status()).toBe(expectedStatus);
+  expect(response.headers()["content-type"]).toContain("application/problem+json");
+  const problem = receiptProblemSchema.parse(await response.json());
+  expect(problem).toMatchObject({
+    status: expectedStatus,
+    code: expectedCode,
+    type: `urn:vektorprogrammet:problem:v0.2:${expectedCode}`,
+  });
+  return problem.code;
 }
 
 function receiptRowFor(page: Page, receiptId: string) {
@@ -296,9 +303,11 @@ test.describe("Native Receipt owner journey", () => {
     request,
   }) => {
     const unauthenticatedResponse = await request.get(`${BACKEND_ORIGIN}/api/receipts`);
-    expect(unauthenticatedResponse.status()).toBe(401);
-    const unauthenticatedTag = await responseErrorTag(unauthenticatedResponse);
-    expect(unauthenticatedTag).toBe("UnauthenticatedActor");
+    const unauthenticatedTag = await expectProblemCode(
+      unauthenticatedResponse,
+      401,
+      "credential.missing",
+    );
     await expectUnauthenticatedBrowser(browser);
 
     const authorization = sessionHeaders(
@@ -324,14 +333,14 @@ test.describe("Native Receipt owner journey", () => {
     await submissionButton.click();
 
     const submissionError = submissionForm.getByRole("alert");
-    await expect(submissionError).toHaveAttribute("data-error-tag", "ReceiptDecodeError");
+    await expect(submissionError).toHaveAttribute("data-error-code", "validation.failed");
     await expect(submissionError).toHaveAttribute("data-error-field", "amountNok");
     await expect(submissionForm).toHaveAttribute("aria-busy", "false");
     await expect(submissionButton).toBeEnabled();
-    const submissionCommandId = await submissionForm
-      .locator('input[name="commandId"]')
+    const submissionIdempotencyKey = await submissionForm
+      .locator('input[name="idempotencyKey"]')
       .inputValue();
-    expect(submissionCommandId).not.toBe("");
+    expect(submissionIdempotencyKey).not.toBe("");
 
     await submissionForm.locator("#amountNok").fill("125,50");
     await submissionForm.getByLabel(/Kvitteringsfil/).setInputFiles({
@@ -402,8 +411,8 @@ test.describe("Native Receipt owner journey", () => {
         `Unsupported receipt file validation failed: POST ${OWNED_RECEIPT_DATA_PATH} status=${responseStatus}; outcome=${validationOutcome._tag}; currentUrl=${JSON.stringify(page.url())}; renderedError=${JSON.stringify(renderedError)}`,
       );
     }
-    await expect(submissionForm.locator('input[name="commandId"]')).toHaveValue(
-      submissionCommandId,
+    await expect(submissionForm.locator('input[name="idempotencyKey"]')).toHaveValue(
+      submissionIdempotencyKey,
     );
 
     await submissionForm.getByLabel(/Kvitteringsfil/).setInputFiles({
@@ -415,8 +424,8 @@ test.describe("Native Receipt owner journey", () => {
     await expect(submissionError).toContainText(
       "Kvitteringsfilen kan ikke være større enn 10 MiB.",
     );
-    await expect(submissionForm.locator('input[name="commandId"]')).toHaveValue(
-      submissionCommandId,
+    await expect(submissionForm.locator('input[name="idempotencyKey"]')).toHaveValue(
+      submissionIdempotencyKey,
     );
 
     await submissionForm.getByLabel(/Kvitteringsfil/).setInputFiles({
@@ -428,7 +437,10 @@ test.describe("Native Receipt owner journey", () => {
 
     const submissionSuccess = submissionForm.getByRole("status");
     await expect(submissionSuccess).toBeVisible();
-    await expect(submissionSuccess).toHaveAttribute("data-command-id", submissionCommandId);
+    await expect(submissionSuccess).toHaveAttribute(
+      "data-idempotency-key",
+      submissionIdempotencyKey,
+    );
     let receiptRow = page.locator("[data-receipt-id]").filter({ hasText: DESCRIPTION });
     await expect(receiptRow).toHaveCount(1);
     const receiptId = (await receiptRow.getByTestId("receipt-id").textContent())?.trim();
@@ -449,10 +461,12 @@ test.describe("Native Receipt owner journey", () => {
     await expect(receiptRow).toContainText(RECEIPT_DATE);
     await expect(receiptRow.locator('[data-status="Pending"]')).toBeVisible();
 
-    const submitReplayResponse = await request.post(`${BACKEND_ORIGIN}/api/receipts/submit`, {
-      headers: authorization,
+    const submitReplayResponse = await request.post(`${BACKEND_ORIGIN}/api/receipts`, {
+      headers: {
+        ...authorization,
+        "Idempotency-Key": submissionIdempotencyKey,
+      },
       multipart: {
-        commandId: submissionCommandId,
         description: DESCRIPTION,
         amountOre: String(AMOUNT_ORE),
         receiptDate: RECEIPT_DATE,
@@ -463,14 +477,13 @@ test.describe("Native Receipt owner journey", () => {
         },
       },
     });
-    expect([200, 201]).toContain(submitReplayResponse.status());
-    const submitReplay = receiptObservationSchema.parse(await submitReplayResponse.json());
+    expect(submitReplayResponse.status()).toBe(201);
+    const submitReplay = receiptResourceSchema.parse(await submitReplayResponse.json());
+    expect(submitReplayResponse.headers()["etag"]).toBe(submitReplay.etag);
     expect(submitReplay).toMatchObject({
-      commandId: submissionCommandId,
       receiptId,
       status: "Pending",
       revision: 0,
-      replayed: true,
     });
 
     const ownedAtRevisionZeroResponse = await request.get(`${BACKEND_ORIGIN}/api/receipts`, {
@@ -480,6 +493,8 @@ test.describe("Native Receipt owner journey", () => {
     const ownedAtRevisionZero = receiptPageSchema.parse(await ownedAtRevisionZeroResponse.json());
     expect(ownedAtRevisionZero.totalItems).toBe(1);
     expect(ownedAtRevisionZero.items).toHaveLength(1);
+    const revisionZero = ownedAtRevisionZero.items[0];
+    if (revisionZero === undefined) throw new Error("Owned Receipt revision zero is missing");
     expect(ownedAtRevisionZero.items[0]).toMatchObject({
       receiptId,
       description: DESCRIPTION,
@@ -496,7 +511,7 @@ test.describe("Native Receipt owner journey", () => {
     await expect(reviseForm.getByLabel(/Beskrivelse/)).toHaveValue(DESCRIPTION);
     await expect(reviseForm.locator('input[name="amountNok"]')).toHaveValue("125,50");
     await expect(reviseForm.getByLabel(/Kvitteringsdato/)).toHaveValue(RECEIPT_DATE);
-    await expect(reviseForm.locator('input[name="expectedRevision"]')).toHaveValue("0");
+    await expect(reviseForm.locator('input[name="etag"]')).toHaveValue(revisionZero.etag);
     expect(
       await reviseForm.getByLabel(/Erstatt kvitteringsfil/).getAttribute("required"),
     ).toBeNull();
@@ -507,21 +522,26 @@ test.describe("Native Receipt owner journey", () => {
     await reviseForm.getByRole("button", { name: "Lagre endringer" }).click();
 
     const reviseError = page.locator('[role="alert"][data-action-intent="revise"]');
-    await expect(reviseError).toHaveAttribute("data-error-tag", "ReceiptDecodeError");
+    await expect(reviseError).toHaveAttribute("data-error-code", "validation.failed");
     await expect(reviseError).toHaveAttribute("data-error-field", "amountNok");
-    await expect(reviseError).toHaveAttribute("data-expected-revision", "0");
-    const stableRevisionCommandId = await reviseForm
-      .locator('input[name="commandId"]')
+    await expect(reviseError).toHaveAttribute("data-if-match", revisionZero.etag);
+    const stableRevisionIdempotencyKey = await reviseForm
+      .locator('input[name="idempotencyKey"]')
       .inputValue();
-    expect(stableRevisionCommandId).not.toBe("");
+    expect(stableRevisionIdempotencyKey).not.toBe("");
 
     await reviseForm.locator('input[name="amountNok"]').fill("210,75");
     await reviseForm.getByRole("button", { name: "Lagre endringer" }).click();
 
     const revisionNotice = page.locator('[role="status"][data-action-intent="revise"]');
     await expect(revisionNotice).toBeVisible();
-    await expect(revisionNotice).toHaveAttribute("data-command-id", stableRevisionCommandId);
+    await expect(revisionNotice).toHaveAttribute(
+      "data-idempotency-key",
+      stableRevisionIdempotencyKey,
+    );
     await expect(revisionNotice).toHaveAttribute("data-revision", "1");
+    const revisionOneEtag = await revisionNotice.getAttribute("data-etag");
+    if (revisionOneEtag === null) throw new Error("Receipt revision one ETag is missing");
     receiptRow = receiptRowFor(page, receiptId);
     await expect(receiptRow).toContainText(REVISED_DESCRIPTION);
     await expect(receiptRow).toContainText("210,75 NOK");
@@ -538,32 +558,41 @@ test.describe("Native Receipt owner journey", () => {
     await expect(reviseForm.getByLabel(/Beskrivelse/)).toHaveValue(REVISED_DESCRIPTION);
     await expect(reviseForm.locator('input[name="amountNok"]')).toHaveValue("210,75");
     await expect(reviseForm.getByLabel(/Kvitteringsdato/)).toHaveValue(REVISED_RECEIPT_DATE);
-    await expect(reviseForm.locator('input[name="expectedRevision"]')).toHaveValue("1");
+    await expect(reviseForm.locator('input[name="etag"]')).toHaveValue(revisionOneEtag);
     await reviseForm.getByLabel(/Beskrivelse/).fill(REPLACED_DESCRIPTION);
     await reviseForm.getByLabel(/Erstatt kvitteringsfil/).setInputFiles({
       name: "replacement.png",
       mimeType: "image/png",
       buffer: RECEIPT_BYTES,
     });
-    await reviseForm.locator('input[name="commandId"]').evaluate((element, commandId) => {
-      const input = element as HTMLInputElement;
-      input.value = commandId;
-      input.dispatchEvent(new Event("input", { bubbles: true }));
-      input.dispatchEvent(new Event("change", { bubbles: true }));
-    }, REPLACEMENT_COMMAND_ID);
+    await reviseForm
+      .locator('input[name="idempotencyKey"]')
+      .evaluate((element, idempotencyKey) => {
+        const input = element as HTMLInputElement;
+        input.value = idempotencyKey;
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+        input.dispatchEvent(new Event("change", { bubbles: true }));
+      }, REPLACEMENT_IDEMPOTENCY_KEY);
     await reviseForm.getByRole("button", { name: "Lagre endringer" }).click();
 
     await expect(revisionNotice).toHaveAttribute("data-revision", "2");
-    await expect(revisionNotice).toHaveAttribute("data-command-id", REPLACEMENT_COMMAND_ID);
-    const replacementCommandId = REPLACEMENT_COMMAND_ID;
+    await expect(revisionNotice).toHaveAttribute(
+      "data-idempotency-key",
+      REPLACEMENT_IDEMPOTENCY_KEY,
+    );
+    const replacementIdempotencyKey = REPLACEMENT_IDEMPOTENCY_KEY;
+    const revisionTwoEtag = await revisionNotice.getAttribute("data-etag");
+    if (revisionTwoEtag === null) throw new Error("Receipt revision two ETag is missing");
     const beforeFailure = await captureLifecycleEvidence(request, receiptId, authorization.Cookie);
-    const replacementRetryResponse = await request.post(
-      `${BACKEND_ORIGIN}/api/receipts/${receiptId}/revise`,
+    const replacementRetryResponse = await request.patch(
+      `${BACKEND_ORIGIN}/api/receipts/${encodeURIComponent(receiptId)}`,
       {
-        headers: authorization,
+        headers: {
+          ...authorization,
+          "Idempotency-Key": replacementIdempotencyKey,
+          "If-Match": revisionOneEtag,
+        },
         multipart: {
-          commandId: replacementCommandId,
-          expectedRevision: "1",
           description: REPLACED_DESCRIPTION,
           amountOre: String(REVISED_AMOUNT_ORE),
           receiptDate: REVISED_RECEIPT_DATE,
@@ -576,12 +605,11 @@ test.describe("Native Receipt owner journey", () => {
       },
     );
     expect(replacementRetryResponse.status()).toBe(200);
-    const replacementRetry = receiptObservationSchema.parse(await replacementRetryResponse.json());
+    const replacementRetry = receiptResourceSchema.parse(await replacementRetryResponse.json());
+    expect(replacementRetryResponse.headers()["etag"]).toBe(replacementRetry.etag);
     expect(replacementRetry).toMatchObject({
-      commandId: replacementCommandId,
       receiptId,
       revision: 2,
-      replayed: true,
     });
     const afterRetry = await captureLifecycleEvidence(request, receiptId, authorization.Cookie);
     const lifecycleEvidencePath = process.env.RECEIPT_E2E_LIFECYCLE_EVIDENCE_PATH;
@@ -589,13 +617,15 @@ test.describe("Native Receipt owner journey", () => {
       throw new Error("Receipt lifecycle evidence path is missing");
     }
     await writeFile(lifecycleEvidencePath, JSON.stringify({ beforeFailure, afterRetry }), "utf8");
-    const stableRevisionReplayResponse = await request.post(
-      `${BACKEND_ORIGIN}/api/receipts/${receiptId}/revise`,
+    const stableRevisionReplayResponse = await request.patch(
+      `${BACKEND_ORIGIN}/api/receipts/${encodeURIComponent(receiptId)}`,
       {
-        headers: authorization,
+        headers: {
+          ...authorization,
+          "Idempotency-Key": stableRevisionIdempotencyKey,
+          "If-Match": revisionZero.etag,
+        },
         multipart: {
-          commandId: stableRevisionCommandId,
-          expectedRevision: "0",
           description: REVISED_DESCRIPTION,
           amountOre: String(REVISED_AMOUNT_ORE),
           receiptDate: REVISED_RECEIPT_DATE,
@@ -603,18 +633,14 @@ test.describe("Native Receipt owner journey", () => {
       },
     );
     expect(stableRevisionReplayResponse.status()).toBe(200);
-    const stableRevisionReplay = receiptObservationSchema.parse(
+    const stableRevisionReplay = receiptResourceSchema.parse(
       await stableRevisionReplayResponse.json(),
     );
     expect(stableRevisionReplay).toMatchObject({
-      commandId: stableRevisionCommandId,
       receiptId,
       revision: 1,
-      replayed: true,
     });
-    receiptRow = receiptRowFor(page, receiptId);
-    await expect(receiptRow).toContainText(REPLACED_DESCRIPTION);
-    await expect(receiptRow.locator('[data-revision="2"]')).toHaveText("Versjon 2");
+    expect(stableRevisionReplay.etag).toBe(revisionOneEtag);
 
     await page.reload();
     receiptRow = receiptRowFor(page, receiptId);

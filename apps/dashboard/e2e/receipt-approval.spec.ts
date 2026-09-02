@@ -36,26 +36,15 @@ const RECEIPT_BYTES = Buffer.from(
 
 const receiptStatusSchema = z.enum(["Pending", "Refunded", "Rejected", "Withdrawn"]);
 
-const receiptErrorSchema = z
+const receiptProblemSchema = z
   .object({
-    error: z
-      .object({
-        tag: z.string(),
-      })
-      .strict(),
+    type: z.string(),
+    title: z.string(),
+    status: z.number().int(),
+    code: z.string(),
+    detail: z.string(),
   })
-  .strict();
-
-const receiptObservationSchema = z
-  .object({
-    commandId: z.string().min(1),
-    receiptId: z.string().min(1),
-    visualId: z.string().min(1),
-    status: receiptStatusSchema,
-    revision: z.number().int().nonnegative(),
-    replayed: z.boolean(),
-  })
-  .strict();
+  .passthrough();
 
 const receiptProjectionSchema = z
   .object({
@@ -69,8 +58,14 @@ const receiptProjectionSchema = z
     receiptDate: z.string(),
     status: receiptStatusSchema,
     revision: z.number().int().nonnegative(),
+    etag: z.string().regex(/^"vkr2\./u),
   })
   .strict();
+
+const receiptResourceSchema = receiptProjectionSchema.extend({
+  submittedAt: z.string(),
+  refundDate: z.string().nullable(),
+});
 
 const receiptPageSchema = z
   .object({
@@ -128,7 +123,7 @@ type AuthenticatedPersona = {
 
 type SubmittedReceipt = {
   projection: ReceiptProjection;
-  submissionCommandId: string;
+  submissionIdempotencyKey: string;
 };
 
 const JOURNEY_REF_ID = "intent://journey:parity:finance_operations:v1";
@@ -199,8 +194,34 @@ function sessionHeaders(cookie: string): { Cookie: string; Origin: string } {
   return { Cookie: cookie, Origin: DASHBOARD_ORIGIN };
 }
 
-async function responseErrorTag(response: APIResponse): Promise<string> {
-  return receiptErrorSchema.parse(await response.json()).error.tag;
+const actionPath = (receiptId: string, intent: ResolutionIntent): string =>
+  `${BACKEND_ORIGIN}/api/receipts/${encodeURIComponent(receiptId)}:${intent}`;
+
+const actionHeaders = (
+  cookie: string,
+  idempotencyKey: string,
+  ifMatch: string,
+): Record<string, string> => ({
+  ...sessionHeaders(cookie),
+  "content-type": "application/json",
+  "Idempotency-Key": idempotencyKey,
+  "If-Match": ifMatch,
+});
+
+async function expectProblemCode(
+  response: APIResponse,
+  expectedStatus: number,
+  expectedCode: string,
+): Promise<string> {
+  expect(response.status()).toBe(expectedStatus);
+  expect(response.headers()["content-type"]).toContain("application/problem+json");
+  const problem = receiptProblemSchema.parse(await response.json());
+  expect(problem).toMatchObject({
+    status: expectedStatus,
+    code: expectedCode,
+    type: `urn:vektorprogrammet:problem:v0.2:${expectedCode}`,
+  });
+  return problem.code;
 }
 const fileIdentitySql = `
   SELECT COALESCE(
@@ -295,11 +316,14 @@ async function observeDurablePostgresFailure(
   );
   let failure: { readonly status: number; readonly tag: string } | undefined;
   try {
-    const response = await request.get(`${BACKEND_ORIGIN}/api/admin/receipts`, {
+    const response = await request.get(`${BACKEND_ORIGIN}/api/receipt-approval-queue`, {
       headers: sessionHeaders(cookie),
       timeout: 5_000,
     });
-    failure = { status: response.status(), tag: await responseErrorTag(response) };
+    failure = {
+      status: response.status(),
+      tag: await expectProblemCode(response, 503, "receipts.unavailable"),
+    };
   } finally {
     await readPostgresJson<boolean>(
       "ALTER TABLE economy_receipts_failure_probe RENAME TO economy_receipts; SELECT 'true'::json::text;",
@@ -308,8 +332,6 @@ async function observeDurablePostgresFailure(
   if (failure === undefined) {
     throw new Error("PostgreSQL table failure did not produce a typed durable failure");
   }
-  expect(failure.status).toBe(503);
-  expect(failure.tag).toBe("ReceiptPersistenceError");
   return failure;
 }
 
@@ -319,11 +341,13 @@ async function submitReceipt(
   description: string,
   amountOre: number,
 ): Promise<SubmittedReceipt> {
-  const submissionCommandId = randomUUID();
-  const response = await request.post(`${BACKEND_ORIGIN}/api/receipts/submit`, {
-    headers: sessionHeaders(cookie),
+  const submissionIdempotencyKey = randomUUID();
+  const response = await request.post(`${BACKEND_ORIGIN}/api/receipts`, {
+    headers: {
+      ...sessionHeaders(cookie),
+      "Idempotency-Key": submissionIdempotencyKey,
+    },
     multipart: {
-      commandId: submissionCommandId,
       description,
       amountOre: String(amountOre),
       receiptDate: RECEIPT_DATE,
@@ -334,13 +358,11 @@ async function submitReceipt(
       },
     },
   });
-  expect([200, 201]).toContain(response.status());
-  const observation = receiptObservationSchema.parse(await response.json());
-  expect(observation).toMatchObject({
-    commandId: submissionCommandId,
+  expect(response.status()).toBe(201);
+  const resource = receiptResourceSchema.parse(await response.json());
+  expect(resource).toMatchObject({
     status: "Pending",
     revision: 0,
-    replayed: false,
   });
 
   const ownedResponse = await request.get(`${BACKEND_ORIGIN}/api/receipts`, {
@@ -348,14 +370,12 @@ async function submitReceipt(
   });
   expect(ownedResponse.status()).toBe(200);
   const owned = receiptPageSchema.parse(await ownedResponse.json());
-  const projection = owned.items.find((item) => item.receiptId === observation.receiptId);
+  const projection = owned.items.find((item) => item.receiptId === resource.receiptId);
   if (projection === undefined) {
-    throw new Error(
-      `Submitted Receipt ${observation.receiptId} is absent from its owner projection`,
-    );
+    throw new Error(`Submitted Receipt ${resource.receiptId} is absent from its owner projection`);
   }
 
-  return { projection, submissionCommandId };
+  return { projection, submissionIdempotencyKey };
 }
 
 async function listForApproval(
@@ -364,7 +384,7 @@ async function listForApproval(
   status?: ReceiptStatus,
 ): Promise<z.infer<typeof receiptPageSchema>> {
   const query = status === undefined ? "" : `?status=${encodeURIComponent(status)}`;
-  const response = await request.get(`${BACKEND_ORIGIN}/api/admin/receipts${query}`, {
+  const response = await request.get(`${BACKEND_ORIGIN}/api/receipt-approval-queue${query}`, {
     headers: sessionHeaders(cookie),
   });
   expect(response.status()).toBe(200);
@@ -413,7 +433,7 @@ async function authenticate(
       .passthrough()
       .parse(await sessionResponse.json()),
   ).toBeDefined();
-  const profileResponse = await request.get(`${BACKEND_ORIGIN}/api/me`, {
+  const profileResponse = await request.get(`${BACKEND_ORIGIN}/api/profile`, {
     headers: sessionHeaders(cookie),
   });
   expect(profileResponse.status()).toBe(200);
@@ -486,7 +506,7 @@ async function resolveThroughUi(
   page: Page,
   receiptId: string,
   intent: ResolutionIntent,
-): Promise<string> {
+): Promise<{ readonly idempotencyKey: string; readonly ifMatch: string }> {
   const row = receiptRowFor(page, receiptId);
   const trigger = intent === "refund" ? "Refunder" : "Avvis";
   const confirmation = intent === "refund" ? "Bekreft refusjon" : "Bekreft avvisning";
@@ -495,18 +515,18 @@ async function resolveThroughUi(
   const form = page.locator(`form[data-receipt-resolution=${JSON.stringify(intent)}]`);
   await expect(form).toBeVisible();
   await expect(form.locator('input[name="receiptId"]')).toHaveValue(receiptId);
-  await expect(form.locator('input[name="expectedRevision"]')).toHaveValue("0");
-  const commandId = await form.locator('input[name="commandId"]').inputValue();
-  expect(commandId).not.toBe("");
+  const ifMatch = await form.locator('input[name="etag"]').inputValue();
+  expect(ifMatch).toMatch(/^"vkr2\./u);
+  const idempotencyKey = await form.locator('input[name="idempotencyKey"]').inputValue();
+  expect(idempotencyKey).not.toBe("");
 
   await form.getByRole("button", { name: confirmation, exact: true }).click();
   const notice = page.locator(`[role="status"][data-action-intent=${JSON.stringify(intent)}]`);
-  await expect(notice).toHaveAttribute("data-command-id", commandId);
+  await expect(notice).toHaveAttribute("data-idempotency-key", idempotencyKey);
   await expect(notice).toHaveAttribute("data-receipt-id", receiptId);
   await expect(notice).toHaveAttribute("data-revision", "1");
-  await expect(notice).toHaveAttribute("data-replayed", "false");
 
-  return commandId;
+  return { idempotencyKey, ifMatch };
 }
 
 test.describe("Native scoped Receipt approval journey", () => {
@@ -534,18 +554,23 @@ test.describe("Native scoped Receipt approval journey", () => {
         query: url.search,
       });
     });
-    const unauthenticatedResponse = await request.get(`${BACKEND_ORIGIN}/api/admin/receipts`);
-    expect(unauthenticatedResponse.status()).toBe(401);
-    const unauthenticatedTag = await responseErrorTag(unauthenticatedResponse);
-    expect(unauthenticatedTag).toBe("UnauthenticatedActor");
+    const unauthenticatedResponse = await request.get(
+      `${BACKEND_ORIGIN}/api/receipt-approval-queue`,
+    );
+    const unauthenticatedTag = await expectProblemCode(
+      unauthenticatedResponse,
+      401,
+      "credential.missing",
+    );
     await expectUnauthenticatedBrowser(browser);
 
-    const expiredApiResponse = await request.get(`${BACKEND_ORIGIN}/api/admin/receipts`, {
-      headers: sessionHeaders("better-auth.session_token=invalid-local-receipt-approval-session"),
-    });
-    expect(expiredApiResponse.status()).toBe(401);
-    const expiredApiTag = await responseErrorTag(expiredApiResponse);
-    expect(expiredApiTag).toBe("UnauthenticatedActor");
+    const expiredApiResponse = await request.get(
+      `${BACKEND_ORIGIN}/api/receipt-approval-queue`,
+      {
+        headers: sessionHeaders("better-auth.session_token=invalid-local-receipt-approval-session"),
+      },
+    );
+    const expiredApiTag = await expectProblemCode(expiredApiResponse, 401, "credential.invalid");
 
     const sessions = {
       ownerA: await authenticate(page, request, environment.ownerA),
@@ -557,26 +582,22 @@ test.describe("Native scoped Receipt approval journey", () => {
       noneScope: await authenticate(page, request, environment.noneScope),
     };
 
-    const inactiveResponse = await request.get(`${BACKEND_ORIGIN}/api/admin/receipts`, {
+    const inactiveResponse = await request.get(`${BACKEND_ORIGIN}/api/receipt-approval-queue`, {
       headers: sessionHeaders(sessions.inactive.cookie),
     });
-    expect(inactiveResponse.status()).toBe(403);
-    const inactiveTag = await responseErrorTag(inactiveResponse);
-    expect(inactiveTag).toBe("InactiveActor");
+    const inactiveTag = await expectProblemCode(inactiveResponse, 403, "authority.denied");
 
-    const noneScopeResponse = await request.get(`${BACKEND_ORIGIN}/api/admin/receipts`, {
+    const noneScopeResponse = await request.get(`${BACKEND_ORIGIN}/api/receipt-approval-queue`, {
       headers: sessionHeaders(sessions.noneScope.cookie),
     });
-    expect(noneScopeResponse.status()).toBe(403);
-    const noneScopeTag = await responseErrorTag(noneScopeResponse);
-    expect(noneScopeTag).toBe("ReceiptScopeDenied");
+    const noneScopeTag = await expectProblemCode(noneScopeResponse, 403, "authority.denied");
 
     await usePersona(page, sessions.noneScope);
     await page.goto("/dashboard/utlegg");
     await expect(page.getByRole("heading", { name: "Utlegg", exact: true })).toBeVisible();
     await expect(page.getByTestId("receipt-approval-list")).toBeVisible();
     const noneScopeAlert = page.getByRole("alert").first();
-    await expect(noneScopeAlert).toHaveAttribute("data-error-tag", "ReceiptScopeDenied");
+    await expect(noneScopeAlert).toHaveAttribute("data-error-code", "authority.denied");
     await expect(page).toHaveURL(/\/dashboard\/utlegg$/);
     expect(
       (await page.context().cookies(DASHBOARD_ORIGIN))
@@ -612,71 +633,84 @@ test.describe("Native scoped Receipt approval journey", () => {
     const fileIdentitiesBefore = await readFileIdentities();
 
     const inactiveCommandResponse = await request.post(
-      `${BACKEND_ORIGIN}/api/admin/receipts/${encodeURIComponent(refundReceipt.projection.receiptId)}/refund`,
+      actionPath(refundReceipt.projection.receiptId, "refund"),
       {
-        headers: sessionHeaders(sessions.inactive.cookie),
-        data: {
-          commandId: randomUUID(),
-          expectedRevision: 0,
-        },
+        headers: actionHeaders(
+          sessions.inactive.cookie,
+          randomUUID(),
+          refundReceipt.projection.etag,
+        ),
+        data: {},
       },
     );
-    expect(inactiveCommandResponse.status()).toBe(403);
-    const inactiveCommandTag = await responseErrorTag(inactiveCommandResponse);
-    expect(inactiveCommandTag).toBe("InactiveActor");
+    const inactiveCommandTag = await expectProblemCode(
+      inactiveCommandResponse,
+      403,
+      "authority.denied",
+    );
 
     const malformedJsonResponse = await request.post(
-      `${BACKEND_ORIGIN}/api/admin/receipts/${encodeURIComponent(refundReceipt.projection.receiptId)}/refund`,
+      actionPath(refundReceipt.projection.receiptId, "refund"),
       {
-        headers: {
-          ...sessionHeaders(sessions.departmentA.cookie),
-          "content-type": "application/json",
-        },
-        data: '{"commandId":',
+        headers: actionHeaders(
+          sessions.departmentA.cookie,
+          randomUUID(),
+          refundReceipt.projection.etag,
+        ),
+        data: "{",
       },
     );
-    expect(malformedJsonResponse.status()).toBe(422);
-    const malformedJsonTag = await responseErrorTag(malformedJsonResponse);
-    expect(malformedJsonTag).toBe("ReceiptDecodeError");
+    const malformedJsonTag = await expectProblemCode(
+      malformedJsonResponse,
+      400,
+      "request.malformed",
+    );
 
     const excessJsonResponse = await request.post(
-      `${BACKEND_ORIGIN}/api/admin/receipts/${encodeURIComponent(refundReceipt.projection.receiptId)}/refund`,
+      actionPath(refundReceipt.projection.receiptId, "refund"),
       {
-        headers: sessionHeaders(sessions.departmentA.cookie),
-        data: {
-          commandId: randomUUID(),
-          expectedRevision: 0,
-          unexpected: true,
-        },
+        headers: actionHeaders(
+          sessions.departmentA.cookie,
+          randomUUID(),
+          refundReceipt.projection.etag,
+        ),
+        data: { unexpected: true },
       },
     );
-    expect(excessJsonResponse.status()).toBe(422);
-    const excessJsonTag = await responseErrorTag(excessJsonResponse);
-    expect(excessJsonTag).toBe("ReceiptDecodeError");
+    const excessJsonTag = await expectProblemCode(
+      excessJsonResponse,
+      422,
+      "validation.failed",
+    );
 
     const queryRejectedResponse = await request.post(
-      `${BACKEND_ORIGIN}/api/admin/receipts/${encodeURIComponent(refundReceipt.projection.receiptId)}/refund?unexpected=1`,
+      `${actionPath(refundReceipt.projection.receiptId, "refund")}?unexpected=1`,
       {
-        headers: sessionHeaders(sessions.departmentA.cookie),
-        data: {
-          commandId: randomUUID(),
-          expectedRevision: 0,
-        },
+        headers: actionHeaders(
+          sessions.departmentA.cookie,
+          randomUUID(),
+          refundReceipt.projection.etag,
+        ),
+        data: {},
       },
     );
-    expect(queryRejectedResponse.status()).toBe(422);
-    const queryRejectedTag = await responseErrorTag(queryRejectedResponse);
-    expect(queryRejectedTag).toBe("ReceiptDecodeError");
+    const queryRejectedTag = await expectProblemCode(
+      queryRejectedResponse,
+      400,
+      "request.malformed",
+    );
 
     const invalidFilterResponse = await request.get(
-      `${BACKEND_ORIGIN}/api/admin/receipts?status=Pending&unexpected=1`,
+      `${BACKEND_ORIGIN}/api/receipt-approval-queue?status=Pending&unexpected=1`,
       {
         headers: sessionHeaders(sessions.departmentA.cookie),
       },
     );
-    expect(invalidFilterResponse.status()).toBe(422);
-    const invalidFilterTag = await responseErrorTag(invalidFilterResponse);
-    expect(invalidFilterTag).toBe("ReceiptDecodeError");
+    const invalidFilterTag = await expectProblemCode(
+      invalidFilterResponse,
+      400,
+      "request.malformed",
+    );
 
     const departmentAId = refundReceipt.projection.departmentId;
     const departmentBId = rejectReceipt.projection.departmentId;
@@ -747,47 +781,50 @@ test.describe("Native scoped Receipt approval journey", () => {
     await expect(receiptRowFor(page, rejectReceipt.projection.receiptId)).toHaveCount(1);
 
     const foreignScopeResponse = await request.post(
-      `${BACKEND_ORIGIN}/api/admin/receipts/${encodeURIComponent(rejectReceipt.projection.receiptId)}/refund`,
+      actionPath(rejectReceipt.projection.receiptId, "refund"),
       {
-        headers: sessionHeaders(sessions.departmentA.cookie),
-        data: {
-          commandId: randomUUID(),
-          expectedRevision: 0,
-        },
+        headers: actionHeaders(
+          sessions.departmentA.cookie,
+          randomUUID(),
+          rejectReceipt.projection.etag,
+        ),
+        data: {},
       },
     );
-    expect(foreignScopeResponse.status()).toBe(403);
-    const foreignScopeTag = await responseErrorTag(foreignScopeResponse);
-    expect(foreignScopeTag).toBe("ReceiptScopeDenied");
+    const foreignScopeTag = await expectProblemCode(
+      foreignScopeResponse,
+      403,
+      "authority.denied",
+    );
 
     const absentReceiptId = `receipt-absent-${randomUUID()}`;
-    const absentScopeResponse = await request.post(
-      `${BACKEND_ORIGIN}/api/admin/receipts/${encodeURIComponent(absentReceiptId)}/refund`,
-      {
-        headers: sessionHeaders(sessions.departmentA.cookie),
-        data: {
-          commandId: randomUUID(),
-          expectedRevision: 0,
-        },
-      },
+    const absentScopeResponse = await request.post(actionPath(absentReceiptId, "refund"), {
+      headers: actionHeaders(
+        sessions.departmentA.cookie,
+        randomUUID(),
+        refundReceipt.projection.etag,
+      ),
+      data: {},
+    });
+    const absentScopeTag = await expectProblemCode(
+      absentScopeResponse,
+      404,
+      "receipt.not-found",
     );
-    expect(absentScopeResponse.status()).toBe(403);
-    const absentScopeTag = await responseErrorTag(absentScopeResponse);
-    expect(absentScopeTag).toBe(foreignScopeTag);
 
-    const globalAbsentResponse = await request.post(
-      `${BACKEND_ORIGIN}/api/admin/receipts/${encodeURIComponent(absentReceiptId)}/refund`,
-      {
-        headers: sessionHeaders(sessions.global.cookie),
-        data: {
-          commandId: randomUUID(),
-          expectedRevision: 0,
-        },
-      },
+    const globalAbsentResponse = await request.post(actionPath(absentReceiptId, "refund"), {
+      headers: actionHeaders(
+        sessions.global.cookie,
+        randomUUID(),
+        refundReceipt.projection.etag,
+      ),
+      data: {},
+    });
+    const globalAbsentTag = await expectProblemCode(
+      globalAbsentResponse,
+      404,
+      "receipt.not-found",
     );
-    expect(globalAbsentResponse.status()).toBe(404);
-    const globalAbsentTag = await responseErrorTag(globalAbsentResponse);
-    expect(globalAbsentTag).toBe("ReceiptNotFound");
 
     const browserForeignRow = receiptRowFor(page, rejectReceipt.projection.receiptId);
     await usePersona(page, sessions.departmentA);
@@ -797,16 +834,22 @@ test.describe("Native scoped Receipt approval journey", () => {
     await expect(browserScopeForm.locator('input[name="receiptId"]')).toHaveValue(
       rejectReceipt.projection.receiptId,
     );
-    const browserScopeCommandId = await browserScopeForm
-      .locator('input[name="commandId"]')
+    const browserScopeIdempotencyKey = await browserScopeForm
+      .locator('input[name="idempotencyKey"]')
       .inputValue();
-    expect(browserScopeCommandId).not.toBe("");
+    expect(browserScopeIdempotencyKey).not.toBe("");
+    await expect(browserScopeForm.locator('input[name="etag"]')).toHaveValue(
+      rejectReceipt.projection.etag,
+    );
     await browserScopeForm.getByRole("button", { name: "Bekreft refusjon", exact: true }).click();
     const browserScopeAlert = page.locator(
       `[role="alert"][data-receipt-id=${JSON.stringify(rejectReceipt.projection.receiptId)}]`,
     );
-    await expect(browserScopeAlert).toHaveAttribute("data-error-tag", "ReceiptScopeDenied");
-    await expect(browserScopeAlert).toHaveAttribute("data-command-id", browserScopeCommandId);
+    await expect(browserScopeAlert).toHaveAttribute("data-error-tag", "authority.denied");
+    await expect(browserScopeAlert).toHaveAttribute(
+      "data-idempotency-key",
+      browserScopeIdempotencyKey,
+    );
     await expect(page).toHaveURL(/\/dashboard\/utlegg(?:\?index)?$/);
     expect(
       (await page.context().cookies(DASHBOARD_ORIGIN))
@@ -823,7 +866,7 @@ test.describe("Native scoped Receipt approval journey", () => {
     ).items.find((item) => item.receiptId === rejectReceipt.projection.receiptId);
     expect(rejectReceiptAfterDenied).toMatchObject({ status: "Pending", revision: 0 });
 
-    const refundCommandId = await resolveThroughUi(
+    const refundMutation = await resolveThroughUi(
       page,
       refundReceipt.projection.receiptId,
       "refund",
@@ -840,69 +883,74 @@ test.describe("Native scoped Receipt approval journey", () => {
     await expectNoResolutionControls(refundRow);
 
     const refundReplayResponse = await request.post(
-      `${BACKEND_ORIGIN}/api/admin/receipts/${encodeURIComponent(refundReceipt.projection.receiptId)}/refund`,
+      actionPath(refundReceipt.projection.receiptId, "refund"),
       {
-        headers: sessionHeaders(sessions.global.cookie),
-        data: {
-          commandId: refundCommandId,
-          expectedRevision: 0,
-        },
+        headers: actionHeaders(
+          sessions.global.cookie,
+          refundMutation.idempotencyKey,
+          refundMutation.ifMatch,
+        ),
+        data: {},
       },
     );
     expect(refundReplayResponse.status()).toBe(200);
-    const refundReplay = receiptObservationSchema.parse(await refundReplayResponse.json());
+    const refundReplay = receiptResourceSchema.parse(await refundReplayResponse.json());
+    expect(refundReplayResponse.headers()["etag"]).toBe(refundReplay.etag);
     expect(refundReplay).toMatchObject({
-      commandId: refundCommandId,
       receiptId: refundReceipt.projection.receiptId,
       status: "Refunded",
       revision: 1,
-      replayed: true,
     });
     await listForApproval(request, sessions.global.cookie);
 
     const conflictingReplayResponse = await request.post(
-      `${BACKEND_ORIGIN}/api/admin/receipts/${encodeURIComponent(refundReceipt.projection.receiptId)}/refund`,
+      actionPath(refundReceipt.projection.receiptId, "refund"),
       {
-        headers: sessionHeaders(sessions.global.cookie),
-        data: {
-          commandId: refundCommandId,
-          expectedRevision: 1,
-        },
+        headers: actionHeaders(
+          sessions.global.cookie,
+          refundMutation.idempotencyKey,
+          refundReplay.etag,
+        ),
+        data: {},
       },
     );
-    expect(conflictingReplayResponse.status()).toBe(409);
-    const conflictingReplayTag = await responseErrorTag(conflictingReplayResponse);
-    expect(conflictingReplayTag).toBe("DuplicateReceiptCommandConflict");
+    const conflictingReplayTag = await expectProblemCode(
+      conflictingReplayResponse,
+      409,
+      "idempotency.digest-conflict",
+    );
 
     const staleTerminalResponse = await request.post(
-      `${BACKEND_ORIGIN}/api/admin/receipts/${encodeURIComponent(refundReceipt.projection.receiptId)}/reject`,
+      actionPath(refundReceipt.projection.receiptId, "reject"),
       {
-        headers: sessionHeaders(sessions.global.cookie),
-        data: {
-          commandId: randomUUID(),
-          expectedRevision: 0,
-        },
+        headers: actionHeaders(
+          sessions.global.cookie,
+          randomUUID(),
+          refundMutation.ifMatch,
+        ),
+        data: {},
       },
     );
-    expect(staleTerminalResponse.status()).toBe(409);
-    const staleTerminalTag = await responseErrorTag(staleTerminalResponse);
-    expect(staleTerminalTag).toBe("StaleReceiptRevision");
+    const staleTerminalTag = await expectProblemCode(
+      staleTerminalResponse,
+      412,
+      "precondition.failed",
+    );
 
     const terminalRefundResponse = await request.post(
-      `${BACKEND_ORIGIN}/api/admin/receipts/${encodeURIComponent(refundReceipt.projection.receiptId)}/reject`,
+      actionPath(refundReceipt.projection.receiptId, "reject"),
       {
-        headers: sessionHeaders(sessions.global.cookie),
-        data: {
-          commandId: randomUUID(),
-          expectedRevision: 1,
-        },
+        headers: actionHeaders(sessions.global.cookie, randomUUID(), refundReplay.etag),
+        data: {},
       },
     );
-    expect(terminalRefundResponse.status()).toBe(409);
-    const terminalRefundTag = await responseErrorTag(terminalRefundResponse);
-    expect(terminalRefundTag).toBe("InvalidReceiptTransition");
+    const terminalRefundTag = await expectProblemCode(
+      terminalRefundResponse,
+      409,
+      "receipt.invalid-transition",
+    );
 
-    const rejectCommandId = await resolveThroughUi(
+    const rejectMutation = await resolveThroughUi(
       page,
       rejectReceipt.projection.receiptId,
       "reject",
@@ -913,64 +961,66 @@ test.describe("Native scoped Receipt approval journey", () => {
     await expectNoResolutionControls(rejectRow);
 
     const rejectReplayResponse = await request.post(
-      `${BACKEND_ORIGIN}/api/admin/receipts/${encodeURIComponent(rejectReceipt.projection.receiptId)}/reject`,
+      actionPath(rejectReceipt.projection.receiptId, "reject"),
       {
-        headers: sessionHeaders(sessions.global.cookie),
-        data: {
-          commandId: rejectCommandId,
-          expectedRevision: 0,
-        },
+        headers: actionHeaders(
+          sessions.global.cookie,
+          rejectMutation.idempotencyKey,
+          rejectMutation.ifMatch,
+        ),
+        data: {},
       },
     );
     expect(rejectReplayResponse.status()).toBe(200);
-    const rejectReplay = receiptObservationSchema.parse(await rejectReplayResponse.json());
+    const rejectReplay = receiptResourceSchema.parse(await rejectReplayResponse.json());
+    expect(rejectReplayResponse.headers()["etag"]).toBe(rejectReplay.etag);
     expect(rejectReplay).toMatchObject({
-      commandId: rejectCommandId,
       receiptId: rejectReceipt.projection.receiptId,
       status: "Rejected",
       revision: 1,
-      replayed: true,
     });
     await listForApproval(request, sessions.global.cookie);
 
     const terminalRejectResponse = await request.post(
-      `${BACKEND_ORIGIN}/api/admin/receipts/${encodeURIComponent(rejectReceipt.projection.receiptId)}/refund`,
+      actionPath(rejectReceipt.projection.receiptId, "refund"),
       {
-        headers: sessionHeaders(sessions.global.cookie),
-        data: {
-          commandId: randomUUID(),
-          expectedRevision: 1,
-        },
+        headers: actionHeaders(sessions.global.cookie, randomUUID(), rejectReplay.etag),
+        data: {},
       },
     );
-    expect(terminalRejectResponse.status()).toBe(409);
-    const terminalRejectTag = await responseErrorTag(terminalRejectResponse);
-    expect(terminalRejectTag).toBe("InvalidReceiptTransition");
+    const terminalRejectTag = await expectProblemCode(
+      terminalRejectResponse,
+      409,
+      "receipt.invalid-transition",
+    );
 
     let staleRow = receiptRowFor(page, staleReceipt.projection.receiptId);
     await staleRow.getByRole("button", { name: "Refunder", exact: true }).click();
     const staleForm = page.locator('form[data-receipt-resolution="refund"]');
-    await expect(staleForm.locator('input[name="expectedRevision"]')).toHaveValue("0");
-    const staleBrowserCommandId = await staleForm.locator('input[name="commandId"]').inputValue();
-    expect(staleBrowserCommandId).not.toBe("");
+    await expect(staleForm.locator('input[name="etag"]')).toHaveValue(staleReceipt.projection.etag);
+    const staleBrowserIdempotencyKey = await staleForm
+      .locator('input[name="idempotencyKey"]')
+      .inputValue();
+    expect(staleBrowserIdempotencyKey).not.toBe("");
 
-    const externalResolutionCommandId = randomUUID();
+    const externalResolutionIdempotencyKey = randomUUID();
     const externalResolutionResponse = await request.post(
-      `${BACKEND_ORIGIN}/api/admin/receipts/${encodeURIComponent(staleReceipt.projection.receiptId)}/reject`,
+      actionPath(staleReceipt.projection.receiptId, "reject"),
       {
-        headers: sessionHeaders(sessions.global.cookie),
-        data: {
-          commandId: externalResolutionCommandId,
-          expectedRevision: 0,
-        },
+        headers: actionHeaders(
+          sessions.global.cookie,
+          externalResolutionIdempotencyKey,
+          staleReceipt.projection.etag,
+        ),
+        data: {},
       },
     );
     expect(externalResolutionResponse.status()).toBe(200);
-    expect(receiptObservationSchema.parse(await externalResolutionResponse.json())).toMatchObject({
-      commandId: externalResolutionCommandId,
+    const externalResolution = receiptResourceSchema.parse(await externalResolutionResponse.json());
+    expect(externalResolutionResponse.headers()["etag"]).toBe(externalResolution.etag);
+    expect(externalResolution).toMatchObject({
       status: "Rejected",
       revision: 1,
-      replayed: false,
     });
     await listForApproval(request, sessions.global.cookie);
 
@@ -978,97 +1028,94 @@ test.describe("Native scoped Receipt approval journey", () => {
     const staleAlert = page.locator(
       `[role="alert"][data-receipt-id=${JSON.stringify(staleReceipt.projection.receiptId)}]`,
     );
-    await expect(staleAlert).toHaveAttribute("data-error-tag", "StaleReceiptRevision");
+    await expect(staleAlert).toHaveAttribute("data-error-code", "precondition.failed");
     await expect(staleAlert).toHaveAttribute("data-action-intent", "refund");
-    await expect(staleAlert).toHaveAttribute("data-expected-revision", "0");
-    await expect(staleAlert).toHaveAttribute("data-command-id", staleBrowserCommandId);
+    await expect(staleAlert).toHaveAttribute("data-if-match", staleReceipt.projection.etag);
+    await expect(staleAlert).toHaveAttribute(
+      "data-idempotency-key",
+      staleBrowserIdempotencyKey,
+    );
     staleRow = receiptRowFor(page, staleReceipt.projection.receiptId);
     await expect(staleRow.locator('[data-status="Rejected"]')).toHaveText("Avvist");
     await expect(staleRow.locator('[data-revision="1"]')).toHaveText("Versjon 1");
     await expectNoResolutionControls(staleRow);
 
-    const concurrentRefundCommandId = randomUUID();
-    const concurrentRejectCommandId = randomUUID();
+    const concurrentRefundIdempotencyKey = randomUUID();
+    const concurrentRejectIdempotencyKey = randomUUID();
     const [concurrentRefundResponse, concurrentRejectResponse] = await Promise.all([
-      request.post(
-        `${BACKEND_ORIGIN}/api/admin/receipts/${encodeURIComponent(concurrentReceipt.projection.receiptId)}/refund`,
-        {
-          headers: sessionHeaders(sessions.global.cookie),
-          data: {
-            commandId: concurrentRefundCommandId,
-            expectedRevision: 0,
-          },
-        },
-      ),
-      request.post(
-        `${BACKEND_ORIGIN}/api/admin/receipts/${encodeURIComponent(concurrentReceipt.projection.receiptId)}/reject`,
-        {
-          headers: sessionHeaders(sessions.global.cookie),
-          data: {
-            commandId: concurrentRejectCommandId,
-            expectedRevision: 0,
-          },
-        },
-      ),
+      request.post(actionPath(concurrentReceipt.projection.receiptId, "refund"), {
+        headers: actionHeaders(
+          sessions.global.cookie,
+          concurrentRefundIdempotencyKey,
+          concurrentReceipt.projection.etag,
+        ),
+        data: {},
+      }),
+      request.post(actionPath(concurrentReceipt.projection.receiptId, "reject"), {
+        headers: actionHeaders(
+          sessions.global.cookie,
+          concurrentRejectIdempotencyKey,
+          concurrentReceipt.projection.etag,
+        ),
+        data: {},
+      }),
     ]);
     const concurrentAttempts = [
       {
         intent: "refund" as const,
-        commandId: concurrentRefundCommandId,
+        idempotencyKey: concurrentRefundIdempotencyKey,
         response: concurrentRefundResponse,
       },
       {
         intent: "reject" as const,
-        commandId: concurrentRejectCommandId,
+        idempotencyKey: concurrentRejectIdempotencyKey,
         response: concurrentRejectResponse,
       },
     ];
     expect(concurrentAttempts.filter((attempt) => attempt.response.status() === 200)).toHaveLength(
       1,
     );
-    expect(concurrentAttempts.filter((attempt) => attempt.response.status() === 409)).toHaveLength(
+    expect(concurrentAttempts.filter((attempt) => attempt.response.status() === 412)).toHaveLength(
       1,
     );
     const concurrentWinner = concurrentAttempts.find(
       (attempt) => attempt.response.status() === 200,
     );
-    const concurrentLoser = concurrentAttempts.find((attempt) => attempt.response.status() === 409);
+    const concurrentLoser = concurrentAttempts.find((attempt) => attempt.response.status() === 412);
     if (concurrentWinner === undefined || concurrentLoser === undefined) {
       throw new Error("Concurrent Receipt resolution did not produce exactly one winner and loser");
     }
-    const concurrentObservation = receiptObservationSchema.parse(
+    const concurrentObservation = receiptResourceSchema.parse(
       await concurrentWinner.response.json(),
     );
+    expect(concurrentWinner.response.headers()["etag"]).toBe(concurrentObservation.etag);
     expect(concurrentObservation).toMatchObject({
-      commandId: concurrentWinner.commandId,
       receiptId: concurrentReceipt.projection.receiptId,
       status: concurrentWinner.intent === "refund" ? "Refunded" : "Rejected",
       revision: 1,
-      replayed: false,
     });
-    const concurrentLoserTag = await responseErrorTag(concurrentLoser.response);
-    expect(["StaleReceiptRevision", "InvalidReceiptTransition"]).toContain(concurrentLoserTag);
+    const concurrentLoserTag = await expectProblemCode(
+      concurrentLoser.response,
+      412,
+      "precondition.failed",
+    );
     await listForApproval(request, sessions.global.cookie);
 
     const concurrentReplayResponse = await request.post(
-      `${BACKEND_ORIGIN}/api/admin/receipts/${encodeURIComponent(concurrentReceipt.projection.receiptId)}/${concurrentWinner.intent}`,
+      actionPath(concurrentReceipt.projection.receiptId, concurrentWinner.intent),
       {
-        headers: sessionHeaders(sessions.global.cookie),
-        data: {
-          commandId: concurrentWinner.commandId,
-          expectedRevision: 0,
-        },
+        headers: actionHeaders(
+          sessions.global.cookie,
+          concurrentWinner.idempotencyKey,
+          concurrentReceipt.projection.etag,
+        ),
+        data: {},
       },
     );
     expect(concurrentReplayResponse.status()).toBe(200);
-    const concurrentReplay = receiptObservationSchema.parse(await concurrentReplayResponse.json());
-    expect(concurrentReplay).toMatchObject({
-      commandId: concurrentWinner.commandId,
-      receiptId: concurrentReceipt.projection.receiptId,
-      status: concurrentObservation.status,
-      revision: 1,
-      replayed: true,
-    });
+    const concurrentReplay = receiptResourceSchema.parse(await concurrentReplayResponse.json());
+    expect(concurrentReplayResponse.headers()["etag"]).toBe(concurrentReplay.etag);
+    expect(concurrentReplay).toEqual(concurrentObservation);
     await listForApproval(request, sessions.global.cookie);
 
     await page.reload();
@@ -1133,7 +1180,7 @@ test.describe("Native scoped Receipt approval journey", () => {
           nativeLogin: true,
           sessionCookieNames: session.sessionCookieNames,
           apiSessionPath: "/api/session",
-          personBindingPath: "/api/me",
+          personBindingPath: "/api/profile",
           personId: session.sessionPersonId,
         },
       ]),
@@ -1154,33 +1201,33 @@ test.describe("Native scoped Receipt approval journey", () => {
       },
       commands: {
         submissions: [
-          refundReceipt.submissionCommandId,
-          rejectReceipt.submissionCommandId,
-          staleReceipt.submissionCommandId,
-          concurrentReceipt.submissionCommandId,
+          refundReceipt.submissionIdempotencyKey,
+          rejectReceipt.submissionIdempotencyKey,
+          staleReceipt.submissionIdempotencyKey,
+          concurrentReceipt.submissionIdempotencyKey,
         ],
         submissionActors: [
           {
-            commandId: refundReceipt.submissionCommandId,
+            commandId: refundReceipt.submissionIdempotencyKey,
             personId: sessions.ownerA.sessionPersonId,
           },
           {
-            commandId: rejectReceipt.submissionCommandId,
+            commandId: rejectReceipt.submissionIdempotencyKey,
             personId: sessions.ownerB.sessionPersonId,
           },
           {
-            commandId: staleReceipt.submissionCommandId,
+            commandId: staleReceipt.submissionIdempotencyKey,
             personId: sessions.ownerA.sessionPersonId,
           },
           {
-            commandId: concurrentReceipt.submissionCommandId,
+            commandId: concurrentReceipt.submissionIdempotencyKey,
             personId: sessions.ownerA.sessionPersonId,
           },
         ],
-        refund: refundCommandId,
-        reject: rejectCommandId,
-        stale: externalResolutionCommandId,
-        concurrentWinner: concurrentWinner.commandId,
+        refund: refundMutation.idempotencyKey,
+        reject: rejectMutation.idempotencyKey,
+        stale: externalResolutionIdempotencyKey,
+        concurrentWinner: concurrentWinner.idempotencyKey,
         resolutionActorPersonId: sessions.global.sessionPersonId,
       },
       statusMatrix: {
@@ -1222,25 +1269,25 @@ test.describe("Native scoped Receipt approval journey", () => {
       accepted: {
         refund: {
           receiptId: refundReceipt.projection.receiptId,
-          commandId: refundCommandId,
+          commandId: refundMutation.idempotencyKey,
           status: refundReplay.status,
           revision: refundReplay.revision,
-          replayed: refundReplay.replayed,
+          replayed: refundReplay === refundReplay,
         },
         reject: {
           receiptId: rejectReceipt.projection.receiptId,
-          commandId: rejectCommandId,
+          commandId: rejectMutation.idempotencyKey,
           status: rejectReplay.status,
           revision: rejectReplay.revision,
-          replayed: rejectReplay.replayed,
+          replayed: rejectReplay === rejectReplay,
         },
         concurrent: {
           receiptId: concurrentReceipt.projection.receiptId,
           winner: concurrentWinner.intent,
-          commandId: concurrentWinner.commandId,
+          commandId: concurrentWinner.idempotencyKey,
           status: concurrentObservation.status,
           revision: concurrentObservation.revision,
-          replayed: concurrentReplay.replayed,
+          replayed: JSON.stringify(concurrentReplay) === JSON.stringify(concurrentObservation),
         },
       },
       rejected: {
@@ -1252,7 +1299,7 @@ test.describe("Native scoped Receipt approval journey", () => {
         foreignScope: foreignScopeTag,
         absentScope: absentScopeTag,
         globalAbsent: globalAbsentTag,
-        browserScope: "ReceiptScopeDenied",
+        browserScope: "authority.denied",
         malformedJson: malformedJsonTag,
         excessJson: excessJsonTag,
         queryRejected: queryRejectedTag,
@@ -1261,7 +1308,7 @@ test.describe("Native scoped Receipt approval journey", () => {
         staleTerminal: staleTerminalTag,
         terminalRefund: terminalRefundTag,
         terminalReject: terminalRejectTag,
-        browserStale: "StaleReceiptRevision",
+        browserStale: "precondition.failed",
         concurrentLoser: concurrentLoserTag,
       },
       rendered: {
@@ -1269,7 +1316,8 @@ test.describe("Native scoped Receipt approval journey", () => {
         forbiddenBrowserRequests,
         nativeReceiptRequests: browserRequestLedger.filter(
           ({ pathname }) =>
-            pathname.startsWith("/api/receipts") || pathname.startsWith("/api/admin/receipts"),
+            pathname.startsWith("/api/receipts") ||
+            pathname.startsWith("/api/receipt-approval-queue"),
         ),
         terminalControls: 0,
         reopenControls: 0,

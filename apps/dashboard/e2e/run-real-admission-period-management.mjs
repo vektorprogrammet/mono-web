@@ -403,9 +403,9 @@ function assertDurableEvidence(postgres, lifecycle) {
   const audits = Array.isArray(postgres.audits) ? postgres.audits : [];
   const outbox = Array.isArray(postgres.outbox) ? postgres.outbox : [];
   const acceptedCommandIds = [
-    lifecycle.period.createCommandId,
-    lifecycle.period.concurrentWinnerCommandId,
-    lifecycle.period.closeCommandId,
+    lifecycle.period.createIdempotencyKey,
+    lifecycle.period.concurrentWinnerIdempotencyKey,
+    lifecycle.period.closeIdempotencyKey,
   ];
   const auditCommandIds = audits.map((audit) => audit.commandId);
   const outboxCommandIds = outbox.map((effect) => effect.commandId);
@@ -425,13 +425,13 @@ function assertDurableEvidence(postgres, lifecycle) {
     postgres.applicationCommandCount !== 1 ||
     postgres.period?.id !== lifecycle.period.id ||
     postgres.period?.revision !== lifecycle.period.finalRevision ||
-    postgres.period?.lastCommandId !== lifecycle.period.closeCommandId ||
+    postgres.period?.lastCommandId !== lifecycle.period.closeIdempotencyKey ||
     postgres.application?.id !== lifecycle.application.id ||
     postgres.application?.admissionPeriodId !== lifecycle.period.id ||
     lifecycle.publicEligibility.beforeClose.includes(lifecycle.period.id) !== true ||
     lifecycle.publicEligibility.afterClose.includes(lifecycle.period.id) ||
-    lifecycle.replay.tag !== "Replayed" ||
-    lifecycle.concurrent.loser.tag !== "StaleAdmissionPeriodRevision" ||
+    lifecycle.replay.periodId !== lifecycle.period.id ||
+    lifecycle.concurrent.loser.code !== "precondition.failed" ||
     audits.map((audit) => audit.revision).join(",") !== "0,1,2" ||
     audits.map((audit) => audit.action).join(",") !== expectedActions.join(",") ||
     acceptedCommandIds.some((commandId) => !auditCommandIds.includes(commandId)) ||
