@@ -173,13 +173,44 @@ describe("native HTTP semantics", () => {
     expect(() => semanticRequestDigest({ body: { value: "\ud800" } })).toThrow(HttpSemanticFailure);
   });
 
-  it("places a mutation If-Match beside its decoded body", () => {
-    const body = { description: "Conference", amountOre: 1250 };
+  it("uses the canonical content mutation envelope exactly once", () => {
+    const body = { sticky: false, title: "Autumn update" };
     const canonical = semanticMutationRequest(body, tagA);
 
     expect(canonical).toEqual({ body, ifMatch: tagA });
+    expect(semanticRequestDigest(canonical)).toBe(
+      semanticRequestDigest(
+        semanticMutationRequest({ title: "Autumn update", sticky: false }, tagA),
+      ),
+    );
     expect(semanticRequestDigest(canonical)).not.toBe(
-      semanticRequestDigest({ body: { ...body, ifMatch: tagA } }),
+      semanticRequestDigest({ body: { patch: body, ifMatch: tagA } }),
+    );
+  });
+
+  it("uses the canonical recruitment mutation envelope exactly once", () => {
+    const body = {
+      campus: "Gløshaugen",
+      room: "Realfagbygget R90",
+      scheduledAt: "2031-09-10T14:00:00.000Z",
+    };
+    const canonical = semanticMutationRequest(body, tagA);
+
+    expect(canonical).toEqual({ body, ifMatch: tagA });
+    expect(semanticRequestDigest(canonical)).toBe(
+      semanticRequestDigest(
+        semanticMutationRequest(
+          {
+            scheduledAt: "2031-09-10T14:00:00.000Z",
+            room: "Realfagbygget R90",
+            campus: "Gløshaugen",
+          },
+          tagA,
+        ),
+      ),
+    );
+    expect(semanticRequestDigest(canonical)).not.toBe(
+      semanticRequestDigest({ body: { body, ifMatch: tagA } }),
     );
   });
 

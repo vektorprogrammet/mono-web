@@ -73,6 +73,7 @@ import {
 import { toHttpApiResponse } from "../http-api/transport.js";
 import {
   HttpSemanticFailure,
+  type CanonicalSemanticRequest,
   deriveHttpIdentity,
   deriveStrongETag,
   evaluateMutationPrecondition,
@@ -87,6 +88,7 @@ import {
   parseReadIfMatch,
   parseRequiredIfMatch,
   responseCapsule,
+  semanticMutationRequest,
   semanticRequestDigest,
   validationProblemResponse,
 } from "../http-semantics.js";
@@ -491,7 +493,7 @@ const executeCommand = async (
   operationId: string,
   routeTemplate: string,
   identities: Readonly<Record<string, string>>,
-  semanticBody: unknown,
+  semanticRequest: CanonicalSemanticRequest,
   prepare: (run: BackendRun) => Promise<PreparedContentCommand>,
   run: ContentBackendRun,
 ): Promise<Response> => {
@@ -510,12 +512,12 @@ const executeCommand = async (
         return {
           identity: {
             identitySha256: derived.identitySha256,
-            requestSha256: semanticRequestDigest({ body: semanticBody }),
+            requestSha256: semanticRequestDigest(semanticRequest),
             operationId,
           },
-          execute: prepared.execute(commandId).pipe(
-            Effect.flatMap((response) => Effect.promise(() => responseCapsule(response))),
-          ),
+          execute: prepared
+            .execute(commandId)
+            .pipe(Effect.flatMap((response) => Effect.promise(() => responseCapsule(response)))),
         };
       }),
     ),
@@ -574,7 +576,7 @@ const createArticle = async (
     "content.createArticle",
     "/api/content/articles",
     {},
-    body,
+    { body },
     async (txRun) => {
       const actor = await authorizedActorInTransaction(request, txRun);
       await authorizePersonNativeOperation({
@@ -701,7 +703,7 @@ const reviseArticle = async (
     "content.reviseArticle",
     "/api/content/articles/{articleId}",
     { articleId: String(articleId) },
-    { patch, ifMatch },
+    semanticMutationRequest(patch, ifMatch),
     async (txRun) => {
       const actor = await authorizedActorInTransaction(request, txRun);
       const [current, source, authority] = await txRun(
@@ -717,9 +719,7 @@ const reviseArticle = async (
         personId: actor.personId,
         resolution: {
           selection: "ExactlyOne",
-          contexts: [
-            articleContext(current, source.createdByPersonId, actor.authorizationInstant),
-          ],
+          contexts: [articleContext(current, source.createdByPersonId, actor.authorizationInstant)],
         },
         grantScopes: [contentScope],
         now: actor.authorizationInstant,
@@ -799,7 +799,7 @@ const lifecycleArticle = async (
     operationId,
     `/api/content/articles/{articleId}:${suffix}`,
     { articleId: String(articleId) },
-    { body, ifMatch },
+    semanticMutationRequest(body, ifMatch),
     async (txRun) => {
       const actor = await authorizedActorInTransaction(request, txRun);
       const [current, source, authority] = await txRun(
@@ -815,9 +815,7 @@ const lifecycleArticle = async (
         personId: actor.personId,
         resolution: {
           selection: "ExactlyOne",
-          contexts: [
-            articleContext(current, source.createdByPersonId, actor.authorizationInstant),
-          ],
+          contexts: [articleContext(current, source.createdByPersonId, actor.authorizationInstant)],
         },
         grantScopes: [contentScope],
         now: actor.authorizationInstant,
@@ -1003,13 +1001,7 @@ export const ContentApiHandlers = (
           toHttpApiResponse(
             request,
             (webRequest) =>
-              lifecycleArticle(
-                webRequest,
-                params.articleId,
-                "Publish",
-                run,
-                maxBodyBytes,
-              ),
+              lifecycleArticle(webRequest, params.articleId, "Publish", run, maxBodyBytes),
             errorResponse,
           ),
         )
@@ -1017,13 +1009,7 @@ export const ContentApiHandlers = (
           toHttpApiResponse(
             request,
             (webRequest) =>
-              lifecycleArticle(
-                webRequest,
-                params.articleId,
-                "Unpublish",
-                run,
-                maxBodyBytes,
-              ),
+              lifecycleArticle(webRequest, params.articleId, "Unpublish", run, maxBodyBytes),
             errorResponse,
           ),
         )

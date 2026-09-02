@@ -84,6 +84,7 @@ import { HttpApiBuilder } from "effect/unstable/httpapi";
 import { resolveRequestPersonAuthorityInTransaction } from "../authority.js";
 import { toHttpApiResponse } from "../http-api/transport.js";
 import {
+  type CanonicalSemanticRequest,
   type CredentialSubject,
   HttpSemanticFailure,
   deriveHttpIdentity,
@@ -99,6 +100,7 @@ import {
   parseReadIfMatch,
   parseRequiredIfMatch,
   responseCapsule,
+  semanticMutationRequest,
   semanticRequestDigest,
 } from "../http-semantics.js";
 import {
@@ -657,7 +659,7 @@ const executeCommand = async <CommandId>(input: {
   readonly operationId: string;
   readonly routeTemplate: string;
   readonly identities: Readonly<Record<string, string>>;
-  readonly semanticBody: unknown;
+  readonly semanticRequest: CanonicalSemanticRequest;
   readonly commandIdSchema: Schema.ConstraintDecoder<CommandId, never>;
   readonly prepare: (run: RecruitmentBackendRun) => Promise<{
     readonly credentialSubject: CredentialSubject;
@@ -686,7 +688,7 @@ const executeCommand = async <CommandId>(input: {
         return {
           identity: {
             identitySha256: derived.identitySha256,
-            requestSha256: semanticRequestDigest({ body: input.semanticBody }),
+            requestSha256: semanticRequestDigest(input.semanticRequest),
             operationId: input.operationId,
           },
           execute: prepared
@@ -784,7 +786,7 @@ const invitationMutation = async (
     operationId,
     routeTemplate: `/api/recruitment/invitation-response:${suffix}`,
     identities: {},
-    semanticBody: { body: commandInput.body, ifMatch },
+    semanticRequest: semanticMutationRequest(commandInput.body, ifMatch),
     commandIdSchema: NativeHttpCommandId,
     run: input.run,
     prepare: async (txRun) => {
@@ -922,7 +924,7 @@ const createApplicationInterview = async (
     operationId: "recruitment.createApplicationInterview",
     routeTemplate: "/api/recruitment/applications/{applicationId}/interviews",
     identities: { applicationId },
-    semanticBody: body,
+    semanticRequest: { body },
     commandIdSchema: RecruitmentAssignmentCommandId,
     run: input.run,
     prepare: async (txRun) => {
@@ -1066,10 +1068,7 @@ const interviewAuthorizationInTransaction = async (
     now: input.config.now,
   });
   const source = await txRun(
-    readRecruitmentInterviewHttpSourcePostgres(
-      interviewId,
-      authorization.authority.personId,
-    ),
+    readRecruitmentInterviewHttpSourcePostgres(interviewId, authorization.authority.personId),
   );
   const actor = await txRun(
     readRecruitmentTargetActorPostgres({
@@ -1118,7 +1117,7 @@ const scheduleInterview = async (
     operationId: "recruitment.scheduleInterview",
     routeTemplate: "/api/recruitment/interviews/{interviewId}:schedule",
     identities: { interviewId },
-    semanticBody: { body, ifMatch },
+    semanticRequest: semanticMutationRequest(body, ifMatch),
     commandIdSchema: RecruitmentScheduleCommandId,
     run: input.run,
     prepare: async (txRun) => {
@@ -1229,10 +1228,7 @@ const lifecycleInterview = async (
       input,
       txRun,
     );
-    const precondition = evaluateMutationPrecondition(
-      interviewETag(authorization.source),
-      ifMatch,
-    );
+    const precondition = evaluateMutationPrecondition(interviewETag(authorization.source), ifMatch);
     if (precondition._tag === "Failed") {
       throw new HttpSemanticFailure(precondition.code, precondition.status);
     }
@@ -1245,7 +1241,7 @@ const lifecycleInterview = async (
       operationId: "recruitment.finalizeInterview",
       routeTemplate: "/api/recruitment/interviews/{interviewId}:finalize",
       identities: { interviewId },
-      semanticBody: { body, ifMatch },
+      semanticRequest: semanticMutationRequest(body, ifMatch),
       commandIdSchema: RecruitmentConductCommandId,
       run: input.run,
       prepare: async (txRun) => {
@@ -1300,7 +1296,7 @@ const lifecycleInterview = async (
     operationId: "recruitment.cancelInterview",
     routeTemplate: "/api/recruitment/interviews/{interviewId}:cancel",
     identities: { interviewId },
-    semanticBody: { body, ifMatch },
+    semanticRequest: semanticMutationRequest(body, ifMatch),
     commandIdSchema: RecruitmentCancellationCommandId,
     run: input.run,
     prepare: async (txRun) => {
