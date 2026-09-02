@@ -460,7 +460,11 @@ const runIdentityPostgresProof = (postgresUrl: string) =>
             const authConfig: AuthEngineConfig = {
               postgresUrl,
               secret: "identity-postgres-proof-0054-secret-at-least-thirty-two-characters",
-              baseURL: proofBaseUrl,
+              oauth: {
+                canonicalOrigin: proofBaseUrl,
+                dashboardOrigin: proofBaseUrl,
+                nativeApiResource: "urn:vektorprogrammet:native-api",
+              },
               trustedOrigins: [proofBaseUrl],
               secureCookies: false,
             };

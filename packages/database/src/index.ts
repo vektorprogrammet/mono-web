@@ -8,3 +8,4 @@ export {
   type AuthEngineService,
   type IdentitySnapshotService,
 } from "./auth-live.js";
+export * from "./oauth-config.js";

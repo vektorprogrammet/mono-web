@@ -114,6 +114,10 @@ const declarativeRuleReconciliationMigrationUrl = new URL(
   "../migrations/0026-declarative-rule-reconciliation.sql",
   import.meta.url,
 );
+const nativeOAuthProviderMigrationUrl = new URL(
+  "../migrations/0027-native-oauth-provider.sql",
+  import.meta.url,
+);
 export type ExecuteMigration = (
   source: string,
 ) => Effect.Effect<void, unknown, SqlClient.SqlClient>;
@@ -246,6 +250,11 @@ export const databaseMigrationDefinitions = [
     name: "declarative-rule-reconciliation",
     url: declarativeRuleReconciliationMigrationUrl,
   },
+  {
+    id: "27_native-oauth-provider",
+    name: "native-oauth-provider",
+    url: nativeOAuthProviderMigrationUrl,
+  },
 ] as const;
 
 export const databaseMigrationLoader = (execute: ExecuteMigration) =>
@@ -254,7 +263,7 @@ export const databaseMigrationLoader = (execute: ExecuteMigration) =>
       databaseMigrationDefinitions.map(({ id, name, url }) => [id, migration(name, url, execute)]),
     ),
   );
-export const databaseSchemaRevision = "26_declarative-rule-reconciliation";
+export const databaseSchemaRevision = "27_native_oauth_provider";
 export const runDatabaseMigrations = (execute: ExecuteMigration) =>
   Migrator.make({})({
     loader: databaseMigrationLoader(execute),

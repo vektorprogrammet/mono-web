@@ -748,7 +748,7 @@ describe("declarative authorization rule migration in PGlite", () => {
 
 describe("declarative rule reconciliation migration", () => {
   const prepareMigration25State = async (database: PGlite) => {
-    for (const migration of databaseMigrationDefinitions.slice(0, -1)) {
+    for (const migration of databaseMigrationDefinitions.slice(0, -2)) {
       await database.exec(await readFile(migration.url, "utf8"));
     }
     await database.exec(`
@@ -812,10 +812,11 @@ describe("declarative rule reconciliation migration", () => {
         );
     `);
 
-  it("orders immutable migration 25 before reconciliation migration 26", () => {
-    expect(databaseMigrationDefinitions.slice(-2).map(({ id }) => id)).toEqual([
+  it("orders immutable migration 25, reconciliation 26, then native OAuth 27", () => {
+    expect(databaseMigrationDefinitions.slice(-3).map(({ id }) => id)).toEqual([
       "25_principal-credential-access-algebra",
       "26_declarative-rule-reconciliation",
+      "27_native-oauth-provider",
     ]);
   });
 
@@ -888,7 +889,7 @@ describe("declarative rule reconciliation migration", () => {
 
       let failureMessage = "";
       try {
-        await database.exec(await readFile(databaseMigrationDefinitions.at(-1)!.url, "utf8"));
+        await database.exec(await readFile(databaseMigrationDefinitions.at(-2)!.url, "utf8"));
       } catch (cause) {
         failureMessage = cause instanceof Error ? cause.message : String(cause);
       }
@@ -946,7 +947,7 @@ describe("declarative rule reconciliation migration", () => {
     try {
       await prepareMigration25State(database);
       await insertValidPreflightRows(database);
-      await database.exec(await readFile(databaseMigrationDefinitions.at(-1)!.url, "utf8"));
+      await database.exec(await readFile(databaseMigrationDefinitions.at(-2)!.url, "utf8"));
       const rows = await database.query<{ readonly ruleId: string }>(`
         SELECT rule_id AS "ruleId"
         FROM public.authz_rules

@@ -15,7 +15,11 @@ import { makeAuthEngine } from "./auth-engine.js";
 export const auth = makeAuthEngine({
   postgresUrl: process.env.AUTH_GENERATE_PG_URL ?? "postgres://postgres@127.0.0.1:45121/postgres",
   secret: process.env.BETTER_AUTH_SECRET ?? "generator-only-not-a-runtime-secret",
-  baseURL: "http://127.0.0.1:5174",
-  trustedOrigins: ["http://127.0.0.1:5174"],
+  oauth: {
+    canonicalOrigin: "http://127.0.0.1:4173",
+    dashboardOrigin: "http://127.0.0.1:4173",
+    nativeApiResource: "urn:vektorprogrammet:native-api",
+  },
+  trustedOrigins: ["http://127.0.0.1:4173"],
   secureCookies: false,
 });

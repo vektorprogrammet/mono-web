@@ -1,5 +1,6 @@
 import { betterAuth } from "better-auth";
 import { Pool } from "pg";
+import { makeOAuthPlugins, type OAuthProviderRuntimeConfig } from "./oauth-config.js";
 
 /**
  * AuthLive engine wiring (spec 0054).
@@ -15,7 +16,7 @@ export interface AuthEngineConfig {
   /** Same connection string as BACKEND_PG_URL; auth schema via search_path. */
   readonly postgresUrl: string;
   readonly secret: string;
-  readonly baseURL: string;
+  readonly oauth: OAuthProviderRuntimeConfig;
   readonly trustedOrigins: ReadonlyArray<string>;
   readonly secureCookies: boolean;
 }
@@ -30,9 +31,11 @@ export const makeAuthPool = (config: AuthEngineConfig) =>
 
 export const makeAuthEngineOptions = (config: AuthEngineConfig, database: Pool) => ({
   secret: config.secret,
-  baseURL: config.baseURL,
+  baseURL: config.oauth.canonicalOrigin,
+  basePath: "/api/auth",
   database,
   trustedOrigins: [...config.trustedOrigins],
+  plugins: [...makeOAuthPlugins(config.oauth)],
   emailAndPassword: {
     enabled: true,
     disableSignUp: true,

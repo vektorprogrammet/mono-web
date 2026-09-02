@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
 import {
   AuthorityVersion,
   AUTHZ_LOCK_PROTOCOL,

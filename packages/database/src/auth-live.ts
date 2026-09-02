@@ -25,7 +25,6 @@ import { makeAuthEngine, type AuthEngineConfig } from "./auth-engine.js";
 
 /** The one Better Auth instance behind this module's services. */
 export type AuthEngineInstance = ReturnType<typeof makeAuthEngine>;
-
 export interface AuthEngineService {
   readonly engine: AuthEngineInstance;
   /** Standard Better Auth handler with bounded identity security auditing. */
@@ -33,7 +32,6 @@ export interface AuthEngineService {
   /** Records a transport rejection that intentionally did not reach Better Auth. */
   readonly recordTrustedOriginRejection: (context: IdentityRequestContext) => Promise<void>;
 }
-
 export class AuthEngine extends Context.Service<AuthEngine, AuthEngineService>()(
   "@vektorprogrammet/database/AuthEngine",
 ) {}
@@ -263,7 +261,7 @@ const identityShape = (
   ): Promise<ReadonlyArray<string>> => {
     try {
       const response = await engine.api.signOut({
-        headers: cookieHeaders(cookieHeader, config.baseURL),
+        headers: cookieHeaders(cookieHeader, config.oauth.dashboardOrigin),
         asResponse: true,
       });
       return response.headers.getSetCookie();

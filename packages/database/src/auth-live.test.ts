@@ -35,7 +35,11 @@ const authTestUrl = process.env.AUTH_TEST_PG_URL;
 const config = {
   postgresUrl: authTestUrl ?? "",
   secret: "auth-live-focused-test-secret-at-least-32-chars",
-  baseURL: "http://127.0.0.1:8790",
+  oauth: {
+    canonicalOrigin: "http://127.0.0.1:8790",
+    dashboardOrigin: "http://127.0.0.1:8790",
+    nativeApiResource: "urn:vektorprogrammet:native-api",
+  },
   trustedOrigins: ["http://127.0.0.1:8790"],
   secureCookies: false,
 } as const;
@@ -116,7 +120,11 @@ describe("Better Auth session hardening configuration", () => {
   const previewOptions = makeAuthEngineOptions(
     {
       ...config,
-      baseURL: "https://preview.example.invalid",
+      oauth: {
+        canonicalOrigin: "https://preview.example.invalid",
+        dashboardOrigin: "https://preview.example.invalid",
+        nativeApiResource: "urn:vektorprogrammet:native-api",
+      },
       trustedOrigins: ["https://preview.example.invalid"],
       secureCookies: true,
     },

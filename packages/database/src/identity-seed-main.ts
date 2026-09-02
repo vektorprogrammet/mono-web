@@ -158,7 +158,11 @@ export const program = Effect.gen(function* () {
   const config: AuthEngineConfig = {
     postgresUrl,
     secret: process.env.BETTER_AUTH_SECRET ?? "identity-seed-disposable-secret-0123456789abcdef",
-    baseURL: trustedOrigins[0]!,
+    oauth: {
+      canonicalOrigin: trustedOrigins[0]!,
+      dashboardOrigin: trustedOrigins[0]!,
+      nativeApiResource: "urn:vektorprogrammet:native-api",
+    },
     trustedOrigins,
     secureCookies: deployment !== "local",
   };

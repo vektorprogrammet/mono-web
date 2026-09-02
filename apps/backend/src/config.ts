@@ -1,3 +1,7 @@
+import {
+  OAUTH_NATIVE_API_RESOURCE,
+  type OAuthProviderRuntimeConfig,
+} from "@vektorprogrammet/database";
 import { makeAdmissionApiConfig, type AdmissionApiConfig } from "./admission/config.js";
 import { makeOrganizationApiConfig, type OrganizationApiConfig } from "./organization/config.js";
 import { makeReceiptApiConfig, type ReceiptApiConfig } from "./receipt/config.js";
@@ -18,10 +22,10 @@ export interface PublicApplicationEffectConfig {
 export interface BackendAuthConfig {
   readonly postgresUrl: string;
   readonly secret: string;
-  /** Canonical application origin used by Better Auth. */
-  readonly baseURL: string;
+  readonly oauth: OAuthProviderRuntimeConfig;
   readonly trustedOrigins: ReadonlyArray<string>;
   readonly secureCookies: boolean;
+  readonly internalSourceNetworks: ReadonlyArray<string>;
 }
 
 export interface BackendConfig {
@@ -41,6 +45,73 @@ export interface BackendConfig {
 const nonEmpty = (value: unknown, field: string): string => {
   if (typeof value !== "string" || value.length === 0) throw new Error(`${field} is required`);
   return value;
+};
+
+const exactOrigin = (raw: string | undefined, field: string): string => {
+  const value = nonEmpty(raw, field);
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error(`${field} must be an absolute origin`);
+  }
+  if (
+    url.origin !== value ||
+    url.pathname !== "/" ||
+    url.search !== "" ||
+    url.hash !== "" ||
+    url.username !== "" ||
+    url.password !== "" ||
+    url.hostname === "localhost" ||
+    url.hostname.includes("*")
+  ) {
+    throw new Error(`${field} must be one exact origin without a trailing slash`);
+  }
+  const local = url.protocol === "http:" && url.hostname === "127.0.0.1" && url.port !== "";
+  if (url.protocol !== "https:" && !local) {
+    throw new Error(`${field} must use https or fixed-port http://127.0.0.1`);
+  }
+  return value;
+};
+
+const internalSourceNetworks = (
+  env: Readonly<Record<string, string | undefined>>,
+): ReadonlyArray<string> => {
+  const values = (env.OAUTH_INTERNAL_SOURCE_NETWORKS ?? "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0);
+  if (
+    values.some((value) => !/^(?:\d{1,3}\.){3}\d{1,3}\/(?:[0-9]|[12][0-9]|3[0-2])$/u.test(value))
+  ) {
+    throw new Error("OAUTH_INTERNAL_SOURCE_NETWORKS must contain comma-separated IPv4 CIDRs");
+  }
+  if (env.BACKEND_INGRESS === "internal" && values.length === 0) {
+    throw new Error("OAUTH_INTERNAL_SOURCE_NETWORKS is required for internal ingress");
+  }
+  return values;
+};
+
+export const decodeOAuthBackendConfig = (
+  env: Readonly<Record<string, string | undefined>>,
+  trustedOrigins: ReadonlyArray<string>,
+): Pick<BackendAuthConfig, "oauth" | "internalSourceNetworks"> => {
+  const canonicalOrigin = exactOrigin(env.OAUTH_CANONICAL_ORIGIN, "OAUTH_CANONICAL_ORIGIN");
+  const dashboardOrigin = exactOrigin(env.OAUTH_DASHBOARD_ORIGIN, "OAUTH_DASHBOARD_ORIGIN");
+  if (!trustedOrigins.includes(dashboardOrigin)) {
+    throw new Error("OAUTH_DASHBOARD_ORIGIN must be a trusted first-party origin");
+  }
+  if (env.OAUTH_NATIVE_API_RESOURCE !== OAUTH_NATIVE_API_RESOURCE) {
+    throw new Error(`OAUTH_NATIVE_API_RESOURCE must be ${OAUTH_NATIVE_API_RESOURCE}`);
+  }
+  return {
+    oauth: {
+      canonicalOrigin,
+      dashboardOrigin,
+      nativeApiResource: OAUTH_NATIVE_API_RESOURCE,
+    },
+    internalSourceNetworks: internalSourceNetworks(env),
+  };
 };
 
 const loopbackHost = (value: string | undefined): string => {
@@ -142,6 +213,7 @@ export const makeBackendConfig = (
   if (secret.length < 32) {
     throw new Error("BETTER_AUTH_SECRET must be at least 32 characters");
   }
+  const oauth = decodeOAuthBackendConfig(env, sessionBoundary.trustedOrigins);
   return {
     host: loopbackHost(env.BACKEND_HOST),
     port: parsePort(env.BACKEND_PORT),
@@ -150,7 +222,7 @@ export const makeBackendConfig = (
     auth: {
       postgresUrl,
       secret,
-      baseURL: sessionBoundary.trustedOrigins[0]!,
+      ...oauth,
       trustedOrigins: sessionBoundary.trustedOrigins,
       secureCookies: sessionBoundary.secureCookies,
     },
