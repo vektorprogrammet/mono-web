@@ -40,7 +40,7 @@ export type CanonicalIfNoneMatch = CanonicalEntityTagCondition;
 
 export interface CanonicalSemanticRequest {
   readonly body?: unknown;
-  readonly ifMatch?: CanonicalIfMatch | null;
+  readonly ifMatch?: CanonicalIfMatch | StrongETag | null;
   readonly ifNoneMatch?: CanonicalIfNoneMatch | null;
   readonly query?: Readonly<Record<string, unknown>>;
 }
@@ -433,6 +433,12 @@ export const deriveHttpIdentity = (identity: NativeIdempotencyIdentity): Derived
 export const semanticRequestDigest = (request: CanonicalSemanticRequest): Sha256Hex =>
   sha256Hex(jcsBytes(request));
 
+/** Builds the canonical envelope shared by every preconditioned mutation. */
+export const semanticMutationRequest = (
+  body: unknown,
+  ifMatch: StrongETag,
+): CanonicalSemanticRequest => ({ body, ifMatch });
+
 export interface SemanticFile {
   readonly byteLength: number;
   readonly contentType: string;
@@ -695,12 +701,15 @@ export const responseCapsule = (response: Response): Promise<HttpResponseCapsule
       return { status: response.status, mediaType, bodyBytes, headers };
     });
 
-/** Reconstructs the exact stored result before request-relative CORS headers. */
-export const responseFromCapsule = (capsule: HttpResponseCapsule): Response =>
-  new Response(capsule.bodyBytes, {
+/** Reconstructs a stored mutation result with its non-persisted cache policy. */
+export const responseFromCapsule = (capsule: HttpResponseCapsule): Response => {
+  const headers = new Headers(capsule.headers);
+  headers.set("cache-control", NO_STORE);
+  return new Response(capsule.bodyBytes, {
     status: capsule.status,
-    headers: capsule.headers,
+    headers,
   });
+};
 
 /** Sorts and bounds safe validation diagnostics. */
 export const normalizeValidationErrors = (

@@ -4,9 +4,10 @@ import {
   RequestSchemaErrorMiddleware,
   SessionSecurity,
 } from "@vektorprogrammet/http-api";
-import { Effect, Layer } from "effect";
+import { Effect, Layer, type SchemaIssue } from "effect";
 import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
-import { HttpApiMiddleware } from "effect/unstable/httpapi";
+import { HttpApiError, HttpApiMiddleware } from "effect/unstable/httpapi";
+import { nativeProblemResponse } from "../http-semantics.js";
 
 /**
  * Runs one existing Web transport operation and returns an Effect HTTP response.
@@ -28,32 +29,49 @@ export const toHttpApiResponse = (
     Effect.map(HttpServerResponse.fromWeb),
   );
 
-const schemaErrorWebResponse = (group: string, endpoint: string): Response => {
-  const tag =
-    group === "organization"
-      ? "OrganizationDecodeError"
-      : group === "directory"
-        ? "SchoolsDecodeError"
-        : group === "admissions"
-          ? endpoint === "readApplicationConfirmation"
-            ? "PublicApplicationDecodeError"
-            : "AdmissionPeriodDecodeError"
-          : group === "recruitment"
-            ? "RecruitmentDecodeError"
-            : group === "receipts" || group === "internal"
-              ? "ReceiptDecodeError"
-              : group === "content"
-                ? "ContentDecodeError"
-                : group === "profile"
-                  ? "ProfileDecodeError"
-                  : "IdentityEngineError";
-  const headers: Record<string, string> = {
-    "content-type": "application/json; charset=utf-8",
-  };
-  if (group !== "content" || endpoint !== "readContentWorkspace") {
-    headers["cache-control"] = "no-store";
+const issueAtHeader = (
+  issue: SchemaIssue.Issue,
+  headerName: string,
+  leafTag?: SchemaIssue.Leaf["_tag"],
+  path: ReadonlyArray<PropertyKey> = [],
+): boolean => {
+  switch (issue._tag) {
+    case "Filter":
+    case "Encoding":
+      return issueAtHeader(issue.issue, headerName, leafTag, path);
+    case "Pointer":
+      return issueAtHeader(issue.issue, headerName, leafTag, [...path, ...issue.path]);
+    case "Composite":
+    case "AnyOf":
+      return issue.issues.some((nested) => issueAtHeader(nested, headerName, leafTag, path));
+    default:
+      return (
+        path.some((segment) => segment === headerName) &&
+        (leafTag === undefined || issue._tag === leafTag)
+      );
   }
-  return new Response(JSON.stringify({ error: { tag } }), { status: 422, headers });
+};
+
+/** Maps automatic request decoding failures to the frozen transport problem families. */
+export const requestSchemaErrorResponse = (error: HttpApiError.HttpApiSchemaError): Response => {
+  if (error.kind === "Headers") {
+    if (issueAtHeader(error.cause.issue, "if-match")) {
+      return issueAtHeader(error.cause.issue, "if-match", "MissingKey")
+        ? nativeProblemResponse("precondition.required", 428)
+        : nativeProblemResponse("precondition.invalid", 400);
+    }
+    if (issueAtHeader(error.cause.issue, "if-none-match")) {
+      return nativeProblemResponse("precondition.invalid", 400);
+    }
+    if (issueAtHeader(error.cause.issue, "idempotency-key")) {
+      return nativeProblemResponse("idempotency-key.invalid", 400);
+    }
+    return nativeProblemResponse("header.malformed", 400);
+  }
+  if (error.kind === "Params" || error.kind === "Query") {
+    return nativeProblemResponse("request.malformed", 400);
+  }
+  return nativeProblemResponse("internal.error", 500);
 };
 
 const SessionSecurityLive = Layer.succeed(
@@ -80,10 +98,7 @@ const InvitationCapabilitySecurityLive = Layer.succeed(
 
 const RequestSchemaErrorLive = HttpApiMiddleware.layerSchemaErrorTransform(
   RequestSchemaErrorMiddleware,
-  (_error, { endpoint, group }) =>
-    Effect.succeed(
-      HttpServerResponse.fromWeb(schemaErrorWebResponse(group.identifier, endpoint.identifier)),
-    ),
+  (error) => Effect.succeed(HttpServerResponse.fromWeb(requestSchemaErrorResponse(error))),
 );
 
 /** Contract middleware implementations shared by every native handler group. */

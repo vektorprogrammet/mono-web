@@ -26,6 +26,7 @@ import {
   parseIdempotencyKey,
   parseRequiredIfMatch,
   semanticRequestDigest,
+  semanticMutationRequest,
 } from "../http-semantics.js";
 import {
   authorizePersonNativeOperation,
@@ -316,7 +317,7 @@ const updateOwnProfile = async (
   });
   const identity = {
     identitySha256: derived.identitySha256,
-    requestSha256: semanticRequestDigest({ body: { patch, ifMatch } }),
+    requestSha256: semanticRequestDigest(semanticMutationRequest(patch, ifMatch)),
     operationId,
   };
   const result = await input.run(

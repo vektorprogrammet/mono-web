@@ -60,6 +60,7 @@ import {
   parseJsonWithoutDuplicateMembers,
   parseRequiredIfMatch,
   semanticRequestDigest,
+  semanticMutationRequest,
   type NativeIdempotencyIdentity,
 } from "../http-semantics.js";
 import { nativeCommandOutcomeResponse } from "../native-operation.js";
@@ -83,9 +84,6 @@ const isReceiptStatus = (value: string): value is ReceiptStatus => {
       return false;
   }
 };
-
-
-
 
 type AcceptedCredential = Extract<CredentialOutcome, { readonly _tag: "Accepted" }>;
 
@@ -307,9 +305,6 @@ const decodeReceiptFile = (
   }
   return { file, contentType: file.type };
 };
-
-
-
 
 const authorizationPrincipalFor = async (
   request: Request,
@@ -832,10 +827,7 @@ const ownedReceiptResource = (receipt: OwnedReceiptProjectionItem) => {
   };
 };
 
-const listOwnedV2 = async (
-  request: Request,
-  options: ReceiptApiHttpOptions,
-): Promise<Response> => {
+const listOwnedV2 = async (request: Request, options: ReceiptApiHttpOptions): Promise<Response> => {
   const entries = [...new URL(request.url).searchParams.entries()];
   if (
     entries.some(([name]) => name !== "status") ||
@@ -849,9 +841,7 @@ const listOwnedV2 = async (
   }
   const principal = await authorizationPrincipalFor(request, options);
   const rows = await runDatabase(
-    Economy.use(({ listOwnedReceipts }) =>
-      listOwnedReceipts(principal.personId, selectedStatus),
-    ),
+    Economy.use(({ listOwnedReceipts }) => listOwnedReceipts(principal.personId, selectedStatus)),
     options.run,
   );
   const items = rows.map(ownedReceiptResource);
@@ -866,12 +856,7 @@ const submitV2 = async (
   const departmentId = normalizedSubmitQuery(request);
   const fields = await decodeV2SubmitMultipart(request, options.config.maxFileBytes);
   const principal = await authorizationPrincipalFor(request, options);
-  const identity = mutationIdentity(
-    request,
-    principal,
-    "receipts.submitReceipt",
-    "/api/receipts",
-  );
+  const identity = mutationIdentity(request, principal, "receipts.submitReceipt", "/api/receipts");
   let staged: StagedReceiptFile | undefined;
   let committed = false;
   try {
@@ -1003,7 +988,7 @@ const reviseV2 = async (
       options,
       identity,
       "receipts.reviseReceipt",
-      semanticRequestDigest({ body: { patch: semanticBody, ifMatch } }),
+      semanticRequestDigest(semanticMutationRequest(semanticBody, ifMatch)),
       command,
       principal,
       {
@@ -1046,7 +1031,7 @@ const withdrawV2 = async (
     options,
     identity,
     "receipts.withdrawReceipt",
-    semanticRequestDigest({ body: { ...body, ifMatch } }),
+    semanticRequestDigest(semanticMutationRequest(body, ifMatch)),
     {
       _tag: "WithdrawPendingReceipt" as const,
       commandId: identity.commandId,
@@ -1082,7 +1067,7 @@ const approvalCommandV2 = async (
     options,
     identity,
     operationId,
-    semanticRequestDigest({ body: { ...body, ifMatch } }),
+    semanticRequestDigest(semanticMutationRequest(body, ifMatch)),
     {
       _tag: route.action === "refund" ? ("RefundReceipt" as const) : ("RejectReceipt" as const),
       commandId: identity.commandId,
@@ -1099,8 +1084,6 @@ const approvalCommandV2 = async (
   if (outcome._tag === "Committed") await drainOutbox(options, fileStore, route.receiptId);
   return nativeCommandOutcomeResponse(outcome);
 };
-
-
 
 const decodeApprovalStatusFilter = (request: Request): ReceiptStatus | undefined => {
   const entries = [...new URL(request.url).searchParams.entries()];
@@ -1229,8 +1212,6 @@ const approvalList = async (
   });
   return jsonResponse({ items, totalItems: items.length });
 };
-
-
 
 /** Native HttpApi implementations for receipt lifecycle endpoints. */
 export const ReceiptApiHandlers = (input: ReceiptApiHttpOptions) => {

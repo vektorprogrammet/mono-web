@@ -181,7 +181,8 @@ const harness = (options: HarnessOptions = {}) => {
       allocations.push(allocation);
       commandTransactionIds.push(currentTransactionId);
       const source = sourceReceipt(command);
-      const nextRevision = command._tag === "SubmitReceipt" ? 0 : Number(command.expectedRevision) + 1;
+      const nextRevision =
+        command._tag === "SubmitReceipt" ? 0 : Number(command.expectedRevision) + 1;
       const status =
         command._tag === "WithdrawPendingReceipt"
           ? "Withdrawn"
@@ -398,7 +399,6 @@ const request = (
   return http.fetch(new Request(`http://backend.test${pathname}`, { ...init, headers }));
 };
 
-
 const submitRequest = (http: ReceiptApiHttp, idempotencyKey: string): Promise<Response> => {
   const boundary = "receipt-http-test-boundary";
   const body = [
@@ -451,6 +451,7 @@ const expectProblem = async (
 ) => {
   expect(response.status).toBe(expected.status);
   expect(response.headers.get("content-type")).toContain("application/problem+json");
+  expect(response.headers.get("cache-control")).toBe("no-store");
   expect(await response.json()).toEqual({
     type: `urn:vektorprogrammet:problem:v0.2:${expected.code}`,
     ...expected,
@@ -584,6 +585,8 @@ describe("receipt v0.2 HTTP contract", () => {
     expect(await submitReplay.json()).toEqual(submittedBody);
     expect(submitReplay.headers.get("location")).toBe(submitted.headers.get("location"));
     expect(submitReplay.headers.get("etag")).toBe(submitted.headers.get("etag"));
+    expect(submitted.headers.get("cache-control")).toBe("no-store");
+    expect(submitReplay.headers.get("cache-control")).toBe("no-store");
     expect(submitState.commands).toHaveLength(1);
 
     const actionState = harness({ ownedRows: [pendingReceipt()] });
@@ -600,6 +603,8 @@ describe("receipt v0.2 HTTP contract", () => {
     );
     expect(withdrawn.status).toBe(200);
     expect(withdrawReplay.status).toBe(200);
+    expect(withdrawn.headers.get("cache-control")).toBe("no-store");
+    expect(withdrawReplay.headers.get("cache-control")).toBe("no-store");
     expect(await withdrawReplay.json()).toEqual(withdrawnBody);
     expect(withdrawReplay.headers.get("etag")).toBe(withdrawn.headers.get("etag"));
     expect(actionState.commands).toHaveLength(1);
@@ -644,17 +649,19 @@ describe("receipt v0.2 HTTP contract", () => {
     ).toBe(404);
   });
 
-  it("returns the frozen RFC 9457 malformed-request problem for duplicate filters", async () => {
-    const response = await request(
-      harness().http,
+  it("returns RFC 9457 malformed-request problems for manual and schema query failures", async () => {
+    for (const pathname of [
       "/api/receipts?status=Pending&status=Refunded",
-    );
-    await expectProblem(response, {
-      code: "request.malformed",
-      title: "Malformed request",
-      status: 400,
-      detail: "The request is malformed.",
-    });
+      "/api/receipts?status=Unknown",
+    ]) {
+      const response = await request(harness().http, pathname);
+      await expectProblem(response, {
+        code: "request.malformed",
+        title: "Malformed request",
+        status: 400,
+        detail: "The request is malformed.",
+      });
+    }
   });
 
   it("uses the frozen approval-queue path and passes one canonical authorization instant", async () => {

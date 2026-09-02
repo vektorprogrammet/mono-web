@@ -43,6 +43,7 @@ import {
   parseReadIfMatch,
   parseRequiredIfMatch,
   semanticRequestDigest,
+  semanticMutationRequest,
 } from "../http-semantics.js";
 import {
   authorizeAnonymousNativeOperation,
@@ -558,10 +559,7 @@ const revise = async (
       executeNativeHttpCommandPostgres(
         {
           identitySha256: derived.identitySha256,
-          requestSha256: semanticRequestDigest({
-            body: patch,
-            ifMatch: parseReadIfMatch([ifMatch]),
-          }),
+          requestSha256: semanticRequestDigest(semanticMutationRequest(patch, ifMatch)),
           operationId,
         },
         Effect.gen(function* () {

@@ -22,6 +22,7 @@ import {
   responseCapsule,
   responseFromCapsule,
   semanticFile,
+  semanticMutationRequest,
   semanticRequestDigest,
 } from "./http-semantics.js";
 import { decideNativePreflight, makeNativePreflightMethodResolver } from "./native-preflight.js";
@@ -172,6 +173,16 @@ describe("native HTTP semantics", () => {
     expect(() => semanticRequestDigest({ body: { value: "\ud800" } })).toThrow(HttpSemanticFailure);
   });
 
+  it("places a mutation If-Match beside its decoded body", () => {
+    const body = { description: "Conference", amountOre: 1250 };
+    const canonical = semanticMutationRequest(body, tagA);
+
+    expect(canonical).toEqual({ body, ifMatch: tagA });
+    expect(semanticRequestDigest(canonical)).not.toBe(
+      semanticRequestDigest({ body: { ...body, ifMatch: tagA } }),
+    );
+  });
+
   it("derives opaque ETags only from authoritative source records", () => {
     const first = deriveStrongETag({
       representationKind: "ReceiptResource",
@@ -245,6 +256,7 @@ describe("native HTTP semantics", () => {
     expect(created.status).toBe(201);
     expect(created.headers.get("location")).toBe("/api/receipts/receipt-1");
     expect(created.headers.get("etag")).toBe(tagA);
+    expect(created.headers.get("cache-control")).toBe("no-store");
     expect(() =>
       jsonMutationResponse({
         status: 201,
@@ -257,11 +269,14 @@ describe("native HTTP semantics", () => {
     expect(noContent.status).toBe(204);
     expect(noContent.headers.has("content-type")).toBe(false);
     expect(noContent.headers.has("location")).toBe(false);
+    expect(noContent.headers.get("cache-control")).toBe("no-store");
     const capsule = await responseCapsule(first);
+    expect(capsule.headers).not.toHaveProperty("cache-control");
     const replay = responseFromCapsule(capsule);
     expect(replay.status).toBe(201);
     expect(await replay.text()).toBe('{"receiptId":"receipt-1"}');
     expect(replay.headers.get("location")).toBe("/api/receipts/receipt-1");
+    expect(replay.headers.get("cache-control")).toBe("no-store");
     expect(replay.headers.has("x-private")).toBe(false);
   });
   it("derives parameterized preflight methods only from supplied route metadata", () => {
