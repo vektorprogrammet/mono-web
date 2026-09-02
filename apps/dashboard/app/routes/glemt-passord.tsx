@@ -1,7 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Form, Link, useActionData } from "react-router";
-import { createClient, apiUrl } from "@vektorprogrammet/sdk";
+import { requestLegacySymfonyPasswordReset } from "../server/legacy-symfony-password-recovery.server";
 import type { Route } from "./+types/glemt-passord";
 
 export async function action({ request }: Route.ActionArgs) {
@@ -12,9 +12,8 @@ export async function action({ request }: Route.ActionArgs) {
     return { error: "E-post er påkrevd", success: false };
   }
 
-  const sdk = createClient(apiUrl);
   try {
-    await sdk.auth.resetPassword(email);
+    await requestLegacySymfonyPasswordReset(email);
     return { success: true, error: null };
   } catch {
     return { error: "Noe gikk galt. Vennligst prøv igjen.", success: false };
@@ -38,8 +37,7 @@ export default function GlemtPassord() {
         {actionData?.success ? (
           <div className="space-y-4">
             <p className="rounded bg-green-50 p-3 text-center text-green-700 text-sm">
-              Vi har sendt en e-post med instruksjoner for å tilbakestille
-              passordet ditt.
+              Vi har sendt en e-post med instruksjoner for å tilbakestille passordet ditt.
             </p>
             <Link
               to="/login"
@@ -60,13 +58,7 @@ export default function GlemtPassord() {
               <label htmlFor="email" className="font-medium text-sm">
                 E-post
               </label>
-              <Input
-                id="email"
-                name="email"
-                type="email"
-                autoComplete="email"
-                required
-              />
+              <Input id="email" name="email" type="email" autoComplete="email" required />
             </div>
 
             <Button type="submit" className="w-full">

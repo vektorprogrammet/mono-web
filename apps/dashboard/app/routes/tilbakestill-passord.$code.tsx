@@ -1,7 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Form, Link, redirect, useActionData } from "react-router";
-import { createClient, apiUrl } from "@vektorprogrammet/sdk";
+import { setLegacySymfonyPassword } from "../server/legacy-symfony-password-recovery.server";
 import type { Route } from "./+types/tilbakestill-passord.$code";
 
 export async function action({ request, params }: Route.ActionArgs) {
@@ -21,9 +21,8 @@ export async function action({ request, params }: Route.ActionArgs) {
     return { error: "Passordet må være minst 8 tegn" };
   }
 
-  const sdk = createClient(apiUrl);
   try {
-    await sdk.auth.setPassword(params.code, password);
+    await setLegacySymfonyPassword(params.code, password);
     throw redirect("/login?reset=true");
   } catch (e) {
     if (e instanceof Response) throw e;
