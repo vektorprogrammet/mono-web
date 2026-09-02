@@ -179,9 +179,9 @@ describe("spec 0067 runtime capability contracts", () => {
       ...EXPECTED_MIGRATION_23_PUBLIC_TABLES,
     ]);
     expect(NATIVE_BROWSER_JOURNEY_REQUIREMENTS).toEqual([
-      { path: "/api/admin/users", access: "BoundedSession", requestSource: "DashboardSsr" },
       { path: "/api/departments", access: "Public", requestSource: "BrowserCrossOrigin" },
-      { path: "/api/me", access: "BoundedSession", requestSource: "DashboardSsr" },
+      { path: "/api/people", access: "BoundedSession", requestSource: "DashboardSsr" },
+      { path: "/api/profile", access: "BoundedSession", requestSource: "DashboardSsr" },
       { path: "/api/session", access: "BoundedSession", requestSource: "DashboardSsr" },
       { path: "/api/teams", access: "Public", requestSource: "BrowserCrossOrigin" },
     ]);
@@ -216,7 +216,7 @@ describe("spec 0067 runtime capability contracts", () => {
     expect(
       isExpectedNativeBrowserJourneyObservation({
         method: "GET",
-        path: "/api/me",
+        path: "/api/profile",
         status: 200,
         sessionCookieAuth: true,
         requestSource: "DashboardSsr",
@@ -225,7 +225,7 @@ describe("spec 0067 runtime capability contracts", () => {
     expect(
       isExpectedNativeBrowserJourneyObservation({
         method: "GET",
-        path: "/api/admin/users",
+        path: "/api/people",
         status: 200,
         sessionCookieAuth: false,
         requestSource: "DashboardSsr",
@@ -243,7 +243,7 @@ describe("spec 0067 runtime capability contracts", () => {
     expect(
       isExpectedNativeBrowserJourneyObservation({
         method: "GET",
-        path: "/api/admin/users",
+        path: "/api/people",
         status: 200,
         sessionCookieAuth: true,
         requestSource: "BrowserCrossOrigin",
@@ -252,16 +252,16 @@ describe("spec 0067 runtime capability contracts", () => {
     expect(
       isExpectedNativeBrowserJourneyObservation({
         method: "GET",
-        path: "/api/me",
+        path: "/api/profile",
         status: 200,
         sessionCookieAuth: false,
         requestSource: "BrowserCrossOrigin",
       }),
     ).toBe(false);
     expect(isNativeBrowserJourneyRequestAllowed("GET", "/api/teams")).toBe(true);
-    expect(isNativeBrowserJourneyRequestAllowed("GET", "/api/me")).toBe(true);
-    expect(isNativeBrowserJourneyRequestAllowed("POST", "/api/me")).toBe(false);
-    expect(isNativeBrowserJourneyRequestAllowed("GET", "/api/me/profile")).toBe(false);
+    expect(isNativeBrowserJourneyRequestAllowed("GET", "/api/profile")).toBe(true);
+    expect(isNativeBrowserJourneyRequestAllowed("POST", "/api/profile")).toBe(false);
+    expect(isNativeBrowserJourneyRequestAllowed("GET", "/api/profile/extra")).toBe(false);
     expect(isNativeBrowserJourneyRequestAllowed("POST", "/api/teams")).toBe(false);
     expect(isNativeBrowserJourneyRequestAllowed("GET", "/api/unexpected")).toBe(false);
     expect(
@@ -930,7 +930,9 @@ describe("spec 0067 artifact boundary", () => {
       ...observedBrowserCore,
       browser: {
         ...observedBrowserCore.browser,
-        nativePathObservations: nativePathObservations.filter(({ path }) => path !== "/api/me"),
+        nativePathObservations: nativePathObservations.filter(
+          ({ path }) => path !== "/api/profile",
+        ),
       },
     } as const;
     const incompleteBrowserArtifact = {
@@ -948,7 +950,7 @@ describe("spec 0067 artifact boundary", () => {
       browser: {
         ...observedBrowserCore.browser,
         nativePathObservations: nativePathObservations.map((observation) =>
-          observation.path === "/api/me"
+          observation.path === "/api/profile"
             ? {
                 ...observation,
                 access: "Public" as const,

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import type * as GeneratedSdkModule from "../../sdk/src/effect-client.js";
 import * as BunHttpPlatform from "@effect/platform-bun/BunHttpPlatform";
 import * as BunServices from "@effect/platform-bun/BunServices";
 import { randomBytes } from "node:crypto";
@@ -1810,8 +1811,8 @@ const runRehearsal = async (
     const teamsHttp = await fetchObservation("/api/teams", false);
     const sessionHttp = await fetchObservation("/api/session", true);
     const missingSessionHttp = await fetchObservation("/api/session", false);
-    const profileHttp = await fetchObservation("/api/me", true);
-    const adminUsersHttp = await fetchObservation("/api/admin/users", true);
+    const profileHttp = await fetchObservation("/api/profile", true);
+    const peopleHttp = await fetchObservation("/api/people", true);
     assert.equal(departmentsHttp.status, 200, "GET /api/departments did not return 200");
     assert.equal(teamsHttp.status, 200, "GET /api/teams did not return 200");
     assert.equal(sessionHttp.status, 200, "authenticated GET /api/session did not return 200");
@@ -1820,8 +1821,8 @@ const runRehearsal = async (
       401,
       "unauthenticated GET /api/session did not return 401",
     );
-    assert.equal(profileHttp.status, 200, "authenticated GET /api/me did not return 200");
-    assert.equal(adminUsersHttp.status, 200, "GET /api/admin/users did not return 200");
+    assert.equal(profileHttp.status, 200, "authenticated GET /api/profile did not return 200");
+    assert.equal(peopleHttp.status, 200, "GET /api/people did not return 200");
     assert.ok(
       sessionHttp.body !== null &&
         typeof sessionHttp.body === "object" &&
@@ -1848,9 +1849,15 @@ const runRehearsal = async (
         typeof profileHttp.body === "object" &&
         "personId" in profileHttp.body &&
         profileHttp.body.personId === SPEC_0067.administratorPersonId,
-      "GET /api/me must bind the session to the administrator PersonId",
+      "GET /api/profile must bind the session to the administrator PersonId",
     );
-    assert.deepEqual(missingSessionHttp.body, { error: { tag: "UnauthenticatedActor" } });
+    assert.ok(
+      missingSessionHttp.body !== null &&
+        typeof missingSessionHttp.body === "object" &&
+        "code" in missingSessionHttp.body &&
+        missingSessionHttp.body.code === "credential.missing",
+      "unauthenticated GET /api/session must return the RFC 9457 credential problem",
+    );
 
     const processEnvironment: NodeJS.ProcessEnv = {
       ...childToolEnvironment,
@@ -1871,84 +1878,31 @@ const runRehearsal = async (
       observations: processObservations,
       processEffects,
     });
-    const sdk = (await import(
+    // The SDK output is built during this rehearsal, so it cannot be imported before the build.
+    const sdk: typeof GeneratedSdkModule = await import(
       new URL("../../sdk/dist/effect-client.js", import.meta.url).href
-    )) as {
-      readonly createEffectClient: (
-        baseUrl: string,
-        options: { readonly cookie: string; readonly fetch: typeof guard.fetchLoopback },
-      ) => {
-        readonly public: {
-          readonly organization: {
-            readonly listDepartments: () => Effect.Effect<
-              ReadonlyArray<Record<string, unknown>>,
-              unknown
-            >;
-            readonly listTeams: () => Effect.Effect<
-              ReadonlyArray<Record<string, unknown>>,
-              unknown
-            >;
-          };
-        };
-        readonly admin: {
-          readonly users: {
-            readonly list: () => Effect.Effect<Record<string, unknown>, unknown>;
-          };
-        };
-      };
-    };
+    );
     const client = sdk.createEffectClient(proxy.origin, {
       cookie: cookieHeader,
       fetch: guard.fetchLoopback,
     });
-    const departmentsSdk = await Effect.runPromise(client.public.organization.listDepartments());
-    const teamsSdk = await Effect.runPromise(client.public.organization.listTeams());
-    const adminUsersSdk = await Effect.runPromise(client.admin.users.list());
-    assert.deepEqual(departmentsSdk, departmentsHttp.body);
-    assert.deepEqual(teamsSdk, teamsHttp.body);
-    const adminHttpBody = adminUsersHttp.body as {
-      readonly activeUsers: ReadonlyArray<Record<string, unknown>>;
-      readonly inactiveUsers: ReadonlyArray<Record<string, unknown>>;
-      readonly nextCursor: string | null;
-    };
-    assert.equal(adminHttpBody.nextCursor, null);
-    assert.deepEqual(adminUsersSdk, {
-      activeUsers: adminHttpBody.activeUsers,
-      inactiveUsers: adminHttpBody.inactiveUsers,
-    });
+    const departmentsSdk = await Effect.runPromise(
+      client.organization.listDepartments({ headers: {} }),
+    );
+    const teamsSdk = await Effect.runPromise(client.organization.listTeams({ headers: {} }));
+    const peopleSdk = await Effect.runPromise(client.directory.listPeople());
+    assert.ok(departmentsSdk.body !== undefined, "SDK departments response must contain a body");
+    assert.ok(teamsSdk.body !== undefined, "SDK teams response must contain a body");
+    assert.deepEqual(departmentsSdk.body, departmentsHttp.body);
+    assert.deepEqual(teamsSdk.body, teamsHttp.body);
+    assert.deepEqual(peopleSdk.body, peopleHttp.body);
     assert.deepEqual(
-      departmentsSdk.map(({ departmentId, name }) => ({ departmentId, name })),
+      departmentsSdk.body.map(({ departmentId, name }) => ({ departmentId, name })),
       [{ departmentId: "6701", name: "Spec 0067 Department" }],
     );
     assert.deepEqual(
-      teamsSdk.map(({ teamId, departmentId, name }) => ({ teamId, departmentId, name })),
+      teamsSdk.body.map(({ teamId, departmentId, name }) => ({ teamId, departmentId, name })),
       [{ teamId: "6711", departmentId: "6701", name: "Spec 0067 Team" }],
-    );
-    const adminBody = adminUsersSdk as {
-      readonly activeUsers: ReadonlyArray<Record<string, unknown>>;
-      readonly inactiveUsers: ReadonlyArray<Record<string, unknown>>;
-    };
-    assert.deepEqual(
-      adminBody.activeUsers.map(({ personId, departments, isActive }) => ({
-        personId,
-        departments,
-        isActive,
-      })),
-      [{ personId: "6731", departments: ["Spec 0067 Department"], isActive: true }],
-    );
-    assert.deepEqual(
-      adminBody.inactiveUsers.map(({ personId, departments, isActive }) => ({
-        personId,
-        departments,
-        isActive,
-      })),
-      [
-        {
-          personId: SPEC_0067.administratorPersonId,
-          departments: [],
-          isActive: false,
-        },
-      ],
     );
     artifactCore.http = {
       status: "Observed",
@@ -1958,7 +1912,7 @@ const runRehearsal = async (
         teams: sanitizeProjection(teamsSdk),
         session: sanitizeProjection(sessionHttp.body),
         missingSession: sanitizeProjection(missingSessionHttp.body),
-        administratorDirectory: sanitizeProjection(adminUsersSdk),
+        administratorDirectory: sanitizeProjection(peopleSdk),
       },
       sdkDecoded: true,
       fixtureMode: false,

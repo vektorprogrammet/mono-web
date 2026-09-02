@@ -207,21 +207,27 @@ const get = (pathname: string, cookie?: string): Promise<Response> =>
 
 describe("spec 0059 team-interest HTTP boundary", () => {
   it("answers 401 without a session before any data leaves the store", async () => {
-    const response = await get("/api/admin/team-interest");
+    const response = await get("/api/team-interest-registrations");
     expect(response.status).toBe(401);
   });
 
   it("denies a plain member and an inactive leader with typed 403", async () => {
-    const member = await get("/api/admin/team-interest", "session=member-session");
+    const member = await get("/api/team-interest-registrations", "session=member-session");
     expect(member.status).toBe(403);
-    expect(await member.json()).toEqual({ error: { tag: "OrganizationRoleDenied" } });
+    expect(await member.json()).toEqual({
+      type: "urn:vektorprogrammet:problem:v0.2:authority.denied",
+      title: "Authority denied",
+      status: 403,
+      detail: "The authenticated principal is not permitted to perform this operation.",
+      code: "authority.denied",
+    });
 
-    const inactive = await get("/api/admin/team-interest", "session=inactive-leader");
+    const inactive = await get("/api/team-interest-registrations", "session=inactive-leader");
     expect(inactive.status).toBe(403);
   });
 
   it("scopes a leader to their authorized union and emits the exact fixture envelope", async () => {
-    const response = await get("/api/admin/team-interest", "session=leader-session");
+    const response = await get("/api/team-interest-registrations", "session=leader-session");
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({
       "hydra:member": [
@@ -235,7 +241,7 @@ describe("spec 0059 team-interest HTTP boundary", () => {
   });
 
   it("gives a global administrator every department despite having one membership", async () => {
-    const teamInterest = await get("/api/admin/team-interest", "session=admin-session");
+    const teamInterest = await get("/api/team-interest-registrations", "session=admin-session");
     expect(teamInterest.status).toBe(200);
     expect(await teamInterest.json()).toEqual({
       "hydra:member": [
@@ -250,7 +256,7 @@ describe("spec 0059 team-interest HTTP boundary", () => {
       "department-2",
     ]);
 
-    const mailingLists = await get("/api/admin/mailing-lists", "session=admin-session");
+    const mailingLists = await get("/api/mailing-lists", "session=admin-session");
     expect(mailingLists.status).toBe(200);
     expect(await mailingLists.json()).toEqual([
       { name: "assistants-department-1", emails: [] },
@@ -259,21 +265,25 @@ describe("spec 0059 team-interest HTTP boundary", () => {
   });
 
   it("rejects an unknown mailing-list type at the decode boundary", async () => {
-    const response = await get("/api/admin/mailing-lists?type=unknown", "session=admin-session");
-    expect(response.status).toBe(422);
+    const response = await get("/api/mailing-lists?type=unknown", "session=admin-session");
+    expect(response.status).toBe(400);
     expect(await response.json()).toEqual({
-      error: { tag: "OrganizationDecodeError" },
+      type: "urn:vektorprogrammet:problem:v0.2:request.malformed",
+      title: "Malformed request",
+      status: 400,
+      detail: "The request is malformed.",
+      code: "request.malformed",
     });
   });
   it("narrows by department inside scope and denies out-of-scope with 403", async () => {
     const inScope = await get(
-      "/api/admin/team-interest?department=department-1",
+      "/api/team-interest-registrations?department=department-1",
       "session=leader-session",
     );
     expect(inScope.status).toBe(200);
 
     const outOfScope = await get(
-      "/api/admin/team-interest?department=department-2",
+      "/api/team-interest-registrations?department=department-2",
       "session=leader-session",
     );
     expect(outOfScope.status).toBe(403);

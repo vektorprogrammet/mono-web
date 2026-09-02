@@ -342,16 +342,22 @@ const backend = makeBackendHttp(config, successfulRun, {
 
 const request = (): Promise<Response> =>
   backend.fetch(
-    new Request("http://backend.test/api/admin/users", {
+    new Request("http://backend.test/api/people", {
       headers: { cookie: `${token}=value` },
     }),
   );
 
-describe("GET /api/admin/users (spec 0057)", () => {
+describe("GET /api/people (spec 0077.2)", () => {
   it("answers 401 without a session", async () => {
-    const response = await backend.fetch(new Request("http://backend.test/api/admin/users"));
+    const response = await backend.fetch(new Request("http://backend.test/api/people"));
     expect(response.status).toBe(401);
-    expect(await response.json()).toEqual({ error: { tag: "UnauthenticatedActor" } });
+    expect(await response.json()).toEqual({
+      type: "urn:vektorprogrammet:problem:v0.2:credential.invalid",
+      title: "Invalid credential",
+      status: 401,
+      detail: "The supplied credential is invalid.",
+      code: "credential.invalid",
+    });
   });
 
   it("denies a plain member with typed 403 AuthorityInactive", async () => {
@@ -362,7 +368,13 @@ describe("GET /api/admin/users (spec 0057)", () => {
     ];
     const response = await request();
     expect(response.status).toBe(403);
-    expect(await response.json()).toEqual({ error: { tag: "InactiveActor" } });
+    expect(await response.json()).toEqual({
+      type: "urn:vektorprogrammet:problem:v0.2:authority.denied",
+      title: "Authority denied",
+      status: 403,
+      detail: "The authenticated principal is not permitted to perform this operation.",
+      code: "authority.denied",
+    });
   });
 
   it("denies an inactive leader with typed 403 AuthorityInactive", async () => {
@@ -373,7 +385,13 @@ describe("GET /api/admin/users (spec 0057)", () => {
     ];
     const response = await request();
     expect(response.status).toBe(403);
-    expect(await response.json()).toEqual({ error: { tag: "InactiveActor" } });
+    expect(await response.json()).toEqual({
+      type: "urn:vektorprogrammet:problem:v0.2:authority.denied",
+      title: "Authority denied",
+      status: 403,
+      detail: "The authenticated principal is not permitted to perform this operation.",
+      code: "authority.denied",
+    });
   });
 
   it("denies an inactive administrator with typed 403 AuthorityInactive", async () => {
@@ -381,7 +399,13 @@ describe("GET /api/admin/users (spec 0057)", () => {
     callerProjection = { globalAdministrator: "Inactive" };
     const response = await request();
     expect(response.status).toBe(403);
-    expect(await response.json()).toEqual({ error: { tag: "InactiveActor" } });
+    expect(await response.json()).toEqual({
+      type: "urn:vektorprogrammet:problem:v0.2:authority.denied",
+      title: "Authority denied",
+      status: 403,
+      detail: "The authenticated principal is not permitted to perform this operation.",
+      code: "authority.denied",
+    });
   });
 
   it("shows an active global administrator the cross-department directory", async () => {
@@ -424,7 +448,13 @@ describe("GET /api/admin/users (spec 0057)", () => {
     membershipsByPerson["person-caller"] = [];
     const response = await request();
     expect(response.status).toBe(403);
-    expect(await response.json()).toEqual({ error: { tag: "NotInScope" } });
+    expect(await response.json()).toEqual({
+      type: "urn:vektorprogrammet:problem:v0.2:authority.denied",
+      title: "Authority denied",
+      status: 403,
+      detail: "The authenticated principal is not permitted to perform this operation.",
+      code: "authority.denied",
+    });
   });
 
   it("scopes a department leader to the intersection of their leader departments", async () => {
@@ -492,13 +522,19 @@ describe("GET /api/admin/users (spec 0057)", () => {
     missingContactFor = "person-multi-department";
     const response = await request();
     expect(response.status).toBe(503);
-    expect(await response.json()).toEqual({ error: { tag: "ProfileContactNotFound" } });
+    expect(await response.json()).toEqual({
+      type: "urn:vektorprogrammet:problem:v0.2:directory.unavailable",
+      title: "Directory unavailable",
+      status: 503,
+      detail: "The directory service is temporarily unavailable.",
+      code: "directory.unavailable",
+    });
   });
 
   it("rejects a query string with 422", async () => {
     resetScenario();
     const response = await backend.fetch(
-      new Request("http://backend.test/api/admin/users?page=2", {
+      new Request("http://backend.test/api/people?page=2", {
         headers: { cookie: `${token}=value` },
       }),
     );
