@@ -133,7 +133,7 @@ const startProxy = async (targetOrigin) => {
           continue;
         headers.set(name, Array.isArray(value) ? value.join(", ") : value);
       }
-      if (method === "PUT" && path === "/api/me") await sleep(200);
+      if (method === "PATCH" && path === "/api/profile") await sleep(200);
       const upstream = await fetch(new URL(request.url ?? "/", targetOrigin), {
         method,
         headers,
@@ -380,30 +380,34 @@ const main = async () => {
     }));
     assert.equal(
       ledger.some(
-        (entry) => entry.path === "/api/me" && entry.method === "GET" && entry.status === 200,
+        (entry) => entry.path === "/api/profile" && entry.method === "GET" && entry.status === 200,
       ),
       true,
     );
     assert.equal(
       ledger.some(
-        (entry) => entry.path === "/api/me" && entry.method === "PUT" && entry.status === 200,
+        (entry) => entry.path === "/api/profile" && entry.method === "PATCH" && entry.status === 200,
       ),
       true,
     );
     assert.equal(
-      ledger.some((entry) => entry.path === "/api/me" && entry.status === 401),
+      ledger.some((entry) => entry.path === "/api/profile" && entry.status === 401),
       true,
     );
     assert.equal(
-      ledger.some((entry) => entry.path === "/api/me" && entry.status === 422),
+      ledger.some((entry) => entry.path === "/api/profile" && entry.status === 422),
       true,
     );
     assert.equal(
-      ledger.some((entry) => entry.path === "/api/me" && entry.status === 409),
+      ledger.some((entry) => entry.path === "/api/profile" && entry.status === 409),
       true,
     );
     assert.equal(
-      ledger.some((entry) => /symfony|mock\/api|fixtures|\/api\/me\/profile/u.test(entry.path)),
+      ledger.some((entry) => entry.path === "/api/profile" && entry.status === 412),
+      true,
+    );
+    assert.equal(
+      ledger.some((entry) => /symfony|mock\/api|fixtures|\/api\/(?:admin|me)(?:\/|$)/u.test(entry.path)),
       false,
     );
     const versions = await run("node", ["--version"], {

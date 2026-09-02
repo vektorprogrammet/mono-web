@@ -1,13 +1,8 @@
 import AxeBuilder from "@axe-core/playwright";
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
-import {
-  CreateDepartmentCommandSchema,
-  CreateFieldOfStudyCommandSchema,
-  CreateTeamCommandSchema,
-  createClient,
-} from "@vektorprogrammet/sdk";
-import { Schema } from "effect";
+import { IdempotencyKey } from "@vektorprogrammet/http-api";
+import { createPromiseClient } from "@vektorprogrammet/sdk";
 import { expect, test, type APIRequestContext, type Page, type Request } from "@playwright/test";
 
 const DASHBOARD_ORIGIN = process.env.DASHBOARD_ORIGIN ?? "http://127.0.0.1:5185";
@@ -82,7 +77,7 @@ const authenticate = async (
   });
   expect(sessionResponse.status()).toBe(200);
   expect(await responseBody(sessionResponse)).toMatchObject({ current: true });
-  const profileResponse = await request.get(`${API_ORIGIN}/api/me`, {
+  const profileResponse = await request.get(`${API_ORIGIN}/api/profile`, {
     headers: { Cookie: cookie },
   });
   expect(profileResponse.status()).toBe(200);
@@ -117,7 +112,7 @@ const observePage = (
     const url = new URL(request.url());
     if (
       request.method() === "GET" &&
-      ["/api/departments", "/api/teams", "/api/field_of_studies"].includes(url.pathname)
+      ["/api/departments", "/api/teams", "/api/field-of-studies"].includes(url.pathname)
     ) {
       nativePublicRequests.push(`${request.method()} ${url.pathname}`);
     }
@@ -166,11 +161,13 @@ test.describe("Native Organization administration", () => {
         "ORGANIZATION_E2E_MEMBER_PERSON_ID",
       );
 
-      const publicClient = createClient(API_ORIGIN);
-      const adminClient = createClient(API_ORIGIN, { cookie: adminSession.cookie });
-      const departmentCommand = Schema.decodeUnknownSync(CreateDepartmentCommandSchema)({
-        _tag: "CreateDepartment",
-        commandId: "organization-department-create-0052",
+      const publicClient = createPromiseClient(API_ORIGIN);
+      const adminClient = createPromiseClient(API_ORIGIN, {
+        cookie: adminSession.cookie,
+        origin: DASHBOARD_ORIGIN,
+      });
+      const departmentKey = IdempotencyKey.make("organization-department-create-0052");
+      const departmentPayload = {
         name: "Vektorprogrammet Nord",
         shortName: "Nord",
         email: "nord@example.invalid",
@@ -178,29 +175,28 @@ test.describe("Native Organization administration", () => {
         city: "Tromsø",
         latitude: "69.681",
         longitude: "18.971",
-      });
-      const fieldCommand = Schema.decodeUnknownSync(CreateFieldOfStudyCommandSchema)({
-        _tag: "CreateFieldOfStudy",
-        commandId: "organization-field-create-0052",
+      };
+      const fieldKey = IdempotencyKey.make("organization-field-create-0052");
+      const fieldPayload = {
         name: "Romteknologi",
         shortName: "Romteknologi",
         departmentId: null,
-      });
+      };
 
-      const departmentResult =
-        await adminClient.admin.organization.createDepartment(departmentCommand);
-      expect(departmentResult.committed).toBe(true);
-      const departmentsAfterCreate = await publicClient.public.organization.listDepartments();
+      const departmentResult = await adminClient.organization.createDepartment({
+        headers: { "idempotency-key": departmentKey },
+        payload: departmentPayload,
+      });
+      const departmentsAfterCreate = await publicClient.organization.listDepartments();
       const createdDepartment = departmentsAfterCreate.find(
-        (department) => department.name === departmentCommand.name,
+        (department) => department.name === departmentPayload.name,
       );
       expect(createdDepartment).toBeDefined();
       if (createdDepartment === undefined)
         throw new Error("fresh Department read omitted the create");
 
-      const teamCommand = Schema.decodeUnknownSync(CreateTeamCommandSchema)({
-        _tag: "CreateTeam",
-        commandId: "organization-team-create-0052",
+      const teamKey = IdempotencyKey.make("organization-team-create-0052");
+      const teamPayload = {
         departmentId: createdDepartment.departmentId,
         name: "Team Nordlys",
         email: "nordlys@example.invalid",
@@ -209,94 +205,102 @@ test.describe("Native Organization administration", () => {
         acceptApplication: true,
         deadline: null,
         active: true,
+      };
+      await adminClient.organization.createTeam({
+        headers: { "idempotency-key": teamKey },
+        payload: teamPayload,
       });
-      const teamResult = await adminClient.admin.organization.createTeam(teamCommand);
-      const fieldResult = await adminClient.admin.organization.createFieldOfStudy(fieldCommand);
-      expect(teamResult.committed).toBe(true);
-      expect(fieldResult.committed).toBe(true);
+      await adminClient.organization.createFieldOfStudy({
+        headers: { "idempotency-key": fieldKey },
+        payload: fieldPayload,
+      });
 
-      const unknownReferenceResponse = await request.post(`${API_ORIGIN}/api/admin/teams`, {
+      const unknownReferenceResponse = await request.post(`${API_ORIGIN}/api/teams`, {
         headers: {
           Cookie: adminSession.cookie,
           Origin: DASHBOARD_ORIGIN,
           "Content-Type": "application/json",
+          "Idempotency-Key": "organization-team-unknown-department-0052",
         },
         data: {
-          ...teamCommand,
-          commandId: "organization-team-unknown-department-0052",
+          ...teamPayload,
           departmentId: "department-does-not-exist-0052",
         },
       });
       expect(unknownReferenceResponse.status()).toBe(422);
       const unknownReferenceBody = await responseBody(unknownReferenceResponse);
-      expect(unknownReferenceBody).toEqual({
-        error: { tag: "OrganizationInvalidReference" },
+      expect(unknownReferenceBody).toMatchObject({
+        status: 422,
+        code: "organization.invalid-reference",
+        type: "urn:vektorprogrammet:problem:v0.2:organization.invalid-reference",
       });
 
-      const memberDeniedResponse = await request.post(`${API_ORIGIN}/api/admin/departments`, {
+      const memberDeniedResponse = await request.post(`${API_ORIGIN}/api/departments`, {
         headers: {
           Cookie: memberSession.cookie,
           Origin: DASHBOARD_ORIGIN,
           "Content-Type": "application/json",
+          "Idempotency-Key": "organization-member-denied-0052",
         },
-        data: { ...departmentCommand, commandId: "organization-member-denied-0052" },
+        data: departmentPayload,
       });
       expect(memberDeniedResponse.status()).toBe(403);
       const memberDeniedBody = await responseBody(memberDeniedResponse);
-      expect(memberDeniedBody).toEqual({ error: { tag: "OrganizationRoleDenied" } });
+      expect(memberDeniedBody).toMatchObject({
+        status: 403,
+        code: "authority.denied",
+        type: "urn:vektorprogrammet:problem:v0.2:authority.denied",
+      });
 
-      const exactReplayResponse = await request.post(`${API_ORIGIN}/api/admin/departments`, {
+      const exactReplayResponse = await request.post(`${API_ORIGIN}/api/departments`, {
         headers: {
           Cookie: adminSession.cookie,
           Origin: DASHBOARD_ORIGIN,
           "Content-Type": "application/json",
+          "Idempotency-Key": departmentKey,
         },
-        data: departmentCommand,
+        data: departmentPayload,
       });
-      expect(exactReplayResponse.status()).toBe(200);
+      expect(exactReplayResponse.status()).toBe(201);
       const exactReplayBody = await responseBody(exactReplayResponse);
-      expect(exactReplayBody).toEqual({
-        committed: false,
-        observation: {
-          _tag: "Replayed",
-          commandId: departmentCommand.commandId,
-          original: departmentResult.observation,
-        },
-      });
+      expect(exactReplayBody).toEqual(departmentResult);
 
-      const changedReplayResponse = await request.post(`${API_ORIGIN}/api/admin/departments`, {
+      const changedReplayResponse = await request.post(`${API_ORIGIN}/api/departments`, {
         headers: {
           Cookie: adminSession.cookie,
           Origin: DASHBOARD_ORIGIN,
           "Content-Type": "application/json",
+          "Idempotency-Key": departmentKey,
         },
-        data: { ...departmentCommand, name: "Et annet navn" },
+        data: { ...departmentPayload, name: "Et annet navn" },
       });
       expect(changedReplayResponse.status()).toBe(409);
       const changedReplayBody = await responseBody(changedReplayResponse);
-      expect(changedReplayBody).toEqual({
-        error: { tag: "OrganizationCommandConflict" },
+      expect(changedReplayBody).toMatchObject({
+        status: 409,
+        code: "idempotency.digest-conflict",
+        type: "urn:vektorprogrammet:problem:v0.2:idempotency.digest-conflict",
       });
 
       const [freshDepartments, freshTeams, freshFields] = await Promise.all([
-        publicClient.public.organization.listDepartments(),
-        publicClient.public.organization.listTeams(),
-        publicClient.public.organization.listFieldOfStudies(),
+        publicClient.organization.listDepartments(),
+        publicClient.organization.listTeams(),
+        publicClient.organization.listFieldOfStudies(),
       ]);
       expect(freshDepartments).toContainEqual(
         expect.objectContaining({
           departmentId: createdDepartment.departmentId,
-          name: departmentCommand.name,
+          name: departmentPayload.name,
         }),
       );
       expect(freshTeams).toContainEqual(
         expect.objectContaining({
-          name: teamCommand.name,
+          name: teamPayload.name,
           departmentId: createdDepartment.departmentId,
         }),
       );
       expect(freshFields).toContainEqual(
-        expect.objectContaining({ name: fieldCommand.name, departmentId: null }),
+        expect.objectContaining({ name: fieldPayload.name, departmentId: null }),
       );
 
       let teamAccessibilityViolations = -1;
@@ -309,8 +313,8 @@ test.describe("Native Organization administration", () => {
       const teamTable = adminPage.getByRole("table", {
         name: "Aktive og inaktive team i organisasjonen",
       });
-      await expect(teamTable.getByRole("rowheader", { name: teamCommand.name })).toBeVisible();
-      await expect(teamTable).toContainText(departmentCommand.name);
+      await expect(teamTable.getByRole("rowheader", { name: teamPayload.name })).toBeVisible();
+      await expect(teamTable).toContainText(departmentPayload.name);
       const teamAccessibility = await new AxeBuilder({ page: adminPage })
         .include('section[aria-labelledby="organization-catalog-title"]')
         .analyze();
@@ -326,7 +330,7 @@ test.describe("Native Organization administration", () => {
       const fieldTable = fieldPage.getByRole("table", {
         name: "Aktive og inaktive studieretninger i organisasjonen",
       });
-      await expect(fieldTable.getByRole("rowheader", { name: fieldCommand.name })).toBeVisible();
+      await expect(fieldTable.getByRole("rowheader", { name: fieldPayload.name })).toBeVisible();
       await expect(fieldTable).toContainText("Felles for alle avdelinger");
       const fieldAccessibility = await new AxeBuilder({ page: fieldPage })
         .include('section[aria-labelledby="organization-catalog-title"]')
@@ -339,7 +343,7 @@ test.describe("Native Organization administration", () => {
           "GET /api/departments",
           "GET /api/teams",
           "GET /api/departments",
-          "GET /api/field_of_studies",
+          "GET /api/field-of-studies",
         ].sort(),
       );
       expect(legacyBrowserRequests).toEqual([]);
@@ -356,21 +360,21 @@ test.describe("Native Organization administration", () => {
               nativeLogin: true,
               sessionCookieNames: adminSession.sessionCookieNames,
               apiSessionPath: "/api/session",
-              personBindingPath: "/api/me",
+              personBindingPath: "/api/profile",
               personId: adminSession.sessionPersonId,
             },
             member: {
               nativeLogin: true,
               sessionCookieNames: memberSession.sessionCookieNames,
               apiSessionPath: "/api/session",
-              personBindingPath: "/api/me",
+              personBindingPath: "/api/profile",
               personId: memberSession.sessionPersonId,
             },
           },
           acceptedCreates: {
-            department: { commandId: departmentCommand.commandId, committed: true },
-            team: { commandId: teamCommand.commandId, committed: true },
-            fieldOfStudy: { commandId: fieldCommand.commandId, committed: true },
+            department: { idempotencyKey: departmentKey, status: 201 },
+            team: { idempotencyKey: teamKey, status: 201 },
+            fieldOfStudy: { idempotencyKey: fieldKey, status: 201 },
           },
           counterexamples: {
             unknownDepartment: {
@@ -404,8 +408,8 @@ test.describe("Native Organization administration", () => {
             })),
           },
           browser: {
-            teamRendered: teamCommand.name,
-            fieldOfStudyRendered: fieldCommand.name,
+            teamRendered: teamPayload.name,
+            fieldOfStudyRendered: fieldPayload.name,
             nativePublicRequests,
             legacyBrowserRequests,
             pageErrors,

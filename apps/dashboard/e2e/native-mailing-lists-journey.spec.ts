@@ -33,9 +33,7 @@ test.describe("Native mailing-lists journey (spec 0060)", () => {
 
     // The native endpoint itself answers with seeded member emails under the
     // expected list names for type=team and type=all (direct projection read).
-    const teamLists = (await page.request.get(
-      `${apiOrigin}/api/admin/mailing-lists?type=team`,
-    )) as unknown as {
+    const teamLists = (await page.request.get(`${apiOrigin}/api/mailing-lists?type=team`)) as unknown as {
       status(): number;
       json(): Promise<Array<{ name: string; emails: Array<string> }>>;
     };
@@ -60,7 +58,7 @@ test.describe("Native mailing-lists journey (spec 0060)", () => {
     test.skip(!nativeIdentityMode, "requires the real native identity topology");
 
     await signIn(page, leaderEmail);
-    const response = await page.request.get(`${apiOrigin}/api/admin/mailing-lists?type=team`);
+    const response = await page.request.get(`${apiOrigin}/api/mailing-lists?type=team`);
     expect(response.status()).toBe(200);
     const lists = (await response.json()) as Array<{ name: string; emails: string[] }>;
     expect(lists.map((list) => list.name)).toEqual(["team-department-0059-trondheim"]);
@@ -84,14 +82,21 @@ test.describe("Native mailing-lists journey (spec 0060)", () => {
   test("unknown type denies with 422 before any data leaves the store", async ({ page }) => {
     test.skip(!nativeIdentityMode, "requires the real native identity topology");
 
-    const anonymous = await page.request.get(`${apiOrigin}/api/admin/mailing-lists`);
+    const anonymous = await page.request.get(`${apiOrigin}/api/mailing-lists`);
     expect(anonymous.status()).toBe(401);
+    expect(await anonymous.json()).toMatchObject({
+      status: 401,
+      code: "credential.missing",
+      type: "urn:vektorprogrammet:problem:v0.2:credential.missing",
+    });
 
     await signIn(page, adminEmail);
-    const invalidType = await page.request.get(`${apiOrigin}/api/admin/mailing-lists?type=bogus`);
+    const invalidType = await page.request.get(`${apiOrigin}/api/mailing-lists?type=bogus`);
     expect(invalidType.status()).toBe(422);
-    expect(await invalidType.json()).toEqual({
-      error: { tag: "OrganizationDecodeError" },
+    expect(await invalidType.json()).toMatchObject({
+      status: 422,
+      code: "organization.invalid-reference",
+      type: "urn:vektorprogrammet:problem:v0.2:organization.invalid-reference",
     });
   });
 });

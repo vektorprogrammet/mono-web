@@ -34,7 +34,7 @@ type LedgerEntry = {
   readonly durationMs: number;
   readonly direction: "browser-to-proxy" | "proxy-to-native";
   readonly requestFields?: readonly string[];
-  readonly requestRevisions?: readonly number[];
+  readonly requestHeaders?: Readonly<Record<string, string>>;
 };
 
 const openContext = async (browser: Browser, requests: LedgerEntry[], responses: LedgerEntry[]) => {
@@ -42,18 +42,19 @@ const openContext = async (browser: Browser, requests: LedgerEntry[], responses:
   context.on("request", (request) => {
     const url = new URL(request.url());
     let fields: string[] | undefined;
-    let revisions: number[] | undefined;
     try {
       const body = request.postDataJSON() as Record<string, unknown> | undefined;
       if (body !== undefined && typeof body === "object") {
         fields = Object.keys(body).sort();
-        revisions = [body.expectedNameRevision, body.expectedContactRevision].filter(
-          (value): value is number => typeof value === "number",
-        );
       }
     } catch {
       // The ledger deliberately does not retain request body bytes.
     }
+    const requestHeaders = Object.fromEntries(
+      Object.entries(request.headers()).filter(([name]) =>
+        ["idempotency-key", "if-match"].includes(name),
+      ),
+    );
     requests.push({
       method: request.method(),
       path: url.pathname,
@@ -61,7 +62,7 @@ const openContext = async (browser: Browser, requests: LedgerEntry[], responses:
       durationMs: 0,
       direction: "browser-to-proxy",
       ...(fields === undefined ? {} : { requestFields: fields }),
-      ...(revisions === undefined ? {} : { requestRevisions: revisions }),
+      ...(Object.keys(requestHeaders).length === 0 ? {} : { requestHeaders }),
     });
   });
   context.on("response", (response) => {
@@ -129,16 +130,27 @@ test.describe("Native Profile self-edit (spec 0064)", () => {
     const pageErrors: string[] = [];
     let context: BrowserContext | undefined;
     try {
-      const unauthenticatedGet = await request.get(`${apiOrigin}/api/me`);
-      const unauthenticatedPut = await request.put(`${apiOrigin}/api/me`, {
-        headers: { "content-type": "application/json", Origin: dashboardOrigin },
+      const unauthenticatedGet = await request.get(`${apiOrigin}/api/profile`);
+      const unauthenticatedPatch = await request.patch(`${apiOrigin}/api/profile`, {
+        headers: {
+          "content-type": "application/merge-patch+json",
+          "idempotency-key": "profile-unauthenticated-0064",
+          "if-match": '"vkr2.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"',
+          Origin: dashboardOrigin,
+        },
         data: {},
       });
       expect(unauthenticatedGet.status()).toBe(401);
-      expect(await unauthenticatedGet.json()).toEqual({ error: { tag: "UnauthenticatedActor" } });
-      expect(unauthenticatedPut.status()).toBe(401);
-      expect(await unauthenticatedPut.json()).toEqual({ error: { tag: "UnauthenticatedActor" } });
-      observations.unauthenticated = { get: 401, put: 401, typed: true };
+      expect(await unauthenticatedGet.json()).toMatchObject({
+        status: 401,
+        code: "credential.missing",
+      });
+      expect(unauthenticatedPatch.status()).toBe(401);
+      expect(await unauthenticatedPatch.json()).toMatchObject({
+        status: 401,
+        code: "credential.missing",
+      });
+      observations.unauthenticated = { get: 401, patch: 401, problemDetails: true };
 
       const opened = await openContext(browser, requests, responses);
       context = opened.context;
@@ -217,13 +229,19 @@ test.describe("Native Profile self-edit (spec 0064)", () => {
       await assertAxe(page, accessibility, "success");
       observations.browserCommit = { values: after, freshRead: true, statusSemantics: true };
 
-      const malformed = await context.request.put(`${apiOrigin}/api/me`, {
-        headers: { "content-type": "application/json", Origin: dashboardOrigin },
+      const afterRead = await context.request.get(`${apiOrigin}/api/profile`);
+      expect(afterRead.status()).toBe(200);
+      const afterEtag = afterRead.headers().etag;
+      expect(afterEtag).toMatch(/^"vkr2\./u);
+
+      const malformed = await context.request.patch(`${apiOrigin}/api/profile`, {
+        headers: {
+          "content-type": "application/merge-patch+json",
+          "idempotency-key": "profile-malformed-0064",
+          "if-match": afterEtag,
+          Origin: dashboardOrigin,
+        },
         data: {
-          _tag: "UpdateOwnProfile",
-          commandId: "profile-malformed-0064",
-          expectedNameRevision: after.nameRevision,
-          expectedContactRevision: after.contactRevision,
           firstName: after.firstName,
           lastName: after.lastName,
           email: after.email,
@@ -232,27 +250,34 @@ test.describe("Native Profile self-edit (spec 0064)", () => {
         },
       });
       expect(malformed.status()).toBe(422);
-      expect(await malformed.json()).toEqual({ error: { tag: "ProfileDecodeError" } });
-      observations.malformed = { status: 422, typed: true, mutation: false };
+      expect(await malformed.json()).toMatchObject({
+        status: 422,
+        code: "validation.failed",
+        type: "urn:vektorprogrammet:problem:v0.2:validation.failed",
+      });
+      observations.malformed = { status: 422, problemDetails: true, mutation: false };
 
-      const controlledCommand = {
-        _tag: "UpdateOwnProfile",
-        commandId: "profile-controlled-0064",
-        expectedNameRevision: 1,
-        expectedContactRevision: 1,
+      const controlledPatch = {
         firstName: "Ada Controlled",
         lastName: "Profile Controlled",
         email: "profile-controlled-0064@example.invalid",
         phone: "+47 9000 0003",
       };
-      const controlled = await context.request.put(`${apiOrigin}/api/me`, {
-        headers: { Origin: dashboardOrigin },
-        data: controlledCommand,
+      const controlled = await context.request.patch(`${apiOrigin}/api/profile`, {
+        headers: {
+          "content-type": "application/merge-patch+json",
+          "idempotency-key": "profile-controlled-0064",
+          "if-match": afterEtag,
+          Origin: dashboardOrigin,
+        },
+        data: controlledPatch,
       });
       expect(controlled.status()).toBe(200);
       const controlledBody = (await controlled.json()) as Record<string, unknown>;
       expect(controlledBody.nameRevision).toBe(2);
       expect(controlledBody.contactRevision).toBe(2);
+      const controlledEtag = controlled.headers().etag;
+      expect(controlledEtag).toMatch(/^"vkr2\./u);
       observations.controlledConcurrentWrite = { status: 200, revisions: [2, 2] };
 
       await page.getByLabel("Fornavn").fill("Ada Stale Attempt");
@@ -260,48 +285,52 @@ test.describe("Native Profile self-edit (spec 0064)", () => {
       await expect(page.getByRole("alert")).toContainText("Profilen er endret");
       await assertAxe(page, accessibility, "staleConflict");
       observations.staleConflict = {
-        status: 409,
+        status: 412,
         typedAlert: true,
-        browserRevisionRemainedStale: true,
+        browserEtagRemainedStale: true,
       };
       await page.reload();
       expect(await profileValues(page)).toEqual([
-        controlledCommand.firstName,
-        controlledCommand.lastName,
-        controlledCommand.email,
-        controlledCommand.phone,
+        controlledPatch.firstName,
+        controlledPatch.lastName,
+        controlledPatch.email,
+        controlledPatch.phone,
       ]);
       observations.postConflictReload = {
         values: { ...controlledBody, role: undefined },
         revisions: [2, 2],
       };
 
-      const httpConflict = {
-        _tag: "UpdateOwnProfile",
-        commandId: "profile-http-conflict-0064",
-        expectedNameRevision: 2,
-        expectedContactRevision: 2,
+      const httpPatch = {
         firstName: "Ada HTTP Winner",
         lastName: "Profile HTTP Winner",
         email: "profile-http-winner-0064@example.invalid",
         phone: "+47 9000 0004",
       };
-      const httpWinner = await context.request.put(`${apiOrigin}/api/me`, {
-        headers: { Origin: dashboardOrigin },
-        data: httpConflict,
+      const httpHeaders = {
+        "content-type": "application/merge-patch+json",
+        "idempotency-key": "profile-http-conflict-0064",
+        "if-match": controlledEtag,
+        Origin: dashboardOrigin,
+      };
+      const httpWinner = await context.request.patch(`${apiOrigin}/api/profile`, {
+        headers: httpHeaders,
+        data: httpPatch,
       });
       expect(httpWinner.status()).toBe(200);
-      const httpConflictChanged = await context.request.put(`${apiOrigin}/api/me`, {
-        headers: { Origin: dashboardOrigin },
-        data: { ...httpConflict, firstName: "Ada HTTP Different" },
+      const httpConflictChanged = await context.request.patch(`${apiOrigin}/api/profile`, {
+        headers: httpHeaders,
+        data: { ...httpPatch, firstName: "Ada HTTP Different" },
       });
       expect(httpConflictChanged.status()).toBe(409);
-      expect(await httpConflictChanged.json()).toEqual({
-        error: { tag: "ProfileCommandConflict" },
+      expect(await httpConflictChanged.json()).toMatchObject({
+        status: 409,
+        code: "idempotency.digest-conflict",
+        type: "urn:vektorprogrammet:problem:v0.2:idempotency.digest-conflict",
       });
-      observations.sameIdConflict = { status: 409, typed: true, dataUnchanged: true };
+      observations.sameIdConflict = { status: 409, problemDetails: true, dataUnchanged: true };
 
-      const authenticatedGet = await context.request.get(`${apiOrigin}/api/me`);
+      const authenticatedGet = await context.request.get(`${apiOrigin}/api/profile`);
       expect(authenticatedGet.status()).toBe(200);
       const authenticatedBody = (await authenticatedGet.json()) as Record<string, unknown>;
       expect(Object.keys(authenticatedBody).sort()).toEqual([
@@ -318,9 +347,9 @@ test.describe("Native Profile self-edit (spec 0064)", () => {
       expect(authenticatedBody.contactRevision).toBe(3);
       observations.strictHttp = {
         get: 200,
-        put: 200,
+        patch: 200,
         responseFields: Object.keys(authenticatedBody).sort(),
-        sdkRoutes: ["/api/me"],
+        sdkRoutes: ["/api/profile"],
       };
 
       await inputs[0].focus();
@@ -341,7 +370,7 @@ test.describe("Native Profile self-edit (spec 0064)", () => {
       expect(pageErrors).toEqual([]);
 
       const forbiddenPaths = requests.filter((entry) =>
-        /symfony|mock\/api|fixtures|\/api\/me\/profile/u.test(entry.path),
+        /symfony|mock\/api|fixtures|\/api\/(?:admin|me)(?:\/|$)/u.test(entry.path),
       );
       expect(forbiddenPaths).toEqual([]);
       const evidence = {

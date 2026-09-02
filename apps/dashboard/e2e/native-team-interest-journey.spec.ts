@@ -70,10 +70,12 @@ test.describe("Native team-interest journey (spec 0059)", () => {
   }) => {
     test.skip(!nativeIdentityMode, "requires the real native identity topology");
 
-    const anonymous = await request.get(`${apiOrigin}/api/admin/team-interest`);
+    const anonymous = await request.get(`${apiOrigin}/api/team-interest-registrations`);
     expect(anonymous.status()).toBe(401);
-    expect(await anonymous.json()).toEqual({
-      error: { tag: "UnauthenticatedActor" },
+    expect(await anonymous.json()).toMatchObject({
+      status: 401,
+      code: "credential.missing",
+      type: "urn:vektorprogrammet:problem:v0.2:credential.missing",
     });
   });
 });
