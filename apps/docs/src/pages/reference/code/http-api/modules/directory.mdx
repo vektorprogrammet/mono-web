@@ -14,7 +14,7 @@ showAskAi: false
 
 ## Overview
 
-Public HTTP contracts for administrative directory reads.
+Public HTTP contracts for the people and school directories.
 
 ---
 
@@ -26,7 +26,7 @@ Public HTTP contracts for administrative directory reads.
   - [PeopleDirectoryEntry](#peopledirectoryentry)
   - [PeopleDirectoryResponse](#peopledirectoryresponse)
 - [utils](#utils)
-  - [ListAdminUsersEndpoint](#listadminusersendpoint)
+  - [ListPeopleEndpoint](#listpeopleendpoint)
   - [ListSchoolsEndpoint](#listschoolsendpoint)
   - [SchoolDirectoryExample](#schooldirectoryexample)
 
@@ -36,7 +36,7 @@ Public HTTP contracts for administrative directory reads.
 
 ### DirectoryApi (class)
 
-Scoped administrative directory endpoints.
+Scoped people and school directory endpoints.
 
 **Signature**
 
@@ -44,7 +44,7 @@ Scoped administrative directory endpoints.
 declare class DirectoryApi
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/directory.ts#L151)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/directory.ts#L148)
 
 Since v0.1.0
 
@@ -75,7 +75,7 @@ Since v0.1.0
 
 ### PeopleDirectoryResponse
 
-Complete scoped admin user directory response.
+Complete scoped people directory response.
 
 **Signature**
 
@@ -115,12 +115,12 @@ Since v0.1.0
 
 ## utils
 
-### ListAdminUsersEndpoint
+### ListPeopleEndpoint
 
 **Signature**
 
 ```ts
-declare const ListAdminUsersEndpoint: HttpApiEndpoint.HttpApiEndpoint<
+declare const ListPeopleEndpoint: HttpApiEndpoint.HttpApiEndpoint<
   "listPeople",
   "GET",
   "/api/people",
@@ -242,7 +242,7 @@ declare const ListSchoolsEndpoint: HttpApiEndpoint.HttpApiEndpoint<
 >;
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/directory.ts#L119)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/directory.ts#L116)
 
 Since v0.1.0 @category Endpoints
 
@@ -270,4 +270,4 @@ declare const SchoolDirectoryExample: {
 };
 ```
 
-[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/directory.ts#L102)
+[Source](https://github.com/vektorprogrammet/mono-web/blob/main/packages/http-api/src/directory.ts#L99)

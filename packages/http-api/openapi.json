@@ -23393,7 +23393,7 @@
     },
     "/api/people": {
       "get": {
-        "description": "Returns the person directory within the caller's scope.",
+        "description": "Returns the people directory within the caller's scope.",
         "operationId": "directory.listPeople",
         "parameters": [],
         "responses": {
@@ -24016,7 +24016,7 @@
             "oauthUserBearer": []
           }
         ],
-        "summary": "List admin users",
+        "summary": "List people",
         "tags": [
           "Directories"
         ],
@@ -54646,7 +54646,7 @@
       "x-displayName": "Organization"
     },
     {
-      "description": "Scoped administrative person and school directories.",
+      "description": "Scoped people and school directories.",
       "name": "Directories",
       "x-displayName": "Directories"
     },

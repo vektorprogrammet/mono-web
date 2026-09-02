@@ -2,7 +2,7 @@
   "artifacts": {
     "openapi": {
       "path": "packages/http-api/openapi.json",
-      "sha256": "1c0b34a349739041c6b3bc7724256ed0b56f377d16e3f115fc277a933a295632"
+      "sha256": "d01882f646f43e36643cbbd313fc5d8e6ecca9eb971ecde4ab36e7f18d45fa59"
     },
     "sdkOperations": {
       "path": "packages/sdk/native-api-operations.json",
@@ -10,7 +10,7 @@
     },
     "serverMetadata": {
       "path": "apps/backend/src/generated/native-api-metadata.json",
-      "sha256": "6b18dfd4356c8bae477a28ce9a81af822529523e0d8bf22a704158e7724dd6ca"
+      "sha256": "b403a72833f27c05a7c28c5b42930ffe38429f603c70febfbacdf66769a01e9d"
     }
   },
   "counts": {

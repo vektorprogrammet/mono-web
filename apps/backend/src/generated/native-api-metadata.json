@@ -632,7 +632,7 @@
         "500",
         "503"
       ],
-      "summary": "List admin users",
+      "summary": "List people",
       "visibility": "external"
     },
     {
