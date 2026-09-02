@@ -133,7 +133,7 @@ test.describe("Native recruitment assignment journey (spec 0049.2)", () => {
     const sessionResponse = await page.context().request.get(`${apiOrigin}/api/session`);
     expect(sessionResponse.status()).toBe(200);
     expect(await sessionResponse.json()).toMatchObject({ current: true });
-    const profileResponse = await page.context().request.get(`${apiOrigin}/api/me`);
+    const profileResponse = await page.context().request.get(`${apiOrigin}/api/profile`);
     expect(profileResponse.status()).toBe(200);
     expect(await profileResponse.json()).toMatchObject({ personId: expectedLeaderPersonId });
 

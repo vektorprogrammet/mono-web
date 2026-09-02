@@ -494,6 +494,15 @@ async function startRecordingProxy(targetOrigin) {
       authorizationHeaderPresent: request.headers.authorization !== undefined,
       requestHasResponseCapability: hasObjectKey(requestJson, "responseCapability"),
       responseHasResponseCapability: false,
+      idempotencyKey:
+        typeof request.headers["idempotency-key"] === "string"
+          ? request.headers["idempotency-key"]
+          : null,
+      ifMatch:
+        typeof request.headers["if-match"] === "string" ? request.headers["if-match"] : null,
+      requestJson,
+      responseJson: null,
+      responseEtag: null,
       status: 0,
     };
     records.push(record);
@@ -520,9 +529,12 @@ async function startRecordingProxy(targetOrigin) {
         redirect: "manual",
       });
       const responseBytes = Buffer.from(await upstream.arrayBuffer());
+      const responseJson = parseJsonBody(responseBytes);
       record.status = upstream.status;
+      record.responseJson = responseJson ?? null;
+      record.responseEtag = upstream.headers.get("etag");
       record.responseHasResponseCapability = hasObjectKey(
-        parseJsonBody(responseBytes),
+        responseJson,
         "responseCapability",
       );
       response.statusCode = upstream.status;
@@ -1073,10 +1085,10 @@ async function main() {
       throw new Error("Browser evidence did not prove the frozen Foldkit scheduling journey");
     }
 
+    const boardPath = "/api/recruitment/interviews";
+    const schedulePath = `${boardPath}/${encodeURIComponent(interviewId)}:schedule`;
     const schedulingRequests = proxy.records.filter(
-      ({ path }) =>
-        path === "/api/admin/recruitment/interviews/scheduling-board" ||
-        path === "/api/admin/recruitment/interviews/schedule",
+      ({ path }) => path === boardPath || path === schedulePath,
     );
     const leadingBoardReadCount = schedulingRequests.length - 3;
     if (leadingBoardReadCount !== 1 && leadingBoardReadCount !== 2) {
@@ -1084,41 +1096,92 @@ async function main() {
     }
     const boardRead = {
       method: "GET",
-      path: "/api/admin/recruitment/interviews/scheduling-board",
+      path: boardPath,
+      status: 200,
       sessionCookieAuth: true,
       authorizationHeaderPresent: false,
+      idempotencyKeyPresent: false,
+      ifMatchPresent: false,
     };
     assertEqual(
-      schedulingRequests.map(({ method, path, sessionCookieAuth, authorizationHeaderPresent }) => ({
-        method,
-        path,
-        sessionCookieAuth,
-        authorizationHeaderPresent,
-      })),
+      schedulingRequests.map(
+        ({
+          method,
+          path,
+          status,
+          sessionCookieAuth,
+          authorizationHeaderPresent,
+          idempotencyKey,
+          ifMatch,
+        }) => ({
+          method,
+          path,
+          status,
+          sessionCookieAuth,
+          authorizationHeaderPresent,
+          idempotencyKeyPresent: typeof idempotencyKey === "string",
+          ifMatchPresent: typeof ifMatch === "string",
+        }),
+      ),
       [
         ...Array.from({ length: leadingBoardReadCount }, () => boardRead),
         {
           method: "POST",
-          path: "/api/admin/recruitment/interviews/schedule",
+          path: schedulePath,
+          status: 200,
           sessionCookieAuth: true,
           authorizationHeaderPresent: false,
+          idempotencyKeyPresent: true,
+          ifMatchPresent: true,
         },
         boardRead,
         boardRead,
       ],
       "Native scheduling transport order",
     );
+    const sourceBoard = schedulingRequests[leadingBoardReadCount - 1];
+    const sourceItem = sourceBoard?.responseJson?.interviews?.find(
+      (item) => item?.interviewId === interviewId,
+    );
+    const scheduleRequest = schedulingRequests[leadingBoardReadCount];
+    const scheduleResponse = scheduleRequest?.responseJson;
+    if (
+      typeof sourceItem?.etag !== "string" ||
+      !/^"vkr2\.[A-Za-z0-9_-]{43}"$/u.test(sourceItem.etag) ||
+      scheduleRequest?.ifMatch !== sourceItem.etag ||
+      typeof scheduleRequest.idempotencyKey !== "string" ||
+      JSON.stringify(Object.keys(scheduleRequest.requestJson ?? {}).sort()) !==
+        JSON.stringify(["campus", "mapLink", "message", "room", "scheduledAt"]) ||
+      scheduleResponse?.interviewId !== interviewId ||
+      scheduleRequest.requestJson?.scheduledAt !== schedule.scheduledAt ||
+      scheduleRequest.requestJson?.room !== schedule.room ||
+      scheduleRequest.requestJson?.campus !== schedule.campus ||
+      scheduleRequest.requestJson?.mapLink !== schedule.mapLink ||
+      scheduleRequest.requestJson?.message !== schedule.message ||
+      JSON.stringify(Object.keys(scheduleResponse ?? {}).sort()) !==
+        JSON.stringify(["interviewId", "notificationState", "responseState", "schedule"]) ||
+      scheduleResponse?.schedule?.scheduleRevision !== 1 ||
+      scheduleResponse?.responseState !== "Pending" ||
+      scheduleResponse?.notificationState !== "Pending" ||
+      !/^"vkr2\.[A-Za-z0-9_-]{43}"$/u.test(scheduleRequest.responseEtag ?? "")
+    ) {
+      throw new Error(
+        "Native scheduling did not forward the board item ETag through the v0.2 mutation contract",
+      );
+    }
     if (
       schedulingRequests.some(
         (request) =>
           !request.sessionCookieAuth ||
           request.authorizationHeaderPresent ||
-          request.status !== 200 ||
           request.requestHasResponseCapability ||
           request.responseHasResponseCapability,
       ) ||
       proxy.records.some(
-        ({ path }) => path === "/api/admin/interviews" || path.startsWith("/api/admin/interviews/"),
+        ({ path }) =>
+          path === "/api/admin/interviews" ||
+          path.startsWith("/api/admin/interviews/") ||
+          path.startsWith("/api/admin/recruitment/"),
       )
     ) {
       throw new Error("Native scheduling transport used legacy authority or exposed a capability");

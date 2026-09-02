@@ -341,6 +341,7 @@ const startRecordingProxy = async (targetOrigin) => {
     const chunks = [];
     for await (const chunk of request) chunks.push(Buffer.from(chunk));
     const requestBytes = Buffer.concat(chunks);
+    const requestJson = parseJsonBody(requestBytes);
     const record = {
       method,
       path,
@@ -349,7 +350,15 @@ const startRecordingProxy = async (targetOrigin) => {
       sessionCookieAuth: hasNamedCookie(request.headers.cookie, sessionCookieNames),
       jwtCookieAuth: hasNamedCookie(request.headers.cookie, new Set(["jwt_token"])),
       authorizationHeaderPresent: request.headers.authorization !== undefined,
-      requestJsonDecoded: parseJsonBody(requestBytes) !== undefined,
+      requestJson,
+      idempotencyKey:
+        typeof request.headers["idempotency-key"] === "string"
+          ? request.headers["idempotency-key"]
+          : null,
+      ifMatch:
+        typeof request.headers["if-match"] === "string" ? request.headers["if-match"] : null,
+      responseJson: null,
+      responseEtag: null,
     };
     records.push(record);
 
@@ -377,6 +386,8 @@ const startRecordingProxy = async (targetOrigin) => {
       const responseBytes = Buffer.from(await upstream.arrayBuffer());
       record.status = upstream.status;
       if (upstream.status >= 400) record.responseFailure = parseJsonBody(responseBytes);
+      record.responseJson = parseJsonBody(responseBytes) ?? null;
+      record.responseEtag = upstream.headers.get("etag");
       response.statusCode = upstream.status;
       for (const [name, value] of upstream.headers.entries()) {
         if (
@@ -819,14 +830,16 @@ const main = async () => {
       throw new Error(`browser evidence failed: ${JSON.stringify(browser)}`);
     }
 
-    const recruitmentRequests = proxy.records.filter(({ path }) =>
-      path.startsWith("/api/admin/recruitment/"),
+    const boardPath = "/api/recruitment/application-assignments";
+    const createPath = `/api/recruitment/applications/${encodeURIComponent(applicationId)}/interviews`;
+    const recruitmentRequests = proxy.records.filter(
+      ({ path }) => path === boardPath || path === createPath,
     );
     const requiredTransportTail = [
-      ["GET", "/api/admin/recruitment/assignment-board?status=new"],
-      ["POST", "/api/admin/recruitment/interviews/assign"],
-      ["GET", "/api/admin/recruitment/assignment-board?status=new"],
-      ["GET", "/api/admin/recruitment/assignment-board?status=all"],
+      ["GET", `${boardPath}?status=new`, 200],
+      ["POST", createPath, 201],
+      ["GET", `${boardPath}?status=new`, 200],
+      ["GET", `${boardPath}?status=all`, 200],
     ];
     const leadingInitialAllFilterReadCount =
       recruitmentRequests.length - requiredTransportTail.length;
@@ -837,16 +850,21 @@ const main = async () => {
     const expectedTransport = [
       ...Array.from({ length: leadingInitialAllFilterReadCount }, () => [
         "GET",
-        "/api/admin/recruitment/assignment-board?status=all",
+        `${boardPath}?status=all`,
+        200,
       ]),
       ...requiredTransportTail,
-    ].map(([method, pathAndQuery]) => ({
+    ].map(([method, pathAndQuery, status]) => ({
       method,
       pathAndQuery,
-      status: 200,
+      status,
       sessionCookieAuth: true,
       authorizationHeaderPresent: false,
       jwtCookieAuth: false,
+      idempotencyKeyPresent: method === "POST",
+      ifMatchPresent: false,
+      requestBodyKeys:
+        method === "POST" ? ["interviewSchemaId", "interviewerPersonId"] : [],
     }));
     assertEqual(
       recruitmentRequests.map(
@@ -857,6 +875,9 @@ const main = async () => {
           sessionCookieAuth,
           authorizationHeaderPresent,
           jwtCookieAuth,
+          idempotencyKey,
+          ifMatch,
+          requestJson,
         }) => ({
           method,
           pathAndQuery,
@@ -864,11 +885,41 @@ const main = async () => {
           sessionCookieAuth,
           authorizationHeaderPresent,
           jwtCookieAuth,
+          idempotencyKeyPresent: typeof idempotencyKey === "string",
+          ifMatchPresent: typeof ifMatch === "string",
+          requestBodyKeys:
+            requestJson !== null && typeof requestJson === "object"
+              ? Object.keys(requestJson).sort()
+              : [],
         }),
       ),
       expectedTransport,
       "exact native recruitment transport",
     );
+    const createRequest = recruitmentRequests.find(({ method }) => method === "POST");
+    if (
+      JSON.stringify(Object.keys(createRequest?.responseJson ?? {}).sort()) !==
+        JSON.stringify([
+          "applicationId",
+          "assignedAt",
+          "assignedByPersonId",
+          "departmentId",
+          "interviewId",
+          "interviewSchemaId",
+          "interviewerPersonId",
+          "revision",
+        ]) ||
+      createRequest?.requestJson?.interviewerPersonId !== interviewerPersonId ||
+      createRequest.requestJson.interviewSchemaId !== interviewSchemaId ||
+      !/^"vkr2\.[A-Za-z0-9_-]{43}"$/u.test(createRequest.responseEtag ?? "") ||
+      createRequest.responseJson?.applicationId !== applicationId ||
+      createRequest.responseJson?.interviewerPersonId !== interviewerPersonId ||
+      createRequest.responseJson?.interviewSchemaId !== interviewSchemaId ||
+      createRequest.responseJson?.assignedByPersonId !== leaderPersonId ||
+      createRequest.responseJson?.revision !== 0
+    ) {
+      throw new Error("Application interview creation did not use the generated v0.2 contract");
+    }
     const browserEvidence = {
       ...browser,
       duplicateInitialAllFilterReadObserved,
@@ -881,6 +932,8 @@ const main = async () => {
         "/api/admin/users",
         "/api/admin/interviews/schemas",
         "/api/admin/interviews/assign",
+        "/api/admin/recruitment/assignment-board",
+        "/api/admin/recruitment/interviews/assign",
       ].some((legacyPath) => path === legacyPath || path.startsWith(`${legacyPath}/`)),
     );
     if (

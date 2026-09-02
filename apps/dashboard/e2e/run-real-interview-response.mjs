@@ -62,7 +62,7 @@ const responseCases = [
     campus: "Gløshaugen",
     mapLink: "https://maps.example.invalid/invitation-response-accepted-0051",
     scheduleMessage: "Vi ser frem til intervjuet.",
-    commandPath: "/api/recruitment/invitation-response/confirm",
+    commandPath: "/api/recruitment/invitation-response:confirm",
     finalState: "Accepted",
     responseMessage: null,
     expectedOutboxCount: 0,
@@ -83,7 +83,7 @@ const responseCases = [
     campus: "Gløshaugen",
     mapLink: "https://maps.example.invalid/invitation-response-rejected-0051",
     scheduleMessage: "Vi ser frem til intervjuet.",
-    commandPath: "/api/recruitment/invitation-response/reject",
+    commandPath: "/api/recruitment/invitation-response:reject",
     finalState: "Rejected",
     responseMessage: "Jeg kan ikke delta på dette tidspunktet.",
     expectedOutboxCount: 1,
@@ -104,7 +104,7 @@ const responseCases = [
     campus: "Gløshaugen",
     mapLink: "https://maps.example.invalid/invitation-response-requested-new-time-0051",
     scheduleMessage: "Vi ser frem til intervjuet.",
-    commandPath: "/api/recruitment/invitation-response/request-new-time",
+    commandPath: "/api/recruitment/invitation-response:request-new-time",
     finalState: "RequestedNewTime",
     responseMessage: "Kan vi møtes torsdag i stedet?",
     expectedOutboxCount: 1,
@@ -821,8 +821,18 @@ async function startRecordingProxy(targetOrigin, actorsByCapability) {
         containsRawCapability(request.url ?? "") ||
         containsRawCapability(requestBytes.toString("utf8")) ||
         containsRawCapability(nonCapabilityHeaders),
+      requestJson,
+      idempotencyKey:
+        typeof request.headers["idempotency-key"] === "string"
+          ? request.headers["idempotency-key"]
+          : null,
+      ifMatch:
+        typeof request.headers["if-match"] === "string" ? request.headers["if-match"] : null,
       responseHasResponseCapabilityField: false,
       responseRawCapability: false,
+      responseJson: null,
+      responseEtag: null,
+      responseContentType: null,
       status: 0,
     };
     records.push(record);
@@ -855,6 +865,9 @@ async function startRecordingProxy(targetOrigin, actorsByCapability) {
         .map(([name, value]) => `${name}:${value}`)
         .join("\n");
       record.status = upstream.status;
+      record.responseJson = responseJson ?? null;
+      record.responseEtag = upstream.headers.get("etag");
+      record.responseContentType = upstream.headers.get("content-type");
       record.responseHasResponseCapabilityField = [
         "responseCapability",
         "invitationCapability",
@@ -1337,8 +1350,8 @@ function assertBrowserEvidence(browser) {
 
 function assertNativeTransport(records) {
   const readPath = "/api/recruitment/invitation-response";
-  const boardPath = "/api/admin/recruitment/interviews/scheduling-board";
-  const profilePath = "/api/me";
+  const boardPath = "/api/recruitment/interviews";
+  const profilePath = "/api/profile";
   const expected = [
     {
       method: "GET",
@@ -1560,7 +1573,6 @@ function assertNativeTransport(records) {
   const allowedPaths = new Set([
     "/api/auth/sign-in/email",
     "/api/session",
-    "/api/me/dashboard",
     readPath,
     profilePath,
     boardPath,
@@ -1595,7 +1607,75 @@ function assertNativeTransport(records) {
     expected,
     "Native invitation-response transport order",
   );
+  for (let index = 0; index < nativeRecords.length; index += 1) {
+    const record = nativeRecords[index];
+    if (record?.invitationActor === null) continue;
+    if (record?.method === "GET" && record.path === readPath) {
+      if (
+        JSON.stringify(Object.keys(record.responseJson ?? {}).sort()) !==
+          JSON.stringify(["campus", "responseMessage", "responseState", "room", "scheduledAt"]) ||
+        record.idempotencyKey !== null ||
+        record.ifMatch !== null ||
+        !/^"vkr2\.[A-Za-z0-9_-]{43}"$/u.test(record.responseEtag ?? "") ||
+        record.responseJson?.scheduledAt === undefined ||
+        record.responseJson?.room === undefined ||
+        record.responseJson?.responseState === undefined
+      ) {
+        throw new Error("Invitation read did not match the generated v0.2 observation contract");
+      }
+      continue;
+    }
+    if (record?.method !== "POST") continue;
+    const sourceRead = nativeRecords
+      .slice(0, index)
+      .filter(
+        (candidate) =>
+          candidate.method === "GET" &&
+          candidate.path === readPath &&
+          candidate.invitationActor === record.invitationActor,
+      )
+      .at(-1);
+    const expectedBodyKeys =
+      record.path === responseCases[0].commandPath ? [] : ["message"];
+    if (
+      typeof record.idempotencyKey !== "string" ||
+      record.ifMatch !== sourceRead?.responseEtag ||
+      JSON.stringify(Object.keys(record.requestJson ?? {}).sort()) !==
+        JSON.stringify(expectedBodyKeys)
+    ) {
+      throw new Error("Invitation mutation omitted its Idempotency-Key, source ETag, or exact body");
+    }
+    if (record.status === 204) {
+      if (
+        record.responseJson !== null ||
+        !/^"vkr2\.[A-Za-z0-9_-]{43}"$/u.test(record.responseEtag ?? "")
+      ) {
+        throw new Error("Invitation mutation did not return the generated 204 response contract");
+      }
+      continue;
+    }
+    if (
+      record.status !== 409 ||
+      !record.responseContentType?.startsWith("application/problem+json") ||
+      record.responseJson?.status !== 409 ||
+      record.responseJson?.code !== "invitation.already-responded" ||
+      record.responseJson?.type !==
+        "urn:vektorprogrammet:problem:v0.2:invitation.already-responded" ||
+      typeof record.responseJson?.title !== "string" ||
+      typeof record.responseJson?.detail !== "string"
+    ) {
+      throw new Error("Repeated invitation mutation did not return RFC 9457 Problem Details");
+    }
+  }
+  const retiredRouteUsed = records.some(
+    ({ path }) =>
+      path === "/api/me" ||
+      path === "/api/me/dashboard" ||
+      path === "/api/admin/recruitment/interviews/scheduling-board" ||
+      path.startsWith("/api/recruitment/invitation-response/"),
+  );
   if (
+    retiredRouteUsed ||
     records.some(
       (record) =>
         !allowedPaths.has(record.path) ||
