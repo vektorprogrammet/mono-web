@@ -264,10 +264,10 @@ declare const CreateDepartmentEndpoint: HttpApiEndpoint.HttpApiEndpoint<
     >,
     Schema.toCodecStringTree<
       Schema.Struct<{
-        ETag: Schema.brand<Schema.String, "StrongETag">;
-        Location: Schema.String;
-        "Cache-Control": Schema.Literal<"no-store">;
-        Vary: Schema.Literal<"Origin">;
+        etag: Schema.brand<Schema.String, "StrongETag">;
+        location: Schema.String;
+        "cache-control": Schema.Literal<"no-store">;
+        vary: Schema.Literal<"Origin">;
       }>
     >
   >,
@@ -315,10 +315,10 @@ declare const CreateFieldOfStudyEndpoint: HttpApiEndpoint.HttpApiEndpoint<
     >,
     Schema.toCodecStringTree<
       Schema.Struct<{
-        ETag: Schema.brand<Schema.String, "StrongETag">;
-        Location: Schema.String;
-        "Cache-Control": Schema.Literal<"no-store">;
-        Vary: Schema.Literal<"Origin">;
+        etag: Schema.brand<Schema.String, "StrongETag">;
+        location: Schema.String;
+        "cache-control": Schema.Literal<"no-store">;
+        vary: Schema.Literal<"Origin">;
       }>
     >
   >,
@@ -375,10 +375,10 @@ declare const CreateTeamEndpoint: HttpApiEndpoint.HttpApiEndpoint<
     >,
     Schema.toCodecStringTree<
       Schema.Struct<{
-        ETag: Schema.brand<Schema.String, "StrongETag">;
-        Location: Schema.String;
-        "Cache-Control": Schema.Literal<"no-store">;
-        Vary: Schema.Literal<"Origin">;
+        etag: Schema.brand<Schema.String, "StrongETag">;
+        location: Schema.String;
+        "cache-control": Schema.Literal<"no-store">;
+        vary: Schema.Literal<"Origin">;
       }>
     >
   >,
@@ -431,9 +431,9 @@ declare const ListDepartmentsEndpoint: HttpApiEndpoint.HttpApiEndpoint<
       >,
       Schema.toCodecStringTree<
         Schema.Struct<{
-          ETag: Schema.brand<Schema.String, "StrongETag">;
-          "Cache-Control": Schema.Literal<"public, max-age=60, s-maxage=300, must-revalidate">;
-          Vary: Schema.Literal<"Origin">;
+          etag: Schema.brand<Schema.String, "StrongETag">;
+          "cache-control": Schema.Literal<"public, max-age=60, s-maxage=300, must-revalidate">;
+          vary: Schema.Literal<"Origin">;
         }>
       >
     >
@@ -441,9 +441,9 @@ declare const ListDepartmentsEndpoint: HttpApiEndpoint.HttpApiEndpoint<
       Schema.toCodecJson<Schema.Void>,
       Schema.toCodecStringTree<
         Schema.Struct<{
-          ETag: Schema.brand<Schema.String, "StrongETag">;
-          "Cache-Control": Schema.Literal<"public, max-age=60, s-maxage=300, must-revalidate">;
-          Vary: Schema.Literal<"Origin">;
+          etag: Schema.brand<Schema.String, "StrongETag">;
+          "cache-control": Schema.Literal<"public, max-age=60, s-maxage=300, must-revalidate">;
+          vary: Schema.Literal<"Origin">;
         }>
       >
     >,
@@ -490,9 +490,9 @@ declare const ListFieldOfStudiesEndpoint: HttpApiEndpoint.HttpApiEndpoint<
       >,
       Schema.toCodecStringTree<
         Schema.Struct<{
-          ETag: Schema.brand<Schema.String, "StrongETag">;
-          "Cache-Control": Schema.Literal<"public, max-age=60, s-maxage=300, must-revalidate">;
-          Vary: Schema.Literal<"Origin">;
+          etag: Schema.brand<Schema.String, "StrongETag">;
+          "cache-control": Schema.Literal<"public, max-age=60, s-maxage=300, must-revalidate">;
+          vary: Schema.Literal<"Origin">;
         }>
       >
     >
@@ -500,9 +500,9 @@ declare const ListFieldOfStudiesEndpoint: HttpApiEndpoint.HttpApiEndpoint<
       Schema.toCodecJson<Schema.Void>,
       Schema.toCodecStringTree<
         Schema.Struct<{
-          ETag: Schema.brand<Schema.String, "StrongETag">;
-          "Cache-Control": Schema.Literal<"public, max-age=60, s-maxage=300, must-revalidate">;
-          Vary: Schema.Literal<"Origin">;
+          etag: Schema.brand<Schema.String, "StrongETag">;
+          "cache-control": Schema.Literal<"public, max-age=60, s-maxage=300, must-revalidate">;
+          vary: Schema.Literal<"Origin">;
         }>
       >
     >,
@@ -555,8 +555,8 @@ declare const ListMailingListsEndpoint: HttpApiEndpoint.HttpApiEndpoint<
     >,
     Schema.toCodecStringTree<
       Schema.Struct<{
-        "Cache-Control": Schema.Literal<"private, no-store">;
-        Vary: Schema.Literal<"Origin">;
+        "cache-control": Schema.Literal<"private, no-store">;
+        vary: Schema.Literal<"Origin">;
       }>
     >
   >,
@@ -607,8 +607,8 @@ declare const ListTeamInterestEndpoint: HttpApiEndpoint.HttpApiEndpoint<
     >,
     Schema.toCodecStringTree<
       Schema.Struct<{
-        "Cache-Control": Schema.Literal<"private, no-store">;
-        Vary: Schema.Literal<"Origin">;
+        "cache-control": Schema.Literal<"private, no-store">;
+        vary: Schema.Literal<"Origin">;
       }>
     >
   >,
@@ -659,9 +659,9 @@ declare const ListTeamsEndpoint: HttpApiEndpoint.HttpApiEndpoint<
       >,
       Schema.toCodecStringTree<
         Schema.Struct<{
-          ETag: Schema.brand<Schema.String, "StrongETag">;
-          "Cache-Control": Schema.Literal<"public, max-age=60, s-maxage=300, must-revalidate">;
-          Vary: Schema.Literal<"Origin">;
+          etag: Schema.brand<Schema.String, "StrongETag">;
+          "cache-control": Schema.Literal<"public, max-age=60, s-maxage=300, must-revalidate">;
+          vary: Schema.Literal<"Origin">;
         }>
       >
     >
@@ -669,9 +669,9 @@ declare const ListTeamsEndpoint: HttpApiEndpoint.HttpApiEndpoint<
       Schema.toCodecJson<Schema.Void>,
       Schema.toCodecStringTree<
         Schema.Struct<{
-          ETag: Schema.brand<Schema.String, "StrongETag">;
-          "Cache-Control": Schema.Literal<"public, max-age=60, s-maxage=300, must-revalidate">;
-          Vary: Schema.Literal<"Origin">;
+          etag: Schema.brand<Schema.String, "StrongETag">;
+          "cache-control": Schema.Literal<"public, max-age=60, s-maxage=300, must-revalidate">;
+          vary: Schema.Literal<"Origin">;
         }>
       >
     >,

@@ -160,8 +160,8 @@ declare const ListPeopleEndpoint: HttpApiEndpoint.HttpApiEndpoint<
     >,
     Schema.toCodecStringTree<
       Schema.Struct<{
-        "Cache-Control": Schema.Literal<"private, no-store">;
-        Vary: Schema.Literal<"Origin">;
+        "cache-control": Schema.Literal<"private, no-store">;
+        vary: Schema.Literal<"Origin">;
       }>
     >
   >,
@@ -231,8 +231,8 @@ declare const ListSchoolsEndpoint: HttpApiEndpoint.HttpApiEndpoint<
     >,
     Schema.toCodecStringTree<
       Schema.Struct<{
-        "Cache-Control": Schema.Literal<"private, no-store">;
-        Vary: Schema.Literal<"Origin">;
+        "cache-control": Schema.Literal<"private, no-store">;
+        vary: Schema.Literal<"Origin">;
       }>
     >
   >,

@@ -229,8 +229,8 @@ declare const ListReceiptsEndpoint: HttpApiEndpoint.HttpApiEndpoint<
     >,
     Schema.toCodecStringTree<
       Schema.Struct<{
-        "Cache-Control": Schema.Literal<"private, no-store">;
-        Vary: Schema.Literal<"Origin">;
+        "cache-control": Schema.Literal<"private, no-store">;
+        vary: Schema.Literal<"Origin">;
       }>
     >
   >,
@@ -288,8 +288,8 @@ declare const ListReceiptsForApprovalEndpoint: HttpApiEndpoint.HttpApiEndpoint<
     >,
     Schema.toCodecStringTree<
       Schema.Struct<{
-        "Cache-Control": Schema.Literal<"private, no-store">;
-        Vary: Schema.Literal<"Origin">;
+        "cache-control": Schema.Literal<"private, no-store">;
+        vary: Schema.Literal<"Origin">;
       }>
     >
   >,
@@ -349,7 +349,7 @@ declare const ReadReceiptEvidenceEndpoint: HttpApiEndpoint.HttpApiEndpoint<
         >;
       }>
     >,
-    Schema.toCodecStringTree<Schema.Struct<{ "Cache-Control": Schema.Literal<"no-store"> }>>
+    Schema.toCodecStringTree<Schema.Struct<{ "cache-control": Schema.Literal<"no-store"> }>>
   >,
   Schema.toCodecJson<Schema.Codec<unknown, unknown, never, never>>,
   SessionSecurity,
@@ -470,9 +470,9 @@ declare const RefundReceiptEndpoint: HttpApiEndpoint.HttpApiEndpoint<
     >,
     Schema.toCodecStringTree<
       Schema.Struct<{
-        ETag: Schema.brand<Schema.String, "StrongETag">;
-        "Cache-Control": Schema.Literal<"no-store">;
-        Vary: Schema.Literal<"Origin">;
+        etag: Schema.brand<Schema.String, "StrongETag">;
+        "cache-control": Schema.Literal<"no-store">;
+        vary: Schema.Literal<"Origin">;
       }>
     >
   >,
@@ -524,9 +524,9 @@ declare const RejectReceiptEndpoint: HttpApiEndpoint.HttpApiEndpoint<
     >,
     Schema.toCodecStringTree<
       Schema.Struct<{
-        ETag: Schema.brand<Schema.String, "StrongETag">;
-        "Cache-Control": Schema.Literal<"no-store">;
-        Vary: Schema.Literal<"Origin">;
+        etag: Schema.brand<Schema.String, "StrongETag">;
+        "cache-control": Schema.Literal<"no-store">;
+        vary: Schema.Literal<"Origin">;
       }>
     >
   >,
@@ -588,9 +588,9 @@ declare const ReviseReceiptEndpoint: HttpApiEndpoint.HttpApiEndpoint<
     >,
     Schema.toCodecStringTree<
       Schema.Struct<{
-        ETag: Schema.brand<Schema.String, "StrongETag">;
-        "Cache-Control": Schema.Literal<"no-store">;
-        Vary: Schema.Literal<"Origin">;
+        etag: Schema.brand<Schema.String, "StrongETag">;
+        "cache-control": Schema.Literal<"no-store">;
+        vary: Schema.Literal<"Origin">;
       }>
     >
   >,
@@ -649,10 +649,10 @@ declare const SubmitReceiptEndpoint: HttpApiEndpoint.HttpApiEndpoint<
     >,
     Schema.toCodecStringTree<
       Schema.Struct<{
-        ETag: Schema.brand<Schema.String, "StrongETag">;
-        Location: Schema.String;
-        "Cache-Control": Schema.Literal<"no-store">;
-        Vary: Schema.Literal<"Origin">;
+        etag: Schema.brand<Schema.String, "StrongETag">;
+        location: Schema.String;
+        "cache-control": Schema.Literal<"no-store">;
+        vary: Schema.Literal<"Origin">;
       }>
     >
   >,
@@ -704,9 +704,9 @@ declare const WithdrawReceiptEndpoint: HttpApiEndpoint.HttpApiEndpoint<
     >,
     Schema.toCodecStringTree<
       Schema.Struct<{
-        ETag: Schema.brand<Schema.String, "StrongETag">;
-        "Cache-Control": Schema.Literal<"no-store">;
-        Vary: Schema.Literal<"Origin">;
+        etag: Schema.brand<Schema.String, "StrongETag">;
+        "cache-control": Schema.Literal<"no-store">;
+        vary: Schema.Literal<"Origin">;
       }>
     >
   >,

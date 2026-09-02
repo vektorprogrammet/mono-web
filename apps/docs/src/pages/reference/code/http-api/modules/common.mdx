@@ -233,9 +233,9 @@ declare class PersonOrServiceSecurity
 declare const SessionUnauthorizedResponse: HttpApiSchema.WithHeaders<
   Schema.Codec<unknown, unknown, never, never>,
   Schema.Struct<{
-    "Cache-Control": Schema.Literal<"no-store">;
-    Vary: Schema.Literal<"Origin">;
-    "WWW-Authenticate": Schema.String;
+    "cache-control": Schema.Literal<"no-store">;
+    vary: Schema.Literal<"Origin">;
+    "www-authenticate": Schema.String;
   }>
 >;
 ```

@@ -109,8 +109,8 @@ const RetryAfterSeconds = Schema.String.pipe(
 );
 
 const externalHeaders = <CacheControl extends Schema.Top>(cacheControl: CacheControl) => ({
-  "Cache-Control": cacheControl,
-  Vary: OriginVary,
+  "cache-control": cacheControl,
+  vary: OriginVary,
 });
 
 const conditionalReadResponses = <S extends Schema.Top, CacheControl extends Schema.Top>(
@@ -119,7 +119,7 @@ const conditionalReadResponses = <S extends Schema.Top, CacheControl extends Sch
 ) => {
   const headers = {
     ...externalHeaders(cacheControl),
-    ETag: StrongETag,
+    etag: StrongETag,
   };
   return [
     HttpApiSchema.WithHeaders(success, headers),
@@ -149,28 +149,28 @@ export const noStoreReadResponse = <S extends Schema.Top>(success: S) =>
 
 /** Internal response with no browser CORS contract. */
 export const internalNoStoreResponse = <S extends Schema.Top>(success: S) =>
-  HttpApiSchema.WithHeaders(success, { "Cache-Control": NoStore });
+  HttpApiSchema.WithHeaders(success, { "cache-control": NoStore });
 
 /** Successful resource creation response. */
 export const createdMutationResponse = <S extends Schema.Top>(success: S) =>
   HttpApiSchema.WithHeaders(success, {
     ...externalHeaders(NoStore),
-    ETag: StrongETag,
-    Location: OriginRelativeLocation,
+    etag: StrongETag,
+    location: OriginRelativeLocation,
   });
 
 /** Successful mutation response carrying a current mutable representation. */
 export const entityMutationResponse = <S extends Schema.Top>(success: S) =>
   HttpApiSchema.WithHeaders(success, {
     ...externalHeaders(NoStore),
-    ETag: StrongETag,
+    etag: StrongETag,
   });
 
 /** Successful no-content mutation response, optionally with a new entity tag. */
 export const noContentMutationResponse = (options?: { readonly etag?: boolean }) => {
   const response = HttpApiSchema.WithHeaders(HttpApiSchema.NoContent, {
     ...externalHeaders(NoStore),
-    ...(options?.etag === true ? { ETag: StrongETag } : {}),
+    ...(options?.etag === true ? { etag: StrongETag } : {}),
   });
   return response as unknown as Schema.Codec<typeof response.Type, typeof response.Encoded>;
 };
@@ -802,14 +802,14 @@ export const endpointProblemResponses = <S extends Schema.Top>(
     );
   const responses = [...grouped.entries()].map(([status, variants]) => {
     const headers = {
-      "Cache-Control": NoStore,
-      ...(options?.cors === false ? {} : { Vary: OriginVary }),
-      ...(status === 401 ? { "WWW-Authenticate": Schema.String } : {}),
+      "cache-control": NoStore,
+      ...(options?.cors === false ? {} : { vary: OriginVary }),
+      ...(status === 401 ? { "www-authenticate": Schema.String } : {}),
       ...(variants.some((variant) => hasProblemCode(variant, "idempotency.in-flight"))
-        ? { "Retry-After": Schema.optional(Schema.Literal("1")) }
+        ? { "retry-after": Schema.optional(Schema.Literal("1")) }
         : {}),
-      ...(status === 429 ? { "Retry-After": RetryAfterSeconds } : {}),
-      ...(status === 503 ? { "Retry-After": Schema.Literal("5") } : {}),
+      ...(status === 429 ? { "retry-after": RetryAfterSeconds } : {}),
+      ...(status === 503 ? { "retry-after": Schema.Literal("5") } : {}),
     };
     const firstVariant = variants[0];
     if (firstVariant === undefined) throw new Error(`${status} problem group is empty`);

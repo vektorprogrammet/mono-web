@@ -79,7 +79,7 @@ export async function action({ request }: Route.ActionArgs) {
     });
     return data(
       S.decodeUnknownSync(ProfileInput)(
-        { profile: result.body, etag: result.headers.ETag },
+        { profile: result.body, etag: result.headers.etag },
         { onExcessProperty: "error" },
       ),
       { headers: responseHeaders },

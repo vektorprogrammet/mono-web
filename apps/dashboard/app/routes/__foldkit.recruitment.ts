@@ -83,7 +83,7 @@ export async function action({ request }: Route.ActionArgs) {
           throw new Error("Interview conduct response did not include a body");
         }
         return data(
-          { detail: result.body, etag: result.headers.ETag },
+          { detail: result.body, etag: result.headers.etag },
           { headers: responseHeaders },
         );
       }

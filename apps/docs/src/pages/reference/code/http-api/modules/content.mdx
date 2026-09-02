@@ -161,10 +161,10 @@ declare const CreateArticleEndpoint: HttpApiEndpoint.HttpApiEndpoint<
     >,
     Schema.toCodecStringTree<
       Schema.Struct<{
-        ETag: Schema.brand<Schema.String, "StrongETag">;
-        Location: Schema.String;
-        "Cache-Control": Schema.Literal<"no-store">;
-        Vary: Schema.Literal<"Origin">;
+        etag: Schema.brand<Schema.String, "StrongETag">;
+        location: Schema.String;
+        "cache-control": Schema.Literal<"no-store">;
+        vary: Schema.Literal<"Origin">;
       }>
     >
   >,
@@ -217,9 +217,9 @@ declare const ListNewsEndpoint: HttpApiEndpoint.HttpApiEndpoint<
       >,
       Schema.toCodecStringTree<
         Schema.Struct<{
-          ETag: Schema.brand<Schema.String, "StrongETag">;
-          "Cache-Control": Schema.Literal<"public, max-age=60, s-maxage=300, must-revalidate">;
-          Vary: Schema.Literal<"Origin">;
+          etag: Schema.brand<Schema.String, "StrongETag">;
+          "cache-control": Schema.Literal<"public, max-age=60, s-maxage=300, must-revalidate">;
+          vary: Schema.Literal<"Origin">;
         }>
       >
     >
@@ -227,9 +227,9 @@ declare const ListNewsEndpoint: HttpApiEndpoint.HttpApiEndpoint<
       Schema.toCodecJson<Schema.Void>,
       Schema.toCodecStringTree<
         Schema.Struct<{
-          ETag: Schema.brand<Schema.String, "StrongETag">;
-          "Cache-Control": Schema.Literal<"public, max-age=60, s-maxage=300, must-revalidate">;
-          Vary: Schema.Literal<"Origin">;
+          etag: Schema.brand<Schema.String, "StrongETag">;
+          "cache-control": Schema.Literal<"public, max-age=60, s-maxage=300, must-revalidate">;
+          vary: Schema.Literal<"Origin">;
         }>
       >
     >,
@@ -313,9 +313,9 @@ declare const PublishArticleEndpoint: HttpApiEndpoint.HttpApiEndpoint<
     >,
     Schema.toCodecStringTree<
       Schema.Struct<{
-        ETag: Schema.brand<Schema.String, "StrongETag">;
-        "Cache-Control": Schema.Literal<"no-store">;
-        Vary: Schema.Literal<"Origin">;
+        etag: Schema.brand<Schema.String, "StrongETag">;
+        "cache-control": Schema.Literal<"no-store">;
+        vary: Schema.Literal<"Origin">;
       }>
     >
   >,
@@ -368,9 +368,9 @@ declare const ReadArticleEndpoint: HttpApiEndpoint.HttpApiEndpoint<
       >,
       Schema.toCodecStringTree<
         Schema.Struct<{
-          ETag: Schema.brand<Schema.String, "StrongETag">;
-          "Cache-Control": Schema.Literal<"private, no-store">;
-          Vary: Schema.Literal<"Origin">;
+          etag: Schema.brand<Schema.String, "StrongETag">;
+          "cache-control": Schema.Literal<"private, no-store">;
+          vary: Schema.Literal<"Origin">;
         }>
       >
     >
@@ -378,9 +378,9 @@ declare const ReadArticleEndpoint: HttpApiEndpoint.HttpApiEndpoint<
       Schema.toCodecJson<Schema.Void>,
       Schema.toCodecStringTree<
         Schema.Struct<{
-          ETag: Schema.brand<Schema.String, "StrongETag">;
-          "Cache-Control": Schema.Literal<"private, no-store">;
-          Vary: Schema.Literal<"Origin">;
+          etag: Schema.brand<Schema.String, "StrongETag">;
+          "cache-control": Schema.Literal<"private, no-store">;
+          vary: Schema.Literal<"Origin">;
         }>
       >
     >,
@@ -430,8 +430,8 @@ declare const ReadContentWorkspaceEndpoint: HttpApiEndpoint.HttpApiEndpoint<
     >,
     Schema.toCodecStringTree<
       Schema.Struct<{
-        "Cache-Control": Schema.Literal<"private, no-store">;
-        Vary: Schema.Literal<"Origin">;
+        "cache-control": Schema.Literal<"private, no-store">;
+        vary: Schema.Literal<"Origin">;
       }>
     >
   >,
@@ -486,9 +486,9 @@ declare const ReadNewsArticleEndpoint: HttpApiEndpoint.HttpApiEndpoint<
       >,
       Schema.toCodecStringTree<
         Schema.Struct<{
-          ETag: Schema.brand<Schema.String, "StrongETag">;
-          "Cache-Control": Schema.Literal<"public, max-age=60, s-maxage=300, must-revalidate">;
-          Vary: Schema.Literal<"Origin">;
+          etag: Schema.brand<Schema.String, "StrongETag">;
+          "cache-control": Schema.Literal<"public, max-age=60, s-maxage=300, must-revalidate">;
+          vary: Schema.Literal<"Origin">;
         }>
       >
     >
@@ -496,9 +496,9 @@ declare const ReadNewsArticleEndpoint: HttpApiEndpoint.HttpApiEndpoint<
       Schema.toCodecJson<Schema.Void>,
       Schema.toCodecStringTree<
         Schema.Struct<{
-          ETag: Schema.brand<Schema.String, "StrongETag">;
-          "Cache-Control": Schema.Literal<"public, max-age=60, s-maxage=300, must-revalidate">;
-          Vary: Schema.Literal<"Origin">;
+          etag: Schema.brand<Schema.String, "StrongETag">;
+          "cache-control": Schema.Literal<"public, max-age=60, s-maxage=300, must-revalidate">;
+          vary: Schema.Literal<"Origin">;
         }>
       >
     >,
@@ -560,9 +560,9 @@ declare const ReviseArticleEndpoint: HttpApiEndpoint.HttpApiEndpoint<
     >,
     Schema.toCodecStringTree<
       Schema.Struct<{
-        ETag: Schema.brand<Schema.String, "StrongETag">;
-        "Cache-Control": Schema.Literal<"no-store">;
-        Vary: Schema.Literal<"Origin">;
+        etag: Schema.brand<Schema.String, "StrongETag">;
+        "cache-control": Schema.Literal<"no-store">;
+        vary: Schema.Literal<"Origin">;
       }>
     >
   >,
@@ -598,9 +598,9 @@ declare const UnpublishArticleEndpoint: HttpApiEndpoint.HttpApiEndpoint<
     Schema.toCodecJson<Schema.Struct<{ readonly articleId: Schema.brand<Schema.Int, string> }>>,
     Schema.toCodecStringTree<
       Schema.Struct<{
-        ETag: Schema.brand<Schema.String, "StrongETag">;
-        "Cache-Control": Schema.Literal<"no-store">;
-        Vary: Schema.Literal<"Origin">;
+        etag: Schema.brand<Schema.String, "StrongETag">;
+        "cache-control": Schema.Literal<"no-store">;
+        vary: Schema.Literal<"Origin">;
       }>
     >
   >,

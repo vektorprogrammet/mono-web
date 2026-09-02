@@ -67,9 +67,9 @@ const SessionUnauthorizedBody = problemUnion("SessionUnauthorizedProblem", [
 );
 
 export const SessionUnauthorizedResponse = HttpApiSchema.WithHeaders(SessionUnauthorizedBody, {
-  "Cache-Control": Schema.Literal("no-store"),
-  Vary: Schema.Literal("Origin"),
-  "WWW-Authenticate": Schema.String,
+  "cache-control": Schema.Literal("no-store"),
+  vary: Schema.Literal("Origin"),
+  "www-authenticate": Schema.String,
 });
 
 /**
@@ -154,8 +154,8 @@ const InvitationNotFoundBody = problemUnion("InvitationNotFoundProblem", [
 );
 
 export const InvitationNotFoundResponse = HttpApiSchema.WithHeaders(InvitationNotFoundBody, {
-  "Cache-Control": Schema.Literal("no-store"),
-  Vary: Schema.Literal("Origin"),
+  "cache-control": Schema.Literal("no-store"),
+  vary: Schema.Literal("Origin"),
 }) as unknown as Schema.Codec<unknown, unknown>;
 
 /**

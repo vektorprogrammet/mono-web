@@ -119,10 +119,10 @@ declare const AssignApplicantEndpoint: HttpApiEndpoint.HttpApiEndpoint<
     >,
     Schema.toCodecStringTree<
       Schema.Struct<{
-        ETag: Schema.brand<Schema.String, "StrongETag">;
-        Location: Schema.String;
-        "Cache-Control": Schema.Literal<"no-store">;
-        Vary: Schema.Literal<"Origin">;
+        etag: Schema.brand<Schema.String, "StrongETag">;
+        location: Schema.String;
+        "cache-control": Schema.Literal<"no-store">;
+        vary: Schema.Literal<"Origin">;
       }>
     >
   >,
@@ -223,9 +223,9 @@ declare const CancelInterviewEndpoint: HttpApiEndpoint.HttpApiEndpoint<
     >,
     Schema.toCodecStringTree<
       Schema.Struct<{
-        ETag: Schema.brand<Schema.String, "StrongETag">;
-        "Cache-Control": Schema.Literal<"no-store">;
-        Vary: Schema.Literal<"Origin">;
+        etag: Schema.brand<Schema.String, "StrongETag">;
+        "cache-control": Schema.Literal<"no-store">;
+        vary: Schema.Literal<"Origin">;
       }>
     >
   >,
@@ -302,7 +302,7 @@ declare const ConfirmInvitationEndpoint: HttpApiEndpoint.HttpApiEndpoint<
     Schema.Codec<
       HttpApiSchema.withHeaders<
         void,
-        { readonly "Cache-Control": "no-store"; readonly Vary: "Origin"; readonly ETag?: unknown }
+        { readonly etag?: unknown; readonly "cache-control": "no-store"; readonly vary: "Origin" }
       >,
       HttpApiSchema.withHeaders<void, Schema.StringTree>,
       never,
@@ -364,9 +364,9 @@ declare const FinalizeInterviewEndpoint: HttpApiEndpoint.HttpApiEndpoint<
     >,
     Schema.toCodecStringTree<
       Schema.Struct<{
-        ETag: Schema.brand<Schema.String, "StrongETag">;
-        "Cache-Control": Schema.Literal<"no-store">;
-        Vary: Schema.Literal<"Origin">;
+        etag: Schema.brand<Schema.String, "StrongETag">;
+        "cache-control": Schema.Literal<"no-store">;
+        vary: Schema.Literal<"Origin">;
       }>
     >
   >,
@@ -515,8 +515,8 @@ declare const ReadAssignmentBoardEndpoint: HttpApiEndpoint.HttpApiEndpoint<
     >,
     Schema.toCodecStringTree<
       Schema.Struct<{
-        "Cache-Control": Schema.Literal<"private, no-store">;
-        Vary: Schema.Literal<"Origin">;
+        "cache-control": Schema.Literal<"private, no-store">;
+        vary: Schema.Literal<"Origin">;
       }>
     >
   >,
@@ -587,9 +587,9 @@ declare const ReadInterviewConductEndpoint: HttpApiEndpoint.HttpApiEndpoint<
       >,
       Schema.toCodecStringTree<
         Schema.Struct<{
-          ETag: Schema.brand<Schema.String, "StrongETag">;
-          "Cache-Control": Schema.Literal<"private, no-store">;
-          Vary: Schema.Literal<"Origin">;
+          etag: Schema.brand<Schema.String, "StrongETag">;
+          "cache-control": Schema.Literal<"private, no-store">;
+          vary: Schema.Literal<"Origin">;
         }>
       >
     >
@@ -597,9 +597,9 @@ declare const ReadInterviewConductEndpoint: HttpApiEndpoint.HttpApiEndpoint<
       Schema.toCodecJson<Schema.Void>,
       Schema.toCodecStringTree<
         Schema.Struct<{
-          ETag: Schema.brand<Schema.String, "StrongETag">;
-          "Cache-Control": Schema.Literal<"private, no-store">;
-          Vary: Schema.Literal<"Origin">;
+          etag: Schema.brand<Schema.String, "StrongETag">;
+          "cache-control": Schema.Literal<"private, no-store">;
+          vary: Schema.Literal<"Origin">;
         }>
       >
     >,
@@ -663,9 +663,9 @@ declare const ReadInvitationResponseEndpoint: HttpApiEndpoint.HttpApiEndpoint<
       >,
       Schema.toCodecStringTree<
         Schema.Struct<{
-          ETag: Schema.brand<Schema.String, "StrongETag">;
-          "Cache-Control": Schema.Literal<"private, no-store">;
-          Vary: Schema.Literal<"Origin">;
+          etag: Schema.brand<Schema.String, "StrongETag">;
+          "cache-control": Schema.Literal<"private, no-store">;
+          vary: Schema.Literal<"Origin">;
         }>
       >
     >
@@ -673,9 +673,9 @@ declare const ReadInvitationResponseEndpoint: HttpApiEndpoint.HttpApiEndpoint<
       Schema.toCodecJson<Schema.Void>,
       Schema.toCodecStringTree<
         Schema.Struct<{
-          ETag: Schema.brand<Schema.String, "StrongETag">;
-          "Cache-Control": Schema.Literal<"private, no-store">;
-          Vary: Schema.Literal<"Origin">;
+          etag: Schema.brand<Schema.String, "StrongETag">;
+          "cache-control": Schema.Literal<"private, no-store">;
+          vary: Schema.Literal<"Origin">;
         }>
       >
     >,
@@ -839,8 +839,8 @@ declare const ReadSchedulingBoardEndpoint: HttpApiEndpoint.HttpApiEndpoint<
     >,
     Schema.toCodecStringTree<
       Schema.Struct<{
-        "Cache-Control": Schema.Literal<"private, no-store">;
-        Vary: Schema.Literal<"Origin">;
+        "cache-control": Schema.Literal<"private, no-store">;
+        vary: Schema.Literal<"Origin">;
       }>
     >
   >,
@@ -883,7 +883,7 @@ declare const RejectInvitationEndpoint: HttpApiEndpoint.HttpApiEndpoint<
     Schema.Codec<
       HttpApiSchema.withHeaders<
         void,
-        { readonly "Cache-Control": "no-store"; readonly Vary: "Origin"; readonly ETag?: unknown }
+        { readonly etag?: unknown; readonly "cache-control": "no-store"; readonly vary: "Origin" }
       >,
       HttpApiSchema.withHeaders<void, Schema.StringTree>,
       never,
@@ -924,7 +924,7 @@ declare const RequestNewInvitationTimeEndpoint: HttpApiEndpoint.HttpApiEndpoint<
     Schema.Codec<
       HttpApiSchema.withHeaders<
         void,
-        { readonly "Cache-Control": "no-store"; readonly Vary: "Origin"; readonly ETag?: unknown }
+        { readonly etag?: unknown; readonly "cache-control": "no-store"; readonly vary: "Origin" }
       >,
       HttpApiSchema.withHeaders<void, Schema.StringTree>,
       never,
@@ -984,9 +984,9 @@ declare const ScheduleInterviewEndpoint: HttpApiEndpoint.HttpApiEndpoint<
     >,
     Schema.toCodecStringTree<
       Schema.Struct<{
-        ETag: Schema.brand<Schema.String, "StrongETag">;
-        "Cache-Control": Schema.Literal<"no-store">;
-        Vary: Schema.Literal<"Origin">;
+        etag: Schema.brand<Schema.String, "StrongETag">;
+        "cache-control": Schema.Literal<"no-store">;
+        vary: Schema.Literal<"Origin">;
       }>
     >
   >,

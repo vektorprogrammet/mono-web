@@ -59,7 +59,7 @@ declare const DeleteOwnedSessionEndpoint: HttpApiEndpoint.HttpApiEndpoint<
     Schema.Codec<
       HttpApiSchema.withHeaders<
         void,
-        { readonly "Cache-Control": "no-store"; readonly Vary: "Origin"; readonly ETag?: unknown }
+        { readonly etag?: unknown; readonly "cache-control": "no-store"; readonly vary: "Origin" }
       >,
       HttpApiSchema.withHeaders<void, Schema.StringTree>,
       never,
@@ -93,7 +93,7 @@ declare const DeleteSessionEndpoint: HttpApiEndpoint.HttpApiEndpoint<
     Schema.Codec<
       HttpApiSchema.withHeaders<
         void,
-        { readonly "Cache-Control": "no-store"; readonly Vary: "Origin"; readonly ETag?: unknown }
+        { readonly etag?: unknown; readonly "cache-control": "no-store"; readonly vary: "Origin" }
       >,
       HttpApiSchema.withHeaders<void, Schema.StringTree>,
       never,
@@ -124,7 +124,7 @@ declare const HealthEndpoint: HttpApiEndpoint.HttpApiEndpoint<
   HttpApiSchema.WithHeaders<
     Schema.toCodecJson<Schema.Struct<{ readonly status: Schema.Literals<readonly ["ok"]> }>>,
     Schema.toCodecStringTree<
-      Schema.Struct<{ "Cache-Control": Schema.Literal<"no-store">; Vary: Schema.Literal<"Origin"> }>
+      Schema.Struct<{ "cache-control": Schema.Literal<"no-store">; vary: Schema.Literal<"Origin"> }>
     >
   >,
   Schema.toCodecJson<Schema.Codec<unknown, unknown, never, never>>,
@@ -189,8 +189,8 @@ declare const ListSessionsEndpoint: HttpApiEndpoint.HttpApiEndpoint<
     >,
     Schema.toCodecStringTree<
       Schema.Struct<{
-        "Cache-Control": Schema.Literal<"private, no-store">;
-        Vary: Schema.Literal<"Origin">;
+        "cache-control": Schema.Literal<"private, no-store">;
+        vary: Schema.Literal<"Origin">;
       }>
     >
   >,
@@ -230,8 +230,8 @@ declare const ReadSessionEndpoint: HttpApiEndpoint.HttpApiEndpoint<
     >,
     Schema.toCodecStringTree<
       Schema.Struct<{
-        "Cache-Control": Schema.Literal<"private, no-store">;
-        Vary: Schema.Literal<"Origin">;
+        "cache-control": Schema.Literal<"private, no-store">;
+        vary: Schema.Literal<"Origin">;
       }>
     >
   >,
@@ -262,7 +262,7 @@ declare const RevokeAllSessionsEndpoint: HttpApiEndpoint.HttpApiEndpoint<
     Schema.Codec<
       HttpApiSchema.withHeaders<
         void,
-        { readonly "Cache-Control": "no-store"; readonly Vary: "Origin"; readonly ETag?: unknown }
+        { readonly etag?: unknown; readonly "cache-control": "no-store"; readonly vary: "Origin" }
       >,
       HttpApiSchema.withHeaders<void, Schema.StringTree>,
       never,
@@ -296,7 +296,7 @@ declare const RevokeOtherSessionsEndpoint: HttpApiEndpoint.HttpApiEndpoint<
     Schema.Codec<
       HttpApiSchema.withHeaders<
         void,
-        { readonly "Cache-Control": "no-store"; readonly Vary: "Origin"; readonly ETag?: unknown }
+        { readonly etag?: unknown; readonly "cache-control": "no-store"; readonly vary: "Origin" }
       >,
       HttpApiSchema.withHeaders<void, Schema.StringTree>,
       never,

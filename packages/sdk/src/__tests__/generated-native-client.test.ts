@@ -32,4 +32,35 @@ describe("generated NativeApi client", () => {
       '"vkr2.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"',
     );
   });
+  it("decodes Fetch-normalized response headers for a private session read", async () => {
+    const fetch: typeof globalThis.fetch = async () =>
+      new Response(
+        JSON.stringify({
+          sessionId: "session-1",
+          personId: "person-1",
+          createdAt: "2026-09-02T08:00:00.000Z",
+          updatedAt: "2026-09-02T08:00:00.000Z",
+          expiresAt: "2026-09-09T08:00:00.000Z",
+          ipAddress: null,
+          userAgent: null,
+          current: true,
+        }),
+        {
+          status: 200,
+          headers: {
+            "Cache-Control": "private, no-store",
+            "Content-Type": "application/json",
+            Vary: "Origin",
+          },
+        },
+      );
+    const client = createEffectClient("https://api.example.test", { fetch });
+
+    const result = await Effect.runPromise(client.system.readSession());
+
+    expect(result.headers).toEqual({
+      "cache-control": "private, no-store",
+      vary: "Origin",
+    });
+  });
 });

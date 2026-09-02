@@ -72,9 +72,9 @@ declare const ReadOwnProfileEndpoint: HttpApiEndpoint.HttpApiEndpoint<
       >,
       Schema.toCodecStringTree<
         Schema.Struct<{
-          ETag: Schema.brand<Schema.String, "StrongETag">;
-          "Cache-Control": Schema.Literal<"private, no-store">;
-          Vary: Schema.Literal<"Origin">;
+          etag: Schema.brand<Schema.String, "StrongETag">;
+          "cache-control": Schema.Literal<"private, no-store">;
+          vary: Schema.Literal<"Origin">;
         }>
       >
     >
@@ -82,9 +82,9 @@ declare const ReadOwnProfileEndpoint: HttpApiEndpoint.HttpApiEndpoint<
       Schema.toCodecJson<Schema.Void>,
       Schema.toCodecStringTree<
         Schema.Struct<{
-          ETag: Schema.brand<Schema.String, "StrongETag">;
-          "Cache-Control": Schema.Literal<"private, no-store">;
-          Vary: Schema.Literal<"Origin">;
+          etag: Schema.brand<Schema.String, "StrongETag">;
+          "cache-control": Schema.Literal<"private, no-store">;
+          vary: Schema.Literal<"Origin">;
         }>
       >
     >,
@@ -142,9 +142,9 @@ declare const UpdateOwnProfileEndpoint: HttpApiEndpoint.HttpApiEndpoint<
     >,
     Schema.toCodecStringTree<
       Schema.Struct<{
-        ETag: Schema.brand<Schema.String, "StrongETag">;
-        "Cache-Control": Schema.Literal<"no-store">;
-        Vary: Schema.Literal<"Origin">;
+        etag: Schema.brand<Schema.String, "StrongETag">;
+        "cache-control": Schema.Literal<"no-store">;
+        vary: Schema.Literal<"Origin">;
       }>
     >
   >,

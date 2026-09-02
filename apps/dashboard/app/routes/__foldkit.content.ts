@@ -88,11 +88,14 @@ const tagFrom = (error: unknown): ContentBridgeErrorTag => {
   return "ContentPersistenceError";
 };
 
-const articleObservation = <A extends { readonly body: unknown; readonly headers: { readonly ETag: StrongETag } }>(
+const articleObservation = <A extends {
+  readonly body: unknown;
+  readonly headers: { readonly etag: StrongETag };
+}>(
   result: A,
 ) => {
   if (result.body === undefined) throw new Error("Content response did not include a body");
-  return { body: result.body, etag: result.headers.ETag };
+  return { body: result.body, etag: result.headers.etag };
 };
 
 export async function loader({ request }: Route.LoaderArgs) {
@@ -211,7 +214,7 @@ export async function action({ request }: Route.ActionArgs) {
           params: { articleId: command.articleId },
           headers: {
             "idempotency-key": command.commandId,
-            "if-match": current.headers.ETag,
+            "if-match": current.headers.etag,
           },
           payload: {},
         });

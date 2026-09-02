@@ -198,7 +198,7 @@ describe("server-held recruitment invitation bridge", () => {
     };
     const read = vi.fn().mockResolvedValue({
       body: resource.observation,
-      headers: { ETag: etag },
+      headers: { etag },
     });
     createConfiguredPromiseClient.mockReturnValue({
       recruitment: { readInvitationResponse: read },

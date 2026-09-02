@@ -27,7 +27,7 @@ export async function loader({ request }: Route.LoaderArgs) {
       {
         serializedInput: S.encodeSync(ProfileInputJson)({
           profile: result.body,
-          etag: result.headers.ETag,
+          etag: result.headers.etag,
         }),
       },
       { headers: responseHeaders },

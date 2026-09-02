@@ -87,10 +87,10 @@ declare const CreateAdmissionPeriodEndpoint: HttpApiEndpoint.HttpApiEndpoint<
     >,
     toCodecStringTree<
       Struct<{
-        ETag: brand<String, "StrongETag">;
-        Location: String;
-        "Cache-Control": Literal<"no-store">;
-        Vary: Literal<"Origin">;
+        etag: brand<String, "StrongETag">;
+        location: String;
+        "cache-control": Literal<"no-store">;
+        vary: Literal<"Origin">;
       }>
     >
   >,
@@ -138,9 +138,9 @@ declare const ListAdmissionPeriodsEndpoint: HttpApiEndpoint.HttpApiEndpoint<
       >,
       toCodecStringTree<
         Struct<{
-          ETag: brand<String, "StrongETag">;
-          "Cache-Control": Literal<"private, no-store">;
-          Vary: Literal<"Origin">;
+          etag: brand<String, "StrongETag">;
+          "cache-control": Literal<"private, no-store">;
+          vary: Literal<"Origin">;
         }>
       >
     >
@@ -148,9 +148,9 @@ declare const ListAdmissionPeriodsEndpoint: HttpApiEndpoint.HttpApiEndpoint<
       toCodecJson<Void>,
       toCodecStringTree<
         Struct<{
-          ETag: brand<String, "StrongETag">;
-          "Cache-Control": Literal<"private, no-store">;
-          Vary: Literal<"Origin">;
+          etag: brand<String, "StrongETag">;
+          "cache-control": Literal<"private, no-store">;
+          vary: Literal<"Origin">;
         }>
       >
     >,
@@ -196,9 +196,9 @@ declare const ListOpenAdmissionPeriodsEndpoint: HttpApiEndpoint.HttpApiEndpoint<
       >,
       toCodecStringTree<
         Struct<{
-          ETag: brand<String, "StrongETag">;
-          "Cache-Control": String;
-          Vary: Literal<"Origin">;
+          etag: brand<String, "StrongETag">;
+          "cache-control": String;
+          vary: Literal<"Origin">;
         }>
       >
     >
@@ -206,9 +206,9 @@ declare const ListOpenAdmissionPeriodsEndpoint: HttpApiEndpoint.HttpApiEndpoint<
       toCodecJson<Void>,
       toCodecStringTree<
         Struct<{
-          ETag: brand<String, "StrongETag">;
-          "Cache-Control": String;
-          Vary: Literal<"Origin">;
+          etag: brand<String, "StrongETag">;
+          "cache-control": String;
+          vary: Literal<"Origin">;
         }>
       >
     >,
@@ -257,9 +257,9 @@ declare const ReadApplicationCatalogEndpoint: HttpApiEndpoint.HttpApiEndpoint<
       >,
       toCodecStringTree<
         Struct<{
-          ETag: brand<String, "StrongETag">;
-          "Cache-Control": String;
-          Vary: Literal<"Origin">;
+          etag: brand<String, "StrongETag">;
+          "cache-control": String;
+          vary: Literal<"Origin">;
         }>
       >
     >
@@ -267,9 +267,9 @@ declare const ReadApplicationCatalogEndpoint: HttpApiEndpoint.HttpApiEndpoint<
       toCodecJson<Void>,
       toCodecStringTree<
         Struct<{
-          ETag: brand<String, "StrongETag">;
-          "Cache-Control": String;
-          Vary: Literal<"Origin">;
+          etag: brand<String, "StrongETag">;
+          "cache-control": String;
+          vary: Literal<"Origin">;
         }>
       >
     >,
@@ -303,7 +303,7 @@ declare const ReadApplicationConfirmationEndpoint: HttpApiEndpoint.HttpApiEndpoi
         readonly applicationId: brand<String, "PublicApplicationId">;
       }>
     >,
-    toCodecStringTree<Struct<{ "Cache-Control": Literal<"no-store">; Vary: Literal<"Origin"> }>>
+    toCodecStringTree<Struct<{ "cache-control": Literal<"no-store">; vary: Literal<"Origin"> }>>
   >,
   toCodecJson<Codec<unknown, unknown, never, never>>,
   never,
@@ -349,9 +349,9 @@ declare const ReviseAdmissionPeriodEndpoint: HttpApiEndpoint.HttpApiEndpoint<
     >,
     toCodecStringTree<
       Struct<{
-        ETag: brand<String, "StrongETag">;
-        "Cache-Control": Literal<"no-store">;
-        Vary: Literal<"Origin">;
+        etag: brand<String, "StrongETag">;
+        "cache-control": Literal<"no-store">;
+        vary: Literal<"Origin">;
       }>
     >
   >,
@@ -398,10 +398,10 @@ declare const SubmitApplicationEndpoint: HttpApiEndpoint.HttpApiEndpoint<
     >,
     toCodecStringTree<
       Struct<{
-        ETag: brand<String, "StrongETag">;
-        Location: String;
-        "Cache-Control": Literal<"no-store">;
-        Vary: Literal<"Origin">;
+        etag: brand<String, "StrongETag">;
+        location: String;
+        "cache-control": Literal<"no-store">;
+        vary: Literal<"Origin">;
       }>
     >
   >,

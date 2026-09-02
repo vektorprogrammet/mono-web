@@ -166,7 +166,7 @@ export const runOperation = async (
     case "readInvitationResponse": {
       const result = await client.readInvitationResponse({ headers: {} });
       if (result.body === undefined) throw new Error("Invitation response did not include a body");
-      return { observation: result.body, etag: result.headers.ETag };
+      return { observation: result.body, etag: result.headers.etag };
     }
     case "confirmInvitation": {
       const result = await client.confirmInvitation({
@@ -177,7 +177,7 @@ export const runOperation = async (
         payload: {},
       });
       if (result.body === undefined) throw new Error("Invitation response did not include a body");
-      return { observation: result.body, etag: result.headers.ETag };
+      return { observation: result.body, etag: result.headers.etag };
     }
     case "rejectInvitation": {
       const result = await client.rejectInvitation({
@@ -188,7 +188,7 @@ export const runOperation = async (
         payload: operation.message === null ? {} : { message: operation.message },
       });
       if (result.body === undefined) throw new Error("Invitation response did not include a body");
-      return { observation: result.body, etag: result.headers.ETag };
+      return { observation: result.body, etag: result.headers.etag };
     }
     case "requestNewInvitationTime": {
       const result = await client.requestNewInvitationTime({
@@ -199,7 +199,7 @@ export const runOperation = async (
         payload: { message: operation.message },
       });
       if (result.body === undefined) throw new Error("Invitation response did not include a body");
-      return { observation: result.body, etag: result.headers.ETag };
+      return { observation: result.body, etag: result.headers.etag };
     }
   }
 };

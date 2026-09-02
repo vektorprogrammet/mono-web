@@ -24,7 +24,7 @@ vi.mock("../../lib/api.server", () => ({
         if (mocks.readFailure !== undefined) throw mocks.readFailure;
         return {
           body: { articleId: input.params.articleId },
-          headers: { ETag: '"vkr2.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"' },
+          headers: { etag: '"vkr2.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"' },
         };
       },
       createArticle: async (command: unknown) => {
@@ -32,7 +32,7 @@ vi.mock("../../lib/api.server", () => ({
         if (mocks.createFailure !== undefined) throw mocks.createFailure;
         return {
           body: {},
-          headers: { ETag: '"vkr2.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"' },
+          headers: { etag: '"vkr2.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"' },
         };
       },
     },
