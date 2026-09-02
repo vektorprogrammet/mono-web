@@ -11,10 +11,13 @@ import {
   Economy,
   ReceiptFileService,
   ReceiptNotFound,
+  ReceiptOwnerDenied,
   ReceiptScopeDenied,
   UnauthenticatedActor,
   type EconomyShape,
+  type Receipt,
   type ReceiptCommandPrincipal,
+  type ReceiptMutationAuthorization,
   type ReceiptStatus,
   type ReceiptSubmissionAllocation,
 } from "@vektorprogrammet/domain/receipt";
@@ -128,6 +131,7 @@ interface HarnessOptions {
   readonly initialCommittedVersion?: number;
   readonly identitySnapshotFailure?: IdentityEngineError;
 }
+type RevocableReceiptAuthority = "Owner" | "Approval";
 
 const harness = (options: HarnessOptions = {}) => {
   const commands: Array<Record<string, unknown>> = [];
@@ -154,6 +158,8 @@ const harness = (options: HarnessOptions = {}) => {
   let nextTransactionId = 0;
   let currentTransactionId = 0;
   let authorizationPrincipalCalls = 0;
+  const authorizationChecks: Array<string> = [];
+  let revokedAuthority: RevocableReceiptAuthority | undefined;
 
   const sourceReceipt = (command: Record<string, unknown>): ProjectionRow => {
     if (command._tag === "SubmitReceipt") {
@@ -172,6 +178,21 @@ const harness = (options: HarnessOptions = {}) => {
       ) ?? pendingReceipt()
     );
   };
+  const receiptFromProjection = (row: ProjectionRow): Receipt =>
+    ({
+      ...row,
+      amountOre: Number(row.amountOre),
+      refundDate: row.status === "Refunded" ? "2026-08-24T12:00:00.000Z" : null,
+      paymentAccountCiphertext: "encrypted",
+      file: {
+        fileRef: "staging/file-one",
+        objectKey: "committed/file-one",
+        contentType: "image/png",
+        byteLength: 4,
+        sha256: "aa".repeat(32),
+      },
+    }) as Receipt;
+
 
   const executeReceipt: EconomyShape["executeReceipt"] = (input, principal, allocation) =>
     Effect.gen(function* () {
@@ -224,8 +245,79 @@ const harness = (options: HarnessOptions = {}) => {
       } as never;
     });
 
+  const authorizeReceiptMutation: EconomyShape["authorizeReceiptMutation"] = (
+    target,
+    principal,
+  ) =>
+    Effect.suspend(() => {
+      authorizationChecks.push(target._tag);
+      if (target._tag === "SubmitReceipt") {
+        return Effect.succeed({
+          _tag: target._tag,
+          principal,
+          actor: {
+            personId: principal.personId,
+            departmentId: target.departmentId ?? departmentOne,
+            active: true,
+            approvalScope: { _tag: "None" },
+          },
+          departmentId: target.departmentId ?? departmentOne,
+          paymentAccountCiphertext: "encrypted",
+        });
+      }
+      const approval = target._tag === "RefundReceipt" || target._tag === "RejectReceipt";
+      const source = (approval ? options.approvalRows : options.ownedRows)?.find(
+        (row) => row.receiptId === target.receiptId,
+      );
+      if (source === undefined) {
+        return Effect.fail(
+          approval
+            ? new ReceiptScopeDenied({
+                receiptId: target.receiptId,
+                departmentId: departmentOne,
+              })
+            : new ReceiptNotFound({ receiptId: target.receiptId }),
+        );
+      }
+      if (revokedAuthority === (approval ? "Approval" : "Owner")) {
+        return Effect.fail(
+          approval
+            ? new ReceiptScopeDenied({
+                receiptId: target.receiptId,
+                departmentId: source.departmentId,
+              })
+            : new ReceiptOwnerDenied({
+                receiptId: target.receiptId,
+                personId: principal.personId,
+              }),
+        );
+      }
+      const authorization: ReceiptMutationAuthorization = {
+        _tag: target._tag,
+        principal,
+        actor: {
+          personId: principal.personId,
+          departmentId: source.departmentId,
+          active: true,
+          approvalScope: approval
+            ? { _tag: "Department", departmentId: source.departmentId }
+            : { _tag: "None" },
+        },
+        current: receiptFromProjection(source),
+      };
+      return Effect.succeed(authorization);
+    });
+
+  const executeAuthorizedReceipt: EconomyShape["executeAuthorizedReceipt"] = (
+    input,
+    authorization,
+    allocation,
+  ) => executeReceipt(input, authorization.principal, allocation);
+
   const economy: EconomyShape = {
     executeReceipt,
+    authorizeReceiptMutation,
+    executeAuthorizedReceipt,
     listOwnedReceipts: () => Effect.succeed((options.ownedRows ?? []) as never),
     listReceiptsForApproval: (queryPersonId, authorizationInstant, status) => {
       approvalQueries.push({ personId: queryPersonId, authorizationInstant, status });
@@ -389,6 +481,10 @@ const harness = (options: HarnessOptions = {}) => {
     revokeCredential: () => {
       committedVersion = 2;
     },
+    revokeAuthority: (authority: RevocableReceiptAuthority) => {
+      revokedAuthority = authority;
+    },
+    authorizationChecks: () => authorizationChecks,
     authorizationPrincipalCalls: () => authorizationPrincipalCalls,
   };
 };
@@ -651,6 +747,63 @@ describe("receipt v0.2 HTTP contract", () => {
       identitySnapshotVersions: [1, 2],
       receiptContextVersions: [],
       committedVersion: 2,
+    });
+  });
+
+  it("denies a matching owner replay after owner authority revocation without another transition", async () => {
+    const state = harness({ ownedRows: [pendingReceipt()] });
+    const pathname = `/api/receipts/${receiptId}:withdraw`;
+    const idempotencyKey = "withdraw-owner-revocation-key-0001";
+
+    const accepted = await actionRequest(state.http, pathname, idempotencyKey);
+    expect(accepted.status).toBe(200);
+    expect(state.commands).toHaveLength(1);
+    expect(state.authorizationChecks()).toEqual(["WithdrawPendingReceipt"]);
+
+    state.revokeAuthority("Owner");
+    const revokedReplay = await actionRequest(state.http, pathname, idempotencyKey);
+    await expectProblem(revokedReplay, {
+      code: "authority.denied",
+      title: "Authority denied",
+      status: 403,
+      detail: "The authenticated principal is not permitted to perform this operation.",
+    });
+    expect(state.authorizationChecks()).toEqual([
+      "WithdrawPendingReceipt",
+      "WithdrawPendingReceipt",
+    ]);
+    expect(state.commands).toHaveLength(1);
+    expect(state.nativeReceiptCount()).toBe(1);
+    expect(state.mutationTransactions()).toEqual({
+      commandTransactionIds: [1],
+      receiptWriteTransactionIds: [1],
+    });
+  });
+
+  it("denies a matching approval replay after grant revocation without another transition", async () => {
+    const state = harness({ approvalRows: [pendingReceipt()] });
+    const pathname = `/api/receipts/${receiptId}:refund`;
+    const idempotencyKey = "refund-approval-revocation-key-0001";
+
+    const accepted = await actionRequest(state.http, pathname, idempotencyKey);
+    expect(accepted.status).toBe(200);
+    expect(state.commands).toHaveLength(1);
+    expect(state.authorizationChecks()).toEqual(["RefundReceipt"]);
+
+    state.revokeAuthority("Approval");
+    const revokedReplay = await actionRequest(state.http, pathname, idempotencyKey);
+    await expectProblem(revokedReplay, {
+      code: "authority.denied",
+      title: "Authority denied",
+      status: 403,
+      detail: "The authenticated principal is not permitted to perform this operation.",
+    });
+    expect(state.authorizationChecks()).toEqual(["RefundReceipt", "RefundReceipt"]);
+    expect(state.commands).toHaveLength(1);
+    expect(state.nativeReceiptCount()).toBe(1);
+    expect(state.mutationTransactions()).toEqual({
+      commandTransactionIds: [1],
+      receiptWriteTransactionIds: [1],
     });
   });
 

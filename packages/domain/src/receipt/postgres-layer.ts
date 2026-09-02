@@ -6,6 +6,8 @@ import {
   recoverStaleReceiptOutbox,
 } from "./outbox.js";
 import {
+  authorizeReceiptMutation,
+  executeAuthorizedReceiptCommand,
   executeReceiptCommand,
   listReceiptsForApproval as listReceiptsForApprovalPostgres,
 } from "./postgres.js";
@@ -24,6 +26,14 @@ export const EconomyLive = Layer.effect(
     return Economy.of({
       executeReceipt: (input, principal, allocation) =>
         executeReceiptCommand(input, principal, allocation).pipe(
+          Effect.provideService(Database, database),
+        ),
+      authorizeReceiptMutation: (target, principal) =>
+        authorizeReceiptMutation(target, principal).pipe(
+          Effect.provideService(Database, database),
+        ),
+      executeAuthorizedReceipt: (input, authorization, allocation) =>
+        executeAuthorizedReceiptCommand(input, authorization, allocation).pipe(
           Effect.provideService(Database, database),
         ),
       listOwnedReceipts: (ownerPersonId, status) =>

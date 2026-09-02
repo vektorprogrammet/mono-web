@@ -5,7 +5,7 @@
  */
 import { Context, Effect } from "effect";
 import type { OrganizationAuthorityInstant } from "../organization/authority.js";
-import type { PersonId } from "../organization/schema.js";
+import type { DepartmentId, PersonId } from "../organization/schema.js";
 import type { ReceiptAuxiliaryEffects } from "./auxiliary-service.js";
 import type {
   ReceiptApprovalListFailure,
@@ -23,6 +23,7 @@ import type {
 } from "./projections.js";
 import type {
   Receipt,
+  ReceiptActor,
   ReceiptCommandPrincipal,
   ReceiptObservation,
   ReceiptStatus,
@@ -35,11 +36,58 @@ export interface ReceiptTransactionResult {
   readonly replayed: boolean;
   readonly outboxCount: number;
 }
+export type ReceiptMutationAuthorizationTarget =
+  | {
+      readonly _tag: "SubmitReceipt";
+      readonly departmentId?: DepartmentId;
+    }
+  | {
+      readonly _tag:
+        | "RevisePendingReceipt"
+        | "WithdrawPendingReceipt"
+        | "RefundReceipt"
+        | "RejectReceipt";
+      readonly receiptId: string;
+    };
+
+export type ReceiptMutationAuthorization =
+  | {
+      readonly _tag: "SubmitReceipt";
+      readonly principal: ReceiptCommandPrincipal;
+      readonly actor: ReceiptActor;
+      readonly departmentId: DepartmentId;
+      readonly paymentAccountCiphertext: string;
+    }
+  | {
+      readonly _tag:
+        | "RevisePendingReceipt"
+        | "WithdrawPendingReceipt"
+        | "RefundReceipt"
+        | "RejectReceipt";
+      readonly principal: ReceiptCommandPrincipal;
+      readonly actor: ReceiptActor;
+      readonly current: Receipt;
+    };
+
 
 export interface EconomyShape {
   readonly executeReceipt: (
     input: unknown,
     principal: ReceiptCommandPrincipal,
+    allocation?: ReceiptSubmissionAllocation,
+  ) => Effect.Effect<ReceiptTransactionResult, ReceiptFailure>;
+  /**
+   * Resolves current authority for one mutation target on the caller's
+   * transaction connection. The returned witness is valid only in that
+   * transaction and does not apply a lifecycle transition.
+   */
+  readonly authorizeReceiptMutation: (
+    target: ReceiptMutationAuthorizationTarget,
+    principal: ReceiptCommandPrincipal,
+  ) => Effect.Effect<ReceiptMutationAuthorization, ReceiptFailure>;
+  readonly executeAuthorizedReceipt: (
+    input: unknown,
+    authorization: ReceiptMutationAuthorization,
     allocation?: ReceiptSubmissionAllocation,
   ) => Effect.Effect<ReceiptTransactionResult, ReceiptFailure>;
   readonly listOwnedReceipts: (

@@ -145,14 +145,58 @@ type KeepCurrentFileSelection = Extract<ReceiptFileSelection, { readonly _tag: "
 const isKeepCurrentFile = (file: ReceiptFileSelection): file is KeepCurrentFileSelection =>
   "_tag" in file && file._tag === "KeepCurrentFile";
 
+type ReceiptAccessAuthorization =
+  | {
+      readonly _tag: "SubmitReceipt";
+      readonly actor: ReceiptActor;
+      readonly departmentId: DepartmentId;
+    }
+  | {
+      readonly _tag:
+        | "RevisePendingReceipt"
+        | "WithdrawPendingReceipt"
+        | "RefundReceipt"
+        | "RejectReceipt";
+      readonly actor: ReceiptActor;
+      readonly current: Receipt;
+    };
+
+export const authorizeReceiptMutationAccess = (
+  authorization: ReceiptAccessAuthorization,
+): Effect.Effect<void, ReceiptFailure> =>
+  Effect.gen(function* () {
+    yield* activeActor(authorization.actor);
+    switch (authorization._tag) {
+      case "SubmitReceipt":
+        return;
+      case "RevisePendingReceipt":
+      case "WithdrawPendingReceipt":
+        return yield* owner(authorization.current, authorization.actor);
+      case "RefundReceipt":
+      case "RejectReceipt":
+        return yield* approver(authorization.current, authorization.actor);
+    }
+  });
+
 const decideCommand = (
   existing: Receipt | undefined,
   command: AuthorizedReceiptCommand,
   context: ReceiptDecisionContext,
 ): Effect.Effect<ReceiptDecision, ReceiptFailure> =>
   Effect.gen(function* () {
-    yield* activeActor(command.actor);
-
+    yield* authorizeReceiptMutationAccess(
+      command._tag === "SubmitReceipt"
+        ? {
+            _tag: command._tag,
+            actor: command.actor,
+            departmentId: command.departmentId,
+          }
+        : {
+            _tag: command._tag,
+            actor: command.actor,
+            current: yield* requireReceipt(existing, command.receiptId),
+          },
+    );
     return yield* AuthorizedReceiptCommandSchema.match<
       Effect.Effect<ReceiptDecision, ReceiptFailure>
     >(command, {
@@ -160,12 +204,6 @@ const decideCommand = (
         Effect.gen(function* () {
           if (existing !== undefined) {
             return yield* new ReceiptAlreadyExists({ receiptId: context.receiptId });
-          }
-          if (input.actor.departmentId !== input.departmentId) {
-            return yield* new ReceiptScopeDenied({
-              receiptId: context.receiptId,
-              departmentId: input.departmentId,
-            });
           }
           const receipt: Receipt = {
             receiptId: ReceiptId.make(context.receiptId),
@@ -197,7 +235,6 @@ const decideCommand = (
       RevisePendingReceipt: (input) =>
         Effect.gen(function* () {
           const current = yield* requireReceipt(existing, input.receiptId);
-          yield* owner(current, input.actor);
           yield* currentRevision(current, input.expectedRevision);
           yield* pending(current, input._tag);
           const nextFile = isKeepCurrentFile(input.file) ? current.file : input.file;
@@ -230,7 +267,6 @@ const decideCommand = (
       WithdrawPendingReceipt: (input) =>
         Effect.gen(function* () {
           const current = yield* requireReceipt(existing, input.receiptId);
-          yield* owner(current, input.actor);
           yield* currentRevision(current, input.expectedRevision);
           yield* pending(current, input._tag);
           const receipt: Receipt = {
@@ -251,7 +287,6 @@ const decideCommand = (
       RefundReceipt: (input) =>
         Effect.gen(function* () {
           const current = yield* requireReceipt(existing, input.receiptId);
-          yield* approver(current, input.actor);
           yield* currentRevision(current, input.expectedRevision);
           yield* pending(current, input._tag);
           const receipt: Receipt = {
@@ -273,7 +308,6 @@ const decideCommand = (
       RejectReceipt: (input) =>
         Effect.gen(function* () {
           const current = yield* requireReceipt(existing, input.receiptId);
-          yield* approver(current, input.actor);
           yield* currentRevision(current, input.expectedRevision);
           yield* pending(current, input._tag);
           const receipt: Receipt = {
@@ -308,6 +342,7 @@ const decodeReceiptDecisionContext = (
   Schema.decodeUnknownEffect(ReceiptDecisionContextSchema)(input, {
     onExcessProperty: "error",
   }).pipe(Effect.mapError((cause) => new ReceiptDecodeError({ message: String(cause) })));
+
 
 export const decideReceipt = (
   existing: Receipt | undefined,

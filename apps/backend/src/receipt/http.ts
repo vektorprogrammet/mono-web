@@ -42,6 +42,8 @@ import {
   isIsoDate,
   type Receipt,
   type ReceiptCommandPrincipal,
+  type ReceiptMutationAuthorization,
+  type ReceiptMutationAuthorizationTarget,
   type ReceiptOutboxDeliveryResult,
   type ReceiptStatus,
   type ReceiptSubmissionAllocation,
@@ -764,6 +766,7 @@ interface PreparedV2ReceiptMutation {
   readonly requestSha256: string;
   readonly command: unknown;
   readonly principal: ReceiptCommandPrincipal;
+  readonly authorization: ReceiptMutationAuthorization;
   readonly response: {
     readonly status: 200 | 201;
     readonly location?: string;
@@ -772,6 +775,34 @@ interface PreparedV2ReceiptMutation {
   };
   readonly allocation?: ReceiptSubmissionAllocation;
 }
+type ReceiptMutationAuthorizationFor<
+  Target extends ReceiptMutationAuthorizationTarget,
+> = Target["_tag"] extends "SubmitReceipt"
+  ? Extract<ReceiptMutationAuthorization, { readonly _tag: "SubmitReceipt" }>
+  : Exclude<ReceiptMutationAuthorization, { readonly _tag: "SubmitReceipt" }>;
+
+const authorizeReceiptMutationInTransaction = async <
+  Target extends ReceiptMutationAuthorizationTarget,
+>(
+  target: Target,
+  principal: ReceiptCommandPrincipal,
+  run: ReceiptApiHttpOptions["run"],
+): Promise<ReceiptMutationAuthorizationFor<Target>> => {
+  const authorization = await runDatabase(
+    Economy.use(({ authorizeReceiptMutation }) =>
+      authorizeReceiptMutation(target, principal),
+    ),
+    run,
+  );
+  if (authorization._tag !== target._tag) {
+    throw new ReceiptPersistenceError({
+      operation: "authorize Receipt mutation",
+      message: "authorization target mismatch",
+    });
+  }
+  return authorization as ReceiptMutationAuthorizationFor<Target>;
+};
+
 
 const executeV2ReceiptMutation = (
   options: ReceiptApiHttpOptions,
@@ -787,7 +818,7 @@ const executeV2ReceiptMutation = (
             requestSha256: prepared.requestSha256,
             operationId: prepared.operationId,
           },
-          execute: Economy.use(({ executeReceipt }) =>
+          execute: Economy.use(({ executeAuthorizedReceipt }) =>
             Effect.gen(function* () {
               if (
                 prepared.response.ifMatch !== undefined &&
@@ -796,9 +827,9 @@ const executeV2ReceiptMutation = (
               ) {
                 return yield* Effect.fail(new HttpSemanticFailure("precondition.failed", 412));
               }
-              const result = yield* executeReceipt(
+              const result = yield* executeAuthorizedReceipt(
                 prepared.command,
-                prepared.principal,
+                prepared.authorization,
                 prepared.allocation,
               );
               return receiptMutationCapsule(
@@ -813,42 +844,6 @@ const executeV2ReceiptMutation = (
     ),
   );
 
-const currentOwnedReceipt = async (
-  principal: ReceiptCommandPrincipal,
-  receiptId: string,
-  options: ReceiptApiHttpOptions,
-  run: ReceiptApiHttpOptions["run"] = options.run,
-): Promise<OwnedReceiptProjectionItem> => {
-  const rows = await runDatabase(
-    Economy.use(({ listOwnedReceipts }) => listOwnedReceipts(principal.personId)),
-    run,
-  );
-  const current = rows.find((row) => row.receiptId === receiptId);
-  if (current === undefined) throw new ReceiptNotFound({ receiptId });
-  return current;
-};
-
-const currentApprovalReceipt = async (
-  principal: ReceiptCommandPrincipal,
-  receiptId: string,
-  options: ReceiptApiHttpOptions,
-  run: ReceiptApiHttpOptions["run"] = options.run,
-) => {
-  const rows = await runDatabase(
-    Economy.use(({ listReceiptsForApproval }) =>
-      listReceiptsForApproval(
-        PersonId.make(principal.personId),
-        AuthorizationInstant.make(principal.authorizationInstant),
-      ),
-    ),
-    run,
-  );
-  const current = rows.find((row) => row.receiptId === receiptId);
-  if (current === undefined) {
-    throw new HttpSemanticFailure("authority.denied", 403);
-  }
-  return current;
-};
 const ownedReceiptResource = (receipt: OwnedReceiptProjectionItem) => {
   const amountOre = Number(receipt.amountOre);
   if (!Number.isSafeInteger(amountOre) || amountOre <= 0) {
@@ -908,6 +903,14 @@ const submitV2 = async (
   try {
     const outcome = await executeV2ReceiptMutation(options, async (txRun) => {
       const principal = await authorizationPrincipalInTransaction(request, options, txRun);
+      const authorization = await authorizeReceiptMutationInTransaction(
+        {
+          _tag: "SubmitReceipt",
+          ...(departmentId === undefined ? {} : { departmentId }),
+        },
+        principal,
+        txRun,
+      );
       const identity = mutationIdentity(
         request,
         principal,
@@ -951,6 +954,7 @@ const submitV2 = async (
         requestSha256: semanticRequestDigest({ body: semanticBody }),
         command,
         principal,
+        authorization,
         response: {
           status: 201,
           location: `/api/receipts/${encodeURIComponent(allocation.receiptId)}`,
@@ -991,7 +995,12 @@ const reviseV2 = async (
   try {
     const outcome = await executeV2ReceiptMutation(options, async (txRun) => {
       const principal = await authorizationPrincipalInTransaction(request, options, txRun);
-      const current = await currentOwnedReceipt(principal, receiptId, options, txRun);
+      const authorization = await authorizeReceiptMutationInTransaction(
+        { _tag: "RevisePendingReceipt", receiptId },
+        principal,
+        txRun,
+      );
+      const current = authorization.current;
       const identity = mutationIdentity(
         request,
         principal,
@@ -1053,6 +1062,7 @@ const reviseV2 = async (
         ),
         command,
         principal,
+        authorization,
         response: {
           status: 200,
           ifMatch,
@@ -1084,7 +1094,12 @@ const withdrawV2 = async (
   const body = await decodeExactEmptyJson(request);
   const outcome = await executeV2ReceiptMutation(options, async (txRun) => {
     const principal = await authorizationPrincipalInTransaction(request, options, txRun);
-    const current = await currentOwnedReceipt(principal, receiptId, options, txRun);
+    const authorization = await authorizeReceiptMutationInTransaction(
+      { _tag: "WithdrawPendingReceipt", receiptId },
+      principal,
+      txRun,
+    );
+    const current = authorization.current;
     const identity = mutationIdentity(
       request,
       principal,
@@ -1102,6 +1117,7 @@ const withdrawV2 = async (
         expectedRevision: current.revision,
       },
       principal,
+      authorization,
       response: {
         status: 200,
         ifMatch,
@@ -1126,7 +1142,15 @@ const approvalCommandV2 = async (
   const normalizedTarget = `/api/receipts/${encodeURIComponent(route.receiptId)}/${route.action}`;
   const outcome = await executeV2ReceiptMutation(options, async (txRun) => {
     const principal = await authorizationPrincipalInTransaction(request, options, txRun);
-    const current = await currentApprovalReceipt(principal, route.receiptId, options, txRun);
+    const authorization = await authorizeReceiptMutationInTransaction(
+      {
+        _tag: route.action === "refund" ? ("RefundReceipt" as const) : ("RejectReceipt" as const),
+        receiptId: route.receiptId,
+      },
+      principal,
+      txRun,
+    );
+    const current = authorization.current;
     const identity = mutationIdentity(request, principal, operationId, normalizedTarget);
     return {
       identity,
@@ -1139,6 +1163,7 @@ const approvalCommandV2 = async (
         expectedRevision: current.revision,
       },
       principal,
+      authorization,
       response: {
         status: 200,
         ifMatch,

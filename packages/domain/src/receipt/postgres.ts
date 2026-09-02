@@ -57,8 +57,17 @@ import {
   type ReceiptStatus,
   type ReceiptSubmissionAllocation,
 } from "./schema.js";
-import type { ReceiptTransactionResult } from "./service.js";
-import { decideReceipt, type ReceiptDecisionContext, type ReceiptOutboxRequest } from "./update.js";
+import type {
+  ReceiptMutationAuthorization,
+  ReceiptMutationAuthorizationTarget,
+  ReceiptTransactionResult,
+} from "./service.js";
+import {
+  authorizeReceiptMutationAccess,
+  decideReceipt,
+  type ReceiptDecisionContext,
+  type ReceiptOutboxRequest,
+} from "./update.js";
 
 interface CommandReceiptRow {
   readonly command_sha256: string;
@@ -507,6 +516,465 @@ export const listReceiptsForApproval = (
       );
   });
 
+const authorizeReceiptMutationWithSql = (
+  sql: DatabaseShape,
+  target: ReceiptMutationAuthorizationTarget,
+  principal: ReceiptCommandPrincipal,
+): Effect.Effect<ReceiptMutationAuthorization, ReceiptFailure> =>
+  Effect.gen(function* () {
+    const current =
+      target._tag === "SubmitReceipt"
+        ? undefined
+        : yield* findReceipt(sql, target.receiptId);
+    if (target._tag !== "SubmitReceipt" && current === undefined) {
+      return yield* new ReceiptNotFound({ receiptId: target.receiptId });
+    }
+
+    yield* lockPersonAuthorization(sql, principal.personId).pipe(
+      Effect.mapError((cause) => persistenceError(cause.operation, cause.message)),
+    );
+    const organization = yield* resolveOrganizationPersonAuthorityWithSql(
+      sql,
+      principal.personId,
+      principal.authorizationInstant,
+      "ForShare",
+    ).pipe(
+      Effect.mapError((cause) =>
+        cause._tag === "OrganizationDecodeError"
+          ? new ReceiptDecodeError({
+              message: `${cause.operation}: ${cause.message}`,
+            })
+          : persistenceError(cause.operation, cause.message),
+      ),
+    );
+
+    let authorization: ReceiptMutationAuthorization;
+    if (target._tag === "SubmitReceipt") {
+      const directAuthority = yield* resolveReceiptAuthorityWithSql(
+        sql,
+        principal.personId,
+        principal.authorizationInstant,
+        organization,
+        "ForShare",
+      ).pipe(
+        Effect.mapError((cause: ReceiptAuthorityResolutionError) =>
+          cause._tag === "ReceiptPersistenceError"
+            ? cause
+            : cause._tag === "ReceiptDecodeError"
+              ? cause
+              : new ReceiptDecodeError({
+                  message: `Receipt authority projection mismatch for ${cause.personId}`,
+                }),
+        ),
+      );
+      const canonicalDepartment =
+        target.departmentId ??
+        (yield* mapReceiptSubmissionPrincipal(directAuthority).pipe(
+          Effect.mapError((cause: ReceiptAuthorityMappingError) =>
+            cause._tag === "AmbiguousReceiptPaymentAuthority"
+              ? new AmbiguousPaymentSelection({
+                  personId: cause.personId,
+                  departmentIds: cause.departmentIds,
+                })
+              : cause,
+          ),
+        )).actor.departmentId;
+      const context: CanonicalResourceContext<ReceiptAccessFacts> = {
+        domainId: RECEIPT_DOMAIN_ID,
+        departmentId: canonicalDepartment,
+        resource: null,
+        facts: {
+          ownerPersonId: principal.personId,
+          state: "Pending",
+          approverPersonIds: [],
+          approverServicePrincipalIds: [],
+          internalEvidenceEnabled: false,
+        },
+        authorityVersion: AuthorityVersion.make(
+          `receipt-creation:${canonicalDepartment}:${principal.authorizationInstant}`,
+        ),
+      };
+      const applicable = yield* readApplicableAuthorizationRules(
+        sql,
+        { _tag: "Person", personId: principal.personId },
+        "submitReceipt",
+        principal.authorizationInstant,
+        context,
+        "ForShare",
+      ).pipe(
+        Effect.mapError((cause) =>
+          cause._tag === "AuthzPersistenceError"
+            ? persistenceError(cause.operation, cause.message)
+            : new ReceiptDecodeError({
+                message: `${cause.entity}: ${cause.message}`,
+              }),
+        ),
+      );
+      const composition = composeCapabilityEvidence(
+        "submitReceipt",
+        { paymentAuthorities: directAuthority.paymentAuthorities },
+        applicable.rules,
+        {
+          principal: { _tag: "Person", personId: principal.personId },
+          authorizationInstant: principal.authorizationInstant,
+          context,
+          tagAssignments: applicable.tagAssignments,
+        },
+      );
+      if (composition.decision._tag === "Deny") {
+        const compositionFailure = receiptCompositionFailure(
+          composition.decision.reason,
+          principal.personId,
+          "submitReceipt",
+        );
+        if (compositionFailure !== undefined) return yield* compositionFailure;
+        return yield* new ReceiptAuthorityDenied({
+          personId: principal.personId,
+          operation: "Submission",
+          departmentId: canonicalDepartment,
+        });
+      }
+      const composedAuthority = projectReceiptAuthority(
+        organization,
+        composition.evidence.paymentAuthorities ?? [],
+        [],
+      );
+      const submission = yield* mapReceiptSubmissionPrincipal(
+        composedAuthority,
+        canonicalDepartment,
+      ).pipe(
+        Effect.mapError((cause: ReceiptAuthorityMappingError) =>
+          cause._tag === "AmbiguousReceiptPaymentAuthority"
+            ? new AmbiguousPaymentSelection({
+                personId: cause.personId,
+                departmentIds: cause.departmentIds,
+              })
+            : cause,
+        ),
+      );
+      authorization = {
+        _tag: target._tag,
+        principal,
+        actor: submission.actor,
+        departmentId: canonicalDepartment,
+        paymentAccountCiphertext: submission.paymentAccountCiphertext,
+      };
+    } else if (target._tag === "RefundReceipt" || target._tag === "RejectReceipt") {
+      const receipt = current!;
+      const directAuthority = yield* resolveReceiptAuthorityWithSql(
+        sql,
+        principal.personId,
+        principal.authorizationInstant,
+        organization,
+        "ForShare",
+      ).pipe(
+        Effect.mapError((cause: ReceiptAuthorityResolutionError) =>
+          cause._tag === "ReceiptPersistenceError"
+            ? cause
+            : cause._tag === "ReceiptDecodeError"
+              ? cause
+              : new ReceiptDecodeError({
+                  message: `Receipt authority projection mismatch for ${cause.personId}`,
+                }),
+        ),
+      );
+      const unresolvedContext = makeReceiptApprovalContext(
+        receipt,
+        organization,
+        directAuthority,
+        [],
+      );
+      const applicable = yield* readApplicableAuthorizationRules(
+        sql,
+        { _tag: "Person", personId: principal.personId },
+        "approveReceipt",
+        principal.authorizationInstant,
+        unresolvedContext,
+        "ForShare",
+      ).pipe(
+        Effect.mapError((cause) =>
+          cause._tag === "AuthzPersistenceError"
+            ? persistenceError(cause.operation, cause.message)
+            : new ReceiptDecodeError({
+                message: `${cause.entity}: ${cause.message}`,
+              }),
+        ),
+      );
+      const context = makeReceiptApprovalContext(
+        receipt,
+        organization,
+        directAuthority,
+        applicable.rules,
+      );
+      const composition = composeCapabilityEvidence(
+        "approveReceipt",
+        { approvalGrants: directAuthority.approvalGrants },
+        applicable.rules,
+        {
+          principal: { _tag: "Person", personId: principal.personId },
+          authorizationInstant: principal.authorizationInstant,
+          context,
+          tagAssignments: applicable.tagAssignments,
+        },
+      );
+      if (composition.decision._tag === "Deny") {
+        const compositionFailure = receiptCompositionFailure(
+          composition.decision.reason,
+          principal.personId,
+          "approveReceipt",
+        );
+        if (compositionFailure !== undefined) return yield* compositionFailure;
+      }
+      const composedAuthority = projectReceiptAuthority(
+        organization,
+        [],
+        composition.evidence.approvalGrants ?? [],
+      );
+      const actor = yield* mapExistingReceiptApprovalActor(
+        composedAuthority,
+        receipt.receiptId,
+        receipt.departmentId,
+      );
+      authorization = {
+        _tag: target._tag,
+        principal,
+        actor,
+        current: receipt,
+      };
+    } else {
+      const receipt = current!;
+      const actor = yield* mapReceiptOwnerActor(
+        projectReceiptAuthority(organization, [], []),
+        receipt.departmentId,
+      );
+      authorization = {
+        _tag: target._tag,
+        principal,
+        actor,
+        current: receipt,
+      };
+    }
+
+    yield* authorizeReceiptMutationAccess(authorization);
+    return authorization;
+  });
+
+export const authorizeReceiptMutation = (
+  target: ReceiptMutationAuthorizationTarget,
+  principalInput: ReceiptCommandPrincipal,
+): Effect.Effect<ReceiptMutationAuthorization, ReceiptFailure, Database> =>
+  Effect.gen(function* () {
+    const sql = yield* Database;
+    const principal = yield* Schema.decodeUnknownEffect(ReceiptCommandPrincipalSchema)(
+      principalInput,
+      { onExcessProperty: "error" },
+    ).pipe(Effect.mapError((cause) => new ReceiptDecodeError({ message: String(cause) })));
+    return yield* authorizeReceiptMutationWithSql(sql, target, principal);
+  });
+
+
+const decodeReceiptCommand = (input: unknown) =>
+  Schema.decodeUnknownEffect(ReceiptCommandRequestSchema)(input, {
+    onExcessProperty: "error",
+  }).pipe(Effect.mapError((cause) => new ReceiptDecodeError({ message: String(cause) })));
+
+const decodeReceiptPrincipal = (input: ReceiptCommandPrincipal) =>
+  Schema.decodeUnknownEffect(ReceiptCommandPrincipalSchema)(input, {
+    onExcessProperty: "error",
+  }).pipe(Effect.mapError((cause) => new ReceiptDecodeError({ message: String(cause) })));
+
+const targetFromCommand = (
+  command: typeof ReceiptCommandRequestSchema.Type,
+): ReceiptMutationAuthorizationTarget =>
+  command._tag === "SubmitReceipt"
+    ? {
+        _tag: command._tag,
+        ...(command.departmentId === undefined ? {} : { departmentId: command.departmentId }),
+      }
+    : { _tag: command._tag, receiptId: command.receiptId };
+
+const authorizationMatchesCommand = (
+  authorization: ReceiptMutationAuthorization,
+  command: typeof ReceiptCommandRequestSchema.Type,
+): boolean => {
+  if (authorization._tag !== command._tag) return false;
+  if (authorization._tag === "SubmitReceipt") {
+    return (
+      command._tag === "SubmitReceipt" &&
+      (command.departmentId === undefined || command.departmentId === authorization.departmentId)
+    );
+  }
+  return command._tag !== "SubmitReceipt" && authorization.current.receiptId === command.receiptId;
+};
+const executeAuthorizedReceiptCommandWithSql = (
+  sql: DatabaseShape,
+  command: typeof ReceiptCommandRequestSchema.Type,
+  authorization: ReceiptMutationAuthorization,
+  allocationInput?: ReceiptSubmissionAllocation,
+): Effect.Effect<ReceiptTransactionResult, ReceiptFailure> =>
+  Effect.gen(function* () {
+    if (!authorizationMatchesCommand(authorization, command)) {
+      return yield* new ReceiptDecodeError({
+        message: "Receipt mutation authorization does not match the command",
+      });
+    }
+    const principal = authorization.principal;
+    const commandEnvelope = {
+      schema: "ReceiptCommandRequest/v2" as const,
+      principalPersonId: principal.personId,
+      request: command,
+    };
+    const commandJson = canonicalJson(commandEnvelope);
+    const commandDigest = sha256Hex(canonicalJsonBytes(commandEnvelope));
+
+    yield* sql`
+      SELECT pg_catalog.pg_advisory_xact_lock(
+        pg_catalog.hashtextextended(${`receipt-command:${command.commandId}`}, 0)
+      )
+    `.pipe(
+      Effect.asVoid,
+      Effect.catchTag("SqlError", (cause) =>
+        Effect.fail(persistenceError("lock command receipt", cause)),
+      ),
+    );
+    const stored = yield* findCommandReceipt(sql, command.commandId);
+    if (stored !== undefined) {
+      if (stored.command_sha256 !== commandDigest) {
+        return yield* new DuplicateReceiptCommandConflict({
+          commandId: command.commandId,
+        });
+      }
+      const storedObservation = yield* Schema.decodeUnknownEffect(ReceiptObservationSchema)(
+        stored.observation_json,
+        { onExcessProperty: "error" },
+      ).pipe(Effect.mapError((cause) => persistenceError("decode stored observation", cause)));
+      const replayedReceipt = yield* findReceipt(sql, storedObservation.receiptId);
+      if (replayedReceipt === undefined) {
+        return yield* new ReceiptNotFound({ receiptId: storedObservation.receiptId });
+      }
+      return {
+        observation: { ...storedObservation, replayed: true },
+        receipt: replayedReceipt,
+        replayed: true,
+        outboxCount: 0,
+      };
+    }
+
+    const allocation =
+      command._tag === "SubmitReceipt"
+        ? yield* Schema.decodeUnknownEffect(ReceiptSubmissionAllocationSchema)(allocationInput, {
+            onExcessProperty: "error",
+          }).pipe(
+            Effect.mapError(
+              (cause) =>
+                new ReceiptDecodeError({
+                  message: `decode Receipt submission allocation: ${String(cause)}`,
+                }),
+            ),
+          )
+        : undefined;
+    let receiptId: string;
+    let previous: Receipt | undefined;
+    let authorizedCommand: unknown;
+    if (command._tag === "SubmitReceipt") {
+      if (authorization._tag !== "SubmitReceipt") {
+        return yield* new ReceiptDecodeError({
+          message: "Receipt submission authorization does not match the command",
+        });
+      }
+      if (allocation === undefined) {
+        return yield* new ReceiptDecodeError({
+          message: "Receipt submission allocation is required",
+        });
+      }
+      receiptId = allocation.receiptId;
+      previous = yield* findReceipt(sql, receiptId);
+      if (previous !== undefined) {
+        return yield* new ReceiptAlreadyExists({ receiptId });
+      }
+      authorizedCommand = {
+        ...command,
+        actor: authorization.actor,
+        departmentId: authorization.departmentId,
+        paymentAccountCiphertext: authorization.paymentAccountCiphertext,
+      };
+    } else {
+      if (authorization._tag === "SubmitReceipt") {
+        return yield* new ReceiptDecodeError({
+          message: "Existing Receipt authorization does not match the command",
+        });
+      }
+      receiptId = command.receiptId;
+      previous = authorization.current;
+      authorizedCommand = { ...command, actor: authorization.actor };
+    }
+
+    const decisionContext: ReceiptDecisionContext = {
+      receiptId,
+      visualId: allocation?.visualId ?? previous?.visualId ?? receiptId,
+      now: principal.authorizationInstant,
+    };
+    const decision = yield* decideReceipt(previous, authorizedCommand, decisionContext);
+    yield* storeReceipt(sql, decision.receipt, previous);
+    yield* sql`
+      INSERT INTO economy_receipt_command_receipts (
+        command_id, command_sha256, command_json, observation_json,
+        receipt_id, committed_at
+      ) VALUES (
+        ${command.commandId}, ${commandDigest}, ${sql.json(JSON.parse(commandJson))},
+        ${sql.json(decision.observation)}, ${decision.receipt.receiptId},
+        ${principal.authorizationInstant}
+      )
+    `.pipe(
+      Effect.catchTag("SqlError", (cause) =>
+        Effect.fail(persistenceError("insert command receipt", cause)),
+      ),
+    );
+    yield* storeOutbox(sql, decision.outbox);
+    yield* sql`
+      INSERT INTO economy_receipt_audit (
+        command_id, receipt_id, actor_person_id, action,
+        receipt_revision, occurred_at
+      ) VALUES (
+        ${command.commandId}, ${decision.receipt.receiptId},
+        ${principal.personId}, ${decision.auditAction},
+        ${decision.receipt.revision}, ${principal.authorizationInstant}
+      )
+    `.pipe(
+      Effect.catchTag("SqlError", (cause) =>
+        Effect.fail(persistenceError("insert audit", cause)),
+      ),
+    );
+
+    return {
+      observation: decision.observation,
+      receipt: decision.receipt,
+      replayed: false,
+      outboxCount: decision.outbox.length,
+    };
+  });
+
+/**
+ * Executes a mutation already authorized on the caller's transaction
+ * connection. Native HTTP replay invokes authority resolution before deciding
+ * whether this effect runs.
+ */
+export const executeAuthorizedReceiptCommand = (
+  input: unknown,
+  authorization: ReceiptMutationAuthorization,
+  allocationInput?: ReceiptSubmissionAllocation,
+): Effect.Effect<ReceiptTransactionResult, ReceiptFailure, Database> =>
+  Effect.gen(function* () {
+    const sql = yield* Database;
+    const command = yield* decodeReceiptCommand(input);
+    return yield* executeAuthorizedReceiptCommandWithSql(
+      sql,
+      command,
+      authorization,
+      allocationInput,
+    );
+  });
+
 export const executeReceiptCommand = (
   input: unknown,
   principalInput: ReceiptCommandPrincipal,
@@ -514,356 +982,22 @@ export const executeReceiptCommand = (
 ): Effect.Effect<ReceiptTransactionResult, ReceiptFailure, Database> =>
   Effect.gen(function* () {
     const sql = yield* Database;
-
     return yield* sql
       .withTransaction(
         Effect.gen(function* () {
-          const command = yield* Schema.decodeUnknownEffect(ReceiptCommandRequestSchema)(input, {
-            onExcessProperty: "error",
-          }).pipe(Effect.mapError((cause) => new ReceiptDecodeError({ message: String(cause) })));
-          const principal = yield* Schema.decodeUnknownEffect(ReceiptCommandPrincipalSchema)(
-            principalInput,
-            { onExcessProperty: "error" },
-          ).pipe(Effect.mapError((cause) => new ReceiptDecodeError({ message: String(cause) })));
-          const commandEnvelope = {
-            schema: "ReceiptCommandRequest/v2" as const,
-            principalPersonId: principal.personId,
-            request: command,
-          };
-          const commandJson = canonicalJson(commandEnvelope);
-          const commandDigest = sha256Hex(canonicalJsonBytes(commandEnvelope));
-
-          yield* sql`
-            SELECT pg_catalog.pg_advisory_xact_lock(
-              pg_catalog.hashtextextended(${`receipt-command:${command.commandId}`}, 0)
-            )
-          `.pipe(
-            Effect.asVoid,
-            Effect.catchTag("SqlError", (cause) =>
-              Effect.fail(persistenceError("lock command receipt", cause)),
-            ),
-          );
-          const stored = yield* findCommandReceipt(sql, command.commandId);
-          if (stored !== undefined) {
-            if (stored.command_sha256 !== commandDigest) {
-              return yield* new DuplicateReceiptCommandConflict({
-                commandId: command.commandId,
-              });
-            }
-            const storedObservation = yield* Schema.decodeUnknownEffect(ReceiptObservationSchema)(
-              stored.observation_json,
-              { onExcessProperty: "error" },
-            ).pipe(
-              Effect.mapError((cause) => persistenceError("decode stored observation", cause)),
-            );
-            const replayedReceipt = yield* findReceipt(sql, storedObservation.receiptId);
-            if (replayedReceipt === undefined) {
-              return yield* new ReceiptNotFound({ receiptId: storedObservation.receiptId });
-            }
-            return {
-              observation: { ...storedObservation, replayed: true },
-              receipt: replayedReceipt,
-              replayed: true,
-              outboxCount: 0,
-            };
-          }
-
-          const allocation =
-            command._tag === "SubmitReceipt"
-              ? yield* Schema.decodeUnknownEffect(ReceiptSubmissionAllocationSchema)(
-                  allocationInput,
-                  { onExcessProperty: "error" },
-                ).pipe(
-                  Effect.mapError(
-                    (cause) =>
-                      new ReceiptDecodeError({
-                        message: `decode Receipt submission allocation: ${String(cause)}`,
-                      }),
-                  ),
-                )
-              : undefined;
-          let receiptId: string;
-          if (command._tag === "SubmitReceipt") {
-            if (allocation === undefined) {
-              return yield* new ReceiptDecodeError({
-                message: "Receipt submission allocation is required",
-              });
-            }
-            receiptId = allocation.receiptId;
-          } else {
-            receiptId = command.receiptId;
-          }
-          const previous = yield* findReceipt(sql, receiptId);
-          if (command._tag === "SubmitReceipt" && previous !== undefined) {
-            return yield* new ReceiptAlreadyExists({ receiptId });
-          }
-          if (
-            previous === undefined &&
-            (command._tag === "RevisePendingReceipt" || command._tag === "WithdrawPendingReceipt")
-          ) {
-            return yield* new ReceiptNotFound({ receiptId });
-          }
-
-          yield* lockPersonAuthorization(sql, principal.personId).pipe(
-            Effect.mapError((cause) => persistenceError(cause.operation, cause.message)),
-          );
-          const organization = yield* resolveOrganizationPersonAuthorityWithSql(
+          const command = yield* decodeReceiptCommand(input);
+          const principal = yield* decodeReceiptPrincipal(principalInput);
+          const authorization = yield* authorizeReceiptMutationWithSql(
             sql,
-            principal.personId,
-            principal.authorizationInstant,
-            "ForShare",
-          ).pipe(
-            Effect.mapError((cause) =>
-              cause._tag === "OrganizationDecodeError"
-                ? new ReceiptDecodeError({
-                    message: `${cause.operation}: ${cause.message}`,
-                  })
-                : persistenceError(cause.operation, cause.message),
-            ),
+            targetFromCommand(command),
+            principal,
           );
-
-          let authorizedCommand: unknown;
-          if (command._tag === "SubmitReceipt") {
-            const directAuthority = yield* resolveReceiptAuthorityWithSql(
-              sql,
-              principal.personId,
-              principal.authorizationInstant,
-              organization,
-              "ForShare",
-            ).pipe(
-              Effect.mapError((cause: ReceiptAuthorityResolutionError) =>
-                cause._tag === "ReceiptPersistenceError"
-                  ? cause
-                  : cause._tag === "ReceiptDecodeError"
-                    ? cause
-                    : new ReceiptDecodeError({
-                        message: `Receipt authority projection mismatch for ${cause.personId}`,
-                      }),
-              ),
-            );
-            const canonicalDepartment =
-              command.departmentId ??
-              (yield* mapReceiptSubmissionPrincipal(directAuthority).pipe(
-                Effect.mapError((cause: ReceiptAuthorityMappingError) =>
-                  cause._tag === "AmbiguousReceiptPaymentAuthority"
-                    ? new AmbiguousPaymentSelection({
-                        personId: cause.personId,
-                        departmentIds: cause.departmentIds,
-                      })
-                    : cause,
-                ),
-              )).actor.departmentId;
-            const context: CanonicalResourceContext<ReceiptAccessFacts> = {
-              domainId: RECEIPT_DOMAIN_ID,
-              departmentId: canonicalDepartment,
-              resource: null,
-              facts: {
-                ownerPersonId: principal.personId,
-                state: "Pending",
-                approverPersonIds: [],
-                approverServicePrincipalIds: [],
-                internalEvidenceEnabled: false,
-              },
-              authorityVersion: AuthorityVersion.make(
-                `receipt-creation:${canonicalDepartment}:${principal.authorizationInstant}`,
-              ),
-            };
-            const applicable = yield* readApplicableAuthorizationRules(
-              sql,
-              { _tag: "Person", personId: principal.personId },
-              "submitReceipt",
-              principal.authorizationInstant,
-              context,
-              "ForShare",
-            ).pipe(
-              Effect.mapError((cause) =>
-                cause._tag === "AuthzPersistenceError"
-                  ? persistenceError(cause.operation, cause.message)
-                  : new ReceiptDecodeError({
-                      message: `${cause.entity}: ${cause.message}`,
-                    }),
-              ),
-            );
-            const composition = composeCapabilityEvidence(
-              "submitReceipt",
-              { paymentAuthorities: directAuthority.paymentAuthorities },
-              applicable.rules,
-              {
-                principal: { _tag: "Person", personId: principal.personId },
-                authorizationInstant: principal.authorizationInstant,
-                context,
-                tagAssignments: applicable.tagAssignments,
-              },
-            );
-            if (composition.decision._tag === "Deny") {
-              const compositionFailure = receiptCompositionFailure(
-                composition.decision.reason,
-                principal.personId,
-                "submitReceipt",
-              );
-              if (compositionFailure !== undefined) return yield* compositionFailure;
-              return yield* new ReceiptAuthorityDenied({
-                personId: principal.personId,
-                operation: "Submission",
-                departmentId: canonicalDepartment,
-              });
-            }
-            const composedAuthority = projectReceiptAuthority(
-              organization,
-              composition.evidence.paymentAuthorities ?? [],
-              [],
-            );
-            const submission = yield* mapReceiptSubmissionPrincipal(
-              composedAuthority,
-              canonicalDepartment,
-            ).pipe(
-              Effect.mapError((cause: ReceiptAuthorityMappingError) =>
-                cause._tag === "AmbiguousReceiptPaymentAuthority"
-                  ? new AmbiguousPaymentSelection({
-                      personId: cause.personId,
-                      departmentIds: cause.departmentIds,
-                    })
-                  : cause,
-              ),
-            );
-            authorizedCommand = {
-              ...command,
-              actor: submission.actor,
-              departmentId: canonicalDepartment,
-              paymentAccountCiphertext: submission.paymentAccountCiphertext,
-            };
-          } else if (command._tag === "RefundReceipt" || command._tag === "RejectReceipt") {
-            const current = previous;
-            if (current === undefined) {
-              return yield* new ReceiptNotFound({ receiptId });
-            }
-            const directAuthority = yield* resolveReceiptAuthorityWithSql(
-              sql,
-              principal.personId,
-              principal.authorizationInstant,
-              organization,
-              "ForShare",
-            ).pipe(
-              Effect.mapError((cause: ReceiptAuthorityResolutionError) =>
-                cause._tag === "ReceiptPersistenceError"
-                  ? cause
-                  : cause._tag === "ReceiptDecodeError"
-                    ? cause
-                    : new ReceiptDecodeError({
-                        message: `Receipt authority projection mismatch for ${cause.personId}`,
-                      }),
-              ),
-            );
-            const unresolvedContext = makeReceiptApprovalContext(
-              current,
-              organization,
-              directAuthority,
-              [],
-            );
-            const applicable = yield* readApplicableAuthorizationRules(
-              sql,
-              { _tag: "Person", personId: principal.personId },
-              "approveReceipt",
-              principal.authorizationInstant,
-              unresolvedContext,
-              "ForShare",
-            ).pipe(
-              Effect.mapError((cause) =>
-                cause._tag === "AuthzPersistenceError"
-                  ? persistenceError(cause.operation, cause.message)
-                  : new ReceiptDecodeError({
-                      message: `${cause.entity}: ${cause.message}`,
-                    }),
-              ),
-            );
-            const context = makeReceiptApprovalContext(
-              current,
-              organization,
-              directAuthority,
-              applicable.rules,
-            );
-            const composition = composeCapabilityEvidence(
-              "approveReceipt",
-              { approvalGrants: directAuthority.approvalGrants },
-              applicable.rules,
-              {
-                principal: { _tag: "Person", personId: principal.personId },
-                authorizationInstant: principal.authorizationInstant,
-                context,
-                tagAssignments: applicable.tagAssignments,
-              },
-            );
-            if (composition.decision._tag === "Deny") {
-              const compositionFailure = receiptCompositionFailure(
-                composition.decision.reason,
-                principal.personId,
-                "approveReceipt",
-              );
-              if (compositionFailure !== undefined) return yield* compositionFailure;
-            }
-            const composedAuthority = projectReceiptAuthority(
-              organization,
-              [],
-              composition.evidence.approvalGrants ?? [],
-            );
-            const actor = yield* mapExistingReceiptApprovalActor(
-              composedAuthority,
-              current.receiptId,
-              current.departmentId,
-            );
-            authorizedCommand = { ...command, actor };
-          } else {
-            const current = previous as Receipt;
-            const actor = yield* mapReceiptOwnerActor(
-              projectReceiptAuthority(organization, [], []),
-              current.departmentId,
-            );
-            authorizedCommand = { ...command, actor };
-          }
-
-          const decisionContext: ReceiptDecisionContext = {
-            receiptId,
-            visualId: allocation?.visualId ?? previous?.visualId ?? receiptId,
-            now: principal.authorizationInstant,
-          };
-          const decision = yield* decideReceipt(previous, authorizedCommand, decisionContext);
-          yield* storeReceipt(sql, decision.receipt, previous);
-          yield* sql`
-            INSERT INTO economy_receipt_command_receipts (
-              command_id, command_sha256, command_json, observation_json,
-              receipt_id, committed_at
-            ) VALUES (
-              ${command.commandId}, ${commandDigest}, ${sql.json(JSON.parse(commandJson))},
-              ${sql.json(decision.observation)}, ${decision.receipt.receiptId},
-              ${principal.authorizationInstant}
-            )
-          `.pipe(
-            Effect.catchTag("SqlError", (cause) =>
-              Effect.fail(persistenceError("insert command receipt", cause)),
-            ),
+          return yield* executeAuthorizedReceiptCommandWithSql(
+            sql,
+            command,
+            authorization,
+            allocationInput,
           );
-          yield* storeOutbox(sql, decision.outbox);
-          yield* sql`
-            INSERT INTO economy_receipt_audit (
-              command_id, receipt_id, actor_person_id, action,
-              receipt_revision, occurred_at
-            ) VALUES (
-              ${command.commandId}, ${decision.receipt.receiptId},
-              ${principal.personId}, ${decision.auditAction},
-              ${decision.receipt.revision}, ${principal.authorizationInstant}
-            )
-          `.pipe(
-            Effect.catchTag("SqlError", (cause) =>
-              Effect.fail(persistenceError("insert audit", cause)),
-            ),
-          );
-
-          return {
-            observation: decision.observation,
-            receipt: decision.receipt,
-            replayed: false,
-            outboxCount: decision.outbox.length,
-          };
         }),
       )
       .pipe(
