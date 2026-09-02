@@ -1,10 +1,10 @@
 import type {
-  DepartmentJson,
+  ContentWorkspace,
   PublishedNewsArticle,
   PublishedNewsListing,
   PublishedNewsSummary,
-} from "@vektorprogrammet/sdk";
-import type { ContentWorkspace } from "@vektorprogrammet/sdk";
+} from "@vektorprogrammet/domain/content";
+import type { DepartmentJson } from "@vektorprogrammet/domain/organization";
 
 /**
  * News data seam for the homepage loaders (spec 0062 §Homepage public surface

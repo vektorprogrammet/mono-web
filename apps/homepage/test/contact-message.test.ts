@@ -1,6 +1,21 @@
-import { DepartmentJsonSchema, type DepartmentJson } from "@vektorprogrammet/sdk";
+import { DepartmentJsonSchema, type DepartmentJson } from "@vektorprogrammet/domain/organization";
 import { Schema } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
+const contactApi = vi.hoisted(() => ({
+  departments: [] as DepartmentJson[],
+}));
+
+vi.mock("../src/lib/api.server", () => ({
+  createHomepageApiClient: () => ({
+    organization: {
+      listDepartments: async () => ({
+        body: contactApi.departments,
+        headers: {},
+      }),
+    },
+  }),
+}));
+
 import { contactDepartmentSlug, type ContactFormValues } from "../src/lib/contact-message";
 import { loadContactPage, submitContactMessage } from "../src/lib/contact-message.server";
 
@@ -22,12 +37,7 @@ const makeDepartment = (overrides: Record<string, unknown> = {}): DepartmentJson
   });
 
 const department = makeDepartment();
-
-const departmentsResponse = (members: readonly DepartmentJson[] = [department]) =>
-  new Response(JSON.stringify(members), {
-    status: 200,
-    headers: { "content-type": "application/json" },
-  });
+contactApi.departments = [department];
 
 const formRequest = (values: ContactFormValues): Request =>
   new Request("http://homepage.test/kontakt/aas", {
@@ -38,6 +48,7 @@ const formRequest = (values: ContactFormValues): Request =>
 afterEach(() => {
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
+  contactApi.departments = [department];
 });
 
 describe("homepage contact-message boundary", () => {
@@ -47,10 +58,7 @@ describe("homepage contact-message boundary", () => {
 
   it("submits the route-selected department without returning the draft", async () => {
     vi.stubEnv("API_URL", "http://api.test");
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(departmentsResponse())
-      .mockResolvedValueOnce(new Response(null, { status: 201 }));
+    const fetchMock = vi.fn().mockResolvedValueOnce(new Response(null, { status: 201 }));
     vi.stubGlobal("fetch", fetchMock);
     const values = {
       name: "Ola Nordmann",
@@ -63,8 +71,8 @@ describe("homepage contact-message boundary", () => {
 
     expect(result).toEqual({ ok: true });
     expect(JSON.stringify(result)).not.toContain(values.email);
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    const [url, init] = fetchMock.mock.calls[1] as [string, RequestInit];
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toBe("http://api.test/api/contact_messages");
     expect(JSON.parse(String(init.body))).toEqual({
       ...values,
@@ -73,50 +81,40 @@ describe("homepage contact-message boundary", () => {
   });
 
   it("rejects an unknown or inactive department route", async () => {
-    vi.stubEnv("API_URL", "http://api.test");
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(departmentsResponse()));
+    contactApi.departments = [department];
 
     await expect(loadContactPage("bergen")).rejects.toMatchObject({ status: 404 });
   });
 
   it("rejects ambiguous department route slugs", async () => {
-    vi.stubEnv("API_URL", "http://api.test");
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue(
-        departmentsResponse([
-          department,
-          makeDepartment({
-            departmentId: "department-18",
-            name: "Vektorprogrammet Aas",
-            shortName: "Aas",
-          }),
-        ]),
-      ),
-    );
+    contactApi.departments = [
+      department,
+      makeDepartment({
+        departmentId: "department-18",
+        name: "Vektorprogrammet Aas",
+        shortName: "Aas",
+      }),
+    ];
 
     await expect(loadContactPage("aas")).rejects.toMatchObject({ status: 503 });
   });
 
   it("returns 503 (not 404) when the organization projection is empty", async () => {
-    vi.stubEnv("API_URL", "http://api.test");
-    // Fresh Response per call: a Response body can only be read once.
-    vi.stubGlobal("fetch", vi.fn().mockImplementation(async () => departmentsResponse([])));
+    contactApi.departments = [];
 
     await expect(loadContactPage()).rejects.toMatchObject({ status: 503 });
     await expect(loadContactPage("aas")).rejects.toMatchObject({ status: 503 });
   });
 
   it("keeps 404 for a genuinely unknown department when others exist", async () => {
-    vi.stubEnv("API_URL", "http://api.test");
-    vi.stubGlobal("fetch", vi.fn().mockImplementation(async () => departmentsResponse()));
+    contactApi.departments = [department];
 
     await expect(loadContactPage("nonexistent")).rejects.toMatchObject({ status: 404 });
   });
 
   it("keeps invalid private input out of the action response", async () => {
     vi.stubEnv("API_URL", "http://api.test");
-    const fetchMock = vi.fn().mockResolvedValue(departmentsResponse());
+    const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
     const privateCanary = "private-contact-canary";
     const result = await submitContactMessage(
@@ -131,5 +129,35 @@ describe("homepage contact-message boundary", () => {
 
     expect(result).toMatchObject({ ok: false });
     expect(JSON.stringify(result)).not.toContain(privateCanary);
+  });
+
+  it("classifies the exact legacy validation and rate-limit responses", async () => {
+    vi.stubEnv("API_URL", "http://api.test");
+    const values = {
+      name: "Ola Nordmann",
+      email: "ola@example.com",
+      subject: "Et spørsmål",
+      message: "Når starter neste opptak?",
+    } as const;
+    const validationFetch = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          violations: [{ propertyPath: "email", message: "private upstream detail" }],
+        }),
+        { status: 422, headers: { "content-type": "application/json" } },
+      ),
+    );
+    vi.stubGlobal("fetch", validationFetch);
+
+    await expect(submitContactMessage(formRequest(values), "aas")).resolves.toEqual({
+      ok: false,
+      message: "Fyll ut alle feltene med gyldig informasjon.",
+    });
+
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 429 })));
+    await expect(submitContactMessage(formRequest(values), "aas")).resolves.toEqual({
+      ok: false,
+      message: "Du har sendt for mange meldinger. Prøv igjen senere.",
+    });
   });
 });

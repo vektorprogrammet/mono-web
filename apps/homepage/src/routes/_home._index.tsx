@@ -3,7 +3,7 @@ import { Link, useLoaderData } from "react-router";
 import { loadNewsTeaser } from "~/lib/news.server";
 import { Button } from "~/components/ui/button";
 import { BUILD_COMMIT, BUILD_CONTENT_DIGEST, BUILD_ROUTE_DIGEST } from "~/lib/build-provenance";
-import type { PublishedNewsSummary } from "@vektorprogrammet/sdk";
+import type { PublishedNewsSummary } from "@vektorprogrammet/domain/content";
 import { DEV_CONTENT, DEV_CONTENT_SOURCE, type DevContent } from "~/lib/dev-content";
 
 export async function loader(): Promise<

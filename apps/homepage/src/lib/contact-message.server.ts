@@ -1,4 +1,5 @@
-import { RateLimitedError, ValidationError, type DepartmentJson } from "@vektorprogrammet/sdk";
+import { DepartmentId, type DepartmentJson } from "@vektorprogrammet/domain/organization";
+import { Schema } from "effect";
 import { createHomepageApiClient } from "./api.server";
 import {
   type ContactActionData,
@@ -7,33 +8,101 @@ import {
   contactDepartmentSlug,
 } from "./contact-message";
 
-async function activeDepartments(): Promise<readonly DepartmentJson[]> {
-  const departments = (
-    await createHomepageApiClient().public.organization.listDepartments()
-  ).filter(
-    (department) => department.active,
-  );
-  const slugs = new Set<string>();
-  for (const department of departments) {
-    const slug = contactDepartmentSlug(department);
-    if (slug.length === 0 || slugs.has(slug)) {
-      throw new Response("Kontaktdata er midlertidig utilgjengelig.", {
-        status: 503,
-      });
-    }
-    slugs.add(slug);
+const contactText = (maximumLength: number) =>
+  Schema.String.pipe(Schema.check(Schema.isMinLength(1), Schema.isMaxLength(maximumLength)));
+
+const ContactMessageRequest = Schema.Struct({
+  name: contactText(100),
+  email: contactText(254),
+  subject: contactText(200),
+  message: contactText(10_000),
+  departmentId: DepartmentId,
+});
+
+const LegacyValidationResponse = Schema.Struct({
+  violations: Schema.Array(
+    Schema.Struct({
+      propertyPath: Schema.String,
+      message: Schema.String,
+    }),
+  ),
+});
+
+type ContactSubmission =
+  | { readonly _tag: "Submitted" }
+  | { readonly _tag: "Validation" }
+  | { readonly _tag: "RateLimited" }
+  | { readonly _tag: "Failure" };
+
+async function submitLegacyContactMessage(input: unknown): Promise<ContactSubmission> {
+  let payload: typeof ContactMessageRequest.Type;
+  try {
+    payload = Schema.decodeUnknownSync(ContactMessageRequest)(input, {
+      onExcessProperty: "error",
+    });
+  } catch {
+    return { _tag: "Validation" };
   }
-  return departments;
+
+  const apiUrl = process.env.API_URL;
+  if (apiUrl === undefined) return { _tag: "Failure" };
+
+  let response: Response;
+  try {
+    response = await fetch(new URL("/api/contact_messages", apiUrl).toString(), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+  } catch {
+    return { _tag: "Failure" };
+  }
+
+  if (response.status === 201) return { _tag: "Submitted" };
+  if (response.status === 429) return { _tag: "RateLimited" };
+  if (response.status !== 422) return { _tag: "Failure" };
+
+  try {
+    Schema.decodeUnknownSync(LegacyValidationResponse)(await response.json(), {
+      onExcessProperty: "error",
+    });
+    return { _tag: "Validation" };
+  } catch {
+    return { _tag: "Failure" };
+  }
 }
 
-export async function loadContactPage(
-  departmentSlug?: string,
-): Promise<ContactPageData> {
+async function activeDepartments(): Promise<readonly DepartmentJson[]> {
+  try {
+    const result = await createHomepageApiClient().organization.listDepartments({
+      headers: {},
+    });
+    if (result.body === undefined) {
+      throw new Error("The conditional department response has no body.");
+    }
+    const departments = result.body.filter((department) => department.active);
+    const slugs = new Set<string>();
+    for (const department of departments) {
+      const slug = contactDepartmentSlug(department);
+      if (slug.length === 0 || slugs.has(slug)) {
+        throw new Response("Kontaktdata er midlertidig utilgjengelig.", {
+          status: 503,
+        });
+      }
+      slugs.add(slug);
+    }
+    return departments;
+  } catch (error) {
+    if (error instanceof Response) throw error;
+    throw new Response("Kontaktavdelingene er midlertidig utilgjengelige.", {
+      status: 503,
+    });
+  }
+}
+
+export async function loadContactPage(departmentSlug?: string): Promise<ContactPageData> {
   const departments = await activeDepartments();
   if (departments.length === 0) {
-    // The organization projection is empty or unreachable. An empty contact
-    // page or a 404 would misrepresent "no departments exist"; fail honestly
-    // as temporarily unavailable instead.
     throw new Response("Kontaktavdelingene er midlertidig utilgjengelige.", {
       status: 503,
     });
@@ -72,29 +141,28 @@ export async function submitContactMessage(
     subject: formValue(formData, "subject"),
     message: formValue(formData, "message"),
   };
+  const result = await submitLegacyContactMessage({
+    ...values,
+    departmentId: page.selectedDepartment.departmentId,
+  });
 
-  try {
-    await createHomepageApiClient().public.contactMessages.submit({
-      ...values,
-      departmentId: page.selectedDepartment.departmentId,
-    });
-    return { ok: true };
-  } catch (error) {
-    if (error instanceof RateLimitedError) {
+  switch (result._tag) {
+    case "Submitted":
+      return { ok: true };
+    case "RateLimited":
       return {
         ok: false,
         message: "Du har sendt for mange meldinger. Prøv igjen senere.",
       };
-    }
-    if (error instanceof ValidationError) {
+    case "Validation":
       return {
         ok: false,
         message: "Fyll ut alle feltene med gyldig informasjon.",
       };
-    }
-    return {
-      ok: false,
-      message: "Meldingen kunne ikke sendes. Prøv igjen senere.",
-    };
+    case "Failure":
+      return {
+        ok: false,
+        message: "Meldingen kunne ikke sendes. Prøv igjen senere.",
+      };
   }
 }

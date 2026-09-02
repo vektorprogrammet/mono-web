@@ -1,4 +1,4 @@
-import type { DepartmentJson } from "@vektorprogrammet/sdk";
+import type { DepartmentJson } from "@vektorprogrammet/domain/organization";
 
 export type ContactPageData = {
   readonly departments: readonly DepartmentJson[];

@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ContentRejectionError } from "@vektorprogrammet/sdk";
+const articleNotFoundProblem = {
+  type: "urn:vektorprogrammet:problem:v0.2:content.article-not-found",
+  title: "Article not found",
+  status: 404,
+  code: "content.article-not-found",
+  detail: "The requested article does not exist.",
+} as const;
 
 const mocks = vi.hoisted(() => {
   let listingCalls = 0;
@@ -26,39 +32,48 @@ const mocks = vi.hoisted(() => {
 
 vi.mock("../src/lib/api.server", () => ({
   createHomepageApiClient: () => ({
-    public: {
-      news: {
-        list: async () => {
-          if (mocks.listError !== undefined) {
-            throw new (class extends Error {
-              readonly type = "network";
-            })("network down");
-          }
-          mocks.bumpListing();
-          return mocks.listResult;
-        },
-        read: async (slug: string, input?: { readonly version?: number }) => {
-          const article = mocks.readArticle;
-          if (
-            article === undefined ||
-            ("notFound" in article && article.notFound) ||
-            input?.version === 99
-          ) {
-            throw new ContentRejectionError("ArticleNotFound");
-          }
-          if ("networkError" in article && article.networkError) {
-            throw new (class extends Error {
-              readonly type = "network";
-            })("network down");
-          }
-          return input?.version === 1
-            ? { ...article, bodyHtml: "<p>eldre, uforanderlige bytes</p>" }
-            : article;
-        },
+    content: {
+      listNews: async () => {
+        if (mocks.listError !== undefined) {
+          throw new (class extends Error {
+            readonly type = "network";
+          })("network down");
+        }
+        mocks.bumpListing();
+        return { body: mocks.listResult, headers: {} };
       },
-      organization: {
-        listDepartments: async () => mocks.departments,
+      readNewsArticle: async (input: {
+        readonly params: { readonly slug: string };
+        readonly query: { readonly version?: number };
+        readonly headers: object;
+      }) => {
+        const article = mocks.readArticle;
+        if (
+          article === undefined ||
+          ("notFound" in article && article.notFound) ||
+          input.query.version === 99
+        ) {
+          throw articleNotFoundProblem;
+        }
+        if ("networkError" in article && article.networkError) {
+          throw new (class extends Error {
+            readonly type = "network";
+          })("network down");
+        }
+        return {
+          body:
+            input.query.version === 1
+              ? { ...article, bodyHtml: "<p>eldre, uforanderlige bytes</p>" }
+              : article,
+          headers: {},
+        };
       },
+    },
+    organization: {
+      listDepartments: async () => ({
+        body: mocks.departments,
+        headers: {},
+      }),
     },
   }),
 }));

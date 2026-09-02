@@ -1,4 +1,4 @@
-import type { DepartmentJson } from "@vektorprogrammet/sdk";
+import type { DepartmentJson } from "@vektorprogrammet/domain/organization";
 import { Mail, MapPin } from "lucide-react";
 import { Form, Link, useActionData, useNavigation } from "react-router";
 import { Button } from "~/components/ui/button";

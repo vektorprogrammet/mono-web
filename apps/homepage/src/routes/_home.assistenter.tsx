@@ -4,11 +4,7 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
-import {
-  useActionData,
-  useLoaderData,
-  useNavigation,
-} from "react-router";
+import { useActionData, useLoaderData, useNavigation } from "react-router";
 import { getAssistenter } from "~/api/assistenter";
 import { getAssistantFaqs } from "~/api/faq";
 import { Divider } from "~/components/divider";
@@ -23,25 +19,19 @@ import {
 } from "~/lib/public-application";
 import type { Route } from "./+types/_home.assistenter";
 
-
 export async function loader(): Promise<PublicApplicationLoaderData> {
   const client = createHomepageApiClient();
 
   try {
-    const catalog = await client.applications.catalog();
+    const result = await client.admissions.listApplicationOptions({
+      headers: {},
+    });
+    if (result.body === undefined) {
+      throw new Error("The conditional application options response has no body.");
+    }
     return {
       ok: true,
-      catalog: {
-        departments: catalog.departments.map((department) => ({
-          departmentId: department.departmentId,
-          name: department.name,
-          closesAt: department.closesAt,
-          fieldsOfStudy: department.fieldsOfStudy.map((field) => ({
-            fieldOfStudyId: field.fieldOfStudyId,
-            name: field.name,
-          })),
-        })),
-      },
+      catalog: result.body,
     };
   } catch (error) {
     return {
@@ -51,9 +41,7 @@ export async function loader(): Promise<PublicApplicationLoaderData> {
   }
 }
 
-export async function action({
-  request,
-}: Route.ActionArgs): Promise<PublicApplicationActionData> {
+export async function action({ request }: Route.ActionArgs): Promise<PublicApplicationActionData> {
   let formData: FormData;
   try {
     formData = await request.formData();
@@ -74,29 +62,14 @@ export async function action({
 
   const client = createHomepageApiClient();
   try {
-    const submitted = await client.applications.submit(parsed.value);
-    const confirmation = await client.applications.confirmation(
-      submitted.applicationId,
-    );
-    if (confirmation.applicationId !== submitted.applicationId) {
-      return {
-        success: false,
-        failure: {
-          commandId: parsed.value.commandId,
-          error: {
-            _tag: "Unexpected",
-            message: "Søknaden kunne ikke bekreftes. Prøv igjen senere.",
-          },
-        },
-      };
-    }
+    const result = await client.admissions.submitApplication({
+      headers: { "idempotency-key": parsed.value.commandId },
+      payload: parsed.value.payload,
+    });
 
     return {
       success: true,
-      confirmation: {
-        _tag: "ApplicationConfirmed",
-        applicationId: confirmation.applicationId,
-      },
+      confirmation: result.body,
     };
   } catch (error) {
     return {
@@ -118,7 +91,6 @@ export default function Assistenter() {
   const openDepartmentNames = loaderData.ok
     ? loaderData.catalog.departments.map((department) => department.name)
     : [];
-
 
   const assistantFaqs = getAssistantFaqs();
 
@@ -143,9 +115,7 @@ export default function Assistenter() {
       {/* upper end */}
       {/* middle start */}
       <div className="info-background mb-0 flex w-full max-w-full flex-col flex-wrap items-center justify-center gap-24 pt-96 pb-96 text-center md:mt-20 md:gap-40 md:pt-72 md:pb-72">
-        <div className="w-fit font-bold text-3xl text-accent">
-          {"Hvorfor bli assistent?"}
-        </div>
+        <div className="w-fit font-bold text-3xl text-accent">{"Hvorfor bli assistent?"}</div>
         <div className="info-background flex w-full flex-wrap items-center justify-center gap-10 text-center md:flex-row">
           {cards.map(({ title, text, image }) => (
             <div
@@ -161,9 +131,7 @@ export default function Assistenter() {
                 <div className="p-1 text-center font-bold font-sans text-secondary text-xl">
                   {title}
                 </div>
-                <div className="my-1 text-center font-sans dark:text-text-dark">
-                  {text}
-                </div>
+                <div className="my-1 text-center font-sans dark:text-text-dark">{text}</div>
               </div>
             </div>
           ))}
@@ -232,9 +200,7 @@ export default function Assistenter() {
               <li>{"Du studerer på høgskole/universitet"}</li>
               <li>{"Du har hatt R1/S2 på videregående"}</li>
               <li>
-                {
-                  "Du har tid til å dra til en ungdomsskole én dag i uka (kl. 8-14)"
-                }
+                {"Du har tid til å dra til en ungdomsskole én dag i uka (kl. 8-14)"}
                 <br />
                 {"i en periode på 4 eller 8 uker"}
               </li>
@@ -247,27 +213,11 @@ export default function Assistenter() {
               {"Opptaksprosessen"}
             </div>
             <ol className="list-decimal whitespace-normal px-4 leading-loose md:px-0">
-              <li>
-                {
-                  "Vektorprogrammet tar opp nye assistenter i starten av hvert semester"
-                }
-              </li>
-              <li>
-                {"Send inn søknad fra skjemaet lengre ned på denne siden"}
-              </li>
-              <li>
-                {"Møt opp på intervju slik at vi kan bli bedre kjent med deg"}
-              </li>
-              <li>
-                {
-                  "Dra på et gratis forberedelseskurs arrangert av Vektorprogrammet"
-                }
-              </li>
-              <li>
-                {
-                  "Få tildelt en ungdomsskole som du og din vektorpartner skal dra til"
-                }
-              </li>
+              <li>{"Vektorprogrammet tar opp nye assistenter i starten av hvert semester"}</li>
+              <li>{"Send inn søknad fra skjemaet lengre ned på denne siden"}</li>
+              <li>{"Møt opp på intervju slik at vi kan bli bedre kjent med deg"}</li>
+              <li>{"Dra på et gratis forberedelseskurs arrangert av Vektorprogrammet"}</li>
+              <li>{"Få tildelt en ungdomsskole som du og din vektorpartner skal dra til"}</li>
             </ol>
           </div>
         </div>

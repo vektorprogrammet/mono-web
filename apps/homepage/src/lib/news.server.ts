@@ -1,5 +1,9 @@
-import type { PublishedNewsArticle, PublishedNewsListing } from "@vektorprogrammet/sdk";
-import { ContentRejectionError, NotFoundError } from "@vektorprogrammet/sdk";
+import {
+  ArticleSlug,
+  type PublishedNewsArticle,
+  type PublishedNewsListing,
+} from "@vektorprogrammet/domain/content";
+import { DepartmentId } from "@vektorprogrammet/domain/organization";
 import { createHomepageApiClient } from "./api.server";
 import {
   applyDepartmentFilter,
@@ -23,26 +27,33 @@ const upstreamFailure = (): Response =>
 
 const notFound = (): Response => new Response("Nyheten finnes ikke.", { status: 404 });
 
-const isNotFoundLike = (error: unknown): boolean =>
-  error instanceof NotFoundError ||
-  (error instanceof ContentRejectionError && error.contentTag === "ArticleNotFound");
+const hasProblemCode = (error: unknown, code: string): error is { readonly code: string } =>
+  typeof error === "object" && error !== null && "code" in error && error.code === code;
 
 const readListing = async (departmentId: string | null): Promise<PublishedNewsListing> => {
   const client = createHomepageApiClient();
   try {
-    return await client.public.news.list(
-      departmentId === null ? {} : { department: departmentId as never },
-    );
-  } catch (error) {
-    if (isNotFoundLike(error)) throw notFound();
-    throw upstreamFailure(); // NetworkError, decode failure, persistence failure
+    const result = await client.content.listNews({
+      query: departmentId === null ? {} : { department: DepartmentId.make(departmentId) },
+      headers: {},
+    });
+    if (result.body === undefined) throw new Error("The conditional news response has no body.");
+    return result.body;
+  } catch {
+    throw upstreamFailure();
   }
 };
 
 export const loadNewsListing = async (departmentSlugOrId?: string): Promise<NewsListingData> => {
   const client = createHomepageApiClient();
-  const departments = await client.public.organization
-    .listDepartments()
+  const departments = await client.organization
+    .listDepartments({ headers: {} })
+    .then((result) => {
+      if (result.body === undefined) {
+        throw new Error("The conditional department response has no body.");
+      }
+      return result.body;
+    })
     .catch((): readonly never[] => []);
   const { departmentId, degraded } = resolveDepartmentFilter(departments, departmentSlugOrId);
   // One fresh listing read per render; the filter is applied client-side on
@@ -72,20 +83,28 @@ export const loadNewsArticle = async (
     throw notFound();
   }
   try {
-    const [article, listing] = await Promise.all([
-      client.public.news.read(slug, version === undefined ? {} : { version }),
-      client.public.news.list({}),
+    const [articleResult, listingResult] = await Promise.all([
+      client.content.readNewsArticle({
+        params: { slug: ArticleSlug.make(slug) },
+        query: version === undefined ? {} : { version },
+        headers: {},
+      }),
+      client.content.listNews({ query: {}, headers: {} }),
     ]);
+    if (articleResult.body === undefined || listingResult.body === undefined) {
+      throw new Error("The conditional news response has no body.");
+    }
+    const article: PublishedNewsArticle = articleResult.body;
     return {
       article,
-      otherNews: listing.articles
+      otherNews: listingResult.body.articles
         .filter((summary) => summary.slug !== article.slug)
         .slice(0, NEWS_TEASER_COUNT),
     };
   } catch (error) {
     // A draft, withdrawn article, unknown slug, or unknown immutable version
     // is the same plain 404.
-    if (isNotFoundLike(error)) throw notFound();
+    if (hasProblemCode(error, "content.article-not-found")) throw notFound();
     throw upstreamFailure();
   }
 };

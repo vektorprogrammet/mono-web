@@ -1,7 +1,5 @@
-import type {
-  PublicApplicationCatalog,
-  PublicApplicationSubmitInput,
-} from "@vektorprogrammet/sdk";
+import type { PublicApplicationCatalog } from "@vektorprogrammet/domain/application";
+import { IdempotencyKey, SubmitApplicationRequest } from "@vektorprogrammet/http-api";
 import { Schema } from "effect";
 
 const applicantFieldNames = [
@@ -19,9 +17,7 @@ const applicantFieldNames = [
 export type ApplicantFieldName = (typeof applicantFieldNames)[number];
 
 const boundedText = (maximumLength: number) =>
-  Schema.String.pipe(
-    Schema.check(Schema.isMinLength(1), Schema.isMaxLength(maximumLength)),
-  );
+  Schema.String.pipe(Schema.check(Schema.isMinLength(1), Schema.isMaxLength(maximumLength)));
 
 const ApplicantFormRecord = Schema.Struct({
   commandId: boundedText(200),
@@ -39,18 +35,22 @@ type ApplicantFormRecord = typeof ApplicantFormRecord.Type;
 
 export type PublicApplicationErrorCode =
   | "ApplicationFormInvalid"
-  | "PublicApplicationDecodeError"
-  | "NoEligibleAdmissionPeriod"
-  | "DepartmentNotFound"
-  | "FieldOfStudyNotFound"
-  | "FieldOfStudyInactive"
-  | "FieldOfStudyDepartmentMismatch"
-  | "DuplicatePublicApplication"
-  | "DuplicatePublicApplicationCommandConflict"
-  | "PublicApplicationNotFound"
-  | "PublicApplicationPersistenceError"
-  | "RequestBodyTooLarge"
-  | "PublicApplicationRateLimitExceeded"
+  | "validation.failed"
+  | "request.malformed"
+  | "media-type.unsupported"
+  | "application.no-eligible-period"
+  | "application.ambiguous-period"
+  | "application.invalid-field-of-study"
+  | "application.duplicate"
+  | "idempotency-key.invalid"
+  | "idempotency.in-flight"
+  | "idempotency.digest-conflict"
+  | "idempotency.response-expired"
+  | "idempotency.unavailable"
+  | "rate-limit.exceeded"
+  | "request.too-large"
+  | "dependency.unavailable"
+  | "internal.error"
   | "Network"
   | "Configuration"
   | "Unexpected";
@@ -91,7 +91,10 @@ export type PublicApplicationActionData =
 export type ParsedPublicApplicationForm =
   | {
       readonly ok: true;
-      readonly value: PublicApplicationSubmitInput;
+      readonly value: {
+        readonly commandId: IdempotencyKey;
+        readonly payload: SubmitApplicationRequest;
+      };
     }
   | {
       readonly ok: false;
@@ -125,9 +128,7 @@ function readStrictRecord(formData: FormData): Record<string, string> | undefine
     record[name] = value.trim();
   }
 
-  return Object.keys(record).length === applicantFieldNames.length
-    ? record
-    : undefined;
+  return Object.keys(record).length === applicantFieldNames.length ? record : undefined;
 }
 
 function safeCommandId(formData: FormData): string {
@@ -147,9 +148,7 @@ function requiredFieldErrors(
   }
 
   const errors: Partial<Record<ApplicantFieldName, string>> = {};
-  const requiredLabels: ReadonlyArray<
-    readonly [ApplicantFieldName, string]
-  > = [
+  const requiredLabels: ReadonlyArray<readonly [ApplicantFieldName, string]> = [
     ["departmentId", "Velg en avdeling."],
     ["firstName", "Skriv inn fornavn."],
     ["lastName", "Skriv inn etternavn."],
@@ -168,52 +167,50 @@ function requiredFieldErrors(
   return errors;
 }
 
-export function parsePublicApplicationForm(
-  formData: FormData,
-): ParsedPublicApplicationForm {
+export function parsePublicApplicationForm(formData: FormData): ParsedPublicApplicationForm {
   const record = readStrictRecord(formData);
-  let decoded: ApplicantFormRecord;
 
   try {
-    decoded = Schema.decodeUnknownSync(ApplicantFormRecord)(record, {
+    const decoded = Schema.decodeUnknownSync(ApplicantFormRecord)(record, {
       onExcessProperty: "error",
     });
+    const commandId = Schema.decodeUnknownSync(IdempotencyKey)(decoded.commandId);
+    const payload = Schema.decodeUnknownSync(SubmitApplicationRequest)(
+      {
+        departmentId: decoded.departmentId,
+        firstName: decoded.firstName,
+        lastName: decoded.lastName,
+        phone: decoded.phone,
+        email: decoded.email,
+        gender: decoded.gender === "0" ? 0 : 1,
+        fieldOfStudyId: decoded.fieldOfStudyId,
+        yearOfStudy: Number(decoded.yearOfStudy),
+      },
+      { onExcessProperty: "error" },
+    );
+    return { ok: true, value: { commandId, payload } };
   } catch {
+    const commandId = safeCommandId(formData);
     return {
       ok: false,
-      commandId: safeCommandId(formData),
+      commandId,
       error: {
         _tag: "ApplicationFormInvalid",
         message: "Kontroller at alle obligatoriske felt er riktig utfylt.",
         fieldErrors: requiredFieldErrors(record),
-        resetCommandId: safeCommandId(formData) === "",
+        resetCommandId: commandId === "",
       },
     };
   }
-
-  return {
-    ok: true,
-    value: {
-      commandId: decoded.commandId,
-      departmentId: decoded.departmentId,
-      firstName: decoded.firstName,
-      lastName: decoded.lastName,
-      phone: decoded.phone,
-      email: decoded.email,
-      gender: decoded.gender === "0" ? 0 : 1,
-      fieldOfStudyId: decoded.fieldOfStudyId,
-      yearOfStudy: Number(decoded.yearOfStudy) as 1 | 2 | 3 | 4 | 5,
-    },
-  };
 }
 
 type ErrorShape = {
-  readonly _tag?: unknown;
+  readonly code?: unknown;
   readonly type?: unknown;
+  readonly validation?: unknown;
 };
 
-
-const domainMessages: Readonly<
+const problemMessages: Readonly<
   Record<
     Exclude<
       PublicApplicationErrorCode,
@@ -222,49 +219,85 @@ const domainMessages: Readonly<
     string
   >
 > = {
-  PublicApplicationDecodeError:
-    "Kontroller at alle obligatoriske felt er riktig utfylt.",
-  NoEligibleAdmissionPeriod:
+  "validation.failed": "Kontroller at alle obligatoriske felt er riktig utfylt.",
+  "request.malformed": "Søknaden kunne ikke leses. Kontroller feltene og prøv igjen.",
+  "media-type.unsupported": "Søknaden kunne ikke sendes i riktig format. Prøv igjen.",
+  "application.no-eligible-period":
     "Opptaket ble stengt før søknaden ble sendt. Oppdater siden for å se gjeldende opptak.",
-  DepartmentNotFound:
-    "Avdelingen er ikke tilgjengelig. Oppdater siden og velg på nytt.",
-  FieldOfStudyNotFound:
-    "Studieretningen er ikke tilgjengelig. Velg en annen studieretning.",
-  FieldOfStudyInactive:
-    "Studieretningen er ikke tilgjengelig. Velg en annen studieretning.",
-  FieldOfStudyDepartmentMismatch:
-    "Studieretningen tilhører ikke valgt avdeling. Velg studieretning på nytt.",
-  DuplicatePublicApplication:
-    "Du har allerede sendt en søknad i denne opptaksperioden.",
-  DuplicatePublicApplicationCommandConflict:
-    "Innsendingen ble endret underveis. Prøv å sende søknaden på nytt.",
-  PublicApplicationNotFound:
-    "Vi kunne ikke bekrefte søknadsreferansen akkurat nå. Prøv igjen.",
-  PublicApplicationPersistenceError:
-    "Søknadstjenesten er midlertidig utilgjengelig. Prøv igjen senere.",
-  RequestBodyTooLarge:
-    "Søknaden inneholder mer data enn tjenesten kan ta imot.",
-  PublicApplicationRateLimitExceeded:
-    "Det er sendt for mange forespørsler. Vent litt før du prøver igjen.",
+  "application.ambiguous-period":
+    "Søknaden kunne ikke knyttes til ett opptak. Oppdater siden og prøv igjen.",
+  "application.invalid-field-of-study":
+    "Studieretningen er ikke tilgjengelig for valgt avdeling. Velg studieretning på nytt.",
+  "application.duplicate": "Du har allerede sendt en søknad i denne opptaksperioden.",
+  "idempotency-key.invalid": "Innsendingen er utløpt. Start innsendingen på nytt.",
+  "idempotency.in-flight": "Søknaden sendes allerede. Vent litt før du prøver igjen.",
+  "idempotency.digest-conflict": "Innsendingen ble endret underveis. Start innsendingen på nytt.",
+  "idempotency.response-expired":
+    "Bekreftelsen for innsendingen er utløpt. Start innsendingen på nytt.",
+  "idempotency.unavailable": "Søknadstjenesten er midlertidig utilgjengelig. Prøv igjen senere.",
+  "rate-limit.exceeded": "Det er sendt for mange forespørsler. Vent litt før du prøver igjen.",
+  "request.too-large": "Søknaden inneholder mer data enn tjenesten kan ta imot.",
+  "dependency.unavailable": "Søknadstjenesten er midlertidig utilgjengelig. Prøv igjen senere.",
+  "internal.error": "Søknadstjenesten er midlertidig utilgjengelig. Prøv igjen senere.",
 };
 
-function isDomainErrorCode(value: unknown): value is keyof typeof domainMessages {
-  return typeof value === "string" && Object.hasOwn(domainMessages, value);
+const applicationFieldByPointer: Readonly<Record<string, ApplicantFieldName>> = {
+  "/departmentId": "departmentId",
+  "/firstName": "firstName",
+  "/lastName": "lastName",
+  "/phone": "phone",
+  "/email": "email",
+  "/gender": "gender",
+  "/fieldOfStudyId": "fieldOfStudyId",
+  "/yearOfStudy": "yearOfStudy",
+};
+
+function validationFieldErrors(
+  validation: unknown,
+): Partial<Record<ApplicantFieldName, string>> | undefined {
+  if (
+    typeof validation !== "object" ||
+    validation === null ||
+    !("errors" in validation) ||
+    !Array.isArray(validation.errors)
+  ) {
+    return undefined;
+  }
+
+  const fieldErrors: Partial<Record<ApplicantFieldName, string>> = {};
+  for (const error of validation.errors) {
+    if (
+      typeof error === "object" &&
+      error !== null &&
+      "pointer" in error &&
+      typeof error.pointer === "string"
+    ) {
+      const field = applicationFieldByPointer[error.pointer];
+      if (field !== undefined) fieldErrors[field] = "Kontroller dette feltet.";
+    }
+  }
+  return Object.keys(fieldErrors).length === 0 ? undefined : fieldErrors;
 }
 
-export function mapPublicApplicationError(
-  error: unknown,
-): PublicApplicationErrorView {
-  const shape: ErrorShape =
-    typeof error === "object" && error !== null ? error : {};
+function isProblemCode(code: unknown): code is keyof typeof problemMessages {
+  return typeof code === "string" && Object.hasOwn(problemMessages, code);
+}
 
-  if (isDomainErrorCode(shape._tag)) {
+export function mapPublicApplicationError(error: unknown): PublicApplicationErrorView {
+  const shape: ErrorShape = typeof error === "object" && error !== null ? error : {};
+
+  if (isProblemCode(shape.code)) {
+    const resetCommandId =
+      shape.code === "idempotency-key.invalid" ||
+      shape.code === "idempotency.digest-conflict" ||
+      shape.code === "idempotency.response-expired";
+    const fieldErrors =
+      shape.code === "validation.failed" ? validationFieldErrors(shape.validation) : undefined;
     return {
-      _tag: shape._tag,
-      message: domainMessages[shape._tag],
-      ...(shape._tag === "DuplicatePublicApplicationCommandConflict"
-        ? { resetCommandId: true }
-        : {}),
+      _tag: shape.code,
+      message: problemMessages[shape.code],
+      ...(fieldErrors === undefined ? {} : { fieldErrors }),
+      ...(resetCommandId ? { resetCommandId: true } : {}),
     };
   }
 
@@ -278,18 +311,6 @@ export function mapPublicApplicationError(
     return {
       _tag: "Configuration",
       message: "Søknadstjenesten er ikke tilgjengelig på denne siden.",
-    };
-  }
-  if (shape.type === "validation") {
-    return {
-      _tag: "PublicApplicationDecodeError",
-      message: domainMessages.PublicApplicationDecodeError,
-    };
-  }
-  if (shape.type === "rate_limited") {
-    return {
-      _tag: "PublicApplicationRateLimitExceeded",
-      message: domainMessages.PublicApplicationRateLimitExceeded,
     };
   }
 
