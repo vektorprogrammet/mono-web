@@ -1,18 +1,22 @@
-import type { UserProfile } from "@vektorprogrammet/sdk/effect";
+import { UserProfileResponse } from "@vektorprogrammet/http-api";
+import { Schema as S } from "effect";
 import { describe, expect, it } from "vitest";
 import { loadProfile, projectProfile } from "./profile-view";
 
-const profile = (overrides: Partial<UserProfile> = {}): UserProfile => ({
-  personId: "person-17" as UserProfile["personId"],
-  firstName: "Ada",
-  lastName: "Lovelace",
-  email: "ada@example.invalid",
-  phone: "12345678",
-  role: "ROLE_TEAM_MEMBER",
-  nameRevision: 0,
-  contactRevision: 0,
-  ...overrides,
-});
+const profile = (
+  overrides: Partial<typeof UserProfileResponse.Type> = {},
+): typeof UserProfileResponse.Type =>
+  S.decodeUnknownSync(UserProfileResponse)({
+    personId: "person-17",
+    firstName: "Ada",
+    lastName: "Lovelace",
+    email: "ada@example.invalid",
+    phone: "12345678",
+    role: "ROLE_TEAM_MEMBER",
+    nameRevision: 0,
+    contactRevision: 0,
+    ...overrides,
+  });
 
 describe("profile read projection", () => {
   it("projects only fields warranted by the decoded profile", () => {

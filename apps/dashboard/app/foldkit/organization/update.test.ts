@@ -2,7 +2,7 @@ import {
   DepartmentJsonSchema,
   FieldOfStudyJsonSchema,
   TeamJsonSchema,
-} from "@vektorprogrammet/sdk/effect";
+} from "@vektorprogrammet/domain";
 import { Effect, Schema as S } from "effect";
 import { AsyncData } from "foldkit";
 import { describe, expect, it } from "vitest";
@@ -55,12 +55,10 @@ const fieldOfStudy = S.decodeUnknownSync(FieldOfStudyJsonSchema)({
 });
 
 const client: OrganizationCatalogClient = {
-  public: {
-    organization: {
-      listDepartments: () => Effect.die("not executed by transition tests"),
-      listTeams: () => Effect.die("not executed by transition tests"),
-      listFieldOfStudies: () => Effect.die("not executed by transition tests"),
-    },
+  organization: {
+    listDepartments: () => Effect.die("not executed by transition tests"),
+    listTeams: () => Effect.die("not executed by transition tests"),
+    listFieldOfStudies: () => Effect.die("not executed by transition tests"),
   },
 };
 const update = makeUpdate(makeOrganizationCatalogCommands(client));

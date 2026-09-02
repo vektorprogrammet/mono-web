@@ -1,13 +1,15 @@
-import { DepartmentListSchema,
-FieldOfStudyListSchema,
-TeamListSchema, } from "@vektorprogrammet/domain"
+import {
+  DepartmentJsonSchema,
+  FieldOfStudyJsonSchema,
+  TeamJsonSchema,
+} from "@vektorprogrammet/domain";
 import { Schema as S } from "effect";
 import { AsyncData } from "foldkit";
+const DepartmentListSchema = S.Array(DepartmentJsonSchema);
+const TeamListSchema = S.Array(TeamJsonSchema);
+const FieldOfStudyListSchema = S.Array(FieldOfStudyJsonSchema);
 
-export const OrganizationCatalogKind = S.Union([
-  S.Literal("Team"),
-  S.Literal("FieldOfStudy"),
-]);
+export const OrganizationCatalogKind = S.Union([S.Literal("Team"), S.Literal("FieldOfStudy")]);
 export type OrganizationCatalogKind = S.Schema.Type<typeof OrganizationCatalogKind>;
 
 export const OrganizationCatalogRequestId = S.Int.check(S.isGreaterThanOrEqualTo(1));

@@ -1,9 +1,3 @@
-import {
-  ConfigurationError,
-  NetworkError,
-  ProfileRejectionError,
-  UnauthorizedError,
-} from "@vektorprogrammet/sdk";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -40,34 +34,35 @@ describe("parent dashboard authority gate", () => {
     mocks.expiredSessionRedirect.mockResolvedValue(
       new Response(null, { status: 302, headers: { location: "/login?expired=true" } }),
     );
-    mocks.createAuthenticatedClient.mockReturnValue({ me: { profile: mocks.profile } });
+    mocks.createAuthenticatedClient.mockReturnValue({
+      profile: { readOwnProfile: mocks.profile },
+    });
     mocks.loadSessionIdentity.mockResolvedValue({
       name: "Member Session",
       email: "member@example.invalid",
     });
   });
 
-  it.each(["AuthorityInactive", "NotInScope"] as const)(
-    "keeps an authenticated %s actor in a shell with session identity",
-    async (tag) => {
-      mocks.profile.mockRejectedValueOnce(new ProfileRejectionError(tag));
+  it("keeps an authenticated authority-denied actor in a shell with session identity", async () => {
+    mocks.profile.mockRejectedValueOnce({ code: "authority.denied" });
 
-      await expect(load()).resolves.toEqual({
-        user: { name: "Member Session", email: "member@example.invalid" },
-        isAdmin: false,
-        hasOrganizationContext: false,
-      });
-      expect(mocks.loadSessionIdentity).toHaveBeenCalledOnce();
-      expect(mocks.expiredSessionRedirect).not.toHaveBeenCalled();
-    },
-  );
+    await expect(load()).resolves.toEqual({
+      user: { name: "Member Session", email: "member@example.invalid" },
+      isAdmin: false,
+      hasOrganizationContext: false,
+    });
+    expect(mocks.loadSessionIdentity).toHaveBeenCalledOnce();
+    expect(mocks.expiredSessionRedirect).not.toHaveBeenCalled();
+  });
 
   it("returns a canonical profile identity for an active team member", async () => {
     mocks.profile.mockResolvedValueOnce({
-      firstName: "Ada",
-      lastName: "Lovelace",
-      email: "ada@example.invalid",
-      role: "ROLE_TEAM_MEMBER",
+      body: {
+        firstName: "Ada",
+        lastName: "Lovelace",
+        email: "ada@example.invalid",
+        role: "ROLE_TEAM_MEMBER",
+      },
     });
 
     await expect(load()).resolves.toEqual({
@@ -79,7 +74,7 @@ describe("parent dashboard authority gate", () => {
   });
 
   it("redirects only an unauthorized profile request as expired", async () => {
-    mocks.profile.mockRejectedValueOnce(new UnauthorizedError());
+    mocks.profile.mockRejectedValueOnce({ code: "credential.invalid" });
 
     const failure = await load().catch((error: unknown) => error);
     expect(failure).toBeInstanceOf(Response);
@@ -88,8 +83,8 @@ describe("parent dashboard authority gate", () => {
   });
 
   it.each([
-    [new NetworkError("profile provider unavailable"), 502],
-    [new ConfigurationError("profile provider misconfigured"), 503],
+    [{ code: "dependency.unavailable" }, 503],
+    [{ code: "configuration.invalid" }, 503],
   ] as const)("surfaces profile infrastructure failure", async (failure, status) => {
     mocks.profile.mockRejectedValueOnce(failure);
 

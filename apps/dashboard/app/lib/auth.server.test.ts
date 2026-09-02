@@ -1,18 +1,16 @@
-import {
-  ConfigurationError,
-  NetworkError,
-  UnauthenticatedActorError,
-  UnauthorizedError,
-} from "@vektorprogrammet/sdk";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const api = vi.hoisted(() => {
   const session = vi.fn();
+  const deleteSession = vi.fn();
   const serverApiEndpoint = vi.fn((path: string) => `http://api.test${path}`);
   return {
     session,
+    deleteSession,
     serverApiEndpoint,
-    createAuthenticatedClient: vi.fn(() => ({ me: { session } })),
+    createAuthenticatedClient: vi.fn(() => ({
+      system: { readSession: session, deleteSession },
+    })),
   };
 });
 
@@ -43,6 +41,7 @@ function responseWithCookies(
 describe("native dashboard authentication", () => {
   beforeEach(() => {
     api.session.mockReset();
+    api.deleteSession.mockReset();
     api.serverApiEndpoint.mockImplementation((path: string) => `http://api.test${path}`);
     api.createAuthenticatedClient.mockClear();
   });
@@ -118,8 +117,8 @@ describe("native dashboard authentication", () => {
   });
 
   it.each([
-    ["typed unauthenticated response", new UnauthenticatedActorError()],
-    ["untagged unauthorized response", new UnauthorizedError()],
+    ["missing credential problem", { code: "credential.missing" }],
+    ["invalid credential problem", { code: "credential.invalid" }],
   ] as const)("redirects an invalid session after a %s", async (_name, failure) => {
     api.session.mockRejectedValue(failure);
     vi.stubGlobal(
@@ -144,9 +143,9 @@ describe("native dashboard authentication", () => {
   });
 
   it.each([
-    ["network", new NetworkError("connection refused", new TypeError("connection refused"))],
-    ["configuration", new ConfigurationError("API URL is not configured")],
-    ["server", new NetworkError("HTTP 503")],
+    ["network", { code: "dependency.unavailable" }],
+    ["configuration", { code: "configuration.invalid" }],
+    ["server", { code: "server.unavailable" }],
     ["unknown provider", new Error("authentication provider unavailable")],
   ] as const)("preserves a %s session inspection failure", async (_name, failure) => {
     api.session.mockRejectedValue(failure);
@@ -291,13 +290,8 @@ describe("native dashboard authentication", () => {
     });
   });
 
-  it("forwards the raw Cookie to sign-out and preserves all clearing cookies", async () => {
-    const cookies = [
-      "better-auth.session_token=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0",
-      "better-auth.session_data=; Path=/; HttpOnly; Max-Age=0",
-    ];
-    const fetchMock = vi.fn().mockResolvedValue(responseWithCookies(200, cookies));
-    vi.stubGlobal("fetch", fetchMock);
+  it("deletes the generated native session and emits local clearing cookies", async () => {
+    api.deleteSession.mockResolvedValue(undefined);
     const rawCookie = "theme=dark; better-auth.session_token=session-value";
     const request = new Request("https://dashboard.example/logout", {
       method: "POST",
@@ -305,13 +299,14 @@ describe("native dashboard authentication", () => {
     });
 
     const headers = await signOut(request);
-    expect(headers.getSetCookie()).toEqual(cookies);
-    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(url).toBe("http://api.test/api/session");
-    expect((init.headers as Headers).get("Cookie")).toBe(rawCookie);
-    expect(init.method).toBe("DELETE");
-    expect(init.redirect).toBe("manual");
-    expect(new Headers(init.headers).get("Origin")).toBe("https://dashboard.example");
+    expect(headers.getSetCookie()).toEqual([
+      "better-auth.session_token=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0",
+    ]);
+    expect(api.createAuthenticatedClient).toHaveBeenCalledWith(rawCookie, request);
+    expect(api.deleteSession).toHaveBeenCalledOnce();
+    expect(api.deleteSession).toHaveBeenCalledWith({
+      headers: { "idempotency-key": expect.any(String) },
+    });
   });
 
   it("allows only same-origin relative post-login redirects", () => {

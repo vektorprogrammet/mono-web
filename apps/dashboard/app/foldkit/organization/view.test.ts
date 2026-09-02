@@ -2,7 +2,7 @@ import {
   DepartmentJsonSchema,
   FieldOfStudyJsonSchema,
   TeamJsonSchema,
-} from "@vektorprogrammet/sdk/effect";
+} from "@vektorprogrammet/domain";
 import { Schema as S } from "effect";
 import type { HtmlBuilder } from "foldkit/html";
 import { describe, expect, it } from "vitest";
